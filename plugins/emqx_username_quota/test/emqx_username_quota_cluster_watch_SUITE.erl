@@ -20,8 +20,8 @@ end_per_testcase(_Case, Config) ->
     Config.
 
 t_init_terminate(_Config) ->
-    ok = meck:new(ekka, [non_strict, passthrough]),
-    ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
+    ok = meck:new(ekka, [passthrough]),
+    ok = meck:new(emqx_username_quota_state, [passthrough]),
     ok = meck:expect(ekka, monitor, fun(membership) -> ok end),
     ok = meck:expect(ekka, unmonitor, fun(membership) -> ok end),
     ok = meck:expect(emqx_username_quota_state, clear_self_node, fun() -> ok end),
@@ -35,8 +35,8 @@ t_init_terminate(_Config) ->
     ok = emqx_username_quota_cluster_watch:terminate(normal, State).
 
 t_clear_for_node(_Config) ->
-    ok = meck:new(emqx, [non_strict, passthrough]),
-    ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
+    ok = meck:new(emqx, [passthrough]),
+    ok = meck:new(emqx_username_quota_state, [passthrough]),
     Node = 'node1@127.0.0.1',
     ok = meck:expect(emqx, running_nodes, fun() -> [Node] end),
     ok = meck:expect(emqx_username_quota_state, clear_for_node, fun(_N) -> ok end),
@@ -51,7 +51,7 @@ t_clear_for_node(_Config) ->
     ?assert(meck:called(emqx_username_quota_state, clear_for_node, [Node])).
 
 t_nodedown_core_and_replicant(_Config) ->
-    ok = meck:new(mria_rlog, [non_strict, passthrough]),
+    ok = meck:new(mria_rlog, [passthrough]),
     Node = 'node2@127.0.0.1',
     ok = meck:expect(mria_rlog, role, fun() -> core end),
     ?assertEqual(
@@ -69,7 +69,7 @@ t_nodedown_core_and_replicant(_Config) ->
     ).
 
 t_membership_events(_Config) ->
-    ok = meck:new(mria_rlog, [non_strict, passthrough]),
+    ok = meck:new(mria_rlog, [passthrough]),
     ok = meck:expect(mria_rlog, role, fun() -> replicant end),
     Node = 'node3@127.0.0.1',
     ?assertEqual(
@@ -96,10 +96,10 @@ t_call_cast_code_change(_Config) ->
     ?assertEqual({ok, State}, emqx_username_quota_cluster_watch:code_change(old, State, extra)).
 
 t_immediate_node_clear(_Config) ->
-    ok = meck:new(ekka, [non_strict, passthrough]),
-    ok = meck:new(emqx, [non_strict, passthrough]),
-    ok = meck:new(emqx_cm, [non_strict, passthrough]),
-    ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
+    ok = meck:new(ekka, [passthrough]),
+    ok = meck:new(emqx, [passthrough]),
+    ok = meck:new(emqx_cm, [passthrough]),
+    ok = meck:new(emqx_username_quota_state, [passthrough]),
     ok = meck:expect(ekka, monitor, fun(membership) -> ok end),
     ok = meck:expect(ekka, unmonitor, fun(membership) -> ok end),
     ok = meck:expect(emqx_username_quota_state, clear_self_node, fun() -> ok end),

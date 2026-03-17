@@ -213,7 +213,6 @@ jobs:
     uses: ./.github/workflows/static_checks.yaml
     with:
       builder: ${{ needs.init.outputs.BUILDER }}
-      ct-matrix: ${{ needs.prepare.outputs.ct-matrix }}
 
   update-emqx-docs:
     if: needs.prepare.outputs.release == 'true'

@@ -169,7 +169,6 @@ jobs:
     uses: ./.github/workflows/static_checks.yaml
     with:
       builder: ${{ needs.init.outputs.BUILDER }}
-      ct-matrix: ${{ needs.sanity-checks.outputs.ct-matrix }}
 
   build_slim_packages:
     needs:

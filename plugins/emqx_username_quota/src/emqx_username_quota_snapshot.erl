@@ -18,7 +18,7 @@ Only core nodes own snapshots; replicant nodes receive a `not_core_node` error.
 -export([
     start_link/0,
     request_page/5,
-    request_page_local/5,
+    request_total/1,
     invalidate/0,
     reset/0,
     builder_main/4
@@ -42,23 +42,42 @@ start_link() ->
 
 request_page(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
     case resolve_target(Cursor) of
-        local ->
-            request_page_local(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte);
+        {ok, TargetNode} ->
+            request_page_via(TargetNode, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte);
         {error, _} = Err ->
             Err
     end.
 
-request_page_local(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
+request_page_via(TargetNode, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
     TimeoutMs = erlang:max(1, DeadlineMs - now_ms()),
     try
         gen_server:call(
-            ?SERVER,
+            {?SERVER, TargetNode},
             {request_page, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte},
             TimeoutMs
         )
     catch
-        exit:{timeout, _} -> {error, {busy, pseudo_cursor(node())}};
-        exit:{noproc, _} -> {error, {rebuilding_snapshot, pseudo_cursor(node()), []}}
+        exit:{timeout, _} -> {error, busy};
+        exit:{noproc, _} -> {error, {rebuilding_snapshot, []}};
+        exit:{nodedown, _} -> {error, invalid_cursor}
+    end.
+
+request_total(DeadlineMs) ->
+    case resolve_target(undefined) of
+        {ok, TargetNode} ->
+            request_total_via(TargetNode, DeadlineMs);
+        {error, _} = Err ->
+            Err
+    end.
+
+request_total_via(TargetNode, DeadlineMs) ->
+    TimeoutMs = erlang:max(1, DeadlineMs - now_ms()),
+    try
+        gen_server:call({?SERVER, TargetNode}, {request_total, DeadlineMs}, TimeoutMs)
+    catch
+        exit:{timeout, _} -> {error, busy};
+        exit:{noproc, _} -> {error, {rebuilding_snapshot, []}};
+        exit:{nodedown, _} -> {error, not_core_node}
     end.
 
 invalidate() ->
@@ -93,6 +112,19 @@ handle_call({request_page, _Pid, DeadlineMs, Cursor, Limit, UsedGte}, _From, Sta
                     {reply, serve_snapshot(DeadlineMs, Cursor, Limit, State), State}
             end
     end;
+handle_call({request_total, DeadlineMs}, _From, State0) ->
+    case deadline_ok(DeadlineMs) of
+        false ->
+            {reply, {error, busy}, State0};
+        true ->
+            State = maybe_start_build(State0),
+            case maps:get(current, State) of
+                undefined ->
+                    wait_for_first_total_build(DeadlineMs, State);
+                _ ->
+                    {reply, total_snapshot(State), State}
+            end
+    end;
 handle_call(_Req, _From, State) ->
     {reply, ignored, State}.
 
@@ -120,15 +152,21 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 resolve_target(undefined) ->
-    case is_core_node() of
-        true -> local;
-        false -> {error, not_core_node}
+    case sorted_core_nodes() of
+        [] ->
+            {error, not_core_node};
+        [Node | _] ->
+            {ok, Node}
     end;
 resolve_target(Cursor) ->
     case decode_cursor(Cursor) of
-        {ok, {Node, _, _, _}} when Node =:= node() -> local;
-        {ok, _} -> {error, invalid_cursor};
-        error -> {error, invalid_cursor}
+        {ok, {Node, _, _, _}} ->
+            case lists:member(Node, sorted_core_nodes()) of
+                true -> {ok, Node};
+                false -> {error, invalid_cursor}
+            end;
+        error ->
+            {error, invalid_cursor}
     end.
 
 %%--------------------------------------------------------------------
@@ -148,7 +186,7 @@ deadline_ok(DeadlineMs) ->
 
 rebuilding_reply(Limit, State) ->
     Partial = partial_from_building(Limit, State),
-    {error, {rebuilding_snapshot, pseudo_cursor(node()), Partial}}.
+    {error, {rebuilding_snapshot, Partial}}.
 
 partial_from_building(Limit, #{building_color := Color}) when Color =/= undefined ->
     Tab = color_to_tab(Color),
@@ -183,6 +221,13 @@ page_snapshot(State, Cursor, Limit) ->
         },
         next_cursor => NextCursor
     }.
+
+total_snapshot(#{current := undefined}) ->
+    {error, {rebuilding_snapshot, []}};
+total_snapshot(State) ->
+    Color = maps:get(current, State),
+    Tab = color_to_tab(Color),
+    {ok, ets:info(Tab, size)}.
 
 resolve_start_key(Tab, Cursor, Generation) ->
     case decode_cursor(Cursor) of
@@ -267,6 +312,16 @@ wait_for_first_build(DeadlineMs, Cursor, Limit, #{building := BuildPid} = State)
         {reply, rebuilding_reply(Limit, State), State}
     end.
 
+wait_for_first_total_build(DeadlineMs, #{building := BuildPid} = State) ->
+    WaitMs = erlang:max(0, DeadlineMs - now_ms() - 1000),
+    receive
+        {build_complete, BuildPid} ->
+            State1 = complete_build(State),
+            {reply, total_snapshot(State1), State1}
+    after WaitMs ->
+        {reply, {error, {rebuilding_snapshot, []}}, State}
+    end.
+
 clear_building(State) ->
     State#{
         building => undefined,
@@ -325,8 +380,8 @@ ensure_table(Tab) ->
             ok
     end.
 
-is_core_node() ->
-    mria_rlog:role() =:= core.
+sorted_core_nodes() ->
+    lists:sort(mria_membership:running_core_nodelist()).
 
 now_ms() ->
     erlang:system_time(millisecond).
@@ -369,6 +424,3 @@ decode_cursor(Cursor) when is_binary(Cursor) ->
     end;
 decode_cursor(_Other) ->
     error.
-
-pseudo_cursor(Node) ->
-    encode_cursor(Node, 0, 1, {0, <<>>}).
