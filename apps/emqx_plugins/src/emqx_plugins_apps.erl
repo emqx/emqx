@@ -7,6 +7,9 @@
 -include("emqx_plugins.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 %% Plugin's app lifecycle
 -export([
@@ -32,10 +35,10 @@
 
 -spec running_status(name_vsn()) -> running | loaded | stopped.
 running_status(NameVsn) ->
-    {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
     RunningApps = running_apps(),
     LoadedApps = loaded_apps(),
-    app_running_status(AppName, RunningApps, LoadedApps).
+    app_running_status(AppName, AppVsn, RunningApps, LoadedApps).
 
 -spec start(emqx_plugins_info:t()) -> ok | {error, term()}.
 start(#{rel_apps := Apps}) ->
@@ -308,7 +311,7 @@ unload_apps([], _RunningApps, _LoadedApps) ->
     ok;
 unload_apps([App | Apps], RunningApps, LoadedApps) ->
     _ =
-        case app_running_status(App, RunningApps, LoadedApps) of
+        case app_running_status(App, undefined, RunningApps, LoadedApps) of
             running ->
                 ?SLOG(warning, #{msg => "emqx_plugins_cannot_unload_running_app", app => App});
             loaded ->
@@ -320,12 +323,22 @@ unload_apps([App | Apps], RunningApps, LoadedApps) ->
         end,
     unload_apps(Apps, RunningApps, LoadedApps).
 
-app_running_status(AppName, RunningApps, LoadedApps) ->
+app_running_status(AppName, AppVsn, RunningApps, LoadedApps) ->
     case lists:keyfind(AppName, 1, LoadedApps) of
-        {AppName, _LoadedVsn} ->
-            case lists:keyfind(AppName, 1, RunningApps) of
-                {AppName, _RunningVsn} -> running;
-                false -> loaded
+        {AppName, LoadedVsn} ->
+            case same_app_vsn(AppVsn, LoadedVsn) of
+                true ->
+                    case lists:keyfind(AppName, 1, RunningApps) of
+                        {AppName, RunningVsn} ->
+                            case same_app_vsn(AppVsn, RunningVsn) of
+                                true -> running;
+                                false -> loaded
+                            end;
+                        _ ->
+                            loaded
+                    end;
+                false ->
+                    stopped
             end;
         false ->
             stopped
@@ -419,6 +432,35 @@ is_callback_exported(AppModule, FuncName, Arity) ->
         false -> {error, {callback_not_exported, AppModule, FuncName, Arity}}
     end.
 
+same_app_vsn(undefined, _LoadedVsn) ->
+    true;
+same_app_vsn(AppVsn, LoadedVsn) ->
+    bin(AppVsn) =:= bin(LoadedVsn).
+
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
+
+-ifdef(TEST).
+
+app_running_status_test_() ->
+    [
+        ?_assertEqual(
+            running,
+            app_running_status(demo, "1.0.0", [{demo, "1.0.0"}], [{demo, "1.0.0"}])
+        ),
+        ?_assertEqual(
+            loaded,
+            app_running_status(demo, "1.0.0", [], [{demo, "1.0.0"}])
+        ),
+        ?_assertEqual(
+            stopped,
+            app_running_status(demo, "1.0.0", [{demo, "2.0.0"}], [{demo, "2.0.0"}])
+        ),
+        ?_assertEqual(
+            stopped,
+            app_running_status(demo, "1.0.0", [], [{demo, "2.0.0"}])
+        )
+    ].
+
+-endif.

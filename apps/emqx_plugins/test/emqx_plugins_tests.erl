@@ -67,10 +67,30 @@ normalize_enabled_versions_prefers_latest_test() ->
         ])
     ).
 
-running_status_is_name_based_test() ->
-    [{AppName, _Desc, _Vsn} | _] = application:which_applications(infinity),
-    NameVsn = atom_to_list(AppName) ++ "-0.0.0",
-    ?assertEqual(running, emqx_plugins_apps:running_status(NameVsn)).
+running_status_requires_matching_version_test() ->
+    [{AppName, _Desc, Vsn} | _] = application:which_applications(infinity),
+    ExactNameVsn = atom_to_list(AppName) ++ "-" ++ Vsn,
+    MismatchedNameVsn = atom_to_list(AppName) ++ "-0.0.0",
+    ?assertEqual(running, emqx_plugins_apps:running_status(ExactNameVsn)),
+    ?assertEqual(stopped, emqx_plugins_apps:running_status(MismatchedNameVsn)).
+
+is_package_present_requires_exact_version_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                Tar1 = emqx_plugins_fs:tar_file_path("p-1.0.0"),
+                Tar2 = emqx_plugins_fs:tar_file_path("p-2.0.0"),
+                ok = write_file(Tar1, <<"p1">>),
+                ok = write_file(Tar2, <<"p2">>),
+                ?assertEqual({true, [Tar1]}, emqx_plugins:is_package_present("p-1.0.0")),
+                ?assertEqual({true, [Tar2]}, emqx_plugins:is_package_present("p-2.0.0")),
+                ?assertEqual(false, emqx_plugins:is_package_present("p-3.0.0"))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
 
 configured_normalizes_binary_key_items_test() ->
     meck_emqx(),

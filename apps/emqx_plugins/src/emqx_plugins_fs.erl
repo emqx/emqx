@@ -157,11 +157,10 @@ get_tar(NameVsn) ->
 -spec is_tar_present(name_vsn()) ->
     false | {true, [file:filename()]}.
 is_tar_present(NameVsn) ->
-    {AppName, _Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
-    Wildcard = tar_file_path([bin(AppName), "-*"]),
-    case filelib:wildcard(Wildcard) of
-        [] -> false;
-        TarGzs -> {true, TarGzs}
+    TarGz = tar_file_path(NameVsn),
+    case filelib:is_regular(TarGz) of
+        true -> {true, [TarGz]};
+        false -> false
     end.
 
 -spec write_tar(name_vsn(), iodata()) -> ok.

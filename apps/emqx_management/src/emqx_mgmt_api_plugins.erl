@@ -159,6 +159,7 @@ schema("/plugins/:name/:action") ->
             ],
             responses => #{
                 204 => ?DESC("trigger_success"),
+                400 => emqx_dashboard_swagger:error_codes(['PARAM_ERROR'], ?DESC("bad_parameter")),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found"))
             }
         }
@@ -857,6 +858,19 @@ plugin_not_found_msg() ->
 
 readable_error_msg(Msg) ->
     emqx_utils:readable_error_msg(Msg).
+
+-ifdef(TEST).
+
+update_plugin_schema_exposes_param_error_test() ->
+    #{
+        put := #{
+            responses := #{
+                400 := _
+            }
+        }
+    } = schema("/plugins/:name/:action").
+
+-endif.
 
 plugin_sync_failed_msg(Nodes) ->
     #{

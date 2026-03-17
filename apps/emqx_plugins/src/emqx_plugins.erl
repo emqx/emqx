@@ -978,30 +978,64 @@ compare_vsn(NameVsn1, NameVsn2) ->
     emqx_plugins_utils:compare_vsn(Vsn1, Vsn2).
 
 ensure_no_other_version_active(NameVsn0) ->
+    ensure_no_other_version_active(list(), NameVsn0).
+
+ensure_no_other_version_active(Plugins, NameVsn0) ->
     NameVsn = bin(NameVsn0),
     Name = plugin_name(NameVsn),
-    ActiveOtherVersions = lists:filtermap(
-        fun(#{name := PluginName, rel_vsn := Vsn, running_status := RunningStatus}) ->
+    {RunningOtherVersions, LoadedOtherVersions} = lists:foldl(
+        fun(
+            #{name := PluginName, rel_vsn := Vsn, running_status := RunningStatus},
+            {Running, Loaded}
+        ) ->
             OtherNameVsn = name_vsn(PluginName, Vsn),
-            case
-                PluginName =:= Name andalso OtherNameVsn =/= NameVsn andalso
-                    RunningStatus =/= stopped
-            of
-                true -> {true, OtherNameVsn};
-                false -> false
+            case PluginName =:= Name andalso OtherNameVsn =/= NameVsn of
+                true when RunningStatus =:= running ->
+                    {[OtherNameVsn | Running], Loaded};
+                true when RunningStatus =:= loaded ->
+                    {Running, [OtherNameVsn | Loaded]};
+                true ->
+                    {Running, Loaded};
+                false ->
+                    {Running, Loaded}
             end
         end,
-        list()
+        {[], []},
+        Plugins
     ),
-    case ActiveOtherVersions of
+    case RunningOtherVersions of
         [] ->
-            ok;
+            unload_other_versions(LoadedOtherVersions);
         [_ | _] ->
             {error, #{
                 msg => "conflicting_plugin_version_running",
                 name_vsn => NameVsn,
-                active_versions => ActiveOtherVersions
+                active_versions => lists:reverse(RunningOtherVersions)
             }}
+    end.
+
+unload_other_versions([]) ->
+    ok;
+unload_other_versions([NameVsn | Rest]) ->
+    ?SLOG(warning, #{
+        msg => "unloading_conflicting_loaded_plugin_version",
+        name_vsn => NameVsn,
+        reason => "starting_another_version"
+    }),
+    case emqx_plugins_info:read(NameVsn) of
+        {ok, Plugin} ->
+            case emqx_plugins_apps:unload(Plugin) of
+                ok ->
+                    unload_other_versions(Rest);
+                {error, Reason} ->
+                    {error, #{
+                        msg => "failed_to_unload_conflicting_plugin_version",
+                        name_vsn => NameVsn,
+                        reason => Reason
+                    }}
+            end;
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 ensure_state(NameVsn) ->
@@ -1207,7 +1241,9 @@ normalize_helpers_test_() ->
             fun normalize_state_item_case/0,
             fun configured_reads_binary_state_items_case/0,
             fun maybe_persist_normalized_config_case/0,
-            fun version_selection_helpers_case/0
+            fun version_selection_helpers_case/0,
+            fun ensure_no_other_version_active_unloads_loaded_case/0,
+            fun ensure_no_other_version_active_rejects_running_case/0
         ]}.
 
 normalize_state_item_case() ->
@@ -1259,5 +1295,42 @@ version_selection_helpers_case() ->
     ),
     ?assertEqual(older, compare_vsn(<<"demo-2.0.0">>, <<"demo-1.0.0">>)),
     ?assertEqual(newer, compare_vsn(<<"demo-1.0.0">>, <<"demo-2.0.0">>)).
+
+ensure_no_other_version_active_unloads_loaded_case() ->
+    meck:new(emqx_plugins_info, [passthrough]),
+    meck:new(emqx_plugins_apps, [passthrough]),
+    meck:expect(
+        emqx_plugins_info,
+        read,
+        fun(<<"demo-1.0.0">>) -> {ok, #{rel_apps => [<<"demo-1.0.0">>]}} end
+    ),
+    meck:expect(
+        emqx_plugins_apps,
+        unload,
+        fun(#{rel_apps := [<<"demo-1.0.0">>]}) -> ok end
+    ),
+    try
+        Plugins = [
+            #{name => <<"demo">>, rel_vsn => <<"1.0.0">>, running_status => loaded},
+            #{name => <<"demo">>, rel_vsn => <<"2.0.0">>, running_status => stopped}
+        ],
+        ?assertEqual(ok, ensure_no_other_version_active(Plugins, <<"demo-2.0.0">>)),
+        ?assert(meck:called(emqx_plugins_apps, unload, [#{rel_apps => [<<"demo-1.0.0">>]}]))
+    after
+        meck:unload(emqx_plugins_info),
+        meck:unload(emqx_plugins_apps)
+    end.
+
+ensure_no_other_version_active_rejects_running_case() ->
+    Plugins = [
+        #{name => <<"demo">>, rel_vsn => <<"1.0.0">>, running_status => running},
+        #{name => <<"demo">>, rel_vsn => <<"2.0.0">>, running_status => stopped}
+    ],
+    ?assertMatch(
+        {error, #{
+            msg := "conflicting_plugin_version_running", active_versions := [<<"demo-1.0.0">>]
+        }},
+        ensure_no_other_version_active(Plugins, <<"demo-2.0.0">>)
+    ).
 
 -endif.
