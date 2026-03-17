@@ -471,7 +471,7 @@ t_connect_session_expiry_interval_subscription_filter('end', Config) ->
     ).
 
 -doc """
-Verify that a durable session keeps replay progress when subscription filtering
+Verify that a persistent session keeps replay progress when subscription filtering
 drops some stored messages.
 
 The session subscribes with a filter, goes offline, accumulates one non-matching
@@ -494,7 +494,7 @@ t_connect_session_expiry_interval_subscription_filter(Config) ->
         {properties, #{'Session-Expiry-Interval' => 30}}
         | Config
     ]),
-    %% 1. Create a durable subscription that filters on MQTT 5 User-Property values.
+    %% 1. Create a persistent subscription that filters on MQTT 5 User-Property values.
     {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Client1, STopic, ?QOS_1),
     ok = emqtt:disconnect(Client1),
 

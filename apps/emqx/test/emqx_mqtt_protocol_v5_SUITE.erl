@@ -920,6 +920,12 @@ t_subscription_filter('end', Config) ->
     emqx_config:put(
         [mqtt, subscription_message_filter], ?config(old_subscription_message_filter, Config)
     ).
+
+-doc """
+Verify subscription message filtering against MQTT 5 User-Property values when
+the feature is enabled, and verify that `?` remains part of the plain topic
+filter when the feature is disabled.
+""".
 t_subscription_filter(Config) ->
     ConnFun = ?config(conn_fun, Config),
     Topic = <<"subscription/filter/topic">>,
