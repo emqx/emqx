@@ -623,6 +623,7 @@ ser_sub_state(
     #{parent_subscription := PSub, upgrade_qos := UQ, subopts := SubOpts, mode := Mode} = SState
 ) ->
     Misc = wrap_subopts(SubOpts),
+    Filter = wrap_subscription_filter(SubOpts),
     Share =
         case SState of
             #{share_topic_filter := T} ->
@@ -636,6 +637,7 @@ ser_sub_state(
         supersededBy = maps:get(superseded_by, SState, asn1_NOVALUE),
         shareTopicFilter = Share,
         miscSubopts = Misc,
+        subscriptionFilter = Filter,
         durable = Mode =:= durable
     },
     'DurableSession':encode('SubState', Rec).
@@ -647,9 +649,10 @@ deser_sub_state(Bin) ->
         supersededBy = SupBy,
         shareTopicFilter = Share,
         miscSubopts = Misc,
+        subscriptionFilter = Filter,
         durable = Durable
     } = 'DurableSession':decode('SubState', Bin),
-    SubOpts = unwrap_subopts(Misc),
+    SubOpts = unwrap_subscription_filter(Filter, unwrap_subopts(Misc)),
     M1 = #{
         parent_subscription => PSub,
         upgrade_qos => UQ,
@@ -677,7 +680,12 @@ deser_sub_state(Bin) ->
 wrap_subopts(SubOpts) ->
     maps:fold(
         fun(K, V, Acc) ->
-            [#'Misc'{key = atom_to_binary(K), val = term_to_binary(V)} | Acc]
+            case is_subscription_filter_subopt(K) of
+                true ->
+                    Acc;
+                false ->
+                    [#'Misc'{key = atom_to_binary(K), val = term_to_binary(V)} | Acc]
+            end
         end,
         [],
         SubOpts
@@ -692,6 +700,52 @@ unwrap_subopts(Misc) ->
             Misc
         )
     ).
+
+wrap_subscription_filter(#{sub_filter_ast := AST} = SubOpts) ->
+    #'SubscriptionFilter'{
+        raw = maps:get(sub_filter_raw, SubOpts),
+        source = maps:get(sub_filter_source, SubOpts),
+        clauses = [wrap_filter_clause(Clause) || Clause <- AST]
+    };
+wrap_subscription_filter(_) ->
+    asn1_NOVALUE.
+
+unwrap_subscription_filter(asn1_NOVALUE, SubOpts) ->
+    SubOpts;
+unwrap_subscription_filter(
+    #'SubscriptionFilter'{raw = Raw, source = Source, clauses = Clauses},
+    SubOpts0
+) ->
+    SubOpts = maps:without(subscription_filter_subopt_keys(), SubOpts0),
+    SubOpts#{
+        sub_filter_enabled => true,
+        sub_filter_raw => Raw,
+        sub_filter_source => Source,
+        sub_filter_ast => [unwrap_filter_clause(Clause) || Clause <- Clauses]
+    }.
+
+wrap_filter_clause({eq, Key, Value}) ->
+    #'FilterClause'{op = eq, key = Key, stringValue = Value};
+wrap_filter_clause({Op, Key, Value}) when
+    Op =:= gt; Op =:= lt; Op =:= gte; Op =:= lte
+->
+    #'FilterClause'{op = Op, key = Key, numberValue = as_float(Value)}.
+
+unwrap_filter_clause(#'FilterClause'{op = eq, key = Key, stringValue = Value}) ->
+    {eq, Key, Value};
+unwrap_filter_clause(#'FilterClause'{op = Op, key = Key, numberValue = Value}) ->
+    {Op, Key, Value}.
+
+as_float(Value) when is_float(Value) ->
+    Value;
+as_float(Value) when is_integer(Value) ->
+    float(Value).
+
+is_subscription_filter_subopt(Key) ->
+    lists:member(Key, subscription_filter_subopt_keys()).
+
+subscription_filter_subopt_keys() ->
+    [sub_filter_ast, sub_filter_enabled, sub_filter_raw, sub_filter_source].
 
 trans_timeout() ->
     emqx_config:get([durable_sessions, commit_timeout]).
