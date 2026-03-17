@@ -120,7 +120,7 @@ try_init_bootstrap_file() ->
     end.
 
 create(Name, Enable, ExpiredAt, Desc, Role) ->
-    ApiKey = generate_unique_api_key(Name),
+    ApiKey = generate_unique_api_key(),
     ApiSecret = generate_api_secret(),
     create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role).
 
@@ -354,9 +354,9 @@ hash_string_from_seed(Seed, PrefixLen) ->
     <<Integer:512>> = crypto:hash(sha512, Seed),
     list_to_binary(string:slice(io_lib:format("~128.16.0b", [Integer]), 0, PrefixLen)).
 
-%% Form Dashboard API Key pannel, only `Name` provided for users
-generate_unique_api_key(Name) ->
-    hash_string_from_seed(Name, ?DEFAULT_HASH_LEN).
+%% Generate a random Dashboard API key.
+generate_unique_api_key() ->
+    emqx_utils:rand_id(?DEFAULT_HASH_LEN).
 
 %% Form BootStrap File, only `ApiKey` provided from file, no `Name`
 generate_unique_name(NamePrefix, ApiKey) ->
