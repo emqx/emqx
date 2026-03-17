@@ -19,7 +19,7 @@
     state := state()
 }.
 
--type reason() :: term().
+-type reason() :: {failed_to_consume_from_limiter, emqx_limiter:id()} | term().
 
 -export_type([t/0, state/0, reason/0]).
 

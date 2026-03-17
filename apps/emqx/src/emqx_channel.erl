@@ -773,24 +773,30 @@ puback_reason_code(_PacketId, _Msg, disconnect) ->
 
 process_puback(
     ?PUBACK_PACKET(PacketId, ReasonCode, Properties),
-    Channel =
+    Channel0 =
         #channel{clientinfo = ClientInfo, session = Session}
 ) ->
+    stash_limiter_ctx(Channel0),
     case emqx_session:puback(ClientInfo, PacketId, ReasonCode, Session) of
         {ok, Msg, [], NSession} ->
+            Channel = pop_limiter_ctx(Channel0),
             ok = after_message_acked(Msg, Properties, Channel),
             {ok, Channel#channel{session = NSession}};
         {ok, Msg, Publishes, NSession} ->
+            Channel = pop_limiter_ctx(Channel0),
             ok = after_message_acked(Msg, Properties, Channel),
             handle_out(publish, Publishes, Channel#channel{session = NSession});
         {error, ?RC_PROTOCOL_ERROR} ->
+            Channel = pop_limiter_ctx(Channel0),
             handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?SLOG(warning, #{msg => "puback_packetId_inuse", packetId => PacketId}),
+            Channel = pop_limiter_ctx(Channel0),
             ok = inc_metrics('packets.puback.inuse', Channel),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?SLOG(warning, #{msg => "puback_packetId_not_found", packetId => PacketId}),
+            Channel = pop_limiter_ctx(Channel0),
             ok = inc_metrics('packets.puback.missed', Channel),
             {ok, Channel}
     end.
@@ -849,22 +855,28 @@ process_pubrel(
 
 process_pubcomp(
     ?PUBCOMP_PACKET(PacketId, ReasonCode),
-    Channel = #channel{
+    Channel0 = #channel{
         clientinfo = ClientInfo, session = Session
     }
 ) ->
+    stash_limiter_ctx(Channel0),
     case emqx_session:pubcomp(ClientInfo, PacketId, ReasonCode, Session) of
         {ok, [], NSession} ->
+            Channel = pop_limiter_ctx(Channel0),
             {ok, Channel#channel{session = NSession}};
         {ok, Publishes, NSession} ->
+            Channel = pop_limiter_ctx(Channel0),
             handle_out(publish, Publishes, Channel#channel{session = NSession});
         {error, ?RC_PROTOCOL_ERROR} ->
+            Channel = pop_limiter_ctx(Channel0),
             handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
+            Channel = pop_limiter_ctx(Channel0),
             ok = inc_metrics('packets.pubcomp.inuse', Channel),
-            {ok, Channel};
+            {ok, Channel0};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?SLOG(warning, #{msg => "pubcomp_packetId_not_found", packetId => PacketId}),
+            Channel = pop_limiter_ctx(Channel0),
             ok = inc_metrics('packets.pubcomp.missed', Channel),
             {ok, Channel}
     end.
@@ -1174,18 +1186,34 @@ handle_deliver(Delivers, Channel) ->
 
 do_handle_deliver(
     Delivers,
-    Channel = #channel{
+    Channel0 = #channel{
         session = Session,
         takeover = false,
         clientinfo = ClientInfo
     }
 ) ->
+    stash_limiter_ctx(Channel0),
     case emqx_session:deliver(ClientInfo, Delivers, Session) of
         {ok, [], NSession} ->
+            Channel = pop_limiter_ctx(Channel0),
             {ok, Channel#channel{session = NSession}};
         {ok, Publishes, NSession} ->
+            Channel = pop_limiter_ctx(Channel0),
             NChannel = Channel#channel{session = NSession},
             handle_out(publish, Publishes, ensure_timer(retry_delivery, NChannel))
+    end.
+
+stash_limiter_ctx(Channel) ->
+    #channel{quota = Limiter0} = Channel,
+    DeliverCtx = #{limiter => Limiter0},
+    emqx_session:put_context(DeliverCtx).
+
+pop_limiter_ctx(Channel0) ->
+    case emqx_session:pop_context() of
+        #{limiter := Limiter} ->
+            Channel0#channel{quota = Limiter};
+        _ ->
+            Channel0
     end.
 
 %% Nack delivers from shared subscription
@@ -1816,12 +1844,15 @@ handle_timeout(
 handle_timeout(
     _TRef,
     {emqx_session, TimerName},
-    Channel = #channel{session = Session, clientinfo = ClientInfo}
+    Channel0 = #channel{session = Session, clientinfo = ClientInfo}
 ) ->
+    stash_limiter_ctx(Channel0),
     case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
         {ok, [], NSession} ->
+            Channel = pop_limiter_ctx(Channel0),
             {ok, Channel#channel{session = NSession}};
         {ok, Replies, NSession} ->
+            Channel = pop_limiter_ctx(Channel0),
             handle_out(publish, Replies, Channel#channel{session = NSession})
     end;
 handle_timeout(_TRef, expire_session, Channel = #channel{session = Session}) ->
