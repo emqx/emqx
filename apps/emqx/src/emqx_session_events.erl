@@ -34,7 +34,7 @@ handle_event(ClientInfo, {dropped, Msg, no_local}) ->
 handle_event(ClientInfo, {dropped, Msg, subscription_filter}) ->
     ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, subscription_filter]),
     ok = emqx_metrics:inc_global('delivery.dropped'),
-    ok = emqx_metrics:inc_global('delivery.dropped.subscription_filter');
+    ok = emqx_metrics:inc_global('delivery.dropped.filter');
 handle_event(ClientInfo, {dropped, Msg, #{reason := qos0_msg, logctx := Ctx}}) ->
     ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, qos0_msg]),
     ok = emqx_metrics:inc_global('delivery.dropped'),

@@ -811,7 +811,7 @@ maybe_filter_by_sub(Topic, SubPid, Msg) ->
                     deliver;
                 false ->
                     ok = emqx_metrics:inc_global('delivery.dropped'),
-                    ok = emqx_metrics:inc_global('delivery.dropped.subscription_filter'),
+                    ok = emqx_metrics:inc_global('delivery.dropped.filter'),
                     drop
             end;
         _ ->

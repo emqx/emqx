@@ -386,7 +386,7 @@ t_deliver_qos0(_) ->
 
 t_deliver_subscription_filter(_) ->
     DroppedBefore = emqx_metrics:val_global('delivery.dropped'),
-    DroppedByFilterBefore = emqx_metrics:val_global('delivery.dropped.subscription_filter'),
+    DroppedByFilterBefore = emqx_metrics:val_global('delivery.dropped.filter'),
     MatchMsg = emqx_message:set_header(
         properties,
         #{'User-Property' => [{<<"location">>, <<"roomA">>}, {<<"value">>, <<"26">>}]},
@@ -412,7 +412,7 @@ t_deliver_subscription_filter(_) ->
     ?assertEqual(DroppedBefore + 1, emqx_metrics:val_global('delivery.dropped')),
     ?assertEqual(
         DroppedByFilterBefore + 1,
-        emqx_metrics:val_global('delivery.dropped.subscription_filter')
+        emqx_metrics:val_global('delivery.dropped.filter')
     ).
 
 t_deliver_qos1(_) ->
