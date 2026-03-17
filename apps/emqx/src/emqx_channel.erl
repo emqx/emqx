@@ -989,7 +989,11 @@ process_unsubscribe(
     case
         emqx_packet:check(
             Packet,
-            #{subscription_filter => get_mqtt_conf(Zone, subscription_filter, disable)}
+            #{
+                subscription_message_filter => get_mqtt_conf(
+                    Zone, subscription_message_filter, disable
+                )
+            }
         )
     of
         ok ->
@@ -2721,7 +2725,11 @@ check_subscribe(SubPkt, #channel{clientinfo = #{zone := Zone}}) ->
     case
         emqx_packet:check(
             SubPkt,
-            #{subscription_filter => get_mqtt_conf(Zone, subscription_filter, disable)}
+            #{
+                subscription_message_filter => get_mqtt_conf(
+                    Zone, subscription_message_filter, disable
+                )
+            }
         )
     of
         ok -> ok;
@@ -3125,7 +3133,7 @@ maybe_shutdown(Reason, _Intent = shutdown, Channel) ->
 
 %% [{<<"$share/group/topic">>, _SubOpts = #{}} | _]
 parse_raw_topic_filters(TopicFilters, #channel{clientinfo = #{zone := Zone}}) ->
-    Mode = get_mqtt_conf(Zone, subscription_filter, disable),
+    Mode = get_mqtt_conf(Zone, subscription_message_filter, disable),
     lists:map(fun(TopicFilter) -> parse_raw_topic_filter(TopicFilter, Mode) end, TopicFilters).
 
 parse_raw_topic_filter({TopicFilter, SubOpts0}, Mode) ->

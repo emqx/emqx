@@ -461,12 +461,14 @@ t_connect_session_expiry_interval_subscription_filter(init, Config) ->
         false ->
             {skip, persistence_disabled};
         ds ->
-            OldMode = emqx:get_config([mqtt, subscription_filter], disable),
-            emqx_config:put([mqtt, subscription_filter], enable),
-            [{old_subscription_filter, OldMode} | Config]
+            OldMode = emqx:get_config([mqtt, subscription_message_filter], disable),
+            emqx_config:put([mqtt, subscription_message_filter], enable),
+            [{old_subscription_message_filter, OldMode} | Config]
     end;
 t_connect_session_expiry_interval_subscription_filter('end', Config) ->
-    emqx_config:put([mqtt, subscription_filter], ?config(old_subscription_filter, Config)).
+    emqx_config:put(
+        [mqtt, subscription_message_filter], ?config(old_subscription_message_filter, Config)
+    ).
 
 -doc """
 Verify that a durable session keeps replay progress when subscription filtering

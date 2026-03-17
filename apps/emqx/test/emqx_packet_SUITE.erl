@@ -243,38 +243,38 @@ t_check_subscribe(_) ->
         ),
     ok = emqx_packet:check(
         ?SUBSCRIBE_PACKET(1, [{<<"topic?location=roomA">>, #{qos => ?QOS_0}}]),
-        #{subscription_filter => enable}
+        #{subscription_message_filter => enable}
     ),
     {error, ?RC_TOPIC_FILTER_INVALID} = emqx_packet:check(
         ?SUBSCRIBE_PACKET(1, [{<<"$queue/topic?location=roomA">>, #{qos => ?QOS_0}}]),
-        #{subscription_filter => enable}
+        #{subscription_message_filter => enable}
     ),
     {error, ?RC_TOPIC_FILTER_INVALID} = emqx_packet:check(
         ?SUBSCRIBE_PACKET(1, [{<<"$q/topic?location=roomA">>, #{qos => ?QOS_0}}]),
-        #{subscription_filter => enable}
+        #{subscription_message_filter => enable}
     ),
     {error, ?RC_TOPIC_FILTER_INVALID} = emqx_packet:check(
         ?SUBSCRIBE_PACKET(1, [{<<"$stream/topic?location=roomA">>, #{qos => ?QOS_0}}]),
-        #{subscription_filter => enable}
+        #{subscription_message_filter => enable}
     ),
     {error, ?RC_TOPIC_FILTER_INVALID} = emqx_packet:check(
         ?SUBSCRIBE_PACKET(1, [{<<"$s/topic?location=roomA">>, #{qos => ?QOS_0}}]),
-        #{subscription_filter => enable}
+        #{subscription_message_filter => enable}
     ),
     {error, ?RC_TOPIC_FILTER_INVALID} = emqx_packet:check(
         ?SUBSCRIBE_PACKET(1, [{<<"topic?location">>, #{qos => ?QOS_0}}]),
-        #{subscription_filter => enable}
+        #{subscription_message_filter => enable}
     ),
     ok = emqx_packet:check(
         ?SUBSCRIBE_PACKET(1, [{<<"topic?location=roomA">>, #{qos => ?QOS_0}}]),
-        #{subscription_filter => disable}
+        #{subscription_message_filter => disable}
     ).
 
 t_check_unsubscribe(_) ->
     ok = emqx_packet:check(?UNSUBSCRIBE_PACKET(1, [<<"topic">>])),
     ok = emqx_packet:check(
         ?UNSUBSCRIBE_PACKET(1, [<<"topic?location=roomA">>]),
-        #{subscription_filter => enable}
+        #{subscription_message_filter => enable}
     ),
     {error, ?RC_TOPIC_FILTER_INVALID} = emqx_packet:check(?UNSUBSCRIBE_PACKET(1, [])).
 

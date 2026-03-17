@@ -435,7 +435,7 @@ validate_subscribe_topic_filters(TopicFilters, Opts) ->
             %% MQTT-5.0 [MQTT-3.8.3-4] and [MQTT-4.13.1-1]
             ({TopicFilter, #{nl := 1}}) ->
                 BaseTopic = normalize_topic_filter(
-                    TopicFilter, maps:get(subscription_filter, Opts, disable)
+                    TopicFilter, maps:get(subscription_message_filter, Opts, disable)
                 ),
                 case BaseTopic of
                     <<?SHARE, "/", _/binary>> ->
@@ -466,7 +466,7 @@ validate_subscribe_topic_filter(TopicFilter, Opts) ->
     case
         emqx_subscription_filter:validate_subscription(
             TopicFilter,
-            maps:get(subscription_filter, Opts, disable)
+            maps:get(subscription_message_filter, Opts, disable)
         )
     of
         {ok, #{mode := filtered, base_topic := BaseTopic}} ->
@@ -487,7 +487,7 @@ ensure_filtered_topic_supported(BaseTopic) ->
 
 validate_unsubscribe_topic_filter(TopicFilter, Opts) ->
     emqx_topic:validate(
-        normalize_topic_filter(TopicFilter, maps:get(subscription_filter, Opts, disable))
+        normalize_topic_filter(TopicFilter, maps:get(subscription_message_filter, Opts, disable))
     ).
 
 normalize_topic_filter(TopicFilter, Mode) ->

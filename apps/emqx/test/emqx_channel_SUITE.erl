@@ -1098,8 +1098,8 @@ t_check_sub_authzs(_) ->
     ).
 
 t_parse_raw_topic_filters_subscription_filter_enabled(_) ->
-    OldMode = emqx_config:get_zone_conf(default, [mqtt, subscription_filter], disable),
-    emqx_config:put_zone_conf(default, [mqtt, subscription_filter], enable),
+    OldMode = emqx_config:get_zone_conf(default, [mqtt, subscription_message_filter], disable),
+    emqx_config:put_zone_conf(default, [mqtt, subscription_message_filter], enable),
     try
         [{<<"t">>, SubOpts}] = emqx_channel:parse_raw_topic_filters(
             [{<<"t?location=roomA&value>25">>, ?DEFAULT_SUBOPTS}],
@@ -1129,12 +1129,12 @@ t_parse_raw_topic_filters_subscription_filter_enabled(_) ->
         ),
         [{<<"t">>, #{}}] = emqx_channel:parse_raw_topic_filters([<<"t?location=roomA">>], channel())
     after
-        emqx_config:put_zone_conf(default, [mqtt, subscription_filter], OldMode)
+        emqx_config:put_zone_conf(default, [mqtt, subscription_message_filter], OldMode)
     end.
 
 t_parse_raw_topic_filters_subscription_filter_disabled(_) ->
-    OldMode = emqx_config:get_zone_conf(default, [mqtt, subscription_filter], disable),
-    emqx_config:put_zone_conf(default, [mqtt, subscription_filter], disable),
+    OldMode = emqx_config:get_zone_conf(default, [mqtt, subscription_message_filter], disable),
+    emqx_config:put_zone_conf(default, [mqtt, subscription_message_filter], disable),
     try
         [{<<"t?location=roomA">>, SubOpts}] = emqx_channel:parse_raw_topic_filters(
             [{<<"t?location=roomA">>, ?DEFAULT_SUBOPTS}],
@@ -1148,7 +1148,7 @@ t_parse_raw_topic_filters_subscription_filter_disabled(_) ->
             ),
         ?assertNot(maps:is_key(sub_filter_ast, SharedSubOpts))
     after
-        emqx_config:put_zone_conf(default, [mqtt, subscription_filter], OldMode)
+        emqx_config:put_zone_conf(default, [mqtt, subscription_message_filter], OldMode)
     end.
 
 t_enrich_connack_caps(_) ->

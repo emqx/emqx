@@ -465,16 +465,16 @@ listeners_test() ->
     ),
     ok.
 
-subscription_filter_test() ->
+subscription_message_filter_test() ->
     ensure_acl_conf(),
     BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1"]),
     {ok, Conf} = hocon:binary(
-        <<BaseConf/binary, "\nmqtt { subscription_filter = enable }\n">>,
+        <<BaseConf/binary, "\nmqtt { subscription_message_filter = enable }\n">>,
         #{format => richmap}
     ),
     {_, Parsed} = hocon_tconf:map_translate(emqx_conf_schema, Conf, #{format => richmap}),
     #{<<"mqtt">> := MQTT} = hocon_util:richmap_to_map(Parsed),
-    ?assertEqual(enable, maps:get(<<"subscription_filter">>, MQTT)).
+    ?assertEqual(enable, maps:get(<<"subscription_message_filter">>, MQTT)).
 
 authentication_headers(Conf) ->
     [#{<<"headers">> := Headers}] = hocon_maps:get("authentication", Conf),

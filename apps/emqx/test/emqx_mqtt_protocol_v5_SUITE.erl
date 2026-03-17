@@ -914,15 +914,17 @@ t_publish_properties(Config) ->
     ok = emqtt:disconnect(Client1).
 
 t_subscription_filter(init, Config) ->
-    OldMode = emqx:get_config([mqtt, subscription_filter], disable),
-    [{old_subscription_filter, OldMode} | Config];
+    OldMode = emqx:get_config([mqtt, subscription_message_filter], disable),
+    [{old_subscription_message_filter, OldMode} | Config];
 t_subscription_filter('end', Config) ->
-    emqx_config:put([mqtt, subscription_filter], ?config(old_subscription_filter, Config)).
+    emqx_config:put(
+        [mqtt, subscription_message_filter], ?config(old_subscription_message_filter, Config)
+    ).
 t_subscription_filter(Config) ->
     ConnFun = ?config(conn_fun, Config),
     Topic = <<"subscription/filter/topic">>,
     PlainTopic = <<"subscription/filter/plain?location=roomA">>,
-    emqx_config:put([mqtt, subscription_filter], enable),
+    emqx_config:put([mqtt, subscription_message_filter], enable),
 
     {ok, Sub} = emqtt:start_link([{proto_ver, v5} | Config]),
     {ok, _} = emqtt:ConnFun(Sub),
@@ -987,7 +989,7 @@ t_subscription_filter(Config) ->
         )
     ),
 
-    emqx_config:put([mqtt, subscription_filter], disable),
+    emqx_config:put([mqtt, subscription_message_filter], disable),
     {ok, PlainSub} = emqtt:start_link([{proto_ver, v5} | Config]),
     {ok, _} = emqtt:ConnFun(PlainSub),
     {ok, _, [?QOS_1]} = emqtt:subscribe(PlainSub, PlainTopic, qos1),

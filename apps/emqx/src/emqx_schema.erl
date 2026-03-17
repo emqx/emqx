@@ -4021,12 +4021,12 @@ mqtt_general() ->
                     desc => ?DESC(mqtt_exclusive_subscription)
                 }
             )},
-        {"subscription_filter",
+        {"subscription_message_filter",
             sc(
                 hoconsc:enum([enable, disable]),
                 #{
                     default => disable,
-                    desc => ?DESC(mqtt_subscription_filter)
+                    desc => ?DESC(mqtt_subscription_message_filter)
                 }
             )},
         {"ignore_loop_deliver",
