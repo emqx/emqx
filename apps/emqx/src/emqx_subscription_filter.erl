@@ -4,32 +4,43 @@
 
 -module(emqx_subscription_filter).
 
+-moduledoc """
+Utilities for parsing and evaluating subscription message filters appended to
+topic filters with `?`.
+
+For the accepted filter-expression syntax, see
+`apps/emqx/doc/subscription-message-filter-bnf.md`.
+""".
+
 -include("emqx_mqtt.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
 -export([
-    split_topic_filter/2,
-    validate_subscription/2,
-    normalize_topic_filter/2,
+    split_topic_filter/1,
+    validate_subscription/1,
+    normalize_topic_filter/1,
     match_message/2
 ]).
 
--type mode() :: enable | disable.
 -type op() :: eq | gt | lt | gte | lte.
 -type clause() :: {op(), binary(), binary() | number()}.
 -type ast() :: [clause()].
 
--export_type([mode/0, ast/0]).
+-export_type([ast/0]).
 
+-doc """
+Split a topic filter at the first `?`.
+
+Returns the base topic filter together with either `no_filter` or the raw filter
+expression suffix.
+""".
 -spec split_topic_filter(
-    emqx_types:topic() | emqx_types:share(), mode()
+    emqx_types:topic() | emqx_types:share()
 ) -> {emqx_types:topic() | emqx_types:share(), no_filter | {filter, binary()}}.
-split_topic_filter(#share{topic = TopicFilter} = S, Mode) ->
-    {BaseTopic, Filter} = split_topic_filter(TopicFilter, Mode),
+split_topic_filter(#share{topic = TopicFilter} = S) ->
+    {BaseTopic, Filter} = split_topic_filter(TopicFilter),
     {S#share{topic = BaseTopic}, Filter};
-split_topic_filter(TopicFilter, disable) when is_binary(TopicFilter) ->
-    {TopicFilter, no_filter};
-split_topic_filter(TopicFilter, enable) when is_binary(TopicFilter) ->
+split_topic_filter(TopicFilter) when is_binary(TopicFilter) ->
     case binary:match(TopicFilter, <<"?">>) of
         nomatch ->
             {TopicFilter, no_filter};
@@ -40,35 +51,46 @@ split_topic_filter(TopicFilter, enable) when is_binary(TopicFilter) ->
             }
     end.
 
--spec validate_subscription(emqx_types:topic() | emqx_types:share(), mode()) ->
-    {ok, #{
-        mode := plain | filtered,
+-doc """
+Validate and parse a subscription filter.
+
+Returns `{ok, no_filter}` when no filter suffix is present. Returns the parsed
+base topic and filter AST when a filter suffix is present and valid.
+""".
+-spec validate_subscription(emqx_types:topic() | emqx_types:share()) ->
+    {ok, no_filter}
+    | {ok, #{
         base_topic := emqx_types:topic() | emqx_types:share(),
-        raw_expr := binary() | undefined,
-        ast := ast() | undefined
+        raw_expr := binary(),
+        ast := ast()
     }}
     | {error, malformed_filter}.
-validate_subscription(TopicFilter, Mode) ->
-    case split_topic_filter(TopicFilter, Mode) of
-        {BaseTopic, no_filter} ->
-            {ok, #{mode => plain, base_topic => BaseTopic, raw_expr => undefined, ast => undefined}};
+validate_subscription(TopicFilter) ->
+    case split_topic_filter(TopicFilter) of
+        {_BaseTopic, no_filter} ->
+            {ok, no_filter};
         {BaseTopic, {filter, RawExpr}} ->
             case parse(RawExpr) of
                 {ok, AST} ->
-                    {ok, #{
-                        mode => filtered, base_topic => BaseTopic, raw_expr => RawExpr, ast => AST
-                    }};
+                    {ok, #{base_topic => BaseTopic, raw_expr => RawExpr, ast => AST}};
                 {error, malformed_filter} ->
                     {error, malformed_filter}
             end
     end.
 
+-doc """
+Return the topic filter with any `?filter-expression` suffix removed.
+""".
 -spec normalize_topic_filter(
-    emqx_types:topic() | emqx_types:share(), mode()
+    emqx_types:topic() | emqx_types:share()
 ) -> emqx_types:topic() | emqx_types:share().
-normalize_topic_filter(TopicFilter, Mode) ->
-    element(1, split_topic_filter(TopicFilter, Mode)).
+normalize_topic_filter(TopicFilter) ->
+    {Base, _Filter} = split_topic_filter(TopicFilter),
+    Base.
 
+-doc """
+Evaluate a parsed filter AST against MQTT 5 `User-Property` values on a message.
+""".
 -spec match_message(ast(), emqx_types:message()) -> boolean().
 match_message(AST, Msg) ->
     Properties = emqx_message:get_header(properties, Msg, #{}),

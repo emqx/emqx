@@ -435,7 +435,7 @@ validate_subscribe_topic_filters(TopicFilters, Opts) ->
             %% MQTT-5.0 [MQTT-3.8.3-4] and [MQTT-4.13.1-1]
             ({TopicFilter, #{nl := 1}}) ->
                 BaseTopic = normalize_topic_filter(
-                    TopicFilter, maps:get(subscription_message_filter, Opts, disable)
+                    TopicFilter, is_subscription_message_filter_enabled(Opts)
                 ),
                 case BaseTopic of
                     <<?SHARE, "/", _/binary>> ->
@@ -463,18 +463,18 @@ validate_unsubscribe_topic_filters(TopicFilters, Opts) ->
     ).
 
 validate_subscribe_topic_filter(TopicFilter, Opts) ->
-    case
-        emqx_subscription_filter:validate_subscription(
-            TopicFilter,
-            maps:get(subscription_message_filter, Opts, disable)
-        )
-    of
-        {ok, #{mode := filtered, base_topic := BaseTopic}} ->
-            ensure_filtered_topic_supported(BaseTopic);
-        {ok, #{base_topic := BaseTopic}} ->
-            emqx_topic:validate(BaseTopic);
-        {error, malformed_filter} ->
-            error({error, ?RC_TOPIC_FILTER_INVALID})
+    case is_subscription_message_filter_enabled(Opts) of
+        false ->
+            emqx_topic:validate(TopicFilter);
+        true ->
+            case emqx_subscription_filter:validate_subscription(TopicFilter) of
+                {ok, no_filter} ->
+                    emqx_topic:validate(TopicFilter);
+                {ok, #{base_topic := BaseTopic}} ->
+                    ensure_filtered_topic_supported(BaseTopic);
+                {error, malformed_filter} ->
+                    error({error, ?RC_TOPIC_FILTER_INVALID})
+            end
     end.
 
 ensure_filtered_topic_supported(BaseTopic) ->
@@ -487,11 +487,16 @@ ensure_filtered_topic_supported(BaseTopic) ->
 
 validate_unsubscribe_topic_filter(TopicFilter, Opts) ->
     emqx_topic:validate(
-        normalize_topic_filter(TopicFilter, maps:get(subscription_message_filter, Opts, disable))
+        normalize_topic_filter(TopicFilter, is_subscription_message_filter_enabled(Opts))
     ).
 
-normalize_topic_filter(TopicFilter, Mode) ->
-    element(1, emqx_subscription_filter:split_topic_filter(TopicFilter, Mode)).
+normalize_topic_filter(TopicFilter, false) ->
+    TopicFilter;
+normalize_topic_filter(TopicFilter, true) ->
+    emqx_subscription_filter:normalize_topic_filter(TopicFilter).
+
+is_subscription_message_filter_enabled(Opts) ->
+    maps:get(subscription_message_filter, Opts, disable) =:= enable.
 
 %% Do not allow filter of $queue and $stream topic because otherwise
 %% the dispatcher will not be able to make progress without puback.

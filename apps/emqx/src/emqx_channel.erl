@@ -3133,14 +3133,19 @@ maybe_shutdown(Reason, _Intent = shutdown, Channel) ->
 
 %% [{<<"$share/group/topic">>, _SubOpts = #{}} | _]
 parse_raw_topic_filters(TopicFilters, #channel{clientinfo = #{zone := Zone}}) ->
-    Mode = get_mqtt_conf(Zone, subscription_message_filter, disable),
-    lists:map(fun(TopicFilter) -> parse_raw_topic_filter(TopicFilter, Mode) end, TopicFilters).
+    FilterEnabled = is_subscription_message_filter_enabled(Zone),
+    lists:map(
+        fun(TopicFilter) -> parse_raw_topic_filter(TopicFilter, FilterEnabled) end,
+        TopicFilters
+    ).
 
-parse_raw_topic_filter({TopicFilter, SubOpts0}, Mode) ->
-    case emqx_subscription_filter:validate_subscription(TopicFilter, Mode) of
-        {ok, #{mode := plain, base_topic := BaseTopic}} ->
-            emqx_topic:parse({BaseTopic, SubOpts0});
-        {ok, #{mode := filtered, base_topic := BaseTopic, raw_expr := RawExpr, ast := AST}} ->
+parse_raw_topic_filter({TopicFilter, SubOpts0}, false) ->
+    emqx_topic:parse({TopicFilter, SubOpts0});
+parse_raw_topic_filter({TopicFilter, SubOpts0}, true) ->
+    case emqx_subscription_filter:validate_subscription(TopicFilter) of
+        {ok, no_filter} ->
+            emqx_topic:parse({TopicFilter, SubOpts0});
+        {ok, #{base_topic := BaseTopic, raw_expr := RawExpr, ast := AST}} ->
             emqx_topic:parse(
                 {BaseTopic, SubOpts0#{
                     sub_filter_raw => RawExpr,
@@ -3152,8 +3157,13 @@ parse_raw_topic_filter({TopicFilter, SubOpts0}, Mode) ->
         {error, malformed_filter} ->
             error({invalid_subscription_filter, TopicFilter})
     end;
-parse_raw_topic_filter(TopicFilter, Mode) ->
-    emqx_topic:parse(emqx_subscription_filter:normalize_topic_filter(TopicFilter, Mode)).
+parse_raw_topic_filter(TopicFilter, false) ->
+    emqx_topic:parse(TopicFilter);
+parse_raw_topic_filter(TopicFilter, true) ->
+    emqx_topic:parse(emqx_subscription_filter:normalize_topic_filter(TopicFilter)).
+
+is_subscription_message_filter_enabled(Zone) ->
+    get_mqtt_conf(Zone, subscription_message_filter, disable) =:= enable.
 
 %%--------------------------------------------------------------------
 %% Maybe & Ensure disconnected
