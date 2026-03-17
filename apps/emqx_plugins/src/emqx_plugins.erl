@@ -352,14 +352,10 @@ ensure_started(NameVsn) ->
         ok ->
             ok;
         {error, Reason} when is_map(Reason) ->
-            ?SLOG(error, Reason#{msg => "failed_to_start_plugin"}),
+            log_start_error(Reason),
             {error, Reason};
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "failed_to_start_plugin",
-                name_vsn => NameVsn,
-                reason => Reason
-            }),
+            log_start_error(Reason),
             {error, Reason}
     end.
 
@@ -651,13 +647,14 @@ do_ensure_started(NameVsn) ->
         ok ?= emqx_plugins_apps:start(Plugin)
     else
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "failed_to_start_plugin",
-                name_vsn => NameVsn,
-                reason => Reason
-            }),
             {error, Reason}
     end.
+
+log_start_error(Reason) ->
+    ?SLOG(error, #{
+        msg => "failed_to_start_plugin",
+        reason => Reason
+    }).
 
 maybe_initialize_cached_config(NameVsn) ->
     case get_cached_config(NameVsn, ?plugin_conf_not_found) of
@@ -774,19 +771,17 @@ get_from_cluster(NameVsn) ->
         {error, NodeErrors} when Nodes =/= [] ->
             ErrMeta = #{
                 msg => "failed_to_copy_plugin_from_other_nodes",
-                name_vsn => NameVsn,
                 node_errors => NodeErrors,
                 reason => plugin_not_found
             },
-            ?SLOG(error, ErrMeta),
+            ?SLOG(error, ErrMeta#{name_vsn => NameVsn}),
             {error, ErrMeta};
         {error, _} ->
             ErrMeta = #{
                 msg => "no_nodes_to_copy_plugin_from",
-                name_vsn => NameVsn,
                 reason => plugin_not_found
             },
-            ?SLOG(error, ErrMeta),
+            ?SLOG(error, ErrMeta#{name_vsn => NameVsn}),
             {error, ErrMeta}
     end.
 
@@ -1009,7 +1004,6 @@ ensure_no_other_version_active(Plugins, NameVsn0) ->
         [_ | _] ->
             {error, #{
                 msg => "conflicting_plugin_version_running",
-                name_vsn => NameVsn,
                 active_versions => lists:reverse(RunningOtherVersions)
             }}
     end.
@@ -1030,7 +1024,6 @@ unload_other_versions([NameVsn | Rest]) ->
                 {error, Reason} ->
                     {error, #{
                         msg => "failed_to_unload_conflicting_plugin_version",
-                        name_vsn => NameVsn,
                         reason => Reason
                     }}
             end;
