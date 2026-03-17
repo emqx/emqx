@@ -189,8 +189,22 @@ t_smoke_01(_TCConfig) ->
         }}
     ),
 
-    %% Feature is enabled, but message doesn't have the `retain` flag.  Must be rejected.
+    %% Publish a card while a subscription is live.
     Agent2 = start_client(#{clientid => AgentClientId}),
+    {ok, _} = publish_card(Agent2, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, sample_card_bin()),
+    ?assertReceive(
+        {publish, #{
+            properties := #{'User-Property' := [{?A2A_PROP_STATUS_KEY, ?A2A_PROP_ONLINE_VAL}]}
+        }}
+    ),
+
+    %% Unpublish card by publishing empty retained message
+    ?assertMatch([_], emqx_a2a_registry_cth:all_cards()),
+    {ok, _} = publish_card(Agent2, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, <<"">>),
+    ?assertReceive({publish, _}),
+    ?assertMatch([], emqx_a2a_registry_cth:all_cards()),
+
+    %% Feature is enabled, but message doesn't have the `retain` flag.  Must be rejected.
     {ok, _} = emqtt:publish(
         Agent2,
         discovery_topic(?ORG_ID, ?UNIT_ID, ?AGENT_ID),

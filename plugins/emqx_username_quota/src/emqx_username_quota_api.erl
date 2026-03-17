@@ -39,12 +39,11 @@ handle(get, [<<"quota">>, <<"usernames">>], Request) ->
                 <<"INVALID_CURSOR">>,
                 <<"Cursor is invalid or references an unavailable node">>
             );
-        {error, {busy, RetryCursor}} ->
-            error_response_503(<<"Server is busy, please retry">>, RetryCursor, #{});
-        {error, {rebuilding_snapshot, RetryCursor, PartialData}} ->
+        {error, busy} ->
+            error_response_503(<<"Server is busy, please retry">>, #{});
+        {error, {rebuilding_snapshot, PartialData}} ->
             error_response_503(
                 <<"Server is busy building snapshot, please retry">>,
-                RetryCursor,
                 #{
                     snapshot_build_in_progress => true,
                     data => PartialData,
@@ -64,6 +63,27 @@ handle(get, [<<"quota">>, <<"usernames">>, Username0], _Request) ->
             {ok, 200, #{}, Info};
         {error, not_found} ->
             {error, 404, #{}, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}}
+    end;
+handle(get, [<<"metrics">>], _Request) ->
+    TimeoutMs = emqx_username_quota_config:snapshot_request_timeout_ms(),
+    DeadlineMs = now_ms() + TimeoutMs,
+    case emqx_username_quota_snapshot:request_total(DeadlineMs) of
+        {ok, Count} ->
+            {ok, 200, #{<<"content-type">> => <<"text/plain">>}, prometheus_metrics(Count)};
+        {error, not_core_node} ->
+            error_response(
+                404,
+                <<"NOT_AVAILABLE">>,
+                <<"Snapshot is only available on core nodes">>
+            );
+        {error, busy} ->
+            error_response(503, <<"SERVICE_UNAVAILABLE">>, <<"Server is busy, please retry">>);
+        {error, {rebuilding_snapshot, _PartialData}} ->
+            error_response(
+                503,
+                <<"SERVICE_UNAVAILABLE">>,
+                <<"Server is busy building snapshot, please retry">>
+            )
     end;
 handle(post, [<<"kick">>, Username0], _Request) ->
     case emqx_username_quota_state:kick_username(Username0) of
@@ -195,10 +215,17 @@ validate_username_list(_) ->
 error_response(StatusCode, Code, Message) ->
     {error, StatusCode, #{}, #{code => Code, message => Message}}.
 
-error_response_503(Message, RetryCursor, Extra) ->
+error_response_503(Message, Extra) ->
     Body = Extra#{
         code => <<"SERVICE_UNAVAILABLE">>,
-        message => Message,
-        retry_cursor => RetryCursor
+        message => Message
     },
     {error, 503, #{}, Body}.
+
+prometheus_metrics(Count) ->
+    iolist_to_binary([
+        "# TYPE emqx_username_count gauge\n",
+        "emqx_username_count ",
+        integer_to_binary(Count),
+        "\n"
+    ]).

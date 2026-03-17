@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MQTT Egress Bridge With Durable Queue</title>
+    <style>
+      :root {
+        --color-bg: #f7f9fc;
+        --color-bg-content: #ffffff;
+        --color-bg-soft: #f2f5fb;
+        --color-bg-table-hd: #eef2f8;
+        --color-text-primary: #243042;
+        --color-text-secondary: #617086;
+        --color-title-primary: #18202c;
+        --color-border-primary: #cfd8e6;
+        --color-border-normal: #e6ebf3;
+        --color-primary: #2563eb;
+        --color-primary-soft: rgba(37, 99, 235, 0.1);
+        --color-hover: #eef4ff;
+        --color-ok: #0f9d58;
+        --color-warn: #d97706;
+        --color-err: #dc2626;
+        --radius-small: 6px;
+        --radius-card: 10px;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at top right, rgba(37, 99, 235, 0.08), transparent 22rem),
+          linear-gradient(180deg, #fbfcfe, var(--color-bg));
+        color: var(--color-text-primary);
+        font: 14px/1.5 "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+
+      .app {
+        max-width: 1480px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+
+      .hero {
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        align-items: center;
+        margin-bottom: 14px;
+      }
+
+      .hero h1 {
+        margin: 0;
+        font-size: 24px;
+        color: var(--color-title-primary);
+      }
+
+      .hero p {
+        margin: 4px 0 0;
+        color: var(--color-text-secondary);
+        max-width: 54rem;
+      }
+
+      .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .btn {
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius-small);
+        background: var(--color-bg-content);
+        color: var(--color-text-primary);
+        height: 36px;
+        padding: 0 12px;
+        cursor: pointer;
+        font: inherit;
+      }
+
+      .btn:hover {
+        border-color: var(--color-primary);
+        color: var(--color-primary);
+        background: var(--color-hover);
+      }
+
+      .pill {
+        border: 1px solid var(--color-border-normal);
+        background: var(--color-bg-soft);
+        border-radius: 999px;
+        padding: 5px 10px;
+        color: var(--color-text-secondary);
+        font-size: 12px;
+      }
+
+      .status {
+        margin-bottom: 14px;
+        border: 1px solid transparent;
+        border-radius: var(--radius-card);
+        padding: 10px 12px;
+        display: none;
+      }
+
+      .status.ok {
+        display: block;
+        background: #eefbf4;
+        border-color: #b8edd1;
+        color: var(--color-ok);
+      }
+
+      .status.err {
+        display: block;
+        background: #fff3f2;
+        border-color: #fecaca;
+        color: var(--color-err);
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 280px minmax(0, 1fr);
+        gap: 14px;
+      }
+
+      .card {
+        background: var(--color-bg-content);
+        border: 1px solid var(--color-border-normal);
+        border-radius: var(--radius-card);
+      }
+
+      .hd {
+        padding: 14px;
+        border-bottom: 1px solid var(--color-border-normal);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .bd { padding: 14px; }
+
+      .hd h2,
+      .hd h3 {
+        margin: 0;
+        font-size: 16px;
+        color: var(--color-title-primary);
+      }
+
+      .hd p {
+        margin: 4px 0 0;
+        color: var(--color-text-secondary);
+      }
+
+      .bridge-list {
+        display: grid;
+        gap: 8px;
+        max-height: 68vh;
+        overflow: auto;
+      }
+
+      .bridge-item {
+        border: 1px solid var(--color-border-normal);
+        border-radius: var(--radius-card);
+        padding: 10px;
+        background: var(--color-bg-content);
+        cursor: pointer;
+      }
+
+      .bridge-item:hover {
+        background: var(--color-hover);
+      }
+
+      .bridge-item.active {
+        border-color: var(--color-primary);
+        background: var(--color-primary-soft);
+      }
+
+      .bridge-item .name {
+        font-weight: 700;
+        color: var(--color-title-primary);
+      }
+
+      .bridge-item .meta {
+        margin-top: 4px;
+        color: var(--color-text-secondary);
+        font-size: 12px;
+      }
+
+      .main {
+        display: grid;
+        gap: 14px;
+      }
+
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .metric {
+        border: 1px solid var(--color-border-normal);
+        border-radius: var(--radius-card);
+        padding: 12px;
+        background: var(--color-bg-content);
+      }
+
+      .metric .label {
+        color: var(--color-text-secondary);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .metric .value {
+        margin-top: 8px;
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--color-title-primary);
+      }
+
+      .metric .meta {
+        margin-top: 6px;
+        color: var(--color-text-secondary);
+        font-size: 12px;
+      }
+
+      .metric.warn {
+        background: #fff7ed;
+        border-color: #fed7aa;
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.9fr);
+        gap: 14px;
+      }
+
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .mini {
+        border: 1px solid var(--color-border-normal);
+        border-radius: var(--radius-card);
+        padding: 10px;
+        background: var(--color-bg-soft);
+      }
+
+      .mini .k {
+        display: block;
+        color: var(--color-text-secondary);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .mini .v {
+        display: block;
+        margin-top: 8px;
+        font-size: 22px;
+        color: var(--color-title-primary);
+      }
+
+      .reason-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .reason-item {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        border: 1px solid #fecaca;
+        border-radius: var(--radius-card);
+        background: #fff5f5;
+      }
+
+      .reason-item .name {
+        color: var(--color-err);
+        font-weight: 600;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        text-align: left;
+        padding: 10px 8px;
+        border-bottom: 1px solid var(--color-border-normal);
+      }
+
+      th {
+        color: var(--color-text-secondary);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        background: var(--color-bg-table-hd);
+      }
+
+      tr:last-child td {
+        border-bottom: none;
+      }
+
+      .empty {
+        color: var(--color-text-secondary);
+        text-align: center;
+        padding: 22px 12px;
+      }
+
+      @media (max-width: 1100px) {
+        .layout,
+        .split {
+          grid-template-columns: 1fr;
+        }
+
+        .summary,
+        .stats-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .bridge-list {
+          max-height: none;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .app {
+          padding: 16px;
+        }
+
+        .hero {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        .summary,
+        .stats-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <div class="hero">
+        <div>
+          <h1>MQTT Egress Bridge With Durable Queue</h1>
+          <p>
+            Realtime bridge, buffer, and connector stats rendered directly from the
+            plugin <code>/stats</code> endpoint. This is a live operational dashboard,
+            not a Grafana-style historical view, so there are no histogram panels.
+          </p>
+        </div>
+        <div class="row">
+          <span class="pill" id="scopePill">scope: all bridges</span>
+          <span class="pill" id="updatedPill">updated: waiting</span>
+          <button class="btn" id="refreshBtn" type="button">Refresh</button>
+        </div>
+      </div>
+
+      <div class="status" id="statusBox"></div>
+
+      <div class="layout">
+        <aside class="card">
+          <div class="hd">
+            <div>
+              <h2>Bridges</h2>
+              <p>Select a bridge to drill into current stats.</p>
+            </div>
+            <button class="btn" id="showAllBtn" type="button">All</button>
+          </div>
+          <div class="bd">
+            <div class="bridge-list" id="bridgeList"></div>
+          </div>
+        </aside>
+
+        <main class="main">
+          <section class="summary" id="summaryGrid">
+            <div class="metric">
+              <div class="label">Uptime</div>
+              <div class="value" id="uptimeValue">0s</div>
+              <div class="meta">Maximum node uptime in the aggregated cluster view</div>
+            </div>
+            <div class="metric">
+              <div class="label">Enqueue</div>
+              <div class="value" id="enqueueValue">0</div>
+              <div class="meta">Messages accepted into bridge enqueue paths</div>
+            </div>
+            <div class="metric">
+              <div class="label">Dequeue</div>
+              <div class="value" id="dequeueValue">0</div>
+              <div class="meta">Messages durably removed from the local queue</div>
+            </div>
+            <div class="metric">
+              <div class="label">Publish</div>
+              <div class="value" id="publishValue">0</div>
+              <div class="meta">Messages successfully published to the remote broker</div>
+            </div>
+            <div class="metric warn">
+              <div class="label">Drop</div>
+              <div class="value" id="dropValue">0</div>
+              <div class="meta">Queued messages finalized as dropped</div>
+            </div>
+          </section>
+
+          <section class="split">
+            <section class="card">
+              <div class="hd">
+                <div>
+                  <h3 id="detailTitle">Bridge Detail</h3>
+                  <p id="detailSubtitle">Current counters for the selected scope.</p>
+                </div>
+              </div>
+              <div class="bd">
+                <div class="stats-grid">
+                  <div class="mini">
+                    <span class="k">Enqueue</span>
+                    <span class="v" id="detailMatched">0</span>
+                  </div>
+                  <div class="mini">
+                    <span class="k">Dequeue</span>
+                    <span class="v" id="detailAcked">0</span>
+                  </div>
+                  <div class="mini">
+                    <span class="k">Publish</span>
+                    <span class="v" id="detailPublished">0</span>
+                  </div>
+                  <div class="mini">
+                    <span class="k">Drop</span>
+                    <span class="v" id="detailDropped">0</span>
+                  </div>
+                  <div class="mini">
+                    <span class="k">OK</span>
+                    <span class="v" id="detailAckRate">0%</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="card">
+              <div class="hd">
+                <div>
+                  <h3>Retry Reasons</h3>
+                  <p>Current retry drill-down for the selected scope.</p>
+                </div>
+              </div>
+              <div class="bd">
+                <div class="reason-list" id="reasonList"></div>
+              </div>
+            </section>
+          </section>
+
+          <section class="card">
+            <div class="hd">
+              <div>
+                <h3>Buffers</h3>
+                <p>Realtime buffered message counts per queue partition.</p>
+              </div>
+            </div>
+            <div class="bd" id="bufferTable"></div>
+          </section>
+
+          <section class="card">
+            <div class="hd">
+              <div>
+                <h3>Connectors</h3>
+                <p>Realtime backlog and inflight messages per connector.</p>
+              </div>
+            </div>
+            <div class="bd" id="connectorTable"></div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <script>
+      const state = {
+        selectedBridge: null,
+        stats: { uptime_seconds: 0, cluster: {}, summary: {}, bridges: [] }
+      };
+
+      const els = {
+        statusBox: document.getElementById("statusBox"),
+        bridgeList: document.getElementById("bridgeList"),
+        showAllBtn: document.getElementById("showAllBtn"),
+        refreshBtn: document.getElementById("refreshBtn"),
+        scopePill: document.getElementById("scopePill"),
+        updatedPill: document.getElementById("updatedPill"),
+        uptimeValue: document.getElementById("uptimeValue"),
+        enqueueValue: document.getElementById("enqueueValue"),
+        dequeueValue: document.getElementById("dequeueValue"),
+        publishValue: document.getElementById("publishValue"),
+        dropValue: document.getElementById("dropValue"),
+        detailTitle: document.getElementById("detailTitle"),
+        detailSubtitle: document.getElementById("detailSubtitle"),
+        detailMatched: document.getElementById("detailMatched"),
+        detailAcked: document.getElementById("detailAcked"),
+        detailPublished: document.getElementById("detailPublished"),
+        detailDropped: document.getElementById("detailDropped"),
+        detailAckRate: document.getElementById("detailAckRate"),
+        reasonList: document.getElementById("reasonList"),
+        bufferTable: document.getElementById("bufferTable"),
+        connectorTable: document.getElementById("connectorTable")
+      };
+
+      const statsUrl = window.location.pathname.replace(/\/ui\/?$/, "/stats");
+      const refreshMs = 3000;
+
+      function setStatus(kind, message) {
+        els.statusBox.className = "status " + kind;
+        els.statusBox.textContent = message;
+      }
+
+      function formatInt(value) {
+        return new Intl.NumberFormat().format(Number(value || 0));
+      }
+
+      function formatUptime(seconds) {
+        const total = Math.max(0, Number(seconds || 0));
+        const d = Math.floor(total / 86400);
+        const h = Math.floor((total % 86400) / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const s = total % 60;
+        if (d > 0) return `${d}d ${h}h`;
+        if (h > 0) return `${h}h ${m}m`;
+        if (m > 0) return `${m}m ${s}s`;
+        return `${s}s`;
+      }
+
+      function sum(rows, key) {
+        return rows.reduce((acc, row) => acc + Number(row[key] || 0), 0);
+      }
+
+      function aggregateRetryReasons(bridges) {
+        return bridges.reduce((acc, bridge) => {
+          const reasons = bridge && typeof bridge.retried_by_reason === "object"
+            ? bridge.retried_by_reason
+            : {};
+          Object.entries(reasons).forEach(([reason, dropped]) => {
+            acc[String(reason || "unknown")] = (acc[String(reason || "unknown")] || 0) + Number(dropped || 0);
+          });
+          return acc;
+        }, {});
+      }
+
+      function currentScope() {
+        const allBridges = Array.isArray(state.stats.bridges) ? state.stats.bridges : [];
+        if (!state.selectedBridge) {
+          return {
+            label: "all bridges",
+            bridges: allBridges,
+            buffers: allBridges.flatMap((bridge) => bridge.buffers || []),
+            connectors: allBridges.flatMap((bridge) => bridge.connectors || [])
+          };
+        }
+        const selected = allBridges.find((bridge) => bridge.name === state.selectedBridge);
+        return {
+          label: state.selectedBridge,
+          bridges: selected ? [selected] : [],
+          buffers: selected ? (selected.buffers || []) : [],
+          connectors: selected ? (selected.connectors || []) : []
+        };
+      }
+
+      function renderBridgeSelector(bridges) {
+        if (!bridges.length) {
+          els.bridgeList.innerHTML = '<div class="empty">No bridges available.</div>';
+          return;
+        }
+        els.bridgeList.innerHTML = bridges.map((bridge) => {
+          const active = bridge.name === state.selectedBridge ? " active" : "";
+          return `
+            <div class="bridge-item${active}" data-bridge-name="${bridge.name}">
+              <div class="name">${bridge.name}</div>
+              <div class="meta">
+                ${bridge.status} | buffered ${formatInt(bridge.buffered)} | drop ${formatInt(bridge.drop)}
+              </div>
+            </div>
+          `;
+        }).join("");
+        Array.from(els.bridgeList.querySelectorAll("[data-bridge-name]")).forEach((node) => {
+          node.addEventListener("click", () => {
+            state.selectedBridge = node.getAttribute("data-bridge-name");
+            render();
+          });
+        });
+      }
+
+      function renderReasons(bridges) {
+        const reasons = Object.entries(aggregateRetryReasons(bridges)).sort((a, b) => b[1] - a[1]);
+        if (!reasons.length) {
+          els.reasonList.innerHTML = '<div class="empty">No retry reasons recorded.</div>';
+          return;
+        }
+        els.reasonList.innerHTML = reasons.map(([reason, count]) => `
+          <div class="reason-item">
+            <span class="name">${reason}</span>
+            <span>${formatInt(count)}</span>
+          </div>
+        `).join("");
+      }
+
+      function renderTable(target, columns, rows, emptyText) {
+        if (!rows.length) {
+          target.innerHTML = `<div class="empty">${emptyText}</div>`;
+          return;
+        }
+        target.innerHTML = `
+          <table>
+            <thead>
+              <tr>${columns.map((col) => `<th>${col.label}</th>`).join("")}</tr>
+            </thead>
+            <tbody>
+              ${rows.map((row) => `
+                <tr>${columns.map((col) => `<td>${col.render(row)}</td>`).join("")}</tr>
+              `).join("")}
+            </tbody>
+          </table>
+        `;
+      }
+
+      function render() {
+        const bridges = Array.isArray(state.stats.bridges) ? state.stats.bridges : [];
+        if (state.selectedBridge && bridges.every((bridge) => bridge.name !== state.selectedBridge)) {
+          state.selectedBridge = null;
+        }
+
+        const scope = currentScope();
+        const enqueue = sum(scope.bridges, "enqueue");
+        const dequeue = sum(scope.bridges, "dequeue");
+        const publish = sum(scope.bridges, "publish");
+        const drop = sum(scope.bridges, "drop");
+        const ackRate = enqueue > 0 ? Math.round((dequeue / enqueue) * 100) : 0;
+        const cluster = state.stats.cluster || {};
+
+        renderBridgeSelector(bridges);
+        renderReasons(scope.bridges);
+
+        els.scopePill.textContent = "scope: " + scope.label;
+        els.uptimeValue.textContent = formatUptime(state.stats.uptime_seconds || 0);
+        els.enqueueValue.textContent = formatInt(enqueue);
+        els.dequeueValue.textContent = formatInt(dequeue);
+        els.publishValue.textContent = formatInt(publish);
+        els.dropValue.textContent = formatInt(drop);
+        els.detailTitle.textContent = state.selectedBridge
+          ? "Bridge Detail: " + state.selectedBridge
+          : "Bridge Detail: All Bridges";
+        els.detailSubtitle.textContent = state.selectedBridge
+          ? "Current counters and retry reasons for the selected bridge."
+          : "Aggregated counters and retry reasons across the cluster view.";
+        els.detailMatched.textContent = formatInt(enqueue);
+        els.detailAcked.textContent = formatInt(dequeue);
+        els.detailPublished.textContent = formatInt(publish);
+        els.detailDropped.textContent = formatInt(drop);
+        els.detailAckRate.textContent = ackRate + "%";
+
+        renderTable(
+          els.bufferTable,
+          [
+            { label: "Bridge", render: (row) => row.bridge },
+            { label: "Index", render: (row) => row.index },
+            { label: "Status", render: (row) => row.status || "unknown" },
+            { label: "Buffered", render: (row) => formatInt(row.buffered) }
+          ],
+          scope.buffers,
+          "No buffer stats available."
+        );
+
+        renderTable(
+          els.connectorTable,
+          [
+            { label: "Bridge", render: (row) => row.bridge },
+            { label: "Index", render: (row) => row.index },
+            { label: "Status", render: (row) => row.status || "unknown" },
+            { label: "Backlog", render: (row) => formatInt(row.backlog) },
+            { label: "Inflight", render: (row) => formatInt(row.inflight) }
+          ],
+          scope.connectors,
+          "No connector stats available."
+        );
+      }
+
+      async function refresh() {
+        els.refreshBtn.disabled = true;
+        try {
+          const response = await fetch(statsUrl, { method: "GET", cache: "no-store" });
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          state.stats = await response.json();
+          const cluster = state.stats.cluster || {};
+          render();
+          els.updatedPill.textContent = "updated: " + new Date().toLocaleTimeString();
+          setStatus(
+            cluster.complete === false ? "err" : "ok",
+            cluster.complete === false
+              ? "Stats loaded, but cluster aggregation is partial."
+              : "Connected to the realtime stats endpoint."
+          );
+        } catch (error) {
+          setStatus("err", "Failed to load stats: " + error.message);
+        } finally {
+          els.refreshBtn.disabled = false;
+        }
+      }
+
+      els.refreshBtn.addEventListener("click", refresh);
+      els.showAllBtn.addEventListener("click", () => {
+        state.selectedBridge = null;
+        render();
+      });
+
+      refresh();
+      window.setInterval(refresh, refreshMs);
+    </script>
+  </body>
+</html>

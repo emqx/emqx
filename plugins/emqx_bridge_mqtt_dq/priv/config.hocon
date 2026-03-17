@@ -1,0 +1,39 @@
+bridges {
+  example {
+    enable = false
+    remote = loopback
+    proto_ver = v4
+    keepalive_s = 60
+    # clientid_prefix = "emqx-dq-example-"
+    pool_size = 4
+    buffer_pool_size = 4
+    filter_topic = "devices/#"
+    remote_topic = "fwd/${topic}"
+    enqueue_timeout_ms = 5000
+    max_inflight = 32
+    max_publish_retries = -1
+    remote_qos = "${qos}"
+    remote_retain = "${retain}"
+    queue {
+      base_dir = "emqx_bridge_mqtt_dq"
+      seg_bytes = "100MB"
+      max_total_bytes = "1GB"
+    }
+  }
+}
+
+remotes {
+  loopback {
+    server = "127.0.0.1:1883"
+    username = ""
+    password = ""
+    ssl {
+      enable = false
+      verify = verify_none
+      # sni = "hostname.example.com"
+      # cacertfile = "/path/to/ca.pem"
+      # certfile = "/path/to/client-cert.pem"
+      # keyfile = "/path/to/client-key.pem"
+    }
+  }
+}

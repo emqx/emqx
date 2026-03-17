@@ -13,10 +13,13 @@
 -include_lib("emqx/include/emqx_managed_certs.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("../../emqx_prometheus/include/emqx_prometheus.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
 %%------------------------------------------------------------------------------
+
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 -define(local, local).
 -define(cluster, cluster).
@@ -59,6 +62,7 @@ init_per_group(?local, TCConfig) ->
                     )
                 end
             }},
+            emqx_prometheus,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
         #{work_dir => emqx_cth_suite:work_dir(?local, TCConfig)}
@@ -352,6 +356,95 @@ read_md5(Path) ->
 
 md5(Data) ->
     erlang:md5(Data).
+
+get_prometheus_stats(Mode, Format) ->
+    Headers =
+        case Format of
+            json -> [{"accept", "application/json"}];
+            prometheus -> []
+        end,
+    QueryString = uri_string:compose_query([{"mode", atom_to_binary(Mode)}]),
+    URL = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
+    {Status, Response} = emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => URL,
+        extra_headers => Headers,
+        query_params => QueryString,
+        auth_header => {"no", "auth"}
+    }),
+    case Format of
+        json ->
+            {Status, Response};
+        prometheus when Status == 200 ->
+            {Status, parse_prometheus(Response)};
+        prometheus ->
+            {Status, Response}
+    end.
+
+parse_prometheus(RawData) ->
+    lists:foldl(
+        fun
+            (<<"#", _/binary>>, Acc) ->
+                Acc;
+            (Line, Acc) ->
+                {Name, Labels, Value} = parse_prometheus_line(Line),
+                maps:update_with(
+                    Name,
+                    fun(Old) -> Old#{Labels => Value} end,
+                    #{Labels => Value},
+                    Acc
+                )
+        end,
+        #{},
+        binary:split(iolist_to_binary(RawData), <<"\n">>, [global, trim_all])
+    ).
+
+parse_prometheus_line(Line) ->
+    RE = <<"(?<name>[a-z0-9A-Z_]+)(\\{(?<labels>[^)]*)\\})? *(?<value>[0-9]+(\\.[0-9]+)?)">>,
+    {match, [Name, Labels0, Value0]} = re:run(
+        Line, RE, [{capture, [<<"name">>, <<"labels">>, <<"value">>], binary}]
+    ),
+    Labels = parse_prometheus_labels(Labels0),
+    Value =
+        try
+            binary_to_float(Value0)
+        catch
+            error:badarg ->
+                binary_to_integer(Value0)
+        end,
+    {Name, Labels, Value}.
+
+parse_prometheus_labels(<<"">>) ->
+    #{};
+parse_prometheus_labels(Labels) ->
+    lists:foldl(
+        fun(Label, Acc) ->
+            [K, V0] = binary:split(Label, <<"=">>),
+            V = binary:replace(V0, <<"\"">>, <<"">>, [global]),
+            Acc#{K => V}
+        end,
+        #{},
+        binary:split(Labels, <<",">>, [global])
+    ).
+
+get_listener_api(Type, Name) ->
+    Id0 = emqx_listeners:listener_id(Type, Name),
+    Id = atom_to_binary(Id0),
+    URL = emqx_mgmt_api_test_util:api_path(["listeners", Id]),
+    simple_request(#{
+        method => get,
+        url => URL
+    }).
+
+update_listener_api(Type, Name, Conf) ->
+    Id0 = emqx_listeners:listener_id(Type, Name),
+    Id = atom_to_binary(Id0),
+    URL = emqx_mgmt_api_test_util:api_path(["listeners", Id]),
+    simple_request(#{
+        method => put,
+        url => URL,
+        body => Conf
+    }).
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -829,5 +922,88 @@ t_namespaced_admin_crud(TCConfig) when is_list(TCConfig) ->
     ?assertMatch({404, _}, list_files_global(Bundle1)),
     ?assertMatch({403, _}, delete_bundle_global(Bundle1)),
     ?assertMatch({403, _}, upload_file_global(Bundle1, ?FILE_KIND_CA, CA1)),
+
+    ok.
+
+-doc """
+Verifies that we take into account managed certs when constructing the
+`emqx_cert_expiry_at` prometheus gauge.
+""".
+t_managed_certs_prometheus_expiry_date() ->
+    [{matrix, true}].
+t_managed_certs_prometheus_expiry_date(matrix) ->
+    [[?local]];
+t_managed_certs_prometheus_expiry_date(_TCConfig) ->
+    on_exit(fun meck:unload/0),
+    meck:new(emqx_license_checker, [non_strict, passthrough, no_link]),
+    meck:expect(emqx_license_checker, expiry_epoch, fun() -> 1859673600 end),
+
+    %% At first, TLS and WSS listeners are using the same certificates
+    {200, Metrics0} = get_prometheus_stats(
+        ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, prometheus
+    ),
+    Expiry0 = maps:get(<<"emqx_cert_expiry_at">>, Metrics0),
+    TLSExpiry0 = maps:get(
+        #{
+            <<"listener_name">> => <<"default">>,
+            <<"listener_type">> => <<"ssl">>
+        },
+        Expiry0
+    ),
+    WSSExpiry0 = maps:get(
+        #{
+            <<"listener_name">> => <<"default">>,
+            <<"listener_type">> => <<"wss">>
+        },
+        Expiry0
+    ),
+    ?assertEqual(WSSExpiry0, TLSExpiry0),
+
+    #{
+        cert_key := CertKeyRoot1,
+        cert_pem := CA1
+    } = gen_cert(#{key => ec, issuer => root}),
+    #{
+        cert_pem := Cert1,
+        key_pem := Key1
+    } = gen_cert(#{key => ec, issuer => CertKeyRoot1}),
+
+    Bundle1 = <<"my_bundle">>,
+    Files1 = [
+        {?FILE_KIND_CA_BIN, <<"unused_ca_filename.pem">>, CA1},
+        {?FILE_KIND_CHAIN_BIN, <<"unused_chain_filename.pem">>, Cert1},
+        {?FILE_KIND_KEY_BIN, <<"unused_key_filename.pem">>, Key1}
+    ],
+    ?assertMatch({204, _}, upload_files_multipart_global(Bundle1, Files1)),
+
+    {200, TLSListener0} = get_listener_api(<<"ssl">>, <<"default">>),
+    TLSListener1 = emqx_utils_maps:deep_put(
+        [<<"ssl_options">>, <<"managed_certs">>],
+        TLSListener0,
+        [#{<<"bundle_name">> => Bundle1}]
+    ),
+    on_exit(fun() -> {200, _} = update_listener_api(<<"ssl">>, <<"default">>, TLSListener0) end),
+    {200, _} = update_listener_api(<<"ssl">>, <<"default">>, TLSListener1),
+
+    %% Now, they are no longer the same: TLS listener is using the fresh managed cert bundle.
+    {200, Metrics1} = get_prometheus_stats(
+        ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, prometheus
+    ),
+    Expiry1 = maps:get(<<"emqx_cert_expiry_at">>, Metrics1),
+    TLSExpiry1 = maps:get(
+        #{
+            <<"listener_name">> => <<"default">>,
+            <<"listener_type">> => <<"ssl">>
+        },
+        Expiry1
+    ),
+    WSSExpiry1 = maps:get(
+        #{
+            <<"listener_name">> => <<"default">>,
+            <<"listener_type">> => <<"wss">>
+        },
+        Expiry1
+    ),
+    ?assertNotEqual(WSSExpiry1, TLSExpiry1),
 
     ok.

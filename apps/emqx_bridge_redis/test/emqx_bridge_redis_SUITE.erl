@@ -233,12 +233,7 @@ connector_config(Overrides) ->
 client_ssl_cert_opts(?single) ->
     emqx_authn_test_lib:client_ssl_cert_opts();
 client_ssl_cert_opts(_Type) ->
-    Dir = code:lib_dir(emqx),
-    #{
-        <<"keyfile">> => filename:join([Dir, <<"etc">>, <<"certs">>, <<"client-key.pem">>]),
-        <<"certfile">> => filename:join([Dir, <<"etc">>, <<"certs">>, <<"client-cert.pem">>]),
-        <<"cacertfile">> => filename:join([Dir, <<"etc">>, <<"certs">>, <<"cacert.pem">>])
-    }.
+    emqx_authn_test_lib:client_ssl_cert_opts().
 
 action_config(Overrides) ->
     Defaults = #{

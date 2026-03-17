@@ -835,11 +835,11 @@ return_config_update_result({Responses, BadNodes}) ->
         {[], []} ->
             {204};
         {ResponseErrors, []} ->
-            {400, #{code => 'BAD_CONFIG', message => readable_error_msg(ResponseErrors)}};
+            {400, #{code => 'BAD_CONFIG', message => format_errors(ResponseErrors)}};
         {ResponseErrors, NodeErrors} ->
             {500, #{
                 code => 'INTERNAL_ERROR',
-                message => readable_error_msg(ResponseErrors ++ NodeErrors)
+                message => format_errors(ResponseErrors ++ NodeErrors)
             }}
     end.
 
@@ -848,6 +848,17 @@ plugin_not_found_msg() ->
         code => 'NOT_FOUND',
         message => <<"Plugin Not Found">>
     }.
+
+format_errors(Errors) ->
+    Msgs = lists:map(fun format_error/1, Errors),
+    iolist_to_binary(lists:join("; ", Msgs)).
+
+format_error({error, Msg}) ->
+    readable_error_msg(Msg);
+format_error({badnode, Node}) ->
+    iolist_to_binary(io_lib:format("node ~ts unavailable", [Node]));
+format_error(Other) ->
+    readable_error_msg(Other).
 
 readable_error_msg(Msg) ->
     emqx_utils:readable_error_msg(Msg).

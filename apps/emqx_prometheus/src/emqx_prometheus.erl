@@ -1220,15 +1220,12 @@ do_points_of_listeners(_, undefined) ->
 do_points_of_listeners(Type, Listeners) ->
     lists:foldl(
         fun(Name, PointsAcc) ->
-            case
-                emqx_utils_maps:deep_get([Name, enable], Listeners, false) andalso
-                    emqx_utils_maps:deep_get(
-                        [Name, ssl_options, certfile], Listeners, undefined
-                    )
-            of
-                false -> PointsAcc;
-                undefined -> PointsAcc;
-                Path -> [gen_point_cert_expiry_at(Type, Name, Path) | PointsAcc]
+            #{Name := Listener} = Listeners,
+            case resolve_listener_certfile(Listener) of
+                error ->
+                    PointsAcc;
+                {ok, Certfile} ->
+                    [gen_point_cert_expiry_at(Type, Name, Certfile) | PointsAcc]
             end
         end,
         [],
@@ -1238,6 +1235,17 @@ do_points_of_listeners(Type, Listeners) ->
 
 gen_point_cert_expiry_at(Type, Name, Path) ->
     {[{listener_type, Type}, {listener_name, Name}], cert_expiry_at_from_path(Path)}.
+
+resolve_listener_certfile(#{enable := true, ssl_options := #{} = SSLOpts0}) ->
+    SSLOpts = emqx_tls_lib:to_server_opts(tls, SSLOpts0),
+    case lists:keyfind(certfile, 1, SSLOpts) of
+        {certfile, Certfile} ->
+            {ok, Certfile};
+        _ ->
+            error
+    end;
+resolve_listener_certfile(#{}) ->
+    error.
 
 %% TODO: cert manager for more generic utils functions
 cert_expiry_at_from_path(Path0) ->

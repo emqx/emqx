@@ -34,7 +34,7 @@ common_tests() ->
                 enable => true,
                 ignore_high_frequency_request => true,
                 level => info,
-                max_filter_size => 15,
+                cache_size => 15,
                 rotation_count => 2,
                 rotation_size => "10MB",
                 time_offset => "system"
@@ -115,7 +115,7 @@ t_disabled(_) ->
     Size1 = mnesia:table_info(emqx_audit, size),
 
     {ok, Logs} = emqx_mgmt_api_configs_SUITE:get_config("log"),
-    Logs1 = emqx_utils_maps:deep_put([<<"audit">>, <<"max_filter_size">>], Logs, 199),
+    Logs1 = emqx_utils_maps:deep_put([<<"audit">>, <<"cache_size">>], Logs, 199),
     NewLogs = emqx_utils_maps:deep_put([<<"audit">>, <<"enable">>], Logs1, false),
     {ok, _} = emqx_mgmt_api_configs_SUITE:update_config("log", NewLogs),
     {ok, GetLog1} = emqx_mgmt_api_configs_SUITE:get_config("log"),
@@ -237,8 +237,8 @@ t_cli(_Config) ->
     ok.
 
 t_max_size(_Config) ->
-    {ok, _} = emqx:update_config([log, audit, max_filter_size], 999),
-    %% Make sure this process is using latest max_filter_size.
+    {ok, _} = emqx:update_config([log, audit, cache_size], 999),
+    %% Make sure this process is using latest cache_size.
     ?assertEqual(ignore, gen_server:call(emqx_audit, whatever)),
     SizeFun =
         fun() ->
@@ -263,12 +263,12 @@ t_max_size(_Config) ->
         api => Size1,
         init => InitSize,
         log_size => LogCount,
-        config => emqx:get_config([log, audit, max_filter_size])
+        config => emqx:get_config([log, audit, cache_size])
     }),
-    {ok, _} = emqx:update_config([log, audit, max_filter_size], 10),
+    {ok, _} = emqx:update_config([log, audit, cache_size], 10),
     %% wait for clean_expired
     timer:sleep(250),
-    ExpectSize = emqx:get_config([log, audit, max_filter_size]),
+    ExpectSize = emqx:get_config([log, audit, cache_size]),
     Size2 = SizeFun(),
     ?assertEqual(ExpectSize, Size2, {sys:get_state(emqx_audit)}),
     ok.

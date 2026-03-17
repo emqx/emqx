@@ -1,4 +1,4 @@
-ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/6.0-12:1.19.1-28.2-2-debian13
+ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/6.0-13:1.19.1-28.2-2-debian13
 ARG RUN_FROM=debian:13-slim
 ARG SOURCE_TYPE=src # tgz
 
@@ -6,7 +6,7 @@ FROM ${BUILD_FROM} AS builder_src
 ONBUILD COPY . /emqx
 
 FROM ${RUN_FROM} AS builder_tgz
-ARG PROFILE=emqx
+ARG PROFILE=emqx-enterprise
 ARG PKG_VSN
 ARG SUFFIX
 ARG TARGETARCH
@@ -14,7 +14,8 @@ ONBUILD COPY ${PROFILE}-${PKG_VSN}${SUFFIX}-debian13-$TARGETARCH.tar.gz /${PROFI
 
 FROM builder_${SOURCE_TYPE} AS builder
 
-ARG PROFILE=emqx
+ARG PROFILE=emqx-enterprise
+ARG PKG_VSN
 ARG DEBUG
 
 ENV EMQX_RELUP=false
@@ -32,8 +33,8 @@ RUN mkdir -p /emqx-rel/emqx && \
         export REBAR_GIT_CACHE_DIR='/emqx/.cache' && \
         export REBAR_GIT_CACHE_REF_AUTOFILL=0; \
       fi && \
+      export PKG_VSN="${PKG_VSN}" && \
       export EMQX_REL_PATH="/emqx/_build/${PROFILE}/rel/emqx" && \
-      git config --global --add safe.directory '*' && \
       make ${PROFILE}-tgz && \
       tar zxf _packages/${PROFILE}/*.tar.gz -C /emqx-rel/emqx; \
     fi && \
