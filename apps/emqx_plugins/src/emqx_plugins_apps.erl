@@ -332,21 +332,22 @@ app_running_status(AppName, AppVsn, RunningApps, LoadedApps) ->
     case lists:keyfind(AppName, 1, LoadedApps) of
         {AppName, LoadedVsn} ->
             case same_app_vsn(AppVsn, LoadedVsn) of
-                true ->
-                    case lists:keyfind(AppName, 1, RunningApps) of
-                        {AppName, RunningVsn} ->
-                            case same_app_vsn(AppVsn, RunningVsn) of
-                                true -> running;
-                                false -> loaded
-                            end;
-                        _ ->
-                            loaded
-                    end;
-                false ->
-                    stopped
+                true -> loaded_app_status(AppName, AppVsn, RunningApps);
+                false -> stopped
             end;
         false ->
             stopped
+    end.
+
+loaded_app_status(AppName, AppVsn, RunningApps) ->
+    case lists:keyfind(AppName, 1, RunningApps) of
+        {AppName, RunningVsn} ->
+            case same_app_vsn(AppVsn, RunningVsn) of
+                true -> running;
+                false -> loaded
+            end;
+        _ ->
+            loaded
     end.
 
 stop_app(App) ->
