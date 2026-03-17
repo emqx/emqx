@@ -33,7 +33,7 @@
 %% API
 %%--------------------------------------------------------------------
 
--spec running_status(name_vsn() | map()) -> running | loaded | stopped.
+-spec running_status(name_vsn() | emqx_plugins_info:t()) -> running | loaded | stopped.
 running_status(#{name := PluginName, rel_apps := Apps}) ->
     {AppName, AppVsn} = primary_app_name_vsn(PluginName, Apps),
     RunningApps = running_apps(),
@@ -194,7 +194,7 @@ load_plugin_app(AppName, AppVsn, Ebin, LoadedApps) ->
         false ->
             do_load_plugin_app(AppName, Ebin);
         {_, Vsn} ->
-            case bin(Vsn) =:= bin(AppVsn) of
+            case emqx_plugins_utils:bin(Vsn) =:= emqx_plugins_utils:bin(AppVsn) of
                 true ->
                     %% already loaded on the exact version
                     ok;
@@ -425,7 +425,11 @@ run_with_timeout(Module, Function, Args, Timeout) ->
 
 app_module_name(NameVsn) ->
     {AppName, _} = emqx_plugins_utils:parse_name_vsn(NameVsn),
-    case emqx_utils:safe_to_existing_atom(<<(bin(AppName))/binary, "_app">>) of
+    case
+        emqx_utils:safe_to_existing_atom(
+            <<(emqx_plugins_utils:bin(AppName))/binary, "_app">>
+        )
+    of
         {ok, AppModule} ->
             {ok, AppModule};
         {error, Reason} ->
@@ -439,12 +443,12 @@ is_callback_exported(AppModule, FuncName, Arity) ->
     end.
 
 primary_app_name_vsn(PluginName, Apps) ->
-    PluginNameBin = bin(PluginName),
+    PluginNameBin = emqx_plugins_utils:bin(PluginName),
     case
         lists:search(
             fun(AppNameVsn) ->
                 {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(AppNameVsn),
-                bin(AppName) =:= PluginNameBin
+                emqx_plugins_utils:bin(AppName) =:= PluginNameBin
             end,
             Apps
         )
@@ -458,11 +462,7 @@ primary_app_name_vsn(PluginName, Apps) ->
 same_app_vsn(undefined, _LoadedVsn) ->
     true;
 same_app_vsn(AppVsn, LoadedVsn) ->
-    bin(AppVsn) =:= bin(LoadedVsn).
-
-bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
-bin(B) when is_binary(B) -> B.
+    emqx_plugins_utils:bin(AppVsn) =:= emqx_plugins_utils:bin(LoadedVsn).
 
 -ifdef(TEST).
 

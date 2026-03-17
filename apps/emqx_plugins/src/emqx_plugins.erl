@@ -481,7 +481,8 @@ resolve_active_name_vsn(Plugin0, ActiveNameVsns) ->
             {ok, Plugin};
         false ->
             Matches = lists:filter(
-                fun(NameVsn) -> plugin_name(NameVsn) =:= Plugin end, ActiveNameVsns
+                fun(NameVsn) -> emqx_plugins_utils:plugin_name(NameVsn) =:= Plugin end,
+                ActiveNameVsns
             ),
             case Matches of
                 [NameVsn | _] -> {ok, NameVsn};
@@ -878,15 +879,7 @@ put_configured(Configured, ConfLocation) ->
     ok = do_put_config_internal(states, bin_key(Configured), ConfLocation).
 
 configured() ->
-    lists:map(fun normalize_state_item/1, get_config_internal(states, [])).
-
-normalize_state_item(#{name_vsn := _NameVsn, enable := _Enable} = Item) ->
-    Item;
-normalize_state_item(#{<<"name_vsn">> := NameVsn, <<"enable">> := Enable}) ->
-    #{
-        name_vsn => NameVsn,
-        enable => Enable
-    }.
+    lists:map(fun emqx_plugins_utils:normalize_state_item/1, get_config_internal(states, [])).
 
 for_plugins(ActionFun) ->
     for_plugins(configured(), ActionFun).
@@ -917,10 +910,10 @@ maybe_disable_other_versions(Configured, _Item) ->
 
 disable_other_versions(Configured, NameVsn0) ->
     NameVsn = bin(NameVsn0),
-    Name = plugin_name(NameVsn),
+    Name = emqx_plugins_utils:plugin_name(NameVsn),
     lists:map(
         fun(#{name_vsn := NV} = Item) ->
-            case bin(NV) =/= NameVsn andalso plugin_name(NV) =:= Name of
+            case bin(NV) =/= NameVsn andalso emqx_plugins_utils:plugin_name(NV) =:= Name of
                 true -> Item#{enable => false};
                 false -> Item
             end
@@ -933,7 +926,7 @@ normalize_enabled_versions(Configured) ->
     lists:map(
         fun
             (#{name_vsn := NameVsn, enable := true} = Item) ->
-                Name = plugin_name(NameVsn),
+                Name = emqx_plugins_utils:plugin_name(NameVsn),
                 case maps:get(Name, Latest, bin(NameVsn)) =:= bin(NameVsn) of
                     true -> Item;
                     false -> Item#{enable => false}
@@ -948,14 +941,14 @@ latest_enabled_versions(Configured) ->
     lists:foldl(
         fun
             (#{name_vsn := NameVsn, enable := true}, Acc) ->
-                Name = plugin_name(NameVsn),
+                Name = emqx_plugins_utils:plugin_name(NameVsn),
                 NameVsnBin = bin(NameVsn),
                 case maps:get(Name, Acc, undefined) of
                     undefined ->
                         Acc#{Name => NameVsnBin};
                     Existing ->
-                        case compare_vsn(Existing, NameVsnBin) of
-                            newer -> Acc#{Name => NameVsnBin};
+                        case emqx_plugins_utils:latest_name_vsn(Existing, NameVsnBin) of
+                            NameVsnBin -> Acc#{Name => NameVsnBin};
                             _ -> Acc
                         end
                 end;
@@ -966,18 +959,36 @@ latest_enabled_versions(Configured) ->
         Configured
     ).
 
-%% compare_vsn/2 returns `newer` when NameVsn2 is newer than NameVsn1.
-compare_vsn(NameVsn1, NameVsn2) ->
-    {_Name1, Vsn1} = emqx_plugins_utils:parse_name_vsn(NameVsn1),
-    {_Name2, Vsn2} = emqx_plugins_utils:parse_name_vsn(NameVsn2),
-    emqx_plugins_utils:compare_vsn(Vsn1, Vsn2).
-
 ensure_no_other_version_active(NameVsn0) ->
-    ensure_no_other_version_active(list(), NameVsn0).
+    ensure_no_other_version_active(conflicting_versions(NameVsn0), NameVsn0).
+
+conflicting_versions(NameVsn0) ->
+    NameVsn = bin(NameVsn0),
+    Name = emqx_plugins_utils:plugin_name(NameVsn),
+    lists:filtermap(
+        fun(OtherNameVsn) ->
+            case
+                emqx_plugins_utils:plugin_name(OtherNameVsn) =:= Name andalso
+                    bin(OtherNameVsn) =/= NameVsn
+            of
+                true ->
+                    case emqx_plugins_fs:read_info(OtherNameVsn) of
+                        {ok, Info0} ->
+                            Info = emqx_utils_maps:safe_atom_key_map(Info0),
+                            {true, Info#{running_status => emqx_plugins_apps:running_status(Info)}};
+                        {error, _} ->
+                            false
+                    end;
+                false ->
+                    false
+            end
+        end,
+        emqx_plugins_fs:list_name_vsn()
+    ).
 
 ensure_no_other_version_active(Plugins, NameVsn0) ->
     NameVsn = bin(NameVsn0),
-    Name = plugin_name(NameVsn),
+    Name = emqx_plugins_utils:plugin_name(NameVsn),
     {RunningOtherVersions, LoadedOtherVersions} = lists:foldl(
         fun(
             #{name := PluginName, rel_vsn := Vsn, running_status := RunningStatus},
@@ -1212,10 +1223,6 @@ to_bin(S) when is_list(S) -> unicode:characters_to_binary(S);
 to_bin(B) when is_binary(B) -> B;
 to_bin(T) -> iolist_to_binary(io_lib:format("~0p", [T])).
 
-plugin_name(NameVsn) ->
-    {Name, _Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
-    bin(Name).
-
 name_vsn(Name, Vsn) ->
     emqx_plugins_utils:make_name_vsn_binary(Name, Vsn).
 
@@ -1242,7 +1249,9 @@ normalize_helpers_test_() ->
 normalize_state_item_case() ->
     ?assertEqual(
         #{name_vsn => <<"demo-1.0.0">>, enable => true},
-        normalize_state_item(#{<<"name_vsn">> => <<"demo-1.0.0">>, <<"enable">> => true})
+        emqx_plugins_utils:normalize_state_item(
+            #{<<"name_vsn">> => <<"demo-1.0.0">>, <<"enable">> => true}
+        )
     ).
 
 configured_reads_binary_state_items_case() ->
@@ -1286,8 +1295,14 @@ version_selection_helpers_case() ->
         },
         latest_enabled_versions(Configured)
     ),
-    ?assertEqual(older, compare_vsn(<<"demo-2.0.0">>, <<"demo-1.0.0">>)),
-    ?assertEqual(newer, compare_vsn(<<"demo-1.0.0">>, <<"demo-2.0.0">>)).
+    ?assertEqual(
+        <<"demo-2.0.0">>,
+        emqx_plugins_utils:latest_name_vsn(<<"demo-1.0.0">>, <<"demo-2.0.0">>)
+    ),
+    ?assertEqual(
+        <<"demo-1.0.0">>,
+        emqx_plugins_utils:latest_name_vsn(<<"demo-2.0.0">>, <<"demo-1.0.0">>)
+    ).
 
 ensure_no_other_version_active_unloads_loaded_case() ->
     meck:new(emqx_plugins_info, [passthrough]),

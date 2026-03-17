@@ -9,11 +9,19 @@
 -endif.
 
 -export([
+    bin/1,
     parse_name_vsn/1,
+    plugin_name/1,
+    normalize_state_item/1,
+    latest_name_vsn/2,
     compare_vsn/2,
     make_name_vsn_binary/2,
     make_name_vsn_string/2
 ]).
+
+bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
+bin(B) when is_binary(B) -> B.
 
 parse_name_vsn(NameVsn) when is_binary(NameVsn) ->
     parse_name_vsn(binary_to_list(NameVsn));
@@ -42,12 +50,30 @@ make_name_vsn_binary(Name, Vsn) ->
 make_name_vsn_string(Name, Vsn) ->
     binary_to_list(make_name_vsn_binary(Name, Vsn)).
 
-compare_vsn_fallback(Vsn1, Vsn2) ->
-    case compare_segments(split_vsn(Vsn1), split_vsn(Vsn2)) of
-        same -> same;
-        older -> older;
-        newer -> newer
+plugin_name(NameVsn) ->
+    {Name, _Vsn} = parse_name_vsn(NameVsn),
+    bin(Name).
+
+normalize_state_item(#{name_vsn := _NameVsn, enable := _Enable} = Item) ->
+    Item;
+normalize_state_item(#{<<"name_vsn">> := NameVsn, <<"enable">> := Enable}) ->
+    #{
+        name_vsn => NameVsn,
+        enable => Enable
+    }.
+
+%% compare_vsn/2 returns `newer` when the second argument is newer than the first.
+%% When versions are equal, keep the accumulator (`NameVsn1`) stable.
+latest_name_vsn(NameVsn1, NameVsn2) ->
+    {_Name1, Vsn1} = parse_name_vsn(NameVsn1),
+    {_Name2, Vsn2} = parse_name_vsn(NameVsn2),
+    case compare_vsn(Vsn1, Vsn2) of
+        newer -> NameVsn2;
+        _ -> NameVsn1
     end.
+
+compare_vsn_fallback(Vsn1, Vsn2) ->
+    compare_segments(split_vsn(Vsn1), split_vsn(Vsn2)).
 
 split_vsn(Vsn) ->
     re:split(Vsn, "[.-]", [{return, list}, trim]).

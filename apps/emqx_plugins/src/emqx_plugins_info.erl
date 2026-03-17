@@ -118,7 +118,7 @@ check_plugin(
     },
     NameVsn
 ) ->
-    case bin(NameVsn) =:= bin([Name, "-", Vsn]) of
+    case emqx_plugins_utils:bin(NameVsn) =:= emqx_plugins_utils:bin([Name, "-", Vsn]) of
         true ->
             try
                 %% assert
@@ -157,7 +157,7 @@ configured() ->
     configured(emqx_conf:get([?CONF_ROOT, states])).
 
 configured(States) ->
-    lists:map(fun normalize_state_item/1, States).
+    lists:map(fun emqx_plugins_utils:normalize_state_item/1, States).
 
 -doc """
 Return the effective configuration status for a plugin version.
@@ -169,10 +169,11 @@ plugin is also enabled, because only the latest enabled version is treated as
 effectively enabled.
 """.
 configured_status(NameVsn, Configured) ->
-    NameVsnBin = bin(NameVsn),
+    NameVsnBin = emqx_plugins_utils:bin(NameVsn),
     ExactStates = [
         Enabled
-     || #{name_vsn := NV, enable := Enabled} <- Configured, bin(NV) =:= NameVsnBin
+     || #{name_vsn := NV, enable := Enabled} <- Configured,
+        emqx_plugins_utils:bin(NV) =:= NameVsnBin
     ],
     case lists:member(true, ExactStates) of
         true ->
@@ -184,10 +185,11 @@ configured_status(NameVsn, Configured) ->
     end.
 
 enabled_status(NameVsn, Configured) ->
-    Name = plugin_name(NameVsn),
+    Name = emqx_plugins_utils:plugin_name(NameVsn),
     EnabledVersions = [
-        bin(NV)
-     || #{name_vsn := NV, enable := true} <- Configured, plugin_name(NV) =:= Name
+        emqx_plugins_utils:bin(NV)
+     || #{name_vsn := NV, enable := true} <- Configured,
+        emqx_plugins_utils:plugin_name(NV) =:= Name
     ],
     case EnabledVersions of
         [] ->
@@ -195,36 +197,11 @@ enabled_status(NameVsn, Configured) ->
         [NameVsn] ->
             enabled;
         [_ | _] ->
-            case lists:foldl(fun latest_name_vsn/2, NameVsn, EnabledVersions) of
+            case lists:foldl(fun emqx_plugins_utils:latest_name_vsn/2, NameVsn, EnabledVersions) of
                 NameVsn -> enabled;
                 _Other -> disabled
             end
     end.
-
-%% compare_vsn/2 returns `newer` when the second argument is newer than the first.
-latest_name_vsn(NameVsn1, NameVsn2) ->
-    {_Name1, Vsn1} = emqx_plugins_utils:parse_name_vsn(NameVsn1),
-    {_Name2, Vsn2} = emqx_plugins_utils:parse_name_vsn(NameVsn2),
-    case emqx_plugins_utils:compare_vsn(Vsn1, Vsn2) of
-        newer -> NameVsn2;
-        _ -> NameVsn1
-    end.
-
-plugin_name(NameVsn) ->
-    {Name, _Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
-    bin(Name).
-
-normalize_state_item(#{name_vsn := _NameVsn, enable := _Enable} = Item) ->
-    Item;
-normalize_state_item(#{<<"name_vsn">> := NameVsn, <<"enable">> := Enable}) ->
-    #{
-        name_vsn => NameVsn,
-        enable => Enable
-    }.
-
-bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
-bin(B) when is_binary(B) -> B.
 
 -ifdef(TEST).
 
@@ -251,7 +228,9 @@ configured_status_test_() ->
         ),
         ?_assertEqual(
             #{name_vsn => <<"demo-1.0.0">>, enable => true},
-            normalize_state_item(#{<<"name_vsn">> => <<"demo-1.0.0">>, <<"enable">> => true})
+            emqx_plugins_utils:normalize_state_item(
+                #{<<"name_vsn">> => <<"demo-1.0.0">>, <<"enable">> => true}
+            )
         )
     ].
 
