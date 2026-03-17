@@ -753,10 +753,25 @@ to_number({Mantissa, 2, Exponent}) ->
 to_number({Mantissa, 10, Exponent}) ->
     Mantissa * math:pow(10, Exponent);
 to_number(Value) when is_list(Value) ->
-    try
-        list_to_float(Value)
-    catch
-        error:badarg -> list_to_integer(Value)
+    %% ASN.1 NR3 strings like "25.E+0" are not valid for list_to_float
+    %% (Erlang requires digits after the decimal point).
+    %% Parse mantissa and exponent separately.
+    case string:lexemes(Value, "Ee") of
+        [Mantissa, Exp] ->
+            list_to_float(normalize_nr_mantissa(Mantissa)) * math:pow(10, list_to_integer(Exp));
+        [Mantissa] ->
+            case lists:member($., Mantissa) of
+                true -> list_to_float(normalize_nr_mantissa(Mantissa));
+                false -> list_to_integer(Mantissa) * 1.0
+            end
+    end.
+
+%% Ensure mantissa string has digits on both sides of the decimal point
+%% so that list_to_float/1 can parse it (e.g. "25." -> "25.0").
+normalize_nr_mantissa(Mantissa) ->
+    case lists:last(Mantissa) of
+        $. -> Mantissa ++ "0";
+        _ -> Mantissa
     end.
 
 is_subscription_filter_subopt(Key) ->
