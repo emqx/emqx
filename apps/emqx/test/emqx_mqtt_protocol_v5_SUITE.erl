@@ -1005,6 +1005,92 @@ t_subscription_filter(Config) ->
     ok = emqtt:disconnect(PlainSub),
     ok = emqtt:disconnect(Pub).
 
+t_subscription_filter_authz(init, Config) ->
+    OldMode = emqx:get_config([mqtt, subscription_message_filter], disable),
+    emqx_config:put_zone_conf(default, [authorization, enable], true),
+    [{old_subscription_message_filter, OldMode} | Config];
+t_subscription_filter_authz('end', Config) ->
+    emqx_config:put(
+        [mqtt, subscription_message_filter], ?config(old_subscription_message_filter, Config)
+    ),
+    emqx_config:put_zone_conf(default, [authorization, enable], false).
+
+-doc """
+Verify that authorization checks use the base topic (without filter expression)
+when subscription message filter is enabled, and that `?` remains part of the
+topic for authorization purposes when the feature is disabled.
+""".
+t_subscription_filter_authz(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = <<"foo/bar">>,
+    FilteredTopic = <<"foo/bar?v=1">>,
+
+    %% --- filter enabled ---
+    emqx_config:put([mqtt, subscription_message_filter], enable),
+
+    %% Deny foo/bar: both foo/bar and foo/bar?v=1 should be denied
+    ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_access_control, authorize, fun(_, _, T) ->
+        case T of
+            <<"foo/bar">> -> deny;
+            _ -> allow
+        end
+    end),
+    {ok, C1} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(C1),
+    {ok, _, [?RC_NOT_AUTHORIZED]} = emqtt:subscribe(C1, Topic, qos1),
+    {ok, _, [?RC_NOT_AUTHORIZED]} = emqtt:subscribe(C1, FilteredTopic, qos1),
+    ok = emqtt:disconnect(C1),
+    meck:unload(emqx_access_control),
+
+    %% Allow foo/bar: both foo/bar and foo/bar?v=1 should be allowed
+    ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_access_control, authorize, fun(_, _, T) ->
+        case T of
+            <<"foo/bar">> -> allow;
+            _ -> deny
+        end
+    end),
+    {ok, C2} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(C2),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C2, Topic, qos1),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C2, FilteredTopic, qos1),
+    ok = emqtt:disconnect(C2),
+    meck:unload(emqx_access_control),
+
+    %% --- filter disabled ---
+    emqx_config:put([mqtt, subscription_message_filter], disable),
+
+    %% Deny foo/bar: foo/bar denied, but foo/bar?v=1 is a different topic so allowed
+    ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_access_control, authorize, fun(_, _, T) ->
+        case T of
+            <<"foo/bar">> -> deny;
+            _ -> allow
+        end
+    end),
+    {ok, C3} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(C3),
+    {ok, _, [?RC_NOT_AUTHORIZED]} = emqtt:subscribe(C3, Topic, qos1),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C3, FilteredTopic, qos1),
+    ok = emqtt:disconnect(C3),
+    meck:unload(emqx_access_control),
+
+    %% Allow foo/bar: foo/bar allowed, but foo/bar?v=1 is a different topic so denied
+    ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_access_control, authorize, fun(_, _, T) ->
+        case T of
+            <<"foo/bar">> -> allow;
+            _ -> deny
+        end
+    end),
+    {ok, C4} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(C4),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C4, Topic, qos1),
+    {ok, _, [?RC_NOT_AUTHORIZED]} = emqtt:subscribe(C4, FilteredTopic, qos1),
+    ok = emqtt:disconnect(C4),
+    meck:unload(emqx_access_control).
+
 t_publish_overlapping_subscriptions(Config) ->
     ConnFun = ?config(conn_fun, Config),
     Topic = nth(1, ?TOPICS),
