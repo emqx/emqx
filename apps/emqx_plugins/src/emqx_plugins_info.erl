@@ -86,7 +86,7 @@ populate_plugin_readme(_NameVsn, _Options, Info) ->
     Info.
 
 populate_plugin_status(NameVsn, Info) ->
-    RunningSt = emqx_plugins_apps:running_status(NameVsn),
+    RunningSt = emqx_plugins_apps:running_status(Info),
     ConfSt = configured_status(NameVsn, configured()),
     Info#{
         running_status => RunningSt,

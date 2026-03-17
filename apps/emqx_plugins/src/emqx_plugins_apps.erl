@@ -33,7 +33,12 @@
 %% API
 %%--------------------------------------------------------------------
 
--spec running_status(name_vsn()) -> running | loaded | stopped.
+-spec running_status(name_vsn() | map()) -> running | loaded | stopped.
+running_status(#{name := PluginName, rel_apps := Apps}) ->
+    {AppName, AppVsn} = primary_app_name_vsn(PluginName, Apps),
+    RunningApps = running_apps(),
+    LoadedApps = loaded_apps(),
+    app_running_status(AppName, AppVsn, RunningApps, LoadedApps);
 running_status(NameVsn) ->
     {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
     RunningApps = running_apps(),
@@ -432,6 +437,23 @@ is_callback_exported(AppModule, FuncName, Arity) ->
         false -> {error, {callback_not_exported, AppModule, FuncName, Arity}}
     end.
 
+primary_app_name_vsn(PluginName, Apps) ->
+    PluginNameBin = bin(PluginName),
+    case
+        lists:search(
+            fun(AppNameVsn) ->
+                {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(AppNameVsn),
+                bin(AppName) =:= PluginNameBin
+            end,
+            Apps
+        )
+    of
+        {value, PluginAppNameVsn} ->
+            emqx_plugins_utils:parse_name_vsn(PluginAppNameVsn);
+        false ->
+            emqx_plugins_utils:parse_name_vsn(hd(Apps))
+    end.
+
 same_app_vsn(undefined, _LoadedVsn) ->
     true;
 same_app_vsn(AppVsn, LoadedVsn) ->
@@ -460,6 +482,14 @@ app_running_status_test_() ->
         ?_assertEqual(
             stopped,
             app_running_status(demo, "1.0.0", [], [{demo, "2.0.0"}])
+        ),
+        ?_assertEqual(
+            {demo, "2.0.0"},
+            primary_app_name_vsn(<<"demo">>, [<<"dep-1.0.0">>, <<"demo-2.0.0">>])
+        ),
+        ?_assertEqual(
+            {dep, "1.0.0"},
+            primary_app_name_vsn(<<"demo">>, [<<"dep-1.0.0">>])
         )
     ].
 
