@@ -490,6 +490,11 @@ enrich_message(
 ) ->
     _ = emqx_session_events:handle_event(ClientInfo, {dropped, Msg, no_local}),
     [];
+%% NOTE:
+%% This branch is used on the durable-session replay path. Keep the persisted
+%% subscription-filter representation and `emqx_subscription_filter:match_message/2`
+%% behavior deterministic and version-stable, otherwise replayed delivery can
+%% change across upgrades.
 enrich_message(ClientInfo, MsgIn, SubOpts = #{sub_filter_ast := AST}, UpgradeQoS) ->
     case emqx_subscription_filter:match_message(AST, MsgIn) of
         true ->

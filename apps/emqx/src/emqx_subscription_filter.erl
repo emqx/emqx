@@ -10,6 +10,10 @@ topic filters with `?`.
 
 For the accepted filter-expression syntax, see
 `apps/emqx/doc/subscription-message-filter-bnf.md`.
+
+This module is used on the durable-session replay path. The AST shape produced
+by this module and the semantics of `match_message/2` therefore must remain
+deterministic and stable across releases for stored subscription filters.
 """.
 
 -include("emqx_mqtt.hrl").
@@ -90,6 +94,9 @@ normalize_topic_filter(TopicFilter) ->
 
 -doc """
 Evaluate a parsed filter AST against MQTT 5 `User-Property` values on a message.
+
+This function is used during durable-session replay, so its behavior must stay
+deterministic and compatible with the persisted filter AST representation.
 """.
 -spec match_message(ast(), emqx_types:message()) -> boolean().
 match_message(AST, Msg) ->
