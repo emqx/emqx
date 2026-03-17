@@ -734,12 +734,30 @@ wrap_filter_clause({Op, Key, Value}) when
 unwrap_filter_clause(#'FilterClause'{op = eq, key = Key, stringValue = Value}) ->
     {eq, Key, Value};
 unwrap_filter_clause(#'FilterClause'{op = Op, key = Key, numberValue = Value}) ->
-    {Op, Key, Value}.
+    {Op, Key, to_number(Value)}.
 
+%% ASN.1 BER REAL encoding expects a string representation, not a bare Erlang float.
 as_float(Value) when is_float(Value) ->
-    Value;
+    float_to_list(Value, [{decimals, 17}, compact]);
 as_float(Value) when is_integer(Value) ->
-    float(Value).
+    float_to_list(float(Value), [{decimals, 17}, compact]).
+
+%% ASN.1 BER REAL decoding returns a string (NR form) or {Mantissa, Base, Exponent}.
+%% Convert back to Erlang number for filter comparisons.
+to_number(Value) when is_float(Value) ->
+    Value;
+to_number(Value) when is_integer(Value) ->
+    Value;
+to_number({Mantissa, 2, Exponent}) ->
+    Mantissa * math:pow(2, Exponent);
+to_number({Mantissa, 10, Exponent}) ->
+    Mantissa * math:pow(10, Exponent);
+to_number(Value) when is_list(Value) ->
+    try
+        list_to_float(Value)
+    catch
+        error:badarg -> list_to_integer(Value)
+    end.
 
 is_subscription_filter_subopt(Key) ->
     lists:member(Key, subscription_filter_subopt_keys()).
