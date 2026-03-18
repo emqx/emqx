@@ -53,6 +53,12 @@ If one of the limiters lack configuration, we simply don't do each action above.
 
 -define(BYTES_LIM_NAME, bytes).
 -define(MESSAGES_LIM_NAME, messages).
+-define(DELIVERY_BYTES_LIM_NAME, delivery_bytes).
+-define(DELIVERY_MESSAGES_LIM_NAME, delivery_messages).
+
+-define(IS_CHANNEL_ONLY_LIMITER(NAME),
+    ((NAME) =:= ?DELIVERY_BYTES_LIM_NAME orelse (NAME) =:= ?DELIVERY_MESSAGES_LIM_NAME)
+).
 
 -define(tenant, tenant).
 -define(client, client).
@@ -82,14 +88,14 @@ If one of the limiters lack configuration, we simply don't do each action above.
 -spec create_channel_client_container(emqx_types:zone(), emqx_listeners:listener_id(), tns()) ->
     emqx_limiter_client_container:t().
 create_channel_client_container(Zone, ListenerId, Ns) ->
-    create_client_container(Zone, ListenerId, Ns, limiter_names()).
+    create_client_container(Zone, ListenerId, Ns, client_limiter_names()).
 
 create_tenant_limiter_group(Ns, Config) ->
-    LimiterConfigs = to_limiter_options(Config),
+    LimiterConfigs = tenant_limiter_options(Config),
     emqx_limiter:create_group(emqx_limiter_shared, tenant_group(Ns), LimiterConfigs).
 
 update_tenant_limiter_group(Ns, Config) ->
-    LimiterConfigs = to_limiter_options(Config),
+    LimiterConfigs = tenant_limiter_options(Config),
     emqx_limiter:update_group(tenant_group(Ns), LimiterConfigs).
 
 delete_tenant_limiter_group(Ns) ->
@@ -101,11 +107,11 @@ ensure_tenant_limiter_group_absent(Ns) ->
 %%
 
 create_client_limiter_group(Ns, Config) ->
-    LimiterConfigs = to_limiter_options(Config),
+    LimiterConfigs = client_limiter_options(Config),
     emqx_limiter:create_group(emqx_limiter_exclusive, client_group(Ns), LimiterConfigs).
 
 update_client_limiter_group(Ns, Config) ->
-    LimiterConfigs = to_limiter_options(Config),
+    LimiterConfigs = client_limiter_options(Config),
     emqx_limiter:update_group(client_group(Ns), LimiterConfigs).
 
 delete_client_limiter_group(Ns) ->
@@ -157,16 +163,36 @@ tenant_group(Ns) ->
 client_group(Ns) ->
     {mt_client, Ns}.
 
-limiter_names() ->
-    [?MESSAGES_LIM_NAME, ?BYTES_LIM_NAME].
+client_limiter_names() ->
+    [
+        ?MESSAGES_LIM_NAME,
+        ?BYTES_LIM_NAME,
+        ?DELIVERY_MESSAGES_LIM_NAME,
+        ?DELIVERY_BYTES_LIM_NAME
+    ].
 
-to_limiter_options(Config) ->
+tenant_limiter_names() ->
+    [
+        ?MESSAGES_LIM_NAME,
+        ?BYTES_LIM_NAME
+    ].
+
+tenant_limiter_options(Config) ->
     lists:map(
         fun(Name) ->
             #{rate := Rate, burst := Burst} = maps:get(Name, Config),
             {Name, emqx_limiter:config_from_rate_and_burst(Rate, Burst)}
         end,
-        limiter_names()
+        tenant_limiter_names()
+    ).
+
+client_limiter_options(Config) ->
+    lists:map(
+        fun(Name) ->
+            #{rate := Rate, burst := Burst} = maps:get(Name, Config),
+            {Name, emqx_limiter:config_from_rate_and_burst(Rate, Burst)}
+        end,
+        client_limiter_names()
     ).
 
 create_client_container(Zone, ListenerId, Ns, Names) ->
@@ -185,6 +211,8 @@ create_limiter(Zone, ListenerId, Ns, Name) ->
     Clients = TenantLimiters ++ ClientLimiters,
     emqx_limiter_composite:new(Clients).
 
+create_tenant_limiters(_Zone, _Ns, Name) when ?IS_CHANNEL_ONLY_LIMITER(Name) ->
+    [];
 create_tenant_limiters(Zone, Ns, Name) ->
     ZoneLimiterId = {zone_group(Zone), Name},
     ZoneLimiterClient = emqx_limiter:connect(ZoneLimiterId),

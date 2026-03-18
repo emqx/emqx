@@ -940,6 +940,7 @@ try_consume_delivery_rate_limit(Msg) ->
                     emqx_session:put_context(Ctx),
                     ok;
                 {false, Limiter, Reason} ->
+                    ?tp("mem_delivery_rate_limit", #{reason => Reason}),
                     Ctx1 = Ctx0#{limiter := Limiter},
                     Ctx = ensure_retry_dequeue_timer(Reason, Ctx1),
                     emqx_session:put_context(Ctx),
