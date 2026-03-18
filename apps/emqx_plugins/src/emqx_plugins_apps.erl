@@ -7,6 +7,9 @@
 -include("emqx_plugins.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 %% Plugin's app lifecycle
 -export([
@@ -30,12 +33,17 @@
 %% API
 %%--------------------------------------------------------------------
 
--spec running_status(name_vsn()) -> running | loaded | stopped.
-running_status(NameVsn) ->
-    {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+-spec running_status(name_vsn() | emqx_plugins_info:t()) -> running | loaded | stopped.
+running_status(#{name := PluginName, rel_apps := Apps}) ->
+    {AppName, AppVsn} = primary_app_name_vsn(PluginName, Apps),
     RunningApps = running_apps(),
     LoadedApps = loaded_apps(),
-    app_running_status(AppName, RunningApps, LoadedApps).
+    app_running_status(AppName, AppVsn, RunningApps, LoadedApps);
+running_status(NameVsn) ->
+    {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    RunningApps = running_apps(),
+    LoadedApps = loaded_apps(),
+    app_running_status(AppName, AppVsn, RunningApps, LoadedApps).
 
 -spec start(emqx_plugins_info:t()) -> ok | {error, term()}.
 start(#{rel_apps := Apps}) ->
@@ -181,28 +189,16 @@ apply_api_callback(NameVsn, {FuncName, Arity}, Args) ->
             {error, not_found}
     end.
 
-app_running_status(AppName, RunningApps, LoadedApps) ->
-    case lists:keyfind(AppName, 1, LoadedApps) of
-        {AppName, _} ->
-            case lists:keyfind(AppName, 1, RunningApps) of
-                {AppName, _} -> running;
-                false -> loaded
-            end;
-        false ->
-            stopped
-    end.
-
 load_plugin_app(AppName, AppVsn, Ebin, LoadedApps) ->
     case lists:keyfind(AppName, 1, LoadedApps) of
         false ->
             do_load_plugin_app(AppName, Ebin);
         {_, Vsn} ->
-            case bin(Vsn) =:= bin(AppVsn) of
+            case emqx_plugins_utils:bin(Vsn) =:= emqx_plugins_utils:bin(AppVsn) of
                 true ->
                     %% already loaded on the exact version
                     ok;
                 false ->
-                    %% running but a different version
                     ?SLOG(warning, #{
                         msg => "plugin_app_already_loaded",
                         name => AppName,
@@ -320,7 +316,7 @@ unload_apps([], _RunningApps, _LoadedApps) ->
     ok;
 unload_apps([App | Apps], RunningApps, LoadedApps) ->
     _ =
-        case app_running_status(App, RunningApps, LoadedApps) of
+        case app_running_status(App, undefined, RunningApps, LoadedApps) of
             running ->
                 ?SLOG(warning, #{msg => "emqx_plugins_cannot_unload_running_app", app => App});
             loaded ->
@@ -331,6 +327,28 @@ unload_apps([App | Apps], RunningApps, LoadedApps) ->
                 ok
         end,
     unload_apps(Apps, RunningApps, LoadedApps).
+
+app_running_status(AppName, AppVsn, RunningApps, LoadedApps) ->
+    case lists:keyfind(AppName, 1, LoadedApps) of
+        {AppName, LoadedVsn} ->
+            case same_app_vsn(AppVsn, LoadedVsn) of
+                true -> loaded_app_status(AppName, AppVsn, RunningApps);
+                false -> stopped
+            end;
+        false ->
+            stopped
+    end.
+
+loaded_app_status(AppName, AppVsn, RunningApps) ->
+    case lists:keyfind(AppName, 1, RunningApps) of
+        {AppName, RunningVsn} ->
+            case same_app_vsn(AppVsn, RunningVsn) of
+                true -> running;
+                false -> loaded
+            end;
+        _ ->
+            loaded
+    end.
 
 stop_app(App) ->
     case application:stop(App) of
@@ -407,7 +425,11 @@ run_with_timeout(Module, Function, Args, Timeout) ->
 
 app_module_name(NameVsn) ->
     {AppName, _} = emqx_plugins_utils:parse_name_vsn(NameVsn),
-    case emqx_utils:safe_to_existing_atom(<<(bin(AppName))/binary, "_app">>) of
+    case
+        emqx_utils:safe_to_existing_atom(
+            <<(emqx_plugins_utils:bin(AppName))/binary, "_app">>
+        )
+    of
         {ok, AppModule} ->
             {ok, AppModule};
         {error, Reason} ->
@@ -420,6 +442,51 @@ is_callback_exported(AppModule, FuncName, Arity) ->
         false -> {error, {callback_not_exported, AppModule, FuncName, Arity}}
     end.
 
-bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
-bin(B) when is_binary(B) -> B.
+primary_app_name_vsn(PluginName, Apps) ->
+    PluginNameBin = emqx_plugins_utils:bin(PluginName),
+    Pred = fun(AppNameVsn) ->
+        emqx_plugins_utils:plugin_name(AppNameVsn) =:= PluginNameBin
+    end,
+    case lists:search(Pred, Apps) of
+        {value, PluginAppNameVsn} ->
+            emqx_plugins_utils:parse_name_vsn(PluginAppNameVsn);
+        false ->
+            emqx_plugins_utils:parse_name_vsn(hd(Apps))
+    end.
+
+same_app_vsn(undefined, _LoadedVsn) ->
+    true;
+same_app_vsn(AppVsn, LoadedVsn) ->
+    emqx_plugins_utils:bin(AppVsn) =:= emqx_plugins_utils:bin(LoadedVsn).
+
+-ifdef(TEST).
+
+app_running_status_test_() ->
+    [
+        ?_assertEqual(
+            running,
+            app_running_status(demo, "1.0.0", [{demo, "1.0.0"}], [{demo, "1.0.0"}])
+        ),
+        ?_assertEqual(
+            loaded,
+            app_running_status(demo, "1.0.0", [], [{demo, "1.0.0"}])
+        ),
+        ?_assertEqual(
+            stopped,
+            app_running_status(demo, "1.0.0", [{demo, "2.0.0"}], [{demo, "2.0.0"}])
+        ),
+        ?_assertEqual(
+            stopped,
+            app_running_status(demo, "1.0.0", [], [{demo, "2.0.0"}])
+        ),
+        ?_assertEqual(
+            {demo, "2.0.0"},
+            primary_app_name_vsn(<<"demo">>, [<<"dep-1.0.0">>, <<"demo-2.0.0">>])
+        ),
+        ?_assertEqual(
+            {dep, "1.0.0"},
+            primary_app_name_vsn(<<"demo">>, [<<"dep-1.0.0">>])
+        )
+    ].
+
+-endif.

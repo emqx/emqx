@@ -29,11 +29,17 @@ defmodule Mix.Tasks.Emqx.Plugin do
       end
 
     System.put_env("PROFILE", build_profile)
+    force_rebuild_app_file!()
 
     info = collect_info(plugin_dir, plugin_name, plugin_vsn)
     make_tar(plugin_dir, info)
 
     Mix.shell().info("Built plugin package: #{info.name}-#{info.rel_vsn}.tar.gz")
+  end
+
+  defp force_rebuild_app_file!() do
+    Mix.Task.reenable("compile.app")
+    Mix.Task.run("compile.app", ["--force"])
   end
 
   defp collect_info(plugin_dir, plugin_name, plugin_vsn) do
