@@ -10,6 +10,9 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_plugins/include/emqx_plugins.hrl").
 -include_lib("erlavro/include/erlavro.hrl").
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 -export([
     api_spec/0,
@@ -156,6 +159,7 @@ schema("/plugins/:name/:action") ->
             ],
             responses => #{
                 204 => ?DESC("trigger_success"),
+                400 => emqx_dashboard_swagger:error_codes(['PARAM_ERROR'], ?DESC("bad_parameter")),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found"))
             }
         }
@@ -771,17 +775,20 @@ ensure_action(Name, Action) ->
     ensure_action(Name, Action, #{}).
 
 ensure_action(Name, start, _Opts) ->
-    _ = emqx_plugins:ensure_started(Name),
-    _ = emqx_plugins:ensure_enabled(Name),
-    ok;
+    case emqx_plugins:ensure_started(Name) of
+        ok -> emqx_plugins:ensure_enabled(Name);
+        {error, _} = Error -> Error
+    end;
 ensure_action(Name, stop, _Opts) ->
-    _ = emqx_plugins:ensure_stopped(Name),
-    _ = emqx_plugins:ensure_disabled(Name),
-    ok;
+    case emqx_plugins:ensure_stopped(Name) of
+        ok -> emqx_plugins:ensure_disabled(Name);
+        {error, _} = Error -> Error
+    end;
 ensure_action(Name, restart, _Opts) ->
-    _ = emqx_plugins:ensure_enabled(Name),
-    _ = emqx_plugins:restart(Name),
-    ok.
+    case emqx_plugins:ensure_enabled(Name) of
+        ok -> emqx_plugins:restart(Name);
+        {error, _} = Error -> Error
+    end.
 
 %% for RPC plugin avro encoded config update
 -spec do_update_plugin_config(name_vsn(), map() | binary(), any()) ->
@@ -851,6 +858,19 @@ plugin_not_found_msg() ->
 
 readable_error_msg(Msg) ->
     emqx_utils:readable_error_msg(Msg).
+
+-ifdef(TEST).
+
+update_plugin_schema_exposes_param_error_test() ->
+    #{
+        put := #{
+            responses := #{
+                400 := _
+            }
+        }
+    } = schema("/plugins/:name/:action").
+
+-endif.
 
 plugin_sync_failed_msg(Nodes) ->
     #{
@@ -976,3 +996,45 @@ add_health_status(StatusInfo, #{health_status := HealthStatus}) ->
     StatusInfo#{health_status => HealthStatus};
 add_health_status(StatusInfo, _) ->
     StatusInfo.
+
+-ifdef(TEST).
+
+ensure_action_test_() ->
+    {setup,
+        fun() ->
+            meck:new(emqx_plugins, [passthrough]),
+            ok
+        end,
+        fun(_) ->
+            meck:unload(emqx_plugins)
+        end,
+        [
+            fun ensure_action_start_propagates_error_case/0,
+            fun ensure_action_stop_propagates_error_case/0,
+            fun ensure_action_restart_propagates_enable_error_case/0,
+            fun ensure_action_success_case/0
+        ]}.
+
+ensure_action_start_propagates_error_case() ->
+    meck:expect(emqx_plugins, ensure_started, fun(_Name) -> {error, start_failed} end),
+    ?assertEqual({error, start_failed}, ensure_action(<<"demo-1.0.0">>, start, #{})).
+
+ensure_action_stop_propagates_error_case() ->
+    meck:expect(emqx_plugins, ensure_stopped, fun(_Name) -> {error, stop_failed} end),
+    ?assertEqual({error, stop_failed}, ensure_action(<<"demo-1.0.0">>, stop, #{})).
+
+ensure_action_restart_propagates_enable_error_case() ->
+    meck:expect(emqx_plugins, ensure_enabled, fun(_Name) -> {error, enable_failed} end),
+    ?assertEqual({error, enable_failed}, ensure_action(<<"demo-1.0.0">>, restart, #{})).
+
+ensure_action_success_case() ->
+    meck:expect(emqx_plugins, ensure_started, fun(_Name) -> ok end),
+    meck:expect(emqx_plugins, ensure_enabled, fun(_Name) -> ok end),
+    meck:expect(emqx_plugins, ensure_stopped, fun(_Name) -> ok end),
+    meck:expect(emqx_plugins, ensure_disabled, fun(_Name) -> ok end),
+    meck:expect(emqx_plugins, restart, fun(_Name) -> ok end),
+    ?assertEqual(ok, ensure_action(<<"demo-1.0.0">>, start, #{})),
+    ?assertEqual(ok, ensure_action(<<"demo-1.0.0">>, stop, #{})),
+    ?assertEqual(ok, ensure_action(<<"demo-1.0.0">>, restart, #{})).
+
+-endif.
