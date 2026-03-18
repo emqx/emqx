@@ -208,6 +208,10 @@ stop_and_commit(Client) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
+t_sub_state_subscription_filter_roundtrip(init, Config) ->
+    Config.
+
+-doc "Verify subscription filter AST survives serialization/deserialization roundtrip.".
 t_sub_state_subscription_filter_roundtrip(_Config) ->
     SubState = #{
         parent_subscription => 1,
