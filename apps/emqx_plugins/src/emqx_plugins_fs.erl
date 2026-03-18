@@ -268,7 +268,9 @@ plugin_dir(NameVsn) ->
     wrap_to_list(filename:join([install_dir(), NameVsn])).
 
 tar_file_path(NameVsn) ->
-    wrap_to_list(filename:join([install_dir(), bin([NameVsn, ".tar.gz"])])).
+    wrap_to_list(
+        filename:join([install_dir(), unicode:characters_to_binary([NameVsn, ".tar.gz"])])
+    ).
 
 info_file_path(NameVsn) ->
     wrap_to_list(filename:join([plugin_dir(NameVsn), "release.json"])).
@@ -413,9 +415,6 @@ delete_file_if_exists(File) ->
         {error, Reason} ->
             {error, {delete_file_failed, File, Reason}}
     end.
-
-bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8).
 
 -ifdef(TEST).
 normalize_dir_test_() ->

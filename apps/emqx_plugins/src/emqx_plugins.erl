@@ -1029,15 +1029,8 @@ unload_other_versions([NameVsn | Rest]) ->
     }),
     case emqx_plugins_info:read(NameVsn) of
         {ok, Plugin} ->
-            case emqx_plugins_apps:unload(Plugin) of
-                ok ->
-                    unload_other_versions(Rest);
-                {error, Reason} ->
-                    {error, #{
-                        msg => "failed_to_unload_conflicting_plugin_version",
-                        reason => Reason
-                    }}
-            end;
+            ok = emqx_plugins_apps:unload(Plugin),
+            unload_other_versions(Rest);
         {error, Reason} ->
             {error, Reason}
     end.
