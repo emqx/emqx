@@ -1294,6 +1294,10 @@ version_selection_helpers_case() ->
     ),
     ?assertEqual(
         <<"demo-1.0.0">>,
+        emqx_plugins_utils:latest_name_vsn(<<"demo-1.0.0">>, <<"demo-1.0.0">>)
+    ),
+    ?assertEqual(
+        <<"demo-2.0.0">>,
         emqx_plugins_utils:latest_name_vsn(<<"demo-2.0.0">>, <<"demo-1.0.0">>)
     ).
 
