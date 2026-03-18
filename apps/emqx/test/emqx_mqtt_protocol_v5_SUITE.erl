@@ -929,6 +929,7 @@ filter when the feature is disabled.
 t_subscription_filter(Config) ->
     ConnFun = ?config(conn_fun, Config),
     Topic = <<"subscription/filter/topic">>,
+    WildcardTopic = <<"subscription/filter/wildcard/topic">>,
     PlainTopic = <<"subscription/filter/plain?location=roomA">>,
     emqx_config:put([mqtt, subscription_message_filter], enable),
 
@@ -956,6 +957,29 @@ t_subscription_filter(Config) ->
     [Matched] = receive_messages(2),
     ?assertEqual(<<"match">>, maps:get(payload, Matched)),
     ok = emqtt:disconnect(Sub),
+
+    {ok, WildcardSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(WildcardSub),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(
+        WildcardSub, <<"subscription/filter/#?location=roomA&value>25">>, qos1
+    ),
+    ok = emqtt:publish(
+        Pub,
+        WildcardTopic,
+        #{'User-Property' => [{<<"location">>, <<"roomB">>}, {<<"value">>, <<"30">>}]},
+        <<"wildcard-miss">>,
+        [{qos, ?QOS_0}]
+    ),
+    ok = emqtt:publish(
+        Pub,
+        WildcardTopic,
+        #{'User-Property' => [{<<"location">>, <<"roomA">>}, {<<"value">>, <<"26">>}]},
+        <<"wildcard-match">>,
+        [{qos, ?QOS_0}]
+    ),
+    [WildcardMatched] = receive_messages(2),
+    ?assertEqual(<<"wildcard-match">>, maps:get(payload, WildcardMatched)),
+    ok = emqtt:disconnect(WildcardSub),
 
     {ok, QueueSub} = emqtt:start_link([{proto_ver, v5} | Config]),
     unlink(QueueSub),
