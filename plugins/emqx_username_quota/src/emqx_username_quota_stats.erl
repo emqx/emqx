@@ -49,18 +49,20 @@ start_link() ->
 Record one quota exceeded event for Username.
 """.
 record_quota_exceeded(Username) when is_binary(Username) ->
-    case whereis(?SERVER) of
-        undefined ->
-            ok;
-        _Pid ->
-            gen_server:cast(?SERVER, {record_quota_exceeded, Username})
-    end.
+    gen_server:cast(?SERVER, {record_quota_exceeded, Username}).
 
 -doc """
 Return the stored quota exceeded statistics for Username.
 """.
+-spec get(binary()) ->
+    {ok, #{
+        username := binary(),
+        quota_exceeded_count := pos_integer(),
+        last_quota_exceeded_at := pos_integer()
+    }}
+    | {error, not_found | not_ready}.
 get(Username) when is_binary(Username) ->
-    case ets:lookup(?STATS_TAB, Username) of
+    try ets:lookup(?STATS_TAB, Username) of
         [
             #?STATS_TAB{
                 quota_exceeded_count = Count,
@@ -73,7 +75,10 @@ get(Username) when is_binary(Username) ->
                 last_quota_exceeded_at => LastQuotaExceededAt
             }};
         [] ->
-            not_found
+            {error, not_found}
+    catch
+        _:_ ->
+            {error, not_ready}
     end.
 
 -doc """
@@ -88,7 +93,9 @@ reset() ->
     end.
 
 init([]) ->
-    ok = emqx_utils_ets:new(?STATS_TAB, [named_table, ordered_set, public, {keypos, 2}]),
+    ok = emqx_utils_ets:new(?STATS_TAB, [
+        named_table, ordered_set, public, {keypos, #?STATS_TAB.username}
+    ]),
     {ok, #{}}.
 
 handle_call(reset, _From, State) ->
