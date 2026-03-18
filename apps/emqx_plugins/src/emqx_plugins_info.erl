@@ -7,6 +7,9 @@
 -include("emqx_plugins.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 -export([
     read/1,
@@ -83,22 +86,8 @@ populate_plugin_readme(_NameVsn, _Options, Info) ->
     Info.
 
 populate_plugin_status(NameVsn, Info) ->
-    RunningSt = emqx_plugins_apps:running_status(NameVsn),
-    Configured = lists:filtermap(
-        fun(#{name_vsn := Nv, enable := St}) ->
-            case bin(Nv) =:= bin(NameVsn) of
-                true -> {true, St};
-                false -> false
-            end
-        end,
-        configured()
-    ),
-    ConfSt =
-        case Configured of
-            [] -> not_configured;
-            [true] -> enabled;
-            [false] -> disabled
-        end,
+    RunningSt = emqx_plugins_apps:running_status(Info),
+    ConfSt = configured_status(NameVsn, configured()),
     Info#{
         running_status => RunningSt,
         config_status => ConfSt
@@ -129,7 +118,7 @@ check_plugin(
     },
     NameVsn
 ) ->
-    case bin(NameVsn) =:= bin([Name, "-", Vsn]) of
+    case emqx_plugins_utils:bin(NameVsn) =:= emqx_plugins_utils:bin([Name, "-", Vsn]) of
         true ->
             try
                 %% assert
@@ -165,8 +154,90 @@ check_plugin(PluginInfo, NameVsn) ->
     }}.
 
 configured() ->
-    emqx_conf:get([?CONF_ROOT, states]).
+    configured(emqx_conf:get([?CONF_ROOT, states])).
 
-bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
-bin(B) when is_binary(B) -> B.
+configured(States) ->
+    lists:map(fun emqx_plugins_utils:normalize_state_item/1, States).
+
+-doc """
+Return the effective configuration status for a plugin version.
+
+If the version has no entry in `plugins.states`, the result is `not_configured`.
+If it is configured but not enabled, the result is `disabled`.
+If it is enabled, the result is still `disabled` when a newer version of the same
+plugin is also enabled, because only the latest enabled version is treated as
+effectively enabled.
+""".
+configured_status(NameVsn, Configured) ->
+    NameVsnBin = emqx_plugins_utils:bin(NameVsn),
+    ExactStates = [
+        Enabled
+     || #{name_vsn := NV, enable := Enabled} <- Configured,
+        emqx_plugins_utils:bin(NV) =:= NameVsnBin
+    ],
+    case lists:member(true, ExactStates) of
+        true ->
+            enabled_status(NameVsnBin, Configured);
+        false when ExactStates =:= [] ->
+            not_configured;
+        false ->
+            disabled
+    end.
+
+enabled_status(NameVsn, Configured) ->
+    Name = emqx_plugins_utils:plugin_name(NameVsn),
+    EnabledVersions = [
+        emqx_plugins_utils:bin(NV)
+     || #{name_vsn := NV, enable := true} <- Configured,
+        emqx_plugins_utils:plugin_name(NV) =:= Name
+    ],
+    case EnabledVersions of
+        [] ->
+            disabled;
+        [NameVsn] ->
+            enabled;
+        [_ | _] ->
+            case lists:foldl(fun emqx_plugins_utils:latest_name_vsn/2, NameVsn, EnabledVersions) of
+                NameVsn -> enabled;
+                _Other -> disabled
+            end
+    end.
+
+-ifdef(TEST).
+
+configured_status_test_() ->
+    [
+        ?_assertEqual(not_configured, configured_status(<<"demo-1.0.0">>, [])),
+        ?_assertEqual(
+            disabled,
+            configured_status(<<"demo-1.0.0">>, [#{name_vsn => <<"demo-1.0.0">>, enable => false}])
+        ),
+        ?_assertEqual(
+            enabled,
+            configured_status(<<"demo-2.0.0">>, [
+                #{name_vsn => <<"demo-1.0.0">>, enable => false},
+                #{name_vsn => <<"demo-2.0.0">>, enable => true}
+            ])
+        ),
+        ?_assertEqual(
+            disabled,
+            configured_status(<<"demo-1.0.0">>, [
+                #{name_vsn => <<"demo-1.0.0">>, enable => true},
+                #{name_vsn => <<"demo-2.0.0">>, enable => true}
+            ])
+        ),
+        ?_assertEqual(
+            #{name_vsn => <<"demo-1.0.0">>, enable => true},
+            emqx_plugins_utils:normalize_state_item(
+                #{<<"name_vsn">> => <<"demo-1.0.0">>, <<"enable">> => true}
+            )
+        )
+    ].
+
+configured_case_test() ->
+    States = [#{<<"name_vsn">> => <<"demo-1.0.0">>, <<"enable">> => true}],
+    ?assertEqual(
+        [#{name_vsn => <<"demo-1.0.0">>, enable => true}],
+        configured(States)
+    ).
+-endif.

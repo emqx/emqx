@@ -1341,35 +1341,34 @@ mria_data(Mode) ->
     end.
 
 mria_data(Role, Mode) ->
-    lists:foldl(
-        fun({Name, _Type, MetricK}, AccIn) ->
-            %% TODO: only report shards that are up
-            AccIn#{Name => ?SAFELY(get_shard_metrics(Mode, MetricK), [])}
-        end,
-        #{},
-        mria_metric_meta(Role)
-    ).
-
-get_shard_metrics(Mode, MetricK) ->
     Labels =
         case Mode of
             ?PROM_DATA_MODE__NODE -> [];
             _ -> [{node, node()}]
         end,
-    [
-        {[{shard, Shard} | Labels], get_shard_metric(MetricK, Shard)}
+    ShardMetrics = [
+        {Shard, ?SAFELY(mria_status:get_shard_stats(Shard), #{})}
      || Shard <- mria_schema:shards(), Shard =/= undefined
-    ].
+    ],
+    lists:foldl(
+        fun({Name, _Type, MetricK}, AccIn) ->
+            %% TODO: only report shards that are up
+            AccIn#{Name => get_shard_metrics(Labels, MetricK, ShardMetrics)}
+        end,
+        #{},
+        mria_metric_meta(Role)
+    ).
 
-get_shard_metric(replicants, Shard) ->
-    length(mria_status:agents(Shard));
-get_shard_metric(Metric, Shard) ->
-    case mria_status:get_shard_stats(Shard) of
-        #{Metric := Value} when is_number(Value) ->
-            Value;
-        _ ->
-            undefined
-    end.
+get_shard_metrics(Labels, replicants, ShardMetrics) ->
+    [
+        {[{shard, Shard} | Labels], length(mria_status:agents(Shard))}
+     || {Shard, _} <- ShardMetrics
+    ];
+get_shard_metrics(Labels, MetricK, ShardMetrics) ->
+    [
+        {[{shard, Shard} | Labels], maps:get(MetricK, Metrics, undefined)}
+     || {Shard, Metrics} <- ShardMetrics
+    ].
 
 %%========================================
 %% Broker Instrumentation

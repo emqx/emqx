@@ -329,6 +329,9 @@ delete_package(NameVsn) ->
 %% @doc Start all configured plugins are started.
 -spec ensure_started() -> ok.
 ensure_started() ->
+    Configured0 = configured(),
+    Configured = normalize_enabled_versions(Configured0),
+    maybe_persist_normalized_config(Configured0, Configured),
     Fun = fun
         (#{name_vsn := NameVsn, enable := true}) ->
             case ?CATCH(do_ensure_started(NameVsn)) of
@@ -339,7 +342,7 @@ ensure_started() ->
             ?SLOG(debug, #{msg => "plugin_disabled", name_vsn => NameVsn}),
             []
     end,
-    ok = for_plugins(Fun).
+    ok = for_plugins(Configured, Fun).
 
 %% @doc Start a plugin from Management API or CLI.
 %% the input is a <name>-<vsn> string.
@@ -349,14 +352,10 @@ ensure_started(NameVsn) ->
         ok ->
             ok;
         {error, Reason} when is_map(Reason) ->
-            ?SLOG(error, Reason#{msg => "failed_to_start_plugin"}),
+            log_start_error(Reason),
             {error, Reason};
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "failed_to_start_plugin",
-                name_vsn => NameVsn,
-                reason => Reason
-            }),
+            log_start_error(Reason),
             {error, Reason}
     end.
 
@@ -482,7 +481,8 @@ resolve_active_name_vsn(Plugin0, ActiveNameVsns) ->
             {ok, Plugin};
         false ->
             Matches = lists:filter(
-                fun(NameVsn) -> plugin_name(NameVsn) =:= Plugin end, ActiveNameVsns
+                fun(NameVsn) -> emqx_plugins_utils:plugin_name(NameVsn) =:= Plugin end,
+                ActiveNameVsns
             ),
             case Matches of
                 [NameVsn | _] -> {ok, NameVsn};
@@ -593,7 +593,8 @@ ensure_configured(#{name_vsn := NameVsn} = Item, Position, ConfLocation) ->
                 [] ->
                     add_new_configured(Configured, Position, Item)
             end,
-        ok = put_configured(NewConfigured, ConfLocation)
+        NormalizedConfigured = maybe_disable_other_versions(NewConfigured, Item),
+        ok = put_configured(NormalizedConfigured, ConfLocation)
     catch
         throw:Reason ->
             {error, Reason}
@@ -639,6 +640,7 @@ do_list([#{name_vsn := NameVsn} | Rest], All) ->
 
 do_ensure_started(NameVsn) ->
     maybe
+        ok ?= ensure_no_other_version_active(NameVsn),
         ok ?= install(NameVsn, ?normal),
         ok ?= load_config_schema(NameVsn),
         ok ?= maybe_initialize_cached_config(NameVsn),
@@ -646,13 +648,14 @@ do_ensure_started(NameVsn) ->
         ok ?= emqx_plugins_apps:start(Plugin)
     else
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "failed_to_start_plugin",
-                name_vsn => NameVsn,
-                reason => Reason
-            }),
             {error, Reason}
     end.
+
+log_start_error(Reason) ->
+    ?SLOG(error, #{
+        msg => "failed_to_start_plugin",
+        reason => Reason
+    }).
 
 maybe_initialize_cached_config(NameVsn) ->
     case get_cached_config(NameVsn, ?plugin_conf_not_found) of
@@ -769,19 +772,17 @@ get_from_cluster(NameVsn) ->
         {error, NodeErrors} when Nodes =/= [] ->
             ErrMeta = #{
                 msg => "failed_to_copy_plugin_from_other_nodes",
-                name_vsn => NameVsn,
                 node_errors => NodeErrors,
                 reason => plugin_not_found
             },
-            ?SLOG(error, ErrMeta),
+            ?SLOG(error, ErrMeta#{name_vsn => NameVsn}),
             {error, ErrMeta};
         {error, _} ->
             ErrMeta = #{
                 msg => "no_nodes_to_copy_plugin_from",
-                name_vsn => NameVsn,
                 reason => plugin_not_found
             },
-            ?SLOG(error, ErrMeta),
+            ?SLOG(error, ErrMeta#{name_vsn => NameVsn}),
             {error, ErrMeta}
     end.
 
@@ -878,10 +879,13 @@ put_configured(Configured, ConfLocation) ->
     ok = do_put_config_internal(states, bin_key(Configured), ConfLocation).
 
 configured() ->
-    get_config_internal(states, []).
+    lists:map(fun emqx_plugins_utils:normalize_state_item/1, get_config_internal(states, [])).
 
 for_plugins(ActionFun) ->
-    case lists:flatmap(ActionFun, configured()) of
+    for_plugins(configured(), ActionFun).
+
+for_plugins(Plugins, ActionFun) ->
+    case lists:flatmap(ActionFun, Plugins) of
         [] ->
             ok;
         Errors ->
@@ -892,6 +896,143 @@ for_plugins(ActionFun) ->
             ),
             ?SLOG(error, ErrMeta#{msg => "for_plugins_action_error_occurred"}),
             ok
+    end.
+
+maybe_persist_normalized_config(Configured, Configured) ->
+    ok;
+maybe_persist_normalized_config(_Configured0, Configured) ->
+    ok = put_configured(Configured, global).
+
+maybe_disable_other_versions(Configured, #{name_vsn := NameVsn, enable := true}) ->
+    disable_other_versions(Configured, NameVsn);
+maybe_disable_other_versions(Configured, _Item) ->
+    Configured.
+
+disable_other_versions(Configured, NameVsn0) ->
+    NameVsn = bin(NameVsn0),
+    Name = emqx_plugins_utils:plugin_name(NameVsn),
+    lists:map(
+        fun(#{name_vsn := NV} = Item) ->
+            case bin(NV) =/= NameVsn andalso emqx_plugins_utils:plugin_name(NV) =:= Name of
+                true -> Item#{enable => false};
+                false -> Item
+            end
+        end,
+        Configured
+    ).
+
+normalize_enabled_versions(Configured) ->
+    Latest = latest_enabled_versions(Configured),
+    lists:map(
+        fun
+            (#{name_vsn := NameVsn, enable := true} = Item) ->
+                Name = emqx_plugins_utils:plugin_name(NameVsn),
+                case maps:get(Name, Latest, bin(NameVsn)) =:= bin(NameVsn) of
+                    true -> Item;
+                    false -> Item#{enable => false}
+                end;
+            (Item) ->
+                Item
+        end,
+        Configured
+    ).
+
+latest_enabled_versions(Configured) ->
+    lists:foldl(
+        fun
+            (#{name_vsn := NameVsn, enable := true}, Acc) ->
+                Name = emqx_plugins_utils:plugin_name(NameVsn),
+                NameVsnBin = bin(NameVsn),
+                case maps:get(Name, Acc, undefined) of
+                    undefined ->
+                        Acc#{Name => NameVsnBin};
+                    Existing ->
+                        case emqx_plugins_utils:latest_name_vsn(Existing, NameVsnBin) of
+                            NameVsnBin -> Acc#{Name => NameVsnBin};
+                            _ -> Acc
+                        end
+                end;
+            (_Item, Acc) ->
+                Acc
+        end,
+        #{},
+        Configured
+    ).
+
+ensure_no_other_version_active(NameVsn0) ->
+    ensure_no_other_version_active(conflicting_versions(NameVsn0), NameVsn0).
+
+conflicting_versions(NameVsn0) ->
+    NameVsn = bin(NameVsn0),
+    Name = emqx_plugins_utils:plugin_name(NameVsn),
+    lists:filtermap(
+        fun(OtherNameVsn) ->
+            case
+                emqx_plugins_utils:plugin_name(OtherNameVsn) =:= Name andalso
+                    bin(OtherNameVsn) =/= NameVsn
+            of
+                true ->
+                    case emqx_plugins_fs:read_info(OtherNameVsn) of
+                        {ok, Info0} ->
+                            Info = emqx_utils_maps:safe_atom_key_map(Info0),
+                            {true, Info#{running_status => emqx_plugins_apps:running_status(Info)}};
+                        {error, _} ->
+                            false
+                    end;
+                false ->
+                    false
+            end
+        end,
+        emqx_plugins_fs:list_name_vsn()
+    ).
+
+ensure_no_other_version_active(Plugins, NameVsn0) ->
+    NameVsn = bin(NameVsn0),
+    Name = emqx_plugins_utils:plugin_name(NameVsn),
+    {RunningOtherVersions, LoadedOtherVersions} = lists:foldl(
+        fun(
+            #{name := PluginName, rel_vsn := Vsn, running_status := RunningStatus},
+            {Running, Loaded}
+        ) ->
+            OtherNameVsn = name_vsn(PluginName, Vsn),
+            case PluginName =:= Name andalso OtherNameVsn =/= NameVsn of
+                true when RunningStatus =:= running ->
+                    {[OtherNameVsn | Running], Loaded};
+                true when RunningStatus =:= loaded ->
+                    {Running, [OtherNameVsn | Loaded]};
+                true ->
+                    {Running, Loaded};
+                false ->
+                    {Running, Loaded}
+            end
+        end,
+        {[], []},
+        Plugins
+    ),
+    case RunningOtherVersions of
+        [] ->
+            unload_other_versions(LoadedOtherVersions);
+        [_ | _] ->
+            {error, #{
+                msg => "conflicting_plugin_version_running",
+                active_versions => lists:reverse(RunningOtherVersions)
+            }}
+    end.
+
+unload_other_versions([]) ->
+    ok;
+unload_other_versions([NameVsn | Rest]) ->
+    ?SLOG(warning, #{
+        msg => "unloading_conflicting_loaded_plugin_version",
+        name_vsn => NameVsn,
+        reason => "starting_another_version"
+    }),
+    case emqx_plugins_info:read(NameVsn) of
+        {ok, Plugin} ->
+            ok = emqx_plugins_apps:unload(Plugin),
+            unload_other_versions(Rest);
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 ensure_state(NameVsn) ->
@@ -1075,9 +1216,126 @@ to_bin(S) when is_list(S) -> unicode:characters_to_binary(S);
 to_bin(B) when is_binary(B) -> B;
 to_bin(T) -> iolist_to_binary(io_lib:format("~0p", [T])).
 
-plugin_name(NameVsn) ->
-    {Name, _Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
-    bin(Name).
-
 name_vsn(Name, Vsn) ->
     emqx_plugins_utils:make_name_vsn_binary(Name, Vsn).
+
+-ifdef(TEST).
+
+normalize_helpers_test_() ->
+    {setup,
+        fun() ->
+            meck:new(emqx_conf, [passthrough]),
+            ok
+        end,
+        fun(_) ->
+            meck:unload(emqx_conf)
+        end,
+        [
+            fun normalize_state_item_case/0,
+            fun configured_reads_binary_state_items_case/0,
+            fun maybe_persist_normalized_config_case/0,
+            fun version_selection_helpers_case/0,
+            fun ensure_no_other_version_active_unloads_loaded_case/0,
+            fun ensure_no_other_version_active_rejects_running_case/0
+        ]}.
+
+normalize_state_item_case() ->
+    ?assertEqual(
+        #{name_vsn => <<"demo-1.0.0">>, enable => true},
+        emqx_plugins_utils:normalize_state_item(
+            #{<<"name_vsn">> => <<"demo-1.0.0">>, <<"enable">> => true}
+        )
+    ).
+
+configured_reads_binary_state_items_case() ->
+    meck:expect(emqx_conf, get, fun([plugins, states], []) ->
+        [#{<<"name_vsn">> => <<"demo-1.0.0">>, <<"enable">> => true}]
+    end),
+    ?assertEqual(
+        [#{name_vsn => <<"demo-1.0.0">>, enable => true}],
+        configured()
+    ).
+
+maybe_persist_normalized_config_case() ->
+    meck:expect(emqx_conf, update, fun([plugins, states], Config, _Opts) -> {ok, Config} end),
+    ?assertEqual(ok, maybe_persist_normalized_config([], [])),
+    ?assertEqual(
+        ok,
+        maybe_persist_normalized_config(
+            [#{name_vsn => <<"demo-1.0.0">>, enable => true}],
+            [#{name_vsn => <<"demo-1.0.0">>, enable => false}]
+        )
+    ).
+
+version_selection_helpers_case() ->
+    Configured = [
+        #{name_vsn => <<"demo-1.0.0">>, enable => true},
+        #{name_vsn => <<"demo-2.0.0">>, enable => true},
+        #{name_vsn => <<"other-1.0.0">>, enable => true}
+    ],
+    ?assertEqual(
+        [
+            #{name_vsn => <<"demo-1.0.0">>, enable => false},
+            #{name_vsn => <<"demo-2.0.0">>, enable => true},
+            #{name_vsn => <<"other-1.0.0">>, enable => true}
+        ],
+        disable_other_versions(Configured, <<"demo-2.0.0">>)
+    ),
+    ?assertEqual(
+        #{
+            <<"demo">> => <<"demo-2.0.0">>,
+            <<"other">> => <<"other-1.0.0">>
+        },
+        latest_enabled_versions(Configured)
+    ),
+    ?assertEqual(
+        <<"demo-2.0.0">>,
+        emqx_plugins_utils:latest_name_vsn(<<"demo-1.0.0">>, <<"demo-2.0.0">>)
+    ),
+    ?assertEqual(
+        <<"demo-1.0.0">>,
+        emqx_plugins_utils:latest_name_vsn(<<"demo-1.0.0">>, <<"demo-1.0.0">>)
+    ),
+    ?assertEqual(
+        <<"demo-2.0.0">>,
+        emqx_plugins_utils:latest_name_vsn(<<"demo-2.0.0">>, <<"demo-1.0.0">>)
+    ).
+
+ensure_no_other_version_active_unloads_loaded_case() ->
+    meck:new(emqx_plugins_info, [passthrough]),
+    meck:new(emqx_plugins_apps, [passthrough]),
+    meck:expect(
+        emqx_plugins_info,
+        read,
+        fun(<<"demo-1.0.0">>) -> {ok, #{rel_apps => [<<"demo-1.0.0">>]}} end
+    ),
+    meck:expect(
+        emqx_plugins_apps,
+        unload,
+        fun(#{rel_apps := [<<"demo-1.0.0">>]}) -> ok end
+    ),
+    try
+        Plugins = [
+            #{name => <<"demo">>, rel_vsn => <<"1.0.0">>, running_status => loaded},
+            #{name => <<"demo">>, rel_vsn => <<"2.0.0">>, running_status => stopped}
+        ],
+        ?assertEqual(ok, ensure_no_other_version_active(Plugins, <<"demo-2.0.0">>)),
+        ?assert(meck:called(emqx_plugins_apps, unload, [#{rel_apps => [<<"demo-1.0.0">>]}]))
+    after
+        meck:unload(emqx_plugins_info),
+        meck:unload(emqx_plugins_apps)
+    end.
+
+ensure_no_other_version_active_rejects_running_case() ->
+    Plugins = [
+        #{name => <<"demo">>, rel_vsn => <<"1.0.0">>, running_status => running},
+        #{name => <<"demo">>, rel_vsn => <<"2.0.0">>, running_status => stopped}
+    ],
+    ?assertMatch(
+        {error, #{
+            msg := "conflicting_plugin_version_running", active_versions := [<<"demo-1.0.0">>]
+        }},
+        ensure_no_other_version_active(Plugins, <<"demo-2.0.0">>)
+    ).
+
+-endif.
