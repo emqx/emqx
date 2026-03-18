@@ -3,6 +3,14 @@
 %%--------------------------------------------------------------------
 -module(emqx_username_quota_stats).
 
+-moduledoc """
+Owns the ETS table that tracks per-username quota exceeded statistics.
+
+Each row stores the node-local count of rejected authentication attempts for a username
+and the timestamp of the most recent rejection. The server also centralizes throttled
+warning logging for quota exceeded events.
+""".
+
 -behaviour(gen_server).
 
 -export([
@@ -31,9 +39,15 @@
     last_quota_exceeded_at = 0 :: integer()
 }).
 
+-doc """
+Start the stats server and create the ETS table it owns.
+""".
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
+-doc """
+Record one quota exceeded event for Username.
+""".
 record_quota_exceeded(Username) when is_binary(Username) ->
     case whereis(?SERVER) of
         undefined ->
@@ -42,6 +56,9 @@ record_quota_exceeded(Username) when is_binary(Username) ->
             gen_server:cast(?SERVER, {record_quota_exceeded, Username})
     end.
 
+-doc """
+Return the stored quota exceeded statistics for Username.
+""".
 get(Username) when is_binary(Username) ->
     case ets:lookup(?STATS_TAB, Username) of
         [
@@ -59,6 +76,9 @@ get(Username) when is_binary(Username) ->
             not_found
     end.
 
+-doc """
+Clear all recorded quota exceeded statistics.
+""".
 reset() ->
     case whereis(?SERVER) of
         undefined ->
