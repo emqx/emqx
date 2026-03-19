@@ -873,7 +873,7 @@ process_pubcomp(
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
             Channel = pop_limiter_ctx(Channel0),
             ok = inc_metrics('packets.pubcomp.inuse', Channel),
-            {ok, Channel0};
+            {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?SLOG(warning, #{msg => "pubcomp_packetId_not_found", packetId => PacketId}),
             Channel = pop_limiter_ctx(Channel0),
