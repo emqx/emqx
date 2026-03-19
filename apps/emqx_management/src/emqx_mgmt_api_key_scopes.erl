@@ -20,7 +20,10 @@
     path_to_scopes/1,
     init_cache/0,
     clear_cache/0,
-    validate_scopes/1
+    validate_scopes/1,
+    preset_groups/0,
+    expand_groups/1,
+    all_preset_tags/0
 ]).
 
 -ifdef(TEST).
@@ -94,6 +97,147 @@ init_cache() ->
 clear_cache() ->
     _ = persistent_term:erase(?CACHE_KEY),
     ok.
+
+%%--------------------------------------------------------------------
+%% Preset Groups — display-layer aliases for common tag bundles
+%%--------------------------------------------------------------------
+
+%% @doc Return preset scope groups.
+%% Each group is a display-layer alias that bundles multiple OpenAPI tags.
+%% These groups are for UI convenience only — the API key `scopes` field
+%% always stores individual tag names, never group names.
+-spec preset_groups() -> [#{name := binary(), desc := binary(), scopes := [binary()]}].
+preset_groups() ->
+    [
+        #{
+            name => <<"connections">>,
+            desc => <<"Client connections, subscriptions, topics, publish, and banning">>,
+            scopes => [
+                <<"clients">>, <<"subscriptions">>, <<"topics">>, <<"publish">>, <<"banned">>
+            ]
+        },
+        #{
+            name => <<"data_integration">>,
+            desc => <<"Rules, actions, sources, bridges, connectors, and schema registry">>,
+            scopes => [
+                <<"rules">>,
+                <<"actions">>,
+                <<"sources">>,
+                <<"bridges">>,
+                <<"connectors">>,
+                <<"schema registry">>
+            ]
+        },
+        #{
+            name => <<"access_control">>,
+            desc => <<"Authentication, listener authentication, and authorization">>,
+            scopes => [<<"authentication">>, <<"listener authentication">>, <<"authorization">>]
+        },
+        #{
+            name => <<"gateways">>,
+            desc => <<"Protocol gateways (CoAP, LwM2M, etc.) and gateway auth/clients/listeners">>,
+            scopes => [
+                <<"gateways">>,
+                <<"coap gateways">>,
+                <<"lwm2m gateways">>,
+                <<"gateway authentication">>,
+                <<"gateway clients">>,
+                <<"gateway listeners">>
+            ]
+        },
+        #{
+            name => <<"monitoring">>,
+            desc => <<"Metrics, alarms, trace, slow subscriptions, telemetry, and OpenTelemetry">>,
+            scopes => [
+                <<"metrics">>,
+                <<"monitor">>,
+                <<"alarms">>,
+                <<"trace">>,
+                <<"slow subscriptions">>,
+                <<"telemetry">>,
+                <<"opentelemetry">>
+            ]
+        },
+        #{
+            name => <<"system">>,
+            desc => <<"Nodes, cluster, configs, listeners, plugins, status, relup, and storage">>,
+            scopes => [
+                <<"nodes">>,
+                <<"cluster">>,
+                <<"configs">>,
+                <<"listeners">>,
+                <<"plugins">>,
+                <<"status">>,
+                <<"relup">>,
+                <<"durable storage">>,
+                <<"durable queues">>
+            ]
+        },
+        #{
+            name => <<"security">>,
+            desc => <<"Dashboard users, API keys, SSO, audit, and license">>,
+            scopes => [
+                <<"dashboard">>,
+                <<"api keys">>,
+                <<"dashboard single sign-on">>,
+                <<"audit">>,
+                <<"license">>
+            ]
+        },
+        #{
+            name => <<"extensions">>,
+            desc =>
+                <<"Auto subscribe, data backup, ExHook, GCP devices, load rebalance, and more">>,
+            scopes => [
+                <<"auto subscribe">>,
+                <<"data backup">>,
+                <<"exhook">>,
+                <<"gcp devices">>,
+                <<"load rebalance">>,
+                <<"node eviction">>,
+                <<"multi-tenancy">>,
+                <<"ai completion">>,
+                <<"schema validation">>,
+                <<"message transformation">>,
+                <<"error codes">>
+            ]
+        }
+    ].
+
+%% @doc Expand a list of mixed group names and/or individual scope names
+%% into a flat, deduplicated list of individual scope names.
+%%
+%% Example:
+%%   expand_groups([<<"connections">>, <<"rules">>])
+%%   → [<<"banned">>, <<"clients">>, <<"publish">>, <<"rules">>, <<"subscriptions">>, <<"topics">>]
+-spec expand_groups([binary()]) -> [binary()].
+expand_groups(NamesOrGroups) ->
+    GroupMap = maps:from_list(
+        [{Name, Scopes} || #{name := Name, scopes := Scopes} <- preset_groups()]
+    ),
+    Expanded = lists:flatmap(
+        fun(Name) ->
+            case maps:get(Name, GroupMap, undefined) of
+                undefined ->
+                    %% Not a group name — treat as individual scope
+                    [Name];
+                Scopes ->
+                    Scopes
+            end
+        end,
+        NamesOrGroups
+    ),
+    lists:usort(Expanded).
+
+%% @doc Return all tag names covered by preset groups (for test assertions).
+-spec all_preset_tags() -> [binary()].
+all_preset_tags() ->
+    lists:usort(
+        lists:flatmap(
+            fun(#{scopes := Scopes}) -> Scopes end,
+            preset_groups()
+        )
+    ).
 
 %%--------------------------------------------------------------------
 %% Internal functions

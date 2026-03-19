@@ -80,14 +80,13 @@ schema("/api_key/scopes") ->
     #{
         'operationId' => api_key_scopes,
         get => #{
-            description => <<"List all available API key scopes">>,
+            description => <<"List all available API key scopes and preset groups">>,
             tags => ?TAGS,
             security => [#{'bearerAuth' => []}],
             responses => #{
-                200 => hoconsc:mk(
-                    hoconsc:array(hoconsc:ref(scope_info)),
-                    #{desc => <<"List of available scopes">>}
-                )
+                200 => hoconsc:mk(binary(), #{
+                    desc => <<"Available scopes and preset groups (JSON)">>
+                })
             }
         }
     }.
@@ -201,6 +200,50 @@ fields(scope_info) ->
                     example => [<<"/clients">>, <<"/clients/:clientid">>]
                 }
             )}
+    ];
+fields(preset_group) ->
+    [
+        {name,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => "Group name (used as UI alias)",
+                    example => <<"connections">>
+                }
+            )},
+        {desc,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => "Human-readable group description",
+                    example => <<"Client connections, subscriptions, topics, publish, and banning">>
+                }
+            )},
+        {scopes,
+            hoconsc:mk(
+                hoconsc:array(binary()),
+                #{
+                    desc => "Individual scope names included in this group",
+                    example => [<<"clients">>, <<"subscriptions">>, <<"topics">>]
+                }
+            )}
+    ];
+fields(scopes_response) ->
+    [
+        {groups,
+            hoconsc:mk(
+                hoconsc:array(hoconsc:ref(preset_group)),
+                #{
+                    desc => "Preset scope groups for quick selection"
+                }
+            )},
+        {scopes,
+            hoconsc:mk(
+                hoconsc:array(hoconsc:ref(scope_info)),
+                #{
+                    desc => "All individual scopes with their API paths"
+                }
+            )}
     ].
 
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_]*$").
@@ -286,7 +329,10 @@ ensure_expired_at(#{<<"expired_at">> := ExpiredAt}) when is_integer(ExpiredAt) -
 ensure_expired_at(_) -> infinity.
 
 api_key_scopes(get, _) ->
-    {200, emqx_mgmt_api_key_scopes:available_scopes()}.
+    {200, #{
+        groups => emqx_mgmt_api_key_scopes:preset_groups(),
+        scopes => emqx_mgmt_api_key_scopes:available_scopes()
+    }}.
 
 validate_scopes(undefined) ->
     ok;

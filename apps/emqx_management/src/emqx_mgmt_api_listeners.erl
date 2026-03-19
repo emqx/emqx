@@ -53,6 +53,7 @@ paths() ->
         "/listeners/:id/restart"
     ].
 
+%% TODO: unify OpenAPI tag naming convention — use Title Case (e.g., <<"Rules">>) instead of lowercase
 schema("/listeners_status") ->
     #{
         'operationId' => listener_type_status,

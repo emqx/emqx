@@ -21,6 +21,7 @@
 %% for test
 -export([bridge_schema_json/0]).
 
+%% TODO: unify OpenAPI tag naming convention — use Title Case (e.g., <<"Rules">>) instead of lowercase
 -define(TAGS, [<<"dashboard">>]).
 -define(BAD_REQUEST, 'BAD_REQUEST').
 

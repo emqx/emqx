@@ -173,6 +173,7 @@ rule_info_schema() ->
 rule_metrics_schema() ->
     ref(emqx_rule_api_schema, "rule_metrics").
 
+%% TODO: unify OpenAPI tag naming convention — use Title Case (e.g., <<"Rules">>) instead of lowercase
 schema("/rules") ->
     #{
         'operationId' => '/rules',

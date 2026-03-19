@@ -55,6 +55,7 @@ paths() ->
         "/schema_validations/validation/:name/enable/:enable"
     ].
 
+%% TODO: unify OpenAPI tag naming convention — use Title Case (e.g., <<"Rules">>) instead of lowercase
 schema("/schema_validations") ->
     #{
         'operationId' => '/schema_validations',

@@ -54,6 +54,7 @@ paths() ->
         "/users/:username/mfa"
     ].
 
+%% TODO: unify OpenAPI tag naming convention — use Title Case (e.g., <<"Rules">>) instead of lowercase
 schema("/login") ->
     ErrorCodes = [?BAD_USERNAME_OR_PWD, ?BAD_MFA_TOKEN, ?LOGIN_LOCKED],
     #{

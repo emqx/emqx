@@ -175,6 +175,7 @@ connector_info_array_example(Method) ->
 connector_info_examples(Method) ->
     emqx_connector_schema:examples(Method).
 
+%% TODO: unify OpenAPI tag naming convention — use Title Case (e.g., <<"Rules">>) instead of lowercase
 schema("/connectors") ->
     #{
         'operationId' => '/connectors',

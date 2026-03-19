@@ -24,6 +24,7 @@
 %% 1MB = 1024 x 1024
 -define(MAX_PAYLOAD_SIZE, 1048576).
 -define(PREFIX, "/mqtt/retainer").
+%% TODO: unify OpenAPI tag naming convention — use Title Case (e.g., <<"Rules">>) instead of lowercase
 -define(TAGS, [<<"retainer">>]).
 
 namespace() -> "retainer".

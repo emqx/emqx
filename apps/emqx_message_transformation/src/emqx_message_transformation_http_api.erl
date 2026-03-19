@@ -62,6 +62,7 @@ paths() ->
         "/message_transformations/transformation/:name/enable/:enable"
     ].
 
+%% TODO: unify OpenAPI tag naming convention — use Title Case (e.g., <<"Rules">>) instead of lowercase
 schema("/message_transformations") ->
     #{
         'operationId' => '/message_transformations',

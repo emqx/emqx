@@ -77,6 +77,7 @@ paths() ->
 %% Schema for each URI
 %%--------------------------------------------------------------------
 
+%% TODO: unify OpenAPI tag naming convention — use Title Case (e.g., <<"Rules">>) instead of lowercase
 schema("/authorization/sources/built_in_database/rules/users") ->
     #{
         'operationId' => users,

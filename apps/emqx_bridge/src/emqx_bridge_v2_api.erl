@@ -260,6 +260,7 @@ param_path_enable() ->
 %%================================================================================
 %% Actions
 %%================================================================================
+%% TODO: unify OpenAPI tag naming convention — use Title Case (e.g., <<"Rules">>) instead of lowercase
 schema("/actions") ->
     #{
         'operationId' => '/actions',

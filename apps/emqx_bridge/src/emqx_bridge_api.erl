@@ -281,6 +281,7 @@ mqtt_ingress_example() ->
         }
     }.
 
+%% TODO: unify OpenAPI tag naming convention — use Title Case (e.g., <<"Bridges">>) instead of lowercase
 schema("/bridges") ->
     #{
         'operationId' => '/bridges',
