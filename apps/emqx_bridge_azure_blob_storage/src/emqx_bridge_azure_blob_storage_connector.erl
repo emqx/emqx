@@ -286,7 +286,7 @@ do_put_block_blob(DriverState, Container, Blob, IOData) ->
     erlazure:put_block_blob(DriverState, Container, Blob, IOData, []).
 
 do_list_blobs(DriverState, Container) ->
-    try erlazure:list_blobs(DriverState, Container, []) of
+    try erlazure:list_blobs(DriverState, Container, [{max_results, "1"}]) of
         {L, _} when is_list(L) ->
             ok
     catch
