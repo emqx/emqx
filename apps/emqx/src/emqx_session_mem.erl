@@ -965,7 +965,7 @@ log_rate_limit_reason(Reason, #message{topic = Topic} = _Msg) ->
         #{topic => Topic, tag => "QUOTA"}
     ).
 
-ensure_retry_dequeue_timer(_, #{?DELIVER_RETRY_TIMER := TRef} = Ctx0) when is_reference(TRef) ->
+ensure_retry_dequeue_timer(_, #{?DELIVER_RETRY_TIMER := _} = Ctx0) ->
     Ctx0;
 ensure_retry_dequeue_timer({failed_to_consume_from_limiter, LimiterId}, Ctx0) ->
     try emqx_limiter_registry:get_limiter_options(LimiterId) of
