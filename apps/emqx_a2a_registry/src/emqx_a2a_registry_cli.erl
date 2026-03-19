@@ -138,6 +138,10 @@ handle_register(Args) ->
                             false
                     end
             end;
+        {error, Reason} when is_binary(Reason) ->
+            Error = mk_error(Reason),
+            print_json(Error),
+            false;
         {error, Reason0} ->
             Reason = iolist_to_binary(io_lib:format("~0p", [Reason0])),
             Error = mk_error(fmt("Invalid register args: ~ts\n", [Reason])),
@@ -306,10 +310,11 @@ collect_register_args([OrgId, UnitId, AgentId, Filepath | Rest], Map) ->
     );
 collect_register_args(Args0, _Map) ->
     Args = format_args(Args0),
-    {error, io_lib:format("unknown arguments: ~ts", [Args])}.
+    Msg = fmt("unknown arguments: ~ts", [Args]),
+    {error, Msg}.
 
 format_args(Args) ->
-    lists:join(" ", Args).
+    lists:flatten(lists:join(" ", Args)).
 
 is_valid_segment_id(Id0) ->
     Id = list_to_binary(Id0),
@@ -321,7 +326,7 @@ is_valid_segment_id(Id0) ->
     end.
 
 bin(X) -> emqx_utils_conv:bin(X).
-fmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
+fmt(Fmt, Args) -> unicode:characters_to_binary(lists:flatten(io_lib:format(Fmt, Args))).
 
 mk_error(Msg) ->
     #{<<"message">> => Msg, <<"error">> => true}.

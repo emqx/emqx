@@ -127,7 +127,17 @@ t_crud(_TCConfig) ->
     Name1 = <<"1">>,
     Card1 = sample_card_bin(#{<<"name">> => Name1}),
     ?assertMatch({204, _}, register_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, Card1)),
-    ?assertMatch({200, [_]}, list_cards(#{})),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"id">> := _,
+                <<"org_id">> := ?ORG_ID,
+                <<"unit_id">> := ?UNIT_ID,
+                <<"agent_id">> := ?AGENT_ID
+            }
+        ]},
+        list_cards(#{})
+    ),
     ?assertMatch({200, _}, get_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID)),
 
     %% List filters

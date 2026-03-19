@@ -122,6 +122,8 @@ connector_config(Overrides) ->
         <<"cluster_public_key">> => cluster_public_key(),
         <<"username">> => <<"root">>,
         <<"password">> => root_user_password(),
+        <<"pool_size">> => 2,
+        <<"connect_timeout">> => <<"1s">>,
         <<"resource_opts">> =>
             emqx_bridge_v2_testlib:common_connector_resource_opts()
     },
