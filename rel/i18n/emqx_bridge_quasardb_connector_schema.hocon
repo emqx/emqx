@@ -35,4 +35,9 @@ emqx_bridge_quasardb_connector_schema {
     desc: """Connection pool size."""
   }
 
+  connect_timeout {
+    label: "Connect Timeout"
+    desc: """Timeout for establishing connection to the server."""
+  }
+
 }
