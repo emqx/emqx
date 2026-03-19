@@ -112,7 +112,7 @@ create(
         user_id_type => Type,
         password_hash_algorithm => Algorithm
     },
-    ok = boostrap_user_from_file(Config, State),
+    ok = bootstrap_user_from_file(Config, State),
     {ok, State}.
 
 update(Config, _State) ->
@@ -511,13 +511,13 @@ convertor(PasswordType, State) ->
     end.
 
 convert_user(
-    User = #{<<"user_id">> := UserId},
+    User = #{<<"user_id">> := UserID},
     PasswordType,
     #{user_group := UserGroup, password_hash_algorithm := Algorithm}
 ) ->
     {PasswordHash, Salt} = find_password_hash(PasswordType, User, Algorithm),
     #{
-        <<"user_id">> => UserId,
+        <<"user_id">> => UserID,
         <<"password_hash">> => PasswordHash,
         <<"salt">> => Salt,
         <<"is_superuser">> => is_superuser(User),
@@ -541,22 +541,25 @@ is_superuser(#{<<"is_superuser">> := <<"true">>}) -> true;
 is_superuser(#{<<"is_superuser">> := true}) -> true;
 is_superuser(_) -> false.
 
-boostrap_user_from_file(Config, State) ->
+bootstrap_user_from_file(Config, State) ->
     case maps:get(bootstrap_file, Config, <<>>) of
         <<>> ->
             ok;
-        FileName0 ->
+        Filename0 ->
             #{bootstrap_type := Type} = Config,
-            FileName = emqx_schema:naive_env_interpolation(FileName0),
-            case file:read_file(FileName) of
+            IsDefault = (Filename0 =:= emqx_authn_mnesia_schema:default_bootstrap_file_path()),
+            Filename = emqx_schema:naive_env_interpolation(Filename0),
+            case file:read_file(Filename) of
                 {ok, FileData} ->
-                    _ = import_users({Type, FileName, FileData}, State, #{override => false}),
+                    _ = import_users({Type, Filename, FileData}, State, #{override => false}),
+                    ok;
+                {error, enoent} when IsDefault ->
                     ok;
                 {error, Reason} ->
                     ?SLOG(warning, #{
-                        msg => "boostrap_authn_built_in_database_failed",
-                        boostrap_file => FileName,
-                        boostrap_type => Type,
+                        msg => "bootstrap_authn_built_in_database_failed",
+                        bootstrap_file => Filename,
+                        bootstrap_type => Type,
                         reason => emqx_utils:explain_posix(Reason)
                     })
             end
