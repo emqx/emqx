@@ -1163,34 +1163,40 @@ mria_data(Mode) ->
     end.
 
 mria_data(Role, Mode) ->
+    Labels =
+        case Mode of
+            node -> [];
+            _ -> [{node, node(self())}]
+        end,
+    ShardMetrics = [
+        {Shard, catch_all(fun() -> mria_status:get_shard_stats(Shard) end, #{})}
+     || Shard <- mria_schema:shards(), Shard =/= undefined
+    ],
     lists:foldl(
         fun({Name, _Type, MetricK}, AccIn) ->
             %% TODO: only report shards that are up
-            AccIn#{Name => ?SAFELY(get_shard_metrics(Mode, MetricK), [])}
+            AccIn#{Name => get_shard_metrics(Labels, MetricK, ShardMetrics)}
         end,
         #{},
         mria_metric_meta(Role)
     ).
 
-get_shard_metrics(Mode, MetricK) ->
-    Labels =
-        case Mode of
-            ?PROM_DATA_MODE__NODE -> [];
-            _ -> [{node, node()}]
-        end,
+get_shard_metrics(Labels, replicants, ShardMetrics) ->
     [
-        {[{shard, Shard} | Labels], get_shard_metric(MetricK, Shard)}
-     || Shard <- mria_schema:shards(), Shard =/= undefined
+        {[{shard, Shard} | Labels], length(mria_status:agents(Shard))}
+     || {Shard, _} <- ShardMetrics
+    ];
+get_shard_metrics(Labels, MetricK, ShardMetrics) ->
+    [
+        {[{shard, Shard} | Labels], maps:get(MetricK, Metrics, undefined)}
+     || {Shard, Metrics} <- ShardMetrics
     ].
 
-get_shard_metric(replicants, Shard) ->
-    length(mria_status:agents(Shard));
-get_shard_metric(Metric, Shard) ->
-    case mria_status:get_shard_stats(Shard) of
-        #{Metric := Value} when is_number(Value) ->
-            Value;
-        _ ->
-            undefined
+catch_all(DataFun, Default) ->
+    try
+        DataFun()
+    catch
+        _:_ -> Default
     end.
 
 %%--------------------------------------------------------------------
