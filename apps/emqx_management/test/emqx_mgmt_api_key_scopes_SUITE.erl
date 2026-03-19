@@ -34,7 +34,10 @@ groups() ->
             t_path_to_scopes_pattern_match,
             t_path_to_scopes_no_cache,
             t_validate_scopes,
-            t_validate_scopes_bad_input
+            t_validate_scopes_bad_input,
+            t_preset_groups,
+            t_expand_groups,
+            t_all_tags_in_preset_groups
         ]},
         {integration_tests, [parallel], [
             t_authorize_with_scopes,
@@ -44,6 +47,7 @@ groups() ->
         ]},
         {api_tests, [parallel], [
             t_api_list_scopes,
+            t_api_list_scopes_with_groups,
             t_api_create_with_scopes,
             t_api_update_scopes
         ]}
@@ -194,6 +198,74 @@ t_validate_scopes_bad_input(_Config) ->
         emqx_mgmt_api_key_scopes:validate_scopes(#{})
     ).
 
+t_preset_groups(_Config) ->
+    Groups = emqx_mgmt_api_key_scopes:preset_groups(),
+    ?assert(is_list(Groups)),
+    ?assert(length(Groups) >= 8),
+    %% Each group has name, desc, scopes
+    lists:foreach(
+        fun(Group) ->
+            ?assertMatch(#{name := _, desc := _, scopes := _}, Group),
+            #{name := Name, desc := Desc, scopes := Scopes} = Group,
+            ?assert(is_binary(Name)),
+            ?assert(is_binary(Desc)),
+            ?assert(is_list(Scopes)),
+            ?assert(length(Scopes) > 0),
+            %% All scope names should be binaries
+            lists:foreach(fun(S) -> ?assert(is_binary(S)) end, Scopes)
+        end,
+        Groups
+    ),
+    %% Group names should be unique
+    Names = [N || #{name := N} <- Groups],
+    ?assertEqual(length(Names), length(lists:usort(Names))),
+    %% No duplicate scopes across groups
+    AllScopes = lists:flatmap(fun(#{scopes := S}) -> S end, Groups),
+    ?assertEqual(length(AllScopes), length(lists:usort(AllScopes))).
+
+t_expand_groups(_Config) ->
+    %% Expand a group name → individual scopes
+    Expanded = emqx_mgmt_api_key_scopes:expand_groups([<<"connections">>]),
+    ?assert(lists:member(<<"clients">>, Expanded)),
+    ?assert(lists:member(<<"subscriptions">>, Expanded)),
+    ?assert(lists:member(<<"topics">>, Expanded)),
+    ?assert(lists:member(<<"publish">>, Expanded)),
+    ?assert(lists:member(<<"banned">>, Expanded)),
+
+    %% Expand a mix of group name + individual scope
+    Mixed = emqx_mgmt_api_key_scopes:expand_groups([<<"connections">>, <<"rules">>]),
+    ?assert(lists:member(<<"clients">>, Mixed)),
+    ?assert(lists:member(<<"rules">>, Mixed)),
+
+    %% Unknown name passes through as individual scope
+    PassThru = emqx_mgmt_api_key_scopes:expand_groups([<<"some_custom_scope">>]),
+    ?assertEqual([<<"some_custom_scope">>], PassThru),
+
+    %% Empty list
+    ?assertEqual([], emqx_mgmt_api_key_scopes:expand_groups([])).
+
+t_all_tags_in_preset_groups(_Config) ->
+    %% This is the critical coverage test:
+    %% Every tag returned by available_scopes() must exist in at least one preset group.
+    %% If this test fails, a new API module was added with an OpenAPI tag that is not
+    %% covered by any preset group — update preset_groups/0 in emqx_mgmt_api_key_scopes.
+    emqx_mgmt_api_key_scopes:init_cache(),
+    AllAvailable = [Name || #{name := Name} <- emqx_mgmt_api_key_scopes:available_scopes()],
+    AllPreset = emqx_mgmt_api_key_scopes:all_preset_tags(),
+    Uncovered = [Tag || Tag <- AllAvailable, not lists:member(Tag, AllPreset)],
+    case Uncovered of
+        [] ->
+            ok;
+        _ ->
+            ct:fail(
+                "The following OpenAPI tags are NOT covered by any preset group "
+                "in emqx_mgmt_api_key_scopes:preset_groups/0. "
+                "Please add them to an existing group or create a new one: ~p",
+                [Uncovered]
+            )
+    end,
+    emqx_mgmt_api_key_scopes:clear_cache().
+
 %%--------------------------------------------------------------------
 %% Integration tests for scope-based authorization in emqx_mgmt_auth
 %%--------------------------------------------------------------------
@@ -265,7 +337,10 @@ t_api_list_scopes(_Config) ->
     AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key", "scopes"]),
     {ok, Res} = emqx_mgmt_api_test_util:request_api(get, Path, AuthHeader),
-    Scopes = emqx_utils_json:decode(Res),
+    Body = emqx_utils_json:decode(Res),
+    %% New response format: #{groups => [...], scopes => [...]}
+    ?assertMatch(#{<<"groups">> := _, <<"scopes">> := _}, Body),
+    Scopes = maps:get(<<"scopes">>, Body),
     ?assert(is_list(Scopes)),
     ?assert(length(Scopes) > 0),
     %% Each scope entry should have name and paths
@@ -278,13 +353,35 @@ t_api_list_scopes(_Config) ->
         Scopes
     ).
 
+t_api_list_scopes_with_groups(_Config) ->
+    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    Path = emqx_mgmt_api_test_util:api_path(["api_key", "scopes"]),
+    {ok, Res} = emqx_mgmt_api_test_util:request_api(get, Path, AuthHeader),
+    Body = emqx_utils_json:decode(Res),
+    Groups = maps:get(<<"groups">>, Body),
+    ?assert(is_list(Groups)),
+    ?assert(length(Groups) >= 8),
+    %% Each group should have name, desc, scopes
+    lists:foreach(
+        fun(Group) ->
+            ?assertMatch(#{<<"name">> := _, <<"desc">> := _, <<"scopes">> := _}, Group),
+            ?assert(is_binary(maps:get(<<"name">>, Group))),
+            ?assert(is_binary(maps:get(<<"desc">>, Group))),
+            GroupScopes = maps:get(<<"scopes">>, Group),
+            ?assert(is_list(GroupScopes)),
+            ?assert(length(GroupScopes) > 0)
+        end,
+        Groups
+    ).
+
 t_api_create_with_scopes(_Config) ->
     Name = <<"SCOPES-API-CREATE">>,
     %% Get a valid scope name from the API
     AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     ScopesPath = emqx_mgmt_api_test_util:api_path(["api_key", "scopes"]),
     {ok, ScopesRes} = emqx_mgmt_api_test_util:request_api(get, ScopesPath, AuthHeader),
-    [#{<<"name">> := ScopeName} | _] = emqx_utils_json:decode(ScopesRes),
+    #{<<"scopes">> := ScopesList} = emqx_utils_json:decode(ScopesRes),
+    [#{<<"name">> := ScopeName} | _] = ScopesList,
 
     %% Create API key with scopes
     {ok, Created} = create_app(Name, #{scopes => [ScopeName]}),
@@ -306,8 +403,8 @@ t_api_update_scopes(_Config) ->
     AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     ScopesPath = emqx_mgmt_api_test_util:api_path(["api_key", "scopes"]),
     {ok, ScopesRes} = emqx_mgmt_api_test_util:request_api(get, ScopesPath, AuthHeader),
-    AllScopes = emqx_utils_json:decode(ScopesRes),
-    [#{<<"name">> := Scope1} | Rest] = AllScopes,
+    #{<<"scopes">> := AllScopesList} = emqx_utils_json:decode(ScopesRes),
+    [#{<<"name">> := Scope1} | Rest] = AllScopesList,
 
     %% Update with scopes
     {ok, Updated1} = update_app(Name, #{scopes => [Scope1]}),
