@@ -51,6 +51,12 @@ backend_name.desc:
 backend_name.label:
 """Backend Name"""
 
+backend_name_in_qs.desc:
+"""Backend name"""
+
+backend_name_in_qs.label:
+"""Backend Name"""
+
 running.desc:
 """Is the backend running"""
 
@@ -62,5 +68,26 @@ last_error.desc:
 
 last_error.label:
 """Last Error"""
+
+token_exchange.desc:
+"""Exchange a one-time SSO code for the actual login result (JWT token or MFA metadata). The code is consumed after a single use."""
+
+token_exchange.label:
+"""SSO Token Exchange"""
+
+bad_request.desc:
+"""Bad request. Invalid or expired SSO code."""
+
+sso_username.desc:
+"""SSO username from login metadata."""
+
+sso_username.label:
+"""SSO Username"""
+
+sso_backend.desc:
+"""SSO backend type (e.g. saml, oidc)."""
+
+sso_backend.label:
+"""SSO Backend"""
 
 }

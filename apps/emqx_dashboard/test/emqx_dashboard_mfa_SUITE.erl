@@ -92,6 +92,12 @@ t_upgrade_old_record({'end', _Config}) ->
 t_upgrade_old_record(_Config) ->
     ?assertMatch([#?ADMIN{extra = []}], ets:lookup(?ADMIN, <<"viewer3">>)),
     ?assertMatch({ok, 204, _}, enable_mfa(<<"viewer3">>)),
+    %% MFA state is now stored in the extra map of emqx_admin record
+    ?assertMatch(
+        {ok, #{mechanism := totp, secret := _}},
+        emqx_dashboard_admin:get_mfa_state(<<"viewer3">>)
+    ),
+    %% The emqx_admin record's extra field should now be a map (upgraded from [])
     ?assertMatch([#?ADMIN{extra = #{mfa_state := _}}], ets:lookup(?ADMIN, <<"viewer3">>)),
     ok.
 
@@ -213,8 +219,8 @@ t_disable_mfa(_Config) ->
     ?assertMatch({ok, 403, _}, disable_mfa(<<"viewer2">>, JwtToken)),
     %% admin can disable other user's MFA
     ?assertMatch({ok, 204, _}, disable_mfa(<<"viewer2">>, AdminJwtToken)),
-    %% disable for viewer1 again should return success
-    ?assertMatch({ok, 204, _}, disable_mfa(<<"viewer1">>, AdminJwtToken)),
+    %% disable for viewer1 again should return 400 (already disabled)
+    ?assertMatch({ok, 400, _}, disable_mfa(<<"viewer1">>, AdminJwtToken)),
     ok.
 
 %% Enable MFA from config.
@@ -272,6 +278,38 @@ t_enable_by_config(_Config) ->
     {ok, 200, _} = login(LoginBody),
     ok.
 
+%% Reset MFA — completely removes MFA record.
+%% After reset, the user is back to "never configured" state.
+t_reset_mfa({init, Config}) ->
+    ok = mock_totp(),
+    _ = emqx_dashboard_admin:clear_mfa_state(<<"viewer1">>),
+    Config;
+t_reset_mfa({'end', _Config}) ->
+    ok = unmock_totp();
+t_reset_mfa(_Config) ->
+    LoginBody =
+        #{
+            <<"username">> => <<"viewer1">>,
+            <<"password">> => <<"viewer1pass">>,
+            <<"mfa_token">> => ?GOOD_TOTP
+        },
+    AdminJwtToken = admin_jwt_token(),
+    %% enable MFA for viewer1
+    ?assertMatch({ok, 204, _}, enable_mfa(<<"viewer1">>)),
+    %% login with TOTP to complete setup
+    ?assertMatch({ok, 200, _}, login(LoginBody)),
+    ?assertMatch(#{<<"mfa">> := <<"totp">>}, get_user(<<"viewer1">>)),
+    %% admin resets MFA
+    ?assertMatch({ok, 204, _}, reset_mfa(<<"viewer1">>, AdminJwtToken)),
+    %% MFA state should be "none" (record deleted, not "disabled")
+    ?assertMatch(#{<<"mfa">> := <<"none">>}, get_user(<<"viewer1">>)),
+    %% should be able to login without TOTP now
+    LoginNoTotp = maps:remove(<<"mfa_token">>, LoginBody),
+    ?assertMatch({ok, 200, _}, login(LoginNoTotp)),
+    %% reset non-existent user should return 404
+    ?assertMatch({ok, 404, _}, reset_mfa(<<"nonexistent_user">>, AdminJwtToken)),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
@@ -303,6 +341,10 @@ enable_mfa(User, JwtToken) ->
 
 disable_mfa(User, JwtToken) ->
     request_api(delete, api_path(["users", User, mfa]), auth_header(JwtToken), #{}).
+
+reset_mfa(User, JwtToken) ->
+    Url = binary_to_list(iolist_to_binary(api_path(["users", User, "mfa"]))),
+    request_api(delete, Url, "reset=true", auth_header(JwtToken), #{}).
 
 get_user(Name) ->
     Users = list_users(),
@@ -337,6 +379,9 @@ request_api(Method, Url, Auth) ->
 
 request_api(Method, Url, Auth, Body) ->
     emqx_common_test_http:request_api(Method, Url, _QueryParams = [], Auth, Body).
+
+request_api(Method, Url, QueryParams, Auth, Body) ->
+    emqx_common_test_http:request_api(Method, Url, QueryParams, Auth, Body).
 
 %% TOTP is not very friendly for tests due to its
 %% time-based nature, here we mock it for determinstic

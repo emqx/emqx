@@ -52,6 +52,14 @@ common_backend_schema(Backend) ->
                     default => false
                 }
             )},
+        {force_mfa,
+            mk(
+                boolean(), #{
+                    desc => ?DESC(force_mfa),
+                    required => false,
+                    default => false
+                }
+            )},
         backend_schema(Backend)
     ].
 

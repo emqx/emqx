@@ -19,6 +19,34 @@
     description :: binary(),
     role = ?ROLE_DEFAULT :: dashboard_user_role(),
     extra = #{} :: map()
+    %% Extensible metadata map. Known keys:
+    %%
+    %%   mfa_state => #{mechanism => totp, secret => binary(), ...}
+    %%              | disabled
+    %%     MFA configuration for this user.
+    %%     - Map with `mechanism` and `secret`: MFA is enabled or pending setup.
+    %%       May also contain `first_verify_ts` after first successful TOTP verify.
+    %%     - `disabled` atom: admin has explicitly exempted this user from MFA.
+    %%     - Key absent: MFA never configured (default).
+    %%
+    %%   mfa_pending => #{type => setup | challenge,
+    %%                    token => binary(),
+    %%                    secret => binary(),        %% setup only
+    %%                    timestamp => integer()}
+    %%     Short-lived SSO MFA session token for TOTP setup or verification.
+    %%     Only used when MFA is required after SSO login.
+    %%     For regular (non-SSO) login, no pending state is required.
+    %%
+    %%   sso_code => #{code => binary(),
+    %%                 payload => map(),
+    %%                 exptime => integer()}
+    %%     One-time SSO login code for secure redirect. Created after
+    %%     SAML/OIDC callback; exchanged by frontend via POST /sso/token_exchange.
+    %%     TTL: 60 seconds. Consumed after single use.
+    %%
+    %%   login_lock => integer()
+    %%     Timestamp until which login is locked after too many failed attempts.
+    %%
 }).
 
 -type dashboard_user() :: #?ADMIN{}.
