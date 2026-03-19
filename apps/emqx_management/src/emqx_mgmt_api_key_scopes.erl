@@ -290,13 +290,13 @@ find_api_modules_in_app(App) ->
 
 is_api_module(Module) ->
     Behaviours =
-        proplists:get_value(behaviour, Module:module_info(attributes), []) ++
-            proplists:get_value(behavior, Module:module_info(attributes), []),
+        proplists:get_value(behaviour, apply(Module, module_info, [attributes]), []) ++
+            proplists:get_value(behavior, apply(Module, module_info, [attributes]), []),
     lists:member(minirest_api, Behaviours).
 
 collect_module_scopes(Module, Acc) ->
     try
-        Paths = Module:paths(),
+        Paths = apply(Module, paths, []),
         lists:foldl(
             fun(Path, InnerAcc) ->
                 collect_path_scopes(Module, Path, InnerAcc)
@@ -311,7 +311,7 @@ collect_module_scopes(Module, Acc) ->
 
 collect_path_scopes(Module, Path, Acc) ->
     try
-        Schema = Module:schema(Path),
+        Schema = apply(Module, schema, [Path]),
         PathBin = iolist_to_binary(filename:join("/", Path)),
         Methods = maps:without(['operationId', 'filter'], Schema),
         %% Get tags from any method definition (they should be the same for all methods)
