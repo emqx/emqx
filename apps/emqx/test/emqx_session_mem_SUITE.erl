@@ -24,6 +24,8 @@ all() -> emqx_common_test_helpers:all(?MODULE).
     timestamp :: non_neg_integer()
 }).
 
+-define(DELIVER_RETRY_TIMER, deliver_retry).
+
 %%--------------------------------------------------------------------
 %% CT callbacks
 %%--------------------------------------------------------------------
@@ -549,26 +551,28 @@ t_retry_dequeue_qos0(_TCConfig) ->
     put_context(Ctx0),
     %% Only two messages come out.
     {ok, [_Pub1, _Pub2], Session1} = emqx_session_mem:deliver(clientinfo(), Delivers, Session0),
-    %% A retry was scheduled (even though we know there are no QoS > 0 messages enqueued,
+    %% A retry was requested (even though we know there are no QoS > 0 messages enqueued,
     %% although there could be, in general)
     Ctx1 = pop_context(),
     ?assertMatch(
-        #{limiter := _, retry_dequeue_tref := TRef} when is_reference(TRef),
+        #{limiter := _, deliver_retry := _},
         Ctx1
     ),
     #{limiter := Limiter1} = Ctx1,
     %% Immediately retrying would yield no messages, if it were attempted.
     put_context(#{limiter => Limiter1}),
-    {ok, [], Session2} = emqx_session_mem:handle_timeout(clientinfo(), retry_dequeue, Session1),
+    {ok, [], Session2} = emqx_session_mem:handle_timeout(
+        clientinfo(), ?DELIVER_RETRY_TIMER, Session1
+    ),
     %% After rate tokens are restored, no more messages are returned, because QoS 0
     %% messages are dropped.
     Limiter2 = restart_limiters(ListenerId, LimiterConfig0),
     put_context(#{limiter => Limiter2}),
     {ok, [], _Session3} =
-        emqx_session_mem:handle_timeout(clientinfo(), retry_dequeue, Session2),
+        emqx_session_mem:handle_timeout(clientinfo(), ?DELIVER_RETRY_TIMER, Session2),
     Ctx2 = pop_context(),
     ?assertMatch(#{limiter := _}, Ctx2),
-    ?assertNotMatch(#{retry_dequeue_tref := _}, Ctx2),
+    ?assertNotMatch(#{deliver_retry := _}, Ctx2),
 
     ok.
 
@@ -603,32 +607,34 @@ test_retry_dequeue(QoS, _TCConfig) ->
     put_context(Ctx0),
     %% Only two messages come out.
     {ok, [_Pub1, _Pub2], Session1} = emqx_session_mem:deliver(clientinfo(), Delivers, Session0),
-    %% A retry was scheduled.
+    %% A retry was requested.
     Ctx1 = pop_context(),
     ?assertMatch(
-        #{limiter := _, retry_dequeue_tref := TRef} when is_reference(TRef),
+        #{limiter := _, deliver_retry := _},
         Ctx1
     ),
     #{limiter := Limiter1} = Ctx1,
     %% Immediately retrying would yield no messages, if it were attempted.
     put_context(#{limiter => Limiter1}),
-    {ok, [], Session2} = emqx_session_mem:handle_timeout(clientinfo(), retry_dequeue, Session1),
+    {ok, [], Session2} = emqx_session_mem:handle_timeout(
+        clientinfo(), ?DELIVER_RETRY_TIMER, Session1
+    ),
     %% After rate tokens are restored, it should yield more messages that were enqueued.
     Limiter2 = restart_limiters(ListenerId, LimiterConfig0),
     put_context(#{limiter => Limiter2}),
     {ok, [_Pub3, _Pub4], Session3} =
-        emqx_session_mem:handle_timeout(clientinfo(), retry_dequeue, Session2),
+        emqx_session_mem:handle_timeout(clientinfo(), ?DELIVER_RETRY_TIMER, Session2),
     Ctx2 = pop_context(),
     ?assertMatch(#{limiter := _}, Ctx2),
-    ?assertNotMatch(#{retry_dequeue_tref := _}, Ctx2),
+    ?assertNotMatch(#{deliver_retry := _}, Ctx2),
     %% Nothing left
     Limiter3 = restart_limiters(ListenerId, LimiterConfig0),
     put_context(#{limiter => Limiter3}),
     {ok, [], _Session4} =
-        emqx_session_mem:handle_timeout(clientinfo(), retry_dequeue, Session3),
+        emqx_session_mem:handle_timeout(clientinfo(), ?DELIVER_RETRY_TIMER, Session3),
     Ctx3 = pop_context(),
     ?assertMatch(#{limiter := _}, Ctx3),
-    ?assertNotMatch(#{retry_dequeue_tref := _}, Ctx3),
+    ?assertNotMatch(#{deliver_retry := _}, Ctx3),
 
     ok.
 

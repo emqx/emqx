@@ -152,6 +152,7 @@
 -define(chan_terminating, chan_terminating).
 -define(normal, normal).
 -define(RAND_CLIENTID_BYTES, 16).
+-define(DELIVER_RETRY_TIMER, deliver_retry).
 
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
 
@@ -1210,6 +1211,9 @@ stash_limiter_ctx(Channel) ->
 
 pop_limiter_ctx(Channel0) ->
     case emqx_session:pop_context() of
+        #{limiter := Limiter, ?DELIVER_RETRY_TIMER := Time} when is_integer(Time) ->
+            Channel = Channel0#channel{quota = Limiter},
+            ensure_timer({emqx_session, ?DELIVER_RETRY_TIMER}, Time, Channel);
         #{limiter := Limiter} ->
             Channel0#channel{quota = Limiter};
         _ ->

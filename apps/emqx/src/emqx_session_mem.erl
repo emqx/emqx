@@ -152,7 +152,7 @@
 
 -define(INFLIGHT_INSERT_TS, inflight_insert_ts).
 
--define(RETRY_DEQUEUE_TIMER, retry_dequeue).
+-define(DELIVER_RETRY_TIMER, deliver_retry).
 
 %%--------------------------------------------------------------------
 %% Init a Session
@@ -649,7 +649,7 @@ handle_timeout(ClientInfo, retry_delivery, Session) ->
     retry(ClientInfo, Session);
 handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
     expire(ClientInfo, Session);
-handle_timeout(ClientInfo, ?RETRY_DEQUEUE_TIMER, Session) ->
+handle_timeout(ClientInfo, ?DELIVER_RETRY_TIMER, Session) ->
     dequeue(ClientInfo, Session).
 
 %%--------------------------------------------------------------------
@@ -965,15 +965,14 @@ log_rate_limit_reason(Reason, #message{topic = Topic} = _Msg) ->
         #{topic => Topic, tag => "QUOTA"}
     ).
 
-ensure_retry_dequeue_timer(_, #{retry_dequeue_tref := TRef} = Ctx0) when is_reference(TRef) ->
+ensure_retry_dequeue_timer(_, #{?DELIVER_RETRY_TIMER := TRef} = Ctx0) when is_reference(TRef) ->
     Ctx0;
 ensure_retry_dequeue_timer({failed_to_consume_from_limiter, LimiterId}, Ctx0) ->
     try emqx_limiter_registry:get_limiter_options(LimiterId) of
         #{interval := Interval, capacity := Capacity} ->
             %% Finite capacity
             Time = max(1, Interval div Capacity),
-            TRef = emqx_utils:start_timer(Time, {emqx_session, ?RETRY_DEQUEUE_TIMER}),
-            Ctx0#{retry_dequeue_tref => TRef};
+            Ctx0#{?DELIVER_RETRY_TIMER => Time};
         _ ->
             %% Infinite capacity; should be impossible at this point.
             Ctx0
