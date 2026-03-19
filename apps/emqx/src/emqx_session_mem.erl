@@ -926,11 +926,10 @@ publish_will_message_now(#session{} = Session, #message{} = WillMsg) ->
 try_consume_delivery_rate_limit(Msg) ->
     case emqx_session:get_context() of
         #{limiter := Limiter0} = Ctx0 ->
-            #message{payload = Payload} = Msg,
             Res = emqx_limiter_client_container:try_consume(
                 Limiter0,
                 [
-                    {delivery_bytes, iolist_size(Payload)},
+                    {delivery_bytes, emqx_message:estimate_size(Msg)},
                     {delivery_messages, 1}
                 ]
             ),
