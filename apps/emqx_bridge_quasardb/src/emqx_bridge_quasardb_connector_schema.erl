@@ -56,7 +56,11 @@ fields(connector_config) ->
         {password, emqx_schema_secret:mk(#{required => false, desc => ?DESC("password")})},
         {cluster_public_key,
             mk(binary(), #{required => false, desc => ?DESC("cluster_public_key")})},
-        {pool_size, mk(pos_integer(), #{default => 8, desc => ?DESC("pool_size")})}
+        {pool_size, mk(pos_integer(), #{default => 8, desc => ?DESC("pool_size")})},
+        {connect_timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"5s">>, desc => ?DESC("connect_timeout")
+            })}
     ] ++
         emqx_connector_schema:resource_opts().
 
