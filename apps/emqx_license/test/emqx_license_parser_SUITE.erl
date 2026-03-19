@@ -58,7 +58,7 @@ t_parse(_Config) ->
     {error, Err1} = Res1,
     ?assertMatch(#{error := invalid_version}, find_error(Parser, Err1)),
 
-    %% invalid field number
+    %% unknown trailing fields should be ignored
     Res2 = emqx_license_parser:parse(
         emqx_license_test_lib:make_license(
             [
@@ -66,22 +66,55 @@ t_parse(_Config) ->
                 "0",
                 "10",
                 "Foo",
-                % one extra field
-                "Bar",
                 "contact@foo.com",
                 "default-deployment",
                 "20220111",
                 "100000",
-                "10"
+                "10",
+                "new-feature-field"
             ]
         ),
         public_key_pem()
     ),
-    ?assertMatch({error, _}, Res2),
-    {error, Err2} = Res2,
+    ?assertMatch({ok, _}, Res2),
+    {ok, License2} = Res2,
+    ?assertMatch(
+        #{
+            data := #{
+                type := 0,
+                customer_type := 10,
+                customer := <<"Foo">>,
+                email := <<"contact@foo.com">>,
+                deployment := <<"default-deployment">>,
+                date_start := {2022, 1, 11},
+                days := 100000,
+                max_sessions := 10
+            }
+        },
+        License2
+    ),
+
+    %% invalid field number
+    Res2a = emqx_license_parser:parse(
+        emqx_license_test_lib:make_license(
+            [
+                "220111",
+                "0",
+                "10",
+                "Foo",
+                "contact@foo.com",
+                "default-deployment",
+                "20220111",
+                "100000"
+            ]
+        ),
+        public_key_pem()
+    ),
+    ?assertMatch({error, _}, Res2a),
+    {error, Err2a} = Res2a,
     ?assertMatch(
         #{error := unexpected_number_of_fields},
-        find_error(Parser, Err2)
+        find_error(Parser, Err2a)
     ),
 
     Res3 = emqx_license_parser:parse(
