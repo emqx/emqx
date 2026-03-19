@@ -16,12 +16,16 @@
 
 -export([
     create/5,
+    create/6,
+    create/7,
     read/1,
     update/5,
+    update/6,
     delete/1,
     list/0,
     try_init_bootstrap_file/0,
-    format/1
+    format/1,
+    check_scopes/3
 ]).
 
 -export([authorize/4]).
@@ -31,14 +35,14 @@
 
 %% Internal exports (RPC)
 -export([
-    do_update/5,
+    do_update/6,
     do_delete/1,
     do_create_app/1,
     do_force_create_app/1
 ]).
 
 -ifdef(TEST).
--export([create/7]).
+-export([create/8]).
 -export([trans/2, force_create_app/1]).
 -export([init_bootstrap_file/1]).
 -endif.
@@ -116,13 +120,19 @@ try_init_bootstrap_file() ->
     end.
 
 create(Name, Enable, ExpiredAt, Desc, Role) ->
+    create(Name, Enable, ExpiredAt, Desc, Role, undefined).
+
+create(Name, Enable, ExpiredAt, Desc, Role, Scopes) ->
     ApiKey = generate_unique_api_key(Name),
     ApiSecret = generate_api_secret(),
-    create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role).
+    create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, Scopes).
 
 create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role) ->
+    create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, undefined).
+
+create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, Scopes) ->
     case mnesia:table_info(?APP, size) < 100 of
-        true -> create_app(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role);
+        true -> create_app(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, Scopes);
         false -> {error, "Maximum number of ApiKeys reached."}
     end.
 
@@ -133,24 +143,29 @@ read(Name) ->
     end.
 
 update(Name, Enable, ExpiredAt, Desc, Role) ->
+    update(Name, Enable, ExpiredAt, Desc, Role, undefined).
+
+update(Name, Enable, ExpiredAt, Desc, Role, Scopes) ->
     case valid_role(Role) of
         ok ->
-            trans(fun ?MODULE:do_update/5, [Name, Enable, ExpiredAt, Desc, Role]);
+            trans(fun ?MODULE:do_update/6, [Name, Enable, ExpiredAt, Desc, Role, Scopes]);
         Error ->
             Error
     end.
 
-do_update(Name, Enable, ExpiredAt, Desc, Role) ->
+do_update(Name, Enable, ExpiredAt, Desc, Role, Scopes) ->
     case mnesia:read(?APP, Name, write) of
         [] ->
             mnesia:abort(not_found);
         [App0 = #?APP{enable = Enable0, extra = Extra0}] ->
             #{desc := Desc0} = Extra = normalize_extra(Extra0),
+            Extra1 = Extra#{desc := ensure_not_undefined(Desc, Desc0), role := Role},
+            Extra2 = maybe_set_scopes(Extra1, Scopes),
             App =
                 App0#?APP{
                     expired_at = ExpiredAt,
                     enable = ensure_not_undefined(Enable, Enable0),
-                    extra = Extra#{desc := ensure_not_undefined(Desc, Desc0), role := Role}
+                    extra = Extra2
                 },
             ok = mnesia:write(App),
             to_map(App)
@@ -190,14 +205,21 @@ authorize(#{module := emqx_mgmt_api_api_keys}, _Req, _ApiKey, _ApiSecret) ->
 authorize(_HandlerInfo, Req, ApiKey, ApiSecret) ->
     Now = erlang:system_time(second),
     case find_by_api_key(ApiKey) of
-        {ok, true, ExpiredAt, SecretHash, Role} when ExpiredAt >= Now ->
+        {ok, true, ExpiredAt, SecretHash, Role, Extra} when ExpiredAt >= Now ->
             case emqx_dashboard_admin:verify_hash(ApiSecret, SecretHash) of
-                ok -> check_rbac(Req, ApiKey, Role);
-                error -> {error, "secret_error"}
+                ok ->
+                    case check_rbac(Req, ApiKey, Role) of
+                        ok ->
+                            check_scopes(Extra, Req);
+                        Error ->
+                            Error
+                    end;
+                error ->
+                    {error, "secret_error"}
             end;
-        {ok, true, _ExpiredAt, _SecretHash, _Role} ->
+        {ok, true, _ExpiredAt, _SecretHash, _Role, _Extra} ->
             {error, "secret_expired"};
-        {ok, false, _ExpiredAt, _SecretHash, _Role} ->
+        {ok, false, _ExpiredAt, _SecretHash, _Role, _Extra} ->
             {error, "secret_disable"};
         {error, Reason} ->
             {error, Reason}
@@ -211,10 +233,84 @@ find_by_api_key(ApiKey) ->
                 api_secret_hash = SecretHash, enable = Enable, expired_at = ExpiredAt, extra = Extra
             }
         ]} ->
-            {ok, Enable, ExpiredAt, SecretHash, get_role(Extra)};
+            {ok, Enable, ExpiredAt, SecretHash, get_role(Extra), normalize_extra(Extra)};
         _ ->
             {error, "not_found"}
     end.
+
+%% @doc Check if the request path is within the allowed scopes for this API key.
+%% If no scopes are configured (key not present or undefined), all paths are allowed.
+%% If scopes is an empty list, all paths are denied.
+%% Publisher role skips scope check (has its own hardcoded path restrictions).
+-spec check_scopes(map(), cowboy_req:req()) -> ok | {error, unauthorized_role}.
+check_scopes(Extra, Req) ->
+    case get_scopes(Extra) of
+        undefined ->
+            %% No scopes configured = all paths allowed (backward compat)
+            ok;
+        Scopes ->
+            Role = maps:get(role, Extra, ?ROLE_API_DEFAULT),
+            case Role of
+                ?ROLE_API_PUBLISHER ->
+                    %% Publisher role has its own hardcoded path restrictions,
+                    %% skip scope check
+                    ok;
+                _ ->
+                    AbsPath = cowboy_req:path(Req),
+                    case emqx_dashboard_swagger:get_relative_uri(AbsPath) of
+                        {ok, Path} ->
+                            check_path_in_scopes(Path, Scopes);
+                        _ ->
+                            {error, unauthorized_role}
+                    end
+            end
+    end.
+
+%% @doc Check scopes with explicit path and method (for external callers).
+-spec check_scopes(map(), binary(), binary()) -> ok | {error, unauthorized_role}.
+check_scopes(Extra, Path, _Method) ->
+    case get_scopes(Extra) of
+        undefined ->
+            ok;
+        Scopes ->
+            Role = maps:get(role, Extra, ?ROLE_API_DEFAULT),
+            case Role of
+                ?ROLE_API_PUBLISHER ->
+                    ok;
+                _ ->
+                    check_path_in_scopes(Path, Scopes)
+            end
+    end.
+
+check_path_in_scopes(_Path, []) ->
+    {error, unauthorized_role};
+check_path_in_scopes(Path, Scopes) ->
+    PathScopes = emqx_mgmt_api_key_scopes:path_to_scopes(Path),
+    case PathScopes of
+        [] ->
+            %% Path not mapped to any scope — allow access
+            %% (e.g., status, prometheus, or other public endpoints)
+            ok;
+        _ ->
+            case lists:any(fun(S) -> lists:member(S, Scopes) end, PathScopes) of
+                true -> ok;
+                false -> {error, unauthorized_role}
+            end
+    end.
+
+get_scopes(#{scopes := Scopes}) when is_list(Scopes) ->
+    Scopes;
+get_scopes(#{scopes := undefined}) ->
+    undefined;
+get_scopes(_) ->
+    %% No scopes key in extra = backward compatible, allow all
+    undefined.
+
+%% @doc Set scopes in extra map. undefined means "don't change".
+maybe_set_scopes(Extra, undefined) ->
+    Extra;
+maybe_set_scopes(Extra, Scopes) when is_list(Scopes) ->
+    Extra#{scopes => Scopes}.
 
 ensure_not_undefined(undefined, Old) -> Old;
 ensure_not_undefined(New, _Old) -> New.
@@ -224,8 +320,8 @@ to_map(Apps) when is_list(Apps) ->
 to_map(#?APP{
     name = N, api_key = K, enable = E, expired_at = ET, created_at = CT, extra = Extra0
 }) ->
-    #{role := Role, desc := Desc} = normalize_extra(Extra0),
-    #{
+    #{role := Role, desc := Desc} = Extra = normalize_extra(Extra0),
+    Base = #{
         name => N,
         api_key => K,
         enable => E,
@@ -234,18 +330,26 @@ to_map(#?APP{
         desc => Desc,
         expired => is_expired(ET),
         role => Role
-    }.
+    },
+    maybe_add_scopes(Base, Extra).
+
+maybe_add_scopes(Map, #{scopes := Scopes}) when is_list(Scopes) ->
+    Map#{scopes => Scopes};
+maybe_add_scopes(Map, _) ->
+    Map.
 
 is_expired(undefined) -> false;
 is_expired(ExpiredTime) -> ExpiredTime < erlang:system_time(second).
 
-create_app(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role) ->
+create_app(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, Scopes) ->
+    Extra0 = #{desc => Desc, role => Role},
+    Extra = maybe_set_scopes(Extra0, Scopes),
     App =
         #?APP{
             name = Name,
             enable = Enable,
             expired_at = ExpiredAt,
-            extra = #{desc => Desc, role => Role},
+            extra = Extra,
             created_at = erlang:system_time(second),
             api_secret_hash = emqx_dashboard_admin:hash(ApiSecret),
             api_key = ApiKey
@@ -350,7 +454,7 @@ init_bootstrap_file(<<>>) ->
 init_bootstrap_file(File) ->
     case file:open(File, [read, binary]) of
         {ok, Dev} ->
-            {ok, MP} = re:compile(<<"(\.+):(\.+)(?::(\.+))?$">>, [ungreedy]),
+            {ok, MP} = re:compile(<<"([^:]+):([^:]+)(?::([^:]+))?(?::(.+))?$">>),
             init_bootstrap_file(File, Dev, MP);
         {error, Reason0} ->
             Reason = emqx_utils:explain_posix(Reason0),
@@ -384,14 +488,16 @@ add_bootstrap_file(File, Dev, MP, Line) ->
     case read_line(Dev) of
         {ok, Bin} ->
             case parse_bootstrap_line(Bin, MP) of
-                {ok, [ApiKey, ApiSecret, Role]} ->
+                {ok, {ApiKey, ApiSecret, Role, Scopes}} ->
+                    Extra0 = #{desc => ?BOOTSTRAP_TAG, role => Role},
+                    Extra = maybe_set_scopes(Extra0, Scopes),
                     App =
                         #?APP{
                             name = generate_unique_name(?FROM_BOOTSTRAP_FILE_PREFIX, ApiKey),
                             api_key = ApiKey,
                             api_secret_hash = emqx_dashboard_admin:hash(ApiSecret),
                             enable = true,
-                            extra = #{desc => ?BOOTSTRAP_TAG, role => Role},
+                            extra = Extra,
                             created_at = erlang:system_time(second),
                             expired_at = infinity
                         },
@@ -437,18 +543,32 @@ read_line(Dev) ->
 
 parse_bootstrap_line(Bin, MP) ->
     case re:run(Bin, MP, [global, {capture, all_but_first, binary}]) of
-        {match, [[_ApiKey, _ApiSecret] = Args]} ->
-            {ok, Args ++ [?ROLE_API_DEFAULT]};
-        {match, [[_ApiKey, _ApiSecret, Role] = Args]} ->
+        {match, [[ApiKey, ApiSecret]]} ->
+            {ok, {ApiKey, ApiSecret, ?ROLE_API_DEFAULT, undefined}};
+        {match, [[ApiKey, ApiSecret, Role]]} ->
             case valid_role(Role) of
                 ok ->
-                    {ok, Args};
+                    {ok, {ApiKey, ApiSecret, Role, undefined}};
+                _Error ->
+                    {error, {"invalid_role", Role}}
+            end;
+        {match, [[ApiKey, ApiSecret, Role, ScopesStr]]} ->
+            case valid_role(Role) of
+                ok ->
+                    Scopes = parse_scopes_str(ScopesStr),
+                    {ok, {ApiKey, ApiSecret, Role, Scopes}};
                 _Error ->
                     {error, {"invalid_role", Role}}
             end;
         _ ->
             {error, "invalid_format"}
     end.
+
+parse_scopes_str(<<>>) ->
+    undefined;
+parse_scopes_str(ScopesStr) ->
+    Scopes = binary:split(ScopesStr, <<",">>, [global, trim_all]),
+    [string:lowercase(string:trim(S)) || S <- Scopes, S =/= <<>>].
 
 get_role(#{role := Role}) ->
     Role;
