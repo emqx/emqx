@@ -519,8 +519,14 @@ do_dequeue(Msg, ClientInfo = #{zone := Zone}, Cnt, Msgs, Q, PrevQ) ->
                     dequeue(ClientInfo, acc_cnt(Msg, Cnt), [Msg | Msgs], Q);
                 {error, Reason} ->
                     log_rate_limit_reason(Reason, Msg),
-                    %% Restore previous mqueue to keep current message in there.
-                    dequeue(ClientInfo, 0, Msgs, PrevQ)
+                    %% Restore previous mqueue to keep current message in there (if not
+                    %% QoS 0)
+                    case Msg#message.qos of
+                        0 ->
+                            dequeue(ClientInfo, 0, Msgs, Q);
+                        _ ->
+                            dequeue(ClientInfo, 0, Msgs, PrevQ)
+                    end
             end
     end.
 
