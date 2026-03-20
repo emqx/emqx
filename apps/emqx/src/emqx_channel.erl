@@ -145,9 +145,12 @@
     ((ConnState == connected) orelse (ConnState == reauthenticating))
 ).
 
+%% Used by mem sessions
+-define(RETRY_DEQUEUE_TIMER, retry_dequeue).
+
 %% Timers implemented by sessions
 -define(IS_COMMON_SESSION_TIMER(N),
-    ((N == retry_delivery) orelse (N == expire_awaiting_rel))
+    ((N == retry_delivery) orelse (N == expire_awaiting_rel) orelse (N == ?RETRY_DEQUEUE_TIMER))
 ).
 %% Timers implemented by sessions that need to be handled only when the client is connected
 -define(IS_COMMON_SESSION_ONLINE_TIMER(N),
@@ -157,7 +160,6 @@
 -define(chan_terminating, chan_terminating).
 -define(normal, normal).
 -define(RAND_CLIENTID_BYTES, 16).
--define(RETRY_DEQUEUE_TIMER, retry_dequeue).
 
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
 
@@ -1841,20 +1843,24 @@ handle_timeout(
 handle_timeout(
     _TRef,
     TimerName,
-    Channel = #channel{session = Session, clientinfo = ClientInfo}
+    Channel0 = #channel{session = Session, clientinfo = ClientInfo}
 ) when ?IS_COMMON_SESSION_TIMER(TimerName) ->
     %% NOTE
     %% Responsibility for these timers is smeared across both this module and the
     %% `emqx_session` module: the latter holds configured timer intervals, and is
     %% responsible for the actual timeout logic. Yet they are managed here, since
     %% they are kind of common to all session implementations.
+    Channel1 = clean_timer(TimerName, Channel0),
+    stash_limiter_ctx(Channel1),
     case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
         {ok, Publishes, NSession} ->
-            NChannel = Channel#channel{session = NSession},
-            handle_out(publish, Publishes, clean_timer(TimerName, NChannel));
+            Channel2 = pop_limiter_ctx(Channel1),
+            Channel = Channel2#channel{session = NSession},
+            handle_out(publish, Publishes, clean_timer(TimerName, Channel));
         {ok, Publishes, Timeout, NSession} ->
-            NChannel = Channel#channel{session = NSession},
-            handle_out(publish, Publishes, reset_timer(TimerName, Timeout, NChannel))
+            Channel2 = pop_limiter_ctx(Channel1),
+            Channel = Channel2#channel{session = NSession},
+            handle_out(publish, Publishes, reset_timer(TimerName, Timeout, Channel))
     end;
 handle_timeout(
     _TRef,
