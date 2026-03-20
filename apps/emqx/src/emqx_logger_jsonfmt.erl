@@ -158,13 +158,16 @@ json_obj_root(Data0, Config) ->
     Data =
         maps:fold(
             fun(K, V, D) ->
-                {K1, V1} = emqx_utils_json:json_kv(K, V, Config),
-                [{K1, V1} | D]
+                case is_drop(K) of
+                    true ->
+                        D;
+                    false ->
+                        {K1, V1} = emqx_utils_json:json_kv(K, V, Config),
+                        [{K1, V1} | D]
+                end
             end,
             [],
-            maps:without(
-                [time, gl, file, report_cb, msg, '$kind', level, mfa, is_trace], Data0
-            )
+            Data0
         ),
     Properties =
         lists:filter(
@@ -184,6 +187,24 @@ format_ts(Ts, #{timestamp_format := rfc3339, time_offset := Offset}) when is_int
 format_ts(Ts, _Config) ->
     % auto | epoch
     Ts.
+
+%% return true if the root level log data key is to be dropped from the final log print
+%% below are fields require special formatting
+is_drop(time) -> true;
+is_drop(level) -> true;
+is_drop(msg) -> true;
+is_drop(mfa) -> true;
+%% below are non-interesting information for log readers
+%% or for log filters only
+is_drop(gl) -> true;
+is_drop(is_trace) -> true;
+is_drop(domain) -> true;
+%% below are legacy drops without clear reason.
+is_drop(file) -> true;
+is_drop(report_cb) -> true;
+is_drop('$kind') -> true;
+%% everything else
+is_drop(_) -> false.
 
 -ifdef(TEST).
 
