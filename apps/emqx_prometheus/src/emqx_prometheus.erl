@@ -1220,15 +1220,12 @@ do_points_of_listeners(_, undefined) ->
 do_points_of_listeners(Type, Listeners) ->
     lists:foldl(
         fun(Name, PointsAcc) ->
-            case
-                emqx_utils_maps:deep_get([Name, enable], Listeners, false) andalso
-                    emqx_utils_maps:deep_get(
-                        [Name, ssl_options, certfile], Listeners, undefined
-                    )
-            of
-                false -> PointsAcc;
-                undefined -> PointsAcc;
-                Path -> [gen_point_cert_expiry_at(Type, Name, Path) | PointsAcc]
+            #{Name := Listener} = Listeners,
+            case resolve_listener_certfile(Listener) of
+                error ->
+                    PointsAcc;
+                {ok, Certfile} ->
+                    [gen_point_cert_expiry_at(Type, Name, Certfile) | PointsAcc]
             end
         end,
         [],
@@ -1238,6 +1235,17 @@ do_points_of_listeners(Type, Listeners) ->
 
 gen_point_cert_expiry_at(Type, Name, Path) ->
     {[{listener_type, Type}, {listener_name, Name}], cert_expiry_at_from_path(Path)}.
+
+resolve_listener_certfile(#{enable := true, ssl_options := #{} = SSLOpts0}) ->
+    SSLOpts = emqx_tls_lib:to_server_opts(tls, SSLOpts0),
+    case lists:keyfind(certfile, 1, SSLOpts) of
+        {certfile, Certfile} ->
+            {ok, Certfile};
+        _ ->
+            error
+    end;
+resolve_listener_certfile(#{}) ->
+    error.
 
 %% TODO: cert manager for more generic utils functions
 cert_expiry_at_from_path(Path0) ->
@@ -1333,35 +1341,34 @@ mria_data(Mode) ->
     end.
 
 mria_data(Role, Mode) ->
-    lists:foldl(
-        fun({Name, _Type, MetricK}, AccIn) ->
-            %% TODO: only report shards that are up
-            AccIn#{Name => ?SAFELY(get_shard_metrics(Mode, MetricK), [])}
-        end,
-        #{},
-        mria_metric_meta(Role)
-    ).
-
-get_shard_metrics(Mode, MetricK) ->
     Labels =
         case Mode of
             ?PROM_DATA_MODE__NODE -> [];
             _ -> [{node, node()}]
         end,
-    [
-        {[{shard, Shard} | Labels], get_shard_metric(MetricK, Shard)}
+    ShardMetrics = [
+        {Shard, ?SAFELY(mria_status:get_shard_stats(Shard), #{})}
      || Shard <- mria_schema:shards(), Shard =/= undefined
-    ].
+    ],
+    lists:foldl(
+        fun({Name, _Type, MetricK}, AccIn) ->
+            %% TODO: only report shards that are up
+            AccIn#{Name => get_shard_metrics(Labels, MetricK, ShardMetrics)}
+        end,
+        #{},
+        mria_metric_meta(Role)
+    ).
 
-get_shard_metric(replicants, Shard) ->
-    length(mria_status:agents(Shard));
-get_shard_metric(Metric, Shard) ->
-    case mria_status:get_shard_stats(Shard) of
-        #{Metric := Value} when is_number(Value) ->
-            Value;
-        _ ->
-            undefined
-    end.
+get_shard_metrics(Labels, replicants, ShardMetrics) ->
+    [
+        {[{shard, Shard} | Labels], length(mria_status:agents(Shard))}
+     || {Shard, _} <- ShardMetrics
+    ];
+get_shard_metrics(Labels, MetricK, ShardMetrics) ->
+    [
+        {[{shard, Shard} | Labels], maps:get(MetricK, Metrics, undefined)}
+     || {Shard, Metrics} <- ShardMetrics
+    ].
 
 %%========================================
 %% Broker Instrumentation

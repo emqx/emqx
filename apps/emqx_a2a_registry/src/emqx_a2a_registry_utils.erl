@@ -5,6 +5,7 @@
 
 %% API
 -export([
+    parse_a2a_discovery_topic/1,
     validate_card_schema/1,
     validate_id/3
 ]).
@@ -18,6 +19,14 @@
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
+
+parse_a2a_discovery_topic(Topic) ->
+    case emqx_topic:words(Topic) of
+        [?A2A_TOPIC_NS, ?A2A_TOPIC_V1, ?A2A_TOPIC_DISCOVERY, OrgId, UnitId, AgentId] ->
+            {ok, {OrgId, UnitId, AgentId}};
+        _ ->
+            error
+    end.
 
 validate_card_schema(CardBin) ->
     case emqx_a2a_registry_config:is_schema_validation_enabled() of

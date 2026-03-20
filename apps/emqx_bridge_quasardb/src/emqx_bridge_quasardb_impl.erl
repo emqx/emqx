@@ -102,11 +102,13 @@ on_start(ConnResId, ConnConfig) ->
         uri := URI,
         dsn := DSN,
         pool_size := PoolSize,
+        connect_timeout := ConnectTimeout,
         resource_opts := #{health_check_timeout := HCTimeout}
     } = ConnConfig,
     Username = maps:get(username, ConnConfig, undefined),
     Password = maps:get(password, ConnConfig, undefined),
     ClusterPublicKey = maps:get(cluster_public_key, ConnConfig, undefined),
+    DriverOpts = [{timeout, ConnectTimeout}],
     ConnectOptions0 = [
         {uri, URI},
         {username, Username},
@@ -115,7 +117,8 @@ on_start(ConnResId, ConnConfig) ->
         {dsn, DSN},
         {pool_size, PoolSize},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL_S},
-        {on_disconnect, {?MODULE, disconnect, []}}
+        {on_disconnect, {?MODULE, disconnect, []}},
+        {driver_options, DriverOpts}
     ],
     ConnectOptions = lists:filter(fun({_K, V}) -> V /= undefined end, ConnectOptions0),
     ConnState = #{
