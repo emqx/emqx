@@ -95,7 +95,12 @@
     %% Quota checkers
     quota :: emqx_limiter_client_container:t(),
     %% Timers
-    timers :: #{atom() => disabled | option(reference())},
+    timers :: #{
+        %% Common timers
+        atom() => disabled | option(reference()),
+        %% Other timers (e.g.: requested by sessions)
+        any() => option(reference())
+    },
     %% Conn State
     conn_state :: conn_state(),
     %% Takeover
@@ -1213,7 +1218,13 @@ pop_limiter_ctx(Channel0) ->
     case emqx_session:pop_context() of
         #{limiter := Limiter, ?DELIVER_RETRY_TIMER := Time} when is_integer(Time) ->
             Channel = Channel0#channel{quota = Limiter},
-            ensure_timer({emqx_session, ?DELIVER_RETRY_TIMER}, Time, Channel);
+            Timer = {emqx_session, ?DELIVER_RETRY_TIMER},
+            case Channel#channel.timers of
+                #{Timer := TRef} when is_reference(TRef) ->
+                    Channel;
+                #{} ->
+                    ensure_timer(Timer, Time, Channel)
+            end;
         #{limiter := Limiter} ->
             Channel0#channel{quota = Limiter};
         _ ->
@@ -1847,16 +1858,17 @@ handle_timeout(
     end;
 handle_timeout(
     _TRef,
-    {emqx_session, TimerName},
+    {emqx_session, TimerName} = Timer,
     Channel0 = #channel{session = Session, clientinfo = ClientInfo}
 ) ->
-    stash_limiter_ctx(Channel0),
+    Channel1 = clean_timer(Timer, Channel0),
+    stash_limiter_ctx(Channel1),
     case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
         {ok, [], NSession} ->
-            Channel = pop_limiter_ctx(Channel0),
+            Channel = pop_limiter_ctx(Channel1),
             {ok, Channel#channel{session = NSession}};
         {ok, Replies, NSession} ->
-            Channel = pop_limiter_ctx(Channel0),
+            Channel = pop_limiter_ctx(Channel1),
             handle_out(publish, Replies, Channel#channel{session = NSession})
     end;
 handle_timeout(_TRef, expire_session, Channel = #channel{session = Session}) ->
