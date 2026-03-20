@@ -286,8 +286,11 @@ t_delete(_) ->
 
 check_running(Expect) ->
     Path = uri(["sso", "running"]),
-    %% this API is authorization-free
-    {ok, Result} = emqx_mgmt_api_test_util:request_api(get, Path, []),
+    %% this API is authorization-free, but we still need a non-empty auth header
+    %% to avoid fallback to default_auth_header (API Key not created)
+    AuthHeader = persistent_term:get({?MODULE, auth_header}),
+    Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
+    {ok, 200, Result} = emqx_mgmt_api_test_util:request_api(get, Path, [], AuthHeader, [], Opts),
     ?assertEqual(Expect, decode_json(Result)).
 
 get_sso() ->
@@ -322,7 +325,8 @@ decode_json(Data) ->
 
 request_without_authorization(Method, Url, Body) ->
     Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
-    emqx_mgmt_api_test_util:request_api(Method, Url, [], [], Body, Opts).
+    %% Pass a dummy header to avoid fallback to default_auth_header
+    emqx_mgmt_api_test_util:request_api(Method, Url, [], [{"X-No-Auth", "true"}], Body, Opts).
 
 %% Use dashboard admin Bearer Token (SSO endpoints are denied for API Keys)
 request(Method, Url) ->
