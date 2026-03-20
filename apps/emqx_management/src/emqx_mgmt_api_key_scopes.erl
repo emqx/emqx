@@ -64,10 +64,19 @@ available_scopes() ->
 path_to_scopes(Path) ->
     case get_cache() of
         undefined ->
-            %% Cache not initialized; treat as no scope restriction
-            [];
+            init_cache(),
+            path_to_scopes_from_cache(Path);
         #{path_to_scopes := PathMap} ->
             find_scopes_for_path(Path, PathMap)
+    end.
+
+%% @private Lookup after cache is guaranteed to exist.
+path_to_scopes_from_cache(Path) ->
+    case get_cache() of
+        #{path_to_scopes := PathMap} ->
+            find_scopes_for_path(Path, PathMap);
+        _ ->
+            []
     end.
 
 %% @doc Validate that all given scopes exist in available_scopes
