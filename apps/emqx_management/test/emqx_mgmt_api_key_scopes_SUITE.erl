@@ -30,12 +30,16 @@ groups() ->
         {unit_tests, [], [
             t_init_cache,
             t_available_scopes,
+            t_available_scopes_excludes_denied,
+            t_denied_scopes,
             t_path_to_scopes,
             t_path_to_scopes_pattern_match,
             t_path_to_scopes_no_cache,
             t_validate_scopes,
+            t_validate_scopes_denied,
             t_validate_scopes_bad_input,
             t_preset_groups,
+            t_preset_groups_all_scopes,
             t_expand_groups,
             t_all_tags_in_preset_groups
         ]},
@@ -43,6 +47,7 @@ groups() ->
             t_authorize_with_scopes,
             t_authorize_no_scopes,
             t_authorize_empty_scopes,
+            t_authorize_denied_path,
             t_check_scopes_unmapped_path
         ]},
         {api_tests, [parallel], [
@@ -198,10 +203,56 @@ t_validate_scopes_bad_input(_Config) ->
         emqx_mgmt_api_key_scopes:validate_scopes(#{})
     ).
 
+t_available_scopes_excludes_denied(_Config) ->
+    emqx_mgmt_api_key_scopes:init_cache(),
+    Scopes = emqx_mgmt_api_key_scopes:available_scopes(),
+    ScopeNames = [Name || #{name := Name} <- Scopes],
+    Denied = emqx_mgmt_api_key_scopes:denied_scopes(),
+    %% No denied scope should appear in available_scopes
+    DeniedPresent = [S || S <- ScopeNames, lists:member(S, Denied)],
+    ?assertEqual([], DeniedPresent),
+    emqx_mgmt_api_key_scopes:clear_cache().
+
+t_denied_scopes(_Config) ->
+    Denied = emqx_mgmt_api_key_scopes:denied_scopes(),
+    ?assert(is_list(Denied)),
+    ?assert(length(Denied) >= 3),
+    ?assert(lists:member(<<"dashboard">>, Denied)),
+    ?assert(lists:member(<<"dashboard single sign-on">>, Denied)),
+    ?assert(lists:member(<<"api keys">>, Denied)),
+    %% is_denied_scope works
+    ?assert(emqx_mgmt_api_key_scopes:is_denied_scope(<<"dashboard">>)),
+    ?assert(emqx_mgmt_api_key_scopes:is_denied_scope(<<"api keys">>)),
+    ?assertNot(emqx_mgmt_api_key_scopes:is_denied_scope(<<"clients">>)),
+    ?assertNot(emqx_mgmt_api_key_scopes:is_denied_scope(<<"rules">>)).
+
+t_validate_scopes_denied(_Config) ->
+    emqx_mgmt_api_key_scopes:init_cache(),
+    %% Trying to set a denied scope should fail
+    ?assertMatch(
+        {error, <<"Denied scopes", _/binary>>},
+        emqx_mgmt_api_key_scopes:validate_scopes([<<"dashboard">>])
+    ),
+    ?assertMatch(
+        {error, <<"Denied scopes", _/binary>>},
+        emqx_mgmt_api_key_scopes:validate_scopes([<<"api keys">>])
+    ),
+    ?assertMatch(
+        {error, <<"Denied scopes", _/binary>>},
+        emqx_mgmt_api_key_scopes:validate_scopes([<<"dashboard single sign-on">>])
+    ),
+    %% Mixing valid + denied: denied takes priority
+    ?assertMatch(
+        {error, <<"Denied scopes", _/binary>>},
+        emqx_mgmt_api_key_scopes:validate_scopes([<<"clients">>, <<"dashboard">>])
+    ),
+    emqx_mgmt_api_key_scopes:clear_cache().
+
 t_preset_groups(_Config) ->
     Groups = emqx_mgmt_api_key_scopes:preset_groups(),
     ?assert(is_list(Groups)),
-    ?assert(length(Groups) >= 8),
+    %% 9 static groups + 1 dynamic (all_scopes) = 10
+    ?assert(length(Groups) >= 10),
     %% Each group has name, desc, scopes
     lists:foreach(
         fun(Group) ->
@@ -219,9 +270,47 @@ t_preset_groups(_Config) ->
     %% Group names should be unique
     Names = [N || #{name := N} <- Groups],
     ?assertEqual(length(Names), length(lists:usort(Names))),
-    %% No duplicate scopes across groups
-    AllScopes = lists:flatmap(fun(#{scopes := S}) -> S end, Groups),
-    ?assertEqual(length(AllScopes), length(lists:usort(AllScopes))).
+    %% No duplicate scopes across groups, EXCLUDING all_scopes
+    %% (all_scopes intentionally overlaps with other groups)
+    NonAllGroups = [G || G = #{name := N} <- Groups, N =/= <<"all_scopes">>],
+    AllScopes = lists:flatmap(fun(#{scopes := S}) -> S end, NonAllGroups),
+    ?assertEqual(length(AllScopes), length(lists:usort(AllScopes))),
+    %% Denied scopes must not appear in any group
+    Denied = emqx_mgmt_api_key_scopes:denied_scopes(),
+    AllGroupScopes = lists:flatmap(fun(#{scopes := S}) -> S end, Groups),
+    DeniedInGroups = [S || S <- AllGroupScopes, lists:member(S, Denied)],
+    ?assertEqual([], DeniedInGroups).
+
+t_preset_groups_all_scopes(_Config) ->
+    emqx_mgmt_api_key_scopes:init_cache(),
+    Groups = emqx_mgmt_api_key_scopes:preset_groups(),
+    %% Find the all_scopes group
+    AllScopesGroups = [G || G = #{name := <<"all_scopes">>} <- Groups],
+    ?assertEqual(1, length(AllScopesGroups)),
+    [#{scopes := AllScopes}] = AllScopesGroups,
+    %% all_scopes should contain all available scopes
+    Available = [Name || #{name := Name} <- emqx_mgmt_api_key_scopes:available_scopes()],
+    ?assertEqual(lists:sort(Available), lists:sort(AllScopes)),
+    %% all_scopes should NOT contain any denied scopes
+    Denied = emqx_mgmt_api_key_scopes:denied_scopes(),
+    DeniedInAll = [S || S <- AllScopes, lists:member(S, Denied)],
+    ?assertEqual([], DeniedInAll),
+    %% all_scopes should be a superset of every other group's scopes
+    OtherGroups = [G || G = #{name := N} <- Groups, N =/= <<"all_scopes">>],
+    lists:foreach(
+        fun(#{name := GName, scopes := GScopes}) ->
+            NotInAll = [S || S <- GScopes, not lists:member(S, AllScopes)],
+            ?assertEqual(
+                [],
+                NotInAll,
+                lists:flatten(
+                    io_lib:format("Group ~s has scopes not in all_scopes: ~p", [GName, NotInAll])
+                )
+            )
+        end,
+        OtherGroups
+    ),
+    emqx_mgmt_api_key_scopes:clear_cache().
 
 t_expand_groups(_Config) ->
     %% Expand a group name → individual scopes
@@ -309,6 +398,46 @@ t_authorize_empty_scopes(_Config) ->
     ?assertMatch({error, _}, auth_authorize(<<"/banned">>, ApiKey, ApiSecret)),
     delete_app(Name).
 
+t_authorize_denied_path(_Config) ->
+    %% Denied paths should be blocked even for API keys without scopes (backward compat keys).
+    %% The "dashboard" tag covers /users, /users/:username, etc.
+    %% The "api keys" tag covers /api_key, /api_key/:name (already hardcoded, but also via deny list).
+    Name = <<"SCOPES-TEST-DENIED">>,
+    {ok, #{<<"api_key">> := ApiKey, <<"api_secret">> := ApiSecret}} =
+        create_app(Name),
+
+    %% Normal paths should still work (no scopes = full access to non-denied)
+    ?assertEqual(ok, auth_authorize(<<"/clients">>, ApiKey, ApiSecret)),
+    ?assertEqual(ok, auth_authorize(<<"/alarms">>, ApiKey, ApiSecret)),
+
+    %% Denied paths should be blocked via check_scopes deny list.
+    %% Note: /users and /api_key are ALSO blocked by the hardcoded authorize/4 clauses
+    %% (defense-in-depth), but we test check_scopes/3 directly to verify the deny list.
+    Extra = #{role => ?ROLE_API_SUPERUSER},
+    %% Dashboard paths — denied
+    ?assertMatch(
+        {error, unauthorized_role},
+        emqx_mgmt_auth:check_scopes(Extra, <<"/users">>, <<"GET">>)
+    ),
+    ?assertMatch(
+        {error, unauthorized_role},
+        emqx_mgmt_auth:check_scopes(Extra, <<"/users/admin/change_pwd">>, <<"POST">>)
+    ),
+    %% API key paths — denied
+    ?assertMatch(
+        {error, unauthorized_role},
+        emqx_mgmt_auth:check_scopes(Extra, <<"/api_key">>, <<"GET">>)
+    ),
+
+    %% Even with explicit scopes (e.g., [<<"clients">>]), denied paths are still blocked
+    ExtraWithScopes = #{role => ?ROLE_API_SUPERUSER, scopes => [<<"clients">>]},
+    ?assertMatch(
+        {error, unauthorized_role},
+        emqx_mgmt_auth:check_scopes(ExtraWithScopes, <<"/users">>, <<"GET">>)
+    ),
+
+    delete_app(Name).
+
 t_check_scopes_unmapped_path(_Config) ->
     %% Paths not mapped to any scope should be allowed even with restricted scopes
     %% Use check_scopes/3 directly for this test
@@ -360,7 +489,7 @@ t_api_list_scopes_with_groups(_Config) ->
     Body = emqx_utils_json:decode(Res),
     Groups = maps:get(<<"groups">>, Body),
     ?assert(is_list(Groups)),
-    ?assert(length(Groups) >= 8),
+    ?assert(length(Groups) >= 10),
     %% Each group should have name, desc, scopes
     lists:foreach(
         fun(Group) ->
