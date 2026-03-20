@@ -10,7 +10,8 @@
 -export([
     namespace/0,
     roots/0,
-    fields/1
+    fields/1,
+    desc/1
 ]).
 
 %% `minirest_trails' API
@@ -43,8 +44,7 @@ namespace() -> message_transformation.
 
 roots() ->
     [
-        {message_transformation,
-            mk(ref(message_transformation), #{importance => ?IMPORTANCE_HIDDEN})}
+        {message_transformation, mk(ref(message_transformation), #{})}
     ].
 
 fields(message_transformation) ->
@@ -166,6 +166,17 @@ fields(payload_serde_external_http) ->
         {schema,
             mk(binary(), #{required => true, desc => ?DESC("payload_serde_external_http_schema")})}
     ].
+
+desc(message_transformation) ->
+    ?DESC("desc_message_transformation");
+desc(transformation) ->
+    ?DESC("desc_transformation");
+desc(operation) ->
+    ?DESC("desc_operation");
+desc(log_failure) ->
+    ?DESC("desc_log_failure");
+desc(_) ->
+    undefined.
 
 %%------------------------------------------------------------------------------
 %% `minirest_trails' API

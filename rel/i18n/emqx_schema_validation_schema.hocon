@@ -1,5 +1,50 @@
 emqx_schema_validation_schema {
 
+  desc_schema_validation.desc:
+  """Schema validation configuration."""
+  desc_schema_validation.label:
+  """Schema Validation"""
+
+  desc_validation.desc:
+  """A single schema validation rule."""
+  desc_validation.label:
+  """Validation"""
+
+  desc_log_failure.desc:
+  """Configuration for logging validation failures."""
+  desc_log_failure.label:
+  """Log Failure"""
+
+  desc_check_sql.desc:
+  """Validate using a SQL expression."""
+  desc_check_sql.label:
+  """SQL Check"""
+
+  desc_check_json.desc:
+  """Validate using a JSON schema."""
+  desc_check_json.label:
+  """JSON Check"""
+
+  desc_check_avro.desc:
+  """Validate using an Avro schema."""
+  desc_check_avro.label:
+  """Avro Check"""
+
+  desc_check_protobuf.desc:
+  """Validate using a Protobuf schema."""
+  desc_check_protobuf.label:
+  """Protobuf Check"""
+
+  desc_check_external_http.desc:
+  """Validate using an external HTTP schema."""
+  desc_check_external_http.label:
+  """External HTTP Check"""
+
+  validations.desc:
+  """List of schema validation rules."""
+  validations.label:
+  """Validations"""
+
   check_avro_type.desc:
   """Avro schema check"""
   check_avro_type.label:
