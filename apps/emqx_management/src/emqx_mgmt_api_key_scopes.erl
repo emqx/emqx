@@ -23,7 +23,9 @@
     validate_scopes/1,
     preset_groups/0,
     expand_groups/1,
-    all_preset_tags/0
+    all_preset_tags/0,
+    denied_scopes/0,
+    is_denied_scope/1
 ]).
 
 -ifdef(TEST).
@@ -68,17 +70,26 @@ path_to_scopes(Path) ->
             find_scopes_for_path(Path, PathMap)
     end.
 
-%% @doc Validate that all given scopes exist in available_scopes.
+%% @doc Validate that all given scopes exist in available_scopes
+%% and are not in the denied list.
 -spec validate_scopes([binary()]) -> ok | {error, binary()}.
 validate_scopes(Scopes) when is_list(Scopes) ->
-    Available = [Name || #{name := Name} <- available_scopes()],
-    Invalid = [S || S <- Scopes, not lists:member(S, Available)],
-    case Invalid of
+    %% Check denied scopes first (takes priority over unknown)
+    Denied = [S || S <- Scopes, is_denied_scope(S)],
+    case Denied of
+        [_ | _] ->
+            DeniedBin = iolist_to_binary(lists:join(<<", ">>, Denied)),
+            {error, <<"Denied scopes (not available for API keys): ", DeniedBin/binary>>};
         [] ->
-            ok;
-        _ ->
-            InvalidBin = iolist_to_binary(lists:join(<<", ">>, Invalid)),
-            {error, <<"Unknown scopes: ", InvalidBin/binary>>}
+            Available = [Name || #{name := Name} <- available_scopes()],
+            Invalid = [S || S <- Scopes, not lists:member(S, Available)],
+            case Invalid of
+                [] ->
+                    ok;
+                _ ->
+                    InvalidBin = iolist_to_binary(lists:join(<<", ">>, Invalid)),
+                    {error, <<"Unknown scopes: ", InvalidBin/binary>>}
+            end
     end;
 validate_scopes(_) ->
     {error, <<"scopes must be a list of strings">>}.
@@ -99,6 +110,26 @@ clear_cache() ->
     ok.
 
 %%--------------------------------------------------------------------
+%% Denied Scopes — tags that API Keys must never access
+%%--------------------------------------------------------------------
+
+%% @doc Tags that API Keys should NEVER be allowed to access,
+%% regardless of scope configuration. These correspond to
+%% dashboard-only functionality (user sessions, SSO, API key self-management).
+-spec denied_scopes() -> [binary()].
+denied_scopes() ->
+    [
+        <<"dashboard">>,
+        <<"dashboard single sign-on">>,
+        <<"api keys">>
+    ].
+
+%% @doc Check if a scope name is in the denied list.
+-spec is_denied_scope(binary()) -> boolean().
+is_denied_scope(Scope) ->
+    lists:member(Scope, denied_scopes()).
+
+%%--------------------------------------------------------------------
 %% Preset Groups — display-layer aliases for common tag bundles
 %%--------------------------------------------------------------------
 
@@ -106,9 +137,12 @@ clear_cache() ->
 %% Each group is a display-layer alias that bundles multiple OpenAPI tags.
 %% These groups are for UI convenience only — the API key `scopes` field
 %% always stores individual tag names, never group names.
+%%
+%% The `all_scopes` group is dynamic: it contains all available scopes
+%% minus denied scopes. Other groups may overlap with `all_scopes`.
 -spec preset_groups() -> [#{name := binary(), desc := binary(), scopes := [binary()]}].
 preset_groups() ->
-    [
+    Static = [
         #{
             name => <<"connections">>,
             desc => <<"Client connections, subscriptions, topics, publish, and banning">>,
@@ -174,17 +208,6 @@ preset_groups() ->
             ]
         },
         #{
-            name => <<"security">>,
-            desc => <<"Dashboard users, API keys, SSO, audit, and license">>,
-            scopes => [
-                <<"dashboard">>,
-                <<"api keys">>,
-                <<"dashboard single sign-on">>,
-                <<"audit">>,
-                <<"license">>
-            ]
-        },
-        #{
             name => <<"extensions">>,
             desc =>
                 <<"Auto subscribe, data backup, ExHook, GCP devices, load rebalance, and more">>,
@@ -201,8 +224,27 @@ preset_groups() ->
                 <<"message transformation">>,
                 <<"error codes">>
             ]
+        },
+        #{
+            name => <<"audit">>,
+            desc => <<"Audit log query">>,
+            scopes => [<<"audit">>]
+        },
+        #{
+            name => <<"license">>,
+            desc => <<"License management">>,
+            scopes => [<<"license">>]
         }
-    ].
+    ],
+    AllScopes = [Name || #{name := Name} <- available_scopes()],
+    Static ++
+        [
+            #{
+                name => <<"all_scopes">>,
+                desc => <<"All available scopes (excludes dashboard-only endpoints)">>,
+                scopes => AllScopes
+            }
+        ].
 
 %% @doc Expand a list of mixed group names and/or individual scope names
 %% into a flat, deduplicated list of individual scope names.
@@ -248,8 +290,11 @@ get_cache() ->
 
 get_available_scopes() ->
     case get_cache() of
-        undefined -> [];
-        #{scopes := Scopes} -> Scopes
+        undefined ->
+            [];
+        #{scopes := Scopes} ->
+            Denied = denied_scopes(),
+            [S || S = #{name := Name} <- Scopes, not lists:member(Name, Denied)]
     end.
 
 %% @doc Collect scope information from all loaded API modules.

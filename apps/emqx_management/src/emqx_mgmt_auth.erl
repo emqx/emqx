@@ -239,14 +239,41 @@ find_by_api_key(ApiKey) ->
     end.
 
 %% @doc Check if the request path is within the allowed scopes for this API key.
-%% If no scopes are configured (key not present or undefined), all paths are allowed.
+%% Denied scopes are always blocked, regardless of configuration.
+%% If no scopes are configured (key not present or undefined), all non-denied paths are allowed.
 %% If scopes is an empty list, all paths are denied.
 %% Publisher role skips scope check (has its own hardcoded path restrictions).
 -spec check_scopes(map(), cowboy_req:req()) -> ok | {error, unauthorized_role}.
 check_scopes(Extra, Req) ->
+    AbsPath = cowboy_req:path(Req),
+    case emqx_dashboard_swagger:get_relative_uri(AbsPath) of
+        {ok, Path} ->
+            %% Always check denied scopes first
+            case is_denied_path(Path) of
+                true ->
+                    {error, unauthorized_role};
+                false ->
+                    check_scopes_for_path(Extra, Path)
+            end;
+        _ ->
+            {error, unauthorized_role}
+    end.
+
+%% @doc Check scopes with explicit path and method (for external callers).
+-spec check_scopes(map(), binary(), binary()) -> ok | {error, unauthorized_role}.
+check_scopes(Extra, Path, _Method) ->
+    case is_denied_path(Path) of
+        true ->
+            {error, unauthorized_role};
+        false ->
+            check_scopes_for_path(Extra, Path)
+    end.
+
+%% @doc Internal: check scopes for a path that has already passed denied check.
+check_scopes_for_path(Extra, Path) ->
     case get_scopes(Extra) of
         undefined ->
-            %% No scopes configured = all paths allowed (backward compat)
+            %% No scopes configured = all non-denied paths allowed (backward compat)
             ok;
         Scopes ->
             Role = maps:get(role, Extra, ?ROLE_API_DEFAULT),
@@ -254,28 +281,6 @@ check_scopes(Extra, Req) ->
                 ?ROLE_API_PUBLISHER ->
                     %% Publisher role has its own hardcoded path restrictions,
                     %% skip scope check
-                    ok;
-                _ ->
-                    AbsPath = cowboy_req:path(Req),
-                    case emqx_dashboard_swagger:get_relative_uri(AbsPath) of
-                        {ok, Path} ->
-                            check_path_in_scopes(Path, Scopes);
-                        _ ->
-                            {error, unauthorized_role}
-                    end
-            end
-    end.
-
-%% @doc Check scopes with explicit path and method (for external callers).
--spec check_scopes(map(), binary(), binary()) -> ok | {error, unauthorized_role}.
-check_scopes(Extra, Path, _Method) ->
-    case get_scopes(Extra) of
-        undefined ->
-            ok;
-        Scopes ->
-            Role = maps:get(role, Extra, ?ROLE_API_DEFAULT),
-            case Role of
-                ?ROLE_API_PUBLISHER ->
                     ok;
                 _ ->
                     check_path_in_scopes(Path, Scopes)
@@ -297,6 +302,12 @@ check_path_in_scopes(Path, Scopes) ->
                 false -> {error, unauthorized_role}
             end
     end.
+
+%% @doc Check if a path belongs to a denied scope.
+%% Uses the full (unfiltered) path_to_scopes mapping from cache.
+is_denied_path(Path) ->
+    PathScopes = emqx_mgmt_api_key_scopes:path_to_scopes(Path),
+    lists:any(fun emqx_mgmt_api_key_scopes:is_denied_scope/1, PathScopes).
 
 get_scopes(#{scopes := Scopes}) when is_list(Scopes) ->
     Scopes;
