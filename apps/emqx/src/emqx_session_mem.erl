@@ -39,6 +39,7 @@
 -include("emqx_session_mem.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -150,6 +151,8 @@
 -define(DEFAULT_BATCH_N, 1000).
 
 -define(INFLIGHT_INSERT_TS, inflight_insert_ts).
+
+-define(DEQUEUE_RETRY_TIMER, retry_dequeue).
 
 %%--------------------------------------------------------------------
 %% Init a Session
@@ -490,22 +493,40 @@ dequeue(ClientInfo, Session = #session{inflight = Inflight, mqueue = Q}) ->
             {ok, [], Session};
         false ->
             {Msgs, Q1} = dequeue(ClientInfo, batch_n(Inflight), [], Q),
-            do_deliver(ClientInfo, Msgs, [], Session#session{mqueue = Q1})
+            %% Limiter was already checked during dequeue
+            CheckLimiter = false,
+            do_deliver(ClientInfo, Msgs, [], CheckLimiter, Session#session{mqueue = Q1})
     end.
 
 dequeue(_ClientInfo, 0, Msgs, Q) ->
     {lists:reverse(Msgs), Q};
-dequeue(ClientInfo = #{zone := Zone}, Cnt, Msgs, Q) ->
+dequeue(ClientInfo, Cnt, Msgs, Q) ->
     case emqx_mqueue:out(Q) of
         {empty, _Q} ->
             dequeue(ClientInfo, 0, Msgs, Q);
         {{value, Msg}, Q1} ->
-            case emqx_message:is_expired(Msg, Zone) of
-                true ->
-                    _ = emqx_session_events:handle_event(ClientInfo, {expired, Msg}),
-                    dequeue(ClientInfo, Cnt, Msgs, Q1);
-                false ->
-                    dequeue(ClientInfo, acc_cnt(Msg, Cnt), [Msg | Msgs], Q1)
+            do_dequeue(Msg, ClientInfo, Cnt, Msgs, Q1, Q)
+    end.
+
+do_dequeue(Msg, ClientInfo = #{zone := Zone}, Cnt, Msgs, Q, PrevQ) ->
+    case emqx_message:is_expired(Msg, Zone) of
+        true ->
+            _ = emqx_session_events:handle_event(ClientInfo, {expired, Msg}),
+            dequeue(ClientInfo, Cnt, Msgs, Q);
+        false ->
+            case try_consume_delivery_rate_limit(Msg) of
+                ok ->
+                    dequeue(ClientInfo, acc_cnt(Msg, Cnt), [Msg | Msgs], Q);
+                {error, Reason} ->
+                    log_rate_limit_reason(Reason, Msg),
+                    %% Restore previous mqueue to keep current message in there (if not
+                    %% QoS 0)
+                    case Msg#message.qos of
+                        0 ->
+                            dequeue(ClientInfo, 0, Msgs, Q);
+                        _ ->
+                            dequeue(ClientInfo, 0, Msgs, PrevQ)
+                    end
             end
     end.
 
@@ -519,36 +540,54 @@ acc_cnt(_Msg, Cnt) -> Cnt - 1.
 -spec deliver(clientinfo(), [emqx_types:deliver()], session()) ->
     {ok, replies(), session()}.
 deliver(ClientInfo, Msgs, Session) ->
-    do_deliver(ClientInfo, Msgs, [], Session).
+    do_deliver(ClientInfo, Msgs, [], _CheckLimiter = true, Session).
 
-do_deliver(_ClientInfo, [], Publishes, Session) ->
+do_deliver(_ClientInfo, [], Publishes, _CheckLimiter, Session) ->
     {ok, lists:reverse(Publishes), Session};
-do_deliver(ClientInfo, [Msg | More], Acc, Session) ->
-    case deliver_msg(ClientInfo, Msg, Session) of
+do_deliver(ClientInfo, [Msg | More], Acc, CheckLimiter, Session) ->
+    case deliver_msg(ClientInfo, Msg, CheckLimiter, Session) of
         {ok, [], Session1} ->
-            do_deliver(ClientInfo, More, Acc, Session1);
+            do_deliver(ClientInfo, More, Acc, CheckLimiter, Session1);
         {ok, [Publish], Session1} ->
-            do_deliver(ClientInfo, More, [Publish | Acc], Session1)
+            do_deliver(ClientInfo, More, [Publish | Acc], CheckLimiter, Session1)
     end.
 
-deliver_msg(_ClientInfo, Msg = #message{qos = ?QOS_0}, Session) ->
-    {ok, [{undefined, maybe_ack(Msg)}], Session};
+deliver_msg(_ClientInfo, Msg = #message{qos = ?QOS_0}, CheckLimiter, Session) ->
+    %% Ensure `maybe_ack` is called here, even if rate limit is hit.
+    Publishes = [{undefined, maybe_ack(Msg)}],
+    case CheckLimiter andalso try_consume_delivery_rate_limit(Msg) of
+        false ->
+            {ok, Publishes, Session};
+        ok ->
+            {ok, Publishes, Session};
+        {error, Reason} ->
+            log_rate_limit_reason(Reason, Msg),
+            {ok, [], Session}
+    end;
 deliver_msg(
     ClientInfo,
     Msg = #message{qos = QoS},
+    CheckLimiter,
     Session = #session{next_pkt_id = PacketId, inflight = Inflight}
 ) when
     QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2
 ->
-    case emqx_inflight:is_full(Inflight) of
-        true ->
+    RateLimiterRes = CheckLimiter andalso try_consume_delivery_rate_limit(Msg),
+    case {emqx_inflight:is_full(Inflight), RateLimiterRes} of
+        {true, _} ->
             Session1 =
                 case maybe_nack(Msg) of
                     true -> Session;
                     false -> enqueue_msg(ClientInfo, Msg, Session)
                 end,
             {ok, [], Session1};
-        false ->
+        {false, {error, Reason}} ->
+            log_rate_limit_reason(Reason, Msg),
+            Session1 = enqueue_msg(ClientInfo, Msg, Session),
+            {ok, [], Session1};
+        {false, _} ->
+            %% `RateLimiterRes :: false | ok` here.
+            %%
             %% Note that we publish message without shared ack header
             %% But add to inflight with ack headers
             %% This ack header is required for redispatch-on-terminate feature to work
@@ -609,7 +648,9 @@ mark_begin_deliver(Msg) ->
 handle_timeout(ClientInfo, retry_delivery, Session) ->
     retry(ClientInfo, Session);
 handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
-    expire(ClientInfo, Session).
+    expire(ClientInfo, Session);
+handle_timeout(ClientInfo, ?DEQUEUE_RETRY_TIMER, Session) ->
+    dequeue(ClientInfo, Session).
 
 %%--------------------------------------------------------------------
 %% Geneic messages
@@ -883,6 +924,68 @@ clear_will_message(#session{} = Session) ->
 publish_will_message_now(#session{} = Session, #message{} = WillMsg) ->
     _ = emqx_broker:publish(WillMsg),
     Session.
+
+%%--------------------------------------------------------------------
+%% Delivery rate limiting
+%%--------------------------------------------------------------------
+
+try_consume_delivery_rate_limit(Msg) ->
+    case emqx_session:get_context() of
+        #{limiter := Limiter0} = Ctx0 ->
+            Res = emqx_limiter_client_container:try_consume(
+                Limiter0,
+                [
+                    {delivery_bytes, emqx_message:estimate_size(Msg)},
+                    {delivery_messages, 1}
+                ]
+            ),
+            case Res of
+                {true, Limiter} ->
+                    Ctx = Ctx0#{limiter := Limiter},
+                    emqx_session:put_context(Ctx),
+                    ok;
+                {false, Limiter, Reason} ->
+                    ?tp("mem_delivery_rate_limit", #{reason => Reason}),
+                    Ctx1 = Ctx0#{limiter := Limiter},
+                    Ctx = ensure_retry_dequeue_timer(Reason, Ctx1),
+                    emqx_session:put_context(Ctx),
+                    {error, Reason}
+            end;
+        _ ->
+            ok
+    end.
+
+log_rate_limit_reason(Reason, #message{topic = Topic} = _Msg) ->
+    ?SLOG_THROTTLE(
+        warning,
+        #{
+            msg => cannot_deliver_from_topic_due_to_quota_exceeded,
+            reason => Reason
+        },
+        #{topic => Topic, tag => "QUOTA"}
+    ).
+
+ensure_retry_dequeue_timer(_, #{?DEQUEUE_RETRY_TIMER := _} = Ctx0) ->
+    %% Request for retry timer already in place, no need to recompute.
+    Ctx0;
+ensure_retry_dequeue_timer({failed_to_consume_from_limiter, LimiterId}, Ctx0) ->
+    try emqx_limiter_registry:get_limiter_options(LimiterId) of
+        #{interval := Interval, capacity := Capacity} ->
+            %% Finite capacity
+            Time = max(1, Interval div Capacity),
+            Ctx0#{?DEQUEUE_RETRY_TIMER => Time};
+        _ ->
+            %% Infinite capacity; should be impossible at this point.
+            Ctx0
+    catch
+        error:{limiter_not_found, _} ->
+            %% Should be impossible, or limiter has changed return type...
+            ?tp("session_mem_limiter_not_found", #{limiter_id => LimiterId}),
+            Ctx0
+    end;
+ensure_retry_dequeue_timer(_Reason, Ctx0) ->
+    %% Some other limiter error reason (should be impossible?)
+    Ctx0.
 
 %%--------------------------------------------------------------------
 %% Helper functions

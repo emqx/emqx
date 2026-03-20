@@ -93,7 +93,9 @@ mqtt_limiter_names() ->
     [
         max_conn,
         messages,
-        bytes
+        bytes,
+        delivery_messages,
+        delivery_bytes
     ].
 
 to_rate(Str) ->
