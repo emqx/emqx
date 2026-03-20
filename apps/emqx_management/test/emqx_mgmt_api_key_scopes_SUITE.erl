@@ -161,9 +161,12 @@ t_path_to_scopes_pattern_match(_Config) ->
     emqx_mgmt_api_key_scopes:clear_cache().
 
 t_path_to_scopes_no_cache(_Config) ->
-    %% When cache is not initialized, should return empty list
+    %% When cache is not initialized, path_to_scopes should lazy-init
+    %% the cache and return the correct scopes (not crash or return []).
     emqx_mgmt_api_key_scopes:clear_cache(),
-    ?assertEqual([], emqx_mgmt_api_key_scopes:path_to_scopes(<<"/clients">>)).
+    Scopes = emqx_mgmt_api_key_scopes:path_to_scopes(<<"/clients">>),
+    ?assert(is_list(Scopes)),
+    ?assert(lists:member(<<"clients">>, Scopes)).
 
 t_validate_scopes(_Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),
@@ -295,11 +298,14 @@ t_preset_groups_all_scopes(_Config) ->
     Denied = emqx_mgmt_api_key_scopes:denied_scopes(),
     DeniedInAll = [S || S <- AllScopes, lists:member(S, Denied)],
     ?assertEqual([], DeniedInAll),
-    %% all_scopes should be a superset of every other group's scopes
+    %% all_scopes should be a superset of every other group's *available* scopes.
+    %% Some static preset scopes may reference tags from modules not loaded in the
+    %% test environment, so we only check scopes that are actually available.
     OtherGroups = [G || G = #{name := N} <- Groups, N =/= <<"all_scopes">>],
     lists:foreach(
         fun(#{name := GName, scopes := GScopes}) ->
-            NotInAll = [S || S <- GScopes, not lists:member(S, AllScopes)],
+            AvailableGroupScopes = [S || S <- GScopes, lists:member(S, Available)],
+            NotInAll = [S || S <- AvailableGroupScopes, not lists:member(S, AllScopes)],
             ?assertEqual(
                 [],
                 NotInAll,

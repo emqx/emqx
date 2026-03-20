@@ -26,7 +26,10 @@
 -define(MOD_KEY_PATH, [dashboard, sso, ldap]).
 -define(RESOURCE_GROUP, <<"dashboard_sso">>).
 
--import(emqx_mgmt_api_test_util, [request/2, request/3, uri/1, request_api/3]).
+-import(emqx_mgmt_api_test_util, [uri/1]).
+
+-define(ADMIN_USER, <<"admin_for_sso_test">>).
+-define(ADMIN_PASS, <<"admin_pass_123!">>).
 
 %% order matters
 all() ->
@@ -54,10 +57,18 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    _ = emqx_common_test_http:create_default_app(),
+    %% SSO endpoints are denied for API Keys (scope deny list).
+    %% Use a dashboard admin Bearer Token instead.
+    {ok, _} = emqx_dashboard_admin:add_user(
+        ?ADMIN_USER, ?ADMIN_PASS, ?ROLE_SUPERUSER, <<"admin for sso test">>
+    ),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(?ADMIN_USER, ?ADMIN_PASS),
+    AuthHeader = {"Authorization", "Bearer " ++ binary_to_list(Token)},
+    persistent_term:put({?MODULE, auth_header}, AuthHeader),
     [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
+    persistent_term:erase({?MODULE, auth_header}),
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(Case, Config) ->
@@ -276,7 +287,7 @@ t_delete(_) ->
 check_running(Expect) ->
     Path = uri(["sso", "running"]),
     %% this API is authorization-free
-    {ok, Result} = request_api(get, Path, []),
+    {ok, Result} = emqx_mgmt_api_test_util:request_api(get, Path, []),
     ?assertEqual(Expect, decode_json(Result)).
 
 get_sso() ->
@@ -312,3 +323,12 @@ decode_json(Data) ->
 request_without_authorization(Method, Url, Body) ->
     Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
     emqx_mgmt_api_test_util:request_api(Method, Url, [], [], Body, Opts).
+
+%% Use dashboard admin Bearer Token (SSO endpoints are denied for API Keys)
+request(Method, Url) ->
+    request(Method, Url, []).
+
+request(Method, Url, Body) ->
+    AuthHeader = persistent_term:get({?MODULE, auth_header}),
+    Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
+    emqx_mgmt_api_test_util:request_api(Method, Url, [], AuthHeader, Body, Opts).
