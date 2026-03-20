@@ -84,9 +84,7 @@ schema("/api_key/scopes") ->
             tags => ?TAGS,
             security => [#{'bearerAuth' => []}],
             responses => #{
-                200 => hoconsc:mk(binary(), #{
-                    desc => <<"Available scopes and preset groups (JSON)">>
-                })
+                200 => hoconsc:ref(?MODULE, scopes_response)
             }
         }
     }.
