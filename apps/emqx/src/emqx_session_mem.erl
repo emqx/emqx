@@ -966,6 +966,7 @@ log_rate_limit_reason(Reason, #message{topic = Topic} = _Msg) ->
     ).
 
 ensure_retry_dequeue_timer(_, #{?DELIVER_RETRY_TIMER := _} = Ctx0) ->
+    %% Request for retry timer already in place, no need to recompute.
     Ctx0;
 ensure_retry_dequeue_timer({failed_to_consume_from_limiter, LimiterId}, Ctx0) ->
     try emqx_limiter_registry:get_limiter_options(LimiterId) of
@@ -981,7 +982,10 @@ ensure_retry_dequeue_timer({failed_to_consume_from_limiter, LimiterId}, Ctx0) ->
             %% Should be impossible, or limiter has changed return type...
             ?tp("session_mem_limiter_not_found", #{limiter_id => LimiterId}),
             Ctx0
-    end.
+    end;
+ensure_retry_dequeue_timer(_Reason, Ctx0) ->
+    %% Some other limiter error reason (should be impossible?)
+    Ctx0.
 
 %%--------------------------------------------------------------------
 %% Helper functions
