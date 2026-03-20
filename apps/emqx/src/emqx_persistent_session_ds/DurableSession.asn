@@ -24,20 +24,23 @@ BEGIN
     gt(1),
     lt(2),
     gte(3),
-    lte(4)
+    lte(4),
+    ...
   }
 
   FilterClause ::= SEQUENCE {
     op [0] FilterOp,
     key [1] OCTET STRING,
     stringValue [2] OCTET STRING OPTIONAL,
-    numberValue [3] REAL OPTIONAL
+    numberValue [3] REAL OPTIONAL,
+    ...
   }
 
   SubscriptionFilter ::= SEQUENCE {
     raw [0] OCTET STRING,
     source [1] OCTET STRING,
-    clauses [2] SEQUENCE OF FilterClause
+    clauses [2] SEQUENCE OF FilterClause,
+    ...
   }
 
   SubState ::= SEQUENCE {
