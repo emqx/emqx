@@ -152,7 +152,7 @@
 
 -define(INFLIGHT_INSERT_TS, inflight_insert_ts).
 
--define(DELIVER_RETRY_TIMER, deliver_retry).
+-define(DEQUEUE_RETRY_TIMER, retry_dequeue).
 
 %%--------------------------------------------------------------------
 %% Init a Session
@@ -649,7 +649,7 @@ handle_timeout(ClientInfo, retry_delivery, Session) ->
     retry(ClientInfo, Session);
 handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
     expire(ClientInfo, Session);
-handle_timeout(ClientInfo, ?DELIVER_RETRY_TIMER, Session) ->
+handle_timeout(ClientInfo, ?DEQUEUE_RETRY_TIMER, Session) ->
     dequeue(ClientInfo, Session).
 
 %%--------------------------------------------------------------------
@@ -965,7 +965,7 @@ log_rate_limit_reason(Reason, #message{topic = Topic} = _Msg) ->
         #{topic => Topic, tag => "QUOTA"}
     ).
 
-ensure_retry_dequeue_timer(_, #{?DELIVER_RETRY_TIMER := _} = Ctx0) ->
+ensure_retry_dequeue_timer(_, #{?DEQUEUE_RETRY_TIMER := _} = Ctx0) ->
     %% Request for retry timer already in place, no need to recompute.
     Ctx0;
 ensure_retry_dequeue_timer({failed_to_consume_from_limiter, LimiterId}, Ctx0) ->
@@ -973,7 +973,7 @@ ensure_retry_dequeue_timer({failed_to_consume_from_limiter, LimiterId}, Ctx0) ->
         #{interval := Interval, capacity := Capacity} ->
             %% Finite capacity
             Time = max(1, Interval div Capacity),
-            Ctx0#{?DELIVER_RETRY_TIMER => Time};
+            Ctx0#{?DEQUEUE_RETRY_TIMER => Time};
         _ ->
             %% Infinite capacity; should be impossible at this point.
             Ctx0
