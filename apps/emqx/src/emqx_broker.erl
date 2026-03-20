@@ -771,9 +771,14 @@ do_dispatch2(Topic, #delivery{message = MsgIn}) ->
 
 %% Don't dispatch to share subscriber here.
 %% we do it in `emqx_shared_sub.erl` with configured strategy
-do_dispatch_chans(Deliver, [SubPid | Rest], N) ->
-    SubPid ! Deliver,
-    do_dispatch_chans(Deliver, Rest, N + 1);
+do_dispatch_chans(Deliver = #deliver{topic = Topic, message = Msg}, [SubPid | Rest], N) ->
+    case maybe_filter_by_sub(Topic, SubPid, Msg) of
+        deliver ->
+            SubPid ! Deliver,
+            do_dispatch_chans(Deliver, Rest, N + 1);
+        drop ->
+            do_dispatch_chans(Deliver, Rest, N + 1)
+    end;
 do_dispatch_chans(_Deliver, [], N) ->
     N.
 
@@ -793,6 +798,25 @@ do_dispatch_shards_async(Topic, Msg, [I | Rest], N) ->
     do_dispatch_shards_async(Topic, Msg, Rest, N + 1);
 do_dispatch_shards_async(_Topic, _Msg, [], N) ->
     N.
+
+%% Check subscription message filter before dispatching to subscriber.
+%% When a subscription has a filter AST (from `topic?key=value` syntax),
+%% match the message against it and drop non-matching messages early
+%% to avoid sending them to the subscriber process.
+maybe_filter_by_sub(Topic, SubPid, Msg) ->
+    case lookup_value(?SUBOPTION, {Topic, SubPid}) of
+        #{sub_filter_ast := AST} ->
+            case emqx_subscription_filter:match_message(AST, Msg) of
+                true ->
+                    deliver;
+                false ->
+                    ok = emqx_metrics:inc_global('delivery.dropped'),
+                    ok = emqx_metrics:inc_global('delivery.dropped.filter'),
+                    drop
+            end;
+        _ ->
+            deliver
+    end.
 
 %%
 

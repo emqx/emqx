@@ -208,6 +208,27 @@ stop_and_commit(Client) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
+t_sub_state_subscription_filter_roundtrip(init, Config) ->
+    Config.
+
+-doc "Verify subscription filter AST survives serialization/deserialization roundtrip.".
+t_sub_state_subscription_filter_roundtrip(_Config) ->
+    SubState = #{
+        parent_subscription => 1,
+        upgrade_qos => false,
+        subopts => #{
+            qos => ?QOS_1,
+            sub_filter_enabled => true,
+            sub_filter_raw => <<"location=roomA&value>25">>,
+            sub_filter_source => <<"t?location=roomA&value>25">>,
+            sub_filter_ast => [{eq, <<"location">>, <<"roomA">>}, {gt, <<"value">>, 25.0}]
+        },
+        mode => durable
+    },
+    Bin = emqx_persistent_session_ds_state_v2:ser_sub_state(SubState),
+    Decoded = emqx_persistent_session_ds_state_v2:deser_sub_state(Bin),
+    ?assertEqual(SubState, Decoded).
+
 %% This testcase verifies that a durable session can publish messages
 %% to other sessions:
 t_smoke_publish(init, Config) ->

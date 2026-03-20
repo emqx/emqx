@@ -240,9 +240,9 @@ check(#mqtt_packet{
 check(#mqtt_packet{variable = #mqtt_packet_publish{} = PubPkt}) ->
     check(PubPkt);
 check(#mqtt_packet{variable = #mqtt_packet_subscribe{} = SubPkt}) ->
-    check(SubPkt);
+    check(SubPkt, #{});
 check(#mqtt_packet{variable = #mqtt_packet_unsubscribe{} = UnsubPkt}) ->
-    check(UnsubPkt);
+    check(UnsubPkt, #{});
 %% A Topic Alias of 0 is not permitted.
 check(#mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' := 0}}) ->
     {error, ?RC_PROTOCOL_ERROR};
@@ -257,31 +257,65 @@ check(#mqtt_packet_publish{topic_name = TopicName, properties = Props}) ->
         error:_Error ->
             {error, ?RC_TOPIC_NAME_INVALID}
     end;
-check(#mqtt_packet_subscribe{properties = #{'Subscription-Identifier' := I}}) when
+check(#mqtt_packet_subscribe{} = SubPkt) ->
+    check(SubPkt, #{});
+check(#mqtt_packet_unsubscribe{} = UnsubPkt) ->
+    check(UnsubPkt, #{}).
+
+%% @doc Check Packet with extra options.
+-spec check(emqx_types:packet() | connect() | subscribe() | unsubscribe(), map()) ->
+    ok | {error, emqx_types:reason_code()}.
+check(
+    #mqtt_packet{
+        header = #mqtt_packet_header{type = ?PUBLISH},
+        variable = PubPkt
+    },
+    _Opts
+) when not is_tuple(PubPkt) ->
+    {error, ?RC_PROTOCOL_ERROR};
+check(#mqtt_packet{variable = #mqtt_packet_publish{} = PubPkt}, _Opts) ->
+    check(PubPkt);
+check(#mqtt_packet{variable = #mqtt_packet_subscribe{} = SubPkt}, Opts) ->
+    check(SubPkt, Opts);
+check(#mqtt_packet{variable = #mqtt_packet_unsubscribe{} = UnsubPkt}, Opts) ->
+    check(UnsubPkt, Opts);
+check(#mqtt_packet_subscribe{properties = #{'Subscription-Identifier' := I}}, _Opts) when
     I =< 0; I > 16#FFFFFFF
 ->
     {error, ?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED};
-check(#mqtt_packet_subscribe{topic_filters = []}) ->
+check(#mqtt_packet_subscribe{topic_filters = []}, _Opts) ->
     {error, ?RC_TOPIC_FILTER_INVALID};
-check(#mqtt_packet_subscribe{topic_filters = TopicFilters}) ->
+check(#mqtt_packet_subscribe{topic_filters = TopicFilters}, Opts) ->
     try
-        validate_topic_filters(TopicFilters)
+        validate_subscribe_topic_filters(TopicFilters, Opts)
     catch
-        %% Known Specificed Reason Code
         error:{error, RC} ->
             {error, RC};
         error:_Error ->
             {error, ?RC_TOPIC_FILTER_INVALID}
     end;
-check(#mqtt_packet_unsubscribe{topic_filters = []}) ->
+check(#mqtt_packet_unsubscribe{topic_filters = []}, _Opts) ->
     {error, ?RC_TOPIC_FILTER_INVALID};
-check(#mqtt_packet_unsubscribe{topic_filters = TopicFilters}) ->
+check(#mqtt_packet_unsubscribe{topic_filters = TopicFilters}, Opts) ->
     try
-        validate_topic_filters(TopicFilters)
+        validate_unsubscribe_topic_filters(TopicFilters, Opts)
     catch
         error:_Error ->
             {error, ?RC_TOPIC_FILTER_INVALID}
-    end.
+    end;
+check(?CONNECT_PACKET(ConnPkt), Opts) ->
+    check(ConnPkt, Opts);
+check(ConnPkt, Opts) when is_record(ConnPkt, mqtt_packet_connect) ->
+    run_checks(
+        [
+            fun check_proto_ver/2,
+            fun check_client_id/2,
+            fun check_conn_props/2,
+            fun check_will_msg/2
+        ],
+        ConnPkt,
+        Opts
+    ).
 
 check_pub_props(#{'Topic-Alias' := 0}) ->
     {error, ?RC_TOPIC_ALIAS_INVALID};
@@ -296,23 +330,6 @@ check_pub_props(#{'Response-Topic' := ResponseTopic}) ->
     end;
 check_pub_props(_Props) ->
     ok.
-
-%% @doc Check CONNECT Packet.
--spec check(emqx_types:packet() | connect(), Opts :: map()) ->
-    ok | {error, emqx_types:reason_code()}.
-check(?CONNECT_PACKET(ConnPkt), Opts) ->
-    check(ConnPkt, Opts);
-check(ConnPkt, Opts) when is_record(ConnPkt, mqtt_packet_connect) ->
-    run_checks(
-        [
-            fun check_proto_ver/2,
-            fun check_client_id/2,
-            fun check_conn_props/2,
-            fun check_will_msg/2
-        ],
-        ConnPkt,
-        Opts
-    ).
 
 check_proto_ver(
     #mqtt_packet_connect{
@@ -411,20 +428,89 @@ run_checks([Check | More], Packet, Options) ->
 
 %% @doc Validate MQTT Packet
 %% @private
-validate_topic_filters(TopicFilters) ->
+validate_subscribe_topic_filters(TopicFilters, Opts) ->
     lists:foreach(
         fun
             %% Protocol Error and Should Disconnect
             %% MQTT-5.0 [MQTT-3.8.3-4] and [MQTT-4.13.1-1]
-            ({<<?SHARE, "/", _Rest/binary>>, #{nl := 1}}) ->
-                error({error, ?RC_PROTOCOL_ERROR});
+            ({TopicFilter, #{nl := 1}}) ->
+                BaseTopic = normalize_topic_filter(
+                    TopicFilter, is_subscription_message_filter_enabled(Opts)
+                ),
+                case BaseTopic of
+                    <<?SHARE, "/", _/binary>> ->
+                        error({error, ?RC_PROTOCOL_ERROR});
+                    _ ->
+                        validate_subscribe_topic_filter(TopicFilter, Opts)
+                end;
             ({TopicFilter, _SubOpts}) ->
-                emqx_topic:validate(TopicFilter);
+                validate_subscribe_topic_filter(TopicFilter, Opts);
             (TopicFilter) ->
-                emqx_topic:validate(TopicFilter)
+                validate_subscribe_topic_filter(TopicFilter, Opts)
         end,
         TopicFilters
     ).
+
+validate_unsubscribe_topic_filters(TopicFilters, Opts) ->
+    lists:foreach(
+        fun
+            ({TopicFilter, _SubOpts}) ->
+                validate_unsubscribe_topic_filter(TopicFilter, Opts);
+            (TopicFilter) ->
+                validate_unsubscribe_topic_filter(TopicFilter, Opts)
+        end,
+        TopicFilters
+    ).
+
+validate_subscribe_topic_filter(TopicFilter, Opts) ->
+    case is_subscription_message_filter_enabled(Opts) of
+        false ->
+            emqx_topic:validate(TopicFilter);
+        true ->
+            case emqx_subscription_filter:validate_subscription(TopicFilter) of
+                {ok, no_filter} ->
+                    emqx_topic:validate(TopicFilter);
+                {ok, #{base_topic := BaseTopic}} ->
+                    ensure_filtered_topic_supported(BaseTopic);
+                {error, malformed_filter} ->
+                    error({error, ?RC_TOPIC_FILTER_INVALID})
+            end
+    end.
+
+ensure_filtered_topic_supported(BaseTopic) ->
+    case is_restricted_filtered_topic(BaseTopic) of
+        true ->
+            error({error, ?RC_TOPIC_FILTER_INVALID});
+        false ->
+            emqx_topic:validate(BaseTopic)
+    end.
+
+validate_unsubscribe_topic_filter(TopicFilter, Opts) ->
+    emqx_topic:validate(
+        normalize_topic_filter(TopicFilter, is_subscription_message_filter_enabled(Opts))
+    ).
+
+normalize_topic_filter(TopicFilter, false) ->
+    TopicFilter;
+normalize_topic_filter(TopicFilter, true) ->
+    emqx_subscription_filter:normalize_topic_filter(TopicFilter).
+
+is_subscription_message_filter_enabled(Opts) ->
+    maps:get(subscription_message_filter, Opts, disable) =:= enable.
+
+%% Do not allow filter of $queue and $stream topic because otherwise
+%% the dispatcher will not be able to make progress without puback.
+%% NOTE: making queue and stream prefix aware here is ugly but most straightforward.
+is_restricted_filtered_topic(<<"$q/", _/binary>>) ->
+    true;
+is_restricted_filtered_topic(<<"$queue/", _/binary>>) ->
+    true;
+is_restricted_filtered_topic(<<"$s/", _/binary>>) ->
+    true;
+is_restricted_filtered_topic(<<"$stream/", _/binary>>) ->
+    true;
+is_restricted_filtered_topic(_) ->
+    false.
 
 -spec to_message(emqx_types:packet(), emqx_types:clientid()) -> emqx_types:message().
 to_message(Packet, ClientId) ->

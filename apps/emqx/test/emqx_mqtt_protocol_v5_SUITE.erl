@@ -913,6 +913,208 @@ t_publish_properties(Config) ->
     ?assertEqual(Properties, maps:get(properties, Msg1)),
     ok = emqtt:disconnect(Client1).
 
+t_subscription_filter(init, Config) ->
+    OldMode = emqx:get_config([mqtt, subscription_message_filter], disable),
+    [{old_subscription_message_filter, OldMode} | Config];
+t_subscription_filter('end', Config) ->
+    emqx_config:put(
+        [mqtt, subscription_message_filter], ?config(old_subscription_message_filter, Config)
+    ).
+
+-doc """
+Verify subscription message filtering against MQTT 5 User-Property values when
+the feature is enabled, and verify that `?` remains part of the plain topic
+filter when the feature is disabled.
+""".
+t_subscription_filter(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = <<"subscription/filter/topic">>,
+    WildcardTopic = <<"subscription/filter/wildcard/topic">>,
+    PlainTopic = <<"subscription/filter/plain?location=roomA">>,
+    emqx_config:put([mqtt, subscription_message_filter], enable),
+
+    {ok, Sub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(Sub),
+    {ok, Pub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(Pub),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(
+        Sub, <<"subscription/filter/topic?location=roomA&value>25">>, qos1
+    ),
+    ok = emqtt:publish(
+        Pub,
+        Topic,
+        #{'User-Property' => [{<<"location">>, <<"roomB">>}, {<<"value">>, <<"30">>}]},
+        <<"miss">>,
+        [{qos, ?QOS_0}]
+    ),
+    ok = emqtt:publish(
+        Pub,
+        Topic,
+        #{'User-Property' => [{<<"location">>, <<"roomA">>}, {<<"value">>, <<"26">>}]},
+        <<"match">>,
+        [{qos, ?QOS_0}]
+    ),
+    [Matched] = receive_messages(2),
+    ?assertEqual(<<"match">>, maps:get(payload, Matched)),
+    ok = emqtt:disconnect(Sub),
+
+    {ok, WildcardSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(WildcardSub),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(
+        WildcardSub, <<"subscription/filter/#?location=roomA&value>25">>, qos1
+    ),
+    ok = emqtt:publish(
+        Pub,
+        WildcardTopic,
+        #{'User-Property' => [{<<"location">>, <<"roomB">>}, {<<"value">>, <<"30">>}]},
+        <<"wildcard-miss">>,
+        [{qos, ?QOS_0}]
+    ),
+    ok = emqtt:publish(
+        Pub,
+        WildcardTopic,
+        #{'User-Property' => [{<<"location">>, <<"roomA">>}, {<<"value">>, <<"26">>}]},
+        <<"wildcard-match">>,
+        [{qos, ?QOS_0}]
+    ),
+    [WildcardMatched] = receive_messages(2),
+    ?assertEqual(<<"wildcard-match">>, maps:get(payload, WildcardMatched)),
+    ok = emqtt:disconnect(WildcardSub),
+
+    {ok, QueueSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    unlink(QueueSub),
+    {ok, _} = emqtt:ConnFun(QueueSub),
+    ?assertMatch(
+        {'EXIT', {{shutdown, {disconnected, ?RC_TOPIC_FILTER_INVALID, _}}, _}},
+        catch emqtt:subscribe(QueueSub, <<"$queue/subscription/filter/topic?location=roomA">>, qos1)
+    ),
+
+    {ok, QueueAliasSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    unlink(QueueAliasSub),
+    {ok, _} = emqtt:ConnFun(QueueAliasSub),
+    ?assertMatch(
+        {'EXIT', {{shutdown, {disconnected, ?RC_TOPIC_FILTER_INVALID, _}}, _}},
+        catch emqtt:subscribe(
+            QueueAliasSub, <<"$q/subscription/filter/topic?location=roomA">>, qos1
+        )
+    ),
+
+    {ok, StreamSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    unlink(StreamSub),
+    {ok, _} = emqtt:ConnFun(StreamSub),
+    ?assertMatch(
+        {'EXIT', {{shutdown, {disconnected, ?RC_TOPIC_FILTER_INVALID, _}}, _}},
+        catch emqtt:subscribe(
+            StreamSub, <<"$stream/subscription/filter/topic?location=roomA">>, qos1
+        )
+    ),
+
+    {ok, StreamAliasSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    unlink(StreamAliasSub),
+    {ok, _} = emqtt:ConnFun(StreamAliasSub),
+    ?assertMatch(
+        {'EXIT', {{shutdown, {disconnected, ?RC_TOPIC_FILTER_INVALID, _}}, _}},
+        catch emqtt:subscribe(
+            StreamAliasSub, <<"$s/subscription/filter/topic?location=roomA">>, qos1
+        )
+    ),
+
+    emqx_config:put([mqtt, subscription_message_filter], disable),
+    {ok, PlainSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(PlainSub),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(PlainSub, PlainTopic, qos1),
+    ok = emqtt:publish(Pub, PlainTopic, #{}, <<"plain">>, [{qos, ?QOS_0}]),
+    [PlainMatched] = receive_messages(1),
+    ?assertEqual(<<"plain">>, maps:get(payload, PlainMatched)),
+    ok = emqtt:disconnect(PlainSub),
+    ok = emqtt:disconnect(Pub).
+
+t_subscription_filter_authz(init, Config) ->
+    OldMode = emqx:get_config([mqtt, subscription_message_filter], disable),
+    emqx_config:put_zone_conf(default, [authorization, enable], true),
+    [{old_subscription_message_filter, OldMode} | Config];
+t_subscription_filter_authz('end', Config) ->
+    emqx_config:put(
+        [mqtt, subscription_message_filter], ?config(old_subscription_message_filter, Config)
+    ),
+    emqx_config:put_zone_conf(default, [authorization, enable], false).
+
+-doc """
+Verify that authorization checks use the base topic (without filter expression)
+when subscription message filter is enabled, and that `?` remains part of the
+topic for authorization purposes when the feature is disabled.
+""".
+t_subscription_filter_authz(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = <<"foo/bar">>,
+    FilteredTopic = <<"foo/bar?v=1">>,
+
+    %% --- filter enabled ---
+    emqx_config:put([mqtt, subscription_message_filter], enable),
+
+    %% Deny foo/bar: both foo/bar and foo/bar?v=1 should be denied
+    ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_access_control, authorize, fun(_, _, T) ->
+        case T of
+            <<"foo/bar">> -> deny;
+            _ -> allow
+        end
+    end),
+    {ok, C1} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(C1),
+    {ok, _, [?RC_NOT_AUTHORIZED]} = emqtt:subscribe(C1, Topic, qos1),
+    {ok, _, [?RC_NOT_AUTHORIZED]} = emqtt:subscribe(C1, FilteredTopic, qos1),
+    ok = emqtt:disconnect(C1),
+    meck:unload(emqx_access_control),
+
+    %% Allow foo/bar: both foo/bar and foo/bar?v=1 should be allowed
+    ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_access_control, authorize, fun(_, _, T) ->
+        case T of
+            <<"foo/bar">> -> allow;
+            _ -> deny
+        end
+    end),
+    {ok, C2} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(C2),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C2, Topic, qos1),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C2, FilteredTopic, qos1),
+    ok = emqtt:disconnect(C2),
+    meck:unload(emqx_access_control),
+
+    %% --- filter disabled ---
+    emqx_config:put([mqtt, subscription_message_filter], disable),
+
+    %% Deny foo/bar: foo/bar denied, but foo/bar?v=1 is a different topic so allowed
+    ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_access_control, authorize, fun(_, _, T) ->
+        case T of
+            <<"foo/bar">> -> deny;
+            _ -> allow
+        end
+    end),
+    {ok, C3} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(C3),
+    {ok, _, [?RC_NOT_AUTHORIZED]} = emqtt:subscribe(C3, Topic, qos1),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C3, FilteredTopic, qos1),
+    ok = emqtt:disconnect(C3),
+    meck:unload(emqx_access_control),
+
+    %% Allow foo/bar: foo/bar allowed, but foo/bar?v=1 is a different topic so denied
+    ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_access_control, authorize, fun(_, _, T) ->
+        case T of
+            <<"foo/bar">> -> allow;
+            _ -> deny
+        end
+    end),
+    {ok, C4} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(C4),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C4, Topic, qos1),
+    {ok, _, [?RC_NOT_AUTHORIZED]} = emqtt:subscribe(C4, FilteredTopic, qos1),
+    ok = emqtt:disconnect(C4),
+    meck:unload(emqx_access_control).
+
 t_publish_overlapping_subscriptions(Config) ->
     ConnFun = ?config(conn_fun, Config),
     Topic = nth(1, ?TOPICS),

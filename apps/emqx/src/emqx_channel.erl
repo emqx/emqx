@@ -984,14 +984,23 @@ do_gen_reason_codes(
 
 process_unsubscribe(
     Packet = ?UNSUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
-    Channel = #channel{clientinfo = ClientInfo}
+    Channel = #channel{clientinfo = ClientInfo = #{zone := Zone}}
 ) ->
-    case emqx_packet:check(Packet) of
+    case
+        emqx_packet:check(
+            Packet,
+            #{
+                subscription_message_filter => get_mqtt_conf(
+                    Zone, subscription_message_filter, disable
+                )
+            }
+        )
+    of
         ok ->
             TopicFilters1 = run_hooks(
                 'client.unsubscribe',
                 [ClientInfo, Properties],
-                parse_raw_topic_filters(TopicFilters),
+                parse_raw_topic_filters(TopicFilters, Channel),
                 Channel
             ),
             {ReasonCodes, NChannel} = post_process_unsubscribe(TopicFilters1, Properties, Channel),
@@ -2712,8 +2721,17 @@ check_pub_caps(
 %%--------------------------------------------------------------------
 %% Check Subscribe Packet
 
-check_subscribe(SubPkt, _Channel) ->
-    case emqx_packet:check(SubPkt) of
+check_subscribe(SubPkt, #channel{clientinfo = #{zone := Zone}}) ->
+    case
+        emqx_packet:check(
+            SubPkt,
+            #{
+                subscription_message_filter => get_mqtt_conf(
+                    Zone, subscription_message_filter, disable
+                )
+            }
+        )
+    of
         ok -> ok;
         {error, RC} -> {error, {disconnect, RC}}
     end.
@@ -2858,7 +2876,7 @@ do_enrich_subscribe(Properties, TopicFilters, Channel) ->
     _NTopicFilters = emqx_utils:run_fold(
         [
             %% TODO: do try catch with reason code here
-            fun(TFs, _) -> parse_raw_topic_filters(TFs) end,
+            fun(TFs, #{channel := Channel0}) -> parse_raw_topic_filters(TFs, Channel0) end,
             fun enrich_subopts_subid/2,
             fun enrich_subopts_props/2,
             fun enrich_subopts_flags/2
@@ -3114,8 +3132,38 @@ maybe_shutdown(Reason, _Intent = shutdown, Channel) ->
 %% Parse Topic Filters
 
 %% [{<<"$share/group/topic">>, _SubOpts = #{}} | _]
-parse_raw_topic_filters(TopicFilters) ->
-    lists:map(fun emqx_topic:parse/1, TopicFilters).
+parse_raw_topic_filters(TopicFilters, #channel{clientinfo = #{zone := Zone}}) ->
+    FilterEnabled = is_subscription_message_filter_enabled(Zone),
+    lists:map(
+        fun(TopicFilter) -> parse_raw_topic_filter(TopicFilter, FilterEnabled) end,
+        TopicFilters
+    ).
+
+parse_raw_topic_filter({TopicFilter, SubOpts0}, false) ->
+    emqx_topic:parse({TopicFilter, SubOpts0});
+parse_raw_topic_filter({TopicFilter, SubOpts0}, true) ->
+    case emqx_subscription_filter:validate_subscription(TopicFilter) of
+        {ok, no_filter} ->
+            emqx_topic:parse({TopicFilter, SubOpts0});
+        {ok, #{base_topic := BaseTopic, raw_expr := RawExpr, ast := AST}} ->
+            emqx_topic:parse(
+                {BaseTopic, SubOpts0#{
+                    sub_filter_raw => RawExpr,
+                    sub_filter_ast => AST,
+                    sub_filter_enabled => true,
+                    sub_filter_source => TopicFilter
+                }}
+            );
+        {error, malformed_filter} ->
+            error({invalid_subscription_filter, TopicFilter})
+    end;
+parse_raw_topic_filter(TopicFilter, false) ->
+    emqx_topic:parse(TopicFilter);
+parse_raw_topic_filter(TopicFilter, true) ->
+    emqx_topic:parse(emqx_subscription_filter:normalize_topic_filter(TopicFilter)).
+
+is_subscription_message_filter_enabled(Zone) ->
+    get_mqtt_conf(Zone, subscription_message_filter, disable) =:= enable.
 
 %%--------------------------------------------------------------------
 %% Maybe & Ensure disconnected
