@@ -26,6 +26,7 @@
 -define(HOST, "http://127.0.0.1:18083").
 
 -define(BASE_PATH, "/api/v5").
+-define(CAPTURE(Expr), emqx_common_test_helpers:capture_io_format(fun() -> Expr end)).
 
 -define(OVERVIEWS, [
     "alarms",
@@ -315,7 +316,97 @@ t_cli(_Config) ->
     emqx_dashboard_cli:admins(["add", "admin1", "pass_lkdfkd1"]),
     emqx_dashboard_cli:admins(["add", "admin2", "w_pass_lkdfkd2"]),
     AdminList = emqx_dashboard_admin:all_users(),
-    ?assertEqual(2, length(AdminList)).
+    ?assertEqual(2, length(AdminList)),
+    lists:foreach(
+        fun(#{name := Name}) -> ok = mria:dirty_delete(emqx_app, Name) end,
+        emqx_mgmt_auth:list()
+    ),
+    {ok, [CreateOutput]} = ?CAPTURE(
+        emqx_dashboard_cli:api_keys([
+            "add",
+            "--name",
+            "test-key",
+            "--desc",
+            "test description",
+            "--role",
+            "viewer"
+        ])
+    ),
+    CreateJSON = emqx_utils_json:decode(iolist_to_binary(CreateOutput), [return_maps]),
+    ?assertMatch(#{<<"name">> := <<"test-key">>, <<"api_secret">> := _}, CreateJSON),
+    ?assertMatch(
+        {ok, #{
+            name := <<"test-key">>,
+            enable := true,
+            desc := <<"test description">>,
+            role := <<"viewer">>
+        }},
+        emqx_mgmt_auth:read(<<"test-key">>)
+    ),
+    ?assertMatch({ok, _}, ?CAPTURE(emqx_dashboard_cli:api_keys(["show", "--name", "test-key"]))),
+    emqx_dashboard_cli:api_keys(["list"]),
+    emqx_dashboard_cli:api_keys(["disable", "--name", "test-key"]),
+    ?assertMatch({ok, #{enable := false}}, emqx_mgmt_auth:read(<<"test-key">>)),
+    emqx_dashboard_cli:api_keys(["enable", "--name", "test-key"]),
+    ?assertMatch({ok, #{enable := true}}, emqx_mgmt_auth:read(<<"test-key">>)),
+    emqx_dashboard_cli:api_keys(["del", "--name", "test-key"]),
+    ?assertMatch({error, not_found}, emqx_mgmt_auth:read(<<"test-key">>)),
+    BeforeCreate = erlang:system_time(second),
+    emqx_dashboard_cli:api_keys([
+        "add",
+        "--name",
+        "test-key-expiring",
+        "--valid-days",
+        "3"
+    ]),
+    AfterCreate = erlang:system_time(second),
+    ?assertMatch(
+        {ok, #{expired_at := ExpiredAt}} when
+            is_integer(ExpiredAt) andalso
+                ExpiredAt >= BeforeCreate + 3 * 24 * 60 * 60 andalso
+                ExpiredAt =< AfterCreate + 3 * 24 * 60 * 60,
+        emqx_mgmt_auth:read(<<"test-key-expiring">>)
+    ),
+    Secret = <<"12345678901234567890123456789012">>,
+    {ok, [CreateWithSecretOutput]} = ?CAPTURE(
+        emqx_dashboard_cli:api_keys([
+            "add",
+            "--name",
+            "test-key-2",
+            "--api-secret",
+            binary_to_list(Secret),
+            "--valid-days",
+            "infinity"
+        ])
+    ),
+    CreateWithSecretJSON =
+        emqx_utils_json:decode(iolist_to_binary(CreateWithSecretOutput), [return_maps]),
+    ?assertEqual(false, maps:is_key(<<"api_secret">>, CreateWithSecretJSON)),
+    [{emqx_app, <<"test-key-2">>, _APIKey, SecretHash, _Enable, _Extra, _ExpiredAt, _CreatedAt}] =
+        mnesia:dirty_read(emqx_app, <<"test-key-2">>),
+    ?assertEqual(ok, emqx_dashboard_admin:verify_hash(Secret, SecretHash)),
+    {ok, [ShortSecretError]} = ?CAPTURE(
+        emqx_dashboard_cli:api_keys([
+            "add",
+            "--name",
+            "test-key-3",
+            "--api-secret",
+            "short-secret"
+        ])
+    ),
+    ?assertMatch([<<"Error: ", _/binary>>], ShortSecretError),
+    ?assertMatch({error, not_found}, emqx_mgmt_auth:read(<<"test-key-3">>)),
+    {ok, [BadValidDaysError]} = ?CAPTURE(
+        emqx_dashboard_cli:api_keys([
+            "add",
+            "--name",
+            "test-key-4",
+            "--valid-days",
+            "0"
+        ])
+    ),
+    ?assertMatch([<<"Error: ", _/binary>>], BadValidDaysError),
+    ?assertMatch({error, not_found}, emqx_mgmt_auth:read(<<"test-key-4">>)).
 
 t_lookup_by_username_jwt(_Config) ->
     User = bin(["user-", integer_to_list(random_num())]),
