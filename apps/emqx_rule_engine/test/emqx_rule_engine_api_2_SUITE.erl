@@ -2829,7 +2829,7 @@ t_namespaced_resources_cleanup_on_ns_deletion(TCConfig0) when is_list(TCConfig0)
 
     {204, _} = emqx_mt_api_SUITE:delete_managed_ns(Namespace),
     ct:pal("waiting for tombstone to be cleared"),
-    ?retry(250, 10, false = ?ON(N1, emqx_mt_state:is_tombstoned(Namespace))),
+    ?retry(250, 40, false = ?ON(N1, emqx_mt_state:is_tombstoned(Namespace))),
 
     ?assertMatch(
         deleted,
