@@ -1,5 +1,29 @@
 emqx_message_transformation_schema {
 
+desc_message_transformation.desc:
+"""Message transformation configuration."""
+desc_message_transformation.label:
+"""Message Transformation"""
+
+desc_transformation.desc:
+"""A single message transformation rule."""
+desc_transformation.label:
+"""Transformation"""
+
+desc_operation.desc:
+"""A transformation operation that assigns a value to a key."""
+desc_operation.label:
+"""Operation"""
+
+desc_log_failure.desc:
+"""Configuration for logging transformation failures."""
+desc_log_failure.label:
+"""Log Failure"""
+
+transformations.desc:
+"""List of message transformation rules."""
+transformations.label:
+"""Transformations"""
 
 config_enable.desc:
 """Whether this feature is enabled."""

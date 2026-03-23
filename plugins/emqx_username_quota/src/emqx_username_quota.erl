@@ -93,12 +93,7 @@ should_allow(Username, ClientId) ->
                 true ->
                     true;
                 false ->
-                    ?LOG(warning, #{
-                        msg => "quota_exceeded",
-                        username => Username,
-                        count => Count,
-                        max => Max
-                    }),
+                    ok = emqx_username_quota_stats:record_quota_exceeded(Username),
                     false
             end
     end.

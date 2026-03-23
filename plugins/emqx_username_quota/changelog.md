@@ -36,3 +36,11 @@
 ## 1.1.2
 
 - `GET /quota/usernames` API no longer returns `retry_cursor` since there is a designated snapshot owner since 1.1.1.
+
+## 1.2.0
+
+- Added per-username quota exceeded statistics, including a local counter and the timestamp
+  of the last rejected authentication attempt.
+- Moved quota exceeded warning logs into the stats worker and throttled them per username.
+  A warning is emitted for the first rejection, when the previous warning is older than 1 minute,
+  or on every 100th rejection for that username.

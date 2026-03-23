@@ -94,7 +94,7 @@ t_trace_clientid(_Config) ->
                 dst := Filepath3
             }
         ],
-        emqx_trace_handler:running()
+        sorted_running_handlers()
     ),
 
     %% Client with clientid = "client" publishes a "hi" message to "a/b/c".
@@ -179,7 +179,7 @@ t_trace_topic(_Config) ->
                 dst := Filepath2
             }
         ],
-        emqx_trace_handler:running()
+        sorted_running_handlers()
     ),
 
     %% Client with clientid = "client" publishes a "hi" message to "x/y/z".
@@ -244,7 +244,7 @@ t_trace_ip_address(_Config) ->
                 dst := Filepath2
             }
         ],
-        emqx_trace_handler:running()
+        sorted_running_handlers()
     ),
 
     %% Client with clientid = "client" publishes a "hi" message to "x/y/z".
@@ -295,7 +295,7 @@ t_trace_max_file_size(_Config) ->
     ok = emqx_trace:check(),
     ?assertMatch(
         [#{name := Name, filter := {topic, <<"t/#">>}}],
-        emqx_trace_handler:running()
+        sorted_running_handlers()
     ),
     %% Start publisher publishing 50 messages with non-trivial payload:
     {ok, C} = emqtt:start_link(?CLIENT),
@@ -348,6 +348,12 @@ enum_fragments(Which, Basename) ->
 wait_filesync() ->
     %% NOTE: Twice as long as `?LOG_HANDLER_FILESYNC_INTERVAL` in `emqx_trace_handler`.
     timer:sleep(2 * 100).
+
+sorted_running_handlers() ->
+    lists:sort(
+        fun(#{name := NameA}, #{name := NameB}) -> NameA =< NameB end,
+        emqx_trace_handler:running()
+    ).
 
 install_handler(Name, Filter, Level, LogFile) ->
     HandlerId = list_to_atom(?MODULE_STRING ++ ":" ++ Name),

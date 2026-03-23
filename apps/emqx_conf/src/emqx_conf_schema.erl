@@ -75,6 +75,7 @@
     authentication_failure,
     authorization_permission_denied,
     buffer_worker_dropped_expired_messages,
+    cannot_deliver_from_topic_due_to_quota_exceeded,
     cannot_publish_to_topic_due_to_not_authorized,
     cannot_publish_to_topic_due_to_quota_exceeded,
     connection_rejected_due_to_license_limit_reached,
