@@ -754,20 +754,84 @@ describe_package(NameVsn) ->
     end.
 
 %% Tip: Don't delete delete_package/1, use before v571 cluster_rpc
+-spec delete_package(name_vsn()) -> ok | {error, any()}.
 delete_package(NameVsn) ->
     delete_package(NameVsn, #{}).
 
 %% For RPC plugin delete
+-spec delete_package(name_vsn(), map()) -> ok | {error, any()}.
 delete_package(NameVsn, _Opts) ->
     _ = emqx_plugins:forget_allowed_installation(NameVsn),
-    case emqx_plugins:ensure_stopped(NameVsn) of
-        ok ->
-            _ = emqx_plugins:ensure_disabled(NameVsn),
-            _ = emqx_plugins:ensure_uninstalled(NameVsn),
+    case has_other_active_version(NameVsn) of
+        true ->
+            ok = emqx_plugins:delete_state(NameVsn),
+            ok = emqx_plugins:purge(NameVsn),
             _ = emqx_plugins:delete_package(NameVsn),
             ok;
-        Error ->
+        false ->
+            case maybe_stop_plugin(NameVsn) of
+                ok ->
+                    ok = maybe_disable_plugin(NameVsn),
+                    ok = maybe_uninstall_plugin(NameVsn),
+                    _ = emqx_plugins:delete_package(NameVsn),
+                    ok;
+                Error ->
+                    Error
+            end
+    end.
+
+has_other_active_version(NameVsn) ->
+    PluginName = emqx_plugins_utils:plugin_name(NameVsn),
+    NameVsnBin = bin(NameVsn),
+    lists:any(
+        fun(ActiveNameVsn) ->
+            emqx_plugins_utils:plugin_name(ActiveNameVsn) =:= PluginName andalso
+                bin(ActiveNameVsn) =/= NameVsnBin
+        end,
+        emqx_plugins:list_active()
+    ).
+
+maybe_stop_plugin(NameVsn) ->
+    case emqx_plugins:describe(NameVsn, #{}) of
+        {ok, #{running_status := running}} ->
+            emqx_plugins:ensure_stopped(NameVsn);
+        {ok, _} ->
+            ok;
+        {error, _} = Error ->
             Error
+    end.
+
+maybe_disable_plugin(NameVsn) ->
+    case emqx_plugins:describe(NameVsn, #{}) of
+        {ok, #{config_status := not_configured}} ->
+            ok;
+        {ok, _} ->
+            case emqx_plugins:ensure_disabled(NameVsn) of
+                ok ->
+                    ok;
+                {error, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "failed_to_disable_plugin_while_deleting_package",
+                        name_vsn => NameVsn,
+                        reason => Reason
+                    }),
+                    ok
+            end;
+        {error, _} = Error ->
+            Error
+    end.
+
+maybe_uninstall_plugin(NameVsn) ->
+    case emqx_plugins:ensure_uninstalled(NameVsn) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "failed_to_uninstall_plugin_while_deleting_package",
+                name_vsn => NameVsn,
+                reason => Reason
+            }),
+            ok
     end.
 
 %% Tip: Don't delete ensure_action/2, use before v571 cluster_rpc

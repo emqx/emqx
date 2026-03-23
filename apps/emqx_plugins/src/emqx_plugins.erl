@@ -40,6 +40,7 @@
     ensure_enabled/2,
     ensure_enabled/3,
     ensure_disabled/1,
+    delete_state/1,
     purge/1,
     write_package/2,
     is_package_present/1,
@@ -269,6 +270,10 @@ purge(NameVsn) ->
     ?SLOG(debug, #{msg => "purge_plugin", name_vsn => NameVsn}),
     ok = delete_cached_config(NameVsn),
     emqx_plugins_fs:purge_installed(NameVsn).
+
+-spec delete_state(name_vsn()) -> ok.
+delete_state(NameVsn) ->
+    ensure_delete_state(NameVsn).
 
 %% @doc Write the package file.
 -spec write_package(name_vsn(), binary()) -> ok.
