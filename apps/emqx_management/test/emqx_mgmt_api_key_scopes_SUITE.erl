@@ -204,6 +204,19 @@ t_validate_scopes_bad_input(_Config) ->
     ?assertMatch(
         {error, <<"scopes must be a list of strings">>},
         emqx_mgmt_api_key_scopes:validate_scopes(#{})
+    ),
+    %% List with non-binary elements should return error (not crash)
+    ?assertMatch(
+        {error, <<"scopes must be a list of strings">>},
+        emqx_mgmt_api_key_scopes:validate_scopes([1, 2, 3])
+    ),
+    ?assertMatch(
+        {error, <<"scopes must be a list of strings">>},
+        emqx_mgmt_api_key_scopes:validate_scopes([null])
+    ),
+    ?assertMatch(
+        {error, <<"scopes must be a list of strings">>},
+        emqx_mgmt_api_key_scopes:validate_scopes([<<"valid">>, 123])
     ).
 
 t_available_scopes_excludes_denied(_Config) ->

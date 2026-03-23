@@ -567,7 +567,17 @@ parse_bootstrap_line(Bin, MP) ->
             case valid_role(Role) of
                 ok ->
                     Scopes = parse_scopes_str(ScopesStr),
-                    {ok, {ApiKey, ApiSecret, Role, Scopes}};
+                    case Scopes of
+                        undefined ->
+                            {ok, {ApiKey, ApiSecret, Role, undefined}};
+                        _ ->
+                            case emqx_mgmt_api_key_scopes:validate_scopes(Scopes) of
+                                ok ->
+                                    {ok, {ApiKey, ApiSecret, Role, Scopes}};
+                                {error, Reason} ->
+                                    {error, {"invalid_scopes", Reason}}
+                            end
+                    end;
                 _Error ->
                     {error, {"invalid_role", Role}}
             end;

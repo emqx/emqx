@@ -83,6 +83,17 @@ path_to_scopes_from_cache(Path) ->
 %% and are not in the denied list.
 -spec validate_scopes([binary()]) -> ok | {error, binary()}.
 validate_scopes(Scopes) when is_list(Scopes) ->
+    %% Validate element types first to avoid crash in error message formatting
+    case lists:all(fun is_binary/1, Scopes) of
+        false ->
+            {error, <<"scopes must be a list of strings">>};
+        true ->
+            validate_scopes_values(Scopes)
+    end;
+validate_scopes(_) ->
+    {error, <<"scopes must be a list of strings">>}.
+
+validate_scopes_values(Scopes) ->
     %% Check denied scopes first (takes priority over unknown)
     Denied = [S || S <- Scopes, is_denied_scope(S)],
     case Denied of
@@ -99,9 +110,7 @@ validate_scopes(Scopes) when is_list(Scopes) ->
                     InvalidBin = iolist_to_binary(lists:join(<<", ">>, Invalid)),
                     {error, <<"Unknown scopes: ", InvalidBin/binary>>}
             end
-    end;
-validate_scopes(_) ->
-    {error, <<"scopes must be a list of strings">>}.
+    end.
 
 %% @doc Initialize the scope cache by scanning all API modules.
 %% Should be called once after the dashboard HTTP server has started.
