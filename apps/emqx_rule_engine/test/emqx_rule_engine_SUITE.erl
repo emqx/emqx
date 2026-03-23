@@ -3967,7 +3967,7 @@ t_trace_rule_id(_Config) ->
                 namespace := ?global_ns
             }
         ],
-        emqx_trace_handler:running()
+        sorted_running_handlers()
     ),
 
     %% Trigger rule
@@ -4020,7 +4020,7 @@ t_trace_truncated(_Config) ->
                 namespace := ?global_ns
             }
         ],
-        emqx_trace_handler:running()
+        sorted_running_handlers()
     ),
 
     %% Trigger rule, payload size bigger than payload_limit 20
@@ -4676,3 +4676,9 @@ create_rule(#{} = Opts0) ->
 get_rules_all_namespaces() ->
     NamespaceToRules = emqx_rule_engine:get_rules_from_all_namespaces(),
     lists:append(maps:values(NamespaceToRules)).
+
+sorted_running_handlers() ->
+    lists:sort(
+        fun(#{name := NameA}, #{name := NameB}) -> NameA =< NameB end,
+        emqx_trace_handler:running()
+    ).

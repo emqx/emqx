@@ -101,6 +101,13 @@
 % Utilities
 -export([should_keep/1]).
 
+%% Context stashing
+-export([
+    get_context/0,
+    pop_context/0,
+    put_context/1
+]).
+
 % Tests only
 -export([get_session_conf/1]).
 
@@ -791,6 +798,27 @@ clear_will_message(Session) ->
 -spec publish_will_message_now(t(), message()) -> t().
 publish_will_message_now(Session, WillMsg) ->
     ?IMPL(Session):publish_will_message_now(Session, WillMsg).
+
+%%--------------------------------------------------------------------
+%% Context stashing
+%%--------------------------------------------------------------------
+
+-define(CTX_PD_KEY, {?MODULE, ctx}).
+
+-spec get_context() -> undefined | map().
+get_context() ->
+    get(?CTX_PD_KEY).
+
+-spec pop_context() -> undefined | map().
+pop_context() ->
+    erase(?CTX_PD_KEY).
+
+-spec put_context(map()) -> ok.
+put_context(#{} = Ctx) ->
+    _ = put(?CTX_PD_KEY, Ctx),
+    ok.
+
+-undef(CTX_PD_KEY).
 
 %%--------------------------------------------------------------------
 %% Unit tests

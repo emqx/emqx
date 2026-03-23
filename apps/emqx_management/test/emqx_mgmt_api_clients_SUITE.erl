@@ -715,10 +715,12 @@ t_kickout_clients(Config) ->
     ?assertReceive({'DOWN', _MRef, process, C1, _}),
     ?assertReceive({'DOWN', _MRef, process, C2, _}),
     ?assertReceive({'DOWN', _MRef, process, C3, _}),
-    ?assertMatch(
-        {ok, {_200, _, #{<<"meta">> := #{<<"count">> := 0}}}},
-        request(get, ClientsPath, Config)
-    ).
+    ?retry(_Interval = 100, _Attempts = 20, begin
+        ?assertMatch(
+            {ok, {_200, _, #{<<"meta">> := #{<<"count">> := 0}}}},
+            request(get, ClientsPath, Config)
+        )
+    end).
 
 t_query_clients_with_time(Config) ->
     Username1 = <<"user1">>,

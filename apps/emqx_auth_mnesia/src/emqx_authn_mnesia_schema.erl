@@ -14,7 +14,8 @@
     desc/1,
     refs/1,
     select_union_member/2,
-    namespace/0
+    namespace/0,
+    default_bootstrap_file_path/0
 ]).
 
 namespace() -> "authn".
@@ -67,7 +68,7 @@ bootstrap_fields() ->
                 #{
                     desc => ?DESC(bootstrap_file),
                     required => false,
-                    default => <<"${EMQX_ETC_DIR}/auth-built-in-db-bootstrap.csv">>
+                    default => default_bootstrap_file_path()
                 }
             )},
         {bootstrap_type,
@@ -79,3 +80,6 @@ bootstrap_fields() ->
                 }
             )}
     ].
+
+default_bootstrap_file_path() ->
+    <<"${EMQX_ETC_DIR}/auth-built-in-db-bootstrap.csv">>.
