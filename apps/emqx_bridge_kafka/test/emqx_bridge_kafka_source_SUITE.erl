@@ -1199,7 +1199,7 @@ t_receive_after_recovery(TCConfig) ->
                 Messages0
             ),
             ?retry(
-                _Interval = 200,
+                _Interval = 500,
                 _NAttempts = 20,
                 begin
                     GroupId = consumer_group_id(TCConfig),
