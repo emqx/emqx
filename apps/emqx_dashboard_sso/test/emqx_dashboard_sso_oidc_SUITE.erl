@@ -9,6 +9,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include("../../emqx_dashboard/include/emqx_dashboard.hrl").
+
+-define(OIDC_ADMIN_USER, <<"admin_oidc_test">>).
+-define(OIDC_ADMIN_PASS, <<"admin_pass_123!">>).
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -112,8 +116,19 @@ auth_header() ->
         Fun when is_function(Fun, 0) ->
             Fun();
         _ ->
-            emqx_mgmt_api_test_util:auth_header_()
+            create_bearer_token()
     end.
+
+%% SSO endpoints are denied for API Keys (scope deny list).
+%% Use a dashboard admin Bearer Token instead.
+create_bearer_token() ->
+    _ = emqx_dashboard_admin:add_user(
+        ?OIDC_ADMIN_USER, ?OIDC_ADMIN_PASS, ?ROLE_SUPERUSER, <<"admin for oidc test">>
+    ),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(
+        ?OIDC_ADMIN_USER, ?OIDC_ADMIN_PASS
+    ),
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 get_auth_header_getter() ->
     get(?AUTH_HEADER_FN_PD_KEY).
@@ -298,7 +313,15 @@ do_smoke_tests(TestCase, Opts, TCConfig) ->
         [Node, LoginNode, FinalReqNode] ->
             ok
     end,
-    AuthHeader = ?ON(Node, emqx_mgmt_api_test_util:auth_header_()),
+    AuthHeader = ?ON(Node, begin
+        _ = emqx_dashboard_admin:add_user(
+            ?OIDC_ADMIN_USER, ?OIDC_ADMIN_PASS, ?ROLE_SUPERUSER, <<"admin for oidc test">>
+        ),
+        {ok, #{token := Tok}} = emqx_dashboard_admin:sign_token(
+            ?OIDC_ADMIN_USER, ?OIDC_ADMIN_PASS
+        ),
+        {"Authorization", "Bearer " ++ binary_to_list(Tok)}
+    end),
     set_auth_header_getter(fun() -> AuthHeader end),
     lists:foreach(
         fun(_) ->
