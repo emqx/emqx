@@ -195,6 +195,15 @@ t_bootstrap_file(_) ->
     ),
     ok.
 
+t_default_bootstrap_file_missing(_) ->
+    Config = (config())#{
+        bootstrap_file => emqx_authn_mnesia_schema:default_bootstrap_file_path(),
+        bootstrap_type => hash
+    },
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
+    ?assertMatch([], ets:tab2list(emqx_authn_mnesia)),
+    ok = emqx_authn_mnesia:destroy(State).
+
 test_bootstrap_file(Config0, Type, File) ->
     test_bootstrap_file(Config0, Type, File, #{clean => true}).
 
