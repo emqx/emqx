@@ -19,9 +19,13 @@ init_per_suite(Config) ->
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
+    case whereis(emqx_username_quota_stats) of
+        undefined -> ok;
+        StatsPid -> gen_server:stop(StatsPid)
+    end,
     case whereis(emqx_username_quota_snapshot) of
         undefined -> ok;
-        Pid -> gen_server:stop(Pid)
+        SnapshotPid -> gen_server:stop(SnapshotPid)
     end,
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
@@ -30,6 +34,7 @@ init_per_testcase(_Case, Config) ->
         true ->
             Config;
         false ->
+            ok = ensure_stats_started(),
             ok = ensure_snapshot_started(),
             ok = emqx_username_quota:reset(),
             ok = emqx_username_quota_config:update(#{
@@ -51,6 +56,16 @@ ensure_snapshot_started() ->
     case whereis(emqx_username_quota_snapshot) of
         undefined ->
             {ok, Pid} = emqx_username_quota_snapshot:start_link(),
+            true = unlink(Pid),
+            ok;
+        _Pid ->
+            ok
+    end.
+
+ensure_stats_started() ->
+    case whereis(emqx_username_quota_stats) of
+        undefined ->
+            {ok, Pid} = emqx_username_quota_stats:start_link(),
             true = unlink(Pid),
             ok;
         _Pid ->
@@ -89,6 +104,45 @@ t_authenticate_quota_enforced(_Config) ->
             ignore
         )
     ).
+
+t_quota_exceeded_stats(_Config) ->
+    User = <<"alice">>,
+    ok = emqx_username_quota_config:update(#{
+        <<"max_sessions_per_username">> => 1
+    }),
+    ok = emqx_username_quota:register_session(User, <<"c1">>),
+    ?assertEqual(
+        {stop, {error, quota_exceeded}},
+        emqx_username_quota:on_client_authenticate(
+            #{username => User, clientid => <<"c2">>},
+            ignore
+        )
+    ),
+    ok = wait_until(fun() ->
+        case emqx_username_quota_stats:get(User) of
+            {ok, #{quota_exceeded_count := 1, last_quota_exceeded_at := Ts}} when Ts > 0 ->
+                true;
+            _ ->
+                false
+        end
+    end),
+    {ok, #{last_quota_exceeded_at := Ts1}} = emqx_username_quota_stats:get(User),
+    timer:sleep(1),
+    ?assertEqual(
+        {stop, {error, quota_exceeded}},
+        emqx_username_quota:on_client_authenticate(
+            #{username => User, clientid => <<"c3">>},
+            ignore
+        )
+    ),
+    ok = wait_until(fun() ->
+        case emqx_username_quota_stats:get(User) of
+            {ok, #{quota_exceeded_count := 2, last_quota_exceeded_at := Ts2}} when Ts2 >= Ts1 ->
+                true;
+            _ ->
+                false
+        end
+    end).
 
 t_config_reject_invalid_max_sessions(_Config) ->
     ?assertMatch(

@@ -276,7 +276,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.15", override: true}
 
-  def common_dep(:wolff), do: {:wolff, "4.1.7"}
+  def common_dep(:wolff), do: {:wolff, "4.1.9"}
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}
 
   def common_dep(:kafka_protocol),
@@ -1140,7 +1140,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def jq_dep() do
     if enable_jq?(),
-      do: [{:jq, github: "emqx/jq", tag: "v0.3.15", override: true}],
+      do: [{:jq, github: "emqx/jq", tag: "v0.3.16", override: true}],
       else: []
   end
 

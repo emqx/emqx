@@ -10,7 +10,8 @@
 -export([
     namespace/0,
     roots/0,
-    fields/1
+    fields/1,
+    desc/1
 ]).
 
 %% `minirest_trails' API
@@ -29,7 +30,7 @@
 namespace() -> schema_validation.
 
 roots() ->
-    [{schema_validation, mk(ref(schema_validation), #{importance => ?IMPORTANCE_HIDDEN})}].
+    [{schema_validation, mk(ref(schema_validation), #{})}].
 
 fields(schema_validation) ->
     [
@@ -138,6 +139,25 @@ fields(check_avro) ->
         {type, mk(avro, #{default => avro, desc => ?DESC("check_avro_type")})},
         {schema, mk(binary(), #{required => true, desc => ?DESC("check_avro_schema")})}
     ].
+
+desc(schema_validation) ->
+    ?DESC("desc_schema_validation");
+desc(validation) ->
+    ?DESC("desc_validation");
+desc(log_failure) ->
+    ?DESC("desc_log_failure");
+desc(check_sql) ->
+    ?DESC("desc_check_sql");
+desc(check_json) ->
+    ?DESC("desc_check_json");
+desc(check_avro) ->
+    ?DESC("desc_check_avro");
+desc(check_protobuf) ->
+    ?DESC("desc_check_protobuf");
+desc(check_external_http) ->
+    ?DESC("desc_check_external_http");
+desc(_) ->
+    undefined.
 
 checks_union_member_selector(all_union_members) ->
     checks_refs();
