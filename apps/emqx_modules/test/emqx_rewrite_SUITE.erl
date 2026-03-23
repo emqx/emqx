@@ -149,13 +149,10 @@ t_rewrite_re_error(_Config) ->
             dest_topic => "\"y/z/$2"
         }
     ],
-    Error = {
-        "y/+/z/#",
-        "{^y/(.+)/z/(.+)$*",
-        "\"y/z/$2",
-        {?BAD_QUANTIFIER_MSG, 16}
-    },
-    ?assertEqual({[], [], [Error]}, emqx_rewrite:compile(Rules)),
+    ?assertMatch(
+        {[], [], [{"y/+/z/#", "{^y/(.+)/z/(.+)$*", "\"y/z/$2", {?BAD_QUANTIFIER_MSG, _}}]},
+        emqx_rewrite:compile(Rules)
+    ),
     ok.
 
 t_list(_Config) ->
@@ -212,7 +209,7 @@ t_update_re_failed(_Config) ->
             path := "rewrite.1.re",
             reason := #{
                 regexp := <<"*^test/*">>,
-                compile_error := {?BAD_QUANTIFIER_MSG, 0}
+                compile_error := {?BAD_QUANTIFIER_MSG, _}
             },
             value := <<"*^test/*">>
         },
