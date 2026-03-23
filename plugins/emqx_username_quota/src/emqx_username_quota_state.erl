@@ -162,6 +162,12 @@ reset() ->
         catch
             _:_ -> ok
         end,
+    _ =
+        try emqx_username_quota_stats:reset() of
+            ok -> ok
+        catch
+            _:_ -> ok
+        end,
     ok.
 
 -doc """

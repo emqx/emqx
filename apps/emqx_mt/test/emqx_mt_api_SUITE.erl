@@ -44,7 +44,10 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-init_per_testcase(t_adjust_limiters = TestCase, Config) ->
+init_per_testcase(TestCase, Config) when
+    TestCase == t_adjust_limiters;
+    TestCase == t_delivery_rate_limit
+->
     Apps = [
         emqx,
         {emqx_conf, "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]"},
@@ -104,7 +107,10 @@ init_per_testcase(TestCase, Config) ->
     snabbkaffe:start_trace(),
     [{apps, Apps} | Config].
 
-end_per_testcase(t_adjust_limiters, Config) ->
+end_per_testcase(TestCase, Config) when
+    TestCase == t_adjust_limiters;
+    TestCase == t_delivery_rate_limit
+->
     Cluster = ?config(cluster, Config),
     snabbkaffe:stop(),
     emqx_common_test_helpers:call_janitor(),
@@ -1628,4 +1634,108 @@ t_managed_certs_inexistent_ns(_TCConfig) ->
     {204, _} = create_managed_ns(Ns),
     ?assertMatch({204, _}, upload_file_ns(Ns, Bundle, ?FILE_KIND_CA, CA)),
 
+    ok.
+
+-doc """
+"Integration" test for using per-ns delivery rate limiting options.
+
+While the global config has no delivery rate limiting (the default), the namespace in this
+case does and uses it.
+
+This assumes in-memory sessions are in use.
+""".
+t_delivery_rate_limit(Config) when is_list(Config) ->
+    [N | _] = ?config(cluster, Config),
+    %% Setup namespace with limiters
+    Params1 = client_limiter_params(#{
+        <<"delivery_bytes">> => #{
+            <<"rate">> => <<"10MB/s">>,
+            <<"burst">> => <<"0MB/s">>
+        },
+        <<"delivery_messages">> => #{
+            %% This shall be the bottleneck.
+            <<"rate">> => <<"3/s">>,
+            <<"burst">> => <<"0/s">>
+        }
+    }),
+    Ns = atom_to_binary(?FUNCTION_NAME),
+    {204, _} = create_managed_ns(Ns),
+    ?assertMatch({200, _}, update_managed_ns_config(Ns, Params1)),
+    ?check_trace(
+        begin
+            C1 = ?NEW_CLIENTID(1),
+            {ok, Pid1} = emqtt:start_link(#{
+                username => Ns,
+                clientid => C1,
+                proto_ver => v5,
+                port => emqx_mt_api_SUITE:get_mqtt_tcp_port(N)
+            }),
+            {ok, _} = emqtt:connect(Pid1),
+            Topic = <<"rate/limit">>,
+            {ok, _, _} = emqtt:subscribe(Pid1, Topic, 2),
+            %% Publish a few messages in quick succession; most will get enqueued (except
+            %% for QoS 0 ones arriving while the limiter is exhausted).
+            ct:pal("publishing"),
+            lists:foreach(
+                fun({QoS, Payload}) ->
+                    emqtt:publish(Pid1, Topic, Payload, [{qos, QoS}])
+                end,
+                [
+                    {?QOS_0, <<"0a">>},
+                    {?QOS_1, <<"1a">>},
+                    {?QOS_2, <<"2a">>},
+                    {?QOS_0, <<"0b">>},
+                    {?QOS_1, <<"1b">>},
+                    {?QOS_2, <<"2b">>}
+                ]
+            ),
+            ct:pal("published"),
+            %% Eventually, must receive all messages (except a QoS 0 one) at the
+            %% configured rate, hence in ~ 2 s.  We wait for one more than the expected
+            %% count to check we don't actually receive that QoS 0 message with payload
+            %% `0b`.
+            ExpectedCount = 5,
+            Timeout = 3_000,
+            T0 = erlang:monotonic_time(millisecond),
+            Received = emqx_common_test_helpers:wait_publishes(ExpectedCount + 1, Timeout),
+            T1 = erlang:monotonic_time(millisecond),
+            ct:pal("received:\n  ~p", [Received]),
+            ct:pal("took: ~b ms", [T1 - T0]),
+            ?assertEqual(ExpectedCount, length(Received)),
+            ?assertMatch(
+                [
+                    #{qos := ?QOS_0, payload := <<"0a">>},
+                    #{qos := ?QOS_1, payload := <<"1a">>},
+                    #{qos := ?QOS_2, payload := <<"2a">>},
+                    %% `0b` is dropped due to rate limiting.
+                    %%
+                    %% N.B.: `0b` _could_ appear here depending on the rate limit.  If it
+                    %% happens to arrive when the limiter has tokens (e.g. if one sets
+                    %% `delivery_messages.rate` to `2/s`), it'll be published as usual, though
+                    %% the ordering might be different, since different QoS's are different
+                    %% ordering tracks (`[MQTT-4.6.0-5]`).
+                    #{qos := ?QOS_1, payload := <<"1b">>},
+                    #{qos := ?QOS_2, payload := <<"2b">>}
+                ],
+                Received
+            ),
+            emqtt:stop(Pid1)
+        end,
+        fun(Trace) ->
+            ?assertEqual(
+                [], ?of_kind(["hook_callback_exception", "session_mem_limiter_not_found"], Trace)
+            ),
+            ?assertMatch(
+                [
+                    #{
+                        reason :=
+                            {failed_to_consume_from_limiter, {{mt_client, _}, delivery_messages}}
+                    }
+                    | _
+                ],
+                ?of_kind(["mem_delivery_rate_limit"], Trace)
+            ),
+            ok
+        end
+    ),
     ok.

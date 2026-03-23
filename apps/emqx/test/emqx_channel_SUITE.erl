@@ -1097,6 +1097,86 @@ t_check_sub_authzs(_) ->
         emqx_channel:check_sub_authzs(SubPkt, Channel)
     ).
 
+t_parse_raw_topic_filters_subscription_filter_enabled(_) ->
+    OldMode = emqx_config:get_zone_conf(default, [mqtt, subscription_message_filter], disable),
+    emqx_config:put_zone_conf(default, [mqtt, subscription_message_filter], enable),
+    try
+        [{<<"t">>, SubOpts}] = emqx_channel:parse_raw_topic_filters(
+            [{<<"t?location=roomA&value>25">>, ?DEFAULT_SUBOPTS}],
+            channel()
+        ),
+        ?assertMatch(
+            #{
+                sub_filter_enabled := true,
+                sub_filter_raw := <<"location=roomA&value>25">>,
+                sub_filter_source := <<"t?location=roomA&value>25">>,
+                sub_filter_ast := [{eq, <<"location">>, <<"roomA">>}, {gt, <<"value">>, 25.0}]
+            },
+            SubOpts
+        ),
+        [{#share{group = <<"g">>, topic = <<"t">>}, SharedSubOpts}] = emqx_channel:parse_raw_topic_filters(
+            [{<<"$share/g/t?location=roomA">>, ?DEFAULT_SUBOPTS}],
+            channel()
+        ),
+        ?assertMatch(
+            #{
+                sub_filter_enabled := true,
+                sub_filter_raw := <<"location=roomA">>,
+                sub_filter_source := <<"$share/g/t?location=roomA">>,
+                sub_filter_ast := [{eq, <<"location">>, <<"roomA">>}]
+            },
+            SharedSubOpts
+        ),
+        [{<<"test/#">>, MultiWildcardSubOpts}] = emqx_channel:parse_raw_topic_filters(
+            [{<<"test/#?location=roomA">>, ?DEFAULT_SUBOPTS}],
+            channel()
+        ),
+        ?assertMatch(
+            #{
+                sub_filter_enabled := true,
+                sub_filter_raw := <<"location=roomA">>,
+                sub_filter_source := <<"test/#?location=roomA">>,
+                sub_filter_ast := [{eq, <<"location">>, <<"roomA">>}]
+            },
+            MultiWildcardSubOpts
+        ),
+        [{<<"test/+">>, SingleWildcardSubOpts}] = emqx_channel:parse_raw_topic_filters(
+            [{<<"test/+?location=roomA">>, ?DEFAULT_SUBOPTS}],
+            channel()
+        ),
+        ?assertMatch(
+            #{
+                sub_filter_enabled := true,
+                sub_filter_raw := <<"location=roomA">>,
+                sub_filter_source := <<"test/+?location=roomA">>,
+                sub_filter_ast := [{eq, <<"location">>, <<"roomA">>}]
+            },
+            SingleWildcardSubOpts
+        ),
+        [{<<"t">>, #{}}] = emqx_channel:parse_raw_topic_filters([<<"t?location=roomA">>], channel())
+    after
+        emqx_config:put_zone_conf(default, [mqtt, subscription_message_filter], OldMode)
+    end.
+
+t_parse_raw_topic_filters_subscription_filter_disabled(_) ->
+    OldMode = emqx_config:get_zone_conf(default, [mqtt, subscription_message_filter], disable),
+    emqx_config:put_zone_conf(default, [mqtt, subscription_message_filter], disable),
+    try
+        [{<<"t?location=roomA">>, SubOpts}] = emqx_channel:parse_raw_topic_filters(
+            [{<<"t?location=roomA">>, ?DEFAULT_SUBOPTS}],
+            channel()
+        ),
+        ?assertNot(maps:is_key(sub_filter_ast, SubOpts)),
+        [{#share{group = <<"g">>, topic = <<"t?location=roomA">>}, SharedSubOpts}] =
+            emqx_channel:parse_raw_topic_filters(
+                [{<<"$share/g/t?location=roomA">>, ?DEFAULT_SUBOPTS}],
+                channel()
+            ),
+        ?assertNot(maps:is_key(sub_filter_ast, SharedSubOpts))
+    after
+        emqx_config:put_zone_conf(default, [mqtt, subscription_message_filter], OldMode)
+    end.
+
 t_enrich_connack_caps(_) ->
     ok = meck:new(emqx_mqtt_caps, [passthrough, no_history]),
     ok = meck:expect(

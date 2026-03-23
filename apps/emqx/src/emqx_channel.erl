@@ -96,7 +96,12 @@
     %% Quota checkers
     quota :: emqx_limiter_client_container:t(),
     %% Timers
-    timers :: #{atom() => disabled | option(reference())},
+    timers :: #{
+        %% Common timers
+        atom() => disabled | option(reference()),
+        %% Other timers (e.g.: requested by sessions)
+        any() => option(reference())
+    },
     %% Conn State
     conn_state :: conn_state(),
     %% Takeover
@@ -141,9 +146,12 @@
     ((ConnState == connected) orelse (ConnState == reauthenticating))
 ).
 
+%% Used by mem sessions
+-define(RETRY_DEQUEUE_TIMER, retry_dequeue).
+
 %% Timers implemented by sessions
 -define(IS_COMMON_SESSION_TIMER(N),
-    ((N == retry_delivery) orelse (N == expire_awaiting_rel))
+    ((N == retry_delivery) orelse (N == expire_awaiting_rel) orelse (N == ?RETRY_DEQUEUE_TIMER))
 ).
 %% Timers implemented by sessions that need to be handled only when the client is connected
 -define(IS_COMMON_SESSION_ONLINE_TIMER(N),
@@ -774,24 +782,30 @@ puback_reason_code(_PacketId, _Msg, disconnect) ->
 
 process_puback(
     ?PUBACK_PACKET(PacketId, ReasonCode, Properties),
-    Channel =
+    Channel0 =
         #channel{clientinfo = ClientInfo, session = Session}
 ) ->
+    stash_limiter_ctx(Channel0),
     case emqx_session:puback(ClientInfo, PacketId, ReasonCode, Session) of
         {ok, Msg, [], NSession} ->
+            Channel = pop_limiter_ctx(Channel0),
             ok = after_message_acked(Msg, Properties, Channel),
             {ok, Channel#channel{session = NSession}};
         {ok, Msg, Publishes, NSession} ->
+            Channel = pop_limiter_ctx(Channel0),
             ok = after_message_acked(Msg, Properties, Channel),
             handle_out(publish, Publishes, Channel#channel{session = NSession});
         {error, ?RC_PROTOCOL_ERROR} ->
+            Channel = pop_limiter_ctx(Channel0),
             handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?SLOG(warning, #{msg => "puback_packetId_inuse", packetId => PacketId}),
+            Channel = pop_limiter_ctx(Channel0),
             ok = inc_metrics('packets.puback.inuse', Channel),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?SLOG(warning, #{msg => "puback_packetId_not_found", packetId => PacketId}),
+            Channel = pop_limiter_ctx(Channel0),
             ok = inc_metrics('packets.puback.missed', Channel),
             {ok, Channel}
     end.
@@ -850,22 +864,28 @@ process_pubrel(
 
 process_pubcomp(
     ?PUBCOMP_PACKET(PacketId, ReasonCode),
-    Channel = #channel{
+    Channel0 = #channel{
         clientinfo = ClientInfo, session = Session
     }
 ) ->
+    stash_limiter_ctx(Channel0),
     case emqx_session:pubcomp(ClientInfo, PacketId, ReasonCode, Session) of
         {ok, [], NSession} ->
+            Channel = pop_limiter_ctx(Channel0),
             {ok, Channel#channel{session = NSession}};
         {ok, Publishes, NSession} ->
+            Channel = pop_limiter_ctx(Channel0),
             handle_out(publish, Publishes, Channel#channel{session = NSession});
         {error, ?RC_PROTOCOL_ERROR} ->
+            Channel = pop_limiter_ctx(Channel0),
             handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
+            Channel = pop_limiter_ctx(Channel0),
             ok = inc_metrics('packets.pubcomp.inuse', Channel),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?SLOG(warning, #{msg => "pubcomp_packetId_not_found", packetId => PacketId}),
+            Channel = pop_limiter_ctx(Channel0),
             ok = inc_metrics('packets.pubcomp.missed', Channel),
             {ok, Channel}
     end.
@@ -984,14 +1004,23 @@ do_gen_reason_codes(
 
 process_unsubscribe(
     Packet = ?UNSUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
-    Channel = #channel{clientinfo = ClientInfo}
+    Channel = #channel{clientinfo = ClientInfo = #{zone := Zone}}
 ) ->
-    case emqx_packet:check(Packet) of
+    case
+        emqx_packet:check(
+            Packet,
+            #{
+                subscription_message_filter => get_mqtt_conf(
+                    Zone, subscription_message_filter, disable
+                )
+            }
+        )
+    of
         ok ->
             TopicFilters1 = run_hooks(
                 'client.unsubscribe',
                 [ClientInfo, Properties],
-                parse_raw_topic_filters(TopicFilters),
+                parse_raw_topic_filters(TopicFilters, Channel),
                 Channel
             ),
             {ReasonCodes, NChannel} = post_process_unsubscribe(TopicFilters1, Properties, Channel),
@@ -1175,18 +1204,43 @@ handle_deliver(Delivers, Channel) ->
 
 do_handle_deliver(
     Delivers,
-    Channel = #channel{
+    Channel0 = #channel{
         session = Session,
         takeover = false,
         clientinfo = ClientInfo
     }
 ) ->
+    stash_limiter_ctx(Channel0),
     case emqx_session:deliver(ClientInfo, Delivers, Session) of
         {ok, [], NSession} ->
+            Channel = pop_limiter_ctx(Channel0),
             {ok, Channel#channel{session = NSession}};
         {ok, Publishes, NSession} ->
+            Channel = pop_limiter_ctx(Channel0),
             NChannel = Channel#channel{session = NSession},
             handle_out(publish, Publishes, ensure_timer(retry_delivery, NChannel))
+    end.
+
+stash_limiter_ctx(Channel) ->
+    #channel{quota = Limiter0} = Channel,
+    DeliverCtx = #{limiter => Limiter0},
+    emqx_session:put_context(DeliverCtx).
+
+pop_limiter_ctx(Channel0) ->
+    case emqx_session:pop_context() of
+        #{limiter := Limiter, ?RETRY_DEQUEUE_TIMER := Time} when is_integer(Time) ->
+            Channel = Channel0#channel{quota = Limiter},
+            Timer = {emqx_session, ?RETRY_DEQUEUE_TIMER},
+            case Channel#channel.timers of
+                #{Timer := TRef} when is_reference(TRef) ->
+                    Channel;
+                #{} ->
+                    ensure_timer(Timer, Time, Channel)
+            end;
+        #{limiter := Limiter} ->
+            Channel0#channel{quota = Limiter};
+        _ ->
+            Channel0
     end.
 
 %% Nack delivers from shared subscription
@@ -1812,30 +1866,38 @@ handle_timeout(
 handle_timeout(
     _TRef,
     TimerName,
-    Channel = #channel{session = Session, clientinfo = ClientInfo}
+    Channel0 = #channel{session = Session, clientinfo = ClientInfo}
 ) when ?IS_COMMON_SESSION_TIMER(TimerName) ->
     %% NOTE
     %% Responsibility for these timers is smeared across both this module and the
     %% `emqx_session` module: the latter holds configured timer intervals, and is
     %% responsible for the actual timeout logic. Yet they are managed here, since
     %% they are kind of common to all session implementations.
+    Channel1 = clean_timer(TimerName, Channel0),
+    stash_limiter_ctx(Channel1),
     case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
         {ok, Publishes, NSession} ->
-            NChannel = Channel#channel{session = NSession},
-            handle_out(publish, Publishes, clean_timer(TimerName, NChannel));
+            Channel2 = pop_limiter_ctx(Channel1),
+            Channel = Channel2#channel{session = NSession},
+            handle_out(publish, Publishes, clean_timer(TimerName, Channel));
         {ok, Publishes, Timeout, NSession} ->
-            NChannel = Channel#channel{session = NSession},
-            handle_out(publish, Publishes, reset_timer(TimerName, Timeout, NChannel))
+            Channel2 = pop_limiter_ctx(Channel1),
+            Channel = Channel2#channel{session = NSession},
+            handle_out(publish, Publishes, reset_timer(TimerName, Timeout, Channel))
     end;
 handle_timeout(
     _TRef,
-    {emqx_session, TimerName},
-    Channel = #channel{session = Session, clientinfo = ClientInfo}
+    {emqx_session, TimerName} = Timer,
+    Channel0 = #channel{session = Session, clientinfo = ClientInfo}
 ) ->
+    Channel1 = clean_timer(Timer, Channel0),
+    stash_limiter_ctx(Channel1),
     case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
         {ok, [], NSession} ->
+            Channel = pop_limiter_ctx(Channel1),
             {ok, Channel#channel{session = NSession}};
         {ok, Replies, NSession} ->
+            Channel = pop_limiter_ctx(Channel1),
             handle_out(publish, Replies, Channel#channel{session = NSession})
     end;
 handle_timeout(_TRef, expire_session, Channel = #channel{session = Session}) ->
@@ -2712,8 +2774,17 @@ check_pub_caps(
 %%--------------------------------------------------------------------
 %% Check Subscribe Packet
 
-check_subscribe(SubPkt, _Channel) ->
-    case emqx_packet:check(SubPkt) of
+check_subscribe(SubPkt, #channel{clientinfo = #{zone := Zone}}) ->
+    case
+        emqx_packet:check(
+            SubPkt,
+            #{
+                subscription_message_filter => get_mqtt_conf(
+                    Zone, subscription_message_filter, disable
+                )
+            }
+        )
+    of
         ok -> ok;
         {error, RC} -> {error, {disconnect, RC}}
     end.
@@ -2858,7 +2929,7 @@ do_enrich_subscribe(Properties, TopicFilters, Channel) ->
     _NTopicFilters = emqx_utils:run_fold(
         [
             %% TODO: do try catch with reason code here
-            fun(TFs, _) -> parse_raw_topic_filters(TFs) end,
+            fun(TFs, #{channel := Channel0}) -> parse_raw_topic_filters(TFs, Channel0) end,
             fun enrich_subopts_subid/2,
             fun enrich_subopts_props/2,
             fun enrich_subopts_flags/2
@@ -3114,8 +3185,38 @@ maybe_shutdown(Reason, _Intent = shutdown, Channel) ->
 %% Parse Topic Filters
 
 %% [{<<"$share/group/topic">>, _SubOpts = #{}} | _]
-parse_raw_topic_filters(TopicFilters) ->
-    lists:map(fun emqx_topic:parse/1, TopicFilters).
+parse_raw_topic_filters(TopicFilters, #channel{clientinfo = #{zone := Zone}}) ->
+    FilterEnabled = is_subscription_message_filter_enabled(Zone),
+    lists:map(
+        fun(TopicFilter) -> parse_raw_topic_filter(TopicFilter, FilterEnabled) end,
+        TopicFilters
+    ).
+
+parse_raw_topic_filter({TopicFilter, SubOpts0}, false) ->
+    emqx_topic:parse({TopicFilter, SubOpts0});
+parse_raw_topic_filter({TopicFilter, SubOpts0}, true) ->
+    case emqx_subscription_filter:validate_subscription(TopicFilter) of
+        {ok, no_filter} ->
+            emqx_topic:parse({TopicFilter, SubOpts0});
+        {ok, #{base_topic := BaseTopic, raw_expr := RawExpr, ast := AST}} ->
+            emqx_topic:parse(
+                {BaseTopic, SubOpts0#{
+                    sub_filter_raw => RawExpr,
+                    sub_filter_ast => AST,
+                    sub_filter_enabled => true,
+                    sub_filter_source => TopicFilter
+                }}
+            );
+        {error, malformed_filter} ->
+            error({invalid_subscription_filter, TopicFilter})
+    end;
+parse_raw_topic_filter(TopicFilter, false) ->
+    emqx_topic:parse(TopicFilter);
+parse_raw_topic_filter(TopicFilter, true) ->
+    emqx_topic:parse(emqx_subscription_filter:normalize_topic_filter(TopicFilter)).
+
+is_subscription_message_filter_enabled(Zone) ->
+    get_mqtt_conf(Zone, subscription_message_filter, disable) =:= enable.
 
 %%--------------------------------------------------------------------
 %% Maybe & Ensure disconnected

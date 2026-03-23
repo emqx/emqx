@@ -101,6 +101,13 @@
 % Utilities
 -export([should_keep/1]).
 
+%% Context stashing
+-export([
+    get_context/0,
+    pop_context/0,
+    put_context/1
+]).
+
 % Tests only
 -export([get_session_conf/1]).
 
@@ -490,6 +497,19 @@ enrich_message(
 ) ->
     _ = emqx_session_events:handle_event(ClientInfo, {dropped, Msg, no_local}),
     [];
+%% NOTE:
+%% This branch is used on the durable-session replay path. Keep the persisted
+%% subscription-filter representation and `emqx_subscription_filter:match_message/2`
+%% behavior deterministic and version-stable, otherwise replayed delivery can
+%% change across upgrades.
+enrich_message(ClientInfo, MsgIn, SubOpts = #{sub_filter_ast := AST}, UpgradeQoS) ->
+    case emqx_subscription_filter:match_message(AST, MsgIn) of
+        true ->
+            enrich_message(ClientInfo, MsgIn, clean_sub_filter_subopts(SubOpts), UpgradeQoS);
+        false ->
+            _ = emqx_session_events:handle_event(ClientInfo, {dropped, MsgIn, subscription_filter}),
+            []
+    end;
 enrich_message(_ClientInfo, MsgIn, SubOpts = #{}, UpgradeQoS) ->
     %% https://www.erlang.org/doc/system/maps.html#using-maps-as-an-alternative-to-records
     Default = #{nl => 0, qos => undefined, rap => 0, subid => undefined},
@@ -551,6 +571,12 @@ enrich_message(_ClientInfo, MsgIn, SubOpts = #{}, UpgradeQoS) ->
     ];
 enrich_message(_ClientInfo, Msg, undefined, _UpgradeQoS) ->
     [Msg].
+
+clean_sub_filter_subopts(SubOpts) ->
+    maps:without(
+        [sub_filter_ast, sub_filter_enabled, sub_filter_raw, sub_filter_source],
+        SubOpts
+    ).
 
 %%--------------------------------------------------------------------
 %% Timeouts
@@ -772,6 +798,27 @@ clear_will_message(Session) ->
 -spec publish_will_message_now(t(), message()) -> t().
 publish_will_message_now(Session, WillMsg) ->
     ?IMPL(Session):publish_will_message_now(Session, WillMsg).
+
+%%--------------------------------------------------------------------
+%% Context stashing
+%%--------------------------------------------------------------------
+
+-define(CTX_PD_KEY, {?MODULE, ctx}).
+
+-spec get_context() -> undefined | map().
+get_context() ->
+    get(?CTX_PD_KEY).
+
+-spec pop_context() -> undefined | map().
+pop_context() ->
+    erase(?CTX_PD_KEY).
+
+-spec put_context(map()) -> ok.
+put_context(#{} = Ctx) ->
+    _ = put(?CTX_PD_KEY, Ctx),
+    ok.
+
+-undef(CTX_PD_KEY).
 
 %%--------------------------------------------------------------------
 %% Unit tests
