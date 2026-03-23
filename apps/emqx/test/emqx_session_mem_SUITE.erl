@@ -12,6 +12,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 -type inflight_data_phase() :: wait_ack | wait_comp.
@@ -21,6 +23,8 @@ all() -> emqx_common_test_helpers:all(?MODULE).
     message :: emqx_types:message(),
     timestamp :: non_neg_integer()
 }).
+
+-define(RETRY_DEQUEUE_TIMER, retry_dequeue).
 
 %%--------------------------------------------------------------------
 %% CT callbacks
@@ -45,6 +49,13 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
     meck:unload().
+
+init_per_testcase(_TestCase, TCConfig) ->
+    TCConfig.
+
+end_per_testcase(_TestCase, _TCConfig) ->
+    emqx_common_test_helpers:call_janitor(),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Test cases for session init
@@ -384,6 +395,37 @@ t_deliver_qos0(_) ->
     ?assertEqual(<<"t0">>, emqx_message:topic(Msg1)),
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg2)).
 
+t_deliver_subscription_filter(_) ->
+    DroppedBefore = emqx_metrics:val_global('delivery.dropped'),
+    DroppedByFilterBefore = emqx_metrics:val_global('delivery.dropped.filter'),
+    MatchMsg = emqx_message:set_header(
+        properties,
+        #{'User-Property' => [{<<"location">>, <<"roomA">>}, {<<"value">>, <<"26">>}]},
+        emqx_message:make(clientid, ?QOS_0, <<"t">>, <<"payload-match">>)
+    ),
+    MissMsg = emqx_message:set_header(
+        properties,
+        #{'User-Property' => [{<<"location">>, <<"roomB">>}, {<<"value">>, <<"10">>}]},
+        emqx_message:make(clientid, ?QOS_0, <<"t">>, <<"payload-miss">>)
+    ),
+    Session = session(#{
+        subscriptions => #{
+            <<"t">> => subopts(#{
+                sub_filter_ast => [{eq, <<"location">>, <<"roomA">>}, {gt, <<"value">>, 25.0}],
+                sub_filter_enabled => true,
+                sub_filter_raw => <<"location=roomA&value>25">>,
+                sub_filter_source => <<"t?location=roomA&value>25">>
+            })
+        }
+    }),
+    [FilteredMsg] = enrich([{deliver, <<"t">>, MatchMsg}, {deliver, <<"t">>, MissMsg}], Session),
+    ?assertEqual(<<"payload-match">>, emqx_message:payload(FilteredMsg)),
+    ?assertEqual(DroppedBefore + 1, emqx_metrics:val_global('delivery.dropped')),
+    ?assertEqual(
+        DroppedByFilterBefore + 1,
+        emqx_metrics:val_global('delivery.dropped.filter')
+    ).
+
 t_deliver_qos1(_) ->
     ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
     {ok, Session} = emqx_session_mem:subscribe(
@@ -514,6 +556,196 @@ t_retry(_) ->
         2,
         emqx_session_mem:info(inflight_cnt, Session3)
     ).
+
+-doc """
+Similar to `t_retry_dequeue_qos{1,2}`.
+
+The difference is that QoS 0 messages are simply dropped if the rate limit is hit and
+never retried.
+""".
+t_retry_dequeue_qos0(_TCConfig) ->
+    QoS = ?QOS_0,
+    Session0 = session(),
+    Delivers = enrich(
+        [
+            delivery(QoS, <<"t1">>),
+            delivery(QoS, <<"t2">>),
+            delivery(QoS, <<"t3">>),
+            delivery(QoS, <<"t4">>)
+        ],
+        Session0
+    ),
+    ListenerId = 'tcp:default',
+    LimiterConfig0 = #{<<"delivery_messages_rate">> => <<"2/5s">>},
+    Limiter0 = create_limiters(ListenerId, LimiterConfig0),
+    Ctx0 = #{limiter => Limiter0},
+    put_context(Ctx0),
+    %% Only two messages come out.
+    {ok, [_Pub1, _Pub2], Session1} = emqx_session_mem:deliver(clientinfo(), Delivers, Session0),
+    %% A retry was requested (even though we know there are no QoS > 0 messages enqueued,
+    %% although there could be, in general)
+    Ctx1 = pop_context(),
+    ?assertMatch(
+        #{limiter := _, ?RETRY_DEQUEUE_TIMER := _},
+        Ctx1
+    ),
+    #{limiter := Limiter1} = Ctx1,
+    %% Immediately retrying would yield no messages, if it were attempted.
+    put_context(#{limiter => Limiter1}),
+    {ok, [], Session2} = emqx_session_mem:handle_timeout(
+        clientinfo(), ?RETRY_DEQUEUE_TIMER, Session1
+    ),
+    %% After rate tokens are restored, no more messages are returned, because QoS 0
+    %% messages are dropped.
+    Limiter2 = restart_limiters(ListenerId, LimiterConfig0),
+    put_context(#{limiter => Limiter2}),
+    {ok, [], _Session3} =
+        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, Session2),
+    Ctx2 = pop_context(),
+    ?assertMatch(#{limiter := _}, Ctx2),
+    ?assertNotMatch(#{?RETRY_DEQUEUE_TIMER := _}, Ctx2),
+
+    ok.
+
+t_retry_dequeue_qos1(TCConfig) ->
+    test_retry_dequeue(?QOS_1, TCConfig).
+
+t_retry_dequeue_qos2(TCConfig) ->
+    test_retry_dequeue(?QOS_2, TCConfig).
+
+-doc """
+Verifies that we use delivery rate limiters when they are stashed in the session context.
+
+When delivering messages, we check their number and size.  If rate limit is hit, we start
+a timer based on the limiter that was hit so that dequeuing is attempted again.
+""".
+test_retry_dequeue(QoS, _TCConfig) ->
+    ListenerId = 'tcp:default',
+    LimiterConfig0 = #{<<"delivery_messages_rate">> => <<"2/5s">>},
+    Limiter0 = create_limiters(ListenerId, LimiterConfig0),
+
+    Session0 = session(),
+    Delivers = enrich(
+        [
+            delivery(QoS, <<"t1">>),
+            delivery(QoS, <<"t2">>),
+            delivery(QoS, <<"t3">>),
+            delivery(QoS, <<"t4">>)
+        ],
+        Session0
+    ),
+    Ctx0 = #{limiter => Limiter0},
+    put_context(Ctx0),
+    %% Only two messages come out.
+    {ok, [_Pub1, _Pub2], Session1} = emqx_session_mem:deliver(clientinfo(), Delivers, Session0),
+    %% A retry was requested.
+    Ctx1 = pop_context(),
+    ?assertMatch(
+        #{limiter := _, ?RETRY_DEQUEUE_TIMER := _},
+        Ctx1
+    ),
+    #{limiter := Limiter1} = Ctx1,
+    %% Immediately retrying would yield no messages, if it were attempted.
+    put_context(#{limiter => Limiter1}),
+    {ok, [], Session2} = emqx_session_mem:handle_timeout(
+        clientinfo(), ?RETRY_DEQUEUE_TIMER, Session1
+    ),
+    %% After rate tokens are restored, it should yield more messages that were enqueued.
+    Limiter2 = restart_limiters(ListenerId, LimiterConfig0),
+    put_context(#{limiter => Limiter2}),
+    {ok, [_Pub3, _Pub4], Session3} =
+        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, Session2),
+    Ctx2 = pop_context(),
+    ?assertMatch(#{limiter := _}, Ctx2),
+    ?assertNotMatch(#{?RETRY_DEQUEUE_TIMER := _}, Ctx2),
+    %% Nothing left
+    Limiter3 = restart_limiters(ListenerId, LimiterConfig0),
+    put_context(#{limiter => Limiter3}),
+    {ok, [], _Session4} =
+        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, Session3),
+    Ctx3 = pop_context(),
+    ?assertMatch(#{limiter := _}, Ctx3),
+    ?assertNotMatch(#{?RETRY_DEQUEUE_TIMER := _}, Ctx3),
+
+    ok.
+
+-doc """
+Verifies that we apply delivery rate limiters when processing a `PUBACK`.
+""".
+t_delivery_rate_limit_puback(_TCConfig) ->
+    ListenerId = 'tcp:default',
+    LimiterConfig0 = #{<<"delivery_messages_rate">> => <<"2/5s">>},
+    Limiter0 = create_limiters(ListenerId, LimiterConfig0),
+
+    %% First, we ensure that the mqueue has something enqueued.
+    Session0 = session(),
+    Delivers = enrich(
+        [
+            delivery(?QOS_1, <<"t1">>),
+            delivery(?QOS_1, <<"t2">>),
+            delivery(?QOS_1, <<"t3">>),
+            delivery(?QOS_1, <<"t4">>)
+        ],
+        Session0
+    ),
+    Ctx0 = #{limiter => Limiter0},
+    put_context(Ctx0),
+    %% Should have 3 messages enqueued
+    {ok, [{PacketId1, _Pub1}, {PacketId2, _Pub2}], Session1} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, Session0),
+
+    %% Now, a puback comes in while limiter is still recovering.  It shouldn't yield more
+    %% publishes.
+    #{limiter := Limiter1} = pop_context(),
+    put_context(#{limiter => Limiter1}),
+    {ok, _, [], Session2} = emqx_session_mem:puback(clientinfo(), PacketId1, Session1),
+
+    %% After limiter tokens are restored, should dequeue the rest.
+    Limiter2 = restart_limiters(ListenerId, LimiterConfig0),
+    put_context(#{limiter => Limiter2}),
+    {ok, _, [_, _], _Session3} = emqx_session_mem:puback(clientinfo(), PacketId2, Session2),
+
+    ok.
+
+-doc """
+Verifies that we apply delivery rate limiters when processing a `PUBCOMP`.
+""".
+t_delivery_rate_limit_pubcomp(_TCConfig) ->
+    ListenerId = 'tcp:default',
+    LimiterConfig0 = #{<<"delivery_messages_rate">> => <<"2/5s">>},
+    Limiter0 = create_limiters(ListenerId, LimiterConfig0),
+
+    %% First, we ensure that the mqueue has something enqueued.
+    Session0 = session(),
+    Delivers = enrich(
+        [
+            delivery(?QOS_2, <<"t1">>),
+            delivery(?QOS_2, <<"t2">>),
+            delivery(?QOS_2, <<"t3">>),
+            delivery(?QOS_2, <<"t4">>)
+        ],
+        Session0
+    ),
+    Ctx0 = #{limiter => Limiter0},
+    put_context(Ctx0),
+    %% Should have 3 messages enqueued
+    {ok, [{PacketId1, _Pub1}, {PacketId2, _Pub2}], Session1} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, Session0),
+
+    %% Now, a puback comes in while limiter is still recovering.  It shouldn't yield more
+    %% publishes.
+    {ok, _, Session2} = emqx_session_mem:pubrec(PacketId1, Session1),
+    #{limiter := Limiter1} = pop_context(),
+    put_context(#{limiter => Limiter1}),
+    {ok, _, [], Session3} = emqx_session_mem:pubcomp(clientinfo(), PacketId1, Session2),
+
+    %% After limiter tokens are restored, should dequeue the rest.
+    {ok, _, Session4} = emqx_session_mem:pubrec(PacketId2, Session3),
+    Limiter2 = restart_limiters(ListenerId, LimiterConfig0),
+    put_context(#{limiter => Limiter2}),
+    {ok, _, [_, _], _Session5} = emqx_session_mem:pubcomp(clientinfo(), PacketId2, Session4),
+
+    ok.
 
 %%--------------------------------------------------------------------
 %% Test cases for takeover/resume
@@ -673,3 +905,30 @@ inflight_query(Session, Pos, Limit) ->
     emqx_session_mem:info({inflight_msgs, #{position => Pos, limit => Limit}}, Session).
 
 inflight_ts(#message{extra = #{inflight_insert_ts := Ts}}) -> Ts.
+
+create_limiters(ListenerId, RawConfig0) ->
+    Opts = #{atom_key => true, required => false},
+    RawConfig = #{<<"mqtt">> => RawConfig0},
+    #{mqtt := Config} = hocon_tconf:check_plain(emqx_limiter_schema, RawConfig, Opts, [mqtt]),
+    on_exit(fun() -> catch emqx_limiter:delete_listener_limiters(ListenerId) end),
+    ok = emqx_limiter:create_listener_limiters(ListenerId, Config),
+    emqx_limiter:create_channel_client_container(default, ListenerId).
+
+restart_limiters(ListenerId, RawConfig0) ->
+    ok = emqx_limiter:delete_listener_limiters(ListenerId),
+    create_limiters(ListenerId, RawConfig0).
+
+put_context(Ctx) ->
+    emqx_session:put_context(Ctx).
+
+pop_context() ->
+    emqx_session:pop_context().
+
+exhaust_limiter(Name, Limiter0) ->
+    Res = emqx_limiter_client_container:try_consume(Limiter0, [{Name, 1}]),
+    case Res of
+        {true, Limiter} ->
+            exhaust_limiter(Name, Limiter);
+        {false, Limiter, _Reason} ->
+            Limiter
+    end.

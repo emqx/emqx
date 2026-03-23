@@ -19,6 +19,30 @@ BEGIN
     val [1] OCTET STRING
   }
 
+  FilterOp ::= ENUMERATED {
+    eq(0),
+    gt(1),
+    lt(2),
+    gte(3),
+    lte(4),
+    ...
+  }
+
+  FilterClause ::= SEQUENCE {
+    op [0] FilterOp,
+    key [1] OCTET STRING,
+    stringValue [2] OCTET STRING OPTIONAL,
+    numberValue [3] REAL OPTIONAL,
+    ...
+  }
+
+  SubscriptionFilter ::= SEQUENCE {
+    raw [0] OCTET STRING,
+    source [1] OCTET STRING,
+    clauses [2] SEQUENCE OF FilterClause,
+    ...
+  }
+
   SubState ::= SEQUENCE {
     parentSub [0] ID,
     -- Flags
@@ -29,6 +53,7 @@ BEGIN
     shareTopicFilter [4] TopicFilter OPTIONAL,
     --
     miscSubopts [5] SEQUENCE OF Misc,
+    subscriptionFilter [6] SubscriptionFilter OPTIONAL,
     ...
   }
 

@@ -26,6 +26,13 @@ init([]) ->
     SupArgs = [PoolModule, PoolType, MFA],
     ChildSpecs = [
         #{
+            id => emqx_username_quota_stats,
+            start => {emqx_username_quota_stats, start_link, []},
+            type => worker,
+            restart => permanent,
+            shutdown => 1_000
+        },
+        #{
             id => emqx_username_quota_snapshot,
             start => {emqx_username_quota_snapshot, start_link, []},
             type => worker,

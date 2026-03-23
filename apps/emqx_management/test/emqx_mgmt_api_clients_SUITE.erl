@@ -161,11 +161,13 @@ end_per_group(_Group, _Config) ->
 init_per_testcase(_TC, Config) ->
     %% NOTE
     %% Wait until there are no stale clients data before running the testcase.
+    %% Also check that the count is 0 to ensure the persistent session bookkeeper's
+    %% cached disconnected session count has been refreshed.
     ?retry(
         _Timeout = 100,
         _N = 10,
         ?assertMatch(
-            {ok, {?HTTP200, _, #{<<"data">> := []}}},
+            {ok, {?HTTP200, _, #{<<"data">> := [], <<"meta">> := #{<<"count">> := 0}}}},
             list_request(Config)
         )
     ),
@@ -713,10 +715,12 @@ t_kickout_clients(Config) ->
     ?assertReceive({'DOWN', _MRef, process, C1, _}),
     ?assertReceive({'DOWN', _MRef, process, C2, _}),
     ?assertReceive({'DOWN', _MRef, process, C3, _}),
-    ?assertMatch(
-        {ok, {_200, _, #{<<"meta">> := #{<<"count">> := 0}}}},
-        request(get, ClientsPath, Config)
-    ).
+    ?retry(_Interval = 100, _Attempts = 20, begin
+        ?assertMatch(
+            {ok, {_200, _, #{<<"meta">> := #{<<"count">> := 0}}}},
+            request(get, ClientsPath, Config)
+        )
+    end).
 
 t_query_clients_with_time(Config) ->
     Username1 = <<"user1">>,

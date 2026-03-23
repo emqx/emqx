@@ -427,13 +427,22 @@ fields(config_in) ->
     ];
 fields(limiter_config_in) ->
     [
-        {tenant, mk(hoconsc:union([disabled, ref(limiter_in)]), #{})},
-        {client, mk(hoconsc:union([disabled, ref(limiter_in)]), #{})}
+        {tenant,
+            mk(hoconsc:union([disabled, ref(tenant_limiter_in)]), #{default => <<"disabled">>})},
+        {client,
+            mk(hoconsc:union([disabled, ref(client_limiter_in)]), #{default => <<"disabled">>})}
     ];
-fields(limiter_in) ->
+fields(tenant_limiter_in) ->
     [
         {bytes, mk(ref(limiter_options), #{})},
         {messages, mk(ref(limiter_options), #{})}
+    ];
+fields(client_limiter_in) ->
+    [
+        {bytes, mk(ref(limiter_options), #{})},
+        {messages, mk(ref(limiter_options), #{})},
+        {delivery_bytes, mk(ref(limiter_options), #{})},
+        {delivery_messages, mk(ref(limiter_options), #{})}
     ];
 fields(session_config_in) ->
     [
@@ -460,13 +469,10 @@ fields(bulk_delete_ns_in) ->
 fields(config_out) ->
     %% At this moment, same schema as input
     fields(config_in);
-fields(limiter_out) ->
-    %% At this moment, same schema as input
-    fields(limiter_in);
 fields(limiter_options) ->
     [
-        {rate, mk(emqx_limiter_schema:rate_type(), #{})},
-        {burst, mk(emqx_limiter_schema:burst_type(), #{})}
+        {rate, mk(emqx_limiter_schema:rate_type(), #{default => <<"infinity">>})},
+        {burst, mk(emqx_limiter_schema:burst_type(), #{default => <<"0/s">>})}
     ];
 fields(ns_with_details_out) ->
     [

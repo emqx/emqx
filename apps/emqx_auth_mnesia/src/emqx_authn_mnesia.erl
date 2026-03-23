@@ -131,7 +131,7 @@ create(
         user_id_type => Type,
         password_hash_algorithm => Algorithm
     },
-    ok = boostrap_user_from_file(Config, State),
+    ok = bootstrap_user_from_file(Config, State),
     {ok, State}.
 
 update(Config, _State) ->
@@ -684,22 +684,25 @@ is_superuser(#{<<"is_superuser">> := <<"true">>}) -> true;
 is_superuser(#{<<"is_superuser">> := true}) -> true;
 is_superuser(_) -> false.
 
-boostrap_user_from_file(Config, State) ->
+bootstrap_user_from_file(Config, State) ->
     case maps:get(bootstrap_file, Config, <<>>) of
         <<>> ->
             ok;
         Filename0 ->
             #{bootstrap_type := Type} = Config,
+            IsDefault = (Filename0 =:= emqx_authn_mnesia_schema:default_bootstrap_file_path()),
             Filename = emqx_schema:naive_env_interpolation(Filename0),
             case file:read_file(Filename) of
                 {ok, FileData} ->
                     _ = import_users({Type, Filename, FileData}, State, #{override => false}),
                     ok;
+                {error, enoent} when IsDefault ->
+                    ok;
                 {error, Reason} ->
                     ?SLOG(warning, #{
-                        msg => "boostrap_authn_built_in_database_failed",
-                        boostrap_file => Filename,
-                        boostrap_type => Type,
+                        msg => "bootstrap_authn_built_in_database_failed",
+                        bootstrap_file => Filename,
+                        bootstrap_type => Type,
                         reason => emqx_utils:explain_posix(Reason)
                     })
             end
