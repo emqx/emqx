@@ -426,7 +426,7 @@ t_cli(_Config) ->
             "short-secret"
         ])
     ),
-    ?assertMatch(<<"Error: ", _/binary>>, ShortSecretError),
+    ?assertMatch(#{<<"error">> := _}, json(iolist_to_binary(ShortSecretError))),
     ?assertMatch({error, not_found}, emqx_mgmt_auth:read(<<"test-key-3">>)),
     {ok, [BadValidDaysError]} = ?CAPTURE(
         emqx_dashboard_cli:api_keys([
@@ -437,7 +437,7 @@ t_cli(_Config) ->
             "0"
         ])
     ),
-    ?assertMatch(<<"Error: ", _/binary>>, BadValidDaysError),
+    ?assertMatch(#{<<"error">> := _}, json(iolist_to_binary(BadValidDaysError))),
     ?assertMatch({error, not_found}, emqx_mgmt_auth:read(<<"test-key-4">>)).
 
 t_lookup_by_username_jwt(_Config) ->

@@ -35,7 +35,7 @@ end_per_suite(Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-%% /api-spec.md returns markdown for human readers.
+-doc "Verify /api-spec.md returns markdown with expected content-type and body.".
 t_index_markdown(_Config) ->
     {200, Headers, Body} = do_get_raw("/api-spec.md"),
     ContentType = proplists:get_value("content-type", Headers, ""),
@@ -47,11 +47,11 @@ t_index_markdown(_Config) ->
     ),
     ?assert(string:find(BodyBin, <<"POST /api/v5/login">>) =/= nomatch).
 
-%% /api-spec without a suffix is intentionally not routed.
+-doc "Verify /api-spec without a suffix returns 404.".
 t_index_without_suffix_not_found(_Config) ->
     {404, _, _} = do_get_raw("/api-spec").
 
-%% /api-spec.json returns the structured JSON index.
+-doc "Verify /api-spec.json returns a structured index with tags, drill_down, api_auth, and bootstrap_help.".
 t_index_json(_Config) ->
     {200, Body} = do_get("/api-spec.json"),
     ?assertMatch(
@@ -85,14 +85,14 @@ t_index_json(_Config) ->
         ]
     ).
 
-%% The dashboard app ships the static API spec explorer page in its priv dir.
+-doc "Verify api-spec.html exists in priv dir and contains the expected title.".
 t_api_spec_html(_Config) ->
     HtmlPath = filename:join([code:priv_dir(emqx_dashboard), "api-spec.html"]),
     ?assertMatch({ok, _}, file:read_file_info(HtmlPath)),
     {ok, Body} = file:read_file(HtmlPath),
     ?assert(string:find(Body, <<"EMQX API Spec Explorer">>) =/= nomatch).
 
-%% /api-spec/:tag returns 200 with a valid OpenAPI 3.0.0 document.
+-doc "Verify /api-spec/:tag returns a valid OpenAPI 3.0.0 doc with correctly tagged paths.".
 t_tag_spec(_Config) ->
     %% "status" is a tag always present when emqx_management is loaded.
     {200, Spec} = do_get("/api-spec/status"),
@@ -117,14 +117,12 @@ t_tag_spec(_Config) ->
     ),
     ?assertNot(maps:is_key(<<"x-operations">>, Spec)).
 
-%% Tags without resource IDs (like "status") should NOT have x-resource-info.
-%% Tags like connectors/actions/sources/authentication/authorization will
-%% have it when those apps are loaded (tested in their own suites).
+-doc "Verify tags without resource IDs (like 'status') omit x-resource-info.".
 t_tag_spec_no_resource_info_for_status(_Config) ->
     {200, Spec} = do_get("/api-spec/status"),
     ?assertNot(maps:is_key(<<"x-resource-info">>, Spec)).
 
-%% /api-spec/:tag returns fewer component schemas than the full swagger.
+-doc "Verify a per-tag spec has fewer schemas than the full swagger spec.".
 t_tag_spec_schemas_trimmed(_Config) ->
     {200, FullSpec} = do_get("/api-docs/swagger.json"),
     FullSchemas = schema_count(FullSpec),
@@ -133,12 +131,11 @@ t_tag_spec_schemas_trimmed(_Config) ->
     ct:pal("Full swagger schemas: ~p, status tag schemas: ~p", [FullSchemas, TagSchemas]),
     ?assert(TagSchemas < FullSchemas).
 
-%% /api-spec/:unknown_tag returns 404.
+-doc "Verify /api-spec/:unknown_tag returns 404.".
 t_tag_not_found(_Config) ->
     {404, _} = do_get("/api-spec/this_tag_does_not_exist_at_all").
 
-%% /api-spec/:tag/:name returns 200 with a subset of schemas for a valid name.
-%% We use "status" tag and look for a schema whose name is in that tag's spec.
+-doc "Verify /api-spec/:tag/:name returns a valid OpenAPI doc with a schema subset.".
 t_drilldown_spec(_Config) ->
     {200, TagSpec} = do_get("/api-spec/status"),
     %% Pick the first schema name from the tag spec and use it as the drill-down name.
@@ -161,11 +158,11 @@ t_drilldown_spec(_Config) ->
             )
     end.
 
-%% /api-spec/:tag/:unknown_name returns 404.
+-doc "Verify /api-spec/:tag/:unknown_name returns 404.".
 t_drilldown_not_found(_Config) ->
     {404, _} = do_get("/api-spec/status/this_name_definitely_does_not_exist_xyz_abc").
 
-%% /api-spec/actions/kafka should narrow examples maps to kafka-related entries.
+-doc "Verify /api-spec/actions/kafka narrows examples to kafka-related entries only.".
 t_drilldown_filters_examples(_Config) ->
     case do_get("/api-spec/actions/kafka") of
         {200, Spec} ->
@@ -186,7 +183,7 @@ t_drilldown_filters_examples(_Config) ->
             ok
     end.
 
-%% /api-spec/actions/kafka_producer should be accepted as exact drill-down name.
+-doc "Verify /api-spec/actions/kafka_producer is accepted as an exact drill-down name.".
 t_drilldown_exact_producer_name(_Config) ->
     case do_get("/api-spec/actions/kafka_producer") of
         {200, Spec} ->
@@ -198,6 +195,7 @@ t_drilldown_exact_producer_name(_Config) ->
             ok
     end.
 
+-doc "Verify connectors/kafka_producer drill-down trims schemas to a reasonable count with kafka-related names.".
 t_drilldown_connector_kafka_producer_schema_trim(_Config) ->
     case do_get("/api-spec/connectors/kafka_producer") of
         {200, Spec} ->
@@ -217,6 +215,7 @@ t_drilldown_connector_kafka_producer_schema_trim(_Config) ->
             ok
     end.
 
+-doc "Verify listeners/tcp drill-down returns a valid spec with tcp-related schemas.".
 t_drilldown_listeners_tcp(_Config) ->
     case do_get("/api-spec/listeners/tcp") of
         {200, Spec} ->
@@ -236,6 +235,7 @@ t_drilldown_listeners_tcp(_Config) ->
             ok
     end.
 
+-doc "Verify drill-down specs reduce oneOf sizes or schema counts vs the full tag spec.".
 t_drilldown_no_full_union_fallback(_Config) ->
     Categories = [
         {<<"actions">>, action_names()},

@@ -60,35 +60,35 @@ api_keys(["show" | Args]) ->
         {ok, Name} ->
             show_api_key(Name);
         {error, Reason} ->
-            print_error(Reason)
+            print_json_error(Reason)
     end;
 api_keys(["add" | Args]) ->
     case parse_api_key_add_args(Args) of
         {ok, Opts} ->
             add_api_key(Opts);
         {error, Reason} ->
-            print_error(Reason)
+            print_json_error(Reason)
     end;
 api_keys(["del" | Args]) ->
     case api_key_name_arg(Args) of
         {ok, Name} ->
             delete_api_key(Name);
         {error, Reason} ->
-            print_error(Reason)
+            print_json_error(Reason)
     end;
 api_keys(["enable" | Args]) ->
     case api_key_name_arg(Args) of
         {ok, Name} ->
             update_api_key_enable(Name, true);
         {error, Reason} ->
-            print_error(Reason)
+            print_json_error(Reason)
     end;
 api_keys(["disable" | Args]) ->
     case api_key_name_arg(Args) of
         {ok, Name} ->
             update_api_key_enable(Name, false);
         {error, Reason} ->
-            print_error(Reason)
+            print_json_error(Reason)
     end;
 api_keys(_) ->
     emqx_ctl:usage(
@@ -115,7 +115,7 @@ show_api_key(Name) ->
         {ok, APIKey} ->
             print_json(api_key_public_info(APIKey));
         {error, Reason} ->
-            print_error(Reason)
+            print_json_error(Reason)
     end.
 
 add_api_key(Opts) ->
@@ -129,14 +129,14 @@ add_api_key(Opts) ->
                 {ok, APIKey} ->
                     print_json(api_key_public_info(APIKey));
                 {error, Reason} ->
-                    print_error(Reason)
+                    print_json_error(Reason)
             end;
         error ->
             case emqx_mgmt_auth:create(Name, true, ExpiredAt, Desc, Role) of
                 {ok, APIKey} ->
                     print_json(api_key_create_info(APIKey));
                 {error, Reason} ->
-                    print_error(Reason)
+                    print_json_error(Reason)
             end
     end.
 
@@ -145,7 +145,7 @@ delete_api_key(Name) ->
         {ok, _} ->
             print_json(#{result => <<"ok">>, name => Name});
         {error, Reason} ->
-            print_error(Reason)
+            print_json_error(Reason)
     end.
 
 update_api_key_enable(Name, Enable) ->
@@ -155,10 +155,10 @@ update_api_key_enable(Name, Enable) ->
                 {ok, APIKey} ->
                     print_json(api_key_public_info(APIKey));
                 {error, Reason} ->
-                    print_error(Reason)
+                    print_json_error(Reason)
             end;
         {error, Reason} ->
-            print_error(Reason)
+            print_json_error(Reason)
     end.
 
 api_key_public_info(APIKey) ->
@@ -265,6 +265,9 @@ default_api_key_desc() ->
 
 print_json(Info) ->
     emqx_ctl:print("~ts~n", [emqx_utils_json:best_effort_json(Info)]).
+
+print_json_error(Reason) ->
+    print_json(#{error => emqx_utils:readable_error_msg(Reason)}).
 
 bin(S) -> unicode:characters_to_binary(S).
 
