@@ -4,6 +4,8 @@
 
 -module(emqx_dashboard).
 
+-moduledoc "Dashboard listener management, authorization, and Minirest wiring.".
+
 -export([
     start_listeners/0,
     start_listeners/1,
@@ -142,7 +144,7 @@ is_listener_started(Name) ->
     end.
 
 init_dispatch() ->
-    static_dispatch() ++ dynamic_dispatch().
+    static_dispatch(emqx:get_config([dashboard, swagger_support], true)) ++ dynamic_dispatch().
 
 minirest_option(Options) ->
     Authorization = {?MODULE, authorize},
@@ -175,7 +177,7 @@ minirest_option(Options) ->
             log => audit_log_fun(),
             security => [#{'basicAuth' => []}, #{'bearerAuth' => []}],
             swagger_global_spec => GlobalSpec,
-            dispatch => static_dispatch(),
+            dispatch => static_dispatch(maps:get(swagger_support, Options, true)),
             middlewares => [?EMQX_MIDDLE, cowboy_router, cowboy_handler],
             swagger_support => true
         },
@@ -393,13 +395,33 @@ ensure_ssl_cert(Listeners = #{https := Https0 = #{ssl_options := SslOpts}}) ->
 ensure_ssl_cert(Listeners) ->
     Listeners.
 
-static_dispatch() ->
+static_dispatch(SwaggerSupport) ->
     StaticFiles = ["/editor.worker.js", "/json.worker.js", "/version"],
     [
         {"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
         {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}}
     ] ++
-        [{Path, cowboy_static, {priv_file, emqx_dashboard, "www" ++ Path}} || Path <- StaticFiles].
+        [{Path, cowboy_static, {priv_file, emqx_dashboard, "www" ++ Path}} || Path <- StaticFiles] ++
+        maybe_swagger_dispatch(SwaggerSupport).
+
+maybe_swagger_dispatch(true) ->
+    [
+        {"/api-spec.html", cowboy_static, {priv_file, emqx_dashboard, "api-spec.html"}}
+        | api_spec_dispatch()
+    ];
+maybe_swagger_dispatch(false) ->
+    [].
+
+%% Routes for the focused API spec endpoints (no auth required).
+%% These are added as raw cowboy routes (not minirest trails) so they do not
+%% appear in the swagger spec they serve and bypass minirest auth middleware.
+api_spec_dispatch() ->
+    [
+        {"/api-spec.md", emqx_dashboard_api_spec_handler, #{}},
+        {"/api-spec.json", emqx_dashboard_api_spec_handler, #{}},
+        {"/api-spec/:tag", emqx_dashboard_api_spec_handler, #{}},
+        {"/api-spec/:tag/:name", emqx_dashboard_api_spec_handler, #{}}
+    ].
 
 dynamic_dispatch() ->
     [

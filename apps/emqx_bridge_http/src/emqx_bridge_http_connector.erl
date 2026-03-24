@@ -863,6 +863,7 @@ transform_result(Result) ->
             Reason =:= timeout;
             Reason =:= normal;
             Reason =:= closed;
+            Reason =:= closing;
             %% {closed, "The connection was lost."}
             element(1, Reason) =:= closed
         ->
