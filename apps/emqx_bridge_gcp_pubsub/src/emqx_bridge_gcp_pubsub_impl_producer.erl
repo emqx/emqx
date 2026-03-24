@@ -444,6 +444,7 @@ handle_result({error, Reason}, _Request, QueryMode, ConnResId) when
     Reason =:= econnrefused;
     %% this comes directly from `gun'...
     element(1, Reason) =:= closed;
+    Reason =:= closing;
     %% The normal reason happens when the HTTP connection times out before
     %% the request has been fully processed
     Reason =:= normal;
