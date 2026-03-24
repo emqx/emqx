@@ -454,42 +454,10 @@ build_cache(ScopeData) ->
     #{scopes => Scopes, path_to_scopes => PathToScopes}.
 
 %% Find scopes for a given request path.
-%% The path from the request may contain actual parameter values
-%% (e.g., "/clients/myclient") while the registered paths have
-%% placeholders (e.g., "/clients/:clientid").
-%% We first try exact match, then try pattern matching.
+%% Since the path now comes from minirest's HandlerInfo (the route template),
+%% it matches the cache keys exactly. No pattern matching needed.
 find_scopes_for_path(Path, PathMap) ->
-    case maps:get(Path, PathMap, undefined) of
-        undefined ->
-            %% Try pattern matching against registered paths
-            match_path_pattern(Path, PathMap);
-        Scopes ->
-            Scopes
-    end.
-
-match_path_pattern(Path, PathMap) ->
-    PathSegments = binary:split(Path, <<"/">>, [global, trim_all]),
-    maps:fold(
-        fun(RegisteredPath, Scopes, Acc) ->
-            RegisteredSegments = binary:split(RegisteredPath, <<"/">>, [global, trim_all]),
-            case segments_match(PathSegments, RegisteredSegments) of
-                true -> lists:usort(Acc ++ Scopes);
-                false -> Acc
-            end
-        end,
-        [],
-        PathMap
-    ).
-
-%% Match path segments, treating segments starting with ':' as wildcards.
-segments_match([], []) ->
-    true;
-segments_match([_S | RestA], [<<$:, _/binary>> | RestB]) ->
-    segments_match(RestA, RestB);
-segments_match([S | RestA], [S | RestB]) ->
-    segments_match(RestA, RestB);
-segments_match(_, _) ->
-    false.
+    maps:get(Path, PathMap, []).
 
 to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 to_bin(L) when is_list(L) -> list_to_binary(L);

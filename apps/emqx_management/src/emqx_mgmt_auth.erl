@@ -202,7 +202,7 @@ authorize(#{module := emqx_dashboard_api, function := logout}, _Req, _ApiKey, _A
     {error, <<"not_allowed">>, <<"logout">>};
 authorize(#{module := emqx_mgmt_api_api_keys}, _Req, _ApiKey, _ApiSecret) ->
     {error, <<"not_allowed">>, <<"api_key">>};
-authorize(_HandlerInfo, Req, ApiKey, ApiSecret) ->
+authorize(HandlerInfo, Req, ApiKey, ApiSecret) ->
     Now = erlang:system_time(second),
     case find_by_api_key(ApiKey) of
         {ok, true, ExpiredAt, SecretHash, Role, Extra} when ExpiredAt >= Now ->
@@ -210,7 +210,7 @@ authorize(_HandlerInfo, Req, ApiKey, ApiSecret) ->
                 ok ->
                     case check_rbac(Req, ApiKey, Role) of
                         ok ->
-                            check_scopes(Extra, Req);
+                            check_scopes(Extra, HandlerInfo);
                         Error ->
                             Error
                     end;
@@ -243,20 +243,19 @@ find_by_api_key(ApiKey) ->
 %% If no scopes are configured (key not present or undefined), all non-denied paths are allowed.
 %% If scopes is an empty list, all paths are denied.
 %% Publisher role skips scope check (has its own hardcoded path restrictions).
--spec check_scopes(map(), cowboy_req:req()) -> ok | {error, unauthorized_role}.
-check_scopes(Extra, Req) ->
-    AbsPath = cowboy_req:path(Req),
-    case emqx_dashboard_swagger:get_relative_uri(AbsPath) of
-        {ok, Path} ->
-            %% Always check denied scopes first
-            case is_denied_path(Path) of
-                true ->
-                    {error, unauthorized_role};
-                false ->
-                    check_scopes_for_path(Extra, Path)
-            end;
-        _ ->
-            {error, unauthorized_role}
+%%
+%% Path is obtained from minirest HandlerInfo (the route template, e.g., "/clients/:clientid"),
+%% which is the same path registered by the API module's paths/0 callback.
+%% This ensures scope lookup uses the exact route that cowboy matched,
+%% eliminating the need for a parallel path matching implementation.
+-spec check_scopes(map(), map()) -> ok | {error, unauthorized_role}.
+check_scopes(Extra, HandlerInfo) ->
+    Path = list_to_binary(maps:get(path, HandlerInfo)),
+    case is_denied_path(Path) of
+        true ->
+            {error, unauthorized_role};
+        false ->
+            check_scopes_for_path(Extra, Path)
     end.
 
 %% @doc Check scopes with explicit path and method (for external callers).
