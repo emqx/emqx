@@ -382,6 +382,8 @@ start_consumer(Config, ConnectorResId, SourceResId, ClientID, ConnState) ->
         end,
     ConsumerConfig = [
         {begin_offset, BeginOffset},
+        {min_bytes, 1},
+        {sleep_timeout, 10},
         {max_bytes, MaxBatchBytes},
         {max_wait_time, MaxWaitTime},
         {offset_reset_policy, OffsetResetPolicy}
