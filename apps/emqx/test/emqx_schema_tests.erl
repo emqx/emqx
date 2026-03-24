@@ -1074,3 +1074,36 @@ max_heap_size_test_() ->
                 Check(<<"force_shutdown.max_heap_size = 0KB">>)
             )}
     ].
+
+mkunion_test_() ->
+    [
+        {
+            "gracefully handle dummy value types when resolving union from a map",
+            ?_test(begin
+                Sc = #{
+                    roots => [some_union],
+                    fields => #{
+                        some_union =>
+                            [
+                                {u,
+                                    emqx_schema:mkunion(
+                                        type,
+                                        #{<<"x">> => hoconsc:ref(x)}
+                                    )}
+                            ]
+                    }
+                },
+                %% Should be a map instead of a string.
+                DumbValue = #{<<"some_union">> => #{<<"u">> => <<"xxx">>}},
+                ?assertThrow(
+                    {_Sc, [
+                        #{
+                            kind := validation_error,
+                            reason := {not_a_map, <<"xxx">>}
+                        }
+                    ]},
+                    hocon_tconf:check_plain(Sc, DumbValue)
+                )
+            end)
+        }
+    ].
