@@ -155,10 +155,10 @@ ssl_options.label:
 """SSL options"""
 
 swagger_support.desc:
-"""Enable or disable support for swagger API documentation."""
+"""Enable or disable support for API spec/documentation."""
 
 swagger_support.label:
-"""Swagger Support"""
+"""Enable API Specs"""
 
 mfa_settings.label: "MFA Settings"
 mfa_settings.desc: "Multifactor authentication settings."
