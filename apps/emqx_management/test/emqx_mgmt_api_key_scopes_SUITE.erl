@@ -145,16 +145,18 @@ t_path_to_scopes(_Config) ->
     emqx_mgmt_api_key_scopes:clear_cache().
 
 t_path_to_scopes_pattern_match(_Config) ->
+    %% With the minirest route-template approach, path_to_scopes receives
+    %% exact route templates (e.g., <<"/clients/:clientid">>) instead of
+    %% actual request paths (e.g., <<"/clients/myclient">>).
+    %% Verify that route templates with parameters are correctly mapped.
     emqx_mgmt_api_key_scopes:init_cache(),
-    %% Actual runtime path with real clientid should match against
-    %% the registered pattern "/clients/:clientid"
-    ActualPathScopes = emqx_mgmt_api_key_scopes:path_to_scopes(<<"/clients/myclient">>),
+    %% Route template with :clientid parameter should be in the clients scope
+    ActualPathScopes = emqx_mgmt_api_key_scopes:path_to_scopes(<<"/clients/:clientid">>),
     ?assert(is_list(ActualPathScopes)),
     ?assert(lists:member(<<"clients">>, ActualPathScopes)),
 
-    %% Another pattern: "/clients/myclient/subscriptions"
-    %% should match "/clients/:clientid/subscriptions" if it exists
-    SubScopes = emqx_mgmt_api_key_scopes:path_to_scopes(<<"/clients/myclient/subscriptions">>),
+    %% Route template "/clients/:clientid/subscriptions" should also resolve
+    SubScopes = emqx_mgmt_api_key_scopes:path_to_scopes(<<"/clients/:clientid/subscriptions">>),
     ?assert(is_list(SubScopes)),
     %% It should find scopes (clients or subscriptions tag)
     %% At minimum, it should not crash
@@ -387,8 +389,8 @@ t_authorize_with_scopes(_Config) ->
     %% Access to /clients should succeed
     ?assertEqual(ok, auth_authorize(<<"/clients">>, ApiKey, ApiSecret)),
 
-    %% Access to /clients/:clientid should also succeed (same scope, pattern match)
-    ?assertEqual(ok, auth_authorize(<<"/clients/myclient">>, ApiKey, ApiSecret)),
+    %% Access to /clients/:clientid should also succeed (same scope, route template)
+    ?assertEqual(ok, auth_authorize(<<"/clients/:clientid">>, ApiKey, ApiSecret)),
 
     %% Access to a path in a different scope (e.g., /banned) should be denied
     ?assertMatch({error, _}, auth_authorize(<<"/banned">>, ApiKey, ApiSecret)),
@@ -432,6 +434,7 @@ t_authorize_denied_path(_Config) ->
     %% Denied paths should be blocked via check_scopes deny list.
     %% Note: /users and /api_key are ALSO blocked by the hardcoded authorize/4 clauses
     %% (defense-in-depth), but we test check_scopes/3 directly to verify the deny list.
+    %% Paths must be route templates (as provided by minirest), not actual request paths.
     Extra = #{role => ?ROLE_API_SUPERUSER},
     %% Dashboard paths — denied
     ?assertMatch(
@@ -440,7 +443,7 @@ t_authorize_denied_path(_Config) ->
     ),
     ?assertMatch(
         {error, unauthorized_role},
-        emqx_mgmt_auth:check_scopes(Extra, <<"/users/admin/change_pwd">>, <<"POST">>)
+        emqx_mgmt_auth:check_scopes(Extra, <<"/users/:username/change_pwd">>, <<"POST">>)
     ),
     %% API key paths — denied
     ?assertMatch(
@@ -581,16 +584,21 @@ t_api_update_scopes(_Config) ->
 %%--------------------------------------------------------------------
 
 auth_authorize(RelPath, Key, Secret) ->
-    %% Build a fake cowboy-compatible request map.
-    %% The authorize/4 flow:
-    %%   1. First arg (_HandlerInfo) — use a dummy value that doesn't match any blocked pattern
-    %%   2. check_rbac uses cowboy_req:method(Req) and cowboy_req:path(Req)
-    %%   3. check_scopes uses cowboy_req:path(Req) -> get_relative_uri -> check against scopes
-    %% So we need the Req path to be the *absolute* API path (with /api/v5 prefix)
-    RelPathStr = binary_to_list(RelPath),
-    AbsPath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri(RelPathStr)),
+    %% Build a HandlerInfo map with the route template path (as minirest would provide).
+    %% RelPath is already a relative route template like <<"/clients">> or <<"/clients/:clientid">>.
+    %% authorize/4 now expects HandlerInfo as first arg (map with path key).
+    %% FakeReq needs method + path for check_rbac (which calls cowboy_req:method/path).
+    AbsPath = erlang:list_to_binary(
+        emqx_dashboard_swagger:relative_uri(binary_to_list(RelPath))
+    ),
     FakeReq = #{method => <<"GET">>, path => AbsPath},
-    emqx_mgmt_auth:authorize(dummy_handler, FakeReq, Key, Secret).
+    HandlerInfo = #{
+        method => get,
+        module => dummy_module,
+        function => dummy_func,
+        path => binary_to_list(RelPath)
+    },
+    emqx_mgmt_auth:authorize(HandlerInfo, FakeReq, Key, Secret).
 
 create_app(Name) ->
     create_app(Name, #{}).
