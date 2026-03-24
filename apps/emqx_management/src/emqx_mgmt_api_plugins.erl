@@ -759,16 +759,7 @@ delete_package(NameVsn) ->
 
 %% For RPC plugin delete
 delete_package(NameVsn, _Opts) ->
-    _ = emqx_plugins:forget_allowed_installation(NameVsn),
-    case emqx_plugins:ensure_stopped(NameVsn) of
-        ok ->
-            _ = emqx_plugins:ensure_disabled(NameVsn),
-            _ = emqx_plugins:ensure_uninstalled(NameVsn),
-            _ = emqx_plugins:delete_package(NameVsn),
-            ok;
-        Error ->
-            Error
-    end.
+    emqx_plugins:safe_delete_package(NameVsn).
 
 %% Tip: Don't delete ensure_action/2, use before v571 cluster_rpc
 ensure_action(Name, Action) ->
