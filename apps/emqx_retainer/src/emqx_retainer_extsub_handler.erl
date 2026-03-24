@@ -73,14 +73,19 @@ handle_subscribe(
     Protocol =/= mqtt
 ->
     ignore;
-handle_subscribe(SubscribeType, SubscribeCtx, Handler, TopicFilter) ->
+handle_subscribe(resume = _SubscribeType, _SubscribeCtx, _Handler, _TopicFilter) ->
+    %% Note: the implementation prior to using `emqx_extsub` did **not** resume iteration
+    %% of retained messages when resuming a session.  The previous implementation without
+    %% `extsub` did not hook into `session.resumed`, hence iteration stopped when
+    %% resuming/taking over.  For now, we adopt the same behavior.  Resuming iteration
+    %% would thus be an improvement.
+    ignore;
+handle_subscribe(subscribe = _SubscribeType, SubscribeCtx, Handler, TopicFilter) ->
     IsNew =
-        case {SubscribeType, SubscribeCtx} of
-            {resume, _} ->
+        case SubscribeCtx of
+            #{subopts := #{is_new := false}} ->
                 false;
-            {subscribe, #{subopts := #{is_new := false}}} ->
-                false;
-            {subscribe, #{subopts := #{}}} ->
+            #{subopts := #{}} ->
                 true
         end,
     #{subopts := #{rh := RH} = SubOpts} = SubscribeCtx,
