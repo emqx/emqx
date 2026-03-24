@@ -4397,7 +4397,7 @@ mkunion(Field, Schemas, Default) ->
 
 scunion(_Field, Schemas, _Default, all_union_members) ->
     maps:values(Schemas);
-scunion(Field, Schemas, Default, {value, Value}) ->
+scunion(Field, Schemas, Default, {value, Value}) when is_map(Value) ->
     Selector =
         case maps:get(emqx_utils_conv:bin(Field), Value, undefined) of
             undefined ->
@@ -4410,7 +4410,13 @@ scunion(Field, Schemas, Default, {value, Value}) ->
             [Schema];
         _Error ->
             throw(#{field_name => Field, expected => maps:keys(Schemas)})
-    end.
+    end;
+scunion(Field, Schemas, _Default, {value, NotAMap}) ->
+    throw(#{
+        field_name => Field,
+        reason => {not_a_map, NotAMap},
+        expected => maps:keys(Schemas)
+    }).
 
 fill_defaults(Roots, RawConf) ->
     Schema = #{roots => Roots},
