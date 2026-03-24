@@ -80,7 +80,7 @@ schema("/api_key/scopes") ->
     #{
         'operationId' => api_key_scopes,
         get => #{
-            description => <<"List all available API key scopes and preset groups">>,
+            description => ?DESC(api_key_scopes_list),
             tags => ?TAGS,
             security => [#{'bearerAuth' => []}],
             responses => #{
@@ -157,11 +157,7 @@ fields(app) ->
             hoconsc:mk(
                 hoconsc:array(binary()),
                 #{
-                    desc =>
-                        "List of scopes to restrict this API key's access. "
-                        "Each scope corresponds to an OpenAPI tag (lowercase). "
-                        "If not set or undefined, the key has access to all APIs. "
-                        "An empty list means no API access.",
+                    desc => ?DESC(api_key_scopes),
                     required => false,
                     example => [<<"clients">>, <<"rules">>]
                 }
@@ -186,7 +182,7 @@ fields(scope_info) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => "Scope name (lowercase OpenAPI tag)",
+                    desc => ?DESC(scope_info_name),
                     example => <<"clients">>
                 }
             )},
@@ -194,7 +190,7 @@ fields(scope_info) ->
             hoconsc:mk(
                 hoconsc:array(binary()),
                 #{
-                    desc => "API paths covered by this scope",
+                    desc => ?DESC(scope_info_paths),
                     example => [<<"/clients">>, <<"/clients/:clientid">>]
                 }
             )}
@@ -205,7 +201,7 @@ fields(preset_group) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => "Group name (used as UI alias)",
+                    desc => ?DESC(preset_group_name),
                     example => <<"connections">>
                 }
             )},
@@ -213,7 +209,7 @@ fields(preset_group) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => "Human-readable group description",
+                    desc => ?DESC(preset_group_desc),
                     example => <<"Client connections, subscriptions, topics, publish, and banning">>
                 }
             )},
@@ -221,7 +217,7 @@ fields(preset_group) ->
             hoconsc:mk(
                 hoconsc:array(binary()),
                 #{
-                    desc => "Individual scope names included in this group",
+                    desc => ?DESC(preset_group_scopes),
                     example => [<<"clients">>, <<"subscriptions">>, <<"topics">>]
                 }
             )}
@@ -232,14 +228,14 @@ fields(scopes_response) ->
             hoconsc:mk(
                 hoconsc:array(hoconsc:ref(preset_group)),
                 #{
-                    desc => "Preset scope groups for quick selection"
+                    desc => ?DESC(scopes_response_groups)
                 }
             )},
         {scopes,
             hoconsc:mk(
                 hoconsc:array(hoconsc:ref(scope_info)),
                 #{
-                    desc => "All individual scopes with their API paths"
+                    desc => ?DESC(scopes_response_scopes)
                 }
             )}
     ].

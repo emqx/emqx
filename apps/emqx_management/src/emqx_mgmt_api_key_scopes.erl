@@ -2,16 +2,18 @@
 %% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc API Key scope definitions based on OpenAPI tags.
-%%
-%% Scopes are derived from the `tags` field in each API module's schema.
-%% Each scope corresponds to a lowercase OpenAPI tag (e.g., <<"Clients">> → <<"clients">>).
-%% The module builds and caches a mapping from API paths to their scopes.
-%%
-%% Cache is stored in persistent_term and should be initialized once after
-%% the dashboard HTTP server has started (all API modules are loaded).
-
 -module(emqx_mgmt_api_key_scopes).
+
+-moduledoc """
+API Key scope definitions based on OpenAPI tags.
+
+Scopes are derived from the `tags` field in each API module's schema.
+Each scope corresponds to a lowercase OpenAPI tag (e.g., <<"Clients">> → <<"clients">>).
+The module builds and caches a mapping from API paths to their scopes.
+
+Cache is stored in persistent_term and should be initialized once after
+the dashboard HTTP server has started (all API modules are loaded).
+""".
 
 -include_lib("emqx/include/logger.hrl").
 
@@ -47,6 +49,7 @@
 
 %% @doc Return all available scopes with their associated paths.
 %% Each scope is derived from the OpenAPI tags defined in API modules.
+-doc "Return all available scopes with their associated paths.".
 -spec available_scopes() -> [scope_info()].
 available_scopes() ->
     case get_cache() of
@@ -58,8 +61,10 @@ available_scopes() ->
             get_available_scopes()
     end.
 
-%% @doc Given a request path (relative, e.g., <<"/clients/:clientid">>),
-%% return the list of scope names that cover this path.
+-doc """
+Given a request path (relative, e.g., <<"/clients/:clientid">>),
+return the list of scope names that cover this path.
+""".
 -spec path_to_scopes(binary()) -> [binary()].
 path_to_scopes(Path) ->
     case get_cache() of
@@ -70,7 +75,7 @@ path_to_scopes(Path) ->
             find_scopes_for_path(Path, PathMap)
     end.
 
-%% @private Lookup after cache is guaranteed to exist.
+%% Lookup after cache is guaranteed to exist.
 path_to_scopes_from_cache(Path) ->
     case get_cache() of
         #{path_to_scopes := PathMap} ->
@@ -79,8 +84,7 @@ path_to_scopes_from_cache(Path) ->
             []
     end.
 
-%% @doc Validate that all given scopes exist in available_scopes
-%% and are not in the denied list.
+-doc "Validate that all given scopes exist in available_scopes and are not in the denied list.".
 -spec validate_scopes([binary()]) -> ok | {error, binary()}.
 validate_scopes(Scopes) when is_list(Scopes) ->
     %% Validate element types first to avoid crash in error message formatting
@@ -112,8 +116,10 @@ validate_scopes_values(Scopes) ->
             end
     end.
 
-%% @doc Initialize the scope cache by scanning all API modules.
-%% Should be called once after the dashboard HTTP server has started.
+-doc """
+Initialize the scope cache by scanning all API modules.
+Should be called once after the dashboard HTTP server has started.
+""".
 -spec init_cache() -> ok.
 init_cache() ->
     ScopeData = collect_scopes_from_modules(),
@@ -121,7 +127,7 @@ init_cache() ->
     persistent_term:put(?CACHE_KEY, Cache),
     ok.
 
-%% @doc Clear the scope cache.
+-doc "Clear the scope cache.".
 -spec clear_cache() -> ok.
 clear_cache() ->
     _ = persistent_term:erase(?CACHE_KEY),
@@ -131,9 +137,11 @@ clear_cache() ->
 %% Denied Scopes — tags that API Keys must never access
 %%--------------------------------------------------------------------
 
-%% @doc Tags that API Keys should NEVER be allowed to access,
-%% regardless of scope configuration. These correspond to
-%% dashboard-only functionality (user sessions, SSO, API key self-management).
+-doc """
+Tags that API Keys should NEVER be allowed to access,
+regardless of scope configuration. These correspond to
+dashboard-only functionality (user sessions, SSO, API key self-management).
+""".
 -spec denied_scopes() -> [binary()].
 denied_scopes() ->
     [
@@ -142,7 +150,7 @@ denied_scopes() ->
         <<"api keys">>
     ].
 
-%% @doc Check if a scope name is in the denied list.
+-doc "Check if a scope name is in the denied list.".
 -spec is_denied_scope(binary()) -> boolean().
 is_denied_scope(Scope) ->
     lists:member(Scope, denied_scopes()).
@@ -151,13 +159,15 @@ is_denied_scope(Scope) ->
 %% Preset Groups — display-layer aliases for common tag bundles
 %%--------------------------------------------------------------------
 
-%% @doc Return preset scope groups.
-%% Each group is a display-layer alias that bundles multiple OpenAPI tags.
-%% These groups are for UI convenience only — the API key `scopes` field
-%% always stores individual tag names, never group names.
-%%
-%% The `all_scopes` group is dynamic: it contains all available scopes
-%% minus denied scopes. Other groups may overlap with `all_scopes`.
+-doc """
+Return preset scope groups.
+Each group is a display-layer alias that bundles multiple OpenAPI tags.
+These groups are for UI convenience only — the API key `scopes` field
+always stores individual tag names, never group names.
+
+The `all_scopes` group is dynamic: it contains all available scopes
+minus denied scopes. Other groups may overlap with `all_scopes`.
+""".
 -spec preset_groups() -> [#{name := binary(), desc := binary(), scopes := [binary()]}].
 preset_groups() ->
     Static = [
@@ -264,12 +274,14 @@ preset_groups() ->
             }
         ].
 
-%% @doc Expand a list of mixed group names and/or individual scope names
-%% into a flat, deduplicated list of individual scope names.
-%%
-%% Example:
-%%   expand_groups([<<"connections">>, <<"rules">>])
-%%   → [<<"banned">>, <<"clients">>, <<"publish">>, <<"rules">>, <<"subscriptions">>, <<"topics">>]
+-doc """
+Expand a list of mixed group names and/or individual scope names
+into a flat, deduplicated list of individual scope names.
+
+Example:
+  expand_groups([<<"connections">>, <<"rules">>])
+  → [<<"banned">>, <<"clients">>, <<"publish">>, <<"rules">>, <<"subscriptions">>, <<"topics">>]
+""".
 -spec expand_groups([binary()]) -> [binary()].
 expand_groups(NamesOrGroups) ->
     GroupMap = maps:from_list(
@@ -289,7 +301,7 @@ expand_groups(NamesOrGroups) ->
     ),
     lists:usort(Expanded).
 
-%% @doc Return all tag names covered by preset groups (for test assertions).
+-doc "Return all tag names covered by preset groups (for test assertions).".
 -spec all_preset_tags() -> [binary()].
 all_preset_tags() ->
     lists:usort(
@@ -315,7 +327,7 @@ get_available_scopes() ->
             [S || S = #{name := Name} <- Scopes, not lists:member(Name, Denied)]
     end.
 
-%% @doc Collect scope information from all loaded API modules.
+%% Collect scope information from all loaded API modules.
 %% Iterates over all emqx* applications, finds modules implementing
 %% the minirest_api behaviour, and extracts tags from their schemas.
 -spec collect_scopes_from_modules() -> #{binary() => [binary()]}.
@@ -441,7 +453,7 @@ build_cache(ScopeData) ->
     ),
     #{scopes => Scopes, path_to_scopes => PathToScopes}.
 
-%% @doc Find scopes for a given request path.
+%% Find scopes for a given request path.
 %% The path from the request may contain actual parameter values
 %% (e.g., "/clients/myclient") while the registered paths have
 %% placeholders (e.g., "/clients/:clientid").
