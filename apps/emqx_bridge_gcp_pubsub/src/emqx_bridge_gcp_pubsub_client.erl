@@ -389,8 +389,10 @@ handle_response(Result, ResourceId, QueryMode) ->
         {error, Reason} when
             Reason =:= econnrefused;
             %% this comes directly from `gun'...
-            Reason =:= {closed, "The connection was lost."};
+            %% `{closed, "The connection was lost."}`
+            element(1, Reason) =:= closed;
             Reason =:= closed;
+            Reason =:= closing;
             %% The normal reason happens when the HTTP connection times out before
             %% the request has been fully processed
             Reason =:= normal;
