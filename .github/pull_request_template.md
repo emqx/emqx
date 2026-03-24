@@ -6,7 +6,7 @@ Release version:
 -->
 
 <!-- uncomment for v6:
-6.0.3, 6.1.1, 6.2.0
+6.0.3, 6.1.2, 6.2.0
 -->
 
 ## Summary
@@ -22,7 +22,6 @@ Please compose a nontrivial summary in case of significant changes.
 <!--
 Please convert the PR to a draft if any of the following conditions are not met.
 -->
-- [ ] For internal contributor: there is a jira ticket to track this change
 - [ ] The changes are covered with new or existing tests
 - [ ] Change log for changes visible by users has been added to `changes/ee/(feat|perf|fix|breaking)-<PR-id>.en.md` files
 - [ ] Schema changes are backward compatible or intentionally breaking (describe the changes and the reasoning in the summary)
