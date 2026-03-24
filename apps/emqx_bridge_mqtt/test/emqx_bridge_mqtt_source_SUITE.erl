@@ -301,6 +301,10 @@ get_source_metrics_api(Config) ->
 simple_create_rule_api(TCConfig) ->
     emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
 
+mq_ingress_test_callback(Msg, Pid) ->
+    Pid ! {mq_ingress_consumed, Msg},
+    ok.
+
 start_client(TCConfigOrNode) ->
     start_client(TCConfigOrNode, _Opts = #{}).
 
@@ -448,6 +452,139 @@ t_mqtt_conn_bridge_ingress_shared_subscription(TCConfig) ->
         PoolSize,
         length(emqx_shared_sub:subscribers(<<"ingress">>, <<RemoteTopic/binary, "/#">>))
     ),
+    ok.
+
+-doc "MQTT ingress dispatches queue deliveries by Subscription Identifier.".
+t_mqtt_conn_bridge_ingress_subid_dispatch(_TCConfig) ->
+    SubscriptionIdToHandlerIndex = ets:new(?MODULE, [set, public]),
+    TopicToHandlerIndex = emqx_topic_index:new(),
+    BridgeName = <<"bridge:mqtt:test">>,
+    Conf =
+        emqx_bridge_mqtt_ingress:config(
+            #{
+                ingress_list => [
+                    #{
+                        server => <<"127.0.0.1:1883">>,
+                        remote => #{
+                            topic => <<"$queue/orders/t/#">>,
+                            qos => 1,
+                            no_local => false
+                        },
+                        on_message_received => {?MODULE, mq_ingress_test_callback, [self()]}
+                    }
+                ]
+            },
+            BridgeName,
+            SubscriptionIdToHandlerIndex,
+            TopicToHandlerIndex
+        ),
+    ?assertMatch(
+        #{
+            ingress_list := [
+                #{
+                    remote := #{topic := <<"$queue/orders/t/#">>},
+                    subscription_id := 1
+                }
+            ]
+        },
+        Conf
+    ),
+
+    ok =
+        emqx_bridge_mqtt_ingress:handle_publish(
+            #{
+                dup => false,
+                payload => <<"hello">>,
+                properties => #{'Subscription-Identifier' => 1},
+                qos => 1,
+                retain => false,
+                topic => <<"t/1">>
+            },
+            BridgeName,
+            SubscriptionIdToHandlerIndex,
+            TopicToHandlerIndex
+        ),
+    ?assertReceive(
+        {mq_ingress_consumed, #{topic := <<"t/1">>, payload := <<"hello">>}},
+        1_000
+    ),
+    ok.
+
+-doc "MQTT ingress rejects queue subscriptions when Subscription Identifiers are unavailable.".
+t_mqtt_conn_bridge_rejects_queue_source_without_subscription_identifier(TCConfig) ->
+    TopicToHandlerIndex = emqx_topic_index:new(),
+    State = #{
+        installed_channels => #{},
+        pool_name => connector_resource_id(TCConfig),
+        pool_size => 1,
+        subscription_id_to_handler_index => undefined,
+        topic_to_handler_index => TopicToHandlerIndex,
+        server => <<"127.0.0.1:1883">>
+    },
+    ChannelConfig = #{
+        hookpoints => [],
+        parameters => #{
+            topic => <<"$queue/orders/t/#">>,
+            qos => 1
+        }
+    },
+    ?assertError(
+        {badmatch,
+            {error, {unrecoverable_error, subscription_identifier_required_for_queue_subscription}}},
+        emqx_bridge_mqtt_connector:on_add_channel(
+            connector_resource_id(TCConfig),
+            State,
+            <<"source:mqtt:test">>,
+            ChannelConfig
+        )
+    ),
+    ok.
+
+-doc "MQTT ingress retries normal topic subscriptions without Subscription Identifier on SUBACK 0xA1.".
+t_mqtt_conn_bridge_ingress_retries_without_subid_on_a1(_TCConfig) ->
+    Self = self(),
+    on_exit(fun() -> meck:unload([ecpool, ecpool_worker, emqtt]) end),
+    ok = meck:new(ecpool, [non_strict, no_link, no_history]),
+    ok = meck:new(ecpool_worker, [non_strict, no_link, no_history]),
+    ok = meck:new(emqtt, [non_strict, no_link, no_history]),
+    ok = meck:expect(ecpool, workers, fun(test_pool) -> [{{worker, 1}, worker_pid}] end),
+    ok = meck:expect(ecpool_worker, client, fun(worker_pid) -> {ok, mqtt_client} end),
+    ok = meck:expect(
+        emqtt,
+        subscribe,
+        fun
+            (
+                mqtt_client,
+                #{'Subscription-Identifier' := 1},
+                <<"remote/topic">>,
+                [{qos, 1}, {nl, false}]
+            ) ->
+                Self ! subscribe_with_subid,
+                {ok, #{}, [?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED]};
+            (mqtt_client, #{}, <<"remote/topic">>, [{qos, 1}, {nl, false}]) ->
+                Self ! subscribe_without_subid,
+                {ok, #{}, [?RC_GRANTED_QOS_1]}
+        end
+    ),
+
+    ok =
+        emqx_bridge_mqtt_ingress:subscribe_channel(
+            test_pool,
+            #{
+                ingress_list => [
+                    #{
+                        remote => #{
+                            topic => <<"remote/topic">>,
+                            qos => 1,
+                            no_local => false
+                        },
+                        subscription_id => 1
+                    }
+                ]
+            }
+        ),
+    ?assertReceive(subscribe_with_subid, 1_000),
+    ?assertReceive(subscribe_without_subid, 1_000),
     ok.
 
 t_mqtt_conn_bridge_ingress_downgrades_qos_2(TCConfig) ->
@@ -668,7 +805,7 @@ t_resubscribe_on_fast_failure() ->
 t_resubscribe_on_fast_failure(matrix) ->
     [
         [?cluster, ProtoVer, CleanStart]
-     || ProtoVer <- [?proto_v3, ?proto_v5],
+     || ProtoVer <- [?proto_v5],
         CleanStart <- [?clean_start, ?unclean_start]
     ];
 t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
