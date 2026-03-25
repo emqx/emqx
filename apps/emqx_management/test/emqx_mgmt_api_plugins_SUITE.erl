@@ -121,6 +121,57 @@ t_plugins(_Config) ->
     ?assertMatch({ok, {{_, 403, _}, _, _}}, install_plugin(PackagePath)),
     ok.
 
+t_uninstall_conflicting_version_keeps_old_running(_Config) ->
+    #{package := OldPackagePath} = get_demo_plugin_package(#{
+        shdir => "./",
+        vsn => "5.1.0",
+        tag => "5.1.0"
+    }),
+    #{package := NewPackagePath} = get_demo_plugin_package(#{
+        shdir => "./",
+        vsn => "5.9.0-beta.1",
+        tag => "5.9.0-beta.1"
+    }),
+    OldNameVsn = filename:basename(OldPackagePath, ?PACKAGE_SUFFIX),
+    NewNameVsn = filename:basename(NewPackagePath, ?PACKAGE_SUFFIX),
+    on_exit(fun() ->
+        lists:foreach(
+            fun(NameVsn) ->
+                _ = emqx_plugins:ensure_stopped(NameVsn),
+                _ = emqx_plugins:ensure_disabled(NameVsn),
+                _ = emqx_plugins:ensure_uninstalled(NameVsn),
+                _ = emqx_plugins:delete_package(NameVsn)
+            end,
+            [OldNameVsn, NewNameVsn]
+        )
+    end),
+    ok = allow_installation(OldNameVsn),
+    ok = allow_installation(NewNameVsn),
+    ok = install_plugin(OldPackagePath),
+    {ok, []} = update_plugin(OldNameVsn, "start"),
+    ?assertMatch(
+        #{
+            <<"running_status">> := [
+                #{<<"status">> := <<"running">>}
+            ]
+        },
+        describe_plugin(OldNameVsn)
+    ),
+    ok = install_plugin(NewPackagePath),
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, "Bad Request"}},
+        update_plugin(NewNameVsn, "start")
+    ),
+    {ok, []} = uninstall_plugin(NewNameVsn),
+    ?assertMatch(
+        #{
+            <<"running_status">> := [
+                #{<<"status">> := <<"running">>}
+            ]
+        },
+        describe_plugin(OldNameVsn)
+    ).
+
 t_update_config(_Config) ->
     PackagePath = get_demo_plugin_package(),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
@@ -491,6 +542,12 @@ get_demo_plugin_package() ->
     ),
     true = filelib:is_regular(Pkg),
     Pkg.
+
+get_demo_plugin_package(Overrides) ->
+    Opts = maps:merge(?EMQX_PLUGIN, Overrides),
+    Result = emqx_plugins_test_helpers:get_demo_plugin_package(Opts),
+    true = filelib:is_regular(maps:get(package, Result)),
+    Result.
 
 create_renamed_package(PackagePath, NewNameVsn) ->
     {ok, Content} = erl_tar:extract(PackagePath, [compressed, memory]),

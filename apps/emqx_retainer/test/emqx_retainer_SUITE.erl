@@ -33,8 +33,11 @@ groups() ->
         {index_agnostic, [sequence], [
             t_disable_then_start,
             t_start_stop_on_setting_change,
-            t_takeover,
-            t_resume,
+            %% N.B. `t_takeover` and `t_resume` are skipped until iteration resumption is
+            %% implemented as an improvement.  See the docs for `t_resume_and_resubscribe`
+            %% t_takeover,
+            %% t_resume,
+            t_resume_and_resubscribe,
             t_extsub_ignore_non_mqtt,
             t_extsub_no_leak_wildcard_multi_batch,
             t_extsub_no_leak_wildcard_single_batch,
@@ -43,7 +46,13 @@ groups() ->
             t_extsub_no_leak_no_wildcard_empty,
             t_extsub_no_leak_subscribe_unsubscribe
         ]},
-        {index_agnostic_ds, [sequence], [t_takeover, t_resume]},
+        {index_agnostic_ds, [sequence], [
+            %% N.B. `t_takeover` and `t_resume` are skipped until iteration resumption is
+            %% implemented as an improvement.  See the docs for `t_resume_and_resubscribe`
+            %% t_takeover,
+            %% t_resume,
+            t_resume_and_resubscribe
+        ]},
         {disabled, [t_disabled]}
     ].
 
@@ -1244,6 +1253,11 @@ t_takeover(TCConfig) ->
 t_resume(TCConfig) ->
     test_takeover_or_resume(resume, TCConfig).
 
+%% Note: current implementation (and the implementation prior to using `emqx_extsub`) does
+%% **not** resume iteration of retained messages when resuming a session.  The previous
+%% implementation without `extsub` did not hook into `session.resumed`, hence iteration
+%% stopped when resuming/taking over.  For now, we adopt the same behavior.  Resuming
+%% iteration would thus be an improvement.
 test_takeover_or_resume(Kind, TCConfig) ->
     update_retainer_config(#{
         <<"delivery_rate">> => <<"5/1s">>,
@@ -1325,6 +1339,56 @@ test_takeover_or_resume(Kind, TCConfig) ->
                     ok = emqtt:stop(C1),
                     ok
             end,
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+-doc """
+Verifies that if a session first subscribes to a retained topic with a single message,
+completes that iteration, disconnects, reconnects and re-subscribes, it'll receive only
+one message.
+
+This matches the previous retainer implementation (pre-6.1.0), which did not hook into
+`session.resumed`, which `extsub` does.
+
+When resuming iteration during resume/takeover is implemented as an improvement, this test
+case will become invalid and can be dropped, and then `t_resume` and `t_takeover` can be
+un-skipped again.
+""".
+t_resume_and_resubscribe(_TCConfig) ->
+    Topic = <<"t/1">>,
+    Message = emqx_message:make(Topic, <<"payload">>),
+    ok = emqx_retainer_publisher:store_retained(Message),
+    ?check_trace(
+        begin
+            ClientId = <<"takeover">>,
+            Opts = #{
+                clientid => ClientId,
+                clean_start => false,
+                proto_ver => v5,
+                properties => #{'Session-Expiry-Interval' => 30}
+            },
+            {ok, C0} = emqtt:start_link(Opts#{clean_start := true}),
+            {ok, _} = emqtt:connect(C0),
+
+            %% Receive the single message
+            {ok, _, _} = emqtt:subscribe(C0, Topic, 1),
+            ?assertMatch([_], receive_messages(1)),
+            emqtt:disconnect(C0),
+
+            %% Now take resume
+            {ok, C1} = emqtt:start_link(Opts),
+            {ok, _} = emqtt:connect(C1),
+            %% Resubscribe; should receive it again, only once.
+            {ok, _, _} = emqtt:subscribe(C1, Topic, 1),
+
+            %% We expect one more to ensure it's not duplicated.
+            ?assertMatch([_], receive_messages(2)),
+
+            emqtt:stop(C1),
 
             ok
         end,

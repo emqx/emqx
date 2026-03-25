@@ -6,7 +6,7 @@ get_cluster_info.label:
 """Get cluster info"""
 
 get_cluster_topology.desc:
-"""Get RLOG cluster topology: connections between core and replicant nodes."""
+"""Get cluster topology: connections between core and replicant nodes."""
 get_cluster_topology.label:
 """Get cluster topology"""
 
@@ -56,7 +56,7 @@ invitation_progress.label:
 """Invitation Progress"""
 
 replicated_log_streams.desc:
-"""The number of RLOG (replicated log) streams."""
+"""The number of replicated log streams."""
 replicated_log_streams.label:
 """Replicated Log Streams"""
 
