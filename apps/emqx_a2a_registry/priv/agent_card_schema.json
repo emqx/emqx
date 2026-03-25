@@ -1,124 +1,732 @@
 {
-  "$schema": "http://json-schema.org/draft-06/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "A2A Agent Card",
   "type": "object",
   "required": [
     "name",
     "description",
+    "supportedInterfaces",
     "version",
-    "url",
+    "capabilities",
+    "defaultInputModes",
+    "defaultOutputModes",
     "skills"
   ],
+  "patternProperties": {
+    "^(supported_interfaces)$": {
+      "type": "array",
+      "description": "Ordered list of supported interfaces. The first entry is preferred.",
+      "items": {
+        "$ref": "#/definitions/AgentInterface"
+      }
+    },
+    "^(documentation_url)$": {
+      "type": "string",
+      "description": "A URL providing additional documentation about the agent."
+    },
+    "^(security_schemes)$": {
+      "type": "object",
+      "description": "The security scheme details used for authenticating with this agent.",
+      "additionalProperties": {
+        "$ref": "#/definitions/SecurityScheme"
+      },
+      "propertyNames": {
+        "type": "string"
+      }
+    },
+    "^(security_requirements)$": {
+      "type": "array",
+      "description": "Security requirements for contacting the agent.",
+      "items": {
+        "$ref": "#/definitions/SecurityRequirement"
+      }
+    },
+    "^(default_input_modes)$": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "The set of interaction modes that the agent supports across all skills, defined as media types."
+    },
+    "^(default_output_modes)$": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "The media types supported as outputs from this agent."
+    },
+    "^(icon_url)$": {
+      "type": "string",
+      "description": "A URL to an icon for the agent."
+    }
+  },
   "properties": {
     "name": {
       "type": "string",
-      "description": "Human-readable name of the agent"
+      "description": "A human readable name for the agent."
     },
     "description": {
       "type": "string",
-      "description": "Description of the agent’s purpose and capabilities"
+      "description": "A human-readable description of the agent, assisting users and other agents in understanding its purpose."
+    },
+    "supportedInterfaces": {
+      "type": "array",
+      "description": "Ordered list of supported interfaces. The first entry is preferred.",
+      "items": {
+        "$ref": "#/definitions/AgentInterface"
+      }
+    },
+    "provider": {
+      "$ref": "#/definitions/AgentProvider"
     },
     "version": {
       "type": "string",
-      "description": "Version of the agent implementation (e.g., semver)"
+      "description": "The version of the agent (e.g., \"1.0.0\")."
     },
-    "url": {
+    "documentationUrl": {
       "type": "string",
-      "format": "uri",
-      "description": "Base endpoint URL where the A2A service is reachable"
-    },
-    "protocol_version": {
-      "type": "string",
-      "description": "The A2A protocol version supported by this agent"
-    },
-    "preferred_transport": {
-      "type": "string",
-      "description": "Preferred communication transport (e.g., JSONRPC, HTTP, gRPC)"
+      "description": "A URL providing additional documentation about the agent."
     },
     "capabilities": {
+      "$ref": "#/definitions/AgentCapabilities"
+    },
+    "securitySchemes": {
       "type": "object",
-      "description": "Agent-wide supported capabilities/features",
-      "properties": {
-        "streaming": { "type": "boolean" },
-        "pushNotifications": { "type": "boolean" },
-        "extendedAgentCard": { "type": "boolean" }
+      "description": "The security scheme details used for authenticating with this agent.",
+      "additionalProperties": {
+        "$ref": "#/definitions/SecurityScheme"
       },
-      "additionalProperties": true
+      "propertyNames": {
+        "type": "string"
+      }
+    },
+    "securityRequirements": {
+      "type": "array",
+      "description": "Security requirements for contacting the agent.",
+      "items": {
+        "$ref": "#/definitions/SecurityRequirement"
+      }
     },
     "defaultInputModes": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Default MIME input types accepted by this agent"
+      "description": "The set of interaction modes that the agent supports across all skills, defined as media types."
     },
     "defaultOutputModes": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Default MIME output types produced by this agent"
-    },
-    "provider": {
-      "type": "object",
-      "description": "Information about the agent provider organization",
-      "properties": {
-        "organization": { "type": "string" },
-        "url": { "type": "string", "format": "uri" },
-        "contactEmail": { "type": "string", "format": "email" }
-      },
-      "additionalProperties": true
-    },
-    "documentationUrl": {
-      "type": "string",
-      "format": "uri",
-      "description": "URL to human-readable documentation for the agent"
-    },
-    "iconUrl": {
-      "type": "string",
-      "format": "uri",
-      "description": "URL of an optional icon representing the agent"
+      "description": "The media types supported as outputs from this agent."
     },
     "skills": {
       "type": "array",
-      "description": "List of skills/capabilities exposed by this agent",
+      "description": "Skills represent the abilities of an agent.",
       "items": {
-        "type": "object",
-        "required": ["id", "name", "description"],
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "Unique skill identifier within the agent"
-          },
-          "name": {
-            "type": "string",
-            "description": "Human-readable skill name"
-          },
-          "description": {
-            "type": "string",
-            "description": "Description of what this skill does"
-          },
-          "tags": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "examples": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "inputModes": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "outputModes": {
-            "type": "array",
-            "items": { "type": "string" }
-          }
-        },
-        "additionalProperties": true
+        "$ref": "#/definitions/AgentSkill"
       }
     },
-    "metadata": {
-      "type": "object",
-      "description": "Optional free-form metadata for extensions",
-      "additionalProperties": true
+    "signatures": {
+      "type": "array",
+      "description": "JSON Web Signatures computed for this AgentCard.",
+      "items": {
+        "$ref": "#/definitions/AgentCardSignature"
+      }
+    },
+    "iconUrl": {
+      "type": "string",
+      "description": "A URL to an icon for the agent."
     }
   },
-  "additionalProperties": true
+  "additionalProperties": false,
+  "definitions": {
+    "AgentInterface": {
+      "type": "object",
+      "description": "Declares a combination of a target URL, transport and protocol version for interacting with the agent.",
+      "required": ["url", "protocolBinding", "protocolVersion"],
+      "patternProperties": {
+        "^(protocol_binding)$": {
+          "type": "string",
+          "description": "The protocol binding supported at this URL (e.g., JSONRPC, GRPC, HTTP+JSON)."
+        },
+        "^(protocol_version)$": {
+          "type": "string",
+          "description": "The version of the A2A protocol this interface exposes (e.g., \"0.3\", \"1.0\")."
+        }
+      },
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "The URL where this interface is available."
+        },
+        "protocolBinding": {
+          "type": "string",
+          "description": "The protocol binding supported at this URL (e.g., JSONRPC, GRPC, HTTP+JSON)."
+        },
+        "tenant": {
+          "type": "string",
+          "description": "Tenant ID to be used in the request when calling the agent."
+        },
+        "protocolVersion": {
+          "type": "string",
+          "description": "The version of the A2A protocol this interface exposes (e.g., \"0.3\", \"1.0\")."
+        }
+      },
+      "additionalProperties": false
+    },
+    "AgentProvider": {
+      "type": "object",
+      "description": "Represents the service provider of an agent.",
+      "required": ["url", "organization"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "A URL for the agent provider's website or relevant documentation."
+        },
+        "organization": {
+          "type": "string",
+          "description": "The name of the agent provider's organization."
+        }
+      },
+      "additionalProperties": false
+    },
+    "AgentCapabilities": {
+      "type": "object",
+      "description": "Defines optional capabilities supported by an agent.",
+      "patternProperties": {
+        "^(push_notifications)$": {
+          "type": "boolean",
+          "description": "Indicates if the agent supports sending push notifications for asynchronous task updates."
+        },
+        "^(extended_agent_card)$": {
+          "type": "boolean",
+          "description": "Indicates if the agent supports providing an extended agent card when authenticated."
+        }
+      },
+      "properties": {
+        "streaming": {
+          "type": "boolean",
+          "description": "Indicates if the agent supports streaming responses."
+        },
+        "pushNotifications": {
+          "type": "boolean",
+          "description": "Indicates if the agent supports sending push notifications for asynchronous task updates."
+        },
+        "extensions": {
+          "type": "array",
+          "description": "A list of protocol extensions supported by the agent.",
+          "items": {
+            "$ref": "#/definitions/AgentExtension"
+          }
+        },
+        "extendedAgentCard": {
+          "type": "boolean",
+          "description": "Indicates if the agent supports providing an extended agent card when authenticated."
+        }
+      },
+      "additionalProperties": false
+    },
+    "AgentExtension": {
+      "type": "object",
+      "description": "A declaration of a protocol extension supported by an Agent.",
+      "properties": {
+        "uri": {
+          "type": "string",
+          "description": "The unique URI identifying the extension."
+        },
+        "description": {
+          "type": "string",
+          "description": "A human-readable description of how this agent uses the extension."
+        },
+        "required": {
+          "type": "boolean",
+          "description": "If true, the client must understand and comply with the extension's requirements."
+        },
+        "params": {
+          "type": "object",
+          "description": "Extension-specific configuration parameters."
+        }
+      },
+      "additionalProperties": false
+    },
+    "AgentSkill": {
+      "type": "object",
+      "description": "Represents a distinct capability or function that an agent can perform.",
+      "required": ["id", "name", "description", "tags"],
+      "patternProperties": {
+        "^(input_modes)$": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The set of supported input media types for this skill, overriding the agent's defaults."
+        },
+        "^(output_modes)$": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The set of supported output media types for this skill, overriding the agent's defaults."
+        },
+        "^(security_requirements)$": {
+          "type": "array",
+          "description": "Security schemes necessary for this skill.",
+          "items": {
+            "$ref": "#/definitions/SecurityRequirement"
+          }
+        }
+      },
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "A unique identifier for the agent's skill."
+        },
+        "name": {
+          "type": "string",
+          "description": "A human-readable name for the skill."
+        },
+        "description": {
+          "type": "string",
+          "description": "A detailed description of the skill."
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "A set of keywords describing the skill's capabilities."
+        },
+        "examples": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Example prompts or scenarios that this skill can handle."
+        },
+        "inputModes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The set of supported input media types for this skill, overriding the agent's defaults."
+        },
+        "outputModes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The set of supported output media types for this skill, overriding the agent's defaults."
+        },
+        "securityRequirements": {
+          "type": "array",
+          "description": "Security schemes necessary for this skill.",
+          "items": {
+            "$ref": "#/definitions/SecurityRequirement"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "AgentCardSignature": {
+      "type": "object",
+      "description": "Represents a JWS signature of an AgentCard (RFC 7515).",
+      "required": ["protected", "signature"],
+      "properties": {
+        "protected": {
+          "type": "string",
+          "description": "The protected JWS header for the signature, base64url-encoded JSON object."
+        },
+        "signature": {
+          "type": "string",
+          "description": "The computed signature, base64url-encoded."
+        },
+        "header": {
+          "type": "object",
+          "description": "The unprotected JWS header values."
+        }
+      },
+      "additionalProperties": false
+    },
+    "SecurityRequirement": {
+      "type": "object",
+      "description": "Defines the security requirements for an agent.",
+      "properties": {
+        "schemes": {
+          "type": "object",
+          "description": "A map of security scheme names to the required scopes.",
+          "additionalProperties": {
+            "$ref": "#/definitions/StringList"
+          },
+          "propertyNames": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "StringList": {
+      "type": "object",
+      "description": "A list of strings.",
+      "properties": {
+        "list": {
+          "type": "array",
+          "description": "The individual string values.",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "SecurityScheme": {
+      "type": "object",
+      "description": "Defines a security scheme that can be used to secure an agent's endpoints. This is a discriminated union type based on the OpenAPI 3.2 Security Scheme Object.",
+      "patternProperties": {
+        "^(api_key_security_scheme)$": {
+          "$ref": "#/definitions/APIKeySecurityScheme",
+          "description": "API key-based authentication."
+        },
+        "^(http_auth_security_scheme)$": {
+          "$ref": "#/definitions/HTTPAuthSecurityScheme",
+          "description": "HTTP authentication (Basic, Bearer, etc.)."
+        },
+        "^(oauth2_security_scheme)$": {
+          "$ref": "#/definitions/OAuth2SecurityScheme",
+          "description": "OAuth 2.0 authentication."
+        },
+        "^(open_id_connect_security_scheme)$": {
+          "$ref": "#/definitions/OpenIdConnectSecurityScheme",
+          "description": "OpenID Connect authentication."
+        },
+        "^(mtls_security_scheme)$": {
+          "$ref": "#/definitions/MutualTlsSecurityScheme",
+          "description": "Mutual TLS authentication."
+        }
+      },
+      "properties": {
+        "apiKeySecurityScheme": {
+          "$ref": "#/definitions/APIKeySecurityScheme",
+          "description": "API key-based authentication."
+        },
+        "httpAuthSecurityScheme": {
+          "$ref": "#/definitions/HTTPAuthSecurityScheme",
+          "description": "HTTP authentication (Basic, Bearer, etc.)."
+        },
+        "oauth2SecurityScheme": {
+          "$ref": "#/definitions/OAuth2SecurityScheme",
+          "description": "OAuth 2.0 authentication."
+        },
+        "openIdConnectSecurityScheme": {
+          "$ref": "#/definitions/OpenIdConnectSecurityScheme",
+          "description": "OpenID Connect authentication."
+        },
+        "mtlsSecurityScheme": {
+          "$ref": "#/definitions/MutualTlsSecurityScheme",
+          "description": "Mutual TLS authentication."
+        }
+      },
+      "additionalProperties": false
+    },
+    "APIKeySecurityScheme": {
+      "type": "object",
+      "description": "Defines a security scheme using an API key.",
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "An optional description for the security scheme."
+        },
+        "location": {
+          "type": "string",
+          "description": "The location of the API key. Valid values are \"query\", \"header\", or \"cookie\"."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the header, query, or cookie parameter to be used."
+        }
+      },
+      "additionalProperties": false
+    },
+    "HTTPAuthSecurityScheme": {
+      "type": "object",
+      "description": "Defines a security scheme using HTTP authentication.",
+      "patternProperties": {
+        "^(bearer_format)$": {
+          "type": "string",
+          "description": "A hint to identify how the bearer token is formatted (e.g., \"JWT\")."
+        }
+      },
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "An optional description for the security scheme."
+        },
+        "scheme": {
+          "type": "string",
+          "description": "The HTTP Authentication scheme (e.g., Bearer, Basic)."
+        },
+        "bearerFormat": {
+          "type": "string",
+          "description": "A hint to identify how the bearer token is formatted (e.g., \"JWT\")."
+        }
+      },
+      "additionalProperties": false
+    },
+    "OAuth2SecurityScheme": {
+      "type": "object",
+      "description": "Defines a security scheme using OAuth 2.0.",
+      "patternProperties": {
+        "^(oauth2_metadata_url)$": {
+          "type": "string",
+          "description": "URL to the OAuth2 authorization server metadata (RFC 8414)."
+        }
+      },
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "An optional description for the security scheme."
+        },
+        "flows": {
+          "$ref": "#/definitions/OAuthFlows",
+          "description": "An object containing configuration information for the supported OAuth 2.0 flows."
+        },
+        "oauth2MetadataUrl": {
+          "type": "string",
+          "description": "URL to the OAuth2 authorization server metadata (RFC 8414)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "OpenIdConnectSecurityScheme": {
+      "type": "object",
+      "description": "Defines a security scheme using OpenID Connect.",
+      "patternProperties": {
+        "^(open_id_connect_url)$": {
+          "type": "string",
+          "description": "The OpenID Connect Discovery URL."
+        }
+      },
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "An optional description for the security scheme."
+        },
+        "openIdConnectUrl": {
+          "type": "string",
+          "description": "The OpenID Connect Discovery URL."
+        }
+      },
+      "additionalProperties": false
+    },
+    "MutualTlsSecurityScheme": {
+      "type": "object",
+      "description": "Defines a security scheme using mTLS authentication.",
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "An optional description for the security scheme."
+        }
+      },
+      "additionalProperties": false
+    },
+    "OAuthFlows": {
+      "type": "object",
+      "description": "Defines the configuration for the supported OAuth 2.0 flows.",
+      "patternProperties": {
+        "^(authorization_code)$": {
+          "$ref": "#/definitions/AuthorizationCodeOAuthFlow",
+          "description": "Configuration for the OAuth Authorization Code flow."
+        },
+        "^(client_credentials)$": {
+          "$ref": "#/definitions/ClientCredentialsOAuthFlow",
+          "description": "Configuration for the OAuth Client Credentials flow."
+        },
+        "^(device_code)$": {
+          "$ref": "#/definitions/DeviceCodeOAuthFlow",
+          "description": "Configuration for the OAuth Device Code flow."
+        }
+      },
+      "properties": {
+        "authorizationCode": {
+          "$ref": "#/definitions/AuthorizationCodeOAuthFlow",
+          "description": "Configuration for the OAuth Authorization Code flow."
+        },
+        "clientCredentials": {
+          "$ref": "#/definitions/ClientCredentialsOAuthFlow",
+          "description": "Configuration for the OAuth Client Credentials flow."
+        },
+        "deviceCode": {
+          "$ref": "#/definitions/DeviceCodeOAuthFlow",
+          "description": "Configuration for the OAuth Device Code flow."
+        },
+        "implicit": {
+          "$ref": "#/definitions/ImplicitOAuthFlow",
+          "description": "Deprecated: Use Authorization Code + PKCE instead."
+        },
+        "password": {
+          "$ref": "#/definitions/PasswordOAuthFlow",
+          "description": "Deprecated: Use Authorization Code + PKCE or Device Code."
+        }
+      },
+      "additionalProperties": false
+    },
+    "AuthorizationCodeOAuthFlow": {
+      "type": "object",
+      "description": "Defines configuration details for the OAuth 2.0 Authorization Code flow.",
+      "patternProperties": {
+        "^(authorization_url)$": {
+          "type": "string",
+          "description": "The authorization URL to be used for this flow."
+        },
+        "^(token_url)$": {
+          "type": "string",
+          "description": "The token URL to be used for this flow."
+        },
+        "^(refresh_url)$": {
+          "type": "string",
+          "description": "The URL to be used for obtaining refresh tokens."
+        },
+        "^(pkce_required)$": {
+          "type": "boolean",
+          "description": "Indicates if PKCE (RFC 7636) is required for this flow."
+        }
+      },
+      "properties": {
+        "authorizationUrl": {
+          "type": "string",
+          "description": "The authorization URL to be used for this flow."
+        },
+        "tokenUrl": {
+          "type": "string",
+          "description": "The token URL to be used for this flow."
+        },
+        "refreshUrl": {
+          "type": "string",
+          "description": "The URL to be used for obtaining refresh tokens."
+        },
+        "scopes": {
+          "type": "object",
+          "description": "The available scopes for the OAuth2 security scheme.",
+          "additionalProperties": { "type": "string" },
+          "propertyNames": { "type": "string" }
+        },
+        "pkceRequired": {
+          "type": "boolean",
+          "description": "Indicates if PKCE (RFC 7636) is required for this flow."
+        }
+      },
+      "additionalProperties": false
+    },
+    "ClientCredentialsOAuthFlow": {
+      "type": "object",
+      "description": "Defines configuration details for the OAuth 2.0 Client Credentials flow.",
+      "patternProperties": {
+        "^(token_url)$": {
+          "type": "string",
+          "description": "The token URL to be used for this flow."
+        },
+        "^(refresh_url)$": {
+          "type": "string",
+          "description": "The URL to be used for obtaining refresh tokens."
+        }
+      },
+      "properties": {
+        "tokenUrl": {
+          "type": "string",
+          "description": "The token URL to be used for this flow."
+        },
+        "refreshUrl": {
+          "type": "string",
+          "description": "The URL to be used for obtaining refresh tokens."
+        },
+        "scopes": {
+          "type": "object",
+          "description": "The available scopes for the OAuth2 security scheme.",
+          "additionalProperties": { "type": "string" },
+          "propertyNames": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "DeviceCodeOAuthFlow": {
+      "type": "object",
+      "description": "Defines configuration details for the OAuth 2.0 Device Code flow (RFC 8628).",
+      "patternProperties": {
+        "^(device_authorization_url)$": {
+          "type": "string",
+          "description": "The device authorization endpoint URL."
+        },
+        "^(token_url)$": {
+          "type": "string",
+          "description": "The token URL to be used for this flow."
+        },
+        "^(refresh_url)$": {
+          "type": "string",
+          "description": "The URL to be used for obtaining refresh tokens."
+        }
+      },
+      "properties": {
+        "deviceAuthorizationUrl": {
+          "type": "string",
+          "description": "The device authorization endpoint URL."
+        },
+        "tokenUrl": {
+          "type": "string",
+          "description": "The token URL to be used for this flow."
+        },
+        "refreshUrl": {
+          "type": "string",
+          "description": "The URL to be used for obtaining refresh tokens."
+        },
+        "scopes": {
+          "type": "object",
+          "description": "The available scopes for the OAuth2 security scheme.",
+          "additionalProperties": { "type": "string" },
+          "propertyNames": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ImplicitOAuthFlow": {
+      "type": "object",
+      "description": "Deprecated: Use Authorization Code + PKCE instead.",
+      "patternProperties": {
+        "^(authorization_url)$": {
+          "type": "string",
+          "description": "The authorization URL to be used for this flow."
+        },
+        "^(refresh_url)$": {
+          "type": "string",
+          "description": "The URL to be used for obtaining refresh tokens."
+        }
+      },
+      "properties": {
+        "authorizationUrl": {
+          "type": "string",
+          "description": "The authorization URL to be used for this flow."
+        },
+        "refreshUrl": {
+          "type": "string",
+          "description": "The URL to be used for obtaining refresh tokens."
+        },
+        "scopes": {
+          "type": "object",
+          "description": "The available scopes for the OAuth2 security scheme.",
+          "additionalProperties": { "type": "string" },
+          "propertyNames": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "PasswordOAuthFlow": {
+      "type": "object",
+      "description": "Deprecated: Use Authorization Code + PKCE or Device Code.",
+      "patternProperties": {
+        "^(token_url)$": {
+          "type": "string",
+          "description": "The token URL to be used for this flow."
+        },
+        "^(refresh_url)$": {
+          "type": "string",
+          "description": "The URL to be used for obtaining refresh tokens."
+        }
+      },
+      "properties": {
+        "tokenUrl": {
+          "type": "string",
+          "description": "The token URL to be used for this flow."
+        },
+        "refreshUrl": {
+          "type": "string",
+          "description": "The URL to be used for obtaining refresh tokens."
+        },
+        "scopes": {
+          "type": "object",
+          "description": "The available scopes for the OAuth2 security scheme.",
+          "additionalProperties": { "type": "string" },
+          "propertyNames": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
 }
