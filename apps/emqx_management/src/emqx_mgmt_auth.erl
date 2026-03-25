@@ -126,7 +126,7 @@ create(Name, Enable, ExpiredAt, Desc, Role) ->
     create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role).
 
 create(Name, ApiSecret, Enable, ExpiredAt, Desc, Role) when byte_size(ApiSecret) >= 32 ->
-    ApiKey = generate_unique_api_key(Name),
+    ApiKey = generate_unique_api_key(),
     create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role);
 create(_Name, _ApiSecret, _Enable, _ExpiredAt, _Desc, _Role) ->
     {error, <<"api_secret must be no less than 32 bytes">>}.
