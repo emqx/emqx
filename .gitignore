@@ -43,6 +43,9 @@ _packages
 elvis
 emqx_dialyzer_*_plt
 */emqx_dashboard/priv/
+!apps/emqx_dashboard/priv/
+apps/emqx_dashboard/priv/*
+!apps/emqx_dashboard/priv/api-spec.html
 dist.zip
 scripts/git-token
 apps/*/etc/*.all

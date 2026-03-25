@@ -40,11 +40,13 @@
     ensure_enabled/2,
     ensure_enabled/3,
     ensure_disabled/1,
+    delete_state/1,
     purge/1,
     write_package/2,
     is_package_present/1,
     purge_other_versions/1,
-    delete_package/1
+    delete_package/1,
+    safe_delete_package/1
 ]).
 
 %% Plugin runtime management
@@ -270,6 +272,10 @@ purge(NameVsn) ->
     ok = delete_cached_config(NameVsn),
     emqx_plugins_fs:purge_installed(NameVsn).
 
+-spec delete_state(name_vsn()) -> ok.
+delete_state(NameVsn) ->
+    ensure_delete_state(NameVsn).
+
 %% @doc Write the package file.
 -spec write_package(name_vsn(), binary()) -> ok.
 write_package(NameVsn, Bin) ->
@@ -322,6 +328,31 @@ purge_other_versions(NameVsn) ->
 delete_package(NameVsn) ->
     _ = emqx_plugins_serde:delete_schema(NameVsn),
     emqx_plugins_fs:delete_tar(NameVsn).
+
+%% @doc Safely delete a plugin package.
+%% If another version of the same plugin is currently active,
+%% only clean up this version's state and files without stopping the active one.
+%% Otherwise, stop and uninstall the plugin before deleting.
+-spec safe_delete_package(name_vsn()) -> ok | {error, any()}.
+safe_delete_package(NameVsn) ->
+    _ = forget_allowed_installation(NameVsn),
+    case has_other_active_version(NameVsn) of
+        true ->
+            ok = delete_state(NameVsn),
+            ok = purge(NameVsn),
+            _ = delete_package(NameVsn),
+            ok;
+        false ->
+            case maybe_stop_plugin(NameVsn) of
+                ok ->
+                    ok = maybe_disable_plugin(NameVsn),
+                    ok = maybe_uninstall_plugin(NameVsn),
+                    _ = delete_package(NameVsn),
+                    ok;
+                Error ->
+                    Error
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% Plugin runtime management
@@ -1210,6 +1241,60 @@ bin_key(Term) ->
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
+
+has_other_active_version(NameVsn) ->
+    PluginName = emqx_plugins_utils:plugin_name(NameVsn),
+    NameVsnBin = bin(NameVsn),
+    lists:any(
+        fun(ActiveNameVsn) ->
+            emqx_plugins_utils:plugin_name(ActiveNameVsn) =:= PluginName andalso
+                bin(ActiveNameVsn) =/= NameVsnBin
+        end,
+        list_active()
+    ).
+
+maybe_stop_plugin(NameVsn) ->
+    case describe(NameVsn, #{}) of
+        {ok, #{running_status := running}} ->
+            ensure_stopped(NameVsn);
+        {ok, _} ->
+            ok;
+        {error, _} = Error ->
+            Error
+    end.
+
+maybe_disable_plugin(NameVsn) ->
+    case describe(NameVsn, #{}) of
+        {ok, #{config_status := not_configured}} ->
+            ok;
+        {ok, _} ->
+            case ensure_disabled(NameVsn) of
+                ok ->
+                    ok;
+                {error, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "failed_to_disable_plugin_while_deleting_package",
+                        name_vsn => NameVsn,
+                        reason => Reason
+                    }),
+                    ok
+            end;
+        {error, _} = Error ->
+            Error
+    end.
+
+maybe_uninstall_plugin(NameVsn) ->
+    case ensure_uninstalled(NameVsn) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "failed_to_uninstall_plugin_while_deleting_package",
+                name_vsn => NameVsn,
+                reason => Reason
+            }),
+            ok
+    end.
 
 to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 to_bin(S) when is_list(S) -> unicode:characters_to_binary(S);

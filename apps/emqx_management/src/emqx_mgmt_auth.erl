@@ -18,6 +18,7 @@
 
 -export([
     create/5,
+    create/6,
     read/1,
     update/5,
     delete/1,
@@ -123,6 +124,12 @@ create(Name, Enable, ExpiredAt, Desc, Role) ->
     ApiKey = generate_unique_api_key(),
     ApiSecret = generate_api_secret(),
     create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role).
+
+create(Name, ApiSecret, Enable, ExpiredAt, Desc, Role) when byte_size(ApiSecret) >= 32 ->
+    ApiKey = generate_unique_api_key(Name),
+    create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role);
+create(_Name, _ApiSecret, _Enable, _ExpiredAt, _Desc, _Role) ->
+    {error, <<"api_secret must be no less than 32 bytes">>}.
 
 create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role) ->
     case mnesia:table_info(?APP, size) < 100 of
