@@ -527,8 +527,7 @@ t_monitor_current_api_live_connections(Config) when is_list(Config) ->
     ok = emqtt:disconnect(C),
     {ok, C1} = emqtt:start_link([{clean_start, true}, {clientid, ClientId1}]),
     {ok, _} = emqtt:connect(C1),
-    ok = waiting_emqx_stats_and_monitor_update('live_connections.max'),
-    ?retry(1_100, 5, begin
+    ?retry(1_000, 10, begin
         {ok, Rate} = request(["monitor_current"]),
         ?assertEqual(1, maps:get(<<"live_connections">>, Rate)),
         ?assertEqual(2, maps:get(<<"connections">>, Rate))
@@ -545,13 +544,12 @@ t_monitor_current_retained_count(Config) when is_list(Config) ->
     {ok, C} = emqtt:start_link([{clean_start, false}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
     _ = emqtt:publish(C, <<"t1">>, <<"qos1-retain">>, [{qos, 1}, {retain, true}]),
-
-    ok = waiting_emqx_stats_and_monitor_update('retained.count'),
-    {ok, Res} = request(["monitor_current"]),
-    {ok, ResNode} = request(["monitor_current", "nodes", node()]),
-
-    ?assertEqual(1, maps:get(<<"retained_msg_count">>, Res)),
-    ?assertEqual(1, maps:get(<<"retained_msg_count">>, ResNode)),
+    ?retry(1_000, 10, begin
+        {ok, Res} = request(["monitor_current"]),
+        {ok, ResNode} = request(["monitor_current", "nodes", node()]),
+        ?assertEqual(1, maps:get(<<"retained_msg_count">>, Res)),
+        ?assertEqual(1, maps:get(<<"retained_msg_count">>, ResNode))
+    end),
     ok = emqtt:disconnect(C),
     ok.
 
@@ -1175,27 +1173,6 @@ wait_new_monitor(OldMonitor, Count) ->
             timer:sleep(100),
             wait_new_monitor(OldMonitor, Count - 1)
     end.
-
-waiting_emqx_stats_and_monitor_update(WaitKey) ->
-    Self = self(),
-    meck:new(emqx_stats, [passthrough]),
-    meck:expect(
-        emqx_stats,
-        setstat,
-        fun(Stat, MaxStat, Val) ->
-            (Stat =:= WaitKey orelse MaxStat =:= WaitKey) andalso (Self ! updated),
-            meck:passthrough([Stat, MaxStat, Val])
-        end
-    ),
-    receive
-        updated -> ok
-    after 5000 ->
-        error(waiting_emqx_stats_update_timeout)
-    end,
-    meck:unload([emqx_stats]),
-    %% manually call monitor update
-    _ = emqx_dashboard_monitor:current_rate_cluster(),
-    ok.
 
 start_and_connect(Opts) ->
     Defaults = #{
