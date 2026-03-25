@@ -559,7 +559,7 @@ ensure_queue_subscription_supported(#{topic := Topic}, SubscriptionIdToHandlerIn
         false ->
             ok;
         true ->
-            {error, {unrecoverable_error, subscription_identifier_required_for_queue_subscription}}
+            error({unrecoverable_error, subscription_identifier_required_for_queue_subscription})
     end.
 
 is_queue_topic(<<"$queue/", _/binary>>) ->

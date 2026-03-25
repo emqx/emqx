@@ -529,8 +529,7 @@ t_mqtt_conn_bridge_rejects_queue_source_without_subscription_identifier(TCConfig
         }
     },
     ?assertError(
-        {badmatch,
-            {error, {unrecoverable_error, subscription_identifier_required_for_queue_subscription}}},
+        {unrecoverable_error, subscription_identifier_required_for_queue_subscription},
         emqx_bridge_mqtt_connector:on_add_channel(
             connector_resource_id(TCConfig),
             State,
@@ -540,49 +539,48 @@ t_mqtt_conn_bridge_rejects_queue_source_without_subscription_identifier(TCConfig
     ),
     ok.
 
--doc "MQTT ingress retries normal topic subscriptions without Subscription Identifier on SUBACK 0xA1.".
-t_mqtt_conn_bridge_ingress_retries_without_subid_on_a1(_TCConfig) ->
-    Self = self(),
-    on_exit(fun() -> meck:unload([ecpool, ecpool_worker, emqtt]) end),
-    ok = meck:new(ecpool, [non_strict, no_link, no_history]),
-    ok = meck:new(ecpool_worker, [non_strict, no_link, no_history]),
-    ok = meck:new(emqtt, [non_strict, no_link, no_history]),
-    ok = meck:expect(ecpool, workers, fun(test_pool) -> [{{worker, 1}, worker_pid}] end),
-    ok = meck:expect(ecpool_worker, client, fun(worker_pid) -> {ok, mqtt_client} end),
-    ok = meck:expect(
-        emqtt,
-        subscribe,
-        fun
-            (
-                mqtt_client,
-                #{'Subscription-Identifier' := 1},
-                <<"remote/topic">>,
-                [{qos, 1}, {nl, false}]
-            ) ->
-                Self ! subscribe_with_subid,
-                {ok, #{}, [?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED]};
-            (mqtt_client, #{}, <<"remote/topic">>, [{qos, 1}, {nl, false}]) ->
-                Self ! subscribe_without_subid,
-                {ok, #{}, [?RC_GRANTED_QOS_1]}
-        end
-    ),
+t_mqtt_conn_bridge_ingress_retries_without_subid_on_a1() ->
+    [{cluster, true}].
 
-    ok =
-        emqx_bridge_mqtt_ingress:subscribe_channel(
-            test_pool,
-            #{
-                ingress_list => [
-                    #{
-                        remote => #{
-                            topic => <<"remote/topic">>,
-                            qos => 1,
-                            no_local => false
-                        },
-                        subscription_id => 1
-                    }
-                ]
-            }
+-doc "MQTT ingress retries normal topic subscriptions without Subscription Identifier on SUBACK 0xA1.".
+t_mqtt_conn_bridge_ingress_retries_without_subid_on_a1(TCConfig) ->
+    Self = self(),
+    Nodes = get_config(nodes, TCConfig),
+    {MeckResults, []} =
+        ?ON_ALL(
+            Nodes,
+            begin
+                ok = meck:new(emqtt, [passthrough, no_link, no_history]),
+                ok = meck:expect(
+                    emqtt,
+                    subscribe,
+                    fun(Pid, Props, Topic, Opts) ->
+                        case maps:is_key('Subscription-Identifier', Props) of
+                            true ->
+                                Self ! subscribe_with_subid,
+                                {ok, #{}, [?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED]};
+                            false ->
+                                Self ! subscribe_without_subid,
+                                meck:passthrough([Pid, Props, Topic, Opts])
+                        end
+                    end
+                )
+            end
         ),
+    ?assert(lists:all(fun(Result) -> Result =:= ok end, MeckResults)),
+    on_exit(fun() -> ?ON_ALL(Nodes, meck:unload([emqtt])) end),
+
+    {201, _} = create_connector_api(TCConfig, #{<<"proto_ver">> => <<"v5">>}),
+    {201, #{<<"status">> := <<"connected">>, <<"parameters">> := #{<<"topic">> := RemoteTopic}}} =
+        create_source_api(TCConfig, #{<<"parameters">> => #{<<"qos">> => 1}}),
+    #{topic := RepublishTopic} = simple_create_rule_api(TCConfig),
+    Sub = start_client(TCConfig),
+    {ok, _, [_]} = emqtt:subscribe(Sub, RepublishTopic, [{qos, 2}]),
+    Pub = start_client(TCConfig),
+    ok = emqtt:publish(Pub, RemoteTopic, <<"hello">>, [{qos, 1}]),
+    {publish, #{topic := RepublishTopic, payload := PayloadBin}} =
+        ?assertReceive({publish, _}, 3_000),
+    ?assertMatch(#{<<"payload">> := <<"hello">>}, emqx_utils_json:decode(PayloadBin)),
     ?assertReceive(subscribe_with_subid, 1_000),
     ?assertReceive(subscribe_without_subid, 1_000),
     ok.
