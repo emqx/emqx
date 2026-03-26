@@ -83,7 +83,8 @@ groups() ->
         AllTCs0
     ),
     CustomMatrix = emqx_common_test_helpers:groups_with_matrix(?MODULE),
-    LocalTCs = merge_custom_groups(?local, AllTCs, CustomMatrix),
+    LocalOnlyTCs = AllTCs -- cluster_testcases(),
+    LocalTCs = merge_custom_groups(?local, LocalOnlyTCs, CustomMatrix),
     ClusterTCs = merge_custom_groups(?cluster, cluster_testcases(), CustomMatrix),
     [
         {?cluster, ClusterTCs},
@@ -210,11 +211,40 @@ end_per_testcase(_TestCase, TCConfig) ->
         ?ON_ALL(Nodes, emqx_bridge_v2_testlib:delete_all_bridges_and_connectors())
     end,
     emqx_common_test_helpers:call_janitor(),
+    wait_until_all_clients_disconnected(),
     ok.
 
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
+
+wait_until_all_clients_disconnected() ->
+    case ets:whereis(emqx_channel) of
+        undefined ->
+            %% ETS table doesn't exist on this node (e.g. cluster group)
+            ok;
+        _ ->
+            kick_all_clients(),
+            wait_until_all_clients_disconnected(50)
+    end.
+
+kick_all_clients() ->
+    lists:foreach(
+        fun(ClientId) -> catch emqx_cm:kick_session(ClientId) end,
+        emqx_cm:all_client_ids()
+    ).
+
+wait_until_all_clients_disconnected(0) ->
+    ct:pal("warning: not all clients disconnected, remaining: ~p", [emqx_cm:all_channels()]),
+    ok;
+wait_until_all_clients_disconnected(Retries) ->
+    case emqx_cm:all_channels() of
+        [] ->
+            ok;
+        _ ->
+            timer:sleep(100),
+            wait_until_all_clients_disconnected(Retries - 1)
+    end.
 
 drain_publishes(Acc) ->
     receive
@@ -546,7 +576,7 @@ t_mqtt_conn_bridge_ingress_retries_without_subid_on_a1() ->
 t_mqtt_conn_bridge_ingress_retries_without_subid_on_a1(TCConfig) ->
     Self = self(),
     Nodes = get_config(nodes, TCConfig),
-    {MeckResults, []} =
+    MeckResults =
         ?ON_ALL(
             Nodes,
             begin
@@ -567,17 +597,22 @@ t_mqtt_conn_bridge_ingress_retries_without_subid_on_a1(TCConfig) ->
                 )
             end
         ),
-    ?assert(lists:all(fun(Result) -> Result =:= ok end, MeckResults)),
+    ?assert(lists:all(fun(Result) -> Result =:= {ok, ok} end, MeckResults)),
     on_exit(fun() -> ?ON_ALL(Nodes, meck:unload([emqtt])) end),
 
-    {201, _} = create_connector_api(TCConfig, #{<<"proto_ver">> => <<"v5">>}),
+    [N1 | _] = Nodes,
+    Port = get_tcp_mqtt_port(N1),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"proto_ver">> => <<"v5">>,
+        <<"server">> => <<"127.0.0.1:", (integer_to_binary(Port))/binary>>
+    }),
     {201, #{<<"status">> := <<"connected">>, <<"parameters">> := #{<<"topic">> := RemoteTopic}}} =
         create_source_api(TCConfig, #{<<"parameters">> => #{<<"qos">> => 1}}),
     #{topic := RepublishTopic} = simple_create_rule_api(TCConfig),
     Sub = start_client(TCConfig),
     {ok, _, [_]} = emqtt:subscribe(Sub, RepublishTopic, [{qos, 2}]),
     Pub = start_client(TCConfig),
-    ok = emqtt:publish(Pub, RemoteTopic, <<"hello">>, [{qos, 1}]),
+    {ok, _} = emqtt:publish(Pub, RemoteTopic, <<"hello">>, [{qos, 1}]),
     {publish, #{topic := RepublishTopic, payload := PayloadBin}} =
         ?assertReceive({publish, _}, 3_000),
     ?assertMatch(#{<<"payload">> := <<"hello">>}, emqx_utils_json:decode(PayloadBin)),

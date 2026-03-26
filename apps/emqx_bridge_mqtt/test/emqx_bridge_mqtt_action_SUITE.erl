@@ -368,7 +368,20 @@ get_connected_clients(ConnResId) ->
     lists:sort(fun(#{clientid := A}, #{clientid := B}) -> A =< B end, Clients0).
 
 wait_until_all_clients_disconnected() ->
-    wait_until_all_clients_disconnected(100).
+    case ets:whereis(emqx_channel) of
+        undefined ->
+            %% ETS table doesn't exist on this node (e.g. cluster group)
+            ok;
+        _ ->
+            kick_all_clients(),
+            wait_until_all_clients_disconnected(50)
+    end.
+
+kick_all_clients() ->
+    lists:foreach(
+        fun(ClientId) -> catch emqx_cm:kick_session(ClientId) end,
+        emqx_cm:all_client_ids()
+    ).
 
 wait_until_all_clients_disconnected(0) ->
     ct:pal("warning: not all clients disconnected, remaining: ~p", [emqx_cm:all_channels()]),
