@@ -49,8 +49,24 @@ sample_card() ->
         <<"name">> => <<"some_agent">>,
         <<"description">> => <<"description">>,
         <<"version">> => <<"1">>,
-        <<"url">> => <<"http://httbin.org/get">>,
-        <<"skills">> => []
+        <<"supportedInterfaces">> => [
+            #{
+                <<"url">> => <<"http://httpbin.org/get">>,
+                <<"protocolBinding">> => <<"JSONRPC">>,
+                <<"protocolVersion">> => <<"0.3">>
+            }
+        ],
+        <<"capabilities">> => #{},
+        <<"defaultInputModes">> => [<<"text/plain">>],
+        <<"defaultOutputModes">> => [<<"text/plain">>],
+        <<"skills">> => [
+            #{
+                <<"id">> => <<"skill-1">>,
+                <<"name">> => <<"test_skill">>,
+                <<"description">> => <<"A test skill">>,
+                <<"tags">> => [<<"test">>]
+            }
+        ]
     }.
 
 agent_clientid(OrgId, UnitId, AgentId) ->
