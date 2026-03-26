@@ -209,9 +209,18 @@ on_remove_channel(
     } = OldState,
     ChannelId
 ) ->
+    ?tp(mqtt_connector_remove_channel_begin, #{
+        resource_id => _InstId,
+        channel_id => ChannelId
+    }),
     case maps:find(ChannelId, InstalledChannels) of
         error ->
             %% maybe the channel failed to be added, just ignore it
+            ?tp(mqtt_connector_remove_channel_end, #{
+                resource_id => _InstId,
+                channel_id => ChannelId,
+                result => not_found
+            }),
             {ok, OldState};
         {ok, ChannelState} ->
             case ChannelState of
@@ -230,6 +239,11 @@ on_remove_channel(
             NewInstalledChannels = maps:remove(ChannelId, InstalledChannels),
             %% Update state
             NewState = OldState#{installed_channels => NewInstalledChannels},
+            ?tp(mqtt_connector_remove_channel_end, #{
+                resource_id => _InstId,
+                channel_id => ChannelId,
+                result => ok
+            }),
             {ok, NewState}
     end.
 
@@ -348,6 +362,7 @@ on_stop(ResourceId, State) ->
     ok.
 
 stop_helper(#{pool_name := PoolName}) ->
+    ?tp(mqtt_connector_stop_pool_begin, #{pool_name => PoolName}),
     emqx_resource_pool:stop(PoolName).
 
 on_query(
@@ -571,7 +586,8 @@ maybe_new_subscription_id_index(_Conf) ->
 maybe_delete_subscription_id_index(undefined) ->
     ok;
 maybe_delete_subscription_id_index(SubscriptionIdToHandlerIndex) ->
-    ets:delete(SubscriptionIdToHandlerIndex).
+    true = ets:delete(SubscriptionIdToHandlerIndex),
+    ok.
 
 supports_queue_subscription(undefined) ->
     false;
