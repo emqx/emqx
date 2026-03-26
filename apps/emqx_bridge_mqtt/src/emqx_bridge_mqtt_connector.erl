@@ -66,6 +66,7 @@
     installed_channels := #{channel_resource_id() => channel_state()},
     clean_start := boolean(),
     ?available_clientid_info := [clientid_info()],
+    subscription_id_to_handler_index := undefined | ets:tid(),
     topic_to_handler_index := ets:table(),
     server := string()
 }.
@@ -99,16 +100,34 @@ on_start(ResourceId, #{server := Server} = Conf) ->
         config => emqx_utils:redact(Conf)
     }),
     TopicToHandlerIndex = emqx_topic_index:new(),
-    StartConf = Conf#{topic_to_handler_index => TopicToHandlerIndex},
+    SubscriptionIdToHandlerIndex = maybe_new_subscription_id_index(Conf),
+    StartConf = Conf#{
+        subscription_id_to_handler_index => SubscriptionIdToHandlerIndex,
+        topic_to_handler_index => TopicToHandlerIndex
+    },
     case start_mqtt_clients(ResourceId, StartConf) of
         {ok, Result1} ->
+            ok = emqx_resource:allocate_resource(
+                ResourceId,
+                ?MODULE,
+                subscription_id_to_handler_index,
+                SubscriptionIdToHandlerIndex
+            ),
+            ok = emqx_resource:allocate_resource(
+                ResourceId,
+                ?MODULE,
+                topic_to_handler_index,
+                TopicToHandlerIndex
+            ),
             {ok, Result1#{
                 installed_channels => #{},
                 clean_start => maps:get(clean_start, Conf),
+                subscription_id_to_handler_index => SubscriptionIdToHandlerIndex,
                 topic_to_handler_index => TopicToHandlerIndex,
                 server => Server
             }};
         {error, Reason} ->
+            maybe_delete_subscription_id_index(SubscriptionIdToHandlerIndex),
             ets:delete(TopicToHandlerIndex),
             {error, emqx_maybe:define(explain_error(Reason), Reason)}
     end.
@@ -157,6 +176,7 @@ on_add_channel(
         installed_channels := InstalledChannels,
         pool_name := PoolName,
         pool_size := PoolSize,
+        subscription_id_to_handler_index := SubscriptionIdToHandlerIndex,
         topic_to_handler_index := TopicToHandlerIndex,
         server := Server
     } = OldState,
@@ -166,6 +186,7 @@ on_add_channel(
     %% Add ingress channel
     RemoteParams0 = maps:get(parameters, ChannelConfig),
     {LocalParams, RemoteParams} = take(local, RemoteParams0, #{}),
+    ok = ensure_queue_subscription_supported(RemoteParams, SubscriptionIdToHandlerIndex),
     ChannelState0 = #{
         hookpoints => HookPoints,
         server => Server,
@@ -173,7 +194,12 @@ on_add_channel(
         local => LocalParams,
         remote => RemoteParams
     },
-    ChannelState1 = mk_ingress_config(ChannelId, ChannelState0, TopicToHandlerIndex),
+    ChannelState1 = mk_ingress_config(
+        ChannelId,
+        ChannelState0,
+        SubscriptionIdToHandlerIndex,
+        TopicToHandlerIndex
+    ),
     ok = emqx_bridge_mqtt_ingress:subscribe_channel(PoolName, ChannelState1),
     ReconnectContext = #{
         chan_res_id => ChannelId,
@@ -190,20 +216,34 @@ on_remove_channel(
     #{
         installed_channels := InstalledChannels,
         pool_name := PoolName,
+        subscription_id_to_handler_index := SubscriptionIdToHandlerIndex,
         topic_to_handler_index := TopicToHandlerIndex
     } = OldState,
     ChannelId
 ) ->
+    ?tp(mqtt_connector_remove_channel_begin, #{
+        resource_id => _InstId,
+        channel_id => ChannelId
+    }),
     case maps:find(ChannelId, InstalledChannels) of
         error ->
             %% maybe the channel failed to be added, just ignore it
+            ?tp(mqtt_connector_remove_channel_end, #{
+                resource_id => _InstId,
+                channel_id => ChannelId,
+                result => not_found
+            }),
             {ok, OldState};
         {ok, ChannelState} ->
             case ChannelState of
                 #{config_root := sources} ->
                     ok = emqx_bridge_mqtt_ingress:remove_reconnect_callback(PoolName, ChannelId),
                     ok = emqx_bridge_mqtt_ingress:unsubscribe_channel(
-                        PoolName, ChannelState, ChannelId, TopicToHandlerIndex
+                        PoolName,
+                        ChannelState,
+                        ChannelId,
+                        SubscriptionIdToHandlerIndex,
+                        TopicToHandlerIndex
                     );
                 _ ->
                     ok
@@ -211,6 +251,11 @@ on_remove_channel(
             NewInstalledChannels = maps:remove(ChannelId, InstalledChannels),
             %% Update state
             NewState = OldState#{installed_channels => NewInstalledChannels},
+            ?tp(mqtt_connector_remove_channel_end, #{
+                resource_id => _InstId,
+                channel_id => ChannelId,
+                result => ok
+            }),
             {ok, NewState}
     end.
 
@@ -302,31 +347,28 @@ get_available_clientid_info(#{} = Conf, ClientOpts) ->
             )
     end.
 
-on_stop(ResourceId, State) ->
+on_stop(ResourceId, _State) ->
     ?SLOG(info, #{
         msg => "stopping_mqtt_connector",
         resource_id => ResourceId
     }),
-    %% on_stop can be called with State = undefined
-    StateMap =
-        case State of
-            Map when is_map(State) ->
-                Map;
-            _ ->
-                #{}
-        end,
-    case maps:get(topic_to_handler_index, StateMap, undefined) of
+    Allocated = emqx_resource:get_allocated_resources(ResourceId),
+    SubscriptionIdToHandlerIndex = maps:get(
+        subscription_id_to_handler_index, Allocated, undefined
+    ),
+    ok = maybe_delete_subscription_id_index(SubscriptionIdToHandlerIndex),
+    case maps:get(topic_to_handler_index, Allocated, undefined) of
         undefined ->
             ok;
         TopicToHandlerIndex ->
             ets:delete(TopicToHandlerIndex)
     end,
-    Allocated = emqx_resource:get_allocated_resources(ResourceId),
     ok = stop_helper(Allocated),
     ?tp(mqtt_connector_stopped, #{instance_id => ResourceId}),
     ok.
 
 stop_helper(#{pool_name := PoolName}) ->
+    ?tp(mqtt_connector_stop_pool_begin, #{pool_name => PoolName}),
     emqx_resource_pool:stop(PoolName).
 
 on_query(
@@ -507,6 +549,7 @@ combine_status(Statuses, ConnState) ->
 mk_ingress_config(
     ChannelId,
     IngressChannelConfig,
+    SubscriptionIdToHandlerIndex,
     TopicToHandlerIndex
 ) ->
     #{namespace := Namespace} = emqx_resource:parse_channel_id(ChannelId),
@@ -519,7 +562,43 @@ mk_ingress_config(
         hookpoints => HookPoints,
         ingress_list => [Ingress]
     },
-    emqx_bridge_mqtt_ingress:config(NewConf, ChannelId, TopicToHandlerIndex).
+    emqx_bridge_mqtt_ingress:config(
+        NewConf,
+        ChannelId,
+        SubscriptionIdToHandlerIndex,
+        TopicToHandlerIndex
+    ).
+
+ensure_queue_subscription_supported(#{topic := Topic}, SubscriptionIdToHandlerIndex) ->
+    case
+        is_queue_topic(Topic) andalso not supports_queue_subscription(SubscriptionIdToHandlerIndex)
+    of
+        false ->
+            ok;
+        true ->
+            error({unrecoverable_error, subscription_identifier_required_for_queue_subscription})
+    end.
+
+is_queue_topic(<<"$queue/", _/binary>>) ->
+    true;
+is_queue_topic(_) ->
+    false.
+
+maybe_new_subscription_id_index(#{proto_ver := v5}) ->
+    ets:new(?MODULE, [set, public, {read_concurrency, true}]);
+maybe_new_subscription_id_index(_Conf) ->
+    undefined.
+
+maybe_delete_subscription_id_index(undefined) ->
+    ok;
+maybe_delete_subscription_id_index(SubscriptionIdToHandlerIndex) ->
+    true = ets:delete(SubscriptionIdToHandlerIndex),
+    ok.
+
+supports_queue_subscription(undefined) ->
+    false;
+supports_queue_subscription(_SubscriptionIdToHandlerIndex) ->
+    true.
 
 mk_ecpool_client_opts(
     ConnResId,
@@ -544,6 +623,7 @@ mk_ecpool_client_opts(
             % When the load balancing server enables mqtt connection packet inspection,
             % non-standard mqtt connection packets might be filtered out by LB.
             bridge_mode,
+            subscription_id_to_handler_index,
             topic_to_handler_index
         ],
         Config
@@ -613,6 +693,7 @@ mk_emqtt_client_opts(
     WorkerId,
     AvailableClientidInfo,
     ClientOpts0 = #{
+        subscription_id_to_handler_index := SubscriptionIdToHandlerIndex,
         topic_to_handler_index := TopicToHandlerIndex
     }
 ) ->
@@ -624,7 +705,8 @@ mk_emqtt_client_opts(
     Password = maps:get(password, ClientidInfo, undefined),
     ClientOpts1 = ClientOpts0#{
         clientid := ClientId,
-        msg_handler => mk_client_event_handler(Name, TopicToHandlerIndex)
+        msg_handler =>
+            mk_client_event_handler(Name, SubscriptionIdToHandlerIndex, TopicToHandlerIndex)
     },
     ClientOpts2 =
         case Username /= undefined of
@@ -653,9 +735,12 @@ mk_clientid(WorkerId, {Prefix, ClientId}) ->
     %% There is no other option but to use a long client ID
     iolist_to_binary([Prefix, ClientId, $:, integer_to_binary(WorkerId)]).
 
-mk_client_event_handler(Name, TopicToHandlerIndex) ->
+mk_client_event_handler(Name, SubscriptionIdToHandlerIndex, TopicToHandlerIndex) ->
     #{
-        publish => {fun emqx_bridge_mqtt_ingress:handle_publish/3, [Name, TopicToHandlerIndex]},
+        publish =>
+            {fun emqx_bridge_mqtt_ingress:handle_publish/4, [
+                Name, SubscriptionIdToHandlerIndex, TopicToHandlerIndex
+            ]},
         disconnected => {fun ?MODULE:handle_disconnect/1, []}
     }.
 
