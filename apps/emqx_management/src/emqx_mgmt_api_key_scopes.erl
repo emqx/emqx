@@ -22,7 +22,7 @@ affecting user-facing API key configurations.
 """.
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([
     scope_catalogue/0,

@@ -7,7 +7,7 @@
 -include("emqx_gateway_http.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -behaviour(minirest_api).
 

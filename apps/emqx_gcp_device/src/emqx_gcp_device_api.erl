@@ -10,7 +10,7 @@
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -define(TAGS, [<<"GCP Devices">>]).
 -define(TAB, emqx_gcp_device).

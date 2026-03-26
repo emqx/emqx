@@ -9,7 +9,7 @@
 -include("emqx_gateway_http.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
--include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -import(emqx_dashboard_swagger, [error_codes/2]).
 -import(hoconsc, [mk/2, ref/2]).

@@ -8,7 +8,7 @@
 
 -include("emqx_retainer.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% API
 -export([api_spec/0, paths/0, schema/1, namespace/0, fields/1]).
