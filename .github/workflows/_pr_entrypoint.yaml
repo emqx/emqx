@@ -112,6 +112,9 @@ jobs:
       - name: Check apps version
         run: |
           ./scripts/apps-version-check.sh
+      - name: Check API module scopes
+        run: |
+          ./scripts/check-api-scopes.sh
       - name: Setup mix
         run: |
           # mix local.hex --force --if-missing && mix local.rebar --force --if-missing

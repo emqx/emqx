@@ -37,7 +37,8 @@ groups() ->
             t_validate_scopes,
             t_validate_scopes_bad_input,
             t_is_denied_scope,
-            t_all_modules_have_scopes
+            t_all_modules_have_scopes,
+            t_all_endpoints_covered_by_scopes
         ]},
         {integration_tests, [parallel], [
             t_authorize_with_scopes,
@@ -220,6 +221,44 @@ t_all_modules_have_scopes(_Config) ->
         PathToScope
     ),
     emqx_mgmt_api_key_scopes:clear_cache().
+
+t_all_endpoints_covered_by_scopes(_Config) ->
+    emqx_mgmt_api_key_scopes:init_cache(),
+    PathToScope = emqx_mgmt_api_key_scopes:collect_scopes_from_modules(),
+    Modules = emqx_mgmt_api_key_scopes:find_api_modules(),
+    AllDeclaredPaths = lists:usort(
+        lists:flatmap(
+            fun(M) ->
+                try
+                    [path_to_binary(P) || P <- apply(M, paths, [])]
+                catch
+                    _:_ -> []
+                end
+            end,
+            Modules
+        )
+    ),
+    MappedPaths = lists:sort(maps:keys(PathToScope)),
+    Uncovered = AllDeclaredPaths -- MappedPaths,
+    ?assertEqual(
+        [],
+        Uncovered,
+        lists:flatten(
+            io_lib:format(
+                "~p endpoint path(s) not covered by any scope: ~p",
+                [length(Uncovered), Uncovered]
+            )
+        )
+    ),
+    emqx_mgmt_api_key_scopes:clear_cache().
+
+path_to_binary(P) when is_binary(P) ->
+    case P of
+        <<"/", _/binary>> -> P;
+        _ -> <<"/", P/binary>>
+    end;
+path_to_binary(P) when is_list(P) ->
+    path_to_binary(iolist_to_binary(filename:join("/", P))).
 
 %%--------------------------------------------------------------------
 %% Integration tests

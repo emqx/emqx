@@ -35,7 +35,8 @@ affecting user-facing API key configurations.
 
 -ifdef(TEST).
 -export([
-    collect_scopes_from_modules/0
+    collect_scopes_from_modules/0,
+    find_api_modules/0
 ]).
 -endif.
 
