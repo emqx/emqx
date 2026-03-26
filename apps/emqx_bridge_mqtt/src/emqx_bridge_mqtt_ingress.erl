@@ -252,30 +252,9 @@ unsubscribe_channel_helper(
     TopicToHandlerIndex
 ) ->
     IngressList = maps:get(ingress_list, IngressConfig, []),
-    unsubscribe_remote_topics(
-        Client,
-        IngressList,
-        WorkerIdx,
-        PoolSize,
-        Name,
-        ChannelId,
-        SubscriptionIdToHandlerIndex,
-        TopicToHandlerIndex
-    ).
-
-unsubscribe_remote_topics(
-    Pid,
-    IngressList,
-    WorkerIdx,
-    PoolSize,
-    Name,
-    ChannelId,
-    SubscriptionIdToHandlerIndex,
-    TopicToHandlerIndex
-) ->
     [
         unsubscribe_remote_topic(
-            Pid,
+            Client,
             Ingress,
             WorkerIdx,
             PoolSize,
