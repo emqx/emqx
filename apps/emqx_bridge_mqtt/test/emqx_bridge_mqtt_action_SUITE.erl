@@ -719,18 +719,22 @@ t_reconnect(TCConfig) ->
             {201, _} = create_connector_api(TCConfig, #{
                 <<"pool_size">> => PoolSize
             }),
-            NBin = atom_to_binary(node()),
+            ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
             ?retry(
                 500,
                 20,
-                ?assertMatch(
-                    #{NBin := #{<<"live_connections.count">> := PoolSize}},
-                    get_stats_api()
-                )
+                ?assertEqual(PoolSize, length(get_emqtt_clients(ConnResId)))
             ),
-            ClientIds0 = emqx_cm:all_client_ids(),
+            ClientIds0 =
+                lists:sort(
+                    [
+                        proplists:get_value(clientid, emqtt:info(Client))
+                     || Client <- get_emqtt_clients(ConnResId)
+                    ]
+                ),
             ClientIds = lists:droplast(ClientIds0),
-            ChanPids0 = emqx_cm:all_channels(),
+            ChanPids0 =
+                lists:sort(lists:flatmap(fun emqx_cm:lookup_channels/1, ClientIds0)),
             ChanPids = lists:droplast(ChanPids0),
             lists:foreach(fun(Pid) -> monitor(process, Pid) end, ChanPids),
             ct:pal("kicking ~p (leaving 1 client alive)", [ClientIds]),
@@ -742,12 +746,8 @@ t_reconnect(TCConfig) ->
             ?retry(
                 500,
                 20,
-                ?assertMatch(
-                    #{NBin := #{<<"live_connections.count">> := PoolSize}},
-                    get_stats_api()
-                )
+                ?assertEqual(PoolSize, length(get_emqtt_clients(ConnResId)))
             ),
-            ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
             ?assertEqual(PoolSize, length(ecpool:workers(ConnResId))),
             ?retry(500, 40, ?assertEqual(PoolSize, length(get_emqtt_clients(ConnResId)))),
             ok
