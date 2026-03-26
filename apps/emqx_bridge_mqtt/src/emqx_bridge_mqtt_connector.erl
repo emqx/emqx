@@ -334,12 +334,8 @@ on_stop(ResourceId, State) ->
             _ ->
                 #{}
         end,
-    case maps:get(subscription_id_to_handler_index, StateMap, undefined) of
-        undefined ->
-            ok;
-        SubscriptionIdToHandlerIndex ->
-            maybe_delete_subscription_id_index(SubscriptionIdToHandlerIndex)
-    end,
+    SubscriptionIdToHandlerIndex = maps:get(subscription_id_to_handler_index, StateMap, undefined),
+    ok = maybe_delete_subscription_id_index(SubscriptionIdToHandlerIndex),
     case maps:get(topic_to_handler_index, StateMap, undefined) of
         undefined ->
             ok;
@@ -685,17 +681,17 @@ mk_emqtt_client_opts(
     ClientId = maps:get(clientid, ClientidInfo),
     Username = maps:get(username, ClientidInfo, undefined),
     Password = maps:get(password, ClientidInfo, undefined),
-    ClientOpts1 = ClientOpts0#{clientid := ClientId},
-    ClientOpts1a = ClientOpts1#{
+    ClientOpts1 = ClientOpts0#{
+        clientid := ClientId,
         msg_handler =>
             mk_client_event_handler(Name, SubscriptionIdToHandlerIndex, TopicToHandlerIndex)
     },
     ClientOpts2 =
         case Username /= undefined of
             true ->
-                ClientOpts1a#{username => Username};
+                ClientOpts1#{username => Username};
             false ->
-                maps:remove(username, ClientOpts1a)
+                maps:remove(username, ClientOpts1)
         end,
     case Password /= undefined of
         true ->
