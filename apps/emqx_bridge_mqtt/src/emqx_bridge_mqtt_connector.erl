@@ -107,6 +107,18 @@ on_start(ResourceId, #{server := Server} = Conf) ->
     },
     case start_mqtt_clients(ResourceId, StartConf) of
         {ok, Result1} ->
+            ok = emqx_resource:allocate_resource(
+                ResourceId,
+                ?MODULE,
+                subscription_id_to_handler_index,
+                SubscriptionIdToHandlerIndex
+            ),
+            ok = emqx_resource:allocate_resource(
+                ResourceId,
+                ?MODULE,
+                topic_to_handler_index,
+                TopicToHandlerIndex
+            ),
             {ok, Result1#{
                 installed_channels => #{},
                 clean_start => maps:get(clean_start, Conf),
@@ -335,28 +347,22 @@ get_available_clientid_info(#{} = Conf, ClientOpts) ->
             )
     end.
 
-on_stop(ResourceId, State) ->
+on_stop(ResourceId, _State) ->
     ?SLOG(info, #{
         msg => "stopping_mqtt_connector",
         resource_id => ResourceId
     }),
-    %% on_stop can be called with State = undefined
-    StateMap =
-        case State of
-            Map when is_map(State) ->
-                Map;
-            _ ->
-                #{}
-        end,
-    SubscriptionIdToHandlerIndex = maps:get(subscription_id_to_handler_index, StateMap, undefined),
+    Allocated = emqx_resource:get_allocated_resources(ResourceId),
+    SubscriptionIdToHandlerIndex = maps:get(
+        subscription_id_to_handler_index, Allocated, undefined
+    ),
     ok = maybe_delete_subscription_id_index(SubscriptionIdToHandlerIndex),
-    case maps:get(topic_to_handler_index, StateMap, undefined) of
+    case maps:get(topic_to_handler_index, Allocated, undefined) of
         undefined ->
             ok;
         TopicToHandlerIndex ->
             ets:delete(TopicToHandlerIndex)
     end,
-    Allocated = emqx_resource:get_allocated_resources(ResourceId),
     ok = stop_helper(Allocated),
     ?tp(mqtt_connector_stopped, #{instance_id => ResourceId}),
     ok.
