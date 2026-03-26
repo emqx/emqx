@@ -10,6 +10,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx/include/http_api.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 %% `minirest' and `minirest_trails' API
 -export([
@@ -19,6 +20,8 @@
     paths/0,
     schema/1
 ]).
+
+-export([scopes/0]).
 
 %% `minirest' handlers
 -export([
@@ -51,6 +54,8 @@ namespace() -> "message_transformation_http_api".
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
+scopes() -> ?SCOPE_DATA_INTEGRATION.
+
 paths() ->
     [
         "/message_transformations",
@@ -62,7 +67,6 @@ paths() ->
         "/message_transformations/transformation/:name/enable/:enable"
     ].
 
-%% TODO: unify OpenAPI tag naming convention — use Title Case (e.g., <<"Rules">>) instead of lowercase
 schema("/message_transformations") ->
     #{
         'operationId' => '/message_transformations',

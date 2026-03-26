@@ -9,6 +9,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include("emqx_modules.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 
@@ -25,6 +26,8 @@
     schema/1,
     namespace/0
 ]).
+
+-export([scopes/0]).
 
 %% for rpc
 -export([update_config_/1]).
@@ -48,6 +51,8 @@ namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_CONNECTIONS.
 
 paths() ->
     [

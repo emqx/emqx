@@ -8,6 +8,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -import(hoconsc, [
     mk/2,
@@ -26,6 +27,8 @@
     namespace/0
 ]).
 
+-export([scopes/0]).
+
 -export([
     sp_saml_metadata/2,
     sp_saml_callback/2
@@ -34,9 +37,11 @@
 -define(REDIRECT, 'REDIRECT').
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
 -define(BACKEND_NOT_FOUND, 'BACKEND_NOT_FOUND').
--define(TAGS, <<"Dashboard Single Sign-On">>).
+-define(TAGS, [<<"Dashboard SSO">>]).
 
 namespace() -> "dashboard_sso".
+
+scopes() -> ?SCOPE_DENIED.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{
@@ -60,7 +65,7 @@ schema("/sso/saml/acs") ->
     #{
         'operationId' => sp_saml_callback,
         post => #{
-            tags => [?TAGS],
+            tags => ?TAGS,
             desc => ?DESC(saml_sso_acs),
             %% 'requestbody' => urlencoded_request_body(),
             responses => #{
@@ -75,7 +80,7 @@ schema("/sso/saml/metadata") ->
     #{
         'operationId' => sp_saml_metadata,
         get => #{
-            tags => [?TAGS],
+            tags => ?TAGS,
             desc => ?DESC(sp_saml_metadata),
             'requestbody' => saml_metadata_response(),
             responses => #{

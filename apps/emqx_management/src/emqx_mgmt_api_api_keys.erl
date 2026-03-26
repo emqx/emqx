@@ -8,13 +8,19 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -export([api_spec/0, fields/1, paths/0, schema/1, namespace/0]).
 -export([api_key/2, api_key_by_name/2, api_key_scopes/2]).
 -export([validate_name/1]).
+
+-export([scopes/0]).
+
 -define(TAGS, [<<"API Keys">>]).
 
 namespace() -> "api_key".
+
+scopes() -> ?SCOPE_DENIED.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
@@ -183,25 +189,6 @@ fields(scope_info) ->
                 binary(),
                 #{
                     desc => ?DESC(scope_info_name),
-                    example => <<"clients">>
-                }
-            )},
-        {paths,
-            hoconsc:mk(
-                hoconsc:array(binary()),
-                #{
-                    desc => ?DESC(scope_info_paths),
-                    example => [<<"/clients">>, <<"/clients/:clientid">>]
-                }
-            )}
-    ];
-fields(preset_group) ->
-    [
-        {name,
-            hoconsc:mk(
-                binary(),
-                #{
-                    desc => ?DESC(preset_group_name),
                     example => <<"connections">>
                 }
             )},
@@ -209,28 +196,16 @@ fields(preset_group) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => ?DESC(preset_group_desc),
-                    example => <<"Client connections, subscriptions, topics, publish, and banning">>
-                }
-            )},
-        {scopes,
-            hoconsc:mk(
-                hoconsc:array(binary()),
-                #{
-                    desc => ?DESC(preset_group_scopes),
-                    example => [<<"clients">>, <<"subscriptions">>, <<"topics">>]
+                    desc => ?DESC(scope_info_desc),
+                    example => <<
+                        "Client connections, subscriptions, topics, banning, "
+                        "retained messages, file transfer, and delayed messages"
+                    >>
                 }
             )}
     ];
 fields(scopes_response) ->
     [
-        {groups,
-            hoconsc:mk(
-                hoconsc:array(hoconsc:ref(preset_group)),
-                #{
-                    desc => ?DESC(scopes_response_groups)
-                }
-            )},
         {scopes,
             hoconsc:mk(
                 hoconsc:array(hoconsc:ref(scope_info)),
@@ -324,8 +299,7 @@ ensure_expired_at(_) -> infinity.
 
 api_key_scopes(get, _) ->
     {200, #{
-        groups => emqx_mgmt_api_key_scopes:preset_groups(),
-        scopes => emqx_mgmt_api_key_scopes:available_scopes()
+        scopes => emqx_mgmt_api_key_scopes:scope_catalogue()
     }}.
 
 validate_scopes(undefined) ->

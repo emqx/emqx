@@ -289,24 +289,24 @@ check_scopes_for_path(Extra, Path) ->
 check_path_in_scopes(_Path, []) ->
     {error, unauthorized_role};
 check_path_in_scopes(Path, Scopes) ->
-    PathScopes = emqx_mgmt_api_key_scopes:path_to_scopes(Path),
-    case PathScopes of
-        [] ->
+    case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
+        undefined ->
             %% Path not mapped to any scope — allow access
             %% (e.g., status, prometheus, or other public endpoints)
             ok;
-        _ ->
-            case lists:any(fun(S) -> lists:member(S, Scopes) end, PathScopes) of
+        PathScope ->
+            case lists:member(PathScope, Scopes) of
                 true -> ok;
                 false -> {error, unauthorized_role}
             end
     end.
 
 %% @doc Check if a path belongs to a denied scope.
-%% Uses the full (unfiltered) path_to_scopes mapping from cache.
 is_denied_path(Path) ->
-    PathScopes = emqx_mgmt_api_key_scopes:path_to_scopes(Path),
-    lists:any(fun emqx_mgmt_api_key_scopes:is_denied_scope/1, PathScopes).
+    case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
+        undefined -> false;
+        Scope -> emqx_mgmt_api_key_scopes:is_denied_scope(Scope)
+    end.
 
 get_scopes(#{scopes := Scopes}) when is_list(Scopes) ->
     Scopes;

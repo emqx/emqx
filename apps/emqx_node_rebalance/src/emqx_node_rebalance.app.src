@@ -1,6 +1,6 @@
 {application, emqx_node_rebalance, [
     {description, "EMQX Node Rebalance"},
-    {vsn, "5.0.12"},
+    {vsn, "5.0.13"},
     {registered, [
         emqx_node_rebalance_sup,
         emqx_node_rebalance,

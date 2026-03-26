@@ -9,6 +9,7 @@
 -include_lib("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -16,12 +17,16 @@
     schema/1
 ]).
 
+-export([scopes/0]).
+
 -export([settings/2]).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_ACCESS_CONTROL.
 
 paths() ->
     ["/authorization/settings"].
@@ -35,12 +40,14 @@ schema("/authorization/settings") ->
         'operationId' => settings,
         get =>
             #{
+                tags => [<<"Authorization">>],
                 description => ?DESC(authorization_settings_get),
                 responses =>
                     #{200 => ref_authz_schema()}
             },
         put =>
             #{
+                tags => [<<"Authorization">>],
                 description => ?DESC(authorization_settings_put),
                 'requestBody' => ref_authz_schema(),
                 responses =>

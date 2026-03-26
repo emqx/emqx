@@ -9,6 +9,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/http_api.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -export([
     namespace/0,
@@ -16,6 +17,8 @@
     paths/0,
     schema/1
 ]).
+
+-export([scopes/0]).
 
 -export([
     '/schema_registry'/2,
@@ -43,6 +46,8 @@ namespace() -> "schema_registry_http_api".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_DATA_INTEGRATION.
 
 paths() ->
     [

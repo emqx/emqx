@@ -12,6 +12,7 @@
 -include_lib("emqx_bridge/include/emqx_bridge.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge_proto.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
 
@@ -22,6 +23,8 @@
     schema/1,
     namespace/0
 ]).
+
+-export([scopes/0]).
 
 %% API callbacks
 -export([
@@ -76,6 +79,8 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{
         check_schema => fun emqx_dashboard_swagger:validate_content_type_json/2
     }).
+
+scopes() -> ?SCOPE_DATA_INTEGRATION.
 
 paths() ->
     [
@@ -281,12 +286,11 @@ mqtt_ingress_example() ->
         }
     }.
 
-%% TODO: unify OpenAPI tag naming convention — use Title Case (e.g., <<"Bridges">>) instead of lowercase
 schema("/bridges") ->
     #{
         'operationId' => '/bridges',
         get => #{
-            tags => [<<"bridges">>],
+            tags => [<<"Bridges">>],
             summary => <<"List bridges">>,
             description => ?DESC("desc_api1"),
             responses => #{
@@ -297,7 +301,7 @@ schema("/bridges") ->
             }
         },
         post => #{
-            tags => [<<"bridges">>],
+            tags => [<<"Bridges">>],
             summary => <<"Create bridge">>,
             description => ?DESC("desc_api2"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -314,7 +318,7 @@ schema("/bridges/:id") ->
     #{
         'operationId' => '/bridges/:id',
         get => #{
-            tags => [<<"bridges">>],
+            tags => [<<"Bridges">>],
             summary => <<"Get bridge">>,
             description => ?DESC("desc_api3"),
             parameters => [param_path_id()],
@@ -324,7 +328,7 @@ schema("/bridges/:id") ->
             }
         },
         put => #{
-            tags => [<<"bridges">>],
+            tags => [<<"Bridges">>],
             summary => <<"Update bridge">>,
             description => ?DESC("desc_api4"),
             parameters => [param_path_id()],
@@ -339,7 +343,7 @@ schema("/bridges/:id") ->
             }
         },
         delete => #{
-            tags => [<<"bridges">>],
+            tags => [<<"Bridges">>],
             summary => <<"Delete bridge">>,
             description => ?DESC("desc_api5"),
             parameters => [param_path_id()],
@@ -359,7 +363,7 @@ schema("/bridges/:id/metrics") ->
     #{
         'operationId' => '/bridges/:id/metrics',
         get => #{
-            tags => [<<"bridges">>],
+            tags => [<<"Bridges">>],
             summary => <<"Get bridge metrics">>,
             description => ?DESC("desc_bridge_metrics"),
             parameters => [param_path_id()],
@@ -373,7 +377,7 @@ schema("/bridges/:id/metrics/reset") ->
     #{
         'operationId' => '/bridges/:id/metrics/reset',
         put => #{
-            tags => [<<"bridges">>],
+            tags => [<<"Bridges">>],
             summary => <<"Reset bridge metrics">>,
             description => ?DESC("desc_api6"),
             parameters => [param_path_id()],
@@ -388,7 +392,7 @@ schema("/bridges/:id/enable/:enable") ->
         'operationId' => '/bridges/:id/enable/:enable',
         put =>
             #{
-                tags => [<<"bridges">>],
+                tags => [<<"Bridges">>],
                 summary => <<"Enable or disable bridge">>,
                 desc => ?DESC("desc_enable_bridge"),
                 parameters => [param_path_id(), param_path_enable()],
@@ -405,7 +409,7 @@ schema("/bridges/:id/:operation") ->
     #{
         'operationId' => '/bridges/:id/:operation',
         post => #{
-            tags => [<<"bridges">>],
+            tags => [<<"Bridges">>],
             summary => <<"Stop or restart bridge">>,
             description => ?DESC("desc_api7"),
             parameters => [
@@ -425,7 +429,7 @@ schema("/nodes/:node/bridges/:id/:operation") ->
     #{
         'operationId' => '/nodes/:node/bridges/:id/:operation',
         post => #{
-            tags => [<<"bridges">>],
+            tags => [<<"Bridges">>],
             summary => <<"Stop/restart bridge">>,
             description => ?DESC("desc_api8"),
             parameters => [
@@ -446,7 +450,7 @@ schema("/bridges_probe") ->
     #{
         'operationId' => '/bridges_probe',
         post => #{
-            tags => [<<"bridges">>],
+            tags => [<<"Bridges">>],
             desc => ?DESC("desc_api9"),
             summary => <<"Test creating bridge">>,
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(

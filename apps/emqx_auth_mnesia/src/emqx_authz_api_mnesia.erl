@@ -10,6 +10,7 @@
 -include_lib("emqx_auth/include/emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/1, mk/2, ref/1, ref/2, array/1, enum/1]).
 
@@ -26,6 +27,8 @@
     fields/1,
     namespace/0
 ]).
+
+-export([scopes/0]).
 
 %% operation funs
 -export([
@@ -63,6 +66,8 @@ namespace() -> undefined.
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
+scopes() -> ?SCOPE_ACCESS_CONTROL.
+
 paths() ->
     [
         "/authorization/sources/built_in_database/rules/users",
@@ -77,14 +82,13 @@ paths() ->
 %% Schema for each URI
 %%--------------------------------------------------------------------
 
-%% TODO: unify OpenAPI tag naming convention — use Title Case (e.g., <<"Rules">>) instead of lowercase
 schema("/authorization/sources/built_in_database/rules/users") ->
     #{
         'operationId' => users,
         filter => fun ?MODULE:is_configured_authz_source/2,
         get =>
             #{
-                tags => [<<"authorization">>],
+                tags => [<<"Authorization">>],
                 description => ?DESC(users_username_get),
                 parameters =>
                     [
@@ -107,7 +111,7 @@ schema("/authorization/sources/built_in_database/rules/users") ->
             },
         post =>
             #{
-                tags => [<<"authorization">>],
+                tags => [<<"Authorization">>],
                 description => ?DESC(users_username_post),
                 'requestBody' => swagger_with_example(
                     {rules_for_username, ?TYPE_ARRAY},
@@ -131,7 +135,7 @@ schema("/authorization/sources/built_in_database/rules/clients") ->
         filter => fun ?MODULE:is_configured_authz_source/2,
         get =>
             #{
-                tags => [<<"authorization">>],
+                tags => [<<"Authorization">>],
                 description => ?DESC(users_clientid_get),
                 parameters =>
                     [
@@ -157,7 +161,7 @@ schema("/authorization/sources/built_in_database/rules/clients") ->
             },
         post =>
             #{
-                tags => [<<"authorization">>],
+                tags => [<<"Authorization">>],
                 description => ?DESC(users_clientid_post),
                 'requestBody' => swagger_with_example(
                     {rules_for_clientid, ?TYPE_ARRAY},
@@ -178,7 +182,7 @@ schema("/authorization/sources/built_in_database/rules/users/:username") ->
         filter => fun ?MODULE:is_configured_authz_source/2,
         get =>
             #{
-                tags => [<<"authorization">>],
+                tags => [<<"Authorization">>],
                 description => ?DESC(user_username_get),
                 parameters => [ref(username)],
                 responses =>
@@ -194,7 +198,7 @@ schema("/authorization/sources/built_in_database/rules/users/:username") ->
             },
         put =>
             #{
-                tags => [<<"authorization">>],
+                tags => [<<"Authorization">>],
                 description => ?DESC(user_username_put),
                 parameters => [ref(username)],
                 'requestBody' => swagger_with_example(
@@ -211,7 +215,7 @@ schema("/authorization/sources/built_in_database/rules/users/:username") ->
             },
         delete =>
             #{
-                tags => [<<"authorization">>],
+                tags => [<<"Authorization">>],
                 description => ?DESC(user_username_delete),
                 parameters => [ref(username)],
                 responses =>
@@ -232,7 +236,7 @@ schema("/authorization/sources/built_in_database/rules/clients/:clientid") ->
         filter => fun ?MODULE:is_configured_authz_source/2,
         get =>
             #{
-                tags => [<<"authorization">>],
+                tags => [<<"Authorization">>],
                 description => ?DESC(user_clientid_get),
                 parameters => [ref(clientid)],
                 responses =>
@@ -248,7 +252,7 @@ schema("/authorization/sources/built_in_database/rules/clients/:clientid") ->
             },
         put =>
             #{
-                tags => [<<"authorization">>],
+                tags => [<<"Authorization">>],
                 description => ?DESC(user_clientid_put),
                 parameters => [ref(clientid)],
                 'requestBody' => swagger_with_example(
@@ -265,7 +269,7 @@ schema("/authorization/sources/built_in_database/rules/clients/:clientid") ->
             },
         delete =>
             #{
-                tags => [<<"authorization">>],
+                tags => [<<"Authorization">>],
                 description => ?DESC(user_clientid_delete),
                 parameters => [ref(clientid)],
                 responses =>
@@ -286,14 +290,14 @@ schema("/authorization/sources/built_in_database/rules/all") ->
         filter => fun ?MODULE:is_configured_authz_source/2,
         get =>
             #{
-                tags => [<<"authorization">>],
+                tags => [<<"Authorization">>],
                 description => ?DESC(rules_all_get),
                 responses =>
                     #{200 => swagger_with_example({rules, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE})}
             },
         post =>
             #{
-                tags => [<<"authorization">>],
+                tags => [<<"Authorization">>],
                 description => ?DESC(rules_all_post),
                 'requestBody' =>
                     swagger_with_example({rules, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE}),
@@ -307,7 +311,7 @@ schema("/authorization/sources/built_in_database/rules/all") ->
             },
         delete =>
             #{
-                tags => [<<"authorization">>],
+                tags => [<<"Authorization">>],
                 description => ?DESC(rules_all_delete),
                 responses =>
                     #{
@@ -321,7 +325,7 @@ schema("/authorization/sources/built_in_database/rules") ->
         filter => fun ?MODULE:is_configured_authz_source/2,
         delete =>
             #{
-                tags => [<<"authorization">>],
+                tags => [<<"Authorization">>],
                 description => ?DESC(rules_delete),
                 responses =>
                     #{

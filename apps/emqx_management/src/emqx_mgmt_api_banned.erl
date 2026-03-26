@@ -11,6 +11,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 -include("emqx_mgmt.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -behaviour(minirest_api).
 
@@ -21,6 +22,8 @@
     fields/1,
     namespace/0
 ]).
+
+-export([scopes/0]).
 
 -export([qs2ms/2, run_fuzzy_filter/2, format/1]).
 
@@ -50,6 +53,8 @@ namespace() ->
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
+
+scopes() -> ?SCOPE_CONNECTIONS.
 
 paths() ->
     ["/banned", "/banned/:as/:who"].

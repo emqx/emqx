@@ -9,6 +9,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -define(DESC_BAD_REQUEST, <<"Erroneous request">>).
 -define(RESP_BAD_REQUEST(MSG),
@@ -44,6 +45,8 @@
     namespace/0
 ]).
 
+-export([scopes/0]).
+
 -export([
     fields/1,
     roots/0
@@ -72,6 +75,8 @@ api_spec() ->
         check_schema => true,
         filter => fun ?MODULE:check_enabled/2
     }).
+
+scopes() -> ?SCOPE_CONNECTIONS.
 
 paths() ->
     [
@@ -241,8 +246,8 @@ resp_create_durable_queue() ->
         durable_queue_get_example()
     ).
 
-validate_queue_id(Id) ->
-    case emqx_topic:words(Id) of
+validate_queue_id(ID) ->
+    case emqx_topic:words(ID) of
         [Segment] when is_binary(Segment) -> true;
         _ -> {error, <<"Invalid queue id">>}
     end.

@@ -9,6 +9,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/http_api.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 %% Swagger specs from hocon schema
 -export([
@@ -43,6 +44,8 @@
     translate/2
 ]).
 
+-export([scopes/0]).
+
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
 
@@ -55,6 +58,8 @@
 %%--------------------------------------------------------------------
 
 namespace() -> "load_rebalance".
+
+scopes() -> ?SCOPE_CLUSTER_OPERATIONS.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).

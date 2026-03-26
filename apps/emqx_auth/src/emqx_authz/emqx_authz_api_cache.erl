@@ -8,12 +8,15 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include("emqx_authz.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
     paths/0,
     schema/1
 ]).
+
+-export([scopes/0]).
 
 -export([
     fields/1,
@@ -36,6 +39,8 @@
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
+scopes() -> ?SCOPE_ACCESS_CONTROL.
+
 paths() ->
     [
         "/authorization/cache",
@@ -53,6 +58,7 @@ schema("/authorization/cache") ->
         'operationId' => clean_cache,
         delete =>
             #{
+                tags => [<<"Authorization">>],
                 description => ?DESC(authorization_cache_delete),
                 responses =>
                     #{
@@ -65,6 +71,7 @@ schema("/authorization/node_cache") ->
     #{
         'operationId' => node_cache,
         get => #{
+            tags => [<<"Authorization">>],
             description => ?DESC(authorization_node_cache_get),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -74,6 +81,7 @@ schema("/authorization/node_cache") ->
             }
         },
         put => #{
+            tags => [<<"Authorization">>],
             description => ?DESC(authorization_node_cache_put),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 ref(?MODULE, response_authz_node_cache),
@@ -89,6 +97,7 @@ schema("/authorization/node_cache/status") ->
     #{
         'operationId' => node_cache_status,
         get => #{
+            tags => [<<"Authorization">>],
             description => ?DESC(authorization_node_cache_status_get),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -104,6 +113,7 @@ schema("/authorization/node_cache/reset") ->
         'operationId' => node_cache_reset,
         post =>
             #{
+                tags => [<<"Authorization">>],
                 description => ?DESC(authorization_node_cache_reset_post),
                 responses =>
                     #{

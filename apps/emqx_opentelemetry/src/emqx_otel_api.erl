@@ -7,6 +7,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/http_api.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -16,10 +17,14 @@
 
 -export([config/2]).
 
--define(TAGS, [<<"Monitor">>]).
+-export([scopes/0]).
+
+-define(TAGS, [<<"Opentelemetry">>]).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_SYSTEM.
 
 paths() ->
     [

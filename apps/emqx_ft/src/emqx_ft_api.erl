@@ -8,6 +8,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include("emqx_ft_api.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 %% Swagger specs from hocon schema
 -export([
@@ -16,6 +17,8 @@
     schema/1,
     namespace/0
 ]).
+
+-export([scopes/0]).
 
 -export([
     roots/0,
@@ -40,6 +43,8 @@ namespace() -> "file_transfer".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_CONNECTIONS.
 
 paths() ->
     [

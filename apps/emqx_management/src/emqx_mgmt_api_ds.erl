@@ -45,6 +45,8 @@
     check_db_exists/2
 ]).
 
+-export([scopes/0]).
+
 -type sites_shard() :: #{
     storage := emqx_ds:db(),
     id := binary(),
@@ -57,6 +59,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/http_api.hrl").
 -include_lib("emqx/include/emqx_persistent_message.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -70,6 +73,8 @@
 
 namespace() ->
     undefined.
+
+scopes() -> ?SCOPE_SYSTEM.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{

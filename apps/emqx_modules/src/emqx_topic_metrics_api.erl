@@ -9,6 +9,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include("emqx_modules.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -import(
     hoconsc,
@@ -39,6 +40,8 @@
     namespace/0
 ]).
 
+-export([scopes/0]).
+
 -define(EXCEED_LIMIT, 'EXCEED_LIMIT').
 -define(BAD_TOPIC, 'BAD_TOPIC').
 -define(TOPIC_NOT_FOUND, 'TOPIC_NOT_FOUND').
@@ -48,6 +51,8 @@ namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_CONNECTIONS.
 
 paths() ->
     [
@@ -419,22 +424,20 @@ reset() ->
 
 reset(Topic) ->
     Nodes = mria:running_nodes(),
-    case emqx_topic_metrics_proto_v1:reset(Nodes, Topic) of
-        {SuccResList, []} ->
-            case
-                lists:filter(
-                    fun
-                        ({error, _}) -> true;
-                        (_) -> false
-                    end,
-                    SuccResList
-                )
-            of
-                [{error, Reason} | _] ->
-                    {error, Reason};
-                [] ->
-                    ok
-            end
+    {SuccResList, []} = emqx_topic_metrics_proto_v1:reset(Nodes, Topic),
+    case
+        lists:filter(
+            fun
+                ({error, _}) -> true;
+                (_) -> false
+            end,
+            SuccResList
+        )
+    of
+        [{error, Reason} | _] ->
+            {error, Reason};
+        [] ->
+            ok
     end.
 
 %%--------------------------------------------------------------------

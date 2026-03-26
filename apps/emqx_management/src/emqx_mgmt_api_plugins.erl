@@ -9,6 +9,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_plugins/include/emqx_plugins.hrl").
 -include_lib("erlavro/include/erlavro.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -17,6 +18,8 @@
     schema/1,
     namespace/0
 ]).
+
+-export([scopes/0]).
 
 -export([
     list_plugins/2,
@@ -55,6 +58,8 @@
 
 namespace() ->
     "plugins".
+
+scopes() -> ?SCOPE_SYSTEM.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).

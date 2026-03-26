@@ -9,6 +9,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/emqx_external_trace.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -define(ALL_IS_WELL, 200).
 -define(PARTIALLY_OK, 202).
@@ -25,6 +26,8 @@
     namespace/0
 ]).
 
+-export([scopes/0]).
+
 -export([
     publish/2,
     publish_batch/2
@@ -34,6 +37,8 @@ namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
+
+scopes() -> ?SCOPE_PUBLISH.
 
 paths() ->
     ["/publish", "/publish/bulk"].

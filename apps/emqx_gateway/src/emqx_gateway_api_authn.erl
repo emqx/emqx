@@ -9,6 +9,7 @@
 -include("emqx_gateway_http.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/2, ref/2]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
@@ -29,6 +30,8 @@
     schema/1
 ]).
 
+-export([scopes/0]).
+
 %% http handlers
 -export([
     authn/2,
@@ -47,6 +50,8 @@
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_GATEWAYS.
 
 paths() ->
     [

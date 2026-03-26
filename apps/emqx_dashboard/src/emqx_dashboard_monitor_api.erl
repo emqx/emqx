@@ -9,6 +9,7 @@
 -include_lib("hocon/include/hocon_types.hrl").
 -include_lib("emqx/include/http_api.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -behaviour(minirest_api).
 
@@ -26,7 +27,11 @@
     monitor_current/2
 ]).
 
+-export([scopes/0]).
+
 namespace() -> undefined.
+
+scopes() -> ?SCOPE_MONITORING.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).

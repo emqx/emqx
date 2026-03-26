@@ -8,6 +8,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -import(hoconsc, [
     mk/2,
@@ -26,6 +27,8 @@
     namespace/0
 ]).
 
+-export([scopes/0]).
+
 -export([
     running/2,
     login/2,
@@ -39,10 +42,12 @@
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(BACKEND_NOT_FOUND, 'BACKEND_NOT_FOUND').
--define(TAGS, <<"Dashboard Single Sign-On">>).
+-define(TAGS, [<<"Dashboard SSO">>]).
 -define(MOD_KEY_PATH, [dashboard, sso]).
 
 namespace() -> "dashboard_sso".
+
+scopes() -> ?SCOPE_DENIED.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
@@ -59,7 +64,7 @@ schema("/sso/running") ->
     #{
         'operationId' => running,
         get => #{
-            tags => [?TAGS],
+            tags => ?TAGS,
             desc => ?DESC(list_running),
             responses => #{
                 200 => array(enum(emqx_dashboard_sso:types()))
@@ -71,7 +76,7 @@ schema("/sso") ->
     #{
         'operationId' => sso,
         get => #{
-            tags => [?TAGS],
+            tags => ?TAGS,
             desc => ?DESC(get_sso),
             responses => #{
                 200 => array(ref(backend_status))
@@ -85,7 +90,7 @@ schema("/sso/login/:backend") ->
     #{
         'operationId' => login,
         post => #{
-            tags => [?TAGS],
+            tags => ?TAGS,
             desc => ?DESC(login),
             parameters => backend_name_in_path(),
             'requestBody' => login_union(),
@@ -103,7 +108,7 @@ schema("/sso/:backend") ->
     #{
         'operationId' => backend,
         get => #{
-            tags => [?TAGS],
+            tags => ?TAGS,
             desc => ?DESC(get_backend),
             parameters => backend_name_in_path(),
             responses => #{
@@ -112,7 +117,7 @@ schema("/sso/:backend") ->
             }
         },
         put => #{
-            tags => [?TAGS],
+            tags => ?TAGS,
             desc => ?DESC(update_backend),
             parameters => backend_name_in_path(),
             'requestBody' => backend_union(),
@@ -122,7 +127,7 @@ schema("/sso/:backend") ->
             }
         },
         delete => #{
-            tags => [?TAGS],
+            tags => ?TAGS,
             desc => ?DESC(delete_backend),
             parameters => backend_name_in_path(),
             responses => #{

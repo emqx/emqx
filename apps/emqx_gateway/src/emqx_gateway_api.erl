@@ -7,6 +7,7 @@
 -include("emqx_gateway_http.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -behaviour(minirest_api).
 
@@ -17,6 +18,8 @@
     schema/1,
     namespace/0
 ]).
+
+-export([scopes/0]).
 
 -export([
     roots/0,
@@ -42,6 +45,8 @@ namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_GATEWAYS.
 
 paths() ->
     [

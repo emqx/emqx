@@ -8,9 +8,12 @@
 
 -include("emqx_retainer.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 %% API
 -export([api_spec/0, paths/0, schema/1, namespace/0, fields/1]).
+
+-export([scopes/0]).
 
 -export([
     '/messages'/2,
@@ -24,13 +27,14 @@
 %% 1MB = 1024 x 1024
 -define(MAX_PAYLOAD_SIZE, 1048576).
 -define(PREFIX, "/mqtt/retainer").
-%% TODO: unify OpenAPI tag naming convention — use Title Case (e.g., <<"Rules">>) instead of lowercase
--define(TAGS, [<<"retainer">>]).
+-define(TAGS, [<<"Retainer">>]).
 
 namespace() -> "retainer".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_CONNECTIONS.
 
 paths() ->
     [

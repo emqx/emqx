@@ -8,6 +8,8 @@
 
 -export([namespace/0, api_spec/0, paths/0, schema/1, fields/1]).
 
+-export([scopes/0]).
+
 -export([
     listener_type_status/2,
     list_listeners/2,
@@ -34,11 +36,14 @@
 ]).
 
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -define(LISTENER_NOT_FOUND, <<"Listener id not found">>).
 -define(LISTENER_ID_INCONSISTENT, <<"Path and body's listener id not match">>).
 
 namespace() -> "listeners".
+
+scopes() -> ?SCOPE_SYSTEM.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -53,12 +58,11 @@ paths() ->
         "/listeners/:id/restart"
     ].
 
-%% TODO: unify OpenAPI tag naming convention — use Title Case (e.g., <<"Rules">>) instead of lowercase
 schema("/listeners_status") ->
     #{
         'operationId' => listener_type_status,
         get => #{
-            tags => [<<"listeners">>],
+            tags => [<<"Listeners">>],
             description => ?DESC(list_node_live_statuses),
             responses => #{
                 200 =>
@@ -73,7 +77,7 @@ schema("/listeners") ->
     #{
         'operationId' => list_listeners,
         get => #{
-            tags => [<<"listeners">>],
+            tags => [<<"Listeners">>],
             description => ?DESC(list_listeners),
             parameters => [
                 {type,
@@ -96,7 +100,7 @@ schema("/listeners") ->
             }
         },
         post => #{
-            tags => [<<"listeners">>],
+            tags => [<<"Listeners">>],
             description => ?DESC(create_on_all_nodes),
             parameters => [],
             'requestBody' => create_listener_schema(#{bind => true}),
@@ -110,7 +114,7 @@ schema("/listeners/:id") ->
     #{
         'operationId' => crud_listeners_by_id,
         get => #{
-            tags => [<<"listeners">>],
+            tags => [<<"Listeners">>],
             description => ?DESC(list_by_id),
             parameters => [?R_REF(listener_id)],
             responses => #{
@@ -119,7 +123,7 @@ schema("/listeners/:id") ->
             }
         },
         put => #{
-            tags => [<<"listeners">>],
+            tags => [<<"Listeners">>],
             description => ?DESC(update_lisener),
             parameters => [?R_REF(listener_id)],
             'requestBody' => listener_schema(#{bind => false}),
@@ -130,7 +134,7 @@ schema("/listeners/:id") ->
             }
         },
         post => #{
-            tags => [<<"listeners">>],
+            tags => [<<"Listeners">>],
             description => ?DESC(create_on_all_nodes),
             parameters => [?R_REF(listener_id)],
             'requestBody' => listener_schema(#{bind => true}),
@@ -141,7 +145,7 @@ schema("/listeners/:id") ->
             deprecated => true
         },
         delete => #{
-            tags => [<<"listeners">>],
+            tags => [<<"Listeners">>],
             description => ?DESC(delete_on_all_nodes),
             parameters => [?R_REF(listener_id)],
             responses => #{
@@ -154,7 +158,7 @@ schema("/listeners/:id/start") ->
     #{
         'operationId' => start_listeners_by_id,
         post => #{
-            tags => [<<"listeners">>],
+            tags => [<<"Listeners">>],
             description => ?DESC(start_on_all_nodes),
             parameters => [
                 ?R_REF(listener_id)
@@ -169,7 +173,7 @@ schema("/listeners/:id/stop") ->
     #{
         'operationId' => stop_listeners_by_id,
         post => #{
-            tags => [<<"listeners">>],
+            tags => [<<"Listeners">>],
             description => ?DESC(stop_on_all_nodes),
             parameters => [
                 ?R_REF(listener_id)
@@ -184,7 +188,7 @@ schema("/listeners/:id/restart") ->
     #{
         'operationId' => restart_listeners_by_id,
         post => #{
-            tags => [<<"listeners">>],
+            tags => [<<"Listeners">>],
             description => ?DESC(restart_on_all_nodes),
             parameters => [
                 ?R_REF(listener_id)

@@ -5,28 +5,31 @@
 -module(emqx_mgmt_api_key_scopes).
 
 -moduledoc """
-API Key scope definitions based on OpenAPI tags.
+API Key scope management.
 
-Scopes are derived from the `tags` field in each API module's schema.
-Each scope corresponds to a lowercase OpenAPI tag (e.g., <<"Clients">> → <<"clients">>).
-The module builds and caches a mapping from API paths to their scopes.
+Each minirest_api module declares its scope via a `scopes/0` callback
+that returns either a scope name binary (all paths share the same
+scope) or a `#{Path => ScopeName}` map (for modules whose endpoints
+span multiple scopes).
 
-Cache is stored in persistent_term and should be initialized once after
-the dashboard HTTP server has started (all API modules are loaded).
+This module collects those declarations, builds a path → scope cache,
+and exposes the user-visible scope catalogue.
+
+Scopes are decoupled from OpenAPI tags: scope names are stable
+identifiers defined in `emqx_mgmt_api_key_scopes.hrl`.  The internal
+mapping from paths to scopes can change across versions without
+affecting user-facing API key configurations.
 """.
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -export([
-    available_scopes/0,
-    path_to_scopes/1,
+    scope_catalogue/0,
+    path_to_scope/1,
     init_cache/0,
     clear_cache/0,
     validate_scopes/1,
-    preset_groups/0,
-    expand_groups/1,
-    all_preset_tags/0,
-    denied_scopes/0,
     is_denied_scope/1
 ]).
 
@@ -38,56 +41,114 @@ the dashboard HTTP server has started (all API modules are loaded).
 
 -define(CACHE_KEY, {?MODULE, scope_cache}).
 
--type scope_info() :: #{
-    name := binary(),
-    paths := [binary()]
-}.
-
 %%--------------------------------------------------------------------
-%% API
+%% Scope catalogue — user-visible scope list
 %%--------------------------------------------------------------------
-
-%% @doc Return all available scopes with their associated paths.
-%% Each scope is derived from the OpenAPI tags defined in API modules.
--doc "Return all available scopes with their associated paths.".
--spec available_scopes() -> [scope_info()].
-available_scopes() ->
-    case get_cache() of
-        undefined ->
-            %% Cache not initialized yet; build it on the fly
-            init_cache(),
-            get_available_scopes();
-        _ ->
-            get_available_scopes()
-    end.
 
 -doc """
-Given a request path (relative, e.g., <<"/clients/:clientid">>),
-return the list of scope names that cover this path.
+Return the catalogue of all user-visible scopes.
+Each entry has a `name` (the stable identifier stored in API key
+records) and a `desc` (human-readable description for the UI).
+
+The `$denied` scope is excluded — it is internal-only.
 """.
--spec path_to_scopes(binary()) -> [binary()].
-path_to_scopes(Path) ->
+-spec scope_catalogue() ->
+    [#{name := binary(), desc := binary()}].
+scope_catalogue() ->
+    [
+        #{
+            name => ?SCOPE_CONNECTIONS,
+            desc => <<
+                "Client connections, subscriptions, topics, banning, "
+                "retained messages, file transfer, and delayed messages"
+            >>
+        },
+        #{
+            name => ?SCOPE_PUBLISH,
+            desc => <<"MQTT message publishing">>
+        },
+        #{
+            name => ?SCOPE_DATA_INTEGRATION,
+            desc => <<
+                "Rules, bridges, connectors, schema registry, "
+                "schema validation, message transformation, ExHook, and AI completion"
+            >>
+        },
+        #{
+            name => ?SCOPE_ACCESS_CONTROL,
+            desc => <<"Client authentication and authorization configuration">>
+        },
+        #{
+            name => ?SCOPE_GATEWAYS,
+            desc => <<
+                "Protocol gateways (CoAP, LwM2M, etc.) "
+                "and their authentication, clients, and listeners"
+            >>
+        },
+        #{
+            name => ?SCOPE_MONITORING,
+            desc => <<
+                "Metrics, monitoring, alarms, trace, slow subscriptions, "
+                "telemetry, and Prometheus data endpoints"
+            >>
+        },
+        #{
+            name => ?SCOPE_CLUSTER_OPERATIONS,
+            desc => <<
+                "Cluster management, node operations, "
+                "load rebalancing, node eviction, and multi-tenancy"
+            >>
+        },
+        #{
+            name => ?SCOPE_SYSTEM,
+            desc => <<
+                "Core configuration, listeners, plugins, storage, backup, "
+                "status, hot upgrade, Prometheus settings, and OpenTelemetry"
+            >>
+        },
+        #{
+            name => ?SCOPE_AUDIT,
+            desc => <<"Audit log query">>
+        },
+        #{
+            name => ?SCOPE_LICENSE,
+            desc => <<"License management">>
+        }
+    ].
+
+%%--------------------------------------------------------------------
+%% Path → scope lookup
+%%--------------------------------------------------------------------
+
+-doc """
+Given a route template path (e.g. <<"/clients/:clientid">>),
+return the scope name for this path, or `undefined` if unmapped.
+""".
+-spec path_to_scope(binary()) -> binary() | undefined.
+path_to_scope(Path) ->
     case get_cache() of
         undefined ->
             init_cache(),
-            path_to_scopes_from_cache(Path);
-        #{path_to_scopes := PathMap} ->
-            find_scopes_for_path(Path, PathMap)
+            do_path_to_scope(Path);
+        #{path_to_scope := PathMap} ->
+            maps:get(Path, PathMap, undefined)
     end.
 
-%% Lookup after cache is guaranteed to exist.
-path_to_scopes_from_cache(Path) ->
+do_path_to_scope(Path) ->
     case get_cache() of
-        #{path_to_scopes := PathMap} ->
-            find_scopes_for_path(Path, PathMap);
+        #{path_to_scope := PathMap} ->
+            maps:get(Path, PathMap, undefined);
         _ ->
-            []
+            undefined
     end.
 
--doc "Validate that all given scopes exist in available_scopes and are not in the denied list.".
+%%--------------------------------------------------------------------
+%% Scope validation
+%%--------------------------------------------------------------------
+
+-doc "Validate that all given scopes exist in the catalogue.".
 -spec validate_scopes([binary()]) -> ok | {error, binary()}.
 validate_scopes(Scopes) when is_list(Scopes) ->
-    %% Validate element types first to avoid crash in error message formatting
     case lists:all(fun is_binary/1, Scopes) of
         false ->
             {error, <<"scopes must be a list of strings">>};
@@ -98,33 +159,37 @@ validate_scopes(_) ->
     {error, <<"scopes must be a list of strings">>}.
 
 validate_scopes_values(Scopes) ->
-    %% Check denied scopes first (takes priority over unknown)
-    Denied = [S || S <- Scopes, is_denied_scope(S)],
-    case Denied of
-        [_ | _] ->
-            DeniedBin = iolist_to_binary(lists:join(<<", ">>, Denied)),
-            {error, <<"Denied scopes (not available for API keys): ", DeniedBin/binary>>};
+    Available = [Name || #{name := Name} <- scope_catalogue()],
+    Invalid = [S || S <- Scopes, not lists:member(S, Available)],
+    case Invalid of
         [] ->
-            Available = [Name || #{name := Name} <- available_scopes()],
-            Invalid = [S || S <- Scopes, not lists:member(S, Available)],
-            case Invalid of
-                [] ->
-                    ok;
-                _ ->
-                    InvalidBin = iolist_to_binary(lists:join(<<", ">>, Invalid)),
-                    {error, <<"Unknown scopes: ", InvalidBin/binary>>}
-            end
+            ok;
+        _ ->
+            InvalidBin = iolist_to_binary(lists:join(<<", ">>, Invalid)),
+            {error, <<"Unknown scopes: ", InvalidBin/binary>>}
     end.
 
+%%--------------------------------------------------------------------
+%% Denied scope check
+%%--------------------------------------------------------------------
+
+-doc "Check if a scope is the denied scope (internal, not user-assignable).".
+-spec is_denied_scope(binary()) -> boolean().
+is_denied_scope(?SCOPE_DENIED) -> true;
+is_denied_scope(_) -> false.
+
+%%--------------------------------------------------------------------
+%% Cache management
+%%--------------------------------------------------------------------
+
 -doc """
-Initialize the scope cache by scanning all API modules.
+Initialize the scope cache by collecting `scopes/0` from all API modules.
 Should be called once after the dashboard HTTP server has started.
 """.
 -spec init_cache() -> ok.
 init_cache() ->
-    ScopeData = collect_scopes_from_modules(),
-    Cache = build_cache(ScopeData),
-    persistent_term:put(?CACHE_KEY, Cache),
+    PathToScope = collect_scopes_from_modules(),
+    persistent_term:put(?CACHE_KEY, #{path_to_scope => PathToScope}),
     ok.
 
 -doc "Clear the scope cache.".
@@ -134,212 +199,18 @@ clear_cache() ->
     ok.
 
 %%--------------------------------------------------------------------
-%% Denied Scopes — tags that API Keys must never access
-%%--------------------------------------------------------------------
-
--doc """
-Tags that API Keys should NEVER be allowed to access,
-regardless of scope configuration. These correspond to
-dashboard-only functionality (user sessions, SSO, API key self-management).
-""".
--spec denied_scopes() -> [binary()].
-denied_scopes() ->
-    [
-        <<"dashboard">>,
-        <<"dashboard single sign-on">>,
-        <<"api keys">>
-    ].
-
--doc "Check if a scope name is in the denied list.".
--spec is_denied_scope(binary()) -> boolean().
-is_denied_scope(Scope) ->
-    lists:member(Scope, denied_scopes()).
-
-%%--------------------------------------------------------------------
-%% Preset Groups — display-layer aliases for common tag bundles
-%%--------------------------------------------------------------------
-
--doc """
-Return preset scope groups.
-Each group is a display-layer alias that bundles multiple OpenAPI tags.
-These groups are for UI convenience only — the API key `scopes` field
-always stores individual tag names, never group names.
-
-The `all_scopes` group is dynamic: it contains all available scopes
-minus denied scopes. Other groups may overlap with `all_scopes`.
-""".
--spec preset_groups() -> [#{name := binary(), desc := binary(), scopes := [binary()]}].
-preset_groups() ->
-    Static = [
-        #{
-            name => <<"connections">>,
-            desc => <<"Client connections, subscriptions, topics, publish, and banning">>,
-            scopes => [
-                <<"clients">>, <<"subscriptions">>, <<"topics">>, <<"publish">>, <<"banned">>
-            ]
-        },
-        #{
-            name => <<"data_integration">>,
-            desc => <<"Rules, actions, sources, bridges, connectors, and schema registry">>,
-            scopes => [
-                <<"rules">>,
-                <<"actions">>,
-                <<"sources">>,
-                <<"bridges">>,
-                <<"connectors">>,
-                <<"schema registry">>
-            ]
-        },
-        #{
-            name => <<"access_control">>,
-            desc => <<"Authentication, listener authentication, and authorization">>,
-            scopes => [<<"authentication">>, <<"listener authentication">>, <<"authorization">>]
-        },
-        #{
-            name => <<"gateways">>,
-            desc => <<"Protocol gateways (CoAP, LwM2M, etc.) and gateway auth/clients/listeners">>,
-            scopes => [
-                <<"gateways">>,
-                <<"coap gateways">>,
-                <<"lwm2m gateways">>,
-                <<"gateway authentication">>,
-                <<"gateway clients">>,
-                <<"gateway listeners">>
-            ]
-        },
-        #{
-            name => <<"monitoring">>,
-            desc => <<"Metrics, alarms, trace, slow subscriptions, telemetry, and OpenTelemetry">>,
-            scopes => [
-                <<"metrics">>,
-                <<"monitor">>,
-                <<"alarms">>,
-                <<"trace">>,
-                <<"slow subscriptions">>,
-                <<"telemetry">>,
-                <<"opentelemetry">>
-            ]
-        },
-        #{
-            name => <<"system">>,
-            desc => <<"Nodes, cluster, configs, listeners, plugins, status, relup, and storage">>,
-            scopes => [
-                <<"nodes">>,
-                <<"cluster">>,
-                <<"configs">>,
-                <<"listeners">>,
-                <<"plugins">>,
-                <<"status">>,
-                <<"relup">>,
-                <<"durable storage">>,
-                <<"durable queues">>
-            ]
-        },
-        #{
-            name => <<"extensions">>,
-            desc =>
-                <<"Auto subscribe, data backup, ExHook, GCP devices, load rebalance, and more">>,
-            scopes => [
-                <<"auto subscribe">>,
-                <<"data backup">>,
-                <<"exhook">>,
-                <<"gcp devices">>,
-                <<"load rebalance">>,
-                <<"node eviction">>,
-                <<"multi-tenancy">>,
-                <<"ai completion">>,
-                <<"schema validation">>,
-                <<"message transformation">>,
-                <<"error codes">>
-            ]
-        },
-        #{
-            name => <<"audit">>,
-            desc => <<"Audit log query">>,
-            scopes => [<<"audit">>]
-        },
-        #{
-            name => <<"license">>,
-            desc => <<"License management">>,
-            scopes => [<<"license">>]
-        }
-    ],
-    AllScopes = [Name || #{name := Name} <- available_scopes()],
-    Static ++
-        [
-            #{
-                name => <<"all_scopes">>,
-                desc => <<"All available scopes (excludes dashboard-only endpoints)">>,
-                scopes => AllScopes
-            }
-        ].
-
--doc """
-Expand a list of mixed group names and/or individual scope names
-into a flat, deduplicated list of individual scope names.
-
-Example:
-  expand_groups([<<"connections">>, <<"rules">>])
-  → [<<"banned">>, <<"clients">>, <<"publish">>, <<"rules">>, <<"subscriptions">>, <<"topics">>]
-""".
--spec expand_groups([binary()]) -> [binary()].
-expand_groups(NamesOrGroups) ->
-    GroupMap = maps:from_list(
-        [{Name, Scopes} || #{name := Name, scopes := Scopes} <- preset_groups()]
-    ),
-    Expanded = lists:flatmap(
-        fun(Name) ->
-            case maps:get(Name, GroupMap, undefined) of
-                undefined ->
-                    %% Not a group name — treat as individual scope
-                    [Name];
-                Scopes ->
-                    Scopes
-            end
-        end,
-        NamesOrGroups
-    ),
-    lists:usort(Expanded).
-
--doc "Return all tag names covered by preset groups (for test assertions).".
--spec all_preset_tags() -> [binary()].
-all_preset_tags() ->
-    lists:usort(
-        lists:flatmap(
-            fun(#{scopes := Scopes}) -> Scopes end,
-            preset_groups()
-        )
-    ).
-
-%%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
 get_cache() ->
     persistent_term:get(?CACHE_KEY, undefined).
 
-get_available_scopes() ->
-    case get_cache() of
-        undefined ->
-            [];
-        #{scopes := Scopes} ->
-            Denied = denied_scopes(),
-            [S || S = #{name := Name} <- Scopes, not lists:member(Name, Denied)]
-    end.
-
-%% Collect scope information from all loaded API modules.
-%% Iterates over all emqx* applications, finds modules implementing
-%% the minirest_api behaviour, and extracts tags from their schemas.
--spec collect_scopes_from_modules() -> #{binary() => [binary()]}.
+%% @doc Collect path → scope mappings from all API modules that export scopes/0.
+%% Returns a flat map: #{<<"/clients">> => <<"connections">>, ...}.
+-spec collect_scopes_from_modules() -> #{binary() => binary()}.
 collect_scopes_from_modules() ->
     Modules = find_api_modules(),
-    lists:foldl(
-        fun(Module, Acc) ->
-            collect_module_scopes(Module, Acc)
-        end,
-        #{},
-        Modules
-    ).
+    lists:foldl(fun collect_module_scopes/2, #{}, Modules).
 
 find_api_modules() ->
     Apps = [
@@ -369,96 +240,70 @@ is_api_module(Module) ->
             proplists:get_value(behavior, apply(Module, module_info, [attributes]), []),
     lists:member(minirest_api, Behaviours).
 
+%% Collect scopes from a single API module.
+%% The module must export scopes/0 returning either:
+%%   - a binary (all paths share this scope)
+%%   - a #{Path => Scope} map (per-path scope assignment)
 collect_module_scopes(Module, Acc) ->
     try
-        Paths = apply(Module, paths, []),
-        lists:foldl(
-            fun(Path, InnerAcc) ->
-                collect_path_scopes(Module, Path, InnerAcc)
-            end,
-            Acc,
-            Paths
-        )
+        case erlang:function_exported(Module, scopes, 0) of
+            false ->
+                ?SLOG(warning, #{
+                    msg => "api_module_missing_scopes_callback",
+                    module => Module
+                }),
+                Acc;
+            true ->
+                Paths = apply(Module, paths, []),
+                ScopeSpec = apply(Module, scopes, []),
+                collect_paths_with_scope(Module, Paths, ScopeSpec, Acc)
+        end
     catch
-        _:_ ->
+        Class:Reason ->
+            ?SLOG(warning, #{
+                msg => "failed_to_collect_scopes",
+                module => Module,
+                class => Class,
+                reason => Reason
+            }),
             Acc
     end.
 
-collect_path_scopes(Module, Path, Acc) ->
-    try
-        Schema = apply(Module, schema, [Path]),
-        PathBin = iolist_to_binary(filename:join("/", Path)),
-        Methods = maps:without(['operationId', 'filter'], Schema),
-        %% Get tags from any method definition (they should be the same for all methods)
-        Tags = extract_tags(Methods),
-        lists:foldl(
-            fun(Tag, InnerAcc) ->
-                ScopeName = string:lowercase(Tag),
-                ExistingPaths = maps:get(ScopeName, InnerAcc, []),
-                case lists:member(PathBin, ExistingPaths) of
-                    true -> InnerAcc;
-                    false -> InnerAcc#{ScopeName => [PathBin | ExistingPaths]}
-                end
-            end,
-            Acc,
-            Tags
-        )
-    catch
-        _:_ ->
-            Acc
-    end.
-
-extract_tags(Methods) ->
-    maps:fold(
-        fun
-            (_Method, Meta, Acc) when is_map(Meta) ->
-                case maps:get(tags, Meta, []) of
-                    Tags when is_list(Tags) ->
-                        lists:usort(Acc ++ [to_bin(T) || T <- Tags]);
-                    _ ->
-                        Acc
-                end;
-            (_Method, _Meta, Acc) ->
-                Acc
+collect_paths_with_scope(_Module, Paths, ScopeName, Acc) when is_binary(ScopeName) ->
+    %% Simple form: all paths share the same scope
+    lists:foldl(
+        fun(Path, InnerAcc) ->
+            PathBin = path_to_binary(Path),
+            InnerAcc#{PathBin => ScopeName}
         end,
-        [],
-        Methods
+        Acc,
+        Paths
+    );
+collect_paths_with_scope(Module, Paths, ScopeMap, Acc) when is_map(ScopeMap) ->
+    %% Map form: per-path scope assignment
+    lists:foldl(
+        fun(Path, InnerAcc) ->
+            PathBin = path_to_binary(Path),
+            case maps:get(PathBin, ScopeMap, maps:get(Path, ScopeMap, undefined)) of
+                undefined ->
+                    ?SLOG(warning, #{
+                        msg => "path_missing_from_scopes_map",
+                        module => Module,
+                        path => PathBin
+                    }),
+                    InnerAcc;
+                ScopeName ->
+                    InnerAcc#{PathBin => ScopeName}
+            end
+        end,
+        Acc,
+        Paths
     ).
 
-build_cache(ScopeData) ->
-    %% ScopeData: #{<<"clients">> => [<<"/clients">>, <<"/clients/:clientid">>], ...}
-    Scopes = lists:sort(
-        maps:fold(
-            fun(Name, Paths, Acc) ->
-                [#{name => Name, paths => lists:sort(Paths)} | Acc]
-            end,
-            [],
-            ScopeData
-        )
-    ),
-    %% Build reverse mapping: path -> [scope_name]
-    PathToScopes = maps:fold(
-        fun(ScopeName, Paths, Acc) ->
-            lists:foldl(
-                fun(P, InnerAcc) ->
-                    Existing = maps:get(P, InnerAcc, []),
-                    InnerAcc#{P => lists:usort([ScopeName | Existing])}
-                end,
-                Acc,
-                Paths
-            )
-        end,
-        #{},
-        ScopeData
-    ),
-    #{scopes => Scopes, path_to_scopes => PathToScopes}.
+path_to_binary(Path) when is_binary(Path) ->
+    ensure_leading_slash(Path);
+path_to_binary(Path) when is_list(Path) ->
+    ensure_leading_slash(iolist_to_binary(filename:join("/", Path))).
 
-%% Find scopes for a given request path.
-%% Since the path now comes from minirest's HandlerInfo (the route template),
-%% it matches the cache keys exactly. No pattern matching needed.
-find_scopes_for_path(Path, PathMap) ->
-    maps:get(Path, PathMap, []).
-
-to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-to_bin(L) when is_list(L) -> list_to_binary(L);
-to_bin(B) when is_binary(B) -> B.
+ensure_leading_slash(<<"/", _/binary>> = Path) -> Path;
+ensure_leading_slash(Path) -> <<"/", Path/binary>>.

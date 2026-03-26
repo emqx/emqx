@@ -10,6 +10,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -18,6 +19,8 @@
     fields/1,
     namespace/0
 ]).
+
+-export([scopes/0]).
 
 -export([
     exhooks/2,
@@ -53,6 +56,8 @@ namespace() -> "exhook".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE).
+
+scopes() -> ?SCOPE_DATA_INTEGRATION.
 
 paths() -> ["/exhooks", "/exhooks/:name", "/exhooks/:name/move", "/exhooks/:name/hooks"].
 

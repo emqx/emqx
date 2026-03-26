@@ -34,48 +34,28 @@ role.desc:
 """Role for this API"""
 
 api_key_scopes_list.desc:
-"""List all available API key scopes and preset groups. This API can only be requested using a bearer token."""
+"""List all available API key scopes. This API can only be requested using a bearer token."""
 api_key_scopes_list.label:
 """List API key scopes"""
 
 api_key_scopes.desc:
-"""List of scopes to restrict this API key's access. Each scope corresponds to an OpenAPI tag (lowercase). If not set or undefined, the key has access to all APIs. An empty list means no API access."""
+"""List of scope names to restrict this API key's access. Each scope is a stable functional category (e.g., connections, publish, monitoring). If not set or undefined, the key has access to all APIs. An empty list means no API access."""
 api_key_scopes.label:
 """API key scopes"""
 
 scope_info_name.desc:
-"""Scope name (lowercase OpenAPI tag)."""
+"""Scope name — a stable identifier for a functional category of API endpoints."""
 scope_info_name.label:
 """Scope name"""
 
-scope_info_paths.desc:
-"""API paths covered by this scope."""
-scope_info_paths.label:
-"""Scope paths"""
-
-preset_group_name.desc:
-"""Group name used as a UI alias for a bundle of scopes."""
-preset_group_name.label:
-"""Group name"""
-
-preset_group_desc.desc:
-"""Human-readable group description."""
-preset_group_desc.label:
-"""Group description"""
-
-preset_group_scopes.desc:
-"""Individual scope names included in this group."""
-preset_group_scopes.label:
-"""Group scopes"""
-
-scopes_response_groups.desc:
-"""Preset scope groups for quick selection in the UI."""
-scopes_response_groups.label:
-"""Preset groups"""
+scope_info_desc.desc:
+"""Human-readable description of the scope's coverage."""
+scope_info_desc.label:
+"""Scope description"""
 
 scopes_response_scopes.desc:
-"""All individual scopes with their associated API paths."""
+"""All available scopes with their names and descriptions."""
 scopes_response_scopes.label:
-"""All scopes"""
+"""Available scopes"""
 
 }

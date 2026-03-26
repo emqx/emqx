@@ -11,6 +11,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/http_api.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
 
@@ -22,6 +23,8 @@
     schema/1,
     namespace/0
 ]).
+
+-export([scopes/0]).
 
 %% API callbacks
 -export([
@@ -85,6 +88,8 @@ refine_api_schema(Schema, Metadata = #{path := Path, method := Method}) ->
     Spec = maps:get(Method, schema(Path)),
     SpecRefined = Spec#{'requestBody' => Schema},
     Metadata#{apispec => SpecRefined}.
+
+scopes() -> ?SCOPE_DATA_INTEGRATION.
 
 paths() ->
     [
@@ -175,12 +180,11 @@ connector_info_array_example(Method) ->
 connector_info_examples(Method) ->
     emqx_connector_schema:examples(Method).
 
-%% TODO: unify OpenAPI tag naming convention — use Title Case (e.g., <<"Rules">>) instead of lowercase
 schema("/connectors") ->
     #{
         'operationId' => '/connectors',
         get => #{
-            tags => [<<"connectors">>],
+            tags => [<<"Connectors">>],
             summary => <<"List connectors">>,
             description => ?DESC("desc_api1"),
             responses => #{
@@ -191,7 +195,7 @@ schema("/connectors") ->
             }
         },
         post => #{
-            tags => [<<"connectors">>],
+            tags => [<<"Connectors">>],
             summary => <<"Create connector">>,
             description => ?DESC("desc_api2"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -208,7 +212,7 @@ schema("/connectors/:id") ->
     #{
         'operationId' => '/connectors/:id',
         get => #{
-            tags => [<<"connectors">>],
+            tags => [<<"Connectors">>],
             summary => <<"Get connector">>,
             description => ?DESC("desc_api3"),
             parameters => [param_path_id()],
@@ -218,7 +222,7 @@ schema("/connectors/:id") ->
             }
         },
         put => #{
-            tags => [<<"connectors">>],
+            tags => [<<"Connectors">>],
             summary => <<"Update connector">>,
             description => ?DESC("desc_api4"),
             parameters => [param_path_id()],
@@ -233,7 +237,7 @@ schema("/connectors/:id") ->
             }
         },
         delete => #{
-            tags => [<<"connectors">>],
+            tags => [<<"Connectors">>],
             summary => <<"Delete connector">>,
             description => ?DESC("desc_api5"),
             parameters => [param_path_id()],
@@ -253,7 +257,7 @@ schema("/connectors/:id/enable/:enable") ->
         'operationId' => '/connectors/:id/enable/:enable',
         put =>
             #{
-                tags => [<<"connectors">>],
+                tags => [<<"Connectors">>],
                 summary => <<"Enable or disable connector">>,
                 desc => ?DESC("desc_enable_connector"),
                 parameters => [param_path_id(), param_path_enable()],
@@ -271,7 +275,7 @@ schema("/connectors/:id/:operation") ->
     #{
         'operationId' => '/connectors/:id/:operation',
         post => #{
-            tags => [<<"connectors">>],
+            tags => [<<"Connectors">>],
             summary => <<"Manually start a connector">>,
             description => ?DESC("desc_api7"),
             parameters => [
@@ -293,7 +297,7 @@ schema("/nodes/:node/connectors/:id/:operation") ->
     #{
         'operationId' => '/nodes/:node/connectors/:id/:operation',
         post => #{
-            tags => [<<"connectors">>],
+            tags => [<<"Connectors">>],
             summary => <<"Manually start a connector on a given node">>,
             description => ?DESC("desc_api8"),
             parameters => [
@@ -319,7 +323,7 @@ schema("/connectors_probe") ->
     #{
         'operationId' => '/connectors_probe',
         post => #{
-            tags => [<<"connectors">>],
+            tags => [<<"Connectors">>],
             desc => ?DESC("desc_api9"),
             summary => <<"Test creating connector">>,
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(

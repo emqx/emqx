@@ -8,6 +8,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/2, ref/1, ref/2, array/1]).
 
@@ -24,10 +25,14 @@
     namespace/0
 ]).
 
+-export([scopes/0]).
+
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
 
 namespace() -> undefined.
+
+scopes() -> ?SCOPE_MONITORING.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
