@@ -4245,7 +4245,7 @@ mqtt_limiter() ->
     [
         {limiter,
             sc(
-                ref(emqx_limiter_schema, mqtt),
+                ref(emqx_limiter_schema, mqtt_shared_limiters),
                 #{
                     required => {false, recursively},
                     desc => ?DESC(mqtt_limiter)
