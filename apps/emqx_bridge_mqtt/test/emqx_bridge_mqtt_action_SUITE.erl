@@ -209,6 +209,7 @@ end_per_testcase(_TestCase, TCConfig) ->
         end)
     end,
     emqx_common_test_helpers:call_janitor(),
+    wait_until_all_clients_disconnected(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -350,6 +351,36 @@ get_emqtt_clients(PoolName) ->
         end,
         ecpool:workers(PoolName)
     ).
+
+get_connected_clients(ConnResId) ->
+    Clients = get_emqtt_clients(ConnResId),
+    Clients0 =
+        lists:map(
+            fun(Client) ->
+                Info = emqtt:info(Client),
+                #{
+                    clientid => proplists:get_value(clientid, Info),
+                    username => proplists:get_value(username, Info)
+                }
+            end,
+            Clients
+        ),
+    lists:sort(fun(#{clientid := A}, #{clientid := B}) -> A =< B end, Clients0).
+
+wait_until_all_clients_disconnected() ->
+    wait_until_all_clients_disconnected(100).
+
+wait_until_all_clients_disconnected(0) ->
+    ct:pal("warning: not all clients disconnected, remaining: ~p", [emqx_cm:all_channels()]),
+    ok;
+wait_until_all_clients_disconnected(Retries) ->
+    case emqx_cm:all_channels() of
+        [] ->
+            ok;
+        _ ->
+            timer:sleep(100),
+            wait_until_all_clients_disconnected(Retries - 1)
+    end.
 
 start_publisher(Topic, Interval, CtrlPid) ->
     spawn_link(fun() -> publisher(Topic, 1, Interval, CtrlPid) end).
@@ -1354,16 +1385,8 @@ t_static_clientids_username_password_tuples(TCConfig) ->
                     }
                 ]
             }),
-            ConnectedClients0 =
-                lists:map(
-                    fun(ConnPid) ->
-                        ConnState = sys:get_state(ConnPid),
-                        emqx_connection:info({channel, [clientid, username]}, ConnState)
-                    end,
-                    emqx_cm:all_channels()
-                ),
-            ConnectedClients1 = lists:sort(ConnectedClients0),
-            ConnectedClients = lists:map(fun maps:from_list/1, ConnectedClients1),
+            ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+            ConnectedClients = get_connected_clients(ConnResId),
             ?assertMatch(
                 [
                     #{
@@ -1476,16 +1499,8 @@ t_static_clientids_username_password_tuples_deobfuscate(TCConfig) ->
             {204, _} = probe_connector_api(TCConfig, Overrides),
             %% Update to check deobfuscation of passwords inside the array
             {200, #{<<"status">> := <<"connected">>}} = update_connector_api(TCConfig, Overrides),
-            ConnectedClients0 =
-                lists:map(
-                    fun(ConnPid) ->
-                        ConnState = sys:get_state(ConnPid),
-                        emqx_connection:info({channel, [clientid, username]}, ConnState)
-                    end,
-                    emqx_cm:all_channels()
-                ),
-            ConnectedClients1 = lists:sort(ConnectedClients0),
-            ConnectedClients = lists:map(fun maps:from_list/1, ConnectedClients1),
+            ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+            ConnectedClients = get_connected_clients(ConnResId),
             ?assertMatch(
                 [
                     #{
