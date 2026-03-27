@@ -209,6 +209,7 @@ end_per_testcase(_TestCase, TCConfig) ->
         end)
     end,
     emqx_common_test_helpers:call_janitor(),
+    wait_until_all_clients_disconnected(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -340,6 +341,19 @@ start_client(Node, Opts) when is_atom(Node) ->
     {ok, _} = emqtt:connect(C),
     C.
 
+recv_downs(N, Timeout) ->
+    recv_downs(N, Timeout, []).
+
+recv_downs(0, _Timeout, Acc) ->
+    lists:reverse(Acc);
+recv_downs(N, Timeout, Acc) ->
+    receive
+        {'DOWN', _MRef, process, Pid, _Reason} ->
+            recv_downs(N - 1, Timeout, [Pid | Acc])
+    after Timeout ->
+        ct:fail("timeout waiting for ~b more DOWN messages, got: ~p", [N, lists:reverse(Acc)])
+    end.
+
 get_emqtt_clients(PoolName) ->
     lists:filtermap(
         fun({_Id, Worker}) ->
@@ -350,6 +364,49 @@ get_emqtt_clients(PoolName) ->
         end,
         ecpool:workers(PoolName)
     ).
+
+get_connected_clients(ConnResId) ->
+    Clients = get_emqtt_clients(ConnResId),
+    Clients0 =
+        lists:map(
+            fun(Client) ->
+                Info = emqtt:info(Client),
+                #{
+                    clientid => proplists:get_value(clientid, Info),
+                    username => proplists:get_value(username, Info)
+                }
+            end,
+            Clients
+        ),
+    lists:sort(fun(#{clientid := A}, #{clientid := B}) -> A =< B end, Clients0).
+
+wait_until_all_clients_disconnected() ->
+    case ets:whereis(emqx_channel) of
+        undefined ->
+            %% ETS table doesn't exist on this node (e.g. cluster group)
+            ok;
+        _ ->
+            kick_all_clients(),
+            wait_until_all_clients_disconnected(50)
+    end.
+
+kick_all_clients() ->
+    lists:foreach(
+        fun(ClientId) -> catch emqx_cm:kick_session(ClientId) end,
+        emqx_cm:all_client_ids()
+    ).
+
+wait_until_all_clients_disconnected(0) ->
+    ct:pal("warning: not all clients disconnected, remaining: ~p", [emqx_cm:all_channels()]),
+    ok;
+wait_until_all_clients_disconnected(Retries) ->
+    case emqx_cm:all_channels() of
+        [] ->
+            ok;
+        _ ->
+            timer:sleep(100),
+            wait_until_all_clients_disconnected(Retries - 1)
+    end.
 
 start_publisher(Topic, Interval, CtrlPid) ->
     spawn_link(fun() -> publisher(Topic, 1, Interval, CtrlPid) end).
@@ -741,35 +798,35 @@ t_reconnect(TCConfig) ->
             {201, _} = create_connector_api(TCConfig, #{
                 <<"pool_size">> => PoolSize
             }),
-            NBin = atom_to_binary(node()),
+            ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
             ?retry(
                 500,
                 20,
-                ?assertMatch(
-                    #{NBin := #{<<"live_connections.count">> := PoolSize}},
-                    get_stats_api()
-                )
+                ?assertEqual(PoolSize, length(get_emqtt_clients(ConnResId)))
             ),
-            ClientIds0 = emqx_cm:all_client_ids(),
+            ClientIds0 =
+                lists:sort(
+                    [
+                        proplists:get_value(clientid, emqtt:info(Client))
+                     || Client <- get_emqtt_clients(ConnResId)
+                    ]
+                ),
             ClientIds = lists:droplast(ClientIds0),
-            ChanPids0 = emqx_cm:all_channels(),
+            ChanPids0 =
+                lists:sort(lists:flatmap(fun emqx_cm:lookup_channels/1, ClientIds0)),
             ChanPids = lists:droplast(ChanPids0),
             lists:foreach(fun(Pid) -> monitor(process, Pid) end, ChanPids),
             ct:pal("kicking ~p (leaving 1 client alive)", [ClientIds]),
             {204, _} = emqx_bridge_v2_testlib:kick_clients_http(ClientIds),
-            DownPids = emqx_utils:drain_down(PoolSize - 1),
+            DownPids = recv_downs(PoolSize - 1, 5_000),
             ?assertEqual(lists:sort(ChanPids), lists:sort(DownPids)),
             %% Recovery
             ct:pal("clients kicked; waiting for recovery..."),
             ?retry(
                 500,
                 20,
-                ?assertMatch(
-                    #{NBin := #{<<"live_connections.count">> := PoolSize}},
-                    get_stats_api()
-                )
+                ?assertEqual(PoolSize, length(get_emqtt_clients(ConnResId)))
             ),
-            ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
             ?assertEqual(PoolSize, length(ecpool:workers(ConnResId))),
             ?retry(500, 40, ?assertEqual(PoolSize, length(get_emqtt_clients(ConnResId)))),
             ok
@@ -1376,16 +1433,8 @@ t_static_clientids_username_password_tuples(TCConfig) ->
                     }
                 ]
             }),
-            ConnectedClients0 =
-                lists:map(
-                    fun(ConnPid) ->
-                        ConnState = sys:get_state(ConnPid),
-                        emqx_connection:info({channel, [clientid, username]}, ConnState)
-                    end,
-                    emqx_cm:all_channels()
-                ),
-            ConnectedClients1 = lists:sort(ConnectedClients0),
-            ConnectedClients = lists:map(fun maps:from_list/1, ConnectedClients1),
+            ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+            ConnectedClients = get_connected_clients(ConnResId),
             ?assertMatch(
                 [
                     #{
@@ -1498,16 +1547,8 @@ t_static_clientids_username_password_tuples_deobfuscate(TCConfig) ->
             {204, _} = probe_connector_api(TCConfig, Overrides),
             %% Update to check deobfuscation of passwords inside the array
             {200, #{<<"status">> := <<"connected">>}} = update_connector_api(TCConfig, Overrides),
-            ConnectedClients0 =
-                lists:map(
-                    fun(ConnPid) ->
-                        ConnState = sys:get_state(ConnPid),
-                        emqx_connection:info({channel, [clientid, username]}, ConnState)
-                    end,
-                    emqx_cm:all_channels()
-                ),
-            ConnectedClients1 = lists:sort(ConnectedClients0),
-            ConnectedClients = lists:map(fun maps:from_list/1, ConnectedClients1),
+            ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+            ConnectedClients = get_connected_clients(ConnResId),
             ?assertMatch(
                 [
                     #{
