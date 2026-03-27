@@ -341,6 +341,19 @@ start_client(Node, Opts) when is_atom(Node) ->
     {ok, _} = emqtt:connect(C),
     C.
 
+recv_downs(N, Timeout) ->
+    recv_downs(N, Timeout, []).
+
+recv_downs(0, _Timeout, Acc) ->
+    lists:reverse(Acc);
+recv_downs(N, Timeout, Acc) ->
+    receive
+        {'DOWN', _MRef, process, Pid, _Reason} ->
+            recv_downs(N - 1, Timeout, [Pid | Acc])
+    after Timeout ->
+        ct:fail("timeout waiting for ~b more DOWN messages, got: ~p", [N, lists:reverse(Acc)])
+    end.
+
 get_emqtt_clients(PoolName) ->
     lists:filtermap(
         fun({_Id, Worker}) ->
@@ -805,7 +818,7 @@ t_reconnect(TCConfig) ->
             lists:foreach(fun(Pid) -> monitor(process, Pid) end, ChanPids),
             ct:pal("kicking ~p (leaving 1 client alive)", [ClientIds]),
             {204, _} = emqx_bridge_v2_testlib:kick_clients_http(ClientIds),
-            DownPids = emqx_utils:drain_down(PoolSize - 1),
+            DownPids = recv_downs(PoolSize - 1, 5_000),
             ?assertEqual(lists:sort(ChanPids), lists:sort(DownPids)),
             %% Recovery
             ct:pal("clients kicked; waiting for recovery..."),
