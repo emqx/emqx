@@ -84,10 +84,13 @@ code_callback(get, #{query_string := QS}) ->
             {400, #{code => ?BAD_REQUEST, message => <<"Invalid query string">>}};
         {error, invalid_backend} ->
             {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
-        {error, Reason} ->
+        {error, {bad_callback_response, #{} = Details}} ->
+            {401, #{code => ?BAD_USERNAME_OR_PWD, message => Details}};
+        {error, Reason0} ->
+            Reason = emqx_utils:redact(Reason0),
             ?SLOG(info, #{
                 msg => "dashboard_sso_login_failed",
-                reason => emqx_utils:redact(Reason)
+                reason => Reason
             }),
             {401, #{code => ?BAD_USERNAME_OR_PWD, message => reason_to_message(Reason)}}
     end.
@@ -158,7 +161,9 @@ retrieve_token(
             retrieve_userinfo(Token, Cfg);
         {error, _Reason} = Error ->
             Error
-    end.
+    end;
+retrieve_token(#{<<"error">> := _Reason} = QS, _Cfg, _Data) ->
+    {error, {bad_callback_response, QS}}.
 
 retrieve_userinfo(
     Token,
