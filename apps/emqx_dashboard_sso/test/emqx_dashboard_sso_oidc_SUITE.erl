@@ -741,3 +741,51 @@ t_role_namespace_expr_validation(TCConfig) ->
     ),
 
     ok.
+
+-doc """
+Verifies that a more friendly error message is returned when the returned login query
+string does not contain the expected `code`.
+""".
+t_error_login_callback(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    N = node(),
+
+    Params = emqx_utils_maps:deep_merge(oidc_provider_params(), #{
+        <<"scopes">> => [<<"openid">>, <<"idontexist">>]
+    }),
+    ?assertMatch({200, _}, create_backend(N, Params, #{})),
+
+    %% This error flow is slightly different from the one in `login_flow/2`.  At the
+    %% `oidc_mock_server_auth_req` step, the returned code is 303 (at least for the `dex`
+    %% test server being used here) and it redirects back to emqx's login callback instead
+    %% of itself.  Therefore, we inline these steps here instead of using `login_flow`.
+    ct:pal("initial sso login in emqx"),
+    {302, Headers1, Resp1} = login_sso(N, #{}),
+    ct:pal("returned headers1:\n  ~p\nbody:\n  ~p\n", [Headers1, Resp1]),
+    {"location", OIDCURL1} = lists:keyfind("location", 1, Headers1),
+
+    ct:pal("redirected to oidc server"),
+    #{query := QueryParams1} = uri_string:parse(OIDCURL1),
+    {303, Headers2, Resp2} = oidc_mock_server_auth_req(QueryParams1),
+    ct:pal("returned headers2:\n  ~p\nbody:\n  ~p\n", [Headers2, Resp2]),
+    {"location", OIDCURL2} = lists:keyfind("location", 1, Headers2),
+
+    CallbackURI = uri_string:parse(OIDCURL2),
+    LoginNodePort = get_http_dashboard_port(N),
+    LoginURL1 = uri_string:recompose(CallbackURI#{
+        host := "127.0.0.1",
+        port := LoginNodePort
+    }),
+    %% This shouldn't be a 500
+    ?assertMatch(
+        {401, _, #{
+            <<"code">> := <<"BAD_USERNAME_OR_PWD">>,
+            <<"message">> := #{
+                <<"error">> := <<"invalid_scope">>,
+                <<"error_description">> := _
+            }
+        }},
+        simple_login_get(LoginURL1)
+    ),
+
+    ok.
