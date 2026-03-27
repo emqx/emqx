@@ -828,7 +828,7 @@ t_wif_auth() ->
     [{matrix, true}].
 t_wif_auth(matrix) ->
     [[?wif_oidc]];
-t_wif_auth(TCConfig) ->
+t_wif_auth(TCConfig) when is_list(TCConfig) ->
     mock_wif_auth_calls(),
     %% Sanity check
     ensure_token_resources_cleared(),
@@ -862,4 +862,33 @@ t_wif_auth(TCConfig) ->
     emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ensure_token_resources_cleared(),
+    ok.
+
+-doc """
+Smoke test to ensure we accept `audience` as an optional parameter for initial token.
+""".
+t_wif_auth_optional_audience() ->
+    [{matrix, true}].
+t_wif_auth_optional_audience(matrix) ->
+    [[?wif_oidc]];
+t_wif_auth_optional_audience(TCConfig) when is_list(TCConfig) ->
+    mock_wif_auth_calls(),
+    %% Sanity check
+    ensure_token_resources_cleared(),
+
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"connected">>,
+            <<"authentication">> := #{
+                <<"initial_token">> := #{<<"audience">> := <<"testapi0aud">>}
+            }
+        }},
+        create_connector_api(TCConfig, #{
+            <<"authentication">> => #{
+                <<"initial_token">> => #{
+                    <<"audience">> => <<"testapi0aud">>
+                }
+            }
+        })
+    ),
     ok.

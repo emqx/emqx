@@ -188,6 +188,11 @@ fields(auth_wif_oidc_client_credentials) ->
             mk(binary(), #{
                 required => true,
                 desc => ?DESC("auth_wif_oidc_client_credentials_scope")
+            })},
+        {audience,
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("auth_wif_oidc_client_credentials_audience")
             })}
     ].
 

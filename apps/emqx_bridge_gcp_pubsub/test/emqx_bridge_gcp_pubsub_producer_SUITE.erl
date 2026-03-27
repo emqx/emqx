@@ -2253,3 +2253,32 @@ t_wif_token_worker_already_started(TCConfig) ->
     ?assertMatch({ok, _}, apply(Mod, start, Args)),
 
     ok.
+
+-doc """
+Smoke test to ensure we accept `audience` as an optional parameter for initial token.
+""".
+t_wif_auth_optional_audience() ->
+    [{matrix, true}].
+t_wif_auth_optional_audience(matrix) ->
+    [[?mocked_gcp, ?wif_oidc]];
+t_wif_auth_optional_audience(TCConfig) when is_list(TCConfig) ->
+    mock_wif_auth_calls(),
+    %% Sanity check
+    ensure_token_resources_cleared(),
+
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"connected">>,
+            <<"authentication">> := #{
+                <<"initial_token">> := #{<<"audience">> := <<"testapi0aud">>}
+            }
+        }},
+        create_connector_api(TCConfig, #{
+            <<"authentication">> => #{
+                <<"initial_token">> => #{
+                    <<"audience">> => <<"testapi0aud">>
+                }
+            }
+        })
+    ),
+    ok.
