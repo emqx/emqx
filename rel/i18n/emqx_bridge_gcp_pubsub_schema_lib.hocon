@@ -48,7 +48,12 @@ When a GCP Service Account is created (as described in https://developers.google
 
   auth_wif_oidc_client_credentials_scope {
     label: "OAuth Request Scope"
-    desc: """If necessary, specify the `scope` to be provided when requesting the OAuth access token."""
+    desc: """Specify the `scope` to be provided when requesting the OAuth access token."""
+  }
+
+  auth_wif_oidc_client_credentials_audience {
+    label: "OAuth Request Audience"
+    desc: """If necessary, specify the `audience` to be provided when requesting the OAuth access token."""
   }
 
   auth_wif_initial_token {
@@ -81,9 +86,5 @@ When a GCP Service Account is created (as described in https://developers.google
     desc: """ID of the Workload Identity Provider being used in the WIF token exchange."""
   }
 
-  # auth_wif_oidc_client_credentials {
-  #   label: ""
-  #   desc: """"""
-  # }
 
 }

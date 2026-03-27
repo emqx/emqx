@@ -514,18 +514,22 @@ prepare_initial_step(Step1Name, #{type := oidc_client_credentials} = InitialToke
         client_secret := ClientSecret,
         scope := Scope
     } = InitialTokenConfig,
+    Audience = maps:get(audience, InitialTokenConfig, undefined),
     #{
         name => Step1Name,
         method => post,
         lifetime => timer:hours(1),
         url => fun(_StepContext) -> EndpointURI end,
         body => fun(_StepContext) ->
-            uri_string:compose_query([
-                {<<"grant_type">>, <<"client_credentials">>},
-                {<<"client_id">>, ClientId},
-                {<<"client_secret">>, emqx_secret:unwrap(ClientSecret)},
-                {<<"scope">>, Scope}
-            ])
+            uri_string:compose_query(
+                lists:flatten([
+                    {<<"grant_type">>, <<"client_credentials">>},
+                    {<<"client_id">>, ClientId},
+                    {<<"client_secret">>, emqx_secret:unwrap(ClientSecret)},
+                    {<<"scope">>, Scope},
+                    [{<<"audience">>, Audience} || is_binary(Audience)]
+                ])
+            )
         end,
         headers => fun(_StepContext) ->
             [{<<"Content-Type">>, <<"application/x-www-form-urlencoded">>}]
