@@ -1,0 +1,54 @@
+services:
+  emqx:
+    image: ${IMAGE:-emqx/emqx-enterprise:6.1.1}
+    container_name: offline-messages-emqx
+    hostname: offline-messages-emqx
+    ports:
+      - "${EMQX_MQTT_PORT:-5883}:1883"
+      - "${EMQX_API_PORT:-58083}:18083"
+    environment:
+      EMQX_NODE_NAME: "emqx@offline-messages-emqx"
+      EMQX_NODE_COOKIE: "offline-messages-smoke-secret"
+      EMQX_LICENSE__KEY: "evaluation"
+      EMQX_PLUGINS__INSTALL_DIR: "/opt/emqx/plugins"
+      EMQX_PLUGINS__STATES: '[{name_vsn = "${PLUGIN}"}]'
+      EMQX_API_KEY__BOOTSTRAP_FILE: "/opt/emqx/bootstrap-api-keys.txt"
+    volumes:
+      - ../../../_build/plugins:/opt/emqx/plugins
+      - ./bootstrap-api-keys.txt:/opt/emqx/bootstrap-api-keys.txt:ro
+    networks:
+      - offline-messages-smoke
+
+  mysql:
+    image: mysql:8.4
+    container_name: offline-messages-mysql
+    hostname: mysql
+    environment:
+      MYSQL_DATABASE: emqx
+      MYSQL_USER: emqx
+      MYSQL_PASSWORD: public
+      MYSQL_ROOT_PASSWORD: root
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u emqx -ppublic --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - offline-messages-smoke
+
+  redis:
+    image: redis:7
+    container_name: offline-messages-redis
+    hostname: redis
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--requirepass", "public"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "public", "PING"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - offline-messages-smoke
+
+networks:
+  offline-messages-smoke:
+    name: offline-messages-smoke
