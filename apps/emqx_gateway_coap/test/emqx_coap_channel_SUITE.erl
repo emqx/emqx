@@ -288,6 +288,26 @@ t_channel_check_token_paths(_) ->
     {ok, _} = emqx_coap_channel:handle_in(ResetReq, Channel0),
     ok.
 
+t_channel_connection_mode_sock_closed(_) ->
+    ConnInfo = #{
+        peername => {{127, 0, 0, 1}, 9999},
+        sockname => {{127, 0, 0, 1}, 5683}
+    },
+    ConnRequired = emqx_coap_channel:init(
+        ConnInfo,
+        #{ctx => coap_ctx(), connection_required => true}
+    ),
+    {ok, _} = emqx_coap_channel:handle_info({sock_closed, ssl_closed}, ConnRequired),
+
+    ConnOptional = emqx_coap_channel:init(
+        ConnInfo,
+        #{ctx => coap_ctx(), connection_required => false}
+    ),
+    {shutdown, ssl_closed, _} = emqx_coap_channel:handle_info(
+        {sock_closed, ssl_closed}, ConnOptional
+    ),
+    ok.
+
 t_channel_connected_invalid_queries(_) ->
     ConnInfo = #{
         peername => {{127, 0, 0, 1}, 9999},

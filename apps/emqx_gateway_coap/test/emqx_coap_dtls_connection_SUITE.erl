@@ -103,3 +103,59 @@ t_connection(_Config) ->
 
     er_coap_channel:close(Channel),
     er_coap_dtls_socket:close(Sock).
+
+t_token_takeover_across_dtls_sessions(_Config) ->
+    {ok, Sock1, Channel1} = er_coap_dtls_socket:connect({127, 0, 0, 1}, 5684, [
+        {verify, verify_none}
+    ]),
+
+    Prefix = ?MQTT_PREFIX ++ "/connection",
+    Queries0 = #{
+        "clientid" => <<"client1">>,
+        "username" => <<"admin">>,
+        "password" => <<"public">>
+    },
+    URI0 = emqx_coap_SUITE:compose_uri(Prefix, Queries0, false),
+    Req0 = emqx_coap_SUITE:make_req(post),
+    {ok, created, Data} = emqx_coap_SUITE:do_request(Channel1, URI0, Req0),
+    #coap_content{payload = BinToken} = Data,
+    Token = binary_to_list(BinToken),
+
+    timer:sleep(100),
+    ?assertNotEqual(
+        [],
+        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+    ),
+
+    er_coap_channel:close(Channel1),
+    er_coap_dtls_socket:close(Sock1),
+
+    timer:sleep(100),
+    ?assertNotEqual(
+        [],
+        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+    ),
+
+    {ok, Sock2, Channel2} = er_coap_dtls_socket:connect({127, 0, 0, 1}, 5684, [
+        {verify, verify_none}
+    ]),
+
+    URI1 = emqx_coap_SUITE:compose_uri(
+        "coaps://127.0.0.1/ps/coap/test",
+        #{
+            "clientid" => <<"client1">>,
+            "token" => Token
+        },
+        false
+    ),
+    Req1 = emqx_coap_SUITE:make_req(post, <<"x">>),
+    {ok, changed, _} = emqx_coap_SUITE:do_request(Channel2, URI1, Req1),
+
+    timer:sleep(100),
+    ?assertEqual(
+        1,
+        length(emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>))
+    ),
+
+    er_coap_channel:close(Channel2),
+    er_coap_dtls_socket:close(Sock2).
