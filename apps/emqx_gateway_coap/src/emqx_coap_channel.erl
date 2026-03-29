@@ -434,9 +434,7 @@ check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
                 undefined ->
                     %% Connection mode policy: reject requests without token/clientid.
                     ?SLOG(debug, #{msg => "token_required_in_conn_mode", message => Msg}),
-                    ErrMsg = <<"Missing token or clientid in connection mode">>,
-                    Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
-                    {ok, {outgoing, Reply}, Channel};
+                    missing_token_or_clientid_reply(Msg, Channel);
                 _ ->
                     check_token(Msg, Channel)
             end
@@ -466,16 +464,26 @@ check_token(Msg, Channel) ->
                 ->
                     try_takeover_with_token(Msg, ReqClientId1, ReqToken1, Channel);
                 _ ->
-                    ErrMsg = <<"Missing token or clientid in connection mode">>,
-                    Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
-                    {ok, {outgoing, Reply}, Channel}
+                    missing_token_or_clientid_reply(Msg, Channel)
             end
     end.
 
+try_takeover_with_token(
+    Msg,
+    ReqClientId,
+    _ReqToken,
+    Channel = #channel{clientinfo = #{clientid := ReqClientId}}
+) ->
+    %% Avoid CM self-call ({calling_self}) for same-channel invalid-token requests.
+    missing_token_or_clientid_reply(Msg, Channel);
 try_takeover_with_token(Msg, ReqClientId, ReqToken, Channel) ->
     case emqx_gateway_cm:call(coap, ReqClientId, {check_token_and_get_clientinfo, ReqToken}) of
         {ok, ResumeClientInfo} ->
             takeover_and_handle_request(Msg, ReqClientId, ReqToken, ResumeClientInfo, Channel);
+        undefined ->
+            missing_token_or_clientid_reply(Msg, Channel);
+        false ->
+            invalid_token_reply(Msg, Channel);
         _ ->
             invalid_token_reply(Msg, Channel)
     end.
@@ -522,6 +530,11 @@ merge_takeover_clientinfo(ReqClientId, ClientInfo0, ResumeClientInfo) ->
 invalid_token_reply(Msg, Channel) ->
     ErrMsg = <<"Invalid token or clientid in connection mode">>,
     Reply = emqx_coap_message:piggyback({error, unauthorized}, ErrMsg, Msg),
+    {ok, {outgoing, Reply}, Channel}.
+
+missing_token_or_clientid_reply(Msg, Channel) ->
+    ErrMsg = <<"Missing token or clientid in connection mode">>,
+    Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
     {ok, {outgoing, Reply}, Channel}.
 
 maybe_unregister_channel(ReqClientId) ->

@@ -283,9 +283,51 @@ t_channel_check_token_paths(_) ->
             uri_query => #{<<"clientid">> => <<"client1">>, <<"token">> => <<"tok">>}
         }
     },
-    {ok, {outgoing, _}, _} = emqx_coap_channel:handle_in(BadReq, Channel0),
+    {ok, {outgoing, BadReply}, _} = emqx_coap_channel:handle_in(BadReq, Channel0),
+    ?assertEqual({error, bad_request}, BadReply#coap_message.method),
+    ?assertEqual(
+        <<"Missing token or clientid in connection mode">>,
+        BadReply#coap_message.payload
+    ),
     ResetReq = #coap_message{type = reset, id = 999, token = <<>>},
     {ok, _} = emqx_coap_channel:handle_in(ResetReq, Channel0),
+    ok.
+
+t_channel_same_clientid_invalid_token_no_self_cm_call(_) ->
+    ConnInfo = #{
+        peername => {{127, 0, 0, 1}, 9999},
+        sockname => {{127, 0, 0, 1}, 5683}
+    },
+    BaseChannel = emqx_coap_channel:init(
+        ConnInfo,
+        #{ctx => coap_ctx(), connection_required => true}
+    ),
+    Channel0 = BaseChannel#channel{
+        conn_state = connected,
+        token = <<"tok">>,
+        clientinfo = (BaseChannel#channel.clientinfo)#{clientid => <<"client1">>}
+    },
+    Req = #coap_message{
+        type = con,
+        method = get,
+        id = 11,
+        options = #{
+            uri_path => [<<"ps">>, <<"topic">>],
+            uri_query => #{<<"clientid">> => <<"client1">>, <<"token">> => <<"bad-token">>}
+        }
+    },
+    ok = meck:new(emqx_gateway_cm, [no_link, passthrough]),
+    try
+        {ok, {outgoing, Reply}, _} = emqx_coap_channel:handle_in(Req, Channel0),
+        ?assertEqual({error, bad_request}, Reply#coap_message.method),
+        ?assertEqual(
+            <<"Missing token or clientid in connection mode">>,
+            Reply#coap_message.payload
+        ),
+        ?assertEqual(0, meck:num_calls(emqx_gateway_cm, call, 3))
+    after
+        ok = meck:unload(emqx_gateway_cm)
+    end,
     ok.
 
 t_channel_connection_mode_sock_closed(_) ->
