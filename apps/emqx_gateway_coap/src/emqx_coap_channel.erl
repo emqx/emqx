@@ -498,7 +498,7 @@ takeover_and_handle_request(Msg, ReqClientId, ReqToken, ResumeClientInfo, Channe
             NChannel = ensure_connected(Channel0),
             call_session(handle_request, Msg, NChannel);
         {ok, #{present := false}} ->
-            _ = catch emqx_gateway_cm:unregister_channel(coap, ReqClientId),
+            ok = maybe_unregister_channel(ReqClientId),
             invalid_token_reply(Msg, Channel);
         _ ->
             invalid_token_reply(Msg, Channel)
@@ -523,6 +523,20 @@ invalid_token_reply(Msg, Channel) ->
     ErrMsg = <<"Invalid token or clientid in connection mode">>,
     Reply = emqx_coap_message:piggyback({error, unauthorized}, ErrMsg, Msg),
     {ok, {outgoing, Reply}, Channel}.
+
+maybe_unregister_channel(ReqClientId) ->
+    try emqx_gateway_cm:unregister_channel(coap, ReqClientId) of
+        ok ->
+            ok
+    catch
+        _:Reason ->
+            ?SLOG(warning, #{
+                msg => "failed_unregister_takeover_fallback_channel",
+                clientid => ReqClientId,
+                reason => Reason
+            }),
+            ok
+    end.
 
 get_query_value(Key, URIQuery) ->
     RawValue =
