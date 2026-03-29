@@ -293,11 +293,15 @@ t_channel_connection_mode_sock_closed(_) ->
         peername => {{127, 0, 0, 1}, 9999},
         sockname => {{127, 0, 0, 1}, 5683}
     },
-    ConnRequired = emqx_coap_channel:init(
+    ConnRequired0 = emqx_coap_channel:init(
         ConnInfo,
         #{ctx => coap_ctx(), connection_required => true}
     ),
-    {ok, _} = emqx_coap_channel:handle_info({sock_closed, ssl_closed}, ConnRequired),
+    {shutdown, ssl_closed, _} = emqx_coap_channel:handle_info(
+        {sock_closed, ssl_closed}, ConnRequired0
+    ),
+    ConnRequired1 = ConnRequired0#channel{conn_state = connected, token = <<"tok">>},
+    {ok, _} = emqx_coap_channel:handle_info({sock_closed, ssl_closed}, ConnRequired1),
 
     ConnOptional = emqx_coap_channel:init(
         ConnInfo,
@@ -306,6 +310,193 @@ t_channel_connection_mode_sock_closed(_) ->
     {shutdown, ssl_closed, _} = emqx_coap_channel:handle_info(
         {sock_closed, ssl_closed}, ConnOptional
     ),
+    ok.
+
+t_channel_takeover_resume_enriches_clientinfo(_) ->
+    ConnInfo = #{
+        peername => {{127, 0, 0, 1}, 9999},
+        sockname => {{127, 0, 0, 1}, 5683}
+    },
+    ReqClientId = <<"client1">>,
+    ReqToken = <<"tok">>,
+    ExpireAt = erlang:system_time(millisecond) + 5000,
+    BaseChannel = emqx_coap_channel:init(
+        ConnInfo,
+        #{ctx => coap_ctx(), connection_required => true}
+    ),
+    Channel0 = BaseChannel#channel{
+        conn_state = connected,
+        token = <<"local-token">>,
+        clientinfo = (BaseChannel#channel.clientinfo)#{
+            clientid => <<"local-client">>,
+            username => undefined,
+            is_superuser => false,
+            auth_expire_at => undefined
+        }
+    },
+    ResumeClientInfo = #{
+        clientid => ReqClientId,
+        username => <<"admin">>,
+        is_superuser => true,
+        auth_expire_at => ExpireAt
+    },
+    Req = #coap_message{
+        type = con,
+        method = put,
+        id = 20,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{<<"clientid">> => ReqClientId, <<"token">> => ReqToken}
+        }
+    },
+    ok = meck:new(emqx_gateway_cm, [no_link, passthrough]),
+    ok = meck:new(emqx_gateway_ctx, [no_link, passthrough]),
+    ok = meck:expect(
+        emqx_gateway_cm,
+        call,
+        fun
+            (GwName, ClientId, {check_token_and_get_clientinfo, Token}) when
+                GwName =:= coap, ClientId =:= ReqClientId, Token =:= ReqToken
+            ->
+                {ok, ResumeClientInfo};
+            (GwName, ClientId, Request) ->
+                meck:passthrough([GwName, ClientId, Request])
+        end
+    ),
+    ok = meck:expect(
+        emqx_gateway_ctx,
+        open_session,
+        fun
+            (
+                _Ctx,
+                false,
+                ClientInfo,
+                _ConnInfo0,
+                _CreateSessionFun,
+                emqx_coap_session
+            ) ->
+                ?assertEqual(ReqClientId, maps:get(clientid, ClientInfo)),
+                ?assertEqual(<<"admin">>, maps:get(username, ClientInfo)),
+                ?assertEqual(true, maps:get(is_superuser, ClientInfo)),
+                ?assertEqual(ExpireAt, maps:get(auth_expire_at, ClientInfo)),
+                {ok, #{session => emqx_coap_session:new(), present => true}};
+            (Ctx, CleanStart, ClientInfo, ConnInfo0, CreateSessionFun, SessionMod) ->
+                meck:passthrough([
+                    Ctx,
+                    CleanStart,
+                    ClientInfo,
+                    ConnInfo0,
+                    CreateSessionFun,
+                    SessionMod
+                ])
+        end
+    ),
+    try
+        {ok, [{outgoing, [Reply]}], Channel1} = emqx_coap_channel:handle_in(Req, Channel0),
+        ?assertEqual({ok, changed}, Reply#coap_message.method),
+        ?assertEqual(connected, Channel1#channel.conn_state),
+        ?assertEqual(ReqToken, Channel1#channel.token),
+        ?assertEqual(<<"admin">>, maps:get(username, Channel1#channel.clientinfo)),
+        ?assertEqual(true, maps:get(is_superuser, Channel1#channel.clientinfo)),
+        ?assertEqual(ExpireAt, maps:get(auth_expire_at, Channel1#channel.clientinfo)),
+        ?assertMatch(#{connection_expire_timer := _}, Channel1#channel.timers)
+    after
+        ok = meck:unload(emqx_gateway_ctx),
+        ok = meck:unload(emqx_gateway_cm)
+    end,
+    ok.
+
+t_channel_takeover_open_session_fallback_cleanup(_) ->
+    ConnInfo = #{
+        peername => {{127, 0, 0, 1}, 9999},
+        sockname => {{127, 0, 0, 1}, 5683}
+    },
+    ReqClientId = <<"client1">>,
+    ReqToken = <<"tok">>,
+    BaseChannel = emqx_coap_channel:init(
+        ConnInfo,
+        #{ctx => coap_ctx(), connection_required => true}
+    ),
+    Channel0 = BaseChannel#channel{
+        conn_state = connected,
+        token = <<"local-token">>,
+        clientinfo = (BaseChannel#channel.clientinfo)#{clientid => <<"local-client">>}
+    },
+    ResumeClientInfo = #{clientid => ReqClientId, username => <<"admin">>},
+    Req = #coap_message{
+        type = con,
+        method = put,
+        id = 21,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{<<"clientid">> => ReqClientId, <<"token">> => ReqToken}
+        }
+    },
+    ok = meck:new(emqx_gateway_cm, [no_link, passthrough]),
+    ok = meck:new(emqx_gateway_ctx, [no_link, passthrough]),
+    ok = meck:expect(
+        emqx_gateway_cm,
+        call,
+        fun
+            (GwName, ClientId, {check_token_and_get_clientinfo, Token}) when
+                GwName =:= coap, ClientId =:= ReqClientId, Token =:= ReqToken
+            ->
+                {ok, ResumeClientInfo};
+            (GwName, ClientId, Request) ->
+                meck:passthrough([GwName, ClientId, Request])
+        end
+    ),
+    ok = meck:expect(
+        emqx_gateway_cm,
+        unregister_channel,
+        fun
+            (GwName, ClientId) when GwName =:= coap, ClientId =:= ReqClientId ->
+                self() ! {channel_unregistered, ReqClientId},
+                ok;
+            (GwName, ClientId) ->
+                meck:passthrough([GwName, ClientId])
+        end
+    ),
+    ok = meck:expect(
+        emqx_gateway_ctx,
+        open_session,
+        fun
+            (
+                _Ctx,
+                false,
+                _ClientInfo,
+                _ConnInfo0,
+                _CreateSessionFun,
+                emqx_coap_session
+            ) ->
+                {ok, #{session => emqx_coap_session:new(), present => false}};
+            (Ctx, CleanStart, ClientInfo, ConnInfo0, CreateSessionFun, SessionMod) ->
+                meck:passthrough([
+                    Ctx,
+                    CleanStart,
+                    ClientInfo,
+                    ConnInfo0,
+                    CreateSessionFun,
+                    SessionMod
+                ])
+        end
+    ),
+    try
+        {ok, {outgoing, Reply}, _} = emqx_coap_channel:handle_in(Req, Channel0),
+        ?assertEqual({error, unauthorized}, Reply#coap_message.method),
+        ?assertEqual(
+            <<"Invalid token or clientid in connection mode">>,
+            Reply#coap_message.payload
+        ),
+        receive
+            {channel_unregistered, ReqClientId} -> ok
+        after 1000 ->
+            ?assert(false)
+        end
+    after
+        ok = meck:unload(emqx_gateway_ctx),
+        ok = meck:unload(emqx_gateway_cm)
+    end,
     ok.
 
 t_channel_connected_invalid_queries(_) ->

@@ -82,6 +82,7 @@ new() ->
         created_at = erlang:system_time(millisecond)
     }.
 
+-spec resume(emqx_types:clientinfo(), session()) -> session().
 resume(_ClientInfo, Session = #session{}) ->
     Session.
 

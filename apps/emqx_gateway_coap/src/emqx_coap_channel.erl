@@ -321,6 +321,17 @@ handle_call(subscriptions, _From, Channel = #channel{session = Session}) ->
     {reply, {ok, maps:to_list(Subs)}, Channel};
 handle_call({check_token, ReqToken}, _From, Channel = #channel{token = Token}) ->
     {reply, ReqToken == Token, Channel};
+handle_call(
+    {check_token_and_get_clientinfo, ReqToken},
+    _From,
+    Channel = #channel{token = Token, clientinfo = ClientInfo}
+) ->
+    Reply =
+        case ReqToken == Token of
+            true -> {ok, ClientInfo};
+            false -> false
+        end,
+    {reply, Reply, Channel};
 handle_call(kick, _From, Channel) ->
     NChannel = ensure_disconnected(kicked, Channel),
     shutdown_and_reply(kicked, ok, NChannel);
@@ -359,7 +370,10 @@ handle_cast(Req, Channel) ->
     ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}.
 handle_info({subscribe, _AutoSubs}, Channel) ->
     {ok, Channel};
-handle_info({sock_closed, _Reason}, #channel{connection_required = true} = Channel) ->
+handle_info(
+    {sock_closed, _Reason},
+    #channel{connection_required = true, conn_state = connected} = Channel
+) ->
     {ok, Channel};
 handle_info({sock_closed, Reason}, Channel) ->
     shutdown(Reason, Channel);
@@ -459,21 +473,16 @@ check_token(Msg, Channel) ->
     end.
 
 try_takeover_with_token(Msg, ReqClientId, ReqToken, Channel) ->
-    case emqx_gateway_cm:call(coap, ReqClientId, {check_token, ReqToken}) of
-        true ->
-            takeover_and_handle_request(Msg, ReqClientId, ReqToken, Channel);
+    case emqx_gateway_cm:call(coap, ReqClientId, {check_token_and_get_clientinfo, ReqToken}) of
+        {ok, ResumeClientInfo} ->
+            takeover_and_handle_request(Msg, ReqClientId, ReqToken, ResumeClientInfo, Channel);
         _ ->
-            ErrMsg = <<"Missing token or clientid in connection mode">>,
-            Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
-            {ok, {outgoing, Reply}, Channel}
+            invalid_token_reply(Msg, Channel)
     end.
 
-takeover_and_handle_request(Msg, ReqClientId, ReqToken, Channel) ->
+takeover_and_handle_request(Msg, ReqClientId, ReqToken, ResumeClientInfo, Channel) ->
     #channel{ctx = Ctx, conninfo = ConnInfo, clientinfo = ClientInfo0} = Channel,
-    NClientInfo = ClientInfo0#{
-        clientid => ReqClientId,
-        auth_expire_at => maps:get(auth_expire_at, ClientInfo0, undefined)
-    },
+    NClientInfo = merge_takeover_clientinfo(ReqClientId, ClientInfo0, ResumeClientInfo),
     CreateSessionFun = fun(_, _) -> emqx_coap_session:new() end,
     case
         emqx_gateway_ctx:open_session(
@@ -481,19 +490,39 @@ takeover_and_handle_request(Msg, ReqClientId, ReqToken, Channel) ->
         )
     of
         {ok, #{session := Session, present := true}} ->
-            NChannel = Channel#channel{
+            Channel0 = Channel#channel{
                 session = Session,
                 clientinfo = NClientInfo,
-                conninfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
-                conn_state = connected,
                 token = ReqToken
             },
+            NChannel = ensure_connected(Channel0),
             call_session(handle_request, Msg, NChannel);
+        {ok, #{present := false}} ->
+            _ = catch emqx_gateway_cm:unregister_channel(coap, ReqClientId),
+            invalid_token_reply(Msg, Channel);
         _ ->
-            ErrMsg = <<"Missing token or clientid in connection mode">>,
-            Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
-            {ok, {outgoing, Reply}, Channel}
+            invalid_token_reply(Msg, Channel)
     end.
+
+merge_takeover_clientinfo(ReqClientId, ClientInfo0, ResumeClientInfo) ->
+    BaseClientInfo = ClientInfo0#{clientid => ReqClientId},
+    lists:foldl(
+        fun(Key, Acc) ->
+            case maps:find(Key, ResumeClientInfo) of
+                {ok, Value} ->
+                    Acc#{Key => Value};
+                error ->
+                    Acc
+            end
+        end,
+        BaseClientInfo,
+        [username, is_superuser, auth_expire_at, mountpoint, enable_authn]
+    ).
+
+invalid_token_reply(Msg, Channel) ->
+    ErrMsg = <<"Invalid token or clientid in connection mode">>,
+    Reply = emqx_coap_message:piggyback({error, unauthorized}, ErrMsg, Msg),
+    {ok, {outgoing, Reply}, Channel}.
 
 get_query_value(Key, URIQuery) ->
     RawValue =
