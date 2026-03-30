@@ -326,9 +326,11 @@ handle_call(
     _From,
     Channel = #channel{token = Token, clientinfo = ClientInfo}
 ) ->
+    %% Do not propagate sensitive credentials via takeover probing API.
+    SanitizedClientInfo = maps:remove(password, ClientInfo),
     Reply =
         case ReqToken == Token of
-            true -> {ok, ClientInfo};
+            true -> {ok, SanitizedClientInfo};
             false -> false
         end,
     {reply, Reply, Channel};
@@ -479,7 +481,7 @@ try_takeover_with_token(Msg, ReqClientId, ReqToken, Channel) ->
         {ok, ResumeClientInfo} ->
             takeover_and_handle_request(Msg, ReqClientId, ReqToken, ResumeClientInfo, Channel);
         undefined ->
-            missing_token_or_clientid_reply(Msg, Channel);
+            invalid_token_reply(Msg, Channel);
         false ->
             invalid_token_reply(Msg, Channel);
         _ ->

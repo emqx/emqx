@@ -284,13 +284,47 @@ t_channel_check_token_paths(_) ->
         }
     },
     {ok, {outgoing, BadReply}, _} = emqx_coap_channel:handle_in(BadReq, Channel0),
-    ?assertEqual({error, bad_request}, BadReply#coap_message.method),
+    ?assertEqual({error, unauthorized}, BadReply#coap_message.method),
     ?assertEqual(
-        <<"Missing token or clientid in connection mode">>,
+        <<"Invalid token or clientid in connection mode">>,
         BadReply#coap_message.payload
     ),
     ResetReq = #coap_message{type = reset, id = 999, token = <<>>},
     {ok, _} = emqx_coap_channel:handle_in(ResetReq, Channel0),
+    ok.
+
+t_channel_check_token_and_get_clientinfo_sanitized(_) ->
+    ConnInfo = #{
+        peername => {{127, 0, 0, 1}, 9999},
+        sockname => {{127, 0, 0, 1}, 5683}
+    },
+    BaseChannel = emqx_coap_channel:init(
+        ConnInfo,
+        #{ctx => coap_ctx(), connection_required => true}
+    ),
+    Channel0 = BaseChannel#channel{
+        token = <<"tok">>,
+        clientinfo = (BaseChannel#channel.clientinfo)#{
+            clientid => <<"client1">>,
+            username => <<"admin">>,
+            password => <<"public">>,
+            is_superuser => true
+        }
+    },
+    {reply, {ok, ClientInfo}, _} = emqx_coap_channel:handle_call(
+        {check_token_and_get_clientinfo, <<"tok">>},
+        none,
+        Channel0
+    ),
+    ?assertEqual(<<"client1">>, maps:get(clientid, ClientInfo)),
+    ?assertEqual(<<"admin">>, maps:get(username, ClientInfo)),
+    ?assertEqual(true, maps:get(is_superuser, ClientInfo)),
+    ?assertEqual(false, maps:is_key(password, ClientInfo)),
+    {reply, false, _} = emqx_coap_channel:handle_call(
+        {check_token_and_get_clientinfo, <<"bad">>},
+        none,
+        Channel0
+    ),
     ok.
 
 t_channel_same_clientid_invalid_token_no_self_cm_call(_) ->
