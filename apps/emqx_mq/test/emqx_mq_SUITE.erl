@@ -1396,6 +1396,37 @@ t_large_consumer_buffer(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub1).
 
+-doc "Verify that Subscription-Identifier is preserved in PUBLISH packets for mq deliveries.".
+t_subscription_identifier(_Config) ->
+    %% Create a non-lastvalue Queue
+    _ = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"subid">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false
+    }),
+
+    %% Connect a subscriber with Subscription-Identifier
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    SubId = 42,
+    SubProps = #{'Subscription-Identifier' => SubId},
+    {ok, _, [?QOS_1]} = emqtt:subscribe(CSub, SubProps, <<"$queue/subid/t/#">>, ?QOS_1),
+
+    %% Publish a message to the queue
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
+
+    %% Receive the message and verify the Subscription-Identifier
+    receive
+        {publish, #{
+            topic := <<"t/0">>,
+            properties := #{'Subscription-Identifier' := ReceivedSubId}
+        }} ->
+            ?assertEqual(SubId, ReceivedSubId)
+    after 3000 ->
+        ct:fail("t/0 message from MQ not received or missing Subscription-Identifier")
+    end,
+
+    ok = emqtt:disconnect(CSub).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
