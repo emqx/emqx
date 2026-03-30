@@ -55,7 +55,10 @@ roots() ->
     [].
 
 fields(mqtt) ->
-    lists:foldl(fun make_mqtt_limiters_schema/2, [], mqtt_limiter_names()).
+    lists:foldl(fun make_mqtt_limiters_schema/2, [], mqtt_limiter_names());
+fields(mqtt_shared_limiters) ->
+    %% Supported shared limiters (for zones/listeners).
+    lists:foldl(fun make_mqtt_limiters_schema/2, [], mqtt_shared_limiter_names()).
 
 make_mqtt_limiters_schema(Name, Fields) ->
     NameStr = erlang:atom_to_list(Name),
@@ -83,12 +86,23 @@ burst_type() ->
 
 desc(mqtt) ->
     ?DESC(mqtt);
+desc(mqtt_shared_limiters) ->
+    ?DESC(mqtt);
 desc(_) ->
     undefined.
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
+
+mqtt_shared_limiter_names() ->
+    %% Currently, `delivery_*` are not supported
+    [
+        max_conn,
+        messages,
+        bytes
+    ].
+
 mqtt_limiter_names() ->
     [
         max_conn,

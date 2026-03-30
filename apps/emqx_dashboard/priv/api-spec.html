@@ -1,0 +1,2270 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EMQX API Spec Explorer</title>
+  <style>
+    :root {
+      --color-bg: #f2f5f8;
+      --color-bg-content: #ffffff;
+      --color-bg-split: #eef2f6;
+      --color-border-primary: rgba(20, 36, 56, 0.12);
+      --color-border-card: rgba(20, 36, 56, 0.18);
+      --color-text-primary: #21354a;
+      --color-text-secondary: #5c7389;
+      --color-text-muted: #7f95ab;
+      --color-title-primary: #12263b;
+      --color-primary: #4f6cff;
+      --color-success: #00b173;
+      --color-warning: #d79324;
+      --color-danger: #d94b4b;
+      --color-shadow-primary: rgba(14, 24, 36, 0.12);
+      --code-bg: #f6f9fc;
+      --code-fg: #1c3248;
+      --color-mono-strong: #1e3650;
+      --topbar-bg: rgba(255, 255, 255, 0.88);
+      --hero-gradient: linear-gradient(180deg, rgba(83, 111, 145, 0.1), rgba(83, 111, 145, 0));
+      --body-bg: radial-gradient(circle at 15% -20%, #dbe8f5 0%, rgba(219, 232, 245, 0) 32%), var(--color-bg);
+      --radius-lg: 14px;
+      --radius-md: 10px;
+      --radius-sm: 8px;
+      --font-ui: Roboto, "PingFang SC", "Segoe UI", Helvetica, Arial, sans-serif;
+      --sidebar-w: 300px;
+      --header-h: 62px;
+    }
+
+    html[data-theme="dark"] {
+      --color-bg: #1f2b34;
+      --color-bg-content: #27353e;
+      --color-bg-split: #31424d;
+      --color-border-primary: rgba(255, 255, 255, 0.14);
+      --color-border-card: rgba(255, 255, 255, 0.18);
+      --color-text-primary: #f2f6fa;
+      --color-text-secondary: #a7b4bf;
+      --color-text-muted: #7f909e;
+      --color-title-primary: #ffffff;
+      --color-primary: #5e7bff;
+      --color-success: #00b173;
+      --color-warning: #e6a23c;
+      --color-danger: #ef5b5b;
+      --color-shadow-primary: rgba(15, 22, 28, 0.35);
+      --code-bg: #1a2630;
+      --code-fg: #d2deea;
+      --color-mono-strong: #dce5ee;
+      --topbar-bg: rgba(26, 38, 47, 0.92);
+      --hero-gradient: linear-gradient(180deg, rgba(88, 112, 130, 0.18), rgba(88, 112, 130, 0));
+      --body-bg: radial-gradient(circle at 15% -20%, #364a59 0%, rgba(54, 74, 89, 0) 32%), var(--color-bg);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-height: 100%;
+      margin: 0;
+      background: var(--body-bg);
+      color: var(--color-text-primary);
+      font-family: var(--font-ui);
+      line-height: 1.45;
+    }
+
+    a {
+      color: var(--color-primary);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .app {
+      height: 100vh;
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: var(--header-h) 1fr;
+      overflow: hidden;
+    }
+
+    .topbar {
+      height: var(--header-h);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--color-border-primary);
+      background: var(--topbar-bg);
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      backdrop-filter: blur(8px);
+    }
+
+    .topbar .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand-badge {
+      width: 10px;
+      height: 10px;
+      border-radius: 99px;
+      background: linear-gradient(180deg, #83f6ca, #00b173);
+      box-shadow: 0 0 16px rgba(0, 177, 115, 0.55);
+      flex: 0 0 auto;
+    }
+
+    .brand-title {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0.2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .brand-sub {
+      margin: 0;
+      color: var(--color-text-secondary);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .topbar .actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--color-text-secondary);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .pill {
+      border: 1px solid var(--color-border-primary);
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 999px;
+      padding: 4px 10px;
+      color: var(--color-text-secondary);
+      font-size: 12px;
+    }
+
+    .layout {
+      height: calc(100vh - var(--header-h));
+      min-height: calc(100vh - var(--header-h));
+      display: grid;
+      grid-template-columns: var(--sidebar-w) 1fr;
+      gap: 14px;
+      padding: 14px;
+      overflow: hidden;
+    }
+
+    .sidebar {
+      height: 100%;
+      min-height: 0;
+      border: 1px solid var(--color-border-primary);
+      border-radius: var(--radius-lg);
+      background: var(--color-bg-content);
+      box-shadow: 0 4px 18px var(--color-shadow-primary);
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .sidebar-section {
+      padding: 14px;
+      border-bottom: 1px solid var(--color-border-primary);
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-section:last-child {
+      border-bottom: none;
+      padding-bottom: 14px;
+    }
+
+    .sidebar-scroll {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
+      margin-top: 10px;
+      padding-right: 2px;
+    }
+
+    .section-title {
+      margin: 0 0 10px;
+      color: var(--color-title-primary);
+      font-size: 12px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .hint {
+      margin: 8px 0 0;
+      color: var(--color-text-muted);
+      font-size: 12px;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .search-input,
+    .toolbar-input {
+      width: 100%;
+      height: 36px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--color-border-primary);
+      background: rgba(0, 0, 0, 0.14);
+      color: var(--color-text-primary);
+      padding: 0 10px;
+      outline: none;
+      font-size: 13px;
+    }
+
+    .search-input::placeholder,
+    .toolbar-input::placeholder {
+      color: var(--color-text-muted);
+    }
+
+    .search-input:focus,
+    .toolbar-input:focus {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px rgba(94, 123, 255, 0.2);
+    }
+
+    .tag-list,
+    .name-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .tree-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .tree-group {
+      display: grid;
+      gap: 6px;
+    }
+
+    .tree-children {
+      display: grid;
+      gap: 6px;
+      margin-left: 16px;
+      padding-left: 10px;
+      border-left: 1px dashed var(--color-border-primary);
+    }
+
+    .tag-btn,
+    .name-btn {
+      width: 100%;
+      border: 1px solid var(--color-border-primary);
+      background: rgba(255, 255, 255, 0.02);
+      border-radius: var(--radius-sm);
+      color: var(--color-text-primary);
+      text-align: left;
+      padding: 9px 10px;
+      cursor: pointer;
+      transition: 0.18s ease;
+      display: grid;
+      gap: 2px;
+    }
+
+    .tag-btn:hover,
+    .name-btn:hover {
+      border-color: var(--color-primary);
+      background: rgba(94, 123, 255, 0.08);
+      transform: translateY(-1px);
+    }
+
+    .tag-btn.is-active,
+    .name-btn.is-active {
+      border-color: var(--color-primary);
+      background: rgba(94, 123, 255, 0.16);
+      box-shadow: inset 0 0 0 1px rgba(94, 123, 255, 0.25);
+    }
+
+    .tag-btn .name,
+    .name-btn .name {
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .tag-btn .desc,
+    .name-btn .desc {
+      color: var(--color-text-secondary);
+      font-size: 12px;
+    }
+
+    .main {
+      height: 100%;
+      min-width: 0;
+      min-height: 0;
+      border: 1px solid var(--color-border-primary);
+      border-radius: var(--radius-lg);
+      background: var(--color-bg-content);
+      box-shadow: 0 4px 18px var(--color-shadow-primary);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    .main-head {
+      position: sticky;
+      top: 0;
+      z-index: 6;
+      background: var(--color-bg-content);
+    }
+
+    .hero {
+      padding: 16px 18px 12px;
+      border-bottom: 1px solid var(--color-border-primary);
+      background: var(--hero-gradient);
+    }
+
+    .breadcrumbs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      color: var(--color-text-secondary);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    .breadcrumbs .sep {
+      opacity: 0.55;
+    }
+
+    .hero h2 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.25;
+      letter-spacing: 0.2px;
+    }
+
+    .hero p {
+      margin: 8px 0 0;
+      color: var(--color-text-secondary);
+      font-size: 13px;
+      max-width: 900px;
+    }
+
+    .toolbar {
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--color-border-primary);
+      display: grid;
+      grid-template-columns: 1fr auto auto auto;
+      gap: 10px;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .btn {
+      border: 1px solid var(--color-border-primary);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--color-text-primary);
+      border-radius: var(--radius-sm);
+      padding: 0 12px;
+      height: 36px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: 0.18s ease;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      border-color: var(--color-primary);
+      background: rgba(94, 123, 255, 0.12);
+    }
+
+    .btn-primary {
+      background: linear-gradient(180deg, #6383ff, #5272f3);
+      border-color: #5b78ef;
+      color: white;
+      font-weight: 600;
+    }
+
+    .btn-primary:hover {
+      filter: brightness(1.05);
+      background: linear-gradient(180deg, #6a89ff, #5676fa);
+    }
+
+    .content {
+      min-height: auto;
+      overflow: visible;
+      padding: 16px 18px 26px;
+      display: grid;
+      gap: 16px;
+      align-content: start;
+    }
+
+    .panel {
+      border: 1px solid var(--color-border-primary);
+      border-radius: var(--radius-md);
+      background: rgba(0, 0, 0, 0.12);
+      overflow: hidden;
+    }
+
+    .panel-hd {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--color-border-primary);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .panel-hd h3 {
+      margin: 0;
+      font-size: 14px;
+      letter-spacing: 0.25px;
+    }
+
+    .panel-hd-toggle {
+      cursor: pointer;
+      user-select: none;
+      list-style: none;
+    }
+
+    .panel-hd-toggle::-webkit-details-marker {
+      display: none;
+    }
+
+    .panel-bd {
+      padding: 12px;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .meta-item {
+      border: 1px solid var(--color-border-primary);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.02);
+      padding: 10px;
+    }
+
+    .meta-item .k {
+      color: var(--color-text-muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+
+    .meta-item .v {
+      font-size: 13px;
+      word-break: break-word;
+    }
+
+    .md-block {
+      border: 1px solid var(--color-border-primary);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.02);
+      padding: 12px;
+      color: var(--color-text-primary);
+    }
+
+    .md-block h2,
+    .md-block h3,
+    .md-block h4 {
+      margin: 0 0 10px;
+      color: var(--color-title-primary);
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .md-block p {
+      margin: 0 0 10px;
+      color: var(--color-text-primary);
+      font-size: 13px;
+    }
+
+    .md-block ol {
+      margin: 0 0 10px 20px;
+      padding: 0;
+      color: var(--color-text-primary);
+    }
+
+    .md-block li {
+      margin: 0 0 6px;
+      font-size: 13px;
+    }
+
+    .md-block code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: var(--code-bg);
+      color: var(--code-fg);
+      border-radius: 6px;
+      padding: 1px 4px;
+      font-size: 12px;
+    }
+
+    .md-block pre.code {
+      margin: 0 0 10px;
+      white-space: pre-wrap;
+    }
+
+    .op-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .op-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+      border: 1px solid var(--color-border-primary);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .method {
+      min-width: 58px;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: #fff;
+      text-transform: uppercase;
+    }
+
+    .method.get { background: #2d9f6f; }
+    .method.post { background: #2f7de0; }
+    .method.put { background: #b67b0f; }
+    .method.delete { background: #c84e4e; }
+    .method.patch { background: #6d7be1; }
+    .method.other { background: #607080; }
+
+    .op-row .path {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      color: var(--color-mono-strong);
+      word-break: break-all;
+    }
+
+    .op-row .summary {
+      font-size: 12px;
+      color: var(--color-text-secondary);
+      text-align: right;
+      max-width: 320px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .endpoint-card {
+      border: 1px solid var(--color-border-primary);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .endpoint-hd {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      border-bottom: 1px solid var(--color-border-primary);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .endpoint-hd .title {
+      margin: 0;
+      font-size: 13px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--color-mono-strong);
+      word-break: break-all;
+    }
+
+    .endpoint-hd .summary {
+      color: var(--color-text-secondary);
+      font-size: 12px;
+      text-align: right;
+      max-width: 300px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .endpoint-bd {
+      padding: 10px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: 130px 1fr;
+      gap: 8px;
+      align-items: start;
+      border: 1px dashed var(--color-border-primary);
+      border-radius: var(--radius-sm);
+      padding: 8px;
+      font-size: 12px;
+    }
+
+    .kv > div:last-child {
+      min-width: 0;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .kv .k {
+      color: var(--color-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      font-size: 11px;
+    }
+
+    .code {
+      margin: 0;
+      border: 1px solid var(--color-border-primary);
+      background: var(--code-bg);
+      color: var(--code-fg);
+      border-radius: var(--radius-sm);
+      padding: 10px;
+      max-height: 260px;
+      overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre;
+    }
+
+    .schema-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    details.schema-item {
+      border: 1px solid var(--color-border-primary);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.03);
+      overflow: hidden;
+    }
+
+    details.schema-item > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 10px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      user-select: none;
+    }
+
+    details.schema-item > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .schema-item-hd {
+      list-style: none;
+      padding: 10px;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      user-select: none;
+      border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    .schema-name {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      color: var(--color-mono-strong);
+      word-break: break-all;
+    }
+
+    .schema-chip {
+      font-size: 11px;
+      color: var(--color-text-secondary);
+      border: 1px solid var(--color-border-primary);
+      border-radius: 999px;
+      padding: 2px 8px;
+      white-space: nowrap;
+    }
+
+    .schema-body {
+      border-top: 1px solid var(--color-border-primary);
+      padding: 10px;
+    }
+
+    .schema-tree {
+      display: grid;
+      gap: 8px;
+      font-size: 12px;
+    }
+
+    .schema-node {
+      border: 1px solid var(--color-border-primary);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.02);
+      padding: 8px;
+    }
+
+    .schema-node-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--color-mono-strong);
+    }
+
+    .schema-collapse-btn {
+      border: 0;
+      background: transparent;
+      color: var(--color-text-secondary);
+      font-size: 13px;
+      line-height: 1;
+      padding: 0 2px;
+      cursor: pointer;
+    }
+
+    .schema-collapse-btn:hover {
+      color: var(--color-primary);
+    }
+
+    .schema-key {
+      color: var(--color-title-primary);
+      font-weight: 600;
+    }
+
+    .schema-meta {
+      color: var(--color-text-secondary);
+      font-size: 11px;
+      border: 1px solid var(--color-border-primary);
+      border-radius: 999px;
+      padding: 1px 8px;
+    }
+
+    .schema-children {
+      margin-top: 8px;
+      padding-left: 10px;
+      border-left: 1px dashed var(--color-border-primary);
+      display: grid;
+      gap: 8px;
+    }
+
+    .schema-oneof-switch {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+    }
+
+    .schema-oneof-switch select {
+      height: 30px;
+      border-radius: 6px;
+      border: 1px solid var(--color-border-primary);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--color-text-primary);
+      padding: 0 8px;
+    }
+
+    .schema-inline {
+      margin-top: 8px;
+      border: 1px solid var(--color-border-primary);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.02);
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 8px;
+      padding: 8px;
+    }
+
+    .schema-inline-meta {
+      display: grid;
+      gap: 6px;
+      align-content: start;
+    }
+
+    .schema-inline-meta-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .schema-inline-meta-key {
+      color: var(--color-text-secondary);
+    }
+
+    .schema-inline-meta-val {
+      color: var(--color-mono-strong);
+      font-weight: 600;
+    }
+
+    .schema-inline-desc {
+      color: var(--color-text-primary);
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .schema-node-compact {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .schema-node-compact .schema-node-head {
+      margin: 0;
+    }
+
+    .schema-compact-desc {
+      color: var(--color-text-primary);
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      border-left: 1px dashed var(--color-border-primary);
+      padding-left: 10px;
+      min-height: 100%;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--color-text-secondary);
+    }
+
+    .status .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--color-success);
+      box-shadow: 0 0 10px rgba(0, 177, 115, 0.45);
+    }
+
+    .error-box {
+      border: 1px solid rgba(239, 91, 91, 0.45);
+      background: rgba(239, 91, 91, 0.08);
+      border-radius: var(--radius-sm);
+      padding: 10px;
+      color: #ffc9c9;
+      font-size: 13px;
+    }
+
+    .empty {
+      border: 1px dashed var(--color-border-primary);
+      border-radius: var(--radius-sm);
+      color: var(--color-text-secondary);
+      text-align: center;
+      padding: 24px 12px;
+      font-size: 13px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .copy-btn {
+      border: 1px solid var(--color-border-primary);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--color-text-secondary);
+      border-radius: 7px;
+      font-size: 11px;
+      padding: 2px 8px;
+      cursor: pointer;
+    }
+
+    .copy-btn:hover {
+      color: var(--color-text-primary);
+      border-color: var(--color-primary);
+    }
+
+    @media (max-width: 1100px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        max-height: 48vh;
+      }
+
+      .toolbar {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .meta-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 700px) {
+      .topbar {
+        padding: 0 12px;
+      }
+
+      .topbar .actions {
+        display: none;
+      }
+
+      .layout {
+        padding: 10px;
+        gap: 10px;
+      }
+
+      .hero h2 {
+        font-size: 20px;
+      }
+
+      .toolbar {
+        grid-template-columns: 1fr;
+      }
+
+      .op-row,
+      .endpoint-hd {
+        grid-template-columns: auto 1fr;
+      }
+
+      .op-row .summary,
+      .endpoint-hd .summary {
+        grid-column: 1 / -1;
+        max-width: none;
+        text-align: left;
+      }
+
+      .kv {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-badge"></span>
+        <div>
+          <h1 class="brand-title">EMQX API Spec Explorer</h1>
+          <p class="brand-sub">Static drill-down UI for API discovery</p>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="btn-theme" title="Toggle light/dark theme">Dark</button>
+        <span class="pill" id="scope-pill">Scope: index</span>
+        <span class="status"><span class="dot"></span><span id="status-text">Ready</span></span>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <section class="sidebar-section">
+          <h2 class="section-title">Filter</h2>
+          <input id="filter-search" class="search-input" placeholder="e.g. action kafka, listener tcp, kafka" />
+          <p class="hint">Filters tags and drill-down names together.</p>
+        </section>
+
+        <section class="sidebar-section">
+          <h2 class="section-title">Tag / Type</h2>
+          <div class="sidebar-scroll">
+            <div id="sidebar-tree" class="tree-list"></div>
+          </div>
+        </section>
+      </aside>
+
+      <main class="main">
+        <div class="main-head">
+          <section class="hero">
+            <div class="breadcrumbs" id="breadcrumbs"></div>
+            <h2 id="hero-title">API Spec Index</h2>
+            <p id="hero-sub">Browse tags and drill down into focused OpenAPI slices for faster API discovery.</p>
+          </section>
+
+          <section class="toolbar">
+            <input id="op-search" class="toolbar-input" placeholder="Filter endpoints by method/path/label..." />
+            <button class="btn" id="btn-reset">Reset Scope</button>
+            <button class="btn" id="btn-reload">Reload</button>
+            <button class="btn btn-primary" id="btn-copy-url">Copy API URL</button>
+          </section>
+        </div>
+
+        <section class="content" id="content"></section>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const state = {
+      indexData: null,
+      specData: null,
+      selectedTag: null,
+      selectedName: null,
+      selectedUrl: '/api-spec.json',
+      loading: false,
+      error: '',
+      filterQuery: '',
+      opFilter: '',
+    };
+
+    const els = {
+      sidebarTree: document.getElementById('sidebar-tree'),
+      content: document.getElementById('content'),
+      breadcrumbs: document.getElementById('breadcrumbs'),
+      heroTitle: document.getElementById('hero-title'),
+      heroSub: document.getElementById('hero-sub'),
+      scopePill: document.getElementById('scope-pill'),
+      statusText: document.getElementById('status-text'),
+      filterSearch: document.getElementById('filter-search'),
+      opSearch: document.getElementById('op-search'),
+      btnReset: document.getElementById('btn-reset'),
+      btnReload: document.getElementById('btn-reload'),
+      btnCopyUrl: document.getElementById('btn-copy-url'),
+      btnTheme: document.getElementById('btn-theme'),
+    };
+
+    init();
+
+    function init() {
+      initTheme();
+      bindEvents();
+      loadIndex();
+    }
+
+    function bindEvents() {
+      els.filterSearch.addEventListener('input', (e) => {
+        state.filterQuery = e.target.value.trim().toLowerCase();
+        renderSidebarTree();
+        syncUrlQuery();
+      });
+
+      els.opSearch.addEventListener('input', (e) => {
+        state.opFilter = e.target.value.trim().toLowerCase();
+        renderContent();
+        syncUrlQuery();
+      });
+
+      els.btnReset.addEventListener('click', () => {
+        state.selectedTag = null;
+        state.selectedName = null;
+        state.specData = null;
+        state.selectedUrl = '/api-spec.json';
+        state.error = '';
+        setStatus('Ready');
+        loadIndex();
+      });
+
+      els.btnReload.addEventListener('click', () => {
+        if (state.selectedTag) {
+          loadSpec(state.selectedTag, state.selectedName);
+        } else {
+          loadIndex();
+        }
+      });
+
+      els.btnCopyUrl.addEventListener('click', async () => {
+        await copyText(location.origin + state.selectedUrl);
+      });
+
+      els.btnTheme.addEventListener('click', () => {
+        const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+        const next = current === 'dark' ? 'light' : 'dark';
+        setTheme(next);
+      });
+    }
+
+    function initTheme() {
+      const saved = localStorage.getItem('api_spec_theme');
+      setTheme(saved === 'dark' ? 'dark' : 'light');
+    }
+
+    function setTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('api_spec_theme', theme);
+      if (els.btnTheme) {
+        els.btnTheme.textContent = theme === 'dark' ? 'Light' : 'Dark';
+      }
+    }
+
+    async function loadIndex() {
+      setLoading(true, 'Loading /api-spec.json ...');
+      try {
+        const data = await fetchJson('/api-spec.json');
+        state.indexData = data;
+        state.selectedUrl = '/api-spec.json';
+        state.error = '';
+        applyUrlState();
+        setStatus('Index loaded');
+      } catch (err) {
+        state.error = String(err.message || err);
+        setStatus('Failed to load index');
+      } finally {
+        setLoading(false);
+        renderAll();
+      }
+    }
+
+    async function loadSpec(tag, name) {
+      if (!state.indexData) return;
+      const tagInfo = state.indexData.tags?.[tag];
+      if (!tagInfo) return;
+
+      let url = tagInfo.url;
+      if (name) {
+        const key = tag.toLowerCase();
+        const tpl = state.indexData.drill_down?.[key]?.url_template;
+        if (tpl) {
+          url = tpl.replace('{name}', encodeURIComponent(name));
+        } else {
+          url = `${tagInfo.url}/${encodeURIComponent(name)}`;
+        }
+      }
+
+      state.selectedTag = tag;
+      state.selectedName = name || null;
+      state.selectedUrl = url;
+      state.error = '';
+
+      setLoading(true, `Loading ${url} ...`);
+      try {
+        const spec = await fetchJson(url);
+        state.specData = spec;
+        setStatus('Spec loaded');
+      } catch (err) {
+        state.specData = null;
+        state.error = String(err.message || err);
+        setStatus('Failed to load scope');
+      } finally {
+        setLoading(false);
+        renderAll();
+      }
+    }
+
+    async function fetchJson(url) {
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!res.ok) {
+        let body = '';
+        try {
+          body = await res.text();
+        } catch (_err) {
+          body = '';
+        }
+        throw new Error(`${url} -> HTTP ${res.status}${body ? ` | ${trim(body, 180)}` : ''}`);
+      }
+      return res.json();
+    }
+
+    function renderAll() {
+      renderHero();
+      renderSidebarTree();
+      renderContent();
+      renderScopePill();
+      syncUrlQuery();
+    }
+
+    function renderHero() {
+      const crumbs = [];
+      crumbs.push(linkCrumb('Index', () => {
+        state.selectedTag = null;
+        state.selectedName = null;
+        state.specData = null;
+        state.selectedUrl = '/api-spec.json';
+        state.error = '';
+        renderAll();
+      }));
+
+      if (state.selectedTag) {
+        crumbs.push(textCrumb('/'));
+        crumbs.push(textCrumb(state.selectedTag));
+      }
+
+      if (state.selectedName) {
+        crumbs.push(textCrumb('/'));
+        crumbs.push(textCrumb(state.selectedName));
+      }
+
+      els.breadcrumbs.innerHTML = '';
+      crumbs.forEach((c, i) => {
+        if (i > 0 && c.dataset.sep !== '1' && els.breadcrumbs.lastChild?.dataset.sep !== '1') {
+          const sep = document.createElement('span');
+          sep.className = 'sep';
+          sep.dataset.sep = '1';
+          sep.textContent = '›';
+          els.breadcrumbs.appendChild(sep);
+        }
+        els.breadcrumbs.appendChild(c);
+      });
+
+      if (!state.selectedTag) {
+        els.heroTitle.textContent = 'API Spec Index';
+        els.heroSub.textContent = 'Browse tags and drill down into focused OpenAPI slices for faster API discovery.';
+        return;
+      }
+
+      const baseDesc = state.indexData?.tags?.[state.selectedTag]?.description || '';
+      els.heroTitle.textContent = state.selectedName
+        ? `${state.selectedTag} / ${state.selectedName}`
+        : `${state.selectedTag}`;
+      els.heroSub.textContent = baseDesc || 'Focused OpenAPI slice loaded from /api-spec endpoints.';
+    }
+
+    function renderScopePill() {
+      const scope = state.selectedTag
+        ? `${state.selectedTag}${state.selectedName ? ` / ${state.selectedName}` : ''}`
+        : 'index';
+      els.scopePill.textContent = `Scope: ${scope}`;
+    }
+
+    function renderSidebarTree() {
+      const root = els.sidebarTree;
+      root.innerHTML = '';
+      const entries = getFilteredTagEntries();
+      const tokens = getFilterTokens();
+
+      if (!entries.length) {
+        root.innerHTML = '<div class="empty">No matching tags</div>';
+        return;
+      }
+
+      for (const [tag, meta] of entries) {
+        const key = tagKey(tag);
+        const names = state.indexData?.drill_down?.[key]?.names || [];
+        const visibleNames = names.filter((n) => {
+            if (!tokens.length) return true;
+            const nameText = `${n.name || ''} ${n.display || ''}`.toLowerCase();
+            const tagText = `${tag} ${key}`.toLowerCase();
+            return tokens.every((t) => nameText.includes(t) || tagText.includes(t));
+        });
+
+        const group = document.createElement('div');
+        group.className = 'tree-group';
+
+        const tagBtn = document.createElement('button');
+        tagBtn.className = 'tag-btn' + (state.selectedTag === tag && !state.selectedName ? ' is-active' : '');
+        tagBtn.innerHTML = `
+          <span class="name">${escapeHtml(tag)}</span>
+          <span class="desc">${escapeHtml(trim(meta.description || meta.url || '', 80))}</span>
+        `;
+        tagBtn.addEventListener('click', () => loadSpec(tag));
+        group.appendChild(tagBtn);
+
+        const showChildren = tokens.length ? visibleNames.length > 0 : state.selectedTag === tag;
+        if (showChildren) {
+          const children = document.createElement('div');
+          children.className = 'tree-children';
+          for (const n of visibleNames) {
+            const typeBtn = document.createElement('button');
+            const isActive = state.selectedTag === tag && state.selectedName === n.name;
+            typeBtn.className = 'name-btn' + (isActive ? ' is-active' : '');
+            typeBtn.innerHTML = `
+              <span class="name">${escapeHtml(n.display || n.name)}</span>
+              <span class="desc">${escapeHtml(n.name)}</span>
+            `;
+            typeBtn.addEventListener('click', () => loadSpec(tag, n.name));
+            children.appendChild(typeBtn);
+          }
+          group.appendChild(children);
+        }
+
+        root.appendChild(group);
+      }
+    }
+
+    function renderContent() {
+      const wrap = els.content;
+      wrap.innerHTML = '';
+
+      if (state.error) {
+        wrap.innerHTML = `<div class="error-box">${escapeHtml(state.error)}</div>`;
+      }
+
+      if (!state.selectedTag) {
+        wrap.appendChild(renderIndexPanel());
+        return;
+      }
+
+      if (state.loading) {
+        wrap.appendChild(emptyEl('Loading spec...'));
+        return;
+      }
+
+      if (!state.specData) {
+        wrap.appendChild(emptyEl('No spec loaded for current scope'));
+        return;
+      }
+
+      if (state.specData['x-resource-info']) {
+        const panel = document.createElement('section');
+        panel.className = 'panel';
+        panel.innerHTML = `
+          <details>
+            <summary class="panel-hd panel-hd-toggle"><h3>Context</h3></summary>
+            <div class="panel-bd"></div>
+          </details>
+        `;
+        const bd = panel.querySelector('.panel-bd');
+        const resInfo = state.specData['x-resource-info'];
+        if (resInfo) {
+          const grid = document.createElement('div');
+          grid.className = 'meta-grid';
+          grid.appendChild(metaItem('ID Format', resInfo.id_format || '-'));
+          grid.appendChild(metaItem('ID Examples', (resInfo.id_examples || []).join(', ') || '-'));
+          grid.appendChild(metaItem('Resource Note', resInfo.note || '-'));
+          bd.appendChild(grid);
+        }
+        wrap.appendChild(panel);
+      }
+
+      wrap.appendChild(renderEndpointsPanel(state.specData.paths || {}));
+    }
+
+    function renderIndexPanel() {
+      const panel = panelEl('Start Here');
+      const bd = panel.querySelector('.panel-bd');
+      const tags = state.indexData?.tags ? Object.keys(state.indexData.tags).length : 0;
+      const drill = state.indexData?.drill_down ? Object.keys(state.indexData.drill_down).length : 0;
+
+      bd.innerHTML = `
+        <div class="meta-grid">
+          <div class="meta-item"><div class="k">Available Tags</div><div class="v">${tags}</div></div>
+          <div class="meta-item"><div class="k">Drill-Down Categories</div><div class="v">${drill}</div></div>
+          <div class="meta-item"><div class="k">Index Endpoint</div><div class="v"><code>/api-spec.json</code></div></div>
+          <div class="meta-item"><div class="k">Current URL</div><div class="v"><code>${escapeHtml(location.origin + state.selectedUrl)}</code></div></div>
+        </div>
+      `;
+      const auth = state.indexData?.api_auth;
+      const bootstrapHelp = Array.isArray(state.indexData?.bootstrap_help)
+        ? state.indexData.bootstrap_help
+        : [];
+      if (bootstrapHelp.length) {
+        for (const section of bootstrapHelp) {
+          const helpBlock = document.createElement('section');
+          helpBlock.className = 'md-block';
+          helpBlock.style.marginTop = '12px';
+          helpBlock.innerHTML = `
+            <h3>${escapeHtml(String(section.title || ''))}</h3>
+            <p>${plainTextToHtml(String(section.text || ''))}</p>
+          `;
+          bd.appendChild(helpBlock);
+        }
+      }
+      if (auth && !bootstrapHelp.length) {
+        const authBlock = document.createElement('section');
+        authBlock.className = 'md-block';
+        authBlock.style.marginTop = '12px';
+        authBlock.innerHTML = plainTextToHtml(String(auth));
+        bd.appendChild(authBlock);
+      }
+
+      return panel;
+    }
+
+    function renderEndpointsPanel(paths) {
+      const panel = panelEl('Endpoints');
+      const bd = panel.querySelector('.panel-bd');
+
+      const methodOrder = ['get', 'post', 'put', 'delete', 'patch', 'options', 'head'];
+      const cards = [];
+
+      for (const path of Object.keys(paths).sort((a, b) => a.localeCompare(b))) {
+        const item = paths[path] || {};
+        for (const method of methodOrder) {
+          const op = item[method];
+          if (!op || typeof op !== 'object') continue;
+
+          if (state.opFilter) {
+            const hit = `${method} ${path} ${op.summary || ''}`.toLowerCase();
+            if (!hit.includes(state.opFilter)) continue;
+          }
+
+          cards.push(endpointCard(path, method, op));
+        }
+      }
+
+      if (!cards.length) {
+        bd.appendChild(emptyEl('No endpoint details matched the current filter'));
+        return panel;
+      }
+
+      for (const c of cards) bd.appendChild(c);
+      return panel;
+    }
+
+    function endpointCard(path, method, op) {
+      const card = document.createElement('article');
+      card.className = 'endpoint-card';
+
+      const m = method.toLowerCase();
+      const methodClass = cssMethod(m);
+      const summary = op.summary || '';
+      const desc = op.description || op.desc || '';
+      const params = Array.isArray(op.parameters) ? op.parameters : [];
+      const reqBody = op.requestBody || op['requestBody'];
+      const responses = op.responses || {};
+      const respCodes = Object.keys(responses).sort();
+
+      card.innerHTML = `
+        <header class="endpoint-hd">
+          <span class="method ${methodClass}">${escapeHtml(method.toUpperCase())}</span>
+          <h4 class="title">${escapeHtml(path)}</h4>
+          <span class="summary" title="${escapeHtml(summary)}">${escapeHtml(summary || '-')}</span>
+        </header>
+        <div class="endpoint-bd"></div>
+      `;
+
+      const bd = card.querySelector('.endpoint-bd');
+
+      if (desc) {
+        bd.appendChild(kvEl('Description', sanitizeRichHtml(desc)));
+      }
+
+      if (params.length) {
+        bd.appendChild(kvEl('Parameters', String(params.length)));
+        bd.appendChild(renderParametersBlock(params));
+      }
+
+      if (reqBody) {
+        bd.appendChild(renderRequestBodySchemas(reqBody));
+        const ex = pickExample(reqBody);
+        if (ex) {
+          bd.appendChild(codeBlock('Request Example', ex));
+        }
+      }
+
+      bd.appendChild(kvEl('Responses', respCodes.join(', ') || '-'));
+      if (respCodes.length) {
+        bd.appendChild(renderResponseSchemas(responses));
+      }
+
+      const curl = curlTemplate(path, method, reqBody);
+      bd.appendChild(codeBlock('cURL Template', curl));
+
+      return card;
+    }
+
+    function renderParametersBlock(parameters) {
+      const wrap = document.createElement('div');
+      wrap.className = 'kv';
+      wrap.innerHTML = `<div class="k">Parameter Detail</div><div></div>`;
+      const body = wrap.querySelector('div:last-child');
+      const list = document.createElement('div');
+      list.style.display = 'grid';
+      list.style.gap = '8px';
+
+      for (const p of parameters) {
+        const item = document.createElement('details');
+        item.className = 'schema-item';
+        const where = p.in ? `${p.in}` : 'unknown';
+        const required = p.required ? 'required' : 'optional';
+        item.innerHTML = `
+          <summary>
+            <span class="schema-name">${escapeHtml(p.name || '-')}</span>
+            <span class="schema-chip">${escapeHtml(`${where}, ${required}`)}</span>
+          </summary>
+          <div class="schema-body"></div>
+        `;
+        const target = item.querySelector('.schema-body');
+        if (p.description) {
+          const d = document.createElement('p');
+          d.className = 'hint';
+          d.style.margin = '0 0 8px';
+          d.innerHTML = sanitizeRichHtml(p.description);
+          target.appendChild(d);
+        }
+        if (p.schema) {
+          target.appendChild(renderSchemaInline(`Schema: ${p.name || '-'}`, p.schema, { required: !!p.required }));
+        }
+        list.appendChild(item);
+      }
+
+      body.appendChild(list);
+      return wrap;
+    }
+
+    function renderRequestBodySchemas(reqBody) {
+      const wrap = document.createElement('div');
+      wrap.className = 'kv';
+      wrap.innerHTML = `<div class="k">Request Body</div><div></div>`;
+      const body = wrap.querySelector('div:last-child');
+      const content = reqBody?.content || {};
+      const media = Object.keys(content).sort();
+      if (!media.length) {
+        body.textContent = '-';
+        return wrap;
+      }
+      for (const mt of media) {
+        const schema = content[mt]?.schema;
+        if (!schema) continue;
+        body.appendChild(renderSchemaInline(`Content-Type: ${mt}`, schema));
+      }
+      return wrap;
+    }
+
+    function renderResponseSchemas(responses) {
+      const wrap = document.createElement('div');
+      wrap.className = 'kv';
+      wrap.innerHTML = `<div class="k">Response Schema</div><div></div>`;
+      const body = wrap.querySelector('div:last-child');
+      const codes = Object.keys(responses).sort();
+      if (!codes.length) {
+        body.textContent = '-';
+        return wrap;
+      }
+      for (const code of codes) {
+        const entry = responses[code] || {};
+        const content = entry.content || {};
+        const media = Object.keys(content).sort();
+        if (!media.length) {
+          const p = document.createElement('p');
+          p.className = 'hint';
+          p.style.margin = '0 0 6px';
+          p.textContent = `${code}: no body`;
+          body.appendChild(p);
+          continue;
+        }
+        for (const mt of media) {
+          const schema = content[mt]?.schema;
+          if (!schema) continue;
+          body.appendChild(renderSchemaInline(`${code} (${mt})`, schema));
+        }
+      }
+      return wrap;
+    }
+
+    function renderSchemaInline(title, schema, opts) {
+      const options = opts || {};
+      const box = document.createElement('div');
+      box.className = 'schema-item';
+      const hd = document.createElement('div');
+      hd.className = 'schema-item-hd';
+      hd.innerHTML = `
+        <span class="schema-name">${escapeHtml(title)}</span>
+        <span class="schema-chip">${escapeHtml(schemaTypeHint(schema))}</span>
+      `;
+      if (options.required) {
+        const req = document.createElement('span');
+        req.className = 'schema-chip';
+        req.textContent = 'required';
+        hd.appendChild(req);
+      }
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'schema-collapse-btn';
+      toggle.textContent = '▼';
+      toggle.title = 'Collapse';
+      hd.appendChild(toggle);
+      box.appendChild(hd);
+
+      const body = document.createElement('div');
+      body.className = 'schema-body';
+      box.appendChild(body);
+      const resolved = resolveSchemaRefs(schema, new Set());
+      body.appendChild(renderSchemaTree(resolved, 'schema', 0));
+      const rawWrap = document.createElement('details');
+      rawWrap.className = 'schema-item';
+      rawWrap.style.marginTop = '8px';
+      rawWrap.innerHTML = `
+        <summary>
+          <span class="schema-name">Raw JSON</span>
+          <span class="schema-chip">collapsed</span>
+        </summary>
+        <div class="schema-body"></div>
+      `;
+      const rawBody = rawWrap.querySelector('.schema-body');
+      const raw = document.createElement('pre');
+      raw.className = 'code';
+      raw.textContent = pretty(resolved);
+      rawBody.appendChild(raw);
+      addCopyButton(raw, rawBody, 'Copy JSON');
+      body.appendChild(rawWrap);
+      let open = true;
+      toggle.addEventListener('click', () => {
+        open = !open;
+        body.style.display = open ? 'block' : 'none';
+        toggle.textContent = open ? '▼' : '▶';
+        toggle.title = open ? 'Collapse' : 'Expand';
+      });
+      return box;
+    }
+
+    function renderSchemaTree(schema, key, depth, opts) {
+      const root = document.createElement('div');
+      root.className = 'schema-tree';
+      root.appendChild(renderSchemaNode(schema, key, depth, opts || {}));
+      return root;
+    }
+
+    function renderSchemaNode(schema, key, depth, opts) {
+      const node = document.createElement('div');
+      node.className = 'schema-node';
+      const options = opts || {};
+
+      const head = document.createElement('div');
+      head.className = 'schema-node-head';
+      const keyEl = document.createElement('span');
+      keyEl.className = 'schema-key';
+      keyEl.textContent = key || 'schema';
+      head.appendChild(keyEl);
+
+      if (!schema || typeof schema !== 'object') {
+        const meta = document.createElement('span');
+        meta.className = 'schema-meta';
+        meta.textContent = String(schema);
+        head.appendChild(meta);
+        node.appendChild(head);
+        return node;
+      }
+
+      const typeMeta = document.createElement('span');
+      typeMeta.className = 'schema-meta';
+      typeMeta.textContent = schemaTypeHint(schema);
+      head.appendChild(typeMeta);
+
+      if (schema.$ref && typeMeta.textContent !== schema.$ref) {
+        const refMeta = document.createElement('span');
+        refMeta.className = 'schema-meta';
+        refMeta.textContent = schema.$ref;
+        head.appendChild(refMeta);
+      }
+
+      if (schema._cycle) {
+        const cyc = document.createElement('span');
+        cyc.className = 'schema-meta';
+        cyc.textContent = 'cycle';
+        head.appendChild(cyc);
+      }
+
+      if (
+        Array.isArray(schema.enum) &&
+        schema.enum.length > 1 &&
+        !String(typeMeta.textContent || '').startsWith('enum(')
+      ) {
+        const enumMeta = document.createElement('span');
+        enumMeta.className = 'schema-meta';
+        enumMeta.textContent = `enum(${schema.enum.length})`;
+        head.appendChild(enumMeta);
+      }
+
+      if (options.required === true) {
+        const reqMeta = document.createElement('span');
+        reqMeta.className = 'schema-meta';
+        reqMeta.textContent = 'required';
+        head.appendChild(reqMeta);
+      }
+
+      node.appendChild(head);
+
+      const children = document.createElement('div');
+      children.className = 'schema-children';
+      let hasChildren = false;
+
+      const hasStructuredChildren =
+        (Array.isArray(schema.oneOf) && schema.oneOf.length > 0) ||
+        (Array.isArray(schema.anyOf) && schema.anyOf.length > 0) ||
+        (Array.isArray(schema.allOf) && schema.allOf.length > 0) ||
+        (schema.type === 'array' && !!schema.items) ||
+        (schema.properties && typeof schema.properties === 'object' && Object.keys(schema.properties).length > 0);
+
+      const hasInlineInfo =
+        !!schema.description ||
+        (Array.isArray(schema.enum) && schema.enum.length > 0) ||
+        Object.prototype.hasOwnProperty.call(schema, 'example');
+
+      if (hasInlineInfo && !hasStructuredChildren) {
+        node.classList.add('schema-node-compact');
+        const right = document.createElement('div');
+        right.className = 'schema-compact-desc';
+        let desc = sanitizeRichHtml(schema.description || '');
+        if (Array.isArray(schema.enum) && schema.enum.length > 1) {
+          const enumValues = schema.enum.map((v) => JSON.stringify(v)).join(', ');
+          desc = `${desc}${desc ? '<br/><br/>' : ''}Possible values: ${escapeHtml(enumValues)}`;
+        }
+        if (Object.prototype.hasOwnProperty.call(schema, 'example')) {
+          const ex = escapeHtml(JSON.stringify(schema.example));
+          desc = `${desc}${desc ? '<br/><br/>' : ''}Example: ${ex}`;
+        }
+        right.innerHTML = desc;
+        node.appendChild(right);
+        return node;
+      }
+
+      if (schema.description) {
+        const p = document.createElement('p');
+        p.className = 'hint';
+        p.style.margin = '0';
+        p.innerHTML = sanitizeRichHtml(schema.description);
+        children.appendChild(p);
+        hasChildren = true;
+      }
+
+      if (schema.oneOf && Array.isArray(schema.oneOf)) {
+        const members = schema.oneOf;
+        if (members.length === 1) {
+          const lifted = renderSchemaNode(members[0], key, depth + 1, options);
+          const liftedChildren = lifted.querySelector(':scope > .schema-children');
+          if (liftedChildren) {
+            Array.from(liftedChildren.children).forEach((c) => children.appendChild(c));
+          } else {
+            children.appendChild(lifted);
+          }
+          hasChildren = true;
+        } else if (members.length > 1) {
+          const sw = document.createElement('div');
+          sw.className = 'schema-oneof-switch';
+          const label = document.createElement('span');
+          label.textContent = 'Type:';
+          const select = document.createElement('select');
+          members.forEach((m, i) => {
+            const opt = document.createElement('option');
+            opt.value = String(i);
+            opt.textContent = oneOfLabel(m, i);
+            select.appendChild(opt);
+          });
+          sw.appendChild(label);
+          sw.appendChild(select);
+          children.appendChild(sw);
+          const chosen = document.createElement('div');
+          chosen.className = 'schema-children';
+          children.appendChild(chosen);
+          const renderChosen = () => {
+            chosen.innerHTML = '';
+            const idx = Number(select.value || '0');
+            chosen.appendChild(renderSchemaNode(members[idx], `oneOf[${idx}]`, depth + 1, {}));
+          };
+          select.addEventListener('change', renderChosen);
+          renderChosen();
+          hasChildren = true;
+        }
+      }
+
+      if (schema.anyOf && Array.isArray(schema.anyOf) && schema.anyOf.length) {
+        schema.anyOf.forEach((m, i) => {
+          children.appendChild(renderSchemaNode(m, `anyOf[${i}]`, depth + 1, {}));
+        });
+        hasChildren = true;
+      }
+
+      if (schema.allOf && Array.isArray(schema.allOf) && schema.allOf.length) {
+        schema.allOf.forEach((m, i) => {
+          children.appendChild(renderSchemaNode(m, `allOf[${i}]`, depth + 1, {}));
+        });
+        hasChildren = true;
+      }
+
+      if (schema.type === 'array' && schema.items) {
+        children.appendChild(renderSchemaNode(schema.items, 'items', depth + 1, {}));
+        hasChildren = true;
+      }
+
+      if (schema.properties && typeof schema.properties === 'object') {
+        const required = Array.isArray(schema.required) ? new Set(schema.required) : new Set();
+        const names = Object.keys(schema.properties).sort((a, b) => a.localeCompare(b));
+        names.forEach((name) => {
+          const child = renderSchemaNode(schema.properties[name], name, depth + 1, {
+            required: required.has(name),
+          });
+          children.appendChild(child);
+        });
+        hasChildren = true;
+      }
+
+      if (hasChildren) {
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'schema-collapse-btn';
+        toggle.textContent = '▼';
+        toggle.title = 'Collapse';
+        let open = true;
+        toggle.addEventListener('click', () => {
+          open = !open;
+          children.style.display = open ? 'grid' : 'none';
+          toggle.textContent = open ? '▼' : '▶';
+          toggle.title = open ? 'Collapse' : 'Expand';
+        });
+        head.appendChild(toggle);
+        node.appendChild(children);
+      }
+
+      return node;
+    }
+
+    function oneOfLabel(member, idx) {
+      if (!member || typeof member !== 'object') return `option ${idx + 1}`;
+      const resolved = resolveSchemaRefs(member, new Set());
+      if (resolved && typeof resolved === 'object') {
+        if (resolved.type && Array.isArray(resolved.enum) && resolved.enum.length === 1) {
+          return `${resolved.type}(${JSON.stringify(resolved.enum[0])})`;
+        }
+        if (Object.prototype.hasOwnProperty.call(resolved, 'example') && resolved.type) {
+          return `${resolved.type}(example ${JSON.stringify(resolved.example)})`;
+        }
+      }
+      if (member.$ref) {
+        const name = schemaNameFromRef(member.$ref);
+        return name || member.$ref;
+      }
+      if (member.title) return String(member.title);
+      if (member.type) return String(member.type);
+      return `option ${idx + 1}`;
+    }
+
+    function resolveSchemaRefs(node, seen) {
+      if (!node || typeof node !== 'object') return node;
+      if (Array.isArray(node)) {
+        return node.map((v) => resolveSchemaRefs(v, seen));
+      }
+      if (node.$ref && typeof node.$ref === 'string') {
+        const ref = node.$ref;
+        const name = schemaNameFromRef(ref);
+        if (!name) return node;
+        if (seen.has(name)) return { $ref: ref, _cycle: true };
+        const all = state.specData?.components?.schemas || {};
+        const target = all[name];
+        if (!target) return node;
+        const nextSeen = new Set(seen);
+        nextSeen.add(name);
+        const resolved = resolveSchemaRefs(target, nextSeen);
+        return { $ref: ref, ...resolved };
+      }
+      const out = {};
+      for (const [k, v] of Object.entries(node)) {
+        out[k] = resolveSchemaRefs(v, seen);
+      }
+      return out;
+    }
+
+    function schemaNameFromRef(ref) {
+      const m = /^#\/components\/schemas\/(.+)$/.exec(String(ref || ''));
+      return m ? m[1] : null;
+    }
+
+    function renderSchemasPanel(schemas) {
+      const names = Object.keys(schemas).sort((a, b) => a.localeCompare(b));
+      const panel = panelEl(`Schemas (${names.length})`);
+      const bd = panel.querySelector('.panel-bd');
+
+      if (!names.length) {
+        bd.appendChild(emptyEl('No component schemas in this scope'));
+        return panel;
+      }
+
+      const list = document.createElement('div');
+      list.className = 'schema-list';
+
+      for (const name of names) {
+        const schema = schemas[name];
+        const d = document.createElement('details');
+        d.className = 'schema-item';
+        d.innerHTML = `
+          <summary>
+            <span class="schema-name">${escapeHtml(name)}</span>
+            <span class="schema-chip">${escapeHtml(schemaTypeHint(schema))}</span>
+          </summary>
+          <div class="schema-body"></div>
+        `;
+
+        const body = d.querySelector('.schema-body');
+        const pre = document.createElement('pre');
+        pre.className = 'code';
+        pre.textContent = pretty(schema);
+        body.appendChild(pre);
+
+        addCopyButton(pre, body, 'Copy JSON');
+        list.appendChild(d);
+      }
+
+      if (!list.children.length) {
+        bd.appendChild(emptyEl('No schemas matched the current filter'));
+        return panel;
+      }
+
+      bd.appendChild(list);
+      return panel;
+    }
+
+    function kvEl(key, valueHtml) {
+      const div = document.createElement('div');
+      div.className = 'kv';
+      div.innerHTML = `<div class="k">${escapeHtml(key)}</div><div>${valueHtml}</div>`;
+      return div;
+    }
+
+    function codeBlock(label, data) {
+      const wrap = document.createElement('div');
+      const pre = document.createElement('pre');
+      pre.className = 'code';
+      pre.textContent = typeof data === 'string' ? data : pretty(data);
+
+      wrap.appendChild(kvEl(label, ''));
+      const kv = wrap.querySelector('.kv');
+      kv.querySelector('div:last-child').appendChild(pre);
+      addCopyButton(pre, kv.querySelector('div:last-child'), 'Copy');
+      return wrap;
+    }
+
+    function addCopyButton(preEl, container, text) {
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.textContent = text;
+      btn.style.marginTop = '6px';
+      btn.addEventListener('click', async () => {
+        await copyText(preEl.textContent || '');
+      });
+      container.appendChild(btn);
+    }
+
+    function panelEl(title) {
+      const panel = document.createElement('section');
+      panel.className = 'panel';
+      panel.innerHTML = `
+        <header class="panel-hd"><h3>${escapeHtml(title)}</h3></header>
+        <div class="panel-bd"></div>
+      `;
+      return panel;
+    }
+
+    function metaItem(k, v) {
+      const div = document.createElement('div');
+      div.className = 'meta-item';
+      div.innerHTML = `<div class="k">${escapeHtml(k)}</div><div class="v">${escapeHtml(String(v || '-'))}</div>`;
+      return div;
+    }
+
+    function linkCrumb(text, onClick) {
+      const a = document.createElement('a');
+      a.href = '#';
+      a.textContent = text;
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        onClick();
+      });
+      return a;
+    }
+
+    function textCrumb(text) {
+      const span = document.createElement('span');
+      span.textContent = text;
+      return span;
+    }
+
+    function setLoading(flag, text) {
+      state.loading = flag;
+      setStatus(text || (flag ? 'Loading...' : 'Ready'));
+    }
+
+    function setStatus(text) {
+      els.statusText.textContent = text;
+    }
+
+    function emptyEl(text) {
+      const div = document.createElement('div');
+      div.className = 'empty';
+      div.textContent = text;
+      return div;
+    }
+
+    function getFilterTokens() {
+      return (state.filterQuery || '').split(/\s+/).filter(Boolean);
+    }
+
+    function tagKey(tag) {
+      return String(tag || '').toLowerCase().replace(/\s+/g, '_');
+    }
+
+    function categoryText(key) {
+      const names = state.indexData?.drill_down?.[key]?.names || [];
+      return names.map((n) => `${n.name || ''} ${n.display || ''}`).join(' ').toLowerCase();
+    }
+
+    function getFilteredTagEntries() {
+      const tags = state.indexData?.tags || {};
+      const tokens = getFilterTokens();
+      return Object.entries(tags)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .filter(([tag, meta]) => {
+          if (!tokens.length) return true;
+          const key = tagKey(tag);
+          const tagText = `${tag} ${meta.description || ''} ${key}`.toLowerCase();
+          const drillText = categoryText(key);
+          return tokens.every((t) => tagText.includes(t) || drillText.includes(t));
+        });
+    }
+
+    function inferTagFromFilter() {
+      if (state.selectedTag) return state.selectedTag;
+      const entries = getFilteredTagEntries();
+      if (entries.length !== 1) return null;
+      return entries[0][0];
+    }
+
+    function resolveTagFromParam(rawTag) {
+      if (!rawTag || !state.indexData?.tags) return null;
+      const value = String(rawTag).trim().toLowerCase().replace(/\s+/g, '_');
+      const tags = Object.keys(state.indexData.tags);
+      for (const tag of tags) {
+        const key = tagKey(tag);
+        if (key === value) return tag;
+      }
+      for (const tag of tags) {
+        const key = tagKey(tag);
+        if (key.endsWith('s') && key.slice(0, -1) === value) return tag;
+        if (value.endsWith('s') && value.slice(0, -1) === key) return tag;
+      }
+      return null;
+    }
+
+    function applyUrlState() {
+      const params = new URLSearchParams(location.search || '');
+      const filter = params.get('filter');
+      const viewFilter = params.get('view_filter');
+      const tagParam = params.get('tag');
+      const typeParam = params.get('type');
+
+      if (filter != null) {
+        state.filterQuery = String(filter).trim().toLowerCase();
+        if (els.filterSearch) {
+          els.filterSearch.value = state.filterQuery;
+        }
+      }
+      if (viewFilter != null) {
+        state.opFilter = String(viewFilter).trim().toLowerCase();
+        if (els.opSearch) {
+          els.opSearch.value = state.opFilter;
+        }
+      }
+
+      const tag = resolveTagFromParam(tagParam);
+      if (tag) {
+        loadSpec(tag, typeParam || null);
+      }
+    }
+
+    function syncUrlQuery() {
+      const params = new URLSearchParams();
+      if (state.filterQuery) {
+        params.set('filter', state.filterQuery);
+      }
+      if (state.selectedTag) {
+        params.set('tag', tagKey(state.selectedTag));
+      }
+      if (state.selectedName) {
+        params.set('type', state.selectedName);
+      }
+      if (state.opFilter) {
+        params.set('view_filter', state.opFilter);
+      }
+
+      const next = params.toString() ? `${location.pathname}?${params.toString()}` : location.pathname;
+      const current = `${location.pathname}${location.search || ''}`;
+      if (next !== current) {
+        history.replaceState(null, '', next);
+      }
+    }
+
+    function renderSchemaHint(obj) {
+      try {
+        if (obj.content && obj.content['application/json']) {
+          const schema = obj.content['application/json'].schema;
+          return escapeHtml(schemaTypeHint(schema));
+        }
+        if (obj.schema) return escapeHtml(schemaTypeHint(obj.schema));
+        return escapeHtml(schemaTypeHint(obj));
+      } catch (_err) {
+        return '-';
+      }
+    }
+
+    function schemaTypeHint(schema) {
+      if (!schema || typeof schema !== 'object') return 'unknown';
+      if (schema.$ref) return schema.$ref;
+      if (schema.oneOf && Array.isArray(schema.oneOf) && schema.oneOf.length === 1) {
+        return schemaTypeHint(schema.oneOf[0]);
+      }
+      if (schema.type && Array.isArray(schema.enum) && schema.enum.length === 1) {
+        return `${schema.type}(${JSON.stringify(schema.enum[0])})`;
+      }
+      if (schema.type && Array.isArray(schema.enum) && schema.enum.length > 1) {
+        return `enum(${schema.enum.length})`;
+      }
+      if (schema.oneOf) return `oneOf(${schema.oneOf.length})`;
+      if (schema.anyOf) return `anyOf(${schema.anyOf.length})`;
+      if (schema.allOf) return `allOf(${schema.allOf.length})`;
+      if (schema.type) return schema.type;
+      if (schema.enum) return `enum(${schema.enum.length})`;
+      return 'object';
+    }
+
+    function pickExample(reqBody) {
+      const appJson = reqBody?.content?.['application/json'];
+      if (!appJson) return null;
+
+      if (appJson.examples && typeof appJson.examples === 'object') {
+        const first = Object.values(appJson.examples)[0];
+        if (first && typeof first === 'object' && 'value' in first) {
+          return first.value;
+        }
+      }
+
+      if (appJson.example) return appJson.example;
+      return null;
+    }
+
+    function curlTemplate(path, method, reqBody) {
+      const serverBase = state.specData?.servers?.[0]?.url || '/api/v5';
+      const auth = "$AUTH";
+
+      let cmd = `curl -sS ${auth} -X ${method.toUpperCase()} "${serverBase}${path}"`;
+      const ex = pickExample(reqBody);
+      if (ex) {
+        cmd += " \\\n  -H 'content-type: application/json' \\\n  -d '" + JSON.stringify(ex) + "'";
+      }
+      return cmd;
+    }
+
+    function cssMethod(method) {
+      if (['get', 'post', 'put', 'delete', 'patch'].includes(method)) return method;
+      return 'other';
+    }
+
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        setStatus('Copied to clipboard');
+      } catch (_err) {
+        setStatus('Copy failed (clipboard permissions)');
+      }
+    }
+
+    function pretty(v) {
+      return JSON.stringify(v, null, 2);
+    }
+
+    function trim(s, len) {
+      if (!s) return '';
+      return s.length > len ? `${s.slice(0, len - 1)}…` : s;
+    }
+
+    function sanitizeRichHtml(input) {
+      return String(input || '')
+        .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, '')
+        .replace(/\son\w+\s*=\s*(['"]).*?\1/gi, '');
+    }
+
+    function escapeHtml(input) {
+      return String(input)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function markdownToHtml(md) {
+      const lines = String(md || '').replace(/\r\n/g, '\n').split('\n');
+      const out = [];
+      let inCode = false;
+      let inList = false;
+      let para = [];
+
+      function flushPara() {
+        if (!para.length) return;
+        out.push(`<p>${inlineMd(para.join(' '))}</p>`);
+        para = [];
+      }
+
+      function closeList() {
+        if (!inList) return;
+        out.push('</ol>');
+        inList = false;
+      }
+
+      for (const raw of lines) {
+        const line = raw || '';
+        if (line.startsWith('```')) {
+          flushPara();
+          closeList();
+          if (!inCode) {
+            inCode = true;
+            out.push('<pre class="code"><code>');
+          } else {
+            inCode = false;
+            out.push('</code></pre>');
+          }
+          continue;
+        }
+
+        if (inCode) {
+          out.push(escapeHtml(line) + '\n');
+          continue;
+        }
+
+        const heading = /^(#{1,3})\s+(.+)$/.exec(line);
+        if (heading) {
+          flushPara();
+          closeList();
+          const level = heading[1].length + 1;
+          out.push(`<h${level}>${inlineMd(heading[2])}</h${level}>`);
+          continue;
+        }
+
+        const li = /^\s*\d+\.\s+(.+)$/.exec(line);
+        if (li) {
+          flushPara();
+          if (!inList) {
+            out.push('<ol>');
+            inList = true;
+          }
+          out.push(`<li>${inlineMd(li[1])}</li>`);
+          continue;
+        }
+
+        if (!line.trim()) {
+          flushPara();
+          closeList();
+          continue;
+        }
+
+        para.push(line.trim());
+      }
+
+      flushPara();
+      closeList();
+      if (inCode) out.push('</code></pre>');
+      return out.join('');
+    }
+
+    function inlineMd(input) {
+      let html = escapeHtml(input);
+      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+      html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      return html;
+    }
+
+    function plainTextToHtml(text) {
+      return escapeHtml(String(text || '')).replace(/\r\n/g, '\n').replace(/\n/g, '<br/>');
+    }
+  </script>
+</body>
+</html>

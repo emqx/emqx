@@ -191,12 +191,21 @@ update_state_config(Conf, State) ->
     }.
 
 http_get(URL, HTTPTimeout) ->
+    SslOpts = ssl_opts(URL),
     httpc:request(
         get,
         {URL, [{"connection", "close"}]},
-        [{timeout, HTTPTimeout}],
+        [{timeout, HTTPTimeout} | SslOpts],
         [{body_format, binary}]
     ).
+
+%% Use verify_none for HTTPS CRL fetches to avoid recursive certificate
+%% verification: verifying the CRL server's cert could trigger another
+%% CRL fetch, leading to infinite recursion.
+ssl_opts("https" ++ _) ->
+    [{ssl, [{verify, verify_none}]}];
+ssl_opts(_) ->
+    [].
 
 do_http_fetch_and_cache(URL, HTTPTimeoutMS) ->
     ?tp(crl_http_fetch, #{crl_url => URL}),

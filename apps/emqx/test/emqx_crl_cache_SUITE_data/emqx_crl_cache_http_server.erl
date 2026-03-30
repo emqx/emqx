@@ -40,13 +40,22 @@ stop(Pid) ->
 %%--------------------------------------------------------------------
 
 start_http(Parent, Opts) ->
-    {ok, _Pid1} = cowboy:start_clear(http, Opts, #{
-        env => #{dispatch => compile_router(Parent)}
-    }),
+    case proplists:get_value(ssl, Opts) of
+        undefined ->
+            {ok, _} = cowboy:start_clear(http, Opts, #{
+                env => #{dispatch => compile_router(Parent)}
+            });
+        SslOpts ->
+            Port = proplists:get_value(port, Opts),
+            {ok, _} = cowboy:start_tls(https, [{port, Port} | SslOpts], #{
+                env => #{dispatch => compile_router(Parent)}
+            })
+    end,
     ok.
 
 stop_http() ->
     cowboy:stop_listener(http),
+    cowboy:stop_listener(https),
     ok.
 
 compile_router(Parent) ->

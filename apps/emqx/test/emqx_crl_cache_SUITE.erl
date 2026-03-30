@@ -212,6 +212,42 @@ init_per_testcase(TestCase, Config) when
         true ->
             [{skip_does_not_apply, true} | Config]
     end;
+init_per_testcase(t_https_crl_fetch, Config) ->
+    ct:timetrap({seconds, 10}),
+    ok = snabbkaffe:start_trace(),
+    DataDir = ?config(data_dir, Config),
+    {CRLPem, _CRLDer} = read_crl(filename:join(DataDir, "intermediate-revoked.crl.pem")),
+    CertDir = filename:join(?config(priv_dir, Config), "crl_server_certs"),
+    ok = filelib:ensure_dir(filename:join(CertDir, "dummy")),
+    CrlServerCA = emqx_cth_tls:gen_cert(#{
+        key => ec, issuer => root, subject => #{name => "CrlServerCA"}
+    }),
+    {CrlServerCert, CrlServerKey} = emqx_cth_tls:gen_cert(#{
+        key => ec, issuer => CrlServerCA, subject => #{name => "localhost"}
+    }),
+    {CertFile, KeyFile} = emqx_cth_tls:write_cert(
+        CertDir, "crl-server", {CrlServerCert, CrlServerKey}
+    ),
+    {CACertFile, _} = emqx_cth_tls:write_cert(CertDir, "crl-server-ca", CrlServerCA),
+    application:ensure_all_started(cowboy),
+    ok = application:ensure_started(inets),
+    ok = application:ensure_started(ssl),
+    SslOpts = [
+        {certfile, CertFile},
+        {keyfile, KeyFile},
+        {cacertfile, CACertFile}
+    ],
+    {ok, ServerPid} = emqx_crl_cache_http_server:start_link(
+        self(), 9879, CRLPem, [{ssl, SslOpts}]
+    ),
+    receive
+        {ServerPid, ready} -> ok
+    after 2000 -> error(timeout_starting_https_server)
+    end,
+    [
+        {https_server, ServerPid}
+        | Config
+    ];
 init_per_testcase(_TestCase, Config) ->
     ct:timetrap({seconds, 30}),
     ok = snabbkaffe:start_trace(),
@@ -239,6 +275,10 @@ read_crl(Filename) ->
     [{'CertificateList', DER, not_encrypted}] = public_key:pem_decode(PEM),
     {PEM, DER}.
 
+end_per_testcase(t_https_crl_fetch, Config) ->
+    ok = snabbkaffe:stop(),
+    emqx_crl_cache_http_server:stop(proplists:get_value(https_server, Config)),
+    ok;
 end_per_testcase(TestCase, Config) when
     TestCase =:= t_update_listener;
     TestCase =:= t_update_listener_enable_disable;
@@ -962,6 +1002,17 @@ t_filled_cache(Config) ->
 
 %% If the CRL is not cached when the client tries to connect and the
 %% CRL server is unreachable, the client will be denied connection.
+-doc """
+Verify CRL fetch over HTTPS works with verify_none (no server cert verification
+to avoid recursive CRL lookups).
+""".
+t_https_crl_fetch(_Config) ->
+    HttpsURL = "https://localhost:9879/intermediate.crl.pem",
+    %% HTTPS fetch should succeed even though the CRL server uses an unknown CA,
+    %% because http_get uses verify_none to avoid recursive cert verification.
+    ?assertMatch({ok, {{_, 200, _}, _, _}}, emqx_crl_cache:http_get(HttpsURL, 5000)),
+    ok.
+
 t_not_cached_and_unreachable(Config) ->
     DataDir = ?config(data_dir, Config),
     ClientCert = filename:join(DataDir, "client.cert.pem"),

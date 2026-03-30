@@ -514,18 +514,22 @@ prepare_initial_step(Step1Name, #{type := oidc_client_credentials} = InitialToke
         client_secret := ClientSecret,
         scope := Scope
     } = InitialTokenConfig,
+    Audience = maps:get(audience, InitialTokenConfig, undefined),
     #{
         name => Step1Name,
         method => post,
         lifetime => timer:hours(1),
         url => fun(_StepContext) -> EndpointURI end,
         body => fun(_StepContext) ->
-            uri_string:compose_query([
-                {<<"grant_type">>, <<"client_credentials">>},
-                {<<"client_id">>, ClientId},
-                {<<"client_secret">>, emqx_secret:unwrap(ClientSecret)},
-                {<<"scope">>, Scope}
-            ])
+            uri_string:compose_query(
+                lists:flatten([
+                    {<<"grant_type">>, <<"client_credentials">>},
+                    {<<"client_id">>, ClientId},
+                    {<<"client_secret">>, emqx_secret:unwrap(ClientSecret)},
+                    {<<"scope">>, Scope},
+                    [{<<"audience">>, Audience} || is_binary(Audience)]
+                ])
+            )
         end,
         headers => fun(_StepContext) ->
             [{<<"Content-Type">>, <<"application/x-www-form-urlencoded">>}]
@@ -638,8 +642,10 @@ handle_response(Result, ResourceId, QueryMode) ->
         {error, Reason} when
             Reason =:= econnrefused;
             %% this comes directly from `gun'...
-            Reason =:= {closed, "The connection was lost."};
+            %% `{closed, "The connection was lost."}`
+            element(1, Reason) =:= closed;
             Reason =:= closed;
+            Reason =:= closing;
             %% The normal reason happens when the HTTP connection times out before
             %% the request has been fully processed
             Reason =:= normal;

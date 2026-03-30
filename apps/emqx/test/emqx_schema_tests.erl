@@ -1074,3 +1074,169 @@ max_heap_size_test_() ->
                 Check(<<"force_shutdown.max_heap_size = 0KB">>)
             )}
     ].
+
+delivery_rate_limiter_test_() ->
+    CheckMqtt = fun(Input) ->
+        {ok, Hocon} = hocon:binary(Input),
+        hocon_tconf:check_plain(emqx_schema, Hocon, #{}, [mqtt])
+    end,
+    CheckZone = fun(Input) ->
+        {ok, Hocon} = hocon:binary(Input),
+        hocon_tconf:check_plain(emqx_schema, Hocon, #{required => false}, [zones])
+    end,
+    CheckListener = fun(Input) ->
+        {ok, Hocon} = hocon:binary(Input),
+        hocon_tconf:check_plain(emqx_schema, Hocon, #{required => false}, [listeners])
+    end,
+    [
+        {"delivery_messages_rate is not supported for shared limiters (mqtt)",
+            ?_assertThrow(
+                {_, [
+                    #{
+                        reason := unknown_fields,
+                        path := "mqtt.limiter",
+                        unknown := "delivery_messages_rate"
+                    }
+                ]},
+                CheckMqtt("mqtt.limiter.delivery_messages_rate = \"1/s\" ")
+            )},
+        {"delivery_messages_rate is not supported for shared limiters (zone)",
+            ?_assertThrow(
+                {_, [
+                    #{
+                        reason := unknown_fields,
+                        path := "zones.default.mqtt.limiter",
+                        unknown := "delivery_messages_rate"
+                    }
+                    | _
+                ]},
+                CheckZone("zones.default.mqtt.limiter.delivery_messages_rate = \"1/s\" ")
+            )},
+        {"delivery_messages_burst is not supported for shared limiters (mqtt)",
+            ?_assertThrow(
+                {_, [
+                    #{
+                        reason := unknown_fields,
+                        path := "mqtt.limiter",
+                        unknown := "delivery_messages_burst"
+                    }
+                ]},
+                CheckMqtt("mqtt.limiter.delivery_messages_burst = \"1/s\" ")
+            )},
+        {"delivery_messages_burst is not supported for shared limiters (zone)",
+            ?_assertThrow(
+                {_, [
+                    #{
+                        reason := unknown_fields,
+                        path := "zones.default.mqtt.limiter",
+                        unknown := "delivery_messages_burst"
+                    }
+                    | _
+                ]},
+                CheckZone("zones.default.mqtt.limiter.delivery_messages_burst = \"1/s\" ")
+            )},
+        {"delivery_bytes_rate is not supported for shared limiters (mqtt)",
+            ?_assertThrow(
+                {_, [
+                    #{
+                        reason := unknown_fields,
+                        path := "mqtt.limiter",
+                        unknown := "delivery_bytes_rate"
+                    }
+                ]},
+                CheckMqtt("mqtt.limiter.delivery_bytes_rate = \"1/s\" ")
+            )},
+        {"delivery_bytes_rate is not supported for shared limiters (zone)",
+            ?_assertThrow(
+                {_, [
+                    #{
+                        reason := unknown_fields,
+                        path := "zones.default.mqtt.limiter",
+                        unknown := "delivery_bytes_rate"
+                    }
+                    | _
+                ]},
+                CheckZone("zones.default.mqtt.limiter.delivery_bytes_rate = \"1/s\" ")
+            )},
+        {"delivery_bytes_burst is not supported for shared limiters (mqtt)",
+            ?_assertThrow(
+                {_, [
+                    #{
+                        reason := unknown_fields,
+                        path := "mqtt.limiter",
+                        unknown := "delivery_bytes_burst"
+                    }
+                ]},
+                CheckMqtt("mqtt.limiter.delivery_bytes_burst = \"1/s\" ")
+            )},
+        {"delivery_bytes_burst is not supported for shared limiters (zone)",
+            ?_assertThrow(
+                {_, [
+                    #{
+                        reason := unknown_fields,
+                        path := "zones.default.mqtt.limiter",
+                        unknown := "delivery_bytes_burst"
+                    }
+                    | _
+                ]},
+                CheckZone("zones.default.mqtt.limiter.delivery_bytes_burst = \"1/s\" ")
+            )},
+        {"delivery_* is allowed for listeners",
+            ?_assertMatch(
+                #{
+                    <<"listeners">> := #{
+                        <<"tcp">> := #{
+                            <<"default">> := #{
+                                <<"delivery_messages_rate">> := _,
+                                <<"delivery_messages_burst">> := _,
+                                <<"delivery_bytes_rate">> := _,
+                                <<"delivery_bytes_burst">> := _
+                            }
+                        }
+                    }
+                },
+                CheckListener(
+                    ~b"""
+                    listeners.tcp.default = {
+                      delivery_messages_rate = "1/s"
+                      delivery_messages_burst = "2/s"
+                      delivery_bytes_rate = "3/s"
+                      delivery_bytes_burst = "4/s"
+                    }
+                    """
+                )
+            )}
+    ].
+
+mkunion_test_() ->
+    [
+        {
+            "gracefully handle dummy value types when resolving union from a map",
+            ?_test(begin
+                Sc = #{
+                    roots => [some_union],
+                    fields => #{
+                        some_union =>
+                            [
+                                {u,
+                                    emqx_schema:mkunion(
+                                        type,
+                                        #{<<"x">> => hoconsc:ref(x)}
+                                    )}
+                            ]
+                    }
+                },
+                %% Should be a map instead of a string.
+                DumbValue = #{<<"some_union">> => #{<<"u">> => <<"xxx">>}},
+                ?assertThrow(
+                    {_Sc, [
+                        #{
+                            kind := validation_error,
+                            reason := {not_a_map, <<"xxx">>}
+                        }
+                    ]},
+                    hocon_tconf:check_plain(Sc, DumbValue)
+                )
+            end)
+        }
+    ].
