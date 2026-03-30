@@ -61,3 +61,63 @@ t_proxy_conn_paths(_) ->
     {ok, {peer, _}, [#coap_message{type = con, method = post, id = 1}], _} =
         emqx_coap_proxy_conn:get_connection_id(dummy, dummy, State, Bin),
     ok.
+
+t_proxy_conn_reuse_bound_clientid_when_missing(_) ->
+    Peer = {{127, 0, 0, 1}, 5683},
+    State0 = emqx_coap_proxy_conn:initialize([]),
+    Msg1 = #coap_message{
+        type = con,
+        method = post,
+        id = 11,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{<<"clientid">> => <<"client1">>}
+        }
+    },
+    Bin1 = emqx_coap_frame:serialize_pkt(Msg1, emqx_coap_frame:serialize_opts()),
+    {ok, <<"client1">>, [_], State1} =
+        emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State0, Bin1),
+
+    Msg2 = #coap_message{
+        type = con,
+        method = post,
+        id = 12,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{<<"username">> => <<"admin">>}
+        }
+    },
+    Bin2 = emqx_coap_frame:serialize_pkt(Msg2, emqx_coap_frame:serialize_opts()),
+    {ok, <<"client1">>, [_], _State2} =
+        emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State1, Bin2),
+    ok.
+
+t_proxy_conn_keep_bound_clientid_on_different_clientid(_) ->
+    Peer = {{127, 0, 0, 1}, 5683},
+    State0 = emqx_coap_proxy_conn:initialize([]),
+    Msg1 = #coap_message{
+        type = con,
+        method = post,
+        id = 21,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{<<"clientid">> => <<"client1">>}
+        }
+    },
+    Bin1 = emqx_coap_frame:serialize_pkt(Msg1, emqx_coap_frame:serialize_opts()),
+    {ok, <<"client1">>, [_], State1} =
+        emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State0, Bin1),
+
+    Msg2 = #coap_message{
+        type = con,
+        method = post,
+        id = 22,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{<<"clientid">> => <<"client2">>}
+        }
+    },
+    Bin2 = emqx_coap_frame:serialize_pkt(Msg2, emqx_coap_frame:serialize_opts()),
+    {ok, <<"client1">>, [_], _State2} =
+        emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State1, Bin2),
+    ok.
