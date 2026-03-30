@@ -374,8 +374,12 @@ make_sub_topic(SubscriberRef) ->
         undefined ->
             undefined;
         Sub ->
-            {Name, TopicFilter} = emqx_mq_sub:name_topic(Sub),
-            <<"$queue/", Name/binary, "/", TopicFilter/binary>>
+            case emqx_mq_sub:name_topic(Sub) of
+                {Name, undefined} ->
+                    <<"$queue/", Name/binary>>;
+                {Name, TopicFilter} ->
+                    <<"$queue/", Name/binary, "/", TopicFilter/binary>>
+            end
     end.
 
 set_mq_supported(Ctx, SessionInfo) ->
