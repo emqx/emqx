@@ -9,13 +9,16 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
+-define(MAX_SUBSCRIPTION_ID, 268435455).
+
 %% management APIs
 -export([
     status/1,
     info/1,
     subscribe_channel/2,
-    unsubscribe_channel/4,
-    config/3
+    unsubscribe_channel/5,
+    config/3,
+    config/4
 ]).
 
 %% `ecpool` API helpers
@@ -29,7 +32,7 @@
     get_reconnect_callback_signature/1
 ]).
 
--export([handle_publish/3]).
+-export([handle_publish/4]).
 
 subscribe_channel(PoolName, IngressConfig) ->
     Workers = ecpool:workers(PoolName),
@@ -77,17 +80,59 @@ subscribe_remote_topics(Pid, IngressList, WorkerIdx, PoolSize, Name) ->
 
 subscribe_remote_topic(
     Pid,
-    #{remote := #{topic := RemoteTopic, qos := QoS, no_local := NoLocal}} = _Remote,
+    #{remote := #{topic := RemoteTopic, qos := QoS, no_local := NoLocal}} = Ingress,
     WorkerIdx,
     PoolSize,
     Name
 ) ->
     case should_subscribe(RemoteTopic, WorkerIdx, PoolSize, Name, true) of
         true ->
-            emqtt:subscribe(Pid, RemoteTopic, [{qos, QoS}, {nl, NoLocal}]);
+            maybe_retry_without_subscription_identifier(
+                Ingress,
+                emqtt:subscribe(
+                    Pid,
+                    subscribe_properties(Ingress),
+                    RemoteTopic,
+                    [{qos, QoS}, {nl, NoLocal}]
+                ),
+                Pid
+            );
         false ->
             ok
     end.
+
+subscribe_properties(#{subscription_id := SubscriptionId}) ->
+    #{'Subscription-Identifier' => SubscriptionId};
+subscribe_properties(_Ingress) ->
+    #{}.
+
+maybe_retry_without_subscription_identifier(
+    #{subscription_id := _SubscriptionId, remote := #{topic := <<"$queue/", _/binary>>}},
+    {ok, _Props, ReasonCodes} = Result,
+    _Pid
+) ->
+    case lists:member(?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED, ReasonCodes) of
+        true ->
+            {error, subscription_identifier_required_for_queue_subscription};
+        false ->
+            Result
+    end;
+maybe_retry_without_subscription_identifier(
+    #{
+        subscription_id := _SubscriptionId,
+        remote := #{topic := RemoteTopic, qos := QoS, no_local := NoLocal}
+    },
+    {ok, _Props, ReasonCodes} = Result,
+    Pid
+) ->
+    case lists:member(?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED, ReasonCodes) of
+        true ->
+            emqtt:subscribe(Pid, #{}, RemoteTopic, [{qos, QoS}, {nl, NoLocal}]);
+        false ->
+            Result
+    end;
+maybe_retry_without_subscription_identifier(_Ingress, Result, _Pid) ->
+    Result.
 
 should_subscribe(RemoteTopic, WorkerIdx, PoolSize, Name, LogWarn) ->
     IsFirstWorker = WorkerIdx == 1,
@@ -150,56 +195,90 @@ on_reconnect(ClientPid, ReconnectContext) ->
 get_reconnect_callback_signature([#{chan_res_id := ChanResId}] = _ReconnectContext) ->
     ChanResId.
 
-unsubscribe_channel(PoolName, IngressConfig, ChannelId, TopicToHandlerIndex) ->
+unsubscribe_channel(
+    PoolName, IngressConfig, ChannelId, SubscriptionIdToHandlerIndex, TopicToHandlerIndex
+) ->
     Workers = ecpool:workers(PoolName),
     PoolSize = length(Workers),
     _ = [
-        unsubscribe_channel(Pid, Name, IngressConfig, Idx, PoolSize, ChannelId, TopicToHandlerIndex)
+        unsubscribe_channel(
+            Pid,
+            Name,
+            IngressConfig,
+            Idx,
+            PoolSize,
+            ChannelId,
+            SubscriptionIdToHandlerIndex,
+            TopicToHandlerIndex
+        )
      || {{Name, Idx}, Pid} <- Workers
     ],
     ok.
 
 unsubscribe_channel(
-    WorkerPid, Name, IngressConfig, WorkerIdx, PoolSize, ChannelId, TopicToHandlerIndex
+    WorkerPid,
+    Name,
+    IngressConfig,
+    WorkerIdx,
+    PoolSize,
+    ChannelId,
+    SubscriptionIdToHandlerIndex,
+    TopicToHandlerIndex
 ) ->
     case ecpool_worker:client(WorkerPid) of
         {ok, Client} ->
             unsubscribe_channel_helper(
-                Client, Name, IngressConfig, WorkerIdx, PoolSize, ChannelId, TopicToHandlerIndex
+                Client,
+                Name,
+                IngressConfig,
+                WorkerIdx,
+                PoolSize,
+                ChannelId,
+                SubscriptionIdToHandlerIndex,
+                TopicToHandlerIndex
             );
         {error, Reason} ->
             error({client_not_found, Reason})
     end.
 
 unsubscribe_channel_helper(
-    Client, Name, IngressConfig, WorkerIdx, PoolSize, ChannelId, TopicToHandlerIndex
+    Client,
+    Name,
+    IngressConfig,
+    WorkerIdx,
+    PoolSize,
+    ChannelId,
+    SubscriptionIdToHandlerIndex,
+    TopicToHandlerIndex
 ) ->
     IngressList = maps:get(ingress_list, IngressConfig, []),
-    unsubscribe_remote_topics(
-        Client, IngressList, WorkerIdx, PoolSize, Name, ChannelId, TopicToHandlerIndex
-    ).
-
-unsubscribe_remote_topics(
-    Pid, IngressList, WorkerIdx, PoolSize, Name, ChannelId, TopicToHandlerIndex
-) ->
     [
         unsubscribe_remote_topic(
-            Pid, Ingress, WorkerIdx, PoolSize, Name, ChannelId, TopicToHandlerIndex
+            Client,
+            Ingress,
+            WorkerIdx,
+            PoolSize,
+            Name,
+            ChannelId,
+            SubscriptionIdToHandlerIndex,
+            TopicToHandlerIndex
         )
      || Ingress <- IngressList
     ].
 
 unsubscribe_remote_topic(
     Pid,
-    #{remote := #{topic := RemoteTopic}} = _Remote,
+    #{remote := #{topic := RemoteTopic}} = Ingress,
     WorkerIdx,
     PoolSize,
     Name,
     ChannelId,
+    SubscriptionIdToHandlerIndex,
     TopicToHandlerIndex
 ) ->
-    IndexTopic = to_index_topic(RemoteTopic),
-    emqx_topic_index:delete(IndexTopic, ChannelId, TopicToHandlerIndex),
+    delete_from_handler_index(
+        Ingress, RemoteTopic, ChannelId, SubscriptionIdToHandlerIndex, TopicToHandlerIndex
+    ),
     case should_subscribe(RemoteTopic, WorkerIdx, PoolSize, Name, false) of
         true ->
             case emqtt:unsubscribe(Pid, RemoteTopic) of
@@ -217,28 +296,124 @@ unsubscribe_remote_topic(
             ok
     end.
 
-config(#{ingress_list := IngressList} = Conf, Name, TopicToHandlerIndex) ->
+config(Conf, Name, TopicToHandlerIndex) ->
+    config(Conf, Name, undefined, TopicToHandlerIndex).
+
+config(
+    #{ingress_list := IngressList} = Conf,
+    Name,
+    SubscriptionIdToHandlerIndex,
+    TopicToHandlerIndex
+) ->
     NewIngressList = [
-        fix_remote_config(Ingress, Name, TopicToHandlerIndex)
+        fix_remote_config(
+            Ingress,
+            Name,
+            SubscriptionIdToHandlerIndex,
+            TopicToHandlerIndex
+        )
      || Ingress <- IngressList
     ],
     Conf#{ingress_list := NewIngressList}.
 
-fix_remote_config(#{remote := RC} = Conf, BridgeName, TopicToHandlerIndex) ->
+fix_remote_config(
+    #{remote := RC} = Conf,
+    BridgeName,
+    SubscriptionIdToHandlerIndex,
+    TopicToHandlerIndex
+) ->
     FixedConf0 = Conf#{
         remote => parse_remote(RC, BridgeName)
     },
+    FixedConf1 = maybe_attach_subscription_identifier(FixedConf0, SubscriptionIdToHandlerIndex),
     FixedConf = emqx_utils_maps:update_if_present(
-        local, fun emqx_bridge_mqtt_msg:parse/1, FixedConf0
+        local, fun emqx_bridge_mqtt_msg:parse/1, FixedConf1
     ),
-    insert_to_topic_to_handler_index(FixedConf, TopicToHandlerIndex, BridgeName),
+    ok = insert_to_handler_index(
+        FixedConf,
+        SubscriptionIdToHandlerIndex,
+        TopicToHandlerIndex,
+        BridgeName
+    ),
     FixedConf.
 
-insert_to_topic_to_handler_index(
-    #{remote := #{topic := Topic}} = Conf, TopicToHandlerIndex, BridgeName
+maybe_attach_subscription_identifier(Conf, undefined) ->
+    Conf;
+maybe_attach_subscription_identifier(Conf, SubscriptionIdToHandlerIndex) ->
+    Conf#{subscription_id => allocate_subscription_id(SubscriptionIdToHandlerIndex)}.
+
+allocate_subscription_id(SubscriptionIdToHandlerIndex) ->
+    allocate_subscription_id(SubscriptionIdToHandlerIndex, 1).
+
+allocate_subscription_id(SubscriptionIdToHandlerIndex, SubscriptionId) when
+    SubscriptionId =< ?MAX_SUBSCRIPTION_ID
+->
+    case ets:member(SubscriptionIdToHandlerIndex, SubscriptionId) of
+        true ->
+            allocate_subscription_id(SubscriptionIdToHandlerIndex, SubscriptionId + 1);
+        false ->
+            SubscriptionId
+    end;
+allocate_subscription_id(_SubscriptionIdToHandlerIndex, SubscriptionId) ->
+    error({no_available_subscription_id, SubscriptionId}).
+
+insert_to_handler_index(
+    #{subscription_id := SubscriptionId} = Conf,
+    SubscriptionIdToHandlerIndex,
+    TopicToHandlerIndex,
+    BridgeName
+) ->
+    true = ets:insert(SubscriptionIdToHandlerIndex, {SubscriptionId, Conf}),
+    maybe_insert_to_topic_to_handler_index(Conf, TopicToHandlerIndex, BridgeName);
+insert_to_handler_index(
+    #{remote := #{topic := Topic}} = Conf,
+    undefined,
+    TopicToHandlerIndex,
+    BridgeName
 ) ->
     IndexTopic = to_index_topic(Topic),
-    emqx_topic_index:insert(IndexTopic, BridgeName, Conf, TopicToHandlerIndex).
+    true = emqx_topic_index:insert(IndexTopic, BridgeName, Conf, TopicToHandlerIndex),
+    ok.
+
+maybe_insert_to_topic_to_handler_index(
+    #{remote := #{topic := <<"$queue/", _/binary>>}},
+    _TopicToHandlerIndex,
+    _BridgeName
+) ->
+    ok;
+maybe_insert_to_topic_to_handler_index(
+    #{remote := #{topic := Topic}} = Conf,
+    TopicToHandlerIndex,
+    BridgeName
+) ->
+    IndexTopic = to_index_topic(Topic),
+    true = emqx_topic_index:insert(IndexTopic, BridgeName, Conf, TopicToHandlerIndex),
+    ok.
+
+delete_from_handler_index(
+    #{subscription_id := SubscriptionId},
+    RemoteTopic,
+    ChannelId,
+    SubscriptionIdToHandlerIndex,
+    TopicToHandlerIndex
+) ->
+    true = ets:delete(SubscriptionIdToHandlerIndex, SubscriptionId),
+    maybe_delete_from_topic_to_handler_index(RemoteTopic, ChannelId, TopicToHandlerIndex);
+delete_from_handler_index(
+    _Ingress,
+    RemoteTopic,
+    ChannelId,
+    undefined,
+    TopicToHandlerIndex
+) ->
+    IndexTopic = to_index_topic(RemoteTopic),
+    true = emqx_topic_index:delete(IndexTopic, ChannelId, TopicToHandlerIndex).
+
+maybe_delete_from_topic_to_handler_index(<<"$queue/", _/binary>>, _ChannelId, _TopicToHandlerIndex) ->
+    ok;
+maybe_delete_from_topic_to_handler_index(RemoteTopic, ChannelId, TopicToHandlerIndex) ->
+    IndexTopic = to_index_topic(RemoteTopic),
+    true = emqx_topic_index:delete(IndexTopic, ChannelId, TopicToHandlerIndex).
 
 to_index_topic(Topic) ->
     case emqx_topic:parse(Topic) of
@@ -295,6 +470,7 @@ status(Pid) ->
 handle_publish(
     #{properties := Props, topic := Topic} = MsgIn,
     Name,
+    SubscriptionIdToHandlerIndex,
     TopicToHandlerIndex
 ) ->
     ?SLOG(debug, #{
@@ -302,23 +478,55 @@ handle_publish(
         message => MsgIn,
         name => Name
     }),
-    Matches = emqx_topic_index:matches(Topic, TopicToHandlerIndex, []),
+    ChannelConfigs = find_channel_configs(
+        Topic, Props, SubscriptionIdToHandlerIndex, TopicToHandlerIndex
+    ),
     lists:foreach(
-        fun(Match) ->
-            handle_match(TopicToHandlerIndex, Match, MsgIn, Name, Props)
-        end,
-        Matches
+        fun(ChannelConfig) -> handle_channel_config(ChannelConfig, MsgIn, Name, Props) end,
+        ChannelConfigs
     ),
     ok.
 
-handle_match(
-    TopicToHandlerIndex,
-    Match,
-    MsgIn,
-    _Name,
-    Props
-) ->
-    [ChannelConfig] = emqx_topic_index:get_record(Match, TopicToHandlerIndex),
+find_channel_configs(Topic, Props, SubscriptionIdToHandlerIndex, TopicToHandlerIndex) ->
+    case find_channel_configs_by_subscription_identifier(Props, SubscriptionIdToHandlerIndex) of
+        [] ->
+            find_channel_configs_by_topic(Topic, TopicToHandlerIndex);
+        ChannelConfigs ->
+            ChannelConfigs
+    end.
+
+find_channel_configs_by_topic(Topic, TopicToHandlerIndex) ->
+    Matches = emqx_topic_index:matches(Topic, TopicToHandlerIndex, []),
+    [
+        ChannelConfig
+     || Match <- Matches,
+        [ChannelConfig] <- [emqx_topic_index:get_record(Match, TopicToHandlerIndex)]
+    ].
+
+find_channel_configs_by_subscription_identifier(_Props, undefined) ->
+    [];
+find_channel_configs_by_subscription_identifier(Props, SubscriptionIdToHandlerIndex) ->
+    lists:flatmap(
+        fun(SubscriptionId) ->
+            case ets:lookup(SubscriptionIdToHandlerIndex, SubscriptionId) of
+                [{SubscriptionId, ChannelConfig}] -> [ChannelConfig];
+                [] -> []
+            end
+        end,
+        subscription_ids(Props)
+    ).
+
+subscription_ids(Props) ->
+    case maps:get('Subscription-Identifier', Props, []) of
+        SubscriptionId when is_integer(SubscriptionId) ->
+            [SubscriptionId];
+        SubscriptionIds when is_list(SubscriptionIds) ->
+            SubscriptionIds;
+        _ ->
+            []
+    end.
+
+handle_channel_config(ChannelConfig, MsgIn, _Name, Props) ->
     #{on_message_received := OnMessage} = ChannelConfig,
     Msg = import_msg(MsgIn, ChannelConfig),
     maybe_on_message_received(Msg, OnMessage),
