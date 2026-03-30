@@ -459,23 +459,21 @@ check_token(Msg, Channel) ->
             case {ReqClientId, ReqToken} of
                 {ClientId, Token} when ReqClientId =/= undefined, ReqToken =/= undefined ->
                     call_session(handle_request, Msg, Channel);
+                {ClientId, ReqToken1} when
+                    ReqClientId =/= undefined, ReqToken1 =/= undefined, ReqToken1 =/= Token
+                ->
+                    %% Same clientid with mismatched token should be rejected directly.
+                    invalid_token_reply(Msg, Channel);
                 {ReqClientId1, ReqToken1} when
-                    ReqClientId1 =/= undefined, ReqToken1 =/= undefined
+                    ReqClientId1 =/= undefined,
+                    ReqToken1 =/= undefined,
+                    ReqClientId1 =/= ClientId
                 ->
                     try_takeover_with_token(Msg, ReqClientId1, ReqToken1, Channel);
                 _ ->
                     missing_token_or_clientid_reply(Msg, Channel)
             end
     end.
-
-try_takeover_with_token(
-    Msg,
-    ReqClientId,
-    _ReqToken,
-    Channel = #channel{clientinfo = #{clientid := ReqClientId}}
-) ->
-    %% Avoid CM self-call ({calling_self}) for same-channel invalid-token requests.
-    missing_token_or_clientid_reply(Msg, Channel);
 try_takeover_with_token(Msg, ReqClientId, ReqToken, Channel) ->
     case emqx_gateway_cm:call(coap, ReqClientId, {check_token_and_get_clientinfo, ReqToken}) of
         {ok, ResumeClientInfo} ->

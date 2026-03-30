@@ -319,9 +319,9 @@ t_channel_same_clientid_invalid_token_no_self_cm_call(_) ->
     ok = meck:new(emqx_gateway_cm, [no_link, passthrough]),
     try
         {ok, {outgoing, Reply}, _} = emqx_coap_channel:handle_in(Req, Channel0),
-        ?assertEqual({error, bad_request}, Reply#coap_message.method),
+        ?assertEqual({error, unauthorized}, Reply#coap_message.method),
         ?assertEqual(
-            <<"Missing token or clientid in connection mode">>,
+            <<"Invalid token or clientid in connection mode">>,
             Reply#coap_message.payload
         ),
         ?assertEqual(0, meck:num_calls(emqx_gateway_cm, call, 3))

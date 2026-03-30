@@ -456,7 +456,10 @@ t_invalid_token_request(_) ->
         Token = connection(Channel),
         URI = pubsub_uri("abc", "badtoken"),
         Req = make_req(get, <<>>, [{observe, 0}]),
-        {error, bad_request, _} = do_request(Channel, URI, Req),
+        case do_request(Channel, URI, Req) of
+            {error, unauthorized, _} -> ok;
+            {error, uauthorized, _} -> ok
+        end,
         disconnection(Channel, Token)
     end,
     do(Action).
