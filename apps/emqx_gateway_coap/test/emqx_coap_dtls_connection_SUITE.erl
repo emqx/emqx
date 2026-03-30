@@ -100,6 +100,7 @@ t_connection(_Config) ->
     URI1 = emqx_coap_SUITE:compose_uri(Prefix, Queries1, false),
     Req1 = emqx_coap_SUITE:make_req(put),
     {ok, changed, _} = emqx_coap_SUITE:do_request(Channel, URI1, Req1),
+    ok = emqx_coap_SUITE:disconnection(Channel, Token),
 
     er_coap_channel:close(Channel),
     er_coap_dtls_socket:close(Sock).
@@ -131,6 +132,7 @@ t_same_dtls_session_token_request(_Config) ->
     ),
     Req1 = emqx_coap_SUITE:make_req(post, <<"x">>),
     {ok, changed, _} = emqx_coap_SUITE:do_request(Channel, URI1, Req1),
+    ok = emqx_coap_SUITE:disconnection(Channel, Token),
 
     er_coap_channel:close(Channel),
     er_coap_dtls_socket:close(Sock).
@@ -187,6 +189,7 @@ t_token_takeover_across_dtls_sessions(_Config) ->
         1,
         length(emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>))
     ),
+    ok = emqx_coap_SUITE:disconnection(Channel2, Token),
 
     er_coap_channel:close(Channel2),
     er_coap_dtls_socket:close(Sock2).
@@ -204,7 +207,9 @@ t_invalid_token_rejected(_Config) ->
     },
     URI0 = emqx_coap_SUITE:compose_uri(Prefix, Queries0, false),
     Req0 = emqx_coap_SUITE:make_req(post),
-    {ok, created, _Data} = emqx_coap_SUITE:do_request(Channel1, URI0, Req0),
+    {ok, created, Data} = emqx_coap_SUITE:do_request(Channel1, URI0, Req0),
+    #coap_content{payload = BinToken} = Data,
+    Token = binary_to_list(BinToken),
 
     er_coap_channel:close(Channel1),
     er_coap_dtls_socket:close(Sock1),
@@ -231,6 +236,7 @@ t_invalid_token_rejected(_Config) ->
         {error, unauthorized, _} -> ok;
         {error, uauthorized, _} -> ok
     end,
+    ok = emqx_coap_SUITE:disconnection(Channel2, Token),
 
     er_coap_channel:close(Channel2),
     er_coap_dtls_socket:close(Sock2).
@@ -277,6 +283,7 @@ t_wrong_clientid_with_valid_token_rejected(_Config) ->
         {error, unauthorized, _} -> ok;
         {error, uauthorized, _} -> ok
     end,
+    ok = emqx_coap_SUITE:disconnection(Channel2, Token),
 
     er_coap_channel:close(Channel2),
     er_coap_dtls_socket:close(Sock2).
@@ -317,6 +324,7 @@ t_partial_token_params_rejected(_Config) ->
     ),
     Req2 = emqx_coap_SUITE:make_req(post, <<"x">>),
     {error, bad_request, _} = emqx_coap_SUITE:do_request(Channel, URI2, Req2),
+    ok = emqx_coap_SUITE:disconnection(Channel, Token),
 
     er_coap_channel:close(Channel),
     er_coap_dtls_socket:close(Sock).
