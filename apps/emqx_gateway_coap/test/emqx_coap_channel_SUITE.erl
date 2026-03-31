@@ -475,6 +475,8 @@ t_channel_takeover_resume_enriches_clientinfo(_) ->
         ?assertEqual(<<"admin">>, maps:get(username, Channel1#channel.clientinfo)),
         ?assertEqual(true, maps:get(is_superuser, Channel1#channel.clientinfo)),
         ?assertEqual(ExpireAt, maps:get(auth_expire_at, Channel1#channel.clientinfo)),
+        ?assertEqual(<<"CoAP">>, maps:get(proto_name, Channel1#channel.conninfo)),
+        ?assertEqual(<<"1">>, maps:get(proto_ver, Channel1#channel.conninfo)),
         ?assertMatch(#{connection_expire_timer := _}, Channel1#channel.timers)
     after
         ok = meck:unload(emqx_gateway_ctx),
