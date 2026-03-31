@@ -605,13 +605,9 @@ metrics_inc(Name, Ctx) ->
 %%--------------------------------------------------------------------
 %% Ensure connected
 
-ensure_connected(
-    Channel = #channel{
-        ctx = Ctx,
-        conninfo = ConnInfo,
-        clientinfo = ClientInfo
-    }
-) ->
+ensure_connected(Channel) ->
+    #channel{ctx = Ctx, conninfo = ConnInfo0, clientinfo = ClientInfo} = Channel,
+    ConnInfo = ensure_conninfo_required_fields(ClientInfo, ConnInfo0),
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     _ = run_hooks(Ctx, 'client.connack', [NConnInfo, connection_accepted, #{}]),
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
@@ -620,15 +616,21 @@ ensure_connected(
 %%--------------------------------------------------------------------
 %% Ensure disconnected
 
-ensure_disconnected(
-    Reason,
-    Channel = #channel{
-        ctx = Ctx,
-        conninfo = ConnInfo,
-        clientinfo = ClientInfo,
-        conn_state = ConnState
-    }
-) ->
+ensure_conninfo_required_fields(ClientInfo, ConnInfo0) ->
+    ClientId = maps:get(clientid, ClientInfo, maps:get(clientid, ConnInfo0, undefined)),
+    ConnInfo1 =
+        case ClientId of
+            undefined -> ConnInfo0;
+            _ -> ConnInfo0#{clientid => ClientId}
+        end,
+    ConnInfo1#{
+        proto_name => maps:get(proto_name, ConnInfo1, <<"CoAP">>),
+        proto_ver => maps:get(proto_ver, ConnInfo1, <<"1">>)
+    }.
+
+ensure_disconnected(Reason, Channel) ->
+    #channel{ctx = Ctx, conninfo = ConnInfo, clientinfo = ClientInfo, conn_state = ConnState} =
+        Channel,
     NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
 
     case ConnState of
