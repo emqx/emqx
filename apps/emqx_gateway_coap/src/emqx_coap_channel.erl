@@ -661,11 +661,24 @@ run_hooks(Ctx, Name, Args, Acc) ->
 metrics_inc(Name, Ctx) -> emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
 ensure_connected(Channel) ->
-    #channel{ctx = Ctx, conninfo = ConnInfo, clientinfo = ClientInfo} = Channel,
+    #channel{ctx = Ctx, conninfo = ConnInfo0, clientinfo = ClientInfo} = Channel,
+    ConnInfo = ensure_conninfo_required_fields(ClientInfo, ConnInfo0),
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     _ = run_hooks(Ctx, 'client.connack', [NConnInfo, connection_accepted, #{}]),
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
     schedule_connection_expire(Channel#channel{conninfo = NConnInfo, conn_state = connected}).
+
+ensure_conninfo_required_fields(ClientInfo, ConnInfo0) ->
+    ClientId = maps:get(clientid, ClientInfo, maps:get(clientid, ConnInfo0, undefined)),
+    ConnInfo1 =
+        case ClientId of
+            undefined -> ConnInfo0;
+            _ -> ConnInfo0#{clientid => ClientId}
+        end,
+    ConnInfo1#{
+        proto_name => maps:get(proto_name, ConnInfo1, <<"CoAP">>),
+        proto_ver => maps:get(proto_ver, ConnInfo1, <<"1">>)
+    }.
 
 ensure_disconnected(Reason, Channel) ->
     #channel{ctx = Ctx, conninfo = ConnInfo, clientinfo = ClientInfo, conn_state = ConnState} =
