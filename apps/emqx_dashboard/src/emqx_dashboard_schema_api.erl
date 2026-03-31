@@ -12,6 +12,7 @@
 -behaviour(minirest_api).
 
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% minirest API
 -export([api_spec/0, paths/0, schema/1]).
@@ -21,7 +22,9 @@
 %% for test
 -export([bridge_schema_json/0]).
 
--define(TAGS, [<<"dashboard">>]).
+-export([scopes/0]).
+
+-define(TAGS, [<<"Dashboard">>]).
 -define(BAD_REQUEST, 'BAD_REQUEST').
 
 -define(TO_REF(_N_, _F_), iolist_to_binary([to_bin(_N_), ".", to_bin(_F_)])).
@@ -40,6 +43,8 @@
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_DENIED.
 
 paths() ->
     ["/schemas/:name"].

@@ -9,16 +9,22 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_slow_subs/include/emqx_slow_subs.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 
 -export([slow_subs/2, get_history/0, settings/2]).
+
+-export([scopes/0]).
+
 -define(TAGS, [<<"Slow Subscriptions">>]).
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 -import(emqx_mgmt_util, [bad_request/0]).
 
 namespace() -> "slow_subscribers_statistics".
+
+scopes() -> ?SCOPE_MONITORING.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE).

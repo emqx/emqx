@@ -12,6 +12,8 @@
     schema/1
 ]).
 
+-export([scopes/0]).
+
 -export([auto_subscribe/2]).
 
 -define(INTERNAL_ERROR, 'INTERNAL_ERROR').
@@ -19,9 +21,12 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_CONNECTIONS.
 
 paths() ->
     ["/mqtt/auto_subscribe"].

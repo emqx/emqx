@@ -9,6 +9,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/http_api.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -behaviour(minirest_api).
 
@@ -18,6 +19,8 @@
 
 %% Swagger specs from hocon schema
 -export([api_spec/0, paths/0, schema/1, namespace/0]).
+
+-export([scopes/0]).
 
 %% API callbacks
 -export([
@@ -140,6 +143,8 @@ api_spec() ->
         check_schema => fun emqx_dashboard_swagger:validate_content_type_json/2
     }).
 
+scopes() -> ?SCOPE_DATA_INTEGRATION.
+
 paths() ->
     [
         "/rule_engine",
@@ -177,7 +182,7 @@ schema("/rules") ->
     #{
         'operationId' => '/rules',
         get => #{
-            tags => [<<"rules">>],
+            tags => [<<"Rules">>],
             description => ?DESC("api1"),
             parameters => [
                 {enable,
@@ -211,7 +216,7 @@ schema("/rules") ->
             }
         },
         post => #{
-            tags => [<<"rules">>],
+            tags => [<<"Rules">>],
             description => ?DESC("api2"),
             summary => <<"Create a rule">>,
             'requestBody' => rule_creation_schema(),
@@ -225,7 +230,7 @@ schema("/rule_events") ->
     #{
         'operationId' => '/rule_events',
         get => #{
-            tags => [<<"rules">>],
+            tags => [<<"Rules">>],
             description => ?DESC("api3"),
             summary => <<"List rule events">>,
             responses => #{
@@ -237,7 +242,7 @@ schema("/rules/:id") ->
     #{
         'operationId' => '/rules/:id',
         get => #{
-            tags => [<<"rules">>],
+            tags => [<<"Rules">>],
             description => ?DESC("api4"),
             summary => <<"Get rule">>,
             parameters => param_path_id(),
@@ -247,7 +252,7 @@ schema("/rules/:id") ->
             }
         },
         put => #{
-            tags => [<<"rules">>],
+            tags => [<<"Rules">>],
             description => ?DESC("api5"),
             summary => <<"Update rule">>,
             parameters => param_path_id(),
@@ -258,7 +263,7 @@ schema("/rules/:id") ->
             }
         },
         delete => #{
-            tags => [<<"rules">>],
+            tags => [<<"Rules">>],
             description => ?DESC("api6"),
             summary => <<"Delete rule">>,
             parameters => param_path_id(),
@@ -272,7 +277,7 @@ schema("/rules/:id/test") ->
     #{
         'operationId' => '/rules/:id/test',
         post => #{
-            tags => [<<"rules">>],
+            tags => [<<"Rules">>],
             description => ?DESC("api11"),
             summary => <<"Apply a rule for testing">>,
             parameters => param_path_id(),
@@ -289,7 +294,7 @@ schema("/rules/:id/metrics") ->
     #{
         'operationId' => '/rules/:id/metrics',
         get => #{
-            tags => [<<"rules">>],
+            tags => [<<"Rules">>],
             description => ?DESC("api4_1"),
             summary => <<"Get rule metrics">>,
             parameters => param_path_id(),
@@ -303,7 +308,7 @@ schema("/rules/:id/metrics/reset") ->
     #{
         'operationId' => '/rules/:id/metrics/reset',
         put => #{
-            tags => [<<"rules">>],
+            tags => [<<"Rules">>],
             description => ?DESC("api7"),
             summary => <<"Reset rule metrics">>,
             parameters => param_path_id(),
@@ -317,7 +322,7 @@ schema("/rule_test") ->
     #{
         'operationId' => '/rule_test',
         post => #{
-            tags => [<<"rules">>],
+            tags => [<<"Rules">>],
             description => ?DESC("api8"),
             summary => <<"Test a rule">>,
             'requestBody' => rule_test_schema(),
@@ -332,14 +337,14 @@ schema("/rule_engine") ->
     #{
         'operationId' => '/rule_engine',
         get => #{
-            tags => [<<"rules">>],
+            tags => [<<"Rules">>],
             description => ?DESC("api9"),
             responses => #{
                 200 => rule_engine_schema()
             }
         },
         put => #{
-            tags => [<<"rules">>],
+            tags => [<<"Rules">>],
             description => ?DESC("api10"),
             'requestBody' => rule_engine_schema(),
             responses => #{

@@ -4,6 +4,8 @@
 
 -module(emqx_dashboard_sso_saml_SUITE).
 
+-include("../../emqx_dashboard/include/emqx_dashboard.hrl").
+
 -compile(nowarn_export_all).
 -compile(export_all).
 
@@ -73,11 +75,21 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    _ = emqx_common_test_http:create_default_app(),
+    %% SSO endpoints are denied for API Keys (scope deny list).
+    %% Use a dashboard admin Bearer Token instead.
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"admin_saml_test">>, <<"admin_pass_123!">>, ?ROLE_SUPERUSER, <<"admin for saml test">>
+    ),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(
+        <<"admin_saml_test">>, <<"admin_pass_123!">>
+    ),
+    AuthHeader = {"Authorization", "Bearer " ++ binary_to_list(Token)},
+    persistent_term:put({?MODULE, auth_header}, AuthHeader),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
+    persistent_term:erase({?MODULE, auth_header}),
     emqx_cth_suite:stop(Apps),
     ok.
 
@@ -183,25 +195,16 @@ t_maybe_load_cert_or_key(_Config) ->
 
 t_sso_running_disabled(_Config) ->
     %% SSO running endpoint should show empty when not configured
-    {ok, Result} = request(get, uri(["sso", "running"]), []),
+    {ok, 200, Result} = request(get, uri(["sso", "running"]), []),
     ?assertEqual([], emqx_utils_json:decode(Result, [return_maps])),
     ok.
 
 t_saml_metadata_not_initialized(_Config) ->
     %% Metadata endpoint should return error when SAML is not initialized
-    Result = request(get, uri(["sso", "saml", "metadata"]), []),
-    case Result of
-        {ok, _} ->
-            ct:fail("Expected error, got success");
-        {error, {_, 404, _}} ->
-            %% Not found - SAML not configured
-            ok;
-        {error, {_, 400, _}} ->
-            %% Bad request - also acceptable
-            ok;
-        {error, {_, Code, _}} ->
-            ct:fail("Expected 400 or 404, got ~p", [Code])
-    end.
+    %% compatible_mode returns {ok, Code, Body} for all status codes
+    {ok, Code, _Body} = request(get, uri(["sso", "saml", "metadata"]), []),
+    ?assert(Code >= 400, lists:flatten(io_lib:format("Expected 4xx, got ~p", [Code]))),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Keycloak Integration Tests
@@ -467,7 +470,9 @@ uri(Parts) ->
     ?BASE_URL ++ "/" ++ filename:join(["api", "v5" | Parts]).
 
 request(Method, Url, Body) ->
-    emqx_mgmt_api_test_util:request_api(Method, Url, [], [], Body).
+    AuthHeader = persistent_term:get({?MODULE, auth_header}),
+    Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
+    emqx_mgmt_api_test_util:request_api(Method, Url, [], AuthHeader, Body, Opts).
 
 %% @doc Check if Keycloak is available for integration tests
 is_keycloak_available() ->

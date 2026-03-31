@@ -6,6 +6,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 -behaviour(minirest_api).
 
 -export([api_spec/0, namespace/0]).
@@ -21,11 +22,13 @@
 ]).
 -export([request_config/3]).
 
+-export([scopes/0]).
+
 -define(PREFIX, "/configs/").
 -define(PREFIX_RESET, "/configs_reset/").
 -define(ERR_MSG(MSG), list_to_binary(io_lib:format("~0p", [MSG]))).
 -define(OPTS, #{rawconf_with_defaults => true, override_to => cluster}).
--define(TAGS, ["Configs"]).
+-define(TAGS, [<<"Configs">>]).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 -define(ROOT_KEYS_EE, [
@@ -75,6 +78,8 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 namespace() -> "configuration".
+
+scopes() -> ?SCOPE_SYSTEM.
 
 paths() ->
     [

@@ -9,6 +9,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -import(hoconsc, [
     mk/2,
@@ -28,6 +29,8 @@
 
 -export([code_callback/2, make_callback_url/1]).
 
+-export([scopes/0]).
+
 -define(BPAPI, emqx_dashboard_sso_oidc).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
@@ -43,12 +46,14 @@
 
 -define(REDIRECT_BODY, <<"Redirecting...">>).
 
--define(TAGS, <<"Dashboard Single Sign-On">>).
+-define(TAGS, [<<"Dashboard SSO">>]).
 -define(BACKEND, oidc).
 -define(BASE_PATH, "/api/v5").
 -define(CALLBACK_PATH, "/sso/oidc/callback").
 
 namespace() -> "dashboard_sso".
+
+scopes() -> ?SCOPE_DENIED.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false, translate_body => false}).
@@ -63,7 +68,7 @@ schema("/sso/oidc/callback") ->
     #{
         'operationId' => code_callback,
         get => #{
-            tags => [?TAGS],
+            tags => ?TAGS,
             desc => ?DESC(code_callback),
             responses => #{
                 200 => emqx_dashboard_api:fields([token, version, license]),

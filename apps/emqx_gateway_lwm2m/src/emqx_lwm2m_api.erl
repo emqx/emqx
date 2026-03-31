@@ -8,8 +8,11 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
+
+-export([scopes/0]).
 
 -export([lookup/2, observe/2, read/2, write/2]).
 
@@ -23,6 +26,8 @@
 -elvis([{elvis_style, atom_naming_convention, disable}]).
 
 namespace() -> "lwm2m".
+
+scopes() -> ?SCOPE_GATEWAYS.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE).
@@ -129,14 +134,14 @@ fields(resource) ->
         {name, mk(binary(), #{desc => ?DESC(name), example => "lwm2m-test"})}
     ].
 
-lookup(get, #{bindings := Bindings, query_string := QS}) ->
+lookup(get, #{bindings := Bindings, query_string := Qs}) ->
     ClientId = maps:get(clientid, Bindings),
     case emqx_gateway_cm_registry:lookup_channels(lwm2m, ClientId) of
         [Channel | _] ->
             #{
                 <<"path">> := Path,
                 <<"action">> := Action
-            } = QS,
+            } = Qs,
             {ok, Result} = emqx_lwm2m_channel:lookup_cmd(Channel, Path, Action),
             lookup_return(Result, ClientId, Action, Path);
         _ ->

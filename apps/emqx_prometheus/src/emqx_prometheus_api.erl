@@ -9,6 +9,7 @@
 -include("emqx_prometheus.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -43,9 +44,21 @@
 
 -export([lookup_from_local_nodes/3]).
 
+-export([scopes/0]).
+
 -define(TAGS, [<<"Monitor">>]).
 
 namespace() -> undefined.
+
+scopes() ->
+    #{
+        "/prometheus" => ?SCOPE_SYSTEM,
+        "/prometheus/auth" => ?SCOPE_MONITORING,
+        "/prometheus/stats" => ?SCOPE_MONITORING,
+        "/prometheus/data_integration" => ?SCOPE_MONITORING,
+        "/prometheus/schema_validation" => ?SCOPE_MONITORING,
+        "/prometheus/message_transformation" => ?SCOPE_MONITORING
+    }.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).

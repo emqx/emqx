@@ -10,6 +10,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -18,6 +19,8 @@
     schema/1,
     namespace/0
 ]).
+
+-export([scopes/0]).
 
 -export([
     login/2,
@@ -41,6 +44,8 @@
 
 namespace() -> "dashboard".
 
+scopes() -> ?SCOPE_DENIED.
+
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
@@ -59,7 +64,7 @@ schema("/login") ->
     #{
         'operationId' => login,
         post => #{
-            tags => [<<"dashboard">>],
+            tags => [<<"Dashboard">>],
             desc => ?DESC(login_api),
             summary => <<"Dashboard authentication">>,
             'requestBody' => fields([username, password, mfa_token]),
@@ -76,7 +81,7 @@ schema("/logout") ->
     #{
         'operationId' => logout,
         post => #{
-            tags => [<<"dashboard">>],
+            tags => [<<"Dashboard">>],
             desc => ?DESC(logout_api),
             security => [#{'bearerAuth' => []}],
             parameters => sso_parameters(),
@@ -91,7 +96,7 @@ schema("/users") ->
     #{
         'operationId' => users,
         get => #{
-            tags => [<<"dashboard">>],
+            tags => [<<"Dashboard">>],
             desc => ?DESC(list_users_api),
             security => [#{'bearerAuth' => []}],
             responses => #{
@@ -102,7 +107,7 @@ schema("/users") ->
             }
         },
         post => #{
-            tags => [<<"dashboard">>],
+            tags => [<<"Dashboard">>],
             desc => ?DESC(create_user_api),
             security => [#{'bearerAuth' => []}],
             'requestBody' => fields([username, password, role, description]),
@@ -115,7 +120,7 @@ schema("/users/:username") ->
     #{
         'operationId' => user,
         put => #{
-            tags => [<<"dashboard">>],
+            tags => [<<"Dashboard">>],
             desc => ?DESC(update_user_api),
             parameters => sso_parameters(fields([username_in_path])),
             'requestBody' => fields([role, description]),
@@ -125,7 +130,7 @@ schema("/users/:username") ->
             }
         },
         delete => #{
-            tags => [<<"dashboard">>],
+            tags => [<<"Dashboard">>],
             desc => ?DESC(delete_user_api),
             parameters => sso_parameters(fields([username_in_path])),
             responses => #{
@@ -141,7 +146,7 @@ schema("/users/:username/change_pwd") ->
     #{
         'operationId' => change_pwd,
         post => #{
-            tags => [<<"dashboard">>],
+            tags => [<<"Dashboard">>],
             desc => ?DESC(change_pwd_api),
             parameters => fields([username_in_path]),
             'requestBody' => fields([old_pwd, new_pwd]),
@@ -159,7 +164,7 @@ schema("/users/:username/mfa") ->
     #{
         'operationId' => change_mfa,
         post => #{
-            tags => [<<"dashboard">>],
+            tags => [<<"Dashboard">>],
             desc => ?DESC(change_mfa),
             parameters => fields([username_in_path]),
             'requestBody' => emqx_dashboard_schema:mfa_fields(),
@@ -169,7 +174,7 @@ schema("/users/:username/mfa") ->
             }
         },
         delete => #{
-            tags => [<<"dashboard">>],
+            tags => [<<"Dashboard">>],
             desc => ?DESC(delete_mfa),
             parameters => fields([username_in_path]),
             responses => #{

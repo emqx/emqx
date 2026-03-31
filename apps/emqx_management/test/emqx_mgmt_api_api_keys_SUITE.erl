@@ -283,9 +283,17 @@ t_bootstrap_file_with_role(_) ->
 -endif.
 
 auth_authorize(Path, Key, Secret) ->
-    FakePath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/fake")),
-    FakeReq = #{method => <<"GET">>, path => FakePath},
-    emqx_mgmt_auth:authorize(Path, FakeReq, Key, Secret).
+    %% Path is an absolute path like <<"/api/v5/status">>.
+    %% Build a HandlerInfo map with relative path (strip base path prefix).
+    RelPath =
+        case emqx_dashboard_swagger:get_relative_uri(Path) of
+            {ok, Rel} -> binary_to_list(Rel);
+            _ -> binary_to_list(Path)
+        end,
+    %% FakeReq needs both method and path for check_rbac (which calls cowboy_req:path/method)
+    FakeReq = #{method => <<"GET">>, path => Path},
+    HandlerInfo = #{method => get, module => dummy_module, function => dummy_func, path => RelPath},
+    emqx_mgmt_auth:authorize(HandlerInfo, FakeReq, Key, Secret).
 
 update_file(File) ->
     ?assertMatch({ok, _}, emqx:update_config([<<"api_key">>], #{<<"bootstrap_file">> => File})).

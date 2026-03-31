@@ -9,6 +9,7 @@
 -include("emqx_dashboard.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -23,7 +24,11 @@
     error_code/2
 ]).
 
+-export([scopes/0]).
+
 namespace() -> "dashboard".
+
+scopes() -> ?SCOPE_MONITORING.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).

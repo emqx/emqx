@@ -8,8 +8,11 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include("emqx_modules.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([api_spec/0, paths/0, schema/1]).
+
+-export([scopes/0]).
 
 -export([topic_rewrite/2]).
 
@@ -20,6 +23,8 @@
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE).
+
+scopes() -> ?SCOPE_CONNECTIONS.
 
 paths() ->
     ["/mqtt/topic_rewrite"].

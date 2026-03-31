@@ -9,6 +9,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/http_api.hrl").
 -include("emqx_mt.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% `minirest' and `minirest_trails' API
 -export([
@@ -18,6 +19,8 @@
     paths/0,
     schema/1
 ]).
+
+-export([scopes/0]).
 
 %% `minirest' handlers
 -export([
@@ -45,6 +48,8 @@
 %%-------------------------------------------------------------------------------------------------
 
 namespace() -> "mt".
+
+scopes() -> ?SCOPE_CLUSTER_OPERATIONS.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(

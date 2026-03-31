@@ -6,6 +6,7 @@
 -behaviour(minirest_api).
 
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% Swagger specs from hocon schema
 -export([
@@ -14,6 +15,8 @@
     schema/1,
     namespace/0
 ]).
+
+-export([scopes/0]).
 
 %% API callbacks
 -export([
@@ -33,6 +36,8 @@ namespace() -> "ai_completion".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_DATA_INTEGRATION.
 
 paths() ->
     [

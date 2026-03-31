@@ -8,6 +8,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([api_spec/0, fields/1, paths/0, schema/1, namespace/0]).
 -export([
@@ -21,9 +22,13 @@
     connected_replicants/0
 ]).
 
+-export([scopes/0]).
+
 -define(DEFAULT_INVITE_TIMEOUT, 15000).
 
 namespace() -> "cluster".
+
+scopes() -> ?SCOPE_CLUSTER_OPERATIONS.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).

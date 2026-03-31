@@ -11,6 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/http_api.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -31,6 +32,8 @@
 
 -export([validate_name/1]).
 
+-export([scopes/0]).
+
 %% for rpc
 -export([
     read_trace_file/3,
@@ -44,6 +47,8 @@
 -define(TAGS, [<<"Trace">>]).
 
 namespace() -> "trace".
+
+scopes() -> ?SCOPE_MONITORING.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).

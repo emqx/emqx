@@ -11,6 +11,7 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_cluster_link.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -27,12 +28,16 @@
     '/cluster/links/link/:name/metrics/reset'/2
 ]).
 
+-export([scopes/0]).
+
 -define(CONF_PATH, [cluster, links]).
 -define(TAGS, [<<"Cluster">>]).
 
 -type cluster_name() :: binary().
 
 namespace() -> "cluster_link".
+
+scopes() -> ?SCOPE_CLUSTER_OPERATIONS.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
