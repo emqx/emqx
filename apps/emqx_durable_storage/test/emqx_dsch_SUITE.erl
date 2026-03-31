@@ -451,7 +451,7 @@ t_070_global_registration(_Config) ->
         begin
             #{site := Site} = Schema = emqx_dsch:get_site_schema(),
             ?assertEqual(
-                node(),
+                {ok, node()},
                 emqx_dsch:whereis_site(Site)
             ),
             ?assertEqual(

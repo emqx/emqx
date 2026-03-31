@@ -62,7 +62,8 @@ defmodule EMQXUmbrella.MixProject do
   def deps(_profile_info, _version) do
     # we need several overrides here because dependencies specify
     # other exact versions, and not ranges.
-    common_deps() ++
+    [common_dep(:classy)] ++
+      common_deps() ++
       quicer_dep() ++
       jq_dep() ++
       extra_release_apps() ++
@@ -81,6 +82,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:cowboy),
       common_dep(:esockd),
       common_dep(:rocksdb),
+      common_dep(:mria),
       common_dep(:ekka),
       common_dep(:gen_rpc),
       common_dep(:grpc),
@@ -178,7 +180,10 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.0", override: true}
+  def common_dep(:mria), do: {:mria, github: "emqx/mria", tag: "1.0.0", override: true}
+  def common_dep(:classy), do: {:classy, github: "emqx/classy", tag: "0.1.0", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.16.3", override: true}
+
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.9", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}

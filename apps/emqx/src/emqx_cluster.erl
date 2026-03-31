@@ -5,11 +5,15 @@
 -module(emqx_cluster).
 
 -export([
-    join/1,
-    leave/0,
-    force_leave/1,
+    join/2,
+    leave/1,
+    force_leave/2,
     ensure_normal_mode/0,
-    ensure_singleton_mode/0
+    ensure_singleton_mode/0,
+
+    pre_join/4,
+    post_join/3,
+    post_leave/3
 ]).
 
 %% RPC callback functions
@@ -27,22 +31,23 @@
 -define(DEFAULT_MODE, ?CLUSTER_MODE_SINGLE).
 -endif.
 
-join(PeerNode) ->
-    %% Local node starts with default license (singleton mode),
-    %% But the peer node(s) may have a license which allows local node to join.
-    %% So we do not check the license locally.
-    case check_permission(PeerNode) of
-        ok ->
-            ekka:join(PeerNode);
-        {error, Message} ->
-            {error, Message}
-    end.
+join(Node, Intent) ->
+    classy:join_node(Node, Intent).
 
-leave() ->
-    ekka:leave().
+leave(Intent) ->
+    classy:kick_node(node(), Intent).
 
-force_leave(Node) ->
-    ekka:force_leave(Node).
+pre_join(_Cluster, _Remote, PeerNode, _Intent) ->
+    check_permission(PeerNode).
+
+post_join(_ClusterId, _Local, JoinToNode) ->
+    mria:join(JoinToNode).
+
+post_leave(_ClusterId, _Local, _Intent) ->
+    mria:leave().
+
+force_leave(Node, Intent) ->
+    classy:kick_node(Node, Intent).
 
 check_permission(PeerNode) ->
     %% This call happens before clustered, so it's not possible to

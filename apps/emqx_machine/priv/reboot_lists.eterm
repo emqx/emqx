@@ -1,5 +1,13 @@
 %% -*- mode: erlang; -*-
 #{
+    %% Permanent apps that should never get restarted.
+    %% They are dependencies of classy and emqx_machine
+    protected =>
+        [
+            classy,
+            gproc,
+            optvar
+        ],
     %% must always be of type `load'
     db_apps =>
         [
@@ -30,7 +38,9 @@
             observer_cli,
             tools,
             observer,
-            jq
+            jq,
+            gproc,
+            {classy, load}
         ],
     %% must always be of type `load'
     common_business_apps =>

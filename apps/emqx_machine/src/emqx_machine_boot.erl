@@ -53,7 +53,7 @@ post_boot() ->
         release => emqx_app:get_release(),
         security_profile => emqx_security_profile:profile()
     }),
-    ok = start_autocluster(),
+    %% ok = start_autocluster(),
     ignore.
 
 -ifdef(TEST).
@@ -66,8 +66,8 @@ print_vsn() ->
 -endif.
 
 start_autocluster() ->
-    ekka:callback(stop, fun emqx_machine_boot:stop_apps/0),
-    ekka:callback(start, fun emqx_machine_boot:ensure_apps_started/0),
+    %% ekka:callback(stop, fun emqx_machine_boot:stop_apps/0),
+    %% ekka:callback(start, fun emqx_machine_boot:ensure_apps_started/0),
     %% returns 'ok' or a pid or 'any()' as in spec
     _ = ekka:autocluster(emqx),
     ok.
@@ -144,17 +144,21 @@ restart_type(App) ->
 %% the list of (re)started apps depends on release type/edition
 reboot_apps() ->
     ConfigApps0 = application:get_env(emqx_machine, applications, []),
-    BaseRebootApps = basic_reboot_apps(),
+    {BaseRebootApps, Protected} = basic_reboot_apps(),
     ConfigApps = lists:filter(fun(App) -> not lists:member(App, BaseRebootApps) end, ConfigApps0),
-    BaseRebootApps ++ ConfigApps.
+    (BaseRebootApps ++ ConfigApps) -- Protected.
 
 basic_reboot_apps() ->
     #{
+        protected := Protected,
         common_business_apps := CommonBusinessApps,
         ee_business_apps := EEBusinessApps
     } = read_apps(),
     BusinessApps = CommonBusinessApps ++ EEBusinessApps,
-    ?BASIC_REBOOT_APPS ++ (BusinessApps -- excluded_apps()).
+    {
+        ?BASIC_REBOOT_APPS ++ (BusinessApps -- excluded_apps()),
+        Protected
+    }.
 
 %% @doc Read business apps belonging to the current profile/edition.
 read_apps() ->
