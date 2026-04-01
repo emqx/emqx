@@ -311,9 +311,27 @@ example_register_card_in() ->
 
 sample_card() ->
     #{
-        <<"name">> => <<"my agent">>,
-        <<"version">> => <<"1.2.3">>,
-        <<"description">> => <<"My agent">>
+        <<"name">> => <<"some_agent">>,
+        <<"description">> => <<"description">>,
+        <<"version">> => <<"1">>,
+        <<"supportedInterfaces">> => [
+            #{
+                <<"url">> => <<"http://httpbin.org/get">>,
+                <<"protocolBinding">> => <<"JSONRPC">>,
+                <<"protocolVersion">> => <<"0.3">>
+            }
+        ],
+        <<"capabilities">> => #{},
+        <<"defaultInputModes">> => [<<"text/plain">>],
+        <<"defaultOutputModes">> => [<<"text/plain">>],
+        <<"skills">> => [
+            #{
+                <<"id">> => <<"skill-1">>,
+                <<"name">> => <<"test_skill">>,
+                <<"description">> => <<"A test skill">>,
+                <<"tags">> => [<<"test">>]
+            }
+        ]
     }.
 
 %%-------------------------------------------------------------------------------------------------
