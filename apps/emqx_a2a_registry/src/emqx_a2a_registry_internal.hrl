@@ -9,6 +9,7 @@
 -define(A2A_TOPIC_DISCOVERY, <<"discovery">>).
 
 -define(A2A_PROP_STATUS_KEY, <<"a2a-status">>).
+-define(A2A_PROP_STATUS_SOURCE_KEY, <<"a2a-status-source">>).
 -define(A2A_PROP_ONLINE_VAL, <<"online">>).
 -define(A2A_PROP_ONLINE_VAL_ATOM, online).
 -define(A2A_PROP_OFFLINE_VAL, <<"offline">>).
