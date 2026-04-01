@@ -5,7 +5,7 @@ defmodule EMQXTelemetry.MixProject do
   def project do
     [
       app: :emqx_telemetry,
-      version: "6.1.1",
+      version: "6.2.0",
       build_path: "../../_build",
       compilers: Mix.compilers() ++ [:copy_srcs],
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler
