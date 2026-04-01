@@ -347,11 +347,16 @@ publish_to_queue(MQHandle, #message{} = Message) ->
     emqx_mq_message_db:insert(MQHandle, Message).
 
 delivers(SubscriberRef, Messages) ->
+    SubTopic = make_sub_topic(SubscriberRef),
     lists:map(
         fun(Message0) ->
-            Message1 = emqx_message:set_headers(
-                #{?MQ_HEADER_SUBSCRIBER_ID => SubscriberRef}, Message0
-            ),
+            Headers0 = #{?MQ_HEADER_SUBSCRIBER_ID => SubscriberRef},
+            Headers =
+                case SubTopic of
+                    undefined -> Headers0;
+                    _ -> Headers0#{?MQ_HEADER_SUB_TOPIC => SubTopic}
+                end,
+            Message1 = emqx_message:set_headers(Headers, Message0),
             %% Override QoS to 1 to require ack from the client
             Message = Message1#message{qos = ?QOS_1},
             Topic = emqx_message:topic(Message),
@@ -359,6 +364,23 @@ delivers(SubscriberRef, Messages) ->
         end,
         Messages
     ).
+
+%% Reconstruct the full subscription topic filter (e.g., <<"$queue/test/t/#">>)
+%% from the subscriber's name and topic_filter. This is needed so that
+%% emqx_session:enrich_deliver can look up subscription options (including
+%% the Subscription-Identifier) for queue-delivered messages.
+make_sub_topic(SubscriberRef) ->
+    case emqx_mq_sub_registry:find(SubscriberRef) of
+        undefined ->
+            undefined;
+        Sub ->
+            case emqx_mq_sub:name_topic(Sub) of
+                {Name, undefined} ->
+                    <<"$queue/", Name/binary>>;
+                {Name, TopicFilter} ->
+                    <<"$queue/", Name/binary, "/", TopicFilter/binary>>
+            end
+    end.
 
 set_mq_supported(Ctx, SessionInfo) ->
     ProtoVer =
