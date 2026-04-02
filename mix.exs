@@ -319,7 +319,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.3-emqx.1"}
 
   def common_dep(:greptimedb_rs),
-    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.7"}
+    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.8"}
 
   def common_dep(:sbom), do: {:sbom, "~> 0.8", runtime: false}
 
@@ -1140,7 +1140,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def jq_dep() do
     if enable_jq?(),
-      do: [{:jq, github: "emqx/jq", tag: "v0.3.16", override: true}],
+      do: [{:jq, github: "emqx/jq", tag: "v0.3.17", override: true}],
       else: []
   end
 
