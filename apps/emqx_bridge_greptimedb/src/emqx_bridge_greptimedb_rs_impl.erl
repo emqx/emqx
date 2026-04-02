@@ -121,7 +121,7 @@ on_start(ConnResId, ConnConfig) ->
             _ ->
                 ClientOpts0
         end,
-    ClientOpts =
+    ClientOpts2 =
         case ConnConfig of
             #{ssl := #{enable := true} = SSLOpts} ->
                 TLSOpts0 = maps:fold(
@@ -140,6 +140,16 @@ on_start(ConnResId, ConnConfig) ->
             _ ->
                 ClientOpts1
         end,
+    ClientOpts = lists:foldl(
+        fun(Key, Acc) ->
+            case ConnConfig of
+                #{Key := Val} -> Acc#{Key => Val};
+                _ -> Acc
+            end
+        end,
+        ClientOpts2,
+        [ts_column, ttl]
+    ),
     ok = emqx_resource:allocate_resource(ConnResId, ?MODULE, ?greptimedb_client, ConnResId),
     maybe
         {ok, Client} ?= greptimedb_rs:start_client(ClientOpts),
