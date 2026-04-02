@@ -90,66 +90,9 @@ callback_mode() ->
 -spec on_start(connector_resource_id(), connector_config()) ->
     {ok, connector_state()} | {error, _Reason}.
 on_start(ConnResId, ConnConfig) ->
-    #{
-        server := Server0,
-        dbname := Database
-    } = ConnConfig,
+    #{dbname := Database} = ConnConfig,
     ensure_consistent_ssl_opts(ConnConfig),
-    %% Replicate greptime connector behavior: 4001 is the default port.
-    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server0, #{
-        default_port => 4001
-    }),
-    Server = iolist_to_binary([Host, ":", integer_to_binary(Port)]),
-    ClientOpts0 = #{
-        pool_name => ConnResId,
-        pool_size => erlang:system_info(dirty_io_schedulers),
-        pool_type => random,
-        auto_reconnect => ?AUTO_RECONNECT_S,
-        endpoints => [bin(Server)],
-        dbname => Database
-    },
-    ClientOpts1 =
-        case ConnConfig of
-            #{username := Username, password := Password} ->
-                maps:merge(
-                    ClientOpts0,
-                    #{
-                        username => Username,
-                        password => Password
-                    }
-                );
-            _ ->
-                ClientOpts0
-        end,
-    ClientOpts2 =
-        case ConnConfig of
-            #{ssl := #{enable := true} = SSLOpts} ->
-                TLSOpts0 = maps:fold(
-                    fun emqx_utils_maps:rename/3,
-                    SSLOpts,
-                    #{
-                        cacertfile => ca_cert,
-                        certfile => client_cert,
-                        keyfile => client_key
-                    }
-                ),
-                TLSOpts1 = maps:with([ca_cert, client_cert, client_key], TLSOpts0),
-                TLSOpts2 = maps:map(fun(_, V) -> bin(V) end, TLSOpts1),
-                TLSOpts = TLSOpts2#{tls => true},
-                maps:merge(ClientOpts1, TLSOpts);
-            _ ->
-                ClientOpts1
-        end,
-    ClientOpts = lists:foldl(
-        fun(Key, Acc) ->
-            case ConnConfig of
-                #{Key := Val} -> Acc#{Key => Val};
-                _ -> Acc
-            end
-        end,
-        ClientOpts2,
-        [ts_column, ttl]
-    ),
+    ClientOpts = client_opts(ConnResId, ConnConfig),
     ok = emqx_resource:allocate_resource(ConnResId, ?MODULE, ?greptimedb_client, ConnResId),
     maybe
         {ok, Client} ?= greptimedb_rs:start_client(ClientOpts),
@@ -477,6 +420,60 @@ handle_async_result_continuation(Context0, Result, NextTable, PointsWithIndices)
     Context = Context0#{last_indices := NextIndices, final_res := ResAcc},
     ReplyFnAndArgs = {fun ?MODULE:reply_callback/2, [Context]},
     greptimedb_rs:insert_async(Client, NextTable, Points, ReplyFnAndArgs).
+
+%% @doc Build the options map for `greptimedb_rs:start_client/1'.
+client_opts(ConnResId, ConnConfig) ->
+    #{server := Server0, dbname := Database} = ConnConfig,
+    %% Replicate greptime connector behavior: 4001 is the default port.
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server0, #{
+        default_port => 4001
+    }),
+    Server = iolist_to_binary([Host, ":", integer_to_binary(Port)]),
+    Opts0 = #{
+        pool_name => ConnResId,
+        pool_size => erlang:system_info(dirty_io_schedulers),
+        pool_type => random,
+        auto_reconnect => ?AUTO_RECONNECT_S,
+        endpoints => [bin(Server)],
+        dbname => Database
+    },
+    Opts1 = maybe_put_auth(ConnConfig, Opts0),
+    Opts2 = maybe_put_tls(ConnConfig, Opts1),
+    maybe_put_optional_keys([ts_column, ttl], ConnConfig, Opts2).
+
+maybe_put_auth(#{username := Username, password := Password}, Opts) ->
+    Opts#{username => Username, password => Password};
+maybe_put_auth(_ConnConfig, Opts) ->
+    Opts.
+
+maybe_put_tls(#{ssl := #{enable := true} = SSLOpts}, Opts) ->
+    Renamed = maps:fold(
+        fun emqx_utils_maps:rename/3,
+        SSLOpts,
+        #{
+            cacertfile => ca_cert,
+            certfile => client_cert,
+            keyfile => client_key
+        }
+    ),
+    TLSOpts = maps:map(
+        fun(_, V) -> bin(V) end, maps:with([ca_cert, client_cert, client_key], Renamed)
+    ),
+    maps:merge(Opts, TLSOpts#{tls => true});
+maybe_put_tls(_ConnConfig, Opts) ->
+    Opts.
+
+maybe_put_optional_keys(Keys, Source, Target) ->
+    lists:foldl(
+        fun(Key, Acc) ->
+            case Source of
+                #{Key := Val} -> Acc#{Key => Val};
+                _ -> Acc
+            end
+        end,
+        Target,
+        Keys
+    ).
 
 ensure_consistent_ssl_opts(#{ssl := #{enable := true} = SSLOpts} = _ConnConfig) ->
     AnyMissing =
