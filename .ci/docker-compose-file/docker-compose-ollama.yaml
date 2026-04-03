@@ -24,7 +24,7 @@ services:
   ollama:
     container_name: ollama
     hostname: ollama
-    image: ollama/ollama:latest
+    image: alpine/ollama:latest
     restart: always
     expose:
       - "11434"
@@ -42,7 +42,7 @@ services:
       start_period: 10s
 
   ollama-init:
-    image: ollama/ollama:latest
+    image: alpine/ollama:latest
     container_name: ollama-init
     depends_on:
       ollama:

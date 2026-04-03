@@ -242,6 +242,63 @@ t_context_propagation(Config) ->
         maps:get(<<"event">>, Ctx, #{})
     ).
 
+%% A break step must finish the pipeline when the selected context value is true.
+t_break_stops_pipeline_when_true(Config) ->
+    PipelineId = ?config(pipeline_id, Config),
+    SkillId = PipelineId,
+    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    setup_publish_skill(SkillId),
+    Steps = [
+        #{
+            <<"id">> => <<"break1">>,
+            <<"type">> => <<"break">>,
+            <<"path">> => <<"$.event.data.stop">>
+        },
+        #{
+            <<"id">> => <<"should_not_run">>,
+            <<"type">> => <<"call_skill">>,
+            <<"skill">> => <<"message.publish@", SkillId/binary>>,
+            <<"args">> => #{<<"topic">> => <<"post-break">>, <<"payload">> => <<"x">>},
+            <<"result_path">> => <<"$.post">>
+        }
+    ],
+    register_pipeline(PipelineId, TrigTopic, Steps),
+    publish_evt(TrigTopic, #{<<"id">> => <<"e-break-1">>, <<"data">> => #{<<"stop">> => true}}),
+    _Started = recv_pipe_event(PipelineId),
+    Completed = recv_pipe_event(PipelineId),
+    ?assertEqual(<<"pipeline_completed">>, maps:get(<<"type">>, Completed)),
+    Ctx = maps:get(<<"context">>, Completed),
+    ?assertEqual(undefined, maps:get(<<"post">>, Ctx, undefined)).
+
+%% With not=true, break must finish when the selected value is not true.
+t_break_with_not_stops_pipeline_when_not_true(Config) ->
+    PipelineId = ?config(pipeline_id, Config),
+    SkillId = PipelineId,
+    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    setup_publish_skill(SkillId),
+    Steps = [
+        #{
+            <<"id">> => <<"break1">>,
+            <<"type">> => <<"break">>,
+            <<"path">> => <<"$.event.data.keep_going">>,
+            <<"not">> => true
+        },
+        #{
+            <<"id">> => <<"should_not_run">>,
+            <<"type">> => <<"call_skill">>,
+            <<"skill">> => <<"message.publish@", SkillId/binary>>,
+            <<"args">> => #{<<"topic">> => <<"post-break-not">>, <<"payload">> => <<"x">>},
+            <<"result_path">> => <<"$.post">>
+        }
+    ],
+    register_pipeline(PipelineId, TrigTopic, Steps),
+    publish_evt(TrigTopic, #{<<"id">> => <<"e-break-2">>, <<"data">> => #{<<"keep_going">> => false}}),
+    _Started = recv_pipe_event(PipelineId),
+    Completed = recv_pipe_event(PipelineId),
+    ?assertEqual(<<"pipeline_completed">>, maps:get(<<"type">>, Completed)),
+    Ctx = maps:get(<<"context">>, Completed),
+    ?assertEqual(undefined, maps:get(<<"post">>, Ctx, undefined)).
+
 %% After completion the pipeline enters done state and stops when the idle
 %% timer fires.  We override the timer by sending idle_timeout directly.
 t_done_idle_stop(Config) ->

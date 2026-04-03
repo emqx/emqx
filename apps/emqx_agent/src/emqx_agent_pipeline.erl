@@ -251,6 +251,8 @@ execute_step(#{<<"type">> := <<"llm_loop">>} = Step, Data) ->
     start_llm_loop(Step, Data);
 execute_step(#{<<"type">> := <<"call_skill">>} = Step, Data) ->
     invoke_call_skill(Step, Data);
+execute_step(#{<<"type">> := <<"break">>} = Step, Data) ->
+    maybe_break(Step, Data);
 execute_step(#{<<"type">> := <<"wait_for_event">>} = Step, Data) ->
     enter_wait_event(Step, Data);
 execute_step(Step, Data) ->
@@ -310,6 +312,31 @@ invoke_call_skill(Step, Data) ->
         req_id => ReqId
     }),
     {next_state, waiting_cap, Data1}.
+
+%% -- break step -------------------------------------------------------------
+
+maybe_break(Step, Data) ->
+    Path = maps:get(<<"path">>, Step, undefined),
+    Negate = maps:get(<<"not">>, Step, false) =:= true,
+    Value = resolve_context_path(Path, Data#data.context),
+    IsTrue = Value =:= true,
+    ShouldBreak =
+        case Negate of
+            true -> not IsTrue;
+            false -> IsTrue
+        end,
+    ?SLOG(info, #{
+        msg => "pipeline_break_evaluated",
+        iid => Data#data.iid,
+        path => Path,
+        'not' => Negate,
+        value => Value,
+        should_break => ShouldBreak
+    }),
+    case ShouldBreak of
+        true -> do_complete(Data);
+        false -> advance_and_step(Data)
+    end.
 
 %% -- wait_for_event step ----------------------------------------------------
 

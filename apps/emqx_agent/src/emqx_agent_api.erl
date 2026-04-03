@@ -649,6 +649,12 @@ pipeline_example() ->
                 <<"where">> => <<"data.incident_id == $.triage.result.incident_id">>
             },
             #{
+                <<"id">> => <<"stop_if_not_assigned">>,
+                <<"type">> => <<"break">>,
+                <<"path">> => <<"$.event.data.is_assigned">>,
+                <<"not">> => true
+            },
+            #{
                 <<"id">> => <<"notify">>,
                 <<"type">> => <<"call_skill">>,
                 <<"skill">> => <<"message.publish@slack-prod">>,

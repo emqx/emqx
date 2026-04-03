@@ -329,13 +329,19 @@ t_pipelines_crud(Config) ->
                     <<"id">> => <<"step2">>,
                     <<"type">> => <<"wait_for_event">>,
                     <<"topic">> => <<"evt/test/done">>
+                },
+                #{
+                    <<"id">> => <<"step3">>,
+                    <<"type">> => <<"break">>,
+                    <<"path">> => <<"$.event.data.stop">>,
+                    <<"not">> => true
                 }
             ]
     },
     ?assertMatch({ok, 200, _}, api_put([agent, pipelines, Id], Def2)),
 
     {ok, 200, Updated} = api_get([agent, pipelines, Id]),
-    ?assertEqual(2, length(maps:get(<<"steps">>, Updated))),
+    ?assertEqual(3, length(maps:get(<<"steps">>, Updated))),
 
     ?assertMatch({ok, 204}, api_delete([agent, pipelines, Id])),
     ?assertMatch({ok, 404, _}, api_get([agent, pipelines, Id])).

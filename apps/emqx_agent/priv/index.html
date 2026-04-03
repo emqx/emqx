@@ -863,6 +863,9 @@ function deserializeStep(s, i) {
   if (type === 'wait_for_event') {
     return { id, type, topic: s.topic ?? '', where: s.where ?? '', result_path: s.result_path ?? '' };
   }
+  if (type === 'break') {
+    return { id, type, path: s.path ?? '', not: s.not === true };
+  }
   return { id, type };
 }
 
@@ -888,6 +891,7 @@ function defaultStep(type) {
   if (type === 'call_skill')     return { id: 'step_' + n, type, skill: '', args: [['', '']], result_path: '' };
   if (type === 'llm_loop')       return { id: 'step_' + n, type, session_profile: '', tools: [], input: [['event', '$.event']], result_path: '' };
   if (type === 'wait_for_event') return { id: 'step_' + n, type, topic: '', where: '', result_path: '' };
+  if (type === 'break')          return { id: 'step_' + n, type, path: '', not: false };
   return { id: 'step_' + n, type };
 }
 
@@ -939,7 +943,7 @@ function renderStepBody(idx) {
 
 function stepCardHTML(step, idx) {
   const last = pipelineSteps.length - 1;
-  const types = ['call_skill','llm_loop','wait_for_event'];
+  const types = ['call_skill','llm_loop','wait_for_event','break'];
   const typeOpts = types.map(t =>
     `<option value="${t}"${t===step.type?' selected':''}>${t}</option>`
   ).join('');
@@ -1035,6 +1039,15 @@ function stepFieldsHTML(step, idx) {
       </div>`;
   }
 
+  if (step.type === 'break') {
+    return idF + `
+      <div class="field"><label>Path <small style="color:var(--muted)">JSON path in context</small></label>
+        <input type="text" class="sf-path" value="${esc(step.path||'')}" placeholder="$.triage.should_break">
+      </div>
+      <div class="field"><label><input type="checkbox" class="sf-not"${step.not ? ' checked' : ''}> Not</label>
+      </div>`;
+  }
+
   return idF;
 }
 
@@ -1063,6 +1076,9 @@ function syncStep(idx) {
     step.topic       = card.querySelector('.sf-topic')?.value?.trim() ?? '';
     step.where       = card.querySelector('.sf-where')?.value?.trim() ?? '';
     step.result_path = card.querySelector('.sf-result')?.value?.trim() ?? '';
+  } else if (step.type === 'break') {
+    step.path = card.querySelector('.sf-path')?.value?.trim() ?? '';
+    step.not = card.querySelector('.sf-not')?.checked === true;
   }
 }
 
@@ -1089,6 +1105,9 @@ function collectSteps() {
       if (s.topic)       out.topic = s.topic;
       if (s.where)       out.where = s.where;
       if (s.result_path) out.result_path = s.result_path;
+    } else if (s.type === 'break') {
+      if (s.path) out.path = s.path;
+      if (s.not === true) out.not = true;
     }
     return out;
   });
@@ -1112,6 +1131,7 @@ function stepClass(t) {
   if (t === 'llm_loop')      return 'llm';
   if (t === 'call_skill')    return 'publish';
   if (t === 'wait_for_event') return 'kv';
+  if (t === 'break')         return 'kv';
   return '';
 }
 
