@@ -89,7 +89,10 @@ t_invoke_queries_postgresql(_Config) ->
     ?assertEqual(<<"ok">>, maps:get(<<"status">>, Data)),
     Rows = maps:get(<<"rows">>, Data),
     ?assertEqual(2, length(Rows)),
-    Metrics = maps:from_list([{maps:get(<<"metric">>, Row), maps:get(<<"value">>, Row)} || Row <- Rows]),
+    Metrics = maps:from_list([
+        {maps:get(<<"metric">>, Row), maps:get(<<"value">>, Row)}
+     || Row <- Rows
+    ]),
     ?assertEqual(42, maps:get(<<"temperature">>, Metrics)),
     ?assertEqual(55, maps:get(<<"humidity">>, Metrics)),
 
@@ -97,47 +100,48 @@ t_invoke_queries_postgresql(_Config) ->
 
 ensure_test_data() ->
     ResId = emqx_agent_skill_postgresql:resource_id(),
-    ok = wait_for_resource_connected(ResId, 30),
-    ok = expect_query_ok(emqx_resource:simple_sync_query(
-        ResId,
-        {query, <<
-            "CREATE TABLE IF NOT EXISTS agent_skill_metrics ("
-            "device_id TEXT NOT NULL, metric TEXT NOT NULL, value INT NOT NULL)"
-        >>}
-    )),
-    ok = expect_query_ok(emqx_resource:simple_sync_query(
-        ResId,
-        {query, <<"DELETE FROM agent_skill_metrics">>}
-    )),
-    ok = expect_query_ok(emqx_resource:simple_sync_query(
-        ResId,
-        {query, <<
-            "INSERT INTO agent_skill_metrics(device_id, metric, value) VALUES "
-            "($1, $2, $3), ($4, $5, $6), ($7, $8, $9)"
-        >>,
-            [
-                <<"dev-42">>, <<"temperature">>, 42,
-                <<"dev-42">>, <<"humidity">>, 55,
-                <<"dev-99">>, <<"temperature">>, 11
-            ]}
-    )),
+    ok = expect_query_ok(
+        emqx_resource:simple_sync_query(
+            ResId,
+            {query, <<
+                "CREATE TABLE IF NOT EXISTS agent_skill_metrics ("
+                "device_id TEXT NOT NULL, metric TEXT NOT NULL, value INT NOT NULL)"
+            >>}
+        )
+    ),
+    ok = expect_query_ok(
+        emqx_resource:simple_sync_query(
+            ResId,
+            {query, <<"DELETE FROM agent_skill_metrics">>}
+        )
+    ),
+    ok = expect_query_ok(
+        emqx_resource:simple_sync_query(
+            ResId,
+            {query,
+                <<
+                    "INSERT INTO agent_skill_metrics(device_id, metric, value) VALUES "
+                    "($1, $2, $3), ($4, $5, $6), ($7, $8, $9)"
+                >>,
+                [
+                    <<"dev-42">>,
+                    <<"temperature">>,
+                    42,
+                    <<"dev-42">>,
+                    <<"humidity">>,
+                    55,
+                    <<"dev-99">>,
+                    <<"temperature">>,
+                    11
+                ]}
+        )
+    ),
     ok.
 
 expect_query_ok({ok, _, _}) ->
     ok;
 expect_query_ok({ok, _}) ->
     ok.
-
-wait_for_resource_connected(_ResId, 0) ->
-    ct:fail("postgresql skill resource did not become connected");
-wait_for_resource_connected(ResId, Attempts) ->
-    case emqx_resource:health_check(ResId) of
-        {ok, connected} ->
-            ok;
-        _ ->
-            timer:sleep(200),
-            wait_for_resource_connected(ResId, Attempts - 1)
-    end.
 
 test_context() ->
     test_context(#{}).
