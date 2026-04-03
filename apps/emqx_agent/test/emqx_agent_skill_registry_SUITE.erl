@@ -109,11 +109,11 @@ t_list_empty(_Config) ->
 
 t_skill_with_schemas(_Config) ->
     Skill = #{
-        skill_id => <<"clickhouse.history">>,
-        type => <<"clickhouse.history">>,
+        skill_id => <<"postgresql.query">>,
+        type => <<"postgresql.query">>,
         version => <<"1">>,
-        display_name => <<"ClickHouse Time-series History">>,
-        description => <<"Query historical telemetry for a device and metric.">>,
+        display_name => <<"PostgreSQL Query">>,
+        description => <<"Query PostgreSQL for historical telemetry.">>,
         context => {my_module, some_opaque_ref},
         input_schema => #{
             <<"type">> => <<"object">>,
@@ -135,7 +135,7 @@ t_skill_with_schemas(_Config) ->
     },
     ok = emqx_agent_skill_registry:register(Skill),
     {ok, Got} = emqx_agent_skill_registry:lookup(
-        <<"clickhouse.history">>, <<"clickhouse.history">>
+        <<"postgresql.query">>, <<"postgresql.query">>
     ),
     ?assertEqual(Skill, Got).
 

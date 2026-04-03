@@ -9,9 +9,9 @@
 # --------
 # When a telemetry anomaly arrives on evt/hvac/anomaly the pipeline:
 #   1. Deterministically fetches 60 min of history for the affected
-#      device + metric from ClickHouse.
+#      device + metric from PostgreSQL.
 #   2. Hands the event + history to a bounded LLM session (llm_loop).
-#      The model may issue further ClickHouse queries, then must:
+#      The model may issue further PostgreSQL queries, then must:
 #        • Create an incident in the incident tracker.
 #        • Post a summary to #facilities-alerts on Slack.
 #   3. Publishes the LLM analysis result to pipe/hvac/summary/<device_id>
@@ -19,7 +19,7 @@
 #
 # Skills registered
 # -----------------
-#   clickhouse.history  ch-hvac            — ClickHouse telemetry history
+#   postgresql.query    pg-hvac            — PostgreSQL telemetry history
 #   http                slack-facilities   — Slack #facilities-alerts webhook
 #   http                incident-tracker   — Incident tracker (stub)
 #   message.publish     hvac-summary       — Internal summary bus (pipe/hvac/summary)
@@ -65,14 +65,15 @@ section() { echo; echo "=== $* ==="; }
 
 section "Registering skills"
 
-# ── 1. ClickHouse: 60-minute telemetry history ──────────────────────────────
-echo "  • clickhouse.history  ch-hvac"
+# ── 1. PostgreSQL: 60-minute telemetry history ──────────────────────────────
+echo "  • postgresql.query    pg-hvac"
 post /agent/skills --data-binary @- <<'JSON'
 {
-  "type": "clickhouse.history",
-  "id":   "ch-hvac",
-  "desc": "Query recent telemetry history for an HVAC device and metric from ClickHouse. Returns time-bucketed avg/min/max/count rows.",
-  "query": "SELECT toStartOfInterval(ts, INTERVAL ${downsample_sec} SECOND) AS t, avg(value) AS avg, min(value) AS min, max(value) AS max, count() AS cnt FROM historical_telemetry WHERE site = ${site} AND device_id = ${device_id} AND metric = ${metric} AND ts >= now() - INTERVAL ${window_min} MINUTE GROUP BY t ORDER BY t ASC WITH TOTALS",
+  "type": "postgresql.query",
+  "id":   "pg-hvac",
+  "desc": "Query recent telemetry history for an HVAC device and metric from PostgreSQL. Returns time-bucketed avg/min/max/count rows.",
+  "query": "SELECT date_trunc('minute', ts) AS t, avg(value) AS avg, min(value) AS min, max(value) AS max, count(*) AS cnt FROM historical_telemetry WHERE site = $1 AND device_id = $2 AND metric = $3 AND ts >= now() - ($4 || ' minute')::interval GROUP BY t ORDER BY t ASC",
+  "arg_keys": ["site", "device_id", "metric", "window_min"],
   "input_schema": {
     "type": "object",
     "properties": {
@@ -231,7 +232,7 @@ post /agent/session_profiles --data-binary @- <<'JSON'
   "api_key":  "sk-YOUR-LLM-API-KEY",
   "base_url": "https://api.openai.com/v1",
   "model":    "gpt-4o",
-  "instructions": "You are an HVAC facility operations AI embedded in a live monitoring system.\n\nYou will receive:\n  • event   — the raw telemetry anomaly event (device, site, metric, observed value, expected value, severity)\n  • history — a table of recent 1-minute buckets for that metric on that device\n\nYour task:\n1. Analyse the anomaly and the historical trend. Identify whether this is a transient spike or a sustained deviation.\n2. If you need additional historical data (different metric, wider window, neighbouring device), call the ch-hvac tool before concluding.\n3. Determine severity on a 1–5 scale:\n   • 1 — Safety risk or equipment damage imminent (e.g. temp 10°C above setpoint for >15 min)\n   • 2 — High: sustained deviation >5°C or >20% outside normal band\n   • 3 — Medium: deviation 3–5°C or 10–20% outside band\n   • 4 — Low: transient or minor deviation\n   • 5 — Informational\n4. For severity 1–3, create an incident in the incident tracker with:\n   - A precise title referencing the asset, metric, and observed value\n   - A description that includes the trend summary and recommended first action\n   - The correct assigned_group (use 'facilities-{site}' unless you have better information)\n5. Post a concise summary to Slack channel 'facilities-alerts'. If an incident was created, include the incident ID and URL in the message.\n6. Return your final assessment as a structured object.\n\nBe concise and specific. Do not speculate beyond what the data shows.",
+  "instructions": "You are an HVAC facility operations AI embedded in a live monitoring system.\n\nYou will receive:\n  • event   — the raw telemetry anomaly event (device, site, metric, observed value, expected value, severity)\n  • history — a table of recent 1-minute buckets for that metric on that device\n\nYour task:\n1. Analyse the anomaly and the historical trend. Identify whether this is a transient spike or a sustained deviation.\n2. If you need additional historical data (different metric, wider window, neighbouring device), call the pg-hvac tool before concluding.\n3. Determine severity on a 1–5 scale:\n   • 1 — Safety risk or equipment damage imminent (e.g. temp 10°C above setpoint for >15 min)\n   • 2 — High: sustained deviation >5°C or >20% outside normal band\n   • 3 — Medium: deviation 3–5°C or 10–20% outside band\n   • 4 — Low: transient or minor deviation\n   • 5 — Informational\n4. For severity 1–3, create an incident in the incident tracker with:\n   - A precise title referencing the asset, metric, and observed value\n   - A description that includes the trend summary and recommended first action\n   - The correct assigned_group (use 'facilities-{site}' unless you have better information)\n5. Post a concise summary to Slack channel 'facilities-alerts'. If an incident was created, include the incident ID and URL in the message.\n6. Return your final assessment as a structured object.\n\nBe concise and specific. Do not speculate beyond what the data shows.",
   "output_schema": {
     "type": "object",
     "properties": {
@@ -264,13 +265,12 @@ post /agent/pipelines --data-binary @- <<'JSON'
     {
       "id":   "fetch_history",
       "type": "call_skill",
-      "skill": "clickhouse.history@ch-hvac",
+      "skill": "postgresql.query@pg-hvac",
       "args": {
         "site":           "$.event.entity.site",
         "device_id":      "$.event.entity.id",
         "metric":         "$.event.data.metric",
-        "window_min":     60,
-        "downsample_sec": 60
+        "window_min":     60
       },
       "result_path": "$.history"
     },
@@ -279,7 +279,7 @@ post /agent/pipelines --data-binary @- <<'JSON'
       "type":            "llm_loop",
       "session_profile": "hvac-triage-v1",
       "tools": [
-        "clickhouse.history@ch-hvac",
+        "postgresql.query@pg-hvac",
         "http@slack-facilities",
         "http@incident-tracker"
       ],

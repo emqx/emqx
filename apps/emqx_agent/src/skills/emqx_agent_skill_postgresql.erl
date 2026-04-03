@@ -1,0 +1,186 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+
+%% PostgreSQL query skill.
+%%
+%% Invoke topic:  cap/invoke/postgresql.query/<id>
+%% Reply topic:   cap/reply/<req_id>
+%%
+%% The module owns a single shared PostgreSQL resource with fixed configuration.
+%% Skill instances differ by SQL query template and schemas only.
+
+-module(emqx_agent_skill_postgresql).
+
+-include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
+
+-define(SKILL_TYPE, <<"postgresql.query">>).
+-define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
+-define(RESOURCE_ID, <<"emqx_agent_skill_postgresql_resource">>).
+-define(RESOURCE_GROUP, <<"emqx_agent">>).
+
+-export([init/0, deinit/0, create/1, destroy/1, to_map/1, resource_id/0]).
+-export([on_message_publish/1]).
+
+-spec resource_id() -> binary().
+resource_id() ->
+    ?RESOURCE_ID.
+
+-spec init() -> ok.
+init() ->
+    _ = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_LOWEST),
+    ok = ensure_resource(),
+    ok.
+
+-spec deinit() -> ok.
+deinit() ->
+    emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
+    ok = emqx_resource:remove_local(?RESOURCE_ID),
+    ok.
+
+-spec create(Context :: map()) -> ok | {error, term()}.
+create(
+    #{skill_id := SkillId, desc := Desc, query := _Query, input_schema := InSchema, output_schema := OutSchema} =
+        Context
+) ->
+    ok = ensure_resource(),
+    Skill = #{
+        skill_id => SkillId,
+        type => ?SKILL_TYPE,
+        display_name => <<"PostgreSQL Query">>,
+        description => Desc,
+        context => Context,
+        input_schema => InSchema,
+        output_schema => OutSchema
+    },
+    emqx_agent_skill_registry:register(Skill).
+
+-spec destroy(emqx_agent_skill_registry:skill_id()) -> ok.
+destroy(SkillId) ->
+    emqx_agent_skill_registry:unregister(?SKILL_TYPE, SkillId).
+
+-spec to_map(map()) -> map().
+to_map(#{skill_id := Id, description := Desc, context := Ctx, input_schema := In, output_schema := Out}) ->
+    #{
+        <<"skill_id">> => Id,
+        <<"type">> => ?SKILL_TYPE,
+        <<"description">> => Desc,
+        <<"query">> => maps:get(query, Ctx, <<>>),
+        <<"arg_keys">> => maps:get(arg_keys, Ctx, []),
+        <<"input_schema">> => In,
+        <<"output_schema">> => Out
+    }.
+
+on_message_publish(
+    #message{topic = <<"cap/invoke/postgresql.query/", SkillId/binary>>, payload = Payload} = Message
+) ->
+    handle_invoke(SkillId, Payload),
+    {ok, Message};
+on_message_publish(Message) ->
+    {ok, Message}.
+
+handle_invoke(SkillId, Payload) ->
+    case emqx_agent_skill_registry:lookup(?SKILL_TYPE, SkillId) of
+        {error, not_found} ->
+            ok;
+        {ok, #{context := Context}} ->
+            Request = emqx_utils_json:decode(Payload),
+            do_reply(SkillId, Context, Request)
+    end.
+
+do_reply(SkillId, Context, Request) ->
+    Args = maps:get(<<"args">>, Request, #{}),
+    Query = maps:get(query, Context, <<>>),
+    ArgKeys = maps:get(arg_keys, Context, []),
+    Params = [maps:get(K, Args, null) || K <- ArgKeys],
+    Data =
+        case run_query(Query, Params) of
+            {ok, Rows} ->
+                #{<<"status">> => <<"ok">>, <<"rows">> => Rows};
+            {error, Reason} ->
+                #{
+                    <<"status">> => <<"error">>,
+                    <<"reason">> => iolist_to_binary(io_lib:format("~0p", [Reason]))
+                }
+        end,
+    ReqId = maps:get(<<"req_id">>, Request),
+    Reply = emqx_agent_skill_helpers:correlation(Request, #{
+        <<"skill">> => #{<<"type">> => ?SKILL_TYPE, <<"id">> => SkillId},
+        <<"frame">> => <<"unary">>,
+        <<"data">> => Data
+    }),
+    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    Msg = emqx_message:make(SkillId, ?QOS_0, ReplyTopic, emqx_utils_json:encode(Reply)),
+    _ = emqx_broker:publish(Msg),
+    ok.
+
+run_query(Query, []) ->
+    ok = ensure_resource(),
+    case emqx_resource:simple_sync_query(?RESOURCE_ID, {query, Query}) of
+        {ok, Cols, Rows} -> {ok, rows_to_maps(Cols, Rows)};
+        Error -> Error
+    end;
+run_query(Query, Params) ->
+    ok = ensure_resource(),
+    case emqx_resource:simple_sync_query(?RESOURCE_ID, {query, Query, Params}) of
+        {ok, Cols, Rows} -> {ok, rows_to_maps(Cols, Rows)};
+        Error -> Error
+    end.
+
+ensure_resource() ->
+    case emqx_resource:create_local(
+        ?RESOURCE_ID,
+        ?RESOURCE_GROUP,
+        emqx_agent_skill_postgresql_connector,
+        pgsql_config(),
+        #{
+            health_check_interval => 1000,
+            start_timeout => 5000,
+            start_after_created => true
+        }
+    ) of
+        {ok, _} -> ok;
+        {error, {already_exists, _}} -> ok;
+        {error, {resource_id_already_exist, _}} -> ok;
+        {error, {bad_resource_config, #{reason := already_exists}}} -> ok;
+        {error, Reason} -> {error, Reason}
+    end.
+
+rows_to_maps(Cols, Rows) ->
+    Names = [column_name(C) || C <- Cols],
+    [maps:from_list(lists:zip(Names, [normalize_value(V) || V <- tuple_to_list(Row)])) || Row <- Rows].
+
+column_name(#{name := Name}) ->
+    to_binary(Name);
+column_name({column, _TOid, _TAttr, Name, _Type, _Size, _Mod, _Fmt}) ->
+    to_binary(Name);
+column_name({column, Name, _Type, _Oid, _Size, _Mod, _Fmt, _TableOid, _AttrNum}) ->
+    to_binary(Name);
+column_name(Other) ->
+    iolist_to_binary(io_lib:format("~0p", [Other])).
+
+normalize_value(V) when is_binary(V) -> V;
+normalize_value(V) when is_integer(V) -> V;
+normalize_value(V) when is_float(V) -> V;
+normalize_value(V) when is_boolean(V) -> V;
+normalize_value(null) -> null;
+normalize_value(V) when is_list(V) -> unicode:characters_to_binary(V);
+normalize_value(V) -> iolist_to_binary(io_lib:format("~0p", [V])).
+
+to_binary(V) when is_binary(V) -> V;
+to_binary(V) when is_list(V) -> unicode:characters_to_binary(V);
+to_binary(V) when is_atom(V) -> atom_to_binary(V, utf8).
+
+pgsql_config() ->
+    #{
+        auto_reconnect => true,
+        connect_timeout => 5000,
+        database => <<"mqtt">>,
+        username => <<"root">>,
+        password => <<"public">>,
+        pool_size => 1,
+        server => <<"pgsql">>,
+        ssl => #{enable => false}
+    }.

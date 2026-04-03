@@ -16,10 +16,10 @@
 %%   message.publish  — MQTT publish capability scoped to a topic prefix
 %%   http             — HTTP call capability
 %%   kv               — Key-value store (creates kv.lookup + optionally kv.put)
-%%   clickhouse.history — ClickHouse time-series query
+%%   postgresql.query — PostgreSQL query
 %%
 %% For GET/DELETE, use the actual registry type in the :type URL segment
-%% (kv.lookup, kv.put, message.publish, http, clickhouse.history).
+%% (kv.lookup, kv.put, message.publish, http, postgresql.query).
 %% Deleting a kv.lookup or kv.put entry removes both variants.
 
 -module(emqx_agent_api).
@@ -338,7 +338,7 @@ schema("/agent/pipelines/:id") ->
             );
         {error, unknown_type} ->
             ?BAD_REQUEST(
-                <<"Unknown skill type. Valid types: message.publish, http, kv, clickhouse.history">>
+                <<"Unknown skill type. Valid types: message.publish, http, kv, postgresql.query">>
             );
         {error, Reason} ->
             ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
@@ -481,8 +481,8 @@ skill_schema_for_type(<<"kv.lookup">>) ->
     hoconsc:ref(emqx_agent_schema, skill_kv_lookup_create);
 skill_schema_for_type(<<"kv.put">>) ->
     hoconsc:ref(emqx_agent_schema, skill_kv_put_create);
-skill_schema_for_type(<<"clickhouse.history">>) ->
-    hoconsc:ref(emqx_agent_schema, skill_clickhouse_create);
+skill_schema_for_type(<<"postgresql.query">>) ->
+    hoconsc:ref(emqx_agent_schema, skill_postgresql_create);
 skill_schema_for_type(_) ->
     unknown.
 
@@ -505,7 +505,7 @@ do_destroy_skill(<<"message.publish">>, Id) -> emqx_agent_skill_publish:destroy(
 do_destroy_skill(<<"http">>, Id) -> emqx_agent_skill_http:destroy(Id);
 do_destroy_skill(<<"kv.lookup">>, Id) -> emqx_agent_skill_kv:destroy_lookup(Id);
 do_destroy_skill(<<"kv.put">>, Id) -> emqx_agent_skill_kv:destroy_put(Id);
-do_destroy_skill(<<"clickhouse.history">>, Id) -> emqx_agent_skill_clickhouse:destroy(Id).
+do_destroy_skill(<<"postgresql.query">>, Id) -> emqx_agent_skill_postgresql:destroy(Id).
 
 %%--------------------------------------------------------------------
 %% Internal — Response helpers
@@ -519,14 +519,14 @@ skill_module(<<"http">>) -> emqx_agent_skill_http;
 skill_module(<<"message.publish">>) -> emqx_agent_skill_publish;
 skill_module(<<"kv.lookup">>) -> emqx_agent_skill_kv;
 skill_module(<<"kv.put">>) -> emqx_agent_skill_kv;
-skill_module(<<"clickhouse.history">>) -> emqx_agent_skill_clickhouse.
+skill_module(<<"postgresql.query">>) -> emqx_agent_skill_postgresql.
 
 %% Used by do_create_skill — kv.lookup and kv.put are independent first-class types.
 skill_module_for_type(<<"http">>) -> emqx_agent_skill_http;
 skill_module_for_type(<<"message.publish">>) -> emqx_agent_skill_publish;
 skill_module_for_type(<<"kv.lookup">>) -> emqx_agent_skill_kv;
 skill_module_for_type(<<"kv.put">>) -> emqx_agent_skill_kv;
-skill_module_for_type(<<"clickhouse.history">>) -> emqx_agent_skill_clickhouse;
+skill_module_for_type(<<"postgresql.query">>) -> emqx_agent_skill_postgresql;
 skill_module_for_type(_) -> unknown.
 
 field_to_str(F) when is_binary(F) -> F;
@@ -636,7 +636,7 @@ pipeline_example() ->
                 <<"type">> => <<"llm_loop">>,
                 <<"session_profile">> => <<"hvac_triage_v1">>,
                 <<"tools">> => [
-                    <<"clickhouse.history@ch-default">>,
+                    <<"postgresql.query@pg-default">>,
                     <<"servicenow.create_incident@sn-prod">>
                 ],
                 <<"input">> => #{<<"event">> => <<"$.event">>},

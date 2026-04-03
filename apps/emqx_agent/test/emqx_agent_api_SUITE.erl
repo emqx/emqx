@@ -148,28 +148,29 @@ t_skill_kv_crud(Config) ->
     ?assertMatch({ok, 204}, api_delete([agent, skills, <<"kv.put">>, Id])),
     ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"kv.put">>, Id])).
 
-t_skill_clickhouse_crud(Config) ->
+t_skill_postgresql_crud(Config) ->
     Id = ?config(tc_id, Config),
 
     ?assertMatch(
         {ok, 201, _},
         api_post([agent, skills], #{
-            <<"type">> => <<"clickhouse.history">>,
+            <<"type">> => <<"postgresql.query">>,
             <<"id">> => Id,
-            <<"desc">> => <<"test clickhouse skill">>,
+            <<"desc">> => <<"test postgresql skill">>,
             <<"query">> => <<"SELECT 1">>,
+            <<"arg_keys">> => [],
             <<"input_schema">> => #{<<"type">> => <<"object">>},
             <<"output_schema">> => #{<<"type">> => <<"object">>}
         })
     ),
 
     ?assertMatch(
-        {ok, 200, #{<<"skill_id">> := _, <<"type">> := <<"clickhouse.history">>}},
-        api_get([agent, skills, <<"clickhouse.history">>, Id])
+        {ok, 200, #{<<"skill_id">> := _, <<"type">> := <<"postgresql.query">>}},
+        api_get([agent, skills, <<"postgresql.query">>, Id])
     ),
 
-    ?assertMatch({ok, 204}, api_delete([agent, skills, <<"clickhouse.history">>, Id])),
-    ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"clickhouse.history">>, Id])).
+    ?assertMatch({ok, 204}, api_delete([agent, skills, <<"postgresql.query">>, Id])),
+    ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"postgresql.query">>, Id])).
 
 %%--------------------------------------------------------------------
 %% Skills — list and validation

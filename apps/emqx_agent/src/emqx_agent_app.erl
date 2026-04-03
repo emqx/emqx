@@ -10,7 +10,7 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_agent_sup:start_link(),
-    ok = emqx_agent_skill_clickhouse:init(),
+    ok = emqx_agent_skill_postgresql:init(),
     ok = emqx_agent_skill_kv:init(),
     ok = emqx_agent_skill_http:init(),
     ok = emqx_agent_skill_publish:init(),
@@ -19,7 +19,7 @@ start(_StartType, _StartArgs) ->
     {ok, Sup}.
 
 stop(_State) ->
-    ok = emqx_agent_skill_clickhouse:deinit(),
+    ok = emqx_agent_skill_postgresql:deinit(),
     ok = emqx_agent_skill_kv:deinit(),
     ok = emqx_agent_skill_http:deinit(),
     ok = emqx_agent_skill_publish:deinit(),

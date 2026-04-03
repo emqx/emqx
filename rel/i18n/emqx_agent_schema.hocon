@@ -22,9 +22,9 @@ emqx_agent_schema {
         label: "KV Skill"
     }
 
-    skill_clickhouse_create {
-        desc: "Parameters for registering a ClickHouse history query skill."
-        label: "ClickHouse Skill"
+    skill_postgresql_create {
+        desc: "Parameters for registering a PostgreSQL query skill."
+        label: "PostgreSQL Skill"
     }
 
     session_profile {
@@ -50,7 +50,7 @@ emqx_agent_schema {
     }
 
     skill_entry_type {
-        desc: "Skill type identifier (e.g. message.publish, http, kv.lookup, clickhouse.history)."
+        desc: "Skill type identifier (e.g. message.publish, http, kv.lookup, postgresql.query)."
         label: "Skill Type"
     }
 
@@ -153,14 +153,21 @@ Registering a kv skill always creates a kv.lookup entry; a kv.put entry is also 
         label: "Allow Put"
     }
 
-    ## ── skill_clickhouse_create ───────────────────────────────────────────────
+    ## ── skill_postgresql_create ───────────────────────────────────────────────
 
-    skill_ch_query.desc:
-"""ClickHouse SQL query template.
-Use ${variable} placeholders for input arguments defined in input_schema."""
+    skill_pg_query.desc:
+"""PostgreSQL SQL query template.
+Use $1, $2, ... placeholders and map arguments with arg_keys."""
 
-    skill_ch_query.label:
+    skill_pg_query.label:
 """Query Template"""
+
+    skill_pg_arg_keys.desc:
+"""Ordered argument key list for SQL placeholders.
+Example: [\"device_id\", \"metric\"] maps args.device_id -> $1 and args.metric -> $2."""
+
+    skill_pg_arg_keys.label:
+"""Argument Keys"""
 
     ## ── session_profile fields ───────────────────────────────────────────────
 

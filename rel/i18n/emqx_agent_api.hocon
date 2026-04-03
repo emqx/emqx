@@ -15,7 +15,7 @@ emqx_agent_api {
     }
 
     skills_create {
-        desc: "Register a new skill instance. The `type` field selects the implementation: message.publish | http | kv | clickhouse.history."
+        desc: "Register a new skill instance. The `type` field selects the implementation: message.publish | http | kv | postgresql.query."
         label: "Create Skill"
     }
 
@@ -68,7 +68,7 @@ emqx_agent_api {
     ## Path parameter descriptions
 
     param_skill_type {
-        desc: "Registry skill type: message.publish | http | kv.lookup | kv.put | clickhouse.history."
+        desc: "Registry skill type: message.publish | http | kv.lookup | kv.put | postgresql.query."
         label: "Skill Type"
     }
 

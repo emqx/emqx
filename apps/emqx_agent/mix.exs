@@ -24,6 +24,9 @@ defmodule EMQXAgent.MixProject do
   def deps do
     UMP.deps([
       {:emqx, in_umbrella: true},
+      {:emqx_connector, in_umbrella: true},
+      {:emqx_resource, in_umbrella: true},
+      :epgsql,
       :minirest
     ])
   end

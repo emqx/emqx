@@ -5,7 +5,7 @@
 %% Hocon schema module for emqx_agent REST API.
 %%
 %% Defines three resource families:
-%%   Skills         — cap-layer skill instances (message.publish, http, kv, clickhouse.history)
+%%   Skills         — cap-layer skill instances (message.publish, http, kv, postgresql.query)
 %%   Session Profiles — LLM connection settings reusable across llm_loop steps
 %%   Pipelines       — event-driven orchestration definitions
 
@@ -187,10 +187,10 @@ fields(skill_kv_put_create) ->
                 desc => ?DESC(skill_kv_data_schema)
             })}
     ];
-fields(skill_clickhouse_create) ->
+fields(skill_postgresql_create) ->
     [
         {type,
-            mk(enum(['clickhouse.history']), #{
+            mk(enum(['postgresql.query']), #{
                 required => true,
                 desc => ?DESC(skill_type_discriminator)
             })},
@@ -207,7 +207,13 @@ fields(skill_clickhouse_create) ->
         {query,
             mk(binary(), #{
                 required => true,
-                desc => ?DESC(skill_ch_query)
+                desc => ?DESC(skill_pg_query)
+            })},
+        {arg_keys,
+            mk(hoconsc:array(binary()), #{
+                required => false,
+                default => [],
+                desc => ?DESC(skill_pg_arg_keys)
             })},
         {input_schema,
             mk(map(), #{
@@ -302,7 +308,7 @@ desc(skill_publish_create) -> ?DESC(skill_publish_create);
 desc(skill_http_create) -> ?DESC(skill_http_create);
 desc(skill_kv_lookup_create) -> ?DESC(skill_kv_create);
 desc(skill_kv_put_create) -> ?DESC(skill_kv_create);
-desc(skill_clickhouse_create) -> ?DESC(skill_clickhouse_create);
+desc(skill_postgresql_create) -> ?DESC(skill_postgresql_create);
 desc(session_profile) -> ?DESC(session_profile);
 desc(pipeline) -> ?DESC(pipeline);
 desc(pipeline_trigger) -> ?DESC(pipeline_trigger);
@@ -323,7 +329,7 @@ skill_create_type() ->
         ref(skill_http_create),
         ref(skill_kv_lookup_create),
         ref(skill_kv_put_create),
-        ref(skill_clickhouse_create)
+        ref(skill_postgresql_create)
     ]).
 
 -spec session_profile_type() -> hocon_schema:schema().

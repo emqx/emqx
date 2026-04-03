@@ -248,7 +248,7 @@
               <option value="message.publish">message.publish</option>
               <option value="http">http</option>
               <option value="kv">kv</option>
-              <option value="clickhouse.history">clickhouse.history</option>
+              <option value="postgresql.query">postgresql.query</option>
             </select>
           </div>
           <div class="field">
@@ -314,11 +314,15 @@
           </div>
         </div>
 
-        <!-- clickhouse fields -->
+        <!-- postgresql fields -->
         <div id="f-ch" style="display:none">
           <div class="field">
             <label>SQL query template</label>
-            <textarea id="skill-query" placeholder="SELECT * FROM metrics WHERE device_id = ${device_id}"></textarea>
+            <textarea id="skill-query" placeholder="SELECT metric, value FROM agent_skill_metrics WHERE device_id = $1"></textarea>
+          </div>
+          <div class="field">
+            <label>Argument keys <small style="color:var(--muted)">ordered list for $1, $2, ...</small></label>
+            <input id="skill-arg-keys" type="text" placeholder="device_id, metric">
           </div>
           <div class="row">
             <div class="field">
@@ -532,7 +536,7 @@ function updateSkillForm() {
   document.getElementById('f-publish').style.display = type === 'message.publish' ? '' : 'none';
   document.getElementById('f-http').style.display    = type === 'http'             ? '' : 'none';
   document.getElementById('f-kv').style.display      = type === 'kv'               ? '' : 'none';
-  document.getElementById('f-ch').style.display      = type === 'clickhouse.history' ? '' : 'none';
+  document.getElementById('f-ch').style.display      = type === 'postgresql.query' ? '' : 'none';
 }
 
 // ── Skills ───────────────────────────────────────────────────────────────────
@@ -573,8 +577,12 @@ function collectSkillBody() {
   } else if (type === 'kv') {
     body.data_schema = JSON.parse(document.getElementById('skill-data-schema').value || '{}');
     body.allow_put   = document.getElementById('skill-allow-put').value === 'true';
-  } else if (type === 'clickhouse.history') {
+  } else if (type === 'postgresql.query') {
     body.query         = document.getElementById('skill-query').value.trim();
+    body.arg_keys      = document.getElementById('skill-arg-keys').value
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
     body.input_schema  = JSON.parse(document.getElementById('skill-ch-input').value || '{}');
     body.output_schema = JSON.parse(document.getElementById('skill-ch-output').value || '{}');
   }
@@ -627,8 +635,9 @@ function editSkill(type, id) {
   } else if (type === 'kv') {
     document.getElementById('skill-data-schema').value = skill.data_schema ? JSON.stringify(skill.data_schema, null, 2) : '';
     document.getElementById('skill-allow-put').value = skill.allow_put ? 'true' : 'false';
-  } else if (type === 'clickhouse.history') {
+  } else if (type === 'postgresql.query') {
     document.getElementById('skill-query').value = skill.query ?? '';
+    document.getElementById('skill-arg-keys').value = (skill.arg_keys ?? []).join(', ');
     document.getElementById('skill-ch-input').value = skill.input_schema ? JSON.stringify(skill.input_schema, null, 2) : '';
     document.getElementById('skill-ch-output').value = skill.output_schema ? JSON.stringify(skill.output_schema, null, 2) : '';
   }
@@ -653,6 +662,7 @@ function resetSkillEditor() {
   document.getElementById('skill-output-schema').value = '';
   document.getElementById('skill-data-schema').value = '';
   document.getElementById('skill-query').value = '';
+  document.getElementById('skill-arg-keys').value = '';
   document.getElementById('skill-ch-input').value = '';
   document.getElementById('skill-ch-output').value = '';
   updateSkillForm();
@@ -1123,7 +1133,7 @@ function typeClass(t) {
   if (t === 'message.publish') return 'publish';
   if (t === 'http')             return 'http';
   if (t?.startsWith('kv'))      return 'kv';
-  if (t?.startsWith('clickhouse')) return 'ch';
+  if (t?.startsWith('postgresql')) return 'ch';
   return '';
 }
 
