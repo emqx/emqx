@@ -546,13 +546,17 @@ parse_info(
                 <<"MaxAlarmLevel">> => MaxAlarmLevel,
                 <<"GeneralAlarmFlag">> => GeneralAlarmFlag,
                 <<"FaultChargeableDeviceNum">> => FaultChargeableDeviceNum,
-                <<"FaultChargeableDeviceList">> => tune_fault_codelist(FaultChargeableDeviceList),
+                <<"FaultChargeableDeviceList">> => tune_fault_codelist(
+                    FaultChargeableDeviceList, ?PROTO_VER_2016
+                ),
                 <<"FaultDriveMotorNum">> => FaultDriveMotorNum,
-                <<"FaultDriveMotorList">> => tune_fault_codelist(FaultDriveMotorList),
+                <<"FaultDriveMotorList">> => tune_fault_codelist(
+                    FaultDriveMotorList, ?PROTO_VER_2016
+                ),
                 <<"FaultEngineNum">> => FaultEngineNum,
-                <<"FaultEngineList">> => tune_fault_codelist(FaultEngineList),
+                <<"FaultEngineList">> => tune_fault_codelist(FaultEngineList, ?PROTO_VER_2016),
                 <<"FaultOthersNum">> => FaultOthersNum,
-                <<"FaultOthersList">> => tune_fault_codelist(FaultOthersList)
+                <<"FaultOthersList">> => tune_fault_codelist(FaultOthersList, ?PROTO_VER_2016)
             }
             | Acc
         ],
@@ -735,13 +739,17 @@ parse_info(
                 <<"MaxAlarmLevel">> => MaxAlarmLevel,
                 <<"GeneralAlarmFlag">> => GeneralAlarmFlag,
                 <<"FaultChargeableDeviceNum">> => FaultChargeableDeviceNum,
-                <<"FaultChargeableDeviceList">> => tune_fault_codelist(FaultChargeableDeviceList),
+                <<"FaultChargeableDeviceList">> => tune_fault_codelist(
+                    FaultChargeableDeviceList, ?PROTO_VER_2025
+                ),
                 <<"FaultDriveMotorNum">> => FaultDriveMotorNum,
-                <<"FaultDriveMotorList">> => tune_fault_codelist(FaultDriveMotorList),
+                <<"FaultDriveMotorList">> => tune_fault_codelist(
+                    FaultDriveMotorList, ?PROTO_VER_2025
+                ),
                 <<"FaultEngineNum">> => FaultEngineNum,
-                <<"FaultEngineList">> => tune_fault_codelist(FaultEngineList),
+                <<"FaultEngineList">> => tune_fault_codelist(FaultEngineList, ?PROTO_VER_2025),
                 <<"FaultOthersNum">> => FaultOthersNum,
-                <<"FaultOthersList">> => tune_fault_codelist(FaultOthersList),
+                <<"FaultOthersList">> => tune_fault_codelist(FaultOthersList, ?PROTO_VER_2025),
                 <<"FaultGeneralNum">> => FaultGeneralNum,
                 <<"FaultGeneralList">> => tune_fault_level(FaultGeneralLevelList)
             }
@@ -1065,9 +1073,11 @@ parse_signature(
         Rest
     }.
 
-tune_fault_codelist(<<>>) ->
+tune_fault_codelist(<<>>, _Ver) ->
     [];
-tune_fault_codelist(Data) ->
+tune_fault_codelist(Data, ?PROTO_VER_2025) ->
+    lists:flatten([list_to_binary(io_lib:format("~8.16.0B", [X])) || <<X:?DWORD>> <= Data]);
+tune_fault_codelist(Data, _Ver) ->
     lists:flatten([list_to_binary(io_lib:format("~4.16.0B", [X])) || <<X:?DWORD>> <= Data]).
 
 tune_fault_level(<<>>) ->
