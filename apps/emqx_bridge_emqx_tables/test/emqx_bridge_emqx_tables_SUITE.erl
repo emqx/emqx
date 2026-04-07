@@ -122,7 +122,10 @@ init_per_testcase(TestCase, TCConfig) ->
     }),
     ok = start_ehttpc_pool(TCConfig),
     drop_table(TCConfig),
-    {ok, _} = create_simple_table(<<"mqtt">>, TCConfig),
+    case get_tc_prop(TestCase, skip_create_table, false) of
+        true -> ok;
+        false -> {ok, _} = create_simple_table(<<"mqtt">>, TCConfig)
+    end,
     snabbkaffe:start_trace(),
     [
         {bridge_kind, action},
@@ -640,5 +643,63 @@ t_inconsistent_ssl_validation(TCConfig) when is_list(TCConfig) ->
                 <<"enable">> => true
             }
         })
+    ),
+    ok.
+
+-doc """
+Smoke test for using `ts_column` -- verifies that a custom timestamp column name is
+respected when auto-creating tables via the Rust NIF driver.
+""".
+t_ts_column() ->
+    [{matrix, true}, {skip_create_table, true}].
+t_ts_column(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_ts_column(TCConfig) when is_list(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"ts_column">> => <<"event_time">>
+    }),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    C = start_client(#{clientid => ClientId}),
+    emqtt:publish(C, Topic, <<"hey">>),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            #{<<"event_time">> := _},
+            query_by_clientid(ClientId, TCConfig)
+        )
+    ),
+    ok.
+
+-doc """
+Smoke test for using `ttl` -- verifies that the TTL create option is applied
+to auto-created tables via the Rust NIF driver.
+""".
+t_start_ok_ttl() ->
+    [{matrix, true}, {skip_create_table, true}].
+t_start_ok_ttl(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_start_ok_ttl(TCConfig) when is_list(TCConfig) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(#{clientid => ClientId}),
+    emqtt:publish(C, Topic, <<"hey">>),
+    ?retry(
+        200,
+        10,
+        begin
+            SQL =
+                <<
+                    "SELECT create_options FROM information_schema.tables "
+                    "WHERE table_name='mqtt'"
+                >>,
+            TableOpts = query_by_sql(SQL, TCConfig),
+            ?assertMatch(#{<<"create_options">> := _}, TableOpts),
+            ?assertEqual(<<"ttl=3years">>, maps:get(<<"create_options">>, TableOpts))
+        end
     ),
     ok.
