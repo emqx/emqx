@@ -58,7 +58,12 @@ fields(recommend_setting) ->
                 desc => ?DESC(collectors)
             })},
         {latency_buckets,
-            emqx_schema:latency_histogram_buckets_sc(#{desc => ?DESC(latency_buckets)})}
+            emqx_schema:latency_histogram_buckets_sc(#{desc => ?DESC(latency_buckets)})},
+        {mria_lag_refresh_interval,
+            ?HOCON(emqx_schema:timeout_duration_ms(), #{
+                default => <<"10s">>,
+                importance => ?IMPORTANCE_HIDDEN
+            })}
     ];
 fields(push_gateway) ->
     [
