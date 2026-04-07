@@ -12,10 +12,11 @@
 -include_lib("emqx/include/emqx.hrl").
 
 -define(PIPE_EVENTS_FILTER, <<"pipe/+/inst/+/events">>).
--define(CMD_FILTER, <<"demo-storage/cmd/+">>).
+-define(CMD_FILTER, <<"demo-storage/cmd/#">>).
 -define(SHORT_TIMEOUT, 8_000).
 -define(FIREWORKS_BASE_URL, <<"https://api.fireworks.ai/inference/v1">>).
--define(DEFAULT_MODEL, <<"accounts/fireworks/models/kimi-k2p5">>).
+-define(DEFAULT_MODEL, <<"accounts/fireworks/models/deepseek-v3p2">>).
+-define(REALM_TAB, emqx_agent_demo_storage_realm).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -36,6 +37,7 @@ init_per_testcase(TestCase, Config) ->
     Id = atom_to_binary(TestCase, utf8),
     ok = ensure_tables(),
     ok = truncate_tables(),
+    init_realm_state(),
     emqx:subscribe(?PIPE_EVENTS_FILTER),
     emqx:subscribe(?CMD_FILTER),
     [{tc_id, Id} | Config].
@@ -43,6 +45,7 @@ init_per_testcase(TestCase, Config) ->
 end_per_testcase(_TestCase, _Config) ->
     emqx_agent_pipeline_registry:delete_all(),
     emqx_agent_skill_registry:delete_all(),
+    _ = catch ets:delete(?REALM_TAB),
     emqx:unsubscribe(?PIPE_EVENTS_FILTER),
     emqx:unsubscribe(?CMD_FILTER),
     ok.
@@ -180,6 +183,8 @@ t_full_path_two_t_devices_packed(Config) ->
 
     Device1 = <<Id/binary, "-d1">>,
     Device2 = <<Id/binary, "-d2">>,
+    register_storage_skills(Device1),
+    register_storage_skills(Device2),
     ok = insert_device(Device1, <<"T">>, <<"free">>),
     ok = insert_device(Device2, <<"T">>, <<"free">>),
 
@@ -217,6 +222,7 @@ register_device_pipelines(Config, DeviceId, CmdSkill) ->
 
 run_device_start(DeviceId, Shape, StartX, StartY) ->
     Topic = <<"evt/demo-storage/tele/", DeviceId/binary>>,
+    CorePipelineId = <<"demo_storage_core_", DeviceId/binary>>,
     Device0 = #{
         id => DeviceId,
         shape => Shape,
@@ -225,26 +231,70 @@ run_device_start(DeviceId, Shape, StartX, StartY) ->
         y => StartY,
         parked => false
     },
+    realm_put_device(Device0),
     emit_telemetry_with_print(Device0, Topic, <<"spawn">>),
-    run_device_until_parked(Device0, Topic, [], 0).
+    run_device_until_parked(Device0, Topic, CorePipelineId, [], 0).
 
-run_device_until_parked(Device, _Topic, _Cmds, N) when N > 60 ->
+run_device_until_parked(Device, _Topic, _CorePipelineId, _Cmds, N) when N > 60 ->
     ct:fail("device did not park in 60 steps: ~p", [maps:get(id, Device)]);
-run_device_until_parked(#{id := DeviceId, parked := true} = Device, _Topic, Cmds, _N) ->
+run_device_until_parked(#{id := DeviceId, parked := true} = Device, _Topic, _CorePipelineId, Cmds, _N) ->
     ok = wait_until(fun() -> fetch_device_status(DeviceId) =:= <<"parked">> end, 30_000),
     ok = wait_until(fun() -> length(fetch_occupied_boxes(DeviceId)) =:= 4 end, 30_000),
     {lists:reverse(Cmds), Device};
-run_device_until_parked(#{id := DeviceId} = Device, Topic, Cmds, N) ->
-    Cmd = recv_command(DeviceId),
-    Occupied = fetch_all_occupied_boxes(),
+run_device_until_parked(#{id := DeviceId} = Device, Topic, CorePipelineId, Cmds, N) ->
+    Cmd =
+        case recv_command_or_timeout(DeviceId, 90_000) of
+            timeout ->
+                case recv_pipeline_completed_or_timeout(CorePipelineId, 90_000) of
+                    timeout ->
+                        Events = collect_pipe_events(12),
+                        ct:fail("no command and no pipeline_completed; seen_pipe_events=~p", [Events]);
+                    Completed ->
+                        Ctx = maps:get(<<"context">>, Completed, #{}),
+                        Core = maps:get(<<"core_decision">>, Ctx, #{}),
+                        ct:print("llm core_decision for ~ts: ~p", [DeviceId, Core]),
+                        Events = collect_pipe_events(20),
+                        ct:fail("no tool call from llm; core_decision=~p pipe_events=~p", [Core, Events])
+                end;
+            Cmd0 ->
+                log_pipe_events(CorePipelineId, 12),
+                Cmd0
+        end,
+    case Cmd of
+        _ ->
+            Commands = normalize_commands(Cmd),
+            {Device2, FlatCmds} = execute_commands_until_stop(Device, Commands, Topic),
+            run_device_until_parked(Device2, Topic, CorePipelineId, FlatCmds ++ Cmds, N + 1)
+    end.
+
+normalize_commands(#{<<"commands">> := Cmds}) when is_list(Cmds) ->
+    Cmds;
+normalize_commands(Cmd) when is_map(Cmd) ->
+    [Cmd].
+
+execute_commands_until_stop(Device, [], _Topic) ->
+    {Device, []};
+execute_commands_until_stop(Device, [Cmd | Rest], Topic) ->
+    Occupied = realm_get_parked_boxes(),
     {Device2, Reason} = apply_command(Device, Cmd, Occupied),
+    realm_put_device(Device2),
     emit_telemetry_with_print(Device2, Topic, Reason),
-    run_device_until_parked(Device2, Topic, [Cmd | Cmds], N + 1).
+    case Reason of
+        <<"blocked">> -> {Device2, [Cmd]};
+        <<"blocked_rotate">> -> {Device2, [Cmd]};
+        <<"ignored_move_parked">> -> {Device2, [Cmd]};
+        <<"park">> -> {Device2, [Cmd]};
+        _ ->
+            {Device3, TailCmds} = execute_commands_until_stop(Device2, Rest, Topic),
+            {Device3, [Cmd | TailCmds]}
+    end.
 
 apply_command(#{parked := true} = Device, _Cmd, _Occupied) ->
     {Device, <<"ignored_move_parked">>};
 apply_command(Device, #{<<"command">> := <<"park">>}, _Occupied) ->
-    {Device#{parked => true}, <<"park">>};
+    Device1 = Device#{parked => true},
+    realm_add_parked_boxes(device_boxes(Device1)),
+    {Device1, <<"park">>};
 apply_command(Device, #{<<"command">> := <<"rotate">>}, Occupied) ->
     Rotated = normalize_cells([#{x => -maps:get(y, C), y => maps:get(x, C)} || C <- maps:get(cells, Device)]),
     case fits_boxes(device_boxes(Device#{cells => Rotated}), Occupied) of
@@ -287,7 +337,7 @@ emit_telemetry_with_print(Device, Topic, Reason) ->
     publish_evt(Topic, Event).
 
 print_field(DeviceId, Reason, ActiveDevices) ->
-    Parked = fetch_all_occupied_boxes(),
+    Parked = realm_get_parked_boxes(),
     Active = lists:append([device_boxes(D) || D <- ActiveDevices, maps:get(parked, D) =:= false]),
     ActiveSet = maps:from_list([{{maps:get(<<"x">>, B), maps:get(<<"y">>, B)}, true} || B <- Active]),
     ParkedSet = maps:from_list([{{maps:get(<<"x">>, B), maps:get(<<"y">>, B)}, true} || B <- Parked]),
@@ -322,6 +372,30 @@ fits_boxes(Boxes, Occupied) ->
         Boxes
     ).
 
+init_realm_state() ->
+    _ = catch ets:delete(?REALM_TAB),
+    _ = ets:new(?REALM_TAB, [set, public, named_table]),
+    ets:insert(?REALM_TAB, {parked_boxes, []}),
+    ok.
+
+realm_put_device(Device = #{id := Id}) ->
+    ets:insert(?REALM_TAB, {{device, Id}, Device}),
+    ok.
+
+realm_add_parked_boxes(Boxes) ->
+    Existing = realm_get_parked_boxes(),
+    Keyed = maps:from_list([
+        {{maps:get(<<"x">>, B), maps:get(<<"y">>, B)}, B} || B <- Existing ++ Boxes
+    ]),
+    ets:insert(?REALM_TAB, {parked_boxes, maps:values(Keyed)}),
+    ok.
+
+realm_get_parked_boxes() ->
+    case ets:lookup(?REALM_TAB, parked_boxes) of
+        [{parked_boxes, Boxes}] -> Boxes;
+        [] -> []
+    end.
+
 device_boxes(Device) ->
     X0 = maps:get(x, Device),
     Y0 = maps:get(y, Device),
@@ -351,6 +425,50 @@ has_lateral_move(Cmds) ->
         Cmds
     ).
 
+infer_command_from_core_decision(Core) when is_map(Core) ->
+    case maps:get(<<"command">>, Core, undefined) of
+        <<"park">> -> {ok, #{<<"command">> => <<"park">>}};
+        <<"rotate">> -> {ok, #{<<"command">> => <<"rotate">>}};
+        <<"move">> ->
+            Dir = maps:get(<<"direction">>, Core, <<"down">>),
+            Dist = maps:get(<<"distance">>, Core, 1),
+            {ok, #{<<"command">> => <<"move">>, <<"direction">> => Dir, <<"distance">> => Dist}};
+        _ ->
+            Summary = maps:get(<<"summary">>, Core, <<>>),
+            infer_command_from_summary(Summary)
+    end.
+
+infer_command_from_summary(Summary) when is_binary(Summary) ->
+    Lower = string:lowercase(binary_to_list(Summary)),
+    case {contains(Lower, "rotate"), contains(Lower, "park"), contains(Lower, "move")} of
+        {true, _, _} -> {ok, #{<<"command">> => <<"rotate">>}};
+        {_, true, _} -> {ok, #{<<"command">> => <<"park">>}};
+        {_, _, true} ->
+            Dir =
+                case contains(Lower, "left") of
+                    true ->
+                        <<"left">>;
+                    false ->
+                        case contains(Lower, "right") of
+                            true -> <<"right">>;
+                            false -> <<"down">>
+                        end
+                end,
+            Dist = extract_distance(Lower),
+            {ok, #{<<"command">> => <<"move">>, <<"direction">> => Dir, <<"distance">> => Dist}};
+        _ ->
+            error
+    end.
+
+contains(Str, Sub) ->
+    string:find(Str, Sub) =/= nomatch.
+
+extract_distance(Str) ->
+    case re:run(Str, "([0-9]+)\\s*(units|steps|cells)", [{capture, [1], list}]) of
+        {match, [N]} -> list_to_integer(N);
+        _ -> 1
+    end.
+
 field_update_steps(Config, Id) ->
     [
         #{
@@ -369,7 +487,7 @@ field_update_steps(Config, Id) ->
         #{
             <<"id">> => <<"apply_parking">>,
             <<"type">> => <<"llm_loop">>,
-            <<"session_config">> => session_config(Config, field_update_prompt()),
+            <<"session_config">> => session_config(Config, field_update_prompt(), <<"auto">>),
             <<"tools">> => [
                 <<"postgresql.query@", (pg_set_status_skill_id(Id))/binary>>,
                 <<"postgresql.query@", (pg_set_box_skill_id(Id))/binary>>
@@ -399,7 +517,7 @@ core_steps(Config, Id, CmdSkill) ->
         #{
             <<"id">> => <<"choose_command">>,
             <<"type">> => <<"llm_loop">>,
-            <<"session_config">> => session_config(Config, core_prompt()),
+            <<"session_config">> => session_config(Config, core_prompt(), tool_choice_for_publish(CmdSkill)),
             <<"tools">> => [
                 <<"message.publish@", CmdSkill/binary>>,
                 <<"postgresql.query@", (pg_status_skill_id(Id))/binary>>
@@ -434,50 +552,68 @@ field_update_prompt() ->
 
 core_prompt() ->
     <<
-        "You are a strict single-step controller for storage devices.\n"
-        "Goal: pack devices from the bottom with minimal free cells and no overlaps.\n"
+        "You are the control brain for an automated storage facility.\n"
+        "Domain model:\n"
+        "- The facility is a discrete 2D field with width=field_width and height=field_height.\n"
+        "- A device is a tetromino-like rigid shape represented by event.boxes (x,y coordinates).\n"
+        "- field_map.rows are already parked occupied cells that cannot be crossed or overlapped.\n"
+        "- Telemetry event contains current device_id, shape, status, parked flag, and current boxes.\n"
+        "- Device statuses: free or parked. Parked devices report telemetry but do not move.\n"
+        "- Physical rules: movement/rotation may fail if out of bounds or colliding with occupied cells.\n"
+        "Objective:\n"
+        "- Compact storage from bottom upward, minimizing holes (free cells under/inside stacked shapes) and fragmentation.\n"
+        "- Prefer placements touching floor/walls/parked blocks when it improves compaction.\n"
+        "Action space:\n"
+        "- rotate\n"
+        "- move with direction in left|right|down and distance>=1\n"
+        "- park\n"
+        "You must plan and emit a short command sequence expected to end in park.\n"
+        "The physical realm executes commands one-by-one and drops remaining commands after the first impossible command.\n"
+        "Use this to choose robust sequences.\n"
         "Input JSON has event, field_map, field_width, field_height.\n"
-        "Allowed commands: rotate, move(left|right|down,distance>=1), park.\n"
         "Rules:\n"
         "1) If event.parked is true, call no tool and return {\"command\":\"none\"}.\n"
-        "2) Evaluate candidate next actions that are legal under bounds and occupancy: rotate, move left/right/down with integer distance >= 1, or park.\n"
-        "3) Prefer actions that reduce final free cells (holes) and lower the stack height; bottom-compaction has higher priority than short-term movement.\n"
-        "4) Choose lateral direction and distance yourself from field_map and event.boxes to improve packing quality.\n"
-        "5) Use rotate when it improves reachability or reduces holes after settling.\n"
-        "6) Send park only when the device is already well-packed and further legal moves do not improve compaction.\n"
-        "7) Call at most one tool each step and return JSON with key command."
+        "2) If event.parked is false, you MUST call message_publish exactly once with payload {\"commands\":[...]} .\n"
+        "3) Evaluate candidate actions legal under bounds and occupancy: rotate, move left/right/down with integer distance >= 1, or park.\n"
+        "4) If the device is near the top spawn band, consider rotate early when it improves eventual packing quality.\n"
+        "5) Prefer actions that reduce free holes and lower stack height; bottom-compaction has higher priority than short-term movement.\n"
+        "6) Choose direction and distance yourself from field_map and event.boxes.\n"
+        "7) Build a short command list expected to reach park; final command in list must be park.\n"
+        "8) Commands are executed one-by-one by the physical realm; if a command is impossible, remaining commands are dropped.\n"
+        "9) Do not return standalone command JSON; decisions must be expressed only via tool call.\n"
+        "10) In natural-language summary, explain why the chosen sequence improves compaction and why park is now valid."
     >>.
 
 command_payload_schema() ->
     #{
-        <<"oneOf">> => [
-            #{
-                <<"type">> => <<"object">>,
-                <<"properties">> => #{<<"command">> => #{<<"type">> => <<"string">>, <<"enum">> => [<<"park">>]}},
-                <<"required">> => [<<"command">>]
-            },
-            #{
-                <<"type">> => <<"object">>,
-                <<"properties">> => #{<<"command">> => #{<<"type">> => <<"string">>, <<"enum">> => [<<"rotate">>]}},
-                <<"required">> => [<<"command">>]
-            },
-            #{
-                <<"type">> => <<"object">>,
-                <<"properties">> => #{
-                    <<"command">> => #{<<"type">> => <<"string">>, <<"enum">> => [<<"move">>]},
-                    <<"direction">> => #{<<"type">> => <<"string">>, <<"enum">> => [<<"left">>, <<"right">>, <<"down">>]},
-                    <<"distance">> => #{<<"type">> => <<"integer">>, <<"minimum">> => 1}
-                },
-                <<"required">> => [<<"command">>, <<"direction">>, <<"distance">>]
+        <<"type">> => <<"object">>,
+        <<"properties">> => #{
+            <<"commands">> => #{
+                <<"type">> => <<"array">>,
+                <<"items">> => #{
+                    <<"type">> => <<"object">>,
+                    <<"properties">> => #{
+                        <<"command">> => #{<<"type">> => <<"string">>, <<"enum">> => [<<"park">>, <<"rotate">>, <<"move">>]},
+                        <<"direction">> => #{<<"type">> => <<"string">>, <<"enum">> => [<<"left">>, <<"right">>, <<"down">>]},
+                        <<"distance">> => #{<<"type">> => <<"integer">>, <<"minimum">> => 1}
+                    },
+                    <<"required">> => [<<"command">>]
+                }
             }
-        ]
+        },
+        <<"required">> => [<<"commands">>]
     }.
 
-session_config(Config, Instructions) ->
+session_config(Config, Instructions, ToolChoice) ->
     #{
         <<"api_key">> => ?config(fireworks_key, Config),
         <<"base_url">> => ?FIREWORKS_BASE_URL,
         <<"model">> => ?config(fireworks_model, Config),
+        <<"max_tokens">> => 4096,
+        <<"recv_timeout_ms">> => 240000,
+        <<"temperature">> => 0.0,
+        <<"tool_choice">> => ToolChoice,
+        <<"max_iterations">> => 80,
         <<"instructions">> => Instructions,
         <<"output_schema">> => #{
             <<"type">> => <<"object">>,
@@ -487,6 +623,22 @@ session_config(Config, Instructions) ->
             }
         }
     }.
+
+tool_choice_for_publish(CmdSkill) ->
+    ToolName = sanitize_tool_name(<<"message.publish@", CmdSkill/binary>>),
+    #{
+        <<"type">> => <<"function">>,
+        <<"function">> => #{<<"name">> => ToolName}
+    }.
+
+sanitize_tool_name(Name) ->
+    <<<<(san(C))>> || <<C>> <= Name>>.
+
+san(C) when C >= $a, C =< $z -> C;
+san(C) when C >= $A, C =< $Z -> C;
+san(C) when C >= $0, C =< $9 -> C;
+san($-) -> $-;
+san(_) -> $_.
 
 register_storage_skills(Id) ->
     ok = emqx_agent_skill_postgresql:create(#{
@@ -650,6 +802,70 @@ recv_pipeline_completed(PipelineId, Timeout) ->
             recv_pipeline_completed(PipelineId, Timeout)
     end.
 
+recv_pipeline_completed_or_timeout(PipelineId, Timeout) ->
+    case recv_pipe_event_or_timeout(PipelineId, Timeout) of
+        timeout ->
+            timeout;
+        #{<<"type">> := <<"pipeline_completed">>} = Frame ->
+            Frame;
+        Frame ->
+            maybe_print_llm_frame(PipelineId, Frame),
+            recv_pipeline_completed_or_timeout(PipelineId, Timeout)
+    end.
+
+collect_pipe_events(Max) ->
+    collect_pipe_events(Max, []).
+
+collect_pipe_events(0, Acc) ->
+    lists:reverse(Acc);
+collect_pipe_events(Max, Acc) ->
+    receive
+        #deliver{topic = <<"pipe/", _/binary>>, message = #message{payload = P}} ->
+            Frame = emqx_utils_json:decode(P),
+            maybe_print_llm_frame(undefined, Frame),
+            collect_pipe_events(Max - 1, [Frame | Acc])
+    after 20 ->
+        lists:reverse(Acc)
+    end.
+
+log_pipe_events(PipelineId, Max) ->
+    _ = log_pipe_events(PipelineId, Max, []),
+    ok.
+
+log_pipe_events(_PipelineId, 0, Acc) ->
+    lists:reverse(Acc);
+log_pipe_events(PipelineId, Max, Acc) ->
+    case recv_pipe_event_or_timeout(PipelineId, 5) of
+        timeout ->
+            lists:reverse(Acc);
+        Frame ->
+            maybe_print_llm_frame(PipelineId, Frame),
+            log_pipe_events(PipelineId, Max - 1, [Frame | Acc])
+    end.
+
+maybe_print_llm_frame(PipelineId, Frame) ->
+    Type = maps:get(<<"type">>, Frame, <<>>),
+    Step = maps:get(<<"step_id">>, Frame, undefined),
+    Ctx = maps:get(<<"context">>, Frame, #{}),
+    Core = maps:get(<<"core_decision">>, Ctx, undefined),
+    Field = maps:get(<<"field_update_decision">>, Ctx, undefined),
+    case {Core, Field} of
+        {undefined, undefined} ->
+            case Type of
+                <<"step_completed">> -> ct:print("pipe event ~p ~p ~p", [PipelineId, Type, Step]);
+                <<"pipeline_completed">> -> ct:print("pipe event ~p ~p", [PipelineId, Type]);
+                _ -> ok
+            end;
+        _ ->
+            ct:print("llm frame pipeline=~p type=~p step=~p core=~p field=~p", [
+                PipelineId,
+                Type,
+                Step,
+                Core,
+                Field
+            ])
+    end.
+
 recv_pipe_event_or_timeout(PipelineId, Timeout) ->
     receive
         #deliver{topic = <<"pipe/", _/binary>>, message = #message{payload = P}} ->
@@ -664,18 +880,31 @@ recv_pipe_event_or_timeout(PipelineId, Timeout) ->
 
 recv_command(DeviceId) ->
     receive
-        #deliver{topic = <<"demo-storage/cmd/", DeviceId/binary>>, message = #message{payload = P}} ->
-            decode_json_or_fail(P)
+        #deliver{topic = <<"demo-storage/cmd/", Tail/binary>>, message = #message{payload = P}} ->
+            case topic_targets_device(Tail, DeviceId) of
+                true -> decode_json_or_fail(P);
+                false -> recv_command(DeviceId)
+            end
     after ?SHORT_TIMEOUT ->
         ct:fail("no command published for ~s", [DeviceId])
     end.
 
 recv_command_or_timeout(DeviceId, Timeout) ->
     receive
-        #deliver{topic = <<"demo-storage/cmd/", DeviceId/binary>>, message = #message{payload = P}} ->
-            decode_json_or_fail(P)
+        #deliver{topic = <<"demo-storage/cmd/", Tail/binary>>, message = #message{payload = P}} ->
+            case topic_targets_device(Tail, DeviceId) of
+                true -> decode_json_or_fail(P);
+                false -> recv_command_or_timeout(DeviceId, Timeout)
+            end
     after Timeout ->
         timeout
+    end.
+
+topic_targets_device(Tail, DeviceId) ->
+    Segs = binary:split(Tail, <<"/">>, [global, trim_all]),
+    case Segs of
+        [] -> false;
+        _ -> lists:last(Segs) =:= DeviceId
     end.
 
 ensure_tables() ->

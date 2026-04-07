@@ -170,6 +170,7 @@ handle_event(
     llm_loop,
     #data{active_sid = Sid} = Data
 ) ->
+    log_received(sess_out, Data, #{sid => Sid, frame => Frame}),
     dispatch_tool_request(Frame, Data);
 %% ── llm_loop: session emitted final ──────────────────────────────────────────
 
@@ -179,6 +180,7 @@ handle_event(
     llm_loop,
     #data{active_sid = Sid} = Data
 ) ->
+    log_received(sess_out, Data, #{sid => Sid, frame => Frame}),
     Result = maps:get(<<"result">>, Frame, #{}),
     Step = current_step(Data),
     Data1 = write_context(maps:get(<<"result_path">>, Step, undefined), Result, Data),
@@ -197,12 +199,14 @@ handle_event(
     llm_loop,
     #data{active_sid = Sid} = Data
 ) ->
+    log_received(sess_out, Data, #{sid => Sid, frame => Frame}),
     Reason = maps:get(<<"reason">>, Frame, <<"llm_error">>),
     ?SLOG(error, #{msg => "pipeline_llm_error", iid => Data#data.iid, reason => Reason}),
     do_fail(Data, Reason);
 %% ── llm_loop: cap/reply arrives for an outstanding tool call ─────────────────
 
 handle_event(cast, #cap_reply{req_id = ReqId, frame = Frame}, llm_loop, Data) ->
+    log_received(cap_reply, Data, #{req_id => ReqId, frame => Frame}),
     route_cap_reply_to_session(ReqId, Frame, Data);
 %% ── waiting_cap: cap/reply for the call_skill step ───────────────────────────
 
@@ -212,6 +216,7 @@ handle_event(
     waiting_cap,
     #data{cap_req_id = ReqId} = Data
 ) ->
+    log_received(cap_reply, Data, #{req_id => ReqId, frame => Frame}),
     Result = maps:get(<<"data">>, Frame, #{}),
     Data1 = write_context(Data#data.cap_result_path, Result, Data),
     Data2 = Data1#data{cap_req_id = undefined, cap_result_path = undefined},
@@ -224,6 +229,7 @@ handle_event(
 %% ── waiting_event: an external event arrived ─────────────────────────────────
 
 handle_event(cast, #pipe_evt{topic = Topic, event = Event}, waiting_event, Data) ->
+    log_received(evt, Data, #{topic => Topic, event => Event}),
     handle_waited_event(Topic, Event, Data);
 %% ── done: idle timer fired ────────────────────────────────────────────────────
 
@@ -659,6 +665,20 @@ publish_pipeline_event(
     ),
     Msg = emqx_message:make(?MODULE, ?QOS_0, Topic, emqx_utils_json:encode(Payload)),
     _ = emqx_broker:publish(Msg),
+    ok.
+
+log_received(Kind, #data{iid = Iid}, Payload) ->
+    ?SLOG(info, #{msg => "pipeline_received", iid => Iid, kind => Kind, payload => Payload}),
+    maybe_ct_print("[pipeline] ~p ~p ~p", [Iid, Kind, Payload]).
+
+maybe_ct_print(Format, Args) ->
+    _ =
+        try
+            ct:print(Format, Args)
+        catch
+            _:_ ->
+                ok
+        end,
     ok.
 
 %%--------------------------------------------------------------------

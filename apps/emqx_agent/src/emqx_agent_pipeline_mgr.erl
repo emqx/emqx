@@ -104,6 +104,7 @@ handle_sess_out(Rest, Payload) ->
     case binary:split(Rest, <<"/">>) of
         [Sid, <<>>] ->
             Frame = safe_decode(Payload),
+            log_received(sess_out, #{sid => Sid, frame => Frame}),
             Iid = maps:get(<<"iid">>, Frame, undefined),
             route_to_pipeline(Iid, #sess_frame{sid = Sid, frame = Frame});
         _ ->
@@ -112,11 +113,13 @@ handle_sess_out(Rest, Payload) ->
 
 handle_cap_reply(ReqId, Payload) ->
     Frame = safe_decode(Payload),
+    log_received(cap_reply, #{req_id => ReqId, frame => Frame}),
     Iid = maps:get(<<"iid">>, Frame, undefined),
     route_to_pipeline(Iid, #cap_reply{req_id = ReqId, frame = Frame}).
 
 handle_evt(Topic, Payload) ->
     Event = safe_decode(Payload),
+    log_received(evt, #{topic => Topic, event => Event}),
     %% Start new instances for every pipeline definition whose trigger matches.
     Defs = emqx_agent_pipeline_registry:match_trigger(Topic),
     lists:foreach(fun(Def) -> start_instance(Def, Event) end, Defs),
@@ -163,6 +166,20 @@ safe_decode(Payload) ->
     catch
         _:_ -> #{}
     end.
+
+log_received(Kind, Data) ->
+    ?SLOG(info, #{msg => "pipeline_mgr_received", kind => Kind, data => Data}),
+    maybe_ct_print("[pipeline_mgr] ~p ~p", [Kind, Data]).
+
+maybe_ct_print(Format, Args) ->
+    _ =
+        try
+            ct:print(Format, Args)
+        catch
+            _:_ ->
+                ok
+        end,
+    ok.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

@@ -23,7 +23,7 @@ CREDS = env("EMQX_API_CREDS", "key:secret")
 
 FIREWORKS_API_KEY = env("FIREWORKS_API_KEY")
 FIREWORKS_BASE_URL = env("FIREWORKS_BASE_URL", "https://api.fireworks.ai/inference/v1")
-FIREWORKS_MODEL = env("FIREWORKS_MODEL", "accounts/fireworks/models/kimi-k2p5")
+FIREWORKS_MODEL = env("FIREWORKS_MODEL", "accounts/fireworks/models/deepseek-v3p2")
 
 PGHOST = env("PGHOST", "pgsql")
 PGPORT = env("PGPORT", "5432")
@@ -320,32 +320,27 @@ def create_skills() -> None:
             "topic_prefix": "demo-storage/cmd/",
             "payload_schema": {
                 "type": "object",
-                "oneOf": [
-                    {
-                        "type": "object",
-                        "properties": {"command": {"type": "string", "enum": ["park"]}},
-                        "required": ["command"],
-                    },
-                    {
-                        "type": "object",
-                        "properties": {
-                            "command": {"type": "string", "enum": ["rotate"]}
-                        },
-                        "required": ["command"],
-                    },
-                    {
-                        "type": "object",
-                        "properties": {
-                            "command": {"type": "string", "enum": ["move"]},
-                            "direction": {
-                                "type": "string",
-                                "enum": ["left", "right", "down"],
+                "properties": {
+                    "commands": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "command": {
+                                    "type": "string",
+                                    "enum": ["park", "rotate", "move"],
+                                },
+                                "direction": {
+                                    "type": "string",
+                                    "enum": ["left", "right", "down"],
+                                },
+                                "distance": {"type": "integer", "minimum": 1},
                             },
-                            "distance": {"type": "integer", "minimum": 1},
+                            "required": ["command"],
                         },
-                        "required": ["command", "direction", "distance"],
-                    },
-                ],
+                    }
+                },
+                "required": ["commands"],
             },
         },
     )
@@ -419,6 +414,14 @@ def create_pipelines() -> None:
                         "api_key": FIREWORKS_API_KEY,
                         "base_url": FIREWORKS_BASE_URL,
                         "model": FIREWORKS_MODEL,
+                        "max_tokens": 4096,
+                        "recv_timeout_ms": 240000,
+                        "temperature": 0.0,
+                        "max_iterations": 80,
+                        "tool_choice": {
+                            "type": "function",
+                            "function": {"name": "message_publish_demo-storage-cmd"},
+                        },
                         "instructions": (
                             "You are a strict tool planner for storage parking updates. "
                             "Input has event and db_status. Rules: (1) If event.parked=false then call no tool "
@@ -480,16 +483,21 @@ def create_pipelines() -> None:
                         "base_url": FIREWORKS_BASE_URL,
                         "model": FIREWORKS_MODEL,
                         "instructions": (
-                            "You are a strict single-step controller for storage devices. "
-                            "Goal: pack devices from the bottom with minimal free cells and no overlaps. "
-                            "Input has event, field_map, field_width, field_height. "
-                            'If event.parked=true then do not call tools and return {"command":"none"}. '
-                            "Evaluate legal next actions: rotate, move(left|right|down,distance>=1), park. "
-                            "Prefer actions that reduce holes and stack height. "
-                            "Choose move side and distance from field_map and event.boxes. "
-                            "Use rotate when it improves compaction or reachability. "
-                            "Send park only when further legal moves do not improve compaction. "
-                            "Call at most one tool."
+                            "You are the control brain for an automated storage facility. "
+                            "Domain: field is a discrete 2D grid (field_width x field_height). "
+                            "A device is a tetromino-like rigid shape represented by event.boxes. "
+                            "field_map.rows are already parked occupied cells. "
+                            "Telemetry has device_id, shape, status, parked, and boxes. "
+                            "Physical rules: move/rotate can fail if out-of-bounds or colliding. "
+                            "Goal: compact from bottom upward with minimal holes and fragmentation. "
+                            "If event.parked=true then do not call tools. "
+                            'If event.parked=false then you MUST call message.publish exactly once with payload {"commands":[...]}. '
+                            "Actions: rotate, move(left|right|down,distance>=1), park. "
+                            "Build a short robust sequence expected to end with park; final command must be park. "
+                            "Commands are executed one-by-one; if a command is impossible, remaining commands are dropped. "
+                            "Prefer actions that reduce holes and lower stack height. "
+                            "Choose side and distance using field_map and event.boxes. "
+                            "Call at most one tool and do not return standalone command JSON."
                         ),
                         "output_schema": {
                             "type": "object",
