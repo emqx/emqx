@@ -151,6 +151,14 @@ update_config(Path, Value, ValueToRestore) ->
     {ok, _} = emqx:update_config(Path, Value, #{override_to => cluster}),
     ok.
 
+get_a2a_props(UserProperties) ->
+    Props = maps:groups_from_list(
+        fun({K, _}) -> K end,
+        fun({_, V}) -> V end,
+        UserProperties
+    ),
+    maps:with([?A2A_PROP_STATUS_KEY, ?A2A_PROP_STATUS_SOURCE_KEY], Props).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -164,6 +172,8 @@ Simple smoke test that explores the happy path of a2a registry.
     - It receives the card with augmented properties indicating the agent to be online.
   - The agent goes offline, the second client re-subscribes.
     - It receives the card with augmented properties indicating the agent to be offline.
+  - If the liveness properties are set by the publisher, they are overridden by the
+    broker.
 """.
 t_smoke_01(_TCConfig) ->
     AgentClientId = agent_clientid(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
@@ -173,29 +183,29 @@ t_smoke_01(_TCConfig) ->
     C = start_client(#{}),
     {ok, _, _} = emqtt:subscribe(C, discovery_topic(<<"+">>, <<"+">>, <<"+">>), [{qos, 1}]),
     %% At first, the agent is connected
-    ?assertReceive(
-        {publish, #{
-            properties := #{'User-Property' := [{?A2A_PROP_STATUS_KEY, ?A2A_PROP_ONLINE_VAL}]}
-        }}
+    {publish, #{properties := #{'User-Property' := Props0}}} = ?assertReceive({publish, _}),
+    ?assertMatch(
+        #{?A2A_PROP_STATUS_KEY := [?A2A_PROP_ONLINE_VAL]},
+        get_a2a_props(Props0)
     ),
 
     %% Then, the agent disconnects and we re-subscribe
     emqtt:stop(Agent),
     ct:sleep(300),
     {ok, _, _} = emqtt:subscribe(C, discovery_topic(<<"+">>, <<"+">>, <<"+">>), [{qos, 1}]),
-    ?assertReceive(
-        {publish, #{
-            properties := #{'User-Property' := [{?A2A_PROP_STATUS_KEY, ?A2A_PROP_OFFLINE_VAL}]}
-        }}
+    {publish, #{properties := #{'User-Property' := Props1}}} = ?assertReceive({publish, _}),
+    ?assertMatch(
+        #{?A2A_PROP_STATUS_KEY := [?A2A_PROP_OFFLINE_VAL]},
+        get_a2a_props(Props1)
     ),
 
     %% Publish a card while a subscription is live.
     Agent2 = start_client(#{clientid => AgentClientId}),
     {ok, _} = publish_card(Agent2, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, sample_card_bin()),
-    ?assertReceive(
-        {publish, #{
-            properties := #{'User-Property' := [{?A2A_PROP_STATUS_KEY, ?A2A_PROP_ONLINE_VAL}]}
-        }}
+    {publish, #{properties := #{'User-Property' := Props2}}} = ?assertReceive({publish, _}),
+    ?assertMatch(
+        #{?A2A_PROP_STATUS_KEY := [?A2A_PROP_ONLINE_VAL]},
+        get_a2a_props(Props2)
     ),
 
     %% Unpublish card by publishing empty retained message
@@ -203,6 +213,29 @@ t_smoke_01(_TCConfig) ->
     {ok, _} = publish_card(Agent2, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, <<"">>),
     ?assertReceive({publish, _}),
     ?assertMatch([], emqx_a2a_registry_cth:all_cards()),
+
+    %% If `a2a-status` and/or `a2a-source` keys is present in user properties, they are
+    %% overridden.
+    {ok, _} = emqtt:publish(
+        Agent2,
+        discovery_topic(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
+        #{
+            'User-Property' => [
+                {?A2A_PROP_STATUS_KEY, <<"whatever">>},
+                {?A2A_PROP_STATUS_SOURCE_KEY, <<"agent">>}
+            ]
+        },
+        sample_card_bin(),
+        [{qos, 1}, {retain, true}]
+    ),
+    {publish, #{properties := #{'User-Property' := Props3}}} = ?assertReceive({publish, _}),
+    ?assertMatch(
+        #{
+            ?A2A_PROP_STATUS_KEY := [?A2A_PROP_ONLINE_VAL],
+            ?A2A_PROP_STATUS_SOURCE_KEY := [<<"emqx">>]
+        },
+        get_a2a_props(Props3)
+    ),
 
     %% Feature is enabled, but message doesn't have the `retain` flag.  Must be rejected.
     {ok, _} = emqtt:publish(

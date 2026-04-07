@@ -136,7 +136,13 @@ augment_message_metadata(Msg0) ->
     ClientId = emqx_message:from(Msg0),
     Props0 = emqx_message:get_header(properties, Msg0, #{}),
     UserProperties0 = maps:get('User-Property', Props0, []),
+    UserProperties1 = proplists:delete(?A2A_PROP_STATUS_KEY, UserProperties0),
+    UserProperties2 = proplists:delete(?A2A_PROP_STATUS_SOURCE_KEY, UserProperties1),
     Status = emqx_a2a_registry:lookup_agent_status(ClientId),
-    UserProperties = [{?A2A_PROP_STATUS_KEY, Status} | UserProperties0],
+    UserProperties = [
+        {?A2A_PROP_STATUS_KEY, Status},
+        {?A2A_PROP_STATUS_SOURCE_KEY, <<"emqx">>}
+        | UserProperties2
+    ],
     Props = maps:put('User-Property', UserProperties, Props0),
     emqx_message:set_header(properties, Props, Msg0).
