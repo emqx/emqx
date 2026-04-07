@@ -96,6 +96,14 @@
 
 -define(HTTP_OPTIONS, [{autoredirect, true}, {timeout, 60000}]).
 
+-define(SAFELY(EXPR, ELSE),
+    (try
+        EXPR
+    catch
+        _:_ -> ELSE
+    end)
+).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -1124,7 +1132,7 @@ mria_data(Role, Mode) ->
             _ -> [{node, node(self())}]
         end,
     ShardMetrics = [
-        {Shard, catch_all(fun() -> mria_status:get_shard_stats(Shard) end, #{})}
+        {Shard, ?SAFELY(get_local_shard_stats(Role, Shard), #{})}
      || Shard <- mria_schema:shards(), Shard =/= undefined
     ],
     lists:foldl(
@@ -1135,6 +1143,13 @@ mria_data(Role, Mode) ->
         #{},
         mria_metric_meta(Role)
     ).
+
+get_local_shard_stats(core = _Role, Shard) ->
+    mria_status:get_local_shard_stats(Shard);
+get_local_shard_stats(replicant = _Role, Shard) ->
+    LocalStats = mria_status:get_local_shard_stats(Shard),
+    ShardLag = emqx_prometheus_cache:get_mria_shard_lag(Shard),
+    LocalStats#{lag => ShardLag}.
 
 get_shard_metrics(Labels, replicants, ShardMetrics) ->
     [
