@@ -28,6 +28,8 @@ services:
     restart: always
     expose:
       - "11434"
+    ports:
+      - "11434:11434"
     networks:
       - emqx_bridge
     volumes:
