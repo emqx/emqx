@@ -40,6 +40,7 @@
 %% Handler callbacks
 -export([
     '/agent/ui'/2,
+    '/agent/demo-storage/ui'/2,
     '/agent/skills'/2,
     '/agent/skills/:type/:id'/2,
     '/agent/session_profiles'/2,
@@ -62,6 +63,7 @@ api_spec() ->
 paths() ->
     [
         "/agent/ui",
+        "/agent/demo-storage/ui",
         "/agent/skills",
         "/agent/skills/:type/:id",
         "/agent/session_profiles",
@@ -81,6 +83,16 @@ schema("/agent/ui") ->
             tags => ?TAGS,
             security => [],
             description => ?DESC(ui_get),
+            responses => #{200 => <<"HTML page">>}
+        }
+    };
+schema("/agent/demo-storage/ui") ->
+    #{
+        'operationId' => '/agent/demo-storage/ui',
+        get => #{
+            tags => ?TAGS,
+            security => [],
+            description => ?DESC(demo_storage_ui_get),
             responses => #{200 => <<"HTML page">>}
         }
     };
@@ -314,6 +326,16 @@ schema("/agent/pipelines/:id") ->
 '/agent/ui'(get, _Params) ->
     PrivDir = code:priv_dir(emqx_agent),
     HtmlFile = filename:join(PrivDir, "index.html"),
+    case file:read_file(HtmlFile) of
+        {ok, Html} ->
+            {200, #{<<"content-type">> => <<"text/html; charset=utf-8">>}, Html};
+        {error, Reason} ->
+            ?INTERNAL_ERROR(iolist_to_binary(io_lib:format("Cannot read UI: ~p", [Reason])))
+    end.
+
+'/agent/demo-storage/ui'(get, _Params) ->
+    PrivDir = code:priv_dir(emqx_agent),
+    HtmlFile = filename:join(PrivDir, "demo-storage.html"),
     case file:read_file(HtmlFile) of
         {ok, Html} ->
             {200, #{<<"content-type">> => <<"text/html; charset=utf-8">>}, Html};

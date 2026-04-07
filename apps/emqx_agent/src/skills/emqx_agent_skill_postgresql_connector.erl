@@ -2,12 +2,17 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% PostgreSQL connector used by emqx_agent skills.
-%% Adapted from EMQX PostgreSQL connector patterns for agent skill usage.
-
 -module(emqx_agent_skill_postgresql_connector).
 
+-include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx_connector/include/emqx_connector.hrl").
+-include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("epgsql/include/epgsql.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
+-behaviour(emqx_resource).
 
 -export([
     resource_type/0,
@@ -20,15 +25,37 @@
 
 -export([connect/1]).
 
+-export([config_fields/0]).
+
 -define(PGSQL_DEFAULT_PORT, 5432).
 -define(PGSQL_HOST_OPTIONS, #{
     default_port => ?PGSQL_DEFAULT_PORT
 }).
 
+-type prepare_statement_key() :: atom() | binary().
+-type prepare_statement_sql() :: unicode:chardata().
+
+-type state() ::
+    #{
+        pool_name := binary(),
+        prepare_statements := #{prepare_statement_key() => prepare_statement_sql()},
+        disable_prepared_statements := boolean()
+    }.
+
+config_fields() ->
+    [
+        {server, emqx_schema:servers_sc(#{desc => ?DESC("server")}, ?PGSQL_HOST_OPTIONS)},
+        {connect_timeout, emqx_connector_schema_lib:connect_timeout_field()},
+        {disable_prepared_statements, emqx_connector_schema_lib:disable_prepared_statements_field()}
+    ] ++
+        emqx_connector_schema_lib:relational_db_fields(#{username => #{required => true}}) ++
+        emqx_connector_schema_lib:ssl_fields().
+
 resource_type() -> agent_skill_pgsql.
 
 callback_mode() -> always_sync.
 
+-spec on_start(binary(), hocon:config()) -> {ok, state()} | {error, _}.
 on_start(
     InstId,
     #{
@@ -57,20 +84,35 @@ on_start(
                 [{ssl, false}]
         end,
     Password = maps:get(password, Config, emqx_secret:wrap("")),
+    PrepareStatements = emqx_utils_maps:binary_key_map(maps:get(prepare_statements, Config, #{})),
+    DisablePreparedStatements = maps:get(disable_prepared_statements, Config, false),
+    PrepareOpt =
+        case DisablePreparedStatements of
+            true -> [];
+            false -> [{prepare, maps:to_list(PrepareStatements)}]
+        end,
     Options = [
         {host, Host},
         {port, Port},
         {username, User},
         {password, Password},
         {database, DB},
-        {auto_reconnect, 15},
+        {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {timeout, ConnectTimeout},
         {pool_size, PoolSize}
     ],
-    case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
+    case emqx_resource_pool:start(InstId, ?MODULE, Options ++ PrepareOpt ++ SslOpts) of
         ok ->
-            {ok, #{pool_name => InstId}};
+            {ok, #{
+                pool_name => InstId,
+                prepare_statements => PrepareStatements,
+                disable_prepared_statements => DisablePreparedStatements
+            }};
         {error, Reason} ->
+            ?tp(
+                pgsql_agent_connector_start_failed,
+                #{error => Reason}
+            ),
             {error, Reason}
     end.
 
@@ -86,15 +128,46 @@ on_query(InstId, {query, SQL}, State) ->
     on_query(InstId, {query, SQL, []}, State);
 on_query(InstId, {query, SQL, Params} = Request, #{pool_name := PoolName} = State) ->
     LogInfo = #{connector => InstId, request => Request, state => State},
-    do_on_query(PoolName, fun(Conn) -> query(Conn, SQL, Params) end, LogInfo).
+    ?TRACE("QUERY", "postgresql_agent_connector_do_query", LogInfo),
+    do_on_query(PoolName, fun(Conn) -> query(Conn, SQL, Params) end, LogInfo);
+on_query(InstId, {prepared_query, Key}, State) ->
+    on_query(InstId, {prepared_query, Key, []}, State);
+on_query(
+    InstId,
+    {prepared_query, Key0, Params} = Request,
+    #{
+        pool_name := PoolName,
+        disable_prepared_statements := DisablePreparedStatements,
+        prepare_statements := PrepareStatements
+    } = State
+) ->
+    LogInfo = #{connector => InstId, request => Request, state => State},
+    ?TRACE("QUERY", "postgresql_agent_connector_do_prepared_query", LogInfo),
+    Key = to_bin(Key0),
+    case PrepareStatements of
+        #{Key := SQL} ->
+            QueryFun =
+                case DisablePreparedStatements of
+                    true ->
+                        fun(Conn) -> query(Conn, SQL, Params) end;
+                    false ->
+                        fun(Conn) -> prepared_query(Conn, Key, SQL, Params) end
+                end,
+            do_on_query(PoolName, QueryFun, LogInfo);
+        _ ->
+            {error, {unrecoverable_error, prepared_statement_not_found}}
+    end.
 
-on_get_status(_InstId, #{pool_name := PoolName}) ->
+on_get_status(InstId, #{pool_name := PoolName} = State) ->
     Opts = #{
-        check_fn => fun(Conn) -> epgsql:squery(Conn, "SELECT 1") end,
+        check_fn => fun(Conn) ->
+            epgsql:squery(Conn, "SELECT count(1) AS T")
+        end,
         is_success_fn => fun
             ({ok, _, _}) -> false;
             (_) -> true
-        end
+        end,
+        on_success_fn => fun() -> do_on_get_status_prepares(InstId, State) end
     },
     emqx_resource_pool:common_health_check_workers(PoolName, Opts).
 
@@ -102,10 +175,23 @@ connect(Opts) ->
     Host = proplists:get_value(host, Opts),
     Username = proplists:get_value(username, Opts),
     Password = emqx_secret:unwrap(proplists:get_value(password, Opts)),
+    PrepareStatements = proplists:get_value(prepare, Opts, []),
     ConnOpts = conn_opts(Opts),
-    epgsql:connect(Host, Username, Password, ConnOpts).
+    ?tp("postgres_agent_epgsql_connect", #{opts => ConnOpts}),
+    case epgsql:connect(Host, Username, Password, ConnOpts) of
+        {ok, Conn} ->
+            case prepare_sql_to_conn(Conn, PrepareStatements) of
+                ok ->
+                    {ok, Conn};
+                {error, Reason} ->
+                    _ = epgsql:close(Conn),
+                    {error, Reason}
+            end;
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
-close_connections(#{pool_name := PoolName}) ->
+close_connections(#{pool_name := PoolName} = _State) ->
     WorkerPids = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
     close_connections_with_worker_pids(WorkerPids),
     ok;
@@ -126,25 +212,87 @@ close_connections_with_worker_pids([WorkerPid | Rest]) ->
 close_connections_with_worker_pids([]) ->
     ok.
 
-do_on_query(PoolName, Fun, _LogInfo) ->
+pool_workers(PoolName) ->
+    lists:map(fun({_Name, Worker}) -> Worker end, ecpool:workers(PoolName)).
+
+do_on_get_status_prepares(_InstId, State) ->
+    case do_check_prepares(State) of
+        ok ->
+            ?status_connected;
+        {error, Reason} ->
+            {?status_disconnected, Reason}
+    end.
+
+do_check_prepares(
+    #{
+        pool_name := PoolName,
+        prepare_statements := PrepareStatements
+    }
+) ->
+    ConnsSQLs = [
+        {Conn, SQL}
+     || Worker <- pool_workers(PoolName),
+        {ok, Conn} <- [ecpool_worker:client(Worker)],
+        SQL <- maps:values(PrepareStatements)
+    ],
+    lists:foldl(
+        fun
+            ({Conn, SQL}, ok) ->
+                case parse2(Conn, "", SQL, []) of
+                    {ok, _Statement} ->
+                        ok;
+                    {error, #error{} = Reason} ->
+                        {error, emqx_utils:readable_error_msg(format_error(Reason))}
+                end;
+            (_, Acc) ->
+                Acc
+        end,
+        ok,
+        ConnsSQLs
+    ).
+
+do_on_query(PoolName, Fun, LogInfo) ->
     Worker = ecpool:get_client(PoolName),
     case ecpool_worker:client(Worker) of
         {ok, Conn} ->
             try Fun(Conn) of
                 {error, Reason} ->
+                    ?tp(warning, "postgresql_agent_connector_query_failed", LogInfo#{
+                        reason => Reason
+                    }),
                     {error, {unrecoverable_error, format_error(Reason)}};
                 Result ->
                     Result
             catch
                 Class:Reason ->
-                    {error, {unrecoverable_error, {Class, Reason}}}
+                    ?tp(error, "postgresql_agent_connector_query_exception", LogInfo#{
+                        class => Class, reason => Reason
+                    }),
+                    {error, {unrecoverable_error, Reason}}
             end;
         {error, disconnected} ->
+            ?tp(warning, "postgresql_agent_connector_query_failed", LogInfo#{reason => disconnected}),
             {error, {unrecoverable_error, disconnected}}
     end.
 
 query(Conn, SQL, Params) ->
     epgsql:equery(Conn, SQL, Params).
+
+prepared_query(Conn, Name, SQL, Params) ->
+    case epgsql:prepared_query2(Conn, Name, Params) of
+        {error, #error{codename = invalid_sql_statement_name}} ->
+            ?SLOG(warning, #{
+                msg => "postgresql_agent_invalid_sql_statement_name",
+                name => Name,
+                hint =>
+                    "If using a PostgreSQL proxy like pgBouncer, "
+                    "make sure it is configured to support prepared statements "
+                    "or disable the use of prepared statements in EMQX configuration."
+            }),
+            query(Conn, SQL, Params);
+        Result ->
+            Result
+    end.
 
 conn_opts(Opts) ->
     conn_opts(Opts, []).
@@ -169,5 +317,53 @@ conn_opts([Opt = {ssl_opts, _} | Opts], Acc) ->
 conn_opts([_Opt | Opts], Acc) ->
     conn_opts(Opts, Acc).
 
+prepare_sql_to_conn(_Conn, []) ->
+    ok;
+prepare_sql_to_conn(Conn, [{Key, SQL} | Rest]) ->
+    LogMeta = #{msg => "postgresql_agent_prepare_statement", name => Key, sql => SQL},
+    ?SLOG(info, LogMeta),
+    case parse2(Conn, Key, SQL, []) of
+        {ok, _Statement} ->
+            prepare_sql_to_conn(Conn, Rest);
+        {error, #error{codename = duplicate_prepared_statement}} ->
+            case epgsql:close(Conn, statement, Key) of
+                ok ->
+                    prepare_sql_to_conn(Conn, [{Key, SQL} | Rest]);
+                {error, CloseError} ->
+                    ?SLOG(error, LogMeta#{
+                        msg => "postgresql_agent_close_statement_failed", cause => CloseError
+                    }),
+                    {error, CloseError}
+            end;
+        {error, #error{} = Error} ->
+            ?SLOG(error, LogMeta#{
+                msg => "postgresql_agent_parse_failed", error => format_error(Error)
+            }),
+            {error, format_error(Error)}
+    end.
+
+to_bin(Bin) when is_binary(Bin) -> Bin;
+to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom).
+
+format_error(#error{
+    severity = Severity,
+    code = Code,
+    codename = Codename,
+    message = Message
+}) ->
+    #{
+        severity => Severity,
+        code => Code,
+        codename => Codename,
+        message => emqx_logger_textfmt:try_format_unicode(Message)
+    };
 format_error(Reason) ->
     Reason.
+
+parse2(Conn, Name, SQL, Types) ->
+    epgsql:sync_on_error(
+        Conn,
+        epgsql_sock:sync_command(
+            Conn, emqx_agent_skill_postgresql_cmd_parse2, {Name, SQL, Types}
+        )
+    ).

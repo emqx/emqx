@@ -268,6 +268,11 @@
             <input id="skill-prefix" type="text" placeholder="out/devices/">
             <div class="hint">All publishes are restricted to this prefix.</div>
           </div>
+          <div class="field">
+            <label>Payload schema (JSON)</label>
+            <textarea id="skill-publish-input" placeholder='{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}'></textarea>
+            <div class="hint">Optional payload JSON schema. Topic/from/qos are fixed wrapper fields. Output schema is fixed by backend.</div>
+          </div>
         </div>
 
         <!-- http fields -->
@@ -476,6 +481,7 @@ function authHeader() {
 
 window.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('endpoint-label').textContent = window.location.host;
+  document.getElementById('skill-publish-input').value = defaultPublishInputSchema();
   await refresh();
 });
 
@@ -569,6 +575,10 @@ function collectSkillBody() {
   let body = { type, id, desc };
   if (type === 'message.publish') {
     body.topic_prefix = document.getElementById('skill-prefix').value.trim();
+    const publishInSchema = document.getElementById('skill-publish-input').value.trim();
+    if (publishInSchema) {
+      body.payload_schema = JSON.parse(publishInSchema);
+    }
   } else if (type === 'http') {
     body.method        = document.getElementById('skill-method').value;
     body.url           = document.getElementById('skill-url').value.trim();
@@ -632,6 +642,9 @@ function editSkill(type, id) {
     document.getElementById('skill-output-schema').value = skill.output_schema ? JSON.stringify(skill.output_schema, null, 2) : '';
   } else if (type === 'message.publish') {
     document.getElementById('skill-prefix').value = skill.topic_prefix ?? '';
+    const legacyPayloadSchema = skill.input_schema?.properties?.payload;
+    const payloadSchema = skill.payload_schema ?? legacyPayloadSchema;
+    document.getElementById('skill-publish-input').value = payloadSchema ? JSON.stringify(payloadSchema, null, 2) : defaultPublishInputSchema();
   } else if (type === 'kv') {
     document.getElementById('skill-data-schema').value = skill.data_schema ? JSON.stringify(skill.data_schema, null, 2) : '';
     document.getElementById('skill-allow-put').value = skill.allow_put ? 'true' : 'false';
@@ -645,6 +658,16 @@ function editSkill(type, id) {
   document.querySelector('#tab-skills .card').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+function defaultPublishInputSchema() {
+  return JSON.stringify({
+    type: 'object',
+    properties: {
+      message: { type: 'string' }
+    },
+    required: ['message']
+  }, null, 2);
+}
+
 function resetSkillEditor() {
   editingSkillKey = null;
   document.getElementById('skill-card-title').textContent = 'New Skill';
@@ -656,6 +679,7 @@ function resetSkillEditor() {
   document.getElementById('skill-id').value = '';
   document.getElementById('skill-desc').value = '';
   document.getElementById('skill-prefix').value = '';
+  document.getElementById('skill-publish-input').value = defaultPublishInputSchema();
   document.getElementById('skill-method').value = 'post';
   document.getElementById('skill-url').value = '';
   document.getElementById('skill-input-schema').value = '';

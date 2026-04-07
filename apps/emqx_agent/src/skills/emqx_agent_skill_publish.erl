@@ -17,9 +17,9 @@
 %%   topic_prefix => binary()  — prepended to the agent-supplied topic
 %%                               (e.g. <<"devices/room1/">>)
 %%
-%% Input args (fixed schema):
+%% Input args (fixed wrapper + configurable payload schema):
 %%   topic   => binary()  — topic suffix; combined with topic_prefix
-%%   payload => binary()  — message payload
+%%   payload => json()    — payload value validated by payload_schema
 %%   from    => binary()  — publisher identity (optional, defaults to skill_id)
 %%   qos     => 0 | 1 | 2  — QoS level (optional, default 0)
 %%
@@ -39,17 +39,22 @@
 -define(SKILL_TYPE, <<"message.publish">>).
 -define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
 
--define(INPUT_SCHEMA, #{
+-define(DEFAULT_PAYLOAD_SCHEMA, #{
+    <<"type">> => <<"object">>,
+    <<"properties">> => #{
+        <<"message">> => #{<<"type">> => <<"string">>}
+    },
+    <<"required">> => [<<"message">>]
+}).
+
+-define(INPUT_SCHEMA(PayloadSchema), #{
     <<"type">> => <<"object">>,
     <<"properties">> => #{
         <<"topic">> => #{
             <<"type">> => <<"string">>,
             <<"description">> => <<"Topic suffix appended to the configured prefix">>
         },
-        <<"payload">> => #{
-            <<"type">> => <<"string">>,
-            <<"description">> => <<"Message payload">>
-        },
+        <<"payload">> => PayloadSchema,
         <<"from">> => #{
             <<"type">> => <<"string">>,
             <<"description">> => <<"Publisher identity (optional)">>
@@ -101,16 +106,39 @@ deinit() ->
 %%   desc         => binary()
 %%   topic_prefix => binary()
 -spec create(Context :: map()) -> ok.
-create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix}) ->
+create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix, input_schema := InputSchema}) ->
+    create(#{
+        skill_id => SkillId,
+        desc => Desc,
+        topic_prefix => TopicPrefix,
+        payload_schema => InputSchema
+    });
+create(#{
+    skill_id := SkillId,
+    desc := Desc,
+    topic_prefix := TopicPrefix,
+    payload_schema := PayloadSchema
+}) ->
     emqx_agent_skill_registry:register(#{
         skill_id => SkillId,
         type => ?SKILL_TYPE,
         display_name => <<Desc/binary, " — Publish">>,
         description =>
             <<"Publish an MQTT message to a topic under the prefix: ", TopicPrefix/binary>>,
-        context => #{skill_id => SkillId, topic_prefix => TopicPrefix},
-        input_schema => ?INPUT_SCHEMA,
+        context => #{
+            skill_id => SkillId,
+            topic_prefix => TopicPrefix,
+            payload_schema => PayloadSchema
+        },
+        input_schema => ?INPUT_SCHEMA(PayloadSchema),
         output_schema => ?OUTPUT_SCHEMA
+    });
+create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix}) ->
+    create(#{
+        skill_id => SkillId,
+        desc => Desc,
+        topic_prefix => TopicPrefix,
+        payload_schema => ?DEFAULT_PAYLOAD_SCHEMA
     }).
 
 -spec destroy(binary()) -> ok.
@@ -118,12 +146,41 @@ destroy(SkillId) ->
     emqx_agent_skill_registry:unregister(?SKILL_TYPE, SkillId).
 
 -spec to_map(map()) -> map().
-to_map(#{skill_id := Id, description := Desc, context := #{topic_prefix := TopicPrefix}}) ->
+to_map(
+    #{
+        skill_id := Id,
+        description := Desc,
+        context := #{topic_prefix := TopicPrefix, payload_schema := PayloadSchema},
+        input_schema := InputSchema,
+        output_schema := OutputSchema
+    }
+) ->
     #{
         <<"skill_id">> => Id,
         <<"type">> => ?SKILL_TYPE,
         <<"description">> => Desc,
-        <<"topic_prefix">> => TopicPrefix
+        <<"topic_prefix">> => TopicPrefix,
+        <<"payload_schema">> => PayloadSchema,
+        <<"input_schema">> => InputSchema,
+        <<"output_schema">> => OutputSchema
+    };
+to_map(
+    #{
+        skill_id := Id,
+        description := Desc,
+        context := #{topic_prefix := TopicPrefix},
+        input_schema := InputSchema,
+        output_schema := OutputSchema
+    }
+) ->
+    #{
+        <<"skill_id">> => Id,
+        <<"type">> => ?SKILL_TYPE,
+        <<"description">> => Desc,
+        <<"topic_prefix">> => TopicPrefix,
+        <<"payload_schema">> => maps:get(<<"payload">>, maps:get(<<"properties">>, InputSchema, #{}), ?DEFAULT_PAYLOAD_SCHEMA),
+        <<"input_schema">> => InputSchema,
+        <<"output_schema">> => OutputSchema
     }.
 
 %%--------------------------------------------------------------------
@@ -156,7 +213,7 @@ handle_invoke(SkillId, Payload) ->
 do_publish(SkillId, TopicPrefix, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
     TopicSuffix = maps:get(<<"topic">>, Args),
-    MsgPayload = maps:get(<<"payload">>, Args),
+    MsgPayload = normalize_payload(maps:get(<<"payload">>, Args)),
     From = maps:get(<<"from">>, Args, SkillId),
     Qos = maps:get(<<"qos">>, Args, 0),
 
@@ -192,3 +249,8 @@ do_publish(SkillId, TopicPrefix, Request) ->
     ReplyMsg = emqx_message:make(SkillId, ?QOS_0, ReplyTopic, emqx_utils_json:encode(Reply)),
     _ = emqx_broker:publish(ReplyMsg),
     ok.
+
+normalize_payload(Payload) when is_map(Payload) ->
+    emqx_utils_json:encode(Payload);
+normalize_payload(Payload) ->
+    Payload.

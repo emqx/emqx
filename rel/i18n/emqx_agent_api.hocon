@@ -7,6 +7,11 @@ emqx_agent_api {
         label: "Agent UI"
     }
 
+    demo_storage_ui_get {
+        desc: "Demo storage-facility UI — single-page simulation for device telemetry, commands, and pipeline governance."
+        label: "Demo Storage UI"
+    }
+
     ## Skills collection
 
     skills_list {

@@ -51,6 +51,23 @@ t_destroy_unregisters(_Config) ->
     %% Re-create so end_per_testcase destroy() does not crash.
     ok = emqx_agent_skill_publish:create(test_context()).
 
+t_custom_payload_schema_is_stored(_Config) ->
+    ok = emqx_agent_skill_publish:destroy(?SKILL_ID),
+    CustomPayloadSchema = #{
+        <<"type">> => <<"object">>,
+        <<"properties">> => #{
+            <<"command">> => #{<<"type">> => <<"string">>, <<"enum">> => [<<"move">>, <<"rotate">>, <<"park">>]},
+            <<"direction">> => #{<<"type">> => <<"string">>, <<"enum">> => [<<"left">>, <<"right">>, <<"down">>]}
+        },
+        <<"required">> => [<<"command">>]
+    },
+    ok = emqx_agent_skill_publish:create(maps:put(payload_schema, CustomPayloadSchema, test_context())),
+    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message.publish">>, ?SKILL_ID),
+    #{context := Context, input_schema := InputSchema} = Skill,
+    ?assertEqual(CustomPayloadSchema, maps:get(payload_schema, Context)),
+    Props = maps:get(<<"properties">>, InputSchema),
+    ?assertEqual(CustomPayloadSchema, maps:get(<<"payload">>, Props)).
+
 %% A basic invoke publishes to prefix+topic and replies with status=ok.
 t_publish_basic(_Config) ->
     FullTopic = <<?TOPIC_PREFIX/binary, "temperature">>,

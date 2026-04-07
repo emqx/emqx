@@ -95,6 +95,11 @@ fields(skill_publish_create) ->
             mk(binary(), #{
                 required => true,
                 desc => ?DESC(skill_publish_topic_prefix)
+            })},
+        {payload_schema,
+            mk(map(), #{
+                required => false,
+                desc => ?DESC(skill_input_schema)
             })}
     ];
 fields(skill_http_create) ->

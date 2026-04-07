@@ -177,6 +177,7 @@ pgsql_config() ->
     #{
         auto_reconnect => true,
         connect_timeout => 5000,
+        disable_prepared_statements => true,
         database => <<"mqtt">>,
         username => <<"root">>,
         password => <<"public">>,
