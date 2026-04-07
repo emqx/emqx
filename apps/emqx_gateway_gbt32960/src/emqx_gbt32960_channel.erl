@@ -878,7 +878,7 @@ msg2frame(Data = #{<<"Action">> := <<"Control">>, <<"Command">> := Command}, Vin
         proto_ver = ProtoVer
     };
 msg2frame(_Data, _Vin, _ProtoVer) ->
-    {error, unsupproted}.
+    {error, unsupported}.
 
 hexstring_to_byte(S) when is_binary(S) ->
     hexstring_to_byte(binary_to_list(S));
