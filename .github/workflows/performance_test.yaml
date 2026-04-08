@@ -61,7 +61,13 @@ jobs:
       if: github.event.inputs.version != '' && github.event.inputs.download_url == ''
       run: |
         version=${{ github.event.inputs.version }}
-        aws s3 cp s3://$AWS_S3_BUCKET/emqx-ee/e${version}/emqx-enterprise-${version}-ubuntu22.04-amd64.deb .
+        # v5 packages are stored under 'e' prefixed directories, v6+ are not
+        if [[ "$version" == 5* ]]; then
+          s3dir="e${version}"
+        else
+          s3dir="${version}"
+        fi
+        aws s3 cp s3://$AWS_S3_BUCKET/emqx-ee/${s3dir}/emqx-enterprise-${version}-ubuntu22.04-amd64.deb .
 
     - name: Generate GitHub App token
       id: app-token
@@ -97,11 +103,11 @@ jobs:
         AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
       run: |
         set -xeuo pipefail
-        # get latest emqx version
-        version=$(gh release list --repo emqx/emqx --limit 1 --json tagName --jq '.[] | .tagName')
-        # remove 'v' prefix from the version
-        version=${version:1}
-        aws s3 cp s3://$AWS_S3_BUCKET/emqx-ee/e${version}/emqx-enterprise-${version}-ubuntu22.04-amd64.deb .
+        # get latest emqx release tag (e.g. 'e5.8.0' for v5, '6.1.2' for v6)
+        tag=$(gh release list --repo emqx/emqx --limit 1 --json tagName --jq '.[] | .tagName')
+        # strip 'e' prefix if present (v5 tags have it, v6 tags do not)
+        version=${tag#e}
+        aws s3 cp s3://$AWS_S3_BUCKET/emqx-ee/${tag}/emqx-enterprise-${version}-ubuntu22.04-amd64.deb .
 
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
