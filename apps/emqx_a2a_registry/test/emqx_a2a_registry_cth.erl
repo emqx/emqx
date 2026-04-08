@@ -7,11 +7,12 @@
 -export([
     clear_all_cards/0,
     card_count/0,
+    card_count/1,
     all_cards/0,
+    all_cards/1,
     sample_card/0,
     agent_clientid/3,
-    start_client/1,
-    discovery_topic/4
+    start_client/1
 ]).
 
 %%------------------------------------------------------------------------------
@@ -33,13 +34,20 @@ clear_all_cards() ->
     ok.
 
 card_count() ->
-    length(all_cards()).
+    card_count(_Opts = #{}).
+
+card_count(Opts) ->
+    length(all_cards(Opts)).
 
 all_cards() ->
+    all_cards(_Opts = #{}).
+
+all_cards(Opts) ->
+    Namespace = maps:get(namespace, Opts, ?global_ns),
     emqx_retainer:with_backend(fun(Mod, State) ->
         {ok, Msgs, undefined} = Mod:match_messages(
             State,
-            emqx_a2a_registry:discovery_topic(<<"+">>, <<"+">>, <<"+">>),
+            emqx_a2a_registry:discovery_topic(Namespace, <<"+">>, <<"+">>, <<"+">>),
             undefined,
             #{batch_read_number => all_remaining}
         ),
@@ -89,12 +97,6 @@ start_client(Overrides) ->
     on_exit(fun() -> catch emqtt:stop(C) end),
     {ok, _} = emqtt:connect(C),
     C.
-
-discovery_topic(OrgId, UnitId, AgentId, ?global_ns) ->
-    emqx_a2a_registry:discovery_topic(OrgId, UnitId, AgentId);
-discovery_topic(OrgId, UnitId, AgentId, Namespace) when is_binary(Namespace) ->
-    Topic = emqx_a2a_registry:discovery_topic(OrgId, UnitId, AgentId),
-    iolist_to_binary([Namespace, "/", Topic]).
 
 %%------------------------------------------------------------------------------
 %% Internal fns

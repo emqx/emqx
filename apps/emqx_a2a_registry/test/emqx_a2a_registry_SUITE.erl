@@ -15,15 +15,19 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 -define(durable_sessions, durable_sessions).
 -define(memory_sessions, memory_sessions).
+-define(no_namespace, no_namespace).
+-define(namespaced, namespaced).
 
 -define(ORG_ID, <<"org_id">>).
 -define(UNIT_ID, <<"unit_id">>).
 -define(AGENT_ID, <<"agent_id">>).
+-define(NS, <<"some_ns">>).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -73,27 +77,45 @@ end_per_suite(_TCConfig) ->
 
 init_per_group(?durable_sessions, TCConfig) ->
     ExtraApps = [
-        emqx_conf,
+        emqx_conf_app(),
         {emqx_retainer, #{
             config => #{<<"retainer">> => #{<<"enable">> => true}}
         }},
-        {emqx_a2a_registry, #{config => #{<<"a2a_registry">> => #{<<"enable">> => true}}}}
+        {emqx_a2a_registry, #{config => #{<<"a2a_registry">> => #{<<"enable">> => true}}}},
+        emqx_mt_app()
     ],
     emqx_common_test_helpers:start_apps_ds(TCConfig, ExtraApps, #{});
 init_per_group(?memory_sessions, TCConfig) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx_conf,
+            emqx_conf_app(),
             {emqx_retainer, #{
                 config => #{<<"retainer">> => #{<<"enable">> => true}}
             }},
-            {emqx_a2a_registry, #{config => #{<<"a2a_registry">> => #{<<"enable">> => true}}}}
+            {emqx_a2a_registry, #{config => #{<<"a2a_registry">> => #{<<"enable">> => true}}}},
+            emqx_mt_app()
         ],
         #{work_dir => emqx_cth_suite:work_dir(TCConfig)}
     ),
     [{apps, Apps} | TCConfig];
+init_per_group(?namespaced, TCConfig) ->
+    [{namespace, ?NS} | TCConfig];
 init_per_group(_Group, TCConfig) ->
     TCConfig.
+
+emqx_conf_app() ->
+    {emqx_conf,
+        ~b"""
+      mqtt.namespace_as_mountpoint = true
+      mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]
+    """}.
+
+emqx_mt_app() ->
+    {emqx_mt, #{
+        after_start => fun() ->
+            ok = emqx_mt_config:create_managed_ns(?NS)
+        end
+    }}.
 
 end_per_group(?durable_sessions, TCConfig) ->
     emqx_common_test_helpers:run_cleanups(TCConfig),
@@ -128,10 +150,23 @@ sample_card_bin() ->
 start_client(Overrides) ->
     emqx_a2a_registry_cth:start_client(Overrides).
 
+start_client(Overrides0, TCConfig) ->
+    Namespace = get_config(namespace, TCConfig, ?global_ns),
+    Overrides = emqx_utils_maps:put_if(
+        Overrides0,
+        username,
+        Namespace,
+        is_binary(Namespace) andalso not is_map_key(username, Overrides0)
+    ),
+    emqx_a2a_registry_cth:start_client(Overrides).
+
 get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+get_config(K, TCConfig, Default) -> emqx_bridge_v2_testlib:get_value(K, TCConfig, Default).
 
 discovery_topic(OrgId, UnitId, AgentId) ->
-    emqx_a2a_registry:discovery_topic(OrgId, UnitId, AgentId).
+    %% for the mqtt client point of view, the mounting is transparent, so we act here as
+    %% if there were no namespaces.
+    emqx_a2a_registry:discovery_topic(?global_ns, OrgId, UnitId, AgentId).
 
 agent_clientid(OrgId, UnitId, AgentId) ->
     emqx_a2a_registry_cth:agent_clientid(OrgId, UnitId, AgentId).
@@ -159,6 +194,10 @@ get_a2a_props(UserProperties) ->
     ),
     maps:with([?A2A_PROP_STATUS_KEY, ?A2A_PROP_STATUS_SOURCE_KEY], Props).
 
+all_cards(TCConfig) ->
+    Namespace = get_config(namespace, TCConfig, ?global_ns),
+    emqx_a2a_registry_cth:all_cards(#{namespace => Namespace}).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -175,12 +214,20 @@ Simple smoke test that explores the happy path of a2a registry.
   - If the liveness properties are set by the publisher, they are overridden by the
     broker.
 """.
-t_smoke_01(_TCConfig) ->
+t_smoke_01() ->
+    [{matrix, true}].
+t_smoke_01(matrix) ->
+    [
+        [Session, Ns]
+     || Session <- [?memory_sessions, ?durable_sessions],
+        Ns <- [?no_namespace, ?namespaced]
+    ];
+t_smoke_01(TCConfig) ->
     AgentClientId = agent_clientid(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
-    Agent = start_client(#{clientid => AgentClientId}),
+    Agent = start_client(#{clientid => AgentClientId}, TCConfig),
     {ok, _} = publish_card(Agent, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, sample_card_bin()),
 
-    C = start_client(#{}),
+    C = start_client(#{}, TCConfig),
     {ok, _, _} = emqtt:subscribe(C, discovery_topic(<<"+">>, <<"+">>, <<"+">>), [{qos, 1}]),
     %% At first, the agent is connected
     {publish, #{properties := #{'User-Property' := Props0}}} = ?assertReceive({publish, _}),
@@ -200,7 +247,7 @@ t_smoke_01(_TCConfig) ->
     ),
 
     %% Publish a card while a subscription is live.
-    Agent2 = start_client(#{clientid => AgentClientId}),
+    Agent2 = start_client(#{clientid => AgentClientId}, TCConfig),
     {ok, _} = publish_card(Agent2, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, sample_card_bin()),
     {publish, #{properties := #{'User-Property' := Props2}}} = ?assertReceive({publish, _}),
     ?assertMatch(
@@ -209,10 +256,10 @@ t_smoke_01(_TCConfig) ->
     ),
 
     %% Unpublish card by publishing empty retained message
-    ?assertMatch([_], emqx_a2a_registry_cth:all_cards()),
+    ?assertMatch([_], all_cards(TCConfig)),
     {ok, _} = publish_card(Agent2, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, <<"">>),
     ?assertReceive({publish, _}),
-    ?assertMatch([], emqx_a2a_registry_cth:all_cards()),
+    ?assertMatch([], all_cards(TCConfig)),
 
     %% If `a2a-status` and/or `a2a-source` keys is present in user properties, they are
     %% overridden.
