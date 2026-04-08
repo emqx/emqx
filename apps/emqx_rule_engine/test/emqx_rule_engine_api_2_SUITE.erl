@@ -88,18 +88,6 @@ merge_custom_groups(RootGroup, GroupTCs, CustomMatrix0) ->
         ),
     CustomMatrix ++ GroupTCs.
 
-custom_cluster_cases() ->
-    Key = ?custom_cluster,
-    lists:filter(
-        fun
-            ({testcase, TestCase, _Opts}) ->
-                emqx_common_test_helpers:get_tc_prop(?MODULE, TestCase, Key, false);
-            (TestCase) ->
-                emqx_common_test_helpers:get_tc_prop(?MODULE, TestCase, Key, false)
-        end,
-        emqx_common_test_helpers:all(?MODULE)
-    ).
-
 init_per_suite(TCConfig) ->
     TCConfig.
 
