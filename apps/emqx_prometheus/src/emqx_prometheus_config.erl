@@ -12,6 +12,7 @@
 -export([update/1]).
 -export([conf/0, is_push_gateway_server_enabled/1]).
 -export([to_recommend_type/1]).
+-export([mria_lag_refresh_interval/0]).
 
 -ifdef(TEST).
 -export([all_collectors/0]).
@@ -38,6 +39,9 @@ add_handler() ->
 remove_handler() ->
     ok = emqx_config_handler:remove_handler(?PROMETHEUS),
     ok.
+
+mria_lag_refresh_interval() ->
+    emqx_config:get([prometheus, mria_lag_refresh_interval], 10_000).
 
 %% when we import the config with the old version
 %% we need to respect it, and convert to new schema.
