@@ -15,6 +15,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 %% -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -24,6 +25,8 @@
 -define(ORG_ID2, <<"org_id2">>).
 -define(UNIT_ID2, <<"unit_id2">>).
 -define(AGENT_ID2, <<"agent_id2">>).
+
+-define(ns, ns).
 
 -define(CAPTURE(Expr),
     (fun() ->
@@ -80,6 +83,7 @@ clear_all_cards() ->
     ok.
 
 get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+get_config(K, TCConfig, Default) -> emqx_bridge_v2_testlib:get_value(K, TCConfig, Default).
 
 start_client(Overrides) ->
     emqx_a2a_registry_cth:start_client(Overrides).
@@ -91,8 +95,9 @@ sample_card_bin(Overrides) ->
     Card = emqx_utils_maps:deep_merge(emqx_a2a_registry_cth:sample_card(), Overrides),
     emqx_utils_json:encode(Card).
 
-write_card(OrgId, UnitId, AgentId, Card) ->
-    Topic = emqx_a2a_registry:discovery_topic(OrgId, UnitId, AgentId),
+write_card(OrgId, UnitId, AgentId, Card, TCConfig) ->
+    Namespace = get_config(?ns, TCConfig, ?global_ns),
+    Topic = emqx_a2a_registry_cth:discovery_topic(OrgId, UnitId, AgentId, Namespace),
     ClientId = emqx_a2a_registry_cth:agent_clientid(OrgId, UnitId, AgentId),
     QoS = 1,
     Headers = #{},
@@ -101,29 +106,42 @@ write_card(OrgId, UnitId, AgentId, Card) ->
         Mod:store_retained(State, Msg)
     end).
 
-simple_write_card(OrgId, UnitId, AgentId) ->
+simple_write_card(OrgId, UnitId, AgentId, TCConfig) ->
     Name = emqx_a2a_registry_cth:agent_clientid(OrgId, UnitId, AgentId),
     Card = sample_card_bin(#{<<"name">> => Name}),
-    write_card(OrgId, UnitId, AgentId, Card).
+    write_card(OrgId, UnitId, AgentId, Card, TCConfig).
 
-list_cards(Args0) ->
-    Args = lists:map(fun emqx_utils_conv:str/1, Args0),
+list_cards(Args0, TCConfig) ->
+    Args1 = lists:map(fun emqx_utils_conv:str/1, Args0),
+    Args = maybe_add_ns(Args1, TCConfig),
     emqx_a2a_registry_cli:a2a(["list" | Args]).
 
-get_card(Args0) ->
-    Args = lists:map(fun emqx_utils_conv:str/1, Args0),
+get_card(Args0, TCConfig) ->
+    Args1 = lists:map(fun emqx_utils_conv:str/1, Args0),
+    Args = maybe_add_ns(Args1, TCConfig),
     emqx_a2a_registry_cli:a2a(["get" | Args]).
 
-delete_card(Args0) ->
-    Args = lists:map(fun emqx_utils_conv:str/1, Args0),
+delete_card(Args0, TCConfig) ->
+    Args1 = lists:map(fun emqx_utils_conv:str/1, Args0),
+    Args = maybe_add_ns(Args1, TCConfig),
     emqx_a2a_registry_cli:a2a(["delete" | Args]).
 
-register_card(Args0) ->
-    Args = lists:map(fun emqx_utils_conv:str/1, Args0),
+register_card(Args0, TCConfig) ->
+    Args1 = lists:map(fun emqx_utils_conv:str/1, Args0),
+    Args = maybe_add_ns(Args1, TCConfig),
     emqx_a2a_registry_cli:a2a(["register" | Args]).
 
-card_stats() ->
-    emqx_a2a_registry_cli:a2a(["stats"]).
+card_stats(TCConfig) ->
+    Args = maybe_add_ns([], TCConfig),
+    emqx_a2a_registry_cli:a2a(["stats" | Args]).
+
+maybe_add_ns(Args, TCConfig) ->
+    case get_config(?ns, TCConfig, ?global_ns) of
+        ?global_ns ->
+            Args;
+        Namespace when is_binary(Namespace) ->
+            ["--namespace", binary_to_list(Namespace) | Args]
+    end.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -135,13 +153,13 @@ t_usage(_TCConfig) ->
     ok.
 
 %% Smoke test for calling list
-t_list_cards(_TCConfig) ->
-    simple_write_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
-    simple_write_card(?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2),
+t_list_cards(TCConfig) ->
+    simple_write_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, TCConfig),
+    simple_write_card(?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2, TCConfig),
     Id1 = emqx_a2a_registry_cth:agent_clientid(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
     Id2 = emqx_a2a_registry_cth:agent_clientid(?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2),
 
-    {ok, Out1} = ?CAPTURE(list_cards([])),
+    {ok, Out1} = ?CAPTURE(list_cards([], TCConfig)),
     ?assertMatch(
         [
             [
@@ -154,70 +172,76 @@ t_list_cards(_TCConfig) ->
 
     ?assertMatch(
         {ok, [[#{<<"name">> := Id2}]]},
-        ?CAPTURE(list_cards(["--org-id", ?ORG_ID2]))
+        ?CAPTURE(list_cards(["--org-id", ?ORG_ID2], TCConfig))
     ),
     ?assertMatch(
         {ok, [[#{<<"name">> := Id1}]]},
-        ?CAPTURE(list_cards(["--unit-id", ?UNIT_ID]))
+        ?CAPTURE(list_cards(["--unit-id", ?UNIT_ID], TCConfig))
     ),
     ?assertMatch(
         {ok, [[#{<<"name">> := Id1}]]},
-        ?CAPTURE(list_cards(["--agent-id", ?AGENT_ID]))
+        ?CAPTURE(list_cards(["--agent-id", ?AGENT_ID], TCConfig))
     ),
     ?assertMatch(
         {ok, [[#{<<"name">> := Id1}]]},
         ?CAPTURE(
-            list_cards([
-                "--org-id",
-                ?ORG_ID,
-                "--unit-id",
-                ?UNIT_ID,
-                "--agent-id",
-                ?AGENT_ID
-            ])
+            list_cards(
+                [
+                    "--org-id",
+                    ?ORG_ID,
+                    "--unit-id",
+                    ?UNIT_ID,
+                    "--agent-id",
+                    ?AGENT_ID
+                ],
+                TCConfig
+            )
         )
     ),
     ?assertMatch(
         {ok, [[]]},
         ?CAPTURE(
-            list_cards([
-                "--org-id",
-                ?ORG_ID,
-                "--unit-id",
-                ?UNIT_ID,
-                "--agent-id",
-                ?AGENT_ID2
-            ])
+            list_cards(
+                [
+                    "--org-id",
+                    ?ORG_ID,
+                    "--unit-id",
+                    ?UNIT_ID,
+                    "--agent-id",
+                    ?AGENT_ID2
+                ],
+                TCConfig
+            )
         )
     ),
 
     ?assertMatch(
         {ok, [[_, _]]},
-        ?CAPTURE(list_cards(["--status", "offline"]))
+        ?CAPTURE(list_cards(["--status", "offline"], TCConfig))
     ),
     C = start_client(#{clientid => Id1}),
     ?assertMatch(
         {ok, [[#{<<"name">> := Id2}]]},
-        ?CAPTURE(list_cards(["--status", "offline"]))
+        ?CAPTURE(list_cards(["--status", "offline"], TCConfig))
     ),
     ?assertMatch(
         {ok, [[#{<<"name">> := Id1}]]},
-        ?CAPTURE(list_cards(["--status", "online"]))
+        ?CAPTURE(list_cards(["--status", "online"], TCConfig))
     ),
     emqtt:stop(C),
 
     %% invalid args
-    ?assertMatch({false, _}, ?CAPTURE(list_cards(["--status", "invalid"]))),
-    ?assertMatch({false, _}, ?CAPTURE(list_cards(["--org-id", "/"]))),
-    ?assertMatch({false, _}, ?CAPTURE(list_cards(["--unit-id", "/"]))),
-    ?assertMatch({false, _}, ?CAPTURE(list_cards(["--agent-id", "/"]))),
+    ?assertMatch({false, _}, ?CAPTURE(list_cards(["--status", "invalid"], TCConfig))),
+    ?assertMatch({false, _}, ?CAPTURE(list_cards(["--org-id", "/"], TCConfig))),
+    ?assertMatch({false, _}, ?CAPTURE(list_cards(["--unit-id", "/"], TCConfig))),
+    ?assertMatch({false, _}, ?CAPTURE(list_cards(["--agent-id", "/"], TCConfig))),
 
     ok.
 
 %% Smoke test for calling get
-t_get_card(_TCConfig) ->
-    simple_write_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
-    simple_write_card(?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2),
+t_get_card(TCConfig) ->
+    simple_write_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, TCConfig),
+    simple_write_card(?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2, TCConfig),
     Id1 = emqx_a2a_registry_cth:agent_clientid(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
     Id2 = emqx_a2a_registry_cth:agent_clientid(?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2),
 
@@ -229,9 +253,9 @@ t_get_card(_TCConfig) ->
                 <<"raw">> := <<"{", _/binary>>
             }
         ]},
-        ?CAPTURE(get_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID]))
+        ?CAPTURE(get_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID], TCConfig))
     ),
-    {ok, [#{<<"raw">> := RawCard1}]} = ?CAPTURE(get_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID])),
+    {ok, [#{<<"raw">> := RawCard1}]} = ?CAPTURE(get_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID], TCConfig)),
     Name1 = emqx_a2a_registry_cth:agent_clientid(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
     Card1 = sample_card_bin(#{<<"name">> => Name1}),
     ?assertEqual(emqx_utils_json:decode(Card1), emqx_utils_json:decode(RawCard1)),
@@ -243,28 +267,28 @@ t_get_card(_TCConfig) ->
                 <<"raw">> := <<"{", _/binary>>
             }
         ]},
-        ?CAPTURE(get_card([?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2]))
+        ?CAPTURE(get_card([?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2], TCConfig))
     ),
     ?assertMatch(
         {ok, [null]},
-        ?CAPTURE(get_card([<<"foo">>, ?UNIT_ID, ?AGENT_ID]))
+        ?CAPTURE(get_card([<<"foo">>, ?UNIT_ID, ?AGENT_ID], TCConfig))
     ),
 
     ok.
 
 %% Smoke test for calling delete
-t_delete_card(_TCConfig) ->
-    simple_write_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
-    simple_write_card(?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2),
+t_delete_card(TCConfig) ->
+    simple_write_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, TCConfig),
+    simple_write_card(?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2, TCConfig),
     Id2 = emqx_a2a_registry_cth:agent_clientid(?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2),
 
     ?assertEqual(2, emqx_a2a_registry_cth:card_count()),
 
-    ?assertMatch(ok, delete_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID])),
+    ?assertMatch(ok, delete_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID], TCConfig)),
     ?assertEqual(1, emqx_a2a_registry_cth:card_count()),
 
     %% Idempotency; also, deleting inexistent card
-    ?assertMatch(ok, delete_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID])),
+    ?assertMatch(ok, delete_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID], TCConfig)),
     ?assertEqual(1, emqx_a2a_registry_cth:card_count()),
 
     ?assertMatch(
@@ -285,7 +309,7 @@ t_register_card(TCConfig) ->
     ok = filelib:ensure_dir(Filepath),
     ok = file:write_file(Filepath, Card),
 
-    ?assertMatch(ok, register_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID, Filepath])),
+    ?assertMatch(ok, register_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID, Filepath], TCConfig)),
     ?assertEqual(1, emqx_a2a_registry_cth:card_count()),
     Id = emqx_a2a_registry_cth:agent_clientid(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
     ?assertMatch(
@@ -294,27 +318,29 @@ t_register_card(TCConfig) ->
     ),
 
     %% Invalid ids
-    ?assertMatch(false, register_card(["/", ?UNIT_ID, ?AGENT_ID, Filepath])),
-    ?assertMatch(false, register_card([?ORG_ID, "/", ?AGENT_ID, Filepath])),
-    ?assertMatch(false, register_card([?ORG_ID, ?UNIT_ID, "/", Filepath])),
+    ?assertMatch(false, register_card(["/", ?UNIT_ID, ?AGENT_ID, Filepath], TCConfig)),
+    ?assertMatch(false, register_card([?ORG_ID, "/", ?AGENT_ID, Filepath], TCConfig)),
+    ?assertMatch(false, register_card([?ORG_ID, ?UNIT_ID, "/", Filepath], TCConfig)),
 
     %% Invalid file path
-    ?assertMatch(false, register_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID, "i-dont-exist.json"])),
+    ?assertMatch(
+        false, register_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID, "i-dont-exist.json"], TCConfig)
+    ),
 
     ok.
 
 %% Smoke test for calling stats
-t_card_stats(_TCConfig) ->
+t_card_stats(TCConfig) ->
     ?assertEqual(0, emqx_a2a_registry_cth:card_count()),
     ?assertMatch(
         {ok, [#{<<"total">> := 0}]},
-        ?CAPTURE(card_stats())
+        ?CAPTURE(card_stats(TCConfig))
     ),
 
-    simple_write_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
+    simple_write_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, TCConfig),
     ?assertMatch(
         {ok, [#{<<"total">> := 1}]},
-        ?CAPTURE(card_stats())
+        ?CAPTURE(card_stats(TCConfig))
     ),
 
     ok.

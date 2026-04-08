@@ -10,7 +10,8 @@
     all_cards/0,
     sample_card/0,
     agent_clientid/3,
-    start_client/1
+    start_client/1,
+    discovery_topic/4
 ]).
 
 %%------------------------------------------------------------------------------
@@ -19,6 +20,7 @@
 
 -include("../src/emqx_a2a_registry_internal.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -87,6 +89,12 @@ start_client(Overrides) ->
     on_exit(fun() -> catch emqtt:stop(C) end),
     {ok, _} = emqtt:connect(C),
     C.
+
+discovery_topic(OrgId, UnitId, AgentId, ?global_ns) ->
+    emqx_a2a_registry:discovery_topic(OrgId, UnitId, AgentId);
+discovery_topic(OrgId, UnitId, AgentId, Namespace) when is_binary(Namespace) ->
+    Topic = emqx_a2a_registry:discovery_topic(OrgId, UnitId, AgentId),
+    iolist_to_binary([Namespace, "/", Topic]).
 
 %%------------------------------------------------------------------------------
 %% Internal fns
