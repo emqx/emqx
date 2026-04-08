@@ -120,24 +120,13 @@ test_authenticator_users(PathPrefix) ->
 
     UsersUri0 = uri(PathPrefix ++ [?CONF_NS, "password_based:built_in_database", "status"]),
     {ok, 200, PageData0} = request(get, UsersUri0),
-    case PathPrefix of
-        [] ->
-            #{
-                <<"metrics">> := #{
-                    <<"total">> := 1,
-                    <<"success">> := 0,
-                    <<"failed">> := 1
-                }
-            } = emqx_utils_json:decode(PageData0, [return_maps]);
-        ["listeners", 'tcp:default'] ->
-            #{
-                <<"metrics">> := #{
-                    <<"total">> := 1,
-                    <<"success">> := 0,
-                    <<"nomatch">> := 1
-                }
-            } = emqx_utils_json:decode(PageData0, [return_maps])
-    end,
+    #{
+        <<"metrics">> := #{
+            <<"total">> := 1,
+            <<"success">> := 0,
+            <<"nomatch">> := 1
+        }
+    } = emqx_utils_json:decode(PageData0, [return_maps]),
 
     InvalidUsers = [
         #{clientid => <<"u1">>, password => <<"p1">>},
