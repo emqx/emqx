@@ -1,0 +1,57 @@
+mysql {
+    enable = false
+    ssl {
+        enable = false
+        server_name_indication = "mysql-server"
+        verify = "verify_peer"
+        cacertfile = "/certs/ca.crt"
+        certfile = "/certs/mysql-client.crt"
+        keyfile = "/certs/mysql-client.key"
+    }
+    server = "mysql:3306"
+    pool_size = 8
+    username = "emqx"
+    password = "public"
+    database = "emqx"
+    topics = []
+    init_default_schema = false
+    insert_message_sql = "insert into mqtt_msg(msgid, sender, topic, qos, retain, payload, arrived) values(${id}, ${from}, ${topic}, ${qos}, ${flags.retain}, ${payload}, FROM_UNIXTIME(${timestamp}/1000))"
+    delete_message_sql = "delete from mqtt_msg where msgid = ${id}"
+    select_message_sql = "select * from mqtt_msg where topic = ${topic}"
+    insert_subscription_sql = "insert into mqtt_sub(clientid, topic, qos) values(${clientid}, ${topic}, ${qos}) on duplicate key update qos = ${qos}"
+    select_subscriptions_sql = "select topic, qos from mqtt_sub where clientid = ${clientid}"
+    delete_subscription_sql = "delete from mqtt_sub where clientid = ${clientid} and topic = ${topic}"
+    batch_size = 1
+    batch_time = 100
+}
+
+redis {
+    enable = false
+    ssl {
+        enable = false
+        server_name_indication = "redis-server"
+        verify = "verify_peer"
+        cacertfile = "/certs/ca.crt"
+        certfile = "/certs/redis-client.crt"
+        keyfile = "/certs/redis-client.key"
+    }
+    servers = "redis:6379"
+    redis_type = "single"
+    sentinel = ""
+    pool_size = 8
+    username = ""
+    password = "public"
+    topics = []
+    message_key_prefix = "mqtt:msg"
+    subscription_key_prefix = "mqtt:sub"
+    message_ttl = 7200
+    database = 0
+    batch_size = 1
+    batch_time = 100
+}
+
+
+
+
+
+
