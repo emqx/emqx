@@ -7,6 +7,7 @@ PLUGIN_APP="emqx_offline_messages"
 PLUGIN_VSN="$(tr -d '[:space:]' < "$ROOT_DIR/plugins/$PLUGIN_APP/VERSION")"
 PLUGIN="$PLUGIN_APP-$PLUGIN_VSN"
 PLUGIN_TAR="$ROOT_DIR/_build/plugins/$PLUGIN.tar.gz"
+CERT_GEN="$ROOT_DIR/plugins/$PLUGIN_APP/test/assets/gen-certs.sh"
 EMQX_API_PORT="${EMQX_API_PORT:-58083}"
 EMQX_MQTT_PORT="${EMQX_MQTT_PORT:-5883}"
 BASE_URL="http://127.0.0.1:$EMQX_API_PORT"
@@ -37,6 +38,8 @@ if [[ ! -f "$PLUGIN_TAR" ]]; then
     echo "[mysql] Run: PROFILE=emqx-enterprise ./scripts/run-plugin-dev.sh $PLUGIN_APP" >&2
     exit 1
 fi
+
+"$CERT_GEN"
 
 cleanup() {
     if [[ "$KEEP" == "true" ]]; then
