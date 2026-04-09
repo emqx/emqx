@@ -660,6 +660,137 @@ t_connectionless_pubsub(_) ->
     do(Fun),
     restart_coap_with_connection_mode(true).
 
+t_request_with_partial_token_params(_) ->
+    Action = fun(Channel) ->
+        Token = connection(Channel),
+        URI1 = compose_uri(
+            ?PS_PREFIX ++ "/only_clientid",
+            #{
+                "clientid" => <<"client1">>
+            },
+            false
+        ),
+        Req1 = make_req(get, <<>>, [{observe, 0}]),
+        {error, bad_request, _} = do_request(Channel, URI1, Req1),
+
+        URI2 = compose_uri(
+            ?PS_PREFIX ++ "/only_token",
+            #{
+                "token" => list_to_binary(Token)
+            },
+            false
+        ),
+        Req2 = make_req(get, <<>>, [{observe, 0}]),
+        {error, bad_request, _} = do_request(Channel, URI2, Req2),
+        disconnection(Channel, Token)
+    end,
+    do(Action).
+
+t_token_takeover_across_udp_sessions(_) ->
+    ChId = {{127, 0, 0, 1}, 5683},
+    {ok, Sock1} = er_coap_udp_socket:start_link(),
+    {ok, Channel1} = er_coap_udp_socket:get_channel(Sock1, ChId),
+    Token = connection(Channel1),
+    timer:sleep(100),
+    ?assertNotEqual(
+        [],
+        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+    ),
+    er_coap_channel:close(Channel1),
+    er_coap_udp_socket:close(Sock1),
+
+    timer:sleep(100),
+    ?assertNotEqual(
+        [],
+        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+    ),
+
+    {ok, Sock2} = er_coap_udp_socket:start_link(),
+    {ok, Channel2} = er_coap_udp_socket:get_channel(Sock2, ChId),
+    URI = compose_uri(
+        ?PS_PREFIX ++ "/coap/udp_takeover",
+        #{
+            "clientid" => <<"client1">>,
+            "token" => list_to_binary(Token)
+        },
+        false
+    ),
+    Req = make_req(post, <<"x">>),
+    {ok, changed, _} = do_request(Channel2, URI, Req),
+    timer:sleep(100),
+    ?assertEqual(
+        1,
+        length(emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>))
+    ),
+
+    disconnection(Channel2, Token),
+    er_coap_channel:close(Channel2),
+    er_coap_udp_socket:close(Sock2).
+
+t_invalid_token_rejected_across_udp_sessions(_) ->
+    ChId = {{127, 0, 0, 1}, 5683},
+    {ok, Sock1} = er_coap_udp_socket:start_link(),
+    {ok, Channel1} = er_coap_udp_socket:get_channel(Sock1, ChId),
+    Token = connection(Channel1),
+    er_coap_channel:close(Channel1),
+    er_coap_udp_socket:close(Sock1),
+    timer:sleep(100),
+    ?assertNotEqual(
+        [],
+        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+    ),
+
+    {ok, Sock2} = er_coap_udp_socket:start_link(),
+    {ok, Channel2} = er_coap_udp_socket:get_channel(Sock2, ChId),
+    URI = compose_uri(
+        ?PS_PREFIX ++ "/coap/udp_invalid_token",
+        #{
+            "clientid" => <<"client1">>,
+            "token" => <<"wrong-token">>
+        },
+        false
+    ),
+    Req = make_req(post, <<"x">>),
+    case do_request(Channel2, URI, Req) of
+        {error, unauthorized, _} -> ok;
+        {error, uauthorized, _} -> ok
+    end,
+    disconnection(Channel2, Token),
+    er_coap_channel:close(Channel2),
+    er_coap_udp_socket:close(Sock2).
+
+t_wrong_clientid_with_valid_token_rejected_across_udp_sessions(_) ->
+    ChId = {{127, 0, 0, 1}, 5683},
+    {ok, Sock1} = er_coap_udp_socket:start_link(),
+    {ok, Channel1} = er_coap_udp_socket:get_channel(Sock1, ChId),
+    Token = connection(Channel1),
+    er_coap_channel:close(Channel1),
+    er_coap_udp_socket:close(Sock1),
+    timer:sleep(100),
+    ?assertNotEqual(
+        [],
+        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+    ),
+
+    {ok, Sock2} = er_coap_udp_socket:start_link(),
+    {ok, Channel2} = er_coap_udp_socket:get_channel(Sock2, ChId),
+    URI = compose_uri(
+        ?PS_PREFIX ++ "/coap/udp_wrong_clientid",
+        #{
+            "clientid" => <<"client2">>,
+            "token" => list_to_binary(Token)
+        },
+        false
+    ),
+    Req = make_req(post, <<"x">>),
+    case do_request(Channel2, URI, Req) of
+        {error, unauthorized, _} -> ok;
+        {error, uauthorized, _} -> ok
+    end,
+    disconnection(Channel2, Token),
+    er_coap_channel:close(Channel2),
+    er_coap_udp_socket:close(Sock2).
+
 %%--------------------------------------------------------------------
 %% helpers
 
