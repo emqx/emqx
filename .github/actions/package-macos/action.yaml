@@ -1,31 +1,24 @@
-name: 'Create MacOS package'
-description: 'Build MacOS package for emqx or emqx-enterprise'
+name: 'Create MacOS packages'
+description: 'Build MacOS packages'
 inputs:
-  profile: # emqx, emqx-enterprise
-    required: true
-    type: string
+  profile: # emqx-enterprise
+    required: false
+    default: emqx-enterprise
   otp:
     required: true
-    type: string
   elixir:
     required: true
-    type: string
   os:
     required: false
-    type: string
     default: macos-15
   apple_id_password:
     required: false
-    type: string
   apple_developer_identity:
     required: false
-    type: string
   apple_developer_id_bundle:
     required: false
-    type: string
   apple_developer_id_bundle_password:
     required: false
-    type: string
 
 runs:
   using: composite

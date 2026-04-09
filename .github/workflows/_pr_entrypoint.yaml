@@ -92,7 +92,7 @@ jobs:
           wget -q https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VSN}/actionlint_${ACTIONLINT_VSN}_linux_$(dpkg --print-architecture).tar.gz -O actionlint.tar.gz
           tar zxf actionlint.tar.gz actionlint
           # TODO: enable shellcheck when all the current issues are fixed
-          ./actionlint -color -shellcheck=  -ignore 'label ".+" is unknown'
+          ./actionlint -shellcheck=
       - name: Check line-break at EOF
         run: |
           ./scripts/check-nl-at-eof.sh
