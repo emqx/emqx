@@ -33,4 +33,49 @@ example_license_key_string.desc:
 example_license_key_string.label:
 """License Key String Example"""
 
+desc_session_hwm_history_api.desc:
+"""Get session high-watermark history. Returns daily or monthly peak session counts."""
+desc_session_hwm_history_api.label:
+"""Session High-Watermark History"""
+
+param_history_period.desc:
+"""Aggregation period: `daily` returns one row per day, `monthly` folds daily peaks into month-level maximums."""
+param_history_period.label:
+"""Period"""
+
+param_history_limit.desc:
+"""Maximum number of rows to return."""
+param_history_limit.label:
+"""Limit"""
+
+resp_period.desc:
+"""The aggregation period used for this response (`daily` or `monthly`)."""
+resp_period.label:
+"""Period"""
+
+resp_count.desc:
+"""Number of data rows returned."""
+resp_count.label:
+"""Count"""
+
+resp_data.desc:
+"""Array of high-watermark rows, newest first."""
+resp_data.label:
+"""Data"""
+
+resp_row_period.desc:
+"""Calendar period label, e.g. `2026-04-18` for daily or `2026-04` for monthly."""
+resp_row_period.label:
+"""Row Period"""
+
+resp_row_hwm.desc:
+"""Peak session count observed during this period."""
+resp_row_hwm.label:
+"""High Watermark"""
+
+resp_row_observed_at.desc:
+"""Timestamp (RFC 3339) when the peak was observed."""
+resp_row_observed_at.label:
+"""Observed At"""
+
 }

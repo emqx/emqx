@@ -23,6 +23,15 @@ init([Reader]) ->
     Children =
         [
             #{
+                id => license_session_hwm,
+                start => {emqx_license_session_hwm, start_link, []},
+                restart => transient,
+                shutdown => 5000,
+                type => worker,
+                modules => [emqx_license_session_hwm]
+            },
+
+            #{
                 id => license_checker,
                 start => {emqx_license_checker, start_link, [Reader]},
                 restart => permanent,
