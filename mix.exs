@@ -175,7 +175,7 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.4", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.5", override: true}
 
   def common_dep(:esockd),
     do: {:esockd, github: "emqx/esockd", tag: "5.16.1", override: true}
@@ -233,7 +233,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.3", override: true}
 
   def common_dep(:minirest),
-    do: {:minirest, github: "emqx/minirest", tag: "1.4.10", override: true}
+    do: {:minirest, github: "emqx/minirest", tag: "1.4.12", override: true}
 
   # maybe forbid to fetch quicer
   def common_dep(:emqtt),
@@ -274,7 +274,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:ots_erl, github: "emqx/ots_erl", tag: "0.2.3", override: true}
 
   def common_dep(:influxdb),
-    do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.15", override: true}
+    do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.16", override: true}
 
   def common_dep(:wolff), do: {:wolff, "4.1.9"}
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}
@@ -319,7 +319,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.3-emqx.1"}
 
   def common_dep(:greptimedb_rs),
-    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.7"}
+    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.8"}
 
   def common_dep(:sbom), do: {:sbom, "~> 0.8", runtime: false}
 
