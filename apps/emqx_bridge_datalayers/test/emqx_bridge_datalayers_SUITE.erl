@@ -15,6 +15,8 @@
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 all() ->
     [
         {group, with_batch},
@@ -54,6 +56,9 @@ init_per_group(DatalayersType, Config0) when
     DatalayersType =:= apiv1_http;
     DatalayersType =:= apiv1_https
 ->
+    ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
+    ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     #{
         host := DatalayersHost,
         port := DatalayersPort,
@@ -78,9 +83,6 @@ init_per_group(DatalayersType, Config0) when
         end,
     case emqx_common_test_helpers:is_tcp_server_available(DatalayersHost, DatalayersPort) of
         true ->
-            ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
-            ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
-            emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
             Apps = emqx_cth_suite:start(
                 [
                     emqx_conf,
@@ -181,6 +183,7 @@ end_per_testcase(_Testcase, Config) ->
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -413,6 +416,15 @@ ensure_database(Config) ->
     ct:sleep(1000),
     ok.
 
+simple_create_rule_api(TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
+
+start_client(Opts) ->
+    {ok, C} = emqtt:start_link(Opts),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    C.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -578,65 +590,62 @@ t_start_ok_no_subject_tags_write_syntax(Config) ->
     ok.
 
 t_const_timestamp(Config) ->
-    QueryMode = ?config(query_mode, Config),
     %% If the time is "too round", there may be some formatting issues later.
-    %% Const = erlang:system_time(nanosecond),
-    Const = 1773078804209825307,
-    ConstBin = integer_to_binary(Const),
-    TsStr = iolist_to_binary(
-        calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, 0}])
-    ),
-    ?assertMatch(
-        {ok, _},
-        create_bridge(
-            Config,
-            #{
-                <<"parameters">> => #{
-                    <<"write_syntax">> =>
-                        <<
-                            "mqtt,clientid=${clientid} "
-                            "foo=${payload.foo}i,"
-                            "foo1=${payload.foo},"
-                            "foo2=\"${payload.foo}\","
-                            "foo3=\"${payload.foo}somestr\","
-                            "bar=5i,baz0=1.1,baz1=\"a\",baz2=\"ai\",baz3=\"au\",baz4=\"1u\" ",
-                            ConstBin/binary
-                        >>
+    %%
+    %% Also, datalayers for unknown reasons refuses to return data inserted for data older
+    %% than 1 month, so we are forced to generate a fresh timestamp here......  Hence the
+    %% need to wrap the whole case in `?retry`......
+    ?retry(500, 10, begin
+        Const = erlang:system_time(nanosecond),
+        ConstBin = integer_to_binary(Const),
+        TsStr = iolist_to_binary(
+            calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, 0}])
+        ),
+        ?assertMatch(
+            {ok, _},
+            create_bridge(
+                Config,
+                #{
+                    <<"parameters">> => #{
+                        <<"write_syntax">> =>
+                            <<
+                                "mqtt,clientid=${clientid} "
+                                "foo=${payload.foo}i,"
+                                "foo1=${payload.foo},"
+                                "foo2=\"${payload.foo}\","
+                                "foo3=\"${payload.foo}somestr\","
+                                "bar=5i,baz0=1.1,baz1=\"a\",baz2=\"ai\",baz3=\"au\",baz4=\"1u\" ",
+                                ConstBin/binary
+                            >>
+                    }
                 }
-            }
-        )
-    ),
-    ClientId = random_clientid_(),
-    Payload = #{<<"foo">> => 123},
-    SentData = #{
-        <<"clientid">> => ClientId,
-        <<"topic">> => atom_to_binary(?FUNCTION_NAME),
-        <<"payload">> => Payload,
-        <<"timestamp">> => erlang:system_time(millisecond)
-    },
-    case QueryMode of
-        async ->
-            ?assertMatch(ok, send_message(Config, SentData));
-        sync ->
-            ?assertMatch({ok, 204, _}, send_message(Config, SentData))
-    end,
-    ct:sleep(2000),
-    PersistedData = query_by_clientid(<<"mqtt">>, ClientId, Config),
-    Expected = #{
-        foo => 123,
-        foo1 => 123.0,
-        foo2 => <<"123">>,
-        foo3 => <<"123somestr">>,
-        bar => 5,
-        baz0 => 1.1,
-        baz1 => <<"a">>,
-        baz2 => <<"ai">>,
-        baz3 => <<"au">>,
-        baz4 => <<"1u">>
-    },
-    assert_persisted_data(ClientId, Expected, PersistedData),
-    TimeReturned = maps:get(<<"time">>, PersistedData),
-    ?assertEqual(TsStr, TimeReturned).
+            )
+        ),
+        #{topic := Topic} = simple_create_rule_api(Config),
+        ClientId = random_clientid_(),
+        C = start_client(#{clientid => ClientId}),
+        Payload = #{<<"foo">> => 123},
+        emqtt:publish(C, Topic, emqx_utils_json:encode(Payload), [{qos, 1}]),
+        Expected = #{
+            foo => 123,
+            foo1 => 123.0,
+            foo2 => <<"123">>,
+            foo3 => <<"123somestr">>,
+            bar => 5,
+            baz0 => 1.1,
+            baz1 => <<"a">>,
+            baz2 => <<"ai">>,
+            baz3 => <<"au">>,
+            baz4 => <<"1u">>
+        },
+        ?retry(200, 10, begin
+            PersistedData = query_by_clientid(<<"mqtt">>, ClientId, Config),
+            assert_persisted_data(ClientId, Expected, PersistedData),
+            TimeReturned = maps:get(<<"time">>, PersistedData),
+            ?assertEqual(TsStr, TimeReturned)
+        end)
+    end),
+    ok.
 
 %% XXX: this case need:
 %% [ts_engine.schemaless]
@@ -741,13 +750,14 @@ t_any_num_as_float(Config) ->
         async ->
             ?assertMatch(ok, send_message(Config, SentData))
     end,
-    %% sleep is still need even in sync mode, or we would get an empty result sometimes
-    ct:sleep(1500),
-    PersistedData = query_by_clientid(<<"mqtt">>, ClientId, Config),
-    Expected = #{float_no_dp => 123.0, float_dp => 123.0},
-    assert_persisted_data(ClientId, Expected, PersistedData),
-    TimeReturned = maps:get(<<"time">>, PersistedData),
-    ?assertEqual(TsStr, TimeReturned).
+    ?retry(200, 10, begin
+        PersistedData = query_by_clientid(<<"mqtt">>, ClientId, Config),
+        Expected = #{float_no_dp => 123.0, float_dp => 123.0},
+        assert_persisted_data(ClientId, Expected, PersistedData),
+        TimeReturned = maps:get(<<"time">>, PersistedData),
+        ?assertEqual(TsStr, TimeReturned)
+    end),
+    ok.
 
 t_tag_set_use_literal_value(Config) ->
     Table = atom_to_binary(?FUNCTION_NAME),
