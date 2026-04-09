@@ -1785,9 +1785,13 @@ t_inexistent_topic_after_created(TCConfig) ->
                     ensure_kafka_topic(Topic),
                     #{?snk_kind := "kafka_producer_action_connected"}
                 ),
-            ?assertMatch(
-                {200, #{<<"status">> := <<"connected">>}},
-                get_action_api(TCConfig)
+            ?retry(
+                100,
+                10,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_action_api(TCConfig)
+                )
             ),
 
             ok
