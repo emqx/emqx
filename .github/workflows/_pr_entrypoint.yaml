@@ -23,7 +23,7 @@ env:
 
 jobs:
   init:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     outputs:
       BUILDER_VSN: ${{ steps.env.outputs.BUILDER_VSN }}
       OTP_VSN: ${{ steps.env.outputs.OTP_VSN }}
@@ -43,7 +43,7 @@ jobs:
           echo "BUILDER=$EMQX_BUILDER" | tee -a "$GITHUB_OUTPUT"
 
   sanity-checks:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     needs: init
     container: ${{ needs.init.outputs.BUILDER }}
     outputs:
@@ -87,15 +87,12 @@ jobs:
           pytest scripts/test/test_find_apps.py -v
       - name: Check workflow files
         env:
-          ACTIONLINT_VSN: 1.6.25
+          ACTIONLINT_VSN: 1.7.12
         run: |
           wget -q https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VSN}/actionlint_${ACTIONLINT_VSN}_linux_$(dpkg --print-architecture).tar.gz -O actionlint.tar.gz
           tar zxf actionlint.tar.gz actionlint
           # TODO: enable shellcheck when all the current issues are fixed
-          ./actionlint -color \
-            -shellcheck= \
-            -ignore 'label ".+" is unknown' \
-            -ignore 'value "emqx-enterprise" in "exclude"'
+          ./actionlint -color -shellcheck=  -ignore 'label ".+" is unknown'
       - name: Check line-break at EOF
         run: |
           ./scripts/check-nl-at-eof.sh
