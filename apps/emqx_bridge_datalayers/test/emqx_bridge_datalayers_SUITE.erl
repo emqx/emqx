@@ -590,60 +590,58 @@ t_start_ok_no_subject_tags_write_syntax(Config) ->
     ok.
 
 t_const_timestamp(Config) ->
-    %% If the time is "too round", there may be some formatting issues later.
-    %%
-    %% Also, datalayers for unknown reasons refuses to return data inserted for data older
-    %% than 1 month, so we are forced to generate a fresh timestamp here......  Hence the
-    %% need to wrap the whole case in `?retry`......
-    ?retry(500, 10, begin
-        Const = erlang:system_time(nanosecond),
-        ConstBin = integer_to_binary(Const),
-        TsStr = iolist_to_binary(
-            calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, 0}])
-        ),
-        ?assertMatch(
-            {ok, _},
-            create_bridge(
-                Config,
-                #{
-                    <<"parameters">> => #{
-                        <<"write_syntax">> =>
-                            <<
-                                "mqtt,clientid=${clientid} "
-                                "foo=${payload.foo}i,"
-                                "foo1=${payload.foo},"
-                                "foo2=\"${payload.foo}\","
-                                "foo3=\"${payload.foo}somestr\","
-                                "bar=5i,baz0=1.1,baz1=\"a\",baz2=\"ai\",baz3=\"au\",baz4=\"1u\" ",
-                                ConstBin/binary
-                            >>
-                    }
+    %% datalayers for unknown reasons refuses to return data inserted for data older than
+    %% 1 month, so we are forced to generate a fresh timestamp here......
+    Const0 = erlang:system_time(nanosecond),
+    %% If the time is "too round", there may be some formatting issues later.  Therefore
+    %% the need to do the `div 100 + 1` hack....
+    Const = (Const0 div 100) * 100 + 1,
+    ConstBin = integer_to_binary(Const),
+    TsStr = iolist_to_binary(
+        calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, 0}])
+    ),
+    ?assertMatch(
+        {ok, _},
+        create_bridge(
+            Config,
+            #{
+                <<"parameters">> => #{
+                    <<"write_syntax">> =>
+                        <<
+                            "mqtt,clientid=${clientid} "
+                            "foo=${payload.foo}i,"
+                            "foo1=${payload.foo},"
+                            "foo2=\"${payload.foo}\","
+                            "foo3=\"${payload.foo}somestr\","
+                            "bar=5i,baz0=1.1,baz1=\"a\",baz2=\"ai\",baz3=\"au\",baz4=\"1u\" ",
+                            ConstBin/binary
+                        >>
                 }
-            )
-        ),
-        #{topic := Topic} = simple_create_rule_api(Config),
-        ClientId = random_clientid_(),
-        C = start_client(#{clientid => ClientId}),
-        Payload = #{<<"foo">> => 123},
-        emqtt:publish(C, Topic, emqx_utils_json:encode(Payload), [{qos, 1}]),
-        Expected = #{
-            foo => 123,
-            foo1 => 123.0,
-            foo2 => <<"123">>,
-            foo3 => <<"123somestr">>,
-            bar => 5,
-            baz0 => 1.1,
-            baz1 => <<"a">>,
-            baz2 => <<"ai">>,
-            baz3 => <<"au">>,
-            baz4 => <<"1u">>
-        },
-        ?retry(200, 10, begin
-            PersistedData = query_by_clientid(<<"mqtt">>, ClientId, Config),
-            assert_persisted_data(ClientId, Expected, PersistedData),
-            TimeReturned = maps:get(<<"time">>, PersistedData),
-            ?assertEqual(TsStr, TimeReturned)
-        end)
+            }
+        )
+    ),
+    #{topic := Topic} = simple_create_rule_api(Config),
+    ClientId = random_clientid_(),
+    C = start_client(#{clientid => ClientId}),
+    Payload = #{<<"foo">> => 123},
+    emqtt:publish(C, Topic, emqx_utils_json:encode(Payload), [{qos, 1}]),
+    Expected = #{
+        foo => 123,
+        foo1 => 123.0,
+        foo2 => <<"123">>,
+        foo3 => <<"123somestr">>,
+        bar => 5,
+        baz0 => 1.1,
+        baz1 => <<"a">>,
+        baz2 => <<"ai">>,
+        baz3 => <<"au">>,
+        baz4 => <<"1u">>
+    },
+    ?retry(200, 10, begin
+        PersistedData = query_by_clientid(<<"mqtt">>, ClientId, Config),
+        assert_persisted_data(ClientId, Expected, PersistedData),
+        TimeReturned = maps:get(<<"time">>, PersistedData),
+        ?assertEqual(TsStr, TimeReturned)
     end),
     ok.
 
