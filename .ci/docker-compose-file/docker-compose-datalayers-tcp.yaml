@@ -1,7 +1,7 @@
 services:
   datalayers_server_tcp:
     container_name: datalayers_tcp
-    image: datalayers/datalayers:${DATALAYERS_TAG}
+    image: datalayers/datalayers:v2.3.8
     expose:
       # gRPC
       - "8360"
