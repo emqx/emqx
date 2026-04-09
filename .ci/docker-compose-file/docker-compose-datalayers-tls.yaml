@@ -1,7 +1,7 @@
 services:
   datalayers_server_tls:
     container_name: datalayers_tls
-    image: datalayers/datalayers:${DATALAYERS_TAG}
+    image: datalayers/datalayers:v2.3.8
     expose:
       # gRPCs
       - "8362"
