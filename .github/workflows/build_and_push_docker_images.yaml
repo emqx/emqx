@@ -95,7 +95,7 @@ jobs:
           echo "==========="
           echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
 
-      - name: Verify that size of docker image is less than 140 MB
+      - name: Verify that size of docker image is less than 150 MB
         run: |
           docker save $_EMQX_DOCKER_IMAGE_TAG | gzip -c | wc -c | xargs -I {} test {} -lt 150000000
 
