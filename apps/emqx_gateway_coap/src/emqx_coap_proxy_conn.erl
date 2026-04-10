@@ -32,18 +32,7 @@ get_connection_id(_Transport, Peer, State, Data) ->
                 #coap_message{} ->
                     {CId, NBoundCId} = choose_cid(Msg, BoundCId, Peer),
                     {ok, CId, Packets, merge_state(NState, NBoundCId)};
-                {coap_ignore, _} ->
-                    %% RFC 7252 Section 3: unknown versions must be silently ignored.
-                    {ok, route_cid(BoundCId, Peer), Packets, merge_state(NState, BoundCId)};
-                {coap_format_error, Type, MsgId, _} ->
-                    %% RFC 7252 Section 4.2: reject CON format errors with Reset.
-                    _ = {Type, MsgId},
-                    %% RFC 7252 Section 4.2: per-message errors must not stop the listener.
-                    {ok, route_cid(BoundCId, Peer), Packets, merge_state(NState, BoundCId)};
-                {coap_request_error, Req, Error} ->
-                    %% RFC 7252 Section 5.4.1/5.8: reply with a 4.xx error for bad requests.
-                    _ = {Req, Error},
-                    %% RFC 7252 Section 4.2: per-message errors must not stop the listener.
+                _ ->
                     {ok, route_cid(BoundCId, Peer), Packets, merge_state(NState, BoundCId)}
             end;
         _Error ->
