@@ -246,6 +246,36 @@ t_cluster_node_force_leave(Config) ->
     ?assertEqual([<<"test/e/f">>], emqx_router:topics()),
     ?assertEqual([], emqx_shared_sub:subscribers(<<"g">>, '_')).
 
+%% Test that dangling routes (routes without a corresponding `emqx_routing_node` entry)
+%% are detected on-demand during message routing and eventually cleaned up.
+t_cluster_node_dangling_route(_Config) ->
+    DanglingNode = emqx_cth_cluster:node_name(cluster_node_dangling),
+    DanglingTopic = <<"dangling/route/topic">>,
+    LocalTopic = <<"test/e/f">>,
+    %% Insert a route directly, bypassing the normal add_route path which would
+    %% also create a `routing_node` entry. This simulates the inconsistent state
+    %% where routes exist but the `emqx_routing_node` entry was cleaned up.
+    ok = mria:dirty_write(emqx_route, #route{topic = DanglingTopic, dest = DanglingNode}),
+    ok = emqx_router:add_route(LocalTopic, node()),
+    ?assertMatch([_, _], emqx_router:topics()),
+    %% Verify the dangling state: route exists, but no routing_node entry.
+    ?assertNot(ets:member(emqx_routing_node, DanglingNode)),
+    ?assertEqual(unknown, emqx_router_helper:assess_node_routable(DanglingNode)),
+    {_, {ok, _}} = ?wait_async_action(
+        %% Publish a message to the dangling topic.
+        emqx_broker:publish(emqx_message:make(<<?MODULE_STRING>>, DanglingTopic, <<"test">>)),
+        %% The dangling node should be detected and reported.
+        #{?snk_kind := "broker_dangling_routing_node_found", node := DanglingNode}
+    ),
+    %% After detection, a routing_node entry should have been created, and the node should
+    %% be considered not routable.
+    ok = timer:sleep(100),
+    ?assert(ets:member(emqx_routing_node, DanglingNode)),
+    ?assertEqual(false, emqx_router_helper:assess_node_routable(DanglingNode)),
+    %% Wait for the purge to clean up the routes.
+    {ok, _} = ?block_until(#{?snk_kind := broker_node_purged, node := DanglingNode}),
+    ?assertEqual([LocalTopic], emqx_router:topics()).
+
 t_cluster_node_restart('init', Config) ->
     start_join_node(cluster_node_restart, Config);
 t_cluster_node_restart('end', Config) ->
