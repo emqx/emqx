@@ -1509,3 +1509,183 @@ t_case21_proto_mqueue(_Config) ->
 
     {error, timeout} = gen_tcp:recv(Socket, 0, 500),
     ok.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 2025 Test Cases %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+encode_2025(Cmd, Vin, Data) ->
+    encode_2025(Cmd, ?ACK_IS_CMD, Vin, ?ENCRYPT_NONE, Data).
+
+encode_2025(Cmd, Ack, Vin, Data) ->
+    encode_2025(Cmd, Ack, Vin, ?ENCRYPT_NONE, Data).
+
+encode_2025(Cmd, Ack, Vin, Encrypt, Data) ->
+    Size = byte_size(Data),
+    S1 = <<Cmd:8, Ack:8, Vin:17/binary, Encrypt:8, Size:16, Data/binary>>,
+    Crc = make_crc(S1, undefined),
+    <<"$$", S1/binary, Crc:8>>.
+
+login_first_2025() ->
+    emqx:subscribe("gbt32960/+/upstream/#"),
+
+    %
+    % send VEHICLE LOGIN (2025)
+    %
+    Time = <<25, 1, 1, 10, 30, 0>>,
+    Data =
+        <<Time/binary, 1:?WORD, "12345678901234567890", 1:?BYTE, 1:?BYTE,
+            "PACK12345678901234567890">>,
+    Packet = encode_2025(?CMD_VIHECLE_LOGIN, <<"VIN12345678901234">>, Data),
+
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    ok = gen_tcp:send(Socket, Packet),
+    timer:sleep(200),
+    {ok, AckPacket} = gen_tcp:recv(Socket, 0, 500),
+    ?LOGT("ack packet: ~p", [binary_to_hex_string(AckPacket)]),
+
+    BodyLen = byte_size(AckPacket) - 3,
+    <<"$$", Body:BodyLen/binary, Crc:8>> = AckPacket,
+    <<?CMD_VIHECLE_LOGIN, ?ACK_SUCCESS, "VIN12345678901234", ?ENCRYPT_NONE, _Len:?WORD,
+        Time2:6/binary, _Rest/binary>> = Body,
+
+    ?assertNotEqual(Time, Time2),
+    ?assertEqual(Crc, make_crc(Body, undefined)),
+
+    ?assertEqual(
+        true, lists:member(<<"gbt32960/VIN12345678901234/dnstream">>, get_subscriptions())
+    ),
+
+    % check has publish connected message
+    {<<"gbt32960/VIN12345678901234/upstream/vlogin">>, PubedMsg} = get_published_msg(),
+    #{
+        <<"Cmd">> := ?CMD_VIHECLE_LOGIN,
+        <<"Encrypt">> := ?ENCRYPT_NONE,
+        <<"Vin">> := <<"VIN12345678901234">>,
+        <<"Data">> := #{
+            <<"Time">> := #{
+                <<"Year">> := 25,
+                <<"Month">> := 1,
+                <<"Day">> := 1,
+                <<"Hour">> := 10,
+                <<"Minute">> := 30,
+                <<"Second">> := 0
+            },
+            <<"Seq">> := 1,
+            <<"ICCID">> := <<"12345678901234567890">>,
+            <<"BmsNum">> := 1,
+            <<"BatteryPackCounts">> := [1],
+            <<"BatteryPackEncodings">> := [[<<"PACK12345678901234567890">>]]
+        }
+    } = emqx_utils_json:decode(PubedMsg),
+    {ok, Socket}.
+
+t_case22_login_2025(_Config) ->
+    {ok, Socket} = login_first_2025(),
+    ok = gen_tcp:close(Socket).
+
+t_case23_reportinfo_2025_0x01(_Config) ->
+    {ok, Socket} = login_first_2025(),
+
+    % 2025 Vehicle Body: 18 bytes (no AcceleratorPedal/BrakePedal)
+    Time = <<25, 1, 1, 10, 30, 5>>,
+    VehicleState =
+        <<1:?BYTE, 1:?BYTE, 1:?BYTE, 2000:?WORD, 999999:?DWORD, 5000:?WORD, 15000:?WORD, 50:?BYTE,
+            1:?BYTE, 5:?BYTE, 6000:?WORD>>,
+    Data = <<Time/binary, ?INFO_TYPE_2025_VEHICLE, VehicleState/binary>>,
+    Packet = encode_2025(?CMD_INFO_REPORT, <<"VIN12345678901234">>, Data),
+    ok = gen_tcp:send(Socket, Packet),
+    timer:sleep(200),
+    {<<"gbt32960/VIN12345678901234/upstream/info">>, PubedMsg} = get_published_msg(),
+    #{
+        <<"Cmd">> := ?CMD_INFO_REPORT,
+        <<"Vin">> := <<"VIN12345678901234">>,
+        <<"Data">> := #{
+            <<"Infos">> := [
+                #{
+                    <<"Type">> := <<"Vehicle">>,
+                    <<"Resistance">> := 6000
+                }
+            ]
+        }
+    } = emqx_utils_json:decode(PubedMsg),
+    ok.
+
+t_case24_reportinfo_2025_0x07(_Config) ->
+    {ok, Socket} = login_first_2025(),
+
+    % 2025 Power Battery Voltage (Info Type 0x07)
+    Time = <<25, 1, 1, 10, 30, 5>>,
+    BatteryPack1 = <<1:?BYTE, 3000:?WORD, 1000:?WORD, 2:?WORD, 1200:?WORD, 1201:?WORD>>,
+    Data = <<Time/binary, ?INFO_TYPE_2025_POWER_BATTERY_VOLTAGE, 1:?BYTE, BatteryPack1/binary>>,
+    Packet = encode_2025(?CMD_INFO_REPORT, <<"VIN12345678901234">>, Data),
+    ok = gen_tcp:send(Socket, Packet),
+    timer:sleep(200),
+    {<<"gbt32960/VIN12345678901234/upstream/info">>, PubedMsg} = get_published_msg(),
+    #{
+        <<"Cmd">> := ?CMD_INFO_REPORT,
+        <<"Data">> := #{
+            <<"Infos">> := [
+                #{
+                    <<"Type">> := <<"MinVoltageOfPowerBattery">>,
+                    <<"SubSystems">> := [
+                        #{
+                            <<"BatteryPackNo">> := 1,
+                            <<"MinParallelUnitVoltage">> := [1200, 1201]
+                        }
+                    ]
+                }
+            ]
+        }
+    } = emqx_utils_json:decode(PubedMsg),
+    ok.
+
+t_case25_param_query_2025(_Config) ->
+    {ok, Socket} = login_first_2025(),
+
+    %
+    % send PARAM QUERY Request
+    %
+    Req = #{
+        <<"Action">> => <<"Query">>,
+        <<"Total">> => 2,
+        <<"Ids">> => [<<"0x02">>, <<"0x03">>]
+    },
+    Topic = <<"gbt32960/VIN12345678901234/dnstream">>,
+    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
+
+    %
+    % client get Command
+    %
+    timer:sleep(200),
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 500),
+    BodyLen = byte_size(Packet) - 3,
+    <<"$$", Body:BodyLen/binary, Crc>> = Packet,
+    <<?CMD_PARAM_QUERY, ?ACK_IS_CMD, "VIN12345678901234", ?ENCRYPT_NONE, 9:?WORD, _Time:6/binary, 2,
+        2, 3>> = Body,
+    ?assertEqual(Crc, make_crc(Body, undefined)),
+
+    %
+    % client reply: 0x02 and 0x03 are BYTE in 2025
+    %
+    Time = <<25, 1, 1, 10, 30, 5>>,
+    Params = <<16#02, 10:?BYTE, 16#03, 20:?BYTE>>,
+    RespData = <<Time/binary, 2, Params/binary>>,
+    Resp = encode_2025(
+        ?CMD_PARAM_QUERY, ?ACK_SUCCESS, <<"VIN12345678901234">>, ?ENCRYPT_NONE, RespData
+    ),
+    gen_tcp:send(Socket, Resp),
+
+    %
+    % emq get Response
+    %
+    timer:sleep(200),
+    {<<"gbt32960/VIN12345678901234/upstream/response">>, PubedMsg} = get_published_msg(),
+    #{
+        <<"Cmd">> := ?CMD_PARAM_QUERY,
+        <<"Data">> := #{
+            <<"Params">> := [
+                #{<<"0x02">> := 10},
+                #{<<"0x03">> := 20}
+            ]
+        }
+    } = emqx_utils_json:decode(PubedMsg),
+    ok.
