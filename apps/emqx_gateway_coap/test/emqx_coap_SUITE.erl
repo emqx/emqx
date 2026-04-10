@@ -751,10 +751,7 @@ t_invalid_token_rejected_across_udp_sessions(_) ->
         false
     ),
     Req = make_req(post, <<"x">>),
-    case do_request(Channel2, URI, Req) of
-        {error, unauthorized, _} -> ok;
-        {error, uauthorized, _} -> ok
-    end,
+    assert_unauthorized_error(do_request(Channel2, URI, Req)),
     disconnection(Channel2, Token),
     er_coap_channel:close(Channel2),
     er_coap_udp_socket:close(Sock2).
@@ -783,16 +780,20 @@ t_wrong_clientid_with_valid_token_rejected_across_udp_sessions(_) ->
         false
     ),
     Req = make_req(post, <<"x">>),
-    case do_request(Channel2, URI, Req) of
-        {error, unauthorized, _} -> ok;
-        {error, uauthorized, _} -> ok
-    end,
+    assert_unauthorized_error(do_request(Channel2, URI, Req)),
     disconnection(Channel2, Token),
     er_coap_channel:close(Channel2),
     er_coap_udp_socket:close(Sock2).
 
 %%--------------------------------------------------------------------
 %% helpers
+
+assert_unauthorized_error({error, unauthorized, _}) ->
+    ok;
+assert_unauthorized_error({error, uauthorized, _}) ->
+    ok;
+assert_unauthorized_error(Result) ->
+    ?assertMatch({error, unauthorized, _}, Result).
 
 send_heartbeat(Token) ->
     send_heartbeat(Token, false).

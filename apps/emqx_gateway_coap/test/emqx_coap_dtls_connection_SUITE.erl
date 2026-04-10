@@ -233,10 +233,7 @@ t_invalid_token_rejected(_Config) ->
         false
     ),
     Req1 = emqx_coap_SUITE:make_req(post, <<"x">>),
-    case emqx_coap_SUITE:do_request(Channel2, URI1, Req1) of
-        {error, unauthorized, _} -> ok;
-        {error, uauthorized, _} -> ok
-    end,
+    assert_unauthorized_error(emqx_coap_SUITE:do_request(Channel2, URI1, Req1)),
     {ok, deleted, _} = emqx_coap_SUITE:disconnection(Channel2, Token),
 
     er_coap_channel:close(Channel2),
@@ -280,10 +277,7 @@ t_wrong_clientid_with_valid_token_rejected(_Config) ->
         false
     ),
     Req1 = emqx_coap_SUITE:make_req(post, <<"x">>),
-    case emqx_coap_SUITE:do_request(Channel2, URI1, Req1) of
-        {error, unauthorized, _} -> ok;
-        {error, uauthorized, _} -> ok
-    end,
+    assert_unauthorized_error(emqx_coap_SUITE:do_request(Channel2, URI1, Req1)),
     {ok, deleted, _} = emqx_coap_SUITE:disconnection(Channel2, Token),
 
     er_coap_channel:close(Channel2),
@@ -329,3 +323,10 @@ t_partial_token_params_rejected(_Config) ->
 
     er_coap_channel:close(Channel),
     emqx_coap_dtls_client_socket:close(Sock).
+
+assert_unauthorized_error({error, unauthorized, _}) ->
+    ok;
+assert_unauthorized_error({error, uauthorized, _}) ->
+    ok;
+assert_unauthorized_error(Result) ->
+    ?assertMatch({error, unauthorized, _}, Result).

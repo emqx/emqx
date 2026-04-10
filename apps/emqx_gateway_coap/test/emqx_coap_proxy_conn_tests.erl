@@ -17,7 +17,7 @@
 -module(emqx_coap_proxy_conn_tests).
 
 -include_lib("eunit/include/eunit.hrl").
--include("../include/emqx_coap.hrl").
+-include("emqx_coap.hrl").
 
 get_connection_id_reuses_bound_clientid_without_query_clientid_test() ->
     Peer = {{127, 0, 0, 1}, 5683},
