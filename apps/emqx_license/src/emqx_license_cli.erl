@@ -86,16 +86,16 @@ parse_history_args([Arg | Rest], Acc) ->
             {error, <<"bad_history_argument">>}
     end.
 
-print_history(Period, true, Rows) ->
+print_history(Period, true = _IsJson, Rows) ->
     Payload = #{
         <<"period">> => atom_to_binary(Period),
         <<"count">> => length(Rows),
         <<"data">> => [format_json_row(Row) || Row <- Rows]
     },
     ?PRINT("~ts~n", [emqx_utils_json:best_effort_json(Payload)]);
-print_history(_Period, false, []) ->
+print_history(_Period, false = _IsJson, []) ->
     ?PRINT_MSG("No session high-watermark history recorded.~n");
-print_history(_Period, false, Rows) ->
+print_history(_Period, false = _IsJson, Rows) ->
     lists:foreach(
         fun(#{period := Period, high_watermark := HighWatermark, observed_at := ObservedAt}) ->
             ?PRINT(

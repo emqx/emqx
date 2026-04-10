@@ -14,7 +14,7 @@ The table uses `ordered_set` so that GC of old periods is efficient.
 
 -behaviour(gen_server).
 
--include_lib("emqx/include/emqx.hrl").
+-include("emqx_license.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -export([
@@ -35,14 +35,13 @@ The table uses `ordered_set` so that GC of old periods is efficient.
     terminate/2
 ]).
 
--define(TAB, ?MODULE).
+-define(TAB, emqx_license_session_hwm).
 
 -record(emqx_license_session_hwm, {
-    %% Integer date key, e.g. 20260409 for 2026-04-09.
-    period :: non_neg_integer(),
+    %% Calendar tuple `{Year, Month, Day}` — sorts naturally in ordered_set.
+    period :: {non_neg_integer(), non_neg_integer(), non_neg_integer()},
     high_watermark :: non_neg_integer(),
-    observed_at :: non_neg_integer(),
-    updated_at :: non_neg_integer()
+    observed_at :: non_neg_integer()
 }).
 
 -doc "Create the MRIA table. Safe to call on repeated application starts.".
@@ -50,7 +49,7 @@ create_tables() ->
     ok = mria:create_table(?TAB, [
         {type, ordered_set},
         {storage, disc_copies},
-        {rlog_shard, ?COMMON_SHARD},
+        {rlog_shard, ?LICENSE_SHARD},
         {record_name, emqx_license_session_hwm},
         {attributes, record_info(fields, emqx_license_session_hwm)}
     ]),
@@ -139,7 +138,7 @@ maybe_store(Timestamp, Count) ->
     Period = period(Timestamp),
     case
         mria:transaction(
-            ?COMMON_SHARD,
+            ?LICENSE_SHARD,
             fun() -> maybe_update_in_transaction(Period, Timestamp, Count) end
         )
     of
@@ -189,8 +188,7 @@ maybe_update_in_transaction(Period, Timestamp, Count) ->
                 ?TAB,
                 Record#emqx_license_session_hwm{
                     high_watermark = Count,
-                    observed_at = Timestamp,
-                    updated_at = Timestamp
+                    observed_at = Timestamp
                 },
                 write
             ),
@@ -203,8 +201,7 @@ new_record(Period, Timestamp, Count) ->
     #emqx_license_session_hwm{
         period = Period,
         high_watermark = Count,
-        observed_at = Timestamp,
-        updated_at = Timestamp
+        observed_at = Timestamp
     }.
 
 read_rows() ->
@@ -222,21 +219,15 @@ format_row(#emqx_license_session_hwm{
         observed_at_ms => ObservedAt
     }.
 
-%% 20260409 -> <<"2026-04-09">>
-format_period(Period) when is_integer(Period) ->
-    Year = Period div 10000,
-    Month = (Period rem 10000) div 100,
-    Day = Period rem 100,
+format_period({Year, Month, Day}) ->
     iolist_to_binary(io_lib:format("~4..0B-~2..0B-~2..0B", [Year, Month, Day])).
 
 fold_monthly(Rows) ->
     Monthly = lists:foldl(
-        fun(#emqx_license_session_hwm{period = Period} = Row, Acc) ->
-            %% Group by YYYYMM integer key, e.g. 20260409 -> 202604
-            MonthKey = Period div 100,
+        fun(#emqx_license_session_hwm{period = {Y, M, _}} = Row, Acc) ->
+            MonthKey = {Y, M},
             Formatted = format_row(Row),
-            MonthLabel = format_month(MonthKey),
-            Candidate = Formatted#{period => MonthLabel},
+            Candidate = Formatted#{period => format_month(MonthKey)},
             maps:update_with(
                 MonthKey,
                 fun(Existing) -> pick_better_monthly(Candidate, Existing) end,
@@ -252,10 +243,7 @@ fold_monthly(Rows) ->
         maps:values(Monthly)
     ).
 
-%% 202604 -> <<"2026-04">>
-format_month(MonthKey) when is_integer(MonthKey) ->
-    Year = MonthKey div 100,
-    Month = MonthKey rem 100,
+format_month({Year, Month}) ->
     iolist_to_binary(io_lib:format("~4..0B-~2..0B", [Year, Month])).
 
 pick_better_monthly(
@@ -271,23 +259,19 @@ gc(Now) ->
     Earliest = earliest_period_to_keep(Now),
     gc_before(mnesia:dirty_first(?TAB), Earliest).
 
-gc_before(Key, Earliest) when is_integer(Key), Key < Earliest ->
+gc_before({_, _, _} = Key, Earliest) when Key < Earliest ->
     Next = mnesia:dirty_next(?TAB, Key),
     mria:dirty_delete(?TAB, Key),
     gc_before(Next, Earliest);
 gc_before(_Key, _Earliest) ->
     ok.
 
-%% Keep 24 months: subtract 20000 from the integer period to go back 2 years,
-%% then zero out the day to get the first of that month.
+%% Keep 24 months — earliest kept period is the 1st of the same month two years ago.
 earliest_period_to_keep(Now) ->
-    period(Now) div 100 * 100 + 1 - 20000.
+    {Y, M, _} = period(Now),
+    {Y - 2, M, 1}.
 
 period(Timestamp) ->
-    {Year, Month, Day} = local_date_parts(Timestamp),
-    Year * 10000 + Month * 100 + Day.
-
-local_date_parts(Timestamp) ->
     OffsetSec = timezone_offset_seconds(),
     {Date, _Time} = calendar:system_time_to_universal_time(
         Timestamp div 1000 + OffsetSec, second
