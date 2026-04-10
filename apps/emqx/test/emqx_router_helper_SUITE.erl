@@ -136,8 +136,8 @@ end_per_testcase(TC, Config) ->
     emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config).
 
 t_monitor(_) ->
-    ok = emqx_router_helper:monitor({undefined, node()}),
-    ok = emqx_router_helper:monitor(undefined).
+    ok = emqx_router_helper:mark_routing_node({undefined, node()}),
+    ok = emqx_router_helper:mark_routing_node(undefined).
 
 t_membership_node_leaving(_Config) ->
     AnotherNode = emqx_cth_cluster:node_name(leaving),

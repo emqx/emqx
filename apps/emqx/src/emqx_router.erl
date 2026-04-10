@@ -192,7 +192,6 @@ do_add_route(Topic) when is_binary(Topic) ->
 
 -spec do_add_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_add_route(Topic, Dest) when is_binary(Topic) ->
-    ok = emqx_router_helper:monitor(Dest),
     mria_insert_route(get_schema_vsn(), Topic, Dest, single).
 
 mria_insert_route(v2, Topic, Dest, Ctx) ->
@@ -841,6 +840,7 @@ init([Pool, Id]) ->
     {ok, #{pool => Pool, id => Id}}.
 
 handle_call({add_route, Topic, Dest}, _From, State) ->
+    ok = emqx_router_helper:mark_routing_node(Dest),
     Ok = do_add_route(Topic, Dest),
     {reply, Ok, State};
 handle_call({delete_route, Topic, Dest}, _From, State) ->
