@@ -44,7 +44,7 @@ param_history_period.label:
 """Period"""
 
 param_history_limit.desc:
-"""Maximum number of rows to return."""
+"""Maximum number of rows to return. Applies only to `daily` period (defaults to 30). Ignored for `monthly` period, which always returns the full 24-month retention window."""
 param_history_limit.label:
 """Limit"""
 

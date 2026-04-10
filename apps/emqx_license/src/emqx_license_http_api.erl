@@ -117,14 +117,14 @@ schema("/license/session_hwm_history") ->
                     hoconsc:mk(hoconsc:enum([daily, monthly]), #{
                         in => query,
                         required => false,
-                        default => monthly,
+                        default => daily,
                         desc => ?DESC("param_history_period")
                     })},
                 {limit,
                     hoconsc:mk(pos_integer(), #{
                         in => query,
                         required => false,
-                        default => 100,
+                        default => 30,
                         desc => ?DESC("param_history_limit")
                     })}
             ],
@@ -179,16 +179,20 @@ error_msg(Code, Msg) ->
     {400, error_msg(?BAD_REQUEST, <<"Invalid request params">>)}.
 
 '/license/session_hwm_history'(get, #{query_string := QS}) ->
-    Period = maps:get(<<"period">>, QS, <<"monthly">>),
-    Limit = maps:get(<<"limit">>, QS, 100),
-    PeriodAtom =
-        case Period of
-            <<"daily">> -> daily;
-            _ -> monthly
+    Period =
+        case maps:get(<<"period">>, QS, <<"daily">>) of
+            <<"monthly">> -> monthly;
+            _ -> daily
         end,
-    Rows = emqx_license_session_hwm:list_history(PeriodAtom, Limit),
+    %% Daily defaults to 30 rows; monthly has no practical limit (retention is 24 months).
+    Limit =
+        case Period of
+            monthly -> 1_000_000;
+            daily -> maps:get(<<"limit">>, QS, 30)
+        end,
+    Rows = emqx_license_session_hwm:list_history(Period, Limit),
     Data = [maps:remove(observed_at_ms, Row) || Row <- Rows],
-    {200, #{period => PeriodAtom, count => length(Data), data => Data}}.
+    {200, #{period => Period, count => length(Data), data => Data}}.
 
 '/license/setting'(get, _Params) ->
     {200, get_setting()};
