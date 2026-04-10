@@ -155,20 +155,12 @@ t_token_takeover_across_dtls_sessions(_Config) ->
     #coap_content{payload = BinToken} = Data,
     Token = binary_to_list(BinToken),
 
-    timer:sleep(100),
-    ?assertNotEqual(
-        [],
-        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
-    ),
+    wait_until_channels_non_empty(<<"client1">>),
 
     er_coap_channel:close(Channel1),
     emqx_coap_dtls_client_socket:close(Sock1),
 
-    timer:sleep(100),
-    ?assertNotEqual(
-        [],
-        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
-    ),
+    wait_until_channels_non_empty(<<"client1">>),
 
     {ok, Sock2, Channel2} = emqx_coap_dtls_client_socket:connect({127, 0, 0, 1}, 5684, [
         {verify, verify_none}
@@ -185,11 +177,7 @@ t_token_takeover_across_dtls_sessions(_Config) ->
     Req1 = emqx_coap_SUITE:make_req(post, <<"x">>),
     {ok, changed, _} = emqx_coap_SUITE:do_request(Channel2, URI1, Req1),
 
-    timer:sleep(100),
-    ?assertEqual(
-        1,
-        length(emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>))
-    ),
+    wait_until_channels_count(<<"client1">>, 1),
     {ok, deleted, _} = emqx_coap_SUITE:disconnection(Channel2, Token),
 
     er_coap_channel:close(Channel2),
@@ -215,11 +203,7 @@ t_invalid_token_rejected(_Config) ->
     er_coap_channel:close(Channel1),
     emqx_coap_dtls_client_socket:close(Sock1),
 
-    timer:sleep(100),
-    ?assertNotEqual(
-        [],
-        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
-    ),
+    wait_until_channels_non_empty(<<"client1">>),
 
     {ok, Sock2, Channel2} = emqx_coap_dtls_client_socket:connect({127, 0, 0, 1}, 5684, [
         {verify, verify_none}
@@ -259,11 +243,7 @@ t_wrong_clientid_with_valid_token_rejected(_Config) ->
     er_coap_channel:close(Channel1),
     emqx_coap_dtls_client_socket:close(Sock1),
 
-    timer:sleep(100),
-    ?assertNotEqual(
-        [],
-        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
-    ),
+    wait_until_channels_non_empty(<<"client1">>),
 
     {ok, Sock2, Channel2} = emqx_coap_dtls_client_socket:connect({127, 0, 0, 1}, 5684, [
         {verify, verify_none}
@@ -326,7 +306,35 @@ t_partial_token_params_rejected(_Config) ->
 
 assert_unauthorized_error({error, unauthorized, _}) ->
     ok;
-assert_unauthorized_error({error, uauthorized, _}) ->
-    ok;
-assert_unauthorized_error(Result) ->
+assert_unauthorized_error(Result0) ->
+    Result = normalize_unauthorized_error(Result0),
     ?assertMatch({error, unauthorized, _}, Result).
+
+normalize_unauthorized_error({error, uauthorized, Payload}) ->
+    {error, unauthorized, Payload};
+normalize_unauthorized_error(Result) ->
+    Result.
+
+wait_until_channels_non_empty(ClientId) ->
+    wait_until(fun() ->
+        emqx_gateway_cm_registry:lookup_channels(coap, ClientId) =/= []
+    end).
+
+wait_until_channels_count(ClientId, Count) ->
+    wait_until(fun() ->
+        length(emqx_gateway_cm_registry:lookup_channels(coap, ClientId)) =:= Count
+    end).
+
+wait_until(Pred) ->
+    wait_until(Pred, 30).
+
+wait_until(Pred, 0) ->
+    ?assert(Pred());
+wait_until(Pred, RetriesLeft) ->
+    case Pred() of
+        true ->
+            ok;
+        false ->
+            timer:sleep(100),
+            wait_until(Pred, RetriesLeft - 1)
+    end.
