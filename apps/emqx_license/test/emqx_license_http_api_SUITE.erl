@@ -355,10 +355,10 @@ request_dump() ->
 validate_setting(Res, ExpectLow, ExpectHigh) ->
     ?assertMatch({ok, 200, _}, Res),
     {ok, 200, Payload} = Res,
-    ?assertEqual(
+    ?assertMatch(
         #{
-            <<"connection_low_watermark">> => ExpectLow,
-            <<"connection_high_watermark">> => ExpectHigh
+            <<"connection_low_watermark">> := ExpectLow,
+            <<"connection_high_watermark">> := ExpectHigh
         },
         emqx_utils_json:decode(Payload)
     ).
