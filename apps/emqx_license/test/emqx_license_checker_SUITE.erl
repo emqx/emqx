@@ -262,6 +262,123 @@ t_unknown_calls(_Config) ->
     some_msg = erlang:send(emqx_license_checker, some_msg),
     ?assertEqual(unknown, gen_server:call(emqx_license_checker, some_request)).
 
+t_expiry_epoch(_Config) ->
+    License = mk_license(
+        [
+            "220111",
+            "0",
+            "10",
+            "Foo",
+            "contact@foo.com",
+            "bar",
+            "20220111",
+            "100",
+            "10"
+        ]
+    ),
+    #{} = emqx_license_checker:update(License),
+    ExpiryDate = emqx_license_parser:expiry_date(License),
+    EpochStart = calendar:datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}}),
+    Expected =
+        calendar:datetime_to_gregorian_seconds({ExpiryDate, {0, 0, 0}}) - EpochStart,
+    ?assertEqual(Expected, emqx_license_checker:expiry_epoch()).
+
+t_check_expiry_alarm(_Config) ->
+    ok = emqx_alarm:ensure_deactivated(license_expiry),
+    {NowDate, _} = calendar:universal_time(),
+    License = mk_license(
+        [
+            "220111",
+            "1",
+            "0",
+            "Foo",
+            "contact@foo.com",
+            "bar",
+            format_date(NowDate),
+            "10",
+            "10"
+        ]
+    ),
+    #{} = emqx_license_checker:update(License),
+    flush_mailbox(),
+    erlang:send(emqx_license_checker, check_expiry_alarm),
+    _ = gen_server:call(emqx_license_checker, dump),
+    {Y, M, D} = emqx_license_parser:expiry_date(License),
+    ExpectedDate = iolist_to_binary(io_lib:format("~B~2..0B~2..0B", [Y, M, D])),
+    ?retry(
+        20,
+        50,
+        begin
+            ?assertMatch(
+                {ok, #{expiry_at := ExpectedDate}}, emqx_alarm:read_details(license_expiry)
+            )
+        end
+    ),
+    ok = emqx_alarm:ensure_deactivated(license_expiry).
+
+t_refresh_non_file_license(_Config) ->
+    License = mk_license(
+        [
+            "220111",
+            "0",
+            "10",
+            "Foo",
+            "contact@foo.com",
+            "bar",
+            "20220111",
+            "100000",
+            "10"
+        ]
+    ),
+    #{} = emqx_license_checker:update(License),
+    Before = emqx_license_checker:dump(),
+    erlang:send(emqx_license_checker, refresh),
+    After = emqx_license_checker:dump(),
+    ?assertEqual(Before, After).
+
+t_log_new_license_info(_Config) ->
+    #{level := PrevLevel} = logger:get_primary_config(),
+    logger:set_primary_config(level, info),
+    License1 = mk_license(
+        [
+            "220111",
+            "0",
+            "10",
+            "Foo",
+            "contact@foo.com",
+            "bar",
+            "20220111",
+            "100000",
+            "111"
+        ]
+    ),
+    #{} = emqx_license_checker:update(License1),
+    License2 = mk_license(
+        [
+            "220111",
+            "0",
+            "10",
+            "Foo",
+            "contact@foo.com",
+            "bar",
+            "20220111",
+            "100000",
+            "222"
+        ]
+    ),
+    #{} = emqx_license_checker:update(License2),
+    logger:set_primary_config(level, PrevLevel).
+
+t_print_expiry_warning(_Config) ->
+    ?assertEqual(
+        ok,
+        emqx_license_checker:print_warnings(#{
+            warn_default => false,
+            warn_evaluation => false,
+            warn_expiry => {true, 3}
+        })
+    ).
+
 t_refresh_no_change(Config) when is_list(Config) ->
     {ok, License} = write_test_license(Config, ?FUNCTION_NAME, 1, 111),
     #{} = emqx_license_checker:update(License),
@@ -382,3 +499,10 @@ format_date({Year, Month, Day}) ->
             [Year, Month, Day]
         )
     ).
+
+flush_mailbox() ->
+    receive
+        _ -> flush_mailbox()
+    after 0 ->
+        ok
+    end.

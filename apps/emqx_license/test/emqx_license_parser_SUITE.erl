@@ -234,6 +234,101 @@ t_parse(_Config) ->
         )
     ).
 
+t_parse_file_read_error(_Config) ->
+    ?assertMatch(
+        {error, #{license_file := _, read_error := _}},
+        emqx_license_parser:parse(<<"file:///no/such/license.file">>, public_key_pem())
+    ).
+
+t_parse_exception_caught(_Config) ->
+    meck:new(emqx_license_parser_v20220101, [passthrough, no_history]),
+    meck:expect(emqx_license_parser_v20220101, parse, fun(_Payload, _Key) ->
+        erlang:error(bad_parse)
+    end),
+    Res = emqx_license_parser:parse(sample_license(), public_key_pem()),
+    ?assertMatch(
+        {error, #{
+            parse_results := [
+                #{module := emqx_license_parser_v20220101, error := bad_parse, stacktrace := _}
+            ]
+        }},
+        Res
+    ),
+    meck:unload(emqx_license_parser_v20220101).
+
+t_parse_invalid_max_sessions(_Config) ->
+    Parser = emqx_license_parser_v20220101,
+    Res = emqx_license_parser:parse(
+        emqx_license_test_lib:make_license(
+            [
+                "220111",
+                "0",
+                "10",
+                "Foo",
+                "contact@foo.com",
+                "default-deployment",
+                "20220111",
+                "100000",
+                "invalid"
+            ]
+        ),
+        public_key_pem()
+    ),
+    ?assertMatch({error, _}, Res),
+    {error, Err} = Res,
+    ?assertMatch(
+        #{error := #{max_sessions := invalid_connection_limit}},
+        find_error(Parser, Err)
+    ).
+
+t_parse_zero_sessions_invalid_combination(_Config) ->
+    Res = emqx_license_parser:parse(
+        emqx_license_test_lib:make_license(
+            [
+                "220111",
+                "1",
+                "0",
+                "Foo",
+                "contact@foo.com",
+                "default-deployment",
+                "20220111",
+                "100000",
+                "0"
+            ]
+        ),
+        public_key_pem()
+    ),
+    ?assertMatch({ok, #{data := _}}, Res),
+    {ok, #{data := Data}} = Res,
+    ?assertEqual({error, invalid_connection_limit}, maps:get(max_sessions, Data)).
+
+t_parse_zero_sessions_bad_type_ctype(_Config) ->
+    Parser = emqx_license_parser_v20220101,
+    Res = emqx_license_parser:parse(
+        emqx_license_test_lib:make_license(
+            [
+                "220111",
+                "bad",
+                "bad",
+                "Foo",
+                "contact@foo.com",
+                "default-deployment",
+                "20220111",
+                "100000",
+                "0"
+            ]
+        ),
+        public_key_pem()
+    ),
+    ?assertMatch({error, _}, Res),
+    {error, Err} = Res,
+    #{error := ErrorMap} = find_error(Parser, Err),
+    ?assertMatch(
+        #{type := invalid_license_type, customer_type := invalid_customer_type},
+        ErrorMap
+    ),
+    ?assertEqual(false, maps:is_key(max_sessions, ErrorMap)).
+
 t_dump(_Config) ->
     {ok, License} = emqx_license_parser:parse(sample_license(), public_key_pem()),
 

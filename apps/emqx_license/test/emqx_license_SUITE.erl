@@ -226,15 +226,87 @@ t_import_config(_Config) ->
         emqx:get_config([license])
     ).
 
+t_import_config_error_and_empty(_Config) ->
+    ?assertMatch(
+        {error, #{root_key := license, reason := _}},
+        import_config(#{<<"license">> => #{<<"key">> => <<"bad.license">>}})
+    ),
+    ?assertMatch(
+        {ok, #{root_key := license, changed := []}},
+        import_config(#{})
+    ).
+
+t_post_config_update_error(_Config) ->
+    ?assertMatch(
+        {error, _},
+        emqx_license:post_config_update(
+            [license],
+            {key, <<"bad">>},
+            #{key => <<"bad.license">>},
+            #{},
+            #{}
+        )
+    ).
+
+t_update_key_post_config_update_error(_Config) ->
+    Key = emqx_license_test_lib:make_license(#{max_sessions => "101"}),
+    CallKey = Key,
+    Tab = ets:new(?MODULE, [set, public]),
+    meck:expect(emqx_license_parser, parse, fun(Content) ->
+        case Content of
+            CallKey ->
+                Count =
+                    case ets:lookup(Tab, count) of
+                        [] -> 0;
+                        [{count, N}] -> N
+                    end,
+                ets:insert(Tab, {count, Count + 1}),
+                case Count of
+                    0 -> meck:passthrough([Content]);
+                    _ -> {error, #{parse_results => [#{error => bad_license_format}]}}
+                end;
+            _ ->
+                meck:passthrough([Content])
+        end
+    end),
+    try
+        ?assertMatch({error, #{parse_results := [_ | _]}}, emqx_license:update_key(Key))
+    after
+        meck:delete(emqx_license_parser, parse, 1),
+        ets:delete(Tab)
+    end.
+
+t_schema_helpers(_Config) ->
+    ?assertEqual("license", emqx_license_schema:namespace()),
+    ?assertEqual(undefined, emqx_license_schema:desc(unknown)),
+    {check_license_watermark, CheckFun} =
+        lists:keyfind(check_license_watermark, 1, emqx_license_schema:validations()),
+    ?assertEqual(true, CheckFun(#{})),
+    ?assertMatch(
+        {bad_license_watermark, #{high := undefined, low := _}},
+        CheckFun(#{
+            <<"license">> => #{<<"connection_low_watermark">> => <<"75%">>}
+        })
+    ).
+
 t_app_cannot_start_with_invalid_license(_Config) ->
-    meck:new(emqx_license, [passthrough, no_history]),
-    meck:expect(emqx_license, read_license, fun() -> {error, 'SINGLE_NODE_LICENSE'} end),
+    PrevKey0 = emqx:get_config([license, key]),
+    PrevKey =
+        case PrevKey0 of
+            default -> "default";
+            evaluation -> "evaluation";
+            _ -> PrevKey0
+        end,
+    {ok, _} = emqx_license:update_key("default"),
+    meck:new(emqx, [passthrough, no_history]),
+    meck:expect(emqx, cluster_nodes, fun(running) -> [node(), node()] end),
     try
         ?assertMatch(
             {error, "SINGLE_NODE_LICENSE," ++ _}, emqx_license_app:start(normal, permanent)
         )
     after
-        meck:unload(emqx_license)
+        meck:unload(emqx),
+        _ = emqx_license:update_key(PrevKey)
     end.
 
 %%------------------------------------------------------------------------------

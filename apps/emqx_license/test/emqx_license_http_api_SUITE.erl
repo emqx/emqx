@@ -348,6 +348,16 @@ t_license_setting_bc(_Config) ->
     ?assertEqual(99999, emqx_config:get([license, dynamic_max_connections])),
     ok.
 
+t_license_setting_bad_content_type({init, Config}) ->
+    Config;
+t_license_setting_bad_content_type({'end', _Config}) ->
+    ok;
+t_license_setting_bad_content_type(_Config) ->
+    ?assertMatch(
+        {400, #{code := 'BAD_REQUEST', message := _}},
+        emqx_license_http_api:'/license/setting'(put, #{body => <<"bad">>})
+    ).
+
 request_dump() ->
     {ok, 200, DumpJson} = request(get, uri(["license"]), []),
     emqx_utils_json:decode(DumpJson).
