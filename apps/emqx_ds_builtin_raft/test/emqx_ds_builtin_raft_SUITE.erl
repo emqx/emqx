@@ -51,15 +51,6 @@ appspec(emqx_ds_builtin_raft) ->
         after_start => fun() -> logger:set_module_level(ra_server, info) end
     }}.
 
-t_metadata(init, Config) ->
-    Apps = emqx_cth_suite:start([emqx_ds_builtin_raft], #{
-        work_dir => ?config(work_dir, Config)
-    }),
-    [{apps, Apps} | Config];
-t_metadata('end', Config) ->
-    emqx_cth_suite:stop(?config(apps, Config)),
-    Config.
-
 -doc """
 This testcase verifies that the shard leader supervises optimistic
 transaction server (OTX).
@@ -185,6 +176,15 @@ t_leader_otx_supervion(Config) ->
         []
     ).
 
+t_metadata(init, Config) ->
+    Apps = emqx_cth_suite:start([emqx_ds_builtin_raft], #{
+        work_dir => ?config(work_dir, Config)
+    }),
+    [{apps, Apps} | Config];
+t_metadata('end', Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)),
+    Config.
+
 t_metadata(_Config) ->
     DB = ?FUNCTION_NAME,
     NShards = 1,
@@ -267,13 +267,77 @@ t_shards_allocation(Config) ->
     emqx_ds_raft_test_helpers:assert_db_open([Node], DB, Opts),
     %% Forget the lost node.
     ?ON(Node, emqx_ds_builtin_raft_meta:forget_node(NodeLost)),
-    ?retry(
-        5_000,
-        5,
-        ?assertEqual(
-            [],
-            ?ON(Node, emqx_ds_builtin_raft_meta:sites(lost))
-        )
+    ?assertEqual([], ?ON(Node, emqx_ds_builtin_raft_meta:sites(lost))).
+
+%% This testcase verifies that dropping a DS DB cleans up all relevant state and data
+%% across the whole cluster.
+t_drop_replicated_db(init, Config) ->
+    Apps = [appspec(ra), appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
+    NodeSpecs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {t_drop_replicated_db1, #{apps => Apps}},
+            {t_drop_replicated_db2, #{apps => Apps}}
+        ],
+        #{work_dir => ?config(work_dir, Config)}
+    ),
+    Nodes = emqx_cth_cluster:start(NodeSpecs),
+    [{nodes, Nodes} | Config];
+t_drop_replicated_db('end', Config) ->
+    ok = emqx_cth_cluster:stop(?config(nodes, Config)).
+
+t_drop_replicated_db(Config) ->
+    Nodes = [N1 | _] = ?config(nodes, Config),
+    ?check_trace(
+        #{timetrap => 20_000},
+        begin
+            %% Initialize DB on all nodes and wait for it to be online.
+            Opts = opts(Config, #{n_shards => 16, n_sites => 2}),
+            emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
+            ?assertEqual(
+                [16, 16],
+                [n_shards_online(N, ?DB) || N <- Nodes],
+                "Each site is responsible for each shard"
+            ),
+
+            %% Drop the DB.
+            ?assertEqual(ok, ?ON(N1, emqx_ds:drop_db(?DB)))
+        end,
+        [
+            check_membership_consistent(?DB, Nodes),
+            {"no DB metadata is present", fun(_Trace) ->
+                ?assertEqual(
+                    [false || _ <- Nodes],
+                    ?ON(Nodes, lists:member(?DB, emqx_ds_builtin_raft_meta:dbs()))
+                ),
+                ?assertEqual(
+                    [[] || _ <- Nodes],
+                    ?ON(Nodes, emqx_ds_builtin_raft_meta:shards(?DB))
+                )
+            end},
+            {"no DB processes are still running", fun(_Trace) ->
+                ?assertEqual(
+                    [undefined || _ <- Nodes],
+                    ?ON(Nodes, emqx_dsch:get_db_schema(?DB))
+                ),
+                ?assertEqual(
+                    [undefined || _ <- Nodes],
+                    ?ON(Nodes, emqx_ds_builtin_raft_db_sup:whereis_db(?DB))
+                )
+            end},
+            {"no leftover data files are present", fun(_Trace) ->
+                ?assertEqual(
+                    [[] || _ <- Nodes],
+                    ?ON(
+                        Nodes,
+                        emqx_utils_fs:traverse_dir(
+                            fun(AbsPath, _Info, Acc) -> [AbsPath | Acc] end,
+                            [],
+                            filename:join([emqx_ds_storage_layer:base_dir(), ?DB])
+                        )
+                    )
+                )
+            end}
+        ]
     ).
 
 t_replication_transfers_snapshots(init, Config) ->
