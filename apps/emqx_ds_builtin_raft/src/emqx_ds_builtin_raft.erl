@@ -380,14 +380,10 @@ drop_slab(DB, {Shard, Generation}) ->
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->
     foreach_shard(DB, fun(Shard) ->
-        {ok, _} = ra:delete_cluster(
-            emqx_ds_builtin_raft_shard:shard_servers(DB, Shard), ra_timeout(DB)
-        )
+        ok = emqx_ds_builtin_raft_shard:drop(DB, Shard, ra_timeout(DB))
     end),
     _ = emqx_ds_builtin_raft_proto_v1:drop_db(list_nodes(), DB),
-    emqx_ds_builtin_raft_meta:drop_db(DB),
-    _ = emqx_ds:close_db(DB),
-    emqx_dsch:drop_db_schema(DB).
+    emqx_ds_builtin_raft_meta:drop_db(DB).
 
 -spec db_group_stats(emqx_ds:db_group(), emqx_ds_storage_layer:db_group()) ->
     {ok, emqx_ds:db_group_stats()} | emqx_ds:error(_).
@@ -890,16 +886,21 @@ wait_replicas(DB, Timeout) ->
 %% RPC targets
 %%================================================================================
 
+-doc """
+Drops all storage data and runtime state belonging to the specifed DS DB on the local node.
+""".
 -spec do_drop_db_v1(emqx_ds:db()) -> ok | {error, _}.
 do_drop_db_v1(DB) ->
-    MyShards = emqx_ds_builtin_raft_meta:my_shards(DB),
-    emqx_ds_builtin_raft_sup:stop_db(DB),
-    lists:foreach(
-        fun(Shard) ->
-            emqx_ds_storage_layer:drop_shard({DB, Shard})
-        end,
-        MyShards
-    ).
+    maybe
+        ok ?= emqx_ds:close_db(DB),
+        lists:foreach(
+            fun(Shard) ->
+                emqx_ds_storage_layer:drop_shard({DB, Shard})
+            end,
+            emqx_ds_builtin_raft_meta:my_shards(DB)
+        ),
+        emqx_dsch:drop_db_schema(DB)
+    end.
 
 -spec do_get_streams_v1(
     emqx_ds:db(),

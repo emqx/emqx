@@ -836,8 +836,10 @@ shard_transition_trans(#?SHARD_TAB{shard = DBShard}, LockType) ->
 
 -spec drop_db_trans(emqx_ds:db()) -> ok.
 drop_db_trans(DB) ->
+    Shards = shards(DB),
     mnesia:delete({?META_TAB, DB}),
-    [mnesia:delete({?SHARD_TAB, Shard}) || Shard <- shards(DB)],
+    [mnesia:delete({?SHARD_TAB, {DB, Shard}}) || Shard <- Shards],
+    [mnesia:delete({?TRANSITION_TAB, {DB, Shard}}) || Shard <- Shards],
     ok.
 
 -spec claim_site_trans(site(), node()) -> ok.
