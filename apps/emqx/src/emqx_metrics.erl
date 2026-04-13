@@ -614,6 +614,8 @@ reserved_idx('messages.transformation_succeeded') -> 98;
 reserved_idx('messages.transformation_failed') -> 99;
 reserved_idx('rules.matched') -> 100;
 reserved_idx('actions.executed') -> 101;
+%% NOTE: idx 102 is reserved for 'delivery.dropped.filter' in release-62+
+reserved_idx('actions.messages') -> 103;
 reserved_idx(_) -> undefined.
 
 all_metrics() ->
@@ -715,7 +717,8 @@ message_metrics() ->
 data_integration_metrics() ->
     [
         {counter, 'rules.matched', ?DESC("rules_matched")},
-        {counter, 'actions.executed', ?DESC("actions_executed")}
+        {counter, 'actions.executed', ?DESC("actions_executed")},
+        {counter, 'actions.messages', ?DESC("actions_messages")}
     ].
 
 %% Delivery metrics

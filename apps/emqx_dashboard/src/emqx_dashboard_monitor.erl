@@ -872,7 +872,9 @@ stats(persisted) ->
 stats(rules_matched) ->
     emqx_metrics:val_global('rules.matched');
 stats(actions_executed) ->
-    emqx_metrics:val_global('actions.executed').
+    emqx_metrics:val_global('actions.executed');
+stats(actions_messages) ->
+    emqx_metrics:val_global('actions.messages').
 
 %% -------------------------------------------------------------------------------------------------
 %% Retained && License Quota

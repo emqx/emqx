@@ -115,6 +115,11 @@ actions_executed: {
     label: "Actions Executed"
 }
 
+actions_messages: {
+    desc: "Number of messages handled by Action executions (failures + successes) in the last sample window. An Action execution may handle a batch of messages, so this count is greater than or equal to the number of Action executions."
+    label: "Action Messages"
+}
+
 disconnected_durable_sessions: {
     desc: "Number of disconnected durable sessions at the time of sampling. Can only represent an approximation."
     label: "Disconnected Durable Sessions"
@@ -197,6 +202,11 @@ rules_matched_rate: {
 actions_executed_rate: {
     desc: "Action execution rate in the last sampling window."
     label: "Action Execution Rate"
+}
+
+actions_messages_rate: {
+    desc: "Rate of messages handled by Action executions in the last sampling window. Equal to or greater than the action execution rate because a single Action execution may handle a batch of messages."
+    label: "Action Message Rate"
 }
 
 retained_msg_count: {
