@@ -893,6 +893,7 @@ Drops all storage data and runtime state belonging to the specifed DS DB on the 
 do_drop_db_v1(DB) ->
     maybe
         ok ?= emqx_ds:close_db(DB),
+        emqx_ds_builtin_raft_db_sup:drop_db(DB),
         lists:foreach(
             fun(Shard) ->
                 emqx_ds_storage_layer:drop_shard({DB, Shard})
