@@ -17,4 +17,24 @@ emqx_mt_schema {
             will also be denied connection.~"""
         label: "Allow only managed namespaces"
     }
+    post_auth_tns_expression {
+        desc: """~
+            An expression that is evaluated after the authentication chain completes,
+            and whose rendered value is written back into `client_attrs.tns`, the
+            tenant namespace key used by multi-tenancy quota and routing decisions.
+            Leave empty to disable (default). When empty, multi-tenancy resolves
+            `tns` only from `mqtt.client_attrs_init` (evaluated before authentication).
+            When configured, the expression can reference any binding available to
+            `mqtt.client_attrs_init` (for example, <code>username</code>,
+            <code>clientid</code>, <code>cert_common_name</code>) plus
+            <code>client_attrs.*</code> (merged pre-auth and authentication-response
+            attributes). Example: <code>client_attrs.tag</code> makes the multi-tenancy
+            app treat an auth-server-supplied <code>tag</code> attribute as the
+            tenant namespace. Example with fallback:
+            <code>coalesce(client_attrs.tag, username)</code>.
+            If the expression renders to an empty string, the existing
+            <code>tns</code> value (if any) is kept. If the expression errors, a
+            warning is logged and the client is treated as having no <code>tns</code>.~"""
+        label: "Post-authentication tns expression"
+    }
 }

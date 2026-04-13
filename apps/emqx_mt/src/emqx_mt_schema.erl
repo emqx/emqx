@@ -24,6 +24,7 @@
 -reflect_type([default_max_sessions/0]).
 -typerefl_from_string({default_max_sessions/0, emqx_mt_schema, to_default_max_sessions}).
 -export([to_default_max_sessions/1]).
+-export([compile_post_auth_tns_expression/2]).
 
 namespace() -> emqx_mt.
 
@@ -51,6 +52,16 @@ fields("config") ->
                     importance => ?IMPORTANCE_HIGH,
                     default => false
                 }
+            )},
+        {post_auth_tns_expression,
+            mk(
+                typerefl:alias("string", any()),
+                #{
+                    desc => ?DESC("post_auth_tns_expression"),
+                    importance => ?IMPORTANCE_MEDIUM,
+                    default => <<>>,
+                    converter => fun compile_post_auth_tns_expression/2
+                }
             )}
     ].
 
@@ -64,4 +75,22 @@ to_default_max_sessions(Val) ->
     maybe
         {error, _} ?= typerefl:from_string(default_max_sessions_internal(), Val),
         {error, "Bad value: expecting `infinity` or positive integer"}
+    end.
+
+%% Empty string / undefined means "disabled". Otherwise compile via emqx_variform.
+compile_post_auth_tns_expression(undefined, _Opts) ->
+    undefined;
+compile_post_auth_tns_expression(<<>>, _Opts) ->
+    <<>>;
+compile_post_auth_tns_expression("", _Opts) ->
+    <<>>;
+compile_post_auth_tns_expression(Expression, #{make_serializable := true}) ->
+    case is_binary(Expression) of
+        true -> Expression;
+        false -> emqx_variform:decompile(Expression)
+    end;
+compile_post_auth_tns_expression(Expression, _Opts) ->
+    case emqx_variform:compile(Expression) of
+        {ok, Compiled} -> Compiled;
+        {error, Reason} -> throw(#{expression => Expression, reason => Reason})
     end.

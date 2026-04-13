@@ -36,6 +36,7 @@
     'client.check_authz_complete',
     'client.check_authn_complete',
     'client.authenticate',
+    'client.post_authn',
     'client.subscribe',
     'client.unsubscribe',
     'client.timeout',
@@ -155,6 +156,9 @@ when
     emqx_types:clientinfo(), emqx_access_control:authenticate_hook_result()
 ) ->
     fold_callback_result(emqx_access_control:authenticate_hook_result()).
+
+-callback 'client.post_authn'(emqx_types:clientinfo()) ->
+    fold_callback_result(emqx_types:clientinfo() | {error, term()}).
 
 -callback 'client.subscribe'(emqx_types:clientinfo(), emqx_types:properties(), TopicFilters) ->
     fold_callback_result(TopicFilters)
