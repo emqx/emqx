@@ -56,7 +56,7 @@ destroy(#{resource_id := ResourceId}) ->
 authenticate(#{auth_method := _}, _) ->
     ignore;
 authenticate(#{password := undefined}, _) ->
-    {error, bad_username_or_password};
+    ignore;
 authenticate(Credential, #{method := #{type := hash}} = State) ->
     emqx_authn_ldap_hash:authenticate(Credential, State);
 authenticate(Credential, #{method := #{type := bind}} = State) ->

@@ -13,6 +13,8 @@ start(_Type, _Args) ->
     Reader = fun emqx_license:read_license/0,
     case validate_license(Reader) of
         ok ->
+            Tables = emqx_license_session_hwm:create_tables(),
+            ok = mria:wait_for_tables(Tables),
             ok = emqx_license:load(),
             emqx_license_sup:start_link(Reader);
         {error, 'SINGLE_NODE_LICENSE'} ->

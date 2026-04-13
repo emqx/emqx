@@ -360,17 +360,23 @@ elif [ "$CONSOLE" = 'yes' ]; then
     docker exec -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "make run"
 else
     if [ -z "${COMMAND:-}" ]; then
+        # Pre-compute PKG_VSN on the host to avoid git issues inside Docker
+        # (worktree .git paths are not valid inside the container)
+        HOST_PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh 2>/dev/null || echo "0.0.0")}"
         docker exec -e IS_CI="$IS_CI" \
                     -e PROFILE="$PROFILE" \
                     -e SUITEGROUP="${SUITEGROUP:-}" \
                     -e ENABLE_COVER_COMPILE="${ENABLE_COVER_COMPILE:-}" \
                     -e CT_COVER_EXPORT_PREFIX="${CT_COVER_EXPORT_PREFIX:-}" \
+                    -e PKG_VSN="$HOST_PKG_VSN" \
                     -i $TTY "$ERLANG_CONTAINER" \
-                    bash -c "make ${WHICH_APP}-ct"
+                    bash -c "MIX_ENV=${PROFILE}-test mix deps.get && make ${WHICH_APP}-ct"
     else
         # this is an ad-hoc run
+        HOST_PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh 2>/dev/null || echo "0.0.0")}"
         docker exec -e IS_CI="$IS_CI" \
                     -e PROFILE="$PROFILE" \
+                    -e PKG_VSN="$HOST_PKG_VSN" \
                     -i $TTY "$ERLANG_CONTAINER" \
                     bash -c "$COMMAND"
     fi

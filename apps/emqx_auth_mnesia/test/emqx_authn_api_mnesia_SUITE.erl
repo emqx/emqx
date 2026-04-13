@@ -323,7 +323,8 @@ t_authenticator_users(TCConfig) ->
         <<"metrics">> := #{
             <<"total">> := 1,
             <<"success">> := 0,
-            <<"failed">> := 1
+            <<"failed">> := 0,
+            <<"nomatch">> := 1
         }
     } = PageData0,
 
@@ -384,7 +385,8 @@ t_authenticator_users(TCConfig) ->
         <<"metrics">> := #{
             <<"total">> := 2,
             <<"success">> := 1,
-            <<"failed">> := 1
+            <<"failed">> := 0,
+            <<"nomatch">> := 1
         }
     } = PageData01,
 
