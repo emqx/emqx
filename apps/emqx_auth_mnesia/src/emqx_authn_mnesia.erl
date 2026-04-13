@@ -511,13 +511,13 @@ convertor(PasswordType, State) ->
     end.
 
 convert_user(
-    User = #{<<"user_id">> := UserId},
+    User = #{<<"user_id">> := UserID},
     PasswordType,
     #{user_group := UserGroup, password_hash_algorithm := Algorithm}
 ) ->
     {PasswordHash, Salt} = find_password_hash(PasswordType, User, Algorithm),
     #{
-        <<"user_id">> => UserId,
+        <<"user_id">> => UserID,
         <<"password_hash">> => PasswordHash,
         <<"salt">> => Salt,
         <<"is_superuser">> => is_superuser(User),
@@ -545,17 +545,17 @@ boostrap_user_from_file(Config, State) ->
     case maps:get(bootstrap_file, Config, <<>>) of
         <<>> ->
             ok;
-        FileName0 ->
+        Filename0 ->
             #{bootstrap_type := Type} = Config,
-            FileName = emqx_schema:naive_env_interpolation(FileName0),
-            case file:read_file(FileName) of
+            Filename = emqx_schema:naive_env_interpolation(Filename0),
+            case file:read_file(Filename) of
                 {ok, FileData} ->
-                    _ = import_users({Type, FileName, FileData}, State, #{override => false}),
+                    _ = import_users({Type, Filename, FileData}, State, #{override => false}),
                     ok;
                 {error, Reason} ->
                     ?SLOG(warning, #{
                         msg => "boostrap_authn_built_in_database_failed",
-                        boostrap_file => FileName,
+                        boostrap_file => Filename,
                         boostrap_type => Type,
                         reason => emqx_utils:explain_posix(Reason)
                     })
