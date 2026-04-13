@@ -229,8 +229,10 @@ swagger_desc(node_uptime) -> ?DESC("node_uptime");
 swagger_desc(license_quota) -> ?DESC("license_quota");
 swagger_desc(rules_matched) -> ?DESC("rules_matched");
 swagger_desc(actions_executed) -> ?DESC("actions_executed");
+swagger_desc(actions_messages) -> ?DESC("actions_messages");
 swagger_desc(rules_matched_rate) -> ?DESC("rules_matched_rate");
-swagger_desc(actions_executed_rate) -> ?DESC("actions_executed_rate").
+swagger_desc(actions_executed_rate) -> ?DESC("actions_executed_rate");
+swagger_desc(actions_messages_rate) -> ?DESC("actions_messages_rate").
 
 maybe_reject_cluster_only_metrics(<<"all">>, Rates) ->
     Rates;
