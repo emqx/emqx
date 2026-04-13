@@ -35,7 +35,27 @@ all() ->
         case16_serialize_ack,
         case17_serialize_query,
         case18_serialize_query,
-        case19_serialize_ctrl
+        case19_serialize_ctrl,
+        %% 2025 Protocol Tests
+        case_2025_login,
+        case_2025_report_vehicle,
+        case_2025_report_drive_motor,
+        case_2025_report_fuel_cell,
+        case_2025_report_engine,
+        case_2025_report_location,
+        case_2025_report_alarm,
+        case_2025_report_power_battery_voltage,
+        case_2025_report_power_battery_temp,
+        case_2025_report_fuel_cell_stack,
+        case_2025_report_super_capacitor,
+        case_2025_report_super_capacitor_extreme,
+        case_2025_report_signature,
+        case_2025_activation,
+        case_2025_serialize_activation_res,
+        case_2025_key_exchange,
+        case_2025_serialize_key_exchange,
+        case_2025_param_query_byte_params,
+        case_2025_serialize_setting
     ].
 
 init_per_suite(Config) ->
@@ -58,6 +78,22 @@ encode(Cmd, Ack, Vin, Encrypt, Data) ->
     ?LOGT("encode a packet=~p", [binary_to_hex_string(Stream)]),
     Stream.
 
+encode(Cmd, Vin, Data, ProtoVer) ->
+    encode(Cmd, ?ACK_IS_CMD, Vin, ?ENCRYPT_NONE, Data, ProtoVer).
+
+encode(Cmd, Ack, Vin, Encrypt, Data, ProtoVer) ->
+    Size = byte_size(Data),
+    S1 = <<Cmd:8, Ack:8, Vin:17/binary, Encrypt:8, Size:16, Data/binary>>,
+    Crc = make_crc(S1, undefined),
+    Start =
+        case ProtoVer of
+            <<"2016">> -> <<"##">>;
+            <<"2025">> -> <<"$$">>
+        end,
+    Stream = <<Start/binary, S1/binary, Crc:8>>,
+    ?LOGT("encode a packet=~p", [binary_to_hex_string(Stream)]),
+    Stream.
+
 make_crc(<<>>, Xor) -> Xor;
 make_crc(<<C:8, Rest/binary>>, undefined) -> make_crc(Rest, C);
 make_crc(<<C:8, Rest/binary>>, Xor) -> make_crc(Rest, C bxor Xor).
@@ -70,6 +106,9 @@ make_time() ->
 
 binary_to_hex_string(Data) ->
     lists:flatten([io_lib:format("~2.16.0B ", [X]) || <<X:8>> <= Data]).
+
+bin_to_hex(Bin) ->
+    list_to_binary([io_lib:format("~2.16.0B", [B]) || <<B>> <= Bin]).
 
 to_json(#frame{cmd = Cmd, vin = Vin, encrypt = Encrypt, data = Data}) ->
     emqx_utils_json:encode(#{'Cmd' => Cmd, 'Vin' => Vin, 'Encrypt' => Encrypt, 'Data' => Data}).
@@ -955,4 +994,805 @@ case20_realtime_report_0x80(_Config) ->
         }
     } = Frame,
     ?LOGT("frame: ~p", [to_json(Frame)]),
+    ok.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 2025 Protocol Tests %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%--------------------------------------------------------------------
+%% Case: Vehicle Login (2025)
+%%--------------------------------------------------------------------
+case_2025_login(_Config) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    Time = <<25, 1, 1, 10, 30, 0>>,
+    Data =
+        <<Time/binary, 1:?WORD, "12345678901234567890", 1:?BYTE, 1:?BYTE,
+            <<"PACK12345678901234567890">>/binary>>,
+    Bin = encode(?CMD_VIHECLE_LOGIN, <<"VIN12345678901234">>, Data, <<"2025">>),
+    {ok, Frame, <<>>, _State} = emqx_gbt32960_frame:parse(Bin, Parser),
+    #frame{
+        cmd = ?CMD_VIHECLE_LOGIN,
+        ack = ?ACK_IS_CMD,
+        vin = <<"VIN12345678901234">>,
+        encrypt = ?ENCRYPT_NONE,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"Time">> := #{
+                <<"Year">> := 25,
+                <<"Month">> := 1,
+                <<"Day">> := 1,
+                <<"Hour">> := 10,
+                <<"Minute">> := 30,
+                <<"Second">> := 0
+            },
+            <<"Seq">> := 1,
+            <<"ICCID">> := <<"12345678901234567890">>,
+            <<"BmsNum">> := 1,
+            <<"BatteryPackCounts">> := [1],
+            <<"BatteryPackEncodings">> := [[<<"PACK12345678901234567890">>]]
+        }
+    } = Frame,
+    ?LOGT("frame: ~p", [to_json(Frame)]),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Real-time Report - Vehicle Data (2025)
+%% 2025 Vehicle: 18 bytes (no AcceleratorPedal/BrakePedal)
+%%--------------------------------------------------------------------
+case_2025_report_vehicle(_Config) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    Time = <<25, 1, 1, 2, 59, 0>>,
+    VehicleState =
+        <<1:?BYTE, 1:?BYTE, 1:?BYTE, 2000:?WORD, 999999:?DWORD, 5000:?WORD, 15000:?WORD, 50:?BYTE,
+            1:?BYTE, 5:?BYTE, 6000:?WORD>>,
+    Data = <<Time/binary, ?INFO_TYPE_2025_VEHICLE, VehicleState/binary>>,
+    Bin = encode(?CMD_INFO_REPORT, <<"VIN12345678901234">>, Data, <<"2025">>),
+    {ok, Frame, <<>>, _State} = emqx_gbt32960_frame:parse(Bin, Parser),
+    #frame{
+        cmd = ?CMD_INFO_REPORT,
+        ack = ?ACK_IS_CMD,
+        vin = <<"VIN12345678901234">>,
+        encrypt = ?ENCRYPT_NONE,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"Time">> := #{
+                <<"Year">> := 25,
+                <<"Month">> := 1,
+                <<"Day">> := 1,
+                <<"Hour">> := 2,
+                <<"Minute">> := 59,
+                <<"Second">> := 0
+            },
+            <<"Infos">> := [
+                #{
+                    <<"Type">> := <<"Vehicle">>,
+                    <<"Status">> := 1,
+                    <<"Charging">> := 1,
+                    <<"Mode">> := 1,
+                    <<"Speed">> := 2000,
+                    <<"Mileage">> := 999999,
+                    <<"Voltage">> := 5000,
+                    <<"Current">> := 15000,
+                    <<"SOC">> := 50,
+                    <<"DC">> := 1,
+                    <<"Gear">> := 5,
+                    <<"Resistance">> := 6000
+                }
+            ]
+        }
+    } = Frame,
+    ?LOGT("frame: ~p", [to_json(Frame)]),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Real-time Report - Drive Motor Data (2025)
+%% 2025 motor: 10 bytes per motor, Torque is DWORD
+%%--------------------------------------------------------------------
+case_2025_report_drive_motor(_Config) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    Time = <<25, 1, 1, 2, 59, 0>>,
+    DriveMotor1 = <<1:?BYTE, 1:?BYTE, 125:?BYTE, 30000:?WORD, 25000:?DWORD, 125:?BYTE>>,
+    DriveMotor2 = <<2:?BYTE, 1:?BYTE, 125:?BYTE, 30200:?WORD, 25300:?DWORD, 145:?BYTE>>,
+    Data =
+        <<Time/binary, ?INFO_TYPE_2025_DRIVE_MOTOR, 2:?BYTE, DriveMotor1/binary,
+            DriveMotor2/binary>>,
+    Bin = encode(?CMD_INFO_REPORT, <<"VIN12345678901234">>, Data, <<"2025">>),
+    {ok, Frame, <<>>, _State} = emqx_gbt32960_frame:parse(Bin, Parser),
+    #frame{
+        cmd = ?CMD_INFO_REPORT,
+        ack = ?ACK_IS_CMD,
+        vin = <<"VIN12345678901234">>,
+        encrypt = ?ENCRYPT_NONE,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"Time">> := #{
+                <<"Year">> := 25,
+                <<"Month">> := 1,
+                <<"Day">> := 1,
+                <<"Hour">> := 2,
+                <<"Minute">> := 59,
+                <<"Second">> := 0
+            },
+            <<"Infos">> := [
+                #{
+                    <<"Type">> := <<"DriveMotor">>,
+                    <<"Number">> := 2,
+                    <<"Motors">> := [
+                        #{
+                            <<"No">> := 1,
+                            <<"Status">> := 1,
+                            <<"CtrlTemp">> := 125,
+                            <<"Rotating">> := 30000,
+                            <<"Torque">> := 25000,
+                            <<"MotorTemp">> := 125
+                        },
+                        #{
+                            <<"No">> := 2,
+                            <<"Status">> := 1,
+                            <<"CtrlTemp">> := 125,
+                            <<"Rotating">> := 30200,
+                            <<"Torque">> := 25300,
+                            <<"MotorTemp">> := 145
+                        }
+                    ]
+                }
+            ]
+        }
+    } = Frame,
+    ?LOGT("frame: ~p", [to_json(Frame)]),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Real-time Report - Fuel Cell Data (2025)
+%% 2025 Fuel Cell: 12 bytes with RemainingH2/DCDCTemp
+%%--------------------------------------------------------------------
+case_2025_report_fuel_cell(_Config) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    Time = <<25, 1, 1, 2, 59, 0>>,
+    FuelCell =
+        <<12500:?WORD, 10:?BYTE, 35000:?WORD, 11:?BYTE, 500:?WORD, 12:?BYTE, 1:?BYTE, 80:?BYTE,
+            45:?BYTE>>,
+    Data = <<Time/binary, ?INFO_TYPE_2025_FUEL_CELL, FuelCell/binary>>,
+    Bin = encode(?CMD_INFO_REPORT, <<"VIN12345678901234">>, Data, <<"2025">>),
+    {ok, Frame, <<>>, _State} = emqx_gbt32960_frame:parse(Bin, Parser),
+    #frame{
+        cmd = ?CMD_INFO_REPORT,
+        ack = ?ACK_IS_CMD,
+        vin = <<"VIN12345678901234">>,
+        encrypt = ?ENCRYPT_NONE,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"Time">> := #{
+                <<"Year">> := 25,
+                <<"Month">> := 1,
+                <<"Day">> := 1,
+                <<"Hour">> := 2,
+                <<"Minute">> := 59,
+                <<"Second">> := 0
+            },
+            <<"Infos">> := [
+                #{
+                    <<"Type">> := <<"FuelCell">>,
+                    <<"H_MaxTemp">> := 12500,
+                    <<"H_TempProbeCode">> := 10,
+                    <<"H_MaxConc">> := 35000,
+                    <<"H_ConcSensorCode">> := 11,
+                    <<"H_MaxPress">> := 500,
+                    <<"H_PressSensorCode">> := 12,
+                    <<"DCStatus">> := 1,
+                    <<"RemainingH2">> := 80,
+                    <<"DCDCTemp">> := 45
+                }
+            ]
+        }
+    } = Frame,
+    ?LOGT("frame: ~p", [to_json(Frame)]),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Real-time Report - Engine Data (2025)
+%% 2025 Engine: 2 bytes (CrankshaftSpeed only)
+%%--------------------------------------------------------------------
+case_2025_report_engine(_Config) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    Time = <<25, 10, 1, 22, 59, 0>>,
+    Data = <<Time/binary, ?INFO_TYPE_2025_ENGINE, 3000:?WORD>>,
+    Bin = encode(?CMD_INFO_REPORT, <<"VIN12345678901234">>, Data, <<"2025">>),
+    {ok, Frame, <<>>, _State} = emqx_gbt32960_frame:parse(Bin, Parser),
+    #frame{
+        cmd = ?CMD_INFO_REPORT,
+        ack = ?ACK_IS_CMD,
+        vin = <<"VIN12345678901234">>,
+        encrypt = ?ENCRYPT_NONE,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"Time">> := #{
+                <<"Year">> := 25,
+                <<"Month">> := 10,
+                <<"Day">> := 1,
+                <<"Hour">> := 22,
+                <<"Minute">> := 59,
+                <<"Second">> := 0
+            },
+            <<"Infos">> := [
+                #{
+                    <<"Type">> := <<"Engine">>,
+                    <<"CrankshaftSpeed">> := 3000
+                }
+            ]
+        }
+    } = Frame,
+    ?LOGT("frame: ~p", [to_json(Frame)]),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Real-time Report - Location Data (2025)
+%% 2025 Location: 10 bytes with CoordinateSystem field
+%%--------------------------------------------------------------------
+case_2025_report_location(_Config) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    Time = <<25, 10, 1, 22, 59, 0>>,
+    Data = <<Time/binary, ?INFO_TYPE_2025_LOCATION, 0:?BYTE, 1:?BYTE, 10:?DWORD, 100:?DWORD>>,
+    Bin = encode(?CMD_INFO_REPORT, <<"VIN12345678901234">>, Data, <<"2025">>),
+    {ok, Frame, <<>>, _State} = emqx_gbt32960_frame:parse(Bin, Parser),
+    #frame{
+        cmd = ?CMD_INFO_REPORT,
+        ack = ?ACK_IS_CMD,
+        vin = <<"VIN12345678901234">>,
+        encrypt = ?ENCRYPT_NONE,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"Time">> := #{
+                <<"Year">> := 25,
+                <<"Month">> := 10,
+                <<"Day">> := 1,
+                <<"Hour">> := 22,
+                <<"Minute">> := 59,
+                <<"Second">> := 0
+            },
+            <<"Infos">> := [
+                #{
+                    <<"Type">> := <<"Location">>,
+                    <<"Status">> := 0,
+                    <<"CoordinateSystem">> := 1,
+                    <<"Longitude">> := 10,
+                    <<"Latitude">> := 100
+                }
+            ]
+        }
+    } = Frame,
+    ?LOGT("frame: ~p", [to_json(Frame)]),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Alarm Data (2025)
+%% 2025 Alarm: has FaultGeneralNum/FaultGeneralList
+%%--------------------------------------------------------------------
+case_2025_report_alarm(_Config) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    Time = <<17, 12, 20, 22, 23, 59>>,
+    Alarm2025 =
+        <<0:?BYTE, 16#00000011:?DWORD, 1:?BYTE, 16#1234ABCD:?DWORD, 2:?BYTE, 16#2345BCDE:?DWORD,
+            16#3456CDEF:?DWORD, 1:?BYTE, 16#4567DEFA:?DWORD, 1:?BYTE, 16#5678EFAB:?DWORD, 2:?BYTE,
+            16#00FF:?WORD, 16#08FF:?WORD>>,
+    Bin = encode(
+        ?CMD_INFO_RE_REPORT,
+        <<"1G1BL52P7TR115520">>,
+        <<Time/binary, 16#06, Alarm2025/binary>>,
+        <<"2025">>
+    ),
+    {ok, Frame, <<>>, _State} = emqx_gbt32960_frame:parse(Bin, Parser),
+    #frame{
+        cmd = ?CMD_INFO_RE_REPORT,
+        ack = ?ACK_IS_CMD,
+        vin = <<"1G1BL52P7TR115520">>,
+        encrypt = ?ENCRYPT_NONE,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"Time">> := #{
+                <<"Year">> := 17,
+                <<"Month">> := 12,
+                <<"Day">> := 20,
+                <<"Hour">> := 22,
+                <<"Minute">> := 23,
+                <<"Second">> := 59
+            },
+            <<"Infos">> := [
+                #{
+                    <<"Type">> := <<"Alarm">>,
+                    <<"MaxAlarmLevel">> := 0,
+                    <<"GeneralAlarmFlag">> := 17,
+                    <<"FaultChargeableDeviceNum">> := 1,
+                    <<"FaultChargeableDeviceList">> := [<<"1234ABCD">>],
+                    <<"FaultDriveMotorNum">> := 2,
+                    <<"FaultDriveMotorList">> := [<<"2345BCDE">>, <<"3456CDEF">>],
+                    <<"FaultEngineNum">> := 1,
+                    <<"FaultEngineList">> := [<<"4567DEFA">>],
+                    <<"FaultOthersNum">> := 1,
+                    <<"FaultOthersList">> := [<<"5678EFAB">>],
+                    <<"FaultGeneralNum">> := 2,
+                    <<"FaultGeneralList">> := [
+                        #{<<"No">> := 0, <<"Level">> := 255},
+                        #{<<"No">> := 8, <<"Level">> := 255}
+                    ]
+                }
+            ]
+        }
+    } = Frame,
+    ?LOGT("frame: ~p", [to_json(Frame)]),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Power Battery Voltage (2025), Info Type: 0x07
+%%--------------------------------------------------------------------
+case_2025_report_power_battery_voltage(_Config) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    Time = <<25, 11, 13, 15, 30, 0>>,
+    BatteryPack1 = <<1:?BYTE, 3000:?WORD, 1000:?WORD, 2:?WORD, 1200:?WORD, 1201:?WORD>>,
+    BatteryPack2 = <<2:?BYTE, 3100:?WORD, 1100:?WORD, 2:?WORD, 1300:?WORD, 1301:?WORD>>,
+    Data =
+        <<Time/binary, ?INFO_TYPE_2025_POWER_BATTERY_VOLTAGE, 2:?BYTE, BatteryPack1/binary,
+            BatteryPack2/binary>>,
+    Bin = encode(?CMD_INFO_REPORT, <<"VIN12345678901234">>, Data, <<"2025">>),
+    {ok, Frame, <<>>, _State} = emqx_gbt32960_frame:parse(Bin, Parser),
+    #frame{
+        cmd = ?CMD_INFO_REPORT,
+        ack = ?ACK_IS_CMD,
+        vin = <<"VIN12345678901234">>,
+        encrypt = ?ENCRYPT_NONE,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"Infos">> := [
+                #{
+                    <<"Type">> := <<"MinVoltageOfPowerBattery">>,
+                    <<"Number">> := 2,
+                    <<"SubSystems">> := [
+                        #{
+                            <<"BatteryPackNo">> := 1,
+                            <<"BatteryPackVoltage">> := 3000,
+                            <<"BatteryPackCurrent">> := 1000,
+                            <<"MinParallelUnitTotal">> := 2,
+                            <<"MinParallelUnitVoltage">> := [1200, 1201]
+                        },
+                        #{
+                            <<"BatteryPackNo">> := 2,
+                            <<"BatteryPackVoltage">> := 3100,
+                            <<"BatteryPackCurrent">> := 1100,
+                            <<"MinParallelUnitTotal">> := 2,
+                            <<"MinParallelUnitVoltage">> := [1300, 1301]
+                        }
+                    ]
+                }
+            ]
+        }
+    } = Frame,
+    ?LOGT("frame: ~p", [to_json(Frame)]),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Power Battery Temperature (2025), Info Type: 0x08
+%%--------------------------------------------------------------------
+case_2025_report_power_battery_temp(_Config) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    Time = <<25, 11, 13, 15, 30, 0>>,
+    BatteryPackTemp1 = <<1:?BYTE, 5:?WORD, 120:?BYTE, 121:?BYTE, 122:?BYTE, 123:?BYTE, 124:?BYTE>>,
+    BatteryPackTemp2 = <<2:?BYTE, 3:?WORD, 130:?BYTE, 131:?BYTE, 132:?BYTE>>,
+    Data =
+        <<Time/binary, ?INFO_TYPE_2025_POWER_BATTERY_TEMP, 2:?BYTE, BatteryPackTemp1/binary,
+            BatteryPackTemp2/binary>>,
+    Bin = encode(?CMD_INFO_REPORT, <<"VIN12345678901234">>, Data, <<"2025">>),
+    {ok, Frame, <<>>, _State} = emqx_gbt32960_frame:parse(Bin, Parser),
+    #frame{
+        cmd = ?CMD_INFO_REPORT,
+        ack = ?ACK_IS_CMD,
+        vin = <<"VIN12345678901234">>,
+        encrypt = ?ENCRYPT_NONE,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"Infos">> := [
+                #{
+                    <<"Type">> := <<"TempOfPowerBattery">>,
+                    <<"Number">> := 2,
+                    <<"SubSystems">> := [
+                        #{
+                            <<"BatteryPackNo">> := 1,
+                            <<"ProbeNum">> := 5,
+                            <<"ProbesTemp">> := [120, 121, 122, 123, 124]
+                        },
+                        #{
+                            <<"BatteryPackNo">> := 2,
+                            <<"ProbeNum">> := 3,
+                            <<"ProbesTemp">> := [130, 131, 132]
+                        }
+                    ]
+                }
+            ]
+        }
+    } = Frame,
+    ?LOGT("frame: ~p", [to_json(Frame)]),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Fuel Cell Stack Data (2025), Info Type: 0x30
+%%--------------------------------------------------------------------
+case_2025_report_fuel_cell_stack(_Config) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    Time = <<25, 11, 13, 15, 30, 0>>,
+    FuelCellStack =
+        <<1:?BYTE, 2000:?WORD, 300:?WORD, 1200:?WORD, 1100:?WORD, 50:?BYTE, 10:?WORD, 100:?BYTE,
+            101:?BYTE, 102:?BYTE, 103:?BYTE, 104:?BYTE, 105:?BYTE, 106:?BYTE, 107:?BYTE, 108:?BYTE,
+            109:?BYTE>>,
+    Data = <<Time/binary, ?INFO_TYPE_2025_FUEL_CELL_STACK, 1:?BYTE, FuelCellStack/binary>>,
+    Bin = encode(?CMD_INFO_REPORT, <<"VIN12345678901234">>, Data, <<"2025">>),
+    {ok, Frame, <<>>, _State} = emqx_gbt32960_frame:parse(Bin, Parser),
+    #frame{
+        cmd = ?CMD_INFO_REPORT,
+        ack = ?ACK_IS_CMD,
+        vin = <<"VIN12345678901234">>,
+        encrypt = ?ENCRYPT_NONE,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"Infos">> := [
+                #{
+                    <<"Type">> := <<"FuelCellStack">>,
+                    <<"Number">> := 1,
+                    <<"Stacks">> := [
+                        #{
+                            <<"FuelCellStackNo">> := 1,
+                            <<"Voltage">> := 2000,
+                            <<"Current">> := 300,
+                            <<"H2InletPressure">> := 1200,
+                            <<"AirInletPressure">> := 1100,
+                            <<"AirInletTemp">> := 50,
+                            <<"StackProbeNum">> := 10,
+                            <<"StackProbeTemp">> := [
+                                100, 101, 102, 103, 104, 105, 106, 107, 108, 109
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    } = Frame,
+    ?LOGT("frame: ~p", [to_json(Frame)]),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Super Capacitor Data (2025), Info Type: 0x31
+%%--------------------------------------------------------------------
+case_2025_report_super_capacitor(_Config) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    Time = <<25, 11, 13, 15, 30, 0>>,
+    SuperCapacitorData =
+        <<1:?BYTE, 1000:?WORD, 2000:?WORD, 5:?WORD, 1200:?WORD, 1201:?WORD, 1202:?WORD, 1203:?WORD,
+            1204:?WORD, 3:?WORD, 100:?BYTE, 101:?BYTE, 102:?BYTE>>,
+    Data = <<Time/binary, ?INFO_TYPE_2025_SUPER_CAPACITOR, SuperCapacitorData/binary>>,
+    Bin = encode(?CMD_INFO_REPORT, <<"VIN12345678901234">>, Data, <<"2025">>),
+    {ok, Frame, <<>>, _State} = emqx_gbt32960_frame:parse(Bin, Parser),
+    #frame{
+        cmd = ?CMD_INFO_REPORT,
+        ack = ?ACK_IS_CMD,
+        vin = <<"VIN12345678901234">>,
+        encrypt = ?ENCRYPT_NONE,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"Infos">> := [
+                #{
+                    <<"Type">> := <<"SuperCapacitor">>,
+                    <<"ManagerSysNo">> := 1,
+                    <<"TotalVoltage">> := 1000,
+                    <<"TotalCurrent">> := 2000,
+                    <<"CellsTotal">> := 5,
+                    <<"CellsVoltage">> := [1200, 1201, 1202, 1203, 1204],
+                    <<"ProbeNum">> := 3,
+                    <<"ProbeTemp">> := [100, 101, 102]
+                }
+            ]
+        }
+    } = Frame,
+    ?LOGT("frame: ~p", [to_json(Frame)]),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Super Capacitor Extreme Data (2025), Info Type: 0x32
+%%--------------------------------------------------------------------
+case_2025_report_super_capacitor_extreme(_Config) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    Time = <<25, 11, 13, 15, 30, 0>>,
+    ExtremeSuperCapacitorData =
+        <<1:?BYTE, 10:?WORD, 7500:?WORD, 2:?BYTE, 11:?WORD, 2000:?WORD, 3:?BYTE, 12:?WORD,
+            120:?BYTE, 4:?BYTE, 13:?WORD, 40:?BYTE>>,
+    Data =
+        <<Time/binary, ?INFO_TYPE_2025_SUPER_CAPACITOR_EXTREME, ExtremeSuperCapacitorData/binary>>,
+    Bin = encode(?CMD_INFO_REPORT, <<"VIN12345678901234">>, Data, <<"2025">>),
+    {ok, Frame, <<>>, _State} = emqx_gbt32960_frame:parse(Bin, Parser),
+    #frame{
+        cmd = ?CMD_INFO_REPORT,
+        ack = ?ACK_IS_CMD,
+        vin = <<"VIN12345678901234">>,
+        encrypt = ?ENCRYPT_NONE,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"Infos">> := [
+                #{
+                    <<"Type">> := <<"SuperCapacitorExtreme">>,
+                    <<"MaxVoltageManagerSysNo">> := 1,
+                    <<"MaxVoltageCellCode">> := 10,
+                    <<"MaxVoltageCellValue">> := 7500,
+                    <<"MinVoltageManagerSysNo">> := 2,
+                    <<"MinVoltageCellCode">> := 11,
+                    <<"MinVoltageCellValue">> := 2000,
+                    <<"MaxTempManagerSysNo">> := 3,
+                    <<"MaxTempProbeCode">> := 12,
+                    <<"MaxTempValue">> := 120,
+                    <<"MinTempManagerSysNo">> := 4,
+                    <<"MinTempProbeCode">> := 13,
+                    <<"MinTempValue">> := 40
+                }
+            ]
+        }
+    } = Frame,
+    ?LOGT("frame: ~p", [to_json(Frame)]),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Digital Signature (2025), Info Type: 0xFF
+%%--------------------------------------------------------------------
+case_2025_report_signature(_Config) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    Time = <<25, 11, 13, 15, 30, 0>>,
+    RVALCopy = binary:copy(<<"RVAL">>, 8),
+    SVALCopy = binary:copy(<<"SVAL">>, 8),
+    SignatureData = <<1:?BYTE, 32:?WORD, RVALCopy/binary, 32:?WORD, SVALCopy/binary>>,
+    RValHex = bin_to_hex(RVALCopy),
+    SValHex = bin_to_hex(SVALCopy),
+    Data = <<Time/binary, ?INFO_TYPE_2025_SIGNATURE, SignatureData/binary>>,
+    Bin = encode(?CMD_INFO_REPORT, <<"VIN12345678901234">>, Data, <<"2025">>),
+    {ok, Frame, <<>>, _State} = emqx_gbt32960_frame:parse(Bin, Parser),
+    #frame{
+        cmd = ?CMD_INFO_REPORT,
+        ack = ?ACK_IS_CMD,
+        vin = <<"VIN12345678901234">>,
+        encrypt = ?ENCRYPT_NONE,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"Infos">> := [
+                #{
+                    <<"Type">> := <<"Signature">>,
+                    <<"SignatureType">> := 1,
+                    <<"RLength">> := 32,
+                    <<"RValue">> := RValHex,
+                    <<"SLength">> := 32,
+                    <<"SValue">> := SValHex
+                }
+            ]
+        }
+    } = Frame,
+    ?LOGT("frame: ~p", [to_json(Frame)]),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Activation (2025), Cmd: 0x09
+%%--------------------------------------------------------------------
+case_2025_activation(_Config) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    Time = <<25, 1, 1, 12, 0, 0>>,
+    ChipID = <<"CHIP123456789012">>,
+    PubKey = <<"PUBLICKEY1234567">>,
+    PubKeyLen = byte_size(PubKey),
+    VIN = <<"VIN12345678901234">>,
+    RVal = binary:copy(<<"R">>, 32),
+    SVal = binary:copy(<<"S">>, 32),
+    Signature = <<1:?BYTE, 32:?WORD, RVal/binary, 32:?WORD, SVal/binary>>,
+    Data =
+        <<Time/binary, ChipID/binary, PubKeyLen:?WORD, PubKey/binary, VIN/binary,
+            Signature/binary>>,
+    Bin = encode(?CMD_ACTIVATION, <<"VIN12345678901234">>, Data, <<"2025">>),
+    {ok, Frame, <<>>, _State} = emqx_gbt32960_frame:parse(Bin, Parser),
+    PubKeyHex = bin_to_hex(PubKey),
+    RHex = bin_to_hex(RVal),
+    SHex = bin_to_hex(SVal),
+    #frame{
+        cmd = ?CMD_ACTIVATION,
+        ack = ?ACK_IS_CMD,
+        vin = <<"VIN12345678901234">>,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"Time">> := _,
+            <<"ChipID">> := ChipID,
+            <<"PubKeyLen">> := PubKeyLen,
+            <<"PubKey">> := PubKeyHex,
+            <<"VIN">> := VIN,
+            <<"Signature">> := #{
+                <<"SignatureType">> := 1,
+                <<"RValue">> := RHex,
+                <<"SValue">> := SHex
+            }
+        }
+    } = Frame,
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Activation Response Serialization (2025), Cmd: 0x0A
+%%--------------------------------------------------------------------
+case_2025_serialize_activation_res(_Config) ->
+    Frame = #frame{
+        cmd = ?CMD_ACTIVATION_RES,
+        ack = ?ACK_IS_CMD,
+        vin = <<"VIN12345678901234">>,
+        encrypt = ?ENCRYPT_NONE,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"ActivationStatus">> => 1,
+            <<"Info">> => 0
+        }
+    },
+    Bin = emqx_gbt32960_frame:serialize(Frame),
+    <<Start:2/binary, _Header:22/binary, Status:?BYTE, Info:?BYTE, _Crc:?BYTE>> = Bin,
+    ?assertEqual(<<"$$">>, Start),
+    ?assertEqual(1, Status),
+    ?assertEqual(0, Info),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Key Exchange (2025), Cmd: 0x0B
+%%--------------------------------------------------------------------
+case_2025_key_exchange(_Config) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    KeyType = 16#01,
+    Key = <<"SECRETKEY1234567">>,
+    KeyLength = byte_size(Key),
+    ActiveTime = <<25, 1, 2, 12, 0, 0>>,
+    ExpireTime = <<26, 1, 2, 12, 0, 0>>,
+    Data = <<KeyType:?BYTE, KeyLength:?WORD, Key/binary, ActiveTime/binary, ExpireTime/binary>>,
+    Bin = encode(?CMD_KEY_EXCHANGE, <<"VIN12345678901234">>, Data, <<"2025">>),
+    {ok, Frame, <<>>, _State} = emqx_gbt32960_frame:parse(Bin, Parser),
+    KeyHex = bin_to_hex(Key),
+    #frame{
+        cmd = ?CMD_KEY_EXCHANGE,
+        ack = ?ACK_IS_CMD,
+        vin = <<"VIN12345678901234">>,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"KeyType">> := KeyType,
+            <<"KeyLength">> := KeyLength,
+            <<"Key">> := KeyHex,
+            <<"ActiveTime">> := #{
+                <<"Year">> := 25,
+                <<"Month">> := 1,
+                <<"Day">> := 2,
+                <<"Hour">> := 12,
+                <<"Minute">> := 0,
+                <<"Second">> := 0
+            },
+            <<"ExpireTime">> := #{
+                <<"Year">> := 26,
+                <<"Month">> := 1,
+                <<"Day">> := 2,
+                <<"Hour">> := 12,
+                <<"Minute">> := 0,
+                <<"Second">> := 0
+            }
+        }
+    } = Frame,
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Key Exchange Serialization (2025), Cmd: 0x0B
+%%--------------------------------------------------------------------
+case_2025_serialize_key_exchange(_Config) ->
+    Key = <<"SECRETKEY1234567">>,
+    KeyHex = bin_to_hex(Key),
+    ActiveTimeMap = #{
+        <<"Year">> => 25,
+        <<"Month">> => 1,
+        <<"Day">> => 2,
+        <<"Hour">> => 12,
+        <<"Minute">> => 0,
+        <<"Second">> => 0
+    },
+    ExpireTimeMap = #{
+        <<"Year">> => 26,
+        <<"Month">> => 1,
+        <<"Day">> => 2,
+        <<"Hour">> => 12,
+        <<"Minute">> => 0,
+        <<"Second">> => 0
+    },
+    Frame = #frame{
+        cmd = ?CMD_KEY_EXCHANGE,
+        ack = ?ACK_IS_CMD,
+        vin = <<"VIN12345678901234">>,
+        encrypt = ?ENCRYPT_NONE,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"Time">> => #{
+                <<"Year">> => 25,
+                <<"Month">> => 1,
+                <<"Day">> => 1,
+                <<"Hour">> => 12,
+                <<"Minute">> => 0,
+                <<"Second">> => 0
+            },
+            <<"KeyType">> => 1,
+            <<"KeyLength">> => 16,
+            <<"Key">> => KeyHex,
+            <<"ActiveTime">> => ActiveTimeMap,
+            <<"ExpireTime">> => ExpireTimeMap
+        }
+    },
+    Bin = emqx_gbt32960_frame:serialize(Frame),
+    <<Start:2/binary, _Header:22/binary, Type:?BYTE, Len:?WORD, KeyBin:16/binary, ActTime:6/binary,
+        ExpTime:6/binary, _Crc:?BYTE>> = Bin,
+    ?assertEqual(<<"$$">>, Start),
+    ?assertEqual(1, Type),
+    ?assertEqual(16, Len),
+    ?assertEqual(Key, KeyBin),
+    ?assertEqual(<<25, 1, 2, 12, 0, 0>>, ActTime),
+    ?assertEqual(<<26, 1, 2, 12, 0, 0>>, ExpTime),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Param Query - 0x02/0x03 are BYTE in 2025 (WORD in 2016)
+%%--------------------------------------------------------------------
+case_2025_param_query_byte_params(_Config) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    Time = <<25, 12, 18, 9, 22, 30>>,
+    Data = <<Time/binary, 2, 16#02, 10:?BYTE, 16#03, 20:?BYTE>>,
+    Bin = encode(
+        ?CMD_PARAM_QUERY,
+        ?ACK_SUCCESS,
+        <<"VIN12345678901234">>,
+        ?ENCRYPT_NONE,
+        Data,
+        <<"2025">>
+    ),
+    {ok, Frame, <<>>, _State} = emqx_gbt32960_frame:parse(Bin, Parser),
+    #frame{
+        cmd = ?CMD_PARAM_QUERY,
+        ack = ?ACK_SUCCESS,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"Total">> := 2,
+            <<"Params">> := [
+                #{<<"0x02">> := 10},
+                #{<<"0x03">> := 20}
+            ]
+        }
+    } = Frame,
+    ok.
+
+%%--------------------------------------------------------------------
+%% Case: Param Setting Serialization (2025)
+%% 0x02/0x03 are BYTE in 2025
+%%--------------------------------------------------------------------
+case_2025_serialize_setting(_Config) ->
+    Frame = #frame{
+        cmd = ?CMD_PARAM_SETTING,
+        ack = ?ACK_IS_CMD,
+        vin = <<"VIN12345678901234">>,
+        encrypt = ?ENCRYPT_NONE,
+        proto_ver = <<"2025">>,
+        data = #{
+            <<"Time">> => #{
+                <<"Year">> => 25,
+                <<"Month">> => 10,
+                <<"Day">> => 25,
+                <<"Hour">> => 23,
+                <<"Minute">> => 59,
+                <<"Second">> => 59
+            },
+            <<"Total">> => 2,
+            <<"Params">> => [
+                #{16#02 => 30},
+                #{16#03 => 5}
+            ]
+        }
+    },
+    Bin = emqx_gbt32960_frame:serialize(Frame),
+    <<Start:2/binary, _Header:22/binary, Time:6/binary, Total:?BYTE, Params/binary>> =
+        binary:part(Bin, 0, byte_size(Bin) - 1),
+    ?assertEqual(<<"$$">>, Start),
+    ?assertEqual(<<25, 10, 25, 23, 59, 59>>, Time),
+    ?assertEqual(2, Total),
+    ?assertEqual(<<16#02, 30:?BYTE, 16#03, 5:?BYTE>>, Params),
     ok.

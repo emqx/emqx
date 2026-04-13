@@ -5,6 +5,8 @@
 -ifndef(_EMQX_LICENSE_).
 -define(_EMQX_LICENSE_, true).
 
+-define(LICENSE_SHARD, emqx_license_shard).
+
 %% The new default ltype=community&ctype=developer license key since 5.9
 %% limit=0 is encoded in the license key,
 %% resolved to DEFAULT_MAX_SESSIONS_LTYPE2 at runtime.
