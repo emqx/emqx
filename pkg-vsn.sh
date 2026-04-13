@@ -88,7 +88,12 @@ if [ "${PKG_VSN:-novalue}" = 'novalue' ]; then
         fi
         SUFFIX=''
     else
-        SUFFIX="-g$(git rev-parse HEAD | cut -b1-8)"
+        GIT_REV="$(git rev-parse HEAD 2>/dev/null | cut -b1-8 || true)"
+        if [ -n "$GIT_REV" ]; then
+            SUFFIX="-g${GIT_REV}"
+        else
+            SUFFIX=""
+        fi
     fi
 
     PKG_VSN="${RELEASE}${SUFFIX}"

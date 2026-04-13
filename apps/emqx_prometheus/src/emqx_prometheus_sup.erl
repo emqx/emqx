@@ -52,7 +52,7 @@ stop_child(ChildId) ->
 
 init([]) ->
     Conf = emqx_prometheus_config:conf(),
-    Children =
+    Children0 =
         case emqx_prometheus_config:is_push_gateway_server_enabled(Conf) of
             false -> [];
             %% TODO: add push gateway for endpoints
@@ -60,7 +60,13 @@ init([]) ->
             %% `/prometheus/data_integration`
             true -> [?CHILD(emqx_prometheus, Conf)]
         end,
-    {ok, {{one_for_one, 10, 3600}, Children}}.
+    Children = [?CHILD(emqx_prometheus_cache, #{}) | Children0],
+    SupFlags = #{
+        strategy => one_for_one,
+        intensity => 10,
+        period => 3600
+    },
+    {ok, {SupFlags, Children}}.
 
 %%--------------------------------------------------------------------
 %% Internal functions

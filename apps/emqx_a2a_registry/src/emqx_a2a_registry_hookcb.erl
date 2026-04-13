@@ -54,14 +54,14 @@ on_message_publish(Msg = #message{}) ->
             do_on_message_publish(Msg)
     end.
 
-do_on_message_publish(Msg = #message{flags = Flags, topic = Topic}) ->
+do_on_message_publish(Msg = #message{topic = Topic, flags = Flags}) ->
     IsRetained = maps:get(retain, Flags, false),
     case parse_a2a_discovery_topic(Topic) of
         error ->
             {ok, Msg};
-        {ok, Id} when IsRetained ->
+        {ok, _Namespace, Id} when IsRetained ->
             validate_card_message(Msg, Id);
-        {ok, Id} ->
+        {ok, _Namespace, Id} ->
             ?tp(warning, "a2a_registry_non_retained_card_message", #{
                 parsed_id => Id
             }),
@@ -126,7 +126,7 @@ validate_card_schema(#message{payload = Payload} = _Msg) ->
 
 maybe_augment_message_metadata(#message{topic = Topic} = Msg0) ->
     case parse_a2a_discovery_topic(Topic) of
-        {ok, _Id} ->
+        {ok, _Namespace, _Id} ->
             augment_message_metadata(Msg0);
         error ->
             Msg0
@@ -136,7 +136,13 @@ augment_message_metadata(Msg0) ->
     ClientId = emqx_message:from(Msg0),
     Props0 = emqx_message:get_header(properties, Msg0, #{}),
     UserProperties0 = maps:get('User-Property', Props0, []),
+    UserProperties1 = proplists:delete(?A2A_PROP_STATUS_KEY, UserProperties0),
+    UserProperties2 = proplists:delete(?A2A_PROP_STATUS_SOURCE_KEY, UserProperties1),
     Status = emqx_a2a_registry:lookup_agent_status(ClientId),
-    UserProperties = [{?A2A_PROP_STATUS_KEY, Status} | UserProperties0],
+    UserProperties = [
+        {?A2A_PROP_STATUS_KEY, Status},
+        {?A2A_PROP_STATUS_SOURCE_KEY, <<"emqx">>}
+        | UserProperties2
+    ],
     Props = maps:put('User-Property', UserProperties, Props0),
     emqx_message:set_header(properties, Props, Msg0).

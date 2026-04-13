@@ -16,6 +16,7 @@
 %%------------------------------------------------------------------------------
 
 -include("emqx_a2a_registry_internal.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(PRINT(Format, Args), io:format(Format, Args)).
 
@@ -39,8 +40,8 @@ a2a(["delete" | Args]) ->
     if_enabled(fun() -> handle_delete(Args) end);
 a2a(["register" | Args]) ->
     if_enabled(fun() -> handle_register(Args) end);
-a2a(["stats"]) ->
-    if_enabled(fun handle_stats/0);
+a2a(["stats" | Args]) ->
+    if_enabled(fun() -> handle_stats(Args) end);
 a2a(_) ->
     usage().
 
@@ -149,11 +150,18 @@ handle_register(Args) ->
             false
     end.
 
-handle_stats() ->
-    AllCards = emqx_a2a_registry:list_cards(),
-    NumAllCards = length(AllCards),
-    Stats = #{<<"total">> => NumAllCards},
-    print_json(Stats).
+handle_stats(Args) ->
+    case stats_args(Args) of
+        {ok, #{namespace := Namespace}} ->
+            AllCards = emqx_a2a_registry:list_cards(#{namespace => Namespace}),
+            NumAllCards = length(AllCards),
+            Stats = #{<<"total">> => NumAllCards},
+            print_json(Stats);
+        {error, Reason} when is_binary(Reason) ->
+            Error = mk_error(Reason),
+            print_json(Error),
+            false
+    end.
 
 read_card_file(Filepath) ->
     maybe
@@ -175,10 +183,12 @@ list_args(Args) ->
                             Acc#{agent_id => bin(AgentId)};
                         ("--status", Status, Acc) ->
                             Acc#{status => bin(Status)};
+                        ("--namespace", Namespace, Acc) ->
+                            Acc#{namespace => bin(Namespace)};
                         (_, _, Acc) ->
                             Acc
                     end,
-                    #{},
+                    #{namespace => ?global_ns},
                     Collected
                 ),
             {ok, Opts};
@@ -198,10 +208,12 @@ get_args(Args) ->
                             Acc#{unit_id => bin(UnitId)};
                         ("--agent-id", AgentId, Acc) ->
                             Acc#{agent_id => bin(AgentId)};
+                        ("--namespace", Namespace, Acc) ->
+                            Acc#{namespace => bin(Namespace)};
                         (_, _, Acc) ->
                             Acc
                     end,
-                    #{},
+                    #{namespace => ?global_ns},
                     Collected
                 ),
             {ok, Opts};
@@ -226,10 +238,31 @@ register_args(Args) ->
                             Acc#{agent_id => bin(AgentId)};
                         ("--file", Filepath, Acc) ->
                             Acc#{filepath => bin(Filepath)};
+                        ("--namespace", Namespace, Acc) ->
+                            Acc#{namespace => bin(Namespace)};
                         (_, _, Acc) ->
                             Acc
                     end,
-                    #{},
+                    #{namespace => ?global_ns},
+                    Collected
+                ),
+            {ok, Opts};
+        {error, _} = Error ->
+            Error
+    end.
+
+stats_args(Args) ->
+    case collect_stats_args(Args, #{}) of
+        {ok, Collected} ->
+            Opts =
+                maps:fold(
+                    fun
+                        ("--namespace", Namespace, Acc) ->
+                            Acc#{namespace => bin(Namespace)};
+                        (_, _, Acc) ->
+                            Acc
+                    end,
+                    #{namespace => ?global_ns},
                     Collected
                 ),
             {ok, Opts};
@@ -247,6 +280,9 @@ filter_by_status(Cards, _Opts) ->
 
 collect_args([], Map) ->
     {ok, Map};
+%% common
+collect_args(["--namespace", Namespace | Args], Map) ->
+    collect_args(Args, Map#{"--namespace" => Namespace});
 %% list
 collect_args(["--org-id", OrgId | Args], Map) ->
     case is_valid_segment_id(OrgId) of
@@ -285,6 +321,22 @@ collect_args(Args0, _Map) ->
     Args = format_args(Args0),
     {error, io_lib:format("unknown arguments: ~ts", [Args])}.
 
+collect_get_args(["--namespace", Namespace, OrgId, UnitId, AgentId | Rest], Map) ->
+    %% Converting positional arguments to named ones
+    collect_args(
+        [
+            "--namespace",
+            Namespace,
+            "--org-id",
+            OrgId,
+            "--unit-id",
+            UnitId,
+            "--agent-id",
+            AgentId
+            | Rest
+        ],
+        Map
+    );
 collect_get_args([OrgId, UnitId, AgentId | Rest], Map) ->
     %% Converting positional arguments to named ones
     collect_args(["--org-id", OrgId, "--unit-id", UnitId, "--agent-id", AgentId | Rest], Map);
@@ -292,6 +344,24 @@ collect_get_args(Args0, _Map) ->
     Args = format_args(Args0),
     {error, io_lib:format("unknown arguments: ~ts", [Args])}.
 
+collect_register_args(["--namespace", Namespace, OrgId, UnitId, AgentId, Filepath | Rest], Map) ->
+    %% Converting positional arguments to named ones
+    collect_args(
+        [
+            "--namespace",
+            Namespace,
+            "--org-id",
+            OrgId,
+            "--unit-id",
+            UnitId,
+            "--agent-id",
+            AgentId,
+            "--file",
+            Filepath
+            | Rest
+        ],
+        Map
+    );
 collect_register_args([OrgId, UnitId, AgentId, Filepath | Rest], Map) ->
     %% Converting positional arguments to named ones
     collect_args(
@@ -309,6 +379,15 @@ collect_register_args([OrgId, UnitId, AgentId, Filepath | Rest], Map) ->
         Map
     );
 collect_register_args(Args0, _Map) ->
+    Args = format_args(Args0),
+    Msg = fmt("unknown arguments: ~ts", [Args]),
+    {error, Msg}.
+
+collect_stats_args([], Map) ->
+    {ok, Map};
+collect_stats_args(["--namespace", Namespace | Args], Map) ->
+    collect_args(Args, Map#{"--namespace" => Namespace});
+collect_stats_args(Args0, _Map) ->
     Args = format_args(Args0),
     Msg = fmt("unknown arguments: ~ts", [Args]),
     {error, Msg}.

@@ -195,12 +195,14 @@ cached_max_tps() ->
     ?SAFE_CACHE_LOOKUP(max_cluster_tps, 0).
 
 update_resources() ->
+    Now = erlang:system_time(millisecond),
     #{sessions := Sessions, tps := TPS} = stats(),
     ets:insert(?MODULE, {total_connection_count, Sessions}),
     Max0 = cached_max_tps(),
     Max = max(Max0, TPS),
     ets:insert(?MODULE, {latest_cluster_tps, TPS}),
     ets:insert(?MODULE, {max_cluster_tps, Max}),
+    ok = emqx_license_session_hwm:observe(Now, Sessions),
     ok.
 
 ensure_timer(#{check_peer_interval := CheckInterval} = State) ->
