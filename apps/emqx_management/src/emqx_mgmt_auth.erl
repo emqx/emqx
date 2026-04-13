@@ -200,6 +200,10 @@ authorize(#{module := emqx_dashboard_api, function := users}, _Req, _ApiKey, _Ap
     {error, <<"not_allowed">>, <<"users">>};
 authorize(#{module := emqx_dashboard_api, function := logout}, _Req, _ApiKey, _ApiSecret) ->
     {error, <<"not_allowed">>, <<"logout">>};
+authorize(#{module := emqx_dashboard_api, function := change_pwd}, _Req, _ApiKey, _ApiSecret) ->
+    {error, <<"not_allowed">>, <<"users">>};
+authorize(#{module := emqx_dashboard_api, function := change_mfa}, _Req, _ApiKey, _ApiSecret) ->
+    {error, <<"not_allowed">>, <<"users">>};
 authorize(#{module := emqx_mgmt_api_api_keys}, _Req, _ApiKey, _ApiSecret) ->
     {error, <<"not_allowed">>, <<"api_key">>};
 authorize(HandlerInfo, Req, ApiKey, ApiSecret) ->

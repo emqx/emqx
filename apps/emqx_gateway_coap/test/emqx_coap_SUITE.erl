@@ -664,8 +664,148 @@ t_connectionless_pubsub(_) ->
     do(Fun),
     update_coap_with_connection_mode(true).
 
+t_request_with_partial_token_params(_) ->
+    Action = fun(Channel) ->
+        Token = connection(Channel),
+        URI1 = compose_uri(
+            ?PS_PREFIX ++ "/only_clientid",
+            #{
+                "clientid" => <<"client1">>
+            },
+            false
+        ),
+        Req1 = make_req(get, <<>>, [{observe, 0}]),
+        {error, bad_request, _} = do_request(Channel, URI1, Req1),
+
+        URI2 = compose_uri(
+            ?PS_PREFIX ++ "/only_token",
+            #{
+                "token" => list_to_binary(Token)
+            },
+            false
+        ),
+        Req2 = make_req(get, <<>>, [{observe, 0}]),
+        {error, bad_request, _} = do_request(Channel, URI2, Req2),
+        disconnection(Channel, Token)
+    end,
+    do(Action).
+
+t_token_takeover_across_udp_sessions(_) ->
+    ChId = {{127, 0, 0, 1}, 5683},
+    {ok, Sock1} = er_coap_udp_socket:start_link(),
+    {ok, Channel1} = er_coap_udp_socket:get_channel(Sock1, ChId),
+    Token = connection(Channel1),
+    wait_until_channels_non_empty(<<"client1">>),
+    er_coap_channel:close(Channel1),
+    er_coap_udp_socket:close(Sock1),
+
+    wait_until_channels_non_empty(<<"client1">>),
+
+    {ok, Sock2} = er_coap_udp_socket:start_link(),
+    {ok, Channel2} = er_coap_udp_socket:get_channel(Sock2, ChId),
+    URI = compose_uri(
+        ?PS_PREFIX ++ "/coap/udp_takeover",
+        #{
+            "clientid" => <<"client1">>,
+            "token" => list_to_binary(Token)
+        },
+        false
+    ),
+    Req = make_req(post, <<"x">>),
+    {ok, changed, _} = do_request(Channel2, URI, Req),
+    wait_until_channels_count(<<"client1">>, 1),
+
+    disconnection(Channel2, Token),
+    er_coap_channel:close(Channel2),
+    er_coap_udp_socket:close(Sock2).
+
+t_invalid_token_rejected_across_udp_sessions(_) ->
+    ChId = {{127, 0, 0, 1}, 5683},
+    {ok, Sock1} = er_coap_udp_socket:start_link(),
+    {ok, Channel1} = er_coap_udp_socket:get_channel(Sock1, ChId),
+    Token = connection(Channel1),
+    er_coap_channel:close(Channel1),
+    er_coap_udp_socket:close(Sock1),
+    wait_until_channels_non_empty(<<"client1">>),
+
+    {ok, Sock2} = er_coap_udp_socket:start_link(),
+    {ok, Channel2} = er_coap_udp_socket:get_channel(Sock2, ChId),
+    URI = compose_uri(
+        ?PS_PREFIX ++ "/coap/udp_invalid_token",
+        #{
+            "clientid" => <<"client1">>,
+            "token" => <<"wrong-token">>
+        },
+        false
+    ),
+    Req = make_req(post, <<"x">>),
+    assert_unauthorized_error(do_request(Channel2, URI, Req)),
+    disconnection(Channel2, Token),
+    er_coap_channel:close(Channel2),
+    er_coap_udp_socket:close(Sock2).
+
+t_wrong_clientid_with_valid_token_rejected_across_udp_sessions(_) ->
+    ChId = {{127, 0, 0, 1}, 5683},
+    {ok, Sock1} = er_coap_udp_socket:start_link(),
+    {ok, Channel1} = er_coap_udp_socket:get_channel(Sock1, ChId),
+    Token = connection(Channel1),
+    er_coap_channel:close(Channel1),
+    er_coap_udp_socket:close(Sock1),
+    wait_until_channels_non_empty(<<"client1">>),
+
+    {ok, Sock2} = er_coap_udp_socket:start_link(),
+    {ok, Channel2} = er_coap_udp_socket:get_channel(Sock2, ChId),
+    URI = compose_uri(
+        ?PS_PREFIX ++ "/coap/udp_wrong_clientid",
+        #{
+            "clientid" => <<"client2">>,
+            "token" => list_to_binary(Token)
+        },
+        false
+    ),
+    Req = make_req(post, <<"x">>),
+    assert_unauthorized_error(do_request(Channel2, URI, Req)),
+    disconnection(Channel2, Token),
+    er_coap_channel:close(Channel2),
+    er_coap_udp_socket:close(Sock2).
+
 %%--------------------------------------------------------------------
 %% helpers
+
+assert_unauthorized_error({error, unauthorized, _}) ->
+    ok;
+assert_unauthorized_error(Result0) ->
+    Result = normalize_unauthorized_error(Result0),
+    ?assertMatch({error, unauthorized, _}, Result).
+
+normalize_unauthorized_error({error, uauthorized, Payload}) ->
+    {error, unauthorized, Payload};
+normalize_unauthorized_error(Result) ->
+    Result.
+
+wait_until_channels_non_empty(ClientId) ->
+    wait_until(fun() ->
+        emqx_gateway_cm_registry:lookup_channels(coap, ClientId) =/= []
+    end).
+
+wait_until_channels_count(ClientId, Count) ->
+    wait_until(fun() ->
+        length(emqx_gateway_cm_registry:lookup_channels(coap, ClientId)) =:= Count
+    end).
+
+wait_until(Pred) ->
+    wait_until(Pred, 30).
+
+wait_until(Pred, 0) ->
+    ?assert(Pred());
+wait_until(Pred, RetriesLeft) ->
+    case Pred() of
+        true ->
+            ok;
+        false ->
+            timer:sleep(100),
+            wait_until(Pred, RetriesLeft - 1)
+    end.
 
 send_heartbeat(Token) ->
     send_heartbeat(Token, false).
