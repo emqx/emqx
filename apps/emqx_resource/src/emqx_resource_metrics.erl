@@ -200,7 +200,7 @@ handle_counter_telemetry_event(Event, ID, Val, Metadata) ->
         late_reply ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'late_reply', Val);
         failed ->
-            inc_actions_executed(Metadata),
+            inc_actions_executed(Metadata, Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val);
         matched ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'matched', Val);
@@ -208,16 +208,16 @@ handle_counter_telemetry_event(Event, ID, Val, Metadata) ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'received', Val);
         retried_failed ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val),
-            inc_actions_executed(Metadata),
+            inc_actions_executed(Metadata, Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried.failed', Val);
         retried_success ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val),
-            inc_actions_executed(Metadata),
+            inc_actions_executed(Metadata, Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'success', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried.success', Val);
         success ->
-            inc_actions_executed(Metadata),
+            inc_actions_executed(Metadata, Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'success', Val);
         aggregated_upload_success ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'aggregated_upload.success', Val);
@@ -537,7 +537,9 @@ on_delivery_finished(Result, ActionResId) ->
             emqx_resource_metrics:aggregated_upload_failure_inc(ActionResId)
     end.
 
-inc_actions_executed(#{namespace := Namespace}) ->
-    emqx_metrics:inc(Namespace, 'actions.executed');
-inc_actions_executed(_Metadata) ->
-    emqx_metrics:inc_global('actions.executed').
+inc_actions_executed(#{namespace := Namespace}, Val) ->
+    emqx_metrics:inc(Namespace, 'actions.executed'),
+    emqx_metrics:inc(Namespace, 'actions.messages', Val);
+inc_actions_executed(_Metadata, Val) ->
+    emqx_metrics:inc_global('actions.executed'),
+    emqx_metrics:inc_global('actions.messages', Val).
