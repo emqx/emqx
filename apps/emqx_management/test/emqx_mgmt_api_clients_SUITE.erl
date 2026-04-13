@@ -463,6 +463,7 @@ t_persistent_sessions5(Config) ->
             C4 = connect_client(#{
                 port => Port2, clientid => ClientId4, expiry => 0, clean_start => true
             }),
+            ct:sleep(200),
 
             P1 = list_request(#{limit => 3, page => 1}, Config),
             P2 = list_request(#{limit => 3, page => 2}, Config),

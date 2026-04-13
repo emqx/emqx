@@ -20,3 +20,7 @@
   with recursive rendering, add/delete, and additionalProperties toggle at each
   nesting level.
 - Enum rows are hidden for non-string types, and type changes dynamically expand/collapse sub-widgets.
+
+## 0.1.3
+
+- Fixed a UI render issue when topic segment is `variable`, it was rendered as `namespace`.
