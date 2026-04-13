@@ -146,8 +146,10 @@ init({#?db_sup{db = DB}, [_Create, Schema, RTConf]}) ->
     DefaultOpts = maps:merge(Schema, RTConf),
     emqx_ds_builtin_metrics:init_for_db(DB),
     Opts = emqx_ds_builtin_raft_meta:open_db(DB, DefaultOpts),
-    ok = start_ra_system(DB, Opts),
+    Setup = fun() -> start_ra_system(DB, Opts) end,
+    Teardown = fun() -> stop_ra_system(DB) end,
     Children = [
+        emqx_ds_lib:autoclean(db_autoclean, 5_000, Setup, Teardown),
         liveness_spec(DB),
         sup_spec(#?shards_sup{db = DB}, []),
         shard_allocator_spec(DB)
@@ -204,7 +206,16 @@ start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
             name => DB,
             data_dir => DataDir,
             wal_data_dir => DataDir,
-            names => ra_system:derive_names(DB)
+            names => ra_system:derive_names(DB),
+            %% NOTE
+            %% Require quorum to bump effective machine version.
+            %% 1. EMQX 6.2.0+ relies on machine upgrade to start serving DS APIs.
+            %%    Using `quorum` instead of `all` helps restore the service sooner
+            %%    during rolling updates.
+            %% 2. In specific circumstances, machine upgrade may become stuck after
+            %%    a rolling update, and extra leader re-election is needed to push
+            %%    it through. Doing upgrade earlier prevents it.
+            machine_upgrade_strategy => quorum
         },
         maps:with(
             [
@@ -223,6 +234,9 @@ start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
         {error, {already_started, _System}} ->
             ok
     end.
+
+stop_ra_system(DB) ->
+    ra_system:stop(DB).
 
 %%================================================================================
 %% Internal exports
