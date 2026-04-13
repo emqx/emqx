@@ -589,7 +589,6 @@ unsubscribe(Pid) ->
 init([]) ->
     process_flag(trap_exit, true),
     logger:set_process_metadata(#{domain => [ds, meta]}),
-    ok = ekka:monitor(membership),
     ensure_tables(),
     run_migrations(),
     ensure_site(),
@@ -612,8 +611,6 @@ handle_info({mnesia_table_event, {write, #?SHARD_TAB{shard = {DB, Shard}}, _}}, 
     {noreply, S};
 handle_info({'DOWN', _MRef, process, Pid, _Reason}, S) ->
     {noreply, handle_unsubscribe(Pid, S)};
-handle_info({membership, {node, leaving, _Node}}, S) ->
-    {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
 
