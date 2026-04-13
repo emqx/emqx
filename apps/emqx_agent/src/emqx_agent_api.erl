@@ -40,6 +40,8 @@
 %% Handler callbacks
 -export([
     '/agent/ui'/2,
+    '/agent/apple-box/ui'/2,
+    '/agent/apple-box/img/:file'/2,
     '/agent/skills'/2,
     '/agent/skills/:type/:id'/2,
     '/agent/session_profiles'/2,
@@ -62,6 +64,8 @@ api_spec() ->
 paths() ->
     [
         "/agent/ui",
+        "/agent/apple-box/ui",
+        "/agent/apple-box/img/:file",
         "/agent/skills",
         "/agent/skills/:type/:id",
         "/agent/session_profiles",
@@ -82,6 +86,26 @@ schema("/agent/ui") ->
             security => [],
             description => ?DESC(ui_get),
             responses => #{200 => <<"HTML page">>}
+        }
+    };
+schema("/agent/apple-box/ui") ->
+    #{
+        'operationId' => '/agent/apple-box/ui',
+        get => #{
+            tags => ?TAGS,
+            security => [],
+            description => ?DESC(apple_box_ui_get),
+            responses => #{200 => <<"HTML page">>}
+        }
+    };
+schema("/agent/apple-box/img/:file") ->
+    #{
+        'operationId' => '/agent/apple-box/img/:file',
+        get => #{
+            tags => ?TAGS,
+            security => [],
+            description => ?DESC(apple_box_img_get),
+            responses => #{200 => <<"Image file">>}
         }
     };
 schema("/agent/skills") ->
@@ -312,8 +336,31 @@ schema("/agent/pipelines/:id") ->
 %%--------------------------------------------------------------------
 
 '/agent/ui'(get, _Params) ->
+    serve_html("index.html").
+
+'/agent/apple-box/ui'(get, _Params) ->
+    serve_html("apple-box.html").
+
+'/agent/apple-box/img/:file'(get, #{bindings := #{file := File}}) ->
     PrivDir = code:priv_dir(emqx_agent),
-    HtmlFile = filename:join(PrivDir, "index.html"),
+    ImgFile = filename:join([PrivDir, "img", File]),
+    case file:read_file(ImgFile) of
+        {ok, Data} ->
+            CT =
+                case filename:extension(File) of
+                    <<".png">> -> <<"image/png">>;
+                    <<".jpg">> -> <<"image/jpeg">>;
+                    <<".jpeg">> -> <<"image/jpeg">>;
+                    _ -> <<"application/octet-stream">>
+                end,
+            {200, #{<<"content-type">> => CT}, Data};
+        {error, _} ->
+            {404, #{}, <<"not found">>}
+    end.
+
+serve_html(Filename) ->
+    PrivDir = code:priv_dir(emqx_agent),
+    HtmlFile = filename:join(PrivDir, Filename),
     case file:read_file(HtmlFile) of
         {ok, Html} ->
             {200, #{<<"content-type">> => <<"text/html; charset=utf-8">>}, Html};
@@ -614,7 +661,7 @@ session_profiles_list_example() ->
 session_profile_example() ->
     #{
         <<"name">> => <<"hvac_triage_v1">>,
-        <<"api_key">> => <<"sk-...">>,
+        <<"api_key">> => <<"OPENAI_API_KEY">>,
         <<"base_url">> => <<"https://api.openai.com/v1">>,
         <<"model">> => <<"gpt-4o">>,
         <<"instructions">> =>

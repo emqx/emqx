@@ -94,11 +94,12 @@
     border-radius: 10px; background: var(--tag-bg);
     border: 1px solid var(--border); color: var(--muted);
   }
-  .tag.publish { border-color: #388bfd44; color: #388bfd; }
-  .tag.http    { border-color: #e3b34144; color: var(--warn); }
-  .tag.kv      { border-color: #3fb95044; color: var(--accent2); }
-  .tag.ch      { border-color: #f8514944; color: var(--danger); }
-  .tag.llm     { border-color: #a371f744; color: #a371f7; }
+  .tag.publish  { border-color: #388bfd44; color: #388bfd; }
+  .tag.request  { border-color: #58a6ff44; color: #58a6ff; }
+  .tag.http     { border-color: #e3b34144; color: var(--warn); }
+  .tag.kv       { border-color: #3fb95044; color: var(--accent2); }
+  .tag.ch       { border-color: #f8514944; color: var(--danger); }
+  .tag.llm      { border-color: #a371f744; color: #a371f7; }
 
   /* buttons */
   .btn {
@@ -246,6 +247,7 @@
             <label>Type</label>
             <select id="skill-type" onchange="updateSkillForm()">
               <option value="message.publish">message.publish</option>
+              <option value="message.request">message.request</option>
               <option value="http">http</option>
               <option value="kv">kv</option>
               <option value="postgresql.query">postgresql.query</option>
@@ -272,6 +274,15 @@
             <label>Payload schema (JSON)</label>
             <textarea id="skill-publish-input" placeholder='{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}'></textarea>
             <div class="hint">Optional payload JSON schema. Topic/from/qos are fixed wrapper fields. Output schema is fixed by backend.</div>
+          </div>
+        </div>
+
+        <!-- message.request fields -->
+        <div id="f-request" style="display:none">
+          <div class="field">
+            <label>Topic Prefix</label>
+            <input id="skill-request-prefix" type="text" placeholder="devices/room1/">
+            <div class="hint">Request is published to this prefix + the agent-supplied topic suffix. Responses arrive on a unique temporary topic set via the MQTT 5 Response-Topic property.</div>
           </div>
         </div>
 
@@ -539,10 +550,11 @@ function showTab(name, btn) {
 
 function updateSkillForm() {
   const type = document.getElementById('skill-type').value;
-  document.getElementById('f-publish').style.display = type === 'message.publish' ? '' : 'none';
-  document.getElementById('f-http').style.display    = type === 'http'             ? '' : 'none';
-  document.getElementById('f-kv').style.display      = type === 'kv'               ? '' : 'none';
-  document.getElementById('f-ch').style.display      = type === 'postgresql.query' ? '' : 'none';
+  document.getElementById('f-publish').style.display  = type === 'message.publish'  ? '' : 'none';
+  document.getElementById('f-request').style.display  = type === 'message.request'  ? '' : 'none';
+  document.getElementById('f-http').style.display     = type === 'http'              ? '' : 'none';
+  document.getElementById('f-kv').style.display       = type === 'kv'                ? '' : 'none';
+  document.getElementById('f-ch').style.display       = type === 'postgresql.query'  ? '' : 'none';
 }
 
 // ── Skills ───────────────────────────────────────────────────────────────────
@@ -579,6 +591,8 @@ function collectSkillBody() {
     if (publishInSchema) {
       body.payload_schema = JSON.parse(publishInSchema);
     }
+  } else if (type === 'message.request') {
+    body.topic_prefix = document.getElementById('skill-request-prefix').value.trim();
   } else if (type === 'http') {
     body.method        = document.getElementById('skill-method').value;
     body.url           = document.getElementById('skill-url').value.trim();
@@ -645,6 +659,8 @@ function editSkill(type, id) {
     const legacyPayloadSchema = skill.input_schema?.properties?.payload;
     const payloadSchema = skill.payload_schema ?? legacyPayloadSchema;
     document.getElementById('skill-publish-input').value = payloadSchema ? JSON.stringify(payloadSchema, null, 2) : defaultPublishInputSchema();
+  } else if (type === 'message.request') {
+    document.getElementById('skill-request-prefix').value = skill.topic_prefix ?? '';
   } else if (type === 'kv') {
     document.getElementById('skill-data-schema').value = skill.data_schema ? JSON.stringify(skill.data_schema, null, 2) : '';
     document.getElementById('skill-allow-put').value = skill.allow_put ? 'true' : 'false';
@@ -680,6 +696,7 @@ function resetSkillEditor() {
   document.getElementById('skill-desc').value = '';
   document.getElementById('skill-prefix').value = '';
   document.getElementById('skill-publish-input').value = defaultPublishInputSchema();
+  document.getElementById('skill-request-prefix').value = '';
   document.getElementById('skill-method').value = 'post';
   document.getElementById('skill-url').value = '';
   document.getElementById('skill-input-schema').value = '';
@@ -1154,9 +1171,10 @@ function esc(s) {
 }
 
 function typeClass(t) {
-  if (t === 'message.publish') return 'publish';
-  if (t === 'http')             return 'http';
-  if (t?.startsWith('kv'))      return 'kv';
+  if (t === 'message.publish')  return 'publish';
+  if (t === 'message.request')  return 'request';
+  if (t === 'http')              return 'http';
+  if (t?.startsWith('kv'))       return 'kv';
   if (t?.startsWith('postgresql')) return 'ch';
   return '';
 }

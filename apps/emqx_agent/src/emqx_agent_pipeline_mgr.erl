@@ -128,6 +128,16 @@ handle_evt(Topic, Payload) ->
     log_received(evt, #{topic => Topic, event => Event}),
     %% Start new instances for every pipeline definition whose trigger matches.
     Defs = emqx_agent_pipeline_registry:match_trigger(Topic),
+    case Defs of
+        [] ->
+            ?SLOG(warning, #{
+                msg => "pipeline_no_trigger_match",
+                topic => Topic,
+                hint => "no pipeline definition has a trigger that matches this topic"
+            });
+        _ ->
+            ok
+    end,
     lists:foreach(fun(Def) -> start_instance(Def, Event) end, Defs),
     %% Forward to any instance that registered interest in this topic.
     forward_to_waiting(Topic, Event).

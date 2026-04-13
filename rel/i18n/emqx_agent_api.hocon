@@ -12,6 +12,16 @@ emqx_agent_api {
         label: "Demo Storage UI"
     }
 
+    apple_box_ui_get {
+        desc: "Apple Box Conveyor demo UI — single-page simulation for visual quality inspection of apple boxes via LLM pipeline."
+        label: "Apple Box Conveyor UI"
+    }
+
+    apple_box_img_get {
+        desc: "Static image asset for the Apple Box Conveyor demo (box, fresh apple, rotten apple sprites)."
+        label: "Apple Box Image Asset"
+    }
+
     ## Skills collection
 
     skills_list {

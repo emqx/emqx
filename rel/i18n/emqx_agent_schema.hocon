@@ -177,8 +177,8 @@ Example: [\"device_id\", \"metric\"] maps args.device_id -> $1 and args.metric -
     }
 
     session_profile_api_key {
-        desc: "API key for the LLM provider."
-        label: "API Key"
+        desc: "Name of the OS environment variable that holds the LLM provider API key (e.g. OPENAI_API_KEY). The actual secret is never stored — it is resolved from the environment at call time."
+        label: "API Key Env Var"
     }
 
     session_profile_base_url {

@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Apple Box Conveyor</title>
+<style>
+  :root {
+    --bg:       #0d1117;
+    --surface:  #161b22;
+    --border:   #30363d;
+    --accent:   #58a6ff;
+    --accent2:  #3fb950;
+    --danger:   #f85149;
+    --warn:     #e3b341;
+    --muted:    #8b949e;
+    --text:     #e6edf3;
+    --tag-bg:   #1f2937;
+    --font:     'Menlo', 'Consolas', 'Liberation Mono', monospace;
+    --radius:   6px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font); font-size: 13px; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 24px; height: 52px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 10;
+  }
+  header .logo { font-size: 15px; font-weight: 700; letter-spacing: 0.04em; color: var(--text); }
+  header .logo span { color: var(--accent); }
+  header .spacer { flex: 1; }
+  header .pill {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px;
+    background: var(--tag-bg); border: 1px solid var(--border); color: var(--muted);
+    transition: all .2s;
+  }
+  header .pill.ok  { border-color: var(--accent2); color: var(--accent2); }
+  header .pill.err { border-color: var(--danger);  color: var(--danger); }
+
+  main { padding: 24px; max-width: 1100px; margin: 0 auto; }
+
+  .conn-bar {
+    display: flex; gap: 8px; align-items: center; margin-bottom: 20px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 10px 14px;
+  }
+  .conn-bar input {
+    flex: 1; background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text); padding: 5px 9px;
+    font: inherit; font-size: 12px;
+  }
+  .conn-bar input:focus { outline: none; border-color: var(--accent); }
+  .conn-bar label { font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+  .btn {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--surface); color: var(--text); cursor: pointer;
+    font: inherit; font-size: 12px; padding: 5px 12px; transition: all .15s;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
+  .btn.primary:hover { background: #79baff; border-color: #79baff; }
+  .btn.done { background: var(--accent2); border-color: var(--accent2); color: #000; font-weight: 600; font-size: 13px; padding: 7px 20px; }
+  .btn.done:hover { background: #56d364; }
+
+  .workspace {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+    align-items: start;
+  }
+  .left-col { display: flex; flex-direction: column; gap: 16px; }
+
+  .panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px;
+  }
+  .panel h3 {
+    font-size: 11px; font-weight: 600; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 12px;
+  }
+
+  #crate {
+    position: relative; width: 100%; padding-top: 66%;
+    background: var(--bg); border: 2px dashed var(--border);
+    border-radius: var(--radius); overflow: hidden; margin-bottom: 12px;
+    transition: border-color .15s;
+  }
+  #crate.dragover { border-color: var(--accent); }
+  #crate-inner {
+    position: absolute; inset: 0;
+    background-size: contain; background-repeat: no-repeat; background-position: center;
+  }
+  #crate-inner img.placed-apple {
+    position: absolute; width: 13.5%; aspect-ratio: 1; height: unset; object-fit: contain;
+    cursor: grab; user-select: none;
+    transform: translate(-50%, -50%);
+  }
+
+  .palette { display: flex; flex-direction: row; gap: 14px; align-items: center; justify-content: center; }
+  .palette-item { cursor: grab; user-select: none; transition: transform .1s; text-align: center; }
+  .palette-item:active { transform: scale(0.95); cursor: grabbing; }
+  .palette-item img { width: 64px; height: 64px; object-fit: contain; display: block; }
+  .palette-item span { font-size: 10px; color: var(--muted); margin-top: 3px; display: block; }
+
+  .conveyor-row {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px;
+  }
+  .field-inline { display: flex; align-items: center; gap: 6px; }
+  .field-inline label { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .field-inline input {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text); padding: 4px 8px;
+    font: inherit; font-size: 12px; width: 110px;
+  }
+  .field-inline input:focus { outline: none; border-color: var(--accent); }
+
+  #log {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); min-height: 220px; overflow-y: auto;
+    padding: 10px 12px; font-size: 12px;
+  }
+  .log-line {
+    padding: 2px 0; border-bottom: 1px solid #1a2030;
+    display: flex; gap: 8px; align-items: baseline;
+  }
+  .log-line:last-child { border-bottom: none; }
+  .log-ts { color: var(--muted); font-size: 10px; flex-shrink: 0; }
+  .log-arrow { flex-shrink: 0; font-size: 11px; }
+  .log-arrow.send { color: var(--accent); }
+  .log-arrow.recv { color: var(--accent2); }
+  .log-arrow.conn { color: var(--warn); }
+  .log-msg { flex: 1; color: var(--text); }
+  .log-msg .box-id { color: var(--accent); font-weight: 600; }
+  .log-msg .status-ok { color: var(--accent2); }
+  .log-msg .status-err { color: var(--danger); }
+  .log-msg .alert { color: var(--warn); }
+  .log-empty { color: var(--muted); font-style: italic; padding: 20px 0; text-align: center; }
+  .log-thumb { height: 36px; border-radius: 3px; vertical-align: middle; margin-left: 6px; border: 1px solid var(--border); }
+
+  canvas { display: none; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="logo">EMQX <span>Agent</span></div>
+    <div id="status-pill" class="pill">disconnected</div>
+    <div class="spacer"></div>
+    <span style="font-size:11px;color:var(--muted)">Apple Box Conveyor &nbsp;·&nbsp; <a href="/api/v5/agent/ui" target="_blank" style="color:var(--accent);text-decoration:none">Agent Admin ↗</a></span>
+  </header>
+
+  <main>
+    <div class="conn-bar">
+      <label>Broker WS</label>
+      <input id="broker-url" type="text" value="ws://localhost:8083/mqtt" spellcheck="false">
+      <button class="btn primary" id="btn-connect" onclick="toggleConnect()">Connect</button>
+    </div>
+
+    <div class="workspace">
+      <div class="left-col">
+        <div class="panel">
+          <h3>Conveyor</h3>
+          <div id="crate"
+               ondragover="event.preventDefault(); this.classList.add('dragover')"
+               ondragleave="this.classList.remove('dragover')"
+               ondrop="onCrateDrop(event)">
+            <div id="crate-inner"></div>
+          </div>
+          <div class="conveyor-row">
+            <div class="field-inline">
+              <label>Conveyor ID</label>
+              <input id="conveyor-id" type="text" value="conv-1">
+            </div>
+            <button class="btn done" onclick="onDone()">✓ Done</button>
+            <button class="btn" onclick="clearCrate()" style="font-size:11px">Clear</button>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Palette</h3>
+          <div class="palette">
+            <div class="palette-item" draggable="true"
+                 ondragstart="onPaletteDragStart(event,'fresh')">
+              <img id="img-fresh" src="/api/v5/agent/apple-box/img/good-apple.png" alt="fresh apple">
+              <span>fresh</span>
+            </div>
+            <div class="palette-item" draggable="true"
+                 ondragstart="onPaletteDragStart(event,'rotten')">
+              <img id="img-rotten" src="/api/v5/agent/apple-box/img/bad-apple.png" alt="rotten apple">
+              <span>rotten</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Log</h3>
+        <div id="log"><div class="log-empty">No activity yet. Connect and drop some apples.</div></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<canvas id="snap-canvas" width="600" height="400"></canvas>
+<img id="img-box" src="/api/v5/agent/apple-box/img/box.png" style="display:none" alt="box">
+
+<script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
+<script>
+let mqttClient = null;
+let boxCounter = 0;
+const doneBoxes = {};
+let dragType = null;
+let placedApples = [];
+
+function toggleConnect() {
+  if (mqttClient && mqttClient.connected) {
+    mqttClient.end();
+    return;
+  }
+  const url = document.getElementById('broker-url').value.trim();
+  localStorage.setItem('apple_box_broker_url', url);
+  mqttClient = mqtt.connect(url, {
+    protocolVersion: 5,
+    clientId: 'apple-box-' + Math.random().toString(16).slice(2, 8),
+    reconnectPeriod: 0,
+  });
+  mqttClient.on('connect', () => {
+    setPill('connected', 'ok');
+    logConn('connected to ' + url);
+    mqttClient.subscribe('box/shot/+', (err, granted) => {
+      if (err) { logConn('ERROR: subscribe box/shot/+ failed: ' + err.message); console.error('subscribe box/shot/+ failed', err); }
+      else { console.log('subscribed box/shot/+', granted); }
+    });
+    mqttClient.subscribe('box/status/+', (err, granted) => {
+      if (err) { logConn('ERROR: subscribe box/status/+ failed: ' + err.message); console.error('subscribe box/status/+ failed', err); }
+      else { console.log('subscribed box/status/+', granted); }
+    });
+    mqttClient.subscribe('box/alert/+', (err, granted) => {
+      if (err) { logConn('ERROR: subscribe box/alert/+ failed: ' + err.message); console.error('subscribe box/alert/+ failed', err); }
+      else { console.log('subscribed box/alert/+', granted); }
+    });
+  });
+  mqttClient.on('close', () => {
+    setPill('disconnected', '');
+    logConn('disconnected');
+  });
+  mqttClient.on('error', err => {
+    setPill('error', 'err');
+    logConn('error: ' + err.message);
+  });
+  mqttClient.on('message', onMessage);
+}
+
+function onMessage(topic, payload, packet) {
+  const payStr = payload.toString();
+  console.log('mqtt message', topic, payStr.slice(0, 200), 'props:', packet && packet.properties);
+  if (topic.startsWith('box/shot/')) {
+    const boxId = topic.slice('box/shot/'.length);
+    logRecv(boxId, 'shot request');
+    const responseTopic = packet.properties && packet.properties.responseTopic;
+    if (!responseTopic) { logConn('WARNING: no Response-Topic in shot request'); return; }
+    const snapshot = doneBoxes[boxId];
+    if (!snapshot) { logConn('WARNING: no snapshot stored for ' + boxId); return; }
+    const imgPayload = JSON.stringify({ image_url: snapshot });
+    const sizeKB = Math.round(imgPayload.length / 1024);
+    mqttClient.publish(responseTopic, imgPayload, { qos: 0 });
+    // Build a tiny thumbnail for the log asynchronously (publish already done above).
+    const thumbImg = new Image();
+    thumbImg.onload = () => {
+      const tc = document.createElement('canvas');
+      tc.width = 80; tc.height = 54;
+      tc.getContext('2d').drawImage(thumbImg, 0, 0, 80, 54);
+      const thumbUrl = tc.toDataURL('image/jpeg', 0.7);
+      logSend(boxId, 'shot  [📷 jpeg ' + sizeKB + ' KB] <img class="log-thumb" src="' + thumbUrl + '">');
+    };
+    thumbImg.onerror = () => logSend(boxId, 'shot  [📷 jpeg ' + sizeKB + ' KB]');
+    thumbImg.src = snapshot;
+    return;
+  }
+  if (topic.startsWith('box/status/')) {
+    const boxId = topic.slice('box/status/'.length);
+    let parsed;
+    try { parsed = JSON.parse(payStr); } catch(e) { parsed = { status: payStr }; }
+    const status = parsed.status || '?';
+    const reason = parsed.reason || '';
+    const cls = status === 'approved' ? 'status-ok' : 'status-err';
+    logRecv(boxId, 'status: <span class="' + cls + '">' + esc(status) + '</span>' + (reason ? ' — ' + esc(reason) : ''));
+    return;
+  }
+  if (topic.startsWith('box/alert/')) {
+    const boxId = topic.slice('box/alert/'.length);
+    let parsed;
+    try { parsed = JSON.parse(payStr); } catch(e) { parsed = { reason: payStr }; }
+    logRecv(boxId, '<span class="alert">ALERT: ' + esc(parsed.reason || payStr) + '</span>');
+    return;
+  }
+}
+
+function onPaletteDragStart(event, type) {
+  dragType = type;
+  // Center the drag ghost on cursor so the ghost stays exactly under the pointer.
+  const img = event.target;
+  event.dataTransfer.setDragImage(img, img.width / 2, img.height / 2);
+  event.dataTransfer.effectAllowed = 'copy';
+  event.dataTransfer.setData('text/plain', type);
+}
+
+function onCrateDrop(event) {
+  event.preventDefault();
+  const crate = document.getElementById('crate');
+  crate.classList.remove('dragover');
+  if (!dragType) return;
+  const rect = crate.getBoundingClientRect();
+  const xPct = (event.clientX - rect.left) / rect.width;
+  const yPct = (event.clientY - rect.top)  / rect.height;
+  placedApples.push({ type: dragType, xPct, yPct });
+  renderCrate();
+  dragType = null;
+}
+
+function renderCrate() {
+  const inner = document.getElementById('crate-inner');
+  const boxSrc = document.getElementById('img-box').src;
+  inner.style.backgroundImage    = 'url(' + boxSrc + ')';
+  inner.style.backgroundSize     = 'contain';
+  inner.style.backgroundRepeat   = 'no-repeat';
+  inner.style.backgroundPosition = 'center';
+  Array.from(inner.querySelectorAll('.placed-apple')).forEach(el => el.remove());
+  placedApples.forEach(a => {
+    const img = document.createElement('img');
+    img.src = a.type === 'fresh'
+      ? document.getElementById('img-fresh').src
+      : document.getElementById('img-rotten').src;
+    img.className = 'placed-apple';
+    img.style.left = (a.xPct * 100).toFixed(2) + '%';
+    img.style.top  = (a.yPct * 100).toFixed(2) + '%';
+    img.draggable  = false;
+    inner.appendChild(img);
+  });
+}
+
+function clearCrate() {
+  placedApples = [];
+  renderCrate();
+}
+
+function onDone() {
+  if (!mqttClient || !mqttClient.connected) { logConn('not connected'); return; }
+  boxCounter++;
+  const convId = document.getElementById('conveyor-id').value.trim() || 'conv-1';
+  const boxId  = 'box-' + Date.now() + '-' + boxCounter;
+
+  const canvas = document.getElementById('snap-canvas');
+  const ctx    = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(document.getElementById('img-box'), 0, 0, canvas.width, canvas.height);
+  placedApples.forEach(a => {
+    const src = a.type === 'fresh'
+      ? document.getElementById('img-fresh')
+      : document.getElementById('img-rotten');
+    ctx.drawImage(src, a.xPct * canvas.width - 40, a.yPct * canvas.height - 40, 80, 80);
+  });
+  const snapshotUrl = canvas.toDataURL('image/jpeg', 0.85);
+  doneBoxes[boxId]  = snapshotUrl;
+
+  const payload = JSON.stringify({
+    box_id:       boxId,
+    conveyor_id:  convId,
+    apple_count:  placedApples.length,
+  });
+  mqttClient.publish('evt/conveyor/' + convId + '/box/done', payload, { qos: 0 });
+  logSend(boxId, 'conveyor <span class="box-id">' + esc(convId) + '</span> done  (' + placedApples.length + ' apples)');
+  clearCrate();
+}
+
+function ts() { return new Date().toTimeString().slice(0, 8); }
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function appendLog(arrowClass, arrowChar, boxId, msgHtml) {
+  const log = document.getElementById('log');
+  const emp = log.querySelector('.log-empty');
+  if (emp) emp.remove();
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  line.innerHTML =
+    '<span class="log-ts">' + ts() + '</span>' +
+    '<span class="log-arrow ' + arrowClass + '">' + arrowChar + '</span>' +
+    '<span class="log-msg">' +
+      (boxId ? '<span class="box-id">' + esc(boxId) + '</span>  ' : '') +
+      msgHtml +
+    '</span>';
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+function logSend(boxId, msg) { appendLog('send', '→ sent', boxId, msg); }
+function logRecv(boxId, msg) { appendLog('recv', '← recv', boxId, msg); }
+function logConn(msg)        { appendLog('conn', '⚡',        '',    esc(msg)); }
+
+function setPill(text, cls) {
+  const pill = document.getElementById('status-pill');
+  pill.textContent = text;
+  pill.className = 'pill' + (cls ? ' ' + cls : '');
+  document.getElementById('btn-connect').textContent = cls === 'ok' ? 'Disconnect' : 'Connect';
+}
+
+window.addEventListener('load', () => {
+  renderCrate();
+  const saved = localStorage.getItem('apple_box_broker_url');
+  if (saved) document.getElementById('broker-url').value = saved;
+});
+</script>
+</body>
+</html>

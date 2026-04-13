@@ -76,6 +76,8 @@
     tool_map = #{} :: #{binary() => {binary(), binary()}},
     %% req_id => call_id (tracks outstanding skill calls within a loop)
     pending_calls = #{} :: #{binary() => binary()},
+    %% value stored by a set_result tool call; written to result_path on final
+    set_result_value = undefined :: map() | undefined,
     %% waiting_cap (call_skill step)
     cap_req_id :: binary() | undefined,
     cap_result_path :: binary() | undefined,
@@ -181,10 +183,17 @@ handle_event(
     #data{active_sid = Sid} = Data
 ) ->
     log_received(sess_out, Data, #{sid => Sid, frame => Frame}),
-    Result = maps:get(<<"result">>, Frame, #{}),
+    Result =
+        case Data#data.set_result_value of
+            undefined -> maps:get(<<"result">>, Frame, #{});
+            Val -> Val
+        end,
     Step = current_step(Data),
     Data1 = write_context(maps:get(<<"result_path">>, Step, undefined), Result, Data),
-    Data2 = Data1#data{active_sid = undefined, tool_map = #{}, pending_calls = #{}},
+    Data2 = Data1#data{
+        active_sid = undefined, tool_map = #{}, pending_calls = #{},
+        set_result_value = undefined
+    },
     ?SLOG(info, #{
         msg => "pipeline_llm_step_done",
         iid => Data#data.iid,
@@ -273,7 +282,9 @@ execute_step(Step, Data) ->
 
 start_llm_loop(Step, Data) ->
     ToolSpecs = maps:get(<<"tools">>, Step, []),
-    {ToolManifest, ToolMap} = build_tool_manifest(ToolSpecs),
+    {ToolManifest0, ToolMap0} = build_tool_manifest(ToolSpecs),
+    SetResultSchema = maps:get(<<"set_result_schema">>, Step, undefined),
+    {ToolManifest, ToolMap} = maybe_inject_set_result(ToolManifest0, ToolMap0, SetResultSchema),
     InputSpec = maps:get(<<"input">>, Step, #{}),
     Input = resolve_map(InputSpec, Data#data.context),
     SessionCfg = resolve_session_config(Step),
@@ -405,6 +416,11 @@ dispatch_tool_request(Frame, Data) ->
                 <<"error">> => <<"unknown_tool">>
             }),
             {keep_state, Data};
+        {<<"pipeline">>, <<"set_result">>} ->
+            %% Inline tool — store args and acknowledge immediately.
+            ?SLOG(info, #{msg => "pipeline_set_result_called", iid => Data#data.iid, args => Args}),
+            send_tool_result(Data#data.active_sid, CallId, true, #{<<"ok">> => true}),
+            {keep_state, Data#data{set_result_value = Args}};
         {Type, SkillId} ->
             ReqId = gen_req_id(),
             publish_cap_invoke(Type, SkillId, #{
@@ -572,6 +588,17 @@ eval_where(Where, Event, Context) ->
 %%--------------------------------------------------------------------
 %% Tool manifest building
 %%--------------------------------------------------------------------
+
+%% Inject the built-in set_result tool when the step declares a result schema.
+maybe_inject_set_result(Manifest, ToolMap, undefined) ->
+    {Manifest, ToolMap};
+maybe_inject_set_result(Manifest, ToolMap, Schema) ->
+    Entry = #{
+        <<"name">> => <<"set_result">>,
+        <<"description">> => <<"Submit the final structured result for this pipeline step.">>,
+        <<"parameters">> => Schema
+    },
+    {[Entry | Manifest], maps:put(<<"set_result">>, {<<"pipeline">>, <<"set_result">>}, ToolMap)}.
 
 %% Returns {ManifestList, ToolMap} where ManifestList is the OpenAI-format
 %% tool list and ToolMap maps sanitised tool names → {Type, SkillId}.

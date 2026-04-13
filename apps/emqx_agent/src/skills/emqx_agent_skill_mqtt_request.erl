@@ -173,7 +173,7 @@ handle_invoke(SkillId, Payload) ->
 do_request(SkillId, TopicPrefix, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
     TopicSuffix = maps:get(<<"topic">>, Args),
-    MsgPayload = normalize_payload(maps:get(<<"payload">>, Args)),
+    MsgPayload = normalize_payload(maps:get(<<"payload">>, Args, <<>>)),
     From = maps:get(<<"from">>, Args, SkillId),
     Qos = maps:get(<<"qos">>, Args, 0),
     TimeoutMs = maps:get(<<"timeout_ms">>, Args, ?DEFAULT_TIMEOUT_MS),

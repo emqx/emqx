@@ -415,6 +415,79 @@ t_context_flows_between_steps(Config) ->
         ct:fail("step 2 never published to test/second")
     end.
 
+%% An llm_loop step that declares a set_result_schema must accept a
+%% set_result tool call from the LLM, store the args, and write them to
+%% result_path when the session publishes the final frame.
+%%
+%% Strategy: the session_config is intentionally incomplete (missing
+%% output_schema) so the real session process crashes silently without
+%% publishing any frames to sess/out.  We then drive the pipeline manually
+%% by casting #sess_frame records directly, bypassing the LLM entirely.
+%%
+%% Gen_statem ordering guarantee: the pipeline processes its queued internal
+%% `step` event (which transitions it to llm_loop) *before* it processes any
+%% cast from our test process, so the state is always llm_loop when our casts
+%% arrive.
+t_set_result_writes_to_context(Config) ->
+    PipelineId = ?config(pipeline_id, Config),
+    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    StepId = <<"llm">>,
+    Sid = <<PipelineId/binary, "-", StepId/binary>>,
+    Step = #{
+        <<"id">> => StepId,
+        <<"type">> => <<"llm_loop">>,
+        %% Incomplete session_config: missing output_schema so the real
+        %% session process crashes in initial_idle without publishing errors.
+        <<"session_config">> => #{
+            <<"api_key">> => <<"test-key">>,
+            <<"base_url">> => <<"http://127.0.0.1:1">>,
+            <<"model">> => <<"test-model">>,
+            <<"instructions">> => <<"test">>
+        },
+        <<"tools">> => [],
+        <<"input">> => #{<<"box_id">> => <<"b1">>},
+        <<"set_result_schema">> => #{
+            <<"type">> => <<"object">>,
+            <<"properties">> => #{
+                <<"status">> => #{<<"type">> => <<"string">>}
+            },
+            <<"required">> => [<<"status">>]
+        },
+        <<"result_path">> => <<"$.verdict">>
+    },
+    register_pipeline(PipelineId, TrigTopic, [Step]),
+    publish_evt(TrigTopic, #{<<"id">> => <<"sr-1">>}),
+
+    Started = recv_pipe_event(PipelineId),
+    ?assertEqual(<<"pipeline_started">>, maps:get(<<"type">>, Started)),
+    Iid = maps:get(<<"iid">>, Started),
+    Pid = emqx_agent_pipeline:whereis(Iid),
+    ?assertNotEqual(undefined, Pid),
+
+    %% Simulate the LLM calling set_result.  Gen_statem ordering guarantees
+    %% the pipeline is in llm_loop when it processes this cast.
+    gen_statem:cast(Pid, #sess_frame{
+        sid = Sid,
+        frame = #{
+            <<"type">> => <<"tool_request">>,
+            <<"call_id">> => <<"c-sr-1">>,
+            <<"tool">> => <<"set_result">>,
+            <<"args">> => #{<<"status">> => <<"approved">>}
+        }
+    }),
+
+    %% Simulate the LLM finishing (set_result has already been stored).
+    gen_statem:cast(Pid, #sess_frame{
+        sid = Sid,
+        frame = #{<<"type">> => <<"final">>}
+    }),
+
+    Completed = recv_pipe_event(PipelineId),
+    ?assertEqual(<<"pipeline_completed">>, maps:get(<<"type">>, Completed)),
+    Ctx = maps:get(<<"context">>, Completed),
+    Verdict = maps:get(<<"verdict">>, Ctx, #{}),
+    ?assertEqual(<<"approved">>, maps:get(<<"status">>, Verdict, undefined)).
+
 %% Unregistered pipeline definitions must not trigger new instances.
 t_unregistered_pipeline_not_triggered(Config) ->
     PipelineId = ?config(pipeline_id, Config),

@@ -184,9 +184,9 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, initial_idle, Dat
         <<"model">> := Model,
         <<"tools">> := Tools,
         <<"input">> := Input,
-        <<"instructions">> := Instructions,
-        <<"output_schema">> := OutputSchema
+        <<"instructions">> := Instructions
     } = Msg,
+    OutputSchema = maps:get(<<"output_schema">>, Msg, undefined),
     SysMsg = #{<<"role">> => <<"system">>, <<"content">> => format_instructions(Instructions)},
     UserMsg = #{<<"role">> => <<"user">>, <<"content">> => emqx_utils_json:encode(Input)},
     %% Events buffered before the first request are folded in after the user message.
@@ -214,7 +214,7 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, initial_idle, Dat
             <<"tokens_out">> => 0
         }
     },
-    {next_state, calling_llm, start_llm_call(Data1)};
+    start_llm_call(Data1);
 %% ── idle: new request — append input to history, optionally refresh config ───
 %%
 %% The session stays alive (stop_on_finish = false) so history accumulates
@@ -255,7 +255,7 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>, <<"input">> := Input} = M
     },
     ?SLOG(info, #{msg => "session_continuing", sid => Data#data.sid,
                   iid => Iid, history_len => length(Data1#data.messages)}),
-    {next_state, calling_llm, start_llm_call(Data1)};
+    start_llm_call(Data1);
 %% ── calling_llm: LLM subprocess finished ─────────────────────────────────
 
 %% Child exits with {llm_result, Tag, Result} — normal completion path
@@ -314,7 +314,7 @@ handle_event(cast, {in, #{<<"type">> := <<"event">>} = Msg}, idle, Data) ->
     Event = maps:get(<<"event">>, Msg, Msg),
     ?SLOG(info, #{msg => "session_event_triggers_llm", sid => Data#data.sid}),
     Data1 = Data#data{messages = Data#data.messages ++ [event_to_llm_msg(Event)]},
-    {next_state, calling_llm, start_llm_call(Data1)};
+    start_llm_call(Data1);
 %% ── any other state: buffer events ───────────────────────────────────────
 
 handle_event(cast, {in, #{<<"type">> := <<"event">>} = Msg}, _State, Data) ->
@@ -340,10 +340,29 @@ handle_event(_EventType, _EventContent, _State, Data) ->
 %% LLM subprocess
 %%--------------------------------------------------------------------
 
-%% Spawns the HTTP call; returns updated Data ready for state calling_llm.
-%% The child exits with reason {llm_result, Tag, Result}, delivered to the
-%% parent as {'DOWN', MonRef, process, _, {llm_result, Tag, Result}}.
+%% Resolves api_key from the environment and spawns the HTTP call.
+%% api_key is treated as an OS environment variable name — the actual secret
+%% never leaves this function.
+%% Returns a gen_statem action: {next_state, calling_llm, Data} on success, or
+%% {stop, normal, Data} after publishing an error frame when the env var is missing.
 start_llm_call(Data) ->
+    case resolve_api_key(Data#data.api_key) of
+        {error, VarName} ->
+            Reason = <<"api_key env var not set: ", VarName/binary>>,
+            ?SLOG(error, #{msg => "session_missing_api_key", sid => Data#data.sid, var => VarName}),
+            ok = publish(Data, #{<<"type">> => <<"error">>, <<"reason">> => Reason}),
+            {stop, normal, Data};
+        {ok, ResolvedKey} ->
+            do_start_llm_call(Data, ResolvedKey)
+    end.
+
+resolve_api_key(VarName) when is_binary(VarName) ->
+    case os:getenv(binary_to_list(VarName)) of
+        false -> {error, VarName};
+        Value -> {ok, list_to_binary(Value)}
+    end.
+
+do_start_llm_call(Data, ApiKey) ->
     Tag = make_ref(),
     OpenAITools = [to_openai_tool(T) || T <- Data#data.tools],
     ToolNames = [
@@ -351,7 +370,6 @@ start_llm_call(Data) ->
      || T <- OpenAITools
     ],
     Messages = Data#data.messages,
-    ApiKey = Data#data.api_key,
     BaseUrl = Data#data.base_url,
     Model = Data#data.model,
     MaxTokens = Data#data.max_tokens,
@@ -382,6 +400,7 @@ start_llm_call(Data) ->
             RecvTimeoutMs,
             Temperature,
             ToolChoice,
+            Data#data.output_schema,
             Data#data.sid,
             Data#data.iid,
             Data#data.trace_id,
@@ -389,7 +408,8 @@ start_llm_call(Data) ->
         ),
         exit({llm_result, Tag, Result})
     end),
-    Data#data{llm_ref = {Tag, MonRef}}.
+    %% Keep the env var name in Data — do NOT store the resolved key.
+    {next_state, calling_llm, Data#data{llm_ref = {Tag, MonRef}}}.
 
 %%--------------------------------------------------------------------
 %% LLM choice handling
@@ -419,18 +439,41 @@ on_llm_choice(Choice, Data) ->
 
 on_tool_result(CallId, Msg, Data) ->
     Ok = maps:get(<<"ok">>, Msg, true),
+    ResultData = maps:get(<<"data">>, Msg, #{}),
+    %% Build the tool-role acknowledgement.  Tool messages must carry a string
+    %% content; image_url is not a valid tool-message content type for OpenAI.
+    %% When the result contains an image we acknowledge the tool call with a
+    %% plain string, then append a separate user-role message whose content is
+    %% the multimodal array — that is the form gpt-4o accepts for vision input.
+    {ToolContent, ExtraMsgs} =
+        case Ok =:= true andalso try_extract_image_url(
+            maps:get(<<"payload">>, ResultData, undefined)
+        ) of
+            {ok, ImageUrl} ->
+                AckJson = emqx_utils_json:encode(
+                    #{<<"ok">> => true, <<"data">> => <<"image received">>}
+                ),
+                VisionMsg = #{
+                    <<"role">> => <<"user">>,
+                    <<"content">> => [
+                        #{<<"type">> => <<"image_url">>,
+                          <<"image_url">> => #{<<"url">> => ImageUrl}}
+                    ]
+                },
+                {AckJson, [VisionMsg]};
+            _ ->
+                {emqx_utils_json:encode(#{<<"ok">> => Ok, <<"data">> => ResultData}), []}
+        end,
     ToolMsg = #{
         <<"role">> => <<"tool">>,
         <<"tool_call_id">> => CallId,
-        <<"content">> => emqx_utils_json:encode(#{
-            <<"ok">> => Ok,
-            <<"data">> => maps:get(<<"data">>, Msg, #{})
-        })
+        <<"content">> => ToolContent
     },
+    NewMsgs = [ToolMsg | ExtraMsgs],
     Waiting1 = lists:delete(CallId, Data#data.waiting_calls),
     Data1 = Data#data{
         waiting_calls = Waiting1,
-        tool_result_msgs = Data#data.tool_result_msgs ++ [ToolMsg]
+        tool_result_msgs = Data#data.tool_result_msgs ++ NewMsgs
     },
     case Waiting1 of
         [_ | _] ->
@@ -480,7 +523,7 @@ on_reasoning_done(LLMMsg, FinishReason, Data) ->
             }),
             EventMsgs = [event_to_llm_msg(E) || E <- Events],
             Data1 = Data#data{messages = Data#data.messages ++ EventMsgs, pending = []},
-            {next_state, calling_llm, start_llm_call(Data1)}
+            start_llm_call(Data1)
     end.
 
 %% Guard against runaway tool-call loops.
@@ -499,7 +542,7 @@ maybe_next_llm_call(Data) ->
             }),
             finish(Data);
         false ->
-            {next_state, calling_llm, start_llm_call(Data)}
+            start_llm_call(Data)
     end.
 
 %% After publishing final: stop or return to idle based on stop_on_finish.
@@ -592,6 +635,7 @@ call_llm(
     RecvTimeoutMs,
     Temperature,
     ToolChoice,
+    OutputSchema,
     Sid,
     Iid,
     TraceId,
@@ -605,10 +649,34 @@ call_llm(
         <<"temperature">> => Temperature,
         <<"stream">> => true
     },
+    %% Add response_format for structured output when an output schema is given.
+    %% OpenAI accepts json_schema response_format alongside tools; the schema
+    %% applies only to the text content of the final (non-tool-call) response.
+    %% Only use json_schema response_format when the schema has explicit properties
+    %% defined. A bare {type: object} is treated as "no constraint" and skipped
+    %% so that non-OpenAI endpoints (e.g. Ollama) are not broken.
+    Body1 =
+        case OutputSchema of
+            Schema when is_map_key(<<"properties">>, Schema) ->
+                %% OpenAI strict mode requires additionalProperties: false
+                StrictSchema = Schema#{<<"additionalProperties">> => false},
+                Body0#{
+                    <<"response_format">> => #{
+                        <<"type">> => <<"json_schema">>,
+                        <<"json_schema">> => #{
+                            <<"name">> => <<"result">>,
+                            <<"strict">> => true,
+                            <<"schema">> => StrictSchema
+                        }
+                    }
+                };
+            _ ->
+                Body0
+        end,
     Body =
         case Tools of
             [] ->
-                Body0;
+                Body1;
             _ ->
                 TCChoice =
                     case ToolChoice of
@@ -618,7 +686,7 @@ call_llm(
                         V when is_map(V) -> V;
                         _ -> <<"required">>
                     end,
-                Body0#{<<"tools">> => Tools, <<"tool_choice">> => TCChoice}
+                Body1#{<<"tools">> => Tools, <<"tool_choice">> => TCChoice}
         end,
     Headers = [
         {<<"authorization">>, <<"Bearer ", ApiKey/binary>>},
@@ -1004,6 +1072,15 @@ publish(#data{sid = Sid, iid = Iid, trace_id = TraceId, usage = Usage} = _Data, 
     Msg = emqx_message:make(?MODULE, ?QOS_0, Topic, emqx_utils_json:encode(Payload)),
     _ = emqx_broker:publish(Msg),
     ok.
+
+%% Parse `Payload` (a binary JSON string) and return the image_url if present.
+try_extract_image_url(Payload) when is_binary(Payload) ->
+    case emqx_utils_json:safe_decode(Payload) of
+        {ok, #{<<"image_url">> := <<"data:image/", _/binary>> = Url}} -> {ok, Url};
+        _ -> error
+    end;
+try_extract_image_url(_) ->
+    error.
 
 try_parse_result(Content) when is_binary(Content) ->
     try
