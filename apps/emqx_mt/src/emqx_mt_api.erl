@@ -916,6 +916,7 @@ limiter_config_out(Unit0, LimiterConfig) ->
     Unit =
         case Unit0 of
             bytes -> bytes;
+            delivery_bytes -> bytes;
             _ -> no_unit
         end,
     maps:map(

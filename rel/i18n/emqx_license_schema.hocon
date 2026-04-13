@@ -12,6 +12,13 @@ connection_low_watermark_field.desc:
 connection_low_watermark_field.label:
 """Connection low watermark"""
 
+high_watermark_timezone {
+    label: "Session High Watermark Timezone"
+    desc: """~
+        Timezone used to determine the local day boundary for session high-watermark history.
+        Use `system` to follow the node host local timezone, or provide an explicit offset such as `+02:00`."""
+}
+
 dynamic_max_connections {
     label: "Dynamic Connections Limit"
     desc: """~
