@@ -11,6 +11,7 @@
 %% API
 -export([
     new/0,
+    resume/2,
     process_subscribe/4
 ]).
 
@@ -75,6 +76,10 @@ new() ->
         observe_manager = emqx_coap_observe_res:new_manager(),
         created_at = erlang:system_time(millisecond)
     }.
+
+-spec resume(emqx_types:clientinfo(), session()) -> session().
+resume(_ClientInfo, Session = #session{}) ->
+    Session.
 
 %%--------------------------------------------------------------------
 %% Info, Stats
