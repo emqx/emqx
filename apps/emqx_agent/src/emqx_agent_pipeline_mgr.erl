@@ -104,7 +104,13 @@ handle_sess_out(Rest, Payload) ->
     case binary:split(Rest, <<"/">>) of
         [Sid, <<>>] ->
             Frame = safe_decode(Payload),
-            log_received(sess_out, #{sid => Sid, frame => Frame}),
+            %% Only log frames that require pipeline action; skip intermediate
+            %% streaming chunks (content/reasoning tokens) to avoid O(N) ct:print
+            %% calls that serialise through the CT master for every token.
+            case maps:get(<<"type">>, Frame, undefined) of
+                <<"intermediate">> -> ok;
+                _ -> log_received(sess_out, #{sid => Sid, frame => Frame})
+            end,
             Iid = maps:get(<<"iid">>, Frame, undefined),
             route_to_pipeline(Iid, #sess_frame{sid = Sid, frame = Frame});
         _ ->

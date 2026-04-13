@@ -26,40 +26,164 @@
 
 -define(LLM_TIMEOUT, 60_000).
 -define(SHORT_TIMEOUT, 5_000).
+-define(FRAME_DRAIN_TIMEOUT, 500).
 
 %%--------------------------------------------------------------------
 %% CT callbacks
 %%--------------------------------------------------------------------
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+%% Pure SSE parser tests run without any LLM — they are always included.
+%% LLM integration tests require ollama and are skipped when it is absent.
+-define(PARSER_TESTS, [
+    t_sse_parser_simple_content,
+    t_sse_parser_finish_reason_not_overwritten_by_null,
+    t_sse_parser_tool_call_argument_fragments,
+    t_sse_parser_multiple_tool_calls,
+    t_sse_parser_crlf_endings,
+    t_sse_parser_split_chunks,
+    t_sse_parser_usage_chunk
+]).
+
+-define(LLM_TESTS, [
+    t_request_finish,
+    t_request_with_tool_call,
+    t_events_are_incorporated,
+    t_stop_on_finish_false_keeps_session,
+    t_explicit_stop_terminates_session,
+    t_llm_connection_error_terminates_session,
+    t_duplicate_request_is_ignored,
+    t_non_session_topic_ignored
+]).
+
+all() -> ?PARSER_TESTS ++ ?LLM_TESTS.
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [emqx_agent],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    case llm_available() of
-        false ->
-            emqx_cth_suite:stop(Apps),
-            {skip, "LLM API not reachable at http://ollama:11434/v1"};
-        true ->
-            [{suite_apps, Apps} | Config]
-    end.
+    [{suite_apps, Apps}, {llm_available, llm_available()} | Config].
 
 end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(TestCase, Config) ->
-    Sid = atom_to_binary(TestCase, utf8),
-    emqx:subscribe(out_topic(Sid)),
-    [{sid, Sid} | Config].
+    case lists:member(TestCase, ?LLM_TESTS) andalso not ?config(llm_available, Config) of
+        true ->
+            {skip, "LLM API not reachable at http://ollama:11434/v1"};
+        false ->
+            Sid = atom_to_binary(TestCase, utf8),
+            emqx:subscribe(out_topic(Sid)),
+            [{sid, Sid} | Config]
+    end.
 
 end_per_testcase(_TestCase, Config) ->
-    Sid = ?config(sid, Config),
-    emqx:unsubscribe(out_topic(Sid)).
+    case ?config(sid, Config) of
+        undefined -> ok;
+        Sid -> emqx:unsubscribe(out_topic(Sid))
+    end.
 
 %%--------------------------------------------------------------------
-%% Test cases
+%% Pure SSE parser unit tests (no LLM required)
+%%--------------------------------------------------------------------
+
+%% Simple two-chunk content accumulation.
+t_sse_parser_simple_content(_Config) ->
+    Data =
+        <<"data: {\"choices\":[{\"delta\":{\"content\":\"hello \"},\"finish_reason\":null}]}\n\n"
+          "data: {\"choices\":[{\"delta\":{\"content\":\"world\"},\"finish_reason\":null}]}\n\n"
+          "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+          "data: [DONE]\n\n">>,
+    Acc0 = emqx_agent_session:init_stream_acc(),
+    Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
+    ?assertEqual(<<"hello world">>, maps:get(content, Acc)),
+    ?assertEqual(<<"stop">>, maps:get(finish_reason, Acc)).
+
+%% finish_reason must not be overwritten by null from intermediate chunks.
+t_sse_parser_finish_reason_not_overwritten_by_null(_Config) ->
+    Data =
+        <<"data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\n\n"
+          "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n"
+          "data: [DONE]\n\n">>,
+    Acc0 = emqx_agent_session:init_stream_acc(),
+    Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
+    ?assertEqual(<<"tool_calls">>, maps:get(finish_reason, Acc)).
+
+%% Tool call arguments arrive as fragments; they must be concatenated.
+t_sse_parser_tool_call_argument_fragments(_Config) ->
+    Data =
+        <<"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"add\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n"
+          "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"a\\\"\"}}]},\"finish_reason\":null}]}\n\n"
+          "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\": 47, \\\"b\\\": 47}\"}}]},\"finish_reason\":null}]}\n\n"
+          "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n"
+          "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5}}\n\n"
+          "data: [DONE]\n\n">>,
+    Acc0 = emqx_agent_session:init_stream_acc(),
+    Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
+    ?assertEqual(<<"tool_calls">>, maps:get(finish_reason, Acc)),
+    ?assertEqual(10, maps:get(tokens_in, Acc)),
+    ?assertEqual(5, maps:get(tokens_out, Acc)),
+    ToolCalls = maps:get(tool_calls, Acc),
+    ?assert(maps:is_key(0, ToolCalls)),
+    TC = maps:get(0, ToolCalls),
+    Fun = maps:get(<<"function">>, TC, #{}),
+    ?assertEqual(<<"add">>, maps:get(<<"name">>, Fun)),
+    Args = maps:get(<<"arguments">>, Fun),
+    ?assertMatch({ok, #{<<"a">> := 47, <<"b">> := 47}}, emqx_utils_json:safe_decode(Args)).
+
+%% Multiple tool calls with separate indices.
+t_sse_parser_multiple_tool_calls(_Config) ->
+    Data =
+        <<"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c0\",\"type\":\"function\",\"function\":{\"name\":\"f0\",\"arguments\":\"{}\"}},{\"index\":1,\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"f1\",\"arguments\":\"{}\"}}]},\"finish_reason\":null}]}\n\n"
+          "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n"
+          "data: [DONE]\n\n">>,
+    Acc0 = emqx_agent_session:init_stream_acc(),
+    Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
+    ToolCalls = maps:get(tool_calls, Acc),
+    ?assertEqual(2, maps:size(ToolCalls)),
+    ?assertEqual(<<"c0">>, maps:get(<<"id">>, maps:get(0, ToolCalls))),
+    ?assertEqual(<<"c1">>, maps:get(<<"id">>, maps:get(1, ToolCalls))).
+
+%% CRLF line endings must be normalised.
+t_sse_parser_crlf_endings(_Config) ->
+    Data =
+        <<"data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":null}]}\r\n\r\n"
+          "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\r\n\r\n"
+          "data: [DONE]\r\n\r\n">>,
+    Acc0 = emqx_agent_session:init_stream_acc(),
+    Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
+    ?assertEqual(<<"x">>, maps:get(content, Acc)),
+    ?assertEqual(<<"stop">>, maps:get(finish_reason, Acc)).
+
+%% Events split across arbitrary byte boundaries (simulating small TCP packets).
+%% Uses test_stream_chunks which threads the SSE buffer between calls,
+%% exactly as stream_receive_loop does in production.
+t_sse_parser_split_chunks(_Config) ->
+    Full =
+        <<"data: {\"choices\":[{\"delta\":{\"content\":\"ab\"},\"finish_reason\":null}]}\n\n"
+          "data: {\"choices\":[{\"delta\":{\"content\":\"cd\"},\"finish_reason\":null}]}\n\n"
+          "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+          "data: [DONE]\n\n">>,
+    %% Chop into 20-byte pieces to simulate network fragmentation.
+    Chunks = chop_binary(Full, 20),
+    Acc = emqx_agent_session:test_stream_chunks(Chunks),
+    ?assertEqual(<<"abcd">>, maps:get(content, Acc)),
+    ?assertEqual(<<"stop">>, maps:get(finish_reason, Acc)).
+
+%% Usage tokens from the dedicated usage-only chunk.
+t_sse_parser_usage_chunk(_Config) ->
+    Data =
+        <<"data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}\n\n"
+          "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+          "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":7}}\n\n"
+          "data: [DONE]\n\n">>,
+    Acc0 = emqx_agent_session:init_stream_acc(),
+    Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
+    ?assertEqual(42, maps:get(tokens_in, Acc)),
+    ?assertEqual(7, maps:get(tokens_out, Acc)).
+
+%%--------------------------------------------------------------------
+%% LLM integration test cases (skipped when ollama is not reachable)
 %%--------------------------------------------------------------------
 
 %% Basic request/final round-trip: the LLM receives no tools so it must
@@ -73,7 +197,7 @@ t_request_finish(Config) ->
             <<"input">> => #{<<"question">> => <<"What is 6 times 7?">>}
         })
     ),
-    Final = recv_out(Config),
+    Final = recv_final(Config),
     ?assertMatch(
         #{
             <<"type">> := <<"final">>,
@@ -117,7 +241,7 @@ t_request_with_tool_call(Config) ->
         })
     ),
 
-    ToolReq = recv_out(Config),
+    ToolReq = recv_tool_request(Config),
     ct:pal("tool_request frame: ~p", [ToolReq]),
     ?assertMatch(
         #{<<"type">> := <<"tool_request">>, <<"call_id">> := _, <<"tool">> := <<"add">>},
@@ -132,7 +256,7 @@ t_request_with_tool_call(Config) ->
         <<"data">> => #{<<"sum">> => Sum}
     }),
 
-    Final = recv_out(Config),
+    Final = recv_final(Config),
     ct:pal("final frame: ~p", [Final]),
     assert_final(Final),
 
@@ -165,7 +289,7 @@ t_events_are_incorporated(Config) ->
             <<"stop_on_finish">> => false
         })
     ),
-    Final1 = recv_out(Config),
+    Final1 = recv_final(Config),
     assert_final(Final1),
 
     %% Push an event — this alone triggers a new LLM call (idle → calling_llm)
@@ -179,7 +303,7 @@ t_events_are_incorporated(Config) ->
     }),
 
     %% Wait for the event-driven final — no second request sent
-    Final2 = recv_out(Config),
+    Final2 = recv_final(Config),
     ct:pal("event-driven final frame: ~p", [Final2]),
     assert_final(Final2),
 
@@ -208,7 +332,7 @@ t_stop_on_finish_false_keeps_session(Config) ->
             <<"stop_on_finish">> => false
         })
     ),
-    _Final1 = recv_out(Config),
+    _Final1 = recv_final(Config),
 
     Sid = ?config(sid, Config),
     ?assertNotEqual(undefined, emqx_agent_session:whereis(Sid)),
@@ -222,7 +346,7 @@ t_stop_on_finish_false_keeps_session(Config) ->
             <<"input">> => #{<<"q">> => <<"What is 3+3?">>}
         })
     ),
-    ?assertEqual(timeout, recv_out_or_timeout(Config)).
+    ?assertEqual(timeout, recv_final_or_timeout(Config)).
 
 %% An explicit `stop` frame must terminate the session process.
 t_explicit_stop_terminates_session(Config) ->
@@ -235,7 +359,7 @@ t_explicit_stop_terminates_session(Config) ->
             <<"stop_on_finish">> => false
         })
     ),
-    _Final = recv_out(Config),
+    _Final = recv_final(Config),
 
     Sid = ?config(sid, Config),
     Pid = emqx_agent_session:whereis(Sid),
@@ -294,11 +418,11 @@ t_duplicate_request_is_ignored(Config) ->
         })
     ),
 
-    Final = recv_out(Config),
+    Final = recv_final(Config),
     assert_final(Final),
 
-    %% No second frame should arrive within a short window
-    ?assertEqual(timeout, recv_out_or_timeout(Config)).
+    %% No second final should arrive within a short window
+    ?assertEqual(timeout, recv_final_or_timeout(Config)).
 
 %% Messages on topics that are not sess/in/<sid>/ must never trigger a
 %% session process to be created.
@@ -340,24 +464,55 @@ publish_in(Config, Msg) ->
     Payload = emqx_utils_json:encode(Msg),
     emqx_broker:publish(emqx_message:make(?MODULE, 0, in_topic(Sid), Payload)).
 
-recv_out(Config) ->
+%% Wait for a `final` frame, transparently skipping `intermediate` chunks
+%% (streaming partial content/reasoning) and any other non-final frames.
+recv_final(Config) ->
+    recv_frame_of_type(Config, <<"final">>, ?LLM_TIMEOUT).
+
+%% Wait for a `tool_request` frame, skipping `intermediate` frames.
+recv_tool_request(Config) ->
+    recv_frame_of_type(Config, <<"tool_request">>, ?LLM_TIMEOUT).
+
+recv_frame_of_type(Config, Type, Timeout) ->
     Sid = ?config(sid, Config),
     Topic = out_topic(Sid),
     receive
         #deliver{topic = Topic, message = #message{payload = P}} ->
-            emqx_utils_json:decode(P)
-    after ?LLM_TIMEOUT ->
-        ct:fail("no message on ~s within ~b ms", [Topic, ?LLM_TIMEOUT])
+            Frame = emqx_utils_json:decode(P),
+            case maps:get(<<"type">>, Frame, undefined) of
+                Type ->
+                    Frame;
+                Other ->
+                    ct:pal("skipping frame type=~p while waiting for ~p", [Other, Type]),
+                    recv_frame_of_type(Config, Type, Timeout)
+            end
+    after Timeout ->
+        ct:fail("no ~s frame on ~s within ~b ms", [Type, Topic, Timeout])
     end.
 
-recv_out_or_timeout(Config) ->
+recv_final_or_timeout(Config) ->
+    recv_frame_type_or_timeout(Config, <<"final">>, ?FRAME_DRAIN_TIMEOUT).
+
+recv_frame_type_or_timeout(Config, Type, Timeout) ->
     Sid = ?config(sid, Config),
     Topic = out_topic(Sid),
     receive
-        #deliver{topic = Topic} -> received
-    after 1000 ->
+        #deliver{topic = Topic, message = #message{payload = P}} ->
+            Frame = emqx_utils_json:decode(P),
+            case maps:get(<<"type">>, Frame, undefined) of
+                Type -> received;
+                _ -> recv_frame_type_or_timeout(Config, Type, Timeout)
+            end
+    after Timeout ->
         timeout
     end.
+
+%% Legacy helper kept for non-LLM tests that don't care about frame type.
+recv_out(Config) ->
+    recv_final(Config).
+
+recv_out_or_timeout(Config) ->
+    recv_final_or_timeout(Config).
 
 assert_final(Frame) ->
     ?assertMatch(
@@ -406,3 +561,15 @@ llm_available() ->
         {ok, 200, _, _} -> true;
         _ -> false
     end.
+
+%% Split a binary into consecutive chunks of at most N bytes.
+chop_binary(Bin, N) ->
+    chop_binary(Bin, N, []).
+
+chop_binary(<<>>, _N, Acc) ->
+    lists:reverse(Acc);
+chop_binary(Bin, N, Acc) when byte_size(Bin) =< N ->
+    lists:reverse([Bin | Acc]);
+chop_binary(Bin, N, Acc) ->
+    <<Chunk:N/binary, Rest/binary>> = Bin,
+    chop_binary(Rest, N, [Chunk | Acc]).

@@ -277,14 +277,19 @@ start_llm_loop(Step, Data) ->
     InputSpec = maps:get(<<"input">>, Step, #{}),
     Input = resolve_map(InputSpec, Data#data.context),
     SessionCfg = resolve_session_config(Step),
-    Sid = gen_sid(Data#data.iid, maps:get(<<"id">>, Step, <<"llm">>)),
+    StepId = maps:get(<<"id">>, Step, <<"llm">>),
+    %% Stable Sid: same session is reused across every trigger of this pipeline
+    %% step, allowing the model to accumulate full conversation history.
+    Sid = stable_sid(Data#data.pipeline_id, StepId),
+    _ = ensure_session(Sid),
     Request = maps:merge(SessionCfg, #{
         <<"type">> => <<"request">>,
         <<"iid">> => Data#data.iid,
         <<"trace_id">> => Data#data.trace_id,
         <<"tools">> => ToolManifest,
         <<"input">> => Input,
-        <<"stop_on_finish">> => true
+        %% Keep session alive so history survives into the next trigger.
+        <<"stop_on_finish">> => false
     }),
     publish_to_sess_in(Sid, Request),
     Data1 = Data#data{active_sid = Sid, tool_map = ToolMap, pending_calls = #{}},
@@ -292,9 +297,22 @@ start_llm_loop(Step, Data) ->
         msg => "pipeline_llm_loop_started",
         iid => Data#data.iid,
         sid => Sid,
-        step => maps:get(<<"id">>, Step, <<"?">>)
+        step => StepId
     }),
     {next_state, llm_loop, Data1}.
+
+%% Stable session ID: pipeline_id + step_id, slashes replaced so the result
+%% stays a single MQTT topic level.
+stable_sid(PipelineId, StepId) ->
+    Safe = binary:replace(PipelineId, <<"/">>, <<"-">>, [global]),
+    <<Safe/binary, "-", StepId/binary>>.
+
+%% Start the session process if it is not already running.
+ensure_session(Sid) ->
+    case emqx_agent_session:whereis(Sid) of
+        undefined -> emqx_agent_sess_sup:start_session(Sid);
+        _Pid -> ok
+    end.
 
 %% -- call_skill step --------------------------------------------------------
 
@@ -324,8 +342,13 @@ invoke_call_skill(Step, Data) ->
 maybe_break(Step, Data) ->
     Path = maps:get(<<"path">>, Step, undefined),
     Negate = maps:get(<<"not">>, Step, false) =:= true,
+    EqValue = maps:get(<<"eq">>, Step, undefined),
     Value = resolve_context_path(Path, Data#data.context),
-    IsTrue = Value =:= true,
+    IsTrue =
+        case EqValue of
+            undefined -> Value =:= true;
+            Eq -> Value =:= Eq
+        end,
     ShouldBreak =
         case Negate of
             true -> not IsTrue;
@@ -590,9 +613,16 @@ parse_tool_spec(Spec) ->
         _ -> undefined
     end.
 
-%% Replace any character outside [a-zA-Z0-9_-] with _.
+%% Replace any character outside [a-zA-Z0-9_-] with _, then truncate to 64
+%% characters (OpenAI's hard limit on function names).  Truncation preserves
+%% uniqueness within a single pipeline because the skill ID suffix is the part
+%% most likely to differ across tools.
 sanitize_tool_name(Name) ->
-    <<<<(san(C))>> || <<C>> <= Name>>.
+    Sanitized = <<<<(san(C))>> || <<C>> <= Name>>,
+    case byte_size(Sanitized) of
+        N when N =< 64 -> Sanitized;
+        _ -> binary:part(Sanitized, byte_size(Sanitized) - 64, 64)
+    end.
 
 san(C) when C >= $a, C =< $z -> C;
 san(C) when C >= $A, C =< $Z -> C;
@@ -689,11 +719,6 @@ maybe_ct_print(Format, Args) ->
 gen_iid(_PipelineId) ->
     Seq = integer_to_binary(erlang:unique_integer([positive, monotonic])),
     <<"inst-", Seq/binary>>.
-
-%% SID is used inside sess/in/<sid>/ and sess/out/<sid>/ topics.
-%% Using a dash separator keeps the whole sid as a single topic level.
-gen_sid(Iid, StepId) ->
-    <<Iid/binary, "-", StepId/binary>>.
 
 gen_req_id() ->
     Seq = integer_to_binary(erlang:unique_integer([positive, monotonic])),

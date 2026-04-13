@@ -192,6 +192,29 @@ fields(skill_kv_put_create) ->
                 desc => ?DESC(skill_kv_data_schema)
             })}
     ];
+fields(skill_mqtt_request_create) ->
+    [
+        {type,
+            mk(enum(['message.request']), #{
+                required => true,
+                desc => ?DESC(skill_type_discriminator)
+            })},
+        {id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(skill_id)
+            })},
+        {desc,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(skill_human_desc)
+            })},
+        {topic_prefix,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(skill_publish_topic_prefix)
+            })}
+    ];
 fields(skill_postgresql_create) ->
     [
         {type,
@@ -313,6 +336,7 @@ desc(skill_publish_create) -> ?DESC(skill_publish_create);
 desc(skill_http_create) -> ?DESC(skill_http_create);
 desc(skill_kv_lookup_create) -> ?DESC(skill_kv_create);
 desc(skill_kv_put_create) -> ?DESC(skill_kv_create);
+desc(skill_mqtt_request_create) -> ?DESC(skill_mqtt_request_create);
 desc(skill_postgresql_create) -> ?DESC(skill_postgresql_create);
 desc(session_profile) -> ?DESC(session_profile);
 desc(pipeline) -> ?DESC(pipeline);
@@ -331,6 +355,7 @@ skill_entry_type() ->
 skill_create_type() ->
     hoconsc:union([
         ref(skill_publish_create),
+        ref(skill_mqtt_request_create),
         ref(skill_http_create),
         ref(skill_kv_lookup_create),
         ref(skill_kv_put_create),

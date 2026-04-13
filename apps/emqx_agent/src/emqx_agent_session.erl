@@ -33,8 +33,12 @@
 %%                                stop/no pending, stop_on_finish=false ──▶  idle
 %%                                stop/pending                          ──▶  calling_llm (extend)
 %%
-%%   idle ──event──▶  calling_llm  (continue reasoning with accumulated context)
-%%   idle ──request──▶  (discarded — context is fixed after the first request)
+%%   idle ──event──▶    calling_llm  (continue reasoning with accumulated context)
+%%   idle ──request──▶  calling_llm  (append new input to history, refresh tools/system)
+%%
+%%   A request arriving in calling_llm or waiting_tools is queued in
+%%   `queued_request` and replayed as an idle-state event when the current
+%%   turn completes (only the latest request is retained).
 %%
 %% Events in calling_llm / waiting_tools are buffered in `pending` and flushed
 %% on the next transition to calling_llm.
@@ -48,6 +52,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 %% Public API
 -export([start_link/1, whereis/1]).
@@ -57,6 +62,10 @@
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4, terminate/3]).
+
+-ifdef(TEST).
+-export([init_stream_acc/0, test_feed_sse/2, test_stream_chunks/1]).
+-endif.
 
 -define(NAME(Sid), {?MODULE, Sid}).
 -define(REG(Sid), {global, ?NAME(Sid)}).
@@ -82,11 +91,13 @@
     temperature = 0.1 :: number(),
     stream = true :: boolean(),
     tool_choice = <<"required">> :: binary() | map(),
-    max_iterations = ?MAX_ITERATIONS :: non_neg_integer(),
     %% Growing OpenAI-format message list
     messages = [] :: [map()],
     %% Events buffered across all states; flushed before the next LLM call
     pending = [] :: [map()],
+    %% Incoming request buffered when the session is busy (calling_llm /
+    %% waiting_tools).  Processed as soon as the session returns to idle.
+    queued_request = undefined :: undefined | map(),
     %% Accumulated usage counters
     usage = #{
         <<"iterations">> => 0,
@@ -193,7 +204,6 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, initial_idle, Dat
         temperature = maps:get(<<"temperature">>, Msg, 0.1),
         stream = maps:get(<<"stream">>, Msg, true),
         tool_choice = maps:get(<<"tool_choice">>, Msg, <<"required">>),
-        max_iterations = maps:get(<<"max_iterations">>, Msg, ?MAX_ITERATIONS),
         stop_on_finish = maps:get(<<"stop_on_finish">>, Msg, true),
         messages = [SysMsg, UserMsg] ++ PendingMsgs,
         pending = [],
@@ -205,11 +215,47 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, initial_idle, Dat
         }
     },
     {next_state, calling_llm, start_llm_call(Data1)};
-%% ── idle: further requests are discarded ─────────────────────────────────
+%% ── idle: new request — append input to history, optionally refresh config ───
+%%
+%% The session stays alive (stop_on_finish = false) so history accumulates
+%% across triggers.  Each new pipeline run appends its input as the next user
+%% message; the model sees the full prior conversation.
 
-handle_event(cast, {in, #{<<"type">> := <<"request">>}}, idle, Data) ->
-    ?SLOG(info, #{msg => "session_request_discarded", sid => Data#data.sid}),
-    {keep_state, Data};
+handle_event(cast, {in, #{<<"type">> := <<"request">>, <<"input">> := Input} = Msg}, idle, Data) ->
+    %% Refresh mutable per-run fields: iid, trace_id, tools, tool_choice.
+    %% Restoring tool_choice ensures the model is forced to issue a command
+    %% on every new turn even if it was relaxed to "auto" after the previous
+    %% tool call.
+    Iid = maps:get(<<"iid">>, Msg, Data#data.iid),
+    TraceId = maps:get(<<"trace_id">>, Msg, Data#data.trace_id),
+    Tools = maps:get(<<"tools">>, Msg, Data#data.tools),
+    OutputSchema = maps:get(<<"output_schema">>, Msg, Data#data.output_schema),
+    ToolChoice = maps:get(<<"tool_choice">>, Msg, Data#data.tool_choice),
+    %% If instructions changed, replace the system message (always first).
+    Messages0 =
+        case maps:get(<<"instructions">>, Msg, undefined) of
+            undefined ->
+                Data#data.messages;
+            NewInstructions ->
+                SysMsg = #{<<"role">> => <<"system">>,
+                           <<"content">> => format_instructions(NewInstructions)},
+                [SysMsg | tl(Data#data.messages)]
+        end,
+    %% Append the new user message so the model sees continuity.
+    UserMsg = #{<<"role">> => <<"user">>, <<"content">> => emqx_utils_json:encode(Input)},
+    Data1 = Data#data{
+        iid = Iid,
+        trace_id = TraceId,
+        tools = Tools,
+        output_schema = OutputSchema,
+        tool_choice = ToolChoice,
+        messages = Messages0 ++ [UserMsg],
+        stop_on_finish = maps:get(<<"stop_on_finish">>, Msg, false),
+        pending = []
+    },
+    ?SLOG(info, #{msg => "session_continuing", sid => Data#data.sid,
+                  iid => Iid, history_len => length(Data1#data.messages)}),
+    {next_state, calling_llm, start_llm_call(Data1)};
 %% ── calling_llm: LLM subprocess finished ─────────────────────────────────
 
 %% Child exits with {llm_result, Tag, Result} — normal completion path
@@ -274,9 +320,13 @@ handle_event(cast, {in, #{<<"type">> := <<"event">>} = Msg}, idle, Data) ->
 handle_event(cast, {in, #{<<"type">> := <<"event">>} = Msg}, _State, Data) ->
     Event = maps:get(<<"event">>, Msg, Msg),
     {keep_state, Data#data{pending = Data#data.pending ++ [Event]}};
-%% Duplicate / out-of-order request in active states — ignore
-handle_event(cast, {in, #{<<"type">> := <<"request">>}}, _State, Data) ->
-    {keep_state, Data};
+%% Request arriving while the session is busy (calling_llm / waiting_tools):
+%% buffer it so it can be applied once the session reaches idle.
+%% Only the latest request is kept — earlier ones are superseded.
+handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, _State, Data) ->
+    ?SLOG(info, #{msg => "session_request_queued", sid => Data#data.sid,
+                  iid => maps:get(<<"iid">>, Msg, undefined)}),
+    {keep_state, Data#data{queued_request = Msg}};
 %% ── calls ─────────────────────────────────────────────────────────────────
 
 handle_event({call, From}, _Req, _State, Data) ->
@@ -307,9 +357,8 @@ start_llm_call(Data) ->
     MaxTokens = Data#data.max_tokens,
     RecvTimeoutMs = Data#data.recv_timeout_ms,
     Temperature = Data#data.temperature,
-    Stream = Data#data.stream,
     ToolChoice = Data#data.tool_choice,
-    ?SLOG(info, #{
+    ?SLOG(warning, #{
         msg => "session_llm_request",
         sid => Data#data.sid,
         model => Model,
@@ -319,7 +368,7 @@ start_llm_call(Data) ->
         max_tokens => MaxTokens,
         recv_timeout_ms => RecvTimeoutMs,
         temperature => Temperature,
-        stream => Stream,
+        stream => true,
         tool_choice => ToolChoice
     }),
     {_Pid, MonRef} = spawn_monitor(fun() ->
@@ -332,7 +381,6 @@ start_llm_call(Data) ->
             MaxTokens,
             RecvTimeoutMs,
             Temperature,
-            Stream,
             ToolChoice,
             Data#data.sid,
             Data#data.iid,
@@ -389,13 +437,24 @@ on_tool_result(CallId, Msg, Data) ->
             %% Still waiting for more results
             {keep_state, Data1};
         [] ->
-            %% All results in; fold pending events and continue
+            %% All results in; fold pending events and continue.
+            %% Relax tool_choice after the first tool call so the model can
+            %% output plain text ("done") to close the turn rather than being
+            %% forced to call another tool.  Both a specific-function map and
+            %% "required" are relaxed to "auto"; "none" and "auto" are unchanged.
+            TC1 =
+                case Data1#data.tool_choice of
+                    TC when is_map(TC)       -> <<"auto">>;
+                    <<"required">>           -> <<"auto">>;
+                    TC                       -> TC
+                end,
             Results = Data1#data.tool_result_msgs,
             EventMsgs = [event_to_llm_msg(E) || E <- Data1#data.pending],
             Data2 = Data1#data{
                 messages = Data1#data.messages ++ Results ++ EventMsgs,
                 tool_result_msgs = [],
-                pending = []
+                pending = [],
+                tool_choice = TC1
             },
             maybe_next_llm_call(Data2)
     end.
@@ -427,13 +486,12 @@ on_reasoning_done(LLMMsg, FinishReason, Data) ->
 %% Guard against runaway tool-call loops.
 maybe_next_llm_call(Data) ->
     Iter = maps:get(<<"iterations">>, Data#data.usage),
-    case Iter >= Data#data.max_iterations of
+    case Iter >= ?MAX_ITERATIONS of
         true ->
             ?SLOG(warning, #{
                 msg => "session_max_iterations_reached",
                 sid => Data#data.sid,
-                iterations => Iter,
-                max_iterations => Data#data.max_iterations
+                iterations => Iter
             }),
             publish(Data, #{
                 <<"type">> => <<"final">>,
@@ -445,11 +503,17 @@ maybe_next_llm_call(Data) ->
     end.
 
 %% After publishing final: stop or return to idle based on stop_on_finish.
+%% If a request arrived while the session was busy, process it immediately
+%% rather than sitting in idle waiting for the next cast.
 finish(#data{stop_on_finish = true} = Data) ->
     {stop, normal, Data};
-finish(#data{stop_on_finish = false} = Data) ->
+finish(#data{stop_on_finish = false, queued_request = undefined} = Data) ->
     ?SLOG(info, #{msg => "session_idle", sid => Data#data.sid}),
-    {next_state, idle, Data}.
+    {next_state, idle, Data};
+finish(#data{stop_on_finish = false, queued_request = Queued} = Data) ->
+    ?SLOG(info, #{msg => "session_draining_queued_request", sid => Data#data.sid}),
+    Data1 = Data#data{queued_request = undefined},
+    {next_state, idle, Data1, [{next_event, cast, {in, Queued}}]}.
 
 %%--------------------------------------------------------------------
 %% Routing
@@ -492,8 +556,14 @@ find_or_start(Sid) ->
 
 publish_tool_request(ToolCall, Data) ->
     CallId = maps:get(<<"id">>, ToolCall),
-    Function = maps:get(<<"function">>, ToolCall),
-    ToolName = maps:get(<<"name">>, Function),
+    Function = maps:get(<<"function">>, ToolCall, #{}),
+    ToolName0 = maps:get(<<"name">>, Function, undefined),
+    ToolName =
+        case ToolName0 of
+            null -> tool_name_from_call_id(CallId);
+            undefined -> tool_name_from_call_id(CallId);
+            _ -> ToolName0
+        end,
     Args =
         try
             emqx_utils_json:decode(maps:get(<<"arguments">>, Function, <<"{}">>))
@@ -521,7 +591,6 @@ call_llm(
     MaxTokens,
     RecvTimeoutMs,
     Temperature,
-    Stream,
     ToolChoice,
     Sid,
     Iid,
@@ -534,7 +603,7 @@ call_llm(
         <<"messages">> => Messages,
         <<"max_tokens">> => MaxTokens,
         <<"temperature">> => Temperature,
-        <<"stream">> => Stream
+        <<"stream">> => true
     },
     Body =
         case Tools of
@@ -555,281 +624,253 @@ call_llm(
         {<<"authorization">>, <<"Bearer ", ApiKey/binary>>},
         {<<"content-type">>, <<"application/json">>}
     ],
-    case Stream of
-        true ->
-            stream_llm_response(
-                Url,
-                Headers,
-                Body,
-                RecvTimeoutMs,
-                Model,
-                Sid,
-                Iid,
-                TraceId,
-                Usage
-            );
-        false ->
-            call_llm_non_stream(Url, Headers, Body, RecvTimeoutMs, Model)
-    end.
+    stream_llm_response(
+        Url,
+        Headers,
+        Body,
+        RecvTimeoutMs,
+        Model,
+        Sid,
+        Iid,
+        TraceId,
+        Usage
+    ).
 
-call_llm_non_stream(Url, Headers, Body, RecvTimeoutMs, Model) ->
-    Opts = [with_body, {connect_timeout, 30_000}, {recv_timeout, RecvTimeoutMs}],
-    case hackney:request(post, Url, Headers, emqx_utils_json:encode(Body), Opts) of
-        {ok, 200, _RespHdrs, RespBody} ->
-            Decoded = emqx_utils_json:decode(RespBody),
-            case maps:get(<<"choices">>, Decoded, []) of
-                [FirstChoice | _] ->
-                    Msg = maps:get(<<"message">>, FirstChoice, #{}),
-                    FR = maps:get(<<"finish_reason">>, FirstChoice, undefined),
-                    TC = maps:get(<<"tool_calls">>, Msg, []),
-                    ?SLOG(info, #{
-                        msg => "session_llm_response",
-                        model => Model,
-                        finish_reason => FR,
-                        tool_calls_count => length(TC),
-                        has_content => maps:is_key(<<"content">>, Msg)
-                    }),
-                    UsageMap = maps:get(<<"usage">>, Decoded, #{}),
-                    TokensIn = maps:get(<<"prompt_tokens">>, UsageMap, 0),
-                    TokensOut = maps:get(<<"completion_tokens">>, UsageMap, 0),
-                    {ok, FirstChoice, TokensIn, TokensOut};
-                [] ->
-                    {error, no_choices}
-            end;
-        {ok, Status, _RespHdrs, RespBody} ->
-            {error, {http_error, Status, RespBody}};
-        {error, Reason} ->
-            {error, {request_failed, Reason}}
-    end.
+%%--------------------------------------------------------------------
+%% LLM HTTP streaming — runs in the child process spawned by start_llm_call
+%%--------------------------------------------------------------------
 
+%% Entry point.  Adds stream_options, calls hackney, then drives the
+%% SSE receive loop.
 stream_llm_response(Url, Headers, Body0, RecvTimeoutMs, Model, Sid, Iid, TraceId, Usage) ->
     Body = Body0#{<<"stream_options">> => #{<<"include_usage">> => true}},
     Opts = [{connect_timeout, 30_000}, {recv_timeout, RecvTimeoutMs}],
     case hackney:request(post, Url, Headers, emqx_utils_json:encode(Body), Opts) of
         {ok, 200, _RespHdrs, ClientRef} ->
-            case stream_llm_body(ClientRef, Model, Sid, Iid, TraceId, Usage) of
-                {ok, Choice, TokensIn, TokensOut} = Ok ->
-                    case stream_result_empty(Choice, TokensIn, TokensOut) of
-                        true ->
-                            ?SLOG(warning, #{
-                                msg => "session_stream_empty_fallback_nonstream",
-                                model => Model,
-                                sid => Sid
-                            }),
-                            call_llm_non_stream(
-                                Url,
-                                Headers,
-                                disable_stream(Body0),
-                                RecvTimeoutMs,
-                                Model
-                            );
-                        false ->
-                            Ok
-                    end;
-                Error ->
-                    Error
-            end;
+            collect_stream(ClientRef, Model, Sid, Iid, TraceId, Usage);
         {ok, Status, _RespHdrs, ClientRef} ->
-            {error, {http_error, Status, read_stream_error_body(ClientRef, <<>>)}};
+            ErrBody = drain_stream_body(ClientRef, <<>>),
+            ct:print("stream_http_err sid=~ts status=~p body=~p", [Sid, Status, ErrBody]),
+            ?SLOG(error, #{
+                msg => "session_llm_http_error",
+                sid => Sid,
+                status => Status
+            }),
+            {error, {http_error, Status, ErrBody}};
         {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "session_llm_request_failed",
+                sid => Sid,
+                reason => Reason
+            }),
             {error, {request_failed, Reason}}
     end.
 
-disable_stream(Body) ->
-    maps:remove(<<"stream_options">>, Body#{<<"stream">> => false}).
+collect_stream(ClientRef, Model, Sid, Iid, TraceId, Usage) ->
+    case stream_receive_loop(ClientRef, <<>>, init_stream_acc(), Sid, Iid, TraceId, Usage) of
+        {ok, Acc} ->
+            finalize_stream_result(Acc, Model);
+        {error, _} = Err ->
+            Err
+    end.
 
-stream_result_empty(Choice, TokensIn, TokensOut) ->
-    Msg = maps:get(<<"message">>, Choice, #{}),
-    Content = maps:get(<<"content">>, Msg, <<>>),
-    ToolCalls = maps:get(<<"tool_calls">>, Msg, []),
-    Content =:= <<>> andalso ToolCalls =:= [] andalso TokensIn =:= 0 andalso TokensOut =:= 0.
-
-stream_llm_body(ClientRef, Model, Sid, Iid, TraceId, Usage) ->
-    stream_llm_body(ClientRef, <<>>, init_stream_acc(), Model, Sid, Iid, TraceId, Usage).
-
-stream_llm_body(ClientRef, Buffer, Acc, Model, Sid, Iid, TraceId, Usage) ->
+%% Receive loop: reads raw TCP chunks from hackney and feeds them into
+%% the SSE buffer splitter.
+stream_receive_loop(ClientRef, Buf, Acc, Sid, Iid, TraceId, Usage) ->
     case hackney:stream_body(ClientRef) of
         {ok, Chunk} ->
-            {Rest, Acc1} = consume_stream_chunk(Buffer, Chunk, Acc, Sid, Iid, TraceId, Usage),
-            stream_llm_body(ClientRef, Rest, Acc1, Model, Sid, Iid, TraceId, Usage);
+            Combined = <<Buf/binary, Chunk/binary>>,
+            Normalized = binary:replace(Combined, <<"\r\n">>, <<"\n">>, [global]),
+            {Buf1, Acc1} = feed_sse(Normalized, Acc, Sid, Iid, TraceId, Usage),
+            stream_receive_loop(ClientRef, Buf1, Acc1, Sid, Iid, TraceId, Usage);
         done ->
-            Acc1 = process_stream_rest(Buffer, Acc, Sid, Iid, TraceId, Usage),
-            finalize_stream_result(Acc1, Model);
+            %% Flush any remaining bytes in the buffer (edge case: server
+            %% does not terminate the last event with \n\n).
+            Acc1 = flush_sse_buf(Buf, Acc, Sid, Iid, TraceId, Usage),
+            {ok, Acc1};
         {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "session_stream_recv_error",
+                sid => Sid,
+                reason => Reason
+            }),
             {error, {stream_failed, Reason}}
     end.
 
-consume_stream_chunk(Buffer, Chunk, Acc0, Sid, Iid, TraceId, Usage) ->
-    All = <<Buffer/binary, Chunk/binary>>,
-    {Events, Rest} = split_stream_events(All),
-    Acc =
-        lists:foldl(
-            fun(Event, A0) ->
-                process_sse_event(Event, A0, Sid, Iid, TraceId, Usage)
-            end,
-            Acc0,
-            Events
-        ),
-    {Rest, Acc}.
-
-split_sse_events(Bin) ->
-    Normalized = binary:replace(Bin, <<"\r\n">>, <<"\n">>, [global]),
-    case binary:split(Normalized, <<"\n\n">>, [global]) of
-        [] ->
-            {[], <<>>};
-        [Single] ->
-            {[], Single};
-        Parts ->
-            Rest = lists:last(Parts),
-            {lists:sublist(Parts, length(Parts) - 1), Rest}
+%% Split the buffer on \n\n and process every complete SSE event.
+%% Returns {UnprocessedRemainder, UpdatedAcc}.
+feed_sse(Buf, Acc, Sid, Iid, TraceId, Usage) ->
+    case binary:split(Buf, <<"\n\n">>, []) of
+        [_Incomplete] ->
+            %% No complete event yet — keep buffering.
+            {Buf, Acc};
+        [Event, Rest] ->
+            Acc1 = apply_sse_event(Event, Acc, Sid, Iid, TraceId, Usage),
+            feed_sse(Rest, Acc1, Sid, Iid, TraceId, Usage)
     end.
 
-split_stream_events(Bin) ->
-    case binary:match(Bin, <<"data:">>) of
-        nomatch -> split_ndjson_events(Bin);
-        _ -> split_sse_events(Bin)
-    end.
-
-split_ndjson_events(Bin) ->
-    Normalized = binary:replace(Bin, <<"\r\n">>, <<"\n">>, [global]),
-    case binary:split(Normalized, <<"\n">>, [global]) of
-        [] ->
-            {[], <<>>};
-        [Single] ->
-            {[], Single};
-        Parts ->
-            Rest = lists:last(Parts),
-            Events = [Line || Line <- lists:sublist(Parts, length(Parts) - 1), Line =/= <<>>],
-            {Events, Rest}
-    end.
-
-process_stream_rest(<<>>, Acc, _Sid, _Iid, _TraceId, _Usage) ->
+%% Called at stream end to process any remaining buffered bytes.
+flush_sse_buf(<<>>, Acc, _Sid, _Iid, _TraceId, _Usage) ->
     Acc;
-process_stream_rest(Rest0, Acc, Sid, Iid, TraceId, Usage) ->
-    Rest = trim_binary(Rest0),
-    case Rest of
-        <<>> ->
-            Acc;
-        _ ->
-            process_sse_event(Rest, Acc, Sid, Iid, TraceId, Usage)
+flush_sse_buf(Buf, Acc, Sid, Iid, TraceId, Usage) ->
+    case iolist_to_binary(string:trim(Buf)) of
+        <<>> -> Acc;
+        Trimmed -> apply_sse_event(Trimmed, Acc, Sid, Iid, TraceId, Usage)
     end.
 
-process_sse_event(Event, Acc, Sid, Iid, TraceId, Usage) ->
-    DataParts =
-        [
-            trim_binary(Value)
-         || Line <- binary:split(Event, <<"\n">>, [global]),
-            {match, 0} =:= binary:match(Line, <<"data:">>),
-            Value <- [binary:part(Line, 5, byte_size(Line) - 5)]
-        ],
+%% Parse one SSE event block (possibly multi-line: id/event/data/comment).
+%% Extracts all "data: …" lines, joins them, then decodes JSON.
+apply_sse_event(Event, Acc, Sid, Iid, TraceId, Usage) ->
+    Lines = binary:split(Event, <<"\n">>, [global]),
+    DataParts = lists:filtermap(
+        fun(Line) ->
+            case iolist_to_binary(string:trim(Line)) of
+                <<"data:", Rest/binary>> -> {true, iolist_to_binary(string:trim(Rest))};
+                _ -> false
+            end
+        end,
+        Lines
+    ),
     case DataParts of
         [] ->
-            process_raw_stream_event(trim_binary(Event), Acc, Sid, Iid, TraceId, Usage);
+            Acc;
         _ ->
             JsonBin = iolist_to_binary(lists:join(<<"\n">>, DataParts)),
             case JsonBin of
                 <<"[DONE]">> ->
                     Acc;
                 _ ->
-                    process_sse_json(JsonBin, Acc, Sid, Iid, TraceId, Usage)
+                    apply_stream_json(JsonBin, Acc, Sid, Iid, TraceId, Usage)
             end
     end.
 
-process_raw_stream_event(<<>>, Acc, _Sid, _Iid, _TraceId, _Usage) ->
-    Acc;
-process_raw_stream_event(<<"[DONE]">>, Acc, _Sid, _Iid, _TraceId, _Usage) ->
-    Acc;
-process_raw_stream_event(JsonBin, Acc, Sid, Iid, TraceId, Usage) ->
-    process_sse_json(JsonBin, Acc, Sid, Iid, TraceId, Usage).
-
-process_sse_json(JsonBin, Acc, Sid, Iid, TraceId, Usage) ->
-    try
-        Chunk = emqx_utils_json:decode(JsonBin),
-        update_stream_acc(Chunk, Acc, Sid, Iid, TraceId, Usage)
-    catch
-        _:_ ->
+apply_stream_json(JsonBin, Acc, Sid, Iid, TraceId, Usage) ->
+    case emqx_utils_json:safe_decode(JsonBin) of
+        {ok, Chunk} when is_map(Chunk) ->
+            apply_stream_chunk(Chunk, Acc, Sid, Iid, TraceId, Usage);
+        {ok, _NonMap} ->
+            Acc;
+        {error, Reason} ->
+            ct:print("stream_json_err sid=~ts bytes=~p reason=~p prefix=~p",
+                [Sid, byte_size(JsonBin), Reason,
+                 binary:part(JsonBin, 0, min(80, byte_size(JsonBin)))]),
+            ?SLOG(warning, #{
+                msg => "session_stream_json_error",
+                sid => Sid,
+                reason => Reason,
+                bytes => byte_size(JsonBin)
+            }),
             Acc
     end.
 
-update_stream_acc(Chunk, Acc0, Sid, Iid, TraceId, Usage) ->
-    UsageMap = maps:get(<<"usage">>, Chunk, #{}),
-    TokensIn = maps:get(<<"prompt_tokens">>, UsageMap, maps:get(tokens_in, Acc0)),
-    TokensOut = maps:get(<<"completion_tokens">>, UsageMap, maps:get(tokens_out, Acc0)),
+apply_stream_chunk(Chunk, Acc, Sid, Iid, TraceId, Usage) ->
+    %% Extract usage tokens when present (arrives in a final chunk with
+    %% choices:[] from OpenAI-compatible servers that set include_usage).
+    Acc1 =
+        case maps:get(<<"usage">>, Chunk, undefined) of
+            U when is_map(U) ->
+                Acc#{
+                    tokens_in =>
+                        maps:get(<<"prompt_tokens">>, U, maps:get(tokens_in, Acc)),
+                    tokens_out =>
+                        maps:get(<<"completion_tokens">>, U, maps:get(tokens_out, Acc))
+                };
+            _ ->
+                Acc
+        end,
     case maps:get(<<"choices">>, Chunk, []) of
-        [Choice | _] ->
-            update_stream_choice(Choice, Acc0, Sid, Iid, TraceId, Usage, TokensIn, TokensOut);
-        _ ->
-            case maps:get(<<"message">>, Chunk, undefined) of
-                M when is_map(M) ->
-                    Content = maps:get(<<"content">>, M, <<>>),
-                    maybe_publish_stream_chunk(
-                        <<"content">>, Content, Sid, Iid, TraceId, Usage
-                    ),
-                    Acc0#{
-                        content => Content,
-                        tool_calls => tool_calls_list_to_map(maps:get(<<"tool_calls">>, M, [])),
-                        finish_reason => maps:get(
-                            <<"finish_reason">>, Chunk, maps:get(finish_reason, Acc0)
-                        ),
-                        tokens_in => TokensIn,
-                        tokens_out => TokensOut
-                    };
-                _ ->
-                    Acc0#{tokens_in => TokensIn, tokens_out => TokensOut}
-            end
+        [Choice | _] -> apply_choice(Choice, Acc1, Sid, Iid, TraceId, Usage);
+        _ -> Acc1
     end.
 
-update_stream_choice(Choice, Acc0, Sid, Iid, TraceId, Usage, TokensIn, TokensOut) ->
-    Delta = maps:get(<<"delta">>, Choice, undefined),
-    Msg = maps:get(<<"message">>, Choice, undefined),
-    FinishReason = maps:get(<<"finish_reason">>, Choice, maps:get(finish_reason, Acc0)),
-    case Delta of
-        D when is_map(D), D =/= #{} ->
-            maybe_publish_stream_chunk(
-                <<"reasoning">>,
-                maps:get(<<"reasoning_content">>, D, undefined),
-                Sid,
-                Iid,
-                TraceId,
-                Usage
-            ),
-            maybe_publish_stream_chunk(
-                <<"content">>, maps:get(<<"content">>, D, undefined), Sid, Iid, TraceId, Usage
-            ),
-            Content1 = append_bin(maps:get(content, Acc0), maps:get(<<"content">>, D, <<>>)),
-            ToolCalls1 = merge_tool_calls(
-                maps:get(tool_calls, Acc0), maps:get(<<"tool_calls">>, D, [])
-            ),
-            Acc0#{
-                content => Content1,
-                tool_calls => ToolCalls1,
-                finish_reason => FinishReason,
-                tokens_in => TokensIn,
-                tokens_out => TokensOut
-            };
-        _ ->
-            case Msg of
-                M when is_map(M) ->
-                    Content = maps:get(<<"content">>, M, <<>>),
-                    maybe_publish_stream_chunk(
-                        <<"content">>, Content, Sid, Iid, TraceId, Usage
-                    ),
-                    ToolCalls = maps:get(<<"tool_calls">>, M, []),
-                    Acc0#{
-                        content => Content,
-                        tool_calls => tool_calls_list_to_map(ToolCalls),
-                        finish_reason => FinishReason,
-                        tokens_in => TokensIn,
-                        tokens_out => TokensOut
-                    };
-                _ ->
-                    Acc0#{
-                        finish_reason => FinishReason,
-                        tokens_in => TokensIn,
-                        tokens_out => TokensOut
-                    }
-            end
+apply_choice(Choice, Acc, Sid, Iid, TraceId, Usage) ->
+    %% Only update finish_reason when we receive a real value.
+    %% Intermediate streaming chunks carry "finish_reason": null;
+    %% we must NOT overwrite a previously accumulated real value with null.
+    Acc1 =
+        case maps:get(<<"finish_reason">>, Choice, undefined) of
+            V when V =:= undefined; V =:= null -> Acc;
+            FR -> Acc#{finish_reason => FR}
+        end,
+    %% delta is present in streaming responses; message in non-streaming.
+    DeltaOrMsg = maps:get(<<"delta">>, Choice, maps:get(<<"message">>, Choice, undefined)),
+    case DeltaOrMsg of
+        D when is_map(D) -> apply_delta(D, Acc1, Sid, Iid, TraceId, Usage);
+        _ -> Acc1
     end.
+
+apply_delta(Delta, Acc, Sid, Iid, TraceId, Usage) ->
+    %% Accumulate content fragments.
+    Acc1 =
+        case maps:get(<<"content">>, Delta, undefined) of
+            C when is_binary(C), C =/= <<>> ->
+                maybe_publish_stream_chunk(<<"content">>, C, Sid, Iid, TraceId, Usage),
+                Acc#{content => append_bin(maps:get(content, Acc), C)};
+            _ ->
+                Acc
+        end,
+    %% Reasoning tokens are internal model thinking; accumulate but do not
+    %% publish — they create O(N) MQTT traffic through pipeline hooks for no benefit.
+    Acc2 = Acc1,
+    %% Accumulate tool call delta fragments.
+    case maps:get(<<"tool_calls">>, Delta, []) of
+        TCs when is_list(TCs), TCs =/= [] ->
+            TCs1 = lists:foldl(
+                fun merge_tc_delta/2,
+                maps:get(tool_calls, Acc2),
+                TCs
+            ),
+            Acc2#{tool_calls => TCs1};
+        _ ->
+            Acc2
+    end.
+
+%% Merge one tool-call delta chunk into the accumulator map (keyed by index).
+merge_tc_delta(TCDelta, ToolCallsMap) ->
+    Index = maps:get(<<"index">>, TCDelta, 0),
+    Prev = maps:get(Index, ToolCallsMap, #{}),
+    maps:put(Index, deep_merge_tc(Prev, TCDelta), ToolCallsMap).
+
+%% Deep-merge a streaming tool-call delta into the accumulated tool call.
+%% The key invariant: argument strings are *concatenated*, not replaced.
+deep_merge_tc(Prev, Delta) ->
+    PrevFun = maps:get(<<"function">>, Prev, #{}),
+    DeltaFun = maps:get(<<"function">>, Delta, #{}),
+    PrevArgs = maps:get(<<"arguments">>, PrevFun, <<>>),
+    DeltaArgs = maps:get(<<"arguments">>, DeltaFun, <<>>),
+    Fun0 = maps:merge(PrevFun, DeltaFun#{
+        <<"arguments">> => <<PrevArgs/binary, DeltaArgs/binary>>
+    }),
+    %% Prefer the first non-null name (arrives in the first chunk only).
+    Fun1 =
+        case prefer_non_null(
+            maps:get(<<"name">>, DeltaFun, undefined),
+            maps:get(<<"name">>, PrevFun, undefined)
+        ) of
+            undefined -> Fun0;
+            Name -> Fun0#{<<"name">> => Name}
+        end,
+    Merged0 = maps:merge(Prev, Delta#{<<"function">> => Fun1}),
+    Merged1 =
+        case prefer_non_null(
+            maps:get(<<"id">>, Delta, undefined),
+            maps:get(<<"id">>, Prev, undefined)
+        ) of
+            undefined -> Merged0;
+            Id -> Merged0#{<<"id">> => Id}
+        end,
+    case prefer_non_null(
+        maps:get(<<"type">>, Delta, undefined),
+        maps:get(<<"type">>, Prev, undefined)
+    ) of
+        undefined -> Merged1;
+        Type -> Merged1#{<<"type">> => Type}
+    end.
+
+prefer_non_null(Value, Fallback) when Value =:= undefined; Value =:= null ->
+    Fallback;
+prefer_non_null(Value, _Fallback) ->
+    Value.
 
 init_stream_acc() ->
     #{
@@ -842,7 +883,22 @@ init_stream_acc() ->
 
 finalize_stream_result(Acc, Model) ->
     Content = maps:get(content, Acc),
-    ToolCalls = stream_tool_calls_to_list(maps:get(tool_calls, Acc)),
+    ToolCallsMap = maps:get(tool_calls, Acc),
+    ToolCalls = [maps:get(I, ToolCallsMap) || I <- lists:sort(maps:keys(ToolCallsMap))],
+    FinishReason =
+        case maps:get(finish_reason, Acc) of
+            undefined -> <<"stop">>;
+            FR -> FR
+        end,
+    ?SLOG(info, #{
+        msg => "session_llm_response",
+        model => Model,
+        finish_reason => FinishReason,
+        tool_calls_count => length(ToolCalls),
+        has_content => Content =/= <<>>,
+        tokens_in => maps:get(tokens_in, Acc, 0),
+        tokens_out => maps:get(tokens_out, Acc, 0)
+    }),
     Msg =
         case ToolCalls of
             [] ->
@@ -854,19 +910,6 @@ finalize_stream_result(Acc, Model) ->
                     <<"tool_calls">> => ToolCalls
                 }
         end,
-    FinishReason0 = maps:get(finish_reason, Acc, undefined),
-    FinishReason =
-        case FinishReason0 of
-            undefined -> <<"stop">>;
-            _ -> FinishReason0
-        end,
-    ?SLOG(info, #{
-        msg => "session_llm_response_stream",
-        model => Model,
-        finish_reason => FinishReason,
-        tool_calls_count => length(ToolCalls),
-        has_content => Content =/= <<>>
-    }),
     {
         ok,
         #{<<"message">> => Msg, <<"finish_reason">> => FinishReason},
@@ -874,59 +917,27 @@ finalize_stream_result(Acc, Model) ->
         maps:get(tokens_out, Acc, 0)
     }.
 
-stream_tool_calls_to_list(ToolCallsMap) ->
-    lists:map(
-        fun(Index) -> maps:get(Index, ToolCallsMap) end,
-        lists:sort(maps:keys(ToolCallsMap))
-    ).
+drain_stream_body(ClientRef, Acc) ->
+    case hackney:stream_body(ClientRef) of
+        {ok, Chunk} -> drain_stream_body(ClientRef, <<Acc/binary, Chunk/binary>>);
+        done -> Acc;
+        {error, _} -> Acc
+    end.
 
-tool_calls_list_to_map(ToolCalls) when is_list(ToolCalls) ->
-    lists:foldl(
-        fun(TC, Acc) ->
-            Index = maps:get(<<"index">>, TC, maps:size(Acc)),
-            maps:put(Index, TC, Acc)
-        end,
-        #{},
-        ToolCalls
-    );
-tool_calls_list_to_map(_) ->
-    #{}.
-
-merge_tool_calls(ToolCallsMap, ToolCallsDelta) when is_list(ToolCallsDelta) ->
-    lists:foldl(
-        fun(TCDelta, Acc) ->
-            Index = maps:get(<<"index">>, TCDelta, 0),
-            Prev = maps:get(Index, Acc, #{}),
-            maps:put(Index, merge_tool_call(Prev, TCDelta), Acc)
-        end,
-        ToolCallsMap,
-        ToolCallsDelta
-    );
-merge_tool_calls(ToolCallsMap, _) ->
-    ToolCallsMap.
-
-merge_tool_call(Prev, Delta) ->
-    PrevFun = maps:get(<<"function">>, Prev, #{}),
-    DeltaFun = maps:get(<<"function">>, Delta, #{}),
-    PrevArgs = maps:get(<<"arguments">>, PrevFun, <<>>),
-    DeltaArgs = maps:get(<<"arguments">>, DeltaFun, <<>>),
-    Fun = maps:merge(PrevFun, DeltaFun#{<<"arguments">> => append_bin(PrevArgs, DeltaArgs)}),
-    maps:merge(Prev, Delta#{<<"function">> => Fun}).
+tool_name_from_call_id(CallId) when is_binary(CallId) ->
+    case CallId of
+        <<"functions.", Rest/binary>> ->
+            hd(binary:split(Rest, <<":">>, [global]));
+        _ ->
+            undefined
+    end;
+tool_name_from_call_id(_) ->
+    undefined.
 
 append_bin(A, B) when is_binary(A), is_binary(B) ->
     <<A/binary, B/binary>>;
 append_bin(A, _B) ->
     A.
-
-trim_binary(Bin) ->
-    iolist_to_binary(string:trim(Bin)).
-
-read_stream_error_body(ClientRef, Acc) ->
-    case hackney:stream_body(ClientRef) of
-        {ok, Chunk} -> read_stream_error_body(ClientRef, <<Acc/binary, Chunk/binary>>);
-        done -> Acc;
-        {error, _} -> Acc
-    end.
 
 maybe_publish_stream_chunk(_ChunkType, Chunk, _Sid, _Iid, _TraceId, _Usage) when
     Chunk =:= undefined;
@@ -1002,3 +1013,38 @@ try_parse_result(Content) when is_binary(Content) ->
     end;
 try_parse_result(Content) ->
     Content.
+
+%%--------------------------------------------------------------------
+%% Test helpers (exported only in TEST builds — see -export above)
+%%--------------------------------------------------------------------
+
+-ifdef(TEST).
+
+-define(TEST_SID, <<"test-sid">>).
+-define(TEST_IID, <<"test-iid">>).
+-define(TEST_TRACE, <<"test-trace">>).
+
+%% Feed a complete SSE byte sequence at once and return the final accumulator.
+%% Use when the entire response is available as one binary.
+test_feed_sse(Data, Acc) ->
+    Normalized = binary:replace(Data, <<"\r\n">>, <<"\n">>, [global]),
+    {Rest, Acc1} = feed_sse(Normalized, Acc, ?TEST_SID, ?TEST_IID, ?TEST_TRACE, #{}),
+    flush_sse_buf(Rest, Acc1, ?TEST_SID, ?TEST_IID, ?TEST_TRACE, #{}).
+
+%% Simulate chunked delivery: process a list of byte chunks in sequence,
+%% threading the SSE buffer between calls (mirrors stream_receive_loop).
+%% Returns the final accumulator after flushing any remaining buffer.
+test_stream_chunks(Chunks) ->
+    Acc0 = init_stream_acc(),
+    {FinalBuf, Acc1} = lists:foldl(
+        fun(Chunk, {Buf, A}) ->
+            Combined = <<Buf/binary, Chunk/binary>>,
+            Normalized = binary:replace(Combined, <<"\r\n">>, <<"\n">>, [global]),
+            feed_sse(Normalized, A, ?TEST_SID, ?TEST_IID, ?TEST_TRACE, #{})
+        end,
+        {<<>>, Acc0},
+        Chunks
+    ),
+    flush_sse_buf(FinalBuf, Acc1, ?TEST_SID, ?TEST_IID, ?TEST_TRACE, #{}).
+
+-endif.

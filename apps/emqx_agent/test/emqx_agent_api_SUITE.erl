@@ -57,12 +57,6 @@ t_ui_returns_html(_Config) ->
     ?assert(is_binary(Body)),
     ?assert(binary:match(Body, <<"<!DOCTYPE html">>) =/= nomatch).
 
-t_demo_storage_ui_returns_html(_Config) ->
-    {ok, Code, Body} = api_get([agent, <<"demo-storage">>, ui]),
-    ?assertEqual(200, Code),
-    ?assert(is_binary(Body)),
-    ?assert(binary:match(Body, <<"Demo Storage Facility">>) =/= nomatch).
-
 %%--------------------------------------------------------------------
 %% Skills — individual type tests
 %%--------------------------------------------------------------------

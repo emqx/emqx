@@ -40,7 +40,6 @@
 %% Handler callbacks
 -export([
     '/agent/ui'/2,
-    '/agent/demo-storage/ui'/2,
     '/agent/skills'/2,
     '/agent/skills/:type/:id'/2,
     '/agent/session_profiles'/2,
@@ -63,7 +62,6 @@ api_spec() ->
 paths() ->
     [
         "/agent/ui",
-        "/agent/demo-storage/ui",
         "/agent/skills",
         "/agent/skills/:type/:id",
         "/agent/session_profiles",
@@ -83,16 +81,6 @@ schema("/agent/ui") ->
             tags => ?TAGS,
             security => [],
             description => ?DESC(ui_get),
-            responses => #{200 => <<"HTML page">>}
-        }
-    };
-schema("/agent/demo-storage/ui") ->
-    #{
-        'operationId' => '/agent/demo-storage/ui',
-        get => #{
-            tags => ?TAGS,
-            security => [],
-            description => ?DESC(demo_storage_ui_get),
             responses => #{200 => <<"HTML page">>}
         }
     };
@@ -333,16 +321,6 @@ schema("/agent/pipelines/:id") ->
             ?INTERNAL_ERROR(iolist_to_binary(io_lib:format("Cannot read UI: ~p", [Reason])))
     end.
 
-'/agent/demo-storage/ui'(get, _Params) ->
-    PrivDir = code:priv_dir(emqx_agent),
-    HtmlFile = filename:join(PrivDir, "demo-storage.html"),
-    case file:read_file(HtmlFile) of
-        {ok, Html} ->
-            {200, #{<<"content-type">> => <<"text/html; charset=utf-8">>}, Html};
-        {error, Reason} ->
-            ?INTERNAL_ERROR(iolist_to_binary(io_lib:format("Cannot read UI: ~p", [Reason])))
-    end.
-
 %%--------------------------------------------------------------------
 %% Handlers — Skills
 %%--------------------------------------------------------------------
@@ -497,6 +475,8 @@ do_create_skill(_Body) ->
 %% Maps the API type string to the hocon schema ref used for validation/coercion.
 skill_schema_for_type(<<"message.publish">>) ->
     hoconsc:ref(emqx_agent_schema, skill_publish_create);
+skill_schema_for_type(<<"message.request">>) ->
+    hoconsc:ref(emqx_agent_schema, skill_mqtt_request_create);
 skill_schema_for_type(<<"http">>) ->
     hoconsc:ref(emqx_agent_schema, skill_http_create);
 skill_schema_for_type(<<"kv.lookup">>) ->
@@ -524,6 +504,7 @@ find_and_destroy_skill(Type, Id) ->
     end.
 
 do_destroy_skill(<<"message.publish">>, Id) -> emqx_agent_skill_publish:destroy(Id);
+do_destroy_skill(<<"message.request">>, Id) -> emqx_agent_skill_mqtt_request:destroy(Id);
 do_destroy_skill(<<"http">>, Id) -> emqx_agent_skill_http:destroy(Id);
 do_destroy_skill(<<"kv.lookup">>, Id) -> emqx_agent_skill_kv:destroy_lookup(Id);
 do_destroy_skill(<<"kv.put">>, Id) -> emqx_agent_skill_kv:destroy_put(Id);
@@ -539,6 +520,7 @@ skill_to_map(#{type := Type} = Skill) ->
 
 skill_module(<<"http">>) -> emqx_agent_skill_http;
 skill_module(<<"message.publish">>) -> emqx_agent_skill_publish;
+skill_module(<<"message.request">>) -> emqx_agent_skill_mqtt_request;
 skill_module(<<"kv.lookup">>) -> emqx_agent_skill_kv;
 skill_module(<<"kv.put">>) -> emqx_agent_skill_kv;
 skill_module(<<"postgresql.query">>) -> emqx_agent_skill_postgresql.
@@ -546,6 +528,7 @@ skill_module(<<"postgresql.query">>) -> emqx_agent_skill_postgresql.
 %% Used by do_create_skill — kv.lookup and kv.put are independent first-class types.
 skill_module_for_type(<<"http">>) -> emqx_agent_skill_http;
 skill_module_for_type(<<"message.publish">>) -> emqx_agent_skill_publish;
+skill_module_for_type(<<"message.request">>) -> emqx_agent_skill_mqtt_request;
 skill_module_for_type(<<"kv.lookup">>) -> emqx_agent_skill_kv;
 skill_module_for_type(<<"kv.put">>) -> emqx_agent_skill_kv;
 skill_module_for_type(<<"postgresql.query">>) -> emqx_agent_skill_postgresql;
