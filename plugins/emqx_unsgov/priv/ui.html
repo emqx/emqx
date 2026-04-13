@@ -1516,7 +1516,7 @@
         }
 
         function formatNodeLabel(key, node) {
-          const type = node && node._type ? String(node._type) : "namespace";
+          const type = inferNodeKind(key, node);
           let suffix = "";
           if (type === "variable" && node._var_type) suffix = " {" + node._var_type + "}";
           return key + " [" + type + "]" + suffix;
@@ -1604,7 +1604,7 @@
           row.dataset.nodeId = id;
           row.dataset.parentMapId = pathToId(parentMapPath);
           row.dataset.nodeKey = key;
-          const nodeTypeValue = (node && node._type) || "namespace";
+          const nodeTypeValue = inferNodeKind(key, node);
           const payloadRef = (node && node._payload) || "";
           const ptNames = Object.keys((state.modelObj && state.modelObj.payload_types) || {}).sort();
           const payloadOpts = '<option value="">(any)</option>' +
@@ -1703,7 +1703,7 @@
                 return applyModelMutation(() => {
                   const key = prompt("Root node key", "default");
                   if (!key) return;
-                  state.modelObj.tree[key] = { _type: "namespace", children: {} };
+                  state.modelObj.tree[key] = { _type: inferNodeKind(key, null), children: {} };
                   state.expandedIds[pathToId(["tree", key])] = true;
                 });
               }
@@ -1734,7 +1734,7 @@
                   if (!node.children || typeof node.children !== "object") node.children = {};
                   const childKey = prompt("Child node key", "new_level");
                   if (!childKey) return;
-                  node.children[childKey] = { _type: "namespace", children: {} };
+                  node.children[childKey] = { _type: inferNodeKind(childKey, null), children: {} };
                   state.expandedIds[pathToId(nodePath)] = true;
                 });
               }
