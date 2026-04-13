@@ -24,23 +24,69 @@ find_or_create(CId, Transport, Peer, Opts) ->
             emqx_gateway_conn:start_link(Transport, Peer, Opts)
     end.
 
-get_connection_id(_Transport, _Peer, State, Data) ->
-    case parse_incoming(Data, [], State) of
+get_connection_id(_Transport, Peer, State, Data) ->
+    {ParseState, BoundCId} = split_state(State),
+    case parse_incoming(Data, [], ParseState) of
         {[Msg | _] = Packets, NState} ->
-            case emqx_coap_message:extract_uri_query(Msg) of
-                #{
-                    <<"clientid">> := ClientId
-                } ->
-                    {ok, ClientId, Packets, NState};
+            case Msg of
+                #coap_message{} ->
+                    {CId, NBoundCId} = choose_cid(Msg, BoundCId, Peer),
+                    {ok, CId, Packets, merge_state(NState, NBoundCId)};
                 _ ->
-                    ErrMsg = <<"Missing token or clientid in connection mode">>,
-                    Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
-                    Bin = emqx_coap_frame:serialize_pkt(Reply, emqx_coap_frame:serialize_opts()),
-                    {error, Bin}
+                    {ok, route_cid(BoundCId, Peer), Packets, merge_state(NState, BoundCId)}
             end;
         _Error ->
             invalid
     end.
+
+peer_id(Peer) ->
+    {peer, Peer}.
+
+split_state(#{parse_state := ParseState, cid := BoundCId}) ->
+    {ParseState, BoundCId};
+split_state(#{parse_state := ParseState}) ->
+    {ParseState, undefined};
+split_state(ParseState) ->
+    {ParseState, undefined}.
+
+merge_state(ParseState, BoundCId) ->
+    #{parse_state => ParseState, cid => BoundCId}.
+
+route_cid(undefined, Peer) ->
+    peer_id(Peer);
+route_cid(BoundCId, _Peer) ->
+    BoundCId.
+
+choose_cid(Msg, BoundCId, Peer) ->
+    URIQuery = emqx_coap_message:extract_uri_query(Msg),
+    ReqClientId = normalize_clientid(extract_clientid(URIQuery)),
+    select_cid(ReqClientId, BoundCId, Peer).
+
+extract_clientid(URIQuery) ->
+    case maps:find(<<"clientid">>, URIQuery) of
+        {ok, ClientId} ->
+            ClientId;
+        error ->
+            maps:get("clientid", URIQuery, undefined)
+    end.
+
+normalize_clientid(undefined) ->
+    undefined;
+normalize_clientid(ClientId) when is_binary(ClientId) ->
+    ClientId;
+normalize_clientid(ClientId) when is_list(ClientId) ->
+    list_to_binary(ClientId);
+normalize_clientid(_Other) ->
+    undefined.
+
+select_cid(undefined, undefined, Peer) ->
+    {peer_id(Peer), undefined};
+select_cid(undefined, BoundCId, _Peer) ->
+    {BoundCId, BoundCId};
+select_cid(ReqClientId, undefined, _Peer) ->
+    {ReqClientId, ReqClientId};
+select_cid(_ReqClientId, BoundCId, _Peer) ->
+    {BoundCId, BoundCId}.
 
 dispatch(Pid, _State, Packet) ->
     erlang:send(Pid, Packet).

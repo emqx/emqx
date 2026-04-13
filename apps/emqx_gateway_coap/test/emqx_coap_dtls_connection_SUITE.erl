@@ -101,6 +101,240 @@ t_connection(_Config) ->
     URI1 = emqx_coap_SUITE:compose_uri(Prefix, Queries1, false),
     Req1 = emqx_coap_SUITE:make_req(put),
     {ok, changed, _} = emqx_coap_SUITE:do_request(Channel, URI1, Req1),
+    {ok, deleted, _} = emqx_coap_SUITE:disconnection(Channel, Token),
 
     er_coap_channel:close(Channel),
     emqx_coap_dtls_client_socket:close(Sock).
+
+t_same_dtls_session_token_request(_Config) ->
+    {ok, Sock, Channel} = emqx_coap_dtls_client_socket:connect({127, 0, 0, 1}, 5684, [
+        {verify, verify_none}
+    ]),
+
+    Prefix = ?MQTT_PREFIX ++ "/connection",
+    Queries0 = #{
+        "clientid" => <<"client1">>,
+        "username" => <<"admin">>,
+        "password" => <<"public">>
+    },
+    URI0 = emqx_coap_SUITE:compose_uri(Prefix, Queries0, false),
+    Req0 = emqx_coap_SUITE:make_req(post),
+    {ok, created, Data} = emqx_coap_SUITE:do_request(Channel, URI0, Req0),
+    #coap_content{payload = BinToken} = Data,
+    Token = binary_to_list(BinToken),
+
+    URI1 = emqx_coap_SUITE:compose_uri(
+        "coaps://127.0.0.1/ps/coap/same_session",
+        #{
+            "clientid" => <<"client1">>,
+            "token" => Token
+        },
+        false
+    ),
+    Req1 = emqx_coap_SUITE:make_req(post, <<"x">>),
+    {ok, changed, _} = emqx_coap_SUITE:do_request(Channel, URI1, Req1),
+    {ok, deleted, _} = emqx_coap_SUITE:disconnection(Channel, Token),
+
+    er_coap_channel:close(Channel),
+    emqx_coap_dtls_client_socket:close(Sock).
+
+t_token_takeover_across_dtls_sessions(_Config) ->
+    {ok, Sock1, Channel1} = emqx_coap_dtls_client_socket:connect({127, 0, 0, 1}, 5684, [
+        {verify, verify_none}
+    ]),
+
+    Prefix = ?MQTT_PREFIX ++ "/connection",
+    Queries0 = #{
+        "clientid" => <<"client1">>,
+        "username" => <<"admin">>,
+        "password" => <<"public">>
+    },
+    URI0 = emqx_coap_SUITE:compose_uri(Prefix, Queries0, false),
+    Req0 = emqx_coap_SUITE:make_req(post),
+    {ok, created, Data} = emqx_coap_SUITE:do_request(Channel1, URI0, Req0),
+    #coap_content{payload = BinToken} = Data,
+    Token = binary_to_list(BinToken),
+
+    wait_until_channels_non_empty(<<"client1">>),
+
+    er_coap_channel:close(Channel1),
+    emqx_coap_dtls_client_socket:close(Sock1),
+
+    wait_until_channels_non_empty(<<"client1">>),
+
+    {ok, Sock2, Channel2} = emqx_coap_dtls_client_socket:connect({127, 0, 0, 1}, 5684, [
+        {verify, verify_none}
+    ]),
+
+    URI1 = emqx_coap_SUITE:compose_uri(
+        "coaps://127.0.0.1/ps/coap/test",
+        #{
+            "clientid" => <<"client1">>,
+            "token" => Token
+        },
+        false
+    ),
+    Req1 = emqx_coap_SUITE:make_req(post, <<"x">>),
+    {ok, changed, _} = emqx_coap_SUITE:do_request(Channel2, URI1, Req1),
+
+    wait_until_channels_count(<<"client1">>, 1),
+    {ok, deleted, _} = emqx_coap_SUITE:disconnection(Channel2, Token),
+
+    er_coap_channel:close(Channel2),
+    emqx_coap_dtls_client_socket:close(Sock2).
+
+t_invalid_token_rejected(_Config) ->
+    {ok, Sock1, Channel1} = emqx_coap_dtls_client_socket:connect({127, 0, 0, 1}, 5684, [
+        {verify, verify_none}
+    ]),
+
+    Prefix = ?MQTT_PREFIX ++ "/connection",
+    Queries0 = #{
+        "clientid" => <<"client1">>,
+        "username" => <<"admin">>,
+        "password" => <<"public">>
+    },
+    URI0 = emqx_coap_SUITE:compose_uri(Prefix, Queries0, false),
+    Req0 = emqx_coap_SUITE:make_req(post),
+    {ok, created, Data} = emqx_coap_SUITE:do_request(Channel1, URI0, Req0),
+    #coap_content{payload = BinToken} = Data,
+    Token = binary_to_list(BinToken),
+
+    er_coap_channel:close(Channel1),
+    emqx_coap_dtls_client_socket:close(Sock1),
+
+    wait_until_channels_non_empty(<<"client1">>),
+
+    {ok, Sock2, Channel2} = emqx_coap_dtls_client_socket:connect({127, 0, 0, 1}, 5684, [
+        {verify, verify_none}
+    ]),
+    URI1 = emqx_coap_SUITE:compose_uri(
+        "coaps://127.0.0.1/ps/coap/test",
+        #{
+            "clientid" => <<"client1">>,
+            "token" => <<"wrong-token">>
+        },
+        false
+    ),
+    Req1 = emqx_coap_SUITE:make_req(post, <<"x">>),
+    assert_unauthorized_error(emqx_coap_SUITE:do_request(Channel2, URI1, Req1)),
+    {ok, deleted, _} = emqx_coap_SUITE:disconnection(Channel2, Token),
+
+    er_coap_channel:close(Channel2),
+    emqx_coap_dtls_client_socket:close(Sock2).
+
+t_wrong_clientid_with_valid_token_rejected(_Config) ->
+    {ok, Sock1, Channel1} = emqx_coap_dtls_client_socket:connect({127, 0, 0, 1}, 5684, [
+        {verify, verify_none}
+    ]),
+
+    Prefix = ?MQTT_PREFIX ++ "/connection",
+    Queries0 = #{
+        "clientid" => <<"client1">>,
+        "username" => <<"admin">>,
+        "password" => <<"public">>
+    },
+    URI0 = emqx_coap_SUITE:compose_uri(Prefix, Queries0, false),
+    Req0 = emqx_coap_SUITE:make_req(post),
+    {ok, created, Data} = emqx_coap_SUITE:do_request(Channel1, URI0, Req0),
+    #coap_content{payload = BinToken} = Data,
+    Token = binary_to_list(BinToken),
+
+    er_coap_channel:close(Channel1),
+    emqx_coap_dtls_client_socket:close(Sock1),
+
+    wait_until_channels_non_empty(<<"client1">>),
+
+    {ok, Sock2, Channel2} = emqx_coap_dtls_client_socket:connect({127, 0, 0, 1}, 5684, [
+        {verify, verify_none}
+    ]),
+    URI1 = emqx_coap_SUITE:compose_uri(
+        "coaps://127.0.0.1/ps/coap/test",
+        #{
+            "clientid" => <<"client2">>,
+            "token" => Token
+        },
+        false
+    ),
+    Req1 = emqx_coap_SUITE:make_req(post, <<"x">>),
+    assert_unauthorized_error(emqx_coap_SUITE:do_request(Channel2, URI1, Req1)),
+    {ok, deleted, _} = emqx_coap_SUITE:disconnection(Channel2, Token),
+
+    er_coap_channel:close(Channel2),
+    emqx_coap_dtls_client_socket:close(Sock2).
+
+t_partial_token_params_rejected(_Config) ->
+    {ok, Sock, Channel} = emqx_coap_dtls_client_socket:connect({127, 0, 0, 1}, 5684, [
+        {verify, verify_none}
+    ]),
+
+    Prefix = ?MQTT_PREFIX ++ "/connection",
+    Queries0 = #{
+        "clientid" => <<"client1">>,
+        "username" => <<"admin">>,
+        "password" => <<"public">>
+    },
+    URI0 = emqx_coap_SUITE:compose_uri(Prefix, Queries0, false),
+    Req0 = emqx_coap_SUITE:make_req(post),
+    {ok, created, Data} = emqx_coap_SUITE:do_request(Channel, URI0, Req0),
+    #coap_content{payload = BinToken} = Data,
+    Token = binary_to_list(BinToken),
+
+    URI1 = emqx_coap_SUITE:compose_uri(
+        "coaps://127.0.0.1/ps/coap/missing_token",
+        #{
+            "clientid" => <<"client1">>
+        },
+        false
+    ),
+    Req1 = emqx_coap_SUITE:make_req(post, <<"x">>),
+    {error, bad_request, _} = emqx_coap_SUITE:do_request(Channel, URI1, Req1),
+
+    URI2 = emqx_coap_SUITE:compose_uri(
+        "coaps://127.0.0.1/ps/coap/missing_clientid",
+        #{
+            "token" => Token
+        },
+        false
+    ),
+    Req2 = emqx_coap_SUITE:make_req(post, <<"x">>),
+    {error, bad_request, _} = emqx_coap_SUITE:do_request(Channel, URI2, Req2),
+    {ok, deleted, _} = emqx_coap_SUITE:disconnection(Channel, Token),
+
+    er_coap_channel:close(Channel),
+    emqx_coap_dtls_client_socket:close(Sock).
+
+assert_unauthorized_error({error, unauthorized, _}) ->
+    ok;
+assert_unauthorized_error(Result0) ->
+    Result = normalize_unauthorized_error(Result0),
+    ?assertMatch({error, unauthorized, _}, Result).
+
+normalize_unauthorized_error({error, uauthorized, Payload}) ->
+    {error, unauthorized, Payload};
+normalize_unauthorized_error(Result) ->
+    Result.
+
+wait_until_channels_non_empty(ClientId) ->
+    wait_until(fun() ->
+        emqx_gateway_cm_registry:lookup_channels(coap, ClientId) =/= []
+    end).
+
+wait_until_channels_count(ClientId, Count) ->
+    wait_until(fun() ->
+        length(emqx_gateway_cm_registry:lookup_channels(coap, ClientId)) =:= Count
+    end).
+
+wait_until(Pred) ->
+    wait_until(Pred, 30).
+
+wait_until(Pred, 0) ->
+    ?assert(Pred());
+wait_until(Pred, RetriesLeft) ->
+    case Pred() of
+        true ->
+            ok;
+        false ->
+            timer:sleep(100),
+            wait_until(Pred, RetriesLeft - 1)
+    end.
