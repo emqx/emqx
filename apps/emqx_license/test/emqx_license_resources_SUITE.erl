@@ -43,9 +43,10 @@ end_per_suite(Config) ->
 %%------------------------------------------------------------------------------
 
 t_connection_count({init, Config}) ->
+    {atomic, ok} = mria:clear_table(emqx_license_session_hwm),
     Config;
 t_connection_count({'end', _Config}) ->
-    ok;
+    {atomic, ok} = mria:clear_table(emqx_license_session_hwm);
 t_connection_count(Config) when is_list(Config) ->
     ?check_trace(
         begin
@@ -104,6 +105,8 @@ t_connection_count(Config) when is_list(Config) ->
         end
     ),
     ?assertReceive({alarm_activated, <<"License: sessions quota exceeds 80%">>}, 100),
+    ok = emqx_license_session_hwm:sync(),
+    [#{period := _, high_watermark := 21}] = emqx_license_session_hwm:list_history(daily, 10),
 
     meck:expect(
         emqx_license_proto_v3,
@@ -128,6 +131,8 @@ t_connection_count(Config) when is_list(Config) ->
         end
     ),
     ?assertReceive(alarm_deactivated, 100),
+    ok = emqx_license_session_hwm:sync(),
+    [#{period := _, high_watermark := 21}] = emqx_license_session_hwm:list_history(daily, 10),
 
     meck:unload(emqx_license_proto_v3),
     meck:unload(emqx_cm),
