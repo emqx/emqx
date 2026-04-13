@@ -719,6 +719,10 @@ update_iterator(ShardId, #'Iterator'{} = Iter, DSKey) ->
     {emqx_ds_builtin_raft_shard_otx, CLUSTER, DB, SHARD}
 ).
 
+-define(ra_server_shutdown_reason(R),
+    (R =:= normal orelse R =:= shutdown orelse element(1, R) =:= shutdown)
+).
+
 otx_get_tx_serial(DB, Shard) ->
     emqx_ds_storage_layer_ttv:get_read_tx_serial({DB, Shard}).
 
@@ -769,7 +773,7 @@ otx_commit_tx_batch({DB, Shard}, SerCtl, Serial, Timestamp, Batches) ->
                     Err;
                 {error, noproc} ->
                     ?err_rec(local_leader_stopped);
-                {error, Reason} when Reason =:= normal orelse Reason =:= shutdown ->
+                {error, Reason} when ?ra_server_shutdown_reason(Reason) ->
                     ?err_rec(local_leader_terminated);
                 Err ->
                     ?err_rec({raft, Err, ?FUNCTION_NAME})
@@ -787,7 +791,7 @@ otx_add_generation(DB, Shard, Since) ->
                     Ret;
                 {error, noproc} ->
                     ?err_rec(local_leader_stopped);
-                {error, Reason} when Reason =:= normal orelse Reason =:= shutdown ->
+                {error, Reason} when ?ra_server_shutdown_reason(Reason) ->
                     ?err_rec(local_leader_terminated);
                 Err ->
                     ?err_rec({raft, Err, ?FUNCTION_NAME})
@@ -988,7 +992,7 @@ announce_otx_leader_pid(Leader, Timeout, Pid) ->
             ?err_rec({leadership_gone, #{Leader => OtherLeader}});
         {error, noproc} ->
             ?err_rec(local_leader_stopped);
-        {error, Reason} when Reason =:= normal orelse Reason =:= shutdown ->
+        {error, Reason} when ?ra_server_shutdown_reason(Reason) ->
             ?err_rec(local_leader_terminated);
         Err ->
             ?err_rec({raft, Err, ?FUNCTION_NAME})
@@ -1186,7 +1190,7 @@ local_raft_leader(DB, Shard) ->
             ?err_rec(local_leader_timeout);
         {error, noproc} ->
             ?err_rec(local_leader_stopped);
-        {error, Reason} when Reason =:= normal orelse Reason =:= shutdown ->
+        {error, Reason} when ?ra_server_shutdown_reason(Reason) ->
             ?err_rec(local_leader_terminated);
         Other ->
             ?err_unrec({invalid_response_from_local_leader, Other})
