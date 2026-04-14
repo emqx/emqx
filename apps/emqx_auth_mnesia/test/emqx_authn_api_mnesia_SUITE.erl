@@ -342,12 +342,30 @@ t_authenticator_users(TCConfig) ->
         InvalidUsers
     ),
 
+    %% Namespaced users cannot be superusers, so the is_superuser=true variant
+    %% is only exercised for the global admin.
+    U2IsSuperuser =
+        case ns_of(TCConfig) of
+            ?global_ns -> true;
+            _ -> false
+        end,
     ValidUsers0 = [
         #{user_id => <<"u1">>, password => <<"p1">>},
-        #{user_id => <<"u2">>, password => <<"p2">>, is_superuser => true},
+        #{user_id => <<"u2">>, password => <<"p2">>, is_superuser => U2IsSuperuser},
         #{user_id => <<"u3">>, password => <<"p3">>}
     ],
     ValidUsers = lists:map(fun(U) -> maybe_add_ns_user_info(U, TCConfig) end, ValidUsers0),
+
+    %% As a namespaced admin, attempting to create a superuser must be rejected.
+    maybe
+        true ?= ns_of(TCConfig) /= ?global_ns,
+        NsSuperUser = maybe_add_ns_user_info(
+            #{user_id => <<"u_super">>, password => <<"p">>, is_superuser => true},
+            TCConfig
+        ),
+        ?assertMatch({400, _}, add_user(NsSuperUser)),
+        ok
+    end,
 
     NsAPIOut =
         case ns_of(TCConfig) of
@@ -438,6 +456,12 @@ t_authenticator_users(TCConfig) ->
         lists:usort([UserId || #{<<"user_id">> := UserId} <- Page1Users ++ Page2Users])
     ),
 
+    {ExpectedSuperUsers, ExpectedNonSuperUsers} =
+        case ns_of(TCConfig) of
+            ?global_ns -> {[<<"u2">>], [<<"u1">>, <<"u3">>]};
+            _ -> {[], [<<"u1">>, <<"u2">>, <<"u3">>]}
+        end,
+
     {200, Super1Data} = list_users(
         maybe_add_ns_qs(
             #{
@@ -448,19 +472,9 @@ t_authenticator_users(TCConfig) ->
             TCConfig
         )
     ),
-
-    #{
-        <<"data">> := Super1Users,
-        <<"meta">> :=
-            #{
-                <<"page">> := 1,
-                <<"limit">> := 3,
-                <<"count">> := 1
-            }
-    } = Super1Data,
-
+    #{<<"data">> := Super1Users} = Super1Data,
     ?assertEqual(
-        [<<"u2">>],
+        ExpectedSuperUsers,
         lists:usort([UserId || #{<<"user_id">> := UserId} <- Super1Users])
     ),
 
@@ -474,19 +488,9 @@ t_authenticator_users(TCConfig) ->
             TCConfig
         )
     ),
-
-    #{
-        <<"data">> := Super2Users,
-        <<"meta">> :=
-            #{
-                <<"page">> := 1,
-                <<"limit">> := 3,
-                <<"count">> := 2
-            }
-    } = Super2Data,
-
+    #{<<"data">> := Super2Users} = Super2Data,
     ?assertEqual(
-        [<<"u1">>, <<"u3">>],
+        ExpectedNonSuperUsers,
         lists:usort([UserId || #{<<"user_id">> := UserId} <- Super2Users])
     ),
 
@@ -534,10 +538,20 @@ t_authenticator_user(TCConfig) ->
     ?assertMatch(#{<<"user_id">> := <<"u1">>}, FetchedUser),
     ?assertNotMatch(#{<<"password">> := _}, FetchedUser),
 
-    ValidUserUpdates = [
-        #{password => <<"p1">>},
-        #{password => <<"p1">>, is_superuser => true}
-    ],
+    %% Namespaced users cannot be marked as superuser; see new invariant.
+    ValidUserUpdates =
+        case ns_of(TCConfig) of
+            ?global_ns ->
+                [
+                    #{password => <<"p1">>},
+                    #{password => <<"p1">>, is_superuser => true}
+                ];
+            _ ->
+                [
+                    #{password => <<"p1">>},
+                    #{password => <<"p1">>, is_superuser => false}
+                ]
+        end,
 
     lists:foreach(
         fun(UserUpdate) ->
@@ -545,6 +559,21 @@ t_authenticator_user(TCConfig) ->
         end,
         ValidUserUpdates
     ),
+
+    %% As a namespaced admin, attempting to promote a user to superuser must be
+    %% rejected.
+    maybe
+        true ?= ns_of(TCConfig) /= ?global_ns,
+        ?assertMatch(
+            {400, _},
+            update_user(
+                <<"u1">>,
+                #{password => <<"p1">>, is_superuser => true},
+                maybe_add_ns_qs(#{}, TCConfig)
+            )
+        ),
+        ok
+    end,
 
     InvalidUserUpdates = [
         #{user_id => <<"u1">>, password => <<"p1">>},
@@ -655,5 +684,78 @@ t_authenticator_import_users_ns(TCConfig) ->
         ]
     }),
     {403, _} = import_users(emqx_utils_json:decode(JSONData), #{<<"type">> => <<"hash">>}),
+
+    ok.
+
+-doc """
+Regression test for CVE-style bypass where a namespaced admin could:
+  (1) list authentication users in the global namespace by omitting the `ns`
+      query parameter; and
+  (2) create users (including superusers) in the global namespace by omitting
+      the `namespace` body field.
+The handlers must now ignore user-controlled input for the namespace and use
+the actor's resolved namespace instead.
+""".
+t_ns_admin_bypass_global() ->
+    [{matrix, true}].
+t_ns_admin_bypass_global(matrix) ->
+    [[?ns]];
+t_ns_admin_bypass_global(TCConfig) ->
+    {200, _} = create_authenticator(emqx_authn_test_lib:built_in_database_example()),
+
+    %% Seed a user in the global namespace directly via the chain API, so we
+    %% do not need a second HTTP admin session.
+    {ok, _} = emqx_authn_chains:add_user(
+        ?GLOBAL,
+        <<"password_based:built_in_database">>,
+        #{
+            namespace => ?global_ns,
+            user_id => <<"global_user">>,
+            password => <<"p">>,
+            is_superuser => false
+        }
+    ),
+
+    put_auth_header(?config(auth_header, TCConfig)),
+
+    %% Bug 1 — GET without `ns` must only return the caller's namespace.
+    {200, ListData} = list_users(#{<<"page">> => <<"1">>, <<"limit">> => <<"50">>}),
+    #{<<"data">> := Rows} = ListData,
+    UserIds = [UserId || #{<<"user_id">> := UserId} <- Rows],
+    ?assertEqual(
+        [],
+        UserIds,
+        #{reason => <<"namespaced admin must not see global users">>}
+    ),
+
+    %% Bug 2 — POST without `namespace` must land in the caller's namespace,
+    %% not global. Creating a superuser via this bypass must also be rejected
+    %% by the new invariant.
+    NsBody = #{
+        <<"user_id">> => <<"ns_created">>,
+        <<"password">> => <<"p">>
+    },
+    {201, Created} = add_user(NsBody),
+    ?assertMatch(#{<<"namespace">> := <<"ns1">>}, Created),
+
+    %% The global table must remain unchanged.
+    {ok, #{user_id := <<"global_user">>}} =
+        emqx_authn_chains:lookup_user(
+            ?GLOBAL, <<"password_based:built_in_database">>, ?global_ns, <<"global_user">>
+        ),
+    ?assertMatch(
+        {error, not_found},
+        emqx_authn_chains:lookup_user(
+            ?GLOBAL, <<"password_based:built_in_database">>, ?global_ns, <<"ns_created">>
+        )
+    ),
+
+    %% Bug 3 — superuser creation as a namespaced admin must be rejected.
+    SuperBody = #{
+        <<"user_id">> => <<"ns_super">>,
+        <<"password">> => <<"p">>,
+        <<"is_superuser">> => true
+    },
+    ?assertMatch({400, _}, add_user(SuperBody)),
 
     ok.

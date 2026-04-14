@@ -847,18 +847,23 @@ listener_authenticator_position(
         end
     ).
 
-authenticator_users(post, #{bindings := #{id := AuthenticatorID}, body := UserInfo} = Req) ->
-    ActorNamespace = emqx_dashboard:get_namespace(Req),
-    case UserInfo of
-        #{<<"namespace">> := UserNamespace} when
-            ActorNamespace /= ?global_ns andalso UserNamespace /= ActorNamespace
-        ->
-            ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>);
-        _ ->
-            add_user(?GLOBAL, AuthenticatorID, UserInfo)
+authenticator_users(post, #{
+    bindings := #{id := AuthenticatorID},
+    body := UserInfo,
+    resolved_ns := ResolvedNs
+}) ->
+    case effective_user_namespace(UserInfo, ResolvedNs) of
+        {ok, Namespace} ->
+            add_user(?GLOBAL, AuthenticatorID, UserInfo#{<<"namespace">> => Namespace});
+        {error, forbidden} ->
+            ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
     end;
-authenticator_users(get, #{bindings := #{id := AuthenticatorID}, query_string := QueryString}) ->
-    list_users(?GLOBAL, AuthenticatorID, QueryString).
+authenticator_users(get, #{
+    bindings := #{id := AuthenticatorID},
+    query_string := QueryString,
+    resolved_ns := ResolvedNs
+}) ->
+    list_users(?GLOBAL, AuthenticatorID, QueryString#{<<"ns">> => ResolvedNs}).
 
 authenticator_user(
     put,
@@ -1245,22 +1250,27 @@ add_user(
 ) ->
     Namespace = maps:get(<<"namespace">>, UserInfo, ?global_ns),
     IsSuperuser = maps:get(<<"is_superuser">>, UserInfo, false),
-    case
-        emqx_authn_chains:add_user(
-            ChainName,
-            AuthenticatorID,
-            #{
-                namespace => Namespace,
-                user_id => UserID,
-                password => Password,
-                is_superuser => IsSuperuser
-            }
-        )
-    of
-        {ok, User} ->
-            {201, user_out(User)};
+    case check_superuser_allowed(Namespace, IsSuperuser) of
+        ok ->
+            case
+                emqx_authn_chains:add_user(
+                    ChainName,
+                    AuthenticatorID,
+                    #{
+                        namespace => Namespace,
+                        user_id => UserID,
+                        password => Password,
+                        is_superuser => IsSuperuser
+                    }
+                )
+            of
+                {ok, User} ->
+                    {201, user_out(User)};
+                {error, Reason} ->
+                    serialize_error({user_error, Reason})
+            end;
         {error, Reason} ->
-            serialize_error({user_error, Reason})
+            serialize_error(Reason)
     end;
 add_user(_, _, #{<<"user_id">> := _}) ->
     serialize_error({missing_parameter, password});
@@ -1272,18 +1282,41 @@ update_user(ChainName, Namespace, AuthenticatorID, UserID, UserInfo0) ->
         true ->
             serialize_error({missing_parameter, password});
         false ->
-            UserInfo = emqx_utils_maps:safe_atom_key_map(UserInfo0),
-            case
-                emqx_authn_chains:update_user(
-                    ChainName, AuthenticatorID, Namespace, UserID, UserInfo
-                )
-            of
-                {ok, User} ->
-                    {200, user_out(User)};
+            IsSuperuser = maps:get(<<"is_superuser">>, UserInfo0, false),
+            case check_superuser_allowed(Namespace, IsSuperuser) of
+                ok ->
+                    UserInfo = emqx_utils_maps:safe_atom_key_map(UserInfo0),
+                    case
+                        emqx_authn_chains:update_user(
+                            ChainName, AuthenticatorID, Namespace, UserID, UserInfo
+                        )
+                    of
+                        {ok, User} ->
+                            {200, user_out(User)};
+                        {error, Reason} ->
+                            serialize_error({user_error, Reason})
+                    end;
                 {error, Reason} ->
-                    serialize_error({user_error, Reason})
+                    serialize_error(Reason)
             end
     end.
+
+%% A global admin (resolved_ns = ?global_ns) may write to any namespace by
+%% specifying it in the body; a namespaced admin may only write to their own
+%% namespace and any mismatch in the body is rejected.
+effective_user_namespace(UserInfo, ?global_ns) ->
+    {ok, maps:get(<<"namespace">>, UserInfo, ?global_ns)};
+effective_user_namespace(UserInfo, ResolvedNs) ->
+    case maps:get(<<"namespace">>, UserInfo, ResolvedNs) of
+        ResolvedNs -> {ok, ResolvedNs};
+        _Other -> {error, forbidden}
+    end.
+
+%% MQTT users in a non-global namespace must never be superusers: explicit ACL
+%% rules are enforced for tenant clients.
+check_superuser_allowed(?global_ns, _IsSuperuser) -> ok;
+check_superuser_allowed(_Namespace, false) -> ok;
+check_superuser_allowed(_Namespace, _IsSuperuser) -> {error, superuser_not_allowed_in_namespace}.
 
 find_user(ChainName, Namespace, AuthenticatorID, UserID) ->
     case emqx_authn_chains:lookup_user(ChainName, AuthenticatorID, Namespace, UserID) of
@@ -1441,6 +1474,11 @@ serialize_error({bad_ssl_config, Details}) ->
     {400, #{
         code => <<"BAD_REQUEST">>,
         message => binfmt("bad_ssl_config ~0p", [Details])
+    }};
+serialize_error(superuser_not_allowed_in_namespace) ->
+    {400, #{
+        code => <<"BAD_REQUEST">>,
+        message => <<"is_superuser cannot be true for a namespaced user">>
     }};
 serialize_error({missing_parameter, Detail}) ->
     {400, #{
