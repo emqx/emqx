@@ -967,9 +967,10 @@ do_read_file(FileName) ->
 validate_cluster_hocon(RawConf) ->
     %% write ACL file to comply with the schema...
     RawConf1 = emqx_authz:maybe_write_files(RawConf),
+    MergedRawConf = emqx_utils_maps:deep_merge(emqx:get_raw_config([]), RawConf1),
     emqx_hocon:check(
         emqx_conf:schema_module(),
-        maps:merge(emqx:get_raw_config([]), RawConf1),
+        MergedRawConf,
         #{atom_key => false, required => false}
     ).
 

@@ -261,6 +261,26 @@ t_export_cloud_subset(Config) ->
     ),
     ok.
 
+t_validate_cluster_hocon_preserve_node_cookie_on_partial_node_import(_Config) ->
+    meck:new(emqx, [passthrough]),
+    try
+        ExistingRawConf = #{
+            <<"node">> => #{
+                <<"name">> => <<"emqx@127.0.0.1">>,
+                <<"cookie">> => <<"test-cookie">>
+            }
+        },
+        ok = meck:expect(emqx, get_raw_config, 1, ExistingRawConf),
+        ImportedRawConf = #{
+            <<"node">> => #{
+                <<"name">> => <<"emqx@127.0.0.1">>
+            }
+        },
+        ?assertMatch({ok, _}, emqx_mgmt_data_backup:validate_cluster_hocon(ImportedRawConf))
+    after
+        meck:unload(emqx)
+    end.
+
 t_cluster_hocon_export_import(Config) ->
     RawConfBeforeImport = emqx:get_raw_config([]),
     BootstrapFile = filename:join(?config(data_dir, Config), ?BOOTSTRAP_BACKUP),
