@@ -230,6 +230,9 @@ emqx_metrics {
     client_authenticate {
         desc: "Number of client Authentication"
     }
+    client_post_authn {
+        desc: "Number of invocations of the 'client.post_authn' hook (runs after the authentication chain succeeds)"
+    }
     client_auth_anonymous {
         desc: "Number of clients who log in anonymously"
     }

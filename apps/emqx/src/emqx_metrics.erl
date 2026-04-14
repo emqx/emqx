@@ -616,6 +616,7 @@ reserved_idx('rules.matched') -> 100;
 reserved_idx('actions.executed') -> 101;
 %% NOTE: idx 102 is reserved for 'delivery.dropped.filter' in release-62+
 reserved_idx('actions.messages') -> 103;
+reserved_idx('client.post_authn') -> 104;
 reserved_idx(_) -> undefined.
 
 all_metrics() ->
@@ -739,6 +740,7 @@ client_metrics() ->
         {counter, 'client.connack', ?DESC("client_connack")},
         {counter, 'client.connected', ?DESC("client_connected")},
         {counter, 'client.authenticate', ?DESC("client_authenticate")},
+        {counter, 'client.post_authn', ?DESC("client_post_authn")},
         {counter, 'client.auth.anonymous', ?DESC("client_auth_anonymous")},
         {counter, 'client.authorize', ?DESC("client_authorize")},
         {counter, 'client.subscribe', ?DESC("client_subscribe")},
