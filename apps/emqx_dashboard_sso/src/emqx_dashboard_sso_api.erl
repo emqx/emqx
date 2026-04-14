@@ -9,6 +9,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 
 -import(hoconsc, [
     mk/2,
@@ -33,7 +34,8 @@
     running/2,
     login/2,
     sso/2,
-    backend/2
+    backend/2,
+    token_exchange/2
 ]).
 
 -export([sso_parameters/1, login_meta/4]).
@@ -57,7 +59,8 @@ paths() ->
         "/sso",
         "/sso/:backend",
         "/sso/running",
-        "/sso/login/:backend"
+        "/sso/login/:backend",
+        "/sso/token_exchange"
     ].
 
 schema("/sso/running") ->
@@ -95,11 +98,33 @@ schema("/sso/login/:backend") ->
             parameters => backend_name_in_path(),
             'requestBody' => login_union(),
             responses => #{
-                200 => emqx_dashboard_api:fields([role, token, version, license]),
+                200 => hoconsc:union([
+                    ref(login_success_response),
+                    ref(mfa_setup_response),
+                    ref(mfa_verify_response)
+                ]),
                 %% Redirect to IDP for saml
                 302 => response_schema(302),
                 401 => response_schema(401),
                 404 => response_schema(404)
+            },
+            security => []
+        }
+    };
+schema("/sso/token_exchange") ->
+    #{
+        'operationId' => token_exchange,
+        post => #{
+            tags => [?TAGS],
+            desc => ?DESC(token_exchange),
+            'requestBody' => ref(token_exchange_request),
+            responses => #{
+                200 => hoconsc:union([
+                    ref(login_success_response),
+                    ref(mfa_setup_response),
+                    ref(mfa_verify_response)
+                ]),
+                400 => response_schema(400)
             },
             security => []
         }
@@ -152,7 +177,35 @@ fields(backend_status) ->
                         desc => ?DESC(last_error)
                     }
                 )}
-        ].
+        ];
+fields(login_success_response) ->
+    emqx_dashboard_api:fields([role, token, version, license]) ++
+        [
+            {username, mk(binary(), #{desc => <<"Username">>})},
+            {backend, mk(binary(), #{desc => <<"SSO backend type">>})}
+        ];
+fields(mfa_setup_response) ->
+    [
+        {action, mk(binary(), #{desc => <<"MFA action: mfa_setup">>, example => <<"mfa_setup">>})},
+        {setup_token, mk(binary(), #{desc => <<"Temporary setup token for MFA binding">>})},
+        {mechanism, mk(binary(), #{desc => <<"MFA mechanism">>, example => <<"totp">>})},
+        {username, mk(binary(), #{desc => <<"Username">>})},
+        {backend, mk(binary(), #{desc => <<"SSO backend type">>})}
+    ];
+fields(mfa_verify_response) ->
+    [
+        {action,
+            mk(binary(), #{desc => <<"MFA action: mfa_verify">>, example => <<"mfa_verify">>})},
+        {verify_token, mk(binary(), #{desc => <<"Temporary verify token for MFA verification">>})},
+        {username, mk(binary(), #{desc => <<"Username">>})},
+        {backend, mk(binary(), #{desc => <<"SSO backend type">>})}
+    ];
+fields(token_exchange_request) ->
+    [
+        {code, mk(binary(), #{desc => <<"One-time SSO code">>, required => true})},
+        {username, mk(binary(), #{desc => ?DESC(sso_username), required => true})},
+        {backend, mk(binary(), #{desc => ?DESC(sso_backend), required => true})}
+    ].
 
 %%--------------------------------------------------------------------
 %% API
@@ -161,6 +214,32 @@ fields(backend_status) ->
 running(get, _Request) ->
     {200, emqx_dashboard_sso_manager:running()}.
 
+token_exchange(post, #{
+    body := #{<<"code">> := Code, <<"username">> := Username, <<"backend">> := BackendBin}
+}) ->
+    case parse_backend(BackendBin) of
+        {ok, BackendAtom} ->
+            case emqx_dashboard_sso_code:exchange_code(BackendAtom, Username, Code) of
+                {ok, #{action := <<"login">>}} ->
+                    %% Sign JWT now at exchange time
+                    SsoUsername = ?SSO_USERNAME(BackendAtom, Username),
+                    case emqx_dashboard_admin:lookup_user(SsoUsername) of
+                        [User] ->
+                            {ok, Role, Token} = emqx_dashboard_token:sign(User),
+                            {200, login_meta(Username, Role, Token, BackendAtom)};
+                        [] ->
+                            {400, #{code => ?BAD_REQUEST, message => <<"User not found">>}}
+                    end;
+                {ok, Payload} ->
+                    %% MFA setup/verify — return as-is
+                    {200, Payload};
+                {error, _Reason} ->
+                    {400, #{code => ?BAD_REQUEST, message => <<"Invalid or expired SSO code">>}}
+            end;
+        {error, _} ->
+            {400, #{code => ?BAD_REQUEST, message => <<"Unknown SSO backend">>}}
+    end.
+
 login(post, #{bindings := #{backend := Backend}, body := Body} = Request) ->
     minirest_handler:update_log_meta(#{log_from => dashboard, log_source => Backend}),
     case emqx_dashboard_sso_manager:lookup_state(Backend) of
@@ -168,7 +247,23 @@ login(post, #{bindings := #{backend := Backend}, body := Body} = Request) ->
             {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
         State ->
             case emqx_dashboard_sso:login(provider(Backend), Request, State) of
+                {ok, login} ->
+                    ?SLOG(info, #{
+                        msg => "dashboard_sso_login_successful",
+                        request => emqx_utils:redact(Request)
+                    }),
+                    Username = maps:get(<<"username">>, Body),
+                    minirest_handler:update_log_meta(#{log_source => Username}),
+                    SsoUsername = ?SSO_USERNAME(Backend, Username),
+                    case emqx_dashboard_admin:lookup_user(SsoUsername) of
+                        [User] ->
+                            {ok, Role, Token} = emqx_dashboard_token:sign(User),
+                            {200, login_meta(Username, Role, Token, Backend)};
+                        [] ->
+                            {400, #{code => ?BAD_REQUEST, message => <<"User not found">>}}
+                    end;
                 {ok, Role, Token} ->
+                    %% Legacy path — kept for backends that still sign directly
                     ?SLOG(info, #{
                         msg => "dashboard_sso_login_successful",
                         request => emqx_utils:redact(Request)
@@ -176,6 +271,31 @@ login(post, #{bindings := #{backend := Backend}, body := Body} = Request) ->
                     Username = maps:get(<<"username">>, Body),
                     minirest_handler:update_log_meta(#{log_source => Username}),
                     {200, login_meta(Username, Role, Token, Backend)};
+                {mfa_setup, SetupToken, _QRInfo} ->
+                    ?SLOG(info, #{
+                        msg => "dashboard_sso_login_mfa_setup_required",
+                        request => emqx_utils:redact(Request)
+                    }),
+                    Username = maps:get(<<"username">>, Body),
+                    {200, #{
+                        action => <<"mfa_setup">>,
+                        setup_token => SetupToken,
+                        mechanism => totp,
+                        username => Username,
+                        backend => Backend
+                    }};
+                {mfa_verify, VerifyToken} ->
+                    ?SLOG(info, #{
+                        msg => "dashboard_sso_login_mfa_verify_required",
+                        request => emqx_utils:redact(Request)
+                    }),
+                    Username = maps:get(<<"username">>, Body),
+                    {200, #{
+                        action => <<"mfa_verify">>,
+                        verify_token => VerifyToken,
+                        username => Username,
+                        backend => Backend
+                    }};
                 {redirect, Redirect} ->
                     ?SLOG(info, #{
                         msg => "dashboard_sso_login_redirect",
@@ -238,6 +358,8 @@ sso_parameters(Params) ->
 
 response_schema(302) ->
     emqx_dashboard_swagger:error_codes([?REDIRECT], ?DESC(redirect));
+response_schema(400) ->
+    emqx_dashboard_swagger:error_codes([?BAD_REQUEST], ?DESC(bad_request));
 response_schema(401) ->
     emqx_dashboard_swagger:error_codes([?BAD_USERNAME_OR_PWD], ?DESC(login_failed401));
 response_schema(404) ->
@@ -307,3 +429,6 @@ login_meta(Username, Role, Token, Backend) ->
         license => #{edition => emqx_release:edition()},
         backend => Backend
     }.
+
+parse_backend(BackendBin) ->
+    emqx_dashboard_sso:parse_backend(BackendBin).

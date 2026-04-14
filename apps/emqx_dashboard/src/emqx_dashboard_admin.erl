@@ -32,6 +32,14 @@
     change_password_trusted/2,
     change_password/3,
     enable_mfa/2,
+    reset_mfa/1,
+    admin_enable_mfa/1,
+    set_mfa_pending/2,
+    clear_mfa_pending/1,
+    get_mfa_pending/1,
+    set_sso_code/2,
+    clear_sso_code/1,
+    get_sso_code/1,
     all_users/0,
     admin_users/0,
     check/2,
@@ -137,32 +145,51 @@ get_mfa_enabled_state(Username) ->
             Result
     end.
 
+%% @doc Get MFA state from the extra map of emqx_admin record.
 get_mfa_state(Username) ->
     case get_extra(Username) of
-        {ok, #{mfa_state := S}} ->
-            {ok, S};
-        {ok, _} ->
-            {error, no_mfa_state};
-        {error, _} = Error ->
-            Error
+        {ok, #{mfa_state := S}} -> {ok, S};
+        {ok, _} -> {error, no_mfa_state};
+        {error, _} = Error -> Error
     end.
 
-%% @doc Delete MFA state from user record.
-%% This should allow the user to re-initialize MFA state according to `default_mfa' config.
+%% @doc Remove mfa_state key entirely from extra map.
 clear_mfa_state(Username) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun clear_mfa_state2/1, [Username]),
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> maps:without([mfa_state], Extra) end)
+    end),
     return(Res).
 
-clear_mfa_state2(Username) ->
-    update_extra(Username, fun(Extra) -> maps:without([mfa_state], Extra) end).
-
-%% @doc Change `mfa_state' to `disabled'.
+%% @doc Disable MFA for a user.
+%% Verifies MFA is currently enabled before disabling.
+%% Clears the secret so re-enabling requires a fresh TOTP setup.
+-spec disable_mfa(dashboard_username()) -> ok | {error, term()}.
 disable_mfa(Username) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun disable_mfa2/1, [Username]),
-    return(Res).
+    case lookup_user(Username) of
+        [] ->
+            {error, <<"username_not_found">>};
+        [_] ->
+            do_disable_mfa(Username)
+    end.
 
-disable_mfa2(Username) ->
-    update_extra(Username, fun(Extra) -> Extra#{mfa_state => disabled} end).
+do_disable_mfa(Username) ->
+    case get_mfa_state(Username) of
+        {ok, disabled} ->
+            {error, <<"MFA is already disabled">>};
+        _ ->
+            %% Allow disabling regardless of current state (not configured, or enabled).
+            %% This matches upstream behavior where disable is an unconditional
+            %% "set disabled" operation.
+            Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+                update_extra(Username, fun(Extra) ->
+                    maps:without([mfa_pending], Extra#{mfa_state => disabled})
+                end)
+            end),
+            case Res of
+                {atomic, ok} -> ok;
+                {aborted, Reason} -> {error, Reason}
+            end
+    end.
 
 %% @doc Enable MFA state.
 %% Return error if it's already enabled.
@@ -170,10 +197,13 @@ enable_mfa(Username, Mechanism) ->
     case get_mfa_enabled_state(Username) of
         {ok, #{mechanism := Mechanism0}} ->
             {error, binfmt("MFA is already enabled using '~p'", [Mechanism0])};
-        {error, username_not_found} ->
-            {error, <<"username_not_found">>};
         {error, _} ->
-            reinit_mfa(Username, Mechanism)
+            case lookup_user(Username) of
+                [] ->
+                    {error, <<"username_not_found">>};
+                [_] ->
+                    reinit_mfa(Username, Mechanism)
+            end
     end.
 
 reinit_mfa(Username, Mechanism) ->
@@ -182,13 +212,98 @@ reinit_mfa(Username, Mechanism) ->
     _ = emqx_dashboard_token:destroy_by_username(Username),
     ok.
 
-%% @doc Set MFA state.
+%% @doc Admin re-enables MFA for a user.
+%% Clears the disabled state so force_mfa takes effect on next SSO login.
+%% For SSO users, the next login will trigger TOTP setup from scratch.
+%% For local users, the admin should call enable_mfa/2 separately.
+-spec admin_enable_mfa(dashboard_username()) -> ok | {error, term()}.
+admin_enable_mfa(Username) ->
+    case get_mfa_state(Username) of
+        {ok, disabled} ->
+            Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+                update_extra(Username, fun(Extra) ->
+                    maps:without([mfa_state, mfa_pending], Extra)
+                end)
+            end),
+            case Res of
+                {atomic, ok} -> ok;
+                {aborted, Reason} -> {error, Reason}
+            end;
+        _ ->
+            {error, <<"MFA is not admin-disabled">>}
+    end.
+
+%% @doc Reset MFA for a user — remove both mfa_state and mfa_pending.
+-spec reset_mfa(dashboard_username()) -> {ok, ok} | {error, term()}.
+reset_mfa(Username) ->
+    case lookup_user(Username) of
+        [] ->
+            {error, <<"username_not_found">>};
+        [_] ->
+            Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+                update_extra(Username, fun(Extra) ->
+                    maps:without([mfa_state, mfa_pending], Extra)
+                end)
+            end),
+            case Res of
+                {atomic, ok} ->
+                    _ = emqx_dashboard_token:destroy_by_username(Username),
+                    {ok, ok};
+                {aborted, Reason} ->
+                    {error, Reason}
+            end
+    end.
+
+%% @doc Set MFA state in the extra map.
 set_mfa_state(Username, MfaState) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun set_mfa_state2/2, [Username, MfaState]),
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> Extra#{mfa_state => MfaState} end)
+    end),
     return(Res).
 
-set_mfa_state2(Username, MfaState) ->
-    update_extra(Username, fun(Extra) -> Extra#{mfa_state => MfaState} end).
+%% @doc Set MFA pending info in the extra map.
+set_mfa_pending(Username, Pending) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> Extra#{mfa_pending => Pending} end)
+    end),
+    return(Res).
+
+%% @doc Clear MFA pending info from the extra map.
+clear_mfa_pending(Username) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> maps:without([mfa_pending], Extra) end)
+    end),
+    return(Res).
+
+%% @doc Get MFA pending info from the extra map for a given username.
+%% Direct O(1) lookup by username key.
+get_mfa_pending(Username) ->
+    case get_extra(Username) of
+        {ok, #{mfa_pending := Pending}} -> {ok, Pending};
+        _ -> {error, not_found}
+    end.
+
+%% @doc Store a one-time SSO code in the extra map.
+set_sso_code(Username, SsoCode) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> Extra#{sso_code => SsoCode} end)
+    end),
+    return(Res).
+
+%% @doc Clear the SSO code from the extra map.
+clear_sso_code(Username) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> maps:without([sso_code], Extra) end)
+    end),
+    return(Res).
+
+%% @doc Get the SSO code from the extra map for a given username.
+%% Direct O(1) lookup by username key.
+get_sso_code(Username) ->
+    case get_extra(Username) of
+        {ok, #{sso_code := SsoCode}} -> {ok, SsoCode};
+        _ -> {error, not_found}
+    end.
 
 set_login_lock(Username, LockedUntil) ->
     Res = mria:sync_transaction(?DASHBOARD_SHARD, fun set_login_lock2/2, [Username, LockedUntil]),
@@ -507,19 +622,21 @@ to_external_user(UserRecord) ->
     #?ADMIN{
         username = Username,
         description = Desc,
-        role = Role,
-        extra = Extra
+        role = Role
     } = UserRecord,
     flatten_username(#{
         username => Username,
         description => Desc,
         role => ensure_role(Role),
-        mfa => format_mfa(Extra)
+        mfa => format_mfa(Username)
     }).
 
-format_mfa(#{mfa_state := #{mechanism := Mechanism}}) -> Mechanism;
-format_mfa(#{mfa_state := disabled}) -> disabled;
-format_mfa(_) -> none.
+format_mfa(Username) ->
+    case get_mfa_state(Username) of
+        {ok, disabled} -> disabled;
+        {ok, #{mechanism := totp}} -> totp;
+        _ -> none
+    end.
 
 -spec return({atomic | aborted, term()}) -> {ok, term()} | {error, Reason :: binary()}.
 return({atomic, Result}) ->
