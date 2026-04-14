@@ -25,14 +25,14 @@ jobs:
     env:
       PROFILE: emqx-enterprise
     steps:
-      - uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ env.PROFILE }}-release
       - name: extract artifact
         run: |
           unzip -o -q ${{ env.PROFILE }}-release.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: "emqx_dialyzer_${{ env.PROFILE }}_plt"
           key: rebar3-dialyzer-plt-${{ env.PROFILE }}-${{ hashFiles('rebar.*', 'apps/*/rebar.*') }}
