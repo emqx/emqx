@@ -305,24 +305,31 @@ t_stats_auth_api(_) ->
 %% Simple smoke test for verifying reason code labels in `emqx_client_disconnected_reason'
 %% counter metric.
 t_listener_shutdown_count(_Config) ->
-    ClientId1 = <<"shutdown_count_test">>,
+    ClientId1 = fresh_clientid(?FUNCTION_NAME),
     {ok, C1} = emqtt:start_link(#{clientid => ClientId1}),
     {ok, _} = emqtt:connect(C1),
+    ConnectRetry = fun Retry(ClientId) ->
+        {ok, C0} = emqtt:start_link(#{clientid => ClientId}),
+        try emqtt:connect(C0) of
+            {ok, _} -> {ok, C0}
+        catch
+            exit:{shutdown, server_unavailable} ->
+                ct:sleep(1),
+                Retry(ClientId)
+        end
+    end,
     %% Takeover
     unlink(C1),
-    {ok, C2} = emqtt:start_link(#{clientid => ClientId1}),
-    {ok, _} = emqtt:connect(C2),
+    {ok, C2} = ConnectRetry(ClientId1),
     %% Kick
     unlink(C2),
     ok = emqx_cm:kick_session(ClientId1),
     %% Normal disconnect
-    ClientId2 = <<"shutdown_count_test2">>,
-    {ok, C3} = emqtt:start_link(#{clientid => ClientId2}),
-    {ok, _} = emqtt:connect(C3),
+    ClientId2 = fresh_clientid(?FUNCTION_NAME),
+    {ok, C3} = ConnectRetry(ClientId2),
     ok = emqtt:stop(C3),
     %% Disconnect with reason code
-    {ok, C4} = emqtt:start_link(#{clientid => ClientId2}),
-    {ok, _} = emqtt:connect(C4),
+    {ok, C4} = ConnectRetry(ClientId2),
     ok = emqtt:disconnect(C4, ?RC_IMPLEMENTATION_SPECIFIC_ERROR),
     OnlyDisconnectStats = fun(Stats0) ->
         Stats = lists:filter(
@@ -513,3 +520,6 @@ get_stats(Format, Mode) ->
         prometheus ->
             Response
     end.
+
+fresh_clientid(TestCase) ->
+    iolist_to_binary([atom_to_binary(TestCase), integer_to_binary(erlang:monotonic_time())]).

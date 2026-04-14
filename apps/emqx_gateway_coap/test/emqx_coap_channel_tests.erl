@@ -23,7 +23,9 @@ sock_closed_cleanup_uses_keepalive_interval_test() ->
     ok = meck:new(emqx_keepalive, [passthrough]),
     try
         meck:expect(emqx_utils, start_timer, fun(Time, Msg) ->
-            erlang:send_after(Time, self(), Msg)
+            %% Do not schedule a real timer here: leaked timeout messages can pollute
+            %% subsequent EUnit tests that reuse the same worker process.
+            {mock_timer_ref, Time, Msg}
         end),
         Keepalive = keepalive_ref,
         Expected = 30000,
