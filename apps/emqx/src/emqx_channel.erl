@@ -2487,15 +2487,18 @@ do_authenticate(Credential, #channel{clientinfo = ClientInfo} = Channel) ->
             {error, emqx_reason_codes:connack_error(Reason)}
     end.
 
-%% Runs the 'client.post_authn' hook with ClientInfo as the fold accumulator.
-%% A callback may return `{ok, NewClientInfo}' to replace ClientInfo, or
-%% `{stop, {error, Reason}}' to reject the client (treated like an authn failure).
+%% Runs the 'client.post_authn' hook. The accumulator is a context map
+%% (`emqx_hookpoints:post_authn_context()'); a callback may return
+%% `{ok, NewContext}' to replace it, or `{stop, {error, Reason}}' to reject
+%% the client (treated like an authn failure). Using a map leaves room to
+%% pass additional inputs/outputs in the future without breaking callbacks.
 with_post_authn(#channel{clientinfo = ClientInfo} = Channel, Properties) ->
-    case run_hooks('client.post_authn', [], ClientInfo, Channel) of
+    Ctx0 = #{client_info => ClientInfo},
+    case run_hooks('client.post_authn', [], Ctx0, Channel) of
         {error, Reason} ->
             log_auth_failure(Reason),
             {error, emqx_reason_codes:connack_error(Reason)};
-        NewClientInfo when is_map(NewClientInfo) ->
+        #{client_info := NewClientInfo} ->
             {ok, Properties, Channel#channel{clientinfo = NewClientInfo}}
     end.
 

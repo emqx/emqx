@@ -132,23 +132,24 @@ decide(ClientId, Tns, OnPass) ->
 %% write the rendered value into `client_attrs.tns', and run namespace/quota
 %% checks against that value.
 %%
-%% Returns:
-%%   * `ok' or unchanged ClientInfo to accept without modification;
-%%   * `{ok, NewClientInfo}' to replace the accumulator (with rewritten tns);
+%% The accumulator is a `post_authn_context()' map (currently `#{client_info
+%% := ClientInfo}'). Returns:
+%%   * `ok' to accept without modification;
+%%   * `{ok, NewCtx}' to replace the accumulator (with rewritten tns);
 %%   * `{stop, {error, Reason}}' to reject the client with a CONNACK error.
-on_post_authn(#{clientid := ClientId} = ClientInfo) ->
+on_post_authn(#{client_info := #{clientid := ClientId} = ClientInfo} = Ctx) ->
     case emqx_mt_config:get_post_auth_tns_expression() of
         undefined -> ok;
-        Compiled -> eval_post_auth_tns_expression(Compiled, ClientId, ClientInfo)
+        Compiled -> eval_post_auth_tns_expression(Compiled, ClientId, ClientInfo, Ctx)
     end.
 
-eval_post_auth_tns_expression(Compiled, ClientId, ClientInfo) ->
+eval_post_auth_tns_expression(Compiled, ClientId, ClientInfo, Ctx) ->
     case emqx_variform:render(Compiled, ClientInfo) of
         {ok, <<>>} ->
             ?TRACE("post_auth_tns_expression_rendered_empty", #{}),
             ok;
         {ok, Tns} ->
-            decide_with_rewritten_tns(ClientId, Tns, ClientInfo);
+            decide_with_rewritten_tns(ClientId, Tns, ClientInfo, Ctx);
         {error, Reason} ->
             ?SLOG(
                 warning,
@@ -158,10 +159,10 @@ eval_post_auth_tns_expression(Compiled, ClientId, ClientInfo) ->
             ok
     end.
 
-decide_with_rewritten_tns(ClientId, Tns, ClientInfo) ->
+decide_with_rewritten_tns(ClientId, Tns, ClientInfo, Ctx) ->
     case emqx_config:get_namespace_config_errors(Tns) of
         undefined ->
-            decide(ClientId, Tns, {ok, set_tns(ClientInfo, Tns)});
+            decide(ClientId, Tns, {ok, Ctx#{client_info := set_tns(ClientInfo, Tns)}});
         #{} ->
             ?TRACE("deny_due_to_namespace_config_errors", #{tns => Tns}),
             {stop, {error, server_unavailable}}

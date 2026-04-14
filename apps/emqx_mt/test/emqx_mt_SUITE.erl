@@ -1458,7 +1458,7 @@ t_post_auth_tns_expression_disabled(_Config) ->
         username => <<"u1">>,
         client_attrs => #{<<"tns">> => <<"preauth">>}
     },
-    ?assertEqual(ok, emqx_mt_hookcb:on_post_authn(ClientInfo)).
+    ?assertEqual(ok, emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})).
 
 -doc "Expression reads client_attrs.tag and rewrites client_attrs.tns.".
 t_post_auth_tns_expression_reads_client_attrs_tag({init, Config}) ->
@@ -1473,8 +1473,10 @@ t_post_auth_tns_expression_reads_client_attrs_tag(_Config) ->
         client_attrs => #{<<"tag">> => <<"acme">>}
     },
     ?assertMatch(
-        {ok, #{client_attrs := #{<<"tns">> := <<"acme">>, <<"tag">> := <<"acme">>}}},
-        emqx_mt_hookcb:on_post_authn(ClientInfo)
+        {ok, #{
+            client_info := #{client_attrs := #{<<"tns">> := <<"acme">>, <<"tag">> := <<"acme">>}}
+        }},
+        emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})
     ).
 
 -doc "coalesce(client_attrs.tag, username) falls back to username when no tag.".
@@ -1490,8 +1492,8 @@ t_post_auth_tns_expression_coalesce_fallback(_Config) ->
         client_attrs => #{<<"tag">> => <<"acme">>}
     },
     ?assertMatch(
-        {ok, #{client_attrs := #{<<"tns">> := <<"acme">>}}},
-        emqx_mt_hookcb:on_post_authn(CI1)
+        {ok, #{client_info := #{client_attrs := #{<<"tns">> := <<"acme">>}}}},
+        emqx_mt_hookcb:on_post_authn(#{client_info => CI1})
     ),
     CI2 = #{
         clientid => <<"c2">>,
@@ -1499,8 +1501,8 @@ t_post_auth_tns_expression_coalesce_fallback(_Config) ->
         client_attrs => #{}
     },
     ?assertMatch(
-        {ok, #{client_attrs := #{<<"tns">> := <<"alice">>}}},
-        emqx_mt_hookcb:on_post_authn(CI2)
+        {ok, #{client_info := #{client_attrs := #{<<"tns">> := <<"alice">>}}}},
+        emqx_mt_hookcb:on_post_authn(#{client_info => CI2})
     ).
 
 -doc "When expression renders empty, ClientInfo is left unchanged (pre-auth tns kept).".
@@ -1515,7 +1517,7 @@ t_post_auth_tns_expression_empty_render_keeps_preauth(_Config) ->
         username => <<"alice">>,
         client_attrs => #{<<"tns">> => <<"preauth">>}
     },
-    ?assertEqual(ok, emqx_mt_hookcb:on_post_authn(ClientInfo)).
+    ?assertEqual(ok, emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})).
 
 -doc "Expression errors are logged and treated as no-op (client not rejected).".
 t_post_auth_tns_expression_error_is_noop({init, Config}) ->
@@ -1529,7 +1531,7 @@ t_post_auth_tns_expression_error_is_noop(_Config) ->
         username => <<"alice">>,
         client_attrs => #{}
     },
-    ?assertEqual(ok, emqx_mt_hookcb:on_post_authn(ClientInfo)).
+    ?assertEqual(ok, emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})).
 
 -doc "After rewriting tns, decide/3 enforces the namespace quota.".
 t_post_auth_tns_expression_quota_enforced({init, Config}) ->
@@ -1560,7 +1562,7 @@ t_post_auth_tns_expression_quota_enforced(_Config) ->
     },
     ?assertMatch(
         {stop, {error, quota_exceeded}},
-        emqx_mt_hookcb:on_post_authn(ClientInfo)
+        emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})
     ),
     ok = emqtt:stop(Pid1).
 
