@@ -66,7 +66,12 @@ fields(recommend_setting) ->
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(namespaced_metrics_limiter)
                 }
-            )}
+            )},
+        {mria_lag_refresh_interval,
+            ?HOCON(emqx_schema:timeout_duration_ms(), #{
+                default => <<"10s">>,
+                importance => ?IMPORTANCE_HIDDEN
+            })}
     ];
 fields(push_gateway) ->
     [

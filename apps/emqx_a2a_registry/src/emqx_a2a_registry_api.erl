@@ -32,6 +32,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(TAGS, [<<"A2A Registry">>]).
 
@@ -58,6 +59,8 @@ schema("/a2a/cards/list") ->
             tags => ?TAGS,
             description => ?DESC("card_list"),
             parameters => [
+                only_global_query_param(),
+                ns_query_param(),
                 param_query_org_id(),
                 param_query_unit_id(),
                 param_query_agent_id()
@@ -81,6 +84,7 @@ schema("/a2a/cards/card/:org_id/:unit_id/:agent_id") ->
             tags => ?TAGS,
             description => ?DESC("card_get"),
             parameters => [
+                ns_query_param(),
                 param_path_org_id(),
                 param_path_unit_id(),
                 agent_id_path()
@@ -100,6 +104,7 @@ schema("/a2a/cards/card/:org_id/:unit_id/:agent_id") ->
             tags => ?TAGS,
             description => ?DESC("card_delete"),
             parameters => [
+                ns_query_param(),
                 param_path_org_id(),
                 param_path_unit_id(),
                 agent_id_path()
@@ -114,6 +119,7 @@ schema("/a2a/cards/card/:org_id/:unit_id/:agent_id") ->
             tags => ?TAGS,
             description => ?DESC("card_register"),
             parameters => [
+                ns_query_param(),
                 param_path_org_id(),
                 param_path_unit_id(),
                 agent_id_path()
@@ -136,6 +142,8 @@ fields(register_card_in) ->
     [{card, mk(binary(), #{required => true})}];
 fields(card_out) ->
     [
+        {namespace, mk(binary(), #{})},
+        {id, mk(binary(), #{})},
         {name, mk(binary(), #{})},
         {version, mk(binary(), #{})},
         {description, mk(binary(), #{})},
@@ -179,6 +187,12 @@ param_query_agent_id() ->
             }
         )}.
 
+ns_query_param() ->
+    {ns, mk(binary(), #{in => query, required => false})}.
+
+only_global_query_param() ->
+    {only_global, mk(boolean(), #{in => query, required => false, default => false})}.
+
 param_path_org_id() ->
     {org_id,
         mk(
@@ -219,30 +233,41 @@ agent_id_path() ->
 %% `minirest' handlers
 %%-------------------------------------------------------------------------------------------------
 
-'/a2a/cards/list'(get, #{query_string := QueryParams} = _Req) ->
-    handle_list_cards(QueryParams).
+'/a2a/cards/list'(get, #{query_string := QueryParams} = Req) ->
+    Namespace0 = get_namespace(Req),
+    Namespace =
+        case maps:get(<<"only_global">>, QueryParams, false) of
+            false when Namespace0 == ?global_ns -> all;
+            _ -> Namespace0
+        end,
+    handle_list_cards(Namespace, QueryParams).
 
 '/a2a/cards/card/:org_id/:unit_id/:agent_id'(get, Req) ->
+    Namespace = get_namespace(Req),
     #{bindings := Bindings} = Req,
-    handle_get_card(Bindings);
+    handle_get_card(Namespace, Bindings);
 '/a2a/cards/card/:org_id/:unit_id/:agent_id'(delete, Req) ->
+    Namespace = get_namespace(Req),
     #{bindings := Bindings} = Req,
-    handle_delete_card(Bindings);
+    handle_delete_card(Namespace, Bindings);
 '/a2a/cards/card/:org_id/:unit_id/:agent_id'(post, Req) ->
+    Namespace = get_namespace(Req),
     #{bindings := Bindings, body := Body} = Req,
-    handle_register_card(Bindings, Body).
+    handle_register_card(Namespace, Bindings, Body).
 
 %%-------------------------------------------------------------------------------------------------
 %% Handler implementations
 %%-------------------------------------------------------------------------------------------------
 
-handle_list_cards(QueryParams) ->
-    Opts = parse_query_params(QueryParams),
+handle_list_cards(Namespace, QueryParams) ->
+    Opts0 = parse_query_params(QueryParams),
+    Opts = Opts0#{namespace => Namespace},
     Cards = emqx_a2a_registry:list_cards(Opts),
     ?OK(lists:map(fun card_out/1, Cards)).
 
-handle_get_card(Bindings) ->
-    Opts = maps:with([org_id, unit_id, agent_id], Bindings),
+handle_get_card(Namespace, Bindings) ->
+    Opts0 = maps:with([org_id, unit_id, agent_id], Bindings),
+    Opts = Opts0#{namespace => Namespace},
     case emqx_a2a_registry:list_cards(Opts) of
         [] ->
             ?NOT_FOUND(<<"Card not found">>);
@@ -250,15 +275,16 @@ handle_get_card(Bindings) ->
             ?OK(card_out(Card))
     end.
 
-handle_delete_card(Bindings) ->
-    Opts = maps:with([org_id, unit_id, agent_id], Bindings),
+handle_delete_card(Namespace, Bindings) ->
+    Opts0 = maps:with([org_id, unit_id, agent_id], Bindings),
+    Opts = Opts0#{namespace => Namespace},
     ok = emqx_a2a_registry:delete_card(Opts),
     ?NO_CONTENT.
 
-handle_register_card(Bindings, Body) ->
+handle_register_card(Namespace, Bindings, Body) ->
     #{<<"card">> := CardBin} = Body,
     Opts0 = maps:with([org_id, unit_id, agent_id], Bindings),
-    Opts = Opts0#{card_bin => CardBin},
+    Opts = Opts0#{card_bin => CardBin, namespace => Namespace},
     case emqx_a2a_registry:write_card(Opts) of
         ok ->
             ?NO_CONTENT;
@@ -276,10 +302,13 @@ handle_register_card(Bindings, Body) ->
 %% Internal exports
 %%-------------------------------------------------------------------------------------------------
 
-filter(Req, _Meta) ->
+filter(Req0, Meta) ->
     case emqx_a2a_registry_config:is_enabled() of
         true ->
-            {ok, Req};
+            maybe
+                {ok, Req1} ?= resolve_namespace(Req0, Meta),
+                validate_managed_namespace(Req1, Meta)
+            end;
         false ->
             ?SERVICE_UNAVAILABLE(<<"Not enabled">>)
     end.
@@ -335,7 +364,7 @@ sample_card() ->
     }.
 
 %%-------------------------------------------------------------------------------------------------
-%% helper functions
+%% Helper functions
 %%-------------------------------------------------------------------------------------------------
 
 mk(Type, Props) -> hoconsc:mk(Type, Props).
@@ -363,3 +392,36 @@ parse_query_params(QueryParams) ->
 
 card_out(Card) ->
     emqx_a2a_registry_adapter:card_out(Card).
+
+get_namespace(#{resolved_ns := Namespace}) ->
+    Namespace.
+
+parse_namespace(#{query_string := QueryString} = Req) ->
+    ActorNamespace = emqx_dashboard:get_namespace(Req),
+    case maps:get(<<"ns">>, QueryString, ActorNamespace) of
+        QSNamespace when QSNamespace /= ActorNamespace andalso ActorNamespace /= ?global_ns ->
+            {error, not_authorized};
+        QSNamespace ->
+            {ok, QSNamespace}
+    end.
+
+resolve_namespace(Req, _Meta) ->
+    case parse_namespace(Req) of
+        {ok, Namespace} ->
+            {ok, Req#{resolved_ns => Namespace}};
+        {error, not_authorized} ->
+            ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
+    end.
+
+validate_managed_namespace(#{resolved_ns := ?global_ns} = Req, _Meta) ->
+    {ok, Req};
+validate_managed_namespace(#{resolved_ns := Namespace} = Req, _Meta) ->
+    Res = emqx_hooks:run_fold('namespace.resource_pre_create', [#{namespace => Namespace}], #{
+        exists => false
+    }),
+    case Res of
+        #{exists := false} ->
+            ?BAD_REQUEST(<<"Managed namespace not found">>);
+        #{exists := true} ->
+            {ok, Req}
+    end.

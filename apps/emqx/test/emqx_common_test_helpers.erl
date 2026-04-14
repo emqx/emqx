@@ -18,6 +18,7 @@
     group_path/2,
     get_matrix_prop/3,
     get_tc_prop/4,
+    merge_custom_groups/3,
     flaky_tests/1,
     init_per_testcase/3,
     end_per_testcase/3,
@@ -295,6 +296,19 @@ get_matrix_prop(TCConfig, Alternatives, Default) ->
         [Opt] ->
             Opt
     end.
+
+merge_custom_groups(RootGroup, GroupTCs, CustomMatrix0) ->
+    CustomMatrix =
+        lists:flatmap(
+            fun
+                ({G, _, SubGroup}) when G == RootGroup ->
+                    SubGroup;
+                (_) ->
+                    []
+            end,
+            CustomMatrix0
+        ),
+    CustomMatrix ++ GroupTCs.
 
 init_per_testcase(Module, TestCase, Config) ->
     case erlang:function_exported(Module, TestCase, 2) of

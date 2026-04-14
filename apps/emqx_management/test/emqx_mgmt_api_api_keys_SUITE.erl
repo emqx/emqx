@@ -16,6 +16,8 @@
     t_ee_update,
     t_ee_authorize_viewer,
     t_ee_authorize_admin,
+    t_ee_authorize_admin_cannot_manage_mfa,
+    t_ee_authorize_admin_cannot_manage_mfa_module_level,
     t_ee_authorize_publisher
 ]).
 
@@ -490,6 +492,118 @@ t_ee_authorize_admin(_Config) ->
     ?assertMatch(
         {ok, _}, emqx_mgmt_api_test_util:request_api(delete, BanPath, BasicHeader)
     ).
+
+-doc """
+An admin-role API key must NOT be able to reach the dashboard user-account
+management endpoints change_mfa and change_pwd via HTTP Basic auth. These
+endpoints belong to the human-facing dashboard surface and are intended
+only for bearer-token (JWT) callers.
+
+Before the fix, DELETE /api/v5/users/:username/mfa via API key Basic auth
+returned HTTP 204 and silently disabled the target user's MFA. After the
+fix it must return HTTP 401 with body code API_KEY_NOT_ALLOW, matching
+the policy already enforced on /users and /users/:username.
+""".
+t_ee_authorize_admin_cannot_manage_mfa(_Config) ->
+    Name = <<"EMQX-EE-API-AUTHORIZE-KEY-ADMIN-MFA">>,
+    {ok, #{<<"api_key">> := ApiKey, <<"api_secret">> := ApiSecret}} = create_app(Name, #{
+        role => ?ROLE_API_SUPERUSER
+    }),
+    BasicHeader = emqx_common_test_http:auth_header(
+        binary_to_list(ApiKey),
+        binary_to_list(ApiSecret)
+    ),
+    Victim = <<"mfa_victim_user">>,
+    ok = ensure_victim_user(Victim),
+    DeleteMfa = emqx_mgmt_api_test_util:api_path(["users", Victim, "mfa"]),
+    PostMfa = DeleteMfa,
+    ChangePwd = emqx_mgmt_api_test_util:api_path(["users", Victim, "change_pwd"]),
+
+    ok = assert_api_key_not_allow(
+        delete, DeleteMfa, [], BasicHeader, []
+    ),
+    ok = assert_api_key_not_allow(
+        post, PostMfa, [], BasicHeader, #{mechanism => totp}
+    ),
+    ok = assert_api_key_not_allow(
+        post,
+        ChangePwd,
+        [],
+        BasicHeader,
+        #{old_pwd => <<"mfa_victim_pass">>, new_pwd => <<"new_pass_123">>}
+    ),
+
+    %% Even the generic /users and /users/:username stay blocked — baseline
+    %% sanity that this test is not special-casing change_mfa alone.
+    UsersPath = emqx_mgmt_api_test_util:api_path(["users"]),
+    UserPath = emqx_mgmt_api_test_util:api_path(["users", Victim]),
+    ok = assert_api_key_not_allow(get, UsersPath, [], BasicHeader, []),
+    ok = assert_api_key_not_allow(delete, UserPath, [], BasicHeader, []),
+    ok.
+
+-doc """
+Lower-level companion to t_ee_authorize_admin_cannot_manage_mfa:
+call emqx_mgmt_auth:authorize/4 directly with a HandlerInfo map that
+names the dashboard change_mfa / change_pwd handlers. This pins the
+contract at the exact clause being added in the fix, independent of
+any HTTP / minirest plumbing.
+""".
+t_ee_authorize_admin_cannot_manage_mfa_module_level(_Config) ->
+    Name = <<"EMQX-EE-API-AUTH-MFA-MODULE">>,
+    {ok, #{<<"api_key">> := ApiKey, <<"api_secret">> := ApiSecret}} = create_app(Name, #{
+        role => ?ROLE_API_SUPERUSER
+    }),
+    %% FakeReq is only consulted by check_rbac — the denylist clauses we
+    %% add return before check_rbac runs, so it just needs to be a map
+    %% with method/path keys to satisfy cowboy_req helpers if called.
+    FakeReq = #{method => <<"DELETE">>, path => <<"/api/v5/users/someuser/mfa">>},
+    DeleteMfaHandler = #{
+        method => delete,
+        module => emqx_dashboard_api,
+        function => change_mfa,
+        path => "/users/:username/mfa"
+    },
+    PostMfaHandler = DeleteMfaHandler#{method => post},
+    ChangePwdHandler = #{
+        method => post,
+        module => emqx_dashboard_api,
+        function => change_pwd,
+        path => "/users/:username/change_pwd"
+    },
+    ?assertEqual(
+        {error, <<"not_allowed">>, <<"users">>},
+        emqx_mgmt_auth:authorize(DeleteMfaHandler, FakeReq, ApiKey, ApiSecret)
+    ),
+    ?assertEqual(
+        {error, <<"not_allowed">>, <<"users">>},
+        emqx_mgmt_auth:authorize(PostMfaHandler, FakeReq, ApiKey, ApiSecret)
+    ),
+    ?assertEqual(
+        {error, <<"not_allowed">>, <<"users">>},
+        emqx_mgmt_auth:authorize(ChangePwdHandler, FakeReq, ApiKey, ApiSecret)
+    ),
+    ok.
+
+ensure_victim_user(Username) ->
+    case emqx_dashboard_admin:add_user(Username, <<"mfa_victim_pass">>, ?ROLE_SUPERUSER, <<>>) of
+        {ok, _} -> ok;
+        {error, _AlreadyExists} -> ok
+    end.
+
+assert_api_key_not_allow(Method, Path, QueryParams, AuthHeader, Body) ->
+    Result = emqx_mgmt_api_test_util:request_api(
+        Method, Path, QueryParams, AuthHeader, Body, #{return_all => true}
+    ),
+    ?assertMatch(
+        {error, {{"HTTP/1.1", 401, _}, _Headers, _Body}},
+        Result
+    ),
+    {error, {_, _, ResponseBody}} = Result,
+    ?assertMatch(
+        #{<<"code">> := <<"API_KEY_NOT_ALLOW">>, <<"message">> := _},
+        emqx_utils_json:decode(ResponseBody, [return_maps])
+    ),
+    ok.
 
 t_ee_authorize_publisher(_Config) ->
     Name = <<"EMQX-EE-API-AUTHORIZE-KEY-PUBLISHER">>,

@@ -7,7 +7,8 @@
 -export([
     parse_a2a_discovery_topic/1,
     validate_card_schema/1,
-    validate_id/3
+    validate_id/3,
+    validate_namespace_exists/1
 ]).
 
 %%------------------------------------------------------------------------------
@@ -15,6 +16,8 @@
 %%------------------------------------------------------------------------------
 
 -include("emqx_a2a_registry_internal.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 %%------------------------------------------------------------------------------
 %% API
@@ -23,7 +26,11 @@
 parse_a2a_discovery_topic(Topic) ->
     case emqx_topic:words(Topic) of
         [?A2A_TOPIC_NS, ?A2A_TOPIC_V1, ?A2A_TOPIC_DISCOVERY, OrgId, UnitId, AgentId] ->
-            {ok, {OrgId, UnitId, AgentId}};
+            {ok, ?global_ns, {OrgId, UnitId, AgentId}};
+        [Namespace, ?A2A_TOPIC_NS, ?A2A_TOPIC_V1, ?A2A_TOPIC_DISCOVERY, OrgId, UnitId, AgentId] when
+            is_binary(Namespace)
+        ->
+            {ok, Namespace, {OrgId, UnitId, AgentId}};
         _ ->
             error
     end.
@@ -50,6 +57,19 @@ validate_id(OrgId, UnitId, AgentId) ->
         ok ?= do_validate_id(UnitId, unit_id),
         ok ?= do_validate_id(AgentId, agent_id),
         ok
+    end.
+
+validate_namespace_exists(?global_ns) ->
+    ok;
+validate_namespace_exists(Namespace) when is_binary(Namespace) ->
+    Res = emqx_hooks:run_fold('namespace.resource_pre_create', [#{namespace => Namespace}], #{
+        exists => false
+    }),
+    case Res of
+        #{exists := false} ->
+            {error, {namespace_not_found, Namespace}};
+        #{exists := true} ->
+            ok
     end.
 
 %%------------------------------------------------------------------------------

@@ -241,6 +241,9 @@ ranch_opts(Options) ->
                 [inet6, {ipv6_v6only, true}];
             #{inet6 := true, ipv6_v6only := false} ->
                 [inet6];
+            #{ip := {_, _, _, _, _, _, _, _}} ->
+                %% IPv6 bind address implies inet6 even if not explicitly set
+                [inet6];
             _ ->
                 [inet]
         end,

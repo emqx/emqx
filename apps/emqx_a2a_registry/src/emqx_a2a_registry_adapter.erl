@@ -27,6 +27,8 @@ format_register_error(bad_card) ->
     {ok, <<"Card does not conform to schema">>};
 format_register_error(not_a_json_object) ->
     {ok, <<"Card must be a JSON object">>};
+format_register_error({namespace_not_found, Namespace}) when is_binary(Namespace) ->
+    {ok, <<"Namespace not found: ", Namespace/binary>>};
 format_register_error(_Reason) ->
     error.
 

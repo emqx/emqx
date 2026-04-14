@@ -70,7 +70,8 @@
     dropped,
     persisted,
     rules_matched,
-    actions_executed
+    actions_executed,
+    actions_messages
 ]).
 
 -define(GAUGE_SAMPLER_LIST, [
@@ -94,7 +95,8 @@
     dropped => dropped_msg_rate,
     persisted => persisted_rate,
     rules_matched => rules_matched_rate,
-    actions_executed => actions_executed_rate
+    actions_executed => actions_executed_rate,
+    actions_messages => actions_messages_rate
 }).
 
 -define(CURRENT_SAMPLE_NON_RATE, [

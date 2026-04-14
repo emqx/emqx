@@ -67,6 +67,13 @@ fields(key_license) ->
             default => default(connection_high_watermark),
             example => default(connection_high_watermark),
             desc => ?DESC(connection_high_watermark_field)
+        }},
+        {high_watermark_timezone, #{
+            type => hoconsc:union([system, binary()]),
+            default => default(high_watermark_timezone),
+            required => false,
+            importance => ?IMPORTANCE_LOW,
+            desc => ?DESC(high_watermark_timezone)
         }}
     ].
 
@@ -76,7 +83,10 @@ desc(_) ->
     undefined.
 
 validations() ->
-    [{check_license_watermark, fun check_license_watermark/1}].
+    [
+        {check_license_watermark, fun check_license_watermark/1},
+        {check_high_watermark_timezone, fun check_high_watermark_timezone/1}
+    ].
 
 check_license_watermark(Conf) ->
     case hocon_maps:get("license.connection_low_watermark", Conf) of
@@ -96,13 +106,32 @@ check_license_watermark(Conf) ->
             end
     end.
 
+check_high_watermark_timezone(Conf) ->
+    case hocon_maps:get("license.high_watermark_timezone", Conf) of
+        undefined ->
+            true;
+        system ->
+            true;
+        <<"system">> ->
+            true;
+        Offset ->
+            try
+                _ = emqx_utils_calendar:offset_second(Offset),
+                true
+            catch
+                error:_ ->
+                    {bad_license_high_watermark_timezone, #{timezone => Offset}}
+            end
+    end.
+
 %% @doc Exported for testing
 default_setting() ->
     Keys =
         [
             connection_low_watermark,
             connection_high_watermark,
-            dynamic_max_connections
+            dynamic_max_connections,
+            high_watermark_timezone
         ],
     maps:from_list(
         lists:map(
@@ -117,6 +146,8 @@ default(connection_low_watermark) ->
     <<"75%">>;
 default(connection_high_watermark) ->
     <<"80%">>;
+default(high_watermark_timezone) ->
+    system;
 default(dynamic_max_connections) ->
     %% This config is only applicable to CTYPE3
     ?DEFAULT_MAX_SESSIONS_CTYPE3.

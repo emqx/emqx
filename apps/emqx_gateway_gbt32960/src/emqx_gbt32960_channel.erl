@@ -268,6 +268,10 @@ handle_in(Frame = ?CMD(?CMD_HEARTBEAT), Channel) ->
 handle_in(Frame = ?CMD(?CMD_SCHOOL_TIME), Channel) ->
     %% TODO: How verify this request
     handle_out({?ACK_SUCCESS, Frame}, Channel);
+handle_in(Frame = ?CMD(?CMD_ACTIVATION), Channel) ->
+    %% TODO: implement activation flow with proper certificate validation
+    _ = upstreaming(Frame, Channel),
+    {ok, Channel};
 handle_in(Frame = #frame{cmd = Cmd}, Channel = #channel{inflight = Inflight}) ->
     {Outgoings, NChannel} = dispatch_frame(Channel#channel{inflight = ack_frame(Cmd, Inflight)}),
     _ = upstreaming(Frame, NChannel),
@@ -301,6 +305,7 @@ handle_out({AckCode, Frame}, Outgoings, Channel) when ?IS_ACK_CODE(AckCode) ->
 handle_deliver(
     Messages0,
     Channel = #channel{
+        conninfo = #{proto_ver := ProtoVer},
         clientinfo = #{clientid := ClientId, mountpoint := Mountpoint},
         mqueue = Queue,
         max_mqueue_len = MaxQueueLen
@@ -321,7 +326,7 @@ handle_deliver(
             log(debug, #{msg => "enqueue_messages", messages => NMessages}, Channel),
             metrics_inc('messages.delivered', Channel, erlang:length(NMessages)),
             discard_downlink_messages(Dropped, Channel),
-            Frames = msgs2frame(NMessages, ClientId, Channel),
+            Frames = msgs2frame(NMessages, ClientId, ProtoVer, Channel),
             NQueue = lists:foldl(fun(F, Q) -> queue:in(F, Q) end, Queue, Frames),
             {Outgoings, NChannel} = dispatch_frame(Channel#channel{mqueue = NQueue}),
             {ok, [{outgoing, Outgoings}], NChannel}
@@ -337,12 +342,12 @@ split_by_pos(L, 0, A1) ->
 split_by_pos([E | L], N, A1) ->
     split_by_pos(L, N - 1, [E | A1]).
 
-msgs2frame(Messages, Vin, Channel) ->
+msgs2frame(Messages, Vin, ProtoVer, Channel) ->
     lists:filtermap(
         fun(#message{payload = Payload}) ->
             case emqx_utils_json:safe_decode(Payload) of
                 {ok, Maps} ->
-                    case msg2frame(Maps, Vin) of
+                    case msg2frame(Maps, Vin, ProtoVer) of
                         {error, Reason} ->
                             log(
                                 debug,
@@ -548,7 +553,7 @@ enrich_clientinfo(
     {ok, NPacket, Channel#channel{clientinfo = NClientInfo}}.
 
 enrich_conninfo(
-    _Packet,
+    #frame{proto_ver = ProtoVer},
     Channel = #channel{
         conninfo = ConnInfo,
         clientinfo = ClientInfo
@@ -557,7 +562,7 @@ enrich_conninfo(
     #{clientid := ClientId, username := Username} = ClientInfo,
     NConnInfo = ConnInfo#{
         proto_name => <<"GBT32960">>,
-        proto_ver => <<"">>,
+        proto_ver => ProtoVer,
         clean_start => true,
         keepalive => 0,
         expiry_interval => 0,
@@ -754,6 +759,7 @@ transform(Frame = ?CMD(Cmd), Mountpoint) ->
             ?CMD_VIHECLE_LOGOUT -> <<"upstream/vlogout">>;
             ?CMD_PLATFORM_LOGIN -> <<"upstream/plogin">>;
             ?CMD_PLATFORM_LOGOUT -> <<"upstream/plogout">>;
+            ?CMD_ACTIVATION -> <<"upstream/activation">>;
             %CMD_HEARTBEAT, CMD_SCHOOL_TIME ...
             _ -> <<"upstream/transparent">>
         end,
@@ -819,7 +825,7 @@ gentime() ->
 %% Message to frame
 %%--------------------------------------------------------------------
 
-msg2frame(#{<<"Action">> := <<"Query">>, <<"Total">> := Total, <<"Ids">> := Ids}, Vin) ->
+msg2frame(#{<<"Action">> := <<"Query">>, <<"Total">> := Total, <<"Ids">> := Ids}, Vin, ProtoVer) ->
     % Ids  = [<<"0x01">>, <<"0x02">>] --> [1, 2]
     Data = #{
         <<"Time">> => gentime(),
@@ -827,9 +833,16 @@ msg2frame(#{<<"Action">> := <<"Query">>, <<"Total">> := Total, <<"Ids">> := Ids}
         <<"Ids">> => lists:map(fun hexstring_to_byte/1, Ids)
     },
     #frame{
-        cmd = ?CMD_PARAM_QUERY, ack = ?ACK_IS_CMD, vin = Vin, encrypt = ?ENCRYPT_NONE, data = Data
+        cmd = ?CMD_PARAM_QUERY,
+        ack = ?ACK_IS_CMD,
+        vin = Vin,
+        encrypt = ?ENCRYPT_NONE,
+        data = Data,
+        proto_ver = ProtoVer
     };
-msg2frame(#{<<"Action">> := <<"Setting">>, <<"Total">> := Total, <<"Params">> := Params}, Vin) ->
+msg2frame(
+    #{<<"Action">> := <<"Setting">>, <<"Total">> := Total, <<"Params">> := Params}, Vin, ProtoVer
+) ->
     % Params  = [#{<<"0x01">> := 5000}, #{<<"0x02">> := 400}]
     % Params1 = [#{1 := 5000}, #{2 := 400}]
     Params1 = lists:foldr(
@@ -842,9 +855,14 @@ msg2frame(#{<<"Action">> := <<"Setting">>, <<"Total">> := Total, <<"Params">> :=
     ),
     Data = #{<<"Time">> => gentime(), <<"Total">> => Total, <<"Params">> => Params1},
     #frame{
-        cmd = ?CMD_PARAM_SETTING, ack = ?ACK_IS_CMD, vin = Vin, encrypt = ?ENCRYPT_NONE, data = Data
+        cmd = ?CMD_PARAM_SETTING,
+        ack = ?ACK_IS_CMD,
+        vin = Vin,
+        encrypt = ?ENCRYPT_NONE,
+        data = Data,
+        proto_ver = ProtoVer
     };
-msg2frame(Data = #{<<"Action">> := <<"Control">>, <<"Command">> := Command}, Vin) ->
+msg2frame(Data = #{<<"Action">> := <<"Control">>, <<"Command">> := Command}, Vin, ProtoVer) ->
     Param = maps:get(<<"Param">>, Data, <<>>),
     Data1 = #{
         <<"Time">> => gentime(),
@@ -856,10 +874,11 @@ msg2frame(Data = #{<<"Action">> := <<"Control">>, <<"Command">> := Command}, Vin
         ack = ?ACK_IS_CMD,
         vin = Vin,
         encrypt = ?ENCRYPT_NONE,
-        data = Data1
+        data = Data1,
+        proto_ver = ProtoVer
     };
-msg2frame(_Data, _Vin) ->
-    {error, unsupproted}.
+msg2frame(_Data, _Vin, _ProtoVer) ->
+    {error, unsupported}.
 
 hexstring_to_byte(S) when is_binary(S) ->
     hexstring_to_byte(binary_to_list(S));

@@ -140,7 +140,7 @@ update(Config, _State) ->
 authenticate(#{auth_method := _}, _) ->
     ignore;
 authenticate(#{password := undefined}, _) ->
-    {error, bad_username_or_password};
+    ignore;
 authenticate(
     #{password := Password} = Credential,
     #{

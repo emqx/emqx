@@ -224,6 +224,9 @@ emqx_metrics {
     actions_executed {
         desc: "Number of rule-engine actions executed"
     }
+    actions_messages {
+        desc: "Number of messages handled by rule-engine action executions. An action execution may handle a batch of messages, so this count is greater than or equal to the number of action executions."
+    }
     client_connected {
         desc: "Number of successful client connected"
     }

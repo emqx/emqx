@@ -20,7 +20,8 @@
 
 -export([
     '/license'/2,
-    '/license/setting'/2
+    '/license/setting'/2,
+    '/license/session_hwm_history'/2
 ]).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
@@ -35,7 +36,8 @@ api_spec() ->
 paths() ->
     [
         "/license",
-        "/license/setting"
+        "/license/setting",
+        "/license/session_hwm_history"
     ].
 
 schema("/license") ->
@@ -103,6 +105,33 @@ schema("/license/setting") ->
                 )
             }
         }
+    };
+schema("/license/session_hwm_history") ->
+    #{
+        'operationId' => '/license/session_hwm_history',
+        get => #{
+            tags => ?LICENSE_TAGS,
+            description => ?DESC("desc_session_hwm_history_api"),
+            parameters => [
+                {period,
+                    hoconsc:mk(hoconsc:enum([daily, monthly]), #{
+                        in => query,
+                        required => false,
+                        default => daily,
+                        desc => ?DESC("param_history_period")
+                    })},
+                {limit,
+                    hoconsc:mk(pos_integer(), #{
+                        in => query,
+                        required => false,
+                        default => 30,
+                        desc => ?DESC("param_history_limit")
+                    })}
+            ],
+            responses => #{
+                200 => hoconsc:mk(hoconsc:ref(?MODULE, session_hwm_history), #{})
+            }
+        }
     }.
 
 sample_license_info_response() ->
@@ -149,6 +178,22 @@ error_msg(Code, Msg) ->
 '/license'(post, _Params) ->
     {400, error_msg(?BAD_REQUEST, <<"Invalid request params">>)}.
 
+'/license/session_hwm_history'(get, #{query_string := QS}) ->
+    Period =
+        case maps:get(<<"period">>, QS, <<"daily">>) of
+            <<"monthly">> -> monthly;
+            _ -> daily
+        end,
+    %% Daily defaults to 30 rows; monthly has no practical limit (retention is 24 months).
+    Limit =
+        case Period of
+            monthly -> 1_000_000;
+            daily -> maps:get(<<"limit">>, QS, 30)
+        end,
+    Rows = emqx_license_session_hwm:list_history(Period, Limit),
+    Data = [maps:remove(observed_at_ms, Row) || Row <- Rows],
+    {200, #{period => Period, count => length(Data), data => Data}}.
+
 '/license/setting'(get, _Params) ->
     {200, get_setting()};
 '/license/setting'(put, #{body := Setting}) ->
@@ -175,7 +220,22 @@ update_setting(_Setting) ->
     {error, "bad content-type"}.
 
 fields(key_license) ->
-    [lists:keyfind(key, 1, emqx_license_schema:fields(key_license))].
+    [lists:keyfind(key, 1, emqx_license_schema:fields(key_license))];
+fields(session_hwm_history) ->
+    [
+        {period, hoconsc:mk(hoconsc:enum([daily, monthly]), #{desc => ?DESC("resp_period")})},
+        {count, hoconsc:mk(non_neg_integer(), #{desc => ?DESC("resp_count")})},
+        {data,
+            hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, session_hwm_row)), #{
+                desc => ?DESC("resp_data")
+            })}
+    ];
+fields(session_hwm_row) ->
+    [
+        {period, hoconsc:mk(binary(), #{desc => ?DESC("resp_row_period")})},
+        {high_watermark, hoconsc:mk(non_neg_integer(), #{desc => ?DESC("resp_row_hwm")})},
+        {observed_at, hoconsc:mk(binary(), #{desc => ?DESC("resp_row_observed_at")})}
+    ].
 
 setting() ->
     lists:keydelete(key, 1, emqx_license_schema:fields(key_license)).

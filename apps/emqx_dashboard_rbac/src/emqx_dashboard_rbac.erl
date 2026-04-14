@@ -43,6 +43,7 @@
 -define(AUTHZ_MNESIA_API(METHOD, FN), ?API(emqx_authz_api_mnesia, METHOD, FN)).
 -define(AUTHN_API(METHOD, FN), ?API(emqx_authn_api, METHOD, FN)).
 -define(CERTS_API(METHOD, FN), ?API(emqx_mgmt_api_certs, METHOD, FN)).
+-define(A2A_REGISTRY_API(METHOD, FN), ?API(emqx_a2a_registry_api, METHOD, FN)).
 
 %%=====================================================================
 %% API
@@ -233,6 +234,15 @@ do_check_rbac(
         _ ->
             false
     end;
+do_check_rbac(
+    #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?A2A_REGISTRY_API(_, _)
+) when
+    is_binary(Namespace)
+->
+    %% Agent-to-agent (A2A) registry; may only alter resources in its own namespace.
+    %% This is enforced by the handlers themselves, by only fetching/acting on the
+    %% appropriate namespace.
+    true;
 do_check_rbac(_, _, _) ->
     false.
 
