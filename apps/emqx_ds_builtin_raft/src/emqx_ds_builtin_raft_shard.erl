@@ -63,6 +63,8 @@
     terminate/2
 ]).
 
+-export_type([server/0]).
+
 -type server() :: ra:server_id().
 
 -type server_error() :: server_error(none()).

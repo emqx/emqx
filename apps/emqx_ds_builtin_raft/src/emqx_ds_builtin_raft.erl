@@ -897,7 +897,7 @@ Drops all storage data and runtime state belonging to the specifed DS DB on the 
 do_drop_db_v1(DB) ->
     maybe
         ok ?= emqx_ds:close_db(DB),
-        emqx_ds_builtin_raft_db_sup:drop_db(DB),
+        _ = emqx_ds_builtin_raft_db_sup:drop_db(DB),
         lists:foreach(
             fun(Shard) ->
                 emqx_ds_storage_layer:drop_shard({DB, Shard})
@@ -1180,7 +1180,7 @@ communicate with the Raft machine.
     {ok, ra:server_id()} | {error, _, _}.
 local_raft_leader(DB, Shard) ->
     LocalServer = emqx_ds_builtin_raft_shard:local_server(DB, Shard),
-    case ra:ping(LocalServer, 1_000) of
+    case ra_ping(LocalServer) of
         {pong, leader} ->
             %% Local server still considers itself a leader:
             {ok, LocalServer};
@@ -1219,6 +1219,12 @@ ra_command(DB, Shard, Command, Retries) ->
         Error ->
             error(Error, [DB, Shard])
     end.
+
+-spec ra_ping(emqx_ds_builtin_raft_shard:server()) ->
+    {pong, leader | follower | candidate | atom()} | timeout | {error, any()}.
+ra_ping(Server) ->
+    %% NOTE: `ra:ping/2` is underspecified, silencing Dialyzer complaint.
+    apply(ra, ping, [Server, 1_000]).
 
 -spec foreach_shard(emqx_ds:db(), fun((emqx_ds:shard()) -> _)) -> ok.
 foreach_shard(DB, Fun) ->
