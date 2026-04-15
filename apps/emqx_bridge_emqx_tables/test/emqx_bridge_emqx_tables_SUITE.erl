@@ -679,8 +679,9 @@ t_default_port(TCConfig) when is_list(TCConfig) ->
     ok.
 
 -doc """
-Checks that we require `cacertfile`, `certfile` and `keyfile` to be set to _some_ value if
-`ssl.enable = true`, so we avoid bizarre errors thrown from the Rust driver.
+Checks that when only `ssl.enable = true` is set, schema default
+`ssl.verify = verify_none` is honored and connector creation is not rejected by
+missing cert file validation.
 """.
 t_inconsistent_ssl_validation() ->
     [{matrix, true}].
@@ -689,12 +690,10 @@ t_inconsistent_ssl_validation(matrix) ->
 t_inconsistent_ssl_validation(TCConfig) when is_list(TCConfig) ->
     ?assertMatch(
         {201, #{
-            <<"status">> := <<"disconnected">>,
-            <<"status_reason">> :=
-                <<
-                    "cacertfile, certfile and keyfile SSL options must"
-                    " be configured when SSL is enabled."
-                >>
+            <<"ssl">> := #{
+                <<"enable">> := true,
+                <<"verify">> := <<"verify_none">>
+            }
         }},
         create_connector_api(TCConfig, #{
             <<"ssl">> => #{
