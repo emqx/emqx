@@ -63,13 +63,13 @@ whereis_db(DB) ->
     gproc:where(?name(#?db_sup{db = DB})).
 
 -doc "Drops all shared data belonging to the specified DS DB on the local node".
--spec drop_db(emqx_ds:db()) -> ok | {error, not_found}.
+-spec drop_db(emqx_ds:db()) -> ok | {error, atom()}.
 drop_db(DB) ->
     case file:del_dir_r(ra_system_data_dir(DB)) of
         ok ->
             ok;
-        {error, _Posix} ->
-            {error, not_found}
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 -spec start_shard(emqx_ds_storage_layer:dbshard()) ->
