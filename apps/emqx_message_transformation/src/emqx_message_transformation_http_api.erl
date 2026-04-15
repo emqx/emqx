@@ -10,6 +10,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% `minirest' and `minirest_trails' API
 -export([
@@ -30,6 +31,7 @@
     '/message_transformations/transformation/:name/metrics/reset'/2,
     '/message_transformations/transformation/:name/enable/:enable'/2
 ]).
+-export([scopes/0]).
 
 %%-------------------------------------------------------------------------------------------------
 %% Type definitions
@@ -50,6 +52,8 @@ namespace() -> "message_transformation_http_api".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_DATA_INTEGRATION.
 
 paths() ->
     [

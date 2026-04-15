@@ -30,54 +30,29 @@ role.desc:
 role.label:
 """Role"""
 
-delete_success.desc:
-"""Delete successfully."""
-delete_success.label:
-"""Delete Successfully"""
+api_key_scopes_list.desc:
+"""List all available API key scopes. This API can only be requested using a bearer token."""
+api_key_scopes_list.label:
+"""List API key scopes"""
 
-name_format.desc:
-"""Unique name which must match regex pattern `[a-zA-Z0-9-_]`."""
-name_format.label:
-"""Name"""
+api_key_scopes.desc:
+"""List of scope names to restrict this API key's access. Each scope is a stable functional category (e.g., connections, publish, monitoring). If not set or undefined, the key has access to all APIs. An empty list means no API access."""
+api_key_scopes.label:
+"""API key scopes"""
 
-api_key_desc.desc:
-"""API Key."""
-api_key_desc.label:
-"""API Key"""
+scope_info_name.desc:
+"""Scope name — a stable identifier for a functional category of API endpoints."""
+scope_info_name.label:
+"""Scope name"""
 
-api_secret_desc.desc:
-"""An API secret is a simple encrypted string that identifies an application without any principal. They are useful for accessing public data anonymously, and are used to associate API requests."""
-api_secret_desc.label:
-"""API Secret"""
+scope_info_desc.desc:
+"""Human-readable description of the scope's coverage."""
+scope_info_desc.label:
+"""Scope description"""
 
-expired_at_desc.desc:
-"""Date time when the APP was expired."""
-expired_at_desc.label:
-"""Expired At"""
-
-created_at_desc.desc:
-"""API Key create datetime."""
-created_at_desc.label:
-"""Created At"""
-
-enable_desc.desc:
-"""Enable/Disable."""
-enable_desc.label:
-"""Enable/Disable"""
-
-expired_desc.desc:
-"""Expired."""
-expired_desc.label:
-"""Expired"""
-
-name_pattern.desc:
-"""^[A-Za-z]+[A-Za-z0-9-_]*$"""
-name_pattern.label:
-"""Name Pattern"""
-
-name_not_found.desc:
-"""Name NOT FOUND."""
-name_not_found.label:
-"""Name Not Found"""
+scopes_response_scopes.desc:
+"""All available scopes with their names and descriptions."""
+scopes_response_scopes.label:
+"""Available scopes"""
 
 }

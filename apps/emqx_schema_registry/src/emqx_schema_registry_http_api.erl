@@ -9,6 +9,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([
     namespace/0,
@@ -31,6 +32,7 @@
 -export([
     lookup_resource_from_local_node_v1/2
 ]).
+-export([scopes/0]).
 
 -define(TAGS, [<<"Schema Registry">>]).
 -define(BPAPI_NAME, emqx_schema_registry_http_api).
@@ -43,6 +45,8 @@ namespace() -> "schema_registry_http_api".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_DATA_INTEGRATION.
 
 paths() ->
     [

@@ -8,6 +8,7 @@
 -include("emqx_otel_trace.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/2, enum/1, ref/1, array/1]).
 
@@ -23,6 +24,7 @@
 -export([
     whitelist/2
 ]).
+-export([scopes/0]).
 
 -define(API_TAGS, [<<"Opentelemetry">>]).
 -define(BAD_REQUEST, 'BAD_REQUEST').
@@ -34,6 +36,8 @@ namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_SYSTEM.
 
 paths() ->
     [

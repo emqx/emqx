@@ -9,6 +9,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -18,6 +19,7 @@
 ]).
 
 -export([code_callback/2, make_callback_url/1]).
+-export([scopes/0]).
 
 -define(BPAPI, emqx_dashboard_sso_oidc).
 
@@ -43,6 +45,8 @@ namespace() -> "dashboard_sso".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false, translate_body => false}).
+
+scopes() -> ?SCOPE_DENIED.
 
 paths() ->
     [

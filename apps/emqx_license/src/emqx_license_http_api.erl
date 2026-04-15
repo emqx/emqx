@@ -8,6 +8,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([
     namespace/0,
@@ -23,6 +24,7 @@
     '/license/setting'/2,
     '/license/session_hwm_history'/2
 ]).
+-export([scopes/0]).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
 
@@ -32,6 +34,8 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{
         check_schema => true
     }).
+
+scopes() -> ?SCOPE_LICENSE.
 
 paths() ->
     [

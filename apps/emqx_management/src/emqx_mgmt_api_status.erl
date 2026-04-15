@@ -6,6 +6,7 @@
 -behaviour(minirest_api).
 
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% minirest API
 -export([api_spec/0, paths/0, schema/1]).
@@ -16,6 +17,7 @@
     init/2,
     path/0
 ]).
+-export([scopes/0]).
 
 -define(TAGS, [<<"Status">>]).
 
@@ -25,6 +27,8 @@
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_SYSTEM.
 
 paths() ->
     ["/status"].

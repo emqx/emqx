@@ -8,6 +8,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -import(hoconsc, [
     mk/2,
@@ -34,6 +35,7 @@
 ]).
 
 -export([sso_parameters/1, login_meta/4]).
+-export([scopes/0]).
 
 -define(REDIRECT, 'REDIRECT').
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
@@ -46,6 +48,8 @@ namespace() -> "dashboard_sso".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
+
+scopes() -> ?SCOPE_DENIED.
 
 paths() ->
     [
