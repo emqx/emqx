@@ -604,6 +604,64 @@ t_multiple_tables_failure_in_the_end(TCConfig) when is_list(TCConfig) ->
     ok.
 
 -doc """
+Ensure TLS connector can be created with `verify_none` and no cert file paths.
+This mirrors serverless production config: TLS enabled + verify_none only.
+""".
+t_tls_verify_none_without_certfiles() ->
+    [{matrix, true}].
+t_tls_verify_none_without_certfiles(matrix) ->
+    [[?tls, ?sync, ?without_batch]];
+t_tls_verify_none_without_certfiles(TCConfig) when is_list(TCConfig) ->
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        ?assertMatch(
+            {201, #{
+                <<"status">> := <<"connected">>
+            }},
+            create_connector_api(TCConfig, #{
+                <<"server">> => <<"toxiproxy:4003">>,
+                <<"ssl">> => #{
+                    <<"enable">> => true,
+                    <<"verify">> => <<"verify_none">>,
+                    <<"cacertfile">> => <<>>,
+                    <<"certfile">> => <<>>,
+                    <<"keyfile">> => <<>>
+                }
+            })
+        ),
+        ok
+    end).
+
+-doc """
+Ensure TLS connector still rejects empty cert file paths when verify is `verify_peer`.
+""".
+t_tls_verify_peer_with_empty_certfiles_rejected() ->
+    [{matrix, true}].
+t_tls_verify_peer_with_empty_certfiles_rejected(matrix) ->
+    [[?tls, ?sync, ?without_batch]];
+t_tls_verify_peer_with_empty_certfiles_rejected(TCConfig) when is_list(TCConfig) ->
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        ?assertMatch(
+            {400, #{
+                <<"code">> := <<"BAD_REQUEST">>,
+                <<"message">> := #{
+                    <<"reason">> := <<"bad_ssl_config">>
+                }
+            }},
+            create_connector_api(TCConfig, #{
+                <<"server">> => <<"toxiproxy:4003">>,
+                <<"ssl">> => #{
+                    <<"enable">> => true,
+                    <<"verify">> => <<"verify_peer">>,
+                    <<"cacertfile">> => <<>>,
+                    <<"certfile">> => <<>>,
+                    <<"keyfile">> => <<>>
+                }
+            })
+        ),
+        ok
+    end).
+
+-doc """
 Checks that we treat port 4001 as the default port when the port is omitted in the server
 field, similar to greptimedb connector.
 """.
