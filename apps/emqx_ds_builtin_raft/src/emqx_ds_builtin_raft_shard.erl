@@ -50,6 +50,9 @@
     is_quorum_reachable/2
 ]).
 
+%% Lifecycle
+-export([drop/3]).
+
 -behaviour(gen_server).
 -export([
     init/1,
@@ -59,6 +62,8 @@
     handle_info/2,
     terminate/2
 ]).
+
+-export_type([server/0]).
 
 -type server() :: ra:server_id().
 
@@ -460,6 +465,17 @@ is_quorum_reachable(DB, Shard) ->
 is_quorum_reachable(ShardServers) ->
     KnownShardServers = known_shard_servers(ShardServers),
     length(KnownShardServers) * 2 > length(ShardServers).
+
+%%
+
+-spec drop(emqx_ds:db(), emqx_ds:shard(), timeout()) -> ok | {error, any()}.
+drop(DB, Shard, Timeout) ->
+    case ra:delete_cluster(shard_servers(DB, Shard), Timeout) of
+        {ok, _Leader} ->
+            ok;
+        Error ->
+            Error
+    end.
 
 -spec server_metrics(server()) ->
     #{atom() => integer()} | undefined.

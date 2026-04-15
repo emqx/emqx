@@ -12,6 +12,7 @@
 -export([
     start_link_db/4,
     whereis_db/1,
+    drop_db/1,
 
     start_shard/1,
     stop_shard/1,
@@ -23,6 +24,7 @@
     start_otx_leader/2,
     stop_otx_leader/2
 ]).
+
 -export([which_dbs/0, which_shards/1]).
 
 %% behaviour callbacks:
@@ -59,6 +61,16 @@ start_link_db(DB, Create, Schema, RTConf) ->
 -spec whereis_db(emqx_ds:db()) -> pid() | undefined.
 whereis_db(DB) ->
     gproc:where(?name(#?db_sup{db = DB})).
+
+-doc "Drops all shared data belonging to the specified DS DB on the local node".
+-spec drop_db(emqx_ds:db()) -> ok | {error, atom()}.
+drop_db(DB) ->
+    case file:del_dir_r(ra_system_data_dir(DB)) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 -spec start_shard(emqx_ds_storage_layer:dbshard()) ->
     supervisor:startchild_ret().
@@ -199,7 +211,7 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     {ok, {SupFlags, Children}}.
 
 start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
-    DataDir = filename:join([emqx_ds_storage_layer:base_dir(), DB, dsrepl]),
+    DataDir = ra_system_data_dir(DB),
     Config = lists:foldr(fun maps:merge/2, #{}, [
         ra_system:default_config(),
         #{
@@ -237,6 +249,9 @@ start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
 
 stop_ra_system(DB) ->
     ra_system:stop(DB).
+
+ra_system_data_dir(DB) ->
+    filename:join([emqx_ds_storage_layer:base_dir(), DB, dsrepl]).
 
 %%================================================================================
 %% Internal exports
