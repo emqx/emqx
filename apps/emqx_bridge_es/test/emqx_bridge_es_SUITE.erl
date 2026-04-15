@@ -174,7 +174,12 @@ connector_config(Overrides, Config) ->
             <<"server">> => server(Config),
             <<"enable">> => true,
             <<"authentication">> => #{
-                <<"password">> => <<"emqx123">>,
+                <<"password">> => list_to_binary(
+                    os:getenv(
+                        "ELASTIC_PASSWORD",
+                        "file:///tmp/emqx-ci-temp-secrets/elastic_password"
+                    )
+                ),
                 <<"username">> => <<"elastic">>
             },
             <<"description">> => <<"My elasticsearch test connector">>,

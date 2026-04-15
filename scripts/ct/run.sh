@@ -294,8 +294,12 @@ if [[ -t 1 ]]; then
     TTY='-t'
 fi
 
-# ensure directory with secrets is created by current user before running compose
-mkdir -p /tmp/emqx-ci/emqx-shared-secret
+# ensure directories with secrets are created by current user before running compose
+mkdir -p /tmp/emqx-ci/emqx-shared-secret /tmp/emqx-ci-temp-secrets
+
+# ensure any file-backed secrets exist for elasticsearch-related CT
+# dependencies.
+./scripts/ct/render-env.sh
 
 if [ "$STOP" = 'no' ]; then
     # some left-over log file has to be deleted before a new docker-compose up
