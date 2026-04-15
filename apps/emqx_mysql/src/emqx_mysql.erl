@@ -40,7 +40,8 @@
 -export([do_get_status/1]).
 
 -define(MYSQL_HOST_OPTIONS, #{
-    default_port => ?MYSQL_DEFAULT_PORT
+    default_port => ?MYSQL_DEFAULT_PORT,
+    ssrf_check => true
 }).
 
 -type template() :: {unicode:chardata(), emqx_template:str()}.

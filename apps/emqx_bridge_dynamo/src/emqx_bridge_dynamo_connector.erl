@@ -91,7 +91,8 @@ on_start(
 
     {Scheme, Server, DefaultPort} = get_host_info(to_str(Url)),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, #{
-        default_port => DefaultPort
+        default_port => DefaultPort,
+        ssrf_check => true
     }),
 
     Options = [

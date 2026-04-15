@@ -34,7 +34,7 @@
 ]).
 
 -define(CONNECTOR_TYPE, mqtt).
--define(MQTT_HOST_OPTS, #{default_port => 1883}).
+-define(MQTT_HOST_OPTS, #{default_port => 1883, ssrf_check => true}).
 
 namespace() -> "connector_mqtt".
 

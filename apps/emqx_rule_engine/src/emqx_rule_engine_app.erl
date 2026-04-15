@@ -20,6 +20,13 @@ start(_Type, _Args) ->
     ok = emqx_conf:add_handler(RulePath ++ ['?'], emqx_rule_engine_config),
     ok = emqx_conf:add_handler([RuleEngine], emqx_rule_engine_config),
     ok = emqx_conf:add_handler([rule_engine, jq_implementation_module], emqx_rule_engine_schema),
+    ok = emqx_conf:add_handler([rule_engine, ssrf], emqx_rule_engine_schema),
+    ok = emqx_utils_ssrf:refresh_cache(
+        emqx:get_config(
+            [rule_engine, ssrf],
+            #{enable => false, allow_cidrs => [], deny_cidrs => [], deny_hosts => []}
+        )
+    ),
     emqx_rule_engine_cli:load(),
     SupRet.
 
@@ -29,5 +36,6 @@ stop(_State) ->
     ok = emqx_conf:remove_handler(RulePath ++ ['?']),
     ok = emqx_conf:remove_handler([RuleEngine]),
     ok = emqx_conf:remove_handler([rule_engine, jq_implementation_module]),
+    ok = emqx_conf:remove_handler([rule_engine, ssrf]),
     ok = emqx_rule_events:unload(),
     ok.

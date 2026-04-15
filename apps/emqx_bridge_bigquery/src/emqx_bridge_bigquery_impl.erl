@@ -108,7 +108,9 @@ on_start(ConnResId, ConnConfig0) ->
         ConnConfig0
     ),
     {Transport, HostPort} = emqx_bridge_gcp_pubsub_client:get_transport(bigquery),
-    #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{
+        default_port => 443, ssrf_check => true
+    }),
     ConnConfig = ConnConfig1#{
         jwt_opts => #{
             %% trailing slash is important.
