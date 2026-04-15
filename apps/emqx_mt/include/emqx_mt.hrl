@@ -17,8 +17,9 @@
 -define(CONF_ROOT_KEY, multi_tenancy).
 -define(CONF_ROOT_KEY_BIN, <<"multi_tenancy">>).
 
-%% Matches the "unset" representations of a config value: undefined (key absent)
-%% and the empty binary (explicit empty string from hocon).
--define(IS_NOT_SET(V), (V =:= undefined orelse V =:= <<>>)).
+%% Matches the "unset" representations of a config value: undefined (key absent),
+%% the empty binary or empty string (explicit empty string from hocon; hocon may
+%% materialize either depending on how the config was loaded).
+-define(IS_NOT_SET(V), (V =:= undefined orelse V =:= <<>> orelse V =:= [])).
 
 -endif.

@@ -65,17 +65,31 @@ on_session_created(_ClientInfo, _SessionInfo) ->
     %% not a multi-tenant client
     ok.
 
-on_authenticate(
+on_authenticate(ClientInfo, DefaultResult) ->
+    case emqx_mt_config:get_post_auth_tns_expression() of
+        undefined ->
+            do_on_authenticate(ClientInfo, DefaultResult);
+        _Compiled ->
+            %% Namespace will be (re)derived by the `client.post_authn' hook
+            %% from authn-response client_attrs.  Defer all tns-based gating
+            %% (namespace config errors, quota, managed-ns membership) to
+            %% that hook so that pre-auth tns does not cause spurious
+            %% rejections.
+            ?TRACE("defer_tns_gate_to_post_authn", #{}),
+            DefaultResult
+    end.
+
+do_on_authenticate(
     #{clientid := ClientId, client_attrs := #{?CLIENT_ATTR_NAME_TNS := Tns}}, DefaultResult
 ) ->
     case emqx_config:get_namespace_config_errors(Tns) of
         undefined ->
-            do_on_authenticate(ClientId, Tns, DefaultResult);
+            decide(ClientId, Tns, DefaultResult);
         #{} ->
             ?TRACE("deny_due_to_namespace_config_errors", #{tns => Tns}),
             {stop, {error, server_unavailable}}
     end;
-on_authenticate(_, DefaultResult) ->
+do_on_authenticate(_, DefaultResult) ->
     AllowOnlyManagedNSs = emqx_mt_config:get_allow_only_managed_namespaces(),
     case AllowOnlyManagedNSs of
         true ->
@@ -85,9 +99,6 @@ on_authenticate(_, DefaultResult) ->
             ?TRACE("no_tenant_namespace", #{}),
             DefaultResult
     end.
-
-do_on_authenticate(ClientId, Tns, DefaultResult) ->
-    decide(ClientId, Tns, DefaultResult).
 
 %% Pure namespace/quota decision shared between the pre-auth `client.authenticate'
 %% and post-auth `client.post_authn' callbacks. `OnPass' is whatever the caller

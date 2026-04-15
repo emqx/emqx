@@ -1470,11 +1470,13 @@ t_post_auth_tns_expression_reads_client_attrs_tag(_Config) ->
     ClientInfo = #{
         clientid => <<"c1">>,
         username => <<"u1">>,
-        client_attrs => #{<<"tag">> => <<"acme">>}
+        client_attrs => #{<<"tag">> => <<"bypass_acme">>}
     },
     ?assertMatch(
         {ok, #{
-            client_info := #{client_attrs := #{<<"tns">> := <<"acme">>, <<"tag">> := <<"acme">>}}
+            client_info := #{
+                client_attrs := #{<<"tns">> := <<"bypass_acme">>, <<"tag">> := <<"bypass_acme">>}
+            }
         }},
         emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})
     ).
@@ -1489,10 +1491,10 @@ t_post_auth_tns_expression_coalesce_fallback(_Config) ->
     CI1 = #{
         clientid => <<"c1">>,
         username => <<"alice">>,
-        client_attrs => #{<<"tag">> => <<"acme">>}
+        client_attrs => #{<<"tag">> => <<"bypass_acme">>}
     },
     ?assertMatch(
-        {ok, #{client_info := #{client_attrs := #{<<"tns">> := <<"acme">>}}}},
+        {ok, #{client_info := #{client_attrs := #{<<"tns">> := <<"bypass_acme">>}}}},
         emqx_mt_hookcb:on_post_authn(#{client_info => CI1})
     ),
     CI2 = #{
@@ -1621,4 +1623,59 @@ authn_inject_tns(#{username := <<"user_good">>}, _Acc) ->
 authn_inject_tns(#{username := <<"user_bad">>}, _Acc) ->
     {stop, {ok, #{is_superuser => false, client_attrs => #{<<"tns">> => <<"ghost">>}}}};
 authn_inject_tns(_ClientInfo, Acc) ->
+    {ok, Acc}.
+
+-doc """
+Regression: when `allow_only_managed_namespaces = true` and the pre-auth tns
+is NOT a managed namespace, the client must not be rejected by the pre-auth
+hook. All tns-based gating must be deferred to the post-authn hook so that
+`post_auth_tns_expression' has a chance to derive the final namespace.
+
+Reproduces the tester's report against 6.1.2-rc.2.
+""".
+t_post_auth_expression_bypasses_preauth_managed_gate({init, Config}) ->
+    ok = set_post_auth_tns_expression(<<"coalesce(client_attrs.tag, 'default')">>),
+    emqx_config:put([multi_tenancy, allow_only_managed_namespaces], true),
+    %% Only `acme' is a managed namespace. `user_good'/`user_bad' are used
+    %% as usernames, and the suite's `mqtt.client_attrs_init' sets pre-auth
+    %% tns = username, so pre-auth tns is NOT in managed set.
+    ok = emqx_mt_config:create_managed_ns(<<"bypass_acme">>),
+    ok = emqx_hooks:add(
+        'client.authenticate', {?MODULE, authn_inject_tag, []}, 975
+    ),
+    on_exit(fun() ->
+        emqx_hooks:del('client.authenticate', {?MODULE, authn_inject_tag})
+    end),
+    Config;
+t_post_auth_expression_bypasses_preauth_managed_gate({'end', _Config}) ->
+    ok = clear_post_auth_tns_expression(),
+    emqx_config:put([multi_tenancy, allow_only_managed_namespaces], false),
+    _ = emqx_mt_config:delete_managed_ns(<<"bypass_acme">>),
+    ok;
+t_post_auth_expression_bypasses_preauth_managed_gate(_Config) ->
+    %% Auth returns `client_attrs.tag = "acme"' (managed).  Even though
+    %% pre-auth tns = "user_good" is unmanaged, the client must connect
+    %% because the pre-auth managed-ns gate is deferred to post-authn.
+    GoodCid = ?NEW_CLIENTID(),
+    Pid1 = connect(GoodCid, <<"user_good">>),
+    ?assertMatch(
+        {ok, #{tns := <<"bypass_acme">>, clientid := GoodCid}},
+        ?block_until(#{?snk_kind := multi_tenant_client_added}, 3000)
+    ),
+    ?assertEqual({ok, 1}, emqx_mt:count_clients(<<"bypass_acme">>)),
+    ok = emqtt:stop(Pid1),
+    %% Auth returns `client_attrs.tag = "ghost"' (unmanaged); the post-authn
+    %% hook must reject with `not_authorized'.
+    BadCid = ?NEW_CLIENTID(),
+    ?assertError(
+        {error, {not_authorized, _}},
+        connect(BadCid, <<"user_bad">>)
+    ),
+    ok.
+
+authn_inject_tag(#{username := <<"user_good">>}, _Acc) ->
+    {stop, {ok, #{is_superuser => false, client_attrs => #{<<"tag">> => <<"bypass_acme">>}}}};
+authn_inject_tag(#{username := <<"user_bad">>}, _Acc) ->
+    {stop, {ok, #{is_superuser => false, client_attrs => #{<<"tag">> => <<"ghost">>}}}};
+authn_inject_tag(_ClientInfo, Acc) ->
     {ok, Acc}.
