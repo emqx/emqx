@@ -300,31 +300,38 @@ t_drop_replicated_db(Config) ->
             ),
 
             %% Drop the DB.
-            ?assertEqual(ok, ?ON(N1, emqx_ds:drop_db(?DB)))
-        end,
-        [
-            check_membership_consistent(?DB, Nodes),
-            {"no DB metadata is present", fun(_Trace) ->
+            ?assertEqual(ok, ?ON(N1, emqx_ds:drop_db(?DB))),
+
+            %% Verify DB was dropped cleanly.
+            ?defer_assert(
                 ?assertEqual(
                     [false || _ <- Nodes],
-                    ?ON(Nodes, lists:member(?DB, emqx_ds_builtin_raft_meta:dbs()))
-                ),
+                    ?ON(Nodes, lists:member(?DB, emqx_ds_builtin_raft_meta:dbs())),
+                    "no DB metadata is present"
+                )
+            ),
+            ?defer_assert(
                 ?assertEqual(
                     [[] || _ <- Nodes],
-                    ?ON(Nodes, emqx_ds_builtin_raft_meta:shards(?DB))
+                    ?ON(Nodes, emqx_ds_builtin_raft_meta:shards(?DB)),
+                    "no DB shards metadata is present"
                 )
-            end},
-            {"no DB processes are still running", fun(_Trace) ->
+            ),
+            ?defer_assert(
                 ?assertEqual(
                     [undefined || _ <- Nodes],
-                    ?ON(Nodes, emqx_dsch:get_db_schema(?DB))
-                ),
+                    ?ON(Nodes, emqx_dsch:get_db_schema(?DB)),
+                    "no DB runtime schema is present"
+                )
+            ),
+            ?defer_assert(
                 ?assertEqual(
                     [undefined || _ <- Nodes],
-                    ?ON(Nodes, emqx_ds_builtin_raft_db_sup:whereis_db(?DB))
+                    ?ON(Nodes, emqx_ds_builtin_raft_db_sup:whereis_db(?DB)),
+                    "no DB processes are still running"
                 )
-            end},
-            {"no leftover data files are present", fun(_Trace) ->
+            ),
+            ?defer_assert(
                 ?assertEqual(
                     [[] || _ <- Nodes],
                     ?ON(
@@ -334,10 +341,12 @@ t_drop_replicated_db(Config) ->
                             [],
                             filename:join([emqx_ds_storage_layer:base_dir(), ?DB])
                         )
-                    )
+                    ),
+                    "no leftover data files remain"
                 )
-            end}
-        ]
+            )
+        end,
+        [check_membership_consistent(?DB, Nodes)]
     ).
 
 t_replication_transfers_snapshots(init, Config) ->
