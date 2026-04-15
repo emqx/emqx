@@ -9,6 +9,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include("../../emqx_dashboard/include/emqx_dashboard.hrl").
+
+-define(OIDC_ADMIN_USER, <<"admin_oidc_test">>).
+-define(OIDC_ADMIN_PASS, <<"admin_pass_123!">>).
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -361,7 +365,21 @@ do_smoke_tests1(Node, LoginNode, FinalReqNode, _TCConfig) ->
     #{query := QueryParams4} = uri_string:parse(LoginURL2),
     #{"login_meta" := Token0} = maps:from_list(uri_string:dissect_query(QueryParams4)),
     ct:pal("token0: ~s", [Token0]),
-    #{<<"token">> := Token1} = emqx_utils_json:decode(base64:decode(Token0)),
+    #{<<"code">> := SsoCode, <<"username">> := SsoUsername, <<"backend">> := SsoBackend} =
+        emqx_utils_json:decode(base64:decode(Token0, #{mode => urlsafe, padding => false})),
+
+    %% Exchange the one-time SSO code for the real JWT token
+    ExchangeURL = url(FinalReqNode, ["sso", "token_exchange"]),
+    {200, ExchangeResp} = simple_request(#{
+        method => post,
+        url => ExchangeURL,
+        body => #{
+            <<"code">> => SsoCode, <<"username">> => SsoUsername, <<"backend">> => SsoBackend
+        },
+        auth_header => [{"x", "x"}]
+    }),
+    ct:pal("exchange response: ~p", [ExchangeResp]),
+    #{<<"token">> := Token1} = ExchangeResp,
 
     %% Finally, can now perform actions in the API
     FinalAuthHeader = {"Authorization", "Bearer " ++ binary_to_list(Token1)},
