@@ -8,6 +8,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% Swagger specs from hocon schema
 -export([
@@ -27,6 +28,7 @@
 -export([
     check_ready/2
 ]).
+-export([scopes/0]).
 
 -define(TAGS, [<<"Message Queue">>]).
 
@@ -40,6 +42,8 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{
         check_schema => true
     }).
+
+scopes() -> ?SCOPE_CONNECTIONS.
 
 paths() ->
     [

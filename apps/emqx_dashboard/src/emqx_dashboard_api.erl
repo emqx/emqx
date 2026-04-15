@@ -12,6 +12,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -29,6 +30,7 @@
     change_pwd/2,
     change_mfa/2
 ]).
+-export([scopes/0]).
 
 -define(EMPTY(V), (V == undefined orelse V == <<>>)).
 
@@ -45,6 +47,8 @@ namespace() -> "dashboard".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
+
+scopes() -> ?SCOPE_DENIED.
 
 paths() ->
     [

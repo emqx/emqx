@@ -8,6 +8,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include("emqx_authz.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -26,6 +27,7 @@
     node_cache_status/2,
     node_cache_reset/2
 ]).
+-export([scopes/0]).
 
 -import(hoconsc, [ref/2]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
@@ -35,6 +37,8 @@
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_ACCESS_CONTROL.
 
 paths() ->
     [

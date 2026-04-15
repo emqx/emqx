@@ -7,6 +7,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -15,11 +16,14 @@
 ]).
 
 -export([config/2]).
+-export([scopes/0]).
 
 -define(TAGS, [<<"Monitor">>]).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_SYSTEM.
 
 paths() ->
     [

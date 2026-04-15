@@ -14,6 +14,7 @@
 -include_lib("emqx_bridge/include/emqx_bridge_proto.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
 -import(emqx_utils, [redact/1]).
@@ -79,6 +80,7 @@
 
 %% Internal exports; used by rule engine api
 -export([do_handle_summary/2]).
+-export([scopes/0]).
 
 -define(BPAPI_NAME, emqx_bridge).
 
@@ -105,6 +107,8 @@ namespace() -> "actions_and_sources".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => fun ?MODULE:check_api_schema/2}).
+
+scopes() -> ?SCOPE_DATA_INTEGRATION.
 
 paths() ->
     [
