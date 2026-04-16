@@ -182,6 +182,13 @@ metadata_host_case_insensitive_test() ->
         emqx_utils_ssrf:check_host(<<"Metadata.Google.Internal">>, Cfg)
     ).
 
+metadata_host_trailing_dot_denied_test() ->
+    Cfg = default_cfg(),
+    ?assertMatch(
+        {error, {denied_host, <<"metadata.google.internal.">>}},
+        emqx_utils_ssrf:check_host(<<"metadata.google.internal.">>, Cfg)
+    ).
+
 refresh_cache_uses_cached_policy_test() ->
     emqx_utils_ssrf:refresh_cache(#{
         enable => true,

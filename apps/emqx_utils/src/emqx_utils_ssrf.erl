@@ -99,9 +99,14 @@ normalize_hosts(Hosts) ->
     [normalize_host(H) || H <- Hosts].
 
 normalize_host(H) when is_binary(H) ->
-    string:lowercase(H);
+    strip_trailing_dots(string:lowercase(H));
 normalize_host(H) when is_list(H) ->
-    string:lowercase(iolist_to_binary(H)).
+    strip_trailing_dots(string:lowercase(iolist_to_binary(H))).
+
+strip_trailing_dots(<<>>) ->
+    <<>>;
+strip_trailing_dots(Host) ->
+    re:replace(Host, <<"\\.+$">>, <<>>, [{return, binary}]).
 
 %%--------------------------------------------------------------------
 %% CIDR compilation
@@ -185,8 +190,8 @@ check_host(_Host, _) ->
     ok.
 
 match_host(HostBin, Hosts) ->
-    Lower = string:lowercase(HostBin),
-    case lists:member(Lower, Hosts) of
+    Normalized = normalize_host(HostBin),
+    case lists:member(Normalized, Hosts) of
         true -> {error, {denied_host, HostBin}};
         false -> ok
     end.
