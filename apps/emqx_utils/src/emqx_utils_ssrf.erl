@@ -20,10 +20,6 @@ must still enforce outbound egress restrictions at the network layer.
 """.
 
 -export([
-    is_enabled/0,
-    allow_cidrs/0,
-    deny_cidrs/0,
-    deny_hosts/0,
     default_allow_cidrs/0,
     default_deny_cidrs/0,
     default_deny_hosts/0,
@@ -47,29 +43,7 @@ must still enforce outbound egress restrictions at the network layer.
 -type check_error() ::
     {denied, Host :: binary(), IP :: binary(), Cidr :: binary()}
     | {denied_host, Host :: binary()}
-    | {invalid_address, Host :: binary()}
-    | {resolve_failed, Host :: binary(), term()}.
-
-%%--------------------------------------------------------------------
-%% Cache access
-%%--------------------------------------------------------------------
-
--spec is_enabled() -> boolean().
-is_enabled() ->
-    maps:get(enable, cached(), false).
-
--spec allow_cidrs() -> [compiled()].
-allow_cidrs() ->
-    maps:get(allow_cidrs, cached(), []).
-
--spec deny_cidrs() -> [compiled()].
-deny_cidrs() ->
-    maps:get(deny_cidrs, cached(), []).
-
--spec deny_hosts() -> [binary()].
-deny_hosts() ->
-    maps:get(deny_hosts, cached(), []).
-
+    | {invalid_address, Host :: binary()}.
 cached() ->
     persistent_term:get(?CACHE_KEY, ?EMPTY).
 
@@ -334,11 +308,7 @@ format_error({denied_host, Host}) ->
         )
     );
 format_error({invalid_address, Host}) ->
-    iolist_to_binary(io_lib:format("Invalid address: ~ts", [Host]));
-format_error({resolve_failed, Host, Reason}) ->
-    iolist_to_binary(
-        io_lib:format("Failed to resolve ~ts: ~0p", [Host, Reason])
-    ).
+    iolist_to_binary(io_lib:format("Invalid address: ~ts", [Host])).
 
 %%--------------------------------------------------------------------
 %% Conversions

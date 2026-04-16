@@ -182,6 +182,48 @@ metadata_host_case_insensitive_test() ->
         emqx_utils_ssrf:check_host(<<"Metadata.Google.Internal">>, Cfg)
     ).
 
+refresh_cache_uses_cached_policy_test() ->
+    emqx_utils_ssrf:refresh_cache(#{
+        enable => true,
+        allow_cidrs => [<<"8.8.8.0/24">>],
+        deny_cidrs => [<<"127.0.0.0/8">>],
+        deny_hosts => [<<"Metadata.Google.Internal">>]
+    }),
+    try
+        ?assertEqual(ok, emqx_utils_ssrf:check_address(<<"8.8.8.8">>)),
+        ?assertMatch(
+            {error, {denied, _, _, <<"127.0.0.0/8">>}},
+            emqx_utils_ssrf:check_address(<<"127.0.0.1">>)
+        ),
+        ?assertMatch(
+            {error, {denied_host, <<"metadata.google.internal">>}},
+            emqx_utils_ssrf:check_host(<<"metadata.google.internal">>)
+        )
+    after
+        persistent_term:erase({emqx_utils_ssrf, cache})
+    end.
+
+refresh_cache_invalid_input_resets_cache_test() ->
+    persistent_term:put(
+        {emqx_utils_ssrf, cache},
+        #{
+            enable => true,
+            allow_cidrs => [],
+            deny_cidrs => emqx_utils_ssrf:compile_cidrs([<<"127.0.0.0/8">>]),
+            deny_hosts => []
+        }
+    ),
+    emqx_utils_ssrf:refresh_cache(#{}),
+    try
+        ?assertEqual(ok, emqx_utils_ssrf:check_address(<<"127.0.0.1">>))
+    after
+        persistent_term:erase({emqx_utils_ssrf, cache})
+    end.
+
+default_cfg_map_bypasses_checks_test() ->
+    ?assertEqual(ok, emqx_utils_ssrf:check_address(<<"not-an-ip">>, #{})),
+    ?assertEqual(ok, emqx_utils_ssrf:check_host(<<"localhost">>, #{})).
+
 format_error_test() ->
     Msg = emqx_utils_ssrf:format_error(
         {denied, <<"host">>, <<"1.2.3.4">>, <<"1.0.0.0/8">>}
