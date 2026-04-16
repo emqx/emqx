@@ -139,6 +139,46 @@ republish_function.desc:
 republish_function.label:
 """Republish Function"""
 
+ssrf.desc:
+"""SSRF protection for outbound target addresses configured via rule-engine connectors, bridges and actions.<br/>
+When enabled, exact `deny_hosts` matches are rejected first, then resolved target IPs are checked against `allow_cidrs` before `deny_cidrs`.<br/>
+This is a config-validation-time defense layer only: it does not protect against malicious DNS changes after validation has passed.<br/>
+Combine it with network-layer egress controls such as firewall, `iptables` or `nftables` rules."""
+
+ssrf.label:
+"""SSRF Protection"""
+
+ssrf_enable.desc:
+"""When true, apply the SSRF policy under `rule_engine.ssrf` to outbound connector/bridge/action targets.<br/>
+Checked at config-update time only — runtime DNS re-resolution is not blocked.<br/>
+Use network-layer egress controls as the enforcement layer for post-validation DNS changes."""
+
+ssrf_enable.label:
+"""Enable SSRF Protection"""
+
+ssrf_allow_cidrs.desc:
+"""List of CIDR ranges that are explicitly allowed before the deny list is checked.<br/>
+Use this to carve out approved internal targets without disabling SSRF protection globally.<br/>
+The default is empty."""
+
+ssrf_allow_cidrs.label:
+"""Allowed CIDR Ranges"""
+
+ssrf_deny_cidrs.desc:
+"""List of CIDR ranges considered private or otherwise unsafe as outbound targets.<br/>
+The default covers loopback, link-local (including cloud IMDS), RFC1918, ULA, unspecified and multicast ranges, plus known cloud metadata IPs (Aliyun 100.100.100.200 and AWS 69.254.169.253).<br/>
+Use `allow_cidrs` for explicit exceptions when legitimately needed."""
+
+ssrf_deny_cidrs.label:
+"""Denied CIDR Ranges"""
+
+ssrf_deny_hosts.desc:
+"""List of hostnames to deny by exact match (case-insensitive).<br/>
+The default covers cloud metadata hostnames: metadata.tencentyun.com, metadata.google.internal, metadata.azure.internal."""
+
+ssrf_deny_hosts.label:
+"""Denied Hostnames"""
+
 rule_engine_ignore_sys_message.desc:
 """When set to 'true' (default), rule-engine will ignore messages published to $SYS topics."""
 

@@ -213,7 +213,7 @@ ssl_client_opts_fields() ->
     override(emqx_schema:client_ssl_opts_schema(#{}), ssl_overrides()).
 
 host_opts() ->
-    #{default_port => 9092}.
+    #{default_port => 9092, ssrf_check => true}.
 
 namespace() -> "bridge_kafka".
 

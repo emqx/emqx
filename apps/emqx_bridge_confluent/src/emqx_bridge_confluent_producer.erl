@@ -410,4 +410,4 @@ override(Fields, Overrides) ->
     ).
 
 host_opts() ->
-    #{default_port => 9092}.
+    #{default_port => 9092, ssrf_check => true}.

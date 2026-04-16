@@ -193,6 +193,7 @@ parse_base_endpoint(Endpoint) ->
         } = Parsed ?= parse_uri(Endpoint),
         true ?= lists:member(Scheme, [<<"https">>, <<"http">>]) orelse
             {error, {bad_scheme, Scheme}},
+        ok ?= check_ssrf(Host),
         HostStr = to_str(Host),
         BaseURI = to_str(emqx_utils_uri:base_url(Parsed)),
         BasePath1 = binary:split(BasePath0, <<"/">>, [global, trim_all]),
@@ -255,6 +256,12 @@ mk(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Struct) -> hoconsc:ref(?MODULE, Struct).
 
 to_str(X) -> emqx_utils_conv:str(iolist_to_binary(X)).
+
+check_ssrf(Host) ->
+    case emqx_utils_ssrf:check_host(Host) of
+        ok -> ok;
+        {error, Err} -> {error, emqx_utils_ssrf:format_error(Err)}
+    end.
 
 parse_uri(Endpoint) ->
     %% When the URI has no scheme, the hostname/authority might be interpret as path...
