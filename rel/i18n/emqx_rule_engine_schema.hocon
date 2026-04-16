@@ -143,7 +143,7 @@ ssrf.desc:
 """SSRF protection for outbound target addresses configured via rule-engine connectors, bridges and actions.<br/>
 When enabled, exact `deny_hosts` matches are rejected first, then resolved target IPs are checked against `allow_cidrs` before `deny_cidrs`.<br/>
 This is a config-validation-time defense layer only: it does not protect against malicious DNS changes after validation has passed.<br/>
-Combine it with network-layer egress controls such as firewall/iptables/nftables rules."""
+Combine it with network-layer egress controls such as firewall, `iptables` or `nftables` rules."""
 
 ssrf.label:
 """SSRF Protection"""
@@ -157,7 +157,7 @@ ssrf_enable.label:
 """Enable SSRF Protection"""
 
 ssrf_allow_cidrs.desc:
-"""List of CIDR ranges that are explicitly allowed before the denylist is checked.<br/>
+"""List of CIDR ranges that are explicitly allowed before the deny list is checked.<br/>
 Use this to carve out approved internal targets without disabling SSRF protection globally.<br/>
 The default is empty."""
 
