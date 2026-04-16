@@ -43,16 +43,22 @@
 -define(RESPONSE_TOPIC_PREFIX, <<"cap/tmp/response/">>).
 -define(DEFAULT_TIMEOUT_MS, 5000).
 
--define(INPUT_SCHEMA, #{
+-define(DEFAULT_REQUEST_PAYLOAD_SCHEMA, #{
+    <<"description">> => <<"Request payload (any JSON value or string)">>
+}).
+
+-define(DEFAULT_RESPONSE_SCHEMA, #{
+    <<"description">> => <<"Response payload (present when status = ok)">>
+}).
+
+-define(INPUT_SCHEMA(RequestPayloadSchema), #{
     <<"type">> => <<"object">>,
     <<"properties">> => #{
         <<"topic">> => #{
             <<"type">> => <<"string">>,
             <<"description">> => <<"Topic suffix appended to the configured prefix">>
         },
-        <<"payload">> => #{
-            <<"description">> => <<"Request payload (any JSON value or string)">>
-        },
+        <<"payload">> => RequestPayloadSchema,
         <<"from">> => #{
             <<"type">> => <<"string">>,
             <<"description">> => <<"Publisher identity (optional)">>
@@ -70,16 +76,14 @@
     <<"required">> => [<<"topic">>, <<"payload">>]
 }).
 
--define(OUTPUT_SCHEMA, #{
+-define(OUTPUT_SCHEMA(ResponseSchema), #{
     <<"type">> => <<"object">>,
     <<"properties">> => #{
         <<"status">> => #{
             <<"type">> => <<"string">>,
             <<"enum">> => [<<"ok">>, <<"error">>]
         },
-        <<"payload">> => #{
-            <<"description">> => <<"Response payload (present when status = ok)">>
-        },
+        <<"payload">> => ResponseSchema,
         <<"reason">> => #{
             <<"type">> => <<"string">>,
             <<"description">> => <<"Error reason (present when status = error)">>
@@ -106,7 +110,11 @@ deinit() ->
     ok.
 
 -spec create(Context :: map()) -> ok.
-create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix}) ->
+create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix} = Context) ->
+    RequestPayloadSchema = maps:get(
+        request_payload_schema, Context, ?DEFAULT_REQUEST_PAYLOAD_SCHEMA
+    ),
+    ResponseSchema = maps:get(response_schema, Context, ?DEFAULT_RESPONSE_SCHEMA),
     emqx_agent_skill_registry:register(#{
         skill_id => SkillId,
         type => ?SKILL_TYPE,
@@ -116,10 +124,12 @@ create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix}) ->
                 " and wait for a response">>,
         context => #{
             skill_id => SkillId,
-            topic_prefix => TopicPrefix
+            topic_prefix => TopicPrefix,
+            request_payload_schema => RequestPayloadSchema,
+            response_schema => ResponseSchema
         },
-        input_schema => ?INPUT_SCHEMA,
-        output_schema => ?OUTPUT_SCHEMA
+        input_schema => ?INPUT_SCHEMA(RequestPayloadSchema),
+        output_schema => ?OUTPUT_SCHEMA(ResponseSchema)
     }).
 
 -spec destroy(binary()) -> ok.
@@ -130,7 +140,7 @@ destroy(SkillId) ->
 to_map(#{
     skill_id := Id,
     description := Desc,
-    context := #{topic_prefix := TopicPrefix},
+    context := #{topic_prefix := TopicPrefix} = Ctx,
     input_schema := InputSchema,
     output_schema := OutputSchema
 }) ->
@@ -139,6 +149,10 @@ to_map(#{
         <<"type">> => ?SKILL_TYPE,
         <<"description">> => Desc,
         <<"topic_prefix">> => TopicPrefix,
+        <<"request_payload_schema">> => maps:get(
+            request_payload_schema, Ctx, ?DEFAULT_REQUEST_PAYLOAD_SCHEMA
+        ),
+        <<"response_schema">> => maps:get(response_schema, Ctx, ?DEFAULT_RESPONSE_SCHEMA),
         <<"input_schema">> => InputSchema,
         <<"output_schema">> => OutputSchema
     }.
@@ -186,7 +200,9 @@ do_request(SkillId, TopicPrefix, Request) ->
     ResponseTopic = <<?RESPONSE_TOPIC_PREFIX/binary, SkillId/binary, "/", Unique/binary>>,
 
     _Pid = spawn(fun() ->
-        do_round_trip(SkillId, Request, ReqId, FullTopic, MsgPayload, From, Qos, ResponseTopic, TimeoutMs)
+        do_round_trip(
+            SkillId, Request, ReqId, FullTopic, MsgPayload, From, Qos, ResponseTopic, TimeoutMs
+        )
     end),
     ok.
 

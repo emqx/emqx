@@ -12,6 +12,11 @@ emqx_agent_schema {
         label: "Publish Skill"
     }
 
+    skill_mqtt_request_create {
+        desc: "Parameters for registering a message.request skill."
+        label: "Request Skill"
+    }
+
     skill_http_create {
         desc: "Parameters for registering an HTTP skill."
         label: "HTTP Skill"
@@ -109,6 +114,22 @@ Constrains the skill to a specific namespace."""
 
     skill_publish_topic_prefix.label:
 """Topic Prefix"""
+
+    ## ── skill_mqtt_request_create ────────────────────────────────────────────
+
+    skill_request_payload_schema.desc:
+"""JSON Schema describing the request payload the LLM should send.
+When omitted, the payload field is described as an untyped JSON value."""
+
+    skill_request_payload_schema.label:
+"""Request Payload Schema"""
+
+    skill_response_schema.desc:
+"""JSON Schema describing the response payload the LLM will receive.
+When omitted, the payload field is described as an untyped JSON value."""
+
+    skill_response_schema.label:
+"""Response Payload Schema"""
 
     ## ── skill_http_create ────────────────────────────────────────────────────
 

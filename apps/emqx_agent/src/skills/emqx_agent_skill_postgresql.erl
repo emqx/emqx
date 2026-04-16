@@ -22,6 +22,7 @@
 -define(RESOURCE_GROUP, <<"emqx_agent">>).
 
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, resource_id/0]).
+-export([maybe_expand_schema/2]).
 -export([on_message_publish/1]).
 
 -spec resource_id() -> binary().
@@ -41,11 +42,12 @@ deinit() ->
     ok.
 
 -spec create(Context :: map()) -> ok | {error, term()}.
-create(
-    #{skill_id := SkillId, desc := Desc, query := _Query, input_schema := InSchema, output_schema := OutSchema} =
-        Context
-) ->
+create(#{skill_id := SkillId, desc := Desc, query := _Query} = Context) ->
     ok = ensure_resource(),
+    ArgKeys = maps:get(arg_keys, Context, []),
+    RawInSchema = maps:get(input_schema, Context, #{<<"type">> => <<"object">>}),
+    InSchema = maybe_expand_schema(RawInSchema, ArgKeys),
+    OutSchema = maps:get(output_schema, Context, #{<<"type">> => <<"object">>}),
     Skill = #{
         skill_id => SkillId,
         type => ?SKILL_TYPE,
@@ -57,12 +59,29 @@ create(
     },
     emqx_agent_skill_registry:register(Skill).
 
+%% If the provided schema already has properties, use it as-is.
+%% Otherwise auto-generate string properties from arg_keys.
+-spec maybe_expand_schema(map(), [binary()]) -> map().
+maybe_expand_schema(#{<<"properties">> := _} = Schema, _ArgKeys) ->
+    Schema;
+maybe_expand_schema(_, []) ->
+    #{<<"type">> => <<"object">>};
+maybe_expand_schema(_, ArgKeys) ->
+    Props = maps:from_list([{K, #{<<"type">> => <<"string">>}} || K <- ArgKeys]),
+    #{
+        <<"type">> => <<"object">>,
+        <<"properties">> => Props,
+        <<"required">> => ArgKeys
+    }.
+
 -spec destroy(emqx_agent_skill_registry:skill_id()) -> ok.
 destroy(SkillId) ->
     emqx_agent_skill_registry:unregister(?SKILL_TYPE, SkillId).
 
 -spec to_map(map()) -> map().
-to_map(#{skill_id := Id, description := Desc, context := Ctx, input_schema := In, output_schema := Out}) ->
+to_map(#{
+    skill_id := Id, description := Desc, context := Ctx, input_schema := In, output_schema := Out
+}) ->
     #{
         <<"skill_id">> => Id,
         <<"type">> => ?SKILL_TYPE,
@@ -74,7 +93,8 @@ to_map(#{skill_id := Id, description := Desc, context := Ctx, input_schema := In
     }.
 
 on_message_publish(
-    #message{topic = <<"cap/invoke/postgresql.query/", SkillId/binary>>, payload = Payload} = Message
+    #message{topic = <<"cap/invoke/postgresql.query/", SkillId/binary>>, payload = Payload} =
+        Message
 ) ->
     handle_invoke(SkillId, Payload),
     {ok, Message};
@@ -130,17 +150,19 @@ run_query(Query, Params) ->
     end.
 
 ensure_resource() ->
-    case emqx_resource:create_local(
-        ?RESOURCE_ID,
-        ?RESOURCE_GROUP,
-        emqx_agent_skill_postgresql_connector,
-        pgsql_config(),
-        #{
-            health_check_interval => 1000,
-            start_timeout => 5000,
-            start_after_created => true
-        }
-    ) of
+    case
+        emqx_resource:create_local(
+            ?RESOURCE_ID,
+            ?RESOURCE_GROUP,
+            emqx_agent_skill_postgresql_connector,
+            pgsql_config(),
+            #{
+                health_check_interval => 1000,
+                start_timeout => 5000,
+                start_after_created => true
+            }
+        )
+    of
         {ok, _} -> ok;
         {error, {already_exists, _}} -> ok;
         {error, {resource_id_already_exist, _}} -> ok;
@@ -150,7 +172,10 @@ ensure_resource() ->
 
 rows_to_maps(Cols, Rows) ->
     Names = [column_name(C) || C <- Cols],
-    [maps:from_list(lists:zip(Names, [normalize_value(V) || V <- tuple_to_list(Row)])) || Row <- Rows].
+    [
+        maps:from_list(lists:zip(Names, [normalize_value(V) || V <- tuple_to_list(Row)]))
+     || Row <- Rows
+    ].
 
 column_name(#{name := Name}) ->
     to_binary(Name);

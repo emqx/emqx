@@ -85,6 +85,7 @@ the session sends a `final` frame.
   "id": "inspect",
   "type": "llm_loop",
   "session_profile": "apple-inspector",
+  "stop_on_finish": true,
   "tools": ["message.request@box-shot", "message.publish@box-alert"],
   "input": { "box_id": "$.event.box_id" },
   "set_result_schema": {
@@ -103,6 +104,7 @@ Field | Description
 ------|------------
 `session_profile` | Name of a registered session profile (LLM credentials + instructions)
 `session_config` | Inline session config (takes precedence over `session_profile`)
+`stop_on_finish` | Optional boolean (default `true`). When `true`, session terminates after publishing final (ephemeral mode). When `false`, session stays alive and accumulates history across events (persistent mode).
 `tools` | List of `"<type>@<skill_id>"` specs exposed as LLM tools
 `input` | Map sent as the first user message; values resolved from context
 `set_result_schema` | JSON Schema for the built-in `set_result` tool (see below)
@@ -114,8 +116,10 @@ are stored; on `final` they are written to `result_path` instead of the
 session's own `result` field. This gives typed, schema-validated structured
 output without parsing free-form text.
 
-Session IDs are **stable**: `<pipeline_id>-<step_id>`. The same session
-accumulates history across triggers.
+**Session lifecycle**: Session IDs are **stable** (`<pipeline_id>-<step_id>`).
+With `stop_on_finish: true` (default), each trigger spawns a fresh session with
+no history. With `stop_on_finish: false`, the same session accumulates
+conversation history across all triggers—useful for learning patterns over time.
 
 #### `wait_for_event`
 

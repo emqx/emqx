@@ -58,6 +58,8 @@
 all() -> ?PARSER_TESTS ++ ?LLM_TESTS.
 
 init_per_suite(Config) ->
+    %% Ollama needs no real auth; set a placeholder so resolve_api_key/1 succeeds.
+    os:putenv("OLLAMA_API_KEY", "ollama"),
     Apps = emqx_cth_suite:start(
         [emqx_agent],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -90,10 +92,12 @@ end_per_testcase(_TestCase, Config) ->
 %% Simple two-chunk content accumulation.
 t_sse_parser_simple_content(_Config) ->
     Data =
-        <<"data: {\"choices\":[{\"delta\":{\"content\":\"hello \"},\"finish_reason\":null}]}\n\n"
-          "data: {\"choices\":[{\"delta\":{\"content\":\"world\"},\"finish_reason\":null}]}\n\n"
-          "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
-          "data: [DONE]\n\n">>,
+        <<
+            "data: {\"choices\":[{\"delta\":{\"content\":\"hello \"},\"finish_reason\":null}]}\n\n"
+            "data: {\"choices\":[{\"delta\":{\"content\":\"world\"},\"finish_reason\":null}]}\n\n"
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+            "data: [DONE]\n\n"
+        >>,
     Acc0 = emqx_agent_session:init_stream_acc(),
     Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
     ?assertEqual(<<"hello world">>, maps:get(content, Acc)),
@@ -102,9 +106,11 @@ t_sse_parser_simple_content(_Config) ->
 %% finish_reason must not be overwritten by null from intermediate chunks.
 t_sse_parser_finish_reason_not_overwritten_by_null(_Config) ->
     Data =
-        <<"data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\n\n"
-          "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n"
-          "data: [DONE]\n\n">>,
+        <<
+            "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\n\n"
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n"
+            "data: [DONE]\n\n"
+        >>,
     Acc0 = emqx_agent_session:init_stream_acc(),
     Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
     ?assertEqual(<<"tool_calls">>, maps:get(finish_reason, Acc)).
@@ -112,12 +118,14 @@ t_sse_parser_finish_reason_not_overwritten_by_null(_Config) ->
 %% Tool call arguments arrive as fragments; they must be concatenated.
 t_sse_parser_tool_call_argument_fragments(_Config) ->
     Data =
-        <<"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"add\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n"
-          "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"a\\\"\"}}]},\"finish_reason\":null}]}\n\n"
-          "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\": 47, \\\"b\\\": 47}\"}}]},\"finish_reason\":null}]}\n\n"
-          "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n"
-          "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5}}\n\n"
-          "data: [DONE]\n\n">>,
+        <<
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"add\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n"
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"a\\\"\"}}]},\"finish_reason\":null}]}\n\n"
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\": 47, \\\"b\\\": 47}\"}}]},\"finish_reason\":null}]}\n\n"
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n"
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5}}\n\n"
+            "data: [DONE]\n\n"
+        >>,
     Acc0 = emqx_agent_session:init_stream_acc(),
     Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
     ?assertEqual(<<"tool_calls">>, maps:get(finish_reason, Acc)),
@@ -134,9 +142,11 @@ t_sse_parser_tool_call_argument_fragments(_Config) ->
 %% Multiple tool calls with separate indices.
 t_sse_parser_multiple_tool_calls(_Config) ->
     Data =
-        <<"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c0\",\"type\":\"function\",\"function\":{\"name\":\"f0\",\"arguments\":\"{}\"}},{\"index\":1,\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"f1\",\"arguments\":\"{}\"}}]},\"finish_reason\":null}]}\n\n"
-          "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n"
-          "data: [DONE]\n\n">>,
+        <<
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c0\",\"type\":\"function\",\"function\":{\"name\":\"f0\",\"arguments\":\"{}\"}},{\"index\":1,\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"f1\",\"arguments\":\"{}\"}}]},\"finish_reason\":null}]}\n\n"
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n"
+            "data: [DONE]\n\n"
+        >>,
     Acc0 = emqx_agent_session:init_stream_acc(),
     Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
     ToolCalls = maps:get(tool_calls, Acc),
@@ -147,9 +157,11 @@ t_sse_parser_multiple_tool_calls(_Config) ->
 %% CRLF line endings must be normalised.
 t_sse_parser_crlf_endings(_Config) ->
     Data =
-        <<"data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":null}]}\r\n\r\n"
-          "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\r\n\r\n"
-          "data: [DONE]\r\n\r\n">>,
+        <<
+            "data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":null}]}\r\n\r\n"
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\r\n\r\n"
+            "data: [DONE]\r\n\r\n"
+        >>,
     Acc0 = emqx_agent_session:init_stream_acc(),
     Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
     ?assertEqual(<<"x">>, maps:get(content, Acc)),
@@ -160,10 +172,12 @@ t_sse_parser_crlf_endings(_Config) ->
 %% exactly as stream_receive_loop does in production.
 t_sse_parser_split_chunks(_Config) ->
     Full =
-        <<"data: {\"choices\":[{\"delta\":{\"content\":\"ab\"},\"finish_reason\":null}]}\n\n"
-          "data: {\"choices\":[{\"delta\":{\"content\":\"cd\"},\"finish_reason\":null}]}\n\n"
-          "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
-          "data: [DONE]\n\n">>,
+        <<
+            "data: {\"choices\":[{\"delta\":{\"content\":\"ab\"},\"finish_reason\":null}]}\n\n"
+            "data: {\"choices\":[{\"delta\":{\"content\":\"cd\"},\"finish_reason\":null}]}\n\n"
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+            "data: [DONE]\n\n"
+        >>,
     %% Chop into 20-byte pieces to simulate network fragmentation.
     Chunks = chop_binary(Full, 20),
     Acc = emqx_agent_session:test_stream_chunks(Chunks),
@@ -173,10 +187,12 @@ t_sse_parser_split_chunks(_Config) ->
 %% Usage tokens from the dedicated usage-only chunk.
 t_sse_parser_usage_chunk(_Config) ->
     Data =
-        <<"data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}\n\n"
-          "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
-          "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":7}}\n\n"
-          "data: [DONE]\n\n">>,
+        <<
+            "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}\n\n"
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":7}}\n\n"
+            "data: [DONE]\n\n"
+        >>,
     Acc0 = emqx_agent_session:init_stream_acc(),
     Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
     ?assertEqual(42, maps:get(tokens_in, Acc)),
@@ -448,7 +464,7 @@ request(Config, Overrides) ->
             <<"sid">> => Sid,
             <<"iid">> => <<"iid-1">>,
             <<"trace_id">> => <<"tr-1">>,
-            <<"api_key">> => <<"ollama">>,
+            <<"api_key">> => <<"OLLAMA_API_KEY">>,
             <<"base_url">> => ?BASE_URL,
             <<"model">> => ?MODEL,
             <<"tools">> => [],

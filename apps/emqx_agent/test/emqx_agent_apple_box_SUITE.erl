@@ -243,7 +243,19 @@ register_skills() ->
     ok = emqx_agent_skill_mqtt_request:create(#{
         skill_id => <<"box-shot">>,
         desc => <<"Request a box snapshot from the SPA">>,
-        topic_prefix => <<"box/shot/">>
+        topic_prefix => <<"box/shot/">>,
+        request_payload_schema => #{<<"type">> => <<"object">>},
+        response_schema => #{
+            <<"type">> => <<"object">>,
+            <<"properties">> => #{
+                <<"image_url">> => #{
+                    <<"type">> => <<"string">>,
+                    <<"description">> =>
+                        <<"Base64-encoded image as a data URI (data:image/png;base64,...)">>
+                }
+            },
+            <<"required">> => [<<"image_url">>]
+        }
     }),
     ok = emqx_agent_skill_publish:create(#{
         skill_id => <<"box-alert">>,
@@ -297,6 +309,7 @@ register_pipeline() ->
                 <<"id">> => <<"inspect">>,
                 <<"type">> => <<"llm_loop">>,
                 <<"session_profile">> => ?PROFILE_NAME,
+                <<"stop_on_finish">> => true,
                 <<"tools">> => [
                     <<"message.request@box-shot">>,
                     <<"message.publish@box-alert">>

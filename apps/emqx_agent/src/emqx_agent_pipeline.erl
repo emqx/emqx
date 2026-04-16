@@ -293,14 +293,18 @@ start_llm_loop(Step, Data) ->
     %% step, allowing the model to accumulate full conversation history.
     Sid = stable_sid(Data#data.pipeline_id, StepId),
     _ = ensure_session(Sid),
+    %% Default to ephemeral mode (stop_on_finish=true): each event gets a fresh
+    %% session with no history from prior triggers. For persistent mode where the
+    %% session accumulates conversation history across events, explicitly set
+    %% "stop_on_finish": false in the step configuration.
+    StopOnFinish = maps:get(<<"stop_on_finish">>, Step, true),
     Request = maps:merge(SessionCfg, #{
         <<"type">> => <<"request">>,
         <<"iid">> => Data#data.iid,
         <<"trace_id">> => Data#data.trace_id,
         <<"tools">> => ToolManifest,
         <<"input">> => Input,
-        %% Keep session alive so history survives into the next trigger.
-        <<"stop_on_finish">> => false
+        <<"stop_on_finish">> => StopOnFinish
     }),
     publish_to_sess_in(Sid, Request),
     Data1 = Data#data{active_sid = Sid, tool_map = ToolMap, pending_calls = #{}},

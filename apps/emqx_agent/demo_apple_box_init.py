@@ -169,6 +169,17 @@ def create_skills() -> None:
             "id": SK_SHOT,
             "desc": "Request a box snapshot photo from the SPA client",
             "topic_prefix": "box/shot/",
+            "request_payload_schema": {"type": "object"},
+            "response_schema": {
+                "type": "object",
+                "properties": {
+                    "image_url": {
+                        "type": "string",
+                        "description": "Base64-encoded image as a data URI (data:image/png;base64,...)",
+                    }
+                },
+                "required": ["image_url"],
+            },
         },
     )
     print(f"  skill {SK_SHOT!r} created")
@@ -256,6 +267,7 @@ def create_pipeline() -> None:
                     "id": "inspect",
                     "type": "llm_loop",
                     "session_profile": PROFILE_NAME,
+                    "stop_on_finish": True,
                     "tools": [
                         f"message.request@{SK_SHOT}",
                         f"message.publish@{SK_ALERT}",

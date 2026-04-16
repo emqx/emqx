@@ -63,7 +63,10 @@
   .btn.primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
   .btn.primary:hover { background: #79baff; border-color: #79baff; }
   .btn.done { background: var(--accent2); border-color: var(--accent2); color: #000; font-weight: 600; font-size: 13px; padding: 7px 20px; }
-  .btn.done:hover { background: #56d364; }
+  .btn.done:hover:not(:disabled) { background: #56d364; }
+  .btn.done:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn.new { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; font-size: 13px; padding: 7px 20px; }
+  .btn.new:hover { background: #79baff; }
 
   .workspace {
     display: grid;
@@ -87,12 +90,27 @@
     position: relative; width: 100%; padding-top: 66%;
     background: var(--bg); border: 2px dashed var(--border);
     border-radius: var(--radius); overflow: hidden; margin-bottom: 12px;
-    transition: border-color .15s;
+    transition: all .15s;
   }
   #crate.dragover { border-color: var(--accent); }
+  #crate.done { opacity: 0.5; pointer-events: none; }
   #crate-inner {
     position: absolute; inset: 0;
     background-size: contain; background-repeat: no-repeat; background-position: center;
+  }
+  #crate-flash {
+    position: absolute; inset: 0;
+    background: rgba(255, 255, 255, 0.9);
+    pointer-events: none;
+    opacity: 0;
+    border-radius: var(--radius);
+  }
+  #crate-flash.active {
+    animation: flash 0.4s ease-out;
+  }
+  @keyframes flash {
+    0%   { opacity: 1; }
+    100% { opacity: 0; }
   }
   #crate-inner img.placed-apple {
     position: absolute; width: 13.5%; aspect-ratio: 1; height: unset; object-fit: contain;
@@ -169,14 +187,15 @@
                ondragleave="this.classList.remove('dragover')"
                ondrop="onCrateDrop(event)">
             <div id="crate-inner"></div>
+            <div id="crate-flash"></div>
           </div>
           <div class="conveyor-row">
             <div class="field-inline">
               <label>Conveyor ID</label>
               <input id="conveyor-id" type="text" value="conv-1">
             </div>
-            <button class="btn done" onclick="onDone()">✓ Done</button>
-            <button class="btn" onclick="clearCrate()" style="font-size:11px">Clear</button>
+            <button class="btn done" id="btn-done" onclick="onDone()">✓ Done</button>
+            <button class="btn new" id="btn-new" onclick="onNew()">New</button>
           </div>
         </div>
         <div class="panel">
@@ -259,6 +278,17 @@ function onMessage(topic, payload, packet) {
   if (topic.startsWith('box/shot/')) {
     const boxId = topic.slice('box/shot/'.length);
     logRecv(boxId, 'shot request');
+
+    // Trigger flash effect if box is still in done state (not cleared yet)
+    const crate = document.getElementById('crate');
+    if (crate.classList.contains('done')) {
+      const flash = document.getElementById('crate-flash');
+      flash.classList.remove('active'); // reset animation
+      void flash.offsetWidth; // force reflow
+      flash.classList.add('active');
+      setTimeout(() => flash.classList.remove('active'), 400);
+    }
+
     const responseTopic = packet.properties && packet.properties.responseTopic;
     if (!responseTopic) { logConn('WARNING: no Response-Topic in shot request'); return; }
     const snapshot = doneBoxes[boxId];
@@ -346,6 +376,12 @@ function clearCrate() {
   renderCrate();
 }
 
+function onNew() {
+  clearCrate();
+  document.getElementById('crate').classList.remove('done');
+  document.getElementById('btn-done').disabled = false;
+}
+
 function onDone() {
   if (!mqttClient || !mqttClient.connected) { logConn('not connected'); return; }
   boxCounter++;
@@ -372,7 +408,10 @@ function onDone() {
   });
   mqttClient.publish('evt/conveyor/' + convId + '/box/done', payload, { qos: 0 });
   logSend(boxId, 'conveyor <span class="box-id">' + esc(convId) + '</span> done  (' + placedApples.length + ' apples)');
-  clearCrate();
+
+  // Gray out the crate and disable Done button
+  document.getElementById('crate').classList.add('done');
+  document.getElementById('btn-done').disabled = true;
 }
 
 function ts() { return new Date().toTimeString().slice(0, 8); }

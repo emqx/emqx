@@ -213,6 +213,16 @@ fields(skill_mqtt_request_create) ->
             mk(binary(), #{
                 required => true,
                 desc => ?DESC(skill_publish_topic_prefix)
+            })},
+        {request_payload_schema,
+            mk(map(), #{
+                required => false,
+                desc => ?DESC(skill_request_payload_schema)
+            })},
+        {response_schema,
+            mk(map(), #{
+                required => false,
+                desc => ?DESC(skill_response_schema)
             })}
     ];
 fields(skill_postgresql_create) ->

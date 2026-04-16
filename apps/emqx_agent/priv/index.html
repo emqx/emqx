@@ -284,6 +284,16 @@
             <input id="skill-request-prefix" type="text" placeholder="devices/room1/">
             <div class="hint">Request is published to this prefix + the agent-supplied topic suffix. Responses arrive on a unique temporary topic set via the MQTT 5 Response-Topic property.</div>
           </div>
+          <div class="field">
+            <label>Request payload schema (JSON)</label>
+            <textarea id="skill-request-payload-schema" placeholder='{"type":"object"}'></textarea>
+            <div class="hint">JSON Schema describing the payload the LLM should send in the request. Leave blank for untyped.</div>
+          </div>
+          <div class="field">
+            <label>Response schema (JSON)</label>
+            <textarea id="skill-response-schema" placeholder='{"type":"object","properties":{"result":{"type":"string"}}}'></textarea>
+            <div class="hint">JSON Schema describing the payload the LLM will receive in the response. Leave blank for untyped.</div>
+          </div>
         </div>
 
         <!-- http fields -->
@@ -593,6 +603,10 @@ function collectSkillBody() {
     }
   } else if (type === 'message.request') {
     body.topic_prefix = document.getElementById('skill-request-prefix').value.trim();
+    const reqPayloadSchema = document.getElementById('skill-request-payload-schema').value.trim();
+    if (reqPayloadSchema) body.request_payload_schema = JSON.parse(reqPayloadSchema);
+    const respSchema = document.getElementById('skill-response-schema').value.trim();
+    if (respSchema) body.response_schema = JSON.parse(respSchema);
   } else if (type === 'http') {
     body.method        = document.getElementById('skill-method').value;
     body.url           = document.getElementById('skill-url').value.trim();
@@ -661,6 +675,8 @@ function editSkill(type, id) {
     document.getElementById('skill-publish-input').value = payloadSchema ? JSON.stringify(payloadSchema, null, 2) : defaultPublishInputSchema();
   } else if (type === 'message.request') {
     document.getElementById('skill-request-prefix').value = skill.topic_prefix ?? '';
+    document.getElementById('skill-request-payload-schema').value = skill.request_payload_schema ? JSON.stringify(skill.request_payload_schema, null, 2) : '';
+    document.getElementById('skill-response-schema').value = skill.response_schema ? JSON.stringify(skill.response_schema, null, 2) : '';
   } else if (type === 'kv') {
     document.getElementById('skill-data-schema').value = skill.data_schema ? JSON.stringify(skill.data_schema, null, 2) : '';
     document.getElementById('skill-allow-put').value = skill.allow_put ? 'true' : 'false';
@@ -697,6 +713,8 @@ function resetSkillEditor() {
   document.getElementById('skill-prefix').value = '';
   document.getElementById('skill-publish-input').value = defaultPublishInputSchema();
   document.getElementById('skill-request-prefix').value = '';
+  document.getElementById('skill-request-payload-schema').value = '';
+  document.getElementById('skill-response-schema').value = '';
   document.getElementById('skill-method').value = 'post';
   document.getElementById('skill-url').value = '';
   document.getElementById('skill-input-schema').value = '';
@@ -909,7 +927,8 @@ function deserializeStep(s, i) {
   }
   if (type === 'llm_loop') {
     const input = s.input ? Object.entries(s.input) : [['event', '$.event']];
-    return { id, type, session_profile: s.session_profile ?? '', tools: s.tools ?? [], input, result_path: s.result_path ?? '' };
+    const setResultSchema = s.set_result_schema ? JSON.stringify(s.set_result_schema, null, 2) : '';
+    return { id, type, session_profile: s.session_profile ?? '', stop_on_finish: s.stop_on_finish ?? true, tools: s.tools ?? [], input, set_result_schema: setResultSchema, result_path: s.result_path ?? '' };
   }
   if (type === 'wait_for_event') {
     return { id, type, topic: s.topic ?? '', where: s.where ?? '', result_path: s.result_path ?? '' };
@@ -940,7 +959,7 @@ function resetPipelineEditor() {
 function defaultStep(type) {
   const n = pipelineSteps.length + 1;
   if (type === 'call_skill')     return { id: 'step_' + n, type, skill: '', args: [['', '']], result_path: '' };
-  if (type === 'llm_loop')       return { id: 'step_' + n, type, session_profile: '', tools: [], input: [['event', '$.event']], result_path: '' };
+  if (type === 'llm_loop')       return { id: 'step_' + n, type, session_profile: '', stop_on_finish: true, tools: [], input: [['event', '$.event']], set_result_schema: '', result_path: '' };
   if (type === 'wait_for_event') return { id: 'step_' + n, type, topic: '', where: '', result_path: '' };
   if (type === 'break')          return { id: 'step_' + n, type, path: '', not: false };
   return { id: 'step_' + n, type };
@@ -1065,12 +1084,19 @@ function stepFieldsHTML(step, idx) {
           <option value="">— select profile —</option>${profOpts}
         </select>
       </div>
+      <div class="field"><label>
+        <input type="checkbox" class="sf-stop-on-finish"${step.stop_on_finish?' checked':''}>
+        Ephemeral mode <small style="color:var(--muted)">(session terminates after completion; default: true)</small>
+      </label></div>
       <div class="field"><label>Tools (select skills available to the LLM)</label>
         <div class="tools-grid sf-tools">${toolsHTML}</div>
       </div>
       <div class="field"><label>Input <small style="color:var(--muted)">key → $.path (e.g. $.event, $.history)</small></label>
         <div class="kv-list sf-input">${(step.input||[]).map(([k,v])=>kvRow(k,v)).join('')}</div>
         <button class="btn sm" style="margin-top:4px" onclick="addKV(${idx},'sf-input')">+ input</button>
+      </div>
+      <div class="field"><label>set_result schema <small style="color:var(--muted)">JSON Schema for structured output (optional)</small></label>
+        <textarea class="sf-set-result-schema" rows="4" style="font-family:monospace;font-size:11px" placeholder='{"type":"object","properties":{"status":{"type":"string"}}}'>${esc(step.set_result_schema||'')}</textarea>
       </div>
       <div class="field"><label>Result path</label>
         <input type="text" class="sf-result" value="${esc(step.result_path)}" placeholder="$.analysis">
@@ -1117,7 +1143,9 @@ function syncStep(idx) {
     ]);
   } else if (step.type === 'llm_loop') {
     step.session_profile = card.querySelector('.sf-profile')?.value ?? '';
+    step.stop_on_finish = card.querySelector('.sf-stop-on-finish')?.checked ?? true;
     step.tools = [...card.querySelectorAll('.sf-tools input:checked')].map(c => c.value);
+    step.set_result_schema = card.querySelector('.sf-set-result-schema')?.value?.trim() ?? '';
     step.result_path = card.querySelector('.sf-result')?.value?.trim() ?? '';
     step.input = [...card.querySelectorAll('.sf-input .kv-row')].map(r => [
       r.querySelector('.kv-key').value.trim(),
@@ -1148,9 +1176,13 @@ function collectSteps() {
       if (s.result_path) out.result_path = s.result_path;
     } else if (s.type === 'llm_loop') {
       if (s.session_profile) out.session_profile = s.session_profile;
+      out.stop_on_finish = s.stop_on_finish ?? true;
       if (s.tools?.length)   out.tools = s.tools;
       const input = Object.fromEntries((s.input||[]).filter(([k]) => k));
       if (Object.keys(input).length) out.input = input;
+      if (s.set_result_schema) {
+        try { out.set_result_schema = JSON.parse(s.set_result_schema); } catch (e) { /* invalid JSON — omit */ }
+      }
       if (s.result_path) out.result_path = s.result_path;
     } else if (s.type === 'wait_for_event') {
       if (s.topic)       out.topic = s.topic;
