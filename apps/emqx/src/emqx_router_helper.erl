@@ -504,7 +504,9 @@ pick_responsible(Task) ->
 stats_fun() ->
     PSRouteCount = persistent_route_count(),
     NonPSRouteCount = emqx_router:stats(n_routes),
-    emqx_stats:setstat('topics.count', 'topics.max', PSRouteCount + NonPSRouteCount).
+    Total = PSRouteCount + NonPSRouteCount,
+    emqx_stats:setstat('topics.count', 'topics.max', Total),
+    emqx_stats:setstat('routes.count', 'routes.max', Total).
 
 persistent_route_count() ->
     case emqx_persistent_message:is_persistence_enabled() of
