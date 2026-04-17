@@ -117,6 +117,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:cowboy),
       common_dep(:esockd),
       common_dep(:rocksdb),
+      common_dep(:mria),
       common_dep(:ekka),
       common_dep(:gen_rpc),
       common_dep(:grpc),
@@ -315,6 +316,9 @@ defmodule EMQXUmbrella.MixProject do
     do: {:unicode_util_compat, "0.7.1", override: true}
 
   def common_dep(:egbk), do: {:egbk, github: "emqx/egbk-conv", tag: "0.1.0", override: true}
+
+  def common_dep(:mria),
+    do: {:mria, github: "emqx/mria", branch: "dev/merge-tables", override: true}
 
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK
