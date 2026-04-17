@@ -72,7 +72,6 @@ jobs:
     env:
       PROFILE: ${{ matrix.profile }}
       DOCKER_ORG: ${{ github.repository_owner }}
-      DOCKER_LATEST: ${{ inputs.latest }}
       ARCH: ${{ matrix.arch }}
 
     steps:
@@ -157,7 +156,6 @@ jobs:
 
     env:
       PROFILE: ${{ inputs.profile }}
-      DOCKER_LATEST: false
       ARCH: ${{ matrix.arch }}
 
     steps:
@@ -237,13 +235,18 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: "${{ env.PROFILE }}-sf-docker-${{ matrix.arch }}"
+          name: "${{ env.PROFILE }}-docker-sf-${{ matrix.arch }}"
           path: "${{ env.PROFILE }}-docker-sf-${{ matrix.arch }}.tar.gz"
           retention-days: 7
 
-  publish-docker:
+  publish-base:
     runs-on: ubuntu-22.04
-    if: inputs.publish
+    # Always runs on workflow_dispatch (dry-run when publish=false) so
+    # developers can test the full manifest-assembly flow.
+    # On workflow_call the job only runs when publish=true.
+    if: |
+      !cancelled() && needs.docker.result == 'success'
+      && (inputs.publish || github.event_name == 'workflow_dispatch')
     needs:
       - docker
     defaults:
@@ -258,7 +261,6 @@ jobs:
 
     env:
       PROFILE: ${{ inputs.profile }}
-      DOCKER_LATEST: ${{ inputs.latest }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -271,6 +273,7 @@ jobs:
 
       - name: Login to hub.docker.com
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        if: inputs.publish
         with:
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
@@ -278,52 +281,36 @@ jobs:
       - name: Download docker images
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: "${{ env.PROFILE }}-docker-*"
+          pattern: "${{ inputs.profile }}-docker-*"
           path: images/
           merge-multiple: true
 
-      - name: Load, push and create multiarch manifest
+      - name: Publish multi-arch manifest
+        env:
+          OWNER: ${{ github.repository_owner }}
+          LATEST: ${{ inputs.latest }}
+          PUBLISH: ${{ inputs.publish }}
         run: |
-          # Load AMD64 image and retag to prevent overwriting
-          AMD64_IMAGE=$(docker load < images/$PROFILE-docker-amd64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
-          echo "Loaded AMD64 image: $AMD64_IMAGE"
-          VERSION=$(echo "$AMD64_IMAGE" | sed 's/.*://')
-          LOCAL_BASE="localhost:5000/${{ github.repository_owner }}/${PROFILE}"
-          docker tag "$AMD64_IMAGE" "${LOCAL_BASE}:${VERSION}-amd64"
-          docker push "${LOCAL_BASE}:${VERSION}-amd64"
-
-          # Load ARM64 image and retag
-          ARM64_IMAGE=$(docker load < images/$PROFILE-docker-arm64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
-          echo "Loaded ARM64 image: $ARM64_IMAGE"
-          docker tag "$ARM64_IMAGE" "${LOCAL_BASE}:${VERSION}-arm64"
-          docker push "${LOCAL_BASE}:${VERSION}-arm64"
-
-          # Assemble the list of destination tags for the multiarch manifest
-          TARGET_TAGS=(
-            "docker.io/${{ github.repository_owner }}/${PROFILE}:${VERSION}"
-            "docker.io/emqx/emqx:${VERSION}"
+          set -euo pipefail
+          ARGS=(
+              --amd64 "images/${PROFILE}-docker-amd64.tar.gz"
+              --arm64 "images/${PROFILE}-docker-arm64.tar.gz"
+              --owner "$OWNER"
+              --profile "$PROFILE"
+              --variant base
           )
-          if [ "${DOCKER_LATEST}" = "true" ]; then
-            TARGET_TAGS+=(
-              "docker.io/${{ github.repository_owner }}/${PROFILE}:latest"
-              "docker.io/emqx/emqx:latest"
-            )
-          fi
+          if [ "$LATEST" = "true" ]; then ARGS+=(--latest); fi
+          if [ "$PUBLISH" = "true" ]; then ARGS+=(--publish); fi
+          ./scripts/publish-docker-multi-arch.sh "${ARGS[@]}"
 
-          echo "Creating multiarch manifest for docker.io:"
-          TAG_ARGS=()
-          for t in "${TARGET_TAGS[@]}"; do
-            echo "  - $t"
-            TAG_ARGS+=(--tag "$t")
-          done
-          docker buildx imagetools create \
-            "${TAG_ARGS[@]}" \
-            "${LOCAL_BASE}:${VERSION}-amd64" \
-            "${LOCAL_BASE}:${VERSION}-arm64"
-
-  publish-docker-sfodbc:
+  publish-sf:
     runs-on: ubuntu-22.04
-    if: inputs.publish && inputs.profile == 'emqx-enterprise'
+    # Snowflake variant: runs only when docker-sfodbc actually succeeded.
+    # For non-enterprise builds docker-sfodbc is skipped, so this job is
+    # skipped naturally — no extra gating needed.
+    if: |
+      !cancelled() && needs.docker-sfodbc.result == 'success'
+      && (inputs.publish || github.event_name == 'workflow_dispatch')
     needs:
       - docker-sfodbc
     defaults:
@@ -350,6 +337,7 @@ jobs:
 
       - name: Login to hub.docker.com
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        if: inputs.publish
         with:
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
@@ -357,35 +345,25 @@ jobs:
       - name: Download docker images
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: "${{ env.PROFILE }}-sf-docker-*"
+          pattern: "${{ inputs.profile }}-docker-sf-*"
           path: images/
           merge-multiple: true
 
-      - name: Load, push and create multiarch manifest
+      - name: Publish multi-arch manifest
+        env:
+          OWNER: ${{ github.repository_owner }}
+          PUBLISH: ${{ inputs.publish }}
         run: |
-          # Load AMD64 image and retag to prevent overwriting
-          AMD64_IMAGE=$(docker load < images/$PROFILE-docker-sf-amd64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
-          echo "Loaded AMD64 image: $AMD64_IMAGE"
-          VERSION=$(echo "$AMD64_IMAGE" | sed 's/.*://')
-          LOCAL_BASE="localhost:5000/${{ github.repository_owner }}/${PROFILE}"
-          docker tag "$AMD64_IMAGE" "${LOCAL_BASE}:${VERSION}-amd64"
-          docker push "${LOCAL_BASE}:${VERSION}-amd64"
-
-          # Load ARM64 image and retag
-          ARM64_IMAGE=$(docker load < images/$PROFILE-docker-sf-arm64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
-          echo "Loaded ARM64 image: $ARM64_IMAGE"
-          docker tag "$ARM64_IMAGE" "${LOCAL_BASE}:${VERSION}-arm64"
-          docker push "${LOCAL_BASE}:${VERSION}-arm64"
-
-          # Create multiarch manifest and push to docker.io (only profile-specific tag for snowflake)
-          DOCKER_IO_PROFILE_TAG="docker.io/${{ github.repository_owner }}/${PROFILE}:$VERSION"
-
-          echo "Creating multiarch manifest for docker.io:"
-          echo "  - $DOCKER_IO_PROFILE_TAG"
-          docker buildx imagetools create \
-            --tag "$DOCKER_IO_PROFILE_TAG" \
-            "${LOCAL_BASE}:${VERSION}-amd64" \
-            "${LOCAL_BASE}:${VERSION}-arm64"
+          set -euo pipefail
+          ARGS=(
+              --amd64 "images/${PROFILE}-docker-sf-amd64.tar.gz"
+              --arm64 "images/${PROFILE}-docker-sf-arm64.tar.gz"
+              --owner "$OWNER"
+              --profile "$PROFILE"
+              --variant sf
+          )
+          if [ "$PUBLISH" = "true" ]; then ARGS+=(--publish); fi
+          ./scripts/publish-docker-multi-arch.sh "${ARGS[@]}"
 
   upload:
     runs-on: ubuntu-22.04
