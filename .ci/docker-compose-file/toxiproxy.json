@@ -1,5 +1,11 @@
 [
   {
+    "name": "mqtt_self_tcp",
+    "listen": "0.0.0.0:1883",
+    "upstream": "erlang:1883",
+    "enabled": true
+  },
+  {
     "name": "influxdb_tcp",
     "listen": "0.0.0.0:8086",
     "upstream": "influxdb_tcp:8086",

@@ -842,3 +842,129 @@ t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
     ?assertNotReceive({publish, _}),
 
     ok.
+
+-doc """
+Verifies the following scenario:
+
+1) Create a connector, source and rule pointing to a toxiproxy server, which can point to
+   the broker itself.
+2) Cut the connection with toxiproxy.
+3) Send a few QoS 1 messages to the source’s topic.
+4) Wait for 2 connector health checks, so that the connector state is wiped out by the
+   resource manager restart attempts.
+5) Restore the connection in toxiproxy.
+
+When connection is reestablished, the messages that were queued up in the connector's
+session should trigger the rule actions.
+""".
+t_reconnect_with_session() ->
+    [{matrix, true}].
+t_reconnect_with_session(matrix) ->
+    [[?local, ?proto_v3, ?unclean_start]];
+t_reconnect_with_session(TCConfig) when is_list(TCConfig) ->
+    ProxyName = <<"mqtt_self_tcp">>,
+    ProxyHost = "toxiproxy",
+    ProxyPort = 8474,
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+
+    NodeBin = atom_to_binary(node()),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    ProtoVer = <<"v3">>,
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
+        <<"server">> => <<"toxiproxy:1883">>,
+        <<"clean_start">> => false,
+        <<"proto_ver">> => ProtoVer,
+        <<"static_clientids">> => [#{<<"node">> => NodeBin, <<"ids">> => [ClientId]}],
+        <<"resource_opts">> => #{
+            %% Quick interval so we can wait for a couple attempts before proceeding.
+            <<"health_check_interval">> => <<"200ms">>
+        }
+    }),
+    {201, #{<<"parameters">> := #{<<"topic">> := RemoteTopic}}} =
+        create_source_api(TCConfig, #{}),
+    #{id := RuleId, topic := RepublishTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(TCConfig),
+    {ok, _, [_]} = emqtt:subscribe(C, RepublishTopic, [{qos, 2}]),
+    %% Sanity check: source is initially working fine.
+    emqx:publish(emqx_message:make(RemoteTopic, <<"1">>)),
+    ?assertReceivePublish(#{payload := #{<<"payload">> := <<"1">>}}),
+
+    %% Cut the connection
+    on_exit(fun() -> emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort) end),
+    {ok, _} = emqx_common_test_helpers:enable_failure(down, ProxyName, ProxyHost, ProxyPort),
+
+    %% Enqueue some messages into the session.
+    lists:foreach(
+        fun(N) ->
+            Payload = integer_to_binary(N),
+            emqx:publish(emqx_message:make(<<"me">>, 1, RemoteTopic, Payload))
+        end,
+        lists:seq(2, 4)
+    ),
+
+    %% Wait for at least 2 health checks.
+    ct:sleep(2 * 200 + 100),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"disconnected">>}},
+            get_connector_api(TCConfig)
+        )
+    ),
+    ?assertMatch(
+        #{
+            counters := #{
+                %% only the smoke test message
+                'matched' := 1,
+                'passed' := 1,
+                'failed' := 0,
+                'failed.exception' := 0,
+                'failed.no_result' := 0,
+                'actions.total' := 1,
+                'actions.success' := 1,
+                'actions.failed' := 0,
+                'actions.failed.out_of_service' := 0,
+                'actions.failed.unknown' := 0
+            }
+        },
+        emqx_bridge_v2_testlib:get_rule_metrics(RuleId)
+    ),
+
+    %% Restore connection.  Should trigger rule actions.
+    {ok, _} = emqx_common_test_helpers:heal_failure(down, ProxyName, ProxyHost, ProxyPort),
+
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"connected">>}},
+            get_connector_api(TCConfig)
+        )
+    ),
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            #{
+                counters := #{
+                    'matched' := 4,
+                    'passed' := 4,
+                    'failed' := 0,
+                    'failed.exception' := 0,
+                    'failed.no_result' := 0,
+                    'actions.total' := 4,
+                    'actions.success' := 4,
+                    'actions.failed' := 0,
+                    'actions.failed.out_of_service' := 0,
+                    'actions.failed.unknown' := 0
+                }
+            },
+            emqx_bridge_v2_testlib:get_rule_metrics(RuleId)
+        )
+    ),
+    ?assertReceivePublish(#{payload := #{<<"payload">> := <<"2">>}}),
+    ?assertReceivePublish(#{payload := #{<<"payload">> := <<"3">>}}),
+    ?assertReceivePublish(#{payload := #{<<"payload">> := <<"4">>}}),
+
+    ok.
