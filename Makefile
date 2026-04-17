@@ -236,7 +236,7 @@ clean-all:
 	@rm -rf deps
 	@rm -rf _build
 	@rm -f emqx_dialyzer_*_plt*
-	@rm -rf apps/emqx_dashboard/priv
+	@rm -rf apps/emqx_dashboard/priv/{www,*.hocon}
 	@rm -rf apps/*/gen_src/*.{erl,hrl,asn1db}
 
 .PHONY: deps-all

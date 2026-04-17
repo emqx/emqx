@@ -201,6 +201,60 @@ t_cannot_start_due_to_invalid_prepare_statement(_Config) ->
         emqx_resource:health_check(?PGSQL_RESOURCE)
     ).
 
+%% Verify that concurrent raw queries do not produce errors because of race conditions.
+t_concurrent_raw_queries_no_errors(_Config) ->
+    N = 200,
+    {ok, _} = create_resource(?PGSQL_RESOURCE, pgsql_config(#{pool_size => 1})),
+    Self = self(),
+    [
+        spawn(fun() ->
+            Res = emqx_resource:simple_sync_query(
+                ?PGSQL_RESOURCE, {query, <<"SELECT $1::int">>, [I]}
+            ),
+            Self ! {result, Res}
+        end)
+     || I <- lists:seq(1, N)
+    ],
+    Results = [
+        receive
+            {result, R} -> R
+        after 5000 -> timeout
+        end
+     || _ <- lists:seq(1, N)
+    ],
+    Errors = [R || R <- Results, not match_ok(R)],
+    ?assertEqual([], Errors).
+
+%% Verify that concurrent prepared queries do not produce errors because of race conditions.
+t_concurrent_prepared_queries_no_errors(_Config) ->
+    N = 200,
+    {ok, _} = create_resource(
+        ?PGSQL_RESOURCE,
+        pgsql_config(#{pool_size => 1, prepare_statements => #{test => <<"SELECT $1::int">>}})
+    ),
+    Self = self(),
+    [
+        spawn(fun() ->
+            Res = emqx_resource:simple_sync_query(
+                ?PGSQL_RESOURCE, {prepared_query, test, [I]}
+            ),
+            Self ! {result, Res}
+        end)
+     || I <- lists:seq(1, N)
+    ],
+    Results = [
+        receive
+            {result, R} -> R
+        after 5000 -> timeout
+        end
+     || _ <- lists:seq(1, N)
+    ],
+    Errors = [R || R <- Results, not match_ok(R)],
+    ?assertEqual([], Errors).
+
+match_ok({ok, _, _}) -> true;
+match_ok(_) -> false.
+
 t_fallback_prepared_to_regular_query(_Config) ->
     {ok, _} = create_resource(
         ?PGSQL_RESOURCE,
