@@ -183,16 +183,15 @@ just_compile_elixir() {
     mix local.rebar rebar3 "${PWD}/rebar3" --if-missing --force
     # mix local.hex --if-missing --force
     mix local.hex 2.2.1 --if-missing --force
-    mix deps.get
+    ./scripts/mix-deps-quiet.sh mix deps.get
     mix compile
 }
 
 make_elixir_rel() {
     ./scripts/pre-compile.sh "$PROFILE"
     export_elixir_release_vars "$PROFILE"
-    # False positive: shellcheck thinks this `do` is a bash keyword...
-    # shellcheck disable=SC1010
-    mix do deps.get + release --overwrite
+    ./scripts/mix-deps-quiet.sh mix deps.get
+    mix release --overwrite
 }
 
 ## TODO: adjust for mix
