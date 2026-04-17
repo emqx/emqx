@@ -72,7 +72,6 @@ jobs:
     env:
       PROFILE: ${{ matrix.profile }}
       DOCKER_ORG: ${{ github.repository_owner }}
-      DOCKER_LATEST: ${{ inputs.latest }}
       ARCH: ${{ matrix.arch }}
 
     steps:
@@ -157,7 +156,6 @@ jobs:
 
     env:
       PROFILE: ${{ inputs.profile }}
-      DOCKER_LATEST: false
       ARCH: ${{ matrix.arch }}
 
     steps:
