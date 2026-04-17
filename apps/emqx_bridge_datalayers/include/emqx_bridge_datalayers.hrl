@@ -7,11 +7,13 @@
 
 %% datalayers servers don't need parse
 -define(DATALAYERS_HOST_ARROW_OPTIONS, #{
-    default_port => ?DATALAYERS_DEFAULT_ARROW_PORT
+    default_port => ?DATALAYERS_DEFAULT_ARROW_PORT,
+    ssrf_check => true
 }).
 
 -define(DATALAYERS_HOST_HTTP_OPTIONS, #{
-    default_port => ?DATALAYERS_DEFAULT_HTTP_PORT
+    default_port => ?DATALAYERS_DEFAULT_HTTP_PORT,
+    ssrf_check => true
 }).
 
 -define(DATALAYERS_DRIVER_TYPE_INFLUX, influxdb_v1).

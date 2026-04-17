@@ -30,7 +30,7 @@ namespace() -> "license_http_api".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{
-        check_schema => fun emqx_dashboard_swagger:validate_content_type_json/2
+        check_schema => true
     }).
 
 paths() ->
@@ -179,17 +179,8 @@ error_msg(Code, Msg) ->
     {400, error_msg(?BAD_REQUEST, <<"Invalid request params">>)}.
 
 '/license/session_hwm_history'(get, #{query_string := QS}) ->
-    Period =
-        case maps:get(<<"period">>, QS, <<"daily">>) of
-            <<"monthly">> -> monthly;
-            _ -> daily
-        end,
-    %% Daily defaults to 30 rows; monthly has no practical limit (retention is 24 months).
-    Limit =
-        case Period of
-            monthly -> 1_000_000;
-            daily -> maps:get(<<"limit">>, QS, 30)
-        end,
+    Period = maps:get(period, QS, daily),
+    Limit = maps:get(limit, QS, 30),
     Rows = emqx_license_session_hwm:list_history(Period, Limit),
     Data = [maps:remove(observed_at_ms, Row) || Row <- Rows],
     {200, #{period => Period, count => length(Data), data => Data}}.

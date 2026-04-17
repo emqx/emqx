@@ -67,7 +67,7 @@ elixir-common-deps: $(ELIXIR_COMMON_DEPS)
 
 .PHONY: mix-deps-get
 mix-deps-get: elixir-common-deps
-	@mix deps.get
+	@$(SCRIPTS)/mix-deps-quiet.sh mix deps.get
 
 .PHONY: eunit
 eunit: $(ELIXIR_COMMON_DEPS) merge-config
@@ -79,13 +79,13 @@ proper: $(ELIXIR_COMMON_DEPS)
 
 .PHONY: test-compile
 test-compile: $(REBAR) merge-config
-	env PROFILE=$(PROFILE)-test MIX_QUIET=1 $(MIX) deps.get
+	env PROFILE=$(PROFILE)-test $(SCRIPTS)/mix-deps-quiet.sh $(MIX) deps.get
 	env PROFILE=$(PROFILE)-test $(MIX) deps.compile cth_readable
 	env PROFILE=$(PROFILE)-test $(MIX) compile
 
 .PHONY: $(REL_PROFILES:%=%-compile)
 $(REL_PROFILES:%=%-compile): $(REBAR) merge-config
-	env PROFILE=$(@:%-compile=%) MIX_QUIET=1 $(MIX) deps.get
+	env PROFILE=$(@:%-compile=%) $(SCRIPTS)/mix-deps-quiet.sh $(MIX) deps.get
 	env PROFILE=$(@:%-compile=%) $(MIX) compile
 
 .PHONY: ct
