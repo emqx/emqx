@@ -92,15 +92,34 @@ resource_type() -> mqtt.
 callback_mode() -> async_if_possible.
 
 -spec on_start(connector_resource_id(), map()) -> {ok, connector_state()} | {error, term()}.
-on_start(ResourceId, #{server := Server} = Conf) ->
-    ?SLOG(info, #{
-        msg => "starting_mqtt_connector",
-        connector => ResourceId,
+on_start(ConnResId, #{server := Server} = Conf) ->
+    ?tp(info, "starting_mqtt_connector", #{
+        connector => ConnResId,
         config => emqx_utils:redact(Conf)
     }),
     TopicToHandlerIndex = emqx_topic_index:new(),
-    StartConf = Conf#{topic_to_handler_index => TopicToHandlerIndex},
-    case start_mqtt_clients(ResourceId, StartConf) of
+    ok = emqx_resource:allocate_resource(
+        ConnResId,
+        ?MODULE,
+        topic_to_handler_index,
+        TopicToHandlerIndex
+    ),
+    %% Introduced in 6.1
+    %% SubscriptionIdToHandlerIndex = maybe_new_subscription_id_index(Conf),
+    %% ok = emqx_resource:allocate_resource(
+    %%     ConnResId,
+    %%     ?MODULE,
+    %%     subscription_id_to_handler_index,
+    %%     SubscriptionIdToHandlerIndex
+    %% ),
+    PartialConnState = Conf#{
+        %% Introduced in 6.1
+        %% subscription_id_to_handler_index => SubscriptionIdToHandlerIndex,
+        topic_to_handler_index => TopicToHandlerIndex,
+        server => Server
+    },
+    maybe_add_sources_with_sessions_to_topic_handler(ConnResId, Conf, PartialConnState),
+    case start_mqtt_clients(ConnResId, PartialConnState) of
         {ok, Result1} ->
             {ok, Result1#{
                 installed_channels => #{},
@@ -109,7 +128,9 @@ on_start(ResourceId, #{server := Server} = Conf) ->
                 server => Server
             }};
         {error, Reason} ->
-            ets:delete(TopicToHandlerIndex),
+            %% Introduced in 6.1
+            %% maybe_delete_subscription_id_index(SubscriptionIdToHandlerIndex),
+            ets_delete(TopicToHandlerIndex),
             {error, emqx_maybe:define(explain_error(Reason), Reason)}
     end.
 
@@ -152,36 +173,30 @@ on_add_channel(
     NewState = OldState#{installed_channels => NewInstalledChannels},
     {ok, NewState};
 on_add_channel(
-    _ResourceId,
+    ConnResId,
     #{
         installed_channels := InstalledChannels,
         pool_name := PoolName,
         pool_size := PoolSize,
-        topic_to_handler_index := TopicToHandlerIndex,
-        server := Server
+
+        %% subscription_id_to_handler_index := _SubscriptionIdToHandlerIndex,
+        topic_to_handler_index := _TopicToHandlerIndex,
+        server := _Server
     } = OldState,
     ChannelId,
-    #{hookpoints := HookPoints} = ChannelConfig
+    #{hookpoints := _HookPoints} = ChannelConfig
 ) ->
-    %% Add ingress channel
-    RemoteParams0 = maps:get(parameters, ChannelConfig),
-    {LocalParams, RemoteParams} = take(local, RemoteParams0, #{}),
-    ChannelState0 = #{
-        hookpoints => HookPoints,
-        server => Server,
-        config_root => sources,
-        local => LocalParams,
-        remote => RemoteParams
-    },
-    ChannelState1 = mk_ingress_config(ChannelId, ChannelState0, TopicToHandlerIndex),
-    ok = emqx_bridge_mqtt_ingress:subscribe_channel(PoolName, ChannelState1),
+    ChannelState = do_add_sources_with_sessions_to_topic_handler(
+        ConnResId, OldState, ChannelId, ChannelConfig
+    ),
+    ok = emqx_bridge_mqtt_ingress:subscribe_channel(PoolName, ChannelState),
     ReconnectContext = #{
         chan_res_id => ChannelId,
-        ingress_config => ChannelState1,
+        ingress_config => ChannelState,
         pool_size => PoolSize
     },
     ok = emqx_bridge_mqtt_ingress:add_reconnect_callback(PoolName, ReconnectContext),
-    NewInstalledChannels = maps:put(ChannelId, ChannelState1, InstalledChannels),
+    NewInstalledChannels = maps:put(ChannelId, ChannelState, InstalledChannels),
     NewState = OldState#{installed_channels => NewInstalledChannels},
     {ok, NewState}.
 
@@ -199,8 +214,10 @@ on_remove_channel(
             %% maybe the channel failed to be added, just ignore it
             {ok, OldState};
         {ok, ChannelState} ->
+            %% No need to call unsubscribe if state is already gone.
+            IsTableValid = undefined /= ets:info(TopicToHandlerIndex, name),
             case ChannelState of
-                #{config_root := sources} ->
+                #{config_root := sources} when IsTableValid ->
                     ok = emqx_bridge_mqtt_ingress:remove_reconnect_callback(PoolName, ChannelId),
                     ok = emqx_bridge_mqtt_ingress:unsubscribe_channel(
                         PoolName, ChannelState, ChannelId, TopicToHandlerIndex
@@ -319,7 +336,7 @@ on_stop(ResourceId, State) ->
         undefined ->
             ok;
         TopicToHandlerIndex ->
-            ets:delete(TopicToHandlerIndex)
+            ets_delete(TopicToHandlerIndex)
     end,
     Allocated = emqx_resource:get_allocated_resources(ResourceId),
     ok = stop_helper(Allocated),
@@ -659,6 +676,61 @@ mk_client_event_handler(Name, TopicToHandlerIndex) ->
         disconnected => {fun ?MODULE:handle_disconnect/1, []}
     }.
 
+%% If we have `clean_start = false`, then we must add the sources' topics to the topic
+%% handler index before starting the MQTT clients.  Otherwise, upon connecting, there
+%% might be some messages arriving that were queued in the session which will have no
+%% handler assigned, and thus will be lost.
+%%
+%% When the channel is properly added to the state, adding the topics to the indices
+%% should be idempotent.
+maybe_add_sources_with_sessions_to_topic_handler(
+    _ConnResId, #{clean_start := true} = _ConnConfig, _PartialConnState
+) ->
+    ok;
+maybe_add_sources_with_sessions_to_topic_handler(ConnResId, #{} = _ConnConfig, PartialConnState) ->
+    lists:foreach(
+        fun
+            ({ChannelId, #{config_root := sources} = ChannelConfig}) ->
+                do_add_sources_with_sessions_to_topic_handler(
+                    ConnResId, PartialConnState, ChannelId, ChannelConfig
+                );
+            (_) ->
+                ok
+        end,
+        emqx_bridge_v2:get_channels_for_connector(ConnResId)
+    ).
+
+do_add_sources_with_sessions_to_topic_handler(
+    _ConnResId, PartialConnState, ChannelId, ChannelConfig
+) ->
+    #{
+        server := Server,
+        %% Introduced in 6.1
+        %% subscription_id_to_handler_index := SubscriptionIdToHandlerIndex,
+        topic_to_handler_index := TopicToHandlerIndex
+    } = PartialConnState,
+    #{hookpoints := HookPoints} = ChannelConfig,
+    %% Add ingress channel
+    RemoteParams0 = maps:get(parameters, ChannelConfig),
+    {LocalParams, RemoteParams} = take(local, RemoteParams0, #{}),
+    %% Introduced in 6.1
+    %% ok = ensure_queue_subscription_supported(RemoteParams, SubscriptionIdToHandlerIndex),
+    ChannelState0 = #{
+        hookpoints => HookPoints,
+        server => Server,
+        config_root => sources,
+        local => LocalParams,
+        remote => RemoteParams
+    },
+    %% This has the side-effect of adding a topic to the indices.
+    mk_ingress_config(
+        ChannelId,
+        ChannelState0,
+        %% Introduced in 6.1
+        %% SubscriptionIdToHandlerIndex,
+        TopicToHandlerIndex
+    ).
+
 -spec connect(pid(), name()) ->
     {ok, pid()} | {error, _Reason}.
 connect(Pid, Name) ->
@@ -735,3 +807,13 @@ is_expected_to_have_workers(#{available_clientids := []} = _ConnState) ->
     false;
 is_expected_to_have_workers(_ConnState) ->
     true.
+
+%% Can't just call `emqx_utils_ets:delete/1` for anonymous tables.
+ets_delete(Tid) ->
+    case ets:info(Tid, name) of
+        undefined ->
+            ok;
+        _ ->
+            ets:delete(Tid),
+            ok
+    end.
