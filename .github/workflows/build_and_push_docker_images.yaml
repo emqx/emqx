@@ -243,17 +243,18 @@ jobs:
 
   publish:
     runs-on: ubuntu-22.04
-    # `docker-sfodbc` is skipped for non-enterprise profiles. Without
-    # `!cancelled()`, any `needs:` on a skipped job propagates skip and the
-    # whole publish job (including the base variant) never runs. The
-    # explicit result-check expresses: "publish if docker succeeded and
-    # docker-sfodbc either succeeded or was skipped."
+    # The base variant only needs `docker` to succeed. A failed
+    # `docker-sfodbc` must not block the base publication, so the
+    # job-level `if:` checks only `docker`. The sf variant handles its
+    # own upstream gate in the Gate step below.
     if: |
-      !cancelled() && inputs.publish &&
-      needs.docker.result == 'success' &&
-      contains(fromJSON('["success", "skipped"]'), needs.docker-sfodbc.result)
+      !cancelled() && inputs.publish && needs.docker.result == 'success'
     needs:
       - docker
+      # docker-sfodbc is only consumed by the sf matrix variant, but
+      # GitHub Actions matrix entries share `needs:`, so both list it.
+      # The gate step below no-ops the sf variant when docker-sfodbc
+      # didn't succeed.
       - docker-sfodbc
     defaults:
       run:
@@ -288,14 +289,18 @@ jobs:
 
       - name: Gate variant on upstream
         id: gate
+        env:
+          VARIANT: ${{ matrix.variant }}
+          SFODBC_RESULT: ${{ needs.docker-sfodbc.result }}
         run: |
           # sf variant only runs when docker-sfodbc actually succeeded.
-          # For non-enterprise builds docker-sfodbc is skipped — in that
-          # case the sf matrix entry runs but no-ops past this step.
-          if [ "${{ matrix.variant }}" = "sf" ] && [ "${{ needs.docker-sfodbc.result }}" != "success" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
+          # For non-enterprise builds it's skipped; for a broken snowflake
+          # build it's failed. Either way, the sf matrix entry no-ops and
+          # the base variant still publishes.
+          if [ "$VARIANT" = "sf" ] && [ "$SFODBC_RESULT" != "success" ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+              echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
@@ -327,36 +332,32 @@ jobs:
           LOCAL_BASE="localhost:5000/${{ github.repository_owner }}/${PROFILE}"
           TARBALL_PREFIX="${{ matrix.tarball_prefix }}"
 
-          load_and_push() {
-              local arch="$1"
-              local tarball="images/${PROFILE}-${TARBALL_PREFIX}-${arch}.tar.gz"
-              local loaded_image
-              loaded_image=$(docker load < "$tarball" | grep "Loaded image:" | sed 's/Loaded image: //')
-              echo "Loaded ${arch} image: $loaded_image"
-              local version="${loaded_image##*:}"
-              local local_ref="${LOCAL_BASE}:${version}-${arch}"
-              docker tag "$loaded_image" "$local_ref"
-              docker push "$local_ref"
-              echo "$local_ref"
-              echo "$version"
-          }
+          # amd64
+          AMD64_LOADED=$(docker load < "images/${PROFILE}-${TARBALL_PREFIX}-amd64.tar.gz" | grep "Loaded image:" | sed 's/Loaded image: //')
+          echo "Loaded amd64 image: $AMD64_LOADED"
+          VERSION="${AMD64_LOADED##*:}"
+          AMD64_REF="${LOCAL_BASE}:${VERSION}-amd64"
+          docker tag "$AMD64_LOADED" "$AMD64_REF"
+          docker push "$AMD64_REF"
 
-          amd64_out=$(load_and_push amd64)
-          AMD64_REF=$(echo "$amd64_out" | sed -n '2p')
-          VERSION=$(echo "$amd64_out" | sed -n '3p')
-
-          arm64_out=$(load_and_push arm64)
-          ARM64_REF=$(echo "$arm64_out" | sed -n '2p')
-          ARM64_VERSION=$(echo "$arm64_out" | sed -n '3p')
+          # arm64
+          ARM64_LOADED=$(docker load < "images/${PROFILE}-${TARBALL_PREFIX}-arm64.tar.gz" | grep "Loaded image:" | sed 's/Loaded image: //')
+          echo "Loaded arm64 image: $ARM64_LOADED"
+          ARM64_VERSION="${ARM64_LOADED##*:}"
+          ARM64_REF="${LOCAL_BASE}:${ARM64_VERSION}-arm64"
+          docker tag "$ARM64_LOADED" "$ARM64_REF"
+          docker push "$ARM64_REF"
 
           if [ "$VERSION" != "$ARM64_VERSION" ]; then
               echo "error: amd64 version ($VERSION) does not match arm64 version ($ARM64_VERSION)" >&2
               exit 1
           fi
 
-          echo "amd64_ref=$AMD64_REF" >> "$GITHUB_OUTPUT"
-          echo "arm64_ref=$ARM64_REF" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          {
+              echo "amd64_ref=$AMD64_REF"
+              echo "arm64_ref=$ARM64_REF"
+              echo "version=$VERSION"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Assemble and push multi-arch manifest
         if: steps.gate.outputs.skip == 'false'
