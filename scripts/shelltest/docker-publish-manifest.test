@@ -1,0 +1,24 @@
+./docker-publish-manifest.sh --dry-run --source localhost:5000/emqx/emqx-enterprise:6.2.0-amd64 --source localhost:5000/emqx/emqx-enterprise:6.2.0-arm64 --tag docker.io/emqx/emqx-enterprise:6.2.0
+>>>
+docker buildx imagetools create --tag docker.io/emqx/emqx-enterprise:6.2.0 localhost:5000/emqx/emqx-enterprise:6.2.0-amd64 localhost:5000/emqx/emqx-enterprise:6.2.0-arm64
+>>>= 0
+
+./docker-publish-manifest.sh --dry-run --source localhost:5000/emqx/emqx-enterprise:6.2.0-amd64 --source localhost:5000/emqx/emqx-enterprise:6.2.0-arm64 --tag docker.io/emqx/emqx-enterprise:6.2.0 --tag docker.io/emqx/emqx:6.2.0 --tag docker.io/emqx/emqx-enterprise:latest --tag docker.io/emqx/emqx:latest
+>>>
+docker buildx imagetools create --tag docker.io/emqx/emqx-enterprise:6.2.0 --tag docker.io/emqx/emqx:6.2.0 --tag docker.io/emqx/emqx-enterprise:latest --tag docker.io/emqx/emqx:latest localhost:5000/emqx/emqx-enterprise:6.2.0-amd64 localhost:5000/emqx/emqx-enterprise:6.2.0-arm64
+>>>= 0
+
+./docker-publish-manifest.sh --dry-run --tag docker.io/emqx/emqx-enterprise:6.2.0
+>>>2
+error: at least one --source is required
+>>>= 1
+
+./docker-publish-manifest.sh --dry-run --source localhost:5000/emqx/emqx-enterprise:6.2.0-amd64
+>>>2
+error: at least one --tag is required
+>>>= 1
+
+./docker-publish-manifest.sh --dry-run --source localhost:5000/emqx/emqx-enterprise:6.2.0-amd64 --tag docker.io/emqx/emqx-enterprise:6.2.0 --unknown-flag
+>>>2
+error: unknown argument: --unknown-flag
+>>>= 1
