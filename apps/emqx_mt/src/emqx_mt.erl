@@ -28,7 +28,8 @@
 -type tns() :: binary().
 -type tns_details() :: #{
     name := tns(),
-    created_at := integer() | undefined
+    created_at := integer() | undefined,
+    config => emqx_mt_config:root_config()
 }.
 -type clientid() :: emqx_types:clientid().
 
