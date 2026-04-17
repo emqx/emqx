@@ -63,7 +63,7 @@ run(
     io:format(user, "LookupTimeAverage: ~ts~n", [ns(PubsTime / Pubs)]),
     io:format(user, "LookupRps: ~p~n", [rps(Pubs * PubOps, T2)]),
 
-    io:format(user, "mnesia table(s) RAM: ~p~n", [ram_bytes()]),
+    io:format(user, "mnesia table(s) RAM: ~p~n", [emqx_trie:ram_bytes()]),
 
     io:format(user, "unsubscribe ...~n", []),
     {T3, ok} =
@@ -88,17 +88,6 @@ ns(T) when T > 1_000_000 -> io_lib:format("~p(s)", [T / 1_000_000]);
 ns(T) when T > 1_000 -> io_lib:format("~p(ms)", [T / 1_000]);
 ns(T) -> io_lib:format("~p(ns)", [T]).
 
-ram_bytes() ->
-    Wordsize = erlang:system_info(wordsize),
-    mnesia:table_info(emqx_trie, memory) * Wordsize +
-        case lists:member(emqx_trie_node, ets:all()) of
-            true ->
-                %% before 4.3
-                mnesia:table_info(emqx_trie_node, memory) * Wordsize;
-            false ->
-                0
-        end.
-
 start_callers(N, F, Settings) ->
     start_callers(N, F, Settings, []).
 
@@ -122,7 +111,7 @@ start_subscriber(#{id := Id, sub_ops := N, sub_ptn := SubPtn}) ->
     Parent = self(),
     proc_lib:spawn_link(
         fun() ->
-            SubTopics = make_topics(SubPtn, Id, N),
+            SubTopics = make_topics(SubPtn, ID, N),
             Parent ! {self(), subscriber_ready, 0},
             receive
                 start_subscribe ->
