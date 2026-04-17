@@ -56,51 +56,31 @@ init_per_group(restapi = Type, Config0) ->
     IotDbVersion = ?VSN_2_0_X,
     DefaultPort = "58080",
     Port = list_to_integer(os:getenv("IOTDB_PLAIN_PORT", DefaultPort)),
-    case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
-        true ->
-            Config = emqx_bridge_v2_testlib:init_per_group(Type, ?BRIDGE_TYPE_BIN, Config0),
-            [
-                {bridge_host, Host},
-                {bridge_port, Port},
-                {rest_port, Port},
-                {proxy_name, <<"iotdb205_rest">>},
-                {iotdb_version, IotDbVersion},
-                {iotdb_rest_prefix, <<"/rest/table/v1/">>}
-                | Config
-            ];
-        false ->
-            case os:getenv("IS_CI") of
-                "yes" ->
-                    throw(no_iotdb);
-                _ ->
-                    {skip, no_iotdb}
-            end
-    end;
+    Config = emqx_bridge_v2_testlib:init_per_group(Type, ?BRIDGE_TYPE_BIN, Config0),
+    [
+        {bridge_host, Host},
+        {bridge_port, Port},
+        {rest_port, Port},
+        {proxy_name, <<"iotdb205_rest">>},
+        {iotdb_version, IotDbVersion},
+        {iotdb_rest_prefix, <<"/rest/table/v1/">>}
+        | Config
+    ];
 init_per_group(thrift = Type, Config0) ->
     Host = os:getenv("IOTDB_THRIFT_HOST", "toxiproxy.emqx.net"),
     Port = list_to_integer(os:getenv("IOTDB_THRIFT_PORT", "56667")),
     DefaultPort = "58080",
     RestPort = list_to_integer(os:getenv("IOTDB_PLAIN_PORT", DefaultPort)),
-    case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
-        true ->
-            Config = emqx_bridge_v2_testlib:init_per_group(Type, ?BRIDGE_TYPE_BIN, Config0),
-            [
-                {bridge_host, Host},
-                {bridge_port, Port},
-                {rest_port, RestPort},
-                {proxy_name, <<"iotdb205_thrift">>},
-                {iotdb_version, ?PROTOCOL_V3},
-                {iotdb_rest_prefix, <<"/rest/table/v1/">>}
-                | Config
-            ];
-        false ->
-            case os:getenv("IS_CI") of
-                "yes" ->
-                    throw(no_iotdb);
-                _ ->
-                    {skip, no_iotdb}
-            end
-    end;
+    Config = emqx_bridge_v2_testlib:init_per_group(Type, ?BRIDGE_TYPE_BIN, Config0),
+    [
+        {bridge_host, Host},
+        {bridge_port, Port},
+        {rest_port, RestPort},
+        {proxy_name, <<"iotdb205_thrift">>},
+        {iotdb_version, ?PROTOCOL_V3},
+        {iotdb_rest_prefix, <<"/rest/table/v1/">>}
+        | Config
+    ];
 init_per_group(_Group, Config) ->
     Config.
 

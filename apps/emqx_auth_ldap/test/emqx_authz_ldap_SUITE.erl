@@ -20,22 +20,16 @@ groups() ->
     emqx_authz_test_lib:table_groups(t_run_case, cases()).
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_tcp_server_available(?LDAP_HOST, ?LDAP_DEFAULT_PORT) of
-        true ->
-            Apps = emqx_cth_suite:start(
-                [
-                    emqx,
-                    {emqx_conf,
-                        "authorization.no_match = deny, authorization.cache.enable = false"},
-                    emqx_auth,
-                    emqx_auth_ldap
-                ],
-                #{work_dir => emqx_cth_suite:work_dir(Config)}
-            ),
-            [{apps, Apps} | Config];
-        false ->
-            {skip, no_ldap}
-    end.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            {emqx_conf, "authorization.no_match = deny, authorization.cache.enable = false"},
+            emqx_auth,
+            emqx_auth_ldap
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
