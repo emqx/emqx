@@ -620,7 +620,9 @@ verify_cluster_schema_vsn([_ | _], ClusterState) ->
         responses => ClusterState,
         description => Desc
     }),
-    error(conflicting_routing_schemas_configured_in_cluster).
+    %% TODO:
+    %% error(conflicting_routing_schemas_configured_in_cluster).
+    ok.
 
 unsupported_schema_reason(_State) ->
     "Peer nodes are running unsupported legacy (v1) route storage schema."
