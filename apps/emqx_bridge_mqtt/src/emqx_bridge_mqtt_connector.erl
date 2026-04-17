@@ -319,28 +319,21 @@ get_available_clientid_info(#{} = Conf, ClientOpts) ->
             )
     end.
 
-on_stop(ResourceId, State) ->
+on_stop(ConnResId, _State) ->
     ?SLOG(info, #{
         msg => "stopping_mqtt_connector",
-        resource_id => ResourceId
+        resource_id => ConnResId
     }),
     %% on_stop can be called with State = undefined
-    StateMap =
-        case State of
-            Map when is_map(State) ->
-                Map;
-            _ ->
-                #{}
-        end,
-    case maps:get(topic_to_handler_index, StateMap, undefined) of
+    Allocated = emqx_resource:get_allocated_resources(ConnResId),
+    case maps:get(topic_to_handler_index, Allocated, undefined) of
         undefined ->
             ok;
         TopicToHandlerIndex ->
             ets_delete(TopicToHandlerIndex)
     end,
-    Allocated = emqx_resource:get_allocated_resources(ResourceId),
     ok = stop_helper(Allocated),
-    ?tp(mqtt_connector_stopped, #{instance_id => ResourceId}),
+    ?tp(mqtt_connector_stopped, #{instance_id => ConnResId}),
     ok.
 
 stop_helper(#{pool_name := PoolName}) ->
