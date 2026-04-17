@@ -424,7 +424,7 @@ do_test_file_validations(Context) ->
                 %% Using PEM contents directly
                 ?assertMatch(
                     {error, #{
-                        reason := encryped_keyfile_missing_password,
+                        reason := encrypted_keyfile_missing_password,
                         which_option := <<"keyfile">>
                     }},
                     emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
@@ -435,7 +435,7 @@ do_test_file_validations(Context) ->
                 %% Using filepath
                 ?assertMatch(
                     {error, #{
-                        reason := encryped_keyfile_missing_password,
+                        reason := encrypted_keyfile_missing_password,
                         which_option := <<"keyfile">>
                     }},
                     emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
