@@ -38,7 +38,7 @@ init_per_suite(Config) ->
         [{emqx, #{override_env => [{boot_modules, [broker]}]}}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    ok = mria:wait_for_tables(emqx_trie:create_trie()),
+    ok = mria:wait_for_tables(emqx_trie:create_trie_v2()),
     [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -181,6 +181,6 @@ clear_tables() ->
     emqx_trie:clear_tables().
 
 trans(Fun) ->
-    mria:transaction(?ROUTE_SHARD, Fun).
+    mria:transaction(?ROUTE_SHARD_V2, Fun).
 trans(Fun, Args) ->
-    mria:transaction(?ROUTE_SHARD, Fun, Args).
+    mria:transaction(?ROUTE_SHARD_V2, Fun, Args).
