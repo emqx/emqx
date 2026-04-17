@@ -69,17 +69,7 @@
     group :: emqx_types:group()
 }).
 
-%% TODO: extract type and separate it to mem/persistent/external
--record(route, {
-    topic :: binary(),
-    dest ::
-        node()
-        | {binary(), node()}
-        | emqx_session:session_id()
-        %% One session can also have multiple subscriptions to the same topic through different groups
-        | #share_dest{}
-        | emqx_external_broker:dest()
-}).
+-record(route, {topic, dest}).
 
 %%--------------------------------------------------------------------
 %% Command
