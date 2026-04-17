@@ -85,17 +85,18 @@
 -type dest() :: node() | {group(), node()}.
 
 %% Storage schema.
-%% * `v2` is current implementation.
-%% * `v1` is no longer supported since 5.10.
--type schemavsn() :: v1 | v2.
+%% * `v3' current implementation.
+%% * `v2' similar to the current implementation, but used regular mria tables
+%% * `v1' is no longer supported since 5.10.
+-type schemavsn() :: v1 | v2 | v3.
 
 %% Operation :: {add, ...} | {delete, ...}.
 -type batch() :: #{batch_route() => _Operation :: tuple()}.
 -type batch_route() :: {emqx_types:topic(), dest()}.
 
 -record(routeidx, {
-    entry :: '$1' | emqx_topic_index:key(dest()),
-    unused = [] :: nil()
+    entry :: '$1' | {'_', '$1'} | emqx_topic_index:key(dest()),
+    unused = [] :: _
 }).
 
 -define(dest_patterns(NodeOrExtDest),
@@ -122,7 +123,52 @@
 %%--------------------------------------------------------------------
 
 create_tables() ->
-    create_tables_v2().
+    case get_schema_vsn() of
+        v2 -> create_tables_v2();
+        v3 -> create_tables_v3()
+    end.
+
+create_tables_v3() ->
+    ok = mria:create_table(?ROUTE_TAB_V3, [
+        {merge_table, true},
+        {auto_clean, true},
+        {node_pattern, [
+            #route{dest = '$1', _ = '_'},
+            #route{dest = {'_', '$1'}, _ = '_'}
+        ]},
+        {type, bag},
+        {rlog_shard, ?ROUTE_SHARD_V3},
+        {storage, ram_copies},
+        {record_name, route},
+        {attributes, record_info(fields, route)},
+        {storage_properties, [
+            {ets, [
+                {read_concurrency, true},
+                {write_concurrency, true}
+            ]}
+        ]}
+    ]),
+    ok = mria:create_table(?ROUTE_TAB_FILTERS_V3, [
+        {merge_table, true},
+        {auto_clean, true},
+        {node_pattern, [
+            #routeidx{entry = '$1', _ = '_'},
+            #routeidx{entry = {'_', '$1'}, _ = '_'}
+        ]},
+        {type, ordered_set},
+        {rlog_shard, ?ROUTE_SHARD_V3},
+        {storage, ram_copies},
+        {record_name, routeidx},
+        {attributes, record_info(fields, routeidx)},
+        {storage_properties, [
+            {ets, [
+                {read_concurrency, true},
+                {write_concurrency, true},
+                {decentralized_counters, true}
+            ]}
+        ]}
+    ]),
+    [?ROUTE_TAB_V3, ?ROUTE_TAB_FILTERS_V3].
 
 create_tables_v2() ->
     mria_config:set_dirty_shard(?ROUTE_SHARD_V2, true),
@@ -293,11 +339,14 @@ mria_batch_operation_v2(delete, Topic, Dest) ->
     mria_delete_route_v2(Topic, Dest, batch).
 
 %%--------------------------------------------------------------------
-%% Schema v2
+%% Schema v2 and v3
+%%
 %% One bag table exclusively for regular, non-filter subscription
 %% topics, and one `emqx_topic_index` table exclusively for wildcard
 %% topics. Writes go to only one of the two tables at a time.
-%% --------------------------------------------------------------------
+%%
+%% v3 schema uses mria merged tables
+%%--------------------------------------------------------------------
 
 mria_insert_route_v2(Topic, Dest, Ctx) ->
     case emqx_trie_search:filter(Topic) of
@@ -309,9 +358,9 @@ mria_insert_route_v2(Topic, Dest, Ctx) ->
     end.
 
 mria_filter_tab_insert(K, single) ->
-    mria:dirty_write(?ROUTE_TAB_FILTERS_V2, #routeidx{entry = K});
+    mria:dirty_write(route_filters_table(), #routeidx{entry = K});
 mria_filter_tab_insert(K, batch) ->
-    mnesia:write(?ROUTE_TAB_FILTERS_V2, #routeidx{entry = K}, write).
+    mnesia:write(route_filters_table(), #routeidx{entry = K}, write).
 
 mria_delete_route_v2(Topic, Dest, Ctx) ->
     case emqx_trie_search:filter(Topic) of
@@ -323,35 +372,35 @@ mria_delete_route_v2(Topic, Dest, Ctx) ->
     end.
 
 mria_route_tab_insert(Route, single) ->
-    mria:dirty_write(?ROUTE_TAB_V2, Route);
+    mria:dirty_write(route_table(), Route);
 mria_route_tab_insert(Route, batch) ->
-    mnesia:write(?ROUTE_TAB_V2, Route, write).
+    mnesia:write(route_table(), Route, write).
 
 mria_route_tab_delete(Route, single) ->
-    mria:dirty_delete_object(?ROUTE_TAB_V2, Route);
+    mria:dirty_delete_object(route_table(), Route);
 mria_route_tab_delete(Route, batch) ->
-    mnesia:delete_object(?ROUTE_TAB_V2, Route, write).
+    mnesia:delete_object(route_table(), Route, write).
 
 mria_filter_tab_delete(K, single) ->
-    mria:dirty_delete(?ROUTE_TAB_FILTERS_V2, K);
+    mria:dirty_delete(route_filters_table(), K);
 mria_filter_tab_delete(K, batch) ->
-    mnesia:delete(?ROUTE_TAB_FILTERS_V2, K, write).
+    mnesia:delete(route_filters_table(), K, write).
 
 match_routes_v2(Topic) ->
     lookup_route_tab(Topic) ++
         [match_to_route(M) || M <- match_filters(Topic)].
 
 lookup_route_tab(Topic) ->
-    ets:lookup(?ROUTE_TAB_V2, Topic).
+    ets:lookup(route_table(), Topic).
 
 match_filters(Topic) ->
-    emqx_topic_index:matches(Topic, ?ROUTE_TAB_FILTERS_V2, []).
+    emqx_topic_index:matches(Topic, route_filters_table(), []).
 
 lookup_routes_v2(Topic) ->
     case emqx_topic:wildcard(Topic) of
         true ->
             Pat = #routeidx{entry = emqx_topic_index:make_key(Topic, '$1')},
-            [#route{topic = Topic, dest = Dest} || [Dest] <- ets:match(?ROUTE_TAB_FILTERS_V2, Pat)];
+            [#route{topic = Topic, dest = Dest} || [Dest] <- ets:match(route_filters_table(), Pat)];
         false ->
             lookup_route_tab(Topic)
     end.
@@ -359,13 +408,13 @@ lookup_routes_v2(Topic) ->
 has_route_v2(Topic, Dest) ->
     case emqx_topic:wildcard(Topic) of
         true ->
-            ets:member(?ROUTE_TAB_FILTERS_V2, emqx_topic_index:make_key(Topic, Dest));
+            ets:member(route_filters_table(), emqx_topic_index:make_key(Topic, Dest));
         false ->
             has_route_tab_entry(Topic, Dest)
     end.
 
 has_route_tab_entry(Topic, Dest) ->
-    [] =/= ets:match(?ROUTE_TAB_V2, #route{topic = Topic, dest = Dest}).
+    [] =/= ets:match(route_table(), #route{topic = Topic, dest = Dest}).
 
 cleanup_routes_v2(NodeOrExtDest) ->
     ?with_fallback(
@@ -373,11 +422,11 @@ cleanup_routes_v2(NodeOrExtDest) ->
             fun(Pattern) ->
                 _ = throw_unsupported(
                     mria:match_delete(
-                        ?ROUTE_TAB_FILTERS_V2,
+                        route_filters_table(),
                         #routeidx{entry = emqx_trie_search:make_pat('_', Pattern)}
                     )
                 ),
-                throw_unsupported(mria:match_delete(?ROUTE_TAB_V2, make_route_rec_pat(Pattern)))
+                throw_unsupported(mria:match_delete(route_table(), make_route_rec_pat(Pattern)))
             end,
             ?dest_patterns(NodeOrExtDest)
         ),
@@ -391,25 +440,25 @@ cleanup_routes_v2_fallback(NodeOrExtDest) ->
         fun(#routeidx{entry = K}, ok) ->
             case get_dest_node(emqx_topic_index:get_id(K)) of
                 NodeOrExtDest ->
-                    mria:dirty_delete(?ROUTE_TAB_FILTERS_V2, K);
+                    mria:dirty_delete(route_filters_table(), K);
                 _ ->
                     ok
             end
         end,
         ok,
-        ?ROUTE_TAB_FILTERS_V2
+        route_filters_table()
     ),
     ok = ets:foldl(
         fun(#route{dest = Dest} = Route, ok) ->
             case get_dest_node(Dest) of
                 NodeOrExtDest ->
-                    mria:dirty_delete_object(?ROUTE_TAB_V2, Route);
+                    mria:dirty_delete_object(route_table(), Route);
                 _ ->
                     ok
             end
         end,
         ok,
-        ?ROUTE_TAB_V2
+        route_table()
     ).
 
 get_dest_node({external, _} = ExtDest) ->
@@ -434,18 +483,24 @@ make_route_rec_pat(DestPattern) ->
 
 stream_v2(Spec) ->
     emqx_utils_stream:chain(
-        mk_route_stream(?ROUTE_TAB_V2, Spec),
-        mk_route_stream(?ROUTE_TAB_FILTERS_V2, Spec)
+        mk_route_stream(route_table(), Spec),
+        mk_route_stream(route_filters_table(), Spec)
     ).
 
-mk_route_stream(Tab = ?ROUTE_TAB_V2, {MTopic, MDest}) ->
+mk_route_stream(Tab, {MTopic, MDest}) when
+    Tab =:= ?ROUTE_TAB_V2;
+    Tab =:= ?ROUTE_TAB_V3
+->
     emqx_utils_stream:ets(fun
         (undefined) ->
             ets:match_object(Tab, #route{topic = MTopic, dest = MDest}, 1);
         (Cont) ->
             ets:match_object(Cont)
     end);
-mk_route_stream(Tab = ?ROUTE_TAB_FILTERS_V2, {MTopic, MDest}) ->
+mk_route_stream(Tab, {MTopic, MDest}) when
+    Tab =:= ?ROUTE_TAB_FILTERS_V2;
+    Tab =:= ?ROUTE_TAB_FILTERS_V3
+->
     emqx_utils_stream:map(
         fun routeidx_to_route/1,
         emqx_utils_stream:ets(
@@ -461,21 +516,21 @@ mk_route_stream(Tab = ?ROUTE_TAB_FILTERS_V2, {MTopic, MDest}) ->
 
 list_topics_v2() ->
     Pat = #routeidx{entry = '$1'},
-    Filters = [emqx_topic_index:get_topic(K) || [K] <- ets:match(?ROUTE_TAB_FILTERS_V2, Pat)],
+    Filters = [emqx_topic_index:get_topic(K) || [K] <- ets:match(route_filters_table(), Pat)],
     list_route_tab_topics() ++ Filters.
 
 list_route_tab_topics() ->
-    mnesia:dirty_all_keys(?ROUTE_TAB_V2).
+    mnesia:dirty_all_keys(route_table()).
 
 get_stats_v2(n_routes) ->
-    NTopics = emqx_maybe:define(ets:info(?ROUTE_TAB_V2, size), 0),
-    NWildcards = emqx_maybe:define(ets:info(?ROUTE_TAB_FILTERS_V2, size), 0),
+    NTopics = emqx_maybe:define(ets:info(route_table(), size), 0),
+    NWildcards = emqx_maybe:define(ets:info(route_filters_table(), size), 0),
     NTopics + NWildcards.
 
 fold_routes_v2(FunName, FoldFun, AccIn) ->
     FilterFoldFun = mk_filtertab_fold_fun(FoldFun),
-    Acc = ets:FunName(FoldFun, AccIn, ?ROUTE_TAB_V2),
-    ets:FunName(FilterFoldFun, Acc, ?ROUTE_TAB_FILTERS_V2).
+    Acc = ets:FunName(FoldFun, AccIn, route_table()),
+    ets:FunName(FilterFoldFun, Acc, route_filters_table()).
 
 mk_filtertab_fold_fun(FoldFun) ->
     fun(#routeidx{entry = K}, Acc) -> FoldFun(match_to_route(K), Acc) end.
@@ -492,9 +547,11 @@ match_to_route(M) ->
 
 %% @doc Get the schema version in use.
 %% BPAPI RPC Target @ emqx_router_proto
+-compile({inline, get_schema_vsn/0}).
 -spec get_schema_vsn() -> schemavsn().
 get_schema_vsn() ->
-    v2.
+    %% FIXME: use proper detection
+    v3.
 
 -spec init_schema() -> ok.
 init_schema() ->
@@ -637,3 +694,17 @@ terminate(_Reason, #{pool := Pool, id := Id}) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+-compile({inline, route_filters_table/0}).
+route_filters_table() ->
+    case get_schema_vsn() of
+        v3 -> ?ROUTE_TAB_FILTERS_V3;
+        v2 -> ?ROUTE_TAB_FILTERS_V2
+    end.
+
+-compile({inline, route_table/0}).
+route_table() ->
+    case get_schema_vsn() of
+        v3 -> ?ROUTE_TAB_V3;
+        v2 -> ?ROUTE_TAB_V2
+    end.
