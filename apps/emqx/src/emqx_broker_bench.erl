@@ -107,7 +107,7 @@ collect_results([Pid | Pids], Tag, R) ->
             collect_results(Pids, Tag, N + R)
     end.
 
-start_subscriber(#{id := Id, sub_ops := N, sub_ptn := SubPtn}) ->
+start_subscriber(#{id := ID, sub_ops := N, sub_ptn := SubPtn}) ->
     Parent = self(),
     proc_lib:spawn_link(
         fun() ->
@@ -127,12 +127,12 @@ start_subscriber(#{id := Id, sub_ops := N, sub_ptn := SubPtn}) ->
         end
     ).
 
-start_publisher(#{id := Id, pub_ops := N, pub_ptn := PubPtn, subscribers := Subs}) ->
+start_publisher(#{id := ID, pub_ops := N, pub_ptn := PubPtn, subscribers := Subs}) ->
     Parent = self(),
     proc_lib:spawn_link(
         fun() ->
             L = lists:seq(1, N),
-            [Topic] = make_topics(PubPtn, (Id rem Subs) + 1, 1),
+            [Topic] = make_topics(PubPtn, (ID rem Subs) + 1, 1),
             receive
                 start_lookup ->
                     ok
@@ -152,9 +152,9 @@ subscribe([Topic | Rest]) ->
     ok = emqx_broker:subscribe(Topic),
     subscribe(Rest).
 
-make_topics(Ptn0, Id, Limit) ->
+make_topics(Ptn0, ID, Limit) ->
     Ptn = emqx_topic:words(Ptn0),
-    F = fun(N) -> render(Id, N, Ptn) end,
+    F = fun(N) -> render(ID, N, Ptn) end,
     lists:map(F, lists:seq(1, Limit)).
 
 render(ID, N, Ptn) ->
