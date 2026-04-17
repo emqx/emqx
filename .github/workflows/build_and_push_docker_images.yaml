@@ -258,6 +258,7 @@ jobs:
 
     env:
       PROFILE: ${{ inputs.profile }}
+      DOCKER_LATEST: ${{ inputs.latest }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -297,16 +298,26 @@ jobs:
           docker tag "$ARM64_IMAGE" "${LOCAL_BASE}:${VERSION}-arm64"
           docker push "${LOCAL_BASE}:${VERSION}-arm64"
 
-          # Create multiarch manifests and push to docker.io
-          DOCKER_IO_PROFILE_TAG="docker.io/${{ github.repository_owner }}/${PROFILE}:$VERSION"
-          DOCKER_IO_EMQX_TAG="docker.io/emqx/emqx:$VERSION"
+          # Assemble the list of destination tags for the multiarch manifest
+          TARGET_TAGS=(
+            "docker.io/${{ github.repository_owner }}/${PROFILE}:${VERSION}"
+            "docker.io/emqx/emqx:${VERSION}"
+          )
+          if [ "${DOCKER_LATEST}" = "true" ]; then
+            TARGET_TAGS+=(
+              "docker.io/${{ github.repository_owner }}/${PROFILE}:latest"
+              "docker.io/emqx/emqx:latest"
+            )
+          fi
 
           echo "Creating multiarch manifest for docker.io:"
-          echo "  - $DOCKER_IO_PROFILE_TAG"
-          echo "  - $DOCKER_IO_EMQX_TAG"
+          TAG_ARGS=()
+          for t in "${TARGET_TAGS[@]}"; do
+            echo "  - $t"
+            TAG_ARGS+=(--tag "$t")
+          done
           docker buildx imagetools create \
-            --tag "$DOCKER_IO_PROFILE_TAG" \
-            --tag "$DOCKER_IO_EMQX_TAG" \
+            "${TAG_ARGS[@]}" \
             "${LOCAL_BASE}:${VERSION}-amd64" \
             "${LOCAL_BASE}:${VERSION}-arm64"
 
