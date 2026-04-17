@@ -210,7 +210,7 @@ t_collect_prom_data(Config) ->
 %% Helper fns
 %%--------------------------------------------------------------------
 
-assert_data(_Module, {Code, Header, RawDataBinary}, #{type := <<"prometheus">>, mode := Mode}) ->
+assert_data(Module, {Code, Header, RawDataBinary}, #{type := <<"prometheus">>, mode := Mode}) ->
     ?assertEqual(Code, 200),
     ?assertMatch(#{<<"content-type">> := <<"text/plain">>}, Header),
     DataL = lists:filter(
@@ -224,7 +224,7 @@ assert_data(_Module, {Code, Header, RawDataBinary}, #{type := <<"prometheus">>, 
         end,
         binary:split(RawDataBinary, [<<"\n">>], [global])
     ),
-    assert_prom_data(DataL, Mode);
+    assert_prom_data(DataL, Mode, Module);
 assert_data(Module, {Code, JsonData}, #{type := <<"json">>, mode := Mode}) ->
     ?assertEqual(Code, 200),
     ?assertMatch(#{}, JsonData),
@@ -232,13 +232,17 @@ assert_data(Module, {Code, JsonData}, #{type := <<"json">>, mode := Mode}) ->
 
 %%%%%%%%%%%%%%%%%%%%
 %% assert text/plain format
-assert_prom_data(DataL, Mode) ->
+assert_prom_data(DataL, Mode, Module) ->
     NDataL = lists:map(
         fun(Line) ->
             binary:split(Line, [<<"{">>, <<",">>, <<"} ">>, <<" ">>], [global])
         end,
         DataL
     ),
+    case Module of
+        emqx_prometheus -> assert_prom_data_required_metrics(NDataL);
+        _ -> ok
+    end,
     do_assert_prom_data(NDataL, Mode).
 
 -define(MGU(K, MAP), maps:get(K, MAP, undefined)).
@@ -278,6 +282,26 @@ do_assert_prom_data([Metric | RestDataL], Mode) ->
     assert_stats_metric_labels(Metric, Mode),
     do_assert_prom_data(RestDataL, Mode).
 
+assert_prom_data_required_metrics(NDataL) ->
+    MetricNames = sets:from_list([Name || [Name | _] <- NDataL]),
+    lists:foreach(
+        fun(Required) ->
+            ?assert(
+                sets:is_element(Required, MetricNames),
+                lists:flatten(
+                    io_lib:format("Required metric ~s not found in prometheus output", [Required])
+                )
+            )
+        end,
+        required_prom_metrics()
+    ).
+
+required_prom_metrics() ->
+    [
+        <<"emqx_routes_count">>,
+        <<"emqx_routes_max">>
+    ].
+
 assert_stats_metric_labels([MetricName | R] = _Metric, Mode) ->
     %% The last element is the value
     LabelCount = length(R) - 1,
@@ -310,6 +334,8 @@ metric_meta(<<"emqx_cluster_sessions_count">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_cluster_sessions_max">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_topics_max">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_topics_count">>) -> ?meta(0, 0, 0);
+metric_meta(<<"emqx_routes_count">>) -> ?meta(0, 0, 0);
+metric_meta(<<"emqx_routes_max">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_retained_count">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_retained_max">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_subscriptions_shared_count">>) -> ?meta(0, 0, 0);
@@ -439,6 +465,8 @@ assert_json_data__stats(M, Mode) when
             emqx_channels_max := _,
             emqx_topics_count := _,
             emqx_topics_max := _,
+            emqx_routes_count := _,
+            emqx_routes_max := _,
             emqx_suboptions_count := _,
             emqx_suboptions_max := _,
             emqx_subscribers_count := _,

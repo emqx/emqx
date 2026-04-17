@@ -390,6 +390,8 @@ emqx_collect(K = emqx_durable_subscriptions_count, D) -> gauge_metrics(?MG(K, D)
 emqx_collect(K = emqx_durable_subscriptions_max, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_topics_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_topics_max, D) -> gauge_metrics(?MG(K, D));
+emqx_collect(K = emqx_routes_count, D) -> gauge_metrics(?MG(K, D));
+emqx_collect(K = emqx_routes_max, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_suboptions_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_suboptions_max, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_subscribers_count, D) -> gauge_metrics(?MG(K, D));
@@ -639,6 +641,9 @@ stats_metric_cluster_consistented_meta() ->
         %% topics
         {emqx_topics_max, gauge, 'topics.max'},
         {emqx_topics_count, gauge, 'topics.count'},
+        %% routes
+        {emqx_routes_count, gauge, 'routes.count'},
+        {emqx_routes_max, gauge, 'routes.max'},
         %% retained
         {emqx_retained_count, gauge, 'retained.count'},
         {emqx_retained_max, gauge, 'retained.max'},
