@@ -13,7 +13,6 @@ start(_StartType, _StartArgs) ->
     %% Register rule engine extra functions module so that we can handle decode
     %% and encode functions called from the rule engine SQL like language
     ok = emqx_rule_engine:register_external_functions(emqx_schema_registry_serde),
-    ok = mria_rlog:wait_for_shards([?SCHEMA_REGISTRY_SHARD], infinity),
     ok = emqx_schema_registry_config:add_handlers(),
     {ok, Sup} = emqx_schema_registry_sup:start_link(),
     ok = emqx_schema_registry_spb_hookcb:register_hooks(),
