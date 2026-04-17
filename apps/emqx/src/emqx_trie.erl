@@ -22,7 +22,8 @@
     match/1,
     match_session/1,
     delete/1,
-    delete_session/1
+    delete_session/1,
+    ram_bytes/0
 ]).
 
 -export([
@@ -130,6 +131,10 @@ delete(Topic) when is_binary(Topic) ->
 delete_session(Topic) when is_binary(Topic) ->
     delete(Topic, session_trie()).
 
+%% @doc Get memory usage by trie table(s)
+ram_bytes() ->
+    ram_bytes_v2().
+
 delete(Topic, Trie) when is_binary(Topic) ->
     {TopicKey, PrefixKeys} = make_keys(Topic),
     case [] =/= mnesia:wread({Trie, TopicKey}) of
@@ -195,6 +200,17 @@ compact(Words) ->
         true -> do_compact(Words);
         false -> Words
     end.
+
+ram_bytes_v2() ->
+    Wordsize = erlang:system_info(wordsize),
+    mnesia:table_info(?TRIE_V2, memory) * Wordsize +
+        case lists:member(emqx_trie_node, ets:all()) of
+            true ->
+                %% before 4.3
+                mnesia:table_info(emqx_trie_node, memory) * Wordsize;
+            false ->
+                0
+        end.
 
 %% join split words into compacted segments
 %% each segment ends with one wildcard word
