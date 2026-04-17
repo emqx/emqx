@@ -81,6 +81,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:cowboy),
       common_dep(:esockd),
       common_dep(:rocksdb),
+      common_dep(:mria),
       common_dep(:ekka),
       common_dep(:gen_rpc),
       common_dep(:grpc),
@@ -311,6 +312,9 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:proper),
     # TODO: {:proper, "1.5.0"}, when it's published to hex.pm
     do: {:proper, github: "proper-testing/proper", tag: "v1.5.0", override: true}
+
+  def common_dep(:mria),
+    do: {:mria, github: "emqx/mria", branch: "dev/merge-tables", override: true}
 
   def common_dep(:optvar),
     do: {:optvar, override: true, git: "https://github.com/emqx/optvar", tag: "1.0.5"}
