@@ -81,6 +81,8 @@
 -export_type([dest/0]).
 -export_type([schemavsn/0]).
 
+-elvis([{elvis_style, dont_repeat_yourself, disable}]).
+
 -type group() :: binary().
 -type dest() :: node() | {group(), node()}.
 
