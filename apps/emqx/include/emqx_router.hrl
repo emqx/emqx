@@ -5,12 +5,10 @@
 -ifndef(EMQX_ROUTER_HRL).
 -define(EMQX_ROUTER_HRL, true).
 
-%% ETS tables for message routing
--define(ROUTE_TAB, emqx_route).
--define(ROUTE_TAB_FILTERS, emqx_route_filters).
-
-%% Mnesia table for message routing
--define(ROUTING_NODE, emqx_routing_node).
+%% Mria tables for message routing (v2, regular mria table)
+-define(ROUTE_TAB_V2, emqx_route).
+-define(ROUTE_TAB_FILTERS_V2, emqx_route_filters).
+-define(ROUTING_NODE_V2, emqx_routing_node).
 
 %% ETS tables for PubSub
 -define(SUBOPTION, emqx_suboption).

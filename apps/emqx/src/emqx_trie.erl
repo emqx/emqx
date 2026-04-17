@@ -6,11 +6,11 @@
 
 -include("emqx.hrl").
 
--define(TRIE, emqx_trie).
+-define(TRIE_V2, emqx_trie).
 
 %% Mnesia bootstrap
 -export([
-    create_trie/0,
+    create_trie_v2/0,
     wait_for_tables/0,
     create_session_trie/1
 ]).
@@ -43,7 +43,7 @@
 -define(PREFIX(Prefix), {Prefix, 0}).
 -define(TOPIC(Topic), {Topic, 1}).
 
--record(?TRIE, {
+-record(?TRIE_V2, {
     key :: ?TOPIC(binary()) | ?PREFIX(binary()),
     count = 0 :: non_neg_integer()
 }).
@@ -53,8 +53,8 @@
 %%--------------------------------------------------------------------
 
 %% @doc Create or replicate topics table.
--spec create_trie() -> [mria:table()].
-create_trie() ->
+-spec create_trie_v2() -> [mria:table()].
+create_trie_v2() ->
     %% Optimize storage
     StoreProps = [
         {ets, [
@@ -62,14 +62,14 @@ create_trie() ->
             {write_concurrency, true}
         ]}
     ],
-    ok = mria:create_table(?TRIE, [
-        {rlog_shard, ?ROUTE_SHARD},
-        {record_name, ?TRIE},
-        {attributes, record_info(fields, ?TRIE)},
+    ok = mria:create_table(?TRIE_V2, [
+        {rlog_shard, ?ROUTE_SHARD_V2},
+        {record_name, ?TRIE_V2},
+        {attributes, record_info(fields, ?TRIE_V2)},
         {type, ordered_set},
         {storage_properties, StoreProps}
     ]),
-    [?TRIE].
+    [?TRIE_V2].
 
 create_session_trie(Type) ->
     Storage =
@@ -86,10 +86,10 @@ create_session_trie(Type) ->
     ok = mria:create_table(
         ?SESSION_TRIE,
         [
-            {rlog_shard, ?ROUTE_SHARD},
+            {rlog_shard, ?ROUTE_SHARD_V2},
             {storage, Storage},
-            {record_name, ?TRIE},
-            {attributes, record_info(fields, ?TRIE)},
+            {record_name, ?TRIE_V2},
+            {attributes, record_info(fields, ?TRIE_V2)},
             {type, ordered_set},
             {storage_properties, StoreProps}
         ]
@@ -97,7 +97,7 @@ create_session_trie(Type) ->
 
 -spec wait_for_tables() -> ok | {error, _Reason}.
 wait_for_tables() ->
-    mria:wait_for_tables([?TRIE]).
+    mria:wait_for_tables([?TRIE_V2]).
 
 %%--------------------------------------------------------------------
 %% Topics APIs
@@ -106,7 +106,7 @@ wait_for_tables() ->
 %% @doc Insert a topic filter into the trie.
 -spec insert(emqx_types:topic()) -> ok.
 insert(Topic) when is_binary(Topic) ->
-    insert(Topic, ?TRIE).
+    insert(Topic, ?TRIE_V2).
 
 -spec insert_session(emqx_types:topic()) -> ok.
 insert_session(Topic) when is_binary(Topic) ->
@@ -123,7 +123,7 @@ insert(Topic, Trie) when is_binary(Topic) ->
 %% @doc Delete a topic filter from the trie.
 -spec delete(emqx_types:topic()) -> ok.
 delete(Topic) when is_binary(Topic) ->
-    delete(Topic, ?TRIE).
+    delete(Topic, ?TRIE_V2).
 
 %% @doc Delete a topic filter from the trie.
 -spec delete_session(emqx_types:topic()) -> ok.
@@ -140,7 +140,7 @@ delete(Topic, Trie) when is_binary(Topic) ->
 %% @doc Find trie nodes that matches the topic name.
 -spec match(emqx_types:topic()) -> list(emqx_types:topic()).
 match(Topic) when is_binary(Topic) ->
-    match(Topic, ?TRIE).
+    match(Topic, ?TRIE_V2).
 
 -spec match_session(emqx_types:topic()) -> list(emqx_types:topic()).
 match_session(Topic) when is_binary(Topic) ->
@@ -164,7 +164,7 @@ match(Topic, Trie) when is_binary(Topic) ->
 
 %% @doc Is the trie empty?
 -spec empty() -> boolean().
-empty() -> empty(?TRIE).
+empty() -> empty(?TRIE_V2).
 
 empty_session() ->
     empty(session_trie()).
@@ -173,7 +173,7 @@ empty(Trie) -> ets:first(Trie) =:= '$end_of_table'.
 
 -spec lock_tables() -> ok.
 lock_tables() ->
-    mnesia:write_lock_table(?TRIE).
+    mnesia:write_lock_table(?TRIE_V2).
 
 -spec lock_session_tables() -> ok.
 lock_session_tables() ->
@@ -236,17 +236,17 @@ make_prefixes([H | T], Prefix0, Acc0) ->
 insert_key(Key, Trie) ->
     T =
         case mnesia:wread({Trie, Key}) of
-            [#?TRIE{count = C} = T1] ->
-                T1#?TRIE{count = C + 1};
+            [#?TRIE_V2{count = C} = T1] ->
+                T1#?TRIE_V2{count = C + 1};
             [] ->
-                #?TRIE{key = Key, count = 1}
+                #?TRIE_V2{key = Key, count = 1}
         end,
     ok = mnesia:write(Trie, T, write).
 
 delete_key(Key, Trie) ->
     case mnesia:wread({Trie, Key}) of
-        [#?TRIE{count = C} = T] when C > 1 ->
-            ok = mnesia:write(Trie, T#?TRIE{count = C - 1}, write);
+        [#?TRIE_V2{count = C} = T] when C > 1 ->
+            ok = mnesia:write(Trie, T#?TRIE_V2{count = C - 1}, write);
         [_] ->
             ok = mnesia:delete(Trie, Key, write);
         [] ->
@@ -260,7 +260,7 @@ lookup_topic(Topic, Trie, true) -> lookup_topic(Topic, Trie).
 
 lookup_topic(Topic, Trie) when is_binary(Topic) ->
     case ets:lookup(Trie, ?TOPIC(Topic)) of
-        [#?TRIE{count = C}] -> [Topic || C > 0];
+        [#?TRIE_V2{count = C}] -> [Topic || C > 0];
         [] -> []
     end.
 
@@ -269,7 +269,7 @@ has_prefix(empty, _Trie) ->
     true;
 has_prefix(Prefix, Trie) ->
     case ets:lookup(Trie, ?PREFIX(Prefix)) of
-        [#?TRIE{count = C}] -> C > 0;
+        [#?TRIE_V2{count = C}] -> C > 0;
         [] -> false
     end.
 
@@ -408,7 +408,7 @@ do_compact_test() ->
     ),
     ok.
 
-clear_tables() -> mria:clear_table(?TRIE).
+clear_tables() -> mria:clear_table(?TRIE_V2).
 
 % TEST
 -endif.

@@ -149,5 +149,5 @@ t_unexpected(_) ->
 clear_tables() ->
     lists:foreach(
         fun mnesia:clear_table/1,
-        [?ROUTE_TAB, ?ROUTE_TAB_FILTERS]
+        [?ROUTE_TAB_V2, ?ROUTE_TAB_FILTERS_V2]
     ).

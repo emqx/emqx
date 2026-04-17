@@ -103,15 +103,15 @@
 %%--------------------------------------------------------------------
 
 create_tables() ->
-    ok = mria:create_table(?ROUTING_NODE, [
+    ok = mria:create_table(?ROUTING_NODE_V2, [
         {type, set},
-        {rlog_shard, ?ROUTE_SHARD},
+        {rlog_shard, ?ROUTE_SHARD_V2},
         {storage, ram_copies},
         {record_name, routing_node},
         {attributes, record_info(fields, routing_node)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]}
     ]),
-    [?ROUTING_NODE].
+    [?ROUTING_NODE_V2].
 
 %%--------------------------------------------------------------------
 %% API
@@ -126,7 +126,7 @@ start_link() ->
 post_start() ->
     %% Cleanup any routes left by old incarnations of this node (if any).
     %% Depending on the size of routing tables this can take signicant amount of time.
-    _ = mria:wait_for_tables([?ROUTING_NODE]),
+    _ = mria:wait_for_tables([?ROUTING_NODE_V2]),
     _ = purge_dead_node(node()),
     ignore.
 
@@ -443,19 +443,19 @@ do_purge_node(Node) ->
 %%
 
 add_routing_node(Node) ->
-    case ets:member(?ROUTING_NODE, Node) of
+    case ets:member(?ROUTING_NODE_V2, Node) of
         true -> ok;
-        false -> mria:dirty_write(?ROUTING_NODE, #routing_node{name = Node})
+        false -> mria:dirty_write(?ROUTING_NODE_V2, #routing_node{name = Node})
     end.
 
 remove_routing_node(Node) ->
-    mria:dirty_delete(?ROUTING_NODE, Node).
+    mria:dirty_delete(?ROUTING_NODE_V2, Node).
 
 list_routing_nodes() ->
-    ets:select(?ROUTING_NODE, ets:fun2ms(fun(#routing_node{name = N}) -> N end)).
+    ets:select(?ROUTING_NODE_V2, ets:fun2ms(fun(#routing_node{name = N}) -> N end)).
 
 node_has_routes(Node) ->
-    ets:member(?ROUTING_NODE, Node).
+    ets:member(?ROUTING_NODE_V2, Node).
 
 %%
 
