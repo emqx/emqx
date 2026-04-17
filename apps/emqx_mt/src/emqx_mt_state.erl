@@ -247,9 +247,9 @@ get_ns_details(?NS_TAB, #?NS_TAB{ns = Ns, value = []}) ->
 get_ns_details(?NS_TAB, #?NS_TAB{ns = Ns, value = #{} = Extra}) ->
     CreatedAt = maps:get(created_at, Extra, undefined),
     #{name => Ns, created_at => CreatedAt};
-get_ns_details(?CONFIG_TAB, #?CONFIG_TAB{key = Ns, extra = #{} = Extra}) ->
+get_ns_details(?CONFIG_TAB, #?CONFIG_TAB{key = Ns, configs = Configs, extra = #{} = Extra}) ->
     CreatedAt = maps:get(created_at, Extra, undefined),
-    #{name => Ns, created_at => CreatedAt}.
+    #{name => Ns, created_at => CreatedAt, config => Configs}.
 
 -doc """
 List managed namespaces.

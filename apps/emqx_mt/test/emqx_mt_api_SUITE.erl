@@ -1348,13 +1348,48 @@ t_creation_date(_Config) ->
         {200, [
             #{
                 <<"name">> := Ns2,
-                <<"created_at">> := I
+                <<"created_at">> := I,
+                <<"config">> := #{}
             }
         ]} when is_integer(I),
         list_managed_nss_details(#{})
     ),
     {204, _} = delete_managed_ns(Ns2),
 
+    ok.
+
+-doc """
+Verifies that `/mt/managed_ns_list_details` inlines each namespace's configuration,
+so the UI doesn't need an N+1 round trip to fetch per-namespace configs.
+""".
+t_managed_ns_list_details_includes_config(_Config) ->
+    Ns1 = <<"mns-cfg-1">>,
+    Ns2 = <<"mns-cfg-2">>,
+    {204, _} = create_managed_ns(Ns1),
+    {204, _} = create_managed_ns(Ns2),
+    {200, _} = update_managed_ns_config(Ns1, tenant_limiter_params()),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"name">> := Ns1,
+                <<"config">> := #{
+                    <<"limiter">> := #{
+                        <<"tenant">> := #{
+                            <<"bytes">> := #{<<"rate">> := <<"10MB/10s">>},
+                            <<"messages">> := #{<<"rate">> := <<"3000/1s">>}
+                        }
+                    }
+                }
+            },
+            #{
+                <<"name">> := Ns2,
+                <<"config">> := #{}
+            }
+        ]},
+        list_managed_nss_details(#{})
+    ),
+    {204, _} = delete_managed_ns(Ns1),
+    {204, _} = delete_managed_ns(Ns2),
     ok.
 
 -doc """

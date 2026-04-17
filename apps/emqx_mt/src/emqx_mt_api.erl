@@ -192,8 +192,8 @@ schema("/mt/managed_ns_list_details") ->
                 #{
                     200 =>
                         emqx_dashboard_swagger:schema_with_examples(
-                            array(ref(ns_with_details_out)),
-                            example_ns_list_details()
+                            array(ref(managed_ns_with_details_out)),
+                            example_managed_ns_list_details()
                         )
                 }
         }
@@ -478,6 +478,12 @@ fields(ns_with_details_out) ->
     [
         {name, mk(binary(), #{})},
         {created_at, mk(integer(), #{})}
+    ];
+fields(managed_ns_with_details_out) ->
+    [
+        {name, mk(binary(), #{})},
+        {created_at, mk(integer(), #{})},
+        {config, mk(ref(config_out), #{required => false})}
     ];
 fields(metrics_out) ->
     [{metrics, mk(map(), #{})}].
@@ -781,6 +787,26 @@ example_ns_list_details() ->
             }
     }.
 
+example_managed_ns_list_details() ->
+    #{
+        <<"list">> =>
+            #{
+                summary => ?DESC("example_list"),
+                value => [
+                    #{
+                        <<"name">> => <<"ns1">>,
+                        <<"created_at">> => 1747917753,
+                        <<"config">> => maps:get(<<"managed_ns_config">>, example_config_out())
+                    },
+                    #{
+                        <<"name">> => <<"ns2">>,
+                        <<"created_at">> => 1747917754,
+                        <<"config">> => #{}
+                    }
+                ]
+            }
+    }.
+
 example_client_list() ->
     #{
         <<"list">> =>
@@ -927,7 +953,12 @@ limiter_config_out(Unit0, LimiterConfig) ->
     ).
 
 ns_details_out(Details0) ->
-    Details = undefined_to_null(Details0),
+    Details1 =
+        case Details0 of
+            #{config := Configs} -> Details0#{config := configs_out(Configs)};
+            _ -> Details0
+        end,
+    Details = undefined_to_null(Details1),
     emqx_utils_maps:binary_key_map(Details).
 
 undefined_to_null(M) when is_map(M) ->
