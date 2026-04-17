@@ -12,6 +12,12 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("amqp_client/include/amqp_client.hrl").
 
+-define(USER, <<"guest">>).
+-define(PASSWORD, <<"guest">>).
+-define(EXCHANGE, <<"messages">>).
+-define(QUEUE, <<"test_queue">>).
+-define(ROUTING_KEY, <<"test_routing_key">>).
+
 init_per_group(tcp = Group, Config) ->
     RabbitMQHost = os:getenv("RABBITMQ_PLAIN_HOST", "rabbitmq"),
     RabbitMQPort = list_to_integer(os:getenv("RABBITMQ_PLAIN_PORT", "5672")),
@@ -73,10 +79,18 @@ common_init_per_group(Opts) ->
         #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
     ),
     #{host := Host, port := Port, tls := UseTLS} = Opts,
-    ChannelConnection = setup_rabbit_mq_exchange_and_queue(Host, Port, UseTLS),
+    ClientOpts = #{
+        host => Host,
+        port => Port,
+        use_tls => UseTLS,
+        exchange => ?EXCHANGE,
+        queue => ?QUEUE,
+        routing_key => ?ROUTING_KEY
+    },
+    emqx_bridge_rabbitmq_testlib:connect_and_setup_exchange_and_queue(ClientOpts),
     [
         {apps, Apps},
-        {channel_connection, ChannelConnection},
+        {client_opts, ClientOpts},
         {rabbitmq, #{server => Host, port => Port, tls => UseTLS}}
     ].
 
@@ -119,14 +133,13 @@ setup_rabbit_mq_exchange_and_queue(Host, Port, UseTLS) ->
                 routing_key = rabbit_mq_routing_key()
             }
         ),
-    #{
-        connection => Connection,
-        channel => Channel
-    }.
+    amqp_channel:close(Channel),
+    amqp_connection:close(Connection),
+    ok.
 
 end_per_group(_Group, Config) ->
-    #{channel := Channel} = get_channel_connection(Config),
-    amqp_channel:call(Channel, #'queue.purge'{queue = rabbit_mq_queue()}),
+    ClientOpts = proplists:get_value(client_opts, Config),
+    emqx_bridge_rabbitmq_testlib:cleanup_client_and_queue(ClientOpts),
     Apps = ?config(apps, Config),
     %% Stops AMQP channels and clients as well.
     emqx_cth_suite:stop(Apps).
