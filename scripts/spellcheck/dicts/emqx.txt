@@ -337,3 +337,8 @@ wss
 xml
 XMLs
 Mojibake
+loopback
+IMDS
+ULA
+RFC1918
+SSRF

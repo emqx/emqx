@@ -192,6 +192,40 @@ fields("republish_args") ->
                 }
             )}
     ];
+fields("ssrf") ->
+    [
+        {enable,
+            ?HOCON(
+                boolean(),
+                #{default => false, desc => ?DESC("ssrf_enable")}
+            )},
+        {allow_cidrs,
+            ?HOCON(
+                hoconsc:array(binary()),
+                #{
+                    default => emqx_utils_ssrf:default_allow_cidrs(),
+                    validator => fun validate_ssrf_cidrs/1,
+                    desc => ?DESC("ssrf_allow_cidrs")
+                }
+            )},
+        {deny_cidrs,
+            ?HOCON(
+                hoconsc:array(binary()),
+                #{
+                    default => emqx_utils_ssrf:default_deny_cidrs(),
+                    validator => fun validate_ssrf_cidrs/1,
+                    desc => ?DESC("ssrf_deny_cidrs")
+                }
+            )},
+        {deny_hosts,
+            ?HOCON(
+                hoconsc:array(binary()),
+                #{
+                    default => emqx_utils_ssrf:default_deny_hosts(),
+                    desc => ?DESC("ssrf_deny_hosts")
+                }
+            )}
+    ];
 fields("republish_mqtt_properties") ->
     [
         {'Payload-Format-Indicator',
@@ -220,6 +254,8 @@ desc("republish_args") ->
     ?DESC("desc_republish_args");
 desc("republish_mqtt_properties") ->
     ?DESC("republish_args_mqtt_properties");
+desc("ssrf") ->
+    ?DESC("ssrf");
 desc(_) ->
     undefined.
 
@@ -287,6 +323,19 @@ rule_engine_settings() ->
                     deprecated => {since, "5.0.22"},
                     importance => ?IMPORTANCE_HIDDEN
                 }
+            )},
+        {ssrf,
+            ?HOCON(
+                ?R_REF("ssrf"),
+                #{
+                    default => #{
+                        <<"enable">> => false,
+                        <<"allow_cidrs">> => emqx_utils_ssrf:default_allow_cidrs(),
+                        <<"deny_cidrs">> => emqx_utils_ssrf:default_deny_cidrs(),
+                        <<"deny_hosts">> => emqx_utils_ssrf:default_deny_hosts()
+                    },
+                    desc => ?DESC("ssrf")
+                }
             )}
     ].
 
@@ -294,6 +343,17 @@ validate_sql(Sql) ->
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, _Result} -> ok;
         {error, Reason} -> {error, Reason}
+    end.
+
+validate_ssrf_cidrs(Cidrs) ->
+    try
+        _ = emqx_utils_ssrf:compile_cidrs(Cidrs),
+        ok
+    catch
+        throw:{invalid_cidr, Bin} ->
+            {error, iolist_to_binary([<<"Invalid CIDR: ">>, Bin])};
+        throw:invalid_prefix ->
+            {error, <<"Invalid CIDR prefix length">>}
     end.
 
 post_config_update(
@@ -304,4 +364,13 @@ post_config_update(
     _AppEnvs
 ) ->
     jq:set_implementation_module(NewSysConf),
+    ok;
+post_config_update(
+    [rule_engine, ssrf],
+    _Req,
+    NewSysConf,
+    _OldSysConf,
+    _AppEnvs
+) ->
+    emqx_utils_ssrf:refresh_cache(NewSysConf),
     ok.

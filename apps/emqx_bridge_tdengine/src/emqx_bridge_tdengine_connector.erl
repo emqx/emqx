@@ -42,12 +42,14 @@
 -define(TD_DEFAULT_PORT, 6041).
 
 -define(TD_HOST_OPTIONS, #{
-    default_port => ?TD_DEFAULT_PORT
+    default_port => ?TD_DEFAULT_PORT,
+    ssrf_check => true
 }).
 
 -define(TD_HOST_OPTIONS_CLOUD, #{
     default_port => 443,
-    supported_schemes => ["https"]
+    supported_schemes => ["https"],
+    ssrf_check => true
 }).
 
 -define(CONNECTOR_TYPE, tdengine).

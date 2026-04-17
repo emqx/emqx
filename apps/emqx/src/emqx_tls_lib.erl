@@ -471,7 +471,7 @@ der_decode_file({Type, DER, not_encrypted}, _Password) ->
         public_key:der_decode(Type, DER), {error, #{reason => failed_to_decode, type => Type}}
     );
 der_decode_file({_EncType, _EncDER, _EncryptionData}, Password) when ?NO_PWD(Password) ->
-    {error, #{reason => encryped_keyfile_missing_password}};
+    {error, #{reason => encrypted_keyfile_missing_password}};
 der_decode_file({_EncType, _EncDER, _EncryptionData} = EncryptedEntry, Password) ->
     ?catching(
         public_key:pem_entry_decode(EncryptedEntry, emqx_secret:unwrap(Password)),

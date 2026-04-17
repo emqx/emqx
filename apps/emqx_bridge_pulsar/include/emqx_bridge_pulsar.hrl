@@ -8,7 +8,8 @@
 -define(PULSAR_HOST_OPTIONS, #{
     default_port => 6650,
     default_scheme => "pulsar",
-    supported_schemes => ["pulsar", "pulsar+ssl"]
+    supported_schemes => ["pulsar", "pulsar+ssl"],
+    ssrf_check => true
 }).
 
 -endif.
