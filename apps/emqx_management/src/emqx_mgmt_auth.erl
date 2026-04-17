@@ -233,12 +233,7 @@ authorize(HandlerInfo, Req, ApiKey, ApiSecret) ->
         {ok, true, ExpiredAt, SecretHash, Role, Namespace, Extra} when ExpiredAt >= Now ->
             case emqx_dashboard_admin:verify_hash(ApiSecret, SecretHash) of
                 ok ->
-                    case check_rbac(Req, HandlerInfo, ApiKey, Role, Namespace) of
-                        {ok, _ActorContext} ->
-                            check_scopes(Extra, HandlerInfo);
-                        false ->
-                            {error, unauthorized_role}
-                    end;
+                    check_rbac_and_scopes(Req, HandlerInfo, ApiKey, Role, Namespace, Extra);
                 error ->
                     {error, "secret_error"}
             end;
@@ -248,6 +243,17 @@ authorize(HandlerInfo, Req, ApiKey, ApiSecret) ->
             {error, "secret_disabled"};
         {error, Reason} ->
             {error, Reason}
+    end.
+
+check_rbac_and_scopes(Req, HandlerInfo, ApiKey, Role, Namespace, Extra) ->
+    case check_rbac(Req, HandlerInfo, ApiKey, Role, Namespace) of
+        {ok, ActorContext} ->
+            case check_scopes(Extra, HandlerInfo) of
+                ok -> {ok, ActorContext};
+                {error, _} = Error -> Error
+            end;
+        false ->
+            {error, unauthorized_role}
     end.
 
 find_by_api_key(ApiKey) ->
