@@ -1253,7 +1253,7 @@ t_queue_subscription(Config) when is_list(Config) ->
     Message1 = emqx_message:make(ClientId, _QoS = 2, Topic, <<"hello">>),
     emqx:publish(Message1),
     %% we should *not* receive any messages.
-    ?assertEqual([], collect_msgs(1_000), #{routes => ets:tab2list(emqx_route)}),
+    ?assertEqual([], collect_msgs(1_000), #{routes => emqx_router:match_routes(<<"#">>)}),
 
     ok.
 
