@@ -567,7 +567,7 @@ maybe_new_subscription_id_index(_Conf) ->
 maybe_delete_subscription_id_index(undefined) ->
     ok;
 maybe_delete_subscription_id_index(SubscriptionIdToHandlerIndex) ->
-    true = emqx_utils_ets:delete(SubscriptionIdToHandlerIndex),
+    ets_delete(SubscriptionIdToHandlerIndex),
     ok.
 
 supports_queue_subscription(undefined) ->
