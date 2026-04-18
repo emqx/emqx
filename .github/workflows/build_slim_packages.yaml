@@ -54,7 +54,7 @@ jobs:
         profile:
         - emqx-enterprise
         os:
-        - macos-15
+        - macos-14
 
     runs-on: ${{ matrix.os }}
     env:
