@@ -5,7 +5,7 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 
-BASE_BRANCHES=( 'release-60' 'release-510' 'release-59' 'release-58' 'release-57' 'release-56' 'release-55' 'master' )
+BASE_BRANCHES=( 'release-62' 'release-61' 'release-60' 'release-510' 'release-59' 'release-58' 'release-57' 'release-56' 'release-55' 'master' )
 
 usage() {
     cat <<EOF
@@ -25,6 +25,9 @@ options:
     * release-59:  []                   # no upstream for 5.9
     * release-510: []                   # no upstream for 5.10
     * release-60:  []                   # no upstream for 6.0
+    * release-61:  []                   # no upstream for 6.1
+    * release-62:  []                   # no upstream for 6.2
+    * patch-*:     []                   # no upstream for patch branches
     * master: [release-5x, release-6x]  # sync release-5x and release-6x to master
 
   -b|--base:
@@ -101,9 +104,9 @@ is_element() {
     return 1
 }
 
-if ! is_element "$BASE_BRANCH" "${BASE_BRANCHES[@]}"; then
+if ! is_element "$BASE_BRANCH" "${BASE_BRANCHES[@]}" && [[ "$BASE_BRANCH" != patch-* ]]; then
     logerr "Cannot work with branch $BASE_BRANCH"
-    logerr "The base branch must be one of: ${BASE_BRANCHES[*]}"
+    logerr "The base branch must be one of: ${BASE_BRANCHES[*]} or a patch-* branch"
     logerr "Change work branch to one of the above."
     logerr "OR: use -b|--base to specify from which base branch is current working branch created"
     exit 1
@@ -172,8 +175,14 @@ upstream_branches() {
         release-60)
             remote_ref "$base"
             ;;
+        release-61)
+            remote_ref "$base"
+            ;;
+        release-62)
+            remote_ref "$base"
+            ;;
         master)
-            remote_refs "$base" 'release-55' 'release-56' 'release-57' 'release-58' 'release-59' 'release-510' 'release-60'
+            remote_refs "$base" 'release-55' 'release-56' 'release-57' 'release-58' 'release-59' 'release-510' 'release-60' 'release-61' 'release-62'
             ;;
     esac
 }
