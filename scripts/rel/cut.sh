@@ -111,6 +111,9 @@ done
 rel_branch() {
     local tag="$1"
     case "$tag" in
+        e5.10.*-patch.*)
+            echo "patch-${tag%-patch.*}" | sed 's/patch-e/patch-/'
+            ;;
         e5.10.*)
             echo 'release-510'
             ;;
