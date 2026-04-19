@@ -5,7 +5,7 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 
-BASE_BRANCHES=( 'release-510' 'release-59' 'release-58' 'release-57' 'release-56' 'release-55' 'master' )
+BASE_BRANCHES=( 'release-510' 'release-59' 'release-58' 'release-57' 'release-56' 'release-55' 'master' 'patch-5.10.1')
 
 usage() {
     cat <<EOF
