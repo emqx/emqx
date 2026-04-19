@@ -314,7 +314,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:proper, github: "proper-testing/proper", tag: "v1.5.0", override: true}
 
   def common_dep(:mria),
-    do: {:mria, github: "emqx/mria", branch: "dev/merge-tables", override: true}
+    do: {:mria, github: "emqx/mria", tag: "0.9.0", override: true}
 
   def common_dep(:optvar),
     do: {:optvar, override: true, git: "https://github.com/emqx/optvar", tag: "1.0.5"}
