@@ -144,10 +144,14 @@ For more organised improvement proposals, you can send pull requests to [EIP](ht
 
 ## Build From Source
 
-The master branch tracks the latest version 5.
+The default branch `master` tracks the latest development.
+Stable releases are tracked by `release-XY` branches, such as `release-62` for version `6.2.N`.
 
 - EMQX 5.4 and newer can be built with OTP 25 or 26
 - EMQX 5.9+ can be built with OTP 27
+- EMQX 6.1+ can be built with OTP 28
+
+Build and run a release locally:
 
 ```bash
 git clone https://github.com/emqx/emqx.git
@@ -156,14 +160,43 @@ make
 _build/emqx-enterprise/rel/emqx/bin/emqx console
 ```
 
-For 4.2 or earlier versions, release has to be built from another repo.
+Build packages in `_packages` dir:
 
-```bash
-git clone https://github.com/emqx/emqx-rel.git
-cd emqx-rel
-make
-_build/emqx/rel/emqx/bin/emqx console
-```
+- Build a portable (for host OS/arch) tar.gz package: `make emqx-enterprise-tgz`
+- Build an RPM/DEB (depending on host OS) package: `make emqx-enterprise-pkg`
+- Build a Docker image: `PROFILE=emqx-enterprise make docker`
+
+## Version Schemes
+
+EMQX versions follow the `Major.Minor.Patch` scheme (e.g. `6.1.2`).
+
+### GA Releases
+
+General Availability releases, listed on the official download catalog page.
+
+- **Major** (`5`, `6`): incremented for significant architectural changes that may
+  require special upgrade procedures or introduce backward-incompatible changes.
+- **Minor** (`6.0`, `6.1`, `6.2`): new features and improvements. Each minor line
+  has a dedicated `release-XY` branch (e.g. `release-62` for the `6.2.N` series).
+- **Patch** (`6.1.0`, `6.1.1`, `6.1.2`): cut from the matching `release-XY`
+  branch, containing bug fixes and low-risk improvements.
+
+Rolling upgrade between adjacent minor versions is supported — see the
+[upgrade path matrix](#rolling-upgrade-paths-since-50) below.
+
+### Non-GA Releases
+
+Non-GA builds are published as tarballs, packages, and Docker images available for
+download, but are **not** listed on the official download catalog page.
+
+- **`-alpha.N`** (e.g. `6.2.0-alpha.1`): early preview of a new minor line. Only
+  cut for the first release of a minor (e.g. `6.1.0`, `6.2.0`).
+- **`-beta.N`** (e.g. `6.2.0-beta.1`): feature-complete preview of a new minor
+  line. Only cut for the first release of a minor.
+- **`-rc.N`** (e.g. `6.1.2-rc.1`): release candidate. May be cut before any
+  release version — either a new minor (`X.Y.0-rc.N`) or a patch (`X.Y.Z-rc.N`).
+- **`-patch.N`** (e.g. `6.1.2-patch.1`): on-demand bug fix build produced for
+  paying customers between regular patch releases.
 
 ## Rolling Upgrade Paths Since 5.0
 
