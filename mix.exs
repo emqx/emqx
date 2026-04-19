@@ -318,7 +318,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:egbk), do: {:egbk, github: "emqx/egbk-conv", tag: "0.1.0", override: true}
 
   def common_dep(:mria),
-    do: {:mria, github: "emqx/mria", branch: "dev/merge-tables", override: true}
+    do: {:mria, github: "emqx/mria", tag: "0.9.0", override: true}
 
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK
