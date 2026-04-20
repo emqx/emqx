@@ -433,11 +433,11 @@ cleanup_routes_v2(NodeOrExtDest) ->
             fun(Pattern) ->
                 _ = throw_unsupported(
                     mria:match_delete(
-                        route_filters_table(),
+                        ?ROUTE_TAB_FILTERS_V2,
                         #routeidx{entry = emqx_trie_search:make_pat('_', Pattern)}
                     )
                 ),
-                throw_unsupported(mria:match_delete(route_table(), make_route_rec_pat(Pattern)))
+                throw_unsupported(mria:match_delete(?ROUTE_TAB_V2, make_route_rec_pat(Pattern)))
             end,
             ?dest_patterns(NodeOrExtDest)
         ),
