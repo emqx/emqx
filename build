@@ -293,9 +293,6 @@ make_tgz() {
         log_red "ERROR: $src_tarball is not found"
     fi
     $TAR zxf "${src_tarball}" -C "${tard}/emqx"
-    if [ -f "${tard}/emqx/releases/${PKG_VSN}/relup" ]; then
-        ./scripts/relup-build/inject-relup.escript "${tard}/emqx/releases/${PKG_VSN}/relup"
-    fi
     if [ -z "${BUILD_WITHOUT_QUIC:-}" ]; then
         find "${tard}/emqx"/lib/quicer-*/priv/ -type f ! -name 'libquicer_nif.so' -print -delete
     fi

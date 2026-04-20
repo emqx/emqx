@@ -13,7 +13,6 @@ include env.sh
 export EMQX_DASHBOARD_VERSION ?= v1.10.7
 export EMQX_EE_DASHBOARD_VERSION ?= e1.10.3
 
-export EMQX_RELUP ?= true
 export EMQX_REL_FORM ?= tgz
 export QUICER_TLS_VER ?= sys
 
@@ -230,21 +229,6 @@ dialyzer: $(REBAR)
 .PHONY: $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel)
 $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel): $(COMMON_DEPS)
 	@$(BUILD) $(subst -rel,,$(@)) rel
-
-## download relup base packages
-.PHONY: $(REL_PROFILES:%=%-relup-downloads)
-define download-relup-packages
-$1-relup-downloads:
-	@if [ "$(shell uname -s)" = "Darwin" ]; then \
-		echo "relup is not supported on macOS"; \
-	elif [ "$(EMQX_RELUP)" = "true" ]; then \
-		$(SCRIPTS)/relup-build/download-base-packages.sh $1; \
-	else \
-		echo "Skipping relup base packages download for $1"; \
-	fi
-endef
-ALL_ZIPS = $(REL_PROFILES)
-$(foreach zt,$(ALL_ZIPS),$(eval $(call download-relup-packages,$(zt))))
 
 ## relup target is to create relup instructions
 .PHONY: $(REL_PROFILES:%=%-relup)
