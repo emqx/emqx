@@ -120,6 +120,8 @@
     end
 ).
 
+-define(PT_SCHEMA_VSN, emqx_router_pt_schema_vsn).
+
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
@@ -304,7 +306,14 @@ print_routes(Topic) ->
 
 -spec cleanup_routes(node()) -> ok.
 cleanup_routes(NodeOrExtDest) ->
-    cleanup_routes_v2(NodeOrExtDest).
+    case get_schema_vsn() of
+        v3 ->
+            %% Mria does the job automatically, since tables are
+            %% created with `auto_clean' = `true':
+            ok;
+        v2 ->
+            cleanup_routes_v2(NodeOrExtDest)
+    end.
 
 -spec foldl_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
 foldl_routes(FoldFun, AccIn) ->
@@ -553,12 +562,14 @@ match_to_route(M) ->
 -spec get_schema_vsn() -> schemavsn().
 get_schema_vsn() ->
     %% FIXME: use proper detection
-    v3.
+    persistent_term:get(?PT_SCHEMA_VSN).
 
 -spec init_schema() -> ok.
 init_schema() ->
     ClusterState = discover_cluster_schema_vsn(),
-    verify_cluster_schema_vsn(ClusterState).
+    verify_cluster_schema_vsn(ClusterState),
+    %% FIXME:
+    persistent_term:put(?PT_SCHEMA_VSN, v3).
 
 -spec discover_cluster_schema_vsn() ->
     _ClusterState :: [{node(), schemavsn() | unknown, _Details}].
