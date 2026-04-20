@@ -12,7 +12,6 @@
 %% Mria tables for message routing (v3, merged mria table)
 -define(ROUTE_TAB_V3, emqx_route_m).
 -define(ROUTE_TAB_FILTERS_V3, emqx_route_filters_m).
--define(ROUTING_NODE_V3, emqx_routing_node_m).
 
 %% ETS tables for PubSub
 -define(SUBOPTION, emqx_suboption).

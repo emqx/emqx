@@ -12,11 +12,11 @@
 
 start_link() ->
     %% Init and log routing table type
+    ok = emqx_router:init_schema(),
     ok = mria:wait_for_tables(
         emqx_router:create_tables() ++
             emqx_router_helper:create_tables()
     ),
-    ok = emqx_router:init_schema(),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
@@ -42,9 +42,16 @@ init([]) ->
         hash,
         {emqx_router, start_link, []}
     ]),
+    Children =
+        case emqx_router:get_schema_vsn() of
+            v3 ->
+                [RouterPool];
+            v2 ->
+                [Helper, HelperPostStart, RouterPool]
+        end,
     SupFlags = #{
         strategy => one_for_one,
         intensity => 10,
         period => 100
     },
-    {ok, {SupFlags, [Helper, HelperPostStart, RouterPool]}}.
+    {ok, {SupFlags, Children}}.

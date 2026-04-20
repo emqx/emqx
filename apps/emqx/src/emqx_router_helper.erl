@@ -4,6 +4,9 @@
 
 %% Router helper process.
 %%
+%% NOTICE: this process is deprecated, it's only used for v2 routing
+%% schema.
+%%
 %% Responsibility is twofold:
 %% 1. Cleaning own portion of the global routing table when restarted.
 %%    The assumption is that the node has crashed (worst-case), so the
@@ -103,6 +106,12 @@
 %%--------------------------------------------------------------------
 
 create_tables() ->
+    case emqx_router:get_schema_vsn() of
+        v3 -> [];
+        v2 -> create_tables_v2()
+    end.
+
+create_tables_v2() ->
     ok = mria:create_table(?ROUTING_NODE_V2, [
         {type, set},
         {rlog_shard, ?ROUTE_SHARD_V2},
@@ -135,15 +144,29 @@ post_start() ->
 monitor({_Group, Node}) ->
     monitor(Node);
 monitor(Node) when is_atom(Node) ->
-    add_routing_node(Node).
+    case emqx_router:get_schema_vsn() of
+        v3 -> ok;
+        v2 -> add_routing_node(Node)
+    end.
 
 %% @doc Is given node considered routable?
 %% I.e. should the broker attempt to forward messages there, even if there are
 %% routes to this node in the routing table?
 -spec is_routable(node()) -> boolean().
-is_routable(Node) when Node == node() ->
-    true;
 is_routable(Node) ->
+    case emqx_router:get_schema_vsn() of
+        v3 ->
+            %% Due to merge table `auto_clean', the situation when
+            %% routes exist while node is down is impossible, so we
+            %% can skip additional checks:
+            true;
+        v2 ->
+            is_routable_v2(Node)
+    end.
+
+is_routable_v2(Node) when Node == node() ->
+    true;
+is_routable_v2(Node) ->
     try
         lookup_node_reachable(Node)
     catch
