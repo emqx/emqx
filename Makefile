@@ -131,8 +131,9 @@ else
 endif
 endef
 
-ifneq ($(filter %-ct,$(MAKECMDGOALS)),)
-app_to_test := $(patsubst %-ct,%,$(filter %-ct,$(MAKECMDGOALS)))
+## Note: exclude plugins-ct and plugins/%-ct (handled below by their own rules).
+ifneq ($(filter-out plugins-ct plugins/%-ct,$(filter %-ct,$(MAKECMDGOALS))),)
+app_to_test := $(patsubst %-ct,%,$(filter-out plugins-ct plugins/%-ct,$(filter %-ct,$(MAKECMDGOALS))))
 $(call DEBUG_INFO,app_to_test $(app_to_test))
 $(eval $(call gen-app-ct-target,$(app_to_test)))
 endif
@@ -147,6 +148,45 @@ app_to_test := $(patsubst %-prop,%,$(filter %-prop,$(MAKECMDGOALS)))
 $(call DEBUG_INFO,app_to_test $(app_to_test))
 $(eval $(call gen-app-prop-target,$(app_to_test)))
 endif
+
+## ----- monorepo plugin targets (plugins under plugins/<name>/) -----
+## Each plugin under plugins/<name>/ is a self-contained rebar3 project
+## with its own rebar.config that declares the emqx_plugrel plugin.
+
+define gen-plugin-ct-target
+plugins/$1-ct:
+	@$(SCRIPTS)/run-plugin-ct.sh $1
+endef
+
+ifneq ($(filter plugins/%-ct,$(MAKECMDGOALS)),)
+plugin_to_test := $(patsubst plugins/%-ct,%,$(filter plugins/%-ct,$(MAKECMDGOALS)))
+$(call DEBUG_INFO,plugin_to_test $(plugin_to_test))
+$(eval $(call gen-plugin-ct-target,$(plugin_to_test)))
+endif
+
+.PHONY: plugin-%
+plugin-%: PLUGIN_APP_DIR = plugins/$*
+plugin-%:
+	@test -d $(PLUGIN_APP_DIR) || { echo "Error: No such plugin app: $(PLUGIN_APP_DIR)"; exit 1; }
+	@test -f $(PLUGIN_APP_DIR)/rebar.config || { \
+	    echo "Error: $(PLUGIN_APP_DIR)/rebar.config not found."; \
+	    echo "Monorepo plugins must be rebar3 projects with their own rebar.config."; \
+	    exit 1; \
+	}
+	@grep -q "emqx_plugrel" $(PLUGIN_APP_DIR)/rebar.config || { \
+	    echo "Error: $(PLUGIN_APP_DIR)/rebar.config does not declare emqx_plugrel."; \
+	    echo "Not an EMQX plugin."; \
+	    exit 1; \
+	}
+	@$(SCRIPTS)/build-plugin.sh $*
+
+.PHONY: plugins
+plugins:
+	@$(SCRIPTS)/build-plugins.sh
+
+.PHONY: plugins-ct
+plugins-ct:
+	@$(SCRIPTS)/run-plugins-ct.sh
 
 .PHONY: ct-suite
 ct-suite: $(REBAR) merge-config clean-test-cluster-config

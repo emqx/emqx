@@ -1,0 +1,549 @@
+{
+  "type": "record",
+  "name": "ExtendedConfig",
+  "fields": [
+    {
+      "name": "mysql",
+      "type": {
+        "type": "record",
+        "name": "MySQLRecord",
+        "fields": [
+          {
+            "name": "enable",
+            "type": "boolean",
+            "default": false,
+            "$ui": {
+              "component": "switch",
+              "required": true,
+              "label": "$mysql_enable_label",
+              "description": "$mysql_enable_desc"
+            }
+          },
+          {
+            "name": "init_default_schema",
+            "type": "boolean",
+            "default": false,
+            "$ui": {
+              "component": "switch",
+              "required": true,
+              "label": "$mysql_init_default_schema_label",
+              "description": "$mysql_init_default_schema_desc",
+              "importance": "low"
+            }
+          },
+          {
+            "name": "insert_message_sql",
+            "type": "string",
+            "default": "insert into mqtt_msg(msgid, sender, topic, qos, retain, payload, arrived) values(${id}, ${from}, ${topic}, ${qos}, ${flags.retain}, ${payload}, FROM_UNIXTIME(${timestamp}/1000))",
+            "$ui": {
+              "component": "input-textarea",
+              "required": true,
+              "label": "$mysql_insert_message_sql_label",
+              "description": "$mysql_insert_message_sql_desc",
+              "importance": "low"
+            }
+          },
+          {
+            "name": "delete_message_sql",
+            "type": "string",
+            "default": "delete from mqtt_msg where msgid = ${id}",
+            "$ui": {
+              "component": "input-textarea",
+              "required": true,
+              "label": "$mysql_delete_message_sql_label",
+              "description": "$mysql_delete_message_sql_desc",
+              "importance": "low"
+            }
+          },
+          {
+            "name": "select_message_sql",
+            "type": "string",
+            "default": "select * from mqtt_msg where msgid = ${id}",
+            "$ui": {
+              "component": "input-textarea",
+              "required": true,
+              "label": "$mysql_select_message_sql_label",
+              "description": "$mysql_select_message_sql_desc",
+              "importance": "low"
+            }
+          },
+          {
+            "name": "insert_subscription_sql",
+            "type": "string",
+            "default": "insert into mqtt_sub(clientid, topic, qos) values(${clientid}, ${topic}, ${qos}) on duplicate key update qos = ${qos}",
+            "$ui": {
+              "component": "input-textarea",
+              "required": true,
+              "label": "$mysql_insert_subscription_sql_label",
+              "description": "$mysql_insert_subscription_sql_desc",
+              "importance": "low"
+            }
+          },
+          {
+            "name": "select_subscriptions_sql",
+            "type": "string",
+            "default": "select topic, qos from mqtt_sub where clientid = ${clientid}",
+            "$ui": {
+              "component": "input-textarea",
+              "required": true,
+              "label": "$mysql_select_subscriptions_sql_label",
+              "description": "$mysql_select_subscriptions_sql_desc",
+              "importance": "low"
+            }
+          },
+          {
+            "name": "delete_subscription_sql",
+            "type": "string",
+            "default": "delete from mqtt_sub where clientid = ${clientid} and topic = ${topic}",
+            "$ui": {
+              "component": "input-textarea",
+              "required": true,
+              "label": "$mysql_delete_subscription_sql_label",
+              "description": "$mysql_delete_subscription_sql_desc",
+              "importance": "low"
+            }
+          },
+          {
+            "name": "server",
+            "type": "string",
+            "default": "127.0.0.1:3306",
+            "$ui": {
+              "component": "input",
+              "required": true,
+              "label": "$mysql_server_label",
+              "description": "$mysql_server_desc"
+            }
+          },
+          {
+            "name": "database",
+            "type": "string",
+            "default": "emqx",
+            "$ui": {
+              "component": "input",
+              "required": true,
+              "label": "$mysql_database_label",
+              "description": "$mysql_database_desc"
+            }
+          },
+          {
+            "name": "pool_size",
+            "type": "int",
+            "default": 8,
+            "$ui": {
+              "component": "input-number",
+              "required": true,
+              "label": "$mysql_pool_size_label",
+              "description": "$mysql_pool_size_desc",
+              "importance": "low"
+            }
+          },
+          {
+            "name": "username",
+            "type": "string",
+            "default": "emqx",
+            "$ui": {
+              "component": "input",
+              "required": false,
+              "label": "$mysql_username_label",
+              "description": "$mysql_username_desc"
+            }
+          },
+          {
+            "name": "password",
+            "type": "string",
+            "default": "public",
+            "$ui": {
+              "component": "input-password",
+              "required": false,
+              "label": "$mysql_password_label",
+              "description": "$mysql_password_desc"
+            }
+          },
+          {
+            "name": "topics",
+            "type": {
+              "type": "array",
+              "items": "string"
+            },
+            "default": [],
+            "$ui": {
+              "component": "input-array",
+              "required": false,
+              "label": "$mysql_topics_label",
+              "description": "$mysql_topics_desc"
+            }
+          },
+          {
+            "name": "batch_size",
+            "type": "int",
+            "default": 1,
+            "$ui": {
+              "component": "input-number",
+              "required": true,
+              "label": "$mysql_batch_size_label",
+              "description": "$mysql_batch_size_desc"
+            }
+          },
+          {
+            "name": "batch_time",
+            "type": "int",
+            "default": 100,
+            "$ui": {
+              "component": "input-number",
+              "required": true,
+              "label": "$mysql_batch_time_label",
+              "description": "$mysql_batch_time_desc",
+              "importance": "low"
+            }
+          },
+          {
+            "name": "ssl",
+            "type": {
+              "type": "record",
+              "name": "MySQLSSLRecord",
+              "fields": [
+                {
+                  "name": "enable",
+                  "type": "boolean",
+                  "default": false,
+                  "$ui": {
+                    "component": "switch",
+                    "required": true,
+                    "label": "$mysql_ssl_enable_label",
+                    "description": "$mysql_ssl_enable_desc"
+                  }
+                },
+                {
+                  "name": "server_name_indication",
+                  "type": "string",
+                  "default": "disable",
+                  "$ui": {
+                    "component": "input",
+                    "required": false,
+                    "label": "$mysql_ssl_server_name_indication_label",
+                    "description": "$mysql_ssl_server_name_indication_desc"
+                  }
+                },
+                {
+                  "name": "cacertfile",
+                  "type": "string",
+                  "default": "",
+                  "$ui": {
+                    "component": "input",
+                    "required": false,
+                    "label": "$mysql_ssl_cacertfile_label",
+                    "description": "$mysql_ssl_cacertfile_desc"
+                  }
+                },
+                {
+                  "name": "certfile",
+                  "type": "string",
+                  "default": "",
+                  "$ui": {
+                    "component": "input",
+                    "required": false,
+                    "label": "$mysql_ssl_certfile_label",
+                    "description": "$mysql_ssl_certfile_desc"
+                  }
+                },
+                {
+                  "name": "keyfile",
+                  "type": "string",
+                  "default": "",
+                  "$ui": {
+                    "component": "input",
+                    "required": false,
+                    "label": "$mysql_ssl_keyfile_label",
+                    "description": "$mysql_ssl_keyfile_desc"
+                  }
+                },
+                {
+                  "name": "verify",
+                  "type": "string",
+                  "default": "verify_none",
+                  "$ui": {
+                    "component": "select",
+                    "required": false,
+                    "label": "$mysql_ssl_verify_label",
+                    "description": "$mysql_ssl_verify_desc",
+                    "options": [
+                      {
+                        "label": "verify_none",
+                        "value": "verify_none"
+                      },
+                      {
+                        "label": "verify_peer",
+                        "value": "verify_peer"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "redis",
+      "type": {
+        "type": "record",
+        "name": "RedisRecord",
+        "fields": [
+          {
+            "name": "enable",
+            "type": "boolean",
+            "default": false,
+            "$ui": {
+              "component": "switch",
+              "required": true,
+              "label": "$enable_redis_label",
+              "description": "$enable_redis_desc"
+            }
+          },
+          {
+            "name": "redis_type",
+            "type": "string",
+            "default": "single",
+            "$ui": {
+              "component": "select",
+              "required": true,
+              "label": "$redis_type_label",
+              "description": "$redis_type_desc",
+              "options": [
+                { "label": "Single", "value": "single" },
+                { "label": "Cluster", "value": "cluster" },
+                { "label": "Sentinel", "value": "sentinel" }
+              ]
+            }
+          },
+          {
+            "name": "servers",
+            "type": "string",
+            "default": "127.0.0.1:6379",
+            "$ui": {
+              "component": "input",
+              "required": true,
+              "label": "$redis_server_label",
+              "description": "$redis_server_desc"
+            }
+          },
+          {
+            "name": "sentinel",
+            "type": "string",
+            "default": "",
+            "$ui": {
+              "component": "input",
+              "required": false,
+              "label": "$redis_sentinel_label",
+              "description": "$redis_sentinel_desc"
+            }
+          },
+          {
+            "name": "database",
+            "type": "int",
+            "default": 0,
+            "$ui": {
+              "component": "input",
+              "required": true,
+              "label": "$redis_database_label",
+              "description": "$redis_database_desc"
+            }
+          },
+          {
+            "name": "topics",
+            "type": {
+              "type": "array",
+              "items": "string"
+            },
+            "default": [],
+            "$ui": {
+              "component": "input-array",
+              "required": false,
+              "label": "$redis_topics_label",
+              "description": "$redis_topics_desc"
+            }
+          },
+          {
+            "name": "pool_size",
+            "type": "int",
+            "default": 8,
+            "$ui": {
+              "component": "input-number",
+              "required": true,
+              "label": "$redis_pool_size_label",
+              "description": "$redis_pool_size_desc",
+              "importance": "low"
+            }
+          },
+          {
+            "name": "username",
+            "type": "string",
+            "default": "",
+            "$ui": {
+              "component": "input",
+              "required": false,
+              "label": "$redis_username_label",
+              "description": "$redis_username_desc"
+            }
+          },
+          {
+            "name": "password",
+            "type": "string",
+            "default": "",
+            "$ui": {
+              "component": "input-password",
+              "required": false,
+              "label": "$redis_password_label",
+              "description": "$redis_password_desc"
+            }
+          },
+          {
+            "name": "message_key_prefix",
+            "type": "string",
+            "default": "mqtt:msg",
+            "$ui": {
+              "component": "input",
+              "required": true,
+              "label": "$redis_message_key_prefix_label",
+              "description": "$redis_message_key_prefix_desc",
+              "importance": "low"
+            }
+          },
+          {
+            "name": "subscription_key_prefix",
+            "type": "string",
+            "default": "mqtt:sub",
+            "$ui": {
+              "component": "input",
+              "required": true,
+              "label": "$redis_subscription_key_prefix_label",
+              "description": "$redis_subscription_key_prefix_desc",
+              "importance": "low"
+            }
+          },
+          {
+            "name": "message_ttl",
+            "type": "int",
+            "default": 7200,
+            "$ui": {
+              "component": "input-number",
+              "required": true,
+              "label": "$redis_message_ttl_label",
+              "description": "$redis_message_ttl_desc"
+            }
+          },
+          {
+            "name": "batch_size",
+            "type": "int",
+            "default": 1,
+            "$ui": {
+              "component": "input-number",
+              "required": true,
+              "label": "$redis_batch_size_label",
+              "description": "$redis_batch_size_desc"
+            }
+          },
+          {
+            "name": "batch_time",
+            "type": "int",
+            "default": 100,
+            "$ui": {
+              "component": "input-number",
+              "required": true,
+              "label": "$redis_batch_time_label",
+              "description": "$redis_batch_time_desc",
+              "importance": "low"
+            }
+          },
+          {
+            "name": "ssl",
+            "type": {
+              "type": "record",
+              "name": "RedisSSLRecord",
+              "fields": [
+                {
+                  "name": "enable",
+                  "type": "boolean",
+                  "default": false,
+                  "$ui": {
+                    "component": "switch",
+                    "required": true,
+                    "label": "$redis_ssl_enable_label",
+                    "description": "$redis_ssl_enable_desc"
+                  }
+                },
+                {
+                  "name": "server_name_indication",
+                  "type": "string",
+                  "default": "disable",
+                  "$ui": {
+                    "component": "input",
+                    "required": false,
+                    "label": "$redis_ssl_server_name_indication_label",
+                    "description": "$redis_ssl_server_name_indication_desc"
+                  }
+                },
+                {
+                  "name": "cacertfile",
+                  "type": "string",
+                  "default": "",
+                  "$ui": {
+                    "component": "input",
+                    "required": false,
+                    "label": "$redis_ssl_cacertfile_label",
+                    "description": "$redis_ssl_cacertfile_desc"
+                  }
+                },
+                {
+                  "name": "certfile",
+                  "type": "string",
+                  "default": "",
+                  "$ui": {
+                    "component": "input",
+                    "required": false,
+                    "label": "$redis_ssl_certfile_label",
+                    "description": "$redis_ssl_certfile_desc"
+                  }
+                },
+                {
+                  "name": "keyfile",
+                  "type": "string",
+                  "default": "",
+                  "$ui": {
+                    "component": "input",
+                    "required": false,
+                    "label": "$redis_ssl_keyfile_label",
+                    "description": "$redis_ssl_keyfile_desc"
+                  }
+                },
+                {
+                  "name": "verify",
+                  "type": "string",
+                  "default": "verify_none",
+                  "$ui": {
+                    "component": "select",
+                    "required": false,
+                    "label": "$redis_ssl_verify_label",
+                    "description": "$redis_ssl_verify_desc",
+                    "options": [
+                      {
+                        "label": "verify_none",
+                        "value": "verify_none"
+                      },
+                      {
+                        "label": "verify_peer",
+                        "value": "verify_peer"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+
+        ]
+      }
+    }
+  ]
+}

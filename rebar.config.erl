@@ -63,7 +63,9 @@ config() ->
     [
         {cover_enabled, is_cover_enabled()},
         {profiles, profiles()},
-        {plugins, plugins()}
+        {plugins, plugins()},
+        %% plugins/ holds EMQX runtime plugins, not rebar3 build plugins.
+        {project_plugin_dirs, []}
     ].
 
 is_cover_enabled() ->

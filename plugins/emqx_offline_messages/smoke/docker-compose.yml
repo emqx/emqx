@@ -1,0 +1,36 @@
+services:
+  emqx:
+    image: ${IMAGE:-emqx/emqx:5.10.3}
+    container_name: offline-messages-emqx
+    hostname: offline-messages-emqx
+    ports:
+      - "${EMQX_MQTT_PORT:-5883}:1883"
+      - "${EMQX_API_PORT:-58083}:18083"
+    environment:
+      EMQX_NODE_NAME: "emqx@offline-messages-emqx"
+      EMQX_NODE_COOKIE: "offline-messages-smoke-secret"
+      EMQX_PLUGINS__INSTALL_DIR: "/opt/emqx/plugins"
+      EMQX_PLUGINS__STATES: '[{name_vsn = "${PLUGIN}"}]'
+      EMQX_API_KEY__BOOTSTRAP_FILE: "/opt/emqx/bootstrap-api-keys.txt"
+    volumes:
+      - ../../../_build/plugins/${PLUGIN}.tar.gz:/opt/emqx/plugins/${PLUGIN}.tar.gz:ro
+      - ./bootstrap-api-keys.txt:/opt/emqx/bootstrap-api-keys.txt:ro
+    networks:
+      - offline-messages-smoke
+
+  redis:
+    image: redis:7
+    container_name: offline-messages-redis
+    hostname: redis
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--requirepass", "public"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "public", "PING"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - offline-messages-smoke
+
+networks:
+  offline-messages-smoke:
+    name: offline-messages-smoke

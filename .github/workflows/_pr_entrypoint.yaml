@@ -264,6 +264,14 @@ jobs:
     with:
       builder: ${{ needs.init.outputs.BUILDER }}
 
+  run_plugins_tests:
+    needs:
+      - init
+      - sanity-checks
+    uses: ./.github/workflows/run_plugins_tests.yaml
+    with:
+      builder: ${{ needs.init.outputs.BUILDER }}
+
   run_docker_tests:
     needs:
       - sanity-checks
