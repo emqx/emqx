@@ -37,7 +37,6 @@ fields("retainer") ->
                 #{
                     desc => ?DESC(enable),
                     default => true,
-                    deprecated => {since, "5.9.0"},
                     importance => ?IMPORTANCE_NO_DOC
                 }
             )},
