@@ -237,8 +237,10 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>, <<"input">> := Input} = M
             undefined ->
                 Data#data.messages;
             NewInstructions ->
-                SysMsg = #{<<"role">> => <<"system">>,
-                           <<"content">> => format_instructions(NewInstructions)},
+                SysMsg = #{
+                    <<"role">> => <<"system">>,
+                    <<"content">> => format_instructions(NewInstructions)
+                },
                 [SysMsg | tl(Data#data.messages)]
         end,
     %% Append the new user message so the model sees continuity.
@@ -253,8 +255,12 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>, <<"input">> := Input} = M
         stop_on_finish = maps:get(<<"stop_on_finish">>, Msg, false),
         pending = []
     },
-    ?SLOG(info, #{msg => "session_continuing", sid => Data#data.sid,
-                  iid => Iid, history_len => length(Data1#data.messages)}),
+    ?SLOG(info, #{
+        msg => "session_continuing",
+        sid => Data#data.sid,
+        iid => Iid,
+        history_len => length(Data1#data.messages)
+    }),
     start_llm_call(Data1);
 %% ── calling_llm: LLM subprocess finished ─────────────────────────────────
 
@@ -324,8 +330,11 @@ handle_event(cast, {in, #{<<"type">> := <<"event">>} = Msg}, _State, Data) ->
 %% buffer it so it can be applied once the session reaches idle.
 %% Only the latest request is kept — earlier ones are superseded.
 handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, _State, Data) ->
-    ?SLOG(info, #{msg => "session_request_queued", sid => Data#data.sid,
-                  iid => maps:get(<<"iid">>, Msg, undefined)}),
+    ?SLOG(info, #{
+        msg => "session_request_queued",
+        sid => Data#data.sid,
+        iid => maps:get(<<"iid">>, Msg, undefined)
+    }),
     {keep_state, Data#data{queued_request = Msg}};
 %% ── calls ─────────────────────────────────────────────────────────────────
 
@@ -446,9 +455,12 @@ on_tool_result(CallId, Msg, Data) ->
     %% plain string, then append a separate user-role message whose content is
     %% the multimodal array — that is the form gpt-4o accepts for vision input.
     {ToolContent, ExtraMsgs} =
-        case Ok =:= true andalso try_extract_image_url(
-            maps:get(<<"payload">>, ResultData, undefined)
-        ) of
+        case
+            Ok =:= true andalso
+                try_extract_image_url(
+                    maps:get(<<"payload">>, ResultData, undefined)
+                )
+        of
             {ok, ImageUrl} ->
                 AckJson = emqx_utils_json:encode(
                     #{<<"ok">> => true, <<"data">> => <<"image received">>}
@@ -456,8 +468,10 @@ on_tool_result(CallId, Msg, Data) ->
                 VisionMsg = #{
                     <<"role">> => <<"user">>,
                     <<"content">> => [
-                        #{<<"type">> => <<"image_url">>,
-                          <<"image_url">> => #{<<"url">> => ImageUrl}}
+                        #{
+                            <<"type">> => <<"image_url">>,
+                            <<"image_url">> => #{<<"url">> => ImageUrl}
+                        }
                     ]
                 },
                 {AckJson, [VisionMsg]};
@@ -487,9 +501,9 @@ on_tool_result(CallId, Msg, Data) ->
             %% "required" are relaxed to "auto"; "none" and "auto" are unchanged.
             TC1 =
                 case Data1#data.tool_choice of
-                    TC when is_map(TC)       -> <<"auto">>;
-                    <<"required">>           -> <<"auto">>;
-                    TC                       -> TC
+                    TC when is_map(TC) -> <<"auto">>;
+                    <<"required">> -> <<"auto">>;
+                    TC -> TC
                 end,
             Results = Data1#data.tool_result_msgs,
             EventMsgs = [event_to_llm_msg(E) || E <- Data1#data.pending],
@@ -645,7 +659,7 @@ call_llm(
     Body0 = #{
         <<"model">> => Model,
         <<"messages">> => Messages,
-        <<"max_tokens">> => MaxTokens,
+        <<"max_completion_tokens">> => MaxTokens,
         <<"temperature">> => Temperature,
         <<"stream">> => true
     },
@@ -692,6 +706,7 @@ call_llm(
         {<<"authorization">>, <<"Bearer ", ApiKey/binary>>},
         {<<"content-type">>, <<"application/json">>}
     ],
+    % ct:print("stream_llm_body: ~p", [Body]),
     stream_llm_response(
         Url,
         Headers,
@@ -718,7 +733,7 @@ stream_llm_response(Url, Headers, Body0, RecvTimeoutMs, Model, Sid, Iid, TraceId
             collect_stream(ClientRef, Model, Sid, Iid, TraceId, Usage);
         {ok, Status, _RespHdrs, ClientRef} ->
             ErrBody = drain_stream_body(ClientRef, <<>>),
-            ct:print("stream_http_err sid=~ts status=~p body=~p", [Sid, Status, ErrBody]),
+            % ct:print("stream_http_err sid=~ts status=~p body=~p", [Sid, Status, ErrBody]),
             ?SLOG(error, #{
                 msg => "session_llm_http_error",
                 sid => Sid,
@@ -819,9 +834,15 @@ apply_stream_json(JsonBin, Acc, Sid, Iid, TraceId, Usage) ->
         {ok, _NonMap} ->
             Acc;
         {error, Reason} ->
-            ct:print("stream_json_err sid=~ts bytes=~p reason=~p prefix=~p",
-                [Sid, byte_size(JsonBin), Reason,
-                 binary:part(JsonBin, 0, min(80, byte_size(JsonBin)))]),
+            % ct:print(
+            %     "stream_json_err sid=~ts bytes=~p reason=~p prefix=~p",
+            %     [
+            %         Sid,
+            %         byte_size(JsonBin),
+            %         Reason,
+            %         binary:part(JsonBin, 0, min(80, byte_size(JsonBin)))
+            %     ]
+            % ),
             ?SLOG(warning, #{
                 msg => "session_stream_json_error",
                 sid => Sid,
@@ -911,26 +932,32 @@ deep_merge_tc(Prev, Delta) ->
     }),
     %% Prefer the first non-null name (arrives in the first chunk only).
     Fun1 =
-        case prefer_non_null(
-            maps:get(<<"name">>, DeltaFun, undefined),
-            maps:get(<<"name">>, PrevFun, undefined)
-        ) of
+        case
+            prefer_non_null(
+                maps:get(<<"name">>, DeltaFun, undefined),
+                maps:get(<<"name">>, PrevFun, undefined)
+            )
+        of
             undefined -> Fun0;
             Name -> Fun0#{<<"name">> => Name}
         end,
     Merged0 = maps:merge(Prev, Delta#{<<"function">> => Fun1}),
     Merged1 =
-        case prefer_non_null(
-            maps:get(<<"id">>, Delta, undefined),
-            maps:get(<<"id">>, Prev, undefined)
-        ) of
+        case
+            prefer_non_null(
+                maps:get(<<"id">>, Delta, undefined),
+                maps:get(<<"id">>, Prev, undefined)
+            )
+        of
             undefined -> Merged0;
             Id -> Merged0#{<<"id">> => Id}
         end,
-    case prefer_non_null(
-        maps:get(<<"type">>, Delta, undefined),
-        maps:get(<<"type">>, Prev, undefined)
-    ) of
+    case
+        prefer_non_null(
+            maps:get(<<"type">>, Delta, undefined),
+            maps:get(<<"type">>, Prev, undefined)
+        )
+    of
         undefined -> Merged1;
         Type -> Merged1#{<<"type">> => Type}
     end.

@@ -6,13 +6,12 @@
 # All suites (no LLM required):
 make apps/emqx_agent-ct
 
-# Single suite:
-SUITES=apps/emqx_agent/test/emqx_agent_pipeline_SUITE.erl make apps/emqx_agent-ct
+# Single suite (faster — use SUITE singular + ct-suite target):
+make SUITE=apps/emqx_agent/test/emqx_agent_pipeline_SUITE.erl ct-suite
 
 # Single test case:
-SUITES=apps/emqx_agent/test/emqx_agent_pipeline_SUITE.erl \
-CASES=t_set_result_writes_to_context \
-make apps/emqx_agent-ct
+make SUITE=apps/emqx_agent/test/emqx_agent_pipeline_SUITE.erl \
+     CASES=t_set_result_writes_to_context ct-suite
 
 # LLM integration tests (require API key + PostgreSQL at pgsql:5432):
 OPENAI_API_KEY=sk-... \
@@ -20,9 +19,13 @@ SUITES=apps/emqx_agent/test/emqx_agent_apple_box_SUITE.erl \
 make apps/emqx_agent-ct
 ```
 
-The apple-box suite is skipped automatically when `OPENAI_API_KEY` is not set.
+The apple-box and builder suites are skipped automatically when `OPENAI_API_KEY` is not set.
 Tests use `emqx_cth_suite` (full in-process EMQX node). Stop any running EMQX
 on port 1883 first (`eaddrinuse` otherwise).
+
+**Note:** When adding a new test suite file, `make apps/emqx_agent-ct` may fail the first run
+because the build system hasn't picked up the new file yet. Run it a second time and it will
+compile and pass.
 
 ---
 
@@ -85,6 +88,8 @@ the session sends a `final` frame.
   "id": "inspect",
   "type": "llm_loop",
   "session_profile": "apple-inspector",
+  "model": "gpt-4o",
+  "instructions": "You are an apple quality inspector...",
   "stop_on_finish": true,
   "tools": ["message.request@box-shot", "message.publish@box-alert"],
   "input": { "box_id": "$.event.box_id" },
@@ -102,8 +107,10 @@ the session sends a `final` frame.
 
 Field | Description
 ------|------------
-`session_profile` | Name of a registered session profile (LLM credentials + instructions)
+`session_profile` | Name of a registered session profile (LLM credentials)
 `session_config` | Inline session config (takes precedence over `session_profile`)
+`model` | Model name, e.g. `gpt-4o`
+`instructions` | System prompt for the LLM (default: `"You are a helpful assistant."`)
 `stop_on_finish` | Optional boolean (default `true`). When `true`, session terminates after publishing final (ephemeral mode). When `false`, session stays alive and accumulates history across events (persistent mode).
 `tools` | List of `"<type>@<skill_id>"` specs exposed as LLM tools
 `input` | Map sent as the first user message; values resolved from context
@@ -172,9 +179,7 @@ context value.
 {
   "name": "apple-inspector",
   "api_key": "sk-...",
-  "base_url": "https://api.openai.com/v1",
-  "model": "gpt-4o",
-  "instructions": "You are an apple quality inspector..."
+  "base_url": "https://api.openai.com/v1"
 }
 ```
 

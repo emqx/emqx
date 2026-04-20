@@ -42,6 +42,7 @@
     '/agent/ui'/2,
     '/agent/apple-box/ui'/2,
     '/agent/apple-box/img/:file'/2,
+    '/agent/builder/ui'/2,
     '/agent/skills'/2,
     '/agent/skills/:type/:id'/2,
     '/agent/session_profiles'/2,
@@ -66,6 +67,7 @@ paths() ->
         "/agent/ui",
         "/agent/apple-box/ui",
         "/agent/apple-box/img/:file",
+        "/agent/builder/ui",
         "/agent/skills",
         "/agent/skills/:type/:id",
         "/agent/session_profiles",
@@ -85,6 +87,16 @@ schema("/agent/ui") ->
             tags => ?TAGS,
             security => [],
             description => ?DESC(ui_get),
+            responses => #{200 => <<"HTML page">>}
+        }
+    };
+schema("/agent/builder/ui") ->
+    #{
+        'operationId' => '/agent/builder/ui',
+        get => #{
+            tags => ?TAGS,
+            security => [],
+            description => ?DESC(builder_ui_get),
             responses => #{200 => <<"HTML page">>}
         }
     };
@@ -341,6 +353,9 @@ schema("/agent/pipelines/:id") ->
 '/agent/apple-box/ui'(get, _Params) ->
     serve_html("apple-box.html").
 
+'/agent/builder/ui'(get, _Params) ->
+    serve_html("builder.html").
+
 '/agent/apple-box/img/:file'(get, #{bindings := #{file := File}}) ->
     PrivDir = code:priv_dir(emqx_agent),
     ImgFile = filename:join([PrivDir, "img", File]),
@@ -566,9 +581,6 @@ session_profile_example() ->
         <<"name">> => <<"hvac_triage_v1">>,
         <<"api_key">> => <<"OPENAI_API_KEY">>,
         <<"base_url">> => <<"https://api.openai.com/v1">>,
-        <<"model">> => <<"gpt-4o">>,
-        <<"instructions">> =>
-            <<"You are an HVAC triage expert. Diagnose anomalies and create ServiceNow incidents.">>,
         <<"output_schema">> => #{
             <<"type">> => <<"object">>,
             <<"properties">> => #{
@@ -590,6 +602,9 @@ pipeline_example() ->
                 <<"id">> => <<"diagnose">>,
                 <<"type">> => <<"llm_loop">>,
                 <<"session_profile">> => <<"hvac_triage_v1">>,
+                <<"model">> => <<"gpt-4o">>,
+                <<"instructions">> =>
+                    <<"You are an HVAC triage expert. Diagnose anomalies and create ServiceNow incidents.">>,
                 <<"tools">> => [
                     <<"postgresql.query@pg-default">>,
                     <<"servicenow.create_incident@sn-prod">>

@@ -56,7 +56,13 @@
     <<"properties">> => #{
         <<"topic">> => #{
             <<"type">> => <<"string">>,
-            <<"description">> => <<"Topic suffix appended to the configured prefix">>
+            <<"description">> =>
+                <<
+                    "Topic suffix only — do NOT include the prefix. "
+                    "The full request topic is: prefix + this value. "
+                    "E.g. if prefix is 'box/shot/' and you want to request 'box/shot/box-123', "
+                    "pass topic='box-123', not topic='box/shot/box-123'."
+                >>
         },
         <<"payload">> => RequestPayloadSchema,
         <<"from">> => #{

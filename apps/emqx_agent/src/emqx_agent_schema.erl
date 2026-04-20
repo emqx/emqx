@@ -402,17 +402,6 @@ fields(session_profile) ->
                 required => true,
                 desc => ?DESC(session_profile_base_url)
             })},
-        {model,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(session_profile_model)
-            })},
-        {instructions,
-            mk(binary(), #{
-                required => false,
-                default => <<"You are a helpful assistant.">>,
-                desc => ?DESC(session_profile_instructions)
-            })},
         {output_schema,
             mk(map(), #{
                 required => false,

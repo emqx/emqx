@@ -91,7 +91,7 @@
   /* tags */
   .tag {
     display: inline-block; font-size: 11px; padding: 1px 7px;
-    border-radius: 10px; background: var(--tag-bg);
+    border-radius: 10px; background: var(--tag-bg); white-space: nowrap;
     border: 1px solid var(--border); color: var(--muted);
   }
   .tag.publish  { border-color: #388bfd44; color: #388bfd; }
@@ -179,14 +179,18 @@
   .kv-row   { display: flex; gap: 5px; align-items: center; }
   .kv-row input { flex: 1; min-width: 80px; }
   .kv-key   { max-width: 130px; flex: 0 0 130px !important; }
-  .tools-grid { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+  .tools-grid { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
   .tools-grid label {
-    display: flex; align-items: center; gap: 4px;
+    display: inline-flex; align-items: center; gap: 4px;
     background: var(--tag-bg); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 3px 8px; cursor: pointer; font-size: 11px;
+    border-radius: var(--radius); padding: 2px 8px; cursor: pointer;
+    font-size: 11px; user-select: none; transition: background 0.1s, border-color 0.1s;
   }
   .tools-grid label:hover { border-color: var(--accent); }
-  .tools-grid input[type=checkbox] { accent-color: var(--accent); }
+  .tools-grid label:has(input:checked) { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .tools-grid label small { color: var(--muted); }
+  .tools-grid label:has(input:checked) small { color: rgba(255,255,255,0.75); }
+  .tools-grid input[type=checkbox] { display: none; }
   .step-add-btn {
     width: 100%; padding: 8px; margin-top: 4px;
     background: none; border: 1px dashed var(--border);
@@ -953,13 +957,14 @@ function deserializeStep(s, i) {
   const id   = s.id ?? ('step_' + (i + 1));
   const type = s.type ?? 'call_skill';
   if (type === 'call_skill') {
-    const args = s.args ? Object.entries(s.args) : [['', '']];
+    const serVal = v => (v !== null && typeof v === 'object') ? JSON.stringify(v) : v;
+    const args = s.args ? Object.entries(s.args).map(([k, v]) => [k, serVal(v)]) : [['', '']];
     return { id, type, skill: s.skill ?? '', args, result_path: s.result_path ?? '' };
   }
   if (type === 'llm_loop') {
     const input = s.input ? Object.entries(s.input) : [['event', '$.event']];
     const setResultSchema = s.set_result_schema ? JSON.stringify(s.set_result_schema, null, 2) : '';
-    return { id, type, session_profile: s.session_profile ?? '', stop_on_finish: s.stop_on_finish ?? true, tools: s.tools ?? [], input, set_result_schema: setResultSchema, result_path: s.result_path ?? '' };
+    return { id, type, session_profile: s.session_profile ?? '', stop_on_finish: s.stop_on_finish ?? true, tools: s.tools ?? [], input, instructions: s.instructions ?? '', set_result_schema: setResultSchema, result_path: s.result_path ?? '' };
   }
   if (type === 'wait_for_event') {
     return { id, type, topic: s.topic ?? '', where: s.where ?? '', result_path: s.result_path ?? '' };
@@ -1105,9 +1110,10 @@ function stepFieldsHTML(step, idx) {
     const toolsHTML = loadedSkills.length
       ? loadedSkills.map(s => {
           const ref = s.type + '@' + s.skill_id;
+          const on = (step.tools||[]).includes(ref);
           return `<label>
-            <input type="checkbox" value="${esc(ref)}"${(step.tools||[]).includes(ref)?' checked':''}>
-            ${esc(s.skill_id)} <small style="color:var(--muted)">${esc(s.type)}</small></label>`;
+            <input type="checkbox" value="${esc(ref)}"${on?' checked':''}>
+            ${esc(s.skill_id)} <small>${esc(s.type)}</small></label>`;
         }).join('')
       : '<span style="color:var(--muted);font-size:11px">No skills registered yet</span>';
     return idF + `
@@ -1126,6 +1132,9 @@ function stepFieldsHTML(step, idx) {
       <div class="field"><label>Input <small style="color:var(--muted)">key → $.path (e.g. $.event, $.history)</small></label>
         <div class="kv-list sf-input">${(step.input||[]).map(([k,v])=>kvRow(k,v)).join('')}</div>
         <button class="btn sm" style="margin-top:4px" onclick="addKV(${idx},'sf-input')">+ input</button>
+      </div>
+      <div class="field"><label>Instructions <small style="color:var(--muted)">System prompt for the LLM (optional)</small></label>
+        <textarea class="sf-instructions" rows="5" style="font-family:monospace;font-size:11px" placeholder="You are a helpful assistant.">${esc(step.instructions||'')}</textarea>
       </div>
       <div class="field"><label>set_result schema <small style="color:var(--muted)">JSON Schema for structured output (optional)</small></label>
         <textarea class="sf-set-result-schema" rows="4" style="font-family:monospace;font-size:11px" placeholder='{"type":"object","properties":{"status":{"type":"string"}}}'>${esc(step.set_result_schema||'')}</textarea>
@@ -1177,6 +1186,7 @@ function syncStep(idx) {
     step.session_profile = card.querySelector('.sf-profile')?.value ?? '';
     step.stop_on_finish = card.querySelector('.sf-stop-on-finish')?.checked ?? true;
     step.tools = [...card.querySelectorAll('.sf-tools input:checked')].map(c => c.value);
+    step.instructions = card.querySelector('.sf-instructions')?.value?.trim() ?? '';
     step.set_result_schema = card.querySelector('.sf-set-result-schema')?.value?.trim() ?? '';
     step.result_path = card.querySelector('.sf-result')?.value?.trim() ?? '';
     step.input = [...card.querySelectorAll('.sf-input .kv-row')].map(r => [
@@ -1209,6 +1219,7 @@ function collectSteps() {
     } else if (s.type === 'llm_loop') {
       if (s.session_profile) out.session_profile = s.session_profile;
       out.stop_on_finish = s.stop_on_finish ?? true;
+      if (s.instructions) out.instructions = s.instructions;
       if (s.tools?.length)   out.tools = s.tools;
       const input = Object.fromEntries((s.input||[]).filter(([k]) => k));
       if (Object.keys(input).length) out.input = input;

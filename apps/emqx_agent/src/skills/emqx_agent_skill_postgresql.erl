@@ -140,12 +140,16 @@ run_query(Query, []) ->
     ok = ensure_resource(),
     case emqx_resource:simple_sync_query(?RESOURCE_ID, {query, Query}) of
         {ok, Cols, Rows} -> {ok, rows_to_maps(Cols, Rows)};
+        {ok, _, Cols, Rows} -> {ok, rows_to_maps(Cols, Rows)};
+        {ok, _RowCount} -> {ok, []};
         Error -> Error
     end;
 run_query(Query, Params) ->
     ok = ensure_resource(),
     case emqx_resource:simple_sync_query(?RESOURCE_ID, {query, Query, Params}) of
         {ok, Cols, Rows} -> {ok, rows_to_maps(Cols, Rows)};
+        {ok, _, Cols, Rows} -> {ok, rows_to_maps(Cols, Rows)};
+        {ok, _RowCount} -> {ok, []};
         Error -> Error
     end.
 

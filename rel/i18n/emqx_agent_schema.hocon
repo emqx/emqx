@@ -222,11 +222,63 @@ Example: [\"device_id\", \"metric\"] maps args.device_id -> $1 and args.metric -
         label: "Output Schema"
     }
 
+    ## ── meta-skill create variants ───────────────────────────────────────────
+
+    skill_create_skill_create {
+        desc: "Parameters for registering an agent.create_skill meta-skill."
+        label: "Create Skill Meta-Skill"
+    }
+
+    skill_create_session_create {
+        desc: "Parameters for registering an agent.create_session meta-skill."
+        label: "Create Session Meta-Skill"
+    }
+
+    skill_create_pipeline_create {
+        desc: "Parameters for registering an agent.create_pipeline meta-skill."
+        label: "Create Pipeline Meta-Skill"
+    }
+
+    skill_query_skills_create {
+        desc: "Parameters for registering an agent.query_skills meta-skill."
+        label: "Query Skills Meta-Skill"
+    }
+
+    skill_query_sessions_create {
+        desc: "Parameters for registering an agent.query_sessions meta-skill."
+        label: "Query Sessions Meta-Skill"
+    }
+
+    skill_query_pipelines_create {
+        desc: "Parameters for registering an agent.query_pipelines meta-skill."
+        label: "Query Pipelines Meta-Skill"
+    }
+
+    skill_delete_skill_create {
+        desc: "Parameters for registering an agent.delete_skill meta-skill."
+        label: "Delete Skill Meta-Skill"
+    }
+
+    skill_delete_session_create {
+        desc: "Parameters for registering an agent.delete_session meta-skill."
+        label: "Delete Session Meta-Skill"
+    }
+
+    skill_delete_pipeline_create {
+        desc: "Parameters for registering an agent.delete_pipeline meta-skill."
+        label: "Delete Pipeline Meta-Skill"
+    }
+
     ## ── pipeline fields ──────────────────────────────────────────────────────
 
     pipeline_id {
         desc: "Unique pipeline definition identifier."
         label: "Pipeline ID"
+    }
+
+    pipeline_active {
+        desc: "When true, the pipeline runtime subscribes to the trigger topic and spawns instances on matching events. Set to false to disable without deleting."
+        label: "Active"
     }
 
     pipeline_trigger_field {

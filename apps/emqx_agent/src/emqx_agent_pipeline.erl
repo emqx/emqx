@@ -97,6 +97,7 @@
 start_link(Def, TriggerEvent) ->
     PipelineId = maps:get(<<"pipeline_id">>, Def),
     Iid = gen_iid(PipelineId),
+    % ct:print("start_link: ~p:~p~n~p", [PipelineId, Iid, Def]),
     gen_statem:start_link(?REG(Iid), ?MODULE, {Iid, Def, TriggerEvent}, []).
 
 -spec whereis(binary()) -> pid() | undefined.
@@ -191,7 +192,9 @@ handle_event(
     Step = current_step(Data),
     Data1 = write_context(maps:get(<<"result_path">>, Step, undefined), Result, Data),
     Data2 = Data1#data{
-        active_sid = undefined, tool_map = #{}, pending_calls = #{},
+        active_sid = undefined,
+        tool_map = #{},
+        pending_calls = #{},
         set_result_value = undefined
     },
     ?SLOG(info, #{
@@ -262,15 +265,18 @@ handle_event(_Type, _Content, _State, Data) ->
 %% Step execution
 %%--------------------------------------------------------------------
 
-execute_step(#{<<"type">> := <<"llm_loop">>} = Step, Data) ->
-    start_llm_loop(Step, Data);
-execute_step(#{<<"type">> := <<"call_skill">>} = Step, Data) ->
-    invoke_call_skill(Step, Data);
-execute_step(#{<<"type">> := <<"break">>} = Step, Data) ->
-    maybe_break(Step, Data);
-execute_step(#{<<"type">> := <<"wait_for_event">>} = Step, Data) ->
-    enter_wait_event(Step, Data);
 execute_step(Step, Data) ->
+    do_execute_step(Step, Data).
+
+do_execute_step(#{<<"type">> := <<"llm_loop">>} = Step, Data) ->
+    start_llm_loop(Step, Data);
+do_execute_step(#{<<"type">> := <<"call_skill">>} = Step, Data) ->
+    invoke_call_skill(Step, Data);
+do_execute_step(#{<<"type">> := <<"break">>} = Step, Data) ->
+    maybe_break(Step, Data);
+do_execute_step(#{<<"type">> := <<"wait_for_event">>} = Step, Data) ->
+    enter_wait_event(Step, Data);
+do_execute_step(Step, Data) ->
     ?SLOG(warning, #{
         msg => "pipeline_unknown_step_type",
         iid => Data#data.iid,
@@ -288,6 +294,9 @@ start_llm_loop(Step, Data) ->
     InputSpec = maps:get(<<"input">>, Step, #{}),
     Input = resolve_map(InputSpec, Data#data.context),
     SessionCfg = resolve_session_config(Step),
+    Instructions = maps:get(<<"instructions">>, Step, <<"You are a helpful assistant.">>),
+    DefaultModel = maps:get(<<"model">>, SessionCfg, <<"gpt-5.4-mini">>),
+    Model = maps:get(<<"model">>, Step, DefaultModel),
     StepId = maps:get(<<"id">>, Step, <<"llm">>),
     %% Stable Sid: same session is reused across every trigger of this pipeline
     %% step, allowing the model to accumulate full conversation history.
@@ -304,6 +313,8 @@ start_llm_loop(Step, Data) ->
         <<"trace_id">> => Data#data.trace_id,
         <<"tools">> => ToolManifest,
         <<"input">> => Input,
+        <<"model">> => Model,
+        <<"instructions">> => Instructions,
         <<"stop_on_finish">> => StopOnFinish
     }),
     publish_to_sess_in(Sid, Request),
@@ -556,6 +567,7 @@ resolve_map(Map, Context) when is_map(Map) ->
     maps:map(
         fun
             (_K, V) when is_binary(V) -> resolve_context_path(V, Context);
+            (_K, V) when is_map(V) -> resolve_map(V, Context);
             (_K, V) -> V
         end,
         Map
@@ -666,7 +678,7 @@ san(_) -> $_.
 %%--------------------------------------------------------------------
 
 %% Inline config takes precedence over a named profile.
-%% Keys expected: api_key, base_url, model, instructions, output_schema.
+%% Keys expected: api_key, base_url, output_schema.
 resolve_session_config(Step) ->
     case maps:get(<<"session_config">>, Step, undefined) of
         Cfg when is_map(Cfg) ->

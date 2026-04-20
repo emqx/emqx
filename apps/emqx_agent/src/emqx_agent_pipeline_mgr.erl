@@ -139,6 +139,7 @@ handle_evt(Topic, Payload) ->
         _ ->
             ok
     end,
+    % ct:print("ActiveDefs: ~p", [ActiveDefs]),
     lists:foreach(fun(Def) -> start_instance(Def, Event) end, ActiveDefs),
     %% Forward to any instance that registered interest in this topic.
     forward_to_waiting(Topic, Event).

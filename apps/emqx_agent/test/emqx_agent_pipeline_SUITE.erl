@@ -436,13 +436,13 @@ t_set_result_writes_to_context(Config) ->
     Step = #{
         <<"id">> => StepId,
         <<"type">> => <<"llm_loop">>,
+        <<"model">> => <<"test-model">>,
+        <<"instructions">> => <<"test">>,
         %% Incomplete session_config: missing output_schema so the real
         %% session process crashes in initial_idle without publishing errors.
         <<"session_config">> => #{
             <<"api_key">> => <<"test-key">>,
-            <<"base_url">> => <<"http://127.0.0.1:1">>,
-            <<"model">> => <<"test-model">>,
-            <<"instructions">> => <<"test">>
+            <<"base_url">> => <<"http://127.0.0.1:1">>
         },
         <<"tools">> => [],
         <<"input">> => #{<<"box_id">> => <<"b1">>},

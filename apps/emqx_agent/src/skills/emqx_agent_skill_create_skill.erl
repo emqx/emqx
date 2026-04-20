@@ -22,157 +22,172 @@
 -define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
 
 -define(INPUT_SCHEMA, #{
-    <<"oneOf">> => [
-        #{
-            <<"title">> => <<"message.publish">>,
-            <<"type">> => <<"object">>,
-            <<"properties">> => #{
-                <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"message.publish">>},
-                <<"id">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"description">> => <<"Unique skill instance identifier">>
+    <<"type">> => <<"object">>,
+    <<"properties">> => #{
+        <<"definition">> => #{
+            <<"description">> => <<"Skill definition — shape depends on the type field">>,
+            <<"oneOf">> => [
+                #{
+                    <<"title">> => <<"message.publish">>,
+                    <<"properties">> => #{
+                        <<"type">> => #{
+                            <<"type">> => <<"string">>, <<"const">> => <<"message.publish">>
+                        },
+                        <<"id">> => #{
+                            <<"type">> => <<"string">>,
+                            <<"description">> => <<"Unique skill instance identifier">>
+                        },
+                        <<"desc">> => #{
+                            <<"type">> => <<"string">>,
+                            <<"description">> => <<"Human-readable description shown to the LLM">>
+                        },
+                        <<"topic_prefix">> => #{
+                            <<"type">> => <<"string">>,
+                            <<"description">> =>
+                                <<"All publishes are restricted to this prefix, e.g. devices/room1/">>
+                        },
+                        <<"payload_schema">> => #{
+                            <<"type">> => <<"object">>,
+                            <<"description">> => <<"Optional JSON Schema for the payload field">>
+                        }
+                    },
+                    <<"required">> => [<<"type">>, <<"id">>, <<"desc">>, <<"topic_prefix">>]
                 },
-                <<"desc">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"description">> => <<"Human-readable description shown to the LLM">>
+                #{
+                    <<"title">> => <<"message.request">>,
+                    <<"properties">> => #{
+                        <<"type">> => #{
+                            <<"type">> => <<"string">>, <<"const">> => <<"message.request">>
+                        },
+                        <<"id">> => #{<<"type">> => <<"string">>},
+                        <<"desc">> => #{<<"type">> => <<"string">>},
+                        <<"topic_prefix">> => #{
+                            <<"type">> => <<"string">>,
+                            <<"description">> =>
+                                <<"Request published to prefix + agent-supplied suffix. Response arrives via MQTT 5 Response-Topic.">>
+                        },
+                        <<"request_payload_schema">> => #{
+                            <<"type">> => <<"object">>,
+                            <<"description">> =>
+                                <<"Optional JSON Schema for the outgoing request payload">>
+                        },
+                        <<"response_schema">> => #{
+                            <<"type">> => <<"object">>,
+                            <<"description">> =>
+                                <<"Optional JSON Schema for the incoming response payload">>
+                        }
+                    },
+                    <<"required">> => [<<"type">>, <<"id">>, <<"desc">>, <<"topic_prefix">>]
                 },
-                <<"topic_prefix">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"description">> =>
-                        <<"All publishes are restricted to this prefix, e.g. devices/room1/">>
+                #{
+                    <<"title">> => <<"http">>,
+                    <<"properties">> => #{
+                        <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"http">>},
+                        <<"id">> => #{<<"type">> => <<"string">>},
+                        <<"desc">> => #{<<"type">> => <<"string">>},
+                        <<"method">> => #{
+                            <<"type">> => <<"string">>,
+                            <<"enum">> => [
+                                <<"get">>, <<"post">>, <<"put">>, <<"patch">>, <<"delete">>
+                            ]
+                        },
+                        <<"url">> => #{
+                            <<"type">> => <<"string">>,
+                            <<"description">> => <<"Full URL of the endpoint">>
+                        },
+                        <<"headers">> => #{
+                            <<"type">> => <<"object">>,
+                            <<"description">> => <<"Optional HTTP headers map">>
+                        },
+                        <<"input_schema">> => #{
+                            <<"type">> => <<"object">>,
+                            <<"description">> => <<"JSON Schema for tool call arguments">>
+                        },
+                        <<"output_schema">> => #{
+                            <<"type">> => <<"object">>,
+                            <<"description">> => <<"JSON Schema for the HTTP response body">>
+                        }
+                    },
+                    <<"required">> => [
+                        <<"type">>,
+                        <<"id">>,
+                        <<"desc">>,
+                        <<"method">>,
+                        <<"url">>,
+                        <<"input_schema">>,
+                        <<"output_schema">>
+                    ]
                 },
-                <<"payload_schema">> => #{
-                    <<"type">> => <<"object">>,
-                    <<"description">> => <<"Optional JSON Schema for the payload field">>
+                #{
+                    <<"title">> => <<"kv.lookup">>,
+                    <<"properties">> => #{
+                        <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"kv.lookup">>},
+                        <<"id">> => #{<<"type">> => <<"string">>},
+                        <<"desc">> => #{<<"type">> => <<"string">>},
+                        <<"data_schema">> => #{
+                            <<"type">> => <<"object">>,
+                            <<"description">> => <<"JSON Schema for the stored value">>
+                        }
+                    },
+                    <<"required">> => [<<"type">>, <<"id">>, <<"desc">>, <<"data_schema">>]
+                },
+                #{
+                    <<"title">> => <<"kv.put">>,
+                    <<"properties">> => #{
+                        <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"kv.put">>},
+                        <<"id">> => #{<<"type">> => <<"string">>},
+                        <<"desc">> => #{<<"type">> => <<"string">>},
+                        <<"data_schema">> => #{
+                            <<"type">> => <<"object">>,
+                            <<"description">> => <<"JSON Schema for the value to store">>
+                        }
+                    },
+                    <<"required">> => [<<"type">>, <<"id">>, <<"desc">>, <<"data_schema">>]
+                },
+                #{
+                    <<"title">> => <<"postgresql.query">>,
+                    <<"properties">> => #{
+                        <<"type">> => #{
+                            <<"type">> => <<"string">>, <<"const">> => <<"postgresql.query">>
+                        },
+                        <<"id">> => #{<<"type">> => <<"string">>},
+                        <<"desc">> => #{<<"type">> => <<"string">>},
+                        <<"query">> => #{
+                            <<"type">> => <<"string">>,
+                            <<"description">> =>
+                                <<
+                                    "SQL using $1 $2 … positional placeholders. "
+                                    "arg_keys maps named args to positions in order."
+                                >>
+                        },
+                        <<"arg_keys">> => #{
+                            <<"type">> => <<"array">>,
+                            <<"items">> => #{<<"type">> => <<"string">>},
+                            <<"description">> =>
+                                <<"Ordered list of arg names, e.g. [\"device_id\",\"value\"] maps to $1, $2">>
+                        },
+                        <<"input_schema">> => #{
+                            <<"type">> => <<"object">>,
+                            <<"description">> => <<"JSON Schema for tool call arguments">>
+                        },
+                        <<"output_schema">> => #{
+                            <<"type">> => <<"object">>,
+                            <<"description">> => <<"JSON Schema for query result rows">>
+                        }
+                    },
+                    <<"required">> => [
+                        <<"type">>,
+                        <<"id">>,
+                        <<"desc">>,
+                        <<"query">>,
+                        <<"input_schema">>,
+                        <<"output_schema">>
+                    ]
                 }
-            },
-            <<"required">> => [<<"type">>, <<"id">>, <<"desc">>, <<"topic_prefix">>]
-        },
-        #{
-            <<"title">> => <<"message.request">>,
-            <<"type">> => <<"object">>,
-            <<"properties">> => #{
-                <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"message.request">>},
-                <<"id">> => #{<<"type">> => <<"string">>},
-                <<"desc">> => #{<<"type">> => <<"string">>},
-                <<"topic_prefix">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"description">> =>
-                        <<"Request published to prefix + agent-supplied suffix. Response arrives via MQTT 5 Response-Topic.">>
-                },
-                <<"request_payload_schema">> => #{
-                    <<"type">> => <<"object">>,
-                    <<"description">> => <<"Optional JSON Schema for the outgoing request payload">>
-                },
-                <<"response_schema">> => #{
-                    <<"type">> => <<"object">>,
-                    <<"description">> =>
-                        <<"Optional JSON Schema for the incoming response payload">>
-                }
-            },
-            <<"required">> => [<<"type">>, <<"id">>, <<"desc">>, <<"topic_prefix">>]
-        },
-        #{
-            <<"title">> => <<"http">>,
-            <<"type">> => <<"object">>,
-            <<"properties">> => #{
-                <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"http">>},
-                <<"id">> => #{<<"type">> => <<"string">>},
-                <<"desc">> => #{<<"type">> => <<"string">>},
-                <<"method">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"enum">> => [<<"get">>, <<"post">>, <<"put">>, <<"patch">>, <<"delete">>]
-                },
-                <<"url">> => #{
-                    <<"type">> => <<"string">>, <<"description">> => <<"Full URL of the endpoint">>
-                },
-                <<"headers">> => #{
-                    <<"type">> => <<"object">>, <<"description">> => <<"Optional HTTP headers map">>
-                },
-                <<"input_schema">> => #{
-                    <<"type">> => <<"object">>,
-                    <<"description">> => <<"JSON Schema for tool call arguments">>
-                },
-                <<"output_schema">> => #{
-                    <<"type">> => <<"object">>,
-                    <<"description">> => <<"JSON Schema for the HTTP response body">>
-                }
-            },
-            <<"required">> => [
-                <<"type">>,
-                <<"id">>,
-                <<"desc">>,
-                <<"method">>,
-                <<"url">>,
-                <<"input_schema">>,
-                <<"output_schema">>
-            ]
-        },
-        #{
-            <<"title">> => <<"kv.lookup">>,
-            <<"type">> => <<"object">>,
-            <<"properties">> => #{
-                <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"kv.lookup">>},
-                <<"id">> => #{<<"type">> => <<"string">>},
-                <<"desc">> => #{<<"type">> => <<"string">>},
-                <<"data_schema">> => #{
-                    <<"type">> => <<"object">>,
-                    <<"description">> => <<"JSON Schema for the stored value">>
-                }
-            },
-            <<"required">> => [<<"type">>, <<"id">>, <<"desc">>, <<"data_schema">>]
-        },
-        #{
-            <<"title">> => <<"kv.put">>,
-            <<"type">> => <<"object">>,
-            <<"properties">> => #{
-                <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"kv.put">>},
-                <<"id">> => #{<<"type">> => <<"string">>},
-                <<"desc">> => #{<<"type">> => <<"string">>},
-                <<"data_schema">> => #{
-                    <<"type">> => <<"object">>,
-                    <<"description">> => <<"JSON Schema for the value to store">>
-                }
-            },
-            <<"required">> => [<<"type">>, <<"id">>, <<"desc">>, <<"data_schema">>]
-        },
-        #{
-            <<"title">> => <<"postgresql.query">>,
-            <<"type">> => <<"object">>,
-            <<"properties">> => #{
-                <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"postgresql.query">>},
-                <<"id">> => #{<<"type">> => <<"string">>},
-                <<"desc">> => #{<<"type">> => <<"string">>},
-                <<"query">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"description">> =>
-                        <<"SQL query template. Use ${var_name} placeholders, e.g. SELECT * FROM t WHERE device_id = ${device_id}">>
-                },
-                <<"arg_keys">> => #{
-                    <<"type">> => <<"array">>,
-                    <<"items">> => #{<<"type">> => <<"string">>},
-                    <<"description">> =>
-                        <<"Ordered list of ${var_name} variable names used in the query. The LLM must supply a matching key in args for each entry.">>
-                },
-                <<"input_schema">> => #{
-                    <<"type">> => <<"object">>,
-                    <<"description">> => <<"JSON Schema for tool call arguments">>
-                },
-                <<"output_schema">> => #{
-                    <<"type">> => <<"object">>,
-                    <<"description">> => <<"JSON Schema for query result rows">>
-                }
-            },
-            <<"required">> => [
-                <<"type">>,
-                <<"id">>,
-                <<"desc">>,
-                <<"query">>,
-                <<"input_schema">>,
-                <<"output_schema">>
             ]
         }
-    ]
+    },
+    <<"required">> => [<<"definition">>]
 }).
 
 -define(OUTPUT_SCHEMA, #{
@@ -255,7 +270,7 @@ on_message_publish(Msg) ->
 
 handle_invoke(SkillId, Payload) ->
     Request = emqx_utils_json:decode(Payload),
-    Args = maps:get(<<"args">>, Request, #{}),
+    Args = maps:get(<<"definition">>, maps:get(<<"args">>, Request, #{}), #{}),
     Result =
         case emqx_agent_service:skill_create(Args) of
             ok ->

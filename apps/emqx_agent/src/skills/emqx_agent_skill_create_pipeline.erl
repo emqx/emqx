@@ -23,10 +23,10 @@
 -define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
 
 -define(STEP_SCHEMA, #{
+    <<"type">> => <<"object">>,
     <<"oneOf">> => [
         #{
             <<"title">> => <<"call_skill">>,
-            <<"type">> => <<"object">>,
             <<"properties">> => #{
                 <<"id">> => #{
                     <<"type">> => <<"string">>,
@@ -53,7 +53,6 @@
         },
         #{
             <<"title">> => <<"llm_loop">>,
-            <<"type">> => <<"object">>,
             <<"properties">> => #{
                 <<"id">> => #{<<"type">> => <<"string">>},
                 <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"llm_loop">>},
@@ -72,10 +71,15 @@
                     <<"description">> =>
                         <<"Skill refs available to the LLM, e.g. [\"message.publish@my-pub\"]">>
                 },
+                <<"instructions">> => #{
+                    <<"type">> => <<"string">>,
+                    <<"description">> =>
+                        <<"System prompt for the LLM — describe the agent's role, available tools, and what it must do">>
+                },
                 <<"input">> => #{
                     <<"type">> => <<"object">>,
                     <<"description">> =>
-                        <<"Map of input keys to context paths or literals, e.g. {\"event\": \"$.event\"}">>
+                        <<"Map of input keys to context paths or literals, e.g. {\"box_id\": \"$.event.box_id\"}">>
                 },
                 <<"set_result_schema">> => #{
                     <<"type">> => <<"object">>,
@@ -84,14 +88,20 @@
                 },
                 <<"result_path">> => #{
                     <<"type">> => <<"string">>,
-                    <<"description">> => <<"Context path to write the LLM result, e.g. $.analysis">>
+                    <<"description">> =>
+                        <<
+                            "REQUIRED. Context path where the LLM result is written, e.g. $.analysis. "
+                            "Subsequent steps reference this value as $.analysis.field. "
+                            "Must never be empty."
+                        >>
                 }
             },
-            <<"required">> => [<<"id">>, <<"type">>, <<"session_profile">>]
+            <<"required">> => [
+                <<"id">>, <<"type">>, <<"session_profile">>, <<"instructions">>, <<"result_path">>
+            ]
         },
         #{
             <<"title">> => <<"wait_for_event">>,
-            <<"type">> => <<"object">>,
             <<"properties">> => #{
                 <<"id">> => #{<<"type">> => <<"string">>},
                 <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"wait_for_event">>},
@@ -114,7 +124,6 @@
         },
         #{
             <<"title">> => <<"break">>,
-            <<"type">> => <<"object">>,
             <<"properties">> => #{
                 <<"id">> => #{<<"type">> => <<"string">>},
                 <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"break">>},

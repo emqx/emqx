@@ -12,6 +12,11 @@ emqx_agent_api {
         label: "Demo Storage UI"
     }
 
+    builder_ui_get {
+        desc: "Pipeline Builder demo UI — conversational chat interface for creating and managing EMQX Agent pipelines via an LLM."
+        label: "Pipeline Builder UI"
+    }
+
     apple_box_ui_get {
         desc: "Apple Box Conveyor demo UI — single-page simulation for visual quality inspection of apple boxes via LLM pipeline."
         label: "Apple Box Conveyor UI"

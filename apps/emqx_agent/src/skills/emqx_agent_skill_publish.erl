@@ -52,7 +52,13 @@
     <<"properties">> => #{
         <<"topic">> => #{
             <<"type">> => <<"string">>,
-            <<"description">> => <<"Topic suffix appended to the configured prefix">>
+            <<"description">> =>
+                <<
+                    "Topic suffix only — do NOT include the prefix. "
+                    "The full publish topic is: prefix + this value. "
+                    "E.g. if prefix is 'box/alert/' and you want to publish to 'box/alert/box-123', "
+                    "pass topic='box-123', not topic='box/alert/box-123'."
+                >>
         },
         <<"payload">> => PayloadSchema,
         <<"from">> => #{
@@ -106,7 +112,9 @@ deinit() ->
 %%   desc         => binary()
 %%   topic_prefix => binary()
 -spec create(Context :: map()) -> ok.
-create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix, input_schema := InputSchema}) ->
+create(#{
+    skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix, input_schema := InputSchema
+}) ->
     create(#{
         skill_id => SkillId,
         desc => Desc,
@@ -178,7 +186,9 @@ to_map(
         <<"type">> => ?SKILL_TYPE,
         <<"description">> => Desc,
         <<"topic_prefix">> => TopicPrefix,
-        <<"payload_schema">> => maps:get(<<"payload">>, maps:get(<<"properties">>, InputSchema, #{}), ?DEFAULT_PAYLOAD_SCHEMA),
+        <<"payload_schema">> => maps:get(
+            <<"payload">>, maps:get(<<"properties">>, InputSchema, #{}), ?DEFAULT_PAYLOAD_SCHEMA
+        ),
         <<"input_schema">> => InputSchema,
         <<"output_schema">> => OutputSchema
     }.

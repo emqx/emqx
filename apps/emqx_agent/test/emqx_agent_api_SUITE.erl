@@ -249,9 +249,7 @@ t_session_profiles_crud(Config) ->
     Profile = #{
         <<"name">> => Name,
         <<"api_key">> => <<"sk-test">>,
-        <<"base_url">> => <<"https://api.openai.com/v1">>,
-        <<"model">> => <<"gpt-4o">>,
-        <<"instructions">> => <<"You are a test assistant.">>
+        <<"base_url">> => <<"https://api.openai.com/v1">>
     },
 
     ?assertMatch({ok, 201, _}, api_post([agent, session_profiles], Profile)),
@@ -260,17 +258,18 @@ t_session_profiles_crud(Config) ->
     ?assertEqual(Name, maps:get(<<"name">>, Entry)),
 
     ?assertMatch(
-        {ok, 200, #{<<"name">> := _, <<"model">> := <<"gpt-4o">>}},
+        {ok, 200, #{<<"name">> := _, <<"base_url">> := <<"https://api.openai.com/v1">>}},
         api_get([agent, session_profiles, Name])
     ),
 
+    UpdatedProfile = maps:put(<<"base_url">>, <<"https://api2.openai.com/v1">>, Profile),
     ?assertMatch(
-        {ok, 200, #{<<"model">> := <<"gpt-4o-mini">>}},
-        api_put([agent, session_profiles, Name], maps:put(<<"model">>, <<"gpt-4o-mini">>, Profile))
+        {ok, 200, #{<<"base_url">> := <<"https://api2.openai.com/v1">>}},
+        api_put([agent, session_profiles, Name], UpdatedProfile)
     ),
 
     ?assertMatch(
-        {ok, 200, #{<<"model">> := <<"gpt-4o-mini">>}},
+        {ok, 200, #{<<"base_url">> := <<"https://api2.openai.com/v1">>}},
         api_get([agent, session_profiles, Name])
     ),
 
@@ -282,8 +281,7 @@ t_session_profiles_validation(_Config) ->
         {ok, 400, _},
         api_post([agent, session_profiles], #{
             <<"api_key">> => <<"sk">>,
-            <<"base_url">> => <<"https://x">>,
-            <<"model">> => <<"m">>
+            <<"base_url">> => <<"https://x">>
         })
     ),
 

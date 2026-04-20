@@ -281,26 +281,15 @@ register_skills() ->
 
 register_profile(_ApiKey) ->
     BaseUrl = list_to_binary(os:getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")),
-    Model = list_to_binary(os:getenv("OPENAI_MODEL", "gpt-4o")),
     Profile = #{
         <<"name">> => ?PROFILE_NAME,
         <<"api_key">> => <<"OPENAI_API_KEY">>,
-        <<"base_url">> => BaseUrl,
-        <<"model">> => Model,
-        <<"instructions">> => <<
-            "You are an apple quality inspector. You will receive box_id and conveyor_id. "
-            "Use the message_request_box_shot tool with topic=box_id to request a photo of the box. "
-            "Examine the photo carefully for rotten, moldy, bruised, or damaged apples. "
-            "If you detect any defects, call message_publish_box_alert with reason, "
-            "defect_type (list of strings), and severity (low/medium/high). "
-            "When you have reached a verdict, call set_result with: "
-            "  status: 'approved' if all apples look fresh, 'rejected' if any defect found; "
-            "  reason: a short sentence explaining your decision."
-        >>
+        <<"base_url">> => BaseUrl
     },
     emqx_agent_pipeline_registry:register_profile(?PROFILE_NAME, Profile).
 
 register_pipeline() ->
+    Model = list_to_binary(os:getenv("OPENAI_MODEL", "gpt-4o")),
     Def = #{
         <<"pipeline_id">> => ?PIPELINE_ID,
         <<"active">> => true,
@@ -310,6 +299,17 @@ register_pipeline() ->
                 <<"id">> => <<"inspect">>,
                 <<"type">> => <<"llm_loop">>,
                 <<"session_profile">> => ?PROFILE_NAME,
+                <<"model">> => Model,
+                <<"instructions">> => <<
+                    "You are an apple quality inspector. You will receive box_id and conveyor_id. "
+                    "Use the message_request_box_shot tool with topic=box_id to request a photo of the box. "
+                    "Examine the photo carefully for rotten, moldy, bruised, or damaged apples. "
+                    "If you detect any defects, call message_publish_box_alert with reason, "
+                    "defect_type (list of strings), and severity (low/medium/high). "
+                    "When you have reached a verdict, call set_result with: "
+                    "  status: 'approved' if all apples look fresh, 'rejected' if any defect found; "
+                    "  reason: a short sentence explaining your decision."
+                >>,
                 <<"stop_on_finish">> => true,
                 <<"tools">> => [
                     <<"message.request@box-shot">>,

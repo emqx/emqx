@@ -31,7 +31,7 @@ init([]) ->
     ChildSpec = #{
         id => emqx_agent_pipeline,
         start => {emqx_agent_pipeline, start_link, []},
-        restart => transient,
+        restart => temporary,
         shutdown => 30_000,
         type => worker,
         modules => [emqx_agent_pipeline]

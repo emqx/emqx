@@ -36,19 +36,12 @@
             <<"type">> => <<"string">>,
             <<"description">> => <<"LLM API base URL, e.g. https://api.openai.com/v1">>
         },
-        <<"model">> => #{
-            <<"type">> => <<"string">>, <<"description">> => <<"Model name, e.g. gpt-4o">>
-        },
-        <<"instructions">> => #{
-            <<"type">> => <<"string">>,
-            <<"description">> => <<"System prompt / instructions for the LLM session">>
-        },
         <<"output_schema">> => #{
             <<"type">> => <<"object">>,
             <<"description">> => <<"Optional JSON Schema constraining structured output">>
         }
     },
-    <<"required">> => [<<"name">>, <<"api_key">>, <<"base_url">>, <<"model">>]
+    <<"required">> => [<<"name">>, <<"api_key">>, <<"base_url">>]
 }).
 
 -define(OUTPUT_SCHEMA, #{
@@ -89,7 +82,7 @@ create(#{skill_id := SkillId}) ->
         type => ?SKILL_TYPE,
         display_name => <<"Create Session Profile">>,
         description =>
-            <<"Create a new LLM session profile (api_key, base_url, model, instructions)">>,
+            <<"Create a new LLM session profile (api_key, base_url)">>,
         context => #{skill_id => SkillId},
         input_schema => ?INPUT_SCHEMA,
         output_schema => ?OUTPUT_SCHEMA
