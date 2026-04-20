@@ -28,13 +28,20 @@ groups() ->
         {mnesia_without_indices, [sequence], index_related_tests()},
         {mnesia_with_indices, [sequence], index_related_tests()},
         {mnesia_reindex, [sequence], [t_reindex]},
-        {index_agnostic, [sequence], [t_disable_then_start, t_start_stop_on_setting_change]},
+        {index_agnostic, [sequence], [
+            t_disable_then_start, t_retain_available_does_not_control_retainer_lifecycle
+        ]},
         {disabled, [t_disabled]}
     ].
 
 index_related_tests() ->
     emqx_common_test_helpers:all(?MODULE) --
-        [t_reindex, t_disable_then_start, t_disabled, t_start_stop_on_setting_change].
+        [
+            t_reindex,
+            t_disable_then_start,
+            t_disabled,
+            t_retain_available_does_not_control_retainer_lifecycle
+        ].
 
 %% erlfmt-ignore
 -define(BASE_CONF, <<"
@@ -59,8 +66,8 @@ retainer {
 
 %% erlfmt-ignore
 -define(DISABLED_CONF, <<"
-mqtt {
-  retain_available = false
+retainer {
+  enable = false
 }
 ">>).
 
@@ -103,11 +110,14 @@ end_per_testcase(_TestCase, _Config) ->
     reset_rates_to_default(),
     ok.
 
-emqx_retainer_app_spec() ->
+emqx_retainer_app_spec(disabled) ->
+    {emqx_retainer, ?DISABLED_CONF};
+emqx_retainer_app_spec(_) ->
     {emqx_retainer, ?BASE_CONF}.
 
-emqx_conf_app_spec(disabled) ->
-    {emqx_conf, ?DISABLED_CONF};
+emqx_retainer_app_spec() ->
+    emqx_retainer_app_spec(default).
+
 emqx_conf_app_spec(_) ->
     emqx_conf.
 
@@ -116,7 +126,7 @@ start_apps(Group, Config) ->
         [
             emqx,
             emqx_conf_app_spec(Group),
-            emqx_retainer_app_spec()
+            emqx_retainer_app_spec(Group)
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -894,18 +904,13 @@ t_get_basic_usage_info(_Config) ->
 %%
 %% stop/start in enable/disable state
 t_disable_then_start(_Config) ->
-    %% Disable retainer by config
-    ?assertWaitEvent(
-        set_retain_available(false),
-        #{?snk_kind := retainer_status_updated},
-        5000
-    ),
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => false}),
     ?assertNot(is_retainer_started()),
     ok = application:stop(emqx_retainer),
     ?assertNot(is_retainer_started()),
     ok = application:ensure_started(emqx_retainer),
     ?assertNot(is_retainer_started()),
-    set_retain_available(true),
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => true}),
     ?assert(is_retainer_started()),
     ok = application:stop(emqx_retainer),
     ?assertNot(is_retainer_started()),
@@ -913,55 +918,19 @@ t_disable_then_start(_Config) ->
     ?assert(is_retainer_started()),
     ok.
 
-t_start_stop_on_setting_change(_Config) ->
-    %% Disable retainer by default, it should not be started
-    ?assertWaitEvent(
-        set_retain_available(false),
-        #{?snk_kind := retainer_status_updated},
-        5000
-    ),
+t_retain_available_does_not_control_retainer_lifecycle(_Config) ->
+    %% `mqtt.retain_available` no longer controls whether retainer is started.
+    ?assert(is_retainer_started()),
+    {ok, _} = set_retain_available(false),
+    ?assert(is_retainer_started()),
+    {ok, _} = set_retain_available_for_zone(default, false),
+    ?assert(is_retainer_started()),
+
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => false}),
     ?assertNot(is_retainer_started()),
 
-    %% Enable retainer by default, it should be started because
-    %% default zone will receive global default values
-    ?assertWaitEvent(
-        set_retain_available(true),
-        #{?snk_kind := retainer_status_updated},
-        5000
-    ),
-    ?assert(is_retainer_started()),
-
-    %% Disable by default and enable in zone
-    ?assertWaitEvent(
-        set_retain_available(false),
-        #{?snk_kind := retainer_status_updated},
-        5000
-    ),
-    ?assertNot(is_retainer_started()),
-    ?assertWaitEvent(
-        set_retain_available_for_zone(default, true),
-        #{?snk_kind := retainer_status_updated},
-        5000
-    ),
-    ?assert(is_retainer_started()),
-
-    %% Enable by default and disable explicitly in zones, the retainer should be stopped
-    ?assertWaitEvent(
-        set_retain_available(true),
-        #{?snk_kind := retainer_status_updated},
-        5000
-    ),
-    ?assert(is_retainer_started()),
-    ?assertWaitEvent(
-        set_retain_available_for_zone(default, false),
-        #{?snk_kind := retainer_status_updated},
-        5000
-    ),
-    ?assertWaitEvent(
-        set_retain_available_for_zone(zone1, false),
-        #{?snk_kind := retainer_status_updated},
-        5000
-    ),
+    {ok, _} = set_retain_available(true),
+    {ok, _} = set_retain_available_for_zone(default, true),
     ?assertNot(is_retainer_started()),
     ok.
 
