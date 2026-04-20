@@ -264,6 +264,84 @@ fields(skill_postgresql_create) ->
                 desc => ?DESC(skill_output_schema)
             })}
     ];
+fields(skill_create_skill_create) ->
+    [
+        {type,
+            mk(enum(['agent.create_skill']), #{
+                required => true,
+                desc => ?DESC(skill_type_discriminator)
+            })},
+        {id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(skill_id)
+            })}
+    ];
+fields(skill_create_session_create) ->
+    [
+        {type,
+            mk(enum(['agent.create_session']), #{
+                required => true,
+                desc => ?DESC(skill_type_discriminator)
+            })},
+        {id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(skill_id)
+            })}
+    ];
+fields(skill_create_pipeline_create) ->
+    [
+        {type,
+            mk(enum(['agent.create_pipeline']), #{
+                required => true,
+                desc => ?DESC(skill_type_discriminator)
+            })},
+        {id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(skill_id)
+            })}
+    ];
+fields(skill_query_skills_create) ->
+    [
+        {type,
+            mk(enum(['agent.query_skills']), #{
+                required => true,
+                desc => ?DESC(skill_type_discriminator)
+            })},
+        {id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(skill_id)
+            })}
+    ];
+fields(skill_query_sessions_create) ->
+    [
+        {type,
+            mk(enum(['agent.query_sessions']), #{
+                required => true,
+                desc => ?DESC(skill_type_discriminator)
+            })},
+        {id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(skill_id)
+            })}
+    ];
+fields(skill_query_pipelines_create) ->
+    [
+        {type,
+            mk(enum(['agent.query_pipelines']), #{
+                required => true,
+                desc => ?DESC(skill_type_discriminator)
+            })},
+        {id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(skill_id)
+            })}
+    ];
 %%--------------------------------------------------------------------
 %% fields/1 — session profile
 %%--------------------------------------------------------------------
@@ -354,6 +432,12 @@ desc(skill_kv_lookup_create) -> ?DESC(skill_kv_create);
 desc(skill_kv_put_create) -> ?DESC(skill_kv_create);
 desc(skill_mqtt_request_create) -> ?DESC(skill_mqtt_request_create);
 desc(skill_postgresql_create) -> ?DESC(skill_postgresql_create);
+desc(skill_create_skill_create) -> ?DESC(skill_create_skill_create);
+desc(skill_create_session_create) -> ?DESC(skill_create_session_create);
+desc(skill_create_pipeline_create) -> ?DESC(skill_create_pipeline_create);
+desc(skill_query_skills_create) -> ?DESC(skill_query_skills_create);
+desc(skill_query_sessions_create) -> ?DESC(skill_query_sessions_create);
+desc(skill_query_pipelines_create) -> ?DESC(skill_query_pipelines_create);
 desc(session_profile) -> ?DESC(session_profile);
 desc(pipeline) -> ?DESC(pipeline);
 desc(pipeline_trigger) -> ?DESC(pipeline_trigger);
@@ -375,7 +459,13 @@ skill_create_type() ->
         <<"http">> => ref(skill_http_create),
         <<"kv.lookup">> => ref(skill_kv_lookup_create),
         <<"kv.put">> => ref(skill_kv_put_create),
-        <<"postgresql.query">> => ref(skill_postgresql_create)
+        <<"postgresql.query">> => ref(skill_postgresql_create),
+        <<"agent.create_skill">> => ref(skill_create_skill_create),
+        <<"agent.create_session">> => ref(skill_create_session_create),
+        <<"agent.create_pipeline">> => ref(skill_create_pipeline_create),
+        <<"agent.query_skills">> => ref(skill_query_skills_create),
+        <<"agent.query_sessions">> => ref(skill_query_sessions_create),
+        <<"agent.query_pipelines">> => ref(skill_query_pipelines_create)
     }).
 
 -spec session_profile_type() -> hocon_schema:schema().

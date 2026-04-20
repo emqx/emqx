@@ -4,12 +4,25 @@
 
 -module(emqx_agent_skill_helpers).
 
--export([correlation/2]).
+-export([correlation/2, format_error/1]).
 
 %% Copies correlation fields from an invoke Request into a reply skeleton.
 %%
 %% Fields forwarded: req_id (required), trace_id, iid, sid (optional, default null).
 %% The caller merges the returned map with skill-specific fields.
+%% Converts a service-layer error term to a human-readable binary for the LLM.
+-spec format_error(term()) -> binary().
+format_error(#{field_name := F, reason := R}) ->
+    iolist_to_binary(io_lib:format("invalid field '~s': ~p", [F, R]));
+format_error(#{field_name := F, expected := E}) ->
+    iolist_to_binary(io_lib:format("unknown value for '~s', expected one of: ~p", [F, E]));
+format_error({missing_field, F}) when is_binary(F) ->
+    <<"missing required field: ", F/binary>>;
+format_error({missing_field, F}) when is_atom(F) ->
+    <<"missing required field: ", (atom_to_binary(F, utf8))/binary>>;
+format_error(Reason) ->
+    iolist_to_binary(io_lib:format("~p", [Reason])).
+
 -spec correlation(Request :: map(), Extra :: map()) -> map().
 correlation(Request, Extra) ->
     maps:merge(
