@@ -25,9 +25,6 @@ options:
 
   --dryrun:          Do not actually create the git tag.
 
-  --skip-appup:      Skip checking appup
-                     Useful when you are sure that appup is already updated'
-
   --prev-tag <tag>:  Provide the prev tag to automatically generate changelogs
                      If this option is absent, the tag found by git describe will be used
 
@@ -57,8 +54,6 @@ case "$TAG" in
     e*)
         TAG_PREFIX='e'
         PROFILE='emqx-enterprise'
-        #TODO change to no when we are ready to support hot-upgrade
-        SKIP_APPUP='yes'
         ;;
     -h|--help)
         usage
@@ -79,10 +74,6 @@ while [ "$#" -gt 0 ]; do
         -h|--help)
             usage
             exit 0
-            ;;
-        --skip-appup)
-            shift
-            SKIP_APPUP='yes'
             ;;
         --dryrun)
             shift
@@ -227,18 +218,6 @@ SYNC_REMOTES_ARGS=
 
 ## Check if app versions are bumped
 ./scripts/apps-version-check.sh
-
-## Ensure appup files are updated
-if [ "$SKIP_APPUP" = 'no' ]; then
-    logmsg "Checking appups"
-    ./scripts/update-appup.sh "$PROFILE" --check
-else
-    logmsg "Skipped checking appup updates"
-fi
-
-## Ensure relup paths are updated
-## TODO: add relup path db
-#./scripts/relup-base-vsns.escript check-vsn-db "$RELEASE_VSN" "$RELUP_PATHS"
 
 ## Run some additional checks (e.g. some for enterprise edition only)
 CHECKS_DIR="./scripts/rel/checks"

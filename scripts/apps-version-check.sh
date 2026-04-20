@@ -56,15 +56,13 @@ for app in ${APPS}; do
         echo "IGNORE: $src_file is newly added"
         true
     elif [ "$old_app_version" = "$now_app_version" ]; then
-        # Check for changes - get changed files first, then filter out proto and appup files
+        # Check for changes - get changed files first, then filter out proto files
         changed_files="$(git diff "$latest_release" --name-only \
                              -- "$app_path/src" \
                              -- "$app_path/include" \
-                             -- ":(exclude)$app_path/src/*.appup.src" \
                              -- ":(exclude)$app_path/priv/*.proto" \
                              -- "$app_path/priv" \
                              -- "$app_path/c_src" \
-                         | grep -v '\.appup\.src$' \
                          | grep -v '\.proto$' || true)"
 
         # Now check if any of the remaining files have actual code changes (not just comments)
