@@ -342,6 +342,45 @@ fields(skill_query_pipelines_create) ->
                 desc => ?DESC(skill_id)
             })}
     ];
+fields(skill_delete_skill_create) ->
+    [
+        {type,
+            mk(enum(['agent.delete_skill']), #{
+                required => true,
+                desc => ?DESC(skill_type_discriminator)
+            })},
+        {id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(skill_id)
+            })}
+    ];
+fields(skill_delete_session_create) ->
+    [
+        {type,
+            mk(enum(['agent.delete_session']), #{
+                required => true,
+                desc => ?DESC(skill_type_discriminator)
+            })},
+        {id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(skill_id)
+            })}
+    ];
+fields(skill_delete_pipeline_create) ->
+    [
+        {type,
+            mk(enum(['agent.delete_pipeline']), #{
+                required => true,
+                desc => ?DESC(skill_type_discriminator)
+            })},
+        {id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(skill_id)
+            })}
+    ];
 %%--------------------------------------------------------------------
 %% fields/1 — session profile
 %%--------------------------------------------------------------------
@@ -438,6 +477,9 @@ desc(skill_create_pipeline_create) -> ?DESC(skill_create_pipeline_create);
 desc(skill_query_skills_create) -> ?DESC(skill_query_skills_create);
 desc(skill_query_sessions_create) -> ?DESC(skill_query_sessions_create);
 desc(skill_query_pipelines_create) -> ?DESC(skill_query_pipelines_create);
+desc(skill_delete_skill_create) -> ?DESC(skill_delete_skill_create);
+desc(skill_delete_session_create) -> ?DESC(skill_delete_session_create);
+desc(skill_delete_pipeline_create) -> ?DESC(skill_delete_pipeline_create);
 desc(session_profile) -> ?DESC(session_profile);
 desc(pipeline) -> ?DESC(pipeline);
 desc(pipeline_trigger) -> ?DESC(pipeline_trigger);
@@ -465,7 +507,10 @@ skill_create_type() ->
         <<"agent.create_pipeline">> => ref(skill_create_pipeline_create),
         <<"agent.query_skills">> => ref(skill_query_skills_create),
         <<"agent.query_sessions">> => ref(skill_query_sessions_create),
-        <<"agent.query_pipelines">> => ref(skill_query_pipelines_create)
+        <<"agent.query_pipelines">> => ref(skill_query_pipelines_create),
+        <<"agent.delete_skill">> => ref(skill_delete_skill_create),
+        <<"agent.delete_session">> => ref(skill_delete_session_create),
+        <<"agent.delete_pipeline">> => ref(skill_delete_pipeline_create)
     }).
 
 -spec session_profile_type() -> hocon_schema:schema().

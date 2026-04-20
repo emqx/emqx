@@ -406,8 +406,13 @@ serve_html(Filename) ->
     end;
 '/agent/skills/:type/:id'(delete, #{bindings := #{type := Type, id := Id}}) ->
     case emqx_agent_service:skill_delete(Type, Id) of
-        ok -> ?NO_CONTENT;
-        {error, not_found} -> ?NOT_FOUND(<<"Skill not found">>)
+        ok ->
+            ?NO_CONTENT;
+        {error, not_found} ->
+            ?NOT_FOUND(<<"Skill not found">>);
+        {error, {in_use, Ids}} ->
+            Joined = iolist_to_binary(lists:join(<<", ">>, Ids)),
+            ?CONFLICT(<<"Skill is used in pipeline(s): ", Joined/binary>>)
     end.
 
 %%--------------------------------------------------------------------
@@ -434,8 +439,13 @@ serve_html(Filename) ->
     ?OK(Profile);
 '/agent/session_profiles/:name'(delete, #{bindings := #{name := Name}}) ->
     case emqx_agent_service:profile_delete(Name) of
-        ok -> ?NO_CONTENT;
-        {error, not_found} -> ?NOT_FOUND(<<"Session profile not found">>)
+        ok ->
+            ?NO_CONTENT;
+        {error, not_found} ->
+            ?NOT_FOUND(<<"Session profile not found">>);
+        {error, {in_use, Ids}} ->
+            Joined = iolist_to_binary(lists:join(<<", ">>, Ids)),
+            ?CONFLICT(<<"Session profile is used in pipeline(s): ", Joined/binary>>)
     end.
 
 %%--------------------------------------------------------------------
@@ -466,8 +476,12 @@ serve_html(Filename) ->
     end;
 '/agent/pipelines/:id'(delete, #{bindings := #{id := Id}}) ->
     case emqx_agent_service:pipeline_delete(Id) of
-        ok -> ?NO_CONTENT;
-        {error, not_found} -> ?NOT_FOUND(<<"Pipeline not found">>)
+        ok ->
+            ?NO_CONTENT;
+        {error, not_found} ->
+            ?NOT_FOUND(<<"Pipeline not found">>);
+        {error, pipeline_is_active} ->
+            ?CONFLICT(<<"Pipeline is active; set active=false before deleting">>)
     end.
 
 field_to_str(F) when is_binary(F) -> F;

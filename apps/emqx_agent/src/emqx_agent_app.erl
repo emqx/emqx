@@ -21,6 +21,9 @@ start(_StartType, _StartArgs) ->
     ok = emqx_agent_skill_query_skills:init(),
     ok = emqx_agent_skill_query_sessions:init(),
     ok = emqx_agent_skill_query_pipelines:init(),
+    ok = emqx_agent_skill_delete_skill:init(),
+    ok = emqx_agent_skill_delete_session:init(),
+    ok = emqx_agent_skill_delete_pipeline:init(),
     ok = emqx_agent_session:init_hook(),
     ok = emqx_agent_pipeline_mgr:init_hook(),
     {ok, Sup}.
@@ -37,5 +40,8 @@ stop(_State) ->
     ok = emqx_agent_skill_query_skills:deinit(),
     ok = emqx_agent_skill_query_sessions:deinit(),
     ok = emqx_agent_skill_query_pipelines:deinit(),
+    ok = emqx_agent_skill_delete_skill:deinit(),
+    ok = emqx_agent_skill_delete_session:deinit(),
+    ok = emqx_agent_skill_delete_pipeline:deinit(),
     ok = emqx_agent_session:deinit_hook(),
     ok = emqx_agent_pipeline_mgr:deinit_hook().
