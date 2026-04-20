@@ -314,6 +314,12 @@ fields(pipeline) ->
                 required => true,
                 desc => ?DESC(pipeline_id)
             })},
+        {active,
+            mk(boolean(), #{
+                required => false,
+                default => true,
+                desc => ?DESC(pipeline_active)
+            })},
         {trigger,
             mk(ref(pipeline_trigger), #{
                 required => true,
@@ -363,14 +369,14 @@ skill_entry_type() ->
 
 -spec skill_create_type() -> hocon_schema:schema().
 skill_create_type() ->
-    hoconsc:union([
-        ref(skill_publish_create),
-        ref(skill_mqtt_request_create),
-        ref(skill_http_create),
-        ref(skill_kv_lookup_create),
-        ref(skill_kv_put_create),
-        ref(skill_postgresql_create)
-    ]).
+    emqx_schema:mkunion(<<"type">>, #{
+        <<"message.publish">> => ref(skill_publish_create),
+        <<"message.request">> => ref(skill_mqtt_request_create),
+        <<"http">> => ref(skill_http_create),
+        <<"kv.lookup">> => ref(skill_kv_lookup_create),
+        <<"kv.put">> => ref(skill_kv_put_create),
+        <<"postgresql.query">> => ref(skill_postgresql_create)
+    }).
 
 -spec session_profile_type() -> hocon_schema:schema().
 session_profile_type() ->

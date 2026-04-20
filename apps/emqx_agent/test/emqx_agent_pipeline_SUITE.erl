@@ -505,6 +505,7 @@ t_unregistered_pipeline_not_triggered(Config) ->
 register_pipeline(PipelineId, TrigTopic, Steps) ->
     Def = #{
         <<"pipeline_id">> => PipelineId,
+        <<"active">> => true,
         <<"trigger">> => #{<<"topic">> => TrigTopic},
         <<"steps">> => Steps
     },

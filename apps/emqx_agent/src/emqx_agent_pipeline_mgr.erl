@@ -126,8 +126,9 @@ handle_cap_reply(ReqId, Payload) ->
 handle_evt(Topic, Payload) ->
     Event = safe_decode(Payload),
     log_received(evt, #{topic => Topic, event => Event}),
-    %% Start new instances for every pipeline definition whose trigger matches.
+    %% Start new instances for every active pipeline whose trigger matches.
     Defs = emqx_agent_pipeline_registry:match_trigger(Topic),
+    ActiveDefs = [D || D <- Defs, maps:get(<<"active">>, D, false)],
     case Defs of
         [] ->
             ?SLOG(warning, #{
@@ -138,7 +139,7 @@ handle_evt(Topic, Payload) ->
         _ ->
             ok
     end,
-    lists:foreach(fun(Def) -> start_instance(Def, Event) end, Defs),
+    lists:foreach(fun(Def) -> start_instance(Def, Event) end, ActiveDefs),
     %% Forward to any instance that registered interest in this topic.
     forward_to_waiting(Topic, Event).
 
@@ -184,18 +185,7 @@ safe_decode(Payload) ->
     end.
 
 log_received(Kind, Data) ->
-    ?SLOG(info, #{msg => "pipeline_mgr_received", kind => Kind, data => Data}),
-    maybe_ct_print("[pipeline_mgr] ~p ~p", [Kind, Data]).
-
-maybe_ct_print(Format, Args) ->
-    _ =
-        try
-            ct:print(Format, Args)
-        catch
-            _:_ ->
-                ok
-        end,
-    ok.
+    ?SLOG(warning, #{msg => "pipeline_mgr_received", kind => Kind, data => Data}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

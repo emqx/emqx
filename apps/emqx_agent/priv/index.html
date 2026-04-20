@@ -100,6 +100,8 @@
   .tag.kv       { border-color: #3fb95044; color: var(--accent2); }
   .tag.ch       { border-color: #f8514944; color: var(--danger); }
   .tag.llm      { border-color: #a371f744; color: #a371f7; }
+  .tag.active   { border-color: #3fb95066; color: var(--accent2); }
+  .tag.draft    { border-color: transparent; color: var(--muted); }
 
   /* buttons */
   .btn {
@@ -417,8 +419,8 @@
     <section id="tab-pipelines">
       <h2>Pipelines</h2>
       <table class="tbl">
-        <thead><tr><th>ID</th><th>Trigger topic</th><th>Steps</th><th></th></tr></thead>
-        <tbody id="pipelines-body"><tr class="empty"><td colspan="4">Not connected</td></tr></tbody>
+        <thead><tr><th>ID</th><th>Trigger topic</th><th>Steps</th><th>Status</th><th></th></tr></thead>
+        <tbody id="pipelines-body"><tr class="empty"><td colspan="5">Not connected</td></tr></tbody>
       </table>
 
       <div class="card">
@@ -434,6 +436,13 @@
           <div class="field">
             <label>Trigger topic</label>
             <input id="pipe-topic" type="text" placeholder="evt/hvac/anomaly">
+          </div>
+          <div class="field" style="max-width:110px">
+            <label>Active</label>
+            <label style="display:flex;align-items:center;gap:6px;padding-top:6px;cursor:pointer">
+              <input type="checkbox" id="pipe-active" checked style="accent-color:var(--accent2);width:14px;height:14px">
+              <span style="font-size:12px;color:var(--muted)">enabled</span>
+            </label>
           </div>
         </div>
 
@@ -843,24 +852,44 @@ async function loadPipelines() {
   document.getElementById('cnt-pipelines').textContent = list.length;
   const tbody = document.getElementById('pipelines-body');
   if (!list.length) {
-    tbody.innerHTML = '<tr class="empty"><td colspan="4">No pipelines registered</td></tr>';
+    tbody.innerHTML = '<tr class="empty"><td colspan="5">No pipelines registered</td></tr>';
     return;
   }
   tbody.innerHTML = list.map(p => {
-    const trigger = p.trigger?.topic ?? '—';
-    const steps   = (p.steps ?? []).map(s =>
+    const trigger  = p.trigger?.topic ?? '—';
+    const steps    = (p.steps ?? []).map(s =>
       `<span class="tag ${stepClass(s.type)}">${esc(s.id ?? s.type)}</span>`
     ).join(' ');
+    const isActive = p.active === true;
+    const statusBadge = isActive
+      ? '<span class="tag active">● active</span>'
+      : '<span class="tag draft">○ draft</span>';
+    const toggleLabel = isActive ? 'deactivate' : 'activate';
     return `<tr>
       <td><code>${esc(p.pipeline_id)}</code></td>
       <td style="color:var(--muted)">${esc(trigger)}</td>
       <td>${steps}</td>
+      <td>${statusBadge}</td>
       <td style="display:flex;gap:4px">
+        <button class="btn sm" onclick="togglePipelineActive('${esc(p.pipeline_id)}')">${toggleLabel}</button>
         <button class="btn sm" onclick="editPipeline('${esc(p.pipeline_id)}')">edit</button>
         <button class="btn sm danger" onclick="deletePipeline('${esc(p.pipeline_id)}')">delete</button>
       </td>
     </tr>`;
   }).join('');
+}
+
+async function togglePipelineActive(id) {
+  const pipeline = loadedPipelines.find(p => p.pipeline_id === id);
+  if (!pipeline) return toast('Pipeline not found — try refreshing', 'err');
+  const updated = { ...pipeline, active: !pipeline.active };
+  try {
+    await api('PUT', `/agent/pipelines/${encodeURIComponent(id)}`, updated);
+    toast(`Pipeline "${id}" ${updated.active ? 'activated' : 'deactivated'}`, 'ok');
+    await loadPipelines();
+  } catch(e) {
+    toast(e.message, 'err');
+  }
 }
 
 async function deletePipeline(id) {
@@ -879,8 +908,9 @@ async function savePipeline() {
   const topic = document.getElementById('pipe-topic').value.trim();
   if (!id)    return setMsg('pipe-msg', 'Pipeline ID is required', true);
   if (!topic) return setMsg('pipe-msg', 'Trigger topic is required', true);
-  const steps = collectSteps();
-  const body  = { pipeline_id: id, trigger: { topic }, steps };
+  const steps  = collectSteps();
+  const active = document.getElementById('pipe-active').checked;
+  const body   = { pipeline_id: id, trigger: { topic }, steps, active };
   try {
     if (editingPipelineId) {
       await api('PUT', `/agent/pipelines/${encodeURIComponent(editingPipelineId)}`, body);
@@ -903,10 +933,11 @@ function editPipeline(id) {
 
   editingPipelineId = id;
 
-  document.getElementById('pipe-id').value       = pipeline.pipeline_id;
-  document.getElementById('pipe-id').readOnly    = true;
+  document.getElementById('pipe-id').value        = pipeline.pipeline_id;
+  document.getElementById('pipe-id').readOnly     = true;
   document.getElementById('pipe-id').style.opacity = '0.6';
-  document.getElementById('pipe-topic').value    = pipeline.trigger?.topic ?? '';
+  document.getElementById('pipe-topic').value     = pipeline.trigger?.topic ?? '';
+  document.getElementById('pipe-active').checked  = pipeline.active === true;
   document.getElementById('pipe-card-title').textContent = 'Edit Pipeline: ' + id;
   document.getElementById('pipe-save-btn').textContent   = 'Update Pipeline';
   document.getElementById('pipe-cancel-btn').style.display = '';
@@ -946,6 +977,7 @@ function resetPipelineEditor() {
   document.getElementById('pipe-id').readOnly        = false;
   document.getElementById('pipe-id').style.opacity   = '';
   document.getElementById('pipe-topic').value        = '';
+  document.getElementById('pipe-active').checked     = true;
   document.getElementById('pipe-card-title').textContent    = 'New Pipeline';
   document.getElementById('pipe-save-btn').textContent      = 'Create Pipeline';
   document.getElementById('pipe-cancel-btn').style.display  = 'none';

@@ -303,6 +303,7 @@ register_profile(_ApiKey) ->
 register_pipeline() ->
     Def = #{
         <<"pipeline_id">> => ?PIPELINE_ID,
+        <<"active">> => true,
         <<"trigger">> => #{<<"topic">> => <<"evt/conveyor/+/box/done">>},
         <<"steps">> => [
             #{

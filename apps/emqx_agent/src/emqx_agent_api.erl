@@ -373,16 +373,13 @@ serve_html(Filename) ->
 %%--------------------------------------------------------------------
 
 '/agent/skills'(get, _Params) ->
-    Skills = emqx_agent_skill_registry:list(),
-    ?OK([skill_to_map(S) || S <- Skills]);
+    ?OK(emqx_agent_service:skill_list());
 '/agent/skills'(post, #{body := Body}) ->
-    case do_create_skill(Body) of
+    case emqx_agent_service:skill_create(Body) of
         ok ->
             ?CREATED(#{});
         {error, {missing_field, Field}} ->
-            ?BAD_REQUEST(
-                iolist_to_binary(["Missing required field: ", field_to_str(Field)])
-            );
+            ?BAD_REQUEST(iolist_to_binary(["Missing required field: ", field_to_str(Field)]));
         {error, unknown_type} ->
             ?BAD_REQUEST(
                 <<"Unknown skill type. Valid types: message.publish, http, kv, postgresql.query">>
@@ -392,28 +389,25 @@ serve_html(Filename) ->
     end.
 
 '/agent/skills/:type/:id'(get, #{bindings := #{type := Type, id := Id}}) ->
-    case emqx_agent_skill_registry:lookup(Type, Id) of
-        {ok, Skill} ->
-            ?OK(skill_to_map(Skill));
-        {error, not_found} ->
-            ?NOT_FOUND(<<"Skill not found">>)
+    case emqx_agent_service:skill_get(Type, Id) of
+        {ok, Skill} -> ?OK(Skill);
+        {error, not_found} -> ?NOT_FOUND(<<"Skill not found">>)
     end;
 '/agent/skills/:type/:id'(put, #{bindings := #{type := Type, id := Id}, body := Body}) ->
-    %% Force the id from the URL into the body so the registry key stays consistent.
-    Body2 = Body#{<<"id">> => Id},
-    case do_create_skill(Body2) of
-        ok ->
-            {ok, Skill} = emqx_agent_skill_registry:lookup(Type, Id),
-            ?OK(skill_to_map(Skill));
+    case emqx_agent_service:skill_update(Type, Id, Body) of
+        {ok, Skill} ->
+            ?OK(Skill);
         {error, {missing_field, Field}} ->
-            ?BAD_REQUEST(<<"Missing required field: ", Field/binary>>);
+            ?BAD_REQUEST(iolist_to_binary(["Missing required field: ", field_to_str(Field)]));
+        {error, not_found} ->
+            ?NOT_FOUND(<<"Skill not found">>);
         {error, Reason} ->
             ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
     end;
 '/agent/skills/:type/:id'(delete, #{bindings := #{type := Type, id := Id}}) ->
-    case find_and_destroy_skill(Type, Id) of
-        not_found -> ?NOT_FOUND(<<"Skill not found">>);
-        found -> ?NO_CONTENT
+    case emqx_agent_service:skill_delete(Type, Id) of
+        ok -> ?NO_CONTENT;
+        {error, not_found} -> ?NOT_FOUND(<<"Skill not found">>)
     end.
 
 %%--------------------------------------------------------------------
@@ -421,35 +415,27 @@ serve_html(Filename) ->
 %%--------------------------------------------------------------------
 
 '/agent/session_profiles'(get, _Params) ->
-    ?OK(emqx_agent_pipeline_registry:list_profiles());
+    ?OK(emqx_agent_service:profile_list());
 '/agent/session_profiles'(post, #{body := Body}) ->
-    case maps:get(<<"name">>, Body, undefined) of
-        undefined ->
-            ?BAD_REQUEST(<<"Missing required field: name">>);
-        Name ->
-            ok = emqx_agent_pipeline_registry:register_profile(Name, Body),
-            ?CREATED(#{})
+    case emqx_agent_service:profile_create(Body) of
+        ok ->
+            ?CREATED(#{});
+        {error, {missing_field, Field}} ->
+            ?BAD_REQUEST(iolist_to_binary(["Missing required field: ", field_to_str(Field)]))
     end.
 
 '/agent/session_profiles/:name'(get, #{bindings := #{name := Name}}) ->
-    case emqx_agent_pipeline_registry:lookup_profile(Name) of
+    case emqx_agent_service:profile_get(Name) of
         {ok, Profile} -> ?OK(Profile);
         {error, not_found} -> ?NOT_FOUND(<<"Session profile not found">>)
     end;
 '/agent/session_profiles/:name'(put, #{bindings := #{name := Name}, body := Body}) ->
-    case maps:get(<<"name">>, Body, Name) of
-        _ ->
-            Body2 = Body#{<<"name">> => Name},
-            ok = emqx_agent_pipeline_registry:register_profile(Name, Body2),
-            ?OK(Body2)
-    end;
+    {ok, Profile} = emqx_agent_service:profile_update(Name, Body),
+    ?OK(Profile);
 '/agent/session_profiles/:name'(delete, #{bindings := #{name := Name}}) ->
-    case emqx_agent_pipeline_registry:lookup_profile(Name) of
-        {error, not_found} ->
-            ?NOT_FOUND(<<"Session profile not found">>);
-        {ok, _} ->
-            ok = emqx_agent_pipeline_registry:unregister_profile(Name),
-            ?NO_CONTENT
+    case emqx_agent_service:profile_delete(Name) of
+        ok -> ?NO_CONTENT;
+        {error, not_found} -> ?NOT_FOUND(<<"Session profile not found">>)
     end.
 
 %%--------------------------------------------------------------------
@@ -457,129 +443,32 @@ serve_html(Filename) ->
 %%--------------------------------------------------------------------
 
 '/agent/pipelines'(get, _Params) ->
-    ?OK(emqx_agent_pipeline_registry:list());
+    ?OK(emqx_agent_service:pipeline_list());
 '/agent/pipelines'(post, #{body := Body}) ->
-    case maps:get(<<"pipeline_id">>, Body, undefined) of
-        undefined ->
-            ?BAD_REQUEST(<<"Missing required field: pipeline_id">>);
-        _ ->
-            case emqx_agent_pipeline_registry:register(Body) of
-                ok ->
-                    ?CREATED(#{});
-                {error, Reason} ->
-                    ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
-            end
+    case emqx_agent_service:pipeline_create(Body) of
+        ok ->
+            ?CREATED(#{});
+        {error, {missing_field, Field}} ->
+            ?BAD_REQUEST(iolist_to_binary(["Missing required field: ", field_to_str(Field)]));
+        {error, Reason} ->
+            ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
     end.
 
 '/agent/pipelines/:id'(get, #{bindings := #{id := Id}}) ->
-    case emqx_agent_pipeline_registry:lookup(Id) of
+    case emqx_agent_service:pipeline_get(Id) of
         {ok, Pipeline} -> ?OK(Pipeline);
         {error, not_found} -> ?NOT_FOUND(<<"Pipeline not found">>)
     end;
 '/agent/pipelines/:id'(put, #{bindings := #{id := Id}, body := Body}) ->
-    Body2 = Body#{<<"pipeline_id">> => Id},
-    case emqx_agent_pipeline_registry:register(Body2) of
-        ok ->
-            ?OK(Body2);
-        {error, Reason} ->
-            ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
+    case emqx_agent_service:pipeline_update(Id, Body) of
+        {ok, Pipeline} -> ?OK(Pipeline);
+        {error, Reason} -> ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
     end;
 '/agent/pipelines/:id'(delete, #{bindings := #{id := Id}}) ->
-    case emqx_agent_pipeline_registry:lookup(Id) of
-        {error, not_found} ->
-            ?NOT_FOUND(<<"Pipeline not found">>);
-        {ok, _} ->
-            ok = emqx_agent_pipeline_registry:unregister(Id),
-            ?NO_CONTENT
+    case emqx_agent_service:pipeline_delete(Id) of
+        ok -> ?NO_CONTENT;
+        {error, not_found} -> ?NOT_FOUND(<<"Pipeline not found">>)
     end.
-
-%%--------------------------------------------------------------------
-%% Internal — Skill creation dispatch
-%%--------------------------------------------------------------------
-
-%% Parses and validates the raw API body using the hocon schema (same pattern as
-%% emqx_mq_config:mq_from_raw_post/1), then delegates to the skill module.
-do_create_skill(#{<<"type">> := Type} = Body) ->
-    case skill_schema_for_type(Type) of
-        unknown ->
-            {error, unknown_type};
-        SchemaRef ->
-            Schema = #{roots => [{skill, SchemaRef}]},
-            try hocon_tconf:check_plain(Schema, #{<<"skill">> => Body}, #{atom_key => true}) of
-                #{skill := Ctx} ->
-                    %% Rename id → skill_id (API uses "id"; internals use skill_id).
-                    Ctx2 = maps:put(skill_id, maps:get(id, Ctx), maps:remove(id, Ctx)),
-                    Mod = skill_module_for_type(Type),
-                    Mod:create(Ctx2)
-            catch
-                throw:Error ->
-                    {error, Error}
-            end
-    end;
-do_create_skill(_Body) ->
-    {error, {missing_field, <<"type">>}}.
-
-%% Maps the API type string to the hocon schema ref used for validation/coercion.
-skill_schema_for_type(<<"message.publish">>) ->
-    hoconsc:ref(emqx_agent_schema, skill_publish_create);
-skill_schema_for_type(<<"message.request">>) ->
-    hoconsc:ref(emqx_agent_schema, skill_mqtt_request_create);
-skill_schema_for_type(<<"http">>) ->
-    hoconsc:ref(emqx_agent_schema, skill_http_create);
-skill_schema_for_type(<<"kv.lookup">>) ->
-    hoconsc:ref(emqx_agent_schema, skill_kv_lookup_create);
-skill_schema_for_type(<<"kv.put">>) ->
-    hoconsc:ref(emqx_agent_schema, skill_kv_put_create);
-skill_schema_for_type(<<"postgresql.query">>) ->
-    hoconsc:ref(emqx_agent_schema, skill_postgresql_create);
-skill_schema_for_type(_) ->
-    unknown.
-
-%%--------------------------------------------------------------------
-%% Internal — Skill deletion dispatch
-%%--------------------------------------------------------------------
-
-%% Checks whether the skill exists and, if so, destroys it.
-%% Returns `found` or `not_found`.
-find_and_destroy_skill(Type, Id) ->
-    case emqx_agent_skill_registry:lookup(Type, Id) of
-        {error, not_found} ->
-            not_found;
-        {ok, _} ->
-            ok = do_destroy_skill(Type, Id),
-            found
-    end.
-
-do_destroy_skill(<<"message.publish">>, Id) -> emqx_agent_skill_publish:destroy(Id);
-do_destroy_skill(<<"message.request">>, Id) -> emqx_agent_skill_mqtt_request:destroy(Id);
-do_destroy_skill(<<"http">>, Id) -> emqx_agent_skill_http:destroy(Id);
-do_destroy_skill(<<"kv.lookup">>, Id) -> emqx_agent_skill_kv:destroy_lookup(Id);
-do_destroy_skill(<<"kv.put">>, Id) -> emqx_agent_skill_kv:destroy_put(Id);
-do_destroy_skill(<<"postgresql.query">>, Id) -> emqx_agent_skill_postgresql:destroy(Id).
-
-%%--------------------------------------------------------------------
-%% Internal — Response helpers
-%%--------------------------------------------------------------------
-
-skill_to_map(#{type := Type} = Skill) ->
-    Mod = skill_module(Type),
-    Mod:to_map(Skill).
-
-skill_module(<<"http">>) -> emqx_agent_skill_http;
-skill_module(<<"message.publish">>) -> emqx_agent_skill_publish;
-skill_module(<<"message.request">>) -> emqx_agent_skill_mqtt_request;
-skill_module(<<"kv.lookup">>) -> emqx_agent_skill_kv;
-skill_module(<<"kv.put">>) -> emqx_agent_skill_kv;
-skill_module(<<"postgresql.query">>) -> emqx_agent_skill_postgresql.
-
-%% Used by do_create_skill — kv.lookup and kv.put are independent first-class types.
-skill_module_for_type(<<"http">>) -> emqx_agent_skill_http;
-skill_module_for_type(<<"message.publish">>) -> emqx_agent_skill_publish;
-skill_module_for_type(<<"message.request">>) -> emqx_agent_skill_mqtt_request;
-skill_module_for_type(<<"kv.lookup">>) -> emqx_agent_skill_kv;
-skill_module_for_type(<<"kv.put">>) -> emqx_agent_skill_kv;
-skill_module_for_type(<<"postgresql.query">>) -> emqx_agent_skill_postgresql;
-skill_module_for_type(_) -> unknown.
 
 field_to_str(F) when is_binary(F) -> F;
 field_to_str(F) when is_atom(F) -> atom_to_binary(F, utf8).

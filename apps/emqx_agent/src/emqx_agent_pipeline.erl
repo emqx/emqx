@@ -729,18 +729,7 @@ publish_pipeline_event(
     ok.
 
 log_received(Kind, #data{iid = Iid}, Payload) ->
-    ?SLOG(info, #{msg => "pipeline_received", iid => Iid, kind => Kind, payload => Payload}),
-    maybe_ct_print("[pipeline] ~p ~p ~p", [Iid, Kind, Payload]).
-
-maybe_ct_print(Format, Args) ->
-    _ =
-        try
-            ct:print(Format, Args)
-        catch
-            _:_ ->
-                ok
-        end,
-    ok.
+    ?SLOG(warning, #{msg => "pipeline_received", iid => Iid, kind => Kind, payload => Payload}).
 
 %%--------------------------------------------------------------------
 %% ID generation

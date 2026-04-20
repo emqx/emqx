@@ -261,6 +261,7 @@ def create_pipeline() -> None:
         "/agent/pipelines",
         {
             "pipeline_id": PIPELINE_ID,
+            "active": True,
             "trigger": {"topic": "evt/conveyor/+/box/done"},
             "steps": [
                 {
