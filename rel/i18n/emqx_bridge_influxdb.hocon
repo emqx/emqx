@@ -61,7 +61,7 @@ ping_with_auth.label:
 """Ping With Auth"""
 
 ping_with_auth.desc:
-"""Only applies to InfluxDB v1. When enabled, EMQX includes the configured username and password in the `/ping` health-check request. The default is `false` to preserve the legacy behavior."""
+"""Controls whether EMQX includes connector credentials in `/ping` health-check requests. Enable this if your InfluxDB service requires authentication on `/ping`. The default is `false`, which preserves the previous behavior and sends `/ping` without authentication."""
 
 influxdb_action.label:
 """InfluxDB Action"""
