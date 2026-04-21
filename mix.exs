@@ -274,7 +274,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:ots_erl, github: "emqx/ots_erl", tag: "0.2.3", override: true}
 
   def common_dep(:influxdb),
-    do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.16", override: true}
+    do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.18", override: true}
 
   def common_dep(:wolff), do: {:wolff, "4.1.9"}
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}

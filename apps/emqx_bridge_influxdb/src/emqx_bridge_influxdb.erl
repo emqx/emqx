@@ -99,6 +99,7 @@ connector_values_v(influxdb_api_v1) ->
     #{
         influxdb_type => influxdb_api_v1,
         database => <<"example_database">>,
+        ping_with_auth => false,
         username => <<"example_username">>,
         password => <<"******">>
     }.
