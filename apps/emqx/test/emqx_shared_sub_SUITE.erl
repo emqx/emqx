@@ -1424,6 +1424,8 @@ setup_node(Node, Port) ->
     %% warm it up, also assert the peer ndoe name
     Node = emqx_rpc:call(Node, erlang, node, []),
     rpc:call(Node, mria, join, [node()]),
+    %% Give mria time to sync merge tables:
+    ct:sleep(1000),
     ok.
 
 get_tcp_mqtt_port(Node) ->
