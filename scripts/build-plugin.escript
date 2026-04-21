@@ -50,6 +50,14 @@ do(AppStr) ->
     rm_rf(StageRoot),
     ok = filelib:ensure_dir(filename:join(StageDir, ".")),
     ok = copy_dir(LibDir, AppCopyDir, ["ebin", "priv"]),
+    %% TODO: if the plugin declares third-party deps in its rebar.config
+    %% that are not already shipped with EMQX, copy them into the stage
+    %% tree under `<dep>-<vsn>/ebin`. The dep list is the plugin .app's
+    %% `applications` property minus:
+    %%   - OTP apps (kernel, stdlib, sasl, ssl, crypto, ...),
+    %%   - apps already in the built release's `_build/$PROFILE/rel/.../lib/`.
+    %% `rebar3 emqx_plugrel tar` does this; no current plugin needs it.
+    ok = copy_extra_deps(Root, Profile, LibDir, StageDir, AppStr),
     %% Include README.md at the top level of the tarball if present.
     copy_if_exists(filename:join(PluginDir, "README.md"), filename:join(StageDir, "README.md")),
     Info = build_info(Metadata, AppStr, RelVsn, AppVsn, PluginDir),
@@ -152,6 +160,14 @@ copy_if_exists(Src, Dst) ->
         false ->
             ok
     end.
+
+%% Placeholder: no current plugin ships extra deps. When one does,
+%% compute the list of apps to bundle from the plugin `.app`'s
+%% `applications` property, filter out OTP apps and apps already in
+%% the EMQX release, and copy each dep's compiled beams to
+%% `<StageDir>/<dep>-<vsn>/ebin`.
+copy_extra_deps(_Root, _Profile, _LibDir, _StageDir, _AppStr) ->
+    ok.
 
 build_info(Metadata, AppStr, RelVsn, AppVsn, PluginDir) ->
     BaseInfo = lists:foldl(
