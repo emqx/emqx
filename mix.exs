@@ -287,7 +287,7 @@ defmodule EMQXUmbrella.MixProject do
     do:
       {:influxdb,
        github: "emqx/influxdb-client-erl",
-       ref: "refs/heads/moo/ping-with-auth-option",
+       tag: "1.1.17",
        override: true}
 
   def common_dep(:wolff), do: {:wolff, "4.1.7"}
