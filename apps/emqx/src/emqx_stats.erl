@@ -212,10 +212,12 @@ setstat(Stat, Val) when is_integer(Val) ->
 setstat(Stat, MaxStat, Val) when is_integer(Val) ->
     cast({setstat, Stat, MaxStat, Val}).
 
+%% @doc `emqx_stats' server will call the function every second.
 -spec update_interval(atom(), fun()) -> ok.
 update_interval(Name, UpFun) ->
     update_interval(Name, 1, UpFun).
 
+%% @doc `emqx_stats' server will periodically call the function.
 -spec update_interval(atom(), pos_integer(), fun()) -> ok.
 update_interval(Name, Secs, UpFun) when is_integer(Secs), Secs >= 1 ->
     cast({update_interval, rec(Name, Secs, UpFun)}).
