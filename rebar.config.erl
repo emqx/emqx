@@ -109,12 +109,19 @@ project_app_dirs() ->
     project_app_dirs(RelType).
 
 project_app_dirs(RelType) ->
+    project_app_dirs(RelType, true).
+
+%% IncludePlugins=false lets the `check` profile skip plugin sources
+%% during xref/dialyzer analysis — plugin code is ported verbatim from
+%% the v6 tree and owns its own static-check policy.
+project_app_dirs(RelType, IncludePlugins) ->
     ExcludedApps = unavailable_apps(RelType),
-    %% Include plugins/* as umbrella apps so `make`, `rebar3 ct`, and the
-    %% generic `<path>-ct` Makefile rule treat them like any other app.
-    %% Plugin apps are kept out of the release by `excluded_apps/1` below —
-    %% they ship as installable .tar.gz packages built via `emqx_plugrel`.
-    AppDirs = filelib:wildcard("apps/*") ++ filelib:wildcard("plugins/*"),
+    AppDirs =
+        filelib:wildcard("apps/*") ++
+            case IncludePlugins of
+                true -> filelib:wildcard("plugins/*");
+                false -> []
+            end,
     UmbrellaApps = [
         Path
      || Path <- AppDirs,
@@ -228,11 +235,11 @@ profiles_ee(RelType) ->
         ]}
     ].
 
-profiles_dev(_RelType) ->
+profiles_dev(RelType) ->
     [
         {check, [
             {erl_opts, common_compile_opts()},
-            {project_app_dirs, project_app_dirs()}
+            {project_app_dirs, project_app_dirs(RelType, false)}
         ]},
         {test, [
             {deps, test_deps()},
