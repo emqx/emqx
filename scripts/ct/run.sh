@@ -298,8 +298,10 @@ fi
 mkdir -p /tmp/emqx-ci/emqx-shared-secret /tmp/emqx-ci-temp-secrets
 
 # ensure any file-backed secrets exist for elasticsearch-related CT
-# dependencies.
+# dependencies, and export the matching env vars for compose interpolation.
 ./scripts/ct/render-env.sh
+# shellcheck disable=SC1091
+source /tmp/emqx-ci-temp-secrets/passwords.env
 
 if [ "$STOP" = 'no' ]; then
     # some left-over log file has to be deleted before a new docker-compose up

@@ -1,21 +1,26 @@
 # hint: run the following if the container fails to start locally
 # sysctl -w vm.max_map_count=262144
+#
+# ELASTIC_PASSWORD and KIBANA_PASSWORD are generated at runtime by
+# scripts/ct/render-env.sh and exported into this process via
+# /tmp/emqx-ci-temp-secrets/passwords.env. The file under
+# /tmp/emqx-ci-temp-secrets/ is also bind-mounted into the erlang
+# container so the test suite can read the same value via
+# file:///tmp/emqx-ci-temp-secrets/elastic_password.
 services:
   setup:
     image: public.ecr.aws/elastic/elasticsearch:${ELASTIC_TAG}
     volumes:
       - ./elastic:/usr/share/elasticsearch/config/certs
-      - /tmp/emqx-ci-temp-secrets:/run/secrets:ro
     user: "0"
+    environment:
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-}
+      - KIBANA_PASSWORD=${KIBANA_PASSWORD:-}
     command: >
       bash -c '
-        ELASTIC_PASSWORD="$$(cat /run/secrets/elastic_password)";
-        KIBANA_PASSWORD="$$(cat /run/secrets/kibana_password)";
-        if [ x$$ELASTIC_PASSWORD == x ]; then
-          echo "Missing /run/secrets/elastic_password";
-          exit 1;
-        elif [ x$$KIBANA_PASSWORD == x ]; then
-          echo "Missing /run/secrets/kibana_password";
+        if [ x$$ELASTIC_PASSWORD == x ] || [ x$$KIBANA_PASSWORD == x ]; then
+          echo "ELASTIC_PASSWORD/KIBANA_PASSWORD not set.";
+          echo "Run via scripts/ct/run.sh or source /tmp/emqx-ci-temp-secrets/passwords.env first.";
           exit 1;
         fi;
         echo "Setting file permissions"
@@ -44,12 +49,11 @@ services:
     volumes:
       - ./elastic:/usr/share/elasticsearch/config/certs
       - esdata01:/usr/share/elasticsearch/data
-      - /tmp/emqx-ci-temp-secrets:/run/secrets:ro
     # ports:
     #   - 9200:9200
     environment:
       - node.name=es01
-      - ELASTIC_PASSWORD_FILE=/run/secrets/elastic_password
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-}
       - bootstrap.memory_lock=true
       - discovery.type=single-node
       - xpack.security.enabled=true
@@ -83,27 +87,14 @@ services:
   #   image: public.ecr.aws/elastic/kibana:${ELASTIC_TAG}
   #   volumes:
   #     - ./elastic:/usr/share/kibana/config/certs
-  #     - /tmp/emqx-ci-temp-secrets:/run/secrets:ro
   #     - kibanadata:/usr/share/kibana/data
   #   # ports:
   #   #   - 5601:5601
-  #   entrypoint:
-  #     - /bin/bash
-  #     - -c
-  #   command: >
-  #     KIBANA_PASSWORD="$$(cat /run/secrets/kibana_password)" &&
-  #     if [ ! -f /usr/share/kibana/data/kibana.keystore ]; then
-  #       bin/kibana-keystore create;
-  #       printf "%s" "$$KIBANA_PASSWORD" | bin/kibana-keystore add elasticsearch.password --stdin;
-  #       cp /usr/share/kibana/config/kibana.keystore /usr/share/kibana/data/kibana.keystore;
-  #     else
-  #       cp /usr/share/kibana/data/kibana.keystore /usr/share/kibana/config/kibana.keystore;
-  #     fi;
-  #     exec /usr/local/bin/kibana-docker
   #   environment:
   #     - SERVERNAME=kibana
   #     - ELASTICSEARCH_HOSTS=https://es01:9200
   #     - ELASTICSEARCH_USERNAME=kibana_system
+  #     - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
   #     - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
   #   mem_limit: 1073741824
   #   healthcheck:
