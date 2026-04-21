@@ -290,11 +290,15 @@ stream(MatchSpec) ->
 
 -spec topics() -> list(emqx_types:topic()).
 topics() ->
-    list_topics_v2().
+    Pat = #routeidx{entry = '$1'},
+    Filters = [emqx_topic_index:get_topic(K) || [K] <- ets:match(route_filters_table(), Pat)],
+    list_route_tab_topics() ++ Filters.
 
 -spec stats(n_routes) -> non_neg_integer().
-stats(Item) ->
-    get_stats_v2(Item).
+stats(n_routes) ->
+    NTopics = emqx_maybe:define(ets:info(route_table(), size), 0),
+    NWildcards = emqx_maybe:define(ets:info(route_filters_table(), size), 0),
+    NTopics + NWildcards.
 
 %% @doc Print routes to a topic
 -spec print_routes(emqx_types:topic()) -> ok.
@@ -527,18 +531,8 @@ mk_route_stream(Tab, {MTopic, MDest}) when
         )
     ).
 
-list_topics_v2() ->
-    Pat = #routeidx{entry = '$1'},
-    Filters = [emqx_topic_index:get_topic(K) || [K] <- ets:match(route_filters_table(), Pat)],
-    list_route_tab_topics() ++ Filters.
-
 list_route_tab_topics() ->
     mnesia:dirty_all_keys(route_table()).
-
-get_stats_v2(n_routes) ->
-    NTopics = emqx_maybe:define(ets:info(route_table(), size), 0),
-    NWildcards = emqx_maybe:define(ets:info(route_filters_table(), size), 0),
-    NTopics + NWildcards.
 
 fold_routes_v2(FunName, FoldFun, AccIn) ->
     FilterFoldFun = mk_filtertab_fold_fun(FoldFun),
