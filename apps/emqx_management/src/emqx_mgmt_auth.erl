@@ -3,6 +3,13 @@
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_auth).
 
+%% minirest's HandlerInfo at runtime contains a `path` key, but our
+%% authorize/4 head patterns only reference `module` and `function`,
+%% which narrows the inferred type so dialyzer cannot prove that
+%% `maps:get(path, HandlerInfo)` succeeds. Silence the spurious
+%% no_return warning — the path key is guaranteed by minirest.
+-dialyzer({no_return, [check_scopes/2]}).
+
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -227,6 +234,8 @@ authorize(#{module := emqx_dashboard_api, function := change_pwd}, _Req, _ApiKey
     {error, <<"not_allowed">>, <<"users">>};
 authorize(#{module := emqx_dashboard_api, function := change_mfa}, _Req, _ApiKey, _ApiSecret) ->
     {error, <<"not_allowed">>, <<"users">>};
+authorize(#{module := emqx_mgmt_api_api_keys}, _Req, _ApiKey, _ApiSecret) ->
+    {error, <<"not_allowed">>, <<"api_key">>};
 authorize(HandlerInfo, Req, ApiKey, ApiSecret) ->
     Now = erlang:system_time(second),
     case find_by_api_key(ApiKey) of
@@ -357,6 +366,12 @@ maybe_set_scopes(Extra, undefined) ->
     Extra;
 maybe_set_scopes(Extra, Scopes) when is_list(Scopes) ->
     Extra#{scopes => Scopes}.
+
+%% @doc Default scopes granted to keys provisioned from bootstrap files.
+%% Returns every user-visible scope so these keys behave as administrative
+%% all-allow credentials, matching the semantics of pre-scope releases.
+default_bootstrap_scopes() ->
+    [Name || #{name := Name} <- emqx_mgmt_api_key_scopes:scope_catalogue()].
 
 ensure_not_undefined(undefined, Old) -> Old;
 ensure_not_undefined(New, _Old) -> New.
@@ -500,7 +515,11 @@ init_bootstrap_file(<<>>) ->
 init_bootstrap_file(File) ->
     case file:open(File, [read, binary]) of
         {ok, Dev} ->
-            {ok, MP} = re:compile(<<"([^:]+):([^:]+)(?::([^:]+))?(?::(.+))?$">>),
+            %% Format: key:secret[:role]  -- role may contain colons
+            %% (e.g. "ns:<namespace>::<role>" for namespaced keys).
+            %% Scopes cannot be expressed inline here; grant all user-visible
+            %% scopes below as the bootstrap default (administrative all-allow).
+            {ok, MP} = re:compile(<<"(.+):(.+)(?::(.+))?$">>, [ungreedy]),
             init_bootstrap_file(File, Dev, MP);
         {error, Reason0} ->
             Reason = emqx_utils:explain_posix(Reason0),
@@ -534,9 +553,17 @@ add_bootstrap_file(File, Dev, MP, Line) ->
     case read_line(Dev) of
         {ok, Bin} ->
             case parse_bootstrap_line(Bin, MP) of
-                {ok, {ApiKey, ApiSecret, Role, Scopes}} ->
-                    Extra0 = #{desc => ?BOOTSTRAP_TAG, role => Role},
-                    Extra = maybe_set_scopes(Extra0, Scopes),
+                {ok, [ApiKey, ApiSecret, Role, Namespace]} ->
+                    %% Bootstrap keys default to all user-visible scopes
+                    %% (all-allow) so operators upgrading from pre-scope
+                    %% releases keep full access until they edit the key.
+                    Extra0 = emqx_utils_maps:put_if(
+                        #{desc => ?BOOTSTRAP_TAG, role => Role},
+                        ?namespace,
+                        Namespace,
+                        is_binary(Namespace)
+                    ),
+                    Extra = Extra0#{scopes => default_bootstrap_scopes()},
                     App =
                         #?APP{
                             name = generate_unique_name(?FROM_BOOTSTRAP_FILE_PREFIX, ApiKey),
@@ -589,44 +616,19 @@ read_line(Dev) ->
 
 parse_bootstrap_line(Bin, MP) ->
     case re:run(Bin, MP, [global, {capture, all_but_first, binary}]) of
-        {match, [[ApiKey, ApiSecret]]} ->
-            {ok, {ApiKey, ApiSecret, ?ROLE_API_DEFAULT, undefined}};
-        {match, [[ApiKey, ApiSecret, Role]]} ->
-            case valid_role(Role) of
-                ok ->
-                    {ok, {ApiKey, ApiSecret, Role, undefined}};
+        {match, [[_ApiKey, _ApiSecret] = Args]} ->
+            Namespace = ?global_ns,
+            {ok, Args ++ [?ROLE_API_DEFAULT, Namespace]};
+        {match, [[ApiKey, ApiSecret, Role0]]} ->
+            case parse_role(Role0) of
+                {ok, #{?role := Role, ?namespace := Namespace}} ->
+                    {ok, [ApiKey, ApiSecret, Role, Namespace]};
                 _Error ->
-                    {error, {"invalid_role", Role}}
-            end;
-        {match, [[ApiKey, ApiSecret, Role, ScopesStr]]} ->
-            case valid_role(Role) of
-                ok ->
-                    parse_bootstrap_scopes(ApiKey, ApiSecret, Role, ScopesStr);
-                _Error ->
-                    {error, {"invalid_role", Role}}
+                    {error, {"invalid_role", Role0}}
             end;
         _ ->
             {error, "invalid_format"}
     end.
-
-parse_bootstrap_scopes(ApiKey, ApiSecret, Role, ScopesStr) ->
-    case parse_scopes_str(ScopesStr) of
-        undefined ->
-            {ok, {ApiKey, ApiSecret, Role, undefined}};
-        Scopes ->
-            case emqx_mgmt_api_key_scopes:validate_scopes(Scopes) of
-                ok ->
-                    {ok, {ApiKey, ApiSecret, Role, Scopes}};
-                {error, Reason} ->
-                    {error, {"invalid_scopes", Reason}}
-            end
-    end.
-
-parse_scopes_str(<<>>) ->
-    undefined;
-parse_scopes_str(ScopesStr) ->
-    Scopes = binary:split(ScopesStr, <<",">>, [global, trim_all]),
-    [string:lowercase(string:trim(S)) || S <- Scopes, S =/= <<>>].
 
 get_role(#{?role := Role}) ->
     Role;
@@ -663,12 +665,6 @@ format_app_extend(App) ->
 
 parse_role(Role) ->
     emqx_dashboard_rbac:parse_api_role(Role).
-
-valid_role(Role) ->
-    case parse_role(Role) of
-        {ok, _} -> ok;
-        Error -> Error
-    end.
 
 actor_context_of(ApiKey, Role, Namespace) ->
     #{
