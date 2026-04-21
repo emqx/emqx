@@ -97,7 +97,7 @@
 -type batch_route() :: {emqx_types:topic(), dest()}.
 
 -record(routeidx, {
-    entry :: emqx_topic_index:key(dest() | '$1' | {'_', '$1'}),
+    entry :: emqx_topic_index:key(dest()) | {'_', {'$1' | {'_', '$1'}}} | '$1',
     unused = [] :: _
 }).
 
