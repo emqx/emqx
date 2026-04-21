@@ -4,6 +4,11 @@
 
 -module(emqx_dashboard_token).
 
+%% dialyzer sees several match/record patterns here as unreachable given
+%% the strict #emqx_admin_jwt{} type spec, but these paths guard against
+%% old records written by pre-6.0 nodes during rolling upgrades.
+-dialyzer({nowarn_function, [lookup_by_username/1, clean_expired_jwt/1, role_of/1]}).
+
 -include("emqx_dashboard.hrl").
 -include("emqx_dashboard_rbac.hrl").
 -include_lib("emqx/include/emqx_config.hrl").

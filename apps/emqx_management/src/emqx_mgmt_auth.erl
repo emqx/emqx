@@ -6,9 +6,10 @@
 %% minirest's HandlerInfo at runtime contains a `path` key, but our
 %% authorize/4 head patterns only reference `module` and `function`,
 %% which narrows the inferred type so dialyzer cannot prove that
-%% `maps:get(path, HandlerInfo)` succeeds. Silence the spurious
-%% no_return warning — the path key is guaranteed by minirest.
--dialyzer({no_return, [check_scopes/2]}).
+%% `maps:get(path, HandlerInfo)` succeeds. Suppress all dialyzer
+%% warnings for check_scopes/2 — the path key is guaranteed by
+%% minirest at runtime.
+-dialyzer({nowarn_function, [check_scopes/2]}).
 
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("emqx/include/emqx.hrl").
@@ -133,7 +134,23 @@ try_init_bootstrap_file() ->
 create(Name, Enable, ExpiredAt, Desc, Role) ->
     create(Name, Enable, ExpiredAt, Desc, Role, undefined).
 
-create(Name, Enable, ExpiredAt, Desc, Role, Scopes) ->
+%% Two 6-arity clauses coexist via guards:
+%% 1. CLI variant (release-60 legacy): (Name, ApiSecret, Enable, ExpiredAt, Desc, Role)
+%%    - ApiSecret is a binary of >= 32 bytes.
+%% 2. REST-API variant (scope-aware):  (Name, Enable, ExpiredAt, Desc, Role, Scopes)
+%%    - Enable is a boolean and Scopes is a list or undefined.
+create(Name, ApiSecret, Enable, ExpiredAt, Desc, Role) when
+    is_binary(ApiSecret) andalso byte_size(ApiSecret) >= 32
+->
+    ApiKey = generate_unique_api_key(Name),
+    create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, undefined);
+create(_Name, ApiSecret, _Enable, _ExpiredAt, _Desc, _Role) when
+    is_binary(ApiSecret)
+->
+    {error, <<"api_secret_too_short">>};
+create(Name, Enable, ExpiredAt, Desc, Role, Scopes) when
+    is_boolean(Enable) andalso (is_list(Scopes) orelse Scopes =:= undefined)
+->
     ApiKey = generate_unique_api_key(Name),
     ApiSecret = generate_api_secret(),
     create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, Scopes).

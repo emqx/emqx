@@ -378,7 +378,11 @@ get_extra(Username) ->
     end.
 
 %% Before 5.3, extra is never used and initialized to [].
--dialyzer({no_match, upgrade_extra/1}).
+%% Defensive upgrade paths for pre-5.3 records where `role` was `undefined`
+%% and `extra` was `[]` — dialyzer sees these as unreachable given the
+%% current record spec, but they still fire in production when mnesia
+%% returns rows written by older nodes during a rolling upgrade.
+-dialyzer({no_match, [upgrade_extra/1, update_user_/4, ensure_role/1, role/1]}).
 upgrade_extra([]) -> #{};
 upgrade_extra(Map) when is_map(Map) -> Map.
 
