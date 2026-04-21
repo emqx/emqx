@@ -236,10 +236,21 @@ find_api_modules_in_app(App) ->
     end.
 
 is_api_module(Module) ->
-    Behaviours =
-        proplists:get_value(behaviour, apply(Module, module_info, [attributes]), []) ++
-            proplists:get_value(behavior, apply(Module, module_info, [attributes]), []),
-    lists:member(minirest_api, Behaviours).
+    case is_test_module(Module) of
+        true ->
+            false;
+        false ->
+            Behaviours =
+                proplists:get_value(behaviour, apply(Module, module_info, [attributes]), []) ++
+                    proplists:get_value(behavior, apply(Module, module_info, [attributes]), []),
+            lists:member(minirest_api, Behaviours)
+    end.
+
+%% Exclude test-only minirest_api modules (CT suites that implement
+%% minirest_api for swagger testing purposes). They intentionally do
+%% not export scopes/0, and are not reachable via the production router.
+is_test_module(Module) ->
+    lists:suffix("_SUITE", atom_to_list(Module)).
 
 %% Collect scopes from a single API module.
 %% The module must export scopes/0 returning either:
