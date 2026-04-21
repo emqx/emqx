@@ -131,9 +131,12 @@ else
 endif
 endef
 
-## Note: exclude plugins-ct and plugins/%-ct (handled below by their own rules).
-ifneq ($(filter-out plugins-ct plugins/%-ct,$(filter %-ct,$(MAKECMDGOALS))),)
-app_to_test := $(patsubst %-ct,%,$(filter-out plugins-ct plugins/%-ct,$(filter %-ct,$(MAKECMDGOALS))))
+## Note: exclude `plugins-ct` (meta target that walks all plugins — see below).
+## `plugins/<name>-ct` IS handled by gen-app-ct-target: plugins are umbrella
+## apps so their test/ layout matches apps/<name>/test/ and find-suites.sh
+## resolves it unchanged.
+ifneq ($(filter-out plugins-ct,$(filter %-ct,$(MAKECMDGOALS))),)
+app_to_test := $(patsubst %-ct,%,$(filter-out plugins-ct,$(filter %-ct,$(MAKECMDGOALS))))
 $(call DEBUG_INFO,app_to_test $(app_to_test))
 $(eval $(call gen-app-ct-target,$(app_to_test)))
 endif
@@ -150,19 +153,17 @@ $(eval $(call gen-app-prop-target,$(app_to_test)))
 endif
 
 ## ----- monorepo plugin targets (plugins under plugins/<name>/) -----
-## Each plugin under plugins/<name>/ is a self-contained rebar3 project
-## with its own rebar.config that declares the emqx_plugrel plugin.
-
-define gen-plugin-ct-target
-plugins/$1-ct:
-	@$(SCRIPTS)/run-plugin-ct.sh $1
-endef
-
-ifneq ($(filter plugins/%-ct,$(MAKECMDGOALS)),)
-plugin_to_test := $(patsubst plugins/%-ct,%,$(filter plugins/%-ct,$(MAKECMDGOALS)))
-$(call DEBUG_INFO,plugin_to_test $(plugin_to_test))
-$(eval $(call gen-plugin-ct-target,$(plugin_to_test)))
-endif
+## In-tree plugins are compiled as umbrella apps (see project_app_dirs in
+## rebar.config.erl) so `make plugins/<name>-ct` is handled by the generic
+## gen-app-ct-target rule above — the same way `make apps/<name>-ct` works.
+##
+## Packaging (plugin-<name>) reads the already-compiled beams from the
+## umbrella build tree (`_build/$PROFILE/lib/<name>/`) and assembles the
+## installable tarball via scripts/build-plugin.escript — no per-plugin
+## rebar3 invocation is needed.
+##
+## plugins-ct aggregates CT across every plugin directory that has a
+## `test/` subfolder.
 
 .PHONY: plugin-%
 plugin-%: PLUGIN_APP_DIR = plugins/$*
@@ -170,12 +171,10 @@ plugin-%:
 	@test -d $(PLUGIN_APP_DIR) || { echo "Error: No such plugin app: $(PLUGIN_APP_DIR)"; exit 1; }
 	@test -f $(PLUGIN_APP_DIR)/rebar.config || { \
 	    echo "Error: $(PLUGIN_APP_DIR)/rebar.config not found."; \
-	    echo "Monorepo plugins must be rebar3 projects with their own rebar.config."; \
 	    exit 1; \
 	}
 	@grep -q "emqx_plugrel" $(PLUGIN_APP_DIR)/rebar.config || { \
 	    echo "Error: $(PLUGIN_APP_DIR)/rebar.config does not declare emqx_plugrel."; \
-	    echo "Not an EMQX plugin."; \
 	    exit 1; \
 	}
 	@$(SCRIPTS)/build-plugin.sh $*
@@ -185,8 +184,11 @@ plugins:
 	@$(SCRIPTS)/build-plugins.sh
 
 .PHONY: plugins-ct
-plugins-ct:
-	@$(SCRIPTS)/run-plugins-ct.sh
+plugins-ct: $(REBAR) merge-config clean-test-cluster-config
+	@for d in plugins/*/; do \
+	    [ -d "$$d/test" ] || continue; \
+	    $(MAKE) "$${d%/}-ct" || exit $$?; \
+	done
 
 .PHONY: ct-suite
 ct-suite: $(REBAR) merge-config clean-test-cluster-config

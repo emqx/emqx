@@ -5,8 +5,7 @@
 -module(emqx_offline_messages).
 
 -include("emqx_offline_messages.hrl").
--include_lib("emqx_plugin_helper/include/emqx.hrl").
--include_lib("emqx_plugin_helper/include/logger.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -behaviour(gen_server).
 
@@ -106,19 +105,19 @@ handle_call(#on_health_check{}, _From, State) ->
     {reply, handle_on_health_check(), State};
 handle_call(Request, From, State) ->
     ?SLOG(error, #{
-        msg => "offline_message_plugin_unexpected_call", request => Request, from => From
+        msg => "offline_messages_unexpected_call", request => Request, from => From
     }),
     {reply, {error, unexpected_call}, State}.
 
 handle_cast(Request, State) ->
     ?SLOG(error, #{
-        msg => "offline_message_plugin_unexpected_cast", request => Request
+        msg => "offline_messages_unexpected_cast", request => Request
     }),
     {noreply, State}.
 
 handle_info(Info, State) ->
     ?SLOG(error, #{
-        msg => "offline_message_plugin_unexpected_info", info => Info
+        msg => "offline_messages_unexpected_info", info => Info
     }),
     {noreply, State}.
 
@@ -133,7 +132,7 @@ terminate(_Reason, _State) ->
 -spec handle_on_config_changed(map(), map()) -> ok.
 handle_on_config_changed(OldConf, NewConf) ->
     ?SLOG(info, #{
-        msg => "offline_message_plugin_config_changed", old_conf => OldConf, new_conf => NewConf
+        msg => "offline_messages_config_changed", old_conf => OldConf, new_conf => NewConf
     }),
     %% MySQL
     DefaultConf = #{<<"enable">> => false},
@@ -148,8 +147,9 @@ handle_on_config_changed(OldConf, NewConf) ->
 
 handle_on_health_check() ->
     Config = current_config(),
-    MysqlConf = maps:get(<<"mysql">>, Config, #{}),
-    RedisConf = maps:get(<<"redis">>, Config, #{}),
+    DefaultConf = #{<<"enable">> => false},
+    MysqlConf = maps:get(<<"mysql">>, Config, DefaultConf),
+    RedisConf = maps:get(<<"redis">>, Config, DefaultConf),
     MysqlStatus = emqx_offline_messages_mysql:on_health_check(MysqlConf),
     RedisStatus = emqx_offline_messages_redis:on_health_check(RedisConf),
     Errors = status_to_error_list(MysqlStatus) ++ status_to_error_list(RedisStatus),
@@ -164,10 +164,14 @@ status_to_error_list(ok) -> [];
 status_to_error_list({error, Error}) -> [Error].
 
 current_config() ->
-    emqx_plugin_helper:get_config(?PLUGIN_NAME_VSN).
+    emqx_plugins:get_config(name_vsn(), #{}).
+
+name_vsn() ->
+    {ok, Vsn} = application:get_key(?PLUGIN_NAME, vsn),
+    iolist_to_binary([atom_to_binary(?PLUGIN_NAME), <<"-">>, Vsn]).
 
 init_metrics() ->
-    ?SLOG(info, #{msg => "omp_init_metrics"}),
+    ?SLOG(info, #{msg => "offline_messages_init_metrics"}),
     emqx_metrics_worker:create_metrics(
         ?METRICS_WORKER, message_acked, [success, fail]
     ),

@@ -1,10 +1,18 @@
+%% -*- mode: erlang -*-
 {application, emqx_offline_messages, [
     {description, "EMQX Offline Messages Plugin"},
-    %% Do not update version manually, use make bump-version-patch/minor/major instead
     {vsn, "2.0.0"},
     {modules, []},
     {registered, [emqx_offline_messages_sup]},
-    {applications, [kernel, stdlib, emqx_plugin_helper]},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx,
+        emqx_resource,
+        emqx_redis,
+        emqx_mysql,
+        emqx_plugins
+    ]},
     {mod, {emqx_offline_messages_app, []}},
     {env, []},
     {licenses, ["Apache-2.0"]},

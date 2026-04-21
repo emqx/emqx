@@ -4,9 +4,9 @@
 
 -module(emqx_offline_messages_redis).
 
--include_lib("emqx_plugin_helper/include/emqx.hrl").
--include_lib("emqx_plugin_helper/include/logger.hrl").
--include_lib("emqx_plugin_helper/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -include("emqx_offline_messages.hrl").
 
@@ -23,7 +23,7 @@
     on_message_acked/3
 ]).
 
--define(RESOURCE_ID, <<"omp_redis">>).
+-define(RESOURCE_ID, <<"offline_messages_redis">>).
 -define(RESOURCE_GROUP, <<"omp">>).
 -define(FETCH_MSG_BATCH_SIZE, 100).
 
@@ -67,7 +67,7 @@ stop() ->
 
 -spec start(map()) -> ok.
 start(ConfigRaw) ->
-    ?SLOG(info, #{msg => omp_redis_start, config => ConfigRaw}),
+    ?SLOG(info, #{msg => offline_messages_redis_start, config => ConfigRaw}),
     {RedisConfig, ResourceOpts} = make_redis_resource_config(ConfigRaw),
     ok = start_resource(RedisConfig, ResourceOpts),
 
@@ -103,7 +103,7 @@ on_client_connected(
                 ok;
             {error, Reason} ->
                 ?SLOG(warning, #{
-                    msg => "omp_redis_client_connected_error",
+                    msg => "offline_messages_redis_client_connected_error",
                     clientid => ClientId,
                     reason => Reason
                 })
@@ -117,7 +117,7 @@ on_session_subscribed(
     Context
 ) ->
     ?SLOG(info, #{
-        msg => omp_redis_session_subscribed,
+        msg => offline_messages_redis_session_subscribed,
         clientid => ClientId,
         topic => Topic,
         subopts => SubOpts
@@ -136,7 +136,7 @@ insert_subscription(
                 ok;
             {error, Reason} ->
                 ?SLOG(error, #{
-                    msg => "omp_redis_insert_subscription_error",
+                    msg => "offline_messages_redis_insert_subscription_error",
                     reason => Reason
                 })
         end,
@@ -151,7 +151,7 @@ fetch_and_deliver_messages(Topic, Context) ->
         {error, Reason} ->
             emqx_metrics_worker:inc(?METRICS_WORKER, session_subscribed, fail),
             ?SLOG(error, #{
-                msg => "omp_redis_fetch_message_ids_error",
+                msg => "offline_messages_redis_fetch_message_ids_error",
                 reason => Reason
             })
     end.
@@ -161,7 +161,7 @@ fetch_message_ids(Topic, #{message_ttl := TTL} = Context) ->
     case sync_cmd([<<"ZRANGE">>, MsgTab, 0, -1, <<"WITHSCORES">>]) of
         {ok, RawMsgIds} ->
             ?SLOG(debug, #{
-                msg => "omp_redis_fetch_message_ids",
+                msg => "offline_messages_redis_fetch_message_ids",
                 raw_msg_ids => RawMsgIds
             }),
             MsgIdsWithCreatedTS = parse_msg_ids(RawMsgIds),
@@ -174,7 +174,7 @@ fetch_message_ids(Topic, #{message_ttl := TTL} = Context) ->
              || {MsgId, CreatedTS} <- MsgIdsWithCreatedTS, CreatedTS > Deadline
             ],
             ?SLOG(debug, #{
-                msg => "omp_redis_fetch_message_ids_parsed",
+                msg => "offline_messages_redis_fetch_message_ids_parsed",
                 msg_ids => MsgIds
             }),
             {ok, MsgIds};
@@ -214,7 +214,7 @@ fetch_messages(MsgIds, MsgIdBatchAcc, Acc0, Context) when
             fetch_messages(MsgIds, [], Acc, Context);
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "omp_redis_fetch_messages_error",
+                msg => "offline_messages_redis_fetch_messages_error",
                 reason => Reason
             }),
             fetch_messages(MsgIds, [], Acc0, Context)
@@ -230,14 +230,14 @@ append_results([{ok, Hash} | Results], Acc) ->
     append_results(Results, [hash_to_message(Hash) | Acc]);
 append_results([{error, Reason} | Results], Acc) ->
     ?SLOG(warning, #{
-        msg => "omp_redis_fetch_message_error",
+        msg => "offline_messages_redis_fetch_message_error",
         reason => Reason
     }),
     append_results(Results, Acc).
 
 on_session_unsubscribed(#{clientid := ClientId}, Topic, Opts, Context) ->
     ?SLOG(info, #{
-        msg => omp_redis_session_unsubscribed,
+        msg => offline_messages_redis_session_unsubscribed,
         clientid => ClientId,
         topic => Topic,
         opts => Opts
@@ -251,7 +251,7 @@ delete_subscription(ClientId, Topic, Context) ->
             ok;
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "omp_redis_delete_subscription_error",
+                msg => "offline_messages_redis_delete_subscription_error",
                 topic => Topic,
                 reason => Reason
             }),
@@ -265,7 +265,7 @@ on_message_publish(Message, #{message_ttl := TTL, topic_filters := TopicFilters}
         case emqx_offline_messages_utils:need_persist_message(Message, TopicFilters) of
             false ->
                 ?SLOG(debug, #{
-                    msg => omp_redis_message_publish_qos0,
+                    msg => offline_messages_redis_message_publish_qos0,
                     message => Message
                 });
             true ->
@@ -292,7 +292,7 @@ on_message_publish(Message, #{message_ttl := TTL, topic_filters := TopicFilters}
                         ok;
                     {error, Reason} ->
                         ?SLOG(error, #{
-                            msg => "omp_redis_message_publish_error",
+                            msg => "offline_messages_redis_message_publish_error",
                             reason => Reason
                         })
                 end
@@ -317,7 +317,7 @@ on_message_acked(
         {error, Reason} ->
             emqx_metrics_worker:inc(?METRICS_WORKER, message_acked, fail),
             ?SLOG(error, #{
-                msg => "omp_redis_message_puback_error",
+                msg => "offline_messages_redis_message_puback_error",
                 reason => Reason
             })
     end,
@@ -410,7 +410,9 @@ make_redis_resource_config(ConfigRaw0) ->
     RedisConfigRaw2 = drop_unused_fields(RedisConfigRaw1),
     RedisConfigRaw = maybe_drop_database_field(RedisConfigRaw2),
 
-    ?SLOG(info, #{msg => omp_redis_make_redis_resource_config, config => RedisConfigRaw}),
+    ?SLOG(info, #{
+        msg => offline_messages_redis_make_redis_resource_config, config => RedisConfigRaw
+    }),
     RedisConfig = emqx_offline_messages_utils:check_config(emqx_redis, RedisConfigRaw),
     ResourceOpts = emqx_offline_messages_utils:make_resource_opts(ConfigRaw0),
 
@@ -445,7 +447,7 @@ maybe_drop_database_field(RawConfig) ->
 
 start_resource(RedisConfig, ResourceOpts) ->
     ?SLOG(info, #{
-        msg => omp_redis_resource_start,
+        msg => offline_messages_redis_resource_start,
         config => RedisConfig,
         resource_opts => ResourceOpts,
         resource_id => ?RESOURCE_ID,
@@ -462,7 +464,7 @@ start_resource(RedisConfig, ResourceOpts) ->
 
 stop_resource() ->
     ?SLOG(info, #{
-        msg => omp_redis_resource_stop,
+        msg => offline_messages_redis_resource_stop,
         resource_id => ?RESOURCE_ID
     }),
     ok = emqx_resource:remove_local(?RESOURCE_ID).

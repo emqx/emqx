@@ -110,14 +110,22 @@ project_app_dirs() ->
 
 project_app_dirs(RelType) ->
     ExcludedApps = unavailable_apps(RelType),
+    %% Include plugins/* as umbrella apps so `make`, `rebar3 ct`, and the
+    %% generic `<path>-ct` Makefile rule treat them like any other app.
+    %% Plugin apps are kept out of the release by `excluded_apps/1` below —
+    %% they ship as installable .tar.gz packages built via `emqx_plugrel`.
+    AppDirs = filelib:wildcard("apps/*") ++ filelib:wildcard("plugins/*"),
     UmbrellaApps = [
         Path
-     || Path <- filelib:wildcard("apps/*"),
+     || Path <- AppDirs,
         not project_app_excluded(Path, ExcludedApps)
     ],
     UmbrellaApps.
 
 project_app_excluded("apps/" ++ AppStr, ExcludedApps) ->
+    App = list_to_atom(AppStr),
+    lists:member(App, ExcludedApps);
+project_app_excluded("plugins/" ++ AppStr, ExcludedApps) ->
     App = list_to_atom(AppStr),
     lists:member(App, ExcludedApps).
 
@@ -366,6 +374,18 @@ excluded_apps(_) ->
         %% Pulled in as an _optional application_ for `observer` (as of OTP-27.2)
         %% Exclude as it needs a bunch of extra libraries installed on the host system.
         wx
+    ] ++ plugin_apps().
+
+%% In-tree plugins live under plugins/<name>/ and are compiled as umbrella
+%% apps (see project_app_dirs/1) so they benefit from the monorepo's CT
+%% and static-check infrastructure. They must NOT be included in the
+%% EMQX release image: plugins are delivered as separate .tar.gz packages
+%% and installed at runtime via `emqx ctl plugins install`.
+plugin_apps() ->
+    [
+        list_to_atom(filename:basename(P))
+     || P <- filelib:wildcard("plugins/*"),
+        filelib:is_dir(P)
     ].
 
 is_app(Name) ->

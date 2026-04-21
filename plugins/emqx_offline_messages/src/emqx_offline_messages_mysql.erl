@@ -4,9 +4,9 @@
 
 -module(emqx_offline_messages_mysql).
 
--include_lib("emqx_plugin_helper/include/emqx.hrl").
--include_lib("emqx_plugin_helper/include/logger.hrl").
--include_lib("emqx_plugin_helper/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -include("emqx_offline_messages.hrl").
 
@@ -23,8 +23,8 @@
     on_message_acked/3
 ]).
 
--define(RESOURCE_ID, <<"omp_mysql">>).
--define(RESOURCE_ID_INIT, <<"omp_mysql_init">>).
+-define(RESOURCE_ID, <<"offline_messages_mysql">>).
+-define(RESOURCE_ID_INIT, <<"offline_messages_mysql_init">>).
 -define(RESOURCE_GROUP, <<"omp">>).
 -define(TIMEOUT, 1000).
 
@@ -132,7 +132,7 @@ on_client_connected(
     #{statements := #{select_subscriptions_sql := {Sql, ParamTemplate}}} = _Context
 ) ->
     ?SLOG(info, #{
-        msg => omp_mysql_client_connected,
+        msg => offline_messages_mysql_client_connected,
         clientid => ClientId,
         client_info => ClientInfo,
         conn_info => ConnInfo
@@ -146,7 +146,7 @@ on_client_connected(
                 ok;
             {error, Reason} ->
                 ?SLOG(warning, #{
-                    msg => "omp_mysql_client_connected_error",
+                    msg => "offline_messages_mysql_client_connected_error",
                     reason => Reason
                 })
         end,
@@ -159,7 +159,7 @@ on_session_subscribed(
     Context
 ) ->
     ?SLOG(info, #{
-        msg => omp_mysql_session_subscribed,
+        msg => offline_messages_mysql_session_subscribed,
         clientid => ClientId,
         topic => Topic,
         subopts => SubOpts
@@ -181,7 +181,7 @@ insert_subscription(
                 ok;
             {error, Reason} ->
                 ?SLOG(error, #{
-                    msg => "omp_mysql_insert_subscription_error",
+                    msg => "offline_messages_mysql_insert_subscription_error",
                     reason => Reason
                 })
         end,
@@ -196,7 +196,7 @@ fetch_and_deliver_messages(
             {ok, Columns, Rows} ->
                 Messages = to_messages(Columns, Rows),
                 ?SLOG(debug, #{
-                    msg => omp_mysql_fetch_and_deliver_messages,
+                    msg => offline_messages_mysql_fetch_and_deliver_messages,
                     topic => Topic,
                     messages => length(Messages)
                 }),
@@ -205,7 +205,7 @@ fetch_and_deliver_messages(
             {error, Reason} ->
                 emqx_metrics_worker:inc(?METRICS_WORKER, session_subscribed, fail),
                 ?SLOG(error, #{
-                    msg => "omp_mysql_on_session_subscribed_error",
+                    msg => "offline_messages_mysql_on_session_subscribed_error",
                     reason => Reason
                 })
         end,
@@ -213,7 +213,7 @@ fetch_and_deliver_messages(
 
 on_session_unsubscribed(#{clientid := ClientId}, Topic, Opts, Context) ->
     ?SLOG(info, #{
-        msg => omp_mysql_session_unsubscribed,
+        msg => offline_messages_mysql_session_unsubscribed,
         clientid => ClientId,
         topic => Topic,
         opts => Opts
@@ -231,7 +231,7 @@ delete_subscription(
             ok;
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "omp_mysql_delete_subscription_error",
+                msg => "offline_messages_mysql_delete_subscription_error",
                 reason => Reason
             }),
             ok
@@ -244,14 +244,14 @@ on_message_publish(Message, #{topic_filters := TopicFilters} = _Context) ->
         case emqx_offline_messages_utils:need_persist_message(Message, TopicFilters) of
             false ->
                 ?SLOG(debug, #{
-                    msg => omp_mysql_message_publish_skipped,
+                    msg => offline_messages_mysql_message_publish_skipped,
                     message => Message
                 });
             true ->
                 MessageMap = message_to_map(Message),
                 Res = emqx_resource:query(?RESOURCE_ID, {insert_message, MessageMap}),
                 ?SLOG(info, #{
-                    msg => omp_mysql_message_publish,
+                    msg => offline_messages_mysql_message_publish,
                     message => MessageMap,
                     result => Res
                 })
@@ -264,7 +264,7 @@ on_message_acked(
     #{statements := #{delete_message_sql := {Sql, ParamTemplate}}} = _Context
 ) ->
     ?SLOG(info, #{
-        msg => omp_mysql_message_puback,
+        msg => offline_messages_mysql_message_puback,
         message => emqx_message:to_map(Message),
         clientid => ClientId
     }),
@@ -274,14 +274,14 @@ on_message_acked(
             ok ->
                 emqx_metrics_worker:inc(?METRICS_WORKER, message_acked, success),
                 ?SLOG(debug, #{
-                    msg => "omp_mysql_message_puback_success",
+                    msg => "offline_messages_mysql_message_puback_success",
                     message => emqx_message:to_map(Message),
                     clientid => ClientId
                 });
             {error, Reason} ->
                 emqx_metrics_worker:inc(?METRICS_WORKER, message_acked, fail),
                 ?SLOG(error, #{
-                    msg => "omp_mysql_on_message_acked_error",
+                    msg => "offline_messages_mysql_on_message_acked_error",
                     reason => Reason
                 })
         end,
@@ -365,7 +365,7 @@ record_to_subscription([], #{topic := Topic, qos := Qos}) ->
     [{Topic, #{qos => Qos}}];
 record_to_subscription([], #{} = Record) ->
     ?SLOG(warning, #{
-        msg => "omp_mysql_record_to_subscription_incomplete_record",
+        msg => "offline_messages_mysql_record_to_subscription_incomplete_record",
         record => Record
     }),
     [];
@@ -379,7 +379,7 @@ record_to_subscription([_ | Record], Acc) ->
 %% Resource helpers
 start_resource(MysqlConfig, ResourceOpts) ->
     ?SLOG(info, #{
-        msg => omp_mysql_resource_start,
+        msg => offline_messages_mysql_resource_start,
         config => MysqlConfig,
         resource_opts => ResourceOpts,
         resource_id => ?RESOURCE_ID,
@@ -396,7 +396,7 @@ start_resource(MysqlConfig, ResourceOpts) ->
 
 stop_resource() ->
     ?SLOG(info, #{
-        msg => omp_mysql_resource_stop,
+        msg => offline_messages_mysql_resource_stop,
         resource_id => ?RESOURCE_ID
     }),
     emqx_resource:remove_local(?RESOURCE_ID).
@@ -430,7 +430,7 @@ make_mysql_resource_config(#{<<"insert_message_sql">> := InsertMessageStatement}
 
 init_default_schema(#{<<"init_default_schema">> := true} = ConfigRaw) ->
     ?SLOG(info, #{
-        msg => omp_mysql_init_default_schema,
+        msg => offline_messages_mysql_init_default_schema,
         config => ConfigRaw
     }),
     {MysqlConfig0, ResourceOpts} = make_mysql_resource_config(ConfigRaw),
@@ -447,7 +447,7 @@ init_default_schema(#{<<"init_default_schema">> := true} = ConfigRaw) ->
             case emqx_resource:simple_sync_query(?RESOURCE_ID_INIT, {sql, Sql, [], ?TIMEOUT}) of
                 {error, Reason} ->
                     ?SLOG(error, #{
-                        msg => "omp_mysql_init_default_schema_error",
+                        msg => "offline_messages_mysql_init_default_schema_error",
                         sql => Sql,
                         reason => Reason
                     });

@@ -4,7 +4,7 @@
 
 -module(emqx_offline_messages_utils).
 
--include_lib("emqx_plugin_helper/include/logger.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -export([
     fix_ssl_config/1,
@@ -83,7 +83,7 @@ topic_filters(ConfigRaw) ->
 
 need_persist_message(Message, TopicFilters) ->
     ?SLOG(debug, #{
-        msg => omp_utils_need_persist_message,
+        msg => offline_messages_utils_need_persist_message,
         message => emqx_message:to_map(Message),
         topic_filters => TopicFilters,
         topic => emqx_message:topic(Message)

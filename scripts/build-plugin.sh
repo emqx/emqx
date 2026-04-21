@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 
-## Build a single monorepo plugin under plugins/<name>/.
-## Invokes the plugin's own rebar3 emqx_plugrel tar and copies the
-## resulting .tar.gz into $ROOT/_build/plugins/ for easy consumption.
+## Build a single monorepo plugin package.
+##
+## Driven entirely from the umbrella build: the plugin is compiled by
+## the root `make` into `_build/$PROFILE/lib/<name>/`, and this wrapper
+## delegates to `scripts/build-plugin.escript` to assemble the tarball
+## with the same on-disk layout as `rebar3 emqx_plugrel tar`.
+##
+## The escript reads `plugins/<name>/rebar.config` for the `emqx_plugrel`
+## metadata block and `plugins/<name>/VERSION` for the release version.
 
 set -euo pipefail
 
@@ -19,48 +25,7 @@ if [[ ! "$APP" =~ ^[a-z][a-z0-9_]*$ ]]; then
 fi
 
 ROOT_DIR="$(cd -P -- "$(dirname -- "$0")/.." && pwd)"
-PLUGIN_DIR="$ROOT_DIR/plugins/$APP"
+PROFILE="${PROFILE:-emqx-enterprise}"
 
-if [[ ! -d "$PLUGIN_DIR" ]]; then
-    echo "Error: No such plugin app: plugins/$APP" >&2
-    exit 1
-fi
-
-if [[ ! -f "$PLUGIN_DIR/rebar.config" ]]; then
-    echo "Error: $PLUGIN_DIR/rebar.config not found." >&2
-    exit 1
-fi
-
-OUT_DIR="$ROOT_DIR/_build/plugins"
-mkdir -p "$OUT_DIR"
-
-REBAR="$ROOT_DIR/rebar3"
-if [[ ! -x "$REBAR" ]]; then
-    "$ROOT_DIR/scripts/ensure-rebar3.sh"
-fi
-
-echo "Building plugin $APP"
-(
-    cd "$PLUGIN_DIR"
-    "$REBAR" emqx_plugrel tar
-)
-
-shopt -s nullglob
-tars=("$PLUGIN_DIR"/_build/default/emqx_plugrel/"$APP"-*.tar.gz)
-shopt -u nullglob
-
-if [[ ${#tars[@]} -eq 0 ]]; then
-    echo "Error: No plugin tarball produced for $APP." >&2
-    echo "Searched under $PLUGIN_DIR/_build/..." >&2
-    exit 1
-fi
-
-newest=""
-for t in "${tars[@]}"; do
-    if [[ -z "$newest" || "$t" -nt "$newest" ]]; then
-        newest="$t"
-    fi
-done
-
-cp -f "$newest" "$OUT_DIR/"
-echo "Copied $(basename "$newest") to _build/plugins/"
+exec env ROOT_DIR="$ROOT_DIR" PROFILE="$PROFILE" \
+    "$ROOT_DIR/scripts/build-plugin.escript" "$APP"
