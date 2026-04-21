@@ -937,6 +937,8 @@ t_retain_available_does_not_control_retainer_lifecycle(_Config) ->
     {ok, _} = set_retain_available(true),
     {ok, _} = set_retain_available_for_zone(default, true),
     ?assertNot(is_retainer_started()),
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => true}),
+    ?assert(is_retainer_started()),
     ok.
 
 t_retain_available_true_honors_retainer_enable(_Config) ->
@@ -945,6 +947,8 @@ t_retain_available_true_honors_retainer_enable(_Config) ->
     TopicReenabled = <<"retained/enable/re-on">>,
     {ok, _} = set_retain_available(true),
     {ok, _} = set_retain_available_for_zone(default, true),
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => true}),
+    ?assert(is_retainer_started()),
     {ok, Client} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(Client),
 
