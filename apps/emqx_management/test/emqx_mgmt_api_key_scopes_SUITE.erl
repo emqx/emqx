@@ -267,8 +267,8 @@ t_authorize_with_scopes(_Config) ->
     {ok, #{<<"api_key">> := ApiKey, <<"api_secret">> := ApiSecret}} =
         create_app(Name, #{scopes => [?SCOPE_CONNECTIONS]}),
     %% /clients should succeed (connections scope)
-    ?assertEqual(ok, auth_authorize(<<"/clients">>, ApiKey, ApiSecret)),
-    ?assertEqual(ok, auth_authorize(<<"/clients/:clientid">>, ApiKey, ApiSecret)),
+    ?assertMatch({ok, _}, auth_authorize(<<"/clients">>, ApiKey, ApiSecret)),
+    ?assertMatch({ok, _}, auth_authorize(<<"/clients/:clientid">>, ApiKey, ApiSecret)),
     %% /alarms should be denied (monitoring scope, not granted)
     ?assertMatch({error, _}, auth_authorize(<<"/alarms">>, ApiKey, ApiSecret)),
     %% /publish should be denied (publish scope, not granted)
@@ -280,9 +280,9 @@ t_authorize_no_scopes(_Config) ->
     {ok, #{<<"api_key">> := ApiKey, <<"api_secret">> := ApiSecret}} =
         create_app(Name),
     %% No scopes = full access to non-denied paths
-    ?assertEqual(ok, auth_authorize(<<"/clients">>, ApiKey, ApiSecret)),
-    ?assertEqual(ok, auth_authorize(<<"/alarms">>, ApiKey, ApiSecret)),
-    ?assertEqual(ok, auth_authorize(<<"/publish">>, ApiKey, ApiSecret)),
+    ?assertMatch({ok, _}, auth_authorize(<<"/clients">>, ApiKey, ApiSecret)),
+    ?assertMatch({ok, _}, auth_authorize(<<"/alarms">>, ApiKey, ApiSecret)),
+    ?assertMatch({ok, _}, auth_authorize(<<"/publish">>, ApiKey, ApiSecret)),
     delete_app(Name).
 
 t_authorize_empty_scopes(_Config) ->
