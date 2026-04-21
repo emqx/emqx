@@ -20,6 +20,7 @@
 -define(ON_ALL(NODES, BODY), erpc:multicall(NODES, fun() -> BODY end)).
 
 -define(AUTH_HEADER_FN_PD_KEY, {?MODULE, auth_header_fn}).
+-define(OIDC_PATH_PREFIX, "/oidc").
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -272,6 +273,9 @@ oidc_provider_params() ->
         }
     }.
 
+oidc_provider_params(Issuer) ->
+    (oidc_provider_params())#{<<"issuer">> => emqx_utils_conv:bin(Issuer)}.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -404,3 +408,61 @@ t_stop_cleanup(TCConfig) ->
     ?assertEqual([], supervisor:which_children(emqx_dashboard_sso_oidc_sup)),
 
     ok.
+
+t_jwks_content_type_suffix(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    Node = node(),
+    {ok, {Port, _Pid}} = emqx_utils_http_test_server:start_link(random, "/[...]"),
+    on_exit(fun() -> ok = emqx_utils_http_test_server:stop() end),
+    ok = emqx_utils_http_test_server:set_handler(fun oidc_content_type_handler/2),
+
+    Issuer = host(Port) ++ ?OIDC_PATH_PREFIX,
+    ProviderParams = oidc_provider_params(Issuer),
+    ?assertMatch({200, _}, create_backend(Node, ProviderParams, #{})),
+
+    ?retry(
+        20,
+        100,
+        begin
+            {302, Headers, _Body} = login_sso(Node, #{}),
+            ?assertMatch({_, _}, lists:keyfind("location", 1, Headers))
+        end
+    ).
+
+oidc_content_type_handler(
+    #{method := <<"GET">>, path := <<?OIDC_PATH_PREFIX, "/.well-known/openid-configuration">>} =
+        Req0,
+    State
+) ->
+    Port = cowboy_req:port(Req0),
+    Issuer = iolist_to_binary(host(Port) ++ ?OIDC_PATH_PREFIX),
+    Body = emqx_utils_json:encode(#{
+        issuer => Issuer,
+        jwks_uri => <<Issuer/binary, "/jwks">>,
+        authorization_endpoint => <<Issuer/binary, "/authorize">>,
+        scopes_supported => [<<"openid">>],
+        response_types_supported => [<<"code">>],
+        subject_types_supported => [<<"public">>],
+        id_token_signing_alg_values_supported => [<<"RS256">>]
+    }),
+    Req = cowboy_req:reply(
+        200,
+        #{<<"content-type">> => <<"application/json">>},
+        Body,
+        Req0
+    ),
+    {ok, Req, State};
+oidc_content_type_handler(
+    #{method := <<"GET">>, path := <<?OIDC_PATH_PREFIX, "/jwks">>} = Req0,
+    State
+) ->
+    Req = cowboy_req:reply(
+        200,
+        #{<<"content-type">> => <<"application/jwk-set+json; charset=utf-8">>},
+        emqx_utils_json:encode(#{keys => []}),
+        Req0
+    ),
+    {ok, Req, State};
+oidc_content_type_handler(Req0, State) ->
+    Req = cowboy_req:reply(404, #{}, <<>>, Req0),
+    {ok, Req, State}.
