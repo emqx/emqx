@@ -32,12 +32,13 @@ easily ingest IoT data into InfluxDB by leveraging
 - [Create bridge API doc](https://docs.emqx.com/en/enterprise/v5.0/admin/api-docs.html#tag/Bridges/paths/~1bridges/post)
   list required parameters for creating a InfluxDB bridge.
   There are two types of InfluxDB API (`v1` and `v2`), please select the right
-  version of InfluxDB. Below are several important parameters for `v1`,
+  version of InfluxDB. Below are several important parameters,
   - `server`: The IPv4 or IPv6 address or the hostname to connect to.
-  - `database`: InfluxDB database name
-  - `ping_with_auth`: Optional for `v1`. When set to `true`, EMQX includes the configured
-    `username` and `password` on the `/ping` health-check request. By default it is `false`
-    to preserve the legacy health-check behavior.
+  - `database`: InfluxDB database name for `v1`
+  - `ping_with_auth`: Optional for `v1` and `v2`. Controls whether EMQX sends authentication on `/ping`
+    health checks. Enable it if the target service requires authentication on `/ping`.
+    The default is `false`.
+  - `bucket` / `org` / `token`: InfluxDB v2 authentication and destination settings
   - `write_syntax`: Conf of InfluxDB line protocol to write data points. It is a text-based format that provides the measurement, tag set, field set, and timestamp of a data point, and placeholder supported.
 
 
