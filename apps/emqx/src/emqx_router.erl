@@ -162,7 +162,7 @@ create_tables_v3() ->
         {auto_clean, true},
         {node_pattern, [
             #routeidx{entry = {'_', {'$1'}}, _ = '_'},
-            #routeidx{entry = {'_', {'_', '$1'}}, _ = '_'}
+            #routeidx{entry = {'_', {{'_', '$1'}}}, _ = '_'}
         ]},
         {type, ordered_set},
         {rlog_shard, ?ROUTE_SHARD_V3},
