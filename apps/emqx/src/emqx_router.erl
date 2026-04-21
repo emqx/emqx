@@ -97,7 +97,7 @@
 -type batch_route() :: {emqx_types:topic(), dest()}.
 
 -record(routeidx, {
-    entry :: '$1' | {'_', '$1'} | emqx_topic_index:key(dest()),
+    entry :: emqx_topic_index:key(dest() | '$1' | {'_', '$1'}),
     unused = [] :: _
 }).
 
@@ -154,12 +154,15 @@ create_tables_v3() ->
             ]}
         ]}
     ]),
+    %% Note: filters look like this:
+    %%
+    %% {binary() | [word()], {ID}} where ID :: node() | {group(), node()}
     ok = mria:create_table(?ROUTE_TAB_FILTERS_V3, [
         {merge_table, true},
         {auto_clean, true},
         {node_pattern, [
-            #routeidx{entry = '$1', _ = '_'},
-            #routeidx{entry = {'_', '$1'}, _ = '_'}
+            #routeidx{entry = {'_', {'$1'}}, _ = '_'},
+            #routeidx{entry = {'_', {'_', '$1'}}, _ = '_'}
         ]},
         {type, ordered_set},
         {rlog_shard, ?ROUTE_SHARD_V3},

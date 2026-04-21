@@ -401,7 +401,7 @@ t_slow_rlog_routing_consistency(Config) ->
     ),
     DelayMs = 3_000,
     slowdown_mria_rlog(?config(original_mnesia_hook, Config), [Core1, Core2], DelayMs),
-    {ok, _} = rpc:call(Replicant, mnesia_subscr, subscribe, [Self, {table, ?ROUTE_TAB_V2, simple}]),
+    {ok, _} = rpc:call(Replicant, mnesia_subscr, subscribe, [Self, {table, ?ROUTE_TAB_V3, simple}]),
     UnSubSubFun = fun() ->
         %% Unsubscribe must remove a route, but the effect
         %% is expected to be delayed on the replicant node
@@ -417,7 +417,7 @@ t_slow_rlog_routing_consistency(Config) ->
     ?assertEqual(ok, erpc:call(Replicant, UnSubSubFun)),
     receive
         %% Can't match route record, since table name =/= record name,
-        {mnesia_table_event, {write, {?ROUTE_TAB_V2, Topic, Replicant}, _}} ->
+        {mnesia_table_event, {write, {?ROUTE_TAB_V3, Topic, Replicant}, _}} ->
             %% Event is reported before Mnesia writes a record, need to wait again...
             timer:sleep(100),
             ?assert(rpc:call(Replicant, emqx_router, has_route, [Topic, Replicant]))
