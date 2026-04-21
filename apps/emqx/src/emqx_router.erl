@@ -135,6 +135,13 @@ create_tables() ->
     end.
 
 create_tables_v3() ->
+    %% Note: routes look like this:
+    %%
+    %% Examples:
+    %% ````
+    %% #route{topic = <<"foo/bar/baz">>,  dest = 'emqx@127.0.0.1'}               % foo/bar/baz
+    %% #route{topic = <<"bar/baz">>,      dest = {<<"foo">>,'emqx@127.0.0.1'}}   % $share/foo/bar/baz
+    %% ```
     ok = mria:create_table(?ROUTE_TAB_V3, [
         {merge_table, true},
         {auto_clean, true},
@@ -157,6 +164,14 @@ create_tables_v3() ->
     %% Note: filters look like this:
     %%
     %% {binary() | [word()], {ID}} where ID :: node() | {group(), node()}
+    %%
+    %% Examples:
+    %% ```
+    %% {routeidx, {[<<"foo">>,'+',<<"bar">>],    {'emqx@127.0.0.1'}},             []}   % foo/+/bar
+    %% {routeidx, {[<<"foo">>,'#'],              {'emqx@127.0.0.1'}},             []}   % foo/#
+    %% {routeidx, {['#'],                        {{<<"foo">>,'emqx@127.0.0.1'}}}, []}   % $share/foo/#
+    %% {routeidx, {['+',<<"bar">>],              {{<<"foo">>,'emqx@127.0.0.1'}}}, []}}  % $share/foo/+/bar
+    %% '''
     ok = mria:create_table(?ROUTE_TAB_FILTERS_V3, [
         {merge_table, true},
         {auto_clean, true},

@@ -714,6 +714,8 @@ t_local_fallback(Config) when is_list(Config) ->
     Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
 
     emqtt:subscribe(ConnPid1, {<<"$share/local_group/", Topic/binary>>, 0}),
+    %% Let routes sync:
+    ct:sleep(100),
 
     emqx:publish(Message1),
     {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1]),
