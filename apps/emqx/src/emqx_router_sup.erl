@@ -17,7 +17,14 @@ start_link() ->
         emqx_router:create_tables() ++
             emqx_router_helper:create_tables()
     ),
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+    case supervisor:start_link({local, ?MODULE}, ?MODULE, []) of
+        {ok, _} = Ret ->
+            %% Setup periodic stats reporting (handled by `emqx_stats' server):
+            ok = emqx_stats:update_interval(route_stats, fun emqx_router_helper:stats_fun/0),
+            Ret;
+        Err ->
+            Err
+    end.
 
 init([]) ->
     %% Router helper

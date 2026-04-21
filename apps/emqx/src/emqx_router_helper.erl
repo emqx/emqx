@@ -209,8 +209,6 @@ init([]) ->
     ]),
     %% Monitor nodes lifecycle events.
     ok = ekka:monitor(membership),
-    %% Setup periodic stats reporting.
-    ok = emqx_stats:update_interval(route_stats, fun ?MODULE:stats_fun/0),
     TRef = schedule_task(reconcile, ?RECONCILE_TURBULENCE_DELAY),
     State = #{
         last_membership => emqx_maybe:define(cores(), []),
