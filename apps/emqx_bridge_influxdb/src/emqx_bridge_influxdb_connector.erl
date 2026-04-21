@@ -477,7 +477,8 @@ protocol_config(#{
         {protocol, http},
         {version, v1},
         {database, str(DB)}
-    ] ++ username(Params) ++ password(Params) ++ ping_with_auth(Params) ++ ssl_config(SSL);
+    ] ++ username(Params) ++ password(Params) ++ ping_with_auth(Params) ++ ssl_config(SSL) ++
+        v1_auth_transport(Params);
 %% api v2 config
 protocol_config(#{
     parameters :=
@@ -492,6 +493,11 @@ protocol_config(#{
         %% TODO: teach `influxdb` to accept 0-arity closures as passwords.
         {token, emqx_secret:unwrap(Token)}
     ] ++ ping_with_auth(Params) ++ ssl_config(SSL).
+
+v1_auth_transport(#{v1_auth_transport := V1AuthTransport}) ->
+    [{v1_auth_transport, V1AuthTransport}];
+v1_auth_transport(_) ->
+    [].
 
 ssl_config(#{enable := false}) ->
     [

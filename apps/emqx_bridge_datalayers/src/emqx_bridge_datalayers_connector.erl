@@ -89,8 +89,12 @@ driver_type(#{parameters := #{driver_type := influxdb_v1}}) ->
     influxdb_v1.
 
 convert_config_to_influxdb(Config = #{parameters := Params = #{driver_type := influxdb_v1}}) ->
+    Params1 = Params#{
+        influxdb_type => influxdb_api_v1,
+        v1_auth_transport => query_string
+    },
     Config#{
-        parameters := maps:without([driver_type], Params#{influxdb_type => influxdb_api_v1})
+        parameters := maps:without([driver_type], Params1)
     }.
 
 on_stop(InstId, State) ->
