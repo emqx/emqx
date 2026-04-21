@@ -180,7 +180,7 @@ plugin-%:
 	@$(SCRIPTS)/build-plugin.sh $*
 
 .PHONY: plugins
-plugins:
+plugins: compile-$(PROFILE)
 	@$(SCRIPTS)/build-plugins.sh
 
 .PHONY: plugins-ct
