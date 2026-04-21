@@ -70,7 +70,8 @@ root_dir() ->
         false ->
             ScriptDir = filename:dirname(escript:script_name()),
             filename:absname(filename:join(ScriptDir, ".."));
-        V -> V
+        V ->
+            V
     end.
 
 os_env(Name, Default) ->
@@ -82,7 +83,8 @@ os_env(Name, Default) ->
 
 assert_dir(Dir, What) ->
     case filelib:is_dir(Dir) of
-        true -> ok;
+        true ->
+            ok;
         false ->
             io:format(standard_error, "Error: missing ~s: ~ts~n", [What, Dir]),
             halt(1)
@@ -131,24 +133,32 @@ copy_dir(From, To, Filter) ->
             Src = filename:join(From, E),
             Dst = filename:join(To, E),
             case filelib:is_dir(Src) of
-                true -> copy_dir(Src, Dst);
+                true ->
+                    copy_dir(Src, Dst);
                 false ->
                     {ok, _} = file:copy(Src, Dst),
                     ok
             end
-        end, Selected),
+        end,
+        Selected
+    ),
     ok.
 
 copy_if_exists(Src, Dst) ->
     case filelib:is_regular(Src) of
-        true -> {ok, _} = file:copy(Src, Dst), ok;
-        false -> ok
+        true ->
+            {ok, _} = file:copy(Src, Dst),
+            ok;
+        false ->
+            ok
     end.
 
 build_info(Metadata, AppStr, RelVsn, AppVsn, PluginDir) ->
     BaseInfo = lists:foldl(
         fun({K, V}, Acc) -> [{atom_to_binary(K, utf8), erl_to_json(V)} | Acc] end,
-        [], Metadata),
+        [],
+        Metadata
+    ),
     MoreInfo = [
         {<<"name">>, list_to_binary(AppStr)},
         {<<"rel_vsn">>, list_to_binary(RelVsn)},
@@ -157,13 +167,16 @@ build_info(Metadata, AppStr, RelVsn, AppVsn, PluginDir) ->
         {<<"git_commit_or_build_date">>, build_date(PluginDir)},
         {<<"metadata_vsn">>, ?METADATA_VSN},
         {<<"built_on_otp_release">>, list_to_binary(erlang:system_info(otp_release))},
-        {<<"with_config_schema">>, filelib:is_regular(filename:join([PluginDir, "priv", "config_schema.avsc"]))},
+        {<<"with_config_schema">>,
+            filelib:is_regular(filename:join([PluginDir, "priv", "config_schema.avsc"]))},
         {<<"emqx_plugrel_vsn">>, ?EMQX_PLUGREL_VSN},
         {<<"hidden">>, proplists:get_value(hidden, Metadata, false)}
     ],
     Merged = lists:foldl(
         fun({K, _} = Kv, Acc) -> lists:keystore(K, 1, Acc, Kv) end,
-        BaseInfo, MoreInfo),
+        BaseInfo,
+        MoreInfo
+    ),
     lists:reverse(Merged).
 
 git_ref(Dir) ->
@@ -174,7 +187,8 @@ git_ref(Dir) ->
 
 build_date(Dir) ->
     case sh(Dir, "git log -1 --pretty=format:%cd --date=format:%Y-%m-%d") of
-        {ok, S} -> list_to_binary(S);
+        {ok, S} ->
+            list_to_binary(S);
         error ->
             {Y, M, D} = erlang:date(),
             iolist_to_binary(io_lib:format("~4..0b-~2..0b-~2..0b", [Y, M, D]))
@@ -187,8 +201,10 @@ sh(Dir, Cmd) ->
         Out -> {ok, string:trim(Out, trailing, "\n ")}
     end.
 
-erl_to_json(true) -> true;
-erl_to_json(false) -> false;
+erl_to_json(true) ->
+    true;
+erl_to_json(false) ->
+    false;
 erl_to_json(V) when is_atom(V) -> atom_to_binary(V, utf8);
 erl_to_json(V) when is_binary(V) -> V;
 erl_to_json(V) when is_integer(V); is_float(V) -> V;
@@ -202,12 +218,19 @@ erl_to_json(V) when is_list(V) ->
         true -> list_to_binary(V);
         false -> [erl_to_json(E) || E <- V]
     end;
-erl_to_json({K, Val}) -> [{atom_or_bin(K), erl_to_json(Val)}];
-erl_to_json(V) -> V.
+erl_to_json({K, Val}) ->
+    [{atom_or_bin(K), erl_to_json(Val)}];
+erl_to_json(V) ->
+    V.
 
 is_proplist(L) ->
-    lists:all(fun({K, _}) when is_atom(K); is_binary(K); is_list(K) -> true;
-                 (_) -> false end, L).
+    lists:all(
+        fun
+            ({K, _}) when is_atom(K); is_binary(K); is_list(K) -> true;
+            (_) -> false
+        end,
+        L
+    ).
 
 atom_or_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 atom_or_bin(B) when is_binary(B) -> B;
@@ -216,19 +239,25 @@ atom_or_bin(L) when is_list(L) -> list_to_binary(L).
 encode_json(V, Indent) ->
     iolist_to_binary(encode(V, Indent)).
 
-encode(null, _) -> <<"null">>;
-encode(true, _) -> <<"true">>;
-encode(false, _) -> <<"false">>;
+encode(null, _) ->
+    <<"null">>;
+encode(true, _) ->
+    <<"true">>;
+encode(false, _) ->
+    <<"false">>;
 encode(V, _) when is_integer(V) -> integer_to_binary(V);
 encode(V, _) when is_float(V) -> float_to_binary(V, [{decimals, 6}, compact]);
 encode(V, _) when is_binary(V) -> [$", escape(V), $"];
 encode([{_, _} | _] = Obj, I) ->
     Pad = spaces(I + 4),
     EndPad = spaces(I),
-    Items = [[Pad, encode(atom_or_bin(K), I + 4), <<": ">>, encode(V, I + 4)]
-             || {K, V} <- Obj],
+    Items = [
+        [Pad, encode(atom_or_bin(K), I + 4), <<": ">>, encode(V, I + 4)]
+     || {K, V} <- Obj
+    ],
     [<<"{\n">>, join(Items, <<",\n">>), <<"\n">>, EndPad, <<"}">>];
-encode([], _) -> <<"[]">>;
+encode([], _) ->
+    <<"[]">>;
 encode(L, I) when is_list(L) ->
     Pad = spaces(I + 4),
     EndPad = spaces(I),
@@ -237,8 +266,12 @@ encode(L, I) when is_list(L) ->
 encode(A, I) when is_atom(A) -> encode(atom_to_binary(A, utf8), I).
 
 escape(Bin) ->
-    binary:replace(binary:replace(Bin, <<"\\">>, <<"\\\\">>, [global]),
-                   <<"\"">>, <<"\\\"">>, [global]).
+    binary:replace(
+        binary:replace(Bin, <<"\\">>, <<"\\\\">>, [global]),
+        <<"\"">>,
+        <<"\\\"">>,
+        [global]
+    ).
 
 spaces(N) -> lists:duplicate(N, $\s).
 
