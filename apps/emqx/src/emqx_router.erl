@@ -120,6 +120,8 @@
     end
 ).
 
+-type cluster_schema_versions() :: #{schemavsn() => [node(), ...], unknown => [_, ...]}.
+
 -define(PT_SCHEMA_VSN, emqx_router_pt_schema_vsn).
 
 %%--------------------------------------------------------------------
@@ -561,21 +563,51 @@ match_to_route(M) ->
 -compile({inline, get_schema_vsn/0}).
 -spec get_schema_vsn() -> schemavsn().
 get_schema_vsn() ->
-    %% FIXME: use proper detection
     persistent_term:get(?PT_SCHEMA_VSN).
 
 -spec init_schema() -> ok.
 init_schema() ->
     ClusterState = discover_cluster_schema_vsn(),
+    SchemaVsn = cluster_preferred_api_version(ClusterState),
     verify_cluster_schema_vsn(ClusterState),
-    %% FIXME:
-    persistent_term:put(?PT_SCHEMA_VSN, v3).
+    persistent_term:put(?PT_SCHEMA_VSN, SchemaVsn).
 
--spec discover_cluster_schema_vsn() ->
-    _ClusterState :: [{node(), schemavsn() | unknown, _Details}].
+%% Find if there are known peers that are still running EMQX version
+%% that doesn't support v3:
+%%
+%% Note: do not confuse BPAPI versions with the schema version.
+-spec cluster_preferred_api_version(#{schemavsn() => [node()], unknown => _}) -> schemavsn().
+cluster_preferred_api_version(#{v2 := [_ | _]}) ->
+    v2;
+cluster_preferred_api_version(_) ->
+    case mria_schema:shard_of_table(?ROUTE_TAB_V2) of
+        {ok, _} ->
+            %% Old table is present in the cluster, use old schema
+            v2;
+        undefined ->
+            %% There are no signs of the old routing tables. This is
+            %% likely a newly deployed cluster. Use configured value:
+            emqx_config:get([broker, routing, storage_schema])
+    end.
+
+-spec discover_cluster_schema_vsn() -> cluster_schema_versions().
 discover_cluster_schema_vsn() ->
-    discover_cluster_schema_vsn(emqx:running_nodes() -- [node()]).
+    RawResult = discover_cluster_schema_vsn(emqx:running_nodes() -- [node()]),
+    maps:groups_from_list(
+        fun({_Node, Version, _Details}) -> Version end,
+        fun
+            ({Node, unknown, Details}) ->
+                {Node, Details};
+            ({Node, _Vsn, _Details}) ->
+                Node
+        end,
+        RawResult
+    ).
 
+-spec discover_cluster_schema_vsn([node()]) -> [Result] when
+    Result ::
+        {node(), v2 | v3, configured}
+        | {node(), unknown, starting | _}.
 discover_cluster_schema_vsn([]) ->
     [];
 discover_cluster_schema_vsn(Nodes) ->
@@ -593,90 +625,67 @@ discover_cluster_schema_vsn(Nodes) ->
         emqx_router_proto_v1:get_routing_schema_vsn(Nodes)
     ).
 
--spec verify_cluster_schema_vsn(_ClusterState :: [{node(), schemavsn() | unknown, _Details}]) ->
-    ok.
-verify_cluster_schema_vsn(ClusterState) ->
-    Versions = lists:usort([Vsn || {_Node, Vsn, _} <- ClusterState, Vsn /= unknown]),
-    verify_cluster_schema_vsn(Versions, ClusterState).
+-spec verify_cluster_schema_vsn(cluster_schema_versions()) -> ok.
+verify_cluster_schema_vsn(ClusterView) ->
+    case maps:get(v1, ClusterView, []) of
+        [] ->
+            ok;
+        NodesV1 ->
+            MsgV1 = unsupported_schema_reason(NodesV1),
+            io:format(standard_error, "Error: ~ts", [MsgV1]),
+            ?SLOG(critical, #{
+                msg => "unsupported_routing_schemas_in_cluster",
+                responses => ClusterView,
+                description => MsgV1
+            }),
+            error(conflicting_routing_schemas_configured_in_cluster)
+    end,
+    case ClusterView of
+        #{v3 := [_ | _], v2 := [_ | _]} ->
+            MsgV2 = schema_conflict_reason(ClusterView),
+            io:format(standard_error, "Error: ~ts", [MsgV2]),
+            ?SLOG(critical, #{
+                msg => "conflicting_routing_schemas_in_cluster",
+                responses => ClusterView,
+                description => MsgV2
+            }),
+            error(conflicting_routing_schemas_configured_in_cluster);
+        #{} ->
+            ok
+    end.
 
-verify_cluster_schema_vsn([], []) ->
-    %% Only this node in the cluster.
-    ok;
-verify_cluster_schema_vsn([v2], _) ->
-    %% Every other node uses v2 schema.
-    ok;
-verify_cluster_schema_vsn([], ClusterState = [_ | _]) ->
-    ?SLOG(warning, #{
-        msg => "cluster_routing_schema_discovery_failed",
-        responses => ClusterState,
-        reason => "Could not determine configured routing storage schema in peer nodes."
-    }),
-    %% Ok to start?
-    %% The only risk is full cluster restart, other nodes are < 5.10 *and* have
-    %% storage schema force configured to v1.
-    ok;
-verify_cluster_schema_vsn([v1], ClusterState) ->
-    %% Every other node uses v1 schema.
-    Desc = unsupported_schema_reason(ClusterState),
-    io:format(standard_error, "Error: ~ts~n", [Desc]),
-    ?SLOG(critical, #{
-        msg => "unsupported_routing_schemas_in_cluster",
-        responses => ClusterState,
-        description => Desc
-    }),
-    error(conflicting_routing_schemas_configured_in_cluster);
-verify_cluster_schema_vsn([_ | _], ClusterState) ->
-    Desc = schema_conflict_reason(ClusterState),
-    io:format(standard_error, "Error: ~ts~n", [Desc]),
-    ?SLOG(critical, #{
-        msg => "conflicting_routing_schemas_in_cluster",
-        responses => ClusterState,
-        description => Desc
-    }),
-    %% TODO:
-    %% error(conflicting_routing_schemas_configured_in_cluster).
-    ok.
+%% erlfmt-ignore
+unsupported_schema_reason(NodesV1) ->
+    io_lib:format(
+"Peer nodes are running unsupported legacy (v1) route storage schema.
+This node cannot boot before the cluster is upgraded to use current (v3)
+storage schema.
 
-unsupported_schema_reason(_State) ->
-    "Peer nodes are running unsupported legacy (v1) route storage schema."
-    "\nThis node cannot boot before the cluster is upgraded to use current (v2) "
-    "storage schema."
-    "\n"
-    "\nSituation requires manual intervention:"
-    "\n1. Upgrade all nodes to 5.10.0 or newer."
-    "\n2. Remove `broker.routing.storage_schema` option from applicable "
-    "configuration files, if present."
-    "\n3. Stop ALL running nodes, then restart them one by one.".
+Nodes using V1 schema: ~0p
 
-schema_conflict_reason(State) ->
-    Cause =
-        "Peer nodes have route storage schema resolved into conflicting versions.\n"
-        "\nThis was caused by a race-condition when the cluster was rolling upgraded "
-        "from an older version to 5.4.0, 5.4.1, 5.5.0 or 5.5.1."
-        "\nThis node cannot boot before the conflicts are resolved.\n",
-    NodesV1 = [Node || {Node, v1, _} <- State],
-    NodesUnknown = [Node || {Node, unknown, _} <- State],
-    Format =
-        "There are two ways to resolve the conflict:"
-        "\n"
-        "\nA: Full cluster restart: stop ALL running nodes one by one "
-        "and restart them in the reversed order."
-        "\n"
-        "\nB: Force v1 nodes to clean up their routes."
-        "\n   Following EMQX nodes are running with v1 schema: ~0p."
-        "\n   1. Stop listeners with command \"emqx eval 'emqx_listener:stop()'\" in all v1 nodes"
-        "\n   2. Wait until they are safe to restart."
-        "\n      This could take some time, depending on the number of clients and their subscriptions."
-        "\n      Below conditions should be true for each of the nodes in order to proceed:"
-        "\n     a) Command 'ets:info(emqx_subscriber, size)' prints `0`."
-        "\n     b) Command 'emqx ctl topics list' prints No topics.`"
-        "\n   3. Upgrade the nodes to 5.6.0 or newer.",
-    FormatUnkown =
-        "Additionally, the following nodes were unreachable during startup: ~0p."
-        "It is strongly advised to include them in the manual resolution procedure as well.",
-    Message = io_lib:format(Format, [NodesV1]),
-    MessageUnknown = [io_lib:format(FormatUnkown, [NodesUnknown]) || NodesUnknown =/= []],
-    Cause ++ unicode:characters_to_list([Message, "\n", MessageUnknown]).
+Situation requires manual intervention:
+1. Upgrade all nodes to 5.10.4 or newer.
+2. Remove `broker.routing.storage_schema` option from applicable configuration files, if present.
+3. Stop ALL running nodes, then restart them one by one.
+",
+      [NodesV1]).
+
+%% erlfmt-ignore
+schema_conflict_reason(#{v2 := V2, v3 := V3}) ->
+    io_lib:format(
+"Peer nodes have route storage schema resolved into conflicting versions.
+
+Nodes using V3 schema: ~0p
+Nodes using V2 schema: ~0p
+
+This node cannot boot before the conflicts are resolved.
+
+Situation requires manual intervention:
+1. Upgrade all nodes to 5.10.4 or newer.
+2. Remove `broker.routing.storage_schema` option from applicable configuration files, if present.
+3. Stop ALL running nodes, then restart them one by one.
+",
+      [V3, V2]).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
