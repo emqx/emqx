@@ -1,6 +1,6 @@
 #!/usr/bin/env escript
+%%! -pa _build/emqx-enterprise/lib/jsone/ebin
 %% -*- mode: erlang -*-
-%%! -noshell
 
 %% Package an EMQX monorepo plugin as `<name>-<vsn>.tar.gz`, reading the
 %% plugin's already-compiled beams from the umbrella build tree
@@ -11,24 +11,27 @@
 %% dep closure. The plugin is compiled once by the root `make`; this
 %% script just packages the output.
 %%
-%% Usage: build-plugin.escript <plugin-name>
+%% JSON encoding uses `jsone` loaded from the umbrella build via the
+%% `-pa` directive above. The escript must run with CWD=repo root so
+%% that relative path resolves — `scripts/build-plugin.sh` handles that.
+%%
+%% Usage: package-plugin.escript <plugin-name>
 %% Env: PROFILE (default: emqx-enterprise), ROOT_DIR (default: script parent)
 
 -mode(compile).
 
 -define(METADATA_VSN, <<"0.2.0">>).
--define(EMQX_PLUGREL_VSN, <<"0.5.1">>).
 
 main([App]) ->
     try
         do(App)
     catch
         error:Reason:St ->
-            io:format(standard_error, "build-plugin: ~p~n~p~n", [Reason, St]),
+            io:format(standard_error, "package-plugin: ~p~n~p~n", [Reason, St]),
             halt(1)
     end;
 main(_) ->
-    io:format(standard_error, "Usage: build-plugin.escript <plugin-name>~n", []),
+    io:format(standard_error, "Usage: package-plugin.escript <plugin-name>~n", []),
     halt(1).
 
 do(AppStr) ->
@@ -61,14 +64,14 @@ do(AppStr) ->
     %% Include README.md at the top level of the tarball if present.
     copy_if_exists(filename:join(PluginDir, "README.md"), filename:join(StageDir, "README.md")),
     Info = build_info(Metadata, AppStr, RelVsn, AppVsn, PluginDir),
-    ok = file:write_file(filename:join(StageDir, "release.json"), encode_json(Info, 0)),
+    ok = file:write_file(filename:join(StageDir, "release.json"), encode_json(Info)),
     OutDir = filename:join([Root, "_build", "plugins"]),
     ok = filelib:ensure_dir(filename:join(OutDir, ".")),
     TarPath = filename:join(OutDir, NameWithRelVsn ++ ".tar.gz"),
     ShaPath = filename:join(OutDir, NameWithRelVsn ++ ".sha256"),
     ok = create_tar(StageRoot, NameWithRelVsn, TarPath),
     {ok, TarBin} = file:read_file(TarPath),
-    ok = file:write_file(ShaPath, hexdigest(sha256, TarBin)),
+    ok = file:write_file(ShaPath, binary:encode_hex(crypto:hash(sha256, TarBin), lowercase)),
     rm_rf(StageRoot),
     io:format("Packaged ~ts~n", [TarPath]),
     ok.
@@ -170,30 +173,20 @@ copy_extra_deps(_Root, _Profile, _LibDir, _StageDir, _AppStr) ->
     ok.
 
 build_info(Metadata, AppStr, RelVsn, AppVsn, PluginDir) ->
-    BaseInfo = lists:foldl(
-        fun({K, V}, Acc) -> [{atom_to_binary(K, utf8), erl_to_json(V)} | Acc] end,
-        [],
-        Metadata
-    ),
-    MoreInfo = [
-        {<<"name">>, list_to_binary(AppStr)},
-        {<<"rel_vsn">>, list_to_binary(RelVsn)},
-        {<<"rel_apps">>, [list_to_binary(AppStr ++ "-" ++ AppVsn)]},
-        {<<"git_ref">>, git_ref(PluginDir)},
-        {<<"git_commit_or_build_date">>, build_date(PluginDir)},
-        {<<"metadata_vsn">>, ?METADATA_VSN},
-        {<<"built_on_otp_release">>, list_to_binary(erlang:system_info(otp_release))},
-        {<<"with_config_schema">>,
-            filelib:is_regular(filename:join([PluginDir, "priv", "config_schema.avsc"]))},
-        {<<"emqx_plugrel_vsn">>, ?EMQX_PLUGREL_VSN},
-        {<<"hidden">>, proplists:get_value(hidden, Metadata, false)}
-    ],
-    Merged = lists:foldl(
-        fun({K, _} = Kv, Acc) -> lists:keystore(K, 1, Acc, Kv) end,
-        BaseInfo,
-        MoreInfo
-    ),
-    lists:reverse(Merged).
+    Base = maps:from_list([{K, normalize(V)} || {K, V} <- Metadata]),
+    Extra = #{
+        name => list_to_binary(AppStr),
+        rel_vsn => list_to_binary(RelVsn),
+        rel_apps => [list_to_binary(AppStr ++ "-" ++ AppVsn)],
+        git_ref => git_ref(PluginDir),
+        git_commit_or_build_date => build_date(PluginDir),
+        metadata_vsn => ?METADATA_VSN,
+        built_on_otp_release => list_to_binary(erlang:system_info(otp_release)),
+        with_config_schema =>
+            filelib:is_regular(filename:join([PluginDir, "priv", "config_schema.avsc"])),
+        hidden => proplists:get_value(hidden, Metadata, false)
+    },
+    maps:merge(Base, Extra).
 
 git_ref(Dir) ->
     case sh(Dir, "git rev-parse HEAD") of
@@ -217,83 +210,26 @@ sh(Dir, Cmd) ->
         Out -> {ok, string:trim(Out, trailing, "\n ")}
     end.
 
-erl_to_json(true) ->
-    true;
-erl_to_json(false) ->
-    false;
-erl_to_json(V) when is_atom(V) -> atom_to_binary(V, utf8);
-erl_to_json(V) when is_binary(V) -> V;
-erl_to_json(V) when is_integer(V); is_float(V) -> V;
-erl_to_json([{_, _} | _] = Pl) ->
-    case is_proplist(Pl) of
-        true -> [{atom_or_bin(K), erl_to_json(V)} || {K, V} <- Pl];
-        false -> [erl_to_json(E) || E <- Pl]
+%% Convert Erlang strings to binaries; leave atoms, maps, and everything
+%% else for jsone to encode natively. Nested proplists are kept as-is;
+%% jsone treats `[{K, V} | _]` as a JSON object.
+normalize(L) when is_list(L) ->
+    case io_lib:printable_unicode_list(L) of
+        true -> list_to_binary(L);
+        false -> [normalize(E) || E <- L]
     end;
-erl_to_json(V) when is_list(V) ->
-    case io_lib:printable_unicode_list(V) of
-        true -> list_to_binary(V);
-        false -> [erl_to_json(E) || E <- V]
-    end;
-erl_to_json({K, Val}) ->
-    [{atom_or_bin(K), erl_to_json(Val)}];
-erl_to_json(V) ->
+normalize({K, V}) ->
+    {K, normalize(V)};
+normalize(V) ->
     V.
 
-is_proplist(L) ->
-    lists:all(
-        fun
-            ({K, _}) when is_atom(K); is_binary(K); is_list(K) -> true;
-            (_) -> false
-        end,
-        L
-    ).
-
-atom_or_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-atom_or_bin(B) when is_binary(B) -> B;
-atom_or_bin(L) when is_list(L) -> list_to_binary(L).
-
-encode_json(V, Indent) ->
-    iolist_to_binary(encode(V, Indent)).
-
-encode(null, _) ->
-    <<"null">>;
-encode(true, _) ->
-    <<"true">>;
-encode(false, _) ->
-    <<"false">>;
-encode(V, _) when is_integer(V) -> integer_to_binary(V);
-encode(V, _) when is_float(V) -> float_to_binary(V, [{decimals, 6}, compact]);
-encode(V, _) when is_binary(V) -> [$", escape(V), $"];
-encode([{_, _} | _] = Obj, I) ->
-    Pad = spaces(I + 4),
-    EndPad = spaces(I),
-    Items = [
-        [Pad, encode(atom_or_bin(K), I + 4), <<": ">>, encode(V, I + 4)]
-     || {K, V} <- Obj
-    ],
-    [<<"{\n">>, join(Items, <<",\n">>), <<"\n">>, EndPad, <<"}">>];
-encode([], _) ->
-    <<"[]">>;
-encode(L, I) when is_list(L) ->
-    Pad = spaces(I + 4),
-    EndPad = spaces(I),
-    Items = [[Pad, encode(V, I + 4)] || V <- L],
-    [<<"[\n">>, join(Items, <<",\n">>), <<"\n">>, EndPad, <<"]">>];
-encode(A, I) when is_atom(A) -> encode(atom_to_binary(A, utf8), I).
-
-escape(Bin) ->
-    binary:replace(
-        binary:replace(Bin, <<"\\">>, <<"\\\\">>, [global]),
-        <<"\"">>,
-        <<"\\\"">>,
-        [global]
-    ).
-
-spaces(N) -> lists:duplicate(N, $\s).
-
-join([], _Sep) -> [];
-join([H], _Sep) -> [H];
-join([H | T], Sep) -> [H, Sep | join(T, Sep)].
+encode_json(Term) ->
+    jsone:encode(Term, [
+        native_forward_slash,
+        {indent, 4},
+        {space, 1},
+        {object_key_type, scalar}
+    ]).
 
 create_tar(StageRoot, NameWithRelVsn, TarPath) ->
     {ok, OldCwd} = file:get_cwd(),
@@ -304,7 +240,3 @@ create_tar(StageRoot, NameWithRelVsn, TarPath) ->
     after
         file:set_cwd(OldCwd)
     end.
-
-hexdigest(Alg, Bin) ->
-    Digest = crypto:hash(Alg, Bin),
-    [io_lib:format("~2.16.0b", [B]) || <<B:8>> <= Digest].

@@ -4,7 +4,7 @@
 ##
 ## Driven entirely from the umbrella build: the plugin is compiled by
 ## the root `make` into `_build/$PROFILE/lib/<name>/`, and this wrapper
-## delegates to `scripts/build-plugin.escript` to assemble the tarball
+## delegates to `scripts/package-plugin.escript` to assemble the tarball
 ## with the same on-disk layout as `rebar3 emqx_plugrel tar`.
 ##
 ## The escript reads `plugins/<name>/rebar.config` for the `emqx_plugrel`
@@ -27,5 +27,9 @@ fi
 ROOT_DIR="$(cd -P -- "$(dirname -- "$0")/.." && pwd)"
 PROFILE="${PROFILE:-emqx-enterprise}"
 
+## CWD must be the repo root so the escript's `-pa
+## _build/emqx-enterprise/lib/jsone/ebin` directive resolves.
+cd "$ROOT_DIR"
+
 exec env ROOT_DIR="$ROOT_DIR" PROFILE="$PROFILE" \
-    "$ROOT_DIR/scripts/build-plugin.escript" "$APP"
+    "$ROOT_DIR/scripts/package-plugin.escript" "$APP"

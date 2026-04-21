@@ -159,7 +159,7 @@ endif
 ##
 ## Packaging (plugin-<name>) reads the already-compiled beams from the
 ## umbrella build tree (`_build/$PROFILE/lib/<name>/`) and assembles the
-## installable tarball via scripts/build-plugin.escript — no per-plugin
+## installable tarball via scripts/package-plugin.escript — no per-plugin
 ## rebar3 invocation is needed.
 ##
 ## plugins-ct aggregates CT across every plugin directory that has a
