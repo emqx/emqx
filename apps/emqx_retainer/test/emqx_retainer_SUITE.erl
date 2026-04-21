@@ -29,7 +29,9 @@ groups() ->
         {mnesia_with_indices, [sequence], index_related_tests()},
         {mnesia_reindex, [sequence], [t_reindex]},
         {index_agnostic, [sequence], [
-            t_disable_then_start, t_retain_available_does_not_control_retainer_lifecycle
+            t_disable_then_start,
+            t_retain_available_does_not_control_retainer_lifecycle,
+            t_retain_available_true_honors_retainer_enable
         ]},
         {disabled, [t_disabled]}
     ].
@@ -40,7 +42,8 @@ index_related_tests() ->
             t_reindex,
             t_disable_then_start,
             t_disabled,
-            t_retain_available_does_not_control_retainer_lifecycle
+            t_retain_available_does_not_control_retainer_lifecycle,
+            t_retain_available_true_honors_retainer_enable
         ].
 
 %% erlfmt-ignore
@@ -934,6 +937,37 @@ t_retain_available_does_not_control_retainer_lifecycle(_Config) ->
     {ok, _} = set_retain_available(true),
     {ok, _} = set_retain_available_for_zone(default, true),
     ?assertNot(is_retainer_started()),
+    ok.
+
+t_retain_available_true_honors_retainer_enable(_Config) ->
+    TopicEnabled = <<"retained/enable/on">>,
+    TopicDisabled = <<"retained/enable/off">>,
+    TopicReenabled = <<"retained/enable/re-on">>,
+    {ok, _} = set_retain_available(true),
+    {ok, _} = set_retain_available_for_zone(default, true),
+    {ok, Client} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client),
+
+    ok = emqtt:publish(Client, TopicEnabled, <<"enabled">>, [{qos, 0}, {retain, true}]),
+    ct:sleep(100),
+    ?assertMatch(
+        {ok, [#message{payload = <<"enabled">>}]}, emqx_retainer:read_message(TopicEnabled)
+    ),
+
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => false}),
+    ok = emqtt:publish(Client, TopicDisabled, <<"disabled">>, [{qos, 0}, {retain, true}]),
+    ct:sleep(100),
+    ?assertEqual({ok, []}, emqx_retainer:read_message(TopicDisabled)),
+
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => true}),
+    ok = emqtt:publish(Client, TopicReenabled, <<"re-enabled">>, [{qos, 0}, {retain, true}]),
+    ct:sleep(100),
+    ?assertMatch(
+        {ok, [#message{payload = <<"re-enabled">>}]},
+        emqx_retainer:read_message(TopicReenabled)
+    ),
+
+    ok = emqtt:disconnect(Client),
     ok.
 
 t_disabled(_Config) ->
