@@ -60,6 +60,31 @@
     "measurement,tag=1 field=\"val\\1\""
 ]).
 
+influxdb_api_v1_connector_hocon() ->
+    ""
+    "\n"
+    "connectors.influxdb.my_influxdb {\n"
+    "  enable = true\n"
+    "  server = \"127.0.0.1:8086\"\n"
+    "  parameters {\n"
+    "    influxdb_type = influxdb_api_v1\n"
+    "    database = \"mydb\"\n"
+    "    username = \"user\"\n"
+    "    password = \"pass\"\n"
+    "  }\n"
+    "  ssl {\n"
+    "    enable = false\n"
+    "  }\n"
+    "}\n"
+    "".
+
+parse(Hocon) ->
+    {ok, Conf} = hocon:binary(Hocon),
+    Conf.
+
+check_connector(Conf) when is_map(Conf) ->
+    hocon_tconf:check_plain(emqx_connector_schema, Conf, #{required => false}).
+
 -define(VALID_LINE_PARSED_PAIRS, [
     {"m1,tag=tag1 field=field1 ${timestamp1}", #{
         measurement => "m1",
@@ -359,6 +384,107 @@ valid_write_syntax_escaped_chars_test_() ->
 
 valid_write_syntax_escaped_chars_with_extra_spaces_test_() ->
     test_pairs(?VALID_LINE_PARSED_ESCAPED_CHARS_EXTRA_SPACES_PAIRS).
+
+influxdb_api_v1_connector_ping_with_auth_test_() ->
+    _ = emqx_utils:interactive_load(emqx_bridge_enterprise),
+    BaseConf = parse(influxdb_api_v1_connector_hocon()),
+    Override = fun(Cfg) ->
+        emqx_utils_maps:deep_merge(
+            BaseConf,
+            #{
+                <<"connectors">> => #{
+                    <<"influxdb">> => #{
+                        <<"my_influxdb">> => Cfg
+                    }
+                }
+            }
+        )
+    end,
+    BaseConfig = #{
+        server => <<"127.0.0.1:8086">>,
+        pool_size => 8,
+        ssl => #{enable => false},
+        parameters => #{
+            influxdb_type => influxdb_api_v1,
+            database => <<"mydb">>,
+            username => <<"user">>,
+            password => <<"pass">>
+        }
+    },
+    [
+        {"schema defaults ping_with_auth to false",
+            ?_assertMatch(
+                #{
+                    <<"connectors">> := #{
+                        <<"influxdb">> := #{
+                            <<"my_influxdb">> := #{
+                                <<"parameters">> := #{<<"ping_with_auth">> := false}
+                            }
+                        }
+                    }
+                },
+                check_connector(BaseConf)
+            )},
+        {"schema accepts ping_with_auth=true",
+            ?_assertMatch(
+                #{
+                    <<"connectors">> := #{
+                        <<"influxdb">> := #{
+                            <<"my_influxdb">> := #{
+                                <<"parameters">> := #{<<"ping_with_auth">> := true}
+                            }
+                        }
+                    }
+                },
+                check_connector(
+                    Override(#{<<"parameters">> => #{<<"ping_with_auth">> => true}})
+                )
+            )},
+        {"client_config preserves legacy default when unset",
+            ?_assertEqual(
+                false,
+                proplists:is_defined(
+                    ping_with_auth,
+                    emqx_bridge_influxdb_connector:client_config(test_pool, BaseConfig)
+                )
+            )},
+        {"client_config forwards ping_with_auth=true",
+            ?_assertEqual(
+                true,
+                proplists:get_value(
+                    ping_with_auth,
+                    emqx_bridge_influxdb_connector:client_config(
+                        test_pool,
+                        BaseConfig#{
+                            parameters => maps:merge(
+                                maps:get(parameters, BaseConfig),
+                                #{ping_with_auth => true}
+                            )
+                        }
+                    )
+                )
+            )},
+        {"bridge v1 config conversion indents ping_with_auth",
+            ?_assertMatch(
+                #{
+                    parameters := #{
+                        influxdb_type := influxdb_api_v1,
+                        database := <<"mydb">>,
+                        username := <<"user">>,
+                        password := <<"pass">>,
+                        ping_with_auth := true
+                    }
+                },
+                emqx_bridge_influxdb_connector:transform_bridge_v1_config_to_connector_config(#{
+                    server => <<"127.0.0.1:8086">>,
+                    pool_size => 8,
+                    database => <<"mydb">>,
+                    username => <<"user">>,
+                    password => <<"pass">>,
+                    ping_with_auth => true
+                })
+            )}
+    ].
 
 test_pairs(PairsList) ->
     {Lines, AllExpected} = lists:unzip(PairsList),

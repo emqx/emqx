@@ -46,7 +46,7 @@
 -export([precision_field/0]).
 
 %% only for test
--export([is_unrecoverable_error/1]).
+-export([client_config/2, is_unrecoverable_error/1]).
 
 -type ts_precision() :: ns | us | ms | s.
 
@@ -228,7 +228,7 @@ on_get_status(_InstId, #{client := Client}) ->
     end.
 
 transform_bridge_v1_config_to_connector_config(BridgeV1Config) ->
-    IndentKeys = [username, password, database, token, bucket, org],
+    IndentKeys = [username, password, database, token, bucket, org, ping_with_auth],
     ConnConfig0 = maps:without([write_syntax, precision], BridgeV1Config),
     ConnConfig1 =
         case emqx_utils_maps:indent(parameters, IndentKeys, ConnConfig0) of
@@ -324,7 +324,9 @@ influxdb_api_v1_fields() ->
     [
         {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
         {username, mk(binary(), #{desc => ?DESC("username")})},
-        {password, emqx_schema_secret:mk(#{desc => ?DESC("password")})}
+        {password, emqx_schema_secret:mk(#{desc => ?DESC("password")})},
+        {ping_with_auth,
+            mk(boolean(), #{required => false, default => false, desc => ?DESC("ping_with_auth")})}
     ].
 
 influxdb_api_v2_fields() ->
@@ -473,7 +475,7 @@ protocol_config(#{
         {protocol, http},
         {version, v1},
         {database, str(DB)}
-    ] ++ username(Params) ++ password(Params) ++ ssl_config(SSL);
+    ] ++ username(Params) ++ password(Params) ++ ping_with_auth(Params) ++ ssl_config(SSL);
 %% api v2 config
 protocol_config(#{
     parameters := #{influxdb_type := influxdb_api_v2, bucket := Bucket, org := Org, token := Token},
@@ -508,6 +510,11 @@ password(#{password := Password}) ->
     %% TODO: teach `influxdb` to accept 0-arity closures as passwords.
     [{password, str(emqx_secret:unwrap(Password))}];
 password(_) ->
+    [].
+
+ping_with_auth(#{ping_with_auth := PingWithAuth}) ->
+    [{ping_with_auth, PingWithAuth}];
+ping_with_auth(_) ->
     [].
 
 redact_auth(Term) ->

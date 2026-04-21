@@ -35,6 +35,9 @@ easily ingest IoT data into InfluxDB by leveraging
   version of InfluxDB. Below are several important parameters for `v1`,
   - `server`: The IPv4 or IPv6 address or the hostname to connect to.
   - `database`: InfluxDB database name
+  - `ping_with_auth`: Optional for `v1`. When set to `true`, EMQX includes the configured
+    `username` and `password` on the `/ping` health-check request. By default it is `false`
+    to preserve the legacy health-check behavior.
   - `write_syntax`: Conf of InfluxDB line protocol to write data points. It is a text-based format that provides the measurement, tag set, field set, and timestamp of a data point, and placeholder supported.
 
 
