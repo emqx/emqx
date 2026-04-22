@@ -354,10 +354,10 @@ handle_info(
     #channel{
         connection_required = true,
         conn_state = connected,
-        keepalive = Keepalive
+        keepalive = KeepAlive
     } = Channel
 ) ->
-    GraceMs = emqx_keepalive:info(check_interval, Keepalive),
+    GraceMs = emqx_keepalive:info(check_interval, KeepAlive),
     NChannel = ensure_timer(
         sock_closed_takeover_cleanup,
         GraceMs,
