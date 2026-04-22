@@ -10,8 +10,8 @@
 %% that any MQTT 5-aware responder can reply without out-of-band
 %% coordination.
 %%
-%% Invoke topic:  cap/invoke/message.request/<skill_id>
-%% Reply  topic:  cap/invoke/message.request/<skill_id>/response/<req_id>
+%% Invoke topic:  cap/message.request/<skill_id>
+%% Reply  topic:  cap/message.request/<skill_id>/response/<req_id>
 %%
 %% Context keys:
 %%   skill_id     => binary()  — unique instance identifier
@@ -166,18 +166,14 @@ to_map(#{
 %% Hook callback
 %%--------------------------------------------------------------------
 
-on_message_publish(
-    #message{
-        topic = <<"cap/invoke/message.request/", Rest/binary>>, payload = Payload
-    } = Message
-) ->
-    case binary:split(Rest, <<"/">>) of
-        [SkillId, <<"request">>] -> handle_invoke(SkillId, Payload);
-        _ -> ok
-    end,
-    {ok, Message};
-on_message_publish(Message) ->
-    {ok, Message}.
+on_message_publish(Msg) ->
+    emqx_agent_skill_helpers:if_skill_request(
+        ?SKILL_TYPE,
+        fun(SkillId, #message{payload = Payload}) ->
+            handle_invoke(SkillId, Payload)
+        end,
+        Msg
+    ).
 
 %%--------------------------------------------------------------------
 %% Internal
@@ -201,20 +197,17 @@ do_request(SkillId, TopicPrefix, Request) ->
     TimeoutMs = maps:get(<<"timeout_ms">>, Args, ?DEFAULT_TIMEOUT_MS),
 
     FullTopic = <<TopicPrefix/binary, TopicSuffix/binary>>,
-    ReqId = maps:get(<<"req_id">>, Request),
 
     %% Unique response topic — scoped to this skill instance and request.
     Unique = integer_to_binary(erlang:unique_integer([positive, monotonic])),
     ResponseTopic = <<?RESPONSE_TOPIC_PREFIX/binary, SkillId/binary, "/", Unique/binary>>,
 
     _Pid = spawn(fun() ->
-        do_round_trip(
-            SkillId, Request, ReqId, FullTopic, MsgPayload, From, Qos, ResponseTopic, TimeoutMs
-        )
+        do_round_trip(SkillId, Request, FullTopic, MsgPayload, From, Qos, ResponseTopic, TimeoutMs)
     end),
     ok.
 
-do_round_trip(SkillId, Request, ReqId, FullTopic, MsgPayload, From, Qos, ResponseTopic, TimeoutMs) ->
+do_round_trip(SkillId, Request, FullTopic, MsgPayload, From, Qos, ResponseTopic, TimeoutMs) ->
     %% Subscribe before publishing so we cannot miss the response.
     ok = emqx:subscribe(ResponseTopic),
 
@@ -232,15 +225,7 @@ do_round_trip(SkillId, Request, ReqId, FullTopic, MsgPayload, From, Qos, Respons
 
     ok = emqx:unsubscribe(ResponseTopic),
 
-    Reply = emqx_agent_skill_helpers:correlation(Request, #{
-        <<"skill">> => #{<<"type">> => ?SKILL_TYPE, <<"id">> => SkillId},
-        <<"frame">> => <<"unary">>,
-        <<"data">> => Result
-    }),
-    ReplyTopic = <<"cap/invoke/", ?SKILL_TYPE/binary, "/", SkillId/binary, "/response/", ReqId/binary>>,
-    ReplyMsg = emqx_message:make(SkillId, ?QOS_0, ReplyTopic, emqx_utils_json:encode(Reply)),
-    _ = emqx_broker:publish(ReplyMsg),
-    ok.
+    emqx_agent_skill_helpers:publish_reply(?SKILL_TYPE, SkillId, Request, Result).
 
 normalize_payload(Payload) when is_map(Payload) ->
     emqx_utils_json:encode(Payload);

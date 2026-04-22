@@ -242,13 +242,13 @@ test_context() ->
     }.
 
 reply_topic(SkillId, ReqId) ->
-    <<"cap/invoke/message.request/", SkillId/binary, "/response/", ReqId/binary>>.
+    <<"cap/message.request/", SkillId/binary, "/response/", ReqId/binary>>.
 
 invoke(SkillId, Args, ReqId) ->
     invoke(SkillId, Args, ReqId, #{}).
 
 invoke(SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/invoke/message.request/", SkillId/binary, "/request">>,
+    Topic = <<"cap/message.request/", SkillId/binary, "/request">>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{

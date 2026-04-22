@@ -19,8 +19,6 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
-
-
 -define(SK_SKILLS_ID, <<"meta-query-skills">>).
 -define(SK_SESSIONS_ID, <<"meta-query-sessions">>).
 -define(SK_PIPELINES_ID, <<"meta-query-pipelines">>).
@@ -364,13 +362,13 @@ t_query_pipelines_reply_correlation(_Config) ->
 %%--------------------------------------------------------------------
 
 reply_topic(ReqId) ->
-    <<"cap/invoke/+/+/response/", ReqId/binary>>.
+    <<"cap/+/+/response/", ReqId/binary>>.
 
 invoke(Type, SkillId, Args, ReqId) ->
     invoke(Type, SkillId, Args, ReqId, #{}).
 
 invoke(Type, SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/invoke/", Type/binary, "/", SkillId/binary, "/request">>,
+    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request">>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{

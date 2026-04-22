@@ -10,8 +10,8 @@
 %% Args:
 %%   name — profile name  (required)
 %%
-%% Invoke topic:  cap/invoke/agent.delete_session/<skill_id>/request
-%% Reply  topic:  cap/invoke/agent.delete_session/<skill_id>/response/<req_id>
+%% Invoke topic:  cap/agent.delete_session/<skill_id>/request
+%% Reply  topic:  cap/agent.delete_session/<skill_id>/response/<req_id>
 
 -module(emqx_agent_skill_delete_session).
 
@@ -92,17 +92,14 @@ to_map(#{skill_id := Id, description := Desc, input_schema := In, output_schema 
 %% Hook callback
 %%--------------------------------------------------------------------
 
-on_message_publish(
-    #message{topic = <<"cap/invoke/agent.delete_session/", Rest/binary>>, payload = Payload} =
-        Msg
-) ->
-    case binary:split(Rest, <<"/">>) of
-        [SkillId, <<"request">>] -> handle_invoke(SkillId, Payload);
-        _ -> ok
-    end,
-    {ok, Msg};
 on_message_publish(Msg) ->
-    {ok, Msg}.
+    emqx_agent_skill_helpers:if_skill_request(
+        ?SKILL_TYPE,
+        fun(SkillId, #message{payload = Payload}) ->
+            handle_invoke(SkillId, Payload)
+        end,
+        Msg
+    ).
 
 %%--------------------------------------------------------------------
 %% Internal
@@ -135,13 +132,4 @@ join_ids(Ids) ->
     iolist_to_binary(lists:join(<<", ">>, Ids)).
 
 reply(SkillId, Request, Data) ->
-    ReqId = maps:get(<<"req_id">>, Request),
-    Reply = emqx_agent_skill_helpers:correlation(Request, #{
-        <<"skill">> => #{<<"type">> => ?SKILL_TYPE, <<"id">> => SkillId},
-        <<"frame">> => <<"unary">>,
-        <<"data">> => Data
-    }),
-    ReplyTopic = <<"cap/invoke/", ?SKILL_TYPE/binary, "/", SkillId/binary, "/response/", ReqId/binary>>,
-    Msg = emqx_message:make(SkillId, ?QOS_0, ReplyTopic, emqx_utils_json:encode(Reply)),
-    _ = emqx_broker:publish(Msg),
-    ok.
+    emqx_agent_skill_helpers:publish_reply(?SKILL_TYPE, SkillId, Request, Data).

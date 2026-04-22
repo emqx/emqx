@@ -9,9 +9,9 @@
 %% Strategy
 %%   - Register minimal pipeline definitions directly via the registry.
 %%   - Publish trigger events through the broker (fires the hook).
-%%   - Use emqx:subscribe to observe pipe/.../events and cap/invoke/... topics.
+%%   - Use emqx:subscribe to observe pipe/.../events and cap/... topics.
 %%   - For call_skill tests the emqx_agent_skill_publish skill is used
-%%     (it executes immediately and replies with cap/invoke/<type>/<id>/response/<req_id>).
+%%     (it executes immediately and replies with cap/<type>/<id>/response/<req_id>).
 %%   - wait_for_event tests publish the awaited event explicitly.
 
 -module(emqx_agent_pipeline_SUITE).
@@ -292,7 +292,9 @@ t_break_with_not_stops_pipeline_when_not_true(Config) ->
         }
     ],
     register_pipeline(PipelineId, TrigTopic, Steps),
-    publish_evt(TrigTopic, #{<<"id">> => <<"e-break-2">>, <<"data">> => #{<<"keep_going">> => false}}),
+    publish_evt(TrigTopic, #{
+        <<"id">> => <<"e-break-2">>, <<"data">> => #{<<"keep_going">> => false}
+    }),
     _Started = recv_pipe_event(PipelineId),
     Completed = recv_pipe_event(PipelineId),
     ?assertEqual(<<"pipeline_completed">>, maps:get(<<"type">>, Completed)),

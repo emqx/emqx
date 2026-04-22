@@ -55,12 +55,18 @@ t_custom_payload_schema_is_stored(_Config) ->
     CustomPayloadSchema = #{
         <<"type">> => <<"object">>,
         <<"properties">> => #{
-            <<"command">> => #{<<"type">> => <<"string">>, <<"enum">> => [<<"move">>, <<"rotate">>, <<"park">>]},
-            <<"direction">> => #{<<"type">> => <<"string">>, <<"enum">> => [<<"left">>, <<"right">>, <<"down">>]}
+            <<"command">> => #{
+                <<"type">> => <<"string">>, <<"enum">> => [<<"move">>, <<"rotate">>, <<"park">>]
+            },
+            <<"direction">> => #{
+                <<"type">> => <<"string">>, <<"enum">> => [<<"left">>, <<"right">>, <<"down">>]
+            }
         },
         <<"required">> => [<<"command">>]
     },
-    ok = emqx_agent_skill_publish:create(maps:put(payload_schema, CustomPayloadSchema, test_context())),
+    ok = emqx_agent_skill_publish:create(
+        maps:put(payload_schema, CustomPayloadSchema, test_context())
+    ),
     {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message.publish">>, ?SKILL_ID),
     #{context := Context, input_schema := InputSchema} = Skill,
     ?assertEqual(CustomPayloadSchema, maps:get(payload_schema, Context)),
@@ -209,7 +215,7 @@ invoke(SkillId, Args, ReqId) ->
     invoke(SkillId, Args, ReqId, #{}).
 
 invoke(SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/invoke/message.publish/", SkillId/binary, "/request">>,
+    Topic = <<"cap/message.publish/", SkillId/binary, "/request">>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{
@@ -226,7 +232,7 @@ invoke(SkillId, Args, ReqId, Extra) ->
     ok.
 
 reply_topic(SkillId, ReqId) ->
-    <<"cap/invoke/message.publish/", SkillId/binary, "/response/", ReqId/binary>>.
+    <<"cap/message.publish/", SkillId/binary, "/response/", ReqId/binary>>.
 
 await_deliver(Topic) ->
     receive

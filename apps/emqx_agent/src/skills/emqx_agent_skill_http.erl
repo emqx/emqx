@@ -4,8 +4,8 @@
 
 %% HTTP tool skill backed by hackney.
 %%
-%% Invoke topic:  cap/invoke/http/<id>/request
-%% Reply  topic:  cap/invoke/http/<id>/response/<req_id>
+%% Invoke topic:  cap/http/<id>/request
+%% Reply  topic:  cap/http/<id>/response/<req_id>
 %%
 %% Context keys:
 %%   skill_id      => binary()         — unique instance identifier
@@ -107,16 +107,14 @@ to_map(#{
 %% Hook callbacks
 %%--------------------------------------------------------------------
 
-on_message_publish(
-    #message{topic = <<"cap/invoke/http/", Rest/binary>>, payload = Payload} = Message
-) ->
-    case binary:split(Rest, <<"/">>) of
-        [SkillId, <<"request">>] -> handle_invoke(SkillId, Payload);
-        _ -> ok
-    end,
-    {ok, Message};
-on_message_publish(Message) ->
-    {ok, Message}.
+on_message_publish(Msg) ->
+    emqx_agent_skill_helpers:if_skill_request(
+        ?SKILL_TYPE,
+        fun(SkillId, #message{payload = Payload}) ->
+            handle_invoke(SkillId, Payload)
+        end,
+        Msg
+    ).
 
 %%--------------------------------------------------------------------
 %% Internal
@@ -139,16 +137,7 @@ do_reply(SkillId, Context, Request) ->
     {ok, RespBody} = call(normalize_method(Method), BaseUrl, Headers, Args),
     Data = decode_response(RespBody),
 
-    ReqId = maps:get(<<"req_id">>, Request),
-    Reply = emqx_agent_skill_helpers:correlation(Request, #{
-        <<"skill">> => #{<<"type">> => ?SKILL_TYPE, <<"id">> => SkillId},
-        <<"frame">> => <<"unary">>,
-        <<"data">> => Data
-    }),
-    ReplyTopic = <<"cap/invoke/", ?SKILL_TYPE/binary, "/", SkillId/binary, "/response/", ReqId/binary>>,
-    Msg = emqx_message:make(SkillId, ?QOS_0, ReplyTopic, emqx_utils_json:encode(Reply)),
-    _ = emqx_broker:publish(Msg),
-    ok.
+    emqx_agent_skill_helpers:publish_reply(?SKILL_TYPE, SkillId, Request, Data).
 
 %% GET — append input args as query string; no body.
 call(get, BaseUrl, Headers, Args) ->

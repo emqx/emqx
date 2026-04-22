@@ -4,8 +4,8 @@
 
 %% PostgreSQL query skill.
 %%
-%% Invoke topic:  cap/invoke/postgresql.query/<id>/request
-%% Reply topic:   cap/invoke/postgresql.query/<id>/response/<req_id>
+%% Invoke topic:  cap/postgresql.query/<id>/request
+%% Reply topic:   cap/postgresql.query/<id>/response/<req_id>
 %%
 %% The module owns a single shared PostgreSQL resource with fixed configuration.
 %% Skill instances differ by SQL query template and schemas only.
@@ -91,17 +91,14 @@ to_map(#{
         <<"output_schema">> => Out
     }.
 
-on_message_publish(
-    #message{topic = <<"cap/invoke/postgresql.query/", Rest/binary>>, payload = Payload} =
-        Message
-) ->
-    case binary:split(Rest, <<"/">>) of
-        [SkillId, <<"request">>] -> handle_invoke(SkillId, Payload);
-        _ -> ok
-    end,
-    {ok, Message};
-on_message_publish(Message) ->
-    {ok, Message}.
+on_message_publish(Msg) ->
+    emqx_agent_skill_helpers:if_skill_request(
+        ?SKILL_TYPE,
+        fun(SkillId, #message{payload = Payload}) ->
+            handle_invoke(SkillId, Payload)
+        end,
+        Msg
+    ).
 
 handle_invoke(SkillId, Payload) ->
     case emqx_agent_skill_registry:lookup(?SKILL_TYPE, SkillId) of
@@ -127,16 +124,7 @@ do_reply(SkillId, Context, Request) ->
                     <<"reason">> => iolist_to_binary(io_lib:format("~0p", [Reason]))
                 }
         end,
-    ReqId = maps:get(<<"req_id">>, Request),
-    Reply = emqx_agent_skill_helpers:correlation(Request, #{
-        <<"skill">> => #{<<"type">> => ?SKILL_TYPE, <<"id">> => SkillId},
-        <<"frame">> => <<"unary">>,
-        <<"data">> => Data
-    }),
-    ReplyTopic = <<"cap/invoke/", ?SKILL_TYPE/binary, "/", SkillId/binary, "/response/", ReqId/binary>>,
-    Msg = emqx_message:make(SkillId, ?QOS_0, ReplyTopic, emqx_utils_json:encode(Reply)),
-    _ = emqx_broker:publish(Msg),
-    ok.
+    emqx_agent_skill_helpers:publish_reply(?SKILL_TYPE, SkillId, Request, Data).
 
 run_query(Query, []) ->
     ok = ensure_resource(),

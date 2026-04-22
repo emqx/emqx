@@ -12,8 +12,8 @@
 %% ETS key: {SkillId, Key}  — all instances share one table, namespaced by skill_id.
 %%
 %% Invoke topics:
-%%   cap/invoke/kv.lookup/<skill_id>/request
-%%   cap/invoke/kv.put/<skill_id>/request
+%%   cap/kv.lookup/<skill_id>/request
+%%   cap/kv.put/<skill_id>/request
 %%
 %% Lifecycle:
 %%   init()        — create ETS table + register message.publish hook
@@ -97,24 +97,21 @@ destroy_put(SkillId) ->
 %% Hook callbacks
 %%--------------------------------------------------------------------
 
-on_message_publish(
-    #message{topic = <<"cap/invoke/kv.lookup/", Rest/binary>>, payload = Payload} = Message
-) ->
-    case binary:split(Rest, <<"/">>) of
-        [SkillId, <<"request">>] -> handle_lookup(SkillId, Payload);
-        _ -> ok
-    end,
-    {ok, Message};
-on_message_publish(
-    #message{topic = <<"cap/invoke/kv.put/", Rest/binary>>, payload = Payload} = Message
-) ->
-    case binary:split(Rest, <<"/">>) of
-        [SkillId, <<"request">>] -> handle_put(SkillId, Payload);
-        _ -> ok
-    end,
-    {ok, Message};
-on_message_publish(Message) ->
-    {ok, Message}.
+on_message_publish(Msg) ->
+    emqx_agent_skill_helpers:if_skill_request(
+        ?TYPE_LOOKUP,
+        fun(SkillId, #message{payload = Payload}) ->
+            handle_lookup(SkillId, Payload)
+        end,
+        Msg
+    ),
+    emqx_agent_skill_helpers:if_skill_request(
+        ?TYPE_PUT,
+        fun(SkillId, #message{payload = Payload}) ->
+            handle_put(SkillId, Payload)
+        end,
+        Msg
+    ).
 
 %%--------------------------------------------------------------------
 %% Internal — skill registration
@@ -202,13 +199,4 @@ handle_put(SkillId, Payload) ->
     end.
 
 publish_reply(SkillId, Type, Request, Data) ->
-    ReqId = maps:get(<<"req_id">>, Request),
-    Reply = emqx_agent_skill_helpers:correlation(Request, #{
-        <<"skill">> => #{<<"type">> => Type, <<"id">> => SkillId},
-        <<"frame">> => <<"unary">>,
-        <<"data">> => Data
-    }),
-    ReplyTopic = <<"cap/invoke/", Type/binary, "/", SkillId/binary, "/response/", ReqId/binary>>,
-    Msg = emqx_message:make(SkillId, ?QOS_0, ReplyTopic, emqx_utils_json:encode(Reply)),
-    _ = emqx_broker:publish(Msg),
-    ok.
+    emqx_agent_skill_helpers:publish_reply(Type, SkillId, Request, Data).

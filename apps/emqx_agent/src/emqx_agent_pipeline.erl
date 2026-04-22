@@ -16,14 +16,14 @@
 %%
 %% States
 %%   running        — executing a deterministic step
-%%   llm_loop       — active LLM session; proxying tool_request ↔ cap/invoke
-%%   waiting_cap    — cap/invoke sent for a call_skill step; awaiting cap_reply
+%%   llm_loop       — active LLM session; proxying tool_request ↔ cap/
+%%   waiting_cap    — cap/ request sent for a call_skill step; awaiting cap_reply
 %%   waiting_event  — paused at a wait_for_event step
 %%   done           — all steps done (or failed); idle timer running
 %%
 %% Incoming OTP messages (all sent as gen_statem casts by emqx_agent_pipeline_mgr)
 %%   #sess_frame{sid, frame}   — from sess/out/<sid>/
-%%   #cap_reply{req_id, frame} — from cap/invoke/<type>/<id>/response/<req_id>
+%%   #cap_reply{req_id, frame} — from cap/<type>/<id>/response/<req_id>
 %%   #pipe_evt{topic, event}   — from evt/... (for wait_for_event steps)
 %%
 %% Context and JSONPath
@@ -34,7 +34,7 @@
 %%
 %% Tool specs
 %%   Format:  "<type>@<skill_id>"  e.g. "message.publish@slack-dev"
-%%   The type becomes the cap/invoke topic segment.
+%%   The type becomes the cap/<type> topic segment.
 %%   The tool name sent to the LLM is the spec with non-[a-zA-Z0-9_-] replaced
 %%   by underscore (e.g. "message_publish_slack_dev").
 %%
@@ -708,7 +708,7 @@ publish_to_sess_in(Sid, Payload) ->
     ok.
 
 publish_cap_invoke(Type, SkillId, Payload) ->
-    Topic = <<"cap/invoke/", Type/binary, "/", SkillId/binary, "/request">>,
+    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request">>,
     Msg = emqx_message:make(?MODULE, ?QOS_0, Topic, emqx_utils_json:encode(Payload)),
     _ = emqx_broker:publish(Msg),
     ok.

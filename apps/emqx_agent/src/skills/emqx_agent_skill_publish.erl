@@ -8,8 +8,8 @@
 %% configured prefix.  The prefix is fixed at creation time so that the
 %% agent cannot publish outside its authorised namespace.
 %%
-%% Invoke topic:  cap/invoke/message.publish/<skill_id>
-%% Reply  topic:  cap/invoke/message.publish/<skill_id>/response/<req_id>
+%% Invoke topic:  cap/message.publish/<skill_id>
+%% Reply  topic:  cap/message.publish/<skill_id>/response/<req_id>
 %%
 %% Context keys:
 %%   skill_id     => binary()  — unique instance identifier
@@ -196,18 +196,14 @@ to_map(
 %% Hook callbacks
 %%--------------------------------------------------------------------
 
-on_message_publish(
-    #message{
-        topic = <<"cap/invoke/message.publish/", Rest/binary>>, payload = Payload
-    } = Message
-) ->
-    case binary:split(Rest, <<"/">>) of
-        [SkillId, <<"request">>] -> handle_invoke(SkillId, Payload);
-        _ -> ok
-    end,
-    {ok, Message};
-on_message_publish(Message) ->
-    {ok, Message}.
+on_message_publish(Msg) ->
+    emqx_agent_skill_helpers:if_skill_request(
+        ?SKILL_TYPE,
+        fun(SkillId, #message{payload = Payload}) ->
+            handle_invoke(SkillId, Payload)
+        end,
+        Msg
+    ).
 
 %%--------------------------------------------------------------------
 %% Internal
@@ -251,16 +247,7 @@ do_publish(SkillId, TopicPrefix, Request) ->
                 }
         end,
 
-    ReqId = maps:get(<<"req_id">>, Request),
-    Reply = emqx_agent_skill_helpers:correlation(Request, #{
-        <<"skill">> => #{<<"type">> => ?SKILL_TYPE, <<"id">> => SkillId},
-        <<"frame">> => <<"unary">>,
-        <<"data">> => Result
-    }),
-    ReplyTopic = <<"cap/invoke/", ?SKILL_TYPE/binary, "/", SkillId/binary, "/response/", ReqId/binary>>,
-    ReplyMsg = emqx_message:make(SkillId, ?QOS_0, ReplyTopic, emqx_utils_json:encode(Reply)),
-    _ = emqx_broker:publish(ReplyMsg),
-    ok.
+    emqx_agent_skill_helpers:publish_reply(?SKILL_TYPE, SkillId, Request, Result).
 
 normalize_payload(Payload) when is_map(Payload) ->
     emqx_utils_json:encode(Payload);
