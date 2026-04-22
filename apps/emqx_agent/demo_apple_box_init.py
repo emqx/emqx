@@ -38,6 +38,9 @@ CREDS = env("EMQX_API_CREDS", "key:secret")
 OPENAI_BASE_URL = env("OPENAI_BASE_URL", "https://api.openai.com/v1")
 OPENAI_MODEL = env("OPENAI_MODEL", "gpt-4o")
 
+FIREWORKS_BASE_URL = env("FIREWORKS_BASE_URL", "https://api.fireworks.ai/inference/v1")
+FIREWORKS_MODEL = env("FIREWORKS_MODEL", "accounts/fireworks/models/kimi-k2p5")
+
 PGHOST = env("PGHOST", "pgsql")
 PGPORT = env("PGPORT", "5432")
 PGDATABASE = env("PGDATABASE", "mqtt")
@@ -45,6 +48,7 @@ PGUSER = env("PGUSER", "root")
 PGPASSWORD = env("PGPASSWORD", "public")
 
 PROFILE_NAME = "apple-inspector"
+KIMI_PROFILE_NAME = "apple-inspector-kimi"
 PIPELINE_ID = "apple-box-inspection"
 
 SK_SHOT = "box-shot"
@@ -157,6 +161,7 @@ def delete_old_assets() -> None:
     api_delete_maybe(f"/agent/skills/message.publish/{SK_STATUS}")
     api_delete_maybe(f"/agent/skills/postgresql.query/{SK_REGISTER}")
     api_delete_maybe(f"/agent/session_profiles/{PROFILE_NAME}")
+    api_delete_maybe(f"/agent/session_profiles/{KIMI_PROFILE_NAME}")
     api_delete_maybe(f"/agent/pipelines/{PIPELINE_ID}")
 
 
@@ -255,6 +260,18 @@ def create_profile() -> None:
         },
     )
     print(f"  session profile {PROFILE_NAME!r} created")
+
+    api_request(
+        "POST",
+        "/agent/session_profiles",
+        {
+            "name": KIMI_PROFILE_NAME,
+            "api_key": "FIREWORKS_API_KEY",
+            "base_url": FIREWORKS_BASE_URL,
+            "model": FIREWORKS_MODEL,
+        },
+    )
+    print(f"  session profile {KIMI_PROFILE_NAME!r} created")
 
 
 def create_pipeline() -> None:

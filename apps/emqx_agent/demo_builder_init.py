@@ -39,6 +39,9 @@ CREDS = env("EMQX_API_CREDS", "key:secret")
 OPENAI_BASE_URL = env("OPENAI_BASE_URL", "https://api.openai.com/v1")
 OPENAI_MODEL = env("OPENAI_MODEL", "gpt-5.4")
 
+FIREWORKS_BASE_URL = env("FIREWORKS_BASE_URL", "https://api.fireworks.ai/inference/v1")
+FIREWORKS_MODEL = env("FIREWORKS_MODEL", "accounts/fireworks/models/kimi-k2p5")
+
 PGHOST = env("PGHOST", "pgsql")
 PGPORT = env("PGPORT", "5432")
 PGDATABASE = env("PGDATABASE", "mqtt")
@@ -46,6 +49,7 @@ PGUSER = env("PGUSER", "root")
 PGPASSWORD = env("PGPASSWORD", "public")
 
 PROFILE_NAME = "openai"
+KIMI_PROFILE_NAME = "kimi"
 PIPELINE_ID = "pipeline-builder"
 
 SK_CREATE_SKILL    = "builder-create-skill"
@@ -107,10 +111,16 @@ def api_delete_maybe(path: str) -> None:
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 
 def delete_old_assets() -> None:
-    # Pipelines first (may be active — deactivate before delete)
+    # Pipelines first — deactivate then delete
     for p in json.loads(api_request("GET", "/agent/pipelines")):
-        api_delete_maybe(f"/agent/pipelines/{p['pipeline_id']}")
-        print(f"  deleted pipeline {p['pipeline_id']!r}")
+        pid = p["pipeline_id"]
+        if p.get("active"):
+            try:
+                api_request("PUT", f"/agent/pipelines/{pid}", {**p, "active": False})
+            except RuntimeError:
+                pass
+        api_delete_maybe(f"/agent/pipelines/{pid}")
+        print(f"  deleted pipeline {pid!r}")
 
     # Skills
     for s in json.loads(api_request("GET", "/agent/skills")):
@@ -347,6 +357,18 @@ def create_profile() -> None:
         },
     )
     print(f"  session profile {PROFILE_NAME!r} created")
+
+    api_request(
+        "POST",
+        "/agent/session_profiles",
+        {
+            "name": KIMI_PROFILE_NAME,
+            "api_key": "FIREWORKS_API_KEY",
+            "base_url": FIREWORKS_BASE_URL,
+            "model": FIREWORKS_MODEL,
+        },
+    )
+    print(f"  session profile {KIMI_PROFILE_NAME!r} created")
 
 
 # ── Pipeline ───────────────────────────────────────────────────────────────────
