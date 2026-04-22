@@ -94,7 +94,9 @@ query_mode(_Config) -> no_queries.
     {ok, connector_state()} | {error, term()}.
 on_start(ConnectorResId, Config0) ->
     {Transport, HostPort} = emqx_bridge_gcp_pubsub_client:get_transport(pubsub),
-    #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{
+        default_port => 443, ssrf_check => true
+    }),
     Config = Config0#{
         jwt_opts => #{
             %% fixed for pubsub; trailing slash is important.

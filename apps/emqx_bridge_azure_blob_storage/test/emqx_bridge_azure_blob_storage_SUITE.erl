@@ -59,43 +59,32 @@ groups() ->
 
 init_per_suite(Config) ->
     Endpoint = os:getenv("AZURITE_ENDPOINT", "http://toxiproxy:10000/"),
-    #{host := Host, port := Port} = uri_string:parse(Endpoint),
     ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
     ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
     ProxyName = "azurite_plain",
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
-        true ->
-            Apps = emqx_cth_suite:start(
-                [
-                    emqx,
-                    emqx_conf,
-                    emqx_bridge_azure_blob_storage,
-                    emqx_bridge,
-                    emqx_rule_engine,
-                    emqx_schema_registry,
-                    emqx_management,
-                    emqx_mgmt_api_test_util:emqx_dashboard()
-                ],
-                #{work_dir => emqx_cth_suite:work_dir(Config)}
-            ),
-            {ok, _Api} = emqx_common_test_http:create_default_app(),
-            [
-                {apps, Apps},
-                {proxy_name, ProxyName},
-                {proxy_host, ProxyHost},
-                {proxy_port, ProxyPort},
-                {endpoint, Endpoint}
-                | Config
-            ];
-        false ->
-            case os:getenv("IS_CI") of
-                "yes" ->
-                    throw(no_azurite);
-                _ ->
-                    {skip, no_azurite}
-            end
-    end.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_bridge_azure_blob_storage,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_schema_registry,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    {ok, _Api} = emqx_common_test_http:create_default_app(),
+    [
+        {apps, Apps},
+        {proxy_name, ProxyName},
+        {proxy_host, ProxyHost},
+        {proxy_port, ProxyPort},
+        {endpoint, Endpoint}
+        | Config
+    ].
 
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),

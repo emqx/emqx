@@ -16,6 +16,7 @@
     get_max_sessions/1,
     get_allow_only_managed_namespaces/0,
     set_allow_only_managed_namespaces/1,
+    get_post_auth_tns_expression/0,
 
     create_managed_ns/1,
     delete_managed_ns/1,
@@ -135,6 +136,18 @@ set_allow_only_managed_namespaces(Bool) ->
                 #{override_to => cluster}
             ),
         ok
+    end.
+
+-doc """
+Returns the compiled variform expression used to (re)initialize `client_attrs.tns`
+after the authentication chain has run. Returns `undefined` when the expression is
+not configured (empty string), in which case the post-authn hook is not registered.
+""".
+-spec get_post_auth_tns_expression() -> undefined | term().
+get_post_auth_tns_expression() ->
+    case emqx_config:get([multi_tenancy, post_auth_tns_expression], <<>>) of
+        V when ?IS_NOT_SET(V) -> undefined;
+        Compiled -> Compiled
     end.
 
 -spec get_managed_ns_config(emqx_mt:tns()) ->

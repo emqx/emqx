@@ -22,23 +22,17 @@ groups() ->
     emqx_authz_test_lib:table_groups(t_run_case, cases()).
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_tcp_server_available(?REDIS_HOST, ?REDIS_DEFAULT_PORT) of
-        true ->
-            Apps = emqx_cth_suite:start(
-                [
-                    emqx,
-                    {emqx_conf,
-                        "authorization.no_match = deny, authorization.cache.enable = false"},
-                    emqx_auth,
-                    emqx_auth_redis
-                ],
-                #{work_dir => ?config(priv_dir, Config)}
-            ),
-            ok = create_redis_resource(),
-            [{suite_apps, Apps} | Config];
-        false ->
-            {skip, no_redis}
-    end.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            {emqx_conf, "authorization.no_match = deny, authorization.cache.enable = false"},
+            emqx_auth,
+            emqx_auth_redis
+        ],
+        #{work_dir => ?config(priv_dir, Config)}
+    ),
+    ok = create_redis_resource(),
+    [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
     ok = emqx_authz_test_lib:restore_authorizers(),

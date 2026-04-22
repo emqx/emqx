@@ -46,7 +46,8 @@ emqx_mt_api {
     }
     managed_ns_list_details {
         desc: """~
-            List all managed namespaces with extra details.
+            List all managed namespaces with extra details, including the namespace
+            configuration (session and limiter).
             The namespaces are sorted in lexicographical order,
             so this API can be used for prefix based fuzzy search.~"""
         label: "List managed namespaces with extra details"

@@ -1,18 +1,26 @@
 # hint: run the following if the container fails to start locally
 # sysctl -w vm.max_map_count=262144
+#
+# ELASTIC_PASSWORD and KIBANA_PASSWORD are generated at runtime by
+# scripts/ct/render-env.sh and exported into this process via
+# /tmp/emqx-ci-temp-secrets/passwords.env. The file under
+# /tmp/emqx-ci-temp-secrets/ is also bind-mounted into the erlang
+# container so the test suite can read the same value via
+# file:///tmp/emqx-ci-temp-secrets/elastic_password.
 services:
   setup:
     image: public.ecr.aws/elastic/elasticsearch:${ELASTIC_TAG}
     volumes:
       - ./elastic:/usr/share/elasticsearch/config/certs
     user: "0"
+    environment:
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-}
+      - KIBANA_PASSWORD=${KIBANA_PASSWORD:-}
     command: >
       bash -c '
-        if [ x${ELASTIC_PASSWORD} == x ]; then
-          echo "Set the ELASTIC_PASSWORD environment variable in the .env file";
-          exit 1;
-        elif [ x${KIBANA_PASSWORD} == x ]; then
-          echo "Set the KIBANA_PASSWORD environment variable in the .env file";
+        if [ x$$ELASTIC_PASSWORD == x ] || [ x$$KIBANA_PASSWORD == x ]; then
+          echo "ELASTIC_PASSWORD/KIBANA_PASSWORD not set.";
+          echo "Run via scripts/ct/run.sh or source /tmp/emqx-ci-temp-secrets/passwords.env first.";
           exit 1;
         fi;
         echo "Setting file permissions"
@@ -22,7 +30,7 @@ services:
         echo "Waiting for Elasticsearch availability";
         until curl -s --cacert config/certs/ca/ca.crt https://es01:9200 | grep -q "missing authentication credentials"; do sleep 30; done;
         echo "Setting kibana_system password";
-        until curl -s -X POST --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://es01:9200/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 10; done;
+        until curl -s -X POST --cacert config/certs/ca/ca.crt -u "elastic:$$ELASTIC_PASSWORD" -H "Content-Type: application/json" https://es01:9200/_security/user/kibana_system/_password -d "{\"password\":\"$$KIBANA_PASSWORD\"}" | grep -q "^{}"; do sleep 10; done;
         echo "All done!";
       '
     healthcheck:
@@ -45,7 +53,7 @@ services:
     #   - 9200:9200
     environment:
       - node.name=es01
-      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-}
       - bootstrap.memory_lock=true
       - discovery.type=single-node
       - xpack.security.enabled=true

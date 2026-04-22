@@ -1429,3 +1429,253 @@ t_delete_namespace_with_managed_certs(TCConfig) when is_list(TCConfig) ->
         )
     ),
     ok.
+
+%%------------------------------------------------------------------------------
+%% post_auth_tns_expression
+%%------------------------------------------------------------------------------
+
+set_post_auth_tns_expression(<<>>) ->
+    emqx_config:put([multi_tenancy, post_auth_tns_expression], <<>>),
+    ok;
+set_post_auth_tns_expression(Expr) when is_binary(Expr) ->
+    {ok, Compiled} = emqx_variform:compile(Expr),
+    emqx_config:put([multi_tenancy, post_auth_tns_expression], Compiled),
+    ok.
+
+clear_post_auth_tns_expression() ->
+    set_post_auth_tns_expression(<<>>).
+
+-doc "Sanity: when expression is unset, post-authn hook leaves ClientInfo untouched.".
+t_post_auth_tns_expression_disabled({init, Config}) ->
+    ok = clear_post_auth_tns_expression(),
+    Config;
+t_post_auth_tns_expression_disabled({'end', _Config}) ->
+    ok = clear_post_auth_tns_expression();
+t_post_auth_tns_expression_disabled(_Config) ->
+    ?assertEqual(undefined, emqx_mt_config:get_post_auth_tns_expression()),
+    ClientInfo = #{
+        clientid => <<"c1">>,
+        username => <<"u1">>,
+        client_attrs => #{<<"tns">> => <<"preauth">>}
+    },
+    ?assertEqual(ok, emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})).
+
+-doc "Expression reads client_attrs.tag and rewrites client_attrs.tns.".
+t_post_auth_tns_expression_reads_client_attrs_tag({init, Config}) ->
+    ok = set_post_auth_tns_expression(<<"client_attrs.tag">>),
+    Config;
+t_post_auth_tns_expression_reads_client_attrs_tag({'end', _Config}) ->
+    ok = clear_post_auth_tns_expression();
+t_post_auth_tns_expression_reads_client_attrs_tag(_Config) ->
+    ClientInfo = #{
+        clientid => <<"c1">>,
+        username => <<"u1">>,
+        client_attrs => #{<<"tag">> => <<"bypass_acme">>}
+    },
+    ?assertMatch(
+        {ok, #{
+            client_info := #{
+                client_attrs := #{<<"tns">> := <<"bypass_acme">>, <<"tag">> := <<"bypass_acme">>}
+            }
+        }},
+        emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})
+    ).
+
+-doc "coalesce(client_attrs.tag, username) falls back to username when no tag.".
+t_post_auth_tns_expression_coalesce_fallback({init, Config}) ->
+    ok = set_post_auth_tns_expression(<<"coalesce(client_attrs.tag, username)">>),
+    Config;
+t_post_auth_tns_expression_coalesce_fallback({'end', _Config}) ->
+    ok = clear_post_auth_tns_expression();
+t_post_auth_tns_expression_coalesce_fallback(_Config) ->
+    CI1 = #{
+        clientid => <<"c1">>,
+        username => <<"alice">>,
+        client_attrs => #{<<"tag">> => <<"bypass_acme">>}
+    },
+    ?assertMatch(
+        {ok, #{client_info := #{client_attrs := #{<<"tns">> := <<"bypass_acme">>}}}},
+        emqx_mt_hookcb:on_post_authn(#{client_info => CI1})
+    ),
+    CI2 = #{
+        clientid => <<"c2">>,
+        username => <<"alice">>,
+        client_attrs => #{}
+    },
+    ?assertMatch(
+        {ok, #{client_info := #{client_attrs := #{<<"tns">> := <<"alice">>}}}},
+        emqx_mt_hookcb:on_post_authn(#{client_info => CI2})
+    ).
+
+-doc "When expression renders empty, ClientInfo is left unchanged (pre-auth tns kept).".
+t_post_auth_tns_expression_empty_render_keeps_preauth({init, Config}) ->
+    ok = set_post_auth_tns_expression(<<"client_attrs.tag">>),
+    Config;
+t_post_auth_tns_expression_empty_render_keeps_preauth({'end', _Config}) ->
+    ok = clear_post_auth_tns_expression();
+t_post_auth_tns_expression_empty_render_keeps_preauth(_Config) ->
+    ClientInfo = #{
+        clientid => <<"c1">>,
+        username => <<"alice">>,
+        client_attrs => #{<<"tns">> => <<"preauth">>}
+    },
+    ?assertEqual(ok, emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})).
+
+-doc "Expression errors are logged and treated as no-op (client not rejected).".
+t_post_auth_tns_expression_error_is_noop({init, Config}) ->
+    ok = set_post_auth_tns_expression(<<"nth(100, tokens('a', ','))">>),
+    Config;
+t_post_auth_tns_expression_error_is_noop({'end', _Config}) ->
+    ok = clear_post_auth_tns_expression();
+t_post_auth_tns_expression_error_is_noop(_Config) ->
+    ClientInfo = #{
+        clientid => <<"c1">>,
+        username => <<"alice">>,
+        client_attrs => #{}
+    },
+    ?assertEqual(ok, emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})).
+
+-doc "After rewriting tns, decide/3 enforces the namespace quota.".
+t_post_auth_tns_expression_quota_enforced({init, Config}) ->
+    ok = set_post_auth_tns_expression(<<"client_attrs.tag">>),
+    emqx_mt_config:tmp_set_default_max_sessions(1),
+    Config;
+t_post_auth_tns_expression_quota_enforced({'end', _Config}) ->
+    emqx_mt_config:tmp_set_default_max_sessions(infinity),
+    ok = clear_post_auth_tns_expression();
+t_post_auth_tns_expression_quota_enforced(_Config) ->
+    Ns = <<"acme_quota">>,
+    C1 = ?NEW_CLIENTID(),
+    C2 = ?NEW_CLIENTID(),
+    %% First client occupies the namespace via the normal pre-auth path
+    %% (mqtt.client_attrs_init sets tns=username) so we register a real session.
+    Pid1 = connect(C1, Ns),
+    ?assertMatch(
+        {ok, #{tns := Ns, clientid := C1}},
+        ?block_until(#{?snk_kind := multi_tenant_client_added}, 3000)
+    ),
+    ?assertEqual({ok, 1}, emqx_mt:count_clients(Ns)),
+    %% Now simulate a post-authn evaluation for a different client that the
+    %% expression routes into the same namespace via client_attrs.tag.
+    ClientInfo = #{
+        clientid => C2,
+        username => <<"someone_else">>,
+        client_attrs => #{<<"tag">> => Ns}
+    },
+    ?assertMatch(
+        {stop, {error, quota_exceeded}},
+        emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})
+    ),
+    ok = emqtt:stop(Pid1).
+
+-doc """
+End-to-end: authentication returns `client_attrs.tns` and the post-authn
+expression `client_attrs.tns` forwards it into the namespace check.
+When `allow_only_managed_namespaces = true` and the auth-supplied namespace
+is not an explicitly managed namespace, the client is disconnected; when it
+is managed, the client is allowed.
+""".
+t_post_auth_expression_gates_on_managed_ns({init, Config}) ->
+    ok = set_post_auth_tns_expression(<<"client_attrs.tns">>),
+    emqx_config:put([multi_tenancy, allow_only_managed_namespaces], true),
+    %% Bootstrap namespaces: pre-auth tns (derived from username by the suite's
+    %% `mqtt.client_attrs_init`) must already be managed, otherwise the pre-auth
+    %% hook rejects before the authn chain runs.
+    ok = emqx_mt_config:create_managed_ns(<<"user_good">>),
+    ok = emqx_mt_config:create_managed_ns(<<"user_bad">>),
+    ok = emqx_mt_config:create_managed_ns(<<"acme">>),
+    ok = emqx_hooks:add(
+        'client.authenticate', {?MODULE, authn_inject_tns, []}, 975
+    ),
+    on_exit(fun() ->
+        emqx_hooks:del('client.authenticate', {?MODULE, authn_inject_tns})
+    end),
+    Config;
+t_post_auth_expression_gates_on_managed_ns({'end', _Config}) ->
+    ok = clear_post_auth_tns_expression(),
+    emqx_config:put([multi_tenancy, allow_only_managed_namespaces], false),
+    _ = emqx_mt_config:delete_managed_ns(<<"user_good">>),
+    _ = emqx_mt_config:delete_managed_ns(<<"user_bad">>),
+    _ = emqx_mt_config:delete_managed_ns(<<"acme">>),
+    ok;
+t_post_auth_expression_gates_on_managed_ns(_Config) ->
+    %% Auth returns `client_attrs.tns = "acme"` which IS a managed namespace;
+    %% the client must connect and be registered under "acme".
+    GoodCid = ?NEW_CLIENTID(),
+    Pid1 = connect(GoodCid, <<"user_good">>),
+    ?assertMatch(
+        {ok, #{tns := <<"acme">>, clientid := GoodCid}},
+        ?block_until(#{?snk_kind := multi_tenant_client_added}, 3000)
+    ),
+    ?assertEqual({ok, 1}, emqx_mt:count_clients(<<"acme">>)),
+    ok = emqtt:stop(Pid1),
+    %% Auth returns `client_attrs.tns = "ghost"` which is NOT managed;
+    %% the client must be rejected at post-authn with `not_authorized`.
+    BadCid = ?NEW_CLIENTID(),
+    ?assertError(
+        {error, {not_authorized, _}},
+        connect(BadCid, <<"user_bad">>)
+    ),
+    ok.
+
+authn_inject_tns(#{username := <<"user_good">>}, _Acc) ->
+    {stop, {ok, #{is_superuser => false, client_attrs => #{<<"tns">> => <<"acme">>}}}};
+authn_inject_tns(#{username := <<"user_bad">>}, _Acc) ->
+    {stop, {ok, #{is_superuser => false, client_attrs => #{<<"tns">> => <<"ghost">>}}}};
+authn_inject_tns(_ClientInfo, Acc) ->
+    {ok, Acc}.
+
+-doc """
+Regression: when `allow_only_managed_namespaces = true` and the pre-auth tns
+is NOT a managed namespace, the client must not be rejected by the pre-auth
+hook. All tns-based gating must be deferred to the post-authn hook so that
+`post_auth_tns_expression' has a chance to derive the final namespace.
+
+Reproduces the tester's report against 6.1.2-rc.2.
+""".
+t_post_auth_expression_bypasses_preauth_managed_gate({init, Config}) ->
+    ok = set_post_auth_tns_expression(<<"coalesce(client_attrs.tag, 'default')">>),
+    emqx_config:put([multi_tenancy, allow_only_managed_namespaces], true),
+    %% Only `acme' is a managed namespace. `user_good'/`user_bad' are used
+    %% as usernames, and the suite's `mqtt.client_attrs_init' sets pre-auth
+    %% tns = username, so pre-auth tns is NOT in managed set.
+    ok = emqx_mt_config:create_managed_ns(<<"bypass_acme">>),
+    ok = emqx_hooks:add(
+        'client.authenticate', {?MODULE, authn_inject_tag, []}, 975
+    ),
+    on_exit(fun() ->
+        emqx_hooks:del('client.authenticate', {?MODULE, authn_inject_tag})
+    end),
+    Config;
+t_post_auth_expression_bypasses_preauth_managed_gate({'end', _Config}) ->
+    ok = clear_post_auth_tns_expression(),
+    emqx_config:put([multi_tenancy, allow_only_managed_namespaces], false),
+    _ = emqx_mt_config:delete_managed_ns(<<"bypass_acme">>),
+    ok;
+t_post_auth_expression_bypasses_preauth_managed_gate(_Config) ->
+    %% Auth returns `client_attrs.tag = "acme"' (managed).  Even though
+    %% pre-auth tns = "user_good" is unmanaged, the client must connect
+    %% because the pre-auth managed-ns gate is deferred to post-authn.
+    GoodCid = ?NEW_CLIENTID(),
+    Pid1 = connect(GoodCid, <<"user_good">>),
+    ?assertMatch(
+        {ok, #{tns := <<"bypass_acme">>, clientid := GoodCid}},
+        ?block_until(#{?snk_kind := multi_tenant_client_added}, 3000)
+    ),
+    ?assertEqual({ok, 1}, emqx_mt:count_clients(<<"bypass_acme">>)),
+    ok = emqtt:stop(Pid1),
+    %% Auth returns `client_attrs.tag = "ghost"' (unmanaged); the post-authn
+    %% hook must reject with `not_authorized'.
+    BadCid = ?NEW_CLIENTID(),
+    ?assertError(
+        {error, {not_authorized, _}},
+        connect(BadCid, <<"user_bad">>)
+    ),
+    ok.
+
+authn_inject_tag(#{username := <<"user_good">>}, _Acc) ->
+    {stop, {ok, #{is_superuser => false, client_attrs => #{<<"tag">> => <<"bypass_acme">>}}}};
+authn_inject_tag(#{username := <<"user_bad">>}, _Acc) ->
+    {stop, {ok, #{is_superuser => false, client_attrs => #{<<"tag">> => <<"ghost">>}}}};
+authn_inject_tag(_ClientInfo, Acc) ->
+    {ok, Acc}.

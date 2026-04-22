@@ -36,6 +36,7 @@
     'client.check_authz_complete',
     'client.check_authn_complete',
     'client.authenticate',
+    'client.post_authn',
     'client.subscribe',
     'client.unsubscribe',
     'client.timeout',
@@ -155,6 +156,18 @@ when
     emqx_types:clientinfo(), emqx_access_control:authenticate_hook_result()
 ) ->
     fold_callback_result(emqx_access_control:authenticate_hook_result()).
+
+-type post_authn_context() :: #{
+    client_info := emqx_types:clientinfo()
+    %% Future-proofing: more input fields (e.g. conninfo) and/or extra output
+    %% fields (e.g. log_metadata) may be added without breaking callbacks that
+    %% ignore unknown keys.
+}.
+
+-export_type([post_authn_context/0]).
+
+-callback 'client.post_authn'(post_authn_context()) ->
+    fold_callback_result(post_authn_context() | {error, term()}).
 
 -callback 'client.subscribe'(emqx_types:clientinfo(), emqx_types:properties(), TopicFilters) ->
     fold_callback_result(TopicFilters)

@@ -380,14 +380,10 @@ drop_slab(DB, {Shard, Generation}) ->
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->
     foreach_shard(DB, fun(Shard) ->
-        {ok, _} = ra:delete_cluster(
-            emqx_ds_builtin_raft_shard:shard_servers(DB, Shard), ra_timeout(DB)
-        )
+        ok = emqx_ds_builtin_raft_shard:drop(DB, Shard, ra_timeout(DB))
     end),
     _ = emqx_ds_builtin_raft_proto_v1:drop_db(list_nodes(), DB),
-    emqx_ds_builtin_raft_meta:drop_db(DB),
-    _ = emqx_ds:close_db(DB),
-    emqx_dsch:drop_db_schema(DB).
+    emqx_ds_builtin_raft_meta:drop_db(DB).
 
 -spec db_group_stats(emqx_ds:db_group(), emqx_ds_storage_layer:db_group()) ->
     {ok, emqx_ds:db_group_stats()} | emqx_ds:error(_).
@@ -723,6 +719,10 @@ update_iterator(ShardId, #'Iterator'{} = Iter, DSKey) ->
     {emqx_ds_builtin_raft_shard_otx, CLUSTER, DB, SHARD}
 ).
 
+-define(ra_server_shutdown_reason(R),
+    (R =:= normal orelse R =:= shutdown orelse element(1, R) =:= shutdown)
+).
+
 otx_get_tx_serial(DB, Shard) ->
     emqx_ds_storage_layer_ttv:get_read_tx_serial({DB, Shard}).
 
@@ -773,7 +773,7 @@ otx_commit_tx_batch({DB, Shard}, SerCtl, Serial, Timestamp, Batches) ->
                     Err;
                 {error, noproc} ->
                     ?err_rec(local_leader_stopped);
-                {error, Reason} when Reason =:= normal orelse Reason =:= shutdown ->
+                {error, Reason} when ?ra_server_shutdown_reason(Reason) ->
                     ?err_rec(local_leader_terminated);
                 Err ->
                     ?err_rec({raft, Err, ?FUNCTION_NAME})
@@ -791,7 +791,7 @@ otx_add_generation(DB, Shard, Since) ->
                     Ret;
                 {error, noproc} ->
                     ?err_rec(local_leader_stopped);
-                {error, Reason} when Reason =:= normal orelse Reason =:= shutdown ->
+                {error, Reason} when ?ra_server_shutdown_reason(Reason) ->
                     ?err_rec(local_leader_terminated);
                 Err ->
                     ?err_rec({raft, Err, ?FUNCTION_NAME})
@@ -890,16 +890,22 @@ wait_replicas(DB, Timeout) ->
 %% RPC targets
 %%================================================================================
 
+-doc """
+Drops all storage data and runtime state belonging to the specifed DS DB on the local node.
+""".
 -spec do_drop_db_v1(emqx_ds:db()) -> ok | {error, _}.
 do_drop_db_v1(DB) ->
-    MyShards = emqx_ds_builtin_raft_meta:my_shards(DB),
-    emqx_ds_builtin_raft_sup:stop_db(DB),
-    lists:foreach(
-        fun(Shard) ->
-            emqx_ds_storage_layer:drop_shard({DB, Shard})
-        end,
-        MyShards
-    ).
+    maybe
+        ok ?= emqx_ds:close_db(DB),
+        _ = emqx_ds_builtin_raft_db_sup:drop_db(DB),
+        lists:foreach(
+            fun(Shard) ->
+                emqx_ds_storage_layer:drop_shard({DB, Shard})
+            end,
+            emqx_ds_builtin_raft_meta:my_shards(DB)
+        ),
+        emqx_dsch:drop_db_schema(DB)
+    end.
 
 -spec do_get_streams_v1(
     emqx_ds:db(),
@@ -986,7 +992,7 @@ announce_otx_leader_pid(Leader, Timeout, Pid) ->
             ?err_rec({leadership_gone, #{Leader => OtherLeader}});
         {error, noproc} ->
             ?err_rec(local_leader_stopped);
-        {error, Reason} when Reason =:= normal orelse Reason =:= shutdown ->
+        {error, Reason} when ?ra_server_shutdown_reason(Reason) ->
             ?err_rec(local_leader_terminated);
         Err ->
             ?err_rec({raft, Err, ?FUNCTION_NAME})
@@ -1174,7 +1180,7 @@ communicate with the Raft machine.
     {ok, ra:server_id()} | {error, _, _}.
 local_raft_leader(DB, Shard) ->
     LocalServer = emqx_ds_builtin_raft_shard:local_server(DB, Shard),
-    case ra:ping(LocalServer, 1_000) of
+    case ra_ping(LocalServer) of
         {pong, leader} ->
             %% Local server still considers itself a leader:
             {ok, LocalServer};
@@ -1184,7 +1190,7 @@ local_raft_leader(DB, Shard) ->
             ?err_rec(local_leader_timeout);
         {error, noproc} ->
             ?err_rec(local_leader_stopped);
-        {error, Reason} when Reason =:= normal orelse Reason =:= shutdown ->
+        {error, Reason} when ?ra_server_shutdown_reason(Reason) ->
             ?err_rec(local_leader_terminated);
         Other ->
             ?err_unrec({invalid_response_from_local_leader, Other})
@@ -1213,6 +1219,12 @@ ra_command(DB, Shard, Command, Retries) ->
         Error ->
             error(Error, [DB, Shard])
     end.
+
+-spec ra_ping(emqx_ds_builtin_raft_shard:server()) ->
+    {pong, leader | follower | candidate | atom()} | timeout | {error, any()}.
+ra_ping(Server) ->
+    %% NOTE: `ra:ping/2` is underspecified, silencing Dialyzer complaint.
+    apply(ra, ping, [Server, 1_000]).
 
 -spec foreach_shard(emqx_ds:db(), fun((emqx_ds:shard()) -> _)) -> ok.
 foreach_shard(DB, Fun) ->

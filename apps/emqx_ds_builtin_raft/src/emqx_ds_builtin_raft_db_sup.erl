@@ -12,6 +12,7 @@
 -export([
     start_link_db/4,
     whereis_db/1,
+    drop_db/1,
 
     start_shard/1,
     stop_shard/1,
@@ -23,6 +24,7 @@
     start_otx_leader/2,
     stop_otx_leader/2
 ]).
+
 -export([which_dbs/0, which_shards/1]).
 
 %% behaviour callbacks:
@@ -59,6 +61,16 @@ start_link_db(DB, Create, Schema, RTConf) ->
 -spec whereis_db(emqx_ds:db()) -> pid() | undefined.
 whereis_db(DB) ->
     gproc:where(?name(#?db_sup{db = DB})).
+
+-doc "Drops all shared data belonging to the specified DS DB on the local node".
+-spec drop_db(emqx_ds:db()) -> ok | {error, atom()}.
+drop_db(DB) ->
+    case file:del_dir_r(ra_system_data_dir(DB)) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 -spec start_shard(emqx_ds_storage_layer:dbshard()) ->
     supervisor:startchild_ret().
@@ -146,8 +158,10 @@ init({#?db_sup{db = DB}, [_Create, Schema, RTConf]}) ->
     DefaultOpts = maps:merge(Schema, RTConf),
     emqx_ds_builtin_metrics:init_for_db(DB),
     Opts = emqx_ds_builtin_raft_meta:open_db(DB, DefaultOpts),
-    ok = start_ra_system(DB, Opts),
+    Setup = fun() -> start_ra_system(DB, Opts) end,
+    Teardown = fun() -> stop_ra_system(DB) end,
     Children = [
+        emqx_ds_lib:autoclean(db_autoclean, 5_000, Setup, Teardown),
         liveness_spec(DB),
         sup_spec(#?shards_sup{db = DB}, []),
         shard_allocator_spec(DB)
@@ -197,14 +211,23 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     {ok, {SupFlags, Children}}.
 
 start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
-    DataDir = filename:join([emqx_ds_storage_layer:base_dir(), DB, dsrepl]),
+    DataDir = ra_system_data_dir(DB),
     Config = lists:foldr(fun maps:merge/2, #{}, [
         ra_system:default_config(),
         #{
             name => DB,
             data_dir => DataDir,
             wal_data_dir => DataDir,
-            names => ra_system:derive_names(DB)
+            names => ra_system:derive_names(DB),
+            %% NOTE
+            %% Require quorum to bump effective machine version.
+            %% 1. EMQX 6.2.0+ relies on machine upgrade to start serving DS APIs.
+            %%    Using `quorum` instead of `all` helps restore the service sooner
+            %%    during rolling updates.
+            %% 2. In specific circumstances, machine upgrade may become stuck after
+            %%    a rolling update, and extra leader re-election is needed to push
+            %%    it through. Doing upgrade earlier prevents it.
+            machine_upgrade_strategy => quorum
         },
         maps:with(
             [
@@ -223,6 +246,12 @@ start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
         {error, {already_started, _System}} ->
             ok
     end.
+
+stop_ra_system(DB) ->
+    ra_system:stop(DB).
+
+ra_system_data_dir(DB) ->
+    filename:join([emqx_ds_storage_layer:base_dir(), DB, dsrepl]).
 
 %%================================================================================
 %% Internal exports
