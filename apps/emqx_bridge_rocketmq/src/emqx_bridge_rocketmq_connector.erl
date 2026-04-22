@@ -250,13 +250,15 @@ on_batch_query(_InstanceId, Query, _State) ->
 on_get_status(_InstanceId, #{client_id := ClientId}) ->
     case rocketmq_client_sup:find_client(ClientId) of
         {ok, Pid} ->
-            status_result(rocketmq_client:get_status(Pid));
+            status_result(rocketmq_client:get_connection_state(Pid));
         _ ->
             ?status_connecting
     end.
 
-status_result(_Status = true) -> ?status_connected;
-status_result(_Status) -> ?status_connecting.
+status_result(connected) -> ?status_connected;
+status_result(connecting) -> ?status_connecting;
+status_result(disconnected) -> ?status_disconnected;
+status_result({error, _}) -> ?status_connecting.
 
 %%========================================================================================
 %% Helper fns
