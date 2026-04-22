@@ -379,8 +379,8 @@
     <section id="tab-profiles">
       <h2>Session Profiles</h2>
       <table class="tbl">
-        <thead><tr><th>Name</th><th>Model</th><th>Base URL</th><th></th></tr></thead>
-        <tbody id="profiles-body"><tr class="empty"><td colspan="4">Not connected</td></tr></tbody>
+        <thead><tr><th>Name</th><th>Base URL</th><th></th></tr></thead>
+        <tbody id="profiles-body"><tr class="empty"><td colspan="3">Not connected</td></tr></tbody>
       </table>
 
       <div class="card">
@@ -393,10 +393,6 @@
             <label>Name</label>
             <input id="prof-name" type="text" placeholder="hvac-triage-v1">
           </div>
-          <div class="field">
-            <label>Model</label>
-            <input id="prof-model" type="text" placeholder="gpt-4o">
-          </div>
         </div>
         <div class="row">
           <div class="field">
@@ -407,10 +403,6 @@
             <label>API Key</label>
             <input id="prof-key" type="password" placeholder="sk-…">
           </div>
-        </div>
-        <div class="field">
-          <label>System instructions</label>
-          <textarea id="prof-instructions" style="min-height:90px" placeholder="You are an HVAC operations AI…"></textarea>
         </div>
         <div class="form-actions">
           <button class="btn primary" id="prof-submit-btn" onclick="saveProfile()">Create</button>
@@ -596,10 +588,10 @@ async function loadSkills() {
       <td><code>${esc(s.skill_id)}</code></td>
       <td><span class="tag ${typeClass(s.type)}">${esc(s.type)}</span></td>
       <td style="color:var(--muted)">${esc(s.description ?? '')}</td>
-      <td style="display:flex;gap:6px">
+      <td><div style="display:flex;gap:6px">
         <button class="btn sm" onclick="editSkill('${esc(s.type)}','${esc(s.skill_id)}')">edit</button>
         <button class="btn sm danger" onclick="deleteSkill('${esc(s.type)}','${esc(s.skill_id)}')">delete</button>
-      </td>
+      </div></td>
     </tr>`).join('');
 }
 
@@ -760,40 +752,37 @@ async function loadProfiles() {
   document.getElementById('cnt-profiles').textContent = list.length;
   const tbody = document.getElementById('profiles-body');
   if (!list.length) {
-    tbody.innerHTML = '<tr class="empty"><td colspan="4">No profiles registered</td></tr>';
+    tbody.innerHTML = '<tr class="empty"><td colspan="3">No profiles registered</td></tr>';
     return;
   }
   tbody.innerHTML = list.map(p => `
     <tr>
       <td><code>${esc(p.name)}</code></td>
-      <td><span class="tag llm">${esc(p.model ?? '—')}</span></td>
       <td style="color:var(--muted)">${esc(p.base_url ?? '')}</td>
-      <td style="display:flex;gap:6px">
+      <td><div style="display:flex;gap:6px">
         <button class="btn sm" onclick="editProfile('${esc(p.name)}')">edit</button>
         <button class="btn sm danger" onclick="deleteProfile('${esc(p.name)}')">delete</button>
-      </td>
+      </div></td>
     </tr>`).join('');
 }
 
 async function saveProfile() {
-  const name  = document.getElementById('prof-name').value.trim();
-  const model = document.getElementById('prof-model').value.trim();
-  const url   = document.getElementById('prof-url').value.trim();
-  const key   = document.getElementById('prof-key').value;
-  const instr = document.getElementById('prof-instructions').value.trim();
+  const name = document.getElementById('prof-name').value.trim();
+  const url  = document.getElementById('prof-url').value.trim();
+  const key  = document.getElementById('prof-key').value;
 
   if (!name) return setMsg('prof-msg', 'Name is required', true);
   try {
     if (editingProfileName) {
       await api('PUT', `/agent/session_profiles/${encodeURIComponent(editingProfileName)}`, {
-        name, model, base_url: url, api_key: key, instructions: instr
+        name, base_url: url, api_key: key
       });
       setMsg('prof-msg', 'Updated ✓');
       toast('Profile "' + name + '" updated', 'ok');
       resetProfileEditor();
     } else {
       await api('POST', '/agent/session_profiles', {
-        name, model, base_url: url, api_key: key, instructions: instr
+        name, base_url: url, api_key: key
       });
       setMsg('prof-msg', 'Created ✓');
       toast('Profile "' + name + '" created', 'ok');
@@ -815,10 +804,8 @@ function editProfile(name) {
 
   document.getElementById('prof-name').value = prof.name ?? '';
   document.getElementById('prof-name').readOnly = true;
-  document.getElementById('prof-model').value = prof.model ?? '';
   document.getElementById('prof-url').value = prof.base_url ?? '';
   document.getElementById('prof-key').value = '';  // never round-trip secrets
-  document.getElementById('prof-instructions').value = prof.instructions ?? '';
 
   document.querySelector('#tab-profiles .card').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -830,10 +817,8 @@ function resetProfileEditor() {
   document.getElementById('prof-submit-btn').textContent = 'Create';
   document.getElementById('prof-name').readOnly = false;
   document.getElementById('prof-name').value = '';
-  document.getElementById('prof-model').value = '';
   document.getElementById('prof-url').value = '';
   document.getElementById('prof-key').value = '';
-  document.getElementById('prof-instructions').value = '';
   setMsg('prof-msg', '');
 }
 
@@ -874,11 +859,11 @@ async function loadPipelines() {
       <td style="color:var(--muted)">${esc(trigger)}</td>
       <td>${steps}</td>
       <td>${statusBadge}</td>
-      <td style="display:flex;gap:4px">
+      <td><div style="display:flex;gap:4px">
         <button class="btn sm" onclick="togglePipelineActive('${esc(p.pipeline_id)}')">${toggleLabel}</button>
         <button class="btn sm" onclick="editPipeline('${esc(p.pipeline_id)}')">edit</button>
         <button class="btn sm danger" onclick="deletePipeline('${esc(p.pipeline_id)}')">delete</button>
-      </td>
+      </div></td>
     </tr>`;
   }).join('');
 }
@@ -1122,10 +1107,10 @@ function stepFieldsHTML(step, idx) {
           <option value="">— select profile —</option>${profOpts}
         </select>
       </div>
-      <div class="field"><label>
+      <div style="margin-bottom:10px;display:flex;align-items:center;gap:6px">
         <input type="checkbox" class="sf-stop-on-finish"${step.stop_on_finish?' checked':''}>
-        Ephemeral mode <small style="color:var(--muted)">(session terminates after completion; default: true)</small>
-      </label></div>
+        <span style="font-size:11px">Ephemeral mode <small style="color:var(--muted)">(session terminates after completion; default: true)</small></span>
+      </div>
       <div class="field"><label>Tools (select skills available to the LLM)</label>
         <div class="tools-grid sf-tools">${toolsHTML}</div>
       </div>
