@@ -231,18 +231,22 @@ validate_key_template(Conf) ->
     end.
 
 validate_bindings(Bindings) ->
-    Formats = ["rfc3339", "rfc3339utc", "unix"],
-    AllowedBindings = lists:append([
-        ["action", "node", "sequence"],
-        ["datetime." ++ F || F <- Formats],
-        ["datetime_until." ++ F || F <- Formats]
-    ]),
-    case Bindings -- AllowedBindings of
+    case [B || B <- Bindings, not is_allowed_binding(B)] of
         [] ->
             Bindings;
         Disallowed ->
             {error, {disallowed_placeholders, Disallowed}}
     end.
+
+is_allowed_binding("action") -> true;
+is_allowed_binding("node") -> true;
+is_allowed_binding("sequence") -> true;
+is_allowed_binding("datetime." ++ Format) -> is_valid_datetime_format(Format);
+is_allowed_binding("datetime_until." ++ Format) -> is_valid_datetime_format(Format);
+is_allowed_binding(_) -> false.
+
+is_valid_datetime_format(Format) ->
+    emqx_connector_aggreg_buffer_ctx:is_valid_datetime_format(iolist_to_binary(Format)).
 
 %% Interpreting options
 
