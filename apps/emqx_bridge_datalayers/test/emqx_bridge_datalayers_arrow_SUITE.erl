@@ -106,57 +106,52 @@ init_per_group(GroupName, Config0) when
             ]
         )
     ),
-    case emqx_common_test_helpers:is_tcp_server_available(DatalayersHost, DatalayersPort) of
-        true ->
-            ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
-            ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
-            emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-            Apps = emqx_cth_suite:start(
-                [
-                    emqx_conf,
-                    emqx_bridge_datalayers,
-                    emqx_connector,
-                    emqx_bridge,
-                    emqx_rule_engine,
-                    emqx_management,
-                    emqx_mgmt_api_test_util:emqx_dashboard()
-                ],
-                #{work_dir => emqx_cth_suite:work_dir(Config0)}
-            ),
-            Config = [{apps, Apps}, {use_tls, UseTLS} | Config0],
-            {Name, ConnConfString, ConnConfMap, ActionConfString, ActionConfMap} = datalayers_config(
-                DatalayersHost, DatalayersPort, Config
-            ),
-            NewConfig =
-                [
-                    {proxy_host, ProxyHost},
-                    {proxy_port, ProxyPort},
-                    {proxy_name, ProxyName},
+    ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
+    ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx_bridge_datalayers,
+            emqx_connector,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config0)}
+    ),
+    Config = [{apps, Apps}, {use_tls, UseTLS} | Config0],
+    {Name, ConnConfString, ConnConfMap, ActionConfString, ActionConfMap} = datalayers_config(
+        DatalayersHost, DatalayersPort, Config
+    ),
+    NewConfig =
+        [
+            {proxy_host, ProxyHost},
+            {proxy_port, ProxyPort},
+            {proxy_name, ProxyName},
 
-                    {datalayers_host, DatalayersHost},
-                    {datalayers_port, DatalayersPort},
+            {datalayers_host, DatalayersHost},
+            {datalayers_port, DatalayersPort},
 
-                    {bridge_kind, action},
-                    {bridge_type, datalayers},
-                    {bridge_name, Name},
-                    {bridge_config, ActionConfMap},
-                    {bridge_config_string, ActionConfString},
-                    {action_type, datalayers},
-                    {action_name, Name},
-                    {action_config, ActionConfMap},
+            {bridge_kind, action},
+            {bridge_type, datalayers},
+            {bridge_name, Name},
+            {bridge_config, ActionConfMap},
+            {bridge_config_string, ActionConfString},
+            {action_type, datalayers},
+            {action_name, Name},
+            {action_config, ActionConfMap},
 
-                    {connector_name, Name},
-                    {connector_type, datalayers},
-                    {connector_config, ConnConfMap},
-                    {connector_config_string, ConnConfString}
-                    | Config
-                ],
-            ensure_database(NewConfig),
-            ensure_table(NewConfig),
-            NewConfig;
-        false ->
-            {skip, no_datalayers_arrow}
-    end;
+            {connector_name, Name},
+            {connector_type, datalayers},
+            {connector_config, ConnConfMap},
+            {connector_config_string, ConnConfString}
+            | Config
+        ],
+    ensure_database(NewConfig),
+    ensure_table(NewConfig),
+    NewConfig;
 init_per_group(sync_query, Config) ->
     [{query_mode, sync} | Config];
 init_per_group(async_query, Config) ->

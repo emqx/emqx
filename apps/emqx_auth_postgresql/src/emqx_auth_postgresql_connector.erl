@@ -31,6 +31,7 @@
 -export([config_fields/0]).
 
 -define(PGSQL_DEFAULT_PORT, 5432).
+-define(QUERY_TIMEOUT, 15_000).
 -define(PGSQL_HOST_OPTIONS, #{
     default_port => ?PGSQL_DEFAULT_PORT
 }).
@@ -275,10 +276,9 @@ do_check_prepares(
     ).
 
 do_on_query(PoolName, Fun, LogInfo) ->
-    Worker = ecpool:get_client(PoolName),
-    case ecpool_worker:client(Worker) of
-        {ok, Conn} ->
-            try Fun(Conn) of
+    case ecpool:get_client(PoolName) of
+        Worker when is_pid(Worker) ->
+            try ecpool_worker:exec(Worker, Fun, ?QUERY_TIMEOUT) of
                 {error, Reason} ->
                     ?tp(warning, "postgresql_auth_connector_query_failed", LogInfo#{
                         reason => Reason
@@ -287,19 +287,38 @@ do_on_query(PoolName, Fun, LogInfo) ->
                 Result ->
                     Result
             catch
+                exit:{timeout, _} ->
+                    ?tp(warning, "postgresql_auth_connector_query_failed", LogInfo#{
+                        reason => timeout
+                    }),
+                    {error, {unrecoverable_error, timeout}};
+                exit:{noproc, _} ->
+                    ?tp(warning, "postgresql_auth_connector_query_failed", LogInfo#{
+                        reason => noproc
+                    }),
+                    {error, {recoverable_error, noproc}};
                 Class:Reason ->
                     ?tp(error, "postgresql_auth_connector_query_exception", LogInfo#{
                         class => Class, reason => Reason
                     }),
                     {error, {unrecoverable_error, Reason}}
             end;
-        {error, disconnected} ->
-            ?tp(warning, "postgresql_auth_connector_query_failed", LogInfo#{reason => disconnected}),
-            {error, {unrecoverable_error, disconnected}}
+        %% false | no_such_pool
+        NotAPid ->
+            ?tp(warning, "postgresql_auth_connector_query_failed", LogInfo#{
+                reason => no_client, get_client_result => NotAPid
+            }),
+            {error, {recoverable_error, {no_client, NotAPid}}}
     end.
 
 query(Conn, SQL, Params) ->
-    epgsql:equery(Conn, SQL, Params).
+    case epgsql:equery(Conn, SQL, Params) of
+        {error, sync_required} = Res ->
+            ok = epgsql:sync(Conn),
+            Res;
+        Res ->
+            Res
+    end.
 
 prepared_query(Conn, Name, SQL, Params) ->
     case epgsql:prepared_query2(Conn, Name, Params) of

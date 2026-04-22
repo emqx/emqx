@@ -67,7 +67,8 @@
 
 %% We use -1 to differentiate between default port and explicitly defined port.
 -define(SQLSERVER_HOST_OPTIONS, #{
-    default_port => -1
+    default_port => -1,
+    ssrf_check => true
 }).
 
 -define(REQUEST_TTL(RESOURCE_OPTS),

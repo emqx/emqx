@@ -336,11 +336,20 @@ parse_url(Url) ->
         _ ->
             case emqx_utils_uri:request_base(Parsed) of
                 {ok, Base} ->
+                    check_ssrf(emqx_utils_uri:host(Parsed)),
                     {Base, emqx_maybe:define(emqx_utils_uri:path(Parsed), <<>>)};
                 {error, Reason0} ->
                     Reason1 = emqx_utils:readable_error_msg(Reason0),
                     invalid_data(<<"Invalid URL: ", Url/binary, ", details: ", Reason1/binary>>)
             end
+    end.
+
+check_ssrf(undefined) ->
+    ok;
+check_ssrf(Host) ->
+    case emqx_utils_ssrf:check_host(Host) of
+        ok -> ok;
+        {error, Err} -> invalid_data(emqx_utils_ssrf:format_error(Err))
     end.
 
 -spec invalid_data(binary()) -> no_return().

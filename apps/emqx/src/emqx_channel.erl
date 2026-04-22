@@ -2479,15 +2479,17 @@ do_authenticate(
     Properties = #{'Authentication-Method' => AuthMethod},
     case emqx_access_control:authenticate(Credential) of
         {ok, AuthResult} ->
-            {ok, Properties, Channel#channel{
+            Channel1 = Channel#channel{
                 clientinfo = merge_auth_result(ClientInfo, AuthResult),
                 auth_cache = #{}
-            }};
+            },
+            with_post_authn(Channel1, Properties);
         {ok, AuthResult, AuthData} ->
-            {ok, Properties#{'Authentication-Data' => AuthData}, Channel#channel{
+            Channel1 = Channel#channel{
                 clientinfo = merge_auth_result(ClientInfo, AuthResult),
                 auth_cache = #{}
-            }};
+            },
+            with_post_authn(Channel1, Properties#{'Authentication-Data' => AuthData});
         {continue, AuthCache} ->
             {continue, Properties, Channel#channel{auth_cache = AuthCache}};
         {continue, AuthData, AuthCache} ->
@@ -2501,10 +2503,26 @@ do_authenticate(
 do_authenticate(Credential, #channel{clientinfo = ClientInfo} = Channel) ->
     case emqx_access_control:authenticate(Credential) of
         {ok, AuthResult} ->
-            {ok, #{}, Channel#channel{clientinfo = merge_auth_result(ClientInfo, AuthResult)}};
+            Channel1 = Channel#channel{clientinfo = merge_auth_result(ClientInfo, AuthResult)},
+            with_post_authn(Channel1, #{});
         {error, Reason} ->
             log_auth_failure(Reason),
             {error, emqx_reason_codes:connack_error(Reason)}
+    end.
+
+%% Runs the 'client.post_authn' hook. The accumulator is a context map
+%% (`emqx_hookpoints:post_authn_context()'); a callback may return
+%% `{ok, NewContext}' to replace it, or `{stop, {error, Reason}}' to reject
+%% the client (treated like an authn failure). Using a map leaves room to
+%% pass additional inputs/outputs in the future without breaking callbacks.
+with_post_authn(#channel{clientinfo = ClientInfo} = Channel, Properties) ->
+    Ctx0 = #{client_info => ClientInfo},
+    case run_hooks('client.post_authn', [], Ctx0, Channel) of
+        {error, Reason} ->
+            log_auth_failure(Reason),
+            {error, emqx_reason_codes:connack_error(Reason)};
+        #{client_info := NewClientInfo} ->
+            {ok, Properties, Channel#channel{clientinfo = NewClientInfo}}
     end.
 
 log_auth_failure(Reason) ->

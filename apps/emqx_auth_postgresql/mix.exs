@@ -5,7 +5,7 @@ defmodule EMQXAuthPostgreSQL.MixProject do
   def project do
     [
       app: :emqx_auth_postgresql,
-      version: "6.2.0",
+      version: "6.2.1",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
       erlc_options: UMP.erlc_options(),

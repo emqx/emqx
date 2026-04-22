@@ -37,15 +37,10 @@ end_per_testcase(_, Config) ->
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
-    case emqx_common_test_helpers:is_tcp_server_available(?LDAP_HOST, ?LDAP_DEFAULT_PORT) of
-        true ->
-            Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_ldap], #{
-                work_dir => ?config(priv_dir, Config)
-            }),
-            [{apps, Apps} | Config];
-        false ->
-            {skip, no_ldap}
-    end.
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_ldap], #{
+        work_dir => ?config(priv_dir, Config)
+    }),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
     emqx_authn_test_lib:delete_authenticators(

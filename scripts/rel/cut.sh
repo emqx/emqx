@@ -97,6 +97,9 @@ done
 rel_branch() {
     local tag="$1"
     case "$tag" in
+        6.*-patch.*)
+            echo "patch-${tag%-patch.*}"
+            ;;
         6.0.*)
             echo 'release-60'
             ;;
