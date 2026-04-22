@@ -45,13 +45,13 @@ For cases where a single connector has both actions and sources, see
 -define(assertReceivePublish(EXPR, GUARD, EXTRA, TIMEOUT),
     (fun() ->
         lists:foreach(
-            fun(Pub0) ->
-                Pub = maps:update_with(
+            fun(Pub0___) ->
+                Pub___ = maps:update_with(
                     payload,
                     fun emqx_utils_json:decode/1,
-                    Pub0
+                    Pub0___
                 ),
-                self() ! {decoded, Pub}
+                self() ! {decoded, Pub___}
             end,
             drain_publishes([])
         ),
@@ -450,6 +450,121 @@ t_mqtt_conn_bridge_ingress_shared_subscription(TCConfig) ->
     ),
     ok.
 
+-doc "MQTT ingress dispatches queue deliveries by Subscription Identifier.".
+t_mqtt_conn_bridge_ingress_subid_dispatch(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} =
+        create_source_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"topic">> => <<"$queue/orders/t/#">>,
+                <<"qos">> => 1
+            }
+        }),
+    ConnResId = connector_resource_id(TCConfig),
+    {ok, _, #{state := #{installed_channels := InstalledChannels}}} =
+        emqx_resource:get_instance(ConnResId),
+    ?assertMatch(
+        [
+            #{
+                remote := #{topic := <<"$queue/orders/t/#">>},
+                ingress_list := [
+                    #{
+                        remote := #{topic := <<"$queue/orders/t/#">>},
+                        subscription_id := 1
+                    }
+                ]
+            }
+        ],
+        maps:values(InstalledChannels)
+    ),
+    #{topic := RepublishTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(TCConfig),
+    {ok, _, [_]} = emqtt:subscribe(C, RepublishTopic, [{qos, 1}]),
+    {ok, _} = emqtt:publish(C, <<"orders/t/1">>, <<"hello">>, [{qos, 1}]),
+    {publish, #{topic := RepublishTopic, payload := PayloadBin}} =
+        ?assertReceive({publish, _}, 3_000),
+    ?assertMatch(#{<<"payload">> := <<"hello">>}, emqx_utils_json:decode(PayloadBin)),
+    ?assertNotReceive({publish, _}),
+    ok.
+
+-doc "MQTT ingress rejects queue subscriptions when Subscription Identifiers are unavailable.".
+t_mqtt_conn_bridge_rejects_queue_source_without_subscription_identifier(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"proto_ver">> => <<"v3">>
+    }),
+    {400, #{
+        <<"message">> := #{
+            <<"kind">> := <<"validation_error">>,
+            <<"reason">> := <<"queue subscriptions require connector proto_ver = v5">>
+        }
+    }} =
+        create_source_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"topic">> => <<"$queue/orders/t/#">>,
+                <<"qos">> => 1
+            }
+        }),
+    ok.
+
+-doc "MQTT ingress retries normal topic subscriptions without Subscription Identifier on SUBACK 0xA1.".
+t_mqtt_conn_bridge_ingress_retries_without_subid_on_a1() ->
+    [{matrix, true}].
+t_mqtt_conn_bridge_ingress_retries_without_subid_on_a1(matrix) ->
+    [[?cluster]];
+t_mqtt_conn_bridge_ingress_retries_without_subid_on_a1(TCConfig) ->
+    Self = self(),
+    Nodes = get_config(nodes, TCConfig),
+    on_exit(fun() -> ?ON_ALL(Nodes, meck:unload([emqtt])) end),
+    MeckResults =
+        ?ON_ALL(
+            Nodes,
+            begin
+                ok = meck:new(emqtt, [passthrough, no_link, no_history]),
+                ok = meck:expect(
+                    emqtt,
+                    subscribe,
+                    fun(Pid, Props, Topic, Opts) ->
+                        case maps:is_key('Subscription-Identifier', Props) of
+                            true ->
+                                Self ! subscribe_with_subid,
+                                {ok, #{}, [?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED]};
+                            false ->
+                                Self ! subscribe_without_subid,
+                                meck:passthrough([Pid, Props, Topic, Opts])
+                        end
+                    end
+                ),
+                ok
+            end
+        ),
+    ?assert(lists:all(fun(Result) -> Result =:= {ok, ok} end, MeckResults)),
+
+    [N1 | _] = Nodes,
+    Port = get_tcp_mqtt_port(N1),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"proto_ver">> => <<"v5">>,
+        <<"server">> => <<"127.0.0.1:", (integer_to_binary(Port))/binary>>
+    }),
+    {201, #{<<"status">> := <<"connected">>, <<"parameters">> := #{<<"topic">> := RemoteTopic}}} =
+        create_source_api(TCConfig, #{<<"parameters">> => #{<<"qos">> => 1}}),
+    #{topic := RepublishTopic} = simple_create_rule_api(TCConfig),
+    Sub = start_client(TCConfig),
+    {ok, _, [_]} = emqtt:subscribe(Sub, RepublishTopic, [{qos, 2}]),
+    Pub = start_client(TCConfig),
+    {ok, _} = emqtt:publish(Pub, RemoteTopic, <<"hello">>, [{qos, 1}]),
+    ?assertReceivePublish(
+        #{
+            topic := RepublishTopic,
+            payload := #{<<"payload">> := <<"hello">>}
+        },
+        true,
+        #{republish_topic => RepublishTopic},
+        3_000
+    ),
+    ?assertReceive(subscribe_with_subid, 1_000),
+    ?assertReceive(subscribe_without_subid, 1_000),
+    ok.
+
 t_mqtt_conn_bridge_ingress_downgrades_qos_2(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, #{<<"parameters">> := #{<<"topic">> := RemoteTopic}}} =
@@ -682,6 +797,12 @@ t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
             ?proto_v3 -> <<"v3">>;
             ?proto_v5 -> <<"v5">>
         end,
+    SupportsQueueSubscription = proto_ver_of(TCConfig) =:= ?proto_v5,
+    TopicA =
+        case SupportsQueueSubscription of
+            true -> <<"$queue/t/#">>;
+            false -> <<"t/#">>
+        end,
     #{<<"pool_size">> := PoolSize} = get_config(connector_config, TCConfig),
     [N1 | _] = Nodes = get_config(nodes, TCConfig),
     ?ON(N1, emqx_logger:set_log_level(debug)),
@@ -722,7 +843,7 @@ t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
     {201, #{<<"status">> := <<"connected">>}} =
         create_source_api(TCConfigA, #{
             <<"parameters">> => #{
-                <<"topic">> => iolist_to_binary(["$queue/t/#"]),
+                <<"topic">> => TopicA,
                 <<"qos">> => 1
             },
             <<"resource_opts">> => #{<<"health_check_interval">> => <<"10m">>}
@@ -744,12 +865,27 @@ t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
     emqtt:publish(Pub1, <<"t/a">>, <<"1">>),
     emqtt:publish(Pub1, <<"u/a">>, <<"2">>),
     %% Sanity check: sources should be working.
-    ?assertReceivePublish(
-        #{
-            payload := #{<<"payload">> := <<"1">>},
-            topic := RepublishTopicA
-        }
-    ),
+    case SupportsQueueSubscription of
+        true ->
+            ?assertReceivePublish(
+                #{
+                    payload := #{<<"payload">> := <<"1">>},
+                    topic := RepublishTopicA
+                }
+            );
+        false ->
+            lists:foreach(
+                fun(_) ->
+                    ?assertReceivePublish(
+                        #{
+                            payload := #{<<"payload">> := <<"1">>},
+                            topic := RepublishTopicA
+                        }
+                    )
+                end,
+                lists:seq(1, NumNodes)
+            )
+    end,
     %% We receive this multiple times because it's an ordinary subscription, so each node
     %% receives and forwards it.
     lists:foreach(
@@ -782,19 +918,37 @@ t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
     ct:pal("Restarted source node (1)"),
 
     Pub2 = start_client(Source),
-    emqtt:publish(Pub2, <<"t/a">>, <<"3">>),
-    emqtt:publish(Pub2, <<"u/a">>, <<"4">>),
+    emqtt:publish(Pub2, <<"t/a">>, <<"3">>, [{qos, 1}]),
+    emqtt:publish(Pub2, <<"u/a">>, <<"4">>, [{qos, 1}]),
     emqtt:stop(Pub2),
 
-    ?assertReceivePublish(
-        #{
-            payload := #{<<"payload">> := <<"3">>},
-            topic := RepublishTopicA
-        },
-        true,
-        #{},
-        3_000
-    ),
+    case SupportsQueueSubscription of
+        true ->
+            ?assertReceivePublish(
+                #{
+                    payload := #{<<"payload">> := <<"3">>},
+                    topic := RepublishTopicA
+                },
+                true,
+                #{},
+                3_000
+            );
+        false ->
+            lists:foreach(
+                fun(_) ->
+                    ?assertReceivePublish(
+                        #{
+                            payload := #{<<"payload">> := <<"3">>},
+                            topic := RepublishTopicA
+                        },
+                        true,
+                        #{},
+                        3_000
+                    )
+                end,
+                lists:seq(1, NumNodes)
+            )
+    end,
     lists:foreach(
         fun(N) ->
             ct:pal("expecting B message ~b", [N]),
@@ -802,7 +956,10 @@ t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
                 #{
                     payload := #{<<"payload">> := <<"4">>},
                     topic := RepublishTopicB
-                }
+                },
+                true,
+                #{},
+                3_000
             )
         end,
         lists:seq(1, NumNodes)
@@ -830,15 +987,33 @@ t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
     emqtt:publish(Pub3, <<"u/a">>, <<"6">>),
     emqtt:stop(Pub3),
 
-    ?assertReceivePublish(
-        #{
-            payload := #{<<"payload">> := <<"5">>},
-            topic := RepublishTopicA
-        },
-        true,
-        #{},
-        3_000
-    ),
+    case SupportsQueueSubscription of
+        true ->
+            ?assertReceivePublish(
+                #{
+                    payload := #{<<"payload">> := <<"5">>},
+                    topic := RepublishTopicA
+                },
+                true,
+                #{},
+                3_000
+            );
+        false ->
+            lists:foreach(
+                fun(_) ->
+                    ?assertReceivePublish(
+                        #{
+                            payload := #{<<"payload">> := <<"5">>},
+                            topic := RepublishTopicA
+                        },
+                        true,
+                        #{},
+                        3_000
+                    )
+                end,
+                lists:seq(1, NumNodes)
+            )
+    end,
     ?assertNotReceive({publish, _}),
 
     ok.
