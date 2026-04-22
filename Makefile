@@ -88,8 +88,12 @@ $(REL_PROFILES:%=%-compile): $(REBAR) merge-config
 	env PROFILE=$(@:%-compile=%) $(SCRIPTS)/mix-deps-quiet.sh $(MIX) deps.get
 	env PROFILE=$(@:%-compile=%) $(MIX) compile
 
+.PHONY: render-test-env
+render-test-env:
+	@./scripts/ct/render-env.sh
+
 .PHONY: ct
-ct: $(REBAR) merge-config
+ct: $(REBAR) merge-config render-test-env
 	@env ERL_FLAGS="-kernel prevent_overlapping_partitions false" $(MIX) ct --cover-export-name $(CT_COVER_EXPORT_PREFIX)-ct
 
 ## only check bpapi for enterprise profile because it's a super-set.
@@ -123,7 +127,7 @@ endif
 ## example:
 ## env SUITES=apps/appname/test/test_SUITE.erl CASES=t_foo make apps/appname-ct
 define gen-app-ct-target
-$1-ct: $(REBAR) $(ELIXIR_COMMON_DEPS) merge-config clean-test-cluster-config
+$1-ct: $(REBAR) $(ELIXIR_COMMON_DEPS) merge-config clean-test-cluster-config render-test-env
 	$(eval RESOLVED_SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
 ifneq ($(RESOLVED_SUITES),)
 	env ERL_FLAGS="-kernel prevent_overlapping_partitions false" \
@@ -139,7 +143,7 @@ endif
 endef
 
 define gen-plugin-ct-target
-$1-ct: $(REBAR) $(ELIXIR_COMMON_DEPS) merge-config clean-test-cluster-config
+$1-ct: $(REBAR) $(ELIXIR_COMMON_DEPS) merge-config clean-test-cluster-config render-test-env
 	$(eval RESOLVED_SUITES := $(shell $(SCRIPTS)/find-suites.sh --relative $1))
 ifneq ($(RESOLVED_SUITES),)
 	cd $1 && env ERL_FLAGS="-kernel prevent_overlapping_partitions false" \
@@ -178,7 +182,7 @@ $(eval $(call gen-app-prop-target,$(app_to_test)))
 endif
 
 .PHONY: ct-suite
-ct-suite: $(REBAR) merge-config clean-test-cluster-config
+ct-suite: $(REBAR) merge-config clean-test-cluster-config render-test-env
 ifneq ($(TESTCASE),)
 ifneq ($(GROUP),)
 	env PROFILE=$(PROFILE)-test $(MIX) do deps.get + ct --suites $(SUITE) --cases $(TESTCASE) --group-paths $(GROUP)
