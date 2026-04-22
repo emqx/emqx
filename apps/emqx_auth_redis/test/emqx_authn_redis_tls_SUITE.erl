@@ -30,15 +30,10 @@ init_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_tcp_server_available(?REDIS_HOST, ?REDIS_TLS_PORT) of
-        true ->
-            Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_redis], #{
-                work_dir => ?config(priv_dir, Config)
-            }),
-            [{apps, Apps} | Config];
-        false ->
-            {skip, no_redis}
-    end.
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_redis], #{
+        work_dir => ?config(priv_dir, Config)
+    }),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
     emqx_authn_test_lib:delete_authenticators(

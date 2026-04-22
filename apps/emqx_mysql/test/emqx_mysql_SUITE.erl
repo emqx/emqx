@@ -19,16 +19,11 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_tcp_server_available(?MYSQL_HOST, ?MYSQL_DEFAULT_PORT) of
-        true ->
-            Apps = emqx_cth_suite:start(
-                [emqx_conf, emqx_connector],
-                #{work_dir => emqx_cth_suite:work_dir(Config)}
-            ),
-            [{apps, Apps} | Config];
-        false ->
-            {skip, no_mysql}
-    end.
+    Apps = emqx_cth_suite:start(
+        [emqx_conf, emqx_connector],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(proplists:get_value(apps, Config)).

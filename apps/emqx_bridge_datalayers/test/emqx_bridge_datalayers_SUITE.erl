@@ -81,70 +81,65 @@ init_per_group(DatalayersType, Config0) when
                     proxy_name => "datalayers_https"
                 }
         end,
-    case emqx_common_test_helpers:is_tcp_server_available(DatalayersHost, DatalayersPort) of
-        true ->
-            Apps = emqx_cth_suite:start(
-                [
-                    emqx_conf,
-                    emqx_bridge_datalayers,
-                    emqx_connector,
-                    emqx_bridge,
-                    emqx_rule_engine,
-                    emqx_management,
-                    emqx_mgmt_api_test_util:emqx_dashboard()
-                ],
-                #{work_dir => emqx_cth_suite:work_dir(Config0)}
-            ),
-            Config = [{apps, Apps}, {use_tls, UseTLS} | Config0],
-            {Name, ConnConfString, ConnConfMap, ActionConfString, ActionConfMap} = datalayers_config(
-                DatalayersHost, DatalayersPort, Config
-            ),
-            EHttpcPoolNameBin = <<(atom_to_binary(?MODULE))/binary, "_apiv1">>,
-            EHttpcPoolName = binary_to_atom(EHttpcPoolNameBin),
-            {EHttpcTransport, EHttpcTransportOpts} =
-                case UseTLS of
-                    true -> {tls, [{verify, verify_none}]};
-                    false -> {tcp, []}
-                end,
-            EHttpcPoolOpts = [
-                {host, DatalayersHost},
-                {port, DatalayersPort},
-                {pool_size, 1},
-                {transport, EHttpcTransport},
-                {transport_opts, EHttpcTransportOpts}
-            ],
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx_bridge_datalayers,
+            emqx_connector,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config0)}
+    ),
+    Config = [{apps, Apps}, {use_tls, UseTLS} | Config0],
+    {Name, ConnConfString, ConnConfMap, ActionConfString, ActionConfMap} = datalayers_config(
+        DatalayersHost, DatalayersPort, Config
+    ),
+    EHttpcPoolNameBin = <<(atom_to_binary(?MODULE))/binary, "_apiv1">>,
+    EHttpcPoolName = binary_to_atom(EHttpcPoolNameBin),
+    {EHttpcTransport, EHttpcTransportOpts} =
+        case UseTLS of
+            true -> {tls, [{verify, verify_none}]};
+            false -> {tcp, []}
+        end,
+    EHttpcPoolOpts = [
+        {host, DatalayersHost},
+        {port, DatalayersPort},
+        {pool_size, 1},
+        {transport, EHttpcTransport},
+        {transport_opts, EHttpcTransportOpts}
+    ],
 
-            {ok, _} = ehttpc_sup:start_pool(EHttpcPoolName, EHttpcPoolOpts),
-            NewConfig =
-                [
-                    {proxy_host, ProxyHost},
-                    {proxy_port, ProxyPort},
-                    {proxy_name, ProxyName},
+    {ok, _} = ehttpc_sup:start_pool(EHttpcPoolName, EHttpcPoolOpts),
+    NewConfig =
+        [
+            {proxy_host, ProxyHost},
+            {proxy_port, ProxyPort},
+            {proxy_name, ProxyName},
 
-                    {datalayers_host, DatalayersHost},
-                    {datalayers_port, DatalayersPort},
-                    {ehttpc_pool_name, EHttpcPoolName},
+            {datalayers_host, DatalayersHost},
+            {datalayers_port, DatalayersPort},
+            {ehttpc_pool_name, EHttpcPoolName},
 
-                    {bridge_kind, action},
-                    {bridge_type, datalayers},
-                    {bridge_name, Name},
-                    {bridge_config, ActionConfMap},
-                    {bridge_config_string, ActionConfString},
-                    {action_type, datalayers},
-                    {action_name, Name},
-                    {action_config, ActionConfMap},
+            {bridge_kind, action},
+            {bridge_type, datalayers},
+            {bridge_name, Name},
+            {bridge_config, ActionConfMap},
+            {bridge_config_string, ActionConfString},
+            {action_type, datalayers},
+            {action_name, Name},
+            {action_config, ActionConfMap},
 
-                    {connector_name, Name},
-                    {connector_type, datalayers},
-                    {connector_config, ConnConfMap},
-                    {connector_config_string, ConnConfString}
-                    | Config
-                ],
-            ensure_database(NewConfig),
-            NewConfig;
-        false ->
-            {skip, no_datalayers}
-    end;
+            {connector_name, Name},
+            {connector_type, datalayers},
+            {connector_config, ConnConfMap},
+            {connector_config_string, ConnConfString}
+            | Config
+        ],
+    ensure_database(NewConfig),
+    NewConfig;
 init_per_group(sync_query, Config) ->
     [{query_mode, sync} | Config];
 init_per_group(async_query, Config) ->

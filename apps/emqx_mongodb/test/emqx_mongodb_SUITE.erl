@@ -23,20 +23,15 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_tcp_server_available(?MONGO_HOST, ?MONGO_DEFAULT_PORT) of
-        true ->
-            Apps = emqx_cth_suite:start(
-                [
-                    emqx_conf,
-                    emqx_connector,
-                    emqx_mongodb
-                ],
-                #{work_dir => emqx_cth_suite:work_dir(Config)}
-            ),
-            [{apps, Apps} | Config];
-        false ->
-            {skip, no_mongo}
-    end.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx_connector,
+            emqx_mongodb
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),

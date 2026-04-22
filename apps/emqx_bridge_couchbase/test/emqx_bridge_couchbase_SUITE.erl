@@ -39,39 +39,29 @@ init_per_suite(Config) ->
     ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
     ProxyName = "couchbase",
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
-        true ->
-            Apps = emqx_cth_suite:start(
-                [
-                    emqx,
-                    emqx_conf,
-                    emqx_bridge_couchbase,
-                    emqx_bridge,
-                    emqx_rule_engine,
-                    emqx_management,
-                    emqx_mgmt_api_test_util:emqx_dashboard()
-                ],
-                #{work_dir => emqx_cth_suite:work_dir(Config)}
-            ),
-            [
-                {apps, Apps},
-                {proxy_name, ProxyName},
-                {proxy_host, ProxyHost},
-                {proxy_port, ProxyPort},
-                {server, Server},
-                {host, Host},
-                {direct_host, DirectHost},
-                {admin_port, AdminPort}
-                | Config
-            ];
-        false ->
-            case os:getenv("IS_CI") of
-                "yes" ->
-                    throw(no_couchbase);
-                _ ->
-                    {skip, no_couchbase}
-            end
-    end.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_bridge_couchbase,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [
+        {apps, Apps},
+        {proxy_name, ProxyName},
+        {proxy_host, ProxyHost},
+        {proxy_port, ProxyPort},
+        {server, Server},
+        {host, Host},
+        {direct_host, DirectHost},
+        {admin_port, AdminPort}
+        | Config
+    ].
 
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),

@@ -38,21 +38,15 @@ end_per_group(_, Config) ->
     proplists:delete(group, Config).
 
 init_per_suite(Config) ->
-    Port = port(tcp),
-    case emqx_common_test_helpers:is_tcp_server_available(?LDAP_HOST, Port) of
-        true ->
-            Apps = emqx_cth_suite:start(
-                [
-                    emqx,
-                    emqx_conf,
-                    emqx_ldap
-                ],
-                #{work_dir => emqx_cth_suite:work_dir(Config)}
-            ),
-            [{apps, Apps} | Config];
-        false ->
-            {skip, no_ldap}
-    end.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_ldap
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),

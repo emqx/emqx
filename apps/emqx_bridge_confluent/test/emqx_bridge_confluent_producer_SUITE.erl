@@ -32,40 +32,30 @@ init_per_suite(Config) ->
     ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
     ProxyName = "kafka_sasl_ssl",
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    case emqx_common_test_helpers:is_tcp_server_available(KafkaHost, KafkaPort) of
-        true ->
-            Apps = emqx_cth_suite:start(
-                [
-                    emqx_conf,
-                    emqx,
-                    emqx_management,
-                    emqx_resource,
-                    %% Just for test helpers
-                    brod,
-                    emqx_bridge_confluent,
-                    emqx_bridge,
-                    emqx_rule_engine,
-                    emqx_mgmt_api_test_util:emqx_dashboard()
-                ],
-                #{work_dir => ?config(priv_dir, Config)}
-            ),
-            [
-                {tc_apps, Apps},
-                {proxy_name, ProxyName},
-                {proxy_host, ProxyHost},
-                {proxy_port, ProxyPort},
-                {kafka_host, KafkaHost},
-                {kafka_port, KafkaPort}
-                | Config
-            ];
-        false ->
-            case os:getenv("IS_CI") of
-                "yes" ->
-                    throw(no_kafka);
-                _ ->
-                    {skip, no_kafka}
-            end
-    end.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx,
+            emqx_management,
+            emqx_resource,
+            %% Just for test helpers
+            brod,
+            emqx_bridge_confluent,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => ?config(priv_dir, Config)}
+    ),
+    [
+        {tc_apps, Apps},
+        {proxy_name, ProxyName},
+        {proxy_host, ProxyHost},
+        {proxy_port, ProxyPort},
+        {kafka_host, KafkaHost},
+        {kafka_port, KafkaPort}
+        | Config
+    ].
 
 end_per_suite(Config) ->
     Apps = ?config(tc_apps, Config),
