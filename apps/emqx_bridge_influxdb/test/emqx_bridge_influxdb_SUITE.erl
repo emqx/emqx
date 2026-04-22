@@ -382,25 +382,22 @@ delete_all_rules() ->
         emqx_rule_engine:get_rules()
     ).
 
-create_rule_and_action_http(Config) ->
-    create_rule_and_action_http(Config, _Overrides = #{}).
+create_rule_and_action(Config) ->
+    create_rule_and_action(Config, _Overrides = #{}).
 
-create_rule_and_action_http(Config, Overrides) ->
+create_rule_and_action(Config, Overrides) ->
     InfluxDBName = ?config(influxdb_name, Config),
     Type = influxdb_type_bin(?config(influxdb_type, Config)),
     BridgeId = emqx_bridge_resource:bridge_id(Type, InfluxDBName),
     Params0 = #{
+        id => emqx_guid:to_hexstr(emqx_guid:gen()),
         enable => true,
         sql => <<"SELECT * FROM \"t/topic\"">>,
-        actions => [BridgeId]
+        actions => [BridgeId],
+        description => <<"influxdb bridge test rule">>
     },
     Params = emqx_utils_maps:deep_merge(Params0, Overrides),
-    Path = emqx_mgmt_api_test_util:api_path(["rules"]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
-        Error -> Error
-    end.
+    emqx_rule_engine:create_rule(Params).
 
 send_message(Config, Payload) ->
     Name = ?config(influxdb_name, Config),
@@ -519,6 +516,26 @@ assert_persisted_data(ClientId, Expected, PersistedData) ->
         Expected
     ),
     ok.
+
+send_message_and_wait(Config, SentData) ->
+    QueryMode = ?config(query_mode, Config),
+    case QueryMode of
+        async ->
+            ?assertMatch(ok, send_message(Config, SentData));
+        sync ->
+            ?assertMatch({ok, 204, _}, send_message(Config, SentData))
+    end,
+    ct:sleep(1500).
+
+wait_for_persisted_data(Config, ClientId, Expected) ->
+    ?retry(
+        _Sleep = 500,
+        _Attempts = 10,
+        begin
+            PersistedData = query_by_clientid(ClientId, Config),
+            assert_persisted_data(ClientId, Expected, PersistedData)
+        end
+    ).
 
 resource_id(Config) ->
     Type = influxdb_type_bin(?config(influxdb_type, Config)),
@@ -802,6 +819,48 @@ t_empty_timestamp(Config) ->
         baz4 => {<<"1u">>, <<"string">>}
     },
     assert_persisted_data(ClientId, Expected, PersistedData).
+
+t_write_fixed_unicode_text(Config) ->
+    ?assertMatch(
+        {ok, _},
+        create_bridge(
+            Config,
+            #{
+                <<"write_syntax">> =>
+                    <<"mqtt,clientid=${clientid} fixed_text=\"固定中文\""/utf8>>
+            }
+        )
+    ),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    SentData = #{
+        <<"clientid">> => ClientId,
+        <<"topic">> => atom_to_binary(?FUNCTION_NAME),
+        <<"payload">> => #{},
+        <<"timestamp">> => erlang:system_time(millisecond)
+    },
+    send_message_and_wait(Config, SentData),
+    Expected = #{fixed_text => {<<"固定中文"/utf8>>, <<"string">>}},
+    wait_for_persisted_data(Config, ClientId, Expected).
+
+t_write_unicode_mqtt_payload(Config) ->
+    ?assertMatch(
+        {ok, _},
+        create_bridge(
+            Config,
+            #{
+                <<"write_syntax">> =>
+                    <<"mqtt,clientid=${clientid} payload_text=\"${payload}\""/utf8>>
+            }
+        )
+    ),
+    {ok, _} = create_rule_and_action(Config, #{sql => <<"SELECT * FROM \"t/topic\"">>}),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Payload = <<"MQTT 消息中文"/utf8>>,
+    Msg = emqx_message:make(ClientId, <<"t/topic">>, Payload),
+    emqx:publish(Msg),
+    ct:sleep(1500),
+    Expected = #{payload_text => {Payload, <<"string">>}},
+    wait_for_persisted_data(Config, ClientId, Expected).
 
 %% influxdb returns timestamps without trailing zeros such as
 %% "2023-02-28T17:21:51.63678163Z"
@@ -1220,7 +1279,7 @@ t_missing_field(Config) ->
         ),
     %% note: we don't select foo here, but we interpolate it in the
     %% fields, so it'll become undefined.
-    {ok, _} = create_rule_and_action_http(Config, #{sql => <<"select * from \"t/topic\"">>}),
+    {ok, _} = create_rule_and_action(Config, #{sql => <<"select * from \"t/topic\"">>}),
     ClientId0 = emqx_guid:to_hexstr(emqx_guid:gen()),
     ClientId1 = emqx_guid:to_hexstr(emqx_guid:gen()),
     %% Message with the field that we "forgot" to select in the rule

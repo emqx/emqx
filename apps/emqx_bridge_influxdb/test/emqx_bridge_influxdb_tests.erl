@@ -403,6 +403,22 @@ valid_write_syntax_escaped_chars_test_() ->
 valid_write_syntax_escaped_chars_with_extra_spaces_test_() ->
     test_pairs(?VALID_LINE_PARSED_ESCAPED_CHARS_EXTRA_SPACES_PAIRS).
 
+unicode_write_syntax_test_() ->
+    Tag = unicode:characters_to_list(<<"标签"/utf8>>),
+    Field = unicode:characters_to_list(<<"固定中文"/utf8>>),
+    Expected = #{
+        measurement => "m",
+        tags => [{"tag", Tag}],
+        fields => [{"f", {quoted, Field}}],
+        timestamp => undefined
+    },
+    [
+        ?_assertEqual(
+            [Expected],
+            to_influx_lines(<<"m,tag=标签 f=\"固定中文\""/utf8>>)
+        )
+    ].
+
 influxdb_api_v1_connector_ping_with_auth_test_() ->
     _ = emqx_utils:interactive_load(emqx_bridge_enterprise),
     BaseConf = parse(influxdb_api_v1_connector_hocon()),
