@@ -34,6 +34,10 @@
 -export([share_load_module/2]).
 -export([node_name/1, mk_nodespecs/2]).
 -export([start_apps/2]).
+-export([sync_routes/2, setup_logging/1]).
+
+-include_lib("stdlib/include/assert.hrl").
+-include_lib("snabbkaffe/include/test_macros.hrl").
 
 -define(APPS_CLUSTERING, [gen_rpc, mria, ekka]).
 
@@ -408,6 +412,42 @@ node_init(#{name := Node, work_dir := WorkDir}) ->
     end),
     ok.
 
+%% Helper function that sets up logging on remote node to a temporary
+%% files. Useful for debugging. Note: this function is NOT used by
+%% default for nodes started using functions from this module.
+setup_logging(Node) ->
+    LogFile = filename:join(
+        "/tmp", atom_to_list(Node) ++ ".erlang.log." ++ integer_to_list(os:system_time())
+    ),
+    ct:pal("Logs for ~p go into ~s", [Node, LogFile]),
+    Level = debug,
+    HandlerConf = #{
+        level => Level,
+        filter_default => log,
+        config => #{
+            type => file,
+            file => LogFile
+        },
+        formatter =>
+            {logger_formatter, #{
+                single_line => false,
+                legacy_header => true
+            }}
+    },
+    ok = erpc:call(
+        Node,
+        logger,
+        update_primary_config,
+        [#{level => Level}]
+    ),
+    ok = erpc:call(
+        Node,
+        logger,
+        add_handler,
+        [?MODULE, logger_std_h, HandlerConf]
+    ),
+    ok.
+
 %% Returns 'true' if this node should appear in running nodes list.
 run_node_phase_cluster(Act, Spec = #{name := Node}) ->
     ok = load_apps(Node, Spec),
@@ -438,6 +478,61 @@ start_apps(Node, #{apps := Apps} = Spec) ->
             erlang:raise(K, E, S)
     end,
     ok.
+
+%% @doc Wait until routing tables on the given set of nodes converge
+%% to the same value.
+%%
+%% Since routing tables use mria merge tables, propagation of routes
+%% to peers is async, even between the cores. Therefore, tests are
+%% advised to call this function after creating a subscription if they
+%% expect effects of that subscription to be seen on other nodes.
+-spec sync_routes([node()], pos_integer()) -> ok.
+sync_routes([], _) ->
+    ok;
+sync_routes(Nodes, Timeout) ->
+    NRetries = 10,
+    ?retry(
+        Timeout div NRetries,
+        NRetries,
+        begin
+            Routes = erpc:multicall(
+                Nodes,
+                emqx_router,
+                topics,
+                [],
+                Timeout
+            ),
+            Diff = lists:uniq(
+                fun({Node, Resp}) ->
+                    case Resp of
+                        {ok, L} -> lists:sort(L);
+                        _Error -> {error, Node}
+                    end
+                end,
+                lists:zip(Nodes, Routes)
+            ),
+            Diagnostic = erpc:multicall(
+                Nodes,
+                fun() ->
+                    #{
+                        node => node(),
+                        mria_route_m_peers => mria_rlog_replica:ls(route_shard_m),
+                        cluster => mria:cluster_nodes(all),
+                        peers => nodes()
+                    }
+                end
+            ),
+            ?assertMatch(
+                [{_, {ok, _}}],
+                Diff,
+                #{
+                    msg => routes_did_not_converge,
+                    nodes => nodes(),
+                    diagnostic => Diagnostic
+                }
+            )
+        end
+    ).
 
 suite_opts(restart, Spec) ->
     maps:merge(#{work_dir_dirty => true}, suite_opts(Spec));
