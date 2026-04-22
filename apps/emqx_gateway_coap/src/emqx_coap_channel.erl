@@ -75,7 +75,6 @@
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session]).
 
 -define(DEF_IDLE_SECONDS, 30).
--define(SOCK_CLOSED_TAKEOVER_GRACE_MS, 5000).
 -define(RAND_CLIENTID_BYTES, 16).
 
 -import(emqx_coap_medium, [reply/2, reply/3, reply/4, iter/3, iter/4]).
@@ -352,11 +351,16 @@ handle_info({subscribe, _AutoSubs}, Channel) ->
     {ok, Channel};
 handle_info(
     {sock_closed, _Reason},
-    #channel{connection_required = true, conn_state = connected} = Channel
+    #channel{
+        connection_required = true,
+        conn_state = connected,
+        keepalive = KeepAlive
+    } = Channel
 ) ->
+    GraceMs = emqx_keepalive:info(check_interval, KeepAlive),
     NChannel = ensure_timer(
         sock_closed_takeover_cleanup,
-        ?SOCK_CLOSED_TAKEOVER_GRACE_MS,
+        GraceMs,
         sock_closed_takeover_cleanup,
         Channel
     ),
