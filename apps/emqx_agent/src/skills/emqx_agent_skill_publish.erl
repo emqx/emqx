@@ -9,7 +9,7 @@
 %% agent cannot publish outside its authorised namespace.
 %%
 %% Invoke topic:  cap/invoke/message.publish/<skill_id>
-%% Reply  topic:  cap/reply/<req_id>
+%% Reply  topic:  cap/invoke/message.publish/<skill_id>/response/<req_id>
 %%
 %% Context keys:
 %%   skill_id     => binary()  — unique instance identifier
@@ -37,7 +37,6 @@
 -include_lib("emqx/include/logger.hrl").
 
 -define(SKILL_TYPE, <<"message.publish">>).
--define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
 
 -define(DEFAULT_PAYLOAD_SCHEMA, #{
     <<"type">> => <<"object">>,
@@ -199,10 +198,13 @@ to_map(
 
 on_message_publish(
     #message{
-        topic = <<"cap/invoke/message.publish/", SkillId/binary>>, payload = Payload
+        topic = <<"cap/invoke/message.publish/", Rest/binary>>, payload = Payload
     } = Message
 ) ->
-    handle_invoke(SkillId, Payload),
+    case binary:split(Rest, <<"/">>) of
+        [SkillId, <<"request">>] -> handle_invoke(SkillId, Payload);
+        _ -> ok
+    end,
     {ok, Message};
 on_message_publish(Message) ->
     {ok, Message}.
@@ -255,7 +257,7 @@ do_publish(SkillId, TopicPrefix, Request) ->
         <<"frame">> => <<"unary">>,
         <<"data">> => Result
     }),
-    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    ReplyTopic = <<"cap/invoke/", ?SKILL_TYPE/binary, "/", SkillId/binary, "/response/", ReqId/binary>>,
     ReplyMsg = emqx_message:make(SkillId, ?QOS_0, ReplyTopic, emqx_utils_json:encode(Reply)),
     _ = emqx_broker:publish(ReplyMsg),
     ok.

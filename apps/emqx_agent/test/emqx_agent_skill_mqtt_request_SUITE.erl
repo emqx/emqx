@@ -13,7 +13,6 @@
 
 -define(SKILL_ID, <<"test-request">>).
 -define(TOPIC_PREFIX, <<"devices/room1/">>).
--define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -55,7 +54,7 @@ t_destroy_unregisters(_Config) ->
 t_request_response(_Config) ->
     DeviceTopic = <<?TOPIC_PREFIX/binary, "sensor/1">>,
     ReqId = <<"req-rr-1">>,
-    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    ReplyTopic = reply_topic(?SKILL_ID, ReqId),
 
     ok = emqx:subscribe(DeviceTopic),
     ok = emqx:subscribe(ReplyTopic),
@@ -86,7 +85,7 @@ t_request_response(_Config) ->
 t_response_topic_in_properties(_Config) ->
     DeviceTopic = <<?TOPIC_PREFIX/binary, "sensor/2">>,
     ReqId = <<"req-props-1">>,
-    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    ReplyTopic = reply_topic(?SKILL_ID, ReqId),
 
     ok = emqx:subscribe(DeviceTopic),
     ok = emqx:subscribe(ReplyTopic),
@@ -112,8 +111,8 @@ t_response_topics_are_unique(_Config) ->
     DeviceTopic = <<?TOPIC_PREFIX/binary, "sensor/3">>,
     ReqId1 = <<"req-uniq-1">>,
     ReqId2 = <<"req-uniq-2">>,
-    ReplyTopic1 = <<?REPLY_TOPIC_PREFIX/binary, ReqId1/binary>>,
-    ReplyTopic2 = <<?REPLY_TOPIC_PREFIX/binary, ReqId2/binary>>,
+    ReplyTopic1 = reply_topic(?SKILL_ID, ReqId1),
+    ReplyTopic2 = reply_topic(?SKILL_ID, ReqId2),
 
     ok = emqx:subscribe(DeviceTopic),
     ok = emqx:subscribe(ReplyTopic1),
@@ -141,7 +140,7 @@ t_response_topics_are_unique(_Config) ->
 %% When no response arrives within timeout_ms the skill replies with status=error/timeout.
 t_timeout(_Config) ->
     ReqId = <<"req-timeout-1">>,
-    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    ReplyTopic = reply_topic(?SKILL_ID, ReqId),
 
     ok = emqx:subscribe(ReplyTopic),
 
@@ -164,7 +163,7 @@ t_timeout(_Config) ->
 t_topic_prefix_applied(_Config) ->
     FullTopic = <<?TOPIC_PREFIX/binary, "sub/topic">>,
     ReqId = <<"req-prefix-1">>,
-    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    ReplyTopic = reply_topic(?SKILL_ID, ReqId),
 
     ok = emqx:subscribe(FullTopic),
     ok = emqx:subscribe(ReplyTopic),
@@ -186,7 +185,7 @@ t_topic_prefix_applied(_Config) ->
 t_reply_correlation(_Config) ->
     DeviceTopic = <<?TOPIC_PREFIX/binary, "corr/dev">>,
     ReqId = <<"req-corr-1">>,
-    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    ReplyTopic = reply_topic(?SKILL_ID, ReqId),
 
     ok = emqx:subscribe(DeviceTopic),
     ok = emqx:subscribe(ReplyTopic),
@@ -219,7 +218,7 @@ t_reply_correlation(_Config) ->
 %% Invocations targeting an unknown skill_id are silently dropped.
 t_unknown_skill_id_ignored(_Config) ->
     ReqId = <<"req-unknown-1">>,
-    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    ReplyTopic = reply_topic(?SKILL_ID, ReqId),
     ok = emqx:subscribe(ReplyTopic),
 
     invoke(<<"no-such-skill">>, #{<<"topic">> => <<"x">>, <<"payload">> => <<"y">>}, ReqId),
@@ -242,11 +241,14 @@ test_context() ->
         topic_prefix => ?TOPIC_PREFIX
     }.
 
+reply_topic(SkillId, ReqId) ->
+    <<"cap/invoke/message.request/", SkillId/binary, "/response/", ReqId/binary>>.
+
 invoke(SkillId, Args, ReqId) ->
     invoke(SkillId, Args, ReqId, #{}).
 
 invoke(SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/invoke/message.request/", SkillId/binary>>,
+    Topic = <<"cap/invoke/message.request/", SkillId/binary, "/request">>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{

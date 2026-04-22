@@ -4,8 +4,8 @@
 
 %% PostgreSQL query skill.
 %%
-%% Invoke topic:  cap/invoke/postgresql.query/<id>
-%% Reply topic:   cap/reply/<req_id>
+%% Invoke topic:  cap/invoke/postgresql.query/<id>/request
+%% Reply topic:   cap/invoke/postgresql.query/<id>/response/<req_id>
 %%
 %% The module owns a single shared PostgreSQL resource with fixed configuration.
 %% Skill instances differ by SQL query template and schemas only.
@@ -17,7 +17,6 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 -define(SKILL_TYPE, <<"postgresql.query">>).
--define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
 -define(RESOURCE_ID, <<"emqx_agent_skill_postgresql_resource">>).
 -define(RESOURCE_GROUP, <<"emqx_agent">>).
 
@@ -93,10 +92,13 @@ to_map(#{
     }.
 
 on_message_publish(
-    #message{topic = <<"cap/invoke/postgresql.query/", SkillId/binary>>, payload = Payload} =
+    #message{topic = <<"cap/invoke/postgresql.query/", Rest/binary>>, payload = Payload} =
         Message
 ) ->
-    handle_invoke(SkillId, Payload),
+    case binary:split(Rest, <<"/">>) of
+        [SkillId, <<"request">>] -> handle_invoke(SkillId, Payload);
+        _ -> ok
+    end,
     {ok, Message};
 on_message_publish(Message) ->
     {ok, Message}.
@@ -131,7 +133,7 @@ do_reply(SkillId, Context, Request) ->
         <<"frame">> => <<"unary">>,
         <<"data">> => Data
     }),
-    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    ReplyTopic = <<"cap/invoke/", ?SKILL_TYPE/binary, "/", SkillId/binary, "/response/", ReqId/binary>>,
     Msg = emqx_message:make(SkillId, ?QOS_0, ReplyTopic, emqx_utils_json:encode(Reply)),
     _ = emqx_broker:publish(Msg),
     ok.

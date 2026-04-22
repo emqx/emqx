@@ -11,7 +11,7 @@
 %%   - Publish trigger events through the broker (fires the hook).
 %%   - Use emqx:subscribe to observe pipe/.../events and cap/invoke/... topics.
 %%   - For call_skill tests the emqx_agent_skill_publish skill is used
-%%     (it executes immediately and replies with cap/reply/<req_id>).
+%%     (it executes immediately and replies with cap/invoke/<type>/<id>/response/<req_id>).
 %%   - wait_for_event tests publish the awaited event explicitly.
 
 -module(emqx_agent_pipeline_SUITE).

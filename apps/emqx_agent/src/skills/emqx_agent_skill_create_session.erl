@@ -9,8 +9,8 @@
 %% The skill delegates to emqx_agent_service:profile_create/1 and returns
 %% a structured result so the LLM can detect and retry failures.
 %%
-%% Invoke topic:  cap/invoke/agent.create_session/<skill_id>
-%% Reply  topic:  cap/reply/<req_id>
+%% Invoke topic:  cap/invoke/agent.create_session/<skill_id>/request
+%% Reply  topic:  cap/invoke/agent.create_session/<skill_id>/response/<req_id>
 
 -module(emqx_agent_skill_create_session).
 
@@ -19,7 +19,6 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 -define(SKILL_TYPE, <<"agent.create_session">>).
--define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
 
 -define(INPUT_SCHEMA, #{
     <<"type">> => <<"object">>,
@@ -107,10 +106,13 @@ to_map(#{skill_id := Id, description := Desc, input_schema := In, output_schema 
 %%--------------------------------------------------------------------
 
 on_message_publish(
-    #message{topic = <<"cap/invoke/agent.create_session/", SkillId/binary>>, payload = Payload} =
+    #message{topic = <<"cap/invoke/agent.create_session/", Rest/binary>>, payload = Payload} =
         Msg
 ) ->
-    handle_invoke(SkillId, Payload),
+    case binary:split(Rest, <<"/">>) of
+        [SkillId, <<"request">>] -> handle_invoke(SkillId, Payload);
+        _ -> ok
+    end,
     {ok, Msg};
 on_message_publish(Msg) ->
     {ok, Msg}.
@@ -144,7 +146,7 @@ reply(SkillId, Request, Data) ->
         <<"frame">> => <<"unary">>,
         <<"data">> => Data
     }),
-    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    ReplyTopic = <<"cap/invoke/", ?SKILL_TYPE/binary, "/", SkillId/binary, "/response/", ReqId/binary>>,
     Msg = emqx_message:make(SkillId, ?QOS_0, ReplyTopic, emqx_utils_json:encode(Reply)),
     _ = emqx_broker:publish(Msg),
     ok.

@@ -23,7 +23,7 @@
 %%
 %% Incoming OTP messages (all sent as gen_statem casts by emqx_agent_pipeline_mgr)
 %%   #sess_frame{sid, frame}   — from sess/out/<sid>/
-%%   #cap_reply{req_id, frame} — from cap/reply/<req_id>
+%%   #cap_reply{req_id, frame} — from cap/invoke/<type>/<id>/response/<req_id>
 %%   #pipe_evt{topic, event}   — from evt/... (for wait_for_event steps)
 %%
 %% Context and JSONPath
@@ -215,12 +215,12 @@ handle_event(
     Reason = maps:get(<<"reason">>, Frame, <<"llm_error">>),
     ?SLOG(error, #{msg => "pipeline_llm_error", iid => Data#data.iid, reason => Reason}),
     do_fail(Data, Reason);
-%% ── llm_loop: cap/reply arrives for an outstanding tool call ─────────────────
+%% ── llm_loop: cap response arrives for an outstanding tool call ──────────────
 
 handle_event(cast, #cap_reply{req_id = ReqId, frame = Frame}, llm_loop, Data) ->
     log_received(cap_reply, Data, #{req_id => ReqId, frame => Frame}),
     route_cap_reply_to_session(ReqId, Frame, Data);
-%% ── waiting_cap: cap/reply for the call_skill step ───────────────────────────
+%% ── waiting_cap: cap response for the call_skill step ────────────────────────
 
 handle_event(
     cast,
@@ -708,7 +708,7 @@ publish_to_sess_in(Sid, Payload) ->
     ok.
 
 publish_cap_invoke(Type, SkillId, Payload) ->
-    Topic = <<"cap/invoke/", Type/binary, "/", SkillId/binary>>,
+    Topic = <<"cap/invoke/", Type/binary, "/", SkillId/binary, "/request">>,
     Msg = emqx_message:make(?MODULE, ?QOS_0, Topic, emqx_utils_json:encode(Payload)),
     _ = emqx_broker:publish(Msg),
     ok.

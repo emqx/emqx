@@ -107,21 +107,20 @@ def api_delete_maybe(path: str) -> None:
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 
 def delete_old_assets() -> None:
-    # Pipeline first (may be active)
-    api_delete_maybe(f"/agent/pipelines/{PIPELINE_ID}")
-    # Meta-skills
-    api_delete_maybe(f"/agent/skills/agent.create_skill/{SK_CREATE_SKILL}")
-    api_delete_maybe(f"/agent/skills/agent.create_session/{SK_CREATE_SESSION}")
-    api_delete_maybe(f"/agent/skills/agent.create_pipeline/{SK_CREATE_PIPELINE}")
-    api_delete_maybe(f"/agent/skills/agent.query_skills/{SK_QUERY_SKILLS}")
-    api_delete_maybe(f"/agent/skills/agent.query_sessions/{SK_QUERY_SESSIONS}")
-    api_delete_maybe(f"/agent/skills/agent.query_pipelines/{SK_QUERY_PIPELINES}")
-    api_delete_maybe(f"/agent/skills/agent.delete_skill/{SK_DELETE_SKILL}")
-    api_delete_maybe(f"/agent/skills/agent.delete_session/{SK_DELETE_SESSION}")
-    api_delete_maybe(f"/agent/skills/agent.delete_pipeline/{SK_DELETE_PIPELINE}")
-    api_delete_maybe(f"/agent/skills/message.publish/{SK_REPLY}")
-    # Session profile
-    api_delete_maybe(f"/agent/session_profiles/{PROFILE_NAME}")
+    # Pipelines first (may be active — deactivate before delete)
+    for p in json.loads(api_request("GET", "/agent/pipelines")):
+        api_delete_maybe(f"/agent/pipelines/{p['pipeline_id']}")
+        print(f"  deleted pipeline {p['pipeline_id']!r}")
+
+    # Skills
+    for s in json.loads(api_request("GET", "/agent/skills")):
+        api_delete_maybe(f"/agent/skills/{s['type']}/{s['skill_id']}")
+        print(f"  deleted skill {s['type']}@{s['skill_id']!r}")
+
+    # Session profiles
+    for sp in json.loads(api_request("GET", "/agent/session_profiles")):
+        api_delete_maybe(f"/agent/session_profiles/{sp['name']}")
+        print(f"  deleted session profile {sp['name']!r}")
 
 
 # ── Skills ─────────────────────────────────────────────────────────────────────

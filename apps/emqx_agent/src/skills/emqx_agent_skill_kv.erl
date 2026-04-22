@@ -12,8 +12,8 @@
 %% ETS key: {SkillId, Key}  — all instances share one table, namespaced by skill_id.
 %%
 %% Invoke topics:
-%%   cap/invoke/kv.lookup/<skill_id>
-%%   cap/invoke/kv.put/<skill_id>
+%%   cap/invoke/kv.lookup/<skill_id>/request
+%%   cap/invoke/kv.put/<skill_id>/request
 %%
 %% Lifecycle:
 %%   init()        — create ETS table + register message.publish hook
@@ -30,7 +30,6 @@
 -define(TAB, emqx_agent_skill_kv).
 -define(TYPE_LOOKUP, <<"kv.lookup">>).
 -define(TYPE_PUT, <<"kv.put">>).
--define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
 
 -export([init/0, deinit/0, create/1, destroy_lookup/1, destroy_put/1, to_map/1]).
 
@@ -99,14 +98,20 @@ destroy_put(SkillId) ->
 %%--------------------------------------------------------------------
 
 on_message_publish(
-    #message{topic = <<"cap/invoke/kv.lookup/", SkillId/binary>>, payload = Payload} = Message
+    #message{topic = <<"cap/invoke/kv.lookup/", Rest/binary>>, payload = Payload} = Message
 ) ->
-    handle_lookup(SkillId, Payload),
+    case binary:split(Rest, <<"/">>) of
+        [SkillId, <<"request">>] -> handle_lookup(SkillId, Payload);
+        _ -> ok
+    end,
     {ok, Message};
 on_message_publish(
-    #message{topic = <<"cap/invoke/kv.put/", SkillId/binary>>, payload = Payload} = Message
+    #message{topic = <<"cap/invoke/kv.put/", Rest/binary>>, payload = Payload} = Message
 ) ->
-    handle_put(SkillId, Payload),
+    case binary:split(Rest, <<"/">>) of
+        [SkillId, <<"request">>] -> handle_put(SkillId, Payload);
+        _ -> ok
+    end,
     {ok, Message};
 on_message_publish(Message) ->
     {ok, Message}.
@@ -203,7 +208,7 @@ publish_reply(SkillId, Type, Request, Data) ->
         <<"frame">> => <<"unary">>,
         <<"data">> => Data
     }),
-    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    ReplyTopic = <<"cap/invoke/", Type/binary, "/", SkillId/binary, "/response/", ReqId/binary>>,
     Msg = emqx_message:make(SkillId, ?QOS_0, ReplyTopic, emqx_utils_json:encode(Reply)),
     _ = emqx_broker:publish(Msg),
     ok.

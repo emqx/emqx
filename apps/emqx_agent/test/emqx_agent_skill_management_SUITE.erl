@@ -19,7 +19,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
--define(REPLY_PREFIX, <<"cap/reply/">>).
+
 
 -define(SK_SKILL_ID, <<"meta-create-skill">>).
 -define(SK_SESSION_ID, <<"meta-create-session">>).
@@ -71,12 +71,12 @@ t_create_skill_invoke_message_publish(_Config) ->
     invoke(
         <<"agent.create_skill">>,
         ?SK_SKILL_ID,
-        #{
+        #{<<"definition">> => #{
             <<"type">> => <<"message.publish">>,
             <<"id">> => <<"dyn-pub">>,
             <<"desc">> => <<"Dynamic publish">>,
             <<"topic_prefix">> => <<"dyn/pub/">>
-        },
+        }},
         ReqId
     ),
 
@@ -104,7 +104,7 @@ t_create_skill_invoke_http(_Config) ->
     invoke(
         <<"agent.create_skill">>,
         ?SK_SKILL_ID,
-        #{
+        #{<<"definition">> => #{
             <<"type">> => <<"http">>,
             <<"id">> => <<"dyn-http">>,
             <<"desc">> => <<"Dynamic HTTP">>,
@@ -112,7 +112,7 @@ t_create_skill_invoke_http(_Config) ->
             <<"url">> => <<"http://stub/api">>,
             <<"input_schema">> => #{<<"type">> => <<"object">>},
             <<"output_schema">> => #{<<"type">> => <<"object">>}
-        },
+        }},
         ReqId
     ),
 
@@ -428,13 +428,13 @@ t_create_pipeline_reply_correlation(_Config) ->
 %%--------------------------------------------------------------------
 
 reply_topic(ReqId) ->
-    <<?REPLY_PREFIX/binary, ReqId/binary>>.
+    <<"cap/invoke/+/+/response/", ReqId/binary>>.
 
 invoke(Type, SkillId, Args, ReqId) ->
     invoke(Type, SkillId, Args, ReqId, #{}).
 
 invoke(Type, SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/invoke/", Type/binary, "/", SkillId/binary>>,
+    Topic = <<"cap/invoke/", Type/binary, "/", SkillId/binary, "/request">>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{
@@ -451,9 +451,8 @@ invoke(Type, SkillId, Args, ReqId, Extra) ->
     ok.
 
 recv_reply(ReqId) ->
-    T = reply_topic(ReqId),
     receive
-        #deliver{topic = T, message = #message{payload = P}} ->
+        #deliver{message = #message{payload = P}} ->
             emqx_utils_json:decode(P)
     after 3000 ->
         ct:fail("no reply for req_id=~s within 3 s", [ReqId])

@@ -13,7 +13,6 @@
 
 -define(SKILL_ID, <<"test-publish">>).
 -define(TOPIC_PREFIX, <<"devices/room1/">>).
--define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -72,7 +71,7 @@ t_custom_payload_schema_is_stored(_Config) ->
 t_publish_basic(_Config) ->
     FullTopic = <<?TOPIC_PREFIX/binary, "temperature">>,
     ReqId = <<"req-pub-1">>,
-    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    ReplyTopic = reply_topic(?SKILL_ID, ReqId),
     ok = emqx:subscribe(FullTopic),
     ok = emqx:subscribe(ReplyTopic),
 
@@ -102,7 +101,7 @@ t_publish_basic(_Config) ->
 t_topic_prefix_is_applied(_Config) ->
     FullTopic = <<?TOPIC_PREFIX/binary, "sub/path">>,
     ReqId = <<"req-prefix-1">>,
-    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    ReplyTopic = reply_topic(?SKILL_ID, ReqId),
     ok = emqx:subscribe(FullTopic),
     ok = emqx:subscribe(ReplyTopic),
 
@@ -123,7 +122,7 @@ t_topic_prefix_is_applied(_Config) ->
 t_publish_with_from_and_qos(_Config) ->
     FullTopic = <<?TOPIC_PREFIX/binary, "cmd">>,
     ReqId = <<"req-from-qos-1">>,
-    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    ReplyTopic = reply_topic(?SKILL_ID, ReqId),
     ok = emqx:subscribe(FullTopic),
     ok = emqx:subscribe(ReplyTopic),
 
@@ -152,7 +151,7 @@ t_publish_with_from_and_qos(_Config) ->
 %% Correlation fields (req_id, trace_id, iid, sid) are echoed in the reply.
 t_reply_correlation(_Config) ->
     ReqId = <<"req-corr-1">>,
-    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    ReplyTopic = reply_topic(?SKILL_ID, ReqId),
     ok = emqx:subscribe(ReplyTopic),
 
     invoke(
@@ -178,7 +177,7 @@ t_reply_correlation(_Config) ->
 %% An invoke targeting an unregistered skill_id is silently dropped — no reply arrives.
 t_unknown_skill_id_ignored(_Config) ->
     ReqId = <<"req-unknown-1">>,
-    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    ReplyTopic = reply_topic(?SKILL_ID, ReqId),
     ok = emqx:subscribe(ReplyTopic),
 
     invoke(
@@ -210,7 +209,7 @@ invoke(SkillId, Args, ReqId) ->
     invoke(SkillId, Args, ReqId, #{}).
 
 invoke(SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/invoke/message.publish/", SkillId/binary>>,
+    Topic = <<"cap/invoke/message.publish/", SkillId/binary, "/request">>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{
@@ -225,6 +224,9 @@ invoke(SkillId, Args, ReqId, Extra) ->
     ),
     _ = emqx_broker:publish(emqx_message:make(SkillId, 0, Topic, Payload)),
     ok.
+
+reply_topic(SkillId, ReqId) ->
+    <<"cap/invoke/message.publish/", SkillId/binary, "/response/", ReqId/binary>>.
 
 await_deliver(Topic) ->
     receive

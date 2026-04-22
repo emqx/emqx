@@ -7,7 +7,7 @@
 %% Responsibilities
 %%   1. Hook on message.publish to intercept three topic families:
 %%        sess/out/<sid>/     — frames from an LLM session
-%%        cap/reply/<req_id>  — skill replies
+%%        cap/invoke/<type>/<id>/response/<req_id>  — skill replies
 %%        evt/...             — trigger events and wait_for_event candidates
 %%
 %%   2. Route intercepted messages to the correct pipeline instance by
@@ -84,9 +84,12 @@ on_message_publish(
     handle_sess_out(Rest, Payload),
     {ok, Msg};
 on_message_publish(
-    #message{topic = <<"cap/reply/", ReqId/binary>>, payload = Payload} = Msg
-) ->
-    handle_cap_reply(ReqId, Payload),
+    #message{topic = <<"cap/invoke/", Rest/binary>>, payload = Payload} = Msg
+) when Rest =/= <<>> ->
+    case binary:split(Rest, <<"/response/">>) of
+        [_TypeSkill, ReqId] -> handle_cap_reply(ReqId, Payload);
+        _ -> ok
+    end,
     {ok, Msg};
 on_message_publish(
     #message{topic = <<"evt/", _/binary>> = Topic, payload = Payload} = Msg

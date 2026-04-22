@@ -12,9 +12,8 @@
 -include_lib("emqx/include/emqx.hrl").
 
 -define(SKILL_ID, <<"test-kv">>).
--define(LOOKUP_TOPIC, <<"cap/invoke/kv.lookup/test-kv">>).
--define(PUT_TOPIC, <<"cap/invoke/kv.put/test-kv">>).
--define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
+-define(LOOKUP_TOPIC, <<"cap/invoke/kv.lookup/test-kv/request">>).
+-define(PUT_TOPIC, <<"cap/invoke/kv.put/test-kv/request">>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -54,7 +53,7 @@ t_no_put_when_disallowed(_Config) ->
 
 t_put_then_lookup(_Config) ->
     ReqIdPut = <<"req-put-1">>,
-    ReplyPut = <<?REPLY_TOPIC_PREFIX/binary, ReqIdPut/binary>>,
+    ReplyPut = reply_topic_put(ReqIdPut),
     ok = emqx:subscribe(ReplyPut),
 
     Asset = #{
@@ -67,7 +66,7 @@ t_put_then_lookup(_Config) ->
     ok = emqx:unsubscribe(ReplyPut),
 
     ReqIdLookup = <<"req-lookup-1">>,
-    ReplyLookup = <<?REPLY_TOPIC_PREFIX/binary, ReqIdLookup/binary>>,
+    ReplyLookup = reply_topic_lookup(ReqIdLookup),
     ok = emqx:subscribe(ReplyLookup),
 
     lookup_invoke(?SKILL_ID, <<"room-42">>, ReqIdLookup),
@@ -85,7 +84,7 @@ t_put_then_lookup(_Config) ->
 
 t_lookup_not_found(_Config) ->
     ReqId = <<"req-nf-1">>,
-    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    ReplyTopic = reply_topic_lookup(ReqId),
     ok = emqx:subscribe(ReplyTopic),
 
     lookup_invoke(?SKILL_ID, <<"no-such-key">>, ReqId),
@@ -124,7 +123,7 @@ test_context(Type) ->
     }.
 
 put_invoke(SkillId, Key, Data, ReqId) ->
-    Topic = <<"cap/invoke/kv.put/", SkillId/binary>>,
+    Topic = <<"cap/invoke/kv.put/", SkillId/binary, "/request">>,
     Payload = emqx_utils_json:encode(#{
         <<"req_id">> => ReqId,
         <<"trace_id">> => <<"tr-1">>,
@@ -134,7 +133,7 @@ put_invoke(SkillId, Key, Data, ReqId) ->
     _ = emqx_broker:publish(emqx_message:make(SkillId, 0, Topic, Payload)).
 
 lookup_invoke(SkillId, Key, ReqId) ->
-    Topic = <<"cap/invoke/kv.lookup/", SkillId/binary>>,
+    Topic = <<"cap/invoke/kv.lookup/", SkillId/binary, "/request">>,
     Payload = emqx_utils_json:encode(#{
         <<"req_id">> => ReqId,
         <<"trace_id">> => <<"tr-1">>,
@@ -142,6 +141,12 @@ lookup_invoke(SkillId, Key, ReqId) ->
         <<"args">> => #{<<"key">> => Key}
     }),
     _ = emqx_broker:publish(emqx_message:make(SkillId, 0, Topic, Payload)).
+
+reply_topic_put(ReqId) ->
+    <<"cap/invoke/kv.put/", ?SKILL_ID/binary, "/response/", ReqId/binary>>.
+
+reply_topic_lookup(ReqId) ->
+    <<"cap/invoke/kv.lookup/", ?SKILL_ID/binary, "/response/", ReqId/binary>>.
 
 await_reply(ReplyTopic) ->
     receive

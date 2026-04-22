@@ -21,7 +21,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
--define(REPLY_PREFIX, <<"cap/reply/">>).
+
 
 -define(SK_DEL_SKILL_ID, <<"meta-del-skill">>).
 -define(SK_DEL_SESSION_ID, <<"meta-del-session">>).
@@ -367,13 +367,13 @@ t_delete_pipeline_reply_correlation(_Config) ->
 %%--------------------------------------------------------------------
 
 reply_topic(ReqId) ->
-    <<?REPLY_PREFIX/binary, ReqId/binary>>.
+    <<"cap/invoke/+/+/response/", ReqId/binary>>.
 
 invoke(Type, SkillId, Args, ReqId) ->
     invoke(Type, SkillId, Args, ReqId, #{}).
 
 invoke(Type, SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/invoke/", Type/binary, "/", SkillId/binary>>,
+    Topic = <<"cap/invoke/", Type/binary, "/", SkillId/binary, "/request">>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{
@@ -390,9 +390,8 @@ invoke(Type, SkillId, Args, ReqId, Extra) ->
     ok.
 
 recv_reply(ReqId) ->
-    T = reply_topic(ReqId),
     receive
-        #deliver{topic = T, message = #message{payload = P}} ->
+        #deliver{message = #message{payload = P}} ->
             emqx_utils_json:decode(P)
     after 3000 ->
         ct:fail("no reply for req_id=~s within 3 s", [ReqId])

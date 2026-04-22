@@ -4,8 +4,8 @@
 
 %% HTTP tool skill backed by hackney.
 %%
-%% Invoke topic:  cap/invoke/http/<id>
-%% Reply  topic:  cap/reply/<req_id>
+%% Invoke topic:  cap/invoke/http/<id>/request
+%% Reply  topic:  cap/invoke/http/<id>/response/<req_id>
 %%
 %% Context keys:
 %%   skill_id      => binary()         — unique instance identifier
@@ -32,7 +32,6 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 -define(SKILL_TYPE, <<"http">>).
--define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
 
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1]).
 -export([on_message_publish/1]).
@@ -109,9 +108,12 @@ to_map(#{
 %%--------------------------------------------------------------------
 
 on_message_publish(
-    #message{topic = <<"cap/invoke/http/", SkillId/binary>>, payload = Payload} = Message
+    #message{topic = <<"cap/invoke/http/", Rest/binary>>, payload = Payload} = Message
 ) ->
-    handle_invoke(SkillId, Payload),
+    case binary:split(Rest, <<"/">>) of
+        [SkillId, <<"request">>] -> handle_invoke(SkillId, Payload);
+        _ -> ok
+    end,
     {ok, Message};
 on_message_publish(Message) ->
     {ok, Message}.
@@ -143,7 +145,7 @@ do_reply(SkillId, Context, Request) ->
         <<"frame">> => <<"unary">>,
         <<"data">> => Data
     }),
-    ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
+    ReplyTopic = <<"cap/invoke/", ?SKILL_TYPE/binary, "/", SkillId/binary, "/response/", ReqId/binary>>,
     Msg = emqx_message:make(SkillId, ?QOS_0, ReplyTopic, emqx_utils_json:encode(Reply)),
     _ = emqx_broker:publish(Msg),
     ok.
