@@ -621,6 +621,64 @@ t_multiple_tables_failure_in_the_end(TCConfig) when is_list(TCConfig) ->
     ok.
 
 -doc """
+Ensure TLS connector can be created with `verify_none` and no cert file paths.
+This mirrors serverless production config: TLS enabled + verify_none only.
+""".
+t_tls_verify_none_without_certfiles() ->
+    [{matrix, true}].
+t_tls_verify_none_without_certfiles(matrix) ->
+    [[?tls, ?sync, ?without_batch]];
+t_tls_verify_none_without_certfiles(TCConfig) when is_list(TCConfig) ->
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        ?assertMatch(
+            {201, #{
+                <<"status">> := <<"connected">>
+            }},
+            create_connector_api(TCConfig, #{
+                <<"server">> => <<"toxiproxy:4003">>,
+                <<"ssl">> => #{
+                    <<"enable">> => true,
+                    <<"verify">> => <<"verify_none">>,
+                    <<"cacertfile">> => <<>>,
+                    <<"certfile">> => <<>>,
+                    <<"keyfile">> => <<>>
+                }
+            })
+        ),
+        ok
+    end).
+
+-doc """
+Ensure TLS connector still rejects empty cert file paths when verify is `verify_peer`.
+""".
+t_tls_verify_peer_with_empty_certfiles_rejected() ->
+    [{matrix, true}].
+t_tls_verify_peer_with_empty_certfiles_rejected(matrix) ->
+    [[?tls, ?sync, ?without_batch]];
+t_tls_verify_peer_with_empty_certfiles_rejected(TCConfig) when is_list(TCConfig) ->
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        ?assertMatch(
+            {400, #{
+                <<"code">> := <<"BAD_REQUEST">>,
+                <<"message">> := #{
+                    <<"reason">> := <<"bad_ssl_config">>
+                }
+            }},
+            create_connector_api(TCConfig, #{
+                <<"server">> => <<"toxiproxy:4003">>,
+                <<"ssl">> => #{
+                    <<"enable">> => true,
+                    <<"verify">> => <<"verify_peer">>,
+                    <<"cacertfile">> => <<>>,
+                    <<"certfile">> => <<>>,
+                    <<"keyfile">> => <<>>
+                }
+            })
+        ),
+        ok
+    end).
+
+-doc """
 Checks that we treat port 4001 as the default port when the port is omitted in the server
 field, similar to greptimedb connector.
 """.
@@ -638,8 +696,9 @@ t_default_port(TCConfig) when is_list(TCConfig) ->
     ok.
 
 -doc """
-Checks that we require `cacertfile`, `certfile` and `keyfile` to be set to _some_ value if
-`ssl.enable = true`, so we avoid bizarre errors thrown from the Rust driver.
+Checks that when only `ssl.enable = true` is set, schema default
+`ssl.verify = verify_none` is honored and connector creation is not rejected by
+missing cert file validation.
 """.
 t_inconsistent_ssl_validation() ->
     [{matrix, true}].
@@ -648,12 +707,10 @@ t_inconsistent_ssl_validation(matrix) ->
 t_inconsistent_ssl_validation(TCConfig) when is_list(TCConfig) ->
     ?assertMatch(
         {201, #{
-            <<"status">> := <<"disconnected">>,
-            <<"status_reason">> :=
-                <<
-                    "cacertfile, certfile and keyfile SSL options must"
-                    " be configured when SSL is enabled."
-                >>
+            <<"ssl">> := #{
+                <<"enable">> := true,
+                <<"verify">> := <<"verify_none">>
+            }
         }},
         create_connector_api(TCConfig, #{
             <<"ssl">> => #{

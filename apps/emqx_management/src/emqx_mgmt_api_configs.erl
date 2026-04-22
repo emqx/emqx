@@ -305,7 +305,6 @@ config_reset(post, _Params, Req) ->
     end.
 
 configs(get, #{query_string := QueryStr, headers := Headers}, _Req) ->
-    %% Should deprecated json v1 since 5.2.0
     case find_suitable_accept(Headers, [<<"text/plain">>, <<"application/json">>]) of
         {ok, <<"application/json">>} -> get_configs_v1(QueryStr);
         {ok, <<"text/plain">>} -> get_configs_v2(QueryStr);
@@ -354,28 +353,43 @@ find_suitable_accept(Headers, Preferences) when is_list(Preferences), length(Pre
             end
     end.
 
-%% To return a JSON formatted configuration file, which is used to be compatible with the already
-%% implemented `GET /configs` in the old versions 5.0 and 5.1.
+%% Returns a JSON-formatted configuration, selected by the optional `key` query parameter.
+%% When no key is given, a fixed subset of top-level roots is returned for backward compatibility
+%% with `GET /configs` from 5.0 and 5.1.
 %%
-%% In e5.1.1, we support to return a hocon configuration file by `get_configs_v2/1`. It's more
-%% useful for the user to read or reload the configuration file via HTTP API.
-%%
-%% The `get_configs_v1/1` should be deprecated since 5.2.0.
+%% `get_configs_v2/1` returns the same content as HOCON (text/plain), which can be fed back into
+%% `PUT /configs` to reload configuration.
 get_configs_v1(QueryStr) ->
     Node = maps:get(<<"node">>, QueryStr, node()),
-    case
-        lists:member(Node, emqx:running_nodes()) andalso
-            emqx_management_proto_v5:get_full_config(Node)
-    of
+    case lists:member(Node, emqx:running_nodes()) of
         false ->
             Message = list_to_binary(io_lib:format("Bad node ~p, reason not found", [Node])),
             {404, #{code => 'NOT_FOUND', message => Message}};
-        {badrpc, R} ->
-            Message = list_to_binary(io_lib:format("Bad node ~p, reason ~p", [Node, R])),
-            {500, #{code => 'BAD_NODE', message => Message}};
-        Res ->
-            {200, Res}
+        true ->
+            handle_configs_v1_result(
+                Node, get_configs_v1_by_key(Node, maps:find(<<"key">>, QueryStr))
+            )
     end.
+
+get_configs_v1_by_key(Node, error) ->
+    emqx_management_proto_v5:get_full_config(Node);
+get_configs_v1_by_key(Node, {ok, Key}) ->
+    KeyBin = atom_to_binary(Key),
+    case emqx_conf_proto_v5:get_raw_config(Node, ?global_ns, [KeyBin]) of
+        {badrpc, _} = Err ->
+            Err;
+        Raw ->
+            emqx_config:fill_defaults(
+                #{KeyBin => Raw},
+                #{obfuscate_sensitive_values => true}
+            )
+    end.
+
+handle_configs_v1_result(Node, {badrpc, R}) ->
+    Message = list_to_binary(io_lib:format("Bad node ~p, reason ~p", [Node, R])),
+    {500, #{code => 'BAD_NODE', message => Message}};
+handle_configs_v1_result(_Node, Res) ->
+    {200, Res}.
 
 get_configs_v2(QueryStr) ->
     Node = maps:get(<<"node">>, QueryStr, node()),

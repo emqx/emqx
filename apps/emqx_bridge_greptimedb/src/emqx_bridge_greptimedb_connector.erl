@@ -53,7 +53,8 @@
 -define(DEFAULT_DB, <<"public">>).
 
 -define(GREPTIMEDB_HOST_OPTIONS, #{
-    default_port => ?GREPTIMEDB_DEFAULT_PORT
+    default_port => ?GREPTIMEDB_DEFAULT_PORT,
+    ssrf_check => true
 }).
 
 -define(AUTO_RECONNECT_S, 1).

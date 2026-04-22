@@ -17,7 +17,6 @@
     info/1,
     subscribe_channel/2,
     unsubscribe_channel/5,
-    config/3,
     config/4
 ]).
 
@@ -295,9 +294,6 @@ unsubscribe_remote_topic(
         false ->
             ok
     end.
-
-config(Conf, Name, TopicToHandlerIndex) ->
-    config(Conf, Name, undefined, TopicToHandlerIndex).
 
 config(
     #{ingress_list := IngressList} = Conf,

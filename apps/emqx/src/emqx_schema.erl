@@ -50,7 +50,8 @@
     default_port => integer(),
     no_port => boolean(),
     supported_schemes => [string()],
-    default_scheme => string()
+    default_scheme => string(),
+    ssrf_check => boolean()
 }.
 -type url() :: binary().
 -type json_binary() :: binary().
@@ -3531,7 +3532,9 @@ do_parse_server(Str, Opts) ->
         default_scheme => DefaultScheme,
         opts => Opts
     },
-    check_server_parts(Tokens, Context).
+    Parsed = check_server_parts(Tokens, Context),
+    maybe_check_ssrf(Parsed, Opts),
+    Parsed.
 
 check_server_parts([Scheme, "//" ++ Hostname, Port], Context) ->
     #{
@@ -3654,6 +3657,14 @@ check_hostname(Str) ->
         _ ->
             throw("hostname_has_space")
     end.
+
+maybe_check_ssrf(#{hostname := H}, #{ssrf_check := true}) ->
+    case emqx_utils_ssrf:check_host(H) of
+        ok -> ok;
+        {error, Err} -> throw(binary_to_list(emqx_utils_ssrf:format_error(Err)))
+    end;
+maybe_check_ssrf(_Parsed, _Opts) ->
+    ok.
 
 convert_hocon_map_host_port(Map) ->
     lists:map(

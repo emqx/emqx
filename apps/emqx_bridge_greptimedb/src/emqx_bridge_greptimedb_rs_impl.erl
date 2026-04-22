@@ -447,7 +447,17 @@ maybe_put_auth(_ConnConfig, Opts) ->
     Opts.
 
 maybe_put_tls(#{ssl := #{enable := true} = SSLOpts}, Opts) ->
-    Renamed = maps:fold(
+    TLSOpts = extract_tls_opts(SSLOpts),
+    maps:merge(Opts, TLSOpts#{tls => true});
+maybe_put_tls(_ConnConfig, Opts) ->
+    Opts.
+
+extract_tls_opts(SSLOpts) ->
+    TLSCertOpts = extract_tls_cert_opts(SSLOpts),
+    maybe_put_tls_verify_opt(SSLOpts, TLSCertOpts).
+
+extract_tls_cert_opts(SSLOpts) ->
+    TLSOpts0 = maps:fold(
         fun emqx_utils_maps:rename/3,
         SSLOpts,
         #{
@@ -456,12 +466,46 @@ maybe_put_tls(#{ssl := #{enable := true} = SSLOpts}, Opts) ->
             keyfile => client_key
         }
     ),
-    TLSOpts = maps:map(
-        fun(_, V) -> bin(V) end, maps:with([ca_cert, client_cert, client_key], Renamed)
+    TLSOpts1 = maps:with([ca_cert, client_cert, client_key], TLSOpts0),
+    TLSOpts2 = maps:filter(
+        fun(_, V) -> not is_blank_or_undefined(V) end,
+        TLSOpts1
     ),
-    maps:merge(Opts, TLSOpts#{tls => true});
-maybe_put_tls(_ConnConfig, Opts) ->
-    Opts.
+    maps:map(fun(_, V) -> bin(V) end, TLSOpts2).
+
+maybe_put_tls_verify_opt(SSLOpts, TLSOpts) ->
+    case maps:find(verify, SSLOpts) of
+        {ok, Verify0} ->
+            case normalize_tls_verify(Verify0) of
+                undefined -> TLSOpts;
+                Verify -> TLSOpts#{verify => Verify}
+            end;
+        error ->
+            case maps:find(<<"verify">>, SSLOpts) of
+                {ok, Verify0} ->
+                    case normalize_tls_verify(Verify0) of
+                        undefined -> TLSOpts;
+                        Verify -> TLSOpts#{verify => Verify}
+                    end;
+                error ->
+                    TLSOpts
+            end
+    end.
+
+normalize_tls_verify(verify_none) ->
+    verify_none;
+normalize_tls_verify(<<"verify_none">>) ->
+    verify_none;
+normalize_tls_verify("verify_none") ->
+    verify_none;
+normalize_tls_verify(verify_peer) ->
+    verify_peer;
+normalize_tls_verify(<<"verify_peer">>) ->
+    verify_peer;
+normalize_tls_verify("verify_peer") ->
+    verify_peer;
+normalize_tls_verify(_) ->
+    undefined.
 
 maybe_put_optional_keys(Keys, Source, Target) ->
     lists:foldl(
@@ -476,22 +520,92 @@ maybe_put_optional_keys(Keys, Source, Target) ->
     ).
 
 ensure_consistent_ssl_opts(#{ssl := #{enable := true} = SSLOpts} = _ConnConfig) ->
-    AnyMissing =
-        lists:any(
-            fun(Key) -> is_blank_or_missing(Key, SSLOpts) end,
-            [cacertfile, certfile, keyfile]
-        ),
-    case AnyMissing of
-        true ->
-            throw(<<
-                "cacertfile, certfile and keyfile SSL options must be configured"
-                " when SSL is enabled."
-            >>);
-        false ->
-            ok
+    case normalize_tls_verify(get_ssl_verify_opt(SSLOpts, verify_peer)) of
+        verify_none ->
+            ok;
+        _ ->
+            AnyMissing =
+                lists:any(
+                    fun(Key) -> is_blank_or_missing(Key, SSLOpts) end,
+                    [cacertfile, certfile, keyfile]
+                ),
+            case AnyMissing of
+                true ->
+                    throw(<<
+                        "cacertfile, certfile and keyfile SSL options must be configured"
+                        " when SSL is enabled."
+                    >>);
+                false ->
+                    ok
+            end
     end;
 ensure_consistent_ssl_opts(_ConnConfig) ->
     ok.
 
+get_ssl_verify_opt(SSLOpts, Default) ->
+    case maps:find(verify, SSLOpts) of
+        {ok, Verify} ->
+            Verify;
+        error ->
+            case maps:find(<<"verify">>, SSLOpts) of
+                {ok, Verify} -> Verify;
+                error -> Default
+            end
+    end.
+
 is_blank_or_missing(Key, Cfg) ->
-    <<"">> == maps:get(Key, Cfg, <<"">>).
+    is_blank_or_undefined(maps:get(Key, Cfg, undefined)).
+
+is_blank_or_undefined(undefined) ->
+    true;
+is_blank_or_undefined(null) ->
+    true;
+is_blank_or_undefined(V) when is_binary(V) ->
+    byte_size(V) =:= 0;
+is_blank_or_undefined(V) when is_list(V) ->
+    V =:= [];
+is_blank_or_undefined(_) ->
+    false.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+client_opts_tls_verify_none_without_cert_paths_test() ->
+    ConnConfig = #{
+        server => <<"127.0.0.1:5001">>,
+        dbname => <<"public">>,
+        ssl => #{
+            enable => true,
+            verify => verify_none,
+            cacertfile => <<>>,
+            certfile => <<>>,
+            keyfile => <<>>
+        }
+    },
+    Opts = client_opts(test_res_id, ConnConfig),
+    ?assertEqual(true, maps:get(tls, Opts)),
+    ?assertEqual(verify_none, maps:get(verify, Opts)),
+    ?assertNot(maps:is_key(ca_cert, Opts)),
+    ?assertNot(maps:is_key(client_cert, Opts)),
+    ?assertNot(maps:is_key(client_key, Opts)).
+
+client_opts_tls_verify_peer_keeps_certs_test() ->
+    ConnConfig = #{
+        server => <<"127.0.0.1:5001">>,
+        dbname => <<"public">>,
+        ssl => #{
+            enable => true,
+            verify => verify_peer,
+            cacertfile => <<"/tmp/ca.crt">>,
+            certfile => <<"/tmp/client.crt">>,
+            keyfile => <<"/tmp/client.key">>
+        }
+    },
+    Opts = client_opts(test_res_id, ConnConfig),
+    ?assertEqual(true, maps:get(tls, Opts)),
+    ?assertEqual(verify_peer, maps:get(verify, Opts)),
+    ?assertEqual(<<"/tmp/ca.crt">>, maps:get(ca_cert, Opts)),
+    ?assertEqual(<<"/tmp/client.crt">>, maps:get(client_cert, Opts)),
+    ?assertEqual(<<"/tmp/client.key">>, maps:get(client_key, Opts)).
+
+-endif.
