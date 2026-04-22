@@ -333,6 +333,10 @@ on_stop(ConnResId, _State) ->
     }),
     %% on_stop can be called with State = undefined
     Allocated = emqx_resource:get_allocated_resources(ConnResId),
+    SubscriptionIdToHandlerIndex = maps:get(
+        subscription_id_to_handler_index, Allocated, undefined
+    ),
+    ok = maybe_delete_subscription_id_index(SubscriptionIdToHandlerIndex),
     case maps:get(topic_to_handler_index, Allocated, undefined) of
         undefined ->
             ok;
