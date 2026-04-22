@@ -581,6 +581,11 @@ get_schema_vsn() ->
 init_schema() ->
     ClusterState = discover_cluster_schema_vsn(),
     SchemaVsn = cluster_preferred_api_version(ClusterState),
+    SchemaVsn =:= v2 andalso
+        begin
+            io:put_chars(standard_error, v2_warning()),
+            ?SLOG(warning, #{msg => v2_warning()})
+        end,
     verify_cluster_schema_vsn(ClusterState),
     persistent_term:put(?PT_SCHEMA_VSN, SchemaVsn).
 
@@ -592,11 +597,11 @@ init_schema() ->
 cluster_preferred_api_version(#{v2 := [_ | _]}) ->
     v2;
 cluster_preferred_api_version(_) ->
-    case mria_schema:shard_of_table(?ROUTE_TAB_V2) of
-        {ok, _} ->
+    case has_v2_tables() of
+        true ->
             %% Old table is present in the cluster, use old schema
             v2;
-        undefined ->
+        false ->
             %% There are no signs of the old routing tables. This is
             %% likely a newly deployed cluster. Use configured value:
             emqx_config:get([broker, routing, storage_schema])
@@ -698,6 +703,42 @@ Situation requires manual intervention:
 3. Stop ALL running nodes, then restart them one by one.
 ",
       [V3, V2]).
+
+%% erlfmt-ignore
+v2_warning() ->
+    "This node is running in compatibility mode with v2 routing schema.
+
+To complete upgade to the current (v3) schema, the following steps are required:
+
+1. Upgrade all nodes to EMQX version 5.10.4 or later
+2. Perform full restart of the cluster.
+".
+
+has_v2_tables() ->
+    %% Run this in a transaction to make sure replicants don't take
+    %% decisions while disconnected from core node:
+    Result = mria:ro_transaction(
+        '$mria_meta_shard',
+        fun() ->
+            case mnesia:read(mria_schema, ?ROUTE_TAB_V2) of
+                [_] ->
+                    true;
+                [] ->
+                    false
+            end
+        end
+    ),
+    case Result of
+        {atomic, Val} ->
+            Val;
+        {aborted, Reason} ->
+            ?SLOG(info, #{
+                msg => "Waiting for core node to get decision which routing schema to use",
+                reason => Reason
+            }),
+            timer:sleep(5_000),
+            has_v2_tables()
+    end.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
