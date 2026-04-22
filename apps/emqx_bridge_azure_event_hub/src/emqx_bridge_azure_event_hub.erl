@@ -485,4 +485,4 @@ server_name_indication_converter(SNI, _HoconOpts) ->
     SNI.
 
 host_opts() ->
-    #{default_port => 9093}.
+    #{default_port => 9093, ssrf_check => true}.

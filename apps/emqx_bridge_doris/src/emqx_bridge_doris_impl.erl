@@ -69,7 +69,7 @@ callback_mode() ->
 on_start(ConnResId, ConnConfig0) ->
     ConnConfig = ConnConfig0#{
         basic_capabilities => #{?CLIENT_TRANSACTIONS => false},
-        parse_server_opts => #{default_port => 9030}
+        parse_server_opts => #{default_port => 9030, ssrf_check => true}
     },
     emqx_bridge_mysql_connector:on_start(ConnResId, ConnConfig).
 
