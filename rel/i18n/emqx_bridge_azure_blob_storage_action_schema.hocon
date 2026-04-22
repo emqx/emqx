@@ -77,8 +77,12 @@ emqx_bridge_azure_blob_storage_action_schema {
       <ul>
       <li><code>${datetime.rfc3339utc}</code>: RFC3339-formatted date and time in UTC,</li>
       <li><code>${datetime.rfc3339}</code>: RFC3339-formatted date and time in local timezone,</li>
-      <li><code>${datetime.unix}</code>: Unix timestamp.</li>
+      <li><code>${datetime.unix}</code>: Unix timestamp,</li>
+      <li><code>${datetime.YYYY}</code>, <code>${datetime.MM}</code>, <code>${datetime.DD}</code>: zero-padded year, month and day (UTC),</li>
+      <li><code>${datetime.hh}</code>, <code>${datetime.mm}</code>, <code>${datetime.ss}</code>: zero-padded hour, minute and second (UTC),</li>
+      <li><code>${datetime.DOY}</code>: zero-padded day of year 001-366 (UTC).</li>
       </ul>
+      Example Hive-partitioned layout: <code>year=${datetime.YYYY}/month=${datetime.MM}/day=${datetime.DD}/hour=${datetime.hh}/${action}_${node}_N${sequence}.json</code>.
   </li>
   <li><code>${datetime_until.{format}}</code>: date and time when aggregation ended, with the same formatting options.</li>
   <li><code>${sequence}</code>: sequence number of the aggregated upload within the same time interval (required).</li>
