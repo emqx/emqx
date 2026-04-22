@@ -923,7 +923,13 @@ data_filter(Number) when is_number(Number) -> Number;
 data_filter(Bool) when is_boolean(Bool) -> Bool;
 data_filter(Data) -> bin(Data).
 
-bin(Data) -> emqx_utils_conv:bin(Data).
+bin(Data) when is_list(Data) ->
+    case io_lib:printable_unicode_list(Data) of
+        true -> unicode:characters_to_binary(Data);
+        false -> emqx_utils_conv:bin(Data)
+    end;
+bin(Data) ->
+    emqx_utils_conv:bin(Data).
 
 %% helper funcs
 log_error_points(InstId, Errs) ->
