@@ -1008,6 +1008,37 @@ t_last_modified_at(_Config) ->
     ),
     ok.
 
+t_rule_metadata_bad_timestamp_repro(_Config) ->
+    Id = <<"bad_metadata_ts">>,
+    RuleParams = #{
+        id => Id,
+        sql => <<"select * from \"t/bad-metadata\"">>,
+        actions => [],
+        metadata => #{
+            created_at => <<"2026-04-22">>
+        }
+    },
+    on_exit(fun() ->
+        ok = emqx_rule_engine:delete_rule(Id)
+    end),
+    {ok, #{id := Id, created_at := CreatedAt, updated_at := UpdatedAt}} =
+        emqx_rule_engine:create_rule(RuleParams),
+    ?assert(is_integer(CreatedAt)),
+    ?assert(is_integer(UpdatedAt)),
+    ?assertNotEqual(<<"2026-04-22">>, CreatedAt),
+    ?assertMatch(
+        {200, #{
+            created_at := CreatedAtResp,
+            last_modified_at := UpdatedAtResp
+        }} when is_binary(CreatedAtResp) andalso is_binary(UpdatedAtResp),
+        emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => Id}})
+    ),
+    ?assertMatch(
+        {200, #{data := [#{id := Id}]}},
+        emqx_rule_engine_api:'/rules'(get, #{query_string => #{}})
+    ),
+    ok.
+
 %% This verifies that we don't attempt to transform keys in the `details' value of an
 %% alarm activated/deactivated rule test to atoms.
 t_alarm_details_with_unknown_atom_key(_Config) ->

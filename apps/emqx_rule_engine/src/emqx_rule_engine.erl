@@ -531,8 +531,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%----------------------------------------------------------------------------------------
 
 with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, CreatedAt0, Fun) ->
-    CreatedAt = emqx_utils_maps:deep_get([metadata, created_at], Params, CreatedAt0),
-    LastModifiedAt = emqx_utils_maps:deep_get([metadata, last_modified_at], Params, CreatedAt),
+    CreatedAt = metadata_timestamp(Params, created_at, CreatedAt0),
+    LastModifiedAt = metadata_timestamp(Params, last_modified_at, CreatedAt),
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->
             Rule0 = #{
@@ -568,6 +568,12 @@ with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, Creat
             {ok, Rule};
         {error, Reason} ->
             {error, Reason}
+    end.
+
+metadata_timestamp(Params, Key, Default) ->
+    case emqx_utils_maps:deep_get([metadata, Key], Params, Default) of
+        Timestamp when is_integer(Timestamp) -> Timestamp;
+        _ -> Default
     end.
 
 do_insert_rule(#{id := Id} = Rule) ->
