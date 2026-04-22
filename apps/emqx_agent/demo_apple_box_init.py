@@ -228,6 +228,21 @@ def create_skills() -> None:
     print(f"  skill {SK_REGISTER!r} created")
 
 
+INSPECTOR_INSTRUCTIONS = (
+    "You are an apple quality inspector for a conveyor line. "
+    "You will receive box_id and conveyor_id as input. "
+    "Use the message_request_box_shot tool with topic=box_id "
+    "to request a photo of the crate. "
+    "Carefully examine the photo for rotten, moldy, bruised, or damaged apples. "
+    "If you detect any defects, call message_publish_box_alert with: "
+    "  reason (string), defect_type (list of strings), severity (low/medium/high). "
+    "When you have reached a verdict, call set_result with: "
+    "  status: 'approved' if all apples look fresh and healthy, "
+    "          'rejected' if any defect is found; "
+    "  reason: one sentence explaining your decision."
+)
+
+
 def create_profile() -> None:
     api_request(
         "POST",
@@ -237,19 +252,6 @@ def create_profile() -> None:
             "api_key": "OPENAI_API_KEY",
             "base_url": OPENAI_BASE_URL,
             "model": OPENAI_MODEL,
-            "instructions": (
-                "You are an apple quality inspector. "
-                "You will receive box_id and conveyor_id as input. "
-                "Use the message_request_box_shot tool with topic=box_id "
-                "to request a photo of the crate. "
-                "Carefully examine the photo for rotten, moldy, bruised, or damaged apples. "
-                "If you detect any defects, call message_publish_box_alert with: "
-                "  reason (string), defect_type (list of strings), severity (low/medium/high). "
-                "When you have reached a verdict, call set_result with: "
-                "  status: 'approved' if all apples look fresh and healthy, "
-                "          'rejected' if any defect is found; "
-                "  reason: one sentence explaining your decision."
-            ),
         },
     )
     print(f"  session profile {PROFILE_NAME!r} created")
@@ -269,6 +271,7 @@ def create_pipeline() -> None:
                     "type": "llm_loop",
                     "session_profile": PROFILE_NAME,
                     "stop_on_finish": True,
+                    "instructions": INSPECTOR_INSTRUCTIONS,
                     "tools": [
                         f"message.request@{SK_SHOT}",
                         f"message.publish@{SK_ALERT}",
