@@ -82,6 +82,7 @@ emqx_bridge_azure_blob_storage_action_schema {
       <li><code>${datetime.hh}</code>, <code>${datetime.mm}</code>, <code>${datetime.ss}</code>: zero-padded hour, minute and second (UTC),</li>
       <li><code>${datetime.DOY}</code>: zero-padded day of year 001-366 (UTC).</li>
       </ul>
+      Each date/time part token may be prefixed with an explicit timezone: <code>utc</code> (same as no prefix) or <code>local</code> (EMQX node's system timezone). Example: <code>${datetime.local.YYYY}</code>, <code>${datetime.utc.hh}</code>. No other timezones are accepted.
       Example Hive-partitioned layout: <code>year=${datetime.YYYY}/month=${datetime.MM}/day=${datetime.DD}/hour=${datetime.hh}/${action}_${node}_N${sequence}.json</code>.
   </li>
   <li><code>${datetime_until.{format}}</code>: date and time when aggregation ended, with the same formatting options.</li>

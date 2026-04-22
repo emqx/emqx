@@ -29,3 +29,24 @@ reject_unknown_datetime_token_test() ->
 reject_unknown_binding_test() ->
     Template = <<"${nope}/${action}/${node}/${sequence}">>,
     ?assertMatch({error, _}, emqx_bridge_s3_upload:validate_key_template(Template)).
+
+accept_datetime_utc_zone_test() ->
+    Template = <<"${datetime.utc.YYYY}/${datetime.utc.MM}/${action}/${node}/${sequence}">>,
+    ?assertEqual(ok, emqx_bridge_s3_upload:validate_key_template(Template)).
+
+accept_datetime_local_zone_test() ->
+    Template =
+        <<"${datetime.local.YYYY}/${datetime.local.MM}/${action}/${node}/${sequence}">>,
+    ?assertEqual(ok, emqx_bridge_s3_upload:validate_key_template(Template)).
+
+accept_datetime_until_zoned_test() ->
+    Template = <<"${datetime_until.local.YYYY}/${action}/${node}/${sequence}">>,
+    ?assertEqual(ok, emqx_bridge_s3_upload:validate_key_template(Template)).
+
+reject_unknown_zone_test() ->
+    Template = <<"${datetime.berlin.YYYY}/${action}/${node}/${sequence}">>,
+    ?assertMatch({error, _}, emqx_bridge_s3_upload:validate_key_template(Template)).
+
+reject_zoned_legacy_format_test() ->
+    Template = <<"${datetime.utc.rfc3339}/${action}/${node}/${sequence}">>,
+    ?assertMatch({error, _}, emqx_bridge_s3_upload:validate_key_template(Template)).
