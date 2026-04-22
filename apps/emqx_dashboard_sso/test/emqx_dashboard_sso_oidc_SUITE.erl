@@ -9,6 +9,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include("../../emqx_dashboard/include/emqx_dashboard.hrl").
+
+-define(OIDC_ADMIN_USER, <<"admin_oidc_test">>).
+-define(OIDC_ADMIN_PASS, <<"admin_pass_123!">>).
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -113,8 +117,19 @@ auth_header() ->
         Fun when is_function(Fun, 0) ->
             Fun();
         _ ->
-            emqx_mgmt_api_test_util:auth_header_()
+            create_bearer_token()
     end.
+
+%% SSO endpoints are denied for API Keys (scope deny list).
+%% Use a dashboard admin Bearer Token instead.
+create_bearer_token() ->
+    _ = emqx_dashboard_admin:add_user(
+        ?OIDC_ADMIN_USER, ?OIDC_ADMIN_PASS, ?ROLE_SUPERUSER, <<"admin for oidc test">>
+    ),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(
+        ?OIDC_ADMIN_USER, ?OIDC_ADMIN_PASS
+    ),
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 get_auth_header_getter() ->
     get(?AUTH_HEADER_FN_PD_KEY).
@@ -302,7 +317,15 @@ do_smoke_tests(TestCase, Opts, TCConfig) ->
         [Node, LoginNode, FinalReqNode] ->
             ok
     end,
-    AuthHeader = ?ON(Node, emqx_mgmt_api_test_util:auth_header_()),
+    AuthHeader = ?ON(Node, begin
+        _ = emqx_dashboard_admin:add_user(
+            ?OIDC_ADMIN_USER, ?OIDC_ADMIN_PASS, ?ROLE_SUPERUSER, <<"admin for oidc test">>
+        ),
+        {ok, #{token := Tok}} = emqx_dashboard_admin:sign_token(
+            ?OIDC_ADMIN_USER, ?OIDC_ADMIN_PASS
+        ),
+        {"Authorization", "Bearer " ++ binary_to_list(Tok)}
+    end),
     set_auth_header_getter(fun() -> AuthHeader end),
     lists:foreach(
         fun(_) ->
@@ -365,7 +388,21 @@ do_smoke_tests1(Node, LoginNode, FinalReqNode, _TCConfig) ->
     #{query := QueryParams4} = uri_string:parse(LoginURL2),
     #{"login_meta" := Token0} = maps:from_list(uri_string:dissect_query(QueryParams4)),
     ct:pal("token0: ~s", [Token0]),
-    #{<<"token">> := Token1} = emqx_utils_json:decode(base64:decode(Token0)),
+    #{<<"code">> := SsoCode, <<"username">> := SsoUsername, <<"backend">> := SsoBackend} =
+        emqx_utils_json:decode(base64:decode(Token0, #{mode => urlsafe, padding => false})),
+
+    %% Exchange the one-time SSO code for the real JWT token
+    ExchangeURL = url(FinalReqNode, ["sso", "token_exchange"]),
+    {200, ExchangeResp} = simple_request(#{
+        method => post,
+        url => ExchangeURL,
+        body => #{
+            <<"code">> => SsoCode, <<"username">> => SsoUsername, <<"backend">> => SsoBackend
+        },
+        auth_header => [{"x", "x"}]
+    }),
+    ct:pal("exchange response: ~p", [ExchangeResp]),
+    #{<<"token">> := Token1} = ExchangeResp,
 
     %% Finally, can now perform actions in the API
     FinalAuthHeader = {"Authorization", "Bearer " ++ binary_to_list(Token1)},

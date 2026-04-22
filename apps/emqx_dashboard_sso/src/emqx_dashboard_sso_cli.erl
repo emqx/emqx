@@ -44,8 +44,8 @@ admins(["del", Username, BackendName]) ->
     end;
 admins(["mfa", Username, "disable" | _]) ->
     case emqx_dashboard_admin:disable_mfa(bin(Username)) of
-        {ok, ok} ->
-            ok;
+        ok ->
+            emqx_ctl:print("ok~n");
         {error, Reason} ->
             print_error(Reason)
     end;

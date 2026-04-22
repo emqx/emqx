@@ -5,6 +5,8 @@
 %% @doc Multifactor authentication interface.
 -module(emqx_dashboard_mfa).
 
+-include("emqx_dashboard.hrl").
+
 -export([
     init/1,
     verify/2,
@@ -15,14 +17,31 @@
     supported_mechanisms/0
 ]).
 
--export_type([mfa_state/0, mechanism/0]).
+%% SSO MFA temporary tokens — stored in extra map of emqx_admin record
+-export([
+    create_setup_token/2,
+    create_verify_token/1,
+    verify_temp_token/2,
+    peek_temp_token/2,
+    generate_token/1
+]).
+
+-export_type([mfa_state/0, mechanism/0, temp_token_purpose/0]).
 
 -type mechanism() :: totp.
--type totp_state() :: #{mechanism := totp, secret := binary(), first_verify_ts => integer()}.
+-type totp_state() :: #{
+    mechanism := totp,
+    secret := binary(),
+    first_verify_ts => integer()
+}.
 -type mfa_state() :: disabled | totp_state().
+-type temp_token_purpose() :: {setup, binary()} | verify.
 
 -define(TOTP_KEY_BYTES, 20).
 -define(NO_FIRST_VERIFY_TS, 0).
+%% Temporary token validity: 5 minutes
+-define(TEMP_TOKEN_TTL_SEC, 300).
+-define(TOKEN_BYTES, 32).
 
 %% @doc Translate binary format mechanism name to atom.
 -spec mechanism(binary()) -> mechanism().
@@ -122,3 +141,95 @@ totp_error(Reason) ->
         mechanism => totp,
         error => Reason
     }.
+
+%%--------------------------------------------------------------------
+%% SSO MFA temporary tokens — stored in extra map of emqx_admin record
+%%
+%% Tokens are stored as mfa_pending key in the emqx_admin record's
+%% extra map. This ensures SSO MFA works correctly in clustered
+%% deployments without a separate Mnesia table.
+%%--------------------------------------------------------------------
+
+%% @doc Create a short-lived temporary token for SSO MFA setup flow.
+%% The TOTP secret is stored in the pending record (not in user's enabled MFA state).
+-spec create_setup_token(binary(), binary()) -> binary().
+create_setup_token(Username, TotpSecret) ->
+    Token = generate_token(<<"mfa_">>),
+    Pending = #{
+        type => setup,
+        token => Token,
+        secret => TotpSecret,
+        timestamp => erlang:system_time(second)
+    },
+    {ok, ok} = emqx_dashboard_admin:set_mfa_pending(Username, Pending),
+    Token.
+
+%% @doc Create a short-lived temporary token for SSO MFA verify flow.
+-spec create_verify_token(binary()) -> binary().
+create_verify_token(Username) ->
+    Token = generate_token(<<"mfa_">>),
+    Pending = #{
+        type => challenge,
+        token => Token,
+        timestamp => erlang:system_time(second)
+    },
+    {ok, ok} = emqx_dashboard_admin:set_mfa_pending(Username, Pending),
+    Token.
+
+%% @doc Verify and consume a temporary token.
+%% Looks up the pending token by username (O(1) ets:lookup) and compares.
+-spec verify_temp_token(dashboard_username(), binary()) ->
+    {ok, term(), temp_token_purpose()} | {error, term()}.
+verify_temp_token(SsoUsername, Token) ->
+    case emqx_dashboard_admin:get_mfa_pending(SsoUsername) of
+        {ok, #{token := StoredToken, type := Type, timestamp := Timestamp} = Pending} when
+            StoredToken =:= Token
+        ->
+            case is_token_valid(Timestamp) of
+                true ->
+                    {ok, ok} = emqx_dashboard_admin:clear_mfa_pending(SsoUsername),
+                    {ok, SsoUsername, to_purpose(Type, Pending)};
+                false ->
+                    {error, token_expired}
+            end;
+        _ ->
+            {error, invalid_token}
+    end.
+
+%% @doc Peek at a temporary token without consuming it.
+-spec peek_temp_token(dashboard_username(), binary()) ->
+    {ok, term(), temp_token_purpose()} | {error, term()}.
+peek_temp_token(SsoUsername, Token) ->
+    case emqx_dashboard_admin:get_mfa_pending(SsoUsername) of
+        {ok, #{token := StoredToken, type := Type, timestamp := Timestamp} = Pending} when
+            StoredToken =:= Token
+        ->
+            case is_token_valid(Timestamp) of
+                true ->
+                    {ok, SsoUsername, to_purpose(Type, Pending)};
+                false ->
+                    {error, token_expired}
+            end;
+        _ ->
+            {error, invalid_token}
+    end.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+%% @doc Generate a random token with a prefix.
+%% Format: <<Prefix, RandomHex:64>>
+-spec generate_token(binary()) -> binary().
+generate_token(Prefix) ->
+    Hex = binary:encode_hex(crypto:strong_rand_bytes(?TOKEN_BYTES), lowercase),
+    <<Prefix/binary, Hex/binary>>.
+
+is_token_valid(Timestamp) when is_integer(Timestamp) ->
+    Now = erlang:system_time(second),
+    (Now - Timestamp) < ?TEMP_TOKEN_TTL_SEC;
+is_token_valid(_) ->
+    false.
+
+to_purpose(setup, #{secret := Secret}) -> {setup, Secret};
+to_purpose(challenge, _Pending) -> verify.

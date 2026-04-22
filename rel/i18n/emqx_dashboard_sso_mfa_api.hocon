@@ -1,0 +1,69 @@
+emqx_dashboard_sso_mfa_api {
+
+mfa_setup_info.desc:
+"""Retrieve TOTP setup info (secret, mechanism) for QR code display. Requires a valid setup token in the request body."""
+
+mfa_setup_info.label:
+"""MFA Setup Info"""
+
+mfa_setup.desc:
+"""Complete SSO MFA TOTP setup: bind the TOTP authenticator and issue a JWT session token."""
+
+mfa_setup.label:
+"""MFA Setup"""
+
+mfa_verify.desc:
+"""Verify SSO MFA TOTP code and issue a JWT session token."""
+
+mfa_verify.label:
+"""MFA Verify"""
+
+setup_token.desc:
+"""Temporary setup token from SSO login flow."""
+
+setup_token.label:
+"""Setup Token"""
+
+verify_token.desc:
+"""Temporary verify token from SSO login flow."""
+
+verify_token.label:
+"""Verify Token"""
+
+totp_code.desc:
+"""TOTP code from the authenticator app."""
+
+totp_code.label:
+"""TOTP Code"""
+
+totp_secret.desc:
+"""TOTP secret for QR code generation."""
+
+totp_secret.label:
+"""TOTP Secret"""
+
+mfa_mechanism.desc:
+"""MFA mechanism type (e.g. totp)."""
+
+mfa_mechanism.label:
+"""MFA Mechanism"""
+
+bad_request.desc:
+"""Bad request. Missing or invalid fields."""
+
+unauthorized.desc:
+"""Unauthorized. Invalid or expired token."""
+
+sso_username.desc:
+"""SSO username from login metadata."""
+
+sso_username.label:
+"""SSO Username"""
+
+sso_backend.desc:
+"""SSO backend type (e.g. saml, oidc)."""
+
+sso_backend.label:
+"""SSO Backend"""
+
+}

@@ -10,6 +10,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -37,6 +38,7 @@
     get_trace_details/1,
     read_trace_file/3
 ]).
+-export([scopes/0]).
 
 -define(CONF_ROOT, <<"trace">>).
 -define(MAX_READ_TRACE_BYTES, 64 * 1024 * 1024).
@@ -50,6 +52,8 @@ namespace() -> "trace".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
+
+scopes() -> ?SCOPE_MONITORING.
 
 paths() ->
     [

@@ -112,5 +112,11 @@ change_mfa.label:
 delete_mfa.label:
 """Delete MFA"""
 
+reset_mfa.desc:
+"""Reset MFA for a dashboard user. Completely removes the MFA record so the user must re-bind TOTP on next login. Unlike disabling MFA (which preserves the state as explicitly disabled), reset returns the user to a clean state as if MFA was never configured."""
+
+mfa_reset_param.desc:
+"""When true, completely removes the MFA record (hard reset). The user must re-bind TOTP on next login if force_mfa is enabled. When false (default), soft-disables MFA: marks as admin-disabled so force_mfa won't re-trigger setup."""
+
 
 }
