@@ -79,18 +79,16 @@ on_get_channels(InstId) ->
     emqx_bridge_influxdb_connector:on_get_channels(InstId).
 
 on_start(InstId, Config) ->
-    case driver_type(Config) of
-        influxdb_v1 ->
-            Config1 = convert_config_to_influxdb(Config),
-            emqx_bridge_influxdb_connector:on_start(InstId, Config1)
-    end.
-
-driver_type(#{parameters := #{driver_type := influxdb_v1}}) ->
-    influxdb_v1.
+    Config1 = convert_config_to_influxdb(Config),
+    emqx_bridge_influxdb_connector:on_start(InstId, Config1).
 
 convert_config_to_influxdb(Config = #{parameters := Params = #{driver_type := influxdb_v1}}) ->
+    Params1 = Params#{
+        influxdb_type => influxdb_api_v1,
+        v1_auth_transport => query_string
+    },
     Config#{
-        parameters := maps:without([driver_type], Params#{influxdb_type => influxdb_api_v1})
+        parameters := maps:without([driver_type], Params1)
     }.
 
 on_stop(InstId, State) ->
