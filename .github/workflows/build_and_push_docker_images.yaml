@@ -72,7 +72,6 @@ jobs:
     env:
       PROFILE: ${{ matrix.profile }}
       DOCKER_ORG: ${{ github.repository_owner }}
-      DOCKER_LATEST: ${{ inputs.latest }}
       ARCH: ${{ matrix.arch }}
 
     steps:
@@ -157,7 +156,6 @@ jobs:
 
     env:
       PROFILE: ${{ inputs.profile }}
-      DOCKER_LATEST: false
       ARCH: ${{ matrix.arch }}
 
     steps:
@@ -241,90 +239,20 @@ jobs:
           path: "${{ env.PROFILE }}-docker-sf-${{ matrix.arch }}.tar.gz"
           retention-days: 7
 
-  publish-docker:
+  publish:
     runs-on: ubuntu-22.04
-    if: inputs.publish
+    # The base variant only needs `docker` to succeed. A failed
+    # `docker-sfodbc` must not block the base publication, so the
+    # job-level `if:` checks only `docker`. The sf variant handles its
+    # own upstream gate in the Gate step below.
+    if: |
+      !cancelled() && inputs.publish && needs.docker.result == 'success'
     needs:
       - docker
-    defaults:
-      run:
-        shell: bash
-
-    services:
-      registry:
-        image: registry:2
-        ports:
-          - 5000:5000
-
-    env:
-      PROFILE: ${{ inputs.profile }}
-      DOCKER_LATEST: ${{ inputs.latest }}
-
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.inputs.ref }}
-
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
-        with:
-          driver-opts: network=host
-
-      - name: Login to hub.docker.com
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-        with:
-          username: ${{ secrets.DOCKER_HUB_USER }}
-          password: ${{ secrets.DOCKER_HUB_TOKEN }}
-
-      - name: Download docker images
-        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
-        with:
-          pattern: "${{ env.PROFILE }}-docker-*"
-          path: images/
-          merge-multiple: true
-
-      - name: Load, push and create multiarch manifest
-        run: |
-          # Load AMD64 image and retag to prevent overwriting
-          AMD64_IMAGE=$(docker load < images/$PROFILE-docker-amd64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
-          echo "Loaded AMD64 image: $AMD64_IMAGE"
-          VERSION=$(echo "$AMD64_IMAGE" | sed 's/.*://')
-          LOCAL_BASE="localhost:5000/${{ github.repository_owner }}/${PROFILE}"
-          docker tag "$AMD64_IMAGE" "${LOCAL_BASE}:${VERSION}-amd64"
-          docker push "${LOCAL_BASE}:${VERSION}-amd64"
-
-          # Load ARM64 image and retag
-          ARM64_IMAGE=$(docker load < images/$PROFILE-docker-arm64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
-          echo "Loaded ARM64 image: $ARM64_IMAGE"
-          docker tag "$ARM64_IMAGE" "${LOCAL_BASE}:${VERSION}-arm64"
-          docker push "${LOCAL_BASE}:${VERSION}-arm64"
-
-          # Assemble the list of destination tags for the multiarch manifest
-          TARGET_TAGS=(
-            "docker.io/${{ github.repository_owner }}/${PROFILE}:${VERSION}"
-            "docker.io/emqx/emqx:${VERSION}"
-          )
-          if [ "${DOCKER_LATEST}" = "true" ]; then
-            TARGET_TAGS+=(
-              "docker.io/${{ github.repository_owner }}/${PROFILE}:latest"
-              "docker.io/emqx/emqx:latest"
-            )
-          fi
-
-          echo "Creating multiarch manifest for docker.io:"
-          TAG_ARGS=()
-          for t in "${TARGET_TAGS[@]}"; do
-            echo "  - $t"
-            TAG_ARGS+=(--tag "$t")
-          done
-          docker buildx imagetools create \
-            "${TAG_ARGS[@]}" \
-            "${LOCAL_BASE}:${VERSION}-amd64" \
-            "${LOCAL_BASE}:${VERSION}-arm64"
-
-  publish-docker-sfodbc:
-    runs-on: ubuntu-22.04
-    if: inputs.publish && inputs.profile == 'emqx-enterprise'
-    needs:
+      # docker-sfodbc is only consumed by the sf matrix variant, but
+      # GitHub Actions matrix entries share `needs:`, so both list it.
+      # The gate step below no-ops the sf variant when docker-sfodbc
+      # didn't succeed.
       - docker-sfodbc
     defaults:
       run:
@@ -336,6 +264,19 @@ jobs:
         ports:
           - 5000:5000
 
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: base
+            artifact_pattern: "${{ inputs.profile }}-docker-*"
+            # base variant: profile-named tarball (no -sf suffix)
+            tarball_prefix: "docker"
+          - variant: sf
+            artifact_pattern: "${{ inputs.profile }}-sf-docker-*"
+            # sf variant: snowflake tarball named with -sf- infix
+            tarball_prefix: "docker-sf"
+
     env:
       PROFILE: ${{ inputs.profile }}
 
@@ -344,48 +285,103 @@ jobs:
         with:
           ref: ${{ github.event.inputs.ref }}
 
+      - name: Gate variant on upstream
+        id: gate
+        env:
+          VARIANT: ${{ matrix.variant }}
+          SFODBC_RESULT: ${{ needs.docker-sfodbc.result }}
+        run: |
+          # sf variant only runs when docker-sfodbc actually succeeded.
+          # For non-enterprise builds it's skipped; for a broken snowflake
+          # build it's failed. Either way, the sf matrix entry no-ops and
+          # the base variant still publishes.
+          if [ "$VARIANT" = "sf" ] && [ "$SFODBC_RESULT" != "success" ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        if: steps.gate.outputs.skip == 'false'
         with:
           driver-opts: network=host
 
       - name: Login to hub.docker.com
+        if: steps.gate.outputs.skip == 'false'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
       - name: Download docker images
+        if: steps.gate.outputs.skip == 'false'
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
-          pattern: "${{ env.PROFILE }}-sf-docker-*"
+          pattern: "${{ matrix.artifact_pattern }}"
           path: images/
           merge-multiple: true
 
-      - name: Load, push and create multiarch manifest
+      - name: Materialize per-arch refs in local registry
+        if: steps.gate.outputs.skip == 'false'
+        id: refs
         run: |
-          # Load AMD64 image and retag to prevent overwriting
-          AMD64_IMAGE=$(docker load < images/$PROFILE-docker-sf-amd64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
-          echo "Loaded AMD64 image: $AMD64_IMAGE"
-          VERSION=$(echo "$AMD64_IMAGE" | sed 's/.*://')
+          set -euo pipefail
+
           LOCAL_BASE="localhost:5000/${{ github.repository_owner }}/${PROFILE}"
-          docker tag "$AMD64_IMAGE" "${LOCAL_BASE}:${VERSION}-amd64"
-          docker push "${LOCAL_BASE}:${VERSION}-amd64"
+          TARBALL_PREFIX="${{ matrix.tarball_prefix }}"
 
-          # Load ARM64 image and retag
-          ARM64_IMAGE=$(docker load < images/$PROFILE-docker-sf-arm64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
-          echo "Loaded ARM64 image: $ARM64_IMAGE"
-          docker tag "$ARM64_IMAGE" "${LOCAL_BASE}:${VERSION}-arm64"
-          docker push "${LOCAL_BASE}:${VERSION}-arm64"
+          # amd64
+          AMD64_LOADED=$(docker load < "images/${PROFILE}-${TARBALL_PREFIX}-amd64.tar.gz" | grep "Loaded image:" | sed 's/Loaded image: //')
+          echo "Loaded amd64 image: $AMD64_LOADED"
+          VERSION="${AMD64_LOADED##*:}"
+          AMD64_REF="${LOCAL_BASE}:${VERSION}-amd64"
+          docker tag "$AMD64_LOADED" "$AMD64_REF"
+          docker push "$AMD64_REF"
 
-          # Create multiarch manifest and push to docker.io (only profile-specific tag for snowflake)
-          DOCKER_IO_PROFILE_TAG="docker.io/${{ github.repository_owner }}/${PROFILE}:$VERSION"
+          # arm64
+          ARM64_LOADED=$(docker load < "images/${PROFILE}-${TARBALL_PREFIX}-arm64.tar.gz" | grep "Loaded image:" | sed 's/Loaded image: //')
+          echo "Loaded arm64 image: $ARM64_LOADED"
+          ARM64_VERSION="${ARM64_LOADED##*:}"
+          ARM64_REF="${LOCAL_BASE}:${ARM64_VERSION}-arm64"
+          docker tag "$ARM64_LOADED" "$ARM64_REF"
+          docker push "$ARM64_REF"
 
-          echo "Creating multiarch manifest for docker.io:"
-          echo "  - $DOCKER_IO_PROFILE_TAG"
-          docker buildx imagetools create \
-            --tag "$DOCKER_IO_PROFILE_TAG" \
-            "${LOCAL_BASE}:${VERSION}-amd64" \
-            "${LOCAL_BASE}:${VERSION}-arm64"
+          if [ "$VERSION" != "$ARM64_VERSION" ]; then
+              echo "error: amd64 version ($VERSION) does not match arm64 version ($ARM64_VERSION)" >&2
+              exit 1
+          fi
+
+          {
+              echo "amd64_ref=$AMD64_REF"
+              echo "arm64_ref=$ARM64_REF"
+              echo "version=$VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Assemble and push multi-arch manifest
+        if: steps.gate.outputs.skip == 'false'
+        env:
+          DOCKER_LATEST: ${{ inputs.latest }}
+          OWNER: ${{ github.repository_owner }}
+          VARIANT: ${{ matrix.variant }}
+          VERSION: ${{ steps.refs.outputs.version }}
+          AMD64_REF: ${{ steps.refs.outputs.amd64_ref }}
+          ARM64_REF: ${{ steps.refs.outputs.arm64_ref }}
+        run: |
+          set -euo pipefail
+
+          TAG_ARGS=(--tag "docker.io/${OWNER}/${PROFILE}:${VERSION}")
+          if [ "$VARIANT" = "base" ]; then
+              TAG_ARGS+=(--tag "docker.io/emqx/emqx:${VERSION}")
+              if [ "$DOCKER_LATEST" = "true" ]; then
+                  TAG_ARGS+=(--tag "docker.io/${OWNER}/${PROFILE}:latest")
+                  TAG_ARGS+=(--tag "docker.io/emqx/emqx:latest")
+              fi
+          fi
+
+          ./scripts/docker-publish-manifest.sh \
+              --source "$AMD64_REF" \
+              --source "$ARM64_REF" \
+              "${TAG_ARGS[@]}"
 
   upload:
     runs-on: ubuntu-22.04
