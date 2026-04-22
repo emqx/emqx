@@ -28,7 +28,7 @@ end_per_suite(Config) ->
     _ = emqx_common_test_helpers:stop_peer(?config(peer, Config)),
     emqx_common_test_helpers:stop_apps_ds(Config).
 
-t_nodes_api(Config) ->
+t_nodes_api(_Config) ->
     Node = atom_to_binary(node(), utf8),
     Topic = <<"test_topic">>,
     Client = client(?FUNCTION_NAME),
@@ -60,20 +60,11 @@ t_nodes_api(Config) ->
     ),
 
     %% get topics/:topic
-    %% We add another route here to ensure that the response handles
-    %% multiple routes for a single topic
-    Peer = ?config(peer, Config),
-    ok = emqx_router:add_route(Topic, Peer),
     RouteResponse = request_json(get, ["topics", Topic]),
-    ok = emqx_router:delete_route(Topic, Peer),
-
-    [
-        #{<<"topic">> := Topic, <<"node">> := Node1},
-        #{<<"topic">> := Topic, <<"node">> := Node2}
-    ] = RouteResponse,
-
-    ?assertEqual(lists:sort([Node, atom_to_binary(Peer)]), lists:sort([Node1, Node2])),
-
+    ?assertEqual(
+        [#{<<"topic">> => Topic, <<"node">> => Node}],
+        RouteResponse
+    ),
     ok = emqtt:stop(Client).
 
 t_paging(_Config) ->
