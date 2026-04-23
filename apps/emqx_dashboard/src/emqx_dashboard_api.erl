@@ -464,7 +464,10 @@ change_mfa(post, #{bindings := #{username := Username0}, body := Settings} = Req
             {204};
         {error, <<"username_not_found">>} ->
             ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
-            {404, ?USER_NOT_FOUND, <<"User not found">>}
+            {404, ?USER_NOT_FOUND, <<"User not found">>};
+        {error, Reason} ->
+            ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
+            {400, ?BAD_REQUEST, Reason}
     end.
 
 register_unsuccessful_login(Username, <<"password_error">>) ->
