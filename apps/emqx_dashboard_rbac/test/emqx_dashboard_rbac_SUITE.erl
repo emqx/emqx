@@ -210,6 +210,32 @@ t_setup_mfa(_) ->
 t_delete_mfa(_) ->
     test_mfa(fun delete_mfa/2).
 
+t_delete_mfa_sso_force_mfa(_) ->
+    SsoBackend = saml,
+    SsoUser = <<"sso_viewermfa">>,
+    LocalUser = <<"local_viewermfa">>,
+    Password = <<"xyz124abc">>,
+    Desc = <<"desc">>,
+    SsoConfig = emqx:get_config([dashboard, sso, SsoBackend], #{}),
+    {ok, _} = emqx_dashboard_admin:add_sso_user(SsoBackend, SsoUser, ?ROLE_VIEWER, Desc),
+    {ok, _} = emqx_dashboard_admin:add_user(LocalUser, Password, ?ROLE_VIEWER, Desc),
+    {ok, #{role := ?ROLE_VIEWER, token := SsoToken}} = emqx_dashboard_admin:sign_token(
+        ?SSO_USERNAME(SsoBackend, SsoUser), <<>>
+    ),
+    {ok, #{role := ?ROLE_VIEWER, token := LocalToken}} = emqx_dashboard_admin:sign_token(
+        LocalUser, Password
+    ),
+    try
+        ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig#{force_mfa => false}),
+        ?assertEqual({ok, SsoUser}, delete_mfa(SsoToken, SsoUser)),
+        ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig#{force_mfa => true}),
+        ?assertEqual({error, unauthorized_role}, delete_mfa(SsoToken, SsoUser)),
+        ?assertEqual({ok, LocalUser}, delete_mfa(LocalToken, LocalUser))
+    after
+        ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig)
+    end,
+    ok.
+
 test_mfa(VerifyFn) ->
     Viewer1 = <<"viewermfa1">>,
     Viewer2 = <<"viewermfa2">>,
