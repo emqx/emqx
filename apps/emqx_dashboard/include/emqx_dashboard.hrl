@@ -32,7 +32,8 @@
     %%   mfa_pending => #{type => setup | challenge,
     %%                    token => binary(),
     %%                    secret => binary(),        %% setup only
-    %%                    timestamp => integer()}
+    %%                    timestamp => integer(),
+    %%                    failed_attempts => non_neg_integer()}
     %%     Short-lived SSO MFA session token for TOTP setup or verification.
     %%     Only used when MFA is required after SSO login.
     %%     For regular (non-SSO) login, no pending state is required.
