@@ -273,7 +273,25 @@ clear_mfa_pending(Admin, Extra) ->
 return_mfa_pending_transaction({atomic, Result}) ->
     Result;
 return_mfa_pending_transaction({aborted, Reason}) ->
-    {error, Reason}.
+    {error, normalize_mfa_pending_transaction_error(Reason)};
+return_mfa_pending_transaction({timeout, {atomic, Result}}) ->
+    Result;
+return_mfa_pending_transaction({timeout, {aborted, Reason}}) ->
+    {error, normalize_mfa_pending_transaction_error(Reason)};
+return_mfa_pending_transaction({timeout, {error, Reason}}) ->
+    {error, normalize_mfa_pending_transaction_error(Reason)}.
+
+normalize_mfa_pending_transaction_error(invalid_token) ->
+    invalid_token;
+normalize_mfa_pending_transaction_error(token_expired) ->
+    token_expired;
+normalize_mfa_pending_transaction_error({error, invalid_token}) ->
+    invalid_token;
+normalize_mfa_pending_transaction_error({error, token_expired}) ->
+    token_expired;
+normalize_mfa_pending_transaction_error(Reason) ->
+    logger:warning("unexpected_mfa_pending_transaction_error: ~0p", [Reason]),
+    internal_error.
 
 %%--------------------------------------------------------------------
 %% Internal functions

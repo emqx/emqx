@@ -354,7 +354,9 @@ response_schema(401) ->
 
 format_error(token_expired) -> <<"Token expired">>;
 format_error(invalid_token) -> <<"Invalid token">>;
-format_error(Reason) when is_binary(Reason) -> Reason.
+format_error(internal_error) -> <<"Internal error">>;
+format_error(Reason) when is_binary(Reason) -> Reason;
+format_error(_) -> <<"Internal error">>.
 
 parse_backend(BackendBin) ->
     emqx_dashboard_sso:parse_backend(BackendBin).
