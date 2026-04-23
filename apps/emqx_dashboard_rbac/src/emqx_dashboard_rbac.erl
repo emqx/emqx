@@ -90,6 +90,8 @@ check_rbac(?ROLE_VIEWER, <<"DELETE">>, <<"/users/", SubPath/binary>>, Username, 
 check_rbac(_, _, _, _, _) ->
     false.
 
+%% force_mfa is an SSO-backend policy only; regular dashboard accounts
+%% authenticated via the local backend do not participate in SSO MFA enforcement.
 is_forced_sso_mfa(?BACKEND_LOCAL) ->
     false;
 is_forced_sso_mfa(Backend) ->
