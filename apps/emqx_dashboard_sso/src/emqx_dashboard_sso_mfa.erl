@@ -29,13 +29,8 @@
     | {mfa_setup, binary(), map()}
     | {mfa_verify, binary()}.
 check_sso_mfa(User, Backend) ->
-    case get_force_mfa(Backend) of
-        false ->
-            {ok, login};
-        true ->
-            #?ADMIN{username = Username} = User,
-            check_user_mfa_state(Username, User)
-    end.
+    #?ADMIN{username = Username} = User,
+    check_user_mfa_state(Username, get_force_mfa(Backend)).
 
 %% @doc Get force_mfa config for a given SSO backend.
 -spec get_force_mfa(atom()) -> boolean().
@@ -49,17 +44,19 @@ get_force_mfa(Backend) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
--spec check_user_mfa_state(term(), dashboard_user()) ->
+-spec check_user_mfa_state(term(), boolean()) ->
     {ok, login}
     | {mfa_setup, binary(), map()}
     | {mfa_verify, binary()}.
-check_user_mfa_state(Username, _User) ->
+check_user_mfa_state(Username, ForceMfa) ->
     MfaState = emqx_dashboard_admin:get_mfa_state(Username),
     case classify_mfa_state(MfaState) of
         admin_disabled ->
             {ok, login};
-        not_configured ->
+        not_configured when ForceMfa ->
             init_and_create_setup(Username);
+        not_configured ->
+            {ok, login};
         setup_required ->
             %% Secret exists (from enable_mfa/reinit) but user hasn't scanned QR yet
             {ok, #{secret := Secret}} = MfaState,
