@@ -463,22 +463,26 @@ error_schema(Code, ?DESC(_) = MessageRef) ->
     QS = maps:get(query_string, Params, #{}),
     LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
-    ?OK(emqx_mt:list_ns(LastNs, Limit)).
+    Items = emqx_mt:list_ns(LastNs, Limit + 1),
+    paginated_response(Items, Limit, <<"last_ns">>, fun identity/1).
 
 '/mt/ns_list_details'(get, Params) ->
     QS = maps:get(query_string, Params, #{}),
     LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
-    Details = emqx_mt:list_ns_details(LastNs, Limit),
-    ?OK(lists:map(fun ns_details_out/1, Details)).
+    Details = emqx_mt:list_ns_details(LastNs, Limit + 1),
+    Items = lists:map(fun ns_details_out/1, Details),
+    paginated_response(Items, Limit, <<"last_ns">>, fun ns_details_cursor/1).
 
 '/mt/ns/:ns/client_list'(get, #{bindings := #{ns := Ns}} = Params) ->
     QS = maps:get(query_string, Params, #{}),
     LastClientId = maps:get(<<"last_clientid">>, QS, ?MIN_CLIENTID),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
-    case emqx_mt:list_clients(Ns, LastClientId, Limit) of
-        {ok, Clients} -> ?OK(Clients);
-        {error, not_found} -> ?NOT_FOUND("Namespace not found")
+    case emqx_mt:list_clients(Ns, LastClientId, Limit + 1) of
+        {ok, Clients} ->
+            paginated_response(Clients, Limit, <<"last_clientid">>, fun identity/1);
+        {error, not_found} ->
+            ?NOT_FOUND("Namespace not found")
     end.
 
 '/mt/ns/:ns/client_count'(get, #{bindings := #{ns := Ns}}) ->
@@ -491,14 +495,16 @@ error_schema(Code, ?DESC(_) = MessageRef) ->
     QS = maps:get(query_string, Params, #{}),
     LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
-    ?OK(emqx_mt:list_managed_ns(LastNs, Limit)).
+    Items = emqx_mt:list_managed_ns(LastNs, Limit + 1),
+    paginated_response(Items, Limit, <<"last_ns">>, fun identity/1).
 
 '/mt/managed_ns_list_details'(get, Params) ->
     QS = maps:get(query_string, Params, #{}),
     LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
-    Details = emqx_mt:list_managed_ns_details(LastNs, Limit),
-    ?OK(lists:map(fun ns_details_out/1, Details)).
+    Details = emqx_mt:list_managed_ns_details(LastNs, Limit + 1),
+    Items = lists:map(fun ns_details_out/1, Details),
+    paginated_response(Items, Limit, <<"last_ns">>, fun ns_details_cursor/1).
 
 '/mt/ns/:ns'(post, #{bindings := #{ns := Ns}}) ->
     handle_create_managed_ns(Ns);
@@ -954,3 +960,24 @@ ns_not_found() ->
 
 managed_ns_not_found() ->
     ?NOT_FOUND(<<"Managed namespace not found">>).
+
+%% Emit a 200 response; attach an RFC 8288 `Link; rel="next"` header when the
+%% backend returned Limit+1 items, indicating the caller can fetch another page.
+paginated_response(Items, Limit, CursorKey, CursorFn) ->
+    case length(Items) > Limit of
+        true ->
+            Page = lists:sublist(Items, Limit),
+            Cursor = CursorFn(lists:last(Page)),
+            Query = uri_string:compose_query([
+                {CursorKey, Cursor},
+                {<<"limit">>, integer_to_binary(Limit)}
+            ]),
+            Link = iolist_to_binary([<<"<?">>, Query, <<">; rel=\"next\"">>]),
+            {200, #{<<"link">> => Link}, Page};
+        false ->
+            ?OK(Items)
+    end.
+
+identity(X) -> X.
+
+ns_details_cursor(#{<<"name">> := Name}) -> Name.

@@ -3,18 +3,31 @@ emqx_mt_api {
         desc: """~
             List all namespaces
             The namespaces are sorted in lexicographical order,
-            so this API can be used for prefix based fuzzy search.~"""
+            so this API can be used for prefix based fuzzy search.
+            When more pages are available, the response carries a
+            `Link: <?last_ns=...&limit=...>; rel="next"` header (RFC 8288)
+            whose URI-reference resolves against the request URL.
+            Absence of the header indicates the current page is the last.~"""
         label: "List Namespaces"
     }
     ns_list_details {
         desc: """~
             List all namespaces, along with some extra details.
             The namespaces are sorted in lexicographical order,
-            so this API can be used for prefix based fuzzy search.~"""
+            so this API can be used for prefix based fuzzy search.
+            When more pages are available, the response carries a
+            `Link: <?last_ns=...&limit=...>; rel="next"` header (RFC 8288)
+            whose URI-reference resolves against the request URL.
+            Absence of the header indicates the current page is the last.~"""
         label: "List Namespaces with extra details"
     }
     client_list {
-        desc: "List all clients in a namespace"
+        desc: """~
+            List all clients in a namespace.
+            When more pages are available, the response carries a
+            `Link: <?last_clientid=...&limit=...>; rel="next"` header (RFC 8288)
+            whose URI-reference resolves against the request URL.
+            Absence of the header indicates the current page is the last.~"""
         label: "List Clients"
     }
     client_count {
@@ -41,14 +54,22 @@ emqx_mt_api {
         desc: """~
             List all managed namespaces
             The namespaces are sorted in lexicographical order,
-            so this API can be used for prefix based fuzzy search.~"""
+            so this API can be used for prefix based fuzzy search.
+            When more pages are available, the response carries a
+            `Link: <?last_ns=...&limit=...>; rel="next"` header (RFC 8288)
+            whose URI-reference resolves against the request URL.
+            Absence of the header indicates the current page is the last.~"""
         label: "List managed namespaces"
     }
     managed_ns_list_details {
         desc: """~
             List all managed namespaces with extra details.
             The namespaces are sorted in lexicographical order,
-            so this API can be used for prefix based fuzzy search.~"""
+            so this API can be used for prefix based fuzzy search.
+            When more pages are available, the response carries a
+            `Link: <?last_ns=...&limit=...>; rel="next"` header (RFC 8288)
+            whose URI-reference resolves against the request URL.
+            Absence of the header indicates the current page is the last.~"""
         label: "List managed namespaces with extra details"
     }
     create_managed_ns {
