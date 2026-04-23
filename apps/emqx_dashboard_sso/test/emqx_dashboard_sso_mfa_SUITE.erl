@@ -229,6 +229,47 @@ t_check_sso_mfa_no_force(_Config) ->
     ?assertEqual({ok, login}, Result),
     ok.
 
+t_check_sso_mfa_enabled_no_force({init, Config}) ->
+    mock_force_mfa(?SSO_BACKEND, false),
+    SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER2),
+    MfaState = #{mechanism => totp, secret => <<"TESTSECRET">>, first_verify_ts => 1000},
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, MfaState),
+    Config;
+t_check_sso_mfa_enabled_no_force({'end', _Config}) ->
+    clear_force_mfa(?SSO_BACKEND),
+    _ = emqx_dashboard_admin:clear_mfa_pending(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER2)),
+    _ = emqx_dashboard_admin:clear_mfa_state(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER2)),
+    ok;
+t_check_sso_mfa_enabled_no_force(_Config) ->
+    [User] = emqx_dashboard_admin:lookup_user(?SSO_BACKEND, ?SSO_USER2),
+    Result = emqx_dashboard_sso_mfa:check_sso_mfa(User, ?SSO_BACKEND),
+    %% force_mfa=false, MFA enabled => still require verification
+    ?assertMatch({mfa_verify, _VerifyToken}, Result),
+    {mfa_verify, VerifyToken} = Result,
+    ?assert(is_binary(VerifyToken)),
+    ok.
+
+t_check_sso_mfa_setup_required_no_force({init, Config}) ->
+    mock_force_mfa(?SSO_BACKEND, false),
+    SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),
+    MfaState = #{mechanism => totp, secret => <<"SETUPSECRET">>},
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, MfaState),
+    Config;
+t_check_sso_mfa_setup_required_no_force({'end', _Config}) ->
+    clear_force_mfa(?SSO_BACKEND),
+    _ = emqx_dashboard_admin:clear_mfa_pending(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    _ = emqx_dashboard_admin:clear_mfa_state(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    ok;
+t_check_sso_mfa_setup_required_no_force(_Config) ->
+    [User] = emqx_dashboard_admin:lookup_user(?SSO_BACKEND, ?SSO_USER),
+    Result = emqx_dashboard_sso_mfa:check_sso_mfa(User, ?SSO_BACKEND),
+    %% force_mfa=false, MFA setup is pending => still require setup
+    ?assertMatch({mfa_setup, _SetupToken, _QRInfo}, Result),
+    {mfa_setup, SetupToken, QRInfo} = Result,
+    ?assert(is_binary(SetupToken)),
+    ?assertEqual(#{secret => <<"SETUPSECRET">>, mechanism => totp}, QRInfo),
+    ok.
+
 t_check_sso_mfa_not_configured({init, Config}) ->
     mock_force_mfa(?SSO_BACKEND, true),
     ok = mock_totp(),
