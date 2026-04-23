@@ -237,8 +237,7 @@ record_temp_token_failure(SsoUsername, Token) ->
 lookup_valid_temp_token(SsoUsername, Token, LockKind) ->
     case read_admin(SsoUsername, LockKind) of
         [#?ADMIN{extra = Extra0} = Admin] ->
-            Extra = upgrade_extra(Extra0),
-            validate_pending_token(Admin, Extra, Token);
+            validate_pending_token(Admin, Extra0, Token);
         [] ->
             {error, invalid_token}
     end.
@@ -275,9 +274,6 @@ return_mfa_pending_transaction({atomic, Result}) ->
     Result;
 return_mfa_pending_transaction({aborted, Reason}) ->
     {error, Reason}.
-
-upgrade_extra([]) -> #{};
-upgrade_extra(Map) when is_map(Map) -> Map.
 
 %%--------------------------------------------------------------------
 %% Internal functions
