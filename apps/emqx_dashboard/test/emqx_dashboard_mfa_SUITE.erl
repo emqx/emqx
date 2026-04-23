@@ -306,7 +306,7 @@ t_reset_mfa(_Config) ->
     ?assertMatch({ok, 204, _}, enable_mfa(<<"viewer1">>, AdminJwtToken)),
     {ok, #{secret := Secret1}} = emqx_dashboard_admin:get_mfa_state(<<"viewer1">>),
     ?assertNotEqual(Secret0, Secret1),
-    timer:sleep(5),
+    ok = gen_server:call(emqx_dashboard_token, dummy, infinity),
     ?assertMatch({error, not_found}, emqx_dashboard_admin:verify_token(fake_req(), JwtToken)),
     ?assertMatch(#{<<"mfa">> := <<"totp">>}, get_user(<<"viewer1">>)),
     %% reset=true is no longer a hard reset. It behaves like ordinary DELETE.
@@ -317,6 +317,21 @@ t_reset_mfa(_Config) ->
     ?assertMatch({ok, 200, _}, login(LoginNoTotp)),
     %% non-existent user should return 404
     ?assertMatch({ok, 404, _}, delete_mfa_with_reset_query(<<"nonexistent_user">>, AdminJwtToken)),
+    ok.
+
+t_reset_mfa_reinit_error({init, Config}) ->
+    ok = meck:new(emqx_dashboard_admin, [passthrough, no_history]),
+    Config;
+t_reset_mfa_reinit_error({'end', _Config}) ->
+    ok = meck:unload(emqx_dashboard_admin);
+t_reset_mfa_reinit_error(_Config) ->
+    ok = meck:expect(emqx_dashboard_admin, reinit_mfa, fun(_, _) -> {error, <<"boom">>} end),
+    Req = #{
+        bindings => #{username => <<"viewer1">>},
+        body => #{<<"mechanism">> => <<"totp">>},
+        query_string => #{<<"backend">> => <<"local">>}
+    },
+    ?assertMatch({400, 'BAD_REQUEST', <<"boom">>}, emqx_dashboard_api:change_mfa(post, Req)),
     ok.
 
 %%------------------------------------------------------------------------------
