@@ -24,9 +24,6 @@ options:
 
   --dryrun:          Do not actually create the git tag.
 
-  --skip-appup:      Skip checking appup
-                     Useful when you are sure that appup is already updated'
-
   --prev-tag <tag>:  Provide the prev tag to automatically generate changelogs
                      If this option is absent, the tag found by git describe will be used
 
@@ -205,10 +202,6 @@ SYNC_REMOTES_ARGS=
 
 ## Check if app versions are bumped
 ./scripts/apps-version-check.exs
-
-## Ensure relup paths are updated
-## TODO: add relup path db
-#./scripts/relup-base-vsns.escript check-vsn-db "$RELEASE_VSN" "$RELUP_PATHS"
 
 ## Run some additional checks (e.g. some for enterprise edition only)
 CHECKS_DIR="./scripts/rel/checks"
