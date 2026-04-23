@@ -187,9 +187,11 @@ SKILLS are named capability instances registered in the skill registry.
 Each skill has a TYPE (what it does) and an ID (its name within that type).
 Skills are referenced in pipeline steps as "type@id", e.g. "message.publish@my-notifier".
 
-A SESSION PROFILE holds LLM credentials and a system prompt.
+A SESSION PROFILE holds LLM credentials (api_key, base_url).
 It is referenced by name inside an llm_loop step.
 One session profile can be shared by many pipelines / steps.
+The model and instructions (system prompt) are NOT part of the session profile —
+they are set on the llm_loop step itself.
 
 A PIPELINE reacts to MQTT events and executes an ordered list of steps.
 Steps can call skills, run LLM reasoning loops, wait for more MQTT events,
@@ -207,7 +209,7 @@ Building a working pipeline requires three separate creation steps, in this orde
      what HTTP endpoint to call, what SQL to execute, etc.
 
   2. Create a SESSION PROFILE — if any step is an llm_loop, you need a profile
-     that tells the LLM who it is (api_key env var name, base_url, model, instructions).
+     with api_key (env var name) and base_url only.
      The api_key field must be the NAME of an OS environment variable (e.g. "OPENAI_API_KEY"),
      NOT the actual secret — EMQX resolves it from the environment at call time.
 
@@ -267,6 +269,8 @@ The LLM receives the "input" map as its first user message, then calls tools
 
   {"id": "analyse", "type": "llm_loop",
    "session_profile": "my-profile",
+   "model": "gpt-5.4-mini",
+   "instructions": "You are a quality inspector. Examine the photo and return a verdict.",
    "stop_on_finish": true,
    "tools": ["message.request@box-camera", "message.publish@box-alert"],
    "input": {"box_id": "$.event.box_id", "conveyor": "$.event.conveyor_id"},

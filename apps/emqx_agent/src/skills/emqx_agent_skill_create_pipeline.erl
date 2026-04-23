@@ -59,6 +59,11 @@
                     <<"type">> => <<"string">>,
                     <<"description">> => <<"Name of a registered session profile">>
                 },
+                <<"model">> => #{
+                    <<"type">> => <<"string">>,
+                    <<"description">> =>
+                        <<"LLM model name, e.g. gpt-5.4-mini or accounts/fireworks/models/kimi-k2p5">>
+                },
                 <<"stop_on_finish">> => #{
                     <<"type">> => <<"boolean">>,
                     <<"description">> =>
