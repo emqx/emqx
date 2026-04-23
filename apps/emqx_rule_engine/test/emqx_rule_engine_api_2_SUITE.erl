@@ -65,6 +65,9 @@ request(Method, Path, Params, Opts) ->
 
 request(Method, Path, Params, QueryParams0, Opts) when is_list(QueryParams0) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    request(Method, Path, Params, QueryParams0, AuthHeader, Opts).
+
+request(Method, Path, Params, QueryParams0, AuthHeader, Opts) when is_list(QueryParams0) ->
     QueryParams = uri_string:compose_query(QueryParams0, [{encoding, utf8}]),
     case emqx_mgmt_api_test_util:request_api(Method, Path, QueryParams, AuthHeader, Params, Opts) of
         {ok, {Status, Headers, Body0}} ->
@@ -147,13 +150,15 @@ delete_rule(RuleId) ->
 list_rules() ->
     Method = get,
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
-    Res = request(Method, Path, _Params = ""),
+    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    Res = request(Method, Path, _Params = "", _QueryParams = [], AuthHeader, #{return_all => true}),
     emqx_mgmt_api_test_util:simplify_result(Res).
 
 get_rule(Id) ->
     Method = get,
     Path = emqx_mgmt_api_test_util:api_path(["rules", Id]),
-    Res = request(Method, Path, _Params = ""),
+    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    Res = request(Method, Path, _Params = "", _QueryParams = [], AuthHeader, #{return_all => true}),
     emqx_mgmt_api_test_util:simplify_result(Res).
 
 simulate_rule(Id, Params) ->
@@ -1004,6 +1009,37 @@ t_last_modified_at(_Config) ->
                 }
             ]
         }},
+        list_rules()
+    ),
+    ok.
+
+t_rule_metadata_bad_timestamp_repro(_Config) ->
+    Id = <<"bad_metadata_ts">>,
+    RuleParams = #{
+        id => Id,
+        sql => <<"select * from \"t/bad-metadata\"">>,
+        actions => [],
+        metadata => #{
+            created_at => <<"2026-04-22">>
+        }
+    },
+    on_exit(fun() ->
+        ok = emqx_rule_engine:delete_rule(Id)
+    end),
+    {ok, #{id := Id, created_at := CreatedAt, updated_at := UpdatedAt}} =
+        emqx_rule_engine:create_rule(RuleParams),
+    ?assert(is_integer(CreatedAt)),
+    ?assert(is_integer(UpdatedAt)),
+    ?assertNotEqual(<<"2026-04-22">>, CreatedAt),
+    ?assertMatch(
+        {200, #{
+            <<"created_at">> := CreatedAtResp,
+            <<"last_modified_at">> := UpdatedAtResp
+        }} when is_binary(CreatedAtResp) andalso is_binary(UpdatedAtResp),
+        get_rule(Id)
+    ),
+    ?assertMatch(
+        {200, #{<<"data">> := [#{<<"id">> := Id}]}},
         list_rules()
     ),
     ok.
