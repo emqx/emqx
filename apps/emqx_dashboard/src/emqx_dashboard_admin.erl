@@ -34,8 +34,7 @@
     change_password_trusted/2,
     change_password/3,
     enable_mfa/2,
-    reset_mfa/1,
-    admin_enable_mfa/1,
+    reinit_mfa/2,
     set_mfa_pending/2,
     clear_mfa_pending/1,
     get_mfa_pending/1,
@@ -238,59 +237,30 @@ enable_mfa(Username, Mechanism) ->
 
 reinit_mfa(Username, Mechanism) ->
     {ok, State} = emqx_dashboard_mfa:init(Mechanism),
-    {ok, ok} = set_mfa_state(Username, State),
-    _ = emqx_dashboard_token:destroy_by_username(Username),
-    ok.
+    case reset_mfa_state(Username, State) of
+        {ok, ok} ->
+            _ = emqx_dashboard_token:destroy_by_username(Username),
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
-%% @doc Set MFA state.
+%% @doc Set MFA state in the extra map.
 set_mfa_state(Username, MfaState) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun set_mfa_state2/2, [Username, MfaState]),
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> Extra#{mfa_state => MfaState} end)
+    end),
     return(Res).
 
-set_mfa_state2(Username, MfaState) ->
-    update_extra(Username, fun(Extra) -> Extra#{mfa_state => MfaState} end).
-
-%% @doc Admin re-enables MFA for a user.
-%% Clears the disabled state so force_mfa takes effect on next SSO login.
-%% For SSO users, the next login will trigger TOTP setup from scratch.
-%% For local users, the admin should call enable_mfa/2 separately.
--spec admin_enable_mfa(dashboard_username()) -> ok | {error, term()}.
-admin_enable_mfa(Username) ->
-    case get_mfa_state(Username) of
-        {ok, disabled} ->
-            Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-                update_extra(Username, fun(Extra) ->
-                    maps:without([mfa_state, mfa_pending], Extra)
-                end)
-            end),
-            case Res of
-                {atomic, ok} -> ok;
-                {aborted, Reason} -> {error, Reason}
-            end;
-        _ ->
-            {error, <<"MFA is not admin-disabled">>}
-    end.
-
-%% @doc Reset MFA for a user — remove both mfa_state and mfa_pending.
--spec reset_mfa(dashboard_username()) -> {ok, ok} | {error, term()}.
-reset_mfa(Username) ->
-    case lookup_user(Username) of
-        [] ->
-            {error, <<"username_not_found">>};
-        [_] ->
-            Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-                update_extra(Username, fun(Extra) ->
-                    maps:without([mfa_state, mfa_pending], Extra)
-                end)
-            end),
-            case Res of
-                {atomic, ok} ->
-                    _ = emqx_dashboard_token:destroy_by_username(Username),
-                    {ok, ok};
-                {aborted, Reason} ->
-                    {error, Reason}
-            end
-    end.
+%% @doc Set MFA state and clear mfa_pending in the extra map.
+reset_mfa_state(Username, MfaState) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(
+            Username,
+            fun(Extra) -> maps:without([mfa_pending], Extra#{mfa_state => MfaState}) end
+        )
+    end),
+    return(Res).
 
 %% @doc Set MFA pending info in the extra map.
 set_mfa_pending(Username, Pending) ->

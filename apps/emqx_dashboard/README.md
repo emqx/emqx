@@ -26,7 +26,7 @@ The feature is only accessible from enterprise edition dashboard.
 
 MFA is disabled by default. To enable MFA, the admin needs to set the `dashboard.default_mfa` configuration item to `none` or `{mechanism: totp}`.
 
-To enable MFA for a specific user, the admin needs to call the API `users/{username}/mfa` with `POST` body `{"mechanism": "totp"}`.
+To enable or reset MFA for a specific user, the admin needs to call the API `users/{username}/mfa` with `POST` body `{"mechanism": "totp"}`.
 
 To disable MFA for a specific user, the admin needs to call the API `users/{username}/mfa` with `DELETE` method.
 
@@ -58,4 +58,3 @@ Detailed steps are:
 
 - Security Concern: The password is vulnerable to brute-force attacks until the MFA token is validated for the first time.
 - Permission Restrictions: The POST and DELETE methods on the `users/{username}/mfa` endpoint are restricted to the `administrator` users or the current bearer token owner, meaning a `viewer` role user cannot change another user's MFA settings.
-
