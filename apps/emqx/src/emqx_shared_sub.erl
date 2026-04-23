@@ -515,7 +515,7 @@ handle_subscribe(Group, Topic, SubPid) ->
         true ->
             ok;
         false ->
-            ok = emqx_router:do_add_route(Topic, {Group, node()}),
+            ok = emqx_router:add_route(Topic, {Group, node()}),
             emqx_external_broker:add_shared_route(Topic, Group)
     end,
     maybe_insert_round_robin_count({Group, Topic}),
@@ -578,7 +578,7 @@ is_alive_sub(Pid) when node(Pid) == node() ->
     erlang:is_process_alive(Pid);
 is_alive_sub(Pid) ->
     %% When process is not local, the best guess is it's alive.
-    emqx_router_helper:is_routable(node(Pid)).
+    emqx_router_helper:assess_node_routable(node(Pid)) =:= true.
 
 delete_route(Group, Topic) ->
     delete_route(Group, Topic, node()).

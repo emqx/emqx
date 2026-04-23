@@ -407,20 +407,20 @@ do_route2({To, Group}, Delivery) when is_tuple(Group); is_binary(Group) ->
 aggre([]) ->
     [];
 aggre([#route{topic = To, dest = Node}]) when is_atom(Node) ->
-    [{To, Node} || emqx_router_helper:is_routable(Node)];
+    [{To, Node} || verify_node_routable(Node)];
 aggre([#route{topic = To, dest = {Group, _Node}}]) ->
     [{To, Group}];
 aggre(Routes) ->
     aggre(Routes, false, []).
 
 aggre([#route{topic = To, dest = Node} | Rest], Dedup, Acc) when is_atom(Node) ->
-    case emqx_router_helper:is_routable(Node) of
+    case verify_node_routable(Node) of
         true -> NAcc = [{To, Node} | Acc];
         false -> NAcc = Acc
     end,
     aggre(Rest, Dedup, NAcc);
 aggre([#route{topic = To, dest = {Group, Node}} | Rest], Dedup, Acc) ->
-    case emqx_router_helper:is_routable(Node) of
+    case verify_node_routable(Node) of
         true -> aggre(Rest, true, [{To, Group} | Acc]);
         false -> aggre(Rest, Dedup, Acc)
     end;
@@ -428,6 +428,17 @@ aggre([], false, Acc) ->
     Acc;
 aggre([], true, Acc) ->
     lists:usort(Acc).
+
+verify_node_routable(Node) ->
+    case emqx_router_helper:assess_node_routable(Node) of
+        true ->
+            true;
+        false ->
+            false;
+        unknown ->
+            emqx_router_helper:report_dangling_node(Node),
+            false
+    end.
 
 do_forward_external(Delivery, RouteRes) ->
     emqx_external_broker:forward(Delivery) ++ RouteRes.
@@ -802,6 +813,7 @@ maybe_delete_route(Topic) ->
     end.
 
 sync_route(Action, Topic, ReplyTo) ->
+    ok = emqx_router_helper:mark_routing_node(node()),
     EnabledOn = emqx_config:get([broker, routing, batch_sync, enable_on]),
     Res =
         case EnabledOn of
