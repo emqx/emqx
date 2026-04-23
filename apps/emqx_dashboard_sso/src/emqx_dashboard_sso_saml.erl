@@ -190,11 +190,9 @@ callback(_Req = #{body := Body}, #{sp := SP, dashboard_addr := DashboardAddr} = 
             Subject = Assertion#esaml_assertion.subject,
             Username = iolist_to_binary(Subject#esaml_subject.name),
             gen_redirect_response(DashboardAddr, Username);
-        {error, Reason0} ->
-            Reason = [
-                "Access denied, assertion failed validation:\n", io_lib:format("~p\n", [Reason0])
-            ],
-            {error, iolist_to_binary(Reason)}
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "failed_to_validate_assertion", reason => Reason}),
+            {error, <<"Access denied, assertion failed validation">>}
     end.
 
 convert_certs(
