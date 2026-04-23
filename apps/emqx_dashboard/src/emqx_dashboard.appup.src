@@ -1,7 +1,0 @@
-%% -*- mode: erlang -*-
-%% Unless you know what you are doing, DO NOT edit manually!!
-{VSN,
-  %% we should always restart dashboard to make sure api rules/swagger is updated
-  [{<<".*">>,[{restart_application, emqx_dashboard}]}],
-  [{<<".*">>,[{restart_application, emqx_dashboard}]}]
-}.
