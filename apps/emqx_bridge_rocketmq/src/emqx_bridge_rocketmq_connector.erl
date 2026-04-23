@@ -257,8 +257,21 @@ on_get_status(_InstanceId, #{client_id := ClientId}) ->
 
 status_result(connected) -> ?status_connected;
 status_result(connecting) -> ?status_connecting;
-status_result(disconnected) -> ?status_disconnected;
+status_result({disconnected, Reason}) -> {?status_disconnected, format_reason(Reason)};
 status_result({error, _}) -> ?status_connecting.
+
+format_reason({tcp_connect_error, {Host, Port, Why}}) ->
+    iolist_to_binary(io_lib:format("TCP connect to ~s:~p failed: ~0p", [Host, Port, Why]));
+format_reason({tls_connect_error, {Host, Port, Why}}) ->
+    iolist_to_binary(io_lib:format("TLS handshake with ~s:~p failed: ~0p", [Host, Port, Why]));
+format_reason(tcp_closed) ->
+    <<"TCP connection closed by peer">>;
+format_reason(ssl_closed) ->
+    <<"TLS connection closed by peer">>;
+format_reason({ssl_error, Why}) ->
+    iolist_to_binary(io_lib:format("TLS error: ~0p", [Why]));
+format_reason(Other) ->
+    iolist_to_binary(io_lib:format("~0p", [Other])).
 
 %%========================================================================================
 %% Helper fns
