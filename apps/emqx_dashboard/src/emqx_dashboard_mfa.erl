@@ -23,6 +23,7 @@
     create_verify_token/1,
     verify_temp_token/2,
     peek_temp_token/2,
+    record_temp_token_failure/2,
     generate_token/1
 ]).
 
@@ -42,6 +43,7 @@
 %% Temporary token validity: 5 minutes
 -define(TEMP_TOKEN_TTL_SEC, 300).
 -define(TOKEN_BYTES, 32).
+-define(MAX_TEMP_TOKEN_FAILURES, 5).
 
 %% @doc Translate binary format mechanism name to atom.
 -spec mechanism(binary()) -> mechanism().
@@ -162,14 +164,76 @@ create_verify_token(Username) ->
 -spec verify_temp_token(dashboard_username(), binary()) ->
     {ok, term(), temp_token_purpose()} | {error, term()}.
 verify_temp_token(SsoUsername, Token) ->
-    case emqx_dashboard_admin:get_mfa_pending(SsoUsername) of
-        {ok, #{token := StoredToken, type := Type, timestamp := Timestamp} = Pending} when
+    return_mfa_pending_transaction(
+        mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+            case lookup_valid_temp_token(SsoUsername, Token, write) of
+                {ok, #{type := Type} = Pending, Admin, Extra} ->
+                    clear_mfa_pending(Admin, Extra),
+                    {ok, SsoUsername, to_purpose(Type, Pending)};
+                {error, _} = Error ->
+                    Error
+            end
+        end)
+    ).
+
+%% @doc Peek at a temporary token without consuming it.
+-spec peek_temp_token(dashboard_username(), binary()) ->
+    {ok, term(), temp_token_purpose()} | {error, term()}.
+peek_temp_token(SsoUsername, Token) ->
+    return_mfa_pending_transaction(
+        mria:ro_transaction(?DASHBOARD_SHARD, fun() ->
+            case lookup_valid_temp_token(SsoUsername, Token, read) of
+                {ok, #{type := Type} = Pending, _Admin, _Extra} ->
+                    {ok, SsoUsername, to_purpose(Type, Pending)};
+                {error, _} = Error ->
+                    Error
+            end
+        end)
+    ).
+
+%% @doc Record a failed TOTP attempt for a temporary token.
+%% The token remains usable until the failure count reaches the limit.
+-spec record_temp_token_failure(dashboard_username(), binary()) -> ok | {error, term()}.
+record_temp_token_failure(SsoUsername, Token) ->
+    return_mfa_pending_transaction(
+        mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+            case lookup_valid_temp_token(SsoUsername, Token, write) of
+                {ok, Pending, Admin, Extra} ->
+                    FailedAttempts = maps:get(failed_attempts, Pending, 0) + 1,
+                    case FailedAttempts >= ?MAX_TEMP_TOKEN_FAILURES of
+                        true ->
+                            clear_mfa_pending(Admin, Extra);
+                        false ->
+                            set_mfa_pending(
+                                Admin, Extra, Pending#{failed_attempts => FailedAttempts}
+                            )
+                    end,
+                    ok;
+                {error, _} = Error ->
+                    Error
+            end
+        end)
+    ).
+
+lookup_valid_temp_token(SsoUsername, Token, LockKind) ->
+    case read_admin(SsoUsername, LockKind) of
+        [#?ADMIN{extra = Extra0} = Admin] ->
+            Extra = upgrade_extra(Extra0),
+            validate_pending_token(Admin, Extra, Token);
+        [] ->
+            {error, invalid_token}
+    end.
+
+validate_pending_token(Admin, Extra, Token) ->
+    case Extra of
+        #{
+            mfa_pending := #{token := StoredToken, type := _Type, timestamp := Timestamp} = Pending
+        } when
             StoredToken =:= Token
         ->
             case is_token_valid(Timestamp) of
                 true ->
-                    {ok, ok} = emqx_dashboard_admin:clear_mfa_pending(SsoUsername),
-                    {ok, SsoUsername, to_purpose(Type, Pending)};
+                    {ok, Pending, Admin, Extra};
                 false ->
                     {error, token_expired}
             end;
@@ -177,23 +241,24 @@ verify_temp_token(SsoUsername, Token) ->
             {error, invalid_token}
     end.
 
-%% @doc Peek at a temporary token without consuming it.
--spec peek_temp_token(dashboard_username(), binary()) ->
-    {ok, term(), temp_token_purpose()} | {error, term()}.
-peek_temp_token(SsoUsername, Token) ->
-    case emqx_dashboard_admin:get_mfa_pending(SsoUsername) of
-        {ok, #{token := StoredToken, type := Type, timestamp := Timestamp} = Pending} when
-            StoredToken =:= Token
-        ->
-            case is_token_valid(Timestamp) of
-                true ->
-                    {ok, SsoUsername, to_purpose(Type, Pending)};
-                false ->
-                    {error, token_expired}
-            end;
-        _ ->
-            {error, invalid_token}
-    end.
+read_admin(Username, read) ->
+    mnesia:read(?ADMIN, Username);
+read_admin(Username, write) ->
+    mnesia:wread({?ADMIN, Username}).
+
+set_mfa_pending(Admin, Extra, Pending) ->
+    ok = mnesia:write(Admin#?ADMIN{extra = Extra#{mfa_pending => Pending}}).
+
+clear_mfa_pending(Admin, Extra) ->
+    ok = mnesia:write(Admin#?ADMIN{extra = maps:without([mfa_pending], Extra)}).
+
+return_mfa_pending_transaction({atomic, Result}) ->
+    Result;
+return_mfa_pending_transaction({aborted, Reason}) ->
+    {error, Reason}.
+
+upgrade_extra([]) -> #{};
+upgrade_extra(Map) when is_map(Map) -> Map.
 
 %%--------------------------------------------------------------------
 %% Internal functions
