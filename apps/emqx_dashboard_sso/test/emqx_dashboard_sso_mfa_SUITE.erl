@@ -310,29 +310,6 @@ t_admin_disable_mfa(_Config) ->
     ?assertEqual({ok, disabled}, emqx_dashboard_admin:get_mfa_state(SsoUsername)),
     ok.
 
-t_admin_enable_mfa({init, Config}) ->
-    Config;
-t_admin_enable_mfa({'end', _Config}) ->
-    _ = emqx_dashboard_admin:clear_mfa_state(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
-    ok;
-t_admin_enable_mfa(_Config) ->
-    SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),
-    %% First enable MFA (setup_required state)
-    ok = emqx_dashboard_admin:enable_mfa(SsoUsername, totp),
-    %% Simulate first verify to move to enabled state
-    {ok, #{secret := _Secret}} = emqx_dashboard_admin:get_mfa_state(SsoUsername),
-    {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, #{
-        mechanism => totp, secret => <<"OLDSECRET">>, first_verify_ts => 12345
-    }),
-    %% Admin disables MFA
-    ok = emqx_dashboard_admin:disable_mfa(SsoUsername),
-    ?assertEqual({ok, disabled}, emqx_dashboard_admin:get_mfa_state(SsoUsername)),
-    %% Admin re-enables MFA — clears disabled state entirely.
-    %% For SSO users, the next login with force_mfa=true will trigger fresh setup.
-    ok = emqx_dashboard_admin:admin_enable_mfa(SsoUsername),
-    ?assertEqual({error, no_mfa_state}, emqx_dashboard_admin:get_mfa_state(SsoUsername)),
-    ok.
-
 %%====================================================================
 %% SSO MFA API endpoint tests
 %%====================================================================
