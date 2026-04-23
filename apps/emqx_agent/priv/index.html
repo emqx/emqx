@@ -949,7 +949,7 @@ function deserializeStep(s, i) {
   if (type === 'llm_loop') {
     const input = s.input ? Object.entries(s.input) : [['event', '$.event']];
     const setResultSchema = s.set_result_schema ? JSON.stringify(s.set_result_schema, null, 2) : '';
-    return { id, type, session_profile: s.session_profile ?? '', stop_on_finish: s.stop_on_finish ?? true, tools: s.tools ?? [], input, instructions: s.instructions ?? '', set_result_schema: setResultSchema, result_path: s.result_path ?? '' };
+    return { id, type, session_profile: s.session_profile ?? '', model: s.model ?? '', stop_on_finish: s.stop_on_finish ?? true, tools: s.tools ?? [], input, instructions: s.instructions ?? '', set_result_schema: setResultSchema, result_path: s.result_path ?? '' };
   }
   if (type === 'wait_for_event') {
     return { id, type, topic: s.topic ?? '', where: s.where ?? '', result_path: s.result_path ?? '' };
@@ -1102,10 +1102,15 @@ function stepFieldsHTML(step, idx) {
         }).join('')
       : '<span style="color:var(--muted);font-size:11px">No skills registered yet</span>';
     return idF + `
-      <div class="field"><label>Session profile</label>
-        <select class="sf-profile">
-          <option value="">— select profile —</option>${profOpts}
-        </select>
+      <div class="row">
+        <div class="field"><label>Session profile</label>
+          <select class="sf-profile">
+            <option value="">— select profile —</option>${profOpts}
+          </select>
+        </div>
+        <div class="field"><label>Model</label>
+          <input type="text" class="sf-model" value="${esc(step.model||'')}" placeholder="e.g. gpt-5.4, accounts/fireworks/models/kimi-k2p5">
+        </div>
       </div>
       <div style="margin-bottom:10px;display:flex;align-items:center;gap:6px">
         <input type="checkbox" class="sf-stop-on-finish"${step.stop_on_finish?' checked':''}>
@@ -1169,6 +1174,7 @@ function syncStep(idx) {
     ]);
   } else if (step.type === 'llm_loop') {
     step.session_profile = card.querySelector('.sf-profile')?.value ?? '';
+    step.model = card.querySelector('.sf-model')?.value?.trim() ?? '';
     step.stop_on_finish = card.querySelector('.sf-stop-on-finish')?.checked ?? true;
     step.tools = [...card.querySelectorAll('.sf-tools input:checked')].map(c => c.value);
     step.instructions = card.querySelector('.sf-instructions')?.value?.trim() ?? '';
@@ -1203,6 +1209,7 @@ function collectSteps() {
       if (s.result_path) out.result_path = s.result_path;
     } else if (s.type === 'llm_loop') {
       if (s.session_profile) out.session_profile = s.session_profile;
+      if (s.model) out.model = s.model;
       out.stop_on_finish = s.stop_on_finish ?? true;
       if (s.instructions) out.instructions = s.instructions;
       if (s.tools?.length)   out.tools = s.tools;

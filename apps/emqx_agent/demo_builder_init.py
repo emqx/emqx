@@ -110,16 +110,22 @@ def api_delete_maybe(path: str) -> None:
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 
+def deactivate_pipeline(pid: str, p: dict) -> None:
+    api_request("PUT", f"/agent/pipelines/{pid}", {**p, "active": False})
+
+
+def delete_pipeline(pid: str) -> None:
+    api_request("DELETE", f"/agent/pipelines/{pid}", ok_codes=(200, 204, 404))
+
+
 def delete_old_assets() -> None:
-    # Pipelines first — deactivate then delete
+    # Pipelines first — deactivate active ones, then delete
     for p in json.loads(api_request("GET", "/agent/pipelines")):
         pid = p["pipeline_id"]
         if p.get("active"):
-            try:
-                api_request("PUT", f"/agent/pipelines/{pid}", {**p, "active": False})
-            except RuntimeError:
-                pass
-        api_delete_maybe(f"/agent/pipelines/{pid}")
+            deactivate_pipeline(pid, p)
+            print(f"  deactivated pipeline {pid!r}")
+        delete_pipeline(pid)
         print(f"  deleted pipeline {pid!r}")
 
     # Skills

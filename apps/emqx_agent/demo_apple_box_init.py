@@ -36,7 +36,7 @@ BASE_URL = env("EMQX_BASE_URL", "http://localhost:18083/api/v5")
 CREDS = env("EMQX_API_CREDS", "key:secret")
 
 OPENAI_BASE_URL = env("OPENAI_BASE_URL", "https://api.openai.com/v1")
-OPENAI_MODEL = env("OPENAI_MODEL", "gpt-4o")
+OPENAI_MODEL = env("OPENAI_MODEL", "gpt-5.4-mini")
 
 FIREWORKS_BASE_URL = env("FIREWORKS_BASE_URL", "https://api.fireworks.ai/inference/v1")
 FIREWORKS_MODEL = env("FIREWORKS_MODEL", "accounts/fireworks/models/kimi-k2p5")
@@ -287,6 +287,7 @@ def create_pipeline() -> None:
                     "id": "inspect",
                     "type": "llm_loop",
                     "session_profile": PROFILE_NAME,
+                    "model": OPENAI_MODEL,
                     "stop_on_finish": True,
                     "instructions": INSPECTOR_INSTRUCTIONS,
                     "tools": [
