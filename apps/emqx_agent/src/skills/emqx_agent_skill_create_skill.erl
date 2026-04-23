@@ -231,7 +231,7 @@ create(#{skill_id := SkillId}) ->
         type => ?SKILL_TYPE,
         display_name => <<"Create Skill">>,
         description =>
-            <<"Create a new agent skill (message.publish, message.request, http, kv.lookup, kv.put, postgresql.query)">>,
+            <<"Create or overwrite a skill (upsert). Types: message.publish, message.request, http, kv.lookup, kv.put, postgresql.query">>,
         context => #{skill_id => SkillId},
         input_schema => ?INPUT_SCHEMA,
         output_schema => ?OUTPUT_SCHEMA

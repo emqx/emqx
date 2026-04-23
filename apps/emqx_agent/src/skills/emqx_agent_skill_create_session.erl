@@ -81,7 +81,7 @@ create(#{skill_id := SkillId}) ->
         type => ?SKILL_TYPE,
         display_name => <<"Create Session Profile">>,
         description =>
-            <<"Create a new LLM session profile (api_key, base_url)">>,
+            <<"Create or overwrite a session profile (upsert). Stores api_key env var name and base_url.">>,
         context => #{skill_id => SkillId},
         input_schema => ?INPUT_SCHEMA,
         output_schema => ?OUTPUT_SCHEMA

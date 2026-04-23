@@ -212,7 +212,7 @@ create(#{skill_id := SkillId}) ->
         type => ?SKILL_TYPE,
         display_name => <<"Create Pipeline">>,
         description =>
-            <<"Create a new pipeline definition (registered as inactive draft; activate via the API or a separate step)">>,
+            <<"Create or overwrite a pipeline definition (upsert). Registered as inactive draft; activate via the API or admin UI.">>,
         context => #{skill_id => SkillId},
         input_schema => ?INPUT_SCHEMA,
         output_schema => ?OUTPUT_SCHEMA
