@@ -178,7 +178,7 @@ schema("/users/:username/mfa") ->
             desc => ?DESC(delete_mfa),
             parameters => sso_parameters(fields([username_in_path])),
             responses => #{
-                204 => <<"MFA setting is deleted">>,
+                204 => <<"MFA setting is disabled">>,
                 404 => response_schema(404)
             }
         }
@@ -442,7 +442,7 @@ change_pwd(post, #{bindings := #{username := Username}, body := Params}) ->
 
 change_mfa(delete, #{bindings := #{username := Username0}} = Req) ->
     Username = username(Req, Username0),
-    LogMeta = #{msg => "dashboard_user_mfa_delete", username => Username},
+    LogMeta = #{msg => "dashboard_user_mfa_disable", username => Username},
     case emqx_dashboard_admin:disable_mfa(Username) of
         ok ->
             ?SLOG(info, LogMeta#{result => success}),
