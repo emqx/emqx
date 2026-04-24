@@ -276,4 +276,4 @@ jobs:
         shell: bash
         run: |
           gh --repo emqx/emqx-qa workflow run regression_testing_emqx.yaml \
-            -f froms="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            -f artifacts="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
