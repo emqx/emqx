@@ -63,19 +63,6 @@ wait_api() {
     exit 1
 }
 
-wait_redis() {
-    local attempts=60
-    while ((attempts > 0)); do
-        if docker compose exec -T redis redis-cli -a public PING >/dev/null 2>&1; then
-            return 0
-        fi
-        sleep 1
-        ((attempts--))
-    done
-    echo "[redis] Redis did not become ready" >&2
-    exit 1
-}
-
 subscribe_capture() {
     local topic="$1"
     local timeout_s="$2"
@@ -125,9 +112,8 @@ echo "[redis] starting EMQX + Redis"
 cd "$SCRIPT_DIR"
 export PLUGIN
 docker compose down -v --remove-orphans 2>/dev/null || true
-docker compose up -d emqx redis
+docker compose up -d --wait emqx redis
 
-wait_redis
 wait_api
 
 echo "[redis] configuring plugin"

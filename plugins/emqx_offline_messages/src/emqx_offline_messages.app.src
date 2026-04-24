@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_offline_messages, [
     {description, "EMQX Offline Messages Plugin"},
-    {vsn, "2.0.0"},
+    {vsn, {file, "VERSION"}},
     {modules, []},
     {registered, [emqx_offline_messages_sup]},
     {applications, [

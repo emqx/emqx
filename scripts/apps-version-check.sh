@@ -107,6 +107,69 @@ for app in ${APPS}; do
     fi
 done
 
+## Plugins (under plugins/) use a VERSION file as the single source of truth;
+## the .app.src reads it via {vsn, {file, "VERSION"}}. Bump VERSION when
+## src/, include/, or priv/ changed against the previous release tag.
+for plugin_dir in plugins/*/; do
+    plugin_dir="${plugin_dir%/}"
+    version_file="$plugin_dir/VERSION"
+
+    if [ ! -f "$version_file" ]; then
+        continue
+    fi
+
+    now_rel_version="$(tr -d '[:space:]' < "$version_file")"
+
+    if git show "$latest_release":"$version_file" >/dev/null 2>&1; then
+        old_rel_version="$(git show "$latest_release":"$version_file" | tr -d '[:space:]')"
+    else
+        echo "IGNORE: $version_file is newly added"
+        continue
+    fi
+
+    if [ "$old_rel_version" = "$now_rel_version" ]; then
+        changed_files="$(git diff "$latest_release" --name-only \
+                             -- "$plugin_dir/src" \
+                             -- "$plugin_dir/include" \
+                             -- "$plugin_dir/priv" \
+                             -- "$plugin_dir/VERSION" \
+                         || true)"
+        changed_lines=0
+        if [ -n "$changed_files" ]; then
+            # shellcheck disable=SC2086
+            changed_lines="$(git diff "$latest_release" --ignore-blank-lines -G "$no_comment_re" \
+                             -- $changed_files | wc -l)"
+        fi
+        if [ "$changed_lines" -gt 0 ]; then
+            log_red "ERROR: $version_file needs a vsn bump"
+            bad_app_count=$(( bad_app_count + 1))
+        fi
+    else
+        # shellcheck disable=SC2207
+        old_semver=($(parse_semver "$old_rel_version"))
+        # shellcheck disable=SC2207
+        now_semver=($(parse_semver "$now_rel_version"))
+        if  [ "${old_semver[0]}" = "${now_semver[0]}" ] && \
+            [ "${old_semver[1]}" = "${now_semver[1]}" ] && \
+            [ "$(( old_semver[2] + 1 ))" = "${now_semver[2]}" ]; then
+            true
+        elif [ "${old_semver[0]}" = "${now_semver[0]}" ] && \
+             [ "$(( old_semver[1] + 1 ))" = "${now_semver[1]}" ] && \
+             [ "${now_semver[2]}" = "0" ]; then
+            true
+        elif [ "$(( old_semver[0] + 1 ))" = "${now_semver[0]}" ] && \
+             [ "${now_semver[1]}" = "0" ] && \
+             [ "${now_semver[2]}" = "0" ]; then
+            true
+        else
+            if ! is_allowed_non_strict "$version_file" "$old_rel_version" "$now_rel_version"; then
+                echo "$version_file: non-strict semver version bump from $old_rel_version to $now_rel_version"
+                bad_app_count=$(( bad_app_count + 1))
+            fi
+        fi
+    fi
+done
+
 if [ $bad_app_count -gt 0 ]; then
     exit 1
 else

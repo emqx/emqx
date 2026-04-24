@@ -8,23 +8,21 @@ Currently supports the following database backends:
 
 ## Usage
 
-<!-- Do not update plugin version manually, use make bump-version-patch/minor/major instead -->
-<!-- TODO: when plugin is uploaded to s3 download from  https://packages.emqx.io/emqx-plugins/e5.10.4/emqx_offline_messages-2.0.0.tar
+<!-- TODO: when plugin is uploaded to s3 download from https://packages.emqx.io/emqx-plugins/e5.10.4/emqx_offline_messages-2.0.0.tar.gz
 
 Download the plugin:
 
 ```bash
-wget https://github.com/emqx/emqx-offline-message-plugin/releases/download/v2.0.0/emqx_offline_message_plugin-2.0.0.tar.gz
+wget https://packages.emqx.io/emqx-plugins/e5.10.4/emqx_offline_messages-2.0.0.tar.gz
 ```
 -->
 
 Install the plugin:
 
-<!-- Do not update plugin version manually, use make bump-version-patch/minor/major instead -->
 ```bash
 curl -u key:secret -X POST http://localhost:18083/api/v5/plugins/install \
 -H "Content-Type: multipart/form-data" \
--F "plugin=@emqx_offline_message_plugin-2.0.0.tar.gz"
+-F "plugin=@emqx_offline_messages-2.0.0.tar.gz"
 ```
 
 Check the plugin is installed:
@@ -55,17 +53,28 @@ mqttx sub -q 1 -t 't/2' -i $(pwgen 20 -1)
 
 ## Release
 
-An EMQX plugin release is a tar file including including a subdirectory of this plugin's name and it's version, that contains:
+An EMQX plugin release is a tar file containing a subdirectory named after the
+plugin and its version, which includes:
 
-1. A JSON format metadata file describing the plugin
-2. Versioned directories for all applications needed for this plugin (source and binaries).
-3. Confirm the OTP version used by EMQX that the plugin will be installed on (See also [./.tool-versions](./.tool-versions)).
+1. A JSON metadata file describing the plugin.
+2. Versioned directories for all applications needed by the plugin (source and binaries).
+3. The OTP major version used to build the plugin (must match the target EMQX release;
+   see [./.tool-versions](./.tool-versions)).
 
-In a shell from this plugin's working directory execute `make rel` to have the package created like:
+To cut a new plugin release:
 
-```
-_build/default/emqx_plugrel/emqx_plugin_template-<vsn>.tar.gz
-```
+1. Edit [VERSION](./VERSION) directly (this is the authoritative plugin version;
+   also bump `vsn` in [src/emqx_offline_messages.app.src](./src/emqx_offline_messages.app.src)
+   to keep them in sync).
+2. From the repo root, run:
+   ```
+   make plugin-emqx_offline_messages
+   ```
+   which produces:
+   ```
+   _build/plugins/emqx_offline_messages-<vsn>.tar.gz
+   ```
+
 ## Format
 
 Format all the files in your project by running:
