@@ -256,6 +256,7 @@ collect(Module, #{type := Type, mode := Mode}) ->
     %% Since the arity of the callback function has been fixed.
     %% so it is placed in the process dictionary of the current process.
     ?PUT_PROM_DATA_MODE(Mode),
+    maybe_ensure_prometheus_registry(Type),
     Data =
         case erlang:function_exported(Module, collect, 1) of
             true ->
@@ -268,6 +269,24 @@ collect(Module, #{type := Type, mode := Mode}) ->
                 <<>>
         end,
     gen_response(Type, Data).
+
+maybe_ensure_prometheus_registry(<<"prometheus">>) ->
+    case ets:info(prometheus_registry_table) of
+        undefined ->
+            case erlang:whereis(prometheus_sup) of
+                undefined ->
+                    case prometheus_sup:start_link() of
+                        {ok, _Pid} -> ok;
+                        {error, {already_started, _Pid}} -> ok
+                    end;
+                _Pid ->
+                    ok
+            end;
+        _Info ->
+            ok
+    end;
+maybe_ensure_prometheus_registry(_) ->
+    ok.
 
 collect_opts(Headers, Qs) ->
     #{type => response_type(Headers), mode => mode(Qs)}.

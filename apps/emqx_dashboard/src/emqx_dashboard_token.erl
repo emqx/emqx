@@ -59,7 +59,7 @@ destroy(#?ADMIN_JWT{token = Token}) ->
 destroy(Token) when is_binary(Token) ->
     do_destroy(Token).
 
--spec destroy_by_username(Username :: binary()) -> ok.
+-spec destroy_by_username(Username :: term()) -> ok.
 destroy_by_username(Username) ->
     do_destroy_by_username(Username).
 
@@ -127,7 +127,19 @@ do_destroy(Token) ->
     ok.
 
 do_destroy_by_username(Username) ->
-    gen_server:cast(?MODULE, {destroy, Username}).
+    Spec = jwt_by_username_spec(Username),
+    Fun = fun() ->
+        Tokens = mnesia:select(?TAB, Spec),
+        lists:foreach(
+            fun(#?ADMIN_JWT{token = Token}) ->
+                mnesia:delete({?TAB, Token})
+            end,
+            Tokens
+        ),
+        ok
+    end,
+    {atomic, ok} = mria:sync_transaction(?DASHBOARD_SHARD, Fun),
+    ok.
 
 %%--------------------------------------------------------------------
 %% jwt internal util function
@@ -141,7 +153,7 @@ lookup(Token) ->
 
 -dialyzer({nowarn_function, lookup_by_username/1}).
 lookup_by_username(Username) ->
-    Spec = [{#?ADMIN_JWT{username = Username, _ = '_'}, [], ['$_']}],
+    Spec = jwt_by_username_spec(Username),
     Fun = fun() -> mnesia:select(?TAB, Spec) end,
     {atomic, List} = mria:ro_transaction(?DASHBOARD_SHARD, Fun),
     List.
@@ -179,6 +191,16 @@ format(Token, Backend, Username, Role, ExpTime) ->
         exptime = ExpTime,
         extra = #{role => Role, backend => Backend}
     }.
+
+jwt_by_username_spec(Username) ->
+    [{jwt_pat([{#?ADMIN_JWT.username, Username}]), [], ['$_']}].
+
+jwt_pat(Overrides) ->
+    erlang:make_tuple(
+        record_info(size, ?ADMIN_JWT),
+        '_',
+        [{1, ?ADMIN_JWT} | Overrides]
+    ).
 
 %%--------------------------------------------------------------------
 %% gen server
@@ -218,7 +240,11 @@ timer_clean(Pid) ->
 
 -dialyzer({nowarn_function, clean_expired_jwt/1}).
 clean_expired_jwt(Now) ->
-    Spec = [{#?ADMIN_JWT{exptime = '$1', token = '$2', _ = '_'}, [{'<', '$1', Now}], ['$2']}],
+    Spec = [
+        {jwt_pat([{#?ADMIN_JWT.exptime, '$1'}, {#?ADMIN_JWT.token, '$2'}]), [{'<', '$1', Now}], [
+            '$2'
+        ]}
+    ],
     {atomic, JWTList} = mria:ro_transaction(
         ?DASHBOARD_SHARD,
         fun() -> mnesia:select(?TAB, Spec) end

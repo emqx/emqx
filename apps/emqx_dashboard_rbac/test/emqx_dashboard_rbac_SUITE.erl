@@ -161,6 +161,19 @@ t_clean_token(_) ->
     {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, Token),
     ok.
 
+t_role_change_new_token_survives(_) ->
+    Username = <<"admin_role_change">>,
+    Password = <<"public_www1">>,
+    Desc = <<"desc">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, Desc),
+    FakePath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/fake")),
+    FakeReq = #{method => <<"GET">>, path => FakePath},
+    {ok, _} = emqx_dashboard_admin:update_user(Username, ?ROLE_VIEWER, Desc),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
+    ok = gen_server:call(emqx_dashboard_token, dummy, infinity),
+    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token),
+    ok.
+
 t_login_out(_) ->
     Username = <<"admin_token">>,
     Password = <<"public_www1">>,
@@ -209,6 +222,48 @@ t_setup_mfa(_) ->
 
 t_delete_mfa(_) ->
     test_mfa(fun delete_mfa/2).
+
+t_delete_mfa_sso_force_mfa_urlencoded_username(_) ->
+    SsoBackend = saml,
+    SsoUser = <<"jackson@example.com">>,
+    Desc = <<"desc">>,
+    SsoConfig = emqx:get_config([dashboard, sso, SsoBackend], #{}),
+    {ok, _} = emqx_dashboard_admin:add_sso_user(SsoBackend, SsoUser, ?ROLE_VIEWER, Desc),
+    {ok, #{role := ?ROLE_VIEWER, token := SsoToken}} = emqx_dashboard_admin:sign_token(
+        ?SSO_USERNAME(SsoBackend, SsoUser), <<>>
+    ),
+    try
+        ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig#{force_mfa => false}),
+        ?assertEqual({ok, SsoUser}, delete_mfa_urlencoded_username(SsoToken, SsoUser))
+    after
+        ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig)
+    end,
+    ok.
+
+t_delete_mfa_sso_force_mfa_urlencoded_username_http(_) ->
+    SsoBackend = saml,
+    SsoUser = <<"jackson-http@example.com">>,
+    Desc = <<"desc">>,
+    SsoConfig = emqx:get_config([dashboard, sso, SsoBackend], #{}),
+    {ok, _} = emqx_dashboard_admin:add_sso_user(SsoBackend, SsoUser, ?ROLE_VIEWER, Desc),
+    {ok, #{role := ?ROLE_VIEWER, token := SsoToken}} = emqx_dashboard_admin:sign_token(
+        ?SSO_USERNAME(SsoBackend, SsoUser), <<>>
+    ),
+    try
+        ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig#{force_mfa => false}),
+        ?assertMatch(
+            {ok, 204, _},
+            delete_mfa_urlencoded_username_http(SsoToken, SsoBackend, SsoUser)
+        ),
+        ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig#{force_mfa => true}),
+        ?assertMatch(
+            {ok, 403, _},
+            delete_mfa_urlencoded_username_http(SsoToken, SsoBackend, SsoUser)
+        )
+    after
+        ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig)
+    end,
+    ok.
 
 t_delete_mfa_sso_force_mfa(_) ->
     SsoBackend = saml,
@@ -267,6 +322,28 @@ delete_mfa(Token, Username) ->
     Path1 = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri(Path)),
     Req = #{method => <<"DELETE">>, path => Path1},
     emqx_dashboard_admin:verify_token(Req, Token).
+
+delete_mfa_urlencoded_username(Token, Username) ->
+    Path = "/users/" ++ uri_string:quote(binary_to_list(Username)) ++ "/mfa",
+    Path1 = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri(Path)),
+    Req = #{method => <<"DELETE">>, path => Path1},
+    emqx_dashboard_admin:verify_token(Req, Token).
+
+delete_mfa_urlencoded_username_http(Token, Backend, Username) ->
+    Url = emqx_mgmt_api_test_util:api_path([
+        "users", uri_string:quote(binary_to_list(Username)), "mfa"
+    ]),
+    emqx_mgmt_api_test_util:request_api(
+        delete,
+        Url,
+        [{backend, atom_to_binary(Backend)}],
+        [bearer_auth_header(Token)],
+        [],
+        #{compatible_mode => true}
+    ).
+
+bearer_auth_header(Token) ->
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 setup_mfa(Token, Username) ->
     Path = "/users/" ++ binary_to_list(Username) ++ "/mfa",
