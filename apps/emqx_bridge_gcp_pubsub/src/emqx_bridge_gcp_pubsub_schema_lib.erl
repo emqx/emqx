@@ -33,6 +33,7 @@ authentication_field() ->
     {authentication,
         mk(
             emqx_schema:mkunion(type, #{
+                <<"attached_service_account">> => ref(auth_attached_service_account),
                 <<"service_account_json">> => ref(auth_service_account_json),
                 <<"wif">> => ref(auth_wif)
             }),
@@ -101,6 +102,13 @@ legacy_service_account_json_root_converter(Conf0, _HoconOpts) ->
 namespace() ->
     "gcp_pubsub".
 
+fields(auth_attached_service_account) ->
+    [
+        {type,
+            mk(attached_service_account, #{
+                required => true, desc => ?DESC("auth_attached_service_account")
+            })}
+    ];
 fields(auth_service_account_json) ->
     [
         {type,
@@ -200,6 +208,8 @@ desc(authentication) ->
     ?DESC(authentication);
 desc(auth_service_account_json) ->
     ?DESC(auth_service_account_json);
+desc(auth_attached_service_account) ->
+    ?DESC(auth_attached_service_account);
 desc(auth_wif) ->
     ?DESC(auth_wif);
 desc(auth_wif_oidc_client_credentials) ->

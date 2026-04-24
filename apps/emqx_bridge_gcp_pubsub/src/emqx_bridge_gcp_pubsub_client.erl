@@ -15,7 +15,7 @@
 -export([
     start/2,
     stop/1,
-    stop/3,
+    stop/2,
     query_sync/2,
     query_async/3,
     get_status/1
@@ -23,12 +23,11 @@
 -export([reply_delegator/3]).
 
 -export([
-    get_project_id/1,
     pubsub_get_topic/3
 ]).
 
 %% Only for tests.
--export([get_transport/1]).
+-export([get_transport/1, do_metadata_request/1]).
 
 -type service_account_json() :: map().
 -type project_id() :: binary().
@@ -53,11 +52,38 @@
     pool_name := binary(),
     project_id := project_id()
 }.
--type auth_state() :: service_account_json_auth_state().
+-type extra_info() :: #{
+    project_id := project_id(),
+    any() => term()
+}.
+-type auth_state() ::
+    service_account_json_auth_state()
+    | wif_auth_state()
+    | attached_service_account_auth_state().
 -type service_account_json_auth_state() :: #{
     type := service_account_json,
     jwt_config := emqx_connector_jwt:jwt_config()
 }.
+-type wif_auth_state() :: #{
+    type := wif,
+    gcp_project_id := project_id(),
+    resource_id := resource_id(),
+    token_table := ets:table(),
+    supervisor := gen_server:server_ref()
+}.
+-type attached_service_account_auth_state() :: #{
+    type := attached_service_account,
+    resource_id := resource_id(),
+    sa_token_table := ets:table(),
+    sa_server_ref := gen_server:server_ref()
+}.
+-type stop_ctx() :: #{
+    sa_token_table => ets:table(),
+    sa_server_ref => gen_server:server_ref(),
+    token_table => ets:table(),
+    supervisor => gen_server:server_ref()
+}.
+
 -type headers() :: [{binary(), iodata()}].
 -type body() :: iodata().
 -type status_code() :: 100..599.
@@ -71,6 +97,8 @@
     authentication_config/0,
     service_account_json/0,
     state/0,
+    extra_info/0,
+    stop_ctx/0,
     headers/0,
     body/0,
     status_code/0,
@@ -87,7 +115,7 @@
 %% API
 %%-------------------------------------------------------------------------------------------------
 
--spec start(resource_id(), config()) -> {ok, state()} | {error, term()}.
+-spec start(resource_id(), config()) -> {ok, extra_info(), state()} | {error, term()}.
 start(
     ResourceId,
     #{
@@ -152,14 +180,16 @@ do_start_pool(ResourceId, State, Config) ->
     case ehttpc_sup:start_pool(ResourceId, PoolOpts) of
         {ok, _} ->
             ?tp(gcp_ehttpc_pool_started, #{pool_name => ResourceId}),
-            {ok, State};
+            ExtraInfo = maps:with([project_id], State),
+            {ok, ExtraInfo, State};
         {error, {already_started, _}} ->
             ?tp(gcp_ehttpc_pool_already_started, #{pool_name => ResourceId}),
             _ = ehttpc_sup:stop_pool(ResourceId),
             ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, ResourceId),
             case ehttpc_sup:start_pool(ResourceId, PoolOpts) of
                 {ok, _} ->
-                    {ok, State};
+                    ExtraInfo = maps:with([project_id], State),
+                    {ok, ExtraInfo, State};
                 {error, Reason} ->
                     ?tp(gcp_ehttpc_pool_start_failure, #{
                         pool_name => ResourceId,
@@ -178,18 +208,25 @@ do_start_pool(ResourceId, State, Config) ->
 -spec stop(state()) -> ok | {error, term()}.
 stop(Client) ->
     #{pool_name := ResourceId} = Client,
-    {Sup, Tab} =
+    Ctx =
         case Client of
+            #{
+                auth_config := #{
+                    type := attached_service_account,
+                    sa_token_table := Tab0,
+                    sa_server_ref := ServerRef
+                }
+            } ->
+                #{sa_token_table => Tab0, sa_server_ref => ServerRef};
             #{auth_config := #{type := wif, token_table := Tab0, supervisor := Sup0}} ->
-                {Sup0, Tab0};
+                #{token_table => Tab0, supervisor => Sup0};
             _ ->
-                {undefined, undefined}
+                #{}
         end,
-    stop(ResourceId, Sup, Tab).
+    stop(ResourceId, Ctx).
 
--spec stop(resource_id(), undefined | supervisor:sup_ref(), undefined | ets:table()) ->
-    ok | {error, term()}.
-stop(ResourceId, Sup, Tab) ->
+-spec stop(resource_id(), stop_ctx()) -> ok | {error, term()}.
+stop(ResourceId, Ctx) ->
     ?tp(gcp_client_stop, #{instance_id => ResourceId, resource_id => ResourceId}),
     ?SLOG(info, #{
         msg => "stopping_gcp_client",
@@ -197,9 +234,13 @@ stop(ResourceId, Sup, Tab) ->
     }),
     ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, ResourceId),
     maybe
-        true ?= Sup /= undefined,
-        true ?= Tab /= undefined,
+        #{token_table := Tab, supervisor := Sup} ?= Ctx,
         ok = stop_worker_and_clear_token(ResourceId, Sup, Tab)
+    end,
+    maybe
+        #{sa_token_table := Tab1, sa_server_ref := ServerRef} ?= Ctx,
+        _ = emqx_connector_jwt_token_cache:unregister(ServerRef, ResourceId),
+        _ = emqx_connector_jwt_token_cache:clear_cache(Tab1, ResourceId)
     end,
     case ehttpc_sup:stop_pool(ResourceId) of
         ok ->
@@ -260,14 +301,6 @@ get_status(#{connect_timeout := _, pool_name := _} = State) ->
 %% API
 %%-------------------------------------------------------------------------------------------------
 
-get_project_id(#{authentication := #{type := service_account_json} = AuthConfig}) ->
-    #{service_account_json := ServiceAccountJSON0} = AuthConfig,
-    #{<<"project_id">> := ProjectId} = emqx_utils_json:decode(ServiceAccountJSON0),
-    ProjectId;
-get_project_id(#{authentication := #{type := wif} = AuthConfig}) ->
-    #{gcp_project_id := ProjectId} = AuthConfig,
-    ProjectId.
-
 -spec pubsub_get_topic(topic(), state(), request_opts()) -> {ok, map()} | {error, term()}.
 pubsub_get_topic(Topic, ClientState, ReqOpts) ->
     #{project_id := ProjectId} = ClientState,
@@ -303,17 +336,103 @@ get_transport(Type) ->
             {Transport0, HostPort0}
     end.
 
+do_metadata_request(Params) ->
+    #{url := URL} = Params,
+    Method = get,
+    Headers = [{<<"Metadata-Flavor">>, <<"Google">>}],
+    Body = <<"">>,
+    ReqOpts = [],
+    case hackney:request(Method, URL, Headers, Body, ReqOpts) of
+        {ok, Code, RespHeaders, ClientRef} ->
+            {ok, RespBody} = hackney:body(ClientRef),
+            {ok, Code, RespHeaders, RespBody};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+%%-------------------------------------------------------------------------------------------------
+%% Helper fns (attached service account authn)
+%%-------------------------------------------------------------------------------------------------
+
+get_attached_project_id() ->
+    URL = <<
+        "http://metadata.google.internal/computeMetadata"
+        "/v1/project/project-id"
+    >>,
+    Params = #{url => URL},
+    case ?MODULE:do_metadata_request(Params) of
+        {ok, 200, _, ProjectId} ->
+            {ok, ProjectId};
+        {ok, Status, Headers, Body} ->
+            Ctx = #{status => Status, headers => Headers, body => Body},
+            {error, {bad_project_id_response, Ctx}};
+        Error ->
+            {error, {bad_project_id_response, Error}}
+    end.
+
+do_get_attached_sa_token() ->
+    URL = <<
+        "http://metadata.google.internal/computeMetadata"
+        "/v1/instance/service-accounts/default/token"
+    >>,
+    Params = #{url => URL},
+    case ?MODULE:do_metadata_request(Params) of
+        {ok, 200, _, RespBody} ->
+            case emqx_utils_json:safe_decode(RespBody) of
+                {ok, #{<<"access_token">> := Token, <<"expires_in">> := ExpiryS}} ->
+                    ExpiryMS = erlang:convert_time_unit(ExpiryS, second, millisecond),
+                    {ok, ExpiryMS, Token};
+                {ok, BadResp} ->
+                    {error, {bad_token_response, BadResp}};
+                {error, Reason} ->
+                    {error, {bad_token_response, Reason}}
+            end;
+        {ok, Status, Headers, RespBody} ->
+            Ctx = #{status => Status, headers => Headers, body => RespBody},
+            {error, {bad_token_response, Ctx}};
+        Error ->
+            {error, {bad_token_response, Error}}
+    end.
+
+get_or_refresh_attached_sa_token(ServerRef, Tab, ResId) ->
+    RefreshFn = fun do_get_attached_sa_token/0,
+    case emqx_connector_jwt_token_cache:get_or_refresh(ServerRef, Tab, ResId, RefreshFn) of
+        {ok, Token} ->
+            {ok, Token};
+        {error, Reason} ->
+            {error, {get_sa_token_failed, Reason}}
+    end.
+
 %%-------------------------------------------------------------------------------------------------
 %% Helper fns
 %%-------------------------------------------------------------------------------------------------
 
 maybe_initialize_auth_resources(
+    ResourceId, #{authentication := #{type := attached_service_account}} = Config
+) ->
+    #{
+        authentication := AuthConfig0,
+        sa_server_ref := ServerRef,
+        sa_token_table := Tab
+    } = Config,
+    maybe
+        {ok, ProjectId} ?= get_attached_project_id(),
+        {ok, _} ?= get_or_refresh_attached_sa_token(ServerRef, Tab, ResourceId),
+        AuthConfig1 = maps:with([type], AuthConfig0),
+        AuthConfig = AuthConfig1#{
+            resource_id => ResourceId,
+            sa_token_table => Tab,
+            sa_server_ref => ServerRef
+        },
+        {ok, #{auth_config => AuthConfig, project_id => ProjectId}}
+    end;
+maybe_initialize_auth_resources(
     ResourceId, #{authentication := #{type := service_account_json}} = Config
 ) ->
     {ok, parse_jwt_config(ResourceId, Config)};
 maybe_initialize_auth_resources(ResourceId, #{authentication := #{type := wif}} = Config) ->
-    #{authentication := #{gcp_project_id := ProjectId} = AuthConfig0} = Config,
     #{
+        authentication := #{gcp_project_id := ProjectId} = AuthConfig0,
         supervisor := Sup,
         token_table := Tab
     } = Config,
@@ -555,6 +674,14 @@ fmt(FmtStr, Context) ->
     iolist_to_binary(emqx_template:render_strict(Template, Context)).
 
 -spec get_authorization_header(auth_state()) -> [{binary(), binary()}].
+get_authorization_header(#{type := attached_service_account} = AuthConfig) ->
+    #{
+        sa_server_ref := ServerRef,
+        sa_token_table := Tab,
+        resource_id := ResId
+    } = AuthConfig,
+    {ok, JWT} = get_or_refresh_attached_sa_token(ServerRef, Tab, ResId),
+    [{<<"Authorization">>, <<"Bearer ", JWT/binary>>}];
 get_authorization_header(#{type := service_account_json, jwt_config := JWTConfig}) ->
     JWT = emqx_connector_jwt:ensure_jwt(JWTConfig),
     [{<<"Authorization">>, <<"Bearer ", JWT/binary>>}];
