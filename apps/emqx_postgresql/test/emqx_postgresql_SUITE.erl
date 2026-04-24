@@ -56,6 +56,41 @@ t_lifecycle(_Config) ->
         pgsql_config()
     ).
 
+%% Verify that concurrent raw queries do not produce errors because of race conditions.
+t_concurrent_raw_queries_no_errors(_Config) ->
+    ResourceId = <<"emqx_postgresql_SUITE_concurrent">>,
+    N = 200,
+    {ok, #{config := CheckedConfig}} =
+        emqx_resource:check_config(?PGSQL_RESOURCE_MOD, pgsql_config(#{pool_size => 1})),
+    {ok, _} = emqx_resource:create_local(
+        ResourceId,
+        ?CONNECTOR_RESOURCE_GROUP,
+        ?PGSQL_RESOURCE_MOD,
+        CheckedConfig,
+        #{spawn_buffer_workers => false}
+    ),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId)),
+    Self = self(),
+    [
+        spawn(fun() ->
+            Res = emqx_resource:simple_sync_query(
+                ResourceId, {query, <<"SELECT $1::integer">>, [I]}
+            ),
+            Self ! {result, Res}
+        end)
+     || I <- lists:seq(1, N)
+    ],
+    Results = [
+        receive
+            {result, R} -> R
+        after 5000 -> timeout
+        end
+     || _ <- lists:seq(1, N)
+    ],
+    emqx_resource:remove_local(ResourceId),
+    Errors = [R || R <- Results, not match_ok(R)],
+    ?assertEqual([], Errors).
+
 perform_lifecycle_check(ResourceId, InitialConfig) ->
     {ok, #{config := CheckedConfig}} =
         emqx_resource:check_config(?PGSQL_RESOURCE_MOD, InitialConfig),
@@ -115,27 +150,28 @@ perform_lifecycle_check(ResourceId, InitialConfig) ->
 % %%------------------------------------------------------------------------------
 
 pgsql_config() ->
-    RawConfig = list_to_binary(
-        io_lib:format(
-            ""
-            "\n"
-            "    auto_reconnect = true\n"
-            "    database = mqtt\n"
-            "    username= root\n"
-            "    password = public\n"
-            "    pool_size = 8\n"
-            "    server = \"~s:~b\"\n"
-            "    "
-            "",
-            [?PGSQL_HOST, ?PGSQL_DEFAULT_PORT]
-        )
-    ),
+    pgsql_config(#{}).
 
-    {ok, Config} = hocon:binary(RawConfig),
-    #{<<"config">> => Config}.
+pgsql_config(Overrides) ->
+    PoolSize = maps:get(pool_size, Overrides, 8),
+    #{
+        <<"config">> => #{
+            <<"auto_reconnect">> => true,
+            <<"database">> => <<"mqtt">>,
+            <<"username">> => <<"root">>,
+            <<"password">> => <<"public">>,
+            <<"pool_size">> => PoolSize,
+            <<"server">> => iolist_to_binary([
+                ?PGSQL_HOST, ":", integer_to_list(?PGSQL_DEFAULT_PORT)
+            ])
+        }
+    }.
 
 test_query_no_params() ->
     {query, <<"SELECT 1">>}.
 
 test_query_with_params() ->
     {query, <<"SELECT $1::integer">>, [1]}.
+
+match_ok({ok, _, _}) -> true;
+match_ok(_) -> false.
