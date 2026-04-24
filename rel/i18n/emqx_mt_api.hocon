@@ -36,9 +36,25 @@ emqx_mt_api {
     }
     last_ns_in_query {
         desc: """~
-            The last namespace from the previous page.
-            For the first page, use empty string.~"""
+            Exclusive keyset cursor: return namespaces lexicographically
+            greater than this value. For the first page, omit or use the
+            empty string. Mutually exclusive with `first_ns`.~"""
         label: "Last Namespace"
+    }
+    first_ns_in_query {
+        desc: """~
+            Inclusive keyset cursor: return namespaces lexicographically
+            greater than or equal to this value. Useful for exact-match
+            lookup (e.g. `first_ns=foo&limit=1`). Mutually exclusive with
+            `last_ns`.~"""
+        label: "First Namespace"
+    }
+    cursor_conflict {
+        desc: """~
+            The request carried both an inclusive (`first_*`) and an
+            exclusive (`last_*`) keyset cursor. They are mutually exclusive;
+            use at most one.~"""
+        label: "Cursor Parameters Conflict"
     }
     limit_in_query {
         desc: "The number of items to return"
@@ -49,6 +65,14 @@ emqx_mt_api {
             The last client from the previous page.
             For the first page, use empty string.~"""
         label: "Last Client ID"
+    }
+    first_clientid_in_query {
+        desc: """~
+            Inclusive keyset cursor: return client IDs lexicographically
+            greater than or equal to this value. Useful for exact-match
+            lookup (e.g. `first_clientid=foo&limit=1`). Mutually exclusive
+            with `last_clientid`.~"""
+        label: "First Client ID"
     }
     managed_ns_list {
         desc: """~
@@ -154,7 +178,10 @@ emqx_mt_api {
     }
 
 last_clientid_in_query.desc:
-"""Last client ID cursor for pagination."""
+"""~
+Exclusive keyset cursor: return client IDs lexicographically greater than
+this value. For the first page, omit or use the empty string. Mutually
+exclusive with `first_clientid`.~"""
 last_clientid_in_query.label:
 """Last Client ID"""
 

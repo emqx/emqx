@@ -8,15 +8,20 @@
 -export([
     list_ns/0,
     list_ns/2,
+    list_ns_from/2,
     list_ns_details/0,
     list_ns_details/2,
+    list_ns_details_from/2,
     list_managed_ns/0,
     list_managed_ns/2,
+    list_managed_ns_from/2,
     list_managed_ns_details/0,
     list_managed_ns_details/2,
+    list_managed_ns_details_from/2,
     list_clients/1,
     list_clients/2,
     list_clients/3,
+    list_clients_from/3,
     count_clients/1,
     immediate_node_clear/1
 ]).
@@ -51,6 +56,13 @@ list_clients(Ns, LastClientId, Limit) ->
     (Limit < 1 orelse Limit > ?MAX_PAGE_SIZE) andalso error({bad_page_limit, Limit}),
     emqx_mt_state:list_clients(Ns, LastClientId, Limit).
 
+%% @doc List clients of the given tenant, inclusive of `FirstClientId'.
+-spec list_clients_from(tns(), clientid(), non_neg_integer()) ->
+    {ok, [clientid()]} | {error, not_found}.
+list_clients_from(Ns, FirstClientId, Limit) ->
+    (Limit < 1 orelse Limit > ?MAX_PAGE_SIZE) andalso error({bad_page_limit, Limit}),
+    emqx_mt_state:list_clients_from(Ns, FirstClientId, Limit).
+
 %% @doc Count clients of the given tenant.
 %% `{error, not_found}' is returned if there is not any client found.
 -spec count_clients(tns()) -> {ok, non_neg_integer()} | {error, not_found}.
@@ -69,6 +81,11 @@ list_ns() ->
 list_ns(LastNs, Limit) ->
     emqx_mt_state:list_ns(LastNs, Limit).
 
+%% @doc List namespaces inclusively from `FirstNs'.
+-spec list_ns_from(tns(), non_neg_integer()) -> [tns()].
+list_ns_from(FirstNs, Limit) ->
+    emqx_mt_state:list_ns_from(FirstNs, Limit).
+
 -doc """
 List first page of known namespaces with extra details.
 
@@ -81,6 +98,11 @@ list_ns_details() ->
 -spec list_ns_details(tns(), non_neg_integer()) -> [tns_details()].
 list_ns_details(LastNs, Limit) ->
     emqx_mt_state:list_ns_details(LastNs, Limit).
+
+%% @doc List namespaces with details inclusively from `FirstNs'.
+-spec list_ns_details_from(tns(), non_neg_integer()) -> [tns_details()].
+list_ns_details_from(FirstNs, Limit) ->
+    emqx_mt_state:list_ns_details_from(FirstNs, Limit).
 
 -doc """
 List first page of managed namespaces.
@@ -101,6 +123,13 @@ list_managed_ns(LastNs, Limit) ->
     emqx_mt_state:list_managed_ns(LastNs, Limit).
 
 -doc """
+List managed namespaces inclusively from `FirstNs'.
+""".
+-spec list_managed_ns_from(tns(), non_neg_integer()) -> [tns()].
+list_managed_ns_from(FirstNs, Limit) ->
+    emqx_mt_state:list_managed_ns_from(FirstNs, Limit).
+
+-doc """
 List first page of managed namespaces with extra details.
 
 Default page size is 100.
@@ -118,6 +147,13 @@ The second argument is the number of managed namespaces to return.
 -spec list_managed_ns_details(tns(), non_neg_integer()) -> [tns_details()].
 list_managed_ns_details(LastNs, Limit) ->
     emqx_mt_state:list_managed_ns_details(LastNs, Limit).
+
+-doc """
+List managed namespaces with details inclusively from `FirstNs'.
+""".
+-spec list_managed_ns_details_from(tns(), non_neg_integer()) -> [tns_details()].
+list_managed_ns_details_from(FirstNs, Limit) ->
+    emqx_mt_state:list_managed_ns_details_from(FirstNs, Limit).
 
 %% @doc Immediately clear session records of the given node.
 %% If a node is down, the records of the node will be cleared after a delay.

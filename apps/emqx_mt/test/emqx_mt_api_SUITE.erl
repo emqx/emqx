@@ -1488,3 +1488,168 @@ parse_next_link(LinkVal) ->
     Size = byte_size(Rest) - 1,
     <<Query:Size/binary, ">">> = Rest,
     maps:from_list(uri_string:dissect_query(Query)).
+
+-doc """
+Verifies the inclusive keyset cursor parameters (`first_ns`, `first_clientid`).
+Covers exact-match lookup, paginated continuation where the Link header
+preserves the inclusive cursor mode, and the mutex rule that rejects requests
+providing both an inclusive and an exclusive cursor on the same endpoint.
+""".
+t_list_pagination_first_cursor(_Config) ->
+    Ns1 = <<"pfns1">>,
+    Ns2 = <<"pfns2">>,
+    Ns3 = <<"pfns3">>,
+    ?assertMatch({204, _}, create_managed_ns(Ns1)),
+    ?assertMatch({204, _}, create_managed_ns(Ns2)),
+    ?assertMatch({204, _}, create_managed_ns(Ns3)),
+    ClientId1 = <<"pf-c-1">>,
+    ClientId2 = <<"pf-c-2">>,
+    ClientId3 = <<"pf-c-3">>,
+    C1 = connect(ClientId1, Ns1),
+    C2 = connect(ClientId2, Ns1),
+    C3 = connect(ClientId3, Ns1),
+    C4 = connect(<<"pf-other">>, Ns2),
+    C5 = connect(<<"pf-other">>, Ns3),
+    ?retry(200, 50, ?assertMatch({200, [Ns1, Ns2, Ns3]}, list_nss(#{}))),
+
+    %% --- Exact-match lookup: first_ns equal to an existing key returns that
+    %% key as the first element (up to limit=1 => one-item response).
+    ?assertMatch(
+        {200, [Ns2]},
+        list_managed_nss(#{<<"first_ns">> => Ns2, <<"limit">> => <<"1">>})
+    ),
+    ?assertMatch(
+        {200, [Ns2]},
+        list_nss(#{<<"first_ns">> => Ns2, <<"limit">> => <<"1">>})
+    ),
+    ?assertMatch(
+        {200, [ClientId2]},
+        list_clients(Ns1, #{<<"first_clientid">> => ClientId2, <<"limit">> => <<"1">>})
+    ),
+
+    %% --- first_ns with a value that isn't present advances to the next key
+    %% that exists (like an inclusive lower bound).
+    ?assertMatch(
+        {200, [Ns2, Ns3]},
+        list_managed_nss(#{<<"first_ns">> => <<"pfns15">>, <<"limit">> => <<"5">>})
+    ),
+
+    %% --- Pagination: limit < total with first_ns => Link preserves first_ns
+    %% and points at the next-inclusive cursor.
+    assert_first_mode_roundtrip(
+        fun(QS) -> list_managed_nss_headers(QS) end,
+        #{<<"first_ns">> => Ns1, <<"limit">> => <<"1">>},
+        <<"first_ns">>,
+        Ns2,
+        [Ns1],
+        2
+    ),
+    assert_first_mode_roundtrip(
+        fun(QS) -> list_nss_headers(QS) end,
+        #{<<"first_ns">> => Ns1, <<"limit">> => <<"1">>},
+        <<"first_ns">>,
+        Ns2,
+        [Ns1],
+        2
+    ),
+    assert_first_mode_roundtrip(
+        fun(QS) -> list_managed_nss_details_headers(QS) end,
+        #{<<"first_ns">> => Ns1, <<"limit">> => <<"1">>},
+        <<"first_ns">>,
+        Ns2,
+        1,
+        2
+    ),
+    assert_first_mode_roundtrip(
+        fun(QS) -> list_nss_details_headers(QS) end,
+        #{<<"first_ns">> => Ns1, <<"limit">> => <<"1">>},
+        <<"first_ns">>,
+        Ns2,
+        1,
+        2
+    ),
+    assert_first_mode_roundtrip(
+        fun(QS) -> list_clients_headers(Ns1, QS) end,
+        #{<<"first_clientid">> => ClientId1, <<"limit">> => <<"1">>},
+        <<"first_clientid">>,
+        ClientId2,
+        [ClientId1],
+        2
+    ),
+
+    %% --- Mutex: providing both cursors rejects with 400.
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_REQUEST">>}},
+        list_managed_nss(#{
+            <<"first_ns">> => Ns1,
+            <<"last_ns">> => Ns1,
+            <<"limit">> => <<"1">>
+        })
+    ),
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_REQUEST">>}},
+        list_nss(#{
+            <<"first_ns">> => Ns1,
+            <<"last_ns">> => Ns1,
+            <<"limit">> => <<"1">>
+        })
+    ),
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_REQUEST">>}},
+        list_managed_nss_details(#{
+            <<"first_ns">> => Ns1,
+            <<"last_ns">> => Ns1,
+            <<"limit">> => <<"1">>
+        })
+    ),
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_REQUEST">>}},
+        list_nss_details(#{
+            <<"first_ns">> => Ns1,
+            <<"last_ns">> => Ns1,
+            <<"limit">> => <<"1">>
+        })
+    ),
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_REQUEST">>}},
+        list_clients(Ns1, #{
+            <<"first_clientid">> => ClientId1,
+            <<"last_clientid">> => ClientId1,
+            <<"limit">> => <<"1">>
+        })
+    ),
+
+    lists:foreach(fun stop_client/1, [C1, C2, C3, C4, C5]),
+    ok.
+
+%% Checks that a request using `first_*` cursor returns the expected first
+%% page, that the Link header preserves the `first_*` param name, that the
+%% cursor value points at the next inclusive item, and that following the
+%% Link yields the expected continuation.
+assert_first_mode_roundtrip(
+    Fun, QS, CursorKey, ExpectedCursor, ExpectedFirstPage, ExpectedNextPageSize
+) ->
+    {200, Headers, Body} = Fun(QS),
+    %% First-page content check: if caller gave a list, match it; otherwise
+    %% use it as a length expectation (details endpoints return maps with
+    %% keys beyond just `name`).
+    case is_list(ExpectedFirstPage) of
+        true ->
+            ?assertEqual(ExpectedFirstPage, Body, #{headers => Headers});
+        false ->
+            ?assertEqual(ExpectedFirstPage, length(Body), #{headers => Headers, body => Body})
+    end,
+    {"link", LinkVal} = lists:keyfind("link", 1, Headers),
+    NextQS = parse_next_link(LinkVal),
+    ?assertMatch(
+        #{CursorKey := ExpectedCursor, <<"limit">> := <<"1">>},
+        NextQS,
+        #{link => LinkVal}
+    ),
+    {200, NextHeaders, NextBody} = Fun(NextQS),
+    ?assertEqual(
+        ExpectedNextPageSize,
+        length(NextBody),
+        #{headers => NextHeaders, body => NextBody}
+    ),
+    ok.
