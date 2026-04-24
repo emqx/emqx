@@ -133,7 +133,11 @@ on_start(ConnResId, ConnConfig0) ->
 
 -spec on_stop(connector_resource_id(), connector_state()) -> ok.
 on_stop(ConnResId, _ConnState) ->
-    Res = emqx_bridge_gcp_pubsub_client:stop(ConnResId, ?SUP, ?TOKEN_TAB),
+    Ctx = #{
+        supervisor => ?SUP,
+        token_table => ?TOKEN_TAB
+    },
+    Res = emqx_bridge_gcp_pubsub_client:stop(ConnResId, Ctx),
     ?tp("bigquery_connector_stop", #{instance_id => ConnResId}),
     Res.
 

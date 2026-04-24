@@ -110,7 +110,11 @@ on_start(InstanceId, Config0) ->
 
 -spec on_stop(connector_resource_id(), connector_state()) -> ok | {error, term()}.
 on_stop(InstanceId, _State) ->
-    emqx_bridge_gcp_pubsub_client:stop(InstanceId, ?SUP, ?TOKEN_TAB).
+    Ctx = #{
+        supervisor => ?SUP,
+        token_table => ?TOKEN_TAB
+    },
+    emqx_bridge_gcp_pubsub_client:stop(InstanceId, Ctx).
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
     ?status_connected | {?status_disconnected, term()}.

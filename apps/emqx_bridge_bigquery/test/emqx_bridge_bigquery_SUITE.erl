@@ -337,7 +337,7 @@ start_control_client() ->
 
 stop_control_client(TCConfig) ->
     Client = get_value(client, TCConfig),
-    ok = emqx_bridge_gcp_pubsub_client:stop(Client, ?SUP, ?TOKEN_TAB),
+    ok = emqx_bridge_gcp_pubsub_client:stop(Client),
     ok.
 
 render(TemplateStr, Context) ->

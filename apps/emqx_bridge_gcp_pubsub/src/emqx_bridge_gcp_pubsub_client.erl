@@ -15,7 +15,7 @@
 -export([
     start/2,
     stop/1,
-    stop/3,
+    stop/2,
     query_sync/2,
     query_async/3,
     get_status/1
@@ -61,6 +61,13 @@
     type := service_account_json,
     jwt_config := emqx_connector_jwt:jwt_config()
 }.
+-type stop_ctx() :: #{
+    sa_token_table => ets:table(),
+    sa_server_ref => gen_server:server_ref(),
+    token_table => ets:table(),
+    supervisor => gen_server:server_ref()
+}.
+
 -type headers() :: [{binary(), iodata()}].
 -type body() :: iodata().
 -type status_code() :: 100..599.
@@ -75,6 +82,7 @@
     service_account_json/0,
     state/0,
     extra_info/0,
+    stop_ctx/0,
     headers/0,
     body/0,
     status_code/0,
@@ -184,18 +192,17 @@ do_start_pool(ResourceId, State, Config) ->
 -spec stop(state()) -> ok | {error, term()}.
 stop(Client) ->
     #{pool_name := ResourceId} = Client,
-    {Sup, Tab} =
+    Ctx =
         case Client of
             #{auth_config := #{type := wif, token_table := Tab0, supervisor := Sup0}} ->
-                {Sup0, Tab0};
+                #{token_table => Tab0, supervisor => Sup0};
             _ ->
-                {undefined, undefined}
+                #{}
         end,
-    stop(ResourceId, Sup, Tab).
+    stop(ResourceId, Ctx).
 
--spec stop(resource_id(), undefined | supervisor:sup_ref(), undefined | ets:table()) ->
-    ok | {error, term()}.
-stop(ResourceId, Sup, Tab) ->
+-spec stop(resource_id(), stop_ctx()) -> ok | {error, term()}.
+stop(ResourceId, Ctx) ->
     ?tp(gcp_client_stop, #{instance_id => ResourceId, resource_id => ResourceId}),
     ?SLOG(info, #{
         msg => "stopping_gcp_client",
@@ -203,8 +210,7 @@ stop(ResourceId, Sup, Tab) ->
     }),
     ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, ResourceId),
     maybe
-        true ?= Sup /= undefined,
-        true ?= Tab /= undefined,
+        #{token_table := Tab, supervisor := Sup} ?= Ctx,
         ok = stop_worker_and_clear_token(ResourceId, Sup, Tab)
     end,
     case ehttpc_sup:stop_pool(ResourceId) of
