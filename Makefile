@@ -131,8 +131,12 @@ else
 endif
 endef
 
-ifneq ($(filter %-ct,$(MAKECMDGOALS)),)
-app_to_test := $(patsubst %-ct,%,$(filter %-ct,$(MAKECMDGOALS)))
+## Note: exclude `plugins-ct` (meta target that walks all plugins — see below).
+## `plugins/<name>-ct` IS handled by gen-app-ct-target: plugins are umbrella
+## apps so their test/ layout matches apps/<name>/test/ and find-suites.sh
+## resolves it unchanged.
+ifneq ($(filter-out plugins-ct,$(filter %-ct,$(MAKECMDGOALS))),)
+app_to_test := $(patsubst %-ct,%,$(filter-out plugins-ct,$(filter %-ct,$(MAKECMDGOALS))))
 $(call DEBUG_INFO,app_to_test $(app_to_test))
 $(eval $(call gen-app-ct-target,$(app_to_test)))
 endif
@@ -147,6 +151,44 @@ app_to_test := $(patsubst %-prop,%,$(filter %-prop,$(MAKECMDGOALS)))
 $(call DEBUG_INFO,app_to_test $(app_to_test))
 $(eval $(call gen-app-prop-target,$(app_to_test)))
 endif
+
+## ----- monorepo plugin targets (plugins under plugins/<name>/) -----
+## In-tree plugins are compiled as umbrella apps (see project_app_dirs in
+## rebar.config.erl) so `make plugins/<name>-ct` is handled by the generic
+## gen-app-ct-target rule above — the same way `make apps/<name>-ct` works.
+##
+## Packaging (plugin-<name>) reads the already-compiled beams from the
+## umbrella build tree (`_build/$PROFILE/lib/<name>/`) and assembles the
+## installable tarball via scripts/package-plugin.escript — no per-plugin
+## rebar3 invocation is needed.
+##
+## plugins-ct aggregates CT across every plugin directory that has a
+## `test/` subfolder.
+
+.PHONY: plugin-%
+plugin-%: PLUGIN_APP_DIR = plugins/$*
+plugin-%:
+	@test -d $(PLUGIN_APP_DIR) || { echo "Error: No such plugin app: $(PLUGIN_APP_DIR)"; exit 1; }
+	@test -f $(PLUGIN_APP_DIR)/rebar.config || { \
+	    echo "Error: $(PLUGIN_APP_DIR)/rebar.config not found."; \
+	    exit 1; \
+	}
+	@grep -q "emqx_plugrel" $(PLUGIN_APP_DIR)/rebar.config || { \
+	    echo "Error: $(PLUGIN_APP_DIR)/rebar.config does not declare emqx_plugrel."; \
+	    exit 1; \
+	}
+	@$(SCRIPTS)/build-plugin.sh $*
+
+.PHONY: plugins
+plugins: $(REBAR) compile-$(PROFILE)
+	@$(SCRIPTS)/build-plugins.sh
+
+.PHONY: plugins-ct
+plugins-ct: $(REBAR) merge-config clean-test-cluster-config
+	@for d in plugins/*/; do \
+	    [ -d "$$d/test" ] || continue; \
+	    $(MAKE) "$${d%/}-ct" || exit $$?; \
+	done
 
 .PHONY: ct-suite
 ct-suite: $(REBAR) merge-config clean-test-cluster-config

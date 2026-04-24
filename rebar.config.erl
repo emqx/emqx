@@ -63,7 +63,9 @@ config() ->
     [
         {cover_enabled, is_cover_enabled()},
         {profiles, profiles()},
-        {plugins, plugins()}
+        {plugins, plugins()},
+        %% plugins/ holds EMQX runtime plugins, not rebar3 build plugins.
+        {project_plugin_dirs, []}
     ].
 
 is_cover_enabled() ->
@@ -107,15 +109,30 @@ project_app_dirs() ->
     project_app_dirs(RelType).
 
 project_app_dirs(RelType) ->
+    project_app_dirs(RelType, true).
+
+%% IncludePlugins=false lets the `check` profile skip plugin sources
+%% during xref/dialyzer analysis — plugin code is ported verbatim from
+%% the v6 tree and owns its own static-check policy.
+project_app_dirs(RelType, IncludePlugins) ->
     ExcludedApps = unavailable_apps(RelType),
+    AppDirs =
+        filelib:wildcard("apps/*") ++
+            case IncludePlugins of
+                true -> filelib:wildcard("plugins/*");
+                false -> []
+            end,
     UmbrellaApps = [
         Path
-     || Path <- filelib:wildcard("apps/*"),
+     || Path <- AppDirs,
         not project_app_excluded(Path, ExcludedApps)
     ],
     UmbrellaApps.
 
 project_app_excluded("apps/" ++ AppStr, ExcludedApps) ->
+    App = list_to_atom(AppStr),
+    lists:member(App, ExcludedApps);
+project_app_excluded("plugins/" ++ AppStr, ExcludedApps) ->
     App = list_to_atom(AppStr),
     lists:member(App, ExcludedApps).
 
@@ -218,11 +235,11 @@ profiles_ee(RelType) ->
         ]}
     ].
 
-profiles_dev(_RelType) ->
+profiles_dev(RelType) ->
     [
         {check, [
             {erl_opts, common_compile_opts()},
-            {project_app_dirs, project_app_dirs()}
+            {project_app_dirs, project_app_dirs(RelType, false)}
         ]},
         {test, [
             {deps, test_deps()},
@@ -364,6 +381,18 @@ excluded_apps(_) ->
         %% Pulled in as an _optional application_ for `observer` (as of OTP-27.2)
         %% Exclude as it needs a bunch of extra libraries installed on the host system.
         wx
+    ] ++ plugin_apps().
+
+%% In-tree plugins live under plugins/<name>/ and are compiled as umbrella
+%% apps (see project_app_dirs/1) so they benefit from the monorepo's CT
+%% and static-check infrastructure. They must NOT be included in the
+%% EMQX release image: plugins are delivered as separate .tar.gz packages
+%% and installed at runtime via `emqx ctl plugins install`.
+plugin_apps() ->
+    [
+        list_to_atom(filename:basename(P))
+     || P <- filelib:wildcard("plugins/*"),
+        filelib:is_dir(P)
     ].
 
 is_app(Name) ->
