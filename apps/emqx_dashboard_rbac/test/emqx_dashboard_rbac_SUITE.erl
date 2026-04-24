@@ -161,6 +161,19 @@ t_clean_token(_) ->
     {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, Token),
     ok.
 
+t_role_change_new_token_survives(_) ->
+    Username = <<"admin_role_change">>,
+    Password = <<"public_www1">>,
+    Desc = <<"desc">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, Desc),
+    FakePath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/fake")),
+    FakeReq = #{method => <<"GET">>, path => FakePath},
+    {ok, _} = emqx_dashboard_admin:update_user(Username, ?ROLE_VIEWER, Desc),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
+    ok = gen_server:call(emqx_dashboard_token, dummy, infinity),
+    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token),
+    ok.
+
 t_login_out(_) ->
     Username = <<"admin_token">>,
     Password = <<"public_www1">>,

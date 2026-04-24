@@ -59,7 +59,7 @@ destroy(#?ADMIN_JWT{token = Token}) ->
 destroy(Token) when is_binary(Token) ->
     do_destroy(Token).
 
--spec destroy_by_username(Username :: binary()) -> ok.
+-spec destroy_by_username(Username :: term()) -> ok.
 destroy_by_username(Username) ->
     do_destroy_by_username(Username).
 
@@ -127,7 +127,7 @@ do_destroy(Token) ->
     ok.
 
 do_destroy_by_username(Username) ->
-    gen_server:cast(?MODULE, {destroy, Username}).
+    destroy(lookup_by_username(Username)).
 
 %%--------------------------------------------------------------------
 %% jwt internal util function
