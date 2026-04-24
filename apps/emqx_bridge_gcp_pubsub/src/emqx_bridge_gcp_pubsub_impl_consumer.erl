@@ -106,7 +106,9 @@ on_start(ConnectorResId, Config0) ->
         host => Host,
         port => Port,
         supervisor => ?SUP,
-        token_table => ?TOKEN_TAB
+        token_table => ?TOKEN_TAB,
+        sa_server_ref => ?SA_SERVER_REF,
+        sa_token_table => ?SA_TOKEN_RESP_TAB
     },
     case emqx_bridge_gcp_pubsub_client:start(ConnectorResId, Config) of
         {ok, ExtraInfo, Client} ->
@@ -128,7 +130,9 @@ on_stop(ConnectorResId, ConnectorState) ->
     ok = stop_consumers(ConnectorState),
     Ctx = #{
         supervisor => ?SUP,
-        token_table => ?TOKEN_TAB
+        token_table => ?TOKEN_TAB,
+        sa_server_ref => ?SA_SERVER_REF,
+        sa_token_table => ?SA_TOKEN_RESP_TAB
     },
     emqx_bridge_gcp_pubsub_client:stop(ConnectorResId, Ctx).
 
