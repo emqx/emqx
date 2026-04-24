@@ -20,12 +20,11 @@ options:
   -b|--base:         Specify the current release base branch, can be one of
                      release-60
                      release-61
+                     release-62
+                     release-63
                      NOTE: this option should be used when --dryrun.
 
   --dryrun:          Do not actually create the git tag.
-
-  --skip-appup:      Skip checking appup
-                     Useful when you are sure that appup is already updated'
 
   --prev-tag <tag>:  Provide the prev tag to automatically generate changelogs
                      If this option is absent, the tag found by git describe will be used
@@ -105,6 +104,12 @@ rel_branch() {
             ;;
         6.1.*)
             echo 'release-61'
+            ;;
+        6.2.*)
+            echo 'release-62'
+            ;;
+        6.3.*)
+            echo 'release-63'
             ;;
         *)
             logerr "Unsupported version tag $TAG"
@@ -205,10 +210,6 @@ SYNC_REMOTES_ARGS=
 
 ## Check if app versions are bumped
 ./scripts/apps-version-check.exs
-
-## Ensure relup paths are updated
-## TODO: add relup path db
-#./scripts/relup-base-vsns.escript check-vsn-db "$RELEASE_VSN" "$RELUP_PATHS"
 
 ## Run some additional checks (e.g. some for enterprise edition only)
 CHECKS_DIR="./scripts/rel/checks"

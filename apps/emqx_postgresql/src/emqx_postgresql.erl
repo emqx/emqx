@@ -471,7 +471,13 @@ get_templated_statement(Key, #{prepares := PrepStatements}) ->
     {ok, maps:get(BinKey, PrepStatements)}.
 
 on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
-    try ecpool:pick_and_do(PoolName, {?MODULE, Type, [NameOrSQL, Data]}, no_handover) of
+    %% query calls equery, which is not atomic and can interleave with other equery calls
+    Handover =
+        case Type of
+            query -> handover;
+            _ -> no_handover
+        end,
+    try ecpool:pick_and_do(PoolName, {?MODULE, Type, [NameOrSQL, Data]}, Handover) of
         {error, Reason} ->
             ?tp(
                 pgsql_connector_query_return,
