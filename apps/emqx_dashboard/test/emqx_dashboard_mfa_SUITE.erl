@@ -278,8 +278,8 @@ t_enable_by_config(_Config) ->
     {ok, 200, _} = login(LoginBody),
     ok.
 
-%% Reset MFA — completely removes MFA record.
-%% After reset, the user is back to "never configured" state.
+%% DELETE MFA ignores the historical reset query parameter.
+%% Resetting/re-keying MFA should be done with POST /users/:username/mfa.
 t_reset_mfa({init, Config}) ->
     ok = mock_totp(),
     _ = emqx_dashboard_admin:clear_mfa_state(<<"viewer1">>),
@@ -296,18 +296,42 @@ t_reset_mfa(_Config) ->
     AdminJwtToken = admin_jwt_token(),
     %% enable MFA for viewer1
     ?assertMatch({ok, 204, _}, enable_mfa(<<"viewer1">>)),
+    {ok, #{secret := Secret0}} = emqx_dashboard_admin:get_mfa_state(<<"viewer1">>),
     %% login with TOTP to complete setup
-    ?assertMatch({ok, 200, _}, login(LoginBody)),
+    {ok, 200, LoginRsp} = login(LoginBody),
+    #{<<"token">> := JwtToken} = json_map(LoginRsp),
+    ?assertMatch({ok, <<"viewer1">>}, emqx_dashboard_admin:verify_token(fake_req(), JwtToken)),
     ?assertMatch(#{<<"mfa">> := <<"totp">>}, get_user(<<"viewer1">>)),
-    %% admin resets MFA
-    ?assertMatch({ok, 204, _}, reset_mfa(<<"viewer1">>, AdminJwtToken)),
-    %% MFA state should be "none" (record deleted, not "disabled")
-    ?assertMatch(#{<<"mfa">> := <<"none">>}, get_user(<<"viewer1">>)),
+    %% POST is the reset/re-key operation.
+    ?assertMatch({ok, 204, _}, enable_mfa(<<"viewer1">>, AdminJwtToken)),
+    {ok, #{secret := Secret1}} = emqx_dashboard_admin:get_mfa_state(<<"viewer1">>),
+    ?assertNotEqual(Secret0, Secret1),
+    ok = gen_server:call(emqx_dashboard_token, dummy, infinity),
+    ?assertMatch({error, not_found}, emqx_dashboard_admin:verify_token(fake_req(), JwtToken)),
+    ?assertMatch(#{<<"mfa">> := <<"totp">>}, get_user(<<"viewer1">>)),
+    %% reset=true is no longer a hard reset. It behaves like ordinary DELETE.
+    ?assertMatch({ok, 204, _}, delete_mfa_with_reset_query(<<"viewer1">>, AdminJwtToken)),
+    ?assertMatch(#{<<"mfa">> := <<"disabled">>}, get_user(<<"viewer1">>)),
     %% should be able to login without TOTP now
     LoginNoTotp = maps:remove(<<"mfa_token">>, LoginBody),
     ?assertMatch({ok, 200, _}, login(LoginNoTotp)),
-    %% reset non-existent user should return 404
-    ?assertMatch({ok, 404, _}, reset_mfa(<<"nonexistent_user">>, AdminJwtToken)),
+    %% non-existent user should return 404
+    ?assertMatch({ok, 404, _}, delete_mfa_with_reset_query(<<"nonexistent_user">>, AdminJwtToken)),
+    ok.
+
+t_reset_mfa_reinit_error({init, Config}) ->
+    ok = meck:new(emqx_dashboard_admin, [passthrough, no_history]),
+    Config;
+t_reset_mfa_reinit_error({'end', _Config}) ->
+    ok = meck:unload(emqx_dashboard_admin);
+t_reset_mfa_reinit_error(_Config) ->
+    ok = meck:expect(emqx_dashboard_admin, reinit_mfa, fun(_, _) -> {error, <<"boom">>} end),
+    Req = #{
+        bindings => #{username => <<"viewer1">>},
+        body => #{<<"mechanism">> => <<"totp">>},
+        query_string => #{<<"backend">> => <<"local">>}
+    },
+    ?assertMatch({400, 'BAD_REQUEST', <<"boom">>}, emqx_dashboard_api:change_mfa(post, Req)),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -342,9 +366,15 @@ enable_mfa(User, JwtToken) ->
 disable_mfa(User, JwtToken) ->
     request_api(delete, api_path(["users", User, mfa]), auth_header(JwtToken), #{}).
 
-reset_mfa(User, JwtToken) ->
+delete_mfa_with_reset_query(User, JwtToken) ->
     Url = binary_to_list(iolist_to_binary(api_path(["users", User, "mfa"]))),
     request_api(delete, Url, "reset=true", auth_header(JwtToken), #{}).
+
+fake_req() ->
+    #{
+        method => <<"GET">>,
+        path => erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/fake"))
+    }.
 
 get_user(Name) ->
     Users = list_users(),

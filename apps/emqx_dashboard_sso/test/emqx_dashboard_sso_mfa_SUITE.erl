@@ -19,6 +19,7 @@
 -define(SSO_BACKEND, ldap).
 -define(SSO_USER, <<"sso_testuser">>).
 -define(SSO_USER2, <<"sso_testuser2">>).
+-define(MAX_BAD_TOTP_ATTEMPTS, 5).
 
 -define(EE_ONLY(EXPR, NON_EE),
     case emqx_release:edition() of
@@ -212,6 +213,53 @@ t_verify_token_consumed(_Config) ->
     ?assertMatch({error, invalid_token}, emqx_dashboard_mfa:verify_temp_token(Username, Token)),
     ok.
 
+t_verify_token_consumed_once_under_concurrency({init, Config}) ->
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"test_concurrent_consumed_user">>, <<"TestPass1!">>, ?ROLE_VIEWER, <<>>
+    ),
+    Config;
+t_verify_token_consumed_once_under_concurrency({'end', _Config}) ->
+    _ = emqx_dashboard_admin:remove_user(<<"test_concurrent_consumed_user">>),
+    ok;
+t_verify_token_consumed_once_under_concurrency(_Config) ->
+    Username = <<"test_concurrent_consumed_user">>,
+    Secret = <<"SECRET">>,
+    Token = emqx_dashboard_mfa:create_setup_token(Username, Secret),
+    Results = concurrent_call(
+        50,
+        fun() -> emqx_dashboard_mfa:verify_temp_token(Username, Token) end
+    ),
+    Successes = [
+        Result
+     || {ok, _Pid, Result = {ok, ResultUsername, {setup, ResultSecret}}} <- Results,
+        ResultUsername =:= Username,
+        ResultSecret =:= Secret
+    ],
+    ?assertEqual(1, length(Successes)),
+    ok.
+
+t_record_temp_token_failure_once_per_transaction({init, Config}) ->
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"test_concurrent_failed_attempts_user">>, <<"TestPass1!">>, ?ROLE_VIEWER, <<>>
+    ),
+    Config;
+t_record_temp_token_failure_once_per_transaction({'end', _Config}) ->
+    _ = emqx_dashboard_admin:remove_user(<<"test_concurrent_failed_attempts_user">>),
+    ok;
+t_record_temp_token_failure_once_per_transaction(_Config) ->
+    Username = <<"test_concurrent_failed_attempts_user">>,
+    Token = emqx_dashboard_mfa:create_setup_token(Username, <<"SECRET">>),
+    Results = concurrent_call(
+        50,
+        fun() -> emqx_dashboard_mfa:record_temp_token_failure(Username, Token) end
+    ),
+    OkResults = [ok || {ok, _Pid, ok} <- Results],
+    InvalidTokenResults = [Error || {ok, _Pid, Error = {error, invalid_token}} <- Results],
+    ?assertEqual(?MAX_BAD_TOTP_ATTEMPTS, length(OkResults)),
+    ?assertEqual(50 - ?MAX_BAD_TOTP_ATTEMPTS, length(InvalidTokenResults)),
+    ?assertEqual({error, invalid_token}, emqx_dashboard_mfa:peek_temp_token(Username, Token)),
+    ok.
+
 %%====================================================================
 %% Integration tests for check_sso_mfa flow
 %%====================================================================
@@ -227,6 +275,47 @@ t_check_sso_mfa_no_force(_Config) ->
     Result = emqx_dashboard_sso_mfa:check_sso_mfa(User, ?SSO_BACKEND),
     %% force_mfa=false => no MFA, JWT signed at exchange time
     ?assertEqual({ok, login}, Result),
+    ok.
+
+t_check_sso_mfa_enabled_no_force({init, Config}) ->
+    mock_force_mfa(?SSO_BACKEND, false),
+    SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER2),
+    MfaState = #{mechanism => totp, secret => <<"TESTSECRET">>, first_verify_ts => 1000},
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, MfaState),
+    Config;
+t_check_sso_mfa_enabled_no_force({'end', _Config}) ->
+    clear_force_mfa(?SSO_BACKEND),
+    _ = emqx_dashboard_admin:clear_mfa_pending(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER2)),
+    _ = emqx_dashboard_admin:clear_mfa_state(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER2)),
+    ok;
+t_check_sso_mfa_enabled_no_force(_Config) ->
+    [User] = emqx_dashboard_admin:lookup_user(?SSO_BACKEND, ?SSO_USER2),
+    Result = emqx_dashboard_sso_mfa:check_sso_mfa(User, ?SSO_BACKEND),
+    %% force_mfa=false, MFA enabled => still require verification
+    ?assertMatch({mfa_verify, _VerifyToken}, Result),
+    {mfa_verify, VerifyToken} = Result,
+    ?assert(is_binary(VerifyToken)),
+    ok.
+
+t_check_sso_mfa_setup_required_no_force({init, Config}) ->
+    mock_force_mfa(?SSO_BACKEND, false),
+    SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),
+    MfaState = #{mechanism => totp, secret => <<"SETUPSECRET">>},
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, MfaState),
+    Config;
+t_check_sso_mfa_setup_required_no_force({'end', _Config}) ->
+    clear_force_mfa(?SSO_BACKEND),
+    _ = emqx_dashboard_admin:clear_mfa_pending(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    _ = emqx_dashboard_admin:clear_mfa_state(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    ok;
+t_check_sso_mfa_setup_required_no_force(_Config) ->
+    [User] = emqx_dashboard_admin:lookup_user(?SSO_BACKEND, ?SSO_USER),
+    Result = emqx_dashboard_sso_mfa:check_sso_mfa(User, ?SSO_BACKEND),
+    %% force_mfa=false, MFA setup is pending => still require setup
+    ?assertMatch({mfa_setup, _SetupToken, _QRInfo}, Result),
+    {mfa_setup, SetupToken, QRInfo} = Result,
+    ?assert(is_binary(SetupToken)),
+    ?assertEqual(#{secret => <<"SETUPSECRET">>, mechanism => totp}, QRInfo),
     ok.
 
 t_check_sso_mfa_not_configured({init, Config}) ->
@@ -310,29 +399,6 @@ t_admin_disable_mfa(_Config) ->
     ?assertEqual({ok, disabled}, emqx_dashboard_admin:get_mfa_state(SsoUsername)),
     ok.
 
-t_admin_enable_mfa({init, Config}) ->
-    Config;
-t_admin_enable_mfa({'end', _Config}) ->
-    _ = emqx_dashboard_admin:clear_mfa_state(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
-    ok;
-t_admin_enable_mfa(_Config) ->
-    SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),
-    %% First enable MFA (setup_required state)
-    ok = emqx_dashboard_admin:enable_mfa(SsoUsername, totp),
-    %% Simulate first verify to move to enabled state
-    {ok, #{secret := _Secret}} = emqx_dashboard_admin:get_mfa_state(SsoUsername),
-    {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, #{
-        mechanism => totp, secret => <<"OLDSECRET">>, first_verify_ts => 12345
-    }),
-    %% Admin disables MFA
-    ok = emqx_dashboard_admin:disable_mfa(SsoUsername),
-    ?assertEqual({ok, disabled}, emqx_dashboard_admin:get_mfa_state(SsoUsername)),
-    %% Admin re-enables MFA — clears disabled state entirely.
-    %% For SSO users, the next login with force_mfa=true will trigger fresh setup.
-    ok = emqx_dashboard_admin:admin_enable_mfa(SsoUsername),
-    ?assertEqual({error, no_mfa_state}, emqx_dashboard_admin:get_mfa_state(SsoUsername)),
-    ok.
-
 %%====================================================================
 %% SSO MFA API endpoint tests
 %%====================================================================
@@ -363,6 +429,85 @@ t_mfa_setup_api(_Config) ->
     {ok, 200, RspBody} = request_api(post, api_path(["sso", "mfa", "setup"]), no_auth_header, Body),
     Rsp = json_map(RspBody),
     ?assertMatch(#{<<"token">> := _, <<"license">> := _}, Rsp),
+    ok.
+
+t_mfa_setup_retry_after_bad_totp({init, Config}) ->
+    mock_force_mfa(?SSO_BACKEND, true),
+    ok = mock_totp(),
+    _ = emqx_dashboard_admin:clear_mfa_state(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    Config;
+t_mfa_setup_retry_after_bad_totp({'end', _Config}) ->
+    clear_force_mfa(?SSO_BACKEND),
+    ok = unmock_totp(),
+    _ = emqx_dashboard_admin:clear_mfa_state(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    ok;
+t_mfa_setup_retry_after_bad_totp(_Config) ->
+    [User] = emqx_dashboard_admin:lookup_user(?SSO_BACKEND, ?SSO_USER),
+    {mfa_setup, SetupToken, _QRInfo} = emqx_dashboard_sso_mfa:check_sso_mfa(User, ?SSO_BACKEND),
+    Body = #{
+        <<"setup_token">> => SetupToken,
+        <<"username">> => ?SSO_USER,
+        <<"backend">> => atom_to_binary(?SSO_BACKEND)
+    },
+    {ok, 401, BadRspBody} = request_api(
+        post,
+        api_path(["sso", "mfa", "setup"]),
+        no_auth_header,
+        Body#{<<"totp_code">> => <<"999999">>}
+    ),
+    ?assertMatch(#{<<"code">> := <<"UNAUTHORIZED">>}, json_map(BadRspBody)),
+    {ok, 200, GoodRspBody} = request_api(
+        post,
+        api_path(["sso", "mfa", "setup"]),
+        no_auth_header,
+        Body#{<<"totp_code">> => ?GOOD_TOTP}
+    ),
+    ?assertMatch(#{<<"token">> := _, <<"license">> := _}, json_map(GoodRspBody)),
+    ok.
+
+t_mfa_setup_token_cleared_after_too_many_bad_totp({init, Config}) ->
+    mock_force_mfa(?SSO_BACKEND, true),
+    ok = mock_totp(),
+    _ = emqx_dashboard_admin:clear_mfa_state(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    _ = emqx_dashboard_admin:clear_mfa_pending(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    Config;
+t_mfa_setup_token_cleared_after_too_many_bad_totp({'end', _Config}) ->
+    clear_force_mfa(?SSO_BACKEND),
+    ok = unmock_totp(),
+    _ = emqx_dashboard_admin:clear_mfa_state(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    _ = emqx_dashboard_admin:clear_mfa_pending(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    ok;
+t_mfa_setup_token_cleared_after_too_many_bad_totp(_Config) ->
+    SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),
+    [User] = emqx_dashboard_admin:lookup_user(?SSO_BACKEND, ?SSO_USER),
+    {mfa_setup, SetupToken, _QRInfo} = emqx_dashboard_sso_mfa:check_sso_mfa(User, ?SSO_BACKEND),
+    Body = #{
+        <<"setup_token">> => SetupToken,
+        <<"username">> => ?SSO_USER,
+        <<"backend">> => atom_to_binary(?SSO_BACKEND)
+    },
+
+    assert_bad_totp_attempts(["sso", "mfa", "setup"], Body, ?MAX_BAD_TOTP_ATTEMPTS - 1),
+    ?assertMatch(
+        {ok, SsoUsername, {setup, _}},
+        emqx_dashboard_mfa:peek_temp_token(SsoUsername, SetupToken)
+    ),
+
+    assert_bad_totp_attempts(["sso", "mfa", "setup"], Body, 1),
+    ?assertEqual(
+        {error, invalid_token}, emqx_dashboard_mfa:peek_temp_token(SsoUsername, SetupToken)
+    ),
+
+    {ok, 401, GoodRspBody} = request_api(
+        post,
+        api_path(["sso", "mfa", "setup"]),
+        no_auth_header,
+        Body#{<<"totp_code">> => ?GOOD_TOTP}
+    ),
+    ?assertMatch(
+        #{<<"code">> := <<"UNAUTHORIZED">>, <<"message">> := <<"Invalid token">>},
+        json_map(GoodRspBody)
+    ),
     ok.
 
 t_mfa_verify_api({init, Config}) ->
@@ -446,6 +591,89 @@ t_mfa_verify_bad_totp(_Config) ->
     ),
     Rsp = json_map(RspBody),
     ?assertMatch(#{<<"code">> := <<"UNAUTHORIZED">>}, Rsp),
+    ok.
+
+t_mfa_verify_retry_after_bad_totp({init, Config}) ->
+    mock_force_mfa(?SSO_BACKEND, true),
+    ok = mock_totp(),
+    SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),
+    MfaState = #{mechanism => totp, secret => <<"VERIFYSECRET">>, first_verify_ts => 1000},
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, MfaState),
+    Config;
+t_mfa_verify_retry_after_bad_totp({'end', _Config}) ->
+    clear_force_mfa(?SSO_BACKEND),
+    ok = unmock_totp(),
+    _ = emqx_dashboard_admin:clear_mfa_state(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    ok;
+t_mfa_verify_retry_after_bad_totp(_Config) ->
+    [User] = emqx_dashboard_admin:lookup_user(?SSO_BACKEND, ?SSO_USER),
+    {mfa_verify, VerifyToken} = emqx_dashboard_sso_mfa:check_sso_mfa(User, ?SSO_BACKEND),
+    Body = #{
+        <<"verify_token">> => VerifyToken,
+        <<"username">> => ?SSO_USER,
+        <<"backend">> => atom_to_binary(?SSO_BACKEND)
+    },
+    {ok, 401, BadRspBody} = request_api(
+        post,
+        api_path(["sso", "mfa", "verify"]),
+        no_auth_header,
+        Body#{<<"totp_code">> => <<"999999">>}
+    ),
+    ?assertMatch(#{<<"code">> := <<"UNAUTHORIZED">>}, json_map(BadRspBody)),
+    {ok, 200, GoodRspBody} = request_api(
+        post,
+        api_path(["sso", "mfa", "verify"]),
+        no_auth_header,
+        Body#{<<"totp_code">> => ?GOOD_TOTP}
+    ),
+    ?assertMatch(#{<<"token">> := _, <<"license">> := _}, json_map(GoodRspBody)),
+    ok.
+
+t_mfa_verify_token_cleared_after_too_many_bad_totp({init, Config}) ->
+    mock_force_mfa(?SSO_BACKEND, true),
+    ok = mock_totp(),
+    SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),
+    MfaState = #{mechanism => totp, secret => <<"VERIFYSECRET">>, first_verify_ts => 1000},
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, MfaState),
+    _ = emqx_dashboard_admin:clear_mfa_pending(SsoUsername),
+    Config;
+t_mfa_verify_token_cleared_after_too_many_bad_totp({'end', _Config}) ->
+    clear_force_mfa(?SSO_BACKEND),
+    ok = unmock_totp(),
+    _ = emqx_dashboard_admin:clear_mfa_state(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    _ = emqx_dashboard_admin:clear_mfa_pending(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    ok;
+t_mfa_verify_token_cleared_after_too_many_bad_totp(_Config) ->
+    SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),
+    [User] = emqx_dashboard_admin:lookup_user(?SSO_BACKEND, ?SSO_USER),
+    {mfa_verify, VerifyToken} = emqx_dashboard_sso_mfa:check_sso_mfa(User, ?SSO_BACKEND),
+    Body = #{
+        <<"verify_token">> => VerifyToken,
+        <<"username">> => ?SSO_USER,
+        <<"backend">> => atom_to_binary(?SSO_BACKEND)
+    },
+
+    assert_bad_totp_attempts(["sso", "mfa", "verify"], Body, ?MAX_BAD_TOTP_ATTEMPTS - 1),
+    ?assertMatch(
+        {ok, SsoUsername, verify},
+        emqx_dashboard_mfa:peek_temp_token(SsoUsername, VerifyToken)
+    ),
+
+    assert_bad_totp_attempts(["sso", "mfa", "verify"], Body, 1),
+    ?assertEqual(
+        {error, invalid_token}, emqx_dashboard_mfa:peek_temp_token(SsoUsername, VerifyToken)
+    ),
+
+    {ok, 401, GoodRspBody} = request_api(
+        post,
+        api_path(["sso", "mfa", "verify"]),
+        no_auth_header,
+        Body#{<<"totp_code">> => ?GOOD_TOTP}
+    ),
+    ?assertMatch(
+        #{<<"code">> := <<"UNAUTHORIZED">>, <<"message">> := <<"Invalid token">>},
+        json_map(GoodRspBody)
+    ),
     ok.
 
 %%====================================================================
@@ -714,6 +942,43 @@ t_mfa_setup_unknown_backend(_Config) ->
         post, api_path(["sso", "mfa", "setup"]), no_auth_header, Body
     ),
     ok.
+
+assert_bad_totp_attempts(PathParts, Body, Times) ->
+    lists:foreach(
+        fun(_) ->
+            {ok, 401, RspBody} = request_api(
+                post,
+                api_path(PathParts),
+                no_auth_header,
+                Body#{<<"totp_code">> => <<"999999">>}
+            ),
+            ?assertMatch(
+                #{<<"code">> := <<"UNAUTHORIZED">>, <<"message">> := <<"Invalid TOTP code">>},
+                json_map(RspBody)
+            )
+        end,
+        lists:seq(1, Times)
+    ).
+
+concurrent_call(WorkerCount, Fun) ->
+    Parent = self(),
+    Ref = make_ref(),
+    Pids = [
+        spawn_link(fun() ->
+            receive
+                {go, Ref} ->
+                    Parent ! {Ref, self(), Fun()}
+            end
+        end)
+     || _ <- lists:seq(1, WorkerCount)
+    ],
+    [Pid ! {go, Ref} || Pid <- Pids],
+    [
+        receive
+            {Ref, Pid, Result} -> {ok, Pid, Result}
+        end
+     || Pid <- Pids
+    ].
 
 mock_force_mfa(Backend, Value) ->
     %% Set force_mfa config for a specific SSO backend.

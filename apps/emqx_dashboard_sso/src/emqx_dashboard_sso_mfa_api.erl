@@ -158,8 +158,8 @@ mfa_setup_info(post, #{
 mfa_setup_info(post, _) ->
     {400, #{code => ?BAD_REQUEST, message => <<"Missing required fields">>}}.
 
-%% @doc Handle MFA setup: verify the setup token, verify TOTP code,
-%% finalize MFA binding, and issue JWT.
+%% @doc Handle MFA setup: validate the setup token, verify TOTP code,
+%% consume the token, finalize MFA binding, and issue JWT.
 mfa_setup(post, #{
     body := #{
         <<"setup_token">> := SetupToken,
@@ -171,9 +171,9 @@ mfa_setup(post, #{
     case parse_backend(BackendBin) of
         {ok, BackendAtom} ->
             SsoUsername = ?SSO_USERNAME(BackendAtom, Username),
-            case emqx_dashboard_mfa:verify_temp_token(SsoUsername, SetupToken) of
+            case emqx_dashboard_mfa:peek_temp_token(SsoUsername, SetupToken) of
                 {ok, SsoUsername, {setup, TotpSecret}} ->
-                    do_mfa_setup(SsoUsername, TotpCode, TotpSecret);
+                    do_mfa_setup(SsoUsername, SetupToken, TotpCode, TotpSecret);
                 {ok, _SsoUsername, _WrongPurpose} ->
                     {401, #{code => ?UNAUTHORIZED, message => <<"Invalid token type">>}};
                 {error, Reason} ->
@@ -185,8 +185,8 @@ mfa_setup(post, #{
 mfa_setup(post, _) ->
     {400, #{code => ?BAD_REQUEST, message => <<"Missing required fields">>}}.
 
-%% @doc Handle MFA verify: verify the verify token, check TOTP code,
-%% and issue JWT.
+%% @doc Handle MFA verify: validate the verify token, check TOTP code,
+%% consume the token, and issue JWT.
 mfa_verify(post, #{
     body := #{
         <<"verify_token">> := VerifyToken,
@@ -198,9 +198,9 @@ mfa_verify(post, #{
     case parse_backend(BackendBin) of
         {ok, BackendAtom} ->
             SsoUsername = ?SSO_USERNAME(BackendAtom, Username),
-            case emqx_dashboard_mfa:verify_temp_token(SsoUsername, VerifyToken) of
+            case emqx_dashboard_mfa:peek_temp_token(SsoUsername, VerifyToken) of
                 {ok, SsoUsername, verify} ->
-                    do_mfa_verify(SsoUsername, TotpCode);
+                    do_mfa_verify(SsoUsername, VerifyToken, TotpCode);
                 {ok, _SsoUsername, _WrongPurpose} ->
                     {401, #{code => ?UNAUTHORIZED, message => <<"Invalid token type">>}};
                 {error, Reason} ->
@@ -216,16 +216,31 @@ mfa_verify(post, _) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-do_mfa_setup(SsoUsername, TotpCode, TotpSecret) ->
+do_mfa_setup(SsoUsername, SetupToken, TotpCode, TotpSecret) ->
     %% Build MFA state from the secret stored in the setup token.
     MfaState = #{mechanism => totp, secret => TotpSecret},
     case emqx_dashboard_mfa:verify(MfaState, TotpCode) of
         ok ->
-            finalize_mfa_setup(SsoUsername, MfaState#{first_verify_ts => erlang:system_time(second)});
+            consume_token_and_respond(
+                SsoUsername,
+                SetupToken,
+                {setup, TotpSecret},
+                fun() ->
+                    finalize_mfa_setup(
+                        SsoUsername,
+                        MfaState#{first_verify_ts => erlang:system_time(second)}
+                    )
+                end
+            );
         {ok, NewState} ->
-            finalize_mfa_setup(SsoUsername, NewState);
+            consume_token_and_respond(
+                SsoUsername,
+                SetupToken,
+                {setup, TotpSecret},
+                fun() -> finalize_mfa_setup(SsoUsername, NewState) end
+            );
         {error, _} ->
-            {401, #{code => ?UNAUTHORIZED, message => <<"Invalid TOTP code">>}}
+            bad_totp_response(SsoUsername, SetupToken)
     end.
 
 finalize_mfa_setup(SsoUsername, MfaState) ->
@@ -249,12 +264,14 @@ finalize_mfa_setup(SsoUsername, MfaState) ->
             {401, #{code => ?UNAUTHORIZED, message => format_error(Reason)}}
     end.
 
-do_mfa_verify(SsoUsername, TotpCode) ->
+do_mfa_verify(SsoUsername, VerifyToken, TotpCode) ->
     case resolve_sso_user(SsoUsername) of
         {ok, Backend, Name, User} ->
             case emqx_dashboard_admin:get_mfa_state(SsoUsername) of
                 {ok, #{mechanism := totp} = MfaState} ->
-                    verify_and_respond(MfaState, TotpCode, SsoUsername, User, Name, Backend);
+                    verify_and_respond(
+                        MfaState, TotpCode, SsoUsername, VerifyToken, User, Name, Backend
+                    );
                 _ ->
                     {401, #{code => ?UNAUTHORIZED, message => <<"MFA state not found">>}}
             end;
@@ -262,14 +279,42 @@ do_mfa_verify(SsoUsername, TotpCode) ->
             {401, #{code => ?UNAUTHORIZED, message => format_error(Reason)}}
     end.
 
-verify_and_respond(MfaState, TotpCode, SsoUsername, User, Name, Backend) ->
+verify_and_respond(MfaState, TotpCode, SsoUsername, VerifyToken, User, Name, Backend) ->
     case emqx_dashboard_mfa:verify(MfaState, TotpCode) of
         ok ->
-            sign_and_respond(User, Name, Backend);
+            consume_token_and_respond(
+                SsoUsername,
+                VerifyToken,
+                verify,
+                fun() -> sign_and_respond(User, Name, Backend) end
+            );
         {ok, NewState} ->
-            persist_state_and_respond(SsoUsername, NewState, User, Name, Backend);
+            consume_token_and_respond(
+                SsoUsername,
+                VerifyToken,
+                verify,
+                fun() -> persist_state_and_respond(SsoUsername, NewState, User, Name, Backend) end
+            );
         {error, _} ->
-            {401, #{code => ?UNAUTHORIZED, message => <<"Invalid TOTP code">>}}
+            bad_totp_response(SsoUsername, VerifyToken)
+    end.
+
+consume_token_and_respond(SsoUsername, Token, ExpectedPurpose, RespondFun) ->
+    case emqx_dashboard_mfa:verify_temp_token(SsoUsername, Token) of
+        {ok, SsoUsername, ExpectedPurpose} ->
+            RespondFun();
+        {ok, _SsoUsername, _WrongPurpose} ->
+            {401, #{code => ?UNAUTHORIZED, message => <<"Invalid token type">>}};
+        {error, Reason} ->
+            {401, #{code => ?UNAUTHORIZED, message => format_error(Reason)}}
+    end.
+
+bad_totp_response(SsoUsername, Token) ->
+    case emqx_dashboard_mfa:record_temp_token_failure(SsoUsername, Token) of
+        ok ->
+            {401, #{code => ?UNAUTHORIZED, message => <<"Invalid TOTP code">>}};
+        {error, Reason} ->
+            {401, #{code => ?UNAUTHORIZED, message => format_error(Reason)}}
     end.
 
 persist_state_and_respond(SsoUsername, NewState, User, Name, Backend) ->
@@ -309,7 +354,9 @@ response_schema(401) ->
 
 format_error(token_expired) -> <<"Token expired">>;
 format_error(invalid_token) -> <<"Invalid token">>;
-format_error(Reason) when is_binary(Reason) -> Reason.
+format_error(internal_error) -> <<"Internal error">>;
+format_error(Reason) when is_binary(Reason) -> Reason;
+format_error(_) -> <<"Internal error">>.
 
 parse_backend(BackendBin) ->
     emqx_dashboard_sso:parse_backend(BackendBin).

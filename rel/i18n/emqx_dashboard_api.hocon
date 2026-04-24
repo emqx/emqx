@@ -88,14 +88,13 @@ backend.desc:
 """User account source"""
 
 password_expire_in_seconds.desc:
-"""Time in seconds until the password expiresc."""
+"""Time in seconds until the password expires."""
 
 change_mfa.desc:
-"""Setup MFA for a dashboard user."""
+"""Set up or reset MFA for a dashboard user. Calling this endpoint generates a fresh TOTP secret."""
 
 delete_mfa.desc:
-"""Delete MFA state for a dashboard user.
-After the state is deleted, the user will have MFA explicitly disabled, to re-enabled MFA, call the `POST` method."""
+"""Disable MFA for a dashboard user. To reset or re-key TOTP, call the `POST` method."""
 
 mfa_token.desc:
 """Multifactor authentication token."""
@@ -105,11 +104,5 @@ mfa_status.desc:
 - `none`: no MFA enabled
 - `disabled`: MFA is disabled for the user
 - Otherwise: The MFA mechanism in use, e.g. `totp`"""
-
-reset_mfa.desc:
-"""Reset MFA for a dashboard user. Completely removes the MFA record so the user must re-bind TOTP on next login. Unlike disabling MFA (which preserves the state as explicitly disabled), reset returns the user to a clean state as if MFA was never configured."""
-
-mfa_reset_param.desc:
-"""When true, completely removes the MFA record (hard reset). The user must re-bind TOTP on next login if force_mfa is enabled. When false (default), soft-disables MFA: marks as admin-disabled so force_mfa won't re-trigger setup."""
 
 }
