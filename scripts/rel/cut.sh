@@ -20,6 +20,8 @@ options:
   -b|--base:         Specify the current release base branch, can be one of
                      release-60
                      release-61
+                     release-62
+                     release-63
                      NOTE: this option should be used when --dryrun.
 
   --dryrun:          Do not actually create the git tag.
@@ -102,6 +104,12 @@ rel_branch() {
             ;;
         6.1.*)
             echo 'release-61'
+            ;;
+        6.2.*)
+            echo 'release-62'
+            ;;
+        6.3.*)
+            echo 'release-63'
             ;;
         *)
             logerr "Unsupported version tag $TAG"
