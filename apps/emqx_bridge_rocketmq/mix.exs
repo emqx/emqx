@@ -5,7 +5,7 @@ defmodule EMQXBridgeRocketmq.MixProject do
   def project do
     [
       app: :emqx_bridge_rocketmq,
-      version: "6.1.0",
+      version: "6.1.1",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -29,7 +29,7 @@ defmodule EMQXBridgeRocketmq.MixProject do
 
   def deps() do
     UMP.deps([
-      {:rocketmq, github: "emqx/rocketmq-client-erl", tag: "v0.6.1"},
+      {:rocketmq, github: "emqx/rocketmq-client-erl", tag: "v0.7.1"},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}

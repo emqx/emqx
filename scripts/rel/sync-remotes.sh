@@ -5,8 +5,6 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 
-BASE_BRANCHES=( 'release-62' 'release-61' 'release-60' 'release-510' 'release-59' 'release-58' 'release-57' 'release-56' 'release-55' 'master' )
-
 usage() {
     cat <<EOF
 $0 [option]
@@ -14,26 +12,13 @@ $0 [option]
 options:
 
   -h|--help:
-    This script works on one of the branches listed in the -b|--base option below.
-    It tries to merge (by default with --ff-only option)
-    upstreams branches for the current working branch.
-    The uppstream branch of the current branch are as below:
-    * release-55:  []                   # no upstream for 5.5 opensource edition
-    * release-56:  []                   # no upstream for 5.6 opensource edition
-    * release-57:  []                   # no upstream for 5.7 opensource edition
-    * release-58:  []                   # no upstream for 5.8 opensource edition
-    * release-59:  []                   # no upstream for 5.9
-    * release-510: []                   # no upstream for 5.10
-    * release-60:  []                   # no upstream for 6.0
-    * release-61:  []                   # no upstream for 6.1
-    * release-62:  []                   # no upstream for 6.2
-    * patch-*:     []                   # no upstream for patch branches
-    * master: [release-5x, release-6x]  # sync release-5x and release-6x to master
+    Fetch the official emqx/emqx remote, then merge the selected
+    release base branch from that remote into the current branch.
 
   -b|--base:
     The base branch of current working branch if currently is not
-    on one of the following branches.
-    ${BASE_BRANCHES[@]}
+    on one of the supported branches: patch-*, release-5[5-9],
+    release-510, or release-6*.
 
   -i|--interactive:
     With this option, the script will try to merge upstream
@@ -92,21 +77,14 @@ done
 CURRENT_BRANCH="$(git branch --show-current)"
 BASE_BRANCH="${BASE_BRANCH:-${CURRENT_BRANCH}}"
 
-## check if arg1 is one of the elements in arg2-N
-is_element() {
-    local e match="$1"
-    shift
-    for e in "${@}"; do
-        if [ "$e" = "$match" ]; then
-            return 0
-        fi
-    done
-    return 1
+is_supported_release_branch() {
+    local branch="$1"
+    [[ "$branch" == patch-* ]] || [[ "$branch" =~ ^release-(5[5-9]|510|6[0-9]+)$ ]]
 }
 
-if ! is_element "$BASE_BRANCH" "${BASE_BRANCHES[@]}" && [[ "$BASE_BRANCH" != patch-* ]]; then
+if ! is_supported_release_branch "$BASE_BRANCH"; then
     logerr "Cannot work with branch $BASE_BRANCH"
-    logerr "The base branch must be one of: ${BASE_BRANCHES[*]} or a patch-* branch"
+    logerr "The release base branch must be patch-*, release-5[5-9], release-510, or release-6*"
     logerr "Change work branch to one of the above."
     logerr "OR: use -b|--base to specify from which base branch is current working branch created"
     exit 1
@@ -118,15 +96,10 @@ if [ -z "$GIT_REMOTE" ]; then
 	logerr "Cannot find git remote for emqx/emqx"
     exit 1
 fi
-REMOTES=( "${GIT_REMOTE}" )
+logwarn "Fetching from remote=${GIT_REMOTE} (force tag sync)."
+git fetch "$GIT_REMOTE" --tags --force
 
-## Fetch the remotes
-for remote in "${REMOTES[@]}"; do
-    logwarn "Fetching from remote=${remote} (force tag sync)."
-    git fetch "$remote" --tags --force
-done
-
-logmsg 'Fetched all remotes'
+logmsg "Fetched ${GIT_REMOTE}"
 
 if [ "$INTERACTIVE" = 'yes' ]; then
     MERGE_OPTS=''
@@ -137,61 +110,16 @@ else
     MERGE_OPTS='--ff-only'
 fi
 
-## Get the git remote reference of the given 'release-' or 'main-' branch
+## Get the git remote reference of the given release branch
 remote_ref() {
     local branch="$1"
-    echo -n "${GIT_REMOTE}/${branch} "
+    echo "${GIT_REMOTE}/${branch}"
 }
 
-remote_refs() {
-    local br
-    for br in "${@}"; do
-        remote_ref "$br"
-    done
-}
-
-## Get upstream branches of the given branch
-upstream_branches() {
-    local base="$1"
-    case "$base" in
-        release-55)
-            remote_ref "$base"
-            ;;
-        release-56)
-            remote_ref "$base"
-            ;;
-        release-57)
-            remote_ref "$base"
-            ;;
-        release-58)
-            remote_ref "$base"
-            ;;
-        release-59)
-            remote_ref "$base"
-            ;;
-        release-510)
-            remote_ref "$base"
-            ;;
-        release-60)
-            remote_ref "$base"
-            ;;
-        release-61)
-            remote_ref "$base"
-            ;;
-        release-62)
-            remote_ref "$base"
-            ;;
-        master)
-            remote_refs "$base" 'release-55' 'release-56' 'release-57' 'release-58' 'release-59' 'release-510' 'release-60' 'release-61' 'release-62'
-            ;;
-    esac
-}
-
-for remote_ref in $(upstream_branches "$BASE_BRANCH"); do
-    if [ "$DRYRUN" = 'yes' ]; then
-        logmsg "Merge with this command: git merge $MERGE_OPTS $remote_ref"
-    else
-        logmsg "Merging $remote_ref"
-        git merge $MERGE_OPTS "$remote_ref"
-    fi
-done
+REMOTE_REF="$(remote_ref "$BASE_BRANCH")"
+if [ "$DRYRUN" = 'yes' ]; then
+    logmsg "Merge with this command: git merge $MERGE_OPTS $REMOTE_REF"
+else
+    logmsg "Merging $REMOTE_REF"
+    git merge $MERGE_OPTS "$REMOTE_REF"
+fi
