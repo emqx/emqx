@@ -1933,6 +1933,31 @@ t_list_clients_v2_exact_filters(Config) ->
             Res2 = list_all_v2(QueryParams2, Config),
             ?assertContainsClientids(Res2, [ClientId1, ClientId2, ClientId5, ClientId6]),
 
+            N1Bin = atom_to_binary(N1),
+            N2Bin = atom_to_binary(N2),
+            BogusNode = <<"weird@node.com">>,
+
+            QueryParams3 = [
+                {"limit", "100"},
+                {"node", N1Bin}
+            ],
+            Res3 = list_all_v2(QueryParams3, Config),
+            ?assertContainsClientids(Res3, [ClientId1, ClientId3, ClientId5]),
+
+            QueryParams4 = [
+                {"limit", "100"},
+                {"node", N2Bin}
+            ],
+            Res4 = list_all_v2(QueryParams4, Config),
+            ?assertContainsClientids(Res4, [ClientId2, ClientId4, ClientId6]),
+
+            QueryParams5 = [
+                {"limit", "100"},
+                {"node", BogusNode}
+            ],
+            Res5 = list_all_v2(QueryParams5, Config),
+            ?assertContainsClientids(Res5, []),
+
             C3B = connect_client(#{port => Port1, clientid => ClientId3}),
             C4B = connect_client(#{port => Port2, clientid => ClientId4}),
 

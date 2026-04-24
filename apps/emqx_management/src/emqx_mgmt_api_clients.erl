@@ -411,7 +411,14 @@ schema("/sessions_count") ->
 
 fields(list_clients_v2_inputs) ->
     [
-        hoconsc:ref(emqx_dashboard_swagger, cursor)
+        hoconsc:ref(emqx_dashboard_swagger, cursor),
+        {node,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => ?DESC("node_name"),
+                example => <<"emqx@127.0.0.1">>
+            })}
         | fields(common_list_clients_input)
     ];
 fields(list_clients_v1_inputs) ->
@@ -1606,29 +1613,32 @@ qs2ms(_Tab, {QString, FuzzyQString}) ->
 
 -spec qs2ms(list()) -> ets:match_spec().
 qs2ms(Qs) ->
-    {MatchHead, Conds} = qs2ms(Qs, 2, {#{}, []}),
-    [{{{'$1', '_'}, MatchHead, '_'}, Conds, ['$_']}].
+    {MatchHead, Conds} = qs2ms(Qs, 3, {#{}, []}),
+    [{{{'$1', '$2'}, MatchHead, '_'}, Conds, ['$_']}].
 
-qs2ms([], _, {MtchHead, Conds}) ->
-    {MtchHead, lists:reverse(Conds)};
-qs2ms([{Key, '=:=', Value} | Rest], N, {MtchHead, Conds}) when is_list(Value) ->
-    {Holder, NxtN} = holder_and_nxt(Key, N),
-    NMtchHead = emqx_mgmt_util:merge_maps(MtchHead, ms(Key, Holder)),
-    qs2ms(Rest, NxtN, {NMtchHead, [orelse_cond(Holder, Value) | Conds]});
-qs2ms([{Key, '=:=', Value} | Rest], N, {MtchHead, Conds}) ->
-    NMtchHead = emqx_mgmt_util:merge_maps(MtchHead, ms(Key, Value)),
-    qs2ms(Rest, N, {NMtchHead, Conds});
-qs2ms([Qs | Rest], N, {MtchHead, Conds}) ->
+qs2ms([], _, {MatchHead, Conds}) ->
+    {MatchHead, lists:reverse(Conds)};
+qs2ms([{node, '=:=', Value} | Rest], N, {MatchHead, Conds}) ->
+    NConds = [{'=:=', {node, '$2'}, Value} | Conds],
+    qs2ms(Rest, N, {MatchHead, NConds});
+qs2ms([{Key, '=:=', Value} | Rest], N, {MatchHead, Conds}) when is_list(Value) ->
+    {Holder, NextN} = holder_and_next(Key, N),
+    NMatchHead = emqx_mgmt_util:merge_maps(MatchHead, ms(Key, Holder)),
+    qs2ms(Rest, NextN, {NMatchHead, [orelse_cond(Holder, Value) | Conds]});
+qs2ms([{Key, '=:=', Value} | Rest], N, {MatchHead, Conds}) ->
+    NMatchHead = emqx_mgmt_util:merge_maps(MatchHead, ms(Key, Value)),
+    qs2ms(Rest, N, {NMatchHead, Conds});
+qs2ms([Qs | Rest], N, {MatchHead, Conds}) ->
     Holder = holder(N),
-    NMtchHead = emqx_mgmt_util:merge_maps(MtchHead, ms(element(1, Qs), Holder)),
+    NMatchHead = emqx_mgmt_util:merge_maps(MatchHead, ms(element(1, Qs), Holder)),
     NConds = put_conds(Qs, Holder, Conds),
-    qs2ms(Rest, N + 1, {NMtchHead, NConds}).
+    qs2ms(Rest, N + 1, {NMatchHead, NConds}).
 
 %% This is a special case: clientid is a part of the key (ClientId, Pid}, as the table is ordered_set,
 %% using partially bound key optimizes traversal.
-holder_and_nxt(clientid, N) ->
+holder_and_next(clientid, N) ->
     {'$1', N};
-holder_and_nxt(_, N) ->
+holder_and_next(_, N) ->
     {holder(N), N + 1}.
 
 holder(N) -> list_to_atom([$$ | integer_to_list(N)]).
@@ -1674,6 +1684,8 @@ ms(created_at, X) ->
 does_offline_chan_info_match({ip_address, '=:=', IpAddress}, #{
     conninfo := #{peername := {IpAddress, _}}
 }) ->
+    true;
+does_offline_chan_info_match({node, '=:=', Node}, #{node := Node}) ->
     true;
 %% This matchers match only offline clients, because online clients are listed directly from
 %% channel manager's ETS tables. So we succeed here only if offline conn_state is requested.
