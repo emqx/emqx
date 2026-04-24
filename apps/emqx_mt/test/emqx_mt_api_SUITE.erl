@@ -1542,7 +1542,7 @@ t_list_pagination_first_cursor(_Config) ->
         <<"first_ns">>,
         Ns2,
         [Ns1],
-        2
+        1
     ),
     assert_first_mode_roundtrip(
         fun(QS) -> list_nss_headers(QS) end,
@@ -1550,7 +1550,7 @@ t_list_pagination_first_cursor(_Config) ->
         <<"first_ns">>,
         Ns2,
         [Ns1],
-        2
+        1
     ),
     assert_first_mode_roundtrip(
         fun(QS) -> list_managed_nss_details_headers(QS) end,
@@ -1558,7 +1558,7 @@ t_list_pagination_first_cursor(_Config) ->
         <<"first_ns">>,
         Ns2,
         1,
-        2
+        1
     ),
     assert_first_mode_roundtrip(
         fun(QS) -> list_nss_details_headers(QS) end,
@@ -1566,7 +1566,7 @@ t_list_pagination_first_cursor(_Config) ->
         <<"first_ns">>,
         Ns2,
         1,
-        2
+        1
     ),
     assert_first_mode_roundtrip(
         fun(QS) -> list_clients_headers(Ns1, QS) end,
@@ -1574,7 +1574,7 @@ t_list_pagination_first_cursor(_Config) ->
         <<"first_clientid">>,
         ClientId2,
         [ClientId1],
-        2
+        1
     ),
 
     %% --- Mutex: providing both cursors rejects with 400.
