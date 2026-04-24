@@ -127,7 +127,19 @@ do_destroy(Token) ->
     ok.
 
 do_destroy_by_username(Username) ->
-    destroy(lookup_by_username(Username)).
+    Spec = [{#?ADMIN_JWT{username = Username, _ = '_'}, [], ['$_']}],
+    Fun = fun() ->
+        Tokens = mnesia:select(?TAB, Spec),
+        lists:foreach(
+            fun(#?ADMIN_JWT{token = Token}) ->
+                mnesia:delete({?TAB, Token})
+            end,
+            Tokens
+        ),
+        ok
+    end,
+    {atomic, ok} = mria:sync_transaction(?DASHBOARD_SHARD, Fun),
+    ok.
 
 %%--------------------------------------------------------------------
 %% jwt internal util function
