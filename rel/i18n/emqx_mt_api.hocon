@@ -3,18 +3,31 @@ emqx_mt_api {
         desc: """~
             List all namespaces
             The namespaces are sorted in lexicographical order,
-            so this API can be used for prefix based fuzzy search.~"""
+            so this API can be used for prefix based fuzzy search.
+            When more pages are available, the response carries a
+            `Link: <?last_ns=...&limit=...>; rel="next"` header (RFC 8288)
+            whose URI-reference resolves against the request URL.
+            Absence of the header indicates the current page is the last.~"""
         label: "List Namespaces"
     }
     ns_list_details {
         desc: """~
             List all namespaces, along with some extra details.
             The namespaces are sorted in lexicographical order,
-            so this API can be used for prefix based fuzzy search.~"""
+            so this API can be used for prefix based fuzzy search.
+            When more pages are available, the response carries a
+            `Link: <?last_ns=...&limit=...>; rel="next"` header (RFC 8288)
+            whose URI-reference resolves against the request URL.
+            Absence of the header indicates the current page is the last.~"""
         label: "List Namespaces with extra details"
     }
     client_list {
-        desc: "List all clients in a namespace"
+        desc: """~
+            List all clients in a namespace.
+            When more pages are available, the response carries a
+            `Link: <?last_clientid=...&limit=...>; rel="next"` header (RFC 8288)
+            whose URI-reference resolves against the request URL.
+            Absence of the header indicates the current page is the last.~"""
         label: "List Clients"
     }
     client_count {
@@ -23,9 +36,25 @@ emqx_mt_api {
     }
     last_ns_in_query {
         desc: """~
-            The last namespace from the previous page.
-            For the first page, use empty string.~"""
+            Exclusive keyset cursor: return namespaces lexicographically
+            greater than this value. For the first page, omit or use the
+            empty string. Mutually exclusive with `first_ns`.~"""
         label: "Last Namespace"
+    }
+    first_ns_in_query {
+        desc: """~
+            Inclusive keyset cursor: return namespaces lexicographically
+            greater than or equal to this value. Useful for exact-match
+            lookup (e.g. `first_ns=foo&limit=1`). Mutually exclusive with
+            `last_ns`.~"""
+        label: "First Namespace"
+    }
+    cursor_conflict {
+        desc: """~
+            The request carried both an inclusive (`first_*`) and an
+            exclusive (`last_*`) keyset cursor. They are mutually exclusive;
+            use at most one.~"""
+        label: "Cursor Parameters Conflict"
     }
     limit_in_query {
         desc: "The number of items to return"
@@ -37,18 +66,34 @@ emqx_mt_api {
             For the first page, use empty string.~"""
         label: "Last Client ID"
     }
+    first_clientid_in_query {
+        desc: """~
+            Inclusive keyset cursor: return client IDs lexicographically
+            greater than or equal to this value. Useful for exact-match
+            lookup (e.g. `first_clientid=foo&limit=1`). Mutually exclusive
+            with `last_clientid`.~"""
+        label: "First Client ID"
+    }
     managed_ns_list {
         desc: """~
             List all managed namespaces
             The namespaces are sorted in lexicographical order,
-            so this API can be used for prefix based fuzzy search.~"""
+            so this API can be used for prefix based fuzzy search.
+            When more pages are available, the response carries a
+            `Link: <?last_ns=...&limit=...>; rel="next"` header (RFC 8288)
+            whose URI-reference resolves against the request URL.
+            Absence of the header indicates the current page is the last.~"""
         label: "List managed namespaces"
     }
     managed_ns_list_details {
         desc: """~
             List all managed namespaces with extra details.
             The namespaces are sorted in lexicographical order,
-            so this API can be used for prefix based fuzzy search.~"""
+            so this API can be used for prefix based fuzzy search.
+            When more pages are available, the response carries a
+            `Link: <?last_ns=...&limit=...>; rel="next"` header (RFC 8288)
+            whose URI-reference resolves against the request URL.
+            Absence of the header indicates the current page is the last.~"""
         label: "List managed namespaces with extra details"
     }
     create_managed_ns {
@@ -133,7 +178,10 @@ emqx_mt_api {
     }
 
 last_clientid_in_query.desc:
-"""Last client ID cursor for pagination."""
+"""~
+Exclusive keyset cursor: return client IDs lexicographically greater than
+this value. For the first page, omit or use the empty string. Mutually
+exclusive with `first_clientid`.~"""
 last_clientid_in_query.label:
 """Last Client ID"""
 
