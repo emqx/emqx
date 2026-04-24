@@ -63,7 +63,7 @@ run(
     io:format(user, "LookupTimeAverage: ~ts~n", [ns(PubsTime / Pubs)]),
     io:format(user, "LookupRps: ~p~n", [rps(Pubs * PubOps, T2)]),
 
-    io:format(user, "mnesia table(s) RAM: ~p~n", [ram_bytes()]),
+    io:format(user, "mnesia table(s) RAM: ~p~n", [emqx_trie:ram_bytes()]),
 
     io:format(user, "unsubscribe ...~n", []),
     {T3, ok} =
@@ -88,17 +88,6 @@ ns(T) when T > 1_000_000 -> io_lib:format("~p(s)", [T / 1_000_000]);
 ns(T) when T > 1_000 -> io_lib:format("~p(ms)", [T / 1_000]);
 ns(T) -> io_lib:format("~p(ns)", [T]).
 
-ram_bytes() ->
-    Wordsize = erlang:system_info(wordsize),
-    mnesia:table_info(emqx_trie, memory) * Wordsize +
-        case lists:member(emqx_trie_node, ets:all()) of
-            true ->
-                %% before 4.3
-                mnesia:table_info(emqx_trie_node, memory) * Wordsize;
-            false ->
-                0
-        end.
-
 start_callers(N, F, Settings) ->
     start_callers(N, F, Settings, []).
 
@@ -118,11 +107,11 @@ collect_results([Pid | Pids], Tag, R) ->
             collect_results(Pids, Tag, N + R)
     end.
 
-start_subscriber(#{id := Id, sub_ops := N, sub_ptn := SubPtn}) ->
+start_subscriber(#{id := ID, sub_ops := N, sub_ptn := SubPtn}) ->
     Parent = self(),
     proc_lib:spawn_link(
         fun() ->
-            SubTopics = make_topics(SubPtn, Id, N),
+            SubTopics = make_topics(SubPtn, ID, N),
             Parent ! {self(), subscriber_ready, 0},
             receive
                 start_subscribe ->
@@ -138,12 +127,12 @@ start_subscriber(#{id := Id, sub_ops := N, sub_ptn := SubPtn}) ->
         end
     ).
 
-start_publisher(#{id := Id, pub_ops := N, pub_ptn := PubPtn, subscribers := Subs}) ->
+start_publisher(#{id := ID, pub_ops := N, pub_ptn := PubPtn, subscribers := Subs}) ->
     Parent = self(),
     proc_lib:spawn_link(
         fun() ->
             L = lists:seq(1, N),
-            [Topic] = make_topics(PubPtn, (Id rem Subs) + 1, 1),
+            [Topic] = make_topics(PubPtn, (ID rem Subs) + 1, 1),
             receive
                 start_lookup ->
                     ok
@@ -163,9 +152,9 @@ subscribe([Topic | Rest]) ->
     ok = emqx_broker:subscribe(Topic),
     subscribe(Rest).
 
-make_topics(Ptn0, Id, Limit) ->
+make_topics(Ptn0, ID, Limit) ->
     Ptn = emqx_topic:words(Ptn0),
-    F = fun(N) -> render(Id, N, Ptn) end,
+    F = fun(N) -> render(ID, N, Ptn) end,
     lists:map(F, lists:seq(1, Limit)).
 
 render(ID, N, Ptn) ->

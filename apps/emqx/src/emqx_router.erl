@@ -81,21 +81,24 @@
 -export_type([dest/0]).
 -export_type([schemavsn/0]).
 
+-elvis([{elvis_style, dont_repeat_yourself, disable}]).
+
 -type group() :: binary().
 -type dest() :: node() | {group(), node()}.
 
 %% Storage schema.
-%% * `v2` is current implementation.
-%% * `v1` is no longer supported since 5.10.
--type schemavsn() :: v1 | v2.
+%% * `v3' current implementation.
+%% * `v2' similar to the current implementation, but used regular mria tables
+%% * `v1' is no longer supported since 5.10.
+-type schemavsn() :: v1 | v2 | v3.
 
 %% Operation :: {add, ...} | {delete, ...}.
 -type batch() :: #{batch_route() => _Operation :: tuple()}.
 -type batch_route() :: {emqx_types:topic(), dest()}.
 
 -record(routeidx, {
-    entry :: '$1' | emqx_topic_index:key(dest()),
-    unused = [] :: nil()
+    entry :: emqx_topic_index:key(dest()) | {'_', {'$1' | {'_', '$1'}}} | '$1',
+    unused = [] :: _
 }).
 
 -define(dest_patterns(NodeOrExtDest),
@@ -117,15 +120,37 @@
     end
 ).
 
+-type cluster_schema_versions() :: #{schemavsn() => [node(), ...], unknown => [_, ...]}.
+
+-define(PT_SCHEMA_VSN, emqx_router_pt_schema_vsn).
+
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
 create_tables() ->
-    mria_config:set_dirty_shard(?ROUTE_SHARD, true),
-    ok = mria:create_table(?ROUTE_TAB, [
+    case get_schema_vsn() of
+        v2 -> create_tables_v2();
+        v3 -> create_tables_v3()
+    end.
+
+create_tables_v3() ->
+    %% Note: routes look like this:
+    %%
+    %% Examples:
+    %% ````
+    %% #route{topic = <<"foo/bar/baz">>,  dest = 'emqx@127.0.0.1'}               % foo/bar/baz
+    %% #route{topic = <<"bar/baz">>,      dest = {<<"foo">>,'emqx@127.0.0.1'}}   % $share/foo/bar/baz
+    %% ```
+    ok = mria:create_table(?ROUTE_TAB_V3, [
+        {merge_table, true},
+        {auto_clean, true},
+        {node_pattern, [
+            #route{dest = '$1', _ = '_'},
+            #route{dest = {'_', '$1'}, _ = '_'}
+        ]},
         {type, bag},
-        {rlog_shard, ?ROUTE_SHARD},
+        {rlog_shard, ?ROUTE_SHARD_V3},
         {storage, ram_copies},
         {record_name, route},
         {attributes, record_info(fields, route)},
@@ -136,9 +161,26 @@ create_tables() ->
             ]}
         ]}
     ]),
-    ok = mria:create_table(?ROUTE_TAB_FILTERS, [
+    %% Note: filters look like this:
+    %%
+    %% {binary() | [word()], {ID}} where ID :: node() | {group(), node()}
+    %%
+    %% Examples:
+    %% ```
+    %% {routeidx, {[<<"foo">>,'+',<<"bar">>],    {'emqx@127.0.0.1'}},             []}   % foo/+/bar
+    %% {routeidx, {[<<"foo">>,'#'],              {'emqx@127.0.0.1'}},             []}   % foo/#
+    %% {routeidx, {['#'],                        {{<<"foo">>,'emqx@127.0.0.1'}}}, []}   % $share/foo/#
+    %% {routeidx, {['+',<<"bar">>],              {{<<"foo">>,'emqx@127.0.0.1'}}}, []}}  % $share/foo/+/bar
+    %% '''
+    ok = mria:create_table(?ROUTE_TAB_FILTERS_V3, [
+        {merge_table, true},
+        {auto_clean, true},
+        {node_pattern, [
+            #routeidx{entry = {'_', {'$1'}}, _ = '_'},
+            #routeidx{entry = {'_', {{'_', '$1'}}}, _ = '_'}
+        ]},
         {type, ordered_set},
-        {rlog_shard, ?ROUTE_SHARD},
+        {rlog_shard, ?ROUTE_SHARD_V3},
         {storage, ram_copies},
         {record_name, routeidx},
         {attributes, record_info(fields, routeidx)},
@@ -150,7 +192,38 @@ create_tables() ->
             ]}
         ]}
     ]),
-    [?ROUTE_TAB, ?ROUTE_TAB_FILTERS].
+    [?ROUTE_TAB_V3, ?ROUTE_TAB_FILTERS_V3].
+
+create_tables_v2() ->
+    mria_config:set_dirty_shard(?ROUTE_SHARD_V2, true),
+    ok = mria:create_table(?ROUTE_TAB_V2, [
+        {type, bag},
+        {rlog_shard, ?ROUTE_SHARD_V2},
+        {storage, ram_copies},
+        {record_name, route},
+        {attributes, record_info(fields, route)},
+        {storage_properties, [
+            {ets, [
+                {read_concurrency, true},
+                {write_concurrency, true}
+            ]}
+        ]}
+    ]),
+    ok = mria:create_table(?ROUTE_TAB_FILTERS_V2, [
+        {type, ordered_set},
+        {rlog_shard, ?ROUTE_SHARD_V2},
+        {storage, ram_copies},
+        {record_name, routeidx},
+        {attributes, record_info(fields, routeidx)},
+        {storage_properties, [
+            {ets, [
+                {read_concurrency, true},
+                {write_concurrency, true},
+                {decentralized_counters, true}
+            ]}
+        ]}
+    ]),
+    [?ROUTE_TAB_V2, ?ROUTE_TAB_FILTERS_V2].
 
 %%--------------------------------------------------------------------
 %% Start a router
@@ -223,7 +296,7 @@ do_batch(Batch) ->
     mria_batch_v2(Batch).
 
 mria_batch_v2(Batch) ->
-    mria:async_dirty(?ROUTE_SHARD, fun ?MODULE:mria_batch_run/2, [v2, Batch]).
+    mria:async_dirty(?ROUTE_SHARD_V2, fun ?MODULE:mria_batch_run/2, [v2, Batch]).
 
 batch_get_action(Op) ->
     element(1, Op).
@@ -235,11 +308,15 @@ stream(MatchSpec) ->
 
 -spec topics() -> list(emqx_types:topic()).
 topics() ->
-    list_topics_v2().
+    Pat = #routeidx{entry = '$1'},
+    Filters = [emqx_topic_index:get_topic(K) || [K] <- ets:match(route_filters_table(), Pat)],
+    list_route_tab_topics() ++ Filters.
 
 -spec stats(n_routes) -> non_neg_integer().
-stats(Item) ->
-    get_stats_v2(Item).
+stats(n_routes) ->
+    NTopics = emqx_maybe:define(ets:info(route_table(), size), 0),
+    NWildcards = emqx_maybe:define(ets:info(route_filters_table(), size), 0),
+    NTopics + NWildcards.
 
 %% @doc Print routes to a topic
 -spec print_routes(emqx_types:topic()) -> ok.
@@ -253,7 +330,14 @@ print_routes(Topic) ->
 
 -spec cleanup_routes(node()) -> ok.
 cleanup_routes(NodeOrExtDest) ->
-    cleanup_routes_v2(NodeOrExtDest).
+    case get_schema_vsn() of
+        v3 ->
+            %% Mria does the job automatically, since tables are
+            %% created with `auto_clean' = `true':
+            ok;
+        v2 ->
+            cleanup_routes_v2(NodeOrExtDest)
+    end.
 
 -spec foldl_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
 foldl_routes(FoldFun, AccIn) ->
@@ -290,11 +374,14 @@ mria_batch_operation_v2(delete, Topic, Dest) ->
     mria_delete_route_v2(Topic, Dest, batch).
 
 %%--------------------------------------------------------------------
-%% Schema v2
+%% Schema v2 and v3
+%%
 %% One bag table exclusively for regular, non-filter subscription
 %% topics, and one `emqx_topic_index` table exclusively for wildcard
 %% topics. Writes go to only one of the two tables at a time.
-%% --------------------------------------------------------------------
+%%
+%% v3 schema uses mria merged tables
+%%--------------------------------------------------------------------
 
 mria_insert_route_v2(Topic, Dest, Ctx) ->
     case emqx_trie_search:filter(Topic) of
@@ -306,9 +393,9 @@ mria_insert_route_v2(Topic, Dest, Ctx) ->
     end.
 
 mria_filter_tab_insert(K, single) ->
-    mria:dirty_write(?ROUTE_TAB_FILTERS, #routeidx{entry = K});
+    mria:dirty_write(route_filters_table(), #routeidx{entry = K});
 mria_filter_tab_insert(K, batch) ->
-    mnesia:write(?ROUTE_TAB_FILTERS, #routeidx{entry = K}, write).
+    mnesia:write(route_filters_table(), #routeidx{entry = K}, write).
 
 mria_delete_route_v2(Topic, Dest, Ctx) ->
     case emqx_trie_search:filter(Topic) of
@@ -320,35 +407,35 @@ mria_delete_route_v2(Topic, Dest, Ctx) ->
     end.
 
 mria_route_tab_insert(Route, single) ->
-    mria:dirty_write(?ROUTE_TAB, Route);
+    mria:dirty_write(route_table(), Route);
 mria_route_tab_insert(Route, batch) ->
-    mnesia:write(?ROUTE_TAB, Route, write).
+    mnesia:write(route_table(), Route, write).
 
 mria_route_tab_delete(Route, single) ->
-    mria:dirty_delete_object(?ROUTE_TAB, Route);
+    mria:dirty_delete_object(route_table(), Route);
 mria_route_tab_delete(Route, batch) ->
-    mnesia:delete_object(?ROUTE_TAB, Route, write).
+    mnesia:delete_object(route_table(), Route, write).
 
 mria_filter_tab_delete(K, single) ->
-    mria:dirty_delete(?ROUTE_TAB_FILTERS, K);
+    mria:dirty_delete(route_filters_table(), K);
 mria_filter_tab_delete(K, batch) ->
-    mnesia:delete(?ROUTE_TAB_FILTERS, K, write).
+    mnesia:delete(route_filters_table(), K, write).
 
 match_routes_v2(Topic) ->
     lookup_route_tab(Topic) ++
         [match_to_route(M) || M <- match_filters(Topic)].
 
 lookup_route_tab(Topic) ->
-    ets:lookup(?ROUTE_TAB, Topic).
+    ets:lookup(route_table(), Topic).
 
 match_filters(Topic) ->
-    emqx_topic_index:matches(Topic, ?ROUTE_TAB_FILTERS, []).
+    emqx_topic_index:matches(Topic, route_filters_table(), []).
 
 lookup_routes_v2(Topic) ->
     case emqx_topic:wildcard(Topic) of
         true ->
             Pat = #routeidx{entry = emqx_topic_index:make_key(Topic, '$1')},
-            [#route{topic = Topic, dest = Dest} || [Dest] <- ets:match(?ROUTE_TAB_FILTERS, Pat)];
+            [#route{topic = Topic, dest = Dest} || [Dest] <- ets:match(route_filters_table(), Pat)];
         false ->
             lookup_route_tab(Topic)
     end.
@@ -356,13 +443,13 @@ lookup_routes_v2(Topic) ->
 has_route_v2(Topic, Dest) ->
     case emqx_topic:wildcard(Topic) of
         true ->
-            ets:member(?ROUTE_TAB_FILTERS, emqx_topic_index:make_key(Topic, Dest));
+            ets:member(route_filters_table(), emqx_topic_index:make_key(Topic, Dest));
         false ->
             has_route_tab_entry(Topic, Dest)
     end.
 
 has_route_tab_entry(Topic, Dest) ->
-    [] =/= ets:match(?ROUTE_TAB, #route{topic = Topic, dest = Dest}).
+    [] =/= ets:match(route_table(), #route{topic = Topic, dest = Dest}).
 
 cleanup_routes_v2(NodeOrExtDest) ->
     ?with_fallback(
@@ -370,11 +457,11 @@ cleanup_routes_v2(NodeOrExtDest) ->
             fun(Pattern) ->
                 _ = throw_unsupported(
                     mria:match_delete(
-                        ?ROUTE_TAB_FILTERS,
+                        ?ROUTE_TAB_FILTERS_V2,
                         #routeidx{entry = emqx_trie_search:make_pat('_', Pattern)}
                     )
                 ),
-                throw_unsupported(mria:match_delete(?ROUTE_TAB, make_route_rec_pat(Pattern)))
+                throw_unsupported(mria:match_delete(?ROUTE_TAB_V2, make_route_rec_pat(Pattern)))
             end,
             ?dest_patterns(NodeOrExtDest)
         ),
@@ -388,25 +475,25 @@ cleanup_routes_v2_fallback(NodeOrExtDest) ->
         fun(#routeidx{entry = K}, ok) ->
             case get_dest_node(emqx_topic_index:get_id(K)) of
                 NodeOrExtDest ->
-                    mria:dirty_delete(?ROUTE_TAB_FILTERS, K);
+                    mria:dirty_delete(route_filters_table(), K);
                 _ ->
                     ok
             end
         end,
         ok,
-        ?ROUTE_TAB_FILTERS
+        route_filters_table()
     ),
     ok = ets:foldl(
         fun(#route{dest = Dest} = Route, ok) ->
             case get_dest_node(Dest) of
                 NodeOrExtDest ->
-                    mria:dirty_delete_object(?ROUTE_TAB, Route);
+                    mria:dirty_delete_object(route_table(), Route);
                 _ ->
                     ok
             end
         end,
         ok,
-        ?ROUTE_TAB
+        route_table()
     ).
 
 get_dest_node({external, _} = ExtDest) ->
@@ -431,18 +518,24 @@ make_route_rec_pat(DestPattern) ->
 
 stream_v2(Spec) ->
     emqx_utils_stream:chain(
-        mk_route_stream(?ROUTE_TAB, Spec),
-        mk_route_stream(?ROUTE_TAB_FILTERS, Spec)
+        mk_route_stream(route_table(), Spec),
+        mk_route_stream(route_filters_table(), Spec)
     ).
 
-mk_route_stream(Tab = ?ROUTE_TAB, {MTopic, MDest}) ->
+mk_route_stream(Tab, {MTopic, MDest}) when
+    Tab =:= ?ROUTE_TAB_V2;
+    Tab =:= ?ROUTE_TAB_V3
+->
     emqx_utils_stream:ets(fun
         (undefined) ->
             ets:match_object(Tab, #route{topic = MTopic, dest = MDest}, 1);
         (Cont) ->
             ets:match_object(Cont)
     end);
-mk_route_stream(Tab = ?ROUTE_TAB_FILTERS, {MTopic, MDest}) ->
+mk_route_stream(Tab, {MTopic, MDest}) when
+    Tab =:= ?ROUTE_TAB_FILTERS_V2;
+    Tab =:= ?ROUTE_TAB_FILTERS_V3
+->
     emqx_utils_stream:map(
         fun routeidx_to_route/1,
         emqx_utils_stream:ets(
@@ -456,23 +549,13 @@ mk_route_stream(Tab = ?ROUTE_TAB_FILTERS, {MTopic, MDest}) ->
         )
     ).
 
-list_topics_v2() ->
-    Pat = #routeidx{entry = '$1'},
-    Filters = [emqx_topic_index:get_topic(K) || [K] <- ets:match(?ROUTE_TAB_FILTERS, Pat)],
-    list_route_tab_topics() ++ Filters.
-
 list_route_tab_topics() ->
-    mnesia:dirty_all_keys(?ROUTE_TAB).
-
-get_stats_v2(n_routes) ->
-    NTopics = emqx_maybe:define(ets:info(?ROUTE_TAB, size), 0),
-    NWildcards = emqx_maybe:define(ets:info(?ROUTE_TAB_FILTERS, size), 0),
-    NTopics + NWildcards.
+    mnesia:dirty_all_keys(route_table()).
 
 fold_routes_v2(FunName, FoldFun, AccIn) ->
     FilterFoldFun = mk_filtertab_fold_fun(FoldFun),
-    Acc = ets:FunName(FoldFun, AccIn, ?ROUTE_TAB),
-    ets:FunName(FilterFoldFun, Acc, ?ROUTE_TAB_FILTERS).
+    Acc = ets:FunName(FoldFun, AccIn, route_table()),
+    ets:FunName(FilterFoldFun, Acc, route_filters_table()).
 
 mk_filtertab_fold_fun(FoldFun) ->
     fun(#routeidx{entry = K}, Acc) -> FoldFun(match_to_route(K), Acc) end.
@@ -489,20 +572,59 @@ match_to_route(M) ->
 
 %% @doc Get the schema version in use.
 %% BPAPI RPC Target @ emqx_router_proto
+-compile({inline, get_schema_vsn/0}).
 -spec get_schema_vsn() -> schemavsn().
 get_schema_vsn() ->
-    v2.
+    persistent_term:get(?PT_SCHEMA_VSN).
 
 -spec init_schema() -> ok.
 init_schema() ->
     ClusterState = discover_cluster_schema_vsn(),
-    verify_cluster_schema_vsn(ClusterState).
+    SchemaVsn = cluster_preferred_api_version(ClusterState),
+    SchemaVsn =:= v2 andalso
+        begin
+            io:put_chars(standard_error, v2_warning()),
+            ?SLOG(warning, #{msg => v2_warning()})
+        end,
+    verify_cluster_schema_vsn(ClusterState),
+    persistent_term:put(?PT_SCHEMA_VSN, SchemaVsn).
 
--spec discover_cluster_schema_vsn() ->
-    _ClusterState :: [{node(), schemavsn() | unknown, _Details}].
+%% Find if there are known peers that are still running EMQX version
+%% that doesn't support v3:
+%%
+%% Note: do not confuse BPAPI versions with the schema version.
+-spec cluster_preferred_api_version(#{schemavsn() => [node()], unknown => _}) -> schemavsn().
+cluster_preferred_api_version(#{v2 := [_ | _]}) ->
+    v2;
+cluster_preferred_api_version(_) ->
+    case has_v2_tables() of
+        true ->
+            %% Old table is present in the cluster, use old schema
+            v2;
+        false ->
+            %% There are no signs of the old routing tables. This is
+            %% likely a newly deployed cluster. Use configured value:
+            emqx_config:get([broker, routing, storage_schema])
+    end.
+
+-spec discover_cluster_schema_vsn() -> cluster_schema_versions().
 discover_cluster_schema_vsn() ->
-    discover_cluster_schema_vsn(emqx:running_nodes() -- [node()]).
+    RawResult = discover_cluster_schema_vsn(emqx:running_nodes() -- [node()]),
+    maps:groups_from_list(
+        fun({_Node, Version, _Details}) -> Version end,
+        fun
+            ({Node, unknown, Details}) ->
+                {Node, Details};
+            ({Node, _Vsn, _Details}) ->
+                Node
+        end,
+        RawResult
+    ).
 
+-spec discover_cluster_schema_vsn([node()]) -> [Result] when
+    Result ::
+        {node(), v2 | v3, configured}
+        | {node(), unknown, starting | _}.
 discover_cluster_schema_vsn([]) ->
     [];
 discover_cluster_schema_vsn(Nodes) ->
@@ -520,88 +642,103 @@ discover_cluster_schema_vsn(Nodes) ->
         emqx_router_proto_v1:get_routing_schema_vsn(Nodes)
     ).
 
--spec verify_cluster_schema_vsn(_ClusterState :: [{node(), schemavsn() | unknown, _Details}]) ->
-    ok.
-verify_cluster_schema_vsn(ClusterState) ->
-    Versions = lists:usort([Vsn || {_Node, Vsn, _} <- ClusterState, Vsn /= unknown]),
-    verify_cluster_schema_vsn(Versions, ClusterState).
+-spec verify_cluster_schema_vsn(cluster_schema_versions()) -> ok.
+verify_cluster_schema_vsn(ClusterView) ->
+    case maps:get(v1, ClusterView, []) of
+        [] ->
+            ok;
+        NodesV1 ->
+            MsgV1 = unsupported_schema_reason(NodesV1),
+            io:format(standard_error, "Error: ~ts", [MsgV1]),
+            ?SLOG(critical, #{
+                msg => "unsupported_routing_schemas_in_cluster",
+                responses => ClusterView,
+                description => MsgV1
+            }),
+            error(conflicting_routing_schemas_configured_in_cluster)
+    end,
+    case ClusterView of
+        #{v3 := [_ | _], v2 := [_ | _]} ->
+            MsgV2 = schema_conflict_reason(ClusterView),
+            io:format(standard_error, "Error: ~ts", [MsgV2]),
+            ?SLOG(critical, #{
+                msg => "conflicting_routing_schemas_in_cluster",
+                responses => ClusterView,
+                description => MsgV2
+            }),
+            error(conflicting_routing_schemas_configured_in_cluster);
+        #{} ->
+            ok
+    end.
 
-verify_cluster_schema_vsn([], []) ->
-    %% Only this node in the cluster.
-    ok;
-verify_cluster_schema_vsn([v2], _) ->
-    %% Every other node uses v2 schema.
-    ok;
-verify_cluster_schema_vsn([], ClusterState = [_ | _]) ->
-    ?SLOG(warning, #{
-        msg => "cluster_routing_schema_discovery_failed",
-        responses => ClusterState,
-        reason => "Could not determine configured routing storage schema in peer nodes."
-    }),
-    %% Ok to start?
-    %% The only risk is full cluster restart, other nodes are < 5.10 *and* have
-    %% storage schema force configured to v1.
-    ok;
-verify_cluster_schema_vsn([v1], ClusterState) ->
-    %% Every other node uses v1 schema.
-    Desc = unsupported_schema_reason(ClusterState),
-    io:format(standard_error, "Error: ~ts~n", [Desc]),
-    ?SLOG(critical, #{
-        msg => "unsupported_routing_schemas_in_cluster",
-        responses => ClusterState,
-        description => Desc
-    }),
-    error(conflicting_routing_schemas_configured_in_cluster);
-verify_cluster_schema_vsn([_ | _], ClusterState) ->
-    Desc = schema_conflict_reason(ClusterState),
-    io:format(standard_error, "Error: ~ts~n", [Desc]),
-    ?SLOG(critical, #{
-        msg => "conflicting_routing_schemas_in_cluster",
-        responses => ClusterState,
-        description => Desc
-    }),
-    error(conflicting_routing_schemas_configured_in_cluster).
+%% erlfmt-ignore
+unsupported_schema_reason(NodesV1) ->
+    io_lib:format(
+"Peer nodes are running unsupported legacy (v1) route storage schema.
+This node cannot boot before the cluster is upgraded to use current (v3)
+storage schema.
 
-unsupported_schema_reason(_State) ->
-    "Peer nodes are running unsupported legacy (v1) route storage schema."
-    "\nThis node cannot boot before the cluster is upgraded to use current (v2) "
-    "storage schema."
-    "\n"
-    "\nSituation requires manual intervention:"
-    "\n1. Upgrade all nodes to 5.10.0 or newer."
-    "\n2. Remove `broker.routing.storage_schema` option from applicable "
-    "configuration files, if present."
-    "\n3. Stop ALL running nodes, then restart them one by one.".
+Nodes using V1 schema: ~0p
 
-schema_conflict_reason(State) ->
-    Cause =
-        "Peer nodes have route storage schema resolved into conflicting versions.\n"
-        "\nThis was caused by a race-condition when the cluster was rolling upgraded "
-        "from an older version to 5.4.0, 5.4.1, 5.5.0 or 5.5.1."
-        "\nThis node cannot boot before the conflicts are resolved.\n",
-    NodesV1 = [Node || {Node, v1, _} <- State],
-    NodesUnknown = [Node || {Node, unknown, _} <- State],
-    Format =
-        "There are two ways to resolve the conflict:"
-        "\n"
-        "\nA: Full cluster restart: stop ALL running nodes one by one "
-        "and restart them in the reversed order."
-        "\n"
-        "\nB: Force v1 nodes to clean up their routes."
-        "\n   Following EMQX nodes are running with v1 schema: ~0p."
-        "\n   1. Stop listeners with command \"emqx eval 'emqx_listener:stop()'\" in all v1 nodes"
-        "\n   2. Wait until they are safe to restart."
-        "\n      This could take some time, depending on the number of clients and their subscriptions."
-        "\n      Below conditions should be true for each of the nodes in order to proceed:"
-        "\n     a) Command 'ets:info(emqx_subscriber, size)' prints `0`."
-        "\n     b) Command 'emqx ctl topics list' prints No topics.`"
-        "\n   3. Upgrade the nodes to 5.6.0 or newer.",
-    FormatUnkown =
-        "Additionally, the following nodes were unreachable during startup: ~0p."
-        "It is strongly advised to include them in the manual resolution procedure as well.",
-    Message = io_lib:format(Format, [NodesV1]),
-    MessageUnknown = [io_lib:format(FormatUnkown, [NodesUnknown]) || NodesUnknown =/= []],
-    Cause ++ unicode:characters_to_list([Message, "\n", MessageUnknown]).
+Situation requires manual intervention:
+1. Upgrade all nodes to 5.10.4 or newer.
+2. Remove `broker.routing.storage_schema` option from applicable configuration files, if present.
+3. Stop ALL running nodes, then restart them one by one.
+",
+      [NodesV1]).
+
+%% erlfmt-ignore
+schema_conflict_reason(#{v2 := V2, v3 := V3}) ->
+    io_lib:format(
+"Peer nodes have route storage schema resolved into conflicting versions.
+
+Nodes using V3 schema: ~0p
+Nodes using V2 schema: ~0p
+
+This node cannot boot before the conflicts are resolved.
+
+Situation requires manual intervention:
+1. Upgrade all nodes to 5.10.4 or newer.
+2. Remove `broker.routing.storage_schema` option from applicable configuration files, if present.
+3. Stop ALL running nodes, then restart them one by one.
+",
+      [V3, V2]).
+
+%% erlfmt-ignore
+v2_warning() ->
+    "This node is running in compatibility mode with v2 routing schema.
+
+To complete upgade to the current (v3) schema, the following steps are required:
+
+1. Upgrade all nodes to EMQX version 5.10.4 or later
+2. Perform full restart of the cluster.
+".
+
+has_v2_tables() ->
+    %% Run this in a transaction to make sure replicants don't take
+    %% decisions while disconnected from core node:
+    Result = mria:ro_transaction(
+        '$mria_meta_shard',
+        fun() ->
+            case mnesia:read(mria_schema, ?ROUTE_TAB_V2) of
+                [_] ->
+                    true;
+                [] ->
+                    false
+            end
+        end
+    ),
+    case Result of
+        {atomic, Val} ->
+            Val;
+        {aborted, Reason} ->
+            ?SLOG(info, #{
+                msg => "Waiting for core node to get decision which routing schema to use",
+                reason => Reason
+            }),
+            timer:sleep(5_000),
+            has_v2_tables()
+    end.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -634,3 +771,17 @@ terminate(_Reason, #{pool := Pool, id := Id}) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+-compile({inline, route_filters_table/0}).
+route_filters_table() ->
+    case get_schema_vsn() of
+        v3 -> ?ROUTE_TAB_FILTERS_V3;
+        v2 -> ?ROUTE_TAB_FILTERS_V2
+    end.
+
+-compile({inline, route_table/0}).
+route_table() ->
+    case get_schema_vsn() of
+        v3 -> ?ROUTE_TAB_V3;
+        v2 -> ?ROUTE_TAB_V2
+    end.
