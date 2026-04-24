@@ -77,13 +77,13 @@ check_rbac(?ROLE_VIEWER, <<"POST">>, <<"/logout">>, _, _) ->
 %% viewer should allow to change self password and (re)setup multi-factor auth for self,
 %% superuser should allow to change any user
 check_rbac(?ROLE_VIEWER, <<"POST">>, <<"/users/", SubPath/binary>>, Username, _) ->
-    case binary:split(SubPath, <<"/">>, [global]) of
+    case decode_path_segments(SubPath) of
         [Username, <<"change_pwd">>] -> true;
         [Username, <<"mfa">>] -> true;
         _ -> false
     end;
 check_rbac(?ROLE_VIEWER, <<"DELETE">>, <<"/users/", SubPath/binary>>, Username, Backend) ->
-    case binary:split(SubPath, <<"/">>, [global]) of
+    case decode_path_segments(SubPath) of
         [Username, <<"mfa">>] -> not is_forced_sso_mfa(Backend);
         _ -> false
     end;
@@ -99,6 +99,9 @@ is_forced_sso_mfa(Backend) ->
         #{force_mfa := true} -> true;
         _ -> false
     end.
+
+decode_path_segments(SubPath) ->
+    [uri_string:percent_decode(Segment) || Segment <- binary:split(SubPath, <<"/">>, [global])].
 
 role_list(dashboard) ->
     [?ROLE_VIEWER, ?ROLE_SUPERUSER];
