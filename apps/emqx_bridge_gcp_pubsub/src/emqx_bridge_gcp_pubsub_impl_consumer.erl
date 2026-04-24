@@ -108,9 +108,9 @@ on_start(ConnectorResId, Config0) ->
         supervisor => ?SUP,
         token_table => ?TOKEN_TAB
     },
-    ProjectId = emqx_bridge_gcp_pubsub_client:get_project_id(Config),
     case emqx_bridge_gcp_pubsub_client:start(ConnectorResId, Config) of
-        {ok, Client} ->
+        {ok, ExtraInfo, Client} ->
+            #{project_id := ProjectId} = ExtraInfo,
             ConnectorState = #{
                 client => Client,
                 installed_sources => #{},

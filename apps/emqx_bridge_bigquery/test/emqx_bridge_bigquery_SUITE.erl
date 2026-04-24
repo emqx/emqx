@@ -332,7 +332,7 @@ start_control_client() ->
             port => ?PORT
         },
     PoolName = <<"control_connector">>,
-    {ok, Client} = emqx_bridge_gcp_pubsub_client:start(PoolName, ClientConfig),
+    {ok, _ExtraInfo, Client} = emqx_bridge_gcp_pubsub_client:start(PoolName, ClientConfig),
     Client.
 
 stop_control_client(TCConfig) ->

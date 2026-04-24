@@ -2250,7 +2250,7 @@ t_wif_token_worker_already_started(TCConfig) ->
      || {_, {_Mod, start, Args}, _} <- meck:history(Mod)
     ],
 
-    ?assertMatch({ok, _}, apply(Mod, start, Args)),
+    ?assertMatch({ok, _, _}, apply(Mod, start, Args)),
 
     ok.
 

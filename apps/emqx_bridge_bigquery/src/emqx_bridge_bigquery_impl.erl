@@ -120,9 +120,9 @@ on_start(ConnResId, ConnConfig0) ->
         supervisor => ?SUP,
         token_table => ?TOKEN_TAB
     },
-    ProjectId = emqx_bridge_gcp_pubsub_client:get_project_id(ConnConfig),
     maybe
-        {ok, Client} ?= emqx_bridge_gcp_pubsub_client:start(ConnResId, ConnConfig),
+        {ok, ExtraInfo, Client} ?= emqx_bridge_gcp_pubsub_client:start(ConnResId, ConnConfig),
+        #{project_id := ProjectId} = ExtraInfo,
         ConnState = #{
             ?client => Client,
             ?installed_channels => #{},

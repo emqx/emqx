@@ -23,7 +23,6 @@
 -export([reply_delegator/3]).
 
 -export([
-    get_project_id/1,
     pubsub_get_topic/3
 ]).
 
@@ -53,6 +52,10 @@
     pool_name := binary(),
     project_id := project_id()
 }.
+-type extra_info() :: #{
+    project_id := project_id(),
+    any() => term()
+}.
 -type auth_state() :: service_account_json_auth_state().
 -type service_account_json_auth_state() :: #{
     type := service_account_json,
@@ -71,6 +74,7 @@
     authentication_config/0,
     service_account_json/0,
     state/0,
+    extra_info/0,
     headers/0,
     body/0,
     status_code/0,
@@ -87,7 +91,7 @@
 %% API
 %%-------------------------------------------------------------------------------------------------
 
--spec start(resource_id(), config()) -> {ok, state()} | {error, term()}.
+-spec start(resource_id(), config()) -> {ok, extra_info(), state()} | {error, term()}.
 start(
     ResourceId,
     #{
@@ -152,14 +156,16 @@ do_start_pool(ResourceId, State, Config) ->
     case ehttpc_sup:start_pool(ResourceId, PoolOpts) of
         {ok, _} ->
             ?tp(gcp_ehttpc_pool_started, #{pool_name => ResourceId}),
-            {ok, State};
+            ExtraInfo = maps:with([project_id], State),
+            {ok, ExtraInfo, State};
         {error, {already_started, _}} ->
             ?tp(gcp_ehttpc_pool_already_started, #{pool_name => ResourceId}),
             _ = ehttpc_sup:stop_pool(ResourceId),
             ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, ResourceId),
             case ehttpc_sup:start_pool(ResourceId, PoolOpts) of
                 {ok, _} ->
-                    {ok, State};
+                    ExtraInfo = maps:with([project_id], State),
+                    {ok, ExtraInfo, State};
                 {error, Reason} ->
                     ?tp(gcp_ehttpc_pool_start_failure, #{
                         pool_name => ResourceId,
@@ -259,14 +265,6 @@ get_status(#{connect_timeout := _, pool_name := _} = State) ->
 %%-------------------------------------------------------------------------------------------------
 %% API
 %%-------------------------------------------------------------------------------------------------
-
-get_project_id(#{authentication := #{type := service_account_json} = AuthConfig}) ->
-    #{service_account_json := ServiceAccountJSON0} = AuthConfig,
-    #{<<"project_id">> := ProjectId} = emqx_utils_json:decode(ServiceAccountJSON0),
-    ProjectId;
-get_project_id(#{authentication := #{type := wif} = AuthConfig}) ->
-    #{gcp_project_id := ProjectId} = AuthConfig,
-    ProjectId.
 
 -spec pubsub_get_topic(topic(), state(), request_opts()) -> {ok, map()} | {error, term()}.
 pubsub_get_topic(Topic, ClientState, ReqOpts) ->
