@@ -38,6 +38,7 @@
 -define(async, async).
 -define(service_account_json, service_account_json).
 -define(wif_oidc, wif_oidc).
+-define(attached_service_account, attached_service_account).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -113,7 +114,9 @@ init_per_testcase(TestCase, TCConfig0) ->
                     <<"service_account_json">> => emqx_utils_json:encode(ServiceAccountJSON)
                 };
             ?wif_oidc ->
-                wif_oidc_auth()
+                wif_oidc_auth();
+            ?attached_service_account ->
+                attached_service_account_auth()
         end,
     ConnectorConfig = connector_config(#{
         <<"authentication">> => Authentication
@@ -218,6 +221,11 @@ wif_oidc_auth() ->
         }
     }.
 
+attached_service_account_auth() ->
+    #{
+        <<"type">> => <<"attached_service_account">>
+    }.
+
 mock_wif_auth_calls() ->
     Mod = emqx_bridge_gcp_pubsub_auth_wif_worker,
     on_exit(fun meck:unload/0),
@@ -234,15 +242,44 @@ mock_wif_auth_calls() ->
     end),
     ok.
 
+mock_attached_service_account_auth_calls() ->
+    Mod = emqx_bridge_gcp_pubsub_client,
+    on_exit(fun meck:unload/0),
+    meck:new(Mod, [passthrough]),
+    meck:expect(Mod, do_metadata_request, fun(#{url := URL}) ->
+        case URL of
+            <<
+                "http://metadata.google.internal/computeMetadata"
+                "/v1/project/project-id"
+            >> ->
+                {ok, 200, [{<<"Content-Type">>, <<"application/text">>}], <<"myproject">>};
+            <<
+                "http://metadata.google.internal/computeMetadata"
+                "/v1/instance/service-accounts/default/token"
+            >> ->
+                NowS = erlang:system_time(seconds),
+                ExpiresInS = NowS + 3600,
+                simple_token_reply(#{
+                    <<"access_token">> => <<"attached_sa_token">>,
+                    <<"expires_in">> => ExpiresInS
+                })
+        end
+    end),
+    ok.
+
 simple_token_reply(Key, Token) ->
-    {ok, 200, [{<<"Content-Type">>, <<"application/json">>}],
-        emqx_utils_json:encode(#{Key => Token})}.
+    simple_token_reply(#{Key => Token}).
+
+simple_token_reply(Body) ->
+    {ok, 200, [{<<"Content-Type">>, <<"application/json">>}], emqx_utils_json:encode(Body)}.
 
 get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
 
 auth_of(TCConfig) ->
     emqx_common_test_helpers:get_matrix_prop(
-        TCConfig, [?service_account_json, ?wif_oidc], ?service_account_json
+        TCConfig,
+        [?service_account_json, ?wif_oidc, ?attached_service_account],
+        ?service_account_json
     ).
 
 group_path(Config, Default) ->
@@ -549,9 +586,20 @@ start_client(Opts) ->
 
 %% * Worker process is removed from supervisor.
 %% * Token is deleted from table.
-ensure_token_resources_cleared() ->
-    ?assertMatch([], supervisor:which_children(?SUP)),
+ensure_wif_token_resources_cleared() ->
+    ?assertMatch(
+        [],
+        [
+            Child
+         || Child = {Id, _, _, _} <- supervisor:which_children(?SUP),
+            Id /= emqx_bridge_bigquery_token_cache
+        ]
+    ),
     ?assertMatch([], ets:tab2list(?TOKEN_TAB)),
+    ok.
+
+ensure_attached_service_account_token_resources_cleared() ->
+    ?assertMatch([], ets:tab2list(?SA_TOKEN_RESP_TAB)),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -831,7 +879,7 @@ t_wif_auth(matrix) ->
 t_wif_auth(TCConfig) when is_list(TCConfig) ->
     mock_wif_auth_calls(),
     %% Sanity check
-    ensure_token_resources_cleared(),
+    ensure_wif_token_resources_cleared(),
 
     ?assertMatch(
         {201, #{
@@ -861,7 +909,7 @@ t_wif_auth(TCConfig) when is_list(TCConfig) ->
     %% Verify resource cleanup
     emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    ensure_token_resources_cleared(),
+    ensure_wif_token_resources_cleared(),
     ok.
 
 -doc """
@@ -874,7 +922,7 @@ t_wif_auth_optional_audience(matrix) ->
 t_wif_auth_optional_audience(TCConfig) when is_list(TCConfig) ->
     mock_wif_auth_calls(),
     %% Sanity check
-    ensure_token_resources_cleared(),
+    ensure_wif_token_resources_cleared(),
 
     ?assertMatch(
         {201, #{
@@ -891,4 +939,51 @@ t_wif_auth_optional_audience(TCConfig) when is_list(TCConfig) ->
             }
         })
     ),
+    ok.
+
+-doc """
+Simple smoke test for using attached service account authentication.
+
+It cannot really emulate the real GCP IAM authentication process, but it does emulate the
+calls to get a token and use the stored token.
+""".
+t_attached_service_account_auth() ->
+    [{matrix, true}].
+t_attached_service_account_auth(matrix) ->
+    [[?attached_service_account]];
+t_attached_service_account_auth(TCConfig) ->
+    mock_attached_service_account_auth_calls(),
+    %% Sanity check
+    ensure_attached_service_account_token_resources_cleared(),
+
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"connected">>,
+            <<"authentication">> := #{<<"type">> := <<"attached_service_account">>}
+        }},
+        create_connector_api(TCConfig, #{})
+    ),
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_action_api(TCConfig, #{})
+    ),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    Payload = <<"payload">>,
+    emqtt:publish(C, Topic, Payload),
+    Payload64 = base64:encode(Payload),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            [[_ClientId, Payload64, Topic, _PublishedAt]],
+            scan_table(TCConfig)
+        )
+    ),
+
+    %% Verify resource cleanup
+    emqx_bridge_v2_testlib:delete_all_rules(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    ensure_attached_service_account_token_resources_cleared(),
+
     ok.

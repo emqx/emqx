@@ -118,7 +118,9 @@ on_start(ConnResId, ConnConfig0) ->
         host => Host,
         port => Port,
         supervisor => ?SUP,
-        token_table => ?TOKEN_TAB
+        token_table => ?TOKEN_TAB,
+        sa_server_ref => ?SA_SERVER_REF,
+        sa_token_table => ?SA_TOKEN_RESP_TAB
     },
     maybe
         {ok, ExtraInfo, Client} ?= emqx_bridge_gcp_pubsub_client:start(ConnResId, ConnConfig),
@@ -135,7 +137,9 @@ on_start(ConnResId, ConnConfig0) ->
 on_stop(ConnResId, _ConnState) ->
     Ctx = #{
         supervisor => ?SUP,
-        token_table => ?TOKEN_TAB
+        token_table => ?TOKEN_TAB,
+        sa_server_ref => ?SA_SERVER_REF,
+        sa_token_table => ?SA_TOKEN_RESP_TAB
     },
     Res = emqx_bridge_gcp_pubsub_client:stop(ConnResId, Ctx),
     ?tp("bigquery_connector_stop", #{instance_id => ConnResId}),
