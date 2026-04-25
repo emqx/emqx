@@ -58,18 +58,28 @@ topic_metrics() ->
     {ok, emqx_types:topic()}
     | {error, term()}.
 add_topic_metrics(Topic) ->
-    case cfg_update([topic_metrics], ?FUNCTION_NAME, Topic) of
-        {ok, _} -> {ok, Topic};
-        {error, Reason} -> {error, Reason}
+    case lists:member(Topic, topic_metrics()) of
+        true ->
+            {error, already_existed};
+        false ->
+            case cfg_update([topic_metrics], ?FUNCTION_NAME, Topic) of
+                {ok, _} -> {ok, Topic};
+                {error, Reason} -> {error, Reason}
+            end
     end.
 
 -spec remove_topic_metrics(emqx_types:topic()) ->
     ok
     | {error, term()}.
 remove_topic_metrics(Topic) ->
-    case cfg_update([topic_metrics], ?FUNCTION_NAME, Topic) of
-        {ok, _} -> ok;
-        {error, Reason} -> {error, Reason}
+    case lists:member(Topic, topic_metrics()) of
+        false ->
+            {error, not_found};
+        true ->
+            case cfg_update([topic_metrics], ?FUNCTION_NAME, Topic) of
+                {ok, _} -> ok;
+                {error, Reason} -> {error, Reason}
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -102,7 +112,10 @@ pre_config_update(_, {add_topic_metrics, Topic0}, RawConf) ->
             Topic = #{<<"topic">> => Topic0},
             case lists:member(Topic, RawConf) of
                 true ->
-                    {error, already_existed};
+                    %% Idempotent on replicate: tolerate raw-config drift where
+                    %% the topic is already present. Initiator-side duplicate
+                    %% is filtered by add_topic_metrics/1.
+                    {ok, RawConf};
                 _ ->
                     {ok, RawConf ++ [Topic]}
             end;
@@ -110,13 +123,10 @@ pre_config_update(_, {add_topic_metrics, Topic0}, RawConf) ->
             Error
     end;
 pre_config_update(_, {remove_topic_metrics, Topic0}, RawConf) ->
+    %% Idempotent on replicate: no-op if the topic is absent. Initiator-side
+    %% missing-topic is filtered by remove_topic_metrics/1.
     Topic = #{<<"topic">> => Topic0},
-    case lists:member(Topic, RawConf) of
-        true ->
-            {ok, RawConf -- [Topic]};
-        _ ->
-            {error, not_found}
-    end;
+    {ok, RawConf -- [Topic]};
 pre_config_update(_, {merge_topics, NewConf}, OldConf) ->
     case validate_topic_metrics_list(NewConf) of
         ok ->
@@ -150,6 +160,9 @@ post_config_update(
     case emqx_topic_metrics:register(Topic) of
         ok ->
             ok;
+        {error, already_existed} ->
+            %% Tolerate runtime-state drift on replicate.
+            ok;
         {error, wildcard_not_supported} ->
             {error, #{cause => wildcard_not_supported, topic => Topic}};
         {error, Reason} ->
@@ -164,6 +177,8 @@ post_config_update(
 ) ->
     case emqx_topic_metrics:deregister(Topic) of
         ok -> ok;
+        %% Tolerate runtime-state drift on replicate.
+        {error, topic_not_found} -> ok;
         {error, Reason} -> {error, Reason}
     end;
 post_config_update(_, _UpdateReq, NewConfig, OldConfig, _AppEnvs) ->
