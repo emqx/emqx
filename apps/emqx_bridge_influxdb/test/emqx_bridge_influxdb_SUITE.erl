@@ -852,7 +852,7 @@ t_write_fixed_unicode_text(TCConfig) when is_list(TCConfig) ->
     C = start_client(#{clientid => ClientId}),
     emqtt:publish(C, RuleTopic, emqx_utils_json:encode(#{}), [{qos, 1}]),
     ?retry(500, 10, begin
-        PersistedData = query_by_clientid(ClientId, TCConfig),
+        PersistedData = query_by_clientid(RuleTopic, ClientId, TCConfig),
         Expected = #{fixed_text => {<<"固定中文"/utf8>>, <<"string">>}},
         assert_persisted_data(ClientId, Expected, PersistedData)
     end),
@@ -879,7 +879,7 @@ t_write_unicode_mqtt_payload(TCConfig) when is_list(TCConfig) ->
     C = start_client(#{clientid => ClientId}),
     emqtt:publish(C, RuleTopic, Payload, [{qos, 1}]),
     ?retry(500, 10, begin
-        PersistedData = query_by_clientid(ClientId, TCConfig),
+        PersistedData = query_by_clientid(RuleTopic, ClientId, TCConfig),
         Expected = #{payload_text => {Payload, <<"string">>}},
         assert_persisted_data(ClientId, Expected, PersistedData)
     end),
