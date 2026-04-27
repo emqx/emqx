@@ -61,40 +61,38 @@
 ]).
 
 influxdb_api_v1_connector_hocon() ->
-    ""
-    "\n"
-    "connectors.influxdb.my_influxdb {\n"
-    "  enable = true\n"
-    "  server = \"127.0.0.1:8086\"\n"
-    "  parameters {\n"
-    "    influxdb_type = influxdb_api_v1\n"
-    "    database = \"mydb\"\n"
-    "    username = \"user\"\n"
-    "    password = \"pass\"\n"
-    "  }\n"
-    "  ssl {\n"
-    "    enable = false\n"
-    "  }\n"
-    "}\n"
-    "".
+    """
+    connectors.influxdb.my_influxdb {
+      enable = true
+      server = "127.0.0.1:8086"
+      parameters {
+        influxdb_type = influxdb_api_v1
+        database = "mydb"
+        username = "user"
+        password = "pass"
+      }
+      ssl {
+        enable = false
+      }
+    }
+    """.
 
 influxdb_api_v2_connector_hocon() ->
-    ""
-    "\n"
-    "connectors.influxdb.my_influxdb {\n"
-    "  enable = true\n"
-    "  server = \"127.0.0.1:8086\"\n"
-    "  parameters {\n"
-    "    influxdb_type = influxdb_api_v2\n"
-    "    bucket = \"mybucket\"\n"
-    "    org = \"myorg\"\n"
-    "    token = \"token\"\n"
-    "  }\n"
-    "  ssl {\n"
-    "    enable = false\n"
-    "  }\n"
-    "}\n"
-    "".
+    """
+    connectors.influxdb.my_influxdb {
+      enable = true
+      server = "127.0.0.1:8086"
+      parameters {
+        influxdb_type = influxdb_api_v2
+        bucket = "mybucket"
+        org = "myorg"
+        token = "token"
+      }
+      ssl {
+        enable = false
+      }
+    }
+    """.
 
 parse(Hocon) ->
     {ok, Conf} = hocon:binary(Hocon),
