@@ -23,7 +23,8 @@
 -export([reply_delegator/3]).
 
 -export([
-    pubsub_get_topic/3
+    pubsub_get_topic/3,
+    do_get_attached_sa_token/0
 ]).
 
 %% Only for tests.
@@ -395,7 +396,7 @@ do_get_attached_sa_token() ->
     end.
 
 get_or_refresh_attached_sa_token(ServerRef, Tab, ResId) ->
-    RefreshFn = fun do_get_attached_sa_token/0,
+    RefreshFn = {?MODULE, do_get_attached_sa_token, []},
     case emqx_connector_jwt_token_cache:get_or_refresh(ServerRef, Tab, ResId, RefreshFn) of
         {ok, Token} ->
             {ok, Token};

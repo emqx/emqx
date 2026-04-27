@@ -196,7 +196,7 @@ do_handle_register_refresh(ResId, RefreshFn, Opts, State0) ->
 
 do_fetch_token(ResId, RefreshFn) ->
     try
-        RefreshFn()
+        call_refresh_fn(RefreshFn)
     catch
         Kind:Reason:Stacktrace ->
             ?tp(error, "token_refresh_exception", #{
@@ -207,6 +207,11 @@ do_fetch_token(ResId, RefreshFn) ->
             }),
             {error, {Kind, Reason}}
     end.
+
+call_refresh_fn(RefreshFn) when is_function(RefreshFn, 0) ->
+    RefreshFn();
+call_refresh_fn({M, F, A}) ->
+    apply(M, F, A).
 
 handle_unregister(ResId, State0) ->
     #{?table := Tab} = State0,
