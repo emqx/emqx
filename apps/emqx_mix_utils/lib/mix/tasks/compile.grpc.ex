@@ -53,6 +53,8 @@ defmodule Mix.Tasks.Compile.Grpc do
 
     Enum.each(proto_srcs, &compile_pb(&1, context))
 
+    manifest_data = Map.put(manifest_data, :app_gpb_opts, gpb_opts)
+
     if Process.get(@stale?, false) do
       write_manifest(manifest(), manifest_data)
     end
@@ -68,6 +70,7 @@ defmodule Mix.Tasks.Compile.Grpc do
     %{
       app_root: app_root,
       app_build_path: app_build_path,
+      manifest_data: manifest_data,
       out_dir: out_dir,
       proto_dirs: proto_dirs,
       gpb_opts: gpb_opts
@@ -87,7 +90,8 @@ defmodule Mix.Tasks.Compile.Grpc do
 
     proto_compilation_needed? =
       stale?(proto_src, manifest_modified_time) ||
-      stale?(generated_src, manifest_modified_time)
+        stale?(generated_src, manifest_modified_time) ||
+        compile_opts_stale?(gpb_opts, manifest_data)
 
     if proto_compilation_needed? do
       Process.put(@stale?, true)
@@ -234,6 +238,11 @@ defmodule Mix.Tasks.Compile.Grpc do
     else
       _ -> true
     end
+  end
+
+  defp compile_opts_stale?(gpb_opts, manifest_data) do
+    previous_gpb_opts = get_in(manifest_data, [:app_gpb_opts]) || :undefined
+    previous_gpb_opts != gpb_opts
   end
 
   defp read_manifest(file) do
