@@ -92,9 +92,10 @@ t_config_enable_toggle_with_retain_available(Config) ->
     {ok, ConfJson} = request_api(get, Path),
     RawConf = emqx_utils_json:decode(ConfJson),
     MqttRawConf0 = emqx_config:get_raw([mqtt]),
-    MqttRawConf = maps:put(<<"retain_available">>, true, MqttRawConf0),
-    {ok, _} = emqx_conf:update([mqtt], MqttRawConf, #{override_to => cluster}),
     try
+        MqttRawConf = maps:put(<<"retain_available">>, true, MqttRawConf0),
+        {ok, _} = emqx_conf:update([mqtt], MqttRawConf, #{override_to => cluster}),
+
         DisabledConf = RawConf#{<<"enable">> => false},
         {ok, DisabledJson} = request_api(
             put,
@@ -105,8 +106,7 @@ t_config_enable_toggle_with_retain_available(Config) ->
         ),
         ?assertEqual(false, maps:get(<<"enable">>, emqx_utils_json:decode(DisabledJson))),
 
-        _ = emqtt:publish(Client, TopicDisabled, <<"disabled">>, [{qos, 0}, {retain, true}]),
-        timer:sleep(100),
+        {ok, _} = emqtt:publish(Client, TopicDisabled, <<"disabled">>, [{qos, 1}, {retain, true}]),
         ?assertMatch(
             {error, {"HTTP/1.1", 404, "Not Found"}},
             request_api(
@@ -125,8 +125,11 @@ t_config_enable_toggle_with_retain_available(Config) ->
         ),
         ?assertEqual(true, maps:get(<<"enable">>, emqx_utils_json:decode(EnabledJson))),
 
-        _ = emqtt:publish(Client, TopicEnabled, <<"enabled">>, [{qos, 0}, {retain, true}]),
-        timer:sleep(100),
+        ?assertWaitEvent(
+            emqtt:publish(Client, TopicEnabled, <<"enabled">>, [{qos, 0}, {retain, true}]),
+            #{?snk_kind := message_retained, topic := TopicEnabled},
+            500
+        ),
         {ok, LookupJson} = request_api(
             get,
             api_path(["mqtt", "retainer", "message", binary_to_list(TopicEnabled)])
