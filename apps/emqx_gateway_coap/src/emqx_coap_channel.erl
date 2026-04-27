@@ -297,11 +297,29 @@ handle_call(subscriptions, _From, Channel = #channel{session = Session}) ->
     {reply, {ok, maps:to_list(Subs)}, Channel};
 handle_call({check_token, ReqToken}, _From, Channel = #channel{token = Token}) ->
     {reply, ReqToken == Token, Channel};
+handle_call(
+    {check_token_and_get_clientinfo, ReqToken},
+    _From,
+    Channel = #channel{token = Token, clientinfo = ClientInfo}
+) ->
+    %% Do not propagate sensitive credentials via takeover probing API.
+    SanitizedClientInfo = maps:remove(password, ClientInfo),
+    Reply =
+        case ReqToken == Token of
+            true -> {ok, SanitizedClientInfo};
+            false -> false
+        end,
+    {reply, Reply, Channel};
 handle_call(kick, _From, Channel) ->
     NChannel = ensure_disconnected(kicked, Channel),
     shutdown_and_reply(kicked, ok, NChannel);
 handle_call(discard, _From, Channel) ->
     shutdown_and_reply(discarded, ok, Channel);
+handle_call({takeover, 'begin'}, _From, Channel = #channel{session = Session}) ->
+    {reply, Session, Channel};
+handle_call({takeover, 'end'}, _From, Channel) ->
+    NChannel = ensure_disconnected(takenover, Channel),
+    shutdown_and_reply(takenover, [], NChannel);
 handle_call(Req, _From, Channel) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, Channel}.
@@ -329,6 +347,11 @@ handle_cast(Req, Channel) ->
 -spec handle_info(Info :: term(), channel()) ->
     ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}.
 handle_info({subscribe, _AutoSubs}, Channel) ->
+    {ok, Channel};
+handle_info(
+    {sock_closed, _Reason},
+    #channel{connection_required = true, conn_state = connected} = Channel
+) ->
     {ok, Channel};
 handle_info({sock_closed, Reason}, Channel) ->
     shutdown(Reason, Channel);
@@ -385,9 +408,11 @@ check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
             call_session(handle_request, Msg, Channel);
         false ->
             URIQuery = emqx_coap_message:extract_uri_query(Msg),
-            case maps:get(<<"token">>, URIQuery, undefined) of
+            case get_query_value(<<"token">>, URIQuery) of
                 undefined ->
-                    ?SLOG(debug, #{msg => "token_required_in_conn_mode", message => Msg});
+                    %% Connection mode policy: reject requests without token/clientid.
+                    ?SLOG(debug, #{msg => "token_required_in_conn_mode", message => Msg}),
+                    missing_token_or_clientid_reply(Msg, Channel);
                 _ ->
                     check_token(Msg, Channel)
             end
@@ -427,24 +452,128 @@ check_token(
     } = Channel
 ) ->
     #{clientid := ClientId} = ClientInfo,
-    case emqx_coap_message:extract_uri_query(Msg) of
-        #{
-            <<"clientid">> := ClientId,
-            <<"token">> := Token
-        } ->
-            call_session(handle_request, Msg, Channel);
-        _ ->
-            %% This channel is create by this DELETE command, so here can safely close this channel
-            case Token =:= undefined andalso is_delete_connection_request(Msg) of
-                true ->
-                    Reply = emqx_coap_message:piggyback({ok, deleted}, Msg),
-                    {shutdown, normal, Reply, Channel};
-                false ->
-                    ErrMsg = <<"Missing token or clientid in connection mode">>,
-                    Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
-                    {ok, {outgoing, Reply}, Channel}
+    URIQuery = emqx_coap_message:extract_uri_query(Msg),
+    ReqClientId = get_query_value(<<"clientid">>, URIQuery),
+    ReqToken = get_query_value(<<"token">>, URIQuery),
+    case Token =:= undefined andalso is_delete_connection_request(Msg) of
+        true ->
+            Reply = emqx_coap_message:piggyback({ok, deleted}, Msg),
+            {shutdown, normal, Reply, Channel};
+        false ->
+            case {ReqClientId, ReqToken} of
+                {ClientId, Token} when ReqClientId =/= undefined, ReqToken =/= undefined ->
+                    call_session(handle_request, Msg, Channel);
+                {ClientId, ReqToken1} when
+                    ReqClientId =/= undefined, ReqToken1 =/= undefined, ReqToken1 =/= Token
+                ->
+                    %% Same clientid with mismatched token should be rejected directly.
+                    invalid_token_reply(Msg, Channel);
+                {ReqClientId1, ReqToken1} when
+                    ReqClientId1 =/= undefined,
+                    ReqToken1 =/= undefined,
+                    ReqClientId1 =/= ClientId
+                ->
+                    try_takeover_with_token(Msg, ReqClientId1, ReqToken1, Channel);
+                _ ->
+                    missing_token_or_clientid_reply(Msg, Channel)
             end
     end.
+
+try_takeover_with_token(Msg, ReqClientId, ReqToken, Channel) ->
+    case emqx_gateway_cm:call(coap, ReqClientId, {check_token_and_get_clientinfo, ReqToken}) of
+        {ok, ResumeClientInfo} ->
+            takeover_and_handle_request(Msg, ReqClientId, ReqToken, ResumeClientInfo, Channel);
+        undefined ->
+            invalid_token_reply(Msg, Channel);
+        false ->
+            invalid_token_reply(Msg, Channel);
+        _ ->
+            invalid_token_reply(Msg, Channel)
+    end.
+
+takeover_and_handle_request(Msg, ReqClientId, ReqToken, ResumeClientInfo, Channel) ->
+    #channel{ctx = Ctx, conninfo = ConnInfo, clientinfo = ClientInfo0} = Channel,
+    NClientInfo = merge_takeover_clientinfo(ReqClientId, ClientInfo0, ResumeClientInfo),
+    CreateSessionFun = fun(_, _) -> emqx_coap_session:new() end,
+    case
+        emqx_gateway_ctx:open_session(
+            Ctx, false, NClientInfo, ConnInfo, CreateSessionFun, emqx_coap_session
+        )
+    of
+        {ok, #{session := Session, present := true}} ->
+            Channel0 = Channel#channel{
+                session = Session,
+                clientinfo = NClientInfo,
+                token = ReqToken
+            },
+            NChannel = ensure_connected(Channel0),
+            call_session(handle_request, Msg, NChannel);
+        {ok, #{present := false}} ->
+            ok = maybe_unregister_channel(ReqClientId),
+            invalid_token_reply(Msg, Channel);
+        _ ->
+            invalid_token_reply(Msg, Channel)
+    end.
+
+merge_takeover_clientinfo(ReqClientId, ClientInfo0, ResumeClientInfo) ->
+    BaseClientInfo = ClientInfo0#{clientid => ReqClientId},
+    lists:foldl(
+        fun(Key, Acc) ->
+            case maps:find(Key, ResumeClientInfo) of
+                {ok, Value} ->
+                    Acc#{Key => Value};
+                error ->
+                    Acc
+            end
+        end,
+        BaseClientInfo,
+        [username, is_superuser, auth_expire_at, mountpoint, enable_authn]
+    ).
+
+invalid_token_reply(Msg, Channel) ->
+    ErrMsg = <<"Invalid token or clientid in connection mode">>,
+    Reply = emqx_coap_message:piggyback({error, unauthorized}, ErrMsg, Msg),
+    {ok, {outgoing, Reply}, Channel}.
+
+missing_token_or_clientid_reply(Msg, Channel) ->
+    ErrMsg = <<"Missing token or clientid in connection mode">>,
+    Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
+    {ok, {outgoing, Reply}, Channel}.
+
+maybe_unregister_channel(ReqClientId) ->
+    try emqx_gateway_cm:unregister_channel(coap, ReqClientId) of
+        ok ->
+            ok
+    catch
+        _:Reason ->
+            ?SLOG(warning, #{
+                msg => "failed_unregister_takeover_fallback_channel",
+                clientid => ReqClientId,
+                reason => Reason
+            }),
+            ok
+    end.
+
+get_query_value(Key, URIQuery) ->
+    RawValue =
+        case maps:find(Key, URIQuery) of
+            {ok, Value} ->
+                Value;
+            error ->
+                maps:get(binary_to_list(Key), URIQuery, undefined)
+        end,
+    normalize_query_value(RawValue).
+
+normalize_query_value(undefined) ->
+    undefined;
+normalize_query_value(Value) when is_binary(Value) ->
+    Value;
+normalize_query_value(Value) when is_list(Value) ->
+    list_to_binary(Value);
+normalize_query_value(Value) when is_integer(Value) ->
+    integer_to_binary(Value);
+normalize_query_value(Value) ->
+    Value.
 
 run_conn_hooks(
     Input,
@@ -598,14 +727,27 @@ metrics_inc(Name, Ctx) ->
 ensure_connected(
     Channel = #channel{
         ctx = Ctx,
-        conninfo = ConnInfo,
+        conninfo = ConnInfo0,
         clientinfo = ClientInfo
     }
 ) ->
+    ConnInfo = ensure_conninfo_required_fields(ClientInfo, ConnInfo0),
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     _ = run_hooks(Ctx, 'client.connack', [NConnInfo, connection_accepted, #{}]),
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
     schedule_connection_expire(Channel#channel{conninfo = NConnInfo, conn_state = connected}).
+
+ensure_conninfo_required_fields(ClientInfo, ConnInfo0) ->
+    ClientId = maps:get(clientid, ClientInfo, maps:get(clientid, ConnInfo0, undefined)),
+    ConnInfo1 =
+        case ClientId of
+            undefined -> ConnInfo0;
+            _ -> ConnInfo0#{clientid => ClientId}
+        end,
+    ConnInfo1#{
+        proto_name => maps:get(proto_name, ConnInfo1, <<"CoAP">>),
+        proto_ver => maps:get(proto_ver, ConnInfo1, <<"1">>)
+    }.
 
 %%--------------------------------------------------------------------
 %% Ensure disconnected
