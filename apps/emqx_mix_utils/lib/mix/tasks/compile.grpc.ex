@@ -44,6 +44,7 @@ defmodule Mix.Tasks.Compile.Grpc do
       app_root: app_root,
       app_build_path: app_build_path,
       out_dir: out_dir,
+      proto_dirs: proto_dirs,
       gpb_opts: gpb_opts
     }
 
@@ -65,6 +66,7 @@ defmodule Mix.Tasks.Compile.Grpc do
       app_root: app_root,
       app_build_path: app_build_path,
       out_dir: out_dir,
+      proto_dirs: proto_dirs,
       gpb_opts: gpb_opts
     } = context
 
@@ -75,7 +77,9 @@ defmodule Mix.Tasks.Compile.Grpc do
     suffix = Keyword.get(gpb_opts, :module_name_suffix, ~c"")
     mod_name = ~c"#{prefix}#{basename}#{suffix}"
 
-    opts = [i: ~c".", o: out_dir] ++ gpb_opts
+    includes = Enum.map(proto_dirs, &{:i, to_charlist(&1)})
+
+    opts = [o: out_dir] ++ includes ++ gpb_opts
 
     if stale?(proto_src, manifest_modified_time) do
       Process.put(@stale?, true)
