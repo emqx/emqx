@@ -53,6 +53,7 @@ spec:
     {{- else if eq .Values.service.type "ClusterIP" }}
     nodePort: null
     {{- end }}
+  {{- if .Values.service.wsEnabled }}
   - name: ws
     port: {{ .Values.service.ws | default 8083 }}
     protocol: TCP
@@ -71,6 +72,7 @@ spec:
     {{- else if eq .Values.service.type "ClusterIP" }}
     nodePort: null
     {{- end }}
+  {{- end }}
   - name: dashboard
     port: {{ .Values.service.dashboard | default 18083 }}
     protocol: TCP
@@ -137,6 +139,7 @@ spec:
     port: {{ .Values.service.mqttssl | default 8883 }}
     protocol: TCP
     targetPort: mqttssl
+  {{- if .Values.service.wsEnabled }}
   - name: ws
     port: {{ .Values.service.ws | default 8083 }}
     protocol: TCP
@@ -145,6 +148,7 @@ spec:
     port: {{ .Values.service.wss | default 8084 }}
     protocol: TCP
     targetPort: wss
+  {{- end }}
   - name: dashboard
     port: {{ .Values.service.dashboard | default 18083 }}
     protocol: TCP

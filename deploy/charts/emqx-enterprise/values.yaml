@@ -151,10 +151,17 @@ service:
   ## Port for MQTT(SSL)
   ##
   mqttssl: 8883
-  ## Port for WebSocket/HTTP
+  ## Whether to publish the WebSocket (ws/wss) Service ports.
+  ## Set to false to omit the ws and wss port entries from the Service
+  ## (for example, when the corresponding EMQX listeners are disabled).
+  ## Note: if this is false, also disable ingress.ws.enabled and ingress.wss.enabled,
+  ## as those reference service.ws / service.wss.
+  ##
+  wsEnabled: true
+  ## Port for WebSocket/HTTP (used only when wsEnabled is true)
   ##
   ws: 8083
-  ## Port for WSS/HTTPS
+  ## Port for WSS/HTTPS (used only when wsEnabled is true)
   ##
   wss: 8084
   ## Port for dashboard and API

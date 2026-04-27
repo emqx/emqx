@@ -25,32 +25,26 @@ find_or_create(CId, Transport, Peer, Opts) ->
     end.
 
 get_connection_id(_Transport, Peer, State, Data) ->
-    case parse_incoming(Data, [], State) of
+    {ParseState, BoundCId} = split_state(State),
+    case parse_incoming(Data, [], ParseState) of
         {[Msg | _] = Packets, NState} ->
             case Msg of
                 #coap_message{} ->
-                    case emqx_coap_message:extract_uri_query(Msg) of
-                        #{
-                            <<"clientid">> := ClientId
-                        } ->
-                            {ok, ClientId, Packets, NState};
-                        _ ->
-                            %% RFC 7252 Section 4.2: per-message errors must not stop the listener.
-                            {ok, peer_id(Peer), Packets, NState}
-                    end;
+                    {CId, NBoundCId} = choose_cid(Msg, BoundCId, Peer),
+                    {ok, CId, Packets, merge_state(NState, NBoundCId)};
                 {coap_ignore, _} ->
                     %% RFC 7252 Section 3: unknown versions must be silently ignored.
-                    {ok, peer_id(Peer), Packets, NState};
+                    {ok, peer_id(Peer), Packets, merge_state(NState, BoundCId)};
                 {coap_format_error, Type, MsgId, _} ->
                     %% RFC 7252 Section 4.2: reject CON format errors with Reset.
                     _ = {Type, MsgId},
                     %% RFC 7252 Section 4.2: per-message errors must not stop the listener.
-                    {ok, peer_id(Peer), Packets, NState};
+                    {ok, peer_id(Peer), Packets, merge_state(NState, BoundCId)};
                 {coap_request_error, Req, Error} ->
                     %% RFC 7252 Section 5.4.1/5.8: reply with a 4.xx error for bad requests.
                     _ = {Req, Error},
                     %% RFC 7252 Section 4.2: per-message errors must not stop the listener.
-                    {ok, peer_id(Peer), Packets, NState}
+                    {ok, peer_id(Peer), Packets, merge_state(NState, BoundCId)}
             end;
         _Error ->
             invalid
@@ -58,6 +52,47 @@ get_connection_id(_Transport, Peer, State, Data) ->
 
 peer_id(Peer) ->
     {peer, Peer}.
+
+split_state(#{parse_state := ParseState, cid := BoundCId}) ->
+    {ParseState, BoundCId};
+split_state(#{parse_state := ParseState}) ->
+    {ParseState, undefined};
+split_state(ParseState) ->
+    {ParseState, undefined}.
+
+merge_state(ParseState, BoundCId) ->
+    #{parse_state => ParseState, cid => BoundCId}.
+
+choose_cid(Msg, BoundCId, Peer) ->
+    URIQuery = emqx_coap_message:extract_uri_query(Msg),
+    ReqClientId = normalize_clientid(extract_clientid(URIQuery)),
+    select_cid(ReqClientId, BoundCId, Peer).
+
+extract_clientid(URIQuery) ->
+    case maps:find(<<"clientid">>, URIQuery) of
+        {ok, ClientId} ->
+            ClientId;
+        error ->
+            maps:get("clientid", URIQuery, undefined)
+    end.
+
+normalize_clientid(undefined) ->
+    undefined;
+normalize_clientid(ClientId) when is_binary(ClientId) ->
+    ClientId;
+normalize_clientid(ClientId) when is_list(ClientId) ->
+    list_to_binary(ClientId);
+normalize_clientid(_Other) ->
+    undefined.
+
+select_cid(undefined, undefined, Peer) ->
+    {peer_id(Peer), undefined};
+select_cid(undefined, BoundCId, _Peer) ->
+    {BoundCId, BoundCId};
+select_cid(ReqClientId, undefined, _Peer) ->
+    {ReqClientId, ReqClientId};
+select_cid(_ReqClientId, BoundCId, _Peer) ->
+    {BoundCId, BoundCId}.
 
 dispatch(Pid, _State, Packet) ->
     erlang:send(Pid, Packet).

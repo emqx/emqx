@@ -36,9 +36,7 @@ fields("retainer") ->
                 boolean(),
                 #{
                     desc => ?DESC(enable),
-                    default => true,
-                    deprecated => {since, "5.9.0"},
-                    importance => ?IMPORTANCE_NO_DOC
+                    default => true
                 }
             )},
         {msg_expiry_interval,

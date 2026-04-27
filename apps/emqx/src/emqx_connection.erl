@@ -650,13 +650,16 @@ terminate(
         E:C:S ->
             ?tp(warning, unclean_terminate, #{exception => E, context => C, stacktrace => S})
     end,
-    ?tp(info, terminate, #{reason => Reason}),
+    ?tp(terminate_log_level(Reason), terminate, #{reason => Reason}),
     maybe_raise_exception(Reason).
 
 %% close socket, discard new state, always return ok.
 close_socket_ok(State) ->
     _ = close_socket(State),
     ok.
+
+terminate_log_level({shutdown, emsgsize}) -> warning;
+terminate_log_level(_Reason) -> info.
 
 %% tell truth about the original exception
 -spec maybe_raise_exception(any()) -> no_return().

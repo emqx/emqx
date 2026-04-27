@@ -44,7 +44,9 @@ groups() ->
             t_extsub_no_leak_wildcard_empty,
             t_extsub_no_leak_no_wildcard,
             t_extsub_no_leak_no_wildcard_empty,
-            t_extsub_no_leak_subscribe_unsubscribe
+            t_extsub_no_leak_subscribe_unsubscribe,
+            t_retain_available_does_not_control_retainer_lifecycle,
+            t_retain_available_true_honors_retainer_enable
         ]},
         {index_agnostic_ds, [sequence], [
             %% N.B. `t_takeover` and `t_resume` are skipped until iteration resumption is
@@ -71,7 +73,9 @@ index_related_tests() ->
             t_extsub_no_leak_wildcard_empty,
             t_extsub_no_leak_no_wildcard,
             t_extsub_no_leak_no_wildcard_empty,
-            t_extsub_no_leak_subscribe_unsubscribe
+            t_extsub_no_leak_subscribe_unsubscribe,
+            t_retain_available_does_not_control_retainer_lifecycle,
+            t_retain_available_true_honors_retainer_enable
         ].
 
 %% erlfmt-ignore
@@ -96,8 +100,8 @@ retainer {
 
 %% erlfmt-ignore
 -define(DISABLED_CONF, ~b'
-mqtt {
-  retain_available = false
+retainer {
+  enable = false
 }
 ').
 
@@ -138,11 +142,14 @@ end_per_testcase(_TestCase, _Config) ->
     reset_rates_to_default(),
     ok.
 
-emqx_retainer_app_spec() ->
+emqx_retainer_app_spec(disabled) ->
+    {emqx_retainer, ?DISABLED_CONF};
+emqx_retainer_app_spec(_) ->
     {emqx_retainer, ?BASE_CONF}.
 
-emqx_conf_app_spec(disabled) ->
-    {emqx_conf, ?DISABLED_CONF};
+emqx_retainer_app_spec() ->
+    emqx_retainer_app_spec(default).
+
 emqx_conf_app_spec(_) ->
     emqx_conf.
 
@@ -154,7 +161,7 @@ start_apps(Group, Config) ->
         [
             emqx,
             emqx_conf_app_spec(Group),
-            emqx_retainer_app_spec()
+            emqx_retainer_app_spec(Group)
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -1060,23 +1067,69 @@ t_get_basic_usage_info(_Config) ->
 %%
 %% stop/start in enable/disable state
 t_disable_then_start(_Config) ->
-    %% Disable retainer by config
-    ?assertWaitEvent(
-        set_retain_available(false),
-        #{?snk_kind := retainer_status_updated},
-        5000
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => false}),
+    ?assertNot(is_retainer_started()),
+    ok = application:stop(emqx_retainer),
+    ?assertNot(is_retainer_started()),
+    ok = application:ensure_started(emqx_retainer),
+    ?assertNot(is_retainer_started()),
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => true}),
+    ?assert(is_retainer_started()),
+    ok = application:stop(emqx_retainer),
+    ?assertNot(is_retainer_started()),
+    ok = application:ensure_started(emqx_retainer),
+    ?assert(is_retainer_started()),
+    ok.
+
+t_retain_available_does_not_control_retainer_lifecycle(_Config) ->
+    %% `mqtt.retain_available` no longer controls whether retainer is started.
+    ?assert(is_retainer_started()),
+    {ok, _} = set_retain_available(false),
+    ?assert(is_retainer_started()),
+    {ok, _} = set_retain_available_for_zone(default, false),
+    ?assert(is_retainer_started()),
+
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => false}),
+    ?assertNot(is_retainer_started()),
+
+    {ok, _} = set_retain_available(true),
+    {ok, _} = set_retain_available_for_zone(default, true),
+    ?assertNot(is_retainer_started()),
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => true}),
+    ?assert(is_retainer_started()),
+    ok.
+
+t_retain_available_true_honors_retainer_enable(_Config) ->
+    TopicEnabled = <<"retained/enable/on">>,
+    TopicDisabled = <<"retained/enable/off">>,
+    TopicReenabled = <<"retained/enable/re-on">>,
+    {ok, _} = set_retain_available(true),
+    {ok, _} = set_retain_available_for_zone(default, true),
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => true}),
+    ?assert(is_retainer_started()),
+    {ok, Client} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client),
+
+    ok = emqtt:publish(Client, TopicEnabled, <<"enabled">>, [{qos, 0}, {retain, true}]),
+    ct:sleep(100),
+    ?assertMatch(
+        {ok, [#message{payload = <<"enabled">>}]}, emqx_retainer:read_message(TopicEnabled)
     ),
-    ?assertNot(is_retainer_started()),
-    ok = application:stop(emqx_retainer),
-    ?assertNot(is_retainer_started()),
-    ok = application:ensure_started(emqx_retainer),
-    ?assertNot(is_retainer_started()),
-    set_retain_available(true),
-    ?assert(is_retainer_started()),
-    ok = application:stop(emqx_retainer),
-    ?assertNot(is_retainer_started()),
-    ok = application:ensure_started(emqx_retainer),
-    ?assert(is_retainer_started()),
+
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => false}),
+    ok = emqtt:publish(Client, TopicDisabled, <<"disabled">>, [{qos, 0}, {retain, true}]),
+    ct:sleep(100),
+    ?assertEqual({ok, []}, emqx_retainer:read_message(TopicDisabled)),
+
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => true}),
+    ok = emqtt:publish(Client, TopicReenabled, <<"re-enabled">>, [{qos, 0}, {retain, true}]),
+    ct:sleep(100),
+    ?assertMatch(
+        {ok, [#message{payload = <<"re-enabled">>}]},
+        emqx_retainer:read_message(TopicReenabled)
+    ),
+
+    ok = emqtt:disconnect(Client),
     ok.
 
 t_start_stop_on_setting_change(_Config) ->

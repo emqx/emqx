@@ -832,6 +832,59 @@ t_empty_timestamp(TCConfig) when is_list(TCConfig) ->
     end),
     ok.
 
+t_write_fixed_unicode_text() ->
+    [{matrix, true}].
+t_write_fixed_unicode_text(matrix) ->
+    full_matrix();
+t_write_fixed_unicode_text(TCConfig) when is_list(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"write_syntax">> =>
+                    <<"mqtt,clientid=${clientid} fixed_text=\"固定中文\""/utf8>>
+            }
+        })
+    ),
+    #{topic := RuleTopic} = emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    C = start_client(#{clientid => ClientId}),
+    emqtt:publish(C, RuleTopic, emqx_utils_json:encode(#{}), [{qos, 1}]),
+    ?retry(500, 10, begin
+        PersistedData = query_by_clientid(ClientId, TCConfig),
+        Expected = #{fixed_text => {<<"固定中文"/utf8>>, <<"string">>}},
+        assert_persisted_data(ClientId, Expected, PersistedData)
+    end),
+    ok.
+
+t_write_unicode_mqtt_payload() ->
+    [{matrix, true}].
+t_write_unicode_mqtt_payload(matrix) ->
+    full_matrix();
+t_write_unicode_mqtt_payload(TCConfig) when is_list(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"write_syntax">> =>
+                    <<"mqtt,clientid=${clientid} payload_text=\"${payload}\""/utf8>>
+            }
+        })
+    ),
+    #{topic := RuleTopic} = emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Payload = <<"MQTT 消息中文"/utf8>>,
+    C = start_client(#{clientid => ClientId}),
+    emqtt:publish(C, RuleTopic, Payload, [{qos, 1}]),
+    ?retry(500, 10, begin
+        PersistedData = query_by_clientid(ClientId, TCConfig),
+        Expected = #{payload_text => {Payload, <<"string">>}},
+        assert_persisted_data(ClientId, Expected, PersistedData)
+    end),
+    ok.
+
 t_boolean_variants(TCConfig) when is_list(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, _} = create_action_api(TCConfig, #{}),
