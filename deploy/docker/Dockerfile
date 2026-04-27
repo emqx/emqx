@@ -18,7 +18,6 @@ ARG PROFILE=emqx-enterprise
 ARG PKG_VSN
 ARG DEBUG
 
-ENV EMQX_RELUP=false
 ENV EMQX_REL_FORM='docker'
 
 WORKDIR /emqx/
