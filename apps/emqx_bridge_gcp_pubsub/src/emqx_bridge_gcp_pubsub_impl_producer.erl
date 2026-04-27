@@ -93,11 +93,13 @@ on_start(InstanceId, Config0) ->
         host => Host,
         port => Port,
         supervisor => ?SUP,
-        token_table => ?TOKEN_TAB
+        token_table => ?TOKEN_TAB,
+        sa_server_ref => ?SA_SERVER_REF,
+        sa_token_table => ?SA_TOKEN_RESP_TAB
     },
-    ProjectId = emqx_bridge_gcp_pubsub_client:get_project_id(Config),
     case emqx_bridge_gcp_pubsub_client:start(InstanceId, Config) of
-        {ok, Client} ->
+        {ok, ExtraInfo, Client} ->
+            #{project_id := ProjectId} = ExtraInfo,
             State = #{
                 client => Client,
                 installed_actions => #{},
@@ -110,7 +112,13 @@ on_start(InstanceId, Config0) ->
 
 -spec on_stop(connector_resource_id(), connector_state()) -> ok | {error, term()}.
 on_stop(InstanceId, _State) ->
-    emqx_bridge_gcp_pubsub_client:stop(InstanceId, ?SUP, ?TOKEN_TAB).
+    Ctx = #{
+        supervisor => ?SUP,
+        token_table => ?TOKEN_TAB,
+        sa_server_ref => ?SA_SERVER_REF,
+        sa_token_table => ?SA_TOKEN_RESP_TAB
+    },
+    emqx_bridge_gcp_pubsub_client:stop(InstanceId, Ctx).
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
     ?status_connected | {?status_disconnected, term()}.
