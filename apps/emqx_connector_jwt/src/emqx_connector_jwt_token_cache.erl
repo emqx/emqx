@@ -3,6 +3,21 @@
 %%--------------------------------------------------------------------
 -module(emqx_connector_jwt_token_cache).
 
+-moduledoc """
+This `gen_server` serves as a refresher of tokens are simple to obtain with a single
+request.
+
+- `get_or_refresh` is called with a caller identifier, the table where tokens are stored,
+  and a supplied refresh function that fetches the token if needed.  If the token is
+  absent or expired, a fresh one is fetched, cached and returned.  By calling this, it
+  also registers the refresh function associated with the caller id, so that this token is
+  refreshed automatically at about 3/4 of its expiry time.
+
+- `unregister` is called when the caller is terminating and wants to clear up its
+  resources.  It prevents further refreshes and removes the token from the table
+  associated with the caller id.
+""".
+
 -behaviour(gen_server).
 
 %% API
@@ -55,6 +70,12 @@ start_link(#{} = Opts) ->
 start_link(ServerName, #{} = Opts) ->
     gen_server:start_link(ServerName, ?MODULE, Opts, []).
 
+-doc """
+Creates the table used by the refresher process.
+
+It's best called by a supervisor so that a process restart does not drop all stored
+tokens.
+""".
 create_tables(TabName) ->
     _ = emqx_utils_ets:new(TabName, [ordered_set, public]),
     ok.
