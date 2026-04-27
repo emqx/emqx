@@ -76,22 +76,26 @@ defmodule Mix.Tasks.Compile.Grpc do
     prefix = Keyword.get(gpb_opts, :module_name_prefix, ~c"")
     suffix = Keyword.get(gpb_opts, :module_name_suffix, ~c"")
     mod_name = ~c"#{prefix}#{basename}#{suffix}"
+    generated_src = Path.join([app_root, out_dir, "#{mod_name}.erl"])
 
     includes = Enum.map(proto_dirs, &{:i, to_charlist(&1)})
 
     opts = [o: out_dir] ++ includes ++ gpb_opts
 
-    if stale?(proto_src, manifest_modified_time) do
+    proto_compilation_needed? =
+      stale?(proto_src, manifest_modified_time) ||
+      stale?(generated_src, manifest_modified_time)
+
+    if proto_compilation_needed? do
       Process.put(@stale?, true)
       debug("compiling proto file: #{proto_src}")
       File.mkdir_p!(out_dir)
       # TODO: better error logging...
       :ok = :gpb_compile.file(to_charlist(proto_src), opts)
     else
-      debug("proto file up to date, not compiling: #{proto_src}")
+      debug("proto file and generated source up to date, not compiling: #{proto_src}")
     end
 
-    generated_src = Path.join([app_root, out_dir, "#{mod_name}.erl"])
     gpb_include_dir = :code.lib_dir(:gpb) |> Path.join("include")
 
     if stale?(generated_src, manifest_modified_time) do
