@@ -18,6 +18,18 @@ defmodule Mix.Tasks.Compile.Grpc do
   defp manifest(), do: Path.join(Mix.Project.manifest_path(), @manifest)
 
   @impl true
+  def clean() do
+    Mix.Project.get!()
+    config = Mix.Project.config()
+
+    %{
+      out_dir: out_dir
+    } = config[:grpc_opts]
+
+    File.rm_rf!(out_dir)
+  end
+
+  @impl true
   def run(_args) do
     Mix.Project.get!()
     config = Mix.Project.config()
