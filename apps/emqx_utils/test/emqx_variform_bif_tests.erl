@@ -22,6 +22,8 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-define(ASSERT_BADARG(EXPR), ?_assertThrow(#{reason := badarg}, EXPR)).
+
 regex_extract_test_() ->
     [
         ?_assertEqual([<<"12345">>], regex_extract("Order number: 12345", "(\\d+)")),
@@ -110,7 +112,18 @@ bool_not_test_() ->
         ?_assertEqual(false, Not(true))
     ].
 
--define(ASSERT_BADARG(EXPR), ?_assertThrow(#{reason := badarg}, EXPR)).
+topic_test_() ->
+    [
+        ?_assertEqual(<<"client1/#">>, emqx_variform_bif:topic_join([<<"client1">>, <<"#">>])),
+        ?_assertEqual(<<"client1/#">>, emqx_variform_bif:topic_join(<<"client1">>, <<"#">>)),
+        ?_assert(emqx_variform_bif:topic_match(<<"client1/t">>, <<"client1/#">>)),
+        ?_assert(emqx_variform_bif:topic_match(<<"client1/t">>, <<"client1/+">>)),
+        ?_assertNot(emqx_variform_bif:topic_match(<<"client1/t">>, <<"client2/#">>)),
+        ?_assertNot(emqx_variform_bif:topic_match(<<"$SYS/a">>, <<"#">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:topic_join(undefined, <<"#">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:topic_match(undefined, <<"#">>))
+    ].
+
 null_badarg_test_() ->
     [
         ?ASSERT_BADARG(emqx_variform_bif:lower(undefined)),

@@ -65,6 +65,7 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(t_api, Config) ->
+    {ok, _} = emqx_authz:update(replace, []),
     meck:new(emqx_utils, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_utils, gen_id, fun() -> "fake" end),
 
@@ -79,13 +80,16 @@ init_per_testcase(t_api, Config) ->
     ),
     Config;
 init_per_testcase(_, Config) ->
+    {ok, _} = emqx_authz:update(replace, []),
     Config.
 
 end_per_testcase(t_api, _Config) ->
+    {ok, _} = emqx_authz:update(replace, []),
     meck:unload(emqx_utils),
     meck:unload(emqx),
     ok;
 end_per_testcase(_, _Config) ->
+    {ok, _} = emqx_authz:update(replace, []),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -129,5 +133,65 @@ t_http_headers_api(_) ->
         } when map_size(M) =:= 0,
         emqx_utils_json:decode(Result4)
     ).
+
+t_http_precondition_api(_) ->
+    Precondition1 = <<"str_eq(username, 'u1')">>,
+    Source1 = maps:merge(?SOURCE_HTTP, #{<<"precondition">> => Precondition1}),
+    {ok, 204, _} = request(post, uri(["authorization", "sources"]), Source1),
+
+    {ok, 200, Result1} = request(get, uri(["authorization", "sources", "http"]), []),
+    ?assertMatch(
+        #{
+            <<"type">> := <<"http">>,
+            <<"precondition">> := Precondition1
+        },
+        emqx_utils_json:decode(Result1)
+    ),
+    ?assertMatch(#{type := http, precondition := #{}}, emqx_authz:lookup_state(http)),
+
+    Precondition2 = <<"str_eq(topic, 't/1')">>,
+    Source2 = maps:merge(?SOURCE_HTTP, #{<<"precondition">> => Precondition2}),
+    {ok, 204, _} = request(put, uri(["authorization", "sources", "http"]), Source2),
+
+    {ok, 200, Result2} = request(get, uri(["authorization", "sources", "http"]), []),
+    ?assertMatch(
+        #{
+            <<"type">> := <<"http">>,
+            <<"precondition">> := Precondition2
+        },
+        emqx_utils_json:decode(Result2)
+    ),
+
+    {ok, 204, _} = request(
+        put,
+        uri(["authorization", "sources", "http"]),
+        maps:merge(?SOURCE_HTTP, #{<<"precondition">> => <<>>})
+    ),
+    ?assertNot(maps:is_key(precondition, emqx_authz:lookup_state(http))).
+
+t_bad_precondition_api(_) ->
+    BadSource = maps:merge(?SOURCE_HTTP, #{<<"precondition">> => <<"not a valid precondition">>}),
+    {ok, 400, Result} = request(post, uri(["authorization", "sources"]), BadSource),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> := Message
+        } when is_binary(Message),
+        emqx_utils_json:decode(Result)
+    ),
+    #{<<"message">> := Message} = emqx_utils_json:decode(Result),
+    ?assertMatch(
+        #{
+            <<"kind">> := <<"validation_error">>,
+            <<"matched_type">> := <<"authz:http_get">>,
+            <<"path">> := <<"root.precondition">>,
+            <<"reason">> := #{
+                <<"cause">> := <<"bad_precondition_expression">>,
+                <<"expression">> := <<"not a valid precondition">>
+            }
+        },
+        emqx_utils_json:decode(Message)
+    ),
+    ?assertEqual([], emqx_authz:lookup_states()).
 
 data_dir() -> emqx:data_dir().
