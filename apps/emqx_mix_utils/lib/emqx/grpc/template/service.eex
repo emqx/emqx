@@ -10,8 +10,8 @@
 <%= for method <- methods do %>
 
 <%= if (not method.input_stream) and (not method.output_stream) do %>
--callback <%= method.snake_case %>(<%= method.pb_module %>:<%= method.input %>(), grpc:metadata())
-    -> {ok, <%= method.pb_module %>:<%= method.output %>(), grpc:metadata()}
+-callback <%= method.snake_case %>(<%= method.pb_module %>:'<%= method.input %>'(), grpc:metadata())
+    -> {ok, <%= method.pb_module %>:'<%= method.output %>'(), grpc:metadata()}
      | {error, grpc_stream:error_response()}.
 <% end %>
 
