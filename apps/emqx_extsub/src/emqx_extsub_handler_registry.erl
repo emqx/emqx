@@ -191,8 +191,8 @@ delivered(
     #registry{buffer = Buffer0, by_ref = ByRef} = Registry0,
     HandlerRef,
     InitAckCtx,
-    SeqId,
     Msg,
+    SeqId,
     ReasonCode
 ) ->
     case ByRef of

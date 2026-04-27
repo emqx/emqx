@@ -38,6 +38,7 @@ defmodule EMQXMQ.MixProject do
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_durable_storage, in_umbrella: true},
+      {:emqx_extsub, in_umbrella: true},
       :minirest,
       :gproc,
       :ecpool,

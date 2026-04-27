@@ -50,27 +50,40 @@ end_per_testcase(_CaseName, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-%% Verify that a client cannot subscribe to an MQ if the session is durable.
-t_forbid_subscribe_to_mq_for_durable_sessions(_Config) ->
-    %% Create an MQ
+%% Verify that a client with a durable session CAN subscribe to an MQ and
+%% that messages are delivered both on first connect and after session resume.
+t_subscribe_to_mq_for_durable_sessions(_Config) ->
+    %% Create an MQ and publish some messages before subscribing
     _ = emqx_mq_test_utils:ensure_mq_created(#{
         name => <<"q1">>, topic_filter => <<"t/#">>, is_lastvalue => false
     }),
+    emqx_mq_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
 
-    %% When having a durable session, try to subscribe to an MQ and expect an error.
+    %% Connect with a durable session and subscribe to the MQ
     CSub0 = emqx_mq_test_utils:emqtt_connect([
         {clientid, <<"csub">>},
         {properties, #{'Session-Expiry-Interval' => 10000}},
         {clean_start, false}
     ]),
-    {ok, _, [?RC_NOT_AUTHORIZED]} = emqtt:subscribe(CSub0, {<<"$queue/q1/t/#">>, 1}),
-    ok = emqtt:disconnect(CSub0),
+    {ok, _, [1]} = emqtt:subscribe(CSub0, {<<"$queue/q1/t/#">>, 1}),
 
-    %% Reconnect and still expect an error.
+    %% All pre-published messages should be delivered
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 5000),
+    ?assertEqual(10, length(Msgs0)),
+
+    %% Disconnect and publish more messages while the session is offline
+    ok = emqtt:disconnect(CSub0),
+    emqx_mq_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
+
+    %% Reconnect — the session is resumed and the subscription is restored
     CSub1 = emqx_mq_test_utils:emqtt_connect([
         {clientid, <<"csub">>},
         {properties, #{'Session-Expiry-Interval' => 10000}},
         {clean_start, false}
     ]),
-    {ok, _, [?RC_NOT_AUTHORIZED]} = emqtt:subscribe(CSub1, {<<"$queue/q1/t/#">>, 1}),
+
+    %% Messages published while offline should be delivered after resume
+    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 10, _Timeout1 = 5000),
+    ?assertEqual(10, length(Msgs1)),
+
     ok = emqtt:disconnect(CSub1).
