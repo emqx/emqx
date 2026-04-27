@@ -75,27 +75,14 @@ defmodule Mix.Tasks.Compile.Grpc do
     suffix = Keyword.get(gpb_opts, :module_name_suffix, ~c"")
     mod_name = ~c"#{prefix}#{basename}#{suffix}"
 
-    opts = [
-      :use_packages,
-      :maps,
-      :strings_as_binaries,
-      i: ~c".",
-      o: out_dir,
-      report_errors: false,
-      rename: {:msg_name, :snake_case},
-      rename: {:msg_fqname, :base_name}
-    ]
+    opts = [i: ~c".", o: out_dir] ++ gpb_opts
 
     if stale?(proto_src, manifest_modified_time) do
       Process.put(@stale?, true)
       debug("compiling proto file: #{proto_src}")
       File.mkdir_p!(out_dir)
       # TODO: better error logging...
-      :ok =
-        :gpb_compile.file(
-          to_charlist(proto_src),
-          opts ++ gpb_opts
-        )
+      :ok = :gpb_compile.file(to_charlist(proto_src), opts)
     else
       debug("proto file up to date, not compiling: #{proto_src}")
     end
