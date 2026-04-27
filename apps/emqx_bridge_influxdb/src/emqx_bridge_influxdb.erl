@@ -99,6 +99,7 @@ connector_values_v(influxdb_api_v1) ->
     #{
         influxdb_type => influxdb_api_v1,
         database => <<"example_database">>,
+        ping_with_auth => false,
         username => <<"example_username">>,
         password => <<"******">>
     }.
@@ -342,6 +343,6 @@ unescape(_EscapeChars, _SepChars, [] = L, Acc) ->
 str(A) when is_atom(A) ->
     atom_to_list(A);
 str(B) when is_binary(B) ->
-    binary_to_list(B);
+    unicode:characters_to_list(B);
 str(S) when is_list(S) ->
     S.
