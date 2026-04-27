@@ -49,19 +49,19 @@
 <% end %>
 <%!-- IF2 --%>
 <%= if (not method.input_stream) and method.output_stream do %>
--spec <%= method.snake_case %>(grpc_client:options())
+-spec <%= method.snake_case %>(<%= method.pb_module %>:'<%= method.input %>'(), grpc_client:options())
     -> {ok, grpc_client:grpcstream()}
      | {error, term()}.
-<%= method.snake_case %>(Options) ->
-    <%= method.snake_case %>(#{}, Options).
+<%= method.snake_case %>(Req, Options) ->
+    <%= method.snake_case %>(Req, #{}, Options).
 
--spec <%= method.snake_case %>(grpc:metadata(), grpc_client:options())
+-spec <%= method.snake_case %>(<%= method.pb_module %>:'<%= method.input %>'(), grpc:metadata(), grpc_client:options())
     -> {ok, grpc_client:grpcstream()}
      | {error, term()}.
-<%= method.snake_case %>(Metadata, Options) ->
-    grpc_client:open(?DEF(<<"/<%= unmodified_service_name %>/<%= method.unmodified_method %>">>,
+<%= method.snake_case %>(Req, Metadata, Options) ->
+    grpc_client:unary(?DEF(<<"/<%= unmodified_service_name %>/<%= method.unmodified_method %>">>,
                           '<%= method.input %>', '<%= method.output %>', <<"<%= method.message_type %>">>),
-                     Metadata, Options).
+                     Req, Metadata, Options).
 <%!-- END IF2 --%>
 <% end %>
 <%!-- IF3 --%>
