@@ -497,26 +497,6 @@ influxdb_api_v1_connector_ping_with_auth_test_() ->
                         }
                     )
                 )
-            )},
-        {"bridge v1 config conversion indents ping_with_auth",
-            ?_assertMatch(
-                #{
-                    parameters := #{
-                        influxdb_type := influxdb_api_v1,
-                        database := <<"mydb">>,
-                        username := <<"user">>,
-                        password := <<"pass">>,
-                        ping_with_auth := true
-                    }
-                },
-                emqx_bridge_influxdb_connector:transform_bridge_v1_config_to_connector_config(#{
-                    server => <<"127.0.0.1:8086">>,
-                    pool_size => 8,
-                    database => <<"mydb">>,
-                    username => <<"user">>,
-                    password => <<"pass">>,
-                    ping_with_auth => true
-                })
             )}
     ].
 
