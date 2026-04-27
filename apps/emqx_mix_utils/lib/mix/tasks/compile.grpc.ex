@@ -5,8 +5,11 @@ defmodule Mix.Tasks.Compile.Grpc do
 
   @recursive true
   @manifest_vsn 1
-  @manifest "compile.grpc"
   # TODO: use manifest to track generated files?
+  @manifest "compile.grpc"
+
+  @client_quoted_pt_key {__MODULE__, :client_quoted}
+  @service_quoted_pt_key {__MODULE__, :service_quoted}
 
   @stale? {__MODULE__, :stale?}
 
@@ -135,18 +138,8 @@ defmodule Mix.Tasks.Compile.Grpc do
       |> :code.load_abs()
 
     mod_name = List.to_atom(mod_name)
-
-    service_quoted =
-      [__DIR__, "../../", "emqx/grpc/template/service.eex"]
-      |> Path.join()
-      |> Path.expand()
-      |> EEx.compile_file()
-
-    client_quoted =
-      [__DIR__, "../../", "emqx/grpc/template/client.eex"]
-      |> Path.join()
-      |> Path.expand()
-      |> EEx.compile_file()
+    service_quoted = get_service_quoted_template()
+    client_quoted = get_client_quoted_template()
 
     mod_name.get_service_names()
     |> Enum.each(fn service ->
@@ -202,6 +195,36 @@ defmodule Mix.Tasks.Compile.Grpc do
     end)
 
     :ok
+  end
+
+  defp get_service_quoted_template() do
+    get_memoized(@service_quoted_pt_key, fn ->
+      [__DIR__, "../../", "emqx/grpc/template/service.eex"]
+      |> Path.join()
+      |> Path.expand()
+      |> EEx.compile_file()
+    end)
+  end
+
+  defp get_client_quoted_template() do
+    get_memoized(@client_quoted_pt_key, fn ->
+      [__DIR__, "../../", "emqx/grpc/template/client.eex"]
+      |> Path.join()
+      |> Path.expand()
+      |> EEx.compile_file()
+    end)
+  end
+
+  defp get_memoized(k, compute_fn) do
+    case :persistent_term.get(k, :undefined) do
+      :undefined ->
+        res = compute_fn.()
+        :persistent_term.put(k, res)
+        res
+
+      res ->
+        res
+    end
   end
 
   defp stale?(file, manifest_modified_time) do
