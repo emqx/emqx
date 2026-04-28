@@ -30,12 +30,16 @@ and delivery.
     handle_info/3
 ]).
 
+-record(sub, {
+    tf :: emqx_extsub_types:topic_filter(),
+    sub :: emqx_mq_sub:t()
+}).
+
 -record(state, {
-    subs :: #{emqx_mq_types:subscriber_ref() => emqx_mq_sub:t()},
+    %% subscriber_ref -> #sub{} (full topic_filter + mq_sub state)
+    subs :: #{emqx_mq_types:subscriber_ref() => #sub{}},
     %% topic_filter (full, e.g. <<"$queue/myq/t/#">>) -> subscriber_ref
-    by_topic :: #{emqx_extsub_types:topic_filter() => emqx_mq_types:subscriber_ref()},
-    %% subscriber_ref -> full topic_filter (for sub_topic header + reconnect)
-    by_ref :: #{emqx_mq_types:subscriber_ref() => emqx_extsub_types:topic_filter()}
+    by_topic :: #{emqx_extsub_types:topic_filter() => emqx_mq_types:subscriber_ref()}
 }).
 
 %%--------------------------------------------------------------------
@@ -50,11 +54,10 @@ handle_subscribe(_SubscribeType, SubscribeCtx, Handler0, TopicFilter) ->
             ok = maybe_auto_create(Name, MQTopic),
             Sub = emqx_mq_sub:handle_connect(ClientInfo, Name, MQTopic),
             SubscriberRef = emqx_mq_sub:subscriber_ref(Sub),
-            #state{subs = Subs, by_topic = ByTopic, by_ref = ByRef} = Handler1,
+            #state{subs = Subs, by_topic = ByTopic} = Handler1,
             {ok, Handler1#state{
-                subs = Subs#{SubscriberRef => Sub},
-                by_topic = ByTopic#{TopicFilter => SubscriberRef},
-                by_ref = ByRef#{SubscriberRef => TopicFilter}
+                subs = Subs#{SubscriberRef => #sub{tf = TopicFilter, sub = Sub}},
+                by_topic = ByTopic#{TopicFilter => SubscriberRef}
             }};
         ignore ->
             ignore;
@@ -66,22 +69,21 @@ handle_subscribe(_SubscribeType, SubscribeCtx, Handler0, TopicFilter) ->
     end.
 
 handle_unsubscribe(_UnsubscribeType, _UnsubscribeCtx, Handler, TopicFilter) ->
-    #state{subs = Subs, by_topic = ByTopic, by_ref = ByRef} = Handler,
+    #state{subs = Subs, by_topic = ByTopic} = Handler,
     case ByTopic of
         #{TopicFilter := SubscriberRef} ->
-            #{SubscriberRef := Sub} = Subs,
+            #{SubscriberRef := #sub{sub = Sub}} = Subs,
             ok = emqx_mq_sub:handle_disconnect(Sub),
             Handler#state{
                 subs = maps:remove(SubscriberRef, Subs),
-                by_topic = maps:remove(TopicFilter, ByTopic),
-                by_ref = maps:remove(SubscriberRef, ByRef)
+                by_topic = maps:remove(TopicFilter, ByTopic)
             };
         _ ->
             Handler
     end.
 
 handle_terminate(#state{subs = Subs}) ->
-    maps:foreach(fun(_Ref, Sub) -> ok = emqx_mq_sub:handle_disconnect(Sub) end, Subs),
+    maps:foreach(fun(_Ref, #sub{sub = Sub}) -> ok = emqx_mq_sub:handle_disconnect(Sub) end, Subs),
     ok.
 
 handle_delivered(
@@ -97,7 +99,7 @@ handle_delivered(
             {ok, Handler};
         false ->
             case Subs of
-                #{SubscriberRef := Sub} ->
+                #{SubscriberRef := #sub{sub = Sub}} ->
                     MqAck = mq_ack_from_extsub_ack(Ack),
                     ok = emqx_mq_sub:ack_consumer(Sub, MessageId, MqAck),
                     {ok, Handler};
@@ -111,20 +113,19 @@ handle_delivered(
 
 handle_info(
     Handler,
-    _InfoCtx,
+    #{clientinfo := ClientInfo},
     {generic, #info_to_mq_sub{subscriber_ref = SubscriberRef, info = Info}}
 ) ->
-    dispatch_to_sub(Handler, SubscriberRef, Info);
+    dispatch_to_sub(Handler, ClientInfo, SubscriberRef, Info);
 handle_info(
     #state{subs = Subs} = Handler,
     _InfoCtx,
     {generic, #info_mq_inspect{receiver = Receiver, name = Name, topic_filter = Topic}}
 ) ->
-    Sub = find_sub_by_name_topic(Subs, Name, Topic),
     Info =
-        case Sub of
-            undefined -> undefined;
-            _ -> emqx_mq_sub:inspect(Sub)
+        case find_sub_by_name_topic(Subs, Name, Topic) of
+            [] -> undefined;
+            [Sub] -> emqx_mq_sub:inspect(Sub)
         end,
     erlang:send(Receiver, {Receiver, Info}),
     {ok, Handler};
@@ -138,51 +139,49 @@ handle_info(Handler, _InfoCtx, _Info) ->
 init_handler(undefined) ->
     #state{
         subs = #{},
-        by_topic = #{},
-        by_ref = #{}
+        by_topic = #{}
     };
 init_handler(#state{} = Handler) ->
     Handler.
 
 dispatch_to_sub(
-    #state{subs = Subs, by_topic = ByTopic, by_ref = ByRef} = Handler,
+    #state{subs = Subs, by_topic = ByTopic} = Handler,
+    ClientInfo,
     SubscriberRef,
     Info
 ) ->
     case Subs of
-        #{SubscriberRef := Sub0} ->
-            FullTopicFilter = maps:get(SubscriberRef, ByRef),
+        #{SubscriberRef := #sub{tf = FullTopicFilter, sub = Sub0}} ->
             case emqx_mq_sub:handle_info(Sub0, Info) of
                 {ok, Sub} ->
-                    {ok, Handler#state{subs = Subs#{SubscriberRef => Sub}}};
+                    SubRec = #sub{tf = FullTopicFilter, sub = Sub},
+                    {ok, Handler#state{subs = Subs#{SubscriberRef => SubRec}}};
                 {ok, Sub, Messages} ->
+                    SubRec = #sub{tf = FullTopicFilter, sub = Sub},
                     EnrichedMsgs = enrich_messages(SubscriberRef, FullTopicFilter, Messages),
-                    {ok, Handler#state{subs = Subs#{SubscriberRef => Sub}}, EnrichedMsgs};
+                    {ok, Handler#state{subs = Subs#{SubscriberRef => SubRec}}, EnrichedMsgs};
                 {error, recreate} ->
-                    #{clientid := ClientId} = Sub0,
                     {Name, MQTopic} = emqx_mq_sub:name_topic(Sub0),
                     ok = emqx_mq_sub:handle_disconnect(Sub0),
-                    NewSub = emqx_mq_sub:handle_connect(#{clientid => ClientId}, Name, MQTopic),
+                    NewSub = emqx_mq_sub:handle_connect(ClientInfo, Name, MQTopic),
                     NewRef = emqx_mq_sub:subscriber_ref(NewSub),
                     Subs1 = maps:remove(SubscriberRef, Subs),
-                    ByRef1 = maps:remove(SubscriberRef, ByRef),
                     {ok, Handler#state{
-                        subs = Subs1#{NewRef => NewSub},
-                        by_topic = ByTopic#{FullTopicFilter => NewRef},
-                        by_ref = ByRef1#{NewRef => FullTopicFilter}
+                        subs = Subs1#{NewRef => #sub{tf = FullTopicFilter, sub = NewSub}},
+                        by_topic = ByTopic#{FullTopicFilter => NewRef}
                     }}
             end;
         _ ->
             {ok, Handler}
     end.
 
-enrich_messages(SubscriberRef, SubTopic, Messages) ->
+enrich_messages(SubscriberRef, FullTopicFilter, Messages) ->
     lists:map(
         fun(Msg0) ->
             Msg1 = emqx_message:set_headers(
                 #{
                     ?MQ_HEADER_SUBSCRIBER_ID => SubscriberRef,
-                    ?MQ_HEADER_SUB_TOPIC => SubTopic
+                    ?MQ_HEADER_SUB_TOPIC => FullTopicFilter
                 },
                 Msg0
             ),
@@ -192,18 +191,14 @@ enrich_messages(SubscriberRef, SubTopic, Messages) ->
     ).
 
 find_sub_by_name_topic(Subs, Name, Topic) ->
-    maps:fold(
-        fun
-            (_Ref, Sub, undefined) ->
-                case emqx_mq_sub:name_topic(Sub) of
-                    {Name, Topic} -> Sub;
-                    _ -> undefined
-                end;
-            (_Ref, _Sub, Found) ->
-                Found
+    lists:filtermap(
+        fun(#sub{sub = Sub}) ->
+            case emqx_mq_sub:name_topic(Sub) of
+                {Name, Topic} -> {true, Sub};
+                _ -> false
+            end
         end,
-        undefined,
-        Subs
+        maps:values(Subs)
     ).
 
 check_mq_topic_filter(Ctx, <<"$queue/", NameTopicBin/binary>> = _FullTopic) ->
