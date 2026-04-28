@@ -300,14 +300,20 @@ t_reset_mfa(_Config) ->
     %% login with TOTP to complete setup
     {ok, 200, LoginRsp} = login(LoginBody),
     #{<<"token">> := JwtToken} = json_map(LoginRsp),
-    ?assertMatch({ok, <<"viewer1">>}, emqx_dashboard_admin:verify_token(fake_req(), JwtToken)),
+    ?assertMatch(
+        {ok, #{actor := <<"viewer1">>}},
+        emqx_dashboard_admin:verify_token(fake_req(), fake_handler_info(), JwtToken)
+    ),
     ?assertMatch(#{<<"mfa">> := <<"totp">>}, get_user(<<"viewer1">>)),
     %% POST is the reset/re-key operation.
     ?assertMatch({ok, 204, _}, enable_mfa(<<"viewer1">>, AdminJwtToken)),
     {ok, #{secret := Secret1}} = emqx_dashboard_admin:get_mfa_state(<<"viewer1">>),
     ?assertNotEqual(Secret0, Secret1),
     ok = gen_server:call(emqx_dashboard_token, dummy, infinity),
-    ?assertMatch({error, not_found}, emqx_dashboard_admin:verify_token(fake_req(), JwtToken)),
+    ?assertMatch(
+        {error, not_found},
+        emqx_dashboard_admin:verify_token(fake_req(), fake_handler_info(), JwtToken)
+    ),
     ?assertMatch(#{<<"mfa">> := <<"totp">>}, get_user(<<"viewer1">>)),
     %% reset=true is no longer a hard reset. It behaves like ordinary DELETE.
     ?assertMatch({ok, 204, _}, delete_mfa_with_reset_query(<<"viewer1">>, AdminJwtToken)),
@@ -375,6 +381,9 @@ fake_req() ->
         method => <<"GET">>,
         path => erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/fake"))
     }.
+
+fake_handler_info() ->
+    #{method => get, module => any, function => any}.
 
 get_user(Name) ->
     Users = list_users(),
