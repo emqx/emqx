@@ -723,7 +723,7 @@ t_invalid_token_rejected_across_udp_sessions(_) ->
         false
     ),
     Req = make_req(post, <<"x">>),
-    ?assertMatch({error, uauthorized, _}, do_request(Channel2, URI, Req)),
+    ?assertMatch({error, unauthorized, _}, do_request(Channel2, URI, Req)),
     disconnection(Channel2, Token),
     er_coap_channel:close(Channel2),
     er_coap_udp_socket:close(Sock2).
@@ -746,7 +746,7 @@ t_wrong_clientid_with_valid_token_rejected_across_udp_sessions(_) ->
         false
     ),
     Req = make_req(post, <<"x">>),
-    ?assertMatch({error, uauthorized, _}, do_request(Channel2, URI, Req)),
+    ?assertMatch({error, unauthorized, _}, do_request(Channel2, URI, Req)),
     disconnection(Channel2, Token),
     er_coap_channel:close(Channel2),
     er_coap_udp_socket:close(Sock2).
