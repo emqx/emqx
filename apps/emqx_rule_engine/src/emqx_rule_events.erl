@@ -10,6 +10,7 @@
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge_resource.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     reload/0,
@@ -167,12 +168,12 @@ on_alarm_deactivated(AlarmDeactivatedContext, Conf) ->
         Conf
     ).
 
-on_message_publish(Message = #message{topic = Topic}, _Conf) ->
+on_message_publish(Message = #message{}, _Conf) ->
     case ignore_sys_message(Message) of
         true ->
             ok;
         false ->
-            case emqx_rule_engine:get_rules_for_topic(Topic) of
+            case get_rules_for_topic(Message) of
                 [] ->
                     ok;
                 EnrichedRules ->
@@ -1591,3 +1592,35 @@ ignore_sys_message(#message{flags = Flags}) ->
     ConfigRootKey = emqx_rule_engine_schema:namespace(),
     maps:get(sys, Flags, false) andalso
         emqx:get_config([ConfigRootKey, ignore_sys_message]).
+
+get_rules_for_topic(Message = #message{topic = Topic}) ->
+    case emqx_rule_engine:get_rules_for_topic(Topic) of
+        [] ->
+            ok;
+        EnrichedRules0 ->
+            LimitSelectsInNamespace = emqx_rule_engine_config:get_limit_selects_in_namespace(),
+            case LimitSelectsInNamespace of
+                false ->
+                    EnrichedRules0;
+                true ->
+                    restrict_rules_to_namespace(EnrichedRules0, Message)
+            end
+    end.
+
+restrict_rules_to_namespace(EnrichedRules0, Message) ->
+    Namespace =
+        case Message#message.headers of
+            #{client_attrs := #{?CLIENT_ATTR_NAME_TNS := Ns}} ->
+                Ns;
+            _ ->
+                ?global_ns
+        end,
+    lists:filter(
+        fun
+            (#{rule := #{namespace := Ns0}}) ->
+                Ns0 == Namespace;
+            (_) ->
+                false
+        end,
+        EnrichedRules0
+    ).
