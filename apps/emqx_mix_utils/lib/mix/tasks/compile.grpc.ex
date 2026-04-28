@@ -5,14 +5,29 @@ defmodule Mix.Tasks.Compile.Grpc do
 
   @recursive true
   @manifest_vsn 1
-  @manifest "compile.grpc"
   # TODO: use manifest to track generated files?
+  @manifest "compile.grpc"
+
+  @client_quoted_pt_key {__MODULE__, :client_quoted}
+  @service_quoted_pt_key {__MODULE__, :service_quoted}
 
   @stale? {__MODULE__, :stale?}
 
   @impl true
   def manifests(), do: [manifest()]
   defp manifest(), do: Path.join(Mix.Project.manifest_path(), @manifest)
+
+  @impl true
+  def clean() do
+    Mix.Project.get!()
+    config = Mix.Project.config()
+
+    %{
+      out_dir: out_dir
+    } = config[:grpc_opts]
+
+    File.rm_rf!(out_dir)
+  end
 
   @impl true
   def run(_args) do
@@ -44,10 +59,13 @@ defmodule Mix.Tasks.Compile.Grpc do
       app_root: app_root,
       app_build_path: app_build_path,
       out_dir: out_dir,
+      proto_dirs: proto_dirs,
       gpb_opts: gpb_opts
     }
 
     Enum.each(proto_srcs, &compile_pb(&1, context))
+
+    manifest_data = Map.put(manifest_data, :app_gpb_opts, gpb_opts)
 
     if Process.get(@stale?, false) do
       write_manifest(manifest(), manifest_data)
@@ -64,7 +82,9 @@ defmodule Mix.Tasks.Compile.Grpc do
     %{
       app_root: app_root,
       app_build_path: app_build_path,
+      manifest_data: manifest_data,
       out_dir: out_dir,
+      proto_dirs: proto_dirs,
       gpb_opts: gpb_opts
     } = context
 
@@ -74,33 +94,27 @@ defmodule Mix.Tasks.Compile.Grpc do
     prefix = Keyword.get(gpb_opts, :module_name_prefix, ~c"")
     suffix = Keyword.get(gpb_opts, :module_name_suffix, ~c"")
     mod_name = ~c"#{prefix}#{basename}#{suffix}"
+    generated_src = Path.join([app_root, out_dir, "#{mod_name}.erl"])
 
-    opts = [
-      :use_packages,
-      :maps,
-      :strings_as_binaries,
-      i: ~c".",
-      o: out_dir,
-      report_errors: false,
-      rename: {:msg_name, :snake_case},
-      rename: {:msg_fqname, :base_name}
-    ]
+    includes = Enum.map(proto_dirs, &{:i, to_charlist(&1)})
 
-    if stale?(proto_src, manifest_modified_time) do
+    opts = [o: out_dir] ++ includes ++ gpb_opts
+
+    proto_compilation_needed? =
+      stale?(proto_src, manifest_modified_time) ||
+        stale?(generated_src, manifest_modified_time) ||
+        compile_opts_stale?(gpb_opts, manifest_data)
+
+    if proto_compilation_needed? do
       Process.put(@stale?, true)
       debug("compiling proto file: #{proto_src}")
       File.mkdir_p!(out_dir)
       # TODO: better error logging...
-      :ok =
-        :gpb_compile.file(
-          to_charlist(proto_src),
-          opts ++ gpb_opts
-        )
+      :ok = :gpb_compile.file(to_charlist(proto_src), opts)
     else
-      debug("proto file up to date, not compiling: #{proto_src}")
+      debug("proto file and generated source up to date, not compiling: #{proto_src}")
     end
 
-    generated_src = Path.join([app_root, out_dir, "#{mod_name}.erl"])
     gpb_include_dir = :code.lib_dir(:gpb) |> Path.join("include")
 
     if stale?(generated_src, manifest_modified_time) do
@@ -140,18 +154,8 @@ defmodule Mix.Tasks.Compile.Grpc do
       |> :code.load_abs()
 
     mod_name = List.to_atom(mod_name)
-
-    service_quoted =
-      [__DIR__, "../../", "emqx/grpc/template/service.eex"]
-      |> Path.join()
-      |> Path.expand()
-      |> EEx.compile_file()
-
-    client_quoted =
-      [__DIR__, "../../", "emqx/grpc/template/client.eex"]
-      |> Path.join()
-      |> Path.expand()
-      |> EEx.compile_file()
+    service_quoted = get_service_quoted_template()
+    client_quoted = get_client_quoted_template()
 
     mod_name.get_service_names()
     |> Enum.each(fn service ->
@@ -209,6 +213,36 @@ defmodule Mix.Tasks.Compile.Grpc do
     :ok
   end
 
+  defp get_service_quoted_template() do
+    get_memoized(@service_quoted_pt_key, fn ->
+      [__DIR__, "../../", "emqx/grpc/template/service.eex"]
+      |> Path.join()
+      |> Path.expand()
+      |> EEx.compile_file()
+    end)
+  end
+
+  defp get_client_quoted_template() do
+    get_memoized(@client_quoted_pt_key, fn ->
+      [__DIR__, "../../", "emqx/grpc/template/client.eex"]
+      |> Path.join()
+      |> Path.expand()
+      |> EEx.compile_file()
+    end)
+  end
+
+  defp get_memoized(k, compute_fn) do
+    case :persistent_term.get(k, :undefined) do
+      :undefined ->
+        res = compute_fn.()
+        :persistent_term.put(k, res)
+        res
+
+      res ->
+        res
+    end
+  end
+
   defp stale?(file, manifest_modified_time) do
     with true <- File.exists?(file),
          false <- Mix.Utils.stale?([file], [manifest_modified_time]) do
@@ -216,6 +250,11 @@ defmodule Mix.Tasks.Compile.Grpc do
     else
       _ -> true
     end
+  end
+
+  defp compile_opts_stale?(gpb_opts, manifest_data) do
+    previous_gpb_opts = get_in(manifest_data, [:app_gpb_opts]) || :undefined
+    previous_gpb_opts != gpb_opts
   end
 
   defp read_manifest(file) do
