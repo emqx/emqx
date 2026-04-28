@@ -133,7 +133,19 @@ do_destroy(Token) ->
     ok.
 
 do_destroy_by_username(Username) ->
-    destroy(lookup_by_username(Username)).
+    Spec = jwt_by_username_spec(Username),
+    Fun = fun() ->
+        Tokens = mnesia:select(?TAB, Spec),
+        lists:foreach(
+            fun(#?ADMIN_JWT{token = Token}) ->
+                mnesia:delete({?TAB, Token})
+            end,
+            Tokens
+        ),
+        ok
+    end,
+    {atomic, ok} = mria:sync_transaction(?DASHBOARD_SHARD, Fun),
+    ok.
 
 %%--------------------------------------------------------------------
 %% jwt internal util function
@@ -146,7 +158,7 @@ lookup(Token) ->
     end.
 
 lookup_by_username(Username) ->
-    Spec = [{#?ADMIN_JWT{username = Username, _ = '_'}, [], ['$_']}],
+    Spec = jwt_by_username_spec(Username),
     Fun = fun() -> mnesia:select(?TAB, Spec) end,
     {atomic, List} = mria:ro_transaction(?DASHBOARD_SHARD, Fun),
     List.
@@ -191,6 +203,16 @@ format(Token, Backend, Username, Role, ExpTime, Namespace) ->
         extra = Extra
     }.
 
+jwt_by_username_spec(Username) ->
+    [{jwt_pat([{#?ADMIN_JWT.username, Username}]), [], ['$_']}].
+
+jwt_pat(Overrides) ->
+    erlang:make_tuple(
+        record_info(size, ?ADMIN_JWT),
+        '_',
+        [{1, ?ADMIN_JWT} | Overrides]
+    ).
+
 %%--------------------------------------------------------------------
 %% gen server
 start_link() ->
@@ -228,7 +250,11 @@ timer_clean(Pid) ->
     erlang:send_after(token_ttl(), Pid, clean_jwt).
 
 clean_expired_jwt(Now) ->
-    Spec = [{#?ADMIN_JWT{exptime = '$1', token = '$2', _ = '_'}, [{'<', '$1', Now}], ['$2']}],
+    Spec = [
+        {jwt_pat([{#?ADMIN_JWT.exptime, '$1'}, {#?ADMIN_JWT.token, '$2'}]), [{'<', '$1', Now}], [
+            '$2'
+        ]}
+    ],
     {atomic, JWTList} = mria:ro_transaction(
         ?DASHBOARD_SHARD,
         fun() -> mnesia:select(?TAB, Spec) end
