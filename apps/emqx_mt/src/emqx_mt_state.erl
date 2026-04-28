@@ -11,13 +11,17 @@
 
 -export([
     list_ns/2,
+    list_ns_from/2,
     list_ns_details/2,
+    list_ns_details_from/2,
     is_known_ns/1,
     count_clients/1,
     evict_ccache/0,
     evict_ccache/1,
     list_clients/3,
+    list_clients_from/3,
     list_clients_no_check/3,
+    list_clients_from_no_check/3,
     is_known_client/2,
     fold_known_nss/2
 ]).
@@ -32,7 +36,9 @@
 %% Managed namespaces
 -export([
     list_managed_ns/2,
+    list_managed_ns_from/2,
     list_managed_ns_details/2,
+    list_managed_ns_details_from/2,
     create_managed_ns/1,
     delete_managed_ns/1,
     is_known_managed_ns/1,
@@ -223,6 +229,22 @@ do_list_ns(Table, LastNs, Limit) ->
             [Ns | do_list_ns(Table, Ns, Limit - 1)]
     end.
 
+%% @doc List namespaces starting inclusively at `FirstNs'.
+%% Compared to `list_ns/2' the behavior differs only on the first element: if
+%% `FirstNs' itself is present in the table, it is included in the result;
+%% otherwise the next key in lexicographical order is used.
+-spec list_ns_from(tns(), pos_integer()) -> [tns()].
+list_ns_from(FirstNs, Limit) ->
+    do_list_ns_from(?NS_TAB, FirstNs, Limit).
+
+do_list_ns_from(_Table, _FirstNs, 0) ->
+    [];
+do_list_ns_from(Table, FirstNs, Limit) ->
+    case ets:member(Table, FirstNs) of
+        true -> [FirstNs | do_list_ns(Table, FirstNs, Limit - 1)];
+        false -> do_list_ns(Table, FirstNs, Limit)
+    end.
+
 %% @doc List namespaces with extra details.
 %% The second argument is the last namespace from the previous page.
 %% The third argument is the number of namespaces to return.
@@ -239,6 +261,22 @@ do_list_ns_details(Table, LastNs, Limit) ->
         {Ns, [Rec]} ->
             Details = get_ns_details(Table, Rec),
             [Details | do_list_ns_details(Table, Ns, Limit - 1)]
+    end.
+
+%% @doc List namespaces with extra details starting inclusively at `FirstNs'.
+-spec list_ns_details_from(tns(), pos_integer()) -> [tns_details()].
+list_ns_details_from(FirstNs, Limit) ->
+    do_list_ns_details_from(?NS_TAB, FirstNs, Limit).
+
+do_list_ns_details_from(_Table, _FirstNs, 0) ->
+    [];
+do_list_ns_details_from(Table, FirstNs, Limit) ->
+    case ets:lookup(Table, FirstNs) of
+        [Rec] ->
+            Details = get_ns_details(Table, Rec),
+            [Details | do_list_ns_details(Table, FirstNs, Limit - 1)];
+        [] ->
+            do_list_ns_details(Table, FirstNs, Limit)
     end.
 
 get_ns_details(?NS_TAB, #?NS_TAB{ns = Ns, value = []}) ->
@@ -261,6 +299,13 @@ The third argument is the number of namespaces to return.
 -spec list_managed_ns(tns(), pos_integer()) -> [tns()].
 list_managed_ns(LastNs, Limit) ->
     do_list_ns(?CONFIG_TAB, LastNs, Limit).
+
+-doc """
+List managed namespaces starting inclusively at `FirstNs'.
+""".
+-spec list_managed_ns_from(tns(), pos_integer()) -> [tns()].
+list_managed_ns_from(FirstNs, Limit) ->
+    do_list_ns_from(?CONFIG_TAB, FirstNs, Limit).
 
 -doc """
 List managed namespaces with extra details.
@@ -287,6 +332,13 @@ do_fold_known_nss(Ns, Fn, Acc) ->
             %% Race?
             do_fold_known_nss(ets:next(?NS_TAB, Ns), Fn, Acc)
     end.
+
+-doc """
+List managed namespaces with extra details starting inclusively at `FirstNs'.
+""".
+-spec list_managed_ns_details_from(tns(), pos_integer()) -> [tns_details()].
+list_managed_ns_details_from(FirstNs, Limit) ->
+    do_list_ns_details_from(?CONFIG_TAB, FirstNs, Limit).
 
 fold_managed_nss(Fn, Acc) ->
     do_fold_managed_nss(ets:first(?CONFIG_TAB), Fn, Acc).
@@ -389,6 +441,36 @@ list_clients(Ns, LastClientId, Limit) ->
 list_clients_no_check(Ns, LastClientId, Limit) ->
     PrevKey = ?RECORD_KEY(Ns, LastClientId, ?MIN_PID),
     do_list_clients(PrevKey, Limit, []).
+
+%% @doc List clients in a namespace starting inclusively at `FirstClientId'.
+%% Compared to `list_clients/3' the behavior differs only on the first element:
+%% if `FirstClientId' itself has records, it is included in the result.
+-spec list_clients_from(tns(), clientid(), non_neg_integer()) ->
+    {ok, [clientid()]} | {error, not_found}.
+list_clients_from(Ns, FirstClientId, Limit) ->
+    case is_known_ns(Ns) of
+        false -> {error, not_found};
+        true -> {ok, list_clients_from_no_check(Ns, FirstClientId, Limit)}
+    end.
+
+-spec list_clients_from_no_check(tns(), clientid(), non_neg_integer()) ->
+    [clientid()].
+list_clients_from_no_check(_Ns, _FirstClientId, 0) ->
+    [];
+list_clients_from_no_check(Ns, FirstClientId, Limit) ->
+    %% Any real pid sorts strictly after the integer ?MIN_PID, so this sentinel
+    %% key is guaranteed to be just before any `(Ns, FirstClientId, _)' record.
+    %% `ets:next/2' from this sentinel returns the first record whose clientid
+    %% is greater than or equal to `FirstClientId', which is exactly the
+    %% inclusive semantics we want. We then delegate to the existing walker to
+    %% de-duplicate further pids for the same clientid.
+    Seed = ?RECORD_KEY(Ns, FirstClientId, ?MIN_PID),
+    case ets:next(?RECORD_TAB, Seed) of
+        ?RECORD_KEY(Ns, ClientId, _) = Key ->
+            do_list_clients(Key, Limit - 1, [ClientId]);
+        _ ->
+            []
+    end.
 
 do_list_clients(_Key, 0, Acc) ->
     lists:reverse(Acc);

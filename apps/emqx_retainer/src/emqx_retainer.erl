@@ -32,8 +32,7 @@
 %% Hooks
 -export([
     on_message_publish/1,
-    post_config_update/5,
-    on_config_zones_updated/2
+    post_config_update/5
 ]).
 
 %% Internal APIs
@@ -146,12 +145,6 @@ on_message_publish(Msg) ->
 post_config_update([retainer], _UpdateReq, NewConf, OldConf, _AppEnvs) ->
     ok = call({update_config, NewConf, OldConf}).
 
-on_config_zones_updated(_OldZones, NewZones) ->
-    case is_enabled(NewZones) of
-        true -> call(start);
-        false -> call(stop)
-    end.
-
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
@@ -241,12 +234,7 @@ is_started() ->
 
 -spec is_enabled() -> boolean().
 is_enabled() ->
-    Zones = emqx_config:get([zones], #{}),
-    is_enabled(Zones).
-
--spec is_enabled(emqx_config:config()) -> boolean().
-is_enabled(Zones) ->
-    lists:any(fun is_enabled_for_zone/1, maps:values(Zones)).
+    emqx_conf:get([retainer, enable], true).
 
 %%------------------------------------------------------------------------------
 %% Internal APIs
@@ -292,11 +280,10 @@ batch_read_number() ->
 init([]) ->
     erlang:process_flag(trap_exit, true),
     emqx_conf:add_handler([retainer], ?MODULE),
-    ok = emqx_hooks:add('config.zones_updated', {?MODULE, on_config_zones_updated, []}, ?HP_LOWEST),
     State = new_state(),
     RetainerConfig = emqx:get_config([retainer]),
     {ok,
-        case is_enabled() of
+        case maps:get(enable, RetainerConfig) of
             false ->
                 %% Cleanup in case of previous crash
                 stop_retainer(State);
@@ -305,18 +292,13 @@ init([]) ->
                 start_retainer(State, RetainerConfig, BackendConfig)
         end}.
 
-handle_call({update_config, _NewConf, _OldConf}, _From, #{is_started := false} = State) ->
-    {reply, ok, State};
-handle_call({update_config, NewConf, OldConf}, _From, #{is_started := true} = State) ->
+handle_call({update_config, NewConf, OldConf}, _From, State) ->
     State2 = update_config(State, NewConf, OldConf),
-    ok = emqx_retainer_limiter:update(),
+    case maps:get(enable, NewConf) of
+        true -> ok = emqx_retainer_limiter:update();
+        false -> ok
+    end,
     {reply, ok, State2};
-handle_call(start, _From, #{is_started := IsStarted} = State0) ->
-    State = update_status(State0, IsStarted, true),
-    {reply, ok, State};
-handle_call(stop, _From, #{is_started := IsStarted} = State0) ->
-    State = update_status(State0, IsStarted, false),
-    {reply, ok, State};
 handle_call(is_started, _From, State = #{is_started := IsStarted}) ->
     {reply, IsStarted, State};
 handle_call(Req, _From, State) ->
@@ -338,7 +320,6 @@ handle_info(Info, State) ->
 
 terminate(_Reason, #{is_started := IsStarted} = State) ->
     emqx_conf:remove_handler([retainer]),
-    emqx_hooks:del('config.zones_updated', {?MODULE, on_config_zones_updated}),
     IsStarted andalso stop_retainer(State),
     ok.
 
@@ -359,9 +340,6 @@ new_state() ->
         clear_timer => undefined
     }.
 
-is_enabled_for_zone(ZoneConfig) ->
-    emqx_utils_maps:deep_get([mqtt, retain_available], ZoneConfig, false).
-
 -spec start_clear_expired() -> ok.
 start_clear_expired() ->
     Opts = #{
@@ -372,7 +350,23 @@ start_clear_expired() ->
     ok.
 
 -spec update_config(state(), hocon:config(), hocon:config()) -> state().
+update_config(State, NewConfig, OldConfig) ->
+    update_config(
+        maps:get(enable, NewConfig),
+        maps:get(enable, OldConfig),
+        State,
+        NewConfig,
+        OldConfig
+    ).
+
+-spec update_config(boolean(), boolean(), state(), hocon:config(), hocon:config()) -> state().
+update_config(false, _, State, _, _) ->
+    stop_retainer(State);
+update_config(true, false, State, NewConfig, _) ->
+    start_retainer(State, NewConfig, enabled_backend_config(NewConfig));
 update_config(
+    true,
+    true,
     #{clear_timer := ClearTimer} = State,
     NewConfig,
     OldConfig
@@ -397,25 +391,6 @@ update_config(
             State2 = stop_retainer(State),
             start_retainer(State2, NewConfig, NewBackendConfig)
     end.
-
--spec update_status(state(), boolean(), boolean()) -> state().
-update_status(State0, From, To) ->
-    State = do_update_status(State0, From, To),
-    ?tp(retainer_status_updated, #{from => From, to => To}),
-    State.
-
-do_update_status(State, Status, Status) ->
-    State;
-do_update_status(State, false, true) ->
-    start_retainer(State);
-do_update_status(State, true, false) ->
-    stop_retainer(State).
-
--spec start_retainer(state()) -> state().
-start_retainer(State) ->
-    RetainerConfig = emqx:get_config([retainer]),
-    BackendConfig = enabled_backend_config(RetainerConfig),
-    start_retainer(State, RetainerConfig, BackendConfig).
 
 -spec start_retainer(state(), hocon:config(), hocon:config()) -> state().
 start_retainer(

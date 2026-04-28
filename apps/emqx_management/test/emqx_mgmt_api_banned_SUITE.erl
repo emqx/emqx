@@ -8,6 +8,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -280,6 +281,47 @@ t_delete(_Config) ->
         {error, {"HTTP/1.1", 404, "Not Found"}},
         delete_banned(binary_to_list(As), binary_to_list(Who))
     ),
+    ok.
+
+%% Pre-OTP-28 stored regex bans as `{clientid_re, {Compiled, Pattern}}`.
+%% The compiled tuple is not JSON-encodable, so listing must return the
+%% original pattern string. Regression test for issue #17133.
+t_list_legacy_re_pattern(_Config) ->
+    emqx_banned:clear(),
+    Now = erlang:system_time(second),
+    ClientIdPattern = <<"^(?!meshqtt_motaba_net$|![0-9a-f]{8}$).+">>,
+    UsernamePattern = <<"LegacyUser.*">>,
+    {ok, CompiledClientId} = re:compile(ClientIdPattern),
+    {ok, CompiledUsername} = re:compile(UsernamePattern),
+    LegacyClientIdBan = #banned{
+        who = {clientid_re, {CompiledClientId, ClientIdPattern}},
+        by = <<"mgmt_api">>,
+        reason = <<>>,
+        at = Now,
+        until = Now + 3600
+    },
+    LegacyUsernameBan = #banned{
+        who = {username_re, {CompiledUsername, UsernamePattern}},
+        by = <<"mgmt_api">>,
+        reason = <<>>,
+        at = Now,
+        until = Now + 3600
+    },
+    true = ets:insert(emqx_banned_rules, LegacyClientIdBan),
+    true = ets:insert(emqx_banned_rules, LegacyUsernameBan),
+    try
+        {ok, #{<<"data">> := Data}} = list_banned(),
+        Bans = lists:sort([{As, Who} || #{<<"as">> := As, <<"who">> := Who} <- Data]),
+        ?assertEqual(
+            [
+                {<<"clientid_re">>, ClientIdPattern},
+                {<<"username_re">>, UsernamePattern}
+            ],
+            Bans
+        )
+    after
+        emqx_banned:clear()
+    end,
     ok.
 
 t_clear(_Config) ->
