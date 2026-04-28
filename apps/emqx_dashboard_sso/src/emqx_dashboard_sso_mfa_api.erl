@@ -348,9 +348,9 @@ resolve_sso_user(?SSO_USERNAME(Backend, Name)) ->
     end.
 
 response_schema(400) ->
-    emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>);
+    emqx_dashboard_swagger:error_codes([?BAD_REQUEST], ?DESC(bad_request));
 response_schema(401) ->
-    emqx_dashboard_swagger:error_codes([?UNAUTHORIZED], <<"Unauthorized">>).
+    emqx_dashboard_swagger:error_codes([?UNAUTHORIZED], ?DESC(unauthorized)).
 
 format_error(token_expired) -> <<"Token expired">>;
 format_error(invalid_token) -> <<"Invalid token">>;

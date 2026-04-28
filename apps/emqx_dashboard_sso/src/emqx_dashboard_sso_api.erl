@@ -180,28 +180,27 @@ fields(backend_status) ->
 fields(login_success_response) ->
     emqx_dashboard_api:fields([role, token, version, license]) ++
         [
-            {username, mk(binary(), #{desc => <<"Username">>})},
-            {backend, mk(binary(), #{desc => <<"SSO backend type">>})}
+            {username, mk(binary(), #{desc => ?DESC(sso_username)})},
+            {backend, mk(binary(), #{desc => ?DESC(sso_backend)})}
         ];
 fields(mfa_setup_response) ->
     [
-        {action, mk(binary(), #{desc => <<"MFA action: mfa_setup">>, example => <<"mfa_setup">>})},
-        {setup_token, mk(binary(), #{desc => <<"Temporary setup token for MFA binding">>})},
-        {mechanism, mk(binary(), #{desc => <<"MFA mechanism">>, example => <<"totp">>})},
-        {username, mk(binary(), #{desc => <<"Username">>})},
-        {backend, mk(binary(), #{desc => <<"SSO backend type">>})}
+        {action, mk(binary(), #{desc => ?DESC(mfa_action_setup), example => <<"mfa_setup">>})},
+        {setup_token, mk(binary(), #{desc => ?DESC(setup_token_response)})},
+        {mechanism, mk(binary(), #{desc => ?DESC(mfa_mechanism), example => <<"totp">>})},
+        {username, mk(binary(), #{desc => ?DESC(sso_username)})},
+        {backend, mk(binary(), #{desc => ?DESC(sso_backend)})}
     ];
 fields(mfa_verify_response) ->
     [
-        {action,
-            mk(binary(), #{desc => <<"MFA action: mfa_verify">>, example => <<"mfa_verify">>})},
-        {verify_token, mk(binary(), #{desc => <<"Temporary verify token for MFA verification">>})},
-        {username, mk(binary(), #{desc => <<"Username">>})},
-        {backend, mk(binary(), #{desc => <<"SSO backend type">>})}
+        {action, mk(binary(), #{desc => ?DESC(mfa_action_verify), example => <<"mfa_verify">>})},
+        {verify_token, mk(binary(), #{desc => ?DESC(verify_token_response)})},
+        {username, mk(binary(), #{desc => ?DESC(sso_username)})},
+        {backend, mk(binary(), #{desc => ?DESC(sso_backend)})}
     ];
 fields(token_exchange_request) ->
     [
-        {code, mk(binary(), #{desc => <<"One-time SSO code">>, required => true})},
+        {code, mk(binary(), #{desc => ?DESC(sso_code), required => true})},
         {username, mk(binary(), #{desc => ?DESC(sso_username), required => true})},
         {backend, mk(binary(), #{desc => ?DESC(sso_backend), required => true})}
     ].

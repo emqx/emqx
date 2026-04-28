@@ -30,6 +30,51 @@ role.desc:
 role.label:
 """Role"""
 
+name_format.desc:
+"""API key name. Must start with a letter, may contain letters, digits, hyphen and underscore. Length 1-256 characters. Pattern: ^[A-Za-z]+[A-Za-z0-9-_]*$"""
+name_format.label:
+"""API key name"""
+
+name_pattern.desc:
+"""API key name. Must start with a letter, may contain letters, digits, hyphen and underscore. Length 1-256 characters."""
+name_pattern.label:
+"""API key name"""
+
+name_not_found.desc:
+"""API key with the given name does not exist."""
+name_not_found.label:
+"""Name not found"""
+
+api_key_desc.desc:
+"""The API key string. Used as the username in Basic authentication."""
+api_key_desc.label:
+"""API key"""
+
+api_secret_desc.desc:
+"""The API secret string. Used as the password in Basic authentication. Returned only when the key is created; cannot be retrieved later."""
+api_secret_desc.label:
+"""API secret"""
+
+expired_at_desc.desc:
+"""Expiration time. Either an ISO 8601 timestamp / epoch second, or `infinity` for keys that never expire."""
+expired_at_desc.label:
+"""Expired at"""
+
+created_at_desc.desc:
+"""Time the API key was created (ISO 8601 / epoch second)."""
+created_at_desc.label:
+"""Created at"""
+
+enable_desc.desc:
+"""Whether the API key is enabled. Disabled keys are rejected at authentication time."""
+enable_desc.label:
+"""Enable"""
+
+expired_desc.desc:
+"""Whether the API key has expired. Read-only; derived from `expired_at`."""
+expired_desc.label:
+"""Expired"""
+
 api_key_scopes_list.desc:
 """List all available API key scopes. This API can only be requested using a bearer token."""
 api_key_scopes_list.label:

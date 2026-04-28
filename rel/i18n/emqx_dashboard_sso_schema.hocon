@@ -15,6 +15,18 @@ force_mfa.desc:
 force_mfa.label:
 """Force MFA"""
 
+username.desc:
+"""SSO admin username for password-based backends (e.g. LDAP). Length up to 100 characters."""
+
+username.label:
+"""Username"""
+
+password.desc:
+"""SSO admin password for password-based backends (e.g. LDAP). Length up to 100 characters."""
+
+password.label:
+"""Password"""
+
 sso_struct.desc:
 """Dashboard Single Sign-On"""
 
