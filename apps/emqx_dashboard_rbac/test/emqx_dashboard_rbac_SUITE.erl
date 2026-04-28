@@ -178,6 +178,30 @@ t_clean_token(_) ->
     {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     ok.
 
+%% Regression for #17122 0c7f370c: when a user's role changes,
+%% emqx_dashboard_admin:update_user/3 calls
+%% emqx_dashboard_token:destroy_by_username/1 to invalidate older tokens.
+%% If destroy_by_username is asynchronous (gen_server cast) and races with a
+%% subsequent sign_token, the cast may delete the freshly-issued token after
+%% it has been written to mnesia. The fix makes destroy_by_username
+%% synchronous; this test asserts that a token signed AFTER the role update
+%% survives any in-flight cleanup.
+t_role_change_new_token_survives(_) ->
+    Username = <<"admin_role_change">>,
+    Password = <<"public_www1">>,
+    Desc = <<"desc">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, Desc),
+    FakeReq = #{},
+    FakeHandlerInfo = #{method => get, module => any, function => any},
+    {ok, _} = emqx_dashboard_admin:update_user(Username, ?ROLE_VIEWER, Desc),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
+    %% Drain any pending gen_server messages to flush out any racing async
+    %% destroy operations before we verify the new token.
+    ok = gen_server:call(emqx_dashboard_token, dummy, infinity),
+    {ok, #{actor := Username}} =
+        emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
+    ok.
+
 t_logout() ->
     [{matrix, true}].
 t_logout(matrix) ->
@@ -242,6 +266,69 @@ t_setup_mfa(_) ->
 t_delete_mfa(_) ->
     test_mfa(fun delete_mfa/2).
 
+%% Port from release-510 #17117 874c2f08: a SSO viewer must not be allowed
+%% to disable MFA for themselves while their backend has `force_mfa = true`,
+%% otherwise they could lock themselves out of the next forced setup.
+%% A local user (BACKEND_LOCAL) and a SSO viewer with `force_mfa = false`
+%% must still be allowed.
+t_delete_mfa_sso_force_mfa(_) ->
+    SsoBackend = saml,
+    SsoUser = <<"sso_viewermfa">>,
+    LocalUser = <<"local_viewermfa">>,
+    Password = <<"xyz124abc">>,
+    Desc = <<"desc">>,
+    SsoConfig = emqx:get_config([dashboard, sso, SsoBackend], #{}),
+    {ok, _} = emqx_dashboard_admin:add_sso_user(SsoBackend, SsoUser, ?ROLE_VIEWER, Desc),
+    {ok, _} = emqx_dashboard_admin:add_user(LocalUser, Password, ?ROLE_VIEWER, Desc),
+    {ok, #{role := ?ROLE_VIEWER, token := SsoToken}} = emqx_dashboard_admin:sign_token(
+        ?SSO_USERNAME(SsoBackend, SsoUser), <<>>
+    ),
+    {ok, #{role := ?ROLE_VIEWER, token := LocalToken}} = emqx_dashboard_admin:sign_token(
+        LocalUser, Password
+    ),
+    try
+        ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig#{force_mfa => false}),
+        ?assertMatch({ok, #{actor := SsoUser}}, delete_mfa(SsoToken, SsoUser)),
+        ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig#{force_mfa => true}),
+        ?assertEqual({error, unauthorized_role}, delete_mfa(SsoToken, SsoUser)),
+        ?assertMatch({ok, #{actor := LocalUser}}, delete_mfa(LocalToken, LocalUser))
+    after
+        ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig)
+    end,
+    ok.
+
+%% Port from release-510 #17122 c4ab6b15: SSO usernames may contain `@`
+%% (e.g. email addresses). The HTTP layer URL-encodes them as `%40`.
+%% On release-60, cowboy_router automatically URL-decodes path segments
+%% before populating `bindings`, so the RBAC binding match against the
+%% logged-in actor still works. This is the end-to-end equivalent of the
+%% release-510 path-string regression: it exercises cowboy + minirest +
+%% RBAC + the MFA handler with `backend=saml` and `force_mfa = false`/`true`.
+t_delete_mfa_sso_force_mfa_urlencoded_username_http(_) ->
+    SsoBackend = saml,
+    SsoUser = <<"jackson-http@example.com">>,
+    Desc = <<"desc">>,
+    SsoConfig = emqx:get_config([dashboard, sso, SsoBackend], #{}),
+    {ok, _} = emqx_dashboard_admin:add_sso_user(SsoBackend, SsoUser, ?ROLE_VIEWER, Desc),
+    {ok, #{role := ?ROLE_VIEWER, token := SsoToken}} = emqx_dashboard_admin:sign_token(
+        ?SSO_USERNAME(SsoBackend, SsoUser), <<>>
+    ),
+    try
+        ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig#{force_mfa => false}),
+        ?assertMatch(
+            {ok, 204, _},
+            delete_mfa_urlencoded_username_http(SsoToken, SsoBackend, SsoUser)
+        ),
+        ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig#{force_mfa => true}),
+        ?assertMatch(
+            {ok, 403, _},
+            delete_mfa_urlencoded_username_http(SsoToken, SsoBackend, SsoUser)
+        )
+    after
+        ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig)
+    end,
+    ok.
+
 test_mfa(VerifyFn) ->
     Viewer1 = <<"viewermfa1">>,
     Viewer2 = <<"viewermfa2">>,
@@ -272,6 +359,22 @@ delete_mfa(Token, Username) ->
     Req = #{bindings => #{username => Username}},
     HandlerInfo = #{method => delete, module => emqx_dashboard_api, function => change_mfa},
     emqx_dashboard_admin:verify_token(Req, HandlerInfo, Token).
+
+delete_mfa_urlencoded_username_http(Token, Backend, Username) ->
+    Url = emqx_mgmt_api_test_util:api_path([
+        "users", uri_string:quote(binary_to_list(Username)), "mfa"
+    ]),
+    emqx_mgmt_api_test_util:request_api(
+        delete,
+        Url,
+        [{backend, atom_to_binary(Backend)}],
+        [bearer_auth_header(Token)],
+        [],
+        #{compatible_mode => true}
+    ).
+
+bearer_auth_header(Token) ->
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 setup_mfa(Token, Username) ->
     Req = #{bindings => #{username => Username}},
