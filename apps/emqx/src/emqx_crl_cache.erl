@@ -205,6 +205,11 @@ do_http_fetch_and_cache(URL, HTTPTimeoutMS) ->
         {ok, {{_, 200, _}, _, Body}} ->
             case parse_crls(Body) of
                 error ->
+                    ?SLOG(warning, #{
+                        msg => "crl_http_fetch_decode_failed",
+                        url => URL,
+                        hint => "body is neither PEM nor DER"
+                    }),
                     {error, invalid_crl};
                 CRLs ->
                     %% Note: must ensure it's a string and not a
@@ -222,7 +227,17 @@ do_http_fetch_and_cache(URL, HTTPTimeoutMS) ->
 
 parse_crls(Bin) ->
     try
-        [CRL || {'CertificateList', CRL, not_encrypted} <- public_key:pem_decode(Bin)]
+        case [CRL || {'CertificateList', CRL, not_encrypted} <- public_key:pem_decode(Bin)] of
+            [] ->
+                %% Body wasn't PEM. RFC 5280 §5 mandates application/pkix-crl
+                %% (DER) for CRLs distributed over HTTP, so try decoding the
+                %% body as a single DER CertificateList. der_decode/2 raises
+                %% on garbage, which is caught below and reported as `error`.
+                _ = public_key:der_decode('CertificateList', Bin),
+                [Bin];
+            CRLs ->
+                CRLs
+        end
     catch
         _:_ ->
             error

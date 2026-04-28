@@ -398,7 +398,7 @@ t_request_with_token_no_connection(_) ->
     Action = fun(Channel) ->
         URI = pubsub_uri("no_connection", "tok"),
         Req = make_req(get, <<>>, [{observe, 0}]),
-        {error, bad_request, _} = do_request(Channel, URI, Req)
+        ?assertMatch({error, uauthorized, _}, do_request(Channel, URI, Req))
     end,
     do(Action).
 
@@ -456,8 +456,11 @@ t_invalid_token_request(_) ->
         Token = connection(Channel),
         URI = pubsub_uri("abc", "badtoken"),
         Req = make_req(get, <<>>, [{observe, 0}]),
-        {error, bad_request, _} = do_request(Channel, URI, Req),
-        disconnection(Channel, Token)
+        try
+            ?assertMatch({error, uauthorized, _}, do_request(Channel, URI, Req))
+        after
+            disconnection(Channel, Token)
+        end
     end,
     do(Action).
 
@@ -1041,6 +1044,158 @@ t_invalid_if_none_match_bad_option(_) ->
     Resp = er_coap_message_parser:decode(Bin),
     ?assertMatch(#coap_message{method = {error, bad_option}}, Resp),
     ok.
+
+t_request_with_partial_token_params(_) ->
+    with_connection(fun(Channel, Token) ->
+        URI1 = compose_uri(
+            ?PS_PREFIX ++ "/only_clientid",
+            #{"clientid" => <<"client1">>},
+            false
+        ),
+        Req1 = make_req(post, <<"x">>),
+        ?assertMatch({error, bad_request, _}, do_request(Channel, URI1, Req1)),
+
+        URI2 = compose_uri(
+            ?PS_PREFIX ++ "/only_token",
+            #{"token" => list_to_binary(Token)},
+            false
+        ),
+        Req2 = make_req(post, <<"x">>),
+        ?assertMatch({error, bad_request, _}, do_request(Channel, URI2, Req2)),
+        true
+    end).
+
+t_token_takeover_across_udp_sessions(_) ->
+    {ok, Sock1, Channel1} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
+    Token = connection(Channel1),
+    timer:sleep(100),
+    ?assertNotEqual([], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
+    er_coap_channel:close(Channel1),
+    er_coap_udp_socket:close(Sock1),
+    timer:sleep(100),
+    ?assertNotEqual([], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
+
+    {ok, Sock2, Channel2} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
+    URI = compose_uri(
+        ?PS_PREFIX ++ "/coap/udp_takeover",
+        #{
+            "clientid" => <<"client1">>,
+            "token" => list_to_binary(Token)
+        },
+        false
+    ),
+    Req = make_req(post, <<"x">>),
+    ?assertMatch({ok, changed, _}, do_request(Channel2, URI, Req)),
+    ?assertEqual(1, length(emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>))),
+    disconnection(Channel2, Token),
+    er_coap_channel:close(Channel2),
+    er_coap_udp_socket:close(Sock2).
+
+t_invalid_token_rejected_across_udp_sessions(_) ->
+    {ok, Sock1, Channel1} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
+    Token = connection(Channel1),
+    er_coap_channel:close(Channel1),
+    er_coap_udp_socket:close(Sock1),
+    timer:sleep(100),
+    ?assertNotEqual([], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
+
+    {ok, Sock2, Channel2} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
+    URI = compose_uri(
+        ?PS_PREFIX ++ "/coap/udp_invalid_token",
+        #{
+            "clientid" => <<"client1">>,
+            "token" => <<"wrong-token">>
+        },
+        false
+    ),
+    Req = make_req(post, <<"x">>),
+    ?assertMatch({error, uauthorized, _}, do_request(Channel2, URI, Req)),
+    disconnection(Channel2, Token),
+    er_coap_channel:close(Channel2),
+    er_coap_udp_socket:close(Sock2).
+
+t_wrong_clientid_with_valid_token_rejected_across_udp_sessions(_) ->
+    {ok, Sock1, Channel1} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
+    Token = connection(Channel1),
+    er_coap_channel:close(Channel1),
+    er_coap_udp_socket:close(Sock1),
+    timer:sleep(100),
+    ?assertNotEqual([], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
+
+    {ok, Sock2, Channel2} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
+    URI = compose_uri(
+        ?PS_PREFIX ++ "/coap/udp_wrong_clientid",
+        #{
+            "clientid" => <<"client2">>,
+            "token" => list_to_binary(Token)
+        },
+        false
+    ),
+    Req = make_req(post, <<"x">>),
+    ?assertMatch({error, uauthorized, _}, do_request(Channel2, URI, Req)),
+    disconnection(Channel2, Token),
+    er_coap_channel:close(Channel2),
+    er_coap_udp_socket:close(Sock2).
+
+t_proxy_conn_reuse_bound_clientid_when_missing(_) ->
+    Peer = {{127, 0, 0, 1}, 12345},
+    State0 = emqx_coap_proxy_conn:initialize([]),
+    Msg1 = #coap_message{
+        type = con,
+        method = post,
+        id = 1,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{<<"clientid">> => <<"client1">>}
+        }
+    },
+    Bin1 = emqx_coap_frame:serialize_pkt(Msg1, emqx_coap_frame:serialize_opts()),
+    {ok, <<"client1">>, _Packets1, State1} =
+        emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State0, Bin1),
+    Msg2 = #coap_message{
+        type = con,
+        method = put,
+        id = 2,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{}
+        }
+    },
+    Bin2 = emqx_coap_frame:serialize_pkt(Msg2, emqx_coap_frame:serialize_opts()),
+    ?assertMatch(
+        {ok, <<"client1">>, _Packets2, _State2},
+        emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State1, Bin2)
+    ).
+
+t_proxy_conn_keep_bound_clientid_on_different_clientid(_) ->
+    Peer = {{127, 0, 0, 1}, 12345},
+    State0 = emqx_coap_proxy_conn:initialize([]),
+    Msg1 = #coap_message{
+        type = con,
+        method = post,
+        id = 1,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{<<"clientid">> => <<"client1">>}
+        }
+    },
+    Bin1 = emqx_coap_frame:serialize_pkt(Msg1, emqx_coap_frame:serialize_opts()),
+    {ok, <<"client1">>, _Packets1, State1} =
+        emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State0, Bin1),
+    Msg2 = #coap_message{
+        type = con,
+        method = post,
+        id = 2,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{<<"clientid">> => <<"client2">>}
+        }
+    },
+    Bin2 = emqx_coap_frame:serialize_pkt(Msg2, emqx_coap_frame:serialize_opts()),
+    ?assertMatch(
+        {ok, <<"client1">>, _Packets2, _State2},
+        emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State1, Bin2)
+    ).
 
 %%--------------------------------------------------------------------
 %% helpers

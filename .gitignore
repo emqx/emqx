@@ -90,3 +90,4 @@ default-profile.mk
 /_build.*
 __pycache__/
 .agent
+.worktrees/
