@@ -53,13 +53,7 @@
     % Default: `core`
     role => core | replicant,
 
-    % DB Backend
-    % Default: `mnesia` if there are no replicants in cluster, otherwise `rlog`
-    %
-    % NOTE
-    % Default are chosen with the intention of lowering the chance of observing
-    % inconsistencies due to data races (i.e. missing mria shards on nodes where some
-    % application hasn't been started yet).
+    % Obsolete, has no effect:
     db_backend => mnesia | rlog,
 
     % Applications to start on the node
