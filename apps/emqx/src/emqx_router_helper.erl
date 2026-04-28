@@ -64,8 +64,9 @@
 -export([
     start_link/0,
     post_start/0,
-    monitor/1,
-    is_routable/1,
+    mark_routing_node/1,
+    assess_node_routable/1,
+    report_dangling_node/1,
     schedule_purge/0,
     schedule_force_purge/0
 ]).
@@ -143,23 +144,45 @@ post_start() ->
     ignore.
 
 %% @doc Monitor routing node
--spec monitor(node() | {binary(), node()}) -> ok.
-monitor({_Group, Node}) ->
-    monitor(Node);
-monitor(Node) when is_atom(Node) ->
+-spec mark_routing_node(node() | {binary(), node()}) -> ok.
+mark_routing_node({_Group, Node}) ->
+    mark_routing_node(Node);
+mark_routing_node(Node) when is_atom(Node) ->
     add_routing_node(Node).
+
+%% @doc Report dangling routing node
+-spec report_dangling_node(node()) -> ok.
+report_dangling_node(Node) when is_atom(Node) ->
+    gen_server:cast(?MODULE, {dangling_node, Node}).
 
 %% @doc Is given node considered routable?
 %% I.e. should the broker attempt to forward messages there, even if there are
 %% routes to this node in the routing table?
--spec is_routable(node()) -> boolean().
-is_routable(Node) when Node == node() ->
+%% NOTE: This function has side effects.
+-spec assess_node_routable(node()) -> boolean() | unknown.
+assess_node_routable(Node) when Node == node() ->
     true;
-is_routable(Node) ->
+assess_node_routable(Node) ->
     try
-        lookup_node_reachable(Node)
+        case lookup_node_reachable(Node) of
+            %% No existing "node down" / "node left" record:
+            true ->
+                case is_routing_node(Node) of
+                    true ->
+                        %% Node is marked as a "routing node":
+                        true;
+                    false ->
+                        %% Node is *not* marked as a "routing node":
+                        unknown
+                end;
+            false ->
+                %% Node is either down or left the cluster and going to be purged:
+                false
+        end
     catch
-        error:badarg -> true
+        error:badarg ->
+            %% Safe fallback
+            true
     end.
 
 %% @doc Schedule dead node purges.
@@ -215,6 +238,18 @@ handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
+handle_cast({dangling_node, Node}, State) when Node =:= node() ->
+    ok = add_routing_node(node()),
+    {noreply, State};
+handle_cast({dangling_node, Node}, State) ->
+    case is_routing_node(Node) of
+        true ->
+            ok;
+        false ->
+            ?tp(notice, "broker_dangling_routing_node_found", #{node => Node}),
+            record_dangling_node(Node)
+    end,
+    {noreply, State};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
@@ -336,6 +371,16 @@ reconcile(State = #{last_membership := MembersLast}) ->
     ok = lists:foreach(fun record_node_alive/1, RunningNodes),
     State#{last_membership := Members}.
 
+record_dangling_node(Node) ->
+    ok = add_routing_node(Node),
+    NodeStatus = lookup_node_status(Node),
+    case lists:member(Node, mria:running_nodes()) of
+        false when NodeStatus == notfound ->
+            record_node_down(Node);
+        _ ->
+            ok
+    end.
+
 select(Status) ->
     MS = ets:fun2ms(fun(#ns{node = Node, status = S}) when S == Status -> Node end),
     ets:select(?TAB_STATUS, MS).
@@ -418,7 +463,7 @@ handle_purge(Node, Why, State) ->
     State.
 
 purge_dead_node(Node) ->
-    case node_has_routes(Node) of
+    case is_routing_node(Node) of
         true ->
             ok = do_purge_node(Node),
             true;
@@ -428,7 +473,7 @@ purge_dead_node(Node) ->
 
 purge_dead_node_trans(Node) ->
     StillKnown = lookup_node_status(Node) =/= notfound,
-    case StillKnown andalso node_has_routes(Node) of
+    case StillKnown andalso is_routing_node(Node) of
         true ->
             case cores() of
                 Nodes = [_ | _] ->
@@ -455,7 +500,7 @@ do_purge_node(Node) ->
 %%
 
 add_routing_node(Node) ->
-    case ets:member(?ROUTING_NODE, Node) of
+    case is_routing_node(Node) of
         true -> ok;
         false -> mria:dirty_write(?ROUTING_NODE, #routing_node{name = Node})
     end.
@@ -466,7 +511,7 @@ remove_routing_node(Node) ->
 list_routing_nodes() ->
     ets:select(?ROUTING_NODE, ets:fun2ms(fun(#routing_node{name = N}) -> N end)).
 
-node_has_routes(Node) ->
+is_routing_node(Node) ->
     ets:member(?ROUTING_NODE, Node).
 
 %%
