@@ -285,10 +285,12 @@ actor_context_of(#?ADMIN_JWT{} = JWT) ->
     #?ADMIN_JWT{exptime = _ExpTime, extra = Extra, username = Username} = JWT,
     Role = role_of(Extra),
     Namespace = namespace_of(Extra),
+    Backend = backend_of(Extra),
     #{
         ?actor => Username,
         ?role => Role,
-        ?namespace => Namespace
+        ?namespace => Namespace,
+        ?backend => Backend
     }.
 
 %% For compatibility
@@ -302,3 +304,8 @@ namespace_of(#{?namespace := Namespace}) when is_binary(Namespace) ->
     Namespace;
 namespace_of(_) ->
     ?global_ns.
+
+backend_of(#{backend := Backend}) ->
+    Backend;
+backend_of(_) ->
+    ?BACKEND_LOCAL.

@@ -23,7 +23,8 @@
 -type actor_context() :: #{
     ?actor := username() | api_key(),
     ?role := role(),
-    ?namespace := ?global_ns | namespace()
+    ?namespace := ?global_ns | namespace(),
+    ?backend => atom()
 }.
 
 -type username() :: binary().
@@ -145,14 +146,18 @@ do_check_rbac(
             false
     end;
 do_check_rbac(
-    #{?role := ?ROLE_VIEWER, ?actor := Username},
+    #{?role := ?ROLE_VIEWER, ?actor := Username} = Actor,
     Req,
     ?DASHBOARD_API(delete, change_mfa)
 ) ->
     %% emqx_dashboard_api:change_mfa
+    %% A SSO viewer whose backend has `force_mfa = true` is not allowed to
+    %% disable MFA for themselves; otherwise they could lock themselves out
+    %% of the next forced setup. Local users (BACKEND_LOCAL) and SSO users
+    %% with `force_mfa = false` may proceed.
     case Req of
         #{bindings := #{username := Username}} ->
-            true;
+            not is_forced_sso_mfa(maps:get(?backend, Actor, ?BACKEND_LOCAL));
         _ ->
             false
     end;
@@ -191,6 +196,18 @@ do_check_rbac(
     true;
 do_check_rbac(_, _, _) ->
     false.
+
+%% @doc Whether the given backend has `force_mfa = true` configured.
+%% Local users always return false (no SSO config to inspect). For SSO
+%% backends, look up `dashboard.sso.<backend>.force_mfa`. Missing config
+%% (e.g. backend disabled) is treated as `force_mfa = false`.
+is_forced_sso_mfa(?BACKEND_LOCAL) ->
+    false;
+is_forced_sso_mfa(Backend) ->
+    case emqx:get_config([dashboard, sso, Backend], undefined) of
+        #{force_mfa := true} -> true;
+        _ -> false
+    end.
 
 role_list(dashboard) ->
     [?ROLE_VIEWER, ?ROLE_SUPERUSER];
