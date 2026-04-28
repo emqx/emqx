@@ -42,6 +42,8 @@
 
 -define(DEFAULT_NODE_NAME, <<"emqx@127.0.0.1">>).
 
+-define(DEFAULT_KERNEL_INET_DIST_CONNECT_OPTIONS, <<"[{buffer,1048576}]">>).
+
 %% Static apps which merge their configs into the merged emqx.conf
 %% The list can not be made a dynamic read at run-time as it is used
 %% by nodetool to generate app.<time>.config before EMQX is started
@@ -503,6 +505,16 @@ fields("node") ->
                     default => 8192,
                     importance => ?IMPORTANCE_LOW,
                     'readOnly' => true
+                }
+            )},
+        {"dist_connect_options",
+            sc(
+                binary(),
+                #{
+                    desc => ?DESC(dist_connect_options),
+                    default => ?DEFAULT_KERNEL_INET_DIST_CONNECT_OPTIONS,
+                    importance => ?IMPORTANCE_LOW,
+                    'readOnly' => false
                 }
             )},
         {"max_ets_tables",
@@ -1258,11 +1270,16 @@ translation("prometheus") ->
     ];
 translation("vm_args") ->
     [
-        {"+P", fun tr_vm_args_process_limit/1}
+        {"+P", fun tr_vm_args_process_limit/1},
+        {"-kernel inet_dist_connect_options", fun tr_kernel_inet_dist_connect_options/1}
     ].
 
 tr_vm_args_process_limit(Conf) ->
     2 * conf_get("node.max_ports", Conf, ?DEFAULT_MAX_PORTS).
+
+tr_kernel_inet_dist_connect_options(Conf) ->
+    Val = conf_get("node.dist_connect_options", Conf, [?DEFAULT_KERNEL_INET_DIST_CONNECT_OPTIONS]),
+    lists:flatten(io_lib:format("~0p", [Val])).
 
 tr_prometheus_collectors(Conf) ->
     [
