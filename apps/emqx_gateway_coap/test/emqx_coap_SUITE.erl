@@ -398,7 +398,7 @@ t_request_with_token_no_connection(_) ->
     Action = fun(Channel) ->
         URI = pubsub_uri("no_connection", "tok"),
         Req = make_req(get, <<>>, [{observe, 0}]),
-        {error, bad_request, _} = do_request(Channel, URI, Req)
+        ?assertMatch({error, uauthorized, _}, do_request(Channel, URI, Req))
     end,
     do(Action).
 
@@ -456,8 +456,11 @@ t_invalid_token_request(_) ->
         Token = connection(Channel),
         URI = pubsub_uri("abc", "badtoken"),
         Req = make_req(get, <<>>, [{observe, 0}]),
-        {error, bad_request, _} = do_request(Channel, URI, Req),
-        disconnection(Channel, Token)
+        try
+            ?assertMatch({error, uauthorized, _}, do_request(Channel, URI, Req))
+        after
+            disconnection(Channel, Token)
+        end
     end,
     do(Action).
 

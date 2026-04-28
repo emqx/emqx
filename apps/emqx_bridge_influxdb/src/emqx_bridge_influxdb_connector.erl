@@ -327,7 +327,9 @@ influxdb_api_v2_fields() ->
 influxdb_api_v3_fields() ->
     [
         {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
-        {token, emqx_schema_secret:mk(#{required => true, desc => ?DESC("token")})}
+        {token, emqx_schema_secret:mk(#{required => true, desc => ?DESC("token")})},
+        {ping_with_auth,
+            mk(boolean(), #{required => false, default => true, desc => ?DESC("ping_with_auth")})}
     ].
 
 server() ->
@@ -497,7 +499,8 @@ protocol_config(#{
         {token, emqx_secret:unwrap(Token)}
     ] ++ ping_with_auth(Params) ++ ssl_config(SSL);
 protocol_config(#{
-    parameters := #{influxdb_type := influxdb_api_v3, database := Database, token := Token},
+    parameters := #{influxdb_type := influxdb_api_v3, database := Database, token := Token} =
+        Params,
     ssl := SSL
 }) ->
     [
@@ -506,7 +509,7 @@ protocol_config(#{
         {database, Database},
         %% TODO: teach `influxdb` to accept 0-arity closures as passwords.
         {token, emqx_secret:unwrap(Token)}
-    ] ++ ssl_config(SSL).
+    ] ++ ping_with_auth(Params) ++ ssl_config(SSL).
 
 v1_auth_transport(#{v1_auth_transport := V1AuthTransport}) ->
     [{v1_auth_transport, V1AuthTransport}];

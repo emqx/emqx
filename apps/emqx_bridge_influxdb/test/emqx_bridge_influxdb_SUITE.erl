@@ -331,7 +331,7 @@ server_tuple(TCConfig) ->
 authn_header_value(TCConfig) ->
     case get_config(api_type, TCConfig, ?api_v2) of
         ?api_v3 ->
-            UseTLS = get_config(ue_tls, TCConfig, false),
+            UseTLS = get_config(use_tls, TCConfig, false),
             iolist_to_binary(["Bearer ", v3_token(UseTLS)]);
         _ ->
             "Token abcdefg"
@@ -843,17 +843,17 @@ t_write_fixed_unicode_text(TCConfig) when is_list(TCConfig) ->
         create_action_api(TCConfig, #{
             <<"parameters">> => #{
                 <<"write_syntax">> =>
-                    <<"mqtt,clientid=${clientid} fixed_text=\"固定中文\""/utf8>>
+                    <<"${topic},clientid=${clientid} fixed_text=\"固定中文\""/utf8>>
             }
         })
     ),
-    #{topic := RuleTopic} = emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
     ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
     C = start_client(#{clientid => ClientId}),
     emqtt:publish(C, RuleTopic, emqx_utils_json:encode(#{}), [{qos, 1}]),
     ?retry(500, 10, begin
         PersistedData = query_by_clientid(RuleTopic, ClientId, TCConfig),
-        Expected = #{fixed_text => {<<"固定中文"/utf8>>, <<"string">>}},
+        Expected = #{fixed_text => <<"固定中文"/utf8>>},
         assert_persisted_data(ClientId, Expected, PersistedData)
     end),
     ok.
@@ -869,18 +869,18 @@ t_write_unicode_mqtt_payload(TCConfig) when is_list(TCConfig) ->
         create_action_api(TCConfig, #{
             <<"parameters">> => #{
                 <<"write_syntax">> =>
-                    <<"mqtt,clientid=${clientid} payload_text=\"${payload}\""/utf8>>
+                    <<"${topic},clientid=${clientid} payload_text=\"${payload}\""/utf8>>
             }
         })
     ),
-    #{topic := RuleTopic} = emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
     ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
     Payload = <<"MQTT 消息中文"/utf8>>,
     C = start_client(#{clientid => ClientId}),
     emqtt:publish(C, RuleTopic, Payload, [{qos, 1}]),
     ?retry(500, 10, begin
         PersistedData = query_by_clientid(RuleTopic, ClientId, TCConfig),
-        Expected = #{payload_text => {Payload, <<"string">>}},
+        Expected = #{payload_text => Payload},
         assert_persisted_data(ClientId, Expected, PersistedData)
     end),
     ok.

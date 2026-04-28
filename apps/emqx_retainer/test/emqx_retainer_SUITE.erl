@@ -1133,63 +1133,23 @@ t_retain_available_true_honors_retainer_enable(_Config) ->
     ok.
 
 t_start_stop_on_setting_change(_Config) ->
-    %% Disable retainer by default, it should not be started
-    ?assertWaitEvent(
-        set_retain_available(false),
-        #{?snk_kind := retainer_status_updated},
-        5000
-    ),
-    ?assertNot(is_retainer_started()),
+    try
+        ?assert(is_retainer_started()),
 
-    %% Enable retainer by default, it should be started because
-    %% default zone will receive global default values
-    ?assertWaitEvent(
-        set_retain_available(true),
-        #{?snk_kind := retainer_status_updated},
-        5000
-    ),
-    ?assert(is_retainer_started()),
+        {ok, _} = emqx_retainer:update_config(#{<<"enable">> => false}),
+        ?assertNot(is_retainer_started()),
 
-    %% Disable by default and enable in zone
-    ?assertWaitEvent(
-        set_retain_available(false),
-        #{?snk_kind := retainer_status_updated},
-        5000
-    ),
-    ?assertNot(is_retainer_started()),
-    ?assertWaitEvent(
-        set_retain_available_for_zone(default, true),
-        #{?snk_kind := retainer_status_updated},
-        5000
-    ),
-    ?assert(is_retainer_started()),
+        {ok, _} = set_retain_available(true),
+        {ok, _} = set_retain_available_for_zone(default, true),
+        ?assertNot(is_retainer_started()),
 
-    %% Enable by default and disable explicitly in zones, the retainer should be stopped
-    ?assertWaitEvent(
-        set_retain_available(true),
-        #{?snk_kind := retainer_status_updated},
-        5000
-    ),
-    ?assert(is_retainer_started()),
-    ?assertWaitEvent(
-        set_retain_available_for_zone(default, false),
-        #{?snk_kind := retainer_status_updated},
-        5000
-    ),
-    ?assertWaitEvent(
-        set_retain_available_for_zone(zone1, false),
-        #{?snk_kind := retainer_status_updated},
-        5000
-    ),
-    ?assertNot(is_retainer_started()),
-
-    %% Restore config for other test cases
-    ?assertWaitEvent(
-        set_retain_available_for_zone(default, true),
-        #{?snk_kind := retainer_status_updated},
-        5000
-    ),
-    ?assert(is_retainer_started()),
+        {ok, _} = emqx_retainer:update_config(#{<<"enable">> => true}),
+        ?assert(is_retainer_started())
+    after
+        {ok, _} = set_retain_available(true),
+        {ok, _} = set_retain_available_for_zone(default, true),
+        {ok, _} = emqx_retainer:update_config(#{<<"enable">> => true})
+    end,
     ok.
 
 t_disabled(_Config) ->

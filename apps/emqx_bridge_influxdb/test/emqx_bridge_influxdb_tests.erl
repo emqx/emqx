@@ -94,6 +94,22 @@ influxdb_api_v2_connector_hocon() ->
     }
     """.
 
+influxdb_api_v3_connector_hocon() ->
+    """
+    connectors.influxdb.my_influxdb {
+      enable = true
+      server = "127.0.0.1:8086"
+      parameters {
+        influxdb_type = influxdb_api_v3
+        database = "mydb"
+        token = "token"
+      }
+      ssl {
+        enable = false
+      }
+    }
+    """.
+
 parse(Hocon) ->
     {ok, Conf} = hocon:binary(Hocon),
     Conf.
@@ -575,6 +591,71 @@ influxdb_api_v2_connector_ping_with_auth_test_() ->
                             )
                         }
                     )
+                )
+            )}
+    ].
+
+influxdb_api_v3_connector_ping_with_auth_test_() ->
+    _ = emqx_utils:interactive_load(emqx_bridge_enterprise),
+    BaseConf = parse(influxdb_api_v3_connector_hocon()),
+    Override = fun(Cfg) ->
+        emqx_utils_maps:deep_merge(
+            BaseConf,
+            #{
+                <<"connectors">> => #{
+                    <<"influxdb">> => #{
+                        <<"my_influxdb">> => Cfg
+                    }
+                }
+            }
+        )
+    end,
+    BaseConfig = #{
+        server => <<"127.0.0.1:8086">>,
+        pool_size => 8,
+        ssl => #{enable => false},
+        parameters => #{
+            influxdb_type => influxdb_api_v3,
+            database => <<"mydb">>,
+            token => <<"token">>,
+            ping_with_auth => true
+        }
+    },
+    [
+        {"schema defaults ping_with_auth to true",
+            ?_assertMatch(
+                #{
+                    <<"connectors">> := #{
+                        <<"influxdb">> := #{
+                            <<"my_influxdb">> := #{
+                                <<"parameters">> := #{<<"ping_with_auth">> := true}
+                            }
+                        }
+                    }
+                },
+                check_connector(BaseConf)
+            )},
+        {"schema accepts ping_with_auth=false",
+            ?_assertMatch(
+                #{
+                    <<"connectors">> := #{
+                        <<"influxdb">> := #{
+                            <<"my_influxdb">> := #{
+                                <<"parameters">> := #{<<"ping_with_auth">> := false}
+                            }
+                        }
+                    }
+                },
+                check_connector(
+                    Override(#{<<"parameters">> => #{<<"ping_with_auth">> => false}})
+                )
+            )},
+        {"client_config forwards ping_with_auth=true",
+            ?_assertEqual(
+                true,
+                proplists:get_value(
+                    ping_with_auth,
+                    emqx_bridge_influxdb_connector:client_config(test_pool, BaseConfig)
                 )
             )}
     ].
