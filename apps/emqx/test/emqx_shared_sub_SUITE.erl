@@ -713,7 +713,7 @@ t_local_fallback(Config) when is_list(Config) ->
         Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
 
         emqtt:subscribe(ConnPid1, {<<"$share/local_group/", Topic/binary>>, 0}),
-        emqx_cth_cluster:sync_routes([node(), Node], 5_000),
+        emqx_cth_cluster:sync_routes([node(), Node], 15_000),
 
         emqx:publish(Message1),
         {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1]),
@@ -744,6 +744,7 @@ t_stats(Config) when is_list(Config) ->
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}, {port, get_tcp_mqtt_port(Node)}]),
     {ok, _} = emqtt:connect(ConnPid1),
     emqtt:subscribe(ConnPid1, {SharedTopic, 0}),
+    emqx_cth_cluster:sync_routes([node(), Node], 10_000),
     %% Verify LOCAL stats update
     ?retry(
         200,
@@ -754,6 +755,7 @@ t_stats(Config) when is_list(Config) ->
         )
     ),
     emqtt:unsubscribe(ConnPid1, SharedTopic),
+    emqx_cth_cluster:sync_routes([node(), Node], 10_000),
     %% Verify LOCAL stats update again
     ?retry(
         200,
@@ -1412,12 +1414,13 @@ setup_node(Node, Port) ->
     ok = pair_gen_rpc(node(), MyPort, PeerPort),
     ok = pair_gen_rpc(Node, PeerPort, MyPort),
 
+    %% warm it up, also assert the peer ndoe name
+    Node = emqx_rpc:call(Node, erlang, node, []),
+    ok = rpc:call(Node, mria, join, [node()]),
+
     %% Here we start the node and make it join the cluster
     ok = rpc:call(Node, emqx_common_test_helpers, start_apps, [[], EnvHandler]),
 
-    %% warm it up, also assert the peer ndoe name
-    Node = emqx_rpc:call(Node, erlang, node, []),
-    rpc:call(Node, mria, join, [node()]),
     ok.
 
 get_tcp_mqtt_port(Node) ->
