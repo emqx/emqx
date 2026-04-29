@@ -135,26 +135,26 @@ t_cluster_routing(Config) ->
     Commands = [
         {fun publish/3, [C1, <<"a/b/c">>, <<"wontsee">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"wontsee">>]},
-        {fun subscribe/2, [C3, <<"a/+/c/#">>]},
+        {fun subscribe/3, [C3, <<"a/+/c/#">>, Cluster]},
         {fun publish/3, [C1, <<"a/b/c">>, <<"01">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"wontsee">>]},
-        {fun subscribe/2, [C1, <<"a/b/c">>]},
-        {fun subscribe/2, [C2, <<"a/b/+">>]},
+        {fun subscribe/3, [C1, <<"a/b/c">>, Cluster]},
+        {fun subscribe/3, [C2, <<"a/b/+">>, Cluster]},
         {fun publish/3, [C3, <<"a/b/c">>, <<"02">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"03">>]},
         {fun publish/3, [C2, <<"a/b/c/d">>, <<"04">>]},
-        {fun subscribe/2, [C3, <<"a/b/d">>]},
+        {fun subscribe/3, [C3, <<"a/b/d">>, Cluster]},
         {fun publish/3, [C1, <<"a/b/d">>, <<"05">>]},
-        {fun unsubscribe/2, [C3, <<"a/+/c/#">>]},
+        {fun unsubscribe/3, [C3, <<"a/+/c/#">>, Cluster]},
         {fun publish/3, [C1, <<"a/b/c">>, <<"06">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"07">>]},
         {fun publish/3, [C2, <<"a/b/c/d">>, <<"08">>]},
-        {fun unsubscribe/2, [C2, <<"a/b/+">>]},
+        {fun unsubscribe/3, [C2, <<"a/b/+">>, Cluster]},
         {fun publish/3, [C1, <<"a/b/c">>, <<"09">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"10">>]},
         {fun publish/3, [C2, <<"a/b/c/d">>, <<"11">>]},
-        {fun unsubscribe/2, [C3, <<"a/b/d">>]},
-        {fun unsubscribe/2, [C1, <<"a/b/c">>]},
+        {fun unsubscribe/3, [C3, <<"a/b/d">>, Cluster]},
+        {fun unsubscribe/3, [C1, <<"a/b/c">>, Cluster]},
         {fun publish/3, [C1, <<"a/b/c">>, <<"wontsee">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"wontsee">>]}
     ],
@@ -200,15 +200,15 @@ start_client(Node) ->
 publish(C, Topic, Payload) ->
     {ok, #{reason_code := 0}} = emqtt:publish(C, Topic, Payload, 1).
 
-subscribe(C, Topic) ->
-    % NOTE: sleeping here as lazy way to wait for subscribe to replicate
+subscribe(C, Topic, Nodes) ->
     {ok, _Props, [0]} = emqtt:subscribe(C, Topic),
-    ok = timer:sleep(200).
+    %% With v3 merge tables route propagation is async even between cores,
+    %% so wait until all cluster members agree on the routing table.
+    emqx_cth_cluster:sync_routes(Nodes, 5_000).
 
-unsubscribe(C, Topic) ->
-    % NOTE: sleeping here as lazy way to wait for unsubscribe to replicate
+unsubscribe(C, Topic, Nodes) ->
     {ok, _Props, undefined} = emqtt:unsubscribe(C, Topic),
-    ok = timer:sleep(200).
+    emqx_cth_cluster:sync_routes(Nodes, 5_000).
 
 %%
 

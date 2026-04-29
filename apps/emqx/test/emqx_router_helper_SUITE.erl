@@ -102,9 +102,46 @@ mock_mria_match_delete() ->
 unmock_mria_match_delete() ->
     ok = meck:unload(mria).
 
+%% Tests that rely on emqx_router_helper process being alive, or on
+%% emqx_router_helper driving shared-sub / orphan-route cleanup, are
+%% v2-only: in the v3 routing schema the helper process is never
+%% started and Mria merge-table auto_clean takes care of route
+%% lifetime instead.
+-define(V2_ONLY_TCS, [
+    %% Router-helper process is not started in v3.
+    t_message,
+    %% Uses a fake (non-running) node to insert a route directly —
+    %% impossible with v3 merge tables (bad_record_node).
+    t_membership_node_leaving,
+    %% Expects routes to survive while a node is temporarily down;
+    %% v3 auto_clean removes them immediately.
+    t_cluster_node_restart,
+    %% Kills a node without a graceful shutdown, so shared-sub cleanup
+    %% depends on emqx_router_helper — not available in v3.
+    t_cluster_node_force_leave,
+    t_cluster_node_down,
+    %% Uses a fake orphan-node name; v3 merge tables reject
+    %% inserting routes for nodes other than node().
+    t_cluster_node_orphan,
+    %% Waits for broker_node_purged snabbkaffe event that is only
+    %% emitted by emqx_router_helper (not started in v3).
+    t_cluster_migration
+]).
+
 init_per_testcase(TC, Config) ->
-    ok = snabbkaffe:start_trace(),
-    emqx_common_test_helpers:init_per_testcase(?MODULE, TC, Config).
+    case lists:member(TC, ?V2_ONLY_TCS) of
+        true ->
+            case emqx_router:get_schema_vsn() of
+                v3 ->
+                    {skip, v3_routing_does_not_use_router_helper};
+                v2 ->
+                    ok = snabbkaffe:start_trace(),
+                    emqx_common_test_helpers:init_per_testcase(?MODULE, TC, Config)
+            end;
+        false ->
+            ok = snabbkaffe:start_trace(),
+            emqx_common_test_helpers:init_per_testcase(?MODULE, TC, Config)
+    end.
 
 end_per_testcase(TC, Config) ->
     ok = snabbkaffe:stop(),
@@ -133,18 +170,31 @@ t_cluster_node_leaving('end', Config) ->
 
 t_cluster_node_leaving(Config) ->
     ClusterNode = ?config(cluster_node, Config),
-    ok = emqx_router:add_route(<<"leaving/b/c">>, ClusterNode),
+    %% In v3 routing schema, routes for a remote node must be written
+    %% on that node itself (merge-table auto_clean enforces ownership).
+    ok = erpc:call(ClusterNode, emqx_router, add_route, [<<"leaving/b/c">>]),
     ok = emqx_router:add_route(<<"test/e/f">>, node()),
     _SubPid = start_remote_shared_sub(ClusterNode, <<"g">>, <<"leaving/g/h">>),
+    %% Wait for the remote route to be visible locally before asserting.
+    emqx_cth_cluster:sync_routes([node(), ClusterNode], 5_000),
     ?assertMatch([_, _, _], emqx_router:topics()),
     ?assertMatch([_], emqx_shared_sub:subscribers(<<"g">>, '_')),
-    {ok, {ok, _}} = ?wait_async_action(
-        erpc:call(ClusterNode, ekka, leave, []),
-        #{?snk_kind := broker_node_purged, node := ClusterNode},
-        3_000
-    ),
-    ?assertEqual([<<"test/e/f">>], emqx_router:topics()),
-    ?assertEqual([], emqx_shared_sub:subscribers(<<"g">>, '_')).
+    case emqx_router:get_schema_vsn() of
+        v3 ->
+            %% In v3 the router-helper is not started; routes are cleaned by
+            %% Mria auto_clean and shared-subs by the graceful EMQX shutdown.
+            erpc:call(ClusterNode, ekka, leave, []),
+            ?retry(200, 30, ?assertEqual([<<"test/e/f">>], emqx_router:topics())),
+            ?retry(200, 30, ?assertEqual([], emqx_shared_sub:subscribers(<<"g">>, '_')));
+        v2 ->
+            {ok, {ok, _}} = ?wait_async_action(
+                erpc:call(ClusterNode, ekka, leave, []),
+                #{?snk_kind := broker_node_purged, node := ClusterNode},
+                3_000
+            ),
+            ?assertEqual([<<"test/e/f">>], emqx_router:topics()),
+            ?assertEqual([], emqx_shared_sub:subscribers(<<"g">>, '_'))
+    end.
 
 t_cluster_node_down('init', Config) ->
     start_join_node(cluster_node_down, Config);

@@ -1387,7 +1387,13 @@ start_peer(Name, Port) ->
 
 stop_peer(Node) ->
     ok = mria:force_leave(Node),
-    emqx_cth_peer:stop(Node).
+    emqx_cth_peer:stop(Node),
+    %% In v3 routing schema the emqx_router_helper process is not started,
+    %% so shared-subscription records for the stopped peer are never
+    %% automatically purged.  Call purge_node/1 explicitly here so that
+    %% stale entries do not bleed into subsequent test-cases (e.g. t_stats
+    %% which asserts an exact subscriptions.shared.count).
+    ok = emqx_shared_sub:purge_node(Node).
 
 host() ->
     [_, Host] = string:tokens(atom_to_list(node()), "@"),
