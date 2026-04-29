@@ -181,7 +181,7 @@ enrich_messages(SubscriberRef, FullTopicFilter, Messages) ->
             Msg1 = emqx_message:set_headers(
                 #{
                     ?MQ_HEADER_SUBSCRIBER_ID => SubscriberRef,
-                    ?MQ_HEADER_SUB_TOPIC => FullTopicFilter
+                    ?HEADER_SUB_TOPIC => FullTopicFilter
                 },
                 Msg0
             ),
