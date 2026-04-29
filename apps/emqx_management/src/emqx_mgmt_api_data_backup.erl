@@ -37,6 +37,7 @@
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
+-define(FORBIDDEN, 'FORBIDDEN').
 
 -define(node_field(IsRequired), ?node_field(IsRequired, #{})).
 -define(node_field(IsRequired, Meta),
@@ -235,7 +236,8 @@ fields(data_backup_file) ->
 %% HTTP API Callbacks
 %%------------------------------------------------------------------------------
 
-data_export(post, #{body := Params}) ->
+data_export(post, #{body := Params0} = Req) ->
+    Params = maybe_filter_export_params(Params0, auth_meta(Req)),
     maybe
         ok ?= emqx_mgmt_data_backup:validate_export_root_keys(Params),
         {ok, Opts} ?= emqx_mgmt_data_backup:parse_export_request(Params),
@@ -262,37 +264,52 @@ data_export(post, #{body := Params}) ->
             {500, #{code => 'INTERNAL_ERROR', message => Msg}}
     end.
 
-data_import(post, #{body := #{<<"filename">> := Filename} = Body}) ->
+data_import(post, #{body := #{<<"filename">> := Filename} = Body} = Req) ->
     case safe_parse_node(Body) of
         {error, Msg} ->
             {400, #{code => ?BAD_REQUEST, message => Msg}};
         FileNode ->
-            CoreNode = core_node(FileNode),
-            case
-                emqx_mgmt_data_backup_proto_v1:import_file(CoreNode, FileNode, Filename, infinity)
-            of
-                {ok, #{db_errors := DbErrs, config_errors := ConfErrs}} ->
-                    case DbErrs =:= #{} andalso ConfErrs =:= #{} of
-                        true ->
-                            {204};
-                        false ->
-                            DbErrs1 = emqx_mgmt_data_backup:format_db_errors(DbErrs),
-                            ConfErrs1 = emqx_mgmt_data_backup:format_conf_errors(ConfErrs),
-                            Msg = unicode:characters_to_binary(
-                                io_lib:format("~s", [DbErrs1 ++ ConfErrs1])
-                            ),
-                            {400, #{code => ?BAD_REQUEST, message => Msg}}
-                    end;
-                {badrpc, Reason} ->
-                    {500, #{
-                        code => ?SERVICE_UNAVAILABLE(Reason),
+            case check_no_sensitive_tables(FileNode, Filename, auth_meta(Req)) of
+                {forbidden, Sets} ->
+                    Msg = iolist_to_binary([
+                        <<"API key import refused: backup contains restricted tables: ">>,
+                        lists:join(<<", ">>, Sets)
+                    ]),
+                    {403, #{code => ?FORBIDDEN, message => Msg}};
+                {peek_error, Reason} ->
+                    {400, #{
+                        code => ?BAD_REQUEST,
                         message => emqx_mgmt_data_backup:format_error(Reason)
                     }};
-                {error, Reason} ->
-                    {400, #{
-                        code => ?BAD_REQUEST, message => emqx_mgmt_data_backup:format_error(Reason)
-                    }}
+                ok ->
+                    do_data_import(FileNode, Filename)
             end
+    end.
+
+do_data_import(FileNode, Filename) ->
+    CoreNode = core_node(FileNode),
+    case emqx_mgmt_data_backup_proto_v1:import_file(CoreNode, FileNode, Filename, infinity) of
+        {ok, #{db_errors := DbErrs, config_errors := ConfErrs}} ->
+            case DbErrs =:= #{} andalso ConfErrs =:= #{} of
+                true ->
+                    {204};
+                false ->
+                    DbErrs1 = emqx_mgmt_data_backup:format_db_errors(DbErrs),
+                    ConfErrs1 = emqx_mgmt_data_backup:format_conf_errors(ConfErrs),
+                    Msg = unicode:characters_to_binary(
+                        io_lib:format("~s", [DbErrs1 ++ ConfErrs1])
+                    ),
+                    {400, #{code => ?BAD_REQUEST, message => Msg}}
+            end;
+        {badrpc, Reason} ->
+            {500, #{
+                code => ?SERVICE_UNAVAILABLE(Reason),
+                message => emqx_mgmt_data_backup:format_error(Reason)
+            }};
+        {error, Reason} ->
+            {400, #{
+                code => ?BAD_REQUEST, message => emqx_mgmt_data_backup:format_error(Reason)
+            }}
     end.
 
 core_node(FileNode) ->
@@ -356,6 +373,47 @@ data_file_by_name(Method, #{bindings := #{filename := Filename}, query_string :=
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+auth_meta(#{auth_meta := AuthMeta}) -> AuthMeta;
+auth_meta(_) -> #{}.
+
+is_api_key_caller(#{auth_type := api_key}) -> true;
+is_api_key_caller(_) -> false.
+
+%% API key callers must not export tables that hold dashboard accounts or
+%% API keys themselves. Force-filter the requested table sets accordingly.
+%% Dashboard JWT callers are unaffected.
+maybe_filter_export_params(Params, AuthMeta) ->
+    case is_api_key_caller(AuthMeta) of
+        true -> filter_sensitive_table_sets(Params);
+        false -> Params
+    end.
+
+filter_sensitive_table_sets(Params) ->
+    Sensitive = emqx_mgmt_data_backup:sensitive_table_set_names(),
+    Allowed =
+        case maps:find(<<"table_sets">>, Params) of
+            {ok, Requested} -> Requested -- Sensitive;
+            error -> emqx_mgmt_data_backup:all_table_set_names() -- Sensitive
+        end,
+    Params#{<<"table_sets">> => Allowed}.
+
+check_no_sensitive_tables(FileNode, Filename, AuthMeta) ->
+    case is_api_key_caller(AuthMeta) of
+        false ->
+            ok;
+        true ->
+            case
+                emqx_mgmt_data_backup_proto_v2:peek_sensitive_table_sets(
+                    FileNode, Filename, infinity
+                )
+            of
+                {ok, []} -> ok;
+                {ok, Sets} -> {forbidden, Sets};
+                {error, Reason} -> {peek_error, Reason};
+                {badrpc, Reason} -> {peek_error, Reason}
+            end
+    end.
 
 get_or_delete_file(get, Filename, Node) ->
     emqx_mgmt_data_backup_proto_v1:read_file(Node, Filename, infinity);

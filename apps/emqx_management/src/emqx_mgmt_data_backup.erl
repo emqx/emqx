@@ -38,7 +38,9 @@
     delete_file/1,
     list_files/0,
     format_conf_errors/1,
-    format_db_errors/1
+    format_db_errors/1,
+    sensitive_table_set_names/0,
+    peek_sensitive_table_sets/1
 ]).
 
 -export([default_validate_mnesia_backup/1]).
@@ -194,6 +196,74 @@ build_all_table_set_names() ->
             Mods
         )
     ).
+
+%% Table sets that contain credentials/identities an API key must never be able
+%% to read or write through data backup, mirroring the `?SCOPE_DENIED' guard
+%% on /users and /api_key endpoints.
+-spec sensitive_table_set_names() -> [binary()].
+sensitive_table_set_names() ->
+    [<<"dashboard_users">>, <<"api_keys">>].
+
+%% Inspect a previously-uploaded backup file and return which sensitive table
+%% sets are present in it. Used by the HTTP handler to reject API-key-driven
+%% imports of backups containing dashboard_users / api_keys data.
+-spec peek_sensitive_table_sets(file:filename_all()) ->
+    {ok, [binary()]} | {error, _}.
+peek_sensitive_table_sets(BackupFileName) ->
+    maybe
+        {ok, FilePath} ?= backup_path(BackupFileName),
+        ok ?= validate_file_exists(FilePath),
+        {ok, Entries} ?= tar_table(FilePath),
+        {ok, sensitive_sets_in_entries(Entries)}
+    end.
+
+tar_table(FilePath) ->
+    case erl_tar:table(FilePath, [compressed]) of
+        {ok, _} = Ok -> Ok;
+        {error, Reason} -> {error, {bad_backup_file, Reason}}
+    end.
+
+sensitive_sets_in_entries(Entries) ->
+    SensitiveTabMap = sensitive_tab_to_set_map(),
+    lists:usort(
+        lists:filtermap(
+            fun(Path) -> match_sensitive_entry(Path, SensitiveTabMap) end,
+            Entries
+        )
+    ).
+
+%% #{<<"emqx_admin">> => <<"dashboard_users">>, <<"emqx_app">> => <<"api_keys">>}
+sensitive_tab_to_set_map() ->
+    Mapping = table_set_to_tables_mapping(),
+    Sensitive = sensitive_table_set_names(),
+    maps:fold(
+        fun(SetName, Tabs, Acc) ->
+            case lists:member(SetName, Sensitive) of
+                true ->
+                    lists:foldl(
+                        fun(Tab, A2) -> A2#{atom_to_binary(Tab, utf8) => SetName} end,
+                        Acc,
+                        Tabs
+                    );
+                false ->
+                    Acc
+            end
+        end,
+        #{},
+        Mapping
+    ).
+
+%% Tar entries are paths like "<base>/mnesia/<atom_to_list(TabName)>".
+match_sensitive_entry(Path, SensitiveTabMap) ->
+    case lists:reverse(filename:split(str(Path))) of
+        [TabName, ?BACKUP_MNESIA_DIR | _] ->
+            case maps:find(list_to_binary(TabName), SensitiveTabMap) of
+                {ok, SetName} -> {true, SetName};
+                error -> false
+            end;
+        _ ->
+            false
+    end.
 
 validate_export_root_keys(Params) ->
     RootKeys0 = maps:get(<<"root_keys">>, Params, []),
@@ -383,6 +453,8 @@ format_error({unsupported_version, ImportVersion}) ->
     );
 format_error({already_exists, BackupFileName}) ->
     str(io_lib:format("Backup file \"~s\" already exists", [BackupFileName]));
+format_error({bad_backup_file, Reason}) ->
+    str(io_lib:format("Bad backup file: ~p", [Reason]));
 format_error(Reason) ->
     Reason.
 
