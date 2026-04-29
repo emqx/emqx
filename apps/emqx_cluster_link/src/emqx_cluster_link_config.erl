@@ -148,11 +148,13 @@ mk_emqtt_options(#{server := Server, ssl := #{enable := EnableSsl} = Ssl} = Link
     ClientId = maps:get(clientid, LinkConf, cluster()),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?MQTT_HOST_OPTS),
     Opts = maps:with([username, retry_interval, max_inflight], LinkConf),
+    TcpOpts = emqx_schema:client_tcp_opts_to_proplist(maps:get(tcp_opts, LinkConf, #{})),
     Opts1 = Opts#{
         host => Host,
         port => Port,
         clientid => ClientId,
         proto_ver => v5,
+        tcp_opts => TcpOpts,
         ssl => EnableSsl,
         ssl_opts => maps:to_list(maps:remove(enable, Ssl))
     },

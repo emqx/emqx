@@ -1083,6 +1083,45 @@ Default: 'none', Set to 'none' to use OS default keepalive settings (still activ
 fields_tcp_opts_keepalive.label:
 """TCP keepalive options"""
 
+client_tcp_opts.desc:
+"""TCP socket options for outbound MQTT client connections.
+All fields are optional; unset fields keep the operating system or `gen_tcp` defaults."""
+
+client_tcp_opts.label:
+"""Client TCP Options"""
+
+fields_client_tcp_opts_nodelay.desc:
+"""The `TCP_NODELAY` flag for the outbound TCP connection.
+When set to `true`, data is sent immediately, regardless of size."""
+
+fields_client_tcp_opts_nodelay.label:
+"""No Delay"""
+
+fields_client_tcp_opts_sndbuf.desc:
+"""The TCP send buffer (OS kernel) size for the outbound MQTT connection."""
+
+fields_client_tcp_opts_sndbuf.label:
+"""TCP Send Buffer"""
+
+fields_client_tcp_opts_recbuf.desc:
+"""The TCP receive buffer (OS kernel) size for the outbound MQTT connection."""
+
+fields_client_tcp_opts_recbuf.label:
+"""TCP Receive Buffer"""
+
+fields_client_tcp_opts_buffer.desc:
+"""The size of the user-space buffer used by the Erlang VM for the outbound MQTT connection."""
+
+fields_client_tcp_opts_buffer.label:
+"""User-space Buffer"""
+
+fields_client_tcp_opts_keepalive.desc:
+"""Enable the TCP `SO_KEEPALIVE` socket option for the outbound MQTT connection.
+This is the OS-level TCP keepalive probe and is independent of the MQTT-level keepalive."""
+
+fields_client_tcp_opts_keepalive.label:
+"""TCP SO_KEEPALIVE"""
+
 sysmon_top_db_username.desc:
 """Username of the PostgreSQL database"""
 

@@ -146,6 +146,13 @@ max_inflight.desc:
 max_inflight.label:
 """Max Inflight Message"""
 
+tcp_opts.desc:
+"""TCP socket options for the outbound MQTT client connection.
+All fields are optional; unset fields keep the OS / `gen_tcp` defaults."""
+
+tcp_opts.label:
+"""TCP Options"""
+
 mode.desc:
 """The mode of the MQTT Bridge.<br/>
 - cluster_shareload: create an MQTT connection on each node in the emqx cluster.<br/>
