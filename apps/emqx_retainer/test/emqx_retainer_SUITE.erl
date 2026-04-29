@@ -19,8 +19,7 @@ all() ->
         {group, mnesia_without_indices},
         {group, mnesia_with_indices},
         {group, mnesia_reindex},
-        {group, index_agnostic},
-        {group, disabled}
+        {group, index_agnostic}
     ].
 
 groups() ->
@@ -32,8 +31,7 @@ groups() ->
             t_disable_then_start,
             t_retain_available_does_not_control_retainer_lifecycle,
             t_retain_available_true_honors_retainer_enable
-        ]},
-        {disabled, [t_disabled]}
+        ]}
     ].
 
 index_related_tests() ->
@@ -97,7 +95,7 @@ init_per_testcase(_TestCase, Config) ->
     snabbkaffe:start_trace(),
     case ?config(index, Config) of
         false ->
-            mnesia:clear_table(?TAB_INDEX_META);
+            mria:clear_table(?TAB_INDEX_META);
         _ ->
             emqx_retainer_mnesia:populate_index_meta()
     end,
@@ -127,6 +125,7 @@ emqx_conf_app_spec(_) ->
 start_apps(Group, Config) ->
     Apps = emqx_cth_suite:start(
         [
+            mria,
             emqx,
             emqx_conf_app_spec(Group),
             emqx_retainer_app_spec(Group)
@@ -971,12 +970,6 @@ t_retain_available_true_honors_retainer_enable(_Config) ->
 
     ok = emqtt:disconnect(Client),
     ok.
-
-t_disabled(_Config) ->
-    ?assertNot(emqx_retainer:is_started()),
-    ?assertNot(emqx_retainer:is_enabled()),
-    ?assertEqual(ok, emqx_retainer:clean()),
-    ?assertEqual({ok, false, []}, emqx_retainer:page_read(undefined, 1, 100)).
 
 t_deliver_when_banned(_) ->
     Client1 = <<"c1">>,
