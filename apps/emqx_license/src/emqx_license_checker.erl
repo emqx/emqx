@@ -36,7 +36,8 @@
     print_warnings/1,
     get_max_sessions/1,
     get_dynamic_max_sessions/0,
-    no_violation/1
+    no_violation/1,
+    date_to_expiry_epoch/1
 ]).
 
 %% gen_server callbacks
