@@ -155,18 +155,28 @@ unload(EventName) ->
 %%--------------------------------------------------------------------
 
 on_alarm_activated(AlarmActivatedContext, Conf) ->
-    apply_event(
-        'alarm.activated',
-        fun() -> eventmsg_alarm_activated(AlarmActivatedContext) end,
-        Conf
-    ).
+    case get_limit_selects_in_namespace() of
+        true ->
+            ok;
+        false ->
+            apply_event(
+                'alarm.activated',
+                fun() -> eventmsg_alarm_activated(AlarmActivatedContext) end,
+                Conf
+            )
+    end.
 
 on_alarm_deactivated(AlarmDeactivatedContext, Conf) ->
-    apply_event(
-        'alarm.deactivated',
-        fun() -> eventmsg_alarm_deactivated(AlarmDeactivatedContext) end,
-        Conf
-    ).
+    case get_limit_selects_in_namespace() of
+        true ->
+            ok;
+        false ->
+            apply_event(
+                'alarm.deactivated',
+                fun() -> eventmsg_alarm_deactivated(AlarmDeactivatedContext) end,
+                Conf
+            )
+    end.
 
 on_message_publish(Message = #message{}, _Conf) ->
     case ignore_sys_message(Message) of
@@ -194,88 +204,213 @@ on_bridge_message_received(Message, Namespace, Conf = #{event_topic := BridgeTop
     ).
 
 on_client_connected(ClientInfo, ConnInfo, Conf) ->
-    apply_event(
-        'client.connected',
-        fun() -> eventmsg_connected(ClientInfo, ConnInfo) end,
-        Conf
-    ).
+    case get_limit_selects_in_namespace() of
+        false ->
+            apply_event(
+                'client.connected',
+                fun() -> eventmsg_connected(ClientInfo, ConnInfo) end,
+                Conf
+            );
+        true ->
+            Ns = get_namespace_from_clientinfo(ClientInfo),
+            apply_event_namespaced(
+                Ns,
+                'client.connected',
+                fun() -> eventmsg_connected(ClientInfo, ConnInfo) end,
+                Conf
+            )
+    end.
 
 on_client_connack(ConnInfo, Reason, _, Conf) ->
-    apply_event(
-        'client.connack',
-        fun() -> eventmsg_connack(ConnInfo, Reason) end,
-        Conf
-    ).
+    case get_limit_selects_in_namespace() of
+        false ->
+            apply_event(
+                'client.connack',
+                fun() -> eventmsg_connack(ConnInfo, Reason) end,
+                Conf
+            );
+        true ->
+            Ns =
+                case emqx_hooks:context('client.connack') of
+                    #{namespace := Ns0} -> Ns0;
+                    _ -> ?global_ns
+                end,
+            apply_event_namespaced(
+                Ns,
+                'client.connack',
+                fun() -> eventmsg_connack(ConnInfo, Reason) end,
+                Conf
+            )
+    end.
 
 %% TODO: support full action in major release
 on_client_check_authz_complete(
     ClientInfo, ?authz_action(PubSub), Topic, Result, AuthzSource, Conf
 ) ->
-    apply_event(
-        'client.check_authz_complete',
-        fun() ->
-            eventmsg_check_authz_complete(
-                ClientInfo,
-                PubSub,
-                Topic,
-                Result,
-                AuthzSource
+    case get_limit_selects_in_namespace() of
+        false ->
+            apply_event(
+                'client.check_authz_complete',
+                fun() ->
+                    eventmsg_check_authz_complete(
+                        ClientInfo,
+                        PubSub,
+                        Topic,
+                        Result,
+                        AuthzSource
+                    )
+                end,
+                Conf
+            );
+        true ->
+            Ns = get_namespace_from_clientinfo(ClientInfo),
+            apply_event_namespaced(
+                Ns,
+                'client.check_authz_complete',
+                fun() ->
+                    eventmsg_check_authz_complete(
+                        ClientInfo,
+                        PubSub,
+                        Topic,
+                        Result,
+                        AuthzSource
+                    )
+                end,
+                Conf
             )
-        end,
-        Conf
-    ).
+    end.
 
 on_client_check_authn_complete(ClientInfo, Result, Conf) ->
-    apply_event(
-        'client.check_authn_complete',
-        fun() ->
-            eventmsg_check_authn_complete(
-                ClientInfo,
-                Result
+    case get_limit_selects_in_namespace() of
+        false ->
+            apply_event(
+                'client.check_authn_complete',
+                fun() ->
+                    eventmsg_check_authn_complete(
+                        ClientInfo,
+                        Result
+                    )
+                end,
+                Conf
+            );
+        true ->
+            Ns = get_namespace_from_clientinfo(ClientInfo),
+            apply_event_namespaced(
+                Ns,
+                'client.check_authn_complete',
+                fun() ->
+                    eventmsg_check_authn_complete(
+                        ClientInfo,
+                        Result
+                    )
+                end,
+                Conf
             )
-        end,
-        Conf
-    ).
+    end.
 
 on_client_disconnected(ClientInfo, Reason, ConnInfo, Conf) ->
-    apply_event(
-        'client.disconnected',
-        fun() -> eventmsg_disconnected(ClientInfo, ConnInfo, Reason) end,
-        Conf
-    ).
+    case get_limit_selects_in_namespace() of
+        false ->
+            apply_event(
+                'client.disconnected',
+                fun() -> eventmsg_disconnected(ClientInfo, ConnInfo, Reason) end,
+                Conf
+            );
+        true ->
+            Ns = get_namespace_from_clientinfo(ClientInfo),
+            apply_event_namespaced(
+                Ns,
+                'client.disconnected',
+                fun() -> eventmsg_disconnected(ClientInfo, ConnInfo, Reason) end,
+                Conf
+            )
+    end.
 
 on_session_subscribed(ClientInfo, Topic, SubOpts, Conf) ->
-    apply_event(
-        'session.subscribed',
-        fun() ->
-            eventmsg_sub_or_unsub(
-                'session.subscribed', ClientInfo, emqx_topic:maybe_format_share(Topic), SubOpts
+    case get_limit_selects_in_namespace() of
+        false ->
+            apply_event(
+                'session.subscribed',
+                fun() ->
+                    eventmsg_sub_or_unsub(
+                        'session.subscribed',
+                        ClientInfo,
+                        emqx_topic:maybe_format_share(Topic),
+                        SubOpts
+                    )
+                end,
+                Conf
+            );
+        true ->
+            Ns = get_namespace_from_clientinfo(ClientInfo),
+            apply_event_namespaced(
+                Ns,
+                'session.subscribed',
+                fun() ->
+                    eventmsg_sub_or_unsub(
+                        'session.subscribed',
+                        ClientInfo,
+                        emqx_topic:maybe_format_share(Topic),
+                        SubOpts
+                    )
+                end,
+                Conf
             )
-        end,
-        Conf
-    ).
+    end.
 
 on_session_unsubscribed(ClientInfo, Topic, SubOpts, Conf) ->
-    apply_event(
-        'session.unsubscribed',
-        fun() ->
-            eventmsg_sub_or_unsub(
-                'session.unsubscribed', ClientInfo, emqx_topic:maybe_format_share(Topic), SubOpts
+    case get_limit_selects_in_namespace() of
+        false ->
+            apply_event(
+                'session.unsubscribed',
+                fun() ->
+                    eventmsg_sub_or_unsub(
+                        'session.unsubscribed',
+                        ClientInfo,
+                        emqx_topic:maybe_format_share(Topic),
+                        SubOpts
+                    )
+                end,
+                Conf
+            );
+        true ->
+            Ns = get_namespace_from_clientinfo(ClientInfo),
+            apply_event_namespaced(
+                Ns,
+                'session.unsubscribed',
+                fun() ->
+                    eventmsg_sub_or_unsub(
+                        'session.unsubscribed',
+                        ClientInfo,
+                        emqx_topic:maybe_format_share(Topic),
+                        SubOpts
+                    )
+                end,
+                Conf
             )
-        end,
-        Conf
-    ).
+    end.
 
 on_message_dropped(Message, _, Reason, Conf) ->
     case ignore_sys_message(Message) of
         true ->
             ok;
         false ->
-            apply_event(
-                'message.dropped',
-                fun() -> eventmsg_dropped(Message, Reason) end,
-                Conf
-            )
+            case get_limit_selects_in_namespace() of
+                false ->
+                    apply_event(
+                        'message.dropped',
+                        fun() -> eventmsg_dropped(Message, Reason) end,
+                        Conf
+                    );
+                true ->
+                    Ns = get_namespace_from_message(Message),
+                    apply_event_namespaced(
+                        Ns,
+                        'message.dropped',
+                        fun() -> eventmsg_dropped(Message, Reason) end,
+                        Conf
+                    )
+            end
     end,
     {ok, Message}.
 
@@ -284,11 +419,22 @@ on_message_transformation_failed(Message, TransformationContext, Conf) ->
         true ->
             ok;
         false ->
-            apply_event(
-                'message.transformation_failed',
-                fun() -> eventmsg_transformation_failed(Message, TransformationContext) end,
-                Conf
-            )
+            case get_limit_selects_in_namespace() of
+                false ->
+                    apply_event(
+                        'message.transformation_failed',
+                        fun() -> eventmsg_transformation_failed(Message, TransformationContext) end,
+                        Conf
+                    );
+                true ->
+                    Ns = get_namespace_from_message(Message),
+                    apply_event_namespaced(
+                        Ns,
+                        'message.transformation_failed',
+                        fun() -> eventmsg_transformation_failed(Message, TransformationContext) end,
+                        Conf
+                    )
+            end
     end,
     {ok, Message}.
 
@@ -297,11 +443,22 @@ on_schema_validation_failed(Message, ValidationContext, Conf) ->
         true ->
             ok;
         false ->
-            apply_event(
-                'schema.validation_failed',
-                fun() -> eventmsg_validation_failed(Message, ValidationContext) end,
-                Conf
-            )
+            case get_limit_selects_in_namespace() of
+                false ->
+                    apply_event(
+                        'schema.validation_failed',
+                        fun() -> eventmsg_validation_failed(Message, ValidationContext) end,
+                        Conf
+                    );
+                true ->
+                    Ns = get_namespace_from_message(Message),
+                    apply_event_namespaced(
+                        Ns,
+                        'schema.validation_failed',
+                        fun() -> eventmsg_validation_failed(Message, ValidationContext) end,
+                        Conf
+                    )
+            end
     end,
     {ok, Message}.
 
@@ -310,11 +467,22 @@ on_message_delivered(ClientInfo, Message, Conf) ->
         true ->
             ok;
         false ->
-            apply_event(
-                'message.delivered',
-                fun() -> eventmsg_delivered(ClientInfo, Message) end,
-                Conf
-            )
+            case get_limit_selects_in_namespace() of
+                false ->
+                    apply_event(
+                        'message.delivered',
+                        fun() -> eventmsg_delivered(ClientInfo, Message) end,
+                        Conf
+                    );
+                true ->
+                    Ns = get_namespace_from_clientinfo(ClientInfo),
+                    apply_event_namespaced(
+                        Ns,
+                        'message.delivered',
+                        fun() -> eventmsg_delivered(ClientInfo, Message) end,
+                        Conf
+                    )
+            end
     end,
     {ok, Message}.
 
@@ -323,11 +491,22 @@ on_message_acked(ClientInfo, Message, Conf) ->
         true ->
             ok;
         false ->
-            apply_event(
-                'message.acked',
-                fun() -> eventmsg_acked(ClientInfo, Message) end,
-                Conf
-            )
+            case get_limit_selects_in_namespace() of
+                false ->
+                    apply_event(
+                        'message.acked',
+                        fun() -> eventmsg_acked(ClientInfo, Message) end,
+                        Conf
+                    );
+                true ->
+                    Ns = get_namespace_from_clientinfo(ClientInfo),
+                    apply_event_namespaced(
+                        Ns,
+                        'message.acked',
+                        fun() -> eventmsg_acked(ClientInfo, Message) end,
+                        Conf
+                    )
+            end
     end,
     {ok, Message}.
 
@@ -336,11 +515,22 @@ on_delivery_dropped(ClientInfo, Message, Reason, Conf) ->
         true ->
             ok;
         false ->
-            apply_event(
-                'delivery.dropped',
-                fun() -> eventmsg_delivery_dropped(ClientInfo, Message, Reason) end,
-                Conf
-            )
+            case get_limit_selects_in_namespace() of
+                false ->
+                    apply_event(
+                        'delivery.dropped',
+                        fun() -> eventmsg_delivery_dropped(ClientInfo, Message, Reason) end,
+                        Conf
+                    );
+                true ->
+                    Ns = get_namespace_from_clientinfo(ClientInfo),
+                    apply_event_namespaced(
+                        Ns,
+                        'delivery.dropped',
+                        fun() -> eventmsg_delivery_dropped(ClientInfo, Message, Reason) end,
+                        Conf
+                    )
+            end
     end,
     {ok, Message}.
 
@@ -1593,6 +1783,19 @@ ignore_sys_message(#message{flags = Flags}) ->
     maps:get(sys, Flags, false) andalso
         emqx:get_config([ConfigRootKey, ignore_sys_message]).
 
+get_limit_selects_in_namespace() ->
+    emqx_rule_engine_config:get_limit_selects_in_namespace().
+
+get_namespace_from_clientinfo(#{client_attrs := #{?CLIENT_ATTR_NAME_TNS := Ns}}) ->
+    Ns;
+get_namespace_from_clientinfo(#{}) ->
+    ?global_ns.
+
+get_namespace_from_message(#message{headers = #{client_attrs := #{?CLIENT_ATTR_NAME_TNS := Ns}}}) ->
+    Ns;
+get_namespace_from_message(#message{}) ->
+    ?global_ns.
+
 get_rules_for_topic(Message = #message{topic = Topic}) ->
     case emqx_rule_engine:get_rules_for_topic(Topic) of
         [] ->
@@ -1608,17 +1811,11 @@ get_rules_for_topic(Message = #message{topic = Topic}) ->
     end.
 
 restrict_rules_to_namespace(EnrichedRules0, Message) ->
-    Namespace =
-        case Message#message.headers of
-            #{client_attrs := #{?CLIENT_ATTR_NAME_TNS := Ns}} ->
-                Ns;
-            _ ->
-                ?global_ns
-        end,
+    Ns = get_namespace_from_message(Message),
     lists:filter(
         fun
             (#{rule := #{namespace := Ns0}}) ->
-                Ns0 == Namespace;
+                Ns0 == Ns;
             (_) ->
                 false
         end,

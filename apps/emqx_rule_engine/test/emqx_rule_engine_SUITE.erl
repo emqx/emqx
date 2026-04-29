@@ -109,6 +109,7 @@ groups() ->
         {events, [], [
             t_events,
             t_events_legacy,
+            t_events_limit_selects_in_namespace,
             t_event_client_disconnected_normal,
             t_event_client_disconnected_kicked,
             t_event_client_disconnected_discarded,
@@ -159,7 +160,7 @@ init_per_suite(Config) ->
             emqx,
             emqx_conf,
             emqx_modules,
-            emqx_rule_engine,
+            {emqx_rule_engine, "rule_engine.limit_selects_in_namespace = false"},
             emqx_auth,
             emqx_bridge,
             {emqx_schema_validation, #{
@@ -302,6 +303,41 @@ init_per_testcase(t_events, Config) ->
     ),
     ?assertMatch(#{id := <<"rule:t_events">>}, Rule),
     [{hook_points_rules, Rule} | Config];
+init_per_testcase(t_events_limit_selects_in_namespace, Config) ->
+    init_events_counters(),
+    SQL =
+        "SELECT * FROM \"$events/client/connected\", "
+        "\"$events/client/disconnected\", "
+        "\"$events/client/connack\", "
+        "\"$events/auth/check_authz_complete\", "
+        "\"$events/auth/check_authn_complete\", "
+        "\"$events/session/subscribed\", "
+        "\"$events/session/unsubscribed\", "
+        "\"$events/message/acked\", "
+        "\"$events/message/delivered\", "
+        "\"$events/message/dropped\", "
+        "\"$events/message/delivery_dropped\", "
+        "\"$events/schema_validation/failed\", "
+        "\"$events/message_transformation/failed\", "
+        "\"t1\"",
+    Ns = <<"my_ns">>,
+    {ok, Rule} = create_rule(
+        #{
+            namespace => Ns,
+            id => <<"rule:t_events">>,
+            sql => SQL,
+            actions => [
+                #{
+                    function => <<"emqx_rule_engine_SUITE:action_record_triggered_events">>,
+                    args => #{}
+                }
+            ],
+            description => <<"to print and record triggered events">>
+        }
+    ),
+    ?assertMatch(#{id := <<"rule:t_events">>}, Rule),
+    on_exit(fun() -> ok = delete_rule(Rule) end),
+    [{ns, Ns}, {hook_points_rules, Rule} | Config];
 init_per_testcase(t_events_legacy, Config) ->
     init_events_counters(),
     SQL =
@@ -338,6 +374,11 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(t_events, _Config) ->
+    ets:delete(events_record_tab),
+    emqx_bridge_v2_testlib:delete_all_rules(),
+    emqx_common_test_helpers:call_janitor(),
+    ok;
+end_per_testcase(t_events_limit_selects_in_namespace, _Config) ->
     ets:delete(events_record_tab),
     emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_common_test_helpers:call_janitor(),
@@ -884,7 +925,7 @@ t_json_payload_decoding(_Config) ->
 
     ok.
 
-%% Test new events (namespaced).
+%% Test new events (namespaced events).
 t_events(_Config) ->
     {ok, Client} = emqtt:start_link(
         [
@@ -928,7 +969,163 @@ t_events(_Config) ->
     client_connack_failed(),
     ok.
 
-%% Tests old event topics (non-namespaced).
+-doc """
+Similar to `t_events`, but verifies that `rule_engine.limit_selects_in_namespace` isolates
+events from different namespaces.
+
+Here, we simply trigger the same events and see nothing is triggered when namespace from
+the client does not match the rule's.
+""".
+t_events_limit_selects_in_namespace(TCConfig) ->
+    Ns = ?config(ns, TCConfig),
+    on_exit(fun() ->
+        {ok, _} = emqx_conf:update(
+            [mqtt, client_attrs_init],
+            [],
+            #{override_to => cluster}
+        ),
+        {ok, _} = emqx_conf:update(
+            [rule_engine, limit_selects_in_namespace],
+            false,
+            #{override_to => cluster}
+        )
+    end),
+    {ok, _} = emqx_conf:update(
+        [mqtt, client_attrs_init],
+        [
+            #{
+                <<"expression">> => <<"username">>,
+                <<"set_as_attr">> => <<"tns">>
+            }
+        ],
+        #{override_to => cluster}
+    ),
+    {ok, _} = emqx_conf:update(
+        [rule_engine, limit_selects_in_namespace],
+        true,
+        #{override_to => cluster}
+    ),
+    PublishMsg = fun(C) ->
+        emqtt:publish(
+            C,
+            <<"t1">>,
+            #{'Message-Expiry-Interval' => 60},
+            <<"{\"id\": 1, \"name\": \"ha\"}">>,
+            [{qos, 1}]
+        )
+    end,
+    TriggerEvents = fun(Namespace, C) ->
+        ct:pal("====== $events/client/connected, $events/client/connack"),
+        {ok, _} = emqtt:connect(C),
+        ct:pal("====== $events/message/dropped"),
+        PublishMsg(C),
+        ct:pal("====== $events/session/subscribed, $events/client/authz_complete"),
+        {ok, _, _} = emqtt:subscribe(
+            C,
+            #{'User-Property' => {<<"topic_name">>, <<"t1">>}},
+            <<"t1">>,
+            1
+        ),
+        ct:pal("====== t1"),
+        PublishMsg(C),
+        ct:pal("====== $events/schema_validation/failed"),
+        {ok, _} = emqtt:publish(C, <<"sv/fail">>, <<"">>, [{qos, 1}]),
+        ct:pal("====== $events/message_transformation/failed"),
+        {ok, _} = emqtt:publish(C, <<"mt/fail">>, <<"will fail to { parse">>, [{qos, 1}]),
+        ct:pal("====== $events/message/delivery_dropped"),
+        %% subscribe "t1" and then publish to "t1", the message will not be received by itself
+        %% because we have set the subscribe flag 'nl' = true
+        {ok, _, _} = emqtt:subscribe(C, #{}, <<"t1">>, [{nl, true}, {qos, 1}]),
+        ct:sleep(50),
+        PublishMsg(C),
+        %% ct:pal("====== $events/message/delivered"),
+        %% ct:pal("====== $events/message/acked"),
+        ct:pal("====== $events/session/unsubscribed"),
+        {ok, _, _} = emqtt:unsubscribe(
+            C,
+            #{'User-Property' => {<<"topic_name">>, <<"t1">>}},
+            <<"t1">>
+        ),
+        ct:pal("====== $events/client/disconnected"),
+        ok = emqtt:disconnect(C, 0, #{'User-Property' => {<<"reason">>, <<"normal">>}}),
+        ct:pal("====== $events/client/connack"),
+        {ok, Client} = emqtt:start_link(
+            [
+                {username, Namespace},
+                {clientid, <<"c_event3">>},
+                {proto_ver, v5},
+                {properties, #{'Session-Expiry-Interval' => 60}}
+            ]
+        ),
+        try
+            meck:new(emqx_access_control, [non_strict, passthrough]),
+            meck:expect(
+                emqx_access_control,
+                authenticate,
+                fun(_) -> {error, bad_username_or_password} end
+            ),
+            process_flag(trap_exit, true),
+            ?assertMatch({error, _}, emqtt:connect(Client)),
+            ok
+        after
+            meck:unload(emqx_access_control)
+        end
+    end,
+
+    %% First, a client from a different namespace from our rule.  Should trigger on nothing.
+    ct:pal("****** Triggering events on different namespace"),
+    OtherNs = <<"some_different_ns">>,
+    %% Sanity check
+    false = OtherNs == Ns,
+    {ok, ClientOtherNs} = emqtt:start_link(
+        [
+            {username, OtherNs},
+            {clientid, <<"c_other_ns">>},
+            {proto_ver, v5},
+            {properties, #{'Session-Expiry-Interval' => 60}}
+        ]
+    ),
+    TriggerEvents(OtherNs, ClientOtherNs),
+    ct:sleep(300),
+    ?assertEqual([], ets:tab2list(events_record_tab)),
+
+    %% Now, a client on the same namespace.  Should trigger on all the events.
+    ct:pal("****** Triggering events on same namespace"),
+    {ok, ClientNs} = emqtt:start_link(
+        [
+            {username, Ns},
+            {clientid, <<"c_ns">>},
+            {proto_ver, v5},
+            {properties, #{'Session-Expiry-Interval' => 60}}
+        ]
+    ),
+    TriggerEvents(Ns, ClientNs),
+    ct:sleep(300),
+    Events = [
+        'client.connack',
+        'message.publish',
+        'client.connected',
+        'client.check_authn_complete',
+        'client.disconnected',
+        'session.subscribed',
+        'client.check_authz_complete',
+        'session.unsubscribed',
+        'message.delivered',
+        'delivery.dropped',
+        'message.acked',
+        'schema.validation_failed',
+        'message.transformation_failed'
+    ],
+    lists:foreach(
+        fun(EventName) ->
+            ct:pal("checking ~s", [EventName]),
+            verify_event(EventName)
+        end,
+        Events
+    ),
+    ok.
+
+%% Tests old event topics (non-namespaced events).
 t_events_legacy(_Config) ->
     {ok, Client} = emqtt:start_link(
         [
@@ -4258,8 +4455,8 @@ verify_event_fields('message.publish', Fields) ->
     TimestampElapse = Now - Timestamp,
     RcvdAtElapse = Now - EventAt,
     ?assert(is_binary(ID)),
-    ?assertEqual(<<"c_event">>, ClientId),
-    ?assertEqual(<<"u_event">>, Username),
+    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_ns">>]), #{clientid => ClientId}),
+    ?assert(lists:member(Username, [<<"u_event">>, <<"my_ns">>]), #{username => Username}),
     ?assertEqual(<<"{\"id\": 1, \"name\": \"ha\"}">>, Payload),
     verify_peername(PeerName),
     verify_ipaddr(PeerHost),
@@ -4293,8 +4490,12 @@ verify_event_fields('client.connected', Fields) ->
     TimestampElapse = Now - Timestamp,
     RcvdAtElapse = Now - EventAt,
     ?assert(is_binary(MountPoint) orelse MountPoint == undefined),
-    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
-    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])),
+    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>, <<"c_ns">>]), #{
+        clientid => ClientId
+    }),
+    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>, <<"my_ns">>]), #{
+        username => Username
+    }),
     verify_peername(PeerName),
     verify_peername(SockName),
     ?assertEqual(<<"MQTT">>, ProtoName),
@@ -4324,8 +4525,12 @@ verify_event_fields('client.disconnected', Fields) ->
     TimestampElapse = Now - Timestamp,
     RcvdAtElapse = Now - EventAt,
     ?assert(is_atom(Reason)),
-    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
-    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])),
+    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>, <<"c_ns">>]), #{
+        clientid => ClientId
+    }),
+    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>, <<"my_ns">>]), #{
+        username => Username
+    }),
     verify_peername(PeerName),
     verify_peername(SockName),
     ?assertMatch(#{'User-Property' := #{<<"reason">> := <<"normal">>}}, Properties),
@@ -4350,8 +4555,8 @@ verify_event_fields(SubUnsub, Fields) when
     Now = erlang:system_time(millisecond),
     TimestampElapse = Now - Timestamp,
     ?assert(is_atom(reason)),
-    ?assertEqual(<<"c_event2">>, ClientId),
-    ?assertEqual(<<"u_event2">>, Username),
+    ?assert(lists:member(ClientId, [<<"c_event2">>, <<"c_ns">>]), #{clientid => ClientId}),
+    ?assert(lists:member(Username, [<<"u_event2">>, <<"my_ns">>]), #{username => Username}),
     verify_peername(PeerName),
     verify_ipaddr(PeerHost),
     ?assertEqual(<<"t1">>, Topic),
@@ -4361,10 +4566,13 @@ verify_event_fields(SubUnsub, Fields) when
             'session.subscribed' -> sub_props;
             'session.unsubscribed' -> unsub_props
         end,
-    ?assertMatch(
-        #{'User-Property' := #{<<"topic_name">> := <<"t1">>}},
-        maps:get(PropKey, Fields)
-    ),
+    case Fields of
+        #{PropKey := #{'User-Property' := #{<<"topic_name">> := <<"t1">>}}} ->
+            ok;
+        #{PropKey := #{'User-Property' := UserProp}} ->
+            %% Subscribe without user property
+            ?assertEqual(0, map_size(UserProp), #{fields => Fields})
+    end,
     ?assert(0 =< TimestampElapse andalso TimestampElapse =< 60 * 1000),
     ?assert(is_map(ClientAttrs));
 verify_event_fields('delivery.dropped', Fields) ->
@@ -4395,10 +4603,10 @@ verify_event_fields('delivery.dropped', Fields) ->
     ?assertEqual(<<"rule:t_events">>, RuleId),
     ?assertEqual(no_local, Reason),
     ?assertEqual(node(), Node),
-    ?assertEqual(<<"c_event">>, ClientId),
-    ?assertEqual(<<"u_event">>, Username),
-    ?assertEqual(<<"c_event">>, FromClientId),
-    ?assertEqual(<<"u_event">>, FromUsername),
+    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_ns">>]), #{clientid => ClientId}),
+    ?assert(lists:member(Username, [<<"u_event">>, <<"my_ns">>]), #{username => Username}),
+    ?assert(lists:member(FromClientId, [<<"c_event">>, <<"c_ns">>]), #{clientid => FromClientId}),
+    ?assert(lists:member(FromUsername, [<<"u_event">>, <<"my_ns">>]), #{username => FromUsername}),
     ?assertEqual(<<"{\"id\": 1, \"name\": \"ha\"}">>, Payload),
     verify_peername(PeerName),
     verify_ipaddr(PeerHost),
@@ -4430,8 +4638,8 @@ verify_event_fields('message.dropped', Fields) ->
     RcvdAtElapse = Now - EventAt,
     ?assert(is_binary(ID)),
     ?assert(is_atom(Reason)),
-    ?assertEqual(<<"c_event">>, ClientId),
-    ?assertEqual(<<"u_event">>, Username),
+    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_ns">>]), #{clientid => ClientId}),
+    ?assert(lists:member(Username, [<<"u_event">>, <<"my_ns">>]), #{username => Username}),
     ?assertEqual(<<"{\"id\": 1, \"name\": \"ha\"}">>, Payload),
     verify_peername(PeerName),
     verify_ipaddr(PeerHost),
@@ -4463,10 +4671,10 @@ verify_event_fields('message.delivered', Fields) ->
     TimestampElapse = Now - Timestamp,
     RcvdAtElapse = Now - EventAt,
     ?assert(is_binary(ID)),
-    ?assertEqual(<<"c_event2">>, ClientId),
-    ?assertEqual(<<"u_event2">>, Username),
-    ?assertEqual(<<"c_event">>, FromClientId),
-    ?assertEqual(<<"u_event">>, FromUsername),
+    ?assert(lists:member(ClientId, [<<"c_event2">>, <<"c_ns">>]), #{clientid => ClientId}),
+    ?assert(lists:member(Username, [<<"u_event2">>, <<"my_ns">>]), #{username => Username}),
+    ?assert(lists:member(FromClientId, [<<"c_event">>, <<"c_ns">>]), #{clientid => FromClientId}),
+    ?assert(lists:member(FromUsername, [<<"u_event">>, <<"my_ns">>]), #{username => FromUsername}),
     ?assertEqual(<<"{\"id\": 1, \"name\": \"ha\"}">>, Payload),
     verify_peername(PeerName),
     verify_ipaddr(PeerHost),
@@ -4499,10 +4707,10 @@ verify_event_fields('message.acked', Fields) ->
     TimestampElapse = Now - Timestamp,
     RcvdAtElapse = Now - EventAt,
     ?assert(is_binary(ID)),
-    ?assertEqual(<<"c_event2">>, ClientId),
-    ?assertEqual(<<"u_event2">>, Username),
-    ?assertEqual(<<"c_event">>, FromClientId),
-    ?assertEqual(<<"u_event">>, FromUsername),
+    ?assert(lists:member(ClientId, [<<"c_event2">>, <<"c_ns">>]), #{clientid => ClientId}),
+    ?assert(lists:member(Username, [<<"u_event2">>, <<"my_ns">>]), #{username => Username}),
+    ?assert(lists:member(FromClientId, [<<"c_event">>, <<"c_ns">>]), #{clientid => FromClientId}),
+    ?assert(lists:member(FromUsername, [<<"u_event">>, <<"my_ns">>]), #{username => FromUsername}),
     ?assertEqual(<<"{\"id\": 1, \"name\": \"ha\"}">>, Payload),
     verify_peername(PeerName),
     verify_ipaddr(PeerHost),
@@ -4532,8 +4740,22 @@ verify_event_fields('client.connack', Fields) ->
     Now = erlang:system_time(millisecond),
     TimestampElapse = Now - Timestamp,
     ?assert(lists:member(Reason, [success, bad_username_or_password])),
-    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>, <<"c_event3">>])),
-    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>, <<"u_event3">>])),
+    ?assert(
+        lists:member(ClientId, [
+            <<"c_event">>,
+            <<"c_event2">>,
+            <<"c_event3">>,
+            <<"c_ns">>
+        ])
+    ),
+    ?assert(
+        lists:member(Username, [
+            <<"u_event">>,
+            <<"u_event2">>,
+            <<"u_event3">>,
+            <<"my_ns">>
+        ])
+    ),
     verify_peername(PeerName),
     verify_peername(SockName),
     ?assertEqual(<<"MQTT">>, ProtoName),
@@ -4554,7 +4776,7 @@ verify_event_fields('client.check_authz_complete', Fields) ->
         username := Username,
         client_attrs := ClientAttrs
     } = Fields,
-    ?assertEqual(<<"t1">>, Topic),
+    ?assert(lists:member(Topic, [<<"t1">>, <<"sv/fail">>, <<"mt/fail">>]), #{topic => Topic}),
     ?assert(lists:member(Action, [subscribe, publish])),
     ?assert(lists:member(Result, [allow, deny])),
     verify_peername(PeerName),
@@ -4571,8 +4793,12 @@ verify_event_fields('client.check_authz_complete', Fields) ->
             built_in_database
         ])
     ),
-    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
-    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])),
+    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>, <<"c_ns">>]), #{
+        clientid => ClientId
+    }),
+    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>, <<"my_ns">>]), #{
+        username => Username
+    }),
     ?assert(is_map(ClientAttrs));
 verify_event_fields('client.check_authn_complete', Fields) ->
     #{
@@ -4584,8 +4810,12 @@ verify_event_fields('client.check_authn_complete', Fields) ->
         client_attrs := ClientAttrs
     } = Fields,
     verify_peername(PeerName),
-    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
-    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])),
+    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>, <<"c_ns">>]), #{
+        clientid => ClientId
+    }),
+    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>, <<"my_ns">>]), #{
+        username => Username
+    }),
     ?assert(erlang:is_boolean(IsAnonymous)),
     ?assert(erlang:is_boolean(IsSuperuser)),
     ?assert(is_map(ClientAttrs));
@@ -4604,8 +4834,12 @@ verify_event_fields('schema.validation_failed', Fields) ->
     } = Fields,
     ?assertEqual(<<"v1">>, ValidationName),
     verify_peername(PeerName),
-    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
-    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])),
+    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>, <<"c_ns">>]), #{
+        clientid => ClientId
+    }),
+    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>, <<"my_ns">>]), #{
+        username => Username
+    }),
     ok;
 verify_event_fields('message.transformation_failed', Fields) ->
     #{
@@ -4622,8 +4856,12 @@ verify_event_fields('message.transformation_failed', Fields) ->
     } = Fields,
     ?assertEqual(<<"t1">>, TransformationName),
     verify_peername(PeerName),
-    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>])),
-    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>])),
+    ?assert(lists:member(ClientId, [<<"c_event">>, <<"c_event2">>, <<"c_ns">>]), #{
+        clientid => ClientId
+    }),
+    ?assert(lists:member(Username, [<<"u_event">>, <<"u_event2">>, <<"my_ns">>]), #{
+        username => Username
+    }),
     ok.
 
 verify_peername(PeerName) ->
