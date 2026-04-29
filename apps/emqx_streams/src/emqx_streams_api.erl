@@ -8,13 +8,15 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% Swagger specs from hocon schema
 -export([
     api_spec/0,
     paths/0,
     schema/1,
-    namespace/0
+    namespace/0,
+    scopes/0
 ]).
 
 %% API callbacks
@@ -35,6 +37,8 @@
 -define(TAGS, [<<"Message Stream">>]).
 
 namespace() -> "stream".
+
+scopes() -> ?SCOPE_CONNECTIONS.
 
 %%--------------------------------------------------------------------
 %% Minirest
