@@ -76,9 +76,15 @@ end_per_testcase(_, _Config) ->
 
 init_per_suite(Config) ->
     code:ensure_loaded(?TEST_RESOURCE),
+    ListenerConf =
+        "\n"
+        "listeners.tcp.default.bind = 28883\n"
+        "listeners.ssl.default.bind = 28884\n"
+        "listeners.ws.default.bind = 28083\n"
+        "listeners.wss.default.bind = 28084\n",
     Apps = emqx_cth_suite:start(
         [
-            emqx,
+            {emqx, ListenerConf},
             emqx_conf,
             emqx_resource
         ],
@@ -1001,6 +1007,34 @@ t_query(_) ->
         emqx_resource:query(<<"unknown">>, get_state)
     ),
 
+    ok = emqx_resource:remove_local(?ID).
+
+t_buffer_worker_dispatch_strategy(_) ->
+    ResourceOpts = #{
+        query_mode => sync,
+        worker_pool_size => 4,
+        buffer_worker_dispatch_strategy => random
+    },
+    Config = #{
+        name => test_resource,
+        resource_opts => ResourceOpts
+    },
+    {ok, _} = create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        Config,
+        ResourceOpts
+    ),
+    QueryOpts = emqx_resource:get_query_opts(?TEST_RESOURCE, Config),
+    Pids = lists:map(
+        fun(_) ->
+            {ok, Pid} = emqx_resource:query(?ID, get_query_process, QueryOpts),
+            Pid
+        end,
+        lists:seq(1, 100)
+    ),
+    ?assert(length(lists:usort(Pids)) > 1, #{pids => Pids}),
     ok = emqx_resource:remove_local(?ID).
 
 t_query_counter(_) ->

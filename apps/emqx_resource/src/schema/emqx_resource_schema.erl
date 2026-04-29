@@ -42,6 +42,7 @@ create_opts(Overrides) ->
         [
             {buffer_mode, fun buffer_mode/1},
             {worker_pool_size, fun worker_pool_size/1},
+            {buffer_worker_dispatch_strategy, fun buffer_worker_dispatch_strategy/1},
             {health_check_interval, fun health_check_interval/1},
             {health_check_interval_jitter, fun health_check_interval_jitter/1},
             {health_check_timeout, fun health_check_timeout/1},
@@ -85,6 +86,12 @@ worker_pool_size(desc) -> ?DESC("worker_pool_size");
 worker_pool_size(default) -> ?WORKER_POOL_SIZE;
 worker_pool_size(required) -> false;
 worker_pool_size(_) -> undefined.
+
+buffer_worker_dispatch_strategy(type) -> enum([per_clientid, random]);
+buffer_worker_dispatch_strategy(desc) -> ?DESC("buffer_worker_dispatch_strategy");
+buffer_worker_dispatch_strategy(default) -> per_clientid;
+buffer_worker_dispatch_strategy(required) -> false;
+buffer_worker_dispatch_strategy(_) -> undefined.
 
 resume_interval(type) -> emqx_schema:timeout_duration_ms();
 resume_interval(importance) -> ?IMPORTANCE_HIDDEN;
