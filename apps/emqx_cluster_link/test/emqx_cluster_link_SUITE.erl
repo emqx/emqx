@@ -135,6 +135,8 @@ test_message_forwarding(SubType, Config) ->
             T12 = mk_topic(SubType, <<"t1/#">>),
             {ok, _, _} = emqtt:subscribe(TargetC1, T11, qos1),
             {ok, _, _} = emqtt:subscribe(TargetC2, T12, qos1),
+            emqx_cth_cluster:sync_routes(SourceNodes, 10_000),
+            emqx_cth_cluster:sync_routes(TargetNodes, 10_000),
             %% Start cluster link, existing routes should be replicated.
             {ok, _} = ?block_until(#{
                 ?snk_kind := "cluster_link_route_sync_complete",
@@ -165,6 +167,8 @@ test_message_forwarding(SubType, Config) ->
                 end,
                 #{?snk_kind := "cluster_link_route_sync_complete"}
             ),
+            emqx_cth_cluster:sync_routes(SourceNodes),
+            emqx_cth_cluster:sync_routes(TargetNodes),
             %% Publish another message.
             {ok, _} = emqtt:publish(SourceC1, <<"t2/3/4">>, <<"heh">>, qos1),
             ?assertReceive(
@@ -294,8 +298,8 @@ t_target_extrouting_gc('end', Config) ->
     ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
 
 t_target_extrouting_gc(Config) ->
-    [SourceNode1 | _] = nodes_source(Config),
-    [TargetNode1, TargetNode2 | _] = nodes_target(Config),
+    [SourceNode1 | _] = SourceNodes = nodes_source(Config),
+    [TargetNode1, TargetNode2 | _] = TargetNodes = nodes_target(Config),
     TargetName = atom_to_binary(emqx_cluster_link_cth:cluster_name(TargetNode1)),
     SourceC1 = emqx_cluster_link_cth:connect_client("t_target_extrouting_gc", SourceNode1),
     TargetC1 = emqx_cluster_link_cth:connect_client_unlink("t_target_extrouting_gc1", TargetNode1),
@@ -307,6 +311,8 @@ t_target_extrouting_gc(Config) ->
             TopicFilter2 = <<"t/#">>,
             {ok, _, _} = emqtt:subscribe(TargetC1, TopicFilter1, qos1),
             {ok, _, _} = emqtt:subscribe(TargetC2, TopicFilter2, qos1),
+            emqx_cth_cluster:sync_routes(SourceNodes, 10_000),
+            emqx_cth_cluster:sync_routes(TargetNodes, 10_000),
             {ok, _} = ?block_until(#{
                 ?snk_kind := "cluster_link_route_sync_complete", ?snk_meta := #{node := TargetNode1}
             }),
