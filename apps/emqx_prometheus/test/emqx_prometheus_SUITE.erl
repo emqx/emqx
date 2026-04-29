@@ -154,7 +154,15 @@ maybe_meck_license() ->
             ok;
         ee ->
             meck:new(emqx_license_checker, [non_strict, passthrough, no_link]),
-            meck:expect(emqx_license_checker, expiry_epoch, fun() -> 1859673600 end)
+            meck:expect(emqx_license_checker, expiry_epoch, fun() -> 1859673600 end),
+            meck:expect(emqx_license_checker, dump, fun() ->
+                [
+                    {customer, "TestCo"},
+                    {max_sessions, 1000},
+                    {start_at, <<"2024-01-01">>},
+                    {expiry_at, <<"2028-12-06">>}
+                ]
+            end)
     end.
 
 maybe_unmeck_license() ->
