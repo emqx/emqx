@@ -2134,10 +2134,11 @@ t_rule_test_trace(Config, Opts) ->
     RuleTopic = <<"rule/test/trace">>,
     BridgeId = emqx_bridge_resource:bridge_id(ActionType, ActionName),
     RepublishTopicPrimary = <<"primary/republish">>,
+    SQL = maps:get(rule_sql, Opts, <<"select * from \"${t}\" ">>),
     {201, #{<<"id">> := RuleId}} = create_rule_api2(
         #{
             <<"enable">> => true,
-            <<"sql">> => fmt(<<"select * from \"${t}\" ">>, #{t => RuleTopic}),
+            <<"sql">> => fmt(SQL, #{t => RuleTopic}),
             <<"actions">> => [
                 BridgeId,
                 #{

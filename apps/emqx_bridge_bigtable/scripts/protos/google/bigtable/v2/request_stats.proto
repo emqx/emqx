@@ -1,0 +1,112 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package google.bigtable.v2;
+
+import "google/protobuf/duration.proto";
+
+option csharp_namespace = "Google.Cloud.Bigtable.V2";
+option go_package = "cloud.google.com/go/bigtable/apiv2/bigtablepb;bigtablepb";
+option java_multiple_files = true;
+option java_outer_classname = "RequestStatsProto";
+option java_package = "com.google.bigtable.v2";
+option php_namespace = "Google\\Cloud\\Bigtable\\V2";
+option ruby_package = "Google::Cloud::Bigtable::V2";
+
+//
+// Messages related to RequestStats, part of the Query Stats feature, that can
+// help understand the performance of requests.
+//
+// The layout of requests below is as follows:
+//   * RequestStats serves as the top-level container for statistics and
+//     measures related to Bigtable requests. This common object is returned as
+//     part of methods in the Data API.
+//   * RequestStats contains multiple *views* of related data, chosen by an
+//     option in the source Data API method. The view that is returned is
+//     designed to have all submessages (and their submessages, and so on)
+//     filled-in, to provide a comprehensive selection of statistics and
+//     measures related to the requested view.
+
+// ReadIterationStats captures information about the iteration of rows or cells
+// over the course of a read, e.g. how many results were scanned in a read
+// operation versus the results returned.
+message ReadIterationStats {
+  // The rows seen (scanned) as part of the request. This includes the count of
+  // rows returned, as captured below.
+  int64 rows_seen_count = 1;
+
+  // The rows returned as part of the request.
+  int64 rows_returned_count = 2;
+
+  // The cells seen (scanned) as part of the request. This includes the count of
+  // cells returned, as captured below.
+  int64 cells_seen_count = 3;
+
+  // The cells returned as part of the request.
+  int64 cells_returned_count = 4;
+}
+
+// RequestLatencyStats provides a measurement of the latency of the request as
+// it interacts with different systems over its lifetime, e.g. how long the
+// request took to execute within a frontend server.
+message RequestLatencyStats {
+  // The latency measured by the frontend server handling this request, from
+  // when the request was received, to when this value is sent back in the
+  // response. For more context on the component that is measuring this latency,
+  // see: https://cloud.google.com/bigtable/docs/overview
+  //
+  // Note: This value may be slightly shorter than the value reported into
+  // aggregate latency metrics in Monitoring for this request
+  // (https://cloud.google.com/bigtable/docs/monitoring-instance) as this value
+  // needs to be sent in the response before the latency measurement including
+  // that transmission is finalized.
+  //
+  // Note: This value includes the end-to-end latency of contacting nodes in
+  // the targeted cluster, e.g. measuring from when the first byte arrives at
+  // the frontend server, to when this value is sent back as the last value in
+  // the response, including any latency incurred by contacting nodes, waiting
+  // for results from nodes, and finally sending results from nodes back to the
+  // caller.
+  google.protobuf.Duration frontend_server_latency = 1;
+}
+
+// FullReadStatsView captures all known information about a read.
+message FullReadStatsView {
+  // Iteration stats describe how efficient the read is, e.g. comparing
+  // rows seen vs. rows returned or cells seen vs cells returned can provide an
+  // indication of read efficiency (the higher the ratio of seen to retuned the
+  // better).
+  ReadIterationStats read_iteration_stats = 1;
+
+  // Request latency stats describe the time taken to complete a request, from
+  // the server side.
+  RequestLatencyStats request_latency_stats = 2;
+}
+
+// RequestStats is the container for additional information pertaining to a
+// single request, helpful for evaluating the performance of the sent request.
+// Currently, the following method is supported: google.bigtable.v2.ReadRows
+message RequestStats {
+  // Information pertaining to each request type received. The type is chosen
+  // based on the requested view.
+  //
+  // See the messages above for additional context.
+  oneof stats_view {
+    // Available with the ReadRowsRequest.RequestStatsView.REQUEST_STATS_FULL
+    // view, see package google.bigtable.v2.
+    FullReadStatsView full_read_stats_view = 1;
+  }
+}

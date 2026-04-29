@@ -1,0 +1,67 @@
+emqx_bridge_bigtable_action_schema {
+  bigtable {
+    label: """Upload to Bigtable"""
+    desc:
+    """Action that takes incoming events and appends them to Bigtable."""
+  }
+
+  action_parameters {
+    label: """Bigtable Action Parameters"""
+    desc:
+    """Set of parameters for the action."""
+  }
+
+  instance_id {
+    label: """Instance Id"""
+    desc:
+    """Instance identifier.  Note that this is a simple identifier such as `myinst` and not the fully qualified identifier `projects/.../instances/...`."""
+  }
+
+  table_id {
+    label: """Table Id"""
+    desc:
+    """Table identifier.  Note that this is a simple identifier such as `mytable` and not the fully qualified identifier `projects/.../instances/.../tables/...`."""
+  }
+
+  row_key {
+    label: """Row Key"""
+    desc:
+    """Variform expression that renders to the message's row key."""
+  }
+
+  mutations {
+    label: """Mutations"""
+    desc:
+    """List of cell mutations to apply for a single received message."""
+  }
+
+  set_cell_type {
+    label: """Set Cell"""
+    desc:
+    """Set Cell mutation."""
+  }
+
+  set_cell_family_name {
+    label: """Family Name"""
+    desc:
+    """Variform expression that renders to the mutation's family name."""
+  }
+
+  set_cell_column_qualifier {
+    label: """Column Qualifier"""
+    desc:
+    """Variform expression that renders to the mutation's column qualifier."""
+  }
+
+  set_cell_timestamp_micros {
+    label: """Timestamp In Microseconds"""
+    desc:
+    """Variform expression that renders to the mutation's timestamp in microseconds."""
+  }
+
+  set_cell_value {
+    label: """Value"""
+    desc:
+    """Variform expression that renders to the mutation's value."""
+  }
+}

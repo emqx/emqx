@@ -229,6 +229,12 @@
     "enabled": true
   },
   {
+    "name": "gcp_emulator_bigtable",
+    "listen": "0.0.0.0:8186",
+    "upstream": "gcp-emulator-bigtable:8086",
+    "enabled": true
+  },
+  {
     "name": "greptimedb_http",
     "listen": "0.0.0.0:4000",
     "upstream": "greptimedb:4000",

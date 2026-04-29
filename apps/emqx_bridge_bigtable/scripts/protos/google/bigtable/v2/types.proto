@@ -1,0 +1,465 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package google.bigtable.v2;
+
+import "google/api/field_behavior.proto";
+
+option csharp_namespace = "Google.Cloud.Bigtable.V2";
+option go_package = "cloud.google.com/go/bigtable/apiv2/bigtablepb;bigtablepb";
+option java_multiple_files = true;
+option java_outer_classname = "TypesProto";
+option java_package = "com.google.bigtable.v2";
+option php_namespace = "Google\\Cloud\\Bigtable\\V2";
+option ruby_package = "Google::Cloud::Bigtable::V2";
+
+// `Type` represents the type of data that is written to, read from, or stored
+// in Bigtable. It is heavily based on the GoogleSQL standard to help maintain
+// familiarity and consistency across products and features.
+//
+// For compatibility with Bigtable's existing untyped APIs, each `Type` includes
+// an `Encoding` which describes how to convert to or from the underlying data.
+//
+// Each encoding can operate in one of two modes:
+//
+//  - Sorted: In this mode, Bigtable guarantees that `Encode(X) <= Encode(Y)`
+//    if and only if `X <= Y`. This is useful anywhere sort order is important,
+//    for example when encoding keys.
+//  - Distinct: In this mode, Bigtable guarantees that if `X != Y` then
+//   `Encode(X) != Encode(Y)`. However, the converse is not guaranteed. For
+//    example, both `{'foo': '1', 'bar': '2'}` and `{'bar': '2', 'foo': '1'}`
+//    are valid encodings of the same JSON value.
+//
+// The API clearly documents which mode is used wherever an encoding can be
+// configured. Each encoding also documents which values are supported in which
+// modes. For example, when encoding INT64 as a numeric STRING, negative numbers
+// cannot be encoded in sorted mode. This is because `INT64(1) > INT64(-1)`, but
+// `STRING("-00001") > STRING("00001")`.
+message Type {
+  // Bytes
+  // Values of type `Bytes` are stored in `Value.bytes_value`.
+  message Bytes {
+    // Rules used to convert to or from lower level types.
+    message Encoding {
+      // Leaves the value as-is.
+      //
+      // Sorted mode: all values are supported.
+      //
+      // Distinct mode: all values are supported.
+      message Raw {
+        // If set, allows NULL values to be encoded as the empty string "".
+        //
+        // The actual empty string, or any value which only contains the
+        // null byte `0x00`, has one more null byte appended.
+        bool escape_nulls = 1;
+      }
+
+      // Which encoding to use.
+      oneof encoding {
+        // Use `Raw` encoding.
+        Raw raw = 1;
+      }
+    }
+
+    // The encoding to use when converting to or from lower level types.
+    Encoding encoding = 1;
+  }
+
+  // String
+  // Values of type `String` are stored in `Value.string_value`.
+  message String {
+    // Rules used to convert to or from lower level types.
+    message Encoding {
+      // Deprecated: prefer the equivalent `Utf8Bytes`.
+      message Utf8Raw {
+        option deprecated = true;
+      }
+
+      // UTF-8 encoding.
+      //
+      // Sorted mode:
+      //  - All values are supported.
+      //  - Code point order is preserved.
+      //
+      // Distinct mode: all values are supported.
+      //
+      // Compatible with:
+      //
+      //  - BigQuery `TEXT` encoding
+      //  - HBase `Bytes.toBytes`
+      //  - Java `String#getBytes(StandardCharsets.UTF_8)`
+      message Utf8Bytes {
+        // Single-character escape sequence used to support NULL values.
+        //
+        // If set, allows NULL values to be encoded as the empty string "".
+        //
+        // The actual empty string, or any value where every character equals
+        // `null_escape_char`, has one more `null_escape_char` appended.
+        //
+        // If `null_escape_char` is set and does not equal the ASCII null
+        // character `0x00`, then the encoding will not support sorted mode.
+        //
+        // .
+        string null_escape_char = 1;
+      }
+
+      // Which encoding to use.
+      oneof encoding {
+        // Deprecated: if set, converts to an empty `utf8_bytes`.
+        Utf8Raw utf8_raw = 1 [deprecated = true];
+
+        // Use `Utf8Bytes` encoding.
+        Utf8Bytes utf8_bytes = 2;
+      }
+    }
+
+    // The encoding to use when converting to or from lower level types.
+    Encoding encoding = 1;
+  }
+
+  // Int64
+  // Values of type `Int64` are stored in `Value.int_value`.
+  message Int64 {
+    // Rules used to convert to or from lower level types.
+    message Encoding {
+      // Encodes the value as an 8-byte big-endian two's complement value.
+      //
+      // Sorted mode: non-negative values are supported.
+      //
+      // Distinct mode: all values are supported.
+      //
+      // Compatible with:
+      //
+      //  - BigQuery `BINARY` encoding
+      //  - HBase `Bytes.toBytes`
+      //  - Java `ByteBuffer.putLong()` with `ByteOrder.BIG_ENDIAN`
+      message BigEndianBytes {
+        // Deprecated: ignored if set.
+        Bytes bytes_type = 1 [deprecated = true];
+      }
+
+      // Encodes the value in a variable length binary format of up to 10 bytes.
+      // Values that are closer to zero use fewer bytes.
+      //
+      // Sorted mode: all values are supported.
+      //
+      // Distinct mode: all values are supported.
+      message OrderedCodeBytes {}
+
+      // Which encoding to use.
+      oneof encoding {
+        // Use `BigEndianBytes` encoding.
+        BigEndianBytes big_endian_bytes = 1;
+
+        // Use `OrderedCodeBytes` encoding.
+        OrderedCodeBytes ordered_code_bytes = 2;
+      }
+    }
+
+    // The encoding to use when converting to or from lower level types.
+    Encoding encoding = 1;
+  }
+
+  // bool
+  // Values of type `Bool` are stored in `Value.bool_value`.
+  message Bool {}
+
+  // Float32
+  // Values of type `Float32` are stored in `Value.float_value`.
+  message Float32 {}
+
+  // Float64
+  // Values of type `Float64` are stored in `Value.float_value`.
+  message Float64 {}
+
+  // Timestamp
+  // Values of type `Timestamp` are stored in `Value.timestamp_value`.
+  message Timestamp {
+    // Rules used to convert to or from lower level types.
+    message Encoding {
+      // Which encoding to use.
+      oneof encoding {
+        // Encodes the number of microseconds since the Unix epoch using the
+        // given `Int64` encoding. Values must be microsecond-aligned.
+        //
+        // Compatible with:
+        //
+        //  - Java `Instant.truncatedTo()` with `ChronoUnit.MICROS`
+        Int64.Encoding unix_micros_int64 = 1;
+      }
+    }
+
+    // The encoding to use when converting to or from lower level types.
+    Encoding encoding = 1;
+  }
+
+  // Date
+  // Values of type `Date` are stored in `Value.date_value`.
+  message Date {}
+
+  // A structured data value, consisting of fields which map to dynamically
+  // typed values.
+  // Values of type `Struct` are stored in `Value.array_value` where entries are
+  // in the same order and number as `field_types`.
+  message Struct {
+    // A struct field and its type.
+    message Field {
+      // The field name (optional). Fields without a `field_name` are considered
+      // anonymous and cannot be referenced by name.
+      string field_name = 1;
+
+      // The type of values in this field.
+      Type type = 2;
+    }
+
+    // Rules used to convert to or from lower level types.
+    message Encoding {
+      // Uses the encoding of `fields[0].type` as-is.
+      // Only valid if `fields.size == 1`.
+      message Singleton {}
+
+      // Fields are encoded independently and concatenated with a configurable
+      // `delimiter` in between.
+      //
+      // A struct with no fields defined is encoded as a single `delimiter`.
+      //
+      // Sorted mode:
+      //
+      //  - Fields are encoded in sorted mode.
+      //  - Encoded field values must not contain any bytes <= `delimiter[0]`
+      //  - Element-wise order is preserved: `A < B` if `A[0] < B[0]`, or if
+      //    `A[0] == B[0] && A[1] < B[1]`, etc. Strict prefixes sort first.
+      //
+      // Distinct mode:
+      //
+      //  - Fields are encoded in distinct mode.
+      //  - Encoded field values must not contain `delimiter[0]`.
+      message DelimitedBytes {
+        // Byte sequence used to delimit concatenated fields. The delimiter must
+        // contain at least 1 character and at most 50 characters.
+        bytes delimiter = 1;
+      }
+
+      // Fields are encoded independently and concatenated with the fixed byte
+      // pair `{0x00, 0x01}` in between.
+      //
+      // Any null `(0x00)` byte in an encoded field is replaced by the fixed
+      // byte pair `{0x00, 0xFF}`.
+      //
+      // Fields that encode to the empty string "" have special handling:
+      //
+      //  - If *every* field encodes to "", or if the STRUCT has no fields
+      //    defined, then the STRUCT is encoded as the fixed byte pair
+      //    `{0x00, 0x00}`.
+      //  - Otherwise, the STRUCT only encodes until the last non-empty field,
+      //    omitting any trailing empty fields. Any empty fields that aren't
+      //    omitted are replaced with the fixed byte pair `{0x00, 0x00}`.
+      //
+      // Examples:
+      //
+      // ```
+      //  - STRUCT()             -> "\00\00"
+      //  - STRUCT("")           -> "\00\00"
+      //  - STRUCT("", "")       -> "\00\00"
+      //  - STRUCT("", "B")      -> "\00\00" + "\00\01" + "B"
+      //  - STRUCT("A", "")      -> "A"
+      //  - STRUCT("", "B", "")  -> "\00\00" + "\00\01" + "B"
+      //  - STRUCT("A", "", "C") -> "A" + "\00\01" + "\00\00" + "\00\01" + "C"
+      // ```
+      //
+      //
+      // Since null bytes are always escaped, this encoding can cause size
+      // blowup for encodings like `Int64.BigEndianBytes` that are likely to
+      // produce many such bytes.
+      //
+      // Sorted mode:
+      //
+      //  - Fields are encoded in sorted mode.
+      //  - All values supported by the field encodings are allowed
+      //  - Element-wise order is preserved: `A < B` if `A[0] < B[0]`, or if
+      //    `A[0] == B[0] && A[1] < B[1]`, etc. Strict prefixes sort first.
+      //
+      // Distinct mode:
+      //
+      //  - Fields are encoded in distinct mode.
+      //  - All values supported by the field encodings are allowed.
+      message OrderedCodeBytes {}
+
+      // Which encoding to use.
+      oneof encoding {
+        // Use `Singleton` encoding.
+        Singleton singleton = 1;
+
+        // Use `DelimitedBytes` encoding.
+        DelimitedBytes delimited_bytes = 2;
+
+        // User `OrderedCodeBytes` encoding.
+        OrderedCodeBytes ordered_code_bytes = 3;
+      }
+    }
+
+    // The names and types of the fields in this struct.
+    repeated Field fields = 1;
+
+    // The encoding to use when converting to or from lower level types.
+    Encoding encoding = 2;
+  }
+
+  // A protobuf message type.
+  // Values of type `Proto` are stored in `Value.bytes_value`.
+  message Proto {
+    // The ID of the schema bundle that this proto is defined in.
+    string schema_bundle_id = 1;
+
+    // The fully qualified name of the protobuf message, including package. In
+    // the format of "foo.bar.Message".
+    string message_name = 2;
+  }
+
+  // A protobuf enum type.
+  // Values of type `Enum` are stored in `Value.int_value`.
+  message Enum {
+    // The ID of the schema bundle that this enum is defined in.
+    string schema_bundle_id = 1;
+
+    // The fully qualified name of the protobuf enum message, including package.
+    // In the format of "foo.bar.EnumMessage".
+    string enum_name = 2;
+  }
+
+  // An ordered list of elements of a given type.
+  // Values of type `Array` are stored in `Value.array_value`.
+  message Array {
+    // The type of the elements in the array. This must not be `Array`.
+    Type element_type = 1;
+  }
+
+  // A mapping of keys to values of a given type.
+  // Values of type `Map` are stored in a `Value.array_value` where each entry
+  // is another `Value.array_value` with two elements (the key and the value,
+  // in that order).
+  // Normally encoded Map values won't have repeated keys, however, clients are
+  // expected to handle the case in which they do. If the same key appears
+  // multiple times, the _last_ value takes precedence.
+  message Map {
+    // The type of a map key.
+    // Only `Bytes`, `String`, and `Int64` are allowed as key types.
+    Type key_type = 1;
+
+    // The type of the values in a map.
+    Type value_type = 2;
+  }
+
+  // A value that combines incremental updates into a summarized value.
+  //
+  // Data is never directly written or read using type `Aggregate`. Writes
+  // provide either the `input_type` or `state_type`, and reads always return
+  // the `state_type` .
+  message Aggregate {
+    // Computes the sum of the input values.
+    // Allowed input: `Int64`
+    // State: same as input
+    message Sum {}
+
+    // Computes the max of the input values.
+    // Allowed input: `Int64`
+    // State: same as input
+    message Max {}
+
+    // Computes the min of the input values.
+    // Allowed input: `Int64`
+    // State: same as input
+    message Min {}
+
+    // Computes an approximate unique count over the input values. When using
+    // raw data as input, be careful to use a consistent encoding. Otherwise
+    // the same value encoded differently could count more than once, or two
+    // distinct values could count as identical.
+    // Input: Any, or omit for Raw
+    // State: TBD
+    // Special state conversions: `Int64` (the unique count estimate)
+    message HyperLogLogPlusPlusUniqueCount {}
+
+    // Type of the inputs that are accumulated by this `Aggregate`.
+    // Use `AddInput` mutations to accumulate new inputs.
+    Type input_type = 1;
+
+    // Output only. Type that holds the internal accumulator state for the
+    // `Aggregate`. This is a function of the `input_type` and `aggregator`
+    // chosen.
+    Type state_type = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Which aggregator function to use. The configured types must match.
+    oneof aggregator {
+      // Sum aggregator.
+      Sum sum = 4;
+
+      // HyperLogLogPlusPlusUniqueCount aggregator.
+      HyperLogLogPlusPlusUniqueCount hllpp_unique_count = 5;
+
+      // Max aggregator.
+      Max max = 6;
+
+      // Min aggregator.
+      Min min = 7;
+    }
+  }
+
+  // The kind of type that this represents.
+  oneof kind {
+    // Bytes
+    Bytes bytes_type = 1;
+
+    // String
+    String string_type = 2;
+
+    // Int64
+    Int64 int64_type = 5;
+
+    // Float32
+    Float32 float32_type = 12;
+
+    // Float64
+    Float64 float64_type = 9;
+
+    // Bool
+    Bool bool_type = 8;
+
+    // Timestamp
+    Timestamp timestamp_type = 10;
+
+    // Date
+    Date date_type = 11;
+
+    // Aggregate
+    Aggregate aggregate_type = 6;
+
+    // Struct
+    Struct struct_type = 7;
+
+    // Array
+    Array array_type = 3;
+
+    // Map
+    Map map_type = 4;
+
+    // Proto
+    Proto proto_type = 13;
+
+    // Enum
+    Enum enum_type = 14;
+  }
+}
