@@ -135,48 +135,56 @@ t_cluster_routing(Config) ->
     Commands = [
         {fun publish/3, [C1, <<"a/b/c">>, <<"wontsee">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"wontsee">>]},
-        {fun subscribe/3, [C3, <<"a/+/c/#">>, Cluster]},
+        {fun subscribe/3, [Cluster, C3, <<"a/+/c/#">>]},
         {fun publish/3, [C1, <<"a/b/c">>, <<"01">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"wontsee">>]},
-        {fun subscribe/3, [C1, <<"a/b/c">>, Cluster]},
-        {fun subscribe/3, [C2, <<"a/b/+">>, Cluster]},
+        {fun subscribe/3, [Cluster, C1, <<"a/b/c">>]},
+        {fun subscribe/3, [Cluster, C2, <<"a/b/+">>]},
         {fun publish/3, [C3, <<"a/b/c">>, <<"02">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"03">>]},
         {fun publish/3, [C2, <<"a/b/c/d">>, <<"04">>]},
-        {fun subscribe/3, [C3, <<"a/b/d">>, Cluster]},
+        {fun subscribe/3, [Cluster, C3, <<"a/b/d">>]},
         {fun publish/3, [C1, <<"a/b/d">>, <<"05">>]},
-        {fun unsubscribe/3, [C3, <<"a/+/c/#">>, Cluster]},
+        {fun unsubscribe/3, [Cluster, C3, <<"a/+/c/#">>]},
         {fun publish/3, [C1, <<"a/b/c">>, <<"06">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"07">>]},
         {fun publish/3, [C2, <<"a/b/c/d">>, <<"08">>]},
-        {fun unsubscribe/3, [C2, <<"a/b/+">>, Cluster]},
+        {fun unsubscribe/3, [Cluster, C2, <<"a/b/+">>]},
         {fun publish/3, [C1, <<"a/b/c">>, <<"09">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"10">>]},
         {fun publish/3, [C2, <<"a/b/c/d">>, <<"11">>]},
-        {fun unsubscribe/3, [C3, <<"a/b/d">>, Cluster]},
-        {fun unsubscribe/3, [C1, <<"a/b/c">>, Cluster]},
+        {fun unsubscribe/3, [Cluster, C3, <<"a/b/d">>]},
+        {fun unsubscribe/3, [Cluster, C1, <<"a/b/c">>]},
         {fun publish/3, [C1, <<"a/b/c">>, <<"wontsee">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"wontsee">>]}
     ],
     ok = lists:foreach(fun({F, Args}) -> erlang:apply(F, Args) end, Commands),
     _ = [emqtt:stop(C) || C <- Clients],
     Deliveries = ?drainMailbox(),
-    ?assertMatch(
+    Diff = snabbkaffe_diff:diff_lists(
+        #{
+            compare_fun => fun(
+                {pub, Cli1, #{topic := T1, payload := P1}},
+                {pub, Cli2, #{topic := T2, payload := P2}}
+            ) ->
+                Cli1 =:= Cli2 andalso T1 =:= T2 andalso P1 =:= P2
+            end
+        },
         [
-            {pub, C1, #{topic := <<"a/b/c">>, payload := <<"02">>}},
-            {pub, C1, #{topic := <<"a/b/c">>, payload := <<"06">>}},
-            {pub, C1, #{topic := <<"a/b/c">>, payload := <<"09">>}},
-            {pub, C2, #{topic := <<"a/b/c">>, payload := <<"02">>}},
-            {pub, C2, #{topic := <<"a/b/d">>, payload := <<"03">>}},
-            {pub, C2, #{topic := <<"a/b/d">>, payload := <<"05">>}},
-            {pub, C2, #{topic := <<"a/b/c">>, payload := <<"06">>}},
-            {pub, C2, #{topic := <<"a/b/d">>, payload := <<"07">>}},
-            {pub, C3, #{topic := <<"a/b/c">>, payload := <<"01">>}},
-            {pub, C3, #{topic := <<"a/b/c">>, payload := <<"02">>}},
-            {pub, C3, #{topic := <<"a/b/c/d">>, payload := <<"04">>}},
-            {pub, C3, #{topic := <<"a/b/d">>, payload := <<"05">>}},
-            {pub, C3, #{topic := <<"a/b/d">>, payload := <<"07">>}},
-            {pub, C3, #{topic := <<"a/b/d">>, payload := <<"10">>}}
+            {pub, C1, #{topic => <<"a/b/c">>, payload => <<"02">>}},
+            {pub, C1, #{topic => <<"a/b/c">>, payload => <<"06">>}},
+            {pub, C1, #{topic => <<"a/b/c">>, payload => <<"09">>}},
+            {pub, C2, #{topic => <<"a/b/c">>, payload => <<"02">>}},
+            {pub, C2, #{topic => <<"a/b/d">>, payload => <<"03">>}},
+            {pub, C2, #{topic => <<"a/b/d">>, payload => <<"05">>}},
+            {pub, C2, #{topic => <<"a/b/c">>, payload => <<"06">>}},
+            {pub, C2, #{topic => <<"a/b/d">>, payload => <<"07">>}},
+            {pub, C3, #{topic => <<"a/b/c">>, payload => <<"01">>}},
+            {pub, C3, #{topic => <<"a/b/c">>, payload => <<"02">>}},
+            {pub, C3, #{topic => <<"a/b/c/d">>, payload => <<"04">>}},
+            {pub, C3, #{topic => <<"a/b/d">>, payload => <<"05">>}},
+            {pub, C3, #{topic => <<"a/b/d">>, payload => <<"07">>}},
+            {pub, C3, #{topic => <<"a/b/d">>, payload => <<"10">>}}
         ],
         lists:sort(
             fun({pub, CL, #{payload := PL}}, {pub, CR, #{payload := PR}}) ->
@@ -184,7 +192,14 @@ t_cluster_routing(Config) ->
             end,
             Deliveries
         )
-    ).
+    ),
+    case Diff of
+        [] ->
+            ok;
+        _ ->
+            ct:pal("~s", [snabbkaffe_diff:format(Diff)]),
+            error(no_match)
+    end.
 
 start_client(Node) ->
     Self = self(),
@@ -198,17 +213,19 @@ start_client(Node) ->
     C.
 
 publish(C, Topic, Payload) ->
-    {ok, #{reason_code := 0}} = emqtt:publish(C, Topic, Payload, 1).
+    {ok, #{reason_code := 0}} = emqtt:publish(C, Topic, Payload, 1),
+    %% Sleep to avoid racing with other operations, e.g. unsubscribe:
+    ct:sleep(100).
 
-subscribe(C, Topic, Nodes) ->
+subscribe(Nodes, C, Topic) ->
+    ct:pal("Subscribe ~p ~s", [C, Topic]),
     {ok, _Props, [0]} = emqtt:subscribe(C, Topic),
-    %% With v3 merge tables route propagation is async even between cores,
-    %% so wait until all cluster members agree on the routing table.
-    emqx_cth_cluster:sync_routes(Nodes, 5_000).
+    emqx_cth_cluster:sync_routes(Nodes, 10_000).
 
-unsubscribe(C, Topic, Nodes) ->
+unsubscribe(Nodes, C, Topic) ->
+    ct:pal("Un-subscribe ~p ~s", [C, Topic]),
     {ok, _Props, undefined} = emqtt:unsubscribe(C, Topic),
-    emqx_cth_cluster:sync_routes(Nodes, 5_000).
+    emqx_cth_cluster:sync_routes(Nodes, 10_000).
 
 %%
 
