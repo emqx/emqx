@@ -401,10 +401,7 @@ t_request_with_token_no_connection(_) ->
     Action = fun(Channel) ->
         URI = pubsub_uri("no_connection", "tok"),
         Req = make_req(get, <<>>, [{observe, 0}]),
-        case do_request(Channel, URI, Req) of
-            {error, unauthorized, _} -> ok;
-            {error, uauthorized, _} -> ok
-        end
+        ?assertMatch({error, uauthorized, _}, do_request(Channel, URI, Req))
     end,
     do(Action).
 
@@ -584,11 +581,11 @@ t_invalid_token_request(_) ->
         Token = connection(Channel),
         URI = pubsub_uri("abc", "badtoken"),
         Req = make_req(get, <<>>, [{observe, 0}]),
-        case do_request(Channel, URI, Req) of
-            {error, unauthorized, _} -> ok;
-            {error, uauthorized, _} -> ok
-        end,
-        disconnection(Channel, Token)
+        try
+            ?assertMatch({error, uauthorized, _}, do_request(Channel, URI, Req))
+        after
+            disconnection(Channel, Token)
+        end
     end,
     do(Action).
 
@@ -1172,6 +1169,66 @@ t_invalid_if_none_match_bad_option(_) ->
     Resp = er_coap_message_parser:decode(Bin),
     ?assertMatch(#coap_message{method = {error, bad_option}}, Resp),
     ok.
+
+t_proxy_conn_reuse_bound_clientid_when_missing(_) ->
+    Peer = {{127, 0, 0, 1}, 12345},
+    State0 = emqx_coap_proxy_conn:initialize([]),
+    Msg1 = #coap_message{
+        type = con,
+        method = post,
+        id = 1,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{<<"clientid">> => <<"client1">>}
+        }
+    },
+    Bin1 = emqx_coap_frame:serialize_pkt(Msg1, emqx_coap_frame:serialize_opts()),
+    {ok, <<"client1">>, _Packets1, State1} =
+        emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State0, Bin1),
+    Msg2 = #coap_message{
+        type = con,
+        method = put,
+        id = 2,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{}
+        }
+    },
+    Bin2 = emqx_coap_frame:serialize_pkt(Msg2, emqx_coap_frame:serialize_opts()),
+    ?assertMatch(
+        {ok, <<"client1">>, _Packets2, _State2},
+        emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State1, Bin2)
+    ).
+
+t_proxy_conn_keep_bound_clientid_on_different_clientid(_) ->
+    Peer = {{127, 0, 0, 1}, 12345},
+    State0 = emqx_coap_proxy_conn:initialize([]),
+    Msg1 = #coap_message{
+        type = con,
+        method = post,
+        id = 1,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{<<"clientid">> => <<"client1">>}
+        }
+    },
+    Bin1 = emqx_coap_frame:serialize_pkt(Msg1, emqx_coap_frame:serialize_opts()),
+    {ok, <<"client1">>, _Packets1, State1} =
+        emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State0, Bin1),
+    Msg2 = #coap_message{
+        type = con,
+        method = post,
+        id = 2,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{<<"clientid">> => <<"client2">>}
+        }
+    },
+    Bin2 = emqx_coap_frame:serialize_pkt(Msg2, emqx_coap_frame:serialize_opts()),
+    ?assertMatch(
+        {ok, <<"client1">>, _Packets2, _State2},
+        emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State1, Bin2)
+    ).
 
 %%--------------------------------------------------------------------
 %% helpers
