@@ -269,7 +269,7 @@ data_import(post, #{body := #{<<"filename">> := Filename} = Body} = Req) ->
         {error, Msg} ->
             {400, #{code => ?BAD_REQUEST, message => Msg}};
         FileNode ->
-            case check_no_sensitive_tables(FileNode, Filename, auth_meta(Req)) of
+            case check_no_sensitive_tables(Filename, auth_meta(Req)) of
                 {forbidden, Sets} ->
                     Msg = iolist_to_binary([
                         <<"API key import refused: backup contains restricted tables: ">>,
@@ -398,20 +398,19 @@ filter_sensitive_table_sets(Params) ->
         end,
     Params#{<<"table_sets">> => Allowed}.
 
-check_no_sensitive_tables(FileNode, Filename, AuthMeta) ->
+%% Peek the local file. If the file lives on a different node (caller passed
+%% `node' in the body), the local peek returns `{error, not_found}' and the
+%% handler reports a 400 -- API-key callers must upload to the same node where
+%% they import.
+check_no_sensitive_tables(Filename, AuthMeta) ->
     case is_api_key_caller(AuthMeta) of
         false ->
             ok;
         true ->
-            case
-                emqx_mgmt_data_backup_proto_v2:peek_sensitive_table_sets(
-                    FileNode, Filename, infinity
-                )
-            of
+            case emqx_mgmt_data_backup:peek_sensitive_table_sets(Filename) of
                 {ok, []} -> ok;
                 {ok, Sets} -> {forbidden, Sets};
-                {error, Reason} -> {peek_error, Reason};
-                {badrpc, Reason} -> {peek_error, Reason}
+                {error, Reason} -> {peek_error, Reason}
             end
     end.
 
