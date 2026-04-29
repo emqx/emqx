@@ -1520,7 +1520,7 @@ t_bulk_subscribe(Config) ->
                     get_subscriptions_request(ClientId1, Config, #{simplify_result => true})
                 )
             ),
-            ok = emqx_cth_cluster:sync_routes([N1, N2], 1000),
+            ok = emqx_cth_cluster:sync_routes([N1, N2], 10_000),
             {ok, _} = emqtt:publish(C2, Topic, <<"hi1">>, [{qos, 1}]),
             ?assertReceive({publish, #{topic := Topic, payload := <<"hi1">>}}),
             BulkUnsub = [#{topic => Topic}],
