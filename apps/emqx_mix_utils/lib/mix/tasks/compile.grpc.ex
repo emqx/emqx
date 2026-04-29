@@ -143,6 +143,33 @@ defmodule Mix.Tasks.Compile.Grpc do
       debug("file up to date, not compiling: #{generated_src}")
     end
 
+    context
+    |> Map.merge(%{
+      mod_name: mod_name,
+      ebin_path: ebin_path,
+      manifest_modified_time: manifest_modified_time
+    })
+    |> generate_service_files()
+
+    :ok
+  end
+
+  defp generate_service_files(%{generate_server?: false, generate_client?: false}) do
+    :ok
+  end
+
+  defp generate_service_files(context) do
+    generate_server? = Map.get(context, :generate_server?, true)
+    generate_client? = Map.get(context, :generate_client?, true)
+
+    %{
+      mod_name: mod_name,
+      ebin_path: ebin_path,
+      app_root: app_root,
+      manifest_modified_time: manifest_modified_time,
+      out_dir: out_dir
+    } = context
+
     mod_name
     |> List.to_atom()
     |> :code.purge()
@@ -190,20 +217,24 @@ defmodule Mix.Tasks.Compile.Grpc do
 
         bhvr_output_src = Path.join([app_root, out_dir, "#{snake_service}_bhvr.erl"])
 
-        if stale?(bhvr_output_src, manifest_modified_time) do
-          Process.put(@stale?, true)
-          render_and_write(service_quoted, bhvr_output_src, bindings)
-        else
-          debug("file up to date, not compiling: #{bhvr_output_src}")
+        if generate_server? do
+          if stale?(bhvr_output_src, manifest_modified_time) do
+            Process.put(@stale?, true)
+            render_and_write(service_quoted, bhvr_output_src, bindings)
+          else
+            debug("file up to date, not compiling: #{bhvr_output_src}")
+          end
         end
 
         client_output_src = Path.join([app_root, out_dir, "#{snake_service}_client.erl"])
 
-        if stale?(client_output_src, manifest_modified_time) do
-          Process.put(@stale?, true)
-          render_and_write(client_quoted, client_output_src, bindings)
-        else
-          debug("file up to date, not compiling: #{client_output_src}")
+        if generate_client? do
+          if stale?(client_output_src, manifest_modified_time) do
+            Process.put(@stale?, true)
+            render_and_write(client_quoted, client_output_src, bindings)
+          else
+            debug("file up to date, not compiling: #{client_output_src}")
+          end
         end
 
         :ok
