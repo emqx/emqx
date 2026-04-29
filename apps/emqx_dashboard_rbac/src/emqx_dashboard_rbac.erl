@@ -161,6 +161,28 @@ do_check_rbac(
         _ ->
             false
     end;
+do_check_rbac(
+    #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace, ?actor := Username},
+    Req,
+    ?DASHBOARD_API(post, change_mfa)
+) when is_binary(Namespace) ->
+    %% Namespaced administrators may manage MFA only for themselves.
+    case Req of
+        #{bindings := #{username := Username}} -> true;
+        _ -> false
+    end;
+do_check_rbac(
+    #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace, ?actor := Username} = Actor,
+    Req,
+    ?DASHBOARD_API(delete, change_mfa)
+) when is_binary(Namespace) ->
+    %% Namespaced administrators may manage MFA only for themselves.
+    case Req of
+        #{bindings := #{username := Username}} ->
+            not is_forced_sso_mfa(maps:get(?backend, Actor, ?BACKEND_LOCAL));
+        _ ->
+            false
+    end;
 do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?CONNECTOR_API(_, _)) when
     is_binary(Namespace)
 ->
