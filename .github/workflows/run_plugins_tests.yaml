@@ -1,0 +1,43 @@
+name: Build and test in-tree plugins
+
+concurrency:
+  group: plugins-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_call:
+    inputs:
+      builder:
+        required: true
+        type: string
+
+env:
+  IS_CI: "yes"
+  PROFILE: emqx-enterprise
+
+permissions:
+  contents: read
+
+jobs:
+  plugins_ct:
+    runs-on: ubuntu-22.04
+    container: ${{ inputs.builder }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - run: make ensure-rebar3
+      - name: run in-tree plugin CT
+        run: make plugins-ct
+      - name: build in-tree plugin packages
+        run: make plugins
+      - name: list plugin packages
+        run: ls -la _build/plugins/ || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: plugin-packages
+          path: _build/plugins/*.tar.gz
+          if-no-files-found: ignore
+          retention-days: 7

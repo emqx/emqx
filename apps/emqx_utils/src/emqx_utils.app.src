@@ -1,0 +1,21 @@
+%% -*- mode: erlang -*-
+{application, emqx_utils, [
+    {description, "Miscellaneous utilities for EMQX apps"},
+    % strict semver, bump manually!
+    {vsn, "5.6.2"},
+    {modules, []},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        jiffy,
+        erlang_qq,
+        emqx_http_lib
+    ]},
+    {env, []},
+    {maintainers, ["EMQX Team <contact@emqx.io>"]},
+    {links, [
+        {"Homepage", "https://emqx.io/"},
+        {"Github", "https://github.com/emqx/emqx"}
+    ]}
+]}.
