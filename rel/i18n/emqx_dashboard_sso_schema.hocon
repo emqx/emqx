@@ -9,22 +9,28 @@ backend.desc:
 backend.label:
 """Backend Type"""
 
+force_mfa.desc:
+"""Whether to force MFA (TOTP) for SSO users. When enabled, SSO users must complete MFA setup or verification before receiving a dashboard token."""
+
+force_mfa.label:
+"""Force MFA"""
+
+username.desc:
+"""SSO admin username for password-based backends (e.g. LDAP). Length up to 100 characters."""
+
+username.label:
+"""Username"""
+
+password.desc:
+"""SSO admin password for password-based backends (e.g. LDAP). Length up to 100 characters."""
+
+password.label:
+"""Password"""
+
 sso_struct.desc:
 """Dashboard Single Sign-On"""
 
 sso_struct.label:
 """Dashboard Single Sign-On"""
-
-
-password.desc:
-"""Password."""
-password.label:
-"""Password"""
-
-
-username.desc:
-"""Username."""
-username.label:
-"""Username"""
 
 }

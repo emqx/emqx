@@ -19,6 +19,8 @@
 
 -export([types/0, modules/0, provider/1, backends/0, format/1]).
 
+-export([parse_backend/1]).
+
 %%------------------------------------------------------------------------------
 %% Callbacks
 %%------------------------------------------------------------------------------
@@ -43,6 +45,8 @@
 -callback destroy(State :: state()) -> ok.
 -callback login(request(), State :: state()) ->
     {ok, dashboard_user_role(), Token :: binary()}
+    | {mfa_setup, SetupToken :: binary(), QRInfo :: map()}
+    | {mfa_verify, VerifyToken :: binary()}
     | {redirect, tuple()}
     | {error, Reason :: term()}.
 
@@ -115,3 +119,11 @@ combine(Arg, Bin) ->
 generic_combine(Arg, Bin) ->
     Str = io_lib:format("~0p", [Arg]),
     erlang:iolist_to_binary([Bin, Str]).
+
+%% @doc Parse SSO backend name from binary to atom.
+%% Whitelisted backends only — rejects unknown values.
+-spec parse_backend(binary()) -> {ok, atom()} | {error, unknown_backend}.
+parse_backend(<<"oidc">>) -> {ok, oidc};
+parse_backend(<<"saml">>) -> {ok, saml};
+parse_backend(<<"ldap">>) -> {ok, ldap};
+parse_backend(_) -> {error, unknown_backend}.

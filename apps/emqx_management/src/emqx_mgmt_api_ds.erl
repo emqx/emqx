@@ -43,6 +43,7 @@
     check_enabled/2,
     check_db_exists/2
 ]).
+-export([scopes/0]).
 
 -type sites_shard() :: #{
     storage := emqx_ds:db(),
@@ -56,6 +57,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx/include/emqx_persistent_message.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -78,6 +80,8 @@ api_spec() ->
             fun ?MODULE:check_db_exists/2
         )
     }).
+
+scopes() -> ?SCOPE_SYSTEM.
 
 paths() ->
     [
