@@ -8,6 +8,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([get_upgrade_status/0, emqx_relup_upgrade/0]).
 
@@ -28,6 +29,7 @@
     '/relup/upgrade'/2,
     '/relup/upgrade/:node'/2
 ]).
+-export([scopes/0]).
 
 -ignore_xref(emqx_relup_main).
 
@@ -55,6 +57,8 @@ namespace() ->
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_SYSTEM.
 
 paths() ->
     [

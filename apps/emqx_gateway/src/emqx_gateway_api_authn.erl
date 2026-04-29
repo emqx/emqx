@@ -11,6 +11,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/2, ref/2]).
 
@@ -30,6 +31,7 @@
 
 %% internal export for emqx_gateway_api_listeners module
 -export([schema_authn/0]).
+-export([scopes/0]).
 
 -define(TAGS, [<<"Gateway Authentication">>]).
 
@@ -41,6 +43,8 @@
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_GATEWAYS.
 
 paths() ->
     [

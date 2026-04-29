@@ -3,6 +3,14 @@
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_auth).
 
+%% minirest's HandlerInfo at runtime contains a `path` key, but our
+%% authorize/4 head patterns only reference `module` and `function`,
+%% which narrows the inferred type so dialyzer cannot prove that
+%% `maps:get(path, HandlerInfo)` succeeds. Suppress all dialyzer
+%% warnings for check_scopes/2 — the path key is guaranteed by
+%% minirest at runtime.
+-dialyzer({nowarn_function, [check_scopes/2]}).
+
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -19,12 +27,15 @@
 -export([
     create/5,
     create/6,
+    create/7,
     read/1,
     update/5,
+    update/6,
     delete/1,
     list/0,
     try_init_bootstrap_file/0,
-    format/1
+    format/1,
+    check_scopes/3
 ]).
 
 -export([authorize/4]).
@@ -36,14 +47,14 @@
 
 %% Internal exports (RPC)
 -export([
-    do_update/5,
+    do_update/6,
     do_delete/1,
     do_create_app/1,
     do_force_create_app/1
 ]).
 
 -ifdef(TEST).
--export([create/7]).
+-export([create/8]).
 -export([trans/2, force_create_app/1]).
 -export([init_bootstrap_file/1]).
 -endif.
@@ -121,19 +132,35 @@ try_init_bootstrap_file() ->
     end.
 
 create(Name, Enable, ExpiredAt, Desc, Role) ->
+    create(Name, Enable, ExpiredAt, Desc, Role, undefined).
+
+%% Two 6-arity clauses coexist via guards:
+%% 1. CLI variant (release-60 legacy): (Name, ApiSecret, Enable, ExpiredAt, Desc, Role)
+%%    - ApiSecret is a binary of >= 32 bytes.
+%% 2. REST-API variant (scope-aware):  (Name, Enable, ExpiredAt, Desc, Role, Scopes)
+%%    - Enable is a boolean and Scopes is a list or undefined.
+create(Name, ApiSecret, Enable, ExpiredAt, Desc, Role) when
+    is_binary(ApiSecret) andalso byte_size(ApiSecret) >= 32
+->
+    ApiKey = generate_unique_api_key(Name),
+    create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, undefined);
+create(_Name, ApiSecret, _Enable, _ExpiredAt, _Desc, _Role) when
+    is_binary(ApiSecret)
+->
+    {error, <<"api_secret_too_short">>};
+create(Name, Enable, ExpiredAt, Desc, Role, Scopes) when
+    is_boolean(Enable) andalso (is_list(Scopes) orelse Scopes =:= undefined)
+->
     ApiKey = generate_unique_api_key(Name),
     ApiSecret = generate_api_secret(),
-    create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role).
-
-create(Name, ApiSecret, Enable, ExpiredAt, Desc, Role) when byte_size(ApiSecret) >= 32 ->
-    ApiKey = generate_unique_api_key(Name),
-    create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role);
-create(_Name, _ApiSecret, _Enable, _ExpiredAt, _Desc, _Role) ->
-    {error, <<"api_secret must be no less than 32 bytes">>}.
+    create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, Scopes).
 
 create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role) ->
+    create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, undefined).
+
+create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, Scopes) ->
     case mnesia:table_info(?APP, size) < 100 of
-        true -> create_app(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role);
+        true -> create_app(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, Scopes);
         false -> {error, "Maximum number of ApiKeys reached."}
     end.
 
@@ -143,15 +170,18 @@ read(Name) ->
         [] -> {error, not_found}
     end.
 
-update(Name, Enable, ExpiredAt, Desc, Role0) ->
+update(Name, Enable, ExpiredAt, Desc, Role) ->
+    update(Name, Enable, ExpiredAt, Desc, Role, undefined).
+
+update(Name, Enable, ExpiredAt, Desc, Role0, Scopes) ->
     case parse_role(Role0) of
         {ok, ParsedRole} ->
-            trans(fun ?MODULE:do_update/5, [Name, Enable, ExpiredAt, Desc, ParsedRole]);
+            trans(fun ?MODULE:do_update/6, [Name, Enable, ExpiredAt, Desc, ParsedRole, Scopes]);
         Error ->
             Error
     end.
 
-do_update(Name, Enable, ExpiredAt, Desc, #{?role := Role, ?namespace := Namespace}) ->
+do_update(Name, Enable, ExpiredAt, Desc, #{?role := Role, ?namespace := Namespace}, Scopes) ->
     case mnesia:read(?APP, Name, write) of
         [] ->
             mnesia:abort(not_found);
@@ -162,17 +192,18 @@ do_update(Name, Enable, ExpiredAt, Desc, #{?role := Role, ?namespace := Namespac
                 true ?= PreviousNamespace /= Namespace,
                 mnesia:abort(<<"changing_namespace_is_forbidden">>)
             end,
-            Extra = emqx_utils_maps:put_if(
+            Extra2 = emqx_utils_maps:put_if(
                 Extra1#{?role => Role, desc => ensure_not_undefined(Desc, Desc0)},
                 ?namespace,
                 Namespace,
                 is_binary(Namespace)
             ),
+            Extra3 = maybe_set_scopes(Extra2, Scopes),
             App =
                 App0#?APP{
                     expired_at = ExpiredAt,
                     enable = ensure_not_undefined(Enable, Enable0),
-                    extra = Extra
+                    extra = Extra3
                 },
             ok = mnesia:write(App),
             to_map(App)
@@ -225,17 +256,30 @@ authorize(#{module := emqx_mgmt_api_api_keys}, _Req, _ApiKey, _ApiSecret) ->
 authorize(HandlerInfo, Req, ApiKey, ApiSecret) ->
     Now = erlang:system_time(second),
     case find_by_api_key(ApiKey) of
-        {ok, true, ExpiredAt, SecretHash, Role, Namespace} when ExpiredAt >= Now ->
+        {ok, true, ExpiredAt, SecretHash, Role, Namespace, Extra} when ExpiredAt >= Now ->
             case emqx_dashboard_admin:verify_hash(ApiSecret, SecretHash) of
-                ok -> check_rbac(Req, HandlerInfo, ApiKey, Role, Namespace);
-                error -> {error, "secret_error"}
+                ok ->
+                    check_rbac_and_scopes(Req, HandlerInfo, ApiKey, Role, Namespace, Extra);
+                error ->
+                    {error, "secret_error"}
             end;
-        {ok, true, _ExpiredAt, _SecretHash, _Role, _Namespace} ->
+        {ok, true, _ExpiredAt, _SecretHash, _Role, _Namespace, _Extra} ->
             {error, "secret_expired"};
-        {ok, false, _ExpiredAt, _SecretHash, _Role, _Namespace} ->
+        {ok, false, _ExpiredAt, _SecretHash, _Role, _Namespace, _Extra} ->
             {error, "secret_disabled"};
         {error, Reason} ->
             {error, Reason}
+    end.
+
+check_rbac_and_scopes(Req, HandlerInfo, ApiKey, Role, Namespace, Extra) ->
+    case check_rbac(Req, HandlerInfo, ApiKey, Role, Namespace) of
+        {ok, ActorContext} ->
+            case check_scopes(Extra, HandlerInfo) of
+                ok -> {ok, ActorContext};
+                {error, _} = Error -> Error
+            end;
+        false ->
+            {error, unauthorized_role}
     end.
 
 find_by_api_key(ApiKey) ->
@@ -251,10 +295,100 @@ find_by_api_key(ApiKey) ->
         ]} ->
             Role = get_role(Extra),
             Namespace = namespace_of(Extra),
-            {ok, Enable, ExpiredAt, SecretHash, Role, Namespace};
+            {ok, Enable, ExpiredAt, SecretHash, Role, Namespace, normalize_extra(Extra)};
         _ ->
             {error, "not_found"}
     end.
+
+%% @doc Check if the request path is within the allowed scopes for this API key.
+%% Denied scopes are always blocked, regardless of configuration.
+%% If no scopes are configured (key not present or undefined), all non-denied paths are allowed.
+%% If scopes is an empty list, all paths are denied.
+%% Publisher role skips scope check (has its own hardcoded path restrictions).
+%%
+%% Path is obtained from minirest HandlerInfo (the route template, e.g., "/clients/:clientid"),
+%% which is the same path registered by the API module's paths/0 callback.
+%% This ensures scope lookup uses the exact route that cowboy matched,
+%% eliminating the need for a parallel path matching implementation.
+-spec check_scopes(map(), map()) -> ok | {error, unauthorized_role}.
+check_scopes(Extra, HandlerInfo) ->
+    Path = list_to_binary(maps:get(path, HandlerInfo)),
+    case is_denied_path(Path) of
+        true ->
+            {error, unauthorized_role};
+        false ->
+            check_scopes_for_path(Extra, Path)
+    end.
+
+%% @doc Check scopes with explicit path and method (for external callers).
+-spec check_scopes(map(), binary(), binary()) -> ok | {error, unauthorized_role}.
+check_scopes(Extra, Path, _Method) ->
+    case is_denied_path(Path) of
+        true ->
+            {error, unauthorized_role};
+        false ->
+            check_scopes_for_path(Extra, Path)
+    end.
+
+%% @doc Internal: check scopes for a path that has already passed denied check.
+check_scopes_for_path(Extra, Path) ->
+    case get_scopes(Extra) of
+        undefined ->
+            %% No scopes configured = all non-denied paths allowed (backward compat)
+            ok;
+        Scopes ->
+            Role = maps:get(?role, Extra, ?ROLE_API_DEFAULT),
+            case Role of
+                ?ROLE_API_PUBLISHER ->
+                    %% Publisher role has its own hardcoded path restrictions,
+                    %% skip scope check
+                    ok;
+                _ ->
+                    check_path_in_scopes(Path, Scopes)
+            end
+    end.
+
+check_path_in_scopes(_Path, []) ->
+    {error, unauthorized_role};
+check_path_in_scopes(Path, Scopes) ->
+    case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
+        undefined ->
+            %% Path not mapped to any scope — allow access
+            %% (e.g., status, prometheus, or other public endpoints)
+            ok;
+        PathScope ->
+            case lists:member(PathScope, Scopes) of
+                true -> ok;
+                false -> {error, unauthorized_role}
+            end
+    end.
+
+%% @doc Check if a path belongs to a denied scope.
+is_denied_path(Path) ->
+    case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
+        undefined -> false;
+        Scope -> emqx_mgmt_api_key_scopes:is_denied_scope(Scope)
+    end.
+
+get_scopes(#{scopes := Scopes}) when is_list(Scopes) ->
+    Scopes;
+get_scopes(#{scopes := undefined}) ->
+    undefined;
+get_scopes(_) ->
+    %% No scopes key in extra = backward compatible, allow all
+    undefined.
+
+%% @doc Set scopes in extra map. undefined means "don't change".
+maybe_set_scopes(Extra, undefined) ->
+    Extra;
+maybe_set_scopes(Extra, Scopes) when is_list(Scopes) ->
+    Extra#{scopes => Scopes}.
+
+%% @doc Default scopes granted to keys provisioned from bootstrap files.
+%% Returns every user-visible scope so these keys behave as administrative
+%% all-allow credentials, matching the semantics of pre-scope releases.
+default_bootstrap_scopes() ->
+    [Name || #{name := Name} <- emqx_mgmt_api_key_scopes:scope_catalogue()].
 
 ensure_not_undefined(undefined, Old) -> Old;
 ensure_not_undefined(New, _Old) -> New.
@@ -266,7 +400,7 @@ to_map(#?APP{
 }) ->
     #{?role := Role, desc := Desc} = Extra = normalize_extra(Extra0),
     Namespace = maps:get(?namespace, Extra, ?global_ns),
-    #{
+    Base = #{
         name => N,
         api_key => K,
         enable => E,
@@ -276,22 +410,29 @@ to_map(#?APP{
         expired => is_expired(ET),
         role => Role,
         namespace => Namespace
-    }.
+    },
+    maybe_add_scopes(Base, Extra).
+
+maybe_add_scopes(Map, #{scopes := Scopes}) when is_list(Scopes) ->
+    Map#{scopes => Scopes};
+maybe_add_scopes(Map, _) ->
+    Map.
 
 is_expired(undefined) -> false;
 is_expired(ExpiredTime) -> ExpiredTime < erlang:system_time(second).
 
-create_app(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role0) ->
+create_app(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role0, Scopes) ->
     maybe
         {ok, #{?role := Role, ?namespace := Namespace}} ?= parse_role(Role0),
         ActorProps = #{?role => Role, ?namespace => Namespace},
         ok ?= emqx_hooks:run_fold('api_actor.pre_create', [ActorProps], ok),
-        Extra = emqx_utils_maps:put_if(
+        Extra0 = emqx_utils_maps:put_if(
             #{?role => Role, desc => Desc},
             ?namespace,
             Namespace,
             is_binary(Namespace)
         ),
+        Extra = maybe_set_scopes(Extra0, Scopes),
         App =
             #?APP{
                 name = Name,
@@ -391,7 +532,11 @@ init_bootstrap_file(<<>>) ->
 init_bootstrap_file(File) ->
     case file:open(File, [read, binary]) of
         {ok, Dev} ->
-            {ok, MP} = re:compile(<<"(\.+):(\.+)(?::(\.+))?$">>, [ungreedy]),
+            %% Format: key:secret[:role]  -- role may contain colons
+            %% (e.g. "ns:<namespace>::<role>" for namespaced keys).
+            %% Scopes cannot be expressed inline here; grant all user-visible
+            %% scopes below as the bootstrap default (administrative all-allow).
+            {ok, MP} = re:compile(<<"(.+):(.+)(?::(.+))?$">>, [ungreedy]),
             init_bootstrap_file(File, Dev, MP);
         {error, Reason0} ->
             Reason = emqx_utils:explain_posix(Reason0),
@@ -426,12 +571,16 @@ add_bootstrap_file(File, Dev, MP, Line) ->
         {ok, Bin} ->
             case parse_bootstrap_line(Bin, MP) of
                 {ok, [ApiKey, ApiSecret, Role, Namespace]} ->
-                    Extra = emqx_utils_maps:put_if(
+                    %% Bootstrap keys default to all user-visible scopes
+                    %% (all-allow) so operators upgrading from pre-scope
+                    %% releases keep full access until they edit the key.
+                    Extra0 = emqx_utils_maps:put_if(
                         #{desc => ?BOOTSTRAP_TAG, role => Role},
-                        namespace,
+                        ?namespace,
                         Namespace,
                         is_binary(Namespace)
                     ),
+                    Extra = Extra0#{scopes => default_bootstrap_scopes()},
                     App =
                         #?APP{
                             name = generate_unique_name(?FROM_BOOTSTRAP_FILE_PREFIX, ApiKey),
@@ -517,12 +666,7 @@ normalize_extra(Desc) ->
 
 check_rbac(Req, HandlerInfo, ApiKey, Role, Namespace) ->
     ActorContext = actor_context_of(ApiKey, Role, Namespace),
-    case emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext) of
-        {ok, ActorContextFinal} ->
-            {ok, ActorContextFinal};
-        false ->
-            {error, unauthorized_role}
-    end.
+    emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext).
 
 format_app_extend(App) ->
     emqx_utils_maps:update_if_present(

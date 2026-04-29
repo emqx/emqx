@@ -30,54 +30,74 @@ role.desc:
 role.label:
 """Role"""
 
-delete_success.desc:
-"""Delete successfully."""
-delete_success.label:
-"""Delete Successfully"""
-
 name_format.desc:
-"""Unique name which must match regex pattern `[a-zA-Z0-9-_]`."""
+"""API key name. Must start with a letter, may contain letters, digits, hyphen and underscore. Length 1-256 characters. Pattern: ^[A-Za-z]+[A-Za-z0-9-_]*$"""
 name_format.label:
-"""Name"""
+"""API key name"""
+
+name_pattern.desc:
+"""API key name. Must start with a letter, may contain letters, digits, hyphen and underscore. Length 1-256 characters."""
+name_pattern.label:
+"""API key name"""
+
+name_not_found.desc:
+"""API key with the given name does not exist."""
+name_not_found.label:
+"""Name not found"""
 
 api_key_desc.desc:
-"""API Key."""
+"""The API key string. Used as the username in Basic authentication."""
 api_key_desc.label:
-"""API Key"""
+"""API key"""
 
 api_secret_desc.desc:
-"""An API secret is a simple encrypted string that identifies an application without any principal. They are useful for accessing public data anonymously, and are used to associate API requests."""
+"""The API secret string. Used as the password in Basic authentication. Returned only when the key is created; cannot be retrieved later."""
 api_secret_desc.label:
-"""API Secret"""
+"""API secret"""
 
 expired_at_desc.desc:
-"""Date time when the APP was expired."""
+"""Expiration time. Either an ISO 8601 timestamp / epoch second, or `infinity` for keys that never expire."""
 expired_at_desc.label:
-"""Expired At"""
+"""Expired at"""
 
 created_at_desc.desc:
-"""API Key create datetime."""
+"""Time the API key was created (ISO 8601 / epoch second)."""
 created_at_desc.label:
-"""Created At"""
+"""Created at"""
 
 enable_desc.desc:
-"""Enable/Disable."""
+"""Whether the API key is enabled. Disabled keys are rejected at authentication time."""
 enable_desc.label:
-"""Enable/Disable"""
+"""Enable"""
 
 expired_desc.desc:
-"""Expired."""
+"""Whether the API key has expired. Read-only; derived from `expired_at`."""
 expired_desc.label:
 """Expired"""
 
-name_pattern.desc:
-"""^[A-Za-z]+[A-Za-z0-9-_]*$"""
-name_pattern.label:
-"""Name Pattern"""
+api_key_scopes_list.desc:
+"""List all available API key scopes. This API can only be requested using a bearer token."""
+api_key_scopes_list.label:
+"""List API key scopes"""
 
-name_not_found.desc:
-"""Name NOT FOUND."""
-name_not_found.label:
-"""Name Not Found"""
+api_key_scopes.desc:
+"""List of scope names to restrict this API key's access. Each scope is a stable functional category (e.g., connections, publish, monitoring). If not set or undefined, the key has access to all APIs. An empty list means no API access."""
+api_key_scopes.label:
+"""API key scopes"""
+
+scope_info_name.desc:
+"""Scope name — a stable identifier for a functional category of API endpoints."""
+scope_info_name.label:
+"""Scope name"""
+
+scope_info_desc.desc:
+"""Human-readable description of the scope's coverage."""
+scope_info_desc.label:
+"""Scope description"""
+
+scopes_response_scopes.desc:
+"""All available scopes with their names and descriptions."""
+scopes_response_scopes.label:
+"""Available scopes"""
 
 }

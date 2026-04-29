@@ -11,11 +11,17 @@ defmodule EMQXGatewayExproto.MixProject do
       # used by our `Mix.Tasks.Compile.Grpc` compiler
       grpc_opts: %{
         gpb_opts: [
+          :use_packages,
+          :maps,
+          :strings_as_binaries,
           module_name_prefix: ~c"emqx_",
-          module_name_suffix: ~c"_pb"
+          module_name_suffix: ~c"_pb",
+          report_errors: false,
+          rename: {:msg_name, :snake_case},
+          rename: {:msg_fqname, :base_name}
         ],
         proto_dirs: ["priv/protos"],
-        out_dir: "src"
+        out_dir: "src/generated"
       },
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),

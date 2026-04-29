@@ -34,6 +34,13 @@
     change_password_trusted/2,
     change_password/3,
     enable_mfa/2,
+    reinit_mfa/2,
+    set_mfa_pending/2,
+    clear_mfa_pending/1,
+    get_mfa_pending/1,
+    set_sso_code/2,
+    clear_sso_code/1,
+    get_sso_code/1,
     all_users/0,
     admin_users/0,
     check/2,
@@ -182,13 +189,34 @@ clear_mfa_state(Username) ->
 clear_mfa_state2(Username) ->
     update_extra(Username, fun(Extra) -> maps:without([mfa_state], Extra) end).
 
-%% @doc Change `mfa_state' to `disabled'.
+%% @doc Disable MFA for a user.
+%% Verifies MFA is currently enabled before disabling.
+%% Clears the secret so re-enabling requires a fresh TOTP setup.
+-spec disable_mfa(dashboard_username()) -> ok | {error, term()}.
 disable_mfa(Username) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun disable_mfa2/1, [Username]),
-    return(Res).
+    case lookup_user(Username) of
+        [] ->
+            {error, <<"username_not_found">>};
+        [_] ->
+            do_disable_mfa(Username)
+    end.
 
-disable_mfa2(Username) ->
-    update_extra(Username, fun(Extra) -> Extra#{mfa_state => disabled} end).
+do_disable_mfa(Username) ->
+    case get_mfa_state(Username) of
+        {ok, disabled} ->
+            {error, <<"MFA is already disabled">>};
+        _ ->
+            %% Allow disabling regardless of current state (not configured, or enabled).
+            Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+                update_extra(Username, fun(Extra) ->
+                    maps:without([mfa_pending], Extra#{mfa_state => disabled})
+                end)
+            end),
+            case Res of
+                {atomic, ok} -> ok;
+                {aborted, Reason} -> {error, Reason}
+            end
+    end.
 
 %% @doc Enable MFA state.
 %% Return error if it's already enabled.
@@ -199,22 +227,84 @@ enable_mfa(Username, Mechanism) ->
         {error, username_not_found} ->
             {error, <<"username_not_found">>};
         {error, _} ->
-            reinit_mfa(Username, Mechanism)
+            case lookup_user(Username) of
+                [] ->
+                    {error, <<"username_not_found">>};
+                [_] ->
+                    reinit_mfa(Username, Mechanism)
+            end
     end.
 
 reinit_mfa(Username, Mechanism) ->
     {ok, State} = emqx_dashboard_mfa:init(Mechanism),
-    {ok, ok} = set_mfa_state(Username, State),
-    _ = emqx_dashboard_token:destroy_by_username(Username),
-    ok.
+    case reset_mfa_state(Username, State) of
+        {ok, ok} ->
+            _ = emqx_dashboard_token:destroy_by_username(Username),
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
-%% @doc Set MFA state.
+%% @doc Set MFA state in the extra map.
 set_mfa_state(Username, MfaState) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun set_mfa_state2/2, [Username, MfaState]),
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> Extra#{mfa_state => MfaState} end)
+    end),
     return(Res).
 
-set_mfa_state2(Username, MfaState) ->
-    update_extra(Username, fun(Extra) -> Extra#{mfa_state => MfaState} end).
+%% @doc Set MFA state and clear mfa_pending in the extra map.
+reset_mfa_state(Username, MfaState) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(
+            Username,
+            fun(Extra) -> maps:without([mfa_pending], Extra#{mfa_state => MfaState}) end
+        )
+    end),
+    return(Res).
+
+%% @doc Set MFA pending info in the extra map.
+set_mfa_pending(Username, Pending) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> Extra#{mfa_pending => Pending} end)
+    end),
+    return(Res).
+
+%% @doc Clear MFA pending info from the extra map.
+clear_mfa_pending(Username) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> maps:without([mfa_pending], Extra) end)
+    end),
+    return(Res).
+
+%% @doc Get MFA pending info from the extra map for a given username.
+%% Direct O(1) lookup by username key.
+get_mfa_pending(Username) ->
+    case get_extra(Username) of
+        {ok, #{mfa_pending := Pending}} -> {ok, Pending};
+        _ -> {error, not_found}
+    end.
+
+%% @doc Store a one-time SSO code in the extra map.
+set_sso_code(Username, SsoCode) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> Extra#{sso_code => SsoCode} end)
+    end),
+    return(Res).
+
+%% @doc Clear the SSO code from the extra map.
+clear_sso_code(Username) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> maps:without([sso_code], Extra) end)
+    end),
+    return(Res).
+
+%% @doc Get the SSO code from the extra map for a given username.
+%% Direct O(1) lookup by username key.
+get_sso_code(Username) ->
+    case get_extra(Username) of
+        {ok, #{sso_code := SsoCode}} -> {ok, SsoCode};
+        _ -> {error, not_found}
+    end.
 
 set_login_lock(Username, LockedUntil) ->
     Res = mria:sync_transaction(?DASHBOARD_SHARD, fun set_login_lock2/2, [Username, LockedUntil]),
@@ -258,7 +348,11 @@ get_extra(Username) ->
     end.
 
 %% Before 5.3, extra is never used and initialized to [].
--dialyzer({no_match, upgrade_extra/1}).
+%% Defensive upgrade paths for pre-5.3 records where `role` was `undefined`
+%% and `extra` was `[]` — dialyzer sees these as unreachable given the
+%% current record spec, but they still fire in production when mnesia
+%% returns rows written by older nodes during a rolling upgrade.
+-dialyzer({no_match, [upgrade_extra/1, update_user_/4, ensure_role/1, role/1]}).
 upgrade_extra([]) -> #{};
 upgrade_extra(Map) when is_map(Map) -> Map.
 
@@ -572,8 +666,7 @@ to_external_user(UserRecord) ->
     #?ADMIN{
         username = Username,
         description = Desc,
-        role = Role,
-        extra = Extra
+        role = Role
     } = UserRecord,
     Namespace = namespace_of(UserRecord),
     flatten_username(#{
@@ -581,12 +674,15 @@ to_external_user(UserRecord) ->
         description => Desc,
         ?role => ensure_role(Role),
         ?namespace => Namespace,
-        mfa => format_mfa(Extra)
+        mfa => format_mfa(Username)
     }).
 
-format_mfa(#{mfa_state := #{mechanism := Mechanism}}) -> Mechanism;
-format_mfa(#{mfa_state := disabled}) -> disabled;
-format_mfa(_) -> none.
+format_mfa(Username) ->
+    case get_mfa_state(Username) of
+        {ok, disabled} -> disabled;
+        {ok, #{mechanism := totp}} -> totp;
+        _ -> none
+    end.
 
 -spec return({atomic | aborted, term()}) -> {ok, term()} | {error, Reason :: binary()}.
 return({atomic, Result}) ->

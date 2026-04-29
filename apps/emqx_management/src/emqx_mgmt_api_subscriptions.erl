@@ -11,6 +11,7 @@
 -include_lib("emqx/include/emqx_router.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -27,6 +28,7 @@
     run_fuzzy_filter/2,
     format/2
 ]).
+-export([scopes/0]).
 
 -define(SUBS_QSCHEMA, [
     {<<"clientid">>, binary},
@@ -42,6 +44,8 @@ namespace() ->
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_CONNECTIONS.
 
 paths() ->
     ["/subscriptions"].

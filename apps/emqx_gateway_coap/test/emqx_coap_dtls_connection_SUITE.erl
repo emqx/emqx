@@ -169,7 +169,7 @@ t_wrong_clientid_with_valid_token_rejected(_Config) ->
         false
     ),
     Req1 = emqx_coap_SUITE:make_req(post, <<"x">>),
-    ?assertMatch({error, uauthorized, _}, emqx_coap_SUITE:do_request(Channel2, URI1, Req1)),
+    ?assertMatch({error, unauthorized, _}, emqx_coap_SUITE:do_request(Channel2, URI1, Req1)),
 
     er_coap_channel:close(Channel2),
     er_coap_dtls_socket:close(Sock2).

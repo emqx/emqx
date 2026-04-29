@@ -12,6 +12,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -29,6 +30,7 @@
     change_pwd/2,
     change_mfa/2
 ]).
+-export([scopes/0]).
 
 -define(EMPTY(V), (V == undefined orelse V == <<>>)).
 
@@ -45,6 +47,8 @@ namespace() -> "dashboard".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
+
+scopes() -> ?SCOPE_DENIED.
 
 paths() ->
     [
@@ -162,19 +166,19 @@ schema("/users/:username/mfa") ->
         post => #{
             tags => [<<"dashboard">>],
             desc => ?DESC(change_mfa),
-            parameters => fields([username_in_path]),
+            parameters => sso_parameters(fields([username_in_path])),
             'requestBody' => emqx_dashboard_schema:mfa_fields(),
             responses => #{
-                204 => <<"MFA setting is reset">>,
+                204 => <<"MFA setting is updated">>,
                 404 => response_schema(404)
             }
         },
         delete => #{
             tags => [<<"dashboard">>],
             desc => ?DESC(delete_mfa),
-            parameters => fields([username_in_path]),
+            parameters => sso_parameters(fields([username_in_path])),
             responses => #{
-                204 => <<"MFA setting is deleted">>,
+                204 => <<"MFA setting is disabled">>,
                 404 => response_schema(404)
             }
         }
@@ -436,27 +440,34 @@ change_pwd(post, #{bindings := #{username := Username}, body := Params}) ->
             end
     end.
 
-change_mfa(delete, #{bindings := #{username := Username}}) ->
-    LogMeta = #{msg => "dashboard_user_mfa_delete", username => binary_to_list(Username)},
+change_mfa(delete, #{bindings := #{username := Username0}} = Req) ->
+    Username = username(Req, Username0),
+    LogMeta = #{msg => "dashboard_user_mfa_disable", username => Username},
     case emqx_dashboard_admin:disable_mfa(Username) of
-        {ok, ok} ->
+        ok ->
             ?SLOG(info, LogMeta#{result => success}),
             {204};
         {error, <<"username_not_found">>} ->
             ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
-            {404, ?USER_NOT_FOUND, <<"User not found">>}
+            {404, ?USER_NOT_FOUND, <<"User not found">>};
+        {error, Reason} ->
+            ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
+            {400, ?BAD_REQUEST, Reason}
     end;
-change_mfa(post, #{bindings := #{username := Username}, body := Settings}) ->
+change_mfa(post, #{bindings := #{username := Username0}, body := Settings} = Req) ->
+    Username = username(Req, Username0),
     Mechanism = maps:get(<<"mechanism">>, Settings),
-    {ok, State} = emqx_dashboard_mfa:init(Mechanism),
-    LogMeta = #{msg => "dashboard_user_mfa_setup", username => binary_to_list(Username)},
-    case emqx_dashboard_admin:set_mfa_state(Username, State) of
-        {ok, ok} ->
+    LogMeta = #{msg => "dashboard_user_mfa_setup", username => Username},
+    case emqx_dashboard_admin:reinit_mfa(Username, Mechanism) of
+        ok ->
             ?SLOG(info, LogMeta#{result => success}),
             {204};
         {error, <<"username_not_found">>} ->
             ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
-            {404, ?USER_NOT_FOUND, <<"User not found">>}
+            {404, ?USER_NOT_FOUND, <<"User not found">>};
+        {error, Reason} ->
+            ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
+            {400, ?BAD_REQUEST, Reason}
     end.
 
 register_unsuccessful_login(Username, <<"password_error">>) ->

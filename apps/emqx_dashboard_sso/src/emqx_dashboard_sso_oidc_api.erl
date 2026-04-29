@@ -10,6 +10,7 @@
 -include_lib("oidcc/include/oidcc_token.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -19,6 +20,7 @@
 ]).
 
 -export([code_callback/2, make_callback_url/1]).
+-export([scopes/0]).
 
 -define(BPAPI, emqx_dashboard_sso_oidc).
 
@@ -44,6 +46,8 @@ namespace() -> "dashboard_sso".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false, translate_body => false}).
+
+scopes() -> ?SCOPE_DENIED.
 
 paths() ->
     [
@@ -207,8 +211,32 @@ ensure_user_exists(_Cfg, <<"undefined">>) ->
 ensure_user_exists(Cfg, Username) ->
     case emqx_dashboard_admin:lookup_user(?BACKEND, Username) of
         [User] ->
-            {ok, Role, Token, _Namespace} = emqx_dashboard_token:sign(User),
-            {ok, login_redirect_target(Cfg, Username, Role, Token)};
+            case emqx_dashboard_sso_mfa:check_sso_mfa(User, ?BACKEND) of
+                {ok, login} ->
+                    Payload = #{
+                        action => <<"login">>,
+                        username => Username,
+                        backend => oidc
+                    },
+                    {ok, code_redirect_target(Cfg, Username, Payload)};
+                {mfa_setup, SetupToken, _QRInfo} ->
+                    Payload = #{
+                        action => <<"mfa_setup">>,
+                        setup_token => SetupToken,
+                        mechanism => totp,
+                        username => Username,
+                        backend => oidc
+                    },
+                    {ok, code_redirect_target(Cfg, Username, Payload)};
+                {mfa_verify, VerifyToken} ->
+                    Payload = #{
+                        action => <<"mfa_verify">>,
+                        verify_token => VerifyToken,
+                        username => Username,
+                        backend => oidc
+                    },
+                    {ok, code_redirect_target(Cfg, Username, Payload)}
+            end;
         [] ->
             case emqx_dashboard_admin:add_sso_user(?BACKEND, Username, ?ROLE_VIEWER, <<>>) of
                 {ok, _} ->
@@ -221,9 +249,11 @@ ensure_user_exists(Cfg, Username) ->
 make_callback_url(#{config := #{dashboard_addr := Addr}}) ->
     list_to_binary(binary_to_list(Addr) ++ ?BASE_PATH ++ ?CALLBACK_PATH).
 
-login_redirect_target(#{config := #{dashboard_addr := Addr}}, Username, Role, Token) ->
-    LoginMeta = emqx_dashboard_sso_api:login_meta(Username, Role, Token, oidc),
-    MetaBin = base64:encode(emqx_utils_json:encode(LoginMeta)),
+code_redirect_target(#{config := #{dashboard_addr := Addr}}, Username, Payload) ->
+    SsoUsername = ?SSO_USERNAME(?BACKEND, Username),
+    Code = emqx_dashboard_sso_code:create_code(SsoUsername, Payload),
+    LoginMeta = #{code => Code, username => Username, backend => ?BACKEND},
+    MetaBin = base64:encode(emqx_utils_json:encode(LoginMeta), #{mode => urlsafe, padding => false}),
     <<Addr/binary, "/?login_meta=", MetaBin/binary>>.
 
 lookup_all_nodes(State) ->

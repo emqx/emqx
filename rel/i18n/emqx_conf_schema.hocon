@@ -91,6 +91,14 @@ dist_buffer_size.desc:
 dist_buffer_size.label:
 """Erlang's dist buffer size(KB)"""
 
+dist_connect_options.desc:
+"""Erlang's distribution port connect options for performance tuning.
+Defines a list of extra socket options to be used when connecting to other distributed Erlang nodes.
+See https://www.erlang.org/doc/apps/kernel/gen_tcp.html#connect/4"""
+
+dist_connect_options.label:
+"""Erlang's distribution port connect options"""
+
 common_handler_max_depth.desc:
 """Maximum depth for Erlang term log formatting and Erlang process message queue inspection."""
 

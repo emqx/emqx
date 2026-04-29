@@ -76,4 +76,55 @@ backend_name_in_qs.desc:
 backend_name_in_qs.label:
 """Backend Name (Query)"""
 
+token_exchange.desc:
+"""Exchange a one-time SSO code for the actual login result (JWT token or MFA metadata). The code is consumed after a single use."""
+
+token_exchange.label:
+"""SSO Token Exchange"""
+
+bad_request.desc:
+"""Bad request. Invalid or expired SSO code."""
+
+sso_username.desc:
+"""SSO username from login metadata."""
+
+sso_username.label:
+"""SSO Username"""
+
+sso_backend.desc:
+"""SSO backend type (e.g. saml, oidc)."""
+
+sso_backend.label:
+"""SSO Backend"""
+
+mfa_action_setup.desc:
+"""MFA action indicator: mfa_setup. Returned by SSO login when the user must complete TOTP setup before issuing a session JWT."""
+mfa_action_setup.label:
+"""MFA Action: Setup"""
+
+mfa_action_verify.desc:
+"""MFA action indicator: mfa_verify. Returned by SSO login when the user must verify a TOTP code before issuing a session JWT."""
+mfa_action_verify.label:
+"""MFA Action: Verify"""
+
+setup_token_response.desc:
+"""Temporary setup token for MFA binding. Single-use, short-lived (5 minutes)."""
+setup_token_response.label:
+"""Setup Token"""
+
+verify_token_response.desc:
+"""Temporary verify token for MFA verification. Single-use, short-lived (5 minutes)."""
+verify_token_response.label:
+"""Verify Token"""
+
+mfa_mechanism.desc:
+"""MFA mechanism type. Currently only `totp` is supported."""
+mfa_mechanism.label:
+"""MFA Mechanism"""
+
+sso_code.desc:
+"""One-time SSO code obtained from the IdP redirect callback. Single-use; consumed by token exchange."""
+sso_code.label:
+"""SSO Code"""
+
 }

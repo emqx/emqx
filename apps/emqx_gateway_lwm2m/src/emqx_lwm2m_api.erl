@@ -8,10 +8,12 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 
 -export([lookup/2, observe/2, read/2, write/2]).
+-export([scopes/0]).
 
 -define(PATH(Suffix), "/gateways/lwm2m/clients/:clientid" Suffix).
 -define(DATA_TYPE, ['Integer', 'Float', 'Time', 'String', 'Boolean', 'Opaque', 'Objlnk']).
@@ -26,6 +28,8 @@ namespace() -> "lwm2m".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE).
+
+scopes() -> ?SCOPE_GATEWAYS.
 
 paths() ->
     [
