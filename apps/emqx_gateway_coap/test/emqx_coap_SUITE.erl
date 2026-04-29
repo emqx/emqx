@@ -398,7 +398,7 @@ t_request_with_token_no_connection(_) ->
     Action = fun(Channel) ->
         URI = pubsub_uri("no_connection", "tok"),
         Req = make_req(get, <<>>, [{observe, 0}]),
-        ?assertMatch({error, uauthorized, _}, do_request(Channel, URI, Req))
+        ?assertMatch({error, unauthorized, _}, do_request(Channel, URI, Req))
     end,
     do(Action).
 
@@ -457,7 +457,7 @@ t_invalid_token_request(_) ->
         URI = pubsub_uri("abc", "badtoken"),
         Req = make_req(get, <<>>, [{observe, 0}]),
         try
-            ?assertMatch({error, uauthorized, _}, do_request(Channel, URI, Req))
+            ?assertMatch({error, unauthorized, _}, do_request(Channel, URI, Req))
         after
             disconnection(Channel, Token)
         end
@@ -499,17 +499,13 @@ t_pubsub_unauthorized(_) ->
             URI = pubsub_uri("deny", Token),
             Req1 = make_req(post, <<"payload">>),
             case do_request(Channel, URI, Req1) of
-                {error, uauthorized} -> ok;
-                {error, uauthorized, _} -> ok;
-                {error, unauthorized, _} -> ok;
-                {error, unauthorized} -> ok
+                {error, unauthorized} -> ok;
+                {error, unauthorized, _} -> ok
             end,
             Req2 = make_req(get, <<>>, [{observe, 0}]),
             case do_request(Channel, URI, Req2) of
-                {error, uauthorized} -> ok;
-                {error, uauthorized, _} -> ok;
-                {error, unauthorized, _} -> ok;
-                {error, unauthorized} -> ok
+                {error, unauthorized} -> ok;
+                {error, unauthorized, _} -> ok
             end,
             disconnection(Channel, Token)
         end,
