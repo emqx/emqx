@@ -657,6 +657,7 @@ t_static_clientids(TCConfig) ->
     C0 = start_client(N1),
     {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C0, RepublishTopic, ?QOS_1),
     Clients = lists:map(fun start_client/1, Nodes),
+    emqx_cth_cluster:sync_routes(Nodes, 10_000),
 
     ct:pal("publishing messages"),
     lists:foreach(
