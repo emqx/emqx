@@ -262,6 +262,10 @@ on_query(
             {error, Reason};
         {error, ecpool_empty} ->
             {error, {recoverable_error, ecpool_empty}};
+        {error, {timeout, _}} ->
+            {error, {recoverable_error, worker_call_timeout}};
+        {error, Error} ->
+            {error, {unrecoverable_error, Error}};
         {{true, _Info}, _Document} ->
             ok
     end;

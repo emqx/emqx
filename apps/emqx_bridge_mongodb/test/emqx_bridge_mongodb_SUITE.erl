@@ -32,7 +32,8 @@ group_tests() ->
         t_collection_template,
         t_mongo_date_rule_engine_functions,
         t_get_status_server_selection_too_short,
-        t_use_legacy_protocol_option
+        t_use_legacy_protocol_option,
+        t_call_timeout
     ].
 
 groups() ->
@@ -436,6 +437,16 @@ get_worker_pids(Config) ->
         ),
     WorkerPids.
 
+get_poolboy_pids() ->
+    [
+        Pid
+     || Pid <- processes(),
+        case proc_lib:initial_call(Pid) of
+            {poolboy, _, _} -> true;
+            _ -> false
+        end
+    ].
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -624,4 +635,33 @@ t_use_legacy_protocol_option(Config) ->
     LegacyOptions1 = maps:from_list([{Pid, mc_utils:use_legacy_protocol(Pid)} || Pid <- WorkerPids1]),
     ?assertEqual(Expected1, LegacyOptions1),
 
+    ok.
+
+%% Checks that we treat poolboy call timeouts (checking out connections) as recoverable
+%% errors.
+t_call_timeout(TCConfig) ->
+    {ok, _} = create_bridge(TCConfig),
+    Val = erlang:unique_integer(),
+    Pids = get_poolboy_pids(),
+    try
+        lists:foreach(fun sys:suspend/1, Pids),
+        {_, {ok, _}} = ?wait_async_action(
+            send_message(TCConfig, #{key => Val}),
+            #{?snk_kind := "mongo_insert_call_timeout"},
+            15_000
+        ),
+        ok
+    after
+        lists:foreach(fun sys:resume/1, Pids)
+    end,
+    %% eventually should work
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {ok, [#{<<"payload">> := Val}]},
+            find_all(TCConfig),
+            #{payload => Val}
+        )
+    ),
     ok.
