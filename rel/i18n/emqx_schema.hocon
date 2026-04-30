@@ -1236,7 +1236,8 @@ fields_mqtt_quic_listener_maximum_mtu.label:
 
 mqtt_strict_mode.desc:
 """Whether to parse MQTT messages in strict mode.
-In strict mode, invalid utf8 strings in for example client ID, topic name, etc. will cause the client to be disconnected."""
+In strict mode, invalid UTF-8 strings (in client ID, topic name, etc.), reserved bits, and other malformed packet structure cause the offending client to be disconnected.
+Defaults to `true` since release 6.3 — set to `false` to restore the older lenient behavior for compatibility with nonconforming clients."""
 
 mqtt_strict_mode.label:
 """Strict Mode"""

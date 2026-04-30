@@ -65,7 +65,7 @@
 -type serialize_opts() :: options().
 
 -define(DEFAULT_OPTIONS, #{
-    strict_mode => false,
+    strict_mode => true,
     max_size => ?MAX_PACKET_SIZE,
     version => ?MQTT_PROTO_V4
 }).

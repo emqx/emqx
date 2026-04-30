@@ -417,9 +417,11 @@ t_parse_incoming_order(_) ->
     ?assertEqual([Packet1, Packet2], Packets1).
 
 t_parse_incoming_frame_error(_) ->
+    %% Strict-mode default rejects the reserved/invalid header outright,
+    %% before per-packet parsing has a chance to surface `malformed_packet`.
     {Packets, _St} = ?ws_conn:parse_incoming(<<3, 2, 1, 0>>, [], st()),
     ?assertMatch(
-        [{frame_error, #{header_type := _, cause := malformed_packet}}],
+        [{frame_error, bad_frame_header}],
         Packets
     ).
 

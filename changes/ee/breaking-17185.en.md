@@ -1,0 +1,1 @@
+The MQTT parser now runs in strict mode by default. Malformed packets (invalid UTF-8 in client ID or topic, reserved-bit violations, and other protocol-level violations) cause the offending client to be disconnected instead of being silently accepted. To restore the previous lenient behavior, set `mqtt.strict_mode = false` (globally or per-zone).
