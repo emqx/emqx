@@ -45,6 +45,8 @@
 -type info_ctx() :: #{
     desired_message_count := non_neg_integer(),
     delivering_count := non_neg_integer(),
+    clientinfo := emqx_types:clientinfo(),
+    can_receive_acks := boolean(),
     _ => _
 }.
 
