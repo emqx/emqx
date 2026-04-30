@@ -651,6 +651,7 @@ t_metrics(Config) ->
     SourceC2 = emqx_cluster_link_cth:connect_client(<<"sc2">>, SN2),
     {ok, _, _} = emqtt:subscribe(SourceC1, <<"t/sc1">>),
     {ok, _, _} = emqtt:subscribe(SourceC2, <<"t/sc2">>),
+    emqx_cth_cluster:sync_routes([TN1, TN2]),
 
     %% Still no routes, as routes in the source cluster are replicated to the target
     %% cluster.
@@ -697,6 +698,7 @@ t_metrics(Config) ->
             end,
             #{?snk_kind := "cluster_link_route_sync_complete"}
         ),
+    emqx_cth_cluster:sync_routes([TN1, TN2]),
 
     %% Routes = 2 in source cluster, because the target cluster has some topic filters
     %% configured and subscribers to them, which were replicated to the source cluster.
@@ -732,6 +734,7 @@ t_metrics(Config) ->
             end,
             #{?snk_kind := "cluster_link_route_sync_complete"}
         ),
+    emqx_cth_cluster:sync_routes([TN1, TN2]),
 
     ?retry(
         300,
@@ -892,6 +895,7 @@ t_disable_reenable(Config) ->
     Topic2 = <<"t/tc2">>,
     {ok, _, _} = emqtt:subscribe(TargetC1, Topic1),
     {ok, _, _} = emqtt:subscribe(TargetC2, Topic2),
+    emqx_cth_cluster:sync_routes([TN1, TN2]),
     %% fixme: use snabbkaffe subscription
     ?block_until(#{?snk_kind := "cluster_link_route_sync_complete", ?snk_meta := #{node := TN1}}),
     ?block_until(#{?snk_kind := "cluster_link_route_sync_complete", ?snk_meta := #{node := TN2}}),
@@ -926,6 +930,7 @@ t_disable_reenable(Config) ->
     Topic4 = <<"t/tc4">>,
     {ok, _, _} = emqtt:subscribe(TargetC1, Topic3),
     {ok, _, _} = emqtt:subscribe(TargetC2, Topic4),
+    emqx_cth_cluster:sync_routes([TN1, TN2]),
     ct:pal("waiting for routes to be synced..."),
     ExpectedTopics = [Topic1, Topic2, Topic3, Topic4],
     wait_for_routes(SourceNodes, ExpectedTopics),
