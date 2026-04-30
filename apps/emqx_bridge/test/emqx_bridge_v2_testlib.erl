@@ -481,7 +481,7 @@ ensure_namespaced_api_key(Opts) ->
             viewer ->
                 <<"ns:", Namespace/binary, "::viewer">>
         end,
-    Res = emqx_mgmt_auth:create(
+    Res = emqx_mgmt_auth:create_with_key(
         Name,
         APIKey,
         APISecret,

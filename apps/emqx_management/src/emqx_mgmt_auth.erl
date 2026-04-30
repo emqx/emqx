@@ -27,7 +27,10 @@
 -export([
     create/5,
     create/6,
-    create/7,
+    create_with_secret/6,
+    create_with_secret/7,
+    create_with_key/7,
+    create_with_key/8,
     read/1,
     update/5,
     update/6,
@@ -54,7 +57,6 @@
 ]).
 
 -ifdef(TEST).
--export([create/8]).
 -export([trans/2, force_create_app/1]).
 -export([init_bootstrap_file/1]).
 -endif.
@@ -131,34 +133,39 @@ try_init_bootstrap_file() ->
             ok
     end.
 
+%% Three public entry points, one purpose each:
+%%
+%%   create/{5,6}             — REST API: auto-generate both ApiKey and ApiSecret.
+%%   create_with_secret/{6,7} — Dashboard CLI when user provides --api-secret;
+%%                              auto-generate ApiKey only.
+%%   create_with_key/{7,8}    — Tests / bootstrap: caller provides both
+%%                              ApiKey and ApiSecret explicitly.
+%%
+%% Each function has exactly one signature shape; no guard-based dispatch
+%% on positional arguments.
 create(Name, Enable, ExpiredAt, Desc, Role) ->
     create(Name, Enable, ExpiredAt, Desc, Role, undefined).
 
-%% Two 6-arity clauses coexist via guards:
-%% 1. CLI variant (release-60 legacy): (Name, ApiSecret, Enable, ExpiredAt, Desc, Role)
-%%    - ApiSecret is a binary of >= 32 bytes.
-%% 2. REST-API variant (scope-aware):  (Name, Enable, ExpiredAt, Desc, Role, Scopes)
-%%    - Enable is a boolean and Scopes is a list or undefined.
-create(Name, ApiSecret, Enable, ExpiredAt, Desc, Role) when
+create(Name, Enable, ExpiredAt, Desc, Role, Scopes) ->
+    ApiKey = generate_unique_api_key(),
+    ApiSecret = generate_api_secret(),
+    create_with_key(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, Scopes).
+
+create_with_secret(Name, ApiSecret, Enable, ExpiredAt, Desc, Role) ->
+    create_with_secret(Name, ApiSecret, Enable, ExpiredAt, Desc, Role, undefined).
+
+create_with_secret(Name, ApiSecret, Enable, ExpiredAt, Desc, Role, Scopes) when
     is_binary(ApiSecret) andalso byte_size(ApiSecret) >= 32
 ->
     ApiKey = generate_unique_api_key(),
-    create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, undefined);
-create(_Name, ApiSecret, _Enable, _ExpiredAt, _Desc, _Role) when
-    is_binary(ApiSecret)
-->
-    {error, <<"api_secret_too_short">>};
-create(Name, Enable, ExpiredAt, Desc, Role, Scopes) when
-    is_boolean(Enable) andalso (is_list(Scopes) orelse Scopes =:= undefined)
-->
-    ApiKey = generate_unique_api_key(),
-    ApiSecret = generate_api_secret(),
-    create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, Scopes).
+    create_with_key(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, Scopes);
+create_with_secret(_Name, _ApiSecret, _Enable, _ExpiredAt, _Desc, _Role, _Scopes) ->
+    {error, <<"api_secret_too_short">>}.
 
-create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role) ->
-    create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, undefined).
+create_with_key(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role) ->
+    create_with_key(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, undefined).
 
-create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, Scopes) ->
+create_with_key(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, Scopes) ->
     case mnesia:table_info(?APP, size) < 100 of
         true -> create_app(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, Scopes);
         false -> {error, "Maximum number of ApiKeys reached."}

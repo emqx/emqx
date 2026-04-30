@@ -97,7 +97,8 @@ api_keys(_) ->
             {"api_keys show --name <Name>", "Show API key details"},
             {
                 "api_keys add --name <Name> [--api-secret <Secret>]\n"
-                "[--valid-days <infinity|days>] [--role <Role>] [--desc <Desc>]",
+                "[--valid-days <infinity|days>] [--role <Role>] [--desc <Desc>]\n"
+                "[--scopes <scope1,scope2,...>]",
                 "Create API key"
             },
             {"api_keys enable --name <Name>", "Enable API key"},
@@ -123,22 +124,41 @@ add_api_key(Opts) ->
     Desc = maps:get("--desc", Opts, default_api_key_desc()),
     Role = maps:get("--role", Opts, ?ROLE_API_DEFAULT),
     ExpiredAt = maps:get("--valid-days", Opts, infinity),
-    case maps:find("--api-secret", Opts) of
-        {ok, ApiSecret} ->
-            case emqx_mgmt_auth:create(Name, ApiSecret, true, ExpiredAt, Desc, Role) of
-                {ok, APIKey} ->
-                    print_json(api_key_public_info(APIKey));
-                {error, Reason} ->
-                    print_json_error(Reason)
+    Scopes = maps:get("--scopes", Opts, undefined),
+    case validate_scopes(Scopes) of
+        ok ->
+            case maps:find("--api-secret", Opts) of
+                {ok, ApiSecret} ->
+                    case
+                        emqx_mgmt_auth:create_with_secret(
+                            Name, ApiSecret, true, ExpiredAt, Desc, Role, Scopes
+                        )
+                    of
+                        {ok, APIKey} ->
+                            print_json(api_key_public_info(APIKey));
+                        {error, Reason} ->
+                            print_json_error(Reason)
+                    end;
+                error ->
+                    case
+                        emqx_mgmt_auth:create(
+                            Name, true, ExpiredAt, Desc, Role, Scopes
+                        )
+                    of
+                        {ok, APIKey} ->
+                            print_json(api_key_create_info(APIKey));
+                        {error, Reason} ->
+                            print_json_error(Reason)
+                    end
             end;
-        error ->
-            case emqx_mgmt_auth:create(Name, true, ExpiredAt, Desc, Role) of
-                {ok, APIKey} ->
-                    print_json(api_key_create_info(APIKey));
-                {error, Reason} ->
-                    print_json_error(Reason)
-            end
+        {error, Reason} ->
+            print_json_error(Reason)
     end.
+
+validate_scopes(undefined) ->
+    ok;
+validate_scopes(Scopes) when is_list(Scopes) ->
+    emqx_mgmt_api_key_scopes:validate_scopes(Scopes).
 
 delete_api_key(Name) ->
     case emqx_mgmt_auth:delete(Name) of
@@ -192,7 +212,12 @@ parse_api_key_add_args(Args) ->
                 {ok, _Name} ->
                     case
                         ensure_allowed_opts(Opts, [
-                            "--name", "--desc", "--role", "--api-secret", "--valid-days"
+                            "--name",
+                            "--desc",
+                            "--role",
+                            "--api-secret",
+                            "--valid-days",
+                            "--scopes"
                         ])
                     of
                         ok -> {ok, Opts};
@@ -225,6 +250,8 @@ do_collect_api_key_args(["--valid-days", Days | Rest], Acc) ->
         {error, _} = Error ->
             Error
     end;
+do_collect_api_key_args(["--scopes", Scopes | Rest], Acc) ->
+    do_collect_api_key_args(Rest, Acc#{"--scopes" => parse_scopes(Scopes)});
 do_collect_api_key_args([Option], _Acc) ->
     case lists:prefix("--", Option) of
         true ->
@@ -242,6 +269,9 @@ ensure_allowed_opts(Opts, Allowed) ->
         [Unknown | _] ->
             {error, iolist_to_binary(io_lib:format("unknown option: ~ts", [Unknown]))}
     end.
+
+parse_scopes(Scopes) ->
+    [bin(string:trim(S)) || S <- string:split(Scopes, ",", all), S =/= ""].
 
 parse_valid_days("infinity") ->
     {ok, infinity};
