@@ -10,6 +10,7 @@
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -define(TAGS, [<<"GCP Devices">>]).
 -define(TAB, emqx_gcp_device).
@@ -30,6 +31,7 @@
     '/gcp_devices'/2,
     '/gcp_devices/:deviceid'/2
 ]).
+-export([scopes/0]).
 
 -type deviceid() :: emqx_gcp_device:deviceid().
 -type formatted_device() :: emqx_gcp_device:formatted_device().
@@ -68,6 +70,8 @@ namespace() ->
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_GATEWAYS.
 
 paths() ->
     [

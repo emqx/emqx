@@ -9,6 +9,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hocon_types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/2, ref/2]).
 
@@ -30,6 +31,7 @@
 
 %% test
 -export([cluster_metrics/1]).
+-export([scopes/0]).
 
 %%--------------------------------------------------------------------
 %% minirest behaviour callbacks
@@ -39,6 +41,8 @@ namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_MONITORING.
 
 paths() ->
     ["/metrics"].

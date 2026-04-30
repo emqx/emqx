@@ -10,12 +10,14 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% API
 -export([api_spec/0, paths/0, schema/1, namespace/0]).
 
 -export([request/2]).
 -export([block2_exceeds_max_body/3]).
+-export([scopes/0]).
 
 -define(PREFIX, "/gateways/coap/clients/:clientid").
 -define(TAGS, [<<"CoAP Gateways">>]).
@@ -33,6 +35,8 @@ namespace() -> "gateway_coap".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
+
+scopes() -> ?SCOPE_GATEWAYS.
 
 paths() ->
     [?PREFIX ++ "/request"].

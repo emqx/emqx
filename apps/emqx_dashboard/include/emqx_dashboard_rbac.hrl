@@ -21,5 +21,6 @@
 -define(actor, actor).
 -define(role, role).
 -define(namespace, namespace).
+-define(backend, backend).
 
 -endif.

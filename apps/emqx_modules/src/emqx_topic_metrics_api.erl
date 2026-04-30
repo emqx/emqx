@@ -9,6 +9,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include("emqx_modules.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -import(
     hoconsc,
@@ -36,6 +37,7 @@
     fields/1,
     namespace/0
 ]).
+-export([scopes/0]).
 
 -define(EXCEED_LIMIT, 'EXCEED_LIMIT').
 -define(BAD_TOPIC, 'BAD_TOPIC').
@@ -46,6 +48,8 @@ namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_CONNECTIONS.
 
 paths() ->
     [

@@ -9,6 +9,7 @@
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/1, mk/2, ref/2, enum/1]).
 
@@ -42,6 +43,7 @@
 ]).
 
 -export([with_source/2]).
+-export([scopes/0]).
 
 -define(TAGS, [<<"Authorization">>]).
 
@@ -50,6 +52,8 @@ namespace() ->
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_ACCESS_CONTROL.
 
 paths() ->
     [

@@ -11,6 +11,7 @@
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
@@ -87,6 +88,7 @@
 -export([filter/2]).
 
 -export([update_config/2]).
+-export([scopes/0]).
 
 -elvis([{elvis_style, god_modules, disable}]).
 
@@ -94,6 +96,8 @@ namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_ACCESS_CONTROL.
 
 paths() ->
     [

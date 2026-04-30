@@ -10,6 +10,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -import(emqx_dashboard_swagger, [error_codes/2]).
 
@@ -31,9 +32,12 @@
     authenticator_import_users/2,
     listener_authenticator_import_users/2
 ]).
+-export([scopes/0]).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
+
+scopes() -> ?SCOPE_ACCESS_CONTROL.
 
 paths() ->
     [
