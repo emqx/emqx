@@ -21,7 +21,9 @@ defmodule EMQXGatewayExproto.MixProject do
           rename: {:msg_fqname, :base_name}
         ],
         proto_dirs: ["priv/protos"],
-        out_dir: "src/generated"
+        out_dir: "src/generated",
+        generate_server?: true,
+        generate_client?: true
       },
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
