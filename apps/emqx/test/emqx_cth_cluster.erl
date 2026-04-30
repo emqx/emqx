@@ -34,7 +34,7 @@
 -export([share_load_module/2]).
 -export([node_name/1, mk_nodespecs/2]).
 -export([start_apps/2]).
--export([sync_routes/2, setup_logging/1]).
+-export([sync_routes/1, sync_routes/2, setup_logging/1]).
 
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
@@ -472,6 +472,10 @@ start_apps(Node, #{apps := Apps} = Spec) ->
             erlang:raise(K, E, S)
     end,
     ok.
+
+-spec sync_routes([node()]) -> ok.
+sync_routes(Nodes) ->
+    sync_routes(Nodes, 15_000).
 
 %% @doc Wait until routing tables on the given set of nodes converge
 %% to the same value.

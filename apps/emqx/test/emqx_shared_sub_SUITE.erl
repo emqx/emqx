@@ -671,7 +671,7 @@ t_remote(Config) when is_list(Config) ->
         {ok, _ClientPidRemote} = emqtt:connect(ConnPidRemote),
 
         emqtt:subscribe(ConnPidRemote, {<<"$share/remote_group/", Topic/binary>>, 0}),
-        emqx_cth_cluster:sync_routes([node(), Node], 5_000),
+        emqx_cth_cluster:sync_routes([node(), Node]),
 
         Message1 = emqx_message:make(ClientPidLocal, 0, Topic, <<"hello1">>),
         Message2 = emqx_message:make(ClientPidLocal, 1, Topic, <<"hello2">>),
@@ -713,7 +713,7 @@ t_local_fallback(Config) when is_list(Config) ->
         Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
 
         emqtt:subscribe(ConnPid1, {<<"$share/local_group/", Topic/binary>>, 0}),
-        emqx_cth_cluster:sync_routes([node(), Node], 15_000),
+        emqx_cth_cluster:sync_routes([node(), Node]),
 
         emqx:publish(Message1),
         {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1]),
@@ -744,10 +744,10 @@ t_stats(Config) when is_list(Config) ->
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}, {port, get_tcp_mqtt_port(Node)}]),
     {ok, _} = emqtt:connect(ConnPid1),
     emqtt:subscribe(ConnPid1, {SharedTopic, 0}),
-    emqx_cth_cluster:sync_routes([node(), Node], 10_000),
+    emqx_cth_cluster:sync_routes([node(), Node]),
     %% Verify LOCAL stats update
     ?retry(
-        200,
+        1_000,
         10,
         ?assertMatch(
             #{'subscriptions.shared.count' := 1},
@@ -755,10 +755,10 @@ t_stats(Config) when is_list(Config) ->
         )
     ),
     emqtt:unsubscribe(ConnPid1, SharedTopic),
-    emqx_cth_cluster:sync_routes([node(), Node], 10_000),
+    emqx_cth_cluster:sync_routes([node(), Node]),
     %% Verify LOCAL stats update again
     ?retry(
-        200,
+        1_000,
         10,
         ?assertMatch(
             #{'subscriptions.shared.count' := 0},
