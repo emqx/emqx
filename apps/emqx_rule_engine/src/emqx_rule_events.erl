@@ -10,6 +10,7 @@
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge_resource.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     reload/0,
@@ -154,25 +155,39 @@ unload(EventName) ->
 %%--------------------------------------------------------------------
 
 on_alarm_activated(AlarmActivatedContext, Conf) ->
-    apply_event(
-        'alarm.activated',
-        fun() -> eventmsg_alarm_activated(AlarmActivatedContext) end,
-        Conf
-    ).
+    case get_limit_selects_in_namespace() of
+        true ->
+            %% we don't trigger alarm events when limiting events to namespaces, as these
+            %% events do not belong to a particular namespace other than `?global_ns`.
+            ok;
+        false ->
+            apply_event_all_namespaces(
+                'alarm.activated',
+                fun() -> eventmsg_alarm_activated(AlarmActivatedContext) end,
+                Conf
+            )
+    end.
 
 on_alarm_deactivated(AlarmDeactivatedContext, Conf) ->
-    apply_event(
-        'alarm.deactivated',
-        fun() -> eventmsg_alarm_deactivated(AlarmDeactivatedContext) end,
-        Conf
-    ).
+    case get_limit_selects_in_namespace() of
+        true ->
+            %% we don't trigger alarm events when limiting events to namespaces, as these
+            %% events do not belong to a particular namespace other than `?global_ns`.
+            ok;
+        false ->
+            apply_event_all_namespaces(
+                'alarm.deactivated',
+                fun() -> eventmsg_alarm_deactivated(AlarmDeactivatedContext) end,
+                Conf
+            )
+    end.
 
-on_message_publish(Message = #message{topic = Topic}, _Conf) ->
+on_message_publish(Message = #message{}, _Conf) ->
     case ignore_sys_message(Message) of
         true ->
             ok;
         false ->
-            case emqx_rule_engine:get_rules_for_topic(Topic) of
+            case get_rules_for_topic(Message) of
                 [] ->
                     ok;
                 EnrichedRules ->
@@ -194,6 +209,7 @@ on_bridge_message_received(Message, Namespace, Conf = #{event_topic := BridgeTop
 
 on_client_connected(ClientInfo, ConnInfo, Conf) ->
     apply_event(
+        ClientInfo,
         'client.connected',
         fun() -> eventmsg_connected(ClientInfo, ConnInfo) end,
         Conf
@@ -201,6 +217,7 @@ on_client_connected(ClientInfo, ConnInfo, Conf) ->
 
 on_client_connack(ConnInfo, Reason, _, Conf) ->
     apply_event(
+        {hook_context, 'client.connack'},
         'client.connack',
         fun() -> eventmsg_connack(ConnInfo, Reason) end,
         Conf
@@ -211,6 +228,7 @@ on_client_check_authz_complete(
     ClientInfo, ?authz_action(PubSub), Topic, Result, AuthzSource, Conf
 ) ->
     apply_event(
+        ClientInfo,
         'client.check_authz_complete',
         fun() ->
             eventmsg_check_authz_complete(
@@ -226,6 +244,7 @@ on_client_check_authz_complete(
 
 on_client_check_authn_complete(ClientInfo, Result, Conf) ->
     apply_event(
+        ClientInfo,
         'client.check_authn_complete',
         fun() ->
             eventmsg_check_authn_complete(
@@ -238,6 +257,7 @@ on_client_check_authn_complete(ClientInfo, Result, Conf) ->
 
 on_client_disconnected(ClientInfo, Reason, ConnInfo, Conf) ->
     apply_event(
+        ClientInfo,
         'client.disconnected',
         fun() -> eventmsg_disconnected(ClientInfo, ConnInfo, Reason) end,
         Conf
@@ -245,10 +265,14 @@ on_client_disconnected(ClientInfo, Reason, ConnInfo, Conf) ->
 
 on_session_subscribed(ClientInfo, Topic, SubOpts, Conf) ->
     apply_event(
+        ClientInfo,
         'session.subscribed',
         fun() ->
             eventmsg_sub_or_unsub(
-                'session.subscribed', ClientInfo, emqx_topic:maybe_format_share(Topic), SubOpts
+                'session.subscribed',
+                ClientInfo,
+                emqx_topic:maybe_format_share(Topic),
+                SubOpts
             )
         end,
         Conf
@@ -256,10 +280,14 @@ on_session_subscribed(ClientInfo, Topic, SubOpts, Conf) ->
 
 on_session_unsubscribed(ClientInfo, Topic, SubOpts, Conf) ->
     apply_event(
+        ClientInfo,
         'session.unsubscribed',
         fun() ->
             eventmsg_sub_or_unsub(
-                'session.unsubscribed', ClientInfo, emqx_topic:maybe_format_share(Topic), SubOpts
+                'session.unsubscribed',
+                ClientInfo,
+                emqx_topic:maybe_format_share(Topic),
+                SubOpts
             )
         end,
         Conf
@@ -271,6 +299,7 @@ on_message_dropped(Message, _, Reason, Conf) ->
             ok;
         false ->
             apply_event(
+                Message,
                 'message.dropped',
                 fun() -> eventmsg_dropped(Message, Reason) end,
                 Conf
@@ -284,6 +313,7 @@ on_message_transformation_failed(Message, TransformationContext, Conf) ->
             ok;
         false ->
             apply_event(
+                Message,
                 'message.transformation_failed',
                 fun() -> eventmsg_transformation_failed(Message, TransformationContext) end,
                 Conf
@@ -297,6 +327,7 @@ on_schema_validation_failed(Message, ValidationContext, Conf) ->
             ok;
         false ->
             apply_event(
+                Message,
                 'schema.validation_failed',
                 fun() -> eventmsg_validation_failed(Message, ValidationContext) end,
                 Conf
@@ -310,6 +341,7 @@ on_message_delivered(ClientInfo, Message, Conf) ->
             ok;
         false ->
             apply_event(
+                ClientInfo,
                 'message.delivered',
                 fun() -> eventmsg_delivered(ClientInfo, Message) end,
                 Conf
@@ -323,6 +355,7 @@ on_message_acked(ClientInfo, Message, Conf) ->
             ok;
         false ->
             apply_event(
+                ClientInfo,
                 'message.acked',
                 fun() -> eventmsg_acked(ClientInfo, Message) end,
                 Conf
@@ -336,6 +369,7 @@ on_delivery_dropped(ClientInfo, Message, Reason, Conf) ->
             ok;
         false ->
             apply_event(
+                ClientInfo,
                 'delivery.dropped',
                 fun() -> eventmsg_delivery_dropped(ClientInfo, Message, Reason) end,
                 Conf
@@ -857,6 +891,15 @@ with_basic_columns(EventName, Columns, Envs) when is_map(Columns) ->
 %% rules applying
 %%--------------------------------------------------------------------
 
+apply_event(NsContext, EventName, GenEventMsg, Conf) ->
+    case get_limit_selects_in_namespace() of
+        false ->
+            apply_event_all_namespaces(EventName, GenEventMsg, Conf);
+        true ->
+            Ns = resolve_ns(NsContext),
+            apply_event_namespaced(Ns, EventName, GenEventMsg, Conf)
+    end.
+
 apply_event_namespaced(Namespace, EventName, GenEventMsg, _Conf) ->
     case emqx_rule_engine:get_enriched_rules_with_matching_event(Namespace, EventName) of
         [] ->
@@ -867,7 +910,7 @@ apply_event_namespaced(Namespace, EventName, GenEventMsg, _Conf) ->
             emqx_rule_runtime:apply_rules(EnrichedRules, Columns, Envs)
     end.
 
-apply_event(EventName, GenEventMsg, _Conf) ->
+apply_event_all_namespaces(EventName, GenEventMsg, _Conf) ->
     case emqx_rule_engine:get_enriched_rules_with_matching_event_all_namespaces(EventName) of
         [] ->
             ok;
@@ -1591,3 +1634,52 @@ ignore_sys_message(#message{flags = Flags}) ->
     ConfigRootKey = emqx_rule_engine_schema:namespace(),
     maps:get(sys, Flags, false) andalso
         emqx:get_config([ConfigRootKey, ignore_sys_message]).
+
+get_limit_selects_in_namespace() ->
+    emqx_rule_engine_config:get_limit_selects_in_namespace().
+
+resolve_ns({hook_context, EventName}) ->
+    case emqx_hooks:context(EventName) of
+        #{namespace := Ns0} -> Ns0;
+        _ -> ?global_ns
+    end;
+resolve_ns(#message{} = Message) ->
+    get_namespace_from_message(Message);
+resolve_ns(#{} = ClientInfo) ->
+    get_namespace_from_clientinfo(ClientInfo).
+
+get_namespace_from_clientinfo(#{client_attrs := #{?CLIENT_ATTR_NAME_TNS := Ns}}) ->
+    Ns;
+get_namespace_from_clientinfo(#{}) ->
+    ?global_ns.
+
+get_namespace_from_message(#message{headers = #{client_attrs := #{?CLIENT_ATTR_NAME_TNS := Ns}}}) ->
+    Ns;
+get_namespace_from_message(#message{}) ->
+    ?global_ns.
+
+get_rules_for_topic(Message = #message{topic = Topic}) ->
+    case emqx_rule_engine:get_rules_for_topic(Topic) of
+        [] ->
+            ok;
+        EnrichedRules0 ->
+            LimitSelectsInNamespace = emqx_rule_engine_config:get_limit_selects_in_namespace(),
+            case LimitSelectsInNamespace of
+                false ->
+                    EnrichedRules0;
+                true ->
+                    restrict_rules_to_namespace(EnrichedRules0, Message)
+            end
+    end.
+
+restrict_rules_to_namespace(EnrichedRules0, Message) ->
+    Ns = get_namespace_from_message(Message),
+    lists:filter(
+        fun
+            (#{rule := #{namespace := Ns0}}) ->
+                Ns0 == Ns;
+            (_) ->
+                false
+        end,
+        EnrichedRules0
+    ).

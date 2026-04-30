@@ -1266,9 +1266,10 @@ handle_out(connack, {?RC_SUCCESS, SP, Props}, Channel = #channel{conninfo = Conn
         Props,
         Channel
     ),
-    NAckProps = run_hooks(
-        'client.connack',
-        [ConnInfo, emqx_reason_codes:name(?RC_SUCCESS)],
+    NAckProps = run_client_connack_hooks(
+        Channel,
+        ConnInfo,
+        emqx_reason_codes:name(?RC_SUCCESS),
         AckProps
     ),
     return_connack(
@@ -1287,7 +1288,7 @@ handle_out(connack, {ReasonCode, ReasonString}, Channel = #channel{conninfo = Co
             false ->
                 emqx_mqtt_props:set('Reason-String', ReasonString, AckProps0)
         end,
-    AckProps = run_hooks('client.connack', [ConnInfo, Reason], AckProps1),
+    AckProps = run_client_connack_hooks(Channel, ConnInfo, Reason, AckProps1),
     AckPacket = ?CONNACK_PACKET(
         case maps:get(proto_ver, ConnInfo) of
             ?MQTT_PROTO_V5 -> ReasonCode;
@@ -3249,7 +3250,7 @@ reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER.
 %% Helper functions
 %%--------------------------------------------------------------------
 
--compile({inline, [run_hooks/2, run_hooks/3]}).
+-compile({inline, [run_hooks/2, run_hooks/3, run_client_connack_hooks/4]}).
 run_hooks(Name, Args) ->
     ok = emqx_metrics:inc(Name),
     emqx_hooks:run(Name, Args).
@@ -3257,6 +3258,17 @@ run_hooks(Name, Args) ->
 run_hooks(Name, Args, Acc) ->
     ok = emqx_metrics:inc(Name),
     emqx_hooks:run_fold(Name, Args, Acc).
+
+run_client_connack_hooks(Channel, ConnInfo, Reason, AckProps) ->
+    Name = 'client.connack',
+    Ns = get_tenant_namespace(Channel#channel.clientinfo),
+    Ctx = #{namespace => Ns},
+    emqx_hooks:stash_context(Name, Ctx),
+    try
+        run_hooks(Name, [ConnInfo, Reason], AckProps)
+    after
+        emqx_hooks:unstash_context(Name)
+    end.
 
 -compile({inline, [find_alias/3, save_alias/4]}).
 

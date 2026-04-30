@@ -1839,6 +1839,18 @@ Checks that, when fallback actions are triggered, their references are resolved 
 same namespace as primary action's.
 """.
 t_fallback_actions_different_namespaces(_Config) ->
+    on_exit(fun() ->
+        {ok, _} = emqx_conf:update(
+            [rule_engine, limit_selects_in_namespace],
+            true,
+            #{override_to => cluster}
+        )
+    end),
+    {ok, _} = emqx_conf:update(
+        [rule_engine, limit_selects_in_namespace],
+        false,
+        #{override_to => cluster}
+    ),
     Namespace = <<"somens">>,
     ConnectorConfig = emqx_utils_maps:deep_merge(con_config(), #{
         <<"resource_opts">> => #{<<"start_timeout">> => 100}

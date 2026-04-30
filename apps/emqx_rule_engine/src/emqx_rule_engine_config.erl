@@ -11,7 +11,8 @@
     create_or_update_rule/3,
     delete_rule/2,
     list_raw_rules/1,
-    get_raw_rule/2
+    get_raw_rule/2,
+    get_limit_selects_in_namespace/0
 ]).
 
 %% `emqx_config_backup' API
@@ -60,6 +61,10 @@ get_raw_rule(Namespace, Id) ->
         RawRule ->
             {ok, RawRule}
     end.
+
+-spec get_limit_selects_in_namespace() -> boolean().
+get_limit_selects_in_namespace() ->
+    emqx_config:get([rule_engine, limit_selects_in_namespace], true).
 
 %%------------------------------------------------------------------------------
 %% `emqx_config_backup' API
