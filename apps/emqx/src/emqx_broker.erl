@@ -790,23 +790,37 @@ maybe_delete_route(Topic) ->
     end.
 
 sync_route(Action, Topic, ReplyTo) ->
-    EnabledOn = emqx_config:get([broker, routing, batch_sync, enable_on]),
     Res =
-        case EnabledOn of
-            all ->
-                push_sync_route(Action, Topic, ReplyTo);
-            none ->
+        case use_syncer_process() of
+            false ->
                 regular_sync_route(Action, Topic);
-            Role ->
-                case Role =:= mria_config:whoami() of
-                    true ->
-                        push_sync_route(Action, Topic, ReplyTo);
-                    false ->
-                        regular_sync_route(Action, Topic)
-                end
+            true ->
+                push_sync_route(Action, Topic, ReplyTo)
         end,
     _ = external_sync_route(Action, Topic),
     Res.
+
+%% Decide whether to use `emqx_router_syncer' process (`true') or
+%% modify the routing table directly (`false').
+use_syncer_process() ->
+    case emqx_router:get_schema_vsn() of
+        v3 ->
+            %% `emqx_router_syncer' was introduced as a workaround for
+            %% potentially high latency between core and replicant
+            %% nodes. Since `v3' router schema uses Mria merge tables,
+            %% where writes on both cores and replicants are local,
+            %% this is no longer needed:
+            false;
+        v2 ->
+            case emqx_config:get([broker, routing, batch_sync, enable_on]) of
+                all ->
+                    true;
+                none ->
+                    false;
+                Role ->
+                    Role =:= mria_config:whoami()
+            end
+    end.
 
 external_sync_route(add, Topic) ->
     emqx_external_broker:add_route(Topic);
