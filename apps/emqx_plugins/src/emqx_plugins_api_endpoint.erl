@@ -9,15 +9,19 @@
 
 -export([api_spec/0, paths/0, schema/1]).
 -export([gateway/3]).
+-export([scopes/0]).
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -define(DEFAULT_TIMEOUT, 5000).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
+
+scopes() -> ?SCOPE_SYSTEM.
 
 paths() ->
     ["/plugin_api/:plugin/[...]"].

@@ -279,10 +279,7 @@ t_wrong_clientid_with_valid_token_rejected(_Config) ->
         false
     ),
     Req1 = emqx_coap_SUITE:make_req(post, <<"x">>),
-    case emqx_coap_SUITE:do_request(Channel2, URI1, Req1) of
-        {error, unauthorized, _} -> ok;
-        {error, uauthorized, _} -> ok
-    end,
+    ?assertMatch({error, unauthorized, _}, emqx_coap_SUITE:do_request(Channel2, URI1, Req1)),
     ok = emqx_coap_SUITE:disconnection(Channel2, Token),
 
     er_coap_channel:close(Channel2),

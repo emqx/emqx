@@ -9,6 +9,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% Swagger specs from hocon schema
 -export([
@@ -29,6 +30,7 @@
 -export([
     '/node_eviction/status'/2
 ]).
+-export([scopes/0]).
 
 -import(hoconsc, [mk/2, ref/1]).
 
@@ -36,6 +38,8 @@ namespace() -> "node_eviction".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_CLUSTER_OPERATIONS.
 
 paths() ->
     [

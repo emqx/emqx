@@ -19,6 +19,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -include("emqx_mgmt.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% API
 -export([
@@ -63,6 +64,7 @@
 -ifdef(TEST).
 -export([parse_cursor/2, serialize_cursor/1]).
 -endif.
+-export([scopes/0]).
 
 -export_type([
     list_clients_v2_params/0,
@@ -125,6 +127,8 @@ namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
+
+scopes() -> ?SCOPE_CONNECTIONS.
 
 paths() ->
     [

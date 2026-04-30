@@ -254,7 +254,20 @@ t_bootstrap_file_with_role(_) ->
 auth_authorize(Path, Key, Secret) ->
     FakePath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/fake")),
     FakeReq = #{method => <<"GET">>, path => FakePath},
-    emqx_mgmt_auth:authorize(Path, FakeReq, Key, Secret).
+    %% minirest provides HandlerInfo as a map with path/method/module/function.
+    %% Strip the /api/v5 prefix so the path matches paths/0 route templates.
+    RelPath =
+        case emqx_dashboard_swagger:get_relative_uri(Path) of
+            {ok, Rel} -> binary_to_list(Rel);
+            _ -> binary_to_list(Path)
+        end,
+    HandlerInfo = #{
+        method => get,
+        module => emqx_mgmt_api_status,
+        function => get_status,
+        path => RelPath
+    },
+    emqx_mgmt_auth:authorize(HandlerInfo, FakeReq, Key, Secret).
 
 update_file(File) ->
     ?assertMatch({ok, _}, emqx:update_config([<<"api_key">>], #{<<"bootstrap_file">> => File})).

@@ -153,6 +153,11 @@ make_docs() {
         # it is not a big deal if we cannot generate the desc
         log_red "NOT Generated: $desc due to jq command missing."
     fi
+    local scopes_doc="$docdir/api-scopes.md"
+    if [ -x scripts/gen-api-scopes-doc.escript ]; then
+        log "Generating $scopes_doc"
+        scripts/gen-api-scopes-doc.escript "_build/$PROFILE/lib" "$scopes_doc"
+    fi
 }
 
 ## arg1 is the profile for which the following args (as app names) should be excluded

@@ -8,6 +8,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% API
 -behaviour(minirest_api).
@@ -24,6 +25,7 @@
     topics/2,
     topic/2
 ]).
+-export([scopes/0]).
 
 -define(TOPIC_NOT_FOUND, 'TOPIC_NOT_FOUND').
 
@@ -34,6 +36,8 @@ namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
+
+scopes() -> ?SCOPE_CONNECTIONS.
 
 paths() ->
     ["/topics", "/topics/:topic"].

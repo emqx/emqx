@@ -8,6 +8,7 @@
 -include("emqx_gateway_http.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -behaviour(minirest_api).
 
@@ -32,6 +33,7 @@
     gateway/2,
     gateway_enable/2
 ]).
+-export([scopes/0]).
 
 -define(KNOWN_GATEWAY_STATUSES, [<<"running">>, <<"stopped">>, <<"unloaded">>]).
 -define(TAGS, [<<"Gateways">>]).
@@ -44,6 +46,8 @@ namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => fun ?MODULE:check_api_schema/2}).
+
+scopes() -> ?SCOPE_GATEWAYS.
 
 paths() ->
     [

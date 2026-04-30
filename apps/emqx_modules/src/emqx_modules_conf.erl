@@ -8,6 +8,8 @@
 -behaviour(emqx_config_handler).
 -behaviour(emqx_config_backup).
 
+-include_lib("emqx/include/emqx.hrl").
+
 %% Load/Unload
 -export([
     load/0,
@@ -22,8 +24,8 @@
 
 %% config handlers
 -export([
-    pre_config_update/3,
-    post_config_update/5
+    pre_config_update/4,
+    post_config_update/6
 ]).
 
 %% Data backup
@@ -93,31 +95,42 @@ import_config(_Namespace, _RawConf) ->
 -spec pre_config_update(
     list(atom()),
     emqx_config:update_request(),
-    emqx_config:raw_config()
+    emqx_config:raw_config(),
+    emqx_config:cluster_rpc_opts()
 ) ->
     {ok, emqx_config:update_request()} | {error, term()}.
-pre_config_update(_, {add_topic_metrics, Topic0}, RawConf) ->
+pre_config_update(_, {add_topic_metrics, Topic0}, RawConf, ExtraCtx) ->
     case validate_topic_metric(Topic0) of
         ok ->
             Topic = #{<<"topic">> => Topic0},
             case lists:member(Topic, RawConf) of
                 true ->
-                    {error, already_existed};
+                    %% Initiator: surface as duplicate.
+                    %% Replicate: tolerate raw-config drift, treat as no-op.
+                    case kind(ExtraCtx) of
+                        ?KIND_INITIATE -> {error, already_existed};
+                        ?KIND_REPLICATE -> {ok, RawConf}
+                    end;
                 _ ->
                     {ok, RawConf ++ [Topic]}
             end;
         {error, _} = Error ->
             Error
     end;
-pre_config_update(_, {remove_topic_metrics, Topic0}, RawConf) ->
+pre_config_update(_, {remove_topic_metrics, Topic0}, RawConf, ExtraCtx) ->
     Topic = #{<<"topic">> => Topic0},
     case lists:member(Topic, RawConf) of
         true ->
             {ok, RawConf -- [Topic]};
         _ ->
-            {error, not_found}
+            %% Initiator: surface as not_found.
+            %% Replicate: tolerate raw-config drift, treat as no-op.
+            case kind(ExtraCtx) of
+                ?KIND_INITIATE -> {error, not_found};
+                ?KIND_REPLICATE -> {ok, RawConf}
+            end
     end;
-pre_config_update(_, {merge_topics, NewConf}, OldConf) ->
+pre_config_update(_, {merge_topics, NewConf}, OldConf, _ExtraCtx) ->
     case validate_topic_metrics_list(NewConf) of
         ok ->
             KeyFun = fun(#{<<"topic">> := T}) -> T end,
@@ -126,7 +139,7 @@ pre_config_update(_, {merge_topics, NewConf}, OldConf) ->
         {error, _} = Error ->
             Error
     end;
-pre_config_update(_, NewConf, _OldConf) ->
+pre_config_update(_, NewConf, _OldConf, _ExtraCtx) ->
     case validate_topic_metrics_list(NewConf) of
         ok -> {ok, NewConf};
         {error, _} = Error -> Error
@@ -137,7 +150,8 @@ pre_config_update(_, NewConf, _OldConf) ->
     emqx_config:update_request(),
     emqx_config:config(),
     emqx_config:config(),
-    emqx_config:app_envs()
+    emqx_config:app_envs(),
+    emqx_config_handler:extra_context()
 ) ->
     ok | {ok, Result :: any()} | {error, Reason :: term()}.
 post_config_update(
@@ -145,10 +159,15 @@ post_config_update(
     {add_topic_metrics, Topic},
     _NewConfig,
     _OldConfig,
-    _AppEnvs
+    _AppEnvs,
+    ExtraCtx
 ) ->
+    Kind = kind(ExtraCtx),
     case emqx_topic_metrics:register(Topic) of
         ok ->
+            ok;
+        {error, already_existed} when Kind =:= ?KIND_REPLICATE ->
+            %% Tolerate runtime-state drift on replicate only.
             ok;
         {error, wildcard_not_supported} ->
             {error, #{cause => wildcard_not_supported, topic => Topic}};
@@ -160,13 +179,20 @@ post_config_update(
     {remove_topic_metrics, Topic},
     _NewConfig,
     _OldConfig,
-    _AppEnvs
+    _AppEnvs,
+    ExtraCtx
 ) ->
+    Kind = kind(ExtraCtx),
     case emqx_topic_metrics:deregister(Topic) of
-        ok -> ok;
-        {error, Reason} -> {error, Reason}
+        ok ->
+            ok;
+        {error, topic_not_found} when Kind =:= ?KIND_REPLICATE ->
+            %% Tolerate runtime-state drift on replicate only.
+            ok;
+        {error, Reason} ->
+            {error, Reason}
     end;
-post_config_update(_, _UpdateReq, NewConfig, OldConfig, _AppEnvs) ->
+post_config_update(_, _UpdateReq, NewConfig, OldConfig, _AppEnvs, _ExtraCtx) ->
     #{
         removed := Removed,
         added := Added
@@ -206,6 +232,10 @@ cfg_update(Path, Action, Params) ->
             #{override_to => cluster}
         )
     ).
+
+%% `kind` is optional in the extra context; absent means initiator.
+kind(ExtraCtx) ->
+    maps:get(kind, ExtraCtx, ?KIND_INITIATE).
 
 %%--------------------------------------------------------------------
 %%  Validation helpers

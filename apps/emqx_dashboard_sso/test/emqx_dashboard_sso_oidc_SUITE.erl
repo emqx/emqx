@@ -12,6 +12,10 @@
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
+
+-define(OIDC_ADMIN_USER, <<"admin_oidc_test">>).
+-define(OIDC_ADMIN_PASS, <<"admin_pass_123!">>).
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -116,8 +120,19 @@ auth_header() ->
         Fun when is_function(Fun, 0) ->
             Fun();
         _ ->
-            emqx_mgmt_api_test_util:auth_header_()
+            create_bearer_token()
     end.
+
+%% SSO endpoints are denied for API Keys (scope deny list).
+%% Use a dashboard admin Bearer Token instead.
+create_bearer_token() ->
+    _ = emqx_dashboard_admin:add_user(
+        ?OIDC_ADMIN_USER, ?OIDC_ADMIN_PASS, ?ROLE_SUPERUSER, <<"admin for oidc test">>
+    ),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(
+        ?OIDC_ADMIN_USER, ?OIDC_ADMIN_PASS
+    ),
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 get_auth_header_getter() ->
     get(?AUTH_HEADER_FN_PD_KEY).
@@ -428,7 +443,15 @@ do_smoke_tests(TestCase, Opts, TCConfig) ->
         [Node, LoginNode, FinalReqNode] ->
             ok
     end,
-    AuthHeader = ?ON(Node, emqx_mgmt_api_test_util:auth_header_()),
+    AuthHeader = ?ON(Node, begin
+        _ = emqx_dashboard_admin:add_user(
+            ?OIDC_ADMIN_USER, ?OIDC_ADMIN_PASS, ?ROLE_SUPERUSER, <<"admin for oidc test">>
+        ),
+        {ok, #{token := Tok}} = emqx_dashboard_admin:sign_token(
+            ?OIDC_ADMIN_USER, ?OIDC_ADMIN_PASS
+        ),
+        {"Authorization", "Bearer " ++ binary_to_list(Tok)}
+    end),
     set_auth_header_getter(fun() -> AuthHeader end),
     lists:foreach(
         fun(_) ->
@@ -458,6 +481,59 @@ do_smoke_tests1(Node, LoginNode, FinalReqNode, Opts, _TCConfig) ->
     %% Login
     {ok, #{final_token := Token1, emqx_redirect_login_url := LoginURL1B}} =
         login_flow(Node, LoginNode),
+    {302, Headers1, Resp1} = login_sso(Node, #{}),
+    ct:pal("returned headers1:\n  ~p\nbody:\n  ~p\n", [Headers1, Resp1]),
+    {"location", OIDCURL1} = lists:keyfind("location", 1, Headers1),
+
+    #{query := QueryParams1} = uri_string:parse(OIDCURL1),
+    {302, Headers2, Resp2} = oidc_mock_server_auth_req(QueryParams1),
+    ct:pal("returned headers2:\n  ~p\nbody:\n  ~p\n", [Headers2, Resp2]),
+    {"location", OIDCURL2} = lists:keyfind("location", 1, Headers2),
+
+    #{query := QueryParams2} = uri_string:parse(OIDCURL2),
+    {303, Headers3, Resp3} = oidc_callback_req(QueryParams2),
+    ct:pal("returned headers3:\n  ~p\nbody:\n  ~p\n", [Headers3, Resp3]),
+    {"location", OIDCURL3} = lists:keyfind("location", 1, Headers3),
+
+    #{query := QueryParams3} = uri_string:parse(OIDCURL3),
+    {303, Headers4, Resp4} = oidc_approve_req(QueryParams3),
+    ct:pal("returned headers4:\n  ~p\nbody:\n  ~p\n", [Headers4, Resp4]),
+    {"location", LoginURL1} = lists:keyfind("location", 1, Headers4),
+
+    %% Ensure callback falls onto login node
+    CallbackURI = uri_string:parse(LoginURL1),
+    LoginNodePort = get_http_dashboard_port(LoginNode),
+    LoginURL1B = uri_string:recompose(CallbackURI#{
+        host := "127.0.0.1",
+        port := LoginNodePort
+    }),
+    {302, Headers5, Resp5} = ?retry(100, 10, begin
+        Res5 = simple_login_get(LoginURL1B),
+        ct:pal("callback response:\n  ~p", [Res5]),
+        {302, _, _} = Res5
+    end),
+    ct:pal("returned headers5:\n  ~p\nbody:\n  ~p\n", [Headers5, Resp5]),
+    {"location", LoginURL2} = lists:keyfind("location", 1, Headers5),
+
+    #{query := QueryParams4} = uri_string:parse(LoginURL2),
+    #{"login_meta" := Token0} = maps:from_list(uri_string:dissect_query(QueryParams4)),
+    ct:pal("token0: ~s", [Token0]),
+    #{<<"code">> := SsoCode, <<"username">> := SsoUsername, <<"backend">> := SsoBackend} =
+        emqx_utils_json:decode(base64:decode(Token0, #{mode => urlsafe, padding => false})),
+
+    %% Exchange the one-time SSO code for the real JWT token
+    ExchangeURL = url(FinalReqNode, ["sso", "token_exchange"]),
+    {200, ExchangeResp} = simple_request(#{
+        method => post,
+        url => ExchangeURL,
+        body => #{
+            <<"code">> => SsoCode, <<"username">> => SsoUsername, <<"backend">> => SsoBackend
+        },
+        auth_header => [{"x", "x"}]
+    }),
+    ct:pal("exchange response: ~p", [ExchangeResp]),
+    #{<<"token">> := Token1} = ExchangeResp,
+>>>>>>> origin/release-61
 
     %% Finally, can now perform actions in the API
     FinalAuthHeader = {"Authorization", "Bearer " ++ binary_to_list(Token1)},

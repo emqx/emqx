@@ -10,6 +10,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_ft_api.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% Swagger specs from hocon schema
 -export([
@@ -30,6 +31,7 @@
 ]).
 
 -export([mk_export_uri/2]).
+-export([scopes/0]).
 
 %%
 
@@ -39,6 +41,8 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{
         check_schema => true, filter => fun emqx_ft_api:check_ft_enabled/2
     }).
+
+scopes() -> ?SCOPE_CONNECTIONS.
 
 paths() ->
     [

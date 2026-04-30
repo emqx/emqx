@@ -12,6 +12,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 
@@ -26,6 +27,7 @@
 -export([
     check_desc/0
 ]).
+-export([scopes/0]).
 
 -define(TAGS, [<<"Data Backup">>]).
 -define(BPAPI_NAME, emqx_mgmt_data_backup).
@@ -34,6 +36,8 @@ namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_SYSTEM.
 
 paths() ->
     [
