@@ -543,8 +543,7 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_ds_builtin_raft,
             :rabbit_common,
             :emqx_eviction_agent,
-            :emqx_node_rebalance,
-            :emqx_agent
+            :emqx_node_rebalance
           ],
           steps: steps,
           strip_beams: [

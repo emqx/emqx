@@ -1,0 +1,1274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMQX Agent</title>
+<style>
+  /* ── Design tokens ──────────────────────────────────────────────── */
+  :root {
+    --bg:       #0d1117;
+    --surface:  #161b22;
+    --border:   #30363d;
+    --accent:   #58a6ff;
+    --accent2:  #3fb950;
+    --danger:   #f85149;
+    --warn:     #e3b341;
+    --muted:    #8b949e;
+    --text:     #e6edf3;
+    --tag-bg:   #1f2937;
+    --font:     'Menlo', 'Consolas', 'Liberation Mono', monospace;
+    --radius:   6px;
+  }
+
+  /* ── Reset & base ───────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font); font-size: 13px; background: var(--bg); color: var(--text); min-height: 100vh; }
+  a { color: var(--accent); text-decoration: none; }
+
+  /* ── Layout ─────────────────────────────────────────────────────── */
+  #app { display: flex; flex-direction: column; min-height: 100vh; }
+
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 24px; height: 52px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 10;
+  }
+  header .logo { font-size: 15px; font-weight: 700; letter-spacing: 0.04em; color: var(--text); }
+  header .logo span { color: var(--accent); }
+  header .pill {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px;
+    background: var(--tag-bg); border: 1px solid var(--border); color: var(--muted);
+    transition: all .2s;
+  }
+  header .pill.ok  { border-color: var(--accent2); color: var(--accent2); }
+  header .pill.err { border-color: var(--danger);  color: var(--danger); }
+  header .spacer { flex: 1; }
+  header .endpoint { color: var(--muted); font-size: 11px; }
+
+
+  /* tabs */
+  nav {
+    display: flex; gap: 0; padding: 0 24px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+  nav button {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--muted); cursor: pointer; font: inherit; font-size: 13px;
+    padding: 10px 16px; transition: all .15s;
+  }
+  nav button:hover { color: var(--text); }
+  nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* summary bar */
+  nav .cnt {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    padding: 1px 6px; border-radius: 8px;
+    background: var(--tag-bg); color: var(--muted);
+    margin-left: 5px; vertical-align: middle;
+    border: 1px solid var(--border);
+  }
+  nav button.active .cnt { background: var(--accent); color: #000; border-color: var(--accent); }
+
+  /* main pane */
+  main { flex: 1; padding: 24px; max-width: 960px; }
+
+  section { display: none; }
+  section.active { display: block; }
+
+  /* ── Components ──────────────────────────────────────────────────── */
+  h2 { font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--text); letter-spacing: .03em; }
+
+  /* table */
+  .tbl { width: 100%; border-collapse: collapse; margin-bottom: 28px; }
+  .tbl th, .tbl td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  .tbl th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .tbl tr:last-child td { border-bottom: none; }
+  .tbl tr:hover td { background: var(--surface); }
+  .tbl .empty td { color: var(--muted); font-style: italic; text-align: center; padding: 20px; }
+
+  /* tags */
+  .tag {
+    display: inline-block; font-size: 11px; padding: 1px 7px;
+    border-radius: 10px; background: var(--tag-bg); white-space: nowrap;
+    border: 1px solid var(--border); color: var(--muted);
+  }
+  .tag.publish  { border-color: #388bfd44; color: #388bfd; }
+  .tag.request  { border-color: #58a6ff44; color: #58a6ff; }
+  .tag.http     { border-color: #e3b34144; color: var(--warn); }
+  .tag.kv       { border-color: #3fb95044; color: var(--accent2); }
+  .tag.ch       { border-color: #f8514944; color: var(--danger); }
+  .tag.llm      { border-color: #a371f744; color: #a371f7; }
+  .tag.active   { border-color: #3fb95066; color: var(--accent2); }
+  .tag.draft    { border-color: transparent; color: var(--muted); }
+
+  /* buttons */
+  .btn {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--surface); color: var(--text); cursor: pointer;
+    font: inherit; font-size: 12px; padding: 5px 12px; transition: all .15s;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
+  .btn.primary:hover { background: #79baff; border-color: #79baff; }
+  .btn.danger:hover  { border-color: var(--danger); color: var(--danger); }
+  .btn.sm { padding: 3px 8px; font-size: 11px; }
+
+  /* card / form */
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px 20px; margin-bottom: 20px;
+  }
+  .card h3 { font-size: 12px; font-weight: 600; margin-bottom: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .field input, .field select, .field textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text); padding: 6px 10px;
+    font: inherit; font-size: 12px; transition: border-color .15s;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .field select option { background: var(--bg); }
+  .field textarea { resize: vertical; min-height: 70px; }
+  .field .hint { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  .row { display: flex; gap: 10px; }
+  .row .field { flex: 1; }
+
+  .form-actions { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
+  .form-actions .msg { font-size: 11px; color: var(--accent2); }
+  .form-actions .err { color: var(--danger); }
+
+  /* ── Toast ───────────────────────────────────────────────────────── */
+  #toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 10px 16px;
+    font-size: 12px; max-width: 320px;
+    opacity: 0; transform: translateY(8px);
+    transition: all .2s; pointer-events: none; z-index: 100;
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+  #toast.ok  { border-color: var(--accent2); color: var(--accent2); }
+  #toast.err { border-color: var(--danger);  color: var(--danger); }
+
+  /* ── Pipeline step builder ──────────────────────────────────────────────── */
+  .step-card {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 8px; overflow: hidden;
+  }
+  .step-header {
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 10px; background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .step-num { color: var(--muted); font-size: 11px; min-width: 42px; }
+  .step-type-sel {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text);
+    padding: 3px 6px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .step-type-sel:focus { outline: none; border-color: var(--accent); }
+  .step-body { padding: 10px 12px; display: grid; gap: 8px; }
+  .step-body .row { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+  .kv-list  { display: flex; flex-direction: column; gap: 4px; }
+  .kv-row   { display: flex; gap: 5px; align-items: center; }
+  .kv-row input { flex: 1; min-width: 80px; }
+  .kv-key   { max-width: 130px; flex: 0 0 130px !important; }
+  .tools-grid { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .tools-grid label {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--tag-bg); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 2px 8px; cursor: pointer;
+    font-size: 11px; user-select: none; transition: background 0.1s, border-color 0.1s;
+  }
+  .tools-grid label:hover { border-color: var(--accent); }
+  .tools-grid label:has(input:checked) { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .tools-grid label small { color: var(--muted); }
+  .tools-grid label:has(input:checked) small { color: rgba(255,255,255,0.75); }
+  .tools-grid input[type=checkbox] { display: none; }
+  .step-add-btn {
+    width: 100%; padding: 8px; margin-top: 4px;
+    background: none; border: 1px dashed var(--border);
+    border-radius: var(--radius); color: var(--muted); cursor: pointer;
+    font: inherit; font-size: 12px; transition: all .15s;
+  }
+  .step-add-btn:hover { border-color: var(--accent); color: var(--accent); }
+  /* credentials bar is hidden — auth comes from the dashboard session */
+  #cred-bar { display: none; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.min.js"></script>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Header ── -->
+  <header>
+    <div class="logo">EMQX <span>Agent</span></div>
+    <span id="status-pill" class="pill">○ disconnected</span>
+    <div class="spacer"></div>
+    <span class="endpoint" id="endpoint-label"></span>
+  </header>
+
+  <!-- ── Credentials bar ── -->
+  <div id="cred-bar">
+    <label>API Key</label>
+    <input id="api-key" type="text" placeholder="key" autocomplete="off" spellcheck="false">
+    <label>Secret</label>
+    <input id="api-secret" type="password" placeholder="secret" autocomplete="off">
+    <label>Host</label>
+    <input id="api-host" type="text" value="" placeholder="http://localhost:18083" style="width:200px">
+    <button class="btn primary" onclick="connect()">Connect</button>
+  </div>
+
+  <!-- ── Tab nav ── -->
+  <nav>
+    <button class="active" onclick="showTab('skills',this)">Skills<span class="cnt" id="cnt-skills">—</span></button>
+    <button onclick="showTab('profiles',this)">Session Profiles<span class="cnt" id="cnt-profiles">—</span></button>
+    <button onclick="showTab('pipelines',this)">Pipelines<span class="cnt" id="cnt-pipelines">—</span></button>
+  </nav>
+
+  <!-- ── Main content ── -->
+  <main>
+
+    <!-- Skills -->
+    <section id="tab-skills" class="active">
+      <h2>Skills</h2>
+      <table class="tbl" id="skills-table">
+        <thead><tr><th>ID</th><th>Type</th><th>Description</th><th></th></tr></thead>
+        <tbody id="skills-body"><tr class="empty"><td colspan="4">Not connected</td></tr></tbody>
+      </table>
+
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h3 id="skill-card-title">New Skill</h3>
+          <button id="skill-cancel-btn" class="btn sm" style="display:none" onclick="resetSkillEditor()">✕ Cancel edit</button>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Type</label>
+            <select id="skill-type" onchange="updateSkillForm()">
+              <option value="message.publish">message.publish</option>
+              <option value="message.request">message.request</option>
+              <option value="http">http</option>
+              <option value="kv">kv</option>
+              <option value="postgresql.query">postgresql.query</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>ID</label>
+            <input id="skill-id" type="text" placeholder="my-skill-1">
+          </div>
+        </div>
+        <div class="field">
+          <label>Description</label>
+          <input id="skill-desc" type="text" placeholder="Human-readable description for the LLM">
+        </div>
+
+        <!-- message.publish fields -->
+        <div id="f-publish">
+          <div class="field">
+            <label>Topic Prefix</label>
+            <input id="skill-prefix" type="text" placeholder="out/devices/">
+            <div class="hint">All publishes are restricted to this prefix.</div>
+          </div>
+          <div class="field">
+            <label>Payload schema (JSON)</label>
+            <textarea id="skill-publish-input" placeholder='{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}'></textarea>
+            <div class="hint">Optional payload JSON schema. Topic/from/qos are fixed wrapper fields. Output schema is fixed by backend.</div>
+          </div>
+        </div>
+
+        <!-- message.request fields -->
+        <div id="f-request" style="display:none">
+          <div class="field">
+            <label>Topic Prefix</label>
+            <input id="skill-request-prefix" type="text" placeholder="devices/room1/">
+            <div class="hint">Request is published to this prefix + the agent-supplied topic suffix. Responses arrive on a unique temporary topic set via the MQTT 5 Response-Topic property.</div>
+          </div>
+          <div class="field">
+            <label>Request payload schema (JSON)</label>
+            <textarea id="skill-request-payload-schema" placeholder='{"type":"object"}'></textarea>
+            <div class="hint">JSON Schema describing the payload the LLM should send in the request. Leave blank for untyped.</div>
+          </div>
+          <div class="field">
+            <label>Response schema (JSON)</label>
+            <textarea id="skill-response-schema" placeholder='{"type":"object","properties":{"result":{"type":"string"}}}'></textarea>
+            <div class="hint">JSON Schema describing the payload the LLM will receive in the response. Leave blank for untyped.</div>
+          </div>
+        </div>
+
+        <!-- http fields -->
+        <div id="f-http" style="display:none">
+          <div class="row">
+            <div class="field">
+              <label>Method</label>
+              <select id="skill-method">
+                <option>post</option><option>get</option>
+                <option>put</option><option>patch</option><option>delete</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>URL</label>
+              <input id="skill-url" type="text" placeholder="http://service:8080/api">
+            </div>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label>Input schema (JSON)</label>
+              <textarea id="skill-input-schema" placeholder='{"type":"object","properties":{}}'></textarea>
+            </div>
+            <div class="field">
+              <label>Output schema (JSON)</label>
+              <textarea id="skill-output-schema" placeholder='{"type":"object","properties":{}}'></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- kv fields -->
+        <div id="f-kv" style="display:none">
+          <div class="row">
+            <div class="field">
+              <label>Data schema (JSON)</label>
+              <textarea id="skill-data-schema" placeholder='{"type":"object","properties":{}}'></textarea>
+            </div>
+            <div class="field" style="max-width:140px">
+              <label>Allow put?</label>
+              <select id="skill-allow-put">
+                <option value="true">yes</option>
+                <option value="false">no</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- postgresql fields -->
+        <div id="f-ch" style="display:none">
+          <div class="field">
+            <label>SQL query template</label>
+            <textarea id="skill-query" placeholder="SELECT metric, value FROM agent_skill_metrics WHERE device_id = $1"></textarea>
+          </div>
+          <div class="field">
+            <label>Argument keys <small style="color:var(--muted)">ordered list for $1, $2, ...</small></label>
+            <input id="skill-arg-keys" type="text" placeholder="device_id, metric">
+          </div>
+          <div class="row">
+            <div class="field">
+              <label>Input schema (JSON)</label>
+              <textarea id="skill-ch-input" placeholder='{"type":"object","properties":{}}'></textarea>
+            </div>
+            <div class="field">
+              <label>Output schema (JSON)</label>
+              <textarea id="skill-ch-output" placeholder='{"type":"object","properties":{}}'></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn primary" id="skill-submit-btn" onclick="saveSkill()">Create</button>
+          <span id="skill-msg" class="msg"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Session Profiles -->
+    <section id="tab-profiles">
+      <h2>Session Profiles</h2>
+      <table class="tbl">
+        <thead><tr><th>Name</th><th>Base URL</th><th></th></tr></thead>
+        <tbody id="profiles-body"><tr class="empty"><td colspan="3">Not connected</td></tr></tbody>
+      </table>
+
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h3 id="prof-card-title">New Session Profile</h3>
+          <button id="prof-cancel-btn" class="btn sm" style="display:none" onclick="resetProfileEditor()">✕ Cancel edit</button>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Name</label>
+            <input id="prof-name" type="text" placeholder="hvac-triage-v1">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Base URL</label>
+            <input id="prof-url" type="text" placeholder="https://api.openai.com/v1">
+          </div>
+          <div class="field">
+            <label>API Key</label>
+            <input id="prof-key" type="password" placeholder="sk-…">
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn primary" id="prof-submit-btn" onclick="saveProfile()">Create</button>
+          <span id="prof-msg" class="msg"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pipelines -->
+    <section id="tab-pipelines">
+      <h2>Pipelines</h2>
+      <table class="tbl">
+        <thead><tr><th>ID</th><th>Trigger topic</th><th>Steps</th><th>Status</th><th></th></tr></thead>
+        <tbody id="pipelines-body"><tr class="empty"><td colspan="5">Not connected</td></tr></tbody>
+      </table>
+
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h3 id="pipe-card-title">New Pipeline</h3>
+          <button id="pipe-cancel-btn" class="btn sm" style="display:none" onclick="resetPipelineEditor()">Cancel edit</button>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Pipeline ID</label>
+            <input id="pipe-id" type="text" placeholder="hvac-anomaly-response">
+          </div>
+          <div class="field">
+            <label>Trigger topic</label>
+            <input id="pipe-topic" type="text" placeholder="evt/hvac/anomaly">
+          </div>
+          <div class="field" style="max-width:110px">
+            <label>Active</label>
+            <label style="display:flex;align-items:center;gap:6px;padding-top:6px;cursor:pointer">
+              <input type="checkbox" id="pipe-active" checked style="accent-color:var(--accent2);width:14px;height:14px">
+              <span style="font-size:12px;color:var(--muted)">enabled</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Steps</label>
+          <div id="pipe-steps-list"></div>
+          <button class="step-add-btn" onclick="addStep()">+ Add Step</button>
+        </div>
+
+        <div class="form-actions">
+          <button id="pipe-save-btn" class="btn primary" onclick="savePipeline()">Create Pipeline</button>
+          <span id="pipe-msg" class="msg"></span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── State ───────────────────────────────────────────────────────────────────
+
+// Same origin — no host configuration needed
+const BASE = window.location.origin + '/api/v5/plugin_api/emqx_agent';
+
+// ── Shared state ─────────────────────────────────────────────────────────────
+let loadedSkills      = [];
+let loadedProfiles    = [];
+let loadedPipelines   = [];
+let pipelineSteps     = [];
+let editingPipelineId = null;  // null → create mode, string → edit mode
+let editingSkillKey   = null;  // null → create, {type,id} → edit
+let editingProfileName = null; // null → create, string → edit
+
+// ── Dashboard token ──────────────────────────────────────────────────────────
+// The dashboard stores user info encrypted in localStorage using the same
+// scheme as emqx-dashboard5/src/common/auth.ts:
+//   localStorage['uKV5']  → random uk key
+//   localStorage[uk]      → AES-encrypted JSON { token, username, role }
+
+const DASHBOARD_USER_INFO_KEY = 'uKV5';
+const DASHBOARD_ENCRYPTION_KEY = 'YWSCVU8Z55N9N1G1';
+
+function getDashboardToken() {
+  try {
+    const uk = localStorage.getItem(DASHBOARD_USER_INFO_KEY);
+    if (!uk) return null;
+    const encrypted = localStorage.getItem(uk);
+    if (!encrypted) return null;
+    const bytes = CryptoJS.AES.decrypt(encrypted, DASHBOARD_ENCRYPTION_KEY);
+    const json  = bytes.toString(CryptoJS.enc.Utf8);
+    return JSON.parse(json)?.token ?? null;
+  } catch(_) {
+    return null;
+  }
+}
+
+function authHeader() {
+  const token = getDashboardToken();
+  return token ? 'Bearer ' + token : null;
+}
+
+// ── Init ────────────────────────────────────────────────────────────────────
+
+window.addEventListener('DOMContentLoaded', async () => {
+  document.getElementById('endpoint-label').textContent = window.location.host;
+  document.getElementById('skill-publish-input').value = defaultPublishInputSchema();
+  await refresh();
+});
+
+async function refresh() {
+  const auth = authHeader();
+  if (!auth) {
+    setStatus('err');
+    toast('No dashboard session found — please log in to the dashboard first.', 'err');
+    return;
+  }
+  try {
+    await Promise.all([loadSkills(), loadProfiles(), loadPipelines()]);
+    setStatus('ok');
+  } catch(e) {
+    setStatus('err');
+    toast('Load failed: ' + e.message, 'err');
+  }
+}
+
+function setStatus(state) {
+  const el = document.getElementById('status-pill');
+  el.className = 'pill ' + state;
+  el.textContent = state === 'ok' ? '● connected' : '○ error';
+}
+
+// ── HTTP helpers ─────────────────────────────────────────────────────────────
+
+async function api(method, path, body) {
+  const auth = authHeader();
+  if (!auth) throw new Error('Not authenticated — please log in to the dashboard first.');
+  const opts = {
+    method,
+    headers: { Authorization: auth, 'Content-Type': 'application/json' }
+  };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await fetch(BASE + path, opts);
+  if (res.status === 204) return null;
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch(_) { data = text; }
+  if (!res.ok) throw new Error((data?.message ?? data?.code) || res.statusText);
+  return data;
+}
+
+// ── Tab navigation ───────────────────────────────────────────────────────────
+
+function showTab(name, btn) {
+  document.querySelectorAll('section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ── Skill type selector ──────────────────────────────────────────────────────
+
+function updateSkillForm() {
+  const type = document.getElementById('skill-type').value;
+  document.getElementById('f-publish').style.display  = type === 'message.publish'  ? '' : 'none';
+  document.getElementById('f-request').style.display  = type === 'message.request'  ? '' : 'none';
+  document.getElementById('f-http').style.display     = type === 'http'              ? '' : 'none';
+  document.getElementById('f-kv').style.display       = type === 'kv'                ? '' : 'none';
+  document.getElementById('f-ch').style.display       = type === 'postgresql.query'  ? '' : 'none';
+}
+
+// ── Skills ───────────────────────────────────────────────────────────────────
+
+async function loadSkills() {
+  const list = await api('GET', '/skills');
+  loadedSkills = list;
+  document.getElementById('cnt-skills').textContent = list.length;
+  const tbody = document.getElementById('skills-body');
+  if (!list.length) {
+    tbody.innerHTML = '<tr class="empty"><td colspan="4">No skills registered</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map(s => `
+    <tr>
+      <td><code>${esc(s.skill_id)}</code></td>
+      <td><span class="tag ${typeClass(s.type)}">${esc(s.type)}</span></td>
+      <td style="color:var(--muted)">${esc(s.description ?? '')}</td>
+      <td><div style="display:flex;gap:6px">
+        <button class="btn sm" onclick="editSkill('${esc(s.type)}','${esc(s.skill_id)}')">edit</button>
+        <button class="btn sm danger" onclick="deleteSkill('${esc(s.type)}','${esc(s.skill_id)}')">delete</button>
+      </div></td>
+    </tr>`).join('');
+}
+
+function collectSkillBody() {
+  const type = document.getElementById('skill-type').value;
+  const id   = document.getElementById('skill-id').value.trim();
+  const desc = document.getElementById('skill-desc').value.trim();
+  let body = { type, id, desc };
+  if (type === 'message.publish') {
+    body.topic_prefix = document.getElementById('skill-prefix').value.trim();
+    const publishInSchema = document.getElementById('skill-publish-input').value.trim();
+    if (publishInSchema) {
+      body.payload_schema = JSON.parse(publishInSchema);
+    }
+  } else if (type === 'message.request') {
+    body.topic_prefix = document.getElementById('skill-request-prefix').value.trim();
+    const reqPayloadSchema = document.getElementById('skill-request-payload-schema').value.trim();
+    if (reqPayloadSchema) body.request_payload_schema = JSON.parse(reqPayloadSchema);
+    const respSchema = document.getElementById('skill-response-schema').value.trim();
+    if (respSchema) body.response_schema = JSON.parse(respSchema);
+  } else if (type === 'http') {
+    body.method        = document.getElementById('skill-method').value;
+    body.url           = document.getElementById('skill-url').value.trim();
+    body.input_schema  = JSON.parse(document.getElementById('skill-input-schema').value || '{}');
+    body.output_schema = JSON.parse(document.getElementById('skill-output-schema').value || '{}');
+  } else if (type === 'kv') {
+    body.data_schema = JSON.parse(document.getElementById('skill-data-schema').value || '{}');
+    body.allow_put   = document.getElementById('skill-allow-put').value === 'true';
+  } else if (type === 'postgresql.query') {
+    body.query         = document.getElementById('skill-query').value.trim();
+    body.arg_keys      = document.getElementById('skill-arg-keys').value
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+    body.input_schema  = JSON.parse(document.getElementById('skill-ch-input').value || '{}');
+    body.output_schema = JSON.parse(document.getElementById('skill-ch-output').value || '{}');
+  }
+  return body;
+}
+
+async function saveSkill() {
+  const body = collectSkillBody();
+  if (!body.id) return setMsg('skill-msg', 'ID is required', true);
+  try {
+    if (editingSkillKey) {
+      await api('PUT', `/skills/${encodeURIComponent(editingSkillKey.type)}/${encodeURIComponent(editingSkillKey.id)}`, body);
+      setMsg('skill-msg', 'Updated ✓');
+      toast('Skill "' + body.id + '" updated', 'ok');
+      resetSkillEditor();
+    } else {
+      await api('POST', '/skills', body);
+      setMsg('skill-msg', 'Created ✓');
+      toast('Skill "' + body.id + '" created', 'ok');
+    }
+    await loadSkills();
+  } catch(e) {
+    setMsg('skill-msg', e.message, true);
+  }
+}
+
+function editSkill(type, id) {
+  const skill = loadedSkills.find(s => s.type === type && s.skill_id === id);
+  if (!skill) return;
+
+  editingSkillKey = { type, id };
+  document.getElementById('skill-card-title').textContent = 'Edit Skill — ' + id;
+  document.getElementById('skill-cancel-btn').style.display = '';
+  document.getElementById('skill-submit-btn').textContent = 'Update';
+
+  document.getElementById('skill-type').value = skill.type;
+  document.getElementById('skill-type').disabled = true;
+  document.getElementById('skill-id').value = skill.skill_id;
+  document.getElementById('skill-id').readOnly = true;
+  document.getElementById('skill-desc').value = skill.description ?? '';
+  updateSkillForm();
+
+  if (type === 'http') {
+    document.getElementById('skill-method').value = skill.method ?? 'post';
+    document.getElementById('skill-url').value = skill.url ?? '';
+    document.getElementById('skill-input-schema').value = skill.input_schema ? JSON.stringify(skill.input_schema, null, 2) : '';
+    document.getElementById('skill-output-schema').value = skill.output_schema ? JSON.stringify(skill.output_schema, null, 2) : '';
+  } else if (type === 'message.publish') {
+    document.getElementById('skill-prefix').value = skill.topic_prefix ?? '';
+    const legacyPayloadSchema = skill.input_schema?.properties?.payload;
+    const payloadSchema = skill.payload_schema ?? legacyPayloadSchema;
+    document.getElementById('skill-publish-input').value = payloadSchema ? JSON.stringify(payloadSchema, null, 2) : defaultPublishInputSchema();
+  } else if (type === 'message.request') {
+    document.getElementById('skill-request-prefix').value = skill.topic_prefix ?? '';
+    document.getElementById('skill-request-payload-schema').value = skill.request_payload_schema ? JSON.stringify(skill.request_payload_schema, null, 2) : '';
+    document.getElementById('skill-response-schema').value = skill.response_schema ? JSON.stringify(skill.response_schema, null, 2) : '';
+  } else if (type === 'kv') {
+    document.getElementById('skill-data-schema').value = skill.data_schema ? JSON.stringify(skill.data_schema, null, 2) : '';
+    document.getElementById('skill-allow-put').value = skill.allow_put ? 'true' : 'false';
+  } else if (type === 'postgresql.query') {
+    document.getElementById('skill-query').value = skill.query ?? '';
+    document.getElementById('skill-arg-keys').value = (skill.arg_keys ?? []).join(', ');
+    document.getElementById('skill-ch-input').value = skill.input_schema ? JSON.stringify(skill.input_schema, null, 2) : '';
+    document.getElementById('skill-ch-output').value = skill.output_schema ? JSON.stringify(skill.output_schema, null, 2) : '';
+  }
+
+  document.querySelector('#tab-skills .card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function defaultPublishInputSchema() {
+  return JSON.stringify({
+    type: 'object',
+    properties: {
+      message: { type: 'string' }
+    },
+    required: ['message']
+  }, null, 2);
+}
+
+function resetSkillEditor() {
+  editingSkillKey = null;
+  document.getElementById('skill-card-title').textContent = 'New Skill';
+  document.getElementById('skill-cancel-btn').style.display = 'none';
+  document.getElementById('skill-submit-btn').textContent = 'Create';
+  document.getElementById('skill-type').disabled = false;
+  document.getElementById('skill-id').readOnly = false;
+  document.getElementById('skill-type').value = 'message.publish';
+  document.getElementById('skill-id').value = '';
+  document.getElementById('skill-desc').value = '';
+  document.getElementById('skill-prefix').value = '';
+  document.getElementById('skill-publish-input').value = defaultPublishInputSchema();
+  document.getElementById('skill-request-prefix').value = '';
+  document.getElementById('skill-request-payload-schema').value = '';
+  document.getElementById('skill-response-schema').value = '';
+  document.getElementById('skill-method').value = 'post';
+  document.getElementById('skill-url').value = '';
+  document.getElementById('skill-input-schema').value = '';
+  document.getElementById('skill-output-schema').value = '';
+  document.getElementById('skill-data-schema').value = '';
+  document.getElementById('skill-query').value = '';
+  document.getElementById('skill-arg-keys').value = '';
+  document.getElementById('skill-ch-input').value = '';
+  document.getElementById('skill-ch-output').value = '';
+  updateSkillForm();
+  setMsg('skill-msg', '');
+}
+
+async function deleteSkill(type, id) {
+  if (!confirm(`Delete skill "${id}"?`)) return;
+  try {
+    await api('DELETE', `/skills/${encodeURIComponent(type)}/${encodeURIComponent(id)}`);
+    toast('Deleted ' + id, 'ok');
+    await loadSkills();
+  } catch(e) {
+    toast(e.message, 'err');
+  }
+}
+
+// ── Session profiles ─────────────────────────────────────────────────────────
+
+async function loadProfiles() {
+  const list = await api('GET', '/session_profiles');
+  loadedProfiles = list;
+  document.getElementById('cnt-profiles').textContent = list.length;
+  const tbody = document.getElementById('profiles-body');
+  if (!list.length) {
+    tbody.innerHTML = '<tr class="empty"><td colspan="3">No profiles registered</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map(p => `
+    <tr>
+      <td><code>${esc(p.name)}</code></td>
+      <td style="color:var(--muted)">${esc(p.base_url ?? '')}</td>
+      <td><div style="display:flex;gap:6px">
+        <button class="btn sm" onclick="editProfile('${esc(p.name)}')">edit</button>
+        <button class="btn sm danger" onclick="deleteProfile('${esc(p.name)}')">delete</button>
+      </div></td>
+    </tr>`).join('');
+}
+
+async function saveProfile() {
+  const name = document.getElementById('prof-name').value.trim();
+  const url  = document.getElementById('prof-url').value.trim();
+  const key  = document.getElementById('prof-key').value;
+
+  if (!name) return setMsg('prof-msg', 'Name is required', true);
+  try {
+    if (editingProfileName) {
+      await api('PUT', `/session_profiles/${encodeURIComponent(editingProfileName)}`, {
+        name, base_url: url, api_key: key
+      });
+      setMsg('prof-msg', 'Updated ✓');
+      toast('Profile "' + name + '" updated', 'ok');
+      resetProfileEditor();
+    } else {
+      await api('POST', '/session_profiles', {
+        name, base_url: url, api_key: key
+      });
+      setMsg('prof-msg', 'Created ✓');
+      toast('Profile "' + name + '" created', 'ok');
+    }
+    await loadProfiles();
+  } catch(e) {
+    setMsg('prof-msg', e.message, true);
+  }
+}
+
+function editProfile(name) {
+  const prof = loadedProfiles.find(p => p.name === name);
+  if (!prof) return;
+
+  editingProfileName = name;
+  document.getElementById('prof-card-title').textContent = 'Edit Profile — ' + name;
+  document.getElementById('prof-cancel-btn').style.display = '';
+  document.getElementById('prof-submit-btn').textContent = 'Update';
+
+  document.getElementById('prof-name').value = prof.name ?? '';
+  document.getElementById('prof-name').readOnly = true;
+  document.getElementById('prof-url').value = prof.base_url ?? '';
+  document.getElementById('prof-key').value = '';  // never round-trip secrets
+
+  document.querySelector('#tab-profiles .card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function resetProfileEditor() {
+  editingProfileName = null;
+  document.getElementById('prof-card-title').textContent = 'New Session Profile';
+  document.getElementById('prof-cancel-btn').style.display = 'none';
+  document.getElementById('prof-submit-btn').textContent = 'Create';
+  document.getElementById('prof-name').readOnly = false;
+  document.getElementById('prof-name').value = '';
+  document.getElementById('prof-url').value = '';
+  document.getElementById('prof-key').value = '';
+  setMsg('prof-msg', '');
+}
+
+async function deleteProfile(name) {
+  if (!confirm(`Delete profile "${name}"?`)) return;
+  try {
+    await api('DELETE', `/session_profiles/${encodeURIComponent(name)}`);
+    toast('Deleted ' + name, 'ok');
+    await loadProfiles();
+  } catch(e) {
+    toast(e.message, 'err');
+  }
+}
+
+// ── Pipelines ────────────────────────────────────────────────────────────────
+
+async function loadPipelines() {
+  const list = await api('GET', '/pipelines');
+  loadedPipelines = list;
+  document.getElementById('cnt-pipelines').textContent = list.length;
+  const tbody = document.getElementById('pipelines-body');
+  if (!list.length) {
+    tbody.innerHTML = '<tr class="empty"><td colspan="5">No pipelines registered</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map(p => {
+    const trigger  = p.trigger?.topic ?? '—';
+    const steps    = (p.steps ?? []).map(s =>
+      `<span class="tag ${stepClass(s.type)}">${esc(s.id ?? s.type)}</span>`
+    ).join(' ');
+    const isActive = p.active === true;
+    const statusBadge = isActive
+      ? '<span class="tag active">● active</span>'
+      : '<span class="tag draft">○ draft</span>';
+    const toggleLabel = isActive ? 'deactivate' : 'activate';
+    return `<tr>
+      <td><code>${esc(p.pipeline_id)}</code></td>
+      <td style="color:var(--muted)">${esc(trigger)}</td>
+      <td>${steps}</td>
+      <td>${statusBadge}</td>
+      <td><div style="display:flex;gap:4px">
+        <button class="btn sm" onclick="togglePipelineActive('${esc(p.pipeline_id)}')">${toggleLabel}</button>
+        <button class="btn sm" onclick="editPipeline('${esc(p.pipeline_id)}')">edit</button>
+        <button class="btn sm danger" onclick="deletePipeline('${esc(p.pipeline_id)}')">delete</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+async function togglePipelineActive(id) {
+  const pipeline = loadedPipelines.find(p => p.pipeline_id === id);
+  if (!pipeline) return toast('Pipeline not found — try refreshing', 'err');
+  const updated = { ...pipeline, active: !pipeline.active };
+  try {
+    await api('PUT', `/pipelines/${encodeURIComponent(id)}`, updated);
+    toast(`Pipeline "${id}" ${updated.active ? 'activated' : 'deactivated'}`, 'ok');
+    await loadPipelines();
+  } catch(e) {
+    toast(e.message, 'err');
+  }
+}
+
+async function deletePipeline(id) {
+  if (!confirm(`Delete pipeline "${id}"?`)) return;
+  try {
+    await api('DELETE', `/pipelines/${encodeURIComponent(id)}`);
+    toast('Deleted ' + id, 'ok');
+    await loadPipelines();
+  } catch(e) {
+    toast(e.message, 'err');
+  }
+}
+
+async function savePipeline() {
+  const id    = document.getElementById('pipe-id').value.trim();
+  const topic = document.getElementById('pipe-topic').value.trim();
+  if (!id)    return setMsg('pipe-msg', 'Pipeline ID is required', true);
+  if (!topic) return setMsg('pipe-msg', 'Trigger topic is required', true);
+  const steps  = collectSteps();
+  const active = document.getElementById('pipe-active').checked;
+  const body   = { pipeline_id: id, trigger: { topic }, steps, active };
+  try {
+    if (editingPipelineId) {
+      await api('PUT', `/pipelines/${encodeURIComponent(editingPipelineId)}`, body);
+      toast('Pipeline "' + id + '" updated', 'ok');
+    } else {
+      await api('POST', '/pipelines', body);
+      toast('Pipeline "' + id + '" created', 'ok');
+    }
+    setMsg('pipe-msg', 'Saved ✓');
+    resetPipelineEditor();
+    await loadPipelines();
+  } catch(e) {
+    setMsg('pipe-msg', e.message, true);
+  }
+}
+
+function editPipeline(id) {
+  const pipeline = loadedPipelines.find(p => p.pipeline_id === id);
+  if (!pipeline) return toast('Pipeline not found in cache — try refreshing', 'err');
+
+  editingPipelineId = id;
+
+  document.getElementById('pipe-id').value        = pipeline.pipeline_id;
+  document.getElementById('pipe-id').readOnly     = true;
+  document.getElementById('pipe-id').style.opacity = '0.6';
+  document.getElementById('pipe-topic').value     = pipeline.trigger?.topic ?? '';
+  document.getElementById('pipe-active').checked  = pipeline.active === true;
+  document.getElementById('pipe-card-title').textContent = 'Edit Pipeline: ' + id;
+  document.getElementById('pipe-save-btn').textContent   = 'Update Pipeline';
+  document.getElementById('pipe-cancel-btn').style.display = '';
+
+  pipelineSteps = (pipeline.steps ?? []).map((s, i) => deserializeStep(s, i));
+  renderSteps();
+
+  // scroll the editor into view
+  document.getElementById('pipe-card-title').closest('.card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function deserializeStep(s, i) {
+  const id   = s.id ?? ('step_' + (i + 1));
+  const type = s.type ?? 'call_skill';
+  if (type === 'call_skill') {
+    const serVal = v => (v !== null && typeof v === 'object') ? JSON.stringify(v) : v;
+    const args = s.args ? Object.entries(s.args).map(([k, v]) => [k, serVal(v)]) : [['', '']];
+    return { id, type, skill: s.skill ?? '', args, result_path: s.result_path ?? '' };
+  }
+  if (type === 'llm_loop') {
+    const input = s.input ? Object.entries(s.input) : [['event', '$.event']];
+    const setResultSchema = s.set_result_schema ? JSON.stringify(s.set_result_schema, null, 2) : '';
+    return { id, type, session_profile: s.session_profile ?? '', model: s.model ?? '', stop_on_finish: s.stop_on_finish ?? true, tools: s.tools ?? [], input, instructions: s.instructions ?? '', set_result_schema: setResultSchema, result_path: s.result_path ?? '' };
+  }
+  if (type === 'wait_for_event') {
+    return { id, type, topic: s.topic ?? '', where: s.where ?? '', result_path: s.result_path ?? '' };
+  }
+  if (type === 'break') {
+    return { id, type, path: s.path ?? '', not: s.not === true };
+  }
+  return { id, type };
+}
+
+function resetPipelineEditor() {
+  editingPipelineId = null;
+
+  document.getElementById('pipe-id').value          = '';
+  document.getElementById('pipe-id').readOnly        = false;
+  document.getElementById('pipe-id').style.opacity   = '';
+  document.getElementById('pipe-topic').value        = '';
+  document.getElementById('pipe-active').checked     = true;
+  document.getElementById('pipe-card-title').textContent    = 'New Pipeline';
+  document.getElementById('pipe-save-btn').textContent      = 'Create Pipeline';
+  document.getElementById('pipe-cancel-btn').style.display  = 'none';
+
+  pipelineSteps = [];
+  renderSteps();
+}
+
+// ── Pipeline step editor ──────────────────────────────────────────────────────
+
+function defaultStep(type) {
+  const n = pipelineSteps.length + 1;
+  if (type === 'call_skill')     return { id: 'step_' + n, type, skill: '', args: [['', '']], result_path: '' };
+  if (type === 'llm_loop')       return { id: 'step_' + n, type, session_profile: '', stop_on_finish: true, tools: [], input: [['event', '$.event']], set_result_schema: '', result_path: '' };
+  if (type === 'wait_for_event') return { id: 'step_' + n, type, topic: '', where: '', result_path: '' };
+  if (type === 'break')          return { id: 'step_' + n, type, path: '', not: false };
+  return { id: 'step_' + n, type };
+}
+
+function addStep() {
+  pipelineSteps.push(defaultStep('call_skill'));
+  renderSteps();
+}
+
+function removeStep(idx) {
+  syncAll();
+  pipelineSteps.splice(idx, 1);
+  renderSteps();
+}
+
+function moveStep(idx, dir) {
+  syncAll();
+  const t = idx + dir;
+  if (t < 0 || t >= pipelineSteps.length) return;
+  [pipelineSteps[idx], pipelineSteps[t]] = [pipelineSteps[t], pipelineSteps[idx]];
+  renderSteps();
+}
+
+function stepTypeChanged(idx) {
+  syncAll();
+  const card  = document.querySelector(`[data-step-idx="${idx}"]`);
+  const newType = card.querySelector('.step-type-sel').value;
+  const oldId   = pipelineSteps[idx].id;
+  pipelineSteps[idx] = defaultStep(newType);
+  pipelineSteps[idx].id = oldId;
+  renderStepBody(idx);
+}
+
+function renderSteps() {
+  const container = document.getElementById('pipe-steps-list');
+  container.innerHTML = '';
+  pipelineSteps.forEach((step, idx) => {
+    const card = document.createElement('div');
+    card.className = 'step-card';
+    card.dataset.stepIdx = idx;
+    card.innerHTML = stepCardHTML(step, idx);
+    container.appendChild(card);
+  });
+}
+
+function renderStepBody(idx) {
+  document.getElementById('step-body-' + idx).innerHTML =
+    stepFieldsHTML(pipelineSteps[idx], idx);
+}
+
+function stepCardHTML(step, idx) {
+  const last = pipelineSteps.length - 1;
+  const types = ['call_skill','llm_loop','wait_for_event','break'];
+  const typeOpts = types.map(t =>
+    `<option value="${t}"${t===step.type?' selected':''}>${t}</option>`
+  ).join('');
+  return `
+    <div class="step-header">
+      <span class="step-num">Step ${idx+1}</span>
+      <select class="step-type-sel" onchange="stepTypeChanged(${idx})">${typeOpts}</select>
+      <div style="flex:1"></div>
+      <button class="btn sm" onclick="moveStep(${idx},-1)"${idx===0?' disabled':''} title="Move up">↑</button>
+      <button class="btn sm" onclick="moveStep(${idx},1)"${idx===last?' disabled':''} title="Move down">↓</button>
+      <button class="btn sm danger" onclick="removeStep(${idx})" title="Remove">×</button>
+    </div>
+    <div class="step-body" id="step-body-${idx}">${stepFieldsHTML(step, idx)}</div>`;
+}
+
+function kvRow(k, v) {
+  return `<div class="kv-row">
+    <input type="text" class="kv-key" value="${esc(k)}" placeholder="key">
+    <input type="text" class="kv-val" value="${esc(v)}" placeholder="$.path or value">
+    <button class="btn sm danger" onclick="this.closest('.kv-row').remove()" title="Remove">×</button>
+  </div>`;
+}
+
+function addKV(idx, cls) {
+  const list = document.querySelector(`[data-step-idx="${idx}"] .${cls}`);
+  list.insertAdjacentHTML('beforeend', kvRow('', ''));
+}
+
+function stepFieldsHTML(step, idx) {
+  const idF = `<div class="field"><label>Step ID</label>
+    <input type="text" class="sf-id" value="${esc(step.id)}" placeholder="step_1"></div>`;
+
+  if (step.type === 'call_skill') {
+    const skillOpts = loadedSkills.map(s => {
+      const ref = s.type + '@' + s.skill_id;
+      return `<option value="${esc(ref)}"${ref===step.skill?' selected':''}>${esc(s.skill_id)} (${esc(s.type)})</option>`;
+    }).join('');
+    return idF + `
+      <div class="field"><label>Skill</label>
+        <select class="sf-skill">
+          <option value="">— select skill —</option>${skillOpts}
+        </select>
+      </div>
+      <div class="field"><label>Args <small style="color:var(--muted)">key → $.path or literal</small></label>
+        <div class="kv-list sf-args">${(step.args||[]).map(([k,v])=>kvRow(k,v)).join('')}</div>
+        <button class="btn sm" style="margin-top:4px" onclick="addKV(${idx},'sf-args')">+ arg</button>
+      </div>
+      <div class="field"><label>Result path <small style="color:var(--muted)">e.g. $.history</small></label>
+        <input type="text" class="sf-result" value="${esc(step.result_path)}" placeholder="$.result">
+      </div>`;
+  }
+
+  if (step.type === 'llm_loop') {
+    const profOpts = loadedProfiles.map(p =>
+      `<option value="${esc(p.name)}"${p.name===step.session_profile?' selected':''}>${esc(p.name)}</option>`
+    ).join('');
+    const toolsHTML = loadedSkills.length
+      ? loadedSkills.map(s => {
+          const ref = s.type + '@' + s.skill_id;
+          const on = (step.tools||[]).includes(ref);
+          return `<label>
+            <input type="checkbox" value="${esc(ref)}"${on?' checked':''}>
+            ${esc(s.skill_id)} <small>${esc(s.type)}</small></label>`;
+        }).join('')
+      : '<span style="color:var(--muted);font-size:11px">No skills registered yet</span>';
+    return idF + `
+      <div class="row">
+        <div class="field"><label>Session profile</label>
+          <select class="sf-profile">
+            <option value="">— select profile —</option>${profOpts}
+          </select>
+        </div>
+        <div class="field"><label>Model</label>
+          <input type="text" class="sf-model" value="${esc(step.model||'')}" placeholder="e.g. gpt-5.4, accounts/fireworks/models/kimi-k2p5">
+        </div>
+      </div>
+      <div style="margin-bottom:10px;display:flex;align-items:center;gap:6px">
+        <input type="checkbox" class="sf-stop-on-finish"${step.stop_on_finish?' checked':''}>
+        <span style="font-size:11px">Ephemeral mode <small style="color:var(--muted)">(session terminates after completion; default: true)</small></span>
+      </div>
+      <div class="field"><label>Tools (select skills available to the LLM)</label>
+        <div class="tools-grid sf-tools">${toolsHTML}</div>
+      </div>
+      <div class="field"><label>Input <small style="color:var(--muted)">key → $.path (e.g. $.event, $.history)</small></label>
+        <div class="kv-list sf-input">${(step.input||[]).map(([k,v])=>kvRow(k,v)).join('')}</div>
+        <button class="btn sm" style="margin-top:4px" onclick="addKV(${idx},'sf-input')">+ input</button>
+      </div>
+      <div class="field"><label>Instructions <small style="color:var(--muted)">System prompt for the LLM (optional)</small></label>
+        <textarea class="sf-instructions" rows="5" style="font-family:monospace;font-size:11px" placeholder="You are a helpful assistant.">${esc(step.instructions||'')}</textarea>
+      </div>
+      <div class="field"><label>set_result schema <small style="color:var(--muted)">JSON Schema for structured output (optional)</small></label>
+        <textarea class="sf-set-result-schema" rows="4" style="font-family:monospace;font-size:11px" placeholder='{"type":"object","properties":{"status":{"type":"string"}}}'>${esc(step.set_result_schema||'')}</textarea>
+      </div>
+      <div class="field"><label>Result path</label>
+        <input type="text" class="sf-result" value="${esc(step.result_path)}" placeholder="$.analysis">
+      </div>`;
+  }
+
+  if (step.type === 'wait_for_event') {
+    return idF + `
+      <div class="field"><label>Topic</label>
+        <input type="text" class="sf-topic" value="${esc(step.topic||'')}" placeholder="evt/cloud/incident.updated">
+      </div>
+      <div class="field"><label>Condition <small style="color:var(--muted)">optional, e.g. data.id == $.triage.id</small></label>
+        <input type="text" class="sf-where" value="${esc(step.where||'')}" placeholder="">
+      </div>
+      <div class="field"><label>Result path</label>
+        <input type="text" class="sf-result" value="${esc(step.result_path||'')}" placeholder="$.event2">
+      </div>`;
+  }
+
+  if (step.type === 'break') {
+    return idF + `
+      <div class="field"><label>Path <small style="color:var(--muted)">JSON path in context</small></label>
+        <input type="text" class="sf-path" value="${esc(step.path||'')}" placeholder="$.triage.should_break">
+      </div>
+      <div class="field"><label><input type="checkbox" class="sf-not"${step.not ? ' checked' : ''}> Not</label>
+      </div>`;
+  }
+
+  return idF;
+}
+
+function syncStep(idx) {
+  const card = document.querySelector(`[data-step-idx="${idx}"]`);
+  if (!card) return;
+  const step = pipelineSteps[idx];
+  step.id   = card.querySelector('.sf-id')?.value?.trim() ?? step.id;
+  step.type = card.querySelector('.step-type-sel')?.value ?? step.type;
+  if (step.type === 'call_skill') {
+    step.skill       = card.querySelector('.sf-skill')?.value ?? '';
+    step.result_path = card.querySelector('.sf-result')?.value?.trim() ?? '';
+    step.args = [...card.querySelectorAll('.sf-args .kv-row')].map(r => [
+      r.querySelector('.kv-key').value.trim(),
+      r.querySelector('.kv-val').value.trim()
+    ]);
+  } else if (step.type === 'llm_loop') {
+    step.session_profile = card.querySelector('.sf-profile')?.value ?? '';
+    step.model = card.querySelector('.sf-model')?.value?.trim() ?? '';
+    step.stop_on_finish = card.querySelector('.sf-stop-on-finish')?.checked ?? true;
+    step.tools = [...card.querySelectorAll('.sf-tools input:checked')].map(c => c.value);
+    step.instructions = card.querySelector('.sf-instructions')?.value?.trim() ?? '';
+    step.set_result_schema = card.querySelector('.sf-set-result-schema')?.value?.trim() ?? '';
+    step.result_path = card.querySelector('.sf-result')?.value?.trim() ?? '';
+    step.input = [...card.querySelectorAll('.sf-input .kv-row')].map(r => [
+      r.querySelector('.kv-key').value.trim(),
+      r.querySelector('.kv-val').value.trim()
+    ]);
+  } else if (step.type === 'wait_for_event') {
+    step.topic       = card.querySelector('.sf-topic')?.value?.trim() ?? '';
+    step.where       = card.querySelector('.sf-where')?.value?.trim() ?? '';
+    step.result_path = card.querySelector('.sf-result')?.value?.trim() ?? '';
+  } else if (step.type === 'break') {
+    step.path = card.querySelector('.sf-path')?.value?.trim() ?? '';
+    step.not = card.querySelector('.sf-not')?.checked === true;
+  }
+}
+
+function syncAll() {
+  pipelineSteps.forEach((_, idx) => syncStep(idx));
+}
+
+function collectSteps() {
+  syncAll();
+  return pipelineSteps.map(s => {
+    const out = { id: s.id, type: s.type };
+    if (s.type === 'call_skill') {
+      if (s.skill) out.skill = s.skill;
+      const args = Object.fromEntries((s.args||[]).filter(([k]) => k));
+      if (Object.keys(args).length) out.args = args;
+      if (s.result_path) out.result_path = s.result_path;
+    } else if (s.type === 'llm_loop') {
+      if (s.session_profile) out.session_profile = s.session_profile;
+      if (s.model) out.model = s.model;
+      out.stop_on_finish = s.stop_on_finish ?? true;
+      if (s.instructions) out.instructions = s.instructions;
+      if (s.tools?.length)   out.tools = s.tools;
+      const input = Object.fromEntries((s.input||[]).filter(([k]) => k));
+      if (Object.keys(input).length) out.input = input;
+      if (s.set_result_schema) {
+        try { out.set_result_schema = JSON.parse(s.set_result_schema); } catch (e) { /* invalid JSON — omit */ }
+      }
+      if (s.result_path) out.result_path = s.result_path;
+    } else if (s.type === 'wait_for_event') {
+      if (s.topic)       out.topic = s.topic;
+      if (s.where)       out.where = s.where;
+      if (s.result_path) out.result_path = s.result_path;
+    } else if (s.type === 'break') {
+      if (s.path) out.path = s.path;
+      if (s.not === true) out.not = true;
+    }
+    return out;
+  });
+}
+
+// ── UI helpers ───────────────────────────────────────────────────────────────
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function typeClass(t) {
+  if (t === 'message.publish')  return 'publish';
+  if (t === 'message.request')  return 'request';
+  if (t === 'http')              return 'http';
+  if (t?.startsWith('kv'))       return 'kv';
+  if (t?.startsWith('postgresql')) return 'ch';
+  return '';
+}
+
+function stepClass(t) {
+  if (t === 'llm_loop')      return 'llm';
+  if (t === 'call_skill')    return 'publish';
+  if (t === 'wait_for_event') return 'kv';
+  if (t === 'break')         return 'kv';
+  return '';
+}
+
+function setMsg(id, msg, isErr = false) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'msg' + (isErr ? ' err' : '');
+  setTimeout(() => { el.textContent = ''; }, 4000);
+}
+
+let toastTimer;
+function toast(msg, kind = 'ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show ' + kind;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = ''; }, 3000);
+}
+</script>
+</body>
+</html>
