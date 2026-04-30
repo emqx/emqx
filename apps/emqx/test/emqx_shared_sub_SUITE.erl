@@ -671,8 +671,7 @@ t_remote(Config) when is_list(Config) ->
         {ok, _ClientPidRemote} = emqtt:connect(ConnPidRemote),
 
         emqtt:subscribe(ConnPidRemote, {<<"$share/remote_group/", Topic/binary>>, 0}),
-
-        ct:sleep(100),
+        emqx_cth_cluster:sync_routes([node(), Node], 5_000),
 
         Message1 = emqx_message:make(ClientPidLocal, 0, Topic, <<"hello1">>),
         Message2 = emqx_message:make(ClientPidLocal, 1, Topic, <<"hello2">>),
@@ -707,24 +706,25 @@ t_local_fallback(Config) when is_list(Config) ->
     %% Use a different base port for each test case to avoid flakiness
     BasePort = 11888,
     Node = start_peer('local_fallback_shared_sub_1', BasePort),
+    try
+        {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
+        {ok, _} = emqtt:connect(ConnPid1),
+        Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
+        Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
 
-    {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
-    {ok, _} = emqtt:connect(ConnPid1),
-    Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
-    Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
+        emqtt:subscribe(ConnPid1, {<<"$share/local_group/", Topic/binary>>, 0}),
+        emqx_cth_cluster:sync_routes([node(), Node], 15_000),
 
-    emqtt:subscribe(ConnPid1, {<<"$share/local_group/", Topic/binary>>, 0}),
+        emqx:publish(Message1),
+        {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1]),
 
-    emqx:publish(Message1),
-    {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1]),
-
-    rpc:call(Node, emqx, publish, [Message2]),
-    {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1], 2_000),
-
-    emqtt:stop(ConnPid1),
-    stop_peer(Node),
-
-    ?assertEqual(UsedSubPid1, UsedSubPid2),
+        rpc:call(Node, emqx, publish, [Message2]),
+        {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1], 2_000),
+        ?assertEqual(UsedSubPid1, UsedSubPid2),
+        emqtt:stop(ConnPid1)
+    after
+        stop_peer(Node)
+    end,
     ok.
 
 t_stats(Config) when is_list(Config) ->
@@ -744,6 +744,7 @@ t_stats(Config) when is_list(Config) ->
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}, {port, get_tcp_mqtt_port(Node)}]),
     {ok, _} = emqtt:connect(ConnPid1),
     emqtt:subscribe(ConnPid1, {SharedTopic, 0}),
+    emqx_cth_cluster:sync_routes([node(), Node], 10_000),
     %% Verify LOCAL stats update
     ?retry(
         200,
@@ -754,6 +755,7 @@ t_stats(Config) when is_list(Config) ->
         )
     ),
     emqtt:unsubscribe(ConnPid1, SharedTopic),
+    emqx_cth_cluster:sync_routes([node(), Node], 10_000),
     %% Verify LOCAL stats update again
     ?retry(
         200,
@@ -1215,8 +1217,8 @@ t_queue_subscription(Config) when is_list(Config) ->
     ?UPDATE_SUB_QOS(C, SharedTopic, ?QOS_2),
 
     ?retry(
-        _Sleep0 = 100,
-        _Attempts0 = 50,
+        100,
+        50,
         begin
             ?assertEqual(2, length(emqx_router:match_routes(Topic)))
         end
@@ -1238,8 +1240,8 @@ t_queue_subscription(Config) when is_list(Config) ->
     {ok, _, [?RC_SUCCESS]} = emqtt:unsubscribe(C, SharedTopic),
 
     ?retry(
-        _Sleep0 = 100,
-        _Attempts0 = 50,
+        100,
+        50,
         begin
             ?assertEqual(0, length(emqx_router:match_routes(Topic)))
         end
@@ -1249,8 +1251,7 @@ t_queue_subscription(Config) when is_list(Config) ->
     Message1 = emqx_message:make(ClientId, _QoS = 2, Topic, <<"hello">>),
     emqx:publish(Message1),
     %% we should *not* receive any messages.
-    ?assertEqual([], collect_msgs(1_000), #{routes => ets:tab2list(emqx_route)}),
-
+    ?assertEqual([], collect_msgs(1_000), #{routes => emqx_router:match_routes(<<"#">>)}),
     ok.
 
 %%--------------------------------------------------------------------
@@ -1385,8 +1386,14 @@ start_peer(Name, Port) ->
     Node.
 
 stop_peer(Node) ->
-    rpc:call(Node, mria, leave, []),
-    emqx_cth_peer:stop(Node).
+    ok = mria:force_leave(Node),
+    emqx_cth_peer:stop(Node),
+    %% In v3 routing schema the emqx_router_helper process is not started,
+    %% so shared-subscription records for the stopped peer are never
+    %% automatically purged.  Call purge_node/1 explicitly here so that
+    %% stale entries do not bleed into subsequent test-cases (e.g. t_stats
+    %% which asserts an exact subscriptions.shared.count).
+    ok = emqx_shared_sub:purge_node(Node).
 
 host() ->
     [_, Host] = string:tokens(atom_to_list(node()), "@"),
@@ -1413,12 +1420,13 @@ setup_node(Node, Port) ->
     ok = pair_gen_rpc(node(), MyPort, PeerPort),
     ok = pair_gen_rpc(Node, PeerPort, MyPort),
 
+    %% warm it up, also assert the peer ndoe name
+    Node = emqx_rpc:call(Node, erlang, node, []),
+    ok = rpc:call(Node, mria, join, [node()]),
+
     %% Here we start the node and make it join the cluster
     ok = rpc:call(Node, emqx_common_test_helpers, start_apps, [[], EnvHandler]),
 
-    %% warm it up, also assert the peer ndoe name
-    Node = emqx_rpc:call(Node, erlang, node, []),
-    rpc:call(Node, mria, join, [node()]),
     ok.
 
 get_tcp_mqtt_port(Node) ->

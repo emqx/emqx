@@ -1,0 +1,10 @@
+%% -*- mode: erlang -*-
+{application, emqx_gateway_coap, [
+    {description, "CoAP Gateway"},
+    {vsn, "0.1.16"},
+    {registered, []},
+    {applications, [kernel, stdlib, emqx, emqx_gateway]},
+    {env, []},
+    {modules, []},
+    {links, []}
+]}.

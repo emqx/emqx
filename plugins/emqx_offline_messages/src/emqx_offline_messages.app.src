@@ -1,0 +1,20 @@
+%% -*- mode: erlang -*-
+{application, emqx_offline_messages, [
+    {description, "EMQX Offline Messages Plugin"},
+    {vsn, {file, "VERSION"}},
+    {modules, []},
+    {registered, [emqx_offline_messages_sup]},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx,
+        emqx_resource,
+        emqx_redis,
+        emqx_mysql,
+        emqx_plugins
+    ]},
+    {mod, {emqx_offline_messages_app, []}},
+    {env, []},
+    {licenses, ["Apache-2.0"]},
+    {maintainers, ["EMQX <emqx@emqx.io>"]}
+]}.

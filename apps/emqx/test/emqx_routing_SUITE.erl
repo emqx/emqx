@@ -135,48 +135,56 @@ t_cluster_routing(Config) ->
     Commands = [
         {fun publish/3, [C1, <<"a/b/c">>, <<"wontsee">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"wontsee">>]},
-        {fun subscribe/2, [C3, <<"a/+/c/#">>]},
+        {fun subscribe/3, [Cluster, C3, <<"a/+/c/#">>]},
         {fun publish/3, [C1, <<"a/b/c">>, <<"01">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"wontsee">>]},
-        {fun subscribe/2, [C1, <<"a/b/c">>]},
-        {fun subscribe/2, [C2, <<"a/b/+">>]},
+        {fun subscribe/3, [Cluster, C1, <<"a/b/c">>]},
+        {fun subscribe/3, [Cluster, C2, <<"a/b/+">>]},
         {fun publish/3, [C3, <<"a/b/c">>, <<"02">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"03">>]},
         {fun publish/3, [C2, <<"a/b/c/d">>, <<"04">>]},
-        {fun subscribe/2, [C3, <<"a/b/d">>]},
+        {fun subscribe/3, [Cluster, C3, <<"a/b/d">>]},
         {fun publish/3, [C1, <<"a/b/d">>, <<"05">>]},
-        {fun unsubscribe/2, [C3, <<"a/+/c/#">>]},
+        {fun unsubscribe/3, [Cluster, C3, <<"a/+/c/#">>]},
         {fun publish/3, [C1, <<"a/b/c">>, <<"06">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"07">>]},
         {fun publish/3, [C2, <<"a/b/c/d">>, <<"08">>]},
-        {fun unsubscribe/2, [C2, <<"a/b/+">>]},
+        {fun unsubscribe/3, [Cluster, C2, <<"a/b/+">>]},
         {fun publish/3, [C1, <<"a/b/c">>, <<"09">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"10">>]},
         {fun publish/3, [C2, <<"a/b/c/d">>, <<"11">>]},
-        {fun unsubscribe/2, [C3, <<"a/b/d">>]},
-        {fun unsubscribe/2, [C1, <<"a/b/c">>]},
+        {fun unsubscribe/3, [Cluster, C3, <<"a/b/d">>]},
+        {fun unsubscribe/3, [Cluster, C1, <<"a/b/c">>]},
         {fun publish/3, [C1, <<"a/b/c">>, <<"wontsee">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"wontsee">>]}
     ],
     ok = lists:foreach(fun({F, Args}) -> erlang:apply(F, Args) end, Commands),
     _ = [emqtt:stop(C) || C <- Clients],
     Deliveries = ?drainMailbox(),
-    ?assertMatch(
+    Diff = snabbkaffe_diff:diff_lists(
+        #{
+            compare_fun => fun(
+                {pub, Cli1, #{topic := T1, payload := P1}},
+                {pub, Cli2, #{topic := T2, payload := P2}}
+            ) ->
+                Cli1 =:= Cli2 andalso T1 =:= T2 andalso P1 =:= P2
+            end
+        },
         [
-            {pub, C1, #{topic := <<"a/b/c">>, payload := <<"02">>}},
-            {pub, C1, #{topic := <<"a/b/c">>, payload := <<"06">>}},
-            {pub, C1, #{topic := <<"a/b/c">>, payload := <<"09">>}},
-            {pub, C2, #{topic := <<"a/b/c">>, payload := <<"02">>}},
-            {pub, C2, #{topic := <<"a/b/d">>, payload := <<"03">>}},
-            {pub, C2, #{topic := <<"a/b/d">>, payload := <<"05">>}},
-            {pub, C2, #{topic := <<"a/b/c">>, payload := <<"06">>}},
-            {pub, C2, #{topic := <<"a/b/d">>, payload := <<"07">>}},
-            {pub, C3, #{topic := <<"a/b/c">>, payload := <<"01">>}},
-            {pub, C3, #{topic := <<"a/b/c">>, payload := <<"02">>}},
-            {pub, C3, #{topic := <<"a/b/c/d">>, payload := <<"04">>}},
-            {pub, C3, #{topic := <<"a/b/d">>, payload := <<"05">>}},
-            {pub, C3, #{topic := <<"a/b/d">>, payload := <<"07">>}},
-            {pub, C3, #{topic := <<"a/b/d">>, payload := <<"10">>}}
+            {pub, C1, #{topic => <<"a/b/c">>, payload => <<"02">>}},
+            {pub, C1, #{topic => <<"a/b/c">>, payload => <<"06">>}},
+            {pub, C1, #{topic => <<"a/b/c">>, payload => <<"09">>}},
+            {pub, C2, #{topic => <<"a/b/c">>, payload => <<"02">>}},
+            {pub, C2, #{topic => <<"a/b/d">>, payload => <<"03">>}},
+            {pub, C2, #{topic => <<"a/b/d">>, payload => <<"05">>}},
+            {pub, C2, #{topic => <<"a/b/c">>, payload => <<"06">>}},
+            {pub, C2, #{topic => <<"a/b/d">>, payload => <<"07">>}},
+            {pub, C3, #{topic => <<"a/b/c">>, payload => <<"01">>}},
+            {pub, C3, #{topic => <<"a/b/c">>, payload => <<"02">>}},
+            {pub, C3, #{topic => <<"a/b/c/d">>, payload => <<"04">>}},
+            {pub, C3, #{topic => <<"a/b/d">>, payload => <<"05">>}},
+            {pub, C3, #{topic => <<"a/b/d">>, payload => <<"07">>}},
+            {pub, C3, #{topic => <<"a/b/d">>, payload => <<"10">>}}
         ],
         lists:sort(
             fun({pub, CL, #{payload := PL}}, {pub, CR, #{payload := PR}}) ->
@@ -184,7 +192,14 @@ t_cluster_routing(Config) ->
             end,
             Deliveries
         )
-    ).
+    ),
+    case Diff of
+        [] ->
+            ok;
+        _ ->
+            ct:pal("~s", [snabbkaffe_diff:format(Diff)]),
+            error(no_match)
+    end.
 
 start_client(Node) ->
     Self = self(),
@@ -198,17 +213,19 @@ start_client(Node) ->
     C.
 
 publish(C, Topic, Payload) ->
-    {ok, #{reason_code := 0}} = emqtt:publish(C, Topic, Payload, 1).
+    {ok, #{reason_code := 0}} = emqtt:publish(C, Topic, Payload, 1),
+    %% Sleep to avoid racing with other operations, e.g. unsubscribe:
+    ct:sleep(100).
 
-subscribe(C, Topic) ->
-    % NOTE: sleeping here as lazy way to wait for subscribe to replicate
+subscribe(Nodes, C, Topic) ->
+    ct:pal("Subscribe ~p ~s", [C, Topic]),
     {ok, _Props, [0]} = emqtt:subscribe(C, Topic),
-    ok = timer:sleep(200).
+    emqx_cth_cluster:sync_routes(Nodes, 10_000).
 
-unsubscribe(C, Topic) ->
-    % NOTE: sleeping here as lazy way to wait for unsubscribe to replicate
+unsubscribe(Nodes, C, Topic) ->
+    ct:pal("Un-subscribe ~p ~s", [C, Topic]),
     {ok, _Props, undefined} = emqtt:unsubscribe(C, Topic),
-    ok = timer:sleep(200).
+    emqx_cth_cluster:sync_routes(Nodes, 10_000).
 
 %%
 
@@ -401,7 +418,7 @@ t_slow_rlog_routing_consistency(Config) ->
     ),
     DelayMs = 3_000,
     slowdown_mria_rlog(?config(original_mnesia_hook, Config), [Core1, Core2], DelayMs),
-    {ok, _} = rpc:call(Replicant, mnesia_subscr, subscribe, [Self, {table, ?ROUTE_TAB, simple}]),
+    {ok, _} = rpc:call(Replicant, mnesia_subscr, subscribe, [Self, {table, ?ROUTE_TAB_V3, simple}]),
     UnSubSubFun = fun() ->
         %% Unsubscribe must remove a route, but the effect
         %% is expected to be delayed on the replicant node
@@ -417,7 +434,7 @@ t_slow_rlog_routing_consistency(Config) ->
     ?assertEqual(ok, erpc:call(Replicant, UnSubSubFun)),
     receive
         %% Can't match route record, since table name =/= record name,
-        {mnesia_table_event, {write, {?ROUTE_TAB, Topic, Replicant}, _}} ->
+        {mnesia_table_event, {write, {?ROUTE_TAB_V3, Topic, Replicant}, _}} ->
             %% Event is reported before Mnesia writes a record, need to wait again...
             timer:sleep(100),
             ?assert(rpc:call(Replicant, emqx_router, has_route, [Topic, Replicant]))

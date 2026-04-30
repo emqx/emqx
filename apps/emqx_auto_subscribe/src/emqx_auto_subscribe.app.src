@@ -1,0 +1,16 @@
+%% -*- mode: erlang -*-
+{application, emqx_auto_subscribe, [
+    {description, "Auto subscribe Application"},
+    {vsn, "0.1.10"},
+    {registered, []},
+    {mod, {emqx_auto_subscribe_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx
+    ]},
+    {env, []},
+    {modules, []},
+
+    {links, []}
+]}.

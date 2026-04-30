@@ -21,8 +21,7 @@ all() ->
         {group, mnesia_with_indices},
         {group, mnesia_reindex},
         {group, index_agnostic},
-        {group, index_agnostic_ds},
-        {group, disabled}
+        {group, index_agnostic_ds}
     ].
 
 groups() ->
@@ -54,8 +53,7 @@ groups() ->
             %% t_takeover,
             %% t_resume,
             t_resume_and_resubscribe
-        ]},
-        {disabled, [t_disabled]}
+        ]}
     ].
 
 index_related_tests() ->
@@ -126,7 +124,7 @@ init_per_testcase(_TestCase, Config) ->
     snabbkaffe:start_trace(),
     case ?config(index, Config) of
         false ->
-            mnesia:clear_table(?TAB_INDEX_META);
+            mria:clear_table(?TAB_INDEX_META);
         _ ->
             emqx_retainer_mnesia:populate_index_meta()
     end,
@@ -159,6 +157,7 @@ start_apps(index_agnostic_ds = _Group, Config) ->
 start_apps(Group, Config) ->
     Apps = emqx_cth_suite:start(
         [
+            mria,
             emqx,
             emqx_conf_app_spec(Group),
             emqx_retainer_app_spec(Group)
@@ -1151,12 +1150,6 @@ t_start_stop_on_setting_change(_Config) ->
         {ok, _} = emqx_retainer:update_config(#{<<"enable">> => true})
     end,
     ok.
-
-t_disabled(_Config) ->
-    ?assertNot(emqx_retainer:is_started()),
-    ?assertNot(emqx_retainer:is_enabled()),
-    ?assertEqual(ok, emqx_retainer:clean()),
-    ?assertEqual({ok, false, []}, emqx_retainer:page_read(undefined, 1, 100)).
 
 t_deliver_when_banned(_) ->
     Client1 = <<"c1">>,
