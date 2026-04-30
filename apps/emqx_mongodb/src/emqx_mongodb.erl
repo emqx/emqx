@@ -254,6 +254,12 @@ on_query(
             {error, {recoverable_error, ecpool_empty}};
         {error, {timeout, _}} ->
             ?tp("mongo_insert_call_timeout", #{}),
+            ?SLOG(warning, #{
+                msg => "mongodb_connector_pool_checkout_timeout",
+                action => insert,
+                pid => self(),
+                connector => InstId
+            }),
             {error, {recoverable_error, worker_call_timeout}};
         {error, Error} ->
             {error, {unrecoverable_error, Error}};
@@ -298,6 +304,12 @@ on_select_query(
                 ecpool_empty ->
                     {error, {recoverable_error, Reason}};
                 {timeout, _} ->
+                    ?SLOG(warning, #{
+                        msg => "mongodb_connector_pool_checkout_timeout",
+                        action => Action,
+                        pid => self(),
+                        connector => InstId
+                    }),
                     {error, {recoverable_error, worker_call_timeout}};
                 _ ->
                     {error, Reason}
