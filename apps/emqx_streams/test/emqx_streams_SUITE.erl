@@ -760,6 +760,37 @@ t_legacy_start_from_user_property(_Config) ->
     ?assertEqual(1, length(Msgs)),
     ok = emqtt:disconnect(CSub).
 
+%% Verify that Subscription-Identifier is preserved in PUBLISH packets for stream deliveries.
+t_subscription_identifier(_Config) ->
+    %% Create stream
+    _ = emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"subid">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false
+    }),
+
+    %% Subcribe to the stream with nontrivial sub opts
+    CSub = emqx_streams_test_utils:emqtt_connect([]),
+    SubId = 42,
+    SubProps = #{'Subscription-Identifier' => SubId},
+    {ok, _, [?QOS_1]} = emqtt:subscribe(CSub, SubProps, <<"$stream/subid/t/#">>, ?QOS_1),
+
+    %% Populate the stream and verify that we receive the message
+    %% with the Subscription-Identifier property fron sub opts
+    emqx_streams_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
+    receive
+        {publish, #{
+            topic := <<"t/0">>,
+            properties := #{'Subscription-Identifier' := ReceivedSubId}
+        }} ->
+            ?assertEqual(SubId, ReceivedSubId)
+    after 3000 ->
+        ct:fail("t/0 message from streams not received or missing Subscription-Identifier")
+    end,
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
 %% Verify that subscription restoration works correctly for stream topics
 t_sub_restoration(_Config) ->
     %% Create a non-lastvalue stream
