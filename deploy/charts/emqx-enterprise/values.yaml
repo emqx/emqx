@@ -277,6 +277,70 @@ ingress:
       - mqtt.emqx.local
     tls: []
 
+httpRoute:
+  ## HTTPRoute for EMQX Dashboard (Gateway API)
+  dashboard:
+    enabled: false
+    annotations: {}
+    labels: {}
+    ## Parent gateway references
+    ## Example:
+    ## parentRefs:
+    ##   - name: my-gateway
+    ##     namespace: default
+    ##     sectionName: https
+    parentRefs: []
+    hostnames:
+      - dashboard.emqx.local
+    path: /
+    pathType: PathPrefix
+  ## HTTPRoute for MQTT over WebSocket (Gateway API)
+  ws:
+    enabled: false
+    annotations: {}
+    labels: {}
+    ## Parent gateway references
+    ## Example:
+    ## parentRefs:
+    ##   - name: my-gateway
+    ##     namespace: default
+    ##     sectionName: https
+    parentRefs: []
+    hostnames:
+      - ws.emqx.local
+    path: /mqtt
+    pathType: PathPrefix
+
+tlsRoute:
+  ## TLSRoute for MQTT over TLS (Gateway API)
+  mqtts:
+    enabled: false
+    annotations: {}
+    labels: {}
+    ## Parent gateway references
+    ## Example:
+    ## parentRefs:
+    ##   - name: my-gateway
+    ##     namespace: default
+    ##     sectionName: mqtts
+    parentRefs: []
+    hostnames:
+      - mqtt.emqx.local
+  ## TLSRoute for WSS (Gateway API)
+  wss:
+    enabled: false
+    annotations: {}
+    labels: {}
+    ## Parent gateway references
+    ## Example:
+    ## parentRefs:
+    ##   - name: my-gateway
+    ##     namespace: default
+    ##     sectionName: wss
+    parentRefs: []
+    hostnames:
+      - wss.emqx.local
+
 podSecurityContext:
   enabled: true
   fsGroup: 1000
