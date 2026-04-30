@@ -413,6 +413,16 @@ get_worker_pids(TCConfig) ->
         ),
     WorkerPids.
 
+get_poolboy_pids() ->
+    [
+        Pid
+     || Pid <- processes(),
+        case proc_lib:initial_call(Pid) of
+            {poolboy, _, _} -> true;
+            _ -> false
+        end
+    ].
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -660,5 +670,39 @@ t_connector_health_check_permission_denied(TCConfig) when is_list(TCConfig) ->
             <<"password">> => <<"abc123">>,
             <<"auth_source">> => <<"mqtt">>
         })
+    ),
+    ok.
+
+-doc """
+Checks that we treat poolboy call timeouts (checking out connections) as recoverable
+errors.
+""".
+t_call_timeout(TCConfig) ->
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    Payload = unique_payload(),
+    Pids = get_poolboy_pids(),
+    try
+        lists:foreach(fun sys:suspend/1, Pids),
+        {_, {ok, _}} = ?wait_async_action(
+            emqtt:publish(C, Topic, Payload),
+            #{?snk_kind := "mongo_insert_call_timeout"},
+            15_000
+        ),
+        ok
+    after
+        lists:foreach(fun sys:resume/1, Pids)
+    end,
+    %% eventually should work
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {ok, [#{<<"payload">> := Payload}]},
+            find_all(TCConfig),
+            #{payload => Payload}
+        )
     ),
     ok.
