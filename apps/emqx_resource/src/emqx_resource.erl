@@ -549,20 +549,45 @@ get_callback_mode(Mod, State) ->
 
 -spec get_query_opts(module(), map()) -> #{timeout => timeout()}.
 get_query_opts(Mod, ActionOrSourceConfig) ->
+    CommonQueryOpts = common_query_opts(ActionOrSourceConfig),
     case erlang:function_exported(Mod, query_opts, 1) of
         true ->
-            Mod:query_opts(ActionOrSourceConfig);
+            case Mod:query_opts(ActionOrSourceConfig) of
+                {error, _} = Error ->
+                    Error;
+                QueryOpts ->
+                    maps:merge(CommonQueryOpts, QueryOpts)
+            end;
         false ->
-            case
-                emqx_utils_maps:deep_get([resource_opts, request_ttl], ActionOrSourceConfig, false)
-            of
-                Timeout when is_integer(Timeout) orelse Timeout =:= infinity ->
-                    %% request_ttl is configured
-                    #{timeout => Timeout};
-                _ ->
-                    %% emqx_resource has a default value (15s)
-                    #{}
-            end
+            CommonQueryOpts
+    end.
+
+common_query_opts(ActionOrSourceConfig) ->
+    maps:merge(
+        request_ttl_query_opts(ActionOrSourceConfig),
+        buffer_worker_dispatch_strategy_query_opts(ActionOrSourceConfig)
+    ).
+
+request_ttl_query_opts(ActionOrSourceConfig) ->
+    case emqx_utils_maps:deep_get([resource_opts, request_ttl], ActionOrSourceConfig, false) of
+        Timeout when is_integer(Timeout) orelse Timeout =:= infinity ->
+            %% request_ttl is configured
+            #{timeout => Timeout};
+        _ ->
+            %% emqx_resource has a default value (15s)
+            #{}
+    end.
+
+buffer_worker_dispatch_strategy_query_opts(ActionOrSourceConfig) ->
+    case
+        emqx_utils_maps:deep_get(
+            [resource_opts, buffer_worker_dispatch_strategy], ActionOrSourceConfig, false
+        )
+    of
+        Strategy when Strategy =:= per_clientid; Strategy =:= random ->
+            #{buffer_worker_dispatch_strategy => Strategy};
+        _ ->
+            #{}
     end.
 
 -spec call_start(resource_id(), module(), resource_config()) ->

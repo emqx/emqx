@@ -47,6 +47,7 @@
 -type query_opts() :: #{
     %% The key used for picking a resource worker
     pick_key => term(),
+    buffer_worker_dispatch_strategy => per_clientid | random,
     timeout => timeout(),
     expire_at => infinity | integer(),
     async_reply_fun => reply_fun(),
@@ -110,6 +111,9 @@
     %% Used by resource manager to decide whether to wait for resource to be
     %% `?status_connected` before returning or timing out.  Defaults to `false`.
     async_start => boolean(),
+    %% Controls how buffer workers are picked when query opts do not specify
+    %% `pick_key'.
+    buffer_worker_dispatch_strategy => per_clientid | random,
     %% used only for authn authz resources to indicate the owner authenticator or authorizer
     owner_id => binary() | atom()
 }.

@@ -2617,6 +2617,7 @@ common_action_resource_opts() ->
         <<"batch_size">> => 1,
         <<"batch_time">> => <<"0ms">>,
         <<"buffer_mode">> => <<"memory_only">>,
+        <<"buffer_worker_dispatch_strategy">> => <<"per_clientid">>,
         <<"buffer_seg_bytes">> => <<"10MB">>,
         <<"health_check_interval">> => <<"1s">>,
         <<"health_check_interval_jitter">> => <<"0s">>,

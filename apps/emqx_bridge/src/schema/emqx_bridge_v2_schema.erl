@@ -467,6 +467,7 @@ common_action_resource_opts_subfields() ->
         batch_size,
         batch_time,
         buffer_mode,
+        buffer_worker_dispatch_strategy,
         buffer_seg_bytes,
         health_check_interval,
         health_check_interval_jitter,
