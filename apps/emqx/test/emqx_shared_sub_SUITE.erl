@@ -693,7 +693,7 @@ t_remote(Config) when is_list(Config) ->
         stop_peer(Node)
     end.
 
-t_local_fallback(Config) when is_list(Config) ->
+t_010_local_fallback(Config) when is_list(Config) ->
     ok = ensure_group_config(#{
         <<"local_group">> => local,
         <<"round_robin_group">> => round_robin,
@@ -706,28 +706,28 @@ t_local_fallback(Config) when is_list(Config) ->
     %% Use a different base port for each test case to avoid flakiness
     BasePort = 11888,
     Node = start_peer('local_fallback_shared_sub_1', BasePort),
+    {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
     try
-        {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
         {ok, _} = emqtt:connect(ConnPid1),
         Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
         Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
 
-        emqtt:subscribe(ConnPid1, {<<"$share/local_group/", Topic/binary>>, 0}),
+        {ok, _, _} = emqtt:subscribe(ConnPid1, {<<"$share/local_group/", Topic/binary>>, 0}),
         emqx_cth_cluster:sync_routes([node(), Node]),
 
         emqx:publish(Message1),
         {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1]),
 
-        rpc:call(Node, emqx, publish, [Message2]),
-        {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1], 2_000),
-        ?assertEqual(UsedSubPid1, UsedSubPid2),
-        emqtt:stop(ConnPid1)
+        [{share, Topic, {ok, _}}] = rpc:call(Node, emqx, publish, [Message2]),
+        {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1], 10_000),
+        ?assertEqual(UsedSubPid1, UsedSubPid2)
     after
-        stop_peer(Node)
+        stop_peer(Node),
+        emqtt:stop(ConnPid1)
     end,
     ok.
 
-t_stats(Config) when is_list(Config) ->
+t_000_stats(Config) when is_list(Config) ->
     %% Create a shared subscriber on a REMOTE node
     GroupConfig = #{
         <<"local_group">> => local,
