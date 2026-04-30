@@ -297,6 +297,8 @@ on_select_query(
             case Reason of
                 ecpool_empty ->
                     {error, {recoverable_error, Reason}};
+                {timeout, _} ->
+                    {error, {recoverable_error, worker_call_timeout}};
                 _ ->
                     {error, Reason}
             end;
