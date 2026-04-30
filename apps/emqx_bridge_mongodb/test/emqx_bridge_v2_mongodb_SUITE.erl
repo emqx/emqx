@@ -263,6 +263,21 @@ delete_action_api(Config) ->
         ?config(action_name, Config)
     ).
 
+get_poolboy_pids() ->
+    [
+        Pid
+     || Pid <- processes(),
+        case proc_lib:initial_call(Pid) of
+            {poolboy, _, _} -> true;
+            _ -> false
+        end
+    ].
+
+find_all(Config) ->
+    #{<<"collection">> := Collection} = ?config(action_config, Config),
+    ResourceID = emqx_bridge_v2_testlib:resource_id(Config),
+    emqx_resource:simple_sync_query(ResourceID, {find, Collection, #{}, #{}}).
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -370,5 +385,38 @@ t_timeout_during_connector_health_check(Config0) ->
             ?assertEqual([], ?of_kind("remove_channel_failed", Trace)),
             ok
         end
+    ),
+    ok.
+
+%% Checks that we treat poolboy call timeouts (checking out connections) as recoverable
+%% errors.
+t_call_timeout(TCConfig) ->
+    {201, _} = create_bridge_api(TCConfig, #{}),
+    RuleTopic = <<"t/poolboy/timeout">>,
+    {ok, _} = emqx_bridge_v2_testlib:create_rule_and_action_http(
+        ?ACTION_TYPE, RuleTopic, TCConfig
+    ),
+    Payload = integer_to_binary(erlang:unique_integer()),
+    Pids = get_poolboy_pids(),
+    try
+        lists:foreach(fun sys:suspend/1, Pids),
+        {_, {ok, _}} = ?wait_async_action(
+            emqx:publish(emqx_message:make(RuleTopic, Payload)),
+            #{?snk_kind := "mongo_insert_call_timeout"},
+            15_000
+        ),
+        ok
+    after
+        lists:foreach(fun sys:resume/1, Pids)
+    end,
+    %% eventually should work
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {ok, [#{<<"payload">> := Payload}]},
+            find_all(TCConfig),
+            #{payload => Payload}
+        )
     ),
     ok.
