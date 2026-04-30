@@ -182,6 +182,61 @@ message_expiry_interval_not_exipred(CPublish, CControl, QoS) ->
     end,
     emqtt:stop(CVerify).
 
+t_puback_not_lost_on_disconnect(_) ->
+    %% Client with persistent in-mem session, subscribing to t/1, manual acking
+    {ok, C0} = emqtt:start_link([
+        {clientid, <<"puback_not_lost">>},
+        {proto_ver, v5},
+        {auto_ack, false},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 10000}}
+    ]),
+    {ok, _} = emqtt:connect(C0),
+    {ok, _, [1]} = emqtt:subscribe(C0, <<"t/1">>, 1),
+    %% Publish 100 messages to t/1
+    spawn_link(fun() ->
+        lists:foreach(
+            fun(I) ->
+                Payload = integer_to_binary(I),
+                Message = emqx_message:make(<<"from">>, 1, <<"t/1">>, Payload),
+                emqx_broker:publish(Message)
+            end,
+            lists:seq(1, 100)
+        )
+    end),
+    %% Receive the first message and acknowledge it, then disconnect
+    receive
+        {publish, #{topic := <<"t/1">>, payload := <<"1">>, packet_id := PacketId}} ->
+            emqtt:puback(C0, PacketId),
+            emqtt:disconnect(C0)
+    after 1000 ->
+        ct:fail("Message not received")
+    end,
+    %% Wait for the old channel to fully shut down before reconnecting
+    ?retry(100, 20, [] =:= emqx_cm:lookup_channels(<<"puback_not_lost">>)),
+    %% Restore the session
+    {ok, C1} = emqtt:start_link([
+        {clientid, <<"puback_not_lost">>},
+        {proto_ver, v5},
+        {auto_ack, true},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 10000}}
+    ]),
+    {ok, _} = emqtt:connect(C1),
+    %% Verify that the first message is not received, i.e. that our ack was not lost
+    Msgs1 = drain_messages(C1),
+    ?assertEqual(99, length(Msgs1)),
+    ?assertNot(lists:member(<<"1">>, Msgs1)),
+    emqtt:stop(C1).
+
+drain_messages(C) ->
+    receive
+        {publish, #{topic := <<"t/1">>, payload := IBin, client_pid := C}} ->
+            [IBin | drain_messages(C)]
+    after 500 ->
+        []
+    end.
+
 with_client(TestFun, _Options) ->
     ClientId = <<"t_conn">>,
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
