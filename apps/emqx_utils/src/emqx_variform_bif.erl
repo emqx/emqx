@@ -430,9 +430,14 @@ topic_join(_, NULL) when ?IS_NULL(NULL) ->
 topic_join(Parent0, Word0) ->
     Parent = any_to_str(Parent0),
     Word = any_to_str(Word0),
-    case binary:last(Parent) of
-        $/ -> <<Parent/binary, Word/binary>>;
-        _ -> <<Parent/binary, $/, Word/binary>>
+    case Parent of
+        <<>> ->
+            ?BADARG();
+        _ ->
+            case binary:last(Parent) of
+                $/ -> <<Parent/binary, Word/binary>>;
+                _ -> <<Parent/binary, $/, Word/binary>>
+            end
     end.
 
 topic_match(NULL, _) when ?IS_NULL(NULL) ->

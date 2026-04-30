@@ -121,6 +121,7 @@ topic_test_() ->
         ?_assertNot(emqx_variform_bif:topic_match(<<"client1/t">>, <<"client2/#">>)),
         ?_assertNot(emqx_variform_bif:topic_match(<<"$SYS/a">>, <<"#">>)),
         ?ASSERT_BADARG(emqx_variform_bif:topic_join(undefined, <<"#">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:topic_join(<<>>, <<"#">>)),
         ?ASSERT_BADARG(emqx_variform_bif:topic_match(undefined, <<"#">>))
     ].
 

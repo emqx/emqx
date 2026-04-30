@@ -65,8 +65,8 @@ precondition.desc:
   - `username`: The username of the client
   - `clientid`: The client ID of the client
   - `client_attrs.*`: The client attributes of the client
-  - `cert_common_name`: The subject field from the client's TLS certificate
-  - `cert_subject`: The common name (CN) from the client's TLS certificate
+  - `cert_common_name`: The common name (CN) from the client's TLS certificate
+  - `cert_subject`: The subject field from the client's TLS certificate
   - `peersni`: The SNI (Server Name Indication) sent by TLS client
   - `listener`: The listener ID (e.g. `tcp:default`)
   - `zone`: The associated config zone.
