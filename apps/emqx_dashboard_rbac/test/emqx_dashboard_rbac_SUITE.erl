@@ -333,26 +333,41 @@ test_mfa(VerifyFn) ->
     Viewer1 = <<"viewermfa1">>,
     Viewer2 = <<"viewermfa2">>,
     SuperUser = <<"adminmfa">>,
+    NamespacedSuperUser = <<"nsadminmfa">>,
     Password = <<"xyz124abc">>,
     Desc = <<"desc">>,
     {ok, _} = emqx_dashboard_admin:add_user(Viewer1, Password, ?ROLE_VIEWER, Desc),
     {ok, _} = emqx_dashboard_admin:add_user(Viewer2, Password, ?ROLE_VIEWER, Desc),
     {ok, _} = emqx_dashboard_admin:add_user(SuperUser, Password, ?ROLE_SUPERUSER, Desc),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        NamespacedSuperUser,
+        Password,
+        <<"ns:ns1::", ?ROLE_SUPERUSER/binary>>,
+        Desc
+    ),
     {ok, #{role := ?ROLE_VIEWER, token := Viewer1Token}} = emqx_dashboard_admin:sign_token(
         Viewer1, Password
     ),
     {ok, #{role := ?ROLE_SUPERUSER, token := SuperToken}} = emqx_dashboard_admin:sign_token(
         SuperUser, Password
     ),
-    %% viewer can change own password
+    {ok, #{role := ?ROLE_SUPERUSER, token := NamespacedSuperToken}} =
+        emqx_dashboard_admin:sign_token(NamespacedSuperUser, Password),
+    %% viewer can change own MFA
     ?assertMatch({ok, #{actor := Viewer1}}, VerifyFn(Viewer1Token, Viewer1)),
-    %% viewer can't change other's password
+    %% viewer can't change other's MFA
     ?assertEqual({error, unauthorized_role}, VerifyFn(Viewer1Token, Viewer2)),
     ?assertEqual({error, unauthorized_role}, VerifyFn(Viewer1Token, SuperUser)),
-    %% superuser can change other's password
+    %% superuser can change other's MFA
     ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, Viewer1)),
     ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, Viewer2)),
     ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, SuperUser)),
+    %% namespaced superuser can change own MFA, but not other dashboard users' MFA
+    ?assertMatch(
+        {ok, #{actor := NamespacedSuperUser}},
+        VerifyFn(NamespacedSuperToken, NamespacedSuperUser)
+    ),
+    ?assertEqual({error, unauthorized_role}, VerifyFn(NamespacedSuperToken, Viewer1)),
     ok.
 
 delete_mfa(Token, Username) ->
