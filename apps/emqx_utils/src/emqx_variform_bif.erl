@@ -62,7 +62,7 @@
 -export([nth/2]).
 
 %% Topic functions
--export([topic_join/1, topic_join/2, topic_match/2]).
+-export([topic_join/1, topic_join/2, topic_match/2, topic_split/1]).
 
 %% Random functions
 -export([rand_str/1, rand_int/1]).
@@ -442,33 +442,17 @@ topic_match(_, NULL) when ?IS_NULL(NULL) ->
 topic_match(Topic0, Filter0) ->
     Topic = any_to_str(Topic0),
     Filter = any_to_str(Filter0),
-    match_topic_words(topic_words(Topic), topic_words(Filter)).
+    emqx_topic:match(emqx_topic:words(Topic), emqx_topic:words(Filter)).
+
+topic_split(NULL) when ?IS_NULL(NULL) ->
+    ?BADARG();
+topic_split(Topic0) ->
+    emqx_topic:words(any_to_str(Topic0)).
 
 topic_word(NULL) when ?IS_NULL(NULL) ->
     ?BADARG();
 topic_word(Word) ->
     any_to_str(Word).
-
-topic_words(Topic) ->
-    binary:split(Topic, <<"/">>, [global]).
-
-match_topic_words([<<"$", _/binary>> | _], [Wildcard | _]) when
-    Wildcard =:= <<"#">>; Wildcard =:= <<"+">>
-->
-    false;
-match_topic_words(Topic, Filter) ->
-    match_topic_tokens(Topic, Filter).
-
-match_topic_tokens([], []) ->
-    true;
-match_topic_tokens([H | T1], [H | T2]) ->
-    match_topic_tokens(T1, T2);
-match_topic_tokens([_H | T1], [<<"+">> | T2]) ->
-    match_topic_tokens(T1, T2);
-match_topic_tokens(_, [<<"#">>]) ->
-    true;
-match_topic_tokens(_, _) ->
-    false.
 
 unescape_string(Input) -> unescape_string(Input, []).
 
