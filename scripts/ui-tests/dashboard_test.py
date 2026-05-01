@@ -127,22 +127,24 @@ def test_log(driver, dashboard_url):
     label = driver.find_element(By.XPATH, "//div[@id='app']//form//label[contains(., 'Time Offset')]")
     assert driver.find_elements(By.ID, label.get_attribute("for"))
 
-def fetch_version_info(dashboard_url):
-    status_url = urljoin(dashboard_url, "/status?format=json")
-    response = requests.get(status_url)
-    response.raise_for_status()
-    return response.json()
-
-def parse_version(version_str):
-    prefix_major, minor, _ = version_str.split('.', 2)
-    prefix = prefix_major[:1]
-    major = prefix_major[1:]
-    return prefix, major + '.' + minor
-
-def fetch_version(url):
-    info = fetch_version_info(url)
-    version_str = info['rel_vsn']
-    return parse_version(version_str)
+def fetch_version(dashboard_url):
+    # /status no longer exposes the broker version (it's an unauthenticated
+    # endpoint), so use the authenticated /api/v5/nodes endpoint instead.
+    password = os.getenv("EMQX_DASHBOARD__DEFAULT_PASSWORD", "admin")
+    login_resp = requests.post(
+        urljoin(dashboard_url, "/api/v5/login"),
+        json={"username": "admin", "password": password},
+    )
+    login_resp.raise_for_status()
+    token = login_resp.json()["token"]
+    nodes_resp = requests.get(
+        urljoin(dashboard_url, "/api/v5/nodes"),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    nodes_resp.raise_for_status()
+    version_str = nodes_resp.json()[0]["version"]
+    major, minor, _ = version_str.split(".", 2)
+    return major + "." + minor
 
 def test_docs_link(driver, dashboard_url):
     login(driver, dashboard_url)
@@ -159,9 +161,7 @@ def test_docs_link(driver, dashboard_url):
         raise AssertionError("Cannot find the help link")
     driver.execute_script("arguments[0].click();", link_help)
 
-    prefix, emqx_version = fetch_version(dashboard_url)
-    # it's v5.x in the url
-    emqx_version = 'v' + emqx_version
+    emqx_version = 'v' + fetch_version(dashboard_url)
 
     docs_base_url = "https://docs.emqx.com/en/emqx"
 
