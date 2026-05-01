@@ -54,6 +54,35 @@ enable.desc:
 enable.label:
 """enable"""
 
+precondition.label:
+"""Precondition"""
+
+precondition.desc:
+"""~
+  A Variform expression to evaluate with client and request information before calling this authorization source.
+
+  Supported client variables include:
+  - `username`: The username of the client
+  - `clientid`: The client ID of the client
+  - `client_attrs.*`: The client attributes of the client
+  - `cert_common_name`: The common name (CN) from the client's TLS certificate
+  - `cert_subject`: The subject field from the client's TLS certificate
+  - `peersni`: The SNI (Server Name Indication) sent by TLS client
+  - `listener`: The listener ID (e.g. `tcp:default`)
+  - `zone`: The associated config zone.
+
+  Supported request variables include:
+  - `action`: The authorization action, either `publish` or `subscribe`
+  - `topic`: The topic being authorized
+
+  The source is skipped when the expression does not evaluate to true.
+
+  Examples:
+  - Only invoke for publish authorization:
+    `str_eq(action, 'publish')`
+  - Only invoke when the topic matches a client-scoped topic filter:
+    `topic_match(topic, topic_join([clientid, '#']))`~"""
+
 matched.desc:
 """Count of this resource is queried."""
 

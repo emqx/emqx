@@ -370,7 +370,7 @@ ensure_deleted(#{enable := false}, _) ->
 ensure_deleted(SourceState, #{clear_metric := ClearMetric}) ->
     Type = type(SourceState),
     Module = authz_module(Type),
-    Module:destroy(SourceState),
+    Module:destroy(cleanup_precondition(SourceState)),
     ClearMetric andalso emqx_metrics_worker:clear_metrics(authz_metrics, Type).
 
 %% Called for both sources and raw sources
@@ -397,11 +397,45 @@ create_sources(Sources) ->
 
 create_source(#{type := Type} = Source) ->
     Module = authz_module(Type),
-    Module:create(Source).
+    case compile_precondition(Source) of
+        {ok, Precondition} ->
+            SourceState = Module:create(cleanup_precondition(Source)),
+            maybe_add_precondition(SourceState, Precondition);
+        {error, Reason} ->
+            error(#{cause => "bad_precondition_expression", reason => Reason})
+    end.
 
 update_source(Type, OldSourceState, NewSource) ->
     Module = authz_module(Type),
-    Module:update(OldSourceState, NewSource).
+    case compile_precondition(NewSource) of
+        {ok, Precondition} ->
+            SourceState = Module:update(
+                cleanup_precondition(OldSourceState),
+                cleanup_precondition(NewSource)
+            ),
+            maybe_add_precondition(SourceState, Precondition);
+        {error, Reason} ->
+            error(#{cause => "bad_precondition_expression", reason => Reason})
+    end.
+
+compile_precondition(Source) ->
+    Expr = maps:get(precondition, Source, undefined),
+    do_compile_precondition(Expr).
+
+do_compile_precondition(undefined) ->
+    {ok, undefined};
+do_compile_precondition(<<>>) ->
+    {ok, undefined};
+do_compile_precondition(Expr) ->
+    emqx_variform:compile(Expr).
+
+cleanup_precondition(Source) ->
+    maps:remove(precondition, Source).
+
+maybe_add_precondition(SourceState, undefined) ->
+    SourceState;
+maybe_add_precondition(SourceState, Precondition) ->
+    SourceState#{precondition => Precondition}.
 
 init_metrics(Source) ->
     Type = type(Source),
@@ -499,13 +533,32 @@ do_authorize(_Client, _Action, _Topic, []) ->
     nomatch;
 do_authorize(Client, Action, Topic, [#{enable := false} = _SourceState | SourceStates]) ->
     do_authorize(Client, Action, Topic, SourceStates);
-do_authorize(
+do_authorize(Client, Action, Topic, [#{precondition := Precondition} = SourceState | SourceStates]) ->
+    case check_precondition(Precondition, Client, Action, Topic) of
+        true ->
+            do_authorize_with_source(Client, Action, Topic, SourceState, SourceStates);
+        Other ->
+            Type = type(SourceState),
+            emqx_metrics_worker:inc(authz_metrics, Type, total),
+            emqx_metrics_worker:inc(authz_metrics, Type, ignore),
+            ?TRACE("AUTHZ", "authorization_precondition_not_met", #{
+                authorize_type => Type,
+                expression => emqx_variform:decompile(Precondition),
+                result => Other
+            }),
+            do_authorize(Client, Action, Topic, SourceStates)
+    end;
+do_authorize(Client, Action, Topic, [SourceState | SourceStates]) ->
+    do_authorize_with_source(Client, Action, Topic, SourceState, SourceStates).
+
+do_authorize_with_source(
     #{
         username := Username
     } = Client,
     Action = ?authz_action(_PubSub),
     Topic,
-    [SourceState | SourceStates]
+    SourceState,
+    SourceStates
 ) ->
     Type = type(SourceState),
     Module = authz_module(Type),
@@ -555,6 +608,21 @@ do_authorize(
             do_authorize(Client, Action, Topic, SourceStates);
         {matched, _Permission} = Matched ->
             {Matched, Type}
+    end.
+
+check_precondition(undefined, _Client, _Action, _Topic) ->
+    true;
+check_precondition(Precondition, Client0, Action, Topic) ->
+    Client = emqx_auth_template:rename_client_info_vars(Client0),
+    Vars = Client#{
+        action => maps:get(action_type, Action),
+        topic => Topic
+    },
+    case emqx_variform:render(Precondition, Vars) of
+        {ok, <<"true">>} ->
+            true;
+        Other ->
+            Other
     end.
 
 inc_metrics(Type, nomatch) ->
