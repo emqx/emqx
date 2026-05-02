@@ -202,10 +202,13 @@ t_status_json_format(Config) ->
         body => no_body
     }),
     ?assertEqual(200, StatusCode),
+    Decoded = emqx_utils_json:decode(Resp),
     ?assertMatch(
         #{<<"app_status">> := <<"running">>},
-        emqx_utils_json:decode(Resp)
+        Decoded
     ),
+    %% rel_vsn must not be exposed (unauthenticated endpoint).
+    ?assertNot(maps:is_key(<<"rel_vsn">>, Decoded)),
     ok.
 
 t_status_bad_format_qs(Config) ->
