@@ -572,9 +572,13 @@ update_user_(Username, Role, Desc, Extra) ->
                 end,
             NewNamespace = maps:get(?namespace, NewExtra, ?global_ns),
             PreviousNamespace = maps:get(?namespace, OldExtra, ?global_ns),
-            maybe
-                true ?= PreviousNamespace /= NewNamespace,
-                mnesia:abort(<<"changing_namespace_is_forbidden">>)
+            case PreviousNamespace /= NewNamespace of
+                true ->
+                    %% Namespace is part of the RBAC boundary.  Require delete/recreate
+                    %% instead of moving an existing user (and its tokens) across scopes.
+                    mnesia:abort(<<"changing_namespace_is_forbidden">>);
+                false ->
+                    ok
             end,
             mnesia:write(Admin#?ADMIN{role = Role, description = Desc, extra = NewExtra}),
             {

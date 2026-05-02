@@ -142,7 +142,7 @@ create(Name, Enable, ExpiredAt, Desc, Role) ->
 create(Name, ApiSecret, Enable, ExpiredAt, Desc, Role) when
     is_binary(ApiSecret) andalso byte_size(ApiSecret) >= 32
 ->
-    ApiKey = generate_unique_api_key(Name),
+    ApiKey = generate_unique_api_key(),
     create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, undefined);
 create(_Name, ApiSecret, _Enable, _ExpiredAt, _Desc, _Role) when
     is_binary(ApiSecret)
@@ -151,7 +151,7 @@ create(_Name, ApiSecret, _Enable, _ExpiredAt, _Desc, _Role) when
 create(Name, Enable, ExpiredAt, Desc, Role, Scopes) when
     is_boolean(Enable) andalso (is_list(Scopes) orelse Scopes =:= undefined)
 ->
-    ApiKey = generate_unique_api_key(Name),
+    ApiKey = generate_unique_api_key(),
     ApiSecret = generate_api_secret(),
     create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role, Scopes).
 
@@ -188,9 +188,13 @@ do_update(Name, Enable, ExpiredAt, Desc, #{?role := Role, ?namespace := Namespac
         [App0 = #?APP{enable = Enable0, extra = Extra0}] ->
             #{desc := Desc0} = Extra1 = normalize_extra(Extra0),
             PreviousNamespace = maps:get(?namespace, Extra1, ?global_ns),
-            maybe
-                true ?= PreviousNamespace /= Namespace,
-                mnesia:abort(<<"changing_namespace_is_forbidden">>)
+            case PreviousNamespace /= Namespace of
+                true ->
+                    %% Namespace is part of the RBAC boundary.  Require delete/recreate
+                    %% instead of moving an existing API key across scopes.
+                    mnesia:abort(<<"changing_namespace_is_forbidden">>);
+                false ->
+                    ok
             end,
             Extra2 = emqx_utils_maps:put_if(
                 Extra1#{?role => Role, desc => ensure_not_undefined(Desc, Desc0)},
@@ -506,9 +510,9 @@ hash_string_from_seed(Seed, PrefixLen) ->
     <<Integer:512>> = crypto:hash(sha512, Seed),
     list_to_binary(string:slice(io_lib:format("~128.16.0b", [Integer]), 0, PrefixLen)).
 
-%% Form Dashboard API Key pannel, only `Name` provided for users
-generate_unique_api_key(Name) ->
-    hash_string_from_seed(Name, ?DEFAULT_HASH_LEN).
+%% Generate a random Dashboard API key.
+generate_unique_api_key() ->
+    emqx_utils:rand_id(?DEFAULT_HASH_LEN).
 
 %% Form BootStrap File, only `ApiKey` provided from file, no `Name`
 generate_unique_name(NamePrefix, ApiKey) ->

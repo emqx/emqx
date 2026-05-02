@@ -1337,11 +1337,11 @@ handle_out(connack, {?RC_SUCCESS, SP, Props}, Channel = #channel{conninfo = Conn
         Props,
         Channel
     ),
-    NAckProps = run_hooks(
-        'client.connack',
-        [ConnInfo, emqx_reason_codes:name(?RC_SUCCESS)],
-        AckProps,
-        Channel
+    NAckProps = run_client_connack_hooks(
+        Channel,
+        ConnInfo,
+        emqx_reason_codes:name(?RC_SUCCESS),
+        AckProps
     ),
     return_connack(
         ?CONNACK_PACKET(?RC_SUCCESS, SP, NAckProps),
@@ -1359,7 +1359,7 @@ handle_out(connack, {ReasonCode, ReasonString}, Channel = #channel{conninfo = Co
             false ->
                 emqx_mqtt_props:set('Reason-String', ReasonString, AckProps0)
         end,
-    AckProps = run_hooks('client.connack', [ConnInfo, Reason], AckProps1, Channel),
+    AckProps = run_client_connack_hooks(Channel, ConnInfo, Reason, AckProps1),
     AckPacket = ?CONNACK_PACKET(
         case maps:get(proto_ver, ConnInfo) of
             ?MQTT_PROTO_V5 -> ReasonCode;
@@ -3422,7 +3422,15 @@ reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER.
 %% Helper functions
 %%--------------------------------------------------------------------
 
--compile({inline, [run_hooks/3, run_hooks/4, run_hook_with_context/3, run_fold_with_context/4]}).
+-compile(
+    {inline, [
+        run_hooks/3,
+        run_hooks/4,
+        run_hook_with_context/3,
+        run_fold_with_context/4,
+        run_client_connack_hooks/4
+    ]}
+).
 run_hooks(Name, Args, Channel) ->
     ok = inc_metrics(Name, Channel),
     emqx_hooks:run(Name, Args).
@@ -3438,6 +3446,14 @@ run_hook_with_context(Name, Args, Channel) ->
 run_fold_with_context(Name, Args, Acc, Channel) ->
     HookContext = mk_common_hook_context(Channel),
     emqx_hooks:run_fold(Name, HookContext, Args, Acc).
+
+%% Dedicated helper because `emqx_rule_events:resolve_ns/1` pattern-matches on
+%% `#{namespace := _}` and `mk_common_hook_context/1` does not include it.
+run_client_connack_hooks(Channel, ConnInfo, Reason, AckProps) ->
+    Name = 'client.connack',
+    ok = inc_metrics(Name, Channel),
+    Ns = get_tenant_namespace(Channel#channel.clientinfo),
+    emqx_hooks:run_fold(Name, #{namespace => Ns}, [ConnInfo, Reason], AckProps).
 
 -compile({inline, [find_alias/3, save_alias/4]}).
 
