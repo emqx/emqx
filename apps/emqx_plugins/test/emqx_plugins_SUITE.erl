@@ -1080,6 +1080,46 @@ t_allow_sha256_mismatch(_Config) ->
     ),
     ok.
 
+%% A tar entry whose name escapes the install dir (../../../tmp/pwned) must be
+%% rejected, and no part of the tarball may land on disk outside the install dir.
+t_tar_path_traversal({init, Config}) ->
+    InstallDir = ?config(install_dir, Config),
+    NameVsn = "evil-1.0.0",
+    %% Mimic the PoC from the spec: one legitimate entry plus a traversal entry.
+    LegitEntry = filename:join(NameVsn, "release.json"),
+    EvilTarget = filename:join(
+        "/tmp", "pwned-by-emqx-zipslip-" ++ integer_to_list(erlang:unique_integer([positive]))
+    ),
+    EvilEntry = "../../../../tmp/" ++ filename:basename(EvilTarget),
+    TarGz = filename:join(InstallDir, NameVsn ++ ".tar.gz"),
+    ok = erl_tar:create(
+        TarGz,
+        [
+            {LegitEntry, <<"{}">>},
+            {EvilEntry, <<"pwned\n">>}
+        ],
+        [compressed]
+    ),
+    [{tar_gz, TarGz}, {name_vsn, NameVsn}, {evil_target, EvilTarget} | Config];
+t_tar_path_traversal({'end', Config}) ->
+    %% Be paranoid in case the test failed and the file actually got written.
+    file:delete(?config(evil_target, Config)),
+    ok = emqx_plugins:delete_package(?config(name_vsn, Config));
+t_tar_path_traversal(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    EvilTarget = ?config(evil_target, Config),
+    %% Pre-condition: the target must not exist before install.
+    ?assertEqual({error, enoent}, file:read_file_info(EvilTarget)),
+    ?assertMatch(
+        {error, #{msg := "unsafe_tar_entry_path"}},
+        emqx_plugins:ensure_installed(NameVsn)
+    ),
+    %% Post-condition: the malicious file must NOT have been written.
+    ?assertEqual({error, enoent}, file:read_file_info(EvilTarget)),
+    %% And no plugin dir should have been created either.
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins:plugin_dir(NameVsn))),
+    ok.
+
 %% When no sha256 is bound, is_allowed_installation/2 accepts any bytes (legacy path).
 t_allow_sha256_undefined_accepts_any({init, Config}) ->
     Config;

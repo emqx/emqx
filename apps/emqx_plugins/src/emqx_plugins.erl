@@ -648,16 +648,30 @@ maybe_create_tar(NameVsn, TarGzName, InstallDir) ->
     end.
 
 write_tar_file_content(BaseDir, TarContent) ->
-    lists:foreach(
-        fun({Name, Bin}) ->
-            Filename = filename:join(BaseDir, Name),
-            ok = filelib:ensure_dir(Filename),
-            ok = file:write_file(Filename, Bin)
-        end,
-        TarContent
-    ).
+    %% Validate every entry up front. A single zip-slip entry must not
+    %% leave half-written legitimate entries behind on disk.
+    case unsafe_entries(BaseDir, TarContent) of
+        [] ->
+            lists:foreach(
+                fun({Name, Bin}) ->
+                    Filename = filename:join(BaseDir, Name),
+                    ok = filelib:ensure_dir(Filename),
+                    ok = file:write_file(Filename, Bin)
+                end,
+                TarContent
+            );
+        [_ | _] = Unsafe ->
+            {error, #{
+                msg => "unsafe_tar_entry_path",
+                hint => "tar entries must stay under the install dir",
+                entries => Unsafe
+            }}
+    end.
 
 delete_tar_file_content(BaseDir, TarContent) ->
+    %% Defense in depth: never follow a tar entry path that escapes
+    %% BaseDir, even on the cleanup path.
+    SafeEntries = [E || {Name, _} = E <- TarContent, is_safe_entry(BaseDir, Name)],
     lists:foreach(
         fun({Name, _}) ->
             Filename = filename:join(BaseDir, Name),
@@ -670,8 +684,17 @@ delete_tar_file_content(BaseDir, TarContent) ->
                     ok
             end
         end,
-        TarContent
+        SafeEntries
     ).
+
+unsafe_entries(BaseDir, TarContent) ->
+    [Name || {Name, _} <- TarContent, not is_safe_entry(BaseDir, Name)].
+
+is_safe_entry(BaseDir, Name) ->
+    case filelib:safe_relative_path(Name, BaseDir) of
+        unsafe -> false;
+        _ -> true
+    end.
 
 top_dir(BaseDir0, DirOrFile) ->
     BaseDir = normalize_dir(BaseDir0),
@@ -705,18 +728,36 @@ top_dir_test_() ->
         ?_assertThrow({out_of_bounds, _}, top_dir("/base", filename:join(["/", "base"]))),
         ?_assertThrow({out_of_bounds, _}, top_dir("/base", filename:join(["/", "foo", "bar"])))
     ].
+
+is_safe_entry_test_() ->
+    %% Use cwd as a real existing directory; safe_relative_path/2 needs that.
+    {ok, Cwd} = file:get_cwd(),
+    [
+        ?_assert(is_safe_entry(Cwd, "evil-1.0.0/release.json")),
+        ?_assert(is_safe_entry(Cwd, "deep/nested/path.txt")),
+        ?_assertNot(is_safe_entry(Cwd, "../escape")),
+        ?_assertNot(is_safe_entry(Cwd, "../../../tmp/pwned")),
+        ?_assertNot(is_safe_entry(Cwd, "evil/../../../tmp/pwned")),
+        ?_assertNot(is_safe_entry(Cwd, "/abs/path"))
+    ].
 -endif.
 
 do_ensure_installed(NameVsn) ->
     TarGz = pkg_file_path(NameVsn),
     case erl_tar:extract(TarGz, [compressed, memory]) of
         {ok, TarContent} ->
-            ok = write_tar_file_content(install_dir(), TarContent),
-            case read_plugin_info(NameVsn, #{}) of
-                {ok, _} ->
-                    ok;
+            case write_tar_file_content(install_dir(), TarContent) of
+                ok ->
+                    case read_plugin_info(NameVsn, #{}) of
+                        {ok, _} ->
+                            ok;
+                        {error, Reason} ->
+                            ?SLOG(warning, Reason#{msg => "failed_to_read_after_install"}),
+                            ok = delete_tar_file_content(install_dir(), TarContent),
+                            {error, Reason}
+                    end;
                 {error, Reason} ->
-                    ?SLOG(warning, Reason#{msg => "failed_to_read_after_install"}),
+                    ?SLOG(error, Reason#{name_vsn => NameVsn}),
                     ok = delete_tar_file_content(install_dir(), TarContent),
                     {error, Reason}
             end;
