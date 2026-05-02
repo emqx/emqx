@@ -51,6 +51,13 @@ max_inflight.desc:
 max_inflight.label:
 """Max Inflight Message"""
 
+tcp_opts.desc:
+"""TCP socket options for the outbound cluster link MQTT connection.
+All fields are optional; unset fields keep the OS / `gen_tcp` defaults."""
+
+tcp_opts.label:
+"""TCP Options"""
+
 retry_interval.label: "Retry Interval"
 retry_interval.desc: "Delay for the MQTT bridge to retry sending the QoS1/QoS2 messages in case of ACK not received."
 

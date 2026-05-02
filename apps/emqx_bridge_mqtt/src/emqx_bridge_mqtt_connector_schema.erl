@@ -149,6 +149,15 @@ fields("server_configs") ->
                     default => 32,
                     desc => ?DESC("max_inflight")
                 }
+            )},
+        {tcp_opts,
+            mk(
+                hoconsc:ref(emqx_schema, "client_tcp_opts"),
+                #{
+                    required => false,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC("tcp_opts")
+                }
             )}
     ] ++ emqx_connector_schema_lib:ssl_fields();
 fields("ingress") ->
