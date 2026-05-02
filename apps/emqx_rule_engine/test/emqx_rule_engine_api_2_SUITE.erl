@@ -30,23 +30,26 @@
 
 -define(ON_ALL(NODES, BODY), erpc:multicall(NODES, fun() -> BODY end)).
 
--define(assertReceivePublish(EXPR),
+-define(assertReceivePublish(EXPR, GUARD, EXTRA, TIMEOUT),
     (fun() ->
         lists:foreach(
-            fun(Pub0) ->
-                Pub = maps:update_with(
+            fun(Pub0___) ->
+                Pub___ = maps:update_with(
                     payload,
                     fun emqx_utils_json:decode/1,
-                    Pub0
+                    Pub0___
                 ),
-                self() ! {decoded, Pub}
+                self() ! {decoded, Pub___}
             end,
             drain_publishes([])
         ),
-        {decoded, __X} = ?assertReceive({decoded, EXPR}),
+        {decoded, __X} = ?assertReceive({decoded, EXPR} when ((GUARD)), TIMEOUT, EXTRA),
         __X
     end)()
 ).
+-define(assertReceivePublish(EXPR), ?assertReceivePublish(EXPR, true, #{}, 1_000)).
+-define(assertReceivePublish(EXPR, EXTRA), ?assertReceivePublish(EXPR, true, EXTRA, 1_000)).
+-define(assertReceivePublish(EXPR, GUARD, EXTRA), ?assertReceivePublish(EXPR, GUARD, EXTRA, 1_000)).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -141,6 +144,7 @@ app_specs_no_dashboard() ->
 
 rule_engine_app_spec() ->
     {emqx_rule_engine, #{
+        config => #{<<"rule_engine">> => #{<<"limit_selects_in_namespace">> => false}},
         after_start => fun() ->
             ok = emqx_hooks:add(
                 'namespace.resource_pre_create',
@@ -832,6 +836,13 @@ namespace_of(TCConfig) ->
     emqx_common_test_helpers:get_matrix_prop(
         TCConfig, [?global_namespace, ?namespaced], ?global_namespace
     ).
+
+start_client(Node, Opts) when is_atom(Node) ->
+    Port = get_tcp_mqtt_port(Node),
+    {ok, C} = emqtt:start_link(Opts#{port => Port, proto_ver => v5}),
+    on_exit(fun() -> catch emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    C.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -3122,4 +3133,133 @@ t_legacy_bridge_v1_action_migration(_TCConfig) ->
             ok
         end
     ),
+    ok.
+
+-doc """
+Verifies that when `rule_engine.limit_selects_in_namespace = true`, rules are only
+triggered if the publishing client's namespace matches the rule's namespace.
+
+When rules run, they see the a potentially mounted topic (e.g., prefixed with a
+namespace).
+
+A rule from a namespace `A` could say `select ... from B/t`, and then run on messages that
+are namespaced for namespace `B`.  With `limit_selects_in_namespace = true`, we forbid
+this behavior.
+""".
+t_limit_selects_in_namespace() ->
+    [{matrix, true}].
+t_limit_selects_in_namespace(matrix) ->
+    [[?custom_cluster]];
+t_limit_selects_in_namespace(TCConfig0) when is_list(TCConfig0) ->
+    NodeSpecs = emqx_cth_cluster:mk_nodespecs(
+        [{limit_selects1, #{apps => app_specs()}}],
+        #{
+            work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, TCConfig0),
+            shutdown => 10_000
+        }
+    ),
+    Nodes = [Node | _] = emqx_cth_cluster:start(NodeSpecs),
+    on_exit(fun() -> ok = emqx_cth_cluster:stop(Nodes) end),
+
+    ?ON(Node, begin
+        {ok, _} = emqx_conf:update(
+            [rule_engine, limit_selects_in_namespace],
+            true,
+            #{override_to => cluster}
+        ),
+
+        {ok, _} = emqx_conf:update(
+            [mqtt, client_attrs_init],
+            [
+                #{
+                    <<"expression">> => <<"username">>,
+                    <<"set_as_attr">> => <<"tns">>
+                }
+            ],
+            #{override_to => cluster}
+        ),
+        %% N.B.: in 6.0.x, we don't have the `namespace_as_mountpoint` config, so we have
+        %% to set it in the listener.  We should switch here to using the new config when
+        %% syncing this to 6.1+.
+        {ok, _} = emqx_conf:update(
+            [listeners, tcp, default, mountpoint],
+            <<"${client_attrs.tns}/">>,
+            #{override_to => cluster}
+        ),
+        ok = emqx_listeners:restart_listener('tcp:default')
+    end),
+
+    {ok, APIKey} = erpc:call(Node, emqx_common_test_http, create_default_app, []),
+    TCConfigGlobal = [{node, Node}, {api_key, APIKey} | TCConfig0],
+
+    NS1 = <<"ns1">>,
+    AuthHeaderNS1 = ensure_namespaced_api_key(NS1, TCConfigGlobal),
+    TCConfigNS1 = [{auth_header, AuthHeaderNS1} | TCConfigGlobal],
+
+    NS2 = <<"ns2">>,
+    AuthHeaderNS2 = ensure_namespaced_api_key(NS2, TCConfigGlobal),
+    TCConfigNS2 = [{auth_header, AuthHeaderNS2} | TCConfigGlobal],
+
+    RepublishAction = #{
+        <<"function">> => <<"republish">>,
+        <<"args">> => #{
+            <<"topic">> => <<"${.ns}/rep/${.topic}/${.ns}">>,
+            <<"qos">> => 2,
+            <<"payload">> => <<"${.}">>
+        }
+    },
+
+    %% Honest rule: it selects from namespaced topics intended for its own namespace.
+    IdNS1 = <<"rule_ns1">>,
+    ConfigNS1 = rule_config(#{
+        <<"id">> => IdNS1,
+        <<"description">> => <<"ns1">>,
+        <<"sql">> => fmt(<<"select *, '${ns}' as ns from \"${ns}/t\"">>, #{ns => NS1}),
+        <<"actions">> => [RepublishAction]
+    }),
+    ?assertMatch({201, _}, create(ConfigNS1, TCConfigNS1)),
+    %% Dishonest rule: it selects from namespaced topics intended for namespace `NS1`, but
+    %% lives in `NS2`
+    IdNS2 = <<"rule_ns2">>,
+    ConfigNS2 = rule_config(#{
+        <<"id">> => IdNS2,
+        <<"description">> => <<"snooping ns1 messages">>,
+        <<"sql">> => fmt(<<"select *, '${my_ns}' as ns from \"${other_ns}/t\"">>, #{
+            other_ns => NS1,
+            my_ns => NS2
+        }),
+        <<"actions">> => [RepublishAction]
+    }),
+    ?assertMatch({201, _}, create(ConfigNS2, TCConfigNS2)),
+
+    C1 = start_client(Node, #{username => NS1}),
+    {ok, _, _} = emqtt:subscribe(C1, <<"rep/#">>, [{qos, 2}]),
+
+    C2 = start_client(Node, #{username => NS2}),
+    {ok, _, _} = emqtt:subscribe(C2, <<"rep/#">>, [{qos, 2}]),
+
+    emqtt:publish(C1, <<"t">>, <<"hello from ns1">>),
+
+    %% The client in `NS2` shouldn't receive anything.
+    ?assertNotReceive({publish, #{client_pid := C2}}),
+    %% The client in `NS1` should receive the republish as expected.
+    ?assertReceivePublish(#{client_pid := C1, payload := #{<<"payload">> := <<"hello from ns1">>}}),
+
+    %% When the flag is off, this restriction is lifted.
+    ?ON(
+        Node,
+        {ok, _} = emqx_conf:update(
+            [rule_engine, limit_selects_in_namespace],
+            false,
+            #{override_to => cluster}
+        )
+    ),
+
+    emqtt:publish(C1, <<"t">>, <<"hello from ns1">>),
+
+    ?assertReceivePublish(#{client_pid := C2, payload := #{<<"payload">> := <<"hello from ns1">>}}),
+    ?assertReceivePublish(#{client_pid := C1, payload := #{<<"payload">> := <<"hello from ns1">>}}),
+
+    emqtt:stop(C1),
+    emqtt:stop(C2),
     ok.

@@ -21,6 +21,8 @@
 -define(UPLOAD_CE_BACKUP, "emqx-export-upload-ce.tar.gz").
 -define(BAD_UPLOAD_BACKUP, "emqx-export-bad-upload.tar.gz").
 -define(BAD_IMPORT_BACKUP, "emqx-export-bad-file.tar.gz").
+-define(DASHBOARD_USER, <<"admin_for_test">>).
+-define(DASHBOARD_PASS, <<"public_for_test_1">>).
 -define(backup_path(_Config_, _BackupName_),
     filename:join(?config(data_dir, _Config_), _BackupName_)
 ).
@@ -305,11 +307,76 @@ t_exhook_backup(Config) ->
     ?ON(N1, emqx_ctl:run_command(["data", "import", Filepath])),
     ok.
 
+%% API keys must not be able to export tables that hold dashboard accounts or
+%% API keys themselves.
+t_export_api_key_omits_sensitive_tables(Config) ->
+    ApiAuth = ?config(auth, Config),
+    {200, #{<<"filename">> := Filename, <<"node">> := NodeBin}} =
+        export_backup2(?NODE1_PORT, ApiAuth, #{}),
+    Node = binary_to_atom(NodeBin, utf8),
+    {ok, BinContents} = ?ON(
+        Node, emqx_mgmt_data_backup:read_file(unicode:characters_to_binary(Filename))
+    ),
+    {ok, TmpFile} = write_tmp_tar(BinContents),
+    try
+        {ok, Entries} = erl_tar:table(TmpFile, [compressed]),
+        SensitiveTabs = ["mnesia/emqx_admin", "mnesia/emqx_app"],
+        FoundSensitive = [
+            E
+         || E <- Entries,
+            S <- SensitiveTabs,
+            string:find(E, S) =/= nomatch
+        ],
+        ?assertEqual(
+            [],
+            FoundSensitive,
+            "API-key export must not contain dashboard_users / api_keys mnesia tables"
+        )
+    after
+        file:delete(TmpFile)
+    end,
+    ok.
+
+%% API keys must be rejected with 403 when importing a backup that contains
+%% sensitive mnesia tables.
+t_import_api_key_blocks_sensitive_tables(Config) ->
+    ApiAuth = ?config(auth, Config),
+    UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
+    ?assertEqual(ok, upload_backup(?NODE1_PORT, ApiAuth, UploadFile)),
+    {Status, Body} = import_backup_full(?NODE1_PORT, ApiAuth, ?UPLOAD_CE_BACKUP),
+    ?assertEqual(403, Status),
+    ?assertMatch(#{<<"code">> := <<"FORBIDDEN">>}, Body),
+    ok.
+
+%% Dashboard bearer-token (JWT) callers can import backups that include the
+%% sensitive mnesia tables. The API-key restriction must not regress them.
+t_import_dashboard_token_allows_sensitive_tables(Config) ->
+    ApiAuth = ?config(auth, Config),
+    DashboardAuth = ?config(dashboard_auth, Config),
+    UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
+    ?assertEqual(ok, upload_backup(?NODE1_PORT, ApiAuth, UploadFile)),
+    ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth, ?UPLOAD_CE_BACKUP)),
+    ok.
+
+write_tmp_tar(Bin) ->
+    Path = filename:join([
+        "/tmp",
+        "emqx-test-export-" ++ integer_to_list(erlang:unique_integer([positive])) ++ ".tar.gz"
+    ]),
+    ok = file:write_file(Path, Bin),
+    {ok, Path}.
+
+import_backup_full(NodeApiPort, Auth, BackupName) ->
+    Path = emqx_mgmt_api_test_util:api_path(?api_base_url(NodeApiPort), ["data", "import"]),
+    Body = #{<<"filename">> => unicode:characters_to_binary(BackupName)},
+    emqx_mgmt_api_test_util:simple_request(post, Path, Body, Auth).
+
 do_init_per_testcase(TC, Config) ->
     Cluster = [Core1, _Core2, Repl] = cluster(TC, Config),
     Auth = auth_header(Core1),
+    DashboardAuth = dashboard_auth_header(Core1),
     ok = wait_for_auth_replication(Repl),
-    [{auth, Auth}, {cluster, Cluster} | Config].
+    [{auth, Auth}, {dashboard_auth, DashboardAuth}, {cluster, Cluster} | Config].
 
 test_file_op(Method, Config) ->
     Auth = ?config(auth, Config),
@@ -400,6 +467,9 @@ upload_backup_test(Config, BackupName) ->
 
 import_backup_test(Config, BackupName) ->
     Auth = ?config(auth, Config),
+    %% Fixtures contain sensitive mnesia tables (emqx_admin, emqx_app);
+    %% importing them is only allowed via dashboard bearer-token auth, not API key.
+    DashboardAuth = ?config(dashboard_auth, Config),
     UploadFile = ?backup_path(Config, BackupName),
     BadImportFile = ?backup_path(Config, ?BAD_IMPORT_BACKUP),
 
@@ -409,17 +479,19 @@ import_backup_test(Config, BackupName) ->
     ?assertEqual(ok, upload_backup(?NODE2_PORT, Auth, BadImportFile)),
 
     %% Replicant node must be able to import the file by doing rpc to a core node
-    ?assertMatch({ok, _}, import_backup(?NODE3_PORT, Auth, BackupName)),
+    ?assertMatch({ok, _}, import_backup(?NODE3_PORT, DashboardAuth, BackupName)),
 
     [N1, N2, N3] = ?config(cluster, Config),
 
-    ?assertMatch({ok, _}, import_backup(?NODE3_PORT, Auth, BackupName)),
+    ?assertMatch({ok, _}, import_backup(?NODE3_PORT, DashboardAuth, BackupName)),
 
-    ?assertMatch({ok, _}, import_backup(?NODE1_PORT, Auth, BackupName, N3)),
+    ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth, BackupName, N3)),
     %% Now this node must also have the file locally
-    ?assertMatch({ok, _}, import_backup(?NODE1_PORT, Auth, BackupName, N1)),
+    ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth, BackupName, N1)),
 
-    ?assertMatch({error, {_, 400, _}}, import_backup(?NODE2_PORT, Auth, ?BAD_IMPORT_BACKUP, N2)).
+    ?assertMatch(
+        {error, {_, 400, _}}, import_backup(?NODE2_PORT, DashboardAuth, ?BAD_IMPORT_BACKUP, N2)
+    ).
 
 assert_second_call(get, Res) ->
     ?assertMatch({ok, _}, Res);
@@ -538,6 +610,15 @@ auth_header(Node) ->
     {ok, API} = erpc:call(Node, emqx_common_test_http, create_default_app, []),
     emqx_common_test_http:auth_header(API).
 
+dashboard_auth_header(Node) ->
+    User = ?DASHBOARD_USER,
+    Pass = ?DASHBOARD_PASS,
+    _ = erpc:call(Node, emqx_dashboard_admin, add_user, [
+        User, Pass, <<"administrator">>, <<"data backup test admin">>
+    ]),
+    {ok, #{token := Token}} = erpc:call(Node, emqx_dashboard_admin, sign_token, [User, Pass]),
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
+
 wait_for_auth_replication(ReplNode) ->
     wait_for_auth_replication(ReplNode, 100).
 
@@ -588,7 +669,9 @@ test_case_specific_apps_spec(TC) when
     TC =:= t_upload_ee_backup;
     TC =:= t_import_ee_backup;
     TC =:= t_upload_ce_backup;
-    TC =:= t_import_ce_backup
+    TC =:= t_import_ce_backup;
+    TC =:= t_import_api_key_blocks_sensitive_tables;
+    TC =:= t_import_dashboard_token_allows_sensitive_tables
 ->
     [
         emqx_auth,

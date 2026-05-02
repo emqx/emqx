@@ -23,7 +23,9 @@ defmodule EMQXExhook.MixProject do
           rename: {:msg_fqname, :base_name}
         ],
         proto_dirs: ["priv/protos"],
-        out_dir: "src/pb"
+        out_dir: "src/pb",
+        generate_server?: true,
+        generate_client?: true
       },
       xref_ignores: [
         :emqx_exhook_pb,
