@@ -128,6 +128,34 @@ t_plugins(Config) ->
     ?assertMatch({ok, {{_, 403, _}, _, _}}, install_plugin(PackagePath)),
     ok.
 
+t_install_plugin_sha256_match(Config) ->
+    DemoShDir = proplists:get_value(demo_sh_dir, Config),
+    PackagePath = get_demo_plugin_package(DemoShDir),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    {ok, Bin} = file:read_file(PackagePath),
+    Sha = binary_to_list(binary:encode_hex(crypto:hash(sha256, Bin), lowercase)),
+    ok = allow_installation(NameVsn, Sha),
+    ok = install_plugin(PackagePath),
+    {ok, _} = describe_plugins(NameVsn),
+    {ok, []} = uninstall_plugin(NameVsn),
+    ok.
+
+t_install_plugin_sha256_mismatch(Config) ->
+    DemoShDir = proplists:get_value(demo_sh_dir, Config),
+    PackagePath = get_demo_plugin_package(DemoShDir),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    %% Bind a hash that intentionally doesn't match the file bytes.
+    BogusSha = string:copies("a", 64),
+    ok = allow_installation(NameVsn, BogusSha),
+    ?assertMatch({ok, {{_, 403, _}, _, _}}, install_plugin(PackagePath)),
+    %% Clean up the leftover allow entry so other cases aren't affected.
+    ok = disallow_installation(NameVsn),
+    ok.
+
 t_install_plugin_matching_exisiting_name(Config) ->
     DemoShDir = proplists:get_value(demo_sh_dir, Config),
     PackagePath = get_demo_plugin_package(DemoShDir),
@@ -427,6 +455,9 @@ get_host_and_auth(Config) when is_list(Config) ->
 
 allow_installation(NameVsn) ->
     emqx_ctl:run_command(["plugins", "allow", NameVsn]).
+
+allow_installation(NameVsn, Sha256Hex) ->
+    emqx_ctl:run_command(["plugins", "allow", NameVsn, "sha256:" ++ Sha256Hex]).
 
 disallow_installation(NameVsn) ->
     emqx_ctl:run_command(["plugins", "disallow", NameVsn]).

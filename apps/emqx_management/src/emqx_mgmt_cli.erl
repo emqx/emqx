@@ -305,6 +305,15 @@ plugins(["describe", NameVsn]) ->
     emqx_plugins_cli:describe(NameVsn, fun emqx_ctl:print/2);
 plugins(["allow", NameVsn]) ->
     emqx_plugins_cli:allow_installation(NameVsn, fun emqx_ctl:print/2);
+plugins(["allow", NameVsn, "sha256:" ++ Hex]) ->
+    case parse_sha256_hex(Hex) of
+        {ok, Sha256} ->
+            emqx_plugins_cli:allow_installation(NameVsn, Sha256, fun emqx_ctl:print/2);
+        error ->
+            emqx_ctl:print(
+                "sha256 must be 64 lowercase hex characters, e.g. sha256:abc...~n"
+            )
+    end;
 plugins(["disallow", NameVsn]) ->
     emqx_plugins_cli:disallow_installation(NameVsn, fun emqx_ctl:print/2);
 plugins(["install", NameVsn]) ->
@@ -333,8 +342,11 @@ plugins(_) ->
             {"plugins <command> [Name-Vsn]", "e.g. 'start emqx_plugin_template-5.0-rc.1'"},
             {"plugins list", "List all installed plugins"},
             {"plugins describe  Name-Vsn", "Describe an installed plugins"},
-            {"plugins allow     Name-Vsn",
-                "Allows installation of a plugin in the cluster from Dashboard or API"},
+            {"plugins allow     Name-Vsn [sha256:HEX]",
+                "Allows installation of a plugin in the cluster from Dashboard or API.\n"
+                "The grant expires 5 minutes after issue.\n"
+                "If sha256:HEX (64 lowercase hex chars) is given, the upload bytes\n"
+                "must hash to that value or the install is rejected."},
             {"plugins disallow  Name-Vsn",
                 "Disallows installation of a plugin in the cluster from Dashboard or API"},
             {"plugins install   Name-Vsn",
@@ -357,6 +369,14 @@ plugins(_) ->
                 "     plugins enable bar-0.2.0 before foo-0.1.0"}
         ]
     ).
+
+parse_sha256_hex(Hex) when length(Hex) =:= 64 ->
+    case re:run(Hex, "^[0-9a-f]{64}$", [{capture, none}]) of
+        match -> {ok, list_to_binary(Hex)};
+        nomatch -> error
+    end;
+parse_sha256_hex(_) ->
+    error.
 
 %%--------------------------------------------------------------------
 %% @doc vm command
