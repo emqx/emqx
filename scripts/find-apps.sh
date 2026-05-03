@@ -246,8 +246,8 @@ matrix() {
                 entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
                 ;;
             apps/emqx_management)
-                entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
-                entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
+                entries+=("$(format_app_entry "$app" 2 emqx "$runner")")
+                entries+=("$(format_app_entry "$app" 2 emqx-enterprise "$runner")")
                 ;;
             apps/emqx_auth_http)
                 entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
