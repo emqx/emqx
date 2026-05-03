@@ -566,7 +566,7 @@ dashboard_auth_header(Node) ->
     _ = erpc:call(Node, emqx_dashboard_admin, add_user, [
         User, Pass, <<"administrator">>, <<"data backup test admin">>
     ]),
-    {ok, _Role, Token} = erpc:call(Node, emqx_dashboard_admin, sign_token, [User, Pass]),
+    {ok, #{token := Token}} = erpc:call(Node, emqx_dashboard_admin, sign_token, [User, Pass]),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 wait_for_auth_replication(ReplNode) ->
