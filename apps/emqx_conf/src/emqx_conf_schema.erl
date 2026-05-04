@@ -42,7 +42,9 @@
 
 -define(DEFAULT_NODE_NAME, <<"emqx@127.0.0.1">>).
 
--define(DEFAULT_KERNEL_INET_DIST_CONNECT_OPTIONS, <<"[{buffer,1048576}]">>).
+-define(DEFAULT_KERNEL_INET_DIST_OPTIONS, <<"[{buffer,1048576}]">>).
+-define(DEFAULT_KERNEL_INET_DIST_CONNECT_OPTIONS, ?DEFAULT_KERNEL_INET_DIST_OPTIONS).
+-define(DEFAULT_KERNEL_INET_DIST_LISTEN_OPTIONS, ?DEFAULT_KERNEL_INET_DIST_OPTIONS).
 
 %% Static apps which merge their configs into the merged emqx.conf
 %% The list can not be made a dynamic read at run-time as it is used
@@ -505,6 +507,16 @@ fields("node") ->
                     default => 8192,
                     importance => ?IMPORTANCE_LOW,
                     'readOnly' => true
+                }
+            )},
+        {"dist_listen_options",
+            sc(
+                binary(),
+                #{
+                    desc => ?DESC(dist_listen_options),
+                    default => ?DEFAULT_KERNEL_INET_DIST_LISTEN_OPTIONS,
+                    importance => ?IMPORTANCE_LOW,
+                    'readOnly' => false
                 }
             )},
         {"dist_connect_options",
@@ -1271,7 +1283,8 @@ translation("prometheus") ->
 translation("vm_args") ->
     [
         {"+P", fun tr_vm_args_process_limit/1},
-        {"-kernel inet_dist_connect_options", fun tr_kernel_inet_dist_connect_options/1}
+        {"-kernel inet_dist_connect_options", fun tr_kernel_inet_dist_connect_options/1},
+        {"-kernel inet_dist_listen_options", fun tr_kernel_inet_dist_listen_options/1}
     ].
 
 tr_vm_args_process_limit(Conf) ->
@@ -1279,6 +1292,10 @@ tr_vm_args_process_limit(Conf) ->
 
 tr_kernel_inet_dist_connect_options(Conf) ->
     Val = conf_get("node.dist_connect_options", Conf, [?DEFAULT_KERNEL_INET_DIST_CONNECT_OPTIONS]),
+    lists:flatten(io_lib:format("~0p", [Val])).
+
+tr_kernel_inet_dist_listen_options(Conf) ->
+    Val = conf_get("node.dist_listen_options", Conf, [?DEFAULT_KERNEL_INET_DIST_CONNECT_OPTIONS]),
     lists:flatten(io_lib:format("~0p", [Val])).
 
 tr_prometheus_collectors(Conf) ->
