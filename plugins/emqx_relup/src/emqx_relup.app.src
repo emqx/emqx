@@ -1,0 +1,18 @@
+%% -*- mode: erlang -*-
+{application, emqx_relup, [
+    {description, "EMQX hot-upgrade (relup) plugin"},
+    {vsn, {file, "VERSION"}},
+    {modules, []},
+    {registered, [emqx_relup_sup, emqx_relup_main]},
+    {applications, [
+        kernel,
+        stdlib,
+        mria,
+        emqx,
+        emqx_ctl
+    ]},
+    {mod, {emqx_relup_app, []}},
+    {env, []},
+    {licenses, ["Apache-2.0"]},
+    {maintainers, ["EMQX <emqx@emqx.io>"]}
+]}.

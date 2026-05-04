@@ -267,21 +267,12 @@ xref: $(REBAR)
 dialyzer: $(REBAR)
 	@$(REBAR) as check dialyzer
 
-## rel target is to create release package without relup
+## rel target is to create release package
 .PHONY: $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel)
 $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel): $(COMMON_DEPS)
 	@$(BUILD) $(subst -rel,,$(@)) rel
 
-## relup target is to create relup instructions
-.PHONY: $(REL_PROFILES:%=%-relup)
-define gen-relup-target
-$1-relup: $(COMMON_DEPS)
-	@$(BUILD) $1 relup
-endef
-ALL_TGZS = $(REL_PROFILES)
-$(foreach zt,$(ALL_TGZS),$(eval $(call gen-relup-target,$(zt))))
-
-## tgz target is to create a release package .tar.gz with relup
+## tgz target is to create a release package .tar.gz
 .PHONY: $(REL_PROFILES:%=%-tgz)
 define gen-tgz-target
 $1-tgz: $(COMMON_DEPS)
