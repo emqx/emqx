@@ -243,6 +243,17 @@ t_init_zones_load_other_schema(Config) when is_list(Config) ->
         emqx_config:get([zones, default])
     ).
 
+t_default_strict_mode_is_true(Config) when is_list(Config) ->
+    emqx_config:erase_all(),
+    %% Given an empty config that does not set mqtt.strict_mode
+    ConfFile = prepare_conf_file(?FUNCTION_NAME, <<"">>, Config),
+    application:set_env(emqx, config_files, [ConfFile]),
+    ?assertEqual(ok, emqx_config:init_load(emqx_schema)),
+    %% Then mqtt.strict_mode defaults to true at the global root
+    ?assertEqual(true, emqx:get_config([mqtt, strict_mode])),
+    %% And it is propagated to the default zone
+    ?assertEqual(true, emqx_config:get([zones, default, mqtt, strict_mode])).
+
 t_init_zones_with_user_defined_default_zone(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given user defined config for default zone
@@ -514,7 +525,7 @@ zone_global_defaults() ->
                 shared_subscription => true,
                 shared_subscription_strategy => round_robin,
                 shared_subscription_initial_sticky_pick => random,
-                strict_mode => false,
+                strict_mode => true,
                 subscription_message_filter => disable,
                 upgrade_qos => false,
                 use_username_as_clientid => false,

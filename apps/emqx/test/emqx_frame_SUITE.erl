@@ -38,6 +38,7 @@ groups() ->
             t_parse_frame_too_large,
             t_parse_frame_malformed_variable_byte_integer,
             t_parse_malformed_utf8_string,
+            t_default_parse_state_is_strict,
             t_parse_bad_v5_publish_packet,
             t_guess_first_packet_protocol
         ]},
@@ -139,7 +140,9 @@ t_parse_frame_too_large(_) ->
     ?assertEqual(Packet, parse_serialize(Packet, #{max_size => 2048, version => ?MQTT_PROTO_V4})).
 
 t_parse_frame_malformed_variable_byte_integer(_) ->
-    MalformedPayload = <<<<16#80>> || _ <- lists:seq(1, 6)>>,
+    %% PUBLISH(QoS 0) fixed header byte followed by a malformed remaining
+    %% length where every byte has the continuation bit set.
+    MalformedPayload = iolist_to_binary([<<?PUBLISH:4, 0:1, 0:2, 0:1>> | lists:duplicate(6, 16#80)]),
     ParseState = emqx_frame:initial_parse_state(#{}),
     ?ASSERT_FRAME_THROW(
         malformed_variable_byte_integer,
@@ -158,6 +161,24 @@ t_parse_malformed_utf8_string(_) ->
             98, 108, 105, 99>>,
     ParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
     ?ASSERT_FRAME_THROW(utf8_string_invalid, emqx_frame:parse(MalformedPacket, ParseState)).
+
+%% Verifies that `initial_parse_state/0` (no options) defaults to strict mode,
+%% so a CONNECT with an invalid-UTF-8 client ID is rejected out of the box.
+t_default_parse_state_is_strict(_) ->
+    %% MQTT v4 CONNECT, clientid contains a control char (0x01) which is
+    %% not a valid MQTT UTF-8 string per [MQTT-1.5.4-3].
+    BadClientIdConnect =
+        <<16, 13, 0, 4, 77, 81, 84, 84, 4, 2, 0, 60, 0, 1, 16#01>>,
+    ?ASSERT_FRAME_THROW(
+        #{cause := utf8_string_invalid},
+        emqx_frame:parse(BadClientIdConnect, emqx_frame:initial_parse_state())
+    ),
+    %% Sanity-check: in lenient mode the same packet parses successfully.
+    LenientParseState = emqx_frame:initial_parse_state(#{strict_mode => false}),
+    ?assertMatch(
+        {_, <<>>, _},
+        emqx_frame:parse(BadClientIdConnect, LenientParseState)
+    ).
 
 %% Case found by fuzzying with defensics.
 t_parse_bad_v5_publish_packet(_) ->
@@ -812,10 +833,12 @@ t_serialize_parse_auth_v5(_) ->
     ).
 
 t_parse_invalid_remaining_len(_) ->
+    %% Valid CONNECT fixed header byte (?CONNECT:4 + zeroed flags) followed
+    %% by a zero remaining-length byte.
     ?assertException(
         throw,
         {frame_parse_error, #{cause := zero_remaining_len}},
-        emqx_frame:parse(<<?CONNECT, 0>>)
+        emqx_frame:parse(<<?CONNECT:4, 0:4, 0>>)
     ).
 
 t_parse_malformed_properties(_) ->
@@ -921,9 +944,10 @@ t_invalid_password_flag(_) ->
     ConnectFlags = <<2#0100:4, 2#0010:4>>,
     ConnectBin =
         <<16, 17, 0, 4, 77, 81, 84, 84, 4, ConnectFlags/binary, 0, 60, 0, 2, 97, 49, 0, 1, 97>>,
+    LenientParseState = emqx_frame:initial_parse_state(#{strict_mode => false}),
     ?assertMatch(
         {_, _, _},
-        emqx_frame:parse(ConnectBin)
+        emqx_frame:parse(ConnectBin, LenientParseState)
     ),
 
     StrictModeParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
