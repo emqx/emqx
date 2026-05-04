@@ -228,7 +228,8 @@ field_filename(IsRequired, Meta) ->
 
 data_export(post, #{body := Params0} = Req) ->
     Namespace = emqx_dashboard:get_namespace(Req),
-    Params = emqx_utils_maps:put_if(Params0, <<"namespace">>, Namespace, is_binary(Namespace)),
+    Params1 = emqx_utils_maps:put_if(Params0, <<"namespace">>, Namespace, is_binary(Namespace)),
+    Params = maybe_filter_export_params(Params1, auth_meta(Req)),
     maybe
         ok ?= emqx_mgmt_data_backup:validate_export_root_keys(Params),
         {ok, Opts} ?= emqx_mgmt_data_backup:parse_export_request(Params),
@@ -262,34 +263,51 @@ data_import(post, #{body := #{<<"filename">> := Filename} = Body} = Req) ->
         {error, Msg} ->
             {400, #{code => ?BAD_REQUEST, message => Msg}};
         FileNode ->
-            CoreNode = core_node(FileNode),
-            Opts = emqx_utils_maps:put_if(#{}, namespace, Namespace, is_binary(Namespace)),
-            Res = emqx_mgmt_data_backup_proto_v2:import_file(
-                CoreNode,
-                FileNode,
-                Filename,
-                Opts,
-                infinity
-            ),
-            case Res of
-                {ok, #{db_errors := DbErrs, config_errors := ConfErrs}} ->
-                    case DbErrs =:= #{} andalso ConfErrs =:= #{} of
-                        true ->
-                            {204};
-                        false ->
-                            Msg = format_import_errors(DbErrs, ConfErrs),
-                            {400, #{code => ?BAD_REQUEST, message => Msg}}
-                    end;
-                {badrpc, Reason} ->
-                    {500, #{
-                        code => ?SERVICE_UNAVAILABLE(Reason),
+            case check_no_sensitive_tables(Filename, auth_meta(Req)) of
+                {forbidden, Sets} ->
+                    SensMsg = iolist_to_binary([
+                        <<"API key import refused: backup contains restricted tables: ">>,
+                        lists:join(<<", ">>, Sets)
+                    ]),
+                    {403, #{code => 'FORBIDDEN', message => SensMsg}};
+                {peek_error, Reason} ->
+                    {400, #{
+                        code => ?BAD_REQUEST,
                         message => emqx_mgmt_data_backup:format_error(Reason)
                     }};
-                {error, Reason} ->
-                    {400, #{
-                        code => ?BAD_REQUEST, message => emqx_mgmt_data_backup:format_error(Reason)
-                    }}
+                ok ->
+                    do_data_import(FileNode, Filename, Namespace)
             end
+    end.
+
+do_data_import(FileNode, Filename, Namespace) ->
+    CoreNode = core_node(FileNode),
+    Opts = emqx_utils_maps:put_if(#{}, namespace, Namespace, is_binary(Namespace)),
+    Res = emqx_mgmt_data_backup_proto_v2:import_file(
+        CoreNode,
+        FileNode,
+        Filename,
+        Opts,
+        infinity
+    ),
+    case Res of
+        {ok, #{db_errors := DbErrs, config_errors := ConfErrs}} ->
+            case DbErrs =:= #{} andalso ConfErrs =:= #{} of
+                true ->
+                    {204};
+                false ->
+                    Msg = format_import_errors(DbErrs, ConfErrs),
+                    {400, #{code => ?BAD_REQUEST, message => Msg}}
+            end;
+        {badrpc, Reason} ->
+            {500, #{
+                code => ?SERVICE_UNAVAILABLE(Reason),
+                message => emqx_mgmt_data_backup:format_error(Reason)
+            }};
+        {error, Reason} ->
+            {400, #{
+                code => ?BAD_REQUEST, message => emqx_mgmt_data_backup:format_error(Reason)
+            }}
     end.
 
 format_import_errors(DbErrs, ConfErrs) ->
@@ -366,6 +384,46 @@ data_file_by_name(Method, #{bindings := #{filename := Filename}, query_string :=
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+auth_meta(#{auth_meta := AuthMeta}) -> AuthMeta;
+auth_meta(_) -> #{}.
+
+is_api_key_caller(#{auth_type := api_key}) -> true;
+is_api_key_caller(_) -> false.
+
+%% API key callers must not export tables that hold dashboard accounts or
+%% API keys themselves. Force-filter the requested table sets accordingly.
+%% Dashboard JWT callers are unaffected.
+maybe_filter_export_params(Params, AuthMeta) ->
+    case is_api_key_caller(AuthMeta) of
+        true -> filter_sensitive_table_sets(Params);
+        false -> Params
+    end.
+
+filter_sensitive_table_sets(Params) ->
+    Sensitive = emqx_mgmt_data_backup:sensitive_table_set_names(),
+    Allowed =
+        case maps:find(<<"table_sets">>, Params) of
+            {ok, Requested} -> Requested -- Sensitive;
+            error -> emqx_mgmt_data_backup:all_table_set_names() -- Sensitive
+        end,
+    Params#{<<"table_sets">> => Allowed}.
+
+%% Peek the local file. If the file lives on a different node (caller passed
+%% `node' in the body), the local peek returns `{error, not_found}' and the
+%% handler reports a 400 -- API-key callers must upload to the same node where
+%% they import.
+check_no_sensitive_tables(Filename, AuthMeta) ->
+    case is_api_key_caller(AuthMeta) of
+        false ->
+            ok;
+        true ->
+            case emqx_mgmt_data_backup:peek_sensitive_table_sets(Filename) of
+                {ok, []} -> ok;
+                {ok, Sets} -> {forbidden, Sets};
+                {error, Reason} -> {peek_error, Reason}
+            end
+    end.
 
 get_or_delete_file(get, Filename, Node) ->
     emqx_mgmt_data_backup_proto_v1:read_file(Node, Filename, infinity);

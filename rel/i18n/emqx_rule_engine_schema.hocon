@@ -270,4 +270,10 @@ To write your own function, checkout the function <code>console</code> and
 user_provided_function_function.label:
 """User Provided Function"""
 
+limit_selects_in_namespace.label:
+"""Limit Selects In Namespace"""
+
+limit_selects_in_namespace.desc:
+"""When enabled, rules will only trigger on messages published by clients on the same namespace as the rule itself."""
+
 }
