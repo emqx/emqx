@@ -296,6 +296,9 @@ oidc_provider_params(Issuer) ->
     (oidc_provider_params())#{<<"issuer">> => emqx_utils_conv:bin(Issuer)}.
 
 login_flow(InitiatorNode, LoginNode) ->
+    login_flow(InitiatorNode, LoginNode, LoginNode).
+
+login_flow(InitiatorNode, LoginNode, FinalReqNode) ->
     maybe
         ct:pal("initial sso login in emqx"),
         {Status1, Headers1, Resp1} ?= login_sso(InitiatorNode, #{}),
@@ -340,7 +343,21 @@ login_flow(InitiatorNode, LoginNode) ->
         #{query := QueryParams4} = uri_string:parse(LoginURL2),
         #{"login_meta" := Token0} = maps:from_list(uri_string:dissect_query(QueryParams4)),
         ct:pal("token0: ~s", [Token0]),
-        #{<<"token">> := Token1} = emqx_utils_json:decode(base64:decode(Token0)),
+        #{<<"code">> := SsoCode, <<"username">> := SsoUsername, <<"backend">> := SsoBackend} =
+            emqx_utils_json:decode(base64:decode(Token0, #{mode => urlsafe, padding => false})),
+        ExchangeURL = url(FinalReqNode, ["sso", "token_exchange"]),
+        {200, ExchangeResp} = simple_request(#{
+            method => post,
+            url => ExchangeURL,
+            body => #{
+                <<"code">> => SsoCode,
+                <<"username">> => SsoUsername,
+                <<"backend">> => SsoBackend
+            },
+            auth_header => [{"x", "x"}]
+        }),
+        ct:pal("exchange response: ~p", [ExchangeResp]),
+        #{<<"token">> := Token1} = ExchangeResp,
         {ok, #{
             final_token => Token1,
             emqx_redirect_login_url => LoginURL1B
@@ -480,60 +497,7 @@ do_smoke_tests1(Node, LoginNode, FinalReqNode, Opts, _TCConfig) ->
 
     %% Login
     {ok, #{final_token := Token1, emqx_redirect_login_url := LoginURL1B}} =
-        login_flow(Node, LoginNode),
-    {302, Headers1, Resp1} = login_sso(Node, #{}),
-    ct:pal("returned headers1:\n  ~p\nbody:\n  ~p\n", [Headers1, Resp1]),
-    {"location", OIDCURL1} = lists:keyfind("location", 1, Headers1),
-
-    #{query := QueryParams1} = uri_string:parse(OIDCURL1),
-    {302, Headers2, Resp2} = oidc_mock_server_auth_req(QueryParams1),
-    ct:pal("returned headers2:\n  ~p\nbody:\n  ~p\n", [Headers2, Resp2]),
-    {"location", OIDCURL2} = lists:keyfind("location", 1, Headers2),
-
-    #{query := QueryParams2} = uri_string:parse(OIDCURL2),
-    {303, Headers3, Resp3} = oidc_callback_req(QueryParams2),
-    ct:pal("returned headers3:\n  ~p\nbody:\n  ~p\n", [Headers3, Resp3]),
-    {"location", OIDCURL3} = lists:keyfind("location", 1, Headers3),
-
-    #{query := QueryParams3} = uri_string:parse(OIDCURL3),
-    {303, Headers4, Resp4} = oidc_approve_req(QueryParams3),
-    ct:pal("returned headers4:\n  ~p\nbody:\n  ~p\n", [Headers4, Resp4]),
-    {"location", LoginURL1} = lists:keyfind("location", 1, Headers4),
-
-    %% Ensure callback falls onto login node
-    CallbackURI = uri_string:parse(LoginURL1),
-    LoginNodePort = get_http_dashboard_port(LoginNode),
-    LoginURL1B = uri_string:recompose(CallbackURI#{
-        host := "127.0.0.1",
-        port := LoginNodePort
-    }),
-    {302, Headers5, Resp5} = ?retry(100, 10, begin
-        Res5 = simple_login_get(LoginURL1B),
-        ct:pal("callback response:\n  ~p", [Res5]),
-        {302, _, _} = Res5
-    end),
-    ct:pal("returned headers5:\n  ~p\nbody:\n  ~p\n", [Headers5, Resp5]),
-    {"location", LoginURL2} = lists:keyfind("location", 1, Headers5),
-
-    #{query := QueryParams4} = uri_string:parse(LoginURL2),
-    #{"login_meta" := Token0} = maps:from_list(uri_string:dissect_query(QueryParams4)),
-    ct:pal("token0: ~s", [Token0]),
-    #{<<"code">> := SsoCode, <<"username">> := SsoUsername, <<"backend">> := SsoBackend} =
-        emqx_utils_json:decode(base64:decode(Token0, #{mode => urlsafe, padding => false})),
-
-    %% Exchange the one-time SSO code for the real JWT token
-    ExchangeURL = url(FinalReqNode, ["sso", "token_exchange"]),
-    {200, ExchangeResp} = simple_request(#{
-        method => post,
-        url => ExchangeURL,
-        body => #{
-            <<"code">> => SsoCode, <<"username">> => SsoUsername, <<"backend">> => SsoBackend
-        },
-        auth_header => [{"x", "x"}]
-    }),
-    ct:pal("exchange response: ~p", [ExchangeResp]),
-    #{<<"token">> := Token1} = ExchangeResp,
->>>>>>> origin/release-61
+        login_flow(Node, LoginNode, FinalReqNode),
 
     %% Finally, can now perform actions in the API
     FinalAuthHeader = {"Authorization", "Bearer " ++ binary_to_list(Token1)},
