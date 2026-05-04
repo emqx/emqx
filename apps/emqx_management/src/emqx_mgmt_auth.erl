@@ -188,9 +188,13 @@ do_update(Name, Enable, ExpiredAt, Desc, #{?role := Role, ?namespace := Namespac
         [App0 = #?APP{enable = Enable0, extra = Extra0}] ->
             #{desc := Desc0} = Extra1 = normalize_extra(Extra0),
             PreviousNamespace = maps:get(?namespace, Extra1, ?global_ns),
-            maybe
-                true ?= PreviousNamespace /= Namespace,
-                mnesia:abort(<<"changing_namespace_is_forbidden">>)
+            case PreviousNamespace /= Namespace of
+                true ->
+                    %% Namespace is part of the RBAC boundary.  Require delete/recreate
+                    %% instead of moving an existing API key across scopes.
+                    mnesia:abort(<<"changing_namespace_is_forbidden">>);
+                false ->
+                    ok
             end,
             Extra2 = emqx_utils_maps:put_if(
                 Extra1#{?role => Role, desc => ensure_not_undefined(Desc, Desc0)},
