@@ -94,3 +94,83 @@ special_topics_test_() ->
                 })
             ])
         )}.
+
+tcp_opts_schema_test_() ->
+    {"tcp_opts: schema parses and is forwarded to emqtt options",
+        ?_test(begin
+            [#{<<"tcp_opts">> := TcpOpts}] = parse_and_check([
+                link(<<"link1">>, #{
+                    <<"tcp_opts">> => #{
+                        <<"nodelay">> => true,
+                        <<"sndbuf">> => <<"16KB">>,
+                        <<"recbuf">> => <<"8KB">>,
+                        <<"buffer">> => <<"32KB">>,
+                        <<"keepalive">> => false
+                    }
+                })
+            ]),
+            ?assertMatch(
+                #{
+                    <<"nodelay">> := true,
+                    <<"sndbuf">> := 16384,
+                    <<"recbuf">> := 8192,
+                    <<"buffer">> := 32768,
+                    <<"keepalive">> := false
+                },
+                TcpOpts
+            ),
+            with_cluster_name(fun() ->
+                LinkConf = #{
+                    server => <<"127.0.0.1:1883">>,
+                    clientid => <<"linkclientid">>,
+                    ssl => #{enable => false},
+                    tcp_opts => #{
+                        nodelay => true,
+                        sndbuf => 16384,
+                        recbuf => 8192,
+                        buffer => 32768,
+                        keepalive => false
+                    }
+                },
+                #{tcp_opts := Proplist} = emqx_cluster_link_config:mk_emqtt_options(LinkConf),
+                ?assertEqual(true, proplists:get_value(nodelay, Proplist)),
+                ?assertEqual(16384, proplists:get_value(sndbuf, Proplist)),
+                ?assertEqual(8192, proplists:get_value(recbuf, Proplist)),
+                ?assertEqual(32768, proplists:get_value(buffer, Proplist)),
+                ?assertEqual(false, proplists:get_value(keepalive, Proplist))
+            end)
+        end)}.
+
+tcp_opts_default_test_() ->
+    {"tcp_opts: when unset, mk_emqtt_options forwards an empty proplist",
+        ?_test(
+            with_cluster_name(fun() ->
+                LinkConf = #{
+                    server => <<"127.0.0.1:1883">>,
+                    clientid => <<"linkclientid">>,
+                    ssl => #{enable => false}
+                },
+                #{tcp_opts := Proplist} = emqx_cluster_link_config:mk_emqtt_options(LinkConf),
+                ?assertEqual([], Proplist)
+            end)
+        )}.
+
+with_cluster_name(Fun) ->
+    %% `emqx_cluster_link_config:mk_emqtt_options/1' falls back on `cluster()' as a
+    %% default value for clientid; that lookup needs `[cluster, name]' to exist in
+    %% `emqx_config'.  Stub it with a dummy value for the duration of the test.
+    Prior =
+        try
+            {ok, emqx_config:get([cluster, name])}
+        catch
+            _:_ -> undefined
+        end,
+    emqx_config:put([cluster, name], 'test@nohost'),
+    try
+        Fun()
+    after
+        case Prior of
+            {ok, V} -> emqx_config:put([cluster, name], V);
+            _ -> ok
+        end
+    end.

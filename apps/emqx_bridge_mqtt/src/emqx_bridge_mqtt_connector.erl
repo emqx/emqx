@@ -612,12 +612,14 @@ mk_ecpool_client_opts(
         namespace := Namespace
     } =
         emqx_connector_resource:parse_connector_id(ConnResId, #{atom_name => false}),
+    TcpOpts = emqx_schema:client_tcp_opts_to_proplist(maps:get(tcp_opts, Config, #{})),
     Options#{
         hosts => [HostPort],
         clientid => clientid(Namespace, Name, Config),
         connect_timeout => ConnectTimeoutS,
         keepalive => ms_to_s(KeepAlive),
         force_ping => true,
+        tcp_opts => TcpOpts,
         ssl => EnableSsl,
         ssl_opts => maps:to_list(maps:remove(enable, Ssl))
     }.

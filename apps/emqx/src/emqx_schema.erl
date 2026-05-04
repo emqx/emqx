@@ -99,7 +99,8 @@
     validate_tcp_keepalive/1,
     parse_tcp_keepalive/1,
     tcp_keepalive_opts/1,
-    tcp_keepalive_opts/4
+    tcp_keepalive_opts/4,
+    client_tcp_opts_to_proplist/1
 ]).
 
 -export([qos/0]).
@@ -1157,6 +1158,57 @@ fields("tcp_opts") ->
                     default => <<"none">>,
                     desc => ?DESC(fields_tcp_opts_keepalive),
                     validator => fun validate_tcp_keepalive/1
+                }
+            )}
+    ];
+fields("client_tcp_opts") ->
+    [
+        {nodelay,
+            sc(
+                boolean(),
+                #{
+                    required => false,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(fields_client_tcp_opts_nodelay)
+                }
+            )},
+        {sndbuf,
+            sc(
+                bytesize(),
+                #{
+                    required => false,
+                    importance => ?IMPORTANCE_LOW,
+                    example => <<"4KB">>,
+                    desc => ?DESC(fields_client_tcp_opts_sndbuf)
+                }
+            )},
+        {recbuf,
+            sc(
+                bytesize(),
+                #{
+                    required => false,
+                    importance => ?IMPORTANCE_LOW,
+                    example => <<"4KB">>,
+                    desc => ?DESC(fields_client_tcp_opts_recbuf)
+                }
+            )},
+        {buffer,
+            sc(
+                bytesize(),
+                #{
+                    required => false,
+                    importance => ?IMPORTANCE_LOW,
+                    example => <<"4KB">>,
+                    desc => ?DESC(fields_client_tcp_opts_buffer)
+                }
+            )},
+        {keepalive,
+            sc(
+                boolean(),
+                #{
+                    required => false,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(fields_client_tcp_opts_keepalive)
                 }
             )}
     ];
@@ -2332,6 +2384,8 @@ desc("ws_opts") ->
     "WebSocket listener options.";
 desc("tcp_opts") ->
     "TCP listener options.";
+desc("client_tcp_opts") ->
+    ?DESC("client_tcp_opts");
 desc("listener_ssl_opts") ->
     "Socket options for SSL connections.";
 desc("listener_wss_opts") ->
@@ -3193,6 +3247,26 @@ tcp_keepalive_opts({unix, darwin}, Idle, Interval, Probes) ->
     ]};
 tcp_keepalive_opts(OS, _Idle, _Interval, _Probes) ->
     {error, {unsupported_os, OS}}.
+
+%% @doc Convert a `client_tcp_opts' HOCON map (with possibly missing keys) into
+%% a proplist suitable as `gen_tcp:connect/3' options. Only set keys are
+%% forwarded so unset fields keep their `gen_tcp' defaults.
+-spec client_tcp_opts_to_proplist(map() | undefined) -> [gen_tcp:connect_option()].
+client_tcp_opts_to_proplist(undefined) ->
+    [];
+client_tcp_opts_to_proplist(Map) when is_map(Map) ->
+    maps:fold(
+        fun
+            (nodelay, V, Acc) when is_boolean(V) -> [{nodelay, V} | Acc];
+            (sndbuf, V, Acc) when is_integer(V) -> [{sndbuf, V} | Acc];
+            (recbuf, V, Acc) when is_integer(V) -> [{recbuf, V} | Acc];
+            (buffer, V, Acc) when is_integer(V) -> [{buffer, V} | Acc];
+            (keepalive, V, Acc) when is_boolean(V) -> [{keepalive, V} | Acc];
+            (_, _, Acc) -> Acc
+        end,
+        [],
+        Map
+    ).
 
 validate_tcp_keepalive(Value) ->
     case unicode:characters_to_binary(Value) of
