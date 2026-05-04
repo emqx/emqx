@@ -323,6 +323,25 @@ t_parse_incoming(_) ->
         {0, [{frame_error, #{cause := zero_remaining_len}}], _NState},
         emqx_connection:parse_incoming(<<16#10, 16#00>>, st(#{}, #{conn_state => idle}))
     ),
+    %% v3.1.1 CONNECT with password flag set but no username flag.
+    %% Strict parser rejects per [MQTT-3.1.2-22]; operator-facing reason
+    %% (also logged at info level by parse_incoming/2) is invalid_password_flag.
+    ?assertMatch(
+        {0,
+            [
+                {frame_error, #{
+                    cause := invalid_password_flag,
+                    proto_ver := 4,
+                    proto_name := <<"MQTT">>,
+                    packet_type := 'CONNECT'
+                }}
+            ],
+            _NState},
+        emqx_connection:parse_incoming(
+            <<16#10, 19, 0, 4, "MQTT", 4, 16#42, 0, 60, 0, 2, "a1", 0, 3, "aaa">>,
+            st(#{}, #{conn_state => idle})
+        )
+    ),
     %% bad_subqos in connected state: no enrichment
     ?assertMatch(
         {0, [{frame_error, bad_subqos}], _NState},

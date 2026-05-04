@@ -108,6 +108,7 @@ t_will_message_connection_denied(Config) when is_list(Config) ->
 
     {ok, Subscriber} = emqtt:start_link([
         {clientid, <<"subscriber">>},
+        {username, <<"u">>},
         {password, <<"p">>}
     ]),
     {ok, _} = emqtt:connect(Subscriber),
