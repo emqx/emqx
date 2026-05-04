@@ -30,7 +30,7 @@
 
 -define(PROXY_HOST, "toxiproxy").
 -define(PROXY_PORT, 8474).
--define(PROXY_NAME, "gcp_emulator").
+-define(PROXY_NAME, "gcp_emulator_pubsub").
 
 -define(mocked_gcp, mocked_gcp).
 -define(async, async).
