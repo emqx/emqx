@@ -243,24 +243,19 @@ t_export_api_key_omits_sensitive_tables(Config) ->
     end,
     ok.
 
-%% API keys must be rejected with 403 when importing a backup that contains
-%% sensitive mnesia tables.
-t_import_api_key_blocks_sensitive_tables(Config) ->
-    ApiAuth = ?config(auth, Config),
-    UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
-    ?assertEqual(ok, upload_backup(?NODE1_PORT, ApiAuth, UploadFile)),
-    {Status, Body} = import_backup_full(?NODE1_PORT, ApiAuth, ?UPLOAD_CE_BACKUP),
-    ?assertEqual(403, Status),
-    ?assertMatch(#{<<"code">> := <<"FORBIDDEN">>}, Body),
-    ok.
-
-%% Dashboard bearer-token (JWT) callers can import backups that include the
-%% sensitive mnesia tables. The API-key restriction must not regress them.
-t_import_dashboard_token_allows_sensitive_tables(Config) ->
+%% API keys are rejected with 403 when importing a backup that contains
+%% sensitive mnesia tables; dashboard bearer-token (JWT) callers must still
+%% be allowed. Both checks share one cluster to keep CT runtime down.
+t_import_sensitive_tables_auth_split(Config) ->
     ApiAuth = ?config(auth, Config),
     DashboardAuth = ?config(dashboard_auth, Config),
     UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
     ?assertEqual(ok, upload_backup(?NODE1_PORT, ApiAuth, UploadFile)),
+    %% API key path: blocked.
+    {Status, Body} = import_backup_full(?NODE1_PORT, ApiAuth, ?UPLOAD_CE_BACKUP),
+    ?assertEqual(403, Status),
+    ?assertMatch(#{<<"code">> := <<"FORBIDDEN">>}, Body),
+    %% Dashboard bearer-token path: allowed.
     ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth, ?UPLOAD_CE_BACKUP)),
     ok.
 
@@ -569,8 +564,7 @@ test_case_specific_apps_spec(TC) when
     TC =:= t_import_ee_backup;
     TC =:= t_upload_ce_backup;
     TC =:= t_import_ce_backup;
-    TC =:= t_import_api_key_blocks_sensitive_tables;
-    TC =:= t_import_dashboard_token_allows_sensitive_tables
+    TC =:= t_import_sensitive_tables_auth_split
 ->
     [
         emqx_auth,
