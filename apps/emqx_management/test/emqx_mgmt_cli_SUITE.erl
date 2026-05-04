@@ -362,15 +362,12 @@ t_autocluster_leave(Config) ->
     rpc:call(Repl1, emqx_mgmt_cli, cluster, [["discovery", "enable"]]),
     %% nodes will join and restart asyncly, may need more time to re-cluster
     ct:pal("waiting recovery"),
-    ?assertEqual(
-        ok,
-        emqx_common_test_helpers:wait_for(
-            ?FUNCTION_NAME,
-            ?LINE,
-            fun() ->
-                [lists:sort(rpc:call(N, emqx, running_nodes, [])) || N <- Cluster] =:= ClusterView
-            end,
-            10_000
+    ?retry(
+        1_000,
+        30,
+        ?assertEqual(
+            {ClusterView, []},
+            rpc:multicall(Cluster, emqx, running_nodes, [])
         )
     ).
 

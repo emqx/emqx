@@ -243,38 +243,48 @@ cluster_info(get, _) ->
 
 cluster_topology(get, _) ->
     RunningCores = running_cores(),
-    {Replicants, BadNodes} = emqx_mgmt_cluster_proto_v2:connected_replicants(RunningCores),
-    CoreReplicants = lists:zip(
-        lists:filter(
-            fun(N) -> not lists:member(N, BadNodes) end,
-            RunningCores
+    AllCores = emqx:cluster_nodes(cores),
+    AgentsOfAllNodes = emqx_mgmt_cluster_proto_v2:connected_replicants(RunningCores),
+    {Topology, BadNodes} =
+        lists:foldl(
+            fun({Core, RpcRet}, {AccTopoloty, AccBadNodes}) ->
+                case RpcRet of
+                    {ok, AgentsL} ->
+                        Entry = #{
+                            core_node => Core,
+                            replicant_nodes => format_replicants(AllCores, AgentsL)
+                        },
+                        {[Entry | AccTopoloty], AccBadNodes};
+                    Other ->
+                        ?SLOG(error, #{
+                            msg => "failed_to_get_replicant_nodes",
+                            core_node => Core,
+                            reason => Other
+                        }),
+                        Entry = #{core_node => Core, replicant_nodes => []},
+                        {[Entry | AccTopoloty], [Core | AccBadNodes]}
+                end
+            end,
+            {[], []},
+            lists:zip(RunningCores, AgentsOfAllNodes)
         ),
-        Replicants
-    ),
-    Topology = lists:map(
-        fun
-            ({Core, {badrpc, Reason}}) ->
-                ?SLOG(error, #{
-                    msg => "failed_to_get_replicant_nodes",
-                    core_node => Core,
-                    reason => Reason
-                }),
-                #{core_node => Core, replicant_nodes => []};
-            ({Core, Repls}) ->
-                #{core_node => Core, replicant_nodes => format_replicants(Repls)}
-        end,
-        CoreReplicants
-    ),
     BadNodes =/= [] andalso ?SLOG(error, #{msg => "rpc_call_failed", bad_nodes => BadNodes}),
     {200, Topology}.
 
-format_replicants(Replicants) ->
+-spec format_replicants([node()], [{mria_rlog:shard(), node(), pid()}]) ->
+    [#{node => node(), streams => non_neg_integer()}].
+format_replicants(AllCores, Agents) ->
     maps:fold(
-        fun(K, V, Acc) ->
-            [#{node => K, streams => length(V)} | Acc]
+        fun(Peer, L, Acc) ->
+            case lists:member(Peer, AllCores) of
+                true ->
+                    Acc;
+                false ->
+                    [#{node => Peer, streams => length(L)} | Acc]
+            end
         end,
         [],
-        maps:groups_from_list(fun({_, N, _}) -> N end, Replicants)
+        maps:groups_from_list(fun({_, N, _}) -> N end, Agents)
     ).
 
 running_cores() ->
@@ -333,6 +343,9 @@ force_leave(delete, #{bindings := #{node := Node0}}) ->
 join(Node) ->
     emqx_cluster:join(Node).
 
+%% TODO: proper name of this function should be "connected agents",
+%% since with introduction of Mria merge tables, cores also appear in
+%% this list.
 -spec connected_replicants() -> [{atom(), node(), pid()}].
 connected_replicants() ->
     mria_status:agents().

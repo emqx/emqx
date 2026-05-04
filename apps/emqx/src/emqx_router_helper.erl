@@ -4,6 +4,9 @@
 
 %% Router helper process.
 %%
+%% NOTICE: this process is deprecated, it's only used for v2 routing
+%% schema.
+%%
 %% Responsibility is twofold:
 %% 1. Cleaning own portion of the global routing table when restarted.
 %%    The assumption is that the node has crashed (worst-case), so the
@@ -103,15 +106,21 @@
 %%--------------------------------------------------------------------
 
 create_tables() ->
-    ok = mria:create_table(?ROUTING_NODE, [
+    case emqx_router:get_schema_vsn() of
+        v3 -> [];
+        v2 -> create_tables_v2()
+    end.
+
+create_tables_v2() ->
+    ok = mria:create_table(?ROUTING_NODE_V2, [
         {type, set},
-        {rlog_shard, ?ROUTE_SHARD},
+        {rlog_shard, ?ROUTE_SHARD_V2},
         {storage, ram_copies},
         {record_name, routing_node},
         {attributes, record_info(fields, routing_node)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]}
     ]),
-    [?ROUTING_NODE].
+    [?ROUTING_NODE_V2].
 
 %%--------------------------------------------------------------------
 %% API
@@ -126,7 +135,7 @@ start_link() ->
 post_start() ->
     %% Cleanup any routes left by old incarnations of this node (if any).
     %% Depending on the size of routing tables this can take signicant amount of time.
-    _ = mria:wait_for_tables([?ROUTING_NODE]),
+    _ = mria:wait_for_tables([?ROUTING_NODE_V2]),
     _ = purge_dead_node(node()),
     ignore.
 
@@ -135,15 +144,29 @@ post_start() ->
 monitor({_Group, Node}) ->
     monitor(Node);
 monitor(Node) when is_atom(Node) ->
-    add_routing_node(Node).
+    case emqx_router:get_schema_vsn() of
+        v3 -> ok;
+        v2 -> add_routing_node(Node)
+    end.
 
 %% @doc Is given node considered routable?
 %% I.e. should the broker attempt to forward messages there, even if there are
 %% routes to this node in the routing table?
 -spec is_routable(node()) -> boolean().
-is_routable(Node) when Node == node() ->
-    true;
 is_routable(Node) ->
+    case emqx_router:get_schema_vsn() of
+        v3 ->
+            %% Due to merge table `auto_clean', the situation when
+            %% routes exist while node is down is impossible, so we
+            %% can skip additional checks:
+            true;
+        v2 ->
+            is_routable_v2(Node)
+    end.
+
+is_routable_v2(Node) when Node == node() ->
+    true;
+is_routable_v2(Node) ->
     try
         lookup_node_reachable(Node)
     catch
@@ -186,8 +209,6 @@ init([]) ->
     ]),
     %% Monitor nodes lifecycle events.
     ok = ekka:monitor(membership),
-    %% Setup periodic stats reporting.
-    ok = emqx_stats:update_interval(route_stats, fun ?MODULE:stats_fun/0),
     TRef = schedule_task(reconcile, ?RECONCILE_TURBULENCE_DELAY),
     State = #{
         last_membership => emqx_maybe:define(cores(), []),
@@ -443,19 +464,19 @@ do_purge_node(Node) ->
 %%
 
 add_routing_node(Node) ->
-    case ets:member(?ROUTING_NODE, Node) of
+    case ets:member(?ROUTING_NODE_V2, Node) of
         true -> ok;
-        false -> mria:dirty_write(?ROUTING_NODE, #routing_node{name = Node})
+        false -> mria:dirty_write(?ROUTING_NODE_V2, #routing_node{name = Node})
     end.
 
 remove_routing_node(Node) ->
-    mria:dirty_delete(?ROUTING_NODE, Node).
+    mria:dirty_delete(?ROUTING_NODE_V2, Node).
 
 list_routing_nodes() ->
-    ets:select(?ROUTING_NODE, ets:fun2ms(fun(#routing_node{name = N}) -> N end)).
+    ets:select(?ROUTING_NODE_V2, ets:fun2ms(fun(#routing_node{name = N}) -> N end)).
 
 node_has_routes(Node) ->
-    ets:member(?ROUTING_NODE, Node).
+    ets:member(?ROUTING_NODE_V2, Node).
 
 %%
 

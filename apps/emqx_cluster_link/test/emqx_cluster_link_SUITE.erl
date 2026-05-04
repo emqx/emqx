@@ -191,6 +191,8 @@ t_message_forwarding(Config) ->
             T12 = maybe_shared_topic(IsShared, <<"t1/#">>),
             {ok, _, _} = emqtt:subscribe(TargetC1, T11, qos1),
             {ok, _, _} = emqtt:subscribe(TargetC2, T12, qos1),
+            emqx_cth_cluster:sync_routes(SourceNodes, 10_000),
+            emqx_cth_cluster:sync_routes(TargetNodes, 10_000),
             %% Start cluster link, existing routes should be replicated.
             _Apps = start_cluster_link(SourceNodes ++ TargetNodes, Config),
             {ok, _} = ?block_until(#{
@@ -217,6 +219,8 @@ t_message_forwarding(Config) ->
             T22 = maybe_shared_topic(IsShared, <<"t2/+/+">>),
             {ok, _, _} = emqtt:subscribe(TargetC1, T21, qos1),
             {ok, _, _} = emqtt:subscribe(TargetC2, T22, qos1),
+            emqx_cth_cluster:sync_routes(SourceNodes, 10_000),
+            emqx_cth_cluster:sync_routes(TargetNodes, 10_000),
             {ok, _} = ?block_until(#{?snk_kind := "cluster_link_route_sync_complete"}),
             %% Publish another message.
             {ok, _} = emqtt:publish(SourceC1, <<"t2/3/4">>, <<"heh">>, qos1),
@@ -258,8 +262,8 @@ t_target_extrouting_gc('end', Config) ->
     ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
 
 t_target_extrouting_gc(Config) ->
-    [SourceNode1 | _] = nodes_source(Config),
-    [TargetNode1, TargetNode2 | _] = nodes_target(Config),
+    [SourceNode1 | _] = SourceNodes = nodes_source(Config),
+    [TargetNode1, TargetNode2 | _] = TargetNodes = nodes_target(Config),
     SourceC1 = emqx_cluster_link_cth:connect_client("t_target_extrouting_gc", SourceNode1),
     TargetC1 = emqx_cluster_link_cth:connect_client_unlink("t_target_extrouting_gc1", TargetNode1),
     TargetC2 = emqx_cluster_link_cth:connect_client_unlink("t_target_extrouting_gc2", TargetNode2),
@@ -270,6 +274,8 @@ t_target_extrouting_gc(Config) ->
             TopicFilter2 = maybe_shared_topic(IsShared, <<"t/#">>),
             {ok, _, _} = emqtt:subscribe(TargetC1, TopicFilter1, qos1),
             {ok, _, _} = emqtt:subscribe(TargetC2, TopicFilter2, qos1),
+            emqx_cth_cluster:sync_routes(SourceNodes, 10_000),
+            emqx_cth_cluster:sync_routes(TargetNodes, 10_000),
             {ok, _} = ?block_until(#{
                 ?snk_kind := "cluster_link_route_sync_complete", ?snk_meta := #{node := TargetNode1}
             }),

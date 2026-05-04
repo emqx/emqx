@@ -441,6 +441,7 @@ t_trace(Config) ->
     {ok, SubConn2} = connect(Config, <<"sub2">>),
     {ok, _, [0]} = emqtt:subscribe(SubConn2, Topic),
     {ok, PubConn} = connect(Config, <<"pub">>),
+    sync_routes(Config),
 
     TraceParent = traceparent(true),
     TraceParentNotSampled = traceparent(false),
@@ -489,6 +490,7 @@ t_trace_disabled(Config) ->
 
     {ok, SubConn} = connect(Config, <<"sub">>),
     {ok, _, [0]} = emqtt:subscribe(SubConn, Topic),
+    sync_routes(Config),
     {ok, PubConn} = connect(Config, <<"pub">>),
 
     TraceParent = traceparent(true),
@@ -576,6 +578,7 @@ t_distributed_trace(Config) ->
     {ok, _, [0]} = emqtt:subscribe(SubConn2, Topic),
     {ok, SubConn3} = connect(Config, Repl, <<"sub3">>),
     {ok, _, [0]} = emqtt:subscribe(SubConn3, Topic),
+    sync_routes(Config),
 
     {ok, PubConn} = connect(Config, Repl, <<"pub">>),
 
@@ -835,8 +838,10 @@ t_e2e_client_sub_unsub(Config) ->
     {ok, Conn} = connect(Config, ClientId),
     timer:sleep(500),
     {ok, _, [QoS]} = emqtt:subscribe(Conn, props(WithTraceparent, SubTraceParent), Topic, QoS),
+    sync_routes(Config),
     timer:sleep(500),
     {ok, _, _} = emqtt:unsubscribe(Conn, props(WithTraceparent, UnsubTraceParent), Topic),
+    sync_routes(Config),
     _ = disconnect_conn(Conn),
     ?assertEqual(
         ok,
@@ -948,6 +953,7 @@ t_e2e_client_publish_qos0(Config) ->
     %% both subscribe the topic
     {ok, _, [QoS]} = emqtt:subscribe(Conn1, Topic, QoS),
     {ok, _, [QoS]} = emqtt:subscribe(Conn2, Topic, QoS),
+    sync_routes(Config),
 
     timer:sleep(200),
     ok = emqtt:publish(Conn1, Topic, <<"must be traced">>, QoS),
@@ -1015,6 +1021,7 @@ t_e2e_client_publish_qos1(Config) ->
     %% both subscribe the topic
     {ok, _, [QoS]} = emqtt:subscribe(Conn1, Topic, QoS),
     {ok, _, [QoS]} = emqtt:subscribe(Conn2, Topic, QoS),
+    sync_routes(Config),
 
     timer:sleep(200),
     {ok, _} = emqtt:publish(Conn1, Topic, <<"must be traced">>, QoS),
@@ -1089,6 +1096,7 @@ t_e2e_client_publish_qos2(Config) ->
     %% both subscribe the topic
     {ok, _, [QoS]} = emqtt:subscribe(Conn1, Topic, QoS),
     {ok, _, [QoS]} = emqtt:subscribe(Conn2, Topic, QoS),
+    sync_routes(Config),
 
     timer:sleep(200),
     {ok, _} = emqtt:publish(Conn1, Topic, <<"must be traced">>, QoS),
@@ -1187,6 +1195,7 @@ t_e2e_client_publish_qos2_with_forward(Config) ->
     {ok, _, [QoS]} = emqtt:subscribe(Conn2, Topic, QoS),
     {ok, Conn3} = connect(Config, Repl, ClientId3),
     {ok, _, [QoS]} = emqtt:subscribe(Conn3, Topic, QoS),
+    sync_routes(Config),
 
     timer:sleep(200),
     {ok, _} = emqtt:publish(Conn1, Topic, <<"must be traced">>, QoS),
@@ -1335,6 +1344,7 @@ t_e2e_client_borker_publish_whitelist(Config) ->
     {ok, _, [?QOS_1]} = emqtt:subscribe(Conn2, Topic, ?QOS_1),
     {ok, Conn3} = connect(Config, Repl, ClientId3),
     {ok, _, [?QOS_2]} = emqtt:subscribe(Conn3, Topic, ?QOS_2),
+    sync_routes(Config),
 
     timer:sleep(50),
     {ok, _} = emqtt:publish(Conn1, Topic, <<"must be traced">>, PubQoS),
@@ -1420,6 +1430,7 @@ t_e2e_client_pub_qos2_trace_level_0(Config) ->
     {ok, _, [QoS]} = emqtt:subscribe(Conn2, Topic, QoS),
     {ok, Conn3} = connect(Config, Repl, ClientId3),
     {ok, _, [QoS]} = emqtt:subscribe(Conn3, Topic, QoS),
+    sync_routes(Config),
 
     timer:sleep(200),
     {ok, _} = emqtt:publish(Conn1, Topic, <<"must be traced">>, QoS),
@@ -1530,6 +1541,7 @@ t_e2e_client_pub_qos2_trace_level_1(Config) ->
     {ok, _, [QoS]} = emqtt:subscribe(Conn2, Topic, QoS),
     {ok, Conn3} = connect(Config, Repl, ClientId3),
     {ok, _, [?QOS_1]} = emqtt:subscribe(Conn3, Topic, ?QOS_1),
+    sync_routes(Config),
 
     timer:sleep(200),
     {ok, _} = emqtt:publish(Conn1, Topic, <<"must be traced">>, QoS),
@@ -1695,6 +1707,7 @@ t_e2e_client_source_republish_to_clients(Config) ->
 
     RepublishTopic = ?config(republish_topic, Config),
     {ok, _, [?QOS_2]} = emqtt:subscribe(SubRepublishPid, RepublishTopic, ?QOS_2),
+    sync_routes(Config),
 
     timer:sleep(200),
 
@@ -1859,6 +1872,7 @@ t_e2e_http_publish_qos2(Config) ->
     timer:sleep(200),
     %% both subscribe the topic
     {ok, _, [QoS]} = emqtt:subscribe(Conn1, Topic, QoS),
+    sync_routes(Config),
 
     timer:sleep(200),
     WithTraceparent = ?config(otel_follow_traceparent, Config),
@@ -2317,3 +2331,7 @@ source_config(Overrides0) ->
         },
 
     maps:merge(CommonConfig, Overrides).
+
+sync_routes(Config) ->
+    Cluster = proplists:get_value(cluster, Config, [node()]),
+    emqx_cth_cluster:sync_routes(Cluster).
