@@ -206,6 +206,12 @@ authz_common_fields(Type) ->
                 default => true,
                 importance => ?IMPORTANCE_NO_DOC,
                 desc => ?DESC(enable)
+            })},
+        {precondition,
+            ?HOCON(binary(), #{
+                default => <<>>,
+                validator => fun validate_precondition/1,
+                desc => ?DESC(precondition)
             })}
     ].
 
@@ -270,8 +276,25 @@ default_authz() ->
     #{
         <<"type">> => <<"file">>,
         <<"enable">> => true,
+        <<"precondition">> => <<>>,
         <<"path">> => <<"${EMQX_ETC_DIR}/acl.conf">>
     }.
+
+validate_precondition(undefined) ->
+    ok;
+validate_precondition(<<>>) ->
+    ok;
+validate_precondition(Expression) ->
+    case emqx_variform:compile(Expression) of
+        {ok, _} ->
+            ok;
+        {error, Reason} ->
+            {error, #{
+                cause => "bad_precondition_expression",
+                expression => Expression,
+                reason => Reason
+            }}
+    end.
 
 common_field() ->
     [
