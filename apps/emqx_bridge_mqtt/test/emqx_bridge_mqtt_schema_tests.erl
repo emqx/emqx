@@ -301,5 +301,48 @@ schema_test_() ->
                         ]
                     })
                 )
-            )}
+            )},
+        {"tcp_opts : parse and convert to proplist",
+            ?_test(begin
+                #{<<"tcp_opts">> := TcpOpts} = parse_and_check_connector(
+                    connector_config(#{
+                        <<"tcp_opts">> => #{
+                            <<"nodelay">> => true,
+                            <<"sndbuf">> => <<"16KB">>,
+                            <<"recbuf">> => <<"8KB">>,
+                            <<"buffer">> => <<"32KB">>,
+                            <<"keepalive">> => true
+                        }
+                    })
+                ),
+                ?assertMatch(
+                    #{
+                        <<"nodelay">> := true,
+                        <<"sndbuf">> := <<"16KB">>,
+                        <<"recbuf">> := <<"8KB">>,
+                        <<"buffer">> := <<"32KB">>,
+                        <<"keepalive">> := true
+                    },
+                    TcpOpts
+                ),
+                Proplist = emqx_schema:client_tcp_opts_to_proplist(#{
+                    nodelay => true,
+                    sndbuf => 16384,
+                    recbuf => 8192,
+                    buffer => 32768,
+                    keepalive => true
+                }),
+                ?assertEqual(true, proplists:get_value(nodelay, Proplist)),
+                ?assertEqual(16384, proplists:get_value(sndbuf, Proplist)),
+                ?assertEqual(8192, proplists:get_value(recbuf, Proplist)),
+                ?assertEqual(32768, proplists:get_value(buffer, Proplist)),
+                ?assertEqual(true, proplists:get_value(keepalive, Proplist))
+            end)},
+        {"tcp_opts : empty/unset keys are not forwarded",
+            ?_test(begin
+                ?assertEqual([], emqx_schema:client_tcp_opts_to_proplist(#{})),
+                ?assertEqual([], emqx_schema:client_tcp_opts_to_proplist(undefined)),
+                Partial = emqx_schema:client_tcp_opts_to_proplist(#{nodelay => false}),
+                ?assertEqual([{nodelay, false}], Partial)
+            end)}
     ].
