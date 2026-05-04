@@ -224,6 +224,9 @@ matrix() {
             apps/emqx)
                 entries+=("$(format_app_entry "$app" 10 emqx-enterprise "$runner")")
                 ;;
+            apps/emqx_management)
+                entries+=("$(format_app_entry "$app" 2 emqx-enterprise "$runner")")
+                ;;
             apps/*)
                 profile='emqx-enterprise'
                 entries+=("$(format_app_entry "$app" 1 "$profile" "$runner")")
