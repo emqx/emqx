@@ -29,7 +29,7 @@
 -define(TIMEOUT, 25_000).
 
 introduced_in() ->
-    "5.8.10".
+    "5.8.11".
 
 -spec allow_installation([node()], binary() | string(), binary() | undefined) ->
     emqx_rpc:erpc_multicall(ok | {error, term()}).
