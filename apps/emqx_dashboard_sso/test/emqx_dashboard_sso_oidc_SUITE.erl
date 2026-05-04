@@ -366,10 +366,13 @@ login_flow(InitiatorNode, LoginNode, FinalReqNode) ->
 
 get_new_dashboard_users(Node) ->
     DefaultUser = <<"admin">>,
+    BearerTokenUser = ?OIDC_ADMIN_USER,
     ?ON(
         Node,
         lists:filter(
-            fun(#{username := Username}) -> Username /= DefaultUser end,
+            fun(#{username := Username}) ->
+                Username /= DefaultUser andalso Username /= BearerTokenUser
+            end,
             emqx_dashboard_admin:all_users()
         )
     ).
