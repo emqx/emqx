@@ -451,16 +451,23 @@ upload_install(post, #{}) ->
     }}.
 
 do_install_package(NameVsn, FileName, Bin) ->
-    case emqx_plugins:is_allowed_installation(NameVsn) of
-        true ->
+    case emqx_plugins:is_allowed_installation(NameVsn, Bin) of
+        ok ->
             do_install_package(FileName, Bin);
-        false ->
+        {error, not_allowed} ->
             Msg = iolist_to_binary([
                 <<"Package is not allowed installation;">>,
                 <<" first allow it to be installed by running:">>,
                 <<" `emqx ctl plugins allow ">>,
                 NameVsn,
                 <<"`">>
+            ]),
+            {403, #{code => 'FORBIDDEN', message => Msg}};
+        {error, sha256_mismatch} ->
+            Msg = iolist_to_binary([
+                <<"Package sha256 does not match the value bound by `emqx ctl plugins allow ">>,
+                NameVsn,
+                <<" sha256:...`">>
             ]),
             {403, #{code => 'FORBIDDEN', message => Msg}}
     end.

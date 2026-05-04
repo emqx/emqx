@@ -38,8 +38,11 @@
 %% Package operations
 -export([
     allow_installation/1,
+    allow_installation/2,
     forget_allowed_installation/1,
     is_allowed_installation/1,
+    is_allowed_installation/2,
+    allow_ttl_ms/0,
 
     ensure_installed/0,
     ensure_installed/1,
@@ -117,6 +120,11 @@
 
 -define(allowed_installations, allowed_installations).
 
+%% Default TTL for an `allow_installation' grant.
+%% After this many milliseconds the entry is treated as expired and is purged
+%% lazily on the next allow/check/forget call.
+-define(ALLOW_TTL_MS, timer:minutes(5)).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -166,28 +174,94 @@ app_dir(AppName, Apps) ->
 %% We could use `application:set_env', but the typespec for it makes dialyzer sad when it
 %% seems a non-atom key...
 -spec allow_installation(binary() | string()) -> ok.
-allow_installation(NameVsn0) ->
+allow_installation(NameVsn) ->
+    allow_installation(NameVsn, undefined).
+
+%% @doc Allow installation of `NameVsn'. The entry expires after `allow_ttl_ms/0'
+%% milliseconds. When `Sha256' is a 64-char lowercase hex binary, the upload
+%% bytes must hash to the same value to be accepted; when `undefined', any
+%% bytes named `NameVsn.tar.gz' are accepted (legacy behavior).
+-spec allow_installation(binary() | string(), binary() | undefined) -> ok.
+allow_installation(NameVsn0, Sha256) when Sha256 =:= undefined; is_binary(Sha256) ->
     NameVsn = bin(NameVsn0),
+    Entry = #{
+        expires_at => erlang:monotonic_time(millisecond) + allow_ttl_ms(),
+        sha256 => Sha256
+    },
     Allowed0 = application:get_env(?APP, ?allowed_installations, #{}),
-    Allowed = Allowed0#{NameVsn => true},
+    Allowed = (prune_expired(Allowed0))#{NameVsn => Entry},
     application:set_env(?APP, ?allowed_installations, Allowed),
     ok.
 
 %% Note: this is only used for the HTTP API.
+%% Returns true iff a non-expired allow entry exists for `NameVsn'.
+%% Does NOT check sha256 binding — use `is_allowed_installation/2' to verify
+%% the upload bytes against the stored hash.
 -spec is_allowed_installation(binary() | string()) -> boolean().
 is_allowed_installation(NameVsn0) ->
     NameVsn = bin(NameVsn0),
-    Allowed = application:get_env(?APP, ?allowed_installations, #{}),
-    maps:get(NameVsn, Allowed, false).
+    Allowed = prune_and_store(application:get_env(?APP, ?allowed_installations, #{})),
+    maps:is_key(NameVsn, Allowed).
+
+%% @doc Check that `NameVsn' is allowed and that `Bin' matches the bound
+%% sha256 (if any). Returns:
+%%   ok                          - allowed and (hash matches or no hash bound)
+%%   {error, not_allowed}        - no non-expired entry exists
+%%   {error, sha256_mismatch}    - entry has a sha256 that doesn't match `Bin'
+-spec is_allowed_installation(binary() | string(), binary()) ->
+    ok | {error, not_allowed | sha256_mismatch}.
+is_allowed_installation(NameVsn0, Bin) when is_binary(Bin) ->
+    NameVsn = bin(NameVsn0),
+    Allowed = prune_and_store(application:get_env(?APP, ?allowed_installations, #{})),
+    case maps:find(NameVsn, Allowed) of
+        error ->
+            {error, not_allowed};
+        {ok, #{sha256 := undefined}} ->
+            ok;
+        {ok, #{sha256 := Expected}} when is_binary(Expected) ->
+            Got = binary:encode_hex(crypto:hash(sha256, Bin), lowercase),
+            case Got =:= Expected of
+                true -> ok;
+                false -> {error, sha256_mismatch}
+            end
+    end.
 
 %% Note: this is only used for the HTTP API.
 -spec forget_allowed_installation(binary() | string()) -> ok.
 forget_allowed_installation(NameVsn0) ->
     NameVsn = bin(NameVsn0),
     Allowed0 = application:get_env(?APP, ?allowed_installations, #{}),
-    Allowed = maps:remove(NameVsn, Allowed0),
+    Allowed = maps:remove(NameVsn, prune_expired(Allowed0)),
     application:set_env(?APP, ?allowed_installations, Allowed),
     ok.
+
+%% @doc TTL applied to new `allow_installation' entries. The default of 5
+%% minutes can be overridden via `application:set_env(emqx_plugins,
+%% allow_ttl_ms, Ms)' — primarily for tests.
+-spec allow_ttl_ms() -> pos_integer().
+allow_ttl_ms() ->
+    application:get_env(?APP, allow_ttl_ms, ?ALLOW_TTL_MS).
+
+prune_and_store(Allowed0) ->
+    case prune_expired(Allowed0) of
+        Allowed0 ->
+            Allowed0;
+        Pruned ->
+            application:set_env(?APP, ?allowed_installations, Pruned),
+            Pruned
+    end.
+
+prune_expired(Allowed) ->
+    Now = erlang:monotonic_time(millisecond),
+    maps:filter(
+        fun
+            (_K, #{expires_at := ExpiresAt}) -> ExpiresAt > Now;
+            %% Defensive: drop legacy/unknown entries (e.g. left over after a
+            %% hot beam upgrade from a version that stored `true').
+            (_K, _V) -> false
+        end,
+        Allowed
+    ).
 
 %%--------------------------------------------------------------------
 %% Package operations
@@ -574,16 +648,30 @@ maybe_create_tar(NameVsn, TarGzName, InstallDir) ->
     end.
 
 write_tar_file_content(BaseDir, TarContent) ->
-    lists:foreach(
-        fun({Name, Bin}) ->
-            Filename = filename:join(BaseDir, Name),
-            ok = filelib:ensure_dir(Filename),
-            ok = file:write_file(Filename, Bin)
-        end,
-        TarContent
-    ).
+    %% Validate every entry up front. A single zip-slip entry must not
+    %% leave half-written legitimate entries behind on disk.
+    case unsafe_entries(BaseDir, TarContent) of
+        [] ->
+            lists:foreach(
+                fun({Name, Bin}) ->
+                    Filename = filename:join(BaseDir, Name),
+                    ok = filelib:ensure_dir(Filename),
+                    ok = file:write_file(Filename, Bin)
+                end,
+                TarContent
+            );
+        [_ | _] = Unsafe ->
+            {error, #{
+                msg => "unsafe_tar_entry_path",
+                hint => "tar entries must stay under the install dir",
+                entries => Unsafe
+            }}
+    end.
 
 delete_tar_file_content(BaseDir, TarContent) ->
+    %% Defense in depth: never follow a tar entry path that escapes
+    %% BaseDir, even on the cleanup path.
+    SafeEntries = [E || {Name, _} = E <- TarContent, is_safe_entry(BaseDir, Name)],
     lists:foreach(
         fun({Name, _}) ->
             Filename = filename:join(BaseDir, Name),
@@ -596,8 +684,17 @@ delete_tar_file_content(BaseDir, TarContent) ->
                     ok
             end
         end,
-        TarContent
+        SafeEntries
     ).
+
+unsafe_entries(BaseDir, TarContent) ->
+    [Name || {Name, _} <- TarContent, not is_safe_entry(BaseDir, Name)].
+
+is_safe_entry(BaseDir, Name) ->
+    case filelib:safe_relative_path(Name, BaseDir) of
+        unsafe -> false;
+        _ -> true
+    end.
 
 top_dir(BaseDir0, DirOrFile) ->
     BaseDir = normalize_dir(BaseDir0),
@@ -631,18 +728,36 @@ top_dir_test_() ->
         ?_assertThrow({out_of_bounds, _}, top_dir("/base", filename:join(["/", "base"]))),
         ?_assertThrow({out_of_bounds, _}, top_dir("/base", filename:join(["/", "foo", "bar"])))
     ].
+
+is_safe_entry_test_() ->
+    %% Use cwd as a real existing directory; safe_relative_path/2 needs that.
+    {ok, Cwd} = file:get_cwd(),
+    [
+        ?_assert(is_safe_entry(Cwd, "evil-1.0.0/release.json")),
+        ?_assert(is_safe_entry(Cwd, "deep/nested/path.txt")),
+        ?_assertNot(is_safe_entry(Cwd, "../escape")),
+        ?_assertNot(is_safe_entry(Cwd, "../../../tmp/pwned")),
+        ?_assertNot(is_safe_entry(Cwd, "evil/../../../tmp/pwned")),
+        ?_assertNot(is_safe_entry(Cwd, "/abs/path"))
+    ].
 -endif.
 
 do_ensure_installed(NameVsn) ->
     TarGz = pkg_file_path(NameVsn),
     case erl_tar:extract(TarGz, [compressed, memory]) of
         {ok, TarContent} ->
-            ok = write_tar_file_content(install_dir(), TarContent),
-            case read_plugin_info(NameVsn, #{}) of
-                {ok, _} ->
-                    ok;
+            case write_tar_file_content(install_dir(), TarContent) of
+                ok ->
+                    case read_plugin_info(NameVsn, #{}) of
+                        {ok, _} ->
+                            ok;
+                        {error, Reason} ->
+                            ?SLOG(warning, Reason#{msg => "failed_to_read_after_install"}),
+                            ok = delete_tar_file_content(install_dir(), TarContent),
+                            {error, Reason}
+                    end;
                 {error, Reason} ->
-                    ?SLOG(warning, Reason#{msg => "failed_to_read_after_install"}),
+                    ?SLOG(error, Reason#{name_vsn => NameVsn}),
                     ok = delete_tar_file_content(install_dir(), TarContent),
                     {error, Reason}
             end;

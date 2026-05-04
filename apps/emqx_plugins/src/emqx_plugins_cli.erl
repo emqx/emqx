@@ -27,6 +27,7 @@
     ensure_disabled/2,
     ensure_enabled/3,
     allow_installation/2,
+    allow_installation/3,
     disallow_installation/2
 ]).
 
@@ -59,32 +60,54 @@ describe(NameVsn, LogFun) ->
     end.
 
 allow_installation(NameVsn, LogFun) ->
+    allow_installation(NameVsn, undefined, LogFun).
+
+allow_installation(NameVsn, Sha256, LogFun) ->
     case emqx_plugins:parse_name_vsn(NameVsn) of
         {ok, _, _} ->
-            do_allow_installation(NameVsn, LogFun);
+            do_allow_installation(NameVsn, Sha256, LogFun);
         {error, _} = Error ->
             ?PRINT(Error, LogFun)
     end.
 
-do_allow_installation(NameVsn, LogFun) ->
+do_allow_installation(NameVsn, undefined, LogFun) ->
+    %% No sha256 binding — use proto v3 to remain compatible with older nodes
+    %% in a rolling upgrade.
     Nodes = nodes_supporting_bpapi_version(3),
     Results = emqx_plugins_proto_v3:allow_installation(Nodes, NameVsn),
+    print_allow_result(Nodes, Results, NameVsn, LogFun);
+do_allow_installation(NameVsn, Sha256, LogFun) when is_binary(Sha256) ->
+    %% sha256 binding — needs every running node on proto v4 so the binding is
+    %% enforced everywhere. Refuse rather than silently allow on old nodes.
+    Running = emqx:running_nodes(),
+    V4Nodes = nodes_supporting_bpapi_version(4),
+    case Running -- V4Nodes of
+        [] ->
+            Results = emqx_plugins_proto_v4:allow_installation(V4Nodes, NameVsn, Sha256),
+            print_allow_result(V4Nodes, Results, NameVsn, LogFun);
+        Missing ->
+            Reason = #{
+                hint => <<"sha256 binding requires all nodes to be upgraded">>,
+                nodes_missing_v4 => Missing
+            },
+            ?PRINT({error, Reason}, LogFun)
+    end.
+
+print_allow_result(Nodes, Results, NameVsn, LogFun) ->
     Errors =
         lists:filter(
             fun
-                ({_Node, {ok, ok}}) ->
-                    false;
-                ({_Node, _Error}) ->
-                    true
+                ({_Node, {ok, ok}}) -> false;
+                ({_Node, _}) -> true
             end,
             lists:zip(Nodes, Results)
         ),
     Result =
         case Errors of
-            [] -> ok;
+            [] -> {ok, #{expires_in_ms => emqx_plugins:allow_ttl_ms()}};
             _ -> {error, maps:from_list(Errors)}
         end,
-    ?PRINT(Result, LogFun).
+    print(NameVsn, Result, LogFun, allow_installation).
 
 disallow_installation(NameVsn, LogFun) ->
     case emqx_plugins:parse_name_vsn(NameVsn) of
@@ -150,6 +173,8 @@ print(NameVsn, Res, LogFun, Action) ->
         case Res of
             ok ->
                 Obj#{result => ok};
+            {ok, Extra} when is_map(Extra) ->
+                maps:merge(Obj#{result => ok}, Extra);
             {error, Reason} ->
                 Obj#{
                     result => not_ok,
