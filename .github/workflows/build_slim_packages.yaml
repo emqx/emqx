@@ -39,7 +39,7 @@ jobs:
           -w /emqx \
           "$BUILDER" \
           bash -lc "git config --global --add safe.directory /emqx && make emqx-enterprise-compile && make plugins"
-    - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: "plugins"
         path: _build/plugins/*.tar.gz
@@ -72,7 +72,7 @@ jobs:
     - name: build pkg
       run: |
         ./scripts/buildx.sh --profile $PROFILE --pkgtype pkg --arch $ARCH
-    - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: "${{ matrix.profile }}-${{ matrix.arch }}"
         path: _packages/${{ matrix.profile }}/*
@@ -106,7 +106,7 @@ jobs:
         otp: ${{ steps.env.outputs.OTP_VSN }}
         elixir: ${{ steps.env.outputs.ELIXIR_VSN }}
         os: ${{ matrix.os }}
-    - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: ${{ matrix.os }}
         path: _packages/**/*
