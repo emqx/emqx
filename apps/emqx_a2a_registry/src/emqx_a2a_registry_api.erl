@@ -8,6 +8,7 @@
 %% `minirest' and `minirest_trails' API
 -export([
     namespace/0,
+    scopes/0,
     api_spec/0,
     paths/0,
     fields/1,
@@ -33,6 +34,7 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -define(TAGS, [<<"A2A Registry">>]).
 
@@ -44,6 +46,8 @@ namespace() -> "a2a".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_CONNECTIONS.
 
 paths() ->
     [
