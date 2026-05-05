@@ -12,6 +12,7 @@
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx/include/emqx_managed_certs.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% `minirest' and `minirest_trails' API
 -export([
@@ -19,7 +20,8 @@
     api_spec/0,
     fields/1,
     paths/0,
-    schema/1
+    schema/1,
+    scopes/0
 ]).
 
 %% `minirest' handlers
@@ -42,6 +44,8 @@
 %%-------------------------------------------------------------------------------------------------
 
 namespace() -> undefined.
+
+scopes() -> ?SCOPE_SYSTEM.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{

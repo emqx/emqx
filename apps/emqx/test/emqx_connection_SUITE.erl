@@ -197,7 +197,12 @@ t_handle_msg(_) ->
     ?assertMatch(
         {stop, {shutdown, discarded}, _St}, handle_msg({'$gen_call', From, discard}, st())
     ),
-    ?assertMatch({ok, [], _St}, handle_msg({tcp, From, <<"for_testing">>}, st())),
+    %% Strict-mode default surfaces bad header as a frame_error rather than
+    %% buffering the bytes silently.
+    ?assertMatch(
+        {ok, {incoming, {frame_error, bad_frame_header}}, _St},
+        handle_msg({tcp, From, <<"for_testing">>}, st())
+    ),
     ?assertMatch({ok, _St}, handle_msg(for_testing, st())).
 
 t_handle_msg_incoming(_) ->
@@ -293,7 +298,12 @@ t_handle_timeout(_) ->
 
 t_parse_incoming(_) ->
     ?assertMatch({0, [], _NState}, emqx_connection:parse_incoming(<<>>, st())),
-    ?assertMatch({0, [], _NState}, emqx_connection:parse_incoming(<<"for_testing">>, st())),
+    %% Strict-mode default rejects garbage with a bad header; lenient parser
+    %% would have buffered as partial bytes.
+    ?assertMatch(
+        {0, [{frame_error, bad_frame_header}], _NState},
+        emqx_connection:parse_incoming(<<"for_testing">>, st())
+    ),
     %% SUBSCRIBE with remaining_len=0 in idle state:
     %% parser throws zero_remaining_len, enriched with protocol hints
     ?assertMatch(
@@ -312,6 +322,25 @@ t_parse_incoming(_) ->
     ?assertMatch(
         {0, [{frame_error, #{cause := zero_remaining_len}}], _NState},
         emqx_connection:parse_incoming(<<16#10, 16#00>>, st(#{}, #{conn_state => idle}))
+    ),
+    %% v3.1.1 CONNECT with password flag set but no username flag.
+    %% Strict parser rejects per [MQTT-3.1.2-22]; operator-facing reason
+    %% (also logged at info level by parse_incoming/2) is invalid_password_flag.
+    ?assertMatch(
+        {0,
+            [
+                {frame_error, #{
+                    cause := invalid_password_flag,
+                    proto_ver := 4,
+                    proto_name := <<"MQTT">>,
+                    packet_type := 'CONNECT'
+                }}
+            ],
+            _NState},
+        emqx_connection:parse_incoming(
+            <<16#10, 19, 0, 4, "MQTT", 4, 16#42, 0, 60, 0, 2, "a1", 0, 3, "aaa">>,
+            st(#{}, #{conn_state => idle})
+        )
     ),
     %% bad_subqos in connected state: no enrichment
     ?assertMatch(

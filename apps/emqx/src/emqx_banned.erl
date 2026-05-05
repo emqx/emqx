@@ -114,13 +114,14 @@ check_clientid(ClientId) ->
     do_check({clientid, ClientId}) orelse do_check_rules(#{clientid => ClientId}).
 
 -spec format(emqx_types:banned()) -> map().
-format(#banned{
-    who = Who0,
-    by = By,
-    reason = Reason,
-    at = At,
-    until = Until
-}) ->
+format(#banned{} = Banned0) ->
+    #banned{
+        who = Who0,
+        by = By,
+        reason = Reason,
+        at = At,
+        until = Until
+    } = upgrade_legacy_rule(Banned0),
     {As, Who} = format_who(Who0),
     #{
         as => As,

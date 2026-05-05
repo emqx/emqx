@@ -16,6 +16,11 @@ When a GCP Service Account is created (as described in https://developers.google
     desc: "Authenticate using a JSON containing the GCP Service Account credentials."
   }
 
+  auth_attached_service_account {
+    label: "Attached Service Account"
+    desc: "Authenticate using the GCP Service Account credentials attached to the Compute Engine instance where EMQX runs."
+  }
+
   auth_service_account_json_type {
     label: "Service Account JSON"
     desc: "Service Account JSON"

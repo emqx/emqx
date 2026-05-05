@@ -329,7 +329,9 @@ metric_meta(<<"emqx_cluster_nodes_stopped">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_conf_sync_txid">>) -> ?meta(0, 1, 1);
 %% END
 metric_meta(<<"emqx_cert_expiry_at">>) -> ?meta(2, 2, 2);
+metric_meta(<<"emqx_license_max_sessions">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_license_expiry_at">>) -> ?meta(0, 0, 0);
+metric_meta(<<"emqx_license_issued_at">>) -> ?meta(0, 0, 0);
 %% broker instr
 metric_meta(<<"emqx_instr_", _Tail/binary>>) -> #{};
 %% mria metric with label `shard` and `node` when not in mode `node`
@@ -719,8 +721,17 @@ eval_foreach_assert(FunctionName, Ms) ->
 %% license always map
 assert_json_data__license(M, _) ->
     case emqx_release:edition() of
-        ce -> ok;
-        ee -> ?assertMatch(#{emqx_license_expiry_at := _}, M)
+        ce ->
+            ok;
+        ee ->
+            ?assertMatch(
+                #{
+                    emqx_license_max_sessions := _,
+                    emqx_license_expiry_at := _,
+                    emqx_license_issued_at := _
+                },
+                M
+            )
     end.
 
 -define(assert_node_foreach(Ms), lists:foreach(fun(M) -> ?assertMatch(#{node := _}, M) end, Ms)).

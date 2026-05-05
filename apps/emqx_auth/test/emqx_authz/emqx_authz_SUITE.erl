@@ -337,6 +337,7 @@ t_replace_all(_) ->
         emqx_conf:get([authorization, sources], [])
     ),
     %% hooks status
+    SourceStates = emqx_authz:lookup_states(),
     ?assertMatch(
         [
             #{type := file, enable := true},
@@ -346,8 +347,9 @@ t_replace_all(_) ->
             #{type := mongodb, enable := true},
             #{type := http, enable := true}
         ],
-        emqx_authz:lookup_states()
+        SourceStates
     ),
+    ?assert(lists:all(fun(State) -> not maps:is_key(precondition, State) end, SourceStates)),
     Ids = [http, mongodb, mysql, postgresql, redis, file],
     %% metrics
     lists:foreach(
@@ -480,6 +482,119 @@ t_get_enabled_authzs_some_enabled(_Config) ->
         ?SOURCE_POSTGRESQL, ?SOURCE_REDIS#{<<"enable">> := false}
     ]),
     ?assertEqual([postgresql], emqx_authz:get_enabled_authzs()).
+
+t_bad_precondition(_) ->
+    Source = ?SOURCE_HTTP#{<<"precondition">> => <<"not a valid precondition">>},
+    ?assertMatch(
+        {error, #{
+            kind := validation_error,
+            matched_type := "authz:http_get",
+            path := "authorization.sources.1.precondition",
+            reason := #{
+                cause := "bad_precondition_expression",
+                expression := <<"not a valid precondition">>
+            }
+        }},
+        emqx_authz:update(?CMD_REPLACE, [Source])
+    ).
+
+t_precondition_render_error_skips_source(_Config) ->
+    Source = ?SOURCE_HTTP#{<<"precondition">> => <<"nth(1, undefined_var)">>},
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [Source]),
+    ?check_trace(
+        begin
+            ClientInfo = emqx_authz_test_lib:base_client_info(),
+            deny = emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([], ?of_kind(fake_source_authz, Trace)),
+            ?assertMatch(
+                #{counters := #{total := 1, ignore := 1}},
+                emqx_metrics_worker:get_metrics(authz_metrics, http)
+            ),
+            ok
+        end
+    ).
+
+t_precondition_skips_source(_Config) ->
+    ClientInfo = #{
+        username => <<"u">>,
+        clientid => <<"c">>,
+        listener => <<"tcp:default">>,
+        client_attrs => #{<<"biz">> => <<"device">>},
+        is_superuser => false
+    },
+    HttpSource = ?SOURCE_HTTP#{<<"precondition">> => <<"str_eq(client_attrs.biz, 'order')">>},
+    RedisSource = ?SOURCE_REDIS#{<<"precondition">> => <<"str_eq(client_attrs.biz, 'device')">>},
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [HttpSource, RedisSource]),
+    ?check_trace(
+        begin
+            deny = emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{src := #{type := redis}}
+                ],
+                ?of_kind(fake_source_authz, Trace)
+            ),
+            ok
+        end
+    ).
+
+t_precondition_request_vars(_Config) ->
+    ClientInfo = #{
+        username => <<"u">>,
+        clientid => <<"c">>,
+        listener => <<"tcp:default">>,
+        client_attrs => #{<<"biz">> => <<"device">>},
+        is_superuser => false
+    },
+    TopicSource = ?SOURCE_HTTP#{
+        <<"precondition">> => <<"topic_match(topic, topic_join([clientid, '#']))">>
+    },
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [TopicSource]),
+    ?check_trace(
+        begin
+            deny = emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"c/t">>),
+            deny = emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"other/t">>),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_], ?of_kind(fake_source_authz, Trace)),
+            ok
+        end
+    ),
+    ActionSource = ?SOURCE_HTTP#{<<"precondition">> => <<"str_eq(action, 'publish')">>},
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [ActionSource]),
+    ?check_trace(
+        begin
+            deny = emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>),
+            deny = emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"c/t">>),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_], ?of_kind(fake_source_authz, Trace)),
+            ok
+        end
+    ).
+
+t_precondition_qos_is_not_available(_Config) ->
+    Source = ?SOURCE_HTTP#{<<"precondition">> => <<"num_eq(qos, 1)">>},
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [Source]),
+    ?check_trace(
+        begin
+            ClientInfo = emqx_authz_test_lib:base_client_info(),
+            deny = emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(?QOS_1), <<"t">>),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([], ?of_kind(fake_source_authz, Trace)),
+            ok
+        end
+    ).
 
 t_subscribe_deny_disconnect_publishes_last_will_testament(_Config) ->
     {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE_FILE2]),

@@ -1,4 +1,4 @@
-ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/6.1-2:1.19.1-28.4.1-2-debian13
+ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/6.1-4:1.19.1-28.4.1-3-debian13
 ARG RUN_FROM=debian:13-slim
 ARG SOURCE_TYPE=src # tgz
 
@@ -18,7 +18,6 @@ ARG PROFILE=emqx-enterprise
 ARG PKG_VSN
 ARG DEBUG
 
-ENV EMQX_RELUP=false
 ENV EMQX_REL_FORM='docker'
 
 WORKDIR /emqx/

@@ -118,11 +118,13 @@ on_start(ConnResId, ConnConfig0) ->
         host => Host,
         port => Port,
         supervisor => ?SUP,
-        token_table => ?TOKEN_TAB
+        token_table => ?TOKEN_TAB,
+        sa_server_ref => ?SA_SERVER_REF,
+        sa_token_table => ?SA_TOKEN_RESP_TAB
     },
-    ProjectId = emqx_bridge_gcp_pubsub_client:get_project_id(ConnConfig),
     maybe
-        {ok, Client} ?= emqx_bridge_gcp_pubsub_client:start(ConnResId, ConnConfig),
+        {ok, ExtraInfo, Client} ?= emqx_bridge_gcp_pubsub_client:start(ConnResId, ConnConfig),
+        #{project_id := ProjectId} = ExtraInfo,
         ConnState = #{
             ?client => Client,
             ?installed_channels => #{},
@@ -133,7 +135,13 @@ on_start(ConnResId, ConnConfig0) ->
 
 -spec on_stop(connector_resource_id(), connector_state()) -> ok.
 on_stop(ConnResId, _ConnState) ->
-    Res = emqx_bridge_gcp_pubsub_client:stop(ConnResId, ?SUP, ?TOKEN_TAB),
+    Ctx = #{
+        supervisor => ?SUP,
+        token_table => ?TOKEN_TAB,
+        sa_server_ref => ?SA_SERVER_REF,
+        sa_token_table => ?SA_TOKEN_RESP_TAB
+    },
+    Res = emqx_bridge_gcp_pubsub_client:stop(ConnResId, Ctx),
     ?tp("bigquery_connector_stop", #{instance_id => ConnResId}),
     Res.
 

@@ -8,19 +8,25 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([api_spec/0, fields/1, paths/0, schema/1, namespace/0]).
--export([api_key/2, api_key_by_name/2]).
+-export([api_key/2, api_key_by_name/2, api_key_scopes/2]).
 -export([validate_name/1]).
+
+-export([scopes/0]).
+
 -define(TAGS, [<<"API Keys">>]).
 
 namespace() -> "api_key".
+
+scopes() -> ?SCOPE_DENIED.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
-    ["/api_key", "/api_key/:name"].
+    ["/api_key", "/api_key/:name", "/api_key/scopes"].
 
 schema("/api_key") ->
     #{
@@ -71,8 +77,20 @@ schema("/api_key/:name") ->
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
-                204 => ?DESC("delete_success"),
+                204 => <<"Delete successfully">>,
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'])
+            }
+        }
+    };
+schema("/api_key/scopes") ->
+    #{
+        'operationId' => api_key_scopes,
+        get => #{
+            description => ?DESC(api_key_scopes_list),
+            tags => ?TAGS,
+            security => [#{'bearerAuth' => []}],
+            responses => #{
+                200 => hoconsc:ref(?MODULE, scopes_response)
             }
         }
     }.
@@ -128,7 +146,16 @@ fields(app) ->
                 #{example => <<"Note">>, required => false}
             )},
         {enable, hoconsc:mk(boolean(), #{desc => ?DESC("enable_desc"), required => false})},
-        {expired, hoconsc:mk(boolean(), #{desc => ?DESC("expired_desc"), required => false})}
+        {expired, hoconsc:mk(boolean(), #{desc => ?DESC("expired_desc"), required => false})},
+        {scopes,
+            hoconsc:mk(
+                hoconsc:array(binary()),
+                #{
+                    desc => ?DESC(api_key_scopes),
+                    required => false,
+                    example => [<<"connections">>, <<"monitoring">>]
+                }
+            )}
     ] ++ app_extend_fields();
 fields(name) ->
     [
@@ -140,6 +167,38 @@ fields(name) ->
                     example => <<"EMQX-API-KEY-1">>,
                     in => path,
                     validator => fun ?MODULE:validate_name/1
+                }
+            )}
+    ];
+fields(scope_info) ->
+    [
+        {name,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => ?DESC(scope_info_name),
+                    example => <<"connections">>
+                }
+            )},
+        {desc,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => ?DESC(scope_info_desc),
+                    example => <<
+                        "Client connections, subscriptions, topics, banning, "
+                        "retained messages, file transfer, and delayed messages"
+                    >>
+                }
+            )}
+    ];
+fields(scopes_response) ->
+    [
+        {scopes,
+            hoconsc:mk(
+                hoconsc:array(hoconsc:ref(scope_info)),
+                #{
+                    desc => ?DESC(scopes_response_scopes)
                 }
             )}
     ].
@@ -172,20 +231,25 @@ api_key(post, #{body := App}) ->
     ExpiredAt = ensure_expired_at(App),
     Desc = unicode:characters_to_binary(Desc0, unicode),
     Role = maps:get(<<"role">>, App, ?ROLE_API_DEFAULT),
-    %% create api_key with random api_key and api_secret from Dashboard
-    case emqx_mgmt_auth:create(Name, Enable, ExpiredAt, Desc, Role) of
-        {ok, NewApp} ->
-            {200, emqx_mgmt_auth:format(NewApp)};
-        {error, Reason} when is_map(Reason) ->
-            {400, #{
-                code => 'BAD_REQUEST',
-                message => Reason
-            }};
-        {error, Reason} ->
-            {400, #{
-                code => 'BAD_REQUEST',
-                message => iolist_to_binary(io_lib:format("~p", [Reason]))
-            }}
+    Scopes = maps:get(<<"scopes">>, App, undefined),
+    case validate_scopes(Scopes) of
+        ok ->
+            case emqx_mgmt_auth:create(Name, Enable, ExpiredAt, Desc, Role, Scopes) of
+                {ok, NewApp} ->
+                    {200, emqx_mgmt_auth:format(NewApp)};
+                {error, Reason} when is_map(Reason) ->
+                    {400, #{
+                        code => 'BAD_REQUEST',
+                        message => Reason
+                    }};
+                {error, Reason} ->
+                    {400, #{
+                        code => 'BAD_REQUEST',
+                        message => iolist_to_binary(io_lib:format("~p", [Reason]))
+                    }}
+            end;
+        {error, Msg} ->
+            {400, #{code => 'BAD_REQUEST', message => Msg}}
     end.
 
 -define(NOT_FOUND_RESPONSE, #{code => 'NOT_FOUND', message => ?DESC("name_not_found")}).
@@ -205,22 +269,40 @@ api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
     ExpiredAt = ensure_expired_at(Body),
     Desc = maps:get(<<"desc">>, Body, undefined),
     Role = maps:get(<<"role">>, Body, ?ROLE_API_DEFAULT),
-    case emqx_mgmt_auth:update(Name, Enable, ExpiredAt, Desc, Role) of
-        {ok, App} ->
-            {200, emqx_mgmt_auth:format(App)};
-        {error, not_found} ->
-            {404, ?NOT_FOUND_RESPONSE};
-        {error, Reason} when is_binary(Reason) ->
-            {400, #{code => 'BAD_REQUEST', message => Reason}};
-        {error, Reason} ->
-            {400, #{
-                code => 'BAD_REQUEST',
-                message => iolist_to_binary(io_lib:format("~p", [Reason]))
-            }}
+    Scopes = maps:get(<<"scopes">>, Body, undefined),
+    case validate_scopes(Scopes) of
+        ok ->
+            case emqx_mgmt_auth:update(Name, Enable, ExpiredAt, Desc, Role, Scopes) of
+                {ok, App} ->
+                    {200, emqx_mgmt_auth:format(App)};
+                {error, not_found} ->
+                    {404, ?NOT_FOUND_RESPONSE};
+                {error, Reason} when is_binary(Reason) ->
+                    {400, #{code => 'BAD_REQUEST', message => Reason}};
+                {error, Reason} ->
+                    {400, #{
+                        code => 'BAD_REQUEST',
+                        message => iolist_to_binary(io_lib:format("~p", [Reason]))
+                    }}
+            end;
+        {error, Msg} ->
+            {400, #{code => 'BAD_REQUEST', message => Msg}}
     end.
 
 ensure_expired_at(#{<<"expired_at">> := ExpiredAt}) when is_integer(ExpiredAt) -> ExpiredAt;
 ensure_expired_at(_) -> infinity.
+
+api_key_scopes(get, _) ->
+    {200, #{
+        scopes => emqx_mgmt_api_key_scopes:scope_catalogue()
+    }}.
+
+validate_scopes(undefined) ->
+    ok;
+validate_scopes(Scopes) when is_list(Scopes) ->
+    emqx_mgmt_api_key_scopes:validate_scopes(Scopes);
+validate_scopes(_) ->
+    {error, <<"scopes must be a list of strings">>}.
 
 app_extend_fields() ->
     [

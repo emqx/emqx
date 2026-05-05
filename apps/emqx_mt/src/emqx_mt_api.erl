@@ -10,6 +10,7 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include("emqx_mt.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% `minirest' and `minirest_trails' API
 -export([
@@ -38,6 +39,7 @@
     '/mt/ns/:ns/kick_all_clients'/2,
     '/mt/ns/:ns/metrics'/2
 ]).
+-export([scopes/0]).
 
 %%-------------------------------------------------------------------------------------------------
 %% Type definitions
@@ -63,6 +65,8 @@ check_api_schema(Req, #{path := "/mt/bulk_import_ns_configs"} = Meta) ->
     emqx_dashboard_swagger:filter_check_request_and_translate_body_serializable(Req, Meta);
 check_api_schema(Req, Meta) ->
     emqx_dashboard_swagger:filter_check_request_and_translate_body_atom_keys(Req, Meta).
+
+scopes() -> ?SCOPE_CLUSTER_OPERATIONS.
 
 paths() ->
     [
@@ -90,6 +94,7 @@ schema("/mt/ns_list") ->
             description => ?DESC("ns_list"),
             parameters => [
                 last_ns_in_query(),
+                first_ns_in_query(),
                 limit_in_query()
             ],
             responses =>
@@ -98,7 +103,8 @@ schema("/mt/ns_list") ->
                         emqx_dashboard_swagger:schema_with_examples(
                             array(binary()),
                             example_ns_list()
-                        )
+                        ),
+                    400 => error_schema('BAD_REQUEST', ?DESC("cursor_conflict"))
                 }
         }
     };
@@ -110,6 +116,7 @@ schema("/mt/ns_list_details") ->
             description => ?DESC("ns_list_details"),
             parameters => [
                 last_ns_in_query(),
+                first_ns_in_query(),
                 limit_in_query()
             ],
             responses =>
@@ -118,7 +125,8 @@ schema("/mt/ns_list_details") ->
                         emqx_dashboard_swagger:schema_with_examples(
                             array(ref(ns_with_details_out)),
                             example_ns_list_details()
-                        )
+                        ),
+                    400 => error_schema('BAD_REQUEST', ?DESC("cursor_conflict"))
                 }
         }
     };
@@ -131,6 +139,7 @@ schema("/mt/ns/:ns/client_list") ->
             parameters => [
                 param_path_ns(),
                 last_clientid_in_query(),
+                first_clientid_in_query(),
                 limit_in_query()
             ],
             responses =>
@@ -140,6 +149,7 @@ schema("/mt/ns/:ns/client_list") ->
                             array(binary()),
                             example_client_list()
                         ),
+                    400 => error_schema('BAD_REQUEST', ?DESC("cursor_conflict")),
                     404 => error_schema('NOT_FOUND', ?DESC("namespace_not_found"))
                 }
         }
@@ -166,6 +176,7 @@ schema("/mt/managed_ns_list") ->
             description => ?DESC("managed_ns_list"),
             parameters => [
                 last_ns_in_query(),
+                first_ns_in_query(),
                 limit_in_query()
             ],
             responses =>
@@ -174,7 +185,8 @@ schema("/mt/managed_ns_list") ->
                         emqx_dashboard_swagger:schema_with_examples(
                             array(binary()),
                             example_ns_list()
-                        )
+                        ),
+                    400 => error_schema('BAD_REQUEST', ?DESC("cursor_conflict"))
                 }
         }
     };
@@ -186,6 +198,7 @@ schema("/mt/managed_ns_list_details") ->
             description => ?DESC("managed_ns_list_details"),
             parameters => [
                 last_ns_in_query(),
+                first_ns_in_query(),
                 limit_in_query()
             ],
             responses =>
@@ -194,7 +207,8 @@ schema("/mt/managed_ns_list_details") ->
                         emqx_dashboard_swagger:schema_with_examples(
                             array(ref(managed_ns_with_details_out)),
                             example_managed_ns_list_details()
-                        )
+                        ),
+                    400 => error_schema('BAD_REQUEST', ?DESC("cursor_conflict"))
                 }
         }
     };
@@ -396,6 +410,18 @@ last_ns_in_query() ->
             }
         )}.
 
+first_ns_in_query() ->
+    {first_ns,
+        mk(
+            binary(),
+            #{
+                in => query,
+                required => false,
+                example => <<"ns1">>,
+                desc => ?DESC("first_ns_in_query")
+            }
+        )}.
+
 limit_in_query() ->
     {limit,
         mk(
@@ -417,6 +443,18 @@ last_clientid_in_query() ->
                 required => false,
                 example => <<"clientid1">>,
                 desc => ?DESC("last_clientid_in_query")
+            }
+        )}.
+
+first_clientid_in_query() ->
+    {first_clientid,
+        mk(
+            binary(),
+            #{
+                in => query,
+                required => false,
+                example => <<"clientid1">>,
+                desc => ?DESC("first_clientid_in_query")
             }
         )}.
 
@@ -497,24 +535,34 @@ error_schema(Code, ?DESC(_) = MessageRef) ->
 
 '/mt/ns_list'(get, Params) ->
     QS = maps:get(query_string, Params, #{}),
-    LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
-    ?OK(emqx_mt:list_ns(LastNs, Limit)).
+    maybe
+        {ok, Cursor} ?= ns_cursor(QS),
+        Items = list_ns_dispatch(Cursor, Limit + 1),
+        paginated_response(Items, Limit, Cursor, fun identity/1)
+    end.
 
 '/mt/ns_list_details'(get, Params) ->
     QS = maps:get(query_string, Params, #{}),
-    LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
-    Details = emqx_mt:list_ns_details(LastNs, Limit),
-    ?OK(lists:map(fun ns_details_out/1, Details)).
+    maybe
+        {ok, Cursor} ?= ns_cursor(QS),
+        Details = list_ns_details_dispatch(Cursor, Limit + 1),
+        Items = lists:map(fun ns_details_out/1, Details),
+        paginated_response(Items, Limit, Cursor, fun ns_details_cursor/1)
+    end.
 
 '/mt/ns/:ns/client_list'(get, #{bindings := #{ns := Ns}} = Params) ->
     QS = maps:get(query_string, Params, #{}),
-    LastClientId = maps:get(<<"last_clientid">>, QS, ?MIN_CLIENTID),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
-    case emqx_mt:list_clients(Ns, LastClientId, Limit) of
-        {ok, Clients} -> ?OK(Clients);
-        {error, not_found} -> ?NOT_FOUND("Namespace not found")
+    maybe
+        {ok, Cursor} ?= clientid_cursor(QS),
+        case list_clients_dispatch(Ns, Cursor, Limit + 1) of
+            {ok, Clients} ->
+                paginated_response(Clients, Limit, Cursor, fun identity/1);
+            {error, not_found} ->
+                ?NOT_FOUND("Namespace not found")
+        end
     end.
 
 '/mt/ns/:ns/client_count'(get, #{bindings := #{ns := Ns}}) ->
@@ -525,16 +573,22 @@ error_schema(Code, ?DESC(_) = MessageRef) ->
 
 '/mt/managed_ns_list'(get, Params) ->
     QS = maps:get(query_string, Params, #{}),
-    LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
-    ?OK(emqx_mt:list_managed_ns(LastNs, Limit)).
+    maybe
+        {ok, Cursor} ?= ns_cursor(QS),
+        Items = list_managed_ns_dispatch(Cursor, Limit + 1),
+        paginated_response(Items, Limit, Cursor, fun identity/1)
+    end.
 
 '/mt/managed_ns_list_details'(get, Params) ->
     QS = maps:get(query_string, Params, #{}),
-    LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
-    Details = emqx_mt:list_managed_ns_details(LastNs, Limit),
-    ?OK(lists:map(fun ns_details_out/1, Details)).
+    maybe
+        {ok, Cursor} ?= ns_cursor(QS),
+        Details = list_managed_ns_details_dispatch(Cursor, Limit + 1),
+        Items = lists:map(fun ns_details_out/1, Details),
+        paginated_response(Items, Limit, Cursor, fun ns_details_cursor/1)
+    end.
 
 '/mt/ns/:ns'(post, #{bindings := #{ns := Ns}}) ->
     handle_create_managed_ns(Ns);
@@ -1084,3 +1138,81 @@ ns_not_found() ->
 
 managed_ns_not_found() ->
     ?NOT_FOUND(<<"Managed namespace not found">>).
+
+%% Parse the `last_ns`/`first_ns` query params into an internal cursor tagged
+%% tuple, or reject with 400 if both are present.
+ns_cursor(QS) ->
+    cursor(QS, <<"last_ns">>, <<"first_ns">>, ?MIN_NS).
+
+clientid_cursor(QS) ->
+    cursor(QS, <<"last_clientid">>, <<"first_clientid">>, ?MIN_CLIENTID).
+
+cursor(QS, LastKey, FirstKey, DefaultLast) ->
+    Last = maps:find(LastKey, QS),
+    First = maps:find(FirstKey, QS),
+    case {Last, First} of
+        {{ok, _}, {ok, _}} ->
+            ?BAD_REQUEST(
+                iolist_to_binary([
+                    <<"`">>,
+                    LastKey,
+                    <<"` and `">>,
+                    FirstKey,
+                    <<"` are mutually exclusive; use at most one.">>
+                ])
+            );
+        {{ok, V}, error} ->
+            {ok, {last, LastKey, V}};
+        {error, {ok, V}} ->
+            {ok, {first, FirstKey, V}};
+        {error, error} ->
+            {ok, {last, LastKey, DefaultLast}}
+    end.
+
+list_ns_dispatch({last, _, Ns}, Limit) -> emqx_mt:list_ns(Ns, Limit);
+list_ns_dispatch({first, _, Ns}, Limit) -> emqx_mt:list_ns_from(Ns, Limit).
+
+list_ns_details_dispatch({last, _, Ns}, Limit) -> emqx_mt:list_ns_details(Ns, Limit);
+list_ns_details_dispatch({first, _, Ns}, Limit) -> emqx_mt:list_ns_details_from(Ns, Limit).
+
+list_managed_ns_dispatch({last, _, Ns}, Limit) -> emqx_mt:list_managed_ns(Ns, Limit);
+list_managed_ns_dispatch({first, _, Ns}, Limit) -> emqx_mt:list_managed_ns_from(Ns, Limit).
+
+list_managed_ns_details_dispatch({last, _, Ns}, Limit) ->
+    emqx_mt:list_managed_ns_details(Ns, Limit);
+list_managed_ns_details_dispatch({first, _, Ns}, Limit) ->
+    emqx_mt:list_managed_ns_details_from(Ns, Limit).
+
+list_clients_dispatch(Ns, {last, _, Id}, Limit) -> emqx_mt:list_clients(Ns, Id, Limit);
+list_clients_dispatch(Ns, {first, _, Id}, Limit) -> emqx_mt:list_clients_from(Ns, Id, Limit).
+
+%% Emit a 200 response; attach an RFC 8288 `Link; rel="next"` header when the
+%% backend returned Limit+1 items, indicating the caller can fetch another page.
+%% The Link preserves the cursor mode the caller used: `last_*` in its exclusive
+%% form, `first_*` in its inclusive form.
+paginated_response(Items, Limit, Cursor, CursorFn) ->
+    case length(Items) > Limit of
+        true ->
+            Page = lists:sublist(Items, Limit),
+            {CursorKey, CursorValue} =
+                case Cursor of
+                    {last, Key, _} ->
+                        {Key, CursorFn(lists:last(Page))};
+                    {first, Key, _} ->
+                        %% Items has Limit+1 entries; the (Limit+1)-th is the
+                        %% next inclusive cursor the client should use.
+                        {Key, CursorFn(lists:nth(Limit + 1, Items))}
+                end,
+            Query = uri_string:compose_query([
+                {CursorKey, CursorValue},
+                {<<"limit">>, integer_to_binary(Limit)}
+            ]),
+            Link = iolist_to_binary([<<"<?">>, Query, <<">; rel=\"next\"">>]),
+            {200, #{<<"link">> => Link}, Page};
+        false ->
+            ?OK(Items)
+    end.
+
+identity(X) -> X.
+
+ns_details_cursor(#{<<"name">> := Name}) -> Name.

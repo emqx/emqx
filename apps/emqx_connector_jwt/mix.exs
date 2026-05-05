@@ -28,6 +28,7 @@ defmodule EMQXConnectorJWT.MixProject do
   def deps() do
     UMP.deps([
       {:emqx_resource, in_umbrella: true},
+      :snabbkaffe,
       :jose
     ])
   end

@@ -8,6 +8,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -behaviour(minirest_api).
 
@@ -49,6 +50,7 @@
     format_channel_info/2,
     client_info_mountpoint/1
 ]).
+-export([scopes/0]).
 
 -define(TAGS, [<<"Gateway Clients">>]).
 
@@ -58,6 +60,8 @@
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
+
+scopes() -> ?SCOPE_GATEWAYS.
 
 paths() ->
     [

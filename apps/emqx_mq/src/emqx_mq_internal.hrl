@@ -16,9 +16,9 @@
 
 -define(MQ_HEADER_MESSAGE_ID, mq_msg_id).
 -define(MQ_HEADER_SUBSCRIBER_ID, mq_sub_id).
-%% The original subscription topic filter (e.g., <<"$queue/test/t/#">>)
-%% used to look up subscription options in enrich_deliver.
--define(MQ_HEADER_SUB_TOPIC, mq_sub_topic).
+%% The original subscription topic filter (e.g. <<"$queue/test/t/#">>)
+%% used by the session layer to look up subscription options (e.g. Subscription-Identifier).
+-define(HEADER_SUB_TOPIC, sub_topic).
 
 -define(MQ_ACK, 0).
 -define(MQ_NACK, 1).

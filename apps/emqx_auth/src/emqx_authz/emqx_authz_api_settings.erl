@@ -8,6 +8,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -16,11 +17,14 @@
 ]).
 
 -export([settings/2]).
+-export([scopes/0]).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_ACCESS_CONTROL.
 
 paths() ->
     ["/authorization/settings"].
