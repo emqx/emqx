@@ -650,13 +650,16 @@ terminate(
         E:C:S ->
             ?tp(warning, unclean_terminate, #{exception => E, context => C, stacktrace => S})
     end,
-    ?tp(info, terminate, #{reason => Reason}),
+    ?tp(terminate_log_level(Reason), terminate, #{reason => Reason}),
     maybe_raise_exception(Reason).
 
 %% close socket, discard new state, always return ok.
 close_socket_ok(State) ->
     _ = close_socket(State),
     ok.
+
+terminate_log_level({shutdown, emsgsize}) -> warning;
+terminate_log_level(_Reason) -> info.
 
 %% tell truth about the original exception
 -spec maybe_raise_exception(any()) -> no_return().
@@ -934,6 +937,8 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
 %%--------------------------------------------------------------------
 %% Handle outgoing packets
 
+handle_outgoing(_Packets, State = #state{sockstate = closed}) ->
+    {ok, State};
 handle_outgoing(Packets, State = #state{channel = _Channel}) ->
     Res = do_handle_outgoing(Packets, State),
     _ = ?EXT_TRACE_OUTGOING_STOP(
@@ -1035,6 +1040,8 @@ send(Num, Oct, IoData, #state{transport = Transport, socket = Socket} = State) -
             %% Defer error handling
             %% so it's handled the same as tcp_closed or ssl_closed
             {ok, {sock_error, send_timeout}, State};
+        {error, Reason} when Reason =:= closed; Reason =:= einval; Reason =:= enotconn ->
+            {ok, close_socket(State)};
         {error, Reason} ->
             {ok, {sock_error, Reason}, State}
     end.

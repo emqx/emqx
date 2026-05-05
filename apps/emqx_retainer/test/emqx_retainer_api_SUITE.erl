@@ -84,6 +84,70 @@ t_config(_Config) ->
     UpdateRawConf = emqx_utils_json:decode(UpdateResJson),
     ?assertEqual(54321, maps:get(<<"max_payload_size">>, UpdateRawConf)).
 
+t_config_enable_toggle_with_retain_available(Config) ->
+    Path = api_path(["mqtt", "retainer"]),
+    Client = ?config(client, Config),
+    TopicDisabled = <<"retained_api_enable_off">>,
+    TopicEnabled = <<"retained_api_enable_on">>,
+    {ok, ConfJson} = request_api(get, Path),
+    RawConf = emqx_utils_json:decode(ConfJson),
+    MqttRawConf0 = emqx_config:get_raw([mqtt]),
+    try
+        MqttRawConf = maps:put(<<"retain_available">>, true, MqttRawConf0),
+        {ok, _} = emqx_conf:update([mqtt], MqttRawConf, #{override_to => cluster}),
+
+        DisabledConf = RawConf#{<<"enable">> => false},
+        {ok, DisabledJson} = request_api(
+            put,
+            Path,
+            [],
+            auth_header_(),
+            DisabledConf
+        ),
+        ?assertEqual(false, maps:get(<<"enable">>, emqx_utils_json:decode(DisabledJson))),
+
+        {ok, _} = emqtt:publish(Client, TopicDisabled, <<"disabled">>, [{qos, 1}, {retain, true}]),
+        ?assertMatch(
+            {error, {"HTTP/1.1", 404, "Not Found"}},
+            request_api(
+                get,
+                api_path(["mqtt", "retainer", "message", binary_to_list(TopicDisabled)])
+            )
+        ),
+
+        EnabledConf = DisabledConf#{<<"enable">> => true},
+        {ok, EnabledJson} = request_api(
+            put,
+            Path,
+            [],
+            auth_header_(),
+            EnabledConf
+        ),
+        ?assertEqual(true, maps:get(<<"enable">>, emqx_utils_json:decode(EnabledJson))),
+
+        ?assertWaitEvent(
+            emqtt:publish(Client, TopicEnabled, <<"enabled">>, [{qos, 0}, {retain, true}]),
+            #{?snk_kind := message_retained, topic := TopicEnabled},
+            500
+        ),
+        {ok, LookupJson} = request_api(
+            get,
+            api_path(["mqtt", "retainer", "message", binary_to_list(TopicEnabled)])
+        ),
+        ?assertMatch(
+            #{
+                topic := TopicEnabled,
+                payload := <<"ZW5hYmxlZA==">>
+            },
+            decode_json(LookupJson)
+        )
+    after
+        _ = request_api(put, Path, [], auth_header_(), RawConf),
+        _ = emqx_conf:update([mqtt], MqttRawConf0, #{override_to => cluster}),
+        _ = emqx_retainer:delete(TopicDisabled),
+        _ = emqx_retainer:delete(TopicEnabled)
+    end.
+
 t_messages1(Config) ->
     C = ?config(client, Config),
 

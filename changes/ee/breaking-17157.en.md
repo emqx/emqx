@@ -1,0 +1,1 @@
+Introduced a new Rule Engine configuration, `rule_engine.limit_selects_in_namespace`, whose default value is `true`.  When enabled, rules will only trigger on messages published by clients on the same namespace as the rule itself.

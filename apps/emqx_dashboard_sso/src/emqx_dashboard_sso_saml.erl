@@ -190,11 +190,9 @@ callback(_Req = #{body := Body}, #{sp := SP, dashboard_addr := DashboardAddr} = 
             Subject = Assertion#esaml_assertion.subject,
             Username = iolist_to_binary(Subject#esaml_subject.name),
             gen_redirect_response(DashboardAddr, Username);
-        {error, Reason0} ->
-            Reason = [
-                "Access denied, assertion failed validation:\n", io_lib:format("~p\n", [Reason0])
-            ],
-            {error, iolist_to_binary(Reason)}
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "failed_to_validate_assertion", reason => Reason}),
+            {error, <<"Access denied, assertion failed validation">>}
     end.
 
 convert_certs(
@@ -351,8 +349,34 @@ do_validate_assertion(SP, DuplicateFun, Body) ->
 
 gen_redirect_response(DashboardAddr, Username) ->
     case ensure_user_exists(Username) of
-        {ok, Role, Token} ->
-            Target = login_redirect_target(DashboardAddr, Username, Role, Token),
+        {ok, login} ->
+            Payload = #{
+                action => <<"login">>,
+                username => Username,
+                backend => saml
+            },
+            Target = code_redirect_target(DashboardAddr, Username, Payload),
+            Response = {302, maps:merge(?RESPHEADERS, #{<<"location">> => Target}), ?REDIRECT_BODY},
+            {redirect, Username, Response};
+        {mfa_setup, SetupToken, _QRInfo} ->
+            Payload = #{
+                action => <<"mfa_setup">>,
+                setup_token => SetupToken,
+                mechanism => totp,
+                username => Username,
+                backend => saml
+            },
+            Target = code_redirect_target(DashboardAddr, Username, Payload),
+            Response = {302, maps:merge(?RESPHEADERS, #{<<"location">> => Target}), ?REDIRECT_BODY},
+            {redirect, Username, Response};
+        {mfa_verify, VerifyToken} ->
+            Payload = #{
+                action => <<"mfa_verify">>,
+                verify_token => VerifyToken,
+                username => Username,
+                backend => saml
+            },
+            Target = code_redirect_target(DashboardAddr, Username, Payload),
             Response = {302, maps:merge(?RESPHEADERS, #{<<"location">> => Target}), ?REDIRECT_BODY},
             {redirect, Username, Response};
         {error, Reason} ->
@@ -367,8 +391,7 @@ gen_redirect_response(DashboardAddr, Username) ->
 ensure_user_exists(Username) ->
     case emqx_dashboard_admin:lookup_user(saml, Username) of
         [User] ->
-            {ok, Role, Token, _Namespace} = emqx_dashboard_token:sign(User),
-            {ok, Role, Token};
+            emqx_dashboard_sso_mfa:check_sso_mfa(User, saml);
         [] ->
             case emqx_dashboard_admin:add_sso_user(saml, Username, ?ROLE_VIEWER, <<>>) of
                 {ok, _} ->
@@ -393,9 +416,9 @@ is_msie(Headers) ->
     UA = maps:get(<<"user-agent">>, Headers, <<"">>),
     not (binary:match(UA, <<"MSIE">>) =:= nomatch).
 
-login_redirect_target(DashboardAddr, Username, Role, Token) ->
-    LoginMeta = emqx_dashboard_sso_api:login_meta(Username, Role, Token, saml),
-    <<DashboardAddr/binary, "/?login_meta=", (base64_login_meta(LoginMeta))/binary>>.
-
-base64_login_meta(LoginMeta) ->
-    base64:encode(emqx_utils_json:encode(LoginMeta)).
+code_redirect_target(DashboardAddr, Username, Payload) ->
+    SsoUsername = ?SSO_USERNAME(saml, Username),
+    Code = emqx_dashboard_sso_code:create_code(SsoUsername, Payload),
+    LoginMeta = #{code => Code, username => Username, backend => saml},
+    MetaBin = base64:encode(emqx_utils_json:encode(LoginMeta), #{mode => urlsafe, padding => false}),
+    <<DashboardAddr/binary, "/?login_meta=", MetaBin/binary>>.

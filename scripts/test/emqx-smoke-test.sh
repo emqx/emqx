@@ -22,7 +22,8 @@ wait_for_emqx() {
     done
 }
 
-## Get the JSON format status which is jq friendly and includes a version string
+## Get the JSON format status (used as a feature probe -- the JSON format was
+## introduced after the hotconf API).
 json_status() {
     local url="${BASE_URL}/status?format=json"
     local resp

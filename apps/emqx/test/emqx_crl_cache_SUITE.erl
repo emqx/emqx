@@ -642,6 +642,8 @@ t_refresh_request_error(_Config) ->
     emqx_config_handler:stop(),
     ok.
 
+%% A body that is neither PEM nor DER must be reported as a decode failure
+%% so the listener does not silently cache an empty CRL list.
 t_refresh_invalid_response(_Config) ->
     meck:expect(
         emqx_crl_cache,
@@ -656,17 +658,51 @@ t_refresh_invalid_response(_Config) ->
     ?check_trace(
         ?wait_async_action(
             ?assertEqual(ok, emqx_crl_cache:refresh(URL)),
-            #{?snk_kind := crl_cache_insert},
+            #{?snk_kind := crl_refresh_failure},
             5_000
         ),
         fun(Trace) ->
             ?assertMatch(
-                [#{crls := []}],
-                ?of_kind(crl_cache_insert, Trace)
+                [#{error := invalid_crl} | _],
+                ?of_kind(crl_refresh_failure, Trace)
             ),
+            ?assertEqual([], ?of_kind(crl_cache_insert, Trace)),
             ok
         end
     ),
+    ok = snabbkaffe:stop(),
+    emqx_config_handler:stop(),
+    ok.
+
+%% RFC 5280 §5 mandates application/pkix-crl (DER) over HTTP. EMQX must
+%% decode such bodies and cache the CRL, not silently insert {der, []}.
+t_refresh_der_response(Config) ->
+    CRLDer = ?config(crl_der, Config),
+    meck:expect(
+        emqx_crl_cache,
+        http_get,
+        fun(_URL, _HTTPTimeout) ->
+            {ok, {{"HTTP/1.0", 200, 'OK'}, [], CRLDer}}
+        end
+    ),
+    emqx_config_handler:start_link(),
+    {ok, _} = emqx_crl_cache:start_link(),
+    URL = "http://localhost/crl.der",
+    URLBin = iolist_to_binary(URL),
+    Ref = get_crl_cache_table(),
+    ?check_trace(
+        ?wait_async_action(
+            ?assertEqual(ok, emqx_crl_cache:refresh(URL)),
+            #{?snk_kind := crl_cache_insert},
+            5_000
+        ),
+        fun(Trace) ->
+            Inserts = [maps:with([url, crls], E) || E <- ?of_kind(crl_cache_insert, Trace)],
+            ?assertEqual([#{url => URL, crls => [CRLDer]}], Inserts),
+            ok
+        end
+    ),
+    ?assertEqual([{URLBin, [CRLDer]}], ets:tab2list(Ref)),
     ok = snabbkaffe:stop(),
     emqx_config_handler:stop(),
     ok.

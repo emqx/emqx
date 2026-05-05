@@ -9,6 +9,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% `minirest' and `minirest_trails' API
 -export([
@@ -28,6 +29,7 @@
     '/schema_validations/validation/:name/metrics/reset'/2,
     '/schema_validations/validation/:name/enable/:enable'/2
 ]).
+-export([scopes/0]).
 
 %%-------------------------------------------------------------------------------------------------
 %% Type definitions
@@ -44,6 +46,8 @@ namespace() -> "schema_validation_http_api".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_DATA_INTEGRATION.
 
 paths() ->
     [

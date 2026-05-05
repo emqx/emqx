@@ -10,11 +10,13 @@
 -export([api_spec/0, paths/0, schema/1, namespace/0, fields/1]).
 -export([audit/2]).
 -export([qs2ms/2, format/1]).
+-export([scopes/0]).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include("emqx_audit.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/2, ref/2, array/1]).
 
@@ -41,6 +43,8 @@ namespace() -> "audit".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_AUDIT.
 
 paths() ->
     ["/audit"].
