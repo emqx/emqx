@@ -453,7 +453,9 @@ upload_install(post, #{}) ->
 do_install_package(NameVsn, FileName, Bin) ->
     case emqx_plugins:is_allowed_installation(NameVsn, Bin) of
         ok ->
-            do_install_package(FileName, Bin);
+            Result = do_install_package(FileName, Bin),
+            ok = forget_allow_after_install(NameVsn, Result),
+            Result;
         {error, not_allowed} ->
             Msg = iolist_to_binary([
                 <<"Package is not allowed installation;">>,
@@ -471,6 +473,17 @@ do_install_package(NameVsn, FileName, Bin) ->
             ]),
             {403, #{code => 'FORBIDDEN', message => Msg}}
     end.
+
+%% On a successful HTTP install, immediately revoke the cluster-wide allow
+%% entry so the same grant cannot be reused for a subsequent (potentially
+%% different) upload. On failure, leave the entry in place so the operator
+%% can retry without having to re-issue `emqx ctl plugins allow'.
+forget_allow_after_install(NameVsn, {204}) ->
+    Nodes = emqx:running_nodes(),
+    _ = emqx_plugins_proto_v3:disallow_installation(Nodes, NameVsn),
+    ok;
+forget_allow_after_install(_NameVsn, _Other) ->
+    ok.
 
 do_install_package(FileName, Bin) ->
     %% TODO: handle bad nodes
