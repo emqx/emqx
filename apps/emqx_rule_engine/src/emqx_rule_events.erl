@@ -396,7 +396,7 @@ eventmsg_publish(
     with_basic_columns(
         'message.publish',
         #{
-            id => emqx_guid:to_hexstr(Id),
+            id => msg_id_to_hexstr(Id),
             clientid => ClientId,
             username => emqx_message:get_header(username, Message, undefined),
             payload => Payload,
@@ -662,7 +662,7 @@ eventmsg_dropped(
     with_basic_columns(
         'message.dropped',
         #{
-            id => emqx_guid:to_hexstr(Id),
+            id => msg_id_to_hexstr(Id),
             reason => Reason,
             clientid => ClientId,
             username => emqx_message:get_header(username, Message, undefined),
@@ -697,7 +697,7 @@ eventmsg_transformation_failed(
     with_basic_columns(
         'message.transformation_failed',
         #{
-            id => emqx_guid:to_hexstr(Id),
+            id => msg_id_to_hexstr(Id),
             transformation => TransformationName,
             clientid => ClientId,
             username => emqx_message:get_header(username, Message, undefined),
@@ -731,7 +731,7 @@ eventmsg_validation_failed(
     with_basic_columns(
         'schema.validation_failed',
         #{
-            id => emqx_guid:to_hexstr(Id),
+            id => msg_id_to_hexstr(Id),
             validation => ValidationName,
             clientid => ClientId,
             username => emqx_message:get_header(username, Message, undefined),
@@ -770,7 +770,7 @@ eventmsg_delivered(
     with_basic_columns(
         'message.delivered',
         #{
-            id => emqx_guid:to_hexstr(Id),
+            id => msg_id_to_hexstr(Id),
             from_clientid => ClientId,
             from_username => emqx_message:get_header(username, Message, undefined),
             clientid => ReceiverCId,
@@ -810,7 +810,7 @@ eventmsg_acked(
     with_basic_columns(
         'message.acked',
         #{
-            id => emqx_guid:to_hexstr(Id),
+            id => msg_id_to_hexstr(Id),
             from_clientid => ClientId,
             from_username => emqx_message:get_header(username, Message, undefined),
             clientid => ReceiverCId,
@@ -854,7 +854,7 @@ eventmsg_delivery_dropped(
     with_basic_columns(
         'delivery.dropped',
         #{
-            id => emqx_guid:to_hexstr(Id),
+            id => msg_id_to_hexstr(Id),
             reason => Reason,
             from_clientid => ClientId,
             from_username => emqx_message:get_header(username, Message, undefined),
@@ -886,6 +886,14 @@ with_basic_columns(EventName, Columns, Envs) when is_map(Columns) ->
         },
         Envs
     }.
+
+%% Messages stored by the durable session DB before EMQX 6.0.3 had their `id'
+%% stripped on disk (see `emqx_ds_payload_transform:message_to_ttv/1'), so
+%% on-disk messages from older versions surface here with `id = <<>>'.
+%% `emqx_guid:to_hexstr/1' has only a 16-byte clause and would crash the hook,
+%% so accept any non-16-byte binary and pass it through.
+msg_id_to_hexstr(<<Id:16/binary>>) -> emqx_guid:to_hexstr(Id);
+msg_id_to_hexstr(Id) when is_binary(Id) -> Id.
 
 %%--------------------------------------------------------------------
 %% rules applying
@@ -1683,3 +1691,17 @@ restrict_rules_to_namespace(EnrichedRules0, Message) ->
         end,
         EnrichedRules0
     ).
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+msg_id_to_hexstr_test_() ->
+    Guid = <<0, 6, 28, 54, 12, 158, 221, 191, 244, 69, 0, 0, 13, 214, 0, 3>>,
+    [
+        ?_assertEqual(emqx_guid:to_hexstr(Guid), msg_id_to_hexstr(Guid)),
+        %% Persistent-session messages stored before EMQX 6.0.3 surface here
+        %% with `id = <<>>'; we must not crash.
+        ?_assertEqual(<<>>, msg_id_to_hexstr(<<>>)),
+        ?_assertEqual(<<"abc">>, msg_id_to_hexstr(<<"abc">>))
+    ].
+-endif.

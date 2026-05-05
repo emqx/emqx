@@ -101,10 +101,15 @@ because the write side of DS APIs still works with data wrappind in a TTV triple
 -spec message_to_ttv(emqx_types:message()) ->
     {emqx_ds:topic(), ?ds_tx_ts_monotonic, emqx_types:message()}.
 message_to_ttv(Msg = #message{topic = TopicBin}) ->
+    %% `topic' and `timestamp' are stored separately in the TTV tuple, so we strip
+    %% them from the message body to avoid duplicating that data on disk.
+    %% `id' is kept: rule-engine event handlers (`message.delivered',
+    %% `message.acked', etc.) need it to compute `emqx_guid:to_hexstr/1', and
+    %% applications use it to pair publish/ack events.
     {
         emqx_ds:topic_words(TopicBin),
         ?ds_tx_ts_monotonic,
-        Msg#message{topic = <<>>, timestamp = 0, id = <<>>}
+        Msg#message{topic = <<>>, timestamp = 0}
     }.
 
 -spec ser_fun(schema()) -> ser_fun().
@@ -141,3 +146,34 @@ deser_batch(Schema, Batch) ->
 
 id(A) ->
     A.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+%% Round-trip a message through `message_to_ttv' + `ser_fun' + `deser_fun'.
+%% Asserts that `id', `topic', `timestamp' and `payload' all survive — id
+%% used to be stripped on the way in and never restored on the way out, which
+%% crashed the `message.delivered' / `message.acked' rule-engine hooks.
+asn1_id_round_trip_test() ->
+    Msg = #message{
+        id = <<0, 6, 28, 54, 12, 158, 221, 191, 244, 69, 0, 0, 13, 214, 0, 3>>,
+        qos = 1,
+        from = <<"publisher">>,
+        flags = #{dup => false, sys => false, retain => false},
+        headers = #{username => <<"u">>},
+        topic = <<"t/1">>,
+        payload = <<"hello">>,
+        timestamp = 1719868325813,
+        extra = #{}
+    },
+    Schema = {?ds_pt_mqtt, asn1},
+    {Topic, _Ts, Body} = message_to_ttv(Msg),
+    Bin = (ser_fun(Schema))(Body),
+    Restored = (deser_fun(Schema))(
+        {Topic, erlang:convert_time_unit(Msg#message.timestamp, millisecond, microsecond), Bin}
+    ),
+    ?assertEqual(Msg#message.id, Restored#message.id),
+    ?assertEqual(Msg#message.topic, Restored#message.topic),
+    ?assertEqual(Msg#message.payload, Restored#message.payload),
+    ?assertEqual(Msg#message.timestamp, Restored#message.timestamp).
+-endif.
