@@ -336,6 +336,14 @@ rule_engine_settings() ->
                     },
                     desc => ?DESC("ssrf")
                 }
+            )},
+        {limit_selects_in_namespace,
+            ?HOCON(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC("limit_selects_in_namespace")
+                }
             )}
     ].
 

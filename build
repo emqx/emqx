@@ -153,6 +153,11 @@ make_docs() {
         # it is not a big deal if we cannot generate the desc
         log_red "NOT Generated: $desc due to jq command missing."
     fi
+    local scopes_doc="$docdir/api-scopes.md"
+    if [ -x scripts/gen-api-scopes-doc.escript ]; then
+        log "Generating $scopes_doc"
+        scripts/gen-api-scopes-doc.escript "_build/$PROFILE/lib" "$scopes_doc"
+    fi
 }
 
 ## arg1 is the profile for which the following args (as app names) should be excluded
@@ -318,12 +323,6 @@ make_docker() {
     local RUN_FROM="${RUN_FROM:-${EMQX_DOCKER_RUN_FROM}}"
     local EMQX_DOCKERFILE="${EMQX_DOCKERFILE:-deploy/docker/Dockerfile}"
     local EMQX_SOURCE_TYPE="${EMQX_SOURCE_TYPE:-src}"
-    # shellcheck disable=SC2155
-    local VSN_MAJOR="$(scripts/semver.sh "$PKG_VSN" --major)"
-    # shellcheck disable=SC2155
-    local VSN_MINOR="$(scripts/semver.sh "$PKG_VSN" --minor)"
-    # shellcheck disable=SC2155
-    local VSN_PATCH="$(scripts/semver.sh "$PKG_VSN" --patch)"
     local SUFFIX="${DOCKER_IMAGE_SUFFIX:-}"
 
     local DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
@@ -331,13 +330,7 @@ make_docker() {
     local default_base_tag="${DOCKER_ORG}/${PROFILE}"
     local EMQX_BASE_IMAGE_TAG="${EMQX_BASE_IMAGE_TAG:-$default_base_tag}"
 
-    DOCKER_IMAGE_TAGS=( )
-    DOCKER_IMAGE_TAGS+=( "$DOCKER_REGISTRY/$EMQX_BASE_IMAGE_TAG:${PKG_VSN}${SUFFIX}" )
-    if [ "${DOCKER_LATEST:-false}" = true ]; then
-      DOCKER_IMAGE_TAGS+=( "$DOCKER_REGISTRY/$EMQX_BASE_IMAGE_TAG:latest${SUFFIX}" )
-      DOCKER_IMAGE_TAGS+=( "$DOCKER_REGISTRY/$EMQX_BASE_IMAGE_TAG:${VSN_MAJOR}.${VSN_MINOR}${SUFFIX}" )
-      DOCKER_IMAGE_TAGS+=( "$DOCKER_REGISTRY/$EMQX_BASE_IMAGE_TAG:${VSN_MAJOR}.${VSN_MINOR}.${VSN_PATCH}${SUFFIX}" )
-    fi
+    DOCKER_IMAGE_TAGS=( "$DOCKER_REGISTRY/$EMQX_BASE_IMAGE_TAG:${PKG_VSN}${SUFFIX}" )
 
     local EDITION=Enterprise
     local LICENSE='BSL-1.1'

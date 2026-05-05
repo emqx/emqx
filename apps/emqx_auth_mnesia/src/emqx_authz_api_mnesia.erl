@@ -13,6 +13,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/1, mk/2, ref/1, ref/2, array/1, enum/1]).
 
@@ -45,6 +46,8 @@
 
 %% minirest filter callback
 -export([filter/2]).
+-export([is_configured_authz_source/2]).
+-export([scopes/0]).
 
 -define(TYPE_REF, ref).
 -define(TYPE_ARRAY, array).
@@ -56,6 +59,8 @@ namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_ACCESS_CONTROL.
 
 paths() ->
     [

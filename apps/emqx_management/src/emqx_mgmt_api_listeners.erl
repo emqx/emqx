@@ -22,6 +22,7 @@
 -export([
     do_list_listeners/0
 ]).
+-export([scopes/0]).
 
 -import(emqx_dashboard_swagger, [error_codes/2, error_codes/1]).
 
@@ -34,6 +35,7 @@
 ]).
 
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -define(LISTENER_NOT_FOUND, <<"Listener not found">>).
 
@@ -41,6 +43,8 @@ namespace() -> "listeners".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_SYSTEM.
 
 paths() ->
     [

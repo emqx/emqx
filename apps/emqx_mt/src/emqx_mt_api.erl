@@ -10,6 +10,7 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include("emqx_mt.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% `minirest' and `minirest_trails' API
 -export([
@@ -38,6 +39,7 @@
     '/mt/ns/:ns/kick_all_clients'/2,
     '/mt/ns/:ns/metrics'/2
 ]).
+-export([scopes/0]).
 
 %%-------------------------------------------------------------------------------------------------
 %% Type definitions
@@ -63,6 +65,8 @@ check_api_schema(Req, #{path := "/mt/bulk_import_ns_configs"} = Meta) ->
     emqx_dashboard_swagger:filter_check_request_and_translate_body_serializable(Req, Meta);
 check_api_schema(Req, Meta) ->
     emqx_dashboard_swagger:filter_check_request_and_translate_body_atom_keys(Req, Meta).
+
+scopes() -> ?SCOPE_CLUSTER_OPERATIONS.
 
 paths() ->
     [

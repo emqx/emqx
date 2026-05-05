@@ -12,11 +12,13 @@
 -behaviour(minirest_api).
 
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 %% minirest API
 -export([api_spec/0, paths/0, schema/1]).
 
 -export([get_schema/2]).
+-export([scopes/0]).
 
 -define(TAGS, [<<"dashboard">>]).
 -define(BAD_REQUEST, 'BAD_REQUEST').
@@ -37,6 +39,8 @@
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_DENIED.
 
 paths() ->
     ["/schemas/:name"].
