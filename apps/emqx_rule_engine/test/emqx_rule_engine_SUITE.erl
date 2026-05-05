@@ -4397,6 +4397,7 @@ verify_event_fields('client.connack', Fields) ->
     #{
         clientid := ClientId,
         clean_start := CleanStart,
+        connected_at := ConnectedAt,
         username := Username,
         peername := PeerName,
         sockname := SockName,
@@ -4421,6 +4422,7 @@ verify_event_fields('client.connack', Fields) ->
     ?assert(is_boolean(CleanStart)),
     ?assertEqual(60000, ExpiryInterval),
     ?assertMatch(#{'Session-Expiry-Interval' := 60}, Properties),
+    ?assert(is_integer(ConnectedAt) orelse ConnectedAt == undefined),
     ?assert(0 =< TimestampElapse andalso TimestampElapse =< 60 * 1000);
 verify_event_fields('client.check_authz_complete', Fields) ->
     #{
