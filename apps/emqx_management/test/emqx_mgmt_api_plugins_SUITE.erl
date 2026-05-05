@@ -130,7 +130,7 @@ t_install_plugin_sha256_match(_Config) ->
     Sha = binary_to_list(binary:encode_hex(crypto:hash(sha256, Bin), lowercase)),
     ok = allow_installation(NameVsn, Sha),
     ok = install_plugin(PackagePath),
-    {ok, _} = describe_plugin(NameVsn),
+    ?assertMatch(#{<<"name">> := <<"my_emqx_plugin">>}, describe_plugin(NameVsn)),
     {ok, []} = uninstall_plugin(NameVsn),
     ok.
 
