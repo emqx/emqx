@@ -132,7 +132,9 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:crc32cer),
       # transitive dependency of pulsar-client-erl, and direct dep in s3tables bridge
       common_dep(:murmerl3),
-      common_dep(:unicode_util_compat)
+      common_dep(:unicode_util_compat),
+      # transitive dep of iotdb-client-erl; pin our fork for OTP 28 compat
+      common_dep(:thrift)
     ]
   end
 
@@ -312,6 +314,9 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:optvar),
     do: {:optvar, override: true, git: "https://github.com/emqx/optvar", tag: "1.0.5"}
+
+  def common_dep(:thrift),
+    do: {:thrift, github: "emqx/thrift.erl", tag: "0.1.4", override: true}
 
   def emqx_app_system_env() do
     k = {__MODULE__, :emqx_app_system_env}
