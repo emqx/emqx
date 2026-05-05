@@ -153,7 +153,14 @@ t_delete_skill_in_use_by_llm_tools(_Config) ->
                 <<"id">> => <<"llm">>,
                 <<"type">> => <<"llm_loop">>,
                 <<"provider_name">> => <<"some-provider">>,
-                <<"tools">> => [<<"message.publish@tool-pub">>]
+                <<"model">> => <<"test-model">>,
+                <<"instructions">> => <<"test">>,
+                <<"tools">> => [<<"message.publish@tool-pub">>],
+                <<"set_result_schema">> => #{
+                    <<"type">> => <<"object">>,
+                    <<"properties">> => #{<<"status">> => #{<<"type">> => <<"string">>}}
+                },
+                <<"result_path">> => <<"$.result">>
             }
         ]
     }),

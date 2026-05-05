@@ -113,6 +113,9 @@
 
     stop_on_finish: true = ephemeral session (default). false = persistent across triggers.
 
+    When creating an llm_loop step, use model "gpt-5.4-mini" unless the user explicitly
+    requests another model. Do not invent a model name.
+
     --- wait_for_event ---
       {"id": "wait", "type": "wait_for_event", "topic": "evt/device/+/ack",
        "where": "data.ref_id == $.event.id", "result_path": "$.ack"}
@@ -385,6 +388,11 @@ register_builder_pipeline() ->
                     <<"agent.delete_pipeline@builder-delete-pipeline">>,
                     <<"message.publish@builder-reply">>
                 ],
+                <<"set_result_schema">> => #{
+                    <<"type">> => <<"object">>,
+                    <<"properties">> => #{<<"summary">> => #{<<"type">> => <<"string">>}},
+                    <<"required">> => [<<"summary">>]
+                },
                 <<"input">> => #{<<"message">> => <<"$.event.message">>},
                 <<"result_path">> => <<"$.build_result">>
             }

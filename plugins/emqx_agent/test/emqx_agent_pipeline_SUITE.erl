@@ -498,6 +498,73 @@ t_set_result_writes_to_context(Config) ->
     Verdict = maps:get(<<"verdict">>, Ctx, #{}),
     ?assertEqual(<<"approved">>, maps:get(<<"status">>, Verdict, undefined)).
 
+t_llm_loop_defaults_are_applied(Config) ->
+    PipelineId = ?config(pipeline_id, Config),
+    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    Step = #{
+        <<"id">> => <<"llm">>,
+        <<"type">> => <<"llm_loop">>,
+        <<"model">> => <<"test-model">>,
+        <<"instructions">> => <<"test">>,
+        <<"provider_name">> => <<"test-provider">>,
+        <<"set_result_schema">> => #{
+            <<"type">> => <<"object">>,
+            <<"properties">> => #{<<"status">> => #{<<"type">> => <<"string">>}}
+        },
+        <<"result_path">> => <<"$.result">>
+    },
+    register_pipeline(PipelineId, TrigTopic, [Step]),
+    {ok, #{<<"steps">> := [Stored]}} = emqx_agent_pipeline_registry:lookup(PipelineId),
+    ?assertEqual([], maps:get(<<"tools">>, Stored)),
+    ?assertEqual(#{}, maps:get(<<"input">>, Stored)),
+    ?assertEqual(true, maps:get(<<"stop_on_finish">>, Stored)),
+    ?assertEqual(2048, maps:get(<<"max_tokens">>, Stored)).
+
+t_llm_loop_requires_set_result_schema(Config) ->
+    PipelineId = ?config(pipeline_id, Config),
+    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    Step = #{
+        <<"id">> => <<"llm">>,
+        <<"type">> => <<"llm_loop">>,
+        <<"model">> => <<"test-model">>,
+        <<"instructions">> => <<"test">>,
+        <<"provider_name">> => <<"test-provider">>,
+        <<"result_path">> => <<"$.result">>
+    },
+    ?assertMatch(
+        {error, {missing_step_field, 1, <<"set_result_schema">>}},
+        emqx_agent_pipeline_registry:register(#{
+            <<"pipeline_id">> => PipelineId,
+            <<"active">> => true,
+            <<"trigger">> => #{<<"topic">> => TrigTopic},
+            <<"steps">> => [Step]
+        })
+    ).
+
+t_llm_loop_requires_model(Config) ->
+    PipelineId = ?config(pipeline_id, Config),
+    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    Step = #{
+        <<"id">> => <<"llm">>,
+        <<"type">> => <<"llm_loop">>,
+        <<"instructions">> => <<"test">>,
+        <<"provider_name">> => <<"test-provider">>,
+        <<"set_result_schema">> => #{
+            <<"type">> => <<"object">>,
+            <<"properties">> => #{<<"status">> => #{<<"type">> => <<"string">>}}
+        },
+        <<"result_path">> => <<"$.result">>
+    },
+    ?assertMatch(
+        {error, {missing_step_field, 1, <<"model">>}},
+        emqx_agent_pipeline_registry:register(#{
+            <<"pipeline_id">> => PipelineId,
+            <<"active">> => true,
+            <<"trigger">> => #{<<"topic">> => TrigTopic},
+            <<"steps">> => [Step]
+        })
+    ).
+
 %% Unregistered pipeline definitions must not trigger new instances.
 t_unregistered_pipeline_not_triggered(Config) ->
     PipelineId = ?config(pipeline_id, Config),

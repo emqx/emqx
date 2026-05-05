@@ -531,6 +531,14 @@ pipeline_example() ->
                     <<"servicenow.create_incident@sn-prod">>
                 ],
                 <<"input">> => #{<<"event">> => <<"$.event">>},
+                <<"set_result_schema">> => #{
+                    <<"type">> => <<"object">>,
+                    <<"properties">> => #{
+                        <<"summary">> => #{<<"type">> => <<"string">>},
+                        <<"severity">> => #{<<"type">> => <<"integer">>}
+                    },
+                    <<"required">> => [<<"summary">>, <<"severity">>]
+                },
                 <<"result_path">> => <<"$.triage">>
             },
             #{

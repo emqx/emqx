@@ -69,6 +69,10 @@
                     <<"description">> =>
                         <<"true = ephemeral session (default), false = persistent across triggers">>
                 },
+                <<"max_tokens">> => #{
+                    <<"type">> => <<"integer">>,
+                    <<"description">> => <<"Maximum completion tokens (default: 2048)">>
+                },
                 <<"tools">> => #{
                     <<"type">> => <<"array">>,
                     <<"items">> => #{<<"type">> => <<"string">>},
@@ -104,6 +108,7 @@
                 <<"id">>,
                 <<"type">>,
                 <<"provider_name">>,
+                <<"model">>,
                 <<"instructions">>,
                 <<"result_path">>,
                 <<"set_result_schema">>

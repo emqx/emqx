@@ -183,13 +183,13 @@ handle_event(
     #data{active_sid = Sid} = Data
 ) ->
     log_received(sess_out, Data, #{sid => Sid, frame => Frame}),
+    #{<<"result_path">> := ResultPath} = current_step(Data),
     Result =
         case Data#data.set_result_value of
             undefined -> maps:get(<<"result">>, Frame, #{});
             Val -> Val
         end,
-    Step = current_step(Data),
-    Data1 = write_context(maps:get(<<"result_path">>, Step, undefined), Result, Data),
+    Data1 = write_context(ResultPath, Result, Data),
     Data2 = Data1#data{
         active_sid = undefined,
         tool_map = #{},
@@ -199,7 +199,7 @@ handle_event(
     ?SLOG(info, #{
         msg => "pipeline_llm_step_done",
         iid => Data#data.iid,
-        step => maps:get(<<"id">>, Step, <<"?">>)
+        step => maps:get(<<"id">>, current_step(Data), <<"?">>)
     }),
     advance_and_step(Data2);
 %% ── llm_loop: session emitted error ──────────────────────────────────────────
@@ -285,17 +285,23 @@ do_execute_step(Step, Data) ->
 
 %% -- llm_loop step ----------------------------------------------------------
 
-start_llm_loop(Step, Data) ->
-    ToolSpecs = maps:get(<<"tools">>, Step, []),
+start_llm_loop(
+    #{
+        <<"id">> := StepId,
+        <<"provider_name">> := ProviderName,
+        <<"model">> := Model,
+        <<"instructions">> := Instructions,
+        <<"tools">> := ToolSpecs,
+        <<"input">> := InputSpec,
+        <<"stop_on_finish">> := StopOnFinish,
+        <<"max_tokens">> := MaxTokens,
+        <<"set_result_schema">> := SetResultSchema
+    },
+    Data
+) ->
     {ToolManifest0, ToolMap0} = build_tool_manifest(ToolSpecs),
-    SetResultSchema = maps:get(<<"set_result_schema">>, Step, undefined),
     {ToolManifest, ToolMap} = maybe_inject_set_result(ToolManifest0, ToolMap0, SetResultSchema),
-    InputSpec = maps:get(<<"input">>, Step, #{}),
     Input = resolve_map(InputSpec, Data#data.context),
-    Instructions = maps:get(<<"instructions">>, Step, <<"You are a helpful assistant.">>),
-    Model = maps:get(<<"model">>, Step, <<"gpt-5.4-mini">>),
-    ProviderName = maps:get(<<"provider_name">>, Step, <<"default">>),
-    StepId = maps:get(<<"id">>, Step, <<"llm">>),
     %% Stable Sid: same session is reused across every trigger of this pipeline
     %% step, allowing the model to accumulate full conversation history.
     Sid = stable_sid(Data#data.pipeline_id, StepId),
@@ -304,8 +310,6 @@ start_llm_loop(Step, Data) ->
     %% session with no history from prior triggers. For persistent mode where the
     %% session accumulates conversation history across events, explicitly set
     %% "stop_on_finish": false in the step configuration.
-    StopOnFinish = maps:get(<<"stop_on_finish">>, Step, true),
-    MaxTokens = maps:get(<<"max_tokens">>, Step, 2048),
     Request = #{
         <<"type">> => <<"request">>,
         <<"iid">> => Data#data.iid,

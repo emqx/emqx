@@ -278,9 +278,9 @@ The LLM receives the "input" map as its first user message, then calls tools
 (skills listed in "tools") until it either calls the built-in set_result tool
 (when set_result_schema is provided) or sends a final frame.
 
-  {"id": "analyse", "type": "llm_loop",
-   "provider_name": "my-provider",
-   "model": "gpt-5.4-mini",
+   {"id": "analyse", "type": "llm_loop",
+    "provider_name": "my-provider",
+    "model": "gpt-5.4-mini",
    "instructions": "You are a quality inspector. Examine the photo and return a verdict.",
    "stop_on_finish": true,
    "tools": ["message.request@box-camera", "message.publish@box-alert"],
@@ -301,6 +301,9 @@ stop_on_finish controls session lifecycle:
           (useful for ongoing reasoning or multi-turn interactions).
 
 Session IDs are stable: "<pipeline_id>-<step_id>".
+
+When you create an llm_loop step, use model "gpt-5.4-mini" unless the user
+explicitly requests another model. Do not invent a model name.
 
 --- wait_for_event ---
 Pauses the pipeline until a message arrives on an MQTT topic filter.
@@ -394,6 +397,11 @@ def create_pipeline() -> None:
                         f"agent.delete_pipeline@{SK_DELETE_PIPELINE}",
                         f"message.publish@{SK_REPLY}",
                     ],
+                    "set_result_schema": {
+                        "type": "object",
+                        "properties": {"summary": {"type": "string"}},
+                        "required": ["summary"],
+                    },
                     "input": {"message": "$.event.message"},
                     "result_path": "$.build_result",
                 }

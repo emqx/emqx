@@ -103,7 +103,7 @@ pipeline_get(Id) ->
 pipeline_update(Id, Body) ->
     Body2 = Body#{<<"pipeline_id">> => Id},
     case emqx_agent_pipeline_registry:register(Body2) of
-        ok -> {ok, Body2};
+        ok -> emqx_agent_pipeline_registry:lookup(Id);
         {error, _} = Err -> Err
     end.
 

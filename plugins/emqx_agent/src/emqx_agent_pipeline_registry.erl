@@ -26,9 +26,12 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--spec register(map()) -> ok | {error, missing_pipeline_id}.
+-spec register(map()) -> ok | {error, term()}.
 register(#{<<"pipeline_id">> := _} = Def) ->
-    gen_server:call(?MODULE, {register, Def});
+    case normalize_pipeline(Def) of
+        {ok, Normalized} -> gen_server:call(?MODULE, {register, Normalized});
+        {error, _} = Error -> Error
+    end;
 register(_) ->
     {error, missing_pipeline_id}.
 
@@ -102,3 +105,56 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, _State) ->
     ok.
+
+%%--------------------------------------------------------------------
+%% Validation and normalization
+%%--------------------------------------------------------------------
+
+normalize_pipeline(#{<<"steps">> := Steps} = Def) when is_list(Steps) ->
+    case normalize_steps(Steps, 1, []) of
+        {ok, NormalizedSteps} -> {ok, Def#{<<"steps">> => NormalizedSteps}};
+        {error, _} = Error -> Error
+    end;
+normalize_pipeline(#{}) ->
+    {error, {missing_field, <<"steps">>}}.
+
+normalize_steps([], _Index, Acc) ->
+    {ok, lists:reverse(Acc)};
+normalize_steps([Step | Rest], Index, Acc) when is_map(Step) ->
+    case normalize_step(Step, Index) of
+        {ok, Normalized} -> normalize_steps(Rest, Index + 1, [Normalized | Acc]);
+        {error, _} = Error -> Error
+    end;
+normalize_steps([_ | _], Index, _Acc) ->
+    {error, {invalid_step, Index}}.
+
+normalize_step(#{<<"type">> := <<"llm_loop">>} = Step0, Index) ->
+    Defaults = #{
+        <<"tools">> => [],
+        <<"input">> => #{},
+        <<"stop_on_finish">> => true,
+        <<"max_tokens">> => 2048
+    },
+    Step = maps:merge(Defaults, Step0),
+    Required = [
+        <<"id">>,
+        <<"provider_name">>,
+        <<"model">>,
+        <<"instructions">>,
+        <<"result_path">>,
+        <<"set_result_schema">>
+    ],
+    case missing_required_field(Step, Required) of
+        undefined -> {ok, Step};
+        Field -> {error, {missing_step_field, Index, Field}}
+    end;
+normalize_step(Step, _Index) ->
+    {ok, Step}.
+
+missing_required_field(_Step, []) ->
+    undefined;
+missing_required_field(Step, [Field | Rest]) ->
+    case maps:is_key(Field, Step) of
+        true -> missing_required_field(Step, Rest);
+        false -> Field
+    end.
