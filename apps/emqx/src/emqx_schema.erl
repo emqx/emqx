@@ -1950,14 +1950,7 @@ fields(durable_storage) ->
     emqx_ds_schema:schema();
 fields("client_attrs_init") ->
     [
-        {expression,
-            sc(
-                typerefl:alias("string", any()),
-                #{
-                    desc => ?DESC("client_attrs_init_expression"),
-                    converter => fun compile_variform/2
-                }
-            )},
+        {expression, emqx_variform:sc(#{desc => ?DESC("client_attrs_init_expression")})},
         {set_as_attr,
             sc(binary(), #{
                 desc => ?DESC("client_attrs_init_set_as_attr"),
@@ -1991,24 +1984,7 @@ compile_variform_allow_disabled(disabled, _Opts) ->
 compile_variform_allow_disabled(<<"disabled">>, _Opts) ->
     disabled;
 compile_variform_allow_disabled(Expression, Opts) ->
-    compile_variform(Expression, Opts).
-
-compile_variform(undefined, _Opts) ->
-    undefined;
-compile_variform(Expression, #{make_serializable := true}) ->
-    case is_binary(Expression) of
-        true ->
-            Expression;
-        false ->
-            emqx_variform:decompile(Expression)
-    end;
-compile_variform(Expression, _Opts) ->
-    case emqx_variform:compile(Expression) of
-        {ok, Compiled} ->
-            Compiled;
-        {error, Reason} ->
-            throw(#{expression => Expression, reason => Reason})
-    end.
+    emqx_variform:compile_variform(Expression, Opts).
 
 restricted_string(Str) ->
     case emqx_utils:is_restricted_str(Str) of

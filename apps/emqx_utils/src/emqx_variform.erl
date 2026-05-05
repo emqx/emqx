@@ -31,6 +31,7 @@
 
 -export([render/2, render/3]).
 -export([compile/1, decompile/1]).
+-export([sc/1, compile_variform/2]).
 
 -export_type([compiled/0]).
 
@@ -356,3 +357,26 @@ get_allowed_modules() ->
 
 split(VarName) ->
     lists:map(fun erlang:iolist_to_binary/1, string:tokens(VarName, ".")).
+
+sc(#{} = Opts) ->
+    hoconsc:mk(
+        typerefl:alias("string", typerefl:any()),
+        maps:merge(#{converter => fun compile_variform/2}, Opts)
+    ).
+
+compile_variform(undefined, _Opts) ->
+    undefined;
+compile_variform(Expression, #{make_serializable := true}) ->
+    case is_binary(Expression) of
+        true ->
+            Expression;
+        false ->
+            emqx_variform:decompile(Expression)
+    end;
+compile_variform(Expression, _Opts) ->
+    case emqx_variform:compile(Expression) of
+        {ok, Compiled} ->
+            Compiled;
+        {error, Reason} ->
+            throw(#{expression => Expression, reason => Reason})
+    end.
