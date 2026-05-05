@@ -8,6 +8,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -import(emqx_dashboard_sso, [provider/1]).
 
@@ -23,6 +24,7 @@
     sp_saml_metadata/2,
     sp_saml_callback/2
 ]).
+-export([scopes/0]).
 
 -define(REDIRECT, 'REDIRECT').
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
@@ -41,6 +43,8 @@ check_api_schema(Params, Meta) ->
     emqx_dashboard_swagger:validate_content_type(
         Params, Meta, <<"application/x-www-form-urlencoded">>
     ).
+
+scopes() -> ?SCOPE_DENIED.
 
 paths() ->
     [

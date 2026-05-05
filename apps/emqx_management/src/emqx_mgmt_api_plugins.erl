@@ -10,6 +10,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_plugins/include/emqx_plugins.hrl").
 -include_lib("erlavro/include/erlavro.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -51,6 +52,7 @@
     ensure_existed/1,
     sync_plugin_cluster/2
 ]).
+-export([scopes/0]).
 
 -define(NAME_RE, "^[A-Za-z]+\\w*\\-[\\w.-]*$").
 -define(TAGS, [<<"Plugins">>]).
@@ -64,6 +66,8 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 %% Don't change the path's order
+scopes() -> ?SCOPE_SYSTEM.
+
 paths() ->
     [
         "/plugins",

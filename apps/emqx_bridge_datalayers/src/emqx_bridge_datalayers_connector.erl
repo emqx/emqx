@@ -96,7 +96,9 @@ on_start(InstId, Config) ->
     end.
 
 enrich_config(Config = #{parameters := Params = #{driver_type := ?DATALAYERS_DRIVER_TYPE_INFLUX}}) ->
-    Config#{parameters := Params#{influxdb_type => influxdb_api_v1}};
+    Config#{
+        parameters := Params#{influxdb_type => influxdb_api_v1, v1_auth_transport => query_string}
+    };
 enrich_config(Config) ->
     Config.
 

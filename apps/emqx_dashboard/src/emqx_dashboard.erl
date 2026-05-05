@@ -6,6 +6,12 @@
 
 -moduledoc "Dashboard listener management, authorization, and Minirest wiring.".
 
+%% dialyzer cannot see through emqx_mgmt_auth:authorize/4's return value
+%% because the scope-check helper check_scopes/2 is marked no_return
+%% (minirest HandlerInfo's `path` key is narrowed away by upstream pattern
+%% matches). Silence the unreachable-clause warnings in the caller.
+-dialyzer({no_match, [api_key_authorize/4]}).
+
 -export([
     start_listeners/0,
     start_listeners/1,

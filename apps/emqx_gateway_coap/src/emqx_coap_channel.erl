@@ -476,6 +476,7 @@ check_token(Msg, Channel) ->
                     missing_token_or_clientid_reply(Msg, Channel)
             end
     end.
+
 try_takeover_with_token(Msg, ReqClientId, ReqToken, Channel) ->
     case emqx_gateway_cm:call(coap, ReqClientId, {check_token_and_get_clientinfo, ReqToken}) of
         {ok, ResumeClientInfo} ->

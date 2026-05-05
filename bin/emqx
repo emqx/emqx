@@ -466,7 +466,8 @@ gen_node_id() {
 }
 
 call_nodetool() {
-    "$ERTS_DIR/bin/escript" "$RUNNER_ROOT_DIR/bin/nodetool" "$@"
+    ERL_FLAGS="${ERL_FLAGS:-} +P 65536 +Q 65536 +S 2" \
+        "$ERTS_DIR/bin/escript" "$RUNNER_ROOT_DIR/bin/nodetool" "$@"
 }
 
 # Control a node

@@ -617,7 +617,9 @@ emqx_collect(K = emqx_authentication_failure, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_authn_builtin_record_count, D) -> gauge_metrics(?MG(K, D));
 %%--------------------------------------------------------------------
 %% License
+emqx_collect(K = emqx_license_max_sessions, D) -> gauge_metric(?MG(K, D));
 emqx_collect(K = emqx_license_expiry_at, D) -> gauge_metric(?MG(K, D));
+emqx_collect(K = emqx_license_issued_at, D) -> gauge_metric(?MG(K, D));
 %%--------------------------------------------------------------------
 %% Certs
 emqx_collect(K = emqx_cert_expiry_at, D) -> gauge_metrics(?MG(K, D));
@@ -1163,11 +1165,44 @@ maybe_license_collect_json_data(RawData) ->
 %% license
 license_metric_meta() ->
     [
-        {emqx_license_expiry_at, gauge, undefined}
+        {emqx_license_max_sessions, gauge, undefined},
+        {emqx_license_expiry_at, gauge, undefined},
+        {emqx_license_issued_at, gauge, undefined}
     ].
 
 license_data() ->
-    #{emqx_license_expiry_at => emqx_license_checker:expiry_epoch()}.
+    Dump =
+        try
+            emqx_license_checker:dump()
+        catch
+            _:_ -> []
+        end,
+    MaxSessions =
+        case proplists:get_value(max_sessions, Dump, 0) of
+            N when is_integer(N) -> N;
+            _ -> 0
+        end,
+    ExpiryAt = license_date_to_epoch(proplists:get_value(expiry_at, Dump, undefined)),
+    IssuedAt = license_date_to_epoch(proplists:get_value(start_at, Dump, undefined)),
+    #{
+        emqx_license_max_sessions => MaxSessions,
+        emqx_license_expiry_at => ExpiryAt,
+        emqx_license_issued_at => IssuedAt
+    }.
+
+%% start_at / expiry_at from emqx_license_checker:dump/0 are binary "YYYY-MM-DD"
+%% (output of emqx_license_parser_v20220101:format_date/1).
+license_date_to_epoch(undefined) ->
+    0;
+license_date_to_epoch(Bin) when is_binary(Bin) ->
+    try
+        [Y, M, D] = [binary_to_integer(P) || P <- binary:split(Bin, <<"-">>, [global])],
+        emqx_license_checker:date_to_expiry_epoch({Y, M, D})
+    catch
+        _:_ -> 0
+    end;
+license_date_to_epoch(_) ->
+    0.
 
 %%========================================
 %% Certs

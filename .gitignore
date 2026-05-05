@@ -92,3 +92,4 @@ __pycache__/
 .agent
 AGENTS.md
 PLANS.md
+.worktrees/
