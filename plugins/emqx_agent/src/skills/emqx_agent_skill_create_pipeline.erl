@@ -55,9 +55,9 @@
             <<"properties">> => #{
                 <<"id">> => #{<<"type">> => <<"string">>},
                 <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"llm_loop">>},
-                <<"session_profile">> => #{
+                <<"provider_name">> => #{
                     <<"type">> => <<"string">>,
-                    <<"description">> => <<"Name of a registered session profile">>
+                    <<"description">> => <<"Name of a configured AI provider">>
                 },
                 <<"model">> => #{
                     <<"type">> => <<"string">>,
@@ -88,7 +88,7 @@
                 <<"set_result_schema">> => #{
                     <<"type">> => <<"object">>,
                     <<"description">> =>
-                        <<"Optional JSON Schema for structured output via built-in set_result tool">>
+                        <<"REQUIRED. JSON Schema for structured output via built-in set_result tool">>
                 },
                 <<"result_path">> => #{
                     <<"type">> => <<"string">>,
@@ -103,7 +103,7 @@
             <<"required">> => [
                 <<"id">>,
                 <<"type">>,
-                <<"session_profile">>,
+                <<"provider_name">>,
                 <<"instructions">>,
                 <<"result_path">>,
                 <<"set_result_schema">>

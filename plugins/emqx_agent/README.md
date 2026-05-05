@@ -1,6 +1,6 @@
 # EMQX Agent
 
-EMQX Agent provides MQTT-driven agent skills, session profiles, and pipeline orchestration as an EMQX plugin.
+EMQX Agent provides MQTT-driven agent skills, AI-provider-backed LLM sessions, and pipeline orchestration as an EMQX plugin.
 
 ## Build And Test
 
@@ -13,16 +13,10 @@ make plugin-emqx_agent
 Run this plugin's Common Test suites:
 
 ```bash
-./scripts/ct/run.sh --app "plugins/emqx_agent" -- env TERM=dumb make plugins/emqx_agent-ct
+make plugins/emqx_agent-ct
 ```
 
 ## Development
-
-Start a local release node:
-
-```bash
-plugins/emqx_agent/smoke/start_dev.sh
-```
 
 Build, install, enable, and start the plugin in that node:
 

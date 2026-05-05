@@ -6,7 +6,6 @@
 %%
 %% Defines three resource families:
 %%   Skills         — cap-layer skill instances (message.publish, http, kv, postgresql.query)
-%%   Session Profiles — LLM connection settings reusable across llm_loop steps
 %%   Pipelines       — event-driven orchestration definitions
 
 -module(emqx_agent_schema).
@@ -21,7 +20,6 @@
 -export([
     skill_entry_type/0,
     skill_create_type/0,
-    session_profile_type/0,
     pipeline_type/0
 ]).
 
@@ -277,19 +275,6 @@ fields(skill_create_skill_create) ->
                 desc => ?DESC(skill_id)
             })}
     ];
-fields(skill_create_session_create) ->
-    [
-        {type,
-            mk(enum(['agent.create_session']), #{
-                required => true,
-                desc => ?DESC(skill_type_discriminator)
-            })},
-        {id,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(skill_id)
-            })}
-    ];
 fields(skill_create_pipeline_create) ->
     [
         {type,
@@ -316,10 +301,10 @@ fields(skill_query_skills_create) ->
                 desc => ?DESC(skill_id)
             })}
     ];
-fields(skill_query_sessions_create) ->
+fields(skill_query_providers_create) ->
     [
         {type,
-            mk(enum(['agent.query_sessions']), #{
+            mk(enum(['agent.query_providers']), #{
                 required => true,
                 desc => ?DESC(skill_type_discriminator)
             })},
@@ -355,19 +340,6 @@ fields(skill_delete_skill_create) ->
                 desc => ?DESC(skill_id)
             })}
     ];
-fields(skill_delete_session_create) ->
-    [
-        {type,
-            mk(enum(['agent.delete_session']), #{
-                required => true,
-                desc => ?DESC(skill_type_discriminator)
-            })},
-        {id,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(skill_id)
-            })}
-    ];
 fields(skill_delete_pipeline_create) ->
     [
         {type,
@@ -379,34 +351,6 @@ fields(skill_delete_pipeline_create) ->
             mk(binary(), #{
                 required => true,
                 desc => ?DESC(skill_id)
-            })}
-    ];
-%%--------------------------------------------------------------------
-%% fields/1 — session profile
-%%--------------------------------------------------------------------
-
-fields(session_profile) ->
-    [
-        {name,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(session_profile_name)
-            })},
-        {api_key,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(session_profile_api_key)
-            })},
-        {base_url,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(session_profile_base_url)
-            })},
-        {output_schema,
-            mk(map(), #{
-                required => false,
-                default => #{<<"type">> => <<"object">>},
-                desc => ?DESC(session_profile_output_schema)
             })}
     ];
 %%--------------------------------------------------------------------
@@ -461,15 +405,12 @@ desc(skill_kv_put_create) -> ?DESC(skill_kv_create);
 desc(skill_mqtt_request_create) -> ?DESC(skill_mqtt_request_create);
 desc(skill_postgresql_create) -> ?DESC(skill_postgresql_create);
 desc(skill_create_skill_create) -> ?DESC(skill_create_skill_create);
-desc(skill_create_session_create) -> ?DESC(skill_create_session_create);
 desc(skill_create_pipeline_create) -> ?DESC(skill_create_pipeline_create);
 desc(skill_query_skills_create) -> ?DESC(skill_query_skills_create);
-desc(skill_query_sessions_create) -> ?DESC(skill_query_sessions_create);
+desc(skill_query_providers_create) -> ?DESC(skill_query_providers_create);
 desc(skill_query_pipelines_create) -> ?DESC(skill_query_pipelines_create);
 desc(skill_delete_skill_create) -> ?DESC(skill_delete_skill_create);
-desc(skill_delete_session_create) -> ?DESC(skill_delete_session_create);
 desc(skill_delete_pipeline_create) -> ?DESC(skill_delete_pipeline_create);
-desc(session_profile) -> ?DESC(session_profile);
 desc(pipeline) -> ?DESC(pipeline);
 desc(pipeline_trigger) -> ?DESC(pipeline_trigger);
 desc(_) -> undefined.
@@ -492,19 +433,13 @@ skill_create_type() ->
         <<"kv.put">> => ref(skill_kv_put_create),
         <<"postgresql.query">> => ref(skill_postgresql_create),
         <<"agent.create_skill">> => ref(skill_create_skill_create),
-        <<"agent.create_session">> => ref(skill_create_session_create),
         <<"agent.create_pipeline">> => ref(skill_create_pipeline_create),
         <<"agent.query_skills">> => ref(skill_query_skills_create),
-        <<"agent.query_sessions">> => ref(skill_query_sessions_create),
+        <<"agent.query_providers">> => ref(skill_query_providers_create),
         <<"agent.query_pipelines">> => ref(skill_query_pipelines_create),
         <<"agent.delete_skill">> => ref(skill_delete_skill_create),
-        <<"agent.delete_session">> => ref(skill_delete_session_create),
         <<"agent.delete_pipeline">> => ref(skill_delete_pipeline_create)
     }).
-
--spec session_profile_type() -> hocon_schema:schema().
-session_profile_type() ->
-    ref(session_profile).
 
 -spec pipeline_type() -> hocon_schema:schema().
 pipeline_type() ->

@@ -4,6 +4,7 @@
 Optional env vars:
   EMQX_BASE_URL   — EMQX Agent plugin API base URL
                     (default: http://localhost:18083/api/v5/plugin_api/emqx_agent)
+  EMQX_CORE_BASE_URL — EMQX core API base URL (default: http://localhost:18083/api/v5)
   EMQX_API_CREDS  — Basic-auth "key:secret" (default: key:secret)
   PGHOST / PGPORT / PGDATABASE / PGUSER / PGPASSWORD
 
@@ -29,6 +30,7 @@ def env(name: str, default: str | None = None) -> str:
 
 
 BASE_URL = env("EMQX_BASE_URL", "http://localhost:18083/api/v5/plugin_api/emqx_agent")
+CORE_BASE_URL = env("EMQX_CORE_BASE_URL", "http://localhost:18083/api/v5")
 CREDS = env("EMQX_API_CREDS", "key:secret")
 
 PGHOST = env("PGHOST", "pgsql")
@@ -37,7 +39,7 @@ PGDATABASE = env("PGDATABASE", "mqtt")
 PGUSER = env("PGUSER", "root")
 PGPASSWORD = env("PGPASSWORD", "public")
 
-PROFILE_NAME = "apple-inspector"
+PROVIDER_NAME = "apple-inspector"
 PIPELINE_ID = "apple-box-inspection"
 
 SK_SHOT = "box-shot"
@@ -51,9 +53,9 @@ def auth_header() -> str:
     return "Basic " + base64.b64encode(raw).decode("ascii")
 
 
-def api_delete(path: str) -> bool:
+def api_delete(path: str, *, base_url: str = BASE_URL) -> bool:
     """DELETE the resource. Returns True if deleted, False if not found."""
-    url = f"{BASE_URL}{path}"
+    url = f"{base_url}{path}"
     req = urllib.request.Request(url=url, method="DELETE")
     req.add_header("Authorization", auth_header())
     try:
@@ -102,10 +104,6 @@ def main() -> int:
     removed = api_delete(f"/pipelines/{PIPELINE_ID}")
     print(f"  pipeline {PIPELINE_ID!r}: {'removed' if removed else 'not found'}")
 
-    print("==> Removing session profile")
-    removed = api_delete(f"/session_profiles/{PROFILE_NAME}")
-    print(f"  profile {PROFILE_NAME!r}: {'removed' if removed else 'not found'}")
-
     print("==> Removing skills")
     for skill_type, skill_id in [
         ("message.request",  SK_SHOT),
@@ -115,6 +113,10 @@ def main() -> int:
     ]:
         removed = api_delete(f"/skills/{skill_type}/{skill_id}")
         print(f"  skill {skill_id!r}: {'removed' if removed else 'not found'}")
+
+    print("==> Removing AI provider")
+    removed = api_delete(f"/ai/providers/{PROVIDER_NAME}", base_url=CORE_BASE_URL)
+    print(f"  AI provider {PROVIDER_NAME!r}: {'removed' if removed else 'not found'}")
 
     print("==> Dropping database table")
     try:

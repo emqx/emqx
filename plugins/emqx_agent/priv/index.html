@@ -228,7 +228,7 @@
   <!-- ── Tab nav ── -->
   <nav>
     <button class="active" onclick="showTab('skills',this)">Skills<span class="cnt" id="cnt-skills">—</span></button>
-    <button onclick="showTab('profiles',this)">Session Profiles<span class="cnt" id="cnt-profiles">—</span></button>
+    <button onclick="showTab('profiles',this)">AI Providers<span class="cnt" id="cnt-profiles">—</span></button>
     <button onclick="showTab('pipelines',this)">Pipelines<span class="cnt" id="cnt-pipelines">—</span></button>
   </nav>
 
@@ -375,39 +375,20 @@
       </div>
     </section>
 
-    <!-- Session Profiles -->
+    <!-- AI Providers -->
     <section id="tab-profiles">
-      <h2>Session Profiles</h2>
+      <h2>AI Providers</h2>
       <table class="tbl">
-        <thead><tr><th>Name</th><th>Base URL</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Type</th><th>Base URL</th></tr></thead>
         <tbody id="profiles-body"><tr class="empty"><td colspan="3">Not connected</td></tr></tbody>
       </table>
 
       <div class="card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-          <h3 id="prof-card-title">New Session Profile</h3>
-          <button id="prof-cancel-btn" class="btn sm" style="display:none" onclick="resetProfileEditor()">✕ Cancel edit</button>
-        </div>
-        <div class="row">
-          <div class="field">
-            <label>Name</label>
-            <input id="prof-name" type="text" placeholder="hvac-triage-v1">
-          </div>
-        </div>
-        <div class="row">
-          <div class="field">
-            <label>Base URL</label>
-            <input id="prof-url" type="text" placeholder="https://api.openai.com/v1">
-          </div>
-          <div class="field">
-            <label>API Key</label>
-            <input id="prof-key" type="password" placeholder="sk-…">
-          </div>
-        </div>
-        <div class="form-actions">
-          <button class="btn primary" id="prof-submit-btn" onclick="saveProfile()">Create</button>
-          <span id="prof-msg" class="msg"></span>
-        </div>
+        <h3>Provider Credentials</h3>
+        <p style="color:var(--muted);line-height:1.5;margin-top:8px">
+          AI providers are managed in the EMQX AI Completion configuration. Create or edit credentials there,
+          then reference the provider by <code>provider_name</code> in agent pipelines.
+        </p>
       </div>
     </section>
 
@@ -473,7 +454,6 @@ let loadedPipelines   = [];
 let pipelineSteps     = [];
 let editingPipelineId = null;  // null → create mode, string → edit mode
 let editingSkillKey   = null;  // null → create, {type,id} → edit
-let editingProfileName = null; // null → create, string → edit
 
 // ── Dashboard token ──────────────────────────────────────────────────────────
 // The dashboard stores user info encrypted in localStorage using the same
@@ -544,6 +524,23 @@ async function api(method, path, body) {
   };
   if (body !== undefined) opts.body = JSON.stringify(body);
   const res = await fetch(BASE + path, opts);
+  if (res.status === 204) return null;
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch(_) { data = text; }
+  if (!res.ok) throw new Error((data?.message ?? data?.code) || res.statusText);
+  return data;
+}
+
+async function coreApi(method, path, body) {
+  const auth = authHeader();
+  if (!auth) throw new Error('Not authenticated — please log in to the dashboard first.');
+  const opts = {
+    method,
+    headers: { Authorization: auth, 'Content-Type': 'application/json' }
+  };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await fetch(window.location.origin + '/api/v5' + path, opts);
   if (res.status === 204) return null;
   const text = await res.text();
   let data;
@@ -744,93 +741,23 @@ async function deleteSkill(type, id) {
   }
 }
 
-// ── Session profiles ─────────────────────────────────────────────────────────
+// ── AI providers ──────────────────────────────────────────────────────────────
 
 async function loadProfiles() {
-  const list = await api('GET', '/session_profiles');
+  const list = await coreApi('GET', '/ai/providers');
   loadedProfiles = list;
   document.getElementById('cnt-profiles').textContent = list.length;
   const tbody = document.getElementById('profiles-body');
   if (!list.length) {
-    tbody.innerHTML = '<tr class="empty"><td colspan="3">No profiles registered</td></tr>';
+    tbody.innerHTML = '<tr class="empty"><td colspan="3">No AI providers configured</td></tr>';
     return;
   }
   tbody.innerHTML = list.map(p => `
     <tr>
       <td><code>${esc(p.name)}</code></td>
+      <td style="color:var(--muted)">${esc(p.type ?? '')}</td>
       <td style="color:var(--muted)">${esc(p.base_url ?? '')}</td>
-      <td><div style="display:flex;gap:6px">
-        <button class="btn sm" onclick="editProfile('${esc(p.name)}')">edit</button>
-        <button class="btn sm danger" onclick="deleteProfile('${esc(p.name)}')">delete</button>
-      </div></td>
     </tr>`).join('');
-}
-
-async function saveProfile() {
-  const name = document.getElementById('prof-name').value.trim();
-  const url  = document.getElementById('prof-url').value.trim();
-  const key  = document.getElementById('prof-key').value;
-
-  if (!name) return setMsg('prof-msg', 'Name is required', true);
-  try {
-    if (editingProfileName) {
-      await api('PUT', `/session_profiles/${encodeURIComponent(editingProfileName)}`, {
-        name, base_url: url, api_key: key
-      });
-      setMsg('prof-msg', 'Updated ✓');
-      toast('Profile "' + name + '" updated', 'ok');
-      resetProfileEditor();
-    } else {
-      await api('POST', '/session_profiles', {
-        name, base_url: url, api_key: key
-      });
-      setMsg('prof-msg', 'Created ✓');
-      toast('Profile "' + name + '" created', 'ok');
-    }
-    await loadProfiles();
-  } catch(e) {
-    setMsg('prof-msg', e.message, true);
-  }
-}
-
-function editProfile(name) {
-  const prof = loadedProfiles.find(p => p.name === name);
-  if (!prof) return;
-
-  editingProfileName = name;
-  document.getElementById('prof-card-title').textContent = 'Edit Profile — ' + name;
-  document.getElementById('prof-cancel-btn').style.display = '';
-  document.getElementById('prof-submit-btn').textContent = 'Update';
-
-  document.getElementById('prof-name').value = prof.name ?? '';
-  document.getElementById('prof-name').readOnly = true;
-  document.getElementById('prof-url').value = prof.base_url ?? '';
-  document.getElementById('prof-key').value = '';  // never round-trip secrets
-
-  document.querySelector('#tab-profiles .card').scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-function resetProfileEditor() {
-  editingProfileName = null;
-  document.getElementById('prof-card-title').textContent = 'New Session Profile';
-  document.getElementById('prof-cancel-btn').style.display = 'none';
-  document.getElementById('prof-submit-btn').textContent = 'Create';
-  document.getElementById('prof-name').readOnly = false;
-  document.getElementById('prof-name').value = '';
-  document.getElementById('prof-url').value = '';
-  document.getElementById('prof-key').value = '';
-  setMsg('prof-msg', '');
-}
-
-async function deleteProfile(name) {
-  if (!confirm(`Delete profile "${name}"?`)) return;
-  try {
-    await api('DELETE', `/session_profiles/${encodeURIComponent(name)}`);
-    toast('Deleted ' + name, 'ok');
-    await loadProfiles();
-  } catch(e) {
-    toast(e.message, 'err');
-  }
 }
 
 // ── Pipelines ────────────────────────────────────────────────────────────────
@@ -949,7 +876,7 @@ function deserializeStep(s, i) {
   if (type === 'llm_loop') {
     const input = s.input ? Object.entries(s.input) : [['event', '$.event']];
     const setResultSchema = s.set_result_schema ? JSON.stringify(s.set_result_schema, null, 2) : '';
-    return { id, type, session_profile: s.session_profile ?? '', model: s.model ?? '', stop_on_finish: s.stop_on_finish ?? true, tools: s.tools ?? [], input, instructions: s.instructions ?? '', set_result_schema: setResultSchema, result_path: s.result_path ?? '' };
+    return { id, type, provider_name: s.provider_name ?? '', model: s.model ?? '', stop_on_finish: s.stop_on_finish ?? true, tools: s.tools ?? [], input, instructions: s.instructions ?? '', set_result_schema: setResultSchema, result_path: s.result_path ?? '' };
   }
   if (type === 'wait_for_event') {
     return { id, type, topic: s.topic ?? '', where: s.where ?? '', result_path: s.result_path ?? '' };
@@ -981,7 +908,7 @@ function resetPipelineEditor() {
 function defaultStep(type) {
   const n = pipelineSteps.length + 1;
   if (type === 'call_skill')     return { id: 'step_' + n, type, skill: '', args: [['', '']], result_path: '' };
-  if (type === 'llm_loop')       return { id: 'step_' + n, type, session_profile: '', stop_on_finish: true, tools: [], input: [['event', '$.event']], set_result_schema: '', result_path: '' };
+  if (type === 'llm_loop')       return { id: 'step_' + n, type, provider_name: '', stop_on_finish: true, tools: [], input: [['event', '$.event']], set_result_schema: '', result_path: '' };
   if (type === 'wait_for_event') return { id: 'step_' + n, type, topic: '', where: '', result_path: '' };
   if (type === 'break')          return { id: 'step_' + n, type, path: '', not: false };
   return { id: 'step_' + n, type };
@@ -1089,8 +1016,8 @@ function stepFieldsHTML(step, idx) {
   }
 
   if (step.type === 'llm_loop') {
-    const profOpts = loadedProfiles.map(p =>
-      `<option value="${esc(p.name)}"${p.name===step.session_profile?' selected':''}>${esc(p.name)}</option>`
+    const providerOpts = loadedProfiles.map(p =>
+      `<option value="${esc(p.name)}"${p.name===step.provider_name?' selected':''}>${esc(p.name)}</option>`
     ).join('');
     const toolsHTML = loadedSkills.length
       ? loadedSkills.map(s => {
@@ -1103,9 +1030,9 @@ function stepFieldsHTML(step, idx) {
       : '<span style="color:var(--muted);font-size:11px">No skills registered yet</span>';
     return idF + `
       <div class="row">
-        <div class="field"><label>Session profile</label>
-          <select class="sf-profile">
-            <option value="">— select profile —</option>${profOpts}
+        <div class="field"><label>AI provider</label>
+          <select class="sf-provider">
+            <option value="">— select provider —</option>${providerOpts}
           </select>
         </div>
         <div class="field"><label>Model</label>
@@ -1173,7 +1100,7 @@ function syncStep(idx) {
       r.querySelector('.kv-val').value.trim()
     ]);
   } else if (step.type === 'llm_loop') {
-    step.session_profile = card.querySelector('.sf-profile')?.value ?? '';
+    step.provider_name = card.querySelector('.sf-provider')?.value ?? '';
     step.model = card.querySelector('.sf-model')?.value?.trim() ?? '';
     step.stop_on_finish = card.querySelector('.sf-stop-on-finish')?.checked ?? true;
     step.tools = [...card.querySelectorAll('.sf-tools input:checked')].map(c => c.value);
@@ -1208,7 +1135,7 @@ function collectSteps() {
       if (Object.keys(args).length) out.args = args;
       if (s.result_path) out.result_path = s.result_path;
     } else if (s.type === 'llm_loop') {
-      if (s.session_profile) out.session_profile = s.session_profile;
+      if (s.provider_name) out.provider_name = s.provider_name;
       if (s.model) out.model = s.model;
       out.stop_on_finish = s.stop_on_finish ?? true;
       if (s.instructions) out.instructions = s.instructions;

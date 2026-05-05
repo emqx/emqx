@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Provision all EMQX Agent resources for the Apple Box Conveyor Quality Inspector demo.
 
-Required env vars at runtime (on the EMQX node, resolved when the pipeline runs):
+Required env vars:
   OPENAI_API_KEY     — OpenAI API key
 
 Optional env vars (for this init script):
   EMQX_BASE_URL      — EMQX Agent plugin API base URL
                        (default: http://localhost:18083/api/v5/plugin_api/emqx_agent)
+  EMQX_CORE_BASE_URL — EMQX core API base URL (default: http://localhost:18083/api/v5)
   EMQX_API_CREDS     — Basic-auth "key:secret" (default: key:secret)
   OPENAI_BASE_URL    — OpenAI-compatible base URL (default: https://api.openai.com/v1)
   OPENAI_MODEL       — Model name              (default: gpt-4o)
@@ -34,10 +35,12 @@ def env(name: str, default: str | None = None) -> str:
 
 
 BASE_URL = env("EMQX_BASE_URL", "http://localhost:18083/api/v5/plugin_api/emqx_agent")
+CORE_BASE_URL = env("EMQX_CORE_BASE_URL", "http://localhost:18083/api/v5")
 CREDS = env("EMQX_API_CREDS", "key:secret")
 
 OPENAI_BASE_URL = env("OPENAI_BASE_URL", "https://api.openai.com/v1")
 OPENAI_MODEL = env("OPENAI_MODEL", "gpt-5.4-mini")
+OPENAI_API_KEY = env("OPENAI_API_KEY")
 
 FIREWORKS_BASE_URL = env("FIREWORKS_BASE_URL", "https://api.fireworks.ai/inference/v1")
 FIREWORKS_MODEL = env("FIREWORKS_MODEL", "accounts/fireworks/models/kimi-k2p5")
@@ -48,8 +51,7 @@ PGDATABASE = env("PGDATABASE", "mqtt")
 PGUSER = env("PGUSER", "root")
 PGPASSWORD = env("PGPASSWORD", "public")
 
-PROFILE_NAME = "apple-inspector"
-KIMI_PROFILE_NAME = "apple-inspector-kimi"
+PROVIDER_NAME = "apple-inspector"
 PIPELINE_ID = "apple-box-inspection"
 
 SK_SHOT = "box-shot"
@@ -69,9 +71,11 @@ def api_request(
     method: str,
     path: str,
     body: dict | None = None,
+    *,
+    base_url: str = BASE_URL,
     ok_codes: tuple[int, ...] = (200, 201, 204),
 ):
-    url = f"{BASE_URL}{path}"
+    url = f"{base_url}{path}"
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url=url, method=method, data=data)
     req.add_header("Authorization", auth_header())
@@ -94,10 +98,10 @@ def api_request(
         ) from e
 
 
-def api_delete_maybe(path: str) -> None:
+def api_delete_maybe(path: str, *, base_url: str = BASE_URL) -> None:
     """DELETE the resource; ignore 404."""
     try:
-        api_request("DELETE", path, ok_codes=(200, 204, 404))
+        api_request("DELETE", path, base_url=base_url, ok_codes=(200, 204, 404))
     except RuntimeError:
         pass
 
@@ -161,9 +165,25 @@ def delete_old_assets() -> None:
     api_delete_maybe(f"/skills/message.publish/{SK_ALERT}")
     api_delete_maybe(f"/skills/message.publish/{SK_STATUS}")
     api_delete_maybe(f"/skills/postgresql.query/{SK_REGISTER}")
-    api_delete_maybe(f"/session_profiles/{PROFILE_NAME}")
-    api_delete_maybe(f"/session_profiles/{KIMI_PROFILE_NAME}")
     api_delete_maybe(f"/pipelines/{PIPELINE_ID}")
+    api_delete_maybe(f"/ai/providers/{PROVIDER_NAME}", base_url=CORE_BASE_URL)
+
+
+def create_ai_provider() -> None:
+    api_delete_maybe(f"/ai/providers/{PROVIDER_NAME}", base_url=CORE_BASE_URL)
+    api_request(
+        "POST",
+        "/ai/providers",
+        {
+            "name": PROVIDER_NAME,
+            "type": "openai",
+            "api_key": OPENAI_API_KEY,
+            "base_url": OPENAI_BASE_URL,
+        },
+        base_url=CORE_BASE_URL,
+        ok_codes=(200, 201, 204),
+    )
+    print(f"  AI provider {PROVIDER_NAME!r} created")
 
 
 def create_skills() -> None:
@@ -249,32 +269,6 @@ INSPECTOR_INSTRUCTIONS = (
 )
 
 
-def create_profile() -> None:
-    api_request(
-        "POST",
-        "/session_profiles",
-        {
-            "name": PROFILE_NAME,
-            "api_key": "OPENAI_API_KEY",
-            "base_url": OPENAI_BASE_URL,
-            "model": OPENAI_MODEL,
-        },
-    )
-    print(f"  session profile {PROFILE_NAME!r} created")
-
-    api_request(
-        "POST",
-        "/session_profiles",
-        {
-            "name": KIMI_PROFILE_NAME,
-            "api_key": "FIREWORKS_API_KEY",
-            "base_url": FIREWORKS_BASE_URL,
-            "model": FIREWORKS_MODEL,
-        },
-    )
-    print(f"  session profile {KIMI_PROFILE_NAME!r} created")
-
-
 def create_pipeline() -> None:
     api_request(
         "POST",
@@ -287,7 +281,7 @@ def create_pipeline() -> None:
                 {
                     "id": "inspect",
                     "type": "llm_loop",
-                    "session_profile": PROFILE_NAME,
+                    "provider_name": PROVIDER_NAME,
                     "model": OPENAI_MODEL,
                     "stop_on_finish": True,
                     "instructions": INSPECTOR_INSTRUCTIONS,
@@ -350,8 +344,8 @@ def main() -> int:
     print("==> Creating skills")
     create_skills()
 
-    print("==> Creating session profile")
-    create_profile()
+    print("==> Creating AI provider")
+    create_ai_provider()
 
     print("==> Creating pipeline")
     create_pipeline()

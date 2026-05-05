@@ -35,7 +35,12 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
-        [emqx, emqx_conf, emqx_agent],
+        [
+            emqx,
+            emqx_conf,
+            {emqx_ai_completion, "ai {}"},
+            emqx_agent
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{suite_apps, Apps} | Config].
@@ -54,6 +59,7 @@ end_per_testcase(TestCase, Config) ->
     emqx:unsubscribe(?PIPE_EVENTS_FILTER),
     %% Also clean up any skill instances registered during the test.
     _ = emqx_agent_skill_publish:destroy(TestCase),
+    _ = emqx_ai_completion_config:update_providers_raw({delete, <<"test-provider">>}),
     ok.
 
 %%--------------------------------------------------------------------
@@ -421,9 +427,8 @@ t_context_flows_between_steps(Config) ->
 %% set_result tool call from the LLM, store the args, and write them to
 %% result_path when the session publishes the final frame.
 %%
-%% Strategy: the session_config is intentionally incomplete (missing
-%% output_schema) so the real session process crashes silently without
-%% publishing any frames to sess/out.  We then drive the pipeline manually
+%% Strategy: the provider points at a closed local port, so the real session
+%% cannot produce normal LLM frames.  We then drive the pipeline manually
 %% by casting #sess_frame records directly, bypassing the LLM entirely.
 %%
 %% Gen_statem ordering guarantee: the pipeline processes its queued internal
@@ -435,17 +440,20 @@ t_set_result_writes_to_context(Config) ->
     TrigTopic = <<"evt/test/", PipelineId/binary>>,
     StepId = <<"llm">>,
     Sid = <<PipelineId/binary, "-", StepId/binary>>,
+    ok = emqx_ai_completion_config:update_providers_raw(
+        {add, #{
+            <<"name">> => <<"test-provider">>,
+            <<"type">> => <<"openai">>,
+            <<"api_key">> => <<"test-key">>,
+            <<"base_url">> => <<"http://127.0.0.1:1">>
+        }}
+    ),
     Step = #{
         <<"id">> => StepId,
         <<"type">> => <<"llm_loop">>,
         <<"model">> => <<"test-model">>,
         <<"instructions">> => <<"test">>,
-        %% Incomplete session_config: missing output_schema so the real
-        %% session process crashes in initial_idle without publishing errors.
-        <<"session_config">> => #{
-            <<"api_key">> => <<"test-key">>,
-            <<"base_url">> => <<"http://127.0.0.1:1">>
-        },
+        <<"provider_name">> => <<"test-provider">>,
         <<"tools">> => [],
         <<"input">> => #{<<"box_id">> => <<"b1">>},
         <<"set_result_schema">> => #{

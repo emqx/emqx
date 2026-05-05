@@ -4,7 +4,7 @@
 
 %% Integration test for the Apple Box Conveyor Quality Inspector demo.
 %%
-%% Requires: OPENAI_API_KEY environment variable set.
+%% Requires the API key for EMQX_AGENT_TEST_LLM_PROVIDER.
 %% Requires: PostgreSQL reachable at pgsql:5432 (the standard EMQX test docker setup).
 %%
 %% What this suite tests end-to-end:
@@ -29,7 +29,7 @@
 -include_lib("emqx/include/emqx.hrl").
 
 -define(PIPELINE_ID, <<"apple-box-inspection">>).
--define(PROFILE_NAME, <<"apple-inspector">>).
+-define(PROVIDER_NAME, <<"apple-inspector">>).
 -define(PIPE_EVENTS_FILTER, <<"pipe/+/inst/+/events">>).
 %% LLM calls may take up to 60 s; give generous headroom.
 -define(LLM_TIMEOUT, 90_000).
@@ -41,10 +41,10 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    case os:getenv("OPENAI_API_KEY") of
+    case emqx_agent_test_llm_helper:available() of
         false ->
-            {skip, "OPENAI_API_KEY not set — skipping apple-box LLM integration tests"};
-        ApiKey ->
+            {skip, emqx_agent_test_llm_helper:skip_reason("apple-box")};
+        true ->
             Apps = emqx_cth_suite:start(
                 [
                     emqx,
@@ -53,6 +53,9 @@ init_per_suite(Config) ->
                     emqx_redis,
                     emqx_postgresql,
                     emqx_conf,
+                    {emqx_ai_completion, #{
+                        config => "ai.providers = [], ai.completion_profiles = []"
+                    }},
                     emqx_agent
                 ],
                 #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -61,7 +64,7 @@ init_per_suite(Config) ->
             ok = emqx_agent_skill_postgresql:init(),
             ok = create_table(),
             ok = register_skills(),
-            ok = register_profile(ApiKey),
+            ok = register_provider(),
             ok = register_pipeline(),
             [{suite_apps, Apps} | Config]
     end.
@@ -69,7 +72,7 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = drop_table(),
     ok = emqx_agent_pipeline_registry:unregister(?PIPELINE_ID),
-    ok = emqx_agent_pipeline_registry:unregister_profile(?PROFILE_NAME),
+    _ = emqx_ai_completion_config:update_providers_raw({delete, ?PROVIDER_NAME}),
     ok = emqx_agent_skill_mqtt_request:destroy(<<"box-shot">>),
     ok = emqx_agent_skill_publish:destroy(<<"box-alert">>),
     ok = emqx_agent_skill_publish:destroy(<<"box-status">>),
@@ -78,6 +81,7 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(_TC, Config) ->
+    ct:timetrap({seconds, 180}),
     ConvId = <<"conv-", (integer_to_binary(erlang:unique_integer([positive, monotonic])))/binary>>,
     BoxId = <<"box-", (integer_to_binary(erlang:unique_integer([positive, monotonic])))/binary>>,
     ok = emqx:subscribe(?PIPE_EVENTS_FILTER),
@@ -287,17 +291,13 @@ register_skills() ->
         output_schema => #{<<"type">> => <<"object">>}
     }).
 
-register_profile(_ApiKey) ->
-    BaseUrl = list_to_binary(os:getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")),
-    Profile = #{
-        <<"name">> => ?PROFILE_NAME,
-        <<"api_key">> => <<"OPENAI_API_KEY">>,
-        <<"base_url">> => BaseUrl
-    },
-    emqx_agent_pipeline_registry:register_profile(?PROFILE_NAME, Profile).
+register_provider() ->
+    emqx_ai_completion_config:update_providers_raw(
+        {add, emqx_agent_test_llm_helper:provider(?PROVIDER_NAME)}
+    ).
 
 register_pipeline() ->
-    Model = list_to_binary(os:getenv("OPENAI_MODEL", "gpt-4o")),
+    Model = emqx_agent_test_llm_helper:default_model(),
     Def = #{
         <<"pipeline_id">> => ?PIPELINE_ID,
         <<"active">> => true,
@@ -306,7 +306,7 @@ register_pipeline() ->
             #{
                 <<"id">> => <<"inspect">>,
                 <<"type">> => <<"llm_loop">>,
-                <<"session_profile">> => ?PROFILE_NAME,
+                <<"provider_name">> => ?PROVIDER_NAME,
                 <<"model">> => Model,
                 <<"instructions">> => <<
                     "You are an apple quality inspector. You will receive box_id and conveyor_id. "

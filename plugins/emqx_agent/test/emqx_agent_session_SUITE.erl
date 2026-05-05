@@ -21,8 +21,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
--define(BASE_URL, <<"http://ollama:11434/v1">>).
--define(MODEL, <<"qwen2.5:0.5b">>).
+-define(PROVIDER_NAME, <<"test-llm">>).
+-define(BAD_PROVIDER_NAME, <<"bad-test-llm">>).
 
 -define(LLM_TIMEOUT, 60_000).
 -define(SHORT_TIMEOUT, 5_000).
@@ -51,17 +51,20 @@
     t_stop_on_finish_false_keeps_session,
     t_explicit_stop_terminates_session,
     t_llm_connection_error_terminates_session,
-    t_duplicate_request_is_ignored,
+    t_request_while_busy_is_queued,
     t_non_session_topic_ignored
 ]).
 
 all() -> ?PARSER_TESTS ++ ?LLM_TESTS.
 
 init_per_suite(Config) ->
-    %% Ollama needs no real auth; set a placeholder so resolve_api_key/1 succeeds.
-    os:putenv("OLLAMA_API_KEY", "ollama"),
     Apps = emqx_cth_suite:start(
-        [emqx, emqx_conf, emqx_agent],
+        [
+            emqx,
+            emqx_conf,
+            {emqx_ai_completion, #{config => "ai.providers = [], ai.completion_profiles = []"}},
+            emqx_agent
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{suite_apps, Apps}, {llm_available, llm_available()} | Config].
@@ -72,14 +75,21 @@ end_per_suite(Config) ->
 init_per_testcase(TestCase, Config) ->
     case lists:member(TestCase, ?LLM_TESTS) andalso not ?config(llm_available, Config) of
         true ->
-            {skip, "LLM API not reachable at http://ollama:11434/v1"};
+            {skip, emqx_agent_test_llm_helper:skip_reason("session")};
         false ->
             Sid = atom_to_binary(TestCase, utf8),
+            maybe_create_test_providers(TestCase),
+            case lists:member(TestCase, ?LLM_TESTS) of
+                true -> ct:timetrap({seconds, 60});
+                false -> ok
+            end,
             emqx:subscribe(out_topic(Sid)),
             [{sid, Sid} | Config]
     end.
 
 end_per_testcase(_TestCase, Config) ->
+    _ = emqx_ai_completion_config:update_providers_raw({delete, ?PROVIDER_NAME}),
+    _ = emqx_ai_completion_config:update_providers_raw({delete, ?BAD_PROVIDER_NAME}),
     case ?config(sid, Config) of
         undefined -> ok;
         Sid -> emqx:unsubscribe(out_topic(Sid))
@@ -272,7 +282,7 @@ t_request_with_tool_call(Config) ->
     }),
 
     Final = recv_final(Config),
-    ct:pal("final frame: ~p", [Final]),
+    % ct:pal("final frame: ~p", [Final]),
     assert_final(Final),
 
     %% The model received the tool result (sum=94) and must mention it.
@@ -319,7 +329,7 @@ t_events_are_incorporated(Config) ->
 
     %% Wait for the event-driven final — no second request sent
     Final2 = recv_final(Config),
-    ct:pal("event-driven final frame: ~p", [Final2]),
+    % ct:pal("event-driven final frame: ~p", [Final2]),
     assert_final(Final2),
 
     ResultText = result_to_text(maps:get(<<"result">>, Final2)),
@@ -334,9 +344,8 @@ t_events_are_incorporated(Config) ->
     ).
 
 %% With stop_on_finish=false the session returns to idle after publishing
-%% final.  Verify:
-%%   1. Session process is still alive after the first final.
-%%   2. A subsequent request frame is discarded (no second final arrives).
+%% final.  Verify the process is still alive, then stop it explicitly so the
+%% test does not leak a persistent session.
 t_stop_on_finish_false_keeps_session(Config) ->
     publish_in(
         Config,
@@ -350,18 +359,17 @@ t_stop_on_finish_false_keeps_session(Config) ->
     _Final1 = recv_final(Config),
 
     Sid = ?config(sid, Config),
-    ?assertNotEqual(undefined, emqx_agent_session:whereis(Sid)),
+    Pid = emqx_agent_session:whereis(Sid),
+    ?assertNotEqual(undefined, Pid),
+    Ref = monitor(process, Pid),
 
-    %% A new request must be discarded — no second final should arrive
-    publish_in(
-        Config,
-        request(Config, #{
-            <<"tools">> => [],
-            <<"instructions">> => <<"Answer briefly.">>,
-            <<"input">> => #{<<"q">> => <<"What is 3+3?">>}
-        })
-    ),
-    ?assertEqual(timeout, recv_final_or_timeout(Config)).
+    publish_in(Config, #{<<"type">> => <<"stop">>}),
+
+    receive
+        {'DOWN', Ref, process, Pid, normal} -> ok
+    after ?SHORT_TIMEOUT ->
+        ct:fail("session did not stop after stop frame")
+    end.
 
 %% An explicit `stop` frame must terminate the session process.
 t_explicit_stop_terminates_session(Config) ->
@@ -391,14 +399,12 @@ t_explicit_stop_terminates_session(Config) ->
 
 %% A connection error to the LLM must cause the session to terminate.
 t_llm_connection_error_terminates_session(Config) ->
-    %% nothing listens here
-    BadUrl = <<"http://127.0.0.1:1/v1">>,
     Sid = ?config(sid, Config),
     publish_in(
         Config,
         request(Config, #{
             <<"tools">> => [],
-            <<"base_url">> => BadUrl,
+            <<"provider_name">> => ?BAD_PROVIDER_NAME,
             <<"input">> => #{<<"q">> => <<"hello">>}
         })
     ),
@@ -410,20 +416,36 @@ t_llm_connection_error_terminates_session(Config) ->
         ct:fail("session did not stop after LLM connection error")
     end.
 
-%% A second request arriving while the session is processing (waiting
-%% for the LLM) must be silently dropped — only one final is produced.
-t_duplicate_request_is_ignored(Config) ->
+%% A request arriving while the session is busy is queued and replayed after
+%% the current reasoning turn finishes.  Make the busy state deterministic by
+%% holding the first request in waiting_tools until after the second request is
+%% published.
+t_request_while_busy_is_queued(Config) ->
+    Tool = #{
+        <<"name">> => <<"add">>,
+        <<"description">> => <<"Add two integers and return their sum.">>,
+        <<"parameters">> => #{
+            <<"type">> => <<"object">>,
+            <<"properties">> => #{
+                <<"a">> => #{<<"type">> => <<"integer">>},
+                <<"b">> => #{<<"type">> => <<"integer">>}
+            },
+            <<"required">> => [<<"a">>, <<"b">>]
+        }
+    },
     publish_in(
         Config,
         request(Config, #{
-            <<"tools">> => [],
-            <<"instructions">> => <<"Answer briefly.">>,
-            <<"input">> => #{<<"q">> => <<"What is 5+5?">>}
+            <<"tools">> => [Tool],
+            <<"instructions">> =>
+                <<"Use the add tool to compute the answer. Do not answer directly.">>,
+            <<"input">> => #{<<"question">> => <<"What is 5 + 5?">>},
+            <<"stop_on_finish">> => false
         })
     ),
 
-    %% We do not know exactly when the session starts calling the LLM,
-    %% but publishing a second request immediately is very likely to race.
+    ToolReq = recv_tool_request(Config),
+
     publish_in(
         Config,
         request(Config, #{
@@ -433,11 +455,28 @@ t_duplicate_request_is_ignored(Config) ->
         })
     ),
 
-    Final = recv_final(Config),
-    assert_final(Final),
+    publish_in(Config, #{
+        <<"type">> => <<"tool_result">>,
+        <<"call_id">> => maps:get(<<"call_id">>, ToolReq),
+        <<"ok">> => true,
+        <<"data">> => #{<<"sum">> => 10}
+    }),
 
-    %% No second final should arrive within a short window
-    ?assertEqual(timeout, recv_final_or_timeout(Config)).
+    Final1 = recv_final(Config),
+    assert_final(Final1),
+    Final2 = recv_final(Config),
+    assert_final(Final2),
+
+    Sid = ?config(sid, Config),
+    Pid = emqx_agent_session:whereis(Sid),
+    ?assertNotEqual(undefined, Pid),
+    Ref = monitor(process, Pid),
+    publish_in(Config, #{<<"type">> => <<"stop">>}),
+    receive
+        {'DOWN', Ref, process, Pid, normal} -> ok
+    after ?SHORT_TIMEOUT ->
+        ct:fail("session did not stop after queued request test")
+    end.
 
 %% Messages on topics that are not sess/in/<sid>/ must never trigger a
 %% session process to be created.
@@ -463,9 +502,8 @@ request(Config, Overrides) ->
             <<"sid">> => Sid,
             <<"iid">> => <<"iid-1">>,
             <<"trace_id">> => <<"tr-1">>,
-            <<"api_key">> => <<"OLLAMA_API_KEY">>,
-            <<"base_url">> => ?BASE_URL,
-            <<"model">> => ?MODEL,
+            <<"provider_name">> => ?PROVIDER_NAME,
+            <<"model">> => emqx_agent_test_llm_helper:default_model(),
             <<"tools">> => [],
             <<"input">> => #{},
             <<"instructions">> => <<"Answer briefly.">>,
@@ -569,11 +607,29 @@ wait_for_session(Sid, N) ->
 %% Probe the LLM endpoint; if it is not available the whole suite is
 %% skipped so that normal unit-test runs (without docker) are unaffected.
 llm_available() ->
-    Url = <<?BASE_URL/binary, "/models">>,
-    Opts = [with_body, {connect_timeout, 3_000}, {recv_timeout, 5_000}],
-    case hackney:request(get, Url, [], <<>>, Opts) of
-        {ok, 200, _, _} -> true;
-        _ -> false
+    emqx_agent_test_llm_helper:available().
+
+maybe_create_test_providers(TestCase) ->
+    case lists:member(TestCase, ?LLM_TESTS) of
+        true ->
+            _ = emqx_ai_completion_config:update_providers_raw({delete, ?PROVIDER_NAME}),
+            _ = emqx_ai_completion_config:update_providers_raw({delete, ?BAD_PROVIDER_NAME}),
+            ok = emqx_ai_completion_config:update_providers_raw(
+                {add, emqx_agent_test_llm_helper:provider(?PROVIDER_NAME)}
+            ),
+            ok = emqx_ai_completion_config:update_providers_raw(
+                {add, #{
+                    <<"name">> => ?BAD_PROVIDER_NAME,
+                    <<"type">> => <<"openai">>,
+                    <<"api_key">> => <<"bad-test-key">>,
+                    <<"base_url">> => <<"http://127.0.0.1:1/v1">>,
+                    <<"transport_options">> => #{
+                        <<"connect_timeout">> => <<"1s">>, <<"recv_timeout">> => <<"1s">>
+                    }
+                }}
+            );
+        false ->
+            ok
     end.
 
 %% Split a binary into consecutive chunks of at most N bytes.

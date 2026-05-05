@@ -2,14 +2,12 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Smoke tests for the three delete meta-skills:
+%% Smoke tests for the delete meta-skills:
 %%   agent.delete_skill    — emqx_agent_skill_delete_skill
-%%   agent.delete_session  — emqx_agent_skill_delete_session
 %%   agent.delete_pipeline — emqx_agent_skill_delete_pipeline
 %%
 %% Guards tested:
 %%   delete_skill    — refused when skill is referenced in a pipeline step
-%%   delete_session  — refused when profile is referenced in an llm_loop step
 %%   delete_pipeline — refused when pipeline is active
 
 -module(emqx_agent_skill_delete_SUITE).
@@ -22,7 +20,6 @@
 -include_lib("emqx/include/emqx.hrl").
 
 -define(SK_DEL_SKILL_ID, <<"meta-del-skill">>).
--define(SK_DEL_SESSION_ID, <<"meta-del-session">>).
 -define(SK_DEL_PIPELINE_ID, <<"meta-del-pipeline">>).
 
 %%--------------------------------------------------------------------
@@ -42,7 +39,6 @@ end_per_suite(Config) ->
 
 init_per_testcase(_TestCase, Config) ->
     ok = emqx_agent_skill_delete_skill:create(#{skill_id => ?SK_DEL_SKILL_ID}),
-    ok = emqx_agent_skill_delete_session:create(#{skill_id => ?SK_DEL_SESSION_ID}),
     ok = emqx_agent_skill_delete_pipeline:create(#{skill_id => ?SK_DEL_PIPELINE_ID}),
     Config.
 
@@ -156,7 +152,7 @@ t_delete_skill_in_use_by_llm_tools(_Config) ->
             #{
                 <<"id">> => <<"llm">>,
                 <<"type">> => <<"llm_loop">>,
-                <<"session_profile">> => <<"some-profile">>,
+                <<"provider_name">> => <<"some-provider">>,
                 <<"tools">> => [<<"message.publish@tool-pub">>]
             }
         ]
@@ -174,94 +170,6 @@ t_delete_skill_in_use_by_llm_tools(_Config) ->
     #{<<"data">> := Data} = Reply,
     ?assertEqual(<<"error">>, maps:get(<<"status">>, Data)),
     ?assertEqual([<<"pipe-uses-tool">>], maps:get(<<"used_by">>, Data)),
-    ok = emqx:unsubscribe(reply_topic(ReqId)).
-
-%%--------------------------------------------------------------------
-%% agent.delete_session — registration
-%%--------------------------------------------------------------------
-
-t_delete_session_registers(_Config) ->
-    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"agent.delete_session">>, ?SK_DEL_SESSION_ID),
-    ?assertEqual(<<"agent.delete_session">>, maps:get(type, Skill)).
-
-t_delete_session_destroy(_Config) ->
-    ok = emqx_agent_skill_delete_session:destroy(?SK_DEL_SESSION_ID),
-    ?assertEqual(
-        {error, not_found},
-        emqx_agent_skill_registry:lookup(<<"agent.delete_session">>, ?SK_DEL_SESSION_ID)
-    ).
-
-%%--------------------------------------------------------------------
-%% agent.delete_session — invocation
-%%--------------------------------------------------------------------
-
-t_delete_session_ok(_Config) ->
-    ok = emqx_agent_service:profile_create(#{
-        <<"name">> => <<"to-del-prof">>,
-        <<"api_key">> => <<"sk-x">>,
-        <<"base_url">> => <<"https://api.openai.com/v1">>,
-        <<"model">> => <<"gpt-4o">>
-    }),
-
-    ReqId = <<"req-dsess-ok">>,
-    ok = emqx:subscribe(reply_topic(ReqId)),
-    invoke(
-        <<"agent.delete_session">>,
-        ?SK_DEL_SESSION_ID,
-        #{<<"name">> => <<"to-del-prof">>},
-        ReqId
-    ),
-    Reply = recv_reply(ReqId),
-    ?assertMatch(#{<<"data">> := #{<<"status">> := <<"ok">>}}, Reply),
-    ?assertEqual({error, not_found}, emqx_agent_service:profile_get(<<"to-del-prof">>)),
-    ok = emqx:unsubscribe(reply_topic(ReqId)).
-
-t_delete_session_not_found(_Config) ->
-    ReqId = <<"req-dsess-nf">>,
-    ok = emqx:subscribe(reply_topic(ReqId)),
-    invoke(
-        <<"agent.delete_session">>,
-        ?SK_DEL_SESSION_ID,
-        #{<<"name">> => <<"no-such-prof">>},
-        ReqId
-    ),
-    Reply = recv_reply(ReqId),
-    ?assertMatch(#{<<"data">> := #{<<"status">> := <<"error">>}}, Reply),
-    ok = emqx:unsubscribe(reply_topic(ReqId)).
-
-t_delete_session_in_use(_Config) ->
-    ok = emqx_agent_service:profile_create(#{
-        <<"name">> => <<"used-prof">>,
-        <<"api_key">> => <<"sk-x">>,
-        <<"base_url">> => <<"https://api.openai.com/v1">>,
-        <<"model">> => <<"gpt-4o">>
-    }),
-    ok = emqx_agent_service:pipeline_create(#{
-        <<"pipeline_id">> => <<"pipe-uses-prof">>,
-        <<"active">> => false,
-        <<"trigger">> => #{<<"topic">> => <<"evt/p">>},
-        <<"steps">> => [
-            #{
-                <<"id">> => <<"llm">>,
-                <<"type">> => <<"llm_loop">>,
-                <<"session_profile">> => <<"used-prof">>,
-                <<"tools">> => []
-            }
-        ]
-    }),
-
-    ReqId = <<"req-dsess-inuse">>,
-    ok = emqx:subscribe(reply_topic(ReqId)),
-    invoke(
-        <<"agent.delete_session">>,
-        ?SK_DEL_SESSION_ID,
-        #{<<"name">> => <<"used-prof">>},
-        ReqId
-    ),
-    Reply = recv_reply(ReqId),
-    #{<<"data">> := Data} = Reply,
-    ?assertEqual(<<"error">>, maps:get(<<"status">>, Data)),
-    ?assertEqual([<<"pipe-uses-prof">>], maps:get(<<"used_by">>, Data)),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
 %%--------------------------------------------------------------------

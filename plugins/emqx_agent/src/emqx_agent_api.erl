@@ -7,8 +7,6 @@
 %% Resources:
 %%   /agent/skills                   — list / create skill instances
 %%   /agent/skills/:type/:id         — get / delete a skill instance
-%%   /agent/session_profiles         — list / create session profiles
-%%   /agent/session_profiles/:name   — get / update / delete a profile
 %%   /agent/pipelines                — list / create pipeline definitions
 %%   /agent/pipelines/:id            — get / update / delete a pipeline
 %%
@@ -46,8 +44,6 @@
     '/agent/builder/ui'/2,
     '/agent/skills'/2,
     '/agent/skills/:type/:id'/2,
-    '/agent/session_profiles'/2,
-    '/agent/session_profiles/:name'/2,
     '/agent/pipelines'/2,
     '/agent/pipelines/:id'/2
 ]).
@@ -71,8 +67,6 @@ paths() ->
         "/agent/builder/ui",
         "/agent/skills",
         "/agent/skills/:type/:id",
-        "/agent/session_profiles",
-        "/agent/session_profiles/:name",
         "/agent/pipelines",
         "/agent/pipelines/:id"
     ].
@@ -193,81 +187,6 @@ schema("/agent/skills/:type/:id") ->
             }
         }
     };
-schema("/agent/session_profiles") ->
-    #{
-        'operationId' => '/agent/session_profiles',
-        get => #{
-            tags => ?TAGS,
-            description => ?DESC(session_profiles_list),
-            responses => #{
-                200 => emqx_dashboard_swagger:schema_with_example(
-                    hoconsc:array(emqx_agent_schema:session_profile_type()),
-                    session_profiles_list_example()
-                )
-            }
-        },
-        post => #{
-            tags => ?TAGS,
-            description => ?DESC(session_profiles_create),
-            'requestBody' => emqx_dashboard_swagger:schema_with_example(
-                emqx_agent_schema:session_profile_type(),
-                session_profile_example()
-            ),
-            responses => #{
-                201 => <<"Profile created">>,
-                400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST'], ?DESC(profile_bad_request)
-                )
-            }
-        }
-    };
-schema("/agent/session_profiles/:name") ->
-    #{
-        'operationId' => '/agent/session_profiles/:name',
-        get => #{
-            tags => ?TAGS,
-            description => ?DESC(session_profile_get),
-            parameters => [profile_name_param()],
-            responses => #{
-                200 => emqx_dashboard_swagger:schema_with_example(
-                    emqx_agent_schema:session_profile_type(),
-                    session_profile_example()
-                ),
-                404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], ?DESC(profile_not_found)
-                )
-            }
-        },
-        put => #{
-            tags => ?TAGS,
-            description => ?DESC(session_profile_put),
-            parameters => [profile_name_param()],
-            'requestBody' => emqx_dashboard_swagger:schema_with_example(
-                emqx_agent_schema:session_profile_type(),
-                session_profile_example()
-            ),
-            responses => #{
-                200 => emqx_dashboard_swagger:schema_with_example(
-                    emqx_agent_schema:session_profile_type(),
-                    session_profile_example()
-                ),
-                400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST'], ?DESC(profile_bad_request)
-                )
-            }
-        },
-        delete => #{
-            tags => ?TAGS,
-            description => ?DESC(session_profile_delete),
-            parameters => [profile_name_param()],
-            responses => #{
-                204 => <<"Profile deleted">>,
-                404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], ?DESC(profile_not_found)
-                )
-            }
-        }
-    };
 schema("/agent/pipelines") ->
     #{
         'operationId' => '/agent/pipelines',
@@ -376,16 +295,6 @@ dispatch(put, [<<"skills">>, Type, Id], Params) ->
     '/agent/skills/:type/:id'(put, Params#{bindings => #{type => Type, id => Id}});
 dispatch(delete, [<<"skills">>, Type, Id], Params) ->
     '/agent/skills/:type/:id'(delete, Params#{bindings => #{type => Type, id => Id}});
-dispatch(get, [<<"session_profiles">>], Params) ->
-    '/agent/session_profiles'(get, Params);
-dispatch(post, [<<"session_profiles">>], Params) ->
-    '/agent/session_profiles'(post, Params);
-dispatch(get, [<<"session_profiles">>, Name], Params) ->
-    '/agent/session_profiles/:name'(get, Params#{bindings => #{name => Name}});
-dispatch(put, [<<"session_profiles">>, Name], Params) ->
-    '/agent/session_profiles/:name'(put, Params#{bindings => #{name => Name}});
-dispatch(delete, [<<"session_profiles">>, Name], Params) ->
-    '/agent/session_profiles/:name'(delete, Params#{bindings => #{name => Name}});
 dispatch(get, [<<"pipelines">>], Params) ->
     '/agent/pipelines'(get, Params);
 dispatch(post, [<<"pipelines">>], Params) ->
@@ -501,39 +410,6 @@ serve_html(Filename) ->
     end.
 
 %%--------------------------------------------------------------------
-%% Handlers — Session Profiles
-%%--------------------------------------------------------------------
-
-'/agent/session_profiles'(get, _Params) ->
-    ?OK(emqx_agent_service:profile_list());
-'/agent/session_profiles'(post, #{body := Body}) ->
-    case emqx_agent_service:profile_create(Body) of
-        ok ->
-            ?CREATED(#{});
-        {error, {missing_field, Field}} ->
-            ?BAD_REQUEST(iolist_to_binary(["Missing required field: ", field_to_str(Field)]))
-    end.
-
-'/agent/session_profiles/:name'(get, #{bindings := #{name := Name}}) ->
-    case emqx_agent_service:profile_get(Name) of
-        {ok, Profile} -> ?OK(Profile);
-        {error, not_found} -> ?NOT_FOUND(<<"Session profile not found">>)
-    end;
-'/agent/session_profiles/:name'(put, #{bindings := #{name := Name}, body := Body}) ->
-    {ok, Profile} = emqx_agent_service:profile_update(Name, Body),
-    ?OK(Profile);
-'/agent/session_profiles/:name'(delete, #{bindings := #{name := Name}}) ->
-    case emqx_agent_service:profile_delete(Name) of
-        ok ->
-            ?NO_CONTENT;
-        {error, not_found} ->
-            ?NOT_FOUND(<<"Session profile not found">>);
-        {error, {in_use, Ids}} ->
-            Joined = iolist_to_binary(lists:join(<<", ">>, Ids)),
-            ?CONFLICT(<<"Session profile is used in pipeline(s): ", Joined/binary>>)
-    end.
-
-%%--------------------------------------------------------------------
 %% Handlers — Pipelines
 %%--------------------------------------------------------------------
 
@@ -592,14 +468,6 @@ skill_id_param() ->
             desc => ?DESC(param_skill_id)
         })}.
 
-profile_name_param() ->
-    {name,
-        hoconsc:mk(binary(), #{
-            required => true,
-            in => path,
-            desc => ?DESC(param_profile_name)
-        })}.
-
 pipeline_id_param() ->
     {id,
         hoconsc:mk(binary(), #{
@@ -643,23 +511,6 @@ skill_create_example() ->
         <<"topic_prefix">> => <<"slack/prod/">>
     }.
 
-session_profiles_list_example() ->
-    [session_profile_example()].
-
-session_profile_example() ->
-    #{
-        <<"name">> => <<"hvac_triage_v1">>,
-        <<"api_key">> => <<"OPENAI_API_KEY">>,
-        <<"base_url">> => <<"https://api.openai.com/v1">>,
-        <<"output_schema">> => #{
-            <<"type">> => <<"object">>,
-            <<"properties">> => #{
-                <<"incident_id">> => #{<<"type">> => <<"string">>},
-                <<"severity">> => #{<<"type">> => <<"integer">>}
-            }
-        }
-    }.
-
 pipelines_list_example() ->
     [pipeline_example()].
 
@@ -671,7 +522,7 @@ pipeline_example() ->
             #{
                 <<"id">> => <<"diagnose">>,
                 <<"type">> => <<"llm_loop">>,
-                <<"session_profile">> => <<"hvac_triage_v1">>,
+                <<"provider_name">> => <<"openai">>,
                 <<"model">> => <<"gpt-4o">>,
                 <<"instructions">> =>
                     <<"You are an HVAC triage expert. Diagnose anomalies and create ServiceNow incidents.">>,

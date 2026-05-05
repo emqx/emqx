@@ -38,10 +38,9 @@
 %%   The tool name sent to the LLM is the spec with non-[a-zA-Z0-9_-] replaced
 %%   by underscore (e.g. "message_publish_slack_dev").
 %%
-%% Session config
-%%   Each llm_loop step must supply LLM connection parameters, either inline
-%%   via "session_config": {...} or by referencing a named profile registered
-%%   with emqx_agent_pipeline_registry:register_profile/2.
+%% AI provider
+%%   Each llm_loop step references an AI provider configured in
+%%   emqx_ai_completion via provider_name.
 
 -module(emqx_agent_pipeline).
 
@@ -293,10 +292,9 @@ start_llm_loop(Step, Data) ->
     {ToolManifest, ToolMap} = maybe_inject_set_result(ToolManifest0, ToolMap0, SetResultSchema),
     InputSpec = maps:get(<<"input">>, Step, #{}),
     Input = resolve_map(InputSpec, Data#data.context),
-    SessionCfg = resolve_session_config(Step),
     Instructions = maps:get(<<"instructions">>, Step, <<"You are a helpful assistant.">>),
-    DefaultModel = maps:get(<<"model">>, SessionCfg, <<"gpt-5.4-mini">>),
-    Model = maps:get(<<"model">>, Step, DefaultModel),
+    Model = maps:get(<<"model">>, Step, <<"gpt-5.4-mini">>),
+    ProviderName = maps:get(<<"provider_name">>, Step, <<"default">>),
     StepId = maps:get(<<"id">>, Step, <<"llm">>),
     %% Stable Sid: same session is reused across every trigger of this pipeline
     %% step, allowing the model to accumulate full conversation history.
@@ -307,16 +305,19 @@ start_llm_loop(Step, Data) ->
     %% session accumulates conversation history across events, explicitly set
     %% "stop_on_finish": false in the step configuration.
     StopOnFinish = maps:get(<<"stop_on_finish">>, Step, true),
-    Request = maps:merge(SessionCfg, #{
+    MaxTokens = maps:get(<<"max_tokens">>, Step, 2048),
+    Request = #{
         <<"type">> => <<"request">>,
         <<"iid">> => Data#data.iid,
         <<"trace_id">> => Data#data.trace_id,
+        <<"provider_name">> => ProviderName,
         <<"tools">> => ToolManifest,
         <<"input">> => Input,
         <<"model">> => Model,
         <<"instructions">> => Instructions,
-        <<"stop_on_finish">> => StopOnFinish
-    }),
+        <<"stop_on_finish">> => StopOnFinish,
+        <<"max_tokens">> => MaxTokens
+    },
     publish_to_sess_in(Sid, Request),
     Data1 = Data#data{active_sid = Sid, tool_map = ToolMap, pending_calls = #{}},
     ?SLOG(info, #{
@@ -672,30 +673,6 @@ san(C) when C >= $A, C =< $Z -> C;
 san(C) when C >= $0, C =< $9 -> C;
 san($-) -> $-;
 san(_) -> $_.
-
-%%--------------------------------------------------------------------
-%% Session config resolution
-%%--------------------------------------------------------------------
-
-%% Inline config takes precedence over a named profile.
-%% Keys expected: api_key, base_url, output_schema.
-resolve_session_config(Step) ->
-    case maps:get(<<"session_config">>, Step, undefined) of
-        Cfg when is_map(Cfg) ->
-            Cfg;
-        undefined ->
-            ProfileName = maps:get(<<"session_profile">>, Step, <<"default">>),
-            case emqx_agent_pipeline_registry:lookup_profile(ProfileName) of
-                {ok, Cfg} ->
-                    Cfg;
-                {error, not_found} ->
-                    ?SLOG(warning, #{
-                        msg => "pipeline_session_profile_not_found",
-                        profile => ProfileName
-                    }),
-                    #{}
-            end
-    end.
 
 %%--------------------------------------------------------------------
 %% Publishing helpers

@@ -2,16 +2,17 @@
 """Provision all EMQX Agent resources for the Pipeline Builder demo.
 
 The Pipeline Builder lets an LLM conversationally create and manage
-EMQX Agent skills, session profiles, and pipelines via MQTT.
+EMQX Agent skills, AI providers, and pipelines via MQTT.
 
 Optional env vars (for this init script):
   EMQX_BASE_URL      — EMQX Agent plugin API base URL
                        (default: http://localhost:18083/api/v5/plugin_api/emqx_agent)
+  EMQX_CORE_BASE_URL — EMQX core API base URL (default: http://localhost:18083/api/v5)
   EMQX_API_CREDS     — Basic-auth "key:secret" (default: key:secret)
   OPENAI_BASE_URL    — OpenAI-compatible base URL (default: https://api.openai.com/v1)
   OPENAI_MODEL       — Model name              (default: gpt-5.4-mini)
 
-Required env var at pipeline runtime (resolved by EMQX, not this script):
+Required env var:
   OPENAI_API_KEY     — OpenAI API key
 
 Usage:
@@ -36,9 +37,11 @@ def env(name: str, default: str | None = None) -> str:
 
 
 BASE_URL = env("EMQX_BASE_URL", "http://localhost:18083/api/v5/plugin_api/emqx_agent")
+CORE_BASE_URL = env("EMQX_CORE_BASE_URL", "http://localhost:18083/api/v5")
 CREDS = env("EMQX_API_CREDS", "key:secret")
 OPENAI_BASE_URL = env("OPENAI_BASE_URL", "https://api.openai.com/v1")
 OPENAI_MODEL = env("OPENAI_MODEL", "gpt-5.4")
+OPENAI_API_KEY = env("OPENAI_API_KEY")
 
 FIREWORKS_BASE_URL = env("FIREWORKS_BASE_URL", "https://api.fireworks.ai/inference/v1")
 FIREWORKS_MODEL = env("FIREWORKS_MODEL", "accounts/fireworks/models/kimi-k2p5")
@@ -49,18 +52,15 @@ PGDATABASE = env("PGDATABASE", "mqtt")
 PGUSER = env("PGUSER", "root")
 PGPASSWORD = env("PGPASSWORD", "public")
 
-PROFILE_NAME = "openai"
-KIMI_PROFILE_NAME = "kimi"
+PROVIDER_NAME = "openai"
 PIPELINE_ID = "pipeline-builder"
 
 SK_CREATE_SKILL    = "builder-create-skill"
-SK_CREATE_SESSION  = "builder-create-session"
 SK_CREATE_PIPELINE = "builder-create-pipeline"
 SK_QUERY_SKILLS    = "builder-query-skills"
-SK_QUERY_SESSIONS  = "builder-query-sessions"
+SK_QUERY_PROVIDERS = "builder-query-providers"
 SK_QUERY_PIPELINES = "builder-query-pipelines"
 SK_DELETE_SKILL    = "builder-delete-skill"
-SK_DELETE_SESSION  = "builder-delete-session"
 SK_DELETE_PIPELINE = "builder-delete-pipeline"
 SK_REPLY           = "builder-reply"
 
@@ -76,9 +76,11 @@ def api_request(
     method: str,
     path: str,
     body: dict | None = None,
+    *,
+    base_url: str = BASE_URL,
     ok_codes: tuple[int, ...] = (200, 201, 204),
 ):
-    url = f"{BASE_URL}{path}"
+    url = f"{base_url}{path}"
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url=url, method=method, data=data)
     req.add_header("Authorization", auth_header())
@@ -101,10 +103,10 @@ def api_request(
         ) from e
 
 
-def api_delete_maybe(path: str) -> None:
+def api_delete_maybe(path: str, *, base_url: str = BASE_URL) -> None:
     """DELETE the resource; ignore 404 and 409 (active / in-use)."""
     try:
-        api_request("DELETE", path, ok_codes=(200, 204, 404, 409))
+        api_request("DELETE", path, base_url=base_url, ok_codes=(200, 204, 404, 409))
     except RuntimeError:
         pass
 
@@ -134,24 +136,38 @@ def delete_old_assets() -> None:
         api_delete_maybe(f"/skills/{s['type']}/{s['skill_id']}")
         print(f"  deleted skill {s['type']}@{s['skill_id']!r}")
 
-    # Session profiles
-    for sp in json.loads(api_request("GET", "/session_profiles")):
-        api_delete_maybe(f"/session_profiles/{sp['name']}")
-        print(f"  deleted session profile {sp['name']!r}")
+    api_delete_maybe(f"/ai/providers/{PROVIDER_NAME}", base_url=CORE_BASE_URL)
+    print(f"  deleted AI provider {PROVIDER_NAME!r}")
 
+
+# ── AI providers ───────────────────────────────────────────────────────────────
+
+def create_ai_providers() -> None:
+    api_delete_maybe(f"/ai/providers/{PROVIDER_NAME}", base_url=CORE_BASE_URL)
+    api_request(
+        "POST",
+        "/ai/providers",
+        {
+            "name": PROVIDER_NAME,
+            "type": "openai",
+            "api_key": OPENAI_API_KEY,
+            "base_url": OPENAI_BASE_URL,
+        },
+        base_url=CORE_BASE_URL,
+        ok_codes=(200, 201, 204),
+    )
+    print(f"  AI provider {PROVIDER_NAME!r} created")
 
 # ── Skills ─────────────────────────────────────────────────────────────────────
 
 def create_skills() -> None:
     meta_skills = [
         ("agent.create_skill",    SK_CREATE_SKILL),
-        ("agent.create_session",  SK_CREATE_SESSION),
         ("agent.create_pipeline", SK_CREATE_PIPELINE),
         ("agent.query_skills",    SK_QUERY_SKILLS),
-        ("agent.query_sessions",  SK_QUERY_SESSIONS),
+        ("agent.query_providers", SK_QUERY_PROVIDERS),
         ("agent.query_pipelines", SK_QUERY_PIPELINES),
         ("agent.delete_skill",    SK_DELETE_SKILL),
-        ("agent.delete_session",  SK_DELETE_SESSION),
         ("agent.delete_pipeline", SK_DELETE_PIPELINE),
     ]
     for skill_type, skill_id in meta_skills:
@@ -171,14 +187,14 @@ def create_skills() -> None:
     print(f"  skill message.publish@{SK_REPLY!r} created")
 
 
-# ── Session profile ────────────────────────────────────────────────────────────
+# ── Builder prompt ─────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """\
 You are a Pipeline Architect for EMQX Agent — an intelligent system that helps users \
 design, create, and manage event-driven automation pipelines over MQTT.
 
 You have access to tools that let you fully manage the EMQX Agent runtime: query, \
-create, and delete skills, session profiles, and pipelines.
+create and delete skills and pipelines, and query AI providers.
 
 ═══════════════════════════════════════════════════════
 CORE CONCEPTS
@@ -188,11 +204,9 @@ SKILLS are named capability instances registered in the skill registry.
 Each skill has a TYPE (what it does) and an ID (its name within that type).
 Skills are referenced in pipeline steps as "type@id", e.g. "message.publish@my-notifier".
 
-A SESSION PROFILE holds LLM credentials (api_key, base_url).
-It is referenced by name inside an llm_loop step.
-One session profile can be shared by many pipelines / steps.
-The model and instructions (system prompt) are NOT part of the session profile —
-they are set on the llm_loop step itself.
+An AI PROVIDER holds LLM credentials.
+It is referenced by provider_name inside an llm_loop step.
+Providers are pre-created by administrators and are not modified by agent tools.
 
 A PIPELINE reacts to MQTT events and executes an ordered list of steps.
 Steps can call skills, run LLM reasoning loops, wait for more MQTT events,
@@ -200,23 +214,19 @@ or break out early based on conditions.
 Every trigger event spawns a new pipeline INSTANCE that runs the steps in sequence.
 
 ═══════════════════════════════════════════════════════
-HOW SKILLS, SESSIONS, AND PIPELINES FIT TOGETHER
+HOW SKILLS, PROVIDERS, AND PIPELINES FIT TOGETHER
 ═══════════════════════════════════════════════════════
 
-Building a working pipeline requires three separate creation steps, in this order:
+Building a working pipeline requires these steps:
 
   1. Create SKILLS — register the capabilities the pipeline will use.
      Skills are stateless; they just describe what MQTT topics to publish to,
      what HTTP endpoint to call, what SQL to execute, etc.
 
-  2. Create a SESSION PROFILE — if any step is an llm_loop, you need a profile
-     with api_key (env var name) and base_url only.
-     The api_key field must be the NAME of an OS environment variable (e.g. "OPENAI_API_KEY"),
-     NOT the actual secret — EMQX resolves it from the environment at call time.
-
+  2. Choose an existing AI PROVIDER for llm_loop provider_name.
   3. Create the PIPELINE — wire everything together.
      Reference skills inside steps as "type@id".
-     Reference the session profile by name inside llm_loop steps.
+     Reference the provider by name inside llm_loop steps.
 
 ═══════════════════════════════════════════════════════
 SKILL TYPES
@@ -263,13 +273,13 @@ The skill result is written to result_path.
    "result_path": "$.notify_result"}
 
 --- llm_loop ---
-Starts an LLM session using a session profile.
+Starts an LLM session using an AI provider.
 The LLM receives the "input" map as its first user message, then calls tools
 (skills listed in "tools") until it either calls the built-in set_result tool
 (when set_result_schema is provided) or sends a final frame.
 
   {"id": "analyse", "type": "llm_loop",
-   "session_profile": "my-profile",
+   "provider_name": "my-provider",
    "model": "gpt-5.4-mini",
    "instructions": "You are a quality inspector. Examine the photo and return a verdict.",
    "stop_on_finish": true,
@@ -326,10 +336,10 @@ YOUR WORKFLOW
 ═══════════════════════════════════════════════════════
 
 1. Understand what the user wants to automate.
-2. Query existing skills, sessions, and pipelines to avoid duplication.
+2. Query existing skills, AI providers, and pipelines to avoid duplication.
 3. Design the pipeline on paper: what triggers it, what data flows through,
    which skills are needed, whether an LLM reasoning step is required.
-4. Create skills first, then session profile (if needed), then the pipeline.
+4. Create skills first, then the pipeline using an existing provider.
 5. Confirm with a plain-language summary of what was created and how to trigger it.
 
 If the user wants to modify something: query it first to see its current state,
@@ -356,32 +366,6 @@ Show JSON only when the user explicitly asks for it.\
 """
 
 
-def create_profile() -> None:
-    api_request(
-        "POST",
-        "/session_profiles",
-        {
-            "name": PROFILE_NAME,
-            "api_key": "OPENAI_API_KEY",
-            "base_url": OPENAI_BASE_URL,
-            "model": OPENAI_MODEL,
-        },
-    )
-    print(f"  session profile {PROFILE_NAME!r} created")
-
-    api_request(
-        "POST",
-        "/session_profiles",
-        {
-            "name": KIMI_PROFILE_NAME,
-            "api_key": "FIREWORKS_API_KEY",
-            "base_url": FIREWORKS_BASE_URL,
-            "model": FIREWORKS_MODEL,
-        },
-    )
-    print(f"  session profile {KIMI_PROFILE_NAME!r} created")
-
-
 # ── Pipeline ───────────────────────────────────────────────────────────────────
 
 def create_pipeline() -> None:
@@ -396,19 +380,17 @@ def create_pipeline() -> None:
                 {
                     "id": "build",
                     "type": "llm_loop",
-                    "session_profile": PROFILE_NAME,
+                    "provider_name": PROVIDER_NAME,
                     "model": OPENAI_MODEL,
                     "instructions": SYSTEM_PROMPT,
                     "stop_on_finish": False,
                     "tools": [
                         f"agent.create_skill@{SK_CREATE_SKILL}",
-                        f"agent.create_session@{SK_CREATE_SESSION}",
                         f"agent.create_pipeline@{SK_CREATE_PIPELINE}",
                         f"agent.query_skills@{SK_QUERY_SKILLS}",
-                        f"agent.query_sessions@{SK_QUERY_SESSIONS}",
+                        f"agent.query_providers@{SK_QUERY_PROVIDERS}",
                         f"agent.query_pipelines@{SK_QUERY_PIPELINES}",
                         f"agent.delete_skill@{SK_DELETE_SKILL}",
-                        f"agent.delete_session@{SK_DELETE_SESSION}",
                         f"agent.delete_pipeline@{SK_DELETE_PIPELINE}",
                         f"message.publish@{SK_REPLY}",
                     ],
@@ -468,11 +450,11 @@ def main() -> int:
     print("==> Creating apple_box_inspections table")
     create_db_table()
 
-    print("==> Creating skills (9 meta-skills + 1 reply)")
+    print("==> Creating skills (7 meta-skills + 1 reply)")
     create_skills()
 
-    print("==> Creating session profile")
-    create_profile()
+    print("==> Creating AI providers")
+    create_ai_providers()
 
     print("==> Creating pipeline")
     create_pipeline()

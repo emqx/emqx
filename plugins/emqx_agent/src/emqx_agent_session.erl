@@ -80,9 +80,7 @@
     sid :: binary(),
     iid :: binary(),
     trace_id :: binary(),
-    %% LLM connection params supplied per-request
-    api_key :: binary(),
-    base_url :: binary(),
+    provider_name :: binary(),
     model :: binary(),
     tools :: [map()],
     output_schema :: map(),
@@ -179,8 +177,7 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, initial_idle, Dat
     #{
         <<"iid">> := Iid,
         <<"trace_id">> := TraceId,
-        <<"api_key">> := ApiKey,
-        <<"base_url">> := BaseUrl,
+        <<"provider_name">> := ProviderName,
         <<"model">> := Model,
         <<"tools">> := Tools,
         <<"input">> := Input,
@@ -194,8 +191,7 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, initial_idle, Dat
     Data1 = Data#data{
         iid = Iid,
         trace_id = TraceId,
-        api_key = ApiKey,
-        base_url = BaseUrl,
+        provider_name = ProviderName,
         model = Model,
         tools = Tools,
         output_schema = OutputSchema,
@@ -229,6 +225,7 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>, <<"input">> := Input} = M
     Iid = maps:get(<<"iid">>, Msg, Data#data.iid),
     TraceId = maps:get(<<"trace_id">>, Msg, Data#data.trace_id),
     Tools = maps:get(<<"tools">>, Msg, Data#data.tools),
+    ProviderName = maps:get(<<"provider_name">>, Msg, Data#data.provider_name),
     OutputSchema = maps:get(<<"output_schema">>, Msg, Data#data.output_schema),
     ToolChoice = maps:get(<<"tool_choice">>, Msg, Data#data.tool_choice),
     %% If instructions changed, replace the system message (always first).
@@ -248,6 +245,7 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>, <<"input">> := Input} = M
     Data1 = Data#data{
         iid = Iid,
         trace_id = TraceId,
+        provider_name = ProviderName,
         tools = Tools,
         output_schema = OutputSchema,
         tool_choice = ToolChoice,
@@ -349,40 +347,42 @@ handle_event(_EventType, _EventContent, _State, Data) ->
 %% LLM subprocess
 %%--------------------------------------------------------------------
 
-%% Resolves api_key from the environment and spawns the HTTP call.
-%% api_key is treated as an OS environment variable name — the actual secret
-%% never leaves this function.
-%% Returns a gen_statem action: {next_state, calling_llm, Data} on success, or
-%% {stop, normal, Data} after publishing an error frame when the env var is missing.
 start_llm_call(Data) ->
-    case resolve_api_key(Data#data.api_key) of
-        {error, VarName} ->
-            Reason = <<"api_key env var not set: ", VarName/binary>>,
-            ?SLOG(error, #{msg => "session_missing_api_key", sid => Data#data.sid, var => VarName}),
+    case resolve_provider(Data#data.provider_name) of
+        {error, Reason0} ->
+            Reason = emqx_utils:readable_error_msg(Reason0),
+            ?SLOG(error, #{
+                msg => "session_provider_unavailable",
+                sid => Data#data.sid,
+                provider_name => Data#data.provider_name,
+                reason => Reason0
+            }),
             ok = publish(Data, #{<<"type">> => <<"error">>, <<"reason">> => Reason}),
             {stop, normal, Data};
-        {ok, ResolvedKey} ->
-            do_start_llm_call(Data, ResolvedKey)
+        {ok, Provider} ->
+            do_start_llm_call(Data, Provider)
     end.
 
-resolve_api_key(VarName) when is_binary(VarName) ->
-    case os:getenv(binary_to_list(VarName)) of
-        false -> {error, VarName};
-        Value -> {ok, list_to_binary(Value)}
+resolve_provider(Name) ->
+    case emqx_ai_completion_config:get_provider(Name) of
+        {ok, #{type := openai} = Provider} -> {ok, Provider};
+        {ok, #{type := Type}} -> {error, {unsupported_provider_type, Type}};
+        not_found -> {error, {provider_not_found, Name}}
     end.
 
-do_start_llm_call(Data, ApiKey) ->
+do_start_llm_call(Data, Provider) ->
     Tag = make_ref(),
+    #{base_url := BaseUrl, api_key := ApiKeySecret} = Provider,
+    ApiKey = emqx_secret:unwrap(ApiKeySecret),
     OpenAITools = [to_openai_tool(T) || T <- Data#data.tools],
     ToolNames = [
         maps:get(<<"name">>, maps:get(<<"function">>, T, #{}), <<"?">>)
      || T <- OpenAITools
     ],
     Messages = Data#data.messages,
-    BaseUrl = Data#data.base_url,
     Model = Data#data.model,
     MaxTokens = Data#data.max_tokens,
-    RecvTimeoutMs = Data#data.recv_timeout_ms,
+    RecvTimeoutMs = provider_recv_timeout(Provider, Data#data.recv_timeout_ms),
     Temperature = Data#data.temperature,
     ToolChoice = Data#data.tool_choice,
     ?SLOG(warning, #{
@@ -417,8 +417,12 @@ do_start_llm_call(Data, ApiKey) ->
         ),
         exit({llm_result, Tag, Result})
     end),
-    %% Keep the env var name in Data — do NOT store the resolved key.
     {next_state, calling_llm, Data#data{llm_ref = {Tag, MonRef}}}.
+
+provider_recv_timeout(#{transport_options := #{recv_timeout := RecvTimeout}}, _Default) ->
+    RecvTimeout;
+provider_recv_timeout(_Provider, Default) ->
+    Default.
 
 %%--------------------------------------------------------------------
 %% LLM choice handling
@@ -706,7 +710,7 @@ call_llm(
         {<<"authorization">>, <<"Bearer ", ApiKey/binary>>},
         {<<"content-type">>, <<"application/json">>}
     ],
-    % ct:print("stream_llm_body: ~p", [Body]),
+    % ct:print("stream_llm_body: url:~p, headers:~p", [Url, Headers]),
     stream_llm_response(
         Url,
         Headers,
@@ -730,6 +734,7 @@ stream_llm_response(Url, Headers, Body0, RecvTimeoutMs, Model, Sid, Iid, TraceId
     Opts = [{connect_timeout, 30_000}, {recv_timeout, RecvTimeoutMs}],
     case hackney:request(post, Url, Headers, emqx_utils_json:encode(Body), Opts) of
         {ok, 200, _RespHdrs, ClientRef} ->
+            % ct:print("stream_llm_response ok sid=~ts, headers=~p", [Sid, RespHdrs]),
             collect_stream(ClientRef, Model, Sid, Iid, TraceId, Usage);
         {ok, Status, _RespHdrs, ClientRef} ->
             ErrBody = drain_stream_body(ClientRef, <<>>),
@@ -741,6 +746,7 @@ stream_llm_response(Url, Headers, Body0, RecvTimeoutMs, Model, Sid, Iid, TraceId
             }),
             {error, {http_error, Status, ErrBody}};
         {error, Reason} ->
+            % ct:print("stream_request_err sid=~ts reason=~p", [Sid, Reason]),
             ?SLOG(error, #{
                 msg => "session_llm_request_failed",
                 sid => Sid,
@@ -762,16 +768,19 @@ collect_stream(ClientRef, Model, Sid, Iid, TraceId, Usage) ->
 stream_receive_loop(ClientRef, Buf, Acc, Sid, Iid, TraceId, Usage) ->
     case hackney:stream_body(ClientRef) of
         {ok, Chunk} ->
+            % ct:print("stream_chunk: ~p", [Chunk]),
             Combined = <<Buf/binary, Chunk/binary>>,
             Normalized = binary:replace(Combined, <<"\r\n">>, <<"\n">>, [global]),
             {Buf1, Acc1} = feed_sse(Normalized, Acc, Sid, Iid, TraceId, Usage),
             stream_receive_loop(ClientRef, Buf1, Acc1, Sid, Iid, TraceId, Usage);
         done ->
+            % ct:print("stream_done", []),
             %% Flush any remaining bytes in the buffer (edge case: server
             %% does not terminate the last event with \n\n).
             Acc1 = flush_sse_buf(Buf, Acc, Sid, Iid, TraceId, Usage),
             {ok, Acc1};
         {error, Reason} ->
+            % ct:print("stream_error: ~p", [Reason]),
             ?SLOG(error, #{
                 msg => "session_stream_recv_error",
                 sid => Sid,

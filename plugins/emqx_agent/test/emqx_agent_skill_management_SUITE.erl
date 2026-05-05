@@ -2,9 +2,8 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Smoke tests for the three management meta-skills:
+%% Smoke tests for the management meta-skills:
 %%   agent.create_skill    — emqx_agent_skill_create_skill
-%%   agent.create_session  — emqx_agent_skill_create_session
 %%   agent.create_pipeline — emqx_agent_skill_create_pipeline
 %%
 %% Each group covers: registration, destruction, successful invocation,
@@ -20,7 +19,6 @@
 -include_lib("emqx/include/emqx.hrl").
 
 -define(SK_SKILL_ID, <<"meta-create-skill">>).
--define(SK_SESSION_ID, <<"meta-create-session">>).
 -define(SK_PIPELINE_ID, <<"meta-create-pipeline">>).
 
 %%--------------------------------------------------------------------
@@ -40,7 +38,6 @@ end_per_suite(Config) ->
 
 init_per_testcase(_TestCase, Config) ->
     ok = emqx_agent_skill_create_skill:create(#{skill_id => ?SK_SKILL_ID}),
-    ok = emqx_agent_skill_create_session:create(#{skill_id => ?SK_SESSION_ID}),
     ok = emqx_agent_skill_create_pipeline:create(#{skill_id => ?SK_PIPELINE_ID}),
     Config.
 
@@ -201,96 +198,6 @@ t_create_skill_reply_correlation(_Config) ->
             <<"iid">> := <<"iid-1">>,
             <<"sid">> := <<"sid-1">>
         },
-        Reply
-    ),
-    ok = emqx:unsubscribe(reply_topic(ReqId)).
-
-%%--------------------------------------------------------------------
-%% agent.create_session
-%%--------------------------------------------------------------------
-
-t_create_session_registers(_Config) ->
-    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"agent.create_session">>, ?SK_SESSION_ID),
-    ?assertEqual(<<"agent.create_session">>, maps:get(type, Skill)),
-    ?assertEqual(?SK_SESSION_ID, maps:get(skill_id, Skill)).
-
-t_create_session_destroy(_Config) ->
-    ok = emqx_agent_skill_create_session:destroy(?SK_SESSION_ID),
-    ?assertEqual(
-        {error, not_found},
-        emqx_agent_skill_registry:lookup(<<"agent.create_session">>, ?SK_SESSION_ID)
-    ).
-
-t_create_session_invoke_creates_profile(_Config) ->
-    ReqId = <<"req-sess-ok">>,
-    ok = emqx:subscribe(reply_topic(ReqId)),
-
-    invoke(
-        <<"agent.create_session">>,
-        ?SK_SESSION_ID,
-        #{
-            <<"name">> => <<"dyn-profile">>,
-            <<"api_key">> => <<"sk-test">>,
-            <<"base_url">> => <<"https://api.openai.com/v1">>,
-            <<"model">> => <<"gpt-4o">>,
-            <<"instructions">> => <<"You are helpful.">>
-        },
-        ReqId
-    ),
-
-    Reply = recv_reply(ReqId),
-    ?assertMatch(
-        #{<<"data">> := #{<<"status">> := <<"ok">>, <<"name">> := <<"dyn-profile">>}},
-        Reply
-    ),
-    ?assertMatch(
-        {ok, #{<<"name">> := <<"dyn-profile">>}},
-        emqx_agent_pipeline_registry:lookup_profile(<<"dyn-profile">>)
-    ),
-    ok = emqx:unsubscribe(reply_topic(ReqId)).
-
-t_create_session_invoke_missing_name(_Config) ->
-    ReqId = <<"req-sess-miss">>,
-    ok = emqx:subscribe(reply_topic(ReqId)),
-
-    invoke(
-        <<"agent.create_session">>,
-        ?SK_SESSION_ID,
-        #{
-            <<"api_key">> => <<"sk-test">>,
-            <<"base_url">> => <<"https://api.openai.com/v1">>,
-            <<"model">> => <<"gpt-4o">>
-        },
-        ReqId
-    ),
-
-    Reply = recv_reply(ReqId),
-    ?assertMatch(
-        #{<<"data">> := #{<<"status">> := <<"error">>, <<"reason">> := _}},
-        Reply
-    ),
-    ok = emqx:unsubscribe(reply_topic(ReqId)).
-
-t_create_session_reply_correlation(_Config) ->
-    ReqId = <<"req-sess-corr">>,
-    ok = emqx:subscribe(reply_topic(ReqId)),
-
-    invoke(
-        <<"agent.create_session">>,
-        ?SK_SESSION_ID,
-        #{
-            <<"name">> => <<"corr-profile">>,
-            <<"api_key">> => <<"sk-x">>,
-            <<"base_url">> => <<"https://api.openai.com/v1">>,
-            <<"model">> => <<"gpt-4o">>
-        },
-        ReqId,
-        #{<<"trace_id">> => <<"tr-s1">>}
-    ),
-
-    Reply = recv_reply(ReqId),
-    ?assertMatch(
-        #{<<"req_id">> := <<"req-sess-corr">>, <<"trace_id">> := <<"tr-s1">>},
         Reply
     ),
     ok = emqx:unsubscribe(reply_topic(ReqId)).

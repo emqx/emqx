@@ -32,11 +32,6 @@ emqx_agent_schema {
         label: "PostgreSQL Skill"
     }
 
-    session_profile {
-        desc: "LLM connection settings reusable across llm_loop pipeline steps."
-        label: "Session Profile"
-    }
-
     pipeline {
         desc: "An event-driven pipeline definition that reacts to MQTT events and orchestrates skills and LLM sessions."
         label: "Pipeline"
@@ -190,48 +185,11 @@ Example: [\"device_id\", \"metric\"] maps args.device_id -> $1 and args.metric -
     skill_pg_arg_keys.label:
 """Argument Keys"""
 
-    ## ── session_profile fields ───────────────────────────────────────────────
-
-    session_profile_name {
-        desc: "Profile name — referenced in llm_loop step session_profile field."
-        label: "Profile Name"
-    }
-
-    session_profile_api_key {
-        desc: "Name of the OS environment variable that holds the LLM provider API key (e.g. OPENAI_API_KEY). The actual secret is never stored — it is resolved from the environment at call time."
-        label: "API Key Env Var"
-    }
-
-    session_profile_base_url {
-        desc: "LLM provider API base URL (e.g. https://api.openai.com/v1)."
-        label: "Base URL"
-    }
-
-    session_profile_model {
-        desc: "Model identifier (e.g. gpt-4o, llama3)."
-        label: "Model"
-    }
-
-    session_profile_instructions {
-        desc: "System prompt injected at the start of every LLM session."
-        label: "Instructions"
-    }
-
-    session_profile_output_schema {
-        desc: "JSON Schema constraining the final LLM response structure."
-        label: "Output Schema"
-    }
-
     ## ── meta-skill create variants ───────────────────────────────────────────
 
     skill_create_skill_create {
         desc: "Parameters for registering an agent.create_skill meta-skill."
         label: "Create Skill Meta-Skill"
-    }
-
-    skill_create_session_create {
-        desc: "Parameters for registering an agent.create_session meta-skill."
-        label: "Create Session Meta-Skill"
     }
 
     skill_create_pipeline_create {
@@ -244,9 +202,9 @@ Example: [\"device_id\", \"metric\"] maps args.device_id -> $1 and args.metric -
         label: "Query Skills Meta-Skill"
     }
 
-    skill_query_sessions_create {
-        desc: "Parameters for registering an agent.query_sessions meta-skill."
-        label: "Query Sessions Meta-Skill"
+    skill_query_providers_create {
+        desc: "Parameters for registering an agent.query_providers meta-skill."
+        label: "Query Providers Meta-Skill"
     }
 
     skill_query_pipelines_create {
@@ -257,11 +215,6 @@ Example: [\"device_id\", \"metric\"] maps args.device_id -> $1 and args.metric -
     skill_delete_skill_create {
         desc: "Parameters for registering an agent.delete_skill meta-skill."
         label: "Delete Skill Meta-Skill"
-    }
-
-    skill_delete_session_create {
-        desc: "Parameters for registering an agent.delete_session meta-skill."
-        label: "Delete Session Meta-Skill"
     }
 
     skill_delete_pipeline_create {

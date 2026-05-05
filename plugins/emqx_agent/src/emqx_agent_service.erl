@@ -25,12 +25,6 @@
     skill_get/2,
     skill_update/3,
     skill_delete/2,
-    %% Session profiles
-    profile_list/0,
-    profile_create/1,
-    profile_get/1,
-    profile_update/2,
-    profile_delete/1,
     %% Pipelines
     pipeline_list/0,
     pipeline_create/1,
@@ -83,43 +77,6 @@ skill_delete(Type, Id) ->
             Ref = <<Type/binary, "@", Id/binary>>,
             case pipelines_using_skill(Ref) of
                 [] -> do_destroy_skill(Type, Id);
-                Ids -> {error, {in_use, Ids}}
-            end
-    end.
-
-%%--------------------------------------------------------------------
-%% Session profiles
-%%--------------------------------------------------------------------
-
--spec profile_list() -> [map()].
-profile_list() ->
-    emqx_agent_pipeline_registry:list_profiles().
-
--spec profile_create(map()) -> ok | {error, {missing_field, binary()}}.
-profile_create(#{<<"name">> := Name} = Body) ->
-    emqx_agent_pipeline_registry:register_profile(Name, Body);
-profile_create(_) ->
-    {error, {missing_field, <<"name">>}}.
-
--spec profile_get(binary()) -> {ok, map()} | {error, not_found}.
-profile_get(Name) ->
-    emqx_agent_pipeline_registry:lookup_profile(Name).
-
--spec profile_update(binary(), map()) -> {ok, map()}.
-profile_update(Name, Body) ->
-    Body2 = Body#{<<"name">> => Name},
-    ok = emqx_agent_pipeline_registry:register_profile(Name, Body2),
-    {ok, Body2}.
-
--spec profile_delete(binary()) ->
-    ok | {error, not_found | {in_use, [binary()]}}.
-profile_delete(Name) ->
-    case emqx_agent_pipeline_registry:lookup_profile(Name) of
-        {error, not_found} ->
-            {error, not_found};
-        {ok, _} ->
-            case pipelines_using_session(Name) of
-                [] -> emqx_agent_pipeline_registry:unregister_profile(Name);
                 Ids -> {error, {in_use, Ids}}
             end
     end.
@@ -189,13 +146,11 @@ do_destroy_skill(<<"kv.lookup">>, Id) -> emqx_agent_skill_kv:destroy_lookup(Id);
 do_destroy_skill(<<"kv.put">>, Id) -> emqx_agent_skill_kv:destroy_put(Id);
 do_destroy_skill(<<"postgresql.query">>, Id) -> emqx_agent_skill_postgresql:destroy(Id);
 do_destroy_skill(<<"agent.create_skill">>, Id) -> emqx_agent_skill_create_skill:destroy(Id);
-do_destroy_skill(<<"agent.create_session">>, Id) -> emqx_agent_skill_create_session:destroy(Id);
 do_destroy_skill(<<"agent.create_pipeline">>, Id) -> emqx_agent_skill_create_pipeline:destroy(Id);
 do_destroy_skill(<<"agent.query_skills">>, Id) -> emqx_agent_skill_query_skills:destroy(Id);
-do_destroy_skill(<<"agent.query_sessions">>, Id) -> emqx_agent_skill_query_sessions:destroy(Id);
+do_destroy_skill(<<"agent.query_providers">>, Id) -> emqx_agent_skill_query_providers:destroy(Id);
 do_destroy_skill(<<"agent.query_pipelines">>, Id) -> emqx_agent_skill_query_pipelines:destroy(Id);
 do_destroy_skill(<<"agent.delete_skill">>, Id) -> emqx_agent_skill_delete_skill:destroy(Id);
-do_destroy_skill(<<"agent.delete_session">>, Id) -> emqx_agent_skill_delete_session:destroy(Id);
 do_destroy_skill(<<"agent.delete_pipeline">>, Id) -> emqx_agent_skill_delete_pipeline:destroy(Id).
 
 skill_to_map(#{type := Type} = Skill) ->
@@ -209,13 +164,11 @@ skill_module(<<"kv.lookup">>) -> emqx_agent_skill_kv;
 skill_module(<<"kv.put">>) -> emqx_agent_skill_kv;
 skill_module(<<"postgresql.query">>) -> emqx_agent_skill_postgresql;
 skill_module(<<"agent.create_skill">>) -> emqx_agent_skill_create_skill;
-skill_module(<<"agent.create_session">>) -> emqx_agent_skill_create_session;
 skill_module(<<"agent.create_pipeline">>) -> emqx_agent_skill_create_pipeline;
 skill_module(<<"agent.query_skills">>) -> emqx_agent_skill_query_skills;
-skill_module(<<"agent.query_sessions">>) -> emqx_agent_skill_query_sessions;
+skill_module(<<"agent.query_providers">>) -> emqx_agent_skill_query_providers;
 skill_module(<<"agent.query_pipelines">>) -> emqx_agent_skill_query_pipelines;
 skill_module(<<"agent.delete_skill">>) -> emqx_agent_skill_delete_skill;
-skill_module(<<"agent.delete_session">>) -> emqx_agent_skill_delete_session;
 skill_module(<<"agent.delete_pipeline">>) -> emqx_agent_skill_delete_pipeline.
 
 pipelines_using_skill(Ref) ->
@@ -234,20 +187,4 @@ skill_ref_in_step(Ref, #{<<"type">> := <<"call_skill">>} = Step) ->
 skill_ref_in_step(Ref, #{<<"type">> := <<"llm_loop">>} = Step) ->
     lists:member(Ref, maps:get(<<"tools">>, Step, []));
 skill_ref_in_step(_Ref, _Step) ->
-    false.
-
-pipelines_using_session(Name) ->
-    [
-        maps:get(<<"pipeline_id">>, P)
-     || P <- emqx_agent_pipeline_registry:list(),
-        session_in_pipeline(Name, P)
-    ].
-
-session_in_pipeline(Name, Pipeline) ->
-    Steps = maps:get(<<"steps">>, Pipeline, []),
-    lists:any(fun(Step) -> session_in_step(Name, Step) end, Steps).
-
-session_in_step(Name, #{<<"type">> := <<"llm_loop">>} = Step) ->
-    maps:get(<<"session_profile">>, Step, undefined) =:= Name;
-session_in_step(_Name, _Step) ->
     false.

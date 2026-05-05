@@ -3,7 +3,7 @@ emqx_agent_api {
     ## UI
 
     ui_get {
-        desc: "Agent management UI — single-page application for managing skills, session profiles, and pipelines."
+        desc: "Agent management UI — single-page application for managing skills, AI providers, and pipelines."
         label: "Agent UI"
     }
 
@@ -56,35 +56,6 @@ emqx_agent_api {
         label: "Delete Skill"
     }
 
-    ## Session profiles collection
-
-    session_profiles_list {
-        desc: "List all registered session profiles."
-        label: "List Session Profiles"
-    }
-
-    session_profiles_create {
-        desc: "Create or replace a session profile. Session profiles hold LLM connection settings (api_key, base_url, model, instructions) that pipeline llm_loop steps reference by name."
-        label: "Create Session Profile"
-    }
-
-    ## Individual session profile
-
-    session_profile_get {
-        desc: "Get a session profile by name."
-        label: "Get Session Profile"
-    }
-
-    session_profile_put {
-        desc: "Replace a session profile."
-        label: "Update Session Profile"
-    }
-
-    session_profile_delete {
-        desc: "Delete a session profile."
-        label: "Delete Session Profile"
-    }
-
     ## Path parameter descriptions
 
     param_skill_type {
@@ -95,11 +66,6 @@ emqx_agent_api {
     param_skill_id {
         desc: "Skill instance ID."
         label: "Skill ID"
-    }
-
-    param_profile_name {
-        desc: "Session profile name."
-        label: "Profile Name"
     }
 
     param_pipeline_id {

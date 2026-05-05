@@ -87,7 +87,7 @@ the session sends a `final` frame.
 {
   "id": "inspect",
   "type": "llm_loop",
-  "session_profile": "apple-inspector",
+  "provider_name": "apple-inspector",
   "model": "gpt-4o",
   "instructions": "You are an apple quality inspector...",
   "stop_on_finish": true,
@@ -107,8 +107,7 @@ the session sends a `final` frame.
 
 Field | Description
 ------|------------
-`session_profile` | Name of a registered session profile (LLM credentials)
-`session_config` | Inline session config (takes precedence over `session_profile`)
+`provider_name` | Name of a configured AI provider
 `model` | Model name, e.g. `gpt-4o`
 `instructions` | System prompt for the LLM (default: `"You are a helpful assistant."`)
 `stop_on_finish` | Optional boolean (default `true`). When `true`, session terminates after publishing final (ephemeral mode). When `false`, session stays alive and accumulates history across events (persistent mode).
@@ -237,5 +236,5 @@ gen_statem:cast(Pid, #sess_frame{sid = Sid, frame = #{
 gen_statem:cast(Pid, #sess_frame{sid = Sid, frame = #{<<"type">> => <<"final">>}}).
 ```
 
-Use a `session_config` missing `output_schema` so the real session process
-crashes silently (no frames published to `sess/out`) and cannot interfere.
+Use a test provider pointed at a closed local port so the real session process
+cannot produce normal LLM frames that interfere.

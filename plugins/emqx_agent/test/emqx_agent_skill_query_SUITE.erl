@@ -4,7 +4,7 @@
 
 %% Smoke tests for the three query meta-skills:
 %%   agent.query_skills    — emqx_agent_skill_query_skills
-%%   agent.query_sessions  — emqx_agent_skill_query_sessions
+%%   agent.query_providers — emqx_agent_skill_query_providers
 %%   agent.query_pipelines — emqx_agent_skill_query_pipelines
 %%
 %% Each group covers: registration, destruction, list-empty,
@@ -20,7 +20,7 @@
 -include_lib("emqx/include/emqx.hrl").
 
 -define(SK_SKILLS_ID, <<"meta-query-skills">>).
--define(SK_SESSIONS_ID, <<"meta-query-sessions">>).
+-define(SK_PROVIDERS_ID, <<"meta-query-providers">>).
 -define(SK_PIPELINES_ID, <<"meta-query-pipelines">>).
 
 %%--------------------------------------------------------------------
@@ -30,9 +30,15 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_agent], #{
-        work_dir => emqx_cth_suite:work_dir(Config)
-    }),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            {emqx_ai_completion, #{config => "ai.providers = [], ai.completion_profiles = []"}},
+            emqx_agent
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -40,13 +46,14 @@ end_per_suite(Config) ->
 
 init_per_testcase(_TestCase, Config) ->
     ok = emqx_agent_skill_query_skills:create(#{skill_id => ?SK_SKILLS_ID}),
-    ok = emqx_agent_skill_query_sessions:create(#{skill_id => ?SK_SESSIONS_ID}),
+    ok = emqx_agent_skill_query_providers:create(#{skill_id => ?SK_PROVIDERS_ID}),
     ok = emqx_agent_skill_query_pipelines:create(#{skill_id => ?SK_PIPELINES_ID}),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
     ok = emqx_agent_skill_registry:delete_all(),
-    ok = emqx_agent_pipeline_registry:delete_all().
+    ok = emqx_agent_pipeline_registry:delete_all(),
+    ok = clean_providers().
 
 %%--------------------------------------------------------------------
 %% agent.query_skills
@@ -68,7 +75,7 @@ t_query_skills_list_empty(_Config) ->
     %% Only the query skill itself is registered; delete it so the list is empty.
     ok = emqx_agent_skill_registry:delete_all(),
     ok = emqx_agent_skill_query_skills:create(#{skill_id => ?SK_SKILLS_ID}),
-    ok = emqx_agent_skill_query_sessions:create(#{skill_id => ?SK_SESSIONS_ID}),
+    ok = emqx_agent_skill_query_providers:create(#{skill_id => ?SK_PROVIDERS_ID}),
     ok = emqx_agent_skill_query_pipelines:create(#{skill_id => ?SK_PIPELINES_ID}),
 
     ReqId = <<"req-qs-empty">>,
@@ -186,76 +193,72 @@ t_query_skills_reply_correlation(_Config) ->
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
 %%--------------------------------------------------------------------
-%% agent.query_sessions
+%% agent.query_providers
 %%--------------------------------------------------------------------
 
-t_query_sessions_registers(_Config) ->
-    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"agent.query_sessions">>, ?SK_SESSIONS_ID),
-    ?assertEqual(<<"agent.query_sessions">>, maps:get(type, Skill)).
+t_query_providers_registers(_Config) ->
+    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"agent.query_providers">>, ?SK_PROVIDERS_ID),
+    ?assertEqual(<<"agent.query_providers">>, maps:get(type, Skill)).
 
-t_query_sessions_destroy(_Config) ->
-    ok = emqx_agent_skill_query_sessions:destroy(?SK_SESSIONS_ID),
+t_query_providers_destroy(_Config) ->
+    ok = emqx_agent_skill_query_providers:destroy(?SK_PROVIDERS_ID),
     ?assertEqual(
         {error, not_found},
-        emqx_agent_skill_registry:lookup(<<"agent.query_sessions">>, ?SK_SESSIONS_ID)
+        emqx_agent_skill_registry:lookup(<<"agent.query_providers">>, ?SK_PROVIDERS_ID)
     ).
 
-t_query_sessions_list_empty(_Config) ->
+t_query_providers_list_empty(_Config) ->
     ReqId = <<"req-qsess-empty">>,
     ok = emqx:subscribe(reply_topic(ReqId)),
-    invoke(<<"agent.query_sessions">>, ?SK_SESSIONS_ID, #{}, ReqId),
+    invoke(<<"agent.query_providers">>, ?SK_PROVIDERS_ID, #{}, ReqId),
     Reply = recv_reply(ReqId),
     ?assertMatch(#{<<"data">> := #{<<"status">> := <<"ok">>, <<"items">> := []}}, Reply),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
-t_query_sessions_list_with_items(_Config) ->
-    ok = emqx_agent_service:profile_create(#{
-        <<"name">> => <<"prof-a">>,
-        <<"api_key">> => <<"sk-x">>,
-        <<"base_url">> => <<"https://api.openai.com/v1">>,
-        <<"model">> => <<"gpt-4o">>
-    }),
+t_query_providers_list_with_items(_Config) ->
+    ok = add_provider(<<"provider-a">>, <<"sk-x">>),
 
     ReqId = <<"req-qsess-list">>,
     ok = emqx:subscribe(reply_topic(ReqId)),
-    invoke(<<"agent.query_sessions">>, ?SK_SESSIONS_ID, #{}, ReqId),
+    invoke(<<"agent.query_providers">>, ?SK_PROVIDERS_ID, #{}, ReqId),
     Reply = recv_reply(ReqId),
     #{<<"data">> := #{<<"status">> := <<"ok">>, <<"items">> := Items}} = Reply,
-    ?assert(lists:any(fun(P) -> maps:get(<<"name">>, P, undefined) =:= <<"prof-a">> end, Items)),
+    ?assert(
+        lists:any(fun(P) -> maps:get(<<"name">>, P, undefined) =:= <<"provider-a">> end, Items)
+    ),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
-t_query_sessions_get_by_name(_Config) ->
-    ok = emqx_agent_service:profile_create(#{
-        <<"name">> => <<"prof-b">>,
-        <<"api_key">> => <<"sk-y">>,
-        <<"base_url">> => <<"https://api.openai.com/v1">>,
-        <<"model">> => <<"gpt-4o-mini">>
-    }),
+t_query_providers_get_by_name(_Config) ->
+    ok = add_provider(<<"provider-b">>, <<"sk-y">>),
 
     ReqId = <<"req-qsess-get">>,
     ok = emqx:subscribe(reply_topic(ReqId)),
-    invoke(<<"agent.query_sessions">>, ?SK_SESSIONS_ID, #{<<"name">> => <<"prof-b">>}, ReqId),
+    invoke(<<"agent.query_providers">>, ?SK_PROVIDERS_ID, #{<<"name">> => <<"provider-b">>}, ReqId),
     Reply = recv_reply(ReqId),
     ?assertMatch(
-        #{<<"data">> := #{<<"status">> := <<"ok">>, <<"item">> := #{<<"name">> := <<"prof-b">>}}},
+        #{
+            <<"data">> := #{
+                <<"status">> := <<"ok">>, <<"item">> := #{<<"name">> := <<"provider-b">>}
+            }
+        },
         Reply
     ),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
-t_query_sessions_get_not_found(_Config) ->
+t_query_providers_get_not_found(_Config) ->
     ReqId = <<"req-qsess-nf">>,
     ok = emqx:subscribe(reply_topic(ReqId)),
-    invoke(<<"agent.query_sessions">>, ?SK_SESSIONS_ID, #{<<"name">> => <<"no-such">>}, ReqId),
+    invoke(<<"agent.query_providers">>, ?SK_PROVIDERS_ID, #{<<"name">> => <<"no-such">>}, ReqId),
     Reply = recv_reply(ReqId),
     ?assertMatch(#{<<"data">> := #{<<"status">> := <<"error">>}}, Reply),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
-t_query_sessions_reply_correlation(_Config) ->
+t_query_providers_reply_correlation(_Config) ->
     ReqId = <<"req-qsess-corr">>,
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(
-        <<"agent.query_sessions">>,
-        ?SK_SESSIONS_ID,
+        <<"agent.query_providers">>,
+        ?SK_PROVIDERS_ID,
         #{},
         ReqId,
         #{<<"trace_id">> => <<"tr-sess">>}
@@ -393,3 +396,21 @@ recv_reply(ReqId) ->
     after 3000 ->
         ct:fail("no reply for req_id=~s within 3 s", [ReqId])
     end.
+
+add_provider(Name, ApiKey) ->
+    emqx_ai_completion_config:update_providers_raw(
+        {add, #{
+            <<"name">> => Name,
+            <<"type">> => <<"openai">>,
+            <<"api_key">> => ApiKey,
+            <<"base_url">> => <<"https://api.openai.com/v1">>
+        }}
+    ).
+
+clean_providers() ->
+    lists:foreach(
+        fun(#{<<"name">> := Name}) ->
+            ok = emqx_ai_completion_config:update_providers_raw({delete, Name})
+        end,
+        emqx_ai_completion_config:get_providers_raw()
+    ).

@@ -4,14 +4,14 @@
 
 %% End-to-end integration test for the Pipeline Builder demo.
 %%
-%% Requires: OPENAI_API_KEY environment variable set.
+%% Requires the API key for EMQX_AGENT_TEST_LLM_PROVIDER.
 %%
 %% What this suite tests:
 %%   1. All 9 meta-skills + builder-reply skill are registered.
-%%   2. The pipeline-builder session profile and pipeline are created.
+%%   2. The pipeline-builder AI provider and pipeline are created.
 %%   3. A natural-language request is published to evt/builder/request.
 %%   4. The LLM uses the meta-skills to create the apple-box-inspection
-%%      pipeline (skills + session profile + pipeline definition).
+%%      pipeline (skills + provider reference + pipeline definition).
 %%   5. The suite verifies the resulting pipeline structure matches the
 %%      reference definition from demo_apple_box_init.py.
 
@@ -25,7 +25,7 @@
 -include_lib("emqx/include/emqx.hrl").
 
 -define(BUILDER_PIPELINE_ID, <<"pipeline-builder">>).
--define(SHARED_PROFILE, <<"openai">>).
+-define(SHARED_PROVIDER, <<"openai">>).
 -define(REPLY_TOPIC, <<"builder/reply/#">>).
 -define(REQUEST_TOPIC, <<"evt/builder/request">>).
 
@@ -33,7 +33,7 @@
 -define(TARGET_PIPELINE_ID, <<"apple-box-inspection">>).
 
 %% The LLM makes ~7 tool calls; be generous.
--define(LLM_TIMEOUT, 60_000).
+-define(LLM_TIMEOUT, 180_000).
 
 -define(BUILDER_INSTRUCTIONS,
     ~b"""
@@ -41,7 +41,7 @@
     design, create, and manage event-driven automation pipelines over MQTT.
 
     You have access to tools that let you fully manage the EMQX Agent runtime: query, \
-    create, and delete skills, session profiles, and pipelines.
+    create and delete skills and pipelines, and query AI providers.
 
     ═══════════════════════════════════════════════════════
     CORE CONCEPTS
@@ -51,9 +51,9 @@
     Each skill has a TYPE (what it does) and an ID (its name within that type).
     Skills are referenced in pipeline steps as "type@id", e.g. "message.publish@my-notifier".
 
-    A SESSION PROFILE holds LLM credentials and a system prompt.
-    It is referenced by name inside an llm_loop step.
-    One session profile can be shared by many pipelines / steps.
+    An AI PROVIDER holds LLM credentials.
+    It is referenced by provider_name inside an llm_loop step.
+    Providers are pre-created by administrators and are not modified by agent tools.
 
     A PIPELINE reacts to MQTT events and executes an ordered list of steps.
     Steps can call skills, run LLM reasoning loops, wait for more MQTT events,
@@ -61,16 +61,13 @@
     Every trigger event spawns a new pipeline INSTANCE that runs the steps in sequence.
 
     ═══════════════════════════════════════════════════════
-    HOW SKILLS, SESSIONS, AND PIPELINES FIT TOGETHER
+    HOW SKILLS, PROVIDERS, AND PIPELINES FIT TOGETHER
     ═══════════════════════════════════════════════════════
 
-    Building a working pipeline requires three separate creation steps, in this order:
+    Building a working pipeline requires these steps:
 
       1. Create SKILLS — register the capabilities the pipeline will use.
-      2. Create a SESSION PROFILE — if any step is an llm_loop, you need a profile
-         that tells the LLM who it is (api_key env var name, base_url, model, instructions).
-         The api_key field must be the NAME of an OS environment variable (e.g. "OPENAI_API_KEY"),
-         NOT the actual secret.
+      2. Choose an existing AI PROVIDER for llm_loop provider_name.
       3. Create the PIPELINE — wire everything together.
 
     ═══════════════════════════════════════════════════════
@@ -107,7 +104,7 @@
 
     --- llm_loop ---
       {"id": "analyse", "type": "llm_loop",
-       "session_profile": "my-profile",
+       "provider_name": "my-provider",
        "stop_on_finish": true,
        "tools": ["message.request@box-camera"],
        "input": {"box_id": "$.event.box_id"},
@@ -135,7 +132,7 @@
     ═══════════════════════════════════════════════════════
 
     1. Understand what the user wants to automate.
-    2. Query existing skills, sessions, and pipelines to avoid duplication.
+    2. Query existing skills, AI providers, and pipelines to avoid duplication.
     3. Create skills first, then the pipeline.
     4. Confirm with a plain-language summary of what was created.
 
@@ -169,7 +166,7 @@
     Our PostgreSQL table is apple_box_inspections with columns
     conveyor_id, box_id, status, reason — write one row per box.
 
-    Use the existing session profile "openai" for the AI inspector.
+    Use the existing AI provider "openai" for the AI inspector.
     The inspector should request the photo, look for rotten/moldy/bruised apples,
     optionally raise an alert, then return a verdict: approved or rejected with a short reason.
 
@@ -191,15 +188,22 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    case os:getenv("OPENAI_API_KEY") of
+    case emqx_agent_test_llm_helper:available() of
         false ->
-            {skip, "OPENAI_API_KEY not set — skipping builder LLM integration tests"};
-        _ApiKey ->
+            {skip, emqx_agent_test_llm_helper:skip_reason("builder")};
+        true ->
             Apps = emqx_cth_suite:start(
-                [emqx, emqx_conf, emqx_agent],
+                [
+                    emqx,
+                    emqx_conf,
+                    {emqx_ai_completion, #{
+                        config => "ai.providers = [], ai.completion_profiles = []"
+                    }},
+                    emqx_agent
+                ],
                 #{work_dir => emqx_cth_suite:work_dir(Config)}
             ),
-            ok = register_shared_profile(),
+            ok = register_shared_provider(),
             ok = register_builder_skills(),
             ok = register_builder_pipeline(),
             [{suite_apps, Apps} | Config]
@@ -215,6 +219,7 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(_TC, Config) ->
+    ct:timetrap({seconds, 240}),
     ok = emqx:subscribe(?REPLY_TOPIC),
     Config.
 
@@ -325,13 +330,11 @@ await_reply() ->
 
 register_builder_skills() ->
     ok = emqx_agent_skill_create_skill:create(#{skill_id => <<"builder-create-skill">>}),
-    ok = emqx_agent_skill_create_session:create(#{skill_id => <<"builder-create-session">>}),
     ok = emqx_agent_skill_create_pipeline:create(#{skill_id => <<"builder-create-pipeline">>}),
     ok = emqx_agent_skill_query_skills:create(#{skill_id => <<"builder-query-skills">>}),
-    ok = emqx_agent_skill_query_sessions:create(#{skill_id => <<"builder-query-sessions">>}),
+    ok = emqx_agent_skill_query_providers:create(#{skill_id => <<"builder-query-providers">>}),
     ok = emqx_agent_skill_query_pipelines:create(#{skill_id => <<"builder-query-pipelines">>}),
     ok = emqx_agent_skill_delete_skill:create(#{skill_id => <<"builder-delete-skill">>}),
-    ok = emqx_agent_skill_delete_session:create(#{skill_id => <<"builder-delete-session">>}),
     ok = emqx_agent_skill_delete_pipeline:create(#{skill_id => <<"builder-delete-pipeline">>}),
     ok = emqx_agent_skill_publish:create(#{
         skill_id => <<"builder-reply">>,
@@ -341,29 +344,24 @@ register_builder_skills() ->
 
 cleanup_builder_infra() ->
     _ = emqx_agent_pipeline_registry:unregister(?BUILDER_PIPELINE_ID),
-    _ = emqx_agent_pipeline_registry:unregister_profile(?SHARED_PROFILE),
+    _ = emqx_ai_completion_config:update_providers_raw({delete, ?SHARED_PROVIDER}),
     _ = emqx_agent_skill_create_skill:destroy(<<"builder-create-skill">>),
-    _ = emqx_agent_skill_create_session:destroy(<<"builder-create-session">>),
     _ = emqx_agent_skill_create_pipeline:destroy(<<"builder-create-pipeline">>),
     _ = emqx_agent_skill_query_skills:destroy(<<"builder-query-skills">>),
-    _ = emqx_agent_skill_query_sessions:destroy(<<"builder-query-sessions">>),
+    _ = emqx_agent_skill_query_providers:destroy(<<"builder-query-providers">>),
     _ = emqx_agent_skill_query_pipelines:destroy(<<"builder-query-pipelines">>),
     _ = emqx_agent_skill_delete_skill:destroy(<<"builder-delete-skill">>),
-    _ = emqx_agent_skill_delete_session:destroy(<<"builder-delete-session">>),
     _ = emqx_agent_skill_delete_pipeline:destroy(<<"builder-delete-pipeline">>),
     _ = emqx_agent_skill_publish:destroy(<<"builder-reply">>),
     ok.
 
-register_shared_profile() ->
-    BaseUrl = list_to_binary(os:getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")),
-    emqx_agent_pipeline_registry:register_profile(?SHARED_PROFILE, #{
-        <<"name">> => ?SHARED_PROFILE,
-        <<"api_key">> => <<"OPENAI_API_KEY">>,
-        <<"base_url">> => BaseUrl
-    }).
+register_shared_provider() ->
+    emqx_ai_completion_config:update_providers_raw(
+        {add, emqx_agent_test_llm_helper:provider(?SHARED_PROVIDER)}
+    ).
 
 register_builder_pipeline() ->
-    Model = list_to_binary(os:getenv("OPENAI_MODEL", "gpt-5.4")),
+    Model = emqx_agent_test_llm_helper:default_model(),
     emqx_agent_pipeline_registry:register(#{
         <<"pipeline_id">> => ?BUILDER_PIPELINE_ID,
         <<"active">> => true,
@@ -372,19 +370,18 @@ register_builder_pipeline() ->
             #{
                 <<"id">> => <<"build">>,
                 <<"type">> => <<"llm_loop">>,
-                <<"session_profile">> => ?SHARED_PROFILE,
+                <<"provider_name">> => ?SHARED_PROVIDER,
                 <<"model">> => Model,
+                <<"max_tokens">> => 8192,
                 <<"instructions">> => ?BUILDER_INSTRUCTIONS,
                 <<"stop_on_finish">> => false,
                 <<"tools">> => [
                     <<"agent.create_skill@builder-create-skill">>,
-                    <<"agent.create_session@builder-create-session">>,
                     <<"agent.create_pipeline@builder-create-pipeline">>,
                     <<"agent.query_skills@builder-query-skills">>,
-                    <<"agent.query_sessions@builder-query-sessions">>,
+                    <<"agent.query_providers@builder-query-providers">>,
                     <<"agent.query_pipelines@builder-query-pipelines">>,
                     <<"agent.delete_skill@builder-delete-skill">>,
-                    <<"agent.delete_session@builder-delete-session">>,
                     <<"agent.delete_pipeline@builder-delete-pipeline">>,
                     <<"message.publish@builder-reply">>
                 ],

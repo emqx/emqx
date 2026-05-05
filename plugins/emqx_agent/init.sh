@@ -2,7 +2,7 @@
 # =============================================================================
 # init.sh — Bootstrap the HVAC anomaly incident-response scenario
 #
-# Registers three skills, one session profile, and one pipeline via the
+# Registers skills and one pipeline via the
 # Agent REST API, using only curl.
 #
 # Scenario
@@ -24,7 +24,7 @@
 #   http                incident-tracker   — Incident tracker (stub)
 #   message.publish     hvac-summary       — Internal summary bus (pipe/hvac/summary)
 #
-# Session profile: hvac-triage-v1
+# AI provider:     hvac-triage-v1 (must be pre-created in AI Completion)
 # Pipeline:        hvac-anomaly-response  (trigger: evt/hvac/anomaly)
 #
 # Usage
@@ -34,6 +34,7 @@
 # Prerequisites
 # -------------
 #   • EMQX running on localhost:18083 with API key "key" and secret "secret".
+#   • AI Completion provider "hvac-triage-v1" already configured.
 #   • Stub HTTP services at http://slack-bridge:8080 and
 #     http://incident-tracker:8080 (started separately, needed at runtime only).
 # =============================================================================
@@ -220,35 +221,6 @@ post /skills --data-binary @- <<'JSON'
 JSON
 
 # ---------------------------------------------------------------------------
-# Session profile
-# ---------------------------------------------------------------------------
-
-section "Registering session profile"
-
-echo "  • hvac-triage-v1"
-post /session_profiles --data-binary @- <<'JSON'
-{
-  "name":     "hvac-triage-v1",
-  "api_key":  "sk-YOUR-LLM-API-KEY",
-  "base_url": "https://api.openai.com/v1",
-  "model":    "gpt-4o",
-  "instructions": "You are an HVAC facility operations AI embedded in a live monitoring system.\n\nYou will receive:\n  • event   — the raw telemetry anomaly event (device, site, metric, observed value, expected value, severity)\n  • history — a table of recent 1-minute buckets for that metric on that device\n\nYour task:\n1. Analyse the anomaly and the historical trend. Identify whether this is a transient spike or a sustained deviation.\n2. If you need additional historical data (different metric, wider window, neighbouring device), call the pg-hvac tool before concluding.\n3. Determine severity on a 1–5 scale:\n   • 1 — Safety risk or equipment damage imminent (e.g. temp 10°C above setpoint for >15 min)\n   • 2 — High: sustained deviation >5°C or >20% outside normal band\n   • 3 — Medium: deviation 3–5°C or 10–20% outside band\n   • 4 — Low: transient or minor deviation\n   • 5 — Informational\n4. For severity 1–3, create an incident in the incident tracker with:\n   - A precise title referencing the asset, metric, and observed value\n   - A description that includes the trend summary and recommended first action\n   - The correct assigned_group (use 'facilities-{site}' unless you have better information)\n5. Post a concise summary to Slack channel 'facilities-alerts'. If an incident was created, include the incident ID and URL in the message.\n6. Return your final assessment as a structured object.\n\nBe concise and specific. Do not speculate beyond what the data shows.",
-  "output_schema": {
-    "type": "object",
-    "properties": {
-      "severity":      { "type": "integer", "minimum": 1, "maximum": 5 },
-      "root_cause":    { "type": "string",  "description": "One-sentence root cause assessment" },
-      "trend":         { "type": "string",  "description": "transient | sustained | escalating | recovering" },
-      "incident_id":   { "type": "string",  "description": "Tracker incident ID if created, otherwise null" },
-      "slack_ts":      { "type": "string",  "description": "Slack message timestamp if posted" },
-      "actions_taken": { "type": "array",   "items": { "type": "string" } }
-    },
-    "required": ["severity", "root_cause", "trend", "actions_taken"]
-  }
-}
-JSON
-
-# ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
 
@@ -277,7 +249,9 @@ post /pipelines --data-binary @- <<'JSON'
     {
       "id":              "analyze_and_escalate",
       "type":            "llm_loop",
-      "session_profile": "hvac-triage-v1",
+      "provider_name": "hvac-triage-v1",
+      "model": "gpt-4o",
+      "instructions": "You are an HVAC facility operations AI embedded in a live monitoring system. Analyse anomalies, call tools when needed, escalate severity 1-3, and return a concise structured assessment.",
       "tools": [
         "postgresql.query@pg-hvac",
         "http@slack-facilities",
