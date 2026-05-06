@@ -33,10 +33,7 @@
 
 -module(emqx_agent_skill_mqtt_request).
 
--include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
--include_lib("emqx/include/logger.hrl").
 
 -define(SKILL_TYPE, <<"message.request">>).
 -define(RESPONSE_TOPIC_PREFIX, <<"cap/tmp/response/">>).
@@ -97,8 +94,7 @@
     <<"required">> => [<<"status">>]
 }).
 
--export([init/0, deinit/0, create/1, destroy/1, to_map/1]).
--export([on_message_publish/1]).
+-export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/3]).
 
 %%--------------------------------------------------------------------
 %% Public API
@@ -106,13 +102,11 @@
 
 -spec init() -> ok.
 init() ->
-    _ = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_LOWEST),
-    ok.
+    emqx_agent_skill_registry:register_type(?SKILL_TYPE, ?MODULE).
 
 -spec deinit() -> ok.
 deinit() ->
-    emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
-    ok.
+    emqx_agent_skill_registry:unregister_type(?SKILL_TYPE).
 
 -spec create(Context :: map()) -> ok.
 create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix} = Context) ->
@@ -123,6 +117,7 @@ create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix} = Conte
     emqx_agent_skill_registry:register(#{
         skill_id => SkillId,
         type => ?SKILL_TYPE,
+        module => ?MODULE,
         display_name => <<Desc/binary, " — Request">>,
         description =>
             <<"Send an MQTT request to a topic under the prefix: ", TopicPrefix/binary,
@@ -163,30 +158,11 @@ to_map(#{
     }.
 
 %%--------------------------------------------------------------------
-%% Hook callback
-%%--------------------------------------------------------------------
-
-on_message_publish(Msg) ->
-    emqx_agent_skill_helpers:if_skill_request(
-        ?SKILL_TYPE,
-        fun(SkillId, #message{payload = Payload}) ->
-            handle_invoke(SkillId, Payload)
-        end,
-        Msg
-    ).
-
-%%--------------------------------------------------------------------
 %% Internal
 %%--------------------------------------------------------------------
 
-handle_invoke(SkillId, Payload) ->
-    case emqx_agent_skill_registry:lookup(?SKILL_TYPE, SkillId) of
-        {error, not_found} ->
-            ok;
-        {ok, #{context := #{topic_prefix := TopicPrefix}}} ->
-            Request = emqx_utils_json:decode(Payload),
-            do_request(SkillId, TopicPrefix, Request)
-    end.
+handle_invoke(SkillId, #{topic_prefix := TopicPrefix}, Request) ->
+    do_request(SkillId, TopicPrefix, Request).
 
 do_request(SkillId, TopicPrefix, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),

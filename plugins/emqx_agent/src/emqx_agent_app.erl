@@ -24,11 +24,13 @@ start(_StartType, _StartArgs) ->
     ok = emqx_agent_skill_query_pipelines:init(),
     ok = emqx_agent_skill_delete_skill:init(),
     ok = emqx_agent_skill_delete_pipeline:init(),
+    ok = emqx_agent_skill:init_hook(),
     ok = emqx_agent_session:init_hook(),
     ok = emqx_agent_pipeline_mgr:init_hook(),
     {ok, Sup}.
 
 stop(_State) ->
+    ok = emqx_agent_skill:deinit_hook(),
     ok = emqx_agent_skill_postgresql:deinit(),
     ok = emqx_agent_skill_http:deinit(),
     ok = emqx_agent_skill_publish:deinit(),

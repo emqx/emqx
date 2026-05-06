@@ -17,10 +17,6 @@
 
 -module(emqx_agent_skill_query_skills).
 
--include_lib("emqx/include/emqx_hooks.hrl").
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
-
 -define(SKILL_TYPE, <<"agent.query_skills">>).
 
 -define(INPUT_SCHEMA, #{
@@ -54,8 +50,7 @@
     <<"required">> => [<<"status">>]
 }).
 
--export([init/0, deinit/0, create/1, destroy/1, to_map/1]).
--export([on_message_publish/1]).
+-export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/3]).
 
 %%--------------------------------------------------------------------
 %% Public API
@@ -63,19 +58,18 @@
 
 -spec init() -> ok.
 init() ->
-    _ = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_LOWEST),
-    ok.
+    emqx_agent_skill_registry:register_type(?SKILL_TYPE, ?MODULE).
 
 -spec deinit() -> ok.
 deinit() ->
-    emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
-    ok.
+    emqx_agent_skill_registry:unregister_type(?SKILL_TYPE).
 
 -spec create(map()) -> ok | {error, term()}.
 create(#{skill_id := SkillId}) ->
     emqx_agent_skill_registry:register(#{
         skill_id => SkillId,
         type => ?SKILL_TYPE,
+        module => ?MODULE,
         display_name => <<"Query Skills">>,
         description => <<"List all registered skills or look up a specific one by type and id">>,
         context => #{skill_id => SkillId},
@@ -98,24 +92,10 @@ to_map(#{skill_id := Id, description := Desc, input_schema := In, output_schema 
     }.
 
 %%--------------------------------------------------------------------
-%% Hook callback
-%%--------------------------------------------------------------------
-
-on_message_publish(Msg) ->
-    emqx_agent_skill_helpers:if_skill_request(
-        ?SKILL_TYPE,
-        fun(SkillId, #message{payload = Payload}) ->
-            handle_invoke(SkillId, Payload)
-        end,
-        Msg
-    ).
-
-%%--------------------------------------------------------------------
 %% Internal
 %%--------------------------------------------------------------------
 
-handle_invoke(SkillId, Payload) ->
-    Request = emqx_utils_json:decode(Payload),
+handle_invoke(SkillId, _Context, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
     Result = query(Args),
     reply(SkillId, Request, Result).

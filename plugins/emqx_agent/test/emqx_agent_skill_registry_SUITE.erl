@@ -24,6 +24,8 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, _Config) ->
+    emqx_agent_skill_registry:unregister_type(?TYPE),
+    emqx_agent_skill_registry:unregister_type(<<"other.type">>),
     lists:foreach(
         fun(#{skill_id := Id, type := Type}) ->
             emqx_agent_skill_registry:unregister(Type, Id)
@@ -58,6 +60,12 @@ t_register_missing_type(_Config) ->
     ?assertEqual(
         {error, missing_type},
         emqx_agent_skill_registry:register(#{skill_id => <<"x">>, version => <<"1">>})
+    ).
+
+t_register_missing_module(_Config) ->
+    ?assertEqual(
+        {error, missing_module},
+        emqx_agent_skill_registry:register(#{skill_id => <<"x">>, type => ?TYPE})
     ).
 
 t_register_overwrites(_Config) ->
@@ -109,10 +117,28 @@ t_list_by_type(_Config) ->
 t_list_empty(_Config) ->
     ?assertEqual([], emqx_agent_skill_registry:list()).
 
+t_register_and_resolve_type(_Config) ->
+    ok = emqx_agent_skill_registry:register_type(?TYPE, ?MODULE),
+    ?assertEqual(?MODULE, emqx_agent_skill_registry:resolve_type(?TYPE)).
+
+t_register_type_overwrites(_Config) ->
+    ok = emqx_agent_skill_registry:register_type(?TYPE, emqx_agent_skill_registry),
+    ok = emqx_agent_skill_registry:register_type(?TYPE, ?MODULE),
+    ?assertEqual(?MODULE, emqx_agent_skill_registry:resolve_type(?TYPE)).
+
+t_unregister_type(_Config) ->
+    ok = emqx_agent_skill_registry:register_type(?TYPE, ?MODULE),
+    ok = emqx_agent_skill_registry:unregister_type(?TYPE),
+    ?assertThrow(unknown_type, emqx_agent_skill_registry:resolve_type(?TYPE)).
+
+t_resolve_unknown_type(_Config) ->
+    ?assertThrow(unknown_type, emqx_agent_skill_registry:resolve_type(?TYPE)).
+
 t_skill_with_schemas(_Config) ->
     Skill = #{
         skill_id => <<"postgresql.query">>,
         type => <<"postgresql.query">>,
+        module => emqx_agent_skill_postgresql,
         version => <<"1">>,
         display_name => <<"PostgreSQL Query">>,
         description => <<"Query PostgreSQL for historical telemetry.">>,
@@ -149,6 +175,7 @@ sample_skill(Id, Version) ->
     #{
         skill_id => Id,
         type => ?TYPE,
+        module => ?MODULE,
         version => Version,
         display_name => <<"Sample Skill">>,
         description => <<"A sample skill for testing.">>

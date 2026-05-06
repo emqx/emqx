@@ -24,16 +24,13 @@
 %%   qos     => 0 | 1 | 2  — QoS level (optional, default 0)
 %%
 %% Lifecycle:
-%%   init()        — register the message.publish hook (once per node)
+%%   init()        — register the skill type
 %%   create(Ctx)   — register a skill instance
 %%   destroy(Id)   — unregister a skill instance
-%%   deinit()      — remove the message.publish hook
+%%   deinit()      — unregister the skill type
 
 -module(emqx_agent_skill_publish).
 
--include_lib("emqx/include/emqx_hooks.hrl").
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -define(SKILL_TYPE, <<"message.publish">>).
@@ -89,8 +86,7 @@
     <<"required">> => [<<"status">>]
 }).
 
--export([init/0, deinit/0, create/1, destroy/1, to_map/1]).
--export([on_message_publish/1]).
+-export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/3]).
 
 %%--------------------------------------------------------------------
 %% Public API
@@ -98,13 +94,11 @@
 
 -spec init() -> ok.
 init() ->
-    _ = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_LOWEST),
-    ok.
+    emqx_agent_skill_registry:register_type(?SKILL_TYPE, ?MODULE).
 
 -spec deinit() -> ok.
 deinit() ->
-    emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
-    ok.
+    emqx_agent_skill_registry:unregister_type(?SKILL_TYPE).
 
 %% Context keys:
 %%   skill_id     => binary()
@@ -129,6 +123,7 @@ create(#{
     emqx_agent_skill_registry:register(#{
         skill_id => SkillId,
         type => ?SKILL_TYPE,
+        module => ?MODULE,
         display_name => <<Desc/binary, " — Publish">>,
         description =>
             <<"Publish an MQTT message to a topic under the prefix: ", TopicPrefix/binary>>,
@@ -193,30 +188,11 @@ to_map(
     }.
 
 %%--------------------------------------------------------------------
-%% Hook callbacks
-%%--------------------------------------------------------------------
-
-on_message_publish(Msg) ->
-    emqx_agent_skill_helpers:if_skill_request(
-        ?SKILL_TYPE,
-        fun(SkillId, #message{payload = Payload}) ->
-            handle_invoke(SkillId, Payload)
-        end,
-        Msg
-    ).
-
-%%--------------------------------------------------------------------
 %% Internal
 %%--------------------------------------------------------------------
 
-handle_invoke(SkillId, Payload) ->
-    case emqx_agent_skill_registry:lookup(?SKILL_TYPE, SkillId) of
-        {error, not_found} ->
-            ok;
-        {ok, #{context := #{topic_prefix := TopicPrefix}}} ->
-            Request = emqx_utils_json:decode(Payload),
-            do_publish(SkillId, TopicPrefix, Request)
-    end.
+handle_invoke(SkillId, #{topic_prefix := TopicPrefix}, Request) ->
+    do_publish(SkillId, TopicPrefix, Request).
 
 do_publish(SkillId, TopicPrefix, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),

@@ -73,10 +73,10 @@ skill_delete(Type, Id) ->
     case emqx_agent_skill_registry:lookup(Type, Id) of
         {error, not_found} ->
             {error, not_found};
-        {ok, _} ->
+        {ok, Skill} ->
             Ref = <<Type/binary, "@", Id/binary>>,
             case pipelines_using_skill(Ref) of
-                [] -> do_destroy_skill(Type, Id);
+                [] -> do_destroy_skill(Skill, Id);
                 Ids -> {error, {in_use, Ids}}
             end
     end.
@@ -128,9 +128,11 @@ do_create_skill(#{<<"type">> := Type} = Body) ->
     try hocon_tconf:check_plain(Schema, #{<<"skill">> => Body}, #{atom_key => true}) of
         #{skill := Ctx} ->
             Ctx2 = maps:put(skill_id, maps:get(id, Ctx), maps:remove(id, Ctx)),
-            Mod = skill_module(Type),
+            Mod = emqx_agent_skill_registry:resolve_type(Type),
             Mod:create(Ctx2)
     catch
+        throw:unknown_type ->
+            {error, unknown_type};
         throw:#{field_name := <<"type">>} ->
             {error, unknown_type};
         throw:Error ->
@@ -139,33 +141,11 @@ do_create_skill(#{<<"type">> := Type} = Body) ->
 do_create_skill(_) ->
     {error, {missing_field, <<"type">>}}.
 
-do_destroy_skill(<<"message.publish">>, Id) -> emqx_agent_skill_publish:destroy(Id);
-do_destroy_skill(<<"message.request">>, Id) -> emqx_agent_skill_mqtt_request:destroy(Id);
-do_destroy_skill(<<"http">>, Id) -> emqx_agent_skill_http:destroy(Id);
-do_destroy_skill(<<"postgresql.query">>, Id) -> emqx_agent_skill_postgresql:destroy(Id);
-do_destroy_skill(<<"agent.create_skill">>, Id) -> emqx_agent_skill_create_skill:destroy(Id);
-do_destroy_skill(<<"agent.create_pipeline">>, Id) -> emqx_agent_skill_create_pipeline:destroy(Id);
-do_destroy_skill(<<"agent.query_skills">>, Id) -> emqx_agent_skill_query_skills:destroy(Id);
-do_destroy_skill(<<"agent.query_providers">>, Id) -> emqx_agent_skill_query_providers:destroy(Id);
-do_destroy_skill(<<"agent.query_pipelines">>, Id) -> emqx_agent_skill_query_pipelines:destroy(Id);
-do_destroy_skill(<<"agent.delete_skill">>, Id) -> emqx_agent_skill_delete_skill:destroy(Id);
-do_destroy_skill(<<"agent.delete_pipeline">>, Id) -> emqx_agent_skill_delete_pipeline:destroy(Id).
+do_destroy_skill(#{module := Mod}, Id) ->
+    Mod:destroy(Id).
 
-skill_to_map(#{type := Type} = Skill) ->
-    Mod = skill_module(Type),
+skill_to_map(#{module := Mod} = Skill) ->
     Mod:to_map(Skill).
-
-skill_module(<<"http">>) -> emqx_agent_skill_http;
-skill_module(<<"message.publish">>) -> emqx_agent_skill_publish;
-skill_module(<<"message.request">>) -> emqx_agent_skill_mqtt_request;
-skill_module(<<"postgresql.query">>) -> emqx_agent_skill_postgresql;
-skill_module(<<"agent.create_skill">>) -> emqx_agent_skill_create_skill;
-skill_module(<<"agent.create_pipeline">>) -> emqx_agent_skill_create_pipeline;
-skill_module(<<"agent.query_skills">>) -> emqx_agent_skill_query_skills;
-skill_module(<<"agent.query_providers">>) -> emqx_agent_skill_query_providers;
-skill_module(<<"agent.query_pipelines">>) -> emqx_agent_skill_query_pipelines;
-skill_module(<<"agent.delete_skill">>) -> emqx_agent_skill_delete_skill;
-skill_module(<<"agent.delete_pipeline">>) -> emqx_agent_skill_delete_pipeline.
 
 pipelines_using_skill(Ref) ->
     [

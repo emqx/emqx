@@ -12,17 +12,12 @@
 
 -module(emqx_agent_skill_postgresql).
 
--include_lib("emqx/include/emqx_hooks.hrl").
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
-
 -define(SKILL_TYPE, <<"postgresql.query">>).
 -define(RESOURCE_ID, <<"emqx_agent_skill_postgresql_resource">>).
 -define(RESOURCE_GROUP, <<"emqx_agent">>).
 
--export([init/0, deinit/0, create/1, destroy/1, to_map/1, resource_id/0]).
+-export([init/0, deinit/0, create/1, destroy/1, to_map/1, resource_id/0, handle_invoke/3]).
 -export([maybe_expand_schema/2]).
--export([on_message_publish/1]).
 
 -spec resource_id() -> binary().
 resource_id() ->
@@ -30,13 +25,13 @@ resource_id() ->
 
 -spec init() -> ok.
 init() ->
-    _ = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_LOWEST),
+    ok = emqx_agent_skill_registry:register_type(?SKILL_TYPE, ?MODULE),
     ok = ensure_resource_if_available(),
     ok.
 
 -spec deinit() -> ok.
 deinit() ->
-    emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
+    ok = emqx_agent_skill_registry:unregister_type(?SKILL_TYPE),
     ok = emqx_resource:remove_local(?RESOURCE_ID),
     ok.
 
@@ -50,6 +45,7 @@ create(#{skill_id := SkillId, desc := Desc, query := _Query} = Context) ->
     Skill = #{
         skill_id => SkillId,
         type => ?SKILL_TYPE,
+        module => ?MODULE,
         display_name => <<"PostgreSQL Query">>,
         description => Desc,
         context => Context,
@@ -91,23 +87,8 @@ to_map(#{
         <<"output_schema">> => Out
     }.
 
-on_message_publish(Msg) ->
-    emqx_agent_skill_helpers:if_skill_request(
-        ?SKILL_TYPE,
-        fun(SkillId, #message{payload = Payload}) ->
-            handle_invoke(SkillId, Payload)
-        end,
-        Msg
-    ).
-
-handle_invoke(SkillId, Payload) ->
-    case emqx_agent_skill_registry:lookup(?SKILL_TYPE, SkillId) of
-        {error, not_found} ->
-            ok;
-        {ok, #{context := Context}} ->
-            Request = emqx_utils_json:decode(Payload),
-            do_reply(SkillId, Context, Request)
-    end.
+handle_invoke(SkillId, Context, Request) ->
+    do_reply(SkillId, Context, Request).
 
 do_reply(SkillId, Context, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
