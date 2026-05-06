@@ -500,6 +500,7 @@ eventmsg_connack(
     Keepalive = maps:get(keepalive, ConnInfo, 0),
     ConnProps = maps:get(conn_props, ConnInfo, #{}),
     ExpiryInterval = maps:get(expiry_interval, ConnInfo, 0),
+    ConnectedAt = maps:get(connected_at, ConnInfo, undefined),
     with_basic_columns(
         'client.connack',
         #{
@@ -513,6 +514,7 @@ eventmsg_connack(
             proto_ver => ProtoVer,
             keepalive => Keepalive,
             expiry_interval => ExpiryInterval,
+            connected_at => ConnectedAt,
             conn_props => emqx_utils_maps:printable_props(ConnProps)
         },
         #{}
