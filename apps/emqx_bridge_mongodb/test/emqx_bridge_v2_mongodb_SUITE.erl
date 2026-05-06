@@ -168,7 +168,7 @@ action_config(Name, ConnectorId) ->
             <<"enable">> => true,
             <<"connector">> => ConnectorId,
             <<"parameters">> =>
-                #{},
+                #{<<"collection">> => Name},
             <<"local_topic">> => <<"t/mongo">>,
             <<"resource_opts">> => #{
                 <<"batch_size">> => 1,
@@ -251,6 +251,21 @@ delete_action_api(Config) ->
         ?ACTION_TYPE,
         ?config(action_name, Config)
     ).
+
+get_poolboy_pids() ->
+    [
+        Pid
+     || Pid <- processes(),
+        case proc_lib:initial_call(Pid) of
+            {poolboy, _, _} -> true;
+            _ -> false
+        end
+    ].
+
+find_all(Config) ->
+    #{<<"parameters">> := #{<<"collection">> := Collection}} = ?config(action_config, Config),
+    ResourceID = emqx_bridge_v2_testlib:resource_id(Config),
+    emqx_resource:simple_sync_query(ResourceID, {find, Collection, #{}, #{}}).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -359,5 +374,53 @@ t_timeout_during_connector_health_check(Config0) ->
             ?assertEqual([], ?of_kind("remove_channel_failed", Trace)),
             ok
         end
+    ),
+    ok.
+
+%% Checks that we treat poolboy call timeouts (checking out connections) as recoverable
+%% errors.
+t_call_timeout(TCConfig0) ->
+    Overrides = #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"700ms">>}},
+    TCConfig = emqx_bridge_v2_testlib:proplist_update(
+        TCConfig0,
+        connector_config,
+        fun(Cfg) ->
+            emqx_utils_maps:deep_merge(Cfg, Overrides)
+        end
+    ),
+    {201, _} = create_bridge_api(TCConfig, #{
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"700ms">>,
+            <<"resume_interval">> => <<"700ms">>
+        }
+    }),
+    RuleTopic = <<"t/poolboy/timeout">>,
+    {ok, _} = emqx_bridge_v2_testlib:create_rule_and_action_http(
+        ?ACTION_TYPE, RuleTopic, TCConfig
+    ),
+    Payload = integer_to_binary(erlang:unique_integer()),
+    Pids = get_poolboy_pids(),
+    try
+        lists:foreach(fun sys:suspend/1, Pids),
+        ct:pal("sending message"),
+        {_, {ok, _}} = ?wait_async_action(
+            spawn(fun() -> emqx:publish(emqx_message:make(RuleTopic, Payload)) end),
+            #{?snk_kind := "mongo_insert_call_timeout"},
+            15_000
+        ),
+        ct:pal("sent message"),
+        ok
+    after
+        lists:foreach(fun(P) -> catch sys:resume(P) end, Pids)
+    end,
+    %% eventually should work
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            {ok, [#{<<"payload">> := Payload}]},
+            find_all(TCConfig),
+            #{payload => Payload}
+        )
     ),
     ok.
