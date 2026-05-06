@@ -17,6 +17,9 @@
 %% ecpool
 -export([connect/1]).
 
+%% emqtt
+-export([handle_disconnect/1]).
+
 -behaviour(emqx_resource).
 -export([
     callback_mode/0,
@@ -172,7 +175,7 @@ on_start(ResourceId, #{pool_size := PoolSize} = ClusterConf) ->
         {pool_size, PoolSize},
         {pool_type, hash},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL_S},
-        {client_opts, emqtt_client_opts(?MSG_CLIENTID_SUFFIX, ClusterConf)}
+        {client_opts, emqx_cluster_link_config:mk_emqtt_options(ClusterConf)}
     ],
     ok = emqx_resource:allocate_resource(ResourceId, ?MODULE, pool_name, PoolName),
     case emqx_resource_pool:start(PoolName, ?MODULE, Options) of
@@ -317,11 +320,17 @@ combine_status(Statuses) ->
 %%--------------------------------------------------------------------
 
 connect(Options) ->
-    WorkerIdBin = integer_to_binary(proplists:get_value(ecpool_worker_id, Options)),
-    #{clientid := ClientId} = ClientOpts = proplists:get_value(client_opts, Options),
-    ClientId1 = <<ClientId/binary, ":", WorkerIdBin/binary>>,
-    ClientOpts1 = ClientOpts#{clientid => ClientId1},
-    case emqtt:start_link(ClientOpts1) of
+    WorkerId = proplists:get_value(ecpool_worker_id, Options),
+    ClientOpts0 = #{clientid := ClientId0} = proplists:get_value(client_opts, Options),
+    ClientIdBase = emqx_bridge_mqtt_lib:clientid_base([ClientId0, ?MSG_CLIENTID_SUFFIX]),
+    ClientId = iolist_to_binary([ClientIdBase, $:, integer_to_binary(WorkerId)]),
+    ClientOpts = ClientOpts0#{
+        clientid => ClientId,
+        msg_handler => #{
+            disconnected => {fun ?MODULE:handle_disconnect/1, []}
+        }
+    },
+    case emqtt:start_link(ClientOpts) of
         {ok, Pid} ->
             case emqtt:connect(Pid) of
                 {ok, _Props} ->
@@ -337,6 +346,10 @@ connect(Options) ->
             }),
             Error
     end.
+
+-spec handle_disconnect({disconnected, emqx_types:reason_code(), emqx_types:properties()}) -> ok.
+handle_disconnect(_Reason) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Protocol
@@ -495,12 +508,3 @@ decode_payload(Payload) ->
 forward(ClusterName, #delivery{message = #message{topic = Topic} = Msg}) ->
     QueryOpts = #{pick_key => Topic},
     emqx_resource:query(?MSG_RES_ID(ClusterName), Msg, QueryOpts).
-
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-emqtt_client_opts(ClientIdSuffix, ClusterConf) ->
-    #{clientid := BaseClientId} = Opts = emqx_cluster_link_config:mk_emqtt_options(ClusterConf),
-    ClientId = emqx_bridge_mqtt_lib:clientid_base([BaseClientId, ClientIdSuffix]),
-    Opts#{clientid => ClientId}.
