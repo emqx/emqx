@@ -7,16 +7,10 @@
 make plugins/emqx_agent-ct
 
 # Single suite (faster — use SUITE singular + ct-suite target):
-make SUITE=plugins/emqx_agent/test/emqx_agent_pipeline_SUITE.erl ct-suite
-
+TERM=dumb SUITES=emqx_agent_pipeline_SUITE make plugins/emqx_agent-ct
 # Single test case:
-make SUITE=plugins/emqx_agent/test/emqx_agent_pipeline_SUITE.erl \
-     CASES=t_set_result_writes_to_context ct-suite
 
-# LLM integration tests (require API key + PostgreSQL at pgsql:5432):
-OPENAI_API_KEY=sk-... \
-SUITES=plugins/emqx_agent/test/emqx_agent_apple_box_SUITE.erl \
-make plugins/emqx_agent-ct
+TERM=dumb SUITES=emqx_agent_pipeline_SUITE CASES=t_set_result_writes_to_context make plugins/emqx_agent-ct
 ```
 
 The apple-box and builder suites are skipped automatically when `OPENAI_API_KEY` is not set.
