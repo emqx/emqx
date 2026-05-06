@@ -5,7 +5,7 @@
 %% Hocon schema module for emqx_agent REST API.
 %%
 %% Defines three resource families:
-%%   Skills         — cap-layer skill instances (message.publish, http, kv, postgresql.query)
+%%   Skills         — cap-layer skill instances (message.publish, http, postgresql.query)
 %%   Pipelines       — event-driven orchestration definitions
 
 -module(emqx_agent_schema).
@@ -142,52 +142,6 @@ fields(skill_http_create) ->
             mk(map(), #{
                 required => true,
                 desc => ?DESC(skill_output_schema)
-            })}
-    ];
-fields(skill_kv_lookup_create) ->
-    [
-        {type,
-            mk(enum(['kv.lookup']), #{
-                required => true,
-                desc => ?DESC(skill_kv_type)
-            })},
-        {id,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(skill_id)
-            })},
-        {desc,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(skill_kv_desc)
-            })},
-        {data_schema,
-            mk(map(), #{
-                required => true,
-                desc => ?DESC(skill_kv_data_schema)
-            })}
-    ];
-fields(skill_kv_put_create) ->
-    [
-        {type,
-            mk(enum(['kv.put']), #{
-                required => true,
-                desc => ?DESC(skill_kv_type)
-            })},
-        {id,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(skill_id)
-            })},
-        {desc,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(skill_kv_desc)
-            })},
-        {data_schema,
-            mk(map(), #{
-                required => true,
-                desc => ?DESC(skill_kv_data_schema)
             })}
     ];
 fields(skill_mqtt_request_create) ->
@@ -400,8 +354,6 @@ fields(_) ->
 desc(skill_entry) -> ?DESC(skill_entry);
 desc(skill_publish_create) -> ?DESC(skill_publish_create);
 desc(skill_http_create) -> ?DESC(skill_http_create);
-desc(skill_kv_lookup_create) -> ?DESC(skill_kv_create);
-desc(skill_kv_put_create) -> ?DESC(skill_kv_create);
 desc(skill_mqtt_request_create) -> ?DESC(skill_mqtt_request_create);
 desc(skill_postgresql_create) -> ?DESC(skill_postgresql_create);
 desc(skill_create_skill_create) -> ?DESC(skill_create_skill_create);
@@ -429,8 +381,6 @@ skill_create_type() ->
         <<"message.publish">> => ref(skill_publish_create),
         <<"message.request">> => ref(skill_mqtt_request_create),
         <<"http">> => ref(skill_http_create),
-        <<"kv.lookup">> => ref(skill_kv_lookup_create),
-        <<"kv.put">> => ref(skill_kv_put_create),
         <<"postgresql.query">> => ref(skill_postgresql_create),
         <<"agent.create_skill">> => ref(skill_create_skill_create),
         <<"agent.create_pipeline">> => ref(skill_create_pipeline_create),

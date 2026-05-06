@@ -142,8 +142,6 @@ do_create_skill(_) ->
 do_destroy_skill(<<"message.publish">>, Id) -> emqx_agent_skill_publish:destroy(Id);
 do_destroy_skill(<<"message.request">>, Id) -> emqx_agent_skill_mqtt_request:destroy(Id);
 do_destroy_skill(<<"http">>, Id) -> emqx_agent_skill_http:destroy(Id);
-do_destroy_skill(<<"kv.lookup">>, Id) -> emqx_agent_skill_kv:destroy_lookup(Id);
-do_destroy_skill(<<"kv.put">>, Id) -> emqx_agent_skill_kv:destroy_put(Id);
 do_destroy_skill(<<"postgresql.query">>, Id) -> emqx_agent_skill_postgresql:destroy(Id);
 do_destroy_skill(<<"agent.create_skill">>, Id) -> emqx_agent_skill_create_skill:destroy(Id);
 do_destroy_skill(<<"agent.create_pipeline">>, Id) -> emqx_agent_skill_create_pipeline:destroy(Id);
@@ -160,8 +158,6 @@ skill_to_map(#{type := Type} = Skill) ->
 skill_module(<<"http">>) -> emqx_agent_skill_http;
 skill_module(<<"message.publish">>) -> emqx_agent_skill_publish;
 skill_module(<<"message.request">>) -> emqx_agent_skill_mqtt_request;
-skill_module(<<"kv.lookup">>) -> emqx_agent_skill_kv;
-skill_module(<<"kv.put">>) -> emqx_agent_skill_kv;
 skill_module(<<"postgresql.query">>) -> emqx_agent_skill_postgresql;
 skill_module(<<"agent.create_skill">>) -> emqx_agent_skill_create_skill;
 skill_module(<<"agent.create_pipeline">>) -> emqx_agent_skill_create_pipeline;

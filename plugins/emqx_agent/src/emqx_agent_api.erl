@@ -13,12 +13,10 @@
 %% Skill types accepted on POST:
 %%   message.publish  — MQTT publish capability scoped to a topic prefix
 %%   http             — HTTP call capability
-%%   kv               — Key-value store (creates kv.lookup + optionally kv.put)
 %%   postgresql.query — PostgreSQL query
 %%
 %% For GET/DELETE, use the actual registry type in the :type URL segment
-%% (kv.lookup, kv.put, message.publish, http, postgresql.query).
-%% Deleting a kv.lookup or kv.put entry removes both variants.
+%% (message.publish, http, postgresql.query).
 
 -module(emqx_agent_api).
 
@@ -376,7 +374,7 @@ serve_html(Filename) ->
             ?BAD_REQUEST(iolist_to_binary(["Missing required field: ", field_to_str(Field)]));
         {error, unknown_type} ->
             ?BAD_REQUEST(
-                <<"Unknown skill type. Valid types: message.publish, http, kv, postgresql.query">>
+                <<"Unknown skill type. Valid types: message.publish, message.request, http, postgresql.query">>
             );
         {error, Reason} ->
             ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))

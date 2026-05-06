@@ -246,12 +246,6 @@ SKILL TYPES
                               input_schema, output_schema
                     Optional: headers (static map)
 
-  kv.lookup         Read a value from the in-memory key-value store.
-                    Required: id, desc, data_schema
-
-  kv.put            Write a value to the in-memory key-value store.
-                    Required: id, desc, data_schema
-
   postgresql.query  Execute a parameterised SQL query.
                     Required: id, desc, query (use $1 $2 … placeholders),
                               arg_keys (ordered list mapping args -> $N),

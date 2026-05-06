@@ -110,7 +110,7 @@ deinit() ->
 %%   skill_id     => binary()
 %%   desc         => binary()
 %%   topic_prefix => binary()
--spec create(Context :: map()) -> ok.
+-spec create(Context :: map()) -> ok | {error, term()}.
 create(#{
     skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix, input_schema := InputSchema
 }) ->

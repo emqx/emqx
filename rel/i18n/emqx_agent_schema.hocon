@@ -22,11 +22,6 @@ emqx_agent_schema {
         label: "HTTP Skill"
     }
 
-    skill_kv_create {
-        desc: "Parameters for registering a key-value skill (kv.lookup and optionally kv.put)."
-        label: "KV Skill"
-    }
-
     skill_postgresql_create {
         desc: "Parameters for registering a PostgreSQL query skill."
         label: "PostgreSQL Skill"
@@ -50,7 +45,7 @@ emqx_agent_schema {
     }
 
     skill_entry_type {
-        desc: "Skill type identifier (e.g. message.publish, http, kv.lookup, postgresql.query)."
+        desc: "Skill type identifier (e.g. message.publish, message.request, http, postgresql.query)."
         label: "Skill Type"
     }
 
@@ -143,30 +138,6 @@ Query string is appended for GET; JSON body is sent for POST/PUT/PATCH/DELETE.""
     skill_http_headers {
         desc: "Static HTTP headers sent with every request."
         label: "Headers"
-    }
-
-    ## ── skill_kv_create ──────────────────────────────────────────────────────
-
-    skill_kv_type.desc:
-"""Skill type discriminator.
-Registering a kv skill always creates a kv.lookup entry; a kv.put entry is also created when allow_put is true."""
-
-    skill_kv_type.label:
-"""Type"""
-
-    skill_kv_desc {
-        desc: "Human-readable description of the stored object type."
-        label: "Description"
-    }
-
-    skill_kv_data_schema {
-        desc: "JSON Schema for the stored value type."
-        label: "Data Schema"
-    }
-
-    skill_kv_allow_put {
-        desc: "When true, a kv.put skill is registered alongside kv.lookup."
-        label: "Allow Put"
     }
 
     ## ── skill_postgresql_create ───────────────────────────────────────────────

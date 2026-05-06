@@ -110,45 +110,6 @@ t_skill_http_crud(Config) ->
     ?assertMatch({ok, 204}, api_delete([agent, skills, <<"http">>, Id])),
     ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"http">>, Id])).
 
-t_skill_kv_crud(Config) ->
-    Id = ?config(tc_id, Config),
-
-    %% Create kv.lookup and kv.put independently
-    ?assertMatch(
-        {ok, 201, _},
-        api_post([agent, skills], #{
-            <<"type">> => <<"kv.lookup">>,
-            <<"id">> => Id,
-            <<"desc">> => <<"test kv skill">>,
-            <<"data_schema">> => #{<<"type">> => <<"object">>}
-        })
-    ),
-    ?assertMatch(
-        {ok, 201, _},
-        api_post([agent, skills], #{
-            <<"type">> => <<"kv.put">>,
-            <<"id">> => Id,
-            <<"desc">> => <<"test kv skill">>,
-            <<"data_schema">> => #{<<"type">> => <<"object">>}
-        })
-    ),
-
-    ?assertMatch(
-        {ok, 200, #{<<"skill_id">> := _, <<"type">> := <<"kv.lookup">>}},
-        api_get([agent, skills, <<"kv.lookup">>, Id])
-    ),
-    ?assertMatch(
-        {ok, 200, #{<<"skill_id">> := _, <<"type">> := <<"kv.put">>}},
-        api_get([agent, skills, <<"kv.put">>, Id])
-    ),
-
-    %% Each type is deleted independently
-    ?assertMatch({ok, 204}, api_delete([agent, skills, <<"kv.lookup">>, Id])),
-    ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"kv.lookup">>, Id])),
-    ?assertMatch({ok, 200, _}, api_get([agent, skills, <<"kv.put">>, Id])),
-    ?assertMatch({ok, 204}, api_delete([agent, skills, <<"kv.put">>, Id])),
-    ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"kv.put">>, Id])).
-
 t_skill_postgresql_crud(Config) ->
     Id = ?config(tc_id, Config),
 

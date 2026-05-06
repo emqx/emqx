@@ -118,32 +118,6 @@
                     ]
                 },
                 #{
-                    <<"title">> => <<"kv.lookup">>,
-                    <<"properties">> => #{
-                        <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"kv.lookup">>},
-                        <<"id">> => #{<<"type">> => <<"string">>},
-                        <<"desc">> => #{<<"type">> => <<"string">>},
-                        <<"data_schema">> => #{
-                            <<"type">> => <<"object">>,
-                            <<"description">> => <<"JSON Schema for the stored value">>
-                        }
-                    },
-                    <<"required">> => [<<"type">>, <<"id">>, <<"desc">>, <<"data_schema">>]
-                },
-                #{
-                    <<"title">> => <<"kv.put">>,
-                    <<"properties">> => #{
-                        <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"kv.put">>},
-                        <<"id">> => #{<<"type">> => <<"string">>},
-                        <<"desc">> => #{<<"type">> => <<"string">>},
-                        <<"data_schema">> => #{
-                            <<"type">> => <<"object">>,
-                            <<"description">> => <<"JSON Schema for the value to store">>
-                        }
-                    },
-                    <<"required">> => [<<"type">>, <<"id">>, <<"desc">>, <<"data_schema">>]
-                },
-                #{
                     <<"title">> => <<"postgresql.query">>,
                     <<"properties">> => #{
                         <<"type">> => #{
@@ -231,7 +205,7 @@ create(#{skill_id := SkillId}) ->
         type => ?SKILL_TYPE,
         display_name => <<"Create Skill">>,
         description =>
-            <<"Create or overwrite a skill (upsert). Types: message.publish, message.request, http, kv.lookup, kv.put, postgresql.query">>,
+            <<"Create or overwrite a skill (upsert). Types: message.publish, message.request, http, postgresql.query">>,
         context => #{skill_id => SkillId},
         input_schema => ?INPUT_SCHEMA,
         output_schema => ?OUTPUT_SCHEMA
@@ -284,7 +258,7 @@ handle_invoke(SkillId, Payload) ->
                     <<"status">> => <<"error">>,
                     <<"reason">> => <<"unknown skill type">>,
                     <<"details">> =>
-                        <<"valid types: message.publish, message.request, http, kv.lookup, kv.put, postgresql.query">>
+                        <<"valid types: message.publish, message.request, http, postgresql.query">>
                 };
             {error, Reason} ->
                 #{

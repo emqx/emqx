@@ -84,9 +84,6 @@
       http              HTTP call to an external service.
                         Required: id, desc, method, url, input_schema, output_schema
 
-      kv.lookup / kv.put  In-memory key-value store.
-                        Required: id, desc, data_schema
-
       postgresql.query  Execute a parameterised SQL query.
                         Required: id, desc, query ($1 $2 … placeholders),
                                   arg_keys (ordered list mapping args -> $N),

@@ -255,7 +255,6 @@
               <option value="message.publish">message.publish</option>
               <option value="message.request">message.request</option>
               <option value="http">http</option>
-              <option value="kv">kv</option>
               <option value="postgresql.query">postgresql.query</option>
             </select>
           </div>
@@ -325,23 +324,6 @@
             <div class="field">
               <label>Output schema (JSON)</label>
               <textarea id="skill-output-schema" placeholder='{"type":"object","properties":{}}'></textarea>
-            </div>
-          </div>
-        </div>
-
-        <!-- kv fields -->
-        <div id="f-kv" style="display:none">
-          <div class="row">
-            <div class="field">
-              <label>Data schema (JSON)</label>
-              <textarea id="skill-data-schema" placeholder='{"type":"object","properties":{}}'></textarea>
-            </div>
-            <div class="field" style="max-width:140px">
-              <label>Allow put?</label>
-              <select id="skill-allow-put">
-                <option value="true">yes</option>
-                <option value="false">no</option>
-              </select>
             </div>
           </div>
         </div>
@@ -565,7 +547,6 @@ function updateSkillForm() {
   document.getElementById('f-publish').style.display  = type === 'message.publish'  ? '' : 'none';
   document.getElementById('f-request').style.display  = type === 'message.request'  ? '' : 'none';
   document.getElementById('f-http').style.display     = type === 'http'              ? '' : 'none';
-  document.getElementById('f-kv').style.display       = type === 'kv'                ? '' : 'none';
   document.getElementById('f-ch').style.display       = type === 'postgresql.query'  ? '' : 'none';
 }
 
@@ -614,9 +595,6 @@ function collectSkillBody() {
     body.url           = document.getElementById('skill-url').value.trim();
     body.input_schema  = JSON.parse(document.getElementById('skill-input-schema').value || '{}');
     body.output_schema = JSON.parse(document.getElementById('skill-output-schema').value || '{}');
-  } else if (type === 'kv') {
-    body.data_schema = JSON.parse(document.getElementById('skill-data-schema').value || '{}');
-    body.allow_put   = document.getElementById('skill-allow-put').value === 'true';
   } else if (type === 'postgresql.query') {
     body.query         = document.getElementById('skill-query').value.trim();
     body.arg_keys      = document.getElementById('skill-arg-keys').value
@@ -679,9 +657,6 @@ function editSkill(type, id) {
     document.getElementById('skill-request-prefix').value = skill.topic_prefix ?? '';
     document.getElementById('skill-request-payload-schema').value = skill.request_payload_schema ? JSON.stringify(skill.request_payload_schema, null, 2) : '';
     document.getElementById('skill-response-schema').value = skill.response_schema ? JSON.stringify(skill.response_schema, null, 2) : '';
-  } else if (type === 'kv') {
-    document.getElementById('skill-data-schema').value = skill.data_schema ? JSON.stringify(skill.data_schema, null, 2) : '';
-    document.getElementById('skill-allow-put').value = skill.allow_put ? 'true' : 'false';
   } else if (type === 'postgresql.query') {
     document.getElementById('skill-query').value = skill.query ?? '';
     document.getElementById('skill-arg-keys').value = (skill.arg_keys ?? []).join(', ');
@@ -1173,7 +1148,6 @@ function typeClass(t) {
   if (t === 'message.publish')  return 'publish';
   if (t === 'message.request')  return 'request';
   if (t === 'http')              return 'http';
-  if (t?.startsWith('kv'))       return 'kv';
   if (t?.startsWith('postgresql')) return 'ch';
   return '';
 }

@@ -184,7 +184,6 @@ Type | Description
 `message.request` | MQTT request/reply (publishes with Response-Topic, waits for reply)
 `postgresql.query` | Execute a parameterised PostgreSQL query
 `http` | HTTP request to an external service
-`kv` | In-memory key/value store (lookup and put variants)
 
 ### Internal topic routing
 
