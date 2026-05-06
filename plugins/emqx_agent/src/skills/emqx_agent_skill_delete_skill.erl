@@ -65,7 +65,7 @@ deinit() ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
     ok.
 
--spec create(map()) -> ok.
+-spec create(map()) -> ok | {error, term()}.
 create(#{skill_id := SkillId}) ->
     emqx_agent_skill_registry:register(#{
         skill_id => SkillId,
