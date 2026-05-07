@@ -23,6 +23,13 @@
 -define(SK_PROVIDERS_ID, <<"meta-query-providers">>).
 -define(SK_PIPELINES_ID, <<"meta-query-pipelines">>).
 
+-define(VALID_INPUT_SCHEMA,
+    <<"{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}">>
+).
+-define(VALID_OUTPUT_SCHEMA,
+    <<"{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}">>
+).
+
 %%--------------------------------------------------------------------
 %% CT callbacks
 %%--------------------------------------------------------------------
@@ -116,8 +123,8 @@ t_query_skills_filter_by_type(_Config) ->
         <<"desc">> => <<"B http">>,
         <<"method">> => <<"get">>,
         <<"url">> => <<"http://stub/b">>,
-        <<"input_schema">> => #{<<"type">> => <<"object">>},
-        <<"output_schema">> => #{<<"type">> => <<"object">>}
+        <<"input_schema">> => ?VALID_INPUT_SCHEMA,
+        <<"output_schema">> => ?VALID_OUTPUT_SCHEMA
     }),
 
     ReqId = <<"req-qs-type">>,

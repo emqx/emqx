@@ -108,7 +108,7 @@ init() ->
 deinit() ->
     emqx_agent_skill_registry:unregister_type(?SKILL_TYPE).
 
--spec create(Context :: map()) -> ok.
+-spec create(Context :: map()) -> ok | {error, term()}.
 create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix} = Context) ->
     RequestPayloadSchema = maps:get(
         request_payload_schema, Context, ?DEFAULT_REQUEST_PAYLOAD_SCHEMA

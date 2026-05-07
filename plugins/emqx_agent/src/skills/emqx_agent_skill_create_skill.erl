@@ -42,8 +42,9 @@
                                 <<"All publishes are restricted to this prefix, e.g. devices/room1/">>
                         },
                         <<"payload_schema">> => #{
-                            <<"type">> => <<"object">>,
-                            <<"description">> => <<"Optional JSON Schema for the payload field">>
+                            <<"type">> => <<"string">>,
+                            <<"description">> =>
+                                <<"Optional JSON Schema for the payload field (as a JSON string)">>
                         }
                     },
                     <<"required">> => [<<"type">>, <<"id">>, <<"desc">>, <<"topic_prefix">>]
@@ -62,14 +63,14 @@
                                 <<"Request published to prefix + agent-supplied suffix. Response arrives via MQTT 5 Response-Topic.">>
                         },
                         <<"request_payload_schema">> => #{
-                            <<"type">> => <<"object">>,
+                            <<"type">> => <<"string">>,
                             <<"description">> =>
-                                <<"Optional JSON Schema for the outgoing request payload">>
+                                <<"Optional JSON Schema for the outgoing request payload (as a JSON string)">>
                         },
                         <<"response_schema">> => #{
-                            <<"type">> => <<"object">>,
+                            <<"type">> => <<"string">>,
                             <<"description">> =>
-                                <<"Optional JSON Schema for the incoming response payload">>
+                                <<"Optional JSON Schema for the incoming response payload (as a JSON string)">>
                         }
                     },
                     <<"required">> => [<<"type">>, <<"id">>, <<"desc">>, <<"topic_prefix">>]
@@ -95,12 +96,14 @@
                             <<"description">> => <<"Optional HTTP headers map">>
                         },
                         <<"input_schema">> => #{
-                            <<"type">> => <<"object">>,
-                            <<"description">> => <<"JSON Schema for tool call arguments">>
+                            <<"type">> => <<"string">>,
+                            <<"description">> =>
+                                <<"JSON Schema for tool call arguments (as a JSON string)">>
                         },
                         <<"output_schema">> => #{
-                            <<"type">> => <<"object">>,
-                            <<"description">> => <<"JSON Schema for the HTTP response body">>
+                            <<"type">> => <<"string">>,
+                            <<"description">> =>
+                                <<"JSON Schema for the HTTP response body (as a JSON string)">>
                         }
                     },
                     <<"required">> => [
@@ -136,12 +139,14 @@
                                 <<"Ordered list of arg names, e.g. [\"device_id\",\"value\"] maps to $1, $2">>
                         },
                         <<"input_schema">> => #{
-                            <<"type">> => <<"object">>,
-                            <<"description">> => <<"JSON Schema for tool call arguments">>
+                            <<"type">> => <<"string">>,
+                            <<"description">> =>
+                                <<"JSON Schema for tool call arguments (as a JSON string)">>
                         },
                         <<"output_schema">> => #{
-                            <<"type">> => <<"object">>,
-                            <<"description">> => <<"JSON Schema for query result rows">>
+                            <<"type">> => <<"string">>,
+                            <<"description">> =>
+                                <<"JSON Schema for query result rows (as a JSON string)">>
                         }
                     },
                     <<"required">> => [

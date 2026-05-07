@@ -23,6 +23,13 @@
     pipeline_type/0
 ]).
 
+%% JSON Schema conversion / validation helpers
+-export([
+    json_schema_from_string/2,
+    validate_oai_schema/1,
+    validate_oai_schema_field/1
+]).
+
 %%--------------------------------------------------------------------
 %% hocon_schema API
 %%--------------------------------------------------------------------
@@ -58,14 +65,18 @@ fields(skill_entry) ->
                 desc => ?DESC(skill_entry_description)
             })},
         {input_schema,
-            mk(map(), #{
-                required => false,
-                desc => ?DESC(skill_entry_input_schema)
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(skill_input_schema),
+                converter => fun json_schema_from_string/2,
+                validator => fun validate_oai_schema/1
             })},
         {output_schema,
-            mk(map(), #{
-                required => false,
-                desc => ?DESC(skill_entry_output_schema)
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(skill_output_schema),
+                converter => fun json_schema_from_string/2,
+                validator => fun validate_oai_schema/1
             })}
     ];
 %%--------------------------------------------------------------------
@@ -97,7 +108,9 @@ fields(skill_publish_create) ->
         {payload_schema,
             mk(map(), #{
                 required => false,
-                desc => ?DESC(skill_input_schema)
+                desc => ?DESC(skill_input_schema),
+                converter => fun json_schema_from_string/2,
+                validator => fun validate_oai_schema_field/1
             })}
     ];
 fields(skill_http_create) ->
@@ -136,12 +149,16 @@ fields(skill_http_create) ->
         {input_schema,
             mk(map(), #{
                 required => true,
-                desc => ?DESC(skill_input_schema)
+                desc => ?DESC(skill_input_schema),
+                converter => fun json_schema_from_string/2,
+                validator => fun validate_oai_schema/1
             })},
         {output_schema,
             mk(map(), #{
                 required => true,
-                desc => ?DESC(skill_output_schema)
+                desc => ?DESC(skill_output_schema),
+                converter => fun json_schema_from_string/2,
+                validator => fun validate_oai_schema/1
             })}
     ];
 fields(skill_mqtt_request_create) ->
@@ -169,12 +186,16 @@ fields(skill_mqtt_request_create) ->
         {request_payload_schema,
             mk(map(), #{
                 required => false,
-                desc => ?DESC(skill_request_payload_schema)
+                desc => ?DESC(skill_request_payload_schema),
+                converter => fun json_schema_from_string/2,
+                validator => fun validate_oai_schema_field/1
             })},
         {response_schema,
             mk(map(), #{
                 required => false,
-                desc => ?DESC(skill_response_schema)
+                desc => ?DESC(skill_response_schema),
+                converter => fun json_schema_from_string/2,
+                validator => fun validate_oai_schema_field/1
             })}
     ];
 fields(skill_postgresql_create) ->
@@ -208,12 +229,16 @@ fields(skill_postgresql_create) ->
         {input_schema,
             mk(map(), #{
                 required => true,
-                desc => ?DESC(skill_input_schema)
+                desc => ?DESC(skill_input_schema),
+                converter => fun json_schema_from_string/2,
+                validator => fun validate_oai_schema/1
             })},
         {output_schema,
             mk(map(), #{
                 required => true,
-                desc => ?DESC(skill_output_schema)
+                desc => ?DESC(skill_output_schema),
+                converter => fun json_schema_from_string/2,
+                validator => fun validate_oai_schema/1
             })}
     ];
 fields(skill_create_skill_create) ->
@@ -402,3 +427,57 @@ pipeline_type() ->
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Struct) -> hoconsc:ref(?MODULE, Struct).
 enum(Values) -> hoconsc:enum(Values).
+
+%%--------------------------------------------------------------------
+%% JSON Schema converter / validator
+%%--------------------------------------------------------------------
+
+json_schema_from_string(undefined, _Opts) ->
+    undefined;
+json_schema_from_string(Str, _Opts) when is_binary(Str) ->
+    case emqx_utils_json:safe_decode(Str) of
+        {ok, Map} when is_map(Map) ->
+            Map;
+        {ok, _} ->
+            throw({invalid_json_schema, "JSON schema must decode to an object"});
+        {error, Reason} ->
+            throw({invalid_json, Reason})
+    end;
+json_schema_from_string(Map, _Opts) when is_map(Map) ->
+    Map.
+
+validate_oai_schema(undefined) ->
+    ok;
+validate_oai_schema(Schema) when is_map(Schema) ->
+    case emqx_agent_oai_tool_schema:validate_schema(Schema, root) of
+        ok -> ok;
+        {error, Errors} -> {error, format_schema_errors(Errors)}
+    end.
+
+validate_oai_schema_field(undefined) ->
+    ok;
+validate_oai_schema_field(Schema) when is_map(Schema) ->
+    case emqx_agent_oai_tool_schema:validate_schema(Schema, field) of
+        ok -> ok;
+        {error, Errors} -> {error, format_schema_errors(Errors)}
+    end.
+
+format_schema_errors(Errors) ->
+    iolist_to_binary([
+        "Invalid JSON Schema: ",
+        lists:join("; ", [format_schema_error(E) || E <- Errors])
+    ]).
+
+format_schema_error(#{error := Code, path := Path} = E) ->
+    Extra = maps:without([error, path], E),
+    Base = io_lib:format("~s at ~s", [Code, path_to_binary(Path)]),
+    case maps:size(Extra) of
+        0 -> Base;
+        _ -> [Base, io_lib:format(" (~p)", [Extra])]
+    end.
+
+path_to_binary(Path) ->
+    iolist_to_binary(lists:join("/", [to_binary(P) || P <- Path])).
+
+to_binary(B) when is_binary(B) -> B;
+to_binary(I) when is_integer(I) -> integer_to_binary(I).

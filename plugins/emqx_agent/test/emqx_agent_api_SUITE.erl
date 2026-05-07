@@ -18,6 +18,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(VALID_INPUT_SCHEMA,
+    <<"{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}">>
+).
+-define(VALID_OUTPUT_SCHEMA,
+    <<"{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}">>
+).
+
 %%--------------------------------------------------------------------
 %% CT callbacks
 %%--------------------------------------------------------------------
@@ -97,8 +104,8 @@ t_skill_http_crud(Config) ->
             <<"desc">> => <<"test http skill">>,
             <<"method">> => <<"post">>,
             <<"url">> => <<"http://stub:8080/api">>,
-            <<"input_schema">> => #{<<"type">> => <<"object">>},
-            <<"output_schema">> => #{<<"type">> => <<"object">>}
+            <<"input_schema">> => ?VALID_INPUT_SCHEMA,
+            <<"output_schema">> => ?VALID_OUTPUT_SCHEMA
         })
     ),
 
@@ -121,8 +128,8 @@ t_skill_postgresql_crud(Config) ->
             <<"desc">> => <<"test postgresql skill">>,
             <<"query">> => <<"SELECT 1">>,
             <<"arg_keys">> => [],
-            <<"input_schema">> => #{<<"type">> => <<"object">>},
-            <<"output_schema">> => #{<<"type">> => <<"object">>}
+            <<"input_schema">> => ?VALID_INPUT_SCHEMA,
+            <<"output_schema">> => ?VALID_OUTPUT_SCHEMA
         })
     ),
 
@@ -191,8 +198,8 @@ t_skills_validation(_Config) ->
             <<"id">> => <<"x">>,
             <<"desc">> => <<"x">>,
             <<"url">> => <<"http://x">>,
-            <<"input_schema">> => #{},
-            <<"output_schema">> => #{}
+            <<"input_schema">> => ?VALID_INPUT_SCHEMA,
+            <<"output_schema">> => ?VALID_OUTPUT_SCHEMA
         })
     ),
 
