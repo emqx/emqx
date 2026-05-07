@@ -221,7 +221,7 @@
 
 -callback query_mode(Config :: term()) -> resource_query_mode().
 
--callback query_opts(Config :: term()) -> #{timeout => timeout()}.
+-callback query_opts(Config :: term()) -> query_opts() | {error, term()}.
 
 %% This callback handles the installation of a specified channel.
 %%
@@ -547,26 +547,23 @@ get_callback_mode(Mod, State) ->
             undefined
     end.
 
--spec get_query_opts(module(), map()) -> #{timeout => timeout()}.
+-spec get_query_opts(module(), map()) -> query_opts() | {error, term()}.
 get_query_opts(Mod, ActionOrSourceConfig) ->
-    CommonQueryOpts = common_query_opts(ActionOrSourceConfig),
+    DispatchStrategyQueryOpts = buffer_worker_dispatch_strategy_query_opts(ActionOrSourceConfig),
     case erlang:function_exported(Mod, query_opts, 1) of
         true ->
             case Mod:query_opts(ActionOrSourceConfig) of
                 {error, _} = Error ->
                     Error;
                 QueryOpts ->
-                    maps:merge(CommonQueryOpts, QueryOpts)
+                    maps:merge(DispatchStrategyQueryOpts, QueryOpts)
             end;
         false ->
-            CommonQueryOpts
+            maps:merge(
+                request_ttl_query_opts(ActionOrSourceConfig),
+                DispatchStrategyQueryOpts
+            )
     end.
-
-common_query_opts(ActionOrSourceConfig) ->
-    maps:merge(
-        request_ttl_query_opts(ActionOrSourceConfig),
-        buffer_worker_dispatch_strategy_query_opts(ActionOrSourceConfig)
-    ).
 
 request_ttl_query_opts(ActionOrSourceConfig) ->
     case emqx_utils_maps:deep_get([resource_opts, request_ttl], ActionOrSourceConfig, false) of

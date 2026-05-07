@@ -4,8 +4,39 @@
 
 -module(emqx_resource_tests).
 
+-export([query_opts/1]).
+
 -include_lib("eunit/include/eunit.hrl").
 -include("emqx_resource.hrl").
+
+get_query_opts_test_() ->
+    Config = #{
+        resource_opts => #{
+            request_ttl => 2_000,
+            buffer_worker_dispatch_strategy => random
+        }
+    },
+    [
+        {"preserves callback timeout and adds dispatch strategy",
+            ?_assertEqual(
+                #{
+                    timeout => 1_000,
+                    buffer_worker_dispatch_strategy => random
+                },
+                emqx_resource:get_query_opts(?MODULE, Config)
+            )},
+        {"uses request ttl when callback is not exported",
+            ?_assertEqual(
+                #{
+                    timeout => 2_000,
+                    buffer_worker_dispatch_strategy => random
+                },
+                emqx_resource:get_query_opts(maps, Config)
+            )}
+    ].
+
+query_opts(_Config) ->
+    #{timeout => 1_000}.
 
 is_dry_run_test_() ->
     [
