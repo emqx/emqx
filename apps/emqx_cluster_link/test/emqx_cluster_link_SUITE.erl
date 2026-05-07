@@ -12,8 +12,6 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(ON(NODE, DO), erpc:call(NODE, fun() -> DO end)).
-
 %%
 
 suite() -> [{timetrap, {minutes, 1}}].
