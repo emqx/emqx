@@ -1173,3 +1173,117 @@ ensure_state(NameVsn, Position, Enabled) ->
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
+
+%%--------------------------------------------------------------------
+%% allow_installation TTL + sha256 binding
+%%--------------------------------------------------------------------
+
+%% Allow entry expires after the configured TTL and is purged on the next access.
+t_allow_ttl_expires({init, Config}) ->
+    application:set_env(emqx_plugins, allow_ttl_ms, 50),
+    Config;
+t_allow_ttl_expires({'end', _Config}) ->
+    application:unset_env(emqx_plugins, allow_ttl_ms),
+    application:unset_env(emqx_plugins, allowed_installations),
+    ok;
+t_allow_ttl_expires(_Config) ->
+    NameVsn = <<"foo-1.0.0">>,
+    ok = emqx_plugins:allow_installation(NameVsn),
+    ?assert(emqx_plugins:is_allowed_installation(NameVsn)),
+    timer:sleep(150),
+    ?assertNot(emqx_plugins:is_allowed_installation(NameVsn)),
+    %% Lazy purge: the entry should be gone from the env after the read.
+    Allowed = application:get_env(emqx_plugins, allowed_installations, #{}),
+    ?assertEqual(#{}, Allowed),
+    ok.
+
+%% is_allowed_installation/2 accepts bytes whose sha256 matches the bound hash.
+t_allow_sha256_match({init, Config}) ->
+    Config;
+t_allow_sha256_match({'end', _Config}) ->
+    application:unset_env(emqx_plugins, allowed_installations),
+    ok;
+t_allow_sha256_match(_Config) ->
+    NameVsn = <<"foo-1.0.0">>,
+    Bin = <<"hello world">>,
+    Sha = binary:encode_hex(crypto:hash(sha256, Bin), lowercase),
+    ok = emqx_plugins:allow_installation(NameVsn, Sha),
+    ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, Bin)),
+    ok.
+
+%% is_allowed_installation/2 rejects bytes whose sha256 does not match.
+t_allow_sha256_mismatch({init, Config}) ->
+    Config;
+t_allow_sha256_mismatch({'end', _Config}) ->
+    application:unset_env(emqx_plugins, allowed_installations),
+    ok;
+t_allow_sha256_mismatch(_Config) ->
+    NameVsn = <<"foo-1.0.0">>,
+    Allowed = <<"hello world">>,
+    Tampered = <<"goodbye world">>,
+    Sha = binary:encode_hex(crypto:hash(sha256, Allowed), lowercase),
+    ok = emqx_plugins:allow_installation(NameVsn, Sha),
+    ?assertEqual(
+        {error, sha256_mismatch},
+        emqx_plugins:is_allowed_installation(NameVsn, Tampered)
+    ),
+    ?assertEqual(
+        {error, not_allowed},
+        emqx_plugins:is_allowed_installation(<<"other-1.0.0">>, Allowed)
+    ),
+    ok.
+
+%% A tar entry whose name escapes the install dir (../../../tmp/pwned) must be
+%% rejected, and no part of the tarball may land on disk outside the install dir.
+t_tar_path_traversal({init, Config}) ->
+    InstallDir = ?config(install_dir, Config),
+    NameVsn = "evil-1.0.0",
+    %% Mimic the PoC from the spec: one legitimate entry plus a traversal entry.
+    LegitEntry = filename:join(NameVsn, "release.json"),
+    EvilTarget = filename:join(
+        "/tmp", "pwned-by-emqx-zipslip-" ++ integer_to_list(erlang:unique_integer([positive]))
+    ),
+    EvilEntry = "../../../../tmp/" ++ filename:basename(EvilTarget),
+    TarGz = filename:join(InstallDir, NameVsn ++ ".tar.gz"),
+    ok = erl_tar:create(
+        TarGz,
+        [
+            {LegitEntry, <<"{}">>},
+            {EvilEntry, <<"pwned\n">>}
+        ],
+        [compressed]
+    ),
+    [{tar_gz, TarGz}, {name_vsn, NameVsn}, {evil_target, EvilTarget} | Config];
+t_tar_path_traversal({'end', Config}) ->
+    %% Be paranoid in case the test failed and the file actually got written.
+    file:delete(?config(evil_target, Config)),
+    ok = emqx_plugins:delete_package(?config(name_vsn, Config));
+t_tar_path_traversal(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    EvilTarget = ?config(evil_target, Config),
+    %% Pre-condition: the target must not exist before install.
+    ?assertEqual({error, enoent}, file:read_file_info(EvilTarget)),
+    ?assertMatch(
+        {error, #{msg := "unsafe_tar_entry_path"}},
+        emqx_plugins:ensure_installed(NameVsn)
+    ),
+    %% Post-condition: the malicious file must NOT have been written.
+    ?assertEqual({error, enoent}, file:read_file_info(EvilTarget)),
+    %% And no plugin dir should have been created either.
+    ?assertEqual(
+        {error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))
+    ),
+    ok.
+
+%% When no sha256 is bound, is_allowed_installation/2 accepts any bytes (legacy path).
+t_allow_sha256_undefined_accepts_any({init, Config}) ->
+    Config;
+t_allow_sha256_undefined_accepts_any({'end', _Config}) ->
+    application:unset_env(emqx_plugins, allowed_installations),
+    ok;
+t_allow_sha256_undefined_accepts_any(_Config) ->
+    NameVsn = <<"foo-1.0.0">>,
+    ok = emqx_plugins:allow_installation(NameVsn),
+    ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, <<"any bytes">>)),
+    ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, <<"other bytes">>)),
+    ok.
