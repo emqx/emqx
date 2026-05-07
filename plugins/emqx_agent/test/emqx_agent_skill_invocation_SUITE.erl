@@ -90,14 +90,92 @@ t_crash(_Config) ->
 
     ok = emqx:unsubscribe(ReplyTopic).
 
+%% Dispatching to an unregistered skill publishes an error reply.
+t_skill_not_found(_Config) ->
+    ReqId = <<"req-not-found-1">>,
+    ok = emqx_agent_skill_registry:unregister(?SKILL_TYPE, ?SKILL_ID),
+    ReplyTopic = reply_topic(ReqId),
+    ok = emqx:subscribe(ReplyTopic),
+
+    invoke(#{<<"topic">> => <<"hello">>}, ReqId),
+
+    Reply = decode_reply(await_deliver(ReplyTopic)),
+    Response = emqx_agent_skill_helpers:cap_response(Reply),
+    ?assertEqual(<<"error">>, maps:get(<<"status">>, Response)),
+    ?assertEqual(<<"skill_not_found">>, maps:get(<<"reason">>, Response)),
+    ?assertEqual(ReqId, maps:get(<<"req_id">>, Reply)),
+
+    ok = emqx:unsubscribe(ReplyTopic).
+
+%% A non-map JSON payload triggers an error reply.
+t_payload_not_a_map(_Config) ->
+    ReqId = <<"req-not-map-1">>,
+    ReplyTopic = reply_topic(ReqId),
+    ok = emqx:subscribe(ReplyTopic),
+
+    invoke_raw(?SKILL_TYPE, ?SKILL_ID, ReqId, <<"\"just a string\"">>),
+
+    Reply = decode_reply(await_deliver(ReplyTopic)),
+    Response = emqx_agent_skill_helpers:cap_response(Reply),
+    ?assertEqual(<<"error">>, maps:get(<<"status">>, Response)),
+    ?assertEqual(<<"payload_not_a_map">>, maps:get(<<"reason">>, Response)),
+    ?assertEqual(ReqId, maps:get(<<"req_id">>, Reply)),
+
+    ok = emqx:unsubscribe(ReplyTopic).
+
+%% Malformed JSON payload triggers an error reply.
+t_invalid_payload(_Config) ->
+    ReqId = <<"req-invalid-json-1">>,
+    ReplyTopic = reply_topic(ReqId),
+    ok = emqx:subscribe(ReplyTopic),
+
+    invoke_raw(?SKILL_TYPE, ?SKILL_ID, ReqId, <<"{broken">>),
+
+    Reply = decode_reply(await_deliver(ReplyTopic)),
+    Response = emqx_agent_skill_helpers:cap_response(Reply),
+    ?assertEqual(<<"error">>, maps:get(<<"status">>, Response)),
+    Reason = maps:get(<<"reason">>, Response),
+    ?assert(is_binary(Reason)),
+    ?assertNotEqual(nomatch, binary:match(Reason, <<"invalid_payload">>)),
+    ?assertEqual(ReqId, maps:get(<<"req_id">>, Reply)),
+
+    ok = emqx:unsubscribe(ReplyTopic).
+
+%% When start_invocation fails, an error reply is published.
+t_start_invocation_failure(_Config) ->
+    ReqId = <<"req-start-fail-1">>,
+    ReplyTopic = reply_topic(ReqId),
+    ok = emqx:subscribe(ReplyTopic),
+
+    %% Negative timeout makes erlang:send_after/3 crash in init,
+    %% causing start_link to return {error, badarg}.
+    invoke(#{<<"topic">> => <<"hello">>}, ReqId, #{<<"timeout_ms">> => -1}),
+
+    Reply = decode_reply(await_deliver(ReplyTopic)),
+    Response = emqx_agent_skill_helpers:cap_response(Reply),
+    ?assertEqual(<<"error">>, maps:get(<<"status">>, Response)),
+    ?assert(is_binary(maps:get(<<"reason">>, Response))),
+    ?assertEqual(ReqId, maps:get(<<"req_id">>, Reply)),
+
+    ok = emqx:unsubscribe(ReplyTopic).
+
 reply_topic(ReqId) ->
-    <<"cap/", ?SKILL_TYPE/binary, "/", ?SKILL_ID/binary, "/response/", ReqId/binary>>.
+    reply_topic(?SKILL_TYPE, ?SKILL_ID, ReqId).
+
+reply_topic(Type, SkillId, ReqId) ->
+    <<"cap/", Type/binary, "/", SkillId/binary, "/response/", ReqId/binary>>.
 
 invoke(Args, ReqId) ->
     invoke(Args, ReqId, #{}).
 
 invoke(Args, ReqId, Extra) ->
-    Topic = <<"cap/", ?SKILL_TYPE/binary, "/", ?SKILL_ID/binary, "/request/", ReqId/binary>>,
+    invoke_with_skill(?SKILL_TYPE, ?SKILL_ID, Args, ReqId, Extra).
+
+invoke_with_skill(Type, SkillId, Args, ReqId) ->
+    invoke_with_skill(Type, SkillId, Args, ReqId, #{}).
+
+invoke_with_skill(Type, SkillId, Args, ReqId, Extra) ->
+    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{
@@ -109,7 +187,12 @@ invoke(Args, ReqId, Extra) ->
             Extra
         )
     ),
-    _ = emqx_broker:publish(emqx_message:make(?SKILL_ID, 0, Topic, Payload)),
+    _ = emqx_broker:publish(emqx_message:make(SkillId, 0, Topic, Payload)),
+    ok.
+
+invoke_raw(Type, SkillId, ReqId, Payload) ->
+    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>,
+    _ = emqx_broker:publish(emqx_message:make(SkillId, 0, Topic, Payload)),
     ok.
 
 await_deliver(Topic) ->

@@ -6,7 +6,7 @@
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
--export([cap_response/1, format_error/1, publish_reply/4]).
+-export([cap_response/1, format_error/1, publish_reply/4, error_response/1]).
 
 %% Copies correlation fields from an invoke Request into a reply skeleton.
 %%
@@ -24,6 +24,9 @@ format_error({missing_field, F}) when is_atom(F) ->
     <<"missing required field: ", (atom_to_binary(F, utf8))/binary>>;
 format_error(Reason) ->
     iolist_to_binary(io_lib:format("~p", [Reason])).
+
+error_response(Reason) ->
+    #{<<"status">> => <<"error">>, <<"reason">> => format_error(Reason)}.
 
 %% Build and publish a unary skill reply to `cap/<Type>/<SkillId>/response/<ReqId>`.
 -spec publish_reply(binary(), binary(), map(), map()) -> ok.
