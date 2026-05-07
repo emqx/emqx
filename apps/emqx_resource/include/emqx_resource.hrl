@@ -47,7 +47,7 @@
 -type query_opts() :: #{
     %% The key used for picking a resource worker
     pick_key => term(),
-    dispatch_strategy => per_clientid | random,
+    buffer_worker_dispatch_strategy => per_clientid | random,
     timeout => timeout(),
     expire_at => infinity | integer(),
     async_reply_fun => reply_fun(),
