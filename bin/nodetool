@@ -49,7 +49,11 @@ do(Args) ->
         "-name",
         fun(TargetName) ->
             ThisNode = this_node_name(longnames, TargetName),
-            {ok, _} = net_kernel:start([ThisNode, longnames]),
+            %% Start as a hidden node so the broker never sees nodeup/nodedown
+            %% for short-lived ctl invocations.
+            {ok, _} = net_kernel:start(ThisNode, #{
+                name_domain => longnames, hidden => true
+            }),
             put(target_node, nodename(TargetName))
         end
     ),
@@ -58,7 +62,9 @@ do(Args) ->
         "-sname",
         fun(TargetName) ->
             ThisNode = this_node_name(shortnames, TargetName),
-            {ok, _} = net_kernel:start([ThisNode, shortnames]),
+            {ok, _} = net_kernel:start(ThisNode, #{
+                name_domain => shortnames, hidden => true
+            }),
             put(target_node, nodename(TargetName))
         end
     ),
@@ -286,10 +292,10 @@ nodename(Name) ->
     end.
 
 this_node_name(longnames, Name) ->
-    [Node, Host] = re:split(Name, "@", [{return, list}, unicode]),
-    list_to_atom(lists:concat(["remsh_maint_", Node, node_name_suffix_id(), "@", Host]));
-this_node_name(shortnames, Name) ->
-    list_to_atom(lists:concat(["remsh_maint_", Name, node_name_suffix_id()])).
+    [_Node, Host] = re:split(Name, "@", [{return, list}, unicode]),
+    list_to_atom(lists:concat(["remsh", node_name_suffix_id(), "@", Host]));
+this_node_name(shortnames, _Name) ->
+    list_to_atom(lists:concat(["remsh", node_name_suffix_id()])).
 
 %% use the reversed value that from pid mod 1000 as the node name suffix
 node_name_suffix_id() ->
