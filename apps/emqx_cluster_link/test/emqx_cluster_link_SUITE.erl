@@ -7,10 +7,13 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
+
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
 %%
 
@@ -180,6 +183,98 @@ test_message_forwarding(SubType, Config) ->
             ok = emqtt:stop(TargetC2)
         end,
         []
+    ).
+
+t_message_forwarding_disconnect_reason_reported('init', Config) ->
+    ok = snabbkaffe:start_trace(),
+    SourceName = fmt("~p_s", [?FUNCTION_NAME]),
+    TargetName = fmt("~p_t", [?FUNCTION_NAME]),
+    TargetSpec = emqx_cluster_link_cth:mk_cluster(2, TargetName, 1, Config),
+    TargetNodes = emqx_cth_cluster:start(TargetSpec),
+    SourceLink = emqx_cluster_link_cth:mk_link_conf_to(TargetNodes, #{
+        <<"topics">> => [],
+        <<"resource_opts">> => #{<<"health_check_interval">> => 100}
+    }),
+    SourceNodespec = #{
+        apps => [
+            {emqx_conf, merge_conf(#{cluster => #{links => [SourceLink]}}, conf_log())}
+        ]
+    },
+    SourceSpec = emqx_cluster_link_cth:mk_cluster(1, SourceName, [SourceNodespec], Config),
+    SourceNodes = emqx_cth_cluster:start(SourceSpec),
+    [
+        {target_name, TargetName},
+        {source_name, SourceName},
+        {target_nodes, TargetNodes},
+        {source_nodes, SourceNodes}
+        | Config
+    ];
+t_message_forwarding_disconnect_reason_reported('end', Config) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_cth_cluster:stop(?config(source_nodes, Config)),
+    ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
+
+t_message_forwarding_disconnect_reason_reported(Config) ->
+    TargetName = ?config(target_name, Config),
+    [TargetNode] = ?config(target_nodes, Config),
+    [SourceNode] = ?config(source_nodes, Config),
+    %% 1. Wait and verify message forwarding resource is connected.
+    ResourceId = emqx_cluster_link_mqtt:resource_id(TargetName),
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            {ok, _, #{status := connected}},
+            ?ON(SourceNode, emqx_resource:get_instance(ResourceId))
+        )
+    ),
+    %% 2. Repeatedly kick clients after the MQTT resource is up.
+    %% Disconnect reason should be reported through the emqtt disconnect handler.
+    _Kicker = ?ON(
+        TargetNode,
+        erlang:spawn(fun Loop() ->
+            lists:foreach(fun emqx_cm:kick_session/1, emqx_cm:all_client_ids()),
+            timer:sleep(100),
+            Loop()
+        end)
+    ),
+    %% 3. Verify reason is propagated to the resource status.
+    ?retry(
+        500,
+        5,
+        ?assertMatch(
+            {ok, _, #{
+                status := disconnected,
+                error := #{
+                    cause := broker_disconnect,
+                    reason := administrative_action,
+                    reason_code := ?RC_ADMINISTRATIVE_ACTION
+                }
+            }},
+            ?ON(SourceNode, emqx_resource:get_instance(ResourceId))
+        )
+    ),
+    %% 4. Verify reason is propagated to the alarm details.
+    ?retry(
+        500,
+        5,
+        begin
+            Alarms = ?ON(SourceNode, emqx_alarm:get_alarms(activated)),
+            ResourceAlarms = [
+                Alarm
+             || Alarm = #{details := #{resource_id := RId, reason := resource_down}} <- Alarms,
+                RId =:= ResourceId
+            ],
+            ?assertEqual(
+                [
+                    Alarm
+                 || Alarm = #{message := Message} <- ResourceAlarms,
+                    binary:match(Message, <<"broker_disconnect">>) =/= nomatch,
+                    binary:match(Message, <<"administrative_action">>) =/= nomatch
+                ],
+                ResourceAlarms
+            )
+        end
     ).
 
 t_target_extrouting_gc('init', Config) ->
