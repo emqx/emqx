@@ -198,6 +198,21 @@
     font: inherit; font-size: 12px; transition: all .15s;
   }
   .step-add-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Schema editor ─────────────────────────────────────────────── */
+  .schema-editor { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; background: var(--bg); }
+  .se-node { margin-bottom: 6px; }
+  .se-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+  .se-row input, .se-row select { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); padding: 4px 6px; font: inherit; font-size: 12px; }
+  .se-row input:focus, .se-row select:focus { outline: none; border-color: var(--accent); }
+  .se-name { flex: 1; min-width: 100px; }
+  .se-type { width: 100px; }
+  .se-desc { flex: 1; min-width: 120px; }
+  .se-enum { flex: 1; min-width: 120px; }
+  .se-children { margin-left: 20px; padding-left: 10px; border-left: 1px solid var(--border); }
+  .se-items { margin-left: 20px; padding-left: 10px; border-left: 1px dashed var(--border); }
+  .se-label { font-size: 11px; color: var(--muted); min-width: 50px; }
+
   /* credentials bar is hidden — auth comes from the dashboard session */
   #cred-bar { display: none; }
 </style>
@@ -276,9 +291,9 @@
             <div class="hint">All publishes are restricted to this prefix.</div>
           </div>
           <div class="field">
-            <label>Payload schema (JSON)</label>
-            <textarea id="skill-publish-input" placeholder='{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}'></textarea>
-            <div class="hint">Optional payload JSON schema. Topic/from/qos are fixed wrapper fields. Output schema is fixed by backend.</div>
+            <label>Payload schema</label>
+            <div id="se-skill-publish-input"></div>
+            <div class="hint">Optional payload schema. Topic/from/qos are fixed wrapper fields. Output schema is fixed by backend.</div>
           </div>
         </div>
 
@@ -290,9 +305,9 @@
             <div class="hint">Request is published to this prefix + the agent-supplied topic suffix. Responses arrive on a unique temporary topic set via the MQTT 5 Response-Topic property.</div>
           </div>
           <div class="field">
-            <label>Request payload schema (JSON)</label>
-            <textarea id="skill-request-payload-schema" placeholder='{"type":"object"}'></textarea>
-            <div class="hint">JSON Schema describing the payload the LLM should send in the request. Leave blank for untyped.</div>
+            <label>Request payload schema</label>
+            <div id="se-skill-request-payload-schema"></div>
+            <div class="hint">Schema describing the payload the LLM should send in the request. Leave blank for untyped.</div>
           </div>
         </div>
 
@@ -313,8 +328,8 @@
           </div>
           <div class="row">
             <div class="field">
-              <label>Input schema (JSON)</label>
-              <textarea id="skill-input-schema" placeholder='{"type":"object","properties":{}}'></textarea>
+              <label>Input schema</label>
+              <div id="se-skill-input-schema"></div>
             </div>
           </div>
         </div>
@@ -331,8 +346,8 @@
           </div>
           <div class="row">
             <div class="field">
-              <label>Input schema (JSON)</label>
-              <textarea id="skill-ch-input" placeholder='{"type":"object","properties":{}}'></textarea>
+              <label>Input schema</label>
+              <div id="se-skill-ch-input"></div>
             </div>
           </div>
         </div>
@@ -452,11 +467,232 @@ function authHeader() {
   return token ? 'Bearer ' + token : null;
 }
 
+// ── Schema editor ───────────────────────────────────────────────────────────
+
+function createSchemaEditor(target, schema) {
+  const container = typeof target === 'string' ? document.getElementById(target) : target;
+  if (!container) return;
+  container.innerHTML = '';
+  container.classList.add('schema-editor');
+  const root = document.createElement('div');
+  root.className = 'se-root';
+  const children = document.createElement('div');
+  children.className = 'se-children';
+  root.appendChild(children);
+  const addBtn = document.createElement('button');
+  addBtn.className = 'btn sm';
+  addBtn.textContent = '+ Add property';
+  addBtn.onclick = () => children.appendChild(buildNode('property', '', null));
+  root.appendChild(addBtn);
+  container.appendChild(root);
+  if (schema && typeof schema === 'object' && schema.type === 'object') {
+    const props = schema.properties || {};
+    Object.entries(props).forEach(([name, subSchema]) => {
+      children.appendChild(buildNode('property', name, subSchema));
+    });
+  }
+}
+
+function buildNode(kind, name, schema) {
+  const node = document.createElement('div');
+  node.className = 'se-node';
+  node.dataset.seKind = kind;
+
+  let type = 'string';
+  let nullable = false;
+  let desc = '';
+  let enumValues = '';
+  let childrenSchemas = null;
+  let itemsSchema = null;
+
+  if (schema && typeof schema === 'object') {
+    const t = schema.type;
+    if (Array.isArray(t)) {
+      const nonNull = t.filter(x => x !== 'null');
+      if (nonNull.length === 1) {
+        type = nonNull[0];
+        nullable = true;
+      }
+    } else if (typeof t === 'string') {
+      type = t;
+    }
+    desc = schema.description || '';
+    if (Array.isArray(schema.enum)) {
+      enumValues = schema.enum.map(v => v === null ? 'null' : String(v)).join(', ');
+    }
+    if (type === 'object') {
+      childrenSchemas = schema.properties || {};
+    }
+    if (type === 'array') {
+      itemsSchema = schema.items || null;
+    }
+  }
+
+  const nameInput = kind === 'property'
+    ? `<input type="text" class="se-name" placeholder="name" value="${esc(name)}">`
+    : `<span class="se-label">items</span>`;
+  const delBtn = kind === 'property'
+    ? `<button class="btn sm danger" onclick="this.closest('.se-node').remove()">×</button>`
+    : '';
+
+  node.innerHTML = `
+    <div class="se-row">
+      ${nameInput}
+      <select class="se-type">
+        <option value="string"${type==='string'?' selected':''}>string</option>
+        <option value="integer"${type==='integer'?' selected':''}>integer</option>
+        <option value="number"${type==='number'?' selected':''}>number</option>
+        <option value="boolean"${type==='boolean'?' selected':''}>boolean</option>
+        <option value="object"${type==='object'?' selected':''}>object</option>
+        <option value="array"${type==='array'?' selected':''}>array</option>
+      </select>
+      <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;white-space:nowrap">
+        <input type="checkbox" class="se-nullable"${nullable?' checked':''}> nullable
+      </label>
+      <input type="text" class="se-desc" placeholder="description" value="${esc(desc)}">
+      <input type="text" class="se-enum" placeholder="enum (comma-separated)" value="${esc(enumValues)}"
+        style="display:${['string','integer','number','boolean'].includes(type)?'':'none'}">
+      ${delBtn}
+    </div>
+    <div class="se-children" style="display:${type==='object'?'block':'none'}"></div>
+    <div class="se-items" style="display:${type==='array'?'block':'none'}"></div>
+  `;
+
+  const typeSel = node.querySelector('.se-type');
+  typeSel.onchange = () => seTypeChanged(node);
+
+  if (type === 'object' && childrenSchemas) {
+    const childrenContainer = node.querySelector('.se-children');
+    Object.entries(childrenSchemas).forEach(([childName, childSchema]) => {
+      childrenContainer.appendChild(buildNode('property', childName, childSchema));
+    });
+  }
+  if (type === 'array') {
+    const itemsContainer = node.querySelector('.se-items');
+    itemsContainer.appendChild(buildNode('item', '', itemsSchema || null));
+  }
+  if (type === 'object') {
+    const childrenContainer = node.querySelector('.se-children');
+    if (!childrenContainer.querySelector('.btn')) {
+      const addBtn = document.createElement('button');
+      addBtn.className = 'btn sm';
+      addBtn.textContent = '+ Add property';
+      addBtn.onclick = () => childrenContainer.appendChild(buildNode('property', '', null));
+      childrenContainer.appendChild(addBtn);
+    }
+  }
+
+  return node;
+}
+
+function seTypeChanged(node) {
+  const type = node.querySelector('.se-type').value;
+  const enumInput = node.querySelector('.se-enum');
+  enumInput.style.display = ['string','integer','number','boolean'].includes(type) ? '' : 'none';
+  const children = node.querySelector('.se-children');
+  const items = node.querySelector('.se-items');
+  children.style.display = type === 'object' ? 'block' : 'none';
+  items.style.display = type === 'array' ? 'block' : 'none';
+  if (type === 'object' && !children.querySelector('.btn')) {
+    const addBtn = document.createElement('button');
+    addBtn.className = 'btn sm';
+    addBtn.textContent = '+ Add property';
+    addBtn.onclick = () => children.appendChild(buildNode('property', '', null));
+    children.appendChild(addBtn);
+  }
+  if (type === 'array' && !items.querySelector('.se-node')) {
+    items.appendChild(buildNode('item', '', null));
+  }
+}
+
+function serializeNode(node) {
+  const type = node.querySelector('.se-type').value;
+  const nullable = node.querySelector('.se-nullable')?.checked;
+  const desc = node.querySelector('.se-desc')?.value?.trim();
+  const enumStr = node.querySelector('.se-enum')?.value?.trim();
+  const out = {};
+  out.type = nullable ? [type, 'null'] : type;
+  if (desc) out.description = desc;
+  if (enumStr && ['string','integer','number','boolean'].includes(type)) {
+    const vals = enumStr.split(',').map(s => s.trim()).filter(Boolean);
+    if (vals.length) {
+      out.enum = vals.map(v => parseEnumValue(v, type));
+    }
+  }
+  if (type === 'object') {
+    const childrenContainer = node.querySelector('.se-children');
+    const props = {};
+    const required = [];
+    const childNodes = [...childrenContainer.children].filter(el => el.classList.contains('se-node'));
+    childNodes.forEach(child => {
+      const name = child.querySelector('.se-name')?.value?.trim();
+      if (!name) return;
+      props[name] = serializeNode(child);
+      required.push(name);
+    });
+    out.properties = props;
+    out.required = required;
+    out.additionalProperties = false;
+  }
+  if (type === 'array') {
+    const itemsContainer = node.querySelector('.se-items');
+    const itemNode = itemsContainer.querySelector('.se-node');
+    if (itemNode) {
+      out.items = serializeNode(itemNode);
+    }
+  }
+  return out;
+}
+
+function parseEnumValue(raw, type) {
+  if (type === 'string') return raw;
+  if (type === 'integer') {
+    const n = parseInt(raw, 10);
+    return isNaN(n) ? raw : n;
+  }
+  if (type === 'number') {
+    const n = Number(raw);
+    return isNaN(n) ? raw : n;
+  }
+  if (type === 'boolean') {
+    return raw.toLowerCase() === 'true';
+  }
+  return raw;
+}
+
+function getSchemaEditorValue(target) {
+  const container = typeof target === 'string' ? document.getElementById(target) : target;
+  const root = container.querySelector('.se-root');
+  const childrenContainer = root.querySelector('.se-children');
+  const props = {};
+  const required = [];
+  const childNodes = [...childrenContainer.children].filter(el => el.classList.contains('se-node'));
+  childNodes.forEach(child => {
+    const name = child.querySelector('.se-name')?.value?.trim();
+    if (!name) return;
+    props[name] = serializeNode(child);
+    required.push(name);
+  });
+  return {
+    type: 'object',
+    properties: props,
+    required: required,
+    additionalProperties: false
+  };
+}
+
+function setSchemaEditorValue(target, schema) {
+  createSchemaEditor(target, schema);
+}
+
 // ── Init ────────────────────────────────────────────────────────────────────
 
 window.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('endpoint-label').textContent = window.location.host;
-  document.getElementById('skill-publish-input').value = defaultPublishInputSchema();
+  setSchemaEditorValue('se-skill-publish-input', defaultPublishInputSchema());
+  setSchemaEditorValue('se-skill-request-payload-schema', null);
+  setSchemaEditorValue('se-skill-input-schema', null);
+  setSchemaEditorValue('se-skill-ch-input', null);
   await refresh();
 });
 
@@ -567,25 +803,27 @@ function collectSkillBody() {
   let body = { type, id, desc };
   if (type === 'message.publish') {
     body.topic_prefix = document.getElementById('skill-prefix').value.trim();
-    const publishInSchema = document.getElementById('skill-publish-input').value.trim();
-    if (publishInSchema) {
-      body.payload_schema = JSON.parse(publishInSchema);
+    const pubSchema = getSchemaEditorValue('se-skill-publish-input');
+    if (Object.keys(pubSchema.properties).length > 0) {
+      body.payload_schema = pubSchema;
     }
   } else if (type === 'message.request') {
     body.topic_prefix = document.getElementById('skill-request-prefix').value.trim();
-    const reqPayloadSchema = document.getElementById('skill-request-payload-schema').value.trim();
-    if (reqPayloadSchema) body.request_payload_schema = JSON.parse(reqPayloadSchema);
+    const reqSchema = getSchemaEditorValue('se-skill-request-payload-schema');
+    if (Object.keys(reqSchema.properties).length > 0) {
+      body.request_payload_schema = reqSchema;
+    }
   } else if (type === 'http') {
     body.method        = document.getElementById('skill-method').value;
     body.url           = document.getElementById('skill-url').value.trim();
-    body.input_schema  = JSON.parse(document.getElementById('skill-input-schema').value || '{}');
+    body.input_schema  = getSchemaEditorValue('se-skill-input-schema');
   } else if (type === 'postgresql.query') {
     body.query         = document.getElementById('skill-query').value.trim();
     body.arg_keys      = document.getElementById('skill-arg-keys').value
       .split(',')
       .map(s => s.trim())
       .filter(Boolean);
-    body.input_schema  = JSON.parse(document.getElementById('skill-ch-input').value || '{}');
+    body.input_schema  = getSchemaEditorValue('se-skill-ch-input');
   }
   return body;
 }
@@ -629,32 +867,33 @@ function editSkill(type, id) {
   if (type === 'http') {
     document.getElementById('skill-method').value = skill.method ?? 'post';
     document.getElementById('skill-url').value = skill.url ?? '';
-    document.getElementById('skill-input-schema').value = skill.input_schema ? JSON.stringify(skill.input_schema, null, 2) : '';
+    setSchemaEditorValue('se-skill-input-schema', skill.input_schema || null);
   } else if (type === 'message.publish') {
     document.getElementById('skill-prefix').value = skill.topic_prefix ?? '';
     const legacyPayloadSchema = skill.input_schema?.properties?.payload;
     const payloadSchema = skill.payload_schema ?? legacyPayloadSchema;
-    document.getElementById('skill-publish-input').value = payloadSchema ? JSON.stringify(payloadSchema, null, 2) : defaultPublishInputSchema();
+    setSchemaEditorValue('se-skill-publish-input', payloadSchema || defaultPublishInputSchema());
   } else if (type === 'message.request') {
     document.getElementById('skill-request-prefix').value = skill.topic_prefix ?? '';
-    document.getElementById('skill-request-payload-schema').value = skill.request_payload_schema ? JSON.stringify(skill.request_payload_schema, null, 2) : '';
+    setSchemaEditorValue('se-skill-request-payload-schema', skill.request_payload_schema || null);
   } else if (type === 'postgresql.query') {
     document.getElementById('skill-query').value = skill.query ?? '';
     document.getElementById('skill-arg-keys').value = (skill.arg_keys ?? []).join(', ');
-    document.getElementById('skill-ch-input').value = skill.input_schema ? JSON.stringify(skill.input_schema, null, 2) : '';
+    setSchemaEditorValue('se-skill-ch-input', skill.input_schema || null);
   }
 
   document.querySelector('#tab-skills .card').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function defaultPublishInputSchema() {
-  return JSON.stringify({
+  return {
     type: 'object',
     properties: {
       message: { type: 'string' }
     },
-    required: ['message']
-  }, null, 2);
+    required: ['message'],
+    additionalProperties: false
+  };
 }
 
 function resetSkillEditor() {
@@ -668,16 +907,15 @@ function resetSkillEditor() {
   document.getElementById('skill-id').value = '';
   document.getElementById('skill-desc').value = '';
   document.getElementById('skill-prefix').value = '';
-  document.getElementById('skill-publish-input').value = defaultPublishInputSchema();
+  setSchemaEditorValue('se-skill-publish-input', defaultPublishInputSchema());
   document.getElementById('skill-request-prefix').value = '';
-  document.getElementById('skill-request-payload-schema').value = '';
+  setSchemaEditorValue('se-skill-request-payload-schema', null);
   document.getElementById('skill-method').value = 'post';
   document.getElementById('skill-url').value = '';
-  document.getElementById('skill-input-schema').value = '';
-  document.getElementById('skill-data-schema').value = '';
+  setSchemaEditorValue('se-skill-input-schema', null);
   document.getElementById('skill-query').value = '';
   document.getElementById('skill-arg-keys').value = '';
-  document.getElementById('skill-ch-input').value = '';
+  setSchemaEditorValue('se-skill-ch-input', null);
   updateSkillForm();
   setMsg('skill-msg', '');
 }
@@ -827,7 +1065,7 @@ function deserializeStep(s, i) {
   }
   if (type === 'llm_loop') {
     const input = s.input ? Object.entries(s.input) : [['event', '$.event']];
-    const setResultSchema = s.set_result_schema ? JSON.stringify(s.set_result_schema, null, 2) : '';
+    const setResultSchema = s.set_result_schema || null;
     return { id, type, provider_name: s.provider_name ?? '', model: s.model ?? '', stop_on_finish: s.stop_on_finish ?? true, tools: s.tools ?? [], input, instructions: s.instructions ?? '', set_result_schema: setResultSchema, result_path: s.result_path ?? '' };
   }
   if (type === 'wait_for_event') {
@@ -860,7 +1098,7 @@ function resetPipelineEditor() {
 function defaultStep(type) {
   const n = pipelineSteps.length + 1;
   if (type === 'call_skill')     return { id: 'step_' + n, type, skill: '', args: [['', '']], result_path: '' };
-  if (type === 'llm_loop')       return { id: 'step_' + n, type, provider_name: '', model: 'gpt-5.4-mini', max_tokens: 2048, stop_on_finish: true, tools: [], input: [['event', '$.event']], set_result_schema: '{"type":"object","properties":{"status":{"type":"string"}},"required":["status"]}', result_path: '' };
+  if (type === 'llm_loop')       return { id: 'step_' + n, type, provider_name: '', model: 'gpt-5.4-mini', max_tokens: 2048, stop_on_finish: true, tools: [], input: [['event', '$.event']], set_result_schema: { type: 'object', properties: { status: { type: 'string' } }, required: ['status'], additionalProperties: false }, result_path: '' };
   if (type === 'wait_for_event') return { id: 'step_' + n, type, topic: '', where: '', result_path: '' };
   if (type === 'break')          return { id: 'step_' + n, type, path: '', not: false };
   return { id: 'step_' + n, type };
@@ -904,12 +1142,18 @@ function renderSteps() {
     card.dataset.stepIdx = idx;
     card.innerHTML = stepCardHTML(step, idx);
     container.appendChild(card);
+    if (step.type === 'llm_loop') {
+      createSchemaEditor('se-set-result-' + idx, step.set_result_schema);
+    }
   });
 }
 
 function renderStepBody(idx) {
-  document.getElementById('step-body-' + idx).innerHTML =
-    stepFieldsHTML(pipelineSteps[idx], idx);
+  const body = document.getElementById('step-body-' + idx);
+  body.innerHTML = stepFieldsHTML(pipelineSteps[idx], idx);
+  if (pipelineSteps[idx].type === 'llm_loop') {
+    createSchemaEditor('se-set-result-' + idx, pipelineSteps[idx].set_result_schema);
+  }
 }
 
 function stepCardHTML(step, idx) {
@@ -1009,7 +1253,7 @@ function stepFieldsHTML(step, idx) {
         <textarea class="sf-instructions" rows="5" style="font-family:monospace;font-size:11px" placeholder="You are a helpful assistant.">${esc(step.instructions||'')}</textarea>
       </div>
       <div class="field"><label>set_result schema <small style="color:var(--muted)">JSON Schema for structured output (required)</small></label>
-        <textarea class="sf-set-result-schema" rows="4" style="font-family:monospace;font-size:11px" placeholder='{"type":"object","properties":{"status":{"type":"string"}}}'>${esc(step.set_result_schema||'')}</textarea>
+        <div id="se-set-result-${idx}" class="sf-set-result-schema-editor"></div>
       </div>
       <div class="field"><label>Result path</label>
         <input type="text" class="sf-result" value="${esc(step.result_path)}" placeholder="$.analysis">
@@ -1061,7 +1305,8 @@ function syncStep(idx) {
     step.stop_on_finish = card.querySelector('.sf-stop-on-finish')?.checked ?? true;
     step.tools = [...card.querySelectorAll('.sf-tools input:checked')].map(c => c.value);
     step.instructions = card.querySelector('.sf-instructions')?.value?.trim() ?? '';
-    step.set_result_schema = card.querySelector('.sf-set-result-schema')?.value?.trim() ?? '';
+    const seEl = card.querySelector('.sf-set-result-schema-editor');
+    step.set_result_schema = seEl ? getSchemaEditorValue(seEl) : null;
     step.result_path = card.querySelector('.sf-result')?.value?.trim() ?? '';
     step.input = [...card.querySelectorAll('.sf-input .kv-row')].map(r => [
       r.querySelector('.kv-key').value.trim(),
@@ -1099,8 +1344,8 @@ function collectSteps() {
       if (s.tools?.length)   out.tools = s.tools;
       const input = Object.fromEntries((s.input||[]).filter(([k]) => k));
       if (Object.keys(input).length) out.input = input;
-      if (s.set_result_schema) {
-        try { out.set_result_schema = JSON.parse(s.set_result_schema); } catch (e) { /* invalid JSON — omit */ }
+      if (s.set_result_schema && typeof s.set_result_schema === 'object') {
+        out.set_result_schema = s.set_result_schema;
       }
       if (s.result_path) out.result_path = s.result_path;
     } else if (s.type === 'wait_for_event') {
