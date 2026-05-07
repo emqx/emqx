@@ -15,6 +15,14 @@
 ]).
 
 -export([
+    create_metrics/1,
+    ensure_metrics/1,
+    reset_metrics/1,
+    clear_metrics/1,
+    get_metrics/1
+]).
+
+-export([
     inflight_set/3,
     inflight_get/1,
     queuing_set/3,
@@ -65,7 +73,30 @@
     success_get/1
 ]).
 
+-define(METRICS, [
+    'matched',
+    'retried',
+    'retried.success',
+    'retried.failed',
+    'success',
+    'late_reply',
+    'failed',
+    'dropped',
+    'dropped.expired',
+    'dropped.queue_full',
+    'dropped.resource_not_found',
+    'dropped.resource_stopped',
+    'dropped.other',
+    'received'
+]).
+
+-define(RATE_METRICS, [
+    'matched'
+]).
+
 -define(TELEMETRY_PREFIX, emqx, resource).
+
+%%
 
 -spec events() -> [telemetry:event_name()].
 events() ->
@@ -216,6 +247,29 @@ handle_gauge_telemetry_event(Event, ID, WorkerID, Val) ->
         _ ->
             ok
     end.
+
+%%
+
+-spec create_metrics(resource_id()) -> ok.
+create_metrics(ID) ->
+    emqx_metrics_worker:create_metrics(?RES_METRICS, ID, ?METRICS, ?RATE_METRICS).
+
+-spec ensure_metrics(resource_id()) -> {ok, created | already_created}.
+ensure_metrics(ID) ->
+    emqx_metrics_worker:ensure_metrics(?RES_METRICS, ID, ?METRICS, ?RATE_METRICS).
+
+%% @doc Get the metrics for the specified resource
+get_metrics(ID) ->
+    emqx_metrics_worker:get_metrics(?RES_METRICS, ID).
+
+%% @doc Reset the metrics for the specified resource
+-spec reset_metrics(resource_id()) -> ok.
+reset_metrics(ID) ->
+    emqx_metrics_worker:reset_metrics(?RES_METRICS, ID).
+
+-spec clear_metrics(resource_id()) -> ok.
+clear_metrics(ID) ->
+    emqx_metrics_worker:clear_metrics(?RES_METRICS, ID).
 
 %% Gauges (value can go both up and down):
 %% --------------------------------------

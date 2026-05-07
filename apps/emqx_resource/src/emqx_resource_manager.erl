@@ -39,8 +39,6 @@
     list_group/1,
     lookup_cached/1,
     is_exist/1,
-    get_metrics/1,
-    reset_metrics/1,
     get_query_mode_and_last_error/2
 ]).
 
@@ -477,16 +475,6 @@ lookup_cached(ResId) ->
 %% @doc Check if the resource is cached.
 is_exist(ResId) ->
     emqx_resource_cache:is_exist(ResId).
-
-%% @doc Get the metrics for the specified resource
-get_metrics(ResId) ->
-    emqx_metrics_worker:get_metrics(?RES_METRICS, ResId).
-
-%% @doc Reset the metrics for the specified resource
--spec reset_metrics(resource_id()) -> ok.
-reset_metrics(ResId) ->
-    ok = ensure_metrics(ResId),
-    emqx_metrics_worker:reset_metrics(?RES_METRICS, ResId).
 
 %% @doc Returns the data for all resources
 -spec list_all() -> [resource_data()].
@@ -1071,7 +1059,7 @@ handle_remove_event(From, ClearMetrics, Data) ->
     %% now stop the resource, this can be slow
     _ = stop_resource(Data),
     case ClearMetrics of
-        true -> ok = emqx_metrics_worker:clear_metrics(?RES_METRICS, Data#data.id);
+        true -> ok = emqx_resource_metrics:clear_metrics(Data#data.id);
         false -> ok
     end,
     _ = erase_cache(Data),
@@ -1294,7 +1282,7 @@ stop_resource(#data{id = ResId} = Data) ->
     end,
     IsDryRun = emqx_resource:is_dry_run(ResId),
     _ = maybe_clear_alarm(IsDryRun, ResId),
-    ok = emqx_metrics_worker:reset_metrics(?RES_METRICS, ResId),
+    ok = emqx_resource_metrics:reset_metrics(ResId),
     NewData#data{status = ?rm_status_stopped}.
 
 remove_channels(Data) ->
@@ -1452,7 +1440,7 @@ handle_remove_channel_exists(From, ChannelId, Data) ->
         )
     of
         {ok, NewState} ->
-            ok = emqx_resource:clear_metrics(ChannelId),
+            ok = emqx_resource_metrics:clear_metrics(ChannelId),
             NewAddedChannelsMap = maps:remove(ChannelId, AddedChannelsMap),
             UpdatedData = Data#data{
                 state = NewState,
@@ -2532,7 +2520,7 @@ set_log_meta(Data) ->
 %% errors.  As mitigation, we ensure such metrics are created here so that restarting
 %% the resource or resetting its metrics can recreate them.
 ensure_metrics(ResId) ->
-    {ok, _} = emqx_resource:ensure_metrics(ResId),
+    {ok, _} = emqx_resource_metrics:ensure_metrics(ResId),
     ok.
 
 %% When a resource enters a `?status_disconnected' state, late channel health check
@@ -2724,7 +2712,7 @@ collect_channel_operations(N, Acc) ->
 ensure_channel_metrics_exist(Data) ->
     lists:foreach(
         fun({ChannelId, _Config}) ->
-            {ok, _} = emqx_resource:ensure_metrics(ChannelId)
+            {ok, _} = emqx_resource_metrics:ensure_metrics(ChannelId)
         end,
         emqx_resource:call_get_channels(Data#data.id, Data#data.mod)
     ).

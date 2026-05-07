@@ -472,7 +472,7 @@ install_bridge_v2_helper(
     CreationOpts0 = emqx_resource:fetch_creation_opts(Config),
     CreationOpts = CreationOpts0#{namespace => Namespace},
     %% Create metrics for Bridge V2
-    ok = emqx_resource:create_metrics(BridgeV2Id),
+    ok = emqx_resource_metrics:create_metrics(BridgeV2Id),
     %% We might need to create buffer workers for Bridge V2
     case get_resource_query_mode(BridgeV2Type, Config) of
         %% the Bridge V2 has built-in buffer, so there is no need for resource workers
