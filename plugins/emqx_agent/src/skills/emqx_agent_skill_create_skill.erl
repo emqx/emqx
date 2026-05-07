@@ -9,7 +9,7 @@
 %% The skill delegates to emqx_agent_service:skill_create/1 and returns
 %% a structured result so the LLM can detect and retry failures.
 %%
-%% Invoke topic:  cap/agent.create_skill/<skill_id>/request
+%% Invoke topic:  cap/agent.create_skill/<skill_id>/request/<req_id>
 %% Reply  topic:  cap/agent.create_skill/<skill_id>/response/<req_id>
 
 -module(emqx_agent_skill_create_skill).
@@ -147,7 +147,7 @@
     <<"required">> => [<<"definition">>]
 }).
 
--export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/3]).
+-export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/2]).
 
 %%--------------------------------------------------------------------
 %% Public API
@@ -191,30 +191,16 @@ to_map(#{skill_id := Id, description := Desc, input_schema := In}) ->
 %% Internal
 %%--------------------------------------------------------------------
 
-handle_invoke(SkillId, _Context, Request) ->
+handle_invoke(_Context, Request) ->
     Args = maps:get(<<"definition">>, maps:get(<<"args">>, Request, #{}), #{}),
-    Result =
-        case emqx_agent_service:skill_create(Args) of
-            ok ->
-                #{
-                    <<"status">> => <<"ok">>,
-                    <<"skill_id">> => maps:get(<<"id">>, Args, <<>>),
-                    <<"type">> => maps:get(<<"type">>, Args, <<>>)
-                };
-            {error, unknown_type} ->
-                #{
-                    <<"status">> => <<"error">>,
-                    <<"reason">> => <<"unknown skill type">>,
-                    <<"details">> =>
-                        <<"valid types: message.publish, message.request, http, postgresql.query">>
-                };
-            {error, Reason} ->
-                #{
-                    <<"status">> => <<"error">>,
-                    <<"reason">> => emqx_agent_skill_helpers:format_error(Reason)
-                }
-        end,
-    reply(SkillId, Request, Result).
-
-reply(SkillId, Request, Data) ->
-    emqx_agent_skill_helpers:publish_reply(?SKILL_TYPE, SkillId, Request, Data).
+    case emqx_agent_service:skill_create(Args) of
+        ok ->
+            {ok, #{
+                <<"skill_id">> => maps:get(<<"id">>, Args, <<>>),
+                <<"type">> => maps:get(<<"type">>, Args, <<>>)
+            }};
+        {error, unknown_type} ->
+            {error, <<"unknown skill type">>};
+        {error, Reason} ->
+            {error, emqx_agent_skill_helpers:format_error(Reason)}
+    end.

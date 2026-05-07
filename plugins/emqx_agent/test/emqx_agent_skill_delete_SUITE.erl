@@ -82,7 +82,7 @@ t_delete_skill_ok(_Config) ->
         ReqId
     ),
     Reply = recv_reply(ReqId),
-    ?assertMatch(#{<<"data">> := #{<<"status">> := <<"ok">>}}, Reply),
+    ?assertMatch(#{<<"status">> := <<"ok">>}, cap_response(Reply)),
     ?assertEqual(
         {error, not_found},
         emqx_agent_skill_registry:lookup(<<"message.publish">>, <<"to-del-pub">>)
@@ -99,7 +99,7 @@ t_delete_skill_not_found(_Config) ->
         ReqId
     ),
     Reply = recv_reply(ReqId),
-    ?assertMatch(#{<<"data">> := #{<<"status">> := <<"error">>}}, Reply),
+    ?assertMatch(#{<<"status">> := <<"error">>}, cap_response(Reply)),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
 t_delete_skill_in_use_by_call_skill(_Config) ->
@@ -132,9 +132,7 @@ t_delete_skill_in_use_by_call_skill(_Config) ->
         ReqId
     ),
     Reply = recv_reply(ReqId),
-    #{<<"data">> := Data} = Reply,
-    ?assertEqual(<<"error">>, maps:get(<<"status">>, Data)),
-    ?assertEqual([<<"pipe-uses-pub">>], maps:get(<<"used_by">>, Data)),
+    ?assertMatch(#{<<"status">> := <<"error">>, <<"reason">> := _}, cap_response(Reply)),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
 t_delete_skill_in_use_by_llm_tools(_Config) ->
@@ -174,9 +172,7 @@ t_delete_skill_in_use_by_llm_tools(_Config) ->
         ReqId
     ),
     Reply = recv_reply(ReqId),
-    #{<<"data">> := Data} = Reply,
-    ?assertEqual(<<"error">>, maps:get(<<"status">>, Data)),
-    ?assertEqual([<<"pipe-uses-tool">>], maps:get(<<"used_by">>, Data)),
+    ?assertMatch(#{<<"status">> := <<"error">>, <<"reason">> := _}, cap_response(Reply)),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
 %%--------------------------------------------------------------------
@@ -217,7 +213,7 @@ t_delete_pipeline_ok(_Config) ->
         ReqId
     ),
     Reply = recv_reply(ReqId),
-    ?assertMatch(#{<<"data">> := #{<<"status">> := <<"ok">>}}, Reply),
+    ?assertMatch(#{<<"status">> := <<"ok">>}, cap_response(Reply)),
     ?assertEqual({error, not_found}, emqx_agent_service:pipeline_get(<<"to-del-pipe">>)),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
@@ -231,7 +227,7 @@ t_delete_pipeline_not_found(_Config) ->
         ReqId
     ),
     Reply = recv_reply(ReqId),
-    ?assertMatch(#{<<"data">> := #{<<"status">> := <<"error">>}}, Reply),
+    ?assertMatch(#{<<"status">> := <<"error">>}, cap_response(Reply)),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
 t_delete_pipeline_active(_Config) ->
@@ -251,7 +247,7 @@ t_delete_pipeline_active(_Config) ->
         ReqId
     ),
     Reply = recv_reply(ReqId),
-    ?assertMatch(#{<<"data">> := #{<<"status">> := <<"error">>, <<"reason">> := _}}, Reply),
+    ?assertMatch(#{<<"status">> := <<"error">>, <<"reason">> := _}, cap_response(Reply)),
     %% Pipeline must still exist.
     ?assertMatch({ok, _}, emqx_agent_service:pipeline_get(<<"active-pipe">>)),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
@@ -288,11 +284,10 @@ invoke(Type, SkillId, Args, ReqId) ->
     invoke(Type, SkillId, Args, ReqId, #{}).
 
 invoke(Type, SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request">>,
+    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{
-                <<"req_id">> => ReqId,
                 <<"trace_id">> => null,
                 <<"iid">> => null,
                 <<"sid">> => null,
@@ -311,3 +306,6 @@ recv_reply(ReqId) ->
     after 3000 ->
         ct:fail("no reply for req_id=~s within 3 s", [ReqId])
     end.
+
+cap_response(Reply) ->
+    emqx_agent_skill_helpers:cap_response(Reply).

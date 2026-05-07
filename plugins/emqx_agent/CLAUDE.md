@@ -192,7 +192,7 @@ Topic | Direction | Purpose
 `evt/<anything>` | → pipeline_mgr | Trigger events and wait_for_event candidates
 `sess/in/<sid>/` | → session | Requests and tool results to the LLM session
 `sess/out/<sid>/` | → pipeline_mgr → pipeline | Frames from the LLM session
-`cap/<type>/<skill_id>/request` | → skill | Skill invocations
+`cap/<type>/<skill_id>/request/<req_id>` | → skill | Skill invocations
 `cap/<type>/<skill_id>/response/<req_id>` | → pipeline_mgr → pipeline | Skill responses
 `pipe/<pid>/inst/<iid>/events` | → subscribers | Pipeline lifecycle events
 

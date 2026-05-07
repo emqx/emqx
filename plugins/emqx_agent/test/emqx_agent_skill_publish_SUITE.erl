@@ -93,14 +93,15 @@ t_publish_basic(_Config) ->
 
     %% The reply must confirm success and echo the full topic.
     Reply = decode_reply(await_deliver(ReplyTopic)),
+    Response = emqx_agent_skill_helpers:cap_response(Reply),
     ?assertMatch(
         #{
-            <<"req_id">> := <<"req-pub-1">>,
-            <<"frame">> := <<"unary">>,
-            <<"data">> := #{<<"status">> := <<"ok">>, <<"topic">> := FullTopic}
+            <<"status">> := <<"ok">>,
+            <<"result">> := #{<<"topic">> := FullTopic}
         },
-        Reply
+        Response
     ),
+    ?assertEqual(<<"req-pub-1">>, maps:get(<<"req_id">>, Reply)),
 
     ok = emqx:unsubscribe(FullTopic),
     ok = emqx:unsubscribe(ReplyTopic).
@@ -121,7 +122,10 @@ t_topic_prefix_is_applied(_Config) ->
     ),
 
     Reply = decode_reply(await_deliver(ReplyTopic)),
-    ?assertEqual(FullTopic, nested_get([<<"data">>, <<"topic">>], Reply)),
+    ?assertEqual(
+        FullTopic,
+        nested_get([<<"result">>, <<"topic">>], emqx_agent_skill_helpers:cap_response(Reply))
+    ),
 
     ok = emqx:unsubscribe(FullTopic),
     ok = emqx:unsubscribe(ReplyTopic).
@@ -151,7 +155,7 @@ t_publish_with_from_and_qos(_Config) ->
     ),
 
     Reply = decode_reply(await_deliver(ReplyTopic)),
-    ?assertEqual(<<"ok">>, nested_get([<<"data">>, <<"status">>], Reply)),
+    ?assertEqual(<<"ok">>, maps:get(<<"status">>, emqx_agent_skill_helpers:cap_response(Reply))),
 
     ok = emqx:unsubscribe(FullTopic),
     ok = emqx:unsubscribe(ReplyTopic).
@@ -217,11 +221,10 @@ invoke(SkillId, Args, ReqId) ->
     invoke(SkillId, Args, ReqId, #{}).
 
 invoke(SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/message.publish/", SkillId/binary, "/request">>,
+    Topic = <<"cap/message.publish/", SkillId/binary, "/request/", ReqId/binary>>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{
-                <<"req_id">> => ReqId,
                 <<"trace_id">> => null,
                 <<"iid">> => null,
                 <<"sid">> => null,

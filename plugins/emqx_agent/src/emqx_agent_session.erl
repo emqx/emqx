@@ -446,8 +446,7 @@ on_llm_choice(Choice, Data) ->
     end.
 
 on_tool_result(CallId, Msg, Data) ->
-    Ok = maps:get(<<"ok">>, Msg, true),
-    ResultData = maps:get(<<"data">>, Msg, #{}),
+    Result = maps:get(<<"response">>, Msg, #{}),
     %% Build the tool-role acknowledgement.  Tool messages must carry a string
     %% content; image_url is not a valid tool-message content type for OpenAI.
     %% When the result contains an image we acknowledge the tool call with a
@@ -455,14 +454,14 @@ on_tool_result(CallId, Msg, Data) ->
     %% the multimodal array — that is the form gpt-4o accepts for vision input.
     {ToolContent, ExtraMsgs} =
         case
-            Ok =:= true andalso
+            maps:get(<<"status">>, Result, <<"ok">>) =:= <<"ok">> andalso
                 try_extract_image_url(
-                    maps:get(<<"payload">>, ResultData, undefined)
+                    maps:get(<<"payload">>, maps:get(<<"result">>, Result, #{}), undefined)
                 )
         of
             {ok, ImageUrl} ->
                 AckJson = emqx_utils_json:encode(
-                    #{<<"ok">> => true, <<"data">> => <<"image received">>}
+                    #{<<"status">> => <<"ok">>, <<"result">> => <<"image received">>}
                 ),
                 VisionMsg = #{
                     <<"role">> => <<"user">>,
@@ -475,7 +474,7 @@ on_tool_result(CallId, Msg, Data) ->
                 },
                 {AckJson, [VisionMsg]};
             _ ->
-                {emqx_utils_json:encode(#{<<"ok">> => Ok, <<"data">> => ResultData}), []}
+                {emqx_utils_json:encode(Result), []}
         end,
     ToolMsg = #{
         <<"role">> => <<"tool">>,

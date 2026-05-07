@@ -18,7 +18,7 @@
     }
 }).
 
--export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/3]).
+-export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/2]).
 
 -spec init() -> ok.
 init() ->
@@ -53,22 +53,21 @@ to_map(#{skill_id := Id, description := Desc, input_schema := In}) ->
         <<"input_schema">> => In
     }.
 
-handle_invoke(SkillId, _Context, Request) ->
+handle_invoke(_Context, Request) ->
     %% TODO: validate
     Args = maps:get(<<"args">>, Request, #{}),
-    Result = query(Args),
-    reply(SkillId, Request, Result).
+    query(Args).
 
 query(#{<<"name">> := Name}) ->
     case find_provider(Name) of
         {ok, Provider} ->
-            #{<<"status">> => <<"ok">>, <<"item">> => format_provider(Provider)};
+            {ok, #{<<"item">> => format_provider(Provider)}};
         not_found ->
-            #{<<"status">> => <<"error">>, <<"reason">> => <<"not found">>}
+            {error, <<"not found">>}
     end;
 query(_) ->
     Items = [format_provider(P) || P <- emqx_ai_completion_config:get_providers_raw()],
-    #{<<"status">> => <<"ok">>, <<"items">> => Items}.
+    {ok, #{<<"items">> => Items}}.
 
 find_provider(Name) ->
     case
@@ -80,6 +79,3 @@ find_provider(Name) ->
 
 format_provider(Provider) ->
     emqx_utils:redact(Provider).
-
-reply(SkillId, Request, Data) ->
-    emqx_agent_skill_helpers:publish_reply(?SKILL_TYPE, SkillId, Request, Data).

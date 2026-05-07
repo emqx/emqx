@@ -10,7 +10,7 @@
 %% that any MQTT 5-aware responder can reply without out-of-band
 %% coordination.
 %%
-%% Invoke topic:  cap/message.request/<skill_id>
+%% Invoke topic:  cap/message.request/<skill_id>/request/<req_id>
 %% Reply  topic:  cap/message.request/<skill_id>/response/<req_id>
 %%
 %% Context keys:
@@ -74,7 +74,7 @@
     <<"required">> => [<<"topic">>, <<"payload">>]
 }).
 
--export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/3]).
+-export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/2]).
 
 %%--------------------------------------------------------------------
 %% Public API
@@ -135,29 +135,26 @@ to_map(#{
 %% Internal
 %%--------------------------------------------------------------------
 
-handle_invoke(SkillId, #{topic_prefix := TopicPrefix}, Request) ->
-    do_request(SkillId, TopicPrefix, Request).
+handle_invoke(#{topic_prefix := TopicPrefix}, Request) ->
+    do_request(TopicPrefix, Request).
 
-do_request(SkillId, TopicPrefix, Request) ->
+do_request(TopicPrefix, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
     TopicSuffix = maps:get(<<"topic">>, Args),
     MsgPayload = normalize_payload(maps:get(<<"payload">>, Args, <<>>)),
-    From = maps:get(<<"from">>, Args, SkillId),
+    From = maps:get(<<"from">>, Args, <<>>),
     Qos = maps:get(<<"qos">>, Args, 0),
     TimeoutMs = maps:get(<<"timeout_ms">>, Args, ?DEFAULT_TIMEOUT_MS),
 
     FullTopic = <<TopicPrefix/binary, TopicSuffix/binary>>,
 
-    %% Unique response topic — scoped to this skill instance and request.
+    %% Unique response topic — scoped to this request.
     Unique = integer_to_binary(erlang:unique_integer([positive, monotonic])),
-    ResponseTopic = <<?RESPONSE_TOPIC_PREFIX/binary, SkillId/binary, "/", Unique/binary>>,
+    ResponseTopic = <<?RESPONSE_TOPIC_PREFIX/binary, Unique/binary>>,
 
-    _Pid = spawn(fun() ->
-        do_round_trip(SkillId, Request, FullTopic, MsgPayload, From, Qos, ResponseTopic, TimeoutMs)
-    end),
-    ok.
+    do_round_trip(FullTopic, MsgPayload, From, Qos, ResponseTopic, TimeoutMs).
 
-do_round_trip(SkillId, Request, FullTopic, MsgPayload, From, Qos, ResponseTopic, TimeoutMs) ->
+do_round_trip(FullTopic, MsgPayload, From, Qos, ResponseTopic, TimeoutMs) ->
     %% Subscribe before publishing so we cannot miss the response.
     ok = emqx:subscribe(ResponseTopic),
 
@@ -168,14 +165,14 @@ do_round_trip(SkillId, Request, FullTopic, MsgPayload, From, Qos, ResponseTopic,
     Result =
         receive
             #deliver{topic = ResponseTopic, message = #message{payload = RespPayload}} ->
-                #{<<"status">> => <<"ok">>, <<"payload">> => RespPayload}
+                {ok, #{<<"payload">> => RespPayload}}
         after TimeoutMs ->
-            #{<<"status">> => <<"error">>, <<"reason">> => <<"timeout">>}
+            {error, <<"timeout">>}
         end,
 
     ok = emqx:unsubscribe(ResponseTopic),
 
-    emqx_agent_skill_helpers:publish_reply(?SKILL_TYPE, SkillId, Request, Result).
+    Result.
 
 normalize_payload(Payload) when is_map(Payload) ->
     emqx_utils_json:encode(Payload);

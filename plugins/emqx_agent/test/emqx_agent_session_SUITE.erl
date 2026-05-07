@@ -277,8 +277,7 @@ t_request_with_tool_call(Config) ->
     publish_in(Config, #{
         <<"type">> => <<"tool_result">>,
         <<"call_id">> => CallId,
-        <<"ok">> => true,
-        <<"data">> => #{<<"sum">> => Sum}
+        <<"response">> => #{<<"status">> => <<"ok">>, <<"result">> => #{<<"sum">> => Sum}}
     }),
 
     Final = recv_final(Config),
@@ -458,8 +457,7 @@ t_request_while_busy_is_queued(Config) ->
     publish_in(Config, #{
         <<"type">> => <<"tool_result">>,
         <<"call_id">> => maps:get(<<"call_id">>, ToolReq),
-        <<"ok">> => true,
-        <<"data">> => #{<<"sum">> => 10}
+        <<"response">> => #{<<"status">> => <<"ok">>, <<"result">> => #{<<"sum">> => 10}}
     }),
 
     Final1 = recv_final(Config),

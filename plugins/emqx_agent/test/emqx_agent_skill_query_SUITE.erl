@@ -86,7 +86,7 @@ t_query_skills_list_empty(_Config) ->
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(<<"agent.query_skills">>, ?SK_SKILLS_ID, #{}, ReqId),
     Reply = recv_reply(ReqId),
-    #{<<"data">> := #{<<"status">> := <<"ok">>, <<"items">> := Items}} = Reply,
+    #{<<"status">> := <<"ok">>, <<"result">> := #{<<"items">> := Items}} = cap_response(Reply),
     %% Only the 3 query meta-skills themselves are in the registry.
     ?assert(is_list(Items)),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
@@ -103,7 +103,7 @@ t_query_skills_list_with_items(_Config) ->
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(<<"agent.query_skills">>, ?SK_SKILLS_ID, #{}, ReqId),
     Reply = recv_reply(ReqId),
-    #{<<"data">> := #{<<"status">> := <<"ok">>, <<"items">> := Items}} = Reply,
+    #{<<"status">> := <<"ok">>, <<"result">> := #{<<"items">> := Items}} = cap_response(Reply),
     ?assert(lists:any(fun(S) -> maps:get(<<"skill_id">>, S, undefined) =:= <<"pub-a">> end, Items)),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
@@ -127,7 +127,7 @@ t_query_skills_filter_by_type(_Config) ->
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(<<"agent.query_skills">>, ?SK_SKILLS_ID, #{<<"type">> => <<"message.publish">>}, ReqId),
     Reply = recv_reply(ReqId),
-    #{<<"data">> := #{<<"status">> := <<"ok">>, <<"items">> := Items}} = Reply,
+    #{<<"status">> := <<"ok">>, <<"result">> := #{<<"items">> := Items}} = cap_response(Reply),
     ?assert(lists:all(fun(S) -> maps:get(<<"type">>, S) =:= <<"message.publish">> end, Items)),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
@@ -150,11 +150,10 @@ t_query_skills_get_by_type_and_id(_Config) ->
     Reply = recv_reply(ReqId),
     ?assertMatch(
         #{
-            <<"data">> := #{
-                <<"status">> := <<"ok">>, <<"item">> := #{<<"skill_id">> := <<"pub-c">>}
-            }
+            <<"status">> := <<"ok">>,
+            <<"result">> := #{<<"item">> := #{<<"skill_id">> := <<"pub-c">>}}
         },
-        Reply
+        cap_response(Reply)
     ),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
@@ -169,8 +168,8 @@ t_query_skills_get_not_found(_Config) ->
     ),
     Reply = recv_reply(ReqId),
     ?assertMatch(
-        #{<<"data">> := #{<<"status">> := <<"error">>, <<"reason">> := _}},
-        Reply
+        #{<<"status">> := <<"error">>, <<"reason">> := _},
+        cap_response(Reply)
     ),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
@@ -215,7 +214,9 @@ t_query_providers_list_empty(_Config) ->
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(<<"agent.query_providers">>, ?SK_PROVIDERS_ID, #{}, ReqId),
     Reply = recv_reply(ReqId),
-    ?assertMatch(#{<<"data">> := #{<<"status">> := <<"ok">>, <<"items">> := []}}, Reply),
+    ?assertMatch(
+        #{<<"status">> := <<"ok">>, <<"result">> := #{<<"items">> := []}}, cap_response(Reply)
+    ),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
 t_query_providers_list_with_items(_Config) ->
@@ -225,7 +226,7 @@ t_query_providers_list_with_items(_Config) ->
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(<<"agent.query_providers">>, ?SK_PROVIDERS_ID, #{}, ReqId),
     Reply = recv_reply(ReqId),
-    #{<<"data">> := #{<<"status">> := <<"ok">>, <<"items">> := Items}} = Reply,
+    #{<<"status">> := <<"ok">>, <<"result">> := #{<<"items">> := Items}} = cap_response(Reply),
     ?assert(
         lists:any(fun(P) -> maps:get(<<"name">>, P, undefined) =:= <<"provider-a">> end, Items)
     ),
@@ -240,11 +241,10 @@ t_query_providers_get_by_name(_Config) ->
     Reply = recv_reply(ReqId),
     ?assertMatch(
         #{
-            <<"data">> := #{
-                <<"status">> := <<"ok">>, <<"item">> := #{<<"name">> := <<"provider-b">>}
-            }
+            <<"status">> := <<"ok">>,
+            <<"result">> := #{<<"item">> := #{<<"name">> := <<"provider-b">>}}
         },
-        Reply
+        cap_response(Reply)
     ),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
@@ -253,7 +253,7 @@ t_query_providers_get_not_found(_Config) ->
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(<<"agent.query_providers">>, ?SK_PROVIDERS_ID, #{<<"name">> => <<"no-such">>}, ReqId),
     Reply = recv_reply(ReqId),
-    ?assertMatch(#{<<"data">> := #{<<"status">> := <<"error">>}}, Reply),
+    ?assertMatch(#{<<"status">> := <<"error">>}, cap_response(Reply)),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
 t_query_providers_reply_correlation(_Config) ->
@@ -293,7 +293,9 @@ t_query_pipelines_list_empty(_Config) ->
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(<<"agent.query_pipelines">>, ?SK_PIPELINES_ID, #{}, ReqId),
     Reply = recv_reply(ReqId),
-    ?assertMatch(#{<<"data">> := #{<<"status">> := <<"ok">>, <<"items">> := []}}, Reply),
+    ?assertMatch(
+        #{<<"status">> := <<"ok">>, <<"result">> := #{<<"items">> := []}}, cap_response(Reply)
+    ),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
 t_query_pipelines_list_with_items(_Config) ->
@@ -308,7 +310,7 @@ t_query_pipelines_list_with_items(_Config) ->
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(<<"agent.query_pipelines">>, ?SK_PIPELINES_ID, #{}, ReqId),
     Reply = recv_reply(ReqId),
-    #{<<"data">> := #{<<"status">> := <<"ok">>, <<"items">> := Items}} = Reply,
+    #{<<"status">> := <<"ok">>, <<"result">> := #{<<"items">> := Items}} = cap_response(Reply),
     ?assert(
         lists:any(fun(P) -> maps:get(<<"pipeline_id">>, P, undefined) =:= <<"pipe-a">> end, Items)
     ),
@@ -328,11 +330,10 @@ t_query_pipelines_get_by_id(_Config) ->
     Reply = recv_reply(ReqId),
     ?assertMatch(
         #{
-            <<"data">> := #{
-                <<"status">> := <<"ok">>, <<"item">> := #{<<"pipeline_id">> := <<"pipe-b">>}
-            }
+            <<"status">> := <<"ok">>,
+            <<"result">> := #{<<"item">> := #{<<"pipeline_id">> := <<"pipe-b">>}}
         },
-        Reply
+        cap_response(Reply)
     ),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
@@ -341,7 +342,7 @@ t_query_pipelines_get_not_found(_Config) ->
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(<<"agent.query_pipelines">>, ?SK_PIPELINES_ID, #{<<"id">> => <<"no-such">>}, ReqId),
     Reply = recv_reply(ReqId),
-    ?assertMatch(#{<<"data">> := #{<<"status">> := <<"error">>}}, Reply),
+    ?assertMatch(#{<<"status">> := <<"error">>}, cap_response(Reply)),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
 t_query_pipelines_reply_correlation(_Config) ->
@@ -376,11 +377,10 @@ invoke(Type, SkillId, Args, ReqId) ->
     invoke(Type, SkillId, Args, ReqId, #{}).
 
 invoke(Type, SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request">>,
+    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{
-                <<"req_id">> => ReqId,
                 <<"trace_id">> => null,
                 <<"iid">> => null,
                 <<"sid">> => null,
@@ -399,6 +399,9 @@ recv_reply(ReqId) ->
     after 3000 ->
         ct:fail("no reply for req_id=~s within 3 s", [ReqId])
     end.
+
+cap_response(Reply) ->
+    emqx_agent_skill_helpers:cap_response(Reply).
 
 add_provider(Name, ApiKey) ->
     emqx_ai_completion_config:update_providers_raw(

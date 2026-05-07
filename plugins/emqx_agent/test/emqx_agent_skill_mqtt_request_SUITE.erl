@@ -71,14 +71,15 @@ t_request_response(_Config) ->
 
     %% Skill reply must carry the response payload and status=ok.
     Reply = decode_reply(await_deliver(ReplyTopic)),
+    Response = emqx_agent_skill_helpers:cap_response(Reply),
     ?assertMatch(
         #{
-            <<"req_id">> := <<"req-rr-1">>,
-            <<"frame">> := <<"unary">>,
-            <<"data">> := #{<<"status">> := <<"ok">>, <<"payload">> := <<"pong">>}
+            <<"status">> := <<"ok">>,
+            <<"result">> := #{<<"payload">> := <<"pong">>}
         },
-        Reply
+        Response
     ),
+    ?assertEqual(<<"req-rr-1">>, maps:get(<<"req_id">>, Reply)),
 
     ok = emqx:unsubscribe(DeviceTopic),
     ok = emqx:unsubscribe(ReplyTopic).
@@ -155,8 +156,8 @@ t_timeout(_Config) ->
 
     Reply = decode_reply(await_deliver(ReplyTopic, 3000)),
     ?assertMatch(
-        #{<<"data">> := #{<<"status">> := <<"error">>, <<"reason">> := <<"timeout">>}},
-        Reply
+        #{<<"status">> := <<"error">>, <<"reason">> := <<"timeout">>},
+        emqx_agent_skill_helpers:cap_response(Reply)
     ),
 
     ok = emqx:unsubscribe(ReplyTopic).
@@ -250,11 +251,10 @@ invoke(SkillId, Args, ReqId) ->
     invoke(SkillId, Args, ReqId, #{}).
 
 invoke(SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/message.request/", SkillId/binary, "/request">>,
+    Topic = <<"cap/message.request/", SkillId/binary, "/request/", ReqId/binary>>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{
-                <<"req_id">> => ReqId,
                 <<"trace_id">> => null,
                 <<"iid">> => null,
                 <<"sid">> => null,

@@ -383,7 +383,7 @@ t_context_flows_between_steps(Config) ->
             },
             <<"result_path">> => <<"$.lookup">>
         },
-        %% Step 2 — uses $.lookup.topic (= "test/first") as the payload, proving
+        %% Step 2 — uses $.lookup.result.topic (= "test/first") as the payload, proving
         %% that the previous step's result is visible to the next step's args.
         #{
             <<"id">> => <<"step2">>,
@@ -391,7 +391,7 @@ t_context_flows_between_steps(Config) ->
             <<"skill">> => <<"message.publish@", SkillId/binary>>,
             <<"args">> => #{
                 <<"topic">> => <<"second">>,
-                <<"payload">> => <<"$.lookup.topic">>
+                <<"payload">> => <<"$.lookup.result.topic">>
             },
             <<"result_path">> => <<"$.echo">>
         }
@@ -410,7 +410,7 @@ t_context_flows_between_steps(Config) ->
     %% Context must have both step results.
     Ctx = maps:get(<<"context">>, Completed),
     ?assertMatch(
-        #{<<"status">> := <<"ok">>, <<"topic">> := <<"test/first">>},
+        #{<<"status">> := <<"ok">>, <<"result">> := #{<<"topic">> := <<"test/first">>}},
         maps:get(<<"lookup">>, Ctx, #{})
     ),
     ?assertMatch(#{<<"status">> := <<"ok">>}, maps:get(<<"echo">>, Ctx, #{})),

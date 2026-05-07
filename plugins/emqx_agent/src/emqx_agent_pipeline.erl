@@ -228,7 +228,7 @@ handle_event(
     #data{cap_req_id = ReqId} = Data
 ) ->
     log_received(cap_reply, Data, #{req_id => ReqId, frame => Frame}),
-    Result = maps:get(<<"data">>, Frame, #{}),
+    Result = emqx_agent_skill_helpers:cap_response(Frame),
     Data1 = write_context(Data#data.cap_result_path, Result, Data),
     Data2 = Data1#data{cap_req_id = undefined, cap_result_path = undefined},
     ?SLOG(info, #{
@@ -432,14 +432,15 @@ dispatch_tool_request(Frame, Data) ->
                 iid => Data#data.iid,
                 tool => ToolName
             }),
-            send_tool_result(Data#data.active_sid, CallId, false, #{
-                <<"error">> => <<"unknown_tool">>
+            send_tool_result(Data#data.active_sid, CallId, #{
+                <<"status">> => <<"error">>,
+                <<"reason">> => <<"unknown_tool">>
             }),
             {keep_state, Data};
         {<<"pipeline">>, <<"set_result">>} ->
             %% Inline tool — store args and acknowledge immediately.
             ?SLOG(info, #{msg => "pipeline_set_result_called", iid => Data#data.iid, args => Args}),
-            send_tool_result(Data#data.active_sid, CallId, true, #{<<"ok">> => true}),
+            send_tool_result(Data#data.active_sid, CallId, #{<<"status">> => <<"ok">>}),
             {keep_state, Data#data{set_result_value = Args}};
         {Type, SkillId} ->
             ReqId = gen_req_id(),
@@ -461,9 +462,8 @@ route_cap_reply_to_session(ReqId, Frame, Data) ->
             %% Stale or unrecognised reply — ignore
             {keep_state, Data};
         CallId ->
-            Ok = maps:get(<<"ok">>, Frame, true),
-            Result = maps:get(<<"data">>, Frame, #{}),
-            send_tool_result(Data#data.active_sid, CallId, Ok, Result),
+            Result = emqx_agent_skill_helpers:cap_response(Frame),
+            send_tool_result(Data#data.active_sid, CallId, Result),
             Pending1 = maps:remove(ReqId, Data#data.pending_calls),
             {keep_state, Data#data{pending_calls = Pending1}}
     end.
@@ -688,18 +688,20 @@ publish_to_sess_in(Sid, Payload) ->
     _ = emqx_broker:publish(Msg),
     ok.
 
-publish_cap_invoke(Type, SkillId, Payload) ->
-    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request">>,
-    Msg = emqx_message:make(?MODULE, ?QOS_0, Topic, emqx_utils_json:encode(Payload)),
+publish_cap_invoke(Type, SkillId, PayloadMap) ->
+    ReqId = maps:get(<<"req_id">>, PayloadMap),
+    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>,
+    Msg = emqx_message:make(
+        ?MODULE, ?QOS_0, Topic, emqx_utils_json:encode(maps:remove(<<"req_id">>, PayloadMap))
+    ),
     _ = emqx_broker:publish(Msg),
     ok.
 
-send_tool_result(Sid, CallId, Ok, ResultData) ->
+send_tool_result(Sid, CallId, Result) ->
     Payload = #{
         <<"type">> => <<"tool_result">>,
         <<"call_id">> => CallId,
-        <<"ok">> => Ok,
-        <<"data">> => ResultData
+        <<"response">> => Result
     },
     publish_to_sess_in(Sid, Payload).
 

@@ -123,7 +123,7 @@ t_non_json_response_wrapped_in_raw(Config) ->
 
 t_unregistered_skill_is_silently_ignored(_Config) ->
     ok = emqx_agent_skill_http:destroy(?SKILL_ID),
-    Msg = emqx_message:make(?SKILL_ID, 0, invoke_topic(), <<"ignored">>),
+    Msg = emqx_message:make(?SKILL_ID, 0, invoke_topic(<<"dummy-req">>), <<"ignored">>),
     ?assertMatch(#message{}, emqx_hooks:run_fold('message.publish', [], Msg)),
     ok = emqx_agent_skill_http:create(test_context(_Config)).
 
@@ -135,8 +135,8 @@ t_non_http_topic_is_ignored(_Config) ->
 %% Helpers
 %%--------------------------------------------------------------------
 
-invoke_topic() ->
-    <<"cap/http/", ?SKILL_ID/binary, "/request">>.
+invoke_topic(ReqId) ->
+    <<"cap/http/", ?SKILL_ID/binary, "/request/", ReqId/binary>>.
 
 reply_topic(ReqId) ->
     <<"cap/http/", ?SKILL_ID/binary, "/response/", ReqId/binary>>.
@@ -147,12 +147,11 @@ invoke_and_assert(_Config, Args, AssertFn) ->
     ok = emqx:subscribe(ReplyTopic),
 
     Payload = emqx_utils_json:encode(#{
-        <<"req_id">> => ReqId,
         <<"trace_id">> => <<"tr-test">>,
         <<"mode">> => <<"unary">>,
         <<"args">> => Args
     }),
-    _ = emqx_broker:publish(emqx_message:make(?SKILL_ID, 0, invoke_topic(), Payload)),
+    _ = emqx_broker:publish(emqx_message:make(?SKILL_ID, 0, invoke_topic(ReqId), Payload)),
 
     Reply =
         receive
@@ -163,7 +162,7 @@ invoke_and_assert(_Config, Args, AssertFn) ->
 
     ?assertEqual(ReqId, maps:get(<<"req_id">>, Reply)),
     ?assertMatch(#{<<"type">> := ?SKILL_TYPE, <<"id">> := ?SKILL_ID}, maps:get(<<"skill">>, Reply)),
-    AssertFn(maps:get(<<"data">>, Reply)),
+    AssertFn(maps:get(<<"result">>, emqx_agent_skill_helpers:cap_response(Reply))),
 
     ok = emqx:unsubscribe(ReplyTopic).
 

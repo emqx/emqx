@@ -59,6 +59,14 @@ init([]) ->
             shutdown => infinity,
             type => supervisor,
             modules => [emqx_agent_pipeline_sup]
+        },
+        #{
+            id => emqx_agent_skill_invocation_sup,
+            start => {emqx_agent_skill_invocation_sup, start_link, []},
+            restart => permanent,
+            shutdown => infinity,
+            type => supervisor,
+            modules => [emqx_agent_skill_invocation_sup]
         }
     ],
     {ok, {SupFlags, ChildSpecs}}.

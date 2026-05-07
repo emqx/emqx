@@ -8,7 +8,7 @@
 %% configured prefix.  The prefix is fixed at creation time so that the
 %% agent cannot publish outside its authorised namespace.
 %%
-%% Invoke topic:  cap/message.publish/<skill_id>
+%% Invoke topic:  cap/message.publish/<skill_id>/request/<req_id>
 %% Reply  topic:  cap/message.publish/<skill_id>/response/<req_id>
 %%
 %% Context keys:
@@ -70,7 +70,7 @@
     <<"required">> => [<<"topic">>, <<"payload">>]
 }).
 
--export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/3]).
+-export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/2]).
 
 %%--------------------------------------------------------------------
 %% Public API
@@ -170,39 +170,32 @@ to_map(
 %% Internal
 %%--------------------------------------------------------------------
 
-handle_invoke(SkillId, #{topic_prefix := TopicPrefix}, Request) ->
-    do_publish(SkillId, TopicPrefix, Request).
+handle_invoke(#{topic_prefix := TopicPrefix}, Request) ->
+    do_publish(TopicPrefix, Request).
 
-do_publish(SkillId, TopicPrefix, Request) ->
+do_publish(TopicPrefix, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
     TopicSuffix = maps:get(<<"topic">>, Args),
     MsgPayload = normalize_payload(maps:get(<<"payload">>, Args)),
-    From = maps:get(<<"from">>, Args, SkillId),
+    From = maps:get(<<"from">>, Args, <<>>),
     Qos = maps:get(<<"qos">>, Args, 0),
 
     FullTopic = <<TopicPrefix/binary, TopicSuffix/binary>>,
 
-    Result =
-        try
-            Msg = emqx_message:make(From, Qos, FullTopic, MsgPayload),
-            _ = emqx_broker:publish(Msg),
-            #{<<"status">> => <<"ok">>, <<"topic">> => FullTopic}
-        catch
-            Class:Reason ->
-                ?SLOG(error, #{
-                    msg => "skill_publish_failed",
-                    skill_id => SkillId,
-                    topic => FullTopic,
-                    error => Class,
-                    reason => Reason
-                }),
-                #{
-                    <<"status">> => <<"error">>,
-                    <<"reason">> => iolist_to_binary(io_lib:format("~p", [Reason]))
-                }
-        end,
-
-    emqx_agent_skill_helpers:publish_reply(?SKILL_TYPE, SkillId, Request, Result).
+    try
+        Msg = emqx_message:make(From, Qos, FullTopic, MsgPayload),
+        _ = emqx_broker:publish(Msg),
+        {ok, #{<<"topic">> => FullTopic}}
+    catch
+        Class:Reason ->
+            ?SLOG(error, #{
+                msg => "skill_publish_failed",
+                topic => FullTopic,
+                error => Class,
+                reason => Reason
+            }),
+            {error, iolist_to_binary(io_lib:format("~p", [Reason]))}
+    end.
 
 normalize_payload(Payload) when is_map(Payload) ->
     emqx_utils_json:encode(Payload);

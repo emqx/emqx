@@ -4,7 +4,7 @@
 
 %% HTTP tool skill backed by hackney.
 %%
-%% Invoke topic:  cap/http/<id>/request
+%% Invoke topic:  cap/http/<id>/request/<req_id>
 %% Reply  topic:  cap/http/<id>/response/<req_id>
 %%
 %% Context keys:
@@ -28,7 +28,7 @@
 
 -define(SKILL_TYPE, <<"http">>).
 
--export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/3]).
+-export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/2]).
 
 %% Exported for testing
 -export([append_query/2]).
@@ -96,10 +96,10 @@ to_map(#{
 %% Internal
 %%--------------------------------------------------------------------
 
-handle_invoke(SkillId, Context, Request) ->
-    do_reply(SkillId, Context, Request).
+handle_invoke(Context, Request) ->
+    do_reply(Context, Request).
 
-do_reply(SkillId, Context, Request) ->
+do_reply(Context, Request) ->
     #{method := Method, url := BaseUrl} = Context,
     Headers = normalize_headers(maps:get(headers, Context, [])),
     Args = maps:get(<<"args">>, Request, #{}),
@@ -107,7 +107,7 @@ do_reply(SkillId, Context, Request) ->
     {ok, RespBody} = call(normalize_method(Method), BaseUrl, Headers, Args),
     Data = decode_response(RespBody),
 
-    emqx_agent_skill_helpers:publish_reply(?SKILL_TYPE, SkillId, Request, Data).
+    {ok, Data}.
 
 %% GET — append input args as query string; no body.
 call(get, BaseUrl, Headers, Args) ->

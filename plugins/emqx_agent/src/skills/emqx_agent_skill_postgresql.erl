@@ -4,7 +4,7 @@
 
 %% PostgreSQL query skill.
 %%
-%% Invoke topic:  cap/postgresql.query/<id>/request
+%% Invoke topic:  cap/postgresql.query/<id>/request/<req_id>
 %% Reply topic:   cap/postgresql.query/<id>/response/<req_id>
 %%
 %% The module owns a single shared PostgreSQL resource with fixed configuration.
@@ -16,7 +16,7 @@
 -define(RESOURCE_ID, <<"emqx_agent_skill_postgresql_resource">>).
 -define(RESOURCE_GROUP, <<"emqx_agent">>).
 
--export([init/0, deinit/0, create/1, destroy/1, to_map/1, resource_id/0, handle_invoke/3]).
+-export([init/0, deinit/0, create/1, destroy/1, to_map/1, resource_id/0, handle_invoke/2]).
 -export([maybe_expand_schema/2]).
 
 -spec resource_id() -> binary().
@@ -84,25 +84,20 @@ to_map(#{
         <<"input_schema">> => In
     }.
 
-handle_invoke(SkillId, Context, Request) ->
-    do_reply(SkillId, Context, Request).
+handle_invoke(Context, Request) ->
+    do_reply(Context, Request).
 
-do_reply(SkillId, Context, Request) ->
+do_reply(Context, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
     Query = maps:get(query, Context, <<>>),
     ArgKeys = maps:get(arg_keys, Context, []),
     Params = [maps:get(K, Args, null) || K <- ArgKeys],
-    Data =
-        case run_query(Query, Params) of
-            {ok, Rows} ->
-                #{<<"status">> => <<"ok">>, <<"rows">> => Rows};
-            {error, Reason} ->
-                #{
-                    <<"status">> => <<"error">>,
-                    <<"reason">> => iolist_to_binary(io_lib:format("~0p", [Reason]))
-                }
-        end,
-    emqx_agent_skill_helpers:publish_reply(?SKILL_TYPE, SkillId, Request, Data).
+    case run_query(Query, Params) of
+        {ok, Rows} ->
+            {ok, #{<<"rows">> => Rows}};
+        {error, Reason} ->
+            {error, iolist_to_binary(io_lib:format("~0p", [Reason]))}
+    end.
 
 run_query(Query, []) ->
     ok = ensure_resource(),

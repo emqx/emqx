@@ -13,7 +13,7 @@
 
 -define(SKILL_TYPE, <<"postgresql.query">>).
 -define(SKILL_ID, <<"pg-test">>).
--define(INVOKE_TOPIC, <<"cap/postgresql.query/pg-test/request">>).
+-define(INVOKE_TOPIC(ReqId), <<"cap/postgresql.query/pg-test/request/", ReqId/binary>>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -61,14 +61,13 @@ t_invoke_queries_postgresql(_Config) ->
     ok = emqx:subscribe(ReplyTopic),
 
     Invoke = #{
-        <<"req_id">> => ReqId,
         <<"trace_id">> => <<"tr-pg">>,
         <<"iid">> => <<"inst-pg-1">>,
         <<"mode">> => <<"unary">>,
         <<"args">> => #{<<"device_id">> => <<"dev-42">>}
     },
     Payload = emqx_utils_json:encode(Invoke),
-    Msg = emqx_message:make(?SKILL_ID, 0, ?INVOKE_TOPIC, Payload),
+    Msg = emqx_message:make(?SKILL_ID, 0, ?INVOKE_TOPIC(ReqId), Payload),
     _ = emqx_broker:publish(Msg),
 
     Reply =
@@ -84,9 +83,10 @@ t_invoke_queries_postgresql(_Config) ->
         #{<<"type">> := ?SKILL_TYPE, <<"id">> := ?SKILL_ID},
         maps:get(<<"skill">>, Reply)
     ),
-    Data = maps:get(<<"data">>, Reply),
-    ?assertEqual(<<"ok">>, maps:get(<<"status">>, Data)),
-    Rows = maps:get(<<"rows">>, Data),
+    Response = emqx_agent_skill_helpers:cap_response(Reply),
+    ?assertEqual(<<"ok">>, maps:get(<<"status">>, Response)),
+    Result = maps:get(<<"result">>, Response),
+    Rows = maps:get(<<"rows">>, Result),
     ?assertEqual(2, length(Rows)),
     Metrics = maps:from_list([
         {maps:get(<<"metric">>, Row), maps:get(<<"value">>, Row)}

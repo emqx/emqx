@@ -86,13 +86,13 @@ t_create_skill_invoke_message_publish(_Config) ->
     Reply = recv_reply(ReqId),
     ?assertMatch(
         #{
-            <<"data">> := #{
-                <<"status">> := <<"ok">>,
+            <<"status">> := <<"ok">>,
+            <<"result">> := #{
                 <<"skill_id">> := <<"dyn-pub">>,
                 <<"type">> := <<"message.publish">>
             }
         },
-        Reply
+        cap_response(Reply)
     ),
     ?assertMatch(
         {ok, #{type := <<"message.publish">>}},
@@ -122,8 +122,8 @@ t_create_skill_invoke_http(_Config) ->
 
     Reply = recv_reply(ReqId),
     ?assertMatch(
-        #{<<"data">> := #{<<"status">> := <<"ok">>, <<"type">> := <<"http">>}},
-        Reply
+        #{<<"status">> := <<"ok">>, <<"result">> := #{<<"type">> := <<"http">>}},
+        cap_response(Reply)
     ),
     ?assertMatch(
         {ok, #{type := <<"http">>}},
@@ -147,8 +147,8 @@ t_create_skill_invoke_unknown_type(_Config) ->
 
     Reply = recv_reply(ReqId),
     ?assertMatch(
-        #{<<"data">> := #{<<"status">> := <<"error">>, <<"reason">> := _}},
-        Reply
+        #{<<"status">> := <<"error">>, <<"reason">> := _},
+        cap_response(Reply)
     ),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
@@ -169,7 +169,7 @@ t_create_skill_invoke_missing_required_field(_Config) ->
     ),
 
     Reply = recv_reply(ReqId),
-    ?assertMatch(#{<<"data">> := #{<<"status">> := <<"error">>}}, Reply),
+    ?assertMatch(#{<<"status">> := <<"error">>}, cap_response(Reply)),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
 t_create_skill_reply_correlation(_Config) ->
@@ -246,13 +246,13 @@ t_create_pipeline_invoke_creates_pipeline(_Config) ->
     Reply = recv_reply(ReqId),
     ?assertMatch(
         #{
-            <<"data">> := #{
-                <<"status">> := <<"ok">>,
+            <<"status">> := <<"ok">>,
+            <<"result">> := #{
                 <<"pipeline_id">> := <<"dyn-pipeline">>,
                 <<"active">> := false
             }
         },
-        Reply
+        cap_response(Reply)
     ),
     ?assertMatch(
         {ok, #{<<"pipeline_id">> := <<"dyn-pipeline">>}},
@@ -279,8 +279,8 @@ t_create_pipeline_enforces_active_false(_Config) ->
 
     Reply = recv_reply(ReqId),
     ?assertMatch(
-        #{<<"data">> := #{<<"status">> := <<"ok">>, <<"active">> := false}},
-        Reply
+        #{<<"status">> := <<"ok">>, <<"result">> := #{<<"active">> := false}},
+        cap_response(Reply)
     ),
     {ok, Def} = emqx_agent_pipeline_registry:lookup(<<"forced-active">>),
     ?assertEqual(false, maps:get(<<"active">>, Def)),
@@ -302,8 +302,8 @@ t_create_pipeline_invoke_missing_pipeline_id(_Config) ->
 
     Reply = recv_reply(ReqId),
     ?assertMatch(
-        #{<<"data">> := #{<<"status">> := <<"error">>, <<"reason">> := _}},
-        Reply
+        #{<<"status">> := <<"error">>, <<"reason">> := _},
+        cap_response(Reply)
     ),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
@@ -348,11 +348,10 @@ invoke(Type, SkillId, Args, ReqId) ->
     invoke(Type, SkillId, Args, ReqId, #{}).
 
 invoke(Type, SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request">>,
+    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{
-                <<"req_id">> => ReqId,
                 <<"trace_id">> => null,
                 <<"iid">> => null,
                 <<"sid">> => null,
@@ -371,3 +370,6 @@ recv_reply(ReqId) ->
     after 3000 ->
         ct:fail("no reply for req_id=~s within 3 s", [ReqId])
     end.
+
+cap_response(Reply) ->
+    emqx_agent_skill_helpers:cap_response(Reply).
