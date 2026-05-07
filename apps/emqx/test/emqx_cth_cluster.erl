@@ -493,11 +493,19 @@ sync_routes(Nodes, Timeout) ->
         Timeout div NRetries,
         NRetries,
         begin
+            %% Compare full route entries (topic + destination), not just
+            %% topic names. With the v3 schema's merge-table propagation,
+            %% multiple nodes can each have their own local subscription
+            %% to the same topic and `emqx_router:topics/0` returns the
+            %% same single-element list on all of them before
+            %% cross-propagation has actually delivered the remote
+            %% routes. Folding the route table waits until each node has
+            %% merged in every peer's destinations.
             Routes = erpc:multicall(
                 Nodes,
                 emqx_router,
-                topics,
-                [],
+                foldl_routes,
+                [fun(R, Acc) -> [R | Acc] end, []],
                 Timeout
             ),
             Diff = lists:uniq(
