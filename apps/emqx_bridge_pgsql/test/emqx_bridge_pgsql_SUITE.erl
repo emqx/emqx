@@ -277,6 +277,13 @@ connect_and_get_payload(TCConfig) ->
     ok = epgsql:close(Conn),
     Result.
 
+connect_and_count_rows(TCConfig) ->
+    SQL = <<"SELECT count(*) FROM mqtt_test">>,
+    Conn = connect_direct_pgsql(TCConfig),
+    {ok, _, [{Result}]} = epgsql:squery(Conn, SQL),
+    ok = epgsql:close(Conn),
+    Result.
+
 full_matrix() ->
     [
         [Conn, Sync, Batch]
@@ -876,6 +883,58 @@ t_bad_datetime_param(TCConfig) ->
             #{?snk_kind := "postgres_bad_param_error"}
         )
     ),
+    ok.
+
+%% Checks that furnishing `epgsql' a binary string for a float column results in a
+%% pretty error instead of a connection process crash.
+t_bad_float_param() ->
+    [{matrix, true}].
+t_bad_float_param(matrix) ->
+    [[?timescale, ?sync, ?without_batch]];
+t_bad_float_param(TCConfig) ->
+    Conn = connect_direct_pgsql(TCConfig),
+    {ok, _, _} = epgsql:squery(Conn, <<"ALTER TABLE mqtt_test ADD COLUMN temp FLOAT">>),
+    ok = epgsql:close(Conn),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"sql">> => <<
+                "INSERT INTO mqtt_test(payload, temp) "
+                "VALUES (${payload}, ${temp})"
+            >>
+        }
+    }),
+    #{topic := RuleTopic} =
+        simple_create_rule_api(
+            <<"select payload, payload.temp as temp from \"${t}\" ">>,
+            TCConfig
+        ),
+    Payload = <<"{\"temp\":\"27.1\"}">>,
+    C = start_client(),
+    ?assertMatch(
+        {_,
+            {ok, #{
+                context := #{
+                    reason := bad_param,
+                    type := float8,
+                    index := 1,
+                    value := <<"27.1">>
+                }
+            }}},
+        ?wait_async_action(
+            emqtt:publish(C, RuleTopic, Payload),
+            #{?snk_kind := "postgres_bad_param_error"}
+        )
+    ),
+    ActionId = emqx_bridge_v2_testlib:resource_id(TCConfig),
+    ?assertEqual(1, emqx_resource_metrics:matched_get(ActionId)),
+    ?retry(
+        _Sleep = 200,
+        _Attempts = 10,
+        ?assertEqual(1, emqx_resource_metrics:failed_get(ActionId))
+    ),
+    ?assertEqual(0, emqx_resource_metrics:success_get(ActionId)),
+    ?assertEqual(<<"0">>, connect_and_count_rows(TCConfig)),
     ok.
 
 %% Checks that we trigger a full reconnection if the health check times out, by declaring
