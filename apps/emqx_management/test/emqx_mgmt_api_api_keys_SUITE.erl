@@ -10,6 +10,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -define(EE_CASES, [
     t_ee_create,
@@ -39,7 +40,15 @@ groups() ->
     [
         {parallel, [parallel], [t_create, t_update, t_delete, t_authorize, t_create_unexpired_app]},
         {parallel, [parallel], ?EE_CASES},
-        {sequence, [], [t_bootstrap_file, t_bootstrap_file_with_role, t_create_failed]}
+        {sequence, [], [
+            t_bootstrap_file,
+            t_bootstrap_file_with_role,
+            t_bootstrap_file_with_scopes,
+            t_bootstrap_file_with_scopes_invalid,
+            t_bootstrap_file_with_empty_scopes,
+            t_bootstrap_file_scope_runtime_check,
+            t_create_failed
+        ]}
     ].
 
 init_per_suite(Config) ->
@@ -248,6 +257,219 @@ t_bootstrap_file_with_role(_) ->
     ?assertEqual(
         false,
         Search(<<"role-7">>)
+    ),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Bootstrap file: 4-segment scope format `key:secret:role:scope1,scope2`
+%%--------------------------------------------------------------------
+
+%% Read the `scopes` value stored on a bootstrapped api key.
+%% Returns:
+%%   `not_found' — no record for this api key
+%%   `not_set'   — record exists but `scopes' is absent (back-compat:
+%%                  behaves as "all non-denied paths allowed")
+%%   `[binary()]' — explicit scope list
+read_bootstrap_scopes(ApiKey) ->
+    case
+        lists:search(
+            fun(#{api_key := K}) -> K =:= ApiKey end,
+            emqx_mgmt_auth:list()
+        )
+    of
+        false ->
+            not_found;
+        {value, #{scopes := Scopes}} when is_list(Scopes) ->
+            Scopes;
+        {value, _AppMap} ->
+            not_set
+    end.
+
+t_bootstrap_file_with_scopes(_) ->
+    File = "./bootstrap_api_keys.txt",
+    %% Single scope, multiple scopes, and the special "all-allow" 3-segment
+    %% baseline mixed in to ensure they coexist.
+    Bin = iolist_to_binary([
+        "scope-single:secret-1:administrator:", ?SCOPE_CONNECTIONS, "\n",
+        "scope-multi:secret-2:administrator:", ?SCOPE_CONNECTIONS, ",", ?SCOPE_PUBLISH,
+        ",", ?SCOPE_MONITORING, "\n",
+        "scope-no-field:secret-3:administrator\n"
+    ]),
+    ok = file:write_file(File, Bin),
+    update_file(File),
+
+    ?assertEqual([?SCOPE_CONNECTIONS], read_bootstrap_scopes(<<"scope-single">>)),
+    ?assertEqual(
+        [?SCOPE_CONNECTIONS, ?SCOPE_PUBLISH, ?SCOPE_MONITORING],
+        read_bootstrap_scopes(<<"scope-multi">>)
+    ),
+    %% 3-segment line: extra has no `scopes` key → backward-compatible all-allow.
+    ?assertEqual(not_set, read_bootstrap_scopes(<<"scope-no-field">>)),
+    ok.
+
+t_bootstrap_file_with_scopes_invalid(_) ->
+    File = "./bootstrap_api_keys.txt",
+
+    %% Lenient policy: an unknown scope name is dropped with a warning log,
+    %% but the entry IS created (with whatever valid scopes remain). This
+    %% lets ops fix typos via the UI later instead of bouncing the whole
+    %% bootstrap load.
+
+    %% Mix of one unknown and two valid scopes — only the valid pair should
+    %% remain on the api_key record.
+    MixedBin = iolist_to_binary([
+        "scope-mixed:secret-1:administrator:bogus_scope,",
+        ?SCOPE_CONNECTIONS, ",", ?SCOPE_PUBLISH, "\n"
+    ]),
+    ok = file:write_file(File, MixedBin),
+    update_file(File),
+    ?assertEqual(
+        [?SCOPE_CONNECTIONS, ?SCOPE_PUBLISH],
+        read_bootstrap_scopes(<<"scope-mixed">>)
+    ),
+
+    %% The internal `$denied` scope is NOT in scope_catalogue/0; if a user
+    %% writes it the loader must drop it like any other unknown name.
+    DeniedBin = iolist_to_binary([
+        "scope-denied:secret-2:administrator:$denied,", ?SCOPE_AUDIT, "\n"
+    ]),
+    ok = file:write_file(File, DeniedBin),
+    update_file(File),
+    ?assertEqual([?SCOPE_AUDIT], read_bootstrap_scopes(<<"scope-denied">>)),
+
+    %% Bad line followed by a good line — both must be loaded. The bad line
+    %% becomes a deny-all key (scopes=[]), the good line stays intact.
+    GoodAfterBadBin = iolist_to_binary([
+        "scope-all-bad:secret-3:administrator:bogus_scope,foo\n",
+        "scope-good-after:secret-4:administrator:", ?SCOPE_CONNECTIONS, "\n"
+    ]),
+    ok = file:write_file(File, GoodAfterBadBin),
+    update_file(File),
+    ?assertEqual([], read_bootstrap_scopes(<<"scope-all-bad">>)),
+    ?assertEqual(
+        [?SCOPE_CONNECTIONS],
+        read_bootstrap_scopes(<<"scope-good-after">>)
+    ),
+    ok.
+
+t_bootstrap_file_with_empty_scopes(_) ->
+    File = "./bootstrap_api_keys.txt",
+    %% Trailing colon with empty/whitespace-only 4th field is the explicit
+    %% "no scopes" form: the loader stores `scopes => []' on the record.
+    %% At runtime this denies every mapped path but still allows unmapped
+    %% public endpoints, so ops can reach the node and reconfigure the key
+    %% via the UI.
+    Bin = iolist_to_binary([
+        "scope-trailing:secret-1:administrator:\n",
+        %% Whitespace-only payload — the line-level `string:trim/1' inside
+        %% `read_line/1' strips the trailing spaces before the regex sees
+        %% the line, so this is equivalent to the trailing-colon form.
+        "scope-spaces:secret-2:administrator:   \n"
+    ]),
+    ok = file:write_file(File, Bin),
+    update_file(File),
+
+    ?assertEqual([], read_bootstrap_scopes(<<"scope-trailing">>)),
+    ?assertEqual([], read_bootstrap_scopes(<<"scope-spaces">>)),
+    ok.
+
+t_bootstrap_file_scope_runtime_check(_) ->
+    File = "./bootstrap_api_keys.txt",
+    %% Sanity-check that the path-to-scope cache is populated for the
+    %% endpoints we exercise below — otherwise `path_to_scope/1' returns
+    %% `undefined' and `check_path_in_scopes/2' would silently allow
+    %% access regardless of the scope list, turning this test green for
+    %% the wrong reason.
+    ?assertEqual(
+        ?SCOPE_CONNECTIONS,
+        emqx_mgmt_api_key_scopes:path_to_scope(<<"/banned">>)
+    ),
+    ?assertEqual(
+        ?SCOPE_PUBLISH,
+        emqx_mgmt_api_key_scopes:path_to_scope(<<"/publish">>)
+    ),
+    ?assertEqual(
+        ?SCOPE_SYSTEM,
+        emqx_mgmt_api_key_scopes:path_to_scope(<<"/status">>)
+    ),
+
+    %% A single key scoped to `connections`. Endpoints that map to OTHER scopes
+    %% (publish, monitoring, ...) must be denied for this key, while
+    %% `connections` endpoints stay allowed.
+    Bin = iolist_to_binary([
+        "scope-conn-only:secret-1:administrator:", ?SCOPE_CONNECTIONS, "\n"
+    ]),
+    ok = file:write_file(File, Bin),
+    update_file(File),
+
+    BannedPath = <<"/api/v5/banned">>,                       %% connections
+    PublishPath = <<"/api/v5/publish">>,                     %% publish
+    StatusPath = <<"/api/v5/status">>,                       %% system
+
+    ?assertEqual(
+        ok,
+        auth_authorize(BannedPath, <<"scope-conn-only">>, <<"secret-1">>)
+    ),
+    ?assertEqual(
+        {error, unauthorized_role},
+        auth_authorize(PublishPath, <<"scope-conn-only">>, <<"secret-1">>)
+    ),
+    ?assertEqual(
+        {error, unauthorized_role},
+        auth_authorize(StatusPath, <<"scope-conn-only">>, <<"secret-1">>)
+    ),
+
+    %% A key with no scopes field (3-segment entry) should reach all the
+    %% non-denied paths, confirming the back-compat path.
+    Bin2 = <<"scope-allow-all:secret-2:administrator\n">>,
+    ok = file:write_file(File, Bin2),
+    update_file(File),
+
+    ?assertEqual(
+        ok,
+        auth_authorize(BannedPath, <<"scope-allow-all">>, <<"secret-2">>)
+    ),
+    ?assertEqual(
+        ok,
+        auth_authorize(PublishPath, <<"scope-allow-all">>, <<"secret-2">>)
+    ),
+    ?assertEqual(
+        ok,
+        auth_authorize(StatusPath, <<"scope-allow-all">>, <<"secret-2">>)
+    ),
+
+    %% A 4-segment entry with empty scopes (`scopes=[]'): mapped paths
+    %% must be denied, but unmapped paths should still be reachable so an
+    %% operator can fix the key via the UI.
+    Bin3 = <<"scope-empty:secret-3:administrator:\n">>,
+    ok = file:write_file(File, Bin3),
+    update_file(File),
+
+    %% Mapped paths under `connections' / `publish' scopes — denied.
+    ?assertEqual(
+        {error, unauthorized_role},
+        auth_authorize(BannedPath, <<"scope-empty">>, <<"secret-3">>)
+    ),
+    ?assertEqual(
+        {error, unauthorized_role},
+        auth_authorize(PublishPath, <<"scope-empty">>, <<"secret-3">>)
+    ),
+    %% `/status' is mapped to `system' scope — also denied.
+    ?assertEqual(
+        {error, unauthorized_role},
+        auth_authorize(StatusPath, <<"scope-empty">>, <<"secret-3">>)
+    ),
+    %% Unmapped path: there should not be any in the management app at the
+    %% time this suite starts, but if `path_to_scope/1' returns `undefined'
+    %% for a path the key with `scopes=[]' is allowed to reach it. We test
+    %% that contract directly:
+    ?assertEqual(
+        ok,
+        emqx_mgmt_auth:check_scopes(
+            #{role => ?ROLE_API_SUPERUSER, scopes => []},
+            <<"/an_unmapped_path_for_test">>,
+            <<"GET">>
+        )
     ),
     ok.
 
