@@ -320,7 +320,7 @@ handle_delete(Name) ->
     end.
 
 handle_metrics(Name) ->
-    Results = emqx_cluster_link_metrics:get_metrics(Name),
+    Results = emqx_cluster_link_metrics:get_cluster_metrics(Name),
     {NodeMetrics0, NodeErrors} =
         lists:foldl(
             fun({Node, RouterMetrics0, ResourceMetrics0}, {OkAccIn, ErrAccIn}) ->
@@ -424,7 +424,7 @@ format_metrics(Node, RouterMetrics, ResourceMetrics) ->
     }.
 
 handle_reset_metrics(Name) ->
-    Res = emqx_cluster_link_metrics:reset_metrics(Name),
+    Res = emqx_cluster_link_metrics:reset_cluster_metrics(Name),
     ErrorNodes =
         lists:filtermap(
             fun
