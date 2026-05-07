@@ -70,13 +70,6 @@ fields(skill_entry) ->
                 desc => ?DESC(skill_input_schema),
                 converter => fun json_schema_from_string/2,
                 validator => fun validate_oai_schema/1
-            })},
-        {output_schema,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(skill_output_schema),
-                converter => fun json_schema_from_string/2,
-                validator => fun validate_oai_schema/1
             })}
     ];
 %%--------------------------------------------------------------------
@@ -152,13 +145,6 @@ fields(skill_http_create) ->
                 desc => ?DESC(skill_input_schema),
                 converter => fun json_schema_from_string/2,
                 validator => fun validate_oai_schema/1
-            })},
-        {output_schema,
-            mk(map(), #{
-                required => true,
-                desc => ?DESC(skill_output_schema),
-                converter => fun json_schema_from_string/2,
-                validator => fun validate_oai_schema/1
             })}
     ];
 fields(skill_mqtt_request_create) ->
@@ -187,13 +173,6 @@ fields(skill_mqtt_request_create) ->
             mk(map(), #{
                 required => false,
                 desc => ?DESC(skill_request_payload_schema),
-                converter => fun json_schema_from_string/2,
-                validator => fun validate_oai_schema_field/1
-            })},
-        {response_schema,
-            mk(map(), #{
-                required => false,
-                desc => ?DESC(skill_response_schema),
                 converter => fun json_schema_from_string/2,
                 validator => fun validate_oai_schema_field/1
             })}
@@ -230,13 +209,6 @@ fields(skill_postgresql_create) ->
             mk(map(), #{
                 required => true,
                 desc => ?DESC(skill_input_schema),
-                converter => fun json_schema_from_string/2,
-                validator => fun validate_oai_schema/1
-            })},
-        {output_schema,
-            mk(map(), #{
-                required => true,
-                desc => ?DESC(skill_output_schema),
                 converter => fun json_schema_from_string/2,
                 validator => fun validate_oai_schema/1
             })}

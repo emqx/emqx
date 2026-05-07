@@ -151,14 +151,6 @@ t_skill_with_schemas(_Config) ->
                 <<"window_min">> => #{<<"type">> => <<"integer">>}
             },
             <<"required">> => [<<"device_id">>, <<"metric">>, <<"window_min">>]
-        },
-        output_schema => #{
-            <<"type">> => <<"object">>,
-            <<"properties">> => #{
-                <<"series">> => #{<<"type">> => <<"array">>},
-                <<"stats">> => #{<<"type">> => <<"object">>}
-            },
-            <<"required">> => [<<"stats">>]
         }
     },
     ok = emqx_agent_skill_registry:register(Skill),

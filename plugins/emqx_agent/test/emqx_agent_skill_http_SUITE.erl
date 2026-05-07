@@ -45,8 +45,7 @@ t_create_registers_skill(_Config) ->
     {ok, Skill} = emqx_agent_skill_registry:lookup(?SKILL_TYPE, ?SKILL_ID),
     ?assertEqual(?SKILL_ID, maps:get(skill_id, Skill)),
     ?assertEqual(?SKILL_TYPE, maps:get(type, Skill)),
-    ?assert(is_map(maps:get(input_schema, Skill))),
-    ?assert(is_map(maps:get(output_schema, Skill))).
+    ?assert(is_map(maps:get(input_schema, Skill))).
 
 t_destroy_unregisters_skill(_Config) ->
     ok = emqx_agent_skill_http:destroy(?SKILL_ID),
@@ -190,14 +189,6 @@ test_context(Config, Overrides) ->
                     }
                 },
                 <<"required">> => [<<"city">>]
-            },
-            output_schema => #{
-                <<"type">> => <<"object">>,
-                <<"properties">> => #{
-                    <<"temperature">> => #{<<"type">> => <<"number">>},
-                    <<"unit">> => #{<<"type">> => <<"string">>}
-                },
-                <<"required">> => [<<"temperature">>]
             }
         },
         Overrides

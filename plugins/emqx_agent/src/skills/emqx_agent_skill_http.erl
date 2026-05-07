@@ -14,7 +14,6 @@
 %%   url           => binary()         — base URL (query string appended for GET)
 %%   headers       => map() | [{binary(), binary()}]  — request headers
 %%   input_schema  => map()            — full JSON Schema for request args
-%%   output_schema => map()            — full JSON Schema for response
 %%
 %% For GET, input args are serialised as a URL query string.
 %% For all other methods, input args are sent as a JSON body.
@@ -53,8 +52,7 @@ create(
         desc := Desc,
         method := _Method,
         url := _Url,
-        input_schema := InputSchema,
-        output_schema := OutputSchema
+        input_schema := InputSchema
     } = Context
 ) ->
     Skill = #{
@@ -64,8 +62,7 @@ create(
         display_name => <<"HTTP Tool">>,
         description => Desc,
         context => Context,
-        input_schema => InputSchema,
-        output_schema => OutputSchema
+        input_schema => InputSchema
     },
     emqx_agent_skill_registry:register(Skill).
 
@@ -78,8 +75,7 @@ to_map(#{
     skill_id := Id,
     description := Desc,
     context := Ctx,
-    input_schema := InSchema,
-    output_schema := OutSchema
+    input_schema := InSchema
 }) ->
     Method = maps:get(method, Ctx, post),
     MethodBin =
@@ -93,8 +89,7 @@ to_map(#{
         <<"description">> => Desc,
         <<"method">> => MethodBin,
         <<"url">> => maps:get(url, Ctx, <<>>),
-        <<"input_schema">> => InSchema,
-        <<"output_schema">> => OutSchema
+        <<"input_schema">> => InSchema
     }.
 
 %%--------------------------------------------------------------------

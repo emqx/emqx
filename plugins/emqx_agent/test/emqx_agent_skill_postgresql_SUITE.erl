@@ -159,14 +159,6 @@ test_context(Overrides) ->
                     <<"device_id">> => #{<<"type">> => <<"string">>}
                 },
                 <<"required">> => [<<"device_id">>]
-            },
-            output_schema => #{
-                <<"type">> => <<"object">>,
-                <<"properties">> => #{
-                    <<"status">> => #{<<"type">> => <<"string">>},
-                    <<"rows">> => #{<<"type">> => <<"array">>}
-                },
-                <<"required">> => [<<"status">>, <<"rows">>]
             }
         },
         Overrides

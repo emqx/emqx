@@ -26,9 +26,6 @@
 -define(VALID_INPUT_SCHEMA,
     <<"{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}">>
 ).
--define(VALID_OUTPUT_SCHEMA,
-    <<"{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}">>
-).
 
 %%--------------------------------------------------------------------
 %% CT callbacks
@@ -123,8 +120,7 @@ t_query_skills_filter_by_type(_Config) ->
         <<"desc">> => <<"B http">>,
         <<"method">> => <<"get">>,
         <<"url">> => <<"http://stub/b">>,
-        <<"input_schema">> => ?VALID_INPUT_SCHEMA,
-        <<"output_schema">> => ?VALID_OUTPUT_SCHEMA
+        <<"input_schema">> => ?VALID_INPUT_SCHEMA
     }),
 
     ReqId = <<"req-qs-type">>,

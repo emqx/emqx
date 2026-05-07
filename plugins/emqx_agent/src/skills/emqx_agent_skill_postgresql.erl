@@ -41,7 +41,6 @@ create(#{skill_id := SkillId, desc := Desc, query := _Query} = Context) ->
     ArgKeys = maps:get(arg_keys, Context, []),
     RawInSchema = maps:get(input_schema, Context, #{<<"type">> => <<"object">>}),
     InSchema = maybe_expand_schema(RawInSchema, ArgKeys),
-    OutSchema = maps:get(output_schema, Context, #{<<"type">> => <<"object">>}),
     Skill = #{
         skill_id => SkillId,
         type => ?SKILL_TYPE,
@@ -49,8 +48,7 @@ create(#{skill_id := SkillId, desc := Desc, query := _Query} = Context) ->
         display_name => <<"PostgreSQL Query">>,
         description => Desc,
         context => Context,
-        input_schema => InSchema,
-        output_schema => OutSchema
+        input_schema => InSchema
     },
     emqx_agent_skill_registry:register(Skill).
 
@@ -75,7 +73,7 @@ destroy(SkillId) ->
 
 -spec to_map(map()) -> map().
 to_map(#{
-    skill_id := Id, description := Desc, context := Ctx, input_schema := In, output_schema := Out
+    skill_id := Id, description := Desc, context := Ctx, input_schema := In
 }) ->
     #{
         <<"skill_id">> => Id,
@@ -83,8 +81,7 @@ to_map(#{
         <<"description">> => Desc,
         <<"query">> => maps:get(query, Ctx, <<>>),
         <<"arg_keys">> => maps:get(arg_keys, Ctx, []),
-        <<"input_schema">> => In,
-        <<"output_schema">> => Out
+        <<"input_schema">> => In
     }.
 
 handle_invoke(SkillId, Context, Request) ->

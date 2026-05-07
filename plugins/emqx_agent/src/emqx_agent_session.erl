@@ -83,7 +83,7 @@
     provider_name :: binary(),
     model :: binary(),
     tools :: [map()],
-    output_schema :: map(),
+
     max_tokens = 2048 :: non_neg_integer(),
     recv_timeout_ms = 180000 :: non_neg_integer(),
     temperature = 0.1 :: number(),
@@ -183,7 +183,6 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, initial_idle, Dat
         <<"input">> := Input,
         <<"instructions">> := Instructions
     } = Msg,
-    OutputSchema = maps:get(<<"output_schema">>, Msg, undefined),
     SysMsg = #{<<"role">> => <<"system">>, <<"content">> => format_instructions(Instructions)},
     UserMsg = #{<<"role">> => <<"user">>, <<"content">> => emqx_utils_json:encode(Input)},
     %% Events buffered before the first request are folded in after the user message.
@@ -194,7 +193,6 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, initial_idle, Dat
         provider_name = ProviderName,
         model = Model,
         tools = Tools,
-        output_schema = OutputSchema,
         max_tokens = maps:get(<<"max_tokens">>, Msg, 2048),
         recv_timeout_ms = maps:get(<<"recv_timeout_ms">>, Msg, 180000),
         temperature = maps:get(<<"temperature">>, Msg, 0.1),
@@ -226,7 +224,6 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>, <<"input">> := Input} = M
     TraceId = maps:get(<<"trace_id">>, Msg, Data#data.trace_id),
     Tools = maps:get(<<"tools">>, Msg, Data#data.tools),
     ProviderName = maps:get(<<"provider_name">>, Msg, Data#data.provider_name),
-    OutputSchema = maps:get(<<"output_schema">>, Msg, Data#data.output_schema),
     ToolChoice = maps:get(<<"tool_choice">>, Msg, Data#data.tool_choice),
     %% If instructions changed, replace the system message (always first).
     Messages0 =
@@ -247,7 +244,6 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>, <<"input">> := Input} = M
         trace_id = TraceId,
         provider_name = ProviderName,
         tools = Tools,
-        output_schema = OutputSchema,
         tool_choice = ToolChoice,
         messages = Messages0 ++ [UserMsg],
         stop_on_finish = maps:get(<<"stop_on_finish">>, Msg, false),
@@ -409,7 +405,6 @@ do_start_llm_call(Data, Provider) ->
             RecvTimeoutMs,
             Temperature,
             ToolChoice,
-            Data#data.output_schema,
             Data#data.sid,
             Data#data.iid,
             Data#data.trace_id,
@@ -653,7 +648,6 @@ call_llm(
     RecvTimeoutMs,
     Temperature,
     ToolChoice,
-    OutputSchema,
     Sid,
     Iid,
     TraceId,
@@ -667,34 +661,10 @@ call_llm(
         <<"temperature">> => Temperature,
         <<"stream">> => true
     },
-    %% Add response_format for structured output when an output schema is given.
-    %% OpenAI accepts json_schema response_format alongside tools; the schema
-    %% applies only to the text content of the final (non-tool-call) response.
-    %% Only use json_schema response_format when the schema has explicit properties
-    %% defined. A bare {type: object} is treated as "no constraint" and skipped
-    %% so that non-OpenAI endpoints (e.g. Ollama) are not broken.
-    Body1 =
-        case OutputSchema of
-            Schema when is_map_key(<<"properties">>, Schema) ->
-                %% OpenAI strict mode requires additionalProperties: false
-                StrictSchema = Schema#{<<"additionalProperties">> => false},
-                Body0#{
-                    <<"response_format">> => #{
-                        <<"type">> => <<"json_schema">>,
-                        <<"json_schema">> => #{
-                            <<"name">> => <<"result">>,
-                            <<"strict">> => true,
-                            <<"schema">> => StrictSchema
-                        }
-                    }
-                };
-            _ ->
-                Body0
-        end,
     Body =
         case Tools of
             [] ->
-                Body1;
+                Body0;
             _ ->
                 TCChoice =
                     case ToolChoice of
@@ -704,7 +674,7 @@ call_llm(
                         V when is_map(V) -> V;
                         _ -> <<"required">>
                     end,
-                Body1#{<<"tools">> => Tools, <<"tool_choice">> => TCChoice}
+                Body0#{<<"tools">> => Tools, <<"tool_choice">> => TCChoice}
         end,
     Headers = [
         {<<"authorization">>, <<"Bearer ", ApiKey/binary>>},

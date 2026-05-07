@@ -196,16 +196,6 @@ def create_skills() -> None:
             "desc": "Request a box snapshot photo from the SPA client",
             "topic_prefix": "box/shot/",
             "request_payload_schema": {"type": "object"},
-            "response_schema": {
-                "type": "object",
-                "properties": {
-                    "image_url": {
-                        "type": "string",
-                        "description": "Base64-encoded image as a data URI (data:image/png;base64,...)",
-                    }
-                },
-                "required": ["image_url"],
-            },
         },
     )
     print(f"  skill {SK_SHOT!r} created")
@@ -248,7 +238,6 @@ def create_skills() -> None:
             ),
             "arg_keys": ["conveyor_id", "box_id", "status", "reason"],
             "input_schema": {"type": "object"},
-            "output_schema": {"type": "object"},
         },
     )
     print(f"  skill {SK_REGISTER!r} created")

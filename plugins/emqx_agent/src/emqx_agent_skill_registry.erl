@@ -36,8 +36,7 @@
     display_name := binary(),
     description := binary(),
     context => term(),
-    input_schema => map(),
-    output_schema => map()
+    input_schema => map()
 }.
 
 -export_type([skill/0, skill_id/0, skill_type/0]).

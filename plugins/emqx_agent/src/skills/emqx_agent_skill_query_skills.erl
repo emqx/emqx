@@ -33,23 +33,6 @@
     }
 }).
 
--define(OUTPUT_SCHEMA, #{
-    <<"type">> => <<"object">>,
-    <<"properties">> => #{
-        <<"status">> => #{<<"type">> => <<"string">>, <<"enum">> => [<<"ok">>, <<"error">>]},
-        <<"items">> => #{
-            <<"type">> => <<"array">>, <<"description">> => <<"Present on list result">>
-        },
-        <<"item">> => #{
-            <<"type">> => <<"object">>, <<"description">> => <<"Present on single-get result">>
-        },
-        <<"reason">> => #{
-            <<"type">> => <<"string">>, <<"description">> => <<"Present when status=error">>
-        }
-    },
-    <<"required">> => [<<"status">>]
-}).
-
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/3]).
 
 %%--------------------------------------------------------------------
@@ -73,8 +56,7 @@ create(#{skill_id := SkillId}) ->
         display_name => <<"Query Skills">>,
         description => <<"List all registered skills or look up a specific one by type and id">>,
         context => #{skill_id => SkillId},
-        input_schema => ?INPUT_SCHEMA,
-        output_schema => ?OUTPUT_SCHEMA
+        input_schema => ?INPUT_SCHEMA
     }).
 
 -spec destroy(binary()) -> ok.
@@ -82,13 +64,12 @@ destroy(SkillId) ->
     emqx_agent_skill_registry:unregister(?SKILL_TYPE, SkillId).
 
 -spec to_map(map()) -> map().
-to_map(#{skill_id := Id, description := Desc, input_schema := In, output_schema := Out}) ->
+to_map(#{skill_id := Id, description := Desc, input_schema := In}) ->
     #{
         <<"skill_id">> => Id,
         <<"type">> => ?SKILL_TYPE,
         <<"description">> => Desc,
-        <<"input_schema">> => In,
-        <<"output_schema">> => Out
+        <<"input_schema">> => In
     }.
 
 %%--------------------------------------------------------------------

@@ -239,17 +239,17 @@ SKILL TYPES
   message.request   MQTT request/reply — publishes with a Response-Topic header
                     and blocks until a reply arrives.
                     Required: id, desc, topic_prefix
-                    Optional: request_payload_schema, response_schema
+                    Optional: request_payload_schema
 
   http              HTTP call to an external service.
                     Required: id, desc, method (get|post|put|patch|delete), url,
-                              input_schema, output_schema
+                              input_schema
                     Optional: headers (static map)
 
   postgresql.query  Execute a parameterised SQL query.
                     Required: id, desc, query (use $1 $2 … placeholders),
                               arg_keys (ordered list mapping args -> $N),
-                              input_schema, output_schema
+                              input_schema
 
 ═══════════════════════════════════════════════════════
 PIPELINE STEP TYPES

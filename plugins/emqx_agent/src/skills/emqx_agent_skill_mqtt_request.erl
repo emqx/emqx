@@ -43,10 +43,6 @@
     <<"description">> => <<"Request payload (any JSON value or string)">>
 }).
 
--define(DEFAULT_RESPONSE_SCHEMA, #{
-    <<"description">> => <<"Response payload (present when status = ok)">>
-}).
-
 -define(INPUT_SCHEMA(RequestPayloadSchema), #{
     <<"type">> => <<"object">>,
     <<"properties">> => #{
@@ -78,22 +74,6 @@
     <<"required">> => [<<"topic">>, <<"payload">>]
 }).
 
--define(OUTPUT_SCHEMA(ResponseSchema), #{
-    <<"type">> => <<"object">>,
-    <<"properties">> => #{
-        <<"status">> => #{
-            <<"type">> => <<"string">>,
-            <<"enum">> => [<<"ok">>, <<"error">>]
-        },
-        <<"payload">> => ResponseSchema,
-        <<"reason">> => #{
-            <<"type">> => <<"string">>,
-            <<"description">> => <<"Error reason (present when status = error)">>
-        }
-    },
-    <<"required">> => [<<"status">>]
-}).
-
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/3]).
 
 %%--------------------------------------------------------------------
@@ -113,7 +93,6 @@ create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix} = Conte
     RequestPayloadSchema = maps:get(
         request_payload_schema, Context, ?DEFAULT_REQUEST_PAYLOAD_SCHEMA
     ),
-    ResponseSchema = maps:get(response_schema, Context, ?DEFAULT_RESPONSE_SCHEMA),
     emqx_agent_skill_registry:register(#{
         skill_id => SkillId,
         type => ?SKILL_TYPE,
@@ -125,11 +104,9 @@ create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix} = Conte
         context => #{
             skill_id => SkillId,
             topic_prefix => TopicPrefix,
-            request_payload_schema => RequestPayloadSchema,
-            response_schema => ResponseSchema
+            request_payload_schema => RequestPayloadSchema
         },
-        input_schema => ?INPUT_SCHEMA(RequestPayloadSchema),
-        output_schema => ?OUTPUT_SCHEMA(ResponseSchema)
+        input_schema => ?INPUT_SCHEMA(RequestPayloadSchema)
     }).
 
 -spec destroy(binary()) -> ok.
@@ -141,8 +118,7 @@ to_map(#{
     skill_id := Id,
     description := Desc,
     context := #{topic_prefix := TopicPrefix} = Ctx,
-    input_schema := InputSchema,
-    output_schema := OutputSchema
+    input_schema := InputSchema
 }) ->
     #{
         <<"skill_id">> => Id,
@@ -152,9 +128,7 @@ to_map(#{
         <<"request_payload_schema">> => maps:get(
             request_payload_schema, Ctx, ?DEFAULT_REQUEST_PAYLOAD_SCHEMA
         ),
-        <<"response_schema">> => maps:get(response_schema, Ctx, ?DEFAULT_RESPONSE_SCHEMA),
-        <<"input_schema">> => InputSchema,
-        <<"output_schema">> => OutputSchema
+        <<"input_schema">> => InputSchema
     }.
 
 %%--------------------------------------------------------------------

@@ -294,11 +294,6 @@
             <textarea id="skill-request-payload-schema" placeholder='{"type":"object"}'></textarea>
             <div class="hint">JSON Schema describing the payload the LLM should send in the request. Leave blank for untyped.</div>
           </div>
-          <div class="field">
-            <label>Response schema (JSON)</label>
-            <textarea id="skill-response-schema" placeholder='{"type":"object","properties":{"result":{"type":"string"}}}'></textarea>
-            <div class="hint">JSON Schema describing the payload the LLM will receive in the response. Leave blank for untyped.</div>
-          </div>
         </div>
 
         <!-- http fields -->
@@ -321,10 +316,6 @@
               <label>Input schema (JSON)</label>
               <textarea id="skill-input-schema" placeholder='{"type":"object","properties":{}}'></textarea>
             </div>
-            <div class="field">
-              <label>Output schema (JSON)</label>
-              <textarea id="skill-output-schema" placeholder='{"type":"object","properties":{}}'></textarea>
-            </div>
           </div>
         </div>
 
@@ -342,10 +333,6 @@
             <div class="field">
               <label>Input schema (JSON)</label>
               <textarea id="skill-ch-input" placeholder='{"type":"object","properties":{}}'></textarea>
-            </div>
-            <div class="field">
-              <label>Output schema (JSON)</label>
-              <textarea id="skill-ch-output" placeholder='{"type":"object","properties":{}}'></textarea>
             </div>
           </div>
         </div>
@@ -588,13 +575,10 @@ function collectSkillBody() {
     body.topic_prefix = document.getElementById('skill-request-prefix').value.trim();
     const reqPayloadSchema = document.getElementById('skill-request-payload-schema').value.trim();
     if (reqPayloadSchema) body.request_payload_schema = JSON.parse(reqPayloadSchema);
-    const respSchema = document.getElementById('skill-response-schema').value.trim();
-    if (respSchema) body.response_schema = JSON.parse(respSchema);
   } else if (type === 'http') {
     body.method        = document.getElementById('skill-method').value;
     body.url           = document.getElementById('skill-url').value.trim();
     body.input_schema  = JSON.parse(document.getElementById('skill-input-schema').value || '{}');
-    body.output_schema = JSON.parse(document.getElementById('skill-output-schema').value || '{}');
   } else if (type === 'postgresql.query') {
     body.query         = document.getElementById('skill-query').value.trim();
     body.arg_keys      = document.getElementById('skill-arg-keys').value
@@ -602,7 +586,6 @@ function collectSkillBody() {
       .map(s => s.trim())
       .filter(Boolean);
     body.input_schema  = JSON.parse(document.getElementById('skill-ch-input').value || '{}');
-    body.output_schema = JSON.parse(document.getElementById('skill-ch-output').value || '{}');
   }
   return body;
 }
@@ -647,7 +630,6 @@ function editSkill(type, id) {
     document.getElementById('skill-method').value = skill.method ?? 'post';
     document.getElementById('skill-url').value = skill.url ?? '';
     document.getElementById('skill-input-schema').value = skill.input_schema ? JSON.stringify(skill.input_schema, null, 2) : '';
-    document.getElementById('skill-output-schema').value = skill.output_schema ? JSON.stringify(skill.output_schema, null, 2) : '';
   } else if (type === 'message.publish') {
     document.getElementById('skill-prefix').value = skill.topic_prefix ?? '';
     const legacyPayloadSchema = skill.input_schema?.properties?.payload;
@@ -656,12 +638,10 @@ function editSkill(type, id) {
   } else if (type === 'message.request') {
     document.getElementById('skill-request-prefix').value = skill.topic_prefix ?? '';
     document.getElementById('skill-request-payload-schema').value = skill.request_payload_schema ? JSON.stringify(skill.request_payload_schema, null, 2) : '';
-    document.getElementById('skill-response-schema').value = skill.response_schema ? JSON.stringify(skill.response_schema, null, 2) : '';
   } else if (type === 'postgresql.query') {
     document.getElementById('skill-query').value = skill.query ?? '';
     document.getElementById('skill-arg-keys').value = (skill.arg_keys ?? []).join(', ');
     document.getElementById('skill-ch-input').value = skill.input_schema ? JSON.stringify(skill.input_schema, null, 2) : '';
-    document.getElementById('skill-ch-output').value = skill.output_schema ? JSON.stringify(skill.output_schema, null, 2) : '';
   }
 
   document.querySelector('#tab-skills .card').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -691,16 +671,13 @@ function resetSkillEditor() {
   document.getElementById('skill-publish-input').value = defaultPublishInputSchema();
   document.getElementById('skill-request-prefix').value = '';
   document.getElementById('skill-request-payload-schema').value = '';
-  document.getElementById('skill-response-schema').value = '';
   document.getElementById('skill-method').value = 'post';
   document.getElementById('skill-url').value = '';
   document.getElementById('skill-input-schema').value = '';
-  document.getElementById('skill-output-schema').value = '';
   document.getElementById('skill-data-schema').value = '';
   document.getElementById('skill-query').value = '';
   document.getElementById('skill-arg-keys').value = '';
   document.getElementById('skill-ch-input').value = '';
-  document.getElementById('skill-ch-output').value = '';
   updateSkillForm();
   setMsg('skill-msg', '');
 }

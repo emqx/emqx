@@ -24,9 +24,6 @@
 -define(VALID_INPUT_SCHEMA,
     <<"{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}">>
 ).
--define(VALID_OUTPUT_SCHEMA,
-    <<"{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}">>
-).
 
 %%--------------------------------------------------------------------
 %% CT callbacks
@@ -117,8 +114,7 @@ t_create_skill_invoke_http(_Config) ->
                 <<"desc">> => <<"Dynamic HTTP">>,
                 <<"method">> => <<"post">>,
                 <<"url">> => <<"http://stub/api">>,
-                <<"input_schema">> => ?VALID_INPUT_SCHEMA,
-                <<"output_schema">> => ?VALID_OUTPUT_SCHEMA
+                <<"input_schema">> => ?VALID_INPUT_SCHEMA
             }
         },
         ReqId

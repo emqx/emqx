@@ -70,22 +70,6 @@
     <<"required">> => [<<"topic">>, <<"payload">>]
 }).
 
--define(OUTPUT_SCHEMA, #{
-    <<"type">> => <<"object">>,
-    <<"properties">> => #{
-        <<"status">> => #{
-            <<"type">> => <<"string">>,
-            <<"enum">> => [<<"ok">>, <<"error">>]
-        },
-        <<"reason">> => #{<<"type">> => <<"string">>},
-        <<"topic">> => #{
-            <<"type">> => <<"string">>,
-            <<"description">> => <<"Full topic the message was published to">>
-        }
-    },
-    <<"required">> => [<<"status">>]
-}).
-
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/3]).
 
 %%--------------------------------------------------------------------
@@ -132,8 +116,7 @@ create(#{
             topic_prefix => TopicPrefix,
             payload_schema => PayloadSchema
         },
-        input_schema => ?INPUT_SCHEMA(PayloadSchema),
-        output_schema => ?OUTPUT_SCHEMA
+        input_schema => ?INPUT_SCHEMA(PayloadSchema)
     });
 create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix}) ->
     create(#{
@@ -153,8 +136,7 @@ to_map(
         skill_id := Id,
         description := Desc,
         context := #{topic_prefix := TopicPrefix, payload_schema := PayloadSchema},
-        input_schema := InputSchema,
-        output_schema := OutputSchema
+        input_schema := InputSchema
     }
 ) ->
     #{
@@ -163,16 +145,14 @@ to_map(
         <<"description">> => Desc,
         <<"topic_prefix">> => TopicPrefix,
         <<"payload_schema">> => PayloadSchema,
-        <<"input_schema">> => InputSchema,
-        <<"output_schema">> => OutputSchema
+        <<"input_schema">> => InputSchema
     };
 to_map(
     #{
         skill_id := Id,
         description := Desc,
         context := #{topic_prefix := TopicPrefix},
-        input_schema := InputSchema,
-        output_schema := OutputSchema
+        input_schema := InputSchema
     }
 ) ->
     #{
@@ -183,8 +163,7 @@ to_map(
         <<"payload_schema">> => maps:get(
             <<"payload">>, maps:get(<<"properties">>, InputSchema, #{}), ?DEFAULT_PAYLOAD_SCHEMA
         ),
-        <<"input_schema">> => InputSchema,
-        <<"output_schema">> => OutputSchema
+        <<"input_schema">> => InputSchema
     }.
 
 %%--------------------------------------------------------------------

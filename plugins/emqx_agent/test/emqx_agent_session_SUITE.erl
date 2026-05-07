@@ -506,8 +506,7 @@ request(Config, Overrides) ->
             <<"model">> => emqx_agent_test_llm_helper:default_model(),
             <<"tools">> => [],
             <<"input">> => #{},
-            <<"instructions">> => <<"Answer briefly.">>,
-            <<"output_schema">> => #{<<"type">> => <<"object">>}
+            <<"instructions">> => <<"Answer briefly.">>
         },
         Overrides
     ).
