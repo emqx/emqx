@@ -280,8 +280,6 @@ create_and_return_data(ResId, Group, ResourceType, Config, Opts) ->
 create(ResId, Group, ResourceType, Config, Opts) ->
     % The state machine will make the actual call to the callback/resource module after init
     ok = emqx_resource_manager_sup:ensure_child(ResId, Group, ResourceType, Config, Opts),
-    % Create metrics for the resource
-    ok = emqx_resource:create_metrics(ResId),
     QueryMode = emqx_resource:query_mode(ResourceType, Config, Opts),
     SpawnBufferWorkers = maps:get(spawn_buffer_workers, Opts, false),
     case SpawnBufferWorkers andalso lists:member(QueryMode, [sync, async]) of
@@ -759,11 +757,18 @@ start_link(ResId, Group, ResourceType, Config, Opts) ->
 
 init({DataIn, Opts}) ->
     process_flag(trap_exit, true),
+    #data{
+        id = ResId,
+        namespace = Namespace,
+        config = Config
+    } = DataIn,
     Data = DataIn#data{pid = self()},
-    set_label({resource_manager, Data#data.namespace, Data#data.id}),
+    set_label({resource_manager, Namespace, ResId}),
     ok = set_log_meta(Data),
-    emqx_resource_cache_cleaner:add_cache(Data#data.id, self()),
-    IsEnabled = maps:get(enable, Data#data.config, true),
+    emqx_resource_cache_cleaner:add_cache(ResId, self()),
+    % Create metrics for the resource
+    ok = emqx_resource_metrics:create_metrics(ResId),
+    IsEnabled = maps:get(enable, Config, true),
     StartAfterCreated = maps:get(start_after_created, Opts, IsEnabled),
     case IsEnabled andalso StartAfterCreated of
         true ->
