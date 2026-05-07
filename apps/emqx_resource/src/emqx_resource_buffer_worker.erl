@@ -176,7 +176,7 @@ sync_query(Id, Request, Opts0) ->
     ?tp(sync_query, #{id => Id, request => Request, query_opts => Opts0}),
     Opts1 = ensure_timeout_query_opts(Opts0, sync),
     Opts = ensure_expire_at(Opts1),
-    PickKey = maps:get(pick_key, Opts, self()),
+    PickKey = pick_key(Opts),
     Timeout = maps:get(timeout, Opts),
     emqx_resource_metrics:matched_inc(Id),
     pick_call(Id, PickKey, #query{request = Request, query_opts = Opts}, Timeout).
@@ -186,13 +186,20 @@ async_query(Id, Request, Opts0) ->
     ?tp(async_query, #{id => Id, request => Request, query_opts => Opts0}),
     Opts1 = ensure_timeout_query_opts(Opts0, async),
     Opts = ensure_expire_at(Opts1),
-    PickKey = maps:get(pick_key, Opts, self()),
+    PickKey = pick_key(Opts),
     emqx_resource_metrics:matched_inc(Id),
     %% When a fallback action is itself unavailable, we emit this initial trace event so
     %% that the frontend can see it was triggered when tracing rules...  Otherwise, if the
     %% fallback never recovers, there will be no trace indicating it was received.
     ?TRACE("QUERY", "async_query_received", #{action_id => Id}),
     pick_cast(Id, PickKey, #query{request = Request, query_opts = Opts}).
+
+pick_key(#{pick_key := PickKey}) ->
+    PickKey;
+pick_key(#{buffer_worker_dispatch_strategy := random}) ->
+    rand:uniform(16#100000000);
+pick_key(_) ->
+    self().
 
 %% simple query the resource without batching and queuing.
 -spec simple_sync_query(id(), request()) -> term().
