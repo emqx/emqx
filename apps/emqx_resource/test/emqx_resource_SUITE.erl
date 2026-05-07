@@ -1009,11 +1009,11 @@ t_query(_) ->
 
     ok = emqx_resource:remove_local(?ID).
 
-t_buffer_worker_dispatch_strategy(_) ->
+t_dispatch_strategy(_) ->
     ResourceOpts = #{
         query_mode => sync,
         worker_pool_size => 4,
-        buffer_worker_dispatch_strategy => random
+        dispatch_strategy => random
     },
     Config = #{
         name => test_resource,

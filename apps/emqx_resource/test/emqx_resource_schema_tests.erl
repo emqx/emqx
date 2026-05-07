@@ -93,12 +93,12 @@ worker_pool_size_test_() ->
         ?_test(AssertThrow(1025))
     ].
 
-buffer_worker_dispatch_strategy_test_() ->
+dispatch_strategy_test_() ->
     Check = fun(Strategy) ->
-        #{<<"resource_opts">> := #{<<"buffer_worker_dispatch_strategy">> := Parsed}} =
+        #{<<"resource_opts">> := #{<<"dispatch_strategy">> := Parsed}} =
             emqx_bridge_schema_testlib:http_action_config(#{
                 <<"connector">> => <<"my_connector">>,
-                <<"resource_opts">> => #{<<"buffer_worker_dispatch_strategy">> => Strategy}
+                <<"resource_opts">> => #{<<"dispatch_strategy">> => Strategy}
             }),
         Parsed
     end,

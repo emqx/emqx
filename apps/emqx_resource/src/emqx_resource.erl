@@ -578,7 +578,7 @@ request_ttl_query_opts(ActionOrSourceConfig) ->
 buffer_worker_dispatch_strategy_query_opts(ActionOrSourceConfig) ->
     case
         emqx_utils_maps:deep_get(
-            [resource_opts, buffer_worker_dispatch_strategy], ActionOrSourceConfig, false
+            [resource_opts, dispatch_strategy], ActionOrSourceConfig, false
         )
     of
         Strategy when Strategy =:= per_clientid; Strategy =:= random ->

@@ -13,7 +13,7 @@ get_query_opts_test_() ->
     Config = #{
         resource_opts => #{
             request_ttl => 2_000,
-            buffer_worker_dispatch_strategy => random
+            dispatch_strategy => random
         }
     },
     [

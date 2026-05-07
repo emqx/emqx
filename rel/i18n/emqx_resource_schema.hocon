@@ -19,11 +19,11 @@ This value is to specify the size of each on-disk buffer file."""
 buffer_seg_bytes.label:
 """Segment File Bytes"""
 
-buffer_worker_dispatch_strategy.desc:
-"""The strategy for choosing a buffer worker when a query does not set an explicit pick key. The default value <code>per_clientid</code> preserves the existing behavior. Set to <code>random</code> to spread such queries across buffer workers."""
+dispatch_strategy.desc:
+"""The strategy for dispatching queries when a query does not set an explicit pick key. The default value <code>per_clientid</code> preserves the existing behavior. Set to <code>random</code> to spread such queries across multiple workers."""
 
-buffer_worker_dispatch_strategy.label:
-"""Buffer Worker Dispatch Strategy"""
+dispatch_strategy.label:
+"""Dispatch Strategy"""
 
 creation_opts.desc:
 """Creation options."""
