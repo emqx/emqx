@@ -49,6 +49,10 @@ groups() ->
             t_bootstrap_file_with_scopes,
             t_bootstrap_file_with_scopes_invalid,
             t_bootstrap_file_with_empty_scopes,
+            t_bootstrap_file_with_mixed_case_scopes,
+            t_bootstrap_file_with_whitespace_scopes,
+            t_bootstrap_file_with_duplicate_scopes,
+            t_bootstrap_file_lenient_order_independence,
             t_bootstrap_file_scope_runtime_check,
             t_create_failed
         ]}
@@ -69,6 +73,53 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
     application:stop(hackney).
+
+%% Bootstrap-file tests insert records into the api_key Mnesia table
+%% without cleanup; the historical sequence group relies on disjoint key
+%% prefixes to avoid leaks. Wipe every `from_bootstrap_file_*' record and
+%% reset the configured `bootstrap_file' before and after each
+%% `t_bootstrap_*' case so a future testcase rename or reorder cannot
+%% silently inherit state from the previous one.
+init_per_testcase(Case, Config) ->
+    case is_bootstrap_case(Case) of
+        true -> reset_bootstrap_state();
+        false -> ok
+    end,
+    Config.
+
+end_per_testcase(Case, _Config) ->
+    case is_bootstrap_case(Case) of
+        true -> reset_bootstrap_state();
+        false -> ok
+    end,
+    ok.
+
+is_bootstrap_case(Case) ->
+    case atom_to_list(Case) of
+        "t_bootstrap_" ++ _ -> true;
+        _ -> false
+    end.
+
+reset_bootstrap_state() ->
+    %% Drop the configured bootstrap path so we are not racing a stale
+    %% post_config_update reload during cleanup.
+    _ = emqx:update_config([<<"api_key">>], #{<<"bootstrap_file">> => <<>>}),
+    %% Delete every key that was bootstrap-loaded; HTTP-API-created keys
+    %% (used by t_create / t_authorize / t_ee_*) live under different
+    %% names and stay untouched.
+    Apps = emqx_mgmt_auth:list(),
+    lists:foreach(
+        fun(#{name := Name}) ->
+            case Name of
+                <<"from_bootstrap_file_", _/binary>> ->
+                    _ = emqx_mgmt_auth:delete(Name);
+                _ ->
+                    ok
+            end
+        end,
+        Apps
+    ),
+    ok.
 
 t_bootstrap_file(_) ->
     TestPath = <<"/api/v5/status">>,
@@ -323,9 +374,16 @@ t_bootstrap_file_with_scopes(_) ->
     %% Single scope, multiple scopes, and the special "all-allow" 3-segment
     %% baseline mixed in to ensure they coexist.
     Bin = iolist_to_binary([
-        "scope-single:secret-1:administrator:", ?SCOPE_CONNECTIONS, "\n",
-        "scope-multi:secret-2:administrator:", ?SCOPE_CONNECTIONS, ",", ?SCOPE_PUBLISH,
-        ",", ?SCOPE_MONITORING, "\n",
+        "scope-single:secret-1:administrator:",
+        ?SCOPE_CONNECTIONS,
+        "\n",
+        "scope-multi:secret-2:administrator:",
+        ?SCOPE_CONNECTIONS,
+        ",",
+        ?SCOPE_PUBLISH,
+        ",",
+        ?SCOPE_MONITORING,
+        "\n",
         "scope-no-field:secret-3:administrator\n"
     ]),
     ok = file:write_file(File, Bin),
@@ -352,7 +410,10 @@ t_bootstrap_file_with_scopes_invalid(_) ->
     %% remain on the api_key record.
     MixedBin = iolist_to_binary([
         "scope-mixed:secret-1:administrator:bogus_scope,",
-        ?SCOPE_CONNECTIONS, ",", ?SCOPE_PUBLISH, "\n"
+        ?SCOPE_CONNECTIONS,
+        ",",
+        ?SCOPE_PUBLISH,
+        "\n"
     ]),
     ok = file:write_file(File, MixedBin),
     update_file(File),
@@ -374,7 +435,9 @@ t_bootstrap_file_with_scopes_invalid(_) ->
     %% becomes a deny-all key (scopes=[]), the good line stays intact.
     GoodAfterBadBin = iolist_to_binary([
         "scope-all-bad:secret-3:administrator:bogus_scope,foo\n",
-        "scope-good-after:secret-4:administrator:", ?SCOPE_CONNECTIONS, "\n"
+        "scope-good-after:secret-4:administrator:",
+        ?SCOPE_CONNECTIONS,
+        "\n"
     ]),
     ok = file:write_file(File, GoodAfterBadBin),
     update_file(File),
@@ -406,6 +469,124 @@ t_bootstrap_file_with_empty_scopes(_) ->
     ?assertEqual([], read_bootstrap_scopes(<<"scope-spaces">>)),
     ok.
 
+%% Users will write capitalised scope names ("Connections") because typed
+%% lists tend to look "more proper". `parse_scopes_str/1' lowercases each
+%% token so the catalogue lookup matches; without this normalization the
+%% scope would be silently dropped by `filter_valid_scopes/1' (the entry
+%% would still be created with no usable scopes — the worst kind of
+%% confusion). Pin the lowercase contract here so it cannot regress.
+t_bootstrap_file_with_mixed_case_scopes(_) ->
+    File = "./bootstrap_api_keys.txt",
+    Bin = iolist_to_binary([
+        %% Mixed case + leading capital + ALL CAPS — every variant must
+        %% normalise to the lowercase catalogue name.
+        "scope-mixed-case:secret-1:administrator:Connections,PUBLISH,Monitoring\n"
+    ]),
+    ok = file:write_file(File, Bin),
+    update_file(File),
+    ?assertEqual(
+        [?SCOPE_CONNECTIONS, ?SCOPE_PUBLISH, ?SCOPE_MONITORING],
+        read_bootstrap_scopes(<<"scope-mixed-case">>)
+    ),
+    ok.
+
+%% Tokens are split on `,' with `trim_all', and each surviving element is
+%% then `string:trim/1'-ed individually. Heredocs and copy-pasted YAML
+%% routinely sneak whitespace into the scopes column; verify it lands
+%% cleanly in the stored list.
+t_bootstrap_file_with_whitespace_scopes(_) ->
+    File = "./bootstrap_api_keys.txt",
+    Bin = iolist_to_binary([
+        "scope-ws:secret-1:administrator:  ",
+        ?SCOPE_CONNECTIONS,
+        "  ,   ",
+        ?SCOPE_PUBLISH,
+        "   \n"
+    ]),
+    ok = file:write_file(File, Bin),
+    update_file(File),
+    ?assertEqual(
+        [?SCOPE_CONNECTIONS, ?SCOPE_PUBLISH],
+        read_bootstrap_scopes(<<"scope-ws">>)
+    ),
+    ok.
+
+%% Duplicate scope tokens are NOT collapsed by the loader. `lists:member'
+%% in `check_path_in_scopes/2' tolerates duplicates at runtime, so the
+%% loader keeps the user-supplied list verbatim (matching the HTTP API
+%% contract). Pin this so a future "helpful" dedup does not silently
+%% change list ordering or stored shape.
+t_bootstrap_file_with_duplicate_scopes(_) ->
+    File = "./bootstrap_api_keys.txt",
+    Bin = iolist_to_binary([
+        "scope-dup:secret-1:administrator:",
+        ?SCOPE_CONNECTIONS,
+        ",",
+        ?SCOPE_CONNECTIONS,
+        ",",
+        ?SCOPE_PUBLISH,
+        "\n"
+    ]),
+    ok = file:write_file(File, Bin),
+    update_file(File),
+    ?assertEqual(
+        [?SCOPE_CONNECTIONS, ?SCOPE_CONNECTIONS, ?SCOPE_PUBLISH],
+        read_bootstrap_scopes(<<"scope-dup">>)
+    ),
+    ok.
+
+%% Lenient loading is order-independent: a line with bad-and-good scopes
+%% before a fully-valid line, OR a fully-valid line before a bad line,
+%% MUST both result in every entry being stored. The pre-lenient
+%% implementation aborted the whole file on the first bad line, leaving
+%% any subsequent good lines unloaded. Cover both orderings explicitly.
+t_bootstrap_file_lenient_order_independence(_) ->
+    File = "./bootstrap_api_keys.txt",
+
+    BadFirst = iolist_to_binary([
+        "scope-bad-1:secret-1:administrator:bogus,",
+        ?SCOPE_CONNECTIONS,
+        "\n",
+        "scope-good-1:secret-2:administrator:",
+        ?SCOPE_PUBLISH,
+        "\n"
+    ]),
+    ok = file:write_file(File, BadFirst),
+    update_file(File),
+    ?assertEqual(
+        [?SCOPE_CONNECTIONS],
+        read_bootstrap_scopes(<<"scope-bad-1">>)
+    ),
+    ?assertEqual(
+        [?SCOPE_PUBLISH],
+        read_bootstrap_scopes(<<"scope-good-1">>)
+    ),
+
+    %% Reset between sub-cases so the second mixed-file write is its own
+    %% fresh load (init_per_testcase only fires between cases, not
+    %% sub-blocks).
+    update_file(<<>>),
+
+    GoodFirst = iolist_to_binary([
+        "scope-good-2:secret-3:administrator:",
+        ?SCOPE_AUDIT,
+        "\n",
+        "scope-bad-2:secret-4:administrator:bogus,",
+        ?SCOPE_MONITORING,
+        "\n"
+    ]),
+    ok = file:write_file(File, GoodFirst),
+    update_file(File),
+    ?assertEqual(
+        [?SCOPE_AUDIT],
+        read_bootstrap_scopes(<<"scope-good-2">>)
+    ),
+    ?assertEqual(
+        [?SCOPE_MONITORING],
+        read_bootstrap_scopes(<<"scope-bad-2">>)
+    ),
+    ok.
+
 t_bootstrap_file_scope_runtime_check(_) ->
     File = "./bootstrap_api_keys.txt",
     %% Sanity-check that the path-to-scope cache is populated for the
@@ -435,9 +616,12 @@ t_bootstrap_file_scope_runtime_check(_) ->
     ok = file:write_file(File, Bin),
     update_file(File),
 
-    BannedPath = <<"/api/v5/banned">>,                       %% connections
-    PublishPath = <<"/api/v5/publish">>,                     %% publish
-    StatusPath = <<"/api/v5/status">>,                       %% system
+    %% connections
+    BannedPath = <<"/api/v5/banned">>,
+    %% publish
+    PublishPath = <<"/api/v5/publish">>,
+    %% system
+    StatusPath = <<"/api/v5/status">>,
 
     ?assertEqual(
         ok,
