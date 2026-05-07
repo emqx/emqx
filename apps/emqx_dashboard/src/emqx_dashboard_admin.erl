@@ -34,13 +34,20 @@
     change_password_trusted/2,
     change_password/3,
     enable_mfa/2,
-    reinit_mfa/2,
+    reinit_mfa/3,
     set_mfa_pending/2,
     clear_mfa_pending/1,
     get_mfa_pending/1,
     set_sso_code/2,
     clear_sso_code/1,
     get_sso_code/1,
+    %% Login user scope + MFA self-lock fields (stored in extra map)
+    force_mfa_snapshot_of/1,
+    set_force_mfa_snapshot/2,
+    admin_required_of/1,
+    set_admin_required/2,
+    scopes_of/1,
+    set_user_scopes/2,
     all_users/0,
     admin_users/0,
     check/2,
@@ -220,6 +227,8 @@ do_disable_mfa(Username) ->
 
 %% @doc Enable MFA state.
 %% Return error if it's already enabled.
+%% Called from CLI (emqx ctl admins mfa <user> enable totp), so the
+%% caller is treated as admin.
 enable_mfa(Username, Mechanism) ->
     case get_mfa_enabled_state(Username) of
         {ok, #{mechanism := Mechanism0}} ->
@@ -231,18 +240,51 @@ enable_mfa(Username, Mechanism) ->
                 [] ->
                     {error, <<"username_not_found">>};
                 [_] ->
-                    reinit_mfa(Username, Mechanism)
+                    reinit_mfa(Username, Mechanism, _ByAdmin = true)
             end
     end.
 
-reinit_mfa(Username, Mechanism) ->
+%% @doc Reinitialize MFA state for a user (generate new TOTP secret,
+%% clear any pending state). The `ByAdmin' flag affects how the
+%% `admin_required' field in the user's extra map is updated:
+%%
+%%   * ByAdmin=false (self call) — write admin_required=false. Indicates
+%%     the user voluntarily set up their own MFA.
+%%   * ByAdmin=true and force_mfa_snapshot=true — admin_required is left
+%%     untouched. The user is already locked by SSO backend force_mfa
+%%     policy; admin_required field stays clean to record only direct
+%%     admin decisions, independent of policy.
+%%   * ByAdmin=true and force_mfa_snapshot is false or undefined — write
+%%     admin_required=true. Admin actively required MFA on a user not
+%%     covered by force_mfa policy.
+%%
+%% See SPEC-dashboard-user-scopes.md §6.1.1 and §7.3 for the full
+%% rationale (the two booleans must not cross-contaminate).
+reinit_mfa(Username, Mechanism, ByAdmin) ->
     {ok, State} = emqx_dashboard_mfa:init(Mechanism),
     case reset_mfa_state(Username, State) of
         {ok, ok} ->
+            ok = maybe_set_admin_required(Username, ByAdmin),
             _ = emqx_dashboard_token:destroy_by_username(Username),
             ok;
         {error, Reason} ->
             {error, Reason}
+    end.
+
+%% @doc admin_required write rule (see §6.1.1):
+%%   ByAdmin=false                      → write false (self voluntary)
+%%   ByAdmin=true,  snapshot=true       → leave untouched (policy-locked)
+%%   ByAdmin=true,  snapshot=false|undef → write true (admin enforces)
+maybe_set_admin_required(Username, false) ->
+    _ = set_admin_required(Username, false),
+    ok;
+maybe_set_admin_required(Username, true) ->
+    case force_mfa_snapshot_of(Username) of
+        true ->
+            ok;
+        _ ->
+            _ = set_admin_required(Username, true),
+            ok
     end.
 
 %% @doc Set MFA state in the extra map.
@@ -327,6 +369,80 @@ clear_login_lock(Username) ->
 
 clear_login_lock2(Username) ->
     update_extra(Username, fun(Extra) -> maps:without([login_lock], Extra) end).
+
+%%--------------------------------------------------------------------
+%% Login user scope + MFA self-lock fields
+%%
+%% Three extra-map keys introduced for the dashboard user scopes
+%% feature (SPEC-dashboard-user-scopes.md):
+%%
+%%   force_mfa_snapshot :: boolean()
+%%     Snapshot of the SSO backend's force_mfa policy at user
+%%     provision time. Once written, runtime backend config changes
+%%     do NOT affect this field — the user's lock status is fixed
+%%     at first login. Local users carry false (no local force_mfa
+%%     mechanism in this feat; future work).
+%%
+%%   admin_required :: boolean()
+%%     True iff an admin actively required MFA on a user NOT covered
+%%     by force_mfa_snapshot. Recorded independently from policy so
+%%     that the field remains a clean audit trail of direct admin
+%%     decisions even if the policy is later turned off.
+%%
+%%   scopes :: [binary()]
+%%     Login user's scope list. undefined (key absent) means "fall
+%%     back to role default" — administrator gets implicit full
+%%     access; viewer/publisher get implicit empty (no new-scope
+%%     privileges). Explicit [] means "all mapped paths denied,
+%%     unmapped paths still allowed" (consistent with API key empty
+%%     scope semantics).
+
+-spec force_mfa_snapshot_of(dashboard_username()) -> undefined | boolean().
+force_mfa_snapshot_of(Username) ->
+    case get_extra(Username) of
+        {ok, #{force_mfa_snapshot := V}} -> V;
+        _ -> undefined
+    end.
+
+-spec set_force_mfa_snapshot(dashboard_username(), boolean()) ->
+    {ok, ok} | {error, term()}.
+set_force_mfa_snapshot(Username, V) when is_boolean(V) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> Extra#{force_mfa_snapshot => V} end)
+    end),
+    return(Res).
+
+-spec admin_required_of(dashboard_username()) -> boolean().
+admin_required_of(Username) ->
+    case get_extra(Username) of
+        {ok, #{admin_required := V}} -> V;
+        _ -> false
+    end.
+
+-spec set_admin_required(dashboard_username(), boolean()) ->
+    {ok, ok} | {error, term()}.
+set_admin_required(Username, V) when is_boolean(V) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> Extra#{admin_required => V} end)
+    end),
+    return(Res).
+
+-spec scopes_of(dashboard_username()) -> undefined | [binary()].
+scopes_of(Username) ->
+    case get_extra(Username) of
+        {ok, #{scopes := S}} -> S;
+        _ -> undefined
+    end.
+
+-spec set_user_scopes(dashboard_username(), [binary()]) ->
+    {ok, ok} | {error, term()}.
+set_user_scopes(Username, Scopes) when is_list(Scopes) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> Extra#{scopes => Scopes} end)
+    end),
+    return(Res).
+
+%%--------------------------------------------------------------------
 
 %% @doc Management of `extra' field.
 
@@ -793,7 +909,12 @@ maybe_init_mfa_state(Username, true) ->
                     %% or explicitly disabled
                     ok;
                 _ ->
-                    reinit_mfa(Username, Mechanism)
+                    %% Triggered by `dashboard.default_mfa' config on
+                    %% user creation. Treat as non-admin call — the user
+                    %% can still self-rotate. A future "local force_mfa
+                    %% policy" would set force_mfa_snapshot=true here
+                    %% to lock the user (out of scope for this feat).
+                    reinit_mfa(Username, Mechanism, _ByAdmin = false)
             end
     end;
 maybe_init_mfa_state(_Username, false) ->
