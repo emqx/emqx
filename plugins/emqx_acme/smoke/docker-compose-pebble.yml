@@ -1,0 +1,36 @@
+services:
+  challtestsrv:
+    image: ghcr.io/letsencrypt/pebble-challtestsrv:latest
+    command: >
+      -defaultIPv4 0.0.0.0
+      -defaultIPv6 ""
+      -http01 ""
+      -https01 ""
+      -tlsalpn01 ""
+      -dnsserver ":8053"
+    ports:
+      - "8055:8055"  # Management API
+    networks:
+      acmenet:
+        ipv4_address: 10.30.50.3
+
+  pebble:
+    image: ghcr.io/letsencrypt/pebble:latest
+    command: -dnsserver 10.30.50.3:8053
+    environment:
+      PEBBLE_VA_NOSLEEP: "1"
+    ports:
+      - "14000:14000"  # ACME directory
+      - "15000:15000"  # Management API
+    depends_on:
+      - challtestsrv
+    networks:
+      acmenet:
+        ipv4_address: 10.30.50.2
+
+networks:
+  acmenet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.30.50.0/24

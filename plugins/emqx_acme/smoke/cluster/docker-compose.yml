@@ -1,0 +1,99 @@
+## Cluster smoke for emqx_acme:
+##   - 2 emqx/emqx:6.1.1 nodes joined as a static cluster.
+##   - Pebble (Let's Encrypt test ACME CA) + challtestsrv (controllable DNS)
+##     on the same docker network so HTTP-01 can validate against the test
+##     domain without touching public DNS.
+##   - Both EMQX nodes start the default ssl:default listener with the
+##     installation's self-signed localhost cert from etc/certs/cert.pem.
+##   - challtestsrv resolves the test domain to emqx1; emqx1 wins the
+##     deterministic lowest-node-name issuance election and runs ACME, so
+##     the HTTP-01 challenge listener (cowboy on port 80 inside the
+##     container) is held by emqx1 only.
+
+networks:
+  acme-cluster:
+    name: acme-cluster
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.50.0/24
+
+services:
+  challtestsrv:
+    image: ghcr.io/letsencrypt/pebble-challtestsrv:latest
+    container_name: acme-cluster-challtestsrv
+    networks:
+      acme-cluster:
+        ipv4_address: 172.21.50.21
+    command: >
+      -defaultIPv4 172.21.50.10
+      -defaultIPv6 ""
+      -http01 ""
+      -https01 ""
+      -tlsalpn01 ""
+      -dnsserver ":8053"
+    ports:
+      - "8055:8055"
+
+  pebble:
+    image: ghcr.io/letsencrypt/pebble:latest
+    container_name: acme-cluster-pebble
+    networks:
+      acme-cluster:
+        ipv4_address: 172.21.50.20
+    environment:
+      PEBBLE_VA_NOSLEEP: "1"
+    command: -dnsserver 172.21.50.21:8053
+    depends_on:
+      - challtestsrv
+    ports:
+      - "14000:14000"
+      - "15000:15000"
+
+  emqx1:
+    image: emqx/emqx-enterprise:6.1.1
+    container_name: acme-cluster-emqx1
+    hostname: emqx1.acme.test
+    environment:
+      EMQX_NODE__NAME: "emqx@emqx1.acme.test"
+      EMQX_NODE__COOKIE: "acme-smoke"
+      EMQX_CLUSTER__DISCOVERY_STRATEGY: "static"
+      EMQX_CLUSTER__STATIC__SEEDS: '["emqx@emqx1.acme.test","emqx@emqx2.acme.test"]'
+      EMQX_LICENSE__KEY: "evaluation"
+    networks:
+      acme-cluster:
+        ipv4_address: 172.21.50.10
+    dns:
+      - 172.21.50.21
+    ports:
+      - "8883:8883"
+      - "18083:18083"
+    volumes:
+      - ../../../../_build/plugins:/plugins-tarballs:ro
+    depends_on:
+      - pebble
+      - challtestsrv
+
+  emqx2:
+    image: emqx/emqx-enterprise:6.1.1
+    container_name: acme-cluster-emqx2
+    hostname: emqx2.acme.test
+    environment:
+      EMQX_NODE__NAME: "emqx@emqx2.acme.test"
+      EMQX_NODE__COOKIE: "acme-smoke"
+      EMQX_CLUSTER__DISCOVERY_STRATEGY: "static"
+      EMQX_CLUSTER__STATIC__SEEDS: '["emqx@emqx1.acme.test","emqx@emqx2.acme.test"]'
+      EMQX_LICENSE__KEY: "evaluation"
+    networks:
+      acme-cluster:
+        ipv4_address: 172.21.50.11
+    dns:
+      - 172.21.50.21
+    ports:
+      - "8884:8883"
+      - "18084:18083"
+    volumes:
+      - ../../../../_build/plugins:/plugins-tarballs:ro
+    depends_on:
+      - pebble
+      - challtestsrv

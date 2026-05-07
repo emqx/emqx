@@ -211,7 +211,7 @@ plugin-%:
 		echo "Error: $(PLUGIN_APP_DIR) is not an EMQX plugin app (missing :emqx_plugin)."; \
 		exit 1; \
 	}
-	cd "$(PLUGIN_APP_DIR)" && MIX_ENV="$(PROFILE)" PROFILE="$(PROFILE)" $(MIX) emqx.plugin
+	cd "$(PLUGIN_APP_DIR)" && MIX_ENV="$(PROFILE)" PROFILE="$(PROFILE)" $(MIX) do deps.get, emqx.plugin
 
 .PHONY: plugins
 plugins: $(REBAR)
