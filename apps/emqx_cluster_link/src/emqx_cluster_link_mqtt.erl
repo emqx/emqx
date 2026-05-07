@@ -18,7 +18,7 @@
 -export([connect/1]).
 
 %% emqtt
--export([handle_disconnect/1]).
+-export([handle_disconnect/3]).
 
 -behaviour(emqx_resource).
 -export([
@@ -168,13 +168,14 @@ callback_mode() -> async_if_possible.
 resource_type() ->
     cluster_link_mqtt.
 
-on_start(ResourceId, #{pool_size := PoolSize} = ClusterConf) ->
+on_start(ResourceId, #{name := ClusterName, pool_size := PoolSize} = ClusterConf) ->
     PoolName = ResourceId,
     Options = [
         {name, PoolName},
         {pool_size, PoolSize},
         {pool_type, hash},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL_S},
+        {target_cluster, ClusterName},
         {client_opts, emqx_cluster_link_config:mk_emqtt_options(ClusterConf)}
     ],
     ok = emqx_resource:allocate_resource(ResourceId, ?MODULE, pool_name, PoolName),
@@ -321,13 +322,14 @@ combine_status(Statuses) ->
 
 connect(Options) ->
     WorkerId = proplists:get_value(ecpool_worker_id, Options),
+    TargetCluster = proplists:get_value(target_cluster, Options),
     ClientOpts0 = #{clientid := ClientId0} = proplists:get_value(client_opts, Options),
     ClientIdBase = emqx_bridge_mqtt_lib:clientid_base([ClientId0, ?MSG_CLIENTID_SUFFIX]),
     ClientId = iolist_to_binary([ClientIdBase, $:, integer_to_binary(WorkerId)]),
     ClientOpts = ClientOpts0#{
         clientid => ClientId,
         msg_handler => #{
-            disconnected => {fun ?MODULE:handle_disconnect/1, []}
+            disconnected => {fun ?MODULE:handle_disconnect/3, [TargetCluster, ClientId]}
         }
     },
     case emqtt:start_link(ClientOpts) of
@@ -347,9 +349,48 @@ connect(Options) ->
             Error
     end.
 
--spec handle_disconnect({disconnected, emqx_types:reason_code(), emqx_types:properties()}) -> ok.
-handle_disconnect(_Reason) ->
-    ok.
+-spec handle_disconnect(
+    {disconnected, emqx_types:reason_code(), emqx_types:properties()}
+    | {parse_packets_error, _Reason, _ParserState}
+    | {connack_error, _Reason :: atom()}
+    | connack_timeout
+    | _SocketError,
+    emqx_cluster_link_schema:cluster(),
+    emqx_types:clientid()
+) -> ok.
+handle_disconnect(Reason, TargetCluster, ClientId) ->
+    Event = #{
+        msg => "cluster_link_forwarding_client_disconnected",
+        target_cluster => TargetCluster,
+        client_id => ClientId
+    },
+    case Reason of
+        {disconnected, RC, _Props} ->
+            %% NOTE
+            %% Emit warning if RC hints at misconfiguration or integration issues.
+            Level =
+                case RC of
+                    ?RC_SUCCESS -> info;
+                    ?RC_SERVER_BUSY -> info;
+                    ?RC_SERVER_UNAVAILABLE -> info;
+                    ?RC_SERVER_SHUTTING_DOWN -> info;
+                    ?RC_SESSION_TAKEN_OVER -> info;
+                    _ -> warning
+                end,
+            ?SLOG(Level, Event#{
+                cause => "broker_disconnect",
+                reason => emqx_reason_codes:name(RC),
+                reason_code => RC
+            });
+        {parse_packets_error, Reason, _ParserState} ->
+            ?SLOG(warning, Event#{cause => "malformed_packet", reason => Reason});
+        {connack_error, _} ->
+            ok;
+        connack_timeout ->
+            ok;
+        SocketError ->
+            ?SLOG(info, Event#{cause => "socket_error", reason => SocketError})
+    end.
 
 %%--------------------------------------------------------------------
 %% Protocol
