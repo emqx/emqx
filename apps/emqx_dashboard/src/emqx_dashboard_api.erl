@@ -458,7 +458,12 @@ change_mfa(post, #{bindings := #{username := Username0}, body := Settings} = Req
     Username = username(Req, Username0),
     Mechanism = maps:get(<<"mechanism">>, Settings),
     LogMeta = #{msg => "dashboard_user_mfa_setup", username => Username},
-    case emqx_dashboard_admin:reinit_mfa(Username, Mechanism) of
+    %% TODO(commit 6): derive ByAdmin from caller vs target identity
+    %% (caller != target -> ByAdmin=true). For now, treat handler-driven
+    %% reinit as self-call. Commit 6 (authorize_mfa_change/3) wires the
+    %% real caller-vs-target distinction.
+    ByAdmin = false,
+    case emqx_dashboard_admin:reinit_mfa(Username, Mechanism, ByAdmin) of
         ok ->
             ?SLOG(info, LogMeta#{result => success}),
             {204};
