@@ -124,7 +124,10 @@ jobs:
     needs:
       - init
       - prepare
+      - compile
     uses: ./.github/workflows/build_slim_packages.yaml
+    with:
+      use_compile_artifact: true
 
   compile:
     needs:

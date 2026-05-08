@@ -6,6 +6,17 @@ concurrency:
 
 on:
   workflow_call:
+    inputs:
+      use_compile_artifact:
+        description: |
+          When true, the linux/amd64 job downloads the
+          'emqx-enterprise-release' artifact produced by compile.yaml
+          and reuses its `_build/` and `deps/` instead of doing a
+          fresh checkout + compile. Requires the caller to add the
+          compile job to this workflow's `needs:` list.
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       ref:
@@ -63,7 +74,19 @@ jobs:
           - "amd64"
 
     steps:
+    # amd64 path with reuse: download the compile artifact and unzip it as
+    # the working tree, skipping a redundant fresh compile.
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      if: inputs.use_compile_artifact && matrix.arch == 'amd64'
+      with:
+        name: ${{ matrix.profile }}-release
+    - name: extract artifact
+      if: inputs.use_compile_artifact && matrix.arch == 'amd64'
+      run: |
+        unzip -o -q ${{ matrix.profile }}-release.zip
+    # arm64 (and amd64 fallback for workflow_dispatch) path: fresh checkout.
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      if: '!(inputs.use_compile_artifact && matrix.arch == ''amd64'')'
       with:
         fetch-depth: 0
     - name: build tgz

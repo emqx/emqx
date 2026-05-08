@@ -176,7 +176,10 @@ jobs:
   build_slim_packages:
     needs:
       - sanity-checks
+      - compile
     uses: ./.github/workflows/build_slim_packages.yaml
+    with:
+      use_compile_artifact: true
 
   build_docker:
     needs:
