@@ -943,6 +943,100 @@ t_mfa_setup_unknown_backend(_Config) ->
     ),
     ok.
 
+%% --- ensure_force_mfa_snapshot/2 (lazy backfill, SPEC sec 8.1) ---
+
+%% First call writes the snapshot when the backend has force_mfa=true.
+%% This is the standard new-user provision path.
+t_ensure_snapshot_writes_true_when_force_mfa_enabled({init, Config}) ->
+    mock_force_mfa(?SSO_BACKEND, true),
+    %% New user, no prior snapshot field.
+    {ok, _} = emqx_dashboard_admin:add_sso_user(
+        ?SSO_BACKEND, <<"snap_user_t">>, ?ROLE_VIEWER, <<>>
+    ),
+    Config;
+t_ensure_snapshot_writes_true_when_force_mfa_enabled({'end', _Config}) ->
+    clear_force_mfa(?SSO_BACKEND),
+    _ = emqx_dashboard_admin:remove_user(?SSO_USERNAME(?SSO_BACKEND, <<"snap_user_t">>)),
+    ok;
+t_ensure_snapshot_writes_true_when_force_mfa_enabled(_Config) ->
+    SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, <<"snap_user_t">>),
+    %% Pre: snapshot is undefined (new user, no field).
+    ?assertEqual(undefined, emqx_dashboard_admin:force_mfa_snapshot_of(SsoUsername)),
+    ok = emqx_dashboard_sso_mfa:ensure_force_mfa_snapshot(?SSO_BACKEND, <<"snap_user_t">>),
+    %% Post: snapshot is true, mirroring backend force_mfa.
+    ?assertEqual(true, emqx_dashboard_admin:force_mfa_snapshot_of(SsoUsername)),
+    ok.
+
+%% Same flow but with force_mfa=false — snapshot becomes false.
+t_ensure_snapshot_writes_false_when_force_mfa_disabled({init, Config}) ->
+    mock_force_mfa(?SSO_BACKEND, false),
+    {ok, _} = emqx_dashboard_admin:add_sso_user(
+        ?SSO_BACKEND, <<"snap_user_f">>, ?ROLE_VIEWER, <<>>
+    ),
+    Config;
+t_ensure_snapshot_writes_false_when_force_mfa_disabled({'end', _Config}) ->
+    clear_force_mfa(?SSO_BACKEND),
+    _ = emqx_dashboard_admin:remove_user(?SSO_USERNAME(?SSO_BACKEND, <<"snap_user_f">>)),
+    ok;
+t_ensure_snapshot_writes_false_when_force_mfa_disabled(_Config) ->
+    SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, <<"snap_user_f">>),
+    ?assertEqual(undefined, emqx_dashboard_admin:force_mfa_snapshot_of(SsoUsername)),
+    ok = emqx_dashboard_sso_mfa:ensure_force_mfa_snapshot(?SSO_BACKEND, <<"snap_user_f">>),
+    ?assertEqual(false, emqx_dashboard_admin:force_mfa_snapshot_of(SsoUsername)),
+    ok.
+
+%% Once written, the snapshot is NOT retroactively flipped by a later
+%% backend config change. SPEC sec 6.1 / 8.1: the snapshot is the
+%% point-in-time decision and persists across backend policy edits.
+t_ensure_snapshot_does_not_overwrite_existing({init, Config}) ->
+    mock_force_mfa(?SSO_BACKEND, true),
+    {ok, _} = emqx_dashboard_admin:add_sso_user(
+        ?SSO_BACKEND, <<"snap_user_stick">>, ?ROLE_VIEWER, <<>>
+    ),
+    Config;
+t_ensure_snapshot_does_not_overwrite_existing({'end', _Config}) ->
+    clear_force_mfa(?SSO_BACKEND),
+    _ = emqx_dashboard_admin:remove_user(?SSO_USERNAME(?SSO_BACKEND, <<"snap_user_stick">>)),
+    ok;
+t_ensure_snapshot_does_not_overwrite_existing(_Config) ->
+    SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, <<"snap_user_stick">>),
+    %% First call writes true (under force_mfa=true).
+    ok = emqx_dashboard_sso_mfa:ensure_force_mfa_snapshot(?SSO_BACKEND, <<"snap_user_stick">>),
+    ?assertEqual(true, emqx_dashboard_admin:force_mfa_snapshot_of(SsoUsername)),
+    %% Backend flips to false; existing snapshot must NOT change.
+    mock_force_mfa(?SSO_BACKEND, false),
+    ok = emqx_dashboard_sso_mfa:ensure_force_mfa_snapshot(?SSO_BACKEND, <<"snap_user_stick">>),
+    ?assertEqual(true, emqx_dashboard_admin:force_mfa_snapshot_of(SsoUsername)),
+    ok.
+
+%% Lazy backfill: a user created before this feat (no snapshot field)
+%% gets the field populated on the next ensure_force_mfa_snapshot/2
+%% call, e.g. on next login. Same flow as new-user provision but
+%% emphasises the migration scenario.
+t_ensure_snapshot_lazy_backfill_for_pre_existing_user({init, Config}) ->
+    mock_force_mfa(?SSO_BACKEND, true),
+    %% Simulate a pre-existing user: add via add_sso_user (no snapshot
+    %% field is written by add_sso_user itself).
+    {ok, _} = emqx_dashboard_admin:add_sso_user(
+        ?SSO_BACKEND, <<"legacy_user">>, ?ROLE_VIEWER, <<>>
+    ),
+    Config;
+t_ensure_snapshot_lazy_backfill_for_pre_existing_user({'end', _Config}) ->
+    clear_force_mfa(?SSO_BACKEND),
+    _ = emqx_dashboard_admin:remove_user(?SSO_USERNAME(?SSO_BACKEND, <<"legacy_user">>)),
+    ok;
+t_ensure_snapshot_lazy_backfill_for_pre_existing_user(_Config) ->
+    SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, <<"legacy_user">>),
+    %% Pre-existing user has no snapshot field.
+    ?assertEqual(undefined, emqx_dashboard_admin:force_mfa_snapshot_of(SsoUsername)),
+    %% On next interaction (here: explicit call) backfill kicks in.
+    ok = emqx_dashboard_sso_mfa:ensure_force_mfa_snapshot(?SSO_BACKEND, <<"legacy_user">>),
+    ?assertEqual(true, emqx_dashboard_admin:force_mfa_snapshot_of(SsoUsername)),
+    %% Subsequent calls are idempotent.
+    ok = emqx_dashboard_sso_mfa:ensure_force_mfa_snapshot(?SSO_BACKEND, <<"legacy_user">>),
+    ?assertEqual(true, emqx_dashboard_admin:force_mfa_snapshot_of(SsoUsername)),
+    ok.
+
 assert_bad_totp_attempts(PathParts, Body, Times) ->
     lists:foreach(
         fun(_) ->

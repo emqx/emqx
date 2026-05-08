@@ -386,6 +386,11 @@ t_admin_reinit_preserves_existing_admin_required_under_force_mfa_snapshot(_Confi
     %% field untouched, preserving its current value.
     ?assertEqual(true, emqx_dashboard_admin:admin_required_of(<<"u">>)).
 
+%% NOTE: scope-deny path coverage for emqx_dashboard_rbac:check_login_user_scopes/2
+%% lives in apps/emqx_dashboard_rbac/test/emqx_dashboard_rbac_SUITE.erl,
+%% because emqx_dashboard does not depend on emqx_dashboard_rbac and the
+%% predicate is not loadable from this SUITE's app graph.
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
