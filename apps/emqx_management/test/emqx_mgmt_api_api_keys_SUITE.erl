@@ -19,7 +19,19 @@
     t_ee_authorize_admin,
     t_ee_authorize_admin_cannot_manage_mfa,
     t_ee_authorize_admin_cannot_manage_mfa_module_level,
-    t_ee_authorize_publisher
+    t_ee_authorize_publisher,
+    %% Schema validation: publisher role can only hold publish scope
+    t_ee_publisher_only_publish_scope,
+    t_ee_publisher_with_undefined_scopes,
+    t_ee_publisher_with_empty_scopes,
+    t_ee_publisher_rejects_connections_scope,
+    t_ee_publisher_rejects_login_only_scope,
+    t_ee_publisher_rejects_publish_plus_other,
+    %% Schema validation: API keys cannot hold login-only scopes
+    t_ee_api_key_rejects_login_only_via_post,
+    t_ee_api_key_rejects_login_only_via_put,
+    t_ee_admin_role_with_publish_scope_allowed,
+    t_ee_viewer_role_with_publish_scope_allowed
 ]).
 -else.
 -define(EE_CASES, []).
@@ -54,6 +66,7 @@ groups() ->
             t_bootstrap_file_with_duplicate_scopes,
             t_bootstrap_file_lenient_order_independence,
             t_bootstrap_file_scope_runtime_check,
+            t_bootstrap_file_publisher_only_publish_scope,
             t_create_failed
         ]}
     ].
@@ -731,6 +744,65 @@ t_create(_Config) ->
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, read_app(<<"EMQX-API-KEY-NO-EXIST">>)),
     ok.
 
+%% Bootstrap file: publisher role lenient policy — non-publish
+%% scopes are dropped with a warning log; the entry IS created with
+%% only the publish scope retained (or empty if no publish present).
+%% This mirrors the API-layer schema validation (commit 4) but is
+%% non-fatal for the whole bootstrap load.
+t_bootstrap_file_publisher_only_publish_scope(_) ->
+    File = "./bootstrap_api_keys.txt",
+    Bin = iolist_to_binary([
+        %% publisher with mixed scopes — only publish should survive.
+        "from_bootstrap_file_pub_mixed:secret-1:publisher:",
+        ?SCOPE_CONNECTIONS,
+        ",",
+        ?SCOPE_PUBLISH,
+        ",",
+        ?SCOPE_MONITORING,
+        "\n",
+        %% publisher with only non-publish scope — all dropped, ends
+        %% up with empty scopes (which the runtime treats like the
+        %% absent case for publisher: RBAC restricts to /publish).
+        "from_bootstrap_file_pub_drop_all:secret-2:publisher:",
+        ?SCOPE_CONNECTIONS,
+        ",",
+        ?SCOPE_AUDIT,
+        "\n",
+        %% publisher with publish only — passes through unchanged.
+        "from_bootstrap_file_pub_publish_only:secret-3:publisher:",
+        ?SCOPE_PUBLISH,
+        "\n",
+        %% Non-publisher (administrator) is NOT subject to the
+        %% publisher restriction — all valid scopes retained.
+        "from_bootstrap_file_admin_full:secret-4:administrator:",
+        ?SCOPE_CONNECTIONS,
+        ",",
+        ?SCOPE_PUBLISH,
+        ",",
+        ?SCOPE_MONITORING,
+        "\n"
+    ]),
+    ok = file:write_file(File, Bin),
+    update_file(File),
+
+    ?assertEqual(
+        [?SCOPE_PUBLISH],
+        read_bootstrap_scopes(<<"from_bootstrap_file_pub_mixed">>)
+    ),
+    ?assertEqual(
+        [],
+        read_bootstrap_scopes(<<"from_bootstrap_file_pub_drop_all">>)
+    ),
+    ?assertEqual(
+        [?SCOPE_PUBLISH],
+        read_bootstrap_scopes(<<"from_bootstrap_file_pub_publish_only">>)
+    ),
+    ?assertEqual(
+        [?SCOPE_CONNECTIONS, ?SCOPE_PUBLISH, ?SCOPE_MONITORING],
+        read_bootstrap_scopes(<<"from_bootstrap_file_admin_full">>)
+    ),
+    ok.
+
 t_create_failed(_Config) ->
     BadRequest = {error, {"HTTP/1.1", 400, "Bad Request"}},
 
@@ -1080,6 +1152,151 @@ t_ee_authorize_publisher(_Config) ->
             #{topic => <<"t/t_ee_authorize_publisher">>, payload => <<"hello">>}
         )
     ).
+
+%%--------------------------------------------------------------------
+%% feat/dashboard-user-scopes — schema validation testcases.
+%%
+%% These tests verify the API-layer schema validation introduced in
+%% commit 4 (publisher restricted to publish scope) and SPEC sec 3.1
+%% (API keys reject login-only scopes regardless of role).
+%%--------------------------------------------------------------------
+
+%% publisher role + scopes=[<<"publish">>] — accepted (the only
+%% non-empty list a publisher can hold).
+t_ee_publisher_only_publish_scope(_Config) ->
+    Name = <<"EE-PUB-PUBLISH-ONLY">>,
+    ?assertMatch(
+        {ok, #{<<"name">> := Name}},
+        create_app(Name, #{role => ?ROLE_API_PUBLISHER, scopes => [?SCOPE_PUBLISH]})
+    ),
+    delete_app(Name).
+
+%% publisher role + scopes absent — accepted (falls back to RBAC
+%% hardcoded path matching at runtime).
+t_ee_publisher_with_undefined_scopes(_Config) ->
+    Name = <<"EE-PUB-UNDEFINED-SCOPES">>,
+    ?assertMatch(
+        {ok, #{<<"name">> := Name}},
+        create_app(Name, #{role => ?ROLE_API_PUBLISHER})
+    ),
+    delete_app(Name).
+
+%% publisher role + scopes=[] — accepted (empty list is equivalent
+%% to absent; runtime path check still applies).
+t_ee_publisher_with_empty_scopes(_Config) ->
+    Name = <<"EE-PUB-EMPTY-SCOPES">>,
+    ?assertMatch(
+        {ok, #{<<"name">> := Name}},
+        create_app(Name, #{role => ?ROLE_API_PUBLISHER, scopes => []})
+    ),
+    delete_app(Name).
+
+%% publisher role + scopes containing a non-publish scope — rejected
+%% by validate_publisher_scopes/2 with HTTP 400.
+t_ee_publisher_rejects_connections_scope(_Config) ->
+    Name = <<"EE-PUB-CONN-REJECT">>,
+    Result = create_app(Name, #{
+        role => ?ROLE_API_PUBLISHER,
+        scopes => [?SCOPE_CONNECTIONS]
+    }),
+    assert_400_publisher_only(Result).
+
+%% publisher role + scopes containing a login-only scope — rejected.
+%% This case exercises BOTH the publisher restriction (layer A) and
+%% the login-only rejection (layer B); validate_scopes/2 returns the
+%% first matching error, which is layer A here.
+t_ee_publisher_rejects_login_only_scope(_Config) ->
+    Name = <<"EE-PUB-LOGIN-ONLY-REJECT">>,
+    Result = create_app(Name, #{
+        role => ?ROLE_API_PUBLISHER,
+        scopes => [?SCOPE_USER_MGMT]
+    }),
+    assert_400_publisher_only(Result).
+
+%% publisher role + [publish, connections] — rejected. The publisher
+%% scope check requires scopes to be exactly [<<"publish">>] or
+%% empty/absent.
+t_ee_publisher_rejects_publish_plus_other(_Config) ->
+    Name = <<"EE-PUB-PUBLISH-PLUS-OTHER">>,
+    Result = create_app(Name, #{
+        role => ?ROLE_API_PUBLISHER,
+        scopes => [?SCOPE_PUBLISH, ?SCOPE_CONNECTIONS]
+    }),
+    assert_400_publisher_only(Result).
+
+%% Non-publisher API key (administrator) creation with login-only
+%% scope — rejected with HTTP 400 from validate_no_login_only_scopes/1.
+t_ee_api_key_rejects_login_only_via_post(_Config) ->
+    Name = <<"EE-API-KEY-LOGIN-ONLY-POST">>,
+    Result = create_app(Name, #{
+        role => ?ROLE_API_SUPERUSER,
+        scopes => [?SCOPE_CONNECTIONS, ?SCOPE_MFA_MGMT]
+    }),
+    assert_400_login_only(Result).
+
+%% PUT /api_key/:name with login-only scope on an existing key —
+%% rejected by the same validator.
+t_ee_api_key_rejects_login_only_via_put(_Config) ->
+    Name = <<"EE-API-KEY-LOGIN-ONLY-PUT">>,
+    {ok, _} = create_app(Name, #{
+        role => ?ROLE_API_SUPERUSER,
+        scopes => [?SCOPE_CONNECTIONS]
+    }),
+    Result = update_app(Name, #{
+        scopes => [?SCOPE_CONNECTIONS, ?SCOPE_USER_MGMT]
+    }),
+    assert_400_login_only(Result),
+    delete_app(Name).
+
+%% Administrator API key + scopes containing publish — accepted.
+%% v3.3 SPEC clarifies that admin/viewer roles are NOT restricted on
+%% the publish scope; only publisher role is.
+t_ee_admin_role_with_publish_scope_allowed(_Config) ->
+    Name = <<"EE-ADMIN-WITH-PUBLISH">>,
+    ?assertMatch(
+        {ok, #{<<"name">> := Name}},
+        create_app(Name, #{
+            role => ?ROLE_API_SUPERUSER,
+            scopes => [?SCOPE_PUBLISH, ?SCOPE_CONNECTIONS, ?SCOPE_MONITORING]
+        })
+    ),
+    delete_app(Name).
+
+%% Viewer role + publish scope — accepted at schema layer (RBAC will
+%% reject the actual POST /publish at runtime, but the scope is
+%% formally legal).
+t_ee_viewer_role_with_publish_scope_allowed(_Config) ->
+    Name = <<"EE-VIEWER-WITH-PUBLISH">>,
+    ?assertMatch(
+        {ok, #{<<"name">> := Name}},
+        create_app(Name, #{
+            role => ?ROLE_API_VIEWER,
+            scopes => [?SCOPE_PUBLISH, ?SCOPE_MONITORING]
+        })
+    ),
+    delete_app(Name).
+
+assert_400_publisher_only(Result) ->
+    %% request_api/5 returns {error, {"HTTP/1.1", 400, "Bad Request"}}
+    %% on 4xx responses; the body is dropped unless return_all=true is
+    %% set in opts. We only assert the status code here — the precise
+    %% error message is covered by unit tests of validate_publisher_scopes.
+    case Result of
+        {error, {"HTTP/1.1", 400, _}} ->
+            ok;
+        Other ->
+            ct:fail("expected 400 BAD_REQUEST publisher-only error, got: ~p", [Other])
+    end.
+
+assert_400_login_only(Result) ->
+    %% Same shape — the body assertion is covered by the unit test
+    %% of validate_no_login_only_scopes.
+    case Result of
+        {error, {"HTTP/1.1", 400, _}} ->
+            ok;
+        Other ->
+            ct:fail("expected 400 BAD_REQUEST login-only error, got: ~p", [Other])
+    end.
 
 list_app() ->
     AuthHeader = emqx_dashboard_SUITE:auth_header_(),
