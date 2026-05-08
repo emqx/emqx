@@ -44,7 +44,7 @@ api_key_scopes.label:
 """API key scopes"""
 
 scope_info_name.desc:
-"""Scope name — a stable identifier for a functional category of API endpoints."""
+"""Scope name, used as a stable identifier for a functional category of API endpoints."""
 scope_info_name.label:
 """Scope name"""
 
