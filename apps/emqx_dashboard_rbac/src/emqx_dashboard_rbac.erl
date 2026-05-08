@@ -4,6 +4,7 @@
 
 -module(emqx_dashboard_rbac).
 
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 
 -export([
@@ -23,9 +24,45 @@ check_rbac(Req, Username, Extra) ->
     AbsPath = cowboy_req:path(Req),
     case emqx_dashboard_swagger:get_relative_uri(AbsPath) of
         {ok, Path} ->
-            check_rbac(Role, Method, Path, Username, Backend);
+            case check_rbac(Role, Method, Path, Username, Backend) of
+                true ->
+                    %% RBAC pass — now apply login-user scope check.
+                    %% Returns true (allow) or false (deny). RBAC and
+                    %% scope check stack: only paths that pass BOTH
+                    %% reach the handler. See SPEC-dashboard-user-scopes.md
+                    %% §7.8.1 (hook point) and §7.11 (RBAC × scope).
+                    check_login_user_scopes(Username, Path);
+                false ->
+                    false
+            end;
         _ ->
             false
+    end.
+
+%% Look up the login user's `scopes' from the admin record's extra map
+%% and cross-reference against the path-to-scope mapping built from all
+%% minirest_api modules' scopes/0 callbacks. Semantics:
+%%
+%%   * scopes absent  (undefined)        -> fall back to RBAC default
+%%                                          (already passed at this
+%%                                          point), so allow.
+%%   * scopes = [...]  (list)            -> path must map to one of
+%%                                          the listed scopes; unmapped
+%%                                          paths fail-open (allow).
+%%
+%% The unmapped-path fail-open is consistent with API key scope
+%% semantics (emqx_mgmt_auth:check_path_in_scopes/2). CT
+%% t_all_endpoints_covered_by_scopes guards against accidentally
+%% leaving a non-public path unmapped.
+check_login_user_scopes(Username, Path) ->
+    case emqx_dashboard_admin:scopes_of(Username) of
+        undefined ->
+            true;
+        Scopes when is_list(Scopes) ->
+            case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
+                undefined -> true;
+                PathScope -> lists:member(PathScope, Scopes)
+            end
     end.
 
 %% For compatibility
