@@ -124,7 +124,7 @@ schema("/users") ->
             tags => [<<"dashboard">>],
             desc => ?DESC(create_user_api),
             security => [#{'bearerAuth' => []}],
-            'requestBody' => fields([username, password, role, description]),
+            'requestBody' => fields([username, password, role, description, scopes]),
             responses => #{
                 200 => fields([username, role, description, backend])
             }
@@ -137,7 +137,7 @@ schema("/users/:username") ->
             tags => [<<"dashboard">>],
             desc => ?DESC(update_user_api),
             parameters => sso_parameters(fields([username_in_path])),
-            'requestBody' => fields([role, description]),
+            'requestBody' => fields([role, description, scopes]),
             responses => #{
                 200 => user_fields(),
                 404 => response_schema(404)
@@ -209,7 +209,7 @@ fields(List) ->
     [field(Key) || Key <- List, field_filter(Key)].
 
 user_fields() ->
-    fields([username, role, description, backend]) ++ ee_user_fields().
+    fields([username, role, description, backend, scopes]) ++ ee_user_fields().
 
 ee_user_fields() ->
     [
@@ -263,6 +263,13 @@ field(new_pwd) ->
 field(role) ->
     {role,
         mk(binary(), #{desc => ?DESC(role), default => ?ROLE_DEFAULT, example => ?ROLE_DEFAULT})};
+field(scopes) ->
+    {scopes,
+        mk(hoconsc:array(binary()), #{
+            desc => ?DESC(user_scopes),
+            required => false,
+            example => [?SCOPE_USER_MGMT, ?SCOPE_MFA_MGMT]
+        })};
 field(backend) ->
     {backend, mk(binary(), #{desc => ?DESC(backend), example => <<"local">>})};
 field(password_expire_in_seconds) ->
@@ -327,35 +334,52 @@ users(post, #{body := Params}) ->
     Role = maps:get(<<"role">>, Params, ?ROLE_DEFAULT),
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
+    Scopes = maps:get(<<"scopes">>, Params, undefined),
     case ?EMPTY(Username) orelse ?EMPTY(Password) of
         true ->
             {400, ?BAD_REQUEST, <<"Username or password undefined">>};
         false ->
-            case emqx_dashboard_admin:add_user(Username, Password, Role, Desc) of
-                {ok, Result} ->
-                    ?SLOG(info, #{msg => "create_dashboard_user_success", username => Username}),
-                    {200, to_json_out(Result)};
-                {error, Reason} ->
-                    ?SLOG(info, #{
-                        msg => "create_dashboard_user_failed",
-                        username => Username,
-                        reason => Reason
-                    }),
-                    {400, ?BAD_REQUEST, Reason}
+            case validate_login_user_scopes(Role, Scopes) of
+                ok ->
+                    case emqx_dashboard_admin:add_user(Username, Password, Role, Desc) of
+                        {ok, Result} ->
+                            ok = maybe_set_user_scopes(Username, Scopes),
+                            ?SLOG(info, #{
+                                msg => "create_dashboard_user_success",
+                                username => Username
+                            }),
+                            {200, to_json_out(Result)};
+                        {error, Reason} ->
+                            ?SLOG(info, #{
+                                msg => "create_dashboard_user_failed",
+                                username => Username,
+                                reason => Reason
+                            }),
+                            {400, ?BAD_REQUEST, Reason}
+                    end;
+                {error, Msg} ->
+                    {400, ?BAD_REQUEST, Msg}
             end
     end.
 
 user(put, #{bindings := #{username := Username0}, body := Params} = Req) ->
     Role = maps:get(<<"role">>, Params, ?ROLE_DEFAULT),
     Desc = maps:get(<<"description">>, Params),
+    Scopes = maps:get(<<"scopes">>, Params, undefined),
     Username = username(Req, Username0),
-    case emqx_dashboard_admin:update_user(Username, Role, Desc) of
-        {ok, Result} ->
-            {200, to_json_out(Result)};
-        {error, <<"username_not_found">> = Reason} ->
-            {404, ?USER_NOT_FOUND, Reason};
-        {error, Reason} ->
-            {400, ?BAD_REQUEST, Reason}
+    case validate_login_user_scopes(Role, Scopes) of
+        ok ->
+            case emqx_dashboard_admin:update_user(Username, Role, Desc) of
+                {ok, Result} ->
+                    ok = maybe_set_user_scopes(Username, Scopes),
+                    {200, to_json_out(Result)};
+                {error, <<"username_not_found">> = Reason} ->
+                    {404, ?USER_NOT_FOUND, Reason};
+                {error, Reason} ->
+                    {400, ?BAD_REQUEST, Reason}
+            end;
+        {error, Msg} ->
+            {400, ?BAD_REQUEST, Msg}
     end;
 user(delete, #{bindings := #{username := Username}} = Req) ->
     DefaultUsername = emqx_dashboard_admin:default_username(),
@@ -492,6 +516,66 @@ change_mfa(post, #{bindings := #{username := Username0}, body := Settings} = Req
 register_unsuccessful_login(Username, <<"password_error">>) ->
     emqx_dashboard_login_lock:register_unsuccessful_login(Username);
 register_unsuccessful_login(_, _) ->
+    ok.
+
+%% --- login user scope schema validation ---
+%%
+%% Two-layer rule:
+%%   * Any unknown scope name is rejected.
+%%   * Non-administrator role users cannot hold any of the admin-only
+%%     subset (user_management, sso_management, api_key_management).
+%%     mfa_management is intentionally allowed for any role — non-
+%%     admin holders can self-exempt their own MFA but cannot manage
+%%     other users' MFA (handler-level enforcement).
+%%
+%% See SPEC-dashboard-user-scopes.md §3.1 / §7.10 for the full rule
+%% matrix and rationale.
+validate_login_user_scopes(_Role, undefined) ->
+    ok;
+validate_login_user_scopes(_Role, Scopes) when not is_list(Scopes) ->
+    {error, <<"scopes must be a list of strings">>};
+validate_login_user_scopes(Role, Scopes) ->
+    case validate_scope_names(Scopes) of
+        ok ->
+            validate_role_scope_compat(Role, Scopes);
+        Error ->
+            Error
+    end.
+
+%% Login users may hold ANY of the API key catalogue scopes plus the
+%% four login-only scopes. Any name outside this combined set is a
+%% typo or an attempt to assign $denied — reject.
+validate_scope_names(Scopes) ->
+    Catalogue = [N || #{name := N} <- emqx_mgmt_api_key_scopes:scope_catalogue()],
+    Allowed = Catalogue ++ ?LOGIN_ONLY_SCOPES,
+    case [S || S <- Scopes, not lists:member(S, Allowed)] of
+        [] ->
+            ok;
+        Unknown ->
+            Names = lists:join(<<", ">>, Unknown),
+            {error, iolist_to_binary([<<"Unknown scope name(s): ">>, Names])}
+    end.
+
+validate_role_scope_compat(?ROLE_SUPERUSER, _Scopes) ->
+    ok;
+validate_role_scope_compat(_NonAdminRole, Scopes) ->
+    case [S || S <- Scopes, lists:member(S, ?ADMIN_ONLY_SCOPES)] of
+        [] ->
+            ok;
+        Conflicts ->
+            Names = lists:join(<<", ">>, Conflicts),
+            Msg = iolist_to_binary([
+                <<"Non-administrator users cannot hold admin-only scopes: ">>, Names
+            ]),
+            {error, Msg}
+    end.
+
+%% Persist scopes to the admin record's extra map. Skip when scopes is
+%% absent (no body field) — keeps the existing extra.scopes value.
+maybe_set_user_scopes(_Username, undefined) ->
+    ok;
+maybe_set_user_scopes(Username, Scopes) when is_list(Scopes) ->
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(Username, Scopes),
     ok.
 
 mk(Type, Props) ->

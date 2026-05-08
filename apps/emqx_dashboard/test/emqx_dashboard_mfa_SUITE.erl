@@ -331,7 +331,7 @@ t_reset_mfa_reinit_error({init, Config}) ->
 t_reset_mfa_reinit_error({'end', _Config}) ->
     ok = meck:unload(emqx_dashboard_admin);
 t_reset_mfa_reinit_error(_Config) ->
-    ok = meck:expect(emqx_dashboard_admin, reinit_mfa, fun(_, _) -> {error, <<"boom">>} end),
+    ok = meck:expect(emqx_dashboard_admin, reinit_mfa, fun(_, _, _) -> {error, <<"boom">>} end),
     Req = #{
         bindings => #{username => <<"viewer1">>},
         body => #{<<"mechanism">> => <<"totp">>},

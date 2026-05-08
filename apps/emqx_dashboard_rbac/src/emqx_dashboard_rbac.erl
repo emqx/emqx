@@ -4,6 +4,7 @@
 
 -module(emqx_dashboard_rbac).
 
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
@@ -48,11 +49,45 @@
 check_rbac(Req, HandlerInfo, ActorContext) ->
     maybe
         true ?= do_check_rbac(ActorContext, Req, HandlerInfo),
+        %% RBAC pass — now apply login-user scope check.
+        %% Returns true (allow) or false (deny). RBAC and
+        %% scope check stack: only paths that pass BOTH
+        %% reach the handler. See SPEC-dashboard-user-scopes.md
+        %% §7.8.1 (hook point) and §7.11 (RBAC × scope).
+        true ?= check_login_user_scopes(ActorContext, HandlerInfo),
         {ok, ActorContext}
     end.
 
 parse_dashboard_role(Role) ->
     parse_role(dashboard, Role).
+
+%% Look up the login user's `scopes' from the admin record's extra map
+%% and cross-reference against the path-to-scope mapping built from all
+%% minirest_api modules' scopes/0 callbacks. Semantics:
+%%
+%%   * scopes absent  (undefined)        -> fall back to RBAC default
+%%                                          (already passed at this
+%%                                          point), so allow.
+%%   * scopes = [...]  (list)            -> path must map to one of
+%%                                          the listed scopes; unmapped
+%%                                          paths fail-open (allow).
+%%
+%% The unmapped-path fail-open is consistent with API key scope
+%% semantics (emqx_mgmt_auth:check_path_in_scopes/2). CT
+%% t_all_endpoints_covered_by_scopes guards against accidentally
+%% leaving a non-public path unmapped.
+check_login_user_scopes(#{?actor := Username}, #{path := Path}) ->
+    case emqx_dashboard_admin:scopes_of(Username) of
+        undefined ->
+            true;
+        Scopes when is_list(Scopes) ->
+            case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
+                undefined -> true;
+                PathScope -> lists:member(PathScope, Scopes)
+            end
+    end;
+check_login_user_scopes(_ActorContext, _HandlerInfo) ->
+    true.
 
 parse_api_role(Role) ->
     parse_role(api, Role).
