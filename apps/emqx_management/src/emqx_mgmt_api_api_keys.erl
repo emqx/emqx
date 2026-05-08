@@ -244,7 +244,7 @@ api_key(post, #{body := App}) ->
     Desc = unicode:characters_to_binary(Desc0, unicode),
     Role = maps:get(<<"role">>, App, ?ROLE_API_DEFAULT),
     Scopes = maps:get(<<"scopes">>, App, undefined),
-    case validate_scopes(Scopes) of
+    case validate_scopes(Role, Scopes) of
         ok ->
             case emqx_mgmt_auth:create(Name, Enable, ExpiredAt, Desc, Role, Scopes) of
                 {ok, NewApp} ->
@@ -282,7 +282,7 @@ api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
     Desc = maps:get(<<"desc">>, Body, undefined),
     Role = maps:get(<<"role">>, Body, ?ROLE_API_DEFAULT),
     Scopes = maps:get(<<"scopes">>, Body, undefined),
-    case validate_scopes(Scopes) of
+    case validate_scopes(Role, Scopes) of
         ok ->
             case emqx_mgmt_auth:update(Name, Enable, ExpiredAt, Desc, Role, Scopes) of
                 {ok, App} ->
@@ -309,11 +309,60 @@ api_key_scopes(get, _) ->
         scopes => emqx_mgmt_api_key_scopes:scope_catalogue()
     }}.
 
-validate_scopes(undefined) ->
+validate_scopes(Role, Scopes) ->
+    %% Three-layer schema validation, returning the FIRST error
+    %% encountered. Layer 1 cheapest, layer 3 catalogue lookup.
+    case validate_publisher_scopes(Role, Scopes) of
+        ok ->
+            case validate_no_login_only_scopes(Scopes) of
+                ok -> validate_scopes_in_catalogue(Scopes);
+                Error -> Error
+            end;
+        Error ->
+            Error
+    end.
+
+%% Layer 1: publisher role can only hold the `publish' scope (or an
+%% empty / absent scope list, which falls back to RBAC `?ROLE_API_PUBLISHER'
+%% hardcoded path matching). Defense-in-depth — the runtime path check
+%% in emqx_dashboard_rbac already restricts publishers to /publish and
+%% /publish/bulk; this validator prevents misconfiguration where an
+%% operator assigns a meaningless scope list to a publisher key.
+validate_publisher_scopes(?ROLE_API_PUBLISHER, undefined) ->
     ok;
-validate_scopes(Scopes) when is_list(Scopes) ->
+validate_publisher_scopes(?ROLE_API_PUBLISHER, []) ->
+    ok;
+validate_publisher_scopes(?ROLE_API_PUBLISHER, [?SCOPE_PUBLISH]) ->
+    ok;
+validate_publisher_scopes(?ROLE_API_PUBLISHER, _Other) ->
+    {error, <<"Publisher API keys can only hold the 'publish' scope">>};
+validate_publisher_scopes(_OtherRole, _Scopes) ->
+    ok.
+
+%% Layer 2: API keys (regardless of role) must not hold login-only
+%% scopes. These four scopes are reserved for dashboard login users.
+validate_no_login_only_scopes(undefined) ->
+    ok;
+validate_no_login_only_scopes(Scopes) when is_list(Scopes) ->
+    case [S || S <- Scopes, lists:member(S, ?LOGIN_ONLY_SCOPES)] of
+        [] ->
+            ok;
+        Conflicts ->
+            Names = lists:join(<<", ">>, Conflicts),
+            Msg = iolist_to_binary([
+                <<"API keys cannot hold login-only scopes: ">>, Names
+            ]),
+            {error, Msg}
+    end;
+validate_no_login_only_scopes(_) ->
+    ok.
+
+%% Layer 3: scope names must exist in the catalogue (unknown name -> 400).
+validate_scopes_in_catalogue(undefined) ->
+    ok;
+validate_scopes_in_catalogue(Scopes) when is_list(Scopes) ->
     emqx_mgmt_api_key_scopes:validate_scopes(Scopes);
-validate_scopes(_) ->
+validate_scopes_in_catalogue(_) ->
     {error, <<"scopes must be a list of strings">>}.
 
 app_extend_fields() ->

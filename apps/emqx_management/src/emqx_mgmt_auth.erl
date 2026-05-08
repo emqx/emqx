@@ -14,6 +14,7 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
@@ -694,7 +695,7 @@ parse_simple_tail(ApiKey, ApiSecret, Tail) ->
             end);
         [Role, ScopesStr] ->
             with_valid_role(Role, fun(R) ->
-                {Scopes, Rejected} = parse_bootstrap_scopes_lenient(ScopesStr),
+                {Scopes, Rejected} = parse_bootstrap_scopes_lenient(R, ScopesStr),
                 bootstrap_entry(ApiKey, ApiSecret, R, ?global_ns, Scopes, Rejected)
             end);
         _ ->
@@ -714,7 +715,7 @@ parse_namespaced_tail(ApiKey, ApiSecret, Tail) ->
                             end);
                         [Role, ScopesStr] ->
                             with_valid_role(Role, fun(R) ->
-                                {Scopes, Rejected} = parse_bootstrap_scopes_lenient(ScopesStr),
+                                {Scopes, Rejected} = parse_bootstrap_scopes_lenient(R, ScopesStr),
                                 bootstrap_entry(ApiKey, ApiSecret, R, Namespace, Scopes, Rejected)
                             end);
                         _ ->
@@ -760,18 +761,35 @@ bootstrap_entry(ApiKey, ApiSecret, Role, Namespace, Scopes, Rejected) ->
 %% @doc Parse the comma-separated scopes string from the 4th bootstrap segment.
 %% Lenient by design — unknown scope names are dropped and reported separately.
 %%
+%% Publisher API keys can only hold the `publish' scope; other scope names
+%% are dropped (same lenient policy as unknown scopes — a typo in ops
+%% config must not abort the whole load).
+%%
 %% Returns `{Valid, Rejected}'.
 %%   Valid    — list of validated scope name binaries (possibly empty).
-%%   Rejected — list of scope name binaries that were not recognised.
+%%   Rejected — list of scope name binaries that were not recognised or
+%%              not allowed for the given role.
 %%
 %% An empty input (`<<>>') returns `{[], []}' — explicit deny-all marker.
-parse_bootstrap_scopes_lenient(<<>>) ->
-    {[], []};
-parse_bootstrap_scopes_lenient(ScopesStr) ->
+parse_bootstrap_scopes_lenient(Role, <<>>) ->
+    filter_publisher_scopes(Role, [], []);
+parse_bootstrap_scopes_lenient(Role, ScopesStr) ->
     Candidates = binary:split(ScopesStr, <<",">>, [global, trim_all]),
     Raw = [string:lowercase(string:trim(S)) || S <- Candidates, string:trim(S) =/= <<>>],
     Available = [Name || #{name := Name} <- emqx_mgmt_api_key_scopes:scope_catalogue()],
-    lists:partition(fun(S) -> lists:member(S, Available) end, Raw).
+    {Valid0, Rejected0} = lists:partition(fun(S) -> lists:member(S, Available) end, Raw),
+    filter_publisher_scopes(Role, Valid0, Rejected0).
+
+%% Restrict publisher role to the `publish' scope only. Other roles
+%% pass through unchanged. Returns updated {Valid, Rejected}.
+filter_publisher_scopes(?ROLE_API_PUBLISHER, Valid, Rejected) ->
+    {Keep, Drop} = lists:partition(
+        fun(S) -> S =:= ?SCOPE_PUBLISH end,
+        Valid
+    ),
+    {Keep, Rejected ++ Drop};
+filter_publisher_scopes(_OtherRole, Valid, Rejected) ->
+    {Valid, Rejected}.
 
 maybe_warn_rejected_scopes(_File, _Line, _ApiKey, []) ->
     ok;
