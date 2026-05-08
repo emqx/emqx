@@ -26,6 +26,7 @@ affecting user-facing API key configurations.
 
 -export([
     scope_catalogue/0,
+    login_user_scope_catalogue/0,
     path_to_scope/1,
     init_cache/0,
     clear_cache/0,
@@ -117,6 +118,65 @@ scope_catalogue() ->
             desc => <<"License management">>
         }
     ].
+
+-doc """
+Catalogue of all scopes that a dashboard LOGIN USER may hold.
+
+Comprises the 10 API-key catalogue scopes plus the four login-only
+scopes introduced by feat/dashboard-user-scopes:
+
+  * `user_management`  (administrator-only)
+  * `mfa_management`   (any role; non-admin holders gain only
+                        self-exemption from force_mfa /
+                        admin_required locks on their own MFA —
+                        they still cannot manage other users' MFA,
+                        which is enforced both by RBAC and by
+                        emqx_dashboard_api:authorize_mfa_change/3)
+  * `sso_management`   (administrator-only)
+  * `api_key_management` (administrator-only)
+
+API keys MUST NOT hold any of the four login-only scopes — schema
+validation in emqx_mgmt_api_api_keys rejects API key creation /
+update if the scope list contains any login-only scope; the
+bootstrap-file loader filters such names with a warning.
+""".
+-spec login_user_scope_catalogue() ->
+    [#{name := binary(), desc := binary(), admin_only := boolean()}].
+login_user_scope_catalogue() ->
+    %% Tag each API-key catalogue entry as not admin-only and append
+    %% the four new entries.
+    [Entry#{admin_only => false} || Entry <- scope_catalogue()] ++
+        [
+            #{
+                name => ?SCOPE_USER_MGMT,
+                admin_only => true,
+                desc => <<
+                    "Manage dashboard users (create, update, delete, "
+                    "change other users' password)"
+                >>
+            },
+            #{
+                name => ?SCOPE_MFA_MGMT,
+                admin_only => false,
+                desc => <<
+                    "Manage MFA. For administrators: reset and re-key "
+                    "any user's MFA, override force_mfa and "
+                    "admin_required locks. For non-administrators: "
+                    "self-exemption only — bypass force_mfa / "
+                    "admin_required locks on the holder's own MFA"
+                >>
+            },
+            #{
+                name => ?SCOPE_SSO_MGMT,
+                admin_only => true,
+                desc => <<"Configure SSO backends (LDAP, OIDC, SAML)">>
+            },
+            #{
+                name => ?SCOPE_API_KEY_MGMT,
+                admin_only => true,
+                desc => <<"Manage API keys (create, update, delete)">>
+            }
+        ].
 
 %%--------------------------------------------------------------------
 %% Path → scope lookup

@@ -26,6 +26,7 @@
     login/2,
     logout/2,
     users/2,
+    users_scopes/2,
     user/2,
     change_pwd/2,
     change_mfa/2
@@ -68,6 +69,7 @@ paths() ->
         "/login",
         "/logout",
         "/users",
+        "/users/scopes",
         "/users/:username",
         "/users/:username/change_pwd",
         "/users/:username/mfa"
@@ -127,6 +129,22 @@ schema("/users") ->
             'requestBody' => fields([username, password, role, description, scopes]),
             responses => #{
                 200 => fields([username, role, description, backend])
+            }
+        }
+    };
+schema("/users/scopes") ->
+    %% Public catalogue endpoint — any authenticated dashboard login
+    %% user (incl. viewer / SSO viewer) may list the available scope
+    %% names. The path is intentionally absent from scopes/0 above so
+    %% it falls through to the unmapped-path branch (fail-open).
+    #{
+        'operationId' => users_scopes,
+        get => #{
+            tags => [<<"Dashboard">>],
+            desc => ?DESC(list_user_scopes_api),
+            security => [#{'bearerAuth' => []}],
+            responses => #{
+                200 => mk(map(), #{desc => ?DESC(list_user_scopes_api)})
             }
         }
     };
@@ -326,6 +344,9 @@ logout(_, #{
             ?SLOG(info, #{msg => "dashboard_logout_failed.", username => Username0}),
             {401, ?WRONG_TOKEN_OR_USERNAME, <<"Ensure your token & username">>}
     end.
+
+users_scopes(get, _Request) ->
+    {200, #{scopes => emqx_mgmt_api_key_scopes:login_user_scope_catalogue()}}.
 
 users(get, _Request) ->
     {200, filter_result(emqx_dashboard_admin:all_users())};
