@@ -18,7 +18,7 @@
 -export([connect/1]).
 
 %% emqtt
--export([handle_disconnect/3]).
+-export([handle_disconnect/4]).
 
 -behaviour(emqx_resource).
 -export([
@@ -92,6 +92,7 @@
 -define(ROUTE_DELETE, 100).
 
 -define(AUTO_RECONNECT_INTERVAL_S, 2).
+-define(DISCONNECT_REASON(WorkerId), {disconnect_reason, WorkerId}).
 
 -type cluster_name() :: binary().
 
@@ -275,33 +276,42 @@ classify_error(Reason) ->
     {unrecoverable_error, Reason}.
 
 %% copied from emqx_bridge_mqtt_connector
-on_get_status(_ResourceId, #{pool_name := PoolName} = _State) ->
-    Workers = [Worker || {_Name, Worker} <- ecpool:workers(PoolName)],
+on_get_status(ResourceId, #{pool_name := PoolName} = _State) ->
+    Workers = ecpool:workers(PoolName),
+    DisconnectReasons = last_disconnect_reasons(ResourceId),
     try emqx_utils:pmap(fun get_status/1, Workers, ?HEALTH_CHECK_TIMEOUT) of
         Statuses ->
-            combine_status(Statuses)
+            enrich_status(combine_status(Statuses), DisconnectReasons)
     catch
         exit:timeout ->
             ?status_connecting
     end.
 
-get_status(Worker) ->
+enrich_status(?status_connected, _) ->
+    ?status_connected;
+enrich_status(?status_disconnected, [LastDisconnectReason | _]) ->
+    %% NOTE: Picking only the first one for the sake of simplicity.
+    {?status_disconnected, LastDisconnectReason};
+enrich_status(Status, _) ->
+    Status.
+
+get_status({_Name, Worker}) ->
     case ecpool_worker:client(Worker) of
         {ok, Client} -> status(Client);
-        {error, _} -> disconnected
+        {error, _} -> ?status_disconnected
     end.
 
 status(Pid) ->
     try
         case proplists:get_value(socket, emqtt:info(Pid)) of
             Socket when Socket /= undefined ->
-                connected;
+                ?status_connected;
             undefined ->
-                connecting
+                ?status_disconnected
         end
     catch
         exit:{noproc, _} ->
-            disconnected
+            ?status_disconnected
     end.
 
 combine_status(Statuses) ->
@@ -322,6 +332,7 @@ combine_status(Statuses) ->
 
 connect(Options) ->
     WorkerId = proplists:get_value(ecpool_worker_id, Options),
+    ResourceId = proplists:get_value(name, Options),
     TargetCluster = proplists:get_value(target_cluster, Options),
     ClientOpts0 = #{clientid := ClientId0} = proplists:get_value(client_opts, Options),
     ClientIdBase = emqx_bridge_mqtt_lib:clientid_base([ClientId0, ?MSG_CLIENTID_SUFFIX]),
@@ -329,13 +340,14 @@ connect(Options) ->
     ClientOpts = ClientOpts0#{
         clientid => ClientId,
         msg_handler => #{
-            disconnected => {fun ?MODULE:handle_disconnect/3, [TargetCluster, ClientId]}
+            disconnected => mk_disconnect_handler(ResourceId, WorkerId, ClientId, TargetCluster)
         }
     },
     case emqtt:start_link(ClientOpts) of
         {ok, Pid} ->
             case emqtt:connect(Pid) of
                 {ok, _Props} ->
+                    ok = clear_disconnect_reason(ResourceId, WorkerId),
                     {ok, Pid};
                 Error ->
                     Error
@@ -349,21 +361,27 @@ connect(Options) ->
             Error
     end.
 
+mk_disconnect_handler(ResourceId, WorkerId, ClientId, TargetCluster) ->
+    {fun ?MODULE:handle_disconnect/4, [
+        ResourceId,
+        WorkerId,
+        #{
+            target_cluster => TargetCluster,
+            client_id => ClientId
+        }
+    ]}.
+
 -spec handle_disconnect(
     {disconnected, emqx_types:reason_code(), emqx_types:properties()}
     | {parse_packets_error, _Reason, _ParserState}
     | {connack_error, _Reason :: atom()}
     | connack_timeout
     | _SocketError,
-    emqx_cluster_link_schema:cluster(),
-    emqx_types:clientid()
+    _ResourceId :: resource_id(),
+    _WorkerId :: pos_integer(),
+    #{atom => any()}
 ) -> ok.
-handle_disconnect(Reason, TargetCluster, ClientId) ->
-    Event = #{
-        msg => "cluster_link_forwarding_client_disconnected",
-        target_cluster => TargetCluster,
-        client_id => ClientId
-    },
+handle_disconnect(Reason, ResourceId, WorkerId, EventCtx) ->
     case Reason of
         {disconnected, RC, _Props} ->
             %% NOTE
@@ -377,20 +395,43 @@ handle_disconnect(Reason, TargetCluster, ClientId) ->
                     ?RC_SESSION_TAKEN_OVER -> info;
                     _ -> warning
                 end,
-            ?SLOG(Level, Event#{
-                cause => "broker_disconnect",
+            Info = #{
+                cause => broker_disconnect,
                 reason => emqx_reason_codes:name(RC),
                 reason_code => RC
-            });
-        {parse_packets_error, Reason, _ParserState} ->
-            ?SLOG(warning, Event#{cause => "malformed_packet", reason => Reason});
-        {connack_error, _} ->
-            ok;
+            },
+            report_disconnect(ResourceId, WorkerId, Level, EventCtx, Info);
+        {parse_packets_error, ParserReason, _ParserState} ->
+            Info = #{cause => malformed_packet, reason => ParserReason},
+            report_disconnect(ResourceId, WorkerId, warning, EventCtx, Info);
+        {connack_error, RCName} ->
+            Info = #{cause => broker_connect_refused, reason => RCName},
+            report_disconnect(ResourceId, WorkerId, Info);
         connack_timeout ->
-            ok;
+            Info = #{cause => broker_connect_timeout},
+            report_disconnect(ResourceId, WorkerId, Info);
         SocketError ->
-            ?SLOG(info, Event#{cause => "socket_error", reason => SocketError})
+            Info = #{cause => socket_error, reason => SocketError},
+            report_disconnect(ResourceId, WorkerId, info, EventCtx, Info)
     end.
+
+report_disconnect(ResourceId, WorkerId, Info) ->
+    clear_disconnect_reason(ResourceId, WorkerId),
+    emqx_resource:allocate_resource(ResourceId, ?MODULE, ?DISCONNECT_REASON(WorkerId), Info).
+
+report_disconnect(ResourceId, WorkerId, Level, EventCtx, Info) ->
+    ?SLOG(
+        Level,
+        maps:merge(EventCtx#{msg => "cluster_link_forwarding_client_disconnected"}, Info)
+    ),
+    report_disconnect(ResourceId, WorkerId, Info).
+
+last_disconnect_reasons(ResourceId) ->
+    Allocated = emqx_resource:get_allocated_resources_list(ResourceId),
+    [Reason || {_ResourceId, ?DISCONNECT_REASON(_), Reason} <- Allocated].
+
+clear_disconnect_reason(ResourceId, WorkerId) ->
+    emqx_resource:deallocate_resource(ResourceId, ?DISCONNECT_REASON(WorkerId)).
 
 %%--------------------------------------------------------------------
 %% Protocol
