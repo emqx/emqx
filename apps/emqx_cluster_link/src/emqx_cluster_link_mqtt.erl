@@ -190,9 +190,10 @@ on_stop(ResourceId, _State) ->
 on_query(_ResourceId, FwdMsg, #{pool_name := PoolName, topic := LinkTopic} = _State) when
     is_record(FwdMsg, message)
 ->
-    #message{topic = Topic, qos = QoS} = FwdMsg,
+    #message{qos = FwdQoS} = FwdMsg,
+    QoS = min(?QOS_1, FwdQoS),
     PubResult = ecpool:pick_and_do(
-        {PoolName, Topic},
+        {PoolName, erlang:monotonic_time()},
         fun(ConnPid) ->
             emqtt:publish(ConnPid, LinkTopic, encode_payload(FwdMsg), QoS)
         end,
@@ -209,10 +210,10 @@ on_query_async(
     _ResourceId, FwdMsg, CallbackIn, #{pool_name := PoolName, topic := LinkTopic} = _State
 ) ->
     Callback = {fun on_async_result/2, [CallbackIn]},
-    #message{topic = Topic, qos = QoS} = FwdMsg,
-    %% TODO check message ordering, pick by topic,client pair?
+    #message{qos = FwdQoS} = FwdMsg,
+    QoS = min(?QOS_1, FwdQoS),
     Result = ecpool:pick_and_do(
-        {PoolName, Topic},
+        {PoolName, erlang:monotonic_time()},
         fun(ConnPid) ->
             %% #delivery{} record has no valuable data for a remote link...
             Payload = encode_payload(FwdMsg),
@@ -483,7 +484,7 @@ decode_field(route, Route = {_Topic, _ID}) ->
     {add, Route}.
 
 encode_payload(Payload) ->
-    erlang:term_to_binary(Payload).
+    erlang:term_to_binary(Payload, [compressed]).
 
 decode_payload(Payload) ->
     erlang:binary_to_term(Payload, [safe]).
@@ -492,8 +493,8 @@ decode_payload(Payload) ->
 %% emqx_external_broker
 %%--------------------------------------------------------------------
 
-forward(ClusterName, #delivery{message = #message{topic = Topic} = Msg}) ->
-    QueryOpts = #{pick_key => Topic},
+forward(ClusterName, #delivery{message = Msg}) ->
+    QueryOpts = #{pick_key => erlang:monotonic_time()},
     emqx_resource:query(?MSG_RES_ID(ClusterName), Msg, QueryOpts).
 
 %%--------------------------------------------------------------------
