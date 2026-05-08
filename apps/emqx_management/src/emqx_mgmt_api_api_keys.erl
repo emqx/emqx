@@ -20,7 +20,19 @@
 
 namespace() -> "api_key".
 
-scopes() -> ?SCOPE_DENIED.
+scopes() ->
+    %% API key management endpoints are bearer-auth-only; API keys
+    %% themselves cannot reach these paths. The login user scope
+    %% check (commit 5) consults this map.
+    %%
+    %% /api_key/scopes is intentionally absent from the map — the
+    %% scope catalogue endpoint is public to any authenticated login
+    %% user (require Bearer auth, but the scope check is fail-open
+    %% for unmapped paths).
+    #{
+        <<"/api_key">> => ?SCOPE_API_KEY_MGMT,
+        <<"/api_key/:name">> => ?SCOPE_API_KEY_MGMT
+    }.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).

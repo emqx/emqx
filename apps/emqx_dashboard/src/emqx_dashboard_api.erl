@@ -48,7 +48,21 @@ namespace() -> "dashboard".
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
-scopes() -> ?SCOPE_DENIED.
+%% API key auth is rejected at the minirest layer for these paths
+%% (security => [#{bearerAuth => []}] excludes basic auth). The scope
+%% map below applies to dashboard LOGIN users — checked in
+%% emqx_dashboard_rbac:check_login_user_scopes/2 (commit 5).
+%%
+%% Public paths (/login, /logout) are intentionally absent from the map;
+%% they fall through to the unmapped-path branch (fail-open) and are
+%% guarded by their own security => [] / bearerAuth declarations.
+scopes() ->
+    #{
+        <<"/users">> => ?SCOPE_USER_MGMT,
+        <<"/users/:username">> => ?SCOPE_USER_MGMT,
+        <<"/users/:username/change_pwd">> => ?SCOPE_USER_MGMT,
+        <<"/users/:username/mfa">> => ?SCOPE_MFA_MGMT
+    }.
 
 paths() ->
     [

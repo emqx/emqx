@@ -143,9 +143,14 @@ t_path_to_scope(_Config) ->
 
 t_path_to_scope_denied(_Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),
-    %% Dashboard paths should resolve to $denied
-    ?assertEqual(?SCOPE_DENIED, emqx_mgmt_api_key_scopes:path_to_scope(<<"/users">>)),
-    ?assertEqual(?SCOPE_DENIED, emqx_mgmt_api_key_scopes:path_to_scope(<<"/api_key">>)),
+    %% Dashboard / API-key management paths formerly resolved to
+    %% $denied. After feat/dashboard-user-scopes, they map to
+    %% login-only scopes (api_key_management, user_management,
+    %% mfa_management, sso_management). API keys still cannot reach
+    %% these endpoints — minirest's bearer-only `security` declaration
+    %% rejects API key authentication before scope check.
+    ?assertEqual(?SCOPE_USER_MGMT, emqx_mgmt_api_key_scopes:path_to_scope(<<"/users">>)),
+    ?assertEqual(?SCOPE_API_KEY_MGMT, emqx_mgmt_api_key_scopes:path_to_scope(<<"/api_key">>)),
     emqx_mgmt_api_key_scopes:clear_cache().
 
 t_path_to_scope_no_cache(_Config) ->
@@ -203,10 +208,14 @@ t_all_modules_have_scopes(_Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),
     PathToScope = emqx_mgmt_api_key_scopes:collect_scopes_from_modules(),
     ?assert(map_size(PathToScope) > 0),
-    %% Every path should map to a known scope or $denied
+    %% Every path should map to a known scope, $denied, or one of the
+    %% four login-only scopes (user/mfa/sso/api_key_management — these
+    %% apply to dashboard login users only and are not in the API key
+    %% scope catalogue).
     AllValidScopes =
         [N || #{name := N} <- emqx_mgmt_api_key_scopes:scope_catalogue()] ++
-            [?SCOPE_DENIED],
+            [?SCOPE_DENIED] ++
+            ?LOGIN_ONLY_SCOPES,
     maps:foreach(
         fun(Path, Scope) ->
             ?assert(
@@ -236,8 +245,30 @@ t_all_endpoints_covered_by_scopes(_Config) ->
             Modules
         )
     ),
+    %% Some paths are intentionally unmapped (fail-open) — public auth
+    %% entry points and scope catalogue endpoints. They are guarded by
+    %% minirest `security` declarations rather than by the scope map.
+    %% See SPEC-dashboard-user-scopes.md §7.9.
+    IntentionallyUnmapped = [
+        %% Authentication / session entry points
+        <<"/login">>,
+        <<"/logout">>,
+        %% Public SSO login flow endpoints
+        <<"/sso/login/:backend">>,
+        <<"/sso/token_exchange">>,
+        <<"/sso/oidc/callback">>,
+        <<"/sso/saml/acs">>,
+        <<"/sso/saml/metadata">>,
+        %% Public SSO MFA setup/verify (token-authenticated by short-lived JWT)
+        <<"/sso/mfa/setup_info">>,
+        <<"/sso/mfa/setup">>,
+        <<"/sso/mfa/verify">>,
+        %% Scope catalogue endpoints — public to any authenticated login user
+        <<"/api_key/scopes">>,
+        <<"/users/scopes">>
+    ],
     MappedPaths = lists:sort(maps:keys(PathToScope)),
-    Uncovered = AllDeclaredPaths -- MappedPaths,
+    Uncovered = (AllDeclaredPaths -- MappedPaths) -- IntentionallyUnmapped,
     ?assertEqual(
         [],
         Uncovered,
@@ -298,22 +329,36 @@ t_authorize_denied_path(_Config) ->
     Name = <<"SCOPES-TEST-DENIED">>,
     {ok, #{<<"api_key">> := _ApiKey, <<"api_secret">> := _ApiSecret}} =
         create_app(Name),
-    %% Denied paths blocked even without scopes restriction
-    Extra = #{role => ?ROLE_API_SUPERUSER},
-    ?assertMatch(
-        {error, unauthorized_role},
-        emqx_mgmt_auth:check_scopes(Extra, <<"/users">>, <<"GET">>)
-    ),
-    ?assertMatch(
-        {error, unauthorized_role},
-        emqx_mgmt_auth:check_scopes(Extra, <<"/api_key">>, <<"GET">>)
-    ),
-    %% Even with explicit scopes, denied paths are still blocked
-    ExtraWithScopes = #{role => ?ROLE_API_SUPERUSER, scopes => [?SCOPE_CONNECTIONS]},
-    ?assertMatch(
-        {error, unauthorized_role},
-        emqx_mgmt_auth:check_scopes(ExtraWithScopes, <<"/users">>, <<"GET">>)
-    ),
+    %% After feat/dashboard-user-scopes, dashboard/SSO/API-key-management
+    %% paths no longer use ?SCOPE_DENIED — they map to login-only scopes.
+    %% ?SCOPE_DENIED stays as an internal sentinel for SSO public flow
+    %% modules (OIDC callback / SAML ACS / SSO MFA setup) which are not
+    %% loaded in this test app's dep graph. We mock the scope cache to
+    %% inject a denied entry and verify that emqx_mgmt_auth still
+    %% rejects API key access to such paths.
+    DeniedPath = <<"/__test_denied__">>,
+    meck:new(emqx_mgmt_api_key_scopes, [passthrough]),
+    meck:expect(emqx_mgmt_api_key_scopes, path_to_scope, fun
+        (P) when P =:= DeniedPath -> ?SCOPE_DENIED;
+        (P) -> meck:passthrough([P])
+    end),
+    try
+        Extra = #{role => ?ROLE_API_SUPERUSER},
+        ?assertMatch(
+            {error, unauthorized_role},
+            emqx_mgmt_auth:check_scopes(Extra, DeniedPath, <<"GET">>)
+        ),
+        %% Even with explicit scopes, denied paths are still blocked
+        ExtraWithScopes = #{
+            role => ?ROLE_API_SUPERUSER, scopes => [?SCOPE_CONNECTIONS]
+        },
+        ?assertMatch(
+            {error, unauthorized_role},
+            emqx_mgmt_auth:check_scopes(ExtraWithScopes, DeniedPath, <<"GET">>)
+        )
+    after
+        meck:unload(emqx_mgmt_api_key_scopes)
+    end,
     delete_app(Name).
 
 t_check_scopes_unmapped_path(_Config) ->
