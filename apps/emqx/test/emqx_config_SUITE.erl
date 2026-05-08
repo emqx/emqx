@@ -182,6 +182,31 @@ t_cluster_hocon_backup(C) when is_list(C) ->
     ),
     ok.
 
+t_cluster_hocon_save_failure({'end', _C}) ->
+    Dir = "backup-test-fail-dir",
+    Dest = filename:join(Dir, "data.hocon"),
+    _ = file:change_mode(Dir, 8#0755),
+    _ = file:delete(Dest),
+    _ = file:delete(Dest ++ ".tmp"),
+    _ = file:del_dir(Dir),
+    ok;
+t_cluster_hocon_save_failure(C) when is_list(C) ->
+    Dir = "backup-test-fail-dir",
+    ok = file:make_dir(Dir),
+    Dest = filename:join(Dir, "data.hocon"),
+    ok = file:write_file(Dest, <<"old">>),
+    %% Make the directory read-only so writing the .tmp file fails with eacces.
+    ok = file:change_mode(Dir, 8#0555),
+    try
+        Result = emqx_config:backup_and_write(Dest, <<"new">>),
+        ?assertMatch({error, #{filename := Dest, reason := eacces}}, Result),
+        %% original file untouched
+        ?assertEqual({ok, <<"old">>}, file:read_file(Dest))
+    after
+        ok = file:change_mode(Dir, 8#0755)
+    end,
+    ok.
+
 t_init_load_emqx_schema(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given empty config file
