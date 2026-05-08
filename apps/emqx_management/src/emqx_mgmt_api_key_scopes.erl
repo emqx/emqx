@@ -183,8 +183,19 @@ login_user_scope_catalogue() ->
 %%--------------------------------------------------------------------
 
 -doc """
-Given a route template path (e.g. <<"/clients/:clientid">>),
-return the scope name for this path, or `undefined` if unmapped.
+Given a request path, return the scope name for this path, or
+`undefined` if unmapped.
+
+The cache stores OpenAPI route templates such as
+`<<"/users/:username/mfa">>`. Callers that already have a template
+(e.g. minirest's `HandlerInfo.path` for API-key authorisation) get
+an O(1) map lookup. Callers that have a concrete cowboy request path
+such as `<<"/users/john/mfa">>` (e.g. dashboard login user RBAC,
+which receives `cowboy_req:path/1`) fall through to a segment-wise
+match against every template — `:`-prefixed segments wildcard.
+
+Both forms must produce the same scope; otherwise scope checks would
+silently fail-open for any endpoint with a path parameter.
 """.
 -spec path_to_scope(binary()) -> binary() | undefined.
 path_to_scope(Path) ->
@@ -193,16 +204,72 @@ path_to_scope(Path) ->
             init_cache(),
             do_path_to_scope(Path);
         #{path_to_scope := PathMap} ->
-            maps:get(Path, PathMap, undefined)
+            lookup_path(Path, PathMap)
     end.
 
 do_path_to_scope(Path) ->
     case get_cache() of
         #{path_to_scope := PathMap} ->
-            maps:get(Path, PathMap, undefined);
+            lookup_path(Path, PathMap);
         _ ->
             undefined
     end.
+
+lookup_path(Path, PathMap) ->
+    case maps:get(Path, PathMap, undefined) of
+        undefined ->
+            match_template(Path, PathMap);
+        Scope ->
+            Scope
+    end.
+
+%% Iterate templates and return the scope for the first one whose
+%% segments match the request path. Concrete path segments must equal
+%% template segments verbatim except where the template segment starts
+%% with `:' (path parameter), which matches any single segment.
+%%
+%% Match cost is O(n*m) where n is the number of templates and m is
+%% the average path depth. The cache is small (~250 entries) and this
+%% function is called once per authorised request, so the cost is
+%% acceptable.
+match_template(Path, PathMap) ->
+    PathSegs = split_segments(Path),
+    Iter = maps:iterator(PathMap),
+    match_template_iter(PathSegs, Iter).
+
+match_template_iter(PathSegs, Iter) ->
+    case maps:next(Iter) of
+        none ->
+            undefined;
+        {Tmpl, Scope, Iter1} ->
+            case segments_match(PathSegs, split_segments(Tmpl)) of
+                true -> Scope;
+                false -> match_template_iter(PathSegs, Iter1)
+            end
+    end.
+
+split_segments(Path) ->
+    %% Drop the leading empty segment from the leading slash.
+    case binary:split(Path, <<"/">>, [global]) of
+        [<<>> | Rest] -> Rest;
+        Other -> Other
+    end.
+
+segments_match([], []) ->
+    true;
+segments_match([_ | _], []) ->
+    false;
+segments_match([], [_ | _]) ->
+    false;
+segments_match([Seg | Rest1], [TmplSeg | Rest2]) ->
+    case is_param_segment(TmplSeg) of
+        true -> segments_match(Rest1, Rest2);
+        false when Seg =:= TmplSeg -> segments_match(Rest1, Rest2);
+        false -> false
+    end.
+
+is_param_segment(<<":", _/binary>>) -> true;
+is_param_segment(_) -> false.
 
 %%--------------------------------------------------------------------
 %% Scope validation

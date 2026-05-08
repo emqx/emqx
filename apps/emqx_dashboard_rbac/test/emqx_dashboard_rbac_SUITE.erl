@@ -10,6 +10,7 @@
 -include("../../emqx_dashboard/include/emqx_dashboard.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -import(emqx_dashboard_api_test_helpers, [request/4, uri/1]).
 
@@ -316,6 +317,100 @@ test_mfa(VerifyFn) ->
     ?assertEqual({ok, SuperUser}, VerifyFn(SuperToken, Viewer2)),
     ?assertEqual({ok, SuperUser}, VerifyFn(SuperToken, SuperUser)),
     ok.
+
+%%--------------------------------------------------------------------
+%% check_login_user_scopes/2 — scope-deny main path coverage.
+%% See SPEC-dashboard-user-scopes.md sec 7.8.1, 7.11.
+%%
+%% Tests live here (and not in emqx_dashboard_user_scopes_SUITE) because
+%% emqx_dashboard does not depend on emqx_dashboard_rbac, so the predicate
+%% is not loadable from that SUITE.
+%%--------------------------------------------------------------------
+
+%% scopes=undefined (the default for users created before this feat or
+%% without an explicit scopes field) falls back to the RBAC default,
+%% which has already passed at this point in the call chain. So allow.
+t_check_login_user_scopes_undefined_falls_back(_) ->
+    Username = <<"login_user_scopes_undef">>,
+    {ok, _} = emqx_dashboard_admin:add_user(
+        Username, <<"P@ssw0rd">>, ?ROLE_VIEWER, <<>>
+    ),
+    %% No set_user_scopes call.
+    ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(Username)),
+    ?assertEqual(
+        true,
+        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
+    ),
+    ?assertEqual(
+        true,
+        emqx_dashboard_rbac:check_login_user_scopes(
+            Username, <<"/users/", Username/binary, "/change_pwd">>
+        )
+    ).
+
+%% scopes=[] denies every mapped path (semantically: "explicitly no
+%% permissions"). Distinct from undefined.
+t_check_login_user_scopes_explicit_empty_denies(_) ->
+    Username = <<"login_user_scopes_empty">>,
+    {ok, _} = emqx_dashboard_admin:add_user(
+        Username, <<"P@ssw0rd">>, ?ROLE_SUPERUSER, <<>>
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(Username, []),
+    ?assertEqual([], emqx_dashboard_admin:scopes_of(Username)),
+    %% A path mapped to a known scope is denied.
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
+    ),
+    %% Unmapped paths still fail-open (consistent with API key semantics
+    %% in emqx_mgmt_auth:check_path_in_scopes/2).
+    ?assertEqual(
+        true,
+        emqx_dashboard_rbac:check_login_user_scopes(
+            Username, <<"/some/unmapped/path">>
+        )
+    ).
+
+%% scopes=[user_management] grants /users access; a path mapped to
+%% a different scope is denied.
+t_check_login_user_scopes_user_mgmt_grants_users(_) ->
+    Username = <<"login_user_scopes_um">>,
+    {ok, _} = emqx_dashboard_admin:add_user(
+        Username, <<"P@ssw0rd">>, ?ROLE_SUPERUSER, <<>>
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(
+        Username, [?SCOPE_USER_MGMT]
+    ),
+    ?assertEqual(
+        true,
+        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
+    ),
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(
+            Username, <<"/users/", Username/binary, "/mfa">>
+        )
+    ).
+
+%% scopes=[mfa_management] grants MFA paths but not /users.
+t_check_login_user_scopes_mfa_mgmt_grants_only_mfa(_) ->
+    Username = <<"login_user_scopes_mm">>,
+    {ok, _} = emqx_dashboard_admin:add_user(
+        Username, <<"P@ssw0rd">>, ?ROLE_SUPERUSER, <<>>
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(
+        Username, [?SCOPE_MFA_MGMT]
+    ),
+    ?assertEqual(
+        true,
+        emqx_dashboard_rbac:check_login_user_scopes(
+            Username, <<"/users/", Username/binary, "/mfa">>
+        )
+    ),
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
+    ).
 
 delete_mfa(Token, Username) ->
     Path = "/users/" ++ binary_to_list(Username) ++ "/mfa",

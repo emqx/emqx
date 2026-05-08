@@ -9,6 +9,7 @@
 
 -export([
     check_rbac/3,
+    check_login_user_scopes/2,
     role/1,
     valid_dashboard_role/1,
     valid_api_role/1
