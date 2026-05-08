@@ -85,9 +85,9 @@
                         Required: id, desc, method, url, input_schema
 
       postgresql.query  Execute a parameterised SQL query.
-                        Required: id, desc, query ($1 $2 … placeholders),
-                                  arg_keys (ordered list mapping args -> $N),
-                                  input_schema
+                        Required: id, desc, query (using ${var} placeholders).
+                        Placeholder names are extracted automatically and the input
+                        schema is generated from them. No arg_keys or input_schema needed.
 
     ═══════════════════════════════════════════════════════
     PIPELINE STEP TYPES

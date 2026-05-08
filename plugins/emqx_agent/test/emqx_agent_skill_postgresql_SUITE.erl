@@ -151,15 +151,7 @@ test_context(Overrides) ->
             skill_id => ?SKILL_ID,
             desc => <<"Query PostgreSQL telemetry by device ID.">>,
             query =>
-                <<"SELECT metric, value FROM agent_skill_metrics WHERE device_id = $1 ORDER BY metric">>,
-            arg_keys => [<<"device_id">>],
-            input_schema => #{
-                <<"type">> => <<"object">>,
-                <<"properties">> => #{
-                    <<"device_id">> => #{<<"type">> => <<"string">>}
-                },
-                <<"required">> => [<<"device_id">>]
-            }
+                <<"SELECT metric, value FROM agent_skill_metrics WHERE device_id = ${device_id} ORDER BY metric">>
         },
         Overrides
     ).

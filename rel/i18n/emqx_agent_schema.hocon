@@ -23,7 +23,11 @@ emqx_agent_schema {
     }
 
     skill_postgresql_create {
-        desc: "Parameters for registering a PostgreSQL query skill."
+        desc: """Parameters for registering a PostgreSQL query skill.
+Provide a query using ${var} placeholders (e.g. SELECT * FROM t WHERE id = ${id}).
+Placeholder names are extracted automatically, the input schema is generated from them,
+and values are bound as PostgreSQL $1, $2, ... parameters when the skill is invoked.
+No separate argument list or input schema is needed."""
         label: "PostgreSQL Skill"
     }
 
@@ -169,17 +173,11 @@ Query string is appended for GET; JSON body is sent for POST/PUT/PATCH/DELETE.""
 
     skill_pg_query.desc:
 """PostgreSQL SQL query template.
-Use $1, $2, ... placeholders and map arguments with arg_keys."""
+Use ${var} placeholders. The skill extracts placeholder names, generates its input schema,
+and binds values to PostgreSQL $1, $2, ... parameters when invoked."""
 
     skill_pg_query.label:
 """Query Template"""
-
-    skill_pg_arg_keys.desc:
-"""Ordered argument key list for SQL placeholders.
-Example: [\"device_id\", \"metric\"] maps args.device_id -> $1 and args.metric -> $2."""
-
-    skill_pg_arg_keys.label:
-"""Argument Keys"""
 
     ## ── meta-skill create variants ───────────────────────────────────────────
 

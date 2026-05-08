@@ -122,9 +122,7 @@ t_skill_postgresql_crud(Config) ->
             <<"type">> => <<"postgresql.query">>,
             <<"id">> => Id,
             <<"desc">> => <<"test postgresql skill">>,
-            <<"query">> => <<"SELECT 1">>,
-            <<"arg_keys">> => [],
-            <<"input_schema">> => ?VALID_INPUT_SCHEMA
+            <<"query">> => <<"SELECT 1">>
         })
     ),
 

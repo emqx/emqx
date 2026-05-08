@@ -199,19 +199,6 @@ fields(skill_postgresql_create) ->
             mk(binary(), #{
                 required => true,
                 desc => ?DESC(skill_pg_query)
-            })},
-        {arg_keys,
-            mk(hoconsc:array(binary()), #{
-                required => false,
-                default => [],
-                desc => ?DESC(skill_pg_arg_keys)
-            })},
-        {input_schema,
-            mk(map(), #{
-                required => true,
-                desc => ?DESC(skill_input_schema),
-                converter => fun json_schema_from_string/2,
-                validator => fun validate_oai_schema/1
             })}
     ];
 fields(skill_create_skill_create) ->

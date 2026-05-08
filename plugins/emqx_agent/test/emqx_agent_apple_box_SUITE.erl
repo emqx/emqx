@@ -273,10 +273,8 @@ register_skills() ->
         desc => <<"Record inspection result in the database">>,
         query => <<
             "INSERT INTO apple_box_inspections(conveyor_id, box_id, status, reason) "
-            "VALUES($1, $2, $3, $4)"
-        >>,
-        arg_keys => [<<"conveyor_id">>, <<"box_id">>, <<"status">>, <<"reason">>],
-        input_schema => #{<<"type">> => <<"object">>}
+            "VALUES(${conveyor_id}, ${box_id}, ${status}, ${reason})"
+        >>
     }).
 
 register_provider() ->

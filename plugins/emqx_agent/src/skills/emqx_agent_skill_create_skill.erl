@@ -38,7 +38,7 @@ create(#{skill_id := SkillId}) ->
         module => ?MODULE,
         display_name => <<"Create Skill">>,
         description =>
-            <<"Create or overwrite a skill (upsert). Types: message.publish, message.request, http, postgresql.query">>,
+            <<"Create or overwrite a skill (upsert). Types: message.publish, message.request, http, postgresql.query.">>,
         context => #{skill_id => SkillId},
         input_schema => input_schema()
     }).

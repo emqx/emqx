@@ -182,7 +182,7 @@ Type | Description
 -----|------------
 `message.publish` | Publish a message to an MQTT topic
 `message.request` | MQTT request/reply (publishes with Response-Topic, waits for reply)
-`postgresql.query` | Execute a parameterised PostgreSQL query
+`postgresql.query` | Execute a parameterised PostgreSQL query (using `${var}` placeholders; input schema is generated automatically from placeholder names)
 `http` | HTTP request to an external service
 
 ### Internal topic routing
