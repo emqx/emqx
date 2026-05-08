@@ -194,13 +194,13 @@ on_stop(ResourceId, _State) ->
 
 on_query(
     _ResourceId,
-    FwdMsg = #message{qos = FwdQoS, extra = ChannelPid},
+    FwdMsg = #message{qos = FwdQoS, extra = PoolKey},
     _State = #{pool_name := PoolName, topic := LinkTopic}
 ) ->
     QoS = min(?QOS_1, FwdQoS),
     Payload = encode_payload(FwdMsg#message{extra = #{}}),
     PubResult = ecpool:pick_and_do(
-        {PoolName, ChannelPid},
+        {PoolName, PoolKey},
         fun(ConnPid) ->
             emqtt:publish(ConnPid, LinkTopic, Payload, QoS)
         end,
@@ -215,7 +215,7 @@ on_query(
 
 on_query_async(
     _ResourceId,
-    FwdMsg = #message{qos = FwdQoS, extra = ChannelPid},
+    FwdMsg = #message{qos = FwdQoS, extra = PoolKey},
     CallbackIn,
     _State = #{pool_name := PoolName, topic := LinkTopic}
 ) ->
@@ -223,7 +223,7 @@ on_query_async(
     QoS = min(?QOS_1, FwdQoS),
     Payload = encode_payload(FwdMsg#message{extra = #{}}),
     Result = ecpool:pick_and_do(
-        {PoolName, ChannelPid},
+        {PoolName, PoolKey},
         fun(ConnPid) ->
             PubResult = emqtt:publish_async(ConnPid, LinkTopic, Payload, QoS, Callback),
             ?tp_debug("cluster_link_message_forwarded", #{
@@ -592,6 +592,14 @@ decode_payload(Payload) ->
 
 forward(ClusterName, #delivery{message = Msg}) ->
     %% NOTE
-    %% Attaching publisher PID to the message to pick forwarding connection.
-    FwdMsg = Msg#message{extra = self()},
-    emqx_resource:query(?MSG_RES_ID(ClusterName), FwdMsg, #{}).
+    %% Attaching pick key to the message to pick forwarding connection accordingly.
+    Key = choose_pick_key(emqx_cluster_link_config:link(ClusterName)),
+    FwdMsg = Msg#message{extra = Key},
+    QueryOpts = #{pick_key => Key},
+    emqx_resource:query(?MSG_RES_ID(ClusterName), FwdMsg, QueryOpts).
+
+choose_pick_key(#{message_dispatch_strategy := random}) ->
+    %% NOTE: Cheap and has high rate of change.
+    erlang:monotonic_time();
+choose_pick_key(_LinkConf) ->
+    self().

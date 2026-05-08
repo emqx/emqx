@@ -73,7 +73,8 @@
 -type shortconf() :: #{
     name := binary(),
     enable := boolean(),
-    topics := _Union :: [emqx_types:words()]
+    topics := _Union :: [emqx_types:words()],
+    message_dispatch_strategy := clientid | random
 }.
 
 -define(PTERM(K), {?MODULE, K}).
@@ -302,11 +303,12 @@ cleanup_shortconf() ->
     _ = persistent_term:erase(?PTERM(enabled)),
     ok.
 
-prepare_link(#{name := Name, enable := Enabled, topics := Topics}) ->
+prepare_link(#{name := Name, enable := Enabled, topics := Topics} = LinkConf) ->
     #{
         name => Name,
         enable => Enabled,
-        topics => prepare_topics(Topics)
+        topics => prepare_topics(Topics),
+        message_dispatch_strategy => maps:get(message_dispatch_strategy, LinkConf, clientid)
     }.
 
 prepare_topics(Topics) ->

@@ -45,6 +45,12 @@ pool_size.desc:
 pool_size.label:
 """Connection Pool Size"""
 
+message_dispatch_strategy.desc:
+"""Dispatch strategy for forwarded messages. `clientid` preserves per-client message ordering by sending messages from the same client through the same forwarding MQTT client. `random` picks connections pseudo-randomly, improving load distribution at the cost of per-client ordering."""
+
+message_dispatch_strategy.label:
+"""Message Dispatch Strategy"""
+
 max_inflight.desc:
 """Max inflight (sent, but un-acked) messages of the MQTT protocol"""
 
