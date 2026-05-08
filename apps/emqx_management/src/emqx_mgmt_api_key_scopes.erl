@@ -30,6 +30,7 @@ affecting user-facing API key configurations.
     init_cache/0,
     clear_cache/0,
     validate_scopes/1,
+    filter_valid_scopes/1,
     is_denied_scope/1
 ]).
 
@@ -169,6 +170,32 @@ validate_scopes_values(Scopes) ->
             InvalidBin = iolist_to_binary(lists:join(<<", ">>, Invalid)),
             {error, <<"Unknown scopes: ", InvalidBin/binary>>}
     end.
+
+-doc """
+Lenient counterpart to `validate_scopes/1`: drop scope names that
+are not in `scope_catalogue/0` instead of rejecting the whole list,
+and report the dropped names so the caller can log a warning.
+
+Used by the bootstrap-file loader so a typo in one scope on one line
+does not abort loading the rest of the file. The HTTP create/update
+API keeps using the strict `validate_scopes/1`.
+
+Returns `{Valid, Rejected}` where both are sublists of the input
+preserving original order. Non-binary elements are rejected.
+""".
+-spec filter_valid_scopes([term()]) -> {[binary()], [term()]}.
+filter_valid_scopes(Scopes) when is_list(Scopes) ->
+    Available = [Name || #{name := Name} <- scope_catalogue()],
+    lists:foldr(
+        fun(S, {Valid, Rejected}) ->
+            case is_binary(S) andalso lists:member(S, Available) of
+                true -> {[S | Valid], Rejected};
+                false -> {Valid, [S | Rejected]}
+            end
+        end,
+        {[], []},
+        Scopes
+    ).
 
 %%--------------------------------------------------------------------
 %% Denied scope check

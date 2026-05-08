@@ -245,7 +245,9 @@ find_by_api_key(ApiKey) ->
 %% @doc Check if the request path is within the allowed scopes for this API key.
 %% Denied scopes are always blocked, regardless of configuration.
 %% If no scopes are configured (key not present or undefined), all non-denied paths are allowed.
-%% If scopes is an empty list, all paths are denied.
+%% If scopes is an empty list, all *mapped* paths are denied; unmapped paths
+%% (e.g. status, prometheus data) remain allowed so an operator can still
+%% reach the node and reconfigure the key via the UI.
 %% Publisher role skips scope check (has its own hardcoded path restrictions).
 %%
 %% Path is obtained from minirest HandlerInfo (the route template, e.g., "/clients/:clientid"),
@@ -290,13 +292,15 @@ check_scopes_for_path(Extra, Path) ->
             end
     end.
 
-check_path_in_scopes(_Path, []) ->
-    {error, unauthorized_role};
 check_path_in_scopes(Path, Scopes) ->
     case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
         undefined ->
-            %% Path not mapped to any scope — allow access
-            %% (e.g., status, prometheus, or other public endpoints)
+            %% Path not mapped to any scope — allow access regardless of
+            %% whether `Scopes' is empty. This keeps unmapped public
+            %% endpoints (status, prometheus data, etc.) reachable for
+            %% keys whose scope list was filtered down to `[]' by the
+            %% bootstrap loader, so an operator can still observe the
+            %% node and reconfigure the key via the UI.
             ok;
         PathScope ->
             case lists:member(PathScope, Scopes) of
@@ -468,7 +472,7 @@ init_bootstrap_file(<<>>) ->
 init_bootstrap_file(File) ->
     case file:open(File, [read, binary]) of
         {ok, Dev} ->
-            {ok, MP} = re:compile(<<"([^:]+):([^:]+)(?::([^:]+))?(?::(.+))?$">>),
+            {ok, MP} = re:compile(<<"([^:]+):([^:]+)(?::([^:]+))?(?::(.*))?$">>),
             init_bootstrap_file(File, Dev, MP);
         {error, Reason0} ->
             Reason = emqx_utils:explain_posix(Reason0),
@@ -502,7 +506,8 @@ add_bootstrap_file(File, Dev, MP, Line) ->
     case read_line(Dev) of
         {ok, Bin} ->
             case parse_bootstrap_line(Bin, MP) of
-                {ok, {ApiKey, ApiSecret, Role, Scopes}} ->
+                {ok, {ApiKey, ApiSecret, Role, Scopes, Rejected}} ->
+                    maybe_warn_rejected_scopes(File, Line, ApiKey, Rejected),
                     Extra0 = #{desc => ?BOOTSTRAP_TAG, role => Role},
                     Extra = maybe_set_scopes(Extra0, Scopes),
                     App =
@@ -558,11 +563,11 @@ read_line(Dev) ->
 parse_bootstrap_line(Bin, MP) ->
     case re:run(Bin, MP, [global, {capture, all_but_first, binary}]) of
         {match, [[ApiKey, ApiSecret]]} ->
-            {ok, {ApiKey, ApiSecret, ?ROLE_API_DEFAULT, undefined}};
+            {ok, {ApiKey, ApiSecret, ?ROLE_API_DEFAULT, undefined, []}};
         {match, [[ApiKey, ApiSecret, Role]]} ->
             case valid_role(Role) of
                 ok ->
-                    {ok, {ApiKey, ApiSecret, Role, undefined}};
+                    {ok, {ApiKey, ApiSecret, Role, undefined, []}};
                 _Error ->
                     {error, {"invalid_role", Role}}
             end;
@@ -577,24 +582,43 @@ parse_bootstrap_line(Bin, MP) ->
             {error, "invalid_format"}
     end.
 
+%% @doc Parse scopes for a 4-segment line.
+%%
+%% Lenient by design: an unknown scope name is silently dropped and
+%% reported via the second tuple element so the caller can warn. The
+%% bootstrap file is treated as ops configuration — a typo in one
+%% scope must not abort loading the whole file.
+%%
+%% Resulting `Scopes' semantics:
+%%   `[]'  — explicit deny-all (e.g. `key:secret:role:' or all scope
+%%           names were rejected as unknown).
+%%   `[Bin, ...]' — the validated scopes, in original order.
 parse_bootstrap_scopes(ApiKey, ApiSecret, Role, ScopesStr) ->
-    case parse_scopes_str(ScopesStr) of
-        undefined ->
-            {ok, {ApiKey, ApiSecret, Role, undefined}};
-        Scopes ->
-            case emqx_mgmt_api_key_scopes:validate_scopes(Scopes) of
-                ok ->
-                    {ok, {ApiKey, ApiSecret, Role, Scopes}};
-                {error, Reason} ->
-                    {error, {"invalid_scopes", Reason}}
-            end
-    end.
+    Parsed = parse_scopes_str(ScopesStr),
+    {Valid, Rejected} = emqx_mgmt_api_key_scopes:filter_valid_scopes(Parsed),
+    {ok, {ApiKey, ApiSecret, Role, Valid, Rejected}}.
 
+%% @doc Parse the comma-separated scope string from the 4th bootstrap
+%% segment. Each token is trimmed and lowercased; empty tokens are
+%% dropped. Returns `[]' for an empty/whitespace-only input — that
+%% maps to deny-all when written to the api_key record.
 parse_scopes_str(<<>>) ->
-    undefined;
+    [];
 parse_scopes_str(ScopesStr) ->
     Scopes = binary:split(ScopesStr, <<",">>, [global, trim_all]),
-    [string:lowercase(string:trim(S)) || S <- Scopes, S =/= <<>>].
+    [string:lowercase(string:trim(S)) || S <- Scopes, string:trim(S) =/= <<>>].
+
+maybe_warn_rejected_scopes(_File, _Line, _ApiKey, []) ->
+    ok;
+maybe_warn_rejected_scopes(File, Line, ApiKey, Rejected) ->
+    ?SLOG(warning, #{
+        msg => "bootstrap_file_unknown_scopes_dropped",
+        info => <<"Unknown scope names in bootstrap file were dropped; valid scopes still apply.">>,
+        file => File,
+        line => Line,
+        api_key => ApiKey,
+        rejected_scopes => Rejected
+    }).
 
 get_role(#{role := Role}) ->
     Role;
