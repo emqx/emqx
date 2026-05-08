@@ -49,6 +49,8 @@ dispatch(get, [<<"apple-box">>, <<"img">>, File], Params) ->
     '/agent/apple-box/img/:file'(get, Params#{bindings => #{file => File}});
 dispatch(get, [<<"builder">>, <<"ui">>], Params) ->
     '/agent/builder/ui'(get, Params);
+dispatch(get, [<<"ui">>, <<"assets">>, File], _Params) ->
+    serve_ui_asset(File);
 dispatch(get, [<<"skills">>], Params) ->
     '/agent/skills'(get, Params);
 dispatch(post, [<<"skills">>], Params) ->
@@ -125,6 +127,38 @@ serve_html(Filename) ->
         {error, Reason} ->
             ?INTERNAL_ERROR(iolist_to_binary(io_lib:format("Cannot read UI: ~p", [Reason])))
     end.
+
+serve_ui_asset(File) ->
+    case is_safe_basename(File) of
+        false ->
+            {404, #{}, <<"not found">>};
+        true ->
+            PrivDir = code:priv_dir(emqx_agent),
+            AssetFile = filename:join([PrivDir, <<"ui">>, File]),
+            case file:read_file(AssetFile) of
+                {ok, Data} ->
+                    CT = ui_asset_content_type(filename:extension(File)),
+                    {200, #{<<"content-type">> => CT}, Data};
+                {error, _} ->
+                    {404, #{}, <<"not found">>}
+            end
+    end.
+
+is_safe_basename(File) ->
+    case re:run(File, <<"[\\\\/]|\\.\\.">>) of
+        nomatch -> true;
+        _ -> false
+    end.
+
+ui_asset_content_type(<<".css">>) -> <<"text/css; charset=utf-8">>;
+ui_asset_content_type(<<".js">>) -> <<"application/javascript; charset=utf-8">>;
+ui_asset_content_type(<<".html">>) -> <<"text/html; charset=utf-8">>;
+ui_asset_content_type(<<".json">>) -> <<"application/json; charset=utf-8">>;
+ui_asset_content_type(<<".png">>) -> <<"image/png">>;
+ui_asset_content_type(<<".jpg">>) -> <<"image/jpeg">>;
+ui_asset_content_type(<<".jpeg">>) -> <<"image/jpeg">>;
+ui_asset_content_type(<<".svg">>) -> <<"image/svg+xml">>;
+ui_asset_content_type(_) -> <<"application/octet-stream">>.
 
 %%--------------------------------------------------------------------
 %% Handlers — Skills
