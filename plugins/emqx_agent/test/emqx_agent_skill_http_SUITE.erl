@@ -43,8 +43,8 @@ end_per_testcase(_TestCase, _Config) ->
 
 t_create_registers_skill(_Config) ->
     {ok, Skill} = emqx_agent_skill_registry:lookup(?SKILL_TYPE, ?SKILL_ID),
-    ?assertEqual(?SKILL_ID, maps:get(skill_id, Skill)),
-    ?assertEqual(?SKILL_TYPE, maps:get(type, Skill)),
+    ?assertMatch(#{skill_id := ?SKILL_ID}, Skill),
+    ?assertMatch(#{type := ?SKILL_TYPE}, Skill),
     ?assert(is_map(maps:get(input_schema, Skill))).
 
 t_destroy_unregisters_skill(_Config) ->
@@ -80,7 +80,7 @@ t_get_invoke_publishes_reply(Config) ->
         )
     end),
     invoke_and_assert(Config, #{<<"city">> => <<"London">>, <<"units">> => <<"metric">>}, fun(Data) ->
-        ?assertEqual(<<"London">>, maps:get(<<"city">>, Data)),
+        ?assertMatch(#{<<"city">> := <<"London">>}, Data),
         ?assertEqual(22.5, maps:get(<<"temperature">>, Data))
     end).
 
@@ -160,7 +160,7 @@ invoke_and_assert(_Config, Args, AssertFn) ->
             ct:fail(no_reply_received)
         end,
 
-    ?assertEqual(ReqId, maps:get(<<"req_id">>, Reply)),
+    ?assertMatch(#{<<"req_id">> := ReqId}, Reply),
     ?assertMatch(#{<<"type">> := ?SKILL_TYPE, <<"id">> := ?SKILL_ID}, maps:get(<<"skill">>, Reply)),
     AssertFn(maps:get(<<"result">>, emqx_agent_skill_helpers:cap_response(Reply))),
 

@@ -39,7 +39,7 @@ end_per_testcase(_TestCase, _Config) ->
 %% create/1 registers the skill under the expected type.
 t_registers_skill(_Config) ->
     {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message.request">>, ?SKILL_ID),
-    ?assertEqual(<<"message.request">>, maps:get(type, Skill)),
+    ?assertMatch(#{type := <<"message.request">>}, Skill),
     ?assertEqual(?SKILL_ID, maps:get(skill_id, Skill)).
 
 %% destroy/1 removes the skill from the registry.
@@ -79,7 +79,7 @@ t_request_response(_Config) ->
         },
         Response
     ),
-    ?assertEqual(<<"req-rr-1">>, maps:get(<<"req_id">>, Reply)),
+    ?assertMatch(#{<<"req_id">> := <<"req-rr-1">>}, Reply),
 
     ok = emqx:unsubscribe(DeviceTopic),
     ok = emqx:unsubscribe(ReplyTopic).

@@ -226,7 +226,7 @@ t_pipelines_crud(Config) ->
     ?assertMatch({ok, 201, _}, api_post([agent, pipelines], Def)),
 
     {ok, 200, [Entry]} = api_get([agent, pipelines]),
-    ?assertEqual(Id, maps:get(<<"pipeline_id">>, Entry)),
+    ?assertMatch(#{<<"pipeline_id">> := Id}, Entry),
 
     ?assertMatch(
         {ok, 200, #{<<"pipeline_id">> := _, <<"trigger">> := #{<<"topic">> := _}}},

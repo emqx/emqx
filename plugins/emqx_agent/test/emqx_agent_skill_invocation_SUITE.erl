@@ -48,9 +48,9 @@ t_successful_invoke(_Config) ->
 
     Reply = decode_reply(await_deliver(ReplyTopic)),
     Response = emqx_agent_skill_helpers:cap_response(Reply),
-    ?assertEqual(<<"ok">>, maps:get(<<"status">>, Response)),
-    ?assertEqual(#{<<"topic">> => <<"hello">>}, maps:get(<<"result">>, Response)),
-    ?assertEqual(ReqId, maps:get(<<"req_id">>, Reply)),
+    ?assertMatch(#{<<"status">> := <<"ok">>}, Response),
+    ?assertMatch(#{<<"result">> := #{<<"topic">> := <<"hello">>}}, Response),
+    ?assertMatch(#{<<"req_id">> := ReqId}, Reply),
 
     ok = emqx:unsubscribe(ReplyTopic).
 
@@ -68,9 +68,9 @@ t_timeout(_Config) ->
 
     Reply = decode_reply(await_deliver(ReplyTopic)),
     Response = emqx_agent_skill_helpers:cap_response(Reply),
-    ?assertEqual(<<"error">>, maps:get(<<"status">>, Response)),
-    ?assertEqual(<<"timeout">>, maps:get(<<"reason">>, Response)),
-    ?assertEqual(ReqId, maps:get(<<"req_id">>, Reply)),
+    ?assertMatch(#{<<"status">> := <<"error">>}, Response),
+    ?assertMatch(#{<<"reason">> := <<"timeout">>}, Response),
+    ?assertMatch(#{<<"req_id">> := ReqId}, Reply),
 
     ok = emqx:unsubscribe(ReplyTopic).
 
@@ -84,9 +84,9 @@ t_crash(_Config) ->
 
     Reply = decode_reply(await_deliver(ReplyTopic)),
     Response = emqx_agent_skill_helpers:cap_response(Reply),
-    ?assertEqual(<<"error">>, maps:get(<<"status">>, Response)),
+    ?assertMatch(#{<<"status">> := <<"error">>}, Response),
     ?assert(is_binary(maps:get(<<"reason">>, Response))),
-    ?assertEqual(ReqId, maps:get(<<"req_id">>, Reply)),
+    ?assertMatch(#{<<"req_id">> := ReqId}, Reply),
 
     ok = emqx:unsubscribe(ReplyTopic).
 
@@ -101,9 +101,9 @@ t_skill_not_found(_Config) ->
 
     Reply = decode_reply(await_deliver(ReplyTopic)),
     Response = emqx_agent_skill_helpers:cap_response(Reply),
-    ?assertEqual(<<"error">>, maps:get(<<"status">>, Response)),
-    ?assertEqual(<<"skill_not_found">>, maps:get(<<"reason">>, Response)),
-    ?assertEqual(ReqId, maps:get(<<"req_id">>, Reply)),
+    ?assertMatch(#{<<"status">> := <<"error">>}, Response),
+    ?assertMatch(#{<<"reason">> := <<"skill_not_found">>}, Response),
+    ?assertMatch(#{<<"req_id">> := ReqId}, Reply),
 
     ok = emqx:unsubscribe(ReplyTopic).
 
@@ -117,9 +117,9 @@ t_payload_not_a_map(_Config) ->
 
     Reply = decode_reply(await_deliver(ReplyTopic)),
     Response = emqx_agent_skill_helpers:cap_response(Reply),
-    ?assertEqual(<<"error">>, maps:get(<<"status">>, Response)),
-    ?assertEqual(<<"payload_not_a_map">>, maps:get(<<"reason">>, Response)),
-    ?assertEqual(ReqId, maps:get(<<"req_id">>, Reply)),
+    ?assertMatch(#{<<"status">> := <<"error">>}, Response),
+    ?assertMatch(#{<<"reason">> := <<"payload_not_a_map">>}, Response),
+    ?assertMatch(#{<<"req_id">> := ReqId}, Reply),
 
     ok = emqx:unsubscribe(ReplyTopic).
 
@@ -133,11 +133,11 @@ t_invalid_payload(_Config) ->
 
     Reply = decode_reply(await_deliver(ReplyTopic)),
     Response = emqx_agent_skill_helpers:cap_response(Reply),
-    ?assertEqual(<<"error">>, maps:get(<<"status">>, Response)),
+    ?assertMatch(#{<<"status">> := <<"error">>}, Response),
     Reason = maps:get(<<"reason">>, Response),
     ?assert(is_binary(Reason)),
     ?assertNotEqual(nomatch, binary:match(Reason, <<"invalid_payload">>)),
-    ?assertEqual(ReqId, maps:get(<<"req_id">>, Reply)),
+    ?assertMatch(#{<<"req_id">> := ReqId}, Reply),
 
     ok = emqx:unsubscribe(ReplyTopic).
 
@@ -153,9 +153,9 @@ t_start_invocation_failure(_Config) ->
 
     Reply = decode_reply(await_deliver(ReplyTopic)),
     Response = emqx_agent_skill_helpers:cap_response(Reply),
-    ?assertEqual(<<"error">>, maps:get(<<"status">>, Response)),
+    ?assertMatch(#{<<"status">> := <<"error">>}, Response),
     ?assert(is_binary(maps:get(<<"reason">>, Response))),
-    ?assertEqual(ReqId, maps:get(<<"req_id">>, Reply)),
+    ?assertMatch(#{<<"req_id">> := ReqId}, Reply),
 
     ok = emqx:unsubscribe(ReplyTopic).
 

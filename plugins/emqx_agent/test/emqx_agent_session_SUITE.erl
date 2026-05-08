@@ -110,7 +110,7 @@ t_sse_parser_simple_content(_Config) ->
         >>,
     Acc0 = emqx_agent_session:init_stream_acc(),
     Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
-    ?assertEqual(<<"hello world">>, maps:get(content, Acc)),
+    ?assertMatch(#{content := <<"hello world">>}, Acc),
     ?assertEqual(<<"stop">>, maps:get(finish_reason, Acc)).
 
 %% finish_reason must not be overwritten by null from intermediate chunks.
@@ -138,14 +138,14 @@ t_sse_parser_tool_call_argument_fragments(_Config) ->
         >>,
     Acc0 = emqx_agent_session:init_stream_acc(),
     Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
-    ?assertEqual(<<"tool_calls">>, maps:get(finish_reason, Acc)),
-    ?assertEqual(10, maps:get(tokens_in, Acc)),
-    ?assertEqual(5, maps:get(tokens_out, Acc)),
+    ?assertMatch(#{finish_reason := <<"tool_calls">>}, Acc),
+    ?assertMatch(#{tokens_in := 10}, Acc),
+    ?assertMatch(#{tokens_out := 5}, Acc),
     ToolCalls = maps:get(tool_calls, Acc),
     ?assert(maps:is_key(0, ToolCalls)),
     TC = maps:get(0, ToolCalls),
     Fun = maps:get(<<"function">>, TC, #{}),
-    ?assertEqual(<<"add">>, maps:get(<<"name">>, Fun)),
+    ?assertMatch(#{<<"name">> := <<"add">>}, Fun),
     Args = maps:get(<<"arguments">>, Fun),
     ?assertMatch({ok, #{<<"a">> := 47, <<"b">> := 47}}, emqx_utils_json:safe_decode(Args)).
 
@@ -161,7 +161,7 @@ t_sse_parser_multiple_tool_calls(_Config) ->
     Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
     ToolCalls = maps:get(tool_calls, Acc),
     ?assertEqual(2, maps:size(ToolCalls)),
-    ?assertEqual(<<"c0">>, maps:get(<<"id">>, maps:get(0, ToolCalls))),
+    ?assertMatch(#{<<"id">> := <<"c0">>}, maps:get(0, ToolCalls)),
     ?assertEqual(<<"c1">>, maps:get(<<"id">>, maps:get(1, ToolCalls))).
 
 %% CRLF line endings must be normalised.
@@ -174,7 +174,7 @@ t_sse_parser_crlf_endings(_Config) ->
         >>,
     Acc0 = emqx_agent_session:init_stream_acc(),
     Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
-    ?assertEqual(<<"x">>, maps:get(content, Acc)),
+    ?assertMatch(#{content := <<"x">>}, Acc),
     ?assertEqual(<<"stop">>, maps:get(finish_reason, Acc)).
 
 %% Events split across arbitrary byte boundaries (simulating small TCP packets).
@@ -191,7 +191,7 @@ t_sse_parser_split_chunks(_Config) ->
     %% Chop into 20-byte pieces to simulate network fragmentation.
     Chunks = chop_binary(Full, 20),
     Acc = emqx_agent_session:test_stream_chunks(Chunks),
-    ?assertEqual(<<"abcd">>, maps:get(content, Acc)),
+    ?assertMatch(#{content := <<"abcd">>}, Acc),
     ?assertEqual(<<"stop">>, maps:get(finish_reason, Acc)).
 
 %% Usage tokens from the dedicated usage-only chunk.
@@ -205,7 +205,7 @@ t_sse_parser_usage_chunk(_Config) ->
         >>,
     Acc0 = emqx_agent_session:init_stream_acc(),
     Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
-    ?assertEqual(42, maps:get(tokens_in, Acc)),
+    ?assertMatch(#{tokens_in := 42}, Acc),
     ?assertEqual(7, maps:get(tokens_out, Acc)).
 
 %%--------------------------------------------------------------------

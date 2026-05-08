@@ -39,7 +39,7 @@ end_per_testcase(_TestCase, _Config) ->
 
 t_create_registers_skill(_Config) ->
     {ok, Skill} = emqx_agent_skill_registry:lookup(?SKILL_TYPE, ?SKILL_ID),
-    ?assertEqual(?SKILL_ID, maps:get(skill_id, Skill)),
+    ?assertMatch(#{skill_id := ?SKILL_ID}, Skill),
     ?assertEqual(?SKILL_TYPE, maps:get(type, Skill)).
 
 t_destroy_unregisters_skill(_Config) ->
@@ -78,13 +78,13 @@ t_invoke_queries_postgresql(_Config) ->
             ct:fail(no_reply_received)
         end,
 
-    ?assertEqual(ReqId, maps:get(<<"req_id">>, Reply)),
+    ?assertMatch(#{<<"req_id">> := ReqId}, Reply),
     ?assertMatch(
         #{<<"type">> := ?SKILL_TYPE, <<"id">> := ?SKILL_ID},
         maps:get(<<"skill">>, Reply)
     ),
     Response = emqx_agent_skill_helpers:cap_response(Reply),
-    ?assertEqual(<<"ok">>, maps:get(<<"status">>, Response)),
+    ?assertMatch(#{<<"status">> := <<"ok">>}, Response),
     Result = maps:get(<<"result">>, Response),
     Rows = maps:get(<<"rows">>, Result),
     ?assertEqual(2, length(Rows)),
@@ -92,8 +92,8 @@ t_invoke_queries_postgresql(_Config) ->
         {maps:get(<<"metric">>, Row), maps:get(<<"value">>, Row)}
      || Row <- Rows
     ]),
-    ?assertEqual(42, maps:get(<<"temperature">>, Metrics)),
-    ?assertEqual(55, maps:get(<<"humidity">>, Metrics)),
+    ?assertMatch(#{<<"temperature">> := 42}, Metrics),
+    ?assertMatch(#{<<"humidity">> := 55}, Metrics),
 
     ok = emqx:unsubscribe(ReplyTopic).
 

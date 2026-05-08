@@ -96,10 +96,10 @@ t_call_skill_completes(Config) ->
     publish_evt(TrigTopic, #{<<"id">> => <<"e1">>}),
     %% pipeline_started
     Started = recv_pipe_event(PipelineId),
-    ?assertEqual(<<"pipeline_started">>, maps:get(<<"type">>, Started)),
+    ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started),
     %% pipeline_completed
     Completed = recv_pipe_event(PipelineId),
-    ?assertEqual(<<"pipeline_completed">>, maps:get(<<"type">>, Completed)),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>}, Completed),
     %% The notify_result should be in context
     Ctx = maps:get(<<"context">>, Completed),
     ?assertMatch(
@@ -134,7 +134,7 @@ t_multi_step_pipeline(Config) ->
     publish_evt(TrigTopic, #{<<"id">> => <<"e2">>}),
     _Started = recv_pipe_event(PipelineId),
     Completed = recv_pipe_event(PipelineId),
-    ?assertEqual(<<"pipeline_completed">>, maps:get(<<"type">>, Completed)),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>}, Completed),
     Ctx = maps:get(<<"context">>, Completed),
     ?assertMatch(#{<<"status">> := <<"ok">>}, maps:get(<<"step1">>, Ctx, #{})),
     ?assertMatch(#{<<"status">> := <<"ok">>}, maps:get(<<"step2">>, Ctx, #{})).
@@ -172,7 +172,7 @@ t_wait_for_event(Config) ->
     register_pipeline(PipelineId, TrigTopic, Steps),
     publish_evt(TrigTopic, #{<<"id">> => <<"e3">>}),
     Started = recv_pipe_event(PipelineId),
-    ?assertEqual(<<"pipeline_started">>, maps:get(<<"type">>, Started)),
+    ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started),
     %% Pipeline should NOT complete yet — it is blocked at wait_for_event.
     ?assertEqual(timeout, recv_pipe_event_or_timeout(PipelineId, 500)),
     %% Now publish the waited event.
@@ -180,7 +180,7 @@ t_wait_for_event(Config) ->
     publish_evt(WaitTopic, WaitedEvent),
     %% Pipeline must now complete.
     Completed = recv_pipe_event(PipelineId),
-    ?assertEqual(<<"pipeline_completed">>, maps:get(<<"type">>, Completed)),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>}, Completed),
     Ctx = maps:get(<<"context">>, Completed),
     ?assertMatch(#{<<"status">> := <<"ok">>}, maps:get(<<"pre">>, Ctx, #{})),
     ?assertMatch(#{<<"status">> := <<"ok">>}, maps:get(<<"post">>, Ctx, #{})),
@@ -240,7 +240,7 @@ t_context_propagation(Config) ->
     publish_evt(TrigTopic, #{<<"id">> => <<"ctx-evt">>, <<"data">> => #{<<"v">> => 7}}),
     _Started = recv_pipe_event(PipelineId),
     Completed = recv_pipe_event(PipelineId),
-    ?assertEqual(<<"pipeline_completed">>, maps:get(<<"type">>, Completed)),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>}, Completed),
     %% $.event must be in the final context
     Ctx = maps:get(<<"context">>, Completed),
     ?assertMatch(
@@ -272,7 +272,7 @@ t_break_stops_pipeline_when_true(Config) ->
     publish_evt(TrigTopic, #{<<"id">> => <<"e-break-1">>, <<"data">> => #{<<"stop">> => true}}),
     _Started = recv_pipe_event(PipelineId),
     Completed = recv_pipe_event(PipelineId),
-    ?assertEqual(<<"pipeline_completed">>, maps:get(<<"type">>, Completed)),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>}, Completed),
     Ctx = maps:get(<<"context">>, Completed),
     ?assertEqual(undefined, maps:get(<<"post">>, Ctx, undefined)).
 
@@ -303,7 +303,7 @@ t_break_with_not_stops_pipeline_when_not_true(Config) ->
     }),
     _Started = recv_pipe_event(PipelineId),
     Completed = recv_pipe_event(PipelineId),
-    ?assertEqual(<<"pipeline_completed">>, maps:get(<<"type">>, Completed)),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>}, Completed),
     Ctx = maps:get(<<"context">>, Completed),
     ?assertEqual(undefined, maps:get(<<"post">>, Ctx, undefined)).
 
@@ -315,9 +315,9 @@ t_done_idle_stop(Config) ->
     register_pipeline(PipelineId, TrigTopic, []),
     publish_evt(TrigTopic, #{<<"id">> => <<"e5">>}),
     Started = recv_pipe_event(PipelineId),
-    ?assertEqual(<<"pipeline_started">>, maps:get(<<"type">>, Started)),
+    ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started),
     Completed = recv_pipe_event(PipelineId),
-    ?assertEqual(<<"pipeline_completed">>, maps:get(<<"type">>, Completed)),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>}, Completed),
     %% Find the pipeline process and send idle_timeout to force-stop it.
     Iid = maps:get(<<"iid">>, Completed),
     Pid = emqx_agent_pipeline:whereis(Iid),
@@ -349,7 +349,7 @@ t_done_restarts_on_message(Config) ->
     publish_evt(TrigTopic, #{<<"id">> => <<"e6">>}),
     _S1 = recv_pipe_event(PipelineId),
     Completed1 = recv_pipe_event(PipelineId),
-    ?assertEqual(<<"pipeline_completed">>, maps:get(<<"type">>, Completed1)),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>}, Completed1),
     Iid = maps:get(<<"iid">>, Completed1),
     Pid = emqx_agent_pipeline:whereis(Iid),
     %% Send a cast to trigger the "restart from done" path.
@@ -358,7 +358,7 @@ t_done_restarts_on_message(Config) ->
     }),
     %% The pipeline should restart and produce another started + completed pair.
     Started2 = recv_pipe_event(PipelineId),
-    ?assertEqual(<<"pipeline_started">>, maps:get(<<"type">>, Started2)),
+    ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started2),
     Completed2 = recv_pipe_event(PipelineId),
     ?assertEqual(<<"pipeline_completed">>, maps:get(<<"type">>, Completed2)).
 
@@ -405,7 +405,7 @@ t_context_flows_between_steps(Config) ->
     publish_evt(TrigTopic, #{<<"id">> => <<"chain-1">>}),
     _Started = recv_pipe_event(PipelineId),
     Completed = recv_pipe_event(PipelineId),
-    ?assertEqual(<<"pipeline_completed">>, maps:get(<<"type">>, Completed)),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>}, Completed),
 
     %% Context must have both step results.
     Ctx = maps:get(<<"context">>, Completed),
@@ -469,7 +469,7 @@ t_set_result_writes_to_context(Config) ->
     publish_evt(TrigTopic, #{<<"id">> => <<"sr-1">>}),
 
     Started = recv_pipe_event(PipelineId),
-    ?assertEqual(<<"pipeline_started">>, maps:get(<<"type">>, Started)),
+    ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started),
     Iid = maps:get(<<"iid">>, Started),
     Pid = emqx_agent_pipeline:whereis(Iid),
     ?assertNotEqual(undefined, Pid),
@@ -493,7 +493,7 @@ t_set_result_writes_to_context(Config) ->
     }),
 
     Completed = recv_pipe_event(PipelineId),
-    ?assertEqual(<<"pipeline_completed">>, maps:get(<<"type">>, Completed)),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>}, Completed),
     Ctx = maps:get(<<"context">>, Completed),
     Verdict = maps:get(<<"verdict">>, Ctx, #{}),
     ?assertEqual(<<"approved">>, maps:get(<<"status">>, Verdict, undefined)).
@@ -515,9 +515,9 @@ t_llm_loop_defaults_are_applied(Config) ->
     },
     register_pipeline(PipelineId, TrigTopic, [Step]),
     {ok, #{<<"steps">> := [Stored]}} = emqx_agent_pipeline_registry:lookup(PipelineId),
-    ?assertEqual([], maps:get(<<"tools">>, Stored)),
-    ?assertEqual(#{}, maps:get(<<"input">>, Stored)),
-    ?assertEqual(true, maps:get(<<"stop_on_finish">>, Stored)),
+    ?assertMatch(#{<<"tools">> := []}, Stored),
+    ?assertMatch(#{<<"input">> := #{}}, Stored),
+    ?assertMatch(#{<<"stop_on_finish">> := true}, Stored),
     ?assertEqual(2048, maps:get(<<"max_tokens">>, Stored)).
 
 t_llm_loop_requires_set_result_schema(Config) ->

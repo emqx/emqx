@@ -39,7 +39,7 @@ end_per_testcase(_TestCase, _Config) ->
 %% create/1 registers the skill under the expected type.
 t_registers_skill(_Config) ->
     {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message.publish">>, ?SKILL_ID),
-    ?assertEqual(<<"message.publish">>, maps:get(type, Skill)),
+    ?assertMatch(#{type := <<"message.publish">>}, Skill),
     ?assertEqual(?SKILL_ID, maps:get(skill_id, Skill)).
 
 %% destroy/1 removes the skill; subsequent lookup returns not_found.
@@ -71,7 +71,7 @@ t_custom_payload_schema_is_stored(_Config) ->
     ),
     {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message.publish">>, ?SKILL_ID),
     #{context := Context, input_schema := InputSchema} = Skill,
-    ?assertEqual(CustomPayloadSchema, maps:get(payload_schema, Context)),
+    ?assertMatch(#{payload_schema := CustomPayloadSchema}, Context),
     Props = maps:get(<<"properties">>, InputSchema),
     ?assertEqual(CustomPayloadSchema, maps:get(<<"payload">>, Props)).
 
@@ -101,7 +101,7 @@ t_publish_basic(_Config) ->
         },
         Response
     ),
-    ?assertEqual(<<"req-pub-1">>, maps:get(<<"req_id">>, Reply)),
+    ?assertMatch(#{<<"req_id">> := <<"req-pub-1">>}, Reply),
 
     ok = emqx:unsubscribe(FullTopic),
     ok = emqx:unsubscribe(ReplyTopic).
@@ -155,7 +155,7 @@ t_publish_with_from_and_qos(_Config) ->
     ),
 
     Reply = decode_reply(await_deliver(ReplyTopic)),
-    ?assertEqual(<<"ok">>, maps:get(<<"status">>, emqx_agent_skill_helpers:cap_response(Reply))),
+    ?assertMatch(#{<<"status">> := <<"ok">>}, emqx_agent_skill_helpers:cap_response(Reply)),
 
     ok = emqx:unsubscribe(FullTopic),
     ok = emqx:unsubscribe(ReplyTopic).

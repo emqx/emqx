@@ -55,7 +55,7 @@ end_per_testcase(_TestCase, _Config) ->
 
 t_create_skill_registers(_Config) ->
     {ok, Skill} = emqx_agent_skill_registry:lookup(<<"agent.create_skill">>, ?SK_SKILL_ID),
-    ?assertEqual(<<"agent.create_skill">>, maps:get(type, Skill)),
+    ?assertMatch(#{type := <<"agent.create_skill">>}, Skill),
     ?assertEqual(?SK_SKILL_ID, maps:get(skill_id, Skill)).
 
 t_create_skill_destroy(_Config) ->
@@ -211,7 +211,7 @@ t_create_skill_reply_correlation(_Config) ->
 
 t_create_pipeline_registers(_Config) ->
     {ok, Skill} = emqx_agent_skill_registry:lookup(<<"agent.create_pipeline">>, ?SK_PIPELINE_ID),
-    ?assertEqual(<<"agent.create_pipeline">>, maps:get(type, Skill)),
+    ?assertMatch(#{type := <<"agent.create_pipeline">>}, Skill),
     ?assertEqual(?SK_PIPELINE_ID, maps:get(skill_id, Skill)).
 
 t_create_pipeline_destroy(_Config) ->
@@ -283,7 +283,7 @@ t_create_pipeline_enforces_active_false(_Config) ->
         cap_response(Reply)
     ),
     {ok, Def} = emqx_agent_pipeline_registry:lookup(<<"forced-active">>),
-    ?assertEqual(false, maps:get(<<"active">>, Def)),
+    ?assertMatch(#{<<"active">> := false}, Def),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
 t_create_pipeline_invoke_missing_pipeline_id(_Config) ->

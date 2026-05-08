@@ -108,7 +108,7 @@ t_good_box_approved(Config) ->
     publish_done(ConvId, BoxId, 3),
     serve_shot(BoxId, fixture("box-no-bad-apple.png")),
     Status = await_status(BoxId),
-    ?assertEqual(<<"approved">>, maps:get(<<"status">>, Status)),
+    ?assertMatch(#{<<"status">> := <<"approved">>}, Status),
     assert_db_row(BoxId).
 
 %% A box containing a rotten apple must be rejected.
@@ -120,7 +120,7 @@ t_bad_box_rejected(Config) ->
     publish_done(ConvId, BoxId, 2),
     serve_shot(BoxId, fixture("box-bad-apple.png")),
     Status = await_status(BoxId),
-    ?assertEqual(<<"rejected">>, maps:get(<<"status">>, Status)),
+    ?assertMatch(#{<<"status">> := <<"rejected">>}, Status),
     _MaybeAlert = collect_alert_if_any(BoxId),
     assert_db_row(BoxId).
 

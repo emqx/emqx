@@ -65,7 +65,7 @@ end_per_testcase(_TestCase, _Config) ->
 
 t_query_skills_registers(_Config) ->
     {ok, Skill} = emqx_agent_skill_registry:lookup(<<"agent.query_skills">>, ?SK_SKILLS_ID),
-    ?assertEqual(<<"agent.query_skills">>, maps:get(type, Skill)),
+    ?assertMatch(#{type := <<"agent.query_skills">>}, Skill),
     ?assertEqual(?SK_SKILLS_ID, maps:get(skill_id, Skill)).
 
 t_query_skills_destroy(_Config) ->

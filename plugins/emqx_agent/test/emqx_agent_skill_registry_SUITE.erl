@@ -83,7 +83,7 @@ t_same_id_different_types(_Config) ->
     ok = emqx_agent_skill_registry:register(SkillB),
     {ok, A} = emqx_agent_skill_registry:lookup(?TYPE, <<"shared-id">>),
     {ok, B} = emqx_agent_skill_registry:lookup(<<"other.type">>, <<"shared-id">>),
-    ?assertEqual(?TYPE, maps:get(type, A)),
+    ?assertMatch(#{type := ?TYPE}, A),
     ?assertEqual(<<"other.type">>, maps:get(type, B)).
 
 t_unregister(_Config) ->
