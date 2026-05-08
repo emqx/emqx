@@ -20,7 +20,8 @@
 -export([
     skill_entry_type/0,
     skill_create_type/0,
-    pipeline_type/0
+    pipeline_type/0,
+    pipeline_step_type/0
 ]).
 
 %% JSON Schema conversion / validation helpers
@@ -134,9 +135,9 @@ fields(skill_http_create) ->
                 desc => ?DESC(skill_http_url)
             })},
         {headers,
-            mk(map(), #{
+            mk(hoconsc:array(ref(name_value_entry)), #{
                 required => false,
-                default => #{},
+                default => [],
                 desc => ?DESC(skill_http_headers)
             })},
         {input_schema,
@@ -327,7 +328,7 @@ fields(pipeline) ->
                 desc => ?DESC(pipeline_trigger_field)
             })},
         {steps,
-            mk(hoconsc:array(map()), #{
+            mk(hoconsc:array(pipeline_step_type()), #{
                 required => true,
                 default => [],
                 desc => ?DESC(pipeline_steps)
@@ -339,6 +340,170 @@ fields(pipeline_trigger) ->
             mk(binary(), #{
                 required => true,
                 desc => ?DESC(pipeline_trigger_topic)
+            })}
+    ];
+fields(pipeline_step_call_skill) ->
+    [
+        {id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(pipeline_step_id)
+            })},
+        {type,
+            mk(enum([call_skill]), #{
+                required => true,
+                desc => ?DESC(pipeline_step_type)
+            })},
+        {skill,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(pipeline_step_skill)
+            })},
+        {args,
+            mk(hoconsc:array(ref(name_value_entry)), #{
+                required => false,
+                default => [],
+                desc => ?DESC(pipeline_step_args)
+            })},
+        {result_path,
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC(pipeline_step_result_path)
+            })}
+    ];
+fields(pipeline_step_llm_loop) ->
+    [
+        {id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(pipeline_step_id)
+            })},
+        {type,
+            mk(enum([llm_loop]), #{
+                required => true,
+                desc => ?DESC(pipeline_step_type)
+            })},
+        {provider_name,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(pipeline_step_provider_name)
+            })},
+        {model,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(pipeline_step_model)
+            })},
+        {stop_on_finish,
+            mk(boolean(), #{
+                required => false,
+                default => true,
+                desc => ?DESC(pipeline_step_stop_on_finish)
+            })},
+        {max_tokens,
+            mk(pos_integer(), #{
+                required => false,
+                default => 2048,
+                desc => ?DESC(pipeline_step_max_tokens)
+            })},
+        {tools,
+            mk(hoconsc:array(binary()), #{
+                required => false,
+                default => [],
+                desc => ?DESC(pipeline_step_tools)
+            })},
+        {instructions,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(pipeline_step_instructions)
+            })},
+        {input,
+            mk(hoconsc:array(ref(name_value_entry)), #{
+                required => false,
+                default => [],
+                desc => ?DESC(pipeline_step_input)
+            })},
+        {set_result_schema,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(pipeline_step_set_result_schema),
+                converter => fun json_schema_from_string/2,
+                validator => fun validate_oai_schema/1
+            })},
+        {result_path,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(pipeline_step_result_path)
+            })}
+    ];
+fields(pipeline_step_wait_for_event) ->
+    [
+        {id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(pipeline_step_id)
+            })},
+        {type,
+            mk(enum([wait_for_event]), #{
+                required => true,
+                desc => ?DESC(pipeline_step_type)
+            })},
+        {topic,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(pipeline_step_topic)
+            })},
+        {where,
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC(pipeline_step_where)
+            })},
+        {result_path,
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC(pipeline_step_result_path)
+            })}
+    ];
+fields(pipeline_step_break) ->
+    [
+        {id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(pipeline_step_id)
+            })},
+        {type,
+            mk(enum([break]), #{
+                required => true,
+                desc => ?DESC(pipeline_step_type)
+            })},
+        {path,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(pipeline_step_path)
+            })},
+        {'not',
+            mk(boolean(), #{
+                required => false,
+                default => false,
+                desc => ?DESC(pipeline_step_not)
+            })},
+        {eq,
+            mk(value_type(), #{
+                required => false,
+                default => true,
+                desc => ?DESC(pipeline_step_eq)
+            })}
+    ];
+fields(name_value_entry) ->
+    [
+        {name,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(name_value_entry_name)
+            })},
+        {value,
+            mk(value_type(), #{
+                required => true,
+                desc => ?DESC(name_value_entry_value)
             })}
     ];
 fields(_) ->
@@ -362,6 +527,11 @@ desc(skill_delete_skill_create) -> ?DESC(skill_delete_skill_create);
 desc(skill_delete_pipeline_create) -> ?DESC(skill_delete_pipeline_create);
 desc(pipeline) -> ?DESC(pipeline);
 desc(pipeline_trigger) -> ?DESC(pipeline_trigger);
+desc(pipeline_step_call_skill) -> ?DESC(pipeline_step_call_skill);
+desc(pipeline_step_llm_loop) -> ?DESC(pipeline_step_llm_loop);
+desc(pipeline_step_wait_for_event) -> ?DESC(pipeline_step_wait_for_event);
+desc(pipeline_step_break) -> ?DESC(pipeline_step_break);
+desc(name_value_entry) -> ?DESC(name_value_entry);
 desc(_) -> undefined.
 
 %%--------------------------------------------------------------------
@@ -392,6 +562,15 @@ skill_create_type() ->
 pipeline_type() ->
     ref(pipeline).
 
+-spec pipeline_step_type() -> hocon_schema:schema().
+pipeline_step_type() ->
+    emqx_schema:mkunion(<<"type">>, #{
+        <<"call_skill">> => ref(pipeline_step_call_skill),
+        <<"llm_loop">> => ref(pipeline_step_llm_loop),
+        <<"wait_for_event">> => ref(pipeline_step_wait_for_event),
+        <<"break">> => ref(pipeline_step_break)
+    }).
+
 %%--------------------------------------------------------------------
 %% Internal helpers
 %%--------------------------------------------------------------------
@@ -399,6 +578,7 @@ pipeline_type() ->
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Struct) -> hoconsc:ref(?MODULE, Struct).
 enum(Values) -> hoconsc:enum(Values).
+value_type() -> hoconsc:union([binary(), integer(), float(), boolean()]).
 
 %%--------------------------------------------------------------------
 %% JSON Schema converter / validator

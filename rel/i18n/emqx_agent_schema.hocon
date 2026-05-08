@@ -37,6 +37,31 @@ emqx_agent_schema {
         label: "Pipeline Trigger"
     }
 
+    pipeline_step_call_skill {
+        desc: "Pipeline step that invokes a registered skill."
+        label: "Call Skill Step"
+    }
+
+    pipeline_step_llm_loop {
+        desc: "Pipeline step that runs an LLM session loop."
+        label: "LLM Loop Step"
+    }
+
+    pipeline_step_wait_for_event {
+        desc: "Pipeline step that waits for a matching MQTT event."
+        label: "Wait For Event Step"
+    }
+
+    pipeline_step_break {
+        desc: "Pipeline step that stops execution when a condition matches."
+        label: "Break Step"
+    }
+
+    name_value_entry {
+        desc: "A strict name/value entry used where arbitrary map keys would otherwise be needed."
+        label: "Name Value Entry"
+    }
+
     ## ── skill_entry fields ───────────────────────────────────────────────────
 
     skill_entry_id {
@@ -225,5 +250,107 @@ when a matching message is published."""
 
     pipeline_trigger_topic.label:
 """Topic Filter"""
+
+    ## ── pipeline step fields ─────────────────────────────────────────────────
+
+    pipeline_step_id {
+        desc: "Unique step identifier within this pipeline."
+        label: "Step ID"
+    }
+
+    pipeline_step_type {
+        desc: "Pipeline step type discriminator."
+        label: "Step Type"
+    }
+
+    pipeline_step_skill {
+        desc: "Skill reference as type@skill_id."
+        label: "Skill"
+    }
+
+    pipeline_step_args {
+        desc: "Argument entries passed to the skill. Values starting with $. are resolved from pipeline context."
+        label: "Arguments"
+    }
+
+    pipeline_step_result_path {
+        desc: "Context path where the step result is written."
+        label: "Result Path"
+    }
+
+    pipeline_step_provider_name {
+        desc: "Name of a configured AI provider."
+        label: "Provider Name"
+    }
+
+    pipeline_step_model {
+        desc: "LLM model name."
+        label: "Model"
+    }
+
+    pipeline_step_stop_on_finish {
+        desc: "When true, the session terminates after publishing final; when false, it remains persistent."
+        label: "Stop On Finish"
+    }
+
+    pipeline_step_max_tokens {
+        desc: "Maximum completion tokens."
+        label: "Max Tokens"
+    }
+
+    pipeline_step_tools {
+        desc: "Skill references exposed as tools to the LLM. Include every skill the LLM step must call directly while reasoning; use later call_skill steps only for actions that should happen after the LLM returns its structured result."
+        label: "Tools"
+    }
+
+    pipeline_step_instructions {
+        desc: "System prompt for the LLM."
+        label: "Instructions"
+    }
+
+    pipeline_step_input {
+        desc: "Input entries sent as the first user message. Values starting with $. are resolved from context."
+        label: "Input"
+    }
+
+    pipeline_step_set_result_schema {
+        desc: "JSON Schema for structured output via the built-in set_result tool, encoded as a JSON string."
+        label: "Set Result Schema"
+    }
+
+    pipeline_step_topic {
+        desc: "MQTT topic filter to wait on."
+        label: "Topic"
+    }
+
+    pipeline_step_where {
+        desc: "Optional filter expression for a waited event."
+        label: "Where"
+    }
+
+    pipeline_step_path {
+        desc: "JSONPath into context to evaluate."
+        label: "Path"
+    }
+
+    pipeline_step_not {
+        desc: "Negate the break condition."
+        label: "Not"
+    }
+
+    pipeline_step_eq {
+        desc: "Primitive value to compare against."
+        label: "Equals"
+    }
+
+    name_value_entry_name {
+        desc: "Entry name."
+        label: "Name"
+    }
+
+    name_value_entry_value {
+        desc: "Entry primitive value."
+        label: "Value"
+    }
 
 }

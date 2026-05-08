@@ -16,137 +16,6 @@
 
 -define(SKILL_TYPE, <<"agent.create_skill">>).
 
--define(INPUT_SCHEMA, #{
-    <<"type">> => <<"object">>,
-    <<"properties">> => #{
-        <<"definition">> => #{
-            <<"description">> => <<"Skill definition — shape depends on the type field">>,
-            <<"oneOf">> => [
-                #{
-                    <<"title">> => <<"message.publish">>,
-                    <<"properties">> => #{
-                        <<"type">> => #{
-                            <<"type">> => <<"string">>, <<"const">> => <<"message.publish">>
-                        },
-                        <<"id">> => #{
-                            <<"type">> => <<"string">>,
-                            <<"description">> => <<"Unique skill instance identifier">>
-                        },
-                        <<"desc">> => #{
-                            <<"type">> => <<"string">>,
-                            <<"description">> => <<"Human-readable description shown to the LLM">>
-                        },
-                        <<"topic_prefix">> => #{
-                            <<"type">> => <<"string">>,
-                            <<"description">> =>
-                                <<"All publishes are restricted to this prefix, e.g. devices/room1/">>
-                        },
-                        <<"payload_schema">> => #{
-                            <<"type">> => <<"string">>,
-                            <<"description">> =>
-                                <<"Optional JSON Schema for the payload field (as a JSON string)">>
-                        }
-                    },
-                    <<"required">> => [<<"type">>, <<"id">>, <<"desc">>, <<"topic_prefix">>]
-                },
-                #{
-                    <<"title">> => <<"message.request">>,
-                    <<"properties">> => #{
-                        <<"type">> => #{
-                            <<"type">> => <<"string">>, <<"const">> => <<"message.request">>
-                        },
-                        <<"id">> => #{<<"type">> => <<"string">>},
-                        <<"desc">> => #{<<"type">> => <<"string">>},
-                        <<"topic_prefix">> => #{
-                            <<"type">> => <<"string">>,
-                            <<"description">> =>
-                                <<"Request published to prefix + agent-supplied suffix. Response arrives via MQTT 5 Response-Topic.">>
-                        },
-                        <<"request_payload_schema">> => #{
-                            <<"type">> => <<"string">>,
-                            <<"description">> =>
-                                <<"Optional JSON Schema for the outgoing request payload (as a JSON string)">>
-                        }
-                    },
-                    <<"required">> => [<<"type">>, <<"id">>, <<"desc">>, <<"topic_prefix">>]
-                },
-                #{
-                    <<"title">> => <<"http">>,
-                    <<"properties">> => #{
-                        <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"http">>},
-                        <<"id">> => #{<<"type">> => <<"string">>},
-                        <<"desc">> => #{<<"type">> => <<"string">>},
-                        <<"method">> => #{
-                            <<"type">> => <<"string">>,
-                            <<"enum">> => [
-                                <<"get">>, <<"post">>, <<"put">>, <<"patch">>, <<"delete">>
-                            ]
-                        },
-                        <<"url">> => #{
-                            <<"type">> => <<"string">>,
-                            <<"description">> => <<"Full URL of the endpoint">>
-                        },
-                        <<"headers">> => #{
-                            <<"type">> => <<"object">>,
-                            <<"description">> => <<"Optional HTTP headers map">>
-                        },
-                        <<"input_schema">> => #{
-                            <<"type">> => <<"string">>,
-                            <<"description">> =>
-                                <<"JSON Schema for tool call arguments (as a JSON string)">>
-                        }
-                    },
-                    <<"required">> => [
-                        <<"type">>,
-                        <<"id">>,
-                        <<"desc">>,
-                        <<"method">>,
-                        <<"url">>,
-                        <<"input_schema">>
-                    ]
-                },
-                #{
-                    <<"title">> => <<"postgresql.query">>,
-                    <<"properties">> => #{
-                        <<"type">> => #{
-                            <<"type">> => <<"string">>, <<"const">> => <<"postgresql.query">>
-                        },
-                        <<"id">> => #{<<"type">> => <<"string">>},
-                        <<"desc">> => #{<<"type">> => <<"string">>},
-                        <<"query">> => #{
-                            <<"type">> => <<"string">>,
-                            <<"description">> =>
-                                <<
-                                    "SQL using $1 $2 … positional placeholders. "
-                                    "arg_keys maps named args to positions in order."
-                                >>
-                        },
-                        <<"arg_keys">> => #{
-                            <<"type">> => <<"array">>,
-                            <<"items">> => #{<<"type">> => <<"string">>},
-                            <<"description">> =>
-                                <<"Ordered list of arg names, e.g. [\"device_id\",\"value\"] maps to $1, $2">>
-                        },
-                        <<"input_schema">> => #{
-                            <<"type">> => <<"string">>,
-                            <<"description">> =>
-                                <<"JSON Schema for tool call arguments (as a JSON string)">>
-                        }
-                    },
-                    <<"required">> => [
-                        <<"type">>,
-                        <<"id">>,
-                        <<"desc">>,
-                        <<"query">>,
-                        <<"input_schema">>
-                    ]
-                }
-            ]
-        }
-    },
-    <<"required">> => [<<"definition">>]
-}).
-
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/2]).
 
 %%--------------------------------------------------------------------
@@ -171,7 +40,7 @@ create(#{skill_id := SkillId}) ->
         description =>
             <<"Create or overwrite a skill (upsert). Types: message.publish, message.request, http, postgresql.query">>,
         context => #{skill_id => SkillId},
-        input_schema => ?INPUT_SCHEMA
+        input_schema => input_schema()
     }).
 
 -spec destroy(binary()) -> ok.
@@ -204,3 +73,8 @@ handle_invoke(_Context, Request) ->
         {error, Reason} ->
             {error, emqx_agent_skill_helpers:format_error(Reason)}
     end.
+
+input_schema() ->
+    emqx_agent_schema_oai_tool_converter:to_json_schema(
+        {object, [{definition, emqx_agent_schema:skill_create_type()}]}
+    ).

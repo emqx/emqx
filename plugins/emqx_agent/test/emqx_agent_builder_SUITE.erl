@@ -96,16 +96,17 @@
     --- call_skill ---
       {"id": "notify", "type": "call_skill",
        "skill": "message.publish@my-notifier",
-       "args": {"topic": "$.event.device_id", "payload": "$.analysis"},
+       "args": [{"name": "topic", "value": "$.event.device_id"},
+                {"name": "payload", "value": "$.analysis"}],
        "result_path": "$.notify_result"}
 
     --- llm_loop ---
       {"id": "analyse", "type": "llm_loop",
        "provider_name": "my-provider",
        "stop_on_finish": true,
-       "tools": ["message.request@box-camera"],
-       "input": {"box_id": "$.event.box_id"},
-       "set_result_schema": {"type": "object", "properties": {"verdict": {"type": "string"}}},
+       "tools": ["<skill-type>@<skill-id>"],
+       "input": [{"name": "box_id", "value": "$.event.box_id"}],
+       "set_result_schema": "{\"type\":\"object\",\"properties\":{\"verdict\":{\"type\":\"string\"}},\"required\":[\"verdict\"],\"additionalProperties\":false}",
        "result_path": "$.analysis"}
 
     stop_on_finish: true = ephemeral session (default). false = persistent across triggers.
@@ -125,7 +126,8 @@
     ═══════════════════════════════════════════════════════
 
     $.event contains the trigger payload. Step results are written via result_path.
-    Values starting with $. in args/input are resolved from context at runtime.
+    Values starting with $. in args/input entries are resolved from context at runtime.
+    args and input are arrays of {"name": string, "value": primitive} entries, not objects.
 
     ═══════════════════════════════════════════════════════
     YOUR WORKFLOW
@@ -169,7 +171,6 @@
     Use the existing AI provider "openai" for the AI inspector.
     The inspector should request the photo, look for rotten/moldy/bruised apples,
     optionally raise an alert, then return a verdict: approved or rejected with a short reason.
-
     Pipeline id: apple-box-inspection.
     Run the inspection as an ephemeral LLM loop (fresh session per box),
     then persist the result to the database and broadcast the verdict. Make sure that

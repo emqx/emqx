@@ -100,6 +100,52 @@ t_reject_enum_value_wrong_type(_Config) ->
     Schema = one_field_schema(#{<<"type">> => <<"string">>, <<"enum">> => [1]}),
     assert_error(invalid_enum_value, emqx_agent_oai_tool_schema:validate_schema(Schema)).
 
+t_generated_create_skill_schema_valid(_Config) ->
+    Schema = emqx_agent_schema_oai_tool_converter:to_json_schema(
+        {object, [{definition, emqx_agent_schema:skill_create_type()}]}
+    ),
+    ?assertEqual(ok, emqx_agent_oai_tool_schema:validate_schema(Schema)),
+    ?assertEqual(false, contains_any_key([<<"$ref">>, <<"oneOf">>, <<"const">>], Schema)).
+
+t_generated_create_pipeline_schema_valid(_Config) ->
+    Schema = emqx_agent_schema_oai_tool_converter:to_json_schema(
+        hoconsc:ref(emqx_agent_schema, pipeline)
+    ),
+    ?assertEqual(ok, emqx_agent_oai_tool_schema:validate_schema(Schema)),
+    ?assertEqual(false, contains_any_key([<<"$ref">>, <<"oneOf">>, <<"const">>], Schema)),
+    ?assertEqual(false, contains_property(<<"active">>, Schema)).
+
+t_generated_create_pipeline_schema_has_typed_steps(_Config) ->
+    Schema = emqx_agent_schema_oai_tool_converter:to_json_schema(
+        hoconsc:ref(emqx_agent_schema, pipeline)
+    ),
+    StepSchema = maps:get(
+        <<"items">>,
+        maps:get(<<"steps">>, maps:get(<<"properties">>, Schema))
+    ),
+    StepTypes = lists:sort([
+        hd(maps:get(<<"enum">>, maps:get(<<"type">>, maps:get(<<"properties">>, Branch))))
+     || Branch <- maps:get(<<"anyOf">>, StepSchema)
+    ]),
+    ?assertEqual(
+        [<<"break">>, <<"call_skill">>, <<"llm_loop">>, <<"wait_for_event">>],
+        StepTypes
+    ).
+
+t_generated_pipeline_dynamic_maps_are_entry_arrays(_Config) ->
+    Schema = emqx_agent_schema_oai_tool_converter:to_json_schema(
+        hoconsc:ref(emqx_agent_schema, pipeline)
+    ),
+    StepSchema = maps:get(
+        <<"items">>,
+        maps:get(<<"steps">>, maps:get(<<"properties">>, Schema))
+    ),
+    Branches = maps:get(<<"anyOf">>, StepSchema),
+    CallSkill = branch_by_type(<<"call_skill">>, Branches),
+    LlmLoop = branch_by_type(<<"llm_loop">>, Branches),
+    ?assertEqual([<<"array">>, <<"null">>], property_type(<<"args">>, CallSkill)),
+    ?assertEqual([<<"array">>, <<"null">>], property_type(<<"input">>, LlmLoop)).
+
 empty_object() ->
     #{
         <<"type">> => <<"object">>,
@@ -124,3 +170,34 @@ assert_error(Code, {error, Errors}) ->
         lists:any(fun(#{error := Error}) -> Error =:= Code end, Errors),
         {expected_error, Code, Errors}
     ).
+
+contains_any_key(Keys, Map) when is_map(Map) ->
+    lists:any(fun(Key) -> maps:is_key(Key, Map) end, Keys) orelse
+        lists:any(fun(Value) -> contains_any_key(Keys, Value) end, maps:values(Map));
+contains_any_key(Keys, List) when is_list(List) ->
+    lists:any(fun(Value) -> contains_any_key(Keys, Value) end, List);
+contains_any_key(_Keys, _Value) ->
+    false.
+
+contains_property(Name, #{<<"properties">> := Properties} = Map) ->
+    maps:is_key(Name, Properties) orelse
+        contains_any_key([Name], maps:remove(<<"properties">>, Map));
+contains_property(Name, Map) when is_map(Map) ->
+    lists:any(fun(Value) -> contains_property(Name, Value) end, maps:values(Map));
+contains_property(Name, List) when is_list(List) ->
+    lists:any(fun(Value) -> contains_property(Name, Value) end, List);
+contains_property(_Name, _Value) ->
+    false.
+
+branch_by_type(Type, Branches) ->
+    hd([
+        Branch
+     || Branch <- Branches,
+        [Type] =:= maps:get(<<"enum">>, maps:get(<<"type">>, maps:get(<<"properties">>, Branch)))
+    ]).
+
+property_schema(Name, Schema) ->
+    maps:get(Name, maps:get(<<"properties">>, Schema)).
+
+property_type(Name, Schema) ->
+    maps:get(<<"type">>, property_schema(Name, Schema)).

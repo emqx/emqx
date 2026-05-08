@@ -143,7 +143,15 @@ normalize_method(<<"patch">>) -> patch;
 normalize_method(<<"delete">>) -> delete.
 
 normalize_headers(Headers) when is_map(Headers) -> maps:to_list(Headers);
-normalize_headers(Headers) when is_list(Headers) -> Headers.
+normalize_headers(Headers) when is_list(Headers) ->
+    [normalize_header(H) || H <- Headers].
+
+normalize_header({Name, Value}) ->
+    {Name, Value};
+normalize_header(#{<<"name">> := Name, <<"value">> := Value}) ->
+    {Name, Value};
+normalize_header(#{name := Name, value := Value}) ->
+    {Name, Value}.
 
 decode_response(Body) ->
     try

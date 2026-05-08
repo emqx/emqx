@@ -17,168 +17,6 @@
 
 -define(SKILL_TYPE, <<"agent.create_pipeline">>).
 
--define(STEP_SCHEMA, #{
-    <<"type">> => <<"object">>,
-    <<"oneOf">> => [
-        #{
-            <<"title">> => <<"call_skill">>,
-            <<"properties">> => #{
-                <<"id">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"description">> => <<"Unique step identifier within this pipeline">>
-                },
-                <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"call_skill">>},
-                <<"skill">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"description">> =>
-                        <<"Skill ref as type@skill_id, e.g. message.publish@my-publisher">>
-                },
-                <<"args">> => #{
-                    <<"type">> => <<"object">>,
-                    <<"description">> =>
-                        <<"Argument map. Values starting with $. are resolved from pipeline context">>
-                },
-                <<"result_path">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"description">> =>
-                        <<"Context path to write the skill result, e.g. $.notify_result">>
-                }
-            },
-            <<"required">> => [<<"id">>, <<"type">>, <<"skill">>]
-        },
-        #{
-            <<"title">> => <<"llm_loop">>,
-            <<"properties">> => #{
-                <<"id">> => #{<<"type">> => <<"string">>},
-                <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"llm_loop">>},
-                <<"provider_name">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"description">> => <<"Name of a configured AI provider">>
-                },
-                <<"model">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"description">> =>
-                        <<"LLM model name, e.g. gpt-5.4-mini or accounts/fireworks/models/kimi-k2p5">>
-                },
-                <<"stop_on_finish">> => #{
-                    <<"type">> => <<"boolean">>,
-                    <<"description">> =>
-                        <<"true = ephemeral session (default), false = persistent across triggers">>
-                },
-                <<"max_tokens">> => #{
-                    <<"type">> => <<"integer">>,
-                    <<"description">> => <<"Maximum completion tokens (default: 2048)">>
-                },
-                <<"tools">> => #{
-                    <<"type">> => <<"array">>,
-                    <<"items">> => #{<<"type">> => <<"string">>},
-                    <<"description">> =>
-                        <<"Skill refs available to the LLM, e.g. [\"message.publish@my-pub\"]">>
-                },
-                <<"instructions">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"description">> =>
-                        <<"System prompt for the LLM — describe the agent's role, available tools, and what it must do">>
-                },
-                <<"input">> => #{
-                    <<"type">> => <<"object">>,
-                    <<"description">> =>
-                        <<"Map of input keys to context paths or literals, e.g. {\"box_id\": \"$.event.box_id\"}">>
-                },
-                <<"set_result_schema">> => #{
-                    <<"type">> => <<"object">>,
-                    <<"description">> =>
-                        <<"REQUIRED. JSON Schema for structured output via built-in set_result tool">>
-                },
-                <<"result_path">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"description">> =>
-                        <<
-                            "REQUIRED. Context path where the LLM result is written, e.g. $.analysis. "
-                            "Subsequent steps reference this value as $.analysis.field. "
-                            "Must never be empty."
-                        >>
-                }
-            },
-            <<"required">> => [
-                <<"id">>,
-                <<"type">>,
-                <<"provider_name">>,
-                <<"model">>,
-                <<"instructions">>,
-                <<"result_path">>,
-                <<"set_result_schema">>
-            ]
-        },
-        #{
-            <<"title">> => <<"wait_for_event">>,
-            <<"properties">> => #{
-                <<"id">> => #{<<"type">> => <<"string">>},
-                <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"wait_for_event">>},
-                <<"topic">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"description">> =>
-                        <<"MQTT topic filter to wait on, e.g. evt/cloud/incident.updated">>
-                },
-                <<"where">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"description">> =>
-                        <<"Optional filter expression, e.g. data.incident_id == $.triage.incident_id">>
-                },
-                <<"result_path">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"description">> => <<"Context path to write the matched event payload">>
-                }
-            },
-            <<"required">> => [<<"id">>, <<"type">>, <<"topic">>]
-        },
-        #{
-            <<"title">> => <<"break">>,
-            <<"properties">> => #{
-                <<"id">> => #{<<"type">> => <<"string">>},
-                <<"type">> => #{<<"type">> => <<"string">>, <<"const">> => <<"break">>},
-                <<"path">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"description">> =>
-                        <<"JSONPath into context to evaluate, e.g. $.triage.should_escalate">>
-                },
-                <<"not">> => #{
-                    <<"type">> => <<"boolean">>,
-                    <<"description">> => <<"Negate the condition (default false)">>
-                },
-                <<"eq">> => #{<<"description">> => <<"Value to compare against (default true)">>}
-            },
-            <<"required">> => [<<"id">>, <<"type">>, <<"path">>]
-        }
-    ]
-}).
-
--define(INPUT_SCHEMA, #{
-    <<"type">> => <<"object">>,
-    <<"properties">> => #{
-        <<"pipeline_id">> => #{
-            <<"type">> => <<"string">>, <<"description">> => <<"Unique pipeline identifier">>
-        },
-        <<"trigger">> => #{
-            <<"type">> => <<"object">>,
-            <<"properties">> => #{
-                <<"topic">> => #{
-                    <<"type">> => <<"string">>,
-                    <<"description">> =>
-                        <<"MQTT topic filter. Wildcards + and # supported. Must start with evt/.">>
-                }
-            },
-            <<"required">> => [<<"topic">>]
-        },
-        <<"steps">> => #{
-            <<"type">> => <<"array">>,
-            <<"description">> => <<"Ordered list of pipeline steps">>,
-            <<"items">> => ?STEP_SCHEMA
-        }
-    },
-    <<"required">> => [<<"pipeline_id">>, <<"trigger">>, <<"steps">>]
-}).
-
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/2]).
 
 %%--------------------------------------------------------------------
@@ -203,7 +41,7 @@ create(#{skill_id := SkillId}) ->
         description =>
             <<"Create or overwrite a pipeline definition (upsert). Registered as inactive draft; activate via the API or admin UI.">>,
         context => #{skill_id => SkillId},
-        input_schema => ?INPUT_SCHEMA
+        input_schema => input_schema()
     }).
 
 -spec destroy(binary()) -> ok.
@@ -236,3 +74,8 @@ handle_invoke(_Context, Request) ->
         {error, Reason} ->
             {error, emqx_agent_skill_helpers:format_error(Reason)}
     end.
+
+input_schema() ->
+    emqx_agent_schema_oai_tool_converter:to_json_schema(
+        hoconsc:ref(emqx_agent_schema, pipeline)
+    ).

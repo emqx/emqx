@@ -131,11 +131,12 @@ normalize_steps([_ | _], Index, _Acc) ->
 normalize_step(#{<<"type">> := <<"llm_loop">>} = Step0, Index) ->
     Defaults = #{
         <<"tools">> => [],
-        <<"input">> => #{},
+        <<"input">> => [],
         <<"stop_on_finish">> => true,
         <<"max_tokens">> => 2048
     },
-    Step = maps:merge(Defaults, Step0),
+    Step1 = name_value_entries_to_map(<<"input">>, maps:merge(Defaults, Step0)),
+    Step = decode_json_schema_field(<<"set_result_schema">>, Step1),
     Required = [
         <<"id">>,
         <<"provider_name">>,
@@ -149,7 +150,7 @@ normalize_step(#{<<"type">> := <<"llm_loop">>} = Step0, Index) ->
         Field -> {error, {missing_step_field, Index, Field}}
     end;
 normalize_step(Step, _Index) ->
-    {ok, Step}.
+    {ok, name_value_entries_to_map(<<"args">>, Step)}.
 
 missing_required_field(_Step, []) ->
     undefined;
@@ -157,4 +158,25 @@ missing_required_field(Step, [Field | Rest]) ->
     case maps:is_key(Field, Step) of
         true -> missing_required_field(Step, Rest);
         false -> Field
+    end.
+
+name_value_entries_to_map(Field, Step) ->
+    case maps:get(Field, Step, undefined) of
+        Entries when is_list(Entries) ->
+            Step#{Field => maps:from_list([name_value_entry_to_pair(E) || E <- Entries])};
+        _ ->
+            Step
+    end.
+
+name_value_entry_to_pair(#{<<"name">> := Name, <<"value">> := Value}) ->
+    {Name, Value};
+name_value_entry_to_pair(#{name := Name, value := Value}) ->
+    {Name, Value}.
+
+decode_json_schema_field(Field, Step) ->
+    case maps:get(Field, Step, undefined) of
+        Value when is_binary(Value) ->
+            Step#{Field => emqx_agent_schema:json_schema_from_string(Value, [])};
+        _ ->
+            Step
     end.
