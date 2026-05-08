@@ -275,17 +275,32 @@ reinit_mfa(Username, Mechanism, ByAdmin) ->
 %%   ByAdmin=false                      → write false (self voluntary)
 %%   ByAdmin=true,  snapshot=true       → leave untouched (policy-locked)
 %%   ByAdmin=true,  snapshot=false|undef → write true (admin enforces)
+%%
+%% Mnesia write failures are logged at warning level rather than crashing
+%% the caller (admin_required is a derived security flag; the calling
+%% MFA/reinit operation has already succeeded and a stale flag is less
+%% harmful than a 500). The next admin/self interaction will overwrite
+%% it via the same path.
 maybe_set_admin_required(Username, false) ->
-    _ = set_admin_required(Username, false),
-    ok;
+    log_admin_required_write(Username, false, set_admin_required(Username, false));
 maybe_set_admin_required(Username, true) ->
     case force_mfa_snapshot_of(Username) of
         true ->
             ok;
         _ ->
-            _ = set_admin_required(Username, true),
-            ok
+            log_admin_required_write(Username, true, set_admin_required(Username, true))
     end.
+
+log_admin_required_write(_Username, _Value, {ok, ok}) ->
+    ok;
+log_admin_required_write(Username, Value, {error, Reason}) ->
+    ?SLOG(warning, #{
+        msg => "set_admin_required_failed",
+        username => Username,
+        value => Value,
+        reason => Reason
+    }),
+    ok.
 
 %% @doc Set MFA state in the extra map.
 set_mfa_state(Username, MfaState) ->
