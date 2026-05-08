@@ -5,6 +5,7 @@
 -include_lib("emqx_mgmt.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 
 -behaviour(emqx_db_backup).
@@ -595,8 +596,23 @@ parse_bootstrap_line(Bin, MP) ->
 %%   `[Bin, ...]' — the validated scopes, in original order.
 parse_bootstrap_scopes(ApiKey, ApiSecret, Role, ScopesStr) ->
     Parsed = parse_scopes_str(ScopesStr),
-    {Valid, Rejected} = emqx_mgmt_api_key_scopes:filter_valid_scopes(Parsed),
+    {Valid0, Rejected0} = emqx_mgmt_api_key_scopes:filter_valid_scopes(Parsed),
+    %% Publisher API keys can only hold the `publish' scope. Drop any
+    %% other scope names with a warning — same lenient policy as
+    %% unknown scopes (typo in ops config must not abort the whole load).
+    {Valid, Rejected} = filter_publisher_scopes(Role, Valid0, Rejected0),
     {ok, {ApiKey, ApiSecret, Role, Valid, Rejected}}.
+
+%% Restrict publisher role to the `publish' scope only. Other roles
+%% pass through unchanged. Returns updated {Valid, Rejected}.
+filter_publisher_scopes(?ROLE_API_PUBLISHER, Valid, Rejected) ->
+    {Keep, Drop} = lists:partition(
+        fun(S) -> S =:= ?SCOPE_PUBLISH end,
+        Valid
+    ),
+    {Keep, Rejected ++ Drop};
+filter_publisher_scopes(_OtherRole, Valid, Rejected) ->
+    {Valid, Rejected}.
 
 %% @doc Parse the comma-separated scope string from the 4th bootstrap
 %% segment. Each token is trimmed and lowercased; empty tokens are
