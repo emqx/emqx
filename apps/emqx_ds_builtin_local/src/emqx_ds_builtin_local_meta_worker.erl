@@ -49,7 +49,10 @@ handle_cast(_Cast, S) ->
 handle_info({?MODULE, tick}, S = #s{db = DB}) ->
     Shards = emqx_ds_builtin_local_meta:shards(DB),
     [tick(DB, Shard) || Shard <- Shards],
-    erlang:send_after(100, self(), tick),
+    %% Send the same tag the handler matches on; the original
+    %% `tick' atom would fall through to the catchall below and
+    %% silently stop the periodic tick after the first iteration.
+    erlang:send_after(100, self(), {?MODULE, tick}),
     {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
@@ -67,9 +70,16 @@ terminate(_Reason, _S) ->
 
 tick(DB, Shard) ->
     ShardId = {DB, Shard},
-    Now = max(
-        erlang:system_time(microsecond), emqx_ds_builtin_local_meta:current_timestamp(ShardId) + 1
-    ),
+    SystemNow = erlang:system_time(microsecond),
+    %% On a fresh shard no transaction has been committed yet, so
+    %% `current_timestamp/1' returns `undefined' — guard against the
+    %% `undefined + 1' arithmetic that previously crashed the worker
+    %% on its first tick.
+    Now =
+        case emqx_ds_builtin_local_meta:current_timestamp(ShardId) of
+            undefined -> SystemNow;
+            Latest -> max(SystemNow, Latest + 1)
+        end,
     emqx_ds_builtin_local_meta:set_current_timestamp(ShardId, Now),
     %% @TODO ????
     Events = emqx_ds_storage_layer:handle_event(ShardId, Now, {?MODULE, tick}),
