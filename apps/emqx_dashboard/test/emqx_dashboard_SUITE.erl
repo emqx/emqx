@@ -243,46 +243,46 @@ t_rest_api(_Config) ->
     ok.
 
 t_swagger_json(_Config) ->
+    %% `/api-docs/swagger.json` keeps serving the full OpenAPI 3 JSON spec
+    %% so external Swagger UI deployments that point at it keep working
+    %% after the bundled in-tree UI was removed.
     Url = ?HOST ++ "/api-docs/swagger.json",
-    %% with auth
-    Auth = auth_header_(<<"admin">>, <<"public_www1">>),
-    {ok, 200, Body1} = request_api(get, Url, Auth),
-    ?assert(emqx_utils_json:is_json(Body1)),
-    %% without auth
-    {ok, {{"HTTP/1.1", 200, "OK"}, _Headers, Body2}} =
+    {ok, {{"HTTP/1.1", 200, "OK"}, _Headers, Body}} =
         httpc:request(get, {Url, []}, [], [{body_format, binary}]),
-    ?assertEqual(Body1, Body2),
+    ?assert(emqx_utils_json:is_json(Body)),
     ?assertMatch(
         #{
-            <<"info">> := #{
-                <<"title">> := _,
-                <<"version">> := _
-            }
+            <<"openapi">> := <<"3.", _/binary>>,
+            <<"info">> := #{<<"title">> := _, <<"version">> := _},
+            <<"paths">> := _
         },
-        emqx_utils_json:decode(Body1)
-    ),
-    ok.
+        emqx_utils_json:decode(Body)
+    ).
 
 t_disable_swagger_json(_Config) ->
-    Url = ?HOST ++ "/api-docs/index.html",
-    ApiSpecUrls = [
+    %% All `/api-docs*` and `/api-spec*` paths share gating with
+    %% `dashboard.swagger_support`: flipping it to false makes them
+    %% all 404, and flipping it back restores them.
+    RedirectUrl = ?HOST ++ "/api-docs",
+    OkUrls = [
+        ?HOST ++ "/api-docs/swagger.json",
         ?HOST ++ "/api-spec.html",
         ?HOST ++ "/api-spec.md",
         ?HOST ++ "/api-spec.json"
     ],
-    ?assertMatch(
-        {ok, {{"HTTP/1.1", 200, "OK"}, __, _}},
-        httpc:request(get, {Url, []}, [], [{body_format, binary}])
-    ),
-    lists:foreach(
-        fun(ApiSpecUrl) ->
+    AssertStatus =
+        fun(Status, Url) ->
             ?assertMatch(
-                {ok, {{"HTTP/1.1", 200, "OK"}, _, _}},
-                httpc:request(get, {ApiSpecUrl, []}, [], [{body_format, binary}])
+                {ok, {{"HTTP/1.1", Status, _}, _, _}},
+                httpc:request(
+                    get, {Url, []}, [{autoredirect, false}], [{body_format, binary}]
+                ),
+                #{url => Url, expected_status => Status}
             )
         end,
-        ApiSpecUrls
-    ),
+    %% Initial state: redirect returns 308, the rest 200.
+    AssertStatus(308, RedirectUrl),
+    lists:foreach(fun(U) -> AssertStatus(200, U) end, OkUrls),
     DashboardCfg = emqx:get_raw_config([dashboard]),
     ?check_trace(
         {_, {ok, _}} = ?wait_async_action(
@@ -295,19 +295,7 @@ t_disable_swagger_json(_Config) ->
         ),
         []
     ),
-    ?assertMatch(
-        {ok, {{"HTTP/1.1", 404, "Not Found"}, _, _}},
-        httpc:request(get, {Url, []}, [], [{body_format, binary}])
-    ),
-    lists:foreach(
-        fun(ApiSpecUrl) ->
-            ?assertMatch(
-                {ok, {{"HTTP/1.1", 404, "Not Found"}, _, _}},
-                httpc:request(get, {ApiSpecUrl, []}, [], [{body_format, binary}])
-            )
-        end,
-        ApiSpecUrls
-    ),
+    lists:foreach(fun(U) -> AssertStatus(404, U) end, [RedirectUrl | OkUrls]),
     ?check_trace(
         {_, {ok, _}} = ?wait_async_action(
             begin
@@ -319,19 +307,8 @@ t_disable_swagger_json(_Config) ->
         ),
         []
     ),
-    ?assertMatch(
-        {ok, {{"HTTP/1.1", 200, "OK"}, _, _}},
-        httpc:request(get, {Url, []}, [], [{body_format, binary}])
-    ),
-    lists:foreach(
-        fun(ApiSpecUrl) ->
-            ?assertMatch(
-                {ok, {{"HTTP/1.1", 200, "OK"}, _, _}},
-                httpc:request(get, {ApiSpecUrl, []}, [], [{body_format, binary}])
-            )
-        end,
-        ApiSpecUrls
-    ).
+    AssertStatus(308, RedirectUrl),
+    lists:foreach(fun(U) -> AssertStatus(200, U) end, OkUrls).
 
 t_cli(_Config) ->
     [mria:dirty_delete(?ADMIN, Admin) || Admin <- mnesia:dirty_all_keys(?ADMIN)],
