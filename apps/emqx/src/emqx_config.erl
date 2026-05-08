@@ -1003,10 +1003,10 @@ save_configs(AppEnvs, Conf, RawConf, OverrideConf, Opts) ->
         ok ->
             save_to_app_env(AppEnvs),
             save_to_config_map(Conf, RawConf);
-        {error, #{filename := Filename, reason := Reason}} ->
+        {error, #{filename := FileName, reason := Reason}} ->
             throw(#{
                 msg => failed_to_save_conf_file,
-                filename => Filename,
+                filename => FileName,
                 reason => Reason
             })
     end.
