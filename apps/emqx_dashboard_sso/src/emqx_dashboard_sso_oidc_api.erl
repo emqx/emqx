@@ -199,6 +199,10 @@ ensure_user_exists(_Cfg, <<"undefined">>) ->
 ensure_user_exists(Cfg, Username) ->
     case emqx_dashboard_admin:lookup_user(?BACKEND, Username) of
         [User] ->
+            %% Lazy backfill: existing users provisioned before this
+            %% feat have no force_mfa_snapshot. Write it once on first
+            %% post-upgrade login. SPEC sec 8.1.
+            ok = emqx_dashboard_sso_mfa:ensure_force_mfa_snapshot(?BACKEND, Username),
             case emqx_dashboard_sso_mfa:check_sso_mfa(User, ?BACKEND) of
                 {ok, login} ->
                     Payload = #{
@@ -228,6 +232,13 @@ ensure_user_exists(Cfg, Username) ->
         [] ->
             case emqx_dashboard_admin:add_sso_user(?BACKEND, Username, ?ROLE_VIEWER, <<>>) of
                 {ok, _} ->
+                    %% Snapshot the backend's force_mfa policy onto
+                    %% the new user's record before recursing into
+                    %% the existing-user branch (which performs the
+                    %% MFA flow check). SPEC sec 7.4.
+                    ok = emqx_dashboard_sso_mfa:ensure_force_mfa_snapshot(
+                        ?BACKEND, Username
+                    ),
                     ensure_user_exists(Cfg, Username);
                 Error ->
                     Error

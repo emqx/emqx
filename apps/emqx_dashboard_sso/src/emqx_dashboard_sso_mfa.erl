@@ -11,7 +11,8 @@
 
 -export([
     check_sso_mfa/2,
-    get_force_mfa/1
+    get_force_mfa/1,
+    ensure_force_mfa_snapshot/2
 ]).
 
 -define(MOD_KEY_PATH(Sub), [dashboard, sso, Sub]).
@@ -38,6 +39,25 @@ get_force_mfa(Backend) ->
     case emqx:get_config(?MOD_KEY_PATH(Backend), undefined) of
         #{force_mfa := ForceMfa} -> ForceMfa;
         _ -> false
+    end.
+
+%% @doc Snapshot the SSO backend's force_mfa policy onto the user's
+%% admin record at provision (or first reconnect). The snapshot is
+%% written ONCE — subsequent backend config changes do not retro-
+%% actively flip the field. Lazy migration for users created before
+%% this feat: write only when the field is currently undefined.
+%%
+%% See SPEC-dashboard-user-scopes.md sec 6.1 / sec 8.1.
+-spec ensure_force_mfa_snapshot(atom(), binary()) -> ok.
+ensure_force_mfa_snapshot(Backend, Username) ->
+    SsoUsername = ?SSO_USERNAME(Backend, Username),
+    case emqx_dashboard_admin:force_mfa_snapshot_of(SsoUsername) of
+        undefined ->
+            ForceMfa = get_force_mfa(Backend),
+            _ = emqx_dashboard_admin:set_force_mfa_snapshot(SsoUsername, ForceMfa),
+            ok;
+        _AlreadySet ->
+            ok
     end.
 
 %%--------------------------------------------------------------------

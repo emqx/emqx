@@ -391,10 +391,18 @@ gen_redirect_response(DashboardAddr, Username) ->
 ensure_user_exists(Username) ->
     case emqx_dashboard_admin:lookup_user(saml, Username) of
         [User] ->
+            %% Lazy backfill of force_mfa_snapshot for users created
+            %% before feat/dashboard-user-scopes. SPEC sec 8.1.
+            ok = emqx_dashboard_sso_mfa:ensure_force_mfa_snapshot(saml, Username),
             emqx_dashboard_sso_mfa:check_sso_mfa(User, saml);
         [] ->
             case emqx_dashboard_admin:add_sso_user(saml, Username, ?ROLE_VIEWER, <<>>) of
                 {ok, _} ->
+                    %% Snapshot backend force_mfa onto the new user
+                    %% record. SPEC sec 7.4.
+                    ok = emqx_dashboard_sso_mfa:ensure_force_mfa_snapshot(
+                        saml, Username
+                    ),
                     ensure_user_exists(Username);
                 Error ->
                     Error
