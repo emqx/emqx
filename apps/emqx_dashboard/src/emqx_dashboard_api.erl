@@ -481,36 +481,44 @@ change_pwd(post, #{bindings := #{username := Username}, body := Params}) ->
 change_mfa(delete, #{bindings := #{username := Username0}} = Req) ->
     Username = username(Req, Username0),
     LogMeta = #{msg => "dashboard_user_mfa_disable", username => Username},
-    case emqx_dashboard_admin:disable_mfa(Username) of
+    case authorize_mfa_change(Req, Username, disable) of
         ok ->
-            ?SLOG(info, LogMeta#{result => success}),
-            {204};
-        {error, <<"username_not_found">>} ->
-            ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
-            {404, ?USER_NOT_FOUND, <<"User not found">>};
-        {error, Reason} ->
-            ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
-            {400, ?BAD_REQUEST, Reason}
+            case emqx_dashboard_admin:disable_mfa(Username) of
+                ok ->
+                    ?SLOG(info, LogMeta#{result => success}),
+                    {204};
+                {error, <<"username_not_found">>} ->
+                    ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
+                    {404, ?USER_NOT_FOUND, <<"User not found">>};
+                {error, Reason} ->
+                    ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
+                    {400, ?BAD_REQUEST, Reason}
+            end;
+        {deny, Code, ErrCode, Msg} ->
+            ?SLOG(warning, LogMeta#{result => denied, reason => ErrCode}),
+            {Code, ErrCode, Msg}
     end;
 change_mfa(post, #{bindings := #{username := Username0}, body := Settings} = Req) ->
     Username = username(Req, Username0),
     Mechanism = maps:get(<<"mechanism">>, Settings),
     LogMeta = #{msg => "dashboard_user_mfa_setup", username => Username},
-    %% TODO(commit 6): derive ByAdmin from caller vs target identity
-    %% (caller != target -> ByAdmin=true). For now, treat handler-driven
-    %% reinit as self-call. Commit 6 (authorize_mfa_change/3) wires the
-    %% real caller-vs-target distinction.
-    ByAdmin = false,
-    case emqx_dashboard_admin:reinit_mfa(Username, Mechanism, ByAdmin) of
+    case authorize_mfa_change(Req, Username, setup) of
         ok ->
-            ?SLOG(info, LogMeta#{result => success}),
-            {204};
-        {error, <<"username_not_found">>} ->
-            ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
-            {404, ?USER_NOT_FOUND, <<"User not found">>};
-        {error, Reason} ->
-            ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
-            {400, ?BAD_REQUEST, Reason}
+            ByAdmin = caller_is_admin_acting_on_other(Req, Username),
+            case emqx_dashboard_admin:reinit_mfa(Username, Mechanism, ByAdmin) of
+                ok ->
+                    ?SLOG(info, LogMeta#{result => success}),
+                    {204};
+                {error, <<"username_not_found">>} ->
+                    ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
+                    {404, ?USER_NOT_FOUND, <<"User not found">>};
+                {error, Reason} ->
+                    ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
+                    {400, ?BAD_REQUEST, Reason}
+            end;
+        {deny, Code, ErrCode, Msg} ->
+            ?SLOG(warning, LogMeta#{result => denied, reason => ErrCode}),
+            {Code, ErrCode, Msg}
     end.
 
 register_unsuccessful_login(Username, <<"password_error">>) ->
@@ -577,6 +585,113 @@ maybe_set_user_scopes(_Username, undefined) ->
 maybe_set_user_scopes(Username, Scopes) when is_list(Scopes) ->
     {ok, ok} = emqx_dashboard_admin:set_user_scopes(Username, Scopes),
     ok.
+
+%% --- MFA self-lock authorization ---
+%%
+%% SPEC-dashboard-user-scopes.md sec 6.3 / 6.5. Decision matrix:
+%%
+%%   IsFirstSetup = (Op == setup) AND (target.mfa_state == not_configured)
+%%   IsSelf       = (caller.username == target)
+%%   HasMfaMgmt   = caller.scopes contains mfa_management
+%%   Locked       = target.force_mfa_snapshot OR target.admin_required
+%%
+%%   IsFirstSetup => allow                                  (deadlock prevention)
+%%   IsSelf       AND HasMfaMgmt           => allow         (self-exempt)
+%%   IsSelf       AND NOT HasMfaMgmt AND NOT Locked => allow
+%%   IsSelf       AND NOT HasMfaMgmt AND Locked     => deny mfa_locked
+%%   NOT IsSelf   AND HasMfaMgmt AND administrator   => allow (admin reset)
+%%   NOT IsSelf   AND HasMfaMgmt AND non-admin       => deny self_only
+%%   NOT IsSelf   AND NOT HasMfaMgmt                 => deny missing_mfa_mgmt
+%%
+%% Returns:
+%%   ok                                          allow
+%%   {deny, HttpCode, ErrorCode, BinaryMessage}  deny with HTTP response
+authorize_mfa_change(Req, TargetUsername, Op) ->
+    Caller = caller_admin(Req),
+    case Caller of
+        undefined ->
+            %% No bearer token caller (shouldn't happen — bearer-only
+            %% endpoint, but guard anyway).
+            {deny, 401, 'UNAUTHORIZED', <<"Bearer auth required">>};
+        _ ->
+            authorize_mfa_change_with_caller(Caller, TargetUsername, Op)
+    end.
+
+authorize_mfa_change_with_caller(Caller, TargetUsername, Op) ->
+    IsSelf = (Caller#?ADMIN.username =:= TargetUsername),
+    CallerRole = Caller#?ADMIN.role,
+    HasMfaMgmt = caller_has_mfa_mgmt(Caller),
+    IsFirstSetup = is_first_time_setup(TargetUsername, Op),
+    Locked = target_self_locked(TargetUsername),
+    case {IsFirstSetup, IsSelf, HasMfaMgmt, Locked, CallerRole} of
+        {true, _, _, _, _} ->
+            ok;
+        {false, true, true, _, _} ->
+            ok;
+        {false, true, false, false, _} ->
+            ok;
+        {false, true, false, true, _} ->
+            {deny, 403, 'MFA_LOCKED', <<
+                "MFA changes for this account are restricted; "
+                "the mfa_management scope is required to override."
+            >>};
+        {false, false, true, _, ?ROLE_SUPERUSER} ->
+            ok;
+        {false, false, true, _, _NonAdmin} ->
+            {deny, 403, 'MFA_SELF_ONLY', <<
+                "Non-administrator users with mfa_management scope can "
+                "only manage their own MFA, not other users'."
+            >>};
+        {false, false, false, _, _} ->
+            {deny, 403, 'MFA_MGMT_REQUIRED', <<
+                "The mfa_management scope is required to manage other "
+                "users' MFA."
+            >>}
+    end.
+
+is_first_time_setup(_TargetUsername, disable) ->
+    false;
+is_first_time_setup(TargetUsername, setup) ->
+    case emqx_dashboard_admin:get_mfa_state(TargetUsername) of
+        {ok, _} -> false;
+        _ -> true
+    end.
+
+target_self_locked(TargetUsername) ->
+    case emqx_dashboard_admin:force_mfa_snapshot_of(TargetUsername) of
+        true -> true;
+        _ -> emqx_dashboard_admin:admin_required_of(TargetUsername)
+    end.
+
+caller_has_mfa_mgmt(#?ADMIN{username = Username, role = Role}) ->
+    case emqx_dashboard_admin:scopes_of(Username) of
+        Scopes when is_list(Scopes) ->
+            lists:member(?SCOPE_MFA_MGMT, Scopes);
+        undefined ->
+            %% Backward-compatible default: administrators with no
+            %% explicit scope list inherit full access (incl.
+            %% mfa_management). Non-admins fall back to no
+            %% mfa_management — they must opt in explicitly.
+            Role =:= ?ROLE_SUPERUSER
+    end.
+
+%% Look up the caller's #?ADMIN{} record using the bearer token's
+%% `source' field (set by emqx_dashboard:authorize/2). Returns
+%% undefined if not a bearer-token request or the user has been
+%% deleted between login and this request.
+caller_admin(#{auth_meta := #{auth_type := jwt_token, source := Username}}) ->
+    case emqx_dashboard_admin:lookup_user(Username) of
+        [Admin] -> Admin;
+        _ -> undefined
+    end;
+caller_admin(_) ->
+    undefined.
+
+caller_is_admin_acting_on_other(Req, TargetUsername) ->
+    case caller_admin(Req) of
+        #?ADMIN{username = Caller} when Caller =/= TargetUsername -> true;
+        _ -> false
+    end.
 
 mk(Type, Props) ->
     hoconsc:mk(Type, Props).

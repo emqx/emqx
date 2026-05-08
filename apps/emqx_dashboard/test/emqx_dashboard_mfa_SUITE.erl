@@ -207,17 +207,21 @@ t_disable_mfa(_Config) ->
             <<"mfa_token">> => <<"123456">>
         },
     AdminJwtToken = admin_jwt_token(),
-    %% enable by admin1 for viewer1
+    %% enable by admin1 for viewer1 — this sets admin_required=true,
+    %% locking viewer1 from disabling its OWN MFA without
+    %% mfa_management scope (SPEC sec 6.1.1 / 6.3).
     ?assertMatch({ok, 204, _}, enable_mfa(<<"viewer1">>), AdminJwtToken),
     ?assertMatch({ok, 204, _}, enable_mfa(<<"viewer2">>), AdminJwtToken),
     {ok, 200, RspBody} = login(LoginBody),
     #{<<"token">> := JwtToken} = json_map(RspBody),
-    ?assertMatch({ok, 204, _}, disable_mfa(<<"viewer1">>, JwtToken)),
+    %% viewer1 cannot disable own admin-enforced MFA
+    ?assertMatch({ok, 403, _}, disable_mfa(<<"viewer1">>, JwtToken)),
     %% viewer is not allow to enable other user's MFA
     ?assertMatch({ok, 403, _}, enable_mfa(<<"viewer2">>, JwtToken)),
     %% viewer is not allow to disable other user's MFA
     ?assertMatch({ok, 403, _}, disable_mfa(<<"viewer2">>, JwtToken)),
-    %% admin can disable other user's MFA
+    %% admin can disable any user's MFA (overrides admin_required)
+    ?assertMatch({ok, 204, _}, disable_mfa(<<"viewer1">>, AdminJwtToken)),
     ?assertMatch({ok, 204, _}, disable_mfa(<<"viewer2">>, AdminJwtToken)),
     %% disable for viewer1 again should return 400 (already disabled)
     ?assertMatch({ok, 400, _}, disable_mfa(<<"viewer1">>, AdminJwtToken)),
@@ -335,7 +339,12 @@ t_reset_mfa_reinit_error(_Config) ->
     Req = #{
         bindings => #{username => <<"viewer1">>},
         body => #{<<"mechanism">> => <<"totp">>},
-        query_string => #{<<"backend">> => <<"local">>}
+        query_string => #{<<"backend">> => <<"local">>},
+        %% Simulate authn metadata that minirest injects after a
+        %% successful bearer token verification (admin1 lookup
+        %% succeeds on the existing fixture, granting mfa_management
+        %% via the role-default fallback in caller_has_mfa_mgmt/1).
+        auth_meta => #{auth_type => jwt_token, source => <<"admin1">>}
     },
     ?assertMatch({400, 'BAD_REQUEST', <<"boom">>}, emqx_dashboard_api:change_mfa(post, Req)),
     ok.
