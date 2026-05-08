@@ -360,33 +360,46 @@ users(post, #{body := Params}) ->
         true ->
             {400, ?BAD_REQUEST, <<"Username or password undefined">>};
         false ->
-            case validate_login_user_scopes(Role, Scopes) of
-                ok ->
-                    case emqx_dashboard_admin:add_user(Username, Password, Role, Desc) of
-                        {ok, Result} ->
-                            case maybe_set_user_scopes(Username, Scopes) of
-                                ok ->
-                                    ?SLOG(info, #{
-                                        msg => "create_dashboard_user_success",
-                                        username => Username
-                                    }),
-                                    {200, to_json_out(Result)};
-                                {error, <<"username_not_found">> = Reason} ->
-                                    {404, ?USER_NOT_FOUND, Reason};
-                                {error, Reason} ->
-                                    {400, ?BAD_REQUEST, Reason}
-                            end;
-                        {error, Reason} ->
-                            ?SLOG(info, #{
-                                msg => "create_dashboard_user_failed",
-                                username => Username,
-                                reason => Reason
-                            }),
-                            {400, ?BAD_REQUEST, Reason}
-                    end;
-                {error, Msg} ->
-                    {400, ?BAD_REQUEST, Msg}
-            end
+            create_user(Username, Password, Role, Desc, Scopes)
+    end.
+
+%% Run the validate → add_user → set_scopes pipeline. Each step short-
+%% circuits to the appropriate HTTP response, keeping users(post,...)
+%% within elvis's nesting cap.
+create_user(Username, Password, Role, Desc, Scopes) ->
+    case validate_login_user_scopes(Role, Scopes) of
+        ok ->
+            do_create_user(Username, Password, Role, Desc, Scopes);
+        {error, Msg} ->
+            {400, ?BAD_REQUEST, Msg}
+    end.
+
+do_create_user(Username, Password, Role, Desc, Scopes) ->
+    case emqx_dashboard_admin:add_user(Username, Password, Role, Desc) of
+        {ok, Result} ->
+            finalise_create_user(Username, Scopes, Result);
+        {error, Reason} ->
+            ?SLOG(info, #{
+                msg => "create_dashboard_user_failed",
+                username => Username,
+                reason => Reason
+            }),
+            {400, ?BAD_REQUEST, Reason}
+    end.
+
+finalise_create_user(Username, Scopes, Result) ->
+    case maybe_set_user_scopes(Username, Scopes) of
+        ok ->
+            ?SLOG(info, #{
+                msg => "create_dashboard_user_success",
+                username => Username
+            }),
+            {200, to_json_out(Result)};
+        {error, <<"username_not_found">> = Reason} ->
+            {404, ?USER_NOT_FOUND, Reason};
+        {error, Reason} ->
+            {400, ?BAD_REQUEST, Reason}
+    end.
     end.
 
 user(put, #{bindings := #{username := Username0}, body := Params} = Req) ->
@@ -394,26 +407,7 @@ user(put, #{bindings := #{username := Username0}, body := Params} = Req) ->
     Desc = maps:get(<<"description">>, Params),
     Scopes = maps:get(<<"scopes">>, Params, undefined),
     Username = username(Req, Username0),
-    case validate_login_user_scopes(Role, Scopes) of
-        ok ->
-            case emqx_dashboard_admin:update_user(Username, Role, Desc) of
-                {ok, Result} ->
-                    case maybe_set_user_scopes(Username, Scopes) of
-                        ok ->
-                            {200, to_json_out(Result)};
-                        {error, <<"username_not_found">> = Reason} ->
-                            {404, ?USER_NOT_FOUND, Reason};
-                        {error, Reason} ->
-                            {400, ?BAD_REQUEST, Reason}
-                    end;
-                {error, <<"username_not_found">> = Reason} ->
-                    {404, ?USER_NOT_FOUND, Reason};
-                {error, Reason} ->
-                    {400, ?BAD_REQUEST, Reason}
-            end;
-        {error, Msg} ->
-            {400, ?BAD_REQUEST, Msg}
-    end;
+    update_user(Username, Role, Desc, Scopes);
 user(delete, #{bindings := #{username := Username}} = Req) ->
     DefaultUsername = emqx_dashboard_admin:default_username(),
     case Username == DefaultUsername of
@@ -609,6 +603,37 @@ validate_role_scope_compat(_NonAdminRole, Scopes) ->
                 <<"Non-administrator users cannot hold admin-only scopes: ">>, Names
             ]),
             {error, Msg}
+    end.
+
+%% Run the validate → update_user → set_scopes pipeline. Mirrors
+%% create_user/5 above, also kept as a helper to stay within elvis's
+%% nesting cap.
+update_user(Username, Role, Desc, Scopes) ->
+    case validate_login_user_scopes(Role, Scopes) of
+        ok ->
+            do_update_user(Username, Role, Desc, Scopes);
+        {error, Msg} ->
+            {400, ?BAD_REQUEST, Msg}
+    end.
+
+do_update_user(Username, Role, Desc, Scopes) ->
+    case emqx_dashboard_admin:update_user(Username, Role, Desc) of
+        {ok, Result} ->
+            finalise_update_user(Username, Scopes, Result);
+        {error, <<"username_not_found">> = Reason} ->
+            {404, ?USER_NOT_FOUND, Reason};
+        {error, Reason} ->
+            {400, ?BAD_REQUEST, Reason}
+    end.
+
+finalise_update_user(Username, Scopes, Result) ->
+    case maybe_set_user_scopes(Username, Scopes) of
+        ok ->
+            {200, to_json_out(Result)};
+        {error, <<"username_not_found">> = Reason} ->
+            {404, ?USER_NOT_FOUND, Reason};
+        {error, Reason} ->
+            {400, ?BAD_REQUEST, Reason}
     end.
 
 %% Persist scopes to the admin record's extra map. Skip when scopes is
