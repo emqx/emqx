@@ -8,6 +8,7 @@
 -module(emqx_dashboard_sso_mfa).
 
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -export([
     check_sso_mfa/2,
@@ -54,8 +55,22 @@ ensure_force_mfa_snapshot(Backend, Username) ->
     case emqx_dashboard_admin:force_mfa_snapshot_of(SsoUsername) of
         undefined ->
             ForceMfa = get_force_mfa(Backend),
-            _ = emqx_dashboard_admin:set_force_mfa_snapshot(SsoUsername, ForceMfa),
-            ok;
+            case emqx_dashboard_admin:set_force_mfa_snapshot(SsoUsername, ForceMfa) of
+                {ok, ok} ->
+                    ok;
+                {error, Reason} ->
+                    %% Mnesia write failure must not silently degrade the
+                    %% MFA self-lock invariant. Surface to operators so
+                    %% they can investigate; the next login will retry
+                    %% via the same lazy-backfill path.
+                    ?SLOG(warning, #{
+                        msg => "set_force_mfa_snapshot_failed",
+                        backend => Backend,
+                        username => Username,
+                        reason => Reason
+                    }),
+                    ok
+            end;
         _AlreadySet ->
             ok
     end.

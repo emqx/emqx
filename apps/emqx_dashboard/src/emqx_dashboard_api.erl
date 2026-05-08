@@ -364,12 +364,18 @@ users(post, #{body := Params}) ->
                 ok ->
                     case emqx_dashboard_admin:add_user(Username, Password, Role, Desc) of
                         {ok, Result} ->
-                            ok = maybe_set_user_scopes(Username, Scopes),
-                            ?SLOG(info, #{
-                                msg => "create_dashboard_user_success",
-                                username => Username
-                            }),
-                            {200, filter_result(Result)};
+                            case maybe_set_user_scopes(Username, Scopes) of
+                                ok ->
+                                    ?SLOG(info, #{
+                                        msg => "create_dashboard_user_success",
+                                        username => Username
+                                    }),
+                                    {200, filter_result(Result)};
+                                {error, <<"username_not_found">> = Reason} ->
+                                    {404, ?USER_NOT_FOUND, Reason};
+                                {error, Reason} ->
+                                    {400, ?BAD_REQUEST, Reason}
+                            end;
                         {error, Reason} ->
                             ?SLOG(info, #{
                                 msg => "create_dashboard_user_failed",
@@ -392,8 +398,14 @@ user(put, #{bindings := #{username := Username0}, body := Params} = Req) ->
         ok ->
             case emqx_dashboard_admin:update_user(Username, Role, Desc) of
                 {ok, Result} ->
-                    ok = maybe_set_user_scopes(Username, Scopes),
-                    {200, filter_result(Result)};
+                    case maybe_set_user_scopes(Username, Scopes) of
+                        ok ->
+                            {200, filter_result(Result)};
+                        {error, <<"username_not_found">> = Reason} ->
+                            {404, ?USER_NOT_FOUND, Reason};
+                        {error, Reason} ->
+                            {400, ?BAD_REQUEST, Reason}
+                    end;
                 {error, <<"username_not_found">> = Reason} ->
                     {404, ?USER_NOT_FOUND, Reason};
                 {error, Reason} ->
@@ -601,11 +613,24 @@ validate_role_scope_compat(_NonAdminRole, Scopes) ->
 
 %% Persist scopes to the admin record's extra map. Skip when scopes is
 %% absent (no body field) — keeps the existing extra.scopes value.
+%%
+%% Returns {error, Reason} when the user record is missing (e.g. concurrent
+%% deletion between add_user/update_user and this call). Callers must
+%% translate to the proper HTTP status; never crash the handler.
 maybe_set_user_scopes(_Username, undefined) ->
     ok;
 maybe_set_user_scopes(Username, Scopes) when is_list(Scopes) ->
-    {ok, ok} = emqx_dashboard_admin:set_user_scopes(Username, Scopes),
-    ok.
+    case emqx_dashboard_admin:set_user_scopes(Username, Scopes) of
+        {ok, ok} ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "set_user_scopes_failed",
+                username => Username,
+                reason => Reason
+            }),
+            {error, Reason}
+    end.
 
 %% --- MFA self-lock authorization ---
 %%
