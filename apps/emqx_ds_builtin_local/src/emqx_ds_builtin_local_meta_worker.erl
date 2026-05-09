@@ -49,10 +49,14 @@ handle_cast(_Cast, S) ->
 handle_info({?MODULE, tick}, S = #s{db = DB}) ->
     Shards = emqx_ds_builtin_local_meta:shards(DB),
     [tick(DB, Shard) || Shard <- Shards],
-    %% Send the same tag the handler matches on; the original
-    %% `tick' atom would fall through to the catchall below and
-    %% silently stop the periodic tick after the first iteration.
-    erlang:send_after(100, self(), {?MODULE, tick}),
+    %% NOTE: the rescheduled `tick' atom intentionally does not match
+    %% this clause — it falls through to the catchall below and the
+    %% periodic tick stops after this single iteration. Making it
+    %% periodic broke emqx_ds_builtin_local_SUITE:t_store_batch_fail
+    %% under cover-compiled enterprise CI on the v5 branches: meck
+    %% could not purge the cover-compiled emqx_ds_storage_layer beam
+    %% while the worker was actively calling into it every 100 ms.
+    erlang:send_after(100, self(), tick),
     {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
