@@ -25,8 +25,6 @@ affecting user-facing API key configurations.
 -include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -export([
-    scope_catalogue/0,
-    login_user_scope_catalogue/0,
     path_to_scope/1,
     init_cache/0,
     clear_cache/0,
@@ -43,141 +41,6 @@ affecting user-facing API key configurations.
 -endif.
 
 -define(CACHE_KEY, {?MODULE, scope_cache}).
-
-%%--------------------------------------------------------------------
-%% Scope catalogue — user-visible scope list
-%%--------------------------------------------------------------------
-
--doc """
-Return the catalogue of all user-visible scopes.
-Each entry has a `name` (the stable identifier stored in API key
-records) and a `desc` (human-readable description for the UI).
-
-The `$denied` scope is excluded — it is internal-only.
-""".
--spec scope_catalogue() ->
-    [#{name := binary(), desc := binary()}].
-scope_catalogue() ->
-    [
-        #{
-            name => ?SCOPE_CONNECTIONS,
-            desc => <<
-                "Client connections, subscriptions, topics, banning, "
-                "retained messages, file transfer, and delayed messages"
-            >>
-        },
-        #{
-            name => ?SCOPE_PUBLISH,
-            desc => <<"MQTT message publishing">>
-        },
-        #{
-            name => ?SCOPE_DATA_INTEGRATION,
-            desc => <<
-                "Rules, bridges, connectors, schema registry, "
-                "schema validation, message transformation, ExHook, and AI completion"
-            >>
-        },
-        #{
-            name => ?SCOPE_ACCESS_CONTROL,
-            desc => <<"Client authentication and authorization configuration">>
-        },
-        #{
-            name => ?SCOPE_GATEWAYS,
-            desc => <<
-                "Protocol gateways (CoAP, LwM2M, etc.) "
-                "and their authentication, clients, and listeners"
-            >>
-        },
-        #{
-            name => ?SCOPE_MONITORING,
-            desc => <<
-                "Metrics, monitoring, alarms, trace, slow subscriptions, "
-                "telemetry, and Prometheus data endpoints"
-            >>
-        },
-        #{
-            name => ?SCOPE_CLUSTER_OPERATIONS,
-            desc => <<
-                "Cluster management, node operations, "
-                "load rebalancing, node eviction, and multi-tenancy"
-            >>
-        },
-        #{
-            name => ?SCOPE_SYSTEM,
-            desc => <<
-                "Core configuration, listeners, plugins, storage, backup, "
-                "status, hot upgrade, Prometheus settings, and OpenTelemetry"
-            >>
-        },
-        #{
-            name => ?SCOPE_AUDIT,
-            desc => <<"Audit log query">>
-        },
-        #{
-            name => ?SCOPE_LICENSE,
-            desc => <<"License management">>
-        }
-    ].
-
--doc """
-Catalogue of all scopes that a dashboard LOGIN USER may hold.
-
-Comprises the 10 API-key catalogue scopes plus the four login-only
-scopes introduced by feat/dashboard-user-scopes:
-
-  * `user_management`  (administrator-only)
-  * `mfa_management`   (any role; non-admin holders gain only
-                        self-exemption from force_mfa /
-                        admin_required locks on their own MFA —
-                        they still cannot manage other users' MFA,
-                        which is enforced both by RBAC and by
-                        emqx_dashboard_api:authorize_mfa_change/3)
-  * `sso_management`   (administrator-only)
-  * `api_key_management` (administrator-only)
-
-API keys MUST NOT hold any of the four login-only scopes — schema
-validation in emqx_mgmt_api_api_keys rejects API key creation /
-update if the scope list contains any login-only scope; the
-bootstrap-file loader filters such names with a warning.
-""".
--spec login_user_scope_catalogue() ->
-    [#{name := binary(), desc := binary(), admin_only := boolean()}].
-login_user_scope_catalogue() ->
-    %% Tag each API-key catalogue entry as not admin-only and append
-    %% the four new entries.
-    [Entry#{admin_only => false} || Entry <- scope_catalogue()] ++
-        [
-            #{
-                name => ?SCOPE_USER_MGMT,
-                admin_only => true,
-                desc => <<
-                    "Manage dashboard users (create, update, delete, "
-                    "change other users' password)"
-                >>
-            },
-            #{
-                name => ?SCOPE_MFA_MGMT,
-                admin_only => false,
-                desc => <<
-                    "Manage MFA. For administrators: reset and re-key "
-                    "any user's MFA, override force_mfa and "
-                    "admin_required locks. For non-administrators: "
-                    "self-exemption only — bypass force_mfa / "
-                    "admin_required locks on the holder's own MFA"
-                >>
-            },
-            #{
-                name => ?SCOPE_SSO_MGMT,
-                admin_only => true,
-                desc => <<"Configure SSO backends (LDAP, OIDC, SAML)">>
-            },
-            #{
-                name => ?SCOPE_API_KEY_MGMT,
-                admin_only => true,
-                desc => <<"Manage API keys (create, update, delete)">>
-            }
-        ].
-
 %%--------------------------------------------------------------------
 %% Path → scope lookup
 %%--------------------------------------------------------------------
@@ -288,7 +151,7 @@ validate_scopes(_) ->
     {error, <<"scopes must be a list of strings">>}.
 
 validate_scopes_values(Scopes) ->
-    Available = [Name || #{name := Name} <- scope_catalogue()],
+    Available = [Name || #{name := Name} <- emqx_scope_catalogue:scope_catalogue()],
     Invalid = [S || S <- Scopes, not lists:member(S, Available)],
     case Invalid of
         [] ->
@@ -300,7 +163,7 @@ validate_scopes_values(Scopes) ->
 
 -doc """
 Lenient counterpart to `validate_scopes/1`: drop scope names that
-are not in `scope_catalogue/0` instead of rejecting the whole list,
+are not in `emqx_scope_catalogue:scope_catalogue/0` instead of rejecting the whole list,
 and report the dropped names so the caller can log a warning.
 
 Used by the bootstrap-file loader so a typo in one scope on one line
@@ -312,7 +175,7 @@ preserving original order. Non-binary elements are rejected.
 """.
 -spec filter_valid_scopes([term()]) -> {[binary()], [term()]}.
 filter_valid_scopes(Scopes) when is_list(Scopes) ->
-    Available = [Name || #{name := Name} <- scope_catalogue()],
+    Available = [Name || #{name := Name} <- emqx_scope_catalogue:scope_catalogue()],
     lists:foldr(
         fun(S, {Valid, Rejected}) ->
             case is_binary(S) andalso lists:member(S, Available) of

@@ -97,7 +97,7 @@ t_init_cache(_Config) ->
     ).
 
 t_scope_catalogue(_Config) ->
-    Catalogue = emqx_mgmt_api_key_scopes:scope_catalogue(),
+    Catalogue = emqx_scope_catalogue:scope_catalogue(),
     ?assert(is_list(Catalogue)),
     %% 10 user-visible scopes
     ?assertEqual(10, length(Catalogue)),
@@ -213,7 +213,7 @@ t_all_modules_have_scopes(_Config) ->
     %% apply to dashboard login users only and are not in the API key
     %% scope catalogue).
     AllValidScopes =
-        [N || #{name := N} <- emqx_mgmt_api_key_scopes:scope_catalogue()] ++
+        [N || #{name := N} <- emqx_scope_catalogue:scope_catalogue()] ++
             [?SCOPE_DENIED] ++
             ?LOGIN_ONLY_SCOPES,
     maps:foreach(

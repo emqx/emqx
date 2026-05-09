@@ -349,7 +349,7 @@ logout(_, #{
     end.
 
 user_scopes(get, _Request) ->
-    {200, #{scopes => emqx_mgmt_api_key_scopes:login_user_scope_catalogue()}}.
+    {200, #{scopes => emqx_scope_catalogue:login_user_scope_catalogue()}}.
 
 users(get, _Request) ->
     {200, to_json_out(emqx_dashboard_admin:all_users())};
@@ -584,7 +584,7 @@ validate_login_user_scopes(Role, Scopes) ->
 %% four login-only scopes. Any name outside this combined set is a
 %% typo or an attempt to assign $denied — reject.
 validate_scope_names(Scopes) ->
-    Catalogue = [N || #{name := N} <- emqx_mgmt_api_key_scopes:scope_catalogue()],
+    Catalogue = [N || #{name := N} <- emqx_scope_catalogue:scope_catalogue()],
     Allowed = Catalogue ++ ?LOGIN_ONLY_SCOPES,
     case [S || S <- Scopes, not lists:member(S, Allowed)] of
         [] ->
