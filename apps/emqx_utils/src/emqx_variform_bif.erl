@@ -61,6 +61,9 @@
 %% Array functions
 -export([nth/2]).
 
+%% Topic functions
+-export([topic_join/1, topic_join/2, topic_match/2, topic_split/1]).
+
 %% Random functions
 -export([rand_str/1, rand_int/1]).
 
@@ -408,6 +411,53 @@ nth(N, List) when is_integer(N) andalso is_list(List) ->
         L when L < N -> <<>>;
         _ -> lists:nth(N, List)
     end.
+
+%%------------------------------------------------------------------------------
+%% Topic functions
+%%------------------------------------------------------------------------------
+
+topic_join(NULL) when ?IS_NULL(NULL) ->
+    ?BADARG();
+topic_join(Words) when is_list(Words) ->
+    iolist_to_binary(lists:join(<<"/">>, [topic_word(W) || W <- Words]));
+topic_join(_) ->
+    ?BADARG().
+
+topic_join(NULL, _) when ?IS_NULL(NULL) ->
+    ?BADARG();
+topic_join(_, NULL) when ?IS_NULL(NULL) ->
+    ?BADARG();
+topic_join(Parent0, Word0) ->
+    Parent = any_to_str(Parent0),
+    Word = any_to_str(Word0),
+    case Parent of
+        <<>> ->
+            ?BADARG();
+        _ ->
+            case binary:last(Parent) of
+                $/ -> <<Parent/binary, Word/binary>>;
+                _ -> <<Parent/binary, $/, Word/binary>>
+            end
+    end.
+
+topic_match(NULL, _) when ?IS_NULL(NULL) ->
+    ?BADARG();
+topic_match(_, NULL) when ?IS_NULL(NULL) ->
+    ?BADARG();
+topic_match(Topic0, Filter0) ->
+    Topic = any_to_str(Topic0),
+    Filter = any_to_str(Filter0),
+    emqx_topic:match(emqx_topic:words(Topic), emqx_topic:words(Filter)).
+
+topic_split(NULL) when ?IS_NULL(NULL) ->
+    ?BADARG();
+topic_split(Topic0) ->
+    emqx_topic:words(any_to_str(Topic0)).
+
+topic_word(NULL) when ?IS_NULL(NULL) ->
+    ?BADARG();
+topic_word(Word) ->
+    any_to_str(Word).
 
 unescape_string(Input) -> unescape_string(Input, []).
 

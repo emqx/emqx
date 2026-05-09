@@ -4052,7 +4052,7 @@ mqtt_general() ->
             sc(
                 boolean(),
                 #{
-                    default => false,
+                    default => true,
                     desc => ?DESC(mqtt_strict_mode)
                 }
             )},

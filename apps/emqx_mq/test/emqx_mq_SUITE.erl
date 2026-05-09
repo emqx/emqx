@@ -518,67 +518,6 @@ t_dispatch_least_inflight(_Config) ->
     ok = emqtt:disconnect(CSub0),
     ok = emqtt:disconnect(CSub1).
 
-%% Verify that messages are eventually delivered to a busy session,
-%% i.e. a session that exhausted the limit of inflight messages
-t_busy_session(_Config) ->
-    %% Create a non-lastvalue Queue
-    _ =
-        emqx_mq_test_utils:ensure_mq_created(#{
-            name => <<"busy_session">>,
-            topic_filter => <<"t/#">>,
-            is_lastvalue => false,
-            local_max_inflight => 4
-        }),
-
-    %% Publish 100 messages to the queue
-    emqx_mq_test_utils:populate(100, #{topic_prefix => <<"t/">>}),
-
-    %% Connect with max_inflight=10
-    emqx_config:put([mqtt, max_inflight], 10),
-    CSub = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-
-    %% Fill the session's inflight buffer
-    emqtt:subscribe(CSub, <<"busytopic">>, 1),
-    CPub = emqx_mq_test_utils:emqtt_connect([]),
-    lists:foreach(
-        fun(_) ->
-            emqx_mq_test_utils:emqtt_pub_mq(CPub, <<"busytopic">>, <<"payload">>)
-        end,
-        lists:seq(1, 20)
-    ),
-
-    %% Now subscribe to the queue, check that the session is busy
-    %% and prevents the queue's messages from being delivered
-    ?assertWaitEvent(
-        emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"busy_session">>),
-        #{
-            ?snk_kind := mq_sub_handle_nack_session_busy,
-            sub := #{name := <<"busy_session">>}
-        },
-        100
-    ),
-
-    %% Assert that after acks, the messages are delivered to the session
-    ReceiveFun =
-        fun RFun(NRecFromMQ) ->
-            receive
-                {publish, #{topic := <<"busytopic">>, packet_id := PacketId}} ->
-                    ok = emqtt:puback(CSub, PacketId),
-                    RFun(NRecFromMQ);
-                {publish, #{topic := <<"t/", _/binary>>, packet_id := PacketId}} ->
-                    ok = emqtt:puback(CSub, PacketId),
-                    RFun(NRecFromMQ + 1)
-            after 500 ->
-                NRecFromMQ
-            end
-        end,
-    NRecFromMQ = ReceiveFun(0),
-    ?assert(NRecFromMQ == 100, binfmt("Expected 100 queued messages, got: ~p", [NRecFromMQ])),
-
-    %% Clean up
-    ok = emqtt:disconnect(CSub),
-    ok = emqtt:disconnect(CPub).
-
 %% We check that the consumption progress is restored correctly
 %% when the consumer is stopped and started again:
 %% * acked messages are not re-delivered
@@ -622,6 +561,9 @@ t_progress_restoration(_Config) ->
     end,
 
     %% Disconnect the client and wait for the consumer to stop and save the progress
+
+    %% https://emqx.atlassian.net/browse/EMQX-15241
+    ct:sleep(100),
     ok = emqtt:disconnect(CSub0),
     ok = wait_for_consumer_stop(MQ, 100),
     ok = emqx_mq_message_db:add_regular_db_generation(),
@@ -745,6 +687,9 @@ t_progress_restoration_full_buffer(_Config) ->
     ok = emqtt:puback(CSub0, PacketId),
 
     %% Disconnect the client and wait for the consumer to stop and save the progress
+
+    %% https://emqx.atlassian.net/browse/EMQX-15241
+    ct:sleep(100),
     ok = emqtt:disconnect(CSub0),
     ok = wait_for_consumer_stop(MQ, 100),
 

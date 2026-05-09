@@ -31,6 +31,7 @@
     update/1,
     dump/0,
     expiry_epoch/0,
+    date_to_expiry_epoch/1,
     purge/0,
     limits/0,
     print_warnings/1,

@@ -13,6 +13,7 @@
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
 
@@ -43,6 +44,7 @@
     lookup_from_local_node/2,
     v2_lookup/3
 ]).
+-export([scopes/0]).
 
 -define(BPAPI_NAME, emqx_connector).
 
@@ -95,6 +97,8 @@ refine_api_schema(Schema, Metadata = #{path := Path, method := Method}) ->
     Spec = maps:get(Method, schema(Path)),
     SpecRefined = Spec#{'requestBody' => Schema},
     Metadata#{apispec => SpecRefined}.
+
+scopes() -> ?SCOPE_DATA_INTEGRATION.
 
 paths() ->
     [

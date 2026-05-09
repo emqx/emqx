@@ -302,6 +302,18 @@ maps_test_() ->
         {"arity zero", ?_assertEqual({ok, <<"0">>}, render(<<"maps.size(maps.new())">>, #{}))}
     ].
 
+topic_functions_test_() ->
+    [
+        ?_assertEqual(
+            {ok, <<"true">>},
+            render("str_eq(topic_join(topic_split('topic/1')), 'topic/1')", #{})
+        ),
+        ?_assertEqual(
+            {ok, <<"client1/#">>},
+            render("topic_join(topic_split(filter))", #{filter => <<"client1/#">>})
+        )
+    ].
+
 render(Expression, Bindings) ->
     emqx_variform:render(Expression, Bindings).
 

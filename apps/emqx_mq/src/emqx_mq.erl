@@ -15,13 +15,7 @@
 -export([
     on_message_publish/1,
     on_session_created/2,
-    on_session_subscribed/3,
-    on_session_unsubscribed/3,
     on_session_resumed/2,
-    on_session_disconnected/2,
-    on_delivery_completed/2,
-    on_message_nack/2,
-    on_client_handle_info/3,
     on_client_authorize/4
 ]).
 
@@ -38,28 +32,22 @@ register_hooks() ->
     %% Idempotent hooks registration
     _ = emqx_hooks:add('client.authorize', {?MODULE, on_client_authorize, []}, ?HP_AUTHZ + 1),
     _ = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER + 1),
-    _ = emqx_hooks:add('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_LOWEST),
     _ = emqx_hooks:add('session.created', {?MODULE, on_session_created, []}, ?HP_LOWEST),
-    _ = emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
-    _ = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST),
     _ = emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_LOWEST),
-    _ = emqx_hooks:add('session.disconnected', {?MODULE, on_session_disconnected, []}, ?HP_LOWEST),
-    _ = emqx_hooks:add('message.nack', {?MODULE, on_message_nack, []}, ?HP_LOWEST),
-    _ = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST),
+    _ = emqx_extsub_handler_registry:register(emqx_mq_extsub_handler, #{
+        multi_topic => true,
+        handle_generic_messages => true
+    }),
     ok.
 
 -spec unregister_hooks() -> ok.
 unregister_hooks() ->
     emqx_hooks:del('client.authorize', {?MODULE, on_client_authorize}),
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
-    emqx_hooks:del('delivery.completed', {?MODULE, on_delivery_completed}),
     emqx_hooks:del('session.created', {?MODULE, on_session_created}),
-    emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
-    emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
     emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
-    emqx_hooks:del('session.disconnected', {?MODULE, on_session_disconnected}),
-    emqx_hooks:del('message.nack', {?MODULE, on_message_nack}),
-    emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}).
+    _ = emqx_extsub_handler_registry:unregister(emqx_mq_extsub_handler),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Hooks callbacks
@@ -95,172 +83,15 @@ on_message_publish(#message{topic = Topic} = Message) ->
     ),
     {ok, Message}.
 
-on_delivery_completed(Msg, Info) ->
-    _MessageId = emqx_message:get_header(?MQ_HEADER_MESSAGE_ID, Msg, undefined),
-    ?tp_mq_client(mq_on_delivery_completed, #{message_id => _MessageId}),
-    case emqx_message:get_header(?MQ_HEADER_SUBSCRIBER_ID, Msg, undefined) of
-        undefined ->
-            ok;
-        SubscriberRef ->
-            ReasonCode = maps:get(reason_code, Info, ?RC_SUCCESS),
-            case with_sub(SubscriberRef, handle_ack, [Msg, ack_from_rc(ReasonCode)]) of
-                ok ->
-                    ok;
-                not_found ->
-                    ?tp_debug(mq_on_delivery_completed_sub_not_found, #{
-                        subscriber_ref => SubscriberRef
-                    })
-            end
-    end.
-
-on_session_subscribed(ClientInfo, <<"$queue/", NameTopicBin/binary>> = _FullTopic, SubOpts) ->
-    case split_name_topic(NameTopicBin) of
-        {ok, Name, TopicFilter} ->
-            do_on_session_subscribed(ClientInfo, Name, TopicFilter, SubOpts);
-        {error, Reason} ->
-            ?tp(warning, mq_cannot_subscribe_to_mq, #{
-                reason => Reason
-            }),
-            ok
-    end;
-%% Legacy queue name
-on_session_subscribed(ClientInfo, <<"$q/", TopicFilter/binary>> = _FullTopic, SubOpts) ->
-    Name = emqx_mq_prop:default_name_from_topic(TopicFilter),
-    do_on_session_subscribed(ClientInfo, Name, TopicFilter, SubOpts);
-on_session_subscribed(_ClientInfo, _FullTopic, _SubOpts) ->
-    ?tp_mq_client(mq_on_session_subscribed, #{full_topic => _FullTopic, handle => false}),
-    ok.
-
-do_on_session_subscribed(ClientInfo, Name, TopicFilter, _SubOpts) ->
-    ?tp_mq_client(mq_on_session_subscribed, #{
-        name => Name, topic_filter => TopicFilter, client_info => ClientInfo
-    }),
-    case validate_mq_supported() of
-        ok ->
-            case emqx_mq_sub_registry:find({Name, TopicFilter}) of
-                undefined ->
-                    ok = maybe_auto_create(Name, TopicFilter),
-                    Sub = emqx_mq_sub:handle_connect(ClientInfo, Name, TopicFilter),
-                    ok = emqx_mq_sub_registry:register(Sub);
-                _Sub ->
-                    ok
-            end;
-        {error, Reason} ->
-            ?tp(warning, mq_cannot_subscribe_to_mq, #{reason => Reason}),
-            ok
-    end.
-
-on_session_unsubscribed(ClientInfo, <<"$queue/", NameTopicBin/binary>> = _FullTopic, _SubOpts) ->
-    case split_name_topic(NameTopicBin) of
-        {ok, Name, Topic} ->
-            do_on_session_unsubscribed(ClientInfo, Name, Topic);
-        {error, Reason} ->
-            ?tp(warning, mq_cannot_unsubscribe_from_mq, #{reason => Reason}),
-            ok
-    end;
-%% Legacy queue name
-on_session_unsubscribed(ClientInfo, <<"$q/", TopicFilter/binary>> = _FullTopic, _SubOpts) ->
-    Name = emqx_mq_prop:default_name_from_topic(TopicFilter),
-    do_on_session_unsubscribed(ClientInfo, Name, TopicFilter);
-on_session_unsubscribed(_ClientInfo, _FullTopic, _SubOpts) ->
-    ?tp_mq_client(mq_on_session_unsubscribed, #{full_topic => _FullTopic, handle => false}),
-    ok.
-
-do_on_session_unsubscribed(_ClientInfo, Name, Topic) ->
-    ?tp_mq_client(mq_on_session_unsubscribed, #{name => Name, topic_filter => Topic}),
-    case emqx_mq_sub_registry:delete({Name, Topic}) of
-        undefined ->
-            ok;
-        Sub ->
-            ?tp_mq_client(mq_on_session_unsubscribed_sub_deleted, #{
-                name => Name, topic_filter => Topic
-            }),
-            ok = emqx_mq_sub:handle_disconnect(Sub)
-    end.
-
-on_session_resumed(ClientInfo, #{subscriptions := Subs} = SessionInfo) ->
-    SessionResumedCtx = emqx_hooks:context('session.resumed'),
-    ?tp_mq_client(mq_on_session_resumed, #{subscriptions => Subs, session_info => SessionInfo}),
-    ok = set_mq_supported(SessionResumedCtx, SessionInfo),
-    ok = maps:foreach(
-        fun
-            (<<"$queue/", _/binary>> = FullTopic, SubOpts) ->
-                on_session_subscribed(ClientInfo, FullTopic, SubOpts);
-            (<<"$q/", _/binary>> = FullTopic, SubOpts) ->
-                on_session_subscribed(ClientInfo, FullTopic, SubOpts);
-            (_Topic, _SubOpts) ->
-                ok
-        end,
-        Subs
-    ).
-
-on_message_nack(Msg, false) ->
-    ?tp_mq_client(mq_on_message_nack, #{msg => Msg}),
-    SubscriberRef = emqx_message:get_header(?MQ_HEADER_SUBSCRIBER_ID, Msg),
-    case with_sub(SubscriberRef, handle_ack, [Msg, ?MQ_NACK]) of
-        not_found ->
-            ok;
-        ok ->
-            {ok, true};
-        {error, _Reason} ->
-            ok
-    end;
-%% Already nacked by some other hook
-on_message_nack(_Msg, true) ->
-    ok.
-
-on_client_handle_info(
-    _ClientInfo, #info_mq_inspect{receiver = Receiver, topic_filter = Topic, name = Name}, Acc
-) ->
-    ?tp_mq_client(mq_on_client_handle_info_inspect, #{topic_filter => Topic, name => Name}),
-    Info =
-        case emqx_mq_sub_registry:find({Name, Topic}) of
-            undefined ->
-                undefined;
-            Sub ->
-                emqx_mq_sub:inspect(Sub)
-        end,
-    erlang:send(Receiver, {Receiver, Info}),
-    {ok, Acc};
-on_client_handle_info(
-    ClientInfo,
-    #info_to_mq_sub{subscriber_ref = SubscriberRef, info = InfoMsg},
-    #{deliver := Delivers} = Acc
-) ->
-    ?tp_mq_client(mq_on_client_handle_info_to_mq_sub, #{info => InfoMsg}),
-    case with_sub(SubscriberRef, handle_info, [InfoMsg]) of
-        not_found ->
-            ok;
-        ok ->
-            ok;
-        {ok, Messages} ->
-            ?tp_mq_client(mq_on_client_handle_info_to_mq_sub_messages, #{messages => Messages}),
-            {ok, Acc#{deliver => delivers(SubscriberRef, Messages) ++ Delivers}};
-        {error, recreate} ->
-            ok = recreate_sub(SubscriberRef, ClientInfo)
-    end;
-on_client_handle_info(_ClientInfo, _Message, Acc) ->
-    ?tp_mq_client(mq_on_client_handle_info_unknown, #{message => _Message}),
-    {ok, Acc}.
-
-on_session_disconnected(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
-    ?tp_mq_client(mq_on_session_disconnected, #{subscriptions => Subs}),
-    ok = maps:foreach(
-        fun
-            (<<"$queue/", _/binary>> = FullTopic, SubOpts) ->
-                on_session_unsubscribed(ClientInfo, FullTopic, SubOpts);
-            (<<"$q/", _/binary>> = FullTopic, SubOpts) ->
-                on_session_unsubscribed(ClientInfo, FullTopic, SubOpts);
-            (_Topic, _SubOpts) ->
-                ok
-        end,
-        Subs
-    ).
-
 on_session_created(_ClientInfo, SessionInfo) ->
     SessionCreatedCtx = emqx_hooks:context('session.created'),
     ?tp_mq_client(mq_on_session_created, #{client_info => _ClientInfo, session_info => SessionInfo}),
     ok = set_mq_supported(SessionCreatedCtx, SessionInfo).
+
+on_session_resumed(_ClientInfo, SessionInfo) ->
+    SessionResumedCtx = emqx_hooks:context('session.resumed'),
+    ?tp_mq_client(mq_on_session_resumed, #{client_info => _ClientInfo, session_info => SessionInfo}),
+    ok = set_mq_supported(SessionResumedCtx, SessionInfo).
 
 on_client_authorize(
     ClientInfo, #{action_type := subscribe} = _Action, <<"$q/", _/binary>> = Topic, Result
@@ -308,81 +139,10 @@ inspect(ChannelPid, NameTopic) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-with_sub(undefined, _Handler, _Args) ->
-    not_found;
-with_sub(SubscriberRef, Handler, Args) ->
-    case emqx_mq_sub_registry:find(SubscriberRef) of
-        undefined ->
-            not_found;
-        Sub ->
-            case apply(emqx_mq_sub, Handler, [Sub | Args]) of
-                ok ->
-                    ok;
-                {error, Reason} ->
-                    {error, Reason};
-                {ok, NewSub} ->
-                    ok = emqx_mq_sub_registry:update(SubscriberRef, NewSub),
-                    ok;
-                {ok, NewSub, Result} ->
-                    ok = emqx_mq_sub_registry:update(SubscriberRef, NewSub),
-                    {ok, Result}
-            end
-    end.
-
-recreate_sub(SubscriberRef, ClientInfo) ->
-    case emqx_mq_sub_registry:delete(SubscriberRef) of
-        undefined ->
-            error({mq_sub_registry_not_found, SubscriberRef});
-        OldSub ->
-            ok = emqx_mq_sub:handle_disconnect(OldSub),
-            {Name, Topic} = emqx_mq_sub:name_topic(OldSub),
-            NewSub = emqx_mq_sub:handle_connect(ClientInfo, Name, Topic),
-            emqx_mq_sub_registry:register(NewSub)
-    end.
-
-ack_from_rc(?RC_SUCCESS) -> ?MQ_ACK;
-ack_from_rc(_) -> ?MQ_REJECTED.
-
 publish_to_queue(MQHandle, #message{} = Message) ->
     emqx_mq_message_db:insert(MQHandle, Message).
 
-delivers(SubscriberRef, Messages) ->
-    SubTopic = make_sub_topic(SubscriberRef),
-    lists:map(
-        fun(Message0) ->
-            Headers0 = #{?MQ_HEADER_SUBSCRIBER_ID => SubscriberRef},
-            Headers =
-                case SubTopic of
-                    undefined -> Headers0;
-                    _ -> Headers0#{?MQ_HEADER_SUB_TOPIC => SubTopic}
-                end,
-            Message1 = emqx_message:set_headers(Headers, Message0),
-            %% Override QoS to 1 to require ack from the client
-            Message = Message1#message{qos = ?QOS_1},
-            Topic = emqx_message:topic(Message),
-            {deliver, Topic, Message}
-        end,
-        Messages
-    ).
-
-%% Reconstruct the full subscription topic filter (e.g., <<"$queue/test/t/#">>)
-%% from the subscriber's name and topic_filter. This is needed so that
-%% emqx_session:enrich_deliver can look up subscription options (including
-%% the Subscription-Identifier) for queue-delivered messages.
-make_sub_topic(SubscriberRef) ->
-    case emqx_mq_sub_registry:find(SubscriberRef) of
-        undefined ->
-            undefined;
-        Sub ->
-            case emqx_mq_sub:name_topic(Sub) of
-                {Name, undefined} ->
-                    <<"$queue/", Name/binary>>;
-                {Name, TopicFilter} ->
-                    <<"$queue/", Name/binary, "/", TopicFilter/binary>>
-            end
-    end.
-
-set_mq_supported(Ctx, SessionInfo) ->
+set_mq_supported(Ctx, _SessionInfo) ->
     ProtoVer =
         case Ctx of
             #{conn_info_fn := ConnInfoFn} ->
@@ -390,15 +150,12 @@ set_mq_supported(Ctx, SessionInfo) ->
             _ ->
                 undefined
         end,
-    SessionImpl = maps:get(impl, SessionInfo, undefined),
     MQSupported =
-        case {SessionImpl, ProtoVer} of
-            {emqx_session_mem, ?MQTT_PROTO_V5} ->
+        case ProtoVer of
+            ?MQTT_PROTO_V5 ->
                 ok;
-            {emqx_session_mem, _} ->
-                {error, not_mqtt_v5_protocol};
-            {_, _} ->
-                {error, {not_supported_for_session_impl, SessionImpl}}
+            _ ->
+                {error, not_mqtt_v5_protocol}
         end,
     _ = erlang:put(?IS_MQ_SUPPORTED_PD_KEY, MQSupported),
     ok.
@@ -410,33 +167,6 @@ validate_mq_supported() ->
             {error, unknown};
         MQSupported ->
             MQSupported
-    end.
-
-maybe_auto_create(_Name, undefined) ->
-    ok;
-maybe_auto_create(Name, Topic) ->
-    case emqx_mq_config:auto_create(Name, Topic) of
-        {true, MQ} ->
-            auto_create_mq(MQ);
-        false ->
-            ok
-    end.
-
-auto_create_mq(#{name := Name} = MQ) ->
-    case emqx_mq_registry:find(Name) of
-        {ok, _MQ} ->
-            ok;
-        not_found ->
-            case emqx_mq_registry:create(MQ) of
-                {ok, _} ->
-                    ok;
-                {error, {queue_exists, _MQHandle}} ->
-                    %% Race condition, another client created the MQ before us, ignore.
-                    ok;
-                {error, Reason} ->
-                    ?tp(error, mq_auto_create_error, #{mq => MQ, reason => Reason}),
-                    ok
-            end
     end.
 
 split_name_topic(NameTopic) ->

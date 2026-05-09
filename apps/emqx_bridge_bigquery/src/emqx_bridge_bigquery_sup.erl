@@ -47,8 +47,9 @@ init([]) ->
         intensity => 10,
         period => 1
     },
-    ChildSpecs = [],
+    ChildSpecs = [emqx_bridge_bigquery_token_cache:child_spec()],
     create_token_table(),
+    emqx_bridge_bigquery_token_cache:create_tables(),
     {ok, {SupFlags, ChildSpecs}}.
 
 %%------------------------------------------------------------------------------

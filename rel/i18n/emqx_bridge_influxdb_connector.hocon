@@ -12,6 +12,12 @@ database.desc:
 database.label:
 """Database"""
 
+ping_with_auth.label:
+"""Ping With Auth"""
+
+ping_with_auth.desc:
+"""Controls whether EMQX includes connector credentials in `/ping` health-check requests. Enable this if your InfluxDB service requires authentication on `/ping`. The default is `false`, which preserves the previous behavior and sends `/ping` without authentication."""
+
 influxdb_api_v1.desc:
 """InfluxDB's protocol. Support InfluxDB v1.8 and before."""
 

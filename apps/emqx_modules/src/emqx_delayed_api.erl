@@ -9,6 +9,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include("emqx_modules.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 
@@ -30,6 +31,7 @@
 -export([update_config_/1]).
 
 -export([api_spec/0]).
+-export([scopes/0]).
 
 -define(MAX_PAYLOAD_LENGTH, 2048).
 -define(PAYLOAD_TOO_LARGE, <<"PAYLOAD_TOO_LARGE">>).
@@ -48,6 +50,8 @@ namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_CONNECTIONS.
 
 paths() ->
     [

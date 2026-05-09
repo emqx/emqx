@@ -7,6 +7,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/2, ref/1, ref/2, enum/1, array/1]).
 
@@ -29,6 +30,7 @@
     node_metrics/2,
     node_stats/2
 ]).
+-export([scopes/0]).
 
 %%--------------------------------------------------------------------
 %% API spec funcs
@@ -38,6 +40,8 @@ namespace() -> undefined.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+
+scopes() -> ?SCOPE_CLUSTER_OPERATIONS.
 
 paths() ->
     [

@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_kafka_token_cache_SUITE).
+-module(emqx_connector_jwt_token_cache_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -18,6 +18,7 @@
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 -define(client_id, <<"some:client:id">>).
+-define(tab, ?MODULE).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -31,10 +32,9 @@ groups() ->
 
 init_per_suite(TCConfig) ->
     Apps = emqx_cth_suite:start(
-        [emqx_bridge_kafka],
+        [emqx_connector_jwt],
         #{work_dir => emqx_cth_suite:work_dir(TCConfig)}
     ),
-    emqx_bridge_kafka_testlib:wait_until_kafka_is_up(),
     [
         {apps, Apps}
         | TCConfig
@@ -46,11 +46,13 @@ end_per_suite(TCConfig) ->
     ok.
 
 init_per_testcase(_TestCase, TCConfig) ->
+    ok = emqx_connector_jwt_token_cache:create_tables(?tab),
+    {ok, _} = emqx_connector_jwt_token_cache:start_link({local, ?MODULE}, #{table => ?tab}),
     TCConfig.
 
 end_per_testcase(_TestCase, _TCConfig) ->
     emqx_common_test_helpers:call_janitor(),
-    emqx_bridge_kafka_token_cache:clear_cache(),
+    emqx_connector_jwt_token_cache:clear_cache(?tab),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -93,12 +95,12 @@ get_or_refresh(RefreshFn) ->
     get_or_refresh(?client_id, RefreshFn).
 
 get_or_refresh(ClientId, RefreshFn) ->
-    on_exit(fun() -> emqx_bridge_kafka_token_cache:unregister(ClientId) end),
-    emqx_bridge_kafka_token_cache:get_or_refresh(ClientId, RefreshFn).
+    on_exit(fun() -> emqx_connector_jwt_token_cache:unregister(?MODULE, ClientId) end),
+    emqx_connector_jwt_token_cache:get_or_refresh(?MODULE, ?tab, ClientId, RefreshFn).
 
 get_or_refresh(ClientId, RefreshFn, Opts) ->
-    on_exit(fun() -> emqx_bridge_kafka_token_cache:unregister(ClientId) end),
-    emqx_bridge_kafka_token_cache:get_or_refresh(ClientId, RefreshFn, Opts).
+    on_exit(fun() -> emqx_connector_jwt_token_cache:unregister(?MODULE, ClientId) end),
+    emqx_connector_jwt_token_cache:get_or_refresh(?MODULE, ?tab, ClientId, RefreshFn, Opts).
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -201,7 +203,7 @@ t_smoke_clear_one_cache(_TCConfig) ->
     ?assertReceive({fetched, #{times_called := 1, client_id := ClientIdA}}),
     ?assertReceive({fetched, #{times_called := 1, client_id := ClientIdB}}),
 
-    ?assertMatch(ok, emqx_bridge_kafka_token_cache:clear_cache(ClientIdA)),
+    ?assertMatch(ok, emqx_connector_jwt_token_cache:clear_cache(?tab, ClientIdA)),
 
     ?assertMatch({ok, <<"a2">>}, get_or_refresh(ClientIdA, RefreshFnA)),
     ?assertMatch({ok, <<"b1">>}, get_or_refresh(ClientIdB, RefreshFnB)),
