@@ -14,7 +14,8 @@
     lookup/1,
     owner/1,
     destroy/1,
-    destroy_by_username/1
+    destroy_by_username/1,
+    resolve_admin_key/1
 ]).
 
 -ifdef(TEST).
@@ -119,6 +120,25 @@ do_verify(Req, Token) ->
             end;
         Error ->
             Error
+    end.
+
+%% @doc Resolve a JWT token to the original admin record's primary key.
+%% For local users this is just the username binary; for SSO users it
+%% is the `?SSO_USERNAME(Backend, Name)' tuple. Used by dashboard
+%% authorize to populate `auth_meta.source' so downstream handlers can
+%% look up the caller via `emqx_dashboard_admin:lookup_user/1' without
+%% guessing the backend from the request.
+-spec resolve_admin_key(Token :: binary()) -> dashboard_username() | undefined.
+resolve_admin_key(Token) ->
+    case lookup(Token) of
+        {ok, #?ADMIN_JWT{username = Username, extra = #{backend := Backend}}} when
+            Backend =/= ?BACKEND_LOCAL
+        ->
+            ?SSO_USERNAME(Backend, Username);
+        {ok, #?ADMIN_JWT{username = Username}} ->
+            Username;
+        _ ->
+            undefined
     end.
 
 do_destroy(Token) ->

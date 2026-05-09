@@ -750,6 +750,11 @@ caller_has_mfa_mgmt(#?ADMIN{username = Username, role = Role}) ->
 %% undefined if not a bearer-token request or the user has been
 %% deleted between login and this request.
 caller_admin(#{auth_meta := #{auth_type := jwt_token, source := Username}}) ->
+    %% auth_meta.source is the resolved admin record key — for SSO
+    %% users this is `?SSO_USERNAME(Backend, Name)' (atom-tagged
+    %% tuple), populated by emqx_dashboard:authorize/2 via
+    %% emqx_dashboard_token:resolve_admin_key/1. Plain lookup is
+    %% sufficient.
     case emqx_dashboard_admin:lookup_user(Username) of
         [Admin] -> Admin;
         _ -> undefined
