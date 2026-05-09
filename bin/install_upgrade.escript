@@ -433,7 +433,9 @@ print_existing_versions(TargetNode) ->
 
 start_distribution(TargetNode, NameTypeArg, Cookie) ->
     MyNode = make_script_node(TargetNode),
-    {ok, _Pid} = net_kernel:start([MyNode, get_name_type(NameTypeArg)]),
+    {ok, _Pid} = net_kernel:start(MyNode, #{
+        name_domain => get_name_type(NameTypeArg), hidden => true
+    }),
     erlang:set_cookie(node(), Cookie),
     case {net_kernel:hidden_connect_node(TargetNode), net_adm:ping(TargetNode)} of
         {true, pong} ->
