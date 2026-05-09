@@ -313,7 +313,7 @@ ensure_expired_at(_) -> infinity.
 
 api_key_scopes(get, _) ->
     {200, #{
-        scopes => emqx_mgmt_api_key_scopes:scope_catalogue()
+        scopes => emqx_scope_catalogue:scope_catalogue()
     }}.
 
 validate_scopes(Role, Scopes) ->
