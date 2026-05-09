@@ -25,10 +25,12 @@ scopes() ->
     %% themselves cannot reach these paths. The login user scope
     %% check (commit 5) consults this map.
     %%
-    %% /api_key/scopes is intentionally absent from the map — the
+    %% /api_key_scopes is intentionally absent from the map — the
     %% scope catalogue endpoint is public to any authenticated login
     %% user (require Bearer auth, but the scope check is fail-open
-    %% for unmapped paths).
+    %% for unmapped paths). It is a top-level path (sibling to
+    %% /action_types, /source_types) chosen to avoid wildcard
+    %% routing collisions with /api_key/:name.
     #{
         <<"/api_key">> => ?SCOPE_API_KEY_MGMT,
         <<"/api_key/:name">> => ?SCOPE_API_KEY_MGMT
@@ -38,7 +40,7 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
-    ["/api_key", "/api_key/:name", "/api_key/scopes"].
+    ["/api_key", "/api_key/:name", "/api_key_scopes"].
 
 schema("/api_key") ->
     #{
@@ -94,7 +96,7 @@ schema("/api_key/:name") ->
             }
         }
     };
-schema("/api_key/scopes") ->
+schema("/api_key_scopes") ->
     #{
         'operationId' => api_key_scopes,
         get => #{
