@@ -412,6 +412,141 @@ t_check_login_user_scopes_mfa_mgmt_grants_only_mfa(_) ->
         emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
     ).
 
+%%--------------------------------------------------------------------
+%% Login user holding generic (API-key catalogue) scopes
+%%
+%% SPEC sec 3.1 / 7.11: login users may hold any of the 10 generic
+%% catalogue scopes alongside the 4 login-only scopes. The scope
+%% predicate is uniform — there is no role-based or scope-class-based
+%% branching in check_login_user_scopes/2 — so a viewer or
+%% administrator carrying scopes=[<<"connections">>] should be allowed
+%% on /clients and denied on every endpoint mapped to a different
+%% scope. These tests guard that uniformity.
+%%--------------------------------------------------------------------
+
+%% scopes=[connections] grants paths mapped to the connections scope.
+t_check_login_user_scopes_connections_grants_clients(_) ->
+    Username = <<"login_user_scopes_conn_grant">>,
+    {ok, _} = emqx_dashboard_admin:add_user(
+        Username, <<"P@ssw0rd">>, ?ROLE_VIEWER, <<>>
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(
+        Username, [?SCOPE_CONNECTIONS]
+    ),
+    %% Direct top-level resource.
+    ?assertEqual(
+        true,
+        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/clients">>)
+    ),
+    %% Concrete clientid concretizes the /clients/:clientid template
+    %% via match_template/2; should still resolve to connections.
+    ?assertEqual(
+        true,
+        emqx_dashboard_rbac:check_login_user_scopes(
+            Username, <<"/clients/test-client-id">>
+        )
+    ).
+
+%% scopes=[connections] denies paths mapped to other scopes.
+t_check_login_user_scopes_connections_denies_other_scopes(_) ->
+    Username = <<"login_user_scopes_conn_deny">>,
+    {ok, _} = emqx_dashboard_admin:add_user(
+        Username, <<"P@ssw0rd">>, ?ROLE_VIEWER, <<>>
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(
+        Username, [?SCOPE_CONNECTIONS]
+    ),
+    %% /alarms is mapped to monitoring, not connections.
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/alarms">>)
+    ),
+    %% /users is mapped to user_management — generic scope cannot
+    %% reach a login-only-mapped path.
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
+    ).
+
+%% scopes=[monitoring] grants /alarms but denies /clients.
+t_check_login_user_scopes_monitoring_grants_alarms(_) ->
+    Username = <<"login_user_scopes_mon">>,
+    {ok, _} = emqx_dashboard_admin:add_user(
+        Username, <<"P@ssw0rd">>, ?ROLE_VIEWER, <<>>
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(
+        Username, [?SCOPE_MONITORING]
+    ),
+    ?assertEqual(
+        true,
+        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/alarms">>)
+    ),
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/clients">>)
+    ).
+
+%% A generic scope on a login user must NOT grant access to login-only
+%% paths (/users/:username/mfa requires mfa_management).
+t_check_login_user_scopes_generic_does_not_grant_login_only_paths(_) ->
+    Username = <<"login_user_scopes_xover">>,
+    {ok, _} = emqx_dashboard_admin:add_user(
+        Username, <<"P@ssw0rd">>, ?ROLE_SUPERUSER, <<>>
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(
+        Username, [?SCOPE_CONNECTIONS]
+    ),
+    %% NOTE: /sso/* paths are not asserted here because
+    %% emqx_dashboard_sso is not in this SUITE's app start list, so
+    %% those paths do not appear in the path_to_scope cache and would
+    %% fall through to the unmapped fail-open branch (true). The cross-
+    %% module assertion that /sso is mapped to sso_management lives in
+    %% emqx_dashboard_sso/test/emqx_dashboard_sso_mfa_SUITE.erl.
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
+    ),
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(
+            Username, <<"/users/", Username/binary, "/mfa">>
+        )
+    ).
+
+%% scopes=[] denies every mapped path including generic ones.
+t_check_login_user_scopes_explicit_empty_denies_generic_paths(_) ->
+    Username = <<"login_user_scopes_empty_gen">>,
+    {ok, _} = emqx_dashboard_admin:add_user(
+        Username, <<"P@ssw0rd">>, ?ROLE_SUPERUSER, <<>>
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(Username, []),
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/clients">>)
+    ),
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/alarms">>)
+    ).
+
+%% scopes=undefined falls back to RBAC default (allow), including for
+%% generic-mapped paths. This is the lazy-migration path.
+t_check_login_user_scopes_undefined_allows_generic_paths(_) ->
+    Username = <<"login_user_scopes_undef_gen">>,
+    {ok, _} = emqx_dashboard_admin:add_user(
+        Username, <<"P@ssw0rd">>, ?ROLE_SUPERUSER, <<>>
+    ),
+    %% No set_user_scopes call.
+    ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(Username)),
+    ?assertEqual(
+        true,
+        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/clients">>)
+    ),
+    ?assertEqual(
+        true,
+        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/alarms">>)
+    ).
+
 delete_mfa(Token, Username) ->
     Path = "/users/" ++ binary_to_list(Username) ++ "/mfa",
     Path1 = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri(Path)),
