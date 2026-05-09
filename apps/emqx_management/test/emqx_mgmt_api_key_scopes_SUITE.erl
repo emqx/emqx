@@ -265,9 +265,12 @@ t_all_endpoints_covered_by_scopes(_Config) ->
         <<"/sso/mfa/setup_info">>,
         <<"/sso/mfa/setup">>,
         <<"/sso/mfa/verify">>,
-        %% Scope catalogue endpoints — public to any authenticated login user
-        <<"/api_key/scopes">>,
-        <<"/users/scopes">>
+        %% Scope catalogue endpoints — public to any authenticated login user.
+        %% Top-level paths chosen to avoid wildcard routing collision with
+        %% /api_key/:name and /users/:username (sibling to /action_types,
+        %% /source_types).
+        <<"/api_key_scopes">>,
+        <<"/user_scopes">>
     ],
     MappedPaths = lists:sort(maps:keys(PathToScope)),
     Uncovered = (AllDeclaredPaths -- MappedPaths) -- IntentionallyUnmapped,
@@ -383,7 +386,7 @@ t_check_scopes_unmapped_path(_Config) ->
 
 t_api_list_scopes(_Config) ->
     AuthHeader = emqx_dashboard_SUITE:auth_header_(),
-    Path = emqx_mgmt_api_test_util:api_path(["api_key", "scopes"]),
+    Path = emqx_mgmt_api_test_util:api_path(["api_key_scopes"]),
     {ok, Res} = emqx_mgmt_api_test_util:request_api(get, Path, AuthHeader),
     Body = emqx_utils_json:decode(Res),
     %% New format: #{scopes => [...]}

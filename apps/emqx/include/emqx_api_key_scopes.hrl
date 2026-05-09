@@ -56,7 +56,7 @@
 %% All four login-only scopes. Used by:
 %%   * API key schema validation (reject any in this list)
 %%   * bootstrap-file loader (drop any in this list with warning)
-%%   * login user scope catalogue (/users/scopes endpoint)
+%%   * login user scope catalogue (/user_scopes endpoint)
 -define(LOGIN_ONLY_SCOPES, [
     ?SCOPE_USER_MGMT,
     ?SCOPE_MFA_MGMT,

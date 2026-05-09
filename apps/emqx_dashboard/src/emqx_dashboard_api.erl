@@ -26,7 +26,7 @@
     login/2,
     logout/2,
     users/2,
-    users_scopes/2,
+    user_scopes/2,
     user/2,
     change_pwd/2,
     change_mfa/2
@@ -69,10 +69,10 @@ paths() ->
         "/login",
         "/logout",
         "/users",
-        "/users/scopes",
         "/users/:username",
         "/users/:username/change_pwd",
-        "/users/:username/mfa"
+        "/users/:username/mfa",
+        "/user_scopes"
     ].
 
 schema("/login") ->
@@ -132,13 +132,16 @@ schema("/users") ->
             }
         }
     };
-schema("/users/scopes") ->
+schema("/user_scopes") ->
     %% Public catalogue endpoint — any authenticated dashboard login
     %% user (incl. viewer / SSO viewer) may list the available scope
     %% names. The path is intentionally absent from scopes/0 above so
     %% it falls through to the unmapped-path branch (fail-open).
+    %%
+    %% Top-level path (sibling to /action_types, /source_types) so it
+    %% never collides with /users/:username wildcard routing.
     #{
-        'operationId' => users_scopes,
+        'operationId' => user_scopes,
         get => #{
             tags => [<<"Dashboard">>],
             desc => ?DESC(list_user_scopes_api),
@@ -345,7 +348,7 @@ logout(_, #{
             {401, ?WRONG_TOKEN_OR_USERNAME, <<"Ensure your token & username">>}
     end.
 
-users_scopes(get, _Request) ->
+user_scopes(get, _Request) ->
     {200, #{scopes => emqx_mgmt_api_key_scopes:login_user_scope_catalogue()}}.
 
 users(get, _Request) ->
