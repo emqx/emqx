@@ -21,7 +21,7 @@
 
 -export([
     add_user/4,
-    disable_mfa/1,
+    disable_mfa/2,
     clear_mfa_state/1,
     set_mfa_state/2,
     get_mfa_state/1,
@@ -45,8 +45,8 @@
     %% Login user scope + MFA self-lock fields (stored in extra map)
     force_mfa_snapshot_of/1,
     set_force_mfa_snapshot/2,
-    admin_required_of/1,
-    set_admin_required/2,
+    admin_override_of/1,
+    set_admin_override/2,
     scopes_of/1,
     effective_scopes_of/1,
     effective_scopes_of_admin/1,
@@ -204,16 +204,21 @@ clear_mfa_state2(Username) ->
 %% @doc Disable MFA for a user.
 %% Verifies MFA is currently enabled before disabling.
 %% Clears the secret so re-enabling requires a fresh TOTP setup.
--spec disable_mfa(dashboard_username()) -> ok | {error, term()}.
-disable_mfa(Username) ->
+%% @doc Disable MFA for a user. Admin-initiated disable writes
+%% admin_override=mfa_exempted so the user is unlocked from any
+%% policy snapshot — subsequent backend force_mfa changes will not
+%% re-lock this user. Self-initiated disable does not touch the
+%% admin_override field.
+-spec disable_mfa(dashboard_username(), boolean()) -> ok | {error, term()}.
+disable_mfa(Username, ByAdmin) ->
     case lookup_user(Username) of
         [] ->
             {error, <<"username_not_found">>};
         [_] ->
-            do_disable_mfa(Username)
+            do_disable_mfa(Username, ByAdmin)
     end.
 
-do_disable_mfa(Username) ->
+do_disable_mfa(Username, ByAdmin) ->
     case get_mfa_state(Username) of
         {ok, disabled} ->
             {error, <<"MFA is already disabled">>};
@@ -225,8 +230,13 @@ do_disable_mfa(Username) ->
                 end)
             end),
             case Res of
-                {atomic, ok} -> ok;
-                {aborted, Reason} -> {error, Reason}
+                {atomic, ok} ->
+                    %% Admin disable expresses "this user is exempt from
+                    %% MFA policy"; self disable doesn't.
+                    ok = maybe_set_admin_override(Username, ByAdmin, ?ADMIN_MFA_EXEMPTED),
+                    ok;
+                {aborted, Reason} ->
+                    {error, Reason}
             end
     end.
 
@@ -250,57 +260,43 @@ enable_mfa(Username, Mechanism) ->
     end.
 
 %% @doc Reinitialize MFA state for a user (generate new TOTP secret,
-%% clear any pending state). The `ByAdmin' flag affects how the
-%% `admin_required' field in the user's extra map is updated:
+%% clear any pending state). The `ByAdmin' flag determines whether the
+%% caller's admin_override decision is applied:
 %%
-%%   * ByAdmin=false (self call) — write admin_required=false. Indicates
-%%     the user voluntarily set up their own MFA.
-%%   * ByAdmin=true and force_mfa_snapshot=true — admin_required is left
-%%     untouched. The user is already locked by SSO backend force_mfa
-%%     policy; admin_required field stays clean to record only direct
-%%     admin decisions, independent of policy.
-%%   * ByAdmin=true and force_mfa_snapshot is false or undefined — write
-%%     admin_required=true. Admin actively required MFA on a user not
-%%     covered by force_mfa policy.
+%%   * ByAdmin=true (admin reinit) — write admin_override=mfa_required.
+%%     Admin's decision overrides whatever policy snapshot says — this
+%%     user must keep MFA regardless of backend force_mfa changes.
+%%   * ByAdmin=false (self reinit) — leave admin_override untouched.
+%%     Self cannot revoke an existing admin decision (required or
+%%     exempted); voluntary setup/rotate stays under the admin
+%%     decision if any.
 %%
-%% See SPEC-dashboard-user-scopes.md §6.1.1 and §7.3 for the full
-%% rationale (the two booleans must not cross-contaminate).
+%% See SPEC-dashboard-user-scopes.md §6.1.1 for the full write rules.
 reinit_mfa(Username, Mechanism, ByAdmin) ->
     {ok, State} = emqx_dashboard_mfa:init(Mechanism),
     case reset_mfa_state(Username, State) of
         {ok, ok} ->
-            ok = maybe_set_admin_required(Username, ByAdmin),
+            ok = maybe_set_admin_override(Username, ByAdmin, ?ADMIN_MFA_REQUIRED),
             _ = emqx_dashboard_token:destroy_by_username(Username),
             ok;
         {error, Reason} ->
             {error, Reason}
     end.
 
-%% @doc admin_required write rule (see §6.1.1):
-%%   ByAdmin=false                      → write false (self voluntary)
-%%   ByAdmin=true,  snapshot=true       → leave untouched (policy-locked)
-%%   ByAdmin=true,  snapshot=false|undef → write true (admin enforces)
-%%
-%% Mnesia write failures are logged at warning level rather than crashing
-%% the caller (admin_required is a derived security flag; the calling
-%% MFA/reinit operation has already succeeded and a stale flag is less
-%% harmful than a 500). The next admin/self interaction will overwrite
-%% it via the same path.
-maybe_set_admin_required(Username, false) ->
-    log_admin_required_write(Username, false, set_admin_required(Username, false));
-maybe_set_admin_required(Username, true) ->
-    case force_mfa_snapshot_of(Username) of
-        true ->
-            ok;
-        _ ->
-            log_admin_required_write(Username, true, set_admin_required(Username, true))
-    end.
-
-log_admin_required_write(_Username, _Value, {ok, ok}) ->
+%% Conditional admin_override write — applied only when the operation
+%% was performed by an admin acting on another user (ByAdmin=true).
+%% Self operations never write admin_override: self cannot override
+%% the admin's decision.
+maybe_set_admin_override(_Username, _ByAdmin = false, _Override) ->
     ok;
-log_admin_required_write(Username, Value, {error, Reason}) ->
+maybe_set_admin_override(Username, _ByAdmin = true, Override) ->
+    log_admin_override_write(Username, Override, set_admin_override(Username, Override)).
+
+log_admin_override_write(_Username, _Value, {ok, ok}) ->
+    ok;
+log_admin_override_write(Username, Value, {error, Reason}) ->
     ?SLOG(warning, #{
-        msg => "set_admin_required_failed",
+        msg => "set_admin_override_failed",
         username => Username,
         value => Value,
         reason => Reason
@@ -432,18 +428,33 @@ set_force_mfa_snapshot(Username, V) when is_boolean(V) ->
     end),
     return(Res).
 
--spec admin_required_of(dashboard_username()) -> boolean().
-admin_required_of(Username) ->
+-type admin_override() :: undefined | ?ADMIN_MFA_REQUIRED | ?ADMIN_MFA_EXEMPTED.
+
+-spec admin_override_of(dashboard_username()) -> admin_override().
+admin_override_of(Username) ->
     case get_extra(Username) of
-        {ok, #{admin_required := V}} -> V;
-        _ -> false
+        {ok, #{admin_override := V}} when
+            V =:= ?ADMIN_MFA_REQUIRED;
+            V =:= ?ADMIN_MFA_EXEMPTED
+        ->
+            V;
+        _ ->
+            undefined
     end.
 
--spec set_admin_required(dashboard_username(), boolean()) ->
+-spec set_admin_override(dashboard_username(), admin_override()) ->
     {ok, ok} | {error, term()}.
-set_admin_required(Username, V) when is_boolean(V) ->
+set_admin_override(Username, undefined) ->
     Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-        update_extra(Username, fun(Extra) -> Extra#{admin_required => V} end)
+        update_extra(Username, fun(Extra) -> maps:remove(admin_override, Extra) end)
+    end),
+    return(Res);
+set_admin_override(Username, V) when
+    V =:= ?ADMIN_MFA_REQUIRED;
+    V =:= ?ADMIN_MFA_EXEMPTED
+->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> Extra#{admin_override => V} end)
     end),
     return(Res).
 

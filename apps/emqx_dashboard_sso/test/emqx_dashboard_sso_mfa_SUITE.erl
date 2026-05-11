@@ -367,7 +367,7 @@ t_check_sso_mfa_admin_disabled({init, Config}) ->
     %% First set MFA enabled so disable_mfa can work
     MfaState = #{mechanism => totp, secret => <<"TESTSECRET">>, first_verify_ts => 1000},
     {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, MfaState),
-    ok = emqx_dashboard_admin:disable_mfa(SsoUsername),
+    ok = emqx_dashboard_admin:disable_mfa(SsoUsername, _ByAdmin = true),
     Config;
 t_check_sso_mfa_admin_disabled({'end', _Config}) ->
     clear_force_mfa(?SSO_BACKEND),
@@ -394,7 +394,7 @@ t_admin_disable_mfa(_Config) ->
     OrigState = #{mechanism => totp, secret => <<"MYSECRET">>, first_verify_ts => 12345},
     {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, OrigState),
     %% Admin disables MFA
-    ok = emqx_dashboard_admin:disable_mfa(SsoUsername),
+    ok = emqx_dashboard_admin:disable_mfa(SsoUsername, _ByAdmin = true),
     %% Verify state is disabled (secret cleared, record preserved as admin_disabled)
     ?assertEqual({ok, disabled}, emqx_dashboard_admin:get_mfa_state(SsoUsername)),
     ok.
@@ -901,7 +901,7 @@ t_disable_mfa_not_configured(_Config) ->
     SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),
     _ = emqx_dashboard_admin:clear_mfa_state(SsoUsername),
     %% Disabling a user with no MFA configured sets mfa_state => disabled (ok, not error)
-    Result = emqx_dashboard_admin:disable_mfa(SsoUsername),
+    Result = emqx_dashboard_admin:disable_mfa(SsoUsername, _ByAdmin = true),
     ?assertEqual(ok, Result),
     ?assertEqual({ok, disabled}, emqx_dashboard_admin:get_mfa_state(SsoUsername)),
     ok.
@@ -918,10 +918,11 @@ t_disable_mfa_already_disabled(_Config) ->
     MfaState = #{mechanism => totp, secret => <<"SECRET">>, first_verify_ts => 1000},
     {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, MfaState),
     %% First disable should succeed
-    ok = emqx_dashboard_admin:disable_mfa(SsoUsername),
+    ok = emqx_dashboard_admin:disable_mfa(SsoUsername, _ByAdmin = true),
     %% Second disable should fail
     ?assertMatch(
-        {error, <<"MFA is already disabled">>}, emqx_dashboard_admin:disable_mfa(SsoUsername)
+        {error, <<"MFA is already disabled">>},
+        emqx_dashboard_admin:disable_mfa(SsoUsername, _ByAdmin = true)
     ),
     ok.
 

@@ -517,7 +517,8 @@ change_mfa(delete, #{bindings := #{username := Username0}} = Req) ->
     LogMeta = #{msg => "dashboard_user_mfa_disable", username => Username},
     case authorize_mfa_change(Req, Username, disable) of
         ok ->
-            case emqx_dashboard_admin:disable_mfa(Username) of
+            ByAdmin = caller_is_admin_acting_on_other(Req, Username),
+            case emqx_dashboard_admin:disable_mfa(Username, ByAdmin) of
                 ok ->
                     ?SLOG(info, LogMeta#{result => success}),
                     {204};
@@ -756,10 +757,19 @@ is_first_time_setup(TargetUsername, setup) ->
         _ -> true
     end.
 
+%% Compute the "self locked" boolean used by authorize_mfa_change/3.
+%% admin_override has higher precedence than the policy snapshot:
+%%   mfa_exempted -> false (admin explicitly cleared the lock)
+%%   mfa_required -> true  (admin explicitly imposed the lock)
+%%   undefined    -> defer to force_mfa_snapshot (the per-user policy
+%%                   freeze; not the live backend.force_mfa flag, so
+%%                   already-provisioned users keep their state across
+%%                   backend config changes)
 target_self_locked(TargetUsername) ->
-    case emqx_dashboard_admin:force_mfa_snapshot_of(TargetUsername) of
-        true -> true;
-        _ -> emqx_dashboard_admin:admin_required_of(TargetUsername)
+    case emqx_dashboard_admin:admin_override_of(TargetUsername) of
+        ?ADMIN_MFA_EXEMPTED -> false;
+        ?ADMIN_MFA_REQUIRED -> true;
+        undefined -> emqx_dashboard_admin:force_mfa_snapshot_of(TargetUsername) =:= true
     end.
 
 caller_has_mfa_mgmt(#?ADMIN{} = Caller) ->
