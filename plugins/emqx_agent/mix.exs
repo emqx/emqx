@@ -37,7 +37,6 @@ defmodule EMQXAgent.MixProject do
 
   def application do
     [
-      extra_applications: [:emqx_ai_completion],
       mod: {:emqx_agent_app, []}
     ]
   end

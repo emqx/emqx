@@ -65,7 +65,21 @@ t_ui_returns_html(_Config) ->
     {ok, Code, Body} = api_get([agent, ui]),
     ?assertEqual(200, Code),
     ?assert(is_binary(Body)),
-    ?assert(binary:match(Body, <<"<!DOCTYPE html">>) =/= nomatch).
+    ?assert(binary:match(Body, <<"<!DOCTYPE html">>) =/= nomatch),
+    ?assert(binary:match(Body, <<"showTab('connections'">>) =/= nomatch),
+    ?assert(binary:match(Body, <<"id=\"tab-connections\"">>) =/= nomatch),
+    ?assert(binary:match(Body, <<"assets/app.js">>) =/= nomatch),
+
+    {ok, 200, AppJs} = api_get([agent, assets, <<"app.js">>]),
+    ?assert(binary:match(AppJs, <<"./connections.js">>) =/= nomatch),
+    ?assert(binary:match(AppJs, <<"window.saveConnection">>) =/= nomatch),
+
+    {ok, 200, ConnectionsJs} = api_get([agent, assets, <<"connections.js">>]),
+    ?assert(binary:match(ConnectionsJs, <<"export async function saveConnection">>) =/= nomatch),
+    ?assert(binary:match(ConnectionsJs, <<"/connections">>) =/= nomatch),
+
+    {ok, 200, CompatAppJs} = api_get([agent, ui, assets, <<"app.js">>]),
+    ?assertEqual(AppJs, CompatAppJs).
 
 %%--------------------------------------------------------------------
 %% Skills — individual type tests

@@ -142,7 +142,19 @@ else
     PLUGIN_INSTALL_DIR="$NODE_ROOT_DIR/$PLUGIN_INSTALL_DIR_CFG"
 fi
 
+echo "Removing previously installed plugin package: $NAME_VSN"
+echo "  stopping plugin if running"
+"$EMQX_BIN" ctl plugins stop "$NAME_VSN" >/dev/null 2>&1 || true
+echo "  disabling plugin if enabled"
+"$EMQX_BIN" ctl plugins disable "$NAME_VSN" >/dev/null 2>&1 || true
+echo "  uninstalling plugin if installed"
+"$EMQX_BIN" ctl plugins uninstall "$NAME_VSN" >/dev/null 2>&1 || true
+
 mkdir -p "$PLUGIN_INSTALL_DIR"
+echo "  deleting stale install dir: $PLUGIN_INSTALL_DIR/$NAME_VSN"
+echo "  deleting stale package: $PLUGIN_INSTALL_DIR/$NAME_VSN.tar.gz"
+rm -rf "$PLUGIN_INSTALL_DIR/$NAME_VSN" "$PLUGIN_INSTALL_DIR/$NAME_VSN.tar.gz"
+echo "Copying fresh package: $TAR_PATH -> $PLUGIN_INSTALL_DIR/"
 cp -f "$TAR_PATH" "$PLUGIN_INSTALL_DIR/"
 
 echo "Installing plugin: $NAME_VSN"

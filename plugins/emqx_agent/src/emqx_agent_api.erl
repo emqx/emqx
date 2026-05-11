@@ -51,6 +51,8 @@ dispatch(get, [<<"apple-box">>, <<"img">>, File], Params) ->
     '/agent/apple-box/img/:file'(get, Params#{bindings => #{file => File}});
 dispatch(get, [<<"builder">>, <<"ui">>], Params) ->
     '/agent/builder/ui'(get, Params);
+dispatch(get, [<<"assets">>, File], _Params) ->
+    serve_ui_asset(File);
 dispatch(get, [<<"ui">>, <<"assets">>, File], _Params) ->
     serve_ui_asset(File);
 dispatch(get, [<<"skills">>], Params) ->
@@ -129,7 +131,7 @@ normalize_plugin_response(Status) when is_integer(Status) ->
                     <<".jpeg">> -> <<"image/jpeg">>;
                     _ -> <<"application/octet-stream">>
                 end,
-            {200, #{<<"content-type">> => CT}, Data};
+            {200, no_cache_headers(CT), Data};
         {error, _} ->
             {404, #{}, <<"not found">>}
     end.
@@ -139,7 +141,7 @@ serve_html(Filename) ->
     HtmlFile = filename:join(PrivDir, Filename),
     case file:read_file(HtmlFile) of
         {ok, Html} ->
-            {200, #{<<"content-type">> => <<"text/html; charset=utf-8">>}, Html};
+            {200, no_cache_headers(<<"text/html; charset=utf-8">>), Html};
         {error, Reason} ->
             ?INTERNAL_ERROR(iolist_to_binary(io_lib:format("Cannot read UI: ~p", [Reason])))
     end.
@@ -154,7 +156,7 @@ serve_ui_asset(File) ->
             case file:read_file(AssetFile) of
                 {ok, Data} ->
                     CT = ui_asset_content_type(filename:extension(File)),
-                    {200, #{<<"content-type">> => CT}, Data};
+                    {200, no_cache_headers(CT), Data};
                 {error, _} ->
                     {404, #{}, <<"not found">>}
             end
@@ -175,6 +177,12 @@ ui_asset_content_type(<<".jpg">>) -> <<"image/jpeg">>;
 ui_asset_content_type(<<".jpeg">>) -> <<"image/jpeg">>;
 ui_asset_content_type(<<".svg">>) -> <<"image/svg+xml">>;
 ui_asset_content_type(_) -> <<"application/octet-stream">>.
+
+no_cache_headers(ContentType) ->
+    #{
+        <<"content-type">> => ContentType,
+        <<"cache-control">> => <<"no-store">>
+    }.
 
 %%--------------------------------------------------------------------
 %% Handlers — Skills

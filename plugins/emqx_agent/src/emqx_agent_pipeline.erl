@@ -92,7 +92,7 @@
 %% Public API
 %%--------------------------------------------------------------------
 
--spec start_link(map(), map()) -> {ok, pid()} | {error, term()}.
+-spec start_link(map(), map()) -> {ok, pid()} | {error, term()} | ignore.
 start_link(Def, TriggerEvent) ->
     PipelineId = maps:get(<<"pipeline_id">>, Def),
     Iid = gen_iid(PipelineId),
