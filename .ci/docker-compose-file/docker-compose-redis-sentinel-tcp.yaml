@@ -25,6 +25,7 @@ services:
     image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
       - ./redis/sentinel-tcp/sentinel-base.conf:/usr/local/etc/redis/sentinel-base.conf
+      - ./redis/sentinel-tcp/users.acl:/usr/local/etc/redis/users.acl
     depends_on:
       - redis-sentinel-master
       - redis-sentinel-slave
@@ -33,7 +34,6 @@ services:
                redis-sentinel /usr/local/etc/redis/sentinel.conf"
     networks:
       - emqx_bridge
-
 
 
 

@@ -98,6 +98,21 @@ t_sentinel_lifecycle(_Config) ->
         [<<"PING">>]
     ).
 
+t_sentinel_password_auth(_Config) ->
+    ResourceId = <<"emqx_redis_SUITE_sentinel_password_auth">>,
+    {ok, #{config := CheckedConfig}} =
+        emqx_resource:check_config(?REDIS_RESOURCE_MOD, redis_config_sentinel()),
+    {ok, #{status := connected}} = emqx_resource:create_local(
+        ResourceId,
+        ?CONNECTOR_RESOURCE_GROUP,
+        ?REDIS_RESOURCE_MOD,
+        CheckedConfig,
+        #{}
+    ),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId)),
+    ?assertEqual({ok, <<"PONG">>}, emqx_resource:query(ResourceId, {cmd, [<<"PING">>]})),
+    ?assertEqual(ok, emqx_resource:remove_local(ResourceId)).
+
 perform_lifecycle_check(ResourceId, InitialConfig, RedisCommand) ->
     {ok, #{config := CheckedConfig}} =
         emqx_resource:check_config(?REDIS_RESOURCE_MOD, InitialConfig),
