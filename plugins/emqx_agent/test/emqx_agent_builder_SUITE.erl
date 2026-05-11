@@ -26,6 +26,7 @@
 
 -define(BUILDER_PIPELINE_ID, <<"pipeline-builder">>).
 -define(SHARED_PROVIDER, <<"openai">>).
+-define(PG_CONNECTION_ID, <<"apple-box-pg">>).
 -define(REPLY_TOPIC, <<"builder/reply/#">>).
 -define(REQUEST_TOPIC, <<"evt/builder/request">>).
 
@@ -85,7 +86,8 @@
                         Required: id, desc, method, url, input_schema
 
       postgresql.query  Execute a parameterised SQL query.
-                        Required: id, desc, query (using ${var} placeholders).
+                        Required: id, desc, resource, query (using ${var} placeholders).
+                        Use resource "apple-box-pg" for apple-box PostgreSQL skills.
                         Placeholder names are extracted automatically and the input
                         schema is generated from them. No arg_keys or input_schema needed.
 
@@ -167,6 +169,7 @@
 
     Our PostgreSQL table is apple_box_inspections with columns
     conveyor_id, box_id, status, reason — write one row per box.
+    Use the existing PostgreSQL connection resource apple-box-pg.
 
     Use the existing AI provider "openai" for the AI inspector.
     The inspector should request the photo, look for rotten/moldy/bruised apples,
@@ -197,6 +200,7 @@ init_per_suite(Config) ->
                 [
                     emqx,
                     emqx_conf,
+                    emqx_resource,
                     {emqx_ai_completion, #{
                         config => "ai.providers = [], ai.completion_profiles = []"
                     }},
@@ -221,11 +225,15 @@ end_per_suite(Config) ->
 
 init_per_testcase(_TC, Config) ->
     ct:timetrap({seconds, 240}),
+    ok = emqx_agent_plugin_config_fixture:setup(),
+    ok = register_pg_connection(),
     ok = emqx:subscribe(?REPLY_TOPIC),
     Config.
 
 end_per_testcase(_TC, _Config) ->
-    ok = emqx:unsubscribe(?REPLY_TOPIC).
+    ok = emqx:unsubscribe(?REPLY_TOPIC),
+    _ = emqx_agent_service:connection_delete(?PG_CONNECTION_ID),
+    ok = emqx_agent_plugin_config_fixture:teardown().
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -355,6 +363,24 @@ cleanup_builder_infra() ->
     _ = emqx_agent_skill_delete_pipeline:destroy(<<"builder-delete-pipeline">>),
     _ = emqx_agent_skill_publish:destroy(<<"builder-reply">>),
     ok.
+
+register_pg_connection() ->
+    _ = emqx_agent_service:connection_delete(?PG_CONNECTION_ID),
+    emqx_agent_service:connection_create(#{
+        <<"connection_id">> => ?PG_CONNECTION_ID,
+        <<"type">> => <<"postgresql">>,
+        <<"enable">> => false,
+        <<"config">> => #{
+            <<"server">> => <<"pgsql:5432">>,
+            <<"database">> => <<"mqtt">>,
+            <<"username">> => <<"root">>,
+            <<"password">> => <<"public">>,
+            <<"pool_size">> => 1,
+            <<"connect_timeout">> => 5000,
+            <<"disable_prepared_statements">> => true,
+            <<"ssl">> => #{<<"enable">> => false}
+        }
+    }).
 
 register_shared_provider() ->
     emqx_ai_completion_config:update_providers_raw(

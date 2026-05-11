@@ -30,6 +30,7 @@
 
 -define(PIPELINE_ID, <<"apple-box-inspection">>).
 -define(PROVIDER_NAME, <<"apple-inspector">>).
+-define(CONNECTION_ID, <<"apple-box-pg">>).
 -define(PIPE_EVENTS_FILTER, <<"pipe/+/inst/+/events">>).
 %% LLM calls may take up to 60 s; give generous headroom.
 -define(LLM_TIMEOUT, 90_000).
@@ -62,26 +63,22 @@ init_per_suite(Config) ->
             ),
             %% PostgreSQL skill init must run before we can use the resource.
             ok = emqx_agent_skill_postgresql:init(),
-            ok = create_table(),
-            ok = register_skills(),
             ok = register_provider(),
-            ok = register_pipeline(),
             [{suite_apps, Apps} | Config]
     end.
 
 end_per_suite(Config) ->
-    ok = drop_table(),
-    ok = emqx_agent_pipeline_registry:unregister(?PIPELINE_ID),
     _ = emqx_ai_completion_config:update_providers_raw({delete, ?PROVIDER_NAME}),
-    ok = emqx_agent_skill_mqtt_request:destroy(<<"box-shot">>),
-    ok = emqx_agent_skill_publish:destroy(<<"box-alert">>),
-    ok = emqx_agent_skill_publish:destroy(<<"box-status">>),
-    ok = emqx_agent_skill_postgresql:destroy(<<"box-register">>),
     ok = emqx_agent_skill_postgresql:deinit(),
     emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(_TC, Config) ->
     ct:timetrap({seconds, 180}),
+    ok = emqx_agent_plugin_config_fixture:setup(),
+    ok = create_connection(),
+    ok = create_table(),
+    ok = register_skills(),
+    ok = register_pipeline(),
     ConvId = <<"conv-", (integer_to_binary(erlang:unique_integer([positive, monotonic])))/binary>>,
     BoxId = <<"box-", (integer_to_binary(erlang:unique_integer([positive, monotonic])))/binary>>,
     ok = emqx:subscribe(?PIPE_EVENTS_FILTER),
@@ -95,7 +92,15 @@ end_per_testcase(_TC, Config) ->
     ok = emqx:unsubscribe(?PIPE_EVENTS_FILTER),
     ok = emqx:unsubscribe(<<"box/status/", BoxId/binary>>),
     ok = emqx:unsubscribe(<<"box/alert/", BoxId/binary>>),
-    ok = emqx:unsubscribe(<<"box/shot/", BoxId/binary>>).
+    ok = emqx:unsubscribe(<<"box/shot/", BoxId/binary>>),
+    ok = drop_table(),
+    ok = emqx_agent_pipeline_registry:unregister(?PIPELINE_ID),
+    ok = emqx_agent_skill_mqtt_request:destroy(<<"box-shot">>),
+    ok = emqx_agent_skill_publish:destroy(<<"box-alert">>),
+    ok = emqx_agent_skill_publish:destroy(<<"box-status">>),
+    ok = emqx_agent_skill_postgresql:destroy(<<"box-register">>),
+    ok = emqx_agent_service:connection_delete(?CONNECTION_ID),
+    ok = emqx_agent_plugin_config_fixture:teardown().
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -200,7 +205,7 @@ publish_done(ConvId, BoxId, AppleCount) ->
 %%--------------------------------------------------------------------
 
 assert_db_row(BoxId) ->
-    ResId = emqx_agent_skill_postgresql:resource_id(),
+    ResId = emqx_agent_skill_postgresql:resource_id(?CONNECTION_ID),
     SQL = <<"SELECT status FROM apple_box_inspections WHERE box_id = $1">>,
     Result = emqx_resource:simple_sync_query(ResId, {query, SQL, [BoxId]}),
     case Result of
@@ -226,7 +231,7 @@ fixture(File) ->
 %%--------------------------------------------------------------------
 
 create_table() ->
-    ResId = emqx_agent_skill_postgresql:resource_id(),
+    ResId = emqx_agent_skill_postgresql:resource_id(?CONNECTION_ID),
     SQL = <<
         "CREATE TABLE IF NOT EXISTS apple_box_inspections ("
         "  id SERIAL PRIMARY KEY,"
@@ -240,7 +245,7 @@ create_table() ->
     expect_query_ok(emqx_resource:simple_sync_query(ResId, {query, SQL})).
 
 drop_table() ->
-    ResId = emqx_agent_skill_postgresql:resource_id(),
+    ResId = emqx_agent_skill_postgresql:resource_id(?CONNECTION_ID),
     _ = emqx_resource:simple_sync_query(
         ResId, {query, <<"DROP TABLE IF EXISTS apple_box_inspections">>}
     ),
@@ -250,6 +255,24 @@ expect_query_ok({ok, _, _}) -> ok;
 expect_query_ok({ok, _}) -> ok;
 expect_query_ok(ok) -> ok;
 expect_query_ok({error, Reason}) -> error({db_error, Reason}).
+
+create_connection() ->
+    _ = emqx_agent_service:connection_delete(?CONNECTION_ID),
+    ok = emqx_agent_service:connection_create(#{
+        <<"connection_id">> => ?CONNECTION_ID,
+        <<"type">> => <<"postgresql">>,
+        <<"enable">> => true,
+        <<"config">> => #{
+            <<"server">> => <<"pgsql:5432">>,
+            <<"database">> => <<"mqtt">>,
+            <<"username">> => <<"root">>,
+            <<"password">> => <<"public">>,
+            <<"pool_size">> => 1,
+            <<"connect_timeout">> => 5000,
+            <<"disable_prepared_statements">> => true,
+            <<"ssl">> => #{<<"enable">> => false}
+        }
+    }).
 
 register_skills() ->
     ok = emqx_agent_skill_mqtt_request:create(#{
@@ -271,6 +294,7 @@ register_skills() ->
     ok = emqx_agent_skill_postgresql:create(#{
         skill_id => <<"box-register">>,
         desc => <<"Record inspection result in the database">>,
+        resource => ?CONNECTION_ID,
         query => <<
             "INSERT INTO apple_box_inspections(conveyor_id, box_id, status, reason) "
             "VALUES(${conveyor_id}, ${box_id}, ${status}, ${reason})"

@@ -33,6 +33,7 @@ init_per_suite(Config) ->
         [
             emqx,
             emqx_conf,
+            emqx_resource,
             emqx_agent,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
@@ -46,11 +47,15 @@ end_per_suite(Config) ->
 
 init_per_testcase(TestCase, Config) ->
     Id = atom_to_binary(TestCase, utf8),
+    ok = emqx_agent_plugin_config_fixture:setup(),
+    ok = clear_connections(),
     [{tc_id, Id} | Config].
 
 end_per_testcase(_TestCase, _Config) ->
     ok = emqx_agent_skill_registry:delete_all(),
-    ok = emqx_agent_pipeline_registry:delete_all().
+    ok = emqx_agent_pipeline_registry:delete_all(),
+    ok = clear_connections(),
+    ok = emqx_agent_plugin_config_fixture:teardown().
 
 %%--------------------------------------------------------------------
 %% UI
@@ -115,6 +120,8 @@ t_skill_http_crud(Config) ->
 
 t_skill_postgresql_crud(Config) ->
     Id = ?config(tc_id, Config),
+    ConnId = <<Id/binary, "-conn">>,
+    ?assertMatch({ok, 201, _}, api_post([agent, connections], pg_conn_body(ConnId))),
 
     ?assertMatch(
         {ok, 201, _},
@@ -122,6 +129,7 @@ t_skill_postgresql_crud(Config) ->
             <<"type">> => <<"postgresql.query">>,
             <<"id">> => Id,
             <<"desc">> => <<"test postgresql skill">>,
+            <<"resource">> => ConnId,
             <<"query">> => <<"SELECT 1">>
         })
     ),
@@ -133,6 +141,56 @@ t_skill_postgresql_crud(Config) ->
 
     ?assertMatch({ok, 204}, api_delete([agent, skills, <<"postgresql.query">>, Id])),
     ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"postgresql.query">>, Id])).
+
+%%--------------------------------------------------------------------
+%% Connections
+%%--------------------------------------------------------------------
+
+t_connections_crud(Config) ->
+    Id = ?config(tc_id, Config),
+
+    ?assertMatch({ok, 200, []}, api_get([agent, connections])),
+    ?assertMatch({ok, 201, _}, api_post([agent, connections], pg_conn_body(Id))),
+
+    {ok, 200, Conn} = api_get([agent, connections, Id]),
+    ?assertMatch(#{<<"connection_id">> := Id, <<"type">> := <<"postgresql">>}, Conn),
+    ?assertEqual(false, maps:get(<<"enable">>, Conn)),
+
+    Body0 = pg_conn_body(Id),
+    Updated = Body0#{
+        <<"enable">> => false,
+        <<"config">> => (maps:get(<<"config">>, Body0))#{<<"database">> => <<"mqtt2">>}
+    },
+    ?assertMatch({ok, 200, _}, api_put([agent, connections, Id], Updated)),
+
+    {ok, 200, Conn2} = api_get([agent, connections, Id]),
+    ?assertEqual(<<"mqtt2">>, maps:get(<<"database">>, maps:get(<<"config">>, Conn2))),
+
+    ?assertMatch(
+        {ok, 200, #{<<"enable">> := true}}, api_post([agent, connections, Id, start], #{})
+    ),
+    ?assertMatch(
+        {ok, 200, #{<<"enable">> := false}}, api_post([agent, connections, Id, stop], #{})
+    ),
+
+    ?assertMatch({ok, 204}, api_delete([agent, connections, Id])),
+    ?assertMatch({ok, 404, _}, api_get([agent, connections, Id])).
+
+t_connection_delete_in_use(Config) ->
+    Id = ?config(tc_id, Config),
+    ConnId = <<Id/binary, "-conn">>,
+    ?assertMatch({ok, 201, _}, api_post([agent, connections], pg_conn_body(ConnId))),
+    ?assertMatch(
+        {ok, 201, _},
+        api_post([agent, skills], #{
+            <<"type">> => <<"postgresql.query">>,
+            <<"id">> => Id,
+            <<"desc">> => <<"test postgresql skill">>,
+            <<"resource">> => ConnId,
+            <<"query">> => <<"SELECT 1">>
+        })
+    ),
+    ?assertMatch({ok, 409, _}, api_delete([agent, connections, ConnId])).
 
 %%--------------------------------------------------------------------
 %% Skills — list and validation
@@ -282,6 +340,32 @@ api_put(Path, Body) ->
 
 api_delete(Path) ->
     decode(emqx_agent_app:on_handle_api_call(delete, plugin_path(Path), #{}, #{})).
+
+clear_connections() ->
+    lists:foreach(
+        fun(#{<<"connection_id">> := Id}) ->
+            _ = emqx_agent_service:connection_delete(Id)
+        end,
+        emqx_agent_service:connection_list()
+    ),
+    ok.
+
+pg_conn_body(Id) ->
+    #{
+        <<"connection_id">> => Id,
+        <<"type">> => <<"postgresql">>,
+        <<"enable">> => false,
+        <<"config">> => #{
+            <<"server">> => <<"pgsql:5432">>,
+            <<"database">> => <<"mqtt">>,
+            <<"username">> => <<"root">>,
+            <<"password">> => <<"public">>,
+            <<"pool_size">> => 1,
+            <<"connect_timeout">> => 5000,
+            <<"disable_prepared_statements">> => true,
+            <<"ssl">> => #{<<"enable">> => false}
+        }
+    }.
 
 plugin_path([agent | Rest]) ->
     [to_binary(P) || P <- Rest];

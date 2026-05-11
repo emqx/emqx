@@ -2,6 +2,7 @@ import { api } from './api.js';
 import { getSchemaEditorValue, setSchemaEditorValue } from './schema_editor.js';
 import { esc, setMsg, toast } from './ui_helpers.js';
 import { loadedSkills, editingSkillKey } from './state.js';
+import { renderConnectionOptions } from './connections.js';
 
 export async function loadSkills() {
   const list = await api('GET', '/skills');
@@ -55,6 +56,7 @@ export function collectSkillBody() {
     body.url           = document.getElementById('skill-url').value.trim();
     body.input_schema  = getSchemaEditorValue('se-skill-input-schema');
   } else if (type === 'postgresql.query') {
+    body.resource = document.getElementById('skill-resource').value;
     body.query = document.getElementById('skill-query').value.trim();
   }
   return body;
@@ -111,6 +113,7 @@ export function editSkill(type, id) {
     document.getElementById('skill-request-prefix').value = skill.topic_prefix ?? '';
     setSchemaEditorValue('se-skill-request-payload-schema', skill.request_payload_schema || null);
   } else if (type === 'postgresql.query') {
+    document.getElementById('skill-resource').value = skill.resource ?? '';
     document.getElementById('skill-query').value = skill.query ?? '';
   }
 
@@ -146,6 +149,8 @@ export function resetSkillEditor() {
   document.getElementById('skill-method').value = 'post';
   document.getElementById('skill-url').value = '';
   setSchemaEditorValue('se-skill-input-schema', null);
+  renderConnectionOptions();
+  document.getElementById('skill-resource').value = '';
   document.getElementById('skill-query').value = '';
   updateSkillForm();
   setMsg('skill-msg', '');
@@ -168,4 +173,5 @@ export function updateSkillForm() {
   document.getElementById('f-request').style.display  = type === 'message.request'  ? '' : 'none';
   document.getElementById('f-http').style.display     = type === 'http'              ? '' : 'none';
   document.getElementById('f-ch').style.display       = type === 'postgresql.query'  ? '' : 'none';
+  if (type === 'postgresql.query') renderConnectionOptions();
 }

@@ -4,8 +4,6 @@
 
 -module(emqx_plugins).
 
--feature(maybe_expr, enable).
-
 -include("emqx_plugins.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").

@@ -33,6 +33,7 @@
   <!-- ── Tab nav ── -->
   <nav>
     <button class="active" onclick="showTab('skills',this)">Skills<span class="cnt" id="cnt-skills">—</span></button>
+    <button onclick="showTab('connections',this)">Connections<span class="cnt" id="cnt-connections">—</span></button>
     <button onclick="showTab('profiles',this)">AI Providers<span class="cnt" id="cnt-profiles">—</span></button>
     <button onclick="showTab('pipelines',this)">Pipelines<span class="cnt" id="cnt-pipelines">—</span></button>
   </nav>
@@ -127,6 +128,11 @@
         <!-- postgresql fields -->
         <div id="f-ch" style="display:none">
           <div class="field">
+            <label>Connection</label>
+            <select id="skill-resource"></select>
+            <div class="hint">Select the PostgreSQL connection used by this skill. Disabled connections can be selected.</div>
+          </div>
+          <div class="field">
             <label>SQL query template</label>
             <textarea id="skill-query" placeholder="SELECT metric, value FROM agent_skill_metrics WHERE device_id = ${device_id}"></textarea>
             <div class="hint">Use ${var} placeholders. Names are extracted automatically and the input schema is generated from them.</div>
@@ -136,6 +142,87 @@
         <div class="form-actions">
           <button class="btn primary" id="skill-submit-btn" onclick="saveSkill()">Create</button>
           <span id="skill-msg" class="msg"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Connections -->
+    <section id="tab-connections">
+      <h2>Connections</h2>
+      <table class="tbl">
+        <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Server</th><th></th></tr></thead>
+        <tbody id="connections-body"><tr class="empty"><td colspan="5">Not connected</td></tr></tbody>
+      </table>
+
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h3 id="conn-card-title">New Connection</h3>
+          <button id="conn-cancel-btn" class="btn sm" style="display:none" onclick="resetConnectionEditor()">Cancel edit</button>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Connection ID</label>
+            <input id="conn-id" type="text" placeholder="pg-main">
+          </div>
+          <div class="field">
+            <label>Type</label>
+            <input type="text" value="postgresql" readonly style="opacity:0.7">
+          </div>
+          <div class="field" style="max-width:110px">
+            <label>Enabled</label>
+            <label style="display:flex;align-items:center;gap:6px;padding-top:6px;cursor:pointer">
+              <input type="checkbox" id="conn-enable" style="accent-color:var(--accent2);width:14px;height:14px">
+              <span style="font-size:12px;color:var(--muted)">start</span>
+            </label>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Server</label>
+            <input id="conn-server" type="text" value="pgsql:5432" placeholder="host:5432">
+          </div>
+          <div class="field">
+            <label>Database</label>
+            <input id="conn-database" type="text" value="mqtt">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Username</label>
+            <input id="conn-username" type="text" value="root">
+          </div>
+          <div class="field">
+            <label>Password</label>
+            <input id="conn-password" type="password" value="public">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Pool Size</label>
+            <input id="conn-pool-size" type="number" min="1" value="1">
+          </div>
+          <div class="field">
+            <label>Connect Timeout (ms)</label>
+            <input id="conn-connect-timeout" type="number" min="1" value="5000">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="conn-disable-prepared" checked style="accent-color:var(--accent2);width:14px;height:14px">
+              Disable prepared statements
+            </label>
+          </div>
+          <div class="field">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="conn-ssl" style="accent-color:var(--accent2);width:14px;height:14px">
+              Enable SSL
+            </label>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button id="conn-save-btn" class="btn primary" onclick="saveConnection()">Create Connection</button>
+          <span id="conn-msg" class="msg"></span>
         </div>
       </div>
     </section>

@@ -13,6 +13,7 @@
 
 -define(SKILL_TYPE, <<"postgresql.query">>).
 -define(SKILL_ID, <<"pg-test">>).
+-define(CONNECTION_ID, <<"pg-test-conn">>).
 -define(INVOKE_TOPIC(ReqId), <<"cap/postgresql.query/pg-test/request/", ReqId/binary>>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -28,14 +29,18 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
+    ok = emqx_agent_plugin_config_fixture:setup(),
     ok = emqx_agent_skill_postgresql:init(),
+    ok = create_test_connection(),
     ok = ensure_test_data(),
     ok = emqx_agent_skill_postgresql:create(test_context()),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
     ok = emqx_agent_skill_postgresql:destroy(?SKILL_ID),
-    ok = emqx_agent_skill_postgresql:deinit().
+    ok = emqx_agent_service:connection_delete(?CONNECTION_ID),
+    ok = emqx_agent_skill_postgresql:deinit(),
+    ok = emqx_agent_plugin_config_fixture:teardown().
 
 t_create_registers_skill(_Config) ->
     {ok, Skill} = emqx_agent_skill_registry:lookup(?SKILL_TYPE, ?SKILL_ID),
@@ -98,7 +103,7 @@ t_invoke_queries_postgresql(_Config) ->
     ok = emqx:unsubscribe(ReplyTopic).
 
 ensure_test_data() ->
-    ResId = emqx_agent_skill_postgresql:resource_id(),
+    ResId = emqx_agent_skill_postgresql:resource_id(?CONNECTION_ID),
     ok = expect_query_ok(
         emqx_resource:simple_sync_query(
             ResId,
@@ -142,6 +147,24 @@ expect_query_ok({ok, _, _}) ->
 expect_query_ok({ok, _}) ->
     ok.
 
+create_test_connection() ->
+    _ = emqx_agent_service:connection_delete(?CONNECTION_ID),
+    ok = emqx_agent_service:connection_create(#{
+        <<"connection_id">> => ?CONNECTION_ID,
+        <<"type">> => <<"postgresql">>,
+        <<"enable">> => true,
+        <<"config">> => #{
+            <<"server">> => <<"pgsql:5432">>,
+            <<"database">> => <<"mqtt">>,
+            <<"username">> => <<"root">>,
+            <<"password">> => <<"public">>,
+            <<"pool_size">> => 1,
+            <<"connect_timeout">> => 5000,
+            <<"disable_prepared_statements">> => true,
+            <<"ssl">> => #{<<"enable">> => false}
+        }
+    }).
+
 test_context() ->
     test_context(#{}).
 
@@ -150,6 +173,7 @@ test_context(Overrides) ->
         #{
             skill_id => ?SKILL_ID,
             desc => <<"Query PostgreSQL telemetry by device ID.">>,
+            resource => ?CONNECTION_ID,
             query =>
                 <<"SELECT metric, value FROM agent_skill_metrics WHERE device_id = ${device_id} ORDER BY metric">>
         },

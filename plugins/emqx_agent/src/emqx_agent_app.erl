@@ -9,7 +9,7 @@
 -emqx_plugin(?MODULE).
 
 -export([start/2, stop/1]).
--export([on_handle_api_call/4]).
+-export([on_config_changed/2, on_handle_api_call/4]).
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_agent_sup:start_link(),
@@ -24,6 +24,8 @@ start(_StartType, _StartArgs) ->
     ok = emqx_agent_skill_query_pipelines:init(),
     ok = emqx_agent_skill_delete_skill:init(),
     ok = emqx_agent_skill_delete_pipeline:init(),
+    ok = emqx_agent_config:init_config(),
+    ok = emqx_agent_skill_connections:init(),
     ok = emqx_agent_skill:init_hook(),
     ok = emqx_agent_session:init_hook(),
     ok = emqx_agent_pipeline_mgr:init_hook(),
@@ -31,6 +33,7 @@ start(_StartType, _StartArgs) ->
 
 stop(_State) ->
     ok = emqx_agent_skill:deinit_hook(),
+    ok = emqx_agent_skill_connections:deinit(),
     ok = emqx_agent_skill_postgresql:deinit(),
     ok = emqx_agent_skill_http:deinit(),
     ok = emqx_agent_skill_publish:deinit(),
@@ -44,6 +47,10 @@ stop(_State) ->
     ok = emqx_agent_skill_delete_pipeline:deinit(),
     ok = emqx_agent_session:deinit_hook(),
     ok = emqx_agent_pipeline_mgr:deinit_hook().
+
+on_config_changed(OldConfig, NewConfig) ->
+    ok = emqx_agent_config:update_config(OldConfig, NewConfig),
+    emqx_agent_skill_connections:reconcile().
 
 on_handle_api_call(Method, PathRemainder, Request, _Context) ->
     emqx_agent_api:handle(Method, PathRemainder, Request).

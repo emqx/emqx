@@ -7,6 +7,8 @@
 %% Resources:
 %%   /agent/skills                   — list / create skill instances
 %%   /agent/skills/:type/:id         — get / delete a skill instance
+%%   /agent/connections              — list / create skill connections
+%%   /agent/connections/:id          — get / update / delete a skill connection
 %%   /agent/pipelines                — list / create pipeline definitions
 %%   /agent/pipelines/:id            — get / update / delete a pipeline
 %%
@@ -61,6 +63,20 @@ dispatch(put, [<<"skills">>, Type, Id], Params) ->
     '/agent/skills/:type/:id'(put, Params#{bindings => #{type => Type, id => Id}});
 dispatch(delete, [<<"skills">>, Type, Id], Params) ->
     '/agent/skills/:type/:id'(delete, Params#{bindings => #{type => Type, id => Id}});
+dispatch(get, [<<"connections">>], Params) ->
+    '/agent/connections'(get, Params);
+dispatch(post, [<<"connections">>], Params) ->
+    '/agent/connections'(post, Params);
+dispatch(get, [<<"connections">>, Id], Params) ->
+    '/agent/connections/:id'(get, Params#{bindings => #{id => Id}});
+dispatch(put, [<<"connections">>, Id], Params) ->
+    '/agent/connections/:id'(put, Params#{bindings => #{id => Id}});
+dispatch(delete, [<<"connections">>, Id], Params) ->
+    '/agent/connections/:id'(delete, Params#{bindings => #{id => Id}});
+dispatch(post, [<<"connections">>, Id, <<"start">>], Params) ->
+    '/agent/connections/:id/start'(post, Params#{bindings => #{id => Id}});
+dispatch(post, [<<"connections">>, Id, <<"stop">>], Params) ->
+    '/agent/connections/:id/stop'(post, Params#{bindings => #{id => Id}});
 dispatch(get, [<<"pipelines">>], Params) ->
     '/agent/pipelines'(get, Params);
 dispatch(post, [<<"pipelines">>], Params) ->
@@ -205,6 +221,65 @@ ui_asset_content_type(_) -> <<"application/octet-stream">>.
         {error, {in_use, Ids}} ->
             Joined = iolist_to_binary(lists:join(<<", ">>, Ids)),
             ?CONFLICT(<<"Skill is used in pipeline(s): ", Joined/binary>>)
+    end.
+
+%%--------------------------------------------------------------------
+%% Handlers — Connections
+%%--------------------------------------------------------------------
+
+'/agent/connections'(get, _Params) ->
+    ?OK(emqx_agent_service:connection_list());
+'/agent/connections'(post, #{body := Body}) ->
+    case emqx_agent_service:connection_create(Body) of
+        ok ->
+            ?CREATED(#{});
+        {error, {missing_field, Field}} ->
+            ?BAD_REQUEST(iolist_to_binary(["Missing required field: ", field_to_str(Field)]));
+        {error, already_exists} ->
+            ?CONFLICT(<<"Connection already exists">>);
+        {error, Reason} ->
+            ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
+    end.
+
+'/agent/connections/:id'(get, #{bindings := #{id := Id}}) ->
+    case emqx_agent_service:connection_get(Id) of
+        {ok, Connection} -> ?OK(Connection);
+        {error, not_found} -> ?NOT_FOUND(<<"Connection not found">>)
+    end;
+'/agent/connections/:id'(put, #{bindings := #{id := Id}, body := Body}) ->
+    case emqx_agent_service:connection_update(Id, Body) of
+        {ok, Connection} ->
+            ?OK(Connection);
+        {error, not_found} ->
+            ?NOT_FOUND(<<"Connection not found">>);
+        {error, Reason} ->
+            ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
+    end;
+'/agent/connections/:id'(delete, #{bindings := #{id := Id}}) ->
+    case emqx_agent_service:connection_delete(Id) of
+        ok ->
+            ?NO_CONTENT;
+        {error, not_found} ->
+            ?NOT_FOUND(<<"Connection not found">>);
+        {error, {in_use, Ids}} ->
+            Joined = iolist_to_binary(lists:join(<<", ">>, Ids)),
+            ?CONFLICT(<<"Connection is used by skill(s): ", Joined/binary>>);
+        {error, Reason} ->
+            ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
+    end.
+
+'/agent/connections/:id/start'(post, #{bindings := #{id := Id}}) ->
+    case emqx_agent_service:connection_start(Id) of
+        {ok, Connection} -> ?OK(Connection);
+        {error, not_found} -> ?NOT_FOUND(<<"Connection not found">>);
+        {error, Reason} -> ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
+    end.
+
+'/agent/connections/:id/stop'(post, #{bindings := #{id := Id}}) ->
+    case emqx_agent_service:connection_stop(Id) of
+        {ok, Connection} -> ?OK(Connection);
+        {error, not_found} -> ?NOT_FOUND(<<"Connection not found">>);
+        {error, Reason} -> ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
     end.
 
 %%--------------------------------------------------------------------

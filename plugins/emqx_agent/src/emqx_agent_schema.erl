@@ -18,8 +18,10 @@
 
 %% Type helpers used by emqx_agent_api
 -export([
+    config_type/0,
     skill_entry_type/0,
     skill_create_type/0,
+    connection_type/0,
     pipeline_type/0,
     pipeline_step_type/0
 ]).
@@ -43,6 +45,15 @@ tags() -> [<<"Agent">>].
 %% fields/1 — skill read response (what the registry stores)
 %%--------------------------------------------------------------------
 
+fields(config) ->
+    [
+        {connections,
+            mk(hoconsc:array(connection_type()), #{
+                required => false,
+                default => [],
+                desc => ?DESC(config_connections)
+            })}
+    ];
 fields(skill_entry) ->
     [
         {id,
@@ -199,8 +210,39 @@ fields(skill_postgresql_create) ->
             mk(binary(), #{
                 required => true,
                 desc => ?DESC(skill_pg_query)
+            })},
+        {resource,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(skill_pg_resource)
             })}
     ];
+fields(connection_postgresql) ->
+    [
+        {connection_id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(connection_id)
+            })},
+        {type,
+            mk(enum([postgresql]), #{
+                required => true,
+                desc => ?DESC(connection_type)
+            })},
+        {enable,
+            mk(boolean(), #{
+                required => false,
+                default => false,
+                desc => ?DESC(connection_enable)
+            })},
+        {config,
+            mk(ref(connection_postgresql_config), #{
+                required => true,
+                desc => ?DESC(connection_config)
+            })}
+    ];
+fields(connection_postgresql_config) ->
+    emqx_agent_skill_postgresql_connector:config_fields();
 fields(skill_create_skill_create) ->
     [
         {type,
@@ -500,11 +542,14 @@ fields(_) ->
 %% desc/1 — struct-level descriptions
 %%--------------------------------------------------------------------
 
+desc(config) -> ?DESC(config);
 desc(skill_entry) -> ?DESC(skill_entry);
 desc(skill_publish_create) -> ?DESC(skill_publish_create);
 desc(skill_http_create) -> ?DESC(skill_http_create);
 desc(skill_mqtt_request_create) -> ?DESC(skill_mqtt_request_create);
 desc(skill_postgresql_create) -> ?DESC(skill_postgresql_create);
+desc(connection_postgresql) -> ?DESC(connection_postgresql);
+desc(connection_postgresql_config) -> ?DESC(connection_postgresql_config);
 desc(skill_create_skill_create) -> ?DESC(skill_create_skill_create);
 desc(skill_create_pipeline_create) -> ?DESC(skill_create_pipeline_create);
 desc(skill_query_skills_create) -> ?DESC(skill_query_skills_create);
@@ -525,6 +570,10 @@ desc(_) -> undefined.
 %% Schema type helpers
 %%--------------------------------------------------------------------
 
+-spec config_type() -> hocon_schema:schema().
+config_type() ->
+    ref(config).
+
 -spec skill_entry_type() -> hocon_schema:schema().
 skill_entry_type() ->
     ref(skill_entry).
@@ -543,6 +592,12 @@ skill_create_type() ->
         <<"agent.query_pipelines">> => ref(skill_query_pipelines_create),
         <<"agent.delete_skill">> => ref(skill_delete_skill_create),
         <<"agent.delete_pipeline">> => ref(skill_delete_pipeline_create)
+    }).
+
+-spec connection_type() -> hocon_schema:schema().
+connection_type() ->
+    emqx_schema:mkunion(<<"type">>, #{
+        <<"postgresql">> => ref(connection_postgresql)
     }).
 
 -spec pipeline_type() -> hocon_schema:schema().

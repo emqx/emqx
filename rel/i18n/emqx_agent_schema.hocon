@@ -1,6 +1,10 @@
 emqx_agent_schema {
 
-    ## ── Struct-level descriptions ────────────────────────────────────────────
+
+    config {
+        desc: "Agent plugin configuration."
+        label: "Agent Config"
+    }
 
     skill_entry {
         desc: "A registered skill instance as stored in the skill registry."
@@ -29,6 +33,16 @@ Placeholder names are extracted automatically, the input schema is generated fro
 and values are bound as PostgreSQL $1, $2, ... parameters when the skill is invoked.
 No separate argument list or input schema is needed."""
         label: "PostgreSQL Skill"
+    }
+
+    connection_postgresql {
+        desc: "A PostgreSQL skill connection configuration used by agent skills."
+        label: "PostgreSQL Skill Connection"
+    }
+
+    connection_postgresql_config {
+        desc: "PostgreSQL connection configuration."
+        label: "PostgreSQL Connection Config"
     }
 
     pipeline {
@@ -178,6 +192,40 @@ and binds values to PostgreSQL $1, $2, ... parameters when invoked."""
 
     skill_pg_query.label:
 """Query Template"""
+
+    skill_pg_resource.desc:
+"""Connection ID of the PostgreSQL connection used when invoking this skill.
+Disabled connections are allowed but invocations will fail until the connection is enabled."""
+
+    skill_pg_resource.label:
+"""Connection"""
+
+    ## ── connections ──────────────────────────────────────────────────────────
+
+    config_connections {
+        desc: "Skill connection configurations."
+        label: "Connections"
+    }
+
+    connection_id {
+        desc: "Unique connection ID."
+        label: "Connection ID"
+    }
+
+    connection_type {
+        desc: "Connection type. Currently only postgresql is supported."
+        label: "Connection Type"
+    }
+
+    connection_enable {
+        desc: "Whether this connection resource should be started on each node."
+        label: "Enabled"
+    }
+
+    connection_config {
+        desc: "Connector-specific connection settings."
+        label: "Config"
+    }
 
     ## ── meta-skill create variants ───────────────────────────────────────────
 

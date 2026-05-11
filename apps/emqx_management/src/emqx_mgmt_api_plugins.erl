@@ -50,7 +50,8 @@
     do_update_plugin_config/3,
     do_update_plugin_config_v4/2,
     ensure_existed/1,
-    sync_plugin_cluster/2
+    sync_plugin_cluster/2,
+    put_plugin_config/2
 ]).
 -export([scopes/0]).
 
@@ -635,13 +636,13 @@ update_plugin(put, #{bindings := #{name := NameVsn, action := Action}}) ->
 plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     get_plugin_config(NameVsn);
 plugin_config(put, #{bindings := #{name := NameVsn}, body := Config}) ->
-    put_plugin_config(NameVsn, Config).
+    return_config_update_result(put_plugin_config(NameVsn, Config)).
 
 upload_plugin_config(post, #{
     bindings := #{name := NameVsn}, body := #{<<"config">> := #{type := _} = ConfigUpload}
 }) ->
     [{_FileName, ConfigBin}] = maps:to_list(maps:without([type], ConfigUpload)),
-    put_plugin_config(NameVsn, ConfigBin).
+    return_config_update_result(put_plugin_config(NameVsn, ConfigBin)).
 
 download_plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     case get_plugin_config(NameVsn) of
@@ -671,6 +672,7 @@ get_plugin_config(NameVsn) ->
             {404, plugin_not_found_msg()}
     end.
 
+-spec put_plugin_config(name_vsn(), map() | binary()) -> ok | {error, term()}.
 put_plugin_config(NameVsn, Config) ->
     Nodes = emqx:running_nodes(),
     case emqx_plugins:describe(NameVsn, #{}) of
@@ -681,21 +683,18 @@ put_plugin_config(NameVsn, Config) ->
                     Res = emqx_mgmt_api_plugins_proto_v4:update_plugin_config(
                         Nodes, NameVsn, Config
                     ),
-                    return_config_update_result(Res);
+                    validate_node_results(Res);
                 {ok, _AvroValue} ->
                     %% cluster call with config in map (binary key-value)
                     Res = emqx_mgmt_api_plugins_proto_v4:update_plugin_config(
                         Nodes, NameVsn, Config
                     ),
-                    return_config_update_result(Res);
-                {error, Reason} ->
-                    {400, #{
-                        code => 'BAD_CONFIG',
-                        message => readable_error_msg(Reason)
-                    }}
+                    validate_node_results(Res);
+                {error, _Reason} = Error->
+                    Error
             end;
         _ ->
-            {404, plugin_not_found_msg()}
+            {error, ?plugin_not_found}
     end.
 
 plugin_schema(get, #{bindings := #{name := NameVsn}}) ->
@@ -759,7 +758,7 @@ install_package(FileName, Bin) ->
 install_package_v4(NameVsn, Bin) ->
     ok = emqx_plugins:write_package(NameVsn, Bin),
     case emqx_plugins:ensure_installed(NameVsn, ?fresh_install) of
-        {error, #{reason := plugin_not_found}} = NotFound ->
+        {error, #{reason := ?plugin_not_found}} = NotFound ->
             NotFound;
         {error, Reason} = Error ->
             ?SLOG(error, Reason#{msg => "failed_to_install_plugin"}),
@@ -850,20 +849,31 @@ return(_, {error, #{msg := Msg, reason := {enoent, Path} = Reason}}) ->
 return(_, {error, Reason}) ->
     {400, #{code => 'PARAM_ERROR', message => readable_error_msg(Reason)}}.
 
-return_config_update_result({Responses, BadNodes}) ->
+validate_node_results({Responses, BadNodes}) ->
     ResponseErrors = lists:filter(fun(Response) -> Response =/= ok end, Responses),
     NodeErrors = [{badnode, Node} || Node <- BadNodes],
     case {ResponseErrors, NodeErrors} of
         {[], []} ->
-            {204};
+            ok;
         {ResponseErrors, []} ->
-            {400, #{code => 'BAD_CONFIG', message => format_errors(ResponseErrors)}};
+            {error, {bad_config, ResponseErrors}};
         {ResponseErrors, NodeErrors} ->
-            {500, #{
-                code => 'INTERNAL_ERROR',
-                message => format_errors(ResponseErrors ++ NodeErrors)
-            }}
+            {error, {internal_error, ResponseErrors ++ NodeErrors}}
     end.
+
+return_config_update_result(ok) ->
+    {204};
+return_config_update_result({error, {bad_config, ResponseErrors}}) ->
+    {400, #{code => 'BAD_CONFIG', message => format_errors(ResponseErrors)}};
+return_config_update_result({error, {internal_error, ResponseErrorsAndNodeErrors}}) ->
+    {500, #{
+        code => 'INTERNAL_ERROR',
+        message => format_errors(ResponseErrorsAndNodeErrors)
+    }};
+return_config_update_result({error, ?plugin_not_found}) ->
+    {404, plugin_not_found_msg()};
+return_config_update_result({error, Reason}) ->
+    {400, #{code => 'UNEXPECTED_ERROR', message => readable_error_msg(Reason)}}.
 
 plugin_not_found_msg() ->
     #{

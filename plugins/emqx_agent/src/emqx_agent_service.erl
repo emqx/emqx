@@ -25,6 +25,14 @@
     skill_get/2,
     skill_update/3,
     skill_delete/2,
+    %% Connections
+    connection_list/0,
+    connection_create/1,
+    connection_get/1,
+    connection_update/2,
+    connection_delete/1,
+    connection_start/1,
+    connection_stop/1,
     %% Pipelines
     pipeline_list/0,
     pipeline_create/1,
@@ -80,6 +88,46 @@ skill_delete(Type, Id) ->
                 Ids -> {error, {in_use, Ids}}
             end
     end.
+
+%%--------------------------------------------------------------------
+%% Connections
+%%--------------------------------------------------------------------
+
+-spec connection_list() -> [map()].
+connection_list() ->
+    emqx_agent_config:list_connections().
+
+-spec connection_create(map()) -> ok | {error, term()}.
+connection_create(Body) ->
+    reconcile_after(emqx_agent_config:create_connection(Body)).
+
+-spec connection_get(binary()) -> {ok, map()} | {error, not_found}.
+connection_get(ConnectionId) ->
+    emqx_agent_config:lookup_connection(ConnectionId).
+
+-spec connection_update(binary(), map()) -> {ok, map()} | {error, term()}.
+connection_update(ConnectionId, Body) ->
+    reconcile_after(emqx_agent_config:update_connection(ConnectionId, Body)).
+
+-spec connection_delete(binary()) -> ok | {error, not_found | {in_use, [binary()]} | term()}.
+connection_delete(ConnectionId) ->
+    case emqx_agent_config:lookup_connection(ConnectionId) of
+        {error, not_found} ->
+            {error, not_found};
+        {ok, _} ->
+            case skills_using_connection(ConnectionId) of
+                [] -> reconcile_after(emqx_agent_config:delete_connection(ConnectionId));
+                Ids -> {error, {in_use, Ids}}
+            end
+    end.
+
+-spec connection_start(binary()) -> {ok, map()} | {error, term()}.
+connection_start(ConnectionId) ->
+    update_connection_enable(ConnectionId, true).
+
+-spec connection_stop(binary()) -> {ok, map()} | {error, term()}.
+connection_stop(ConnectionId) ->
+    update_connection_enable(ConnectionId, false).
 
 %%--------------------------------------------------------------------
 %% Pipelines
@@ -164,3 +212,30 @@ skill_ref_in_step(Ref, #{<<"type">> := <<"llm_loop">>} = Step) ->
     lists:member(Ref, maps:get(<<"tools">>, Step, []));
 skill_ref_in_step(_Ref, _Step) ->
     false.
+
+skills_using_connection(ConnectionId) ->
+    [
+        maps:get(skill_id, S)
+     || #{type := <<"postgresql.query">>, context := #{resource := ConnectionId0}} = S <-
+            emqx_agent_skill_registry:list(),
+        ConnectionId0 =:= ConnectionId
+    ].
+
+reconcile_after(ok) ->
+    ok = emqx_agent_skill_connections:reconcile(),
+    ok;
+reconcile_after({ok, _} = Result) ->
+    ok = emqx_agent_skill_connections:reconcile(),
+    Result;
+reconcile_after({error, _} = Error) ->
+    Error.
+
+update_connection_enable(ConnectionId, Enable) ->
+    case emqx_agent_config:lookup_connection(ConnectionId) of
+        {ok, Conn0} ->
+            reconcile_after(
+                emqx_agent_config:update_connection(ConnectionId, Conn0#{<<"enable">> => Enable})
+            );
+        {error, _} = Error ->
+            Error
+    end.

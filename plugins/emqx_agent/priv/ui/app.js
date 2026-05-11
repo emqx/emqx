@@ -1,5 +1,6 @@
 import { authHeader } from './api.js';
 import { setSchemaEditorValue } from './schema_editor.js';
+import { loadConnections, saveConnection, editConnection, deleteConnection, startConnection, stopConnection, resetConnectionEditor } from './connections.js';
 import { loadSkills, saveSkill, editSkill, deleteSkill, updateSkillForm, resetSkillEditor, defaultPublishInputSchema } from './skills.js';
 import { loadProfiles } from './providers.js';
 import { loadPipelines, savePipeline, editPipeline, deletePipeline, togglePipelineActive, resetPipelineEditor } from './pipelines.js';
@@ -22,7 +23,7 @@ async function refresh() {
     return;
   }
   try {
-    await Promise.all([loadSkills(), loadProfiles(), loadPipelines()]);
+    await Promise.all([loadConnections(), loadSkills(), loadProfiles(), loadPipelines()]);
     setStatus('ok');
   } catch(e) {
     setStatus('err');
@@ -37,6 +38,12 @@ window.editSkill = editSkill;
 window.deleteSkill = deleteSkill;
 window.updateSkillForm = updateSkillForm;
 window.resetSkillEditor = resetSkillEditor;
+window.saveConnection = saveConnection;
+window.editConnection = editConnection;
+window.deleteConnection = deleteConnection;
+window.startConnection = startConnection;
+window.stopConnection = stopConnection;
+window.resetConnectionEditor = resetConnectionEditor;
 window.savePipeline = savePipeline;
 window.editPipeline = editPipeline;
 window.deletePipeline = deletePipeline;
