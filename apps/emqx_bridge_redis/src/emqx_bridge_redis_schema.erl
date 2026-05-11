@@ -238,6 +238,8 @@ connector_parameter(sentinel) ->
         sentinel => <<"myredismaster">>,
         pool_size => 8,
         database => 1,
+        sentinel_username => <<"sentinel_user">>,
+        sentinel_password => <<"******">>,
         username => <<"test">>,
         password => <<"******">>
     }.
