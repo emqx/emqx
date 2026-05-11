@@ -110,7 +110,7 @@ mk_link_conf_to(Cluster = [Node | _], Overrides) ->
     link_conf(Name, LPorts, Overrides).
 
 link_conf(Name, LPorts, Overrides) ->
-    maps:merge(
+    emqx_utils_maps:deep_merge(
         #{
             <<"enable">> => true,
             <<"name">> => emqx_utils_conv:bin(Name),

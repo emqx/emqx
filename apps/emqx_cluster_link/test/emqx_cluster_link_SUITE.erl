@@ -42,12 +42,10 @@ mk_interlinked_clusters(BaseName, NSource, NTarget, Config) ->
 mk_interlinked_clusters(BaseName, NSource, NTarget, LinkConf, Config) ->
     SourceName = fmt("~p_~p", [BaseName, s]),
     TargetName = fmt("~p_~p", [BaseName, t]),
-    SourceLink = emqx_cluster_link_cth:mk_link_conf(2, TargetName, LinkConf#{
-        <<"topics">> => []
-    }),
-    TargetLink = emqx_cluster_link_cth:mk_link_conf(1, SourceName, LinkConf#{
-        <<"topics">> => [<<"#">>]
-    }),
+    SourceLinkConf = LinkConf#{<<"topics">> => []},
+    SourceLink = emqx_cluster_link_cth:mk_link_conf(2, TargetName, SourceLinkConf),
+    TargetLinkConf = LinkConf#{<<"topics">> => [<<"#">>]},
+    TargetLink = emqx_cluster_link_cth:mk_link_conf(1, SourceName, TargetLinkConf),
     SourceSpec = #{
         apps => [
             {emqx_conf, merge_conf(#{cluster => #{links => [SourceLink]}}, conf_log())}
@@ -107,7 +105,9 @@ t_message_forwarding(Config) ->
 t_message_forwarding_random('init', Config) ->
     ok = snabbkaffe:start_trace(),
     LinkConf = #{
-        <<"message_dispatch_strategy">> => <<"random">>
+        <<"resource_opts">> => #{
+            <<"dispatch_strategy">> => <<"random">>
+        }
     },
     {SourceClusterSpec, TargetClusterSpec} =
         mk_interlinked_clusters(?FUNCTION_NAME, 2, 2, LinkConf, Config),

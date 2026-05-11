@@ -74,7 +74,8 @@
     name := binary(),
     enable := boolean(),
     topics := _Union :: [emqx_types:words()],
-    message_dispatch_strategy := clientid | random
+    %% See `emqx_resource:query_opts()`:
+    query_opts := #{atom() => _}
 }.
 
 -define(PTERM(K), {?MODULE, K}).
@@ -304,11 +305,12 @@ cleanup_shortconf() ->
     ok.
 
 prepare_link(#{name := Name, enable := Enabled, topics := Topics} = LinkConf) ->
+    QueryOpts = #{} = emqx_resource:get_query_opts(emqx_cluster_link_mqtt, LinkConf),
     #{
         name => Name,
         enable => Enabled,
         topics => prepare_topics(Topics),
-        message_dispatch_strategy => maps:get(message_dispatch_strategy, LinkConf, clientid)
+        query_opts => QueryOpts
     }.
 
 prepare_topics(Topics) ->

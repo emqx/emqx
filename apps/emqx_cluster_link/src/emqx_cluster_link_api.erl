@@ -603,7 +603,6 @@ links_config_example() ->
         #{
             <<"enable">> => true,
             <<"pool_size">> => 10,
-            <<"message_dispatch_strategy">> => <<"clientid">>,
             <<"server">> => <<"emqxcl_b.host:1883">>,
             <<"ssl">> => #{<<"enable">> => false},
             <<"topics">> =>
@@ -616,7 +615,6 @@ links_config_example() ->
         #{
             <<"enable">> => true,
             <<"pool_size">> => 10,
-            <<"message_dispatch_strategy">> => <<"random">>,
             <<"server">> => <<"emqxcl_c.host:1883">>,
             <<"ssl">> => #{<<"enable">> => false},
             <<"topics">> =>

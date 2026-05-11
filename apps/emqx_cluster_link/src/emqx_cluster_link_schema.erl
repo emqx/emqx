@@ -39,7 +39,6 @@
     ssl := #{atom() => _},
     retry_interval := non_neg_integer(),
     max_inflight := pos_integer(),
-    message_dispatch_strategy := clientid | random,
     atom() => _
 }.
 
@@ -96,11 +95,6 @@ fields("link") ->
                 ]
             })},
         {pool_size, ?HOCON(pos_integer(), #{default => 8, desc => ?DESC(pool_size)})},
-        {message_dispatch_strategy,
-            ?HOCON(hoconsc:enum([clientid, random]), #{
-                default => clientid,
-                desc => ?DESC(message_dispatch_strategy)
-            })},
         {retry_interval,
             emqx_schema:mk_duration(
                 #{

@@ -593,12 +593,12 @@ decode_payload(Payload) ->
 forward(ClusterName, #delivery{message = Msg}) ->
     %% NOTE
     %% Attaching pick key to the message to pick forwarding connection accordingly.
-    Key = choose_pick_key(emqx_cluster_link_config:link(ClusterName)),
+    #{query_opts := QueryOpts} = emqx_cluster_link_config:link(ClusterName),
+    Key = choose_pick_key(QueryOpts),
     FwdMsg = Msg#message{extra = Key},
-    QueryOpts = #{pick_key => Key},
-    emqx_resource:query(?MSG_RES_ID(ClusterName), FwdMsg, QueryOpts).
+    emqx_resource:query(?MSG_RES_ID(ClusterName), FwdMsg, QueryOpts#{pick_key => Key}).
 
-choose_pick_key(#{message_dispatch_strategy := random}) ->
+choose_pick_key(#{buffer_worker_dispatch_strategy := random}) ->
     %% NOTE: Cheap and has high rate of change.
     erlang:monotonic_time();
 choose_pick_key(_LinkConf) ->
