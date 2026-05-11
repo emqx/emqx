@@ -132,23 +132,19 @@ check_rbac(?ROLE_VIEWER, <<"POST">>, <<"/users/", SubPath/binary>>, Username, _)
         [Username, <<"mfa">>] -> true;
         _ -> false
     end;
-check_rbac(?ROLE_VIEWER, <<"DELETE">>, <<"/users/", SubPath/binary>>, Username, Backend) ->
+check_rbac(?ROLE_VIEWER, <<"DELETE">>, <<"/users/", SubPath/binary>>, Username, _Backend) ->
+    %% RBAC decides only that viewer may DELETE its OWN mfa endpoint.
+    %% Policy state — force_mfa snapshot, admin_required lock,
+    %% mfa_management self-exemption — is decided in
+    %% emqx_dashboard_api:authorize_mfa_change/3. Mixing the live
+    %% backend force_mfa flag in here previously bypassed the snapshot
+    %% and the scope-based self-exemption (SPEC §6.3).
     case decode_path_segments(SubPath) of
-        [Username, <<"mfa">>] -> not is_forced_sso_mfa(Backend);
+        [Username, <<"mfa">>] -> true;
         _ -> false
     end;
 check_rbac(_, _, _, _, _) ->
     false.
-
-%% force_mfa is an SSO-backend policy only; regular dashboard accounts
-%% authenticated via the local backend do not participate in SSO MFA enforcement.
-is_forced_sso_mfa(?BACKEND_LOCAL) ->
-    false;
-is_forced_sso_mfa(Backend) ->
-    case emqx:get_config([dashboard, sso, Backend], undefined) of
-        #{force_mfa := true} -> true;
-        _ -> false
-    end.
 
 decode_path_segments(SubPath) ->
     [uri_string:percent_decode(Segment) || Segment <- binary:split(SubPath, <<"/">>, [global])].
