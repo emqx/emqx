@@ -422,9 +422,11 @@ test_mfa(VerifyFn) ->
 %% is not loadable from that SUITE.
 %%--------------------------------------------------------------------
 
-%% scopes=undefined (the default for users created before this feat or
-%% without an explicit scopes field) falls back to the RBAC default,
-%% which has already passed at this point in the call chain. So allow.
+%% scopes=undefined uses the role-default fallback (admin -> all 14,
+%% viewer -> 10 generic). A viewer with no explicit scopes therefore
+%% holds only generic scopes and is denied on /users (user_management
+%% scope). Self-targeted user endpoints are an exception (see
+%% t_check_login_user_scopes_self_user_endpoints_bypass below).
 t_check_login_user_scopes_undefined_falls_back(_) ->
     Username = <<"login_user_scopes_undef">>,
     {ok, _} = emqx_dashboard_admin:add_user(
@@ -432,14 +434,44 @@ t_check_login_user_scopes_undefined_falls_back(_) ->
     ),
     %% No set_user_scopes call.
     ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(Username)),
+    %% Viewer default = 10 generic scopes (no user_management).
     ?assertEqual(
-        true,
+        false,
         emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
     ),
+    %% /clients is mapped to connections — viewer default holds it.
+    ?assertEqual(
+        true,
+        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/clients">>)
+    ).
+
+%% Self-targeted user endpoints (own change_pwd, own MFA) bypass the
+%% scope check — they are gated by RBAC's self-check and, for MFA, by
+%% emqx_dashboard_api:authorize_mfa_change/3.
+t_check_login_user_scopes_self_user_endpoints_bypass(_) ->
+    Username = <<"login_user_scopes_self">>,
+    {ok, _} = emqx_dashboard_admin:add_user(
+        Username, <<"P@ssw0rd">>, ?ROLE_VIEWER, <<>>
+    ),
+    %% Viewer default does NOT contain user_management/mfa_management,
+    %% but self-targeted paths are still allowed.
     ?assertEqual(
         true,
         emqx_dashboard_rbac:check_login_user_scopes(
             Username, <<"/users/", Username/binary, "/change_pwd">>
+        )
+    ),
+    ?assertEqual(
+        true,
+        emqx_dashboard_rbac:check_login_user_scopes(
+            Username, <<"/users/", Username/binary, "/mfa">>
+        )
+    ),
+    %% Other users' endpoints still respect scope rules.
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(
+            Username, <<"/users/somebody_else/mfa">>
         )
     ).
 
@@ -467,7 +499,8 @@ t_check_login_user_scopes_explicit_empty_denies(_) ->
     ).
 
 %% scopes=[user_management] grants /users access; a path mapped to
-%% a different scope is denied.
+%% a different scope on ANOTHER user is denied. Self mfa path is
+%% bypassed and stays allowed (see self-bypass test).
 t_check_login_user_scopes_user_mgmt_grants_users(_) ->
     Username = <<"login_user_scopes_um">>,
     {ok, _} = emqx_dashboard_admin:add_user(
@@ -480,10 +513,11 @@ t_check_login_user_scopes_user_mgmt_grants_users(_) ->
         true,
         emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
     ),
+    %% Another user's mfa endpoint — denied (scope mfa_management not held).
     ?assertEqual(
         false,
         emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/users/", Username/binary, "/mfa">>
+            Username, <<"/users/somebody_else/mfa">>
         )
     ).
 
@@ -601,10 +635,11 @@ t_check_login_user_scopes_generic_does_not_grant_login_only_paths(_) ->
         false,
         emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
     ),
+    %% Another user's mfa path — generic scope does not grant it.
     ?assertEqual(
         false,
         emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/users/", Username/binary, "/mfa">>
+            Username, <<"/users/somebody_else/mfa">>
         )
     ).
 

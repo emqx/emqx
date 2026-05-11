@@ -199,19 +199,21 @@ t_rest_api(_Config) ->
     Password = <<"public_www1">>,
     emqx_dashboard_admin:add_user(<<"admin">>, Password, ?ROLE_SUPERUSER, Desc),
     {ok, 200, Res0} = http_get(["users"]),
+    %% to_external_user/1 also surfaces the effective scopes list
+    %% (admin -> 14 scopes by role-default). This test doesn't care
+    %% about the exact list, so drop the field before asserting the
+    %% rest of the user record.
+    [User0] = get_http_data(Res0),
     ?assertEqual(
-        [
-            filter_req(#{
-                <<"backend">> => <<"local">>,
-                <<"username">> => <<"admin">>,
-                <<"description">> => <<"administrator">>,
-                <<"role">> => ?ROLE_SUPERUSER,
-                <<"namespace">> => null,
-                <<"mfa">> => <<"none">>,
-                <<"scopes">> => null
-            })
-        ],
-        get_http_data(Res0)
+        filter_req(#{
+            <<"backend">> => <<"local">>,
+            <<"username">> => <<"admin">>,
+            <<"description">> => <<"administrator">>,
+            <<"role">> => ?ROLE_SUPERUSER,
+            <<"namespace">> => null,
+            <<"mfa">> => <<"none">>
+        }),
+        maps:remove(<<"scopes">>, User0)
     ),
     {ok, 200, _} = http_put(
         ["users", "admin"],

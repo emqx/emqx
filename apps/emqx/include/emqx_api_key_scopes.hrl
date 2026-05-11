@@ -71,3 +71,21 @@
     ?SCOPE_SSO_MGMT,
     ?SCOPE_API_KEY_MGMT
 ]).
+
+%% Generic (API-key-compatible) scopes — these 10 scopes are usable
+%% both by API keys and by dashboard login users. Used to compute the
+%% role-default fallback for users whose extra.scopes is absent:
+%%   * administrator default = GENERIC_SCOPES ++ LOGIN_ONLY_SCOPES (all 14)
+%%   * viewer default        = GENERIC_SCOPES (10, no login-only)
+-define(GENERIC_SCOPES, [
+    ?SCOPE_CONNECTIONS,
+    ?SCOPE_PUBLISH,
+    ?SCOPE_DATA_INTEGRATION,
+    ?SCOPE_ACCESS_CONTROL,
+    ?SCOPE_GATEWAYS,
+    ?SCOPE_MONITORING,
+    ?SCOPE_CLUSTER_OPERATIONS,
+    ?SCOPE_SYSTEM,
+    ?SCOPE_AUDIT,
+    ?SCOPE_LICENSE
+]).
