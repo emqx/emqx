@@ -50,18 +50,21 @@
 namespace() -> "dashboard_sso".
 
 scopes() ->
-    %% These three SSO admin endpoints already require auth via the
-    %% global minirest default (basicAuth/bearerAuth). API key access
-    %% to dashboard SSO is rejected at the auth layer (api_key_authorize
+    %% These two SSO admin endpoints require auth via the global
+    %% minirest default (basicAuth/bearerAuth). API key access to
+    %% dashboard SSO is rejected at the auth layer (api_key_authorize
     %% in emqx_dashboard.erl) — only login users reach the scope check.
     %% The login user scope check (commit 5) consults this map.
     %%
-    %% /sso/login/:backend and /sso/token_exchange are public SSO
-    %% authentication entry points (security => []), they are not in
-    %% the map and fall through unmapped (fail-open).
+    %% Intentionally absent from the map (public, fall-through to
+    %% unmapped fail-open):
+    %%   * /sso/login/:backend, /sso/token_exchange — SSO protocol
+    %%     entry points
+    %%   * /sso/running — dashboard frontend probes this on the
+    %%     pre-auth login page to render the "Log in with X" button
+    %%     list. Must remain anonymously accessible.
     #{
         <<"/sso">> => ?SCOPE_SSO_MGMT,
-        <<"/sso/running">> => ?SCOPE_SSO_MGMT,
         <<"/sso/:backend">> => ?SCOPE_SSO_MGMT
     }.
 
@@ -82,15 +85,18 @@ schema("/sso/running") ->
         'operationId' => running,
         get => #{
             tags => ?TAGS,
+            %% Public endpoint — the dashboard login page probes this
+            %% BEFORE authentication to render the "Log in with X"
+            %% button list. Setting security => [] overrides the
+            %% global default (basicAuth/bearerAuth) to allow
+            %% anonymous access. The response contains only the list
+            %% of enabled SSO backend types (e.g. [<<"ldap">>,
+            %% <<"saml">>]) — no per-tenant or per-user information.
+            security => [],
             desc => ?DESC(list_running),
             responses => #{
                 200 => array(enum(emqx_dashboard_sso:types()))
             }
-            %% security: omit so the global default (require auth) applies.
-            %% Was previously `security => []` (public). Tightened in
-            %% feat/dashboard-user-scopes — running-status disclosure of
-            %% a deployment's enabled SSO backends is operational info
-            %% that should require authentication.
         }
     };
 schema("/sso") ->
