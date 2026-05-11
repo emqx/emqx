@@ -393,7 +393,7 @@ t_api_list_scopes(_Config) ->
     ?assertMatch(#{<<"scopes">> := _}, Body),
     Scopes = maps:get(<<"scopes">>, Body),
     ?assert(is_list(Scopes)),
-    ?assertEqual(10, length(Scopes)),
+    ?assertEqual(length(emqx_scope_catalog:scope_catalog()), length(Scopes)),
     %% Each entry has name and desc (no paths)
     lists:foreach(
         fun(Scope) ->

@@ -150,14 +150,19 @@ t_post_users_response_role_default_scopes_when_not_set(_Config) ->
     Resp = emqx_utils_json:decode(RespBody),
     ScopesOut = maps:get(<<"scopes">>, Resp),
     ?assert(is_list(ScopesOut)),
-    %% Admin default contains all four login-only scopes plus all 10
-    %% generic ones — assert membership rather than exact equality
-    %% to avoid coupling to catalog ordering.
-    ?assert(lists:member(?SCOPE_USER_MGMT, ScopesOut)),
-    ?assert(lists:member(?SCOPE_CONNECTIONS, ScopesOut)),
-    ?assertEqual(14, length(ScopesOut)).
+    %% Admin default contains every login-only scope plus every
+    %% common scope — assert membership rather than exact equality
+    %% to avoid coupling to catalog ordering or count.
+    CommonNames = [N || #{name := N} <- emqx_scope_catalog:common_scope_catalog()],
+    LoginOnlyNames = [N || #{name := N} <- emqx_scope_catalog:admin_only_scope_catalog()],
+    lists:foreach(
+        fun(N) -> ?assert(lists:member(N, ScopesOut)) end,
+        CommonNames ++ LoginOnlyNames
+    ),
+    ?assertEqual(length(CommonNames) + length(LoginOnlyNames), length(ScopesOut)).
 
-%% Viewer default = 10 generic scopes (no login-only).
+%% Viewer default = common scopes only (no login-only).
+%% Viewer default = the common scopes, no login-only ones.
 t_post_users_response_viewer_default_scopes(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
@@ -173,7 +178,8 @@ t_post_users_response_viewer_default_scopes(_Config) ->
     Resp = emqx_utils_json:decode(RespBody),
     ScopesOut = maps:get(<<"scopes">>, Resp),
     ?assert(is_list(ScopesOut)),
-    ?assertEqual(10, length(ScopesOut)),
+    CommonNames = [N || #{name := N} <- emqx_scope_catalog:common_scope_catalog()],
+    ?assertEqual(length(CommonNames), length(ScopesOut)),
     ?assertNot(lists:member(?SCOPE_USER_MGMT, ScopesOut)),
     ?assertNot(lists:member(?SCOPE_MFA_MGMT, ScopesOut)).
 

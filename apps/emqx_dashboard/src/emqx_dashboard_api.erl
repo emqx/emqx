@@ -769,7 +769,7 @@ target_self_locked(TargetUsername) ->
 
 caller_has_mfa_mgmt(#?ADMIN{} = Caller) ->
     %% Use effective scopes so the role-default fallback (admin -> all
-    %% 14, viewer -> 10 generic) applies. Viewer with no explicit
+    %% 14, viewer -> common scopes only) applies. Viewer with no explicit
     %% scopes therefore does NOT carry mfa_management; admin always
     %% does.
     Scopes = emqx_dashboard_admin:effective_scopes_of_admin(Caller),
