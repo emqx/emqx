@@ -4,7 +4,7 @@
 
 -module(emqx_dashboard_rbac).
 
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 -include_lib("emqx/include/emqx_config.hrl").

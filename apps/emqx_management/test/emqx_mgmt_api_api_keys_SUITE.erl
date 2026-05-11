@@ -10,7 +10,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 -define(EE_CASES, [
     t_ee_create,

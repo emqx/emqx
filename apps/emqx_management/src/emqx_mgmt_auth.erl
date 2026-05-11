@@ -14,7 +14,7 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 

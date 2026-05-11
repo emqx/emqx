@@ -10,7 +10,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 %% `minirest' and `minirest_trails' API
 -export([
