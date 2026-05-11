@@ -259,6 +259,9 @@ t_all_endpoints_covered_by_scopes(_Config) ->
         <<"/sso/oidc/callback">>,
         <<"/sso/saml/acs">>,
         <<"/sso/saml/metadata">>,
+        %% Probed by the dashboard login page (pre-auth) to render
+        %% the "Log in with X" SSO button list.
+        <<"/sso/running">>,
         %% Public SSO MFA setup/verify (token-authenticated by short-lived JWT)
         <<"/sso/mfa/setup_info">>,
         <<"/sso/mfa/setup">>,
