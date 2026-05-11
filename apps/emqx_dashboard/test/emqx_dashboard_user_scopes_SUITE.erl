@@ -342,7 +342,7 @@ t_self_cannot_rotate_when_admin_required_locked(_Config) ->
     {ok, ok} = emqx_dashboard_admin:set_mfa_state(
         <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
     ),
-    {ok, ok} = emqx_dashboard_admin:set_admin_required(<<"u">>, true),
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
     Token = jwt(<<"u">>, test_password()),
     Body = #{<<"mechanism">> => <<"totp">>},
     {ok, 403, RespBody} = request_api(
@@ -362,7 +362,7 @@ t_self_with_mfa_mgmt_can_rotate_under_admin_required_lock(_Config) ->
     {ok, ok} = emqx_dashboard_admin:set_mfa_state(
         <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
     ),
-    {ok, ok} = emqx_dashboard_admin:set_admin_required(<<"u">>, true),
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
     Token = jwt(<<"u">>, test_password()),
     Body = #{<<"mechanism">> => <<"totp">>},
     ?assertMatch(
@@ -379,7 +379,7 @@ t_self_cannot_delete_when_admin_required_locked(_Config) ->
     {ok, ok} = emqx_dashboard_admin:set_mfa_state(
         <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
     ),
-    {ok, ok} = emqx_dashboard_admin:set_admin_required(<<"u">>, true),
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
     Token = jwt(<<"u">>, test_password()),
     {ok, 403, RespBody} = request_api(
         delete, api_path(["users", "u", "mfa"]), auth_header(Token), #{}
@@ -398,7 +398,7 @@ t_self_with_mfa_mgmt_can_delete_under_admin_required_lock(_Config) ->
     {ok, ok} = emqx_dashboard_admin:set_mfa_state(
         <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
     ),
-    {ok, ok} = emqx_dashboard_admin:set_admin_required(<<"u">>, true),
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
     Token = jwt(<<"u">>, test_password()),
     ?assertMatch(
         {ok, 204, _},
@@ -473,57 +473,100 @@ t_viewer_cannot_reset_other_users_mfa(_Config) ->
     ?assert(maps:is_key(<<"code">>, Json)).
 
 %%--------------------------------------------------------------------
-%% Field-write triggers (SPEC sec 6.1.1)
+%% Field-write triggers (SPEC sec 6.1.1, v3.4 admin_override model)
 %%--------------------------------------------------------------------
 
-%% Self-call to reinit_mfa writes admin_required=false (clearing any
-%% previous admin enforcement).
-t_self_reinit_writes_admin_required_false(_Config) ->
+%% Self reinit_mfa does NOT touch admin_override — self cannot revoke
+%% an admin decision.
+t_self_reinit_does_not_touch_admin_override(_Config) ->
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"u">>, test_password(), ?ROLE_VIEWER, "u"
     ),
-    {ok, ok} = emqx_dashboard_admin:set_admin_required(<<"u">>, true),
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
     ok = emqx_dashboard_admin:reinit_mfa(<<"u">>, totp, _ByAdmin = false),
-    ?assertEqual(false, emqx_dashboard_admin:admin_required_of(<<"u">>)).
+    ?assertEqual(?ADMIN_MFA_REQUIRED, emqx_dashboard_admin:admin_override_of(<<"u">>)).
 
-%% Admin-call to reinit_mfa writes admin_required=true when the
-%% target's force_mfa_snapshot is NOT already true.
-t_admin_reinit_writes_admin_required_true_when_no_force_mfa(_Config) ->
+%% Admin reinit_mfa writes admin_override=mfa_required regardless of
+%% snapshot — admin's decision overrides policy.
+t_admin_reinit_writes_admin_override_required(_Config) ->
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"u">>, test_password(), ?ROLE_VIEWER, "u"
     ),
-    %% snapshot is undefined (not yet provisioned via SSO)
     ok = emqx_dashboard_admin:reinit_mfa(<<"u">>, totp, _ByAdmin = true),
-    ?assertEqual(true, emqx_dashboard_admin:admin_required_of(<<"u">>)).
+    ?assertEqual(?ADMIN_MFA_REQUIRED, emqx_dashboard_admin:admin_override_of(<<"u">>)).
 
-%% Admin-call to reinit_mfa does NOT touch admin_required when the
-%% target's force_mfa_snapshot is already true. The two booleans must
-%% remain non-cross-contaminated (SPEC sec 6.1.1).
-t_admin_reinit_does_not_touch_admin_required_when_force_mfa_snapshot_true(_Config) ->
+%% Admin reinit on a policy-locked user STILL writes admin_override=
+%% mfa_required — admin's decision is independent of and overrides
+%% the snapshot.
+t_admin_reinit_writes_required_even_when_snapshot_true(_Config) ->
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"u">>, test_password(), ?ROLE_VIEWER, "u"
     ),
     {ok, ok} = emqx_dashboard_admin:set_force_mfa_snapshot(<<"u">>, true),
-    %% admin_required starts at false (default for absent key)
-    ?assertEqual(false, emqx_dashboard_admin:admin_required_of(<<"u">>)),
     ok = emqx_dashboard_admin:reinit_mfa(<<"u">>, totp, _ByAdmin = true),
-    %% Still false — the policy lock alone is sufficient; admin_required
-    %% stays clean as a record of explicit admin decisions only.
-    ?assertEqual(false, emqx_dashboard_admin:admin_required_of(<<"u">>)).
+    ?assertEqual(?ADMIN_MFA_REQUIRED, emqx_dashboard_admin:admin_override_of(<<"u">>)).
 
-%% Admin reinit preserves an EXISTING admin_required=true under
-%% force_mfa_snapshot=true. Even though the field is "not touched",
-%% pre-existing values must not be lost.
-t_admin_reinit_preserves_existing_admin_required_under_force_mfa_snapshot(_Config) ->
+%% Admin disable_mfa writes admin_override=mfa_exempted regardless of
+%% snapshot — admin explicitly exempts the user from any future lock.
+t_admin_disable_writes_admin_override_exempted(_Config) ->
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"u">>, test_password(), ?ROLE_VIEWER, "u"
     ),
-    {ok, ok} = emqx_dashboard_admin:set_admin_required(<<"u">>, true),
     {ok, ok} = emqx_dashboard_admin:set_force_mfa_snapshot(<<"u">>, true),
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(
+        <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
+    ),
+    ok = emqx_dashboard_admin:disable_mfa(<<"u">>, _ByAdmin = true),
+    ?assertEqual(?ADMIN_MFA_EXEMPTED, emqx_dashboard_admin:admin_override_of(<<"u">>)).
+
+%% Self disable_mfa does NOT touch admin_override.
+t_self_disable_does_not_touch_admin_override(_Config) ->
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"u">>, test_password(), ?ROLE_VIEWER, "u"
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(
+        <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
+    ),
+    %% Lock state should still prevent self-disable in real handler,
+    %% but here we test the field-write rule directly.
+    ok = emqx_dashboard_admin:disable_mfa(<<"u">>, _ByAdmin = false),
+    ?assertEqual(?ADMIN_MFA_REQUIRED, emqx_dashboard_admin:admin_override_of(<<"u">>)).
+
+%% Scenarios A/B from the design review: admin override survives
+%% backend snapshot changes.
+%%
+%% A: snapshot=true, admin exempts -> override=exempted; backend
+%%    snapshot can flip independently, override stays exempted.
+t_scenario_a_admin_exempt_survives_snapshot_flip(_Config) ->
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"u">>, test_password(), ?ROLE_VIEWER, "u"
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_force_mfa_snapshot(<<"u">>, true),
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(
+        <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
+    ),
+    ok = emqx_dashboard_admin:disable_mfa(<<"u">>, _ByAdmin = true),
+    ?assertEqual(?ADMIN_MFA_EXEMPTED, emqx_dashboard_admin:admin_override_of(<<"u">>)),
+    %% Imagine backend admin toggles force_mfa off and on; snapshot
+    %% itself stays per-user (see SPEC §6.1 — snapshot is not re-
+    %% queried). The override should still be exempted.
+    ?assertEqual(true, emqx_dashboard_admin:force_mfa_snapshot_of(<<"u">>)),
+    ?assertEqual(?ADMIN_MFA_EXEMPTED, emqx_dashboard_admin:admin_override_of(<<"u">>)).
+
+%% B: snapshot=false (user provisioned under force_mfa=false), admin
+%%    forces -> override=required; backend snapshot would not affect
+%%    this user.
+t_scenario_b_admin_force_survives_snapshot_flip(_Config) ->
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"u">>, test_password(), ?ROLE_VIEWER, "u"
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_force_mfa_snapshot(<<"u">>, false),
     ok = emqx_dashboard_admin:reinit_mfa(<<"u">>, totp, _ByAdmin = true),
-    %% admin_required stays true — the snapshot lock branch leaves the
-    %% field untouched, preserving its current value.
-    ?assertEqual(true, emqx_dashboard_admin:admin_required_of(<<"u">>)).
+    ?assertEqual(?ADMIN_MFA_REQUIRED, emqx_dashboard_admin:admin_override_of(<<"u">>)),
+    %% Snapshot stays false; override remains required.
+    ?assertEqual(false, emqx_dashboard_admin:force_mfa_snapshot_of(<<"u">>)),
+    ?assertEqual(?ADMIN_MFA_REQUIRED, emqx_dashboard_admin:admin_override_of(<<"u">>)).
 
 %% NOTE: scope-deny path coverage for emqx_dashboard_rbac:check_login_user_scopes/2
 %% lives in apps/emqx_dashboard_rbac/test/emqx_dashboard_rbac_SUITE.erl,

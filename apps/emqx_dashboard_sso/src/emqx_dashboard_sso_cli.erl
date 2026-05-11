@@ -43,7 +43,9 @@ admins(["del", Username, BackendName]) ->
             print_error(Reason)
     end;
 admins(["mfa", Username, "disable" | _]) ->
-    case emqx_dashboard_admin:disable_mfa(bin(Username)) of
+    %% CLI is always an admin operation.
+    ByAdmin = true,
+    case emqx_dashboard_admin:disable_mfa(bin(Username), ByAdmin) of
         ok ->
             emqx_ctl:print("ok~n");
         {error, Reason} ->
