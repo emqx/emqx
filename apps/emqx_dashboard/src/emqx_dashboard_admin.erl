@@ -70,6 +70,8 @@
 
 -export([role/1]).
 
+-export([to_external_user/1]).
+
 -export([backup_tables/0]).
 
 -if(?EMQX_RELEASE_EDITION == ee).
@@ -726,12 +728,21 @@ to_external_user(UserRecord) ->
         description = Desc,
         role = Role
     } = UserRecord,
+    %% scopes_of/1 returns undefined for users without an explicit
+    %% scopes assignment (lazy-migration path). Surface `null' in the
+    %% JSON response in that case so the client can distinguish "not
+    %% set" from "explicitly empty" — both have different access-
+    %% control semantics (see emqx_dashboard_rbac:check_login_user_scopes/2).
     flatten_username(#{
         username => Username,
         description => Desc,
         role => ensure_role(Role),
-        mfa => format_mfa(Username)
+        mfa => format_mfa(Username),
+        scopes => format_scopes(scopes_of(Username))
     }).
+
+format_scopes(undefined) -> null;
+format_scopes(Scopes) when is_list(Scopes) -> Scopes.
 
 format_mfa(Username) ->
     case get_mfa_state(Username) of
