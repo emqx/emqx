@@ -274,12 +274,34 @@ clean_expired_jwt(Now) ->
 -if(?EMQX_RELEASE_EDITION == ee).
 check_rbac(Req, JWT) ->
     #?ADMIN_JWT{exptime = _ExpTime, extra = Extra, username = Username} = JWT,
+    %% Role-based RBAC uses the bare username; that contract is owned
+    %% by emqx_dashboard_rbac:check_rbac/5 and pre-dates feat/dashboard-
+    %% user-scopes. The login-user scope check, however, must use the
+    %% admin record's PRIMARY KEY so it can read extra.scopes —
+    %% reconstruct the ?SSO_USERNAME(Backend, Name) tuple for SSO
+    %% users here.
+    AdminKey = full_admin_key(Username, Extra),
     case emqx_dashboard_rbac:check_rbac(Req, Username, Extra) of
         true ->
-            save_new_jwt(JWT);
+            %% Layer the login-user scope check ON TOP of role-based
+            %% RBAC. Only invoked here (dashboard JWT path) — API key
+            %% authorisation uses its own scope mechanism via
+            %% emqx_mgmt_auth:check_path_in_scopes/2 and must not
+            %% trip on this.
+            case emqx_dashboard_rbac:check_login_user_scopes(AdminKey, Req) of
+                true -> save_new_jwt(JWT);
+                false -> {error, unauthorized_role}
+            end;
         _ ->
             {error, unauthorized_role}
     end.
+
+full_admin_key(Username, #{backend := ?BACKEND_LOCAL}) ->
+    Username;
+full_admin_key(Username, #{backend := Backend}) when is_atom(Backend) ->
+    ?SSO_USERNAME(Backend, Username);
+full_admin_key(Username, _) ->
+    Username.
 
 -else.
 

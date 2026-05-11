@@ -31,7 +31,10 @@
     t_ee_api_key_rejects_login_only_via_post,
     t_ee_api_key_rejects_login_only_via_put,
     t_ee_admin_role_with_publish_scope_allowed,
-    t_ee_viewer_role_with_publish_scope_allowed
+    t_ee_viewer_role_with_publish_scope_allowed,
+    %% Regression: API key auth must not leak into dashboard
+    %% login-user scope check when ApiKey name == dashboard username.
+    t_ee_api_key_unaffected_by_colliding_username_scopes
 ]).
 -else.
 -define(EE_CASES, []).
@@ -1275,6 +1278,45 @@ t_ee_viewer_role_with_publish_scope_allowed(_Config) ->
         })
     ),
     delete_app(Name).
+
+%% Regression: API key auth must NOT consult dashboard login-user
+%% scopes, even when the API key's generated `api_key' string happens
+%% to collide with a dashboard username. Prior to the fix,
+%% emqx_dashboard_rbac:check_rbac/3 unconditionally invoked
+%% check_login_user_scopes/2 after the role check, so a colliding
+%% admin record's empty extra.scopes would falsely deny the API key.
+%%
+%% Construction: create the API key first, then back-add a dashboard
+%% user whose username equals the generated api_key string. (Going
+%% the other way is harder because api_key is server-generated.)
+t_ee_api_key_unaffected_by_colliding_username_scopes(_Config) ->
+    Name = <<"EE-APIKEY-COLLIDE">>,
+    {ok, #{<<"api_key">> := ApiKey, <<"api_secret">> := ApiSecret}} =
+        create_app(Name, #{
+            role => ?ROLE_API_VIEWER,
+            scopes => [?SCOPE_CONNECTIONS]
+        }),
+    %% Now create a dashboard user whose username equals the
+    %% generated ApiKey string and assign it explicit empty scopes
+    %% (which, if leaked into the API key auth path, would deny every
+    %% mapped endpoint).
+    {ok, _} = emqx_dashboard_admin:add_user(
+        ApiKey, <<"P@ssw0rd">>, ?ROLE_VIEWER, <<>>
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(ApiKey, []),
+    %% The API key request must succeed: /clients maps to the
+    %% connections scope, which the key holds. With the pre-fix bug,
+    %% check_login_user_scopes(ApiKey, <<"/clients">>) would have
+    %% resolved against the dashboard user's [] and returned false.
+    Basic = emqx_common_test_http:auth_header(
+        binary_to_list(ApiKey), binary_to_list(ApiSecret)
+    ),
+    Path = emqx_mgmt_api_test_util:api_path(["clients"]),
+    ?assertMatch({ok, _}, emqx_mgmt_api_test_util:request_api(get, Path, Basic)),
+    %% Cleanup
+    delete_app(Name),
+    _ = emqx_dashboard_admin:remove_user(ApiKey),
+    ok.
 
 assert_400_publisher_only(Result) ->
     %% request_api/5 returns {error, {"HTTP/1.1", 400, "Bad Request"}}

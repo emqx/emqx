@@ -547,6 +547,51 @@ t_check_login_user_scopes_undefined_allows_generic_paths(_) ->
         emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/alarms">>)
     ).
 
+%%--------------------------------------------------------------------
+%% SSO users: explicit scopes are consulted via the reconstructed
+%% ?SSO_USERNAME(Backend, Name) admin record key.
+%%
+%% Regression for the bug where emqx_dashboard_token:check_rbac/2 was
+%% passing the bare JWT username binary into the scope check, so SSO
+%% users with explicit scopes always fell through to the
+%% undefined -> allow fallback.
+%%--------------------------------------------------------------------
+
+t_check_login_user_scopes_sso_explicit_empty_denies(_) ->
+    Backend = saml,
+    Name = <<"sso_scope_test">>,
+    {ok, _} = emqx_dashboard_admin:add_sso_user(Backend, Name, ?ROLE_VIEWER, <<>>),
+    SsoKey = ?SSO_USERNAME(Backend, Name),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(SsoKey, []),
+    %% Bare binary lookup misses — that path returns undefined and
+    %% would falsely allow. The tuple key resolves correctly.
+    ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(Name)),
+    ?assertEqual([], emqx_dashboard_admin:scopes_of(SsoKey)),
+    %% Predicate fed the proper key: explicit empty scopes deny.
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(SsoKey, <<"/clients">>)
+    ),
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(SsoKey, <<"/users">>)
+    ).
+
+t_check_login_user_scopes_sso_explicit_scope_grants_only_that_path(_) ->
+    Backend = saml,
+    Name = <<"sso_scope_conn">>,
+    {ok, _} = emqx_dashboard_admin:add_sso_user(Backend, Name, ?ROLE_VIEWER, <<>>),
+    SsoKey = ?SSO_USERNAME(Backend, Name),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(SsoKey, [?SCOPE_CONNECTIONS]),
+    ?assertEqual(
+        true,
+        emqx_dashboard_rbac:check_login_user_scopes(SsoKey, <<"/clients">>)
+    ),
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(SsoKey, <<"/alarms">>)
+    ).
+
 delete_mfa(Token, Username) ->
     Path = "/users/" ++ binary_to_list(Username) ++ "/mfa",
     Path1 = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri(Path)),
