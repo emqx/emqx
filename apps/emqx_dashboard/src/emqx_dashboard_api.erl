@@ -660,6 +660,11 @@ reload_external_user(Username, Fallback) ->
 %% Returns {error, Reason} when the user record is missing (e.g. concurrent
 %% deletion between add_user/update_user and this call). Callers must
 %% translate to the proper HTTP status; never crash the handler.
+%%
+%% CE: scope enforcement is EE-only (emqx_dashboard_rbac is EE), so we
+%% ignore any `scopes' input rather than persist a value that would
+%% never be checked.
+-if(?EMQX_RELEASE_EDITION == ee).
 maybe_set_user_scopes(_Username, undefined) ->
     ok;
 maybe_set_user_scopes(Username, Scopes) when is_list(Scopes) ->
@@ -674,6 +679,10 @@ maybe_set_user_scopes(Username, Scopes) when is_list(Scopes) ->
             }),
             {error, Reason}
     end.
+-else.
+maybe_set_user_scopes(_Username, _Scopes) ->
+    ok.
+-endif.
 
 %% --- MFA self-lock authorization ---
 %%
@@ -816,13 +825,19 @@ username(_Req, Username) ->
 
 field_filter(role) ->
     false;
+field_filter(scopes) ->
+    %% Login-user scopes are an EE feature (enforcement lives in
+    %% emqx_dashboard_rbac, which is EE-only). Strip the field from
+    %% the schema so CE clients don't see a column that won't be
+    %% checked.
+    false;
 field_filter(_) ->
     true.
 
 filter_result(Result) when is_list(Result) ->
     lists:map(fun filter_result/1, Result);
 filter_result(Result) ->
-    maps:without([role, backend], Result).
+    maps:without([role, backend, scopes], Result).
 
 sso_parameters() ->
     sso_parameters([]).

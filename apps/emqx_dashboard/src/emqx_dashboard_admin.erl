@@ -762,13 +762,21 @@ to_external_user(UserRecord) ->
         description = Desc,
         role = Role
     } = UserRecord,
-    flatten_username(#{
+    Base = #{
         username => Username,
         description => Desc,
         role => ensure_role(Role),
-        mfa => format_mfa(Username),
-        scopes => effective_scopes_of_admin(UserRecord)
-    }).
+        mfa => format_mfa(Username)
+    },
+    flatten_username(maps:merge(Base, ee_user_extra(UserRecord))).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+ee_user_extra(UserRecord) ->
+    #{scopes => effective_scopes_of_admin(UserRecord)}.
+-else.
+ee_user_extra(_UserRecord) ->
+    #{}.
+-endif.
 
 format_mfa(Username) ->
     case get_mfa_state(Username) of
