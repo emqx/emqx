@@ -349,7 +349,11 @@ logout(_, #{
     end.
 
 user_scopes(get, _Request) ->
-    {200, #{scopes => emqx_scope_catalog:login_user_scope_catalog()}}.
+    Scopes = [resolve_scope_desc(S) || S <- emqx_scope_catalog:login_user_scope_catalog()],
+    {200, #{scopes => Scopes}}.
+
+resolve_scope_desc(#{desc := Desc} = Scope) ->
+    Scope#{desc => emqx_dashboard_swagger:get_i18n(<<"desc">>, Desc, <<>>, #{})}.
 
 users(get, _Request) ->
     {200, to_json_out(emqx_dashboard_admin:all_users())};

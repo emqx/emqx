@@ -97,22 +97,22 @@ t_init_cache(_Config) ->
     ).
 
 t_scope_catalog(_Config) ->
-    Catalogue = emqx_scope_catalog:scope_catalog(),
-    ?assert(is_list(Catalogue)),
-    %% 10 user-visible scopes
-    ?assertEqual(10, length(Catalogue)),
-    %% Each entry has name and desc
+    Catalog = emqx_scope_catalog:scope_catalog(),
+    ?assert(is_list(Catalog)),
+    %% Each entry has name (binary) and desc (i18n handle).
     lists:foreach(
         fun(Entry) ->
             ?assertMatch(#{name := _, desc := _}, Entry),
             #{name := Name, desc := Desc} = Entry,
             ?assert(is_binary(Name)),
-            ?assert(is_binary(Desc))
+            %% desc is the `?DESC(Mod, Id)' tuple; runtime callers
+            %% resolve it via emqx_dashboard_swagger:get_i18n/4.
+            ?assertMatch({desc, _Mod, _Id}, Desc)
         end,
-        Catalogue
+        Catalog
     ),
     %% Known scopes must be present
-    Names = [N || #{name := N} <- Catalogue],
+    Names = [N || #{name := N} <- Catalog],
     ?assert(lists:member(?SCOPE_CONNECTIONS, Names)),
     ?assert(lists:member(?SCOPE_PUBLISH, Names)),
     ?assert(lists:member(?SCOPE_DATA_INTEGRATION, Names)),

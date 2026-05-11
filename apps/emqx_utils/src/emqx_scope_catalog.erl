@@ -6,8 +6,8 @@
 %%
 %% Pure data; this module has no runtime dependencies. The scope name
 %% macros it references are defined in
-%% `emqx_utils/include/emqx_api_key_scopes.hrl'. The data is consumed by
-%% both `emqx_management' (API-key authorization, /api_key_scopes
+%% `emqx_utils/include/emqx_api_key_scopes.hrl'. The data is consumed
+%% by both `emqx_management' (API-key authorization, /api_key_scopes
 %% endpoint) and `emqx_dashboard' (login user scope schema validation,
 %% /user_scopes endpoint).
 %%
@@ -19,6 +19,7 @@
 -module(emqx_scope_catalog).
 
 -include("emqx_api_key_scopes.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -export([
     common_scope_catalog/0,
@@ -34,72 +35,24 @@
 -doc """
 Catalog of generic scopes shared by API keys and dashboard login
 users. Each entry has a `name` (the stable identifier stored in
-records) and a `desc` (human-readable description for the UI).
+records) and a `desc` (i18n description handle for the UI).
 
 The `$denied` scope is excluded — it is internal-only.
 """.
 -spec common_scope_catalog() ->
-    [#{name := binary(), desc := binary()}].
+    [#{name := binary(), desc := term()}].
 common_scope_catalog() ->
     [
-        #{
-            name => ?SCOPE_CONNECTIONS,
-            desc => <<
-                "Client connections, subscriptions, topics, banning, "
-                "retained messages, file transfer, and delayed messages"
-            >>
-        },
-        #{
-            name => ?SCOPE_PUBLISH,
-            desc => <<"MQTT message publishing">>
-        },
-        #{
-            name => ?SCOPE_DATA_INTEGRATION,
-            desc => <<
-                "Rules, bridges, connectors, schema registry, "
-                "schema validation, message transformation, ExHook, and AI completion"
-            >>
-        },
-        #{
-            name => ?SCOPE_ACCESS_CONTROL,
-            desc => <<"Client authentication and authorization configuration">>
-        },
-        #{
-            name => ?SCOPE_GATEWAYS,
-            desc => <<
-                "Protocol gateways (CoAP, LwM2M, etc.) "
-                "and their authentication, clients, and listeners"
-            >>
-        },
-        #{
-            name => ?SCOPE_MONITORING,
-            desc => <<
-                "Metrics, monitoring, alarms, trace, slow subscriptions, "
-                "telemetry, and Prometheus data endpoints"
-            >>
-        },
-        #{
-            name => ?SCOPE_CLUSTER_OPERATIONS,
-            desc => <<
-                "Cluster management, node operations, "
-                "load rebalancing, node eviction, and multi-tenancy"
-            >>
-        },
-        #{
-            name => ?SCOPE_SYSTEM,
-            desc => <<
-                "Core configuration, listeners, plugins, storage, backup, "
-                "status, hot upgrade, Prometheus settings, and OpenTelemetry"
-            >>
-        },
-        #{
-            name => ?SCOPE_AUDIT,
-            desc => <<"Audit log query">>
-        },
-        #{
-            name => ?SCOPE_LICENSE,
-            desc => <<"License management">>
-        }
+        #{name => ?SCOPE_CONNECTIONS, desc => ?DESC(scope_connections)},
+        #{name => ?SCOPE_PUBLISH, desc => ?DESC(scope_publish)},
+        #{name => ?SCOPE_DATA_INTEGRATION, desc => ?DESC(scope_data_integration)},
+        #{name => ?SCOPE_ACCESS_CONTROL, desc => ?DESC(scope_access_control)},
+        #{name => ?SCOPE_GATEWAYS, desc => ?DESC(scope_gateways)},
+        #{name => ?SCOPE_MONITORING, desc => ?DESC(scope_monitoring)},
+        #{name => ?SCOPE_CLUSTER_OPERATIONS, desc => ?DESC(scope_cluster_operations)},
+        #{name => ?SCOPE_SYSTEM, desc => ?DESC(scope_system)},
+        #{name => ?SCOPE_AUDIT, desc => ?DESC(scope_audit)},
+        #{name => ?SCOPE_LICENSE, desc => ?DESC(scope_license)}
     ].
 
 %%--------------------------------------------------------------------
@@ -121,37 +74,28 @@ other users' MFA (enforced by RBAC and by
 `emqx_dashboard_api:authorize_mfa_change/3').
 """.
 -spec admin_only_scope_catalog() ->
-    [#{name := binary(), desc := binary(), admin_only := boolean()}].
+    [#{name := binary(), desc := term(), admin_only := boolean()}].
 admin_only_scope_catalog() ->
     [
         #{
             name => ?SCOPE_USER_MGMT,
             admin_only => true,
-            desc => <<
-                "Manage dashboard users (create, update, delete, "
-                "change other users' password)"
-            >>
+            desc => ?DESC(scope_user_management)
         },
         #{
             name => ?SCOPE_MFA_MGMT,
             admin_only => false,
-            desc => <<
-                "Manage MFA. For administrators: reset and re-key any "
-                "user's MFA, override force_mfa and admin_override "
-                "locks. For non-administrators: self-exemption only — "
-                "bypass force_mfa / admin_override locks on the "
-                "holder's own MFA"
-            >>
+            desc => ?DESC(scope_mfa_management)
         },
         #{
             name => ?SCOPE_SSO_MGMT,
             admin_only => true,
-            desc => <<"Configure SSO backends (LDAP, OIDC, SAML)">>
+            desc => ?DESC(scope_sso_management)
         },
         #{
             name => ?SCOPE_API_KEY_MGMT,
             admin_only => true,
-            desc => <<"Manage API keys (create, update, delete)">>
+            desc => ?DESC(scope_api_key_management)
         }
     ].
 
@@ -164,7 +108,7 @@ Catalog of all user-visible API-key scopes. Currently identical to
 `common_scope_catalog/0' — API keys may hold any generic scope but
 never a login-only scope.
 """.
--spec scope_catalog() -> [#{name := binary(), desc := binary()}].
+-spec scope_catalog() -> [#{name := binary(), desc := term()}].
 scope_catalog() ->
     common_scope_catalog().
 
@@ -173,7 +117,7 @@ Catalog of all scopes a dashboard login user may hold: every generic
 scope (tagged `admin_only => false') plus the login-only scopes.
 """.
 -spec login_user_scope_catalog() ->
-    [#{name := binary(), desc := binary(), admin_only := boolean()}].
+    [#{name := binary(), desc := term(), admin_only := boolean()}].
 login_user_scope_catalog() ->
     [Entry#{admin_only => false} || Entry <- common_scope_catalog()] ++
         admin_only_scope_catalog().

@@ -307,9 +307,13 @@ ensure_expired_at(#{<<"expired_at">> := ExpiredAt}) when is_integer(ExpiredAt) -
 ensure_expired_at(_) -> infinity.
 
 api_key_scopes(get, _) ->
+    Scopes = [resolve_scope_desc(S) || S <- emqx_scope_catalog:scope_catalog()],
     {200, #{
-        scopes => emqx_scope_catalog:scope_catalog()
+        scopes => Scopes
     }}.
+
+resolve_scope_desc(#{desc := Desc} = Scope) ->
+    Scope#{desc => emqx_dashboard_swagger:get_i18n(<<"desc">>, Desc, <<>>, #{})}.
 
 validate_scopes(Role, Scopes) ->
     %% Three-layer schema validation, returning the FIRST error
