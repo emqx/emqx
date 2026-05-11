@@ -40,9 +40,7 @@
     set_sso_code/2,
     clear_sso_code/1,
     get_sso_code/1,
-    %% Login user scope + MFA self-lock fields (stored in extra map)
-    force_mfa_snapshot_of/1,
-    set_force_mfa_snapshot/2,
+    %% Login user scope + MFA admin override fields (stored in extra map)
     admin_override_of/1,
     set_admin_override/2,
     scopes_of/1,
@@ -357,23 +355,18 @@ clear_login_lock2(Username) ->
     update_extra(Username, fun(Extra) -> maps:without([login_lock], Extra) end).
 
 %%--------------------------------------------------------------------
-%% Login user scope + MFA self-lock fields
+%% Login user scope + admin_override fields
 %%
-%% Three extra-map keys introduced for the dashboard user scopes
+%% Two extra-map keys introduced for the dashboard user scopes
 %% feature (SPEC-dashboard-user-scopes.md):
 %%
-%%   force_mfa_snapshot :: boolean()
-%%     Snapshot of the SSO backend's force_mfa policy at user
-%%     provision time. Once written, runtime backend config changes
-%%     do NOT affect this field — the user's lock status is fixed
-%%     at first login. Local users carry false (no local force_mfa
-%%     mechanism in this feat; future work).
-%%
-%%   admin_required :: boolean()
-%%     True iff an admin actively required MFA on a user NOT covered
-%%     by force_mfa_snapshot. Recorded independently from policy so
-%%     that the field remains a clean audit trail of direct admin
-%%     decisions even if the policy is later turned off.
+%%   admin_override :: undefined | mfa_required | mfa_exempted
+%%     Admin's explicit per-user MFA decision that overrides the live
+%%     backend force_mfa policy in either direction:
+%%       * mfa_required: this user must keep MFA regardless of policy
+%%       * mfa_exempted: this user is exempt from MFA regardless
+%%       * undefined  : no admin decision — fall back to backend's
+%%                      live force_mfa at MFA-setup-required time
 %%
 %%   scopes :: [binary()]
 %%     Login user's scope list. undefined (key absent) means "fall
@@ -382,21 +375,6 @@ clear_login_lock2(Username) ->
 %%     privileges). Explicit [] means "all mapped paths denied,
 %%     unmapped paths still allowed" (consistent with API key empty
 %%     scope semantics).
-
--spec force_mfa_snapshot_of(dashboard_username()) -> undefined | boolean().
-force_mfa_snapshot_of(Username) ->
-    case get_extra(Username) of
-        {ok, #{force_mfa_snapshot := V}} -> V;
-        _ -> undefined
-    end.
-
--spec set_force_mfa_snapshot(dashboard_username(), boolean()) ->
-    {ok, ok} | {error, term()}.
-set_force_mfa_snapshot(Username, V) when is_boolean(V) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-        update_extra(Username, fun(Extra) -> Extra#{force_mfa_snapshot => V} end)
-    end),
-    return(Res).
 
 -type admin_override() :: undefined | ?ADMIN_MFA_REQUIRED | ?ADMIN_MFA_EXEMPTED.
 
@@ -903,9 +881,7 @@ maybe_init_mfa_state(Username, true) ->
                 _ ->
                     %% Triggered by `dashboard.default_mfa' config on
                     %% user creation. Treat as non-admin call — the user
-                    %% can still self-rotate. A future "local force_mfa
-                    %% policy" would set force_mfa_snapshot=true here
-                    %% to lock the user (out of scope for this feat).
+                    %% can still self-rotate.
                     reinit_mfa(Username, Mechanism, _ByAdmin = false)
             end
     end;

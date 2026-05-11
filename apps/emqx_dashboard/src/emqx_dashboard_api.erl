@@ -692,7 +692,7 @@ maybe_set_user_scopes(_Username, _Scopes) ->
 %%   IsFirstSetup = (Op == setup) AND (target.mfa_state == not_configured)
 %%   IsSelf       = (caller.username == target)
 %%   HasMfaMgmt   = caller.scopes contains mfa_management
-%%   Locked       = target.force_mfa_snapshot OR target.admin_required
+%%   Locked       = target.admin_override == mfa_required
 %%
 %%   IsFirstSetup => allow                                  (deadlock prevention)
 %%   IsSelf       AND HasMfaMgmt           => allow         (self-exempt)
@@ -757,19 +757,13 @@ is_first_time_setup(TargetUsername, setup) ->
     end.
 
 %% Compute the "self locked" boolean used by authorize_mfa_change/3.
-%% admin_override has higher precedence than the policy snapshot:
-%%   mfa_exempted -> false (admin explicitly cleared the lock)
-%%   mfa_required -> true  (admin explicitly imposed the lock)
-%%   undefined    -> defer to force_mfa_snapshot (the per-user policy
-%%                   freeze; not the live backend.force_mfa flag, so
-%%                   already-provisioned users keep their state across
-%%                   backend config changes)
+%% Only admin_override == mfa_required locks self-disable/rotate.
+%% undefined means "no admin decision" — self may always disable an
+%% already-configured MFA. The decision whether a user must SET UP
+%% MFA in the first place lives in the login flow (consults backend
+%% live force_mfa), not here.
 target_self_locked(TargetUsername) ->
-    case emqx_dashboard_admin:admin_override_of(TargetUsername) of
-        ?ADMIN_MFA_EXEMPTED -> false;
-        ?ADMIN_MFA_REQUIRED -> true;
-        undefined -> emqx_dashboard_admin:force_mfa_snapshot_of(TargetUsername) =:= true
-    end.
+    emqx_dashboard_admin:admin_override_of(TargetUsername) =:= ?ADMIN_MFA_REQUIRED.
 
 caller_has_mfa_mgmt(#?ADMIN{} = Caller) ->
     %% Use effective scopes so the role-default fallback (admin -> all
