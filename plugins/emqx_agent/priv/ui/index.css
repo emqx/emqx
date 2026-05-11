@@ -94,6 +94,7 @@
   .tag.ch       { border-color: #f8514944; color: var(--danger); }
   .tag.llm      { border-color: #a371f744; color: #a371f7; }
   .tag.active   { border-color: #3fb95066; color: var(--accent2); }
+  .tag.danger   { border-color: #f8514966; color: var(--danger); }
   .tag.draft    { border-color: transparent; color: var(--muted); }
 
   /* buttons */

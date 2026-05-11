@@ -69,6 +69,8 @@ dispatch(get, [<<"connections">>], Params) ->
     '/agent/connections'(get, Params);
 dispatch(post, [<<"connections">>], Params) ->
     '/agent/connections'(post, Params);
+dispatch(get, [<<"connections">>, <<"statuses">>], Params) ->
+    '/agent/connections/statuses'(get, Params);
 dispatch(get, [<<"connections">>, Id], Params) ->
     '/agent/connections/:id'(get, Params#{bindings => #{id => Id}});
 dispatch(put, [<<"connections">>, Id], Params) ->
@@ -248,6 +250,9 @@ no_cache_headers(ContentType) ->
         {error, Reason} ->
             ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
     end.
+
+'/agent/connections/statuses'(get, _Params) ->
+    ?OK(emqx_agent_service:connection_statuses()).
 
 '/agent/connections/:id'(get, #{bindings := #{id := Id}}) ->
     case emqx_agent_service:connection_get(Id) of

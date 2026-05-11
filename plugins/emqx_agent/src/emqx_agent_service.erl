@@ -33,6 +33,7 @@
     connection_delete/1,
     connection_start/1,
     connection_stop/1,
+    connection_statuses/0,
     %% Pipelines
     pipeline_list/0,
     pipeline_create/1,
@@ -128,6 +129,14 @@ connection_start(ConnectionId) ->
 -spec connection_stop(binary()) -> {ok, map()} | {error, term()}.
 connection_stop(ConnectionId) ->
     update_connection_enable(ConnectionId, false).
+
+-spec connection_statuses() -> map().
+connection_statuses() ->
+    maps:from_list([
+        {ConnectionId, emqx_agent_skill_connections:status(Conn)}
+     || #{connection_id := ConnectionId} = Conn <-
+            emqx_agent_config:parsed_config([connections], [])
+    ]).
 
 %%--------------------------------------------------------------------
 %% Pipelines

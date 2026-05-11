@@ -77,6 +77,7 @@ t_ui_returns_html(_Config) ->
     {ok, 200, ConnectionsJs} = api_get([agent, assets, <<"connections.js">>]),
     ?assert(binary:match(ConnectionsJs, <<"export async function saveConnection">>) =/= nomatch),
     ?assert(binary:match(ConnectionsJs, <<"/connections">>) =/= nomatch),
+    ?assert(binary:match(ConnectionsJs, <<"/connections/statuses">>) =/= nomatch),
 
     {ok, 200, CompatAppJs} = api_get([agent, ui, assets, <<"app.js">>]),
     ?assertEqual(AppJs, CompatAppJs).
@@ -189,6 +190,25 @@ t_connections_crud(Config) ->
 
     ?assertMatch({ok, 204}, api_delete([agent, connections, Id])),
     ?assertMatch({ok, 404, _}, api_get([agent, connections, Id])).
+
+t_connection_statuses(Config) ->
+    Id = ?config(tc_id, Config),
+
+    ?assertMatch({ok, 200, #{}}, api_get([agent, connections, statuses])),
+    ?assertMatch({ok, 201, _}, api_post([agent, connections], pg_conn_body(Id))),
+
+    {ok, 200, Statuses} = api_get([agent, connections, statuses]),
+    ?assertMatch(
+        #{
+            Id := #{
+                <<"status">> := <<"stopped">>,
+                <<"error">> := null
+            }
+        },
+        Statuses
+    ),
+
+    ?assertMatch({ok, 404, _}, api_get([agent, connections, <<"no_such">>])).
 
 t_connection_delete_in_use(Config) ->
     Id = ?config(tc_id, Config),

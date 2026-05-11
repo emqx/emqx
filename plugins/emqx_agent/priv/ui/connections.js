@@ -4,6 +4,7 @@ import { loadedConnections, editingConnectionId } from './state.js';
 
 export async function loadConnections() {
   const list = await api('GET', '/connections');
+  const statuses = await loadConnectionStatuses();
   loadedConnections.length = 0;
   loadedConnections.push(...list);
   document.getElementById('cnt-connections').textContent = list.length;
@@ -14,16 +15,17 @@ export async function loadConnections() {
     return;
   }
   tbody.innerHTML = list.map(c => {
-    const status = c.enable === true
-      ? '<span class="tag active">● enabled</span>'
+    const configuredStatus = c.enable === true
+      ? '<span>enabled</span>'
       : '<span class="tag draft">○ disabled</span>';
+    const runtimeStatus = renderRuntimeStatus(statuses?.[c.connection_id]);
     const action = c.enable === true
       ? `<button class="btn sm" onclick="stopConnection('${esc(c.connection_id)}')">stop</button>`
       : `<button class="btn sm" onclick="startConnection('${esc(c.connection_id)}')">start</button>`;
     return `<tr>
       <td><code>${esc(c.connection_id)}</code></td>
       <td><span class="tag ch">${esc(c.type)}</span></td>
-      <td>${status}</td>
+      <td><div style="display:flex;gap:4px;flex-wrap:wrap">${configuredStatus}${runtimeStatus}</div></td>
       <td style="color:var(--muted)">${esc(c.config?.server ?? '')}</td>
       <td><div style="display:flex;gap:4px">
         ${action}
@@ -32,6 +34,21 @@ export async function loadConnections() {
       </div></td>
     </tr>`;
   }).join('');
+}
+
+async function loadConnectionStatuses() {
+  try {
+    return await api('GET', '/connections/statuses');
+  } catch(_) {
+    return null;
+  }
+}
+
+function renderRuntimeStatus(status) {
+  if (!status) return '<span class="tag danger">unknown</span>';
+  const value = status.status ?? 'unknown';
+  const cls = value === 'connected' ? 'active' : 'danger';
+  return `<span class="tag ${cls}">${esc(value)}</span>`;
 }
 
 export function collectConnectionBody() {

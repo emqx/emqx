@@ -10,6 +10,7 @@
     init/0,
     deinit/0,
     reconcile/0,
+    status/1,
     resource_id/1
 ]).
 
@@ -42,6 +43,20 @@ reconcile() ->
 -spec resource_id(connection_id()) -> binary().
 resource_id(ConnectionId) ->
     <<?RESOURCE_PREFIX, ConnectionId/binary>>.
+
+-spec status(map()) -> map().
+status(#{connection_id := _ConnectionId, enable := false}) ->
+    status_map(stopped, null);
+status(#{connection_id := ConnectionId}) ->
+    ResourceId = resource_id(ConnectionId),
+    case emqx_resource:get_instance(ResourceId) of
+        {ok, ?RESOURCE_GROUP, #{status := Status, error := Error}} ->
+            status_map(Status, Error);
+        {ok, OtherGroup, _} ->
+            status_map(disconnected, {unexpected_group, OtherGroup});
+        {error, Reason} ->
+            status_map(stopped, Reason)
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal resource reconciliation
@@ -167,3 +182,23 @@ connector_module(Conn) ->
 
 resource_config(#{config := Config}) ->
     Config.
+
+status_map(Status, Error) ->
+    #{
+        <<"status">> => status_to_binary(Status),
+        <<"error">> => error_to_json(Error)
+    }.
+
+status_to_binary(Status) when is_atom(Status) ->
+    atom_to_binary(Status, utf8);
+status_to_binary(Status) when is_binary(Status) ->
+    Status.
+
+error_to_json(null) ->
+    null;
+error_to_json(undefined) ->
+    null;
+error_to_json(Error) when is_binary(Error) ->
+    Error;
+error_to_json(Error) ->
+    iolist_to_binary(io_lib:format("~p", [Error])).
