@@ -9,6 +9,7 @@
 -feature(maybe_expr, enable).
 
 -include("emqx_dashboard.hrl").
+-include_lib("emqx/include/emqx_api_key_scopes.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
@@ -45,6 +46,8 @@
     admin_required_of/1,
     set_admin_required/2,
     scopes_of/1,
+    effective_scopes_of/1,
+    effective_scopes_of_admin/1,
     set_user_scopes/2,
     all_users/0,
     admin_users/0,
@@ -421,6 +424,37 @@ scopes_of(Username) ->
         _ -> undefined
     end.
 
+%% @doc Return the EFFECTIVE scope list for a user — expands the
+%% role-default fallback when the user has no explicit `scopes' field
+%% in their extra map (the "lazy migration" case for users created
+%% before this feature).
+%%
+%%   administrator + no explicit scopes -> all 14 scopes
+%%   viewer        + no explicit scopes -> 10 generic scopes
+%%   any role      + explicit []         -> []
+%%   any role      + explicit [X, ...]   -> [X, ...]
+%%
+%% This is what RBAC checks, what `caller_has_mfa_mgmt/1' inspects,
+%% and what the /users API surfaces in responses.
+-spec effective_scopes_of(dashboard_username()) -> [binary()].
+effective_scopes_of(Username) ->
+    case lookup_user(Username) of
+        [#?ADMIN{} = Admin] -> effective_scopes_of_admin(Admin);
+        _ -> []
+    end.
+
+-spec effective_scopes_of_admin(emqx_admin()) -> [binary()].
+effective_scopes_of_admin(#?ADMIN{username = Username, role = Role}) ->
+    case scopes_of(Username) of
+        undefined -> role_default_scopes(Role);
+        Scopes when is_list(Scopes) -> Scopes
+    end.
+
+role_default_scopes(?ROLE_SUPERUSER) ->
+    ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES;
+role_default_scopes(_) ->
+    ?GENERIC_SCOPES.
+
 -spec set_user_scopes(dashboard_username(), [binary()]) ->
     {ok, ok} | {error, term()}.
 set_user_scopes(Username, Scopes) when is_list(Scopes) ->
@@ -728,21 +762,13 @@ to_external_user(UserRecord) ->
         description = Desc,
         role = Role
     } = UserRecord,
-    %% scopes_of/1 returns undefined for users without an explicit
-    %% scopes assignment (lazy-migration path). Surface `null' in the
-    %% JSON response in that case so the client can distinguish "not
-    %% set" from "explicitly empty" — both have different access-
-    %% control semantics (see emqx_dashboard_rbac:check_login_user_scopes/2).
     flatten_username(#{
         username => Username,
         description => Desc,
         role => ensure_role(Role),
         mfa => format_mfa(Username),
-        scopes => format_scopes(scopes_of(Username))
+        scopes => effective_scopes_of_admin(UserRecord)
     }).
-
-format_scopes(undefined) -> null;
-format_scopes(Scopes) when is_list(Scopes) -> Scopes.
 
 format_mfa(Username) ->
     case get_mfa_state(Username) of

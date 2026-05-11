@@ -127,9 +127,10 @@ t_post_users_response_includes_scopes(_Config) ->
     ?assertEqual(<<"with_scopes">>, maps:get(<<"username">>, Resp)),
     ?assertEqual(?ROLE_SUPERUSER, maps:get(<<"role">>, Resp)).
 
-%% Response from POST /users WITHOUT scopes field returns scopes=null
-%% (distinguishing "not configured" from "explicitly empty").
-t_post_users_response_null_scopes_when_not_set(_Config) ->
+%% Response from POST /users without an explicit `scopes' field
+%% projects the role-default. Admin (?ROLE_SUPERUSER) default is the
+%% full 14-scope list.
+t_post_users_response_role_default_scopes_when_not_set(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
     Body = #{
@@ -142,7 +143,34 @@ t_post_users_response_null_scopes_when_not_set(_Config) ->
         post, api_path(["users"]), auth_header(Token), Body
     ),
     Resp = emqx_utils_json:decode(RespBody),
-    ?assertEqual(null, maps:get(<<"scopes">>, Resp)).
+    ScopesOut = maps:get(<<"scopes">>, Resp),
+    ?assert(is_list(ScopesOut)),
+    %% Admin default contains all four login-only scopes plus all 10
+    %% generic ones — assert membership rather than exact equality
+    %% to avoid coupling to catalogue ordering.
+    ?assert(lists:member(?SCOPE_USER_MGMT, ScopesOut)),
+    ?assert(lists:member(?SCOPE_CONNECTIONS, ScopesOut)),
+    ?assertEqual(14, length(ScopesOut)).
+
+%% Viewer default = 10 generic scopes (no login-only).
+t_post_users_response_viewer_default_scopes(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    Body = #{
+        <<"username">> => <<"viewer_no_scopes">>,
+        <<"password">> => test_password(),
+        <<"role">> => ?ROLE_VIEWER,
+        <<"description">> => <<"test">>
+    },
+    {ok, 200, RespBody} = request_api(
+        post, api_path(["users"]), auth_header(Token), Body
+    ),
+    Resp = emqx_utils_json:decode(RespBody),
+    ScopesOut = maps:get(<<"scopes">>, Resp),
+    ?assert(is_list(ScopesOut)),
+    ?assertEqual(10, length(ScopesOut)),
+    ?assertNot(lists:member(?SCOPE_USER_MGMT, ScopesOut)),
+    ?assertNot(lists:member(?SCOPE_MFA_MGMT, ScopesOut)).
 
 %% Response from PUT /users/:name must reflect the updated scopes.
 t_put_users_response_includes_updated_scopes(_Config) ->

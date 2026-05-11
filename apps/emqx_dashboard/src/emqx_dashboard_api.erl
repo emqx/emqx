@@ -752,17 +752,13 @@ target_self_locked(TargetUsername) ->
         _ -> emqx_dashboard_admin:admin_required_of(TargetUsername)
     end.
 
-caller_has_mfa_mgmt(#?ADMIN{username = Username, role = Role}) ->
-    case emqx_dashboard_admin:scopes_of(Username) of
-        Scopes when is_list(Scopes) ->
-            lists:member(?SCOPE_MFA_MGMT, Scopes);
-        undefined ->
-            %% Backward-compatible default: administrators with no
-            %% explicit scope list inherit full access (incl.
-            %% mfa_management). Non-admins fall back to no
-            %% mfa_management — they must opt in explicitly.
-            Role =:= ?ROLE_SUPERUSER
-    end.
+caller_has_mfa_mgmt(#?ADMIN{} = Caller) ->
+    %% Use effective scopes so the role-default fallback (admin -> all
+    %% 14, viewer -> 10 generic) applies. Viewer with no explicit
+    %% scopes therefore does NOT carry mfa_management; admin always
+    %% does.
+    Scopes = emqx_dashboard_admin:effective_scopes_of_admin(Caller),
+    lists:member(?SCOPE_MFA_MGMT, Scopes).
 
 %% Look up the caller's #?ADMIN{} record using the bearer token's
 %% `source' field (set by emqx_dashboard:authorize/2). Returns

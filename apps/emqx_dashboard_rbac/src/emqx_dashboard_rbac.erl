@@ -68,15 +68,47 @@ check_login_user_scopes(Username, Path) when is_binary(Path) ->
     check_login_user_scopes_for_path(Username, Path).
 
 check_login_user_scopes_for_path(Username, Path) ->
-    case emqx_dashboard_admin:scopes_of(Username) of
-        undefined ->
-            true;
-        Scopes when is_list(Scopes) ->
-            case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
-                undefined -> true;
-                PathScope -> lists:member(PathScope, Scopes)
-            end
+    %% Self-targeted user endpoints (own change_pwd / own MFA) bypass
+    %% the scope check — they are governed by RBAC's self-check (above)
+    %% and, for MFA, by emqx_dashboard_api:authorize_mfa_change/3
+    %% (force_mfa snapshot, admin_required, mfa_management self-
+    %% exemption). Subjecting them to user_management / mfa_management
+    %% scope here would lock viewers out of changing their own
+    %% password / setting up their own MFA — exactly the opposite of
+    %% what the scope was designed to gate (managing OTHER users).
+    case is_self_user_endpoint(Path, Username) of
+        true -> true;
+        false -> check_login_user_scopes_strict(Username, Path)
     end.
+
+check_login_user_scopes_strict(Username, Path) ->
+    %% Always work on the effective scope list (role-default expanded)
+    %% so administrators with no explicit scopes implicitly hold the
+    %% full catalogue and viewers implicitly hold the 10 generic
+    %% scopes. Explicit [] is honoured as "no permissions".
+    Scopes = emqx_dashboard_admin:effective_scopes_of(Username),
+    case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
+        undefined -> true;
+        PathScope -> lists:member(PathScope, Scopes)
+    end.
+
+%% Match /users/<self>/anything (with %-encoded segments) regardless
+%% of whether Username is a bare binary (local) or a
+%% ?SSO_USERNAME(Backend, Name) tuple (SSO; sub-path uses just Name).
+is_self_user_endpoint(<<"/users/", SubPath/binary>>, Username) ->
+    case binary:split(SubPath, <<"/">>, [global]) of
+        [SelfSeg | _] ->
+            Decoded = uri_string:percent_decode(SelfSeg),
+            is_same_user(Decoded, Username);
+        _ ->
+            false
+    end;
+is_self_user_endpoint(_Path, _Username) ->
+    false.
+
+is_same_user(Decoded, Decoded) -> true;
+is_same_user(Decoded, {_Backend, Decoded}) -> true;
+is_same_user(_, _) -> false.
 
 %% For compatibility
 role(#?ADMIN{role = undefined}) ->
