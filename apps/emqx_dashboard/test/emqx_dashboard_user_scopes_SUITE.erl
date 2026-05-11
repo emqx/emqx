@@ -2,24 +2,30 @@
 %% Copyright (c) 2026-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 %%
-%% feat/dashboard-user-scopes — coverage for dashboard login user
-%% scope checking (commit 5: emqx_dashboard_rbac:check_login_user_scopes/2)
-%% and MFA self-lock matrix (commit 6: authorize_mfa_change/3).
+%% Coverage for dashboard login user scope checking
+%% (emqx_dashboard_rbac:check_login_user_scopes/2) and the MFA
+%% self-lock matrix (emqx_dashboard_api:authorize_mfa_change/3).
 %%
-%% Tests in this SUITE follow the matrix in
-%% SPEC-dashboard-user-scopes.md sec 6.3:
+%% MFA self-lock decision matrix:
 %%
-%%   IsFirstSetup => allow                                 (deadlock prevention)
-%%   IsSelf       AND HasMfaMgmt           => allow        (self-exempt)
-%%   IsSelf       AND NOT HasMfaMgmt AND NOT Locked => allow
-%%   IsSelf       AND NOT HasMfaMgmt AND Locked     => deny mfa_locked
+%%   IsFirstSetup = (Op == setup) AND (target.mfa_state == not_configured)
+%%   IsSelf       = (caller.username == target)
+%%   HasMfaMgmt   = caller effective scopes contain mfa_management
+%%   Locked       = target.admin_override == mfa_required
+%%                  (admin_override == mfa_exempted or undefined => unlocked)
+%%
+%%   IsFirstSetup                                    => allow (deadlock prevention)
+%%   IsSelf       AND HasMfaMgmt                     => allow (self-exempt)
+%%   IsSelf       AND NOT HasMfaMgmt AND NOT Locked  => allow
+%%   IsSelf       AND NOT HasMfaMgmt AND Locked      => deny  mfa_locked
 %%   NOT IsSelf   AND HasMfaMgmt AND administrator   => allow (admin reset)
-%%   NOT IsSelf   AND HasMfaMgmt AND non-admin       => deny self_only
-%%   NOT IsSelf   AND NOT HasMfaMgmt                 => deny missing_mfa_mgmt
+%%   NOT IsSelf   AND HasMfaMgmt AND non-admin       => deny  self_only
+%%   NOT IsSelf   AND NOT HasMfaMgmt                 => deny  missing_mfa_mgmt
 %%
-%% Field-write tests verify the admin_override write rules from
-%% SPEC sec 6.1.1: admin operations write mfa_required/mfa_exempted;
-%% self operations leave admin_override untouched.
+%% Field-write tests verify the admin_override write rules:
+%% admin reinit writes mfa_required; admin disable writes mfa_exempted;
+%% self operations leave admin_override untouched (self cannot revoke
+%% an admin decision).
 %%--------------------------------------------------------------------
 
 -module(emqx_dashboard_user_scopes_SUITE).
@@ -73,7 +79,7 @@ end_per_suite(Config) ->
     ).
 
 init_per_testcase(_Case, Config) ->
-    %% Each testcase starts from a clean table — the SPEC matrix
+    %% Each testcase starts from a clean table — the decision matrix
     %% requires precise control over admin_override, which is writable
     %% but not easily resettable between cases.
     mnesia:clear_table(?ADMIN),
@@ -146,7 +152,7 @@ t_post_users_response_role_default_scopes_when_not_set(_Config) ->
     ?assert(is_list(ScopesOut)),
     %% Admin default contains all four login-only scopes plus all 10
     %% generic ones — assert membership rather than exact equality
-    %% to avoid coupling to catalogue ordering.
+    %% to avoid coupling to catalog ordering.
     ?assert(lists:member(?SCOPE_USER_MGMT, ScopesOut)),
     ?assert(lists:member(?SCOPE_CONNECTIONS, ScopesOut)),
     ?assertEqual(14, length(ScopesOut)).
@@ -207,7 +213,7 @@ t_viewer_cannot_hold_user_management(_Config) ->
     ).
 
 %% Viewer CAN hold mfa_management — non-admin self-exemption rule
-%% (SPEC sec 3.1).
+%% (viewer self-exemption rule).
 t_viewer_can_hold_mfa_management(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
@@ -256,7 +262,7 @@ t_unknown_scope_returns_400(_Config) ->
     ).
 
 %%--------------------------------------------------------------------
-%% MFA self-lock matrix (SPEC sec 6.3, the 7-line decision table)
+%% MFA self-lock matrix (the 7-line decision table)
 %%--------------------------------------------------------------------
 
 %% Row 1: First-time setup is always allowed, regardless of locks.
@@ -500,11 +506,10 @@ t_admin_force_locks_user_against_self_disable(_Config) ->
 %% ?ROLE_VIEWER POST /users/<other>/mfa returns false. So the
 %% expected error code is UNAUTHORIZED_ROLE, not MFA_SELF_ONLY.
 %%
-%% This is the correct stacking behaviour described in SPEC sec
-%% 7.11 (RBAC × scope). MFA_SELF_ONLY would only be reachable if a
-%% future change ever loosens the RBAC viewer rule for cross-user
-%% MFA paths; the scope check serves as defense-in-depth for that
-%% scenario.
+%% This is the correct RBAC × scope stacking behaviour. MFA_SELF_ONLY
+%% would only be reachable if a future change ever loosens the RBAC
+%% viewer rule for cross-user MFA paths; the scope check serves as
+%% defense-in-depth for that scenario.
 t_non_admin_with_mfa_mgmt_cannot_reset_others(_Config) ->
     add_admin(<<"admin">>),
     {ok, _} = emqx_dashboard_admin:add_user(
@@ -542,7 +547,7 @@ t_viewer_cannot_reset_other_users_mfa(_Config) ->
     ?assert(maps:is_key(<<"code">>, Json)).
 
 %%--------------------------------------------------------------------
-%% Field-write triggers (SPEC sec 6.1.1, v3.4 admin_override model)
+%% Field-write triggers (admin_override write rules)
 %%--------------------------------------------------------------------
 
 %% Self reinit_mfa does NOT touch admin_override — self cannot revoke

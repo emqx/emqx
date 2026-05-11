@@ -13,7 +13,7 @@ scope) or a `#{Path => ScopeName}` map (for modules whose endpoints
 span multiple scopes).
 
 This module collects those declarations, builds a path → scope cache,
-and exposes the user-visible scope catalogue.
+and exposes the user-visible scope catalog.
 
 Scopes are decoupled from OpenAPI tags: scope names are stable
 identifiers defined in `emqx_mgmt_api_key_scopes.hrl`.  The internal
@@ -138,7 +138,7 @@ is_param_segment(_) -> false.
 %% Scope validation
 %%--------------------------------------------------------------------
 
--doc "Validate that all given scopes exist in the catalogue.".
+-doc "Validate that all given scopes exist in the catalog.".
 -spec validate_scopes([binary()]) -> ok | {error, binary()}.
 validate_scopes(Scopes) when is_list(Scopes) ->
     case lists:all(fun is_binary/1, Scopes) of
@@ -151,7 +151,7 @@ validate_scopes(_) ->
     {error, <<"scopes must be a list of strings">>}.
 
 validate_scopes_values(Scopes) ->
-    Available = [Name || #{name := Name} <- emqx_scope_catalogue:scope_catalogue()],
+    Available = [Name || #{name := Name} <- emqx_scope_catalog:scope_catalog()],
     Invalid = [S || S <- Scopes, not lists:member(S, Available)],
     case Invalid of
         [] ->
@@ -163,7 +163,7 @@ validate_scopes_values(Scopes) ->
 
 -doc """
 Lenient counterpart to `validate_scopes/1`: drop scope names that
-are not in `emqx_scope_catalogue:scope_catalogue/0` instead of rejecting the whole list,
+are not in `emqx_scope_catalog:scope_catalog/0` instead of rejecting the whole list,
 and report the dropped names so the caller can log a warning.
 
 Used by the bootstrap-file loader so a typo in one scope on one line
@@ -175,7 +175,7 @@ preserving original order. Non-binary elements are rejected.
 """.
 -spec filter_valid_scopes([term()]) -> {[binary()], [term()]}.
 filter_valid_scopes(Scopes) when is_list(Scopes) ->
-    Available = [Name || #{name := Name} <- emqx_scope_catalogue:scope_catalogue()],
+    Available = [Name || #{name := Name} <- emqx_scope_catalog:scope_catalog()],
     lists:foldr(
         fun(S, {Valid, Rejected}) ->
             case is_binary(S) andalso lists:member(S, Available) of

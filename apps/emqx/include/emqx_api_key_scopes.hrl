@@ -30,7 +30,7 @@
 %% API Key self-management).  Not exposed to users.
 -define(SCOPE_DENIED, <<"$denied">>).
 
-%% ── Login-user-only scopes (since 5.x) ─────────────────────────────
+%% ── Login-user-only scopes (since 5.10.4) ─────────────────────────────
 %%
 %% These scopes apply to dashboard login users only. API keys MUST NOT
 %% hold any of them — schema validation rejects creation/update of API
@@ -56,7 +56,7 @@
 %% All four login-only scopes. Used by:
 %%   * API key schema validation (reject any in this list)
 %%   * bootstrap-file loader (drop any in this list with warning)
-%%   * login user scope catalogue (/user_scopes endpoint)
+%%   * login user scope catalog (/user_scopes endpoint)
 -define(LOGIN_ONLY_SCOPES, [
     ?SCOPE_USER_MGMT,
     ?SCOPE_MFA_MGMT,

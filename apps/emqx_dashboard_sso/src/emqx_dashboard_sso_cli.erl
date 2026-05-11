@@ -56,7 +56,7 @@ admins(["mfa", Username, Action]) ->
 admins(["mfa", Username, "enable", Mechanism0]) ->
     try emqx_dashboard_mfa:mechanism(bin(Mechanism0)) of
         Mechanism ->
-            case emqx_dashboard_admin:enable_mfa(bin(Username), Mechanism) of
+            case emqx_dashboard_admin:enable_mfa_from_cli(bin(Username), Mechanism) of
                 ok ->
                     emqx_ctl:print("ok~n");
                 {error, Reason} ->

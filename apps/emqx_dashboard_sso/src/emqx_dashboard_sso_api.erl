@@ -54,7 +54,7 @@ scopes() ->
     %% minirest default (basicAuth/bearerAuth). API key access to
     %% dashboard SSO is rejected at the auth layer (api_key_authorize
     %% in emqx_dashboard.erl) — only login users reach the scope check.
-    %% The login user scope check (commit 5) consults this map.
+    %% The login user scope check consults this map.
     %%
     %% Intentionally absent from the map (public, fall-through to
     %% unmapped fail-open):

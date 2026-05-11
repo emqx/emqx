@@ -23,10 +23,10 @@ namespace() -> "api_key".
 scopes() ->
     %% API key management endpoints are bearer-auth-only; API keys
     %% themselves cannot reach these paths. The login user scope
-    %% check (commit 5) consults this map.
+    %% check consults this map.
     %%
     %% /api_key_scopes is intentionally absent from the map — the
-    %% scope catalogue endpoint is public to any authenticated login
+    %% scope catalog endpoint is public to any authenticated login
     %% user (require Bearer auth, but the scope check is fail-open
     %% for unmapped paths). It is a top-level path (sibling to
     %% /action_types, /source_types) chosen to avoid wildcard
@@ -313,16 +313,16 @@ ensure_expired_at(_) -> infinity.
 
 api_key_scopes(get, _) ->
     {200, #{
-        scopes => emqx_scope_catalogue:scope_catalogue()
+        scopes => emqx_scope_catalog:scope_catalog()
     }}.
 
 validate_scopes(Role, Scopes) ->
     %% Three-layer schema validation, returning the FIRST error
-    %% encountered. Layer 1 cheapest, layer 3 catalogue lookup.
+    %% encountered. Layer 1 cheapest, layer 3 catalog lookup.
     case validate_publisher_scopes(Role, Scopes) of
         ok ->
             case validate_no_login_only_scopes(Scopes) of
-                ok -> validate_scopes_in_catalogue(Scopes);
+                ok -> validate_scopes_in_catalog(Scopes);
                 Error -> Error
             end;
         Error ->
@@ -364,12 +364,12 @@ validate_no_login_only_scopes(Scopes) when is_list(Scopes) ->
 validate_no_login_only_scopes(_) ->
     ok.
 
-%% Layer 3: scope names must exist in the catalogue (unknown name -> 400).
-validate_scopes_in_catalogue(undefined) ->
+%% Layer 3: scope names must exist in the catalog (unknown name -> 400).
+validate_scopes_in_catalog(undefined) ->
     ok;
-validate_scopes_in_catalogue(Scopes) when is_list(Scopes) ->
+validate_scopes_in_catalog(Scopes) when is_list(Scopes) ->
     emqx_mgmt_api_key_scopes:validate_scopes(Scopes);
-validate_scopes_in_catalogue(_) ->
+validate_scopes_in_catalog(_) ->
     {error, <<"scopes must be a list of strings">>}.
 
 -if(?EMQX_RELEASE_EDITION == ee).
