@@ -6,7 +6,7 @@
 %%
 %% Pure data; this module has no runtime dependencies. The scope name
 %% macros it references are defined in
-%% `emqx/include/emqx_api_key_scopes.hrl'. The data is consumed by
+%% `emqx_utils/include/emqx_api_key_scopes.hrl'. The data is consumed by
 %% both `emqx_management' (API-key authorization, /api_key_scopes
 %% endpoint) and `emqx_dashboard' (login user scope schema validation,
 %% /user_scopes endpoint).

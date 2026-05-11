@@ -35,7 +35,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 -include("emqx_dashboard.hrl").
 
 -define(HOST, "http://127.0.0.1:18083").

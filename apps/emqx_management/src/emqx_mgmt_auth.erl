@@ -5,7 +5,7 @@
 -include_lib("emqx_mgmt.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 
 -behaviour(emqx_db_backup).
