@@ -285,11 +285,30 @@ check_rbac(Req, HandlerInfo, JWT) ->
     ActorContext = actor_context_of(JWT),
     case emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext) of
         {ok, ActorContextFinal} ->
-            ok = save_new_jwt(JWT),
-            {ok, ActorContextFinal};
+            %% Layer the login-user scope check ON TOP of role-based
+            %% RBAC. Only invoked here (dashboard JWT path) — API key
+            %% authorisation uses its own scope mechanism via
+            %% emqx_mgmt_auth:check_path_in_scopes/2 and must not
+            %% trip on this.
+            #?ADMIN_JWT{extra = Extra, username = Username} = JWT,
+            AdminKey = full_admin_key(Username, Extra),
+            case emqx_dashboard_rbac:check_login_user_scopes(AdminKey, Req) of
+                true ->
+                    ok = save_new_jwt(JWT),
+                    {ok, ActorContextFinal};
+                false ->
+                    {error, unauthorized_role}
+            end;
         false ->
             {error, unauthorized_role}
     end.
+
+full_admin_key(Username, #{backend := ?BACKEND_LOCAL}) ->
+    Username;
+full_admin_key(Username, #{backend := Backend}) when is_atom(Backend) ->
+    ?SSO_USERNAME(Backend, Username);
+full_admin_key(Username, _) ->
+    Username.
 
 save_new_jwt(OldJWT) ->
     #?ADMIN_JWT{exptime = _ExpTime, extra = _Extra} = OldJWT,

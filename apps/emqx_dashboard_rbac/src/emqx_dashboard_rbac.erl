@@ -50,12 +50,6 @@
 check_rbac(Req, HandlerInfo, ActorContext) ->
     maybe
         true ?= do_check_rbac(ActorContext, Req, HandlerInfo),
-        %% RBAC pass — now apply login-user scope check.
-        %% Returns true (allow) or false (deny). RBAC and
-        %% scope check stack: only paths that pass BOTH
-        %% reach the handler. See SPEC-dashboard-user-scopes.md
-        %% §7.8.1 (hook point) and §7.11 (RBAC × scope).
-        true ?= check_login_user_scopes(ActorContext, HandlerInfo),
         {ok, ActorContext}
     end.
 
@@ -77,7 +71,29 @@ parse_dashboard_role(Role) ->
 %% semantics (emqx_mgmt_auth:check_path_in_scopes/2). CT
 %% t_all_endpoints_covered_by_scopes guards against accidentally
 %% leaving a non-public path unmapped.
-check_login_user_scopes(#{?actor := Username}, #{path := Path}) ->
+%%
+%% IMPORTANT: this predicate is for dashboard LOGIN users only. It must
+%% NOT be invoked from API-key authorisation paths because:
+%%   1. API keys have their own scope mechanism via
+%%      emqx_mgmt_auth:check_path_in_scopes/2 — invoking this on top
+%%      is redundant.
+%%   2. If an API-key string value collided with a dashboard username,
+%%      this lookup would resolve against that user's extra.scopes and
+%%      produce a wrong authorisation decision for the API key.
+%% Callers MUST ensure `Username' is the dashboard admin record's
+%% primary key (binary for local users, ?SSO_USERNAME tuple for SSO
+%% users). The dashboard token verifier reconstructs the SSO tuple via
+%% emqx_dashboard_token:resolve_admin_key/1 before invoking us.
+check_login_user_scopes(Username, Req) when is_map(Req) ->
+    AbsPath = cowboy_req:path(Req),
+    case emqx_dashboard_swagger:get_relative_uri(AbsPath) of
+        {ok, Path} -> check_login_user_scopes_for_path(Username, Path);
+        _ -> false
+    end;
+check_login_user_scopes(Username, Path) when is_binary(Path) ->
+    check_login_user_scopes_for_path(Username, Path).
+
+check_login_user_scopes_for_path(Username, Path) ->
     case emqx_dashboard_admin:scopes_of(Username) of
         undefined ->
             true;
@@ -86,9 +102,7 @@ check_login_user_scopes(#{?actor := Username}, #{path := Path}) ->
                 undefined -> true;
                 PathScope -> lists:member(PathScope, Scopes)
             end
-    end;
-check_login_user_scopes(_ActorContext, _HandlerInfo) ->
-    true.
+    end.
 
 parse_api_role(Role) ->
     parse_role(api, Role).
