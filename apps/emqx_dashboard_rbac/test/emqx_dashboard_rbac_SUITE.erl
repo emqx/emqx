@@ -306,29 +306,71 @@ t_delete_mfa_sso_force_mfa(_) ->
 %% release-510 path-string regression: it exercises cowboy + minirest +
 %% RBAC + the MFA handler with `backend=saml` and `force_mfa = false`/`true`.
 t_delete_mfa_sso_force_mfa_urlencoded_username_http(_) ->
+    %% Full HTTP path: RBAC + emqx_dashboard_api:authorize_mfa_change/3.
+    %% Replaces the previous live-backend-force_mfa assertion. Lock state
+    %% is now derived from the per-user `force_mfa_snapshot' field
+    %% (commit aa189c67e4) rather than the backend's current flag, so the
+    %% test pins the new contract: snapshot=true denies self-DELETE,
+    %% snapshot=false (or absent) allows it, regardless of the backend's
+    %% live force_mfa configuration.
     SsoBackend = saml,
     SsoUser = <<"jackson-http@example.com">>,
     Desc = <<"desc">>,
+    SsoUsername = ?SSO_USERNAME(SsoBackend, SsoUser),
+    {ok, _} = emqx_dashboard_admin:add_sso_user(SsoBackend, SsoUser, ?ROLE_VIEWER, Desc),
+    {ok, #{role := ?ROLE_VIEWER, token := SsoToken}} = emqx_dashboard_admin:sign_token(
+        SsoUsername, <<>>
+    ),
+    %% snapshot=false (or absent): self-DELETE succeeds.
+    {ok, ok} = emqx_dashboard_admin:set_force_mfa_snapshot(SsoUsername, false),
+    ?assertMatch(
+        {ok, 204, _},
+        delete_mfa_urlencoded_username_http(SsoToken, SsoBackend, SsoUser)
+    ),
+    %% snapshot=true: self-DELETE is denied at the handler with
+    %% MFA_LOCKED (regardless of the live backend force_mfa value).
+    {ok, ok} = emqx_dashboard_admin:set_force_mfa_snapshot(SsoUsername, true),
+    ?assertMatch(
+        {ok, 403, _},
+        delete_mfa_urlencoded_username_http(SsoToken, SsoBackend, SsoUser)
+    ),
+    ok.
+
+t_delete_mfa_sso_force_mfa(_) ->
+    %% Post feat/dashboard-user-scopes: RBAC layer no longer consults the
+    %% live SSO backend `force_mfa` flag for self-DELETE on /users/:self/mfa.
+    %% Policy state (snapshot + admin_required) is decided in
+    %% emqx_dashboard_api:authorize_mfa_change/3. This RBAC-only test
+    %% therefore asserts that self-DELETE always passes the RBAC layer;
+    %% snapshot-driven enforcement is covered by the full-HTTP test below
+    %% and by emqx_dashboard_user_scopes_SUITE.
+    SsoBackend = saml,
+    SsoUser = <<"sso_viewermfa">>,
+    LocalUser = <<"local_viewermfa">>,
+    Password = <<"xyz124abc">>,
+    Desc = <<"desc">>,
     SsoConfig = emqx:get_config([dashboard, sso, SsoBackend], #{}),
     {ok, _} = emqx_dashboard_admin:add_sso_user(SsoBackend, SsoUser, ?ROLE_VIEWER, Desc),
+    {ok, _} = emqx_dashboard_admin:add_user(LocalUser, Password, ?ROLE_VIEWER, Desc),
     {ok, #{role := ?ROLE_VIEWER, token := SsoToken}} = emqx_dashboard_admin:sign_token(
         ?SSO_USERNAME(SsoBackend, SsoUser), <<>>
     ),
+    {ok, #{role := ?ROLE_VIEWER, token := LocalToken}} = emqx_dashboard_admin:sign_token(
+        LocalUser, Password
+    ),
     try
+        %% RBAC is policy-independent for self-DELETE: passes regardless
+        %% of the backend's current force_mfa value.
         ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig#{force_mfa => false}),
-        ?assertMatch(
-            {ok, 204, _},
-            delete_mfa_urlencoded_username_http(SsoToken, SsoBackend, SsoUser)
-        ),
+        ?assertEqual({ok, SsoUser}, delete_mfa(SsoToken, SsoUser)),
         ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig#{force_mfa => true}),
-        ?assertMatch(
-            {ok, 403, _},
-            delete_mfa_urlencoded_username_http(SsoToken, SsoBackend, SsoUser)
-        )
+        ?assertEqual({ok, SsoUser}, delete_mfa(SsoToken, SsoUser)),
+        ?assertEqual({ok, LocalUser}, delete_mfa(LocalToken, LocalUser))
     after
         ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig)
     end,
     ok.
+
 
 test_mfa(VerifyFn) ->
     Viewer1 = <<"viewermfa1">>,

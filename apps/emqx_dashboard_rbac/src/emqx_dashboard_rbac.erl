@@ -196,20 +196,19 @@ do_check_rbac(
             false
     end;
 do_check_rbac(
-    #{?role := ?ROLE_VIEWER, ?actor := Username} = Actor,
+    #{?role := ?ROLE_VIEWER, ?actor := Username},
     Req,
     ?DASHBOARD_API(delete, change_mfa)
 ) ->
-    %% emqx_dashboard_api:change_mfa
-    %% A SSO viewer whose backend has `force_mfa = true` is not allowed to
-    %% disable MFA for themselves; otherwise they could lock themselves out
-    %% of the next forced setup. Local users (BACKEND_LOCAL) and SSO users
-    %% with `force_mfa = false` may proceed.
+    %% RBAC decides only that viewer may DELETE its OWN mfa endpoint.
+    %% Policy state — force_mfa snapshot, admin_required lock,
+    %% mfa_management self-exemption — is decided in
+    %% emqx_dashboard_api:authorize_mfa_change/3. Mixing the live
+    %% backend force_mfa flag in here previously bypassed the snapshot
+    %% and the scope-based self-exemption (SPEC §6.3).
     case Req of
-        #{bindings := #{username := Username}} ->
-            not is_forced_sso_mfa(maps:get(?backend, Actor, ?BACKEND_LOCAL));
-        _ ->
-            false
+        #{bindings := #{username := Username}} -> true;
+        _ -> false
     end;
 do_check_rbac(
     #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace, ?actor := Username},
@@ -222,16 +221,14 @@ do_check_rbac(
         _ -> false
     end;
 do_check_rbac(
-    #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace, ?actor := Username} = Actor,
+    #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace, ?actor := Username},
     Req,
     ?DASHBOARD_API(delete, change_mfa)
 ) when is_binary(Namespace) ->
-    %% Namespaced administrators may manage MFA only for themselves.
+    %% Namespaced administrators: same handler-decides policy as viewer.
     case Req of
-        #{bindings := #{username := Username}} ->
-            not is_forced_sso_mfa(maps:get(?backend, Actor, ?BACKEND_LOCAL));
-        _ ->
-            false
+        #{bindings := #{username := Username}} -> true;
+        _ -> false
     end;
 do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?CONNECTOR_API(_, _)) when
     is_binary(Namespace)
@@ -269,17 +266,9 @@ do_check_rbac(
 do_check_rbac(_, _, _) ->
     false.
 
-%% @doc Whether the given backend has `force_mfa = true` configured.
-%% Local users always return false (no SSO config to inspect). For SSO
-%% backends, look up `dashboard.sso.<backend>.force_mfa`. Missing config
-%% (e.g. backend disabled) is treated as `force_mfa = false`.
-is_forced_sso_mfa(?BACKEND_LOCAL) ->
-    false;
-is_forced_sso_mfa(Backend) ->
-    case emqx:get_config([dashboard, sso, Backend], undefined) of
-        #{force_mfa := true} -> true;
-        _ -> false
-    end.
+decode_path_segments(SubPath) ->
+    [uri_string:percent_decode(Segment) || Segment <- binary:split(SubPath, <<"/">>, [global])].
+
 
 role_list(dashboard) ->
     [?ROLE_VIEWER, ?ROLE_SUPERUSER];

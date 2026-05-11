@@ -323,6 +323,60 @@ t_self_cannot_rotate_when_admin_required_locked(_Config) ->
     Json = emqx_utils_json:decode(RespBody),
     ?assertEqual(<<"MFA_LOCKED">>, maps:get(<<"code">>, Json)).
 
+%% admin_required lock is symmetric with force_mfa_snapshot: holding
+%% mfa_management scope self-exempts from both.
+t_self_with_mfa_mgmt_can_rotate_under_admin_required_lock(_Config) ->
+    add_admin(<<"admin">>),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"u">>, test_password(), ?ROLE_VIEWER, "u"
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(<<"u">>, [?SCOPE_MFA_MGMT]),
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(
+        <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_admin_required(<<"u">>, true),
+    Token = jwt(<<"u">>, test_password()),
+    Body = #{<<"mechanism">> => <<"totp">>},
+    ?assertMatch(
+        {ok, 204, _},
+        request_api(post, api_path(["users", "u", "mfa"]), auth_header(Token), Body)
+    ).
+
+%% Self-DELETE under admin_required without mfa_management — denied.
+t_self_cannot_delete_when_admin_required_locked(_Config) ->
+    add_admin(<<"admin">>),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"u">>, test_password(), ?ROLE_VIEWER, "u"
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(
+        <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_admin_required(<<"u">>, true),
+    Token = jwt(<<"u">>, test_password()),
+    {ok, 403, RespBody} = request_api(
+        delete, api_path(["users", "u", "mfa"]), auth_header(Token), #{}
+    ),
+    Json = emqx_utils_json:decode(RespBody),
+    ?assertEqual(<<"MFA_LOCKED">>, maps:get(<<"code">>, Json)).
+
+%% Self-DELETE under admin_required WITH mfa_management — allowed
+%% (self-exemption applies to DELETE too, not just POST/rotate).
+t_self_with_mfa_mgmt_can_delete_under_admin_required_lock(_Config) ->
+    add_admin(<<"admin">>),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"u">>, test_password(), ?ROLE_VIEWER, "u"
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(<<"u">>, [?SCOPE_MFA_MGMT]),
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(
+        <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_admin_required(<<"u">>, true),
+    Token = jwt(<<"u">>, test_password()),
+    ?assertMatch(
+        {ok, 204, _},
+        request_api(delete, api_path(["users", "u", "mfa"]), auth_header(Token), #{})
+    ).
+
 %% Row 5: Admin can reset another user's MFA — admin has implicit
 %% mfa_management via role-default fallback.
 t_admin_can_reset_others_mfa(_Config) ->
