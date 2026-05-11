@@ -415,8 +415,8 @@ scopes_of(Username) ->
 %% in their extra map (the "lazy migration" case for users created
 %% before this feature).
 %%
-%%   administrator + no explicit scopes -> all 14 scopes
-%%   viewer        + no explicit scopes -> 10 generic scopes
+%%   administrator + no explicit scopes -> all scopes (common + login-only)
+%%   viewer        + no explicit scopes -> common scopes only
 %%   any role      + explicit []         -> []
 %%   any role      + explicit [X, ...]   -> [X, ...]
 %%

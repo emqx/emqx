@@ -338,8 +338,8 @@ test_mfa(VerifyFn) ->
 %% is not loadable from that SUITE.
 %%--------------------------------------------------------------------
 
-%% scopes=undefined uses the role-default fallback (admin -> all 14,
-%% viewer -> 10 generic). A viewer with no explicit scopes therefore
+%% scopes=undefined uses the role-default fallback (admin -> common + login-only,
+%% viewer -> common scopes only). A viewer with no explicit scopes therefore
 %% holds only generic scopes and is denied on /users (user_management
 %% scope). Self-targeted user endpoints are an exception (see
 %% t_check_login_user_scopes_self_user_endpoints_bypass below).
@@ -350,7 +350,7 @@ t_check_login_user_scopes_undefined_falls_back(_) ->
     ),
     %% No set_user_scopes call.
     ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(Username)),
-    %% Viewer default = 10 generic scopes (no user_management).
+    %% Viewer default = common scopes only (no user_management).
     ?assertEqual(
         false,
         emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
@@ -460,8 +460,8 @@ t_check_login_user_scopes_mfa_mgmt_grants_only_mfa(_) ->
 %%--------------------------------------------------------------------
 %% Login user holding generic (API-key catalog) scopes
 %%
-%% Login users may hold any of the 10 generic catalog scopes alongside
-%% the 4 login-only scopes. The scope predicate is uniform — there is
+%% Login users may hold any common catalog scope alongside the
+%% login-only scopes. The scope predicate is uniform — there is
 %% no role-based or scope-class-based branching in
 %% check_login_user_scopes/2 — so a viewer or administrator carrying
 %% scopes=[<<"connections">>] should be allowed on /clients and denied

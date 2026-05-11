@@ -199,7 +199,7 @@ t_rest_api(_Config) ->
     emqx_dashboard_admin:add_user(<<"admin">>, Password, ?ROLE_SUPERUSER, Desc),
     {ok, 200, Res0} = http_get(["users"]),
     %% to_external_user/1 also surfaces the effective scopes list
-    %% (admin -> 14 scopes by role-default). This test doesn't care
+    %% (admin -> common + login-only scopes by role-default). This test doesn't care
     %% about the exact list, so drop the field before asserting the
     %% rest of the user record.
     [User0] = get_http_data(Res0),

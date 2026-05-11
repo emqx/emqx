@@ -84,8 +84,8 @@ check_login_user_scopes_for_path(Username, Path) ->
 check_login_user_scopes_strict(Username, Path) ->
     %% Always work on the effective scope list (role-default expanded)
     %% so administrators with no explicit scopes implicitly hold the
-    %% full catalog and viewers implicitly hold the 10 generic
-    %% scopes. Explicit [] is honoured as "no permissions".
+    %% full catalog and viewers implicitly hold the common scopes.
+    %% Explicit [] is honoured as "no permissions".
     Scopes = emqx_dashboard_admin:effective_scopes_of(Username),
     case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
         undefined -> true;
