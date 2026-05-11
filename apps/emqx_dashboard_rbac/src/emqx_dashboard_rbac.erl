@@ -113,7 +113,7 @@ parse_api_role(Role) ->
 check_login_user_scopes_strict(Username, Path) ->
     %% Always work on the effective scope list (role-default expanded)
     %% so administrators with no explicit scopes implicitly hold the
-    %% full catalogue and viewers implicitly hold the 10 generic
+    %% full catalog and viewers implicitly hold the 10 generic
     %% scopes. Explicit [] is honoured as "no permissions".
     Scopes = emqx_dashboard_admin:effective_scopes_of(Username),
     case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
@@ -233,11 +233,11 @@ do_check_rbac(
     ?DASHBOARD_API(delete, change_mfa)
 ) ->
     %% RBAC decides only that viewer may DELETE its OWN mfa endpoint.
-    %% Policy state — force_mfa snapshot, admin_required lock,
-    %% mfa_management self-exemption — is decided in
-    %% emqx_dashboard_api:authorize_mfa_change/3. Mixing the live
-    %% backend force_mfa flag in here previously bypassed the snapshot
-    %% and the scope-based self-exemption (SPEC §6.3).
+    %% Policy state (admin_override lock and mfa_management self-
+    %% exemption) is decided in emqx_dashboard_api:authorize_mfa_change/3.
+    %% RBAC must not consult the live backend force_mfa flag here —
+    %% doing so would bypass admin_override and prevent mfa_management
+    %% scope holders from self-exempting.
     case Req of
         #{bindings := #{username := Username}} -> true;
         _ -> false

@@ -207,9 +207,9 @@ t_disable_mfa(_Config) ->
             <<"mfa_token">> => <<"123456">>
         },
     AdminJwtToken = admin_jwt_token(),
-    %% enable by admin1 for viewer1 — this sets admin_required=true,
-    %% locking viewer1 from disabling its OWN MFA without
-    %% mfa_management scope (SPEC sec 6.1.1 / 6.3).
+    %% enable by admin1 for viewer1 — this sets admin_override=
+    %% mfa_required, locking viewer1 from disabling its OWN MFA
+    %% without the mfa_management scope.
     ?assertMatch({ok, 204, _}, enable_mfa(<<"viewer1">>), AdminJwtToken),
     ?assertMatch({ok, 204, _}, enable_mfa(<<"viewer2">>), AdminJwtToken),
     {ok, 200, RspBody} = login(LoginBody),

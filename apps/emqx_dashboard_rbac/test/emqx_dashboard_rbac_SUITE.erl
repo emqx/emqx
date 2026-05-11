@@ -334,13 +334,13 @@ t_delete_mfa_sso_force_mfa_urlencoded_username_http(_) ->
     ok.
 
 t_delete_mfa_sso_force_mfa(_) ->
-    %% Post feat/dashboard-user-scopes: RBAC layer no longer consults the
-    %% live SSO backend `force_mfa` flag for self-DELETE on /users/:self/mfa.
-    %% Policy state (snapshot + admin_required) is decided in
+    %% RBAC layer no longer consults the live SSO backend `force_mfa'
+    %% flag for self-DELETE on /users/:self/mfa. Policy state (the
+    %% admin_override decision) is decided in
     %% emqx_dashboard_api:authorize_mfa_change/3. This RBAC-only test
-    %% therefore asserts that self-DELETE always passes the RBAC layer;
-    %% snapshot-driven enforcement is covered by the full-HTTP test below
-    %% and by emqx_dashboard_user_scopes_SUITE.
+    %% therefore asserts that self-DELETE always passes the RBAC
+    %% layer; admin_override enforcement is covered by the full-HTTP
+    %% test below and by emqx_dashboard_user_scopes_SUITE.
     SsoBackend = saml,
     SsoUser = <<"sso_viewermfa">>,
     LocalUser = <<"local_viewermfa">>,
@@ -412,7 +412,6 @@ test_mfa(VerifyFn) ->
 
 %%--------------------------------------------------------------------
 %% check_login_user_scopes/2 — scope-deny main path coverage.
-%% See SPEC-dashboard-user-scopes.md sec 7.8.1, 7.11.
 %%
 %% Tests live here (and not in emqx_dashboard_user_scopes_SUITE) because
 %% emqx_dashboard does not depend on emqx_dashboard_rbac, so the predicate
@@ -539,15 +538,15 @@ t_check_login_user_scopes_mfa_mgmt_grants_only_mfa(_) ->
     ).
 
 %%--------------------------------------------------------------------
-%% Login user holding generic (API-key catalogue) scopes
+%% Login user holding generic (API-key catalog) scopes
 %%
-%% SPEC sec 3.1 / 7.11: login users may hold any of the 10 generic
-%% catalogue scopes alongside the 4 login-only scopes. The scope
-%% predicate is uniform — there is no role-based or scope-class-based
-%% branching in check_login_user_scopes/2 — so a viewer or
-%% administrator carrying scopes=[<<"connections">>] should be allowed
-%% on /clients and denied on every endpoint mapped to a different
-%% scope. These tests guard that uniformity.
+%% Login users may hold any of the 10 generic catalog scopes alongside
+%% the 4 login-only scopes. The scope predicate is uniform — there is
+%% no role-based or scope-class-based branching in
+%% check_login_user_scopes/2 — so a viewer or administrator carrying
+%% scopes=[<<"connections">>] should be allowed on /clients and denied
+%% on every endpoint mapped to a different scope. These tests guard
+%% that uniformity.
 %%--------------------------------------------------------------------
 
 %% scopes=[connections] grants paths mapped to the connections scope.

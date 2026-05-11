@@ -52,7 +52,7 @@ api_spec() ->
 %% API key auth is rejected at the minirest layer for these paths
 %% (security => [#{bearerAuth => []}] excludes basic auth). The scope
 %% map below applies to dashboard LOGIN users — checked in
-%% emqx_dashboard_rbac:check_login_user_scopes/2 (commit 5).
+%% emqx_dashboard_rbac:check_login_user_scopes/2.
 %%
 %% Public paths (/login, /logout) are intentionally absent from the map;
 %% they fall through to the unmapped-path branch (fail-open) and are
@@ -133,7 +133,7 @@ schema("/users") ->
         }
     };
 schema("/user_scopes") ->
-    %% Public catalogue endpoint — any authenticated dashboard login
+    %% Public catalog endpoint — any authenticated dashboard login
     %% user (incl. viewer / SSO viewer) may list the available scope
     %% names. The path is intentionally absent from scopes/0 above so
     %% it falls through to the unmapped-path branch (fail-open).
@@ -349,7 +349,7 @@ logout(_, #{
     end.
 
 user_scopes(get, _Request) ->
-    {200, #{scopes => emqx_scope_catalogue:login_user_scope_catalogue()}}.
+    {200, #{scopes => emqx_scope_catalog:login_user_scope_catalog()}}.
 
 users(get, _Request) ->
     {200, to_json_out(emqx_dashboard_admin:all_users())};
@@ -570,9 +570,6 @@ register_unsuccessful_login(_, _) ->
 %%     mfa_management is intentionally allowed for any role — non-
 %%     admin holders can self-exempt their own MFA but cannot manage
 %%     other users' MFA (handler-level enforcement).
-%%
-%% See SPEC-dashboard-user-scopes.md §3.1 / §7.10 for the full rule
-%% matrix and rationale.
 validate_login_user_scopes(_Role, undefined) ->
     ok;
 validate_login_user_scopes(_Role, Scopes) when not is_list(Scopes) ->
@@ -585,11 +582,11 @@ validate_login_user_scopes(Role, Scopes) ->
             Error
     end.
 
-%% Login users may hold ANY of the API key catalogue scopes plus the
+%% Login users may hold ANY of the API key catalog scopes plus the
 %% four login-only scopes. Any name outside this combined set is a
 %% typo or an attempt to assign $denied — reject.
 validate_scope_names(Scopes) ->
-    Catalogue = [N || #{name := N} <- emqx_scope_catalogue:scope_catalogue()],
+    Catalogue = [N || #{name := N} <- emqx_scope_catalog:scope_catalog()],
     Allowed = Catalogue ++ ?LOGIN_ONLY_SCOPES,
     case [S || S <- Scopes, not lists:member(S, Allowed)] of
         [] ->
@@ -688,7 +685,7 @@ maybe_set_user_scopes(_Username, _Scopes) ->
 
 %% --- MFA self-lock authorization ---
 %%
-%% SPEC-dashboard-user-scopes.md sec 6.3 / 6.5. Decision matrix:
+%% Decision matrix:
 %%
 %%   IsFirstSetup = (Op == setup) AND (target.mfa_state == not_configured)
 %%   IsSelf       = (caller.username == target)

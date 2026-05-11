@@ -34,7 +34,7 @@
     lookup_user/1,
     change_password_trusted/2,
     change_password/3,
-    enable_mfa/2,
+    enable_mfa_from_cli/2,
     reinit_mfa/3,
     set_mfa_pending/2,
     clear_mfa_pending/1,
@@ -242,7 +242,7 @@ do_disable_mfa(Username, ByAdmin) ->
 %% Return error if it's already enabled.
 %% Called from CLI (emqx ctl admins mfa <user> enable totp), so the
 %% caller is treated as admin.
-enable_mfa(Username, Mechanism) ->
+enable_mfa_from_cli(Username, Mechanism) ->
     case get_mfa_enabled_state(Username) of
         {ok, #{mechanism := Mechanism0}} ->
             {error, binfmt("MFA is already enabled using '~p'", [Mechanism0])};
@@ -268,8 +268,6 @@ enable_mfa(Username, Mechanism) ->
 %%     Self cannot revoke an existing admin decision (required or
 %%     exempted); voluntary setup/rotate stays under the admin
 %%     decision if any.
-%%
-%% See SPEC-dashboard-user-scopes.md §6.1.1 for the full write rules.
 reinit_mfa(Username, Mechanism, ByAdmin) ->
     {ok, State} = emqx_dashboard_mfa:init(Mechanism),
     case reset_mfa_state(Username, State) of
@@ -387,8 +385,7 @@ clear_login_lock2(Username) ->
 %%--------------------------------------------------------------------
 %% Login user scope + admin_override fields
 %%
-%% Two extra-map keys introduced for the dashboard user scopes
-%% feature (SPEC-dashboard-user-scopes.md):
+%% Two extra-map keys introduced for the dashboard user scopes feature:
 %%
 %%   admin_override :: undefined | mfa_required | mfa_exempted
 %%     Admin's explicit per-user MFA decision that overrides the live

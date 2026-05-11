@@ -405,7 +405,7 @@ t_bootstrap_file_with_scopes_invalid(_) ->
         read_bootstrap_scopes(<<"scope-mixed">>)
     ),
 
-    %% The internal `$denied` scope is NOT in scope_catalogue/0; if a user
+    %% The internal `$denied` scope is NOT in scope_catalog/0; if a user
     %% writes it the loader must drop it like any other unknown name.
     DeniedBin = iolist_to_binary([
         "scope-denied:secret-2:administrator:$denied,", ?SCOPE_AUDIT, "\n"
@@ -454,7 +454,7 @@ t_bootstrap_file_with_empty_scopes(_) ->
 
 %% Users will write capitalised scope names ("Connections") because typed
 %% lists tend to look "more proper". `parse_scopes_str/1' lowercases each
-%% token so the catalogue lookup matches; without this normalization the
+%% token so the catalog lookup matches; without this normalization the
 %% scope would be silently dropped by `filter_valid_scopes/1' (the entry
 %% would still be created with no usable scopes — the worst kind of
 %% confusion). Pin the lowercase contract here so it cannot regress.
@@ -462,7 +462,7 @@ t_bootstrap_file_with_mixed_case_scopes(_) ->
     File = "./bootstrap_api_keys.txt",
     Bin = iolist_to_binary([
         %% Mixed case + leading capital + ALL CAPS — every variant must
-        %% normalise to the lowercase catalogue name.
+        %% normalise to the lowercase catalog name.
         "scope-mixed-case:secret-1:administrator:Connections,PUBLISH,Monitoring\n"
     ]),
     ok = file:write_file(File, Bin),
@@ -722,8 +722,8 @@ t_create(_Config) ->
 %% Bootstrap file: publisher role lenient policy — non-publish
 %% scopes are dropped with a warning log; the entry IS created with
 %% only the publish scope retained (or empty if no publish present).
-%% This mirrors the API-layer schema validation (commit 4) but is
-%% non-fatal for the whole bootstrap load.
+%% This mirrors the API-layer schema validation but is non-fatal for
+%% the whole bootstrap load.
 t_bootstrap_file_publisher_only_publish_scope(_) ->
     File = "./bootstrap_api_keys.txt",
     Bin = iolist_to_binary([
@@ -1129,11 +1129,9 @@ t_ee_authorize_publisher(_Config) ->
     ).
 
 %%--------------------------------------------------------------------
-%% feat/dashboard-user-scopes — schema validation testcases.
-%%
-%% These tests verify the API-layer schema validation introduced in
-%% commit 4 (publisher restricted to publish scope) and SPEC sec 3.1
-%% (API keys reject login-only scopes regardless of role).
+%% Schema validation tests for API key scopes:
+%%   * publisher role is restricted to the publish scope only;
+%%   * API keys reject any login-only scope regardless of role.
 %%--------------------------------------------------------------------
 
 %% publisher role + scopes=[<<"publish">>] — accepted (the only
@@ -1224,8 +1222,8 @@ t_ee_api_key_rejects_login_only_via_put(_Config) ->
     delete_app(Name).
 
 %% Administrator API key + scopes containing publish — accepted.
-%% v3.3 SPEC clarifies that admin/viewer roles are NOT restricted on
-%% the publish scope; only publisher role is.
+%% Administrator and viewer roles are NOT restricted on the publish
+%% scope; only the publisher role is.
 t_ee_admin_role_with_publish_scope_allowed(_Config) ->
     Name = <<"EE-ADMIN-WITH-PUBLISH">>,
     ?assertMatch(

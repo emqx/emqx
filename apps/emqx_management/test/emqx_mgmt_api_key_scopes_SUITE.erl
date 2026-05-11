@@ -28,7 +28,7 @@ groups() ->
     [
         {unit_tests, [], [
             t_init_cache,
-            t_scope_catalogue,
+            t_scope_catalog,
             t_path_to_scope,
             t_path_to_scope_denied,
             t_path_to_scope_no_cache,
@@ -96,8 +96,8 @@ t_init_cache(_Config) ->
         undefined, persistent_term:get({emqx_mgmt_api_key_scopes, scope_cache}, undefined)
     ).
 
-t_scope_catalogue(_Config) ->
-    Catalogue = emqx_scope_catalogue:scope_catalogue(),
+t_scope_catalog(_Config) ->
+    Catalogue = emqx_scope_catalog:scope_catalog(),
     ?assert(is_list(Catalogue)),
     %% 10 user-visible scopes
     ?assertEqual(10, length(Catalogue)),
@@ -123,7 +123,7 @@ t_scope_catalogue(_Config) ->
     ?assert(lists:member(?SCOPE_SYSTEM, Names)),
     ?assert(lists:member(?SCOPE_AUDIT, Names)),
     ?assert(lists:member(?SCOPE_LICENSE, Names)),
-    %% $denied must NOT be in the catalogue
+    %% $denied must NOT be in the catalog
     ?assertNot(lists:member(?SCOPE_DENIED, Names)).
 
 t_path_to_scope(_Config) ->
@@ -144,10 +144,10 @@ t_path_to_scope(_Config) ->
 t_path_to_scope_denied(_Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),
     %% Dashboard / API-key management paths formerly resolved to
-    %% $denied. After feat/dashboard-user-scopes, they map to
-    %% login-only scopes (api_key_management, user_management,
-    %% mfa_management, sso_management). API keys still cannot reach
-    %% these endpoints — minirest's bearer-only `security` declaration
+    %% $denied. They now map to login-only scopes
+    %% (api_key_management, user_management, mfa_management,
+    %% sso_management). API keys still cannot reach these endpoints
+    %% — minirest's bearer-only `security` declaration
     %% rejects API key authentication before scope check.
     ?assertEqual(?SCOPE_USER_MGMT, emqx_mgmt_api_key_scopes:path_to_scope(<<"/users">>)),
     ?assertEqual(?SCOPE_API_KEY_MGMT, emqx_mgmt_api_key_scopes:path_to_scope(<<"/api_key">>)),
@@ -211,9 +211,9 @@ t_all_modules_have_scopes(_Config) ->
     %% Every path should map to a known scope, $denied, or one of the
     %% four login-only scopes (user/mfa/sso/api_key_management — these
     %% apply to dashboard login users only and are not in the API key
-    %% scope catalogue).
+    %% scope catalog).
     AllValidScopes =
-        [N || #{name := N} <- emqx_scope_catalogue:scope_catalogue()] ++
+        [N || #{name := N} <- emqx_scope_catalog:scope_catalog()] ++
             [?SCOPE_DENIED] ++
             ?LOGIN_ONLY_SCOPES,
     maps:foreach(
@@ -246,9 +246,8 @@ t_all_endpoints_covered_by_scopes(_Config) ->
         )
     ),
     %% Some paths are intentionally unmapped (fail-open) — public auth
-    %% entry points and scope catalogue endpoints. They are guarded by
+    %% entry points and scope catalog endpoints. They are guarded by
     %% minirest `security` declarations rather than by the scope map.
-    %% See SPEC-dashboard-user-scopes.md §7.9.
     IntentionallyUnmapped = [
         %% Authentication / session entry points
         <<"/login">>,
@@ -266,7 +265,7 @@ t_all_endpoints_covered_by_scopes(_Config) ->
         <<"/sso/mfa/setup_info">>,
         <<"/sso/mfa/setup">>,
         <<"/sso/mfa/verify">>,
-        %% Scope catalogue endpoints — public to any authenticated login user.
+        %% Scope catalog endpoints — public to any authenticated login user.
         %% Top-level paths chosen to avoid wildcard routing collision with
         %% /api_key/:name and /users/:username (sibling to /action_types,
         %% /source_types).
@@ -335,8 +334,8 @@ t_authorize_denied_path(_Config) ->
     Name = <<"SCOPES-TEST-DENIED">>,
     {ok, #{<<"api_key">> := _ApiKey, <<"api_secret">> := _ApiSecret}} =
         create_app(Name),
-    %% After feat/dashboard-user-scopes, dashboard/SSO/API-key-management
-    %% paths no longer use ?SCOPE_DENIED — they map to login-only scopes.
+    %% Dashboard / SSO / API-key-management paths no longer use
+    %% ?SCOPE_DENIED — they map to login-only scopes.
     %% ?SCOPE_DENIED stays as an internal sentinel for SSO public flow
     %% modules (OIDC callback / SAML ACS / SSO MFA setup) which are not
     %% loaded in this test app's dep graph. We mock the scope cache to
