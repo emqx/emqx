@@ -307,12 +307,10 @@ t_delete_mfa_sso_force_mfa(_) ->
 %% RBAC + the MFA handler with `backend=saml` and `force_mfa = false`/`true`.
 t_delete_mfa_sso_force_mfa_urlencoded_username_http(_) ->
     %% Full HTTP path: RBAC + emqx_dashboard_api:authorize_mfa_change/3.
-    %% Replaces the previous live-backend-force_mfa assertion. Lock state
-    %% is now derived from the per-user `force_mfa_snapshot' field
-    %% (commit aa189c67e4) rather than the backend's current flag, so the
-    %% test pins the new contract: snapshot=true denies self-DELETE,
-    %% snapshot=false (or absent) allows it, regardless of the backend's
-    %% live force_mfa configuration.
+    %% Lock state is derived from the per-user `admin_override' field,
+    %% so the test pins the contract: override=mfa_required denies
+    %% self-DELETE, override=undefined (or mfa_exempted) allows it,
+    %% regardless of the backend's live force_mfa flag.
     SsoBackend = saml,
     SsoUser = <<"jackson-http@example.com">>,
     Desc = <<"desc">>,
@@ -321,15 +319,14 @@ t_delete_mfa_sso_force_mfa_urlencoded_username_http(_) ->
     {ok, #{role := ?ROLE_VIEWER, token := SsoToken}} = emqx_dashboard_admin:sign_token(
         SsoUsername, <<>>
     ),
-    %% snapshot=false (or absent): self-DELETE succeeds.
-    {ok, ok} = emqx_dashboard_admin:set_force_mfa_snapshot(SsoUsername, false),
+    %% override=undefined (no admin decision): self-DELETE succeeds.
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(SsoUsername, undefined),
     ?assertMatch(
         {ok, 204, _},
         delete_mfa_urlencoded_username_http(SsoToken, SsoBackend, SsoUser)
     ),
-    %% snapshot=true: self-DELETE is denied at the handler with
-    %% MFA_LOCKED (regardless of the live backend force_mfa value).
-    {ok, ok} = emqx_dashboard_admin:set_force_mfa_snapshot(SsoUsername, true),
+    %% override=mfa_required: self-DELETE denied with MFA_LOCKED.
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(SsoUsername, ?ADMIN_MFA_REQUIRED),
     ?assertMatch(
         {ok, 403, _},
         delete_mfa_urlencoded_username_http(SsoToken, SsoBackend, SsoUser)

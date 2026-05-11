@@ -12,8 +12,7 @@
 
 -export([
     check_sso_mfa/2,
-    get_force_mfa/1,
-    ensure_force_mfa_snapshot/2
+    get_force_mfa/1
 ]).
 
 -define(MOD_KEY_PATH(Sub), [dashboard, sso, Sub]).
@@ -21,6 +20,12 @@
 %% @doc Check SSO MFA enforcement for a user.
 %% This function should be called after ensure_user_exists succeeds,
 %% with the User record and the SSO backend atom.
+%%
+%% MFA-setup-required is determined by combining the user's
+%% admin_override with the backend's live force_mfa flag:
+%%   admin_override == mfa_required -> setup required
+%%   admin_override == mfa_exempted -> never required
+%%   admin_override == undefined    -> follow backend.force_mfa
 %%
 %% Returns:
 %%   {ok, login}                    - No MFA needed, JWT should be signed at exchange time
@@ -32,7 +37,7 @@
     | {mfa_verify, binary()}.
 check_sso_mfa(User, Backend) ->
     #?ADMIN{username = Username} = User,
-    check_user_mfa_state(Username, get_force_mfa(Backend)).
+    check_user_mfa_state(Username, mfa_required_for_user(Username, Backend)).
 
 %% @doc Get force_mfa config for a given SSO backend.
 -spec get_force_mfa(atom()) -> boolean().
@@ -42,37 +47,13 @@ get_force_mfa(Backend) ->
         _ -> false
     end.
 
-%% @doc Snapshot the SSO backend's force_mfa policy onto the user's
-%% admin record at provision (or first reconnect). The snapshot is
-%% written ONCE — subsequent backend config changes do not retro-
-%% actively flip the field. Lazy migration for users created before
-%% this feat: write only when the field is currently undefined.
-%%
-%% See SPEC-dashboard-user-scopes.md sec 6.1 / sec 8.1.
--spec ensure_force_mfa_snapshot(atom(), binary()) -> ok.
-ensure_force_mfa_snapshot(Backend, Username) ->
-    SsoUsername = ?SSO_USERNAME(Backend, Username),
-    case emqx_dashboard_admin:force_mfa_snapshot_of(SsoUsername) of
-        undefined ->
-            ForceMfa = get_force_mfa(Backend),
-            case emqx_dashboard_admin:set_force_mfa_snapshot(SsoUsername, ForceMfa) of
-                {ok, ok} ->
-                    ok;
-                {error, Reason} ->
-                    %% Mnesia write failure must not silently degrade the
-                    %% MFA self-lock invariant. Surface to operators so
-                    %% they can investigate; the next login will retry
-                    %% via the same lazy-backfill path.
-                    ?SLOG(warning, #{
-                        msg => "set_force_mfa_snapshot_failed",
-                        backend => Backend,
-                        username => Username,
-                        reason => Reason
-                    }),
-                    ok
-            end;
-        _AlreadySet ->
-            ok
+%% Combine admin override and live backend policy. Used at login time
+%% to decide whether the user must set up / verify MFA.
+mfa_required_for_user(Username, Backend) ->
+    case emqx_dashboard_admin:admin_override_of(Username) of
+        ?ADMIN_MFA_REQUIRED -> true;
+        ?ADMIN_MFA_EXEMPTED -> false;
+        undefined -> get_force_mfa(Backend)
     end.
 
 %%--------------------------------------------------------------------
