@@ -120,8 +120,8 @@ test_message_forwarding_end(_, Config) ->
     ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
 
 test_message_forwarding(SubType, Config) ->
-    [SourceNode1 | _] = nodes_source(Config),
-    [TargetNode1, TargetNode2 | _] = nodes_target(Config),
+    [SourceNode1 | _] = SourceNodes = nodes_source(Config),
+    [TargetNode1, TargetNode2 | _] = TargetNodes = nodes_target(Config),
     %% Connect client to the target cluster.
     TargetC1 = emqx_cluster_link_cth:connect_client("t_message_forwarding1", TargetNode1),
     TargetC2 = emqx_cluster_link_cth:connect_client("t_message_forwarding2", TargetNode2),
