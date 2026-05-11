@@ -74,6 +74,7 @@
 %% Don't forget to update `emqx_log_throttler:new_throttler/1` when adding a message that
 %% is throttled on a per-resource basis.
 -define(LOG_THROTTLING_MSGS, [
+    async_send_error,
     authentication_failure,
     authorization_permission_denied,
     buffer_worker_dropped_expired_messages,

@@ -62,6 +62,8 @@ do_maybe_format_msg(String, _Meta, _Config) when is_list(String); is_binary(Stri
     unicode:characters_to_binary(String);
 do_maybe_format_msg(undefined, _Meta, _Config) ->
     #{};
+do_maybe_format_msg(Atom, _Meta, _Config) when is_atom(Atom) ->
+    atom_to_binary(Atom, utf8);
 do_maybe_format_msg({report, Report} = Msg, #{report_cb := Cb} = Meta, Config) ->
     case is_map(Report) andalso Cb =:= ?DEFAULT_FORMATTER of
         true ->
