@@ -207,7 +207,8 @@ t_rest_api(_Config) ->
                 <<"description">> => <<"administrator">>,
                 <<"role">> => ?ROLE_SUPERUSER,
                 <<"namespace">> => null,
-                <<"mfa">> => <<"none">>
+                <<"mfa">> => <<"none">>,
+                <<"scopes">> => null
             })
         ],
         get_http_data(Res0)

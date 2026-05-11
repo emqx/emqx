@@ -128,7 +128,7 @@ schema("/users") ->
             security => [#{'bearerAuth' => []}],
             'requestBody' => fields([username, password, role, description, scopes]),
             responses => #{
-                200 => fields([username, role, description, backend])
+                200 => user_fields()
             }
         }
     };
@@ -397,7 +397,11 @@ finalise_create_user(Username, Scopes, Result) ->
                 msg => "create_dashboard_user_success",
                 username => Username
             }),
-            {200, to_json_out(Result)};
+            %% Re-read the persisted record so the response carries
+            %% the final scopes / mfa state (the in-flight Result map
+            %% from add_user/4 predates set_user_scopes and lacks
+            %% these fields).
+            {200, to_json_out(reload_external_user(Username, Result))};
         {error, <<"username_not_found">> = Reason} ->
             {404, ?USER_NOT_FOUND, Reason};
         {error, Reason} ->
@@ -632,11 +636,23 @@ do_update_user(Username, Role, Desc, Scopes) ->
 finalise_update_user(Username, Scopes, Result) ->
     case maybe_set_user_scopes(Username, Scopes) of
         ok ->
-            {200, to_json_out(Result)};
+            {200, to_json_out(reload_external_user(Username, Result))};
         {error, <<"username_not_found">> = Reason} ->
             {404, ?USER_NOT_FOUND, Reason};
         {error, Reason} ->
             {400, ?BAD_REQUEST, Reason}
+    end.
+
+%% Re-read the admin record after a write and project it via
+%% to_external_user/1 so the response carries the canonical, persisted
+%% shape (username, role, description, backend, mfa, scopes). Falls
+%% back to the original in-flight map if the record vanished — that
+%% means a concurrent delete won, and the caller has already returned
+%% 200 OK so we still need a body.
+reload_external_user(Username, Fallback) ->
+    case emqx_dashboard_admin:lookup_user(Username) of
+        [Admin] -> emqx_dashboard_admin:to_external_user(Admin);
+        _ -> Fallback
     end.
 
 %% Persist scopes to the admin record's extra map. Skip when scopes is

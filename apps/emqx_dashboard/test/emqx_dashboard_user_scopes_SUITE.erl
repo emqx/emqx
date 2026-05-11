@@ -106,6 +106,63 @@ t_admin_can_hold_all_4_new_scopes(_Config) ->
     Stored = emqx_dashboard_admin:scopes_of(Admin#?ADMIN.username),
     ?assertEqual(lists:sort(AllNew), lists:sort(Stored)).
 
+%% Response from POST /users must include the just-set scopes so the
+%% client can round-trip the assignment (regression for the
+%% to_external_user/1 omission caught in code review).
+t_post_users_response_includes_scopes(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    Body = #{
+        <<"username">> => <<"with_scopes">>,
+        <<"password">> => test_password(),
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"test">>,
+        <<"scopes">> => [?SCOPE_USER_MGMT, ?SCOPE_MFA_MGMT]
+    },
+    {ok, 200, RespBody} = request_api(
+        post, api_path(["users"]), auth_header(Token), Body
+    ),
+    Resp = emqx_utils_json:decode(RespBody),
+    ?assertEqual([<<"user_management">>, <<"mfa_management">>], maps:get(<<"scopes">>, Resp)),
+    ?assertEqual(<<"with_scopes">>, maps:get(<<"username">>, Resp)),
+    ?assertEqual(?ROLE_SUPERUSER, maps:get(<<"role">>, Resp)).
+
+%% Response from POST /users WITHOUT scopes field returns scopes=null
+%% (distinguishing "not configured" from "explicitly empty").
+t_post_users_response_null_scopes_when_not_set(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    Body = #{
+        <<"username">> => <<"no_scopes">>,
+        <<"password">> => test_password(),
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"test">>
+    },
+    {ok, 200, RespBody} = request_api(
+        post, api_path(["users"]), auth_header(Token), Body
+    ),
+    Resp = emqx_utils_json:decode(RespBody),
+    ?assertEqual(null, maps:get(<<"scopes">>, Resp)).
+
+%% Response from PUT /users/:name must reflect the updated scopes.
+t_put_users_response_includes_updated_scopes(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"u_update">>, test_password(), ?ROLE_SUPERUSER, "u"
+    ),
+    PutBody = #{
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"updated">>,
+        <<"scopes">> => [?SCOPE_MFA_MGMT]
+    },
+    {ok, 200, RespBody} = request_api(
+        put, api_path(["users", "u_update"]), auth_header(Token), PutBody
+    ),
+    Resp = emqx_utils_json:decode(RespBody),
+    ?assertEqual([<<"mfa_management">>], maps:get(<<"scopes">>, Resp)),
+    ?assertEqual(<<"updated">>, maps:get(<<"description">>, Resp)).
+
 %% Viewer cannot hold user_management.
 t_viewer_cannot_hold_user_management(_Config) ->
     add_admin(<<"admin">>),
