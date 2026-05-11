@@ -136,6 +136,8 @@ plugin_i18n(NameVsn) ->
     {integer(), map() | term()} | {integer(), map(), term()}.
 handle_api_call(Plugin0, Request, Timeout) ->
     Plugin = bin(Plugin0),
+    Method = maps:get(method, Request, undefined),
+    Path = maps:get(path, Request, []),
     case resolve_active_name_vsn(Plugin) of
         {ok, NameVsn} ->
             try
@@ -145,12 +147,32 @@ handle_api_call(Plugin0, Request, Timeout) ->
                 ),
                 map_plugin_api_result(Result)
             catch
-                exit:{timeout, _} ->
-                    {503, #{code => <<"PLUGIN_API_TIMEOUT">>, message => <<"Plugin API Timeout">>}};
+                %% `emqx_utils:nolink_apply/2' exits with the bare atom `timeout'
+                %% when the budget is exceeded.
+                exit:timeout ->
+                    ?SLOG(warning, #{
+                        msg => "plugin_api_callback_timeout",
+                        hint =>
+                            <<
+                                "Increase 'plugins.api_endpoint.timeout' "
+                                "if this plugin callback legitimately needs more time."
+                            >>,
+                        plugin => Plugin,
+                        method => Method,
+                        path => Path,
+                        timeout_ms => Timeout
+                    }),
+                    {503, #{
+                        code => <<"PLUGIN_API_TIMEOUT">>,
+                        message => <<"Plugin API Timeout">>
+                    }};
                 Class:Reason:Stacktrace ->
                     ?SLOG(error, #{
                         msg => "plugin_api_callback_crash",
                         plugin => Plugin,
+                        method => Method,
+                        path => Path,
+                        timeout_ms => Timeout,
                         class => Class,
                         reason => Reason,
                         stacktrace => Stacktrace
