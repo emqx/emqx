@@ -291,7 +291,15 @@ api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
     Desc = maps:get(<<"desc">>, Body, undefined),
     Role = maps:get(<<"role">>, Body, ?ROLE_API_DEFAULT),
     Scopes = maps:get(<<"scopes">>, Body, undefined),
-    case validate_scopes(Role, Scopes) of
+    %% Validation runs against the effective scope list (request body
+    %% when supplied, otherwise the persisted scopes) so a role change
+    %% to `publisher' on a key that already holds non-`publish' scopes
+    %% via a partial-update PUT is rejected — the runtime RBAC layer
+    %% would catch it at request time, but the stored config and the
+    %% API response must not be allowed to drift from the
+    %% publisher-only-`publish' invariant.
+    EffectiveScopes = effective_request_scopes(Name, Scopes),
+    case validate_scopes(Role, EffectiveScopes) of
         ok ->
             case emqx_mgmt_auth:update(Name, Enable, ExpiredAt, Desc, Role, Scopes) of
                 {ok, App} ->
@@ -306,6 +314,19 @@ api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
             end;
         {error, Msg} ->
             {400, #{code => 'BAD_REQUEST', message => Msg}}
+    end.
+
+%% Fall back to persisted scopes only when the body did not supply a
+%% `scopes' field. An explicit list (including `[]') is taken verbatim.
+%% A missing API key surfaces here as `undefined' so validation accepts
+%% the partial update; the downstream `emqx_mgmt_auth:update/6' call
+%% will then return 404 with the proper error.
+effective_request_scopes(_Name, Scopes) when is_list(Scopes) ->
+    Scopes;
+effective_request_scopes(Name, undefined) ->
+    case emqx_mgmt_auth:read(Name) of
+        {ok, #{scopes := Persisted}} when is_list(Persisted) -> Persisted;
+        _ -> undefined
     end.
 
 ensure_expired_at(#{<<"expired_at">> := ExpiredAt}) when is_integer(ExpiredAt) -> ExpiredAt;

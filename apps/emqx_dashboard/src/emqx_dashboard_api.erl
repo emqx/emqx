@@ -648,13 +648,26 @@ validate_role_scope_compat(_NonAdminRole, Scopes) ->
 %% Run the validate → update_user → set_scopes pipeline. Mirrors
 %% create_user/5 above, also kept as a helper to stay within elvis's
 %% nesting cap.
+%%
+%% Validation runs against the *effective* scope list — the request
+%% body's `scopes' field when present, otherwise the persisted scopes —
+%% so a role demotion can never silently keep stale admin-only scopes
+%% just because the client omitted the `scopes' field.
 update_user(Username, Role, Desc, Scopes) ->
-    case validate_login_user_scopes(Role, Scopes) of
+    EffectiveScopes = effective_request_scopes(Username, Scopes),
+    case validate_login_user_scopes(Role, EffectiveScopes) of
         ok ->
             do_update_user(Username, Role, Desc, Scopes);
         {error, Msg} ->
             {400, ?BAD_REQUEST, Msg}
     end.
+
+%% Fall back to persisted scopes only when the body did not supply a
+%% `scopes' field. An explicit list (including `[]') is taken verbatim.
+effective_request_scopes(_Username, Scopes) when is_list(Scopes) ->
+    Scopes;
+effective_request_scopes(Username, undefined) ->
+    emqx_dashboard_admin:scopes_of(Username).
 
 do_update_user(Username, Role, Desc, Scopes) ->
     case emqx_dashboard_admin:update_user(Username, Role, Desc) of

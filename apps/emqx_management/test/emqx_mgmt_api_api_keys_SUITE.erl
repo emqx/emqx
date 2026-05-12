@@ -1277,6 +1277,45 @@ t_ee_viewer_role_with_publish_scope_allowed(_Config) ->
     ),
     delete_app(Name).
 
+%% H7: A partial-update PUT that changes the role to `publisher'
+%% without supplying a `scopes' field must validate against the
+%% persisted scopes, not against `undefined'. Otherwise an admin key
+%% with non-`publish' scopes could be silently demoted to publisher
+%% while keeping forbidden scopes — RBAC blocks the runtime path, but
+%% the stored config and the API response would violate the
+%% publisher-only-`publish' invariant.
+t_ee_publisher_role_change_with_persisted_admin_scopes_is_rejected(_Config) ->
+    Name = <<"EE-PUBLISHER-PERSISTED">>,
+    {ok, _} = create_app(Name, #{
+        role => ?ROLE_API_SUPERUSER,
+        scopes => [?SCOPE_CONNECTIONS, ?SCOPE_MONITORING]
+    }),
+    %% Partial update: drop to publisher; omit `scopes' on the wire.
+    Change = #{role => ?ROLE_API_PUBLISHER},
+    ok = assert_400_publisher_only(update_app(Name, Change)),
+    %% The persisted state must remain unchanged after the rejection.
+    {ok, App} = read_app(Name),
+    ?assertEqual(?ROLE_API_SUPERUSER, maps:get(<<"role">>, App)),
+    ?assertEqual(
+        [?SCOPE_CONNECTIONS, ?SCOPE_MONITORING], maps:get(<<"scopes">>, App)
+    ),
+    delete_app(Name).
+
+%% Counterpart of H7 rejection: when persisted scopes are already
+%% publisher-compatible (`[publish]'), a role change to publisher
+%% without a body `scopes' field must succeed.
+t_ee_publisher_role_change_with_compatible_persisted_scopes_succeeds(_Config) ->
+    Name = <<"EE-PUBLISHER-COMPATIBLE">>,
+    {ok, _} = create_app(Name, #{
+        role => ?ROLE_API_SUPERUSER,
+        scopes => [?SCOPE_PUBLISH]
+    }),
+    Change = #{role => ?ROLE_API_PUBLISHER},
+    {ok, Updated} = update_app(Name, Change),
+    ?assertEqual(?ROLE_API_PUBLISHER, maps:get(<<"role">>, Updated)),
+    ?assertEqual([?SCOPE_PUBLISH], maps:get(<<"scopes">>, Updated)),
+    delete_app(Name).
+
 %% Regression: API key auth must NOT consult dashboard login-user
 %% scopes, even when the API key's generated `api_key' string happens
 %% to collide with a dashboard username. Prior to the fix,
