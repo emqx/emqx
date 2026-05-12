@@ -183,25 +183,38 @@ handle_event(
     #data{active_sid = Sid} = Data
 ) ->
     log_received(sess_out, Data, #{sid => Sid, frame => Frame}),
-    #{<<"result_path">> := ResultPath} = current_step(Data),
-    Result =
-        case Data#data.set_result_value of
-            undefined -> maps:get(<<"result">>, Frame, #{});
-            Val -> Val
-        end,
-    Data1 = write_context(ResultPath, Result, Data),
-    Data2 = Data1#data{
-        active_sid = undefined,
-        tool_map = #{},
-        pending_calls = #{},
-        set_result_value = undefined
-    },
-    ?SLOG(info, #{
-        msg => "pipeline_llm_step_done",
-        iid => Data#data.iid,
-        step => maps:get(<<"id">>, current_step(Data), <<"?">>)
-    }),
-    advance_and_step(Data2);
+    Step = current_step(Data),
+    case {Data#data.set_result_value, maps:is_key(<<"set_result_schema">>, Step)} of
+        {undefined, true} ->
+            ?SLOG(error, #{
+                msg => "pipeline_llm_final_without_set_result",
+                iid => Data#data.iid,
+                step => maps:get(<<"id">>, Step, <<"?">>),
+                final_result => maps:get(<<"result">>, Frame, undefined),
+                frame => Frame
+            }),
+            do_fail(Data, missing_set_result);
+        {SetResultValue, _} ->
+            #{<<"result_path">> := ResultPath} = Step,
+            Result =
+                case SetResultValue of
+                    undefined -> maps:get(<<"result">>, Frame, #{});
+                    Val -> Val
+                end,
+            Data1 = write_context(ResultPath, Result, Data),
+            Data2 = Data1#data{
+                active_sid = undefined,
+                tool_map = #{},
+                pending_calls = #{},
+                set_result_value = undefined
+            },
+            ?SLOG(info, #{
+                msg => "pipeline_llm_step_done",
+                iid => Data#data.iid,
+                step => maps:get(<<"id">>, Step, <<"?">>)
+            }),
+            advance_and_step(Data2)
+    end;
 %% ── llm_loop: session emitted error ──────────────────────────────────────────
 
 handle_event(

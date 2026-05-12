@@ -29,6 +29,7 @@
 -define(PG_CONNECTION_ID, <<"apple-box-pg">>).
 -define(REPLY_TOPIC, <<"builder/reply/#">>).
 -define(REQUEST_TOPIC, <<"evt/builder/request">>).
+-define(BUILDER_EVENTS_TOPIC, <<"pipe/pipeline-builder/inst/+/events">>).
 
 %% Target pipeline the LLM is asked to build
 -define(TARGET_PIPELINE_ID, <<"apple-box-inspection">>).
@@ -209,7 +210,6 @@ init_per_suite(Config) ->
                 #{work_dir => emqx_cth_suite:work_dir(Config)}
             ),
             ok = register_shared_provider(),
-            ok = register_builder_skills(),
             ok = register_builder_pipeline(),
             [{suite_apps, Apps} | Config]
     end.
@@ -226,11 +226,14 @@ end_per_suite(Config) ->
 init_per_testcase(_TC, Config) ->
     ct:timetrap({seconds, 240}),
     ok = emqx_agent_plugin_config_fixture:setup(),
+    ok = register_builder_skills(),
     ok = register_pg_connection(),
     ok = emqx:subscribe(?REPLY_TOPIC),
+    ok = emqx:subscribe(?BUILDER_EVENTS_TOPIC),
     Config.
 
 end_per_testcase(_TC, _Config) ->
+    ok = emqx:unsubscribe(?BUILDER_EVENTS_TOPIC),
     ok = emqx:unsubscribe(?REPLY_TOPIC),
     _ = emqx_agent_service:connection_delete(?PG_CONNECTION_ID),
     ok = emqx_agent_plugin_config_fixture:teardown().
@@ -327,8 +330,20 @@ publish_request(Message) ->
 
 await_reply() ->
     receive
-        #deliver{message = #message{payload = P}} ->
-            emqx_utils_json:decode(P)
+        #deliver{topic = <<"builder/reply/", _/binary>>, message = #message{payload = P}} ->
+            emqx_utils_json:decode(P);
+        #deliver{
+            topic = <<"pipe/pipeline-builder/inst/", _/binary>>, message = #message{payload = P}
+        } ->
+            Event = emqx_utils_json:decode(P),
+            case maps:get(<<"type">>, Event, undefined) of
+                <<"pipeline_failed">> ->
+                    ct:fail("builder pipeline failed: ~s", [
+                        maps:get(<<"reason">>, Event, <<"unknown">>)
+                    ]);
+                _ ->
+                    await_reply()
+            end
     after ?LLM_TIMEOUT ->
         ct:fail("no builder reply within ~w ms", [?LLM_TIMEOUT])
     end.
@@ -338,25 +353,32 @@ await_reply() ->
 %%--------------------------------------------------------------------
 
 register_builder_skills() ->
-    ok = register_skill(emqx_agent_skill_create_skill, #{skill_id => <<"builder-create-skill">>}),
-    ok = register_skill(emqx_agent_skill_create_pipeline, #{
-        skill_id => <<"builder-create-pipeline">>
+    ok = emqx_agent_service:skill_create(#{
+        <<"type">> => <<"agent.create_skill">>, <<"id">> => <<"builder-create-skill">>
     }),
-    ok = register_skill(emqx_agent_skill_query_skills, #{skill_id => <<"builder-query-skills">>}),
-    ok = register_skill(emqx_agent_skill_query_providers, #{
-        skill_id => <<"builder-query-providers">>
+    ok = emqx_agent_service:skill_create(#{
+        <<"type">> => <<"agent.create_pipeline">>, <<"id">> => <<"builder-create-pipeline">>
     }),
-    ok = register_skill(emqx_agent_skill_query_pipelines, #{
-        skill_id => <<"builder-query-pipelines">>
+    ok = emqx_agent_service:skill_create(#{
+        <<"type">> => <<"agent.query_skills">>, <<"id">> => <<"builder-query-skills">>
     }),
-    ok = register_skill(emqx_agent_skill_delete_skill, #{skill_id => <<"builder-delete-skill">>}),
-    ok = register_skill(emqx_agent_skill_delete_pipeline, #{
-        skill_id => <<"builder-delete-pipeline">>
+    ok = emqx_agent_service:skill_create(#{
+        <<"type">> => <<"agent.query_providers">>, <<"id">> => <<"builder-query-providers">>
     }),
-    ok = register_skill(emqx_agent_skill_publish, #{
-        skill_id => <<"builder-reply">>,
-        desc => <<"Send a reply from the pipeline builder back to the chat UI">>,
-        topic_prefix => <<"builder/reply/">>
+    ok = emqx_agent_service:skill_create(#{
+        <<"type">> => <<"agent.query_pipelines">>, <<"id">> => <<"builder-query-pipelines">>
+    }),
+    ok = emqx_agent_service:skill_create(#{
+        <<"type">> => <<"agent.delete_skill">>, <<"id">> => <<"builder-delete-skill">>
+    }),
+    ok = emqx_agent_service:skill_create(#{
+        <<"type">> => <<"agent.delete_pipeline">>, <<"id">> => <<"builder-delete-pipeline">>
+    }),
+    ok = emqx_agent_service:skill_create(#{
+        <<"type">> => <<"message.publish">>,
+        <<"id">> => <<"builder-reply">>,
+        <<"desc">> => <<"Send a reply from the pipeline builder back to the chat UI">>,
+        <<"topic_prefix">> => <<"builder/reply/">>
     }).
 
 cleanup_builder_infra() ->
@@ -364,10 +386,6 @@ cleanup_builder_infra() ->
     _ = emqx_ai_completion_config:update_providers_raw({delete, ?SHARED_PROVIDER}),
     ok = emqx_agent_skill_registry:clear_runtime_for_test(),
     ok.
-
-register_skill(Module, Context) ->
-    {ok, Skill} = Module:create(Context),
-    emqx_agent_skill_registry:put_runtime_for_test(Skill).
 
 register_pg_connection() ->
     _ = emqx_agent_service:connection_delete(?PG_CONNECTION_ID),

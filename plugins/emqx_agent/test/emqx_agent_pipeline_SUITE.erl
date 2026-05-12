@@ -499,6 +499,57 @@ t_set_result_writes_to_context(Config) ->
     Verdict = maps:get(<<"verdict">>, Ctx, #{}),
     ?assertEqual(<<"approved">>, maps:get(<<"status">>, Verdict, undefined)).
 
+t_llm_loop_final_without_set_result_fails(Config) ->
+    PipelineId = ?config(pipeline_id, Config),
+    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    StepId = <<"llm">>,
+    Sid = <<PipelineId/binary, "-", StepId/binary>>,
+    ok = emqx_ai_completion_config:update_providers_raw(
+        {add, #{
+            <<"name">> => <<"test-provider">>,
+            <<"type">> => <<"openai">>,
+            <<"api_key">> => <<"test-key">>,
+            <<"base_url">> => <<"http://127.0.0.1:1">>
+        }}
+    ),
+    Step = #{
+        <<"id">> => StepId,
+        <<"type">> => <<"llm_loop">>,
+        <<"model">> => <<"test-model">>,
+        <<"instructions">> => <<"test">>,
+        <<"provider_name">> => <<"test-provider">>,
+        <<"tools">> => [],
+        <<"input">> => #{},
+        <<"set_result_schema">> => #{
+            <<"type">> => <<"object">>,
+            <<"properties">> => #{
+                <<"status">> => #{<<"type">> => <<"string">>}
+            },
+            <<"required">> => [<<"status">>]
+        },
+        <<"result_path">> => <<"$.verdict">>
+    },
+    register_pipeline(PipelineId, TrigTopic, [Step]),
+    publish_evt(TrigTopic, #{<<"id">> => <<"sr-missing">>}),
+
+    Started = recv_pipe_event(PipelineId),
+    ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started),
+    Iid = maps:get(<<"iid">>, Started),
+    Pid = emqx_agent_pipeline:whereis(Iid),
+    ?assertNotEqual(undefined, Pid),
+
+    gen_statem:cast(Pid, #sess_frame{
+        sid = Sid,
+        frame = #{
+            <<"type">> => <<"final">>,
+            <<"result">> => #{<<"summary">> => <<"could not complete">>}
+        }
+    }),
+
+    Failed = recv_pipe_event(PipelineId),
+    ?assertMatch(#{<<"type">> := <<"pipeline_failed">>}, Failed),
+    ?assertEqual(<<"missing_set_result">>, maps:get(<<"reason">>, Failed)).
+
 t_llm_loop_defaults_are_applied(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     TrigTopic = <<"evt/test/", PipelineId/binary>>,
