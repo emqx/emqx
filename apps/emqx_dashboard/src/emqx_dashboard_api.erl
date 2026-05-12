@@ -161,6 +161,9 @@ schema("/users/:username") ->
             'requestBody' => fields([role, description, scopes]),
             responses => #{
                 200 => user_fields(),
+                400 => emqx_dashboard_swagger:error_codes(
+                    [?BAD_REQUEST, ?NOT_ALLOWED], ?DESC(login_failed_response400)
+                ),
                 404 => response_schema(404)
             }
         },
@@ -418,28 +421,57 @@ user(put, #{bindings := #{username := Username0}, body := Params} = Req) ->
     Desc = maps:get(<<"description">>, Params),
     Scopes = maps:get(<<"scopes">>, Params, undefined),
     Username = username(Req, Username0),
-    update_user(Username, Role, Desc, Scopes);
+    case is_default_admin_modification(Username, Role, Scopes) of
+        ok ->
+            update_user(Username, Role, Desc, Scopes);
+        {error, Msg} ->
+            {400, ?NOT_ALLOWED, Msg}
+    end;
 user(delete, #{bindings := #{username := Username}} = Req) ->
-    DefaultUsername = emqx_dashboard_admin:default_username(),
-    case Username == DefaultUsername of
+    case is_default_admin(Username) of
         true ->
-            handle_delete_default_admin(Req);
+            ?SLOG(info, #{
+                msg => "dashboard_delete_admin_user_failed",
+                username => Username,
+                reason => "default admin user is protected"
+            }),
+            {400, ?NOT_ALLOWED, <<
+                "The default administrator user cannot be deleted."
+            >>};
         false ->
             handle_delete_user(Req)
     end.
 
-handle_delete_default_admin(#{bindings := #{username := Username0}} = Req) ->
-    AllAdminUsers = emqx_dashboard_admin:admin_users(),
-    OtherAdminUsers = lists:filter(fun(#{username := U}) -> U /= Username0 end, AllAdminUsers),
-    case OtherAdminUsers of
-        [_ | _] ->
-            %% There is at least one other admin user; we may delete the default user.
-            handle_delete_user(Req);
-        [] ->
-            %% There's no other admin user.
-            ?SLOG(info, #{msg => "dashboard_delete_admin_user_failed", username => Username0}),
-            Message = list_to_binary(io_lib:format("Cannot delete user ~p", [Username0])),
-            {400, ?NOT_ALLOWED, Message}
+%% The default administrator (configured via `dashboard.default_username')
+%% is a break-glass account. Reject any modification that would weaken
+%% it: role changes away from administrator, and explicit scope lists
+%% (the role's implicit defaults must always apply). Empty
+%% `dashboard.default_username' means no default user is in effect, so
+%% the protection is a no-op.
+is_default_admin_modification(Username, Role, Scopes) ->
+    case is_default_admin(Username) of
+        false ->
+            ok;
+        true ->
+            case {Role, Scopes} of
+                {?ROLE_SUPERUSER, undefined} ->
+                    ok;
+                {?ROLE_SUPERUSER, _} ->
+                    {error, <<
+                        "The default administrator cannot have an explicit "
+                        "scope list; it always holds the full catalog."
+                    >>};
+                {_OtherRole, _} ->
+                    {error, <<
+                        "The default administrator role cannot be changed."
+                    >>}
+            end
+    end.
+
+is_default_admin(Username) ->
+    case emqx_dashboard_admin:default_username() of
+        <<>> -> false;
+        Default -> Username =:= Default
     end.
 
 handle_delete_user(#{bindings := #{username := Username0}, headers := Headers} = Req) ->
