@@ -268,6 +268,82 @@ t_unknown_scope_returns_400(_Config) ->
     ).
 
 %%--------------------------------------------------------------------
+%% Default administrator protection
+%%
+%% The user configured via `dashboard.default_username' is a
+%% break-glass account: it cannot be deleted, demoted, or assigned
+%% an explicit scope list. These guards keep the cluster recoverable
+%% even after other admins are accidentally restricted or removed.
+%%--------------------------------------------------------------------
+
+%% PUT may not change the default admin's role.
+t_default_admin_cannot_be_demoted(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    Body = #{
+        <<"role">> => ?ROLE_VIEWER,
+        <<"description">> => <<"trying to demote">>
+    },
+    ?assertMatch(
+        {ok, 400, _},
+        request_api(put, api_path(["users", "admin"]), auth_header(Token), Body)
+    ).
+
+%% PUT may not set an explicit scope list on the default admin,
+%% even when keeping the administrator role.
+t_default_admin_cannot_have_explicit_scopes(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    Body = #{
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"trying to restrict">>,
+        <<"scopes">> => [?SCOPE_CONNECTIONS]
+    },
+    ?assertMatch(
+        {ok, 400, _},
+        request_api(put, api_path(["users", "admin"]), auth_header(Token), Body)
+    ).
+
+%% Even an empty scope list (the self-restriction case) is rejected.
+t_default_admin_cannot_be_set_to_empty_scopes(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    Body = #{
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"trying to clear">>,
+        <<"scopes">> => []
+    },
+    ?assertMatch(
+        {ok, 400, _},
+        request_api(put, api_path(["users", "admin"]), auth_header(Token), Body)
+    ).
+
+%% PUT that only updates the description (no role / scopes) is allowed.
+t_default_admin_description_can_be_updated(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    Body = #{
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"updated desc">>
+    },
+    ?assertMatch(
+        {ok, 200, _},
+        request_api(put, api_path(["users", "admin"]), auth_header(Token), Body)
+    ).
+
+%% DELETE is unconditionally rejected for the default admin.
+t_default_admin_cannot_be_deleted(_Config) ->
+    add_admin(<<"admin">>),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"another">>, test_password(), ?ROLE_SUPERUSER, "other admin"
+    ),
+    Token = jwt(<<"another">>, test_password()),
+    ?assertMatch(
+        {ok, 400, _},
+        request_api(delete, api_path(["users", "admin"]), auth_header(Token), #{})
+    ).
+
+%%--------------------------------------------------------------------
 %% MFA self-lock matrix (the 7-line decision table)
 %%--------------------------------------------------------------------
 
