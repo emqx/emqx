@@ -4,6 +4,27 @@
 
 -module(emqx_agent_config).
 
+-moduledoc """
+Owns the plugin configuration boundary for emqx_agent.
+
+Public CRUD functions work with the raw plugin config shape: binary-keyed maps
+as received from the plugin API and as rendered back to the UI. They perform a
+read-update-validate-write cycle over the whole plugin config: fetch the raw
+config with emqx_plugins:get_config/2, update only the relevant part, validate
+the complete config with emqx_agent_schema, and persist it with
+emqx_mgmt_api_plugins:put_plugin_config/2.
+
+put_plugin_config/2 is the propagation point. It distributes the raw config
+update through the plugin config machinery and eventually calls the plugin's
+on_config_changed callback on each node. That callback calls update_config/2,
+which parses the propagated raw config through hocon and stores the parsed,
+atom-keyed config in persistent_term.
+
+Runtime code should read parsed_config/0,1,2 instead of re-reading raw plugin
+config. API code should use the raw CRUD functions so responses preserve the
+same external shape that was submitted by users.
+""".
+
 -export([
     init_config/0,
     update_config/2,

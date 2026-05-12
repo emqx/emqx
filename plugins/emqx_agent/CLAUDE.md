@@ -17,9 +17,54 @@ The apple-box and builder suites are skipped automatically when `OPENAI_API_KEY`
 Tests use `emqx_cth_suite` (full in-process EMQX node). Stop any running EMQX
 on port 1883 first (`eaddrinuse` otherwise).
 
+Tests that start `emqx_agent` must also start `emqx_resource`; connection
+reconciliation assumes a fully booted node where resource management is
+available.
+
 **Note:** When adding a new test suite file, `make plugins/emqx_agent-ct` may fail the first run
 because the build system hasn't picked up the new file yet. Run it a second time and it will
 compile and pass.
+
+---
+
+## Plugin config and skill connections
+
+`emqx_agent_config` owns the plugin config boundary. Its connection CRUD
+functions operate on raw binary-keyed maps, update the whole plugin config, and
+validate the whole config with `emqx_agent_schema` before persisting through
+`emqx_mgmt_api_plugins:put_plugin_config/2`.
+
+Do not cache parsed config after a direct raw write. `put_plugin_config/2`
+propagates the config update and calls `emqx_agent_app:on_config_changed/2` on
+nodes. That callback calls `emqx_agent_config:update_config/2`, which parses the
+new raw config with hocon and stores the atom-keyed parsed config in
+`persistent_term`.
+
+Runtime code should read `emqx_agent_config:parsed_config/0,1,2`. API code
+should use the raw CRUD functions so responses preserve the external shape.
+
+Connections are stored in plugin config as a list, not a map:
+
+```erlang
+#{
+    <<"connections">> => [
+        #{
+            <<"connection_id">> => <<"pg-main">>,
+            <<"type">> => <<"postgresql">>,
+            <<"enable">> => true,
+            <<"config">> => #{...}
+        }
+    ]
+}
+```
+
+`emqx_agent_skill_connections` is only a reconciler. It reads parsed config,
+derives resource IDs, and reconciles enabled connections with `emqx_resource`.
+It must not implement connection CRUD or duplicate config state.
+
+When a service function successfully creates, updates, deletes, starts, or stops
+a connection through `emqx_agent_config`, call
+`emqx_agent_skill_connections:reconcile/0` afterwards.
 
 ---
 
