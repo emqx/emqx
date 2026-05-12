@@ -88,12 +88,12 @@ init() ->
 deinit() ->
     emqx_agent_skill_registry:unregister_type(?SKILL_TYPE).
 
--spec create(Context :: map()) -> ok | {error, term()}.
+-spec create(Context :: map()) -> {ok, map()} | {error, term()}.
 create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix} = Context) ->
     RequestPayloadSchema = maps:get(
         request_payload_schema, Context, ?DEFAULT_REQUEST_PAYLOAD_SCHEMA
     ),
-    emqx_agent_skill_registry:register(#{
+    {ok, #{
         skill_id => SkillId,
         type => ?SKILL_TYPE,
         module => ?MODULE,
@@ -107,11 +107,11 @@ create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix} = Conte
             request_payload_schema => RequestPayloadSchema
         },
         input_schema => ?INPUT_SCHEMA(RequestPayloadSchema)
-    }).
+    }}.
 
--spec destroy(binary()) -> ok.
-destroy(SkillId) ->
-    emqx_agent_skill_registry:unregister(?SKILL_TYPE, SkillId).
+-spec destroy(map()) -> ok.
+destroy(_Skill) ->
+    ok.
 
 -spec to_map(map()) -> map().
 to_map(#{

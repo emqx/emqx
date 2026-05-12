@@ -62,6 +62,7 @@ init_per_suite(Config) ->
         [
             emqx,
             emqx_conf,
+            emqx_resource,
             {emqx_ai_completion, #{config => "ai.providers = [], ai.completion_profiles = []"}},
             emqx_agent
         ],

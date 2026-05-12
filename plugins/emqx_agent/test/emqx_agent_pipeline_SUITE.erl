@@ -38,6 +38,7 @@ init_per_suite(Config) ->
         [
             emqx,
             emqx_conf,
+            emqx_resource,
             {emqx_ai_completion, "ai {}"},
             emqx_agent
         ],
@@ -58,7 +59,7 @@ end_per_testcase(TestCase, Config) ->
     emqx_agent_pipeline_registry:unregister(PipelineId),
     emqx:unsubscribe(?PIPE_EVENTS_FILTER),
     %% Also clean up any skill instances registered during the test.
-    _ = emqx_agent_skill_publish:destroy(TestCase),
+    _ = emqx_agent_skill_registry:clear_runtime_for_test(),
     _ = emqx_ai_completion_config:update_providers_raw({delete, <<"test-provider">>}),
     ok.
 
@@ -589,11 +590,12 @@ register_pipeline(PipelineId, TrigTopic, Steps) ->
     ok = emqx_agent_pipeline_registry:register(Def).
 
 setup_publish_skill(SkillId) ->
-    ok = emqx_agent_skill_publish:create(#{
+    {ok, Skill} = emqx_agent_skill_publish:create(#{
         skill_id => SkillId,
         desc => <<"test">>,
         topic_prefix => <<"test/">>
-    }).
+    }),
+    emqx_agent_skill_registry:put_runtime_for_test(Skill).
 
 publish_evt(Topic, Event) ->
     Payload = emqx_utils_json:encode(Event),

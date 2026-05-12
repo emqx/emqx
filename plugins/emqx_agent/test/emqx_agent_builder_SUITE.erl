@@ -338,14 +338,22 @@ await_reply() ->
 %%--------------------------------------------------------------------
 
 register_builder_skills() ->
-    ok = emqx_agent_skill_create_skill:create(#{skill_id => <<"builder-create-skill">>}),
-    ok = emqx_agent_skill_create_pipeline:create(#{skill_id => <<"builder-create-pipeline">>}),
-    ok = emqx_agent_skill_query_skills:create(#{skill_id => <<"builder-query-skills">>}),
-    ok = emqx_agent_skill_query_providers:create(#{skill_id => <<"builder-query-providers">>}),
-    ok = emqx_agent_skill_query_pipelines:create(#{skill_id => <<"builder-query-pipelines">>}),
-    ok = emqx_agent_skill_delete_skill:create(#{skill_id => <<"builder-delete-skill">>}),
-    ok = emqx_agent_skill_delete_pipeline:create(#{skill_id => <<"builder-delete-pipeline">>}),
-    ok = emqx_agent_skill_publish:create(#{
+    ok = register_skill(emqx_agent_skill_create_skill, #{skill_id => <<"builder-create-skill">>}),
+    ok = register_skill(emqx_agent_skill_create_pipeline, #{
+        skill_id => <<"builder-create-pipeline">>
+    }),
+    ok = register_skill(emqx_agent_skill_query_skills, #{skill_id => <<"builder-query-skills">>}),
+    ok = register_skill(emqx_agent_skill_query_providers, #{
+        skill_id => <<"builder-query-providers">>
+    }),
+    ok = register_skill(emqx_agent_skill_query_pipelines, #{
+        skill_id => <<"builder-query-pipelines">>
+    }),
+    ok = register_skill(emqx_agent_skill_delete_skill, #{skill_id => <<"builder-delete-skill">>}),
+    ok = register_skill(emqx_agent_skill_delete_pipeline, #{
+        skill_id => <<"builder-delete-pipeline">>
+    }),
+    ok = register_skill(emqx_agent_skill_publish, #{
         skill_id => <<"builder-reply">>,
         desc => <<"Send a reply from the pipeline builder back to the chat UI">>,
         topic_prefix => <<"builder/reply/">>
@@ -354,20 +362,17 @@ register_builder_skills() ->
 cleanup_builder_infra() ->
     _ = emqx_agent_pipeline_registry:unregister(?BUILDER_PIPELINE_ID),
     _ = emqx_ai_completion_config:update_providers_raw({delete, ?SHARED_PROVIDER}),
-    _ = emqx_agent_skill_create_skill:destroy(<<"builder-create-skill">>),
-    _ = emqx_agent_skill_create_pipeline:destroy(<<"builder-create-pipeline">>),
-    _ = emqx_agent_skill_query_skills:destroy(<<"builder-query-skills">>),
-    _ = emqx_agent_skill_query_providers:destroy(<<"builder-query-providers">>),
-    _ = emqx_agent_skill_query_pipelines:destroy(<<"builder-query-pipelines">>),
-    _ = emqx_agent_skill_delete_skill:destroy(<<"builder-delete-skill">>),
-    _ = emqx_agent_skill_delete_pipeline:destroy(<<"builder-delete-pipeline">>),
-    _ = emqx_agent_skill_publish:destroy(<<"builder-reply">>),
+    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
     ok.
+
+register_skill(Module, Context) ->
+    {ok, Skill} = Module:create(Context),
+    emqx_agent_skill_registry:put_runtime_for_test(Skill).
 
 register_pg_connection() ->
     _ = emqx_agent_service:connection_delete(?PG_CONNECTION_ID),
     emqx_agent_service:connection_create(#{
-        <<"connection_id">> => ?PG_CONNECTION_ID,
+        <<"id">> => ?PG_CONNECTION_ID,
         <<"type">> => <<"postgresql">>,
         <<"enable">> => false,
         <<"config">> => #{

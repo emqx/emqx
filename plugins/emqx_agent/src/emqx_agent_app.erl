@@ -25,6 +25,7 @@ start(_StartType, _StartArgs) ->
     ok = emqx_agent_skill_delete_skill:init(),
     ok = emqx_agent_skill_delete_pipeline:init(),
     ok = emqx_agent_config:init_config(),
+    ok = emqx_agent_skill_registry:reconcile(),
     ok = emqx_agent_skill_connections:init(),
     ok = emqx_agent_skill:init_hook(),
     ok = emqx_agent_session:init_hook(),
@@ -50,6 +51,7 @@ stop(_State) ->
 
 on_config_changed(OldConfig, NewConfig) ->
     ok = emqx_agent_config:update_config(OldConfig, NewConfig),
+    ok = emqx_agent_skill_registry:reconcile(),
     emqx_agent_skill_connections:reconcile().
 
 on_handle_api_call(Method, PathRemainder, Request, _Context) ->

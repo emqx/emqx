@@ -32,7 +32,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_agent], #{
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_resource, emqx_agent], #{
         work_dir => emqx_cth_suite:work_dir(Config)
     }),
     [{apps, Apps} | Config].
@@ -41,13 +41,19 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
-    ok = emqx_agent_skill_create_skill:create(#{skill_id => ?SK_SKILL_ID}),
-    ok = emqx_agent_skill_create_pipeline:create(#{skill_id => ?SK_PIPELINE_ID}),
+    ok = emqx_agent_plugin_config_fixture:setup(),
+    ok = emqx_agent_service:skill_create(#{
+        <<"type">> => <<"agent.create_skill">>, <<"id">> => ?SK_SKILL_ID
+    }),
+    ok = emqx_agent_service:skill_create(#{
+        <<"type">> => <<"agent.create_pipeline">>, <<"id">> => ?SK_PIPELINE_ID
+    }),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_registry:delete_all(),
-    ok = emqx_agent_pipeline_registry:delete_all().
+    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
+    ok = emqx_agent_pipeline_registry:delete_all(),
+    ok = emqx_agent_plugin_config_fixture:teardown().
 
 %%--------------------------------------------------------------------
 %% agent.create_skill
@@ -59,7 +65,7 @@ t_create_skill_registers(_Config) ->
     ?assertEqual(?SK_SKILL_ID, maps:get(skill_id, Skill)).
 
 t_create_skill_destroy(_Config) ->
-    ok = emqx_agent_skill_create_skill:destroy(?SK_SKILL_ID),
+    ok = emqx_agent_service:skill_delete(<<"agent.create_skill">>, ?SK_SKILL_ID),
     ?assertEqual(
         {error, not_found},
         emqx_agent_skill_registry:lookup(<<"agent.create_skill">>, ?SK_SKILL_ID)
@@ -215,7 +221,7 @@ t_create_pipeline_registers(_Config) ->
     ?assertEqual(?SK_PIPELINE_ID, maps:get(skill_id, Skill)).
 
 t_create_pipeline_destroy(_Config) ->
-    ok = emqx_agent_skill_create_pipeline:destroy(?SK_PIPELINE_ID),
+    ok = emqx_agent_service:skill_delete(<<"agent.create_pipeline">>, ?SK_PIPELINE_ID),
     ?assertEqual(
         {error, not_found},
         emqx_agent_skill_registry:lookup(<<"agent.create_pipeline">>, ?SK_PIPELINE_ID)

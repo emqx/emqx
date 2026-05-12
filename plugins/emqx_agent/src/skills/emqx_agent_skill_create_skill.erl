@@ -30,9 +30,9 @@ init() ->
 deinit() ->
     emqx_agent_skill_registry:unregister_type(?SKILL_TYPE).
 
--spec create(map()) -> ok | {error, term()}.
+-spec create(map()) -> {ok, map()} | {error, term()}.
 create(#{skill_id := SkillId}) ->
-    emqx_agent_skill_registry:register(#{
+    {ok, #{
         skill_id => SkillId,
         type => ?SKILL_TYPE,
         module => ?MODULE,
@@ -41,11 +41,11 @@ create(#{skill_id := SkillId}) ->
             <<"Create or overwrite a skill (upsert). Types: message.publish, message.request, http, postgresql.query.">>,
         context => #{skill_id => SkillId},
         input_schema => input_schema()
-    }).
+    }}.
 
--spec destroy(binary()) -> ok.
-destroy(SkillId) ->
-    emqx_agent_skill_registry:unregister(?SKILL_TYPE, SkillId).
+-spec destroy(map()) -> ok.
+destroy(_Skill) ->
+    ok.
 
 -spec to_map(map()) -> map().
 to_map(#{skill_id := Id, description := Desc, input_schema := In}) ->

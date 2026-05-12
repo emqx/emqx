@@ -17,7 +17,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_agent], #{
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_resource, emqx_agent], #{
         work_dir => emqx_cth_suite:work_dir(Config)
     }),
     [{apps, Apps} | Config].
@@ -26,30 +26,26 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
-    ok = emqx_agent_skill_mqtt_request:create(test_context()),
+    ok = register_skill(test_context()),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_mqtt_request:destroy(?SKILL_ID).
+    ok = emqx_agent_skill_registry:clear_runtime_for_test().
 
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
 
-%% create/1 registers the skill under the expected type.
-t_registers_skill(_Config) ->
+%% create/1 builds a runtime skill under the expected type.
+t_create_returns_skill(_Config) ->
     {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message.request">>, ?SKILL_ID),
     ?assertMatch(#{type := <<"message.request">>}, Skill),
     ?assertEqual(?SKILL_ID, maps:get(skill_id, Skill)).
 
-%% destroy/1 removes the skill from the registry.
-t_destroy_unregisters(_Config) ->
-    ok = emqx_agent_skill_mqtt_request:destroy(?SKILL_ID),
-    ?assertEqual(
-        {error, not_found},
-        emqx_agent_skill_registry:lookup(<<"message.request">>, ?SKILL_ID)
-    ),
-    ok = emqx_agent_skill_mqtt_request:create(test_context()).
+%% destroy/1 accepts the full runtime skill.
+t_destroy_accepts_runtime_skill(_Config) ->
+    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message.request">>, ?SKILL_ID),
+    ?assertEqual(ok, emqx_agent_skill_mqtt_request:destroy(Skill)).
 
 %% Happy path: request arrives on the device topic with a Response-Topic
 %% MQTT 5 property; responder publishes back; skill reply arrives.
@@ -243,6 +239,10 @@ test_context() ->
         desc => <<"Test request skill">>,
         topic_prefix => ?TOPIC_PREFIX
     }.
+
+register_skill(Context) ->
+    {ok, Skill} = emqx_agent_skill_mqtt_request:create(Context),
+    emqx_agent_skill_registry:put_runtime_for_test(Skill).
 
 reply_topic(SkillId, ReqId) ->
     <<"cap/message.request/", SkillId/binary, "/response/", ReqId/binary>>.

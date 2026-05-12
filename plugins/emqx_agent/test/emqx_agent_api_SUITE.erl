@@ -52,7 +52,7 @@ init_per_testcase(TestCase, Config) ->
     [{tc_id, Id} | Config].
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_registry:delete_all(),
+    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
     ok = emqx_agent_pipeline_registry:delete_all(),
     ok = clear_connections(),
     ok = emqx_agent_plugin_config_fixture:teardown().
@@ -100,12 +100,12 @@ t_skill_publish_crud(Config) ->
     ),
 
     ?assertMatch(
-        {ok, 200, #{<<"skill_id">> := _, <<"type">> := <<"message.publish">>}},
+        {ok, 200, #{<<"id">> := _, <<"type">> := <<"message.publish">>}},
         api_get([agent, skills, <<"message.publish">>, Id])
     ),
 
     {ok, 200, List} = api_get([agent, skills]),
-    ?assert(lists:any(fun(S) -> maps:get(<<"skill_id">>, S) =:= Id end, List)),
+    ?assert(lists:any(fun(S) -> maps:get(<<"id">>, S) =:= Id end, List)),
 
     ?assertMatch({ok, 204}, api_delete([agent, skills, <<"message.publish">>, Id])),
     ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"message.publish">>, Id])).
@@ -126,7 +126,7 @@ t_skill_http_crud(Config) ->
     ),
 
     ?assertMatch(
-        {ok, 200, #{<<"skill_id">> := _, <<"type">> := <<"http">>}},
+        {ok, 200, #{<<"id">> := _, <<"type">> := <<"http">>}},
         api_get([agent, skills, <<"http">>, Id])
     ),
 
@@ -150,7 +150,7 @@ t_skill_postgresql_crud(Config) ->
     ),
 
     ?assertMatch(
-        {ok, 200, #{<<"skill_id">> := _, <<"type">> := <<"postgresql.query">>}},
+        {ok, 200, #{<<"id">> := _, <<"type">> := <<"postgresql.query">>}},
         api_get([agent, skills, <<"postgresql.query">>, Id])
     ),
 
@@ -168,7 +168,7 @@ t_connections_crud(Config) ->
     ?assertMatch({ok, 201, _}, api_post([agent, connections], pg_conn_body(Id))),
 
     {ok, 200, Conn} = api_get([agent, connections, Id]),
-    ?assertMatch(#{<<"connection_id">> := Id, <<"type">> := <<"postgresql">>}, Conn),
+    ?assertMatch(#{<<"id">> := Id, <<"type">> := <<"postgresql">>}, Conn),
     ?assertEqual(false, maps:get(<<"enable">>, Conn)),
 
     Body0 = pg_conn_body(Id),
@@ -246,7 +246,33 @@ t_skills_list(Config) ->
     ),
 
     {ok, 200, [Entry]} = api_get([agent, skills]),
-    ?assertEqual(Id, maps:get(<<"skill_id">>, Entry)).
+    ?assertEqual(Id, maps:get(<<"id">>, Entry)).
+
+t_skill_statuses(Config) ->
+    Id = ?config(tc_id, Config),
+
+    ?assertMatch(
+        {ok, 201, _},
+        api_post([agent, skills], #{
+            <<"type">> => <<"postgresql.query">>,
+            <<"id">> => Id,
+            <<"desc">> => <<"bad postgresql skill">>,
+            <<"resource">> => <<"missing-connection">>,
+            <<"query">> => <<"SELECT 1">>
+        })
+    ),
+
+    Key = <<"postgresql.query@", Id/binary>>,
+    ?assertMatch(
+        {ok, 200, #{
+            Key := #{
+                <<"status">> := <<"failed">>,
+                <<"error">> := _
+            }
+        }},
+        api_get([agent, skills, statuses])
+    ),
+    ?assertEqual({error, not_found}, emqx_agent_skill_registry:lookup(<<"postgresql.query">>, Id)).
 
 t_skills_validation(_Config) ->
     %% Missing type field
@@ -377,7 +403,7 @@ api_delete(Path) ->
 
 clear_connections() ->
     lists:foreach(
-        fun(#{<<"connection_id">> := Id}) ->
+        fun(#{<<"id">> := Id}) ->
             _ = emqx_agent_service:connection_delete(Id)
         end,
         emqx_agent_service:connection_list()
@@ -386,7 +412,7 @@ clear_connections() ->
 
 pg_conn_body(Id) ->
     #{
-        <<"connection_id">> => Id,
+        <<"id">> => Id,
         <<"type">> => <<"postgresql">>,
         <<"enable">> => false,
         <<"config">> => #{

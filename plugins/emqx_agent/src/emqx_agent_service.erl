@@ -25,6 +25,7 @@
     skill_get/2,
     skill_update/3,
     skill_delete/2,
+    skill_statuses/0,
     %% Connections
     connection_list/0,
     connection_create/1,
@@ -48,47 +49,39 @@
 
 -spec skill_list() -> [map()].
 skill_list() ->
-    [skill_to_map(S) || S <- emqx_agent_skill_registry:list()].
+    emqx_agent_config:list_skills().
 
 -spec skill_create(map()) ->
     ok | {error, unknown_type | {missing_field, binary()} | term()}.
 skill_create(Body) ->
-    do_create_skill(Body).
+    reconcile_skills_after(emqx_agent_config:create_skill(Body)).
 
 -spec skill_get(binary(), binary()) -> {ok, map()} | {error, not_found}.
 skill_get(Type, Id) ->
-    case emqx_agent_skill_registry:lookup(Type, Id) of
-        {ok, Skill} -> {ok, skill_to_map(Skill)};
-        {error, not_found} -> {error, not_found}
-    end.
+    emqx_agent_config:lookup_skill(Type, Id).
 
 -spec skill_update(binary(), binary(), map()) ->
     {ok, map()} | {error, unknown_type | {missing_field, binary()} | not_found | term()}.
 skill_update(Type, Id, Body) ->
-    Body2 = Body#{<<"id">> => Id},
-    case do_create_skill(Body2) of
-        ok ->
-            case emqx_agent_skill_registry:lookup(Type, Id) of
-                {ok, Skill} -> {ok, skill_to_map(Skill)};
-                {error, not_found} -> {error, not_found}
-            end;
-        {error, _} = Err ->
-            Err
-    end.
+    reconcile_skills_after(emqx_agent_config:update_skill(Type, Id, Body)).
 
 -spec skill_delete(binary(), binary()) ->
     ok | {error, not_found | {in_use, [binary()]}}.
 skill_delete(Type, Id) ->
-    case emqx_agent_skill_registry:lookup(Type, Id) of
+    case emqx_agent_config:lookup_skill(Type, Id) of
         {error, not_found} ->
             {error, not_found};
-        {ok, Skill} ->
+        {ok, _Skill} ->
             Ref = <<Type/binary, "@", Id/binary>>,
             case pipelines_using_skill(Ref) of
-                [] -> do_destroy_skill(Skill, Id);
+                [] -> reconcile_skills_after(emqx_agent_config:delete_skill(Type, Id));
                 Ids -> {error, {in_use, Ids}}
             end
     end.
+
+-spec skill_statuses() -> map().
+skill_statuses() ->
+    emqx_agent_skill_registry:statuses().
 
 %%--------------------------------------------------------------------
 %% Connections
@@ -100,7 +93,7 @@ connection_list() ->
 
 -spec connection_create(map()) -> ok | {error, term()}.
 connection_create(Body) ->
-    reconcile_after(emqx_agent_config:create_connection(Body)).
+    reconcile_connections_after(emqx_agent_config:create_connection(Body)).
 
 -spec connection_get(binary()) -> {ok, map()} | {error, not_found}.
 connection_get(ConnectionId) ->
@@ -108,7 +101,7 @@ connection_get(ConnectionId) ->
 
 -spec connection_update(binary(), map()) -> {ok, map()} | {error, term()}.
 connection_update(ConnectionId, Body) ->
-    reconcile_after(emqx_agent_config:update_connection(ConnectionId, Body)).
+    reconcile_connections_after(emqx_agent_config:update_connection(ConnectionId, Body)).
 
 -spec connection_delete(binary()) -> ok | {error, not_found | {in_use, [binary()]} | term()}.
 connection_delete(ConnectionId) ->
@@ -117,8 +110,10 @@ connection_delete(ConnectionId) ->
             {error, not_found};
         {ok, _} ->
             case skills_using_connection(ConnectionId) of
-                [] -> reconcile_after(emqx_agent_config:delete_connection(ConnectionId));
-                Ids -> {error, {in_use, Ids}}
+                [] ->
+                    reconcile_connections_after(emqx_agent_config:delete_connection(ConnectionId));
+                Ids ->
+                    {error, {in_use, Ids}}
             end
     end.
 
@@ -134,7 +129,7 @@ connection_stop(ConnectionId) ->
 connection_statuses() ->
     maps:from_list([
         {ConnectionId, emqx_agent_skill_connections:status(Conn)}
-     || #{connection_id := ConnectionId} = Conn <-
+     || #{id := ConnectionId} = Conn <-
             emqx_agent_config:parsed_config([connections], [])
     ]).
 
@@ -177,32 +172,8 @@ pipeline_delete(Id) ->
     end.
 
 %%--------------------------------------------------------------------
-%% Internal — skill validation and dispatch
+%% Internal
 %%--------------------------------------------------------------------
-
-do_create_skill(#{<<"type">> := Type} = Body) ->
-    Schema = #{roots => [{skill, emqx_agent_schema:skill_create_type()}]},
-    try hocon_tconf:check_plain(Schema, #{<<"skill">> => Body}, #{atom_key => true}) of
-        #{skill := Ctx} ->
-            Ctx2 = maps:put(skill_id, maps:get(id, Ctx), maps:remove(id, Ctx)),
-            Mod = emqx_agent_skill_registry:resolve_type(Type),
-            Mod:create(Ctx2)
-    catch
-        throw:unknown_type ->
-            {error, unknown_type};
-        throw:#{field_name := <<"type">>} ->
-            {error, unknown_type};
-        throw:Error ->
-            {error, Error}
-    end;
-do_create_skill(_) ->
-    {error, {missing_field, <<"type">>}}.
-
-do_destroy_skill(#{module := Mod}, Id) ->
-    Mod:destroy(Id).
-
-skill_to_map(#{module := Mod} = Skill) ->
-    Mod:to_map(Skill).
 
 pipelines_using_skill(Ref) ->
     [
@@ -224,25 +195,34 @@ skill_ref_in_step(_Ref, _Step) ->
 
 skills_using_connection(ConnectionId) ->
     [
-        maps:get(skill_id, S)
-     || #{type := <<"postgresql.query">>, context := #{resource := ConnectionId0}} = S <-
-            emqx_agent_skill_registry:list(),
+        maps:get(<<"id">>, S)
+     || #{<<"type">> := <<"postgresql.query">>, <<"resource">> := ConnectionId0} = S <-
+            emqx_agent_config:list_skills(),
         ConnectionId0 =:= ConnectionId
     ].
 
-reconcile_after(ok) ->
+reconcile_skills_after(ok) ->
+    ok = emqx_agent_skill_registry:reconcile(),
+    ok;
+reconcile_skills_after({ok, _} = Result) ->
+    ok = emqx_agent_skill_registry:reconcile(),
+    Result;
+reconcile_skills_after({error, _} = Error) ->
+    Error.
+
+reconcile_connections_after(ok) ->
     ok = emqx_agent_skill_connections:reconcile(),
     ok;
-reconcile_after({ok, _} = Result) ->
+reconcile_connections_after({ok, _} = Result) ->
     ok = emqx_agent_skill_connections:reconcile(),
     Result;
-reconcile_after({error, _} = Error) ->
+reconcile_connections_after({error, _} = Error) ->
     Error.
 
 update_connection_enable(ConnectionId, Enable) ->
     case emqx_agent_config:lookup_connection(ConnectionId) of
         {ok, Conn0} ->
-            reconcile_after(
+            reconcile_connections_after(
                 emqx_agent_config:update_connection(ConnectionId, Conn0#{<<"enable">> => Enable})
             );
         {error, _} = Error ->

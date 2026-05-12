@@ -38,6 +38,7 @@ init_per_suite(Config) ->
         [
             emqx,
             emqx_conf,
+            emqx_resource,
             {emqx_ai_completion, #{config => "ai.providers = [], ai.completion_profiles = []"}},
             emqx_agent
         ],
@@ -49,15 +50,23 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
-    ok = emqx_agent_skill_query_skills:create(#{skill_id => ?SK_SKILLS_ID}),
-    ok = emqx_agent_skill_query_providers:create(#{skill_id => ?SK_PROVIDERS_ID}),
-    ok = emqx_agent_skill_query_pipelines:create(#{skill_id => ?SK_PIPELINES_ID}),
+    ok = emqx_agent_plugin_config_fixture:setup(),
+    ok = emqx_agent_service:skill_create(#{
+        <<"type">> => <<"agent.query_skills">>, <<"id">> => ?SK_SKILLS_ID
+    }),
+    ok = emqx_agent_service:skill_create(#{
+        <<"type">> => <<"agent.query_providers">>, <<"id">> => ?SK_PROVIDERS_ID
+    }),
+    ok = emqx_agent_service:skill_create(#{
+        <<"type">> => <<"agent.query_pipelines">>, <<"id">> => ?SK_PIPELINES_ID
+    }),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_registry:delete_all(),
+    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
     ok = emqx_agent_pipeline_registry:delete_all(),
-    ok = clean_providers().
+    ok = clean_providers(),
+    ok = emqx_agent_plugin_config_fixture:teardown().
 
 %%--------------------------------------------------------------------
 %% agent.query_skills
@@ -69,7 +78,7 @@ t_query_skills_registers(_Config) ->
     ?assertEqual(?SK_SKILLS_ID, maps:get(skill_id, Skill)).
 
 t_query_skills_destroy(_Config) ->
-    ok = emqx_agent_skill_query_skills:destroy(?SK_SKILLS_ID),
+    ok = emqx_agent_service:skill_delete(<<"agent.query_skills">>, ?SK_SKILLS_ID),
     ?assertEqual(
         {error, not_found},
         emqx_agent_skill_registry:lookup(<<"agent.query_skills">>, ?SK_SKILLS_ID)
@@ -77,10 +86,13 @@ t_query_skills_destroy(_Config) ->
 
 t_query_skills_list_empty(_Config) ->
     %% Only the query skill itself is registered; delete it so the list is empty.
-    ok = emqx_agent_skill_registry:delete_all(),
-    ok = emqx_agent_skill_query_skills:create(#{skill_id => ?SK_SKILLS_ID}),
-    ok = emqx_agent_skill_query_providers:create(#{skill_id => ?SK_PROVIDERS_ID}),
-    ok = emqx_agent_skill_query_pipelines:create(#{skill_id => ?SK_PIPELINES_ID}),
+    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
+    {ok, S1} = emqx_agent_skill_query_skills:create(#{skill_id => ?SK_SKILLS_ID}),
+    ok = emqx_agent_skill_registry:put_runtime_for_test(S1),
+    {ok, S2} = emqx_agent_skill_query_providers:create(#{skill_id => ?SK_PROVIDERS_ID}),
+    ok = emqx_agent_skill_registry:put_runtime_for_test(S2),
+    {ok, S3} = emqx_agent_skill_query_pipelines:create(#{skill_id => ?SK_PIPELINES_ID}),
+    ok = emqx_agent_skill_registry:put_runtime_for_test(S3),
 
     ReqId = <<"req-qs-empty">>,
     ok = emqx:subscribe(reply_topic(ReqId)),
@@ -104,7 +116,7 @@ t_query_skills_list_with_items(_Config) ->
     invoke(<<"agent.query_skills">>, ?SK_SKILLS_ID, #{}, ReqId),
     Reply = recv_reply(ReqId),
     #{<<"status">> := <<"ok">>, <<"result">> := #{<<"items">> := Items}} = cap_response(Reply),
-    ?assert(lists:any(fun(S) -> maps:get(<<"skill_id">>, S, undefined) =:= <<"pub-a">> end, Items)),
+    ?assert(lists:any(fun(S) -> maps:get(<<"id">>, S, undefined) =:= <<"pub-a">> end, Items)),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
 t_query_skills_filter_by_type(_Config) ->
@@ -151,7 +163,7 @@ t_query_skills_get_by_type_and_id(_Config) ->
     ?assertMatch(
         #{
             <<"status">> := <<"ok">>,
-            <<"result">> := #{<<"item">> := #{<<"skill_id">> := <<"pub-c">>}}
+            <<"result">> := #{<<"item">> := #{<<"id">> := <<"pub-c">>}}
         },
         cap_response(Reply)
     ),
@@ -203,7 +215,7 @@ t_query_providers_registers(_Config) ->
     ?assertEqual(<<"agent.query_providers">>, maps:get(type, Skill)).
 
 t_query_providers_destroy(_Config) ->
-    ok = emqx_agent_skill_query_providers:destroy(?SK_PROVIDERS_ID),
+    ok = emqx_agent_service:skill_delete(<<"agent.query_providers">>, ?SK_PROVIDERS_ID),
     ?assertEqual(
         {error, not_found},
         emqx_agent_skill_registry:lookup(<<"agent.query_providers">>, ?SK_PROVIDERS_ID)
@@ -282,7 +294,7 @@ t_query_pipelines_registers(_Config) ->
     ?assertEqual(<<"agent.query_pipelines">>, maps:get(type, Skill)).
 
 t_query_pipelines_destroy(_Config) ->
-    ok = emqx_agent_skill_query_pipelines:destroy(?SK_PIPELINES_ID),
+    ok = emqx_agent_service:skill_delete(<<"agent.query_pipelines">>, ?SK_PIPELINES_ID),
     ?assertEqual(
         {error, not_found},
         emqx_agent_skill_registry:lookup(<<"agent.query_pipelines">>, ?SK_PIPELINES_ID)

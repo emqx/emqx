@@ -33,32 +33,31 @@ init_per_testcase(_TestCase, Config) ->
     ok = emqx_agent_skill_postgresql:init(),
     ok = create_test_connection(),
     ok = ensure_test_data(),
-    ok = emqx_agent_skill_postgresql:create(test_context()),
+    ok = register_skill(test_context()),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_postgresql:destroy(?SKILL_ID),
+    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
     ok = emqx_agent_service:connection_delete(?CONNECTION_ID),
     ok = emqx_agent_skill_postgresql:deinit(),
     ok = emqx_agent_plugin_config_fixture:teardown().
 
-t_create_registers_skill(_Config) ->
+t_create_returns_skill(_Config) ->
     {ok, Skill} = emqx_agent_skill_registry:lookup(?SKILL_TYPE, ?SKILL_ID),
     ?assertMatch(#{skill_id := ?SKILL_ID}, Skill),
     ?assertEqual(?SKILL_TYPE, maps:get(type, Skill)).
 
-t_destroy_unregisters_skill(_Config) ->
-    ok = emqx_agent_skill_postgresql:destroy(?SKILL_ID),
-    ?assertEqual({error, not_found}, emqx_agent_skill_registry:lookup(?SKILL_TYPE, ?SKILL_ID)),
-    ok = emqx_agent_skill_postgresql:create(test_context()).
+t_destroy_accepts_runtime_skill(_Config) ->
+    {ok, Skill} = emqx_agent_skill_registry:lookup(?SKILL_TYPE, ?SKILL_ID),
+    ?assertEqual(ok, emqx_agent_skill_postgresql:destroy(Skill)).
 
 t_multiple_instances(_Config) ->
     Ctx2 = test_context(#{skill_id => <<"pg-test-2">>}),
-    ok = emqx_agent_skill_postgresql:create(Ctx2),
+    ok = register_skill(Ctx2),
     {ok, S1} = emqx_agent_skill_registry:lookup(?SKILL_TYPE, ?SKILL_ID),
     {ok, S2} = emqx_agent_skill_registry:lookup(?SKILL_TYPE, <<"pg-test-2">>),
     ?assertNotEqual(maps:get(skill_id, S1), maps:get(skill_id, S2)),
-    ok = emqx_agent_skill_postgresql:destroy(<<"pg-test-2">>).
+    ok = emqx_agent_skill_registry:delete_runtime_for_test(?SKILL_TYPE, <<"pg-test-2">>).
 
 t_invoke_queries_postgresql(_Config) ->
     ReqId = <<"req-PG-001">>,
@@ -150,7 +149,7 @@ expect_query_ok({ok, _}) ->
 create_test_connection() ->
     _ = emqx_agent_service:connection_delete(?CONNECTION_ID),
     ok = emqx_agent_service:connection_create(#{
-        <<"connection_id">> => ?CONNECTION_ID,
+        <<"id">> => ?CONNECTION_ID,
         <<"type">> => <<"postgresql">>,
         <<"enable">> => true,
         <<"config">> => #{
@@ -179,3 +178,7 @@ test_context(Overrides) ->
         },
         Overrides
     ).
+
+register_skill(Context) ->
+    {ok, Skill} = emqx_agent_skill_postgresql:create(Context),
+    emqx_agent_skill_registry:put_runtime_for_test(Skill).

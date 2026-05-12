@@ -25,8 +25,8 @@
 %%
 %% Lifecycle:
 %%   init()        — register the skill type
-%%   create(Ctx)   — register a skill instance
-%%   destroy(Id)   — unregister a skill instance
+%%   create(Ctx)   — build a runtime skill instance
+%%   destroy(Skill) — clean up runtime resources owned by the skill
 %%   deinit()      — unregister the skill type
 
 -module(emqx_agent_skill_publish).
@@ -88,7 +88,7 @@ deinit() ->
 %%   skill_id     => binary()
 %%   desc         => binary()
 %%   topic_prefix => binary()
--spec create(Context :: map()) -> ok | {error, term()}.
+-spec create(Context :: map()) -> {ok, map()} | {error, term()}.
 create(#{
     skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix, input_schema := InputSchema
 }) ->
@@ -104,7 +104,7 @@ create(#{
     topic_prefix := TopicPrefix,
     payload_schema := PayloadSchema
 }) ->
-    emqx_agent_skill_registry:register(#{
+    {ok, #{
         skill_id => SkillId,
         type => ?SKILL_TYPE,
         module => ?MODULE,
@@ -117,7 +117,7 @@ create(#{
             payload_schema => PayloadSchema
         },
         input_schema => ?INPUT_SCHEMA(PayloadSchema)
-    });
+    }};
 create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix}) ->
     create(#{
         skill_id => SkillId,
@@ -126,9 +126,9 @@ create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix}) ->
         payload_schema => ?DEFAULT_PAYLOAD_SCHEMA
     }).
 
--spec destroy(binary()) -> ok.
-destroy(SkillId) ->
-    emqx_agent_skill_registry:unregister(?SKILL_TYPE, SkillId).
+-spec destroy(map()) -> ok.
+destroy(_Skill) ->
+    ok.
 
 -spec to_map(map()) -> map().
 to_map(

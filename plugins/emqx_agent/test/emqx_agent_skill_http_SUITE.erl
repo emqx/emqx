@@ -17,7 +17,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_agent], #{
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_resource, emqx_agent], #{
         work_dir => emqx_cth_suite:work_dir(Config)
     }),
     [{apps, Apps} | Config].
@@ -29,11 +29,11 @@ init_per_testcase(_TestCase, Config) ->
     {ok, {Port, _Pid}} = emqx_utils_http_test_server:start_link(random, "/", false),
     BaseUrl = iolist_to_binary(io_lib:format("http://127.0.0.1:~p/", [Port])),
     ok = emqx_agent_skill_http:init(),
-    ok = emqx_agent_skill_http:create(test_context([{base_url, BaseUrl} | Config])),
+    ok = register_skill(test_context([{base_url, BaseUrl} | Config])),
     [{base_url, BaseUrl} | Config].
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_http:destroy(?SKILL_ID),
+    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
     ok = emqx_agent_skill_http:deinit(),
     ok = emqx_utils_http_test_server:stop().
 
@@ -41,17 +41,15 @@ end_per_testcase(_TestCase, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-t_create_registers_skill(_Config) ->
+t_create_returns_skill(_Config) ->
     {ok, Skill} = emqx_agent_skill_registry:lookup(?SKILL_TYPE, ?SKILL_ID),
     ?assertMatch(#{skill_id := ?SKILL_ID}, Skill),
     ?assertMatch(#{type := ?SKILL_TYPE}, Skill),
     ?assert(is_map(maps:get(input_schema, Skill))).
 
-t_destroy_unregisters_skill(_Config) ->
-    ok = emqx_agent_skill_http:destroy(?SKILL_ID),
-    ?assertEqual({error, not_found}, emqx_agent_skill_registry:lookup(?SKILL_TYPE, ?SKILL_ID)),
-    %% Re-create so end_per_testcase doesn't crash
-    ok = emqx_agent_skill_http:create(test_context(_Config)).
+t_destroy_accepts_runtime_skill(_Config) ->
+    {ok, Skill} = emqx_agent_skill_registry:lookup(?SKILL_TYPE, ?SKILL_ID),
+    ?assertEqual(ok, emqx_agent_skill_http:destroy(Skill)).
 
 t_append_query_empty_args(_Config) ->
     ?assertEqual(
@@ -85,8 +83,8 @@ t_get_invoke_publishes_reply(Config) ->
     end).
 
 t_post_invoke_sends_json_body(Config) ->
-    ok = emqx_agent_skill_http:destroy(?SKILL_ID),
-    ok = emqx_agent_skill_http:create(test_context(Config, #{method => post})),
+    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
+    ok = register_skill(test_context(Config, #{method => post})),
     emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
         {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
         #{<<"city">> := City} = emqx_utils_json:decode(RawBody),
@@ -122,10 +120,10 @@ t_non_json_response_wrapped_in_raw(Config) ->
     end).
 
 t_unregistered_skill_is_silently_ignored(_Config) ->
-    ok = emqx_agent_skill_http:destroy(?SKILL_ID),
+    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
     Msg = emqx_message:make(?SKILL_ID, 0, invoke_topic(<<"dummy-req">>), <<"ignored">>),
     ?assertMatch(#message{}, emqx_hooks:run_fold('message.publish', [], Msg)),
-    ok = emqx_agent_skill_http:create(test_context(_Config)).
+    ok = register_skill(test_context(_Config)).
 
 t_non_http_topic_is_ignored(_Config) ->
     Msg = emqx_message:make(?SKILL_ID, 0, <<"other/topic">>, <<"payload">>),
@@ -192,6 +190,10 @@ test_context(Config, Overrides) ->
         },
         Overrides
     ).
+
+register_skill(Context) ->
+    {ok, Skill} = emqx_agent_skill_http:create(Context),
+    emqx_agent_skill_registry:put_runtime_for_test(Skill).
 
 reply_json(Status, Data, Req0, State) ->
     Req = cowboy_req:reply(

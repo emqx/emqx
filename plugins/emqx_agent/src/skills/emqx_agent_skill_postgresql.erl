@@ -29,7 +29,7 @@ deinit() ->
     ok = emqx_agent_skill_registry:unregister_type(?SKILL_TYPE),
     ok.
 
--spec create(Context :: map()) -> ok | {error, term()}.
+-spec create(Context :: map()) -> {ok, map()} | {error, term()}.
 create(#{skill_id := SkillId, desc := Desc, query := Query, resource := ConnectionId} = Context) ->
     case validate_connection(ConnectionId) of
         ok ->
@@ -40,7 +40,7 @@ create(#{skill_id := SkillId, desc := Desc, query := Query, resource := Connecti
                 row_template => RowTemplate,
                 var_names => VarNames
             },
-            Skill = #{
+            {ok, #{
                 skill_id => SkillId,
                 type => ?SKILL_TYPE,
                 module => ?MODULE,
@@ -48,15 +48,14 @@ create(#{skill_id := SkillId, desc := Desc, query := Query, resource := Connecti
                 description => Desc,
                 context => SkillContext,
                 input_schema => InSchema
-            },
-            emqx_agent_skill_registry:register(Skill);
+            }};
         {error, _} = Error ->
             Error
     end.
 
--spec destroy(emqx_agent_skill_registry:skill_id()) -> ok.
-destroy(SkillId) ->
-    emqx_agent_skill_registry:unregister(?SKILL_TYPE, SkillId).
+-spec destroy(map()) -> ok.
+destroy(_Skill) ->
+    ok.
 
 -spec to_map(map()) -> map().
 to_map(#{

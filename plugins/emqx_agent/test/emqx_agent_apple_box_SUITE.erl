@@ -95,10 +95,7 @@ end_per_testcase(_TC, Config) ->
     ok = emqx:unsubscribe(<<"box/shot/", BoxId/binary>>),
     ok = drop_table(),
     ok = emqx_agent_pipeline_registry:unregister(?PIPELINE_ID),
-    ok = emqx_agent_skill_mqtt_request:destroy(<<"box-shot">>),
-    ok = emqx_agent_skill_publish:destroy(<<"box-alert">>),
-    ok = emqx_agent_skill_publish:destroy(<<"box-status">>),
-    ok = emqx_agent_skill_postgresql:destroy(<<"box-register">>),
+    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
     ok = emqx_agent_service:connection_delete(?CONNECTION_ID),
     ok = emqx_agent_plugin_config_fixture:teardown().
 
@@ -259,7 +256,7 @@ expect_query_ok({error, Reason}) -> error({db_error, Reason}).
 create_connection() ->
     _ = emqx_agent_service:connection_delete(?CONNECTION_ID),
     ok = emqx_agent_service:connection_create(#{
-        <<"connection_id">> => ?CONNECTION_ID,
+        <<"id">> => ?CONNECTION_ID,
         <<"type">> => <<"postgresql">>,
         <<"enable">> => true,
         <<"config">> => #{
@@ -275,23 +272,23 @@ create_connection() ->
     }).
 
 register_skills() ->
-    ok = emqx_agent_skill_mqtt_request:create(#{
+    ok = register_skill(emqx_agent_skill_mqtt_request, #{
         skill_id => <<"box-shot">>,
         desc => <<"Request a box snapshot from the SPA">>,
         topic_prefix => <<"box/shot/">>,
         request_payload_schema => #{<<"type">> => <<"object">>}
     }),
-    ok = emqx_agent_skill_publish:create(#{
+    ok = register_skill(emqx_agent_skill_publish, #{
         skill_id => <<"box-alert">>,
         desc => <<"Publish a box quality alert">>,
         topic_prefix => <<"box/alert/">>
     }),
-    ok = emqx_agent_skill_publish:create(#{
+    ok = register_skill(emqx_agent_skill_publish, #{
         skill_id => <<"box-status">>,
         desc => <<"Publish final box inspection status">>,
         topic_prefix => <<"box/status/">>
     }),
-    ok = emqx_agent_skill_postgresql:create(#{
+    ok = register_skill(emqx_agent_skill_postgresql, #{
         skill_id => <<"box-register">>,
         desc => <<"Record inspection result in the database">>,
         resource => ?CONNECTION_ID,
@@ -300,6 +297,10 @@ register_skills() ->
             "VALUES(${conveyor_id}, ${box_id}, ${status}, ${reason})"
         >>
     }).
+
+register_skill(Module, Context) ->
+    {ok, Skill} = Module:create(Context),
+    emqx_agent_skill_registry:put_runtime_for_test(Skill).
 
 register_provider() ->
     emqx_ai_completion_config:update_providers_raw(

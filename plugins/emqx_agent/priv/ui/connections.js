@@ -18,19 +18,19 @@ export async function loadConnections() {
     const configuredStatus = c.enable === true
       ? '<span>enabled</span>'
       : '<span class="tag draft">○ disabled</span>';
-    const runtimeStatus = renderRuntimeStatus(statuses?.[c.connection_id]);
+    const runtimeStatus = renderRuntimeStatus(statuses?.[c.id]);
     const action = c.enable === true
-      ? `<button class="btn sm" onclick="stopConnection('${esc(c.connection_id)}')">stop</button>`
-      : `<button class="btn sm" onclick="startConnection('${esc(c.connection_id)}')">start</button>`;
+      ? `<button class="btn sm" onclick="stopConnection('${esc(c.id)}')">stop</button>`
+      : `<button class="btn sm" onclick="startConnection('${esc(c.id)}')">start</button>`;
     return `<tr>
-      <td><code>${esc(c.connection_id)}</code></td>
+      <td><code>${esc(c.id)}</code></td>
       <td><span class="tag ch">${esc(c.type)}</span></td>
       <td><div style="display:flex;gap:4px;flex-wrap:wrap">${configuredStatus}${runtimeStatus}</div></td>
       <td style="color:var(--muted)">${esc(c.config?.server ?? '')}</td>
       <td><div style="display:flex;gap:4px">
         ${action}
-        <button class="btn sm" onclick="editConnection('${esc(c.connection_id)}')">edit</button>
-        <button class="btn sm danger" onclick="deleteConnection('${esc(c.connection_id)}')">delete</button>
+        <button class="btn sm" onclick="editConnection('${esc(c.id)}')">edit</button>
+        <button class="btn sm danger" onclick="deleteConnection('${esc(c.id)}')">delete</button>
       </div></td>
     </tr>`;
   }).join('');
@@ -54,7 +54,7 @@ function renderRuntimeStatus(status) {
 export function collectConnectionBody() {
   const id = document.getElementById('conn-id').value.trim();
   return {
-    connection_id: id,
+    id,
     type: 'postgresql',
     enable: document.getElementById('conn-enable').checked,
     config: {
@@ -72,15 +72,15 @@ export function collectConnectionBody() {
 
 export async function saveConnection() {
   const body = collectConnectionBody();
-  if (!body.connection_id) return setMsg('conn-msg', 'Connection ID is required', true);
+  if (!body.id) return setMsg('conn-msg', 'Connection ID is required', true);
   if (!body.config.server) return setMsg('conn-msg', 'Server is required', true);
   try {
     if (editingConnectionId.value) {
       await api('PUT', `/connections/${encodeURIComponent(editingConnectionId.value)}`, body);
-      toast('Connection "' + body.connection_id + '" updated', 'ok');
+      toast('Connection "' + body.id + '" updated', 'ok');
     } else {
       await api('POST', '/connections', body);
-      toast('Connection "' + body.connection_id + '" created', 'ok');
+      toast('Connection "' + body.id + '" created', 'ok');
     }
     setMsg('conn-msg', 'Saved ✓');
     resetConnectionEditor();
@@ -91,13 +91,13 @@ export async function saveConnection() {
 }
 
 export function editConnection(id) {
-  const c = loadedConnections.find(x => x.connection_id === id);
+  const c = loadedConnections.find(x => x.id === id);
   if (!c) return toast('Connection not found — try refreshing', 'err');
   editingConnectionId.value = id;
   document.getElementById('conn-card-title').textContent = 'Edit Connection: ' + id;
   document.getElementById('conn-save-btn').textContent = 'Update Connection';
   document.getElementById('conn-cancel-btn').style.display = '';
-  document.getElementById('conn-id').value = c.connection_id;
+  document.getElementById('conn-id').value = c.id;
   document.getElementById('conn-id').readOnly = true;
   document.getElementById('conn-id').style.opacity = '0.6';
   document.getElementById('conn-enable').checked = c.enable === true;
@@ -170,7 +170,7 @@ export function renderConnectionOptions() {
   const pg = loadedConnections.filter(c => c.type === 'postgresql');
   sel.innerHTML = '<option value="">Select connection...</option>' + pg.map(c => {
     const suffix = c.enable === true ? '' : ' (disabled)';
-    return `<option value="${esc(c.connection_id)}">${esc(c.connection_id + suffix)}</option>`;
+    return `<option value="${esc(c.id)}">${esc(c.id + suffix)}</option>`;
   }).join('');
   sel.value = current;
 }

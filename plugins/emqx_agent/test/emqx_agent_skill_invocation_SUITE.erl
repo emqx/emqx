@@ -17,7 +17,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_agent], #{
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_resource, emqx_agent], #{
         work_dir => emqx_cth_suite:work_dir(Config)
     }),
     [{apps, Apps} | Config].
@@ -26,7 +26,7 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
-    ok = emqx_agent_skill_registry:register(#{
+    ok = emqx_agent_skill_registry:put_runtime_for_test(#{
         skill_id => ?SKILL_ID,
         type => ?SKILL_TYPE,
         module => emqx_agent_skill_test_invoke,
@@ -36,7 +36,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_registry:unregister(?SKILL_TYPE, ?SKILL_ID).
+    ok = emqx_agent_skill_registry:delete_runtime_for_test(?SKILL_TYPE, ?SKILL_ID).
 
 %% A basic invoke replies with status=ok and echoes the args.
 t_successful_invoke(_Config) ->
@@ -93,7 +93,7 @@ t_crash(_Config) ->
 %% Dispatching to an unregistered skill publishes an error reply.
 t_skill_not_found(_Config) ->
     ReqId = <<"req-not-found-1">>,
-    ok = emqx_agent_skill_registry:unregister(?SKILL_TYPE, ?SKILL_ID),
+    ok = emqx_agent_skill_registry:delete_runtime_for_test(?SKILL_TYPE, ?SKILL_ID),
     ReplyTopic = reply_topic(ReqId),
     ok = emqx:subscribe(ReplyTopic),
 

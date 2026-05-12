@@ -45,9 +45,9 @@ resource_id(ConnectionId) ->
     <<?RESOURCE_PREFIX, ConnectionId/binary>>.
 
 -spec status(map()) -> map().
-status(#{connection_id := _ConnectionId, enable := false}) ->
+status(#{id := _ConnectionId, enable := false}) ->
     status_map(stopped, null);
-status(#{connection_id := ConnectionId}) ->
+status(#{id := ConnectionId}) ->
     ResourceId = resource_id(ConnectionId),
     case emqx_resource:get_instance(ResourceId) of
         {ok, ?RESOURCE_GROUP, #{status := Status, error := Error}} ->
@@ -65,7 +65,7 @@ status(#{connection_id := ConnectionId}) ->
 enabled_connections(Connections) ->
     maps:from_list([
         {ConnectionId, Conn}
-     || #{connection_id := ConnectionId, enable := true} = Conn <- Connections
+     || #{id := ConnectionId, enable := true} = Conn <- Connections
     ]).
 
 agent_resource_ids() ->

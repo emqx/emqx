@@ -47,6 +47,12 @@ tags() -> [<<"Agent">>].
 
 fields(config) ->
     [
+        {skills,
+            mk(hoconsc:array(skill_create_type()), #{
+                required => false,
+                default => [],
+                desc => ?DESC(config_skills)
+            })},
         {connections,
             mk(hoconsc:array(connection_type()), #{
                 required => false,
@@ -219,7 +225,7 @@ fields(skill_postgresql_create) ->
     ];
 fields(connection_postgresql) ->
     [
-        {connection_id,
+        {id,
             mk(binary(), #{
                 required => true,
                 desc => ?DESC(connection_id)

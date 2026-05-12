@@ -27,6 +27,7 @@ setup() ->
 teardown() ->
     reset(),
     _ = emqx_agent_config:init_config(),
+    _ = emqx_agent_skill_registry:clear_runtime_for_test(),
     _ = catch meck:unload(emqx_mgmt_api_plugins),
     _ = catch meck:unload(emqx_plugins),
     ok.

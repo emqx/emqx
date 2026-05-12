@@ -20,8 +20,8 @@
 %%
 %% Lifecycle:
 %%   init()        — register the skill type
-%%   create(Ctx)   — register a skill instance; skill_id taken from Ctx
-%%   destroy(Id)   — unregister a skill instance from the registry
+%%   create(Ctx)   — build a runtime skill instance; skill_id taken from Ctx
+%%   destroy(Skill) — clean up runtime resources owned by the skill
 %%   deinit()      — unregister the skill type
 
 -module(emqx_agent_skill_http).
@@ -45,7 +45,7 @@ init() ->
 deinit() ->
     emqx_agent_skill_registry:unregister_type(?SKILL_TYPE).
 
--spec create(Context :: map()) -> ok | {error, term()}.
+-spec create(Context :: map()) -> {ok, map()} | {error, term()}.
 create(
     #{
         skill_id := SkillId,
@@ -55,7 +55,7 @@ create(
         input_schema := InputSchema
     } = Context
 ) ->
-    Skill = #{
+    {ok, #{
         skill_id => SkillId,
         type => ?SKILL_TYPE,
         module => ?MODULE,
@@ -63,12 +63,11 @@ create(
         description => Desc,
         context => Context,
         input_schema => InputSchema
-    },
-    emqx_agent_skill_registry:register(Skill).
+    }}.
 
--spec destroy(emqx_agent_skill_registry:skill_id()) -> ok.
-destroy(SkillId) ->
-    emqx_agent_skill_registry:unregister(?SKILL_TYPE, SkillId).
+-spec destroy(map()) -> ok.
+destroy(_Skill) ->
+    ok.
 
 -spec to_map(map()) -> map().
 to_map(#{

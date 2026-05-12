@@ -29,7 +29,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_agent], #{
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_resource, emqx_agent], #{
         work_dir => emqx_cth_suite:work_dir(Config)
     }),
     [{apps, Apps} | Config].
@@ -38,13 +38,19 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
-    ok = emqx_agent_skill_delete_skill:create(#{skill_id => ?SK_DEL_SKILL_ID}),
-    ok = emqx_agent_skill_delete_pipeline:create(#{skill_id => ?SK_DEL_PIPELINE_ID}),
+    ok = emqx_agent_plugin_config_fixture:setup(),
+    ok = emqx_agent_service:skill_create(#{
+        <<"type">> => <<"agent.delete_skill">>, <<"id">> => ?SK_DEL_SKILL_ID
+    }),
+    ok = emqx_agent_service:skill_create(#{
+        <<"type">> => <<"agent.delete_pipeline">>, <<"id">> => ?SK_DEL_PIPELINE_ID
+    }),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_registry:delete_all(),
-    ok = emqx_agent_pipeline_registry:delete_all().
+    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
+    ok = emqx_agent_pipeline_registry:delete_all(),
+    ok = emqx_agent_plugin_config_fixture:teardown().
 
 %%--------------------------------------------------------------------
 %% agent.delete_skill — registration
@@ -55,7 +61,7 @@ t_delete_skill_registers(_Config) ->
     ?assertEqual(<<"agent.delete_skill">>, maps:get(type, Skill)).
 
 t_delete_skill_destroy(_Config) ->
-    ok = emqx_agent_skill_delete_skill:destroy(?SK_DEL_SKILL_ID),
+    ok = emqx_agent_service:skill_delete(<<"agent.delete_skill">>, ?SK_DEL_SKILL_ID),
     ?assertEqual(
         {error, not_found},
         emqx_agent_skill_registry:lookup(<<"agent.delete_skill">>, ?SK_DEL_SKILL_ID)
@@ -186,7 +192,7 @@ t_delete_pipeline_registers(_Config) ->
     ?assertEqual(<<"agent.delete_pipeline">>, maps:get(type, Skill)).
 
 t_delete_pipeline_destroy(_Config) ->
-    ok = emqx_agent_skill_delete_pipeline:destroy(?SK_DEL_PIPELINE_ID),
+    ok = emqx_agent_service:skill_delete(<<"agent.delete_pipeline">>, ?SK_DEL_PIPELINE_ID),
     ?assertEqual(
         {error, not_found},
         emqx_agent_skill_registry:lookup(<<"agent.delete_pipeline">>, ?SK_DEL_PIPELINE_ID)

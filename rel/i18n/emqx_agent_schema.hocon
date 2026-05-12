@@ -202,6 +202,11 @@ Disabled connections are allowed but invocations will fail until the connection 
 
     ## ── connections ──────────────────────────────────────────────────────────
 
+    config_skills {
+        desc: "Configured skill definitions."
+        label: "Skills"
+    }
+
     config_connections {
         desc: "Skill connection configurations."
         label: "Connections"

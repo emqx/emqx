@@ -5,8 +5,9 @@
 %% REST API for the agent subsystem.
 %%
 %% Resources:
-%%   /agent/skills                   — list / create skill instances
-%%   /agent/skills/:type/:id         — get / delete a skill instance
+%%   /agent/skills                   — list / create configured skills
+%%   /agent/skills/statuses          — runtime skill reconciliation statuses
+%%   /agent/skills/:type/:id         — get / delete a configured skill
 %%   /agent/connections              — list / create skill connections
 %%   /agent/connections/:id          — get / update / delete a skill connection
 %%   /agent/pipelines                — list / create pipeline definitions
@@ -59,6 +60,8 @@ dispatch(get, [<<"skills">>], Params) ->
     '/agent/skills'(get, Params);
 dispatch(post, [<<"skills">>], Params) ->
     '/agent/skills'(post, Params);
+dispatch(get, [<<"skills">>, <<"statuses">>], Params) ->
+    '/agent/skills/statuses'(get, Params);
 dispatch(get, [<<"skills">>, Type, Id], Params) ->
     '/agent/skills/:type/:id'(get, Params#{bindings => #{type => Type, id => Id}});
 dispatch(put, [<<"skills">>, Type, Id], Params) ->
@@ -198,6 +201,8 @@ no_cache_headers(ContentType) ->
             ?CREATED(#{});
         {error, {missing_field, Field}} ->
             ?BAD_REQUEST(iolist_to_binary(["Missing required field: ", field_to_str(Field)]));
+        {error, already_exists} ->
+            ?CONFLICT(<<"Skill already exists">>);
         {error, unknown_type} ->
             ?BAD_REQUEST(
                 <<"Unknown skill type. Valid types: message.publish, message.request, http, postgresql.query">>
@@ -205,6 +210,9 @@ no_cache_headers(ContentType) ->
         {error, Reason} ->
             ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
     end.
+
+'/agent/skills/statuses'(get, _Params) ->
+    ?OK(emqx_agent_service:skill_statuses()).
 
 '/agent/skills/:type/:id'(get, #{bindings := #{type := Type, id := Id}}) ->
     case emqx_agent_service:skill_get(Type, Id) of
