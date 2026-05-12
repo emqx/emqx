@@ -622,7 +622,9 @@ seed_defaults_for_all_roots_namespaced(SchemaMod, Namespace, _ClusterRPCOpts) wh
     RawConf = fill_defaults(RawConf0),
     {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf, #{}),
     Opts = #{},
-    {atomic, ok} = mria:transaction(?COMMON_SHARD, fun() ->
+    %% Note: this function can be called from another transaction;
+    %% using sync_dirty to avoid nesting transactions.
+    ok = mria:sync_dirty(?COMMON_SHARD, fun() ->
         lists:foreach(
             fun(RootKeyAtom) ->
                 RootKeyBin = atom_to_binary(RootKeyAtom, utf8),
