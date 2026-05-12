@@ -131,8 +131,8 @@ t_resolve_unknown_type(_Config) ->
 
 t_skill_with_schemas(_Config) ->
     Skill = #{
-        skill_id => <<"postgresql.query">>,
-        type => <<"postgresql.query">>,
+        skill_id => <<"postgresql__query">>,
+        type => <<"postgresql__query">>,
         module => emqx_agent_skill_postgresql,
         version => <<"1">>,
         display_name => <<"PostgreSQL Query">>,
@@ -150,7 +150,7 @@ t_skill_with_schemas(_Config) ->
     },
     ok = emqx_agent_skill_registry:put_runtime_for_test(Skill),
     {ok, Got} = emqx_agent_skill_registry:lookup(
-        <<"postgresql.query">>, <<"postgresql.query">>
+        <<"postgresql__query">>, <<"postgresql__query">>
     ),
     ?assertEqual(Skill, Got).
 

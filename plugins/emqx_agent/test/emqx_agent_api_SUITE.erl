@@ -92,7 +92,7 @@ t_skill_publish_crud(Config) ->
     ?assertMatch(
         {ok, 201, _},
         api_post([agent, skills], #{
-            <<"type">> => <<"message.publish">>,
+            <<"type">> => <<"message__publish">>,
             <<"id">> => Id,
             <<"desc">> => <<"test publish skill">>,
             <<"topic_prefix">> => <<"test/", Id/binary, "/">>
@@ -100,15 +100,15 @@ t_skill_publish_crud(Config) ->
     ),
 
     ?assertMatch(
-        {ok, 200, #{<<"id">> := _, <<"type">> := <<"message.publish">>}},
-        api_get([agent, skills, <<"message.publish">>, Id])
+        {ok, 200, #{<<"id">> := _, <<"type">> := <<"message__publish">>}},
+        api_get([agent, skills, <<"message__publish">>, Id])
     ),
 
     {ok, 200, List} = api_get([agent, skills]),
     ?assert(lists:any(fun(S) -> maps:get(<<"id">>, S) =:= Id end, List)),
 
-    ?assertMatch({ok, 204}, api_delete([agent, skills, <<"message.publish">>, Id])),
-    ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"message.publish">>, Id])).
+    ?assertMatch({ok, 204}, api_delete([agent, skills, <<"message__publish">>, Id])),
+    ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"message__publish">>, Id])).
 
 t_skill_http_crud(Config) ->
     Id = ?config(tc_id, Config),
@@ -141,7 +141,7 @@ t_skill_postgresql_crud(Config) ->
     ?assertMatch(
         {ok, 201, _},
         api_post([agent, skills], #{
-            <<"type">> => <<"postgresql.query">>,
+            <<"type">> => <<"postgresql__query">>,
             <<"id">> => Id,
             <<"desc">> => <<"test postgresql skill">>,
             <<"resource">> => ConnId,
@@ -150,12 +150,12 @@ t_skill_postgresql_crud(Config) ->
     ),
 
     ?assertMatch(
-        {ok, 200, #{<<"id">> := _, <<"type">> := <<"postgresql.query">>}},
-        api_get([agent, skills, <<"postgresql.query">>, Id])
+        {ok, 200, #{<<"id">> := _, <<"type">> := <<"postgresql__query">>}},
+        api_get([agent, skills, <<"postgresql__query">>, Id])
     ),
 
-    ?assertMatch({ok, 204}, api_delete([agent, skills, <<"postgresql.query">>, Id])),
-    ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"postgresql.query">>, Id])).
+    ?assertMatch({ok, 204}, api_delete([agent, skills, <<"postgresql__query">>, Id])),
+    ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"postgresql__query">>, Id])).
 
 %%--------------------------------------------------------------------
 %% Connections
@@ -217,7 +217,7 @@ t_connection_delete_in_use(Config) ->
     ?assertMatch(
         {ok, 201, _},
         api_post([agent, skills], #{
-            <<"type">> => <<"postgresql.query">>,
+            <<"type">> => <<"postgresql__query">>,
             <<"id">> => Id,
             <<"desc">> => <<"test postgresql skill">>,
             <<"resource">> => ConnId,
@@ -238,7 +238,7 @@ t_skills_list(Config) ->
     ?assertMatch(
         {ok, 201, _},
         api_post([agent, skills], #{
-            <<"type">> => <<"message.publish">>,
+            <<"type">> => <<"message__publish">>,
             <<"id">> => Id,
             <<"desc">> => <<"list test">>,
             <<"topic_prefix">> => <<"x/">>
@@ -254,7 +254,7 @@ t_skill_statuses(Config) ->
     ?assertMatch(
         {ok, 201, _},
         api_post([agent, skills], #{
-            <<"type">> => <<"postgresql.query">>,
+            <<"type">> => <<"postgresql__query">>,
             <<"id">> => Id,
             <<"desc">> => <<"bad postgresql skill">>,
             <<"resource">> => <<"missing-connection">>,
@@ -262,7 +262,7 @@ t_skill_statuses(Config) ->
         })
     ),
 
-    Key = <<"postgresql.query@", Id/binary>>,
+    Key = <<"postgresql__query@", Id/binary>>,
     ?assertMatch(
         {ok, 200, #{
             Key := #{
@@ -272,7 +272,7 @@ t_skill_statuses(Config) ->
         }},
         api_get([agent, skills, statuses])
     ),
-    ?assertEqual({error, not_found}, emqx_agent_skill_registry:lookup(<<"postgresql.query">>, Id)).
+    ?assertEqual({error, not_found}, emqx_agent_skill_registry:lookup(<<"postgresql__query">>, Id)).
 
 t_skills_validation(_Config) ->
     %% Missing type field
@@ -291,11 +291,11 @@ t_skills_validation(_Config) ->
         })
     ),
 
-    %% message.publish missing topic_prefix
+    %% message__publish missing topic_prefix
     ?assertMatch(
         {ok, 400, _},
         api_post([agent, skills], #{
-            <<"type">> => <<"message.publish">>,
+            <<"type">> => <<"message__publish">>,
             <<"id">> => <<"x">>,
             <<"desc">> => <<"x">>
         })
@@ -313,8 +313,8 @@ t_skills_validation(_Config) ->
         })
     ),
 
-    ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"message.publish">>, <<"no_such">>])),
-    ?assertMatch({ok, 404, _}, api_delete([agent, skills, <<"message.publish">>, <<"no_such">>])).
+    ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"message__publish">>, <<"no_such">>])),
+    ?assertMatch({ok, 404, _}, api_delete([agent, skills, <<"message__publish">>, <<"no_such">>])).
 
 %%--------------------------------------------------------------------
 %% Pipelines
@@ -332,7 +332,7 @@ t_pipelines_crud(Config) ->
             #{
                 <<"id">> => <<"step1">>,
                 <<"type">> => <<"call_skill">>,
-                <<"skill">> => <<"message.publish@", Id/binary>>,
+                <<"skill">> => <<"message__publish@", Id/binary>>,
                 <<"args">> => #{<<"topic">> => <<"out">>, <<"payload">> => <<"hi">>},
                 <<"result_path">> => <<"$.result">>
             }

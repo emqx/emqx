@@ -8,8 +8,8 @@
 %% configured prefix.  The prefix is fixed at creation time so that the
 %% agent cannot publish outside its authorised namespace.
 %%
-%% Invoke topic:  cap/message.publish/<skill_id>/request/<req_id>
-%% Reply  topic:  cap/message.publish/<skill_id>/response/<req_id>
+%% Invoke topic:  cap/message__publish/<skill_id>/request/<req_id>
+%% Reply  topic:  cap/message__publish/<skill_id>/response/<req_id>
 %%
 %% Context keys:
 %%   skill_id     => binary()  — unique instance identifier
@@ -33,7 +33,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 
--define(SKILL_TYPE, <<"message.publish">>).
+-define(SKILL_TYPE, <<"message__publish">>).
 
 -define(DEFAULT_PAYLOAD_SCHEMA, #{
     <<"type">> => <<"object">>,
@@ -104,6 +104,13 @@ create(#{
     topic_prefix := TopicPrefix,
     payload_schema := PayloadSchema
 }) ->
+    create_with_payload_schema(SkillId, Desc, TopicPrefix, PayloadSchema);
+create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix}) ->
+    create_with_payload_schema(SkillId, Desc, TopicPrefix, ?DEFAULT_PAYLOAD_SCHEMA).
+
+create_with_payload_schema(SkillId, Desc, TopicPrefix, undefined) ->
+    create_with_payload_schema(SkillId, Desc, TopicPrefix, ?DEFAULT_PAYLOAD_SCHEMA);
+create_with_payload_schema(SkillId, Desc, TopicPrefix, PayloadSchema) ->
     {ok, #{
         skill_id => SkillId,
         type => ?SKILL_TYPE,
@@ -117,14 +124,7 @@ create(#{
             payload_schema => PayloadSchema
         },
         input_schema => ?INPUT_SCHEMA(PayloadSchema)
-    }};
-create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix}) ->
-    create(#{
-        skill_id => SkillId,
-        desc => Desc,
-        topic_prefix => TopicPrefix,
-        payload_schema => ?DEFAULT_PAYLOAD_SCHEMA
-    }).
+    }}.
 
 -spec destroy(map()) -> ok.
 destroy(_Skill) ->

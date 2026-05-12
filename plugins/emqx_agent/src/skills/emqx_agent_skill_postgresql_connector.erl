@@ -25,7 +25,10 @@
 
 -export([connect/1]).
 
--export([config_fields/0]).
+-export([config_fields/0, resource_config/1]).
+
+%% hocon_schema callbacks used for resource config parsing
+-export([namespace/0, roots/0, fields/1, desc/1]).
 
 -define(PGSQL_DEFAULT_PORT, 5432).
 -define(QUERY_TIMEOUT, 15_000).
@@ -51,6 +54,25 @@ config_fields() ->
     ] ++
         emqx_connector_schema_lib:relational_db_fields(#{username => #{required => true}}) ++
         emqx_connector_schema_lib:ssl_fields().
+
+namespace() -> agent_postgresql_connector.
+
+roots() -> [].
+
+fields(config) ->
+    config_fields();
+fields(_) ->
+    [].
+
+desc(_) ->
+    undefined.
+
+resource_config(#{<<"config">> := RawConfig}) ->
+    Schema = #{roots => [{config, hoconsc:ref(?MODULE, config)}]},
+    #{config := ResourceConfig} = hocon_tconf:check_plain(
+        Schema, #{<<"config">> => RawConfig}, #{atom_key => true}
+    ),
+    ResourceConfig.
 
 resource_type() -> agent_skill_pgsql.
 

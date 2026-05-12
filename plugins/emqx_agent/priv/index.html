@@ -58,10 +58,10 @@
           <div class="field">
             <label>Type</label>
             <select id="skill-type" onchange="updateSkillForm()">
-              <option value="message.publish">message.publish</option>
-              <option value="message.request">message.request</option>
+              <option value="message__publish">message__publish</option>
+              <option value="message__request">message__request</option>
               <option value="http">http</option>
-              <option value="postgresql.query">postgresql.query</option>
+              <option value="postgresql__query">postgresql__query</option>
             </select>
           </div>
           <div class="field">
@@ -74,7 +74,7 @@
           <input id="skill-desc" type="text" placeholder="Human-readable description for the LLM">
         </div>
 
-        <!-- message.publish fields -->
+        <!-- message__publish fields -->
         <div id="f-publish">
           <div class="field">
             <label>Topic Prefix</label>
@@ -88,7 +88,7 @@
           </div>
         </div>
 
-        <!-- message.request fields -->
+        <!-- message__request fields -->
         <div id="f-request" style="display:none">
           <div class="field">
             <label>Topic Prefix</label>

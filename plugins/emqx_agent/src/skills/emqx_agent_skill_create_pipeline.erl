@@ -10,12 +10,12 @@
 %% exposed in the input schema so the LLM cannot accidentally activate
 %% an untested pipeline.
 %%
-%% Invoke topic:  cap/agent.create_pipeline/<skill_id>/request/<req_id>
-%% Reply  topic:  cap/agent.create_pipeline/<skill_id>/response/<req_id>
+%% Invoke topic:  cap/agent__create_pipeline/<skill_id>/request/<req_id>
+%% Reply  topic:  cap/agent__create_pipeline/<skill_id>/response/<req_id>
 
 -module(emqx_agent_skill_create_pipeline).
 
--define(SKILL_TYPE, <<"agent.create_pipeline">>).
+-define(SKILL_TYPE, <<"agent__create_pipeline">>).
 
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/2]).
 
@@ -76,6 +76,4 @@ handle_invoke(_Context, Request) ->
     end.
 
 input_schema() ->
-    emqx_agent_schema_oai_tool_converter:to_json_schema(
-        hoconsc:ref(emqx_agent_schema, pipeline)
-    ).
+    emqx_agent_schema_oai_tool_converter:to_json_schema([pipelines, items]).

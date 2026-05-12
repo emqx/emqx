@@ -47,7 +47,8 @@ stop(_State) ->
     ok = emqx_agent_skill_delete_skill:deinit(),
     ok = emqx_agent_skill_delete_pipeline:deinit(),
     ok = emqx_agent_session:deinit_hook(),
-    ok = emqx_agent_pipeline_mgr:deinit_hook().
+    ok = emqx_agent_pipeline_mgr:deinit_hook(),
+    ok = emqx_agent_config:clear_config_schema().
 
 on_config_changed(OldConfig, NewConfig) ->
     ok = emqx_agent_config:update_config(OldConfig, NewConfig),

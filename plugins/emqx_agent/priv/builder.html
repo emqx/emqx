@@ -190,7 +190,7 @@ function onMessage(topic, payload) {
   let text = raw;
   try {
     const obj = JSON.parse(raw);
-    // The message.publish skill wraps: {"topic":..., "payload":...}
+    // The message__publish skill wraps: {"topic":..., "payload":...}
     // The LLM publishes plain text as the payload value.
     if (obj && typeof obj.payload !== 'undefined') {
       const p = obj.payload;

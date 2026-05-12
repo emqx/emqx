@@ -120,7 +120,8 @@ normalize_pipeline(#{}) ->
 
 normalize_steps([], _Index, Acc) ->
     {ok, lists:reverse(Acc)};
-normalize_steps([Step | Rest], Index, Acc) when is_map(Step) ->
+normalize_steps([Step0 | Rest], Index, Acc) when is_map(Step0) ->
+    Step = unwrap_union(Step0),
     case normalize_step(Step, Index) of
         {ok, Normalized} -> normalize_steps(Rest, Index + 1, [Normalized | Acc]);
         {error, _} = Error -> Error
@@ -176,7 +177,15 @@ name_value_entry_to_pair(#{name := Name, value := Value}) ->
 decode_json_schema_field(Field, Step) ->
     case maps:get(Field, Step, undefined) of
         Value when is_binary(Value) ->
-            Step#{Field => emqx_agent_schema:json_schema_from_string(Value, [])};
+            Step#{Field => emqx_agent_oai_tool_schema:json_schema_from_string(Value, [])};
         _ ->
             Step
     end.
+
+unwrap_union(Map) when is_map(Map), map_size(Map) =:= 1 ->
+    case maps:to_list(Map) of
+        [{Key, Value}] when is_binary(Key), is_map(Value) -> Value;
+        _ -> Map
+    end;
+unwrap_union(Value) ->
+    Value.

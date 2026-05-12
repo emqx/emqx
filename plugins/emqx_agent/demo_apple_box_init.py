@@ -161,10 +161,10 @@ def create_db_table() -> None:
 # ── Skills ─────────────────────────────────────────────────────────────────────
 
 def delete_old_assets() -> None:
-    api_delete_maybe(f"/skills/message.request/{SK_SHOT}")
-    api_delete_maybe(f"/skills/message.publish/{SK_ALERT}")
-    api_delete_maybe(f"/skills/message.publish/{SK_STATUS}")
-    api_delete_maybe(f"/skills/postgresql.query/{SK_REGISTER}")
+    api_delete_maybe(f"/skills/message__request/{SK_SHOT}")
+    api_delete_maybe(f"/skills/message__publish/{SK_ALERT}")
+    api_delete_maybe(f"/skills/message__publish/{SK_STATUS}")
+    api_delete_maybe(f"/skills/postgresql__query/{SK_REGISTER}")
     api_delete_maybe(f"/pipelines/{PIPELINE_ID}")
     api_delete_maybe(f"/ai/providers/{PROVIDER_NAME}", base_url=CORE_BASE_URL)
 
@@ -191,7 +191,7 @@ def create_skills() -> None:
         "POST",
         "/skills",
         {
-            "type": "message.request",
+            "type": "message__request",
             "id": SK_SHOT,
             "desc": "Request a box snapshot photo from the SPA client",
             "topic_prefix": "box/shot/",
@@ -204,7 +204,7 @@ def create_skills() -> None:
         "POST",
         "/skills",
         {
-            "type": "message.publish",
+            "type": "message__publish",
             "id": SK_ALERT,
             "desc": "Publish a box quality alert to the SPA",
             "topic_prefix": "box/alert/",
@@ -216,7 +216,7 @@ def create_skills() -> None:
         "POST",
         "/skills",
         {
-            "type": "message.publish",
+            "type": "message__publish",
             "id": SK_STATUS,
             "desc": "Publish final box inspection status to the SPA",
             "topic_prefix": "box/status/",
@@ -228,7 +228,7 @@ def create_skills() -> None:
         "POST",
         "/skills",
         {
-            "type": "postgresql.query",
+            "type": "postgresql__query",
             "id": SK_REGISTER,
             "desc": "Record box inspection result in the database",
             "query": (
@@ -275,8 +275,8 @@ def create_pipeline() -> None:
                     "stop_on_finish": True,
                     "instructions": INSPECTOR_INSTRUCTIONS,
                     "tools": [
-                        f"message.request@{SK_SHOT}",
-                        f"message.publish@{SK_ALERT}",
+                        f"message__request@{SK_SHOT}",
+                        f"message__publish@{SK_ALERT}",
                     ],
                     "input": {
                         "box_id": "$.event.box_id",
@@ -298,7 +298,7 @@ def create_pipeline() -> None:
                 {
                     "id": "register",
                     "type": "call_skill",
-                    "skill": f"postgresql.query@{SK_REGISTER}",
+                    "skill": f"postgresql__query@{SK_REGISTER}",
                     "args": {
                         "conveyor_id": "$.event.conveyor_id",
                         "box_id": "$.event.box_id",
@@ -310,7 +310,7 @@ def create_pipeline() -> None:
                 {
                     "id": "notify",
                     "type": "call_skill",
-                    "skill": f"message.publish@{SK_STATUS}",
+                    "skill": f"message__publish@{SK_STATUS}",
                     "args": {
                         "topic": "$.event.box_id",
                         "payload": "$.inspection",

@@ -101,30 +101,31 @@ t_reject_enum_value_wrong_type(_Config) ->
     assert_error(invalid_enum_value, emqx_agent_oai_tool_schema:validate_schema(Schema)).
 
 t_generated_create_skill_schema_valid(_Config) ->
-    Schema = emqx_agent_schema_oai_tool_converter:to_json_schema(
-        {object, [{definition, emqx_agent_schema:skill_create_type()}]}
-    ),
+    Schema = #{
+        <<"type">> => <<"object">>,
+        <<"properties">> => #{
+            <<"definition">> => emqx_agent_schema_oai_tool_converter:to_json_schema([skills, items])
+        },
+        <<"required">> => [<<"definition">>],
+        <<"additionalProperties">> => false
+    },
     ?assertEqual(ok, emqx_agent_oai_tool_schema:validate_schema(Schema)),
     ?assertEqual(false, contains_any_key([<<"$ref">>, <<"oneOf">>, <<"const">>], Schema)).
 
 t_generated_create_pipeline_schema_valid(_Config) ->
-    Schema = emqx_agent_schema_oai_tool_converter:to_json_schema(
-        hoconsc:ref(emqx_agent_schema, pipeline)
-    ),
+    Schema = emqx_agent_schema_oai_tool_converter:to_json_schema([pipelines, items]),
     ?assertEqual(ok, emqx_agent_oai_tool_schema:validate_schema(Schema)),
     ?assertEqual(false, contains_any_key([<<"$ref">>, <<"oneOf">>, <<"const">>], Schema)),
-    ?assertEqual(false, contains_property(<<"active">>, Schema)).
+    ?assertEqual(true, contains_property(<<"active">>, Schema)).
 
 t_generated_create_pipeline_schema_has_typed_steps(_Config) ->
-    Schema = emqx_agent_schema_oai_tool_converter:to_json_schema(
-        hoconsc:ref(emqx_agent_schema, pipeline)
-    ),
+    Schema = emqx_agent_schema_oai_tool_converter:to_json_schema([pipelines, items]),
     StepSchema = maps:get(
         <<"items">>,
         maps:get(<<"steps">>, maps:get(<<"properties">>, Schema))
     ),
     StepTypes = lists:sort([
-        hd(maps:get(<<"enum">>, maps:get(<<"type">>, maps:get(<<"properties">>, Branch))))
+        branch_type(Branch)
      || Branch <- maps:get(<<"anyOf">>, StepSchema)
     ]),
     ?assertEqual(
@@ -133,9 +134,7 @@ t_generated_create_pipeline_schema_has_typed_steps(_Config) ->
     ).
 
 t_generated_pipeline_dynamic_maps_are_entry_arrays(_Config) ->
-    Schema = emqx_agent_schema_oai_tool_converter:to_json_schema(
-        hoconsc:ref(emqx_agent_schema, pipeline)
-    ),
+    Schema = emqx_agent_schema_oai_tool_converter:to_json_schema([pipelines, items]),
     StepSchema = maps:get(
         <<"items">>,
         maps:get(<<"steps">>, maps:get(<<"properties">>, Schema))
@@ -143,8 +142,8 @@ t_generated_pipeline_dynamic_maps_are_entry_arrays(_Config) ->
     Branches = maps:get(<<"anyOf">>, StepSchema),
     CallSkill = branch_by_type(<<"call_skill">>, Branches),
     LlmLoop = branch_by_type(<<"llm_loop">>, Branches),
-    ?assertEqual([<<"array">>, <<"null">>], property_type(<<"args">>, CallSkill)),
-    ?assertEqual([<<"array">>, <<"null">>], property_type(<<"input">>, LlmLoop)).
+    ?assertEqual(<<"array">>, property_type(<<"args">>, CallSkill)),
+    ?assertEqual(<<"array">>, property_type(<<"input">>, LlmLoop)).
 
 empty_object() ->
     #{
@@ -191,10 +190,16 @@ contains_property(_Name, _Value) ->
 
 branch_by_type(Type, Branches) ->
     hd([
-        Branch
+        maps:get(hd(maps:get(<<"required">>, Branch)), maps:get(<<"properties">>, Branch))
      || Branch <- Branches,
-        [Type] =:= maps:get(<<"enum">>, maps:get(<<"type">>, maps:get(<<"properties">>, Branch)))
+        Type =:= branch_type(Branch)
     ]).
+
+branch_type(Branch) ->
+    WrapperName = hd(maps:get(<<"required">>, Branch)),
+    Wrapped = maps:get(WrapperName, maps:get(<<"properties">>, Branch)),
+    [Type] = maps:get(<<"enum">>, maps:get(<<"type">>, maps:get(<<"properties">>, Wrapped))),
+    Type.
 
 property_schema(Name, Schema) ->
     maps:get(Name, maps:get(<<"properties">>, Schema)).

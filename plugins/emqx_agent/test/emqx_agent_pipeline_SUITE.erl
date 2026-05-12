@@ -86,7 +86,7 @@ t_call_skill_completes(Config) ->
     Step = #{
         <<"id">> => <<"notify">>,
         <<"type">> => <<"call_skill">>,
-        <<"skill">> => <<"message.publish@", SkillId/binary>>,
+        <<"skill">> => <<"message__publish@", SkillId/binary>>,
         <<"args">> => #{
             <<"topic">> => <<"output">>,
             <<"payload">> => <<"hello">>
@@ -119,14 +119,14 @@ t_multi_step_pipeline(Config) ->
         #{
             <<"id">> => <<"step1">>,
             <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message.publish@", SkillId/binary>>,
+            <<"skill">> => <<"message__publish@", SkillId/binary>>,
             <<"args">> => #{<<"topic">> => <<"s1">>, <<"payload">> => <<"p1">>},
             <<"result_path">> => <<"$.step1">>
         },
         #{
             <<"id">> => <<"step2">>,
             <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message.publish@", SkillId/binary>>,
+            <<"skill">> => <<"message__publish@", SkillId/binary>>,
             <<"args">> => #{<<"topic">> => <<"s2">>, <<"payload">> => <<"p2">>},
             <<"result_path">> => <<"$.step2">>
         }
@@ -152,7 +152,7 @@ t_wait_for_event(Config) ->
         #{
             <<"id">> => <<"step1">>,
             <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message.publish@", SkillId/binary>>,
+            <<"skill">> => <<"message__publish@", SkillId/binary>>,
             <<"args">> => #{<<"topic">> => <<"pre">>, <<"payload">> => <<"before">>},
             <<"result_path">> => <<"$.pre">>
         },
@@ -165,7 +165,7 @@ t_wait_for_event(Config) ->
         #{
             <<"id">> => <<"step3">>,
             <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message.publish@", SkillId/binary>>,
+            <<"skill">> => <<"message__publish@", SkillId/binary>>,
             <<"args">> => #{<<"topic">> => <<"post">>, <<"payload">> => <<"after">>},
             <<"result_path">> => <<"$.post">>
         }
@@ -226,7 +226,7 @@ t_context_propagation(Config) ->
         #{
             <<"id">> => <<"echo">>,
             <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message.publish@", SkillId/binary>>,
+            <<"skill">> => <<"message__publish@", SkillId/binary>>,
             %% Resolve $.event (a map) — it becomes the args value.
             %% Only the <<"topic">> and <<"payload">> keys are used by the skill;
             %% we supply them as literals here.
@@ -264,7 +264,7 @@ t_break_stops_pipeline_when_true(Config) ->
         #{
             <<"id">> => <<"should_not_run">>,
             <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message.publish@", SkillId/binary>>,
+            <<"skill">> => <<"message__publish@", SkillId/binary>>,
             <<"args">> => #{<<"topic">> => <<"post-break">>, <<"payload">> => <<"x">>},
             <<"result_path">> => <<"$.post">>
         }
@@ -293,7 +293,7 @@ t_break_with_not_stops_pipeline_when_not_true(Config) ->
         #{
             <<"id">> => <<"should_not_run">>,
             <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message.publish@", SkillId/binary>>,
+            <<"skill">> => <<"message__publish@", SkillId/binary>>,
             <<"args">> => #{<<"topic">> => <<"post-break-not">>, <<"payload">> => <<"x">>},
             <<"result_path">> => <<"$.post">>
         }
@@ -341,7 +341,7 @@ t_done_restarts_on_message(Config) ->
         #{
             <<"id">> => <<"s">>,
             <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message.publish@", SkillId/binary>>,
+            <<"skill">> => <<"message__publish@", SkillId/binary>>,
             <<"args">> => #{<<"topic">> => <<"r">>, <<"payload">> => <<"x">>},
             <<"result_path">> => <<"$.r">>
         }
@@ -373,11 +373,11 @@ t_context_flows_between_steps(Config) ->
     setup_publish_skill(SkillId),
     Steps = [
         %% Step 1 — publishes to "first" and stores the skill reply at $.lookup.
-        %% The reply from message.publish is #{status => ok, topic => "test/first"}.
+        %% The reply from message__publish is #{status => ok, topic => "test/first"}.
         #{
             <<"id">> => <<"step1">>,
             <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message.publish@", SkillId/binary>>,
+            <<"skill">> => <<"message__publish@", SkillId/binary>>,
             <<"args">> => #{
                 <<"topic">> => <<"first">>,
                 <<"payload">> => <<"ping">>
@@ -389,7 +389,7 @@ t_context_flows_between_steps(Config) ->
         #{
             <<"id">> => <<"step2">>,
             <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message.publish@", SkillId/binary>>,
+            <<"skill">> => <<"message__publish@", SkillId/binary>>,
             <<"args">> => #{
                 <<"topic">> => <<"second">>,
                 <<"payload">> => <<"$.lookup.result.topic">>

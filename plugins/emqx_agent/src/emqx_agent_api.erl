@@ -14,13 +14,13 @@
 %%   /agent/pipelines/:id            — get / update / delete a pipeline
 %%
 %% Skill types accepted on POST:
-%%   message.publish  — MQTT publish capability scoped to a topic prefix
-%%   message.request  — MQTT request/reply capability scoped to a topic prefix
+%%   message__publish  — MQTT publish capability scoped to a topic prefix
+%%   message__request  — MQTT request/reply capability scoped to a topic prefix
 %%   http             — HTTP call capability
-%%   postgresql.query — PostgreSQL query
+%%   postgresql__query — PostgreSQL query
 %%
 %% For GET/DELETE, use the actual registry type in the :type URL segment
-%% (message.publish, message.request, http, postgresql.query).
+%% (message__publish, message__request, http, postgresql__query).
 
 -module(emqx_agent_api).
 
@@ -205,7 +205,7 @@ no_cache_headers(ContentType) ->
             ?CONFLICT(<<"Skill already exists">>);
         {error, unknown_type} ->
             ?BAD_REQUEST(
-                <<"Unknown skill type. Valid types: message.publish, message.request, http, postgresql.query">>
+                <<"Unknown skill type. Valid types: message__publish, message__request, http, postgresql__query">>
             );
         {error, Reason} ->
             ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))

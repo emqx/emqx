@@ -19,8 +19,11 @@ enforced by the local value validator.
 """.
 
 -export([
+    json_schema_from_string/2,
     validate_schema/1,
-    validate_schema/2
+    validate_schema/2,
+    validate_oai_schema/1,
+    validate_oai_schema_field/1
 ]).
 
 -define(DEFAULT_MAX_DEPTH, 10).
@@ -34,6 +37,39 @@ enforced by the local value validator.
     _ => _
 }.
 -type validation_result() :: ok | {error, [validation_error()]}.
+
+-spec json_schema_from_string(undefined | binary() | map(), term()) -> undefined | map().
+json_schema_from_string(undefined, _Opts) ->
+    undefined;
+json_schema_from_string(Str, _Opts) when is_binary(Str) ->
+    case emqx_utils_json:safe_decode(Str) of
+        {ok, Map} when is_map(Map) ->
+            Map;
+        {ok, _} ->
+            throw({invalid_json_schema, "JSON schema must decode to an object"});
+        {error, Reason} ->
+            throw({invalid_json, Reason})
+    end;
+json_schema_from_string(Map, _Opts) when is_map(Map) ->
+    Map.
+
+-spec validate_oai_schema(undefined | map()) -> ok | {error, binary()}.
+validate_oai_schema(undefined) ->
+    ok;
+validate_oai_schema(Schema) when is_map(Schema) ->
+    case validate_schema(Schema, root) of
+        ok -> ok;
+        {error, Errors} -> {error, format_schema_errors(Errors)}
+    end.
+
+-spec validate_oai_schema_field(undefined | map()) -> ok | {error, binary()}.
+validate_oai_schema_field(undefined) ->
+    ok;
+validate_oai_schema_field(Schema) when is_map(Schema) ->
+    case validate_schema(Schema, field) of
+        ok -> ok;
+        {error, Errors} -> {error, format_schema_errors(Errors)}
+    end.
 
 -doc """
 Validates a root schema suitable for a complete function `parameters` schema.
@@ -342,3 +378,23 @@ anyof_list(_) -> [].
 
 err(Code, Path, Extra) ->
     maps:merge(#{error => Code, path => Path}, Extra).
+
+format_schema_errors(Errors) ->
+    iolist_to_binary([
+        "Invalid JSON Schema: ",
+        lists:join("; ", [format_schema_error(E) || E <- Errors])
+    ]).
+
+format_schema_error(#{error := Code, path := Path} = E) ->
+    Extra = maps:without([error, path], E),
+    Base = io_lib:format("~s at ~s", [Code, path_to_binary(Path)]),
+    case maps:size(Extra) of
+        0 -> Base;
+        _ -> [Base, io_lib:format(" (~p)", [Extra])]
+    end.
+
+path_to_binary(Path) ->
+    iolist_to_binary(lists:join("/", [to_binary(P) || P <- Path])).
+
+to_binary(B) when is_binary(B) -> B;
+to_binary(I) when is_integer(I) -> integer_to_binary(I).

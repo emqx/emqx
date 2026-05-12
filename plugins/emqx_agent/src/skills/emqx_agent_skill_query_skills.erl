@@ -5,26 +5,26 @@
 %% Management skill: list or introspect registered skills.
 %%
 %% Args (all optional):
-%%   type — skill type filter, e.g. "message.publish"
+%%   type — skill type filter, e.g. "message__publish"
 %%   id   — skill instance id (requires type)
 %%
 %% No args → list all skills
 %% type only → list skills of that type
 %% type + id → get single skill
 %%
-%% Invoke topic:  cap/agent.query_skills/<skill_id>/request/<req_id>
-%% Reply  topic:  cap/agent.query_skills/<skill_id>/response/<req_id>
+%% Invoke topic:  cap/agent__query_skills/<skill_id>/request/<req_id>
+%% Reply  topic:  cap/agent__query_skills/<skill_id>/response/<req_id>
 
 -module(emqx_agent_skill_query_skills).
 
--define(SKILL_TYPE, <<"agent.query_skills">>).
+-define(SKILL_TYPE, <<"agent__query_skills">>).
 
 -define(INPUT_SCHEMA, #{
     <<"type">> => <<"object">>,
     <<"properties">> => #{
         <<"type">> => #{
             <<"type">> => <<"string">>,
-            <<"description">> => <<"Skill type filter, e.g. message.publish. Omit to list all.">>
+            <<"description">> => <<"Skill type filter, e.g. message__publish. Omit to list all.">>
         },
         <<"id">> => #{
             <<"type">> => <<"string">>,

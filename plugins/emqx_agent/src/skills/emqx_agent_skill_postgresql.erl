@@ -4,14 +4,14 @@
 
 %% PostgreSQL query skill.
 %%
-%% Invoke topic:  cap/postgresql.query/<id>/request/<req_id>
-%% Reply topic:   cap/postgresql.query/<id>/response/<req_id>
+%% Invoke topic:  cap/postgresql__query/<id>/request/<req_id>
+%% Reply topic:   cap/postgresql__query/<id>/response/<req_id>
 %%
 %% Skill instances differ by SQL query template, schemas, and selected connection.
 
 -module(emqx_agent_skill_postgresql).
 
--define(SKILL_TYPE, <<"postgresql.query">>).
+-define(SKILL_TYPE, <<"postgresql__query">>).
 
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, resource_id/1, handle_invoke/2]).
 

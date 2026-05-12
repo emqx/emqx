@@ -106,10 +106,10 @@ def main() -> int:
 
     print("==> Removing skills")
     for skill_type, skill_id in [
-        ("message.request",  SK_SHOT),
-        ("message.publish",  SK_ALERT),
-        ("message.publish",  SK_STATUS),
-        ("postgresql.query", SK_REGISTER),
+        ("message__request",  SK_SHOT),
+        ("message__publish",  SK_ALERT),
+        ("message__publish",  SK_STATUS),
+        ("postgresql__query", SK_REGISTER),
     ]:
         removed = api_delete(f"/skills/{skill_type}/{skill_id}")
         print(f"  skill {skill_id!r}: {'removed' if removed else 'not found'}")

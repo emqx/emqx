@@ -162,13 +162,13 @@ def create_ai_providers() -> None:
 
 def create_skills() -> None:
     meta_skills = [
-        ("agent.create_skill",    SK_CREATE_SKILL),
-        ("agent.create_pipeline", SK_CREATE_PIPELINE),
-        ("agent.query_skills",    SK_QUERY_SKILLS),
-        ("agent.query_providers", SK_QUERY_PROVIDERS),
-        ("agent.query_pipelines", SK_QUERY_PIPELINES),
-        ("agent.delete_skill",    SK_DELETE_SKILL),
-        ("agent.delete_pipeline", SK_DELETE_PIPELINE),
+        ("agent__create_skill",    SK_CREATE_SKILL),
+        ("agent__create_pipeline", SK_CREATE_PIPELINE),
+        ("agent__query_skills",    SK_QUERY_SKILLS),
+        ("agent__query_providers", SK_QUERY_PROVIDERS),
+        ("agent__query_pipelines", SK_QUERY_PIPELINES),
+        ("agent__delete_skill",    SK_DELETE_SKILL),
+        ("agent__delete_pipeline", SK_DELETE_PIPELINE),
     ]
     for skill_type, skill_id in meta_skills:
         api_request("POST", "/skills", {"type": skill_type, "id": skill_id})
@@ -178,13 +178,13 @@ def create_skills() -> None:
         "POST",
         "/skills",
         {
-            "type": "message.publish",
+            "type": "message__publish",
             "id": SK_REPLY,
             "desc": "Send a reply from the pipeline builder back to the chat UI",
             "topic_prefix": "builder/reply/",
         },
     )
-    print(f"  skill message.publish@{SK_REPLY!r} created")
+    print(f"  skill message__publish@{SK_REPLY!r} created")
 
 
 # ── Builder prompt ─────────────────────────────────────────────────────────────
@@ -202,7 +202,7 @@ CORE CONCEPTS
 
 SKILLS are named capability instances registered in the skill registry.
 Each skill has a TYPE (what it does) and an ID (its name within that type).
-Skills are referenced in pipeline steps as "type@id", e.g. "message.publish@my-notifier".
+Skills are referenced in pipeline steps as "type@id", e.g. "message__publish@my-notifier".
 
 An AI PROVIDER holds LLM credentials.
 It is referenced by provider_name inside an llm_loop step.
@@ -232,11 +232,11 @@ Building a working pipeline requires these steps:
 SKILL TYPES
 ═══════════════════════════════════════════════════════
 
-  message.publish   Publish to an MQTT topic.
+  message__publish   Publish to an MQTT topic.
                     Required: id, desc, topic_prefix
                     The LLM supplies "topic" (appended to prefix) and "payload".
 
-  message.request   MQTT request/reply — publishes with a Response-Topic header
+  message__request   MQTT request/reply — publishes with a Response-Topic header
                     and blocks until a reply arrives.
                     Required: id, desc, topic_prefix
                     Optional: request_payload_schema
@@ -246,7 +246,7 @@ SKILL TYPES
                               input_schema
                     Optional: headers (static map)
 
-  postgresql.query  Execute a parameterised SQL query.
+  postgresql__query  Execute a parameterised SQL query.
                     Required: id, desc, query (use $1 $2 … placeholders),
                               arg_keys (ordered list mapping args -> $N),
                               input_schema
@@ -262,7 +262,7 @@ values starting with "$." are resolved from the pipeline context at runtime.
 The skill result is written to result_path.
 
   {"id": "notify", "type": "call_skill",
-   "skill": "message.publish@my-notifier",
+   "skill": "message__publish@my-notifier",
    "args": {"topic": "$.event.device_id", "payload": "$.analysis"},
    "result_path": "$.notify_result"}
 
@@ -277,7 +277,7 @@ The LLM receives the "input" map as its first user message, then calls tools
     "model": "gpt-5.4-mini",
    "instructions": "You are a quality inspector. Examine the photo and return a verdict.",
    "stop_on_finish": true,
-   "tools": ["message.request@box-camera", "message.publish@box-alert"],
+   "tools": ["message__request@box-camera", "message__publish@box-alert"],
    "input": {"box_id": "$.event.box_id", "conveyor": "$.event.conveyor_id"},
    "set_result_schema": {
      "type": "object",
@@ -382,14 +382,14 @@ def create_pipeline() -> None:
                     "instructions": SYSTEM_PROMPT,
                     "stop_on_finish": False,
                     "tools": [
-                        f"agent.create_skill@{SK_CREATE_SKILL}",
-                        f"agent.create_pipeline@{SK_CREATE_PIPELINE}",
-                        f"agent.query_skills@{SK_QUERY_SKILLS}",
-                        f"agent.query_providers@{SK_QUERY_PROVIDERS}",
-                        f"agent.query_pipelines@{SK_QUERY_PIPELINES}",
-                        f"agent.delete_skill@{SK_DELETE_SKILL}",
-                        f"agent.delete_pipeline@{SK_DELETE_PIPELINE}",
-                        f"message.publish@{SK_REPLY}",
+                        f"agent__create_skill@{SK_CREATE_SKILL}",
+                        f"agent__create_pipeline@{SK_CREATE_PIPELINE}",
+                        f"agent__query_skills@{SK_QUERY_SKILLS}",
+                        f"agent__query_providers@{SK_QUERY_PROVIDERS}",
+                        f"agent__query_pipelines@{SK_QUERY_PIPELINES}",
+                        f"agent__delete_skill@{SK_DELETE_SKILL}",
+                        f"agent__delete_pipeline@{SK_DELETE_PIPELINE}",
+                        f"message__publish@{SK_REPLY}",
                     ],
                     "set_result_schema": {
                         "type": "object",

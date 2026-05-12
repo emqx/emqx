@@ -129,7 +129,7 @@ connection_stop(ConnectionId) ->
 connection_statuses() ->
     maps:from_list([
         {ConnectionId, emqx_agent_skill_connections:status(Conn)}
-     || #{id := ConnectionId} = Conn <-
+     || #{<<"id">> := ConnectionId} = Conn <-
             emqx_agent_config:parsed_config([connections], [])
     ]).
 
@@ -195,9 +195,10 @@ skill_ref_in_step(_Ref, _Step) ->
 
 skills_using_connection(ConnectionId) ->
     [
-        maps:get(<<"id">>, S)
-     || #{<<"type">> := <<"postgresql.query">>, <<"resource">> := ConnectionId0} = S <-
-            emqx_agent_config:list_skills(),
+        maps:get(<<"id">>, Skill)
+     || S <- emqx_agent_config:list_skills(),
+        Skill <- [unwrap_union(S)],
+        #{<<"type">> := <<"postgresql__query">>, <<"resource">> := ConnectionId0} <- [Skill],
         ConnectionId0 =:= ConnectionId
     ].
 
@@ -223,8 +224,28 @@ update_connection_enable(ConnectionId, Enable) ->
     case emqx_agent_config:lookup_connection(ConnectionId) of
         {ok, Conn0} ->
             reconcile_connections_after(
-                emqx_agent_config:update_connection(ConnectionId, Conn0#{<<"enable">> => Enable})
+                emqx_agent_config:update_connection(
+                    ConnectionId, set_connection_enable(Conn0, Enable)
+                )
             );
         {error, _} = Error ->
             Error
     end.
+
+unwrap_union(Map) when is_map(Map), map_size(Map) =:= 1 ->
+    case maps:to_list(Map) of
+        [{Key, Value}] when is_binary(Key), is_map(Value) -> Value;
+        _ -> Map
+    end;
+unwrap_union(Value) ->
+    Value.
+
+set_connection_enable(Conn, Enable) when is_map(Conn), map_size(Conn) =:= 1 ->
+    case maps:to_list(Conn) of
+        [{Key, Value}] when is_binary(Key), is_map(Value) ->
+            #{Key => Value#{<<"enable">> => Enable}};
+        _ ->
+            Conn#{<<"enable">> => Enable}
+    end;
+set_connection_enable(Conn, Enable) ->
+    Conn#{<<"enable">> => Enable}.

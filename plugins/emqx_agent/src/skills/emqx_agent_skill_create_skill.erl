@@ -9,12 +9,12 @@
 %% The skill delegates to emqx_agent_service:skill_create/1 and returns
 %% a structured result so the LLM can detect and retry failures.
 %%
-%% Invoke topic:  cap/agent.create_skill/<skill_id>/request/<req_id>
-%% Reply  topic:  cap/agent.create_skill/<skill_id>/response/<req_id>
+%% Invoke topic:  cap/agent__create_skill/<skill_id>/request/<req_id>
+%% Reply  topic:  cap/agent__create_skill/<skill_id>/response/<req_id>
 
 -module(emqx_agent_skill_create_skill).
 
--define(SKILL_TYPE, <<"agent.create_skill">>).
+-define(SKILL_TYPE, <<"agent__create_skill">>).
 
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/2]).
 
@@ -38,7 +38,7 @@ create(#{skill_id := SkillId}) ->
         module => ?MODULE,
         display_name => <<"Create Skill">>,
         description =>
-            <<"Create or overwrite a skill (upsert). Types: message.publish, message.request, http, postgresql.query.">>,
+            <<"Create or overwrite a skill (upsert). Types: message__publish, message__request, http, postgresql__query.">>,
         context => #{skill_id => SkillId},
         input_schema => input_schema()
     }}.
@@ -75,6 +75,11 @@ handle_invoke(_Context, Request) ->
     end.
 
 input_schema() ->
-    emqx_agent_schema_oai_tool_converter:to_json_schema(
-        {object, [{definition, emqx_agent_schema:skill_create_type()}]}
-    ).
+    #{
+        <<"type">> => <<"object">>,
+        <<"properties">> => #{
+            <<"definition">> => emqx_agent_schema_oai_tool_converter:to_json_schema([skills, items])
+        },
+        <<"required">> => [<<"definition">>],
+        <<"additionalProperties">> => false
+    }.

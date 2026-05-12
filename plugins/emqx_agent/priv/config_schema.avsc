@@ -1,0 +1,202 @@
+{
+  "type": "record",
+  "name": "AgentConfig",
+  "fields": [
+    {
+      "name": "skills",
+      "type": {
+        "type": "array",
+        "items": [
+          {
+            "type": "record",
+            "name": "Message_Publish",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "Message_PublishType", "symbols": ["message__publish"]}, "default": "message__publish", "description": "$skill_type_desc"},
+              {"name": "id", "type": "string", "description": "$skill_id_desc"},
+              {"name": "desc", "type": "string", "description": "$skill_desc_desc"},
+              {"name": "topic_prefix", "type": "string", "description": "$skill_topic_prefix_desc"},
+              {"name": "payload_schema", "type": "string", "default": "", "description": "$skill_payload_schema_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "Message_Request",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "Message_RequestType", "symbols": ["message__request"]}, "default": "message__request", "description": "$skill_type_desc"},
+              {"name": "id", "type": "string", "description": "$skill_id_desc"},
+              {"name": "desc", "type": "string", "description": "$skill_desc_desc"},
+              {"name": "topic_prefix", "type": "string", "description": "$skill_topic_prefix_desc"},
+              {"name": "request_payload_schema", "type": "string", "default": "", "description": "$skill_request_payload_schema_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "Http",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "HttpType", "symbols": ["http"]}, "default": "http", "description": "$skill_type_desc"},
+              {"name": "id", "type": "string", "description": "$skill_id_desc"},
+              {"name": "desc", "type": "string", "description": "$skill_desc_desc"},
+              {"name": "method", "type": {"type": "enum", "name": "HttpMethod", "symbols": ["get", "post", "put", "patch", "delete"]}, "description": "$skill_http_method_desc"},
+              {"name": "url", "type": "string", "description": "$skill_http_url_desc"},
+              {"name": "headers", "type": {"type": "array", "items": {"type": "record", "name": "NameValueEntry", "fields": [{"name": "name", "type": "string", "description": "$name_value_name_desc"}, {"name": "value", "type": "string", "description": "$name_value_value_desc"}]}}, "default": [], "description": "$skill_http_headers_desc"},
+              {"name": "input_schema", "type": "string", "description": "$skill_input_schema_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "Postgresql_Query",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "Postgresql_QueryType", "symbols": ["postgresql__query"]}, "default": "postgresql__query", "description": "$skill_type_desc"},
+              {"name": "id", "type": "string", "description": "$skill_id_desc"},
+              {"name": "desc", "type": "string", "description": "$skill_desc_desc"},
+              {"name": "query", "type": "string", "description": "$skill_pg_query_desc"},
+              {"name": "resource", "type": "string", "description": "$skill_pg_resource_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "Agent_CreateSkill",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "Agent_CreateSkillType", "symbols": ["agent__create_skill"]}, "default": "agent__create_skill", "description": "$skill_type_desc"},
+              {"name": "id", "type": "string", "description": "$skill_id_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "Agent_CreatePipeline",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "Agent_CreatePipelineType", "symbols": ["agent__create_pipeline"]}, "default": "agent__create_pipeline", "description": "$skill_type_desc"},
+              {"name": "id", "type": "string", "description": "$skill_id_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "Agent_QuerySkills",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "Agent_QuerySkillsType", "symbols": ["agent__query_skills"]}, "default": "agent__query_skills", "description": "$skill_type_desc"},
+              {"name": "id", "type": "string", "description": "$skill_id_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "Agent_QueryProviders",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "Agent_QueryProvidersType", "symbols": ["agent__query_providers"]}, "default": "agent__query_providers", "description": "$skill_type_desc"},
+              {"name": "id", "type": "string", "description": "$skill_id_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "Agent_QueryPipelines",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "Agent_QueryPipelinesType", "symbols": ["agent__query_pipelines"]}, "default": "agent__query_pipelines", "description": "$skill_type_desc"},
+              {"name": "id", "type": "string", "description": "$skill_id_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "Agent_DeleteSkill",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "Agent_DeleteSkillType", "symbols": ["agent__delete_skill"]}, "default": "agent__delete_skill", "description": "$skill_type_desc"},
+              {"name": "id", "type": "string", "description": "$skill_id_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "Agent_DeletePipeline",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "Agent_DeletePipelineType", "symbols": ["agent__delete_pipeline"]}, "default": "agent__delete_pipeline", "description": "$skill_type_desc"},
+              {"name": "id", "type": "string", "description": "$skill_id_desc"}
+            ]
+          }
+        ]
+      },
+      "default": [],
+      "description": "$skills_desc"
+    },
+    {
+      "name": "connections",
+      "type": {
+        "type": "array",
+        "items": [
+          {
+            "type": "record",
+            "name": "ConnectionPostgresql",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "ConnectionPostgresqlType", "symbols": ["postgresql"]}, "default": "postgresql", "description": "$connection_type_desc"},
+              {"name": "id", "type": "string", "description": "$connection_id_desc"},
+              {"name": "enable", "type": "boolean", "default": false, "description": "$connection_enable_desc"},
+              {"name": "config", "type": {"type": "record", "name": "PostgresqlConnectionConfig", "fields": [
+                {"name": "server", "type": "string", "description": "$pg_server_desc"},
+                {"name": "database", "type": "string", "description": "$pg_database_desc"},
+                {"name": "username", "type": "string", "description": "$pg_username_desc"},
+                {"name": "password", "type": "string", "default": "", "description": "$pg_password_desc"},
+                {"name": "pool_size", "type": "int", "default": 8, "description": "$pg_pool_size_desc"},
+                {"name": "connect_timeout", "type": "int", "default": 15000, "description": "$pg_connect_timeout_desc"},
+                {"name": "disable_prepared_statements", "type": "boolean", "default": false, "description": "$pg_disable_prepared_statements_desc"},
+                {"name": "ssl", "type": {"type": "record", "name": "PostgresqlSSL", "fields": [
+                  {"name": "enable", "type": "boolean", "default": false, "description": "$ssl_enable_desc"},
+                  {"name": "server_name_indication", "type": "string", "default": "disable", "description": "$ssl_sni_desc"},
+                  {"name": "verify", "type": "string", "default": "verify_none", "description": "$ssl_verify_desc"},
+                  {"name": "cacertfile", "type": "string", "default": "", "description": "$ssl_cacertfile_desc"},
+                  {"name": "certfile", "type": "string", "default": "", "description": "$ssl_certfile_desc"},
+                  {"name": "keyfile", "type": "string", "default": "", "description": "$ssl_keyfile_desc"}
+                ]}, "default": {"enable": false, "server_name_indication": "disable", "verify": "verify_none", "cacertfile": "", "certfile": "", "keyfile": ""}, "description": "$ssl_desc"}
+              ]}, "description": "$connection_config_desc"}
+            ]
+          }
+        ]
+      },
+      "default": [],
+      "description": "$connections_desc"
+    },
+    {
+      "name": "pipelines",
+      "type": {"type": "array", "items": {"type": "record", "name": "Pipeline", "fields": [
+        {"name": "pipeline_id", "type": "string", "description": "$pipeline_id_desc"},
+        {"name": "active", "type": "boolean", "default": true, "description": "$pipeline_active_desc"},
+        {"name": "trigger", "type": {"type": "record", "name": "PipelineTrigger", "fields": [
+          {"name": "topic", "type": "string", "description": "$pipeline_trigger_topic_desc"}
+        ]}, "description": "$pipeline_trigger_desc"},
+        {"name": "steps", "type": {"type": "array", "items": [
+          {"type": "record", "name": "PipelineStepCallSkill", "fields": [
+            {"name": "id", "type": "string", "description": "$pipeline_step_id_desc"},
+            {"name": "type", "type": {"type": "enum", "name": "PipelineStepCallSkillType", "symbols": ["call_skill"]}, "default": "call_skill", "description": "$pipeline_step_type_desc"},
+            {"name": "skill", "type": "string", "description": "$pipeline_step_skill_desc"},
+            {"name": "args", "type": {"type": "array", "items": "NameValueEntry"}, "default": [], "description": "$pipeline_step_args_desc"},
+            {"name": "result_path", "type": "string", "default": "", "description": "$pipeline_step_result_path_desc"}
+          ]},
+          {"type": "record", "name": "PipelineStepLlmLoop", "fields": [
+            {"name": "id", "type": "string", "description": "$pipeline_step_id_desc"},
+            {"name": "type", "type": {"type": "enum", "name": "PipelineStepLlmLoopType", "symbols": ["llm_loop"]}, "default": "llm_loop", "description": "$pipeline_step_type_desc"},
+            {"name": "provider_name", "type": "string", "description": "$pipeline_step_provider_name_desc"},
+            {"name": "model", "type": "string", "description": "$pipeline_step_model_desc"},
+            {"name": "stop_on_finish", "type": "boolean", "default": true, "description": "$pipeline_step_stop_on_finish_desc"},
+            {"name": "max_tokens", "type": "int", "default": 2048, "description": "$pipeline_step_max_tokens_desc"},
+            {"name": "tools", "type": {"type": "array", "items": "string"}, "default": [], "description": "$pipeline_step_tools_desc"},
+            {"name": "instructions", "type": "string", "description": "$pipeline_step_instructions_desc"},
+            {"name": "input", "type": {"type": "array", "items": "NameValueEntry"}, "default": [], "description": "$pipeline_step_input_desc"},
+            {"name": "set_result_schema", "type": "string", "description": "$pipeline_step_set_result_schema_desc"},
+            {"name": "result_path", "type": "string", "description": "$pipeline_step_result_path_desc"}
+          ]},
+          {"type": "record", "name": "PipelineStepWaitForEvent", "fields": [
+            {"name": "id", "type": "string", "description": "$pipeline_step_id_desc"},
+            {"name": "type", "type": {"type": "enum", "name": "PipelineStepWaitForEventType", "symbols": ["wait_for_event"]}, "default": "wait_for_event", "description": "$pipeline_step_type_desc"},
+            {"name": "topic", "type": "string", "description": "$pipeline_step_topic_desc"},
+            {"name": "where", "type": "string", "default": "", "description": "$pipeline_step_where_desc"},
+            {"name": "result_path", "type": "string", "default": "", "description": "$pipeline_step_result_path_desc"}
+          ]},
+          {"type": "record", "name": "PipelineStepBreak", "fields": [
+            {"name": "id", "type": "string", "description": "$pipeline_step_id_desc"},
+            {"name": "type", "type": {"type": "enum", "name": "PipelineStepBreakType", "symbols": ["break"]}, "default": "break", "description": "$pipeline_step_type_desc"},
+            {"name": "path", "type": "string", "description": "$pipeline_step_path_desc"},
+            {"name": "not", "type": "boolean", "default": false, "description": "$pipeline_step_not_desc"},
+            {"name": "eq", "type": "string", "default": "true", "description": "$pipeline_step_eq_desc"}
+          ]}
+        ]}, "default": [], "description": "$pipeline_steps_desc"}
+      ]}},
+      "default": [],
+      "description": "$pipelines_desc"
+    }
+  ]
+}

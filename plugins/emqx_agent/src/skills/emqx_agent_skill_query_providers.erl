@@ -6,7 +6,7 @@
 
 -module(emqx_agent_skill_query_providers).
 
--define(SKILL_TYPE, <<"agent.query_providers">>).
+-define(SKILL_TYPE, <<"agent__query_providers">>).
 
 -define(INPUT_SCHEMA, #{
     <<"type">> => <<"object">>,

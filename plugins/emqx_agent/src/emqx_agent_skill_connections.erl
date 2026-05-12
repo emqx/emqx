@@ -45,9 +45,9 @@ resource_id(ConnectionId) ->
     <<?RESOURCE_PREFIX, ConnectionId/binary>>.
 
 -spec status(map()) -> map().
-status(#{id := _ConnectionId, enable := false}) ->
+status(#{<<"id">> := _ConnectionId, <<"enable">> := false}) ->
     status_map(stopped, null);
-status(#{id := ConnectionId}) ->
+status(#{<<"id">> := ConnectionId}) ->
     ResourceId = resource_id(ConnectionId),
     case emqx_resource:get_instance(ResourceId) of
         {ok, ?RESOURCE_GROUP, #{status := Status, error := Error}} ->
@@ -65,7 +65,7 @@ status(#{id := ConnectionId}) ->
 enabled_connections(Connections) ->
     maps:from_list([
         {ConnectionId, Conn}
-     || #{id := ConnectionId, enable := true} = Conn <- Connections
+     || #{<<"id">> := ConnectionId, <<"enable">> := true} = Conn <- Connections
     ]).
 
 agent_resource_ids() ->
@@ -175,13 +175,14 @@ resource_opts() ->
         start_after_created => true
     }.
 
-connector_module(#{type := ?TYPE_POSTGRESQL}) ->
+connector_module(#{<<"type">> := <<"postgresql">>}) ->
     {ok, emqx_agent_skill_postgresql_connector};
 connector_module(Conn) ->
     {error, {unsupported_type, maps:get(type, Conn, undefined)}}.
 
-resource_config(#{config := Config}) ->
-    Config.
+resource_config(Conn) ->
+    {ok, ConnectorMod} = connector_module(Conn),
+    ConnectorMod:resource_config(Conn).
 
 status_map(Status, Error) ->
     #{

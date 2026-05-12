@@ -7,12 +7,12 @@
 %% Args (all optional):
 %%   id — pipeline id. Omit to list all pipelines.
 %%
-%% Invoke topic:  cap/agent.query_pipelines/<skill_id>/request/<req_id>
-%% Reply  topic:  cap/agent.query_pipelines/<skill_id>/response/<req_id>
+%% Invoke topic:  cap/agent__query_pipelines/<skill_id>/request/<req_id>
+%% Reply  topic:  cap/agent__query_pipelines/<skill_id>/response/<req_id>
 
 -module(emqx_agent_skill_query_pipelines).
 
--define(SKILL_TYPE, <<"agent.query_pipelines">>).
+-define(SKILL_TYPE, <<"agent__query_pipelines">>).
 
 -define(INPUT_SCHEMA, #{
     <<"type">> => <<"object">>,

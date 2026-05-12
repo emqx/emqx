@@ -3,8 +3,8 @@ export function esc(s) {
 }
 
 export function typeClass(t) {
-  if (t === 'message.publish')  return 'publish';
-  if (t === 'message.request')  return 'request';
+  if (t === 'message__publish')  return 'publish';
+  if (t === 'message__request')  return 'request';
   if (t === 'http')              return 'http';
   if (t?.startsWith('postgresql')) return 'ch';
   return '';

@@ -3,8 +3,8 @@
 %%--------------------------------------------------------------------
 
 %% Smoke tests for the management meta-skills:
-%%   agent.create_skill    — emqx_agent_skill_create_skill
-%%   agent.create_pipeline — emqx_agent_skill_create_pipeline
+%%   agent__create_skill    — emqx_agent_skill_create_skill
+%%   agent__create_pipeline — emqx_agent_skill_create_pipeline
 %%
 %% Each group covers: registration, destruction, successful invocation,
 %% error cases, and reply correlation forwarding.
@@ -43,10 +43,10 @@ end_per_suite(Config) ->
 init_per_testcase(_TestCase, Config) ->
     ok = emqx_agent_plugin_config_fixture:setup(),
     ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"agent.create_skill">>, <<"id">> => ?SK_SKILL_ID
+        <<"type">> => <<"agent__create_skill">>, <<"id">> => ?SK_SKILL_ID
     }),
     ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"agent.create_pipeline">>, <<"id">> => ?SK_PIPELINE_ID
+        <<"type">> => <<"agent__create_pipeline">>, <<"id">> => ?SK_PIPELINE_ID
     }),
     Config.
 
@@ -56,19 +56,19 @@ end_per_testcase(_TestCase, _Config) ->
     ok = emqx_agent_plugin_config_fixture:teardown().
 
 %%--------------------------------------------------------------------
-%% agent.create_skill
+%% agent__create_skill
 %%--------------------------------------------------------------------
 
 t_create_skill_registers(_Config) ->
-    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"agent.create_skill">>, ?SK_SKILL_ID),
-    ?assertMatch(#{type := <<"agent.create_skill">>}, Skill),
+    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"agent__create_skill">>, ?SK_SKILL_ID),
+    ?assertMatch(#{type := <<"agent__create_skill">>}, Skill),
     ?assertEqual(?SK_SKILL_ID, maps:get(skill_id, Skill)).
 
 t_create_skill_destroy(_Config) ->
-    ok = emqx_agent_service:skill_delete(<<"agent.create_skill">>, ?SK_SKILL_ID),
+    ok = emqx_agent_service:skill_delete(<<"agent__create_skill">>, ?SK_SKILL_ID),
     ?assertEqual(
         {error, not_found},
-        emqx_agent_skill_registry:lookup(<<"agent.create_skill">>, ?SK_SKILL_ID)
+        emqx_agent_skill_registry:lookup(<<"agent__create_skill">>, ?SK_SKILL_ID)
     ).
 
 t_create_skill_invoke_message_publish(_Config) ->
@@ -76,11 +76,11 @@ t_create_skill_invoke_message_publish(_Config) ->
     ok = emqx:subscribe(reply_topic(ReqId)),
 
     invoke(
-        <<"agent.create_skill">>,
+        <<"agent__create_skill">>,
         ?SK_SKILL_ID,
         #{
             <<"definition">> => #{
-                <<"type">> => <<"message.publish">>,
+                <<"type">> => <<"message__publish">>,
                 <<"id">> => <<"dyn-pub">>,
                 <<"desc">> => <<"Dynamic publish">>,
                 <<"topic_prefix">> => <<"dyn/pub/">>
@@ -95,14 +95,14 @@ t_create_skill_invoke_message_publish(_Config) ->
             <<"status">> := <<"ok">>,
             <<"result">> := #{
                 <<"skill_id">> := <<"dyn-pub">>,
-                <<"type">> := <<"message.publish">>
+                <<"type">> := <<"message__publish">>
             }
         },
         cap_response(Reply)
     ),
     ?assertMatch(
-        {ok, #{type := <<"message.publish">>}},
-        emqx_agent_skill_registry:lookup(<<"message.publish">>, <<"dyn-pub">>)
+        {ok, #{type := <<"message__publish">>}},
+        emqx_agent_skill_registry:lookup(<<"message__publish">>, <<"dyn-pub">>)
     ),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
@@ -111,7 +111,7 @@ t_create_skill_invoke_http(_Config) ->
     ok = emqx:subscribe(reply_topic(ReqId)),
 
     invoke(
-        <<"agent.create_skill">>,
+        <<"agent__create_skill">>,
         ?SK_SKILL_ID,
         #{
             <<"definition">> => #{
@@ -142,7 +142,7 @@ t_create_skill_invoke_unknown_type(_Config) ->
     ok = emqx:subscribe(reply_topic(ReqId)),
 
     invoke(
-        <<"agent.create_skill">>,
+        <<"agent__create_skill">>,
         ?SK_SKILL_ID,
         #{
             <<"type">> => <<"no_such_type">>,
@@ -162,12 +162,12 @@ t_create_skill_invoke_missing_required_field(_Config) ->
     ReqId = <<"req-cs-miss">>,
     ok = emqx:subscribe(reply_topic(ReqId)),
 
-    %% message.publish requires topic_prefix
+    %% message__publish requires topic_prefix
     invoke(
-        <<"agent.create_skill">>,
+        <<"agent__create_skill">>,
         ?SK_SKILL_ID,
         #{
-            <<"type">> => <<"message.publish">>,
+            <<"type">> => <<"message__publish">>,
             <<"id">> => <<"x">>,
             <<"desc">> => <<"x">>
         },
@@ -183,10 +183,10 @@ t_create_skill_reply_correlation(_Config) ->
     ok = emqx:subscribe(reply_topic(ReqId)),
 
     invoke(
-        <<"agent.create_skill">>,
+        <<"agent__create_skill">>,
         ?SK_SKILL_ID,
         #{
-            <<"type">> => <<"message.publish">>,
+            <<"type">> => <<"message__publish">>,
             <<"id">> => <<"corr-pub">>,
             <<"desc">> => <<"x">>,
             <<"topic_prefix">> => <<"x/">>
@@ -212,19 +212,19 @@ t_create_skill_reply_correlation(_Config) ->
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
 %%--------------------------------------------------------------------
-%% agent.create_pipeline
+%% agent__create_pipeline
 %%--------------------------------------------------------------------
 
 t_create_pipeline_registers(_Config) ->
-    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"agent.create_pipeline">>, ?SK_PIPELINE_ID),
-    ?assertMatch(#{type := <<"agent.create_pipeline">>}, Skill),
+    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"agent__create_pipeline">>, ?SK_PIPELINE_ID),
+    ?assertMatch(#{type := <<"agent__create_pipeline">>}, Skill),
     ?assertEqual(?SK_PIPELINE_ID, maps:get(skill_id, Skill)).
 
 t_create_pipeline_destroy(_Config) ->
-    ok = emqx_agent_service:skill_delete(<<"agent.create_pipeline">>, ?SK_PIPELINE_ID),
+    ok = emqx_agent_service:skill_delete(<<"agent__create_pipeline">>, ?SK_PIPELINE_ID),
     ?assertEqual(
         {error, not_found},
-        emqx_agent_skill_registry:lookup(<<"agent.create_pipeline">>, ?SK_PIPELINE_ID)
+        emqx_agent_skill_registry:lookup(<<"agent__create_pipeline">>, ?SK_PIPELINE_ID)
     ).
 
 t_create_pipeline_invoke_creates_pipeline(_Config) ->
@@ -232,7 +232,7 @@ t_create_pipeline_invoke_creates_pipeline(_Config) ->
     ok = emqx:subscribe(reply_topic(ReqId)),
 
     invoke(
-        <<"agent.create_pipeline">>,
+        <<"agent__create_pipeline">>,
         ?SK_PIPELINE_ID,
         #{
             <<"pipeline_id">> => <<"dyn-pipeline">>,
@@ -241,7 +241,7 @@ t_create_pipeline_invoke_creates_pipeline(_Config) ->
                 #{
                     <<"id">> => <<"s1">>,
                     <<"type">> => <<"call_skill">>,
-                    <<"skill">> => <<"message.publish@some-pub">>,
+                    <<"skill">> => <<"message__publish@some-pub">>,
                     <<"args">> => #{<<"topic">> => <<"out">>, <<"payload">> => <<"hi">>}
                 }
             ]
@@ -272,7 +272,7 @@ t_create_pipeline_enforces_active_false(_Config) ->
     ok = emqx:subscribe(reply_topic(ReqId)),
 
     invoke(
-        <<"agent.create_pipeline">>,
+        <<"agent__create_pipeline">>,
         ?SK_PIPELINE_ID,
         #{
             <<"pipeline_id">> => <<"forced-active">>,
@@ -297,7 +297,7 @@ t_create_pipeline_invoke_missing_pipeline_id(_Config) ->
     ok = emqx:subscribe(reply_topic(ReqId)),
 
     invoke(
-        <<"agent.create_pipeline">>,
+        <<"agent__create_pipeline">>,
         ?SK_PIPELINE_ID,
         #{
             <<"trigger">> => #{<<"topic">> => <<"evt/x">>},
@@ -318,7 +318,7 @@ t_create_pipeline_reply_correlation(_Config) ->
     ok = emqx:subscribe(reply_topic(ReqId)),
 
     invoke(
-        <<"agent.create_pipeline">>,
+        <<"agent__create_pipeline">>,
         ?SK_PIPELINE_ID,
         #{
             <<"pipeline_id">> => <<"corr-pipeline">>,

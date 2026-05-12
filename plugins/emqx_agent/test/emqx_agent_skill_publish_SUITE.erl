@@ -38,13 +38,13 @@ end_per_testcase(_TestCase, _Config) ->
 
 %% create/1 builds a runtime skill under the expected type.
 t_create_returns_skill(_Config) ->
-    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message.publish">>, ?SKILL_ID),
-    ?assertMatch(#{type := <<"message.publish">>}, Skill),
+    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message__publish">>, ?SKILL_ID),
+    ?assertMatch(#{type := <<"message__publish">>}, Skill),
     ?assertEqual(?SKILL_ID, maps:get(skill_id, Skill)).
 
 %% destroy/1 accepts the full runtime skill.
 t_destroy_accepts_runtime_skill(_Config) ->
-    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message.publish">>, ?SKILL_ID),
+    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message__publish">>, ?SKILL_ID),
     ?assertEqual(ok, emqx_agent_skill_publish:destroy(Skill)).
 
 t_custom_payload_schema_is_stored(_Config) ->
@@ -62,7 +62,7 @@ t_custom_payload_schema_is_stored(_Config) ->
         <<"required">> => [<<"command">>]
     },
     ok = register_skill(maps:put(payload_schema, CustomPayloadSchema, test_context())),
-    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message.publish">>, ?SKILL_ID),
+    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message__publish">>, ?SKILL_ID),
     #{context := Context, input_schema := InputSchema} = Skill,
     ?assertMatch(#{payload_schema := CustomPayloadSchema}, Context),
     Props = maps:get(<<"properties">>, InputSchema),
@@ -218,7 +218,7 @@ invoke(SkillId, Args, ReqId) ->
     invoke(SkillId, Args, ReqId, #{}).
 
 invoke(SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/message.publish/", SkillId/binary, "/request/", ReqId/binary>>,
+    Topic = <<"cap/message__publish/", SkillId/binary, "/request/", ReqId/binary>>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{
@@ -234,7 +234,7 @@ invoke(SkillId, Args, ReqId, Extra) ->
     ok.
 
 reply_topic(SkillId, ReqId) ->
-    <<"cap/message.publish/", SkillId/binary, "/response/", ReqId/binary>>.
+    <<"cap/message__publish/", SkillId/binary, "/response/", ReqId/binary>>.
 
 await_deliver(Topic) ->
     receive

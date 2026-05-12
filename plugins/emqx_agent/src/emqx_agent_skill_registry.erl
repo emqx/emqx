@@ -170,7 +170,7 @@ do_reconcile() ->
 
 desired_skills() ->
     maps:from_list([
-        {{type_to_binary(maps:get(type, Skill)), maps:get(id, Skill)}, Skill}
+        {{maps:get(<<"type">>, Skill), maps:get(<<"id">>, Skill)}, Skill}
      || Skill <- emqx_agent_config:parsed_config([skills], [])
     ]).
 
@@ -208,8 +208,30 @@ resolve_type_safe(Type) ->
         throw:Reason -> {error, Reason}
     end.
 
-create_context(#{id := SkillId} = SkillConfig) ->
-    maps:put(skill_id, SkillId, maps:remove(id, SkillConfig)).
+create_context(#{<<"id">> := SkillId} = SkillConfig) ->
+    Runtime = maps:from_list([runtime_field(K, V) || {K, V} <- maps:to_list(SkillConfig)]),
+    maps:put(skill_id, SkillId, maps:remove(id, Runtime)).
+
+runtime_field(<<"type">>, V) -> {type, V};
+runtime_field(<<"id">>, V) -> {id, V};
+runtime_field(<<"desc">>, V) -> {desc, V};
+runtime_field(<<"topic_prefix">>, V) -> {topic_prefix, V};
+runtime_field(<<"payload_schema">>, <<>>) -> {payload_schema, undefined};
+runtime_field(<<"payload_schema">>, V) -> {payload_schema, decode_schema(V)};
+runtime_field(<<"request_payload_schema">>, <<>>) -> {request_payload_schema, undefined};
+runtime_field(<<"request_payload_schema">>, V) -> {request_payload_schema, decode_schema(V)};
+runtime_field(<<"method">>, V) -> {method, V};
+runtime_field(<<"url">>, V) -> {url, V};
+runtime_field(<<"headers">>, V) -> {headers, V};
+runtime_field(<<"input_schema">>, V) -> {input_schema, decode_schema(V)};
+runtime_field(<<"query">>, V) -> {query, V};
+runtime_field(<<"resource">>, V) -> {resource, V};
+runtime_field(K, V) -> {K, V}.
+
+decode_schema(V) when is_binary(V) ->
+    emqx_utils_json:decode(V);
+decode_schema(V) ->
+    V.
 
 destroy_runtime([]) ->
     ok;
@@ -251,8 +273,3 @@ error_to_json(Error) when is_binary(Error) ->
     Error;
 error_to_json(Error) ->
     iolist_to_binary(io_lib:format("~0p", [Error])).
-
-type_to_binary(Type) when is_binary(Type) ->
-    Type;
-type_to_binary(Type) when is_atom(Type) ->
-    atom_to_binary(Type, utf8).

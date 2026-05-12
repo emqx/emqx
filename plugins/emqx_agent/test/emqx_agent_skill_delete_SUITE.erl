@@ -3,8 +3,8 @@
 %%--------------------------------------------------------------------
 
 %% Smoke tests for the delete meta-skills:
-%%   agent.delete_skill    — emqx_agent_skill_delete_skill
-%%   agent.delete_pipeline — emqx_agent_skill_delete_pipeline
+%%   agent__delete_skill    — emqx_agent_skill_delete_skill
+%%   agent__delete_pipeline — emqx_agent_skill_delete_pipeline
 %%
 %% Guards tested:
 %%   delete_skill    — refused when skill is referenced in a pipeline step
@@ -40,10 +40,10 @@ end_per_suite(Config) ->
 init_per_testcase(_TestCase, Config) ->
     ok = emqx_agent_plugin_config_fixture:setup(),
     ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"agent.delete_skill">>, <<"id">> => ?SK_DEL_SKILL_ID
+        <<"type">> => <<"agent__delete_skill">>, <<"id">> => ?SK_DEL_SKILL_ID
     }),
     ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"agent.delete_pipeline">>, <<"id">> => ?SK_DEL_PIPELINE_ID
+        <<"type">> => <<"agent__delete_pipeline">>, <<"id">> => ?SK_DEL_PIPELINE_ID
     }),
     Config.
 
@@ -53,27 +53,27 @@ end_per_testcase(_TestCase, _Config) ->
     ok = emqx_agent_plugin_config_fixture:teardown().
 
 %%--------------------------------------------------------------------
-%% agent.delete_skill — registration
+%% agent__delete_skill — registration
 %%--------------------------------------------------------------------
 
 t_delete_skill_registers(_Config) ->
-    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"agent.delete_skill">>, ?SK_DEL_SKILL_ID),
-    ?assertEqual(<<"agent.delete_skill">>, maps:get(type, Skill)).
+    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"agent__delete_skill">>, ?SK_DEL_SKILL_ID),
+    ?assertEqual(<<"agent__delete_skill">>, maps:get(type, Skill)).
 
 t_delete_skill_destroy(_Config) ->
-    ok = emqx_agent_service:skill_delete(<<"agent.delete_skill">>, ?SK_DEL_SKILL_ID),
+    ok = emqx_agent_service:skill_delete(<<"agent__delete_skill">>, ?SK_DEL_SKILL_ID),
     ?assertEqual(
         {error, not_found},
-        emqx_agent_skill_registry:lookup(<<"agent.delete_skill">>, ?SK_DEL_SKILL_ID)
+        emqx_agent_skill_registry:lookup(<<"agent__delete_skill">>, ?SK_DEL_SKILL_ID)
     ).
 
 %%--------------------------------------------------------------------
-%% agent.delete_skill — invocation
+%% agent__delete_skill — invocation
 %%--------------------------------------------------------------------
 
 t_delete_skill_ok(_Config) ->
     ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"message.publish">>,
+        <<"type">> => <<"message__publish">>,
         <<"id">> => <<"to-del-pub">>,
         <<"desc">> => <<"del me">>,
         <<"topic_prefix">> => <<"x/">>
@@ -82,16 +82,16 @@ t_delete_skill_ok(_Config) ->
     ReqId = <<"req-ds-ok">>,
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(
-        <<"agent.delete_skill">>,
+        <<"agent__delete_skill">>,
         ?SK_DEL_SKILL_ID,
-        #{<<"type">> => <<"message.publish">>, <<"id">> => <<"to-del-pub">>},
+        #{<<"type">> => <<"message__publish">>, <<"id">> => <<"to-del-pub">>},
         ReqId
     ),
     Reply = recv_reply(ReqId),
     ?assertMatch(#{<<"status">> := <<"ok">>}, cap_response(Reply)),
     ?assertEqual(
         {error, not_found},
-        emqx_agent_skill_registry:lookup(<<"message.publish">>, <<"to-del-pub">>)
+        emqx_agent_skill_registry:lookup(<<"message__publish">>, <<"to-del-pub">>)
     ),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
@@ -99,9 +99,9 @@ t_delete_skill_not_found(_Config) ->
     ReqId = <<"req-ds-nf">>,
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(
-        <<"agent.delete_skill">>,
+        <<"agent__delete_skill">>,
         ?SK_DEL_SKILL_ID,
-        #{<<"type">> => <<"message.publish">>, <<"id">> => <<"no-such">>},
+        #{<<"type">> => <<"message__publish">>, <<"id">> => <<"no-such">>},
         ReqId
     ),
     Reply = recv_reply(ReqId),
@@ -110,7 +110,7 @@ t_delete_skill_not_found(_Config) ->
 
 t_delete_skill_in_use_by_call_skill(_Config) ->
     ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"message.publish">>,
+        <<"type">> => <<"message__publish">>,
         <<"id">> => <<"used-pub">>,
         <<"desc">> => <<"used">>,
         <<"topic_prefix">> => <<"x/">>
@@ -123,7 +123,7 @@ t_delete_skill_in_use_by_call_skill(_Config) ->
             #{
                 <<"id">> => <<"s1">>,
                 <<"type">> => <<"call_skill">>,
-                <<"skill">> => <<"message.publish@used-pub">>,
+                <<"skill">> => <<"message__publish@used-pub">>,
                 <<"args">> => #{}
             }
         ]
@@ -132,9 +132,9 @@ t_delete_skill_in_use_by_call_skill(_Config) ->
     ReqId = <<"req-ds-inuse-cs">>,
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(
-        <<"agent.delete_skill">>,
+        <<"agent__delete_skill">>,
         ?SK_DEL_SKILL_ID,
-        #{<<"type">> => <<"message.publish">>, <<"id">> => <<"used-pub">>},
+        #{<<"type">> => <<"message__publish">>, <<"id">> => <<"used-pub">>},
         ReqId
     ),
     Reply = recv_reply(ReqId),
@@ -143,7 +143,7 @@ t_delete_skill_in_use_by_call_skill(_Config) ->
 
 t_delete_skill_in_use_by_llm_tools(_Config) ->
     ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"message.publish">>,
+        <<"type">> => <<"message__publish">>,
         <<"id">> => <<"tool-pub">>,
         <<"desc">> => <<"tool">>,
         <<"topic_prefix">> => <<"t/">>
@@ -159,7 +159,7 @@ t_delete_skill_in_use_by_llm_tools(_Config) ->
                 <<"provider_name">> => <<"some-provider">>,
                 <<"model">> => <<"test-model">>,
                 <<"instructions">> => <<"test">>,
-                <<"tools">> => [<<"message.publish@tool-pub">>],
+                <<"tools">> => [<<"message__publish@tool-pub">>],
                 <<"set_result_schema">> => #{
                     <<"type">> => <<"object">>,
                     <<"properties">> => #{<<"status">> => #{<<"type">> => <<"string">>}}
@@ -172,9 +172,9 @@ t_delete_skill_in_use_by_llm_tools(_Config) ->
     ReqId = <<"req-ds-inuse-llm">>,
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(
-        <<"agent.delete_skill">>,
+        <<"agent__delete_skill">>,
         ?SK_DEL_SKILL_ID,
-        #{<<"type">> => <<"message.publish">>, <<"id">> => <<"tool-pub">>},
+        #{<<"type">> => <<"message__publish">>, <<"id">> => <<"tool-pub">>},
         ReqId
     ),
     Reply = recv_reply(ReqId),
@@ -182,24 +182,24 @@ t_delete_skill_in_use_by_llm_tools(_Config) ->
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
 %%--------------------------------------------------------------------
-%% agent.delete_pipeline — registration
+%% agent__delete_pipeline — registration
 %%--------------------------------------------------------------------
 
 t_delete_pipeline_registers(_Config) ->
     {ok, Skill} = emqx_agent_skill_registry:lookup(
-        <<"agent.delete_pipeline">>, ?SK_DEL_PIPELINE_ID
+        <<"agent__delete_pipeline">>, ?SK_DEL_PIPELINE_ID
     ),
-    ?assertEqual(<<"agent.delete_pipeline">>, maps:get(type, Skill)).
+    ?assertEqual(<<"agent__delete_pipeline">>, maps:get(type, Skill)).
 
 t_delete_pipeline_destroy(_Config) ->
-    ok = emqx_agent_service:skill_delete(<<"agent.delete_pipeline">>, ?SK_DEL_PIPELINE_ID),
+    ok = emqx_agent_service:skill_delete(<<"agent__delete_pipeline">>, ?SK_DEL_PIPELINE_ID),
     ?assertEqual(
         {error, not_found},
-        emqx_agent_skill_registry:lookup(<<"agent.delete_pipeline">>, ?SK_DEL_PIPELINE_ID)
+        emqx_agent_skill_registry:lookup(<<"agent__delete_pipeline">>, ?SK_DEL_PIPELINE_ID)
     ).
 
 %%--------------------------------------------------------------------
-%% agent.delete_pipeline — invocation
+%% agent__delete_pipeline — invocation
 %%--------------------------------------------------------------------
 
 t_delete_pipeline_ok(_Config) ->
@@ -213,7 +213,7 @@ t_delete_pipeline_ok(_Config) ->
     ReqId = <<"req-dp-ok">>,
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(
-        <<"agent.delete_pipeline">>,
+        <<"agent__delete_pipeline">>,
         ?SK_DEL_PIPELINE_ID,
         #{<<"id">> => <<"to-del-pipe">>},
         ReqId
@@ -227,7 +227,7 @@ t_delete_pipeline_not_found(_Config) ->
     ReqId = <<"req-dp-nf">>,
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(
-        <<"agent.delete_pipeline">>,
+        <<"agent__delete_pipeline">>,
         ?SK_DEL_PIPELINE_ID,
         #{<<"id">> => <<"no-such-pipe">>},
         ReqId
@@ -247,7 +247,7 @@ t_delete_pipeline_active(_Config) ->
     ReqId = <<"req-dp-active">>,
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(
-        <<"agent.delete_pipeline">>,
+        <<"agent__delete_pipeline">>,
         ?SK_DEL_PIPELINE_ID,
         #{<<"id">> => <<"active-pipe">>},
         ReqId
@@ -262,7 +262,7 @@ t_delete_pipeline_reply_correlation(_Config) ->
     ReqId = <<"req-dp-corr">>,
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(
-        <<"agent.delete_pipeline">>,
+        <<"agent__delete_pipeline">>,
         ?SK_DEL_PIPELINE_ID,
         #{<<"id">> => <<"no-such">>},
         ReqId,

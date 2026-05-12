@@ -9,7 +9,7 @@
 %%
 %% What this suite tests end-to-end:
 %%   1. Trigger event on evt/conveyor/+/box/done starts the pipeline.
-%%   2. Pipeline llm_loop sends a message.request to box/shot/<box_id>.
+%%   2. Pipeline llm_loop sends a message__request to box/shot/<box_id>.
 %%   3. This suite acts as the SPA: receives the shot request, reads the
 %%      Response-Topic MQTT 5 property, publishes the fixture image as a
 %%      {"image_url":"data:image/png;base64,..."} JSON payload.
@@ -331,8 +331,8 @@ register_pipeline() ->
                 >>,
                 <<"stop_on_finish">> => true,
                 <<"tools">> => [
-                    <<"message.request@box-shot">>,
-                    <<"message.publish@box-alert">>
+                    <<"message__request@box-shot">>,
+                    <<"message__publish@box-alert">>
                 ],
                 <<"input">> => #{
                     <<"box_id">> => <<"$.event.box_id">>,
@@ -354,7 +354,7 @@ register_pipeline() ->
             #{
                 <<"id">> => <<"register">>,
                 <<"type">> => <<"call_skill">>,
-                <<"skill">> => <<"postgresql.query@box-register">>,
+                <<"skill">> => <<"postgresql__query@box-register">>,
                 <<"args">> => #{
                     <<"conveyor_id">> => <<"$.event.conveyor_id">>,
                     <<"box_id">> => <<"$.event.box_id">>,
@@ -366,7 +366,7 @@ register_pipeline() ->
             #{
                 <<"id">> => <<"notify">>,
                 <<"type">> => <<"call_skill">>,
-                <<"skill">> => <<"message.publish@box-status">>,
+                <<"skill">> => <<"message__publish@box-status">>,
                 <<"args">> => #{
                     <<"topic">> => <<"$.event.box_id">>,
                     <<"payload">> => <<"$.inspection">>

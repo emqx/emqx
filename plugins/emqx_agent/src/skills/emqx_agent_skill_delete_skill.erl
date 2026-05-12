@@ -8,21 +8,21 @@
 %% (call_skill.skill or llm_loop.tools).
 %%
 %% Args:
-%%   type — skill type, e.g. "message.publish"  (required)
+%%   type — skill type, e.g. "message__publish"  (required)
 %%   id   — skill instance id                   (required)
 %%
-%% Invoke topic:  cap/agent.delete_skill/<skill_id>/request/<req_id>
-%% Reply  topic:  cap/agent.delete_skill/<skill_id>/response/<req_id>
+%% Invoke topic:  cap/agent__delete_skill/<skill_id>/request/<req_id>
+%% Reply  topic:  cap/agent__delete_skill/<skill_id>/response/<req_id>
 
 -module(emqx_agent_skill_delete_skill).
 
--define(SKILL_TYPE, <<"agent.delete_skill">>).
+-define(SKILL_TYPE, <<"agent__delete_skill">>).
 
 -define(INPUT_SCHEMA, #{
     <<"type">> => <<"object">>,
     <<"properties">> => #{
         <<"type">> => #{
-            <<"type">> => <<"string">>, <<"description">> => <<"Skill type, e.g. message.publish">>
+            <<"type">> => <<"string">>, <<"description">> => <<"Skill type, e.g. message__publish">>
         },
         <<"id">> => #{<<"type">> => <<"string">>, <<"description">> => <<"Skill instance id">>}
     },

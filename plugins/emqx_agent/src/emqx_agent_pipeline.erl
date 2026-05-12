@@ -33,7 +33,7 @@
 %%   to context[<<"triage">>]).
 %%
 %% Tool specs
-%%   Format:  "<type>@<skill_id>"  e.g. "message.publish@slack-dev"
+%%   Format:  "<type>@<skill_id>"  e.g. "message__publish@slack-dev"
 %%   The type becomes the cap/<type> topic segment.
 %%   The tool name sent to the LLM is the spec with non-[a-zA-Z0-9_-] replaced
 %%   by underscore (e.g. "message_publish_slack_dev").
@@ -667,7 +667,7 @@ build_tool_manifest(ToolSpecs) ->
         ToolSpecs
     ).
 
-%% "message.publish@slack-dev"  →  {<<"message.publish">>, <<"slack-dev">>}
+%% "message__publish@slack-dev"  ->  {<<"message__publish">>, <<"slack-dev">>}
 parse_tool_spec(Spec) ->
     case binary:split(Spec, <<"@">>) of
         [Type, SkillId] -> {Type, SkillId};

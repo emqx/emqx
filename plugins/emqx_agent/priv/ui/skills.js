@@ -27,8 +27,8 @@ export async function loadSkills() {
 }
 
 function typeClass(t) {
-  if (t === 'message.publish')  return 'publish';
-  if (t === 'message.request')  return 'request';
+  if (t === 'message__publish')  return 'publish';
+  if (t === 'message__request')  return 'request';
   if (t === 'http')              return 'http';
   if (t?.startsWith('postgresql')) return 'ch';
   return '';
@@ -39,13 +39,13 @@ export function collectSkillBody() {
   const id   = document.getElementById('skill-id').value.trim();
   const desc = document.getElementById('skill-desc').value.trim();
   let body = { type, id, desc };
-  if (type === 'message.publish') {
+  if (type === 'message__publish') {
     body.topic_prefix = document.getElementById('skill-prefix').value.trim();
     const pubSchema = getSchemaEditorValue('se-skill-publish-input');
     if (Object.keys(pubSchema.properties).length > 0) {
       body.payload_schema = pubSchema;
     }
-  } else if (type === 'message.request') {
+  } else if (type === 'message__request') {
     body.topic_prefix = document.getElementById('skill-request-prefix').value.trim();
     const reqSchema = getSchemaEditorValue('se-skill-request-payload-schema');
     if (Object.keys(reqSchema.properties).length > 0) {
@@ -55,7 +55,7 @@ export function collectSkillBody() {
     body.method        = document.getElementById('skill-method').value;
     body.url           = document.getElementById('skill-url').value.trim();
     body.input_schema  = getSchemaEditorValue('se-skill-input-schema');
-  } else if (type === 'postgresql.query') {
+  } else if (type === 'postgresql__query') {
     body.resource = document.getElementById('skill-resource').value;
     body.query = document.getElementById('skill-query').value.trim();
   }
@@ -104,15 +104,15 @@ export function editSkill(type, id) {
     document.getElementById('skill-method').value = skill.method ?? 'post';
     document.getElementById('skill-url').value = skill.url ?? '';
     setSchemaEditorValue('se-skill-input-schema', skill.input_schema || null);
-  } else if (type === 'message.publish') {
+  } else if (type === 'message__publish') {
     document.getElementById('skill-prefix').value = skill.topic_prefix ?? '';
     const legacyPayloadSchema = skill.input_schema?.properties?.payload;
     const payloadSchema = skill.payload_schema ?? legacyPayloadSchema;
     setSchemaEditorValue('se-skill-publish-input', payloadSchema || defaultPublishInputSchema());
-  } else if (type === 'message.request') {
+  } else if (type === 'message__request') {
     document.getElementById('skill-request-prefix').value = skill.topic_prefix ?? '';
     setSchemaEditorValue('se-skill-request-payload-schema', skill.request_payload_schema || null);
-  } else if (type === 'postgresql.query') {
+  } else if (type === 'postgresql__query') {
     document.getElementById('skill-resource').value = skill.resource ?? '';
     document.getElementById('skill-query').value = skill.query ?? '';
   }
@@ -139,7 +139,7 @@ export function resetSkillEditor() {
   document.getElementById('skill-submit-btn').textContent = 'Create';
   document.getElementById('skill-type').disabled = false;
   document.getElementById('skill-id').readOnly = false;
-  document.getElementById('skill-type').value = 'message.publish';
+  document.getElementById('skill-type').value = 'message__publish';
   document.getElementById('skill-id').value = '';
   document.getElementById('skill-desc').value = '';
   document.getElementById('skill-prefix').value = '';
@@ -169,9 +169,9 @@ export async function deleteSkill(type, id) {
 
 export function updateSkillForm() {
   const type = document.getElementById('skill-type').value;
-  document.getElementById('f-publish').style.display  = type === 'message.publish'  ? '' : 'none';
-  document.getElementById('f-request').style.display  = type === 'message.request'  ? '' : 'none';
+  document.getElementById('f-publish').style.display  = type === 'message__publish'  ? '' : 'none';
+  document.getElementById('f-request').style.display  = type === 'message__request'  ? '' : 'none';
   document.getElementById('f-http').style.display     = type === 'http'              ? '' : 'none';
-  document.getElementById('f-ch').style.display       = type === 'postgresql.query'  ? '' : 'none';
-  if (type === 'postgresql.query') renderConnectionOptions();
+  document.getElementById('f-ch').style.display       = type === 'postgresql__query'  ? '' : 'none';
+  if (type === 'postgresql__query') renderConnectionOptions();
 }

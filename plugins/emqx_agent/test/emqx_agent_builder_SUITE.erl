@@ -51,7 +51,7 @@
 
     SKILLS are named capability instances registered in the skill registry.
     Each skill has a TYPE (what it does) and an ID (its name within that type).
-    Skills are referenced in pipeline steps as "type@id", e.g. "message.publish@my-notifier".
+    Skills are referenced in pipeline steps as "type@id", e.g. "message__publish@my-notifier".
 
     An AI PROVIDER holds LLM credentials.
     It is referenced by provider_name inside an llm_loop step.
@@ -76,17 +76,17 @@
     SKILL TYPES
     ═══════════════════════════════════════════════════════
 
-      message.publish   Publish to an MQTT topic.
+      message__publish   Publish to an MQTT topic.
                         Required: id, desc, topic_prefix
 
-      message.request   MQTT request/reply.
+      message__request   MQTT request/reply.
                         Required: id, desc, topic_prefix
                         Optional: request_payload_schema
 
       http              HTTP call to an external service.
                         Required: id, desc, method, url, input_schema
 
-      postgresql.query  Execute a parameterised SQL query.
+      postgresql__query  Execute a parameterised SQL query.
                         Required: id, desc, resource, query (using ${var} placeholders).
                         Use resource "apple-box-pg" for apple-box PostgreSQL skills.
                         Placeholder names are extracted automatically and the input
@@ -98,7 +98,7 @@
 
     --- call_skill ---
       {"id": "notify", "type": "call_skill",
-       "skill": "message.publish@my-notifier",
+       "skill": "message__publish@my-notifier",
        "args": [{"name": "topic", "value": "$.event.device_id"},
                 {"name": "payload", "value": "$.analysis"}],
        "result_path": "$.notify_result"}
@@ -216,10 +216,10 @@ init_per_suite(Config) ->
 
 end_per_suite(Config) ->
     _ = emqx_agent_service:pipeline_delete(?TARGET_PIPELINE_ID),
-    _ = emqx_agent_service:skill_delete(<<"message.request">>, <<"box-shot">>),
-    _ = emqx_agent_service:skill_delete(<<"message.publish">>, <<"box-alert">>),
-    _ = emqx_agent_service:skill_delete(<<"message.publish">>, <<"box-status">>),
-    _ = emqx_agent_service:skill_delete(<<"postgresql.query">>, <<"box-register">>),
+    _ = emqx_agent_service:skill_delete(<<"message__request">>, <<"box-shot">>),
+    _ = emqx_agent_service:skill_delete(<<"message__publish">>, <<"box-alert">>),
+    _ = emqx_agent_service:skill_delete(<<"message__publish">>, <<"box-status">>),
+    _ = emqx_agent_service:skill_delete(<<"postgresql__query">>, <<"box-register">>),
     ok = cleanup_builder_infra(),
     emqx_cth_suite:stop(?config(suite_apps, Config)).
 
@@ -273,11 +273,11 @@ assert_pipeline() ->
     [Inspect | _] = LLMSteps,
     Tools = maps:get(<<"tools">>, Inspect),
     ?assert(
-        lists:any(fun(T) -> skill_type(T) =:= <<"message.request">> end, Tools),
+        lists:any(fun(T) -> skill_type(T) =:= <<"message__request">> end, Tools),
         {no_message_request_tool, Tools}
     ),
     ?assert(
-        lists:any(fun(T) -> skill_type(T) =:= <<"message.publish">> end, Tools),
+        lists:any(fun(T) -> skill_type(T) =:= <<"message__publish">> end, Tools),
         {no_message_publish_tool, Tools}
     ),
     Instructions = maps:get(<<"instructions">>, Inspect, <<>>),
@@ -287,24 +287,24 @@ assert_pipeline() ->
     ?assert(is_map_key(<<"status">>, SRSProps)),
     ?assert(is_map_key(<<"reason">>, SRSProps)),
 
-    %% Must contain at least one call_skill using postgresql.query.
+    %% Must contain at least one call_skill using postgresql__query.
     ?assert(
         lists:any(
             fun(S) ->
                 maps:get(<<"type">>, S) =:= <<"call_skill">> andalso
-                    skill_type(maps:get(<<"skill">>, S, <<>>)) =:= <<"postgresql.query">>
+                    skill_type(maps:get(<<"skill">>, S, <<>>)) =:= <<"postgresql__query">>
             end,
             Steps
         ),
         {no_postgresql_step, Steps}
     ),
 
-    %% Must contain at least one call_skill using message.publish.
+    %% Must contain at least one call_skill using message__publish.
     ?assert(
         lists:any(
             fun(S) ->
                 maps:get(<<"type">>, S) =:= <<"call_skill">> andalso
-                    skill_type(maps:get(<<"skill">>, S, <<>>)) =:= <<"message.publish">>
+                    skill_type(maps:get(<<"skill">>, S, <<>>)) =:= <<"message__publish">>
             end,
             Steps
         ),
@@ -354,28 +354,28 @@ await_reply() ->
 
 register_builder_skills() ->
     ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"agent.create_skill">>, <<"id">> => <<"builder-create-skill">>
+        <<"type">> => <<"agent__create_skill">>, <<"id">> => <<"builder-create-skill">>
     }),
     ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"agent.create_pipeline">>, <<"id">> => <<"builder-create-pipeline">>
+        <<"type">> => <<"agent__create_pipeline">>, <<"id">> => <<"builder-create-pipeline">>
     }),
     ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"agent.query_skills">>, <<"id">> => <<"builder-query-skills">>
+        <<"type">> => <<"agent__query_skills">>, <<"id">> => <<"builder-query-skills">>
     }),
     ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"agent.query_providers">>, <<"id">> => <<"builder-query-providers">>
+        <<"type">> => <<"agent__query_providers">>, <<"id">> => <<"builder-query-providers">>
     }),
     ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"agent.query_pipelines">>, <<"id">> => <<"builder-query-pipelines">>
+        <<"type">> => <<"agent__query_pipelines">>, <<"id">> => <<"builder-query-pipelines">>
     }),
     ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"agent.delete_skill">>, <<"id">> => <<"builder-delete-skill">>
+        <<"type">> => <<"agent__delete_skill">>, <<"id">> => <<"builder-delete-skill">>
     }),
     ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"agent.delete_pipeline">>, <<"id">> => <<"builder-delete-pipeline">>
+        <<"type">> => <<"agent__delete_pipeline">>, <<"id">> => <<"builder-delete-pipeline">>
     }),
     ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"message.publish">>,
+        <<"type">> => <<"message__publish">>,
         <<"id">> => <<"builder-reply">>,
         <<"desc">> => <<"Send a reply from the pipeline builder back to the chat UI">>,
         <<"topic_prefix">> => <<"builder/reply/">>
@@ -426,14 +426,14 @@ register_builder_pipeline() ->
                 <<"instructions">> => ?BUILDER_INSTRUCTIONS,
                 <<"stop_on_finish">> => false,
                 <<"tools">> => [
-                    <<"agent.create_skill@builder-create-skill">>,
-                    <<"agent.create_pipeline@builder-create-pipeline">>,
-                    <<"agent.query_skills@builder-query-skills">>,
-                    <<"agent.query_providers@builder-query-providers">>,
-                    <<"agent.query_pipelines@builder-query-pipelines">>,
-                    <<"agent.delete_skill@builder-delete-skill">>,
-                    <<"agent.delete_pipeline@builder-delete-pipeline">>,
-                    <<"message.publish@builder-reply">>
+                    <<"agent__create_skill@builder-create-skill">>,
+                    <<"agent__create_pipeline@builder-create-pipeline">>,
+                    <<"agent__query_skills@builder-query-skills">>,
+                    <<"agent__query_providers@builder-query-providers">>,
+                    <<"agent__query_pipelines@builder-query-pipelines">>,
+                    <<"agent__delete_skill@builder-delete-skill">>,
+                    <<"agent__delete_pipeline@builder-delete-pipeline">>,
+                    <<"message__publish@builder-reply">>
                 ],
                 <<"set_result_schema">> => #{
                     <<"type">> => <<"object">>,

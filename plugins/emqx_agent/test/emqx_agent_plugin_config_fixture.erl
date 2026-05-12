@@ -45,10 +45,15 @@ get_config(NameVsn, Default) ->
 put_plugin_config(NameVsn, Config) ->
     case NameVsn =:= name_vsn() of
         true ->
-            OldConfig = get_config(NameVsn, #{}),
-            persistent_term:put(?CONFIG_KEY, Config),
-            _ = emqx_agent_app:on_config_changed(OldConfig, Config),
-            ok;
+            case validate_config(Config) of
+                ok ->
+                    OldConfig = get_config(NameVsn, #{}),
+                    persistent_term:put(?CONFIG_KEY, Config),
+                    _ = emqx_agent_app:on_config_changed(OldConfig, Config),
+                    ok;
+                {error, _} = Error ->
+                    Error
+            end;
         false ->
             meck:passthrough([NameVsn, Config])
     end.
@@ -56,3 +61,21 @@ put_plugin_config(NameVsn, Config) ->
 name_vsn() ->
     {ok, Vsn} = application:get_key(emqx_agent, vsn),
     iolist_to_binary([<<"emqx_agent-">>, Vsn]).
+
+validate_config(Config) ->
+    try
+        PrivDir = code:priv_dir(emqx_agent),
+        {ok, AvscBin} = file:read_file(filename:join(PrivDir, "config_schema.avsc")),
+        Store0 = avro_schema_store:new([map]),
+        Store = avro_schema_store:import_schema_json(name_vsn(), AvscBin, Store0),
+        Opts = avro:make_decoder_options([
+            {map_type, map},
+            {record_type, map},
+            {encoding, avro_json}
+        ]),
+        _ = avro_json_decoder:decode_value(emqx_utils_json:encode(Config), name_vsn(), Store, Opts),
+        ok
+    catch
+        Class:Reason ->
+            {error, {Class, Reason}}
+    end.

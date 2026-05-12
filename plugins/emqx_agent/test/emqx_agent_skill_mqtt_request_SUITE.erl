@@ -38,13 +38,13 @@ end_per_testcase(_TestCase, _Config) ->
 
 %% create/1 builds a runtime skill under the expected type.
 t_create_returns_skill(_Config) ->
-    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message.request">>, ?SKILL_ID),
-    ?assertMatch(#{type := <<"message.request">>}, Skill),
+    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message__request">>, ?SKILL_ID),
+    ?assertMatch(#{type := <<"message__request">>}, Skill),
     ?assertEqual(?SKILL_ID, maps:get(skill_id, Skill)).
 
 %% destroy/1 accepts the full runtime skill.
 t_destroy_accepts_runtime_skill(_Config) ->
-    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message.request">>, ?SKILL_ID),
+    {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message__request">>, ?SKILL_ID),
     ?assertEqual(ok, emqx_agent_skill_mqtt_request:destroy(Skill)).
 
 %% Happy path: request arrives on the device topic with a Response-Topic
@@ -245,13 +245,13 @@ register_skill(Context) ->
     emqx_agent_skill_registry:put_runtime_for_test(Skill).
 
 reply_topic(SkillId, ReqId) ->
-    <<"cap/message.request/", SkillId/binary, "/response/", ReqId/binary>>.
+    <<"cap/message__request/", SkillId/binary, "/response/", ReqId/binary>>.
 
 invoke(SkillId, Args, ReqId) ->
     invoke(SkillId, Args, ReqId, #{}).
 
 invoke(SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/message.request/", SkillId/binary, "/request/", ReqId/binary>>,
+    Topic = <<"cap/message__request/", SkillId/binary, "/request/", ReqId/binary>>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{
