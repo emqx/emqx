@@ -343,6 +343,56 @@ t_default_admin_cannot_be_deleted(_Config) ->
         request_api(delete, api_path(["users", "admin"]), auth_header(Token), #{})
     ).
 
+%% H6: Role demotion must consider persisted scopes, not just the
+%% request body. A user with persisted admin-only scopes that is
+%% demoted to viewer via a partial-update PUT (no `scopes' field) must
+%% be rejected — otherwise the viewer would silently retain
+%% admin-only scopes such as `user_management'.
+t_role_demotion_with_persisted_admin_scopes_is_rejected(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"u">>, test_password(), ?ROLE_SUPERUSER, "demote-target"
+    ),
+    %% Give the admin user an admin-only scope, then attempt a
+    %% partial-update that drops them to viewer without touching
+    %% `scopes'. The persisted `user_management' scope makes the
+    %% effective set incompatible with the new role.
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(<<"u">>, [?SCOPE_USER_MGMT]),
+    PutBody = #{
+        <<"role">> => ?ROLE_VIEWER,
+        <<"description">> => <<"demoted">>
+    },
+    ?assertMatch(
+        {ok, 400, _},
+        request_api(put, api_path(["users", "u"]), auth_header(Token), PutBody)
+    ),
+    %% The persisted role + scopes must stay intact after the rejection.
+    [Admin] = emqx_dashboard_admin:lookup_user(<<"u">>),
+    ?assertEqual(?ROLE_SUPERUSER, Admin#?ADMIN.role),
+    ?assertEqual([?SCOPE_USER_MGMT], emqx_dashboard_admin:scopes_of(<<"u">>)).
+
+%% Counterpart of the H6 rejection: when persisted scopes are
+%% compatible with the new role (or fall back to the role defaults),
+%% the partial-update PUT must succeed.
+t_role_demotion_with_compatible_persisted_scopes_succeeds(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"u">>, test_password(), ?ROLE_SUPERUSER, "demote-target"
+    ),
+    %% mfa_management is allowed for any role, so the persisted
+    %% scope remains compatible after demotion.
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(<<"u">>, [?SCOPE_MFA_MGMT]),
+    PutBody = #{
+        <<"role">> => ?ROLE_VIEWER,
+        <<"description">> => <<"demoted">>
+    },
+    {ok, 200, _} =
+        request_api(put, api_path(["users", "u"]), auth_header(Token), PutBody),
+    [Admin] = emqx_dashboard_admin:lookup_user(<<"u">>),
+    ?assertEqual(?ROLE_VIEWER, Admin#?ADMIN.role).
+
 %%--------------------------------------------------------------------
 %% MFA self-lock matrix (the 7-line decision table)
 %%--------------------------------------------------------------------
