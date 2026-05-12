@@ -257,7 +257,15 @@
     | disconnect
     %% If caller specifies `hook_prohibition_as_error => true'.
     | {blocked, message()}.
--type route() :: #route{}.
+-type mem_session_route() :: #route{
+    topic :: binary(),
+    dest :: node() | {binary(), node()}
+}.
+-type external_route() :: #route{
+    topic :: binary(),
+    dest :: emqx_external_broker:dest()
+}.
+-type route() :: mem_session_route() | external_route().
 -type route_entry() :: {topic(), node()} | {topic, group()}.
 -type command() :: #command{}.
 

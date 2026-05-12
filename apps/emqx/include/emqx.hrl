@@ -10,7 +10,11 @@
 -define(COMMON_SHARD, emqx_common_shard).
 -define(SHARED_SUB_SHARD, emqx_shared_sub_shard).
 -define(CM_SHARD, emqx_cm_shard).
--define(ROUTE_SHARD, route_shard).
+%% V2 route shard (uses regular mria tables)
+-define(ROUTE_SHARD_V2, route_shard).
+%% V3 route shard (uses merged mria tables)
+-define(ROUTE_SHARD_V3, route_shard_m).
+%% Persistent session router shard:
 -define(PS_ROUTER_SHARD, persistent_session_router_shard).
 
 %% Banner
@@ -57,16 +61,7 @@
     group :: emqx_types:group()
 }).
 
--record(route, {
-    topic :: binary(),
-    dest ::
-        node()
-        | {binary(), node()}
-        | emqx_session:session_id()
-        %% One session can also have multiple subscriptions to the same topic through different groups
-        | #share_dest{}
-        | emqx_external_broker:dest()
-}).
+-record(route, {topic, dest}).
 
 %%--------------------------------------------------------------------
 %% Command
