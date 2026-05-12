@@ -471,6 +471,38 @@ t_check_login_user_scopes_self_user_endpoints_bypass(_) ->
         )
     ).
 
+%% Self-bypass is restricted to change_pwd and mfa. PUT /users/<self>
+%% (modifying one's own record) MUST still be subject to the scope
+%% check — otherwise a user with explicit `scopes = []' could PUT
+%% itself to add scopes back, defeating the self-restriction.
+t_check_login_user_scopes_self_user_record_not_bypassed(_) ->
+    Username = <<"login_user_scopes_self_put">>,
+    {ok, _} = emqx_dashboard_admin:add_user(
+        Username, <<"P@ssw0rd">>, ?ROLE_SUPERUSER, <<>>
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(Username, []),
+    %% Self change_pwd / mfa still allowed.
+    ?assertEqual(
+        true,
+        emqx_dashboard_rbac:check_login_user_scopes(
+            Username, <<"/users/", Username/binary, "/change_pwd">>
+        )
+    ),
+    %% But PUT /users/<self> (the record itself) is NOT bypassed —
+    %% the user record path maps to user_management which the user
+    %% explicitly does not hold.
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(
+            Username, <<"/users/", Username/binary>>
+        )
+    ),
+    %% Likewise GET /users (list) is not bypassed.
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
+    ).
+
 %% scopes=[] denies every mapped path (semantically: "explicitly no
 %% permissions"). Distinct from undefined.
 t_check_login_user_scopes_explicit_empty_denies(_) ->

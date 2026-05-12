@@ -94,15 +94,20 @@ check_login_user_scopes(Username, Path) when is_binary(Path) ->
     check_login_user_scopes_for_path(Username, Path).
 
 check_login_user_scopes_for_path(Username, Path) ->
-    %% Self-targeted user endpoints (own change_pwd / own MFA) bypass
-    %% the scope check — they are governed by RBAC's self-check (above)
+    %% Self-service endpoints — the user's own change_pwd / mfa —
+    %% bypass the scope check: they are gated by RBAC's self rule
     %% and, for MFA, by emqx_dashboard_api:authorize_mfa_change/3
-    %% (force_mfa snapshot, admin_required, mfa_management self-
-    %% exemption). Subjecting them to user_management / mfa_management
-    %% scope here would lock viewers out of changing their own
-    %% password / setting up their own MFA — exactly the opposite of
-    %% what the scope was designed to gate (managing OTHER users).
-    case is_self_user_endpoint(Path, Username) of
+    %% (admin_override decision, mfa_management self-exemption).
+    %% Locking viewers out of changing their own password / setting
+    %% up their own MFA via the scope check would defeat the
+    %% scope's purpose, which is to gate management of OTHER users.
+    %%
+    %% The bypass is intentionally restricted to those two actions.
+    %% PUT/DELETE on /users/<self> itself MUST still be scope-
+    %% checked — otherwise an admin who explicitly set
+    %% `scopes = []' could PUT their own record to add admin-only
+    %% scopes back, defeating the explicit self-restriction.
+    case is_self_service_endpoint(Path, Username) of
         true -> true;
         false -> check_login_user_scopes_strict(Username, Path)
     end.
@@ -121,18 +126,28 @@ check_login_user_scopes_strict(Username, Path) ->
         PathScope -> lists:member(PathScope, Scopes)
     end.
 
-%% Match /users/<self>/anything (with %-encoded segments) regardless
-%% of whether Username is a bare binary (local) or a
-%% ?SSO_USERNAME(Backend, Name) tuple (SSO; sub-path uses just Name).
-is_self_user_endpoint(<<"/users/", SubPath/binary>>, Username) ->
+%% Whitelist of self-service paths that may skip the login-user
+%% scope check. Currently only the own password and MFA endpoints —
+%% extending this whitelist requires careful thought because it
+%% creates a hole where an admin who self-restricted via explicit
+%% scopes can no longer be reliably restricted.
+%%
+%% Match /users/<self>/change_pwd or /users/<self>/mfa (with
+%% %-encoded segments) regardless of whether Username is a bare
+%% binary (local) or a ?SSO_USERNAME(Backend, Name) tuple (SSO;
+%% the sub-path uses just Name).
+is_self_service_endpoint(<<"/users/", SubPath/binary>>, Username) ->
     case binary:split(SubPath, <<"/">>, [global]) of
-        [SelfSeg | _] ->
+        [SelfSeg, Action] when
+            Action =:= <<"change_pwd">>;
+            Action =:= <<"mfa">>
+        ->
             Decoded = uri_string:percent_decode(SelfSeg),
             is_same_user(Decoded, Username);
         _ ->
             false
     end;
-is_self_user_endpoint(_Path, _Username) ->
+is_self_service_endpoint(_Path, _Username) ->
     false.
 
 is_same_user(Decoded, Decoded) -> true;
