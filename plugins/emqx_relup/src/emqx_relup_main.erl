@@ -54,6 +54,14 @@
 %% API
 %%==============================================================================
 start_link() ->
+    %% `emqx_relup_log` is a local-content disc table — each node owns
+    %% its own audit trail of upgrade attempts. The table is created
+    %% here (idempotent: if the table already exists on disk from a
+    %% previous install, mria attaches to it). Nothing in this plugin
+    %% deletes the table on stop/unload, so plugin uninstall keeps the
+    %% rows on disk; reinstalling re-attaches and the history is
+    %% preserved. Operators clear history explicitly via
+    %% `emqx ctl relup logs-clear`.
     ok = mria:create_table(
         emqx_relup_log,
         [
