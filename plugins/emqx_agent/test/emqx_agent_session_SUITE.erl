@@ -405,7 +405,8 @@ t_llm_connection_error_terminates_session(Config) ->
         request(Config, #{
             <<"tools">> => [],
             <<"provider_name">> => ?BAD_PROVIDER_NAME,
-            <<"input">> => #{<<"q">> => <<"hello">>}
+            <<"input">> => #{<<"q">> => <<"hello">>},
+            <<"persistent">> => true
         })
     ),
     Pid = wait_for_session(Sid),

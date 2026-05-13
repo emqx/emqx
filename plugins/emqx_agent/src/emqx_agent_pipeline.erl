@@ -296,7 +296,6 @@ start_llm_loop(
     {ToolManifest, ToolMap} = maybe_inject_set_result(ToolManifest0, ToolMap0, SetResultSchema),
     Input = resolve_map(InputSpec, Data#data.context),
     Sid = llm_sid(Persistent, StepId, Data),
-    _ = ensure_session(Sid),
     SessOutTopic = sess_out_topic(Sid),
     Data0 = subscribe_reply_topic(SessOutTopic, Data),
     Request = #{
@@ -330,13 +329,6 @@ llm_sid(false, StepId, #data{iid = Iid}) ->
 llm_sid(true, StepId, #data{pipeline_id = PipelineId, key = Key}) ->
     <<"pipe-",
         (emqx_base62:encode(<<PipelineId/binary, 0, StepId/binary, 0, Key/binary>>))/binary>>.
-
-%% Start the session process if it is not already running.
-ensure_session(Sid) ->
-    case emqx_agent_session:whereis(Sid) of
-        undefined -> emqx_agent_sess_sup:start_session(Sid);
-        _Pid -> ok
-    end.
 
 %% -- call_skill step --------------------------------------------------------
 

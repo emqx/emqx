@@ -12,15 +12,15 @@
 
 -behaviour(supervisor).
 
--export([start_link/0, start_session/1]).
+-export([start_link/0, start_session/2]).
 -export([init/1]).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
--spec start_session(binary()) -> {ok, pid()} | {error, term()}.
-start_session(Sid) ->
-    supervisor:start_child(?MODULE, [Sid]).
+-spec start_session(binary(), boolean()) -> {ok, pid()} | {error, term()}.
+start_session(Sid, Persistent) ->
+    supervisor:start_child(?MODULE, [Sid, Persistent]).
 
 init([]) ->
     SupFlags = #{

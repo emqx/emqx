@@ -55,7 +55,7 @@
 -include_lib("common_test/include/ct.hrl").
 
 %% Public API
--export([start_link/1, whereis/1]).
+-export([start_link/2, whereis/1]).
 
 %% Hook management (called from emqx_agent_app)
 -export([init_hook/0, deinit_hook/0, on_message_publish/1]).
@@ -69,6 +69,7 @@
 
 -define(NAME(Sid), {?MODULE, Sid}).
 -define(REG(Sid), {global, ?NAME(Sid)}).
+-define(IN(Sid), <<"sess/in/", (Sid)/binary, "/">>).
 -define(OUT(Sid), <<"sess/out/", (Sid)/binary, "/">>).
 -define(MAX_ITERATIONS, 20).
 -define(PERSISTENT_IDLE_TIMEOUT_MS, 3_600_000).
@@ -134,8 +135,24 @@ on_message_publish(
     #message{topic = <<"sess/in/", Rest/binary>>, payload = Payload} = Message
 ) ->
     case binary:split(Rest, <<"/">>) of
-        [Sid, <<>>] -> route(Sid, Payload);
-        _ -> ok
+        [Sid, <<>>] ->
+            Msg = safe_decode(Payload),
+            case Msg of
+                #{<<"type">> := <<"request">>} ->
+                    Persistent = maps:get(<<"persistent">>, Msg, false),
+                    case {Persistent, global:whereis_name(?NAME(Sid))} of
+                        {true, undefined} ->
+                            _ = emqx_agent_sess_sup:start_session(Sid, true);
+                        {false, _} ->
+                            _ = emqx_agent_sess_sup:start_session(Sid, false);
+                        _ ->
+                            ok
+                    end;
+                _ ->
+                    ok
+            end;
+        _ ->
+            ok
     end,
     {ok, Message};
 on_message_publish(Message) ->
@@ -145,9 +162,11 @@ on_message_publish(Message) ->
 %% Public API
 %%--------------------------------------------------------------------
 
--spec start_link(binary()) -> {ok, pid()} | {error, term()}.
-start_link(Sid) ->
-    gen_statem:start_link(?REG(Sid), ?MODULE, Sid, []).
+-spec start_link(binary(), boolean()) -> {ok, pid()} | {error, term()}.
+start_link(Sid, true) ->
+    gen_statem:start_link(?REG(Sid), ?MODULE, [Sid, true], []);
+start_link(Sid, false) ->
+    gen_statem:start_link(?MODULE, [Sid, false], []).
 
 -spec whereis(binary()) -> pid() | undefined.
 whereis(Sid) ->
@@ -159,12 +178,14 @@ whereis(Sid) ->
 
 callback_mode() -> handle_event_function.
 
-init(Sid) ->
-    ?SLOG(info, #{msg => "session_started", sid => Sid}),
-    {ok, initial_idle, #data{sid = Sid}}.
+init([Sid, Persistent]) ->
+    ?SLOG(info, #{msg => "session_started", sid => Sid, persistent => Persistent}),
+    _ = emqx:subscribe(?IN(Sid)),
+    {ok, initial_idle, #data{sid = Sid, persistent = Persistent}}.
 
 terminate(_Reason, _State, #data{sid = Sid}) ->
     ?SLOG(info, #{msg => "session_terminating", sid => Sid}),
+    _ = emqx:unsubscribe(?IN(Sid)),
     ok.
 
 %%--------------------------------------------------------------------
@@ -173,92 +194,24 @@ terminate(_Reason, _State, #data{sid = Sid}) ->
 %% Clauses are ordered: specific state first, catch-alls last.
 %%--------------------------------------------------------------------
 
-%% ── initial_idle: accept the first (and only) request ────────────────────
+%% ── MQTT delivery: messages on sess/in/<Sid>/ arrive via subscription ────
 
-handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, initial_idle, Data) ->
-    #{
-        <<"iid">> := Iid,
-        <<"trace_id">> := TraceId,
-        <<"provider_name">> := ProviderName,
-        <<"model">> := Model,
-        <<"tools">> := Tools,
-        <<"input">> := Input,
-        <<"instructions">> := Instructions
-    } = Msg,
-    SysMsg = #{<<"role">> => <<"system">>, <<"content">> => format_instructions(Instructions)},
-    UserMsg = #{<<"role">> => <<"user">>, <<"content">> => emqx_utils_json:encode(Input)},
-    %% Events buffered before the first request are folded in after the user message.
-    PendingMsgs = [event_to_llm_msg(E) || E <- Data#data.pending],
-    Data1 = Data#data{
-        iid = Iid,
-        trace_id = TraceId,
-        provider_name = ProviderName,
-        model = Model,
-        tools = Tools,
-        max_tokens = maps:get(<<"max_tokens">>, Msg, 2048),
-        recv_timeout_ms = maps:get(<<"recv_timeout_ms">>, Msg, 180000),
-        temperature = maps:get(<<"temperature">>, Msg, 0.1),
-        stream = maps:get(<<"stream">>, Msg, true),
-        tool_choice = maps:get(<<"tool_choice">>, Msg, <<"required">>),
-        persistent = maps:get(<<"persistent">>, Msg, false),
-        messages = [SysMsg, UserMsg] ++ PendingMsgs,
-        pending = [],
-        usage = #{
-            <<"iterations">> => 0,
-            <<"tool_calls">> => 0,
-            <<"tokens_in">> => 0,
-            <<"tokens_out">> => 0
-        }
-    },
-    start_llm_call(Data1);
-%% ── idle: new request — append input to history, optionally refresh config ───
-%%
-%% The session stays alive (persistent = true) so history accumulates
-%% across triggers.  Each new pipeline run appends its input as the next user
-%% message; the model sees the full prior conversation.
+handle_event(
+    info,
+    #deliver{topic = Topic, message = #message{payload = Payload}},
+    State,
+    #data{sid = Sid} = Data
+) when Topic =:= ?IN(Sid) ->
+    case safe_decode(Payload) of
+        #{<<"type">> := _} = Msg ->
+            handle_sess_msg(Msg, State, Data);
+        _ ->
+            {keep_state, Data}
+    end;
+%% ── internal: replayed queued request via next_event ───────────────────────
 
-handle_event(cast, {in, #{<<"type">> := <<"request">>, <<"input">> := Input} = Msg}, idle, Data) ->
-    Data0 = cancel_idle_timer(Data),
-    %% Refresh mutable per-run fields: iid, trace_id, tools, tool_choice.
-    %% Restoring tool_choice ensures the model is forced to issue a command
-    %% on every new turn even if it was relaxed to "auto" after the previous
-    %% tool call.
-    Iid = maps:get(<<"iid">>, Msg, Data#data.iid),
-    TraceId = maps:get(<<"trace_id">>, Msg, Data#data.trace_id),
-    Tools = maps:get(<<"tools">>, Msg, Data#data.tools),
-    ProviderName = maps:get(<<"provider_name">>, Msg, Data#data.provider_name),
-    ToolChoice = maps:get(<<"tool_choice">>, Msg, Data#data.tool_choice),
-    %% If instructions changed, replace the system message (always first).
-    Messages0 =
-        case maps:get(<<"instructions">>, Msg, undefined) of
-            undefined ->
-                Data0#data.messages;
-            NewInstructions ->
-                SysMsg = #{
-                    <<"role">> => <<"system">>,
-                    <<"content">> => format_instructions(NewInstructions)
-                },
-                [SysMsg | tl(Data0#data.messages)]
-        end,
-    %% Append the new user message so the model sees continuity.
-    UserMsg = #{<<"role">> => <<"user">>, <<"content">> => emqx_utils_json:encode(Input)},
-    Data1 = Data0#data{
-        iid = Iid,
-        trace_id = TraceId,
-        provider_name = ProviderName,
-        tools = Tools,
-        tool_choice = ToolChoice,
-        messages = Messages0 ++ [UserMsg],
-        persistent = maps:get(<<"persistent">>, Msg, true),
-        pending = []
-    },
-    ?SLOG(info, #{
-        msg => "session_continuing",
-        sid => Data#data.sid,
-        iid => Iid,
-        history_len => length(Data1#data.messages)
-    }),
-    start_llm_call(Data1);
+handle_event(info, {sess_msg, Msg}, State, Data) ->
+    handle_sess_msg(Msg, State, Data);
 %% ── calling_llm: LLM subprocess finished ─────────────────────────────────
 
 %% Child exits with {llm_result, Tag, Result} — normal completion path
@@ -297,20 +250,6 @@ handle_event(
         reason => Reason
     }),
     {stop, {llm_process_crashed, Reason}, Data};
-%% ── waiting_tools: collect tool results ───────────────────────────────────
-
-handle_event(
-    cast,
-    {in, #{<<"type">> := <<"tool_result">>, <<"call_id">> := CallId} = Msg},
-    waiting_tools,
-    Data
-) ->
-    on_tool_result(CallId, Msg, Data);
-%% ── any state: explicit stop ──────────────────────────────────────────────
-
-handle_event(cast, {in, #{<<"type">> := <<"stop">>}}, _State, Data) ->
-    ?SLOG(info, #{msg => "session_stopped_explicitly", sid => Data#data.sid}),
-    {stop, normal, Data};
 %% ── idle timeout for persistent sessions ─────────────────────────────────
 
 handle_event(info, persistent_idle_timeout, idle, Data) ->
@@ -318,29 +257,6 @@ handle_event(info, persistent_idle_timeout, idle, Data) ->
     {stop, normal, Data#data{idle_timer_ref = undefined}};
 handle_event(info, persistent_idle_timeout, _State, Data) ->
     {keep_state, Data#data{idle_timer_ref = undefined}};
-%% ── idle + event: immediately continue reasoning ─────────────────────────
-
-handle_event(cast, {in, #{<<"type">> := <<"event">>} = Msg}, idle, Data) ->
-    Event = maps:get(<<"event">>, Msg, Msg),
-    ?SLOG(info, #{msg => "session_event_triggers_llm", sid => Data#data.sid}),
-    Data0 = cancel_idle_timer(Data),
-    Data1 = Data0#data{messages = Data0#data.messages ++ [event_to_llm_msg(Event)]},
-    start_llm_call(Data1);
-%% ── any other state: buffer events ───────────────────────────────────────
-
-handle_event(cast, {in, #{<<"type">> := <<"event">>} = Msg}, _State, Data) ->
-    Event = maps:get(<<"event">>, Msg, Msg),
-    {keep_state, Data#data{pending = Data#data.pending ++ [Event]}};
-%% Request arriving while the session is busy (calling_llm / waiting_tools):
-%% buffer it so it can be applied once the session reaches idle.
-%% Only the latest request is kept — earlier ones are superseded.
-handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, _State, Data) ->
-    ?SLOG(info, #{
-        msg => "session_request_queued",
-        sid => Data#data.sid,
-        iid => maps:get(<<"iid">>, Msg, undefined)
-    }),
-    {keep_state, Data#data{queued_request = Msg}};
 %% ── calls ─────────────────────────────────────────────────────────────────
 
 handle_event({call, From}, _Req, _State, Data) ->
@@ -579,7 +495,7 @@ finish(#data{persistent = true, queued_request = undefined} = Data) ->
 finish(#data{persistent = true, queued_request = Queued} = Data) ->
     ?SLOG(info, #{msg => "session_draining_queued_request", sid => Data#data.sid}),
     Data1 = Data#data{queued_request = undefined},
-    {next_state, idle, Data1, [{next_event, cast, {in, Queued}}]}.
+    {next_state, idle, Data1, [{next_event, info, {sess_msg, Queued}}]}.
 
 start_idle_timer(Data) ->
     Data1 = cancel_idle_timer(Data),
@@ -593,38 +509,127 @@ cancel_idle_timer(#data{idle_timer_ref = Ref} = Data) ->
     Data#data{idle_timer_ref = undefined}.
 
 %%--------------------------------------------------------------------
-%% Routing
+%% Session message dispatch — handles decoded JSON from sess/in/<Sid>/
 %%--------------------------------------------------------------------
 
-route(Sid, Payload) ->
-    Msg =
-        try
-            emqx_utils_json:decode(Payload)
-        catch
-            _:_ -> undefined
-        end,
-    case Msg of
-        undefined ->
-            ok;
-        #{<<"type">> := <<"request">>} ->
-            Pid = find_or_start(Sid),
-            gen_statem:cast(Pid, {in, Msg});
-        #{<<"type">> := _} ->
-            case global:whereis_name(?NAME(Sid)) of
-                undefined -> ok;
-                Pid -> gen_statem:cast(Pid, {in, Msg})
-            end
-    end.
+%% ── initial_idle: accept the first request ─────────────────────────────
 
-find_or_start(Sid) ->
-    case global:whereis_name(?NAME(Sid)) of
-        undefined ->
-            case emqx_agent_sess_sup:start_session(Sid) of
-                {ok, Pid} -> Pid;
-                {error, {already_started, Pid}} -> Pid
-            end;
-        Pid ->
-            Pid
+handle_sess_msg(#{<<"type">> := <<"request">>} = Msg, initial_idle, Data) ->
+    #{
+        <<"iid">> := Iid,
+        <<"trace_id">> := TraceId,
+        <<"provider_name">> := ProviderName,
+        <<"model">> := Model,
+        <<"tools">> := Tools,
+        <<"input">> := Input,
+        <<"instructions">> := Instructions
+    } = Msg,
+    SysMsg = #{<<"role">> => <<"system">>, <<"content">> => format_instructions(Instructions)},
+    UserMsg = #{<<"role">> => <<"user">>, <<"content">> => emqx_utils_json:encode(Input)},
+    PendingMsgs = [event_to_llm_msg(E) || E <- Data#data.pending],
+    Data1 = Data#data{
+        iid = Iid,
+        trace_id = TraceId,
+        provider_name = ProviderName,
+        model = Model,
+        tools = Tools,
+        max_tokens = maps:get(<<"max_tokens">>, Msg, 2048),
+        recv_timeout_ms = maps:get(<<"recv_timeout_ms">>, Msg, 180000),
+        temperature = maps:get(<<"temperature">>, Msg, 0.1),
+        stream = maps:get(<<"stream">>, Msg, true),
+        tool_choice = maps:get(<<"tool_choice">>, Msg, <<"required">>),
+        persistent = maps:get(<<"persistent">>, Msg, false),
+        messages = [SysMsg, UserMsg] ++ PendingMsgs,
+        pending = [],
+        usage = #{
+            <<"iterations">> => 0,
+            <<"tool_calls">> => 0,
+            <<"tokens_in">> => 0,
+            <<"tokens_out">> => 0
+        }
+    },
+    start_llm_call(Data1);
+%% ── idle: new request — append input to history ────────────────────────
+
+handle_sess_msg(#{<<"type">> := <<"request">>, <<"input">> := Input} = Msg, idle, Data) ->
+    Data0 = cancel_idle_timer(Data),
+    Iid = maps:get(<<"iid">>, Msg, Data#data.iid),
+    TraceId = maps:get(<<"trace_id">>, Msg, Data#data.trace_id),
+    Tools = maps:get(<<"tools">>, Msg, Data#data.tools),
+    ProviderName = maps:get(<<"provider_name">>, Msg, Data#data.provider_name),
+    ToolChoice = maps:get(<<"tool_choice">>, Msg, Data#data.tool_choice),
+    Messages0 =
+        case maps:get(<<"instructions">>, Msg, undefined) of
+            undefined ->
+                Data0#data.messages;
+            NewInstructions ->
+                SysMsg = #{
+                    <<"role">> => <<"system">>,
+                    <<"content">> => format_instructions(NewInstructions)
+                },
+                [SysMsg | tl(Data0#data.messages)]
+        end,
+    UserMsg = #{<<"role">> => <<"user">>, <<"content">> => emqx_utils_json:encode(Input)},
+    Data1 = Data0#data{
+        iid = Iid,
+        trace_id = TraceId,
+        provider_name = ProviderName,
+        tools = Tools,
+        tool_choice = ToolChoice,
+        messages = Messages0 ++ [UserMsg],
+        persistent = maps:get(<<"persistent">>, Msg, true),
+        pending = []
+    },
+    ?SLOG(info, #{
+        msg => "session_continuing",
+        sid => Data#data.sid,
+        iid => Iid,
+        history_len => length(Data1#data.messages)
+    }),
+    start_llm_call(Data1);
+%% ── waiting_tools: collect tool results ────────────────────────────────
+
+handle_sess_msg(
+    #{<<"type">> := <<"tool_result">>, <<"call_id">> := CallId} = Msg, waiting_tools, Data
+) ->
+    on_tool_result(CallId, Msg, Data);
+%% ── any state: explicit stop ───────────────────────────────────────────
+
+handle_sess_msg(#{<<"type">> := <<"stop">>}, _State, Data) ->
+    ?SLOG(info, #{msg => "session_stopped_explicitly", sid => Data#data.sid}),
+    {stop, normal, Data};
+%% ── idle + event: immediately continue reasoning ───────────────────────
+
+handle_sess_msg(#{<<"type">> := <<"event">>} = Msg, idle, Data) ->
+    Event = maps:get(<<"event">>, Msg, Msg),
+    ?SLOG(info, #{msg => "session_event_triggers_llm", sid => Data#data.sid}),
+    Data0 = cancel_idle_timer(Data),
+    Data1 = Data0#data{messages = Data0#data.messages ++ [event_to_llm_msg(Event)]},
+    start_llm_call(Data1);
+%% ── any other state: buffer events ─────────────────────────────────────
+
+handle_sess_msg(#{<<"type">> := <<"event">>} = Msg, _State, Data) ->
+    Event = maps:get(<<"event">>, Msg, Msg),
+    {keep_state, Data#data{pending = Data#data.pending ++ [Event]}};
+%% Request while busy: buffer for replay (latest wins) ───────────────────
+
+handle_sess_msg(#{<<"type">> := <<"request">>} = Msg, _State, Data) ->
+    ?SLOG(info, #{
+        msg => "session_request_queued",
+        sid => Data#data.sid,
+        iid => maps:get(<<"iid">>, Msg, undefined)
+    }),
+    {keep_state, Data#data{queued_request = Msg}};
+%% ── unknown type: ignore ───────────────────────────────────────────────
+
+handle_sess_msg(#{<<"type">> := _}, _State, Data) ->
+    {keep_state, Data}.
+
+safe_decode(Payload) ->
+    try
+        emqx_utils_json:decode(Payload)
+    catch
+        _:_ -> #{}
     end.
 
 %%--------------------------------------------------------------------
