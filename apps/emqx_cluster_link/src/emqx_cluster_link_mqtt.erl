@@ -581,7 +581,10 @@ decode_field(route, Route = {_Topic, _ID}) ->
     {add, Route}.
 
 encode_payload(Payload) ->
-    erlang:term_to_binary(Payload).
+    %% NOTE
+    %% Producing compressed binary. Beneficial almost only for messages with large
+    %% compressible payloads.
+    erlang:term_to_binary(Payload, [compressed]).
 
 decode_payload(Payload) ->
     erlang:binary_to_term(Payload, [safe]).
