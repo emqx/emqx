@@ -9,7 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 -if(?EMQX_RELEASE_EDITION == ee).
 
@@ -30,7 +30,7 @@ groups() ->
     [
         {unit_tests, [], [
             t_init_cache,
-            t_scope_catalogue,
+            t_scope_catalog,
             t_path_to_scope,
             t_path_to_scope_denied,
             t_path_to_scope_no_cache,
@@ -98,23 +98,23 @@ t_init_cache(_Config) ->
         undefined, persistent_term:get({emqx_mgmt_api_key_scopes, scope_cache}, undefined)
     ).
 
-t_scope_catalogue(_Config) ->
-    Catalogue = emqx_mgmt_api_key_scopes:scope_catalogue(),
-    ?assert(is_list(Catalogue)),
-    %% 10 user-visible scopes
-    ?assertEqual(10, length(Catalogue)),
-    %% Each entry has name and desc
+t_scope_catalog(_Config) ->
+    Catalog = emqx_scope_catalog:scope_catalog(),
+    ?assert(is_list(Catalog)),
+    %% Each entry has name (binary) and desc (i18n handle).
     lists:foreach(
         fun(Entry) ->
             ?assertMatch(#{name := _, desc := _}, Entry),
             #{name := Name, desc := Desc} = Entry,
             ?assert(is_binary(Name)),
-            ?assert(is_binary(Desc))
+            %% desc is the `?DESC(Mod, Id)' tuple; runtime callers
+            %% resolve it via emqx_dashboard_swagger:get_i18n/4.
+            ?assertMatch({desc, _Mod, _Id}, Desc)
         end,
-        Catalogue
+        Catalog
     ),
     %% Known scopes must be present
-    Names = [N || #{name := N} <- Catalogue],
+    Names = [N || #{name := N} <- Catalog],
     ?assert(lists:member(?SCOPE_CONNECTIONS, Names)),
     ?assert(lists:member(?SCOPE_PUBLISH, Names)),
     ?assert(lists:member(?SCOPE_DATA_INTEGRATION, Names)),
@@ -125,7 +125,7 @@ t_scope_catalogue(_Config) ->
     ?assert(lists:member(?SCOPE_SYSTEM, Names)),
     ?assert(lists:member(?SCOPE_AUDIT, Names)),
     ?assert(lists:member(?SCOPE_LICENSE, Names)),
-    %% $denied must NOT be in the catalogue
+    %% $denied must NOT be in the catalog
     ?assertNot(lists:member(?SCOPE_DENIED, Names)).
 
 t_path_to_scope(_Config) ->
@@ -145,9 +145,14 @@ t_path_to_scope(_Config) ->
 
 t_path_to_scope_denied(_Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),
-    %% Dashboard paths should resolve to $denied
-    ?assertEqual(?SCOPE_DENIED, emqx_mgmt_api_key_scopes:path_to_scope(<<"/users">>)),
-    ?assertEqual(?SCOPE_DENIED, emqx_mgmt_api_key_scopes:path_to_scope(<<"/api_key">>)),
+    %% Dashboard / API-key management paths formerly resolved to
+    %% $denied. They now map to login-only scopes
+    %% (api_key_management, user_management, mfa_management,
+    %% sso_management). API keys still cannot reach these endpoints
+    %% — minirest's bearer-only `security` declaration
+    %% rejects API key authentication before scope check.
+    ?assertEqual(?SCOPE_USER_MGMT, emqx_mgmt_api_key_scopes:path_to_scope(<<"/users">>)),
+    ?assertEqual(?SCOPE_API_KEY_MGMT, emqx_mgmt_api_key_scopes:path_to_scope(<<"/api_key">>)),
     emqx_mgmt_api_key_scopes:clear_cache().
 
 t_path_to_scope_no_cache(_Config) ->
@@ -205,10 +210,14 @@ t_all_modules_have_scopes(_Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),
     PathToScope = emqx_mgmt_api_key_scopes:collect_scopes_from_modules(),
     ?assert(map_size(PathToScope) > 0),
-    %% Every path should map to a known scope or $denied
+    %% Every path should map to a known scope, $denied, or one of the
+    %% four login-only scopes (user/mfa/sso/api_key_management — these
+    %% apply to dashboard login users only and are not in the API key
+    %% scope catalog).
     AllValidScopes =
-        [N || #{name := N} <- emqx_mgmt_api_key_scopes:scope_catalogue()] ++
-            [?SCOPE_DENIED],
+        [N || #{name := N} <- emqx_scope_catalog:scope_catalog()] ++
+            [?SCOPE_DENIED] ++
+            ?LOGIN_ONLY_SCOPES,
     maps:foreach(
         fun(Path, Scope) ->
             ?assert(
@@ -238,8 +247,35 @@ t_all_endpoints_covered_by_scopes(_Config) ->
             Modules
         )
     ),
+    %% Some paths are intentionally unmapped (fail-open) — public auth
+    %% entry points and scope catalog endpoints. They are guarded by
+    %% minirest `security` declarations rather than by the scope map.
+    IntentionallyUnmapped = [
+        %% Authentication / session entry points
+        <<"/login">>,
+        <<"/logout">>,
+        %% Public SSO login flow endpoints
+        <<"/sso/login/:backend">>,
+        <<"/sso/token_exchange">>,
+        <<"/sso/oidc/callback">>,
+        <<"/sso/saml/acs">>,
+        <<"/sso/saml/metadata">>,
+        %% Probed by the dashboard login page (pre-auth) to render
+        %% the "Log in with X" SSO button list.
+        <<"/sso/running">>,
+        %% Public SSO MFA setup/verify (token-authenticated by short-lived JWT)
+        <<"/sso/mfa/setup_info">>,
+        <<"/sso/mfa/setup">>,
+        <<"/sso/mfa/verify">>,
+        %% Scope catalog endpoints — public to any authenticated login user.
+        %% Top-level paths chosen to avoid wildcard routing collision with
+        %% /api_key/:name and /users/:username (sibling to /action_types,
+        %% /source_types).
+        <<"/api_key_scopes">>,
+        <<"/user_scopes">>
+    ],
     MappedPaths = lists:sort(maps:keys(PathToScope)),
-    Uncovered = AllDeclaredPaths -- MappedPaths,
+    Uncovered = (AllDeclaredPaths -- MappedPaths) -- IntentionallyUnmapped,
     ?assertEqual(
         [],
         Uncovered,
@@ -300,22 +336,36 @@ t_authorize_denied_path(_Config) ->
     Name = <<"SCOPES-TEST-DENIED">>,
     {ok, #{<<"api_key">> := _ApiKey, <<"api_secret">> := _ApiSecret}} =
         create_app(Name),
-    %% Denied paths blocked even without scopes restriction
-    Extra = #{role => ?ROLE_API_SUPERUSER},
-    ?assertMatch(
-        {error, unauthorized_role},
-        emqx_mgmt_auth:check_scopes(Extra, <<"/users">>, <<"GET">>)
-    ),
-    ?assertMatch(
-        {error, unauthorized_role},
-        emqx_mgmt_auth:check_scopes(Extra, <<"/api_key">>, <<"GET">>)
-    ),
-    %% Even with explicit scopes, denied paths are still blocked
-    ExtraWithScopes = #{role => ?ROLE_API_SUPERUSER, scopes => [?SCOPE_CONNECTIONS]},
-    ?assertMatch(
-        {error, unauthorized_role},
-        emqx_mgmt_auth:check_scopes(ExtraWithScopes, <<"/users">>, <<"GET">>)
-    ),
+    %% Dashboard / SSO / API-key-management paths no longer use
+    %% ?SCOPE_DENIED — they map to login-only scopes.
+    %% ?SCOPE_DENIED stays as an internal sentinel for SSO public flow
+    %% modules (OIDC callback / SAML ACS / SSO MFA setup) which are not
+    %% loaded in this test app's dep graph. We mock the scope cache to
+    %% inject a denied entry and verify that emqx_mgmt_auth still
+    %% rejects API key access to such paths.
+    DeniedPath = <<"/__test_denied__">>,
+    meck:new(emqx_mgmt_api_key_scopes, [passthrough]),
+    meck:expect(emqx_mgmt_api_key_scopes, path_to_scope, fun
+        (P) when P =:= DeniedPath -> ?SCOPE_DENIED;
+        (P) -> meck:passthrough([P])
+    end),
+    try
+        Extra = #{role => ?ROLE_API_SUPERUSER},
+        ?assertMatch(
+            {error, unauthorized_role},
+            emqx_mgmt_auth:check_scopes(Extra, DeniedPath, <<"GET">>)
+        ),
+        %% Even with explicit scopes, denied paths are still blocked
+        ExtraWithScopes = #{
+            role => ?ROLE_API_SUPERUSER, scopes => [?SCOPE_CONNECTIONS]
+        },
+        ?assertMatch(
+            {error, unauthorized_role},
+            emqx_mgmt_auth:check_scopes(ExtraWithScopes, DeniedPath, <<"GET">>)
+        )
+    after
+        meck:unload(emqx_mgmt_api_key_scopes)
+    end,
     delete_app(Name).
 
 t_check_scopes_unmapped_path(_Config) ->
@@ -338,14 +388,14 @@ t_check_scopes_unmapped_path(_Config) ->
 
 t_api_list_scopes(_Config) ->
     AuthHeader = emqx_dashboard_SUITE:auth_header_(),
-    Path = emqx_mgmt_api_test_util:api_path(["api_key", "scopes"]),
+    Path = emqx_mgmt_api_test_util:api_path(["api_key_scopes"]),
     {ok, Res} = emqx_mgmt_api_test_util:request_api(get, Path, AuthHeader),
     Body = emqx_utils_json:decode(Res),
     %% New format: #{scopes => [...]}
     ?assertMatch(#{<<"scopes">> := _}, Body),
     Scopes = maps:get(<<"scopes">>, Body),
     ?assert(is_list(Scopes)),
-    ?assertEqual(10, length(Scopes)),
+    ?assertEqual(length(emqx_scope_catalog:scope_catalog()), length(Scopes)),
     %% Each entry has name and desc (no paths)
     lists:foreach(
         fun(Scope) ->

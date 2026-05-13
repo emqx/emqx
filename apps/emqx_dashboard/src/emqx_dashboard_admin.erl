@@ -9,6 +9,7 @@
 -feature(maybe_expr, enable).
 
 -include("emqx_dashboard.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
@@ -18,7 +19,7 @@
 
 -export([
     add_user/4,
-    disable_mfa/1,
+    disable_mfa/2,
     clear_mfa_state/1,
     set_mfa_state/2,
     get_mfa_state/1,
@@ -31,14 +32,21 @@
     lookup_user/1,
     change_password_trusted/2,
     change_password/3,
-    enable_mfa/2,
-    reinit_mfa/2,
+    enable_mfa_from_cli/2,
+    reinit_mfa/3,
     set_mfa_pending/2,
     clear_mfa_pending/1,
     get_mfa_pending/1,
     set_sso_code/2,
     clear_sso_code/1,
     get_sso_code/1,
+    %% Login user scope + MFA admin override fields (stored in extra map)
+    admin_override_of/1,
+    set_admin_override/2,
+    scopes_of/1,
+    effective_scopes_of/1,
+    effective_scopes_of_admin/1,
+    set_user_scopes/2,
     all_users/0,
     admin_users/0,
     check/2,
@@ -62,6 +70,8 @@
 ]).
 
 -export([role/1]).
+
+-export([to_external_user/1]).
 
 -export([backup_tables/0]).
 
@@ -162,16 +172,21 @@ clear_mfa_state(Username) ->
 %% @doc Disable MFA for a user.
 %% Verifies MFA is currently enabled before disabling.
 %% Clears the secret so re-enabling requires a fresh TOTP setup.
--spec disable_mfa(dashboard_username()) -> ok | {error, term()}.
-disable_mfa(Username) ->
+%% @doc Disable MFA for a user. Admin-initiated disable writes
+%% admin_override=mfa_exempted so the user is unlocked from any
+%% policy snapshot — subsequent backend force_mfa changes will not
+%% re-lock this user. Self-initiated disable does not touch the
+%% admin_override field.
+-spec disable_mfa(dashboard_username(), boolean()) -> ok | {error, term()}.
+disable_mfa(Username, ByAdmin) ->
     case lookup_user(Username) of
         [] ->
             {error, <<"username_not_found">>};
         [_] ->
-            do_disable_mfa(Username)
+            do_disable_mfa(Username, ByAdmin)
     end.
 
-do_disable_mfa(Username) ->
+do_disable_mfa(Username, ByAdmin) ->
     case get_mfa_state(Username) of
         {ok, disabled} ->
             {error, <<"MFA is already disabled">>};
@@ -185,14 +200,21 @@ do_disable_mfa(Username) ->
                 end)
             end),
             case Res of
-                {atomic, ok} -> ok;
-                {aborted, Reason} -> {error, Reason}
+                {atomic, ok} ->
+                    %% Admin disable expresses "this user is exempt from
+                    %% MFA policy"; self disable doesn't.
+                    ok = maybe_set_admin_override(Username, ByAdmin, ?ADMIN_MFA_EXEMPTED),
+                    ok;
+                {aborted, Reason} ->
+                    {error, Reason}
             end
     end.
 
 %% @doc Enable MFA state.
 %% Return error if it's already enabled.
-enable_mfa(Username, Mechanism) ->
+%% Called from CLI (emqx ctl admins mfa <user> enable totp), so the
+%% caller is treated as admin.
+enable_mfa_from_cli(Username, Mechanism) ->
     case get_mfa_enabled_state(Username) of
         {ok, #{mechanism := Mechanism0}} ->
             {error, binfmt("MFA is already enabled using '~p'", [Mechanism0])};
@@ -201,19 +223,51 @@ enable_mfa(Username, Mechanism) ->
                 [] ->
                     {error, <<"username_not_found">>};
                 [_] ->
-                    reinit_mfa(Username, Mechanism)
+                    reinit_mfa(Username, Mechanism, _ByAdmin = true)
             end
     end.
 
-reinit_mfa(Username, Mechanism) ->
+%% @doc Reinitialize MFA state for a user (generate new TOTP secret,
+%% clear any pending state). The `ByAdmin' flag determines whether the
+%% caller's admin_override decision is applied:
+%%
+%%   * ByAdmin=true (admin reinit) — write admin_override=mfa_required.
+%%     Admin's decision overrides whatever policy snapshot says — this
+%%     user must keep MFA regardless of backend force_mfa changes.
+%%   * ByAdmin=false (self reinit) — leave admin_override untouched.
+%%     Self cannot revoke an existing admin decision (required or
+%%     exempted); voluntary setup/rotate stays under the admin
+%%     decision if any.
+reinit_mfa(Username, Mechanism, ByAdmin) ->
     {ok, State} = emqx_dashboard_mfa:init(Mechanism),
     case reset_mfa_state(Username, State) of
         {ok, ok} ->
+            ok = maybe_set_admin_override(Username, ByAdmin, ?ADMIN_MFA_REQUIRED),
             _ = emqx_dashboard_token:destroy_by_username(Username),
             ok;
         {error, Reason} ->
             {error, Reason}
     end.
+
+%% Conditional admin_override write — applied only when the operation
+%% was performed by an admin acting on another user (ByAdmin=true).
+%% Self operations never write admin_override: self cannot override
+%% the admin's decision.
+maybe_set_admin_override(_Username, _ByAdmin = false, _Override) ->
+    ok;
+maybe_set_admin_override(Username, _ByAdmin = true, Override) ->
+    log_admin_override_write(Username, Override, set_admin_override(Username, Override)).
+
+log_admin_override_write(_Username, _Value, {ok, ok}) ->
+    ok;
+log_admin_override_write(Username, Value, {error, Reason}) ->
+    ?SLOG(warning, #{
+        msg => "set_admin_override_failed",
+        username => Username,
+        value => Value,
+        reason => Reason
+    }),
+    ok.
 
 %% @doc Set MFA state in the extra map.
 set_mfa_state(Username, MfaState) ->
@@ -297,6 +351,105 @@ clear_login_lock(Username) ->
 
 clear_login_lock2(Username) ->
     update_extra(Username, fun(Extra) -> maps:without([login_lock], Extra) end).
+
+%%--------------------------------------------------------------------
+%% Login user scope + admin_override fields
+%%
+%% Two extra-map keys introduced for the dashboard user scopes feature:
+%%
+%%   admin_override :: undefined | mfa_required | mfa_exempted
+%%     Admin's explicit per-user MFA decision that overrides the live
+%%     backend force_mfa policy in either direction:
+%%       * mfa_required: this user must keep MFA regardless of policy
+%%       * mfa_exempted: this user is exempt from MFA regardless
+%%       * undefined  : no admin decision — fall back to backend's
+%%                      live force_mfa at MFA-setup-required time
+%%
+%%   scopes :: [binary()]
+%%     Login user's scope list. undefined (key absent) means "fall
+%%     back to role default" — administrator gets implicit full
+%%     access; viewer/publisher get implicit empty (no new-scope
+%%     privileges). Explicit [] means "all mapped paths denied,
+%%     unmapped paths still allowed" (consistent with API key empty
+%%     scope semantics).
+
+-type admin_override() :: undefined | ?ADMIN_MFA_REQUIRED | ?ADMIN_MFA_EXEMPTED.
+
+-spec admin_override_of(dashboard_username()) -> admin_override().
+admin_override_of(Username) ->
+    case get_extra(Username) of
+        {ok, #{admin_override := V}} when
+            V =:= ?ADMIN_MFA_REQUIRED;
+            V =:= ?ADMIN_MFA_EXEMPTED
+        ->
+            V;
+        _ ->
+            undefined
+    end.
+
+-spec set_admin_override(dashboard_username(), admin_override()) ->
+    {ok, ok} | {error, term()}.
+set_admin_override(Username, undefined) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> maps:remove(admin_override, Extra) end)
+    end),
+    return(Res);
+set_admin_override(Username, V) when
+    V =:= ?ADMIN_MFA_REQUIRED;
+    V =:= ?ADMIN_MFA_EXEMPTED
+->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> Extra#{admin_override => V} end)
+    end),
+    return(Res).
+
+-spec scopes_of(dashboard_username()) -> undefined | [binary()].
+scopes_of(Username) ->
+    case get_extra(Username) of
+        {ok, #{scopes := S}} -> S;
+        _ -> undefined
+    end.
+
+%% @doc Return the EFFECTIVE scope list for a user — expands the
+%% role-default fallback when the user has no explicit `scopes' field
+%% in their extra map (the "lazy migration" case for users created
+%% before this feature).
+%%
+%%   administrator + no explicit scopes -> all scopes (common + login-only)
+%%   viewer        + no explicit scopes -> common scopes only
+%%   any role      + explicit []         -> []
+%%   any role      + explicit [X, ...]   -> [X, ...]
+%%
+%% This is what RBAC checks, what `caller_has_mfa_mgmt/1' inspects,
+%% and what the /users API surfaces in responses.
+-spec effective_scopes_of(dashboard_username()) -> [binary()].
+effective_scopes_of(Username) ->
+    case lookup_user(Username) of
+        [#?ADMIN{} = Admin] -> effective_scopes_of_admin(Admin);
+        _ -> []
+    end.
+
+-spec effective_scopes_of_admin(emqx_admin()) -> [binary()].
+effective_scopes_of_admin(#?ADMIN{username = Username, role = Role}) ->
+    case scopes_of(Username) of
+        undefined -> role_default_scopes(Role);
+        Scopes when is_list(Scopes) -> Scopes
+    end.
+
+role_default_scopes(?ROLE_SUPERUSER) ->
+    ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES;
+role_default_scopes(_) ->
+    ?GENERIC_SCOPES.
+
+-spec set_user_scopes(dashboard_username(), [binary()]) ->
+    {ok, ok} | {error, term()}.
+set_user_scopes(Username, Scopes) when is_list(Scopes) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> Extra#{scopes => Scopes} end)
+    end),
+    return(Res).
+
+%%--------------------------------------------------------------------
 
 %% @doc Management of `extra' field.
 
@@ -595,12 +748,21 @@ to_external_user(UserRecord) ->
         description = Desc,
         role = Role
     } = UserRecord,
-    flatten_username(#{
+    Base = #{
         username => Username,
         description => Desc,
         role => ensure_role(Role),
         mfa => format_mfa(Username)
-    }).
+    },
+    flatten_username(maps:merge(Base, ee_user_extra(UserRecord))).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+ee_user_extra(UserRecord) ->
+    #{scopes => effective_scopes_of_admin(UserRecord)}.
+-else.
+ee_user_extra(_UserRecord) ->
+    #{}.
+-endif.
 
 format_mfa(Username) ->
     case get_mfa_state(Username) of
@@ -714,7 +876,10 @@ maybe_init_mfa_state(Username, true) ->
                     %% or explicitly disabled
                     ok;
                 _ ->
-                    reinit_mfa(Username, Mechanism)
+                    %% Triggered by `dashboard.default_mfa' config on
+                    %% user creation. Treat as non-admin call — the user
+                    %% can still self-rotate.
+                    reinit_mfa(Username, Mechanism, _ByAdmin = false)
             end
     end;
 maybe_init_mfa_state(_Username, false) ->

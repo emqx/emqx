@@ -8,7 +8,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 
 -import(hoconsc, [
@@ -49,7 +49,24 @@
 
 namespace() -> "dashboard_sso".
 
-scopes() -> ?SCOPE_DENIED.
+scopes() ->
+    %% These two SSO admin endpoints require auth via the global
+    %% minirest default (basicAuth/bearerAuth). API key access to
+    %% dashboard SSO is rejected at the auth layer (api_key_authorize
+    %% in emqx_dashboard.erl) — only login users reach the scope check.
+    %% The login user scope check consults this map.
+    %%
+    %% Intentionally absent from the map (public, fall-through to
+    %% unmapped fail-open):
+    %%   * /sso/login/:backend, /sso/token_exchange — SSO protocol
+    %%     entry points
+    %%   * /sso/running — dashboard frontend probes this on the
+    %%     pre-auth login page to render the "Log in with X" button
+    %%     list. Must remain anonymously accessible.
+    #{
+        <<"/sso">> => ?SCOPE_SSO_MGMT,
+        <<"/sso/:backend">> => ?SCOPE_SSO_MGMT
+    }.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
@@ -68,11 +85,18 @@ schema("/sso/running") ->
         'operationId' => running,
         get => #{
             tags => ?TAGS,
+            %% Public endpoint — the dashboard login page probes this
+            %% BEFORE authentication to render the "Log in with X"
+            %% button list. Setting security => [] overrides the
+            %% global default (basicAuth/bearerAuth) to allow
+            %% anonymous access. The response contains only the list
+            %% of enabled SSO backend types (e.g. [<<"ldap">>,
+            %% <<"saml">>]) — no per-tenant or per-user information.
+            security => [],
             desc => ?DESC(list_running),
             responses => #{
                 200 => array(enum(emqx_dashboard_sso:types()))
-            },
-            security => []
+            }
         }
     };
 schema("/sso") ->

@@ -10,7 +10,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("typerefl/include/types.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -26,6 +26,7 @@
     login/2,
     logout/2,
     users/2,
+    user_scopes/2,
     user/2,
     change_pwd/2,
     change_mfa/2
@@ -44,7 +45,21 @@
 
 namespace() -> "dashboard".
 
-scopes() -> ?SCOPE_DENIED.
+%% API key auth is rejected at the minirest layer for these paths
+%% (security => [#{bearerAuth => []}] excludes basic auth). The scope
+%% map below applies to dashboard LOGIN users — checked in
+%% emqx_dashboard_rbac:check_login_user_scopes/2.
+%%
+%% Public paths (/login, /logout) are intentionally absent from the map;
+%% they fall through to the unmapped-path branch (fail-open) and are
+%% guarded by their own security => [] / bearerAuth declarations.
+scopes() ->
+    #{
+        <<"/users">> => ?SCOPE_USER_MGMT,
+        <<"/users/:username">> => ?SCOPE_USER_MGMT,
+        <<"/users/:username/change_pwd">> => ?SCOPE_USER_MGMT,
+        <<"/users/:username/mfa">> => ?SCOPE_MFA_MGMT
+    }.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
@@ -56,7 +71,8 @@ paths() ->
         "/users",
         "/users/:username",
         "/users/:username/change_pwd",
-        "/users/:username/mfa"
+        "/users/:username/mfa",
+        "/user_scopes"
     ].
 
 schema("/login") ->
@@ -110,9 +126,28 @@ schema("/users") ->
             tags => [<<"Dashboard">>],
             desc => ?DESC(create_user_api),
             security => [#{'bearerAuth' => []}],
-            'requestBody' => fields([username, password, role, description]),
+            'requestBody' => fields([username, password, role, description, scopes]),
             responses => #{
-                200 => fields([username, role, description, backend])
+                200 => user_fields()
+            }
+        }
+    };
+schema("/user_scopes") ->
+    %% Public catalog endpoint — any authenticated dashboard login
+    %% user (incl. viewer / SSO viewer) may list the available scope
+    %% names. The path is intentionally absent from scopes/0 above so
+    %% it falls through to the unmapped-path branch (fail-open).
+    %%
+    %% Top-level path (sibling to /action_types, /source_types) so it
+    %% never collides with /users/:username wildcard routing.
+    #{
+        'operationId' => user_scopes,
+        get => #{
+            tags => [<<"Dashboard">>],
+            desc => ?DESC(list_user_scopes_api),
+            security => [#{'bearerAuth' => []}],
+            responses => #{
+                200 => mk(map(), #{desc => ?DESC(list_user_scopes_api)})
             }
         }
     };
@@ -123,9 +158,12 @@ schema("/users/:username") ->
             tags => [<<"Dashboard">>],
             desc => ?DESC(update_user_api),
             parameters => sso_parameters(fields([username_in_path])),
-            'requestBody' => fields([role, description]),
+            'requestBody' => fields([role, description, scopes]),
             responses => #{
                 200 => user_fields(),
+                400 => emqx_dashboard_swagger:error_codes(
+                    [?BAD_REQUEST, ?NOT_ALLOWED], ?DESC(login_failed_response400)
+                ),
                 404 => response_schema(404)
             }
         },
@@ -195,7 +233,7 @@ fields(List) ->
     [field(Key) || Key <- List, field_filter(Key)].
 
 user_fields() ->
-    fields([username, role, description, backend]) ++ ee_user_fields().
+    fields([username, role, description, backend, scopes]) ++ ee_user_fields().
 
 ee_user_fields() ->
     [
@@ -249,6 +287,13 @@ field(new_pwd) ->
 field(role) ->
     {role,
         mk(binary(), #{desc => ?DESC(role), default => ?ROLE_DEFAULT, example => ?ROLE_DEFAULT})};
+field(scopes) ->
+    {scopes,
+        mk(hoconsc:array(binary()), #{
+            desc => ?DESC(user_scopes),
+            required => false,
+            example => [?SCOPE_USER_MGMT, ?SCOPE_MFA_MGMT]
+        })};
 field(backend) ->
     {backend, mk(binary(), #{desc => ?DESC(backend), example => <<"local">>})};
 field(password_expire_in_seconds) ->
@@ -306,6 +351,13 @@ logout(_, #{
             {401, ?WRONG_TOKEN_OR_USERNAME, <<"Ensure your token & username">>}
     end.
 
+user_scopes(get, _Request) ->
+    Scopes = [resolve_scope_desc(S) || S <- emqx_scope_catalog:login_user_scope_catalog()],
+    {200, #{scopes => Scopes}}.
+
+resolve_scope_desc(#{desc := Desc} = Scope) ->
+    Scope#{desc => emqx_dashboard_swagger:get_i18n(<<"desc">>, Desc, <<>>, #{})}.
+
 users(get, _Request) ->
     {200, filter_result(emqx_dashboard_admin:all_users())};
 users(post, #{body := Params}) ->
@@ -313,58 +365,123 @@ users(post, #{body := Params}) ->
     Role = maps:get(<<"role">>, Params, ?ROLE_DEFAULT),
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
+    Scopes = maps:get(<<"scopes">>, Params, undefined),
     case ?EMPTY(Username) orelse ?EMPTY(Password) of
         true ->
             {400, ?BAD_REQUEST, <<"Username or password undefined">>};
         false ->
-            case emqx_dashboard_admin:add_user(Username, Password, Role, Desc) of
-                {ok, Result} ->
-                    ?SLOG(info, #{msg => "create_dashboard_user_success", username => Username}),
-                    {200, filter_result(Result)};
-                {error, Reason} ->
-                    ?SLOG(info, #{
-                        msg => "create_dashboard_user_failed",
-                        username => Username,
-                        reason => Reason
-                    }),
-                    {400, ?BAD_REQUEST, Reason}
-            end
+            create_user(Username, Password, Role, Desc, Scopes)
+    end.
+
+%% Run the validate → add_user → set_scopes pipeline. Each step short-
+%% circuits to the appropriate HTTP response, keeping users(post,...)
+%% within elvis's nesting cap.
+create_user(Username, Password, Role, Desc, Scopes) ->
+    case validate_login_user_scopes(Role, Scopes) of
+        ok ->
+            do_create_user(Username, Password, Role, Desc, Scopes);
+        {error, Msg} ->
+            {400, ?BAD_REQUEST, Msg}
+    end.
+
+do_create_user(Username, Password, Role, Desc, Scopes) ->
+    case emqx_dashboard_admin:add_user(Username, Password, Role, Desc) of
+        {ok, Result} ->
+            finalise_create_user(Username, Scopes, Result);
+        {error, Reason} ->
+            ?SLOG(info, #{
+                msg => "create_dashboard_user_failed",
+                username => Username,
+                reason => Reason
+            }),
+            {400, ?BAD_REQUEST, Reason}
+    end.
+
+finalise_create_user(Username, Scopes, Result) ->
+    case maybe_set_user_scopes(Username, Scopes) of
+        ok ->
+            ?SLOG(info, #{
+                msg => "create_dashboard_user_success",
+                username => Username
+            }),
+            %% Re-read the persisted record so the response carries
+            %% the final scopes / mfa state (the in-flight Result map
+            %% from add_user/4 predates set_user_scopes and lacks
+            %% these fields).
+            {200, filter_result(reload_external_user(Username, Result))};
+        {error, <<"username_not_found">> = Reason} ->
+            {404, ?USER_NOT_FOUND, Reason};
+        {error, Reason} ->
+            {400, ?BAD_REQUEST, Reason}
     end.
 
 user(put, #{bindings := #{username := Username0}, body := Params} = Req) ->
     Role = maps:get(<<"role">>, Params, ?ROLE_DEFAULT),
     Desc = maps:get(<<"description">>, Params),
+    Scopes = maps:get(<<"scopes">>, Params, undefined),
     Username = username(Req, Username0),
-    case emqx_dashboard_admin:update_user(Username, Role, Desc) of
-        {ok, Result} ->
-            {200, filter_result(Result)};
-        {error, <<"username_not_found">> = Reason} ->
-            {404, ?USER_NOT_FOUND, Reason};
-        {error, Reason} ->
-            {400, ?BAD_REQUEST, Reason}
+    case is_default_admin_modification(Username, Role, Scopes) of
+        ok ->
+            update_user(Username, Role, Desc, Scopes);
+        {error, Msg} ->
+            {400, ?NOT_ALLOWED, Msg}
     end;
-user(delete, #{bindings := #{username := Username}} = Req) ->
-    DefaultUsername = emqx_dashboard_admin:default_username(),
-    case Username == DefaultUsername of
+user(delete, #{bindings := #{username := Username0}} = Req) ->
+    %% Resolve the SSO target (e.g. `?backend=ldap' turns `Username0'
+    %% into `{ldap, Username0}') before checking the break-glass
+    %% protection — otherwise an SSO user that happens to share its
+    %% name with `dashboard.default_username' would be wrongly rejected.
+    Username = username(Req, Username0),
+    case is_default_admin(Username) of
         true ->
-            handle_delete_default_admin(Req);
+            ?SLOG(info, #{
+                msg => "dashboard_delete_admin_user_failed",
+                username => Username,
+                reason => "default admin user is protected"
+            }),
+            {400, ?NOT_ALLOWED, <<
+                "The default administrator user cannot be deleted."
+            >>};
         false ->
             handle_delete_user(Req)
     end.
 
-handle_delete_default_admin(#{bindings := #{username := Username0}} = Req) ->
-    AllAdminUsers = emqx_dashboard_admin:admin_users(),
-    OtherAdminUsers = lists:filter(fun(#{username := U}) -> U /= Username0 end, AllAdminUsers),
-    case OtherAdminUsers of
-        [_ | _] ->
-            %% There is at least one other admin user; we may delete the default user.
-            handle_delete_user(Req);
-        [] ->
-            %% There's no other admin user.
-            ?SLOG(info, #{msg => "dashboard_delete_admin_user_failed", username => Username0}),
-            Message = list_to_binary(io_lib:format("Cannot delete user ~p", [Username0])),
-            {400, ?NOT_ALLOWED, Message}
+%% The default administrator (configured via `dashboard.default_username')
+%% is a break-glass account. Reject any modification that would weaken
+%% it: role changes away from administrator, and explicit scope lists
+%% (the role's implicit defaults must always apply). Empty
+%% `dashboard.default_username' means no default user is in effect, so
+%% the protection is a no-op.
+is_default_admin_modification(Username, Role, Scopes) ->
+    case is_default_admin(Username) of
+        false ->
+            ok;
+        true ->
+            case {Role, Scopes} of
+                {?ROLE_SUPERUSER, undefined} ->
+                    ok;
+                {?ROLE_SUPERUSER, _} ->
+                    {error, <<
+                        "The default administrator cannot have an explicit "
+                        "scope list; it always holds the full catalog."
+                    >>};
+                {_OtherRole, _} ->
+                    {error, <<
+                        "The default administrator role cannot be changed."
+                    >>}
+            end
     end.
+
+is_default_admin(Username) when is_binary(Username) ->
+    case emqx_dashboard_admin:default_username() of
+        <<>> -> false;
+        Default -> Username =:= Default
+    end;
+is_default_admin(_NonLocalTarget) ->
+    %% SSO targets (e.g. `{ldap, Username}') are never the local
+    %% break-glass account, even if their username happens to match
+    %% `dashboard.default_username'.
+    false.
 
 handle_delete_user(#{bindings := #{username := Username0}, headers := Headers} = Req) ->
     Username = username(Req, Username0),
@@ -443,37 +560,297 @@ change_pwd(post, #{bindings := #{username := Username}, body := Params}) ->
 change_mfa(delete, #{bindings := #{username := Username0}} = Req) ->
     Username = username(Req, Username0),
     LogMeta = #{msg => "dashboard_user_mfa_disable", username => Username},
-    case emqx_dashboard_admin:disable_mfa(Username) of
+    case authorize_mfa_change(Req, Username, disable) of
         ok ->
-            ?SLOG(info, LogMeta#{result => success}),
-            {204};
-        {error, <<"username_not_found">>} ->
-            ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
-            {404, ?USER_NOT_FOUND, <<"User not found">>};
-        {error, Reason} ->
-            ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
-            {400, ?BAD_REQUEST, Reason}
+            ByAdmin = caller_is_admin_acting_on_other(Req, Username),
+            case emqx_dashboard_admin:disable_mfa(Username, ByAdmin) of
+                ok ->
+                    ?SLOG(info, LogMeta#{result => success}),
+                    {204};
+                {error, <<"username_not_found">>} ->
+                    ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
+                    {404, ?USER_NOT_FOUND, <<"User not found">>};
+                {error, Reason} ->
+                    ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
+                    {400, ?BAD_REQUEST, Reason}
+            end;
+        {deny, Code, ErrCode, Msg} ->
+            ?SLOG(warning, LogMeta#{result => denied, reason => ErrCode}),
+            {Code, ErrCode, Msg}
     end;
 change_mfa(post, #{bindings := #{username := Username0}, body := Settings} = Req) ->
     Username = username(Req, Username0),
     Mechanism = maps:get(<<"mechanism">>, Settings),
     LogMeta = #{msg => "dashboard_user_mfa_setup", username => Username},
-    case emqx_dashboard_admin:reinit_mfa(Username, Mechanism) of
+    case authorize_mfa_change(Req, Username, setup) of
         ok ->
-            ?SLOG(info, LogMeta#{result => success}),
-            {204};
-        {error, <<"username_not_found">>} ->
-            ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
-            {404, ?USER_NOT_FOUND, <<"User not found">>};
-        {error, Reason} ->
-            ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
-            {400, ?BAD_REQUEST, Reason}
+            ByAdmin = caller_is_admin_acting_on_other(Req, Username),
+            case emqx_dashboard_admin:reinit_mfa(Username, Mechanism, ByAdmin) of
+                ok ->
+                    ?SLOG(info, LogMeta#{result => success}),
+                    {204};
+                {error, <<"username_not_found">>} ->
+                    ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
+                    {404, ?USER_NOT_FOUND, <<"User not found">>};
+                {error, Reason} ->
+                    ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
+                    {400, ?BAD_REQUEST, Reason}
+            end;
+        {deny, Code, ErrCode, Msg} ->
+            ?SLOG(warning, LogMeta#{result => denied, reason => ErrCode}),
+            {Code, ErrCode, Msg}
     end.
 
 register_unsuccessful_login(Username, <<"password_error">>) ->
     emqx_dashboard_login_lock:register_unsuccessful_login(Username);
 register_unsuccessful_login(_, _) ->
     ok.
+
+%% --- login user scope schema validation ---
+%%
+%% Two-layer rule:
+%%   * Any unknown scope name is rejected.
+%%   * Non-administrator role users cannot hold any of the admin-only
+%%     subset (user_management, sso_management, api_key_management).
+%%     mfa_management is intentionally allowed for any role — non-
+%%     admin holders can self-exempt their own MFA but cannot manage
+%%     other users' MFA (handler-level enforcement).
+validate_login_user_scopes(_Role, undefined) ->
+    ok;
+validate_login_user_scopes(_Role, Scopes) when not is_list(Scopes) ->
+    {error, <<"scopes must be a list of strings">>};
+validate_login_user_scopes(Role, Scopes) ->
+    case validate_scope_names(Scopes) of
+        ok ->
+            validate_role_scope_compat(Role, Scopes);
+        Error ->
+            Error
+    end.
+
+%% Login users may hold ANY of the API key catalog scopes plus the
+%% four login-only scopes. Any name outside this combined set is a
+%% typo or an attempt to assign $denied — reject.
+validate_scope_names(Scopes) ->
+    Catalogue = [N || #{name := N} <- emqx_scope_catalog:scope_catalog()],
+    Allowed = Catalogue ++ ?LOGIN_ONLY_SCOPES,
+    case [S || S <- Scopes, not lists:member(S, Allowed)] of
+        [] ->
+            ok;
+        Unknown ->
+            Names = lists:join(<<", ">>, Unknown),
+            {error, iolist_to_binary([<<"Unknown scope name(s): ">>, Names])}
+    end.
+
+validate_role_scope_compat(?ROLE_SUPERUSER, _Scopes) ->
+    ok;
+validate_role_scope_compat(_NonAdminRole, Scopes) ->
+    case [S || S <- Scopes, lists:member(S, ?ADMIN_ONLY_SCOPES)] of
+        [] ->
+            ok;
+        Conflicts ->
+            Names = lists:join(<<", ">>, Conflicts),
+            Msg = iolist_to_binary([
+                <<"Non-administrator users cannot hold admin-only scopes: ">>, Names
+            ]),
+            {error, Msg}
+    end.
+
+%% Run the validate → update_user → set_scopes pipeline. Mirrors
+%% create_user/5 above, also kept as a helper to stay within elvis's
+%% nesting cap.
+%%
+%% Validation runs against the *effective* scope list — the request
+%% body's `scopes' field when present, otherwise the persisted scopes —
+%% so a role demotion can never silently keep stale admin-only scopes
+%% just because the client omitted the `scopes' field.
+update_user(Username, Role, Desc, Scopes) ->
+    EffectiveScopes = effective_request_scopes(Username, Scopes),
+    case validate_login_user_scopes(Role, EffectiveScopes) of
+        ok ->
+            do_update_user(Username, Role, Desc, Scopes);
+        {error, Msg} ->
+            {400, ?BAD_REQUEST, Msg}
+    end.
+
+%% Fall back to persisted scopes only when the body did not supply a
+%% `scopes' field. An explicit list (including `[]') is taken verbatim.
+effective_request_scopes(_Username, Scopes) when is_list(Scopes) ->
+    Scopes;
+effective_request_scopes(Username, undefined) ->
+    emqx_dashboard_admin:scopes_of(Username).
+
+do_update_user(Username, Role, Desc, Scopes) ->
+    case emqx_dashboard_admin:update_user(Username, Role, Desc) of
+        {ok, Result} ->
+            finalise_update_user(Username, Scopes, Result);
+        {error, <<"username_not_found">> = Reason} ->
+            {404, ?USER_NOT_FOUND, Reason};
+        {error, Reason} ->
+            {400, ?BAD_REQUEST, Reason}
+    end.
+
+finalise_update_user(Username, Scopes, Result) ->
+    case maybe_set_user_scopes(Username, Scopes) of
+        ok ->
+            {200, filter_result(reload_external_user(Username, Result))};
+        {error, <<"username_not_found">> = Reason} ->
+            {404, ?USER_NOT_FOUND, Reason};
+        {error, Reason} ->
+            {400, ?BAD_REQUEST, Reason}
+    end.
+
+%% Re-read the admin record after a write and project it via
+%% to_external_user/1 so the response carries the canonical, persisted
+%% shape (username, role, description, backend, mfa, scopes). Falls
+%% back to the original in-flight map if the record vanished — that
+%% means a concurrent delete won, and the caller has already returned
+%% 200 OK so we still need a body.
+reload_external_user(Username, Fallback) ->
+    case emqx_dashboard_admin:lookup_user(Username) of
+        [Admin] -> emqx_dashboard_admin:to_external_user(Admin);
+        _ -> Fallback
+    end.
+
+%% Persist scopes to the admin record's extra map. Skip when scopes is
+%% absent (no body field) — keeps the existing extra.scopes value.
+%%
+%% Returns {error, Reason} when the user record is missing (e.g. concurrent
+%% deletion between add_user/update_user and this call). Callers must
+%% translate to the proper HTTP status; never crash the handler.
+%%
+%% CE: scope enforcement is EE-only (emqx_dashboard_rbac is EE), so we
+%% ignore any `scopes' input rather than persist a value that would
+%% never be checked.
+-if(?EMQX_RELEASE_EDITION == ee).
+maybe_set_user_scopes(_Username, undefined) ->
+    ok;
+maybe_set_user_scopes(Username, Scopes) when is_list(Scopes) ->
+    case emqx_dashboard_admin:set_user_scopes(Username, Scopes) of
+        {ok, ok} ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "set_user_scopes_failed",
+                username => Username,
+                reason => Reason
+            }),
+            {error, Reason}
+    end.
+-else.
+maybe_set_user_scopes(_Username, _Scopes) ->
+    ok.
+-endif.
+
+%% --- MFA self-lock authorization ---
+%%
+%% Decision matrix:
+%%
+%%   IsFirstSetup = (Op == setup) AND (target.mfa_state == not_configured)
+%%   IsSelf       = (caller.username == target)
+%%   HasMfaMgmt   = caller.scopes contains mfa_management
+%%   Locked       = target.admin_override == mfa_required
+%%
+%%   IsFirstSetup => allow                                  (deadlock prevention)
+%%   IsSelf       AND HasMfaMgmt           => allow         (self-exempt)
+%%   IsSelf       AND NOT HasMfaMgmt AND NOT Locked => allow
+%%   IsSelf       AND NOT HasMfaMgmt AND Locked     => deny mfa_locked
+%%   NOT IsSelf   AND HasMfaMgmt AND administrator   => allow (admin reset)
+%%   NOT IsSelf   AND HasMfaMgmt AND non-admin       => deny self_only
+%%   NOT IsSelf   AND NOT HasMfaMgmt                 => deny missing_mfa_mgmt
+%%
+%% Returns:
+%%   ok                                          allow
+%%   {deny, HttpCode, ErrorCode, BinaryMessage}  deny with HTTP response
+authorize_mfa_change(Req, TargetUsername, Op) ->
+    Caller = caller_admin(Req),
+    case Caller of
+        undefined ->
+            %% No bearer token caller (shouldn't happen — bearer-only
+            %% endpoint, but guard anyway).
+            {deny, 401, 'UNAUTHORIZED', <<"Bearer auth required">>};
+        _ ->
+            authorize_mfa_change_with_caller(Caller, TargetUsername, Op)
+    end.
+
+authorize_mfa_change_with_caller(Caller, TargetUsername, Op) ->
+    IsSelf = (Caller#?ADMIN.username =:= TargetUsername),
+    CallerRole = Caller#?ADMIN.role,
+    HasMfaMgmt = caller_has_mfa_mgmt(Caller),
+    IsFirstSetup = is_first_time_setup(TargetUsername, Op),
+    Locked = target_self_locked(TargetUsername),
+    case {IsFirstSetup, IsSelf, HasMfaMgmt, Locked, CallerRole} of
+        {true, _, _, _, _} ->
+            ok;
+        {false, true, true, _, _} ->
+            ok;
+        {false, true, false, false, _} ->
+            ok;
+        {false, true, false, true, _} ->
+            {deny, 403, 'MFA_LOCKED', <<
+                "MFA changes for this account are restricted; "
+                "the mfa_management scope is required to override."
+            >>};
+        {false, false, true, _, ?ROLE_SUPERUSER} ->
+            ok;
+        {false, false, true, _, _NonAdmin} ->
+            {deny, 403, 'MFA_SELF_ONLY', <<
+                "Non-administrator users with mfa_management scope can "
+                "only manage their own MFA, not other users'."
+            >>};
+        {false, false, false, _, _} ->
+            {deny, 403, 'MFA_MGMT_REQUIRED', <<
+                "The mfa_management scope is required to manage other "
+                "users' MFA."
+            >>}
+    end.
+
+is_first_time_setup(_TargetUsername, disable) ->
+    false;
+is_first_time_setup(TargetUsername, setup) ->
+    case emqx_dashboard_admin:get_mfa_state(TargetUsername) of
+        {ok, _} -> false;
+        _ -> true
+    end.
+
+%% Compute the "self locked" boolean used by authorize_mfa_change/3.
+%% Only admin_override == mfa_required locks self-disable/rotate.
+%% undefined means "no admin decision" — self may always disable an
+%% already-configured MFA. The decision whether a user must SET UP
+%% MFA in the first place lives in the login flow (consults backend
+%% live force_mfa), not here.
+target_self_locked(TargetUsername) ->
+    emqx_dashboard_admin:admin_override_of(TargetUsername) =:= ?ADMIN_MFA_REQUIRED.
+
+caller_has_mfa_mgmt(#?ADMIN{} = Caller) ->
+    %% Use effective scopes so the role-default fallback (admin -> all
+    %% 14, viewer -> common scopes only) applies. Viewer with no explicit
+    %% scopes therefore does NOT carry mfa_management; admin always
+    %% does.
+    Scopes = emqx_dashboard_admin:effective_scopes_of_admin(Caller),
+    lists:member(?SCOPE_MFA_MGMT, Scopes).
+
+%% Look up the caller's #?ADMIN{} record using the bearer token's
+%% `source' field (set by emqx_dashboard:authorize/2). Returns
+%% undefined if not a bearer-token request or the user has been
+%% deleted between login and this request.
+caller_admin(#{auth_meta := #{auth_type := jwt_token, source := Username}}) ->
+    %% auth_meta.source is the resolved admin record key — for SSO
+    %% users this is `?SSO_USERNAME(Backend, Name)' (atom-tagged
+    %% tuple), populated by emqx_dashboard:authorize/2 via
+    %% emqx_dashboard_token:resolve_admin_key/1. Plain lookup is
+    %% sufficient.
+    case emqx_dashboard_admin:lookup_user(Username) of
+        [Admin] -> Admin;
+        _ -> undefined
+    end;
+caller_admin(_) ->
+    undefined.
+
+caller_is_admin_acting_on_other(Req, TargetUsername) ->
+    case caller_admin(Req) of
+        #?ADMIN{username = Caller} when Caller =/= TargetUsername -> true;
+        _ -> false
+    end.
 
 mk(Type, Props) ->
     hoconsc:mk(Type, Props).
@@ -508,13 +885,19 @@ username(_Req, Username) ->
 
 field_filter(role) ->
     false;
+field_filter(scopes) ->
+    %% Login-user scopes are an EE feature (enforcement lives in
+    %% emqx_dashboard_rbac, which is EE-only). Strip the field from
+    %% the schema so CE clients don't see a column that won't be
+    %% checked.
+    false;
 field_filter(_) ->
     true.
 
 filter_result(Result) when is_list(Result) ->
     lists:map(fun filter_result/1, Result);
 filter_result(Result) ->
-    maps:without([role, backend], Result).
+    maps:without([role, backend, scopes], Result).
 
 sso_parameters() ->
     sso_parameters([]).

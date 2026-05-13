@@ -263,8 +263,13 @@ authorize(Req, HandlerInfo) ->
             api_key_authorize(Req, HandlerInfo, Username, Password);
         {bearer, Token} ->
             case emqx_dashboard_admin:verify_token(Req, Token) of
-                {ok, Username} ->
-                    {ok, #{auth_type => jwt_token, source => Username}};
+                {ok, _Username} ->
+                    %% Use the JWT-resolved admin key (SSO tuple for
+                    %% SSO users, plain binary otherwise) so handlers
+                    %% can lookup_user/1 without re-deriving backend
+                    %% from path / query.
+                    Source = emqx_dashboard_token:resolve_admin_key(Token),
+                    {ok, #{auth_type => jwt_token, source => Source}};
                 {error, token_timeout} ->
                     {401, 'TOKEN_TIME_OUT', <<"Token expired, get new token by POST /login">>};
                 {error, not_found} ->
