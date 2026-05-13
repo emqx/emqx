@@ -50,6 +50,7 @@
   "$pipeline_step_model_desc": {"en": "AI model name."},
   "$pipeline_step_persistent_desc": {"en": "Keep the LLM session alive across messages with the same pipeline key."},
   "$pipeline_step_max_tokens_desc": {"en": "Maximum output tokens."},
+  "$pipeline_step_max_total_tokens_desc": {"en": "Total-token threshold for compacting persistent LLM session history."},
   "$pipeline_step_tools_desc": {"en": "Skill references exposed to the LLM."},
   "$pipeline_step_instructions_desc": {"en": "System instructions for the LLM."},
   "$pipeline_step_input_desc": {"en": "Initial LLM input entries."},

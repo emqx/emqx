@@ -193,6 +193,7 @@ pipeline() ->
                     <<"model">> => <<"gpt-4o">>,
                     <<"persistent">> => false,
                     <<"max_tokens">> => 2048,
+                    <<"max_total_tokens">> => 50000,
                     <<"tools">> => [<<"message__publish@pub">>],
                     <<"instructions">> => <<"Inspect the event">>,
                     <<"input">> => [#{<<"name">> => <<"event">>, <<"value">> => <<"$.event">>}],

@@ -49,6 +49,8 @@
     t_request_with_tool_call,
     t_events_are_incorporated,
     t_persistent_keeps_session,
+    t_persistent_compacts_history,
+    t_persistent_request_iterations_reset_per_request,
     t_explicit_stop_terminates_session,
     t_llm_connection_error_terminates_session,
     t_request_while_busy_is_queued,
@@ -201,13 +203,14 @@ t_sse_parser_usage_chunk(_Config) ->
         <<
             "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}\n\n"
             "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
-            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":7}}\n\n"
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":7,\"total_tokens\":49}}\n\n"
             "data: [DONE]\n\n"
         >>,
     Acc0 = emqx_agent_session:init_stream_acc(),
     Acc = emqx_agent_session:test_feed_sse(Data, Acc0),
     ?assertMatch(#{tokens_in := 42}, Acc),
-    ?assertEqual(7, maps:get(tokens_out, Acc)).
+    ?assertEqual(7, maps:get(tokens_out, Acc)),
+    ?assertEqual(49, maps:get(total_tokens, Acc)).
 
 %%--------------------------------------------------------------------
 %% LLM integration test cases (skipped when ollama is not reachable)
@@ -370,6 +373,102 @@ t_persistent_keeps_session(Config) ->
     after ?SHORT_TIMEOUT ->
         ct:fail("session did not stop after persistent idle timeout")
     end.
+
+t_persistent_compacts_history(Config) ->
+    publish_in(
+        Config,
+        request(Config, #{
+            <<"tools">> => [],
+            <<"instructions">> => <<"Answer briefly.">>,
+            <<"input">> => #{<<"q">> => <<"Remember the marker alpha-17 and answer ok.">>},
+            <<"persistent">> => true,
+            <<"max_total_tokens">> => 1
+        })
+    ),
+    _Final1 = recv_final(Config),
+
+    publish_in(
+        Config,
+        request(Config, #{
+            <<"tools">> => [],
+            <<"instructions">> => <<"Answer briefly.">>,
+            <<"input">> => #{<<"q">> => <<"What marker did I ask you to remember?">>},
+            <<"persistent">> => true,
+            <<"max_total_tokens">> => 1
+        })
+    ),
+    _Final2 = recv_final(Config),
+
+    {ok, #{messages := History}} = emqx_agent_session:inspect(?config(sid, Config)),
+    ?assertMatch(
+        [
+            #{<<"role">> := <<"system">>},
+            #{
+                <<"role">> := <<"assistant">>,
+                <<"content">> := <<"Compacted prior conversation history:\n", _/binary>>
+            },
+            #{<<"role">> := <<"user">>},
+            #{<<"role">> := <<"assistant">>}
+        ],
+        History
+    ),
+    ?assertEqual(4, length(History)).
+
+t_persistent_request_iterations_reset_per_request(Config) ->
+    Tool = #{
+        <<"name">> => <<"add">>,
+        <<"description">> => <<"Add two integers and return their sum.">>,
+        <<"parameters">> => #{
+            <<"type">> => <<"object">>,
+            <<"properties">> => #{
+                <<"a">> => #{<<"type">> => <<"integer">>},
+                <<"b">> => #{<<"type">> => <<"integer">>}
+            },
+            <<"required">> => [<<"a">>, <<"b">>]
+        }
+    },
+    publish_in(
+        Config,
+        request(Config, #{
+            <<"tools">> => [Tool],
+            <<"instructions">> =>
+                <<"Use the add tool to compute the answer. Do not answer directly.">>,
+            <<"input">> => #{<<"question">> => <<"What is 2 + 3?">>},
+            <<"persistent">> => true
+        })
+    ),
+
+    ToolReq = recv_tool_request(Config),
+    publish_in(Config, #{
+        <<"type">> => <<"tool_result">>,
+        <<"call_id">> => maps:get(<<"call_id">>, ToolReq),
+        <<"response">> => #{<<"status">> => <<"ok">>, <<"result">> => #{<<"sum">> => 5}}
+    }),
+
+    Final1 = recv_final(Config),
+    assert_final(Final1),
+    {ok, #{request_iterations := Iter1}} = emqx_agent_session:inspect(?config(sid, Config)),
+    ?assert(Iter1 >= 2),
+
+    publish_in(
+        Config,
+        request(Config, #{
+            <<"tools">> => [],
+            <<"instructions">> => <<"Answer with a short JSON object.">>,
+            <<"input">> => #{<<"question">> => <<"What is 1 + 1?">>},
+            <<"persistent">> => true
+        })
+    ),
+
+    Final2 = recv_final(Config),
+    assert_final(Final2),
+    {ok, #{messages := History, request_iterations := Iter2}} =
+        emqx_agent_session:inspect(?config(sid, Config)),
+    ?assertEqual(1, Iter2),
+    ?assert(length(History) > 4),
+    ?assert(maps:get(<<"iterations">>, maps:get(<<"usage">>, Final2)) > Iter2),
+
+    stop_persistent_session(Config).
 
 %% An explicit `stop` frame must terminate the session process.
 t_explicit_stop_terminates_session(Config) ->
@@ -601,6 +700,18 @@ wait_for_session(Sid, N) ->
             wait_for_session(Sid, N - 1);
         Pid ->
             Pid
+    end.
+
+stop_persistent_session(Config) ->
+    Sid = ?config(sid, Config),
+    Pid = emqx_agent_session:whereis(Sid),
+    ?assertNotEqual(undefined, Pid),
+    Ref = monitor(process, Pid),
+    publish_in(Config, #{<<"type">> => <<"stop">>}),
+    receive
+        {'DOWN', Ref, process, Pid, normal} -> ok
+    after ?SHORT_TIMEOUT ->
+        ct:fail("session did not stop")
     end.
 
 %% Probe the LLM endpoint; if it is not available the whole suite is

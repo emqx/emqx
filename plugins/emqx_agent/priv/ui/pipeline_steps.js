@@ -5,7 +5,7 @@ import { createSchemaEditor, getSchemaEditorValue } from './schema_editor.js';
 export function defaultStep(type) {
   const n = pipelineSteps.length + 1;
   if (type === 'call_skill')     return { id: 'step_' + n, type, skill: '', args: [['', '']], result_path: '' };
-  if (type === 'llm_loop')       return { id: 'step_' + n, type, provider_name: '', model: 'gpt-5.4-mini', max_tokens: 2048, persistent: false, tools: [], input: [['event', '$.event']], set_result_schema: { type: 'object', properties: { status: { type: 'string' } }, required: ['status'], additionalProperties: false }, result_path: '' };
+  if (type === 'llm_loop')       return { id: 'step_' + n, type, provider_name: '', model: 'gpt-5.4-mini', max_tokens: 2048, max_total_tokens: 50000, persistent: false, tools: [], input: [['event', '$.event']], set_result_schema: { type: 'object', properties: { status: { type: 'string' } }, required: ['status'], additionalProperties: false }, result_path: '' };
   if (type === 'break')          return { id: 'step_' + n, type, path: '', not: false };
   return { id: 'step_' + n, type };
 }
@@ -143,6 +143,9 @@ function stepFieldsHTML(step, idx) {
         <div class="field"><label>Max tokens</label>
           <input type="number" class="sf-max-tokens" value="${esc(step.max_tokens||2048)}" min="1">
         </div>
+        <div class="field"><label>Max total tokens</label>
+          <input type="number" class="sf-max-total-tokens" value="${esc(step.max_total_tokens||50000)}" min="1">
+        </div>
       </div>
       <div style="margin-bottom:10px;display:flex;align-items:center;gap:6px">
         <input type="checkbox" class="sf-persistent"${step.persistent?' checked':''}>
@@ -195,6 +198,7 @@ export function syncStep(idx) {
     step.provider_name = card.querySelector('.sf-provider')?.value ?? '';
     step.model = card.querySelector('.sf-model')?.value?.trim() ?? '';
     step.max_tokens = Number(card.querySelector('.sf-max-tokens')?.value || 2048);
+    step.max_total_tokens = Number(card.querySelector('.sf-max-total-tokens')?.value || 50000);
     step.persistent = card.querySelector('.sf-persistent')?.checked ?? false;
     step.tools = [...card.querySelectorAll('.sf-tools input:checked')].map(c => c.value);
     step.instructions = card.querySelector('.sf-instructions')?.value?.trim() ?? '';
@@ -228,6 +232,7 @@ export function collectSteps() {
       if (s.provider_name) out.provider_name = s.provider_name;
       if (s.model) out.model = s.model;
       if (s.max_tokens) out.max_tokens = s.max_tokens;
+      out.max_total_tokens = s.max_total_tokens || 50000;
       out.persistent = s.persistent ?? false;
       if (s.instructions) out.instructions = s.instructions;
       if (s.tools?.length)   out.tools = s.tools;

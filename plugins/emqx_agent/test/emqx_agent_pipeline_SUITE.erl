@@ -452,7 +452,8 @@ t_llm_loop_defaults_are_applied(Config) ->
     ?assertMatch(#{<<"input">> := #{}}, Stored),
     ?assertMatch(#{<<"persistent">> := false}, Stored),
     ?assertEqual(<<"message.topic">>, KeyExpression),
-    ?assertEqual(2048, maps:get(<<"max_tokens">>, Stored)).
+    ?assertEqual(2048, maps:get(<<"max_tokens">>, Stored)),
+    ?assertEqual(50000, maps:get(<<"max_total_tokens">>, Stored)).
 
 t_llm_loop_requires_set_result_schema(Config) ->
     PipelineId = ?config(pipeline_id, Config),

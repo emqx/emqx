@@ -175,6 +175,7 @@
             {"name": "model", "type": "string", "description": "$pipeline_step_model_desc"},
             {"name": "persistent", "type": "boolean", "default": false, "description": "$pipeline_step_persistent_desc"},
             {"name": "max_tokens", "type": "int", "default": 2048, "description": "$pipeline_step_max_tokens_desc"},
+            {"name": "max_total_tokens", "type": "int", "default": 50000, "description": "$pipeline_step_max_total_tokens_desc"},
             {"name": "timeout_ms", "type": "int", "default": 180000, "description": "$pipeline_step_timeout_ms_desc"},
             {"name": "tools", "type": {"type": "array", "items": "string"}, "default": [], "description": "$pipeline_step_tools_desc"},
             {"name": "instructions", "type": "string", "description": "$pipeline_step_instructions_desc"},

@@ -56,7 +56,7 @@
 -include("emqx_agent_pipeline.hrl").
 
 %% Public API
--export([start_link/2, whereis/1]).
+-export([start_link/2, whereis/1, inspect/1]).
 
 %% Hook management (called from emqx_agent_app)
 -export([init_hook/0, deinit_hook/0, on_message_publish/1]).
@@ -65,7 +65,11 @@
 -export([callback_mode/0, init/1, handle_event/4, terminate/3]).
 
 -ifdef(TEST).
--export([init_stream_acc/0, test_feed_sse/2, test_stream_chunks/1]).
+-export([
+    init_stream_acc/0,
+    test_feed_sse/2,
+    test_stream_chunks/1
+]).
 -endif.
 
 -define(NAME(Sid), {?MODULE, Sid}).
@@ -88,6 +92,7 @@
     tools :: [map()],
 
     max_tokens = 2048 :: non_neg_integer(),
+    max_total_tokens = 50000 :: non_neg_integer(),
     recv_timeout_ms = 180000 :: non_neg_integer(),
     temperature = 0.1 :: number(),
     stream = true :: boolean(),
@@ -99,13 +104,17 @@
     %% Incoming request buffered when the session is busy (calling_llm /
     %% waiting_tools).  Processed as soon as the session returns to idle.
     queued_request = undefined :: undefined | map(),
+    compact_request = undefined :: undefined | map(),
     %% Accumulated usage counters
     usage = #{
         <<"iterations">> => 0,
         <<"tool_calls">> => 0,
         <<"tokens_in">> => 0,
-        <<"tokens_out">> => 0
+        <<"tokens_out">> => 0,
+        <<"total_tokens">> => 0
     } :: map(),
+    %% Iteration counter for the current request only; used for the runaway loop guard.
+    request_iterations = 0 :: non_neg_integer(),
     %% When false (default), the session stops after publishing final.
     %% When true, it transitions to idle where events drive further reasoning.
     persistent = false :: boolean(),
@@ -173,6 +182,13 @@ start_link(Sid, false) ->
 whereis(Sid) ->
     global:whereis_name(?NAME(Sid)).
 
+-spec inspect(binary()) -> {ok, map()} | {error, not_found}.
+inspect(Sid) ->
+    case ?MODULE:whereis(Sid) of
+        undefined -> {error, not_found};
+        Pid -> gen_statem:call(Pid, inspect)
+    end.
+
 %%--------------------------------------------------------------------
 %% gen_statem callbacks
 %%--------------------------------------------------------------------
@@ -219,19 +235,44 @@ handle_event(info, {sess_msg, Msg}, State, Data) ->
 handle_event(
     info,
     {'DOWN', Mon, process, _, {llm_result, Tag, Result}},
+    compacting_history,
+    #data{llm_ref = {Tag, Mon}, compact_request = Msg} = Data
+) ->
+    Data1 = Data#data{llm_ref = undefined, compact_request = undefined},
+    case Result of
+        {ok, Choice, _TokensIn, _TokensOut, TotalTokens} ->
+            LLMMsg = maps:get(<<"message">>, Choice, #{}),
+            Summary = maps:get(<<"content">>, LLMMsg, <<>>),
+            Usage0 = Data1#data.usage,
+            Data2 = Data1#data{usage = Usage0#{<<"total_tokens">> => TotalTokens}},
+            start_llm_call(apply_compacted_request(Msg, Summary, Data2));
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "session_history_compaction_failed", sid => Data1#data.sid, reason => Reason
+            }),
+            ok = publish(Data1, #{
+                <<"type">> => <<"error">>, <<"reason">> => emqx_utils:readable_error_msg(Reason)
+            }),
+            {stop, normal, Data1}
+    end;
+handle_event(
+    info,
+    {'DOWN', Mon, process, _, {llm_result, Tag, Result}},
     calling_llm,
     #data{llm_ref = {Tag, Mon}} = Data
 ) ->
     Data1 = Data#data{llm_ref = undefined},
     case Result of
-        {ok, Choice, TokensIn, TokensOut} ->
+        {ok, Choice, TokensIn, TokensOut, TotalTokens} ->
             Usage0 = Data1#data.usage,
             Data2 = Data1#data{
                 usage = Usage0#{
                     <<"iterations">> => maps:get(<<"iterations">>, Usage0) + 1,
                     <<"tokens_in">> => maps:get(<<"tokens_in">>, Usage0) + TokensIn,
-                    <<"tokens_out">> => maps:get(<<"tokens_out">>, Usage0) + TokensOut
-                }
+                    <<"tokens_out">> => maps:get(<<"tokens_out">>, Usage0) + TokensOut,
+                    <<"total_tokens">> => TotalTokens
+                },
+                request_iterations = Data1#data.request_iterations + 1
             },
             on_llm_choice(Choice, Data2);
         {error, Reason} ->
@@ -239,6 +280,18 @@ handle_event(
             {stop, {llm_error, Reason}, Data1}
     end;
 %% Child exited with any other reason — unexpected crash
+handle_event(
+    info,
+    {'DOWN', Mon, process, _, Reason},
+    compacting_history,
+    #data{llm_ref = {_Tag, Mon}} = Data
+) ->
+    ?SLOG(error, #{
+        msg => "session_compaction_process_crashed",
+        sid => Data#data.sid,
+        reason => Reason
+    }),
+    {stop, {compaction_process_crashed, Reason}, Data};
 handle_event(
     info,
     {'DOWN', Mon, process, _, Reason},
@@ -260,6 +313,12 @@ handle_event(info, persistent_idle_timeout, _State, Data) ->
     {keep_state, Data#data{idle_timer_ref = undefined}};
 %% ── calls ─────────────────────────────────────────────────────────────────
 
+handle_event({call, From}, inspect, _State, Data) ->
+    Info = #{
+        messages => Data#data.messages,
+        request_iterations => Data#data.request_iterations
+    },
+    {keep_state, Data, [{reply, From, {ok, Info}}]};
 handle_event({call, From}, _Req, _State, Data) ->
     {keep_state, Data, [{reply, From, {error, unknown_request}}]};
 %% ── catch-all ─────────────────────────────────────────────────────────────
@@ -341,6 +400,54 @@ do_start_llm_call(Data, Provider) ->
         exit({llm_result, Tag, Result})
     end),
     {next_state, calling_llm, Data#data{llm_ref = {Tag, MonRef}}}.
+
+start_compaction_call(Msg, Data) ->
+    case resolve_provider(Data#data.provider_name) of
+        {error, Reason0} ->
+            Reason = emqx_utils:readable_error_msg(Reason0),
+            ?SLOG(error, #{
+                msg => "session_provider_unavailable",
+                sid => Data#data.sid,
+                provider_name => Data#data.provider_name,
+                reason => Reason0
+            }),
+            ok = publish(Data, #{<<"type">> => <<"error">>, <<"reason">> => Reason}),
+            {stop, normal, Data};
+        {ok, Provider} ->
+            do_start_compaction_call(Msg, Data, Provider)
+    end.
+
+do_start_compaction_call(Msg, Data, Provider) ->
+    Tag = make_ref(),
+    #{base_url := BaseUrl, api_key := ApiKeySecret} = Provider,
+    ApiKey = emqx_secret:unwrap(ApiKeySecret),
+    Messages = Data#data.messages ++ [compaction_request_msg()],
+    ?SLOG(info, #{
+        msg => "session_history_compaction_started",
+        sid => Data#data.sid,
+        messages => length(Messages),
+        total_tokens => maps:get(<<"total_tokens">>, Data#data.usage, 0),
+        max_total_tokens => Data#data.max_total_tokens
+    }),
+    {_Pid, MonRef} = spawn_monitor(fun() ->
+        Result = call_llm(
+            Messages,
+            [],
+            ApiKey,
+            BaseUrl,
+            Data#data.model,
+            Data#data.max_tokens,
+            provider_recv_timeout(Provider, Data#data.recv_timeout_ms),
+            Data#data.temperature,
+            <<"none">>,
+            Data#data.sid,
+            Data#data.iid,
+            Data#data.trace_id,
+            Data#data.usage
+        ),
+        exit({llm_result, Tag, Result})
+    end),
+    {next_state, compacting_history, Data#data{llm_ref = {Tag, MonRef}, compact_request = Msg}}.
 
 provider_recv_timeout(#{transport_options := #{recv_timeout := RecvTimeout}}, _Default) ->
     RecvTimeout;
@@ -468,7 +575,7 @@ on_reasoning_done(LLMMsg, FinishReason, Data) ->
 
 %% Guard against runaway tool-call loops.
 maybe_next_llm_call(Data) ->
-    Iter = maps:get(<<"iterations">>, Data#data.usage),
+    Iter = Data#data.request_iterations,
     case Iter >= ?MAX_ITERATIONS of
         true ->
             ?SLOG(warning, #{
@@ -535,6 +642,7 @@ handle_sess_msg(#{<<"type">> := <<"request">>} = Msg, initial_idle, Data) ->
         model = Model,
         tools = Tools,
         max_tokens = maps:get(<<"max_tokens">>, Msg, 2048),
+        max_total_tokens = max_total_tokens(Msg),
         recv_timeout_ms = maps:get(<<"recv_timeout_ms">>, Msg, 180000),
         temperature = maps:get(<<"temperature">>, Msg, 0.1),
         stream = maps:get(<<"stream">>, Msg, true),
@@ -542,11 +650,13 @@ handle_sess_msg(#{<<"type">> := <<"request">>} = Msg, initial_idle, Data) ->
         persistent = maps:get(<<"persistent">>, Msg, false),
         messages = [SysMsg, UserMsg] ++ PendingMsgs,
         pending = [],
+        request_iterations = 0,
         usage = #{
             <<"iterations">> => 0,
             <<"tool_calls">> => 0,
             <<"tokens_in">> => 0,
-            <<"tokens_out">> => 0
+            <<"tokens_out">> => 0,
+            <<"total_tokens">> => 0
         }
     },
     start_llm_call(Data1);
@@ -577,17 +687,25 @@ handle_sess_msg(#{<<"type">> := <<"request">>, <<"input">> := Input} = Msg, idle
         provider_name = ProviderName,
         tools = Tools,
         tool_choice = ToolChoice,
-        messages = Messages0 ++ [UserMsg],
+        max_tokens = maps:get(<<"max_tokens">>, Msg, Data#data.max_tokens),
+        max_total_tokens = max_total_tokens(Msg, Data#data.max_total_tokens),
+        messages = Messages0,
         persistent = maps:get(<<"persistent">>, Msg, true),
-        pending = []
+        pending = [],
+        request_iterations = 0
     },
     ?SLOG(info, #{
         msg => "session_continuing",
         sid => Data#data.sid,
         iid => Iid,
-        history_len => length(Data1#data.messages)
+        history_len => length(Data1#data.messages) + 1
     }),
-    start_llm_call(Data1);
+    case should_compact_history(Data1) of
+        true ->
+            start_compaction_call(Msg, Data1);
+        false ->
+            start_llm_call(Data1#data{messages = Messages0 ++ [UserMsg]})
+    end;
 %% ── waiting_tools: collect tool results ────────────────────────────────
 
 handle_sess_msg(
@@ -868,7 +986,9 @@ apply_stream_chunk(Chunk, Acc, Sid, Iid, TraceId, Usage) ->
                     tokens_in =>
                         maps:get(<<"prompt_tokens">>, U, maps:get(tokens_in, Acc)),
                     tokens_out =>
-                        maps:get(<<"completion_tokens">>, U, maps:get(tokens_out, Acc))
+                        maps:get(<<"completion_tokens">>, U, maps:get(tokens_out, Acc)),
+                    total_tokens =>
+                        maps:get(<<"total_tokens">>, U, maps:get(total_tokens, Acc))
                 };
             _ ->
                 Acc
@@ -979,7 +1099,8 @@ init_stream_acc() ->
         tool_calls => #{},
         finish_reason => undefined,
         tokens_in => 0,
-        tokens_out => 0
+        tokens_out => 0,
+        total_tokens => 0
     }.
 
 finalize_stream_result(Acc, Model) ->
@@ -998,7 +1119,8 @@ finalize_stream_result(Acc, Model) ->
         tool_calls_count => length(ToolCalls),
         has_content => Content =/= <<>>,
         tokens_in => maps:get(tokens_in, Acc, 0),
-        tokens_out => maps:get(tokens_out, Acc, 0)
+        tokens_out => maps:get(tokens_out, Acc, 0),
+        total_tokens => maps:get(total_tokens, Acc, 0)
     }),
     Msg =
         case ToolCalls of
@@ -1015,7 +1137,8 @@ finalize_stream_result(Acc, Model) ->
         ok,
         #{<<"message">> => Msg, <<"finish_reason">> => FinishReason},
         maps:get(tokens_in, Acc, 0),
-        maps:get(tokens_out, Acc, 0)
+        maps:get(tokens_out, Acc, 0),
+        maps:get(total_tokens, Acc, 0)
     }.
 
 drain_stream_body(ClientRef, Acc) ->
@@ -1088,6 +1211,39 @@ format_instructions(Instructions) when is_list(Instructions) ->
     iolist_to_binary(lists:join(<<"\n">>, Instructions));
 format_instructions(Instructions) when is_binary(Instructions) ->
     Instructions.
+
+max_total_tokens(Msg) ->
+    max_total_tokens(Msg, 50000).
+
+max_total_tokens(Msg, Default) ->
+    case maps:get(<<"max_total_tokens">>, Msg, Default) of
+        V when is_integer(V), V > 0 -> V;
+        _ -> 50000
+    end.
+
+should_compact_history(#data{persistent = true, max_total_tokens = Max, usage = Usage}) ->
+    maps:get(<<"total_tokens">>, Usage, 0) >= Max;
+should_compact_history(_) ->
+    false.
+
+apply_compacted_request(#{<<"input">> := Input}, Summary, #data{messages = Messages} = Data) ->
+    SysMsg = hd(Messages),
+    CompactMsg = #{
+        <<"role">> => <<"assistant">>,
+        <<"content">> => <<"Compacted prior conversation history:\n", Summary/binary>>
+    },
+    UserMsg = #{<<"role">> => <<"user">>, <<"content">> => emqx_utils_json:encode(Input)},
+    Data#data{messages = [SysMsg, CompactMsg, UserMsg]}.
+
+compaction_request_msg() ->
+    #{
+        <<"role">> => <<"user">>,
+        <<"content">> => <<
+            "Compact the prior conversation history into a concise but complete summary. ",
+            "Preserve facts, decisions, user preferences, tool results, and unresolved work. ",
+            "Return only the compacted history text."
+        >>
+    }.
 
 %% Publish a frame to $sess/out/<Sid>/, automatically filling correlation fields
 %% (sid, iid, trace_id) and usage counters from Data.

@@ -291,6 +291,7 @@ start_llm_loop(
     InputSpec = maps:get(<<"input">>, Step, #{}),
     Persistent = maps:get(<<"persistent">>, Step, false),
     MaxTokens = maps:get(<<"max_tokens">>, Step, 2048),
+    MaxTotalTokens = maps:get(<<"max_total_tokens">>, Step, 50000),
     SetResultSchema = maps:get(<<"set_result_schema">>, Step, undefined),
     {ToolManifest0, ToolMap0} = build_tool_manifest(ToolSpecs),
     {ToolManifest, ToolMap} = maybe_inject_set_result(ToolManifest0, ToolMap0, SetResultSchema),
@@ -308,7 +309,8 @@ start_llm_loop(
         <<"model">> => Model,
         <<"instructions">> => Instructions,
         <<"persistent">> => Persistent,
-        <<"max_tokens">> => MaxTokens
+        <<"max_tokens">> => MaxTokens,
+        <<"max_total_tokens">> => MaxTotalTokens
     },
     publish_to_sess_in(Sid, Request),
     Data1 = start_reply_timer(
