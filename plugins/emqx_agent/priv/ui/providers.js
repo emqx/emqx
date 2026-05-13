@@ -1,9 +1,9 @@
-import { coreApi } from './api.js';
+import { api } from './api.js';
 import { esc } from './ui_helpers.js';
 import { loadedProfiles } from './state.js';
 
 export async function loadProfiles() {
-  const list = await coreApi('GET', '/ai/providers');
+  const list = await api('GET', '/providers');
   loadedProfiles.length = 0;
   loadedProfiles.push(...list);
   document.getElementById('cnt-profiles').textContent = list.length;

@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>EMQX Agent</title>
 <link rel="stylesheet" href="assets/index.css">
-<script src="https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.min.js"></script>
 <script type="module" src="assets/app.js"></script>
 </head>
 <body>
@@ -18,17 +17,6 @@
     <div class="spacer"></div>
     <span class="endpoint" id="endpoint-label"></span>
   </header>
-
-  <!-- ── Credentials bar ── -->
-  <div id="cred-bar">
-    <label>API Key</label>
-    <input id="api-key" type="text" placeholder="key" autocomplete="off" spellcheck="false">
-    <label>Secret</label>
-    <input id="api-secret" type="password" placeholder="secret" autocomplete="off">
-    <label>Host</label>
-    <input id="api-host" type="text" value="" placeholder="http://localhost:18083" style="width:200px">
-    <button class="btn primary" onclick="connect()">Connect</button>
-  </div>
 
   <!-- ── Tab nav ── -->
   <nav>

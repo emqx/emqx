@@ -84,6 +84,8 @@ dispatch(post, [<<"connections">>, Id, <<"start">>], Params) ->
     '/agent/connections/:id/start'(post, Params#{bindings => #{id => Id}});
 dispatch(post, [<<"connections">>, Id, <<"stop">>], Params) ->
     '/agent/connections/:id/stop'(post, Params#{bindings => #{id => Id}});
+dispatch(get, [<<"providers">>], Params) ->
+    '/agent/providers'(get, Params);
 dispatch(get, [<<"pipelines">>], Params) ->
     '/agent/pipelines'(get, Params);
 dispatch(post, [<<"pipelines">>], Params) ->
@@ -110,6 +112,13 @@ normalize_plugin_response({Status}) when is_integer(Status) ->
     {ok, Status, #{}, <<>>};
 normalize_plugin_response(Status) when is_integer(Status) ->
     {ok, Status, #{}, <<>>}.
+
+%%--------------------------------------------------------------------
+%% Handler — AI Providers
+%%--------------------------------------------------------------------
+
+'/agent/providers'(get, _Params) ->
+    ?OK(emqx_ai_completion_config:get_providers_raw()).
 
 %%--------------------------------------------------------------------
 %% Handler — UI

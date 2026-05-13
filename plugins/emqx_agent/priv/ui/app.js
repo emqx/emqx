@@ -1,4 +1,3 @@
-import { authHeader } from './api.js';
 import { setSchemaEditorValue } from './schema_editor.js';
 import { loadConnections, saveConnection, editConnection, deleteConnection, startConnection, stopConnection, resetConnectionEditor } from './connections.js';
 import { loadSkills, saveSkill, editSkill, deleteSkill, updateSkillForm, resetSkillEditor, defaultPublishInputSchema } from './skills.js';
@@ -16,12 +15,6 @@ window.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function refresh() {
-  const auth = authHeader();
-  if (!auth) {
-    setStatus('err');
-    toast('No dashboard session found — please log in to the dashboard first.', 'err');
-    return;
-  }
   try {
     await Promise.all([loadConnections(), loadSkills(), loadProfiles(), loadPipelines()]);
     setStatus('ok');

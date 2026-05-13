@@ -206,6 +206,3 @@
   .se-children { margin-left: 20px; padding-left: 10px; border-left: 1px solid var(--border); }
   .se-items { margin-left: 20px; padding-left: 10px; border-left: 1px dashed var(--border); }
   .se-label { font-size: 11px; color: var(--muted); min-width: 50px; }
-
-  /* credentials bar is hidden — auth comes from the dashboard session */
-  #cred-bar { display: none; }
