@@ -63,6 +63,7 @@ SK_QUERY_PIPELINES = "builder-query-pipelines"
 SK_DELETE_SKILL    = "builder-delete-skill"
 SK_DELETE_PIPELINE = "builder-delete-pipeline"
 SK_REPLY           = "builder-reply"
+CONNECTION_ID = "pg-main"
 
 
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
@@ -89,6 +90,7 @@ def api_request(
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             payload = resp.read().decode("utf-8")
+            print(f"  HTTP {method} {path} -> {resp.status}")
             if resp.status not in ok_codes:
                 raise RuntimeError(
                     f"{method} {path} failed: HTTP {resp.status}: {payload}"
@@ -96,6 +98,7 @@ def api_request(
             return payload
     except urllib.error.HTTPError as e:
         payload = e.read().decode("utf-8", errors="replace")
+        print(f"  HTTP {method} {path} -> {e.code}")
         if e.code in ok_codes:
             return payload
         raise RuntimeError(
@@ -136,8 +139,38 @@ def delete_old_assets() -> None:
         api_delete_maybe(f"/skills/{s['type']}/{s['skill_id']}")
         print(f"  deleted skill {s['type']}@{s['skill_id']!r}")
 
+    # Connections
+    for c in json.loads(api_request("GET", "/connections")):
+        api_delete_maybe(f"/connections/{c['id']}")
+        print(f"  deleted connection {c['id']!r}")
+
     api_delete_maybe(f"/ai/providers/{PROVIDER_NAME}", base_url=CORE_BASE_URL)
     print(f"  deleted AI provider {PROVIDER_NAME!r}")
+
+
+# ── Connections ────────────────────────────────────────────────────────────────
+
+def create_connection() -> None:
+    api_request(
+        "POST",
+        "/connections",
+        {
+            "id": CONNECTION_ID,
+            "type": "postgresql",
+            "enable": True,
+            "config": {
+                "server": f"{PGHOST}:{PGPORT}",
+                "database": PGDATABASE,
+                "username": PGUSER,
+                "password": PGPASSWORD,
+                "pool_size": 1,
+                "connect_timeout": 5000,
+                "disable_prepared_statements": True,
+                "ssl": {"enable": False},
+            },
+        },
+    )
+    print(f"  connection {CONNECTION_ID!r} created")
 
 
 # ── AI providers ───────────────────────────────────────────────────────────────
@@ -247,9 +280,10 @@ SKILL TYPES
                     Optional: headers (static map)
 
   postgresql__query  Execute a parameterised SQL query.
-                    Required: id, desc, query (use $1 $2 … placeholders),
-                              arg_keys (ordered list mapping args -> $N),
-                              input_schema
+                    Required: id, desc, query (use ${var} placeholders),
+                              resource (connection ID referencing a
+                                        PostgreSQL connection)
+                    input_schema is auto-generated from the query placeholders.
 
 ═══════════════════════════════════════════════════════
 PIPELINE STEP TYPES
@@ -362,7 +396,7 @@ def create_pipeline() -> None:
         {
             "pipeline_id": PIPELINE_ID,
             "active": True,
-            "trigger": {"topic": "evt/builder/request"},
+            "trigger": {"topic": "$evt/builder/request"},
             "steps": [
                 {
                     "id": "build",
@@ -439,6 +473,9 @@ def main() -> int:
     print("==> Removing old builder assets")
     delete_old_assets()
 
+    print(f"==> Creating PostgreSQL connection on {PGHOST}:{PGPORT}/{PGDATABASE}")
+    create_connection()
+
     print("==> Creating apple_box_inspections table")
     create_db_table()
 
@@ -454,7 +491,7 @@ def main() -> int:
     ui_base = BASE_URL.rstrip("/").replace("/api/v5/plugin_api/emqx_agent", "")
     print("\nDone.")
     print(f"Builder UI:  {ui_base}/api/v5/plugin_api/emqx_agent/builder/ui")
-    print(f"Request topic:  evt/builder/request  (payload: {{\"message\": \"...\"}})")
+    print(f"Request topic:  $evt/builder/request  (payload: {{\"message\": \"...\"}})")
     print(f"Reply topic:    builder/reply")
     return 0
 

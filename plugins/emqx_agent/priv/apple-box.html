@@ -87,7 +87,7 @@
   }
 
   #crate {
-    position: relative; width: 100%; padding-top: 66%;
+    position: relative; width: 100%; aspect-ratio: 1 / 1;
     background: var(--bg); border: 2px dashed var(--border);
     border-radius: var(--radius); overflow: hidden; margin-bottom: 12px;
     transition: all .15s;
@@ -406,7 +406,7 @@ function onDone() {
     conveyor_id:  convId,
     apple_count:  placedApples.length,
   });
-  mqttClient.publish('evt/conveyor/' + convId + '/box/done', payload, { qos: 0 });
+  mqttClient.publish('$evt/conveyor/' + convId + '/box/done', payload, { qos: 0 });
   logSend(boxId, 'conveyor <span class="box-id">' + esc(convId) + '</span> done  (' + placedApples.length + ' apples)');
 
   // Gray out the crate and disable Done button

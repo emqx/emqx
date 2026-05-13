@@ -58,6 +58,7 @@ SK_SHOT = "box-shot"
 SK_ALERT = "box-alert"
 SK_STATUS = "box-status"
 SK_REGISTER = "box-register"
+CONNECTION_ID = "pg-main"
 
 
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
@@ -84,6 +85,7 @@ def api_request(
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             payload = resp.read().decode("utf-8")
+            print(f"  HTTP {method} {path} -> {resp.status}")
             if resp.status not in ok_codes:
                 raise RuntimeError(
                     f"{method} {path} failed: HTTP {resp.status}: {payload}"
@@ -91,6 +93,7 @@ def api_request(
             return payload
     except urllib.error.HTTPError as e:
         payload = e.read().decode("utf-8", errors="replace")
+        print(f"  HTTP {method} {path} -> {e.code}")
         if e.code in ok_codes:
             return payload
         raise RuntimeError(
@@ -104,6 +107,16 @@ def api_delete_maybe(path: str, *, base_url: str = BASE_URL) -> None:
         api_request("DELETE", path, base_url=base_url, ok_codes=(200, 204, 404))
     except RuntimeError:
         pass
+
+
+def deactivate_pipeline_maybe(pid: str) -> None:
+    try:
+        payload = api_request("GET", f"/pipelines/{pid}")
+    except RuntimeError:
+        return
+    pipeline = json.loads(payload)
+    if pipeline.get("active"):
+        api_request("PUT", f"/pipelines/{pid}", {**pipeline, "active": False})
 
 
 # ── Database setup ─────────────────────────────────────────────────────────────
@@ -161,12 +174,37 @@ def create_db_table() -> None:
 # ── Skills ─────────────────────────────────────────────────────────────────────
 
 def delete_old_assets() -> None:
+    deactivate_pipeline_maybe(PIPELINE_ID)
+    api_delete_maybe(f"/pipelines/{PIPELINE_ID}")
     api_delete_maybe(f"/skills/message__request/{SK_SHOT}")
     api_delete_maybe(f"/skills/message__publish/{SK_ALERT}")
     api_delete_maybe(f"/skills/message__publish/{SK_STATUS}")
     api_delete_maybe(f"/skills/postgresql__query/{SK_REGISTER}")
-    api_delete_maybe(f"/pipelines/{PIPELINE_ID}")
+    api_delete_maybe(f"/connections/{CONNECTION_ID}")
     api_delete_maybe(f"/ai/providers/{PROVIDER_NAME}", base_url=CORE_BASE_URL)
+
+
+def create_connection() -> None:
+    api_request(
+        "POST",
+        "/connections",
+        {
+            "id": CONNECTION_ID,
+            "type": "postgresql",
+            "enable": True,
+            "config": {
+                "server": f"{PGHOST}:{PGPORT}",
+                "database": PGDATABASE,
+                "username": PGUSER,
+                "password": PGPASSWORD,
+                "pool_size": 1,
+                "connect_timeout": 5000,
+                "disable_prepared_statements": True,
+                "ssl": {"enable": False},
+            },
+        },
+    )
+    print(f"  connection {CONNECTION_ID!r} created")
 
 
 def create_ai_provider() -> None:
@@ -195,7 +233,7 @@ def create_skills() -> None:
             "id": SK_SHOT,
             "desc": "Request a box snapshot photo from the SPA client",
             "topic_prefix": "box/shot/",
-            "request_payload_schema": {"type": "object"},
+            "request_payload_schema": json.dumps({"type": "object"}),
         },
     )
     print(f"  skill {SK_SHOT!r} created")
@@ -231,13 +269,12 @@ def create_skills() -> None:
             "type": "postgresql__query",
             "id": SK_REGISTER,
             "desc": "Record box inspection result in the database",
+            "resource": CONNECTION_ID,
             "query": (
                 "INSERT INTO apple_box_inspections"
                 "(conveyor_id, box_id, status, reason) "
-                "VALUES($1, $2, $3, $4)"
+                "VALUES(${conveyor_id}, ${box_id}, ${status}, ${reason})"
             ),
-            "arg_keys": ["conveyor_id", "box_id", "status", "reason"],
-            "input_schema": {"type": "object"},
         },
     )
     print(f"  skill {SK_REGISTER!r} created")
@@ -265,7 +302,7 @@ def create_pipeline() -> None:
         {
             "pipeline_id": PIPELINE_ID,
             "active": True,
-            "trigger": {"topic": "evt/conveyor/+/box/done"},
+            "trigger": {"topic": "$evt/conveyor/+/box/done"},
             "steps": [
                 {
                     "id": "inspect",
@@ -324,11 +361,14 @@ def create_pipeline() -> None:
 
 
 def main() -> int:
-    print(f"==> Creating database table on {PGHOST}:{PGPORT}/{PGDATABASE}")
-    create_db_table()
-
     print("==> Removing any existing apple-box assets")
     delete_old_assets()
+
+    print(f"==> Creating PostgreSQL connection on {PGHOST}:{PGPORT}/{PGDATABASE}")
+    create_connection()
+
+    print(f"==> Creating database table on {PGHOST}:{PGPORT}/{PGDATABASE}")
+    create_db_table()
 
     print("==> Creating skills")
     create_skills()
