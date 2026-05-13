@@ -389,18 +389,13 @@ relx_overlay(ReleaseType) ->
         {copy, "bin/emqx_cluster_rescue", "bin/emqx_cluster_rescue"},
         {copy, "bin/emqx_fw", "bin/emqx_fw"},
         {copy, "bin/node_dump", "bin/node_dump"},
-        {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript"},
-        {copy, "bin/emqx", "bin/emqx-{{release_version}}"},
-        {copy, "bin/emqx_ctl", "bin/emqx_ctl-{{release_version}}"},
-        {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript-{{release_version}}"},
         {copy, "apps/emqx_gateway_lwm2m/lwm2m_xml", "etc/lwm2m_xml"},
         {copy, "apps/emqx_auth/etc/acl.conf", "etc/acl.conf"},
         {copy, "apps/emqx_auth/etc/auth-built-in-db-bootstrap.csv",
             "etc/auth-built-in-db-bootstrap.csv"},
         {template, "bin/emqx.cmd", "bin/emqx.cmd"},
         {template, "bin/emqx_ctl.cmd", "bin/emqx_ctl.cmd"},
-        {copy, "bin/nodetool", "bin/nodetool"},
-        {copy, "bin/nodetool", "bin/nodetool-{{release_version}}"}
+        {copy, "bin/nodetool", "bin/nodetool"}
     ] ++ etc_overlay(ReleaseType).
 
 etc_overlay(ReleaseType) ->

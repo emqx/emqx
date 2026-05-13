@@ -190,7 +190,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.14.0", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.3", override: true}
-  def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.4", override: true}
+  def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
   # in conflict by ehttpc and emqtt
   def common_dep(:gun), do: {:gun, "2.1.0", override: true}
   # in conflict by cowboy_swagger and cowboy
@@ -591,8 +591,7 @@ defmodule EMQXUmbrella.MixProject do
           :assemble,
           &create_RELEASES/1,
           &copy_files(&1, release_type, package_type, edition_type),
-          &copy_escript(&1, "nodetool"),
-          &copy_escript(&1, "install_upgrade.escript")
+          &copy_escript(&1, "nodetool")
         ]
 
         steps =
@@ -899,28 +898,13 @@ defmodule EMQXUmbrella.MixProject do
       ]
     )
 
-    for name <- [
-          "emqx",
-          "emqx_ctl"
-        ] do
+    for name <- ["emqx", "emqx_ctl"] do
       Mix.Generator.copy_file(
         "bin/#{name}",
         Path.join(bin, name),
         force: overwrite?
       )
 
-      # Files with the version appended are expected by the release
-      # upgrade script `install_upgrade.escript`
-      Mix.Generator.copy_file(
-        Path.join(bin, name),
-        Path.join(bin, name <> "-#{release.version}"),
-        force: overwrite?
-      )
-    end
-
-    for base_name <- ["emqx", "emqx_ctl"],
-        suffix <- ["", "-#{release.version}"] do
-      name = base_name <> suffix
       File.chmod!(Path.join(bin, name), 0o755)
     end
 
@@ -1019,15 +1003,8 @@ defmodule EMQXUmbrella.MixProject do
     # enable-feature is not required when 1.6.x
     boot_var = "%%!-boot_var RELEASE_LIB $RUNNER_ROOT_DIR/lib -enable-feature maybe_expr"
 
-    # Files with the version appended are expected by the release
-    # upgrade script `install_upgrade.escript`
-    Enum.each(
-      [escript_name, escript_name <> "-" <> release.version],
-      fn name ->
-        path = Path.join([release.path, "bin", name])
-        File.write!(path, [shebang, "\n", boot_var, "\n", rest])
-      end
-    )
+    path = Path.join([release.path, "bin", escript_name])
+    File.write!(path, [shebang, "\n", boot_var, "\n", rest])
 
     release
   end
