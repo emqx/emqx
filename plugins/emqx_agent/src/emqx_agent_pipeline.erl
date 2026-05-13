@@ -123,11 +123,7 @@ init({Iid, Def, TriggerInput}) ->
                 definition = Def,
                 steps = Steps,
                 step_idx = 0,
-                context = #{
-                    <<"event">> => Event,
-                    <<"key">> => Key,
-                    <<"key_base62">> => KeyBase62
-                },
+                context = emqx_agent_pipeline_ctx:init(Event, Key),
                 active_sid = undefined,
                 tool_map = #{},
                 pending_calls = #{},
@@ -295,7 +291,7 @@ start_llm_loop(
     SetResultSchema = maps:get(<<"set_result_schema">>, Step, undefined),
     {ToolManifest0, ToolMap0} = build_tool_manifest(ToolSpecs),
     {ToolManifest, ToolMap} = maybe_inject_set_result(ToolManifest0, ToolMap0, SetResultSchema),
-    Input = resolve_map(InputSpec, Data#data.context),
+    Input = emqx_agent_pipeline_ctx:resolve_map(InputSpec, Data#data.context),
     Sid = llm_sid(Persistent, StepId, Data),
     SessOutTopic = sess_out_topic(Sid),
     Data0 = subscribe_reply_topic(SessOutTopic, Data),
@@ -336,7 +332,7 @@ llm_sid(true, StepId, #data{pipeline_id = PipelineId, key = Key}) ->
 
 invoke_call_skill(Step, Data) ->
     SkillSpec = maps:get(<<"skill">>, Step),
-    Args = resolve_map(maps:get(<<"args">>, Step, #{}), Data#data.context),
+    Args = emqx_agent_pipeline_ctx:resolve_map(maps:get(<<"args">>, Step, #{}), Data#data.context),
     ResultPath = maps:get(<<"result_path">>, Step, undefined),
     {Type, SkillId} = parse_tool_spec(SkillSpec),
     ReqId = gen_req_id(),
@@ -367,7 +363,7 @@ maybe_break(Step, Data) ->
     Path = maps:get(<<"path">>, Step, undefined),
     Negate = maps:get(<<"not">>, Step, false) =:= true,
     EqValue = maps:get(<<"eq">>, Step, undefined),
-    Value = resolve_context_path(Path, Data#data.context),
+    Value = emqx_agent_pipeline_ctx:resolve(Path, Data#data.context),
     IsTrue =
         case EqValue of
             undefined -> Value =:= true;
@@ -446,7 +442,9 @@ handle_llm_final(Sid, Frame, Data) ->
                     undefined -> maps:get(<<"result">>, Frame, #{});
                     Val -> Val
                 end,
-            Data1 = write_context(ResultPath, Result, Data0),
+            Data1 = Data0#data{
+                context = emqx_agent_pipeline_ctx:write(ResultPath, Result, Data0#data.context)
+            },
             Data2 = Data1#data{
                 active_sid = undefined,
                 tool_map = #{},
@@ -475,7 +473,11 @@ handle_waiting_cap_reply(ReqId, Frame, Data) ->
     log_received(cap_reply, Data, #{req_id => ReqId, frame => Frame}),
     Result = emqx_agent_skill_helpers:cap_response(Frame),
     Data0 = cleanup_reply_wait(Data),
-    Data1 = write_context(Data0#data.cap_result_path, Result, Data0),
+    Data1 = Data0#data{
+        context = emqx_agent_pipeline_ctx:write(
+            Data0#data.cap_result_path, Result, Data0#data.context
+        )
+    },
     Data2 = Data1#data{cap_req_id = undefined, cap_result_path = undefined},
     ?SLOG(info, #{
         msg => "pipeline_call_skill_done",
@@ -602,59 +604,11 @@ advance_and_step(Data) ->
 current_step(#data{step_idx = Idx, steps = Steps}) ->
     lists:nth(Idx + 1, Steps).
 
-%%--------------------------------------------------------------------
-%% Context helpers — JSONPath-style read/write
-%%--------------------------------------------------------------------
-
-%% Write a value to a top-level context key.
-%% "$.foo"       → context[<<"foo">>] = Value
-%% "$.foo.bar"   → context[<<"foo.bar">>] = Value  (limitation: shallow write)
-write_context(undefined, _Value, Data) ->
-    Data;
-write_context(<<"$.", Key/binary>>, Value, Data) ->
-    %% For writing we only support single-segment paths.
-    TopKey = hd(binary:split(Key, <<".">>)),
-    Data#data{context = maps:put(TopKey, Value, Data#data.context)};
-write_context(_Other, _Value, Data) ->
-    Data.
-
-%% Read a (possibly nested) value.
-%% "$.foo"           → context[<<"foo">>]
-%% "$.foo.bar.baz"   → context[<<"foo">>][<<"bar">>][<<"baz">>]
-resolve_context_path(<<"$.", Path/binary>>, Context) ->
-    Parts = binary:split(Path, <<".">>, [global]),
-    deep_get(Parts, Context);
-resolve_context_path(Value, _Context) ->
-    Value.
-
-%% Recursively resolve all binary values in a map that start with "$".
-resolve_map(Map, Context) when is_map(Map) ->
-    maps:map(
-        fun
-            (_K, V) when is_binary(V) -> resolve_context_path(V, Context);
-            (_K, V) when is_map(V) -> resolve_map(V, Context);
-            (_K, V) -> V
-        end,
-        Map
-    );
-resolve_map(Other, _Context) ->
-    Other.
-
 step_timeout_ms(Step, Default) ->
     case maps:get(<<"timeout_ms">>, Step, Default) of
         TimeoutMs when is_integer(TimeoutMs), TimeoutMs > 0 -> TimeoutMs;
         _ -> Default
     end.
-
-deep_get([], Value) ->
-    Value;
-deep_get([Key | Rest], Map) when is_map(Map) ->
-    case maps:get(Key, Map, undefined) of
-        undefined -> null;
-        V -> deep_get(Rest, V)
-    end;
-deep_get(_, _) ->
-    null.
 
 pipeline_key(Def, TriggerInput) ->
     Expression = maps:get(<<"key_expression">>, Def, <<"message.topic">>),
