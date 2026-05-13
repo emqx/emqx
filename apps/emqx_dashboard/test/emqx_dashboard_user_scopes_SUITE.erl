@@ -343,6 +343,38 @@ t_default_admin_cannot_be_deleted(_Config) ->
         request_api(delete, api_path(["users", "admin"]), auth_header(Token), #{})
     ).
 
+%% H8: The break-glass protection must only apply to the local default
+%% administrator. An SSO `DELETE /users/<name>?backend=<x>' request
+%% targets `{Backend, Name}', not the local `Name', and must not be
+%% rejected even when `Name' happens to match
+%% `dashboard.default_username'. We assert the response is not the
+%% break-glass `Cannot delete the default administrator user' one
+%% (the request itself goes on to fail for an unrelated reason because
+%% no SSO backend is started in this suite — only the dispatch path is
+%% under test).
+t_default_admin_protection_does_not_apply_to_sso_users(_Config) ->
+    add_admin(<<"admin">>),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"another">>, test_password(), ?ROLE_SUPERUSER, "other admin"
+    ),
+    %% Use a different admin to issue the request so the response is not
+    %% short-circuited by the self-delete guard further down the handler.
+    Token = jwt(<<"another">>, test_password()),
+    {ok, _Code, RespBody} = emqx_common_test_http:request_api(
+        delete,
+        api_path(["users", "admin"]),
+        "backend=ldap",
+        auth_header(Token)
+    ),
+    ?assertNotMatch(
+        {match, _},
+        re:run(
+            iolist_to_binary(RespBody),
+            <<"default administrator">>,
+            [caseless]
+        )
+    ).
+
 %% H6: Role demotion must consider persisted scopes, not just the
 %% request body. A user with persisted admin-only scopes that is
 %% demoted to viewer via a partial-update PUT (no `scopes' field) must
