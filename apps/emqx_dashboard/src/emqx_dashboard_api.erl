@@ -427,7 +427,12 @@ user(put, #{bindings := #{username := Username0}, body := Params} = Req) ->
         {error, Msg} ->
             {400, ?NOT_ALLOWED, Msg}
     end;
-user(delete, #{bindings := #{username := Username}} = Req) ->
+user(delete, #{bindings := #{username := Username0}} = Req) ->
+    %% Resolve the SSO target (e.g. `?backend=ldap' turns `Username0'
+    %% into `{ldap, Username0}') before checking the break-glass
+    %% protection — otherwise an SSO user that happens to share its
+    %% name with `dashboard.default_username' would be wrongly rejected.
+    Username = username(Req, Username0),
     case is_default_admin(Username) of
         true ->
             ?SLOG(info, #{
@@ -468,11 +473,16 @@ is_default_admin_modification(Username, Role, Scopes) ->
             end
     end.
 
-is_default_admin(Username) ->
+is_default_admin(Username) when is_binary(Username) ->
     case emqx_dashboard_admin:default_username() of
         <<>> -> false;
         Default -> Username =:= Default
-    end.
+    end;
+is_default_admin(_NonLocalTarget) ->
+    %% SSO targets (e.g. `{ldap, Username}') are never the local
+    %% break-glass account, even if their username happens to match
+    %% `dashboard.default_username'.
+    false.
 
 handle_delete_user(#{bindings := #{username := Username0}, headers := Headers} = Req) ->
     Username = username(Req, Username0),
