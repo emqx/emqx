@@ -31,6 +31,8 @@
 
 -module(emqx_agent_skill_publish).
 
+-behaviour(emqx_agent_skill).
+
 -include_lib("emqx/include/logger.hrl").
 
 -define(SKILL_TYPE, <<"message__publish">>).
@@ -166,12 +168,12 @@ to_map(
         <<"input_schema">> => InputSchema
     }.
 
+handle_invoke(#{topic_prefix := TopicPrefix}, Request) ->
+    do_publish(TopicPrefix, Request).
+
 %%--------------------------------------------------------------------
 %% Internal
 %%--------------------------------------------------------------------
-
-handle_invoke(#{topic_prefix := TopicPrefix}, Request) ->
-    do_publish(TopicPrefix, Request).
 
 do_publish(TopicPrefix, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),

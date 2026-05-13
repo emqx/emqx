@@ -16,6 +16,8 @@
 
 -module(emqx_agent_skill_delete_skill).
 
+-behaviour(emqx_agent_skill).
+
 -define(SKILL_TYPE, <<"agent__delete_skill">>).
 
 -define(INPUT_SCHEMA, #{
@@ -69,13 +71,13 @@ to_map(#{skill_id := Id, description := Desc, input_schema := In}) ->
         <<"input_schema">> => In
     }.
 
-%%--------------------------------------------------------------------
-%% Internal
-%%--------------------------------------------------------------------
-
 handle_invoke(_Context, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
     do_delete(Args).
+
+%%--------------------------------------------------------------------
+%% Internal
+%%--------------------------------------------------------------------
 
 do_delete(#{<<"type">> := Type, <<"id">> := Id}) ->
     case emqx_agent_service:skill_delete(Type, Id) of

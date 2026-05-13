@@ -7,19 +7,45 @@
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
--export([init_hook/0, deinit_hook/0, on_message_publish/1]).
+%% Behaviour definition
+-callback init() -> ok.
+-callback deinit() -> ok.
+-callback create(Context :: map()) -> {ok, map()} | {error, term()}.
+-callback destroy(Skill :: map()) -> ok.
+-callback to_map(Skill :: map()) -> map().
+-callback handle_invoke(Context :: map(), Request :: map()) -> {ok, map()} | {error, term()}.
+
+-export([init/0, deinit/0, on_message_publish/1]).
+-export([discover_skill_modules/0]).
 
 -define(DEFAULT_INVOKE_TIMEOUT_MS, 30_000).
 
--spec init_hook() -> ok.
-init_hook() ->
+-spec init() -> ok.
+init() ->
+    lists:foreach(fun(Mod) -> Mod:init() end, discover_skill_modules()),
     _ = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_LOWEST),
     ok.
 
--spec deinit_hook() -> ok.
-deinit_hook() ->
+-spec deinit() -> ok.
+deinit() ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
+    lists:foreach(fun(Mod) -> Mod:deinit() end, discover_skill_modules()),
     ok.
+
+-spec discover_skill_modules() -> [module()].
+discover_skill_modules() ->
+    AllModules = [M || {M, _} <- code:all_loaded()],
+    [M || M <- AllModules, is_skill_module(M)].
+
+is_skill_module(Module) ->
+    case erlang:function_exported(Module, module_info, 1) of
+        true ->
+            Attrs = Module:module_info(attributes),
+            Behaviours = proplists:get_value(behaviour, Attrs, []),
+            lists:member(?MODULE, Behaviours);
+        false ->
+            false
+    end.
 
 on_message_publish(#message{topic = <<"$cap/", Rest/binary>>, payload = Payload} = Msg) ->
     case binary:split(Rest, <<"/request/">>) of
@@ -64,7 +90,6 @@ dispatch(Type, SkillId, ReqId, Payload) ->
         ok ->
             ok;
         {error, Reason} ->
-            %% Publish an error reply so the LLM gets feedback instead of timing out.
             emqx_agent_skill_helpers:publish_reply(
                 Type,
                 SkillId,

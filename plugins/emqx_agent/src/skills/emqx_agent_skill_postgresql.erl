@@ -11,6 +11,8 @@
 
 -module(emqx_agent_skill_postgresql).
 
+-behaviour(emqx_agent_skill).
+
 -define(SKILL_TYPE, <<"postgresql__query">>).
 
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, resource_id/1, handle_invoke/2]).

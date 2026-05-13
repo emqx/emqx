@@ -33,6 +33,8 @@
 
 -module(emqx_agent_skill_mqtt_request).
 
+-behaviour(emqx_agent_skill).
+
 -include_lib("emqx/include/emqx.hrl").
 
 -define(SKILL_TYPE, <<"message__request">>).
@@ -133,12 +135,12 @@ to_map(#{
         <<"input_schema">> => InputSchema
     }.
 
+handle_invoke(#{topic_prefix := TopicPrefix}, Request) ->
+    do_request(TopicPrefix, Request).
+
 %%--------------------------------------------------------------------
 %% Internal
 %%--------------------------------------------------------------------
-
-handle_invoke(#{topic_prefix := TopicPrefix}, Request) ->
-    do_request(TopicPrefix, Request).
 
 do_request(TopicPrefix, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),

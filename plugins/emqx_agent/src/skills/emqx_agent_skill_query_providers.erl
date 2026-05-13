@@ -6,6 +6,8 @@
 
 -module(emqx_agent_skill_query_providers).
 
+-behaviour(emqx_agent_skill).
+
 -define(SKILL_TYPE, <<"agent__query_providers">>).
 
 -define(INPUT_SCHEMA, #{
@@ -54,7 +56,6 @@ to_map(#{skill_id := Id, description := Desc, input_schema := In}) ->
     }.
 
 handle_invoke(_Context, Request) ->
-    %% TODO: validate
     Args = maps:get(<<"args">>, Request, #{}),
     query(Args).
 

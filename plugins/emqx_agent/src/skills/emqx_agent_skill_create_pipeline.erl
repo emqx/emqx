@@ -15,6 +15,8 @@
 
 -module(emqx_agent_skill_create_pipeline).
 
+-behaviour(emqx_agent_skill).
+
 -define(SKILL_TYPE, <<"agent__create_pipeline">>).
 
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/2]).
@@ -57,10 +59,6 @@ to_map(#{skill_id := Id, description := Desc, input_schema := In}) ->
         <<"input_schema">> => In
     }.
 
-%%--------------------------------------------------------------------
-%% Internal
-%%--------------------------------------------------------------------
-
 handle_invoke(_Context, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
     %% Enforce active=false unconditionally — not exposed to the LLM.
@@ -74,6 +72,10 @@ handle_invoke(_Context, Request) ->
         {error, Reason} ->
             {error, emqx_agent_skill_helpers:format_error(Reason)}
     end.
+
+%%--------------------------------------------------------------------
+%% Internal
+%%--------------------------------------------------------------------
 
 input_schema() ->
     emqx_agent_schema_oai_tool_converter:to_json_schema([pipelines, items]).

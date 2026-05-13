@@ -17,6 +17,8 @@
 
 -module(emqx_agent_skill_query_skills).
 
+-behaviour(emqx_agent_skill).
+
 -define(SKILL_TYPE, <<"agent__query_skills">>).
 
 -define(INPUT_SCHEMA, #{
@@ -72,13 +74,13 @@ to_map(#{skill_id := Id, description := Desc, input_schema := In}) ->
         <<"input_schema">> => In
     }.
 
-%%--------------------------------------------------------------------
-%% Internal
-%%--------------------------------------------------------------------
-
 handle_invoke(_Context, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
     query(Args).
+
+%%--------------------------------------------------------------------
+%% Internal
+%%--------------------------------------------------------------------
 
 query(#{<<"type">> := Type, <<"id">> := Id}) ->
     case emqx_agent_service:skill_get(Type, Id) of

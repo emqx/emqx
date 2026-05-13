@@ -26,6 +26,8 @@
 
 -module(emqx_agent_skill_http).
 
+-behaviour(emqx_agent_skill).
+
 -define(SKILL_TYPE, <<"http">>).
 
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/2]).
@@ -91,12 +93,13 @@ to_map(#{
         <<"input_schema">> => InSchema
     }.
 
+-spec handle_invoke(map(), map()) -> {ok, term()} | {error, term()}.
+handle_invoke(Context, Request) ->
+    do_reply(Context, Request).
+
 %%--------------------------------------------------------------------
 %% Internal
 %%--------------------------------------------------------------------
-
-handle_invoke(Context, Request) ->
-    do_reply(Context, Request).
 
 do_reply(Context, Request) ->
     #{method := Method, url := BaseUrl} = Context,

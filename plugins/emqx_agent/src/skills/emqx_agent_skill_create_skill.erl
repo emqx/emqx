@@ -14,6 +14,8 @@
 
 -module(emqx_agent_skill_create_skill).
 
+-behaviour(emqx_agent_skill).
+
 -define(SKILL_TYPE, <<"agent__create_skill">>).
 
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/2]).
@@ -56,10 +58,6 @@ to_map(#{skill_id := Id, description := Desc, input_schema := In}) ->
         <<"input_schema">> => In
     }.
 
-%%--------------------------------------------------------------------
-%% Internal
-%%--------------------------------------------------------------------
-
 handle_invoke(_Context, Request) ->
     Args = maps:get(<<"definition">>, maps:get(<<"args">>, Request, #{}), #{}),
     case emqx_agent_service:skill_create(Args) of
@@ -73,6 +71,10 @@ handle_invoke(_Context, Request) ->
         {error, Reason} ->
             {error, emqx_agent_skill_helpers:format_error(Reason)}
     end.
+
+%%--------------------------------------------------------------------
+%% Internal
+%%--------------------------------------------------------------------
 
 input_schema() ->
     #{
