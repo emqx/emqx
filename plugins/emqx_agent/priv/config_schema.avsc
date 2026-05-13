@@ -179,13 +179,6 @@
             {"name": "set_result_schema", "type": "string", "description": "$pipeline_step_set_result_schema_desc"},
             {"name": "result_path", "type": "string", "description": "$pipeline_step_result_path_desc"}
           ]},
-          {"type": "record", "name": "PipelineStepWaitForEvent", "fields": [
-            {"name": "id", "type": "string", "description": "$pipeline_step_id_desc"},
-            {"name": "type", "type": {"type": "enum", "name": "PipelineStepWaitForEventType", "symbols": ["wait_for_event"]}, "default": "wait_for_event", "description": "$pipeline_step_type_desc"},
-            {"name": "topic", "type": "string", "description": "$pipeline_step_topic_desc"},
-            {"name": "where", "type": "string", "default": "", "description": "$pipeline_step_where_desc"},
-            {"name": "result_path", "type": "string", "default": "", "description": "$pipeline_step_result_path_desc"}
-          ]},
           {"type": "record", "name": "PipelineStepBreak", "fields": [
             {"name": "id", "type": "string", "description": "$pipeline_step_id_desc"},
             {"name": "type", "type": {"type": "enum", "name": "PipelineStepBreakType", "symbols": ["break"]}, "default": "break", "description": "$pipeline_step_type_desc"},

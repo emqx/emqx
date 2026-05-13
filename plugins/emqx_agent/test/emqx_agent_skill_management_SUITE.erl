@@ -51,8 +51,6 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
-    ok = emqx_agent_pipeline_registry:delete_all(),
     ok = emqx_agent_plugin_config_fixture:teardown().
 
 %%--------------------------------------------------------------------
@@ -262,7 +260,7 @@ t_create_pipeline_invoke_creates_pipeline(_Config) ->
     ),
     ?assertMatch(
         {ok, #{<<"pipeline_id">> := <<"dyn-pipeline">>}},
-        emqx_agent_pipeline_registry:lookup(<<"dyn-pipeline">>)
+        emqx_agent_config:lookup_pipeline(<<"dyn-pipeline">>)
     ),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
@@ -288,7 +286,7 @@ t_create_pipeline_enforces_active_false(_Config) ->
         #{<<"status">> := <<"ok">>, <<"result">> := #{<<"active">> := false}},
         cap_response(Reply)
     ),
-    {ok, Def} = emqx_agent_pipeline_registry:lookup(<<"forced-active">>),
+    {ok, Def} = emqx_agent_config:lookup_pipeline(<<"forced-active">>),
     ?assertMatch(#{<<"active">> := false}, Def),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 

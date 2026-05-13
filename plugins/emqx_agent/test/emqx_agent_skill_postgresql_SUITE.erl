@@ -37,8 +37,6 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
-    ok = emqx_agent_service:connection_delete(?CONNECTION_ID),
     ok = emqx_agent_skill_postgresql:deinit(),
     ok = emqx_agent_plugin_config_fixture:teardown().
 
@@ -57,7 +55,7 @@ t_multiple_instances(_Config) ->
     {ok, S1} = emqx_agent_skill_registry:lookup(?SKILL_TYPE, ?SKILL_ID),
     {ok, S2} = emqx_agent_skill_registry:lookup(?SKILL_TYPE, <<"pg-test-2">>),
     ?assertNotEqual(maps:get(skill_id, S1), maps:get(skill_id, S2)),
-    ok = emqx_agent_skill_registry:delete_runtime_for_test(?SKILL_TYPE, <<"pg-test-2">>).
+    emqx_agent_config:delete_skill(?SKILL_TYPE, <<"pg-test-2">>).
 
 t_invoke_queries_postgresql(_Config) ->
     ReqId = <<"req-PG-001">>,
@@ -180,5 +178,13 @@ test_context(Overrides) ->
     ).
 
 register_skill(Context) ->
-    {ok, Skill} = emqx_agent_skill_postgresql:create(Context),
-    emqx_agent_skill_registry:put_runtime_for_test(Skill).
+    emqx_agent_config:create_skill(context_to_body(Context)).
+
+context_to_body(Context) ->
+    #{
+        <<"type">> => ?SKILL_TYPE,
+        <<"id">> => maps:get(skill_id, Context),
+        <<"desc">> => maps:get(desc, Context),
+        <<"resource">> => maps:get(resource, Context),
+        <<"query">> => maps:get(query, Context)
+    }.

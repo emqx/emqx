@@ -51,6 +51,14 @@ same external shape that was submitted by users.
     delete_connection/1
 ]).
 
+-export([
+    create_pipeline/1,
+    list_pipelines/0,
+    lookup_pipeline/1,
+    update_pipeline/2,
+    delete_pipeline/1
+]).
+
 -define(CONFIG_KEY, {?MODULE, parsed_config}).
 -define(CONFIG_SCHEMA_KEY, {?MODULE, config_schema}).
 -define(SKILLS, <<"skills">>).
@@ -58,6 +66,8 @@ same external shape that was submitted by users.
 -define(SKILL_ID, <<"id">>).
 -define(CONNECTIONS, <<"connections">>).
 -define(CONNECTION_ID, <<"id">>).
+-define(PIPELINES, <<"pipelines">>).
+-define(PIPELINE_ID, <<"pipeline_id">>).
 
 -type skill_type() :: binary().
 -type skill_id() :: binary().
@@ -65,6 +75,8 @@ same external shape that was submitted by users.
 -type raw_config() :: map().
 -type raw_skill() :: map().
 -type raw_connection() :: map().
+-type pipeline_id() :: binary().
+-type raw_pipeline() :: map().
 
 %%--------------------------------------------------------------------
 %% Config lifecycle
@@ -248,11 +260,81 @@ delete_connection(ConnectionId) ->
     end).
 
 %%--------------------------------------------------------------------
+%% Pipeline CRUD
+%%--------------------------------------------------------------------
+
+-spec create_pipeline(raw_pipeline()) -> ok | {error, term()}.
+create_pipeline(Body) when is_map(Body) ->
+    case required_pipeline_id(Body) of
+        {ok, PipelineId} ->
+            case wrap_pipeline(Body) of
+                {ok, Pipeline} ->
+                    update_raw_config(fun(Config0) ->
+                        Pipelines0 = entries(Config0, ?PIPELINES),
+                        case replace_entry(pipeline_pred(PipelineId), Pipeline, Pipelines0) of
+                            {ok, Pipelines} ->
+                                {ok, Config0#{?PIPELINES => Pipelines}};
+                            {error, not_found} ->
+                                {ok, Config0#{?PIPELINES => Pipelines0 ++ [Pipeline]}}
+                        end
+                    end);
+                {error, _} = Error ->
+                    Error
+            end;
+        {error, _} = Error ->
+            Error
+    end;
+create_pipeline(_) ->
+    {error, invalid_pipeline}.
+
+-spec list_pipelines() -> [raw_pipeline()].
+list_pipelines() ->
+    normalize_pipelines(entries(current_config(), ?PIPELINES)).
+
+-spec lookup_pipeline(pipeline_id()) -> {ok, raw_pipeline()} | {error, not_found}.
+lookup_pipeline(PipelineId) ->
+    find_entry(pipeline_pred(PipelineId), list_pipelines()).
+
+-spec update_pipeline(pipeline_id(), raw_pipeline()) ->
+    {ok, raw_pipeline()} | {error, term()}.
+update_pipeline(PipelineId, Body) when is_map(Body) ->
+    case wrap_pipeline(put_entry_fields(Body, [{?PIPELINE_ID, PipelineId}])) of
+        {ok, Pipeline} ->
+            case
+                update_raw_config(fun(Config0) ->
+                    Pipelines0 = entries(Config0, ?PIPELINES),
+                    case replace_entry(pipeline_pred(PipelineId), Pipeline, Pipelines0) of
+                        {ok, Pipelines} -> {ok, Config0#{?PIPELINES => Pipelines}};
+                        {error, _} = Error -> Error
+                    end
+                end)
+            of
+                ok -> lookup_pipeline(PipelineId);
+                {error, _} = Error -> Error
+            end;
+        {error, _} = Error ->
+            Error
+    end;
+update_pipeline(_, _) ->
+    {error, invalid_pipeline}.
+
+-spec delete_pipeline(pipeline_id()) -> ok | {error, term()}.
+delete_pipeline(PipelineId) ->
+    update_raw_config(fun(Config0) ->
+        Pipelines0 = entries(Config0, ?PIPELINES),
+        case remove_entry(pipeline_pred(PipelineId), Pipelines0) of
+            {ok, Pipelines} -> {ok, Config0#{?PIPELINES => Pipelines}};
+            {error, _} = Error -> Error
+        end
+    end).
+
+%%--------------------------------------------------------------------
 %% Internal config operations
 %%--------------------------------------------------------------------
 
 current_config() ->
     try emqx_plugins:get_config(name_vsn(), #{}) of
+        {avro_value, _Type, _Value} = Config -> prepare_config_for_storage(avro_to_plain(Config));
         Config when is_map(Config) -> Config;
         _ -> #{}
     catch
@@ -272,6 +354,8 @@ update_raw_config(Fun) ->
             Error
     end.
 
+parse_config({avro_value, _Type, Value}) ->
+    parse_config(avro_to_plain(Value));
 parse_config(Config) when is_map(Config) ->
     {ok, normalize_config(Config)}.
 
@@ -313,6 +397,17 @@ required_skill_key(#{?SKILL_TYPE := _}) ->
 required_skill_key(_) ->
     {error, {missing_field, ?SKILL_TYPE}}.
 
+required_pipeline_id(Pipeline) when is_map(Pipeline), map_size(Pipeline) =:= 1 ->
+    required_pipeline_id(unwrap_union(Pipeline));
+required_pipeline_id(#{?PIPELINE_ID := PipelineId}) when
+    is_binary(PipelineId), PipelineId =/= <<>>
+->
+    {ok, PipelineId};
+required_pipeline_id(#{?PIPELINE_ID := _}) ->
+    {error, {invalid_field, ?PIPELINE_ID}};
+required_pipeline_id(_) ->
+    {error, {missing_field, ?PIPELINE_ID}}.
+
 id_pred(Id) ->
     fun(Entry) -> maps:get(?CONNECTION_ID, unwrap_union(Entry), undefined) =:= Id end.
 
@@ -323,12 +418,46 @@ skill_pred(Type, SkillId) ->
             maps:get(?SKILL_ID, Unwrapped, undefined) =:= SkillId
     end.
 
+pipeline_pred(PipelineId) ->
+    fun(Pipeline) ->
+        maps:get(?PIPELINE_ID, unwrap_union(Pipeline), undefined) =:= PipelineId
+    end.
+
 normalize_config(Config) ->
     Config1 = maybe_put(#{}, ?SKILLS, normalize_entries(maps:get(?SKILLS, Config, []))),
     Config2 = maybe_put(
         Config1, ?CONNECTIONS, normalize_entries(maps:get(?CONNECTIONS, Config, []))
     ),
-    maybe_put(Config2, <<"pipelines">>, normalize_pipelines(maps:get(<<"pipelines">>, Config, []))).
+    maybe_put(Config2, ?PIPELINES, normalize_pipelines(maps:get(?PIPELINES, Config, []))).
+
+prepare_config_for_storage(Config) when is_map(Config) ->
+    Config1 = maybe_put(
+        #{}, ?SKILLS, [wrap_skill_for_storage(Entry) || Entry <- maps:get(?SKILLS, Config, [])]
+    ),
+    Config2 = maybe_put(
+        Config1,
+        ?CONNECTIONS,
+        [wrap_connection(Entry) || Entry <- maps:get(?CONNECTIONS, Config, [])]
+    ),
+    maybe_put(
+        Config2,
+        ?PIPELINES,
+        [wrap_pipeline_for_storage(Entry) || Entry <- maps:get(?PIPELINES, Config, [])]
+    );
+prepare_config_for_storage(_Config) ->
+    #{}.
+
+wrap_skill_for_storage(Entry) ->
+    case wrap_skill(Entry) of
+        {ok, Wrapped} -> Wrapped;
+        {error, _} -> Entry
+    end.
+
+wrap_pipeline_for_storage(Entry) ->
+    case wrap_pipeline(Entry) of
+        {ok, Wrapped} -> Wrapped;
+        {error, _} -> Entry
+    end.
 
 normalize_entries(Entries) when is_list(Entries) ->
     [unwrap_union(Entry) || Entry <- Entries];
@@ -336,14 +465,70 @@ normalize_entries(_) ->
     [].
 
 normalize_pipelines(Pipelines) when is_list(Pipelines) ->
-    [normalize_pipeline(Pipeline) || Pipeline <- Pipelines];
+    [Pipeline || {ok, Pipeline} <- [normalize_pipeline(Pipeline0) || Pipeline0 <- Pipelines]];
 normalize_pipelines(_) ->
     [].
 
-normalize_pipeline(#{<<"steps">> := Steps} = Pipeline) when is_list(Steps) ->
-    Pipeline#{<<"steps">> => normalize_entries(Steps)};
-normalize_pipeline(Pipeline) ->
-    Pipeline.
+normalize_pipeline(Pipeline0) when is_map(Pipeline0) ->
+    Pipeline = unwrap_union(Pipeline0),
+    case Pipeline of
+        #{<<"steps">> := Steps} when is_list(Steps) ->
+            case normalize_steps(Steps, 1, []) of
+                {ok, NormalizedSteps} -> {ok, Pipeline#{<<"steps">> => NormalizedSteps}};
+                {error, _} = Error -> Error
+            end;
+        #{} ->
+            {ok, Pipeline}
+    end;
+normalize_pipeline(_) ->
+    {error, invalid_pipeline}.
+
+normalize_steps([], _Index, Acc) ->
+    {ok, lists:reverse(Acc)};
+normalize_steps([Step0 | Rest], Index, Acc) when is_map(Step0) ->
+    Step1 = unwrap_union(Step0),
+    case normalize_step(Step1, Index) of
+        {ok, Step} -> normalize_steps(Rest, Index + 1, [Step | Acc]);
+        {error, _} = Error -> Error
+    end;
+normalize_steps([_ | _], Index, _Acc) ->
+    {error, {invalid_step, Index}}.
+
+normalize_step(#{<<"type">> := <<"llm_loop">>} = Step0, _Index) ->
+    Step1 = name_value_entries_to_map(<<"input">>, Step0),
+    {ok, decode_json_schema_field(<<"set_result_schema">>, Step1)};
+normalize_step(#{<<"type">> := <<"break">>} = Step0, _Index) ->
+    {ok, normalize_break_step(Step0)};
+normalize_step(Step, _Index) ->
+    {ok, name_value_entries_to_map(<<"args">>, Step)}.
+
+normalize_break_step(#{<<"eq">> := <<"true">>} = Step) ->
+    Step#{<<"eq">> => true};
+normalize_break_step(#{<<"eq">> := <<"false">>} = Step) ->
+    Step#{<<"eq">> => false};
+normalize_break_step(Step) ->
+    Step.
+
+name_value_entries_to_map(Field, Step) ->
+    case maps:get(Field, Step, undefined) of
+        Entries when is_list(Entries) ->
+            Step#{Field => maps:from_list([name_value_entry_to_pair(E) || E <- Entries])};
+        _ ->
+            Step
+    end.
+
+name_value_entry_to_pair(#{<<"name">> := Name, <<"value">> := Value}) ->
+    {Name, Value};
+name_value_entry_to_pair(#{name := Name, value := Value}) ->
+    {Name, Value}.
+
+decode_json_schema_field(Field, Step) ->
+    case maps:get(Field, Step, undefined) of
+        Value when is_binary(Value) ->
+            Step#{Field => emqx_agent_oai_tool_schema:json_schema_from_string(Value, [])};
+        _ ->
+            Step
+    end.
 
 unwrap_union(Map) when is_map(Map), map_size(Map) =:= 1 ->
     case maps:to_list(Map) of
@@ -353,6 +538,15 @@ unwrap_union(Map) when is_map(Map), map_size(Map) =:= 1 ->
             Map
     end;
 unwrap_union(Value) ->
+    Value.
+
+avro_to_plain([{Key, _Value} | _] = Fields) when is_binary(Key) ->
+    maps:from_list([{K, avro_to_plain(V)} || {K, V} <- Fields]);
+avro_to_plain({avro_value, _Type, Value}) ->
+    avro_to_plain(Value);
+avro_to_plain(Values) when is_list(Values) ->
+    [avro_to_plain(Value) || Value <- Values];
+avro_to_plain(Value) ->
     Value.
 
 put_entry_fields(Entry, Fields) when is_map(Entry), map_size(Entry) =:= 1 ->
@@ -421,6 +615,52 @@ wrap_connection(Entry0) ->
         <<"postgresql">> -> #{<<"ConnectionPostgresql">> => Entry};
         _ -> Entry0
     end.
+
+wrap_pipeline(Entry0) ->
+    case normalize_pipeline(Entry0) of
+        {ok, _} -> {ok, prepare_pipeline_for_config(unwrap_union(Entry0))};
+        {error, _} = Error -> Error
+    end.
+
+prepare_pipeline_for_config(#{<<"steps">> := Steps} = Pipeline) when is_list(Steps) ->
+    Pipeline#{<<"steps">> => [wrap_pipeline_step(Step) || Step <- Steps]};
+prepare_pipeline_for_config(Pipeline) ->
+    Pipeline.
+
+wrap_pipeline_step(Step0) ->
+    Step1 = unwrap_union(Step0),
+    Step = prepare_step_for_config(Step1),
+    case pipeline_step_record_name(maps:get(?SKILL_TYPE, Step, undefined)) of
+        RecordName when is_binary(RecordName) -> #{RecordName => Step};
+        _ -> Step0
+    end.
+
+pipeline_step_record_name(Type) when is_binary(Type) ->
+    <<"PipelineStep", (skill_record_name(Type))/binary>>;
+pipeline_step_record_name(Type) ->
+    Type.
+
+prepare_step_for_config(#{<<"type">> := <<"call_skill">>, <<"args">> := Args} = Step) when
+    is_map(Args)
+->
+    Step#{<<"args">> => map_to_name_value_entries(Args)};
+prepare_step_for_config(#{<<"type">> := <<"llm_loop">>} = Step0) ->
+    Step1 =
+        case maps:get(<<"input">>, Step0, undefined) of
+            Input when is_map(Input) -> Step0#{<<"input">> => map_to_name_value_entries(Input)};
+            _ -> Step0
+        end,
+    case maps:get(<<"set_result_schema">>, Step1, undefined) of
+        Schema when is_map(Schema) ->
+            Step1#{<<"set_result_schema">> => emqx_utils_json:encode(Schema)};
+        _ ->
+            Step1
+    end;
+prepare_step_for_config(Step) ->
+    Step.
+
+map_to_name_value_entries(Map) ->
+    [#{<<"name">> => Name, <<"value">> => Value} || {Name, Value} <- maps:to_list(Map)].
 
 maybe_put(Map, _Key, []) ->
     Map;

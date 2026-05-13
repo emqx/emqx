@@ -17,16 +17,6 @@
     resolve_type/1
 ]).
 
--ifdef(TEST).
--export([
-    put_runtime_for_test/1,
-    delete_runtime_for_test/2,
-    list_runtime_for_test/0,
-    list_runtime_for_test/1,
-    clear_runtime_for_test/0
-]).
--endif.
-
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -88,31 +78,6 @@ resolve_type(Type) when is_binary(Type) ->
         [{Type, Module}] -> Module;
         [] -> throw(unknown_type)
     end.
-
--ifdef(TEST).
-put_runtime_for_test(#{skill_id := _, type := _, module := _} = Skill) ->
-    insert_runtime(Skill);
-put_runtime_for_test(#{skill_id := _, type := _}) ->
-    {error, missing_module};
-put_runtime_for_test(#{skill_id := _}) ->
-    {error, missing_type};
-put_runtime_for_test(_Skill) ->
-    {error, missing_skill_id}.
-
-delete_runtime_for_test(Type, SkillId) ->
-    drop_runtime(Type, SkillId).
-
-list_runtime_for_test() ->
-    [Skill || {_Key, Skill} <- ets:tab2list(?TAB)].
-
-list_runtime_for_test(Type) ->
-    [Skill || {Key, Skill} <- ets:tab2list(?TAB), element(1, Key) =:= Type].
-
-clear_runtime_for_test() ->
-    true = ets:delete_all_objects(?TAB),
-    true = ets:delete_all_objects(?STATUS_TAB),
-    ok.
--endif.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

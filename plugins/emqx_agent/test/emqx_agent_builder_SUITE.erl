@@ -117,10 +117,6 @@
     When creating an llm_loop step, use model "gpt-5.4-mini" unless the user explicitly
     requests another model. Do not invent a model name.
 
-    --- wait_for_event ---
-      {"id": "wait", "type": "wait_for_event", "topic": "evt/device/+/ack",
-       "where": "data.ref_id == $.event.id", "result_path": "$.ack"}
-
     --- break ---
       {"id": "check", "type": "break", "path": "$.triage.skip", "eq": true}
 
@@ -210,7 +206,6 @@ init_per_suite(Config) ->
                 #{work_dir => emqx_cth_suite:work_dir(Config)}
             ),
             ok = register_shared_provider(),
-            ok = register_builder_pipeline(),
             [{suite_apps, Apps} | Config]
     end.
 
@@ -228,6 +223,7 @@ init_per_testcase(_TC, Config) ->
     ok = emqx_agent_plugin_config_fixture:setup(),
     ok = register_builder_skills(),
     ok = register_pg_connection(),
+    ok = register_builder_pipeline(),
     ok = emqx:subscribe(?REPLY_TOPIC),
     ok = emqx:subscribe(?BUILDER_EVENTS_TOPIC),
     Config.
@@ -382,9 +378,8 @@ register_builder_skills() ->
     }).
 
 cleanup_builder_infra() ->
-    _ = emqx_agent_pipeline_registry:unregister(?BUILDER_PIPELINE_ID),
+    _ = emqx_agent_config:delete_pipeline(?BUILDER_PIPELINE_ID),
     _ = emqx_ai_completion_config:update_providers_raw({delete, ?SHARED_PROVIDER}),
-    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
     ok.
 
 register_pg_connection() ->
@@ -412,7 +407,7 @@ register_shared_provider() ->
 
 register_builder_pipeline() ->
     Model = emqx_agent_test_llm_helper:default_model(),
-    emqx_agent_pipeline_registry:register(#{
+    emqx_agent_service:pipeline_create(#{
         <<"pipeline_id">> => ?BUILDER_PIPELINE_ID,
         <<"active">> => true,
         <<"trigger">> => #{<<"topic">> => <<"evt/builder/request">>},

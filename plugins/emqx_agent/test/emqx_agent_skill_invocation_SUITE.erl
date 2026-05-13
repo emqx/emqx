@@ -11,7 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
--define(SKILL_TYPE, <<"test.invoke">>).
+-define(SKILL_TYPE, <<"message__publish">>).
 -define(SKILL_ID, <<"test-invoke-1">>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -26,17 +26,17 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
-    ok = emqx_agent_skill_registry:put_runtime_for_test(#{
-        skill_id => ?SKILL_ID,
-        type => ?SKILL_TYPE,
-        module => emqx_agent_skill_test_invoke,
-        display_name => <<"Test Invoke">>,
-        description => <<"Test skill for invocation worker">>
+    ok = emqx_agent_plugin_config_fixture:setup(),
+    ok = emqx_agent_config:create_skill(#{
+        <<"type">> => ?SKILL_TYPE,
+        <<"id">> => ?SKILL_ID,
+        <<"desc">> => <<"Test skill for invocation worker">>,
+        <<"topic_prefix">> => <<"test/">>
     }),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_registry:delete_runtime_for_test(?SKILL_TYPE, ?SKILL_ID).
+    ok = emqx_agent_plugin_config_fixture:teardown().
 
 %% A basic invoke replies with status=ok and echoes the args.
 t_successful_invoke(_Config) ->
@@ -44,7 +44,7 @@ t_successful_invoke(_Config) ->
     ReplyTopic = reply_topic(ReqId),
     ok = emqx:subscribe(ReplyTopic),
 
-    invoke(#{<<"topic">> => <<"hello">>}, ReqId, #{<<"timeout_ms">> => 5_000}),
+    direct_invoke(#{<<"topic">> => <<"hello">>}, ReqId, 5_000),
 
     Reply = decode_reply(await_deliver(ReplyTopic)),
     Response = emqx_agent_skill_helpers:cap_response(Reply),
@@ -60,10 +60,10 @@ t_timeout(_Config) ->
     ReplyTopic = reply_topic(ReqId),
     ok = emqx:subscribe(ReplyTopic),
 
-    invoke(
+    direct_invoke(
         #{<<"action">> => <<"sleep">>, <<"duration">> => 5_000},
         ReqId,
-        #{<<"timeout_ms">> => 100}
+        100
     ),
 
     Reply = decode_reply(await_deliver(ReplyTopic)),
@@ -80,7 +80,7 @@ t_crash(_Config) ->
     ReplyTopic = reply_topic(ReqId),
     ok = emqx:subscribe(ReplyTopic),
 
-    invoke(#{<<"action">> => <<"crash">>}, ReqId, #{<<"timeout_ms">> => 5_000}),
+    direct_invoke(#{<<"action">> => <<"crash">>}, ReqId, 5_000),
 
     Reply = decode_reply(await_deliver(ReplyTopic)),
     Response = emqx_agent_skill_helpers:cap_response(Reply),
@@ -93,7 +93,7 @@ t_crash(_Config) ->
 %% Dispatching to an unregistered skill publishes an error reply.
 t_skill_not_found(_Config) ->
     ReqId = <<"req-not-found-1">>,
-    ok = emqx_agent_skill_registry:delete_runtime_for_test(?SKILL_TYPE, ?SKILL_ID),
+    ok = emqx_agent_config:delete_skill(?SKILL_TYPE, ?SKILL_ID),
     ReplyTopic = reply_topic(ReqId),
     ok = emqx:subscribe(ReplyTopic),
 
@@ -167,6 +167,19 @@ reply_topic(Type, SkillId, ReqId) ->
 
 invoke(Args, ReqId) ->
     invoke(Args, ReqId, #{}).
+
+direct_invoke(Args, ReqId, Timeout) ->
+    Request = #{
+        <<"req_id">> => ReqId,
+        <<"trace_id">> => null,
+        <<"iid">> => null,
+        <<"sid">> => null,
+        <<"args">> => Args
+    },
+    {ok, _Pid} = emqx_agent_skill_invocation_sup:start_invocation(
+        ?SKILL_TYPE, ?SKILL_ID, emqx_agent_skill_test_invoke, #{}, Request, Timeout
+    ),
+    ok.
 
 invoke(Args, ReqId, Extra) ->
     invoke_with_skill(?SKILL_TYPE, ?SKILL_ID, Args, ReqId, Extra).

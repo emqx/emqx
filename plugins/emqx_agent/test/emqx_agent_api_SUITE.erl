@@ -48,13 +48,9 @@ end_per_suite(Config) ->
 init_per_testcase(TestCase, Config) ->
     Id = atom_to_binary(TestCase, utf8),
     ok = emqx_agent_plugin_config_fixture:setup(),
-    ok = clear_connections(),
     [{tc_id, Id} | Config].
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
-    ok = emqx_agent_pipeline_registry:delete_all(),
-    ok = clear_connections(),
     ok = emqx_agent_plugin_config_fixture:teardown().
 
 %%--------------------------------------------------------------------
@@ -327,6 +323,7 @@ t_pipelines_crud(Config) ->
 
     Def = #{
         <<"pipeline_id">> => Id,
+        <<"active">> => false,
         <<"trigger">> => #{<<"topic">> => <<"evt/test/", Id/binary>>},
         <<"steps">> => [
             #{
@@ -354,14 +351,15 @@ t_pipelines_crud(Config) ->
             [
                 #{
                     <<"id">> => <<"step2">>,
-                    <<"type">> => <<"wait_for_event">>,
-                    <<"topic">> => <<"evt/test/done">>
+                    <<"type">> => <<"break">>,
+                    <<"path">> => <<"$.event.data.skip">>
                 },
                 #{
                     <<"id">> => <<"step3">>,
-                    <<"type">> => <<"break">>,
-                    <<"path">> => <<"$.event.data.stop">>,
-                    <<"not">> => true
+                    <<"type">> => <<"call_skill">>,
+                    <<"skill">> => <<"message__publish@", Id/binary>>,
+                    <<"args">> => #{<<"topic">> => <<"out2">>, <<"payload">> => <<"bye">>},
+                    <<"result_path">> => <<"$.result2">>
                 }
             ]
     },
@@ -400,15 +398,6 @@ api_put(Path, Body) ->
 
 api_delete(Path) ->
     decode(emqx_agent_app:on_handle_api_call(delete, plugin_path(Path), #{}, #{})).
-
-clear_connections() ->
-    lists:foreach(
-        fun(#{<<"id">> := Id}) ->
-            _ = emqx_agent_service:connection_delete(Id)
-        end,
-        emqx_agent_service:connection_list()
-    ),
-    ok.
 
 pg_conn_body(Id) ->
     #{

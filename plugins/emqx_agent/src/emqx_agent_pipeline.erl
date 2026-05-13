@@ -18,13 +18,11 @@
 %%   running        — executing a deterministic step
 %%   llm_loop       — active LLM session; proxying tool_request ↔ cap/
 %%   waiting_cap    — cap/ request sent for a call_skill step; awaiting cap_reply
-%%   waiting_event  — paused at a wait_for_event step
 %%   done           — all steps done (or failed); idle timer running
 %%
 %% Incoming OTP messages (all sent as gen_statem casts by emqx_agent_pipeline_mgr)
 %%   #sess_frame{sid, frame}   — from sess/out/<sid>/
 %%   #cap_reply{req_id, frame} — from cap/<type>/<id>/response/<req_id>
-%%   #pipe_evt{topic, event}   — from evt/... (for wait_for_event steps)
 %%
 %% Context and JSONPath
 %%   The pipeline maintains a `context` map.  Reading uses dotted paths
@@ -51,7 +49,7 @@
 -include("emqx_agent_pipeline.hrl").
 
 %% Public API
--export([start_link/2, whereis/1]).
+-export([start_link/2, whereis/1, match_triggers/1]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4, terminate/3]).
@@ -60,6 +58,14 @@
 -define(REG(Iid), {global, ?NAME(Iid)}).
 %% 5-minute idle window before the process self-destructs after completion.
 -define(IDLE_TIMEOUT_MS, 300_000).
+
+-spec match_triggers(binary()) -> [map()].
+match_triggers(Topic) ->
+    [
+        Pipeline
+     || Pipeline <- emqx_agent_config:parsed_config([pipelines], []),
+        trigger_matches(Topic, Pipeline)
+    ].
 
 -record(data, {
     pipeline_id :: binary(),
@@ -80,10 +86,6 @@
     %% waiting_cap (call_skill step)
     cap_req_id :: binary() | undefined,
     cap_result_path :: binary() | undefined,
-    %% waiting_event step
-    wait_topic :: binary() | undefined,
-    wait_where :: binary() | undefined,
-    wait_result_path :: binary() | undefined,
     %% idle timer reference (done state)
     idle_timer_ref :: reference() | undefined
 }).
@@ -126,18 +128,12 @@ init({Iid, Def, TriggerEvent}) ->
         pending_calls = #{},
         cap_req_id = undefined,
         cap_result_path = undefined,
-        wait_topic = undefined,
-        wait_where = undefined,
-        wait_result_path = undefined,
         idle_timer_ref = undefined
     },
     ?SLOG(info, #{msg => "pipeline_started", pipeline_id => PipelineId, iid => Iid}),
     publish_pipeline_event(Data, #{<<"type">> => <<"pipeline_started">>}),
     {ok, running, Data, [{next_event, internal, step}]}.
 
-terminate(Reason, waiting_event, #data{iid = Iid} = Data) ->
-    emqx_agent_pipeline_mgr:unregister_waiting(Iid),
-    do_log_terminate(Reason, Data);
 terminate(Reason, _State, Data) ->
     do_log_terminate(Reason, Data).
 
@@ -149,6 +145,12 @@ do_log_terminate(Reason, #data{pipeline_id = PipelineId, iid = Iid}) ->
         reason => Reason
     }),
     ok.
+
+trigger_matches(Topic, Pipeline) ->
+    case maps:get(<<"topic">>, maps:get(<<"trigger">>, Pipeline, #{}), undefined) of
+        undefined -> false;
+        Filter -> emqx_topic:match(Topic, Filter)
+    end.
 
 %%--------------------------------------------------------------------
 %% handle_event/4
@@ -250,11 +252,6 @@ handle_event(
         step => maps:get(<<"id">>, current_step(Data), <<"?">>)
     }),
     advance_and_step(Data2);
-%% ── waiting_event: an external event arrived ─────────────────────────────────
-
-handle_event(cast, #pipe_evt{topic = Topic, event = Event}, waiting_event, Data) ->
-    log_received(evt, Data, #{topic => Topic, event => Event}),
-    handle_waited_event(Topic, Event, Data);
 %% ── done: idle timer fired ────────────────────────────────────────────────────
 
 handle_event(info, idle_timeout, done, Data) ->
@@ -286,8 +283,6 @@ do_execute_step(#{<<"type">> := <<"call_skill">>} = Step, Data) ->
     invoke_call_skill(Step, Data);
 do_execute_step(#{<<"type">> := <<"break">>} = Step, Data) ->
     maybe_break(Step, Data);
-do_execute_step(#{<<"type">> := <<"wait_for_event">>} = Step, Data) ->
-    enter_wait_event(Step, Data);
 do_execute_step(Step, Data) ->
     ?SLOG(warning, #{
         msg => "pipeline_unknown_step_type",
@@ -411,25 +406,6 @@ maybe_break(Step, Data) ->
         false -> advance_and_step(Data)
     end.
 
-%% -- wait_for_event step ----------------------------------------------------
-
-enter_wait_event(Step, Data) ->
-    Topic = maps:get(<<"topic">>, Step),
-    Where = maps:get(<<"where">>, Step, undefined),
-    ResultPath = maps:get(<<"result_path">>, Step, undefined),
-    emqx_agent_pipeline_mgr:register_waiting(Data#data.iid, Topic),
-    Data1 = Data#data{
-        wait_topic = Topic,
-        wait_where = Where,
-        wait_result_path = ResultPath
-    },
-    ?SLOG(info, #{
-        msg => "pipeline_waiting_for_event",
-        iid => Data#data.iid,
-        topic => Topic
-    }),
-    {next_state, waiting_event, Data1}.
-
 %%--------------------------------------------------------------------
 %% Tool request proxying (llm_loop ↔ skills)
 %%--------------------------------------------------------------------
@@ -479,36 +455,6 @@ route_cap_reply_to_session(ReqId, Frame, Data) ->
             send_tool_result(Data#data.active_sid, CallId, Result),
             Pending1 = maps:remove(ReqId, Data#data.pending_calls),
             {keep_state, Data#data{pending_calls = Pending1}}
-    end.
-
-%%--------------------------------------------------------------------
-%% Wait-for-event matching
-%%--------------------------------------------------------------------
-
-handle_waited_event(Topic, Event, Data) ->
-    WaitTopic = Data#data.wait_topic,
-    case emqx_topic:match(Topic, WaitTopic) of
-        false ->
-            {keep_state, Data};
-        true ->
-            case eval_where(Data#data.wait_where, Event, Data#data.context) of
-                false ->
-                    {keep_state, Data};
-                true ->
-                    emqx_agent_pipeline_mgr:unregister_waiting(Data#data.iid),
-                    Data1 = write_context(Data#data.wait_result_path, Event, Data),
-                    Data2 = Data1#data{
-                        wait_topic = undefined,
-                        wait_where = undefined,
-                        wait_result_path = undefined
-                    },
-                    ?SLOG(info, #{
-                        msg => "pipeline_waited_event_received",
-                        iid => Data#data.iid,
-                        topic => Topic
-                    }),
-                    advance_and_step(Data2)
-            end
     end.
 
 %%--------------------------------------------------------------------
@@ -602,22 +548,6 @@ deep_get([Key | Rest], Map) when is_map(Map) ->
     end;
 deep_get(_, _) ->
     null.
-
-%% Evaluate a simple "lhs == rhs" where clause.
-%% LHS:  dotted path into the event  (e.g. "data.incident_id")
-%% RHS:  context path starting with $ (e.g. "$.triage.result.incident_id")
-%%        or a literal string.
-eval_where(undefined, _Event, _Context) ->
-    true;
-eval_where(Where, Event, Context) ->
-    case binary:split(Where, <<" == ">>) of
-        [LhsStr, RhsStr] ->
-            Lhs = deep_get(binary:split(string:trim(LhsStr), <<".">>, [global]), Event),
-            Rhs = resolve_context_path(string:trim(RhsStr), Context),
-            Lhs =:= Rhs;
-        _ ->
-            true
-    end.
 
 %%--------------------------------------------------------------------
 %% Tool manifest building

@@ -139,36 +139,32 @@ connection_statuses() ->
 
 -spec pipeline_list() -> [map()].
 pipeline_list() ->
-    emqx_agent_pipeline_registry:list().
+    emqx_agent_config:list_pipelines().
 
 -spec pipeline_create(map()) -> ok | {error, {missing_field, binary()} | term()}.
 pipeline_create(#{<<"pipeline_id">> := _} = Body) ->
-    emqx_agent_pipeline_registry:register(Body);
+    emqx_agent_config:create_pipeline(Body);
 pipeline_create(_) ->
     {error, {missing_field, <<"pipeline_id">>}}.
 
 -spec pipeline_get(binary()) -> {ok, map()} | {error, not_found}.
 pipeline_get(Id) ->
-    emqx_agent_pipeline_registry:lookup(Id).
+    emqx_agent_config:lookup_pipeline(Id).
 
 -spec pipeline_update(binary(), map()) -> {ok, map()} | {error, term()}.
 pipeline_update(Id, Body) ->
-    Body2 = Body#{<<"pipeline_id">> => Id},
-    case emqx_agent_pipeline_registry:register(Body2) of
-        ok -> emqx_agent_pipeline_registry:lookup(Id);
-        {error, _} = Err -> Err
-    end.
+    emqx_agent_config:update_pipeline(Id, Body).
 
 -spec pipeline_delete(binary()) ->
     ok | {error, not_found | pipeline_is_active}.
 pipeline_delete(Id) ->
-    case emqx_agent_pipeline_registry:lookup(Id) of
+    case emqx_agent_config:lookup_pipeline(Id) of
         {error, not_found} ->
             {error, not_found};
         {ok, #{<<"active">> := true}} ->
             {error, pipeline_is_active};
         {ok, _} ->
-            emqx_agent_pipeline_registry:unregister(Id)
+            emqx_agent_config:delete_pipeline(Id)
     end.
 
 %%--------------------------------------------------------------------
@@ -178,7 +174,7 @@ pipeline_delete(Id) ->
 pipelines_using_skill(Ref) ->
     [
         maps:get(<<"pipeline_id">>, P)
-     || P <- emqx_agent_pipeline_registry:list(),
+     || P <- emqx_agent_config:list_pipelines(),
         skill_ref_in_pipeline(Ref, P)
     ].
 

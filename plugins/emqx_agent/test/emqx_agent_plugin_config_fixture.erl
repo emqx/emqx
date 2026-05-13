@@ -21,13 +21,14 @@ setup() ->
     ok = meck:new(emqx_mgmt_api_plugins, [passthrough, no_history]),
     ok = meck:expect(emqx_plugins, get_config, fun ?MODULE:get_config/2),
     ok = meck:expect(emqx_mgmt_api_plugins, put_plugin_config, fun ?MODULE:put_plugin_config/2),
+    ok = put_plugin_config(name_vsn(), #{}),
     ok = emqx_agent_config:init_config(),
     ok.
 
 teardown() ->
+    _ = put_plugin_config(name_vsn(), #{}),
     reset(),
     _ = emqx_agent_config:init_config(),
-    _ = emqx_agent_skill_registry:clear_runtime_for_test(),
     _ = catch meck:unload(emqx_mgmt_api_plugins),
     _ = catch meck:unload(emqx_plugins),
     ok.
@@ -45,11 +46,11 @@ get_config(NameVsn, Default) ->
 put_plugin_config(NameVsn, Config) ->
     case NameVsn =:= name_vsn() of
         true ->
-            case validate_config(Config) of
-                ok ->
+            case decode_config(Config) of
+                {ok, Decoded} ->
                     OldConfig = get_config(NameVsn, #{}),
-                    persistent_term:put(?CONFIG_KEY, Config),
-                    _ = emqx_agent_app:on_config_changed(OldConfig, Config),
+                    persistent_term:put(?CONFIG_KEY, Decoded),
+                    _ = emqx_agent_app:on_config_changed(OldConfig, Decoded),
                     ok;
                 {error, _} = Error ->
                     Error
@@ -62,7 +63,7 @@ name_vsn() ->
     {ok, Vsn} = application:get_key(emqx_agent, vsn),
     iolist_to_binary([<<"emqx_agent-">>, Vsn]).
 
-validate_config(Config) ->
+decode_config(Config) ->
     try
         PrivDir = code:priv_dir(emqx_agent),
         {ok, AvscBin} = file:read_file(filename:join(PrivDir, "config_schema.avsc")),
@@ -73,8 +74,10 @@ validate_config(Config) ->
             {record_type, map},
             {encoding, avro_json}
         ]),
-        _ = avro_json_decoder:decode_value(emqx_utils_json:encode(Config), name_vsn(), Store, Opts),
-        ok
+        Decoded = avro_json_decoder:decode_value(
+            emqx_utils_json:encode(Config), name_vsn(), Store, Opts
+        ),
+        {ok, Decoded}
     catch
         Class:Reason ->
             {error, {Class, Reason}}

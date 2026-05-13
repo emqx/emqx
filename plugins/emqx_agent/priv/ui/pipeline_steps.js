@@ -6,7 +6,6 @@ export function defaultStep(type) {
   const n = pipelineSteps.length + 1;
   if (type === 'call_skill')     return { id: 'step_' + n, type, skill: '', args: [['', '']], result_path: '' };
   if (type === 'llm_loop')       return { id: 'step_' + n, type, provider_name: '', model: 'gpt-5.4-mini', max_tokens: 2048, stop_on_finish: true, tools: [], input: [['event', '$.event']], set_result_schema: { type: 'object', properties: { status: { type: 'string' } }, required: ['status'], additionalProperties: false }, result_path: '' };
-  if (type === 'wait_for_event') return { id: 'step_' + n, type, topic: '', where: '', result_path: '' };
   if (type === 'break')          return { id: 'step_' + n, type, path: '', not: false };
   return { id: 'step_' + n, type };
 }
@@ -65,7 +64,7 @@ export function renderStepBody(idx) {
 
 function stepCardHTML(step, idx) {
   const last = pipelineSteps.length - 1;
-  const types = ['call_skill','llm_loop','wait_for_event','break'];
+  const types = ['call_skill','llm_loop','break'];
   const typeOpts = types.map(t =>
     `<option value="${t}"${t===step.type?' selected':''}>${t}</option>`
   ).join('');
@@ -167,19 +166,6 @@ function stepFieldsHTML(step, idx) {
       </div>`;
   }
 
-  if (step.type === 'wait_for_event') {
-    return idF + `
-      <div class="field"><label>Topic</label>
-        <input type="text" class="sf-topic" value="${esc(step.topic||'')}" placeholder="evt/cloud/incident.updated">
-      </div>
-      <div class="field"><label>Condition <small style="color:var(--muted)">optional, e.g. data.id == $.triage.id</small></label>
-        <input type="text" class="sf-where" value="${esc(step.where||'')}" placeholder="">
-      </div>
-      <div class="field"><label>Result path</label>
-        <input type="text" class="sf-result" value="${esc(step.result_path||'')}" placeholder="$.event2">
-      </div>`;
-  }
-
   if (step.type === 'break') {
     return idF + `
       <div class="field"><label>Path <small style="color:var(--muted)">JSON path in context</small></label>
@@ -219,10 +205,6 @@ export function syncStep(idx) {
       r.querySelector('.kv-key').value.trim(),
       r.querySelector('.kv-val').value.trim()
     ]);
-  } else if (step.type === 'wait_for_event') {
-    step.topic       = card.querySelector('.sf-topic')?.value?.trim() ?? '';
-    step.where       = card.querySelector('.sf-where')?.value?.trim() ?? '';
-    step.result_path = card.querySelector('.sf-result')?.value?.trim() ?? '';
   } else if (step.type === 'break') {
     step.path = card.querySelector('.sf-path')?.value?.trim() ?? '';
     step.not = card.querySelector('.sf-not')?.checked === true;
@@ -254,10 +236,6 @@ export function collectSteps() {
       if (s.set_result_schema && typeof s.set_result_schema === 'object') {
         out.set_result_schema = s.set_result_schema;
       }
-      if (s.result_path) out.result_path = s.result_path;
-    } else if (s.type === 'wait_for_event') {
-      if (s.topic)       out.topic = s.topic;
-      if (s.where)       out.where = s.where;
       if (s.result_path) out.result_path = s.result_path;
     } else if (s.type === 'break') {
       if (s.path) out.path = s.path;

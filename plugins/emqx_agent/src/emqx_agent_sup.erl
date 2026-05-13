@@ -37,22 +37,6 @@ init([]) ->
             modules => [emqx_agent_sess_sup]
         },
         #{
-            id => emqx_agent_pipeline_registry,
-            start => {emqx_agent_pipeline_registry, start_link, []},
-            restart => permanent,
-            shutdown => 5000,
-            type => worker,
-            modules => [emqx_agent_pipeline_registry]
-        },
-        #{
-            id => emqx_agent_pipeline_mgr,
-            start => {emqx_agent_pipeline_mgr, start_link, []},
-            restart => permanent,
-            shutdown => 5000,
-            type => worker,
-            modules => [emqx_agent_pipeline_mgr]
-        },
-        #{
             id => emqx_agent_pipeline_sup,
             start => {emqx_agent_pipeline_sup, start_link, []},
             restart => permanent,

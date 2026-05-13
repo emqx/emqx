@@ -129,7 +129,7 @@ t_generated_create_pipeline_schema_has_typed_steps(_Config) ->
      || Branch <- maps:get(<<"anyOf">>, StepSchema)
     ]),
     ?assertEqual(
-        [<<"break">>, <<"call_skill">>, <<"llm_loop">>, <<"wait_for_event">>],
+        [<<"break">>, <<"call_skill">>, <<"llm_loop">>],
         StepTypes
     ).
 

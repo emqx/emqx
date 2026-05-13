@@ -8,47 +8,27 @@
 %%   1. Hook on message.publish to intercept three topic families:
 %%        sess/out/<sid>/     — frames from an LLM session
 %%        cap/<type>/<id>/response/<req_id>  — skill replies
-%%        evt/...             — trigger events and wait_for_event candidates
+%%        evt/...             — trigger events
 %%
 %%   2. Route intercepted messages to the correct pipeline instance by
 %%      reading the `iid` correlation field from the payload.
 %%
-%%   3. For evt/... messages additionally check the `emqx_agent_pipeline_waiting`
-%%      ETS table and forward to any pipeline instance that registered interest
-%%      in that topic via register_waiting/2.
-%%
-%%   4. Start new pipeline instances when an evt/... topic matches a registered
+%%   3. Start new pipeline instances when an evt/... topic matches a registered
 %%      pipeline definition's trigger.
-%%
-%% Waiting-instance table
-%%   Key: Iid (binary)
-%%   Value: WaitTopic (binary MQTT filter)
-%%   Written by pipeline processes via register_waiting/unregister_waiting.
-%%   The table is public so pipeline processes can write directly without
-%%   going through a gen_server call.
 
 -module(emqx_agent_pipeline_mgr).
-
--behaviour(gen_server).
 
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_agent_pipeline.hrl").
 
--export([start_link/0, init_hook/0, deinit_hook/0]).
--export([register_waiting/2, unregister_waiting/1]).
+-export([init_hook/0, deinit_hook/0]).
 -export([on_message_publish/1]).
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
-
--define(WAITING_TAB, emqx_agent_pipeline_waiting).
 
 %%--------------------------------------------------------------------
 %% Public API
 %%--------------------------------------------------------------------
-
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 -spec init_hook() -> ok.
 init_hook() ->
@@ -58,20 +38,6 @@ init_hook() ->
 -spec deinit_hook() -> ok.
 deinit_hook() ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
-    ok.
-
-%% Called by pipeline processes when entering the waiting_event state.
--spec register_waiting(binary(), binary()) -> ok.
-register_waiting(Iid, Topic) ->
-    true = ets:insert(?WAITING_TAB, {Iid, Topic}),
-    ok.
-
-%% Called by pipeline processes when leaving the waiting_event state
-%% (either because the awaited event arrived or because the process is
-%% terminating).
--spec unregister_waiting(binary()) -> ok.
-unregister_waiting(Iid) ->
-    true = ets:delete(?WAITING_TAB, Iid),
     ok.
 
 %%--------------------------------------------------------------------
@@ -130,7 +96,7 @@ handle_evt(Topic, Payload) ->
     Event = safe_decode(Payload),
     log_received(evt, #{topic => Topic, event => Event}),
     %% Start new instances for every active pipeline whose trigger matches.
-    Defs = emqx_agent_pipeline_registry:match_trigger(Topic),
+    Defs = emqx_agent_pipeline:match_triggers(Topic),
     ActiveDefs = [D || D <- Defs, maps:get(<<"active">>, D, false)],
     case Defs of
         [] ->
@@ -143,21 +109,7 @@ handle_evt(Topic, Payload) ->
             ok
     end,
     % ct:print("ActiveDefs: ~p", [ActiveDefs]),
-    lists:foreach(fun(Def) -> start_instance(Def, Event) end, ActiveDefs),
-    %% Forward to any instance that registered interest in this topic.
-    forward_to_waiting(Topic, Event).
-
-forward_to_waiting(Topic, Event) ->
-    ets:foldl(
-        fun({Iid, WaitTopic}, _Acc) ->
-            case emqx_topic:match(Topic, WaitTopic) of
-                true -> route_to_pipeline(Iid, #pipe_evt{topic = Topic, event = Event});
-                false -> ok
-            end
-        end,
-        ok,
-        ?WAITING_TAB
-    ).
+    lists:foreach(fun(Def) -> start_instance(Def, Event) end, ActiveDefs).
 
 start_instance(Def, Event) ->
     case emqx_agent_pipeline_sup:start_pipeline(Def, Event) of
@@ -190,23 +142,3 @@ safe_decode(Payload) ->
 
 log_received(Kind, Data) ->
     ?SLOG(warning, #{msg => "pipeline_mgr_received", kind => Kind, data => Data}).
-
-%%--------------------------------------------------------------------
-%% gen_server callbacks
-%%--------------------------------------------------------------------
-
-init([]) ->
-    _ = ets:new(?WAITING_TAB, [named_table, set, public, {write_concurrency, true}]),
-    {ok, #{}}.
-
-handle_call(_Request, _From, State) ->
-    {reply, {error, unknown_request}, State}.
-
-handle_cast(_Msg, State) ->
-    {noreply, State}.
-
-handle_info(_Info, State) ->
-    {noreply, State}.
-
-terminate(_Reason, _State) ->
-    ok.

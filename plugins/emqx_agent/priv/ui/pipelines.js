@@ -41,7 +41,6 @@ export async function loadPipelines() {
 function stepClass(t) {
   if (t === 'llm_loop')      return 'llm';
   if (t === 'call_skill')    return 'publish';
-  if (t === 'wait_for_event') return 'kv';
   if (t === 'break')         return 'kv';
   return '';
 }
@@ -128,9 +127,6 @@ function deserializeStep(s, i) {
     const input = s.input ? Object.entries(s.input) : [['event', '$.event']];
     const setResultSchema = s.set_result_schema || null;
     return { id, type, provider_name: s.provider_name ?? '', model: s.model ?? '', stop_on_finish: s.stop_on_finish ?? true, tools: s.tools ?? [], input, instructions: s.instructions ?? '', set_result_schema: setResultSchema, result_path: s.result_path ?? '' };
-  }
-  if (type === 'wait_for_event') {
-    return { id, type, topic: s.topic ?? '', where: s.where ?? '', result_path: s.result_path ?? '' };
   }
   if (type === 'break') {
     return { id, type, path: s.path ?? '', not: s.not === true };

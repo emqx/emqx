@@ -48,8 +48,6 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
-    ok = emqx_agent_pipeline_registry:delete_all(),
     ok = emqx_agent_plugin_config_fixture:teardown().
 
 %%--------------------------------------------------------------------

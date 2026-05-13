@@ -26,11 +26,12 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
+    ok = emqx_agent_plugin_config_fixture:setup(),
     ok = register_skill(test_context()),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_registry:clear_runtime_for_test().
+    ok = emqx_agent_plugin_config_fixture:teardown().
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -48,7 +49,7 @@ t_destroy_accepts_runtime_skill(_Config) ->
     ?assertEqual(ok, emqx_agent_skill_publish:destroy(Skill)).
 
 t_custom_payload_schema_is_stored(_Config) ->
-    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
+    ok = emqx_agent_config:delete_skill(<<"message__publish">>, ?SKILL_ID),
     CustomPayloadSchema = #{
         <<"type">> => <<"object">>,
         <<"properties">> => #{
@@ -61,7 +62,7 @@ t_custom_payload_schema_is_stored(_Config) ->
         },
         <<"required">> => [<<"command">>]
     },
-    ok = register_skill(maps:put(payload_schema, CustomPayloadSchema, test_context())),
+    ok = register_skill(maps:put(<<"payload_schema">>, CustomPayloadSchema, test_context())),
     {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message__publish">>, ?SKILL_ID),
     #{context := Context, input_schema := InputSchema} = Skill,
     ?assertMatch(#{payload_schema := CustomPayloadSchema}, Context),
@@ -205,14 +206,21 @@ t_unknown_skill_id_ignored(_Config) ->
 
 test_context() ->
     #{
-        skill_id => ?SKILL_ID,
-        desc => <<"Test publish skill">>,
-        topic_prefix => ?TOPIC_PREFIX
+        <<"type">> => <<"message__publish">>,
+        <<"id">> => ?SKILL_ID,
+        <<"desc">> => <<"Test publish skill">>,
+        <<"topic_prefix">> => ?TOPIC_PREFIX
     }.
 
 register_skill(Context) ->
-    {ok, Skill} = emqx_agent_skill_publish:create(Context),
-    emqx_agent_skill_registry:put_runtime_for_test(Skill).
+    Body = maybe_encode_schema(<<"payload_schema">>, Context),
+    emqx_agent_config:create_skill(Body).
+
+maybe_encode_schema(Field, Body) ->
+    case maps:get(Field, Body, undefined) of
+        Schema when is_map(Schema) -> Body#{Field => emqx_utils_json:encode(Schema)};
+        _ -> Body
+    end.
 
 invoke(SkillId, Args, ReqId) ->
     invoke(SkillId, Args, ReqId, #{}).

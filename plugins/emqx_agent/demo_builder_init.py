@@ -299,16 +299,6 @@ Session IDs are stable: "<pipeline_id>-<step_id>".
 When you create an llm_loop step, use model "gpt-5.4-mini" unless the user
 explicitly requests another model. Do not invent a model name.
 
---- wait_for_event ---
-Pauses the pipeline until a message arrives on an MQTT topic filter.
-Optional "where" filter matches a field in the incoming payload against a
-context value: "data.<field> == $.<context_path>".
-
-  {"id": "wait_ack", "type": "wait_for_event",
-   "topic": "evt/device/+/ack",
-   "where": "data.ref_id == $.event.id",
-   "result_path": "$.ack"}
-
 --- break ---
 Stops the pipeline early when a condition on the context is met.
 

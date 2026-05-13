@@ -201,15 +201,6 @@ pipeline() ->
                 }
             },
             #{
-                <<"PipelineStepWaitForEvent">> => #{
-                    <<"id">> => <<"wait">>,
-                    <<"type">> => <<"wait_for_event">>,
-                    <<"topic">> => <<"evt/ack/+">>,
-                    <<"where">> => <<"data.id == $.event.id">>,
-                    <<"result_path">> => <<"$.ack">>
-                }
-            },
-            #{
                 <<"PipelineStepBreak">> => #{
                     <<"id">> => <<"break">>,
                     <<"type">> => <<"break">>,

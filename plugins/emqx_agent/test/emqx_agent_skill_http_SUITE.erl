@@ -26,6 +26,7 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
+    ok = emqx_agent_plugin_config_fixture:setup(),
     {ok, {Port, _Pid}} = emqx_utils_http_test_server:start_link(random, "/", false),
     BaseUrl = iolist_to_binary(io_lib:format("http://127.0.0.1:~p/", [Port])),
     ok = emqx_agent_skill_http:init(),
@@ -33,8 +34,8 @@ init_per_testcase(_TestCase, Config) ->
     [{base_url, BaseUrl} | Config].
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
     ok = emqx_agent_skill_http:deinit(),
+    ok = emqx_agent_plugin_config_fixture:teardown(),
     ok = emqx_utils_http_test_server:stop().
 
 %%--------------------------------------------------------------------
@@ -83,8 +84,8 @@ t_get_invoke_publishes_reply(Config) ->
     end).
 
 t_post_invoke_sends_json_body(Config) ->
-    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
-    ok = register_skill(test_context(Config, #{method => post})),
+    ok = emqx_agent_config:delete_skill(?SKILL_TYPE, ?SKILL_ID),
+    ok = register_skill(test_context(Config, #{<<"method">> => <<"post">>})),
     emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
         {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
         #{<<"city">> := City} = emqx_utils_json:decode(RawBody),
@@ -120,7 +121,7 @@ t_non_json_response_wrapped_in_raw(Config) ->
     end).
 
 t_unregistered_skill_is_silently_ignored(_Config) ->
-    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
+    ok = emqx_agent_config:delete_skill(?SKILL_TYPE, ?SKILL_ID),
     Msg = emqx_message:make(?SKILL_ID, 0, invoke_topic(<<"dummy-req">>), <<"ignored">>),
     ?assertMatch(#message{}, emqx_hooks:run_fold('message.publish', [], Msg)),
     ok = register_skill(test_context(_Config)).
@@ -171,12 +172,13 @@ test_context(Config, Overrides) ->
     BaseUrl = ?config(base_url, Config),
     maps:merge(
         #{
-            skill_id => ?SKILL_ID,
-            desc => <<"Fetch current weather for a city.">>,
-            method => get,
-            url => BaseUrl,
-            headers => #{<<"x-api-key">> => <<"test-key-123">>},
-            input_schema => #{
+            <<"type">> => ?SKILL_TYPE,
+            <<"id">> => ?SKILL_ID,
+            <<"desc">> => <<"Fetch current weather for a city.">>,
+            <<"method">> => <<"get">>,
+            <<"url">> => BaseUrl,
+            <<"headers">> => [#{<<"name">> => <<"x-api-key">>, <<"value">> => <<"test-key-123">>}],
+            <<"input_schema">> => #{
                 <<"type">> => <<"object">>,
                 <<"properties">> => #{
                     <<"city">> => #{<<"type">> => <<"string">>},
@@ -192,8 +194,14 @@ test_context(Config, Overrides) ->
     ).
 
 register_skill(Context) ->
-    {ok, Skill} = emqx_agent_skill_http:create(Context),
-    emqx_agent_skill_registry:put_runtime_for_test(Skill).
+    Body = maybe_encode_schema(<<"input_schema">>, Context),
+    emqx_agent_config:create_skill(Body).
+
+maybe_encode_schema(Field, Body) ->
+    case maps:get(Field, Body, undefined) of
+        Schema when is_map(Schema) -> Body#{Field => emqx_utils_json:encode(Schema)};
+        _ -> Body
+    end.
 
 reply_json(Status, Data, Req0, State) ->
     Req = cowboy_req:reply(

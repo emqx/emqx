@@ -13,7 +13,6 @@ export function typeClass(t) {
 export function stepClass(t) {
   if (t === 'llm_loop')      return 'llm';
   if (t === 'call_skill')    return 'publish';
-  if (t === 'wait_for_event') return 'kv';
   if (t === 'break')         return 'kv';
   return '';
 }

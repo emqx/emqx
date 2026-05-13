@@ -12,7 +12,6 @@
 %%   - Use emqx:subscribe to observe pipe/.../events and cap/... topics.
 %%   - For call_skill tests the emqx_agent_skill_publish skill is used
 %%     (it executes immediately and replies with cap/<type>/<id>/response/<req_id>).
-%%   - wait_for_event tests publish the awaited event explicitly.
 
 -module(emqx_agent_pipeline_SUITE).
 
@@ -51,16 +50,14 @@ end_per_suite(Config) ->
 
 init_per_testcase(TestCase, Config) ->
     PipelineId = atom_to_binary(TestCase, utf8),
+    ok = emqx_agent_plugin_config_fixture:setup(),
     emqx:subscribe(?PIPE_EVENTS_FILTER),
     [{pipeline_id, PipelineId} | Config].
 
-end_per_testcase(TestCase, Config) ->
-    PipelineId = ?config(pipeline_id, Config),
-    emqx_agent_pipeline_registry:unregister(PipelineId),
+end_per_testcase(_TestCase, _Config) ->
     emqx:unsubscribe(?PIPE_EVENTS_FILTER),
-    %% Also clean up any skill instances registered during the test.
-    _ = emqx_agent_skill_registry:clear_runtime_for_test(),
     _ = emqx_ai_completion_config:update_providers_raw({delete, <<"test-provider">>}),
+    ok = emqx_agent_plugin_config_fixture:teardown(),
     ok.
 
 %%--------------------------------------------------------------------
@@ -82,7 +79,6 @@ t_call_skill_completes(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     SkillId = PipelineId,
     TrigTopic = <<"evt/test/", PipelineId/binary>>,
-    setup_publish_skill(SkillId),
     Step = #{
         <<"id">> => <<"notify">>,
         <<"type">> => <<"call_skill">>,
@@ -94,6 +90,7 @@ t_call_skill_completes(Config) ->
         <<"result_path">> => <<"$.notify_result">>
     },
     register_pipeline(PipelineId, TrigTopic, [Step]),
+    setup_publish_skill(SkillId),
     publish_evt(TrigTopic, #{<<"id">> => <<"e1">>}),
     %% pipeline_started
     Started = recv_pipe_event(PipelineId),
@@ -114,7 +111,6 @@ t_multi_step_pipeline(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     SkillId = PipelineId,
     TrigTopic = <<"evt/test/", PipelineId/binary>>,
-    setup_publish_skill(SkillId),
     Steps = [
         #{
             <<"id">> => <<"step1">>,
@@ -132,6 +128,7 @@ t_multi_step_pipeline(Config) ->
         }
     ],
     register_pipeline(PipelineId, TrigTopic, Steps),
+    setup_publish_skill(SkillId),
     publish_evt(TrigTopic, #{<<"id">> => <<"e2">>}),
     _Started = recv_pipe_event(PipelineId),
     Completed = recv_pipe_event(PipelineId),
@@ -140,88 +137,12 @@ t_multi_step_pipeline(Config) ->
     ?assertMatch(#{<<"status">> := <<"ok">>}, maps:get(<<"step1">>, Ctx, #{})),
     ?assertMatch(#{<<"status">> := <<"ok">>}, maps:get(<<"step2">>, Ctx, #{})).
 
-%% A pipeline with a wait_for_event step must pause execution until the
-%% waited event arrives on the expected topic.
-t_wait_for_event(Config) ->
-    PipelineId = ?config(pipeline_id, Config),
-    SkillId = PipelineId,
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
-    WaitTopic = <<"evt/test/waited/", PipelineId/binary>>,
-    setup_publish_skill(SkillId),
-    Steps = [
-        #{
-            <<"id">> => <<"step1">>,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message__publish@", SkillId/binary>>,
-            <<"args">> => #{<<"topic">> => <<"pre">>, <<"payload">> => <<"before">>},
-            <<"result_path">> => <<"$.pre">>
-        },
-        #{
-            <<"id">> => <<"wait">>,
-            <<"type">> => <<"wait_for_event">>,
-            <<"topic">> => WaitTopic,
-            <<"result_path">> => <<"$.waited_event">>
-        },
-        #{
-            <<"id">> => <<"step3">>,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message__publish@", SkillId/binary>>,
-            <<"args">> => #{<<"topic">> => <<"post">>, <<"payload">> => <<"after">>},
-            <<"result_path">> => <<"$.post">>
-        }
-    ],
-    register_pipeline(PipelineId, TrigTopic, Steps),
-    publish_evt(TrigTopic, #{<<"id">> => <<"e3">>}),
-    Started = recv_pipe_event(PipelineId),
-    ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started),
-    %% Pipeline should NOT complete yet — it is blocked at wait_for_event.
-    ?assertEqual(timeout, recv_pipe_event_or_timeout(PipelineId, 500)),
-    %% Now publish the waited event.
-    WaitedEvent = #{<<"id">> => <<"we-1">>, <<"data">> => #{<<"x">> => 42}},
-    publish_evt(WaitTopic, WaitedEvent),
-    %% Pipeline must now complete.
-    Completed = recv_pipe_event(PipelineId),
-    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>}, Completed),
-    Ctx = maps:get(<<"context">>, Completed),
-    ?assertMatch(#{<<"status">> := <<"ok">>}, maps:get(<<"pre">>, Ctx, #{})),
-    ?assertMatch(#{<<"status">> := <<"ok">>}, maps:get(<<"post">>, Ctx, #{})),
-    %% waited_event should be the event we published
-    WaitedCtx = maps:get(<<"waited_event">>, Ctx, #{}),
-    ?assertEqual(<<"we-1">>, maps:get(<<"id">>, WaitedCtx, undefined)).
-
-%% A wait_for_event step with a `where` filter must ignore events that do
-%% not satisfy the condition, and resume only when a matching one arrives.
-t_wait_for_event_with_where(Config) ->
-    PipelineId = ?config(pipeline_id, Config),
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
-    WaitTopic = <<"evt/test/update/", PipelineId/binary>>,
-    Steps = [
-        #{
-            <<"id">> => <<"wait">>,
-            <<"type">> => <<"wait_for_event">>,
-            <<"topic">> => WaitTopic,
-            <<"where">> => <<"data.ref_id == $.event.id">>,
-            <<"result_path">> => <<"$.update">>
-        }
-    ],
-    register_pipeline(PipelineId, TrigTopic, Steps),
-    publish_evt(TrigTopic, #{<<"id">> => <<"trigger-99">>}),
-    _Started = recv_pipe_event(PipelineId),
-    %% Wrong ref_id — must be ignored.
-    publish_evt(WaitTopic, #{<<"data">> => #{<<"ref_id">> => <<"wrong">>}}),
-    ?assertEqual(timeout, recv_pipe_event_or_timeout(PipelineId, 500)),
-    %% Correct ref_id — pipeline must resume and complete.
-    publish_evt(WaitTopic, #{<<"data">> => #{<<"ref_id">> => <<"trigger-99">>}}),
-    Completed = recv_pipe_event(PipelineId),
-    ?assertEqual(<<"pipeline_completed">>, maps:get(<<"type">>, Completed)).
-
 %% The triggering event must be accessible as $.event inside the pipeline
 %% context and reachable for arg resolution in subsequent steps.
 t_context_propagation(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     SkillId = PipelineId,
     TrigTopic = <<"evt/test/", PipelineId/binary>>,
-    setup_publish_skill(SkillId),
     Steps = [
         #{
             <<"id">> => <<"echo">>,
@@ -238,6 +159,7 @@ t_context_propagation(Config) ->
         }
     ],
     register_pipeline(PipelineId, TrigTopic, Steps),
+    setup_publish_skill(SkillId),
     publish_evt(TrigTopic, #{<<"id">> => <<"ctx-evt">>, <<"data">> => #{<<"v">> => 7}}),
     _Started = recv_pipe_event(PipelineId),
     Completed = recv_pipe_event(PipelineId),
@@ -254,7 +176,6 @@ t_break_stops_pipeline_when_true(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     SkillId = PipelineId,
     TrigTopic = <<"evt/test/", PipelineId/binary>>,
-    setup_publish_skill(SkillId),
     Steps = [
         #{
             <<"id">> => <<"break1">>,
@@ -270,6 +191,7 @@ t_break_stops_pipeline_when_true(Config) ->
         }
     ],
     register_pipeline(PipelineId, TrigTopic, Steps),
+    setup_publish_skill(SkillId),
     publish_evt(TrigTopic, #{<<"id">> => <<"e-break-1">>, <<"data">> => #{<<"stop">> => true}}),
     _Started = recv_pipe_event(PipelineId),
     Completed = recv_pipe_event(PipelineId),
@@ -282,7 +204,6 @@ t_break_with_not_stops_pipeline_when_not_true(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     SkillId = PipelineId,
     TrigTopic = <<"evt/test/", PipelineId/binary>>,
-    setup_publish_skill(SkillId),
     Steps = [
         #{
             <<"id">> => <<"break1">>,
@@ -299,6 +220,7 @@ t_break_with_not_stops_pipeline_when_not_true(Config) ->
         }
     ],
     register_pipeline(PipelineId, TrigTopic, Steps),
+    setup_publish_skill(SkillId),
     publish_evt(TrigTopic, #{
         <<"id">> => <<"e-break-2">>, <<"data">> => #{<<"keep_going">> => false}
     }),
@@ -336,7 +258,6 @@ t_done_restarts_on_message(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     SkillId = PipelineId,
     TrigTopic = <<"evt/test/", PipelineId/binary>>,
-    setup_publish_skill(SkillId),
     Steps = [
         #{
             <<"id">> => <<"s">>,
@@ -347,6 +268,7 @@ t_done_restarts_on_message(Config) ->
         }
     ],
     register_pipeline(PipelineId, TrigTopic, Steps),
+    setup_publish_skill(SkillId),
     publish_evt(TrigTopic, #{<<"id">> => <<"e6">>}),
     _S1 = recv_pipe_event(PipelineId),
     Completed1 = recv_pipe_event(PipelineId),
@@ -354,9 +276,7 @@ t_done_restarts_on_message(Config) ->
     Iid = maps:get(<<"iid">>, Completed1),
     Pid = emqx_agent_pipeline:whereis(Iid),
     %% Send a cast to trigger the "restart from done" path.
-    gen_statem:cast(Pid, #pipe_evt{
-        topic = <<"evt/test/something">>, event = #{<<"id">> => <<"restart">>}
-    }),
+    gen_statem:cast(Pid, #cap_reply{req_id = <<"restart">>, frame = #{}}),
     %% The pipeline should restart and produce another started + completed pair.
     Started2 = recv_pipe_event(PipelineId),
     ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started2),
@@ -370,7 +290,6 @@ t_context_flows_between_steps(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     SkillId = PipelineId,
     TrigTopic = <<"evt/test/", PipelineId/binary>>,
-    setup_publish_skill(SkillId),
     Steps = [
         %% Step 1 — publishes to "first" and stores the skill reply at $.lookup.
         %% The reply from message__publish is #{status => ok, topic => "test/first"}.
@@ -398,6 +317,7 @@ t_context_flows_between_steps(Config) ->
         }
     ],
     register_pipeline(PipelineId, TrigTopic, Steps),
+    setup_publish_skill(SkillId),
 
     %% Subscribe to the raw publish-skill output so we can inspect what payload
     %% step 2 actually sent.
@@ -566,7 +486,7 @@ t_llm_loop_defaults_are_applied(Config) ->
         <<"result_path">> => <<"$.result">>
     },
     register_pipeline(PipelineId, TrigTopic, [Step]),
-    {ok, #{<<"steps">> := [Stored]}} = emqx_agent_pipeline_registry:lookup(PipelineId),
+    {ok, #{<<"steps">> := [Stored]}} = emqx_agent_config:lookup_pipeline(PipelineId),
     ?assertMatch(#{<<"tools">> := []}, Stored),
     ?assertMatch(#{<<"input">> := #{}}, Stored),
     ?assertMatch(#{<<"stop_on_finish">> := true}, Stored),
@@ -584,8 +504,8 @@ t_llm_loop_requires_set_result_schema(Config) ->
         <<"result_path">> => <<"$.result">>
     },
     ?assertMatch(
-        {error, {missing_step_field, 1, <<"set_result_schema">>}},
-        emqx_agent_pipeline_registry:register(#{
+        {error, _},
+        emqx_agent_service:pipeline_create(#{
             <<"pipeline_id">> => PipelineId,
             <<"active">> => true,
             <<"trigger">> => #{<<"topic">> => TrigTopic},
@@ -608,8 +528,8 @@ t_llm_loop_requires_model(Config) ->
         <<"result_path">> => <<"$.result">>
     },
     ?assertMatch(
-        {error, {missing_step_field, 1, <<"model">>}},
-        emqx_agent_pipeline_registry:register(#{
+        {error, _},
+        emqx_agent_service:pipeline_create(#{
             <<"pipeline_id">> => PipelineId,
             <<"active">> => true,
             <<"trigger">> => #{<<"topic">> => TrigTopic},
@@ -623,7 +543,7 @@ t_unregistered_pipeline_not_triggered(Config) ->
     TrigTopic = <<"evt/test/", PipelineId/binary>>,
     %% Register then immediately unregister.
     register_pipeline(PipelineId, TrigTopic, []),
-    emqx_agent_pipeline_registry:unregister(PipelineId),
+    ok = emqx_agent_config:delete_pipeline(PipelineId),
     publish_evt(TrigTopic, #{<<"id">> => <<"e7">>}),
     ?assertEqual(timeout, recv_pipe_event_or_timeout(PipelineId, 500)).
 
@@ -638,15 +558,15 @@ register_pipeline(PipelineId, TrigTopic, Steps) ->
         <<"trigger">> => #{<<"topic">> => TrigTopic},
         <<"steps">> => Steps
     },
-    ok = emqx_agent_pipeline_registry:register(Def).
+    ok = emqx_agent_service:pipeline_create(Def).
 
 setup_publish_skill(SkillId) ->
-    {ok, Skill} = emqx_agent_skill_publish:create(#{
-        skill_id => SkillId,
-        desc => <<"test">>,
-        topic_prefix => <<"test/">>
-    }),
-    emqx_agent_skill_registry:put_runtime_for_test(Skill).
+    emqx_agent_config:create_skill(#{
+        <<"type">> => <<"message__publish">>,
+        <<"id">> => SkillId,
+        <<"desc">> => <<"test">>,
+        <<"topic_prefix">> => <<"test/">>
+    }).
 
 publish_evt(Topic, Event) ->
     Payload = emqx_utils_json:encode(Event),

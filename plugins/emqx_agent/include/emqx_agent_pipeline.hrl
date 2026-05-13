@@ -17,9 +17,3 @@
     req_id :: binary(),
     frame :: map()
 }).
-
-%% An event published on an evt/... topic (trigger or wait_for_event).
--record(pipe_evt, {
-    topic :: binary(),
-    event :: map()
-}).

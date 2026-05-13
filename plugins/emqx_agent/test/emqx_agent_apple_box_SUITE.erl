@@ -77,8 +77,8 @@ init_per_testcase(_TC, Config) ->
     ok = emqx_agent_plugin_config_fixture:setup(),
     ok = create_connection(),
     ok = create_table(),
-    ok = register_skills(),
     ok = register_pipeline(),
+    ok = register_skills(),
     ConvId = <<"conv-", (integer_to_binary(erlang:unique_integer([positive, monotonic])))/binary>>,
     BoxId = <<"box-", (integer_to_binary(erlang:unique_integer([positive, monotonic])))/binary>>,
     ok = emqx:subscribe(?PIPE_EVENTS_FILTER),
@@ -94,8 +94,8 @@ end_per_testcase(_TC, Config) ->
     ok = emqx:unsubscribe(<<"box/alert/", BoxId/binary>>),
     ok = emqx:unsubscribe(<<"box/shot/", BoxId/binary>>),
     ok = drop_table(),
-    ok = emqx_agent_pipeline_registry:unregister(?PIPELINE_ID),
-    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
+    ok = emqx_agent_config:delete_pipeline(?PIPELINE_ID),
+    ok = delete_skills(),
     ok = emqx_agent_service:connection_delete(?CONNECTION_ID),
     ok = emqx_agent_plugin_config_fixture:teardown().
 
@@ -272,35 +272,44 @@ create_connection() ->
     }).
 
 register_skills() ->
-    ok = register_skill(emqx_agent_skill_mqtt_request, #{
-        skill_id => <<"box-shot">>,
-        desc => <<"Request a box snapshot from the SPA">>,
-        topic_prefix => <<"box/shot/">>,
-        request_payload_schema => #{<<"type">> => <<"object">>}
+    ok = register_skill(#{
+        <<"type">> => <<"message__request">>,
+        <<"id">> => <<"box-shot">>,
+        <<"desc">> => <<"Request a box snapshot from the SPA">>,
+        <<"topic_prefix">> => <<"box/shot/">>,
+        <<"request_payload_schema">> => emqx_utils_json:encode(#{<<"type">> => <<"object">>})
     }),
-    ok = register_skill(emqx_agent_skill_publish, #{
-        skill_id => <<"box-alert">>,
-        desc => <<"Publish a box quality alert">>,
-        topic_prefix => <<"box/alert/">>
+    ok = register_skill(#{
+        <<"type">> => <<"message__publish">>,
+        <<"id">> => <<"box-alert">>,
+        <<"desc">> => <<"Publish a box quality alert">>,
+        <<"topic_prefix">> => <<"box/alert/">>
     }),
-    ok = register_skill(emqx_agent_skill_publish, #{
-        skill_id => <<"box-status">>,
-        desc => <<"Publish final box inspection status">>,
-        topic_prefix => <<"box/status/">>
+    ok = register_skill(#{
+        <<"type">> => <<"message__publish">>,
+        <<"id">> => <<"box-status">>,
+        <<"desc">> => <<"Publish final box inspection status">>,
+        <<"topic_prefix">> => <<"box/status/">>
     }),
-    ok = register_skill(emqx_agent_skill_postgresql, #{
-        skill_id => <<"box-register">>,
-        desc => <<"Record inspection result in the database">>,
-        resource => ?CONNECTION_ID,
-        query => <<
+    ok = register_skill(#{
+        <<"type">> => <<"postgresql__query">>,
+        <<"id">> => <<"box-register">>,
+        <<"desc">> => <<"Record inspection result in the database">>,
+        <<"resource">> => ?CONNECTION_ID,
+        <<"query">> => <<
             "INSERT INTO apple_box_inspections(conveyor_id, box_id, status, reason) "
             "VALUES(${conveyor_id}, ${box_id}, ${status}, ${reason})"
         >>
     }).
 
-register_skill(Module, Context) ->
-    {ok, Skill} = Module:create(Context),
-    emqx_agent_skill_registry:put_runtime_for_test(Skill).
+register_skill(Body) ->
+    emqx_agent_config:create_skill(Body).
+
+delete_skills() ->
+    ok = emqx_agent_config:delete_skill(<<"message__request">>, <<"box-shot">>),
+    ok = emqx_agent_config:delete_skill(<<"message__publish">>, <<"box-alert">>),
+    ok = emqx_agent_config:delete_skill(<<"message__publish">>, <<"box-status">>),
+    emqx_agent_config:delete_skill(<<"postgresql__query">>, <<"box-register">>).
 
 register_provider() ->
     emqx_ai_completion_config:update_providers_raw(
@@ -375,4 +384,4 @@ register_pipeline() ->
             }
         ]
     },
-    emqx_agent_pipeline_registry:register(Def).
+    emqx_agent_service:pipeline_create(Def).

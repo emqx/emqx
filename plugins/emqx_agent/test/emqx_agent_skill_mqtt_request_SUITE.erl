@@ -26,11 +26,12 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
+    ok = emqx_agent_plugin_config_fixture:setup(),
     ok = register_skill(test_context()),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_registry:clear_runtime_for_test().
+    ok = emqx_agent_plugin_config_fixture:teardown().
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -235,14 +236,21 @@ t_unknown_skill_id_ignored(_Config) ->
 
 test_context() ->
     #{
-        skill_id => ?SKILL_ID,
-        desc => <<"Test request skill">>,
-        topic_prefix => ?TOPIC_PREFIX
+        <<"type">> => <<"message__request">>,
+        <<"id">> => ?SKILL_ID,
+        <<"desc">> => <<"Test request skill">>,
+        <<"topic_prefix">> => ?TOPIC_PREFIX
     }.
 
 register_skill(Context) ->
-    {ok, Skill} = emqx_agent_skill_mqtt_request:create(Context),
-    emqx_agent_skill_registry:put_runtime_for_test(Skill).
+    Body = maybe_encode_schema(<<"request_payload_schema">>, Context),
+    emqx_agent_config:create_skill(Body).
+
+maybe_encode_schema(Field, Body) ->
+    case maps:get(Field, Body, undefined) of
+        Schema when is_map(Schema) -> Body#{Field => emqx_utils_json:encode(Schema)};
+        _ -> Body
+    end.
 
 reply_topic(SkillId, ReqId) ->
     <<"cap/message__request/", SkillId/binary, "/response/", ReqId/binary>>.

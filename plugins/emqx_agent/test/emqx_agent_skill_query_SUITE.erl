@@ -63,8 +63,6 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
-    ok = emqx_agent_pipeline_registry:delete_all(),
     ok = clean_providers(),
     ok = emqx_agent_plugin_config_fixture:teardown().
 
@@ -85,15 +83,6 @@ t_query_skills_destroy(_Config) ->
     ).
 
 t_query_skills_list_empty(_Config) ->
-    %% Only the query skill itself is registered; delete it so the list is empty.
-    ok = emqx_agent_skill_registry:clear_runtime_for_test(),
-    {ok, S1} = emqx_agent_skill_query_skills:create(#{skill_id => ?SK_SKILLS_ID}),
-    ok = emqx_agent_skill_registry:put_runtime_for_test(S1),
-    {ok, S2} = emqx_agent_skill_query_providers:create(#{skill_id => ?SK_PROVIDERS_ID}),
-    ok = emqx_agent_skill_registry:put_runtime_for_test(S2),
-    {ok, S3} = emqx_agent_skill_query_pipelines:create(#{skill_id => ?SK_PIPELINES_ID}),
-    ok = emqx_agent_skill_registry:put_runtime_for_test(S3),
-
     ReqId = <<"req-qs-empty">>,
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(<<"agent__query_skills">>, ?SK_SKILLS_ID, #{}, ReqId),
