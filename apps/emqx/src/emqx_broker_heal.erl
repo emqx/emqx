@@ -75,7 +75,7 @@ start_local(_) ->
 %% behavior callbacks
 %%================================================================================
 
--record(s, {iterator :: ets:continuation()}).
+-record(s, {iterator}).
 
 init(_) ->
     process_flag(trap_exit, true),
