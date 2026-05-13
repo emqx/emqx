@@ -12,7 +12,8 @@
     issue/0,
     renew/0,
     status/0,
-    reconfigure/0
+    reconfigure/0,
+    leader_node/0
 ]).
 
 %% gen_server callbacks
@@ -106,11 +107,19 @@ reconfigure() ->
     gen_server:cast(?SERVER, reconfigure).
 
 %% Lowest-sorted running core node owns issuance. Returns the node
-%% atom or {error, no_core_nodes} if mria reports an empty core list
-%% (should only happen during startup or full-cluster restart).
+%% atom or {error, no_core_nodes} if mria reports an empty core list —
+%% which also covers the test-VM / very-early-boot case where mria
+%% isn't running yet (the membership ETS doesn't exist and a raw call
+%% would crash, so we catch the badarg here).
 -spec leader_node() -> {ok, node()} | {error, no_core_nodes}.
 leader_node() ->
-    case lists:sort(mria_membership:running_core_nodelist()) of
+    Cores =
+        try
+            mria_membership:running_core_nodelist()
+        catch
+            _:_ -> []
+        end,
+    case lists:sort(Cores) of
         [] -> {error, no_core_nodes};
         [Leader | _] -> {ok, Leader}
     end.
@@ -165,7 +174,7 @@ handle_call(status, _From, State) ->
         domains => maps:get(domains, Settings),
         cert_bundle_name => maps:get(cert_bundle_name, Settings),
         in_progress => format_in_progress(State#state.in_progress),
-        last_result => State#state.last_result,
+        last_result => format_last_result(State#state.last_result),
         last_check => format_datetime(State#state.last_check),
         certificate => CertInfo
     },
@@ -286,6 +295,14 @@ format_in_progress(false) ->
 format_in_progress(#{action := Action, started_at := StartedAt}) ->
     #{action => Action, started_at => format_datetime(StartedAt)}.
 
+%% Status is JSON-encoded by the plugin API gateway, and the encoder
+%% rejects Erlang tuples. Map ok/undefined through verbatim; flatten
+%% error tuples into a single binary so curl-driven smoke tests and the
+%% dashboard see the cause instead of a 500.
+format_last_result(undefined) -> null;
+format_last_result(ok) -> ok;
+format_last_result({error, Reason}) -> #{error => iolist_to_binary(io_lib:format("~p", [Reason]))}.
+
 %%--------------------------------------------------------------------
 %% Internal: certificate issuance
 %%--------------------------------------------------------------------
@@ -296,7 +313,7 @@ check_and_renew(Settings) ->
         renew_before_expiry_days := RenewDays
     } = Settings,
     case emqx_managed_certs:list_managed_files(?global_ns, BundleName) of
-        {ok, #{chain := ChainPath}} ->
+        {ok, #{chain := #{path := ChainPath}}} ->
             case read_cert_expiry(ChainPath) of
                 {ok, ExpiryTime} ->
                     NowSecs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
@@ -391,12 +408,16 @@ run_acme(#{bundle_name := BundleName, challenge_port := ChallengePort} = Params)
         AccKeyOpt
     ),
     ?LOG(info, #{msg => "starting_certificate_issuance", domains => maps:get(domains, Params)}),
-    case emqx_acme_challenge:start(ChallengePort) of
+    %% Fan the HTTP-01 listener out to every cluster node so an NLB
+    %% routing the CA's validation request to a replicant or non-leader
+    %% core gets answered locally (with a remote lookup back to us for
+    %% the token).
+    case emqx_acme_challenge:cluster_start_listener(ChallengePort) of
         ok ->
             try
                 issue_and_store(Request, Params)
             after
-                emqx_acme_challenge:stop()
+                _ = emqx_acme_challenge:cluster_stop_listener()
             end;
         {error, _} = Error ->
             Error

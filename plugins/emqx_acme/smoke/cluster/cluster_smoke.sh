@@ -15,10 +15,12 @@
 ##   3) Waits for the cluster to form (both nodes in running_nodes).
 ##   4) Asserts emqx1 starts ssl:default with the installation's default
 ##      self-signed cert (the "before" Scenario-B baseline).
-##   5) Installs and starts emqx_acme on both nodes; configures the plugin
-##      via 'emqx eval' on emqx1 to use Pebble, the test domain, the "acme"
-##      bundle, and listener_ids = ["ssl:default"]. acc_key is left unset,
-##      so the plugin manages the ACME account key inside the bundle.
+##   5) Installs and starts emqx_acme on both nodes via 'emqx ctl plugins';
+##      configures the plugin on emqx1 via the management HTTP API
+##      (PUT /api/v5/plugins/<name>/config), authenticated with a bootstrap
+##      API key mounted into both containers. listener_ids = "ssl:default",
+##      acc_key left unset so the plugin manages the ACME account key
+##      inside the bundle.
 ##   6) Triggers issuance on emqx1.
 ##   7) Verifies Scenario B: every node has chain+key+acc_key in the bundle
 ##      (the acc_key was generated on emqx1 and replicated cluster-wide
@@ -67,6 +69,16 @@ HOSTPORTS=(localhost:8883 localhost:8884)
 LOG_DIR="$ROOT_DIR/_build/plugins/smoke-logs/cluster"
 mkdir -p "$LOG_DIR"
 
+# API key seeded into both nodes via the bootstrap file mounted at
+# /etc/emqx/bootstrap-api-key.txt (see docker-compose.yml). The smoke
+# writes the file before `docker compose up`; emqx loads it at boot and
+# we drive every config/issuance call over HTTP basic auth instead of
+# the dashboard login dance.
+BOOTSTRAP_KEY="acme-smoke-test-key"
+BOOTSTRAP_SECRET="acme-smoke-test-secret-not-for-prod"
+BOOTSTRAP_FILE="$SCRIPT_DIR/bootstrap-api-key.txt"
+API_BASE="http://localhost:18083/api/v5"
+
 KEEP_UP=false
 for arg in "$@"; do
     case "$arg" in
@@ -85,11 +97,38 @@ cleanup() {
     if [[ "$KEEP_UP" == "false" ]]; then
         info "stopping docker stack"
         $COMPOSE down -v --remove-orphans 2>/dev/null || true
+        rm -f "$BOOTSTRAP_FILE"
     else
         info "leaving docker stack running (--keep-up)"
     fi
 }
 trap cleanup EXIT
+
+# HTTP basic auth against the dashboard's mgmt API. The bootstrap key
+# is loaded on every emqx boot; we never call /login. Each helper sets
+# its own check on the response status, since curl with --fail would
+# swallow the body we want to log.
+api() {
+    local method="$1" path="$2" body="${3-}"
+    local out_file="${4:-/dev/null}"
+    local args=(-s -u "$BOOTSTRAP_KEY:$BOOTSTRAP_SECRET" -X "$method")
+    if [[ -n "$body" ]]; then
+        args+=(-H 'content-type: application/json' -d "$body")
+    fi
+    curl "${args[@]}" -o "$out_file" -w '%{http_code}' "$API_BASE$path"
+}
+
+# Convenience: GET that returns the JSON body to stdout. Callers can
+# pipe straight into jq; HTTP-level errors fall through to the body.
+api_get() {
+    curl -s -u "$BOOTSTRAP_KEY:$BOOTSTRAP_SECRET" "$API_BASE$1"
+}
+
+write_bootstrap_file() {
+    info "writing api key bootstrap file ($BOOTSTRAP_FILE)"
+    printf '%s:%s\n' "$BOOTSTRAP_KEY" "$BOOTSTRAP_SECRET" > "$BOOTSTRAP_FILE"
+    chmod 0644 "$BOOTSTRAP_FILE"
+}
 
 check_prereqs() {
     local missing=()
@@ -113,11 +152,24 @@ build_plugin() {
 
 bring_up_stack() {
     info "starting docker stack"
+    write_bootstrap_file
     $COMPOSE up -d --wait --wait-timeout 60 >"$LOG_DIR/up.log" 2>&1 || {
         error "docker compose up failed; see $LOG_DIR/up.log"
         $COMPOSE logs >"$LOG_DIR/all.log" 2>&1 || true
         exit 1
     }
+    info "waiting for dashboard API to authenticate the bootstrap key"
+    local retries=30 code
+    while :; do
+        code=$(api GET /status 2>/dev/null || echo "000")
+        [[ "$code" == "200" ]] && break
+        retries=$((retries - 1))
+        if [[ $retries -le 0 ]]; then
+            error "dashboard API did not accept bootstrap key within 30s (last HTTP $code)"
+            exit 1
+        fi
+        sleep 1
+    done
 }
 
 wait_for_cluster() {
@@ -173,103 +225,141 @@ install_and_start_plugin() {
 }
 
 configure_plugin() {
-    info "configuring plugin on emqx1 (cluster-wide via emqx_acme_config:update/1)"
+    info "configuring plugin on emqx1 via HTTP PUT /plugins/$PLUGIN/config (cluster-wide)"
     # acc_key is left unset so the plugin manages the account key inside
     # the cert bundle. On first issuance emqx1 generates the key in-memory
     # and stores it via emqx_managed_certs:add_managed_files/3, which
     # replicates it to every cluster node — no manual key distribution.
-    docker exec acme-cluster-emqx1 emqx eval "
-        emqx_acme_config:update(#{
-            <<\"dir_url\">> => <<\"$PEBBLE_DIR_URL\">>,
-            <<\"domains\">> => <<\"$DOMAIN\">>,
-            <<\"contact\">> => <<\"mailto:smoke@test.local\">>,
-            <<\"cert_bundle_name\">> => <<\"$BUNDLE\">>,
-            <<\"listener_ids\">> => [<<\"ssl:default\">>],
-            <<\"cert_type\">> => <<\"rsa\">>,
-            <<\"challenge_port\">> => 5002,
-            <<\"renew_before_expiry_days\">> => 30,
-            <<\"check_interval_hours\">> => 9999
-        })." >"$LOG_DIR/configure.log" 2>&1
+    local payload
+    payload=$(jq -n \
+        --arg dir_url "$PEBBLE_DIR_URL" \
+        --arg domains "$DOMAIN" \
+        --arg bundle "$BUNDLE" \
+        '{
+            dir_url: $dir_url,
+            domains: $domains,
+            contact: "mailto:smoke@test.local",
+            cert_bundle_name: $bundle,
+            listener_ids: "ssl:default",
+            cert_type: "rsa",
+            challenge_port: 5002,
+            renew_before_expiry_days: 30,
+            check_interval_hours: 9999,
+            enable_dashboard_https: false,
+            dashboard_https_port: 18084,
+            acc_key: null,
+            acc_key_password: null
+        }')
+    local code
+    code=$(api PUT "/plugins/$PLUGIN/config" "$payload" "$LOG_DIR/configure.out")
+    if [[ "$code" != "200" && "$code" != "204" ]]; then
+        error "PUT plugin config failed (HTTP $code)"
+        cat "$LOG_DIR/configure.out" >&2 || true
+        exit 1
+    fi
 }
 
-# Issuance/renewal both kick off async workers and return {ok, started};
-# the actual outcome lands in status().last_result. Poll until done.
+# Issuance/renewal both kick off async workers; the actual outcome
+# lands in status.last_result. Poll the plugin API until done.
 wait_for_action_done() {
     local label="$1"
     local elapsed=0
     while [[ $elapsed -lt 120 ]]; do
-        local status
-        status=$(docker exec acme-cluster-emqx1 emqx eval "emqx_acme_issuer:status()." 2>&1)
-        if echo "$status" | grep -q 'in_progress => false'; then
-            if echo "$status" | grep -qE 'last_result => ok'; then
-                info "$label completed (ok)"
-                return 0
-            elif echo "$status" | grep -qE 'last_result => \{error'; then
-                error "$label failed"
-                echo "$status" >"$LOG_DIR/${label}_status.log"
-                cat "$LOG_DIR/${label}_status.log" >&2
-                exit 1
-            fi
+        local body
+        body=$(api_get "/plugin_api/$PLUGIN/status")
+        echo "$body" >"$LOG_DIR/${label}_status.log"
+        local in_progress last_result
+        in_progress=$(echo "$body" | jq -r '.in_progress // false')
+        last_result=$(echo "$body" | jq -r '
+            if .last_result == "ok" then "ok"
+            elif .last_result == null then "pending"
+            elif (.last_result | type) == "object" and (.last_result | has("error")) then "error"
+            else "pending" end')
+        if [[ "$in_progress" == "false" ]]; then
+            case "$last_result" in
+                ok)
+                    info "$label completed (ok)"
+                    return 0
+                    ;;
+                error)
+                    error "$label failed"
+                    cat "$LOG_DIR/${label}_status.log" >&2
+                    dump_failure_logs "$label"
+                    exit 1
+                    ;;
+            esac
         fi
         sleep 2
         elapsed=$((elapsed + 2))
     done
     error "$label did not complete within 120s"
-    docker exec acme-cluster-emqx1 emqx eval "emqx_acme_issuer:status()." \
-        >"$LOG_DIR/${label}_status.log" 2>&1
-    cat "$LOG_DIR/${label}_status.log" >&2
+    cat "$LOG_DIR/${label}_status.log" >&2 || true
+    dump_failure_logs "$label"
+    exit 1
+}
+
+# Capture each container's last few hundred log lines so a CI-only
+# failure is debuggable from the run artifacts alone. Full logs stay
+# available via 'docker compose logs' for as long as the stack is up.
+dump_failure_logs() {
+    local label="$1"
+    info "capturing container logs to $LOG_DIR/${label}_*.log"
+    for n in "${NODES[@]}"; do
+        docker logs --tail 300 "$n" >"$LOG_DIR/${label}_${n}.log" 2>&1 || true
+    done
+    docker logs --tail 200 acme-cluster-pebble >"$LOG_DIR/${label}_pebble.log" 2>&1 || true
+    docker logs --tail 100 acme-cluster-challtestsrv >"$LOG_DIR/${label}_challtestsrv.log" 2>&1 || true
+}
+
+# Kick off the named async action (issue / renew). Returns once
+# /plugin_api/<plugin>/<action> replies 202; retries through the
+# periodic-check race (409 already_running) until the check clears.
+kickoff_action() {
+    local action="$1"
+    info "kickoff: POST /plugin_api/$PLUGIN/$action"
+    local elapsed=0
+    while [[ $elapsed -lt 30 ]]; do
+        local code
+        code=$(api POST "/plugin_api/$PLUGIN/$action" "" "$LOG_DIR/${action}_kick.out")
+        case "$code" in
+            202) return 0 ;;
+            409)
+                # already_running (typically the periodic check) — retry.
+                sleep 2
+                elapsed=$((elapsed + 2))
+                ;;
+            *)
+                error "$action kickoff failed (HTTP $code)"
+                cat "$LOG_DIR/${action}_kick.out" >&2 || true
+                exit 1
+                ;;
+        esac
+    done
+    error "$action kickoff did not succeed within 30s"
+    cat "$LOG_DIR/${action}_kick.out" >&2 || true
     exit 1
 }
 
 trigger_issuance() {
     info "triggering issuance on emqx1 (lowest-name election winner)"
-    # emqx_acme_issuer schedules a periodic check at boot; if it's still
-    # running when we ask to issue, kickoff fails with
-    # {error, {already_running, check}}. Retry until the check clears.
-    local elapsed=0
-    while [[ $elapsed -lt 30 ]]; do
-        docker exec acme-cluster-emqx1 emqx eval "emqx_acme_issuer:issue()." \
-            >"$LOG_DIR/issue.log" 2>&1
-        if grep -q 'started' "$LOG_DIR/issue.log"; then
-            break
-        fi
-        if grep -q 'already_running' "$LOG_DIR/issue.log"; then
-            sleep 2
-            elapsed=$((elapsed + 2))
-            continue
-        fi
-        error "issuance kickoff failed"
-        cat "$LOG_DIR/issue.log" >&2
-        exit 1
-    done
-    if ! grep -q 'started' "$LOG_DIR/issue.log"; then
-        error "issuance kickoff did not succeed within 30s"
-        cat "$LOG_DIR/issue.log" >&2
-        exit 1
-    fi
+    kickoff_action issue
     info "waiting for issuance to complete"
     wait_for_action_done issue
 }
 
 assert_bundle_propagated() {
     info "verifying bundle has chain+key+acc_key on every node (acc_key replication is the whole point of the bundle-managed default)"
+    : >"$LOG_DIR/bundle_check.log"
     for n in "${NODES[@]}"; do
-        local res
-        res=$(docker exec "$n" emqx eval "
-            case emqx_managed_certs:list_managed_files(global, <<\"$BUNDLE\">>) of
-                {ok, F} ->
-                    HasChain = maps:is_key(chain, F),
-                    HasKey = maps:is_key(key, F),
-                    HasAccKey = maps:is_key(acc_key, F),
-                    case HasChain andalso HasKey andalso HasAccKey of
-                        true -> ok;
-                        false -> {wrong_keys, [{chain, HasChain}, {key, HasKey}, {acc_key, HasAccKey}]}
-                    end;
-                Other -> {error, Other}
-            end." 2>&1 | tr -d '\r' | tail -1)
-        echo "$n: $res" >>"$LOG_DIR/bundle_check.log"
-        if [[ "$res" != "ok" ]]; then
-            error "$n bundle check failed: $res"
+        local missing_files=""
+        for f in chain.pem key.pem acc-key.pem; do
+            if ! docker exec "$n" test -f "/opt/emqx/data/certs2/global/$BUNDLE/$f"; then
+                missing_files="$missing_files $f"
+            fi
+        done
+        echo "$n: missing=[${missing_files:-none}]" >>"$LOG_DIR/bundle_check.log"
+        if [[ -n "$missing_files" ]]; then
+            error "$n bundle missing:$missing_files"
             exit 1
         fi
     done
@@ -310,21 +400,23 @@ assert_acc_key_replicated_identical() {
 }
 
 assert_listener_migrated() {
-    info "verifying ssl:default config has managed_certs.bundle_name on every node"
-    for n in "${NODES[@]}"; do
-        local res
-        res=$(docker exec "$n" emqx eval "
-            try
-                BN = emqx_config:get([listeners, ssl, default, ssl_options,
-                                      managed_certs, bundle_name]),
-                case BN of
-                    <<\"$BUNDLE\">> -> ok;
-                    Other -> {wrong_bundle, Other}
-                end
-            catch _:Reason -> {error, Reason} end." 2>&1 | tr -d '\r' | tail -1)
-        echo "$n: $res" >>"$LOG_DIR/listener_check.log"
-        if [[ "$res" != "ok" ]]; then
-            error "$n listener config not migrated: $res"
+    info "verifying ssl:default config has managed_certs.bundle_name on every node via GET /listeners/ssl:default"
+    : >"$LOG_DIR/listener_check.log"
+    # The /listeners/:id endpoint returns a single consolidated config
+    # object (cluster-replicated via mria), so we hit each node's
+    # dashboard API independently to confirm mria propagated the update.
+    # Per-node ports come from the docker-compose mapping.
+    local node_ports=("localhost:18083" "localhost:18084")
+    local i
+    for i in "${!NODES[@]}"; do
+        local node="${NODES[$i]}" hp="${node_ports[$i]}" body bundle_name
+        body=$(curl -s -u "$BOOTSTRAP_KEY:$BOOTSTRAP_SECRET" \
+            "http://$hp/api/v5/listeners/ssl:default")
+        echo "$node: $body" >>"$LOG_DIR/listener_check.log"
+        bundle_name=$(echo "$body" | jq -r '.ssl_options.managed_certs.bundle_name // empty')
+        if [[ "$bundle_name" != "$BUNDLE" ]]; then
+            error "$node ssl:default not migrated to bundle=$BUNDLE; got: '$bundle_name'"
+            cat "$LOG_DIR/listener_check.log" >&2 || true
             exit 1
         fi
     done
@@ -350,22 +442,25 @@ snapshot_renewal_state() {
     local label="$1"
     info "capturing $label renewal state (mtime + listener pid) on every node"
     for n in "${NODES[@]}"; do
-        # esockd:listeners/0 returns [{{Name, {Addr, Port}}, SupPid} | _]. We
-        # need the SupPid for ssl:default because that's the process esockd
-        # keeps across SSL cert hot-reloads -- if it changes across a renew,
-        # the cert was applied by a listener restart (Scenario B) rather
-        # than via Erlang's PEM cache (Scenario A).
-        docker exec "$n" emqx eval "
-            {ok, F} = emqx_managed_certs:list_managed_files(global, <<\"$BUNDLE\">>),
-            ChainPath = maps:get(path, maps:get(chain, F)),
-            {ok, FI} = file:read_file_info(ChainPath, [{time, posix}]),
-            Listeners = esockd:listeners(),
-            Pid = case lists:keyfind('ssl:default', 1, [{element(1, K), V} || {K, V} <- Listeners]) of
+        local chain_path="/opt/emqx/data/certs2/global/$BUNDLE/chain.pem"
+        # mtime: ordinary filesystem stat inside the container — no eval needed.
+        local mtime
+        mtime=$(docker exec "$n" stat -c '%Y' "$chain_path" 2>/dev/null || echo 0)
+        # esockd's listener supervisor pid for ssl:default is the single
+        # invariant we still cross-check via 'emqx eval'. Neither
+        # `emqx ctl listeners` nor `GET /listeners` exposes it, but it's
+        # exactly the signal we need: if it stays the same across a
+        # renewal, Erlang ssl's PEM cache hot-reloaded the new cert
+        # (Scenario A); if it changes, the listener was restarted
+        # (Scenario B), which would drop client connections.
+        local pid
+        pid=$(docker exec "$n" emqx eval "
+            case lists:keyfind('ssl:default', 1,
+                [{element(1, K), V} || {K, V} <- esockd:listeners()]) of
                 {_, P} -> erlang:pid_to_list(P);
                 false -> \"none\"
-            end,
-            lists:flatten(io_lib:format(\"mtime=~p pid=~s\", [element(6, FI), Pid]))." \
-            2>&1 | tr -d '\r"' | tail -1 >"$LOG_DIR/${label}_${n}.log"
+            end." 2>&1 | tr -d '\r"' | tail -1)
+        echo "mtime=$mtime pid=$pid" >"$LOG_DIR/${label}_${n}.log"
     done
 }
 
@@ -373,13 +468,7 @@ assert_scenario_a_renewal() {
     info "triggering renewal and verifying Scenario A (no listener restart)"
     snapshot_renewal_state before
     sleep 2  # ensure mtime can advance
-    docker exec acme-cluster-emqx1 emqx eval "emqx_acme_issuer:renew()." \
-        >"$LOG_DIR/renew.log" 2>&1
-    if ! grep -q 'started' "$LOG_DIR/renew.log"; then
-        error "renewal kickoff failed"
-        cat "$LOG_DIR/renew.log" >&2
-        exit 1
-    fi
+    kickoff_action renew
     wait_for_action_done renew
     snapshot_renewal_state after
 

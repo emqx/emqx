@@ -60,6 +60,9 @@ services:
       EMQX_CLUSTER__DISCOVERY_STRATEGY: "static"
       EMQX_CLUSTER__STATIC__SEEDS: '["emqx@emqx1.acme.test","emqx@emqx2.acme.test"]'
       EMQX_LICENSE__KEY: "evaluation"
+      ## Pre-seed an API key from a mounted bootstrap file so the smoke
+      ## test can drive the cluster via HTTP basic auth (no login flow).
+      EMQX_API_KEY__BOOTSTRAP_FILE: "/etc/emqx/bootstrap-api-key.txt"
     networks:
       acme-cluster:
         ipv4_address: 172.21.50.10
@@ -70,6 +73,7 @@ services:
       - "18083:18083"
     volumes:
       - ../../../../_build/plugins:/plugins-tarballs:ro
+      - ./bootstrap-api-key.txt:/etc/emqx/bootstrap-api-key.txt:ro
     depends_on:
       - pebble
       - challtestsrv
@@ -84,6 +88,7 @@ services:
       EMQX_CLUSTER__DISCOVERY_STRATEGY: "static"
       EMQX_CLUSTER__STATIC__SEEDS: '["emqx@emqx1.acme.test","emqx@emqx2.acme.test"]'
       EMQX_LICENSE__KEY: "evaluation"
+      EMQX_API_KEY__BOOTSTRAP_FILE: "/etc/emqx/bootstrap-api-key.txt"
     networks:
       acme-cluster:
         ipv4_address: 172.21.50.11
@@ -94,6 +99,7 @@ services:
       - "18084:18083"
     volumes:
       - ../../../../_build/plugins:/plugins-tarballs:ro
+      - ./bootstrap-api-key.txt:/etc/emqx/bootstrap-api-key.txt:ro
     depends_on:
       - pebble
       - challtestsrv
