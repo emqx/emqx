@@ -191,7 +191,7 @@ pipeline() ->
                     <<"type">> => <<"llm_loop">>,
                     <<"provider_name">> => <<"openai">>,
                     <<"model">> => <<"gpt-4o">>,
-                    <<"stop_on_finish">> => true,
+                    <<"persistent">> => false,
                     <<"max_tokens">> => 2048,
                     <<"tools">> => [<<"message__publish@pub">>],
                     <<"instructions">> => <<"Inspect the event">>,

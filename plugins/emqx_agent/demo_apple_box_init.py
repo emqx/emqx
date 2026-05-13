@@ -272,7 +272,7 @@ def create_pipeline() -> None:
                     "type": "llm_loop",
                     "provider_name": PROVIDER_NAME,
                     "model": OPENAI_MODEL,
-                    "stop_on_finish": True,
+                    "persistent": False,
                     "instructions": INSPECTOR_INSTRUCTIONS,
                     "tools": [
                         f"message__request@{SK_SHOT}",

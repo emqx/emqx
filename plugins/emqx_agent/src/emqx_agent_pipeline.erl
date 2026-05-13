@@ -4,21 +4,17 @@
 
 %% Pipeline instance gen_statem.
 %%
-%% One process per active pipeline instance.  Globally registered as
-%% {emqx_agent_pipeline, Iid} so it is unique cluster-wide.
+%% One process per trigger. Pipeline instances are one-off and terminate after
+%% completion or failure.
 %%
 %% Lifecycle
 %%   start_link/2 is called by emqx_agent_pipeline_sup (simple_one_for_one).
 %%   The iid is generated here, ensuring uniqueness.
-%%   On completion the process enters `done` and starts an idle timer.
-%%   Any message arriving in `done` resets and re-executes from step 0.
-%%   When the idle timer fires the process stops normally.
 %%
 %% States
 %%   running        — executing a deterministic step
 %%   llm_loop       — active LLM session; proxying tool_request ↔ cap/
 %%   waiting_cap    — cap/ request sent for a call_skill step; awaiting cap_reply
-%%   done           — all steps done (or failed); idle timer running
 %%
 %% Incoming OTP messages (all sent as gen_statem casts by emqx_agent_pipeline_mgr)
 %%   #sess_frame{sid, frame}   — from sess/out/<sid>/
@@ -50,15 +46,11 @@
 -include("emqx_agent_pipeline.hrl").
 
 %% Public API
--export([start_link/2, whereis/1, match_triggers/1]).
+-export([start_link/2, match_triggers/1]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4, terminate/3]).
 
--define(NAME(Iid), {?MODULE, Iid}).
--define(REG(Iid), {global, ?NAME(Iid)}).
-%% 5-minute idle window before the process self-destructs after completion.
--define(IDLE_TIMEOUT_MS, 300_000).
 -define(CAP_REPLY_TIMEOUT_MS, 60_000).
 -define(LLM_REPLY_TIMEOUT_MS, 180_000).
 
@@ -73,6 +65,8 @@ match_triggers(Topic) ->
 -record(data, {
     pipeline_id :: binary(),
     iid :: binary(),
+    key :: binary(),
+    key_base62 :: binary(),
     trace_id :: binary(),
     definition :: map(),
     steps :: [map()],
@@ -92,9 +86,7 @@ match_triggers(Topic) ->
     %% topics subscribed by this pipeline process while awaiting replies
     reply_topics = [] :: [binary()],
     %% active reply timeout reference
-    reply_timer_ref :: reference() | undefined,
-    %% idle timer reference (done state)
-    idle_timer_ref :: reference() | undefined
+    reply_timer_ref :: reference() | undefined
 }).
 
 %%--------------------------------------------------------------------
@@ -102,15 +94,11 @@ match_triggers(Topic) ->
 %%--------------------------------------------------------------------
 
 -spec start_link(map(), map()) -> {ok, pid()} | {error, term()} | ignore.
-start_link(Def, TriggerEvent) ->
+start_link(Def, TriggerInput) ->
     PipelineId = maps:get(<<"pipeline_id">>, Def),
     Iid = gen_iid(PipelineId),
     % ct:print("start_link: ~p:~p~n~p", [PipelineId, Iid, Def]),
-    gen_statem:start_link(?REG(Iid), ?MODULE, {Iid, Def, TriggerEvent}, []).
-
--spec whereis(binary()) -> pid() | undefined.
-whereis(Iid) ->
-    global:whereis_name(?NAME(Iid)).
+    gen_statem:start_link(?MODULE, {Iid, Def, TriggerInput}, []).
 
 %%--------------------------------------------------------------------
 %% gen_statem callbacks
@@ -118,30 +106,53 @@ whereis(Iid) ->
 
 callback_mode() -> handle_event_function.
 
-init({Iid, Def, TriggerEvent}) ->
+init({Iid, Def, TriggerInput}) ->
     PipelineId = maps:get(<<"pipeline_id">>, Def),
-    TraceId = maps:get(<<"trace_id">>, TriggerEvent, Iid),
-    Steps = maps:get(<<"steps">>, Def, []),
-    Data = #data{
-        pipeline_id = PipelineId,
-        iid = Iid,
-        trace_id = TraceId,
-        definition = Def,
-        steps = Steps,
-        step_idx = 0,
-        context = #{<<"event">> => TriggerEvent},
-        active_sid = undefined,
-        tool_map = #{},
-        pending_calls = #{},
-        cap_req_id = undefined,
-        cap_result_path = undefined,
-        reply_topics = [],
-        reply_timer_ref = undefined,
-        idle_timer_ref = undefined
-    },
-    ?SLOG(info, #{msg => "pipeline_started", pipeline_id => PipelineId, iid => Iid}),
-    publish_pipeline_event(Data, #{<<"type">> => <<"pipeline_started">>}),
-    {ok, running, Data, [{next_event, internal, step}]}.
+    case pipeline_key(Def, TriggerInput) of
+        {ok, Key} ->
+            Event = maps:get(event, TriggerInput, #{}),
+            TraceId = maps:get(<<"trace_id">>, Event, Iid),
+            KeyBase62 = emqx_base62:encode(Key),
+            Steps = maps:get(<<"steps">>, Def, []),
+            Data = #data{
+                pipeline_id = PipelineId,
+                iid = Iid,
+                key = Key,
+                key_base62 = KeyBase62,
+                trace_id = TraceId,
+                definition = Def,
+                steps = Steps,
+                step_idx = 0,
+                context = #{
+                    <<"event">> => Event,
+                    <<"key">> => Key,
+                    <<"key_base62">> => KeyBase62
+                },
+                active_sid = undefined,
+                tool_map = #{},
+                pending_calls = #{},
+                cap_req_id = undefined,
+                cap_result_path = undefined,
+                reply_topics = [],
+                reply_timer_ref = undefined
+            },
+            ?SLOG(info, #{
+                msg => "pipeline_started",
+                pipeline_id => PipelineId,
+                iid => Iid,
+                key => Key
+            }),
+            publish_pipeline_event(Data, #{<<"type">> => <<"pipeline_started">>}),
+            {ok, running, Data, [{next_event, internal, step}]};
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "pipeline_key_expression_error",
+                pipeline_id => PipelineId,
+                iid => Iid,
+                reason => Reason
+            }),
+            {stop, Reason}
+    end.
 
 terminate(Reason, _State, Data) ->
     _ = cleanup_reply_wait(Data),
@@ -243,19 +254,6 @@ handle_event(info, #deliver{}, _State, Data) ->
 
 handle_event(info, {pipeline_reply_timeout, Kind}, _State, Data) ->
     do_timeout_fail(Data, Kind);
-%% ── done: idle timer fired ────────────────────────────────────────────────────
-
-handle_event(info, idle_timeout, done, Data) ->
-    ?SLOG(info, #{msg => "pipeline_idle_timeout_stop", iid => Data#data.iid}),
-    {stop, normal, Data};
-%% ── done: any cast — restart from step 0 ─────────────────────────────────────
-
-handle_event(cast, Msg, done, Data) ->
-    ?SLOG(info, #{msg => "pipeline_restarting_from_done", iid => Data#data.iid, trigger => Msg}),
-    Data1 = cancel_idle_timer(Data),
-    Data2 = Data1#data{step_idx = 0, pending_calls = #{}, active_sid = undefined},
-    publish_pipeline_event(Data2, #{<<"type">> => <<"pipeline_started">>}),
-    {next_state, running, Data2, [{next_event, internal, step}]};
 %% ── catch-all ─────────────────────────────────────────────────────────────────
 
 handle_event(_Type, _Content, _State, Data) ->
@@ -285,30 +283,20 @@ do_execute_step(Step, Data) ->
 %% -- llm_loop step ----------------------------------------------------------
 
 start_llm_loop(
-    #{
-        <<"id">> := StepId,
-        <<"provider_name">> := ProviderName,
-        <<"model">> := Model,
-        <<"instructions">> := Instructions,
-        <<"tools">> := ToolSpecs,
-        <<"input">> := InputSpec,
-        <<"stop_on_finish">> := StopOnFinish,
-        <<"max_tokens">> := MaxTokens,
-        <<"set_result_schema">> := SetResultSchema
-    } = Step,
+    #{<<"id">> := StepId, <<"provider_name">> := ProviderName, <<"model">> := Model} = Step,
     Data
 ) ->
+    Instructions = maps:get(<<"instructions">>, Step, <<"You are a helpful assistant.">>),
+    ToolSpecs = maps:get(<<"tools">>, Step, []),
+    InputSpec = maps:get(<<"input">>, Step, #{}),
+    Persistent = maps:get(<<"persistent">>, Step, false),
+    MaxTokens = maps:get(<<"max_tokens">>, Step, 2048),
+    SetResultSchema = maps:get(<<"set_result_schema">>, Step, undefined),
     {ToolManifest0, ToolMap0} = build_tool_manifest(ToolSpecs),
     {ToolManifest, ToolMap} = maybe_inject_set_result(ToolManifest0, ToolMap0, SetResultSchema),
     Input = resolve_map(InputSpec, Data#data.context),
-    %% Stable Sid: same session is reused across every trigger of this pipeline
-    %% step, allowing the model to accumulate full conversation history.
-    Sid = stable_sid(Data#data.pipeline_id, StepId),
+    Sid = llm_sid(Persistent, StepId, Data),
     _ = ensure_session(Sid),
-    %% Default to ephemeral mode (stop_on_finish=true): each event gets a fresh
-    %% session with no history from prior triggers. For persistent mode where the
-    %% session accumulates conversation history across events, explicitly set
-    %% "stop_on_finish": false in the step configuration.
     SessOutTopic = sess_out_topic(Sid),
     Data0 = subscribe_reply_topic(SessOutTopic, Data),
     Request = #{
@@ -320,7 +308,7 @@ start_llm_loop(
         <<"input">> => Input,
         <<"model">> => Model,
         <<"instructions">> => Instructions,
-        <<"stop_on_finish">> => StopOnFinish,
+        <<"persistent">> => Persistent,
         <<"max_tokens">> => MaxTokens
     },
     publish_to_sess_in(Sid, Request),
@@ -337,11 +325,11 @@ start_llm_loop(
     }),
     {next_state, llm_loop, Data1}.
 
-%% Stable session ID: pipeline_id + step_id, slashes replaced so the result
-%% stays a single MQTT topic level.
-stable_sid(PipelineId, StepId) ->
-    Safe = binary:replace(PipelineId, <<"/">>, <<"-">>, [global]),
-    <<Safe/binary, "-", StepId/binary>>.
+llm_sid(false, StepId, #data{iid = Iid}) ->
+    <<"pipe-", (emqx_base62:encode(<<Iid/binary, 0, StepId/binary>>))/binary>>;
+llm_sid(true, StepId, #data{pipeline_id = PipelineId, key = Key}) ->
+    <<"pipe-",
+        (emqx_base62:encode(<<PipelineId/binary, 0, StepId/binary, 0, Key/binary>>))/binary>>.
 
 %% Start the session process if it is not already running.
 ensure_session(Sid) ->
@@ -581,7 +569,7 @@ do_complete(Data) ->
         iid => Data0#data.iid
     }),
     publish_pipeline_event(Data0, #{<<"type">> => <<"pipeline_completed">>}),
-    {next_state, done, enter_done(Data0)}.
+    {stop, normal, Data0}.
 
 do_fail(Data, Reason) ->
     Data0 = cleanup_reply_wait(Data),
@@ -596,7 +584,7 @@ do_fail(Data, Reason) ->
         <<"type">> => <<"pipeline_failed">>,
         <<"reason">> => ReasonBin
     }),
-    {next_state, done, enter_done(Data0)}.
+    {stop, normal, Data0}.
 
 do_timeout_fail(Data, Reason) ->
     Data0 = cleanup_reply_wait(Data),
@@ -612,16 +600,6 @@ do_timeout_fail(Data, Reason) ->
         <<"reason">> => ReasonBin
     }),
     {stop, {shutdown, Reason}, Data0}.
-
-enter_done(Data) ->
-    Ref = erlang:send_after(?IDLE_TIMEOUT_MS, self(), idle_timeout),
-    Data#data{idle_timer_ref = Ref}.
-
-cancel_idle_timer(#data{idle_timer_ref = undefined} = Data) ->
-    Data;
-cancel_idle_timer(#data{idle_timer_ref = Ref} = Data) ->
-    erlang:cancel_timer(Ref),
-    Data#data{idle_timer_ref = undefined}.
 
 advance_and_step(Data) ->
     Data1 = Data#data{step_idx = Data#data.step_idx + 1},
@@ -683,6 +661,41 @@ deep_get([Key | Rest], Map) when is_map(Map) ->
     end;
 deep_get(_, _) ->
     null.
+
+pipeline_key(Def, TriggerInput) ->
+    Expression = maps:get(<<"key_expression">>, Def, <<"message.topic">>),
+    Bindings = #{message => message_to_map(maps:get(message, TriggerInput))},
+    case emqx_variform:compile(Expression) of
+        {ok, Compiled} ->
+            case emqx_variform:render(Compiled, Bindings, #{eval_as_string => true}) of
+                {ok, Key} -> {ok, Key};
+                {error, Reason} -> {error, {render_key_expression, Reason}}
+            end;
+        {error, Reason} ->
+            {error, {compile_key_expression, Reason}}
+    end.
+
+message_to_map(Message) ->
+    convert_message([user_property, peername, peerhost], emqx_message:to_map(Message)).
+
+convert_message(
+    [user_property | Rest],
+    #{headers := #{properties := #{'User-Property' := UserProperty}} = Headers} = Map
+) ->
+    convert_message(Rest, Map#{
+        headers => Headers#{properties => #{'User-Property' => maps:from_list(UserProperty)}}
+    });
+convert_message(
+    [peername | Rest], #{headers := #{peername := {_Host, _Port} = Peername} = Headers} = Map
+) ->
+    convert_message(Rest, Map#{headers => Headers#{peername => ntoa(Peername)}});
+convert_message([peerhost | Rest], #{headers := #{peerhost := Peerhost} = Headers} = Map) ->
+    convert_message(Rest, Map#{headers => Headers#{peerhost => ntoa(Peerhost)}});
+convert_message(_, Map) ->
+    Map.
+
+ntoa(Addr) ->
+    list_to_binary(emqx_utils:ntoa(Addr)).
 
 %%--------------------------------------------------------------------
 %% Tool manifest building

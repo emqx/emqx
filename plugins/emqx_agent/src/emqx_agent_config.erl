@@ -68,6 +68,7 @@ same external shape that was submitted by users.
 -define(CONNECTION_ID, <<"id">>).
 -define(PIPELINES, <<"pipelines">>).
 -define(PIPELINE_ID, <<"pipeline_id">>).
+-define(DEFAULT_PIPELINE_KEY_EXPRESSION, <<"message.topic">>).
 
 -type skill_type() :: binary().
 -type skill_id() :: binary().
@@ -357,7 +358,10 @@ update_raw_config(Fun) ->
 parse_config({avro_value, _Type, Value}) ->
     parse_config(avro_to_plain(Value));
 parse_config(Config) when is_map(Config) ->
-    {ok, normalize_config(Config)}.
+    case validate_pipelines(maps:get(?PIPELINES, Config, [])) of
+        ok -> {ok, normalize_config(Config)};
+        {error, _} = Error -> Error
+    end.
 
 cache_config(Parsed) ->
     persistent_term:put(?CONFIG_KEY, Parsed),
@@ -469,19 +473,53 @@ normalize_pipelines(Pipelines) when is_list(Pipelines) ->
 normalize_pipelines(_) ->
     [].
 
+validate_pipelines(Pipelines) when is_list(Pipelines) ->
+    validate_pipelines_loop(Pipelines);
+validate_pipelines(_) ->
+    {error, invalid_pipelines}.
+
+validate_pipelines_loop([]) ->
+    ok;
+validate_pipelines_loop([Pipeline | Rest]) ->
+    case normalize_pipeline(Pipeline) of
+        {ok, _} -> validate_pipelines_loop(Rest);
+        {error, _} = Error -> Error
+    end.
+
 normalize_pipeline(Pipeline0) when is_map(Pipeline0) ->
-    Pipeline = unwrap_union(Pipeline0),
-    case Pipeline of
-        #{<<"steps">> := Steps} when is_list(Steps) ->
-            case normalize_steps(Steps, 1, []) of
-                {ok, NormalizedSteps} -> {ok, Pipeline#{<<"steps">> => NormalizedSteps}};
-                {error, _} = Error -> Error
-            end;
-        #{} ->
-            {ok, Pipeline}
+    Pipeline1 = unwrap_union(Pipeline0),
+    case validate_pipeline_key_expression(Pipeline1) of
+        ok -> normalize_pipeline_steps(Pipeline1);
+        {error, _} = Error -> Error
     end;
 normalize_pipeline(_) ->
     {error, invalid_pipeline}.
+
+normalize_pipeline_steps(Pipeline) ->
+    case Pipeline of
+        #{<<"steps">> := Steps} when is_list(Steps) ->
+            case normalize_steps(Steps, 1, []) of
+                {ok, NormalizedSteps} ->
+                    {ok, Pipeline#{
+                        <<"key_expression">> => pipeline_key_expression(Pipeline),
+                        <<"steps">> => NormalizedSteps
+                    }};
+                {error, _} = Error ->
+                    Error
+            end;
+        #{} ->
+            {ok, Pipeline#{<<"key_expression">> => pipeline_key_expression(Pipeline)}}
+    end.
+
+validate_pipeline_key_expression(Pipeline) ->
+    Expression = pipeline_key_expression(Pipeline),
+    case emqx_variform:compile(Expression) of
+        {ok, _Compiled} -> ok;
+        {error, Reason} -> {error, {invalid_key_expression, Expression, Reason}}
+    end.
+
+pipeline_key_expression(Pipeline) ->
+    maps:get(<<"key_expression">>, Pipeline, ?DEFAULT_PIPELINE_KEY_EXPRESSION).
 
 normalize_steps([], _Index, Acc) ->
     {ok, lists:reverse(Acc)};

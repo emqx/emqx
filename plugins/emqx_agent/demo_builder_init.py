@@ -276,7 +276,7 @@ The LLM receives the "input" map as its first user message, then calls tools
     "provider_name": "my-provider",
     "model": "gpt-5.4-mini",
    "instructions": "You are a quality inspector. Examine the photo and return a verdict.",
-   "stop_on_finish": true,
+    "persistent": false,
    "tools": ["message__request@box-camera", "message__publish@box-alert"],
    "input": {"box_id": "$.event.box_id", "conveyor": "$.event.conveyor_id"},
    "set_result_schema": {
@@ -289,12 +289,12 @@ The LLM receives the "input" map as its first user message, then calls tools
    },
    "result_path": "$.analysis"}
 
-stop_on_finish controls session lifecycle:
-  true  — session is discarded after each trigger; every event starts fresh (default).
-  false — session persists and accumulates conversation history across triggers
-          (useful for ongoing reasoning or multi-turn interactions).
+persistent controls session lifecycle:
+  false — session is discarded after each trigger; every event starts fresh (default).
+  true  — session persists for messages with the same pipeline key and accumulates
+          conversation history (useful for ongoing reasoning or multi-turn interactions).
 
-Session IDs are stable: "<pipeline_id>-<step_id>".
+Persistent session IDs are derived from pipeline id, step id, and pipeline key.
 
 When you create an llm_loop step, use model "gpt-5.4-mini" unless the user
 explicitly requests another model. Do not invent a model name.
@@ -370,7 +370,7 @@ def create_pipeline() -> None:
                     "provider_name": PROVIDER_NAME,
                     "model": OPENAI_MODEL,
                     "instructions": SYSTEM_PROMPT,
-                    "stop_on_finish": False,
+                    "persistent": True,
                     "tools": [
                         f"agent__create_skill@{SK_CREATE_SKILL}",
                         f"agent__create_pipeline@{SK_CREATE_PIPELINE}",

@@ -5,7 +5,7 @@ import { createSchemaEditor, getSchemaEditorValue } from './schema_editor.js';
 export function defaultStep(type) {
   const n = pipelineSteps.length + 1;
   if (type === 'call_skill')     return { id: 'step_' + n, type, skill: '', args: [['', '']], result_path: '' };
-  if (type === 'llm_loop')       return { id: 'step_' + n, type, provider_name: '', model: 'gpt-5.4-mini', max_tokens: 2048, stop_on_finish: true, tools: [], input: [['event', '$.event']], set_result_schema: { type: 'object', properties: { status: { type: 'string' } }, required: ['status'], additionalProperties: false }, result_path: '' };
+  if (type === 'llm_loop')       return { id: 'step_' + n, type, provider_name: '', model: 'gpt-5.4-mini', max_tokens: 2048, persistent: false, tools: [], input: [['event', '$.event']], set_result_schema: { type: 'object', properties: { status: { type: 'string' } }, required: ['status'], additionalProperties: false }, result_path: '' };
   if (type === 'break')          return { id: 'step_' + n, type, path: '', not: false };
   return { id: 'step_' + n, type };
 }
@@ -145,8 +145,8 @@ function stepFieldsHTML(step, idx) {
         </div>
       </div>
       <div style="margin-bottom:10px;display:flex;align-items:center;gap:6px">
-        <input type="checkbox" class="sf-stop-on-finish"${step.stop_on_finish?' checked':''}>
-        <span style="font-size:11px">Ephemeral mode <small style="color:var(--muted)">(session terminates after completion; default: true)</small></span>
+        <input type="checkbox" class="sf-persistent"${step.persistent?' checked':''}>
+        <span style="font-size:11px">Persistent mode <small style="color:var(--muted)">(reuse session for the same pipeline key; default: false)</small></span>
       </div>
       <div class="field"><label>Tools (select skills available to the LLM)</label>
         <div class="tools-grid sf-tools">${toolsHTML}</div>
@@ -195,7 +195,7 @@ export function syncStep(idx) {
     step.provider_name = card.querySelector('.sf-provider')?.value ?? '';
     step.model = card.querySelector('.sf-model')?.value?.trim() ?? '';
     step.max_tokens = Number(card.querySelector('.sf-max-tokens')?.value || 2048);
-    step.stop_on_finish = card.querySelector('.sf-stop-on-finish')?.checked ?? true;
+    step.persistent = card.querySelector('.sf-persistent')?.checked ?? false;
     step.tools = [...card.querySelectorAll('.sf-tools input:checked')].map(c => c.value);
     step.instructions = card.querySelector('.sf-instructions')?.value?.trim() ?? '';
     const seEl = card.querySelector('.sf-set-result-schema-editor');
@@ -228,7 +228,7 @@ export function collectSteps() {
       if (s.provider_name) out.provider_name = s.provider_name;
       if (s.model) out.model = s.model;
       if (s.max_tokens) out.max_tokens = s.max_tokens;
-      out.stop_on_finish = s.stop_on_finish ?? true;
+      out.persistent = s.persistent ?? false;
       if (s.instructions) out.instructions = s.instructions;
       if (s.tools?.length)   out.tools = s.tools;
       const input = Object.fromEntries((s.input||[]).filter(([k]) => k));

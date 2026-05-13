@@ -38,10 +38,8 @@ deinit_hook() ->
 %% Hook callback
 %%--------------------------------------------------------------------
 
-on_message_publish(
-    #message{topic = <<"evt/", _/binary>> = Topic, payload = Payload} = Msg
-) ->
-    handle_evt(Topic, Payload),
+on_message_publish(#message{topic = <<"evt/", _/binary>>} = Msg) ->
+    handle_evt(Msg),
     {ok, Msg};
 on_message_publish(Msg) ->
     {ok, Msg}.
@@ -50,7 +48,7 @@ on_message_publish(Msg) ->
 %% Internal routing
 %%--------------------------------------------------------------------
 
-handle_evt(Topic, Payload) ->
+handle_evt(#message{topic = Topic, payload = Payload} = Msg) ->
     Event = safe_decode(Payload),
     log_received(evt, #{topic => Topic, event => Event}),
     %% Start new instances for every active pipeline whose trigger matches.
@@ -66,7 +64,9 @@ handle_evt(Topic, Payload) ->
         _ ->
             ok
     end,
-    lists:foreach(fun(Def) -> start_instance(Def, Event) end, ActiveDefs).
+    lists:foreach(
+        fun(Def) -> start_instance(Def, #{event => Event, message => Msg}) end, ActiveDefs
+    ).
 
 start_instance(Def, Event) ->
     case emqx_agent_pipeline_sup:start_pipeline(Def, Event) of

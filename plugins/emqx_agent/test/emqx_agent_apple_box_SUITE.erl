@@ -338,7 +338,7 @@ register_pipeline() ->
                     "  status: 'approved' if all apples look fresh, 'rejected' if any defect found; "
                     "  reason: a short sentence explaining your decision."
                 >>,
-                <<"stop_on_finish">> => true,
+                <<"persistent">> => false,
                 <<"tools">> => [
                     <<"message__request@box-shot">>,
                     <<"message__publish@box-alert">>

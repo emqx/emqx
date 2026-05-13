@@ -106,13 +106,13 @@
     --- llm_loop ---
       {"id": "analyse", "type": "llm_loop",
        "provider_name": "my-provider",
-       "stop_on_finish": true,
+       "persistent": false,
        "tools": ["<skill-type>@<skill-id>"],
        "input": [{"name": "box_id", "value": "$.event.box_id"}],
        "set_result_schema": "{\"type\":\"object\",\"properties\":{\"verdict\":{\"type\":\"string\"}},\"required\":[\"verdict\"],\"additionalProperties\":false}",
        "result_path": "$.analysis"}
 
-    stop_on_finish: true = ephemeral session (default). false = persistent across triggers.
+    persistent: false = ephemeral session (default). true = persistent across triggers with the same pipeline key.
 
     When creating an llm_loop step, use model "gpt-5.4-mini" unless the user explicitly
     requests another model. Do not invent a model name.
@@ -419,7 +419,7 @@ register_builder_pipeline() ->
                 <<"model">> => Model,
                 <<"max_tokens">> => 8192,
                 <<"instructions">> => ?BUILDER_INSTRUCTIONS,
-                <<"stop_on_finish">> => false,
+                <<"persistent">> => true,
                 <<"tools">> => [
                     <<"agent__create_skill@builder-create-skill">>,
                     <<"agent__create_pipeline@builder-create-pipeline">>,

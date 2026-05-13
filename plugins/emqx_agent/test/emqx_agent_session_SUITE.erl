@@ -48,7 +48,7 @@
     t_request_finish,
     t_request_with_tool_call,
     t_events_are_incorporated,
-    t_stop_on_finish_false_keeps_session,
+    t_persistent_keeps_session,
     t_explicit_stop_terminates_session,
     t_llm_connection_error_terminates_session,
     t_request_while_busy_is_queued,
@@ -294,7 +294,7 @@ t_request_with_tool_call(Config) ->
 
 %% Events are buffered while the LLM is reasoning and forwarded on the
 %% next LLM call.  We test this behaviourally: start with
-%% stop_on_finish=false so the session stays in idle, push an event,
+%% persistent=true so the session stays in idle, push an event,
 %% then send a second request and verify the session produces a second
 %% An event arriving in idle state immediately restarts reasoning.
 %% We inject a distinctive sentinel value and verify the final mentions it —
@@ -303,7 +303,7 @@ t_request_with_tool_call(Config) ->
 t_events_are_incorporated(Config) ->
     %% unlikely to appear by chance
     Sentinel = 7331,
-    %% First request — session answers and returns to idle (stop_on_finish=false)
+    %% First request — session answers and returns to idle (persistent=true)
     publish_in(
         Config,
         request(Config, #{
@@ -311,7 +311,7 @@ t_events_are_incorporated(Config) ->
             <<"instructions">> =>
                 <<"Answer briefly. When asked to report an event value, reply with only the number.">>,
             <<"input">> => #{<<"q">> => <<"What is 1+1?">>},
-            <<"stop_on_finish">> => false
+            <<"persistent">> => true
         })
     ),
     Final1 = recv_final(Config),
@@ -343,17 +343,17 @@ t_events_are_incorporated(Config) ->
         )
     ).
 
-%% With stop_on_finish=false the session returns to idle after publishing
-%% final.  Verify the process is still alive, then stop it explicitly so the
+%% With persistent=true the session returns to idle after publishing
+%% final. Verify the process is still alive, then force the idle timeout so the
 %% test does not leak a persistent session.
-t_stop_on_finish_false_keeps_session(Config) ->
+t_persistent_keeps_session(Config) ->
     publish_in(
         Config,
         request(Config, #{
             <<"tools">> => [],
             <<"instructions">> => <<"Answer briefly.">>,
             <<"input">> => #{<<"q">> => <<"What is 2+2?">>},
-            <<"stop_on_finish">> => false
+            <<"persistent">> => true
         })
     ),
     _Final1 = recv_final(Config),
@@ -363,12 +363,12 @@ t_stop_on_finish_false_keeps_session(Config) ->
     ?assertNotEqual(undefined, Pid),
     Ref = monitor(process, Pid),
 
-    publish_in(Config, #{<<"type">> => <<"stop">>}),
+    Pid ! persistent_idle_timeout,
 
     receive
         {'DOWN', Ref, process, Pid, normal} -> ok
     after ?SHORT_TIMEOUT ->
-        ct:fail("session did not stop after stop frame")
+        ct:fail("session did not stop after persistent idle timeout")
     end.
 
 %% An explicit `stop` frame must terminate the session process.
@@ -379,7 +379,7 @@ t_explicit_stop_terminates_session(Config) ->
             <<"tools">> => [],
             <<"instructions">> => <<"Answer briefly.">>,
             <<"input">> => #{<<"q">> => <<"What is 4+4?">>},
-            <<"stop_on_finish">> => false
+            <<"persistent">> => true
         })
     ),
     _Final = recv_final(Config),
@@ -440,7 +440,7 @@ t_request_while_busy_is_queued(Config) ->
             <<"instructions">> =>
                 <<"Use the add tool to compute the answer. Do not answer directly.">>,
             <<"input">> => #{<<"question">> => <<"What is 5 + 5?">>},
-            <<"stop_on_finish">> => false
+            <<"persistent">> => true
         })
     ),
 

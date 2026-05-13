@@ -230,58 +230,24 @@ t_break_with_not_stops_pipeline_when_not_true(Config) ->
     Ctx = maps:get(<<"context">>, Completed),
     ?assertEqual(undefined, maps:get(<<"post">>, Ctx, undefined)).
 
-%% After completion the pipeline enters done state and stops when the idle
-%% timer fires.  We override the timer by sending idle_timeout directly.
-t_done_idle_stop(Config) ->
+%% A one-off pipeline terminates after publishing completion.
+t_one_off_pipeline_stops_on_completion(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     TrigTopic = <<"evt/test/", PipelineId/binary>>,
-    register_pipeline(PipelineId, TrigTopic, []),
-    publish_evt(TrigTopic, #{<<"id">> => <<"e5">>}),
+    {ok, Pid} = start_pipeline_direct(PipelineId, TrigTopic, [], #{<<"id">> => <<"e5">>}),
+    Ref = monitor(process, Pid),
     Started = recv_pipe_event(PipelineId),
     ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started),
     Completed = recv_pipe_event(PipelineId),
     ?assertMatch(#{<<"type">> := <<"pipeline_completed">>}, Completed),
-    %% Find the pipeline process and send idle_timeout to force-stop it.
-    Iid = maps:get(<<"iid">>, Completed),
-    Pid = emqx_agent_pipeline:whereis(Iid),
-    ?assertNotEqual(undefined, Pid),
-    Ref = monitor(process, Pid),
-    Pid ! idle_timeout,
     receive
-        {'DOWN', Ref, process, Pid, normal} -> ok
+        {'DOWN', Ref, process, Pid, Reason} when Reason =:= normal; Reason =:= noproc -> ok
     after ?SHORT_TIMEOUT ->
-        ct:fail("pipeline did not stop after idle_timeout")
-    end.
-
-%% A message arriving at a done pipeline causes it to restart from step 0.
-t_done_restarts_on_message(Config) ->
-    PipelineId = ?config(pipeline_id, Config),
-    SkillId = PipelineId,
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
-    Steps = [
-        #{
-            <<"id">> => <<"s">>,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message__publish@", SkillId/binary>>,
-            <<"args">> => #{<<"topic">> => <<"r">>, <<"payload">> => <<"x">>},
-            <<"result_path">> => <<"$.r">>
-        }
-    ],
-    register_pipeline(PipelineId, TrigTopic, Steps),
-    setup_publish_skill(SkillId),
-    publish_evt(TrigTopic, #{<<"id">> => <<"e6">>}),
-    _S1 = recv_pipe_event(PipelineId),
-    Completed1 = recv_pipe_event(PipelineId),
-    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>}, Completed1),
-    Iid = maps:get(<<"iid">>, Completed1),
-    Pid = emqx_agent_pipeline:whereis(Iid),
-    %% Send a cast to trigger the "restart from done" path.
-    gen_statem:cast(Pid, #cap_reply{req_id = <<"restart">>, frame = #{}}),
-    %% The pipeline should restart and produce another started + completed pair.
-    Started2 = recv_pipe_event(PipelineId),
-    ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started2),
-    Completed2 = recv_pipe_event(PipelineId),
-    ?assertEqual(<<"pipeline_completed">>, maps:get(<<"type">>, Completed2)).
+        ct:fail("pipeline did not stop after completion")
+    end,
+    Ctx = maps:get(<<"context">>, Completed),
+    ?assertEqual(TrigTopic, maps:get(<<"key">>, Ctx)),
+    ?assertEqual(emqx_base62:encode(TrigTopic), maps:get(<<"key_base62">>, Ctx)).
 
 %% Step 1 writes its result to $.lookup.  Step 2 reads $.lookup.topic
 %% out of context and uses it as the `topic` arg for the skill call.
@@ -360,7 +326,6 @@ t_set_result_writes_to_context(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     TrigTopic = <<"evt/test/", PipelineId/binary>>,
     StepId = <<"llm">>,
-    Sid = <<PipelineId/binary, "-", StepId/binary>>,
     ok = emqx_ai_completion_config:update_providers_raw(
         {add, #{
             <<"name">> => <<"test-provider">>,
@@ -386,14 +351,12 @@ t_set_result_writes_to_context(Config) ->
         },
         <<"result_path">> => <<"$.verdict">>
     },
-    register_pipeline(PipelineId, TrigTopic, [Step]),
-    publish_evt(TrigTopic, #{<<"id">> => <<"sr-1">>}),
+    {ok, Pid} = start_pipeline_direct(PipelineId, TrigTopic, [Step], #{<<"id">> => <<"sr-1">>}),
 
     Started = recv_pipe_event(PipelineId),
     ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started),
     Iid = maps:get(<<"iid">>, Started),
-    Pid = emqx_agent_pipeline:whereis(Iid),
-    ?assertNotEqual(undefined, Pid),
+    Sid = ephemeral_sid(Iid, StepId),
 
     %% Simulate the LLM calling set_result.  Gen_statem ordering guarantees
     %% the pipeline is in llm_loop when it processes this cast.
@@ -423,7 +386,6 @@ t_llm_loop_final_without_set_result_fails(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     TrigTopic = <<"evt/test/", PipelineId/binary>>,
     StepId = <<"llm">>,
-    Sid = <<PipelineId/binary, "-", StepId/binary>>,
     ok = emqx_ai_completion_config:update_providers_raw(
         {add, #{
             <<"name">> => <<"test-provider">>,
@@ -449,14 +411,12 @@ t_llm_loop_final_without_set_result_fails(Config) ->
         },
         <<"result_path">> => <<"$.verdict">>
     },
-    register_pipeline(PipelineId, TrigTopic, [Step]),
-    publish_evt(TrigTopic, #{<<"id">> => <<"sr-missing">>}),
+    {ok, Pid} = start_pipeline_direct(PipelineId, TrigTopic, [Step], #{<<"id">> => <<"sr-missing">>}),
 
     Started = recv_pipe_event(PipelineId),
     ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started),
     Iid = maps:get(<<"iid">>, Started),
-    Pid = emqx_agent_pipeline:whereis(Iid),
-    ?assertNotEqual(undefined, Pid),
+    Sid = ephemeral_sid(Iid, StepId),
 
     gen_statem:cast(Pid, #sess_frame{
         sid = Sid,
@@ -486,10 +446,12 @@ t_llm_loop_defaults_are_applied(Config) ->
         <<"result_path">> => <<"$.result">>
     },
     register_pipeline(PipelineId, TrigTopic, [Step]),
-    {ok, #{<<"steps">> := [Stored]}} = emqx_agent_config:lookup_pipeline(PipelineId),
+    {ok, #{<<"key_expression">> := KeyExpression, <<"steps">> := [Stored]}} =
+        emqx_agent_config:lookup_pipeline(PipelineId),
     ?assertMatch(#{<<"tools">> := []}, Stored),
     ?assertMatch(#{<<"input">> := #{}}, Stored),
-    ?assertMatch(#{<<"stop_on_finish">> := true}, Stored),
+    ?assertMatch(#{<<"persistent">> := false}, Stored),
+    ?assertEqual(<<"message.topic">>, KeyExpression),
     ?assertEqual(2048, maps:get(<<"max_tokens">>, Stored)).
 
 t_llm_loop_requires_set_result_schema(Config) ->
@@ -537,6 +499,42 @@ t_llm_loop_requires_model(Config) ->
         })
     ).
 
+t_pipeline_rejects_invalid_key_expression(Config) ->
+    PipelineId = ?config(pipeline_id, Config),
+    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    ?assertMatch(
+        {error, _},
+        emqx_agent_service:pipeline_create(#{
+            <<"pipeline_id">> => PipelineId,
+            <<"active">> => true,
+            <<"key_expression">> => <<"not existing fun(">>,
+            <<"trigger">> => #{<<"topic">> => TrigTopic},
+            <<"steps">> => []
+        })
+    ).
+
+t_pipeline_custom_key_expression(Config) ->
+    PipelineId = ?config(pipeline_id, Config),
+    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    Def = #{
+        <<"pipeline_id">> => PipelineId,
+        <<"active">> => true,
+        <<"key_expression">> => <<"message.from">>,
+        <<"trigger">> => #{<<"topic">> => TrigTopic},
+        <<"steps">> => []
+    },
+    Msg = trigger_message(TrigTopic, #{<<"id">> => <<"key-1">>}),
+    {ok, _Pid} = emqx_agent_pipeline_sup:start_pipeline(Def, #{
+        event => #{<<"id">> => <<"key-1">>},
+        message => Msg
+    }),
+    _Started = recv_pipe_event(PipelineId),
+    Completed = recv_pipe_event(PipelineId),
+    Ctx = maps:get(<<"context">>, Completed),
+    From = atom_to_binary(?MODULE, utf8),
+    ?assertEqual(From, maps:get(<<"key">>, Ctx)),
+    ?assertEqual(emqx_base62:encode(From), maps:get(<<"key_base62">>, Ctx)).
+
 %% Unregistered pipeline definitions must not trigger new instances.
 t_unregistered_pipeline_not_triggered(Config) ->
     PipelineId = ?config(pipeline_id, Config),
@@ -582,19 +580,10 @@ t_pipeline_reply_timeout_fails_and_stops(Config) ->
 
         Started = recv_pipe_event(PipelineId),
         ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started),
-        Iid = maps:get(<<"iid">>, Started),
-        Pid = emqx_agent_pipeline:whereis(Iid),
-        ?assertNotEqual(undefined, Pid),
-        Ref = monitor(process, Pid),
 
         Failed = recv_pipe_event(PipelineId),
         ?assertMatch(#{<<"type">> := <<"pipeline_failed">>}, Failed),
-        ?assertEqual(<<"llm_reply_timeout">>, maps:get(<<"reason">>, Failed)),
-        receive
-            {'DOWN', Ref, process, Pid, {shutdown, llm_reply_timeout}} -> ok
-        after ?SHORT_TIMEOUT ->
-            ct:fail("pipeline did not stop after reply timeout")
-        end
+        ?assertEqual(<<"llm_reply_timeout">>, maps:get(<<"reason">>, Failed))
     after
         _ = emqx_ai_completion_config:update_providers_raw({delete, ProviderName}),
         exit(Acceptor, kill),
@@ -614,6 +603,23 @@ register_pipeline(PipelineId, TrigTopic, Steps) ->
     },
     ok = emqx_agent_service:pipeline_create(Def).
 
+start_pipeline_direct(PipelineId, TrigTopic, Steps, Event) ->
+    Def = #{
+        <<"pipeline_id">> => PipelineId,
+        <<"active">> => true,
+        <<"trigger">> => #{<<"topic">> => TrigTopic},
+        <<"steps">> => Steps
+    },
+    emqx_agent_pipeline_sup:start_pipeline(Def, #{
+        event => Event, message => trigger_message(TrigTopic, Event)
+    }).
+
+trigger_message(Topic, Event) ->
+    emqx_message:make(?MODULE, 0, Topic, emqx_utils_json:encode(Event)).
+
+ephemeral_sid(Iid, StepId) ->
+    <<"pipe-", (emqx_base62:encode(<<Iid/binary, 0, StepId/binary>>))/binary>>.
+
 setup_publish_skill(SkillId) ->
     emqx_agent_config:create_skill(#{
         <<"type">> => <<"message__publish">>,
@@ -623,9 +629,7 @@ setup_publish_skill(SkillId) ->
     }).
 
 publish_evt(Topic, Event) ->
-    Payload = emqx_utils_json:encode(Event),
-    Msg = emqx_message:make(?MODULE, 0, Topic, Payload),
-    emqx_broker:publish(Msg).
+    emqx_broker:publish(trigger_message(Topic, Event)).
 
 recv_pipe_event(PipelineId) ->
     recv_pipe_event(PipelineId, ?SHORT_TIMEOUT).

@@ -9,7 +9,7 @@
 %% Outgoing topic:  sess/out/<SID>/
 %%
 %% Message types on in-topic:
-%%   request     — start an LLM reasoning loop; carries optional stop_on_finish (default true)
+%%   request     — start an LLM reasoning loop; carries optional persistent (default false)
 %%   tool_result — result of a previously requested tool call
 %%   event       — new context to be merged into the next LLM turn
 %%   stop        — explicitly terminate the session from outside
@@ -29,8 +29,8 @@
 %%                                   │                              │
 %%                                   │◀──────── all results ────────┘
 %%                                   │
-%%                                stop/no pending, stop_on_finish=true  ──▶  {stop, normal}
-%%                                stop/no pending, stop_on_finish=false ──▶  idle
+%%                                stop/no pending, persistent=false ──▶  {stop, normal}
+%%                                stop/no pending, persistent=true  ──▶  idle
 %%                                stop/pending                          ──▶  calling_llm (extend)
 %%
 %%   idle ──event──▶    calling_llm  (continue reasoning with accumulated context)
@@ -71,6 +71,7 @@
 -define(REG(Sid), {global, ?NAME(Sid)}).
 -define(OUT(Sid), <<"sess/out/", (Sid)/binary, "/">>).
 -define(MAX_ITERATIONS, 20).
+-define(PERSISTENT_IDLE_TIMEOUT_MS, 3_600_000).
 
 %%--------------------------------------------------------------------
 %% Data (gen_statem "extended state")
@@ -103,9 +104,10 @@
         <<"tokens_in">> => 0,
         <<"tokens_out">> => 0
     } :: map(),
-    %% When true (default), the session stops after publishing final.
-    %% When false, it transitions to idle where events drive further reasoning.
-    stop_on_finish = true :: boolean(),
+    %% When false (default), the session stops after publishing final.
+    %% When true, it transitions to idle where events drive further reasoning.
+    persistent = false :: boolean(),
+    idle_timer_ref = undefined :: reference() | undefined,
     %% {Tag, MonRef} for the active LLM subprocess (state: calling_llm)
     llm_ref = undefined :: undefined | {reference(), reference()},
     %% Tool call ids still outstanding (state: waiting_tools)
@@ -198,7 +200,7 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, initial_idle, Dat
         temperature = maps:get(<<"temperature">>, Msg, 0.1),
         stream = maps:get(<<"stream">>, Msg, true),
         tool_choice = maps:get(<<"tool_choice">>, Msg, <<"required">>),
-        stop_on_finish = maps:get(<<"stop_on_finish">>, Msg, true),
+        persistent = maps:get(<<"persistent">>, Msg, false),
         messages = [SysMsg, UserMsg] ++ PendingMsgs,
         pending = [],
         usage = #{
@@ -211,11 +213,12 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, initial_idle, Dat
     start_llm_call(Data1);
 %% ── idle: new request — append input to history, optionally refresh config ───
 %%
-%% The session stays alive (stop_on_finish = false) so history accumulates
+%% The session stays alive (persistent = true) so history accumulates
 %% across triggers.  Each new pipeline run appends its input as the next user
 %% message; the model sees the full prior conversation.
 
 handle_event(cast, {in, #{<<"type">> := <<"request">>, <<"input">> := Input} = Msg}, idle, Data) ->
+    Data0 = cancel_idle_timer(Data),
     %% Refresh mutable per-run fields: iid, trace_id, tools, tool_choice.
     %% Restoring tool_choice ensures the model is forced to issue a command
     %% on every new turn even if it was relaxed to "auto" after the previous
@@ -229,24 +232,24 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>, <<"input">> := Input} = M
     Messages0 =
         case maps:get(<<"instructions">>, Msg, undefined) of
             undefined ->
-                Data#data.messages;
+                Data0#data.messages;
             NewInstructions ->
                 SysMsg = #{
                     <<"role">> => <<"system">>,
                     <<"content">> => format_instructions(NewInstructions)
                 },
-                [SysMsg | tl(Data#data.messages)]
+                [SysMsg | tl(Data0#data.messages)]
         end,
     %% Append the new user message so the model sees continuity.
     UserMsg = #{<<"role">> => <<"user">>, <<"content">> => emqx_utils_json:encode(Input)},
-    Data1 = Data#data{
+    Data1 = Data0#data{
         iid = Iid,
         trace_id = TraceId,
         provider_name = ProviderName,
         tools = Tools,
         tool_choice = ToolChoice,
         messages = Messages0 ++ [UserMsg],
-        stop_on_finish = maps:get(<<"stop_on_finish">>, Msg, false),
+        persistent = maps:get(<<"persistent">>, Msg, true),
         pending = []
     },
     ?SLOG(info, #{
@@ -308,12 +311,20 @@ handle_event(
 handle_event(cast, {in, #{<<"type">> := <<"stop">>}}, _State, Data) ->
     ?SLOG(info, #{msg => "session_stopped_explicitly", sid => Data#data.sid}),
     {stop, normal, Data};
+%% ── idle timeout for persistent sessions ─────────────────────────────────
+
+handle_event(info, persistent_idle_timeout, idle, Data) ->
+    ?SLOG(info, #{msg => "session_persistent_idle_timeout", sid => Data#data.sid}),
+    {stop, normal, Data#data{idle_timer_ref = undefined}};
+handle_event(info, persistent_idle_timeout, _State, Data) ->
+    {keep_state, Data#data{idle_timer_ref = undefined}};
 %% ── idle + event: immediately continue reasoning ─────────────────────────
 
 handle_event(cast, {in, #{<<"type">> := <<"event">>} = Msg}, idle, Data) ->
     Event = maps:get(<<"event">>, Msg, Msg),
     ?SLOG(info, #{msg => "session_event_triggers_llm", sid => Data#data.sid}),
-    Data1 = Data#data{messages = Data#data.messages ++ [event_to_llm_msg(Event)]},
+    Data0 = cancel_idle_timer(Data),
+    Data1 = Data0#data{messages = Data0#data.messages ++ [event_to_llm_msg(Event)]},
     start_llm_call(Data1);
 %% ── any other state: buffer events ───────────────────────────────────────
 
@@ -516,7 +527,7 @@ on_tool_result(CallId, Msg, Data) ->
 
 %% LLM signalled it is done (no tool calls).
 %% Restart with pending events if any; otherwise publish final and either
-%% stop or return to idle depending on stop_on_finish.
+%% stop or return to idle depending on persistent.
 on_reasoning_done(LLMMsg, FinishReason, Data) ->
     case Data#data.pending of
         [] ->
@@ -557,18 +568,29 @@ maybe_next_llm_call(Data) ->
             start_llm_call(Data)
     end.
 
-%% After publishing final: stop or return to idle based on stop_on_finish.
+%% After publishing final: stop or return to idle based on persistent.
 %% If a request arrived while the session was busy, process it immediately
 %% rather than sitting in idle waiting for the next cast.
-finish(#data{stop_on_finish = true} = Data) ->
+finish(#data{persistent = false} = Data) ->
     {stop, normal, Data};
-finish(#data{stop_on_finish = false, queued_request = undefined} = Data) ->
+finish(#data{persistent = true, queued_request = undefined} = Data) ->
     ?SLOG(info, #{msg => "session_idle", sid => Data#data.sid}),
-    {next_state, idle, Data};
-finish(#data{stop_on_finish = false, queued_request = Queued} = Data) ->
+    {next_state, idle, start_idle_timer(Data)};
+finish(#data{persistent = true, queued_request = Queued} = Data) ->
     ?SLOG(info, #{msg => "session_draining_queued_request", sid => Data#data.sid}),
     Data1 = Data#data{queued_request = undefined},
     {next_state, idle, Data1, [{next_event, cast, {in, Queued}}]}.
+
+start_idle_timer(Data) ->
+    Data1 = cancel_idle_timer(Data),
+    Ref = erlang:send_after(?PERSISTENT_IDLE_TIMEOUT_MS, self(), persistent_idle_timeout),
+    Data1#data{idle_timer_ref = Ref}.
+
+cancel_idle_timer(#data{idle_timer_ref = undefined} = Data) ->
+    Data;
+cancel_idle_timer(#data{idle_timer_ref = Ref} = Data) ->
+    _ = erlang:cancel_timer(Ref, [{async, false}, {info, false}]),
+    Data#data{idle_timer_ref = undefined}.
 
 %%--------------------------------------------------------------------
 %% Routing
