@@ -28,7 +28,7 @@ format_error(Reason) ->
 error_response(Reason) ->
     #{<<"status">> => <<"error">>, <<"reason">> => format_error(Reason)}.
 
-%% Build and publish a unary skill reply to `cap/<Type>/<SkillId>/response/<ReqId>`.
+%% Build and publish a unary skill reply to `$cap/<Type>/<SkillId>/response/<ReqId>`.
 -spec publish_reply(binary(), binary(), map(), map()) -> ok.
 publish_reply(Type, SkillId, Request, Data) ->
     ReqId = maps:get(<<"req_id">>, Request),
@@ -39,7 +39,7 @@ publish_reply(Type, SkillId, Request, Data) ->
             <<"response">> => Data
         }
     ),
-    ReplyTopic = <<"cap/", Type/binary, "/", SkillId/binary, "/response/", ReqId/binary>>,
+    ReplyTopic = emqx_agent_topics:cap_response_topic(Type, SkillId, ReqId),
     Msg = emqx_message:make(SkillId, ?QOS_0, ReplyTopic, emqx_utils_json:encode(Reply)),
     _ = emqx_broker:publish(Msg),
     ok.

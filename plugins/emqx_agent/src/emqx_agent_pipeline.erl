@@ -13,12 +13,12 @@
 %%
 %% States
 %%   running        — executing a deterministic step
-%%   llm_loop       — active LLM session; proxying tool_request ↔ cap/
-%%   waiting_cap    — cap/ request sent for a call_skill step; awaiting cap_reply
+%%   llm_loop       — active LLM session; proxying tool_request ↔ $cap/
+%%   waiting_cap    — $cap/ request sent for a call_skill step; awaiting cap_reply
 %%
 %% Incoming OTP messages (all sent as gen_statem casts by emqx_agent_pipeline_mgr)
-%%   #sess_frame{sid, frame}   — from sess/out/<sid>/
-%%   #cap_reply{req_id, frame} — from cap/<type>/<id>/response/<req_id>
+%%   #sess_frame{sid, frame}   — from $sess/out/<sid>/
+%%   #cap_reply{req_id, frame} — from $cap/<type>/<id>/response/<req_id>
 %%
 %% Context and JSONPath
 %%   The pipeline maintains a `context` map.  Reading uses dotted paths
@@ -28,7 +28,7 @@
 %%
 %% Tool specs
 %%   Format:  "<type>@<skill_id>"  e.g. "message__publish@slack-dev"
-%%   The type becomes the cap/<type> topic segment.
+%%   The type becomes the $cap/<type> topic segment.
 %%   The tool name sent to the LLM is the spec with non-[a-zA-Z0-9_-] replaced
 %%   by underscore (e.g. "message_publish_slack_dev").
 %%
@@ -773,16 +773,13 @@ safe_decode(Payload) ->
     end.
 
 sess_out_topic(Sid) ->
-    <<"sess/out/", Sid/binary, "/">>.
+    emqx_agent_topics:sess_out_topic(Sid).
 
 cap_response_topic(Type, SkillId, ReqId) ->
-    <<"cap/", Type/binary, "/", SkillId/binary, "/response/", ReqId/binary>>.
+    emqx_agent_topics:cap_response_topic(Type, SkillId, ReqId).
 
 req_id_from_cap_response_topic(Topic) ->
-    case binary:split(Topic, <<"/response/">>) of
-        [_TypeSkill, ReqId] -> ReqId;
-        _ -> undefined
-    end.
+    emqx_agent_topics:req_id_from_cap_response_topic(Topic).
 
 subscribe_reply_topic(Topic, #data{reply_topics = Topics0} = Data) ->
     case lists:member(Topic, Topics0) of
@@ -827,14 +824,14 @@ cancel_reply_timer(#data{reply_timer_ref = Ref} = Data) ->
     Data#data{reply_timer_ref = undefined}.
 
 publish_to_sess_in(Sid, Payload) ->
-    Topic = <<"sess/in/", Sid/binary, "/">>,
+    Topic = emqx_agent_topics:sess_in_topic(Sid),
     Msg = emqx_message:make(?MODULE, ?QOS_0, Topic, emqx_utils_json:encode(Payload)),
     _ = emqx_broker:publish(Msg),
     ok.
 
 publish_cap_invoke(Type, SkillId, PayloadMap) ->
     ReqId = maps:get(<<"req_id">>, PayloadMap),
-    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>,
+    Topic = emqx_agent_topics:cap_request_topic(Type, SkillId, ReqId),
     Msg = emqx_message:make(
         ?MODULE, ?QOS_0, Topic, emqx_utils_json:encode(maps:remove(<<"req_id">>, PayloadMap))
     ),
@@ -853,7 +850,7 @@ publish_pipeline_event(
     #data{pipeline_id = PipelineId, iid = Iid, trace_id = TraceId, context = Ctx},
     Frame
 ) ->
-    Topic = <<"pipe/", PipelineId/binary, "/inst/", Iid/binary, "/events">>,
+    Topic = emqx_agent_topics:pipe_events_topic(PipelineId, Iid),
     Payload = maps:merge(
         #{
             <<"pipeline_id">> => PipelineId,

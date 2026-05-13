@@ -116,7 +116,7 @@ t_delete_skill_in_use_by_call_skill(_Config) ->
     ok = emqx_agent_service:pipeline_create(#{
         <<"pipeline_id">> => <<"pipe-uses-pub">>,
         <<"active">> => false,
-        <<"trigger">> => #{<<"topic">> => <<"evt/x">>},
+        <<"trigger">> => #{<<"topic">> => <<"$evt/x">>},
         <<"steps">> => [
             #{
                 <<"id">> => <<"s1">>,
@@ -149,7 +149,7 @@ t_delete_skill_in_use_by_llm_tools(_Config) ->
     ok = emqx_agent_service:pipeline_create(#{
         <<"pipeline_id">> => <<"pipe-uses-tool">>,
         <<"active">> => false,
-        <<"trigger">> => #{<<"topic">> => <<"evt/t">>},
+        <<"trigger">> => #{<<"topic">> => <<"$evt/t">>},
         <<"steps">> => [
             #{
                 <<"id">> => <<"llm">>,
@@ -204,7 +204,7 @@ t_delete_pipeline_ok(_Config) ->
     ok = emqx_agent_service:pipeline_create(#{
         <<"pipeline_id">> => <<"to-del-pipe">>,
         <<"active">> => false,
-        <<"trigger">> => #{<<"topic">> => <<"evt/del/+">>},
+        <<"trigger">> => #{<<"topic">> => <<"$evt/del/+">>},
         <<"steps">> => []
     }),
 
@@ -238,7 +238,7 @@ t_delete_pipeline_active(_Config) ->
     ok = emqx_agent_service:pipeline_create(#{
         <<"pipeline_id">> => <<"active-pipe">>,
         <<"active">> => true,
-        <<"trigger">> => #{<<"topic">> => <<"evt/act/+">>},
+        <<"trigger">> => #{<<"topic">> => <<"$evt/act/+">>},
         <<"steps">> => []
     }),
 
@@ -282,13 +282,13 @@ t_delete_pipeline_reply_correlation(_Config) ->
 %%--------------------------------------------------------------------
 
 reply_topic(ReqId) ->
-    <<"cap/+/+/response/", ReqId/binary>>.
+    <<"$cap/+/+/response/", ReqId/binary>>.
 
 invoke(Type, SkillId, Args, ReqId) ->
     invoke(Type, SkillId, Args, ReqId, #{}).
 
 invoke(Type, SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>,
+    Topic = <<"$cap/", Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{

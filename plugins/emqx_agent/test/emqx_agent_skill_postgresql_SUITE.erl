@@ -14,7 +14,7 @@
 -define(SKILL_TYPE, <<"postgresql__query">>).
 -define(SKILL_ID, <<"pg-test">>).
 -define(CONNECTION_ID, <<"pg-test-conn">>).
--define(INVOKE_TOPIC(ReqId), <<"cap/postgresql__query/pg-test/request/", ReqId/binary>>).
+-define(INVOKE_TOPIC(ReqId), <<"$cap/postgresql__query/pg-test/request/", ReqId/binary>>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -59,7 +59,7 @@ t_multiple_instances(_Config) ->
 
 t_invoke_queries_postgresql(_Config) ->
     ReqId = <<"req-PG-001">>,
-    ReplyTopic = <<"cap/postgresql__query/", ?SKILL_ID/binary, "/response/", ReqId/binary>>,
+    ReplyTopic = <<"$cap/postgresql__query/", ?SKILL_ID/binary, "/response/", ReqId/binary>>,
     ok = emqx:subscribe(ReplyTopic),
 
     Invoke = #{

@@ -5,8 +5,8 @@
 %% Session gen_statem: one process per logical session, globally registered
 %% so it is unique across the cluster.
 %%
-%% Incoming topic:  sess/in/<SID>/
-%% Outgoing topic:  sess/out/<SID>/
+%% Incoming topic:  $sess/in/<SID>/
+%% Outgoing topic:  $sess/out/<SID>/
 %%
 %% Message types on in-topic:
 %%   request     — start an LLM reasoning loop; carries optional persistent (default false)
@@ -53,6 +53,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include("emqx_agent_pipeline.hrl").
 
 %% Public API
 -export([start_link/2, whereis/1]).
@@ -69,8 +70,8 @@
 
 -define(NAME(Sid), {?MODULE, Sid}).
 -define(REG(Sid), {global, ?NAME(Sid)}).
--define(IN(Sid), <<"sess/in/", (Sid)/binary, "/">>).
--define(OUT(Sid), <<"sess/out/", (Sid)/binary, "/">>).
+-define(IN(Sid), <<?AGENT_SESS_IN_PREFIX/binary, (Sid)/binary, "/">>).
+-define(OUT(Sid), <<?AGENT_SESS_OUT_PREFIX/binary, (Sid)/binary, "/">>).
 -define(MAX_ITERATIONS, 20).
 -define(PERSISTENT_IDLE_TIMEOUT_MS, 3_600_000).
 
@@ -132,7 +133,7 @@ deinit_hook() ->
     ok.
 
 on_message_publish(
-    #message{topic = <<"sess/in/", Rest/binary>>, payload = Payload} = Message
+    #message{topic = <<"$sess/in/", Rest/binary>>, payload = Payload} = Message
 ) ->
     case binary:split(Rest, <<"/">>) of
         [Sid, <<>>] ->
@@ -194,7 +195,7 @@ terminate(_Reason, _State, #data{sid = Sid}) ->
 %% Clauses are ordered: specific state first, catch-alls last.
 %%--------------------------------------------------------------------
 
-%% ── MQTT delivery: messages on sess/in/<Sid>/ arrive via subscription ────
+%% ── MQTT delivery: messages on $sess/in/<Sid>/ arrive via subscription ────
 
 handle_event(
     info,
@@ -509,7 +510,7 @@ cancel_idle_timer(#data{idle_timer_ref = Ref} = Data) ->
     Data#data{idle_timer_ref = undefined}.
 
 %%--------------------------------------------------------------------
-%% Session message dispatch — handles decoded JSON from sess/in/<Sid>/
+%% Session message dispatch — handles decoded JSON from $sess/in/<Sid>/
 %%--------------------------------------------------------------------
 
 %% ── initial_idle: accept the first request ─────────────────────────────
@@ -1088,7 +1089,7 @@ format_instructions(Instructions) when is_list(Instructions) ->
 format_instructions(Instructions) when is_binary(Instructions) ->
     Instructions.
 
-%% Publish a frame to sess/out/<Sid>/, automatically filling correlation fields
+%% Publish a frame to $sess/out/<Sid>/, automatically filling correlation fields
 %% (sid, iid, trace_id) and usage counters from Data.
 publish(#data{sid = Sid, iid = Iid, trace_id = TraceId, usage = Usage} = _Data, Frame) ->
     Payload = maps:merge(

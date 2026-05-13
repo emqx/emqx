@@ -10,8 +10,8 @@
 %% exposed in the input schema so the LLM cannot accidentally activate
 %% an untested pipeline.
 %%
-%% Invoke topic:  cap/agent__create_pipeline/<skill_id>/request/<req_id>
-%% Reply  topic:  cap/agent__create_pipeline/<skill_id>/response/<req_id>
+%% Invoke topic:  $cap/agent__create_pipeline/<skill_id>/request/<req_id>
+%% Reply  topic:  $cap/agent__create_pipeline/<skill_id>/response/<req_id>
 
 -module(emqx_agent_skill_create_pipeline).
 

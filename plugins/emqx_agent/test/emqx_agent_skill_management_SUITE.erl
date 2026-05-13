@@ -234,7 +234,7 @@ t_create_pipeline_invoke_creates_pipeline(_Config) ->
         ?SK_PIPELINE_ID,
         #{
             <<"pipeline_id">> => <<"dyn-pipeline">>,
-            <<"trigger">> => #{<<"topic">> => <<"evt/dyn/+">>},
+            <<"trigger">> => #{<<"topic">> => <<"$evt/dyn/+">>},
             <<"steps">> => [
                 #{
                     <<"id">> => <<"s1">>,
@@ -275,7 +275,7 @@ t_create_pipeline_enforces_active_false(_Config) ->
         #{
             <<"pipeline_id">> => <<"forced-active">>,
             <<"active">> => true,
-            <<"trigger">> => #{<<"topic">> => <<"evt/forced/+">>},
+            <<"trigger">> => #{<<"topic">> => <<"$evt/forced/+">>},
             <<"steps">> => []
         },
         ReqId
@@ -298,7 +298,7 @@ t_create_pipeline_invoke_missing_pipeline_id(_Config) ->
         <<"agent__create_pipeline">>,
         ?SK_PIPELINE_ID,
         #{
-            <<"trigger">> => #{<<"topic">> => <<"evt/x">>},
+            <<"trigger">> => #{<<"topic">> => <<"$evt/x">>},
             <<"steps">> => []
         },
         ReqId
@@ -320,7 +320,7 @@ t_create_pipeline_reply_correlation(_Config) ->
         ?SK_PIPELINE_ID,
         #{
             <<"pipeline_id">> => <<"corr-pipeline">>,
-            <<"trigger">> => #{<<"topic">> => <<"evt/corr/+">>},
+            <<"trigger">> => #{<<"topic">> => <<"$evt/corr/+">>},
             <<"steps">> => []
         },
         ReqId,
@@ -346,13 +346,13 @@ t_create_pipeline_reply_correlation(_Config) ->
 %%--------------------------------------------------------------------
 
 reply_topic(ReqId) ->
-    <<"cap/+/+/response/", ReqId/binary>>.
+    <<"$cap/+/+/response/", ReqId/binary>>.
 
 invoke(Type, SkillId, Args, ReqId) ->
     invoke(Type, SkillId, Args, ReqId, #{}).
 
 invoke(Type, SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>,
+    Topic = <<"$cap/", Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{

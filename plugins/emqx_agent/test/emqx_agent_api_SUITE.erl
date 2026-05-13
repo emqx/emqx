@@ -324,7 +324,7 @@ t_pipelines_crud(Config) ->
     Def = #{
         <<"pipeline_id">> => Id,
         <<"active">> => false,
-        <<"trigger">> => #{<<"topic">> => <<"evt/test/", Id/binary>>},
+        <<"trigger">> => #{<<"topic">> => <<"$evt/test/", Id/binary>>},
         <<"steps">> => [
             #{
                 <<"id">> => <<"step1">>,
@@ -375,7 +375,7 @@ t_pipelines_validation(_Config) ->
     ?assertMatch(
         {ok, 400, _},
         api_post([agent, pipelines], #{
-            <<"trigger">> => #{<<"topic">> => <<"evt/x">>},
+            <<"trigger">> => #{<<"topic">> => <<"$evt/x">>},
             <<"steps">> => []
         })
     ),

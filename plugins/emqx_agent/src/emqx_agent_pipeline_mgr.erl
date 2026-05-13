@@ -38,7 +38,7 @@ deinit_hook() ->
 %% Hook callback
 %%--------------------------------------------------------------------
 
-on_message_publish(#message{topic = <<"evt/", _/binary>>} = Msg) ->
+on_message_publish(#message{topic = <<"$evt/", _/binary>>} = Msg) ->
     handle_evt(Msg),
     {ok, Msg};
 on_message_publish(Msg) ->

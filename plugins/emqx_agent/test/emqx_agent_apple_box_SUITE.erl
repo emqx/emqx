@@ -31,7 +31,7 @@
 -define(PIPELINE_ID, <<"apple-box-inspection">>).
 -define(PROVIDER_NAME, <<"apple-inspector">>).
 -define(CONNECTION_ID, <<"apple-box-pg">>).
--define(PIPE_EVENTS_FILTER, <<"pipe/+/inst/+/events">>).
+-define(PIPE_EVENTS_FILTER, <<"$pipe/+/inst/+/events">>).
 %% LLM calls may take up to 60 s; give generous headroom.
 -define(LLM_TIMEOUT, 90_000).
 
@@ -188,7 +188,7 @@ collect_alert_if_any(BoxId) ->
 %%--------------------------------------------------------------------
 
 publish_done(ConvId, BoxId, AppleCount) ->
-    Topic = <<"evt/conveyor/", ConvId/binary, "/box/done">>,
+    Topic = <<"$evt/conveyor/", ConvId/binary, "/box/done">>,
     Payload = emqx_utils_json:encode(#{
         <<"box_id">> => BoxId,
         <<"conveyor_id">> => ConvId,
@@ -321,7 +321,7 @@ register_pipeline() ->
     Def = #{
         <<"pipeline_id">> => ?PIPELINE_ID,
         <<"active">> => true,
-        <<"trigger">> => #{<<"topic">> => <<"evt/conveyor/+/box/done">>},
+        <<"trigger">> => #{<<"topic">> => <<"$evt/conveyor/+/box/done">>},
         <<"steps">> => [
             #{
                 <<"id">> => <<"inspect">>,

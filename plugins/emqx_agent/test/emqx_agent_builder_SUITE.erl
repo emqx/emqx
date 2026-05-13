@@ -28,8 +28,8 @@
 -define(SHARED_PROVIDER, <<"openai">>).
 -define(PG_CONNECTION_ID, <<"apple-box-pg">>).
 -define(REPLY_TOPIC, <<"builder/reply/#">>).
--define(REQUEST_TOPIC, <<"evt/builder/request">>).
--define(BUILDER_EVENTS_TOPIC, <<"pipe/pipeline-builder/inst/+/events">>).
+-define(REQUEST_TOPIC, <<"$evt/builder/request">>).
+-define(BUILDER_EVENTS_TOPIC, <<"$pipe/pipeline-builder/inst/+/events">>).
 
 %% Target pipeline the LLM is asked to build
 -define(TARGET_PIPELINE_ID, <<"apple-box-inspection">>).
@@ -61,6 +61,7 @@
     Steps can call skills, run LLM reasoning loops, wait for more MQTT events,
     or break out early based on conditions.
     Every trigger event spawns a new pipeline INSTANCE that runs the steps in sequence.
+    Trigger topics MUST use the $evt/ prefix (e.g., $evt/conveyor/+/box/done).
 
     ═══════════════════════════════════════════════════════
     HOW SKILLS, PROVIDERS, AND PIPELINES FIT TOGETHER
@@ -155,7 +156,7 @@
     ~b"""
     We need an automated visual inspection pipeline for our apple conveyor line.
 
-    When a box finishes a conveyor run, a device publishes to evt/conveyor/+/box/done
+    When a box finishes a conveyor run, a device publishes to $evt/conveyor/+/box/done
     with JSON payload containing box_id and conveyor_id. At that point we want the system
     to request a photo of the box, have an AI inspect it for defects, log the result
     to our database, and publish the final verdict.
@@ -258,7 +259,7 @@ t_builds_apple_box_pipeline(_Config) ->
 assert_pipeline() ->
     {ok, Pipeline} = emqx_agent_service:pipeline_get(?TARGET_PIPELINE_ID),
     ?assertEqual(
-        <<"evt/conveyor/+/box/done">>,
+        <<"$evt/conveyor/+/box/done">>,
         maps:get(<<"topic">>, maps:get(<<"trigger">>, Pipeline))
     ),
     Steps = maps:get(<<"steps">>, Pipeline),
@@ -329,7 +330,7 @@ await_reply() ->
         #deliver{topic = <<"builder/reply/", _/binary>>, message = #message{payload = P}} ->
             emqx_utils_json:decode(P);
         #deliver{
-            topic = <<"pipe/pipeline-builder/inst/", _/binary>>, message = #message{payload = P}
+            topic = <<"$pipe/pipeline-builder/inst/", _/binary>>, message = #message{payload = P}
         } ->
             Event = emqx_utils_json:decode(P),
             case maps:get(<<"type">>, Event, undefined) of
@@ -410,7 +411,7 @@ register_builder_pipeline() ->
     emqx_agent_service:pipeline_create(#{
         <<"pipeline_id">> => ?BUILDER_PIPELINE_ID,
         <<"active">> => true,
-        <<"trigger">> => #{<<"topic">> => <<"evt/builder/request">>},
+        <<"trigger">> => #{<<"topic">> => <<"$evt/builder/request">>},
         <<"steps">> => [
             #{
                 <<"id">> => <<"build">>,

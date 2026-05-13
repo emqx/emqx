@@ -10,8 +10,8 @@
 %% that any MQTT 5-aware responder can reply without out-of-band
 %% coordination.
 %%
-%% Invoke topic:  cap/message__request/<skill_id>/request/<req_id>
-%% Reply  topic:  cap/message__request/<skill_id>/response/<req_id>
+%% Invoke topic:  $cap/message__request/<skill_id>/request/<req_id>
+%% Reply  topic:  $cap/message__request/<skill_id>/response/<req_id>
 %%
 %% Context keys:
 %%   skill_id     => binary()  — unique instance identifier
@@ -36,7 +36,7 @@
 -include_lib("emqx/include/emqx.hrl").
 
 -define(SKILL_TYPE, <<"message__request">>).
--define(RESPONSE_TOPIC_PREFIX, <<"cap/tmp/response/">>).
+-define(RESPONSE_TOPIC_PREFIX, <<"$cap/tmp/response/">>).
 -define(DEFAULT_TIMEOUT_MS, 5000).
 
 -define(DEFAULT_REQUEST_PAYLOAD_SCHEMA, #{

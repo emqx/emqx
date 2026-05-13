@@ -226,7 +226,7 @@ invoke(SkillId, Args, ReqId) ->
     invoke(SkillId, Args, ReqId, #{}).
 
 invoke(SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/message__publish/", SkillId/binary, "/request/", ReqId/binary>>,
+    Topic = <<"$cap/message__publish/", SkillId/binary, "/request/", ReqId/binary>>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{
@@ -242,7 +242,7 @@ invoke(SkillId, Args, ReqId, Extra) ->
     ok.
 
 reply_topic(SkillId, ReqId) ->
-    <<"cap/message__publish/", SkillId/binary, "/response/", ReqId/binary>>.
+    <<"$cap/message__publish/", SkillId/binary, "/response/", ReqId/binary>>.
 
 await_deliver(Topic) ->
     receive

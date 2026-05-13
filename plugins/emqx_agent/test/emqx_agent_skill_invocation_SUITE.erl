@@ -163,7 +163,7 @@ reply_topic(ReqId) ->
     reply_topic(?SKILL_TYPE, ?SKILL_ID, ReqId).
 
 reply_topic(Type, SkillId, ReqId) ->
-    <<"cap/", Type/binary, "/", SkillId/binary, "/response/", ReqId/binary>>.
+    <<"$cap/", Type/binary, "/", SkillId/binary, "/response/", ReqId/binary>>.
 
 invoke(Args, ReqId) ->
     invoke(Args, ReqId, #{}).
@@ -188,7 +188,7 @@ invoke_with_skill(Type, SkillId, Args, ReqId) ->
     invoke_with_skill(Type, SkillId, Args, ReqId, #{}).
 
 invoke_with_skill(Type, SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>,
+    Topic = <<"$cap/", Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{
@@ -204,7 +204,7 @@ invoke_with_skill(Type, SkillId, Args, ReqId, Extra) ->
     ok.
 
 invoke_raw(Type, SkillId, ReqId, Payload) ->
-    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>,
+    Topic = <<"$cap/", Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>,
     _ = emqx_broker:publish(emqx_message:make(SkillId, 0, Topic, Payload)),
     ok.
 

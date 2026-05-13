@@ -490,8 +490,8 @@ t_non_session_topic_ignored(Config) ->
 %% Helpers
 %%--------------------------------------------------------------------
 
-in_topic(Sid) -> <<"sess/in/", Sid/binary, "/">>.
-out_topic(Sid) -> <<"sess/out/", Sid/binary, "/">>.
+in_topic(Sid) -> <<"$sess/in/", Sid/binary, "/">>.
+out_topic(Sid) -> <<"$sess/out/", Sid/binary, "/">>.
 
 %% Base request; Overrides can replace any field (e.g. tools, instructions).
 request(Config, Overrides) ->

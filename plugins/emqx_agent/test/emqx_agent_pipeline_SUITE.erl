@@ -24,7 +24,7 @@
 -include("emqx_agent_pipeline.hrl").
 
 -define(SHORT_TIMEOUT, 5_000).
--define(PIPE_EVENTS_FILTER, <<"pipe/+/inst/+/events">>).
+-define(PIPE_EVENTS_FILTER, <<"$pipe/+/inst/+/events">>).
 
 %%--------------------------------------------------------------------
 %% CT callbacks
@@ -68,8 +68,8 @@ end_per_testcase(_TestCase, _Config) ->
 %% and emit a pipeline_started event.
 t_trigger_starts_pipeline(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    register_pipeline(PipelineId, <<"evt/test/", PipelineId/binary>>, []),
-    publish_evt(<<"evt/test/", PipelineId/binary>>, #{<<"x">> => 1}),
+    register_pipeline(PipelineId, <<"$evt/test/", PipelineId/binary>>, []),
+    publish_evt(<<"$evt/test/", PipelineId/binary>>, #{<<"x">> => 1}),
     Started = recv_pipe_event(PipelineId),
     ?assertEqual(<<"pipeline_started">>, maps:get(<<"type">>, Started)).
 
@@ -78,7 +78,7 @@ t_trigger_starts_pipeline(Config) ->
 t_call_skill_completes(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     SkillId = PipelineId,
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Step = #{
         <<"id">> => <<"notify">>,
         <<"type">> => <<"call_skill">>,
@@ -110,7 +110,7 @@ t_call_skill_completes(Config) ->
 t_multi_step_pipeline(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     SkillId = PipelineId,
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Steps = [
         #{
             <<"id">> => <<"step1">>,
@@ -142,7 +142,7 @@ t_multi_step_pipeline(Config) ->
 t_context_propagation(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     SkillId = PipelineId,
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Steps = [
         #{
             <<"id">> => <<"echo">>,
@@ -175,7 +175,7 @@ t_context_propagation(Config) ->
 t_break_stops_pipeline_when_true(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     SkillId = PipelineId,
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Steps = [
         #{
             <<"id">> => <<"break1">>,
@@ -203,7 +203,7 @@ t_break_stops_pipeline_when_true(Config) ->
 t_break_with_not_stops_pipeline_when_not_true(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     SkillId = PipelineId,
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Steps = [
         #{
             <<"id">> => <<"break1">>,
@@ -233,7 +233,7 @@ t_break_with_not_stops_pipeline_when_not_true(Config) ->
 %% A one-off pipeline terminates after publishing completion.
 t_one_off_pipeline_stops_on_completion(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     {ok, Pid} = start_pipeline_direct(PipelineId, TrigTopic, [], #{<<"id">> => <<"e5">>}),
     Ref = monitor(process, Pid),
     Started = recv_pipe_event(PipelineId),
@@ -255,7 +255,7 @@ t_one_off_pipeline_stops_on_completion(Config) ->
 t_context_flows_between_steps(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     SkillId = PipelineId,
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Steps = [
         %% Step 1 — publishes to "first" and stores the skill reply at $.lookup.
         %% The reply from message__publish is #{status => ok, topic => "test/first"}.
@@ -324,7 +324,7 @@ t_context_flows_between_steps(Config) ->
 %% arrive.
 t_set_result_writes_to_context(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     StepId = <<"llm">>,
     ok = emqx_ai_completion_config:update_providers_raw(
         {add, #{
@@ -384,7 +384,7 @@ t_set_result_writes_to_context(Config) ->
 
 t_llm_loop_final_without_set_result_fails(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     StepId = <<"llm">>,
     ok = emqx_ai_completion_config:update_providers_raw(
         {add, #{
@@ -432,7 +432,7 @@ t_llm_loop_final_without_set_result_fails(Config) ->
 
 t_llm_loop_defaults_are_applied(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Step = #{
         <<"id">> => <<"llm">>,
         <<"type">> => <<"llm_loop">>,
@@ -456,7 +456,7 @@ t_llm_loop_defaults_are_applied(Config) ->
 
 t_llm_loop_requires_set_result_schema(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Step = #{
         <<"id">> => <<"llm">>,
         <<"type">> => <<"llm_loop">>,
@@ -477,7 +477,7 @@ t_llm_loop_requires_set_result_schema(Config) ->
 
 t_llm_loop_requires_model(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Step = #{
         <<"id">> => <<"llm">>,
         <<"type">> => <<"llm_loop">>,
@@ -501,7 +501,7 @@ t_llm_loop_requires_model(Config) ->
 
 t_pipeline_rejects_invalid_key_expression(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     ?assertMatch(
         {error, _},
         emqx_agent_service:pipeline_create(#{
@@ -515,7 +515,7 @@ t_pipeline_rejects_invalid_key_expression(Config) ->
 
 t_pipeline_custom_key_expression(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Def = #{
         <<"pipeline_id">> => PipelineId,
         <<"active">> => true,
@@ -538,7 +538,7 @@ t_pipeline_custom_key_expression(Config) ->
 %% Unregistered pipeline definitions must not trigger new instances.
 t_unregistered_pipeline_not_triggered(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     %% Register then immediately unregister.
     register_pipeline(PipelineId, TrigTopic, []),
     ok = emqx_agent_config:delete_pipeline(PipelineId),
@@ -547,7 +547,7 @@ t_unregistered_pipeline_not_triggered(Config) ->
 
 t_pipeline_reply_timeout_fails_and_stops(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     ProviderName = <<PipelineId/binary, "-provider">>,
     {Port, Sock} = listen_on_random_port(),
     Acceptor = spawn(fun() -> accept_and_hold(Sock) end),
@@ -589,6 +589,34 @@ t_pipeline_reply_timeout_fails_and_stops(Config) ->
         exit(Acceptor, kill),
         gen_tcp:close(Sock)
     end.
+
+t_rejects_non_dollar_evt_trigger(_Config) ->
+    {error, {invalid_trigger_topic, Topic}} = emqx_agent_service:pipeline_create(
+        #{
+            <<"pipeline_id">> => <<"bad-trigger">>,
+            <<"trigger">> => #{<<"topic">> => <<"evt/legacy">>},
+            <<"steps">> => []
+        }
+    ),
+    ?assertEqual(<<"evt/legacy">>, Topic).
+
+t_rejects_non_dollar_evt_trigger_update(_Config) ->
+    PipelineId = <<"bad-trigger-update">>,
+    ok = emqx_agent_config:create_pipeline(#{
+        <<"pipeline_id">> => PipelineId,
+        <<"trigger">> => #{<<"topic">> => <<"$evt/ok">>},
+        <<"steps">> => []
+    }),
+    {error, {invalid_trigger_topic, Topic}} = emqx_agent_config:update_pipeline(
+        PipelineId,
+        #{
+            <<"pipeline_id">> => PipelineId,
+            <<"trigger">> => #{<<"topic">> => <<"evt/bad">>},
+            <<"steps">> => []
+        }
+    ),
+    ?assertEqual(<<"evt/bad">>, Topic),
+    ok = emqx_agent_config:delete_pipeline(PipelineId).
 
 %%--------------------------------------------------------------------
 %% Helpers
@@ -637,7 +665,7 @@ recv_pipe_event(PipelineId) ->
 recv_pipe_event(PipelineId, Timeout) ->
     receive
         #deliver{
-            topic = <<"pipe/", _/binary>>,
+            topic = <<"$pipe/", _/binary>>,
             message = #message{payload = P}
         } ->
             Frame = emqx_utils_json:decode(P),
@@ -655,7 +683,7 @@ recv_pipe_event(PipelineId, Timeout) ->
 recv_pipe_event_or_timeout(PipelineId, Timeout) ->
     receive
         #deliver{
-            topic = <<"pipe/", _/binary>>,
+            topic = <<"$pipe/", _/binary>>,
             message = #message{payload = P}
         } ->
             Frame = emqx_utils_json:decode(P),

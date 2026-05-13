@@ -97,7 +97,7 @@ t_response_topic_in_properties(_Config) ->
 
     %% Response-Topic must be present and rooted under the expected prefix.
     ?assertNotEqual(undefined, ResponseTopic),
-    ?assert(binary:match(ResponseTopic, <<"cap/tmp/response/">>) =/= nomatch),
+    ?assert(binary:match(ResponseTopic, <<"$cap/tmp/response/">>) =/= nomatch),
 
     %% Clean up: respond so the spawned process terminates.
     _ = emqx_broker:publish(emqx_message:make(<<"sim">>, 0, ResponseTopic, <<"ok">>)),
@@ -253,13 +253,13 @@ maybe_encode_schema(Field, Body) ->
     end.
 
 reply_topic(SkillId, ReqId) ->
-    <<"cap/message__request/", SkillId/binary, "/response/", ReqId/binary>>.
+    <<"$cap/message__request/", SkillId/binary, "/response/", ReqId/binary>>.
 
 invoke(SkillId, Args, ReqId) ->
     invoke(SkillId, Args, ReqId, #{}).
 
 invoke(SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/message__request/", SkillId/binary, "/request/", ReqId/binary>>,
+    Topic = <<"$cap/message__request/", SkillId/binary, "/request/", ReqId/binary>>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{

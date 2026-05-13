@@ -171,7 +171,7 @@ pipeline() ->
     #{
         <<"pipeline_id">> => <<"pipe-main">>,
         <<"active">> => true,
-        <<"trigger">> => #{<<"topic">> => <<"evt/devices/+">>},
+        <<"trigger">> => #{<<"topic">> => <<"$evt/devices/+">>},
         <<"steps">> => [
             #{
                 <<"PipelineStepCallSkill">> => #{

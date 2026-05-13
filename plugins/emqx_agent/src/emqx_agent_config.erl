@@ -489,8 +489,13 @@ validate_pipelines_loop([Pipeline | Rest]) ->
 normalize_pipeline(Pipeline0) when is_map(Pipeline0) ->
     Pipeline1 = unwrap_union(Pipeline0),
     case validate_pipeline_key_expression(Pipeline1) of
-        ok -> normalize_pipeline_steps(Pipeline1);
-        {error, _} = Error -> Error
+        ok ->
+            case validate_pipeline_trigger(Pipeline1) of
+                ok -> normalize_pipeline_steps(Pipeline1);
+                {error, _} = Error -> Error
+            end;
+        {error, _} = Error ->
+            Error
     end;
 normalize_pipeline(_) ->
     {error, invalid_pipeline}.
@@ -509,6 +514,19 @@ normalize_pipeline_steps(Pipeline) ->
             end;
         #{} ->
             {ok, Pipeline#{<<"key_expression">> => pipeline_key_expression(Pipeline)}}
+    end.
+
+validate_pipeline_trigger(Pipeline) ->
+    case maps:get(<<"trigger">>, Pipeline, undefined) of
+        #{<<"topic">> := Topic} when is_binary(Topic) ->
+            case binary:longest_common_prefix([Topic, <<"$evt/">>]) of
+                5 -> ok;
+                _ -> {error, {invalid_trigger_topic, Topic}}
+            end;
+        #{<<"topic">> := _} ->
+            {error, invalid_trigger_topic_type};
+        _ ->
+            ok
     end.
 
 validate_pipeline_key_expression(Pipeline) ->

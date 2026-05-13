@@ -21,7 +21,7 @@ deinit_hook() ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
     ok.
 
-on_message_publish(#message{topic = <<"cap/", Rest/binary>>, payload = Payload} = Msg) ->
+on_message_publish(#message{topic = <<"$cap/", Rest/binary>>, payload = Payload} = Msg) ->
     case binary:split(Rest, <<"/request/">>) of
         [TypeSkill, ReqId] ->
             dispatch_type_skill(TypeSkill, ReqId, Payload);

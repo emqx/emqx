@@ -307,7 +307,7 @@ t_query_pipelines_list_with_items(_Config) ->
     ok = emqx_agent_service:pipeline_create(#{
         <<"pipeline_id">> => <<"pipe-a">>,
         <<"active">> => true,
-        <<"trigger">> => #{<<"topic">> => <<"evt/a/+">>},
+        <<"trigger">> => #{<<"topic">> => <<"$evt/a/+">>},
         <<"steps">> => []
     }),
 
@@ -325,7 +325,7 @@ t_query_pipelines_get_by_id(_Config) ->
     ok = emqx_agent_service:pipeline_create(#{
         <<"pipeline_id">> => <<"pipe-b">>,
         <<"active">> => false,
-        <<"trigger">> => #{<<"topic">> => <<"evt/b/+">>},
+        <<"trigger">> => #{<<"topic">> => <<"$evt/b/+">>},
         <<"steps">> => []
     }),
 
@@ -376,13 +376,13 @@ t_query_pipelines_reply_correlation(_Config) ->
 %%--------------------------------------------------------------------
 
 reply_topic(ReqId) ->
-    <<"cap/+/+/response/", ReqId/binary>>.
+    <<"$cap/+/+/response/", ReqId/binary>>.
 
 invoke(Type, SkillId, Args, ReqId) ->
     invoke(Type, SkillId, Args, ReqId, #{}).
 
 invoke(Type, SkillId, Args, ReqId, Extra) ->
-    Topic = <<"cap/", Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>,
+    Topic = <<"$cap/", Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>,
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{

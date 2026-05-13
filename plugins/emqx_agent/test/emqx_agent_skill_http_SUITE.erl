@@ -135,10 +135,10 @@ t_non_http_topic_is_ignored(_Config) ->
 %%--------------------------------------------------------------------
 
 invoke_topic(ReqId) ->
-    <<"cap/http/", ?SKILL_ID/binary, "/request/", ReqId/binary>>.
+    <<"$cap/http/", ?SKILL_ID/binary, "/request/", ReqId/binary>>.
 
 reply_topic(ReqId) ->
-    <<"cap/http/", ?SKILL_ID/binary, "/response/", ReqId/binary>>.
+    <<"$cap/http/", ?SKILL_ID/binary, "/response/", ReqId/binary>>.
 
 invoke_and_assert(_Config, Args, AssertFn) ->
     ReqId = base64:encode(crypto:strong_rand_bytes(8)),
