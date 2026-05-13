@@ -2,7 +2,7 @@
 
 # This script helps to build release artifacts.
 # arg1: profile, e.g. emqx-enterprise
-# arg2: artifact, e.g. rel | relup | tgz | pkg
+# arg2: artifact, e.g. rel | tgz | pkg
 
 set -euo pipefail
 
@@ -218,19 +218,6 @@ make_elixir_rel() {
     env MIX_ENV="$PROFILE" mix release --overwrite
 }
 
-make_relup() {
-    case "$SYSTEM" in
-        macos*)
-          log_red "WARNING: relup is not supported on macOS"
-          exit 0
-          ;;
-    esac
-    RELUP_TARGET_VSN="$(./pkg-vsn.sh "$PROFILE" --long)"
-    export RELUP_TARGET_VSN
-    ./rebar3 emqx relup_gen --relup-dir=./rel/relup
-    make rel -C _build/default/plugins/emqx_relup
-}
-
 cp_dyn_libs() {
     local rel_dir="$1"
     local target_dir="${rel_dir}/dynlibs"
@@ -263,8 +250,6 @@ make_tgz() {
       local relpath="_build/${PROFILE}"
       full_vsn="$(./pkg-vsn.sh "$PROFILE" --long --elixir)"
     else
-      # build the src_tarball again to ensure relup is included
-      # elixir does not have relup yet.
       make_rel tar
 
       local relpath="_build/${PROFILE}/rel/emqx"
@@ -514,9 +499,6 @@ case "$ARTIFACT" in
         ;;
     rel)
         make_rel release
-        ;;
-    relup)
-        make_relup
         ;;
     tgz)
         make_tgz
