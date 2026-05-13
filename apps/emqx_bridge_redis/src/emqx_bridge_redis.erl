@@ -58,7 +58,9 @@ values("sentinel", post) ->
         servers => [<<"127.0.0.1:26379">>],
         redis_type => sentinel,
         sentinel => <<"mymaster">>,
-        database => 1
+        database => 1,
+        sentinel_username => <<"sentinel_user">>,
+        sentinel_password => <<"******">>
     },
     values(common, "sentinel", SpecificOpts);
 values("cluster", post) ->
