@@ -5,15 +5,10 @@
 %% Pipeline manager — message routing and hook management.
 %%
 %% Responsibilities
-%%   1. Hook on message.publish to intercept three topic families:
-%%        sess/out/<sid>/     — frames from an LLM session
-%%        cap/<type>/<id>/response/<req_id>  — skill replies
+%%   1. Hook on message.publish to intercept trigger events:
 %%        evt/...             — trigger events
 %%
-%%   2. Route intercepted messages to the correct pipeline instance by
-%%      reading the `iid` correlation field from the payload.
-%%
-%%   3. Start new pipeline instances when an evt/... topic matches a registered
+%%   2. Start new pipeline instances when an evt/... topic matches a registered
 %%      pipeline definition's trigger.
 
 -module(emqx_agent_pipeline_mgr).
@@ -21,7 +16,6 @@
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
--include("emqx_agent_pipeline.hrl").
 
 -export([init_hook/0, deinit_hook/0]).
 -export([on_message_publish/1]).
@@ -45,19 +39,6 @@ deinit_hook() ->
 %%--------------------------------------------------------------------
 
 on_message_publish(
-    #message{topic = <<"sess/out/", Rest/binary>>, payload = Payload} = Msg
-) ->
-    handle_sess_out(Rest, Payload),
-    {ok, Msg};
-on_message_publish(
-    #message{topic = <<"cap/", Rest/binary>>, payload = Payload} = Msg
-) when Rest =/= <<>> ->
-    case binary:split(Rest, <<"/response/">>) of
-        [_TypeSkill, ReqId] -> handle_cap_reply(ReqId, Payload);
-        _ -> ok
-    end,
-    {ok, Msg};
-on_message_publish(
     #message{topic = <<"evt/", _/binary>> = Topic, payload = Payload} = Msg
 ) ->
     handle_evt(Topic, Payload),
@@ -69,29 +50,6 @@ on_message_publish(Msg) ->
 %% Internal routing
 %%--------------------------------------------------------------------
 
-handle_sess_out(Rest, Payload) ->
-    case binary:split(Rest, <<"/">>) of
-        [Sid, <<>>] ->
-            Frame = safe_decode(Payload),
-            %% Only log frames that require pipeline action; skip intermediate
-            %% streaming chunks (content/reasoning tokens) to avoid O(N) ct:print
-            %% calls that serialise through the CT master for every token.
-            case maps:get(<<"type">>, Frame, undefined) of
-                <<"intermediate">> -> ok;
-                _ -> log_received(sess_out, #{sid => Sid, frame => Frame})
-            end,
-            Iid = maps:get(<<"iid">>, Frame, undefined),
-            route_to_pipeline(Iid, #sess_frame{sid = Sid, frame = Frame});
-        _ ->
-            ok
-    end.
-
-handle_cap_reply(ReqId, Payload) ->
-    Frame = safe_decode(Payload),
-    log_received(cap_reply, #{req_id => ReqId, frame => Frame}),
-    Iid = maps:get(<<"iid">>, Frame, undefined),
-    route_to_pipeline(Iid, #cap_reply{req_id = ReqId, frame = Frame}).
-
 handle_evt(Topic, Payload) ->
     Event = safe_decode(Payload),
     log_received(evt, #{topic => Topic, event => Event}),
@@ -100,7 +58,7 @@ handle_evt(Topic, Payload) ->
     ActiveDefs = [D || D <- Defs, maps:get(<<"active">>, D, false)],
     case Defs of
         [] ->
-            ?SLOG(warning, #{
+            ?SLOG(debug, #{
                 msg => "pipeline_no_trigger_match",
                 topic => Topic,
                 hint => "no pipeline definition has a trigger that matches this topic"
@@ -108,7 +66,6 @@ handle_evt(Topic, Payload) ->
         _ ->
             ok
     end,
-    % ct:print("ActiveDefs: ~p", [ActiveDefs]),
     lists:foreach(fun(Def) -> start_instance(Def, Event) end, ActiveDefs).
 
 start_instance(Def, Event) ->
@@ -121,16 +78,6 @@ start_instance(Def, Event) ->
                 pipeline_id => maps:get(<<"pipeline_id">>, Def, <<"unknown">>),
                 reason => Reason
             })
-    end.
-
-route_to_pipeline(undefined, _Msg) ->
-    ok;
-route_to_pipeline(Iid, Msg) ->
-    case global:whereis_name({emqx_agent_pipeline, Iid}) of
-        undefined ->
-            ok;
-        Pid ->
-            gen_statem:cast(Pid, Msg)
     end.
 
 safe_decode(Payload) ->

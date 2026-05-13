@@ -45,6 +45,7 @@
 -behaviour(gen_statem).
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_agent_pipeline.hrl").
 
@@ -58,6 +59,8 @@
 -define(REG(Iid), {global, ?NAME(Iid)}).
 %% 5-minute idle window before the process self-destructs after completion.
 -define(IDLE_TIMEOUT_MS, 300_000).
+-define(CAP_REPLY_TIMEOUT_MS, 60_000).
+-define(LLM_REPLY_TIMEOUT_MS, 180_000).
 
 -spec match_triggers(binary()) -> [map()].
 match_triggers(Topic) ->
@@ -86,6 +89,10 @@ match_triggers(Topic) ->
     %% waiting_cap (call_skill step)
     cap_req_id :: binary() | undefined,
     cap_result_path :: binary() | undefined,
+    %% topics subscribed by this pipeline process while awaiting replies
+    reply_topics = [] :: [binary()],
+    %% active reply timeout reference
+    reply_timer_ref :: reference() | undefined,
     %% idle timer reference (done state)
     idle_timer_ref :: reference() | undefined
 }).
@@ -128,6 +135,8 @@ init({Iid, Def, TriggerEvent}) ->
         pending_calls = #{},
         cap_req_id = undefined,
         cap_result_path = undefined,
+        reply_topics = [],
+        reply_timer_ref = undefined,
         idle_timer_ref = undefined
     },
     ?SLOG(info, #{msg => "pipeline_started", pipeline_id => PipelineId, iid => Iid}),
@@ -135,6 +144,7 @@ init({Iid, Def, TriggerEvent}) ->
     {ok, running, Data, [{next_event, internal, step}]}.
 
 terminate(Reason, _State, Data) ->
+    _ = cleanup_reply_wait(Data),
     do_log_terminate(Reason, Data).
 
 do_log_terminate(Reason, #data{pipeline_id = PipelineId, iid = Iid}) ->
@@ -174,8 +184,7 @@ handle_event(
     llm_loop,
     #data{active_sid = Sid} = Data
 ) ->
-    log_received(sess_out, Data, #{sid => Sid, frame => Frame}),
-    dispatch_tool_request(Frame, Data);
+    handle_llm_tool_request(Sid, Frame, Data);
 %% ── llm_loop: session emitted final ──────────────────────────────────────────
 
 handle_event(
@@ -184,39 +193,7 @@ handle_event(
     llm_loop,
     #data{active_sid = Sid} = Data
 ) ->
-    log_received(sess_out, Data, #{sid => Sid, frame => Frame}),
-    Step = current_step(Data),
-    case {Data#data.set_result_value, maps:is_key(<<"set_result_schema">>, Step)} of
-        {undefined, true} ->
-            ?SLOG(error, #{
-                msg => "pipeline_llm_final_without_set_result",
-                iid => Data#data.iid,
-                step => maps:get(<<"id">>, Step, <<"?">>),
-                final_result => maps:get(<<"result">>, Frame, undefined),
-                frame => Frame
-            }),
-            do_fail(Data, missing_set_result);
-        {SetResultValue, _} ->
-            #{<<"result_path">> := ResultPath} = Step,
-            Result =
-                case SetResultValue of
-                    undefined -> maps:get(<<"result">>, Frame, #{});
-                    Val -> Val
-                end,
-            Data1 = write_context(ResultPath, Result, Data),
-            Data2 = Data1#data{
-                active_sid = undefined,
-                tool_map = #{},
-                pending_calls = #{},
-                set_result_value = undefined
-            },
-            ?SLOG(info, #{
-                msg => "pipeline_llm_step_done",
-                iid => Data#data.iid,
-                step => maps:get(<<"id">>, Step, <<"?">>)
-            }),
-            advance_and_step(Data2)
-    end;
+    handle_llm_final(Sid, Frame, Data);
 %% ── llm_loop: session emitted error ──────────────────────────────────────────
 
 handle_event(
@@ -225,15 +202,11 @@ handle_event(
     llm_loop,
     #data{active_sid = Sid} = Data
 ) ->
-    log_received(sess_out, Data, #{sid => Sid, frame => Frame}),
-    Reason = maps:get(<<"reason">>, Frame, <<"llm_error">>),
-    ?SLOG(error, #{msg => "pipeline_llm_error", iid => Data#data.iid, reason => Reason}),
-    do_fail(Data, Reason);
+    handle_llm_error(Sid, Frame, Data);
 %% ── llm_loop: cap response arrives for an outstanding tool call ──────────────
 
 handle_event(cast, #cap_reply{req_id = ReqId, frame = Frame}, llm_loop, Data) ->
-    log_received(cap_reply, Data, #{req_id => ReqId, frame => Frame}),
-    route_cap_reply_to_session(ReqId, Frame, Data);
+    handle_llm_cap_reply(ReqId, Frame, Data);
 %% ── waiting_cap: cap response for the call_skill step ────────────────────────
 
 handle_event(
@@ -242,16 +215,34 @@ handle_event(
     waiting_cap,
     #data{cap_req_id = ReqId} = Data
 ) ->
-    log_received(cap_reply, Data, #{req_id => ReqId, frame => Frame}),
-    Result = emqx_agent_skill_helpers:cap_response(Frame),
-    Data1 = write_context(Data#data.cap_result_path, Result, Data),
-    Data2 = Data1#data{cap_req_id = undefined, cap_result_path = undefined},
-    ?SLOG(info, #{
-        msg => "pipeline_call_skill_done",
-        iid => Data#data.iid,
-        step => maps:get(<<"id">>, current_step(Data), <<"?">>)
-    }),
-    advance_and_step(Data2);
+    handle_waiting_cap_reply(ReqId, Frame, Data);
+%% ── reply deliveries owned by this pipeline process ─────────────────────────
+
+handle_event(
+    info,
+    #deliver{topic = Topic, message = #message{payload = Payload}},
+    llm_loop,
+    #data{active_sid = Sid} = Data
+) ->
+    case Topic =:= sess_out_topic(Sid) of
+        true ->
+            handle_sess_delivery(Sid, Payload, Data);
+        false ->
+            handle_cap_delivery(Topic, Payload, llm_loop, Data)
+    end;
+handle_event(
+    info,
+    #deliver{topic = Topic, message = #message{payload = Payload}},
+    waiting_cap,
+    Data
+) ->
+    handle_cap_delivery(Topic, Payload, waiting_cap, Data);
+handle_event(info, #deliver{}, _State, Data) ->
+    {keep_state, Data};
+%% ── reply wait timeout ──────────────────────────────────────────────────────
+
+handle_event(info, {pipeline_reply_timeout, Kind}, _State, Data) ->
+    do_timeout_fail(Data, Kind);
 %% ── done: idle timer fired ────────────────────────────────────────────────────
 
 handle_event(info, idle_timeout, done, Data) ->
@@ -304,7 +295,7 @@ start_llm_loop(
         <<"stop_on_finish">> := StopOnFinish,
         <<"max_tokens">> := MaxTokens,
         <<"set_result_schema">> := SetResultSchema
-    },
+    } = Step,
     Data
 ) ->
     {ToolManifest0, ToolMap0} = build_tool_manifest(ToolSpecs),
@@ -318,10 +309,12 @@ start_llm_loop(
     %% session with no history from prior triggers. For persistent mode where the
     %% session accumulates conversation history across events, explicitly set
     %% "stop_on_finish": false in the step configuration.
+    SessOutTopic = sess_out_topic(Sid),
+    Data0 = subscribe_reply_topic(SessOutTopic, Data),
     Request = #{
         <<"type">> => <<"request">>,
-        <<"iid">> => Data#data.iid,
-        <<"trace_id">> => Data#data.trace_id,
+        <<"iid">> => Data0#data.iid,
+        <<"trace_id">> => Data0#data.trace_id,
         <<"provider_name">> => ProviderName,
         <<"tools">> => ToolManifest,
         <<"input">> => Input,
@@ -331,10 +324,14 @@ start_llm_loop(
         <<"max_tokens">> => MaxTokens
     },
     publish_to_sess_in(Sid, Request),
-    Data1 = Data#data{active_sid = Sid, tool_map = ToolMap, pending_calls = #{}},
+    Data1 = start_reply_timer(
+        llm_reply_timeout,
+        step_timeout_ms(Step, ?LLM_REPLY_TIMEOUT_MS),
+        Data0#data{active_sid = Sid, tool_map = ToolMap, pending_calls = #{}}
+    ),
     ?SLOG(info, #{
         msg => "pipeline_llm_loop_started",
-        iid => Data#data.iid,
+        iid => Data0#data.iid,
         sid => Sid,
         step => StepId
     }),
@@ -361,16 +358,22 @@ invoke_call_skill(Step, Data) ->
     ResultPath = maps:get(<<"result_path">>, Step, undefined),
     {Type, SkillId} = parse_tool_spec(SkillSpec),
     ReqId = gen_req_id(),
+    ReplyTopic = cap_response_topic(Type, SkillId, ReqId),
+    Data0 = subscribe_reply_topic(ReplyTopic, Data),
     publish_cap_invoke(Type, SkillId, #{
         <<"req_id">> => ReqId,
-        <<"iid">> => Data#data.iid,
-        <<"trace_id">> => Data#data.trace_id,
+        <<"iid">> => Data0#data.iid,
+        <<"trace_id">> => Data0#data.trace_id,
         <<"args">> => Args
     }),
-    Data1 = Data#data{cap_req_id = ReqId, cap_result_path = ResultPath},
+    Data1 = start_reply_timer(
+        cap_reply_timeout,
+        step_timeout_ms(Step, ?CAP_REPLY_TIMEOUT_MS),
+        Data0#data{cap_req_id = ReqId, cap_result_path = ResultPath}
+    ),
     ?SLOG(info, #{
         msg => "pipeline_call_skill_invoked",
-        iid => Data#data.iid,
+        iid => Data0#data.iid,
         skill => SkillSpec,
         req_id => ReqId
     }),
@@ -410,6 +413,95 @@ maybe_break(Step, Data) ->
 %% Tool request proxying (llm_loop ↔ skills)
 %%--------------------------------------------------------------------
 
+handle_sess_delivery(Sid, Payload, Data) ->
+    Frame = safe_decode(Payload),
+    case Frame of
+        #{<<"type">> := <<"tool_request">>} ->
+            handle_llm_tool_request(Sid, Frame, Data);
+        #{<<"type">> := <<"final">>} ->
+            handle_llm_final(Sid, Frame, Data);
+        #{<<"type">> := <<"error">>} ->
+            handle_llm_error(Sid, Frame, Data);
+        _ ->
+            {keep_state, Data}
+    end.
+
+handle_cap_delivery(Topic, Payload, State, Data) ->
+    Frame = safe_decode(Payload),
+    ReqId = maps:get(<<"req_id">>, Frame, req_id_from_cap_response_topic(Topic)),
+    WaitingReqId = Data#data.cap_req_id,
+    case {State, ReqId} of
+        {llm_loop, ReqId1} when is_binary(ReqId1) ->
+            handle_llm_cap_reply(ReqId1, Frame, Data);
+        {waiting_cap, WaitingReqId} ->
+            handle_waiting_cap_reply(ReqId, Frame, Data);
+        _ ->
+            {keep_state, Data}
+    end.
+
+handle_llm_tool_request(Sid, Frame, Data) ->
+    log_received(sess_out, Data, #{sid => Sid, frame => Frame}),
+    dispatch_tool_request(Frame, Data).
+
+handle_llm_final(Sid, Frame, Data) ->
+    log_received(sess_out, Data, #{sid => Sid, frame => Frame}),
+    Step = current_step(Data),
+    Data0 = cleanup_reply_wait(Data),
+    case {Data0#data.set_result_value, maps:is_key(<<"set_result_schema">>, Step)} of
+        {undefined, true} ->
+            ?SLOG(error, #{
+                msg => "pipeline_llm_final_without_set_result",
+                iid => Data0#data.iid,
+                step => maps:get(<<"id">>, Step, <<"?">>),
+                final_result => maps:get(<<"result">>, Frame, undefined),
+                frame => Frame
+            }),
+            do_fail(Data0, missing_set_result);
+        {SetResultValue, _} ->
+            #{<<"result_path">> := ResultPath} = Step,
+            Result =
+                case SetResultValue of
+                    undefined -> maps:get(<<"result">>, Frame, #{});
+                    Val -> Val
+                end,
+            Data1 = write_context(ResultPath, Result, Data0),
+            Data2 = Data1#data{
+                active_sid = undefined,
+                tool_map = #{},
+                pending_calls = #{},
+                set_result_value = undefined
+            },
+            ?SLOG(info, #{
+                msg => "pipeline_llm_step_done",
+                iid => Data0#data.iid,
+                step => maps:get(<<"id">>, Step, <<"?">>)
+            }),
+            advance_and_step(Data2)
+    end.
+
+handle_llm_error(Sid, Frame, Data) ->
+    log_received(sess_out, Data, #{sid => Sid, frame => Frame}),
+    Reason = maps:get(<<"reason">>, Frame, <<"llm_error">>),
+    ?SLOG(error, #{msg => "pipeline_llm_error", iid => Data#data.iid, reason => Reason}),
+    do_fail(cleanup_reply_wait(Data), Reason).
+
+handle_llm_cap_reply(ReqId, Frame, Data) ->
+    log_received(cap_reply, Data, #{req_id => ReqId, frame => Frame}),
+    route_cap_reply_to_session(ReqId, Frame, Data).
+
+handle_waiting_cap_reply(ReqId, Frame, Data) ->
+    log_received(cap_reply, Data, #{req_id => ReqId, frame => Frame}),
+    Result = emqx_agent_skill_helpers:cap_response(Frame),
+    Data0 = cleanup_reply_wait(Data),
+    Data1 = write_context(Data0#data.cap_result_path, Result, Data0),
+    Data2 = Data1#data{cap_req_id = undefined, cap_result_path = undefined},
+    ?SLOG(info, #{
+        msg => "pipeline_call_skill_done",
+        iid => Data0#data.iid,
+        step => maps:get(<<"id">>, current_step(Data0), <<"?">>)
+    }),
+    advance_and_step(Data2).
+
 dispatch_tool_request(Frame, Data) ->
     CallId = maps:get(<<"call_id">>, Frame),
     ToolName = maps:get(<<"tool">>, Frame),
@@ -433,16 +525,20 @@ dispatch_tool_request(Frame, Data) ->
             {keep_state, Data#data{set_result_value = Args}};
         {Type, SkillId} ->
             ReqId = gen_req_id(),
+            ReplyTopic = cap_response_topic(Type, SkillId, ReqId),
+            Data0 = subscribe_reply_topic(ReplyTopic, Data),
             publish_cap_invoke(Type, SkillId, #{
                 <<"req_id">> => ReqId,
-                <<"iid">> => Data#data.iid,
-                <<"trace_id">> => Data#data.trace_id,
-                <<"sid">> => Data#data.active_sid,
+                <<"iid">> => Data0#data.iid,
+                <<"trace_id">> => Data0#data.trace_id,
+                <<"sid">> => Data0#data.active_sid,
                 <<"call_id">> => CallId,
                 <<"args">> => Args
             }),
-            Pending1 = maps:put(ReqId, CallId, Data#data.pending_calls),
-            {keep_state, Data#data{pending_calls = Pending1}}
+            Pending1 = maps:put(ReqId, CallId, Data0#data.pending_calls),
+            TimeoutMs = step_timeout_ms(current_step(Data0), ?CAP_REPLY_TIMEOUT_MS),
+            {keep_state,
+                start_reply_timer(cap_reply_timeout, TimeoutMs, Data0#data{pending_calls = Pending1})}
     end.
 
 route_cap_reply_to_session(ReqId, Frame, Data) ->
@@ -454,7 +550,23 @@ route_cap_reply_to_session(ReqId, Frame, Data) ->
             Result = emqx_agent_skill_helpers:cap_response(Frame),
             send_tool_result(Data#data.active_sid, CallId, Result),
             Pending1 = maps:remove(ReqId, Data#data.pending_calls),
-            {keep_state, Data#data{pending_calls = Pending1}}
+            Data1 = unsubscribe_cap_response_topic(ReqId, Data#data{pending_calls = Pending1}),
+            Data2 =
+                case map_size(Pending1) of
+                    0 ->
+                        start_reply_timer(
+                            llm_reply_timeout,
+                            step_timeout_ms(current_step(Data1), ?LLM_REPLY_TIMEOUT_MS),
+                            Data1
+                        );
+                    _ ->
+                        start_reply_timer(
+                            cap_reply_timeout,
+                            step_timeout_ms(current_step(Data1), ?CAP_REPLY_TIMEOUT_MS),
+                            Data1
+                        )
+                end,
+            {keep_state, Data2}
     end.
 
 %%--------------------------------------------------------------------
@@ -462,27 +574,44 @@ route_cap_reply_to_session(ReqId, Frame, Data) ->
 %%--------------------------------------------------------------------
 
 do_complete(Data) ->
+    Data0 = cleanup_reply_wait(Data),
     ?SLOG(info, #{
         msg => "pipeline_completed",
-        pipeline_id => Data#data.pipeline_id,
-        iid => Data#data.iid
+        pipeline_id => Data0#data.pipeline_id,
+        iid => Data0#data.iid
     }),
-    publish_pipeline_event(Data, #{<<"type">> => <<"pipeline_completed">>}),
-    {next_state, done, enter_done(Data)}.
+    publish_pipeline_event(Data0, #{<<"type">> => <<"pipeline_completed">>}),
+    {next_state, done, enter_done(Data0)}.
 
 do_fail(Data, Reason) ->
+    Data0 = cleanup_reply_wait(Data),
     ReasonBin = iolist_to_binary(io_lib:format("~0p", [Reason])),
     ?SLOG(error, #{
         msg => "pipeline_failed",
-        pipeline_id => Data#data.pipeline_id,
-        iid => Data#data.iid,
+        pipeline_id => Data0#data.pipeline_id,
+        iid => Data0#data.iid,
         reason => ReasonBin
     }),
-    publish_pipeline_event(Data, #{
+    publish_pipeline_event(Data0, #{
         <<"type">> => <<"pipeline_failed">>,
         <<"reason">> => ReasonBin
     }),
-    {next_state, done, enter_done(Data)}.
+    {next_state, done, enter_done(Data0)}.
+
+do_timeout_fail(Data, Reason) ->
+    Data0 = cleanup_reply_wait(Data),
+    ReasonBin = iolist_to_binary(io_lib:format("~0p", [Reason])),
+    ?SLOG(error, #{
+        msg => "pipeline_reply_timeout",
+        pipeline_id => Data0#data.pipeline_id,
+        iid => Data0#data.iid,
+        reason => ReasonBin
+    }),
+    publish_pipeline_event(Data0, #{
+        <<"type">> => <<"pipeline_failed">>,
+        <<"reason">> => ReasonBin
+    }),
+    {stop, {shutdown, Reason}, Data0}.
 
 enter_done(Data) ->
     Ref = erlang:send_after(?IDLE_TIMEOUT_MS, self(), idle_timeout),
@@ -538,6 +667,12 @@ resolve_map(Map, Context) when is_map(Map) ->
     );
 resolve_map(Other, _Context) ->
     Other.
+
+step_timeout_ms(Step, Default) ->
+    case maps:get(<<"timeout_ms">>, Step, Default) of
+        TimeoutMs when is_integer(TimeoutMs), TimeoutMs > 0 -> TimeoutMs;
+        _ -> Default
+    end.
 
 deep_get([], Value) ->
     Value;
@@ -624,6 +759,67 @@ san(_) -> $_.
 %%--------------------------------------------------------------------
 %% Publishing helpers
 %%--------------------------------------------------------------------
+
+safe_decode(Payload) ->
+    try
+        emqx_utils_json:decode(Payload)
+    catch
+        _:_ -> #{}
+    end.
+
+sess_out_topic(Sid) ->
+    <<"sess/out/", Sid/binary, "/">>.
+
+cap_response_topic(Type, SkillId, ReqId) ->
+    <<"cap/", Type/binary, "/", SkillId/binary, "/response/", ReqId/binary>>.
+
+req_id_from_cap_response_topic(Topic) ->
+    case binary:split(Topic, <<"/response/">>) of
+        [_TypeSkill, ReqId] -> ReqId;
+        _ -> undefined
+    end.
+
+subscribe_reply_topic(Topic, #data{reply_topics = Topics0} = Data) ->
+    case lists:member(Topic, Topics0) of
+        true ->
+            Data;
+        false ->
+            ok = emqx:subscribe(Topic),
+            Data#data{reply_topics = [Topic | Topics0]}
+    end.
+
+unsubscribe_reply_topic(Topic, #data{reply_topics = Topics0} = Data) ->
+    case lists:member(Topic, Topics0) of
+        true ->
+            ok = emqx:unsubscribe(Topic),
+            Data#data{reply_topics = lists:delete(Topic, Topics0)};
+        false ->
+            Data
+    end.
+
+unsubscribe_cap_response_topic(ReqId, #data{reply_topics = Topics} = Data) ->
+    case [Topic || Topic <- Topics, req_id_from_cap_response_topic(Topic) =:= ReqId] of
+        [] ->
+            Data;
+        [Topic | _] ->
+            unsubscribe_reply_topic(Topic, Data)
+    end.
+
+cleanup_reply_wait(Data) ->
+    Data1 = cancel_reply_timer(Data),
+    lists:foreach(fun(Topic) -> ok = emqx:unsubscribe(Topic) end, Data1#data.reply_topics),
+    Data1#data{reply_topics = []}.
+
+start_reply_timer(Kind, TimeoutMs, Data) ->
+    Data1 = cancel_reply_timer(Data),
+    Ref = erlang:send_after(TimeoutMs, self(), {pipeline_reply_timeout, Kind}),
+    Data1#data{reply_timer_ref = Ref}.
+
+cancel_reply_timer(#data{reply_timer_ref = undefined} = Data) ->
+    Data;
+cancel_reply_timer(#data{reply_timer_ref = Ref} = Data) ->
+    _ = erlang:cancel_timer(Ref, [{async, false}, {info, false}]),
+    Data#data{reply_timer_ref = undefined}.
 
 publish_to_sess_in(Sid, Payload) ->
     Topic = <<"sess/in/", Sid/binary, "/">>,

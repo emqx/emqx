@@ -164,6 +164,7 @@
             {"name": "type", "type": {"type": "enum", "name": "PipelineStepCallSkillType", "symbols": ["call_skill"]}, "default": "call_skill", "description": "$pipeline_step_type_desc"},
             {"name": "skill", "type": "string", "description": "$pipeline_step_skill_desc"},
             {"name": "args", "type": {"type": "array", "items": "NameValueEntry"}, "default": [], "description": "$pipeline_step_args_desc"},
+            {"name": "timeout_ms", "type": "int", "default": 60000, "description": "$pipeline_step_timeout_ms_desc"},
             {"name": "result_path", "type": "string", "default": "", "description": "$pipeline_step_result_path_desc"}
           ]},
           {"type": "record", "name": "PipelineStepLlmLoop", "fields": [
@@ -173,6 +174,7 @@
             {"name": "model", "type": "string", "description": "$pipeline_step_model_desc"},
             {"name": "stop_on_finish", "type": "boolean", "default": true, "description": "$pipeline_step_stop_on_finish_desc"},
             {"name": "max_tokens", "type": "int", "default": 2048, "description": "$pipeline_step_max_tokens_desc"},
+            {"name": "timeout_ms", "type": "int", "default": 180000, "description": "$pipeline_step_timeout_ms_desc"},
             {"name": "tools", "type": {"type": "array", "items": "string"}, "default": [], "description": "$pipeline_step_tools_desc"},
             {"name": "instructions", "type": "string", "description": "$pipeline_step_instructions_desc"},
             {"name": "input", "type": {"type": "array", "items": "NameValueEntry"}, "default": [], "description": "$pipeline_step_input_desc"},

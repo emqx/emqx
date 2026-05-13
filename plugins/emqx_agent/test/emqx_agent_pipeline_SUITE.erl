@@ -547,6 +547,60 @@ t_unregistered_pipeline_not_triggered(Config) ->
     publish_evt(TrigTopic, #{<<"id">> => <<"e7">>}),
     ?assertEqual(timeout, recv_pipe_event_or_timeout(PipelineId, 500)).
 
+t_pipeline_reply_timeout_fails_and_stops(Config) ->
+    PipelineId = ?config(pipeline_id, Config),
+    TrigTopic = <<"evt/test/", PipelineId/binary>>,
+    ProviderName = <<PipelineId/binary, "-provider">>,
+    {Port, Sock} = listen_on_random_port(),
+    Acceptor = spawn(fun() -> accept_and_hold(Sock) end),
+    try
+        ok = emqx_ai_completion_config:update_providers_raw(
+            {add, #{
+                <<"name">> => ProviderName,
+                <<"type">> => <<"openai">>,
+                <<"api_key">> => <<"test-key">>,
+                <<"base_url">> => iolist_to_binary(io_lib:format("http://127.0.0.1:~b", [Port]))
+            }}
+        ),
+        Step = #{
+            <<"id">> => <<"llm_timeout">>,
+            <<"type">> => <<"llm_loop">>,
+            <<"model">> => <<"test-model">>,
+            <<"instructions">> => <<"test">>,
+            <<"provider_name">> => ProviderName,
+            <<"tools">> => [],
+            <<"input">> => #{},
+            <<"set_result_schema">> => #{
+                <<"type">> => <<"object">>,
+                <<"properties">> => #{<<"status">> => #{<<"type">> => <<"string">>}}
+            },
+            <<"timeout_ms">> => 100,
+            <<"result_path">> => <<"$.result">>
+        },
+        register_pipeline(PipelineId, TrigTopic, [Step]),
+        publish_evt(TrigTopic, #{<<"id">> => <<"timeout-1">>}),
+
+        Started = recv_pipe_event(PipelineId),
+        ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started),
+        Iid = maps:get(<<"iid">>, Started),
+        Pid = emqx_agent_pipeline:whereis(Iid),
+        ?assertNotEqual(undefined, Pid),
+        Ref = monitor(process, Pid),
+
+        Failed = recv_pipe_event(PipelineId),
+        ?assertMatch(#{<<"type">> := <<"pipeline_failed">>}, Failed),
+        ?assertEqual(<<"llm_reply_timeout">>, maps:get(<<"reason">>, Failed)),
+        receive
+            {'DOWN', Ref, process, Pid, {shutdown, llm_reply_timeout}} -> ok
+        after ?SHORT_TIMEOUT ->
+            ct:fail("pipeline did not stop after reply timeout")
+        end
+    after
+        _ = emqx_ai_completion_config:update_providers_raw({delete, ProviderName}),
+        exit(Acceptor, kill),
+        gen_tcp:close(Sock)
+    end.
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
@@ -607,4 +661,23 @@ recv_pipe_event_or_timeout(PipelineId, Timeout) ->
             end
     after Timeout ->
         timeout
+    end.
+
+listen_on_random_port() ->
+    SockOpts = [binary, {active, false}, {packet, raw}, {reuseaddr, true}, {backlog, 1000}],
+    {ok, Sock} = gen_tcp:listen(0, SockOpts),
+    {ok, Port} = inet:port(Sock),
+    {Port, Sock}.
+
+accept_and_hold(Sock) ->
+    case gen_tcp:accept(Sock) of
+        {ok, Client} -> hold_socket(Client);
+        {error, closed} -> ok
+    end.
+
+hold_socket(Client) ->
+    receive
+        stop -> gen_tcp:close(Client)
+    after 30_000 ->
+        gen_tcp:close(Client)
     end.
