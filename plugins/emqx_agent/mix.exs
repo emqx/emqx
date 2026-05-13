@@ -54,7 +54,6 @@ defmodule EMQXAgent.MixProject do
   defp emqx_plugin do
     [
       rel_vsn: version(),
-      rel_apps: [:emqx_ai_completion, :emqx_agent],
       metadata: [
         authors: ["EMQX"],
         builder: [
