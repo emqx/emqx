@@ -137,7 +137,9 @@ defmodule EMQXUmbrella.MixProject do
       # Used by :sbom
       # The revision is v0.16.0 + commit with Elixir 1.19 fixes
       # Remove after protobuf releases a new version and mix_sbom is updated to use it
-      {:protobuf, github: "elixir-protobuf/protobuf", ref: "4328993", override: true}
+      {:protobuf, github: "elixir-protobuf/protobuf", ref: "4328993", override: true},
+      # transitive dep of iotdb-client-erl; pin our fork for OTP 28 compat
+      common_dep(:thrift)
     ]
   end
 
@@ -175,11 +177,8 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.5", override: true}
-
-  def common_dep(:esockd),
-    do: {:esockd, github: "emqx/esockd", tag: "5.16.1", override: true}
-
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.24.0", override: true}
+  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.16.2", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.9", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.4", override: true}
@@ -215,7 +214,8 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:gpb), do: {:gpb, "4.21.5", override: true, runtime: false}
   def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.16.13-emqx-2", override: true}
 
-  def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.4", override: true}
+  # in conflict by emqx_connector and system_monitor
+  def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.5", override: true}
   def common_dep(:sasl_auth), do: {:sasl_auth, "2.3.3", override: true}
   def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.5.1", override: true}
 
@@ -225,7 +225,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:jose),
     do:
-      {:jose, github: "potatosalad/erlang-jose", tag: "1.11.10", manager: :rebar3, override: true}
+      {:jose, github: "potatosalad/erlang-jose", tag: "1.11.12", manager: :rebar3, override: true}
 
   def common_dep(:rulesql), do: {:rulesql, github: "emqx/rulesql", tag: "0.2.1"}
 
@@ -322,6 +322,9 @@ defmodule EMQXUmbrella.MixProject do
     do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.10"}
 
   def common_dep(:sbom), do: {:sbom, "~> 0.8", runtime: false}
+
+  def common_dep(:thrift),
+    do: {:thrift, github: "emqx/thrift.erl", tag: "0.1.4", override: true}
 
   def emqx_app_system_env() do
     k = {__MODULE__, :emqx_app_system_env}

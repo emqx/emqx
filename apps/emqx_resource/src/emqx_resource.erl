@@ -224,7 +224,7 @@
 
 -callback query_mode(Config :: term()) -> resource_query_mode().
 
--callback query_opts(Config :: term()) -> #{timeout => timeout()}.
+-callback query_opts(Config :: term()) -> query_opts() | {error, term()}.
 
 %% This callback handles the installation of a specified channel.
 %%
@@ -550,22 +550,44 @@ get_callback_mode(Mod, State) ->
             undefined
     end.
 
--spec get_query_opts(module(), map()) -> #{timeout => timeout()}.
+-spec get_query_opts(module(), map()) -> query_opts() | {error, term()}.
 get_query_opts(Mod, ActionOrSourceConfig) ->
+    DispatchStrategyQueryOpts = buffer_worker_dispatch_strategy_query_opts(ActionOrSourceConfig),
     case erlang:function_exported(Mod, query_opts, 1) of
         true ->
-            Mod:query_opts(ActionOrSourceConfig);
+            case Mod:query_opts(ActionOrSourceConfig) of
+                {error, _} = Error ->
+                    Error;
+                QueryOpts ->
+                    maps:merge(DispatchStrategyQueryOpts, QueryOpts)
+            end;
         false ->
-            case
-                emqx_utils_maps:deep_get([resource_opts, request_ttl], ActionOrSourceConfig, false)
-            of
-                Timeout when is_integer(Timeout) orelse Timeout =:= infinity ->
-                    %% request_ttl is configured
-                    #{timeout => Timeout};
-                _ ->
-                    %% emqx_resource has a default value (15s)
-                    #{}
-            end
+            maps:merge(
+                request_ttl_query_opts(ActionOrSourceConfig),
+                DispatchStrategyQueryOpts
+            )
+    end.
+
+request_ttl_query_opts(ActionOrSourceConfig) ->
+    case emqx_utils_maps:deep_get([resource_opts, request_ttl], ActionOrSourceConfig, false) of
+        Timeout when is_integer(Timeout) orelse Timeout =:= infinity ->
+            %% request_ttl is configured
+            #{timeout => Timeout};
+        _ ->
+            %% emqx_resource has a default value (15s)
+            #{}
+    end.
+
+buffer_worker_dispatch_strategy_query_opts(ActionOrSourceConfig) ->
+    case
+        emqx_utils_maps:deep_get(
+            [resource_opts, dispatch_strategy], ActionOrSourceConfig, false
+        )
+    of
+        Strategy when Strategy =:= per_clientid; Strategy =:= random ->
+            #{buffer_worker_dispatch_strategy => Strategy};
+        _ ->
+            #{}
     end.
 
 -spec call_start(resource_id(), module(), resource_config()) ->
