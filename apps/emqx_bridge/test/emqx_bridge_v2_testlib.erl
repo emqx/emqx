@@ -482,7 +482,7 @@ ensure_namespaced_api_key(Opts) ->
             viewer ->
                 <<"ns:", Namespace/binary, "::viewer">>
         end,
-    Res = emqx_mgmt_auth:create(
+    Res = emqx_mgmt_auth:create_with_key(
         Name,
         APIKey,
         APISecret,
@@ -2625,6 +2625,7 @@ common_action_resource_opts() ->
         <<"batch_size">> => 1,
         <<"batch_time">> => <<"0ms">>,
         <<"buffer_mode">> => <<"memory_only">>,
+        <<"dispatch_strategy">> => <<"per_clientid">>,
         <<"buffer_seg_bytes">> => <<"10MB">>,
         <<"health_check_interval">> => <<"1s">>,
         <<"health_check_interval_jitter">> => <<"0s">>,

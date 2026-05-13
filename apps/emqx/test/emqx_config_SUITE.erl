@@ -182,6 +182,22 @@ t_cluster_hocon_backup(C) when is_list(C) ->
     ),
     ok.
 
+t_cluster_hocon_save_failure({'end', _C}) ->
+    _ = file:delete("backup-test-blocker"),
+    ok;
+t_cluster_hocon_save_failure(C) when is_list(C) ->
+    %% Force a save failure deterministically without depending on user perms
+    %% (CI runs as root, which ignores chmod). We use a regular file as the
+    %% would-be parent directory of the destination, so file:write_file/2 of the
+    %% .tmp file fails with enotdir.
+    Blocker = "backup-test-blocker",
+    ok = file:write_file(Blocker, <<>>),
+    Dest = filename:join(Blocker, "data.hocon"),
+    Result = emqx_config:backup_and_write(Dest, <<"new">>),
+    ?assertMatch({error, #{filename := Dest, reason := enotdir}}, Result),
+    ok = file:delete(Blocker),
+    ok.
+
 t_init_load_emqx_schema(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given empty config file
