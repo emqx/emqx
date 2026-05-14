@@ -5,7 +5,7 @@ defmodule EMQXRedis.MixProject do
   def project do
     [
       app: :emqx_redis,
-      version: "6.1.0",
+      version: "6.1.1",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -25,7 +25,7 @@ defmodule EMQXRedis.MixProject do
     UMP.deps([
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
-      {:eredis_cluster, github: "emqx/eredis_cluster", tag: "0.8.10"}
+      {:eredis_cluster, github: "emqx/eredis_cluster", tag: "0.8.12"}
     ])
   end
 end

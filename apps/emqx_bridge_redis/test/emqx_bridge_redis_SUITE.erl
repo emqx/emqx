@@ -173,7 +173,8 @@ type_specific_connector_config_of(TCConfig) ->
                 <<"parameters">> => #{
                     <<"redis_type">> => <<"sentinel">>,
                     <<"servers">> => <<"redis-sentinel:26379">>,
-                    <<"sentinel">> => <<"mytcpmaster">>
+                    <<"sentinel">> => <<"mytcpmaster">>,
+                    <<"sentinel_password">> => <<"public">>
                 }
             };
         {?sentinel, ?tls} ->
@@ -181,7 +182,8 @@ type_specific_connector_config_of(TCConfig) ->
                 <<"parameters">> => #{
                     <<"redis_type">> => <<"sentinel">>,
                     <<"servers">> => <<"redis-sentinel-tls:26380">>,
-                    <<"sentinel">> => <<"mytlsmaster">>
+                    <<"sentinel">> => <<"mytlsmaster">>,
+                    <<"sentinel_password">> => <<"public">>
                 },
                 <<"ssl">> => enabled_ssl_opts(TCConfig)
             };
