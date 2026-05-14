@@ -607,7 +607,9 @@ t_local(Config) when is_list(Config) ->
     ClientId2 = ?CLIENTID(2),
 
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
-    {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}, {port, get_tcp_mqtt_port(Node)}]),
+    {ok, ConnPid2} = emqtt:start_link([
+        {clientid, ClientId2}, {port, emqx_cth_cluster:get_tcp_mqtt_port(Node)}
+    ]),
 
     {ok, _} = emqtt:connect(ConnPid1),
     {ok, _} = emqtt:connect(ConnPid2),
@@ -663,7 +665,7 @@ t_remote(Config) when is_list(Config) ->
 
     {ok, ConnPidLocal} = emqtt:start_link([{clientid, ClientIdLocal}]),
     {ok, ConnPidRemote} = emqtt:start_link([
-        {clientid, ClientIdRemote}, {port, get_tcp_mqtt_port(Node)}
+        {clientid, ClientIdRemote}, {port, emqx_cth_cluster:get_tcp_mqtt_port(Node)}
     ]),
 
     try
@@ -741,7 +743,9 @@ t_000_stats(Config) when is_list(Config) ->
     ok = ensure_group_config(Node, GroupConfig),
     SharedTopic = format_share(<<"local_group">>, <<"local_foo/bar">>),
     ClientId1 = ?CLIENTID(1),
-    {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}, {port, get_tcp_mqtt_port(Node)}]),
+    {ok, ConnPid1} = emqtt:start_link([
+        {clientid, ClientId1}, {port, emqx_cth_cluster:get_tcp_mqtt_port(Node)}
+    ]),
     {ok, _} = emqtt:connect(ConnPid1),
     emqtt:subscribe(ConnPid1, {SharedTopic, 0}),
     emqx_cth_cluster:sync_routes([node(), Node]),
@@ -1425,10 +1429,6 @@ setup_node(Node, Port) ->
     ok = rpc:call(Node, emqx_common_test_helpers, start_apps, [[], EnvHandler]),
 
     ok.
-
-get_tcp_mqtt_port(Node) ->
-    {_Host, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
-    Port.
 
 pair_gen_rpc(Node, LocalPort, RemotePort) ->
     _ = rpc:call(Node, application, load, [gen_rpc]),

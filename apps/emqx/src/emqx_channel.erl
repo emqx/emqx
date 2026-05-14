@@ -1651,6 +1651,9 @@ handle_info({disconnect, ReasonCode, ReasonName, Props}, Channel) ->
     handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel);
 handle_info({puback, PacketId, PubRes, RC}, Channel) ->
     do_finish_publish(PacketId, PubRes, RC, Channel);
+handle_info(heal_cluster_partition, Channel) ->
+    handle_heal_partition(Channel),
+    {ok, Channel};
 handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInfo}) ->
     Session = emqx_session:handle_info(Info, Session0, ClientInfo),
     Channel = Channel0#channel{session = Session},
@@ -3333,6 +3336,19 @@ proto_ver(_Reason, #{proto_ver := ProtoVer}) ->
     ProtoVer;
 proto_ver(_, _) ->
     ?MQTT_PROTO_V4.
+
+handle_heal_partition(
+    #channel{
+        session = Session,
+        clientinfo = #{clientid := ClientId}
+    }
+) ->
+    case Session of
+        undefined ->
+            ok;
+        _ ->
+            emqx_cm_registry:register_channel(ClientId)
+    end.
 
 -if(?EMQX_RELEASE_EDITION == ee).
 connect_attrs(Packet, Channel) ->

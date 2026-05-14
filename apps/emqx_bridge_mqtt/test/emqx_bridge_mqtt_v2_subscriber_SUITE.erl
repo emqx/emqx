@@ -239,14 +239,11 @@ start_client(TCConfig, Opts) when is_list(TCConfig) ->
             start_client(node(), Opts)
     end;
 start_client(Node, Opts) when is_atom(Node) ->
-    Port = get_tcp_mqtt_port(Node),
+    Port = emqx_cth_cluster:get_tcp_mqtt_port(Node),
     {ok, C} = emqtt:start_link(Opts#{port => Port, proto_ver => v5}),
     on_exit(fun() -> catch emqtt:stop(C) end),
     {ok, _} = emqtt:connect(C),
     C.
-
-get_tcp_mqtt_port(Node) ->
-    emqx_bridge_mqtt_v2_publisher_SUITE:get_tcp_mqtt_port(Node).
 
 create_connector_api(Config, Overrides) ->
     emqx_bridge_mqtt_v2_publisher_SUITE:create_connector_api(Config, Overrides).
@@ -457,7 +454,7 @@ t_connect_with_more_clients_than_the_broker_accepts(Config) ->
 t_static_clientids(Config) ->
     [N1, N2, N3] = Nodes = ?config(nodes, Config),
     [N1Bin, N2Bin, N3Bin] = lists:map(fun atom_to_binary/1, Nodes),
-    Port = get_tcp_mqtt_port(N1),
+    Port = emqx_cth_cluster:get_tcp_mqtt_port(N1),
     ct:pal("creating connector"),
     {201, _} = create_connector_api(Config, #{
         <<"server">> => <<"127.0.0.1:", (integer_to_binary(Port))/binary>>,
@@ -766,7 +763,7 @@ do_t_resubscribe_on_fast_failure(CleanStart, ProtoVer, TCConfig) ->
     [Source] = emqx_cth_cluster:start(SourceNSpecs),
     on_exit(fun() -> emqx_cth_cluster:stop([Source]) end),
 
-    Port = get_tcp_mqtt_port(Source),
+    Port = emqx_cth_cluster:get_tcp_mqtt_port(Source),
     {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
         <<"server">> => <<"127.0.0.1:", (integer_to_binary(Port))/binary>>,
         <<"proto_ver">> => ProtoVer,
