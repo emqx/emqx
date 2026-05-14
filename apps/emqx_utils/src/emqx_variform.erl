@@ -127,7 +127,8 @@ do_compile(Expression) ->
         {ok, Tokens, _Line} ->
             case emqx_variform_parser:parse(Tokens) of
                 {ok, Form0} ->
-                    Form = pre_split_vars(Form0),
+                    Form1 = pre_split_vars(Form0),
+                    Form = pre_convert_str_to_binary(Form1),
                     {ok, #{expr => Expression, form => Form}};
                 {error, {_, emqx_variform_parser, Msg}} ->
                     %% syntax error
@@ -149,7 +150,7 @@ eval(Atom, _Bindings, _Opts) when is_atom(Atom) ->
     %% but some bif functions such as regex_match may return an atom.
     atom_to_binary(Atom, utf8);
 eval({str, Str}, _Bindings, _Opts) ->
-    unicode:characters_to_binary(Str);
+    Str;
 eval({integer, Num}, _Bindings, _Opts) ->
     Num;
 eval({float, Num}, _Bindings, _Opts) ->
@@ -287,7 +288,7 @@ resolve_func_name(FuncNameStr) ->
             throw(#{reason => invalid_function_reference, function => FuncNameStr})
     end.
 
-%% _Opts can be extended in the future. For example, unbound var as 'undfeined'
+%% _Opts can be extended in the future. For example, unbound var as 'undefined'
 resolve_var_value(VarName, Bindings, _Opts) ->
     case emqx_template:lookup_var(VarName, Bindings) of
         {ok, Value} when ?IS_EMPTY(Value) ->
@@ -366,6 +367,15 @@ pre_split_vars({call, Fn, Args}) ->
 pre_split_vars({array, Xs}) ->
     {array, lists:map(fun pre_split_vars/1, Xs)};
 pre_split_vars(X) ->
+    X.
+
+pre_convert_str_to_binary({str, Str}) ->
+    {str, unicode:characters_to_binary(Str)};
+pre_convert_str_to_binary({array, Xs}) ->
+    {array, lists:map(fun pre_convert_str_to_binary/1, Xs)};
+pre_convert_str_to_binary({call, Fn, Args}) ->
+    {call, Fn, lists:map(fun pre_convert_str_to_binary/1, Args)};
+pre_convert_str_to_binary(X) ->
     X.
 
 sc(#{} = Opts) ->
