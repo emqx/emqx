@@ -76,7 +76,7 @@
 %% `node.max_ports = auto' scales linearly with logical_processors_available
 %% up to MAX_PORTS_CORES_CLAMP cores. Above the clamp we fall back to
 %% ?DEFAULT_MAX_PORTS so a large host doesn't end up with an unbounded table.
--define(MAX_PORTS_PER_CORE, 65536).
+-define(MAX_PORTS_PER_CORE, 6400).
 -define(MAX_PORTS_CORES_CLAMP, 8).
 
 %% Process table is sized as round(?PROCESS_LIMIT_RATIO * +Q). 1.2 leaves some
