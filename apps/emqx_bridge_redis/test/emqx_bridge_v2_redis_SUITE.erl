@@ -191,6 +191,8 @@ per_type_connector_config(sentinel) ->
                 <<"database">> => <<"0">>,
                 <<"servers">> => <<"redis-sentinel:26379">>,
                 <<"sentinel">> => <<"mytcpmaster">>,
+                <<"sentinel_username">> => <<"test_user">>,
+                <<"sentinel_password">> => <<"test_passwd">>,
                 <<"redis_type">> => <<"sentinel">>
             }
     };
@@ -345,15 +347,7 @@ t_on_get_status_no_username_pass(Config0) when is_list(Config0) ->
                 single ->
                     ?assertMatch([_ | _], ?of_kind(emqx_redis_auth_required_error, Trace));
                 sentinel ->
-                    ?assertEqual([], ?of_kind(emqx_redis_auth_required_error, Trace)),
-                    SentinelDiscoveryErrors = [
-                        Event
-                     || #{error := Error} = Event <- ?of_kind(resource_activate_alarm, Trace),
-                        is_binary(Error),
-                        binary:match(Error, <<"start_pool_failed">>) =/= nomatch,
-                        binary:match(Error, <<"sentinel_unreachable">>) =/= nomatch
-                    ],
-                    ?assertMatch([_ | _], SentinelDiscoveryErrors);
+                    ?assertMatch([_ | _], ?of_kind(emqx_redis_auth_required_error, Trace));
                 cluster ->
                     ok
             end

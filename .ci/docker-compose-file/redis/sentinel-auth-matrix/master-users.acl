@@ -1,0 +1,2 @@
+user default off
+user redis_user on >redis-password ~* &* +@all

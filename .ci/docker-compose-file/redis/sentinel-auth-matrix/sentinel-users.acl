@@ -1,0 +1,2 @@
+user default off
+user sentinel_user on >sentinel-password ~* &* +@all

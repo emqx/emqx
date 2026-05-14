@@ -24,6 +24,18 @@ sentinel_desc.desc:
 sentinel_desc.label:
 """Cluster Name"""
 
+sentinel_password.desc:
+"""Password used to authenticate with Redis Sentinel. Leave it unset when Sentinel does not require authentication."""
+
+sentinel_password.label:
+"""Sentinel Password"""
+
+sentinel_username.desc:
+"""Username used to authenticate with Redis Sentinel. Leave it unset when Sentinel does not require ACL username authentication."""
+
+sentinel_username.label:
+"""Sentinel Username"""
+
 server.desc:
 """The IPv4 or IPv6 address or the hostname to connect to.<br/>
 A host entry has the following form: `Host[:Port]`.<br/>

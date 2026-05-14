@@ -582,12 +582,14 @@ redis_connect_configs() ->
             tcp => #{
                 <<"servers">> => <<"redis-sentinel:26379">>,
                 <<"redis_type">> => <<"sentinel">>,
-                <<"sentinel">> => <<"mytcpmaster">>
+                <<"sentinel">> => <<"mytcpmaster">>,
+                <<"sentinel_password">> => <<"public">>
             },
             tls => #{
                 <<"servers">> => <<"redis-sentinel-tls:26380">>,
                 <<"redis_type">> => <<"sentinel">>,
                 <<"sentinel">> => <<"mytlsmaster">>,
+                <<"sentinel_password">> => <<"public">>,
                 <<"ssl">> => redis_connect_ssl_opts(redis_sentinel)
             }
         },
