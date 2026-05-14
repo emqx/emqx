@@ -289,15 +289,15 @@ resolve_func_name(FuncNameStr) ->
     end.
 
 %% _Opts can be extended in the future. For example, unbound var as 'undefined'
-resolve_var_value(VarName, Bindings, _Opts) ->
-    case emqx_template:lookup_var(VarName, Bindings) of
+resolve_var_value({VarName, PrettyVarName}, Bindings, _Opts) ->
+    case emqx_template:lookup_var_precomputed_fallback(VarName, Bindings) of
         {ok, Value} when ?IS_EMPTY(Value) ->
             <<"">>;
         {ok, Value} ->
             Value;
         {error, _Reason} ->
             throw(#{
-                var_name => iolist_to_binary(VarName),
+                var_name => PrettyVarName,
                 reason => var_unbound
             })
     end.
@@ -361,7 +361,9 @@ split(VarName) ->
     lists:map(fun erlang:iolist_to_binary/1, string:tokens(VarName, ".")).
 
 pre_split_vars({var, VarName}) ->
-    {var, split(VarName)};
+    Segments0 = split(VarName),
+    Segments = lists:map(fun(S) -> {S, binary_to_atom(S, utf8)} end, Segments0),
+    {var, {Segments, iolist_to_binary(VarName)}};
 pre_split_vars({call, Fn, Args}) ->
     {call, Fn, lists:map(fun pre_split_vars/1, Args)};
 pre_split_vars({array, Xs}) ->

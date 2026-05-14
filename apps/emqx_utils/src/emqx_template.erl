@@ -31,6 +31,7 @@
 -export([render_strict/3]).
 
 -export([lookup_var/2]).
+-export([lookup_var_precomputed_fallback/2]).
 -export([lookup/2]).
 
 -export([to_string/1]).
@@ -425,6 +426,33 @@ lookup_var(Loc, [Prop | Rest], Bindings) when is_map(Bindings) ->
             {error, Reason}
     end;
 lookup_var(Loc, _, Invalid) ->
+    {error, {Loc, type_name(Invalid)}}.
+
+-doc """
+This behaves very similarly to `lookup_var/2`, but instead of a list of binary keys to
+navigate the bindings, this receives a list of `{binary(), atom()}` (or any 2-tuple,
+really), where the first key is attempted to be plucked out first, and then the second if
+that fails.
+
+This is meant to be used by `emqx_variform` to avoid computing `binary_to_existing_atom/2`
+multiple times for the same static key.  In variform, we can pre-compute the atom version
+and just attempt to get it from the map.
+""".
+lookup_var_precomputed_fallback(Var, Bindings) ->
+    lookup_var_precomputed_fallback(0, Var, Bindings).
+
+lookup_var_precomputed_fallback(_, [], Value) ->
+    {ok, Value};
+lookup_var_precomputed_fallback(Loc, [{Prop1, Prop2} | Rest], Bindings) when is_map(Bindings) ->
+    case Bindings of
+        #{Prop1 := Value} ->
+            lookup_var_precomputed_fallback(Loc + 1, Rest, Value);
+        #{Prop2 := Value} ->
+            lookup_var_precomputed_fallback(Loc + 1, Rest, Value);
+        _ ->
+            {error, undefined}
+    end;
+lookup_var_precomputed_fallback(Loc, _, Invalid) ->
     {error, {Loc, type_name(Invalid)}}.
 
 type_name(Term) when is_atom(Term) -> atom;
