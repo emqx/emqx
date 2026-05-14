@@ -1,0 +1,106 @@
+{
+  "$dir_url_label": {
+    "en": "ACME Directory URL",
+    "zh": "ACME 目录 URL"
+  },
+  "$dir_url_desc": {
+    "en": "ACME directory endpoint of the certificate authority. Use the Let's Encrypt staging URL for testing: https://acme-staging-v02.api.letsencrypt.org/directory",
+    "zh": "证书颁发机构的 ACME 目录端点。测试时请使用 Let's Encrypt 的 staging URL：https://acme-staging-v02.api.letsencrypt.org/directory"
+  },
+  "$domains_label": {
+    "en": "Domains",
+    "zh": "域名"
+  },
+  "$domains_desc": {
+    "en": "Domain names to include in the issued certificate, comma-separated (e.g. 'mqtt.example.com, mqtt2.example.com'). Each domain must publicly resolve to this EMQX node so the CA can complete the HTTP-01 challenge. All domains share one cert as Subject Alternative Names; if any one fails validation the whole order fails.",
+    "zh": "签发证书时包含的域名列表，使用英文逗号分隔（例如 'mqtt.example.com, mqtt2.example.com'）。每个域名必须能在公网解析到当前 EMQX 节点，以便 CA 完成 HTTP-01 挑战验证。所有域名共用同一张证书（作为 SAN）；只要任一域名验证失败，整张订单都会失败。"
+  },
+  "$contact_label": {
+    "en": "Contact",
+    "zh": "联系方式"
+  },
+  "$contact_desc": {
+    "en": "Contact addresses registered with the ACME account, comma-separated (e.g. 'mailto:admin@example.com, mailto:ops@example.com'). Used by the CA for renewal and revocation notifications.",
+    "zh": "在 ACME 账户中登记的联系方式，使用英文逗号分隔（例如 'mailto:admin@example.com, mailto:ops@example.com'）。CA 会通过这些地址发送续期、吊销等通知。"
+  },
+  "$cert_bundle_name_label": {
+    "en": "Certificate Bundle Name",
+    "zh": "证书包名称"
+  },
+  "$cert_bundle_name_desc": {
+    "en": "Name of the managed certificate bundle this plugin owns. Issued chain and key are written to data/certs2/global/<cert_bundle_name>/. SSL listeners reference this bundle via ssl_options.managed_certs.bundle_name.",
+    "zh": "本插件管理的证书包名称。签发的证书链与私钥会写入 data/certs2/global/<cert_bundle_name>/。SSL 监听器通过 ssl_options.managed_certs.bundle_name 引用该证书包。"
+  },
+  "$listener_ids_label": {
+    "en": "Listener IDs",
+    "zh": "监听器 ID"
+  },
+  "$listener_ids_desc": {
+    "en": "Comma-separated MQTT SSL/WSS listener IDs to migrate after the first issuance (e.g. \"ssl:default,wss:default\"). Each entry is \"ssl:<name>\" or \"wss:<name>\". The plugin rewrites each existing listener's ssl_options.managed_certs.bundle_name to point at the bundle above. Listeners that do not yet exist are silently skipped. Leave empty to issue a cert for the dashboard HTTPS listener only, without touching any MQTT listener. (The dashboard's HTTPS listener is controlled separately by enable_dashboard_https.)",
+    "zh": "首次签发后需自动切换证书的 MQTT SSL/WSS 监听器 ID 列表，用英文逗号分隔（例如 \"ssl:default,wss:default\"）。每一项格式为 \"ssl:<name>\" 或 \"wss:<name>\"。插件会把这些已存在监听器的 ssl_options.managed_certs.bundle_name 改写为上面的证书包名称；尚未配置的监听器会被静默跳过。留空则只为 Dashboard HTTPS 监听器签发证书，不修改任何 MQTT 监听器。（Dashboard 的 HTTPS 监听器由 enable_dashboard_https 单独控制。）"
+  },
+  "$dashboard_https_port_label": {
+    "en": "Dashboard HTTPS Port",
+    "zh": "Dashboard HTTPS 端口"
+  },
+  "$dashboard_https_port_desc": {
+    "en": "TCP port on which to bind the dashboard's HTTPS listener when enable_dashboard_https is true. Default 18084; change to e.g. 8443 if 18084 conflicts with another service on the host.",
+    "zh": "当 enable_dashboard_https 为 true 时，Dashboard HTTPS 监听器绑定的 TCP 端口。默认 18084；若 18084 与主机上其他服务冲突，可改为例如 8443。"
+  },
+  "$enable_dashboard_https_label": {
+    "en": "Enable Dashboard HTTPS",
+    "zh": "启用 Dashboard HTTPS"
+  },
+  "$enable_dashboard_https_desc": {
+    "en": "When enabled, the plugin creates the dashboard's HTTPS listener (default port 18084) on first successful issuance and points it at the issued certificate. Existing dashboard.listeners.http stays untouched — disable it from the plugin UI after you have verified HTTPS works.",
+    "zh": "启用后，首次成功签发证书时，插件会创建 Dashboard 的 HTTPS 监听器（默认 18084 端口），并使用签发的证书。原有的 dashboard.listeners.http 不会被修改；建议在确认 HTTPS 可用后，从插件 UI 中关闭 HTTP 监听器。"
+  },
+  "$cert_type_label": {
+    "en": "Certificate Key Type",
+    "zh": "证书密钥类型"
+  },
+  "$cert_type_desc": {
+    "en": "Key algorithm for the issued certificate. EC (P-256) is recommended; RSA generates a 2048-bit key.",
+    "zh": "签发证书使用的密钥算法。推荐使用 EC（P-256）；选择 RSA 时生成 2048 位密钥。"
+  },
+  "$challenge_port_label": {
+    "en": "HTTP-01 Challenge Port",
+    "zh": "HTTP-01 挑战端口"
+  },
+  "$challenge_port_desc": {
+    "en": "TCP port the plugin listens on during HTTP-01 challenge validation. ACME CAs always send the challenge request to port 80 of the validated domain, but EMQX does not run as root and cannot bind a privileged port (<1024). In practice set this to a high port (e.g. 5080) and put a reverse proxy or port-forwarding rule in front so that the public domain:80 reaches EMQX's challenge_port.",
+    "zh": "插件在 HTTP-01 挑战验证期间监听的 TCP 端口。ACME CA 总是向被验证域名的 80 端口发起挑战请求，但 EMQX 不以 root 用户运行，无法绑定 1024 以下的特权端口。实际部署时通常将本端口设置为高端口（例如 5080），并在前面通过反向代理或端口转发，把公网的 domain:80 流量转到 EMQX 监听的端口上。"
+  },
+  "$renew_before_expiry_days_label": {
+    "en": "Renew Before Expiry (days)",
+    "zh": "证书到期前续期天数"
+  },
+  "$renew_before_expiry_days_desc": {
+    "en": "Number of days before the certificate's expiry at which the plugin starts attempting renewal.",
+    "zh": "证书到期前多少天开始尝试续期。"
+  },
+  "$check_interval_hours_label": {
+    "en": "Check Interval (hours)",
+    "zh": "检查间隔（小时）"
+  },
+  "$check_interval_hours_desc": {
+    "en": "How often the plugin checks the certificate's expiry, in hours. Default 24.",
+    "zh": "插件检查证书到期时间的间隔（小时），默认 24。"
+  },
+  "$acc_key_label": {
+    "en": "ACME Account Key (operator override)",
+    "zh": "ACME 账户密钥（运维覆盖）"
+  },
+  "$acc_key_desc": {
+    "en": "Optional override. Leave empty (the default) and the plugin manages the ACME account key inside the cert bundle: it auto-generates one on first issuance and replicates it to every cluster node alongside the cert chain. Set this to a file:// URI only when you need to pin the key to an out-of-bundle path (e.g. a Kubernetes Secret mounted at a known location). When set, the plugin reads the file on every issuance and never overwrites it; if it is absent on the local node it auto-generates one there only, so you must pre-distribute the file across cluster nodes yourself. ${EMQX_ETC_DIR} and ${EMQX_LOG_DIR} are expanded at use time.",
+    "zh": "可选覆盖。留空（默认）时，插件会在证书包内自动管理 ACME 账户密钥：首次签发时自动生成，并随证书链一起复制到每个集群节点。仅当你需要把密钥固定在证书包之外的路径（例如挂载为 Kubernetes Secret）时，才将本字段设置为 file:// URI。设置后，插件每次签发都会读取该文件，且从不覆盖；若本地节点上该文件缺失，仅会在本地节点自动生成，集群其他节点的密钥需要你自行预先分发。${EMQX_ETC_DIR} 和 ${EMQX_LOG_DIR} 会在使用时展开。"
+  },
+  "$acc_key_password_label": {
+    "en": "ACME Account Key Password File",
+    "zh": "ACME 账户密钥密码文件"
+  },
+  "$acc_key_password_desc": {
+    "en": "Optional. Only meaningful when acc_key is set above and points at an encrypted PEM. file:// URI to a plain-text file containing the password.",
+    "zh": "可选。仅当上面的 acc_key 已设置且指向加密 PEM 时有意义。file:// URI，指向包含密码的纯文本文件。"
+  }
+}

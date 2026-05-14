@@ -1,0 +1,166 @@
+{
+  "type": "record",
+  "name": "EmqxAcmeConfigSchema",
+  "fields": [
+    {
+      "name": "dir_url",
+      "type": "string",
+      "default": "https://acme-v02.api.letsencrypt.org/directory",
+      "$ui": {
+        "component": "input",
+        "flex": 12,
+        "required": true,
+        "label": "$dir_url_label",
+        "description": "$dir_url_desc"
+      }
+    },
+    {
+      "name": "domains",
+      "type": "string",
+      "default": "",
+      "$ui": {
+        "component": "input",
+        "flex": 12,
+        "required": true,
+        "label": "$domains_label",
+        "description": "$domains_desc"
+      }
+    },
+    {
+      "name": "contact",
+      "type": "string",
+      "default": "",
+      "$ui": {
+        "component": "input",
+        "flex": 12,
+        "required": false,
+        "label": "$contact_label",
+        "description": "$contact_desc"
+      }
+    },
+    {
+      "name": "cert_bundle_name",
+      "type": "string",
+      "default": "acme",
+      "$ui": {
+        "component": "input",
+        "flex": 12,
+        "required": true,
+        "label": "$cert_bundle_name_label",
+        "description": "$cert_bundle_name_desc"
+      }
+    },
+    {
+      "name": "listener_ids",
+      "type": "string",
+      "default": "ssl:default,wss:default",
+      "$ui": {
+        "component": "input",
+        "flex": 12,
+        "required": false,
+        "label": "$listener_ids_label",
+        "description": "$listener_ids_desc"
+      }
+    },
+    {
+      "name": "enable_dashboard_https",
+      "type": "boolean",
+      "default": true,
+      "$ui": {
+        "component": "switch",
+        "flex": 12,
+        "required": false,
+        "label": "$enable_dashboard_https_label",
+        "description": "$enable_dashboard_https_desc"
+      }
+    },
+    {
+      "name": "dashboard_https_port",
+      "type": "int",
+      "default": 18084,
+      "$ui": {
+        "component": "input-number",
+        "flex": 12,
+        "required": false,
+        "label": "$dashboard_https_port_label",
+        "description": "$dashboard_https_port_desc"
+      }
+    },
+    {
+      "name": "cert_type",
+      "type": "string",
+      "default": "ec",
+      "$ui": {
+        "component": "select",
+        "flex": 12,
+        "required": true,
+        "label": "$cert_type_label",
+        "description": "$cert_type_desc",
+        "options": [
+          {"label": "EC (ECDSA)", "value": "ec"},
+          {"label": "RSA", "value": "rsa"}
+        ]
+      }
+    },
+    {
+      "name": "challenge_port",
+      "type": "int",
+      "default": 80,
+      "$ui": {
+        "component": "input-number",
+        "flex": 12,
+        "required": true,
+        "label": "$challenge_port_label",
+        "description": "$challenge_port_desc"
+      }
+    },
+    {
+      "name": "renew_before_expiry_days",
+      "type": "int",
+      "default": 30,
+      "$ui": {
+        "component": "input-number",
+        "flex": 12,
+        "required": true,
+        "label": "$renew_before_expiry_days_label",
+        "description": "$renew_before_expiry_days_desc"
+      }
+    },
+    {
+      "name": "check_interval_hours",
+      "type": "int",
+      "default": 24,
+      "$ui": {
+        "component": "input-number",
+        "flex": 12,
+        "required": true,
+        "label": "$check_interval_hours_label",
+        "description": "$check_interval_hours_desc"
+      }
+    },
+    {
+      "name": "acc_key",
+      "type": ["null", "string"],
+      "default": null,
+      "$ui": {
+        "component": "input",
+        "flex": 12,
+        "required": false,
+        "label": "$acc_key_label",
+        "description": "$acc_key_desc"
+      }
+    },
+    {
+      "name": "acc_key_password",
+      "type": ["null", "string"],
+      "default": null,
+      "$ui": {
+        "component": "input",
+        "flex": 12,
+        "required": false,
+        "label": "$acc_key_password_label",
+        "description": "$acc_key_password_desc"
+      }
+    }
+  ]
+}
