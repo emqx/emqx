@@ -68,8 +68,21 @@
     emqx_mgmt_api_key_schema
 ]).
 
-%% 1 million default ports counter
+%% Fallback used when `node.max_ports' is `auto' and the host has more than
+%% MAX_PORTS_CORES_CLAMP logical processors available (or the runtime cannot
+%% report a CPU count). Matches the historical fixed default of 1 million.
 -define(DEFAULT_MAX_PORTS, 1024 * 1024).
+
+%% `node.max_ports = auto' scales linearly with logical_processors_available
+%% up to MAX_PORTS_CORES_CLAMP cores. Above the clamp we fall back to
+%% ?DEFAULT_MAX_PORTS so a large host doesn't end up with an unbounded table.
+-define(MAX_PORTS_PER_CORE, 65536).
+-define(MAX_PORTS_CORES_CLAMP, 8).
+
+%% Process table is sized as round(?PROCESS_LIMIT_RATIO * +Q). 1.2 leaves some
+%% headroom for non-port-owning processes (supervisors, gen_servers) without
+%% inflating the table to 2x like the historical default did.
+-define(PROCESS_LIMIT_RATIO, 1.2).
 
 %% Don't forget to update `emqx_log_throttler:new_throttler/1` when adding a message that
 %% is throttled on a per-resource basis.
@@ -479,22 +492,22 @@ fields("node") ->
             sc(
                 range(1024, 134217727),
                 #{
-                    %% deprecated make sure it's disappeared in raw_conf user(HTTP API)
-                    %% but still in vm.args via translation/1
-                    %% ProcessLimit is always equal to MaxPort * 2 when translation/1.
-                    deprecated => {since, "5.1"},
                     desc => ?DESC(process_limit),
+                    %% Hidden so to infer from max_ports
                     importance => ?IMPORTANCE_HIDDEN,
                     'readOnly' => true
                 }
             )},
         {"max_ports",
             sc(
-                range(1024, 134217727),
+                hoconsc:union([auto, range(1024, 134217727)]),
                 #{
-                    mapping => "vm_args.+Q",
+                    %% `mapping' is intentionally omitted: the translation
+                    %% `tr_vm_args_max_ports/1' below resolves `auto' to the
+                    %% per-core value and emits the final integer into
+                    %% `vm_args.+Q'.
                     desc => ?DESC(max_ports),
-                    default => ?DEFAULT_MAX_PORTS,
+                    default => auto,
                     importance => ?IMPORTANCE_HIGH,
                     'readOnly' => true
                 }
@@ -1283,13 +1296,40 @@ translation("prometheus") ->
     ];
 translation("vm_args") ->
     [
+        {"+Q", fun tr_vm_args_max_ports/1},
         {"+P", fun tr_vm_args_process_limit/1},
         {"-kernel inet_dist_use_interface", fun tr_vm_args_dist_bind_address/1},
         {"-kernel inet_dist_connect_options", fun tr_kernel_inet_dist_connect_options/1}
     ].
 
+tr_vm_args_max_ports(Conf) ->
+    resolve_max_ports(conf_get("node.max_ports", Conf, auto)).
+
+%% `+P' is normally derived from `+Q' (max_ports) so users don't have to
+%% think about it. The hidden `node.process_limit' override is honored only
+%% when it's strictly larger than the derived value -- a smaller user value
+%% would silently cap the process table below what max_ports already promises.
 tr_vm_args_process_limit(Conf) ->
-    2 * conf_get("node.max_ports", Conf, ?DEFAULT_MAX_PORTS).
+    MaxPorts = resolve_max_ports(conf_get("node.max_ports", Conf, auto)),
+    Derived = round(?PROCESS_LIMIT_RATIO * MaxPorts),
+    case conf_get("node.process_limit", Conf, undefined) of
+        N when is_integer(N), N > Derived -> N;
+        _ -> Derived
+    end.
+
+%% Resolve `node.max_ports' to an integer suitable for `+Q'.
+%% `auto' -> per-core formula clamped at ?MAX_PORTS_CORES_CLAMP cores;
+%% above the clamp (or when the runtime cannot report a CPU count) we use
+%% ?DEFAULT_MAX_PORTS so very large hosts keep the historical default.
+resolve_max_ports(auto) ->
+    case erlang:system_info(logical_processors_available) of
+        Cores when is_integer(Cores), Cores >= 1, Cores =< ?MAX_PORTS_CORES_CLAMP ->
+            Cores * ?MAX_PORTS_PER_CORE;
+        _ ->
+            ?DEFAULT_MAX_PORTS
+    end;
+resolve_max_ports(N) when is_integer(N) ->
+    N.
 
 tr_vm_args_dist_bind_address(Conf) ->
     %% Try accessing via node first (like max_ports does)
