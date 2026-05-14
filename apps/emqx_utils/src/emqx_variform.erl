@@ -126,7 +126,8 @@ do_compile(Expression) ->
     case emqx_variform_scan:string(Expression) of
         {ok, Tokens, _Line} ->
             case emqx_variform_parser:parse(Tokens) of
-                {ok, Form} ->
+                {ok, Form0} ->
+                    Form = pre_split_vars(Form0),
                     {ok, #{expr => Expression, form => Form}};
                 {error, {_, emqx_variform_parser, Msg}} ->
                     %% syntax error
@@ -288,7 +289,7 @@ resolve_func_name(FuncNameStr) ->
 
 %% _Opts can be extended in the future. For example, unbound var as 'undfeined'
 resolve_var_value(VarName, Bindings, _Opts) ->
-    case emqx_template:lookup_var(split(VarName), Bindings) of
+    case emqx_template:lookup_var(VarName, Bindings) of
         {ok, Value} when ?IS_EMPTY(Value) ->
             <<"">>;
         {ok, Value} ->
@@ -357,6 +358,15 @@ get_allowed_modules() ->
 
 split(VarName) ->
     lists:map(fun erlang:iolist_to_binary/1, string:tokens(VarName, ".")).
+
+pre_split_vars({var, VarName}) ->
+    {var, split(VarName)};
+pre_split_vars({call, Fn, Args}) ->
+    {call, Fn, lists:map(fun pre_split_vars/1, Args)};
+pre_split_vars({array, Xs}) ->
+    {array, lists:map(fun pre_split_vars/1, Xs)};
+pre_split_vars(X) ->
+    X.
 
 sc(#{} = Opts) ->
     hoconsc:mk(
