@@ -106,6 +106,61 @@ t_skill_publish_crud(Config) ->
     ?assertMatch({ok, 204}, api_delete([agent, skills, <<"message__publish">>, Id])),
     ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"message__publish">>, Id])).
 
+t_skill_schema_strings_are_accepted(Config) ->
+    Id = ?config(tc_id, Config),
+    PubId = <<Id/binary, "-pub">>,
+    ReqId = <<Id/binary, "-req">>,
+
+    ?assertMatch(
+        {ok, 201, _},
+        api_post([agent, skills], #{
+            <<"type">> => <<"message__publish">>,
+            <<"id">> => PubId,
+            <<"desc">> => <<"test publish skill">>,
+            <<"topic_prefix">> => <<"test/pub/">>,
+            <<"payload_schema">> => ?VALID_INPUT_SCHEMA
+        })
+    ),
+    ?assertMatch(
+        {ok, 201, _},
+        api_post([agent, skills], #{
+            <<"type">> => <<"message__request">>,
+            <<"id">> => ReqId,
+            <<"desc">> => <<"test request skill">>,
+            <<"topic_prefix">> => <<"test/req/">>,
+            <<"request_payload_schema">> => ?VALID_INPUT_SCHEMA
+        })
+    ),
+
+    ?assertMatch(
+        {ok, 200, #{<<"payload_schema">> := ?VALID_INPUT_SCHEMA}},
+        api_get([agent, skills, <<"message__publish">>, PubId])
+    ),
+    ?assertMatch(
+        {ok, 200, #{<<"request_payload_schema">> := ?VALID_INPUT_SCHEMA}},
+        api_get([agent, skills, <<"message__request">>, ReqId])
+    ).
+
+t_skill_schema_maps_are_rejected(Config) ->
+    Id = ?config(tc_id, Config),
+    Schema = #{
+        <<"type">> => <<"object">>,
+        <<"properties">> => #{},
+        <<"required">> => [],
+        <<"additionalProperties">> => false
+    },
+
+    ?assertMatch(
+        {ok, 400, _},
+        api_post([agent, skills], #{
+            <<"type">> => <<"message__publish">>,
+            <<"id">> => Id,
+            <<"desc">> => <<"test publish skill">>,
+            <<"topic_prefix">> => <<"test/pub/">>,
+            <<"payload_schema">> => Schema
+        })
+    ).
+
 t_skill_http_crud(Config) ->
     Id = ?config(tc_id, Config),
 

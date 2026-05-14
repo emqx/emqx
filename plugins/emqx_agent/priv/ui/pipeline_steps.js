@@ -99,8 +99,8 @@ function stepFieldsHTML(step, idx) {
 
   if (step.type === 'call_skill') {
     const skillOpts = loadedSkills.map(s => {
-      const ref = s.type + '@' + s.skill_id;
-      return `<option value="${esc(ref)}"${ref===step.skill?' selected':''}>${esc(s.skill_id)} (${esc(s.type)})</option>`;
+      const ref = s.type + '@' + s.id;
+      return `<option value="${esc(ref)}"${ref===step.skill?' selected':''}>${esc(s.id)} (${esc(s.type)})</option>`;
     }).join('');
     return idF + `
       <div class="field"><label>Skill</label>
@@ -123,11 +123,11 @@ function stepFieldsHTML(step, idx) {
     ).join('');
     const toolsHTML = loadedSkills.length
       ? loadedSkills.map(s => {
-          const ref = s.type + '@' + s.skill_id;
+          const ref = s.type + '@' + s.id;
           const on = (step.tools||[]).includes(ref);
           return `<label>
             <input type="checkbox" value="${esc(ref)}"${on?' checked':''}>
-            ${esc(s.skill_id)} <small>${esc(s.type)}</small></label>`;
+            ${esc(s.id)} <small>${esc(s.type)}</small></label>`;
         }).join('')
       : '<span style="color:var(--muted);font-size:11px">No skills registered yet</span>';
     return idF + `

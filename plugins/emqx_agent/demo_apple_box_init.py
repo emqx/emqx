@@ -5,9 +5,10 @@ Required env vars:
   OPENAI_API_KEY     — OpenAI API key
 
 Optional env vars (for this init script):
+  EMQX_HOST          — EMQX host for API requests (default: localhost)
   EMQX_BASE_URL      — EMQX Agent plugin API base URL
-                       (default: http://localhost:18083/api/v5/plugin_api/emqx_agent)
-  EMQX_CORE_BASE_URL — EMQX core API base URL (default: http://localhost:18083/api/v5)
+                       (default: http://$EMQX_HOST:18083/api/v5/plugin_api/emqx_agent)
+  EMQX_CORE_BASE_URL — EMQX core API base URL (default: http://$EMQX_HOST:18083/api/v5)
   EMQX_API_CREDS     — Basic-auth "key:secret" (default: key:secret)
   OPENAI_BASE_URL    — OpenAI-compatible base URL (default: https://api.openai.com/v1)
   OPENAI_MODEL       — Model name              (default: gpt-4o)
@@ -34,8 +35,9 @@ def env(name: str, default: str | None = None) -> str:
     return value
 
 
-BASE_URL = env("EMQX_BASE_URL", "http://localhost:18083/api/v5/plugin_api/emqx_agent")
-CORE_BASE_URL = env("EMQX_CORE_BASE_URL", "http://localhost:18083/api/v5")
+EMQX_HOST = env("EMQX_HOST", "localhost")
+BASE_URL = env("EMQX_BASE_URL", f"http://{EMQX_HOST}:18083/api/v5/plugin_api/emqx_agent")
+CORE_BASE_URL = env("EMQX_CORE_BASE_URL", f"http://{EMQX_HOST}:18083/api/v5")
 CREDS = env("EMQX_API_CREDS", "key:secret")
 
 OPENAI_BASE_URL = env("OPENAI_BASE_URL", "https://api.openai.com/v1")
