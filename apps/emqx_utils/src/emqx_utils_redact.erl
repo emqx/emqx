@@ -56,6 +56,9 @@ is_sensitive_key(<<"secret_key">>) -> true;
 is_sensitive_key(security_token) -> true;
 is_sensitive_key("security_token") -> true;
 is_sensitive_key(<<"security_token">>) -> true;
+is_sensitive_key(sentinel_password) -> true;
+is_sensitive_key("sentinel_password") -> true;
+is_sensitive_key(<<"sentinel_password">>) -> true;
 is_sensitive_key(sp_private_key) -> true;
 is_sensitive_key(<<"sp_private_key">>) -> true;
 is_sensitive_key(private_key_password) -> true;
@@ -290,6 +293,7 @@ redact_test_() ->
         secret_key,
         secret_access_key,
         security_token,
+        sentinel_password,
         token,
         bind_password
     ],
