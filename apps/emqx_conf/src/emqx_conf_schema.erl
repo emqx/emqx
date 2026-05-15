@@ -79,10 +79,12 @@
 -define(MAX_PORTS_PER_CORE, 64000).
 -define(MAX_PORTS_CORES_CLAMP, 8).
 
-%% Process table is sized as round(?PROCESS_LIMIT_RATIO * +Q). 1.2 leaves some
-%% headroom for non-port-owning processes (supervisors, gen_servers) without
-%% inflating the table to 2x like the historical default did.
--define(PROCESS_LIMIT_RATIO, 1.2).
+%% Process table is sized as ?PROCESS_LIMIT_RATIO * +Q.
+%% 2x is the historical default and is required for TLS/QUIC: each TLS
+%% connection owns 2 Erlang processes (the connection process plus the SSL
+%% handshake/record process), so the process table must scale at 2x the port
+%% table to avoid hitting +P before +Q under a full TLS load.
+-define(PROCESS_LIMIT_RATIO, 2).
 
 %% Don't forget to update `emqx_log_throttler:new_throttler/1` when adding a message that
 %% is throttled on a per-resource basis.
@@ -1311,7 +1313,7 @@ tr_vm_args_max_ports(Conf) ->
 %% would silently cap the process table below what max_ports already promises.
 tr_vm_args_process_limit(Conf) ->
     MaxPorts = resolve_max_ports(conf_get("node.max_ports", Conf, auto)),
-    Derived = round(?PROCESS_LIMIT_RATIO * MaxPorts),
+    Derived = ?PROCESS_LIMIT_RATIO * MaxPorts,
     case conf_get("node.process_limit", Conf, undefined) of
         N when is_integer(N), N > Derived -> N;
         _ -> Derived

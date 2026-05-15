@@ -558,7 +558,7 @@ max_ports.desc: """~
   Note: The actual limit chosen by the runtime may be larger than the number configured here.
   In most cases, the VM rounds the value up to the next power of two for internal efficiency.
 
-  EMQX automatically sets the Erlang process limit (`+P` flag) to 1.2x this value, so users only need to configure `max_ports`.
+  EMQX automatically sets the Erlang process limit (`+P` flag) to 2x this value, so users only need to configure `max_ports`. The 2x ratio accommodates TLS/QUIC connections, which each use two Erlang processes.
   The corresponding `+P` flag controls the maximum number of Erlang processes.
 
   The effective values can be observed from the dashboard node monitoring tab.~"""
@@ -568,7 +568,7 @@ max_ports.label:
 
 process_limit.desc: """~
   Override for the Erlang `+P` (maximum number of processes) flag.
-  By default, EMQX derives this from `max_ports` (1.2x), which is appropriate
+  By default, EMQX derives this from `max_ports` (2x), which is appropriate
   for the great majority of workloads. This setting is honored only when it is
   strictly greater than the derived value; a smaller value is ignored so that
   the process table never under-sizes the port table.~"""
