@@ -55,19 +55,20 @@ scopes() ->
     %% These two SSO admin endpoints require auth via the global
     %% minirest default (basicAuth/bearerAuth). API key access to
     %% dashboard SSO is rejected at the auth layer (api_key_authorize
-    %% in emqx_dashboard.erl) — only login users reach the scope check.
+    %% in emqx_dashboard.erl) -- only login users reach the scope check.
     %% The login user scope check consults this map.
     %%
-    %% Intentionally absent from the map (public, fall-through to
-    %% unmapped fail-open):
-    %%   * /sso/login/:backend, /sso/token_exchange — SSO protocol
-    %%     entry points
-    %%   * /sso/running — dashboard frontend probes this on the
-    %%     pre-auth login page to render the "Log in with X" button
-    %%     list. Must remain anonymously accessible.
+    %% ?SCOPE_PUBLIC marks SSO entry points that are reachable without
+    %% a session: /sso/login/:backend and /sso/token_exchange are SSO
+    %% protocol entry points, and /sso/running is probed by the
+    %% dashboard pre-auth login page to render the "Log in with X"
+    %% button list. All three must remain anonymously accessible.
     #{
         <<"/sso">> => ?SCOPE_SSO_MGMT,
-        <<"/sso/:backend">> => ?SCOPE_SSO_MGMT
+        <<"/sso/:backend">> => ?SCOPE_SSO_MGMT,
+        <<"/sso/running">> => ?SCOPE_PUBLIC,
+        <<"/sso/login/:backend">> => ?SCOPE_PUBLIC,
+        <<"/sso/token_exchange">> => ?SCOPE_PUBLIC
     }.
 
 paths() ->

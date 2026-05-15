@@ -51,14 +51,18 @@ api_spec() ->
 
 %% API key auth is rejected at the minirest layer for these paths
 %% (security => [#{bearerAuth => []}] excludes basic auth). The scope
-%% map below applies to dashboard LOGIN users — checked in
+%% map below applies to dashboard LOGIN users -- checked in
 %% emqx_dashboard_rbac:check_login_user_scopes/2.
 %%
-%% Public paths (/login, /logout) are intentionally absent from the map;
-%% they fall through to the unmapped-path branch (fail-open) and are
-%% guarded by their own security => [] / bearerAuth declarations.
+%% ?SCOPE_PUBLIC marks paths that are intentionally unscoped:
+%%   * /login -- pre-login (security => []).
+%%   * /logout -- any authenticated role may log itself out.
+%%   * /user_scopes -- static catalog endpoint, no tenant data.
 scopes() ->
     #{
+        <<"/login">> => ?SCOPE_PUBLIC,
+        <<"/logout">> => ?SCOPE_PUBLIC,
+        <<"/user_scopes">> => ?SCOPE_PUBLIC,
         <<"/users">> => ?SCOPE_USER_MGMT,
         <<"/users/:username">> => ?SCOPE_USER_MGMT,
         <<"/users/:username/change_pwd">> => ?SCOPE_USER_MGMT,

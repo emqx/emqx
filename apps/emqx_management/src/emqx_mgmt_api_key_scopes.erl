@@ -309,7 +309,11 @@ collect_paths_with_scope(_Module, Paths, ScopeName, Acc) when is_binary(ScopeNam
         Paths
     );
 collect_paths_with_scope(Module, Paths, ScopeMap, Acc) when is_map(ScopeMap) ->
-    %% Map form: per-path scope assignment
+    %% Map form: per-path scope assignment. The sentinel ?SCOPE_PUBLIC
+    %% acknowledges that a path is intentionally unscoped (pre-login
+    %% entry points and static catalog endpoints), so it is not added
+    %% to the cache and no warning is emitted. Genuinely missing paths
+    %% still warn.
     lists:foldl(
         fun(Path, InnerAcc) ->
             PathBin = path_to_binary(Path),
@@ -320,6 +324,8 @@ collect_paths_with_scope(Module, Paths, ScopeMap, Acc) when is_map(ScopeMap) ->
                         module => Module,
                         path => PathBin
                     }),
+                    InnerAcc;
+                ?SCOPE_PUBLIC ->
                     InnerAcc;
                 ScopeName ->
                     InnerAcc#{PathBin => ScopeName}
