@@ -300,8 +300,18 @@ mutate_rows_reply_delegator(ContinuationCtx, Reply) ->
 %% Internal fns
 %%------------------------------------------------------------------------------
 
-render_val(Expr, Data) ->
-    emqx_variform:render(Expr, Data, #{eval_as_string => false}).
+render_val(KeyName, Key, Data) ->
+    try map_get(Key, Data) of
+        undefined ->
+            {error, {missing_val, KeyName, Key, Data}};
+        V ->
+            {ok, V}
+    catch
+        error:{badkey, _} ->
+            {error, {missing_val, KeyName, Key, Data}};
+        error:badarg ->
+            {error, {missing_val, KeyName, Key, Data}}
+    end.
 
 instance_name(ProjectId, InstanceId) ->
     <<"projects/", ProjectId/binary, "/instances/", InstanceId/binary>>.
@@ -431,6 +441,10 @@ handle_initial_send_error({error, not_found}) ->
     %% has already been closed by the server (possibly due to connections/streams limits,
     %% `stream_refused`, or something else), and we get this "stream not found"
     {error, {recoverable_error, stream_not_found}};
+handle_initial_send_error({error, {recoverable_error, Reason}}) ->
+    {error, {recoverable_error, Reason}};
+handle_initial_send_error({error, {unrecoverable_error, Reason}}) ->
+    {error, {unrecoverable_error, Reason}};
 handle_initial_send_error({error, Reason}) ->
     {error, {unrecoverable_error, Reason}};
 handle_initial_send_error(Error) ->
@@ -535,15 +549,15 @@ handle_batch_or_single([Result], single) ->
 
 render_entry(Data, ChanState, _ConnState) ->
     #{
-        ?row_key := RowKeyExpr,
-        ?mutations := RevMutationsExprs
+        ?row_key := RowKeyKey,
+        ?mutations := RevMutationsKeys
     } = ChanState,
     maybe
-        {ok, RowKey} ?= emqx_variform:render(RowKeyExpr, Data),
+        {ok, RowKey} ?= render_val(row_key, RowKeyKey, Data),
         {ok, Mutations} ?=
             emqx_utils:foldl_while(
-                fun(MutationExpr, {ok, Acc}) ->
-                    case render_mutation(Data, MutationExpr) of
+                fun(MutationKeys, {ok, Acc}) ->
+                    case render_mutation(Data, MutationKeys) of
                         {ok, Mutation} ->
                             {cont, {ok, [Mutation | Acc]}};
                         {error, Reason} ->
@@ -551,7 +565,7 @@ render_entry(Data, ChanState, _ConnState) ->
                     end
                 end,
                 {ok, []},
-                RevMutationsExprs
+                RevMutationsKeys
             ),
         Req = #{
             row_key => RowKey,
@@ -560,18 +574,18 @@ render_entry(Data, ChanState, _ConnState) ->
         {ok, Req}
     end.
 
-render_mutation(Data, #{type := set_cell} = MutationExprs) ->
+render_mutation(Data, #{type := set_cell} = MutationKeys) ->
     #{
-        family_name := FamilyNameExpr,
-        column_qualifier := ColumnQualifierExpr,
-        timestamp_micros := TimestampMicrosExpr,
-        value := ValueExpr
-    } = MutationExprs,
+        family_name := FamilyNameKey,
+        column_qualifier := ColumnQualifierKey,
+        timestamp_micros := TimestampMicrosKey,
+        value := ValueKey
+    } = MutationKeys,
     maybe
-        {ok, FamilyName} ?= render_val(FamilyNameExpr, Data),
-        {ok, ColumnQualifier} ?= render_val(ColumnQualifierExpr, Data),
-        {ok, TimestampMicros} ?= render_val(TimestampMicrosExpr, Data),
-        {ok, Value} ?= render_val(ValueExpr, Data),
+        {ok, FamilyName} ?= render_val(family_name, FamilyNameKey, Data),
+        {ok, ColumnQualifier} ?= render_val(column_qualifier, ColumnQualifierKey, Data),
+        {ok, TimestampMicros} ?= render_val(timestamp_micros, TimestampMicrosKey, Data),
+        {ok, Value} ?= render_val(value, ValueKey, Data),
         Mutation = #{
             family_name => FamilyName,
             column_qualifier => ColumnQualifier,

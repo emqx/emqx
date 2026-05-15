@@ -74,7 +74,7 @@ fields(action_parameters) ->
     [
         {instance_id, mk(binary(), #{desc => ?DESC("instance_id")})},
         {table_id, mk(binary(), #{desc => ?DESC("table_id")})},
-        {row_key, emqx_variform:sc(#{desc => ?DESC("row_key")})},
+        {row_key, mk(binary(), #{desc => ?DESC("row_key")})},
         {mutations,
             mk(
                 hoconsc:array(
@@ -91,10 +91,12 @@ fields(action_parameters) ->
 fields(set_cell_parameters) ->
     [
         {type, mk(set_cell, #{desc => ?DESC("set_cell_type")})},
-        {family_name, emqx_variform:sc(#{desc => ?DESC("set_cell_family_name")})},
-        {column_qualifier, emqx_variform:sc(#{desc => ?DESC("set_cell_column_qualifier")})},
-        {timestamp_micros, emqx_variform:sc(#{desc => ?DESC("set_cell_timestamp_micros")})},
-        {value, emqx_variform:sc(#{desc => ?DESC("set_cell_value")})}
+        {family_name, mk(binary(), #{required => true, desc => ?DESC("set_cell_family_name")})},
+        {column_qualifier,
+            mk(binary(), #{required => true, desc => ?DESC("set_cell_column_qualifier")})},
+        {timestamp_micros,
+            mk(binary(), #{required => true, desc => ?DESC("set_cell_timestamp_micros")})},
+        {value, mk(binary(), #{required => true, desc => ?DESC("set_cell_value")})}
     ].
 
 desc(Name) when

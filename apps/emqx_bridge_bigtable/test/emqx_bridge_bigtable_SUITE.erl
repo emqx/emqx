@@ -169,14 +169,14 @@ action_config(Overrides) ->
         <<"parameters">> => #{
             <<"instance_id">> => <<"emqxinst">>,
             <<"table_id">> => <<"please override">>,
-            <<"row_key">> => <<"clientid">>,
+            <<"row_key">> => <<"rk">>,
             <<"mutations">> => [
                 #{
                     <<"type">> => <<"set_cell">>,
-                    <<"family_name">> => <<"'_'">>,
-                    <<"column_qualifier">> => <<"''">>,
-                    <<"timestamp_micros">> => <<"publish_received_at">>,
-                    <<"value">> => <<"payload">>
+                    <<"family_name">> => <<"fn">>,
+                    <<"column_qualifier">> => <<"cq">>,
+                    <<"timestamp_micros">> => <<"tm">>,
+                    <<"value">> => <<"v">>
                 }
             ]
         },
@@ -345,7 +345,17 @@ get_action_metrics_api(TCConfig) ->
     emqx_bridge_v2_testlib:get_action_metrics_api(TCConfig).
 
 simple_create_rule_api(TCConfig) ->
-    SQL = <<"select *, publish_received_at * 1000 as publish_received_at from \"${t}\" ">>,
+    SQL = <<
+        "select clientid as rk"
+        ", '_' as fn"
+        ", '' as cq"
+        ", payload as v"
+        ", publish_received_at * 1000 as tm"
+        " from \"${t}\" "
+    >>,
+    emqx_bridge_v2_testlib:simple_create_rule_api(SQL, TCConfig).
+
+simple_create_rule_api(SQL, TCConfig) ->
     emqx_bridge_v2_testlib:simple_create_rule_api(SQL, TCConfig).
 
 start_client() ->
@@ -395,7 +405,15 @@ t_rule_action(matrix) ->
     ];
 t_rule_action(TCConfig) when is_list(TCConfig) ->
     RuleTopic = <<"testbigtable">>,
-    SQL = <<"select *, publish_received_at * 1000 as publish_received_at from ", RuleTopic/binary>>,
+    SQL = <<
+        "select clientid as rk"
+        ", '_' as fn"
+        ", '' as cq"
+        ", payload as v"
+        ", publish_received_at * 1000 as tm"
+        " from ",
+        RuleTopic/binary
+    >>,
     PostPublishFn = fun(Context) ->
         #{payload := Payload} = Context,
         Name = get_config(action_name, TCConfig),
@@ -444,7 +462,14 @@ t_rule_test_trace(matrix) ->
         Batch <- [?not_batching, ?batching]
     ];
 t_rule_test_trace(TCConfig) when is_list(TCConfig) ->
-    SQL = <<"select *, publish_received_at * 1000 as publish_received_at from \"${t}\" ">>,
+    SQL = <<
+        "select clientid as rk"
+        ", '_' as fn"
+        ", '' as cq"
+        ", payload as v"
+        ", publish_received_at * 1000 as tm"
+        " from \"${t}\" "
+    >>,
     Opts = #{rule_sql => SQL},
     emqx_bridge_v2_testlib:t_rule_test_trace(TCConfig, Opts).
 
@@ -558,12 +583,18 @@ t_partial_batch_failure(matrix) ->
 t_partial_batch_failure(TCConfig) when is_list(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
-        <<"parameters">> => #{
-            <<"row_key">> => <<"pub_props.User-Property.rk">>
-        },
         <<"resource_opts">> => #{<<"worker_pool_size">> => 1}
     }),
-    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    SQL = <<
+        "select "
+        " pub_props.'User-Property'.rk as rk"
+        ", '_' as fn"
+        ", '' as cq"
+        ", payload as v"
+        ", publish_received_at * 1000 as tm"
+        " from \"${t}\" "
+    >>,
+    #{topic := Topic} = simple_create_rule_api(SQL, TCConfig),
     Payload = <<"hello">>,
     %% need individual clients for each request for the sync case
     UserProps = [
@@ -614,7 +645,7 @@ t_partial_batch_failure(TCConfig) when is_list(TCConfig) ->
             ?assertMatch(
                 [
                     {error, {unrecoverable_error, {internal, _}}},
-                    {error, {unrecoverable_error, #{reason := var_unbound}}},
+                    {error, {unrecoverable_error, {missing_val, row_key, _, _}}},
                     {ok, _}
                 ],
                 lists:sort(Results)
@@ -638,12 +669,17 @@ t_single_message_render_failure(matrix) ->
     ];
 t_single_message_render_failure(TCConfig) when is_list(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{}),
-    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
-        <<"parameters">> => #{
-            <<"row_key">> => <<"pub_props.User-Property.rk">>
-        }
-    }),
-    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+    SQL = <<
+        "select "
+        " pub_props.'User-Property'.rk as rk"
+        ", '_' as fn"
+        ", '' as cq"
+        ", payload as v"
+        ", publish_received_at * 1000 as tm"
+        " from \"${t}\" "
+    >>,
+    #{topic := Topic} = simple_create_rule_api(SQL, TCConfig),
     C = start_client(#{proto_ver => v5}),
     Payload = <<"hello">>,
     ?check_trace(
@@ -665,7 +701,7 @@ t_single_message_render_failure(TCConfig) when is_list(TCConfig) ->
                 [
                     #{
                         results := [
-                            {error, {unrecoverable_error, #{reason := var_unbound}}}
+                            {error, {unrecoverable_error, {missing_val, row_key, _, _}}}
                         ]
                     }
                 ],

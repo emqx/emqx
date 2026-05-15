@@ -26,7 +26,7 @@ emqx_bridge_bigtable_action_schema {
   row_key {
     label: """Row Key"""
     desc:
-    """Variform expression that renders to the message's row key."""
+    """Key name that contains the message's row key.  Be sure to explicitly write it out in the rule SQL as (e.g.: `SELECT x as key_name, ...`)."""
   }
 
   mutations {
@@ -44,24 +44,24 @@ emqx_bridge_bigtable_action_schema {
   set_cell_family_name {
     label: """Family Name"""
     desc:
-    """Variform expression that renders to the mutation's family name."""
+    """Key name that contains the mutation's family name.  Be sure to explicitly write it out in the rule SQL as (e.g.: `SELECT x as key_name, ...`)."""
   }
 
   set_cell_column_qualifier {
     label: """Column Qualifier"""
     desc:
-    """Variform expression that renders to the mutation's column qualifier."""
+    """Key name that contains the mutation's column qualifier.  Be sure to explicitly write it out in the rule SQL as (e.g.: `SELECT x as key_name, ...`)."""
   }
 
   set_cell_timestamp_micros {
     label: """Timestamp In Microseconds"""
     desc:
-    """Variform expression that renders to the mutation's timestamp in microseconds."""
+    """Key name that contains the mutation's timestamp in microseconds.  Be sure to explicitly write it out in the rule SQL as (e.g.: `SELECT x as key_name, ...`)."""
   }
 
   set_cell_value {
     label: """Value"""
     desc:
-    """Variform expression that renders to the mutation's value."""
+    """Key name that contains the mutation's value.  Be sure to explicitly write it out in the rule SQL as (e.g.: `SELECT x as key_name, ...`)."""
   }
 }
