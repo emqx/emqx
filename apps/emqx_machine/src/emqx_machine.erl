@@ -45,6 +45,7 @@ start() ->
     _ = application:load(emqx),
     mria_config:register_callback(lb_custom_info, fun ?MODULE:mria_lb_custom_info/0),
     mria_config:register_callback(lb_custom_info_check, fun ?MODULE:mria_lb_custom_info_check/1),
+    mria_config:register_callback(heal_partition, fun emqx_broker_heal:on_autoheal/1),
     ekka:start(),
     ok.
 
