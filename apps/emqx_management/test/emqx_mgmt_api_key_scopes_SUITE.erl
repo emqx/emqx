@@ -38,7 +38,9 @@ groups() ->
             t_validate_scopes_bad_input,
             t_is_denied_scope,
             t_all_modules_have_scopes,
-            t_all_endpoints_covered_by_scopes
+            t_all_endpoints_covered_by_scopes,
+            t_init_cache_no_missing_path_warnings,
+            t_public_paths_not_in_cache
         ]},
         {integration_tests, [parallel], [
             t_authorize_with_scopes,
@@ -247,46 +249,112 @@ t_all_endpoints_covered_by_scopes(_Config) ->
             Modules
         )
     ),
-    %% Some paths are intentionally unmapped (fail-open) — public auth
-    %% entry points and scope catalog endpoints. They are guarded by
-    %% minirest `security` declarations rather than by the scope map.
-    IntentionallyUnmapped = [
-        %% Authentication / session entry points
-        <<"/login">>,
-        <<"/logout">>,
-        %% Public SSO login flow endpoints
-        <<"/sso/login/:backend">>,
-        <<"/sso/token_exchange">>,
-        <<"/sso/oidc/callback">>,
-        <<"/sso/saml/acs">>,
-        <<"/sso/saml/metadata">>,
-        %% Probed by the dashboard login page (pre-auth) to render
-        %% the "Log in with X" SSO button list.
-        <<"/sso/running">>,
-        %% Public SSO MFA setup/verify (token-authenticated by short-lived JWT)
-        <<"/sso/mfa/setup_info">>,
-        <<"/sso/mfa/setup">>,
-        <<"/sso/mfa/verify">>,
-        %% Scope catalog endpoints — public to any authenticated login user.
-        %% Top-level paths chosen to avoid wildcard routing collision with
-        %% /api_key/:name and /users/:username (sibling to /action_types,
-        %% /source_types).
-        <<"/api_key_scopes">>,
-        <<"/user_scopes">>
-    ],
+    %% Paths explicitly marked ?SCOPE_PUBLIC are intentionally unscoped
+    %% (pre-login entry points, static catalog endpoints). They are
+    %% derived from each module's scopes/0 map so adding a new public
+    %% path only requires editing that module, no allow-list edit here.
+    PublicPaths = collect_public_paths(Modules),
     MappedPaths = lists:sort(maps:keys(PathToScope)),
-    Uncovered = (AllDeclaredPaths -- MappedPaths) -- IntentionallyUnmapped,
+    Uncovered = (AllDeclaredPaths -- MappedPaths) -- PublicPaths,
     ?assertEqual(
         [],
         Uncovered,
         lists:flatten(
             io_lib:format(
-                "~p endpoint path(s) not covered by any scope: ~p",
+                "~p endpoint path(s) not covered by any scope and not "
+                "marked ?SCOPE_PUBLIC: ~p",
                 [length(Uncovered), Uncovered]
             )
         )
     ),
     emqx_mgmt_api_key_scopes:clear_cache().
+
+-doc """
+Every map-form scopes/0 callback must list every path returned by
+that module's paths/0. This is the precondition that determines
+whether the collector emits `path_missing_from_scopes_map` at boot;
+checking it directly here avoids the need to scrape the live logger
+and keeps the failure message specific (module + missing path).
+""".
+t_init_cache_no_missing_path_warnings(_Config) ->
+    Modules = emqx_mgmt_api_key_scopes:find_api_modules(),
+    Missing = lists:flatmap(
+        fun(M) ->
+            case safe_scopes(M) of
+                Map when is_map(Map) ->
+                    Paths = [path_to_binary(P) || P <- safe_paths(M)],
+                    [{M, P} || P <- Paths, not maps:is_key(P, Map)];
+                _ ->
+                    []
+            end
+        end,
+        Modules
+    ),
+    ?assertEqual(
+        [],
+        Missing,
+        lists:flatten(
+            io_lib:format(
+                "modules with paths missing from their scopes/0 map: ~p", [Missing]
+            )
+        )
+    ).
+
+safe_scopes(M) ->
+    try
+        apply(M, scopes, [])
+    catch
+        _:_ -> undefined
+    end.
+
+safe_paths(M) ->
+    try
+        apply(M, paths, [])
+    catch
+        _:_ -> []
+    end.
+
+-doc """
+?SCOPE_PUBLIC paths must NOT be inserted into the runtime cache --
+they keep the unmapped/fail-open semantics that production already
+relies on for /login and friends.
+""".
+t_public_paths_not_in_cache(_Config) ->
+    emqx_mgmt_api_key_scopes:init_cache(),
+    Modules = emqx_mgmt_api_key_scopes:find_api_modules(),
+    PublicPaths = collect_public_paths(Modules),
+    %% Sanity: the production code under test declares at least one
+    %% public path. If this drops to zero, the test no longer guards
+    %% anything; loudly fail instead of silently passing.
+    ?assert(PublicPaths =/= [], "no ?SCOPE_PUBLIC paths declared -- test now vacuous"),
+    lists:foreach(
+        fun(Path) ->
+            ?assertEqual(
+                undefined,
+                emqx_mgmt_api_key_scopes:path_to_scope(Path),
+                lists:flatten(io_lib:format("public path ~s leaked into cache", [Path]))
+            )
+        end,
+        PublicPaths
+    ),
+    emqx_mgmt_api_key_scopes:clear_cache().
+
+collect_public_paths(Modules) ->
+    lists:sort(
+        lists:flatmap(
+            fun(M) ->
+                try apply(M, scopes, []) of
+                    Map when is_map(Map) ->
+                        [path_to_binary(P) || {P, ?SCOPE_PUBLIC} <- maps:to_list(Map)];
+                    _ ->
+                        []
+                catch
+                    _:_ -> []
+                end
+            end,
+            Modules
+        )
+    ).
 
 path_to_binary(P) when is_binary(P) ->
     case P of
