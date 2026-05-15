@@ -40,7 +40,9 @@ start_heal() ->
     },
     case supervisor:start_child(?MODULE, Spec) of
         {error, {already_started, _}} ->
-            ok;
+            %% Restart heal process to handle another partition:
+            _ = supervisor:terminate_child(?MODULE, Id),
+            start_heal();
         {error, already_present} ->
             supervisor:restart_child(?MODULE, Id);
         {ok, _} ->

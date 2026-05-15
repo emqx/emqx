@@ -37,6 +37,7 @@ Limitations:
 -export_type([]).
 
 -include("emqx_cm.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -55,7 +56,12 @@ Mria callback that is executed on autoheal.
 """.
 on_autoheal({_Majority, _Minorities} = PartitionView) ->
     Nodes = emqx:cluster_nodes(running),
-    emqx_broker_heal_proto_v1:start(Nodes, PartitionView),
+    Res = emqx_broker_heal_proto_v1:start(Nodes, PartitionView),
+    ?tp(
+        warning,
+        broker_heal_initiated,
+        #{results => lists:zip(Nodes, Res)}
+    ),
     ok.
 
 -doc """
@@ -69,7 +75,7 @@ start_local(_) ->
 %% behavior callbacks
 %%================================================================================
 
--record(s, {iterator :: ets:continuation()}).
+-record(s, {iterator}).
 
 init(_) ->
     process_flag(trap_exit, true),
