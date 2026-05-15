@@ -1739,7 +1739,7 @@ get_namespace_from_message(#message{}) ->
 get_rules_for_topic(Message = #message{topic = Topic}) ->
     case emqx_rule_engine:get_rules_for_topic(Topic) of
         [] ->
-            ok;
+            [];
         EnrichedRules0 ->
             LimitSelectsInNamespace = emqx_rule_engine_config:get_limit_selects_in_namespace(),
             case LimitSelectsInNamespace of
