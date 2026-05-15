@@ -130,6 +130,7 @@ action_config(Overrides) ->
                     <<"batch_size">>,
                     <<"batch_time">>,
                     <<"buffer_mode">>,
+                    <<"dispatch_strategy">>,
                     <<"buffer_seg_bytes">>,
                     <<"health_check_interval_jitter">>,
                     <<"inflight_window">>,

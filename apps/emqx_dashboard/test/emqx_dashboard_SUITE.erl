@@ -438,7 +438,48 @@ t_cli(_Config) ->
         ])
     ),
     ?assertMatch(#{<<"error">> := _}, json(iolist_to_binary(BadValidDaysError))),
-    ?assertMatch({error, not_found}, emqx_mgmt_auth:read(<<"test-key-4">>)).
+    ?assertMatch({error, not_found}, emqx_mgmt_auth:read(<<"test-key-4">>)),
+    %% --scopes: valid list is stored on the app record, both with and without --api-secret.
+    ?CAPTURE(
+        emqx_dashboard_cli:api_keys([
+            "add",
+            "--name",
+            "test-key-scoped",
+            "--scopes",
+            "connections,publish"
+        ])
+    ),
+    ?assertMatch(
+        {ok, #{scopes := [<<"connections">>, <<"publish">>]}},
+        emqx_mgmt_auth:read(<<"test-key-scoped">>)
+    ),
+    ?CAPTURE(
+        emqx_dashboard_cli:api_keys([
+            "add",
+            "--name",
+            "test-key-scoped-with-secret",
+            "--api-secret",
+            binary_to_list(Secret),
+            "--scopes",
+            "monitoring"
+        ])
+    ),
+    ?assertMatch(
+        {ok, #{scopes := [<<"monitoring">>]}},
+        emqx_mgmt_auth:read(<<"test-key-scoped-with-secret">>)
+    ),
+    %% --scopes: unknown scope is rejected and no key is created.
+    {ok, [BadScopeError]} = ?CAPTURE(
+        emqx_dashboard_cli:api_keys([
+            "add",
+            "--name",
+            "test-key-bad-scope",
+            "--scopes",
+            "connections,nonexistent"
+        ])
+    ),
+    ?assertMatch(#{<<"error">> := _}, json(iolist_to_binary(BadScopeError))),
+    ?assertMatch({error, not_found}, emqx_mgmt_auth:read(<<"test-key-bad-scope">>)).
 
 t_lookup_by_username_jwt(_Config) ->
     User = bin(["user-", integer_to_list(random_num())]),

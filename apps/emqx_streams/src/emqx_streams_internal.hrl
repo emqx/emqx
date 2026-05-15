@@ -12,6 +12,8 @@
 
 -define(SCHEMA_ROOT, streams).
 
+-define(HEADER_SUB_TOPIC, sub_topic).
+
 -define(DEFAULT_STREAM_LIMITS,
     (#{
         max_shard_message_count => infinity,

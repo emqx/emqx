@@ -1,0 +1,210 @@
+{
+    "$bridge_enable_label": {
+        "en": "Enable Bridge",
+        "zh": "启用桥接"
+    },
+    "$bridge_enable_desc": {
+        "en": "Enable or disable this bridge. Disabled bridges stop and purge their queue directory.",
+        "zh": "启用或禁用此桥接。禁用的桥接会停止运行并清除其队列目录。"
+    },
+    "$bridge_remote_label": {
+        "en": "Remote Name",
+        "zh": "远程名称"
+    },
+    "$bridge_remote_desc": {
+        "en": "Name of the remote broker definition under 'remotes' that this bridge connects to.",
+        "zh": "此桥接连接的远程 Broker 定义名称（在 'remotes' 中配置）。"
+    },
+    "$bridge_proto_ver_label": {
+        "en": "MQTT Protocol Version",
+        "zh": "MQTT 协议版本"
+    },
+    "$bridge_proto_ver_desc": {
+        "en": "MQTT protocol version used to connect to the remote broker: v3 (MQTT 3.1), v4 (MQTT 3.1.1), or v5 (MQTT 5.0).",
+        "zh": "连接远程 Broker 时使用的 MQTT 协议版本：v3（MQTT 3.1）、v4（MQTT 3.1.1）或 v5（MQTT 5.0）。"
+    },
+    "$bridge_clientid_prefix_label": {
+        "en": "Client ID Prefix",
+        "zh": "客户端 ID 前缀"
+    },
+    "$bridge_clientid_prefix_desc": {
+        "en": "Prefix for auto-generated MQTT client IDs. Each connection appends a unique index (e.g. 'emqx-dq-mybridge-0'). Leave empty to use the default 'emqx-dq-<bridge>-' prefix.",
+        "zh": "自动生成的 MQTT 客户端 ID 前缀。每个连接会追加一个唯一索引（例如 'emqx-dq-mybridge-0'）。留空使用默认前缀 'emqx-dq-<bridge>-'。"
+    },
+    "$bridge_keepalive_s_label": {
+        "en": "Keep-Alive (seconds)",
+        "zh": "保活间隔（秒）"
+    },
+    "$bridge_keepalive_s_desc": {
+        "en": "MQTT keep-alive interval in seconds for the connection to the remote broker.",
+        "zh": "连接远程 Broker 时使用的 MQTT 保活间隔（单位：秒）。"
+    },
+    "$bridge_filter_topic_label": {
+        "en": "Local Topic Filter",
+        "zh": "本地主题过滤器"
+    },
+    "$bridge_filter_topic_desc": {
+        "en": "Local topic filter pattern. Messages published locally to topics matching this filter are forwarded to the remote broker. Supports '+' and '#' wildcards.",
+        "zh": "本地主题过滤器模式。本地发布到匹配该过滤器的主题的消息将被转发到远程 Broker。支持 '+' 和 '#' 通配符。"
+    },
+    "$bridge_remote_topic_label": {
+        "en": "Remote Topic",
+        "zh": "远程主题"
+    },
+    "$bridge_remote_topic_desc": {
+        "en": "Target topic template used when publishing to the remote broker. Use '${topic}' to reference the original publish topic (e.g. 'fwd/${topic}').",
+        "zh": "向远程 Broker 发布消息时使用的目标主题模板。可用 '${topic}' 引用原始发布主题（例如 'fwd/${topic}'）。"
+    },
+    "$bridge_remote_qos_label": {
+        "en": "Remote QoS",
+        "zh": "远程 QoS"
+    },
+    "$bridge_remote_qos_desc": {
+        "en": "QoS level for publishing to the remote broker. The default '${qos}' preserves the original message's QoS. Set to '0', '1', or '2' to force a specific QoS.",
+        "zh": "向远程 Broker 发布消息使用的 QoS 等级。默认 '${qos}' 保留原始消息的 QoS。可设置为 '0'、'1' 或 '2' 强制使用指定的 QoS。"
+    },
+    "$bridge_remote_retain_label": {
+        "en": "Remote Retain",
+        "zh": "远程 Retain"
+    },
+    "$bridge_remote_retain_desc": {
+        "en": "Retain flag for publishing to the remote broker. The default '${retain}' preserves the original message's retain flag. Set to 'true' to always retain or 'false' to never retain.",
+        "zh": "向远程 Broker 发布消息时使用的 Retain 标志。默认 '${retain}' 保留原始消息的 Retain 标志。设置为 'true' 始终保留，'false' 从不保留。"
+    },
+    "$bridge_pool_size_label": {
+        "en": "Connection Pool Size",
+        "zh": "连接池大小"
+    },
+    "$bridge_pool_size_desc": {
+        "en": "Number of MQTT connections to the remote broker per bridge.",
+        "zh": "每个桥接到远程 Broker 的 MQTT 连接数。"
+    },
+    "$bridge_buffer_pool_size_label": {
+        "en": "Buffer Pool Size",
+        "zh": "缓冲区池大小"
+    },
+    "$bridge_buffer_pool_size_desc": {
+        "en": "Number of disk-queue buffer workers (partitions) per bridge. Should be greater than or equal to, and a multiple of, 'Connection Pool Size'. Changing this value reshards the queue and may temporarily break per-topic ordering.",
+        "zh": "每个桥接的磁盘队列缓冲区工作进程数（即分区数）。该值应大于或等于「连接池大小」，并且为其整数倍。修改此值会触发队列重分片，可能临时打破按主题的有序性。"
+    },
+    "$bridge_max_inflight_label": {
+        "en": "Max Inflight",
+        "zh": "最大飞行中消息数"
+    },
+    "$bridge_max_inflight_desc": {
+        "en": "Maximum number of unacknowledged messages allowed per remote connection. Also controls the batch pop size from the disk queue.",
+        "zh": "每个远程连接允许的最大未确认消息数。同时控制从磁盘队列中批量取出的消息数。"
+    },
+    "$bridge_enqueue_timeout_ms_label": {
+        "en": "Enqueue Timeout (ms)",
+        "zh": "入队超时（毫秒）"
+    },
+    "$bridge_enqueue_timeout_ms_desc": {
+        "en": "Maximum time (milliseconds) the local publish path will block waiting for disk-queue enqueue confirmation. Only applies to QoS > 0 publishes; QoS 0 publishes are always asynchronous. The message is not lost on timeout — it remains in the buffer worker's mailbox.",
+        "zh": "本地发布路径等待磁盘队列入队确认的最长时间（毫秒）。仅对 QoS > 0 的发布生效；QoS 0 的发布始终异步处理。超时不会丢失消息——消息仍保留在缓冲区工作进程的邮箱中。"
+    },
+    "$bridge_max_publish_retries_label": {
+        "en": "Max Publish Retries",
+        "zh": "最大发布重试次数"
+    },
+    "$bridge_max_publish_retries_desc": {
+        "en": "Number of publish retry attempts per message before it is dropped. Set to '-1' for infinite retries. Each failed PUBACK or connection loss consumes one retry credit.",
+        "zh": "每条消息在被丢弃前的发布重试次数。设置为 '-1' 表示无限重试。每次 PUBACK 失败或连接断开会消耗一次重试机会。"
+    },
+    "$queue_base_dir_label": {
+        "en": "Queue Base Directory",
+        "zh": "队列基础目录"
+    },
+    "$queue_base_dir_desc": {
+        "en": "Base directory for disk-queue segment files. Bridge name and partition index are appended automatically (i.e. <base_dir>/<bridge_name>/<index>). Relative paths resolve against EMQX 'data_dir'; absolute paths are used as-is. Leave empty to use the default 'emqx_bridge_mqtt_dq'.",
+        "zh": "磁盘队列分段文件的基础目录。桥接名称和分区索引会自动追加到路径上（即 <base_dir>/<bridge_name>/<index>）。相对路径相对于 EMQX 的 'data_dir' 解析；绝对路径按原样使用。留空则使用默认值 'emqx_bridge_mqtt_dq'。"
+    },
+    "$queue_seg_bytes_label": {
+        "en": "Segment Size",
+        "zh": "分段大小"
+    },
+    "$queue_seg_bytes_desc": {
+        "en": "Maximum size per disk-queue segment file (e.g. '100MB'). Larger segments reduce file rotation overhead.",
+        "zh": "磁盘队列每个分段文件的最大大小（例如 '100MB'）。较大的分段可以减少文件切换的开销。"
+    },
+    "$queue_max_total_bytes_label": {
+        "en": "Max Total Size (per partition)",
+        "zh": "最大总大小（每分区）"
+    },
+    "$queue_max_total_bytes_desc": {
+        "en": "Maximum disk-queue size per partition (e.g. '1GB'). Each bridge has 'Buffer Pool Size' partitions, so worst-case total disk usage equals 'Buffer Pool Size' multiplied by this value. Oldest messages are dropped when the limit is exceeded.",
+        "zh": "每个分区的磁盘队列最大大小（例如 '1GB'）。每个桥接拥有「缓冲区池大小」个分区，因此最坏情况下总磁盘占用为「缓冲区池大小」乘以该值。超过该限制时，最旧的消息会被丢弃。"
+    },
+    "$remote_server_label": {
+        "en": "Server Address",
+        "zh": "服务器地址"
+    },
+    "$remote_server_desc": {
+        "en": "Remote MQTT broker address in 'host:port' format (e.g. 'broker.example.com:1883').",
+        "zh": "远程 MQTT Broker 地址，格式为 'host:port'（例如 'broker.example.com:1883'）。"
+    },
+    "$remote_username_label": {
+        "en": "Username",
+        "zh": "用户名"
+    },
+    "$remote_username_desc": {
+        "en": "Username for authentication with the remote broker. Leave empty if no authentication is required.",
+        "zh": "用于向远程 Broker 进行身份认证的用户名。如不需要认证，可留空。"
+    },
+    "$remote_password_label": {
+        "en": "Password",
+        "zh": "密码"
+    },
+    "$remote_password_desc": {
+        "en": "Password for authentication with the remote broker. Leave empty if no authentication is required.",
+        "zh": "用于向远程 Broker 进行身份认证的密码。如不需要认证，可留空。"
+    },
+    "$ssl_enable_label": {
+        "en": "Enable SSL/TLS",
+        "zh": "启用 SSL/TLS"
+    },
+    "$ssl_enable_desc": {
+        "en": "Enable SSL/TLS for the connection to the remote broker.",
+        "zh": "为到远程 Broker 的连接启用 SSL/TLS。"
+    },
+    "$ssl_verify_label": {
+        "en": "Verify Mode",
+        "zh": "验证模式"
+    },
+    "$ssl_verify_desc": {
+        "en": "TLS certificate verification mode. Use 'verify_peer' to verify the remote broker's certificate against the configured CA, or 'verify_none' to skip verification.",
+        "zh": "TLS 证书验证模式。'verify_peer' 表示使用配置的 CA 校验远程 Broker 证书；'verify_none' 表示不进行校验。"
+    },
+    "$ssl_sni_label": {
+        "en": "Server Name Indication (SNI)",
+        "zh": "服务器名称指示（SNI）"
+    },
+    "$ssl_sni_desc": {
+        "en": "TLS Server Name Indication. Defaults to the server hostname. Set to 'disable' to turn off SNI.",
+        "zh": "TLS 服务器名称指示。默认为服务器主机名。设置为 'disable' 可关闭 SNI。"
+    },
+    "$ssl_cacertfile_label": {
+        "en": "CA Certificate File",
+        "zh": "CA 证书文件"
+    },
+    "$ssl_cacertfile_desc": {
+        "en": "Path to the CA certificate file used to verify the remote broker's certificate.",
+        "zh": "用于校验远程 Broker 证书的 CA 证书文件路径。"
+    },
+    "$ssl_certfile_label": {
+        "en": "Client Certificate File",
+        "zh": "客户端证书文件"
+    },
+    "$ssl_certfile_desc": {
+        "en": "Path to the client certificate file used for mutual TLS authentication.",
+        "zh": "用于双向 TLS 认证的客户端证书文件路径。"
+    },
+    "$ssl_keyfile_label": {
+        "en": "Client Private Key File",
+        "zh": "客户端私钥文件"
+    },
+    "$ssl_keyfile_desc": {
+        "en": "Path to the client private key file used for mutual TLS authentication.",
+        "zh": "用于双向 TLS 认证的客户端私钥文件路径。"
+    }
+}

@@ -479,8 +479,10 @@ enrich_deliver(ClientInfo, {deliver, Topic, Msg}, UpgradeQoS, Session) ->
         case Msg of
             #message{headers = #{redispatch_to := ?REDISPATCH_TO(Group, T)}} ->
                 ?IMPL(Session):get_subscription(emqx_topic:make_shared_record(Group, T), Session);
-            %% mq_sub_topic: queue subscription topic set by emqx_mq:delivers/2
-            #message{headers = #{mq_sub_topic := SubTopic}} when is_binary(SubTopic) ->
+            %% If present, sub_topic contains the actual topic to which the client subscribed
+            %% to trigger the delivery.
+            %% The message itself may have a different topic, e.g. when using message queues
+            #message{headers = #{sub_topic := SubTopic}} when is_binary(SubTopic) ->
                 ?IMPL(Session):get_subscription(SubTopic, Session);
             _ ->
                 ?IMPL(Session):get_subscription(Topic, Session)

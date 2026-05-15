@@ -91,6 +91,14 @@ dist_buffer_size.desc:
 dist_buffer_size.label:
 """Erlang's dist buffer size(KB)"""
 
+dist_listen_options.desc:
+"""Erlang's distribution listener port options for performance tuning.
+Defines a list of extra socket options to be used when opening the listening socket for a distributed Erlang node.
+See https://www.erlang.org/doc/apps/kernel/gen_tcp.html#listen/2"""
+
+dist_listen_options.label:
+"""Erlang's distribution listener port options"""
+
 dist_connect_options.desc:
 """Erlang's distribution port connect options for performance tuning.
 Defines a list of extra socket options to be used when connecting to other distributed Erlang nodes.

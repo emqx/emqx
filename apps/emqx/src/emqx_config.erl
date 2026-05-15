@@ -622,7 +622,9 @@ seed_defaults_for_all_roots_namespaced(SchemaMod, Namespace, _ClusterRPCOpts) wh
     RawConf = fill_defaults(RawConf0),
     {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf, #{}),
     Opts = #{},
-    {atomic, ok} = mria:transaction(?COMMON_SHARD, fun() ->
+    %% Note: this function can be called from another transaction;
+    %% using sync_dirty to avoid nesting transactions.
+    ok = mria:sync_dirty(?COMMON_SHARD, fun() ->
         lists:foreach(
             fun(RootKeyAtom) ->
                 RootKeyBin = atom_to_binary(RootKeyAtom, utf8),
@@ -999,9 +1001,17 @@ save_configs(AppEnvs, Conf, RawConf, OverrideConf, Opts) ->
     %% We first try to save to files, because saving to files is more error prone
     %% than saving into memory.
     HasDeprecatedFile = has_deprecated_file(),
-    ok = save_to_override_conf(HasDeprecatedFile, OverrideConf, Opts),
-    save_to_app_env(AppEnvs),
-    save_to_config_map(Conf, RawConf).
+    case save_to_override_conf(HasDeprecatedFile, OverrideConf, Opts) of
+        ok ->
+            save_to_app_env(AppEnvs),
+            save_to_config_map(Conf, RawConf);
+        {error, #{filename := FileName, reason := Reason}} ->
+            throw(#{
+                msg => failed_to_save_conf_file,
+                filename => FileName,
+                reason => Reason
+            })
+    end.
 
 save_configs_namespaced(Namespace, RootKeyAtom, Conf, RawConf, ClusterRPCOpts, Opts) when
     is_binary(Namespace)
@@ -1052,7 +1062,8 @@ save_to_config_map(Conf, RawConf) ->
     ?MODULE:put(Conf),
     ?MODULE:put_raw(RawConf).
 
--spec save_to_override_conf(boolean(), raw_config(), update_opts()) -> ok | {error, term()}.
+-spec save_to_override_conf(boolean(), raw_config(), update_opts()) ->
+    ok | {error, #{filename := file:filename(), reason := term()}}.
 save_to_override_conf(_HasDeprecatedFile, undefined, _) ->
     ok;
 save_to_override_conf(true = _HasDeprecatedFile, RawConf, Opts) ->
