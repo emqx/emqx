@@ -14,9 +14,7 @@
 -export([
     load/1,
     unload/0,
-    upgrade/0,
-    upgrade/1,
-    get_package_info/0
+    upgrade/1
 ]).
 
 -export([
@@ -56,6 +54,14 @@
 %% API
 %%==============================================================================
 start_link() ->
+    %% `emqx_relup_log` is a local-content disc table — each node owns
+    %% its own audit trail of upgrade attempts. The table is created
+    %% here (idempotent: if the table already exists on disk from a
+    %% previous install, mria attaches to it). Nothing in this plugin
+    %% deletes the table on stop/unload, so plugin uninstall keeps the
+    %% rows on disk; reinstalling re-attaches and the history is
+    %% preserved. Operators clear history explicitly via
+    %% `emqx ctl relup logs-clear`.
     ok = mria:create_table(
         emqx_relup_log,
         [
@@ -68,14 +74,8 @@ start_link() ->
     ),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-upgrade() ->
-    upgrade(#{deploy_inplace => false}).
-
-upgrade(Opts) ->
-    gen_server:call(?MODULE, {upgrade, Opts}, infinity).
-
-get_package_info() ->
-    gen_server:call(?MODULE, get_package_info, infinity).
+upgrade(TarballPath) ->
+    gen_server:call(?MODULE, {upgrade, #{tarball => TarballPath}}, infinity).
 
 %% Called when the plugin application start
 load(_Env) ->
@@ -94,21 +94,12 @@ init([]) ->
 handle_call({upgrade, Opts}, _From, State) ->
     CurrVsn = emqx_release:version(),
     RootDir = code:root_dir(),
-    TargetVsn = emqx_relup_handler:get_target_vsn(),
-    Key = log_upgrade_started(CurrVsn, TargetVsn, Opts),
-    Result = do_upgrade(CurrVsn, TargetVsn, RootDir, Opts),
+    %% target_vsn isn't known until check_and_unpack parses
+    %% releases/emqx_vars from the extracted tarball.
+    Key = log_upgrade_started(CurrVsn, undefined, Opts),
+    Result = do_upgrade(CurrVsn, RootDir, Opts),
     ok = log_upgrade_result(Key, Result),
     {reply, Result, State};
-handle_call(get_package_info, _From, State) ->
-    TargetVsn = emqx_relup_handler:get_target_vsn(),
-    Reply =
-        case emqx_relup_handler:get_package_info(TargetVsn) of
-            {error, Reason} ->
-                {error, Reason};
-            {ok, #{base_vsns := BaseVsns, change_logs := ChangeLogs}} ->
-                {ok, #{base_vsns => BaseVsns, change_logs => ChangeLogs}}
-        end,
-    {reply, Reply, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -121,12 +112,12 @@ handle_info(_Info, State) ->
 terminate(_Reason, _State) ->
     ok.
 
-do_upgrade(CurrVsn, TargetVsn, RootDir, Opts) ->
-    case emqx_relup_handler:check_and_unpack(CurrVsn, TargetVsn, RootDir, Opts) of
+do_upgrade(CurrVsn, RootDir, Opts) ->
+    case emqx_relup_handler:check_and_unpack(CurrVsn, RootDir, Opts) of
         {error, Reason} ->
             ?LOG(error, #{msg => check_upgrade_failed, reason => Reason}),
             {error, Reason#{stage => check_and_unpack}};
-        {ok, Opts1} ->
+        {ok, #{target_vsn := TargetVsn} = Opts1} ->
             ?LOG(notice, #{msg => perform_upgrade, from_vsn => CurrVsn, target_vsn => TargetVsn}),
             try emqx_relup_handler:perform_upgrade(CurrVsn, TargetVsn, RootDir, Opts1) of
                 ok ->

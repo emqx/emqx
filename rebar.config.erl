@@ -406,6 +406,7 @@ relx_overlay(ReleaseType) ->
         {mkdir, "log/"},
         {mkdir, "data/"},
         {mkdir, "plugins"},
+        {mkdir, "relup"},
         {mkdir, "data/mnesia"},
         {mkdir, "data/configs"},
         {mkdir, "data/patches"},

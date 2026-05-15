@@ -48,7 +48,11 @@
     emqx_ds_proto_v2,
     emqx_ds_proto_v3,
     emqx_ds_shared_sub_proto_v1,
-    emqx_ds_shared_sub_proto_v2
+    emqx_ds_shared_sub_proto_v2,
+    %% Removed in 5.10 along with the hot-upgrade REST API.
+    %% The plugin is now driven exclusively via `emqx ctl relup`.
+    emqx_mgmt_api_relup,
+    emqx_mgmt_api_relup_proto_v1
 ]).
 -define(FORCE_DELETED_APIS, [
     {emqx_statsd, 1},
@@ -60,7 +64,10 @@
     {emqx_ds, 3},
     {emqx_node_rebalance_purge, 1},
     {emqx_ds_shared_sub, 1},
-    {emqx_ds_shared_sub, 2}
+    {emqx_ds_shared_sub, 2},
+    %% Removed in 5.10 along with the hot-upgrade REST API.
+    %% The plugin is now driven exclusively via `emqx ctl relup`.
+    {emqx_mgmt_api_relup, 1}
 ]).
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").
