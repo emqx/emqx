@@ -6,30 +6,12 @@ CLI on each node.
 
 ## Operator workflow
 
-1. **Install the plugin** on every node. The plugin tarball is
-   published per EMQX release at:
+1. **Install the plugin**
+   The plugin tarball is published per EMQX release at:
 
-       https://packages.emqx.io/emqx-plugins/e<EMQX-VSN>/emqx_relup-<PLUGIN-VSN>.tar.gz
+       `https://packages.emqx.io/emqx-plugins/e<EMQX-VSN>/emqx_relup-<PLUGIN-VSN>.tar.gz`
 
-   On each node:
-
-   ```
-   # fetch
-   curl -fLO https://packages.emqx.io/emqx-plugins/e<EMQX-VSN>/emqx_relup-<PLUGIN-VSN>.tar.gz
-
-   # drop into the plugin install dir
-   #   deb/rpm        : /var/lib/emqx/plugins/
-   #   tarball release: <RootDir>/plugins/
-   mv emqx_relup-<PLUGIN-VSN>.tar.gz <plugin-install-dir>/
-
-   # install + enable + start
-   emqx ctl plugins install emqx_relup-<PLUGIN-VSN>
-   emqx ctl plugins enable  emqx_relup-<PLUGIN-VSN>
-   emqx ctl plugins start   emqx_relup-<PLUGIN-VSN>
-   ```
-
-   Verify with `emqx ctl plugins list` — the plugin should show
-   `running`.
+    Install the plugin from the dashboard.
 
 2. **Confirm the upgrade path is supported.**
    `emqx ctl relup list-supported-paths` lists the supported
