@@ -39,12 +39,12 @@ CLI on each node.
 
 5. **Verify the node** before moving on. Two cheap signals:
    - `emqx ctl status` reports the node running.
-   - `cat <RootDir>/relup/version` matches the target version, and
+   - `cat <RootDir>/relup/current` matches the target version, and
      `<RootDir>/relup/<TargetVsn>/` contains `bin/`, `erts-*/`,
      `lib/`, `releases/`.
 
    On the next `emqx start`/`restart`, the `bin/emqx` wrapper
-   detects `relup/version` and execs into the deployed tree (new
+   detects `relup/current` and execs into the deployed tree (new
    ERTS, new bin scripts, new lib). The original `<RootDir>` stays
    the authority for `data/`, `etc/`, `log/`, `plugins/`.
 
@@ -64,7 +64,7 @@ Practical rollback paths:
 
 - **Before the next restart**, if the upgrade succeeded but the new
   code is misbehaving and the data on disk is still compatible with
-  the old release: `rm <RootDir>/relup/version` (and optionally
+  the old release: `rm <RootDir>/relup/current` (and optionally
   `rm -rf <RootDir>/relup/<TargetVsn>/`), then `emqx restart`. The
   wrapper falls back to the original `<RootDir>/bin/emqx` tree.
   This recovers only the *boot path*; live state inside the running

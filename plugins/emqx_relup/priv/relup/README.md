@@ -121,7 +121,7 @@ healthy cluster is a no-op.
 4. add_patha(<RootDir>/data/patches)             — last step of (3)
 5. eval_post_upgrade_actions: for each entry,
        erlang:apply(get_upgrade_mod(TargetVsn), Func, [FromVsn | Args])
-6. handler writes <RootDir>/relup/version with TargetVsn
+6. handler writes <RootDir>/relup/current with TargetVsn
 ```
 
 Failure semantics:

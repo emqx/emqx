@@ -75,7 +75,7 @@ perform_upgrade(CurrVsn, TargetVsn, RootDir, Opts) ->
 %%==============================================================================
 %% Check Upgrade
 %%==============================================================================
-%% A previous successful upgrade leaves `<RootDir>/relup/version` pointing at
+%% A previous successful upgrade leaves `<RootDir>/relup/current` pointing at
 %% the deployed target. The `bin/emqx` wrapper consumes that marker on the
 %% next start and execs into `<RootDir>/relup/<TargetVsn>/bin/emqx`. Until that
 %% restart happens, `code:root_dir()` still points at the original install and
@@ -83,22 +83,22 @@ perform_upgrade(CurrVsn, TargetVsn, RootDir, Opts) ->
 %% top of stale `emqx_release:version()`). Refuse early.
 %%
 %% After the restart, the new `bin/emqx` resolves `code:root_dir()` to the
-%% deploy dir, which has no `relup/version` of its own, so this check passes
+%% deploy dir, which has no `relup/current` of its own, so this check passes
 %% and the next hop can be planned from the freshly booted version.
 assert_no_upgrade_pending(RootDir) ->
-    VersionFile = filename:join([independent_deploy_root(RootDir), "version"]),
-    case file:read_file(VersionFile) of
+    MarkerFile = filename:join([independent_deploy_root(RootDir), "current"]),
+    case file:read_file(MarkerFile) of
         {ok, Bin} ->
             PendingTarget = string:trim(Bin),
             throw(
                 make_error(upgrade_pending_restart, #{
                     pending_target => PendingTarget,
-                    version_marker => bin(VersionFile),
+                    marker_file => bin(MarkerFile),
                     hint =>
                         <<
                             "a previous upgrade is deployed and pending node restart; "
                             "restart the node before another upgrade, or remove "
-                            "the version marker file to override"
+                            "the marker file to override"
                         >>
                 })
             );
@@ -394,7 +394,7 @@ load_one_relup(File) ->
 %% Permanent Release
 %%==============================================================================
 permanent_upgrade(_CurrVsn, TargetVsn, RootDir, _) ->
-    file:write_file(filename:join([independent_deploy_root(RootDir), "version"]), TargetVsn).
+    file:write_file(filename:join([independent_deploy_root(RootDir), "current"]), TargetVsn).
 
 %%==============================================================================
 %% Eval Relup Instructions

@@ -179,12 +179,12 @@ get_all_upgrade_logs() ->
     lists:map(fun format_upgrade_log/1, ets:tab2list(emqx_relup_log)).
 
 get_latest_upgrade_status() ->
-    %% If `<code:root_dir()>/relup/version` exists, an upgrade has been
+    %% If `<code:root_dir()>/relup/current` exists, an upgrade has been
     %% committed against this install and the running BEAM has hot-loaded
     %% the target's modules; a node restart is required to boot the
     %% deployed tree. Surface that state explicitly so operators don't
     %% confuse it with `idle`.
-    case read_version_marker() of
+    case read_current_marker() of
         {ok, TargetVsn} ->
             {hot_upgraded, TargetVsn};
         none ->
@@ -199,8 +199,8 @@ get_latest_upgrade_status() ->
             end
     end.
 
-read_version_marker() ->
-    Path = filename:join([code:root_dir(), "relup", "version"]),
+read_current_marker() ->
+    Path = filename:join([code:root_dir(), "relup", "current"]),
     case file:read_file(Path) of
         {ok, Bin} -> {ok, string:trim(Bin)};
         {error, _} -> none

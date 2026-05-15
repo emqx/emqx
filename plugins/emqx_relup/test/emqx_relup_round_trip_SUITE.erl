@@ -90,7 +90,7 @@ t_round_trip_no_op(Config) ->
     ok = emqx_relup_handler:perform_upgrade(?CURR_VSN, ?TARGET_VSN, RootDir, Opts1),
     ok = emqx_relup_handler:permanent_upgrade(?CURR_VSN, ?TARGET_VSN, RootDir, Opts1),
 
-    Marker = filename:join([RootDir, "relup", "version"]),
+    Marker = filename:join([RootDir, "relup", "current"]),
     ?assertEqual({ok, list_to_binary(?TARGET_VSN)}, file:read_file(Marker)),
     DeployDir = filename:join([RootDir, "relup", ?TARGET_VSN]),
     ?assert(filelib:is_dir(DeployDir), DeployDir ++ " should be a dir"),
@@ -198,7 +198,7 @@ t_os_arch_mismatch_rejects(Config) ->
     ),
     ?assertMatch({error, #{err_type := os_arch_mismatch}}, Result).
 
--doc "An existing `<RootDir>/relup/version` marker means a previous "
+-doc "An existing `<RootDir>/relup/current` marker means a previous "
 "upgrade has been deployed but the node has not yet restarted into "
 "the new tree. A second upgrade request must be refused with "
 "`upgrade_pending_restart`. The check fires before any tarball work, "
@@ -208,7 +208,7 @@ t_refuse_when_upgrade_pending_restart(Config) ->
     Tarball = forge_target_tarball(RootDir, ?TARGET_VSN, default_arch()),
     ok = write_sha256_sidecar(Tarball),
     _ = write_no_op_relup(?CURR_VSN, ?TARGET_VSN),
-    Marker = filename:join([RootDir, "relup", "version"]),
+    Marker = filename:join([RootDir, "relup", "current"]),
     ok = filelib:ensure_dir(Marker),
     ok = file:write_file(Marker, ?TARGET_VSN),
     Result = emqx_relup_handler:check_and_unpack(
