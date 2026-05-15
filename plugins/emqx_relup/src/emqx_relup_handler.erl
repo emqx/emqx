@@ -30,6 +30,7 @@ list_supported_paths() ->
 
 check_and_unpack(CurrVsn, RootDir, #{tarball := TarFile} = Opts) ->
     try
+        ok = assert_no_upgrade_pending(RootDir),
         {ok, UnpackDir} = unpack_release(TarFile),
         TargetVsn = read_rel_vsn(UnpackDir),
         ok = assert_not_same_vsn(CurrVsn, TargetVsn),
@@ -74,6 +75,37 @@ perform_upgrade(CurrVsn, TargetVsn, RootDir, Opts) ->
 %%==============================================================================
 %% Check Upgrade
 %%==============================================================================
+%% A previous successful upgrade leaves `<RootDir>/relup/version` pointing at
+%% the deployed target. The `bin/emqx` wrapper consumes that marker on the
+%% next start and execs into `<RootDir>/relup/<TargetVsn>/bin/emqx`. Until that
+%% restart happens, `code:root_dir()` still points at the original install and
+%% another upgrade attempt would re-run the same hop (or, worse, plan a hop on
+%% top of stale `emqx_release:version()`). Refuse early.
+%%
+%% After the restart, the new `bin/emqx` resolves `code:root_dir()` to the
+%% deploy dir, which has no `relup/version` of its own, so this check passes
+%% and the next hop can be planned from the freshly booted version.
+assert_no_upgrade_pending(RootDir) ->
+    VersionFile = filename:join([independent_deploy_root(RootDir), "version"]),
+    case file:read_file(VersionFile) of
+        {ok, Bin} ->
+            PendingTarget = string:trim(Bin),
+            throw(
+                make_error(upgrade_pending_restart, #{
+                    pending_target => PendingTarget,
+                    version_marker => bin(VersionFile),
+                    hint =>
+                        <<
+                            "a previous upgrade is deployed and pending node restart; "
+                            "restart the node before another upgrade, or remove "
+                            "the version marker file to override"
+                        >>
+                })
+            );
+        {error, enoent} ->
+            ok
+    end.
+
 assert_not_same_vsn(TargetVsn, TargetVsn) ->
     throw(make_error(already_upgraded_to_target_vsn, #{vsn => TargetVsn}));
 assert_not_same_vsn(_CurrVsn, _TargetVsn) ->

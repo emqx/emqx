@@ -198,6 +198,36 @@ t_os_arch_mismatch_rejects(Config) ->
     ),
     ?assertMatch({error, #{err_type := os_arch_mismatch}}, Result).
 
+-doc "An existing `<RootDir>/relup/version` marker means a previous "
+"upgrade has been deployed but the node has not yet restarted into "
+"the new tree. A second upgrade request must be refused with "
+"`upgrade_pending_restart`. The check fires before any tarball work, "
+"so even a perfectly good tarball with a valid sidecar is rejected.".
+t_refuse_when_upgrade_pending_restart(Config) ->
+    RootDir = ?config(root_dir, Config),
+    Tarball = forge_target_tarball(RootDir, ?TARGET_VSN, default_arch()),
+    ok = write_sha256_sidecar(Tarball),
+    _ = write_no_op_relup(?CURR_VSN, ?TARGET_VSN),
+    Marker = filename:join([RootDir, "relup", "version"]),
+    ok = filelib:ensure_dir(Marker),
+    ok = file:write_file(Marker, ?TARGET_VSN),
+    Result = emqx_relup_handler:check_and_unpack(
+        ?CURR_VSN, RootDir, #{tarball => Tarball}
+    ),
+    ?assertMatch(
+        {error, #{
+            err_type := upgrade_pending_restart,
+            pending_target := <<?TARGET_VSN>>
+        }},
+        Result
+    ),
+    %% Once the marker is gone, the same inputs proceed normally.
+    ok = file:delete(Marker),
+    ?assertMatch(
+        {ok, #{target_vsn := ?TARGET_VSN}},
+        emqx_relup_handler:check_and_unpack(?CURR_VSN, RootDir, #{tarball => Tarball})
+    ).
+
 %%==============================================================================
 %% helpers
 %%==============================================================================

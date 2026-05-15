@@ -22,7 +22,17 @@ cmd(["list-supported-paths"]) ->
             ]
     end;
 cmd(["status"]) ->
-    emqx_ctl:print("~ts~n", [emqx_relup_main:get_latest_upgrade_status()]);
+    case emqx_relup_main:get_latest_upgrade_status() of
+        idle ->
+            emqx_ctl:print("idle~n");
+        'in-progress' ->
+            emqx_ctl:print("in-progress~n");
+        {hot_upgraded, TargetVsn} ->
+            emqx_ctl:print(
+                "hot-upgraded to ~ts; restart pending to boot the deployed tree~n",
+                [TargetVsn]
+            )
+    end;
 cmd(["logs"]) ->
     case emqx_relup_main:get_all_upgrade_logs() of
         [] ->
@@ -42,8 +52,10 @@ cmd(_) ->
             "`releases/emqx_vars` (`REL_VSN`)."},
         {"relup list-supported-paths", "List the {From, Target} hops the priv catalog supports"},
         {"relup status",
-            "Print 'in-progress' if an upgrade is currently running on this "
-            "node, otherwise 'idle'."},
+            "Print 'in-progress' while an upgrade is running, "
+            "'hot-upgraded to <vsn>' if a previous upgrade is committed and "
+            "the node is awaiting restart to boot the deployed tree, "
+            "otherwise 'idle'."},
         {"relup logs", "Print this node's upgrade history (one row per attempt)."},
         {"relup logs-clear", "Wipe this node's upgrade log table."}
     ]).
