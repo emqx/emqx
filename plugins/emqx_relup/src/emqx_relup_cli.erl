@@ -46,17 +46,21 @@ cmd(["logs-clear"]) ->
 cmd(_) ->
     emqx_ctl:usage([
         {"relup upgrade <TarballPath>",
-            "Upgrade using the EMQX target tarball at <TarballPath>. "
-            "A `<TarballPath>.sha256` sidecar must sit next to it. "
-            "Target version is read from the tarball's "
+            "Upgrade using the EMQX target tarball at <TarballPath>.\n"
+            "A `<TarballPath>.sha256` sidecar must sit next to it.\n"
+            "Target version is read from the tarball's\n"
             "`releases/emqx_vars` (`REL_VSN`)."},
-        {"relup list-supported-paths", "List the {From, Target} hops the priv catalog supports"},
+        {"relup list-supported-paths", "List the {From, Target} hops the priv catalog supports."},
         {"relup status",
-            "Print 'in-progress' while an upgrade is running, "
-            "'hot-upgraded to <vsn>' if a previous upgrade is committed and "
-            "the node is awaiting restart to boot the deployed tree, "
-            "otherwise 'idle'."},
-        {"relup logs", "Print this node's upgrade history (one row per attempt)."},
+            "Print the current upgrade state of this node:\n"
+            "  'idle'                  no upgrade in progress;\n"
+            "  'in-progress'           an upgrade is running right now;\n"
+            "  'hot-upgraded to <vsn>' a previous upgrade has been applied\n"
+            "                          and the node is pending restart to\n"
+            "                          boot from the new version."},
+        {"relup logs",
+            "Print this node's upgrade history,\n"
+            "one row per attempt, oldest first."},
         {"relup logs-clear", "Wipe this node's upgrade log table."}
     ]).
 
