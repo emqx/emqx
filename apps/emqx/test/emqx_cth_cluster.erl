@@ -34,7 +34,7 @@
 -export([share_load_module/2]).
 -export([node_name/1, mk_nodespecs/2]).
 -export([start_apps/2]).
--export([sync_routes/1, sync_routes/2, setup_logging/1]).
+-export([sync_routes/1, sync_routes/2, setup_logging/1, get_tcp_mqtt_port/1]).
 
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
@@ -458,6 +458,11 @@ setup_logging(Node) ->
         [?MODULE, logger_std_h, HandlerConf]
     ),
     ok.
+
+-spec get_tcp_mqtt_port(node()) -> pos_integer().
+get_tcp_mqtt_port(Node) ->
+    {_Host, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
+    Port.
 
 %% Returns 'true' if this node should appear in running nodes list.
 run_node_phase_cluster(Act, Spec = #{name := Node}) ->
