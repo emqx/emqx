@@ -29,7 +29,7 @@ cmd(["status"]) ->
             emqx_ctl:print("in-progress~n");
         {hot_upgraded, TargetVsn} ->
             emqx_ctl:print(
-                "hot-upgraded to ~ts; restart pending to boot the deployed tree~n",
+                "hot-upgraded to ~ts; pending on restart to boot from the new version~n",
                 [TargetVsn]
             )
     end;

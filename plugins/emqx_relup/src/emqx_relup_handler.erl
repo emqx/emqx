@@ -30,9 +30,9 @@ list_supported_paths() ->
 
 check_and_unpack(CurrVsn, RootDir, #{tarball := TarFile} = Opts) ->
     try
-        ok = assert_no_upgrade_pending(RootDir),
         {ok, UnpackDir} = unpack_release(TarFile),
         TargetVsn = read_rel_vsn(UnpackDir),
+        ok = assert_no_duplicate_pending(RootDir, TargetVsn),
         ok = assert_not_same_vsn(CurrVsn, TargetVsn),
         ok = check_write_permission(RootDir),
         ok = check_otp_comaptibility(CurrVsn, RootDir, UnpackDir, TargetVsn),
@@ -77,31 +77,42 @@ perform_upgrade(CurrVsn, TargetVsn, RootDir, Opts) ->
 %%==============================================================================
 %% A previous successful upgrade leaves `<RootDir>/relup/current` pointing at
 %% the deployed target. The `bin/emqx` wrapper consumes that marker on the
-%% next start and execs into `<RootDir>/relup/<TargetVsn>/bin/emqx`. Until that
-%% restart happens, `code:root_dir()` still points at the original install and
-%% another upgrade attempt would re-run the same hop (or, worse, plan a hop on
-%% top of stale `emqx_release:version()`). Refuse early.
+%% next start and execs into `<RootDir>/relup/<TargetVsn>/bin/emqx`.
 %%
-%% After the restart, the new `bin/emqx` resolves `code:root_dir()` to the
-%% deploy dir, which has no `relup/current` of its own, so this check passes
-%% and the next hop can be planned from the freshly booted version.
-assert_no_upgrade_pending(RootDir) ->
+%% Chaining another upgrade on top of a pending one is allowed: the operator
+%% may stack hops (e.g. A -> B then B -> C) without restarting between them.
+%% The .relup hop author is responsible for declaring `from_version` to match
+%% whatever base state the node is in (hot-loaded post-A vs freshly booted),
+%% and for writing `code_changes` that handle the chain.
+%%
+%% What we refuse is running the *same* target again: that would re-apply the
+%% same hop's `code_changes` against a VM that's already been migrated by it,
+%% which is almost certainly an operator mistake. The first hop's idempotency
+%% can't be assumed (it may have done `restart_application` etc.). Tell the
+%% operator to restart or remove the marker if they really want a redo.
+assert_no_duplicate_pending(RootDir, TargetVsn) ->
     MarkerFile = filename:join([independent_deploy_root(RootDir), "current"]),
     case file:read_file(MarkerFile) of
         {ok, Bin} ->
             PendingTarget = string:trim(Bin),
-            throw(
-                make_error(upgrade_pending_restart, #{
-                    pending_target => PendingTarget,
-                    marker_file => bin(MarkerFile),
-                    hint =>
-                        <<
-                            "a previous upgrade is deployed and pending node restart; "
-                            "restart the node before another upgrade, or remove "
-                            "the marker file to override"
-                        >>
-                })
-            );
+            TargetBin = bin(TargetVsn),
+            case PendingTarget =:= TargetBin of
+                true ->
+                    throw(
+                        make_error(duplicate_pending_target, #{
+                            pending_target => PendingTarget,
+                            marker_file => bin(MarkerFile),
+                            hint =>
+                                <<
+                                    "this exact target is already deployed and "
+                                    "pending node restart; restart the node, or "
+                                    "remove the marker file to retry"
+                                >>
+                        })
+                    );
+                false ->
+                    ok
+            end;
         {error, enoent} ->
             ok
     end.
