@@ -76,7 +76,11 @@
 %% `node.max_ports = auto' scales linearly with logical_processors_available
 %% up to MAX_PORTS_CORES_CLAMP cores. Above the clamp we fall back to
 %% ?DEFAULT_MAX_PORTS so a large host doesn't end up with an unbounded table.
--define(MAX_PORTS_PER_CORE, 64000).
+%% 65536 == 2^16 -- the VM rounds +Q up to the next power of two anyway, so
+%% using a power-of-two multiplier keeps the configured and effective limits
+%% in sync (no surprise gap between `node.max_ports' and what shows up at
+%% runtime in `erlang:system_info(port_limit)').
+-define(MAX_PORTS_PER_CORE, 65536).
 -define(MAX_PORTS_CORES_CLAMP, 8).
 
 %% Process table is sized as ?PROCESS_LIMIT_RATIO * +Q.

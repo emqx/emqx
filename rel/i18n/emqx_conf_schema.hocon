@@ -552,7 +552,7 @@ max_ports.desc: """~
   Specifies the maximum number of simultaneously open ports (files, sockets, etc.) allowed by this Erlang system.
 
   When set to `auto` (the default), EMQX scales the limit with the number of
-  logical CPUs available, using 64000 ports per core up to 8 cores. Hosts with
+  logical CPUs available, using 65536 ports per core up to 8 cores. Hosts with
   more than 8 cores fall back to a fixed limit of 1048576 ports.
 
   Note: The actual limit chosen by the runtime may be larger than the number configured here.
