@@ -1122,6 +1122,14 @@ This is the OS-level TCP keepalive probe and is independent of the MQTT-level ke
 fields_client_tcp_opts_keepalive.label:
 """TCP SO_KEEPALIVE"""
 
+fields_client_tcp_opts_delay_send.desc:
+"""When enabled, `gen_tcp` may briefly queue small writes to coalesce them into larger TCP segments.
+Improves throughput for bursty publishers at the cost of a small added latency.
+Default: `false`."""
+
+fields_client_tcp_opts_delay_send.label:
+"""Delay Send"""
+
 sysmon_top_db_username.desc:
 """Username of the PostgreSQL database"""
 
