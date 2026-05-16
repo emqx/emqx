@@ -43,7 +43,8 @@ defmodule EMQXGateway.MixProject do
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_ctl, in_umbrella: true},
-      {:emqx_auth, in_umbrella: true}
+      {:emqx_auth, in_umbrella: true},
+      {:emqx_license, in_umbrella: true}
     ])
   end
 

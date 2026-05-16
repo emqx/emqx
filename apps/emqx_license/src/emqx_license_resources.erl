@@ -231,9 +231,8 @@ stats() ->
                 stats(Nodes, Now)
         end,
     #{sessions := Sessions, tps := TPS} = Stats,
-    %% Gateway registry is global, so take it from local node.
-    GatewayConnections = emqx_gateway_cm_registry:get_connected_client_count(),
-    #{sessions => Sessions + GatewayConnections, tps => erlang:round(TPS)}.
+    ExtraSessions = emqx_license_session_count:sum_callbacks(),
+    #{sessions => Sessions + ExtraSessions, tps => erlang:round(TPS)}.
 
 -spec stats(list(node()), integer()) -> #{sessions := non_neg_integer(), tps := number()}.
 stats(Nodes, Now) ->
