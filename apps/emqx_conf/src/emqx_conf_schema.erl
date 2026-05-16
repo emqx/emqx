@@ -514,6 +514,20 @@ fields("node") ->
                     'readOnly' => true
                 }
             )},
+        {"schedulers",
+            sc(
+                hoconsc:union([auto, pos_integer()]),
+                #{
+                    %% `mapping' is intentionally omitted: the translation
+                    %% `tr_vm_args_schedulers/1' below resolves `auto' to the
+                    %% number of logical processors available and emits the
+                    %% final `N:N' string into `vm_args.+S'.
+                    desc => ?DESC(schedulers),
+                    default => auto,
+                    importance => ?IMPORTANCE_LOW,
+                    'readOnly' => true
+                }
+            )},
         {"dist_buffer_size",
             sc(
                 range(1, 2097151),
@@ -1313,13 +1327,18 @@ translation("vm_args") ->
 %% `logical_processors_available' reflects sched_getaffinity (and therefore
 %% the cgroup) on Linux; falls back to the static `logical_processors' count
 %% on platforms where the runtime can't determine availability.
-tr_vm_args_schedulers(_Conf) ->
-    N =
-        case erlang:system_info(logical_processors_available) of
-            X when is_integer(X), X >= 1 -> X;
-            _ -> erlang:system_info(logical_processors)
-        end,
+%% A user-specified `node.schedulers' overrides the auto-detected value.
+tr_vm_args_schedulers(Conf) ->
+    N = resolve_schedulers(conf_get("node.schedulers", Conf, auto)),
     integer_to_list(N) ++ ":" ++ integer_to_list(N).
+
+resolve_schedulers(auto) ->
+    case erlang:system_info(logical_processors_available) of
+        X when is_integer(X), X >= 1 -> X;
+        _ -> erlang:system_info(logical_processors)
+    end;
+resolve_schedulers(N) when is_integer(N), N >= 1 ->
+    N.
 
 tr_vm_args_max_ports(Conf) ->
     resolve_max_ports(conf_get("node.max_ports", Conf, auto)).
