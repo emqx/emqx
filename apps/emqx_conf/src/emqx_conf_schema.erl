@@ -1300,9 +1300,26 @@ translation("vm_args") ->
     [
         {"+Q", fun tr_vm_args_max_ports/1},
         {"+P", fun tr_vm_args_process_limit/1},
+        {"+S", fun tr_vm_args_schedulers/1},
         {"-kernel inet_dist_use_interface", fun tr_vm_args_dist_bind_address/1},
         {"-kernel inet_dist_connect_options", fun tr_kernel_inet_dist_connect_options/1}
     ].
+
+%% Cap +S at the number of logical processors actually available to the VM.
+%% BEAM's default is one scheduler per host CPU regardless of cgroup CPU set,
+%% so a 20-core host running emqx in a `--cpuset-cpus=0-7' container would
+%% otherwise spawn 20 scheduler OS threads where only 8 can run in parallel,
+%% wasting ~MB-per-scheduler of stack/heap overhead with no throughput gain.
+%% `logical_processors_available' reflects sched_getaffinity (and therefore
+%% the cgroup) on Linux; falls back to the static `logical_processors' count
+%% on platforms where the runtime can't determine availability.
+tr_vm_args_schedulers(_Conf) ->
+    N =
+        case erlang:system_info(logical_processors_available) of
+            X when is_integer(X), X >= 1 -> X;
+            _ -> erlang:system_info(logical_processors)
+        end,
+    integer_to_list(N) ++ ":" ++ integer_to_list(N).
 
 tr_vm_args_max_ports(Conf) ->
     resolve_max_ports(conf_get("node.max_ports", Conf, auto)).
