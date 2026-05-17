@@ -30,7 +30,12 @@ defmodule EMQXLicense.MixProject do
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_ctl, in_umbrella: true},
-      {:emqx_gateway, in_umbrella: true}
+      ## compile-time only: license counts gateway connections via a runtime
+      ## check (function_exported) in emqx_license_resources rather than
+      ## starting the gateway app. Keeping this as a runtime dep pulls
+      ## emqx_gateway in to every release that has the license app, which
+      ## in turn drags all auth backends and the bridge/connector framework.
+      {:emqx_gateway, in_umbrella: true, runtime: false}
     ])
   end
 

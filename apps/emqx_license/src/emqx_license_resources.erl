@@ -232,8 +232,19 @@ stats() ->
         end,
     #{sessions := Sessions, tps := TPS} = Stats,
     %% Gateway registry is global, so take it from local node.
-    GatewayConnections = emqx_gateway_cm_registry:get_connected_client_count(),
+    %% Runtime-checked: when the gateway app is absent (essential builds),
+    %% the gateway-connection count is zero. Avoids dragging emqx_gateway
+    %% (and its auth-backend deps) into every license-using release.
+    GatewayConnections = gateway_connections_count(),
     #{sessions => Sessions + GatewayConnections, tps => erlang:round(TPS)}.
+
+gateway_connections_count() ->
+    Mod = emqx_gateway_cm_registry,
+    _ = emqx_utils:interactive_load(Mod),
+    case erlang:function_exported(Mod, get_connected_client_count, 0) of
+        true -> Mod:get_connected_client_count();
+        false -> 0
+    end.
 
 -spec stats(list(node()), integer()) -> #{sessions := non_neg_integer(), tps := number()}.
 stats(Nodes, Now) ->

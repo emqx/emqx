@@ -236,6 +236,14 @@ if [ "${2:-}" = 'help' ]; then
     fi
 fi
 
+## EIP-0037 feature gates: with `EMQX_FEATURES=ESSENTIAL', `emqx_machine_boot'
+## starts only the slim apps list, and we flip code loading to interactive so
+## the skipped apps' .beam files don't sit resident in memory.
+## TODO: also strip unused atoms / apps from the release at build time.
+if [ "${EMQX_FEATURES:-}" = 'ESSENTIAL' ]; then
+    export CODE_LOADING_MODE='interactive'
+fi
+
 ## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
 case "${COMMAND}" in
     start|console|console_clean|foreground|check_config)

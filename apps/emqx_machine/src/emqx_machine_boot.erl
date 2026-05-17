@@ -12,6 +12,7 @@
 -export([start_autocluster/0]).
 -export([stop_port_apps/0]).
 -export([read_apps/0]).
+-export([feature_preset/0]).
 
 -dialyzer({no_match, [basic_reboot_apps/0]}).
 
@@ -98,7 +99,8 @@ stop_one_app(App) ->
 
 ensure_apps_started() ->
     ?SLOG(notice, #{msg => "(re)starting_emqx_apps"}),
-    lists:foreach(fun start_one_app/1, sorted_reboot_apps()),
+    Apps = sorted_reboot_apps(),
+    lists:foreach(fun start_one_app/1, Apps),
     ?tp(emqx_machine_boot_apps_started, #{}).
 
 start_one_app(App) ->
@@ -132,10 +134,57 @@ restart_type(App) ->
 
 %% the list of (re)started apps depends on release type/edition
 reboot_apps() ->
-    ConfigApps0 = application:get_env(emqx_machine, applications, []),
-    BaseRebootApps = basic_reboot_apps(),
-    ConfigApps = lists:filter(fun(App) -> not lists:member(App, BaseRebootApps) end, ConfigApps0),
-    BaseRebootApps ++ ConfigApps.
+    case feature_preset() of
+        'ESSENTIAL' ->
+            %% TODO: make this list configurable (env / boot file / hocon)
+            %% TODO: prune further once we know what is actually mandatory
+            essential_reboot_apps();
+        'FULL' ->
+            ConfigApps0 = application:get_env(emqx_machine, applications, []),
+            BaseRebootApps = basic_reboot_apps(),
+            ConfigApps = lists:filter(
+                fun(App) -> not lists:member(App, BaseRebootApps) end, ConfigApps0
+            ),
+            BaseRebootApps ++ ConfigApps
+    end.
+
+%% @doc Return the resolved EMQX_FEATURES preset.
+%% MVP for EIP-0037 feature gates: only `'ESSENTIAL'' (slim apps list) and the
+%% implicit `'FULL'' default are recognized today. Custom comma-separated
+%% lists and the `emqx_features:is_enabled/1' API land in a follow-up.
+feature_preset() ->
+    case os:getenv("EMQX_FEATURES") of
+        "ESSENTIAL" -> 'ESSENTIAL';
+        _ -> 'FULL'
+    end.
+
+%% Minimal MVP business apps list for EMQX Essential.
+%% TODO: revisit each entry; this is intentionally crude.
+%% TODO: drive this off priv/reboot_lists.eterm so we don't fork two lists.
+essential_business_apps() ->
+    [
+        %% Config
+        emqx_conf,
+        emqx_utils,
+        emqx_http_lib,
+        %% Broker core
+        emqx,
+        emqx_durable_storage,
+        emqx_ds_backends,
+        emqx_durable_timer,
+        %% CLI / management (REST + emqx ctl)
+        emqx_ctl,
+        emqx_management,
+        %% Authentication & authorization
+        emqx_auth,
+        emqx_auth_mnesia,
+        %% License is in BASIC_PERMANENT_APPS - it'll be required by emqx_dashboard et al,
+        %% but we explicitly load it here so the rest of the machinery doesn't trip.
+        emqx_license
+    ].
+
+essential_reboot_apps() ->
+    ?BASIC_REBOOT_APPS ++ (essential_business_apps() -- excluded_apps()).
 
 basic_reboot_apps() ->
     #{
