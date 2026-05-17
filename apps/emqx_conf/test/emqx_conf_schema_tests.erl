@@ -35,7 +35,10 @@ array_nodes_test() ->
             ProcLimit = proplists:get_value('+P', VMArgs),
             MaxPort = proplists:get_value('+Q', VMArgs),
             ?assertEqual(2048, MaxPort),
-            ?assertEqual(MaxPort * 2, ProcLimit),
+            %% node.process_limit = 10240 in BASE_CONF overrides the derived
+            %% 2 * max_ports = 4096 because the override is honored only when
+            %% strictly larger than the derived value.
+            ?assertEqual(10240, ProcLimit),
 
             ClusterDiscovery = proplists:get_value(
                 cluster_discovery, proplists:get_value(ekka, ConfList)
