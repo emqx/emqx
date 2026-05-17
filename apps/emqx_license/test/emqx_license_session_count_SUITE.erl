@@ -33,11 +33,11 @@ end_per_suite(Config) ->
 
 init_per_testcase(_Case, Config) ->
     %% Wipe any callbacks left over (gateway registers one if loaded).
-    application:set_env(emqx_license, session_count_callbacks, #{}),
+    _ = persistent_term:erase({emqx_license_session_count, callbacks}),
     Config.
 
 end_per_testcase(_Case, _Config) ->
-    application:set_env(emqx_license, session_count_callbacks, #{}),
+    _ = persistent_term:erase({emqx_license_session_count, callbacks}),
     ok.
 
 %% Callbacks used in the tests

@@ -11,10 +11,12 @@ Other apps (e.g. `emqx_gateway`) register a 0-arity callback that returns the
 number of sessions they account for. The license resources collector calls
 `sum_callbacks/0` on each tick and adds the total to the broker session count.
 
-Storage is the `emqx_license` application env so the registry survives without
-an extra process. Callbacks whose module is not loaded (feature off) raise
-`error:undef` and are skipped silently; any other crash is logged and the
-broken callback's contribution is dropped for that tick.
+Storage is a `persistent_term`, so the registry has no runtime dependency on
+the `emqx_license` application being started — callers can register before
+license boot and the data survives without an owning process. Callbacks whose
+module is not loaded raise `error:undef` and are skipped silently; any other
+crash is logged and the broken callback's contribution is dropped for that
+tick.
 """.
 
 -include_lib("emqx/include/logger.hrl").
@@ -26,8 +28,7 @@ broken callback's contribution is dropped for that tick.
     sum_callbacks/0
 ]).
 
--define(APP, emqx_license).
--define(ENV_KEY, session_count_callbacks).
+-define(PT_KEY, {?MODULE, callbacks}).
 
 -type name() :: atom().
 -type callback() :: fun(() -> non_neg_integer()).
@@ -35,14 +36,18 @@ broken callback's contribution is dropped for that tick.
 -doc "Register `Fun` under `Name`. Overwrites any previous binding for `Name`.".
 -spec register_callback(name(), callback()) -> ok.
 register_callback(Name, Fun) when is_atom(Name), is_function(Fun, 0) ->
-    Map = get_callbacks(),
-    application:set_env(?APP, ?ENV_KEY, Map#{Name => Fun}).
+    persistent_term:put(?PT_KEY, (get_callbacks())#{Name => Fun}).
 
 -doc "Remove the callback registered under `Name`. No-op if absent.".
 -spec unregister_callback(name()) -> ok.
 unregister_callback(Name) when is_atom(Name) ->
-    Map = get_callbacks(),
-    application:set_env(?APP, ?ENV_KEY, maps:remove(Name, Map)).
+    case maps:remove(Name, get_callbacks()) of
+        Empty when map_size(Empty) =:= 0 ->
+            _ = persistent_term:erase(?PT_KEY),
+            ok;
+        Remaining ->
+            persistent_term:put(?PT_KEY, Remaining)
+    end.
 
 -doc "Sum the integers returned by every registered callback. See module doc for failure handling.".
 -spec sum_callbacks() -> non_neg_integer().
@@ -54,7 +59,7 @@ sum_callbacks() ->
 %%--------------------------------------------------------------------
 
 get_callbacks() ->
-    application:get_env(?APP, ?ENV_KEY, #{}).
+    persistent_term:get(?PT_KEY, #{}).
 
 safe_add(Name, Fun, Acc) ->
     try Fun() of

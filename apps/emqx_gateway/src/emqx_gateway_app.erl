@@ -18,20 +18,33 @@ start(_StartType, _StartArgs) ->
     load_default_gateway_applications(),
     load_gateway_by_default(),
     emqx_gateway_conf:load(),
-    ok = emqx_license_session_count:register_callback(
-        ?MODULE, fun emqx_gateway_cm_registry:get_connected_client_count/0
-    ),
+    ok = register_session_count_callback(),
     {ok, Sup}.
 
 stop(_State) ->
-    try
-        emqx_license_session_count:unregister_callback(?MODULE)
-    catch
-        _:_ -> ok
-    end,
+    ok = unregister_session_count_callback(),
     emqx_gateway_conf:unload(),
     emqx_gateway_cli:unload(),
     ok.
+
+%% emqx_license is a soft dependency: register only if the registry module is
+%% on the code path. This keeps standalone gateway tests (which do not bundle
+%% emqx_license config) from failing to boot.
+register_session_count_callback() ->
+    try
+        emqx_license_session_count:register_callback(
+            ?MODULE, fun emqx_gateway_cm_registry:get_connected_client_count/0
+        )
+    catch
+        error:undef -> ok
+    end.
+
+unregister_session_count_callback() ->
+    try
+        emqx_license_session_count:unregister_callback(?MODULE)
+    catch
+        error:undef -> ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
