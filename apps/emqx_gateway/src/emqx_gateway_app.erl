@@ -24,7 +24,11 @@ start(_StartType, _StartArgs) ->
     {ok, Sup}.
 
 stop(_State) ->
-    _ = (catch emqx_license_session_count:unregister_callback(?MODULE)),
+    try
+        emqx_license_session_count:unregister_callback(?MODULE)
+    catch
+        _:_ -> ok
+    end,
     emqx_gateway_conf:unload(),
     emqx_gateway_cli:unload(),
     ok.
