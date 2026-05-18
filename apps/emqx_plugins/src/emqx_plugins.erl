@@ -25,8 +25,11 @@
 %% Package operations
 -export([
     allow_installation/1,
+    allow_installation/2,
     forget_allowed_installation/1,
     is_allowed_installation/1,
+    is_allowed_installation/2,
+    allow_ttl_ms/0,
 
     ensure_installed/0,
     ensure_installed/1,
@@ -102,6 +105,11 @@
 
 -define(allowed_installations, allowed_installations).
 
+%% Default TTL for an `allow_installation' grant.
+%% After this many milliseconds the entry is treated as expired and is purged
+%% lazily on the next allow/check/forget call.
+-define(ALLOW_TTL_MS, timer:minutes(5)).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -128,6 +136,8 @@ plugin_i18n(NameVsn) ->
     {integer(), map() | term()} | {integer(), map(), term()}.
 handle_api_call(Plugin0, Request, Timeout) ->
     Plugin = bin(Plugin0),
+    Method = maps:get(method, Request, undefined),
+    Path = maps:get(path, Request, []),
     case resolve_active_name_vsn(Plugin) of
         {ok, NameVsn} ->
             try
@@ -137,12 +147,32 @@ handle_api_call(Plugin0, Request, Timeout) ->
                 ),
                 map_plugin_api_result(Result)
             catch
-                exit:{timeout, _} ->
-                    {503, #{code => <<"PLUGIN_API_TIMEOUT">>, message => <<"Plugin API Timeout">>}};
+                %% `emqx_utils:nolink_apply/2' exits with the bare atom `timeout'
+                %% when the budget is exceeded.
+                exit:timeout ->
+                    ?SLOG(warning, #{
+                        msg => "plugin_api_callback_timeout",
+                        hint =>
+                            <<
+                                "Increase 'plugins.api_endpoint.timeout' "
+                                "if this plugin callback legitimately needs more time."
+                            >>,
+                        plugin => Plugin,
+                        method => Method,
+                        path => Path,
+                        timeout_ms => Timeout
+                    }),
+                    {503, #{
+                        code => <<"PLUGIN_API_TIMEOUT">>,
+                        message => <<"Plugin API Timeout">>
+                    }};
                 Class:Reason:Stacktrace ->
                     ?SLOG(error, #{
                         msg => "plugin_api_callback_crash",
                         plugin => Plugin,
+                        method => Method,
+                        path => Path,
+                        timeout_ms => Timeout,
                         class => Class,
                         reason => Reason,
                         stacktrace => Stacktrace
@@ -159,28 +189,94 @@ handle_api_call(Plugin0, Request, Timeout) ->
 %% We could use `application:set_env', but the typespec for it makes dialyzer sad when it
 %% seems a non-atom key...
 -spec allow_installation(binary() | string()) -> ok.
-allow_installation(NameVsn0) ->
+allow_installation(NameVsn) ->
+    allow_installation(NameVsn, undefined).
+
+%% @doc Allow installation of `NameVsn'. The entry expires after `allow_ttl_ms/0'
+%% milliseconds. When `Sha256' is a 64-char lowercase hex binary, the upload
+%% bytes must hash to the same value to be accepted; when `undefined', any
+%% bytes named `NameVsn.tar.gz' are accepted (legacy behavior).
+-spec allow_installation(binary() | string(), binary() | undefined) -> ok.
+allow_installation(NameVsn0, Sha256) when Sha256 =:= undefined; is_binary(Sha256) ->
     NameVsn = bin(NameVsn0),
+    Entry = #{
+        expires_at => erlang:monotonic_time(millisecond) + allow_ttl_ms(),
+        sha256 => Sha256
+    },
     Allowed0 = application:get_env(?APP, ?allowed_installations, #{}),
-    Allowed = Allowed0#{NameVsn => true},
+    Allowed = (prune_expired(Allowed0))#{NameVsn => Entry},
     application:set_env(?APP, ?allowed_installations, Allowed),
     ok.
 
 %% Note: this is only used for the HTTP API.
+%% Returns true iff a non-expired allow entry exists for `NameVsn'.
+%% Does NOT check sha256 binding — use `is_allowed_installation/2' to verify
+%% the upload bytes against the stored hash.
 -spec is_allowed_installation(binary() | string()) -> boolean().
 is_allowed_installation(NameVsn0) ->
     NameVsn = bin(NameVsn0),
-    Allowed = application:get_env(?APP, ?allowed_installations, #{}),
-    maps:get(NameVsn, Allowed, false).
+    Allowed = prune_and_store(application:get_env(?APP, ?allowed_installations, #{})),
+    maps:is_key(NameVsn, Allowed).
+
+%% @doc Check that `NameVsn' is allowed and that `Bin' matches the bound
+%% sha256 (if any). Returns:
+%%   ok                          - allowed and (hash matches or no hash bound)
+%%   {error, not_allowed}        - no non-expired entry exists
+%%   {error, sha256_mismatch}    - entry has a sha256 that doesn't match `Bin'
+-spec is_allowed_installation(binary() | string(), binary()) ->
+    ok | {error, not_allowed | sha256_mismatch}.
+is_allowed_installation(NameVsn0, Bin) when is_binary(Bin) ->
+    NameVsn = bin(NameVsn0),
+    Allowed = prune_and_store(application:get_env(?APP, ?allowed_installations, #{})),
+    case maps:find(NameVsn, Allowed) of
+        error ->
+            {error, not_allowed};
+        {ok, #{sha256 := undefined}} ->
+            ok;
+        {ok, #{sha256 := Expected}} when is_binary(Expected) ->
+            Got = binary:encode_hex(crypto:hash(sha256, Bin), lowercase),
+            case Got =:= Expected of
+                true -> ok;
+                false -> {error, sha256_mismatch}
+            end
+    end.
 
 %% Note: this is only used for the HTTP API.
 -spec forget_allowed_installation(binary() | string()) -> ok.
 forget_allowed_installation(NameVsn0) ->
     NameVsn = bin(NameVsn0),
     Allowed0 = application:get_env(?APP, ?allowed_installations, #{}),
-    Allowed = maps:remove(NameVsn, Allowed0),
+    Allowed = maps:remove(NameVsn, prune_expired(Allowed0)),
     application:set_env(?APP, ?allowed_installations, Allowed),
     ok.
+
+%% @doc TTL applied to new `allow_installation' entries. The default of 5
+%% minutes can be overridden via `application:set_env(emqx_plugins,
+%% allow_ttl_ms, Ms)' — primarily for tests.
+-spec allow_ttl_ms() -> pos_integer().
+allow_ttl_ms() ->
+    application:get_env(?APP, allow_ttl_ms, ?ALLOW_TTL_MS).
+
+prune_and_store(Allowed0) ->
+    case prune_expired(Allowed0) of
+        Allowed0 ->
+            Allowed0;
+        Pruned ->
+            application:set_env(?APP, ?allowed_installations, Pruned),
+            Pruned
+    end.
+
+prune_expired(Allowed) ->
+    Now = erlang:monotonic_time(millisecond),
+    maps:filter(
+        fun
+            (_K, #{expires_at := ExpiresAt}) -> ExpiresAt > Now;
+            %% Defensive: drop legacy/unknown entries (e.g. left over after a
+            %% hot beam upgrade from a version that stored `true').
+            (_K, _V) -> false
+        end,
+        Allowed
+    ).
 
 %%--------------------------------------------------------------------
 %% Package operations

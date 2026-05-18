@@ -34,6 +34,7 @@ services:
       - ./certs/server.crt:/etc/certs/cert.pem
       - ./certs/server.key:/etc/certs/key.pem
       - ./certs/ca.crt:/etc/certs/cacert.pem
+      - ./redis/sentinel-tls/users.acl:/usr/local/etc/redis/users.acl
     depends_on:
       - redis-sentinel-tls-master
       - redis-sentinel-tls-slave
@@ -42,6 +43,3 @@ services:
                redis-sentinel /usr/local/etc/redis/sentinel.conf"
     networks:
       - emqx_bridge
-
-
-

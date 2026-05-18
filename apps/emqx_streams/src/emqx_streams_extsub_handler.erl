@@ -405,7 +405,9 @@ handle_ds_info(
                 #status_blocked{} ->
                     Shard = get_shard_by_dsstream(StreamState0, DSStream),
                     LastTimestampUs0 = get_shard_start_time_us(StreamState0, Shard),
-                    {LastTimestampUs, Messages} = to_messages(Shard, LastTimestampUs0, TTVs),
+                    {LastTimestampUs, Messages} = to_messages(
+                        StreamState0, Shard, LastTimestampUs0, TTVs
+                    ),
                     StreamState1 = advance_shard_last_time(StreamState0, Shard, LastTimestampUs),
                     StreamState = block_stream(
                         StreamState1,
@@ -419,7 +421,9 @@ handle_ds_info(
                     ok = suback(Handler, DSSubId, SubHandle, SeqNo),
                     Shard = get_shard_by_dsstream(StreamState0, DSStream),
                     LastTimestampUs0 = get_shard_start_time_us(StreamState0, Shard),
-                    {LastTimestampUs, Messages} = to_messages(Shard, LastTimestampUs0, TTVs),
+                    {LastTimestampUs, Messages} = to_messages(
+                        StreamState0, Shard, LastTimestampUs0, TTVs
+                    ),
                     StreamState1 = advance_shard_last_time(StreamState0, Shard, LastTimestampUs),
                     StreamState = StreamState1#stream_state{status = #stream_status_unblocked{}},
                     {ok, update_stream_state(Handler, DSSubId, StreamState), Messages}
@@ -628,12 +632,14 @@ find_stream(Name, TopicFilter) ->
 
 %% Other helpers
 
-to_messages(Shard, LastTimestampUs, TTVs) ->
+to_messages(StreamState, Shard, LastTimestampUs, TTVs) ->
     {NewLastTimestampUs, Messages} = lists:foldl(
         fun({Topic, Time, Payload}, {LastTimestampUsAcc, MessagesAcc}) ->
             case Time >= LastTimestampUsAcc of
-                true -> {Time, [decode_message(Shard, Topic, Time, Payload) | MessagesAcc]};
-                false -> {LastTimestampUsAcc, MessagesAcc}
+                true ->
+                    {Time, [decode_message(StreamState, Shard, Topic, Time, Payload) | MessagesAcc]};
+                false ->
+                    {LastTimestampUsAcc, MessagesAcc}
             end
         end,
         {LastTimestampUs, []},
@@ -669,12 +675,15 @@ update_stream_state(#h{state = State} = Handler, DSSubId, StreamState) ->
 update_stream_state(#state{ds_subs = DSSubs} = State, DSSubId, StreamState) ->
     State#state{ds_subs = DSSubs#{DSSubId => StreamState}}.
 
-decode_message(_Shard, ?STREAMS_MESSAGE_DB_TOPIC(_TF, _StreamId, Key), Time, Payload) ->
+decode_message(StreamState, _Shard, ?STREAMS_MESSAGE_DB_TOPIC(_TF, _StreamId, Key), Time, Payload) ->
     Message = emqx_streams_message_db:decode_message(Payload),
-    add_properties(Message, #{
-        <<"ts">> => integer_to_binary(Time),
-        <<"key">> => Key
-    }).
+    enrich_message(
+        StreamState,
+        add_properties(Message, #{
+            <<"ts">> => integer_to_binary(Time),
+            <<"key">> => Key
+        })
+    ).
 
 add_properties(Message, AddProperties) when is_map(AddProperties) ->
     Props = emqx_message:get_header(properties, Message, #{}),
@@ -701,6 +710,12 @@ inc_received_message_stat(#ds_sub_reply{payload = {ok, _It, _TTVs}, size = Size}
     emqx_streams_metrics:inc(ds, received_messages, Size);
 inc_received_message_stat(#ds_sub_reply{}) ->
     ok.
+
+enrich_message(
+    #stream_state{subscribe_params = #subscribe_params{full_topic_filter = FullTopicFilter}},
+    Message
+) ->
+    emqx_message:set_header(?HEADER_SUB_TOPIC, FullTopicFilter, Message).
 
 %% Management of stream appearing/disappearing.
 

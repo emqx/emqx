@@ -110,6 +110,15 @@ fields("link") ->
                     desc => ?DESC("max_inflight")
                 }
             )},
+        {tcp_opts,
+            ?HOCON(
+                ?R_REF(emqx_schema, "client_tcp_opts"),
+                #{
+                    required => false,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC("tcp_opts")
+                }
+            )},
         {resource_opts,
             ?HOCON(
                 ?R_REF(?MODULE, "creation_opts"),

@@ -21,6 +21,7 @@ introduced_in() ->
 invite_node(Node, Self) ->
     rpc:call(Node, emqx_mgmt_api_cluster, join, [Self], 5000).
 
--spec connected_replicants([node()]) -> emqx_rpc:multicall_result().
+-spec connected_replicants([node()]) -> [emqx_rpc:erpc([Agent])] when
+    Agent :: {mria_rlog:shard(), node(), pid()}.
 connected_replicants(Nodes) ->
-    rpc:multicall(Nodes, emqx_mgmt_api_cluster, connected_replicants, [], 30_000).
+    erpc:multicall(Nodes, emqx_mgmt_api_cluster, connected_replicants, [], 30_000).

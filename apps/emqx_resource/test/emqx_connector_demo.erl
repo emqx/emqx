@@ -165,6 +165,8 @@ on_stop(_InstId, #{pid := Pid}) ->
 
 on_query(_InstId, get_state, State) ->
     {ok, State};
+on_query(_InstId, get_query_process, _State) ->
+    {ok, self()};
 on_query(_InstId, get_state_failed, State) ->
     {error, State};
 on_query(_InstId, block, #{pid := Pid}) ->
