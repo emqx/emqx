@@ -1879,6 +1879,7 @@ t_parquet_3level_lists(TCConfig) when is_list(TCConfig) ->
             #{?snk_kind := connector_aggreg_delivery_completed, transfer := T} when
                 T /= empty
         ),
+
     ?retry(200, 10, begin
         Rows0 = scan_table(Ns, Table),
         Rows = lists:sort(fun(#{<<"col_str">> := A}, #{<<"col_str">> := B}) -> A =< B end, Rows0),
