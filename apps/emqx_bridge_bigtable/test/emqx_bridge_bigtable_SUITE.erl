@@ -288,6 +288,12 @@ reset_proxy() ->
 with_failure(FailureType, Fn) ->
     emqx_common_test_helpers:with_failure(FailureType, ?PROXY_NAME, ?PROXY_HOST, ?PROXY_PORT, Fn).
 
+enable_failure(FailureType) ->
+    emqx_common_test_helpers:enable_failure(FailureType, ?PROXY_NAME, ?PROXY_HOST, ?PROXY_PORT).
+
+heal_failure(FailureType) ->
+    emqx_common_test_helpers:heal_failure(FailureType, ?PROXY_NAME, ?PROXY_HOST, ?PROXY_PORT).
+
 query_mode(TCConfig) ->
     emqx_common_test_helpers:get_matrix_prop(TCConfig, [?sync, ?async], ?sync).
 
@@ -713,6 +719,62 @@ t_single_message_render_failure(TCConfig) when is_list(TCConfig) ->
     ok.
 
 -doc """
+Verifies the case where there's a single message in the batch, which the server rejects.
+""".
+t_single_message_returned_failure() ->
+    [{matrix, true}].
+t_single_message_returned_failure(matrix) ->
+    [
+        [Sync, Batch]
+     || Sync <- [?sync, ?async],
+        Batch <- [?not_batching, ?batching]
+    ];
+t_single_message_returned_failure(TCConfig) when is_list(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+    SQL = <<
+        "select "
+        " clientid as rk"
+        %% will be rejected because this family name is inexistent
+        ", 'inexistent_fn' as fn"
+        ", '' as cq"
+        ", payload as v"
+        ", publish_received_at * 1000 as tm"
+        " from \"${t}\" "
+    >>,
+    #{topic := Topic} = simple_create_rule_api(SQL, TCConfig),
+    C = start_client(#{proto_ver => v5}),
+    Payload = <<"hello">>,
+    ?check_trace(
+        begin
+            {_, {ok, _}} =
+                ?wait_async_action(
+                    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+                    #{?snk_kind := "bigtable_result"},
+                    5_000
+                ),
+            Name = get_config(action_name, TCConfig),
+            Rows = read_rows(Name),
+            ?assertMatch([], Rows),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{
+                        results := [
+                            {error, {unrecoverable_error, {internal, _}}}
+                        ]
+                    }
+                ],
+                ?of_kind(["bigtable_result"], Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+-doc """
 Asserts that we reject empty mutation arrays in the schema validation phase.
 """.
 t_non_empty_mutation_array(TCConfig) ->
@@ -725,4 +787,270 @@ t_non_empty_mutation_array(TCConfig) ->
             }
         })
     ),
+    ok.
+
+-doc """
+For code coverage.  Exercises the path where `grpc_client:recv` returns an error.
+""".
+t_recv_error() ->
+    [{matrix, true}].
+t_recv_error(matrix) ->
+    [
+        [Sync, Batch]
+     || Sync <- [?sync, ?async],
+        Batch <- [?not_batching, ?batching]
+    ];
+t_recv_error(TCConfig) when is_list(TCConfig) ->
+    ?check_trace(
+        maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {201, _} = create_action_api(TCConfig, #{}),
+
+            #{topic := Topic} = simple_create_rule_api(TCConfig),
+            C = start_client(),
+            Payload = <<"payload">>,
+
+            ?force_ordering(
+                #{?snk_kind := "bigtable_will_recv0"},
+                #{?snk_kind := "will cut connection"}
+            ),
+            ?force_ordering(
+                #{?snk_kind := "will cut connection"},
+                #{?snk_kind := "bigtable_will_recv1"}
+            ),
+            ?force_ordering(
+                #{?snk_kind := "bigtable_recv_error"},
+                #{?snk_kind := "will restore connection"}
+            ),
+
+            spawn_link(fun() ->
+                ?tp("will cut connection", #{}),
+                enable_failure(down),
+                ?tp("will restore connection", #{}),
+                heal_failure(down),
+                ok
+            end),
+
+            {_, {ok, _}} =
+                ?wait_async_action(
+                    emqtt:publish(C, Topic, Payload),
+                    #{?snk_kind := "bigtable_recv_error"},
+                    5_000
+                ),
+            emqtt:stop(C),
+
+            %% this particular error is recoverable; request should eventually succeed.
+            ?retry(
+                500,
+                10,
+                ?assertMatch(
+                    {200, #{
+                        <<"metrics">> := #{
+                            <<"matched">> := 1,
+                            <<"success">> := 1,
+                            <<"failed">> := 0
+                        }
+                    }},
+                    get_action_metrics_api(TCConfig)
+                )
+            ),
+
+            ok
+        end),
+        fun(Trace) ->
+            ?assertMatch(
+                [#{kind := error, reason := closed} | _], ?of_kind(["bigtable_recv_error"], Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+-doc """
+For code coverage.  Exercises the path where `grpc_client:recv` returns an exception.
+""".
+t_recv_exception() ->
+    [{matrix, true}].
+t_recv_exception(matrix) ->
+    [
+        [Sync, Batch]
+     || Sync <- [?sync, ?async],
+        Batch <- [?not_batching, ?batching]
+    ];
+t_recv_exception(TCConfig) when is_list(TCConfig) ->
+    ?check_trace(
+        maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {201, _} = create_action_api(TCConfig, #{}),
+
+            #{topic := Topic} = simple_create_rule_api(TCConfig),
+            C = start_client(),
+            Payload = <<"payload">>,
+
+            ?force_ordering(
+                #{?snk_kind := "bigtable_will_recv0"},
+                #{?snk_kind := "will break"}
+            ),
+            ?force_ordering(
+                #{?snk_kind := "will break"},
+                #{?snk_kind := "bigtable_will_recv1"}
+            ),
+            ?force_ordering(
+                #{?snk_kind := "bigtable_recv_error"},
+                #{?snk_kind := "will restore"}
+            ),
+
+            on_exit(fun meck:unload/0),
+            meck:new(grpc_client, [passthrough]),
+            spawn_link(fun() ->
+                ?tp("will break", #{}),
+                meck:expect(grpc_client, recv, fun(_Stream, _Opts) ->
+                    error(boom)
+                end),
+                ?tp("will restore", #{}),
+                meck:unload(grpc_client),
+                ok
+            end),
+
+            {_, {ok, _}} =
+                ?wait_async_action(
+                    emqtt:publish(C, Topic, Payload),
+                    #{?snk_kind := "bigtable_recv_error"},
+                    5_000
+                ),
+            emqtt:stop(C),
+
+            %% this particular error is not recoverable.
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    {200, #{
+                        <<"metrics">> := #{
+                            <<"matched">> := 1,
+                            <<"success">> := 0,
+                            <<"failed">> := 1
+                        }
+                    }},
+                    get_action_metrics_api(TCConfig)
+                )
+            ),
+
+            ok
+        end),
+        fun(Trace) ->
+            ?assertMatch(
+                [#{kind := exception, reason := boom} | _], ?of_kind(["bigtable_recv_error"], Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+-doc """
+This exercises the code path where the request to the async receiver worker is expired.
+""".
+t_expired_request(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"resource_opts">> => #{
+            <<"request_ttl">> => <<"700ms">>,
+            <<"metrics_flush_interval">> => <<"700ms">>
+        }
+    }),
+    Name = get_config(action_name, TCConfig),
+    RequestTTL = emqx_config:get([
+        actions, ?ACTION_TYPE, binary_to_atom(Name), resource_opts, request_ttl
+    ]),
+    %% sanity check
+    ?assert(RequestTTL /= infinity, #{ttl => RequestTTL}),
+
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    Payload = <<"payload">>,
+
+    snabbkaffe_nemesis:inject_crash(
+        ?match_event(#{?snk_kind := "bigtable_will_peek"}),
+        fun(_) ->
+            ct:sleep(RequestTTL + 100),
+            false
+        end
+    ),
+
+    emqtt:publish(C, Topic, Payload),
+    emqtt:stop(C),
+
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> := #{
+                    <<"matched">> := 1,
+                    <<"success">> := 0,
+                    <<"failed">> := 0,
+                    <<"late_reply">> := 1
+                }
+            }},
+            get_action_metrics_api(TCConfig)
+        )
+    ),
+
+    ok.
+
+-doc """
+Exercises the code path where multiple clients send requests to the same async receiver
+worker.
+
+Also exercises using request_ttl = infinity.
+""".
+t_concurrent_async_recvs(TCConfig) ->
+    %% pool size controls how many workers are spawned
+    {201, _} = create_connector_api(TCConfig, #{<<"pool_size">> => 1}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"resource_opts">> => #{<<"request_ttl">> => <<"infinity">>}
+    }),
+
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    Payload = <<"payload">>,
+
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqx_utils:pforeach(
+                fun(_) ->
+                    C = start_client(#{proto_ver => v5}),
+                    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+                    emqtt:stop(C),
+                    ok
+                end,
+                lists:seq(1, 10)
+            ),
+            #{?snk_kind := "bigtable_already_nudged"},
+            5_000
+        ),
+
+    ok.
+
+-doc """
+Cover unknown calls/casts/infos sent to the async receiver workers.
+""".
+t_async_receiver_worker_unknown_events(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{<<"pool_size">> => 1}),
+    {201, _} = create_action_api(TCConfig, #{}),
+
+    [Pid] = [
+        Pid
+     || Pid <- processes(),
+        case proc_lib:get_label(Pid) of
+            {bigtable_async_recv_worker, _, _} ->
+                true;
+            _ ->
+                false
+        end
+    ],
+
+    ok = gen_server:cast(Pid, what),
+    _ = Pid ! what,
+    _ = gen_server:call(Pid, what),
+
     ok.

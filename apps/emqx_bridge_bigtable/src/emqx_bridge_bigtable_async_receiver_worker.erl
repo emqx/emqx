@@ -28,6 +28,8 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
+-include_lib("snabbkaffe/include/trace.hrl").
+
 -define(id, id).
 -define(pool, pool).
 -define(queue, queue).
@@ -64,6 +66,7 @@ init(Opts) ->
     process_flag(trap_exit, true),
     process_flag(message_queue_data, off_heap),
     #{pool := Pool, id := Id} = Opts,
+    proc_lib:set_label({bigtable_async_recv_worker, Pool, Id}),
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     State = #{
         ?id => Id,
@@ -101,6 +104,8 @@ handle_info(_Info, State) ->
 %%------------------------------------------------------------------------------
 
 do_recv_stream_once(Stream, Opts) ->
+    ?tp("bigtable_will_recv0", #{}),
+    ?tp("bigtable_will_recv1", #{}),
     try grpc_client:recv(Stream, Opts) of
         {ok, Resp} ->
             case is_end_of_stream(Resp) of
@@ -110,10 +115,12 @@ do_recv_stream_once(Stream, Opts) ->
                     {more, Resp}
             end;
         {error, Reason} ->
+            ?tp("bigtable_recv_error", #{kind => error, reason => Reason}),
             Ctx = #{kind => error, reason => Reason},
             {error, Ctx}
     catch
         error:Reason ->
+            ?tp("bigtable_recv_error", #{kind => exception, reason => Reason}),
             Ctx = #{kind => exception, reason => Reason},
             {error, Ctx}
     end.
@@ -155,6 +162,7 @@ enqueue(State0, RecvReq) ->
     State0#{?queue := Queue}.
 
 ensure_nudged(#{?nudge_enqueued := true} = State0) ->
+    ?tp("bigtable_already_nudged", #{}),
     State0;
 ensure_nudged(#{} = State0) ->
     case peek(State0) of
@@ -166,6 +174,7 @@ ensure_nudged(#{} = State0) ->
     end.
 
 pull(State0) ->
+    ?tp("bigtable_will_peek", #{}),
     case peek(State0) of
         empty ->
             State0;
