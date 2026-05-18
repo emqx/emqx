@@ -38,7 +38,7 @@
 %% paths still produce a startup warning. The collector treats this
 %% value as: do not insert into the runtime cache (preserves fail-open
 %% semantics) and do not emit path_missing_from_scopes_map.
--define(SCOPE_PUBLIC, public).
+-define(SCOPE_PUBLIC, <<"$public">>).
 
 %% ── Login-user-only scopes (since 5.10.4) ─────────────────────────────
 %%
