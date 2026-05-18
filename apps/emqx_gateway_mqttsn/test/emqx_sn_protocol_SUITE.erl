@@ -228,6 +228,42 @@ t_duplicate_connect(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
+t_disconnect_during_will_handshake(_) ->
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    send_connect_msg_with_will(Socket, 16#D1CA, <<"C7kauljMB4IdlKbGdf">>),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+
+    send_disconnect_msg(Socket, 16#45DA),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    gen_udp:close(Socket).
+
+t_register_during_will_handshake(_) ->
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    send_connect_msg_with_will(Socket, 16#5143, <<"$0P$griMwmaT">>),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+
+    send_register_msg(Socket, <<"MwjOO">>, 16#5A63),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    gen_udp:close(Socket).
+
+t_publish_during_will_handshake(_) ->
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    send_connect_msg_with_will(Socket, 16#5143, <<"publish-before-will">>),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+
+    send_publish_msg_normal_topic(Socket, ?QOS_0, 16#5A64, 1, <<"payload">>),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    gen_udp:close(Socket).
+
+t_willmsg_before_willtopic(_) ->
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    send_connect_msg_with_will(Socket, 16#5143, <<"willmsg-before-topic">>),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+
+    send_willmsg_msg(Socket, <<"payload">>),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    gen_udp:close(Socket).
+
 t_update_not_restart_listener(_) ->
     {ok, Socket} = gen_udp:open(0, [binary]),
     ClientId = ?CLIENTID,
