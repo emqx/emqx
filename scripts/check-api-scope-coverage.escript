@@ -25,10 +25,14 @@ main([LibDir]) ->
     Globs = filelib:wildcard(LibDir ++ "/*/ebin"),
     case Globs of
         [] ->
-            io:format(standard_error,
-                      "ERROR: no ebin dirs under ~s~n", [LibDir]),
+            io:format(
+                standard_error,
+                "ERROR: no ebin dirs under ~s~n",
+                [LibDir]
+            ),
             halt(1);
-        _ -> ok
+        _ ->
+            ok
     end,
     code:add_pathsa(Globs),
     load_all_beams(Globs),
@@ -36,30 +40,42 @@ main([LibDir]) ->
     Missing = lists:flatmap(fun check_module/1, lists:sort(Modules)),
     case Missing of
         [] ->
-            io:format("OK: ~p minirest_api module(s); every path in "
-                      "paths/0 covered by scopes/0~n", [length(Modules)]),
+            io:format(
+                "OK: ~p minirest_api module(s); every path in "
+                "paths/0 covered by scopes/0~n",
+                [length(Modules)]
+            ),
             halt(0);
         _ ->
-            io:format(standard_error,
-                      "ERROR: ~p path(s) missing from scopes/0 map "
-                      "(would warn at boot):~n", [length(Missing)]),
+            io:format(
+                standard_error,
+                "ERROR: ~p path(s) missing from scopes/0 map "
+                "(would warn at boot):~n",
+                [length(Missing)]
+            ),
             lists:foreach(
                 fun({Mod, Path}) ->
                     io:format(standard_error, "  ~s -> ~s~n", [Mod, Path])
                 end,
                 Missing
             ),
-            io:format(standard_error,
-                      "~nAdd the path to the module's scopes/0 map. Use "
-                      "?SCOPE_PUBLIC (apps/emqx_utils/include/"
-                      "emqx_api_key_scopes.hrl) for paths that are "
-                      "intentionally unscoped (pre-login entry points, "
-                      "static catalog endpoints).~n", []),
+            io:format(
+                standard_error,
+                "~nAdd the path to the module's scopes/0 map. Use "
+                "?SCOPE_PUBLIC (apps/emqx_utils/include/"
+                "emqx_api_key_scopes.hrl) for paths that are "
+                "intentionally unscoped (pre-login entry points, "
+                "static catalog endpoints).~n",
+                []
+            ),
             halt(1)
     end;
 main(_) ->
-    io:format(standard_error,
-              "Usage: check-api-scope-coverage.escript <lib_dir>~n", []),
+    io:format(
+        standard_error,
+        "Usage: check-api-scope-coverage.escript <lib_dir>~n",
+        []
+    ),
     halt(1).
 
 load_all_beams(EbinDirs) ->
@@ -96,19 +112,29 @@ is_api_module(Module) ->
 check_module(Mod) ->
     case {safe_paths(Mod), safe_scopes(Mod)} of
         {Paths, Map} when is_list(Paths), is_map(Map) ->
-            [{Mod, path_to_bin(P)}
+            [
+                {Mod, path_to_bin(P)}
              || P <- Paths,
                 not maps:is_key(path_to_bin(P), Map),
-                not maps:is_key(P, Map)];
+                not maps:is_key(P, Map)
+            ];
         _ ->
             []
     end.
 
 safe_paths(Mod) ->
-    try Mod:paths() catch _:_ -> undefined end.
+    try
+        Mod:paths()
+    catch
+        _:_ -> undefined
+    end.
 
 safe_scopes(Mod) ->
-    try Mod:scopes() catch _:_ -> undefined end.
+    try
+        Mod:scopes()
+    catch
+        _:_ -> undefined
+    end.
 
 path_to_bin(P) when is_binary(P) -> ensure_slash(P);
 path_to_bin(P) when is_list(P) ->
