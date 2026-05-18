@@ -1210,6 +1210,15 @@ fields("client_tcp_opts") ->
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(fields_client_tcp_opts_keepalive)
                 }
+            )},
+        {delay_send,
+            sc(
+                boolean(),
+                #{
+                    required => false,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(fields_client_tcp_opts_delay_send)
+                }
             )}
     ];
 fields("listener_ssl_opts") ->
@@ -3280,6 +3289,7 @@ client_tcp_opts_to_proplist(Map) when is_map(Map) ->
             (recbuf, V, Acc) when is_integer(V) -> [{recbuf, V} | Acc];
             (buffer, V, Acc) when is_integer(V) -> [{buffer, V} | Acc];
             (keepalive, V, Acc) when is_boolean(V) -> [{keepalive, V} | Acc];
+            (delay_send, V, Acc) when is_boolean(V) -> [{delay_send, V} | Acc];
             (_, _, Acc) -> Acc
         end,
         [],
