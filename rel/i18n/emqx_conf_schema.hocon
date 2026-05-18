@@ -549,18 +549,48 @@ cluster_autoclean.label:
 
 max_ports.desc: """~
   Translated to the `+Q` flag of the Erlang VM.
-  Specifies the maximum number of simultaneously open ports (files, sockets, etc.) allowed by this Erlang system.  
+  Specifies the maximum number of simultaneously open ports (files, sockets, etc.) allowed by this Erlang system.
+
+  When set to `auto` (the default), EMQX scales the limit with the number of
+  logical CPUs available, using 65536 ports per core up to 8 cores. Hosts with
+  more than 8 cores fall back to a fixed limit of 1048576 ports.
 
   Note: The actual limit chosen by the runtime may be larger than the number configured here.
   In most cases, the VM rounds the value up to the next power of two for internal efficiency.
 
-  EMQX automatically sets the Erlang process limit (`+P` flag) to twice this value, so users only need to configure `max_ports`.
+  EMQX automatically sets the Erlang process limit (`+P` flag) to 2x this value, so users only need to configure `max_ports`. The 2x ratio accommodates TLS/QUIC connections, which each use two Erlang processes.
   The corresponding `+P` flag controls the maximum number of Erlang processes.
 
   The effective values can be observed from the dashboard node monitoring tab.~"""
 
 max_ports.label:
 """Erlang Port and Process Limit"""
+
+process_limit.desc: """~
+  Override for the Erlang `+P` (maximum number of processes) flag.
+  By default, EMQX derives this from `max_ports` (2x), which is appropriate
+  for the great majority of workloads. This setting is honored only when it is
+  strictly greater than the derived value; a smaller value is ignored so that
+  the process table never under-sizes the port table.~"""
+
+process_limit.label:
+"""Erlang Process Limit"""
+
+schedulers.desc: """~
+  Translated to the `+S` flag of the Erlang VM, sets both the total and
+  online scheduler count.
+
+  When set to `auto` (the default), EMQX uses the number of logical
+  processors actually available to the VM (`sched_getaffinity` on Linux),
+  so a container limited via `--cpuset-cpus` or k8s CPU requests does not
+  spawn scheduler OS threads it cannot run in parallel.
+
+  Set this to a positive integer to override the auto-detected value.
+  Useful when you want to reserve CPU headroom for non-EMQX work on the
+  same host, or to cap schedulers below the available CPU count.~"""
+
+schedulers.label:
+"""Erlang Schedulers"""
 
 desc_log_rotation.desc:
 """By default, the logs are stored in `./log` directory (for installation from zip file) or in `/var/log/emqx` (for binary installation).<br/>
