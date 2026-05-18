@@ -452,6 +452,14 @@ lookup_var_precomputed_fallback(Loc, [{Prop1, Prop2} | Rest], Bindings) when is_
         _ ->
             {error, undefined}
     end;
+lookup_var_precomputed_fallback(Loc, [Prop | Rest], Bindings) when is_map(Bindings) ->
+    %% no fallback
+    case Bindings of
+        #{Prop := Value} ->
+            lookup_var_precomputed_fallback(Loc + 1, Rest, Value);
+        _ ->
+            {error, undefined}
+    end;
 lookup_var_precomputed_fallback(Loc, _, Invalid) ->
     {error, {Loc, type_name(Invalid)}}.
 

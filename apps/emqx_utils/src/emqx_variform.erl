@@ -362,7 +362,19 @@ split(VarName) ->
 
 pre_split_vars({var, VarName}) ->
     Segments0 = split(VarName),
-    Segments = lists:map(fun(S) -> {S, binary_to_atom(S, utf8)} end, Segments0),
+    Segments = lists:map(
+        fun(S) ->
+            case emqx_utils:safe_to_existing_atom(S, utf8) of
+                {ok, A} ->
+                    {S, A};
+                {error, _} ->
+                    %% fall back to previous non-optimized behavior:
+                    %% treat non-existent atom as missing key
+                    S
+            end
+        end,
+        Segments0
+    ),
     {var, {Segments, iolist_to_binary(VarName)}};
 pre_split_vars({call, Fn, Args}) ->
     {call, Fn, lists:map(fun pre_split_vars/1, Args)};

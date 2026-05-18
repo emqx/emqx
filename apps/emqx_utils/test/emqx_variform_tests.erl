@@ -199,6 +199,25 @@ coalesce_test_() ->
         end}
     ].
 
+var_resolution_test_() ->
+    [
+        {"single var, binary key", ?_assertEqual({ok, 1}, render_no_cast("a", #{<<"a">> => 1}))},
+        {"single var, atom key", ?_assertEqual({ok, 1}, render_no_cast("a", #{a => 1}))},
+        {"nested var, mixed keys 1",
+            ?_assertEqual({ok, 2}, render_no_cast("a.b", #{<<"a">> => #{<<"b">> => 2}}))},
+        {"nested var, mixed keys 2",
+            ?_assertEqual({ok, 2}, render_no_cast("a.b", #{<<"a">> => #{b => 2}}))},
+        {"nested var, mixed keys 3",
+            ?_assertEqual({ok, 2}, render_no_cast("a.b", #{a => #{b => 2}}))},
+        {"nested var, mixed keys 4",
+            ?_assertEqual({ok, 2}, render_no_cast("a.b", #{a => #{<<"b">> => 2}}))},
+        {"key without fallback (non-existent atom)",
+            ?_assertEqual(
+                {ok, 2},
+                render_no_cast("a.xxxxxxxxxxxxxxxxx", #{a => #{<<"xxxxxxxxxxxxxxxxx">> => 2}})
+            )}
+    ].
+
 literal_test_() ->
     [
         ?_assertEqual({ok, <<"true">>}, render("true", #{})),
@@ -316,6 +335,9 @@ topic_functions_test_() ->
 
 render(Expression, Bindings) ->
     emqx_variform:render(Expression, Bindings).
+
+render_no_cast(Expression, Bindings) ->
+    emqx_variform:render(Expression, Bindings, #{eval_as_string => false}).
 
 hash_pick_test() ->
     lists:foreach(
