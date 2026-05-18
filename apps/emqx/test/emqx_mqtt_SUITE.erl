@@ -208,6 +208,11 @@ t_puback_not_lost_on_disconnect(_) ->
     receive
         {publish, #{topic := <<"t/1">>, payload := <<"1">>, packet_id := PacketId}} ->
             emqtt:puback(C0, PacketId),
+            %% Sync barrier: PINGREQ is read and processed by the broker in
+            %% order after PUBACK, so receiving PINGRESP proves the PUBACK
+            %% has been drained from the kernel buffer and applied to the
+            %% session before we tear down the socket.
+            pong = emqtt:ping(C0),
             emqtt:disconnect(C0)
     after 1000 ->
         ct:fail("Message not received")
