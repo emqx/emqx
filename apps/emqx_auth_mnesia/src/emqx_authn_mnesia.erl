@@ -362,7 +362,11 @@ record_count(Namespace) when is_binary(Namespace) ->
 
 -spec record_count_per_namespace() -> #{emqx_config:namespace() => non_neg_integer()}.
 record_count_per_namespace() ->
-    maps:from_list(ets:tab2list(?AUTHN_NS_COUNT_TAB)).
+    try
+        maps:from_list(ets:tab2list(?AUTHN_NS_COUNT_TAB))
+    catch
+        error:badarg -> #{}
+    end.
 
 %%--------------------------------------------------------------------
 %% QueryString to MatchSpec
