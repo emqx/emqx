@@ -254,6 +254,16 @@ case "${COMMAND}" in
         ;;
 esac
 
+# Will be set to hardened since v7
+export EMQX_SECURITY_PROFILE="${EMQX_SECURITY_PROFILE:-legacy}"
+
+if [[ "$IS_BOOT_COMMAND" = 'yes' ]]; then
+    if ! [[ "${EMQX_SECURITY_PROFILE,,}" =~ ^(legacy|hardened)?$ ]]; then
+        logerr "Invalid security profile: $EMQX_SECURITY_PROFILE. Valid values are: legacy, hardened, or empty (defaulting to legacy)."
+        exit 1
+    fi
+fi
+
 RELUP_DIR="relup"
 BASE_RUNNER_ROOT_DIR="${BASE_RUNNER_ROOT_DIR:-$RUNNER_ROOT_DIR}"
 RELUP_PATH="$RUNNER_ROOT_DIR/$RELUP_DIR"
@@ -1026,11 +1036,17 @@ fi
 [ -z "$COOKIE" ] && COOKIE="$COOKIE_IN_USE"
 [ -z "$COOKIE" ] && COOKIE="$EMQX_DEFAULT_ERLANG_COOKIE"
 
+# Frequently used sample cookie value for testing, not recommended for production use
+EMQX_SAMPLE_ERLANG_COOKIE="emqxsecretcookie"
+
 maybe_warn_default_cookie() {
-    if [ $IS_BOOT_COMMAND = 'yes' ] && [ "$COOKIE" = "$EMQX_DEFAULT_ERLANG_COOKIE" ]; then
+    if [[ "$IS_BOOT_COMMAND" = 'yes' && ("$COOKIE" = "$EMQX_DEFAULT_ERLANG_COOKIE" || "$COOKIE" = "$EMQX_SAMPLE_ERLANG_COOKIE") ]]; then
         logwarn "Default (insecure) Erlang cookie is in use."
         logwarn "Configure node.cookie in $EMQX_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE__COOKIE"
         logwarn "NOTE: Use the same cookie for all nodes in the cluster."
+        if [ "$EMQX_SECURITY_PROFILE" != "legacy" ]; then
+            die "Cannot continue with default cookie and EMQX_SECURITY_PROFILE set to '$EMQX_SECURITY_PROFILE'."
+        fi
     fi
 }
 

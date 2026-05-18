@@ -205,7 +205,7 @@ listeners(Listeners) ->
             ({_Protocol, #{bind := 0}}) ->
                 false;
             ({Protocol, Conf = #{}}) ->
-                {Conf1, Bind} = ip_port(Conf),
+                {Conf1, Bind} = ip_port(Protocol, Conf),
                 {true, {
                     listener_name(Protocol),
                     Protocol,
@@ -220,11 +220,29 @@ listeners(Listeners) ->
 list_listeners() ->
     listeners(listeners()).
 
-ip_port(Opts) -> ip_port(maps:take(bind, Opts), Opts).
+%% http
+ip_port(http = _Protocol, #{bind := Port} = Opts) when is_integer(Port) ->
+    case emqx_security_profile:policy(dashboard_http_default_bind) of
+        any ->
+            {maps:without([bind], Opts#{port => Port}), Port};
+        loopback ->
+            IP = loopback_ip(Opts),
+            {maps:without([bind], Opts#{port => Port, ip => IP}), {IP, Port}}
+    end;
+ip_port(http = _Protocol, #{bind := {IP, Port} = Bind} = Opts) ->
+    {maps:without([bind], Opts#{port => Port, ip => IP}), Bind};
+ip_port(http = Protocol, Opts) ->
+    ip_port(Protocol, Opts#{bind => 18083});
+%% https
+ip_port(https = _Protocol, #{bind := Port} = Opts) when is_integer(Port) ->
+    {maps:without([bind], Opts#{port => Port}), Port};
+ip_port(https = _Protocol, #{bind := {IP, Port} = Bind} = Opts) ->
+    {maps:without([bind], Opts#{port => Port, ip => IP}), Bind};
+ip_port(https = Protocol, Opts) ->
+    ip_port(Protocol, Opts#{bind => 18084}).
 
-ip_port(error, Opts) -> {Opts#{port => 18083}, 18083};
-ip_port({Port, Opts}, _) when is_integer(Port) -> {Opts#{port => Port}, Port};
-ip_port({{IP, Port}, Opts}, _) -> {Opts#{port => Port, ip => IP}, {IP, Port}}.
+loopback_ip(#{inet6 := true}) -> {0, 0, 0, 0, 0, 0, 0, 1};
+loopback_ip(_Opts) -> {127, 0, 0, 1}.
 
 ranch_opts(Options) ->
     Keys = [

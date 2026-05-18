@@ -169,20 +169,32 @@ authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthRe
         {ok, ChainName, Authenticators} ->
             case get_enabled(Authenticators) of
                 [] ->
-                    %% Empty chain means allowed anonymous access.
-                    %% Further authentication hooks may still forbid the access.
+                    %% Empty chain means allowed anonymous access for legacy security profile,
+                    %% and forbidden access for hardened security profile.
+                    %%
+                    %% Further authentication hooks may override this result
                     %% We return
                     %% {
                     %%   ok, %% to tell the hooks that we want to set a new AuthResult acc
-                    %%   ok %% the actual new AuthResult acc
+                    %%   ok | {error, not_authorized} %% the actual new AuthResult acc
                     %% }
-                    ?TRACE_RESULT("authentication_result", {ok, ok}, empty_chain);
+                    Result =
+                        case emqx_security_profile:policy(authn_not_configured) of
+                            allow -> ok;
+                            deny -> {error, not_authorized}
+                        end,
+                    ?TRACE_RESULT("authentication_result", {ok, Result}, empty_chain);
                 NAuthenticators ->
                     Result = do_authenticate(ChainName, NAuthenticators, Credential),
                     ?TRACE_RESULT("authentication_result", Result, chain_result)
             end;
         none ->
-            ?TRACE_RESULT("authentication_result", {ok, ok}, no_chain);
+            Result =
+                case emqx_security_profile:policy(authn_not_configured) of
+                    allow -> ok;
+                    deny -> {error, not_authorized}
+                end,
+            ?TRACE_RESULT("authentication_result", {ok, Result}, no_chain);
         no_table ->
             %% This basically means that authn app crashed or stopped or being restarted.
             ?TRACE_RESULT("authentication_result", {ok, {error, not_authorized}}, no_chain_table)
