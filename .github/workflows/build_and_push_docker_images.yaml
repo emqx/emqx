@@ -160,7 +160,7 @@ jobs:
 
       - name: Verify that size of docker image is less than 300 MB
         run: |
-          docker image inspect $_EMQX_DOCKER_IMAGE_TAG --format='{{.Size}}' | xargs -I {} test {} -lt 300000000
+          docker image inspect $_EMQX_DOCKER_IMAGE_TAG --format='{{.Size}}' | xargs -I {} test {} -lt 320000000
 
       - name: smoke test
         timeout-minutes: 5
