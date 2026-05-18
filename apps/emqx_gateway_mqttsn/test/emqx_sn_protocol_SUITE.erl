@@ -1497,6 +1497,20 @@ t_will_test5(_) ->
 
     gen_udp:close(Socket).
 
+t_willmsgupd_without_will_topic(_) ->
+    {ok, Socket} = gen_udp:open(0, [binary]),
+
+    ClientId = <<"willmsgupd-without-will-topic">>,
+    send_connect_msg(Socket, ClientId),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    send_willmsgupd_msg(Socket, <<"payload">>),
+    ?assertEqual(<<3, ?SN_WILLMSGRESP, ?SN_RC_NOT_SUPPORTED>>, receive_response(Socket)),
+
+    send_disconnect_msg(Socket, undefined),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    gen_udp:close(Socket).
+
 t_will_case06(_) ->
     QoS = 1,
     Duration = 1,

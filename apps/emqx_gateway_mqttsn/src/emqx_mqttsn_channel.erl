@@ -1027,6 +1027,12 @@ handle_in(
     AckPkt = ?SN_WILLTOPICRESP_MSG(?SN_RC_ACCEPTED),
     {ok, {outgoing, AckPkt}, Channel#channel{will_msg = NWillMsg}};
 handle_in(
+    ?SN_WILLMSGUPD_MSG(_Payload),
+    Channel = #channel{will_msg = undefined}
+) ->
+    AckPkt = ?SN_WILLMSGRESP_MSG(?SN_RC_NOT_SUPPORTED),
+    {ok, {outgoing, AckPkt}, Channel};
+handle_in(
     ?SN_WILLMSGUPD_MSG(Payload),
     Channel = #channel{will_msg = WillMsg}
 ) ->
