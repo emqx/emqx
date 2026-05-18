@@ -173,6 +173,11 @@ jobs:
           echo "export PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a env.sh
           zip -ryq -x@.github/workflows/.zipignore $PROFILE.zip .
           make ${PROFILE}-rel
+      - name: Check API scope coverage
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          ./scripts/check-api-scope-coverage.escript _build/${PROFILE}/lib
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.profile }}
