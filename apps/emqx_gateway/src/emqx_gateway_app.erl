@@ -18,9 +18,13 @@ start(_StartType, _StartArgs) ->
     load_default_gateway_applications(),
     load_gateway_by_default(),
     emqx_gateway_conf:load(),
+    ok = emqx_license_session_count:register_callback(
+        ?MODULE, fun emqx_gateway_cm_registry:get_connected_client_count/0
+    ),
     {ok, Sup}.
 
 stop(_State) ->
+    ok = emqx_license_session_count:unregister_callback(?MODULE),
     emqx_gateway_conf:unload(),
     emqx_gateway_cli:unload(),
     ok.

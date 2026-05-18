@@ -29,8 +29,7 @@ defmodule EMQXLicense.MixProject do
       {:emqx_mix_utils, in_umbrella: true, runtime: false},
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
-      {:emqx_ctl, in_umbrella: true},
-      {:emqx_gateway, in_umbrella: true}
+      {:emqx_ctl, in_umbrella: true}
     ])
   end
 
