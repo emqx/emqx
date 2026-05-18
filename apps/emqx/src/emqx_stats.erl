@@ -121,6 +121,12 @@
     'retained.max'
 ]).
 
+%% Route stats
+-define(ROUTE_STATS, [
+    'routes.count',
+    'routes.max'
+]).
+
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 
@@ -183,7 +189,9 @@ names() ->
         emqx_retained_count,
         emqx_retained_max,
         emqx_delayed_count,
-        emqx_delayed_max
+        emqx_delayed_max,
+        emqx_routes_count,
+        emqx_routes_max
     ].
 
 %% @doc Get stats by name.
@@ -208,10 +216,12 @@ setstat(Stat, Val) when is_integer(Val) ->
 setstat(Stat, MaxStat, Val) when is_integer(Val) ->
     cast({setstat, Stat, MaxStat, Val}).
 
+%% @doc `emqx_stats' server will call the function every second.
 -spec update_interval(atom(), fun()) -> ok.
 update_interval(Name, UpFun) ->
     update_interval(Name, 1, UpFun).
 
+%% @doc `emqx_stats' server will periodically call the function.
 -spec update_interval(atom(), pos_integer(), fun()) -> ok.
 update_interval(Name, Secs, UpFun) when is_integer(Secs), Secs >= 1 ->
     cast({update_interval, rec(Name, Secs, UpFun)}).
@@ -246,7 +256,8 @@ init(#{tick_ms := TickMs}) ->
         ?CHANNEL_STATS,
         ?SESSION_STATS,
         ?PUBSUB_STATS,
-        ?RETAINED_STATS
+        ?RETAINED_STATS,
+        ?ROUTE_STATS
     ]),
     true = ets:insert(?TAB, [{Name, 0} || Name <- Stats]),
     {ok, start_timer(#state{updates = [], tick_ms = TickMs}), hibernate}.

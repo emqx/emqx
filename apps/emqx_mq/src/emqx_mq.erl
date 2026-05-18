@@ -354,7 +354,7 @@ delivers(SubscriberRef, Messages) ->
             Headers =
                 case SubTopic of
                     undefined -> Headers0;
-                    _ -> Headers0#{?MQ_HEADER_SUB_TOPIC => SubTopic}
+                    _ -> Headers0#{?HEADER_SUB_TOPIC => SubTopic}
                 end,
             Message1 = emqx_message:set_headers(Headers, Message0),
             %% Override QoS to 1 to require ack from the client

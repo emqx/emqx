@@ -99,7 +99,8 @@
     validate_tcp_keepalive/1,
     parse_tcp_keepalive/1,
     tcp_keepalive_opts/1,
-    tcp_keepalive_opts/4
+    tcp_keepalive_opts/4,
+    client_tcp_opts_to_proplist/1
 ]).
 
 -export([qos/0]).
@@ -1160,6 +1161,57 @@ fields("tcp_opts") ->
                 }
             )}
     ];
+fields("client_tcp_opts") ->
+    [
+        {nodelay,
+            sc(
+                boolean(),
+                #{
+                    required => false,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(fields_client_tcp_opts_nodelay)
+                }
+            )},
+        {sndbuf,
+            sc(
+                bytesize(),
+                #{
+                    required => false,
+                    importance => ?IMPORTANCE_LOW,
+                    example => <<"4KB">>,
+                    desc => ?DESC(fields_client_tcp_opts_sndbuf)
+                }
+            )},
+        {recbuf,
+            sc(
+                bytesize(),
+                #{
+                    required => false,
+                    importance => ?IMPORTANCE_LOW,
+                    example => <<"4KB">>,
+                    desc => ?DESC(fields_client_tcp_opts_recbuf)
+                }
+            )},
+        {buffer,
+            sc(
+                bytesize(),
+                #{
+                    required => false,
+                    importance => ?IMPORTANCE_LOW,
+                    example => <<"4KB">>,
+                    desc => ?DESC(fields_client_tcp_opts_buffer)
+                }
+            )},
+        {keepalive,
+            sc(
+                boolean(),
+                #{
+                    required => false,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(fields_client_tcp_opts_keepalive)
+                }
+            )}
+    ];
 fields("listener_ssl_opts") ->
     server_ssl_opts_schema(
         #{
@@ -1363,6 +1415,11 @@ fields("broker") ->
                 ref("broker_routing"),
                 #{importance => ?IMPORTANCE_HIDDEN}
             )},
+        {heal,
+            sc(
+                ref("broker_heal"),
+                #{importance => ?IMPORTANCE_HIDDEN}
+            )},
         %% FIXME: Need new design for shared subscription group
         {shared_subscription_group,
             sc(
@@ -1378,12 +1435,11 @@ fields("broker_routing") ->
     [
         {"storage_schema",
             sc(
-                hoconsc:enum([v1, v2]),
+                hoconsc:enum([v2, v3]),
                 #{
-                    default => v2,
-                    'readOnly' => true,
+                    default => v3,
+                    'readOnly' => false,
                     desc => ?DESC(broker_routing_storage_schema),
-                    deprecated => {since, "5.9.0"},
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
@@ -1392,6 +1448,20 @@ fields("broker_routing") ->
                 ref("broker_routing_batch_sync"),
                 #{importance => ?IMPORTANCE_HIDDEN}
             )}
+    ];
+fields("broker_heal") ->
+    [
+        %% Heal at a rate ≈100 channels/s by default:
+        {interval,
+            sc(pos_integer(), #{
+                default => 1000,
+                importance => ?IMPORTANCE_HIDDEN
+            })},
+        {batch_size,
+            sc(pos_integer(), #{
+                default => 100,
+                importance => ?IMPORTANCE_HIDDEN
+            })}
     ];
 fields("broker_routing_batch_sync") ->
     [
@@ -2283,6 +2353,8 @@ desc("ws_opts") ->
     "WebSocket listener options.";
 desc("tcp_opts") ->
     "TCP listener options.";
+desc("client_tcp_opts") ->
+    ?DESC("client_tcp_opts");
 desc("listener_ssl_opts") ->
     "Socket options for SSL connections.";
 desc("listener_wss_opts") ->
@@ -3209,6 +3281,26 @@ tcp_keepalive_opts({unix, darwin}, Idle, Interval, Probes) ->
     ]};
 tcp_keepalive_opts(OS, _Idle, _Interval, _Probes) ->
     {error, {unsupported_os, OS}}.
+
+%% @doc Convert a `client_tcp_opts' HOCON map (with possibly missing keys) into
+%% a proplist suitable as `gen_tcp:connect/3' options. Only set keys are
+%% forwarded so unset fields keep their `gen_tcp' defaults.
+-spec client_tcp_opts_to_proplist(map() | undefined) -> [gen_tcp:connect_option()].
+client_tcp_opts_to_proplist(undefined) ->
+    [];
+client_tcp_opts_to_proplist(Map) when is_map(Map) ->
+    maps:fold(
+        fun
+            (nodelay, V, Acc) when is_boolean(V) -> [{nodelay, V} | Acc];
+            (sndbuf, V, Acc) when is_integer(V) -> [{sndbuf, V} | Acc];
+            (recbuf, V, Acc) when is_integer(V) -> [{recbuf, V} | Acc];
+            (buffer, V, Acc) when is_integer(V) -> [{buffer, V} | Acc];
+            (keepalive, V, Acc) when is_boolean(V) -> [{keepalive, V} | Acc];
+            (_, _, Acc) -> Acc
+        end,
+        [],
+        Map
+    ).
 
 validate_tcp_keepalive(Value) ->
     case unicode:characters_to_binary(Value) of

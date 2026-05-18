@@ -75,6 +75,12 @@ redact_wrapped_secret_test() ->
         })
     ).
 
+redact_sentinel_password_test() ->
+    ?assertEqual(
+        #{sentinel_password => <<"******">>},
+        redact(#{sentinel_password => <<"sentinel-password">>})
+    ).
+
 deobfuscate_file_path_secrets_test_() ->
     Original1 = #{foo => #{bar => #{headers => #{"authorization" => "file://a"}}}},
     Original2 = #{foo => #{bar => #{headers => #{"authorization" => "a"}}}},

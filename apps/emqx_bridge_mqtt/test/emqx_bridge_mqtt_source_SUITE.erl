@@ -342,15 +342,11 @@ start_client(TCConfig, Opts) when is_list(TCConfig) ->
             start_client(node(), Opts)
     end;
 start_client(Node, Opts) when is_atom(Node) ->
-    Port = get_tcp_mqtt_port(Node),
+    Port = emqx_cth_cluster:get_tcp_mqtt_port(Node),
     {ok, C} = emqtt:start_link(Opts#{port => Port, proto_ver => v5}),
     on_exit(fun() -> catch emqtt:stop(C) end),
     {ok, _} = emqtt:connect(C),
     C.
-
-get_tcp_mqtt_port(Node) ->
-    {_Host, Port} = ?ON(Node, emqx_config:get([listeners, tcp, default, bind])),
-    Port.
 
 setup_auth_header(TCConfig) ->
     case get_config(nodes, TCConfig, undefined) of
@@ -570,7 +566,7 @@ t_mqtt_conn_bridge_ingress_retries_without_subid_on_a1(TCConfig) ->
     ?assert(lists:all(fun(Result) -> Result =:= {ok, ok} end, MeckResults)),
 
     [N1 | _] = Nodes,
-    Port = get_tcp_mqtt_port(N1),
+    Port = emqx_cth_cluster:get_tcp_mqtt_port(N1),
     {201, _} = create_connector_api(TCConfig, #{
         <<"proto_ver">> => <<"v5">>,
         <<"server">> => <<"127.0.0.1:", (integer_to_binary(Port))/binary>>
@@ -614,7 +610,7 @@ t_static_clientids(matrix) ->
 t_static_clientids(TCConfig) ->
     [N1, N2, N3] = Nodes = get_config(nodes, TCConfig),
     [N1Bin, N2Bin, N3Bin] = lists:map(fun atom_to_binary/1, Nodes),
-    Port = get_tcp_mqtt_port(N1),
+    Port = emqx_cth_cluster:get_tcp_mqtt_port(N1),
     ct:pal("creating connector"),
     {201, _} = create_connector_api(TCConfig, #{
         <<"server">> => <<"127.0.0.1:", (integer_to_binary(Port))/binary>>,
@@ -687,6 +683,7 @@ t_static_clientids(TCConfig) ->
     C0 = start_client(N1),
     {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C0, RepublishTopic, ?QOS_1),
     Clients = lists:map(fun start_client/1, Nodes),
+    emqx_cth_cluster:sync_routes(Nodes, 10_000),
 
     ct:pal("publishing messages"),
     lists:foreach(
@@ -858,7 +855,7 @@ t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
     [Source] = emqx_cth_cluster:start(SourceNSpecs),
     on_exit(fun() -> emqx_cth_cluster:stop([Source]) end),
 
-    Port = get_tcp_mqtt_port(Source),
+    Port = emqx_cth_cluster:get_tcp_mqtt_port(Source),
     {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
         <<"server">> => <<"127.0.0.1:", (integer_to_binary(Port))/binary>>,
         <<"proto_ver">> => ProtoVer,

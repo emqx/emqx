@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ACME Plugin</title>
+    <style>
+      :root {
+        --color-bg: #f7f9fc;
+        --color-bg-content: #ffffff;
+        --color-bg-soft: #f2f5fb;
+        --color-text-primary: #243042;
+        --color-text-secondary: #617086;
+        --color-title-primary: #18202c;
+        --color-border-primary: #cfd8e6;
+        --color-border-normal: #e6ebf3;
+        --color-primary: #2563eb;
+        --color-primary-soft: rgba(37, 99, 235, 0.1);
+        --color-hover: #eef4ff;
+        --color-ok: #0f9d58;
+        --color-warn: #d97706;
+        --color-err: #dc2626;
+        --radius-small: 6px;
+        --radius-card: 10px;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at top right, rgba(37, 99, 235, 0.08), transparent 22rem),
+          linear-gradient(180deg, #fbfcfe, var(--color-bg));
+        color: var(--color-text-primary);
+        font: 14px/1.5 "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+
+      .app {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+
+      .hero h1 {
+        margin: 0;
+        font-size: 24px;
+        color: var(--color-title-primary);
+      }
+
+      .hero p {
+        margin: 4px 0 16px;
+        color: var(--color-text-secondary);
+      }
+
+      .card {
+        background: var(--color-bg-content);
+        border: 1px solid var(--color-border-normal);
+        border-radius: var(--radius-card);
+        padding: 18px 20px;
+        margin-bottom: 16px;
+      }
+
+      .card h2 {
+        margin: 0 0 12px;
+        font-size: 16px;
+        color: var(--color-title-primary);
+      }
+
+      .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      dl.kv {
+        display: grid;
+        grid-template-columns: 200px 1fr;
+        gap: 6px 16px;
+        margin: 0;
+      }
+
+      dl.kv dt {
+        color: var(--color-text-secondary);
+      }
+
+      dl.kv dd {
+        margin: 0;
+        word-break: break-all;
+      }
+
+      .btn {
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius-small);
+        background: var(--color-bg-content);
+        color: var(--color-text-primary);
+        height: 36px;
+        padding: 0 14px;
+        cursor: pointer;
+        font: inherit;
+      }
+
+      .btn:hover:not([disabled]) { background: var(--color-hover); }
+
+      .btn[disabled] {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .btn.primary {
+        background: var(--color-primary);
+        color: #fff;
+        border-color: var(--color-primary);
+      }
+
+      .btn.primary:hover:not([disabled]) { background: #1d4ed8; }
+
+      .btn.danger {
+        background: var(--color-bg-content);
+        color: var(--color-err);
+        border-color: var(--color-err);
+      }
+
+      .btn.danger:hover:not([disabled]) {
+        background: rgba(220, 38, 38, 0.08);
+      }
+
+      .pill {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        background: var(--color-bg-soft);
+        color: var(--color-text-secondary);
+      }
+
+      .pill.ok { background: rgba(15, 157, 88, 0.12); color: var(--color-ok); }
+      .pill.warn { background: rgba(217, 119, 6, 0.12); color: var(--color-warn); }
+      .pill.err { background: rgba(220, 38, 38, 0.12); color: var(--color-err); }
+
+      .status {
+        margin: 12px 0 0;
+        padding: 10px 12px;
+        border-radius: var(--radius-small);
+        background: var(--color-bg-soft);
+        color: var(--color-text-secondary);
+        white-space: pre-wrap;
+        font-size: 13px;
+      }
+
+      .status.ok { background: rgba(15, 157, 88, 0.10); color: var(--color-ok); }
+      .status.err { background: rgba(220, 38, 38, 0.10); color: var(--color-err); }
+
+      .hint {
+        margin: 6px 0 0;
+        font-size: 12px;
+        color: var(--color-text-secondary);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <div class="hero">
+        <h1>ACME Certificate Plugin</h1>
+        <p>
+          Issue and renew TLS certificates from Let's Encrypt (or any RFC 8555 ACME CA), and
+          flip the dashboard from HTTP to HTTPS once a cert is in place.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>Status</h2>
+        <dl class="kv">
+          <dt>Domains</dt>
+          <dd id="domains">—</dd>
+          <dt>Bundle</dt>
+          <dd id="bundle">—</dd>
+          <dt>Certificate</dt>
+          <dd id="cert">—</dd>
+          <dt>Chain file</dt>
+          <dd><code id="chainPath">—</code></dd>
+          <dt>Key file</dt>
+          <dd><code id="keyPath">—</code></dd>
+          <dt>In progress</dt>
+          <dd id="inProgress">—</dd>
+          <dt>Last check</dt>
+          <dd id="lastCheck">—</dd>
+          <dt>Last result</dt>
+          <dd id="lastResult">—</dd>
+        </dl>
+        <div class="row" style="margin-top:14px">
+          <button id="btnIssue" class="btn primary">Issue / Renew Now</button>
+          <button id="btnRefresh" class="btn">Refresh</button>
+        </div>
+        <div id="issueStatus" class="status" hidden></div>
+      </div>
+
+      <div class="card">
+        <h2>Dashboard Listeners</h2>
+        <dl class="kv">
+          <dt>Current login scheme</dt>
+          <dd><span id="schemePill" class="pill">—</span></dd>
+          <dt>Dashboard HTTP listener</dt>
+          <dd><span id="httpPill" class="pill">—</span></dd>
+          <dt>Dashboard HTTPS listener</dt>
+          <dd><span id="httpsPill" class="pill">—</span></dd>
+        </dl>
+        <div class="row" style="margin-top:14px">
+          <button id="btnDisableHttp" class="btn danger" disabled>Disable Dashboard HTTP Listener</button>
+        </div>
+        <p id="disableHint" class="hint">
+          Available only when this page is loaded over HTTPS and a dashboard HTTPS listener exists.
+        </p>
+        <div id="disableStatus" class="status" hidden></div>
+      </div>
+    </div>
+
+    <script>
+      "use strict";
+      const base = window.location.pathname.replace(/\/ui\/?$/, "");
+      const urls = {
+        status: base + "/status",
+        context: base + "/context",
+        issue: base + "/issue",
+        disableHttp: base + "/disable_dashboard_http",
+      };
+
+      const els = {
+        domains: document.getElementById("domains"),
+        bundle: document.getElementById("bundle"),
+        cert: document.getElementById("cert"),
+        chainPath: document.getElementById("chainPath"),
+        keyPath: document.getElementById("keyPath"),
+        inProgress: document.getElementById("inProgress"),
+        lastCheck: document.getElementById("lastCheck"),
+        lastResult: document.getElementById("lastResult"),
+        schemePill: document.getElementById("schemePill"),
+        httpPill: document.getElementById("httpPill"),
+        httpsPill: document.getElementById("httpsPill"),
+        btnIssue: document.getElementById("btnIssue"),
+        btnRefresh: document.getElementById("btnRefresh"),
+        btnDisableHttp: document.getElementById("btnDisableHttp"),
+        disableHint: document.getElementById("disableHint"),
+        issueStatus: document.getElementById("issueStatus"),
+        disableStatus: document.getElementById("disableStatus"),
+      };
+
+      function setBox(el, kind, message) {
+        if (!message) {
+          el.hidden = true;
+          el.className = "status";
+          el.textContent = "";
+          return;
+        }
+        el.hidden = false;
+        el.className = "status " + (kind || "");
+        el.textContent = message;
+      }
+
+      function setPill(el, kind, text) {
+        el.className = "pill " + (kind || "");
+        el.textContent = text;
+      }
+
+      async function getJSON(url) {
+        const res = await fetch(url, { cache: "no-store" });
+        let body = null;
+        try { body = await res.json(); } catch (_) {}
+        return { ok: res.ok, status: res.status, body };
+      }
+
+      async function postJSON(url) {
+        const res = await fetch(url, { method: "POST", cache: "no-store" });
+        let body = null;
+        try { body = await res.json(); } catch (_) {}
+        return { ok: res.ok, status: res.status, body };
+      }
+
+      // Updated on every refreshStatus() so the click handler can drive
+      // polling off it without an extra fetch.
+      let lastInProgress = false;
+
+      async function refreshStatus() {
+        const r = await getJSON(urls.status);
+        if (!r.ok) {
+          els.cert.textContent = "(status unavailable)";
+          return;
+        }
+        const s = r.body || {};
+        els.domains.textContent = (s.domains || []).join(", ") || "(none)";
+        els.bundle.textContent = s.cert_bundle_name || "—";
+        if (s.certificate && s.certificate.exists) {
+          const c = s.certificate;
+          els.cert.textContent = c.expiry ? "expires " + c.expiry : "issued (expiry unknown)";
+          els.chainPath.textContent = c.chain_path || "—";
+          els.keyPath.textContent = c.key_path || "—";
+        } else {
+          els.cert.textContent = "no certificate yet";
+          els.chainPath.textContent = "—";
+          els.keyPath.textContent = "—";
+        }
+        lastInProgress = s.in_progress;
+        if (s.in_progress && s.in_progress !== "false") {
+          const ip = s.in_progress;
+          els.inProgress.textContent =
+            (ip.action || "?") + " (started " + (ip.started_at || "?") + ")";
+          els.btnIssue.disabled = true;
+        } else {
+          els.inProgress.textContent = "—";
+          els.btnIssue.disabled = false;
+        }
+        els.lastCheck.textContent = s.last_check || "—";
+        els.lastResult.textContent = formatResult(s.last_result);
+      }
+
+      function formatResult(r) {
+        if (r === undefined || r === null) return "—";
+        if (r === "ok" || (typeof r === "object" && Object.keys(r).length === 0)) return "ok";
+        try { return JSON.stringify(r); } catch (_) { return String(r); }
+      }
+
+      async function refreshContext() {
+        const r = await getJSON(urls.context);
+        const ctx = (r.ok && r.body) || {};
+        // Scheme comes from the browser — the plugin API gateway sanitizes
+        // the request and does not expose the transport scheme to the
+        // backend, so window.location.protocol is the only reliable source.
+        const scheme = window.location.protocol === "https:" ? "https" : "http";
+        const httpsExists = !!ctx.dashboard_https_listener;
+        const httpExists = !!ctx.dashboard_http_listener;
+
+        if (scheme === "https") setPill(els.schemePill, "ok", "HTTPS");
+        else setPill(els.schemePill, "warn", "HTTP");
+
+        const httpPort = ctx.dashboard_http_port;
+        const httpsPort = ctx.dashboard_https_port;
+        setPill(
+          els.httpPill,
+          httpExists ? "warn" : "ok",
+          httpExists ? "running on :" + httpPort : "disabled"
+        );
+        setPill(
+          els.httpsPill,
+          httpsExists ? "ok" : "warn",
+          httpsExists ? "running on :" + httpsPort : "not configured"
+        );
+
+        const canDisable = scheme === "https" && httpsExists && httpExists;
+        els.btnDisableHttp.disabled = !canDisable;
+        if (scheme !== "https") {
+          els.disableHint.textContent =
+            "You're currently logged in over HTTP. Reload this page over HTTPS to disable the HTTP listener.";
+        } else if (!httpsExists) {
+          els.disableHint.textContent =
+            "No dashboard HTTPS listener is configured yet — issue a certificate first so the plugin enables it.";
+        } else if (!httpExists) {
+          els.disableHint.textContent = "The HTTP listener is already disabled.";
+        } else {
+          els.disableHint.textContent =
+            "Disabling the HTTP listener takes effect across the cluster. Bookmark the HTTPS URL before clicking.";
+        }
+      }
+
+      async function refresh() {
+        await Promise.all([refreshStatus(), refreshContext()]);
+      }
+
+      els.btnRefresh.addEventListener("click", refresh);
+
+      let pollTimer = null;
+
+      function stopPolling() {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      }
+
+      async function pollUntilDone() {
+        await refresh();
+        // refresh() updated lastInProgress; loop until it falls back to false.
+        if (lastInProgress && lastInProgress !== "false") {
+          // already polling
+          return;
+        }
+        stopPolling();
+        // Compose the user-visible result from last_result.
+        const r = lastInProgressLastResult();
+        if (r === "ok" || r === undefined) {
+          setBox(els.issueStatus, "ok", "Issuance succeeded.");
+        } else {
+          setBox(els.issueStatus, "err", "Issuance failed: " + r);
+        }
+      }
+
+      // Read last_result text after the most recent refresh, formatted.
+      function lastInProgressLastResult() {
+        return els.lastResult.textContent;
+      }
+
+      els.btnIssue.addEventListener("click", async () => {
+        stopPolling();
+        els.btnIssue.disabled = true;
+        setBox(els.issueStatus, "", "Issuance started — polling /status…");
+        const r = await postJSON(urls.issue);
+        if (r.status === 202) {
+          // Started; poll /status every 3s until in_progress flips to false.
+          pollTimer = setInterval(pollUntilDone, 3000);
+          // Also do an immediate poll so the spinner picks up state quickly.
+          pollUntilDone();
+        } else if (r.status === 409) {
+          // Another issuance/check is already running — start polling
+          // anyway so the UI tracks it through to completion.
+          setBox(els.issueStatus, "", "Already running — polling /status…");
+          pollTimer = setInterval(pollUntilDone, 3000);
+          pollUntilDone();
+        } else {
+          setBox(els.issueStatus, "err",
+            "Failed to start: " +
+              (r.body && (r.body.message || r.body.code) || ("HTTP " + r.status)));
+          els.btnIssue.disabled = false;
+        }
+      });
+
+      els.btnDisableHttp.addEventListener("click", async () => {
+        if (!confirm("Disable the dashboard HTTP listener cluster-wide? Make sure the HTTPS URL works first.")) return;
+        els.btnDisableHttp.disabled = true;
+        setBox(els.disableStatus, "", "Disabling HTTP listener…");
+        const r = await postJSON(urls.disableHttp);
+        if (r.ok) setBox(els.disableStatus, "ok", "HTTP listener disabled.");
+        else setBox(els.disableStatus, "err",
+          "Failed: " + (r.body && (r.body.message || r.body.code) || ("HTTP " + r.status)));
+        refresh();
+      });
+
+      // On load: refresh once, then if a worker is already running,
+      // pick up polling so the page reflects completion when it lands.
+      refresh().then(() => {
+        if (lastInProgress && lastInProgress !== "false") {
+          setBox(els.issueStatus, "", "A " + (lastInProgress.action || "?") + " is in progress — polling /status…");
+          pollTimer = setInterval(pollUntilDone, 3000);
+        }
+      });
+    </script>
+  </body>
+</html>
