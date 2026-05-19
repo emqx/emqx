@@ -107,7 +107,8 @@ tcp_opts_schema_test_() ->
                         <<"sndbuf">> => <<"16KB">>,
                         <<"recbuf">> => <<"8KB">>,
                         <<"buffer">> => <<"32KB">>,
-                        <<"keepalive">> => false
+                        <<"keepalive">> => false,
+                        <<"delay_send">> => true
                     }
                 })
             ]),
@@ -117,7 +118,8 @@ tcp_opts_schema_test_() ->
                     <<"sndbuf">> := 16384,
                     <<"recbuf">> := 8192,
                     <<"buffer">> := 32768,
-                    <<"keepalive">> := false
+                    <<"keepalive">> := false,
+                    <<"delay_send">> := true
                 },
                 TcpOpts
             ),
@@ -131,7 +133,8 @@ tcp_opts_schema_test_() ->
                         sndbuf => 16384,
                         recbuf => 8192,
                         buffer => 32768,
-                        keepalive => false
+                        keepalive => false,
+                        delay_send => true
                     }
                 },
                 #{tcp_opts := Proplist} = emqx_cluster_link_config:mk_emqtt_options(LinkConf),
@@ -139,7 +142,8 @@ tcp_opts_schema_test_() ->
                 ?assertEqual(16384, proplists:get_value(sndbuf, Proplist)),
                 ?assertEqual(8192, proplists:get_value(recbuf, Proplist)),
                 ?assertEqual(32768, proplists:get_value(buffer, Proplist)),
-                ?assertEqual(false, proplists:get_value(keepalive, Proplist))
+                ?assertEqual(false, proplists:get_value(keepalive, Proplist)),
+                ?assertEqual(true, proplists:get_value(delay_send, Proplist))
             end)
         end)}.
 

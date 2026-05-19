@@ -311,7 +311,8 @@ schema_test_() ->
                             <<"sndbuf">> => <<"16KB">>,
                             <<"recbuf">> => <<"8KB">>,
                             <<"buffer">> => <<"32KB">>,
-                            <<"keepalive">> => true
+                            <<"keepalive">> => true,
+                            <<"delay_send">> => true
                         }
                     })
                 ),
@@ -321,7 +322,8 @@ schema_test_() ->
                         <<"sndbuf">> := <<"16KB">>,
                         <<"recbuf">> := <<"8KB">>,
                         <<"buffer">> := <<"32KB">>,
-                        <<"keepalive">> := true
+                        <<"keepalive">> := true,
+                        <<"delay_send">> := true
                     },
                     TcpOpts
                 ),
@@ -330,13 +332,15 @@ schema_test_() ->
                     sndbuf => 16384,
                     recbuf => 8192,
                     buffer => 32768,
-                    keepalive => true
+                    keepalive => true,
+                    delay_send => true
                 }),
                 ?assertEqual(true, proplists:get_value(nodelay, Proplist)),
                 ?assertEqual(16384, proplists:get_value(sndbuf, Proplist)),
                 ?assertEqual(8192, proplists:get_value(recbuf, Proplist)),
                 ?assertEqual(32768, proplists:get_value(buffer, Proplist)),
-                ?assertEqual(true, proplists:get_value(keepalive, Proplist))
+                ?assertEqual(true, proplists:get_value(keepalive, Proplist)),
+                ?assertEqual(true, proplists:get_value(delay_send, Proplist))
             end)},
         {"tcp_opts : empty/unset keys are not forwarded",
             ?_test(begin
