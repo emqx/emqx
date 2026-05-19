@@ -1,11 +1,11 @@
 -module(emqx_relup_handler).
 
 -export([
-    get_package_info/1,
-    get_target_vsn/0,
-    check_and_unpack/4,
+    list_supported_paths/0,
+    check_and_unpack/3,
     perform_upgrade/4,
-    permanent_upgrade/4
+    permanent_upgrade/4,
+    validate_priv_catalog/0
 ]).
 
 -import(lists, [concat/1]).
@@ -14,43 +14,39 @@
 %%==============================================================================
 %% API
 %%==============================================================================
-get_target_vsn() ->
-    PrivDir = code:priv_dir(emqx_relup),
-    case filelib:wildcard(filename:join([PrivDir, "*.tar.gz"])) of
-        [] -> throw(make_error(no_relup_tar_file_found, #{dir => PrivDir}));
-        [TarFile] -> str(filename:basename(TarFile, ".tar.gz"));
-        TarFiles -> throw(make_error(multiple_relup_tar_files_found, #{files => TarFiles}))
-    end.
 
-get_package_info(TargetVsn) ->
-    try
-        {ok, UnpackDir} = unpack_release(TargetVsn),
-        RelupL = load_relup_files(TargetVsn, UnpackDir),
-        ChangeLogs = read_change_log_files(TargetVsn, UnpackDir),
-        {ok, #{
-            unpack_dir => UnpackDir,
-            full_relup => RelupL,
-            base_vsns => get_base_vsns(RelupL),
-            change_logs => ChangeLogs
-        }}
-    catch
-        throw:Reason ->
-            {error, Reason};
-        Err:Reason:ST ->
-            exception_to_error(Err, Reason, ST)
-    end.
+%% Enumerate the {From, Target} hops this plugin's priv catalog
+%% supports. Each `priv/relup/*.relup` file is a single hop. Files
+%% that fail to parse are skipped here (the boot-time validator logs
+%% them as warnings — see `validate_priv_catalog/0`).
+list_supported_paths() ->
+    [
+        #{
+            from_version => maps:get(from_version, R),
+            target_version => maps:get(target_version, R)
+        }
+     || R <- load_priv_catalog()
+    ].
 
-check_and_unpack(CurrVsn, TargetVsn, RootDir, Opts) ->
+check_and_unpack(CurrVsn, RootDir, #{tarball := TarFile} = Opts) ->
     try
+        {ok, UnpackDir} = unpack_release(TarFile),
+        TargetVsn = read_rel_vsn(UnpackDir),
+        ok = assert_no_duplicate_pending(RootDir, TargetVsn),
         ok = assert_not_same_vsn(CurrVsn, TargetVsn),
-        {ok, UnpackDir} = unpack_release(TargetVsn),
         ok = check_write_permission(RootDir),
         ok = check_otp_comaptibility(CurrVsn, RootDir, UnpackDir, TargetVsn),
         {ok, OldRel} = consult_rel_file(RootDir, CurrVsn),
         {ok, NewRel} = consult_rel_file(UnpackDir, TargetVsn),
         ok = deploy_files(TargetVsn, RootDir, UnpackDir, OldRel, NewRel, Opts),
-        Relup = get_relup_entry(CurrVsn, TargetVsn, get_deploy_dir(RootDir, TargetVsn, Opts)),
-        {ok, Opts#{unpack_dir => UnpackDir, old_rel => OldRel, new_rel => NewRel, relup => Relup}}
+        Relup = get_relup_entry(CurrVsn, TargetVsn),
+        {ok, Opts#{
+            target_vsn => TargetVsn,
+            unpack_dir => UnpackDir,
+            old_rel => OldRel,
+            new_rel => NewRel,
+            relup => Relup
+        }}
     catch
         throw:Reason ->
             {error, Reason};
@@ -62,7 +58,7 @@ perform_upgrade(CurrVsn, TargetVsn, RootDir, Opts) ->
     try
         UpgradeType = maps:get(upgrade_type, Opts, eval_upgrade),
         #{new_rel := NewRel, relup := Relup} = Opts,
-        Dir = get_deploy_dir(RootDir, TargetVsn, Opts),
+        Dir = get_deploy_dir(RootDir, TargetVsn),
         {emqx_relup_libs:make_libs_info(NewRel, Dir), UpgradeType}
     of
         {LibModInfo, eval_upgrade} ->
@@ -79,8 +75,47 @@ perform_upgrade(CurrVsn, TargetVsn, RootDir, Opts) ->
 %%==============================================================================
 %% Check Upgrade
 %%==============================================================================
-get_base_vsns(Relup) ->
-    lists:map(fun(#{from_version := Vsn}) -> bin(Vsn) end, Relup).
+%% A previous successful upgrade leaves `<RootDir>/relup/current` pointing at
+%% the deployed target. The `bin/emqx` wrapper consumes that marker on the
+%% next start and execs into `<RootDir>/relup/<TargetVsn>/bin/emqx`.
+%%
+%% Chaining another upgrade on top of a pending one is allowed: the operator
+%% may stack hops (e.g. A -> B then B -> C) without restarting between them.
+%% The .relup hop author is responsible for declaring `from_version` to match
+%% whatever base state the node is in (hot-loaded post-A vs freshly booted),
+%% and for writing `code_changes` that handle the chain.
+%%
+%% What we refuse is running the *same* target again: that would re-apply the
+%% same hop's `code_changes` against a VM that's already been migrated by it,
+%% which is almost certainly an operator mistake. The first hop's idempotency
+%% can't be assumed (it may have done `restart_application` etc.). Tell the
+%% operator to restart or remove the marker if they really want a redo.
+assert_no_duplicate_pending(RootDir, TargetVsn) ->
+    MarkerFile = filename:join([independent_deploy_root(RootDir), "current"]),
+    case file:read_file(MarkerFile) of
+        {ok, Bin} ->
+            PendingTarget = string:trim(Bin),
+            TargetBin = bin(TargetVsn),
+            case PendingTarget =:= TargetBin of
+                true ->
+                    throw(
+                        make_error(duplicate_pending_target, #{
+                            pending_target => PendingTarget,
+                            marker_file => bin(MarkerFile),
+                            hint =>
+                                <<
+                                    "this exact target is already deployed and "
+                                    "pending node restart; restart the node, or "
+                                    "remove the marker file to retry"
+                                >>
+                        })
+                    );
+                false ->
+                    ok
+            end;
+        {error, enoent} ->
+            ok
+    end.
 
 assert_not_same_vsn(TargetVsn, TargetVsn) ->
     throw(make_error(already_upgraded_to_target_vsn, #{vsn => TargetVsn}));
@@ -97,29 +132,20 @@ check_write_permission(RootDir) ->
     ).
 
 do_check_write_permission(RootDir, SubDir) ->
-    File = filename:join([RootDir, SubDir, "relup_test_perm"]),
+    Dir = filename:join([RootDir, SubDir]),
+    File = filename:join([Dir, "relup_test_perm"]),
     case filelib:ensure_dir(File) of
         ok ->
             case file:write_file(File, "t") of
                 {error, eacces} ->
-                    throw(
-                        make_error(
-                            no_write_permission,
-                            #{
-                                dir => SubDir,
-                                msg =>
-                                    "Please set emqx as the owner of the dir by running:"
-                                    " 'sudo chown -R emqx:emqx " ++ SubDir ++ "'"
-                            }
-                        )
-                    );
+                    throw(make_error(no_write_permission, #{dir => Dir}));
                 {error, Reason} ->
-                    throw(make_error(cannot_write_file, #{dir => SubDir, reason => Reason}));
+                    throw(make_error(cannot_write_file, #{dir => Dir, reason => Reason}));
                 ok ->
                     ok = file:delete(File)
             end;
         {error, Reason} ->
-            throw(make_error(cannot_create_dir, #{dir => SubDir, reason => Reason}))
+            throw(make_error(cannot_create_dir, #{dir => Dir, reason => Reason}))
     end.
 
 check_otp_comaptibility(CurrVsn, RootDir, UnpackDir, TargetVsn) ->
@@ -200,35 +226,49 @@ pkg_otp_compatible(UnpackDir) ->
 %%==============================================================================
 %% Deploy Libs and Release Files
 %%==============================================================================
-deploy_files(TargetVsn, RootDir, UnpackDir, OldRel, NewRel, #{deploy_inplace := true}) ->
-    ok = copy_libs(TargetVsn, RootDir, UnpackDir, OldRel, NewRel),
-    ok = copy_release(TargetVsn, RootDir, UnpackDir),
-    {OldRel, NewRel};
+%% Carry only the runtime tree forward: bin (the wrapper scripts the
+%% next start execs into), erts-* (new Erlang VM), lib (new app code),
+%% releases (new boot scripts + emqx_vars). Anything else in the
+%% tarball — data/, etc/, log/, plugins/ — would be misleading: after
+%% `bin/emqx` re-execs into the upgraded tree, those still resolve to
+%% the *original* install via emqx_vars's absolute paths.
 deploy_files(TargetVsn, RootDir, UnpackDir, _OldRel, _NewRel, _Opts) ->
-    DstDir = independent_deploy_root(RootDir),
-    logger:notice("add independent code dir: ~s", [DstDir]),
-    ok = emqx_relup_file_utils:ensure_dir_deleted(filename:basename([DstDir, TargetVsn])),
-    ok = emqx_relup_file_utils:cp_r([UnpackDir], DstDir),
-    DirName = filename:basename(UnpackDir),
-    file:rename(
-        filename:join([DstDir, DirName]),
-        filename:join([DstDir, TargetVsn])
-    ).
+    TargetDir = get_deploy_dir(RootDir, TargetVsn),
+    logger:notice("add independent code dir: ~s", [TargetDir]),
+    ok = emqx_relup_file_utils:ensure_dir_deleted(TargetDir),
+    Sources = runtime_subdirs(UnpackDir),
+    ok = emqx_relup_file_utils:cp_r(Sources, TargetDir).
 
-unpack_release(TargetVsn) ->
-    TarFile = filename:join([code:priv_dir(emqx_relup), concat([TargetVsn, ".tar.gz"])]),
+runtime_subdirs(UnpackDir) ->
+    Fixed = ["bin", "lib", "releases"],
+    Erts = [
+        filename:basename(D)
+     || D <- filelib:wildcard(filename:join([UnpackDir, "erts-*"]))
+    ],
+    [
+        filename:join([UnpackDir, Name])
+     || Name <- Fixed ++ Erts,
+        filelib:is_dir(filename:join([UnpackDir, Name]))
+    ].
+
+unpack_release(TarFile) ->
     case filelib:is_regular(TarFile) of
         false ->
-            throw(make_error(relup_tar_file_not_found, #{file => TarFile}));
+            throw(make_error(target_tarball_not_found, #{file => TarFile}));
         true ->
+            FullDigest = sha256_hex(TarFile),
+            ok = verify_sha256_sidecar(TarFile, FullDigest),
             TmpDir = emqx_relup_file_utils:tmp_dir(),
-            UnpackDir = filename:join([TmpDir, TargetVsn ++ "_hash_" ++ str(calc_hash(TarFile))]),
-            ok = maybe_extract_tar(TarFile, UnpackDir, TargetVsn),
+            HashPrefix = binary:part(FullDigest, 0, 16),
+            UnpackDir = filename:join([
+                TmpDir, "emqx_relup_" ++ binary_to_list(HashPrefix)
+            ]),
+            ok = maybe_extract_tar(TarFile, UnpackDir),
             {ok, UnpackDir}
     end.
 
-maybe_extract_tar(TarFile, UnpackDir, TargetVsn) ->
-    case already_extracted(UnpackDir, TargetVsn) of
+maybe_extract_tar(TarFile, UnpackDir) ->
+    case already_extracted(UnpackDir) of
         true ->
             ok;
         false ->
@@ -237,175 +277,135 @@ maybe_extract_tar(TarFile, UnpackDir, TargetVsn) ->
             ok = erl_tar:extract(TarFile, [{cwd, UnpackDir}, compressed])
     end.
 
-already_extracted(UnpackDir, TargetVsn) ->
-    case filelib:is_dir(UnpackDir) of
-        false ->
-            false;
-        true ->
-            case filelib:wildcard(filename:join([UnpackDir, "releases", TargetVsn, "*"])) of
-                [] -> false;
-                _ -> true
+%% The unpack dir is sha256-keyed, so its presence is sufficient
+%% evidence of a complete extraction — re-extracting would be wasteful.
+already_extracted(UnpackDir) ->
+    filelib:is_regular(filename:join([UnpackDir, "releases", "emqx_vars"])).
+
+%% Read `<UnpackDir>/releases/emqx_vars` and extract the target
+%% version from the `REL_VSN="..."` line written by the relx overlay.
+%% Authoritative: the tarball declares its own version, no operator
+%% sidecar or CLI argument required.
+read_rel_vsn(UnpackDir) ->
+    File = filename:join([UnpackDir, "releases", "emqx_vars"]),
+    case file:read_file(File) of
+        {error, Reason} ->
+            throw(make_error(cannot_read_emqx_vars, #{file => File, reason => Reason}));
+        {ok, Bin} ->
+            case
+                re:run(Bin, <<"^REL_VSN=\"([^\"]+)\"">>, [multiline, {capture, all_but_first, list}])
+            of
+                {match, [Vsn]} -> Vsn;
+                nomatch -> throw(make_error(rel_vsn_not_found, #{file => File}))
             end
     end.
 
-calc_hash(TarFile) ->
+%% Lowercase hex sha256 of `TarFile`'s contents.
+sha256_hex(TarFile) ->
     {ok, Bin} = file:read_file(TarFile),
-    <<HashPrefix:16/binary, _/binary>> = binary:encode_hex(crypto:hash(sha256, Bin)),
-    HashPrefix.
+    binary:encode_hex(crypto:hash(sha256, Bin), lowercase).
 
-copy_libs(_TargetVsn, RootDir, UnpackDir, OldRel, NewRel) ->
-    OldLibs = emqx_relup_libs:rel_libs(OldRel),
-    NewLibs = emqx_relup_libs:rel_libs(NewRel),
-    do_copy_libs(NewLibs, OldLibs, RootDir, UnpackDir).
-
-do_copy_libs([NLib | Libs], OldLibs, RootDir, UnpackDir) ->
-    AppName = emqx_relup_libs:lib_app_name(NLib),
-    case lists:keyfind(AppName, 1, OldLibs) of
-        %% this lib is newly added, copy it
-        false ->
-            ok = copy_lib(NLib, RootDir, UnpackDir);
-        %% this lib is already in the old release, copy it only if the version is changed
-        OLib ->
-            case emqx_relup_libs:lib_app_vsn(OLib) =:= emqx_relup_libs:lib_app_vsn(NLib) of
-                true -> ok;
-                false -> ok = copy_lib(NLib, RootDir, UnpackDir)
+%% Refuse to proceed unless `<TarFile>.sha256` exists and matches the
+%% computed digest. The sidecar may contain just the digest, or
+%% `<digest>  <filename>` (the `sha256sum` output format) — we accept
+%% both and only inspect the leading 64-hex-char field.
+verify_sha256_sidecar(TarFile, ComputedHex) ->
+    SidecarPath = TarFile ++ ".sha256",
+    case file:read_file(SidecarPath) of
+        {error, enoent} ->
+            throw(make_error(missing_sha256_sidecar, #{file => SidecarPath}));
+        {error, Reason} ->
+            throw(make_error(cannot_read_sha256_sidecar, #{file => SidecarPath, reason => Reason}));
+        {ok, Bin} ->
+            case parse_sha256(Bin) of
+                {ok, ExpectedHex} when ExpectedHex =:= ComputedHex ->
+                    ok;
+                {ok, ExpectedHex} ->
+                    throw(
+                        make_error(sha256_mismatch, #{
+                            file => TarFile,
+                            sidecar => SidecarPath,
+                            expected => ExpectedHex,
+                            actual => ComputedHex
+                        })
+                    );
+                error ->
+                    throw(make_error(invalid_sha256_sidecar, #{file => SidecarPath}))
             end
-    end,
-    do_copy_libs(Libs, OldLibs, RootDir, UnpackDir);
-do_copy_libs([], _, _, _) ->
-    ok.
+    end.
 
-copy_lib(NLib, RootDir, UnpackDir) ->
-    LibDirName = concat([emqx_relup_libs:lib_app_name(NLib), "-", emqx_relup_libs:lib_app_vsn(NLib)]),
-    DstDir = filename:join([RootDir, "lib", LibDirName]),
-    SrcDir = filename:join([UnpackDir, "lib", LibDirName]),
-    logger:notice("add lib dir: ~s", [DstDir]),
-    emqx_relup_file_utils:cp_r([SrcDir], DstDir).
+parse_sha256(Bin) ->
+    Trimmed = string:trim(Bin),
+    case re:run(Trimmed, <<"^([0-9a-fA-F]{64})">>, [{capture, all_but_first, binary}]) of
+        {match, [Hex]} -> {ok, string:lowercase(Hex)};
+        nomatch -> error
+    end.
 
-get_relup_entry(CurrVsn, TargetVsn, Dir) ->
-    RelupL = load_relup_files(TargetVsn, Dir),
-    case
-        lists:search(
-            fun(#{target_version := TargetVsn0, from_version := FromVsn}) ->
-                FromVsn =:= CurrVsn andalso TargetVsn0 =:= TargetVsn
-            end,
-            RelupL
-        )
-    of
+get_relup_entry(CurrVsn, TargetVsn) ->
+    Catalog = load_priv_catalog(),
+    Match = lists:search(
+        fun(#{target_version := T, from_version := F}) ->
+            str(F) =:= str(CurrVsn) andalso str(T) =:= str(TargetVsn)
+        end,
+        Catalog
+    ),
+    case Match of
         false ->
             throw(
                 make_error(no_relup_entry, #{
-                    relup_dir => Dir, from_vsn => CurrVsn, target_vsn => TargetVsn
+                    from_vsn => CurrVsn,
+                    target_vsn => TargetVsn,
+                    supported_paths => list_supported_paths()
                 })
             );
         {value, Relup} ->
             Relup
     end.
 
-load_relup_files(TargetVsn, Dir) ->
-    RelupFile = filename:join([Dir, "releases", TargetVsn, concat([TargetVsn, ".relup"])]),
-    case file:script(RelupFile) of
-        {ok, RelupL} ->
-            RelupL;
+load_priv_catalog() ->
+    {Valid, _Errors} = scan_priv_catalog(),
+    Valid.
+
+%% Boot-time validator. Returns `{[ValidEntry], [ErrorMap]}` so the
+%% caller can log warnings without preventing app start.
+validate_priv_catalog() ->
+    scan_priv_catalog().
+
+scan_priv_catalog() ->
+    Pattern = filename:join([code:priv_dir(emqx_relup), "relup", "*.relup"]),
+    lists:foldl(
+        fun(File, {Acc, Errs}) ->
+            case load_one_relup(File) of
+                {ok, Relup} -> {[Relup | Acc], Errs};
+                {error, ErrMap} -> {Acc, [ErrMap | Errs]}
+            end
+        end,
+        {[], []},
+        filelib:wildcard(Pattern)
+    ).
+
+load_one_relup(File) ->
+    try file:script(File) of
+        {ok, #{from_version := _, target_version := _} = Relup} ->
+            {ok, Relup};
+        {ok, Other} ->
+            {error, #{err_type => invalid_relup_file, file => File, value => Other}};
         {error, Reason} ->
-            throw(make_error(failed_to_read_relup_file, #{file => RelupFile, reason => Reason}))
+            {error, #{err_type => failed_to_read_relup_file, file => File, reason => Reason}}
+    catch
+        Err:Reason:_ST ->
+            {error, #{
+                err_type => relup_file_eval_crashed,
+                file => File,
+                exception => {Err, Reason}
+            }}
     end.
-
-read_change_log_files(TargetVsn, Dir) ->
-    FileNamesWc = filename:join([Dir, "releases", TargetVsn, "change_log*.md"]),
-    ChangeLogFiles = filelib:wildcard(FileNamesWc),
-    [read_change_log_file(F) || F <- ChangeLogFiles].
-
-read_change_log_file(FileName) ->
-    case file:read_file(FileName) of
-        {ok, Bin} ->
-            Bin;
-        {error, Reason} ->
-            throw(make_error(failed_to_read_change_log_file, #{file => FileName, reason => Reason}))
-    end.
-
-copy_release(TargetVsn, RootDir, UnpackDir) ->
-    SrcDir = filename:join([UnpackDir, "releases", TargetVsn]),
-    DstDir = filename:join([RootDir, "releases", TargetVsn]),
-    emqx_relup_file_utils:cp_r([SrcDir], DstDir).
 
 %%==============================================================================
 %% Permanent Release
 %%==============================================================================
-permanent_upgrade(_CurrVsn, TargetVsn, RootDir, #{deploy_inplace := true, unpack_dir := UnpackDir}) ->
-    overwrite_files(TargetVsn, RootDir, UnpackDir);
 permanent_upgrade(_CurrVsn, TargetVsn, RootDir, _) ->
-    file:write_file(filename:join([independent_deploy_root(RootDir), "version"]), TargetVsn).
-
-overwrite_files(_TargetVsn, RootDir, UnpackDir) ->
-    %% The RELEASES file is not required by OTP to start a release but it is
-    %% used by bin/nodetool. We also won't write release info to it as we don't
-    %% use release_handler anymore.
-    TmpDir0 = emqx_relup_file_utils:tmp_dir(),
-    TmpDir = filename:join([TmpDir0, emqx_relup_utils:ts_filename("_relup_bk")]),
-    ReleaseFiles0 = ["emqx_vars", "start_erl.data", "RELEASES"],
-    ReleaseFiles = [{"releases", File} || File <- ReleaseFiles0],
-    Bins0 = [
-        "emqx",
-        "emqx_ctl",
-        "node_dump",
-        "emqx.cmd",
-        "emqx_ctl.cmd",
-        "nodetool",
-        "emqx_cluster_rescue"
-    ],
-    Bins = [{"bin", File} || File <- Bins0],
-    case filelib:ensure_dir(filename:join([TmpDir, "dummy"])) of
-        ok ->
-            try
-                ok = do_overwrite_files(ReleaseFiles ++ Bins, RootDir, UnpackDir, TmpDir),
-                %% We already have emqx.rel files in "releases/<vsn>/emqx.rel",
-                %% so we don't need the one in "releases/".
-                ExraRel = filename:join([RootDir, "releases", "emqx.rel"]),
-                emqx_relup_file_utils:ensure_file_deleted(ExraRel)
-            catch
-                throw:#{error := copy_failed, history := History} = Details ->
-                    ok = recover_overwritten_files(History),
-                    {error, make_error(copy_failed, #{details => maps:remove(history, Details)})}
-            end;
-        {error, _} = Err ->
-            Err
-    end.
-
-do_overwrite_files(Files, RootDir, UnpackDir, TmpDir) ->
-    lists:foldl(
-        fun({SubDir, File}, Copied) ->
-            NewFile = filename:join([UnpackDir, SubDir, File]),
-            OldFile = filename:join([RootDir, SubDir, File]),
-            TmpFile = filename:join([TmpDir, File]),
-            copy_file(OldFile, TmpFile, Copied),
-            copy_file(NewFile, OldFile, Copied),
-            [{TmpFile, OldFile} | Copied]
-        end,
-        [],
-        Files
-    ),
-    ok.
-
-recover_overwritten_files(History) ->
-    lists:foreach(
-        fun({TmpFile, OldFile}) ->
-            {ok, _} = file:copy(TmpFile, OldFile)
-        end,
-        History
-    ).
-
-copy_file(SrcFile, DstFile, Copied) ->
-    case file:copy(SrcFile, DstFile) of
-        {ok, _} ->
-            ok;
-        {error, Reason} ->
-            throw(
-                make_error(copy_failed, #{
-                    reason => Reason, src => SrcFile, dst => DstFile, history => Copied
-                })
-            )
-    end.
+    file:write_file(filename:join([independent_deploy_root(RootDir), "current"]), TargetVsn).
 
 %%==============================================================================
 %% Eval Relup Instructions
@@ -766,9 +766,7 @@ get_upgrade_mod(TargetVsn) ->
 independent_deploy_root(RootDir) ->
     filename:join([RootDir, "relup"]).
 
-get_deploy_dir(RootDir, _TargetVsn, #{deploy_inplace := true}) ->
-    RootDir;
-get_deploy_dir(RootDir, TargetVsn, _) ->
+get_deploy_dir(RootDir, TargetVsn) ->
     filename:join([independent_deploy_root(RootDir), TargetVsn]).
 
 read_build_info(RootDir, Vsn) ->
