@@ -72,6 +72,7 @@
     ntoa/1,
     foldl_while/3,
     is_restricted_str/1,
+    is_mqtt_safe_utf8/1,
     interactive_load/1
 ]).
 
@@ -899,6 +900,25 @@ ntoa(IP) ->
 is_restricted_str(String) ->
     RE = <<"^[A-Za-z0-9]+[A-Za-z0-9-_]*$">>,
     match =:= re:run(String, RE, [{capture, none}]).
+
+%% @doc Validate that a binary is a well-formed UTF-8 string with no characters
+%% in the ranges 0x00-0x1F (C0 controls) or 0x7F-0x9F (DEL + C1 controls).
+%% This is the same byte-class check `emqx_frame:validate_utf8/1` applies to
+%% MQTT-ingested clientid/username/password and is used to vet bytes that flow
+%% into the same `ClientInfo` map from non-MQTT sources (e.g. PROXY-Protocol
+%% v2 SSL TLVs).
+-spec is_mqtt_safe_utf8(binary()) -> boolean().
+is_mqtt_safe_utf8(<<>>) ->
+    true;
+is_mqtt_safe_utf8(<<H/utf8, _Rest/binary>>) when
+    H >= 16#00, H =< 16#1F;
+    H >= 16#7F, H =< 16#9F
+->
+    false;
+is_mqtt_safe_utf8(<<_H/utf8, Rest/binary>>) ->
+    is_mqtt_safe_utf8(Rest);
+is_mqtt_safe_utf8(<<_BadUtf8, _Rest/binary>>) ->
+    false.
 
 %% @doc Generate random, printable bytes as an ID.
 %% The first byte is ensured to be a-z or A-Z.

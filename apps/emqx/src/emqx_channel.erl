@@ -339,7 +339,10 @@ set_peercert_infos(NoSSL, ClientInfo, _) when
 ->
     ClientInfo#{username => undefined};
 set_peercert_infos(Peercert, ClientInfo, Zone) ->
-    {DN, CN} = {esockd_peercert:subject(Peercert), esockd_peercert:common_name(Peercert)},
+    DN = esockd_peercert:subject(Peercert),
+    CN = esockd_peercert:common_name(Peercert),
+    ok = validate_peercert_string(dn, DN, Peercert),
+    ok = validate_peercert_string(cn, CN, Peercert),
     PeercetAs = fun(Key) ->
         case get_mqtt_conf(Zone, Key) of
             cn -> CN;
@@ -353,6 +356,31 @@ set_peercert_infos(Peercert, ClientInfo, Zone) ->
     Username = PeercetAs(peer_cert_as_username),
     ClientId = PeercetAs(peer_cert_as_clientid),
     ClientInfo#{username => Username, clientid => ClientId, dn => DN, cn => CN}.
+
+%% Reject control characters (0x00-0x1F, 0x7F-0x9F) in CN / DN. Mirrors the
+%% byte-class check `emqx_frame:validate_utf8/1` applies to MQTT-ingested
+%% clientid/username/password. Closes a CRLF-injection primitive where bytes
+%% sourced from a PROXY-Protocol v2 SSL TLV could be smuggled into outbound
+%% HTTP authn/authz/bridge requests via `${cert_common_name}` / `${cert_subject}`.
+validate_peercert_string(_Field, undefined, _Source) ->
+    ok;
+validate_peercert_string(Field, Value, Source) when is_binary(Value) ->
+    case emqx_utils:is_mqtt_safe_utf8(Value) of
+        true ->
+            ok;
+        false ->
+            ?SLOG(warning, #{
+                msg => "peer_certificate_field_rejected",
+                field => Field,
+                source => peercert_source(Source),
+                reason => contains_control_characters
+            }),
+            erlang:exit({shutdown, peercert_field_invalid})
+    end.
+
+peercert_source(Peercert) when is_binary(Peercert) -> tls_certificate;
+peercert_source(PP2Info) when is_list(PP2Info) -> proxy_protocol_v2;
+peercert_source(_) -> unknown.
 
 take_conn_info_fields(Fields, ClientInfo, ConnInfo) ->
     lists:foldl(
