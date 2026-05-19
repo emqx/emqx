@@ -25,15 +25,15 @@ scopes() ->
     %% themselves cannot reach these paths. The login user scope
     %% check consults this map.
     %%
-    %% /api_key_scopes is intentionally absent from the map — the
-    %% scope catalog endpoint is public to any authenticated login
-    %% user (require Bearer auth, but the scope check is fail-open
-    %% for unmapped paths). It is a top-level path (sibling to
-    %% /action_types, /source_types) chosen to avoid wildcard
-    %% routing collisions with /api_key/:name.
+    %% /api_key_scopes is marked ?SCOPE_PUBLIC: it returns only the
+    %% static scope catalog (names + i18n descriptions), no tenant
+    %% data, so any authenticated login user may read it. It is a
+    %% top-level path (sibling to /action_types, /source_types)
+    %% chosen to avoid wildcard routing collisions with /api_key/:name.
     #{
         <<"/api_key">> => ?SCOPE_API_KEY_MGMT,
-        <<"/api_key/:name">> => ?SCOPE_API_KEY_MGMT
+        <<"/api_key/:name">> => ?SCOPE_API_KEY_MGMT,
+        <<"/api_key_scopes">> => ?SCOPE_PUBLIC
     }.
 
 api_spec() ->

@@ -30,6 +30,16 @@
 %% API Key self-management).  Not exposed to users.
 -define(SCOPE_DENIED, <<"$denied">>).
 
+%% Sentinel for paths that are intentionally unscoped: pre-login entry
+%% points (/login, /sso/login/:backend, ...) and meta endpoints that
+%% only return static catalog data (/user_scopes, /api_key_scopes).
+%% Modules using the map form of scopes/0 must declare such paths with
+%% this value rather than omitting them, so that genuinely forgotten
+%% paths still produce a startup warning. The collector treats this
+%% value as: do not insert into the runtime cache (preserves fail-open
+%% semantics) and do not emit path_missing_from_scopes_map.
+-define(SCOPE_PUBLIC, <<"$public">>).
+
 %% ── Login-user-only scopes (since 5.10.4) ─────────────────────────────
 %%
 %% These scopes apply to dashboard login users only. API keys MUST NOT
