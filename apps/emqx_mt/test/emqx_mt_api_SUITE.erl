@@ -46,7 +46,8 @@ end_per_suite(_Config) ->
 
 init_per_testcase(TestCase, Config) when
     TestCase == t_adjust_limiters;
-    TestCase == t_delivery_rate_limit
+    TestCase == t_delivery_rate_limit;
+    TestCase == t_subscribe_rate_limit
 ->
     Apps = [
         emqx,
@@ -109,7 +110,8 @@ init_per_testcase(TestCase, Config) ->
 
 end_per_testcase(TestCase, Config) when
     TestCase == t_adjust_limiters;
-    TestCase == t_delivery_rate_limit
+    TestCase == t_delivery_rate_limit;
+    TestCase == t_subscribe_rate_limit
 ->
     Cluster = ?config(cluster, Config),
     snabbkaffe:stop(),
@@ -1799,6 +1801,74 @@ t_delivery_rate_limit(Config) when is_list(Config) ->
                     | _
                 ],
                 ?of_kind(["mem_delivery_rate_limit"], Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+-doc """
+"Integration" test for using per-ns subscribe rate limiting options.
+
+While the global config has no subscribe rate limiting (the default), the namespace in this
+case does and uses it.
+""".
+t_subscribe_rate_limit(Config) when is_list(Config) ->
+    [N | _] = ?config(cluster, Config),
+    %% Setup namespace with limiters
+    Params1 = client_limiter_params(#{
+        <<"subscribes">> => #{
+            %% This shall be the bottleneck.
+            <<"rate">> => <<"3/s">>,
+            <<"burst">> => <<"0/s">>
+        }
+    }),
+    Ns = atom_to_binary(?FUNCTION_NAME),
+    {204, _} = create_managed_ns(Ns),
+    ?assertMatch({200, _}, update_managed_ns_config(Ns, Params1)),
+    ?check_trace(
+        begin
+            C1 = ?NEW_CLIENTID(1),
+            {ok, Pid1} = emqtt:start_link(#{
+                username => Ns,
+                clientid => C1,
+                proto_ver => v5,
+                port => emqx_mt_api_SUITE:get_mqtt_tcp_port(N)
+            }),
+            {ok, _} = emqtt:connect(Pid1),
+            Topic = <<"rate/limit">>,
+            %% Subscribe in quick succession; should hit limit
+            ct:pal("subscribing"),
+            ?ON(N, emqx_logger:set_log_level(debug)),
+            process_flag(trap_exit, true),
+            Subacks = lists:map(
+                fun(_) ->
+                    emqtt:subscribe(Pid1, Topic, [{qos, 0}])
+                end,
+                lists:seq(1, 5)
+            ),
+            ct:pal("subscribed"),
+            ct:pal("subacks:\n  ~p", [Subacks]),
+            emqtt:stop(Pid1),
+            ?assertMatch(
+                {ok, _, [?RC_QUOTA_EXCEEDED]},
+                lists:last(Subacks)
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertEqual(
+                [], ?of_kind(["hook_callback_exception", "session_mem_limiter_not_found"], Trace)
+            ),
+            ?assertMatch(
+                [
+                    #{
+                        reason :=
+                            {failed_to_consume_from_limiter, {{mt_client, _}, subscribes}}
+                    }
+                    | _
+                ],
+                ?of_kind(["subscribe_rate_limit"], Trace)
             ),
             ok
         end

@@ -906,9 +906,10 @@ after_message_acked(Msg, PubAckProps, Channel) ->
 %% Process Subscribe
 %%--------------------------------------------------------------------
 
-process_subscribe(SubPkt = ?SUBSCRIBE_PACKET(PacketId, _Properties, _TopicFilters0), Channel0) ->
+process_subscribe(SubPkt = ?SUBSCRIBE_PACKET(PacketId, _Properties, TopicFilters0), Channel0) ->
     Pipe = emqx_utils:pipeline(
         [
+            fun check_subscribe_quota_exceeded/2,
             fun check_subscribe/2,
             fun enrich_subscribe/2,
             %% TODO && FIXME (EMQX-10786): mount topic before authz check.
@@ -926,9 +927,13 @@ process_subscribe(SubPkt = ?SUBSCRIBE_PACKET(PacketId, _Properties, _TopicFilter
             ReasonCodes = gen_reason_codes(TFChecked, TFSubedWithNRC),
             handle_out(suback, {PacketId, ReasonCodes}, NChannel);
         {error, {disconnect, RC}, Channel} ->
-            %% funcs in pipeline always cause action: `disconnect`
+            %% funcs in pipeline almost always cause action: `disconnect`
             %% And Only one ReasonCode in DISCONNECT packet
-            handle_out(disconnect, RC, Channel)
+            handle_out(disconnect, RC, Channel);
+        {error, RC, Channel} ->
+            %% if rate-limited, we just reply a reason code without disconnecting
+            ReasonCodes = lists:map(fun(_TF) -> RC end, TopicFilters0),
+            handle_out(suback, {PacketId, ReasonCodes}, Channel)
     end.
 
 -compile(
@@ -2700,6 +2705,28 @@ check_quota_exceeded(
                 #{topic => Topic, tag => "QUOTA"}
             ),
             {error, ?RC_QUOTA_EXCEEDED, Chann#channel{quota = Quota2}}
+    end.
+
+check_subscribe_quota_exceeded(
+    ?SUBSCRIBE_PACKET(_PacketId, _Properties, TopicFilters), #channel{quota = Limiter0} = Chann
+) ->
+    Result = emqx_limiter_client_container:try_consume(
+        Limiter0, [{subscribes, 1}]
+    ),
+    case Result of
+        {true, Limiter} ->
+            {ok, Chann#channel{quota = Limiter}};
+        {false, Limiter, Reason} ->
+            ?tp("subscribe_rate_limit", #{reason => Reason}),
+            ?SLOG_THROTTLE(
+                warning,
+                #{
+                    msg => cannot_subscribe_to_topic_filters_due_to_quota_exceeded,
+                    reason => Reason
+                },
+                #{topics => TopicFilters, tag => "QUOTA"}
+            ),
+            {error, ?RC_QUOTA_EXCEEDED, Chann#channel{quota = Limiter}}
     end.
 
 %%--------------------------------------------------------------------
