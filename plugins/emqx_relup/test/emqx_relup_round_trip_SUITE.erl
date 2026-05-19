@@ -90,7 +90,7 @@ t_round_trip_no_op(Config) ->
     ok = emqx_relup_handler:perform_upgrade(?CURR_VSN, ?TARGET_VSN, RootDir, Opts1),
     ok = emqx_relup_handler:permanent_upgrade(?CURR_VSN, ?TARGET_VSN, RootDir, Opts1),
 
-    Marker = filename:join([RootDir, "relup", "version"]),
+    Marker = filename:join([RootDir, "relup", "current"]),
     ?assertEqual({ok, list_to_binary(?TARGET_VSN)}, file:read_file(Marker)),
     DeployDir = filename:join([RootDir, "relup", ?TARGET_VSN]),
     ?assert(filelib:is_dir(DeployDir), DeployDir ++ " should be a dir"),
@@ -197,6 +197,56 @@ t_os_arch_mismatch_rejects(Config) ->
         ?CURR_VSN, RootDir, #{tarball => Tarball}
     ),
     ?assertMatch({error, #{err_type := os_arch_mismatch}}, Result).
+
+-doc "An existing `<RootDir>/relup/current` marker pointing at the "
+"same target means the operator is re-running the exact same "
+"upgrade against a VM that's already been migrated by it. Refuse "
+"with `duplicate_pending_target`. Chaining to a different target "
+"is allowed and exercised by `t_chain_relup_from_pending_marker`.".
+t_refuse_duplicate_pending_target(Config) ->
+    RootDir = ?config(root_dir, Config),
+    Tarball = forge_target_tarball(RootDir, ?TARGET_VSN, default_arch()),
+    ok = write_sha256_sidecar(Tarball),
+    _ = write_no_op_relup(?CURR_VSN, ?TARGET_VSN),
+    Marker = filename:join([RootDir, "relup", "current"]),
+    ok = filelib:ensure_dir(Marker),
+    ok = file:write_file(Marker, ?TARGET_VSN),
+    Result = emqx_relup_handler:check_and_unpack(
+        ?CURR_VSN, RootDir, #{tarball => Tarball}
+    ),
+    ?assertMatch(
+        {error, #{
+            err_type := duplicate_pending_target,
+            pending_target := <<?TARGET_VSN>>
+        }},
+        Result
+    ),
+    %% Once the marker is gone, the same inputs proceed normally.
+    ok = file:delete(Marker),
+    ?assertMatch(
+        {ok, #{target_vsn := ?TARGET_VSN}},
+        emqx_relup_handler:check_and_unpack(?CURR_VSN, RootDir, #{tarball => Tarball})
+    ).
+
+-doc "A marker pointing at a *different* version than the requested "
+"target means the operator wants to chain another hop on top of "
+"the pending one. The framework allows it; the .relup hop author "
+"is responsible for `from_version` and `code_changes` that match "
+"whatever base state the running node is in.".
+t_chain_relup_from_pending_marker(Config) ->
+    RootDir = ?config(root_dir, Config),
+    Tarball = forge_target_tarball(RootDir, ?TARGET_VSN, default_arch()),
+    ok = write_sha256_sidecar(Tarball),
+    _ = write_no_op_relup(?CURR_VSN, ?TARGET_VSN),
+    %% A pending marker for some unrelated earlier hop must not block
+    %% the new target.
+    Marker = filename:join([RootDir, "relup", "current"]),
+    ok = filelib:ensure_dir(Marker),
+    ok = file:write_file(Marker, "9.9.0-some-earlier-hop"),
+    ?assertMatch(
+        {ok, #{target_vsn := ?TARGET_VSN}},
+        emqx_relup_handler:check_and_unpack(?CURR_VSN, RootDir, #{tarball => Tarball})
+    ).
 
 %%==============================================================================
 %% helpers

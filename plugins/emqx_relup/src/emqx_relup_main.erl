@@ -95,10 +95,11 @@ handle_call({upgrade, Opts}, _From, State) ->
     CurrVsn = emqx_release:version(),
     RootDir = code:root_dir(),
     %% target_vsn isn't known until check_and_unpack parses
-    %% releases/emqx_vars from the extracted tarball.
-    Key = log_upgrade_started(CurrVsn, undefined, Opts),
-    Result = do_upgrade(CurrVsn, RootDir, Opts),
-    ok = log_upgrade_result(Key, Result),
+    %% releases/emqx_vars from the extracted tarball; do_upgrade/3
+    %% surfaces it so the log row can be stamped.
+    Key = log_upgrade_started(CurrVsn, Opts),
+    {Result, TargetVsn} = do_upgrade(CurrVsn, RootDir, Opts),
+    ok = log_upgrade_result(Key, Result, TargetVsn),
     {reply, Result, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -116,42 +117,46 @@ do_upgrade(CurrVsn, RootDir, Opts) ->
     case emqx_relup_handler:check_and_unpack(CurrVsn, RootDir, Opts) of
         {error, Reason} ->
             ?LOG(error, #{msg => check_upgrade_failed, reason => Reason}),
-            {error, Reason#{stage => check_and_unpack}};
+            {{error, Reason#{stage => check_and_unpack}}, undefined};
         {ok, #{target_vsn := TargetVsn} = Opts1} ->
             ?LOG(notice, #{msg => perform_upgrade, from_vsn => CurrVsn, target_vsn => TargetVsn}),
-            try emqx_relup_handler:perform_upgrade(CurrVsn, TargetVsn, RootDir, Opts1) of
+            Result = do_perform_and_permanent(CurrVsn, TargetVsn, RootDir, Opts1),
+            {Result, TargetVsn}
+    end.
+
+do_perform_and_permanent(CurrVsn, TargetVsn, RootDir, Opts) ->
+    try emqx_relup_handler:perform_upgrade(CurrVsn, TargetVsn, RootDir, Opts) of
+        ok ->
+            case emqx_relup_handler:permanent_upgrade(CurrVsn, TargetVsn, RootDir, Opts) of
                 ok ->
-                    case emqx_relup_handler:permanent_upgrade(CurrVsn, TargetVsn, RootDir, Opts1) of
-                        ok ->
-                            ?LOG(notice, #{
-                                msg => upgrade_complete,
-                                from_vsn => CurrVsn,
-                                target_vsn => TargetVsn
-                            }),
-                            ok;
-                        {error, Reason} ->
-                            ?LOG(error, #{
-                                msg => permanent_upgrade_failed,
-                                reason => Reason,
-                                from_vsn => CurrVsn,
-                                target_vsn => TargetVsn
-                            }),
-                            {error, Reason#{stage => permanent_upgrade}}
-                    end;
+                    ?LOG(notice, #{
+                        msg => upgrade_complete,
+                        from_vsn => CurrVsn,
+                        target_vsn => TargetVsn
+                    }),
+                    ok;
                 {error, Reason} ->
                     ?LOG(error, #{
-                        msg => perform_upgrade_failed,
+                        msg => permanent_upgrade_failed,
                         reason => Reason,
                         from_vsn => CurrVsn,
                         target_vsn => TargetVsn
                     }),
-                    {error, Reason#{stage => perform_upgrade}}
-            catch
-                throw:Reason ->
-                    restart_vm(Reason);
-                Err:Reason:ST ->
-                    restart_vm({Err, Reason, ST})
-            end
+                    {error, Reason#{stage => permanent_upgrade}}
+            end;
+        {error, Reason} ->
+            ?LOG(error, #{
+                msg => perform_upgrade_failed,
+                reason => Reason,
+                from_vsn => CurrVsn,
+                target_vsn => TargetVsn
+            }),
+            {error, Reason#{stage => perform_upgrade}}
+    catch
+        throw:Reason ->
+            restart_vm(Reason);
+        Err:Reason:ST ->
+            restart_vm({Err, Reason, ST})
     end.
 
 restart_vm(Reason) ->
@@ -174,14 +179,31 @@ get_all_upgrade_logs() ->
     lists:map(fun format_upgrade_log/1, ets:tab2list(emqx_relup_log)).
 
 get_latest_upgrade_status() ->
-    case ets:last(emqx_relup_log) of
-        '$end_of_table' ->
-            idle;
-        Key ->
-            case ets:lookup(emqx_relup_log, Key) of
-                [#emqx_relup_log{status = finished}] -> idle;
-                [#emqx_relup_log{status = 'in-progress'}] -> 'in-progress'
+    %% If `<code:root_dir()>/relup/current` exists, an upgrade has been
+    %% committed against this install and the running BEAM has hot-loaded
+    %% the target's modules; a node restart is required to boot the
+    %% deployed tree. Surface that state explicitly so operators don't
+    %% confuse it with `idle`.
+    case read_current_marker() of
+        {ok, TargetVsn} ->
+            {hot_upgraded, TargetVsn};
+        none ->
+            case ets:last(emqx_relup_log) of
+                '$end_of_table' ->
+                    idle;
+                Key ->
+                    case ets:lookup(emqx_relup_log, Key) of
+                        [#emqx_relup_log{status = finished}] -> idle;
+                        [#emqx_relup_log{status = 'in-progress'}] -> 'in-progress'
+                    end
             end
+    end.
+
+read_current_marker() ->
+    Path = filename:join([code:root_dir(), "relup", "current"]),
+    case file:read_file(Path) of
+        {ok, Bin} -> {ok, string:trim(Bin)};
+        {error, _} -> none
     end.
 
 format_upgrade_log(#emqx_relup_log{
@@ -196,43 +218,49 @@ format_upgrade_log(#emqx_relup_log{
     #{
         started_at => maybe_to_rfc3339(StartedAt),
         finished_at => maybe_to_rfc3339(FinishedAt),
-        from_vsn => FromVsn,
-        target_vsn => TargetVsn,
+        from_vsn => maybe_undefined(FromVsn),
+        target_vsn => maybe_undefined(TargetVsn),
         upgrade_opts => Opts,
         status => Status,
-        result => maybe_result(Result)
+        result => maybe_undefined(Result)
     }.
 
 maybe_to_rfc3339(undefined) -> <<>>;
 maybe_to_rfc3339(Int) -> bin(calendar:system_time_to_rfc3339(Int, [{unit, millisecond}])).
 
-maybe_result(undefined) -> <<>>;
-maybe_result(Result) -> Result.
+maybe_undefined(undefined) -> <<>>;
+maybe_undefined(V) -> V.
 
-log_upgrade_started(CurrVsn, TargetVsn, Opts) ->
+log_upgrade_started(CurrVsn, Opts) ->
     Now = erlang:system_time(millisecond),
     ?LOG(notice, #{
-        msg => got_upgrade_request, from_vsn => CurrVsn, target_vsn => TargetVsn, opts => Opts
+        msg => got_upgrade_request, from_vsn => CurrVsn, opts => Opts
     }),
     ok = mnesia:dirty_write(#emqx_relup_log{
         started_at = Now,
         from_vsn = bin(CurrVsn),
-        target_vsn = bin(TargetVsn),
+        target_vsn = undefined,
         upgrade_opts = Opts,
         status = 'in-progress'
     }),
     Now.
 
-log_upgrade_result(Key, Result) ->
+log_upgrade_result(Key, Result, TargetVsn) ->
+    TargetBin =
+        case TargetVsn of
+            undefined -> undefined;
+            _ -> bin(TargetVsn)
+        end,
     case mnesia:dirty_read(emqx_relup_log, Key) of
-        [#emqx_relup_log{from_vsn = FromVsn, target_vsn = TargetVsn} = Log] ->
+        [#emqx_relup_log{from_vsn = FromVsn} = Log] ->
             ?LOG(notice, #{
                 msg => upgrade_finished,
                 from_vsn => FromVsn,
-                target_vsn => TargetVsn,
+                target_vsn => TargetBin,
                 result => Result
             }),
             mnesia:dirty_write(Log#emqx_relup_log{
+                target_vsn = TargetBin,
                 finished_at = erlang:system_time(millisecond),
                 status = finished,
                 result = format_result(Result)

@@ -22,7 +22,17 @@ cmd(["list-supported-paths"]) ->
             ]
     end;
 cmd(["status"]) ->
-    emqx_ctl:print("~ts~n", [emqx_relup_main:get_latest_upgrade_status()]);
+    case emqx_relup_main:get_latest_upgrade_status() of
+        idle ->
+            emqx_ctl:print("idle~n");
+        'in-progress' ->
+            emqx_ctl:print("in-progress~n");
+        {hot_upgraded, TargetVsn} ->
+            emqx_ctl:print(
+                "hot-upgraded to ~ts; pending on restart to boot from the new version~n",
+                [TargetVsn]
+            )
+    end;
 cmd(["logs"]) ->
     case emqx_relup_main:get_all_upgrade_logs() of
         [] ->
@@ -36,15 +46,21 @@ cmd(["logs-clear"]) ->
 cmd(_) ->
     emqx_ctl:usage([
         {"relup upgrade <TarballPath>",
-            "Upgrade using the EMQX target tarball at <TarballPath>. "
-            "A `<TarballPath>.sha256` sidecar must sit next to it. "
-            "Target version is read from the tarball's "
+            "Upgrade using the EMQX target tarball at <TarballPath>.\n"
+            "A `<TarballPath>.sha256` sidecar must sit next to it.\n"
+            "Target version is read from the tarball's\n"
             "`releases/emqx_vars` (`REL_VSN`)."},
-        {"relup list-supported-paths", "List the {From, Target} hops the priv catalog supports"},
+        {"relup list-supported-paths", "List the {From, Target} hops the priv catalog supports."},
         {"relup status",
-            "Print 'in-progress' if an upgrade is currently running on this "
-            "node, otherwise 'idle'."},
-        {"relup logs", "Print this node's upgrade history (one row per attempt)."},
+            "Print the current upgrade state of this node:\n"
+            "  'idle'                  no upgrade in progress;\n"
+            "  'in-progress'           an upgrade is running right now;\n"
+            "  'hot-upgraded to <vsn>' a previous upgrade has been applied\n"
+            "                          and the node is pending restart to\n"
+            "                          boot from the new version."},
+        {"relup logs",
+            "Print this node's upgrade history,\n"
+            "one row per attempt, oldest first."},
         {"relup logs-clear", "Wipe this node's upgrade log table."}
     ]).
 
