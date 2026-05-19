@@ -82,7 +82,7 @@ create_default_app() ->
     Now = erlang:system_time(second),
     ExpiredAt = Now + timer:minutes(10),
     case
-        emqx_mgmt_auth:create(
+        emqx_mgmt_auth:create_with_key(
             ?DEFAULT_APP_ID,
             ?DEFAULT_APP_KEY,
             ?DEFAULT_APP_SECRET,

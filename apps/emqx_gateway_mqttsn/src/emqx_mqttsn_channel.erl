@@ -524,7 +524,8 @@ handle_in(
     ?SN_CONNECT_MSG(_Flags, _ProtoId, _Duration, _ClientId),
     Channel = #channel{conn_state = connected}
 ) ->
-    {error, unexpected_connect, Channel};
+    ?SLOG(warning, #{msg => "receive_connect_packet_in_connected_state"}),
+    handle_out(disconnect, ?SN_RC_NOT_SUPPORTED, Channel);
 handle_in(
     ?SN_WILLTOPIC_EMPTY_MSG,
     Channel = #channel{conn_state = connecting}

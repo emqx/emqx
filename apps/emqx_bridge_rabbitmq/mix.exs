@@ -30,12 +30,7 @@ defmodule EMQXBridgeRabbitmq.MixProject do
 
   def deps() do
     UMP.deps([
-      {:thoas, "1.2.1"},
-      {:credentials_obfuscation, github: "rabbitmq/credentials-obfuscation", tag: "v3.5.0"},
-      {:rabbit_common,
-       github: "rabbitmq/rabbitmq-server", tag: "v4.2.1", subdir: "deps/rabbit_common"},
-      {:amqp_client,
-       github: "rabbitmq/rabbitmq-server", tag: "v4.2.1", subdir: "deps/amqp_client"},
+      {:amqp_client, "4.2.1"},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}
