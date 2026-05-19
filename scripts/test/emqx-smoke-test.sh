@@ -35,10 +35,10 @@ json_status() {
     fi
 }
 
-## Check if the API docs are available
-check_api_docs() {
+## Check if the API spec explorer is available
+check_api_spec() {
     local attempts=5
-    local url="$BASE_URL/api-docs/index.html"
+    local url="$BASE_URL/api-spec.html"
     local status="undefined"
     while [ "$status" != "200" ]; do
         status="$(curl -s -o /dev/null -w "%{http_code}" "$url")"
@@ -67,6 +67,38 @@ check_swagger_json() {
     fi
 }
 
+## Check that /api-docs and /api-docs/index.html HTTP-redirect to the new
+## in-tree spec explorer.
+check_api_docs_redirect() {
+    local path url status location
+    for path in /api-docs /api-docs/index.html; do
+        url="$BASE_URL$path"
+        status="$(curl -s -o /dev/null -w '%{http_code}' "$url")"
+        if [ "$status" != "308" ]; then
+            echo "expected 308 from $url, got $status"
+            exit 1
+        fi
+        location="$(curl -sI "$url" | awk -F': *' 'tolower($1)=="location" { sub(/\r$/,"",$2); print $2; exit }')"
+        if [ "$location" != "/api-spec.html" ]; then
+            echo "expected Location: /api-spec.html from $url, got '$location'"
+            exit 1
+        fi
+    done
+}
+
+## Check that /api-docs/* subpaths other than swagger.json and index.html
+## return 404 (the bundled Swagger UI assets were dropped from the release).
+check_api_docs_subpaths_404() {
+    local subpath status
+    for subpath in /api-docs/swagger-ui.css /api-docs/swagger-ui-bundle.js /api-docs/some/junk; do
+        status="$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL$subpath")"
+        if [ "$status" != "404" ]; then
+            echo "expected 404 from $BASE_URL$subpath, got $status"
+            exit 1
+        fi
+    done
+}
+
 check_schema_json() {
     local name="$1"
     local expected_title="$2"
@@ -86,7 +118,9 @@ main() {
     wait_for_emqx
     local JSON_STATUS
     JSON_STATUS="$(json_status)"
-    check_api_docs
+    check_api_spec
+    check_api_docs_redirect
+    check_api_docs_subpaths_404
     ## The json status feature was added after hotconf API
     if [ "$JSON_STATUS" != 'NOT_JSON' ]; then
         check_swagger_json

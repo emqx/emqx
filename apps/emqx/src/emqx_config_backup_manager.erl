@@ -50,26 +50,30 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--spec backup_and_write(file:filename(), iodata()) -> ok.
+-spec backup_and_write(file:filename(), iodata()) ->
+    ok | {error, #{filename := file:filename(), reason := term()}}.
 backup_and_write(DestFilename, NewContents) ->
-    %% this may fail, but we don't care
-    %% e.g. read-only file system
     _ = filelib:ensure_dir(DestFilename),
     TmpFilename = DestFilename ++ ".tmp",
     case file:write_file(TmpFilename, NewContents) of
         ok ->
             backup_and_replace(DestFilename, TmpFilename);
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "failed_to_save_conf_file",
-                hint =>
-                    "The updated cluster config is not saved on this node, please check the file system.",
-                filename => TmpFilename,
-                reason => Reason
-            }),
-            %% e.g. read-only, it's not the end of the world
-            ok
+            log_save_error(TmpFilename, Reason),
+            {error, #{filename => DestFilename, reason => Reason}}
     end.
+
+log_save_error(Filename, Reason) ->
+    ?SLOG(error, #{
+        msg => "failed_to_save_conf_file",
+        hint =>
+            "The updated cluster config is not saved on this node, please check the file system. "
+            "Common causes: the file or its directory is read-only, owned by another user, "
+            "is a Docker bind-mount of a single file (rename returns ebusy), "
+            "or the file has the immutable attribute set (rename returns eperm).",
+        filename => Filename,
+        reason => Reason
+    }).
 
 %%------------------------------------------------------------------------------
 %% Internal API
@@ -141,10 +145,10 @@ backup_and_replace(DestFilename, TmpFilename) ->
     case file:read_file(DestFilename) of
         {ok, OriginalContents} ->
             gen_server:cast(?MODULE, #backup{filename = DestFilename, contents = OriginalContents}),
-            ok = file:rename(TmpFilename, DestFilename);
+            do_rename(TmpFilename, DestFilename);
         {error, enoent} ->
             %% not created yet
-            ok = file:rename(TmpFilename, DestFilename);
+            do_rename(TmpFilename, DestFilename);
         {error, Reason} ->
             ?SLOG(warning, #{
                 msg => "failed_to_read_current_conf_file",
@@ -152,6 +156,16 @@ backup_and_replace(DestFilename, TmpFilename) ->
                 reason => Reason
             }),
             ok
+    end.
+
+do_rename(TmpFilename, DestFilename) ->
+    case file:rename(TmpFilename, DestFilename) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            log_save_error(DestFilename, Reason),
+            _ = file:delete(TmpFilename),
+            {error, #{filename => DestFilename, reason => Reason}}
     end.
 
 dump_backup(DestFilename, OldContents) ->

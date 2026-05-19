@@ -7,12 +7,13 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(ON(NODE, DO), erpc:call(NODE, fun() -> DO end)).
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
 %%
 
@@ -119,8 +120,8 @@ test_message_forwarding_end(_, Config) ->
     ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
 
 test_message_forwarding(SubType, Config) ->
-    [SourceNode1 | _] = nodes_source(Config),
-    [TargetNode1, TargetNode2 | _] = nodes_target(Config),
+    [SourceNode1 | _] = SourceNodes = nodes_source(Config),
+    [TargetNode1, TargetNode2 | _] = TargetNodes = nodes_target(Config),
     %% Connect client to the target cluster.
     TargetC1 = emqx_cluster_link_cth:connect_client("t_message_forwarding1", TargetNode1),
     TargetC2 = emqx_cluster_link_cth:connect_client("t_message_forwarding2", TargetNode2),
@@ -134,6 +135,8 @@ test_message_forwarding(SubType, Config) ->
             T12 = mk_topic(SubType, <<"t1/#">>),
             {ok, _, _} = emqtt:subscribe(TargetC1, T11, qos1),
             {ok, _, _} = emqtt:subscribe(TargetC2, T12, qos1),
+            emqx_cth_cluster:sync_routes(SourceNodes, 10_000),
+            emqx_cth_cluster:sync_routes(TargetNodes, 10_000),
             %% Start cluster link, existing routes should be replicated.
             {ok, _} = ?block_until(#{
                 ?snk_kind := "cluster_link_route_sync_complete",
@@ -164,6 +167,8 @@ test_message_forwarding(SubType, Config) ->
                 end,
                 #{?snk_kind := "cluster_link_route_sync_complete"}
             ),
+            emqx_cth_cluster:sync_routes(SourceNodes),
+            emqx_cth_cluster:sync_routes(TargetNodes),
             %% Publish another message.
             {ok, _} = emqtt:publish(SourceC1, <<"t2/3/4">>, <<"heh">>, qos1),
             ?assertReceive(
@@ -184,6 +189,98 @@ test_message_forwarding(SubType, Config) ->
         []
     ).
 
+t_message_forwarding_disconnect_reason_reported('init', Config) ->
+    ok = snabbkaffe:start_trace(),
+    SourceName = fmt("~p_s", [?FUNCTION_NAME]),
+    TargetName = fmt("~p_t", [?FUNCTION_NAME]),
+    TargetSpec = emqx_cluster_link_cth:mk_cluster(2, TargetName, 1, Config),
+    TargetNodes = emqx_cth_cluster:start(TargetSpec),
+    SourceLink = emqx_cluster_link_cth:mk_link_conf_to(TargetNodes, #{
+        <<"topics">> => [],
+        <<"resource_opts">> => #{<<"health_check_interval">> => 100}
+    }),
+    SourceNodespec = #{
+        apps => [
+            {emqx_conf, merge_conf(#{cluster => #{links => [SourceLink]}}, conf_log())}
+        ]
+    },
+    SourceSpec = emqx_cluster_link_cth:mk_cluster(1, SourceName, [SourceNodespec], Config),
+    SourceNodes = emqx_cth_cluster:start(SourceSpec),
+    [
+        {target_name, TargetName},
+        {source_name, SourceName},
+        {target_nodes, TargetNodes},
+        {source_nodes, SourceNodes}
+        | Config
+    ];
+t_message_forwarding_disconnect_reason_reported('end', Config) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_cth_cluster:stop(?config(source_nodes, Config)),
+    ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
+
+t_message_forwarding_disconnect_reason_reported(Config) ->
+    TargetName = ?config(target_name, Config),
+    [TargetNode] = ?config(target_nodes, Config),
+    [SourceNode] = ?config(source_nodes, Config),
+    %% 1. Wait and verify message forwarding resource is connected.
+    ResourceId = emqx_cluster_link_mqtt:resource_id(TargetName),
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            {ok, _, #{status := connected}},
+            ?ON(SourceNode, emqx_resource:get_instance(ResourceId))
+        )
+    ),
+    %% 2. Repeatedly kick clients after the MQTT resource is up.
+    %% Disconnect reason should be reported through the emqtt disconnect handler.
+    _Kicker = ?ON(
+        TargetNode,
+        erlang:spawn(fun Loop() ->
+            lists:foreach(fun emqx_cm:kick_session/1, emqx_cm:all_client_ids()),
+            timer:sleep(100),
+            Loop()
+        end)
+    ),
+    %% 3. Verify reason is propagated to the resource status.
+    ?retry(
+        500,
+        5,
+        ?assertMatch(
+            {ok, _, #{
+                status := disconnected,
+                error := #{
+                    cause := broker_disconnect,
+                    reason := administrative_action,
+                    reason_code := ?RC_ADMINISTRATIVE_ACTION
+                }
+            }},
+            ?ON(SourceNode, emqx_resource:get_instance(ResourceId))
+        )
+    ),
+    %% 4. Verify reason is propagated to the alarm details.
+    ?retry(
+        500,
+        5,
+        begin
+            Alarms = ?ON(SourceNode, emqx_alarm:get_alarms(activated)),
+            ResourceAlarms = [
+                Alarm
+             || Alarm = #{details := #{resource_id := RId, reason := resource_down}} <- Alarms,
+                RId =:= ResourceId
+            ],
+            ?assertEqual(
+                [
+                    Alarm
+                 || Alarm = #{message := Message} <- ResourceAlarms,
+                    binary:match(Message, <<"broker_disconnect">>) =/= nomatch,
+                    binary:match(Message, <<"administrative_action">>) =/= nomatch
+                ],
+                ResourceAlarms
+            )
+        end
+    ).
+
 t_target_extrouting_gc('init', Config) ->
     ok = snabbkaffe:start_trace(),
     {SourceClusterSpec, TargetClusterSpec} = mk_interlinked_clusters(?FUNCTION_NAME, 1, 2, Config),
@@ -201,8 +298,8 @@ t_target_extrouting_gc('end', Config) ->
     ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
 
 t_target_extrouting_gc(Config) ->
-    [SourceNode1 | _] = nodes_source(Config),
-    [TargetNode1, TargetNode2 | _] = nodes_target(Config),
+    [SourceNode1 | _] = SourceNodes = nodes_source(Config),
+    [TargetNode1, TargetNode2 | _] = TargetNodes = nodes_target(Config),
     TargetName = atom_to_binary(emqx_cluster_link_cth:cluster_name(TargetNode1)),
     SourceC1 = emqx_cluster_link_cth:connect_client("t_target_extrouting_gc", SourceNode1),
     TargetC1 = emqx_cluster_link_cth:connect_client_unlink("t_target_extrouting_gc1", TargetNode1),
@@ -214,6 +311,8 @@ t_target_extrouting_gc(Config) ->
             TopicFilter2 = <<"t/#">>,
             {ok, _, _} = emqtt:subscribe(TargetC1, TopicFilter1, qos1),
             {ok, _, _} = emqtt:subscribe(TargetC2, TopicFilter2, qos1),
+            emqx_cth_cluster:sync_routes(SourceNodes, 10_000),
+            emqx_cth_cluster:sync_routes(TargetNodes, 10_000),
             {ok, _} = ?block_until(#{
                 ?snk_kind := "cluster_link_route_sync_complete", ?snk_meta := #{node := TargetNode1}
             }),

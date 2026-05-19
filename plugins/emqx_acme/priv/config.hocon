@@ -1,0 +1,85 @@
+# ACME directory URL
+# Let's Encrypt production: https://acme-v02.api.letsencrypt.org/directory
+# Let's Encrypt staging:    https://acme-staging-v02.api.letsencrypt.org/directory
+dir_url = "https://acme-v02.api.letsencrypt.org/directory"
+
+# Domain names for the certificate, comma-separated (e.g.
+# "mqtt.example.com,mqtt2.example.com"). All listed domains share one
+# cert as Subject Alternative Names; each must publicly resolve to this
+# EMQX node so the CA can complete the HTTP-01 challenge. Left empty by
+# default so the plugin does NOT auto-issue at boot; the operator sets
+# this (along with contact) via the dashboard or REST API before the
+# first issuance.
+domains = ""
+
+# Contact addresses registered with the ACME account, comma-separated
+# (e.g. "mailto:admin@example.com,mailto:ops@example.com"). Used by the
+# CA for renewal and revocation notices.
+contact = ""
+
+# Managed certificate bundle this plugin owns. Issued cert chain and key are
+# written to <data_dir>/certs2/global/<cert_bundle_name>/ (where <data_dir>
+# is /opt/emqx/data on docker, /var/lib/emqx on DEB/RPM). The ACME account
+# key lives separately at acc_key (below) and is never written into the
+# bundle.
+cert_bundle_name = "acme"
+
+# Listeners that should serve the issued cert, comma-separated (e.g.
+# "ssl:default,wss:default"). Each entry is "<type>:<name>", where type is
+# "ssl" or "wss". After the first issuance, the plugin rewrites each existing
+# listener's ssl_options.managed_certs.bundle_name to point at
+# cert_bundle_name (Scenario B); subsequent renewals just refresh the bundle
+# files in place and rely on Erlang ssl's PEM cache reload (~2 min) to pick up
+# the new cert without restarting the listener (Scenario A).
+# Names that do not yet correspond to a real listener are silently skipped at
+# issuance time, so it is safe to issue first and create the listener later.
+listener_ids = "ssl:default,wss:default"
+
+# Certificate key type: "ec" or "rsa"
+# NOTE: use "rsa" if EMQX version is oder than 6.1.2
+cert_type = "ec"
+
+# Port for HTTP-01 challenge listener
+# Must be reachable from the internet on port 80
+# NOTE: by default, EMQX may not be allowed to listen on port 80, configure
+#       a high port, and use a proxy or iptables to forward
+challenge_port = 80
+
+# Renew certificate when it expires within this many days
+renew_before_expiry_days = 30
+
+# How often to check certificate expiry (in hours)
+check_interval_hours = 24
+
+# Auto-configure the dashboard's HTTPS listener on first issuance,
+# pointed at the issued bundle. Set this to false to leave dashboard
+# listeners alone entirely. Must be explicitly set so the dashboard
+# form's switch component always reflects a concrete value (without
+# this key the form initialises the switch as null and the avsc
+# validator rejects the save).
+enable_dashboard_https = true
+
+# Port for the dashboard HTTPS listener the plugin creates on first
+# issuance. Override if 18084 conflicts with another service on the
+# host (e.g. set to 8443 in deployments where 18084 is already in
+# use). Only consulted on the first issuance — afterwards the operator
+# manages the listener through the normal dashboard config.
+dashboard_https_port = 18084
+
+# Optional: file:// URI pointing at a PEM-encoded ACME account private key
+# (EC or RSA) under operator control. When set, the plugin reads this file
+# on every issuance and never overwrites it; ${EMQX_ETC_DIR} / ${EMQX_LOG_DIR}
+# (and any os:getenv/1-resolvable ${VAR}) at the start of the path are
+# expanded at use time.
+#
+# When LEFT UNSET (the default), the plugin manages the account key inside
+# the cert bundle: on first issuance it generates an EC or RSA key (per
+# cert_type) and stores it via emqx_managed_certs, which replicates it to
+# every cluster node alongside the cert chain. Subsequent issuances reuse
+# the same key, so the cluster shares a single ACME account identity
+# without operator intervention.
+# acc_key = "file://${EMQX_ETC_DIR}/acme_acc_key.pem"
+
+# Optional: file:// URI pointing at a file containing the password for an
+# encrypted acc_key PEM. Only meaningful when acc_key is set above.
+# acc_key_password = "file://${EMQX_ETC_DIR}/acme_acc_key_password.txt"

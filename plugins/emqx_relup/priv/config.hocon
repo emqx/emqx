@@ -1,0 +1,4 @@
+## This is a demo config in HOCON format
+## The same format used by EMQX since 5.0
+
+magic_n = 42

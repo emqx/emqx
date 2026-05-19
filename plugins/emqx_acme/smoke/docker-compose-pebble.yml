@@ -1,0 +1,72 @@
+## Single-node smoke for emqx_acme:
+##   - one emqx/emqx:6.1.1 container hosts the plugin
+##   - Pebble (LE test ACME CA) + challtestsrv (controllable DNS) on the
+##     same docker network, so HTTP-01 validation never touches public DNS
+##   - challtestsrv resolves the test domain straight to the emqx
+##     container's fixed IP, and Pebble's VA reaches the plugin's
+##     challenge listener via the docker network on port 5002 — no host
+##     port mapping for the challenge path
+##   - 18083 is host-mapped so the smoke script can drive the HTTP API
+##   - bootstrap-api-key.txt is mounted into emqx so the smoke can use
+##     HTTP basic auth without going through the dashboard login flow
+
+networks:
+  acmenet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.30.50.0/24
+
+services:
+  challtestsrv:
+    image: ghcr.io/letsencrypt/pebble-challtestsrv:latest
+    container_name: acme-pebble-challtestsrv
+    command: >
+      -defaultIPv4 10.30.50.10
+      -defaultIPv6 ""
+      -http01 ""
+      -https01 ""
+      -tlsalpn01 ""
+      -dnsserver ":8053"
+    ports:
+      - "8055:8055"
+    networks:
+      acmenet:
+        ipv4_address: 10.30.50.3
+
+  pebble:
+    image: ghcr.io/letsencrypt/pebble:latest
+    container_name: acme-pebble-pebble
+    command: -dnsserver 10.30.50.3:8053
+    environment:
+      PEBBLE_VA_NOSLEEP: "1"
+    ports:
+      - "14000:14000"
+      - "15000:15000"
+    depends_on:
+      - challtestsrv
+    networks:
+      acmenet:
+        ipv4_address: 10.30.50.2
+
+  emqx:
+    image: emqx/emqx:6.1.1
+    container_name: acme-pebble-emqx
+    hostname: emqx.acme.test
+    environment:
+      EMQX_NODE__NAME: "emqx@10.30.50.10"
+      EMQX_NODE__COOKIE: "acme-pebble-smoke"
+      EMQX_API_KEY__BOOTSTRAP_FILE: "/etc/emqx/bootstrap-api-key.txt"
+    networks:
+      acmenet:
+        ipv4_address: 10.30.50.10
+    dns:
+      - 10.30.50.3
+    ports:
+      - "18083:18083"
+    volumes:
+      - ../../../_build/plugins:/plugins-tarballs:ro
+      - ./bootstrap-api-key.txt:/etc/emqx/bootstrap-api-key.txt:ro
+    depends_on:
+      - pebble
+      - challtestsrv
