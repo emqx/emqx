@@ -258,8 +258,8 @@ esac
 export EMQX_SECURITY_PROFILE="${EMQX_SECURITY_PROFILE:-legacy}"
 
 if [[ "$IS_BOOT_COMMAND" = 'yes' ]]; then
-    if ! [[ "${EMQX_SECURITY_PROFILE,,}" =~ ^(legacy|hardened)?$ ]]; then
-        logerr "Invalid security profile: $EMQX_SECURITY_PROFILE. Valid values are: legacy, hardened, or empty (defaulting to legacy)."
+    if [ "$EMQX_SECURITY_PROFILE" != 'legacy' ] && [ "$EMQX_SECURITY_PROFILE" != 'hardened' ]; then
+        logerr "Invalid security profile: $EMQX_SECURITY_PROFILE. Valid values are: legacy, hardened."
         exit 1
     fi
 fi

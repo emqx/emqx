@@ -81,7 +81,7 @@ clear_profile() ->
 
 cache_profile() ->
     Profile =
-        case getenv_lowcase(?PROFILE_ENV_VAR) of
+        case os:getenv(?PROFILE_ENV_VAR) of
             false ->
                 ?PROFILE_DEFAULT;
             "" ->
@@ -100,11 +100,3 @@ cache_profile() ->
         end,
     _ = persistent_term:put(?PT_KEY, Profile),
     Profile.
-
-getenv_lowcase(Var) ->
-    case os:getenv(Var) of
-        false ->
-            false;
-        Value ->
-            string:lowercase(Value)
-    end.

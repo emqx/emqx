@@ -93,11 +93,12 @@ def test_hardened_rejects_insecure_cookie(emqx_bin_path):
         assert "EMQX_SECURITY_PROFILE" in output
 
 
-def test_invalid_security_profile_fails_fast(emqx_bin_path):
+@pytest.mark.parametrize("security_profile", ["not-a-profile", "HARDENED"])
+def test_invalid_security_profile_fails_fast(emqx_bin_path, security_profile):
     """Test that malformed EMQX_SECURITY_PROFILE fails before boot."""
     result = run_emqx_console(
         emqx_bin_path,
-        {"EMQX_SECURITY_PROFILE": "not-a-profile"},
+        {"EMQX_SECURITY_PROFILE": security_profile},
     )
     output = result.stdout + result.stderr
     assert result.returncode != 0

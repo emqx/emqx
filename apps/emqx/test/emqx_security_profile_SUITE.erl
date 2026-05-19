@@ -113,3 +113,8 @@ t_hardened(_) ->
     ?assertEqual({{127, 0, 0, 1}, 8883}, emqx:get_config([listeners, ssl, default, bind])),
     ?assertEqual({{127, 0, 0, 1}, 8083}, emqx:get_config([listeners, ws, default, bind])),
     ?assertEqual({{127, 0, 0, 1}, 8084}, emqx:get_config([listeners, wss, default, bind])).
+
+t_uppercase_profile_rejected(_) ->
+    os:putenv(?PROFILE_ENV_VAR, "HARDENED"),
+    emqx_security_profile:clear_profile(),
+    ?assertExit({invalid_security_profile, _}, emqx_security_profile:profile()).
