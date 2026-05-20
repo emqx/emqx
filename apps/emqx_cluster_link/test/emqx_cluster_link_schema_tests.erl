@@ -101,6 +101,7 @@ tcp_opts_schema_test_() ->
             [#{<<"tcp_opts">> := TcpOpts}] = parse_and_check([
                 link(<<"link1">>, #{
                     <<"tcp_opts">> => #{
+                        <<"active_n">> => 1000,
                         <<"nodelay">> => true,
                         <<"sndbuf">> => <<"16KB">>,
                         <<"recbuf">> => <<"8KB">>,
@@ -112,6 +113,7 @@ tcp_opts_schema_test_() ->
             ]),
             ?assertMatch(
                 #{
+                    <<"active_n">> := 1000,
                     <<"nodelay">> := true,
                     <<"sndbuf">> := 16384,
                     <<"recbuf">> := 8192,
@@ -127,6 +129,7 @@ tcp_opts_schema_test_() ->
                     clientid => <<"linkclientid">>,
                     ssl => #{enable => false},
                     tcp_opts => #{
+                        active_n => 1000,
                         nodelay => true,
                         sndbuf => 16384,
                         recbuf => 8192,
@@ -136,6 +139,7 @@ tcp_opts_schema_test_() ->
                     }
                 },
                 #{tcp_opts := Proplist} = emqx_cluster_link_config:mk_emqtt_options(LinkConf),
+                ?assertEqual(1000, proplists:get_value(active, Proplist)),
                 ?assertEqual(true, proplists:get_value(nodelay, Proplist)),
                 ?assertEqual(16384, proplists:get_value(sndbuf, Proplist)),
                 ?assertEqual(8192, proplists:get_value(recbuf, Proplist)),
