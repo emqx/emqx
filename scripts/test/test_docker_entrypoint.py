@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 
-def run_entrypoint_with_hostname(tmp_path, hostname_script):
+def run_entrypoint_with_hostname(tmp_path, hostname_script, extra_env=None):
     workspace_root = Path(__file__).parent.parent.parent
     entrypoint = workspace_root / "deploy" / "docker" / "docker-entrypoint.sh"
     fake_bin = tmp_path / "bin"
@@ -33,6 +33,8 @@ def run_entrypoint_with_hostname(tmp_path, hostname_script):
         "EMQX_CLUSTER__K8S__NAMESPACE",
     ]:
         env.pop(name, None)
+    if extra_env:
+        env.update(extra_env)
 
     return subprocess.run(
         [str(entrypoint), "env"],
@@ -78,4 +80,32 @@ echo "emqx-container"
 
     assert result.returncode != 0
     assert "Failed to determine EMQX node host" in result.stderr
+    assert "EMQX_NODE_NAME" in result.stderr
+    assert "EMQX_NODE_NAME=emqx@" not in result.stdout
+
+
+def test_entrypoint_reports_clear_error_when_k8s_hostname_lookup_is_missing(tmp_path):
+    result = run_entrypoint_with_hostname(
+        tmp_path,
+        """#!/usr/bin/env bash
+if [ "$1" = "-i" ]; then
+  echo "203.0.113.45"
+  exit 0
+fi
+if [ "$1" = "-I" ]; then
+  echo "203.0.113.45"
+  exit 0
+fi
+echo "emqx-container"
+""",
+        {
+            "EMQX_CLUSTER__DISCOVERY_STRATEGY": "k8s",
+            "EMQX_CLUSTER__K8S__ADDRESS_TYPE": "hostname",
+            "EMQX_CLUSTER__K8S__NAMESPACE": "default",
+        },
+    )
+
+    assert result.returncode != 0
+    assert "Failed to determine EMQX node host" in result.stderr
+    assert "EMQX_NODE_NAME" in result.stderr
     assert "EMQX_NODE_NAME=emqx@" not in result.stdout

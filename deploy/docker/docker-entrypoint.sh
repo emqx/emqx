@@ -18,10 +18,20 @@ if [[ -z "$LOCAL_IP" ]]; then
     LOCAL_IP=$(hostname -I 2>/dev/null | grep -oE "$IP_REGEX" | head -n 1)
 fi
 
+failed_to_determine_node_host() {
+    echo "ERROR: Failed to determine EMQX node host. Set EMQX_NODE_NAME, EMQX_NODE__NAME, or EMQX_HOST." >&2
+    exit 1
+}
+
 ensure_local_ip() {
     if [[ -z "$LOCAL_IP" ]]; then
-        echo "ERROR: Failed to determine EMQX node host. Set EMQX_NODE__NAME or EMQX_HOST." >&2
-        exit 1
+        failed_to_determine_node_host
+    fi
+}
+
+ensure_emqx_host() {
+    if [[ -z "${EMQX_HOST:-}" ]]; then
+        failed_to_determine_node_host
     fi
 }
 
@@ -48,11 +58,12 @@ if [[ -z "${EMQX_NODE_NAME:-}" ]] && [[ -z "${EMQX_NODE__NAME:-}" ]]; then
             [[ -n "$EMQX_CLUSTER__K8S__NAMESPACE" ]]; then
                 ensure_local_ip
                 EMQX_CLUSTER__K8S__SUFFIX=${EMQX_CLUSTER__K8S__SUFFIX:-'svc.cluster.local'}
-                EMQX_HOST=$(grep -h "^$LOCAL_IP" /etc/hosts | grep -o "$(hostname).*.$EMQX_CLUSTER__K8S__NAMESPACE.$EMQX_CLUSTER__K8S__SUFFIX")
+                EMQX_HOST=$(grep -h "^$LOCAL_IP" /etc/hosts | grep -o "$(hostname).*.$EMQX_CLUSTER__K8S__NAMESPACE.$EMQX_CLUSTER__K8S__SUFFIX" || true)
         else
             ensure_local_ip
             EMQX_HOST="$LOCAL_IP"
         fi
+        ensure_emqx_host
         export EMQX_HOST
     fi
     export EMQX_NODE_NAME="$EMQX_NAME@$EMQX_HOST"
