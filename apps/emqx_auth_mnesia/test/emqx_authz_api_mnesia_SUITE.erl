@@ -50,8 +50,16 @@ init_per_suite(Config) ->
     _ = emqx_common_test_http:create_default_app(),
     [{suite_apps, Apps} | Config].
 end_per_suite(_Config) ->
-    ok = emqx_cth_suite:stop(?config(suite_apps, _Config)),
+    %% Belt-and-suspenders timetrap: emqx_mgmt_auth:delete/1 wraps the
+    %% delete in a mria transaction with no timeout, so calling
+    %% delete_default_app after the apps are stopped causes a 30-minute
+    %% hang waiting for the dead mria shard. The line order below puts
+    %% the delete BEFORE the stop (matching every other api SUITE);
+    %% the 30s timetrap is kept so any future regression fails fast
+    %% instead of blocking the whole CT shard for the full CT default.
+    ct:timetrap({seconds, 30}),
     _ = emqx_common_test_http:delete_default_app(),
+    ok = emqx_cth_suite:stop(?config(suite_apps, _Config)),
     ok.
 
 %%------------------------------------------------------------------------------
