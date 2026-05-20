@@ -14,8 +14,6 @@
 
 -define(SERVER, "http://127.0.0.1:18083/api/v5").
 
--import(emqx_mgmt_api_test_util, [request/2]).
-
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -36,22 +34,25 @@ end_per_suite(Config) ->
     ok.
 
 t_hotconf(_) ->
-    Url = ?SERVER ++ "/schemas/hotconf",
-    {ok, 200, Body} = request(get, Url),
-    %% assert it's a valid json
-    _ = emqx_utils_json:decode(Body),
-    ok.
+    assert_schema_response("hotconf").
 
 t_actions(_) ->
-    Url = ?SERVER ++ "/schemas/actions",
-    {ok, 200, Body} = request(get, Url),
-    %% assert it's a valid json
-    _ = emqx_utils_json:decode(Body),
-    ok.
+    assert_schema_response("actions").
 
 t_connectors(_) ->
-    Url = ?SERVER ++ "/schemas/connectors",
-    {ok, 200, Body} = request(get, Url),
+    assert_schema_response("connectors").
+
+assert_schema_response(Name) ->
+    Url = ?SERVER ++ "/schemas/" ++ Name,
+    {ok, {{_, 200, _}, Headers, Body}} = request_with_headers(get, Url),
     %% assert it's a valid json
     _ = emqx_utils_json:decode(Body),
+    %% assert minirest reports JSON content-type, not the text/plain fallback
+    ContentType = proplists:get_value("content-type", Headers),
+    ?assertMatch(<<"application/json">>, iolist_to_binary(ContentType)),
     ok.
+
+request_with_headers(Method, Url) ->
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Opts = #{return_all => true, httpc_req_opts => [{body_format, binary}]},
+    emqx_mgmt_api_test_util:request_api(Method, Url, [], AuthHeader, [], Opts).
