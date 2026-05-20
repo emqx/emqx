@@ -21,10 +21,20 @@
 -export([execute/2]).
 
 execute(Req, Env) ->
-    case check_dispatch_ready(Env) of
-        true -> add_cors_flag(Req, Env);
-        false -> {stop, cowboy_req:reply(503, #{<<"retry-after">> => <<"15">>}, Req)}
+    case is_api_docs_path(cowboy_req:path(Req)) of
+        true ->
+            {stop, cowboy_req:reply(404, Req)};
+        false ->
+            case check_dispatch_ready(Env) of
+                true -> add_cors_flag(Req, Env);
+                false -> {stop, cowboy_req:reply(503, #{<<"retry-after">> => <<"15">>}, Req)}
+            end
     end.
+
+%% Hotfix: hide Swagger UI / OpenAPI JSON to pass customer security scan.
+is_api_docs_path(<<"/api-docs">>) -> true;
+is_api_docs_path(<<"/api-docs/", _/binary>>) -> true;
+is_api_docs_path(_) -> false.
 
 add_cors_flag(Req, Env) ->
     CORS = emqx_conf:get([dashboard, cors], false),
