@@ -99,9 +99,7 @@ init_per_suite(Config) ->
     meck:expect(
         emqx_authz_file,
         acl_conf_file,
-        fun() ->
-            emqx_common_test_helpers:deps_path(emqx_auth, "etc/acl.conf")
-        end
+        fun() -> acl_conf_path() end
     ),
     ACLConfPath = acl_conf_path(),
     {ok, ACLConfBackup} = file:read_file(ACLConfPath),
