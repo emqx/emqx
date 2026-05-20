@@ -216,6 +216,7 @@ t_explicit_session_takeover(Config) ->
         {port, Port1}
     ]),
     {ok, _, _} = emqtt:subscribe(C0, <<"t1">>),
+    emqx_cth_cluster:sync_routes([Node1, Node2]),
 
     ?assertEqual(
         1,
@@ -256,6 +257,7 @@ t_explicit_session_takeover(Config) ->
         #{?snk_kind := emqx_channel_takeover_end, clientid := <<"client_with_session">>},
         1000
     ),
+    emqx_cth_cluster:sync_routes([Node1, Node2]),
 
     ok = rpc:call(Node1, emqx_eviction_agent, disable, [test_eviction]),
 
@@ -284,6 +286,7 @@ t_explicit_session_takeover(Config) ->
     ),
 
     ok = rpc:call(Node1, emqx_eviction_agent, disable, [test_eviction]),
+    emqx_cth_cluster:sync_routes([Node1, Node2]),
 
     %% Session is on Node2, but we connect to Node1
     {ok, C2} = emqtt_connect_for_publish(Port1),
@@ -343,6 +346,7 @@ t_evict_phantom_session(Config) ->
         {port, Port1}
     ]),
     {ok, _, _} = emqtt:subscribe(C0, <<"t1">>),
+    emqx_cth_cluster:sync_routes([Node1, Node2]),
     ChanInfos = rpc:call(Node1, ets, tab2list, [?CHAN_INFO_TAB]),
     ?assertEqual(1, length(ChanInfos)),
     ok = emqtt:disconnect(C0),

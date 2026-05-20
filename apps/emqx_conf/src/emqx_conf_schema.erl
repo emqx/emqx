@@ -42,7 +42,9 @@
 
 -define(DEFAULT_NODE_NAME, <<"emqx@127.0.0.1">>).
 
--define(DEFAULT_KERNEL_INET_DIST_CONNECT_OPTIONS, <<"[{buffer,1048576}]">>).
+-define(DEFAULT_KERNEL_INET_DIST_OPTIONS, <<"[{buffer,1048576}]">>).
+-define(DEFAULT_KERNEL_INET_DIST_CONNECT_OPTIONS, ?DEFAULT_KERNEL_INET_DIST_OPTIONS).
+-define(DEFAULT_KERNEL_INET_DIST_LISTEN_OPTIONS, ?DEFAULT_KERNEL_INET_DIST_OPTIONS).
 
 %% Static apps which merge their configs into the merged emqx.conf
 %% The list can not be made a dynamic read at run-time as it is used
@@ -68,8 +70,27 @@
     emqx_mgmt_api_key_schema
 ]).
 
-%% 1 million default ports counter
+%% Fallback used when `node.max_ports' is `auto' and the host has more than
+%% MAX_PORTS_CORES_CLAMP logical processors available (or the runtime cannot
+%% report a CPU count). Matches the historical fixed default of 1 million.
 -define(DEFAULT_MAX_PORTS, 1024 * 1024).
+
+%% `node.max_ports = auto' scales linearly with logical_processors_available
+%% up to MAX_PORTS_CORES_CLAMP cores. Above the clamp we fall back to
+%% ?DEFAULT_MAX_PORTS so a large host doesn't end up with an unbounded table.
+%% 65536 == 2^16 -- the VM rounds +Q up to the next power of two anyway, so
+%% using a power-of-two multiplier keeps the configured and effective limits
+%% in sync (no surprise gap between `node.max_ports' and what shows up at
+%% runtime in `erlang:system_info(port_limit)').
+-define(MAX_PORTS_PER_CORE, 65536).
+-define(MAX_PORTS_CORES_CLAMP, 8).
+
+%% Process table is sized as ?PROCESS_LIMIT_RATIO * +Q.
+%% 2x is the historical default and is required for TLS/QUIC: each TLS
+%% connection owns 2 Erlang processes (the connection process plus the SSL
+%% handshake/record process), so the process table must scale at 2x the port
+%% table to avoid hitting +P before +Q under a full TLS load.
+-define(PROCESS_LIMIT_RATIO, 2).
 
 %% Don't forget to update `emqx_log_throttler:new_throttler/1` when adding a message that
 %% is throttled on a per-resource basis.
@@ -479,23 +500,37 @@ fields("node") ->
             sc(
                 range(1024, 134217727),
                 #{
-                    %% deprecated make sure it's disappeared in raw_conf user(HTTP API)
-                    %% but still in vm.args via translation/1
-                    %% ProcessLimit is always equal to MaxPort * 2 when translation/1.
-                    deprecated => {since, "5.1"},
                     desc => ?DESC(process_limit),
+                    %% Hidden so to infer from max_ports
                     importance => ?IMPORTANCE_HIDDEN,
                     'readOnly' => true
                 }
             )},
         {"max_ports",
             sc(
-                range(1024, 134217727),
+                hoconsc:union([auto, range(1024, 134217727)]),
                 #{
-                    mapping => "vm_args.+Q",
+                    %% `mapping' is intentionally omitted: the translation
+                    %% `tr_vm_args_max_ports/1' below resolves `auto' to the
+                    %% per-core value and emits the final integer into
+                    %% `vm_args.+Q'.
                     desc => ?DESC(max_ports),
-                    default => ?DEFAULT_MAX_PORTS,
+                    default => auto,
                     importance => ?IMPORTANCE_HIGH,
+                    'readOnly' => true
+                }
+            )},
+        {"schedulers",
+            sc(
+                hoconsc:union([auto, pos_integer()]),
+                #{
+                    %% `mapping' is intentionally omitted: the translation
+                    %% `tr_vm_args_schedulers/1' below resolves `auto' to the
+                    %% number of logical processors available and emits the
+                    %% final `N:N' string into `vm_args.+S'.
+                    desc => ?DESC(schedulers),
+                    default => auto,
+                    importance => ?IMPORTANCE_LOW,
                     'readOnly' => true
                 }
             )},
@@ -508,6 +543,16 @@ fields("node") ->
                     default => 8192,
                     importance => ?IMPORTANCE_LOW,
                     'readOnly' => true
+                }
+            )},
+        {"dist_listen_options",
+            sc(
+                binary(),
+                #{
+                    desc => ?DESC(dist_listen_options),
+                    default => ?DEFAULT_KERNEL_INET_DIST_LISTEN_OPTIONS,
+                    importance => ?IMPORTANCE_LOW,
+                    'readOnly' => false
                 }
             )},
         {"dist_connect_options",
@@ -1283,13 +1328,63 @@ translation("prometheus") ->
     ];
 translation("vm_args") ->
     [
+        {"+Q", fun tr_vm_args_max_ports/1},
         {"+P", fun tr_vm_args_process_limit/1},
+        {"+S", fun tr_vm_args_schedulers/1},
         {"-kernel inet_dist_use_interface", fun tr_vm_args_dist_bind_address/1},
-        {"-kernel inet_dist_connect_options", fun tr_kernel_inet_dist_connect_options/1}
+        {"-kernel inet_dist_connect_options", fun tr_kernel_inet_dist_connect_options/1},
+        {"-kernel inet_dist_listen_options", fun tr_kernel_inet_dist_listen_options/1}
     ].
 
+%% Cap +S at the number of logical processors actually available to the VM.
+%% BEAM's default is one scheduler per host CPU regardless of cgroup CPU set,
+%% so a 20-core host running emqx in a `--cpuset-cpus=0-7' container would
+%% otherwise spawn 20 scheduler OS threads where only 8 can run in parallel,
+%% wasting ~MB-per-scheduler of stack/heap overhead with no throughput gain.
+%% `logical_processors_available' reflects sched_getaffinity (and therefore
+%% the cgroup) on Linux; falls back to the static `logical_processors' count
+%% on platforms where the runtime can't determine availability.
+%% A user-specified `node.schedulers' overrides the auto-detected value.
+tr_vm_args_schedulers(Conf) ->
+    N = resolve_schedulers(conf_get("node.schedulers", Conf, auto)),
+    integer_to_list(N) ++ ":" ++ integer_to_list(N).
+
+resolve_schedulers(auto) ->
+    case erlang:system_info(logical_processors_available) of
+        X when is_integer(X), X >= 1 -> X;
+        _ -> erlang:system_info(logical_processors)
+    end;
+resolve_schedulers(N) when is_integer(N), N >= 1 ->
+    N.
+
+tr_vm_args_max_ports(Conf) ->
+    resolve_max_ports(conf_get("node.max_ports", Conf, auto)).
+
+%% `+P' is normally derived from `+Q' (max_ports) so users don't have to
+%% think about it. The hidden `node.process_limit' override is honored only
+%% when it's strictly larger than the derived value -- a smaller user value
+%% would silently cap the process table below what max_ports already promises.
 tr_vm_args_process_limit(Conf) ->
-    2 * conf_get("node.max_ports", Conf, ?DEFAULT_MAX_PORTS).
+    MaxPorts = resolve_max_ports(conf_get("node.max_ports", Conf, auto)),
+    Derived = ?PROCESS_LIMIT_RATIO * MaxPorts,
+    case conf_get("node.process_limit", Conf, undefined) of
+        N when is_integer(N), N > Derived -> N;
+        _ -> Derived
+    end.
+
+%% Resolve `node.max_ports' to an integer suitable for `+Q'.
+%% `auto' -> per-core formula clamped at ?MAX_PORTS_CORES_CLAMP cores;
+%% above the clamp (or when the runtime cannot report a CPU count) we use
+%% ?DEFAULT_MAX_PORTS so very large hosts keep the historical default.
+resolve_max_ports(auto) ->
+    case erlang:system_info(logical_processors_available) of
+        Cores when is_integer(Cores), Cores >= 1, Cores =< ?MAX_PORTS_CORES_CLAMP ->
+            Cores * ?MAX_PORTS_PER_CORE;
+        _ ->
+            ?DEFAULT_MAX_PORTS
+    end;
+resolve_max_ports(N) when is_integer(N) ->
+    N.
 
 tr_vm_args_dist_bind_address(Conf) ->
     %% Try accessing via node first (like max_ports does)
@@ -1329,6 +1424,10 @@ tr_vm_args_dist_bind_address_parse(Addr) ->
 
 tr_kernel_inet_dist_connect_options(Conf) ->
     Val = conf_get("node.dist_connect_options", Conf, [?DEFAULT_KERNEL_INET_DIST_CONNECT_OPTIONS]),
+    lists:flatten(io_lib:format("~0p", [Val])).
+
+tr_kernel_inet_dist_listen_options(Conf) ->
+    Val = conf_get("node.dist_listen_options", Conf, [?DEFAULT_KERNEL_INET_DIST_CONNECT_OPTIONS]),
     lists:flatten(io_lib:format("~0p", [Val])).
 
 tr_prometheus_collectors(Conf) ->

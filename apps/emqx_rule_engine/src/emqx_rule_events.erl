@@ -555,6 +555,7 @@ eventmsg_connack(
     Keepalive = maps:get(keepalive, ConnInfo, 0),
     ConnProps = maps:get(conn_props, ConnInfo, #{}),
     ExpiryInterval = maps:get(expiry_interval, ConnInfo, 0),
+    ConnectedAt = maps:get(connected_at, ConnInfo, undefined),
     with_basic_columns(
         'client.connack',
         #{
@@ -568,6 +569,7 @@ eventmsg_connack(
             proto_ver => ProtoVer,
             keepalive => Keepalive,
             expiry_interval => ExpiryInterval,
+            connected_at => ConnectedAt,
             conn_props => emqx_utils_maps:printable_props(ConnProps)
         },
         #{}
@@ -1737,7 +1739,7 @@ get_namespace_from_message(#message{}) ->
 get_rules_for_topic(Message = #message{topic = Topic}) ->
     case emqx_rule_engine:get_rules_for_topic(Topic) of
         [] ->
-            ok;
+            [];
         EnrichedRules0 ->
             LimitSelectsInNamespace = emqx_rule_engine_config:get_limit_selects_in_namespace(),
             case LimitSelectsInNamespace of

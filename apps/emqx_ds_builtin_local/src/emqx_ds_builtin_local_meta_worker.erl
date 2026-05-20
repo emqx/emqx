@@ -49,10 +49,17 @@ handle_cast(_Cast, S) ->
 handle_info({?MODULE, tick}, S = #s{db = DB}) ->
     Shards = emqx_ds_builtin_local_meta:shards(DB),
     [tick(DB, Shard) || Shard <- Shards],
-    %% Send the same tag the handler matches on; the original
-    %% `tick' atom would fall through to the catchall below and
-    %% silently stop the periodic tick after the first iteration.
-    erlang:send_after(100, self(), {?MODULE, tick}),
+    %% No reschedule: the original send_after delivered a bare `tick'
+    %% atom that did not match this clause, so the timer has been a
+    %% no-op since this module was introduced in 2024-08. Two years of
+    %% production behavior depend on the worker going idle after the
+    %% first tick — making it actually periodic broke
+    %% emqx_ds_builtin_local_SUITE:t_store_batch_fail on the v5
+    %% branches (meck:unload couldn't purge the cover-compiled
+    %% emqx_ds_storage_layer beam while the worker kept calling into
+    %% it every 100 ms). If the storage-layer team wants real
+    %% periodicity, that's a deliberate design change separate from
+    %% this fix.
     {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.

@@ -22,6 +22,10 @@ Endpoints:
     Further narrows the tag-scoped spec to endpoints whose oneOf
     request or response schemas contain a member whose `$ref` matches
     `name` case-insensitively.
+  - `GET /api-docs/swagger.json`
+    Returns the full, unfiltered OpenAPI 3.0.0 document for the
+    listener. Kept for backward compatibility with external Swagger UI
+    deployments that load EMQX's spec by URL.
 """.
 
 -behaviour(cowboy_rest).
@@ -51,6 +55,8 @@ allowed_methods(Req, State) ->
 content_types_provided(Req, State) ->
     case {cowboy_req:path(Req), cowboy_req:binding(tag, Req)} of
         {<<"/api-spec.json">>, undefined} ->
+            {[{{<<"application">>, <<"json">>, '*'}, handle_get_json}], Req, State};
+        {<<"/api-docs/swagger.json">>, undefined} ->
             {[{{<<"application">>, <<"json">>, '*'}, handle_get_json}], Req, State};
         {<<"/api-spec.md">>, undefined} ->
             {[{<<"text/markdown">>, handle_get_markdown}], Req, State};
@@ -90,20 +96,29 @@ handle_get_markdown(Req, State) ->
     end.
 
 handle_get_json(Req, State) ->
-    Tag = cowboy_req:binding(tag, Req),
-    Name = cowboy_req:binding(name, Req),
-    case build_response(Tag, Name) of
-        {ok, Body} ->
-            {Body, Req, State};
-        {error, not_found} ->
-            Req1 = cowboy_req:reply(
-                404,
-                #{<<"content-type">> => <<"application/json">>},
-                encode_pretty(#{<<"error">> => <<"not_found">>}),
-                Req
-            ),
-            {stop, Req1, State}
+    case cowboy_req:path(Req) of
+        <<"/api-docs/swagger.json">> ->
+            {full_swagger_json(), Req, State};
+        _ ->
+            Tag = cowboy_req:binding(tag, Req),
+            Name = cowboy_req:binding(name, Req),
+            case build_response(Tag, Name) of
+                {ok, Body} ->
+                    {Body, Req, State};
+                {error, not_found} ->
+                    Req1 = cowboy_req:reply(
+                        404,
+                        #{<<"content-type">> => <<"application/json">>},
+                        encode_pretty(#{<<"error">> => <<"not_found">>}),
+                        Req
+                    ),
+                    {stop, Req1, State}
+            end
     end.
+
+%% Full unfiltered OpenAPI spec, for `/api-docs/swagger.json`.
+full_swagger_json() ->
+    cowboy_swagger:to_json(get_trails()).
 
 %%--------------------------------------------------------------------
 %% Response builders

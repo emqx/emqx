@@ -212,6 +212,22 @@ t_connect(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
+-doc """
+A connected MQTT-SN client sending a second CONNECT from the same UDP source
+port must be rejected with a DISCONNECT, not crash the connection process.
+Regression test for the case_clause in emqx_gateway_conn:with_channel/3 when
+emqx_mqttsn_channel returned {error, unexpected_connect, _}.
+""".
+t_duplicate_connect(_) ->
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    send_connect_msg(Socket, <<"client_id_dup_connect">>),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    %% second CONNECT from the same source port must not crash the gateway
+    send_connect_msg(Socket, <<"client_id_dup_connect">>),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    gen_udp:close(Socket).
+
 t_update_not_restart_listener(_) ->
     {ok, Socket} = gen_udp:open(0, [binary]),
     ClientId = ?CLIENTID,

@@ -12,12 +12,19 @@
 
 start_link() ->
     %% Init and log routing table type
+    ok = emqx_router:init_schema(),
     ok = mria:wait_for_tables(
         emqx_router:create_tables() ++
             emqx_router_helper:create_tables()
     ),
-    ok = emqx_router:init_schema(),
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+    case supervisor:start_link({local, ?MODULE}, ?MODULE, []) of
+        {ok, _} = Ret ->
+            %% Setup periodic stats reporting (handled by `emqx_stats' server):
+            ok = emqx_stats:update_interval(route_stats, fun emqx_router_helper:stats_fun/0),
+            Ret;
+        Err ->
+            Err
+    end.
 
 init([]) ->
     %% Router helper
@@ -42,9 +49,16 @@ init([]) ->
         hash,
         {emqx_router, start_link, []}
     ]),
+    Children =
+        case emqx_router:get_schema_vsn() of
+            v3 ->
+                [RouterPool];
+            v2 ->
+                [Helper, HelperPostStart, RouterPool]
+        end,
     SupFlags = #{
         strategy => one_for_one,
         intensity => 10,
         period => 100
     },
-    {ok, {SupFlags, [Helper, HelperPostStart, RouterPool]}}.
+    {ok, {SupFlags, Children}}.
