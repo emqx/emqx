@@ -24,7 +24,7 @@ generate_request_rejects_crlf_in_header_test_() ->
             do_generate(<<"alice\rX-Override-Result: allow">>)
         ),
         ?_assertMatch(
-            {error, {bad_http_header_value, _, contains_nul}},
+            {error, {bad_http_header_value, _, contains_null}},
             do_generate(<<"alice", 0, "X-Override-Result: allow">>)
         )
     ].

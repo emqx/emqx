@@ -1163,6 +1163,14 @@ fields("tcp_opts") ->
     ];
 fields("client_tcp_opts") ->
     [
+        {active_n,
+            sc(
+                non_neg_integer(),
+                #{
+                    default => 10,
+                    desc => ?DESC(fields_tcp_opts_active_n)
+                }
+            )},
         {nodelay,
             sc(
                 boolean(),
@@ -3290,6 +3298,7 @@ client_tcp_opts_to_proplist(Map) when is_map(Map) ->
             (buffer, V, Acc) when is_integer(V) -> [{buffer, V} | Acc];
             (keepalive, V, Acc) when is_boolean(V) -> [{keepalive, V} | Acc];
             (delay_send, V, Acc) when is_boolean(V) -> [{delay_send, V} | Acc];
+            (active_n, V, Acc) when is_integer(V) -> [{active, V} | Acc];
             (_, _, Acc) -> Acc
         end,
         [],

@@ -798,15 +798,39 @@ render_request_body(BodyTks, RenderTmplFunc, Msg) ->
     RenderTmplFunc(BodyTks, Msg).
 
 render_headers(HeaderTks, RenderTmplFunc, Msg) ->
-    lists:map(
-        fun({K, V}) ->
-            {
-                render_template_string(K, RenderTmplFunc, Msg),
-                render_template_string(emqx_secret:unwrap(V), RenderTmplFunc, Msg)
-            }
+    lists:filtermap(
+        fun({KTks, VTks}) ->
+            K = render_template_string(KTks, RenderTmplFunc, Msg),
+            V = render_template_string(emqx_secret:unwrap(VTks), RenderTmplFunc, Msg),
+            case safe_http_header(K, V) of
+                true ->
+                    {true, {K, V}};
+                {false, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "http_header_dropped",
+                        header_name => K,
+                        reason => Reason
+                    }),
+                    false
+            end
         end,
         HeaderTks
     ).
+
+%% Defense-in-depth: a templated header value can interpolate message-level
+%% bytes that originated from an MQTT publisher. Reject CR/LF/NUL so a
+%% malicious payload cannot split the outgoing HTTP request to the bridge
+%% destination.
+safe_http_header(K, V) ->
+    case emqx_utils:http_header_byte_check(K) of
+        ok ->
+            case emqx_utils:http_header_byte_check(V) of
+                ok -> true;
+                {error, Reason} -> {false, Reason}
+            end;
+        {error, Reason} ->
+            {false, Reason}
+    end.
 
 render_template(Template, Msg) ->
     % NOTE: ignoring errors here, missing variables will be rendered as `"undefined"`.
@@ -949,6 +973,30 @@ clientid(Msg) -> maps:get(clientid, Msg, undefined).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+
+%% Defense-in-depth: a templated header whose rendered name or value
+%% contains NUL, CR or LF must be dropped, not emitted. An MQTT publisher
+%% could otherwise smuggle headers into the bridge destination via a
+%% template such as `${client_attrs.tns}'.
+drop_unsafe_headers_test() ->
+    Preprocessed = preprocess_request(#{
+        method => <<"post">>,
+        path => <<"/ingest">>,
+        headers => #{
+            <<"content-type">> => <<"application/json">>,
+            <<"x-clean">> => <<"${good}">>,
+            <<"x-tns">> => <<"${tns}">>
+        }
+    }),
+    #{headers := HeadersTemplate} = Preprocessed,
+    Msg = #{
+        <<"good">> => <<"alice">>,
+        <<"tns">> => <<"alice\r\nX-Override: allow">>
+    },
+    Rendered = render_headers(HeadersTemplate, fun render_template/2, Msg),
+    Names = [K || {K, _} <- Rendered],
+    ?assert(lists:member(<<"x-clean">>, Names)),
+    ?assertNot(lists:member(<<"x-tns">>, Names)).
 
 redact_test_() ->
     TestData = #{
