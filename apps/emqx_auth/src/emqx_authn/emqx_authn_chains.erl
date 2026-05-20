@@ -24,7 +24,12 @@
     provider :: module(),
     enable :: boolean(),
     precondition :: undefined | emqx_variform:compiled(),
-    state :: map()
+    state :: map(),
+    %% Whether this provider implements the optional user-management callbacks
+    %% (add_user, delete_user, update_user, lookup_user, list_users, import_users).
+    %% Declared by the provider at registration via register_provider/3 Opts;
+    %% avoids an erlang:function_exported/3 probe on every dispatch.
+    support_user_operations = false :: boolean()
 }).
 
 -record(chain, {
@@ -47,6 +52,7 @@
 %% Authenticator management APIs
 -export([
     register_provider/2,
+    register_provider/3,
     register_providers/1,
     deregister_provider/1,
     deregister_providers/1,
@@ -114,6 +120,9 @@ end).
 -type position() :: front | rear | {before, authenticator_id()} | {'after', authenticator_id()}.
 -type authn_type() :: atom() | {atom(), atom()}.
 -type provider() :: module().
+-type provider_opts() :: #{support_user_operations => boolean()}.
+-type provider_spec() ::
+    {authn_type(), module()} | {authn_type(), module(), provider_opts()}.
 
 -type chain() :: #{
     name := chain_name(),
@@ -244,17 +253,28 @@ stop() ->
 
 %% @doc Register authentication providers.
 %% A provider is a tuple of `AuthNType' the module which implements
-%% the authenticator callbacks.
+%% the authenticator callbacks. An optional third element carries provider
+%% metadata, currently just `support_user_operations'.
 %% For example, ``[{{'password_based', redis}, emqx_authn_redis}]''
 %% NOTE: Later registered provider may override earlier registered if they
 %% happen to clash the same `AuthNType'.
--spec register_providers([{authn_type(), module()}]) -> ok | {error, term()}.
+-spec register_providers([provider_spec()]) -> ok | {error, term()}.
 register_providers(Providers) ->
-    call({register_providers, Providers}).
+    call({register_providers, [normalize_provider_spec(P) || P <- Providers]}).
 
 -spec register_provider(authn_type(), module()) -> ok.
 register_provider(AuthNType, Provider) ->
-    register_providers([{AuthNType, Provider}]).
+    register_provider(AuthNType, Provider, #{}).
+
+-spec register_provider(authn_type(), module(), provider_opts()) -> ok.
+register_provider(AuthNType, Provider, Opts) ->
+    register_providers([{AuthNType, Provider, Opts}]).
+
+normalize_provider_spec({AuthNType, Module}) ->
+    {AuthNType, Module, #{support_user_operations => false}};
+normalize_provider_spec({AuthNType, Module, Opts}) ->
+    SupportsUserOps = maps:get(support_user_operations, Opts, false),
+    {AuthNType, Module, Opts#{support_user_operations => SupportsUserOps}}.
 
 -spec deregister_providers([authn_type()]) -> ok.
 deregister_providers(AuthNTypes) when is_list(AuthNTypes) ->
@@ -420,18 +440,19 @@ handle_call(
     _From,
     #{providers := Reg0} = State
 ) ->
-    case lists:filter(fun({T, _}) -> maps:is_key(T, Reg0) end, Providers) of
+    case lists:filter(fun({T, _, _}) -> maps:is_key(T, Reg0) end, Providers) of
         [] ->
             Reg = lists:foldl(
-                fun({AuthNType, Module}, Pin) ->
-                    Pin#{AuthNType => Module}
+                fun({AuthNType, Module, Opts}, Pin) ->
+                    Pin#{AuthNType => {Module, Opts}}
                 end,
                 Reg0,
                 Providers
             ),
             reply(ok, State#{providers := Reg}, initialize_authentication);
         Clashes ->
-            reply({error, {authentication_type_clash, Clashes}}, State)
+            ClashSummary = [{T, M} || {T, M, _} <- Clashes],
+            reply({error, {authentication_type_clash, ClashSummary}}, State)
     end;
 handle_call({deregister_providers, AuthNTypes}, _From, #{providers := Providers} = State) ->
     reply(ok, State#{providers := maps:without(AuthNTypes, Providers)});
@@ -944,22 +965,23 @@ do_create_authenticator(AuthenticatorID, Config, Providers) ->
     case maps:get(Type, Providers, undefined) of
         undefined ->
             {error, #{cause => "no_available_provider", type => Type}};
-        Provider ->
-            do_create_authenticator2(AuthenticatorID, Config, Provider)
+        {Provider, Opts} ->
+            do_create_authenticator2(AuthenticatorID, Config, Provider, Opts)
     end.
 
 %% Compile precondition and create authenticator
-do_create_authenticator2(AuthenticatorID, Config, Provider) ->
+do_create_authenticator2(AuthenticatorID, Config, Provider, Opts) ->
     case compile_precondition(Config) of
         {ok, Precondition} ->
-            do_create_authenticator3(AuthenticatorID, Config, Provider, Precondition);
+            do_create_authenticator3(AuthenticatorID, Config, Provider, Opts, Precondition);
         {error, Reason} ->
             {error, #{cause => "bad_precondition_expression", reason => Reason}}
     end.
 
 %% Create authenticator with precondition
-do_create_authenticator3(AuthenticatorID, Config, Provider, Precondition) ->
+do_create_authenticator3(AuthenticatorID, Config, Provider, Opts, Precondition) ->
     #{enable := Enable} = Config,
+    SupportsUserOps = maps:get(support_user_operations, Opts, false),
     try Provider:create(AuthenticatorID, Config) of
         {ok, State} ->
             Authenticator = #authenticator{
@@ -967,7 +989,8 @@ do_create_authenticator3(AuthenticatorID, Config, Provider, Precondition) ->
                 provider = Provider,
                 enable = Enable,
                 state = State,
-                precondition = Precondition
+                precondition = Precondition,
+                support_user_operations = SupportsUserOps
             },
             {ok, Authenticator};
         {error, Reason} ->
@@ -1099,13 +1122,10 @@ call_authenticator(ChainName, AuthenticatorID, Func, Args) ->
             case lists:keyfind(AuthenticatorID, #authenticator.id, Authenticators) of
                 false ->
                     {error, {not_found, {authenticator, AuthenticatorID}}};
+                #authenticator{support_user_operations = false} ->
+                    {error, unsupported_operation};
                 #authenticator{provider = Provider, state = State} ->
-                    case erlang:function_exported(Provider, Func, length(Args) + 1) of
-                        true ->
-                            {ok, erlang:apply(Provider, Func, Args ++ [State])};
-                        false ->
-                            {error, unsupported_operation}
-                    end
+                    {ok, erlang:apply(Provider, Func, Args ++ [State])}
             end
         end,
     with_chain(ChainName, Fun).
