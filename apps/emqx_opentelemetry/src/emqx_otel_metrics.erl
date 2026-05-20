@@ -99,7 +99,7 @@ create_metric_views() ->
     Meter = opentelemetry_experimental:get_meter(),
     StatsGauge = emqx_stats:getstats(),
     create_gauge(Meter, StatsGauge, fun ?MODULE:get_stats_gauge/1),
-    VmGauge = lists:map(fun({K, V}) -> {normalize_name(K), V} end, emqx_mgmt:vm_stats()),
+    VmGauge = [{KN, V} || {K, V} <- emqx_mgmt:vm_stats(), KN <- [normalize_name(K)], is_atom(KN)],
     create_gauge(Meter, VmGauge, fun ?MODULE:get_vm_gauge/1),
     ClusterGauge = [{'node.running', 0}, {'node.stopped', 0}],
     create_gauge(Meter, ClusterGauge, fun ?MODULE:get_cluster_gauge/1),
@@ -257,8 +257,8 @@ normalize_name(total_memory) ->
     'total.memory';
 normalize_name(used_memory) ->
     'used.memory';
-normalize_name(Name) ->
-    list_to_existing_atom(lists:flatten(string:replace(atom_to_list(Name), "_", ".", all))).
+normalize_name(_) ->
+    {error, unknown}.
 
 assert_started({ok, _Pid}) -> ok;
 assert_started({ok, _Pid, _Info}) -> ok;
