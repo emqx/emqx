@@ -72,6 +72,7 @@
     foldl_while/3,
     is_restricted_str/1,
     is_mqtt_safe_utf8/1,
+    http_header_byte_check/1,
     interactive_load/1
 ]).
 
@@ -892,6 +893,24 @@ is_mqtt_safe_utf8(<<_H/utf8, Rest/binary>>) ->
     is_mqtt_safe_utf8(Rest);
 is_mqtt_safe_utf8(<<_BadUtf8, _Rest/binary>>) ->
     false.
+
+%% @doc Scan a binary for bytes capable of splitting an HTTP/1.1 request line.
+%% Returns `ok' if the binary is safe to emit as an HTTP header name or value,
+%% otherwise `{error, contains_nul | contains_cr | contains_lf}'. Non-binary
+%% inputs are treated as safe; callers that templated something other than a
+%% binary have already failed earlier in a more visible way.
+-spec http_header_byte_check(binary() | term()) ->
+    ok | {error, contains_nul | contains_cr | contains_lf}.
+http_header_byte_check(Bin) when is_binary(Bin) ->
+    http_header_byte_check_bin(Bin);
+http_header_byte_check(_NonBin) ->
+    ok.
+
+http_header_byte_check_bin(<<>>) -> ok;
+http_header_byte_check_bin(<<0, _/binary>>) -> {error, contains_nul};
+http_header_byte_check_bin(<<$\r, _/binary>>) -> {error, contains_cr};
+http_header_byte_check_bin(<<$\n, _/binary>>) -> {error, contains_lf};
+http_header_byte_check_bin(<<_, Rest/binary>>) -> http_header_byte_check_bin(Rest).
 
 %% @doc Generate random, printable bytes as an ID.
 %% The first byte is ensured to be a-z or A-Z.

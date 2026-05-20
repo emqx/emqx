@@ -131,26 +131,15 @@ validate_headers(Headers) when is_map(Headers) ->
 validate_headers_list([]) ->
     ok;
 validate_headers_list([{Name, Value} | Rest]) ->
-    case header_byte_check(Name) of
+    case emqx_utils:http_header_byte_check(Name) of
         ok ->
-            case header_byte_check(Value) of
+            case emqx_utils:http_header_byte_check(Value) of
                 ok -> validate_headers_list(Rest);
                 {error, Reason} -> {error, {bad_http_header_value, Name, Reason}}
             end;
         {error, Reason} ->
             {error, {bad_http_header_name, Reason}}
     end.
-
-header_byte_check(Bin) when is_binary(Bin) ->
-    header_byte_check_bin(Bin);
-header_byte_check(_NonBin) ->
-    ok.
-
-header_byte_check_bin(<<>>) -> ok;
-header_byte_check_bin(<<0, _/binary>>) -> {error, contains_nul};
-header_byte_check_bin(<<$\r, _/binary>>) -> {error, contains_cr};
-header_byte_check_bin(<<$\n, _/binary>>) -> {error, contains_lf};
-header_byte_check_bin(<<_, Rest/binary>>) -> header_byte_check_bin(Rest).
 
 %%--------------------------------------------------------------------
 %% Internal functions

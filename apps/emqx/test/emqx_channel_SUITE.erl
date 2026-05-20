@@ -1159,6 +1159,46 @@ t_peercert_pp2_cn_clean_accepted(_) ->
         emqx_channel:info(clientinfo, Channel)
     ).
 
+t_peersni_with_crlf_rejected(_) ->
+    %% `peersni' is sourced from the TLS handshake SNI or, when PROXY-Protocol
+    %% v2 is used, from the `pp2_authority' TLV (attacker-controlled). It must
+    %% pass the same byte-class gate as `cn' / `dn', since `${peersni}' and
+    %% `${client_attrs.tns}' (commonly derived from `peersni') flow into the
+    %% same HTTP authn / authz / bridge template paths.
+    SmuggledSNI = <<"tenant-a\r\nX-Override-Result: allow">>,
+    ConnInfo = (pp2_conn_info(nossl))#{peersni => SmuggledSNI},
+    Opts = #{zone => default, limiter => undefined, listener => {tcp, default}},
+    ?assertExit(
+        {shutdown, clientinfo_field_invalid},
+        emqx_channel:init(ConnInfo, Opts)
+    ).
+
+t_peersni_clean_accepted(_) ->
+    ConnInfo = (pp2_conn_info(nossl))#{peersni => <<"tenant-a.example.com">>},
+    Opts = #{zone => default, limiter => undefined, listener => {tcp, default}},
+    Channel = emqx_channel:init(ConnInfo, Opts),
+    ?assertMatch(
+        #{peersni := <<"tenant-a.example.com">>},
+        emqx_channel:info(clientinfo, Channel)
+    ).
+
+t_client_attrs_with_control_chars_dropped(_) ->
+    %% A `client_attrs_init' Variform expression that ends up producing bytes
+    %% in the C0/C1 control range (e.g. by pulling from a non-strict-mode
+    %% MQTT v5 user property) must be dropped, not propagated to
+    %% `client_attrs', otherwise it would re-introduce the CRLF primitive
+    %% via `${client_attrs.tns}' in HTTP templates.
+    {ok, Good} = emqx_variform:compile(<<"'tenant-a'">>),
+    {ok, Bad} = emqx_variform:compile(<<"'tenant-a\r\nsmuggled'">>),
+    Attrs = emqx_channel:initialize_client_attrs(
+        [
+            #{set_as_attr => <<"good">>, expression => Good},
+            #{set_as_attr => <<"tns">>, expression => Bad}
+        ],
+        #{clientid => <<"c1">>}
+    ),
+    ?assertEqual(#{<<"good">> => <<"tenant-a">>}, Attrs).
+
 pp2_conn_info(PeerCert) ->
     #{
         socktype => tcp,
