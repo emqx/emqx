@@ -1074,6 +1074,47 @@ t_flapping_detect(_) ->
     end,
     meck:unload([emqx_flapping]).
 
+t_peercert_pp2_cn_with_crlf_rejected(_) ->
+    %% PROXY-Protocol v2 surfaces SSL_CN as a raw attacker-controlled binary.
+    %% Bytes that would split an HTTP request line (CR/LF/NUL) or any other
+    %% C0/C1 control character must cause the connection to be rejected,
+    %% mirroring how `emqx_frame:validate_utf8/1` rejects MQTT-ingested
+    %% clientid/username/password.
+    SmuggledCN =
+        <<
+            "admin\r\nX-Forwarded-User: ROOT_VIA_PP2"
+            "\r\nX-Override-Result: allow\r\nX-Bypass: 1"
+        >>,
+    PeerCert = [{pp2_ssl_cn, SmuggledCN}],
+    ConnInfo = pp2_conn_info(PeerCert),
+    Opts = #{zone => default, limiter => undefined, listener => {tcp, default}},
+    ?assertExit(
+        {shutdown, peercert_field_invalid},
+        emqx_channel:init(ConnInfo, Opts)
+    ).
+
+t_peercert_pp2_cn_clean_accepted(_) ->
+    %% Negative control: a well-formed PP2 SSL_CN is still accepted.
+    PeerCert = [{pp2_ssl_cn, <<"alice.example.com">>}],
+    ConnInfo = pp2_conn_info(PeerCert),
+    Opts = #{zone => default, limiter => undefined, listener => {tcp, default}},
+    Channel = emqx_channel:init(ConnInfo, Opts),
+    ?assertMatch(
+        #{cn := <<"alice.example.com">>},
+        emqx_channel:info(clientinfo, Channel)
+    ).
+
+pp2_conn_info(PeerCert) ->
+    #{
+        socktype => tcp,
+        peername => {{127, 0, 0, 1}, 3456},
+        sockname => {{127, 0, 0, 1}, 1883},
+        peercert => PeerCert,
+        peersni => undefined,
+        conn_mod => emqx_connection,
+        sock => self()
+    }.
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------

@@ -276,22 +276,62 @@ generate_request(
     Path = render_urlencoded_str(BasePathTemplate, Values),
     Query = render_deep_for_url(BaseQueryTemplate, Values),
     Headers = emqx_auth_utils:render_deep_for_raw(Headers0, Values),
-    case Method of
-        get ->
-            Body = render_deep_for_url(BodyTemplate, Values),
-            NPath = append_query(Path, Query, Body),
-            {ok, {NPath, Headers}};
-        _ ->
-            try
-                ContentType = post_request_content_type(Headers),
-                Body = serialize_body(ContentType, BodyTemplate, Values),
-                NPathQuery = append_query(Path, Query),
-                {ok, {NPathQuery, Headers, Body}}
-            catch
-                error:{encode_error, _} = Reason ->
-                    {error, Reason}
-            end
+    case validate_headers(Headers) of
+        ok ->
+            case Method of
+                get ->
+                    Body = render_deep_for_url(BodyTemplate, Values),
+                    NPath = append_query(Path, Query, Body),
+                    {ok, {NPath, Headers}};
+                _ ->
+                    try
+                        ContentType = post_request_content_type(Headers),
+                        Body = serialize_body(ContentType, BodyTemplate, Values),
+                        NPathQuery = append_query(Path, Query),
+                        {ok, {NPathQuery, Headers, Body}}
+                    catch
+                        error:{encode_error, _} = Reason ->
+                            {error, Reason}
+                    end
+            end;
+        {error, _} = Error ->
+            Error
     end.
+
+%% Defense-in-depth: reject HTTP header names/values that contain bytes
+%% capable of splitting the request line (NUL, CR, LF). Header templates may
+%% interpolate variables that originated from outside the broker (e.g.
+%% ${cert_common_name} from a PROXY-Protocol v2 SSL TLV, ${peerhost}, or
+%% client-attribute computations). The primary mitigation rejects PP2 cert
+%% TLVs with control bytes at ingestion time; this is a second wall.
+validate_headers(Headers) when is_list(Headers) ->
+    validate_headers_list(Headers);
+validate_headers(Headers) when is_map(Headers) ->
+    validate_headers_list(maps:to_list(Headers)).
+
+validate_headers_list([]) ->
+    ok;
+validate_headers_list([{Name, Value} | Rest]) ->
+    case header_byte_check(Name) of
+        ok ->
+            case header_byte_check(Value) of
+                ok -> validate_headers_list(Rest);
+                {error, Reason} -> {error, {bad_http_header_value, Name, Reason}}
+            end;
+        {error, Reason} ->
+            {error, {bad_http_header_name, Reason}}
+    end.
+
+header_byte_check(Bin) when is_binary(Bin) ->
+    header_byte_check_bin(Bin);
+header_byte_check(_NonBin) ->
+    ok.
+
+header_byte_check_bin(<<>>) -> ok;
+header_byte_check_bin(<<0, _/binary>>) -> {error, contains_nul};
+header_byte_check_bin(<<$\r, _/binary>>) -> {error, contains_cr};
+header_byte_check_bin(<<$\n, _/binary>>) -> {error, contains_lf};
+header_byte_check_bin(<<_, Rest/binary>>) -> header_byte_check_bin(Rest).
 
 post_request_content_type(Headers) ->
     proplists:get_value(<<"content-type">>, Headers, ?DEFAULT_HTTP_REQUEST_CONTENT_TYPE).
