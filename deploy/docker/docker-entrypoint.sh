@@ -12,7 +12,18 @@ shopt -s nullglob
 
 ## Local IP address setting
 
-LOCAL_IP=$(hostname -i | grep -oE '((25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])\.){3}(25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])' | head -n 1)
+IP_REGEX='((25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])\.){3}(25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])'
+LOCAL_IP=$(hostname -i 2>/dev/null | grep -oE "$IP_REGEX" | head -n 1)
+if [[ -z "$LOCAL_IP" ]]; then
+    LOCAL_IP=$(hostname -I 2>/dev/null | grep -oE "$IP_REGEX" | head -n 1)
+fi
+
+ensure_local_ip() {
+    if [[ -z "$LOCAL_IP" ]]; then
+        echo "ERROR: Failed to determine EMQX node host. Set EMQX_NODE__NAME or EMQX_HOST." >&2
+        exit 1
+    fi
+}
 
 export EMQX_NAME="${EMQX_NAME:-emqx}"
 
@@ -29,14 +40,17 @@ if [[ -z "${EMQX_NODE_NAME:-}" ]] && [[ -z "${EMQX_NODE__NAME:-}" ]]; then
         elif [[ "$EMQX_CLUSTER__DISCOVERY_STRATEGY" == "k8s" ]] && \
             [[ "$EMQX_CLUSTER__K8S__ADDRESS_TYPE" == "dns" ]] && \
             [[ -n "$EMQX_CLUSTER__K8S__NAMESPACE" ]]; then
+                ensure_local_ip
                 EMQX_CLUSTER__K8S__SUFFIX=${EMQX_CLUSTER__K8S__SUFFIX:-"pod.cluster.local"}
                 EMQX_HOST="${LOCAL_IP//./-}.$EMQX_CLUSTER__K8S__NAMESPACE.$EMQX_CLUSTER__K8S__SUFFIX"
         elif [[ "$EMQX_CLUSTER__DISCOVERY_STRATEGY" == "k8s" ]] && \
             [[ "$EMQX_CLUSTER__K8S__ADDRESS_TYPE" == 'hostname' ]] && \
             [[ -n "$EMQX_CLUSTER__K8S__NAMESPACE" ]]; then
+                ensure_local_ip
                 EMQX_CLUSTER__K8S__SUFFIX=${EMQX_CLUSTER__K8S__SUFFIX:-'svc.cluster.local'}
                 EMQX_HOST=$(grep -h "^$LOCAL_IP" /etc/hosts | grep -o "$(hostname).*.$EMQX_CLUSTER__K8S__NAMESPACE.$EMQX_CLUSTER__K8S__SUFFIX")
         else
+            ensure_local_ip
             EMQX_HOST="$LOCAL_IP"
         fi
         export EMQX_HOST
