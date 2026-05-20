@@ -277,19 +277,21 @@ register_skills() ->
         <<"id">> => <<"box-shot">>,
         <<"desc">> => <<"Request a box snapshot from the SPA">>,
         <<"topic_prefix">> => <<"box/shot/">>,
-        <<"request_payload_schema">> => emqx_utils_json:encode(#{<<"type">> => <<"object">>})
+        <<"request_payload_schema">> => emqx_utils_json:encode(empty_object_schema())
     }),
     ok = register_skill(#{
         <<"type">> => <<"message__publish">>,
         <<"id">> => <<"box-alert">>,
         <<"desc">> => <<"Publish a box quality alert">>,
-        <<"topic_prefix">> => <<"box/alert/">>
+        <<"topic_prefix">> => <<"box/alert/">>,
+        <<"payload_schema">> => emqx_utils_json:encode(alert_payload_schema())
     }),
     ok = register_skill(#{
         <<"type">> => <<"message__publish">>,
         <<"id">> => <<"box-status">>,
         <<"desc">> => <<"Publish final box inspection status">>,
-        <<"topic_prefix">> => <<"box/status/">>
+        <<"topic_prefix">> => <<"box/status/">>,
+        <<"payload_schema">> => emqx_utils_json:encode(inspection_schema())
     }),
     ok = register_skill(#{
         <<"type">> => <<"postgresql__query">>,
@@ -349,14 +351,9 @@ register_pipeline() ->
                 },
                 <<"set_result_schema">> => #{
                     <<"type">> => <<"object">>,
-                    <<"properties">> => #{
-                        <<"status">> => #{
-                            <<"type">> => <<"string">>,
-                            <<"enum">> => [<<"approved">>, <<"rejected">>]
-                        },
-                        <<"reason">> => #{<<"type">> => <<"string">>}
-                    },
-                    <<"required">> => [<<"status">>, <<"reason">>]
+                    <<"properties">> => maps:get(<<"properties">>, inspection_schema()),
+                    <<"required">> => maps:get(<<"required">>, inspection_schema()),
+                    <<"additionalProperties">> => false
                 },
                 <<"result_path">> => <<"$.inspection">>
             },
@@ -385,3 +382,43 @@ register_pipeline() ->
         ]
     },
     emqx_agent_service:pipeline_create(Def).
+
+empty_object_schema() ->
+    #{
+        <<"type">> => <<"object">>,
+        <<"properties">> => #{},
+        <<"required">> => [],
+        <<"additionalProperties">> => false
+    }.
+
+inspection_schema() ->
+    #{
+        <<"type">> => <<"object">>,
+        <<"properties">> => #{
+            <<"status">> => #{
+                <<"type">> => <<"string">>,
+                <<"enum">> => [<<"approved">>, <<"rejected">>]
+            },
+            <<"reason">> => #{<<"type">> => <<"string">>}
+        },
+        <<"required">> => [<<"status">>, <<"reason">>],
+        <<"additionalProperties">> => false
+    }.
+
+alert_payload_schema() ->
+    #{
+        <<"type">> => <<"object">>,
+        <<"properties">> => #{
+            <<"reason">> => #{<<"type">> => <<"string">>},
+            <<"defect_type">> => #{
+                <<"type">> => <<"array">>,
+                <<"items">> => #{<<"type">> => <<"string">>}
+            },
+            <<"severity">> => #{
+                <<"type">> => <<"string">>,
+                <<"enum">> => [<<"low">>, <<"medium">>, <<"high">>]
+            }
+        },
+        <<"required">> => [<<"reason">>, <<"defect_type">>, <<"severity">>],
+        <<"additionalProperties">> => false
+    }.

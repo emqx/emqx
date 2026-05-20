@@ -42,7 +42,8 @@
     <<"properties">> => #{
         <<"message">> => #{<<"type">> => <<"string">>}
     },
-    <<"required">> => [<<"message">>]
+    <<"required">> => [<<"message">>],
+    <<"additionalProperties">> => false
 }).
 
 -define(INPUT_SCHEMA(PayloadSchema), #{
@@ -107,26 +108,31 @@ create(#{
     payload_schema := PayloadSchema
 }) ->
     create_with_payload_schema(SkillId, Desc, TopicPrefix, PayloadSchema);
-create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix}) ->
-    create_with_payload_schema(SkillId, Desc, TopicPrefix, ?DEFAULT_PAYLOAD_SCHEMA).
+create(#{skill_id := _SkillId, desc := _Desc, topic_prefix := _TopicPrefix}) ->
+    {error, missing_payload_schema}.
 
-create_with_payload_schema(SkillId, Desc, TopicPrefix, undefined) ->
-    create_with_payload_schema(SkillId, Desc, TopicPrefix, ?DEFAULT_PAYLOAD_SCHEMA);
+create_with_payload_schema(_SkillId, _Desc, _TopicPrefix, undefined) ->
+    {error, missing_payload_schema};
 create_with_payload_schema(SkillId, Desc, TopicPrefix, PayloadSchema) ->
-    {ok, #{
-        skill_id => SkillId,
-        type => ?SKILL_TYPE,
-        module => ?MODULE,
-        display_name => <<Desc/binary, " — Publish">>,
-        description =>
-            <<"Publish an MQTT message to a topic under the prefix: ", TopicPrefix/binary>>,
-        context => #{
-            skill_id => SkillId,
-            topic_prefix => TopicPrefix,
-            payload_schema => PayloadSchema
-        },
-        input_schema => ?INPUT_SCHEMA(PayloadSchema)
-    }}.
+    case emqx_agent_oai_tool_schema:validate_oai_schema_field(PayloadSchema) of
+        ok ->
+            {ok, #{
+                skill_id => SkillId,
+                type => ?SKILL_TYPE,
+                module => ?MODULE,
+                display_name => <<Desc/binary, " — Publish">>,
+                description =>
+                    <<"Publish an MQTT message to a topic under the prefix: ", TopicPrefix/binary>>,
+                context => #{
+                    skill_id => SkillId,
+                    topic_prefix => TopicPrefix,
+                    payload_schema => PayloadSchema
+                },
+                input_schema => ?INPUT_SCHEMA(PayloadSchema)
+            }};
+        {error, Reason} ->
+            {error, {invalid_payload_schema, Reason}}
+    end.
 
 -spec destroy(map()) -> ok.
 destroy(_Skill) ->
@@ -168,36 +174,47 @@ to_map(
         <<"input_schema">> => InputSchema
     }.
 
-handle_invoke(#{topic_prefix := TopicPrefix}, Request) ->
-    do_publish(TopicPrefix, Request).
+handle_invoke(#{topic_prefix := TopicPrefix, payload_schema := PayloadSchema}, Request) ->
+    do_publish(TopicPrefix, PayloadSchema, Request);
+handle_invoke(_Context, _Request) ->
+    {error, missing_payload_schema}.
 
 %%--------------------------------------------------------------------
 %% Internal
 %%--------------------------------------------------------------------
 
-do_publish(TopicPrefix, Request) ->
+do_publish(TopicPrefix, PayloadSchema, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
     TopicSuffix = maps:get(<<"topic">>, Args),
-    MsgPayload = normalize_payload(maps:get(<<"payload">>, Args)),
+    Payload = maps:get(<<"payload">>, Args),
     From = maps:get(<<"from">>, Args, <<>>),
     Qos = maps:get(<<"qos">>, Args, 0),
 
     FullTopic = <<TopicPrefix/binary, TopicSuffix/binary>>,
 
-    try
-        Msg = emqx_message:make(From, Qos, FullTopic, MsgPayload),
-        _ = emqx_broker:publish(Msg),
-        {ok, #{<<"topic">> => FullTopic}}
-    catch
-        Class:Reason ->
-            ?SLOG(error, #{
-                msg => "skill_publish_failed",
-                topic => FullTopic,
-                error => Class,
-                reason => Reason
-            }),
-            {error, iolist_to_binary(io_lib:format("~p", [Reason]))}
+    case emqx_agent_oai_tool_value:validate_value(PayloadSchema, Payload) of
+        ok ->
+            try
+                MsgPayload = normalize_payload(Payload),
+                Msg = emqx_message:make(From, Qos, FullTopic, MsgPayload),
+                _ = emqx_broker:publish(Msg),
+                {ok, #{<<"topic">> => FullTopic}}
+            catch
+                Class:Reason ->
+                    ?SLOG(error, #{
+                        msg => "skill_publish_failed",
+                        topic => FullTopic,
+                        error => Class,
+                        reason => Reason
+                    }),
+                    {error, iolist_to_binary(io_lib:format("~p", [Reason]))}
+            end;
+        {error, Errors} ->
+            {error, format_payload_errors(Errors)}
     end.
+
+format_payload_errors(Errors) ->
+    iolist_to_binary(io_lib:format("invalid payload: ~p", [Errors])).
 
 normalize_payload(Payload) when is_map(Payload) ->
     emqx_utils_json:encode(Payload);

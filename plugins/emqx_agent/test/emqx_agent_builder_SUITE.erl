@@ -328,7 +328,7 @@ publish_request(Message) ->
 await_reply() ->
     receive
         #deliver{topic = <<"builder/reply/", _/binary>>, message = #message{payload = P}} ->
-            emqx_utils_json:decode(P);
+            P;
         #deliver{
             topic = <<"$pipe/pipeline-builder/inst/", _/binary>>, message = #message{payload = P}
         } ->
@@ -375,7 +375,8 @@ register_builder_skills() ->
         <<"type">> => <<"message__publish">>,
         <<"id">> => <<"builder-reply">>,
         <<"desc">> => <<"Send a reply from the pipeline builder back to the chat UI">>,
-        <<"topic_prefix">> => <<"builder/reply/">>
+        <<"topic_prefix">> => <<"builder/reply/">>,
+        <<"payload_schema">> => emqx_utils_json:encode(#{<<"type">> => <<"string">>})
     }).
 
 cleanup_builder_infra() ->
@@ -434,7 +435,8 @@ register_builder_pipeline() ->
                 <<"set_result_schema">> => #{
                     <<"type">> => <<"object">>,
                     <<"properties">> => #{<<"summary">> => #{<<"type">> => <<"string">>}},
-                    <<"required">> => [<<"summary">>]
+                    <<"required">> => [<<"summary">>],
+                    <<"additionalProperties">> => false
                 },
                 <<"input">> => #{<<"message">> => <<"$.event.message">>},
                 <<"result_path">> => <<"$.build_result">>

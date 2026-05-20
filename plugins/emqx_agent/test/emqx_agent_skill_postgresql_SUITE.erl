@@ -20,7 +20,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
-        [emqx, emqx_conf, emqx_resource, emqx_agent],
+        [emqx, emqx_conf, emqx_resource, emqx_connector, emqx_agent],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{apps, Apps} | Config].

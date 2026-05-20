@@ -60,7 +60,8 @@ t_custom_payload_schema_is_stored(_Config) ->
                 <<"type">> => <<"string">>, <<"enum">> => [<<"left">>, <<"right">>, <<"down">>]
             }
         },
-        <<"required">> => [<<"command">>]
+        <<"required">> => [<<"command">>, <<"direction">>],
+        <<"additionalProperties">> => false
     },
     ok = register_skill(maps:put(<<"payload_schema">>, CustomPayloadSchema, test_context())),
     {ok, Skill} = emqx_agent_skill_registry:lookup(<<"message__publish">>, ?SKILL_ID),
@@ -68,6 +69,26 @@ t_custom_payload_schema_is_stored(_Config) ->
     ?assertMatch(#{payload_schema := CustomPayloadSchema}, Context),
     Props = maps:get(<<"properties">>, InputSchema),
     ?assertEqual(CustomPayloadSchema, maps:get(<<"payload">>, Props)).
+
+t_create_requires_payload_schema(_Config) ->
+    Context = maps:without([<<"payload_schema">>], test_context()),
+    RuntimeContext = #{
+        skill_id => maps:get(<<"id">>, Context),
+        desc => maps:get(<<"desc">>, Context),
+        topic_prefix => maps:get(<<"topic_prefix">>, Context)
+    },
+    ?assertEqual({error, missing_payload_schema}, emqx_agent_skill_publish:create(RuntimeContext)).
+
+t_create_rejects_invalid_payload_schema(_Config) ->
+    RuntimeContext = #{
+        skill_id => ?SKILL_ID,
+        desc => <<"bad schema">>,
+        topic_prefix => ?TOPIC_PREFIX,
+        payload_schema => #{<<"type">> => <<"object">>}
+    },
+    ?assertMatch(
+        {error, {invalid_payload_schema, _}}, emqx_agent_skill_publish:create(RuntimeContext)
+    ).
 
 %% A basic invoke publishes to prefix+topic and replies with status=ok.
 t_publish_basic(_Config) ->
@@ -154,6 +175,32 @@ t_publish_with_from_and_qos(_Config) ->
     ok = emqx:unsubscribe(FullTopic),
     ok = emqx:unsubscribe(ReplyTopic).
 
+t_publish_rejects_invalid_payload(_Config) ->
+    FullTopic = <<?TOPIC_PREFIX/binary, "bad">>,
+    ReqId = <<"req-invalid-payload-1">>,
+    ReplyTopic = reply_topic(?SKILL_ID, ReqId),
+    ok = emqx:subscribe(FullTopic),
+    ok = emqx:subscribe(ReplyTopic),
+
+    invoke(
+        ?SKILL_ID, #{<<"topic">> => <<"bad">>, <<"payload">> => #{<<"message">> => <<"x">>}}, ReqId
+    ),
+
+    receive
+        #deliver{topic = FullTopic} -> ct:fail("invalid payload was published")
+    after 500 ->
+        ok
+    end,
+
+    Reply = decode_reply(await_deliver(ReplyTopic)),
+    ?assertMatch(
+        #{<<"status">> := <<"error">>, <<"reason">> := _},
+        emqx_agent_skill_helpers:cap_response(Reply)
+    ),
+
+    ok = emqx:unsubscribe(FullTopic),
+    ok = emqx:unsubscribe(ReplyTopic).
+
 %% Correlation fields (req_id, trace_id, iid, sid) are echoed in the reply.
 t_reply_correlation(_Config) ->
     ReqId = <<"req-corr-1">>,
@@ -209,8 +256,12 @@ test_context() ->
         <<"type">> => <<"message__publish">>,
         <<"id">> => ?SKILL_ID,
         <<"desc">> => <<"Test publish skill">>,
-        <<"topic_prefix">> => ?TOPIC_PREFIX
+        <<"topic_prefix">> => ?TOPIC_PREFIX,
+        <<"payload_schema">> => string_payload_schema()
     }.
+
+string_payload_schema() ->
+    #{<<"type">> => <<"string">>}.
 
 register_skill(Context) ->
     Body = maybe_encode_schema(<<"payload_schema">>, Context),

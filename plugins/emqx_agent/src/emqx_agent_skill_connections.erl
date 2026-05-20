@@ -14,7 +14,6 @@
     resource_id/1
 ]).
 
--define(TYPE_POSTGRESQL, postgresql).
 -define(RESOURCE_GROUP, <<"emqx_agent">>).
 -define(RESOURCE_PREFIX, "emqx_agent_connection:").
 
@@ -24,22 +23,22 @@
 %% API
 %%--------------------------------------------------------------------
 
+-spec init() -> ok.
 init() ->
     reconcile().
 
+-spec deinit() -> ok.
 deinit() ->
     stop_all_local().
 
 -spec reconcile() -> ok.
 reconcile() ->
-    DesiredEnabled = enabled_connections(emqx_agent_config:parsed_config([connections], [])),
-    lists:foreach(
-        fun(ResourceId) -> maybe_stop_removed(ResourceId, DesiredEnabled) end,
-        agent_resource_ids()
-    ),
-    maps:foreach(fun maybe_start_or_restart/2, DesiredEnabled),
-    ok.
-
+    case required_apps_started() of
+        true ->
+            do_reconcile();
+        false ->
+            ok = emqx_agent_skill_connection_reconciler:retry()
+    end.
 -spec resource_id(connection_id()) -> binary().
 resource_id(ConnectionId) ->
     <<?RESOURCE_PREFIX, ConnectionId/binary>>.
@@ -61,6 +60,15 @@ status(#{<<"id">> := ConnectionId}) ->
 %%--------------------------------------------------------------------
 %% Internal resource reconciliation
 %%--------------------------------------------------------------------
+
+do_reconcile() ->
+    DesiredEnabled = enabled_connections(emqx_agent_config:parsed_config([connections], [])),
+    lists:foreach(
+        fun(ResourceId) -> maybe_stop_removed(ResourceId, DesiredEnabled) end,
+        agent_resource_ids()
+    ),
+    maps:foreach(fun maybe_start_or_restart/2, DesiredEnabled),
+    ok.
 
 enabled_connections(Connections) ->
     maps:from_list([
@@ -167,6 +175,13 @@ stop_all_local() ->
 stop_local(ResourceId) ->
     _ = emqx_resource:remove_local(ResourceId),
     ok.
+
+required_apps_started() ->
+    Running = application:which_applications(),
+    lists:all(
+        fun(App) -> lists:keymember(App, 1, Running) end,
+        [emqx_resource, emqx_connector]
+    ).
 
 resource_opts() ->
     #{

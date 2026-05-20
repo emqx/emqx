@@ -14,6 +14,7 @@ help() {
     echo '--console:              Start EMQX in console mode but do not run test cases'
     echo '--attach:               Attach to the Erlang docker container without running any test case'
     echo '--stop:                 Stop running containers for the given app'
+    echo '--ps:                   Show docker-compose services for the given app'
     echo '--only-up:              Only start the testbed but do not run CT'
     echo '--keep-up:              Keep the testbed running after CT'
     echo '--ci:                   Set this flag in GitHub action to enforce no tests are skipped'
@@ -40,6 +41,7 @@ KEEP_UP='no'
 ONLY_UP='no'
 ATTACH='no'
 STOP='no'
+PS='no'
 IS_CI='no'
 SQLSERVER_ODBC_REQUEST='no'
 SNOWFLAKE_ODBC_REQUEST='no'
@@ -69,6 +71,10 @@ while [ "$#" -gt 0 ]; do
             ;;
         --stop)
             STOP='yes'
+            shift 1
+            ;;
+        --ps)
+            PS='yes'
             shift 1
             ;;
         --console)
@@ -321,7 +327,7 @@ mkdir -p /tmp/emqx-ci/emqx-shared-secret /tmp/emqx-ci-temp-secrets
 # shellcheck disable=SC1091
 source /tmp/emqx-ci-temp-secrets/passwords.env
 
-if [ "$STOP" = 'no' ]; then
+if [ "$STOP" = 'no' ] && [ "$PS" = 'no' ]; then
     # some left-over log file has to be deleted before a new docker-compose up
     rm -f '.ci/docker-compose-file/redis/*.log'
     set +e
@@ -338,7 +344,7 @@ if [ "$STOP" = 'no' ]; then
     set -e
 fi
 
-if [ "$DOCKER_USER" != "root" ]; then
+if [ "$DOCKER_USER" != "root" ] && [ "$PS" = 'no' ]; then
     # the user must exist inside the container for `whoami` to work
     docker exec -i $TTY -u root:root \
          -e "SFACCOUNT=${SFACCOUNT:-myorg-myacc}" \
@@ -363,6 +369,8 @@ set +e
 
 if [ "$STOP" = 'yes' ]; then
     $DC down -t 0 --remove-orphans
+elif [ "$PS" = 'yes' ]; then
+    $DC ps
 elif [ "$ATTACH" = 'yes' ]; then
     docker exec -it "$ERLANG_CONTAINER" bash
 elif [ "$CONSOLE" = 'yes' ]; then

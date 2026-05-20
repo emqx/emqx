@@ -63,6 +63,43 @@ SK_REGISTER = "box-register"
 CONNECTION_ID = "pg-main"
 
 
+def empty_object_schema() -> dict:
+    return {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": False,
+    }
+
+
+def inspection_schema() -> dict:
+    return {
+        "type": "object",
+        "properties": {
+            "status": {"type": "string", "enum": ["approved", "rejected"]},
+            "reason": {"type": "string"},
+        },
+        "required": ["status", "reason"],
+        "additionalProperties": False,
+    }
+
+
+def alert_payload_schema() -> dict:
+    return {
+        "type": "object",
+        "properties": {
+            "reason": {"type": "string"},
+            "defect_type": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+            "severity": {"type": "string", "enum": ["low", "medium", "high"]},
+        },
+        "required": ["reason", "defect_type", "severity"],
+        "additionalProperties": False,
+    }
+
+
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 def auth_header() -> str:
@@ -235,7 +272,7 @@ def create_skills() -> None:
             "id": SK_SHOT,
             "desc": "Request a box snapshot photo from the SPA client",
             "topic_prefix": "box/shot/",
-            "request_payload_schema": json.dumps({"type": "object"}),
+            "request_payload_schema": json.dumps(empty_object_schema()),
         },
     )
     print(f"  skill {SK_SHOT!r} created")
@@ -248,6 +285,7 @@ def create_skills() -> None:
             "id": SK_ALERT,
             "desc": "Publish a box quality alert to the SPA",
             "topic_prefix": "box/alert/",
+            "payload_schema": json.dumps(alert_payload_schema()),
         },
     )
     print(f"  skill {SK_ALERT!r} created")
@@ -260,6 +298,7 @@ def create_skills() -> None:
             "id": SK_STATUS,
             "desc": "Publish final box inspection status to the SPA",
             "topic_prefix": "box/status/",
+            "payload_schema": json.dumps(inspection_schema()),
         },
     )
     print(f"  skill {SK_STATUS!r} created")
@@ -321,17 +360,7 @@ def create_pipeline() -> None:
                         "box_id": "$.event.box_id",
                         "conveyor_id": "$.event.conveyor_id",
                     },
-                    "set_result_schema": {
-                        "type": "object",
-                        "properties": {
-                            "status": {
-                                "type": "string",
-                                "enum": ["approved", "rejected"],
-                            },
-                            "reason": {"type": "string"},
-                        },
-                        "required": ["status", "reason"],
-                    },
+                    "set_result_schema": inspection_schema(),
                     "result_path": "$.inspection",
                 },
                 {

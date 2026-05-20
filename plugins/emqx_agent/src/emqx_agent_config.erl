@@ -59,6 +59,10 @@ same external shape that was submitted by users.
     delete_pipeline/1
 ]).
 
+-ifdef(TEST).
+-export([avro_config_with_defaults/2]).
+-endif.
+
 -define(CONFIG_KEY, {?MODULE, parsed_config}).
 -define(CONFIG_SCHEMA_KEY, {?MODULE, config_schema}).
 -define(SKILLS, <<"skills">>).
@@ -350,10 +354,184 @@ update_raw_config(Fun) ->
     Config0 = current_config(),
     case Fun(Config0) of
         {ok, Config} ->
-            emqx_mgmt_api_plugins:put_plugin_config(name_vsn(), Config);
+            case normalize_config_for_storage(Config) of
+                {ok, ConfigWithDefaults} ->
+                    emqx_mgmt_api_plugins:put_plugin_config(name_vsn(), ConfigWithDefaults);
+                {error, _} = Error ->
+                    Error
+            end;
         {error, _} = Error ->
             Error
     end.
+
+normalize_config_for_storage(Config) ->
+    %% NOTE
+    %% This is frontend issue workaround.
+    %% It renders missing values as `null` instead of defaults, and
+    %% then complaints about a bad config.
+    %% So we prerender defaults.
+    case avro_config_with_defaults(Config) of
+        {ok, ConfigWithDefaults} ->
+            case validate_oai_schemas(ConfigWithDefaults) of
+                ok -> {ok, ConfigWithDefaults};
+                {error, _} = Error -> Error
+            end;
+        {error, _} = Error ->
+            Error
+    end.
+
+avro_config_with_defaults(Config) ->
+    avro_config_with_defaults(Config, name_vsn()).
+
+avro_config_with_defaults(Config, Name) ->
+    try
+        {ok, AvscBin} = read_config_schema_bin(),
+        Store0 = avro_schema_store:new([map]),
+        Store = avro_schema_store:import_schema_json(Name, AvscBin, Store0),
+        DecodeOpts = avro:make_decoder_options([
+            {map_type, map},
+            {record_type, map},
+            {encoding, avro_json}
+        ]),
+        AvroValue = avro_json_decoder:decode_value(
+            emqx_utils_json:encode(Config), Name, Store, DecodeOpts
+        ),
+        EncodedWithDefaults = avro_json_encoder:encode_value(AvroValue),
+        {ok, emqx_utils_json:decode(EncodedWithDefaults)}
+    catch
+        Class:Reason ->
+            {error, {bad_agent_config, pretty_error({Class, Reason})}}
+    end.
+
+validate_oai_schemas(Config) ->
+    Errors = validate_skill_oai_schemas(Config) ++ validate_pipeline_oai_schemas(Config),
+    case Errors of
+        [] -> ok;
+        _ -> {error, {invalid_oai_schema, iolist_to_binary(lists:join("; ", Errors))}}
+    end.
+
+validate_skill_oai_schemas(Config) ->
+    Skills = maps:get(?SKILLS, Config, []),
+    lists:flatmap(
+        fun({Index, Skill0}) ->
+            Skill = unwrap_union(Skill0),
+            case maps:get(?SKILL_TYPE, Skill, undefined) of
+                <<"message__publish">> ->
+                    validate_schema_string(
+                        [?SKILLS, Index, <<"payload_schema">>],
+                        maps:get(<<"payload_schema">>, Skill, undefined),
+                        field,
+                        true
+                    );
+                <<"message__request">> ->
+                    validate_schema_string(
+                        [?SKILLS, Index, <<"request_payload_schema">>],
+                        maps:get(<<"request_payload_schema">>, Skill, undefined),
+                        field,
+                        false
+                    );
+                <<"http">> ->
+                    validate_schema_string(
+                        [?SKILLS, Index, <<"input_schema">>],
+                        maps:get(<<"input_schema">>, Skill, undefined),
+                        root,
+                        true
+                    );
+                _ ->
+                    []
+            end
+        end,
+        indexed(Skills)
+    ).
+
+validate_pipeline_oai_schemas(Config) ->
+    Pipelines = maps:get(?PIPELINES, Config, []),
+    lists:flatmap(
+        fun({PipelineIndex, Pipeline0}) ->
+            Pipeline = unwrap_union(Pipeline0),
+            Steps = maps:get(<<"steps">>, Pipeline, []),
+            lists:flatmap(
+                fun({StepIndex, Step0}) ->
+                    Step = unwrap_union(Step0),
+                    case maps:get(?SKILL_TYPE, Step, undefined) of
+                        <<"llm_loop">> ->
+                            validate_schema_string(
+                                [
+                                    ?PIPELINES,
+                                    PipelineIndex,
+                                    <<"steps">>,
+                                    StepIndex,
+                                    <<"set_result_schema">>
+                                ],
+                                maps:get(<<"set_result_schema">>, Step, undefined),
+                                root,
+                                true
+                            );
+                        _ ->
+                            []
+                    end
+                end,
+                indexed(Steps)
+            )
+        end,
+        indexed(Pipelines)
+    ).
+
+validate_schema_string(Path, undefined, _Mode, true) ->
+    [schema_error(Path, <<"missing schema">>)];
+validate_schema_string(_Path, undefined, _Mode, false) ->
+    [];
+validate_schema_string(Path, <<>>, _Mode, true) ->
+    [schema_error(Path, <<"missing schema">>)];
+validate_schema_string(_Path, <<>>, _Mode, false) ->
+    [];
+validate_schema_string(Path, SchemaString, Mode, _Required) when is_binary(SchemaString) ->
+    try emqx_agent_oai_tool_schema:json_schema_from_string(SchemaString, []) of
+        Schema ->
+            validate_schema(Path, Schema, Mode)
+    catch
+        Class:Reason ->
+            [schema_error(Path, pretty_error({Class, Reason}))]
+    end;
+validate_schema_string(Path, _SchemaString, _Mode, _Required) ->
+    [schema_error(Path, <<"schema must be a JSON string">>)].
+
+validate_schema(Path, Schema, root) ->
+    case emqx_agent_oai_tool_schema:validate_oai_schema(Schema) of
+        ok -> [];
+        {error, Reason} -> [schema_error(Path, Reason)]
+    end;
+validate_schema(Path, Schema, field) ->
+    case emqx_agent_oai_tool_schema:validate_oai_schema_field(Schema) of
+        ok -> [];
+        {error, Reason} -> [schema_error(Path, Reason)]
+    end.
+
+schema_error(Path, Reason) ->
+    <<(format_path(Path))/binary, ": ", (to_binary(Reason))/binary>>.
+
+format_path(Path) ->
+    iolist_to_binary(lists:join(".", [format_path_part(Part) || Part <- Path])).
+
+format_path_part(Part) when is_integer(Part) ->
+    integer_to_binary(Part);
+format_path_part(Part) when is_binary(Part) ->
+    Part;
+format_path_part(Part) when is_atom(Part) ->
+    atom_to_binary(Part, utf8).
+
+indexed(List) when is_list(List) ->
+    lists:zip(lists:seq(1, length(List)), List).
+
+pretty_error(Term) ->
+    to_binary(emqx_utils:readable_error_msg(Term)).
+
+to_binary(Value) when is_binary(Value) ->
+    Value;
+to_binary(Value) when is_list(Value) ->
+    iolist_to_binary(Value);
+to_binary(Value) ->
+    iolist_to_binary(io_lib:format("~p", [Value])).
 
 parse_config({avro_value, _Type, Value}) ->
     parse_config(avro_to_plain(Value));
@@ -641,9 +819,12 @@ field_schema(Name, #{<<"fields">> := Fields}) ->
     hd([Field || #{<<"name">> := FieldName} = Field <- Fields, FieldName =:= Name]).
 
 read_config_schema() ->
-    File = filename:join(code:priv_dir(emqx_agent), "config_schema.avsc"),
-    {ok, Bin} = file:read_file(File),
+    {ok, Bin} = read_config_schema_bin(),
     emqx_utils_json:decode(Bin).
+
+read_config_schema_bin() ->
+    File = filename:join(code:priv_dir(emqx_agent), "config_schema.avsc"),
+    file:read_file(File).
 
 skill_record_name(Type) when is_binary(Type) ->
     Parts = binary:split(Type, <<"__">>, [global]),

@@ -14,6 +14,26 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 t_valid_full_config(_Config) ->
     ?assertMatch({ok, _}, decode(sample_config())).
 
+t_publish_payload_schema_default_materialized(_Config) ->
+    Publish0 = maps:get(<<"Message_Publish">>, publish_skill()),
+    Publish = #{<<"Message_Publish">> => maps:remove(<<"payload_schema">>, Publish0)},
+    {ok, Config} = encode_with_defaults(sample_config_with_skill(Publish)),
+    [#{<<"Message_Publish">> := PublishWithDefault}] = maps:get(<<"skills">>, Config),
+    PayloadSchema = emqx_utils_json:decode(maps:get(<<"payload_schema">>, PublishWithDefault)),
+    ?assertEqual(
+        #{
+            <<"type">> => <<"object">>,
+            <<"properties">> => #{<<"message">> => #{<<"type">> => <<"string">>}},
+            <<"required">> => [<<"message">>],
+            <<"additionalProperties">> => false
+        },
+        PayloadSchema
+    ).
+
+t_all_config_oai_schemas_valid(_Config) ->
+    {ok, Config} = encode_with_defaults(sample_config()),
+    ?assertEqual([], oai_schema_errors(Config)).
+
 t_reject_missing_required_skill_field(_Config) ->
     Skill = #{
         <<"Message_Publish">> => maps:remove(
@@ -61,6 +81,71 @@ decode(Config) ->
         Class:Reason:Stacktrace ->
             {error, {Class, Reason, Stacktrace}}
     end.
+
+encode_with_defaults(Config) ->
+    emqx_agent_config:avro_config_with_defaults(Config, <<"emqx_agent_test">>).
+
+oai_schema_errors(Config) ->
+    skill_oai_schema_errors(maps:get(<<"skills">>, Config, [])) ++
+        pipeline_oai_schema_errors(maps:get(<<"pipelines">>, Config, [])).
+
+skill_oai_schema_errors(Skills) ->
+    lists:flatmap(
+        fun(Skill0) ->
+            Skill = unwrap_union(Skill0),
+            case maps:get(<<"type">>, Skill, undefined) of
+                <<"message__publish">> ->
+                    validate_field_schema(maps:get(<<"payload_schema">>, Skill));
+                <<"message__request">> ->
+                    validate_field_schema(maps:get(<<"request_payload_schema">>, Skill));
+                <<"http">> ->
+                    validate_root_schema(maps:get(<<"input_schema">>, Skill));
+                _ ->
+                    []
+            end
+        end,
+        Skills
+    ).
+
+pipeline_oai_schema_errors(Pipelines) ->
+    lists:flatmap(
+        fun(Pipeline0) ->
+            Pipeline = unwrap_union(Pipeline0),
+            lists:flatmap(
+                fun(Step0) ->
+                    Step = unwrap_union(Step0),
+                    case maps:get(<<"type">>, Step, undefined) of
+                        <<"llm_loop">> ->
+                            validate_root_schema(maps:get(<<"set_result_schema">>, Step));
+                        _ ->
+                            []
+                    end
+                end,
+                maps:get(<<"steps">>, Pipeline, [])
+            )
+        end,
+        Pipelines
+    ).
+
+validate_field_schema(SchemaString) ->
+    Schema = emqx_agent_oai_tool_schema:json_schema_from_string(SchemaString, []),
+    case emqx_agent_oai_tool_schema:validate_oai_schema_field(Schema) of
+        ok -> [];
+        {error, Reason} -> [Reason]
+    end.
+
+validate_root_schema(SchemaString) ->
+    Schema = emqx_agent_oai_tool_schema:json_schema_from_string(SchemaString, []),
+    case emqx_agent_oai_tool_schema:validate_oai_schema(Schema) of
+        ok -> [];
+        {error, Reason} -> [Reason]
+    end.
+
+unwrap_union(Map) when is_map(Map), map_size(Map) =:= 1 ->
+    [{_Key, Value}] = maps:to_list(Map),
+    Value;
+unwrap_union(Value) ->
+    Value.
 
 sample_config_with_skill(Skill) ->
     (sample_config())#{<<"skills">> => [Skill]}.

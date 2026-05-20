@@ -21,6 +21,14 @@ init([]) ->
     },
     ChildSpecs = [
         #{
+            id => emqx_agent_skill_connection_reconciler,
+            start => {emqx_agent_skill_connection_reconciler, start_link, []},
+            restart => permanent,
+            shutdown => 5000,
+            type => worker,
+            modules => [emqx_agent_skill_connection_reconciler]
+        },
+        #{
             id => emqx_agent_skill_registry,
             start => {emqx_agent_skill_registry, start_link, []},
             restart => permanent,

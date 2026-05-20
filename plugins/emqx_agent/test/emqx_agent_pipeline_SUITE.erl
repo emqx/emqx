@@ -342,13 +342,7 @@ t_set_result_writes_to_context(Config) ->
         <<"provider_name">> => <<"test-provider">>,
         <<"tools">> => [],
         <<"input">> => #{<<"box_id">> => <<"b1">>},
-        <<"set_result_schema">> => #{
-            <<"type">> => <<"object">>,
-            <<"properties">> => #{
-                <<"status">> => #{<<"type">> => <<"string">>}
-            },
-            <<"required">> => [<<"status">>]
-        },
+        <<"set_result_schema">> => set_result_schema(),
         <<"result_path">> => <<"$.verdict">>
     },
     {ok, Pid} = start_pipeline_direct(PipelineId, TrigTopic, [Step], #{<<"id">> => <<"sr-1">>}),
@@ -402,13 +396,7 @@ t_llm_loop_final_without_set_result_fails(Config) ->
         <<"provider_name">> => <<"test-provider">>,
         <<"tools">> => [],
         <<"input">> => #{},
-        <<"set_result_schema">> => #{
-            <<"type">> => <<"object">>,
-            <<"properties">> => #{
-                <<"status">> => #{<<"type">> => <<"string">>}
-            },
-            <<"required">> => [<<"status">>]
-        },
+        <<"set_result_schema">> => set_result_schema(),
         <<"result_path">> => <<"$.verdict">>
     },
     {ok, Pid} = start_pipeline_direct(PipelineId, TrigTopic, [Step], #{<<"id">> => <<"sr-missing">>}),
@@ -439,10 +427,7 @@ t_llm_loop_defaults_are_applied(Config) ->
         <<"model">> => <<"test-model">>,
         <<"instructions">> => <<"test">>,
         <<"provider_name">> => <<"test-provider">>,
-        <<"set_result_schema">> => #{
-            <<"type">> => <<"object">>,
-            <<"properties">> => #{<<"status">> => #{<<"type">> => <<"string">>}}
-        },
+        <<"set_result_schema">> => set_result_schema(),
         <<"result_path">> => <<"$.result">>
     },
     register_pipeline(PipelineId, TrigTopic, [Step]),
@@ -484,10 +469,7 @@ t_llm_loop_requires_model(Config) ->
         <<"type">> => <<"llm_loop">>,
         <<"instructions">> => <<"test">>,
         <<"provider_name">> => <<"test-provider">>,
-        <<"set_result_schema">> => #{
-            <<"type">> => <<"object">>,
-            <<"properties">> => #{<<"status">> => #{<<"type">> => <<"string">>}}
-        },
+        <<"set_result_schema">> => set_result_schema(),
         <<"result_path">> => <<"$.result">>
     },
     ?assertMatch(
@@ -569,10 +551,7 @@ t_pipeline_reply_timeout_fails_and_stops(Config) ->
             <<"provider_name">> => ProviderName,
             <<"tools">> => [],
             <<"input">> => #{},
-            <<"set_result_schema">> => #{
-                <<"type">> => <<"object">>,
-                <<"properties">> => #{<<"status">> => #{<<"type">> => <<"string">>}}
-            },
+            <<"set_result_schema">> => set_result_schema(),
             <<"timeout_ms">> => 100,
             <<"result_path">> => <<"$.result">>
         },
@@ -654,8 +633,17 @@ setup_publish_skill(SkillId) ->
         <<"type">> => <<"message__publish">>,
         <<"id">> => SkillId,
         <<"desc">> => <<"test">>,
-        <<"topic_prefix">> => <<"test/">>
+        <<"topic_prefix">> => <<"test/">>,
+        <<"payload_schema">> => emqx_utils_json:encode(#{<<"type">> => <<"string">>})
     }).
+
+set_result_schema() ->
+    #{
+        <<"type">> => <<"object">>,
+        <<"properties">> => #{<<"status">> => #{<<"type">> => <<"string">>}},
+        <<"required">> => [<<"status">>],
+        <<"additionalProperties">> => false
+    }.
 
 publish_evt(Topic, Event) ->
     emqx_broker:publish(trigger_message(Topic, Event)).

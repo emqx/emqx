@@ -15,7 +15,7 @@
               {"name": "id", "type": "string", "description": "$skill_id_desc"},
               {"name": "desc", "type": "string", "description": "$skill_desc_desc"},
               {"name": "topic_prefix", "type": "string", "description": "$skill_topic_prefix_desc"},
-              {"name": "payload_schema", "type": "string", "default": "", "description": "$skill_payload_schema_desc"}
+              {"name": "payload_schema", "type": "string", "default": "{\"type\":\"object\",\"properties\":{\"message\":{\"type\":\"string\"}},\"required\":[\"message\"],\"additionalProperties\":false}", "description": "$skill_payload_schema_desc"}
             ]
           },
           {

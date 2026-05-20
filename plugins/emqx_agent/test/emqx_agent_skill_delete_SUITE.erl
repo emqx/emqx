@@ -160,7 +160,9 @@ t_delete_skill_in_use_by_llm_tools(_Config) ->
                 <<"tools">> => [<<"message__publish@tool-pub">>],
                 <<"set_result_schema">> => #{
                     <<"type">> => <<"object">>,
-                    <<"properties">> => #{<<"status">> => #{<<"type">> => <<"string">>}}
+                    <<"properties">> => #{<<"status">> => #{<<"type">> => <<"string">>}},
+                    <<"required">> => [<<"status">>],
+                    <<"additionalProperties">> => false
                 },
                 <<"result_path">> => <<"$.result">>
             }

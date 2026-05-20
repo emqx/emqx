@@ -91,7 +91,7 @@ t_post_invoke_sends_json_body(Config) ->
         #{<<"city">> := City} = emqx_utils_json:decode(RawBody),
         reply_json(201, #{<<"status">> => <<"created">>, <<"city">> => City}, Req1, State)
     end),
-    invoke_and_assert(Config, #{<<"city">> => <<"Berlin">>}, fun(Data) ->
+    invoke_and_assert(Config, #{<<"city">> => <<"Berlin">>, <<"units">> => null}, fun(Data) ->
         ?assertMatch(#{<<"status">> := <<"created">>, <<"city">> := <<"Berlin">>}, Data)
     end).
 
@@ -101,7 +101,7 @@ t_get_passes_headers_to_server(Config) ->
         Self ! {request_headers, cowboy_req:headers(Req0)},
         reply_json(200, #{<<"ok">> => true}, Req0, State)
     end),
-    invoke_and_assert(Config, #{<<"city">> => <<"Oslo">>}, fun(_) -> ok end),
+    invoke_and_assert(Config, #{<<"city">> => <<"Oslo">>, <<"units">> => null}, fun(_) -> ok end),
     receive
         {request_headers, Headers} ->
             ?assertEqual(<<"test-key-123">>, maps:get(<<"x-api-key">>, Headers))
@@ -183,11 +183,12 @@ test_context(Config, Overrides) ->
                 <<"properties">> => #{
                     <<"city">> => #{<<"type">> => <<"string">>},
                     <<"units">> => #{
-                        <<"type">> => <<"string">>,
-                        <<"enum">> => [<<"metric">>, <<"imperial">>]
+                        <<"type">> => [<<"string">>, <<"null">>],
+                        <<"enum">> => [<<"metric">>, <<"imperial">>, null]
                     }
                 },
-                <<"required">> => [<<"city">>]
+                <<"required">> => [<<"city">>, <<"units">>],
+                <<"additionalProperties">> => false
             }
         },
         Overrides

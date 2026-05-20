@@ -136,6 +136,8 @@ if [[ -z "$PLUGIN_INSTALL_DIR_CFG" ]]; then
     exit 1
 fi
 
+PLUGIN_DATA_DIR=
+
 if [[ "$PLUGIN_INSTALL_DIR_CFG" = /* ]]; then
     PLUGIN_INSTALL_DIR="$PLUGIN_INSTALL_DIR_CFG"
 else
