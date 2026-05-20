@@ -55,9 +55,12 @@ If one of the limiters lack configuration, we simply don't do each action above.
 -define(MESSAGES_LIM_NAME, messages).
 -define(DELIVERY_BYTES_LIM_NAME, delivery_bytes).
 -define(DELIVERY_MESSAGES_LIM_NAME, delivery_messages).
+-define(SUBSCRIBES_LIM_NAME, subscribes).
 
 -define(IS_CHANNEL_ONLY_LIMITER(NAME),
-    ((NAME) =:= ?DELIVERY_BYTES_LIM_NAME orelse (NAME) =:= ?DELIVERY_MESSAGES_LIM_NAME)
+    ((NAME) =:= ?DELIVERY_BYTES_LIM_NAME orelse
+        (NAME) =:= ?DELIVERY_MESSAGES_LIM_NAME orelse
+        (NAME) =:= ?SUBSCRIBES_LIM_NAME)
 ).
 
 -define(tenant, tenant).
@@ -168,7 +171,8 @@ client_limiter_names() ->
         ?MESSAGES_LIM_NAME,
         ?BYTES_LIM_NAME,
         ?DELIVERY_MESSAGES_LIM_NAME,
-        ?DELIVERY_BYTES_LIM_NAME
+        ?DELIVERY_BYTES_LIM_NAME,
+        ?SUBSCRIBES_LIM_NAME
     ].
 
 tenant_limiter_names() ->

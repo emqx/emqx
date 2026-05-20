@@ -115,6 +115,23 @@ t_bytes_rate_zone(_Config) ->
         10_000
     ).
 
+-doc """
+Smoke test for subscribe rate limit.
+
+Since this is a client exclusive limiter (not shared), it does not have a zone (shared)
+counterpart.
+""".
+t_subscribe_rate_listener(_Config) ->
+    ?assertWaitEvent(
+        begin
+            set_limiter_for_listener(subscribes_rate, <<"2/500ms">>),
+            ct:sleep(550),
+            spawn_subscriber(<<"t/u/v">>, 1)
+        end,
+        #{?snk_kind := limiter_exclusive_try_consume, success := false},
+        10_000
+    ).
+
 t_metrics_quota_exceeded(_Config) ->
     ?assertWaitEvent(
         begin
@@ -306,6 +323,18 @@ run_publisher(C, PayloadSize, QoS) ->
     _ = emqtt:publish(C, <<"test">>, binary:copy(<<"a">>, PayloadSize), QoS),
     ct:sleep(10),
     run_publisher(C, PayloadSize, QoS).
+
+spawn_subscriber(TopicFilter, QoS) ->
+    spawn_link(fun() ->
+        {ok, C} = emqtt:start_link([{host, "127.0.0.1"}, {port, 1883}]),
+        {ok, _} = emqtt:connect(C),
+        run_subscriber(C, TopicFilter, QoS)
+    end).
+
+run_subscriber(C, TopicFilter, QoS) ->
+    _ = emqtt:subscribe(C, TopicFilter, [{qos, QoS}]),
+    ct:sleep(10),
+    run_subscriber(C, TopicFilter, QoS).
 
 random_bind() ->
     Host = "127.0.0.1",

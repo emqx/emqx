@@ -103,13 +103,15 @@ mqtt_shared_limiter_names() ->
         bytes
     ].
 
+%% remember to keep similar function in `emqx_mt_limiter` in sync, if necessary.
 mqtt_limiter_names() ->
     [
         max_conn,
         messages,
         bytes,
         delivery_messages,
-        delivery_bytes
+        delivery_bytes,
+        subscribes
     ].
 
 to_rate(Str) ->

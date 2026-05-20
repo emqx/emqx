@@ -122,4 +122,16 @@ For example: `10000/60m`: Once in 60 minutes, up to 10000 messages can be sent i
 delivery_messages_burst.label:
 """Message Delivery Burst"""
 
+  subscribes_rate {
+    label: "Subscribe Rate"
+    desc: """Limits the number of subscribe packets a single client can send to the broker, per each node.
+
+Once the limit is reached, EMQX will not process the packet and reply the packet with a `SUBACK` with "Quota Exceeded" error code (0x97)."""
+  }
+
+  subscribes_burst {
+    label: "Subscribe Burst"
+    desc: """Limits the number of subscribe packets a single client can send to the broker in a burst, per each node."""
+  }
+
 }

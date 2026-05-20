@@ -77,12 +77,16 @@
 %% Defs
 %%--------------------------------------------------------------------
 
--define(CHANNEL_LIM_NAMES, [messages, bytes, delivery_bytes, delivery_messages]).
+%% remember to keep similar macro in `emqx_mt_limiter` in sync, if necessary.
+-define(CHANNEL_LIM_NAMES, [messages, bytes, delivery_bytes, delivery_messages, subscribes]).
 -define(LISTENER_LIM_NAMES, [max_conn]).
 -define(ZONE_LIM_NAMES, [max_conn, messages, bytes]).
 
+%% remember to keep similar macro in `emqx_mt_limiter` in sync, if necessary.
 -define(IS_CHANNEL_ONLY_LIMITER(NAME),
-    ((NAME) =:= delivery_bytes orelse (NAME) =:= delivery_messages)
+    ((NAME) =:= delivery_bytes orelse
+        (NAME) =:= delivery_messages orelse
+        (NAME) =:= subscribes)
 ).
 
 %%--------------------------------------------------------------------
