@@ -896,21 +896,28 @@ is_mqtt_safe_utf8(<<_BadUtf8, _Rest/binary>>) ->
 
 %% @doc Scan a binary for bytes capable of splitting an HTTP/1.1 request line.
 %% Returns `ok' if the binary is safe to emit as an HTTP header name or value,
-%% otherwise `{error, contains_nul | contains_cr | contains_lf}'. Non-binary
+%% otherwise `{error, contains_null | contains_cr | contains_lf}'. Non-binary
 %% inputs are treated as safe; callers that templated something other than a
 %% binary have already failed earlier in a more visible way.
+%%
+%% Implemented with `binary:match/2' (NIF) so the happy path stays cheap; the
+%% per-byte inspection only runs when an offending byte is found.
 -spec http_header_byte_check(binary() | term()) ->
-    ok | {error, contains_nul | contains_cr | contains_lf}.
+    ok | {error, contains_null | contains_cr | contains_lf}.
 http_header_byte_check(Bin) when is_binary(Bin) ->
-    http_header_byte_check_bin(Bin);
+    case binary:match(Bin, [<<$\r>>, <<$\n>>, <<0>>]) of
+        nomatch ->
+            ok;
+        {Pos, _} ->
+            <<_:Pos/binary, Byte, _/binary>> = Bin,
+            {error, control_byte_to_reason(Byte)}
+    end;
 http_header_byte_check(_NonBin) ->
     ok.
 
-http_header_byte_check_bin(<<>>) -> ok;
-http_header_byte_check_bin(<<0, _/binary>>) -> {error, contains_nul};
-http_header_byte_check_bin(<<$\r, _/binary>>) -> {error, contains_cr};
-http_header_byte_check_bin(<<$\n, _/binary>>) -> {error, contains_lf};
-http_header_byte_check_bin(<<_, Rest/binary>>) -> http_header_byte_check_bin(Rest).
+control_byte_to_reason(0) -> contains_null;
+control_byte_to_reason($\r) -> contains_cr;
+control_byte_to_reason($\n) -> contains_lf.
 
 %% @doc Generate random, printable bytes as an ID.
 %% The first byte is ensured to be a-z or A-Z.
