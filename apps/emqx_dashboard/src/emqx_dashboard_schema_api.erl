@@ -70,7 +70,10 @@ schema("/schemas/:name") ->
 get_schema(get, #{
     bindings := #{name := Name}
 }) ->
-    {200, gen_schema(Name)};
+    %% The body is already a JSON binary; tell minirest the content type
+    %% explicitly so it doesn't fall back to text/plain.
+    Headers = #{<<"content-type">> => <<"application/json">>},
+    {200, Headers, gen_schema(Name)};
 get_schema(get, _) ->
     {400, ?BAD_REQUEST, <<"unknown">>}.
 
