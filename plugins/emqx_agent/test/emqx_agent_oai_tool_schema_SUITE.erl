@@ -113,8 +113,12 @@ t_generated_create_skill_schema_valid(_Config) ->
     ?assertEqual(false, contains_any_key([<<"$ref">>, <<"oneOf">>, <<"const">>], Schema)),
     Definition = maps:get(<<"definition">>, maps:get(<<"properties">>, Schema)),
     ?assertEqual(false, contains_property(<<"Message_Publish">>, Definition)),
-    ?assert(lists:any(fun(B) -> branch_type(B) =:= <<"postgresql__query">> end,
-        maps:get(<<"anyOf">>, Definition))).
+    ?assert(
+        lists:any(
+            fun(B) -> branch_type(B) =:= <<"postgresql__query">> end,
+            maps:get(<<"anyOf">>, Definition)
+        )
+    ).
 
 t_generated_create_pipeline_schema_valid(_Config) ->
     Schema = emqx_agent_schema_oai_tool_converter:to_json_schema([pipelines, items]),

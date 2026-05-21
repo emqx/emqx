@@ -8,14 +8,14 @@
 %% Requires: PostgreSQL reachable at pgsql:5432 (the standard EMQX test docker setup).
 %%
 %% What this suite tests end-to-end:
-%%   1. Trigger event on evt/conveyor/+/box/done starts the pipeline.
+%%   1. Trigger event on $evt/conveyor/+/box/done starts the pipeline.
 %%   2. Pipeline llm_loop sends a message__request to box/shot/<box_id>.
 %%   3. This suite acts as the SPA: receives the shot request, reads the
 %%      Response-Topic MQTT 5 property, publishes the fixture image as a
 %%      {"image_url":"data:image/png;base64,..."} JSON payload.
 %%   4. The session vision support detects the image_url and sends a
-%%      multimodal content array to GPT-4o for visual inspection.
-%%   5. GPT-4o returns {status, reason}; pipeline writes to PostgreSQL and
+%%      multimodal content array to the configured test LLM model.
+%%   5. The model returns {status, reason}; pipeline writes to PostgreSQL and
 %%      publishes to box/status/<box_id>.
 %%   6. Suite asserts status, optional alert, and DB row.
 
