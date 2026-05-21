@@ -1,7 +1,5 @@
 x-default-emqx: &default-emqx
     image: ${_EMQX_DOCKER_IMAGE_TAG}
-    env_file:
-      - conf.cluster.env
     healthcheck:
       test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
       interval: 5s
@@ -40,9 +38,11 @@ services:
   emqx1:
     <<: *default-emqx
     container_name: node1.emqx.io
+    env_file:
+      - conf.cluster.env
+      - conf.node1.env
     environment:
       - "EMQX_HOST=node1.emqx.io"
-      - "EMQX_LICENSE__KEY=evaluation"
     networks:
       emqx_bridge:
         aliases:
@@ -51,9 +51,11 @@ services:
   emqx2:
     <<: *default-emqx
     container_name: node2.emqx.io
+    env_file:
+      - conf.cluster.env
+      - conf.node2.env
     environment:
       - "EMQX_HOST=node2.emqx.io"
-      - "EMQX_LICENSE__KEY=evaluation"
     networks:
       emqx_bridge:
         aliases:

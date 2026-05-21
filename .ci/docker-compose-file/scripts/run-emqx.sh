@@ -3,29 +3,42 @@ set -euxo pipefail
 
 # _EMQX_DOCKER_IMAGE_TAG is shared with docker-compose file
 export _EMQX_DOCKER_IMAGE_TAG="$1"
-_EMQX_TEST_DB_BACKEND="${2:-${_EMQX_TEST_DB_BACKEND:-mnesia}}"
 
-case "$_EMQX_TEST_DB_BACKEND" in
+emqx_db_backend="${2:-${_EMQX_TEST_DB_BACKEND:-mnesia}}"
+emqx_node1_envfile=.ci/docker-compose-file/conf.node1.env
+emqx_node2_envfile=.ci/docker-compose-file/conf.node2.env
+
+case "${emqx_db_backend}" in
   rlog)
-    CLUSTER_OVERRIDES=".ci/docker-compose-file/docker-compose-emqx-cluster-rlog.override.yaml"
+    {
+      echo "EMQX_NODE__DB_BACKEND=rlog"
+      echo "EMQX_NODE__DB_ROLE=core"
+      echo "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.io]"
+    } >> ${emqx_node1_envfile}
+    {
+      echo "EMQX_NODE__DB_BACKEND=rlog"
+      echo "EMQX_NODE__DB_ROLE=replicant"
+      echo "EMQX_CLUSTER__CORE_NODES=emqx@node1.emqx.io"
+      echo "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.io]"
+    } >> ${emqx_node2_envfile}
     ;;
   mnesia)
-    CLUSTER_OVERRIDES=".ci/docker-compose-file/docker-compose-emqx-cluster-mnesia.override.yaml"
+    {
+      echo "EMQX_NODE__DB_BACKEND=mnesia"
+    } | tee -a ${emqx_node1_envfile} ${emqx_node2_envfile} >/dev/null
     ;;
   *)
-    echo "ERROR: Unknown DB backend: ${_EMQX_TEST_DB_BACKEND}"
+    echo "ERROR: Unknown DB backend: ${emqx_db_backend}"
     exit 1
     ;;
 esac
 
 {
-  echo "HOCON_ENV_OVERRIDE_PREFIX=EMQX_"
   echo "EMQX_MQTT__RETRY_INTERVAL=2s"
   echo "EMQX_MQTT__MAX_TOPIC_ALIAS=10"
   echo "EMQX_AUTHORIZATION__SOURCES=[]"
   echo "EMQX_AUTHORIZATION__NO_MATCH=allow"
-  echo "EMQX_LICENSE__KEY=evaluation"
-} >> .ci/docker-compose-file/conf.cluster.env
+} | tee -a ${emqx_node1_envfile} ${emqx_node2_envfile} >/dev/null
 
 is_node_up() {
   local node="$1"
@@ -50,7 +63,6 @@ is_cluster_up() {
 
 docker-compose \
   -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
-  -f "$CLUSTER_OVERRIDES" \
   -f .ci/docker-compose-file/docker-compose-python.yaml \
   up -d
 
