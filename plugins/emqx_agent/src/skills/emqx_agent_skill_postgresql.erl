@@ -13,6 +13,8 @@
 
 -behaviour(emqx_agent_skill).
 
+-include_lib("emqx/include/logger.hrl").
+
 -define(SKILL_TYPE, <<"postgresql__query">>).
 
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, resource_id/1, handle_invoke/2]).
@@ -33,6 +35,11 @@ deinit() ->
 
 -spec create(Context :: map()) -> {ok, map()} | {error, term()}.
 create(#{skill_id := SkillId, desc := Desc, query := Query, resource := ConnectionId} = Context) ->
+    ?SLOG(info, #{
+        msg => "postgresql_skill_create_started",
+        skill_id => SkillId,
+        connection_id => ConnectionId
+    }),
     case validate_connection(ConnectionId) of
         ok ->
             {ParsedQuery, RowTemplate, VarNames} = parse_query(Query),
@@ -52,6 +59,12 @@ create(#{skill_id := SkillId, desc := Desc, query := Query, resource := Connecti
                 input_schema => InSchema
             }};
         {error, _} = Error ->
+            ?SLOG(error, #{
+                msg => "postgresql_skill_create_failed",
+                skill_id => SkillId,
+                connection_id => ConnectionId,
+                reason => Error
+            }),
             Error
     end.
 
@@ -136,10 +149,25 @@ validate_connection(ConnectionId) ->
     case emqx_agent_config:lookup_connection(ConnectionId) of
         {ok, Connection} ->
             case is_postgresql(Connection) of
-                true -> ok;
-                false -> {error, {invalid_resource_type, ConnectionId}}
+                true ->
+                    ?SLOG(info, #{
+                        msg => "postgresql_skill_connection_validated",
+                        connection_id => ConnectionId
+                    }),
+                    ok;
+                false ->
+                    ?SLOG(error, #{
+                        msg => "postgresql_skill_connection_invalid_type",
+                        connection_id => ConnectionId,
+                        connection => Connection
+                    }),
+                    {error, {invalid_resource_type, ConnectionId}}
             end;
         {error, not_found} ->
+            ?SLOG(error, #{
+                msg => "postgresql_skill_connection_not_found",
+                connection_id => ConnectionId
+            }),
             {error, {resource_not_found, ConnectionId}}
     end.
 

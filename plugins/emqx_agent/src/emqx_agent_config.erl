@@ -60,7 +60,7 @@ same external shape that was submitted by users.
 ]).
 
 -ifdef(TEST).
--export([avro_config_with_defaults/2]).
+-export([avro_config_with_defaults/2, validate_config/1]).
 -endif.
 
 -define(CONFIG_KEY, {?MODULE, parsed_config}).
@@ -372,12 +372,18 @@ normalize_config_for_storage(Config) ->
     %% So we prerender defaults.
     case avro_config_with_defaults(Config) of
         {ok, ConfigWithDefaults} ->
-            case validate_oai_schemas(ConfigWithDefaults) of
+            case validate_config(ConfigWithDefaults) of
                 ok -> {ok, ConfigWithDefaults};
                 {error, _} = Error -> Error
             end;
         {error, _} = Error ->
             Error
+    end.
+
+validate_config(Config) ->
+    case validate_oai_schemas(Config) of
+        ok -> validate_pipeline_skill_refs(Config);
+        {error, _} = Error -> Error
     end.
 
 avro_config_with_defaults(Config) ->
@@ -537,9 +543,63 @@ parse_config({avro_value, _Type, Value}) ->
     parse_config(avro_to_plain(Value));
 parse_config(Config) when is_map(Config) ->
     case validate_pipelines(maps:get(?PIPELINES, Config, [])) of
-        ok -> {ok, normalize_config(Config)};
-        {error, _} = Error -> Error
+        ok ->
+            case validate_pipeline_skill_refs(Config) of
+                ok -> {ok, normalize_config(Config)};
+                {error, _} = Error -> Error
+            end;
+        {error, _} = Error ->
+            Error
     end.
+
+validate_pipeline_skill_refs(Config) ->
+    ExistingRefs = lists:usort(skill_refs(maps:get(?SKILLS, Config, []))),
+    ReferencedRefs = lists:usort(pipeline_skill_refs(maps:get(?PIPELINES, Config, []))),
+    MissingRefs = ReferencedRefs -- ExistingRefs,
+    case MissingRefs of
+        [] -> ok;
+        _ -> {error, {missing_skills, MissingRefs}}
+    end.
+
+skill_refs(Skills) ->
+    lists:filtermap(
+        fun(Skill0) ->
+            Skill = unwrap_union(Skill0),
+            case {maps:get(?SKILL_TYPE, Skill, undefined), maps:get(?SKILL_ID, Skill, undefined)} of
+                {Type, Id} when is_binary(Type), is_binary(Id) ->
+                    {true, <<Type/binary, "@", Id/binary>>};
+                _ ->
+                    false
+            end
+        end,
+        Skills
+    ).
+
+pipeline_skill_refs(Pipelines) ->
+    lists:flatmap(
+        fun(Pipeline0) ->
+            Pipeline = unwrap_union(Pipeline0),
+            Steps = maps:get(<<"steps">>, Pipeline, []),
+            lists:flatmap(fun step_skill_refs/1, Steps)
+        end,
+        Pipelines
+    ).
+
+step_skill_refs(Step0) ->
+    Step = unwrap_union(Step0),
+    case maps:get(?SKILL_TYPE, Step, undefined) of
+        <<"call_skill">> ->
+            skill_ref(maps:get(<<"skill">>, Step, undefined));
+        <<"llm_loop">> ->
+            lists:flatmap(fun skill_ref/1, maps:get(<<"tools">>, Step, []));
+        _ ->
+            []
+    end.
+
+skill_ref(Ref) when is_binary(Ref), Ref =/= <<>> ->
+    [Ref];
+skill_ref(_) ->
+    [].
 
 cache_config(Parsed) ->
     persistent_term:put(?CONFIG_KEY, Parsed),

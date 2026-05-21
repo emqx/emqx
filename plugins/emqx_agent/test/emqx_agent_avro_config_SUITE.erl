@@ -64,6 +64,20 @@ t_reject_invalid_name_value_type(_Config) ->
     ),
     ?assertMatch({error, _}, decode(Config)).
 
+t_reject_pipeline_missing_call_skill_ref(_Config) ->
+    Config = (sample_config())#{<<"pipelines">> => [pipeline_with_call_skill(<<"missing@skill">>)]},
+    ?assertMatch({error, {missing_skills, [<<"missing@skill">>]}}, validate_config(Config)).
+
+t_reject_pipeline_missing_llm_tool_ref(_Config) ->
+    Config = (sample_config())#{<<"pipelines">> => [pipeline_with_llm_tool(<<"missing@tool">>)]},
+    ?assertMatch({error, {missing_skills, [<<"missing@tool">>]}}, validate_config(Config)).
+
+t_accept_pipeline_with_duplicate_existing_skill_refs(_Config) ->
+    Config = (sample_config())#{
+        <<"pipelines">> => [pipeline_with_duplicate_call_skill(<<"message__publish@pub">>)]
+    },
+    ?assertEqual(ok, validate_config(Config)).
+
 decode(Config) ->
     try
         PrivDir = code:priv_dir(emqx_agent),
@@ -84,6 +98,10 @@ decode(Config) ->
 
 encode_with_defaults(Config) ->
     emqx_agent_config:avro_config_with_defaults(Config, <<"emqx_agent_test">>).
+
+validate_config(Config) ->
+    {ok, ConfigWithDefaults} = encode_with_defaults(Config),
+    emqx_agent_config:validate_config(ConfigWithDefaults).
 
 oai_schema_errors(Config) ->
     skill_oai_schema_errors(maps:get(<<"skills">>, Config, [])) ++
@@ -296,6 +314,71 @@ pipeline() ->
                 }
             }
         ]
+    }.
+
+pipeline_with_call_skill(Ref) ->
+    #{
+        <<"pipeline_id">> => <<"pipe-missing-call">>,
+        <<"active">> => true,
+        <<"trigger">> => #{<<"topic">> => <<"$evt/missing/call">>},
+        <<"steps">> => [
+            #{
+                <<"PipelineStepCallSkill">> => #{
+                    <<"id">> => <<"notify">>,
+                    <<"type">> => <<"call_skill">>,
+                    <<"skill">> => Ref,
+                    <<"args">> => [],
+                    <<"result_path">> => <<"$.notify">>
+                }
+            }
+        ]
+    }.
+
+pipeline_with_llm_tool(Ref) ->
+    #{
+        <<"pipeline_id">> => <<"pipe-missing-tool">>,
+        <<"active">> => true,
+        <<"trigger">> => #{<<"topic">> => <<"$evt/missing/tool">>},
+        <<"steps">> => [
+            #{
+                <<"PipelineStepLlmLoop">> => #{
+                    <<"id">> => <<"inspect">>,
+                    <<"type">> => <<"llm_loop">>,
+                    <<"provider_name">> => <<"openai">>,
+                    <<"model">> => <<"gpt-4o">>,
+                    <<"persistent">> => false,
+                    <<"max_tokens">> => 2048,
+                    <<"max_total_tokens">> => 50000,
+                    <<"tools">> => [Ref],
+                    <<"instructions">> => <<"Inspect the event">>,
+                    <<"input">> => [],
+                    <<"set_result_schema">> => schema_string(),
+                    <<"result_path">> => <<"$.inspection">>
+                }
+            }
+        ]
+    }.
+
+pipeline_with_duplicate_call_skill(Ref) ->
+    #{
+        <<"pipeline_id">> => <<"pipe-duplicate-call">>,
+        <<"active">> => true,
+        <<"trigger">> => #{<<"topic">> => <<"$evt/duplicate/call">>},
+        <<"steps">> => [
+            pipeline_call_skill_step(<<"notify1">>, Ref),
+            pipeline_call_skill_step(<<"notify2">>, Ref)
+        ]
+    }.
+
+pipeline_call_skill_step(Id, Ref) ->
+    #{
+        <<"PipelineStepCallSkill">> => #{
+            <<"id">> => Id,
+            <<"type">> => <<"call_skill">>,
+            <<"skill">> => Ref,
+            <<"args">> => [],
+            <<"result_path">> => <<"$.notify">>
+        }
     }.
 
 schema_string() ->

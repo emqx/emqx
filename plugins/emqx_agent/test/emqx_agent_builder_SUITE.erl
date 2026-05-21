@@ -9,7 +9,7 @@
 %% What this suite tests:
 %%   1. All 9 meta-skills + builder-reply skill are registered.
 %%   2. The pipeline-builder AI provider and pipeline are created.
-%%   3. A natural-language request is published to evt/builder/request.
+%%   3. A natural-language request is published to $evt/builder/request.
 %%   4. The LLM uses the meta-skills to create the apple-box-inspection
 %%      pipeline (skills + provider reference + pipeline definition).
 %%   5. The suite verifies the resulting pipeline structure matches the
@@ -70,6 +70,10 @@
     Building a working pipeline requires these steps:
 
       1. Create SKILLS — register the capabilities the pipeline will use.
+         Pipelines can only reference registered skills. Before creating a pipeline,
+         make sure every skill referenced by its steps already exists or is created
+         successfully first. Do not reference a skill unless you have confirmed it
+         exists or successfully created it.
       2. Choose an existing AI PROVIDER for llm_loop provider_name.
       3. Create the PIPELINE — wire everything together.
 
@@ -92,6 +96,10 @@
                         Use resource "apple-box-pg" for apple-box PostgreSQL skills.
                         Placeholder names are extracted automatically and the input
                         schema is generated from them. No arg_keys or input_schema needed.
+                        If a pipeline must read from or write to PostgreSQL, you MUST
+                        create a postgresql__query skill for that SQL operation before
+                        creating the pipeline. The pipeline then references it as
+                        "postgresql__query@<id>" in a call_skill step.
 
     ═══════════════════════════════════════════════════════
     PIPELINE STEP TYPES
@@ -130,13 +138,62 @@
     args and input are arrays of {"name": string, "value": primitive} entries, not objects.
 
     ═══════════════════════════════════════════════════════
+    PIPELINE KEY
+    ═══════════════════════════════════════════════════════
+
+    key_expression is a Variform expression evaluated against MQTT message metadata.
+    It is not evaluated against pipeline context. The only root binding is message.
+    Default key_expression is message.topic.
+
+    The pipeline key groups persistent LLM sessions. For a persistent llm_loop, the
+    same pipeline id + step id + key reuses the same LLM session and history.
+    For pipelines whose llm_loop steps are persistent: false, omit key_expression
+    unless the user explicitly asks for custom grouping by message metadata.
+
+    Valid examples: message.topic, message.from, message.headers.username,
+    message.headers.peerhost.
+
+    Do not use JSONPath such as $.event.foo in key_expression. Do not use ${...}
+    template syntax. Do not reference bare payload.foo because only message is bound.
+    Do not assume decoded event payload fields are available in key_expression.
+
+    Message data available to key_expression looks like:
+    {
+      "message": {
+        "qos": 0,
+        "topic": "some/topic",
+        "payload": "some-payload",
+        "headers": {
+          "client_attrs": {},
+          "proto_ver": 5,
+          "properties": {"User-Property": {"user-prop": "some-value"}},
+          "peerhost": "127.0.0.1",
+          "username": "undefined",
+          "protocol": "mqtt",
+          "peername": "127.0.0.1:49352"
+        },
+        "from": "clientid",
+        "timestamp": 1759238376252,
+        "id": "..non utf8 bytes...",
+        "flags": {"retain": false, "dup": false},
+        "extra": {}
+      }
+    }
+
+    ═══════════════════════════════════════════════════════
     YOUR WORKFLOW
     ═══════════════════════════════════════════════════════
 
     1. Understand what the user wants to automate.
     2. Query existing skills, AI providers, and pipelines to avoid duplication.
     3. Create skills first, then the pipeline.
-    4. Confirm with a plain-language summary of what was created.
+    4. Before creating the pipeline, verify that every referenced skill exists or has
+       been created successfully. This includes every call_skill "skill" value and
+       every skill listed in every llm_loop "tools" array.
+    5. If the pipeline has any database step, create the required postgresql__query
+       skill first. A PostgreSQL connection is not itself a skill and cannot be
+       referenced directly from a pipeline step.
+    6. Confirm with a plain-language summary of what was created.
 
     ═══════════════════════════════════════════════════════
     REPLYING — MANDATORY

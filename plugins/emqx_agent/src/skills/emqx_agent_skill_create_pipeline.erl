@@ -60,6 +60,9 @@ to_map(#{skill_id := Id, description := Desc, input_schema := In}) ->
     }.
 
 handle_invoke(_Context, Request) ->
+    emqx_agent_builder_tool_server:call(fun() -> do_handle_invoke(Request) end).
+
+do_handle_invoke(Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
     %% Enforce active=false unconditionally — not exposed to the LLM.
     Body = Args#{<<"active">> => false},

@@ -261,9 +261,6 @@ for dep in ${CT_DEPS}; do
         spark-query)
             FILES+=( '.ci/docker-compose-file/docker-compose-spark-query.yaml' )
             ;;
-        ollama)
-            FILES+=( '.ci/docker-compose-file/docker-compose-ollama.yaml' )
-            ;;
         doris)
             FILES+=( '.ci/docker-compose-file/docker-compose-doris.yaml'
                      '.ci/docker-compose-file/docker-compose-doris-tls.yaml' )

@@ -63,14 +63,38 @@ delete(_Other, Context) ->
 resolve_map(Map, Context) when is_map(Map) ->
     maps:map(
         fun
-            (_K, V) when is_binary(V) -> resolve(V, Context);
-            (_K, V) when is_map(V) -> resolve_map(V, Context);
+            (_K, V) when is_binary(V) -> resolve_top_value(V, Context);
+            (_K, V) when is_map(V) -> resolve_nested_map(V, Context);
             (_K, V) -> V
         end,
         Map
     );
 resolve_map(Other, _Context) ->
     Other.
+
+resolve_top_value(Value, Context) ->
+    case decode_json_map(Value) of
+        {ok, Map} -> resolve_nested_map(Map, Context);
+        error -> resolve(Value, Context)
+    end.
+
+resolve_nested_map(Map, Context) when is_map(Map) ->
+    maps:map(
+        fun
+            (_K, V) when is_binary(V) -> resolve(V, Context);
+            (_K, V) when is_map(V) -> resolve_nested_map(V, Context);
+            (_K, V) -> V
+        end,
+        Map
+    ).
+
+decode_json_map(Bin) ->
+    try emqx_utils_json:decode(Bin) of
+        Map when is_map(Map) -> {ok, Map};
+        _ -> error
+    catch
+        _:_ -> error
+    end.
 
 -spec deep_get([binary()], map()) -> term().
 deep_get([], Value) ->

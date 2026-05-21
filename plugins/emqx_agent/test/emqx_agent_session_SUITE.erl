@@ -23,17 +23,14 @@
 
 -define(PROVIDER_NAME, <<"test-llm">>).
 -define(BAD_PROVIDER_NAME, <<"bad-test-llm">>).
-
 -define(LLM_TIMEOUT, 60_000).
 -define(SHORT_TIMEOUT, 5_000).
--define(FRAME_DRAIN_TIMEOUT, 500).
-
 %%--------------------------------------------------------------------
 %% CT callbacks
 %%--------------------------------------------------------------------
 
 %% Pure SSE parser tests run without any LLM — they are always included.
-%% LLM integration tests require ollama and are skipped when it is absent.
+%% LLM integration tests require API key and are skipped when it is absent.
 -define(PARSER_TESTS, [
     t_sse_parser_simple_content,
     t_sse_parser_finish_reason_not_overwritten_by_null,
@@ -43,7 +40,6 @@
     t_sse_parser_split_chunks,
     t_sse_parser_usage_chunk
 ]).
-
 -define(LLM_TESTS, [
     t_request_finish,
     t_request_with_tool_call,
@@ -57,19 +53,21 @@
     t_non_session_topic_ignored
 ]).
 
-all() -> ?PARSER_TESTS ++ ?LLM_TESTS.
+all() ->
+    ?PARSER_TESTS ++ ?LLM_TESTS.
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start(
-        [
-            emqx,
-            emqx_conf,
-            emqx_resource,
-            {emqx_ai_completion, #{config => "ai.providers = [], ai.completion_profiles = []"}},
-            emqx_agent
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
+    Apps =
+        emqx_cth_suite:start(
+            [
+                emqx,
+                emqx_conf,
+                emqx_resource,
+                {emqx_ai_completion, #{config => "ai.providers = [], ai.completion_profiles = []"}},
+                emqx_agent
+            ],
+            #{work_dir => emqx_cth_suite:work_dir(Config)}
+        ),
     [{suite_apps, Apps}, {llm_available, llm_available()} | Config].
 
 end_per_suite(Config) ->
@@ -83,8 +81,10 @@ init_per_testcase(TestCase, Config) ->
             Sid = atom_to_binary(TestCase, utf8),
             maybe_create_test_providers(TestCase),
             case lists:member(TestCase, ?LLM_TESTS) of
-                true -> ct:timetrap({seconds, 60});
-                false -> ok
+                true ->
+                    ct:timetrap({seconds, 60});
+                false ->
+                    ok
             end,
             emqx:subscribe(out_topic(Sid)),
             [{sid, Sid} | Config]
@@ -94,8 +94,10 @@ end_per_testcase(_TestCase, Config) ->
     _ = emqx_ai_completion_config:update_providers_raw({delete, ?PROVIDER_NAME}),
     _ = emqx_ai_completion_config:update_providers_raw({delete, ?BAD_PROVIDER_NAME}),
     case ?config(sid, Config) of
-        undefined -> ok;
-        Sid -> emqx:unsubscribe(out_topic(Sid))
+        undefined ->
+            ok;
+        Sid ->
+            emqx:unsubscribe(out_topic(Sid))
     end.
 
 %%--------------------------------------------------------------------
@@ -213,7 +215,7 @@ t_sse_parser_usage_chunk(_Config) ->
     ?assertEqual(49, maps:get(total_tokens, Acc)).
 
 %%--------------------------------------------------------------------
-%% LLM integration test cases (skipped when ollama is not reachable)
+%% LLM integration test cases (skipped when LLM API is not reachable)
 %%--------------------------------------------------------------------
 
 %% Basic request/final round-trip: the LLM receives no tools so it must
@@ -221,11 +223,15 @@ t_sse_parser_usage_chunk(_Config) ->
 t_request_finish(Config) ->
     publish_in(
         Config,
-        request(Config, #{
-            <<"tools">> => [],
-            <<"instructions">> => <<"Reply with a short JSON object, e.g. {\"answer\": \"42\"}.">>,
-            <<"input">> => #{<<"question">> => <<"What is 6 times 7?">>}
-        })
+        request(
+            Config,
+            #{
+                <<"tools">> => [],
+                <<"instructions">> =>
+                    <<"Reply with a short JSON object, e.g. {\"answer\": \"42\"}.">>,
+                <<"input">> => #{<<"question">> => <<"What is 6 times 7?">>}
+            }
+        )
     ),
     Final = recv_final(Config),
     ?assertMatch(
@@ -249,40 +255,54 @@ t_request_with_tool_call(Config) ->
     A = 47,
     B = 47,
     Sum = A + B,
-    Tool = #{
-        <<"name">> => <<"add">>,
-        <<"description">> => <<"Add two integers and return their sum.">>,
-        <<"parameters">> => #{
-            <<"type">> => <<"object">>,
-            <<"properties">> => #{
-                <<"a">> => #{<<"type">> => <<"integer">>},
-                <<"b">> => #{<<"type">> => <<"integer">>}
-            },
-            <<"required">> => [<<"a">>, <<"b">>]
-        }
-    },
+    Tool =
+        #{
+            <<"name">> => <<"add">>,
+            <<"description">> => <<"Add two integers and return their sum.">>,
+            <<"parameters">> =>
+                #{
+                    <<"type">> => <<"object">>,
+                    <<"properties">> =>
+                        #{
+                            <<"a">> => #{<<"type">> => <<"integer">>},
+                            <<"b">> => #{<<"type">> => <<"integer">>}
+                        },
+                    <<"required">> => [<<"a">>, <<"b">>]
+                }
+        },
     publish_in(
         Config,
-        request(Config, #{
-            <<"tools">> => [Tool],
-            <<"instructions">> =>
-                <<"Use the add tool to compute the answer. Do not answer directly.">>,
-            <<"input">> => #{<<"question">> => <<"What is 47 + 47?">>}
-        })
+        request(
+            Config,
+            #{
+                <<"tools">> => [Tool],
+                <<"instructions">> =>
+                    <<"Use the add tool to compute the answer. Do not answer directly.">>,
+                <<"input">> => #{<<"question">> => <<"What is 47 + 47?">>}
+            }
+        )
     ),
 
     ToolReq = recv_tool_request(Config),
     ?assertMatch(
-        #{<<"type">> := <<"tool_request">>, <<"call_id">> := _, <<"tool">> := <<"add">>},
+        #{
+            <<"type">> := <<"tool_request">>,
+            <<"call_id">> := _,
+            <<"tool">> := <<"add">>
+        },
         ToolReq
     ),
 
     CallId = maps:get(<<"call_id">>, ToolReq),
-    publish_in(Config, #{
-        <<"type">> => <<"tool_result">>,
-        <<"call_id">> => CallId,
-        <<"response">> => #{<<"status">> => <<"ok">>, <<"result">> => #{<<"sum">> => Sum}}
-    }),
+    publish_in(
+        Config,
+        #{
+            <<"type">> => <<"tool_result">>,
+            <<"call_id">> => CallId,
+            <<"response">> =>
+                #{<<"status">> => <<"ok">>, <<"result">> => #{<<"sum">> => Sum}}
+        }
+    ),
 
     Final = recv_final(Config),
     % ct:pal("final frame: ~p", [Final]),
@@ -309,26 +329,36 @@ t_events_are_incorporated(Config) ->
     %% First request — session answers and returns to idle (persistent=true)
     publish_in(
         Config,
-        request(Config, #{
-            <<"tools">> => [],
-            <<"instructions">> =>
-                <<"Answer briefly. When asked to report an event value, reply with only the number.">>,
-            <<"input">> => #{<<"q">> => <<"What is 1+1?">>},
-            <<"persistent">> => true
-        })
+        request(
+            Config,
+            #{
+                <<"tools">> => [],
+                <<"instructions">> =>
+                    <<
+                        "Answer briefly. When asked to report an event value, reply "
+                        "with only the number."
+                    >>,
+                <<"input">> => #{<<"q">> => <<"What is 1+1?">>},
+                <<"persistent">> => true
+            }
+        )
     ),
     Final1 = recv_final(Config),
     assert_final(Final1),
 
     %% Push an event — this alone triggers a new LLM call (idle → calling_llm)
-    publish_in(Config, #{
-        <<"type">> => <<"event">>,
-        <<"event">> => #{
-            <<"alert">> => <<"sensor_spike">>,
-            <<"value">> => Sentinel,
-            <<"instruction">> => <<"Report the numeric value from this event.">>
+    publish_in(
+        Config,
+        #{
+            <<"type">> => <<"event">>,
+            <<"event">> =>
+                #{
+                    <<"alert">> => <<"sensor_spike">>,
+                    <<"value">> => Sentinel,
+                    <<"instruction">> => <<"Report the numeric value from this event.">>
+                }
         }
-    }),
+    ),
 
     %% Wait for the event-driven final — no second request sent
     Final2 = recv_final(Config),
@@ -352,12 +382,15 @@ t_events_are_incorporated(Config) ->
 t_persistent_keeps_session(Config) ->
     publish_in(
         Config,
-        request(Config, #{
-            <<"tools">> => [],
-            <<"instructions">> => <<"Answer briefly.">>,
-            <<"input">> => #{<<"q">> => <<"What is 2+2?">>},
-            <<"persistent">> => true
-        })
+        request(
+            Config,
+            #{
+                <<"tools">> => [],
+                <<"instructions">> => <<"Answer briefly.">>,
+                <<"input">> => #{<<"q">> => <<"What is 2+2?">>},
+                <<"persistent">> => true
+            }
+        )
     ),
     _Final1 = recv_final(Config),
 
@@ -369,7 +402,8 @@ t_persistent_keeps_session(Config) ->
     Pid ! persistent_idle_timeout,
 
     receive
-        {'DOWN', Ref, process, Pid, normal} -> ok
+        {'DOWN', Ref, process, Pid, normal} ->
+            ok
     after ?SHORT_TIMEOUT ->
         ct:fail("session did not stop after persistent idle timeout")
     end.
@@ -377,25 +411,32 @@ t_persistent_keeps_session(Config) ->
 t_persistent_compacts_history(Config) ->
     publish_in(
         Config,
-        request(Config, #{
-            <<"tools">> => [],
-            <<"instructions">> => <<"Answer briefly.">>,
-            <<"input">> => #{<<"q">> => <<"Remember the marker alpha-17 and answer ok.">>},
-            <<"persistent">> => true,
-            <<"max_total_tokens">> => 1
-        })
+        request(
+            Config,
+            #{
+                <<"tools">> => [],
+                <<"instructions">> => <<"Answer briefly.">>,
+                <<"input">> =>
+                    #{<<"q">> => <<"Remember the marker alpha-17 and answer ok.">>},
+                <<"persistent">> => true,
+                <<"max_total_tokens">> => 1
+            }
+        )
     ),
     _Final1 = recv_final(Config),
 
     publish_in(
         Config,
-        request(Config, #{
-            <<"tools">> => [],
-            <<"instructions">> => <<"Answer briefly.">>,
-            <<"input">> => #{<<"q">> => <<"What marker did I ask you to remember?">>},
-            <<"persistent">> => true,
-            <<"max_total_tokens">> => 1
-        })
+        request(
+            Config,
+            #{
+                <<"tools">> => [],
+                <<"instructions">> => <<"Answer briefly.">>,
+                <<"input">> => #{<<"q">> => <<"What marker did I ask you to remember?">>},
+                <<"persistent">> => true,
+                <<"max_total_tokens">> => 1
+            }
+        )
     ),
     _Final2 = recv_final(Config),
 
@@ -415,35 +456,44 @@ t_persistent_compacts_history(Config) ->
     ?assertEqual(4, length(History)).
 
 t_persistent_request_iterations_reset_per_request(Config) ->
-    Tool = #{
-        <<"name">> => <<"add">>,
-        <<"description">> => <<"Add two integers and return their sum.">>,
-        <<"parameters">> => #{
-            <<"type">> => <<"object">>,
-            <<"properties">> => #{
-                <<"a">> => #{<<"type">> => <<"integer">>},
-                <<"b">> => #{<<"type">> => <<"integer">>}
-            },
-            <<"required">> => [<<"a">>, <<"b">>]
-        }
-    },
+    Tool =
+        #{
+            <<"name">> => <<"add">>,
+            <<"description">> => <<"Add two integers and return their sum.">>,
+            <<"parameters">> =>
+                #{
+                    <<"type">> => <<"object">>,
+                    <<"properties">> =>
+                        #{
+                            <<"a">> => #{<<"type">> => <<"integer">>},
+                            <<"b">> => #{<<"type">> => <<"integer">>}
+                        },
+                    <<"required">> => [<<"a">>, <<"b">>]
+                }
+        },
     publish_in(
         Config,
-        request(Config, #{
-            <<"tools">> => [Tool],
-            <<"instructions">> =>
-                <<"Use the add tool to compute the answer. Do not answer directly.">>,
-            <<"input">> => #{<<"question">> => <<"What is 2 + 3?">>},
-            <<"persistent">> => true
-        })
+        request(
+            Config,
+            #{
+                <<"tools">> => [Tool],
+                <<"instructions">> =>
+                    <<"Use the add tool to compute the answer. Do not answer directly.">>,
+                <<"input">> => #{<<"question">> => <<"What is 2 + 3?">>},
+                <<"persistent">> => true
+            }
+        )
     ),
 
     ToolReq = recv_tool_request(Config),
-    publish_in(Config, #{
-        <<"type">> => <<"tool_result">>,
-        <<"call_id">> => maps:get(<<"call_id">>, ToolReq),
-        <<"response">> => #{<<"status">> => <<"ok">>, <<"result">> => #{<<"sum">> => 5}}
-    }),
+    publish_in(
+        Config,
+        #{
+            <<"type">> => <<"tool_result">>,
+            <<"call_id">> => maps:get(<<"call_id">>, ToolReq),
+            <<"response">> => #{<<"status">> => <<"ok">>, <<"result">> => #{<<"sum">> => 5}}
+        }
+    ),
 
     Final1 = recv_final(Config),
     assert_final(Final1),
@@ -452,12 +502,15 @@ t_persistent_request_iterations_reset_per_request(Config) ->
 
     publish_in(
         Config,
-        request(Config, #{
-            <<"tools">> => [],
-            <<"instructions">> => <<"Answer with a short JSON object.">>,
-            <<"input">> => #{<<"question">> => <<"What is 1 + 1?">>},
-            <<"persistent">> => true
-        })
+        request(
+            Config,
+            #{
+                <<"tools">> => [],
+                <<"instructions">> => <<"Answer with a short JSON object.">>,
+                <<"input">> => #{<<"question">> => <<"What is 1 + 1?">>},
+                <<"persistent">> => true
+            }
+        )
     ),
 
     Final2 = recv_final(Config),
@@ -474,12 +527,15 @@ t_persistent_request_iterations_reset_per_request(Config) ->
 t_explicit_stop_terminates_session(Config) ->
     publish_in(
         Config,
-        request(Config, #{
-            <<"tools">> => [],
-            <<"instructions">> => <<"Answer briefly.">>,
-            <<"input">> => #{<<"q">> => <<"What is 4+4?">>},
-            <<"persistent">> => true
-        })
+        request(
+            Config,
+            #{
+                <<"tools">> => [],
+                <<"instructions">> => <<"Answer briefly.">>,
+                <<"input">> => #{<<"q">> => <<"What is 4+4?">>},
+                <<"persistent">> => true
+            }
+        )
     ),
     _Final = recv_final(Config),
 
@@ -491,7 +547,8 @@ t_explicit_stop_terminates_session(Config) ->
     publish_in(Config, #{<<"type">> => <<"stop">>}),
 
     receive
-        {'DOWN', Ref, process, Pid, normal} -> ok
+        {'DOWN', Ref, process, Pid, normal} ->
+            ok
     after ?SHORT_TIMEOUT ->
         ct:fail("session did not stop after stop frame")
     end.
@@ -501,17 +558,21 @@ t_llm_connection_error_terminates_session(Config) ->
     Sid = ?config(sid, Config),
     publish_in(
         Config,
-        request(Config, #{
-            <<"tools">> => [],
-            <<"provider_name">> => ?BAD_PROVIDER_NAME,
-            <<"input">> => #{<<"q">> => <<"hello">>},
-            <<"persistent">> => true
-        })
+        request(
+            Config,
+            #{
+                <<"tools">> => [],
+                <<"provider_name">> => ?BAD_PROVIDER_NAME,
+                <<"input">> => #{<<"q">> => <<"hello">>},
+                <<"persistent">> => true
+            }
+        )
     ),
     Pid = wait_for_session(Sid),
     Ref = monitor(process, Pid),
     receive
-        {'DOWN', Ref, process, Pid, _} -> ok
+        {'DOWN', Ref, process, Pid, _} ->
+            ok
     after ?SHORT_TIMEOUT ->
         ct:fail("session did not stop after LLM connection error")
     end.
@@ -521,45 +582,58 @@ t_llm_connection_error_terminates_session(Config) ->
 %% holding the first request in waiting_tools until after the second request is
 %% published.
 t_request_while_busy_is_queued(Config) ->
-    Tool = #{
-        <<"name">> => <<"add">>,
-        <<"description">> => <<"Add two integers and return their sum.">>,
-        <<"parameters">> => #{
-            <<"type">> => <<"object">>,
-            <<"properties">> => #{
-                <<"a">> => #{<<"type">> => <<"integer">>},
-                <<"b">> => #{<<"type">> => <<"integer">>}
-            },
-            <<"required">> => [<<"a">>, <<"b">>]
-        }
-    },
+    Tool =
+        #{
+            <<"name">> => <<"add">>,
+            <<"description">> => <<"Add two integers and return their sum.">>,
+            <<"parameters">> =>
+                #{
+                    <<"type">> => <<"object">>,
+                    <<"properties">> =>
+                        #{
+                            <<"a">> => #{<<"type">> => <<"integer">>},
+                            <<"b">> => #{<<"type">> => <<"integer">>}
+                        },
+                    <<"required">> => [<<"a">>, <<"b">>]
+                }
+        },
     publish_in(
         Config,
-        request(Config, #{
-            <<"tools">> => [Tool],
-            <<"instructions">> =>
-                <<"Use the add tool to compute the answer. Do not answer directly.">>,
-            <<"input">> => #{<<"question">> => <<"What is 5 + 5?">>},
-            <<"persistent">> => true
-        })
+        request(
+            Config,
+            #{
+                <<"tools">> => [Tool],
+                <<"instructions">> =>
+                    <<"Use the add tool to compute the answer. Do not answer directly.">>,
+                <<"input">> => #{<<"question">> => <<"What is 5 + 5?">>},
+                <<"persistent">> => true
+            }
+        )
     ),
 
     ToolReq = recv_tool_request(Config),
 
     publish_in(
         Config,
-        request(Config, #{
-            <<"tools">> => [],
-            <<"instructions">> => <<"Answer briefly.">>,
-            <<"input">> => #{<<"q">> => <<"What is 6+6?">>}
-        })
+        request(
+            Config,
+            #{
+                <<"tools">> => [],
+                <<"instructions">> => <<"Answer briefly.">>,
+                <<"input">> => #{<<"q">> => <<"What is 6+6?">>}
+            }
+        )
     ),
 
-    publish_in(Config, #{
-        <<"type">> => <<"tool_result">>,
-        <<"call_id">> => maps:get(<<"call_id">>, ToolReq),
-        <<"response">> => #{<<"status">> => <<"ok">>, <<"result">> => #{<<"sum">> => 10}}
-    }),
+    publish_in(
+        Config,
+        #{
+            <<"type">> => <<"tool_result">>,
+            <<"call_id">> => maps:get(<<"call_id">>, ToolReq),
+            <<"response">> =>
+                #{<<"status">> => <<"ok">>, <<"result">> => #{<<"sum">> => 10}}
+        }
+    ),
 
     Final1 = recv_final(Config),
     assert_final(Final1),
@@ -572,7 +646,8 @@ t_request_while_busy_is_queued(Config) ->
     Ref = monitor(process, Pid),
     publish_in(Config, #{<<"type">> => <<"stop">>}),
     receive
-        {'DOWN', Ref, process, Pid, normal} -> ok
+        {'DOWN', Ref, process, Pid, normal} ->
+            ok
     after ?SHORT_TIMEOUT ->
         ct:fail("session did not stop after queued request test")
     end.
@@ -589,8 +664,11 @@ t_non_session_topic_ignored(Config) ->
 %% Helpers
 %%--------------------------------------------------------------------
 
-in_topic(Sid) -> <<"$sess/in/", Sid/binary, "/">>.
-out_topic(Sid) -> <<"$sess/out/", Sid/binary, "/">>.
+in_topic(Sid) ->
+    <<"$sess/in/", Sid/binary, "/">>.
+
+out_topic(Sid) ->
+    <<"$sess/out/", Sid/binary, "/">>.
 
 %% Base request; Overrides can replace any field (e.g. tools, instructions).
 request(Config, Overrides) ->
@@ -613,7 +691,9 @@ request(Config, Overrides) ->
 publish_in(Config, Msg) ->
     Sid = ?config(sid, Config),
     Payload = emqx_utils_json:encode(Msg),
-    emqx_broker:publish(emqx_message:make(?MODULE, 0, in_topic(Sid), Payload)).
+    emqx_broker:publish(
+        emqx_message:make(?MODULE, 0, in_topic(Sid), Payload)
+    ).
 
 %% Wait for a `final` frame, transparently skipping `intermediate` chunks
 %% (streaming partial content/reasoning) and any other non-final frames.
@@ -640,30 +720,6 @@ recv_frame_of_type(Config, Type, Timeout) ->
         ct:fail("no ~s frame on ~s within ~b ms", [Type, Topic, Timeout])
     end.
 
-recv_final_or_timeout(Config) ->
-    recv_frame_type_or_timeout(Config, <<"final">>, ?FRAME_DRAIN_TIMEOUT).
-
-recv_frame_type_or_timeout(Config, Type, Timeout) ->
-    Sid = ?config(sid, Config),
-    Topic = out_topic(Sid),
-    receive
-        #deliver{topic = Topic, message = #message{payload = P}} ->
-            Frame = emqx_utils_json:decode(P),
-            case maps:get(<<"type">>, Frame, undefined) of
-                Type -> received;
-                _ -> recv_frame_type_or_timeout(Config, Type, Timeout)
-            end
-    after Timeout ->
-        timeout
-    end.
-
-%% Legacy helper kept for non-LLM tests that don't care about frame type.
-recv_out(Config) ->
-    recv_final(Config).
-
-recv_out_or_timeout(Config) ->
-    recv_final_or_timeout(Config).
-
 assert_final(Frame) ->
     ?assertMatch(
         #{
@@ -671,11 +727,12 @@ assert_final(Frame) ->
             <<"sid">> := _,
             <<"trace_id">> := _,
             <<"result">> := _,
-            <<"usage">> := #{
-                <<"iterations">> := _,
-                <<"tokens_in">> := _,
-                <<"tokens_out">> := _
-            }
+            <<"usage">> :=
+                #{
+                    <<"iterations">> := _,
+                    <<"tokens_in">> := _,
+                    <<"tokens_out">> := _
+                }
         },
         Frame
     ).
@@ -709,7 +766,8 @@ stop_persistent_session(Config) ->
     Ref = monitor(process, Pid),
     publish_in(Config, #{<<"type">> => <<"stop">>}),
     receive
-        {'DOWN', Ref, process, Pid, normal} -> ok
+        {'DOWN', Ref, process, Pid, normal} ->
+            ok
     after ?SHORT_TIMEOUT ->
         ct:fail("session did not stop")
     end.
@@ -724,20 +782,28 @@ maybe_create_test_providers(TestCase) ->
         true ->
             _ = emqx_ai_completion_config:update_providers_raw({delete, ?PROVIDER_NAME}),
             _ = emqx_ai_completion_config:update_providers_raw({delete, ?BAD_PROVIDER_NAME}),
-            ok = emqx_ai_completion_config:update_providers_raw(
-                {add, emqx_agent_test_llm_helper:provider(?PROVIDER_NAME)}
-            ),
-            ok = emqx_ai_completion_config:update_providers_raw(
-                {add, #{
-                    <<"name">> => ?BAD_PROVIDER_NAME,
-                    <<"type">> => <<"openai">>,
-                    <<"api_key">> => <<"bad-test-key">>,
-                    <<"base_url">> => <<"http://127.0.0.1:1/v1">>,
-                    <<"transport_options">> => #{
-                        <<"connect_timeout">> => <<"1s">>, <<"recv_timeout">> => <<"1s">>
-                    }
-                }}
-            );
+            ok =
+                emqx_ai_completion_config:update_providers_raw(
+                    {add, emqx_agent_test_llm_helper:provider(?PROVIDER_NAME)}
+                ),
+            ok =
+                emqx_ai_completion_config:update_providers_raw(
+                    {add, #{
+                        <<"name">> => ?BAD_PROVIDER_NAME,
+                        <<"type">> => <<"openai">>,
+                        <<"api_key">> =>
+                            <<"bad-test-key">>,
+                        <<"base_url">> =>
+                            <<"http://127.0.0.1:1/v1">>,
+                        <<"transport_options">> =>
+                            #{
+                                <<"connect_timeout">> =>
+                                    <<"1s">>,
+                                <<"recv_timeout">> =>
+                                    <<"1s">>
+                            }
+                    }}
+                );
         false ->
             ok
     end.

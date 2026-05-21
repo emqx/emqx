@@ -1207,10 +1207,16 @@ to_openai_tool(#{<<"name">> := Name, <<"description">> := Desc} = T) ->
 event_to_llm_msg(Event) ->
     #{<<"role">> => <<"user">>, <<"content">> => emqx_utils_json:encode(Event)}.
 
+-define(SET_RESULT_SUPERPROMPT, <<
+    "If a set_result tool is available, you MUST finish the step by calling ",
+    "set_result with arguments matching its schema. Do not finish with a ",
+    "plain final response when set_result is available."
+>>).
+
 format_instructions(Instructions) when is_list(Instructions) ->
-    iolist_to_binary(lists:join(<<"\n">>, Instructions));
+    format_instructions(iolist_to_binary(lists:join(<<"\n">>, Instructions)));
 format_instructions(Instructions) when is_binary(Instructions) ->
-    Instructions.
+    <<?SET_RESULT_SUPERPROMPT/binary, "\n\n", Instructions/binary>>.
 
 max_total_tokens(Msg) ->
     max_total_tokens(Msg, 50000).

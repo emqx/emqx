@@ -6,6 +6,8 @@
 
 -behaviour(gen_server).
 
+-include_lib("emqx/include/logger.hrl").
+
 %% API
 -export([start_link/0]).
 -export([
@@ -128,9 +130,23 @@ drop_runtime(Type, SkillId) ->
 do_reconcile() ->
     Desired = desired_skills(),
     DesiredKeys = maps:keys(Desired),
-    lists:foreach(fun(Key) -> maybe_drop_removed(Key, DesiredKeys) end, status_keys()),
-    lists:foreach(fun(Key) -> maybe_drop_removed(Key, DesiredKeys) end, runtime_keys()),
+    RuntimeKeys0 = runtime_keys(),
+    StatusKeys0 = status_keys(),
+    ?SLOG(info, #{
+        msg => "agent_skill_reconcile_started",
+        desired_count => map_size(Desired),
+        runtime_count => length(RuntimeKeys0),
+        status_count => length(StatusKeys0)
+    }),
+    lists:foreach(fun(Key) -> maybe_drop_removed(Key, DesiredKeys) end, StatusKeys0),
+    lists:foreach(fun(Key) -> maybe_drop_removed(Key, DesiredKeys) end, RuntimeKeys0),
     maps:foreach(fun reconcile_skill/2, Desired),
+    ?SLOG(info, #{
+        msg => "agent_skill_reconcile_finished",
+        desired_count => map_size(Desired),
+        runtime_count => length(runtime_keys()),
+        status_count => length(status_keys())
+    }),
     ok.
 
 desired_skills() ->
@@ -158,11 +174,31 @@ reconcile_skill({Type, SkillId}, SkillConfig) ->
             Ctx = create_context(SkillConfig),
             case Module:create(Ctx) of
                 {ok, Skill} ->
+                    ?SLOG(info, #{
+                        msg => "agent_skill_reconcile_created",
+                        type => Type,
+                        skill_id => SkillId,
+                        module => Module
+                    }),
                     insert_runtime(Skill);
                 {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "agent_skill_reconcile_create_failed",
+                        type => Type,
+                        skill_id => SkillId,
+                        module => Module,
+                        reason => Reason,
+                        config => SkillConfig
+                    }),
                     put_status(Type, SkillId, failed, Reason)
             end;
         {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "agent_skill_reconcile_missing_type",
+                type => Type,
+                skill_id => SkillId,
+                reason => Reason
+            }),
             put_status(Type, SkillId, missing_type, Reason)
     end.
 

@@ -690,7 +690,7 @@ put_plugin_config(NameVsn, Config) ->
                         Nodes, NameVsn, Config
                     ),
                     validate_node_results(Res);
-                {error, _Reason} = Error->
+                {error, _Reason} = Error ->
                     Error
             end;
         _ ->

@@ -48,6 +48,12 @@ init_per_testcase(_TestCase, Config) ->
     ok = emqx_agent_service:skill_create(#{
         <<"type">> => <<"agent__create_pipeline">>, <<"id">> => ?SK_PIPELINE_ID
     }),
+    ok = emqx_agent_service:skill_create(#{
+        <<"type">> => <<"message__publish">>,
+        <<"id">> => <<"some-pub">>,
+        <<"desc">> => <<"Some publisher">>,
+        <<"topic_prefix">> => <<"some/">>
+    }),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
@@ -209,6 +215,91 @@ t_create_skill_reply_correlation(_Config) ->
     ),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
+t_concurrent_skill_creates_are_retained_for_pipeline_validation(_Config) ->
+    Parent = self(),
+    SkillDefs = [
+        #{
+            <<"type">> => <<"message__publish">>,
+            <<"id">> => <<"dyn-alert">>,
+            <<"desc">> => <<"Dynamic alert publisher">>,
+            <<"topic_prefix">> => <<"dyn/alert/">>
+        },
+        #{
+            <<"type">> => <<"message__publish">>,
+            <<"id">> => <<"dyn-status">>,
+            <<"desc">> => <<"Dynamic status publisher">>,
+            <<"topic_prefix">> => <<"dyn/status/">>
+        },
+        #{
+            <<"type">> => <<"message__request">>,
+            <<"id">> => <<"dyn-shot">>,
+            <<"desc">> => <<"Dynamic shot request">>,
+            <<"topic_prefix">> => <<"dyn/shot/">>
+        },
+        #{
+            <<"type">> => <<"postgresql__query">>,
+            <<"id">> => <<"dyn-insert">>,
+            <<"desc">> => <<"Dynamic insert">>,
+            <<"resource">> => <<"dyn-pg">>,
+            <<"query">> => <<"INSERT INTO inspections (box_id) VALUES (${box_id})">>
+        }
+    ],
+    Pids = [
+        spawn_link(fun() ->
+            Parent !
+                {
+                    self(),
+                    emqx_agent_skill_create_skill:handle_invoke(
+                        #{}, #{<<"args">> => #{<<"definition">> => SkillDef}}
+                    )
+                }
+        end)
+     || SkillDef <- SkillDefs
+    ],
+    [?assertMatch({ok, _}, receive_result(Pid)) || Pid <- Pids],
+
+    ?assertMatch({ok, _}, emqx_agent_service:skill_get(<<"message__publish">>, <<"dyn-alert">>)),
+    ?assertMatch({ok, _}, emqx_agent_service:skill_get(<<"message__publish">>, <<"dyn-status">>)),
+    ?assertMatch({ok, _}, emqx_agent_service:skill_get(<<"message__request">>, <<"dyn-shot">>)),
+    ?assertMatch({ok, _}, emqx_agent_service:skill_get(<<"postgresql__query">>, <<"dyn-insert">>)),
+
+    ?assertEqual(
+        ok,
+        emqx_agent_service:pipeline_create(#{
+            <<"pipeline_id">> => <<"dyn-retention-pipeline">>,
+            <<"trigger">> => #{<<"topic">> => <<"$evt/dyn/retention">>},
+            <<"steps">> => [
+                #{
+                    <<"id">> => <<"inspect">>,
+                    <<"type">> => <<"llm_loop">>,
+                    <<"provider_name">> => <<"openai">>,
+                    <<"model">> => <<"gpt-5.4-mini">>,
+                    <<"instructions">> => <<"Inspect the dynamic box and call set_result.">>,
+                    <<"result_path">> => <<"$.inspection">>,
+                    <<"tools">> => [
+                        <<"message__request@dyn-shot">>,
+                        <<"message__publish@dyn-alert">>
+                    ],
+                    <<"set_result_schema">> => ?VALID_INPUT_SCHEMA
+                },
+                #{
+                    <<"id">> => <<"store">>,
+                    <<"type">> => <<"call_skill">>,
+                    <<"skill">> => <<"postgresql__query@dyn-insert">>,
+                    <<"result_path">> => <<"$.store">>,
+                    <<"args">> => #{<<"box_id">> => <<"$.event.box_id">>}
+                },
+                #{
+                    <<"id">> => <<"publish">>,
+                    <<"type">> => <<"call_skill">>,
+                    <<"skill">> => <<"message__publish@dyn-status">>,
+                    <<"result_path">> => <<"$.publish">>,
+                    <<"args">> => #{<<"topic">> => <<"out">>, <<"payload">> => <<"ok">>}
+                }
+            ]
+        })
+    ).
+
 %%--------------------------------------------------------------------
 %% agent__create_pipeline
 %%--------------------------------------------------------------------
@@ -311,6 +402,34 @@ t_create_pipeline_invoke_missing_pipeline_id(_Config) ->
     ),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
+t_create_pipeline_invoke_missing_skill_ref(_Config) ->
+    ReqId = <<"req-pipe-missing-skill">>,
+    ok = emqx:subscribe(reply_topic(ReqId)),
+
+    invoke(
+        <<"agent__create_pipeline">>,
+        ?SK_PIPELINE_ID,
+        #{
+            <<"pipeline_id">> => <<"missing-skill-pipeline">>,
+            <<"trigger">> => #{<<"topic">> => <<"$evt/missing/skill">>},
+            <<"steps">> => [
+                #{
+                    <<"id">> => <<"s1">>,
+                    <<"type">> => <<"call_skill">>,
+                    <<"skill">> => <<"message__publish@missing-pub">>,
+                    <<"args">> => #{<<"topic">> => <<"out">>, <<"payload">> => <<"hi">>}
+                }
+            ]
+        },
+        ReqId
+    ),
+
+    Reply = recv_reply(ReqId),
+    ?assertMatch(#{<<"status">> := <<"error">>, <<"reason">> := _}, cap_response(Reply)),
+    Reason = maps:get(<<"reason">>, cap_response(Reply)),
+    ?assertNotEqual(nomatch, binary:match(Reason, <<"message__publish@missing-pub">>)),
+    ok = emqx:unsubscribe(reply_topic(ReqId)).
+
 t_create_pipeline_reply_correlation(_Config) ->
     ReqId = <<"req-pipe-corr">>,
     ok = emqx:subscribe(reply_topic(ReqId)),
@@ -373,6 +492,13 @@ recv_reply(ReqId) ->
             emqx_utils_json:decode(P)
     after 3000 ->
         ct:fail("no reply for req_id=~s within 3 s", [ReqId])
+    end.
+
+receive_result(Pid) ->
+    receive
+        {Pid, Result} -> Result
+    after 3000 ->
+        ct:fail("no result from ~p within 3 s", [Pid])
     end.
 
 cap_response(Reply) ->

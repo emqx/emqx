@@ -78,13 +78,8 @@ field_property(#{<<"name">> := Name, <<"type">> := Type} = Field, Ctx) ->
     Schema1 = maybe_type_enum(Name, Field, Schema0),
     {Name, add_description(Schema1, maps:get(<<"description">>, Field, undefined), Ctx)}.
 
-union_member_schema(#{<<"type">> := <<"record">>, <<"name">> := Name} = Record, Ctx) ->
-    #{
-        <<"type">> => <<"object">>,
-        <<"properties">> => #{Name => convert(Record, Ctx)},
-        <<"required">> => [Name],
-        <<"additionalProperties">> => false
-    };
+union_member_schema(#{<<"type">> := <<"record">>} = Record, Ctx) ->
+    convert(Record, Ctx);
 union_member_schema(Type, Ctx) when is_binary(Type) ->
     case primitive(Type) of
         {ok, _} -> convert(Type, Ctx);

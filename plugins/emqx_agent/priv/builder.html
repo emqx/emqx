@@ -1,333 +1,561 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pipeline Builder</title>
-<style>
-  :root {
-    --bg:       #0d1117;
-    --surface:  #161b22;
-    --border:   #30363d;
-    --accent:   #58a6ff;
-    --accent2:  #3fb950;
-    --danger:   #f85149;
-    --warn:     #e3b341;
-    --muted:    #8b949e;
-    --text:     #e6edf3;
-    --tag-bg:   #1f2937;
-    --font:     'Menlo', 'Consolas', 'Liberation Mono', monospace;
-    --radius:   6px;
-  }
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: var(--font); font-size: 13px; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Pipeline Builder</title>
+        <style>
+            :root {
+                --bg: #0d1117;
+                --surface: #161b22;
+                --border: #30363d;
+                --accent: #58a6ff;
+                --accent2: #3fb950;
+                --danger: #f85149;
+                --warn: #e3b341;
+                --muted: #8b949e;
+                --text: #e6edf3;
+                --tag-bg: #1f2937;
+                --font: "Menlo", "Consolas", "Liberation Mono", monospace;
+                --radius: 6px;
+            }
+            *,
+            *::before,
+            *::after {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+            body {
+                font-family: var(--font);
+                font-size: 13px;
+                background: var(--bg);
+                color: var(--text);
+                height: 100vh;
+                display: flex;
+                flex-direction: column;
+            }
 
-  header {
-    display: flex; align-items: center; gap: 12px;
-    padding: 0 24px; height: 52px; flex-shrink: 0;
-    background: var(--surface); border-bottom: 1px solid var(--border);
-  }
-  header .logo { font-size: 15px; font-weight: 700; letter-spacing: 0.04em; color: var(--text); }
-  header .logo span { color: var(--accent); }
-  header .spacer { flex: 1; }
-  header .pill {
-    font-size: 11px; padding: 2px 8px; border-radius: 10px;
-    background: var(--tag-bg); border: 1px solid var(--border); color: var(--muted);
-    transition: all .2s;
-  }
-  header .pill.ok  { border-color: var(--accent2); color: var(--accent2); }
-  header .pill.err { border-color: var(--danger);  color: var(--danger); }
+            header {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 0 24px;
+                height: 52px;
+                flex-shrink: 0;
+                background: var(--surface);
+                border-bottom: 1px solid var(--border);
+            }
+            header .logo {
+                font-size: 15px;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+                color: var(--text);
+            }
+            header .logo span {
+                color: var(--accent);
+            }
+            header .spacer {
+                flex: 1;
+            }
+            header .pill {
+                font-size: 11px;
+                padding: 2px 8px;
+                border-radius: 10px;
+                background: var(--tag-bg);
+                border: 1px solid var(--border);
+                color: var(--muted);
+                transition: all 0.2s;
+            }
+            header .pill.ok {
+                border-color: var(--accent2);
+                color: var(--accent2);
+            }
+            header .pill.err {
+                border-color: var(--danger);
+                color: var(--danger);
+            }
 
-  .conn-bar {
-    display: flex; gap: 8px; align-items: center; flex-shrink: 0;
-    background: var(--surface); border-bottom: 1px solid var(--border);
-    padding: 8px 24px;
-  }
-  .conn-bar input {
-    flex: 1; background: var(--bg); border: 1px solid var(--border);
-    border-radius: var(--radius); color: var(--text); padding: 5px 9px;
-    font: inherit; font-size: 12px;
-  }
-  .conn-bar input:focus { outline: none; border-color: var(--accent); }
-  .conn-bar label { font-size: 11px; color: var(--muted); white-space: nowrap; }
+            .conn-bar {
+                display: flex;
+                gap: 8px;
+                align-items: center;
+                flex-shrink: 0;
+                background: var(--surface);
+                border-bottom: 1px solid var(--border);
+                padding: 8px 24px;
+            }
+            .conn-bar input {
+                flex: 1;
+                background: var(--bg);
+                border: 1px solid var(--border);
+                border-radius: var(--radius);
+                color: var(--text);
+                padding: 5px 9px;
+                font: inherit;
+                font-size: 12px;
+            }
+            .conn-bar input:focus {
+                outline: none;
+                border-color: var(--accent);
+            }
+            .conn-bar label {
+                font-size: 11px;
+                color: var(--muted);
+                white-space: nowrap;
+            }
 
-  .btn {
-    border: 1px solid var(--border); border-radius: var(--radius);
-    background: var(--surface); color: var(--text); cursor: pointer;
-    font: inherit; font-size: 12px; padding: 5px 12px; transition: all .15s;
-  }
-  .btn:hover { border-color: var(--accent); color: var(--accent); }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
-  .btn.primary:hover { background: #79baff; border-color: #79baff; }
+            .btn {
+                border: 1px solid var(--border);
+                border-radius: var(--radius);
+                background: var(--surface);
+                color: var(--text);
+                cursor: pointer;
+                font: inherit;
+                font-size: 12px;
+                padding: 5px 12px;
+                transition: all 0.15s;
+            }
+            .btn:hover {
+                border-color: var(--accent);
+                color: var(--accent);
+            }
+            .btn.primary {
+                background: var(--accent);
+                border-color: var(--accent);
+                color: #000;
+                font-weight: 600;
+            }
+            .btn.primary:hover {
+                background: #79baff;
+                border-color: #79baff;
+            }
 
-  /* ── Chat area ─────────────────────────────────────────────────────────── */
-  #chat {
-    flex: 1; overflow-y: auto; padding: 20px 24px;
-    display: flex; flex-direction: column; gap: 12px;
-  }
+            /* ── Chat area ─────────────────────────────────────────────────────────── */
+            #chat {
+                flex: 1;
+                overflow-y: auto;
+                padding: 20px 24px;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+            }
 
-  .msg {
-    display: flex; flex-direction: column; max-width: 72%;
-  }
-  .msg.user  { align-self: flex-end; align-items: flex-end; }
-  .msg.assistant { align-self: flex-start; align-items: flex-start; }
+            .msg {
+                display: flex;
+                flex-direction: column;
+                max-width: 72%;
+            }
+            .msg.user {
+                align-self: flex-end;
+                align-items: flex-end;
+            }
+            .msg.assistant {
+                align-self: flex-start;
+                align-items: flex-start;
+            }
 
-  .msg-bubble {
-    padding: 10px 14px; border-radius: var(--radius);
-    line-height: 1.55; word-break: break-word;
-  }
-  .msg.user .msg-bubble {
-    background: var(--accent); color: #000; white-space: pre-wrap;
-  }
-  .msg.assistant .msg-bubble {
-    background: var(--surface); border: 1px solid var(--border); color: var(--text);
-  }
-  .msg-bubble pre {
-    background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
-    padding: 8px 10px; overflow-x: auto; margin: 6px 0;
-    font: inherit; font-size: 12px;
-  }
-  .msg-bubble code { background: var(--bg); padding: 1px 4px; border-radius: 3px; font-size: 12px; }
-  .msg-bubble pre code { background: none; padding: 0; }
-  .msg-bubble strong { font-weight: 700; }
-  .msg-ts { font-size: 10px; color: var(--muted); margin-top: 3px; }
+            .msg-bubble {
+                padding: 10px 14px;
+                border-radius: var(--radius);
+                line-height: 1.55;
+                word-break: break-word;
+            }
+            .msg.user .msg-bubble {
+                background: var(--accent);
+                color: #000;
+                white-space: pre-wrap;
+            }
+            .msg.assistant .msg-bubble {
+                background: var(--surface);
+                border: 1px solid var(--border);
+                color: var(--text);
+            }
+            .msg-bubble pre {
+                background: var(--bg);
+                border: 1px solid var(--border);
+                border-radius: 4px;
+                padding: 8px 10px;
+                overflow-x: auto;
+                margin: 6px 0;
+                font: inherit;
+                font-size: 12px;
+            }
+            .msg-bubble code {
+                background: var(--bg);
+                padding: 1px 4px;
+                border-radius: 3px;
+                font-size: 12px;
+            }
+            .msg-bubble pre code {
+                background: none;
+                padding: 0;
+            }
+            .msg-bubble strong {
+                font-weight: 700;
+            }
+            .msg-ts {
+                font-size: 10px;
+                color: var(--muted);
+                margin-top: 3px;
+            }
 
-  .msg.thinking .msg-bubble { color: var(--muted); font-style: italic; }
+            .msg.thinking .msg-bubble {
+                color: var(--muted);
+                font-style: italic;
+            }
 
-  .chat-empty {
-    flex: 1; display: flex; align-items: center; justify-content: center;
-    color: var(--muted); font-style: italic;
-  }
+            .chat-empty {
+                flex: 1;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: var(--muted);
+                font-style: italic;
+            }
 
-  /* ── Compose ───────────────────────────────────────────────────────────── */
-  .compose {
-    display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0;
-    padding: 12px 24px; background: var(--surface); border-top: 1px solid var(--border);
-  }
-  .compose textarea {
-    flex: 1; background: var(--bg); border: 1px solid var(--border);
-    border-radius: var(--radius); color: var(--text); padding: 8px 10px;
-    font: inherit; font-size: 13px; resize: none; min-height: 38px; max-height: 160px;
-    line-height: 1.5; overflow-y: auto;
-  }
-  .compose textarea:focus { outline: none; border-color: var(--accent); }
-  .compose textarea::placeholder { color: var(--muted); }
-  .compose .btn-send {
-    border: 1px solid var(--accent); border-radius: var(--radius);
-    background: var(--accent); color: #000; cursor: pointer; font-size: 16px;
-    padding: 6px 14px; height: 38px; transition: all .15s; font-weight: 700;
-    flex-shrink: 0;
-  }
-  .compose .btn-send:hover { background: #79baff; }
-  .compose .btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
-</style>
-</head>
-<body>
-<header>
-  <div class="logo">EMQX <span>Agent</span></div>
-  <div id="status-pill" class="pill">disconnected</div>
-  <div class="spacer"></div>
-  <span style="font-size:11px;color:var(--muted)">Pipeline Builder &nbsp;·&nbsp; <a href="/api/v5/plugin_api/emqx_agent/ui" target="_blank" style="color:var(--accent);text-decoration:none">Agent Admin ↗</a></span>
-</header>
+            /* ── Compose ───────────────────────────────────────────────────────────── */
+            .compose {
+                display: flex;
+                gap: 8px;
+                align-items: flex-end;
+                flex-shrink: 0;
+                padding: 12px 24px;
+                background: var(--surface);
+                border-top: 1px solid var(--border);
+            }
+            .compose textarea {
+                flex: 1;
+                background: var(--bg);
+                border: 1px solid var(--border);
+                border-radius: var(--radius);
+                color: var(--text);
+                padding: 8px 10px;
+                font: inherit;
+                font-size: 13px;
+                resize: none;
+                min-height: 38px;
+                max-height: 160px;
+                line-height: 1.5;
+                overflow-y: auto;
+            }
+            .compose textarea:focus {
+                outline: none;
+                border-color: var(--accent);
+            }
+            .compose textarea::placeholder {
+                color: var(--muted);
+            }
+            .compose .btn-send {
+                border: 1px solid var(--accent);
+                border-radius: var(--radius);
+                background: var(--accent);
+                color: #000;
+                cursor: pointer;
+                font-size: 16px;
+                padding: 6px 14px;
+                height: 38px;
+                transition: all 0.15s;
+                font-weight: 700;
+                flex-shrink: 0;
+            }
+            .compose .btn-send:hover {
+                background: #79baff;
+            }
+            .compose .btn-send:disabled {
+                opacity: 0.4;
+                cursor: not-allowed;
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <div class="logo">EMQX <span>Agent</span></div>
+            <div id="status-pill" class="pill">disconnected</div>
+            <div class="spacer"></div>
+            <span style="font-size: 11px; color: var(--muted)"
+                >Pipeline Builder &nbsp;·&nbsp;
+                <a
+                    href="/api/v5/plugin_api/emqx_agent/ui"
+                    target="_blank"
+                    style="color: var(--accent); text-decoration: none"
+                    >Agent Admin ↗</a
+                ></span
+            >
+        </header>
 
-<div class="conn-bar">
-  <label>Broker WS</label>
-  <input id="broker-url" type="text" value="ws://localhost:8083/mqtt" spellcheck="false">
-  <button class="btn primary" id="btn-connect" onclick="toggleConnect()">Connect</button>
-</div>
+        <div class="conn-bar">
+            <label>Broker WS</label>
+            <input
+                id="broker-url"
+                type="text"
+                value="ws://localhost:8083/mqtt"
+                spellcheck="false"
+            />
+            <button
+                class="btn primary"
+                id="btn-connect"
+                onclick="toggleConnect()"
+            >
+                Connect
+            </button>
+        </div>
 
-<div id="chat">
-  <div class="chat-empty" id="chat-empty">Connect and describe the pipeline you want to build.</div>
-</div>
+        <div id="chat">
+            <div class="chat-empty" id="chat-empty">
+                Connect and describe the pipeline you want to build.
+            </div>
+        </div>
 
-<div class="compose">
-  <textarea id="compose-input" rows="1" placeholder="Describe a pipeline…"
-            oninput="autoResize(this)" onkeydown="onKeyDown(event)"></textarea>
-  <button class="btn-send" id="btn-send" onclick="sendMessage()" disabled>→</button>
-</div>
+        <div class="compose">
+            <textarea
+                id="compose-input"
+                rows="1"
+                placeholder="Describe a pipeline…"
+                oninput="autoResize(this)"
+                onkeydown="onKeyDown(event)"
+            ></textarea>
+            <button
+                class="btn-send"
+                id="btn-send"
+                onclick="sendMessage()"
+                disabled
+            >
+                →
+            </button>
+        </div>
 
-<script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
-<script>
-const PUBLISH_TOPIC  = 'evt/builder/request';
-const SUBSCRIBE_GLOB = 'builder/reply/#';
+        <script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
+        <script>
+            const PUBLISH_TOPIC = "$evt/builder/request";
+            const SUBSCRIBE_GLOB = "builder/reply/#";
+            const DEFAULT_PROMPT = `We need an automated visual inspection pipeline for our apple conveyor line.
 
-let mqttClient = null;
+When a box finishes a conveyor run, a device publishes to $evt/conveyor/+/box/done
+with JSON payload containing box_id and conveyor_id. At that point we want the system
+to request a photo of the box, have an AI inspect it for defects, log the result
+to our database, and publish the final verdict.
 
-// ── Connection ──────────────────────────────────────────────────────────────
+We have a camera that listens on box/shot/<box_id> and replies with a
+base64-encoded PNG in an image_url field. Defect alerts should go to box/alert/,
+and the final verdict to box/status/.
 
-function toggleConnect() {
-  if (mqttClient && mqttClient.connected) {
-    mqttClient.end();
-    return;
-  }
-  const url = document.getElementById('broker-url').value.trim();
-  localStorage.setItem('builder_broker_url', url);
-  mqttClient = mqtt.connect(url, {
-    protocolVersion: 5,
-    clientId: 'builder-' + Math.random().toString(16).slice(2, 8),
-    reconnectPeriod: 0,
-  });
-  mqttClient.on('connect', () => {
-    setPill('connected', 'ok');
-    document.getElementById('btn-send').disabled = false;
-    mqttClient.subscribe(SUBSCRIBE_GLOB, { qos: 0 }, (err) => {
-      if (err) addSystemMsg('ERROR: subscribe failed: ' + err.message);
-    });
-  });
-  mqttClient.on('close', () => {
-    setPill('disconnected', '');
-    document.getElementById('btn-send').disabled = true;
-  });
-  mqttClient.on('error', err => {
-    setPill('error', 'err');
-    addSystemMsg('connection error: ' + err.message);
-  });
-  mqttClient.on('message', onMessage);
-}
+Our PostgreSQL table is apple_box_inspections with columns
+conveyor_id, box_id, status, reason — write one row per box.
+Use the existing PostgreSQL connection resource pg-main.
 
-function onMessage(topic, payload) {
-  const raw = payload.toString();
-  let text = raw;
-  try {
-    const obj = JSON.parse(raw);
-    // The message__publish skill wraps: {"topic":..., "payload":...}
-    // The LLM publishes plain text as the payload value.
-    if (obj && typeof obj.payload !== 'undefined') {
-      const p = obj.payload;
-      text = typeof p === 'string' ? p : JSON.stringify(p, null, 2);
-    } else if (obj && typeof obj.message !== 'undefined') {
-      text = obj.message;
-    }
-  } catch (_) {
-    // raw string is fine
-  }
-  removeThinking();
-  addMsg('assistant', text);
-}
+Use the existing AI provider "openai" for the AI inspector.
+The inspector should request the photo, look for rotten/moldy/bruised apples,
+optionally raise an alert, then return a verdict: approved or rejected with a short reason.
+Pipeline id: apple-box-inspection.
+Run the inspection as an ephemeral LLM loop (fresh session per box),
+then persist the result to the database and broadcast the verdict. Make sure that
+instructions include proper description of how to use camera skill (topic structure).
+Do not make separate skill call for camera skill, let llm inspection step call it.
+Instruct llm step to _always_ publish warning if the box is rejected.
+The final verdict structure should be: {"status": "approved" | "rejected", "reason": "string"}.
+It should be done via explicit step, do not send it as part of the llm inspection step.`;
 
-// ── Sending ──────────────────────────────────────────────────────────────────
+            let mqttClient = null;
 
-function sendMessage() {
-  if (!mqttClient || !mqttClient.connected) return;
-  const ta = document.getElementById('compose-input');
-  const text = ta.value.trim();
-  if (!text) return;
-  ta.value = '';
-  autoResize(ta);
-  addMsg('user', text);
-  addThinking();
-  mqttClient.publish(
-    PUBLISH_TOPIC,
-    JSON.stringify({ message: text }),
-    { qos: 0 }
-  );
-}
+            // ── Connection ──────────────────────────────────────────────────────────────
 
-function onKeyDown(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
-}
+            function toggleConnect() {
+                if (mqttClient && mqttClient.connected) {
+                    mqttClient.end();
+                    return;
+                }
+                const url = document.getElementById("broker-url").value.trim();
+                localStorage.setItem("builder_broker_url", url);
+                mqttClient = mqtt.connect(url, {
+                    protocolVersion: 5,
+                    clientId:
+                        "builder-" + Math.random().toString(16).slice(2, 8),
+                    reconnectPeriod: 0,
+                });
+                mqttClient.on("connect", () => {
+                    setPill("connected", "ok");
+                    document.getElementById("btn-send").disabled = false;
+                    mqttClient.subscribe(SUBSCRIBE_GLOB, { qos: 0 }, (err) => {
+                        if (err)
+                            addSystemMsg(
+                                "ERROR: subscribe failed: " + err.message,
+                            );
+                    });
+                });
+                mqttClient.on("close", () => {
+                    setPill("disconnected", "");
+                    document.getElementById("btn-send").disabled = true;
+                });
+                mqttClient.on("error", (err) => {
+                    setPill("error", "err");
+                    addSystemMsg("connection error: " + err.message);
+                });
+                mqttClient.on("message", onMessage);
+            }
 
-// ── Rendering ────────────────────────────────────────────────────────────────
+            function onMessage(topic, payload) {
+                const raw = payload.toString();
+                let text = raw;
+                try {
+                    const obj = JSON.parse(raw);
+                    // The message__publish skill wraps: {"topic":..., "payload":...}
+                    // The LLM publishes plain text as the payload value.
+                    if (obj && typeof obj.payload !== "undefined") {
+                        const p = obj.payload;
+                        text =
+                            typeof p === "string"
+                                ? p
+                                : JSON.stringify(p, null, 2);
+                    } else if (obj && typeof obj.message !== "undefined") {
+                        text = obj.message;
+                    }
+                } catch (_) {
+                    // raw string is fine
+                }
+                removeThinking();
+                addMsg("assistant", text);
+            }
 
-function ts() { return new Date().toTimeString().slice(0, 8); }
+            // ── Sending ──────────────────────────────────────────────────────────────────
 
-function esc(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
+            function sendMessage() {
+                if (!mqttClient || !mqttClient.connected) return;
+                const ta = document.getElementById("compose-input");
+                const text = ta.value.trim();
+                if (!text) return;
+                ta.value = "";
+                autoResize(ta);
+                addMsg("user", text);
+                addThinking();
+                mqttClient.publish(
+                    PUBLISH_TOPIC,
+                    JSON.stringify({ message: text }),
+                    { qos: 0 },
+                );
+            }
 
-function renderMarkdown(text) {
-  // fenced code blocks
-  text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) =>
-    '<pre><code>' + esc(code.trim()) + '</code></pre>'
-  );
-  // inline code
-  text = text.replace(/`([^`]+)`/g, (_, c) => '<code>' + esc(c) + '</code>');
-  // bold
-  text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  // newlines outside pre blocks
-  const parts = text.split(/(<pre\b[\s\S]*?<\/pre>)/);
-  return parts.map((p, i) => i % 2 === 0 ? p.replace(/\n/g, '<br>') : p).join('');
-}
+            function onKeyDown(e) {
+                if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            }
 
-function addMsg(role, text) {
-  removeEmpty();
-  const chat = document.getElementById('chat');
-  const div = document.createElement('div');
-  div.className = 'msg ' + role;
-  const bubble = document.createElement('div');
-  bubble.className = 'msg-bubble';
-  if (role === 'assistant') {
-    bubble.innerHTML = renderMarkdown(text);
-  } else {
-    bubble.textContent = text;
-  }
-  const stamp = document.createElement('div');
-  stamp.className = 'msg-ts';
-  stamp.textContent = ts();
-  div.appendChild(bubble);
-  div.appendChild(stamp);
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-}
+            // ── Rendering ────────────────────────────────────────────────────────────────
 
-function addThinking() {
-  removeThinking();
-  const chat = document.getElementById('chat');
-  const div = document.createElement('div');
-  div.className = 'msg assistant thinking';
-  div.id = 'thinking-bubble';
-  const bubble = document.createElement('div');
-  bubble.className = 'msg-bubble';
-  bubble.textContent = 'thinking…';
-  div.appendChild(bubble);
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-}
+            function ts() {
+                return new Date().toTimeString().slice(0, 8);
+            }
 
-function removeThinking() {
-  const el = document.getElementById('thinking-bubble');
-  if (el) el.remove();
-}
+            function esc(s) {
+                return String(s)
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;");
+            }
 
-function addSystemMsg(text) {
-  removeEmpty();
-  const chat = document.getElementById('chat');
-  const div = document.createElement('div');
-  div.style.cssText = 'color:var(--warn);font-size:11px;text-align:center;padding:4px 0;';
-  div.textContent = '⚡ ' + text;
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-}
+            function renderMarkdown(text) {
+                // fenced code blocks
+                text = text.replace(
+                    /```(\w*)\n?([\s\S]*?)```/g,
+                    (_, lang, code) =>
+                        "<pre><code>" + esc(code.trim()) + "</code></pre>",
+                );
+                // inline code
+                text = text.replace(
+                    /`([^`]+)`/g,
+                    (_, c) => "<code>" + esc(c) + "</code>",
+                );
+                // bold
+                text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+                // newlines outside pre blocks
+                const parts = text.split(/(<pre\b[\s\S]*?<\/pre>)/);
+                return parts
+                    .map((p, i) => (i % 2 === 0 ? p.replace(/\n/g, "<br>") : p))
+                    .join("");
+            }
 
-function removeEmpty() {
-  const el = document.getElementById('chat-empty');
-  if (el) el.remove();
-}
+            function addMsg(role, text) {
+                removeEmpty();
+                const chat = document.getElementById("chat");
+                const div = document.createElement("div");
+                div.className = "msg " + role;
+                const bubble = document.createElement("div");
+                bubble.className = "msg-bubble";
+                if (role === "assistant") {
+                    bubble.innerHTML = renderMarkdown(text);
+                } else {
+                    bubble.textContent = text;
+                }
+                const stamp = document.createElement("div");
+                stamp.className = "msg-ts";
+                stamp.textContent = ts();
+                div.appendChild(bubble);
+                div.appendChild(stamp);
+                chat.appendChild(div);
+                chat.scrollTop = chat.scrollHeight;
+            }
 
-// ── Misc ─────────────────────────────────────────────────────────────────────
+            function addThinking() {
+                removeThinking();
+                const chat = document.getElementById("chat");
+                const div = document.createElement("div");
+                div.className = "msg assistant thinking";
+                div.id = "thinking-bubble";
+                const bubble = document.createElement("div");
+                bubble.className = "msg-bubble";
+                bubble.textContent = "thinking…";
+                div.appendChild(bubble);
+                chat.appendChild(div);
+                chat.scrollTop = chat.scrollHeight;
+            }
 
-function setPill(text, cls) {
-  const pill = document.getElementById('status-pill');
-  pill.textContent = text;
-  pill.className = 'pill' + (cls ? ' ' + cls : '');
-  document.getElementById('btn-connect').textContent = cls === 'ok' ? 'Disconnect' : 'Connect';
-}
+            function removeThinking() {
+                const el = document.getElementById("thinking-bubble");
+                if (el) el.remove();
+            }
 
-function autoResize(ta) {
-  ta.style.height = 'auto';
-  ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
-}
+            function addSystemMsg(text) {
+                removeEmpty();
+                const chat = document.getElementById("chat");
+                const div = document.createElement("div");
+                div.style.cssText =
+                    "color:var(--warn);font-size:11px;text-align:center;padding:4px 0;";
+                div.textContent = "⚡ " + text;
+                chat.appendChild(div);
+                chat.scrollTop = chat.scrollHeight;
+            }
 
-window.addEventListener('load', () => {
-  const saved = localStorage.getItem('builder_broker_url');
-  if (saved) document.getElementById('broker-url').value = saved;
-});
-</script>
-</body>
+            function removeEmpty() {
+                const el = document.getElementById("chat-empty");
+                if (el) el.remove();
+            }
+
+            // ── Misc ─────────────────────────────────────────────────────────────────────
+
+            function setPill(text, cls) {
+                const pill = document.getElementById("status-pill");
+                pill.textContent = text;
+                pill.className = "pill" + (cls ? " " + cls : "");
+                document.getElementById("btn-connect").textContent =
+                    cls === "ok" ? "Disconnect" : "Connect";
+            }
+
+            function autoResize(ta) {
+                ta.style.height = "auto";
+                ta.style.height = Math.min(ta.scrollHeight, 160) + "px";
+            }
+
+            window.addEventListener("load", () => {
+                const saved = localStorage.getItem("builder_broker_url");
+                if (saved) document.getElementById("broker-url").value = saved;
+                const ta = document.getElementById("compose-input");
+                if (!ta.value) {
+                    ta.value = DEFAULT_PROMPT;
+                    autoResize(ta);
+                }
+            });
+        </script>
+    </body>
 </html>

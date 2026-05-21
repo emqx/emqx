@@ -89,8 +89,8 @@ t_call_skill_completes(Config) ->
         },
         <<"result_path">> => <<"$.notify_result">>
     },
-    register_pipeline(PipelineId, TrigTopic, [Step]),
     setup_publish_skill(SkillId),
+    register_pipeline(PipelineId, TrigTopic, [Step]),
     publish_evt(TrigTopic, #{<<"id">> => <<"e1">>}),
     %% pipeline_started
     Started = recv_pipe_event(PipelineId),
@@ -127,8 +127,8 @@ t_multi_step_pipeline(Config) ->
             <<"result_path">> => <<"$.step2">>
         }
     ],
-    register_pipeline(PipelineId, TrigTopic, Steps),
     setup_publish_skill(SkillId),
+    register_pipeline(PipelineId, TrigTopic, Steps),
     publish_evt(TrigTopic, #{<<"id">> => <<"e2">>}),
     _Started = recv_pipe_event(PipelineId),
     Completed = recv_pipe_event(PipelineId),
@@ -158,8 +158,8 @@ t_context_propagation(Config) ->
             <<"result_path">> => <<"$.echo">>
         }
     ],
-    register_pipeline(PipelineId, TrigTopic, Steps),
     setup_publish_skill(SkillId),
+    register_pipeline(PipelineId, TrigTopic, Steps),
     publish_evt(TrigTopic, #{<<"id">> => <<"ctx-evt">>, <<"data">> => #{<<"v">> => 7}}),
     _Started = recv_pipe_event(PipelineId),
     Completed = recv_pipe_event(PipelineId),
@@ -190,8 +190,8 @@ t_break_stops_pipeline_when_true(Config) ->
             <<"result_path">> => <<"$.post">>
         }
     ],
-    register_pipeline(PipelineId, TrigTopic, Steps),
     setup_publish_skill(SkillId),
+    register_pipeline(PipelineId, TrigTopic, Steps),
     publish_evt(TrigTopic, #{<<"id">> => <<"e-break-1">>, <<"data">> => #{<<"stop">> => true}}),
     _Started = recv_pipe_event(PipelineId),
     Completed = recv_pipe_event(PipelineId),
@@ -219,8 +219,8 @@ t_break_with_not_stops_pipeline_when_not_true(Config) ->
             <<"result_path">> => <<"$.post">>
         }
     ],
-    register_pipeline(PipelineId, TrigTopic, Steps),
     setup_publish_skill(SkillId),
+    register_pipeline(PipelineId, TrigTopic, Steps),
     publish_evt(TrigTopic, #{
         <<"id">> => <<"e-break-2">>, <<"data">> => #{<<"keep_going">> => false}
     }),
@@ -282,8 +282,8 @@ t_context_flows_between_steps(Config) ->
             <<"result_path">> => <<"$.echo">>
         }
     ],
-    register_pipeline(PipelineId, TrigTopic, Steps),
     setup_publish_skill(SkillId),
+    register_pipeline(PipelineId, TrigTopic, Steps),
 
     %% Subscribe to the raw publish-skill output so we can inspect what payload
     %% step 2 actually sent.
@@ -629,7 +629,7 @@ ephemeral_sid(Iid, StepId) ->
     <<"pipe-", (emqx_base62:encode(<<Iid/binary, 0, StepId/binary>>))/binary>>.
 
 setup_publish_skill(SkillId) ->
-    emqx_agent_config:create_skill(#{
+    ok = emqx_agent_service:skill_create(#{
         <<"type">> => <<"message__publish">>,
         <<"id">> => SkillId,
         <<"desc">> => <<"test">>,

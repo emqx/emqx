@@ -375,6 +375,16 @@ t_pipelines_crud(Config) ->
     Id = ?config(tc_id, Config),
 
     {ok, 200, []} = api_get([agent, pipelines]),
+    ?assertMatch(
+        {ok, 201, _},
+        api_post([agent, skills], #{
+            <<"type">> => <<"message__publish">>,
+            <<"id">> => Id,
+            <<"desc">> => <<"Pipeline CRUD publisher">>,
+            <<"topic_prefix">> => <<"test/">>,
+            <<"payload_schema">> => emqx_utils_json:encode(#{<<"type">> => <<"string">>})
+        })
+    ),
 
     Def = #{
         <<"pipeline_id">> => Id,

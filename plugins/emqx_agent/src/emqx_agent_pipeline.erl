@@ -442,8 +442,9 @@ handle_llm_final(Sid, Frame, Data) ->
                     undefined -> maps:get(<<"result">>, Frame, #{});
                     Val -> Val
                 end,
-            Data1 = Data0#data{
-                context = emqx_agent_pipeline_ctx:write(ResultPath, Result, Data0#data.context)
+            DataClean = cleanup_reply_wait(Data0),
+            Data1 = DataClean#data{
+                context = emqx_agent_pipeline_ctx:write(ResultPath, Result, DataClean#data.context)
             },
             Data2 = Data1#data{
                 active_sid = undefined,

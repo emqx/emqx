@@ -22,6 +22,8 @@ format_error({missing_field, F}) when is_binary(F) ->
     <<"missing required field: ", F/binary>>;
 format_error({missing_field, F}) when is_atom(F) ->
     <<"missing required field: ", (atom_to_binary(F, utf8))/binary>>;
+format_error({missing_skills, Refs}) when is_list(Refs) ->
+    iolist_to_binary(["missing referenced skills: ", lists:join(", ", Refs)]);
 format_error(Reason) ->
     iolist_to_binary(io_lib:format("~p", [Reason])).
 

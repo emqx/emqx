@@ -110,7 +110,11 @@ t_generated_create_skill_schema_valid(_Config) ->
         <<"additionalProperties">> => false
     },
     ?assertEqual(ok, emqx_agent_oai_tool_schema:validate_schema(Schema)),
-    ?assertEqual(false, contains_any_key([<<"$ref">>, <<"oneOf">>, <<"const">>], Schema)).
+    ?assertEqual(false, contains_any_key([<<"$ref">>, <<"oneOf">>, <<"const">>], Schema)),
+    Definition = maps:get(<<"definition">>, maps:get(<<"properties">>, Schema)),
+    ?assertEqual(false, contains_property(<<"Message_Publish">>, Definition)),
+    ?assert(lists:any(fun(B) -> branch_type(B) =:= <<"postgresql__query">> end,
+        maps:get(<<"anyOf">>, Definition))).
 
 t_generated_create_pipeline_schema_valid(_Config) ->
     Schema = emqx_agent_schema_oai_tool_converter:to_json_schema([pipelines, items]),
@@ -190,15 +194,13 @@ contains_property(_Name, _Value) ->
 
 branch_by_type(Type, Branches) ->
     hd([
-        maps:get(hd(maps:get(<<"required">>, Branch)), maps:get(<<"properties">>, Branch))
+        Branch
      || Branch <- Branches,
         Type =:= branch_type(Branch)
     ]).
 
 branch_type(Branch) ->
-    WrapperName = hd(maps:get(<<"required">>, Branch)),
-    Wrapped = maps:get(WrapperName, maps:get(<<"properties">>, Branch)),
-    [Type] = maps:get(<<"enum">>, maps:get(<<"type">>, maps:get(<<"properties">>, Wrapped))),
+    [Type] = maps:get(<<"enum">>, maps:get(<<"type">>, maps:get(<<"properties">>, Branch))),
     Type.
 
 property_schema(Name, Schema) ->
