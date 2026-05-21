@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 %% Session gen_statem: one process per logical session, globally registered
