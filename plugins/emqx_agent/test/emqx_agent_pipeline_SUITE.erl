@@ -52,12 +52,30 @@ init_per_testcase(TestCase, Config) ->
     PipelineId = atom_to_binary(TestCase, utf8),
     ok = emqx_agent_plugin_config_fixture:setup(),
     emqx:subscribe(?PIPE_EVENTS_FILTER),
+    maybe_deinit_session_hook(TestCase),
     [{pipeline_id, PipelineId} | Config].
 
-end_per_testcase(_TestCase, _Config) ->
+end_per_testcase(TestCase, _Config) ->
+    maybe_restore_session_hook(TestCase),
     emqx:unsubscribe(?PIPE_EVENTS_FILTER),
     _ = emqx_ai_completion_config:update_providers_raw({delete, <<"test-provider">>}),
     ok = emqx_agent_plugin_config_fixture:teardown(),
+    ok.
+
+maybe_deinit_session_hook(TestCase) when
+    TestCase =:= t_set_result_writes_to_context;
+    TestCase =:= t_llm_loop_final_without_set_result_fails
+->
+    ok = emqx_agent_session:deinit_hook();
+maybe_deinit_session_hook(_TestCase) ->
+    ok.
+
+maybe_restore_session_hook(TestCase) when
+    TestCase =:= t_set_result_writes_to_context;
+    TestCase =:= t_llm_loop_final_without_set_result_fails
+->
+    ok = emqx_agent_session:init_hook();
+maybe_restore_session_hook(_TestCase) ->
     ok.
 
 %%--------------------------------------------------------------------
@@ -314,60 +332,49 @@ t_context_flows_between_steps(Config) ->
 %% set_result tool call from the LLM, store the args, and write them to
 %% result_path when the session publishes the final frame.
 %%
-%% Strategy: the provider points at a closed local port, so the real session
-%% cannot produce normal LLM frames.  We then drive the pipeline manually
-%% by casting #sess_frame records directly, bypassing the LLM entirely.
-%%
-%% Gen_statem ordering guarantee: the pipeline processes its queued internal
-%% `step` event (which transitions it to llm_loop) *before* it processes any
-%% cast from our test process, so the state is always llm_loop when our casts
-%% arrive.
+%% Strategy: the session hook is disabled for this test case, so the real
+%% session is not started.  The test subscribes to the deterministic persistent
+%% session input topic before triggering the pipeline, observes the request on
+%% $sess/in/<sid>/, then publishes fake $sess/out/<sid>/ frames via the broker.
 t_set_result_writes_to_context(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     StepId = <<"llm">>,
-    ok = emqx_ai_completion_config:update_providers_raw(
-        {add, #{
-            <<"name">> => <<"test-provider">>,
-            <<"type">> => <<"openai">>,
-            <<"api_key">> => <<"test-key">>,
-            <<"base_url">> => <<"http://127.0.0.1:1">>
-        }}
-    ),
+    Sid = persistent_sid(PipelineId, StepId, TrigTopic),
+    SessInTopic = emqx_agent_topics:sess_in_topic(Sid),
+    ok = emqx:subscribe(SessInTopic),
     Step = #{
         <<"id">> => StepId,
         <<"type">> => <<"llm_loop">>,
         <<"model">> => <<"test-model">>,
         <<"instructions">> => <<"test">>,
         <<"provider_name">> => <<"test-provider">>,
+        <<"persistent">> => true,
         <<"tools">> => [],
         <<"input">> => #{<<"box_id">> => <<"b1">>},
         <<"set_result_schema">> => set_result_schema(),
         <<"result_path">> => <<"$.verdict">>
     },
-    {ok, Pid} = start_pipeline_direct(PipelineId, TrigTopic, [Step], #{<<"id">> => <<"sr-1">>}),
+    register_pipeline(PipelineId, TrigTopic, [Step]),
+    publish_evt(TrigTopic, #{<<"id">> => <<"sr-1">>}),
 
     Started = recv_pipe_event(PipelineId),
     ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started),
-    Iid = maps:get(<<"iid">>, Started),
-    Sid = ephemeral_sid(Iid, StepId),
+    _Request = recv_sess_request(Sid),
+    ok = emqx:unsubscribe(SessInTopic),
+    SessOutTopic = emqx_agent_topics:sess_out_topic(Sid),
 
-    %% Simulate the LLM calling set_result.  Gen_statem ordering guarantees
-    %% the pipeline is in llm_loop when it processes this cast.
-    gen_statem:cast(Pid, #sess_frame{
-        sid = Sid,
-        frame = #{
-            <<"type">> => <<"tool_request">>,
-            <<"call_id">> => <<"c-sr-1">>,
-            <<"tool">> => <<"set_result">>,
-            <<"args">> => #{<<"status">> => <<"approved">>}
-        }
+    %% Simulate the LLM calling set_result via MQTT publish on $sess/out/<Sid>/.
+    publish_frame(SessOutTopic, #{
+        <<"type">> => <<"tool_request">>,
+        <<"call_id">> => <<"c-sr-1">>,
+        <<"tool">> => <<"set_result">>,
+        <<"args">> => #{<<"status">> => <<"approved">>}
     }),
 
     %% Simulate the LLM finishing (set_result has already been stored).
-    gen_statem:cast(Pid, #sess_frame{
-        sid = Sid,
-        frame = #{<<"type">> => <<"final">>}
+    publish_frame(SessOutTopic, #{
+        <<"type">> => <<"final">>
     }),
 
     Completed = recv_pipe_event(PipelineId),
@@ -380,38 +387,33 @@ t_llm_loop_final_without_set_result_fails(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     StepId = <<"llm">>,
-    ok = emqx_ai_completion_config:update_providers_raw(
-        {add, #{
-            <<"name">> => <<"test-provider">>,
-            <<"type">> => <<"openai">>,
-            <<"api_key">> => <<"test-key">>,
-            <<"base_url">> => <<"http://127.0.0.1:1">>
-        }}
-    ),
+    Sid = persistent_sid(PipelineId, StepId, TrigTopic),
+    SessInTopic = emqx_agent_topics:sess_in_topic(Sid),
+    ok = emqx:subscribe(SessInTopic),
     Step = #{
         <<"id">> => StepId,
         <<"type">> => <<"llm_loop">>,
         <<"model">> => <<"test-model">>,
         <<"instructions">> => <<"test">>,
         <<"provider_name">> => <<"test-provider">>,
+        <<"persistent">> => true,
         <<"tools">> => [],
         <<"input">> => #{},
         <<"set_result_schema">> => set_result_schema(),
         <<"result_path">> => <<"$.verdict">>
     },
-    {ok, Pid} = start_pipeline_direct(PipelineId, TrigTopic, [Step], #{<<"id">> => <<"sr-missing">>}),
+    register_pipeline(PipelineId, TrigTopic, [Step]),
+    publish_evt(TrigTopic, #{<<"id">> => <<"sr-missing">>}),
 
     Started = recv_pipe_event(PipelineId),
     ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started),
-    Iid = maps:get(<<"iid">>, Started),
-    Sid = ephemeral_sid(Iid, StepId),
+    _Request = recv_sess_request(Sid),
+    ok = emqx:unsubscribe(SessInTopic),
+    SessOutTopic = emqx_agent_topics:sess_out_topic(Sid),
 
-    gen_statem:cast(Pid, #sess_frame{
-        sid = Sid,
-        frame = #{
-            <<"type">> => <<"final">>,
-            <<"result">> => #{<<"summary">> => <<"could not complete">>}
-        }
+    publish_frame(SessOutTopic, #{
+        <<"type">> => <<"final">>,
+        <<"result">> => #{<<"summary">> => <<"could not complete">>}
     }),
 
     Failed = recv_pipe_event(PipelineId),
@@ -625,8 +627,9 @@ start_pipeline_direct(PipelineId, TrigTopic, Steps, Event) ->
 trigger_message(Topic, Event) ->
     emqx_message:make(?MODULE, 0, Topic, emqx_utils_json:encode(Event)).
 
-ephemeral_sid(Iid, StepId) ->
-    <<"pipe-", (emqx_base62:encode(<<Iid/binary, 0, StepId/binary>>))/binary>>.
+persistent_sid(PipelineId, StepId, Key) ->
+    <<"pipe-",
+        (emqx_base62:encode(<<PipelineId/binary, 0, StepId/binary, 0, Key/binary>>))/binary>>.
 
 setup_publish_skill(SkillId) ->
     ok = emqx_agent_service:skill_create(#{
@@ -647,6 +650,21 @@ set_result_schema() ->
 
 publish_evt(Topic, Event) ->
     emqx_broker:publish(trigger_message(Topic, Event)).
+
+publish_frame(Topic, PayloadMap) ->
+    _ = emqx_broker:publish(
+        emqx_message:make(?MODULE, 0, Topic, emqx_utils_json:encode(PayloadMap))
+    ),
+    ok.
+
+recv_sess_request(Sid) ->
+    Topic = emqx_agent_topics:sess_in_topic(Sid),
+    receive
+        #deliver{topic = Topic, message = #message{payload = P}} ->
+            emqx_utils_json:decode(P)
+    after ?SHORT_TIMEOUT ->
+        ct:fail("no session request for ~s within ~b ms", [Sid, ?SHORT_TIMEOUT])
+    end.
 
 recv_pipe_event(PipelineId) ->
     recv_pipe_event(PipelineId, ?SHORT_TIMEOUT).

@@ -16,9 +16,9 @@
 %%   llm_loop       — active LLM session; proxying tool_request ↔ $cap/
 %%   waiting_cap    — $cap/ request sent for a call_skill step; awaiting cap_reply
 %%
-%% Incoming OTP messages (all sent as gen_statem casts by emqx_agent_pipeline_mgr)
-%%   #sess_frame{sid, frame}   — from $sess/out/<sid>/
-%%   #cap_reply{req_id, frame} — from $cap/<type>/<id>/response/<req_id>
+%% Incoming MQTT messages received via emqx:subscribe as #deliver{} info events:
+%%   $sess/out/<sid>/   — frames from the LLM session
+%%   $cap/<type>/<id>/response/<req_id> — skill invocation replies
 %%
 %% Context and JSONPath
 %%   The pipeline maintains a `context` map.  Reading uses dotted paths
@@ -182,46 +182,6 @@ handle_event(internal, step, running, #data{step_idx = Idx, steps = Steps} = Dat
             Step = lists:nth(Idx + 1, Steps),
             execute_step(Step, Data)
     end;
-%% ── llm_loop: session emitted a tool_request ─────────────────────────────────
-
-handle_event(
-    cast,
-    #sess_frame{sid = Sid, frame = #{<<"type">> := <<"tool_request">>} = Frame},
-    llm_loop,
-    #data{active_sid = Sid} = Data
-) ->
-    handle_llm_tool_request(Sid, Frame, Data);
-%% ── llm_loop: session emitted final ──────────────────────────────────────────
-
-handle_event(
-    cast,
-    #sess_frame{sid = Sid, frame = #{<<"type">> := <<"final">>} = Frame},
-    llm_loop,
-    #data{active_sid = Sid} = Data
-) ->
-    handle_llm_final(Sid, Frame, Data);
-%% ── llm_loop: session emitted error ──────────────────────────────────────────
-
-handle_event(
-    cast,
-    #sess_frame{sid = Sid, frame = #{<<"type">> := <<"error">>} = Frame},
-    llm_loop,
-    #data{active_sid = Sid} = Data
-) ->
-    handle_llm_error(Sid, Frame, Data);
-%% ── llm_loop: cap response arrives for an outstanding tool call ──────────────
-
-handle_event(cast, #cap_reply{req_id = ReqId, frame = Frame}, llm_loop, Data) ->
-    handle_llm_cap_reply(ReqId, Frame, Data);
-%% ── waiting_cap: cap response for the call_skill step ────────────────────────
-
-handle_event(
-    cast,
-    #cap_reply{req_id = ReqId, frame = Frame},
-    waiting_cap,
-    #data{cap_req_id = ReqId} = Data
-) ->
-    handle_waiting_cap_reply(ReqId, Frame, Data);
 %% ── reply deliveries owned by this pipeline process ─────────────────────────
 
 handle_event(
