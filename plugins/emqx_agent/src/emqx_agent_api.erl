@@ -5,11 +5,21 @@
 %% REST API for the agent subsystem.
 %%
 %% Resources:
+%%   /agent/ui                       — serve the main agent UI
+%%   /agent/apple-box/ui             — serve the apple-box demo UI
+%%   /agent/apple-box/img/:file      — serve apple-box demo images
+%%   /agent/builder/ui               — serve the builder UI
+%%   /agent/assets/:file             — serve bundled UI assets
+%%   /agent/ui/assets/:file          — serve bundled UI assets
+%%   /agent/providers                — list configured AI providers
 %%   /agent/skills                   — list / create configured skills
 %%   /agent/skills/statuses          — runtime skill reconciliation statuses
-%%   /agent/skills/:type/:id         — get / delete a configured skill
+%%   /agent/skills/:type/:id         — get / update / delete a configured skill
 %%   /agent/connections              — list / create skill connections
+%%   /agent/connections/statuses     — runtime connection reconciliation statuses
 %%   /agent/connections/:id          — get / update / delete a skill connection
+%%   /agent/connections/:id/start    — enable and reconcile a skill connection
+%%   /agent/connections/:id/stop     — disable and reconcile a skill connection
 %%   /agent/pipelines                — list / create pipeline definitions
 %%   /agent/pipelines/:id            — get / update / delete a pipeline
 %%
