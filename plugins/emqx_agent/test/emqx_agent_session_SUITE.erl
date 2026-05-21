@@ -305,7 +305,6 @@ t_request_with_tool_call(Config) ->
     ),
 
     Final = recv_final(Config),
-    % ct:pal("final frame: ~p", [Final]),
     assert_final(Final),
 
     %% The model received the tool result (sum=94) and must mention it.
@@ -362,7 +361,6 @@ t_events_are_incorporated(Config) ->
 
     %% Wait for the event-driven final — no second request sent
     Final2 = recv_final(Config),
-    % ct:pal("event-driven final frame: ~p", [Final2]),
     assert_final(Final2),
 
     ResultText = result_to_text(maps:get(<<"result">>, Final2)),

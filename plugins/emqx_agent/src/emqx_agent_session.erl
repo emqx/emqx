@@ -368,7 +368,7 @@ do_start_llm_call(Data, Provider) ->
     RecvTimeoutMs = provider_recv_timeout(Provider, Data#data.recv_timeout_ms),
     Temperature = Data#data.temperature,
     ToolChoice = Data#data.tool_choice,
-    ?SLOG(warning, #{
+    ?SLOG(info, #{
         msg => "session_llm_request",
         sid => Data#data.sid,
         model => Model,
@@ -825,7 +825,6 @@ call_llm(
         {<<"authorization">>, <<"Bearer ", ApiKey/binary>>},
         {<<"content-type">>, <<"application/json">>}
     ],
-    % ct:print("stream_llm_body: url:~p, headers:~p", [Url, Headers]),
     stream_llm_response(
         Url,
         Headers,
@@ -849,11 +848,9 @@ stream_llm_response(Url, Headers, Body0, RecvTimeoutMs, Model, Sid, Iid, TraceId
     Opts = [{connect_timeout, 30_000}, {recv_timeout, RecvTimeoutMs}],
     case hackney:request(post, Url, Headers, emqx_utils_json:encode(Body), Opts) of
         {ok, 200, _RespHdrs, ClientRef} ->
-            % ct:print("stream_llm_response ok sid=~ts, headers=~p", [Sid, RespHdrs]),
             collect_stream(ClientRef, Model, Sid, Iid, TraceId, Usage);
         {ok, Status, _RespHdrs, ClientRef} ->
             ErrBody = drain_stream_body(ClientRef, <<>>),
-            % ct:print("stream_http_err sid=~ts status=~p body=~p", [Sid, Status, ErrBody]),
             ?SLOG(error, #{
                 msg => "session_llm_http_error",
                 sid => Sid,
@@ -861,7 +858,6 @@ stream_llm_response(Url, Headers, Body0, RecvTimeoutMs, Model, Sid, Iid, TraceId
             }),
             {error, {http_error, Status, ErrBody}};
         {error, Reason} ->
-            % ct:print("stream_request_err sid=~ts reason=~p", [Sid, Reason]),
             ?SLOG(error, #{
                 msg => "session_llm_request_failed",
                 sid => Sid,
@@ -883,19 +879,16 @@ collect_stream(ClientRef, Model, Sid, Iid, TraceId, Usage) ->
 stream_receive_loop(ClientRef, Buf, Acc, Sid, Iid, TraceId, Usage) ->
     case hackney:stream_body(ClientRef) of
         {ok, Chunk} ->
-            % ct:print("stream_chunk: ~p", [Chunk]),
             Combined = <<Buf/binary, Chunk/binary>>,
             Normalized = binary:replace(Combined, <<"\r\n">>, <<"\n">>, [global]),
             {Buf1, Acc1} = feed_sse(Normalized, Acc, Sid, Iid, TraceId, Usage),
             stream_receive_loop(ClientRef, Buf1, Acc1, Sid, Iid, TraceId, Usage);
         done ->
-            % ct:print("stream_done", []),
             %% Flush any remaining bytes in the buffer (edge case: server
             %% does not terminate the last event with \n\n).
             Acc1 = flush_sse_buf(Buf, Acc, Sid, Iid, TraceId, Usage),
             {ok, Acc1};
         {error, Reason} ->
-            % ct:print("stream_error: ~p", [Reason]),
             ?SLOG(error, #{
                 msg => "session_stream_recv_error",
                 sid => Sid,
@@ -958,15 +951,6 @@ apply_stream_json(JsonBin, Acc, Sid, Iid, TraceId, Usage) ->
         {ok, _NonMap} ->
             Acc;
         {error, Reason} ->
-            % ct:print(
-            %     "stream_json_err sid=~ts bytes=~p reason=~p prefix=~p",
-            %     [
-            %         Sid,
-            %         byte_size(JsonBin),
-            %         Reason,
-            %         binary:part(JsonBin, 0, min(80, byte_size(JsonBin)))
-            %     ]
-            % ),
             ?SLOG(warning, #{
                 msg => "session_stream_json_error",
                 sid => Sid,

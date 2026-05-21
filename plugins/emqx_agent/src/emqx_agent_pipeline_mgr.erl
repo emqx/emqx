@@ -88,4 +88,4 @@ safe_decode(Payload) ->
     end.
 
 log_received(Kind, Data) ->
-    ?SLOG(warning, #{msg => "pipeline_mgr_received", kind => Kind, data => Data}).
+    ?SLOG(debug, #{msg => "pipeline_mgr_received", kind => Kind, data => Data}).

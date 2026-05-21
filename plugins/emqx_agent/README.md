@@ -163,7 +163,7 @@ LLM-backed demo suites are skipped automatically when `OPENAI_API_KEY` is not se
 Build, install, enable, and start the plugin in that node:
 
 ```bash
-plugins/emqx_agent/smoke/load_dev.sh
+plugins/emqx_agent/script/start_dev.sh
 ```
 
 The admin UI is available through the plugin API gateway at:

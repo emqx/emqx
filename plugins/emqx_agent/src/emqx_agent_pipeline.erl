@@ -97,7 +97,6 @@ match_triggers(Topic) ->
 start_link(Def, TriggerInput) ->
     PipelineId = maps:get(<<"pipeline_id">>, Def),
     Iid = gen_iid(PipelineId),
-    % ct:print("start_link: ~p:~p~n~p", [PipelineId, Iid, Def]),
     gen_statem:start_link(?MODULE, {Iid, Def, TriggerInput}, []).
 
 %%--------------------------------------------------------------------
@@ -822,7 +821,7 @@ publish_pipeline_event(
     ok.
 
 log_received(Kind, #data{iid = Iid}, Payload) ->
-    ?SLOG(warning, #{msg => "pipeline_received", iid => Iid, kind => Kind, payload => Payload}).
+    ?SLOG(debug, #{msg => "pipeline_received", iid => Iid, kind => Kind, payload => Payload}).
 
 %%--------------------------------------------------------------------
 %% ID generation
