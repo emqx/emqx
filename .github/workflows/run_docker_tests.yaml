@@ -82,7 +82,7 @@ jobs:
       - name: run emqx
         timeout-minutes: 5
         run: |
-          ./.ci/docker-compose-file/scripts/run-emqx.sh $_EMQX_DOCKER_IMAGE_TAG $_EMQX_TEST_DB_BACKEND
+          ./.ci/docker-compose-file/scripts/run-emqx.sh $_EMQX_DOCKER_IMAGE_TAG --db-backend $_EMQX_TEST_DB_BACKEND
       - name: make paho tests
         run: |
           if ! docker exec -i python /scripts/pytest.sh "$_EMQX_TEST_DB_BACKEND"; then
