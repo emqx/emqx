@@ -136,8 +136,6 @@ if [[ -z "$PLUGIN_INSTALL_DIR_CFG" ]]; then
     exit 1
 fi
 
-PLUGIN_DATA_DIR=
-
 if [[ "$PLUGIN_INSTALL_DIR_CFG" = /* ]]; then
     PLUGIN_INSTALL_DIR="$PLUGIN_INSTALL_DIR_CFG"
 else
@@ -155,7 +153,7 @@ echo "  uninstalling plugin if installed"
 mkdir -p "$PLUGIN_INSTALL_DIR"
 echo "  deleting stale install dir: $PLUGIN_INSTALL_DIR/$NAME_VSN"
 echo "  deleting stale package: $PLUGIN_INSTALL_DIR/$NAME_VSN.tar.gz"
-rm -rf "$PLUGIN_INSTALL_DIR/$NAME_VSN" "$PLUGIN_INSTALL_DIR/$NAME_VSN.tar.gz"
+rm -rf "${PLUGIN_INSTALL_DIR:?}/$NAME_VSN" "${PLUGIN_INSTALL_DIR:?}/$NAME_VSN.tar.gz"
 echo "Copying fresh package: $TAR_PATH -> $PLUGIN_INSTALL_DIR/"
 cp -f "$TAR_PATH" "$PLUGIN_INSTALL_DIR/"
 
