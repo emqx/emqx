@@ -808,11 +808,16 @@ changed(K, V, Conf) ->
 find_running_confs() ->
     lists:map(
         fun(Node) ->
-            Conf = emqx_conf_proto_v4:get_config(Node, []),
+            Conf = normalize_running_conf(emqx_conf_proto_v4:get_raw_config(Node, [])),
             {Node, maps:without(?READONLY_ROOT_KEYS, Conf)}
         end,
         mria:running_nodes()
     ).
+
+normalize_running_conf(RawConf) ->
+    RawConf1 = fill_defaults(RawConf),
+    {_AppEnvs, Conf} = emqx_config:check_config(emqx_conf:schema_module(), RawConf1),
+    Conf.
 
 print_inconsistent_conf(Keys, Target, Status, AllConfs) ->
     {value, {_, TargetConf}, OtherConfs} = lists:keytake(Target, 1, AllConfs),
