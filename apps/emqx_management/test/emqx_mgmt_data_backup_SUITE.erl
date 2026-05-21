@@ -89,6 +89,8 @@ init_per_testcase(TC = t_import_on_cluster, Config) ->
     [{cluster, cluster(TC, Config)} | setup(TC, Config)];
 init_per_testcase(TC = t_verify_imported_mnesia_tab_on_cluster, Config) ->
     [{cluster, cluster(TC, Config)} | setup(TC, Config)];
+init_per_testcase(TC = t_load_file_authz_with_path_on_cluster, Config) ->
+    [{cluster, cluster(TC, Config)} | setup(TC, Config)];
 init_per_testcase(t_mnesia_bad_tab_schema, Config) ->
     meck:new(emqx_mgmt_data_backup, [passthrough]),
     meck:expect(TC = emqx_mgmt_data_backup, modules_with_mnesia_tabs_to_backup, 0, [?MODULE]),
@@ -102,6 +104,9 @@ end_per_testcase(t_import_on_cluster, Config) ->
     meck:unload(emqx_mgmt_listeners_conf),
     meck:unload(emqx_gateway_conf);
 end_per_testcase(t_verify_imported_mnesia_tab_on_cluster, Config) ->
+    emqx_cth_cluster:stop(?config(cluster, Config)),
+    cleanup(Config);
+end_per_testcase(t_load_file_authz_with_path_on_cluster, Config) ->
     emqx_cth_cluster:stop(?config(cluster, Config)),
     cleanup(Config);
 end_per_testcase(t_mnesia_bad_tab_schema, Config) ->
@@ -637,6 +642,62 @@ t_verify_imported_mnesia_tab_on_cluster(Config) ->
     %% Give some extra time to replicant to import data...
     timer:sleep(3000),
     ?assertEqual(AllUsers, lists:sort(rpc:call(ReplicantNode, mnesia, dirty_all_keys, [Tab]))).
+
+%% Regression: `emqx ctl conf load` (and the REST `PUT /configs` it backs)
+%% used to ship the user-provided `path` of a file authz source across the
+%% cluster verbatim. Peer nodes had no such file on disk and failed to apply
+%% the change with `failed_to_read_acl_file` / `cluster_rpc_apply_failed`.
+%% The fix expands `path` to inline `rules` (by reading the file locally)
+%% before the config goes through `emqx_conf:update`.
+t_load_file_authz_with_path_on_cluster(Config) ->
+    [Core1, Core2, _Replicant] = ?config(cluster, Config),
+    Rules = <<"{allow, {username, \"alice\"}, all, [\"#\"]}.\n">>,
+    %% Place an ACL file on Core1 only — the bug surfaces precisely because
+    %% the path is node-local.
+    AclPath = ?ON(
+        Core1,
+        begin
+            Tmp = filename:join(emqx:data_dir(), "user_authz_input.acl"),
+            ok = filelib:ensure_dir(Tmp),
+            ok = file:write_file(Tmp, Rules),
+            Tmp
+        end
+    ),
+    HoconBin = iolist_to_binary([
+        "authorization {\n",
+        "  sources = [{ type = file, enable = true, path = \"",
+        AclPath,
+        "\" }]\n",
+        "}\n"
+    ]),
+    ok = ?ON(Core1, emqx_conf_cli:load_config(HoconBin, #{mode => replace, log => none})),
+    %% Each node must have written its own copy of acl.conf locally with the
+    %% rules content read from the initiator-side file.
+    [
+        ?assertMatch(
+            {ok, Rules},
+            ?ON(N, file:read_file(emqx_authz_file:acl_conf_file()))
+        )
+     || N <- [Core1, Core2]
+    ],
+    %% cluster_rpc must be fully synced (both nodes at the same tnx_id) and
+    %% the cluster_rpc_apply_failed alarm must not be active on either node.
+    {atomic, StatusOnCore1} = ?ON(Core1, emqx_cluster_rpc:status()),
+    TnxIds = lists:usort([T || #{tnx_id := T} <- StatusOnCore1]),
+    ?assertMatch([_Single], TnxIds, #{status => StatusOnCore1}),
+    [
+        ?assertEqual(
+            [],
+            [
+                A
+             || A <- ?ON(N, emqx_alarm:get_alarms(activated)),
+                cluster_rpc_apply_failed =:= maps:get(name, A, undefined)
+            ],
+            #{node => N}
+        )
+     || N <- [Core1, Core2]
+    ],
+    ok.
 
 backup_tables() ->
     {<<"mocked_test">>, [data_backup_test]}.

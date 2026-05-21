@@ -351,7 +351,12 @@ load_config_from_raw(RawConf0, Opts) ->
     SchemaMod = emqx_conf:schema_module(),
     RawConf1 = emqx_config:upgrade_raw_conf(SchemaMod, RawConf0),
     case check_config(RawConf1, Opts) of
-        {ok, RawConf} ->
+        {ok, RawConfChecked} ->
+            %% If the user supplied a file authz source with `path`, expand it
+            %% to inline `rules` (by reading the file locally) so cluster_rpc
+            %% replication carries the content rather than a node-local path
+            %% that other nodes can't read.
+            RawConf = emqx_authz:maybe_read_files(RawConfChecked),
             case update_cluster_links(cluster, RawConf, Opts) of
                 ok ->
                     %% It has been ensured that the connector is always the first
