@@ -808,13 +808,29 @@ changed(K, V, Conf) ->
 find_running_confs() ->
     lists:map(
         fun(Node) ->
-            Conf = normalize_running_conf(emqx_conf_proto_v4:get_raw_config(Node, [])),
+            Conf = normalize_running_conf(Node),
             {Node, maps:without(?READONLY_ROOT_KEYS, Conf)}
         end,
         mria:running_nodes()
     ).
 
-normalize_running_conf(RawConf) ->
+normalize_running_conf(Node) ->
+    try normalize_running_raw_conf(emqx_conf_proto_v4:get_raw_config(Node, [])) of
+        Conf ->
+            Conf
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(warning, #{
+                msg => "failed_to_normalize_cluster_sync_status_conf",
+                node => Node,
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            emqx_conf_proto_v4:get_config(Node, [])
+    end.
+
+normalize_running_raw_conf(RawConf) ->
     RawConf1 = fill_defaults(RawConf),
     {_AppEnvs, Conf} = emqx_config:check_config(emqx_conf:schema_module(), RawConf1),
     Conf.
@@ -1053,6 +1069,25 @@ find_inconsistent_test() ->
         find_lagging(SameStatus, Confs0)
     ),
     ok.
+
+normalize_running_conf_falls_back_to_checked_config_test() ->
+    FallbackConf = #{mqtt => #{max_topic_levels => 128}},
+    ok = meck:new(emqx_conf_proto_v4, [passthrough, no_link]),
+    try
+        ok = meck:expect(
+            emqx_conf_proto_v4,
+            get_raw_config,
+            fun(node, []) -> invalid_raw_conf end
+        ),
+        ok = meck:expect(
+            emqx_conf_proto_v4,
+            get_config,
+            fun(node, []) -> FallbackConf end
+        ),
+        ?assertEqual(FallbackConf, normalize_running_conf(node))
+    after
+        meck:unload(emqx_conf_proto_v4)
+    end.
 
 remove_identical_value_missing_key_test() ->
     ?assertEqual(
