@@ -47,7 +47,7 @@ do_generate(CN) ->
     {_, PathTpl} = emqx_authn_utils:parse_str(<<"/auth">>),
     State = #{
         method => post,
-        headers => HeadersTpl,
+        headers_template => HeadersTpl,
         body_template => BodyTpl,
         base_path_template => PathTpl,
         base_query_template => QueryTpl
