@@ -17,15 +17,15 @@ start(_StartType, _StartArgs) ->
     ok = emqx_agent_skill_registry:reconcile(),
     ok = emqx_agent_skill_connections:init(),
     ok = emqx_agent_skill:init(),
-    ok = emqx_agent_session:init_hook(),
-    ok = emqx_agent_pipeline_mgr:init_hook(),
+    ok = emqx_agent_session:init(),
+    ok = emqx_agent_pipeline_mgr:init(),
     {ok, Sup}.
 
 stop(_State) ->
     ok = emqx_agent_skill:deinit(),
     ok = emqx_agent_skill_connections:deinit(),
-    ok = emqx_agent_session:deinit_hook(),
-    ok = emqx_agent_pipeline_mgr:deinit_hook(),
+    ok = emqx_agent_session:deinit(),
+    ok = emqx_agent_pipeline_mgr:deinit(),
     ok = emqx_agent_config:clear_config_schema().
 
 on_config_changed(OldConfig, NewConfig) ->

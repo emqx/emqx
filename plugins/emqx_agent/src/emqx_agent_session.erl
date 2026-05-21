@@ -59,7 +59,7 @@
 -export([start_link/2, whereis/1, inspect/1]).
 
 %% Hook management (called from emqx_agent_app)
--export([init_hook/0, deinit_hook/0, on_message_publish/1]).
+-export([init/0, deinit/0, on_message_publish/1]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4, terminate/3]).
@@ -131,13 +131,13 @@
 %% Hook management
 %%--------------------------------------------------------------------
 
--spec init_hook() -> ok.
-init_hook() ->
+-spec init() -> ok.
+init() ->
     _ = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_LOWEST),
     ok.
 
--spec deinit_hook() -> ok.
-deinit_hook() ->
+-spec deinit() -> ok.
+deinit() ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
     ok.
 

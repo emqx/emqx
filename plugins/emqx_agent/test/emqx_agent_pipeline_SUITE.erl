@@ -66,7 +66,7 @@ maybe_deinit_session_hook(TestCase) when
     TestCase =:= t_set_result_writes_to_context;
     TestCase =:= t_llm_loop_final_without_set_result_fails
 ->
-    ok = emqx_agent_session:deinit_hook();
+    ok = emqx_agent_session:deinit();
 maybe_deinit_session_hook(_TestCase) ->
     ok.
 
@@ -74,7 +74,7 @@ maybe_restore_session_hook(TestCase) when
     TestCase =:= t_set_result_writes_to_context;
     TestCase =:= t_llm_loop_final_without_set_result_fails
 ->
-    ok = emqx_agent_session:init_hook();
+    ok = emqx_agent_session:init();
 maybe_restore_session_hook(_TestCase) ->
     ok.
 

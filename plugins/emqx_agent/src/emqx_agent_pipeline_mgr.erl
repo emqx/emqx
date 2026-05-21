@@ -17,20 +17,20 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--export([init_hook/0, deinit_hook/0]).
+-export([init/0, deinit/0]).
 -export([on_message_publish/1]).
 
 %%--------------------------------------------------------------------
 %% Public API
 %%--------------------------------------------------------------------
 
--spec init_hook() -> ok.
-init_hook() ->
+-spec init() -> ok.
+init() ->
     _ = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_LOWEST),
     ok.
 
--spec deinit_hook() -> ok.
-deinit_hook() ->
+-spec deinit() -> ok.
+deinit() ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
     ok.
 
