@@ -115,7 +115,9 @@ message_expiry_interval_exipred(CPublish, CControl, QoS) ->
     after 1000 ->
         ct:fail(should_receive_publish)
     end,
-    ct:sleep(1100),
+    %% Sleep well past Message-Expiry-Interval (1s) with wide margin so the
+    %% wall-clock-based expiry check at session resume is not racy on slow CI.
+    ct:sleep(2000),
 
     %% resume the session for Client-Verify
     {ok, CVerify} = emqtt:start_link([

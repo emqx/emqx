@@ -138,6 +138,7 @@ jobs:
       - init
       - sanity-checks
     strategy:
+      fail-fast: false
       matrix:
         build_type:
           - test
