@@ -2,19 +2,21 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Pipeline context operations — JSONPath-style read/write/interpolation
-%% on plain binary-keyed maps.
-%%
-%% Path DSL
-%%   "$.foo"         — top-level key
-%%   "$.foo.bar.baz" — nested traversal
-%%
-%% Read  (resolve/2):     deep traversal, returns `null` for missing paths
-%% Write (write/3):       deep nested write, creates intermediate maps
-%% Delete (delete/2):     deep nested delete, no-op on missing paths
-%% Resolve map (resolve_map/2): recursively substitute "$."-prefixed values
-
 -module(emqx_agent_pipeline_ctx).
+
+-moduledoc """
+Pipeline context operations — JSONPath-style read/write/interpolation
+on plain binary-keyed maps.
+
+Path DSL
+  "$.foo"         — top-level key
+  "$.foo.bar.baz" — nested traversal
+
+Read  (resolve/2):     deep traversal, returns `null` for missing paths
+Write (write/3):       deep nested write, creates intermediate maps
+Delete (delete/2):     deep nested delete, no-op on missing paths
+Resolve map (resolve_map/2): recursively substitute "$."-prefixed values
+""".
 
 -export([
     resolve/2,

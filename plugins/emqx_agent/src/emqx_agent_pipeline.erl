@@ -2,41 +2,43 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Pipeline instance gen_statem.
-%%
-%% One process per trigger. Pipeline instances are one-off and terminate after
-%% completion or failure.
-%%
-%% Lifecycle
-%%   start_link/2 is called by emqx_agent_pipeline_sup (simple_one_for_one).
-%%   The iid is generated here, ensuring uniqueness.
-%%
-%% States
-%%   running        — executing a deterministic step
-%%   llm_loop       — active LLM session; proxying tool_request ↔ $cap/
-%%   waiting_cap    — $cap/ request sent for a call_skill step; awaiting cap_reply
-%%
-%% Incoming MQTT messages received via emqx:subscribe as #deliver{} info events:
-%%   $sess/out/<sid>/   — frames from the LLM session
-%%   $cap/<type>/<id>/response/<req_id> — skill invocation replies
-%%
-%% Context and JSONPath
-%%   The pipeline maintains a `context` map.  Reading uses dotted paths
-%%   starting with $ (e.g. "$.triage.result.incident_id" traverses the map
-%%   recursively).  Writing supports top-level paths only ("$.triage" writes
-%%   to context[<<"triage">>]).
-%%
-%% Tool specs
-%%   Format:  "<type>@<skill_id>"  e.g. "message__publish@slack-dev"
-%%   The type becomes the $cap/<type> topic segment.
-%%   The tool name sent to the LLM is the spec with non-[a-zA-Z0-9_-] replaced
-%%   by underscore (e.g. "message_publish_slack_dev").
-%%
-%% AI provider
-%%   Each llm_loop step references an AI provider configured in
-%%   emqx_ai_completion via provider_name.
-
 -module(emqx_agent_pipeline).
+
+-moduledoc """
+Pipeline instance gen_statem.
+
+One process per trigger. Pipeline instances are one-off and terminate after
+completion or failure.
+
+Lifecycle
+  start_link/2 is called by emqx_agent_pipeline_sup (simple_one_for_one).
+  The iid is generated here, ensuring uniqueness.
+
+States
+  running        — executing a deterministic step
+  llm_loop       — active LLM session; proxying tool_request ↔ $cap/
+  waiting_cap    — $cap/ request sent for a call_skill step; awaiting cap_reply
+
+Incoming MQTT messages received via emqx:subscribe as #deliver{} info events:
+  $sess/out/<sid>/   — frames from the LLM session
+  $cap/<type>/<id>/response/<req_id> — skill invocation replies
+
+Context and JSONPath
+  The pipeline maintains a `context` map.  Reading uses dotted paths
+  starting with $ (e.g. "$.triage.result.incident_id" traverses the map
+  recursively).  Writing supports top-level paths only ("$.triage" writes
+  to context[<<"triage">>]).
+
+Tool specs
+  Format:  "<type>@<skill_id>"  e.g. "message__publish@slack-dev"
+  The type becomes the $cap/<type> topic segment.
+  The tool name sent to the LLM is the spec with non-[a-zA-Z0-9_-] replaced
+  by underscore (e.g. "message_publish_slack_dev").
+
+AI provider
+  Each llm_loop step references an AI provider configured in
+  emqx_ai_completion via provider_name.
+""".
 
 -behaviour(gen_statem).
 

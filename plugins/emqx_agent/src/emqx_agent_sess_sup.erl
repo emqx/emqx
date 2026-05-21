@@ -2,13 +2,15 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Supervisor for session gen_servers.
-%%
-%% Sessions are lazy: started on the first message arriving at
-%% sess/in/<SID>/. They terminate normally once the LLM loop finishes
-%% and there is nothing left to process, so restart => transient.
-
 -module(emqx_agent_sess_sup).
+
+-moduledoc """
+Supervisor for session gen_servers.
+
+Sessions are lazy: started on the first message arriving at
+sess/in/<SID>/. They terminate normally once the LLM loop finishes
+and there is nothing left to process, so restart => transient.
+""".
 
 -behaviour(supervisor).
 

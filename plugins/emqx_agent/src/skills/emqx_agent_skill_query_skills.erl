@@ -2,20 +2,22 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Management skill: list or introspect registered skills.
-%%
-%% Args (all optional):
-%%   type — skill type filter, e.g. "message__publish"
-%%   id   — skill instance id (requires type)
-%%
-%% No args → list all skills
-%% type only → list skills of that type
-%% type + id → get single skill
-%%
-%% Invoke topic:  cap/agent__query_skills/<skill_id>/request/<req_id>
-%% Reply  topic:  cap/agent__query_skills/<skill_id>/response/<req_id>
-
 -module(emqx_agent_skill_query_skills).
+
+-moduledoc """
+Management skill: list or introspect registered skills.
+
+Args (all optional):
+  type — skill type filter, e.g. "message__publish"
+  id   — skill instance id (requires type)
+
+No args → list all skills
+type only → list skills of that type
+type + id → get single skill
+
+Invoke topic:  cap/agent__query_skills/<skill_id>/request/<req_id>
+Reply  topic:  cap/agent__query_skills/<skill_id>/response/<req_id>
+""".
 
 -behaviour(emqx_agent_skill).
 

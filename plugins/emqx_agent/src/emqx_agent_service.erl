@@ -2,21 +2,32 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Service layer for the agent subsystem.
-%%
-%% Accepts raw maps and binary IDs, performs validation and schema
-%% coercion, then delegates to the registries and skill modules.
-%%
-%% Returns:
-%%   ok | {ok, term()} | {error, Reason}
-%%
-%% Reasons:
-%%   not_found
-%%   unknown_type
-%%   {missing_field, binary()}
-%%   term()  (hocon validation errors)
-
 -module(emqx_agent_service).
+
+-moduledoc """
+Service layer for the agent subsystem.
+
+Accepts raw binary-keyed maps and binary IDs from the API layer, applies
+service-level checks such as dependency/in-use guards, then delegates CRUD to
+emqx_agent_config. Config writes are persisted through the plugin config
+boundary, where defaults and Avro-based validation are applied before runtime
+reconciliation.
+
+Returns:
+  ok | {ok, term()} | {error, Reason}
+
+Reasons include:
+  not_found
+  unknown_type
+  already_exists
+  invalid_skill
+  invalid_connection
+  invalid_pipeline
+  pipeline_is_active
+  {in_use, [binary()]}
+  {missing_field, binary()}
+  term()  (plugin config, Avro, schema, or reference validation errors)
+""".
 
 -export([
     %% Skills

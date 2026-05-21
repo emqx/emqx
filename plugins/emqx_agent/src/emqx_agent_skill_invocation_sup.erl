@@ -2,12 +2,14 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Supervisor for skill invocation workers.
-%%
-%% Each invocation is a short-lived temporary worker that executes a
-%% skill's handle_invoke/2 with a configurable timeout.
-
 -module(emqx_agent_skill_invocation_sup).
+
+-moduledoc """
+Supervisor for skill invocation workers.
+
+Each invocation is a short-lived temporary worker that executes a
+skill's handle_invoke/2 with a configurable timeout.
+""".
 
 -behaviour(supervisor).
 

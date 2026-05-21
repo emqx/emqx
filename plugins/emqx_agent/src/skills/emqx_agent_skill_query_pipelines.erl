@@ -2,15 +2,17 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Management skill: list or introspect pipeline definitions.
-%%
-%% Args (all optional):
-%%   id — pipeline id. Omit to list all pipelines.
-%%
-%% Invoke topic:  cap/agent__query_pipelines/<skill_id>/request/<req_id>
-%% Reply  topic:  cap/agent__query_pipelines/<skill_id>/response/<req_id>
-
 -module(emqx_agent_skill_query_pipelines).
+
+-moduledoc """
+Management skill: list or introspect pipeline definitions.
+
+Args (all optional):
+  id — pipeline id. Omit to list all pipelines.
+
+Invoke topic:  cap/agent__query_pipelines/<skill_id>/request/<req_id>
+Reply  topic:  cap/agent__query_pipelines/<skill_id>/response/<req_id>
+""".
 
 -behaviour(emqx_agent_skill).
 

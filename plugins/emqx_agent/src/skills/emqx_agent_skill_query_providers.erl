@@ -2,9 +2,11 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Management skill: list or introspect AI providers.
-
 -module(emqx_agent_skill_query_providers).
+
+-moduledoc """
+Management skill: list or introspect AI providers.
+""".
 
 -behaviour(emqx_agent_skill).
 

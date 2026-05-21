@@ -2,19 +2,21 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Management skill: delete a registered skill.
-%%
-%% Refuses deletion if the skill is referenced in any pipeline step
-%% (call_skill.skill or llm_loop.tools).
-%%
-%% Args:
-%%   type — skill type, e.g. "message__publish"  (required)
-%%   id   — skill instance id                   (required)
-%%
-%% Invoke topic:  cap/agent__delete_skill/<skill_id>/request/<req_id>
-%% Reply  topic:  cap/agent__delete_skill/<skill_id>/response/<req_id>
-
 -module(emqx_agent_skill_delete_skill).
+
+-moduledoc """
+Management skill: delete a registered skill.
+
+Refuses deletion if the skill is referenced in any pipeline step
+(call_skill.skill or llm_loop.tools).
+
+Args:
+  type — skill type, e.g. "message__publish"  (required)
+  id   — skill instance id                   (required)
+
+Invoke topic:  cap/agent__delete_skill/<skill_id>/request/<req_id>
+Reply  topic:  cap/agent__delete_skill/<skill_id>/response/<req_id>
+""".
 
 -behaviour(emqx_agent_skill).
 

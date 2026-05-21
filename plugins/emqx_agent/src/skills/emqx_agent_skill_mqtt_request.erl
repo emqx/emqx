@@ -2,36 +2,38 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% MQTT request/reply skill (MQTT 5 request pattern).
-%%
-%% Publishes a request to a topic rooted under a configured prefix and
-%% waits synchronously for a response.  The response topic is embedded
-%% in the outbound message as an MQTT 5 `Response-Topic` property so
-%% that any MQTT 5-aware responder can reply without out-of-band
-%% coordination.
-%%
-%% Invoke topic:  $cap/message__request/<skill_id>/request/<req_id>
-%% Reply  topic:  $cap/message__request/<skill_id>/response/<req_id>
-%%
-%% Context keys:
-%%   skill_id     => binary()  — unique instance identifier
-%%   desc         => binary()  — human-readable description
-%%   topic_prefix => binary()  — prepended to the agent-supplied topic
-%%
-%% Input args:
-%%   topic       => binary()   — topic suffix; combined with topic_prefix
-%%   payload     => json()     — request payload
-%%   from        => binary()   — publisher identity (optional)
-%%   qos         => 0|1|2      — QoS level (optional, default 0)
-%%   timeout_ms  => integer()  — response wait limit in ms (optional, default 5000)
-%%
-%% Skill output (in `data`):
-%%   status  => <<"ok">>    — response arrived in time
-%%     payload => binary()  — raw response payload
-%%   status  => <<"error">>
-%%     reason  => <<"timeout">> | binary()
-
 -module(emqx_agent_skill_mqtt_request).
+
+-moduledoc """
+MQTT request/reply skill (MQTT 5 request pattern).
+
+Publishes a request to a topic rooted under a configured prefix and
+waits synchronously for a response.  The response topic is embedded
+in the outbound message as an MQTT 5 `Response-Topic` property so
+that any MQTT 5-aware responder can reply without out-of-band
+coordination.
+
+Invoke topic:  $cap/message__request/<skill_id>/request/<req_id>
+Reply  topic:  $cap/message__request/<skill_id>/response/<req_id>
+
+Context keys:
+  skill_id     => binary()  — unique instance identifier
+  desc         => binary()  — human-readable description
+  topic_prefix => binary()  — prepended to the agent-supplied topic
+
+Input args:
+  topic       => binary()   — topic suffix; combined with topic_prefix
+  payload     => json()     — request payload
+  from        => binary()   — publisher identity (optional)
+  qos         => 0|1|2      — QoS level (optional, default 0)
+  timeout_ms  => integer()  — response wait limit in ms (optional, default 5000)
+
+Skill output (in `data`):
+  status  => <<"ok">>    — response arrived in time
+    payload => binary()  — raw response payload
+  status  => <<"error">>
+    reason  => <<"timeout">> | binary()
+""".
 
 -behaviour(emqx_agent_skill).
 

@@ -2,17 +2,19 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Management skill: create any skill type at runtime.
-%%
-%% The skill instance itself carries no configuration — only an id.
-%% When invoked, the LLM supplies the full skill creation payload as args.
-%% The skill delegates to emqx_agent_service:skill_create/1 and returns
-%% a structured result so the LLM can detect and retry failures.
-%%
-%% Invoke topic:  cap/agent__create_skill/<skill_id>/request/<req_id>
-%% Reply  topic:  cap/agent__create_skill/<skill_id>/response/<req_id>
-
 -module(emqx_agent_skill_create_skill).
+
+-moduledoc """
+Management skill: create any skill type at runtime.
+
+The skill instance itself carries no configuration — only an id.
+When invoked, the LLM supplies the full skill creation payload as args.
+The skill delegates to emqx_agent_service:skill_create/1 and returns
+a structured result so the LLM can detect and retry failures.
+
+Invoke topic:  cap/agent__create_skill/<skill_id>/request/<req_id>
+Reply  topic:  cap/agent__create_skill/<skill_id>/response/<req_id>
+""".
 
 -behaviour(emqx_agent_skill).
 

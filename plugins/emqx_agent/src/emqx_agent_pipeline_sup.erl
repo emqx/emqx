@@ -2,13 +2,15 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Supervisor for pipeline instances.
-%%
-%% Pipeline instances are lazy-started: one is created whenever a trigger
-%% event arrives for a registered pipeline definition.  Instances complete
-%% naturally (normal exit after idle timeout), hence restart => transient.
-
 -module(emqx_agent_pipeline_sup).
+
+-moduledoc """
+Supervisor for pipeline instances.
+
+Pipeline instances are lazy-started: one is created whenever a trigger
+event arrives for a registered pipeline definition.  Instances complete
+naturally (normal exit after idle timeout), hence restart => transient.
+""".
 
 -behaviour(supervisor).
 

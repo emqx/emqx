@@ -2,18 +2,20 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Management skill: delete a pipeline definition.
-%%
-%% Refuses deletion if the pipeline is currently active.
-%% Deactivate via the API or agent.update_pipeline before deleting.
-%%
-%% Args:
-%%   id — pipeline id  (required)
-%%
-%% Invoke topic:  $cap/agent__delete_pipeline/<skill_id>/request/<req_id>
-%% Reply  topic:  $cap/agent__delete_pipeline/<skill_id>/response/<req_id>
-
 -module(emqx_agent_skill_delete_pipeline).
+
+-moduledoc """
+Management skill: delete a pipeline definition.
+
+Refuses deletion if the pipeline is currently active.
+Deactivate via the API or agent.update_pipeline before deleting.
+
+Args:
+  id — pipeline id  (required)
+
+Invoke topic:  $cap/agent__delete_pipeline/<skill_id>/request/<req_id>
+Reply  topic:  $cap/agent__delete_pipeline/<skill_id>/response/<req_id>
+""".
 
 -behaviour(emqx_agent_skill).
 

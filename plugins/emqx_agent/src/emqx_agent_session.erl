@@ -2,49 +2,51 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Session gen_statem: one process per logical session, globally registered
-%% so it is unique across the cluster.
-%%
-%% Incoming topic:  $sess/in/<SID>/
-%% Outgoing topic:  $sess/out/<SID>/
-%%
-%% Message types on in-topic:
-%%   request     — start an LLM reasoning loop; carries optional persistent (default false)
-%%   tool_result — result of a previously requested tool call
-%%   event       — new context to be merged into the next LLM turn
-%%   stop        — explicitly terminate the session from outside
-%%
-%% Message types on out-topic:
-%%   tool_request — session asks the pipeline to invoke a skill
-%%   final        — loop finished; carries result + usage counters
-%%
-%% Architecture
-%%   The gen_statem IS the loop.  Only the blocking LLM HTTP request is
-%%   offloaded to a short-lived child process (spawn_monitor).  The child
-%%   sends {llm_result, Tag, Result} back and exits.
-%%
-%% State machine:
-%%
-%%   initial_idle ──request──▶  calling_llm  ──tool_calls──▶  waiting_tools
-%%                                   │                              │
-%%                                   │◀──────── all results ────────┘
-%%                                   │
-%%                                stop/no pending, persistent=false ──▶  {stop, normal}
-%%                                stop/no pending, persistent=true  ──▶  idle
-%%                                stop/pending                          ──▶  calling_llm (extend)
-%%
-%%   idle ──event──▶    calling_llm  (continue reasoning with accumulated context)
-%%   idle ──request──▶  calling_llm  (append new input to history, refresh tools/system)
-%%
-%%   A request arriving in calling_llm or waiting_tools is queued in
-%%   `queued_request` and replayed as an idle-state event when the current
-%%   turn completes (only the latest request is retained).
-%%
-%% Events in calling_llm / waiting_tools are buffered in `pending` and flushed
-%% on the next transition to calling_llm.
-%% Events in initial_idle are buffered and folded in when the first request arrives.
-
 -module(emqx_agent_session).
+
+-moduledoc """
+Session gen_statem: one process per logical session, globally registered
+so it is unique across the cluster.
+
+Incoming topic:  $sess/in/<SID>/
+Outgoing topic:  $sess/out/<SID>/
+
+Message types on in-topic:
+  request     — start an LLM reasoning loop; carries optional persistent (default false)
+  tool_result — result of a previously requested tool call
+  event       — new context to be merged into the next LLM turn
+  stop        — explicitly terminate the session from outside
+
+Message types on out-topic:
+  tool_request — session asks the pipeline to invoke a skill
+  final        — loop finished; carries result + usage counters
+
+Architecture
+  The gen_statem IS the loop.  Only the blocking LLM HTTP request is
+  offloaded to a short-lived child process (spawn_monitor).  The child
+  sends {llm_result, Tag, Result} back and exits.
+
+State machine:
+
+  initial_idle ──request──▶  calling_llm  ──tool_calls──▶  waiting_tools
+                                  │                              │
+                                  │◀──────── all results ────────┘
+                                  │
+                               stop/no pending, persistent=false ──▶  {stop, normal}
+                               stop/no pending, persistent=true  ──▶  idle
+                               stop/pending                          ──▶  calling_llm (extend)
+
+  idle ──event──▶    calling_llm  (continue reasoning with accumulated context)
+  idle ──request──▶  calling_llm  (append new input to history, refresh tools/system)
+
+  A request arriving in calling_llm or waiting_tools is queued in
+  `queued_request` and replayed as an idle-state event when the current
+  turn completes (only the latest request is retained).
+
+Events in calling_llm / waiting_tools are buffered in `pending` and flushed
+on the next transition to calling_llm.
+Events in initial_idle are buffered and folded in when the first request arrives.
+""".
 
 -behaviour(gen_statem).
 

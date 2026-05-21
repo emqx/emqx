@@ -2,18 +2,20 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Management skill: create a pipeline definition at runtime.
-%%
-%% The skill instance carries no configuration — only an id.
-%% When invoked, the LLM supplies the full pipeline payload as args.
-%% The skill enforces active=false unconditionally — this flag is not
-%% exposed in the input schema so the LLM cannot accidentally activate
-%% an untested pipeline.
-%%
-%% Invoke topic:  $cap/agent__create_pipeline/<skill_id>/request/<req_id>
-%% Reply  topic:  $cap/agent__create_pipeline/<skill_id>/response/<req_id>
-
 -module(emqx_agent_skill_create_pipeline).
+
+-moduledoc """
+Management skill: create a pipeline definition at runtime.
+
+The skill instance carries no configuration — only an id.
+When invoked, the LLM supplies the full pipeline payload as args.
+The skill enforces active=false unconditionally — this flag is not
+exposed in the input schema so the LLM cannot accidentally activate
+an untested pipeline.
+
+Invoke topic:  $cap/agent__create_pipeline/<skill_id>/request/<req_id>
+Reply  topic:  $cap/agent__create_pipeline/<skill_id>/response/<req_id>
+""".
 
 -behaviour(emqx_agent_skill).
 

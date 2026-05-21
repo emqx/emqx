@@ -2,16 +2,18 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Pipeline manager — message routing and hook management.
-%%
-%% Responsibilities
-%%   1. Hook on message.publish to intercept trigger events:
-%%        evt/...             — trigger events
-%%
-%%   2. Start new pipeline instances when an evt/... topic matches a registered
-%%      pipeline definition's trigger.
-
 -module(emqx_agent_pipeline_mgr).
+
+-moduledoc """
+Pipeline manager — message routing and hook management.
+
+Responsibilities
+  1. Hook on message.publish to intercept trigger events:
+       evt/...             — trigger events
+
+  2. Start new pipeline instances when an evt/... topic matches a registered
+     pipeline definition's trigger.
+""".
 
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx.hrl").

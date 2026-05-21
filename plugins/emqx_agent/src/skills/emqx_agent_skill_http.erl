@@ -2,29 +2,31 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% HTTP tool skill backed by hackney.
-%%
-%% Invoke topic:  cap/http/<id>/request/<req_id>
-%% Reply  topic:  cap/http/<id>/response/<req_id>
-%%
-%% Context keys:
-%%   skill_id      => binary()         — unique instance identifier
-%%   desc          => binary()         — human-readable description
-%%   method        => atom() | binary() — http method: get | post | put | patch | delete
-%%   url           => binary()         — base URL (query string appended for GET)
-%%   headers       => map() | [{binary(), binary()}]  — request headers
-%%   input_schema  => map()            — full JSON Schema for request args
-%%
-%% For GET, input args are serialised as a URL query string.
-%% For all other methods, input args are sent as a JSON body.
-%%
-%% Lifecycle:
-%%   init()        — register the skill type
-%%   create(Ctx)   — build a runtime skill instance; skill_id taken from Ctx
-%%   destroy(Skill) — clean up runtime resources owned by the skill
-%%   deinit()      — unregister the skill type
-
 -module(emqx_agent_skill_http).
+
+-moduledoc """
+HTTP tool skill backed by hackney.
+
+Invoke topic:  cap/http/<id>/request/<req_id>
+Reply  topic:  cap/http/<id>/response/<req_id>
+
+Context keys:
+  skill_id      => binary()         — unique instance identifier
+  desc          => binary()         — human-readable description
+  method        => atom() | binary() — http method: get | post | put | patch | delete
+  url           => binary()         — base URL (query string appended for GET)
+  headers       => map() | [{binary(), binary()}]  — request headers
+  input_schema  => map()            — full JSON Schema for request args
+
+For GET, input args are serialised as a URL query string.
+For all other methods, input args are sent as a JSON body.
+
+Lifecycle:
+  init()        — register the skill type
+  create(Ctx)   — build a runtime skill instance; skill_id taken from Ctx
+  destroy(Skill) — clean up runtime resources owned by the skill
+  deinit()      — unregister the skill type
+""".
 
 -behaviour(emqx_agent_skill).
 

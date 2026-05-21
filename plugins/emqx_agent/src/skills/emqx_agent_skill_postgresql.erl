@@ -2,14 +2,16 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% PostgreSQL query skill.
-%%
-%% Invoke topic:  cap/postgresql__query/<id>/request/<req_id>
-%% Reply topic:   cap/postgresql__query/<id>/response/<req_id>
-%%
-%% Skill instances differ by SQL query template, schemas, and selected connection.
-
 -module(emqx_agent_skill_postgresql).
+
+-moduledoc """
+PostgreSQL query skill.
+
+Invoke topic:  cap/postgresql__query/<id>/request/<req_id>
+Reply topic:   cap/postgresql__query/<id>/response/<req_id>
+
+Skill instances differ by SQL query template, schemas, and selected connection.
+""".
 
 -behaviour(emqx_agent_skill).
 

@@ -2,34 +2,36 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% MQTT message-publish skill.
-%%
-%% Allows an LLM agent to publish MQTT messages to topics rooted under a
-%% configured prefix.  The prefix is fixed at creation time so that the
-%% agent cannot publish outside its authorised namespace.
-%%
-%% Invoke topic:  cap/message__publish/<skill_id>/request/<req_id>
-%% Reply  topic:  cap/message__publish/<skill_id>/response/<req_id>
-%%
-%% Context keys:
-%%   skill_id     => binary()  — unique instance identifier
-%%   desc         => binary()  — human-readable description
-%%   topic_prefix => binary()  — prepended to the agent-supplied topic
-%%                               (e.g. <<"devices/room1/">>)
-%%
-%% Input args (fixed wrapper + configurable payload schema):
-%%   topic   => binary()  — topic suffix; combined with topic_prefix
-%%   payload => json()    — payload value validated by payload_schema
-%%   from    => binary()  — publisher identity (optional, defaults to skill_id)
-%%   qos     => 0 | 1 | 2  — QoS level (optional, default 0)
-%%
-%% Lifecycle:
-%%   init()        — register the skill type
-%%   create(Ctx)   — build a runtime skill instance
-%%   destroy(Skill) — clean up runtime resources owned by the skill
-%%   deinit()      — unregister the skill type
-
 -module(emqx_agent_skill_publish).
+
+-moduledoc """
+MQTT message-publish skill.
+
+Allows an LLM agent to publish MQTT messages to topics rooted under a
+configured prefix.  The prefix is fixed at creation time so that the
+agent cannot publish outside its authorised namespace.
+
+Invoke topic:  cap/message__publish/<skill_id>/request/<req_id>
+Reply  topic:  cap/message__publish/<skill_id>/response/<req_id>
+
+Context keys:
+  skill_id     => binary()  — unique instance identifier
+  desc         => binary()  — human-readable description
+  topic_prefix => binary()  — prepended to the agent-supplied topic
+                              (e.g. <<"devices/room1/">>)
+
+Input args (fixed wrapper + configurable payload schema):
+  topic   => binary()  — topic suffix; combined with topic_prefix
+  payload => json()    — payload value validated by payload_schema
+  from    => binary()  — publisher identity (optional, defaults to skill_id)
+  qos     => 0 | 1 | 2  — QoS level (optional, default 0)
+
+Lifecycle:
+  init()        — register the skill type
+  create(Ctx)   — build a runtime skill instance
+  destroy(Skill) — clean up runtime resources owned by the skill
+  deinit()      — unregister the skill type
+""".
 
 -behaviour(emqx_agent_skill).
 
