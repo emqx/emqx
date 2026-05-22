@@ -29,17 +29,21 @@ all() ->
     [
         {group, async},
         {group, sync},
+        {group, async_producer},
         {group, acl}
     ].
 
 groups() ->
-    TCs = emqx_common_test_helpers:all(?MODULE) -- [t_acl_deny],
+    TCs =
+        emqx_common_test_helpers:all(?MODULE) --
+            [t_acl_deny, t_async_producer_cleans_completed_requests],
     BatchingGroups = [{group, with_batch}, {group, without_batch}],
     [
         {async, BatchingGroups},
         {sync, BatchingGroups},
         {with_batch, TCs},
         {without_batch, TCs},
+        {async_producer, [t_async_producer_cleans_completed_requests]},
         {acl, [t_acl_deny]}
     ].
 
@@ -53,13 +57,18 @@ init_per_group(with_batch, Config0) ->
 init_per_group(without_batch, Config0) ->
     Config = [{batch_size, 1} | Config0],
     common_init(Config);
+init_per_group(async_producer, Config0) ->
+    Config = [{batch_size, ?BATCH_SIZE}, {query_mode, async} | Config0],
+    common_init(Config);
 init_per_group(acl, Config0) ->
     Config = [{batch_size, 1}, {query_mode, sync} | Config0],
     common_init(Config);
 init_per_group(_Group, Config) ->
     Config.
 
-end_per_group(Group, Config) when Group =:= with_batch; Group =:= without_batch ->
+end_per_group(Group, Config) when
+    Group =:= with_batch; Group =:= without_batch; Group =:= async_producer
+->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
     Apps = ?config(apps, Config),
@@ -442,6 +451,56 @@ t_simple_query(Config) ->
     ?assertEqual(ok, Result),
     ok.
 
+t_async_producer_cleans_completed_requests(Config) ->
+    Host = ?GET_CONFIG(host, Config),
+    Port = ?GET_CONFIG(port, Config),
+    Parent = self(),
+    ClientId = unique_atom("rocketmq_async_client"),
+    ProducerName = unique_atom("rocketmq_async_producer"),
+    Topic = list_to_binary(?TOPIC),
+    ProducerGroup = iolist_to_binary([atom_to_binary(ClientId, utf8), <<"_">>, Topic]),
+    ACLInfo = #{
+        access_key => <<?ACCESS_KEY>>,
+        secret_key => <<?SECRET_KEY>>
+    },
+    ProducerOpts = #{
+        batch_size => ?BATCH_SIZE,
+        callback => fun(Result, CallbackTopic, BatchLen) ->
+            Parent ! {rocketmq_async_callback, Result, CallbackTopic, BatchLen}
+        end,
+        name => ProducerName,
+        ref_topic_route_interval => 3000,
+        acl_info => ACLInfo
+    },
+    {ok, _ClientPid} = rocketmq:ensure_supervised_client(ClientId, [{Host, Port}], #{
+        acl_info => ACLInfo
+    }),
+    try
+        {ok, Producers} =
+            rocketmq:ensure_supervised_producers(ClientId, ProducerGroup, Topic, ProducerOpts),
+        try
+            ok = rocketmq:send(Producers, ?PAYLOAD),
+            receive
+                {rocketmq_async_callback, ok, Topic, 1} ->
+                    ok;
+                {rocketmq_async_callback, Result, CallbackTopic, BatchLen} ->
+                    ct:fail(#{
+                        reason => unexpected_async_callback,
+                        result => Result,
+                        topic => CallbackTopic,
+                        batch_len => BatchLen
+                    })
+            after 10000 ->
+                ct:fail(async_callback_timeout)
+            end,
+            wait_until_request_count(Producers, 0, 50)
+        after
+            _ = rocketmq:stop_and_delete_supervised_producers(Producers)
+        end
+    after
+        _ = rocketmq:stop_and_delete_supervised_client(ClientId)
+    end.
+
 t_acl_deny(Config0) ->
     RocketCfg = ?GET_CONFIG(rocketmq_config, Config0),
     RocketCfg2 = RocketCfg#{<<"topic">> := ?DENY_TOPIC},
@@ -467,3 +526,28 @@ t_acl_deny(Config0) ->
         end
     ),
     ok.
+
+unique_atom(Prefix) ->
+    list_to_atom(Prefix ++ "_" ++ integer_to_list(erlang:unique_integer([positive]))).
+
+wait_until_request_count(Producers, Expected, Attempts) ->
+    case producer_request_count(Producers) of
+        Expected ->
+            ok;
+        _Count when Attempts > 0 ->
+            timer:sleep(100),
+            wait_until_request_count(Producers, Expected, Attempts - 1);
+        Count ->
+            ?assertEqual(Expected, Count)
+    end.
+
+producer_request_count(#{workers := WorkersTab}) ->
+    lists:sum([
+        producer_request_count(ProducerPid)
+     || {_Index, _BrokerName, _QueueSeqNum, ProducerPid, _BrokerAddrs} <- ets:tab2list(WorkersTab),
+        is_pid(ProducerPid)
+    ]);
+producer_request_count(ProducerPid) ->
+    {_StateName, ProducerState} = sys:get_state(ProducerPid),
+    Requests = element(14, ProducerState),
+    map_size(Requests).
