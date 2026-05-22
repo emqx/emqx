@@ -521,6 +521,11 @@ handle_in(
     ?SLOG(warning, #{msg => "receive_connect_packet_in_connecting_state"}),
     {ok, Channel};
 handle_in(
+    ?SN_DISCONNECT_MSG(_Duration),
+    Channel = #channel{conn_state = connecting}
+) ->
+    handle_out(disconnect, normal, Channel);
+handle_in(
     ?SN_CONNECT_MSG(_Flags, _ProtoId, _Duration, _ClientId),
     Channel = #channel{conn_state = connected}
 ) ->
@@ -554,6 +559,15 @@ handle_in(
     NChannel = Channel#channel{will_msg = WillMsg},
     {ok, {outgoing, ?SN_WILLMSGREQ_MSG()}, NChannel};
 handle_in(
+    ?SN_WILLMSG_MSG(_Payload),
+    Channel = #channel{
+        conn_state = connecting,
+        will_msg = undefined
+    }
+) ->
+    ?SLOG(warning, #{msg => "receive_willmsg_before_willtopic"}),
+    handle_out(disconnect, ?SN_RC_NOT_SUPPORTED, Channel);
+handle_in(
     ?SN_WILLMSG_MSG(Payload),
     Channel = #channel{
         conn_state = connecting,
@@ -567,6 +581,15 @@ handle_in(
         {error, ReasonCode} ->
             handle_out(connack, ReasonCode, Channel)
     end;
+handle_in(
+    Pkt,
+    Channel = #channel{conn_state = connecting}
+) ->
+    ?SLOG(warning, #{
+        msg => "receive_unexpected_packet_in_connecting_state",
+        packet => Pkt
+    }),
+    handle_out(disconnect, ?SN_RC_NOT_SUPPORTED, Channel);
 %% TODO: takeover ???
 handle_in(
     ?SN_CONNECT_MSG(_Flags, _ProtoId, _Duration, ClientId),
@@ -1003,6 +1026,12 @@ handle_in(
         end,
     AckPkt = ?SN_WILLTOPICRESP_MSG(?SN_RC_ACCEPTED),
     {ok, {outgoing, AckPkt}, Channel#channel{will_msg = NWillMsg}};
+handle_in(
+    ?SN_WILLMSGUPD_MSG(_Payload),
+    Channel = #channel{will_msg = undefined}
+) ->
+    AckPkt = ?SN_WILLMSGRESP_MSG(?SN_RC_NOT_SUPPORTED),
+    {ok, {outgoing, AckPkt}, Channel};
 handle_in(
     ?SN_WILLMSGUPD_MSG(Payload),
     Channel = #channel{will_msg = WillMsg}

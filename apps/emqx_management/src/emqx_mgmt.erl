@@ -206,7 +206,9 @@ vm_stats() ->
             {mnesia_tm_mailbox_size, vm_stats('mnesia.tm.mailbox.size')},
             {broker_pool_max_mailbox_size, vm_stats('broker.pool.max.mailbox.size')},
             {total_memory, MemTotal},
-            {used_memory, erlang:round(MemTotal * MemUsedRatio)}
+            {used_memory, erlang:round(MemTotal * MemUsedRatio)},
+            {uptime, emqx_sys:uptime()},
+            {max_fds, esockd:ulimit()}
         ].
 
 cpu_stats() ->
