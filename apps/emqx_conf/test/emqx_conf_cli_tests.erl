@@ -67,6 +67,10 @@ setup_cluster_sync_status_raw_diff() ->
         emqx_conf_proto_v5,
         get_raw_config,
         fun
+            (?TARGET_NODE, ?global_ns, []) ->
+                invalid_raw_conf;
+            (?OTHER_NODE, ?global_ns, []) ->
+                invalid_raw_conf;
             (?TARGET_NODE, ?global_ns, [rule_engine]) ->
                 raw_conf(#{}, <<"select new">>);
             (?OTHER_NODE, ?global_ns, [rule_engine]) ->
