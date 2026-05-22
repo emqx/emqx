@@ -43,6 +43,7 @@
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
+-include_lib("eunit/include/eunit.hrl").
 -endif.
 
 -elvis([
@@ -646,6 +647,14 @@ do_export_mnesia_tab(TabName, BackupName) ->
 tabs_to_backup() ->
     %% Allow mocking in tests
     ?MODULE:modules_with_mnesia_tabs_to_backup().
+
+import_skip_root_keys_test() ->
+    %% A root listed in import_skip_root_keys/0 must not also appear as the
+    %% first segment of any ?CONF_KEYS path: those would silently never be
+    %% imported.
+    ConfRoots = lists:usort([hd(KP) || KP <- ?CONF_KEYS]),
+    Overlap = [K || K <- import_skip_root_keys(), lists:member(K, ConfRoots)],
+    ?assertEqual([], Overlap).
 -else.
 tabs_to_backup() ->
     modules_with_mnesia_tabs_to_backup().
@@ -1037,11 +1046,27 @@ do_read_file(FileName) ->
 validate_cluster_hocon(RawConf) ->
     %% write ACL file to comply with the schema...
     RawConf1 = emqx_authz:maybe_write_files(RawConf),
+    %% Drop read-only root keys (e.g. `node', `rpc') from the imported config
+    %% before merging with the running raw config. The importer never applies
+    %% those roots, and a partial sub-tree from the backup would shallow-replace
+    %% the running value and drop required fields without defaults such as
+    %% `node.cookie'.
+    RawConf2 = maps:without(import_skip_root_keys(), RawConf1),
     emqx_hocon:check(
         emqx_conf:schema_module(),
-        maps:merge(emqx:get_raw_config([]), RawConf1),
+        maps:merge(emqx:get_raw_config([]), RawConf2),
         #{atom_key => false, required => false}
     ).
+
+%% Roots that are dropped from the imported cluster.hocon before the
+%% pre-flight schema check. These roots are never applied by the importer
+%% (they are not in ?CONF_KEYS and no emqx_config_backup handler covers
+%% them), so validating a partial sub-tree from the backup would only
+%% cause false negatives - in particular wiping required-no-default
+%% fields like `node.cookie' that only the running node has. Keep this
+%% list disjoint from ?CONF_KEYS (see import_skip_root_keys_test/0).
+import_skip_root_keys() ->
+    [<<"node">>, <<"rpc">>].
 
 do_import_conf(RawConf, Opts) ->
     GenConfErrs = filter_errors(maps:from_list(import_generic_conf(RawConf))),
