@@ -110,7 +110,7 @@ mk_link_conf_to(Cluster = [Node | _], Overrides) ->
     link_conf(Name, LPorts, Overrides).
 
 link_conf(Name, LPorts, Overrides) ->
-    maps:merge(
+    emqx_utils_maps:deep_merge(
         #{
             <<"enable">> => true,
             <<"name">> => emqx_utils_conv:bin(Name),
@@ -118,8 +118,11 @@ link_conf(Name, LPorts, Overrides) ->
             <<"server">> => iolist_to_binary(
                 lists:join(",", [["localhost:", integer_to_list(P)] || P <- LPorts])
             ),
-            <<"pool_size">> => 1,
-            <<"resource_opts">> => #{<<"health_check_interval">> => 1000}
+            <<"pool_size">> => 8,
+            <<"resource_opts">> => #{
+                <<"health_check_interval">> => 1000,
+                <<"worker_pool_size">> => 8
+            }
         },
         Overrides
     ).

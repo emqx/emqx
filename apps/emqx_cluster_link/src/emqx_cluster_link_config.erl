@@ -73,7 +73,9 @@
 -type shortconf() :: #{
     name := binary(),
     enable := boolean(),
-    topics := _Union :: [emqx_types:words()]
+    topics := _Union :: [emqx_types:words()],
+    %% See `emqx_resource:query_opts()`:
+    query_opts := #{atom() => _}
 }.
 
 -define(PTERM(K), {?MODULE, K}).
@@ -302,11 +304,13 @@ cleanup_shortconf() ->
     _ = persistent_term:erase(?PTERM(enabled)),
     ok.
 
-prepare_link(#{name := Name, enable := Enabled, topics := Topics}) ->
+prepare_link(#{name := Name, enable := Enabled, topics := Topics} = LinkConf) ->
+    QueryOpts = #{} = emqx_resource:get_query_opts(emqx_cluster_link_mqtt, LinkConf),
     #{
         name => Name,
         enable => Enabled,
-        topics => prepare_topics(Topics)
+        topics => prepare_topics(Topics),
+        query_opts => QueryOpts
     }.
 
 prepare_topics(Topics) ->
