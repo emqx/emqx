@@ -157,8 +157,7 @@ get_rule_from_map(Rules) ->
         {ok, Rule} ->
             Rule;
         error ->
-            RuleIdAtom = binary_to_existing_atom(?RAW_DIFF_RULE_ID, utf8),
-            maps:get(RuleIdAtom, Rules)
+            maps:get(existing_atom_rule_id(), Rules)
     end.
 
 wait_imported_rule(Node) ->
@@ -172,7 +171,19 @@ wait_imported_rule(Node) ->
 has_imported_rule(Node) ->
     Rules = ?ON(Node, emqx_conf:get([rule_engine, rules])),
     maps:is_key(?RAW_DIFF_RULE_ID, Rules) orelse
-        maps:is_key(binary_to_existing_atom(?RAW_DIFF_RULE_ID, utf8), Rules).
+        has_existing_atom_rule_id(Rules).
+
+existing_atom_rule_id() ->
+    binary_to_existing_atom(?RAW_DIFF_RULE_ID, utf8).
+
+has_existing_atom_rule_id(Rules) ->
+    try existing_atom_rule_id() of
+        RuleIdAtom ->
+            maps:is_key(RuleIdAtom, Rules)
+    catch
+        error:badarg ->
+            false
+    end.
 
 %% Emulate `emqx_conf_app:init_load/1`; the CT cluster helper does not
 %% automatically replay this boot-time sync after a node joins.
