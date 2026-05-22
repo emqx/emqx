@@ -27,6 +27,11 @@
 -define(PROXY_HOST, "toxiproxy").
 -define(PROXY_PORT, 8474).
 
+-define(ACCESS_KEY, <<"RocketMQ">>).
+-define(SECRET_KEY, <<"12345678">>).
+-define(TOPIC, <<"TopicTest">>).
+-define(PAYLOAD, <<"hello from emqx">>).
+
 -define(tcp, tcp).
 -define(tls, tls).
 -define(sync, sync).
@@ -318,6 +323,58 @@ t_setup_two_actions_via_http_api_and_publish(TCConfig) ->
     ),
     ok.
 
+t_async_producer_cleans_completed_requests() ->
+    [{matrix, true}].
+t_async_producer_cleans_completed_requests(matrix) ->
+    [[?tcp, ?async, ?with_batch]];
+t_async_producer_cleans_completed_requests(TCConfig) when is_list(TCConfig) ->
+    Servers = parse_servers(get_config(servers, TCConfig, <<"toxiproxy:9876">>)),
+    Parent = self(),
+    ClientId = unique_atom("rocketmq_async_client"),
+    ProducerName = unique_atom("rocketmq_async_producer"),
+    ProducerGroup = iolist_to_binary([atom_to_binary(ClientId, utf8), <<"_">>, ?TOPIC]),
+    ACLInfo = #{
+        access_key => ?ACCESS_KEY,
+        secret_key => ?SECRET_KEY
+    },
+    ProducerOpts = #{
+        batch_size => get_config(batch_size, TCConfig, 100),
+        callback => fun(Result, CallbackTopic, BatchLen) ->
+            Parent ! {rocketmq_async_callback, Result, CallbackTopic, BatchLen}
+        end,
+        name => ProducerName,
+        ref_topic_route_interval => 3000,
+        acl_info => ACLInfo
+    },
+    {ok, _ClientPid} = rocketmq:ensure_supervised_client(ClientId, Servers, #{
+        acl_info => ACLInfo
+    }),
+    try
+        {ok, Producers} =
+            rocketmq:ensure_supervised_producers(ClientId, ProducerGroup, ?TOPIC, ProducerOpts),
+        try
+            ok = rocketmq:send(Producers, ?PAYLOAD),
+            receive
+                {rocketmq_async_callback, ok, ?TOPIC, 1} ->
+                    ok;
+                {rocketmq_async_callback, Result, CallbackTopic, BatchLen} ->
+                    ct:fail(#{
+                        reason => unexpected_async_callback,
+                        result => Result,
+                        topic => CallbackTopic,
+                        batch_len => BatchLen
+                    })
+            after 10000 ->
+                ct:fail(async_callback_timeout)
+            end,
+            wait_until_request_count(Producers, 0, 50)
+        after
+            _ = rocketmq:stop_and_delete_supervised_producers(Producers)
+        end
+    after
+        _ = rocketmq:stop_and_delete_supervised_client(ClientId)
+    end.
+
 t_acl_deny(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, _} = create_action_api(TCConfig, #{
@@ -462,3 +519,37 @@ t_deprecated_templated_strategy(TCConfig) ->
         )
     ),
     ok.
+
+parse_servers(Servers) ->
+    lists:map(
+        fun(Server) ->
+            [Host, Port] = binary:split(Server, <<":">>),
+            {binary_to_list(Host), binary_to_integer(Port)}
+        end,
+        binary:split(Servers, <<",">>, [global])
+    ).
+
+unique_atom(Prefix) ->
+    list_to_atom(Prefix ++ "_" ++ integer_to_list(erlang:unique_integer([positive]))).
+
+wait_until_request_count(Producers, Expected, Attempts) ->
+    case producer_request_count(Producers) of
+        Expected ->
+            ok;
+        _Count when Attempts > 0 ->
+            timer:sleep(100),
+            wait_until_request_count(Producers, Expected, Attempts - 1);
+        Count ->
+            ?assertEqual(Expected, Count)
+    end.
+
+producer_request_count(#{workers := WorkersTab}) ->
+    lists:sum([
+        producer_request_count(ProducerPid)
+     || {_Index, _BrokerName, _QueueSeqNum, ProducerPid, _BrokerAddrs} <- ets:tab2list(WorkersTab),
+        is_pid(ProducerPid)
+    ]);
+producer_request_count(ProducerPid) ->
+    {_StateName, ProducerState} = sys:get_state(ProducerPid),
+    Requests = element(14, ProducerState),
+    map_size(Requests).
