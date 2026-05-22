@@ -317,7 +317,7 @@ jobs:
           fi
       - name: convert coverdata to cobertura
         run: |
-          ./scripts/covertool-2.1.0-emqx-1 -cover _build/test/cover -appname emqx -lookup apps
+          ./scripts/cover-to-cobertura.escript -cover _build/test/cover -appname emqx -lookup apps
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
