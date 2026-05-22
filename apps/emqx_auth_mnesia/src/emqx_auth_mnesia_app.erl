@@ -13,8 +13,12 @@
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_auth_mnesia_sup:start_link(),
     ok = emqx_authz:register_source(?AUTHZ_TYPE, emqx_authz_mnesia),
-    ok = emqx_authn:register_provider(?AUTHN_TYPE_SIMPLE, emqx_authn_mnesia),
-    ok = emqx_authn:register_provider(?AUTHN_TYPE_SCRAM, emqx_authn_scram_mnesia),
+    ok = emqx_authn:register_provider(
+        ?AUTHN_TYPE_SIMPLE, emqx_authn_mnesia, #{support_user_operations => true}
+    ),
+    ok = emqx_authn:register_provider(
+        ?AUTHN_TYPE_SCRAM, emqx_authn_scram_mnesia, #{support_user_operations => true}
+    ),
     {ok, Sup}.
 
 stop(_State) ->

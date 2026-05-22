@@ -27,7 +27,8 @@
     delete_user/3,
     update_user/4,
     lookup_user/3,
-    list_users/2
+    list_users/2,
+    import_users/2
 ]).
 
 -export([
@@ -173,6 +174,13 @@ do_destroy(UserGroup) ->
         end,
         mnesia:select(?NS_TAB, all_ns_group_match_spec('_', UserGroup), write)
     ).
+
+%% SCRAM credentials cannot be bulk-imported: salts and stored/server keys
+%% derive from the plaintext password, which is never persisted. The provider
+%% advertises user-management support generally, so we surface the limitation
+%% here rather than letting dispatch crash.
+import_users(_File, _State) ->
+    {error, unsupported_operation}.
 
 add_user(UserInfo, State) ->
     UserInfoRecord = user_info_record(UserInfo, State),
