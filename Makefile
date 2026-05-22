@@ -149,7 +149,7 @@ ifneq ($(RESOLVED_SUITES),)
 	    TEST=1 \
 	    MIX_ENV=$(CT_MIX_ENV) \
 	    PROFILE=$(PROFILE)-test \
-	        $(MIX) do deps.get, compile --force, emqx.ct \
+	        $(MIX) do deps.get + compile --force + emqx.ct \
 		$(call cover_args,$1) \
 		--suites $(RESOLVED_SUITES) \
 		$(GROUPS_ARG) \
