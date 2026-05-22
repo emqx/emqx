@@ -25,7 +25,7 @@
 
 -type rule() :: {
     emqx_authz_rule:permission_resolution_precompile(),
-    emqx_authz_rule:who_precompile(),
+    emqx_authz_rule:condition_precompile(),
     emqx_authz_rule:action_precompile(),
     emqx_authz_rule:topic_precompile()
 }.

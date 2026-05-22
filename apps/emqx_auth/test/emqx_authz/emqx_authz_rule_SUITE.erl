@@ -11,6 +11,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
+-define(PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
+
 -define(CLIENT_INFO_BASE, #{
     clientid => <<"test">>,
     username => <<"test">>,
@@ -180,6 +182,16 @@ t_compile(_) ->
         emqx_authz_rule:compile(
             {allow, {client_attr, "a2", {re, "v2.*"}}, all, all}
         )
+    ),
+
+    ?assertEqual(
+        {allow, {security_profile, legacy}, all, ['ALL_TOPICS']},
+        emqx_authz_rule:compile({allow, {security_profile, legacy}})
+    ),
+
+    ?assertEqual(
+        {allow, {security_profile, hardened}, all, ['ALL_TOPICS']},
+        emqx_authz_rule:compile({allow, {security_profile, hardened}, all, all})
     ),
     ok.
 
@@ -677,6 +689,31 @@ t_match(_) ->
     ),
     ok.
 
+t_security_profile_condition(_) ->
+    Rule = emqx_authz_rule:compile({allow, {security_profile, legacy}, all, all}),
+    with_security_profile("legacy", fun() ->
+        ?assertEqual(
+            {matched, allow},
+            emqx_authz_rule:match(
+                client_info(),
+                #{action_type => publish, qos => 0, retain => false},
+                <<"topic/test">>,
+                Rule
+            )
+        )
+    end),
+    with_security_profile("hardened", fun() ->
+        ?assertEqual(
+            nomatch,
+            emqx_authz_rule:match(
+                client_info(),
+                #{action_type => publish, qos => 0, retain => false},
+                <<"topic/test">>,
+                Rule
+            )
+        )
+    end).
+
 t_invalid_rule(_) ->
     ?assertThrow(
         #{reason := invalid_authorization_permission},
@@ -708,6 +745,11 @@ t_invalid_rule(_) ->
     ?assertThrow(
         #{reason := invalid_client_match_condition},
         emqx_authz_rule:compile({allow, who, all, ["topic/test"]})
+    ),
+
+    ?assertThrow(
+        #{reason := invalid_client_match_condition},
+        emqx_authz_rule:compile({allow, {security_profile, unsupported}, all, ["topic/test"]})
     ),
 
     ?assertThrow(
@@ -804,5 +846,15 @@ client_info() ->
 
 client_info(Overrides) ->
     maps:merge(?CLIENT_INFO_BASE, Overrides).
+
+with_security_profile(Profile, Fun) ->
+    os:putenv(?PROFILE_ENV_VAR, Profile),
+    emqx_security_profile:clear_profile(),
+    try
+        Fun()
+    after
+        os:unsetenv(?PROFILE_ENV_VAR),
+        emqx_security_profile:clear_profile()
+    end.
 
 bin(X) -> iolist_to_binary(X).
