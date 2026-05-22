@@ -477,6 +477,37 @@ t_bad_config(Config) ->
     Res = emqx_mgmt_data_backup:import_local(BadConfigFileName),
     ?assertMatch({error, #{kind := validation_error}}, Res).
 
+%% Regression test: when the imported cluster.hocon contains only a sub-set of
+%% a root that has required fields (e.g. a partial `node' section without
+%% `node.cookie'), the schema check must still succeed by falling back to the
+%% running node's value for the missing fields.
+t_import_cluster_hocon_partial_node(Config) ->
+    BackupFileName = filename:join(?config(priv_dir, Config), "export-partial-node-backup.tar.gz"),
+    Meta = unicode:characters_to_binary(
+        hocon_pp:do(#{edition => emqx_release:edition(), version => emqx_release:version()}, #{})
+    ),
+    %% Cluster.hocon contains only a subset of `node' fields; `node.cookie' is
+    %% intentionally omitted to mimic an export produced when only a non-cookie
+    %% field of `node' was overridden.
+    PartialNodeMap = #{
+        <<"node">> => #{
+            <<"global_gc_interval">> => <<"15m">>
+        }
+    },
+    PartialConf = unicode:characters_to_binary(hocon_pp:do(PartialNodeMap, #{})),
+    ok = erl_tar:create(
+        BackupFileName,
+        [
+            {"export-partial-node-backup/cluster.hocon", PartialConf},
+            {"export-partial-node-backup/META.hocon", Meta}
+        ],
+        [compressed]
+    ),
+    ?assertEqual(
+        {ok, #{db_errors => #{}, config_errors => #{}}},
+        emqx_mgmt_data_backup:import_local(BackupFileName)
+    ).
+
 t_cluster_links(_Config) ->
     Link = #{
         <<"name">> => <<"emqxcl_backup_test">>,
