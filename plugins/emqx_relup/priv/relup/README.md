@@ -41,10 +41,17 @@ instruction shapes:
 `{apply, _}` is **not** supported. Use `post_upgrade_callbacks`
 instead — see below.
 
-The handler injects `code:add_patha(<RootDir>/data/patches)` after
-all `code_changes` complete. Beams dropped into `data/patches` will
-be discoverable in `code:get_path/0` for the rest of the node's
-lifetime; this is the supported hot-patch escape hatch.
+`<RootDir>/data/patches` is prepended to the code path at boot
+(`vm.args -pa`, with `-cache_boot_paths false`), so beams dropped
+there shadow everything else for the rest of the node's lifetime.
+This is the supported hot-patch escape hatch.
+
+Because the patches dir shadows everything, the upgrade entry point
+refuses by default if any `*.beam` is present in `data/patches/`:
+a stale patch covering a module the target already supersedes would
+silently keep running. Operators clear the dir before the hop, or
+pass `--force` if the patches are deliberate and should remain
+applied on top of the target.
 
 ## `post_upgrade_callbacks`
 
@@ -108,27 +115,30 @@ applied, etc.).
 
 The reference example is `pr_16802_restart_rabbitmq_connectors/1`
 in `apps/emqx/src/emqx_post_upgrade.erl`: it filters to running
-RabbitMQ connectors before restarting them, so a re-run on a
-healthy cluster is a no-op.
+RabbitMQ connectors before restarting them, so a retry won't crash
+on stopped or removed connectors. Note this isn't strictly a no-op
+— connectors restarted by the previous attempt get cycled again —
+but it's safe to repeat, which is the actual bar.
 
 ## End-to-end ordering (single hop)
 
 ```
-1. handler verifies <tarball>.sha256 and extracts to a temp dir
-2. handler copies libs and release files into <RootDir>/relup/<TargetVsn>/
+1. handler refuses if <RootDir>/data/patches/ has any *.beam
+   (override with --force) and verifies <tarball>.sha256
+2. handler extracts the tarball to a temp dir, then copies libs and
+   release files into <RootDir>/relup/<TargetVsn>/
 3. eval_code_changes: for each instruction, load_module /
    update / restart_application
-4. add_patha(<RootDir>/data/patches)             — last step of (3)
-5. eval_post_upgrade_actions: for each entry,
+4. eval_post_upgrade_actions: for each entry,
        erlang:apply(get_upgrade_mod(TargetVsn), Func, [FromVsn | Args])
-6. handler writes <RootDir>/relup/current with TargetVsn
+5. handler writes <RootDir>/relup/current with TargetVsn
 ```
 
 Failure semantics:
 
 | Stage | On failure |
 |---|---|
-| 1–2 | `{error, #{stage => check_and_unpack, ...}}` (HTTP 400). |
-| 3–4 | **VM restart via `init:restart/0`** — exceptions in `eval_code_changes` are not caught. Operator must investigate from logs. |
-| 5 | `{error, #{stage => perform_upgrade, ...}}` (HTTP 500). The `eval_post_upgrade_actions` wrapper turns any callback exception into a returned error, so the VM stays up. |
-| 6 | `{error, #{stage => permanent_upgrade, ...}}` (HTTP 500). |
+| 1–2 | `{error, #{stage => check_and_unpack, ...}}`. |
+| 3 | **VM restart via `init:restart/0`** — exceptions in `eval_code_changes` are not caught. Operator must investigate from logs. |
+| 4 | `{error, #{stage => perform_upgrade, ...}}`. The `eval_post_upgrade_actions` wrapper turns any callback exception into a returned error, so the VM stays up. |
+| 5 | `{error, #{stage => permanent_upgrade, ...}}`. |

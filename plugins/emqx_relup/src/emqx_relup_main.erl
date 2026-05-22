@@ -14,7 +14,8 @@
 -export([
     load/1,
     unload/0,
-    upgrade/1
+    upgrade/1,
+    upgrade/2
 ]).
 
 -export([
@@ -75,7 +76,11 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 upgrade(TarballPath) ->
-    gen_server:call(?MODULE, {upgrade, #{tarball => TarballPath}}, infinity).
+    upgrade(TarballPath, #{}).
+
+upgrade(TarballPath, ExtraOpts) when is_map(ExtraOpts) ->
+    Opts = ExtraOpts#{tarball => TarballPath},
+    gen_server:call(?MODULE, {upgrade, Opts}, infinity).
 
 %% Called when the plugin application start
 load(_Env) ->
@@ -100,6 +105,7 @@ handle_call({upgrade, Opts}, _From, State) ->
     Key = log_upgrade_started(CurrVsn, Opts),
     {Result, TargetVsn} = do_upgrade(CurrVsn, RootDir, Opts),
     ok = log_upgrade_result(Key, Result, TargetVsn),
+    ok = maybe_restart_vm(Result),
     {reply, Result, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -154,18 +160,31 @@ do_perform_and_permanent(CurrVsn, TargetVsn, RootDir, Opts) ->
             {error, Reason#{stage => perform_upgrade}}
     catch
         throw:Reason ->
-            restart_vm(Reason);
+            pending_vm_restart(Reason);
         Err:Reason:ST ->
-            restart_vm({Err, Reason, ST})
+            pending_vm_restart({Err, Reason, ST})
     end.
 
-restart_vm(Reason) ->
+-doc """
+The catch clauses above can't call `init:restart/0` directly: we
+still need to (a) write the audit log row and (b) `mnesia:sync_log/0`
+to flush it to disk. Return a sentinel that `handle_call` recognises;
+it triggers the actual restart after the log is persisted.
+
+Rolling back the system rather than restarting the VM might be
+preferable, but is risky — reloading the modules we just upgraded
+can kill processes that are still running old code.
+""".
+pending_vm_restart(Reason) ->
     ?LOG(error, #{msg => restart_vm, reason => Reason}),
-    %% Maybe we can rollback the system rather than restart the VM. Here we simply
-    %% restart the VM because if we reload the modules we just upgraded,
-    %% some processes will probably be killed as they are still runing old code.
-    init:restart(),
     {error_vm_restarted, Reason}.
+
+maybe_restart_vm({error_vm_restarted, _Reason}) ->
+    _ = mnesia:sync_log(),
+    _ = init:restart(),
+    ok;
+maybe_restart_vm(_) ->
+    ok.
 
 %%==============================================================================
 %% upgrade logs
@@ -188,21 +207,17 @@ get_latest_upgrade_status() ->
         {ok, TargetVsn} ->
             {hot_upgraded, TargetVsn};
         none ->
-            case ets:last(emqx_relup_log) of
-                '$end_of_table' ->
-                    idle;
-                Key ->
-                    case ets:lookup(emqx_relup_log, Key) of
-                        [#emqx_relup_log{status = finished}] -> idle;
-                        [#emqx_relup_log{status = 'in-progress'}] -> 'in-progress'
-                    end
+            case ets:last_lookup(emqx_relup_log) of
+                '$end_of_table' -> idle;
+                {_, [#emqx_relup_log{status = finished}]} -> idle;
+                {_, [#emqx_relup_log{status = 'in-progress'}]} -> 'in-progress'
             end
     end.
 
 read_current_marker() ->
     Path = filename:join([code:root_dir(), "relup", "current"]),
     case file:read_file(Path) of
-        {ok, Bin} -> {ok, string:trim(Bin)};
+        {ok, Bin} -> {ok, unicode:characters_to_list(string:trim(Bin))};
         {error, _} -> none
     end.
 

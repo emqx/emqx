@@ -62,10 +62,12 @@ end_per_testcase(_Case, _Config) ->
 %%==============================================================================
 %% happy path
 %%==============================================================================
--doc "Forge a fake target tarball + sha256 sidecar + a no-op .relup "
-"catalog entry; drive the three-stage handler API and assert the "
-"target version is read out of `releases/emqx_vars`, the version "
-"marker file is written, and the deploy dir is populated.".
+-doc """
+Forge a fake target tarball + sha256 sidecar + a no-op .relup
+catalog entry; drive the three-stage handler API and assert the
+target version is read out of `releases/emqx_vars`, the version
+marker file is written, and the deploy dir is populated.
+""".
 t_round_trip_no_op(Config) ->
     RootDir = ?config(root_dir, Config),
     Tarball = forge_target_tarball(RootDir, ?TARGET_VSN, default_arch()),
@@ -99,7 +101,9 @@ t_round_trip_no_op(Config) ->
 %%==============================================================================
 %% negative cases
 %%==============================================================================
--doc "No `.sha256` sidecar → `missing_sha256_sidecar`.".
+-doc """
+No `.sha256` sidecar → `missing_sha256_sidecar`.
+""".
 t_missing_sha256_rejects(Config) ->
     RootDir = ?config(root_dir, Config),
     Tarball = forge_target_tarball(RootDir, ?TARGET_VSN, default_arch()),
@@ -110,7 +114,9 @@ t_missing_sha256_rejects(Config) ->
     ),
     ?assertMatch({error, #{err_type := missing_sha256_sidecar}}, Result).
 
--doc "`.sha256` digest doesn't match the tarball → `sha256_mismatch`.".
+-doc """
+`.sha256` digest doesn't match the tarball → `sha256_mismatch`.
+""".
 t_mismatched_sha256_rejects(Config) ->
     RootDir = ?config(root_dir, Config),
     Tarball = forge_target_tarball(RootDir, ?TARGET_VSN, default_arch()),
@@ -122,8 +128,10 @@ t_mismatched_sha256_rejects(Config) ->
     ),
     ?assertMatch({error, #{err_type := sha256_mismatch}}, Result).
 
--doc "`sha256sum`-format sidecar (digest + space + filename) is accepted "
-"verbatim — the handler only inspects the leading 64 hex chars.".
+-doc """
+`sha256sum`-format sidecar (digest + space + filename) is accepted
+verbatim — the handler only inspects the leading 64 hex chars.
+""".
 t_sha256_sidecar_sha256sum_format(Config) ->
     RootDir = ?config(root_dir, Config),
     Tarball = forge_target_tarball(RootDir, ?TARGET_VSN, default_arch()),
@@ -137,9 +145,11 @@ t_sha256_sidecar_sha256sum_format(Config) ->
         ?CURR_VSN, RootDir, #{tarball => Tarball}
     ).
 
--doc "Tarball without `releases/emqx_vars` → `cannot_read_emqx_vars`. "
-"This is the tarball's authoritative declaration of its target "
-"version, so without it the upgrade can't proceed.".
+-doc """
+Tarball without `releases/emqx_vars` → `cannot_read_emqx_vars`.
+This is the tarball's authoritative declaration of its target
+version, so without it the upgrade can't proceed.
+""".
 t_missing_emqx_vars_rejects(Config) ->
     RootDir = ?config(root_dir, Config),
     Tarball = forge_target_tarball_without_emqx_vars(RootDir, ?TARGET_VSN, default_arch()),
@@ -150,7 +160,9 @@ t_missing_emqx_vars_rejects(Config) ->
     ),
     ?assertMatch({error, #{err_type := cannot_read_emqx_vars}}, Result).
 
--doc "No catalog entry for {From, Target} → `no_relup_entry`.".
+-doc """
+No catalog entry for {From, Target} → `no_relup_entry`.
+""".
 t_no_matching_catalog_entry(Config) ->
     RootDir = ?config(root_dir, Config),
     Tarball = forge_target_tarball(RootDir, ?TARGET_VSN, default_arch()),
@@ -161,11 +173,13 @@ t_no_matching_catalog_entry(Config) ->
     ),
     ?assertMatch({error, #{err_type := no_relup_entry}}, Result).
 
--doc "Tarball contains non-runtime dirs (data/, etc/, log/, plugins/) — "
-"deploy_files must copy only bin/, erts-*/, lib/, releases/. The "
-"re-exec'd `bin/emqx` still resolves data/etc/log via emqx_vars's "
-"absolute paths to the original install; carrying copies into the "
-"relup tree only confuses operators.".
+-doc """
+Tarball contains non-runtime dirs (data/, etc/, log/, plugins/) —
+deploy_files must copy only bin/, erts-*/, lib/, releases/. The
+re-exec'd `bin/emqx` still resolves data/etc/log via emqx_vars's
+absolute paths to the original install; carrying copies into the
+relup tree only confuses operators.
+""".
 t_deploy_only_runtime_dirs(Config) ->
     RootDir = ?config(root_dir, Config),
     Tarball = forge_target_tarball_with_noise(RootDir, ?TARGET_VSN, default_arch()),
@@ -187,7 +201,9 @@ t_deploy_only_runtime_dirs(Config) ->
      || Sub <- ["data", "etc", "log", "plugins"]
     ].
 
--doc "Tarball BUILD_INFO arch differs from running side → `os_arch_mismatch`.".
+-doc """
+Tarball BUILD_INFO arch differs from running side → `os_arch_mismatch`.
+""".
 t_os_arch_mismatch_rejects(Config) ->
     RootDir = ?config(root_dir, Config),
     Tarball = forge_target_tarball(RootDir, ?TARGET_VSN, "different-arch"),
@@ -198,11 +214,13 @@ t_os_arch_mismatch_rejects(Config) ->
     ),
     ?assertMatch({error, #{err_type := os_arch_mismatch}}, Result).
 
--doc "An existing `<RootDir>/relup/current` marker pointing at the "
-"same target means the operator is re-running the exact same "
-"upgrade against a VM that's already been migrated by it. Refuse "
-"with `duplicate_pending_target`. Chaining to a different target "
-"is allowed and exercised by `t_chain_relup_from_pending_marker`.".
+-doc """
+An existing `<RootDir>/relup/current` marker pointing at the
+same target means the operator is re-running the exact same
+upgrade against a VM that's already been migrated by it. Refuse
+with `duplicate_pending_target`. Chaining to a different target
+is allowed and exercised by `t_chain_relup_from_pending_marker`.
+""".
 t_refuse_duplicate_pending_target(Config) ->
     RootDir = ?config(root_dir, Config),
     Tarball = forge_target_tarball(RootDir, ?TARGET_VSN, default_arch()),
@@ -228,11 +246,13 @@ t_refuse_duplicate_pending_target(Config) ->
         emqx_relup_handler:check_and_unpack(?CURR_VSN, RootDir, #{tarball => Tarball})
     ).
 
--doc "A marker pointing at a *different* version than the requested "
-"target means the operator wants to chain another hop on top of "
-"the pending one. The framework allows it; the .relup hop author "
-"is responsible for `from_version` and `code_changes` that match "
-"whatever base state the running node is in.".
+-doc """
+A marker pointing at a *different* version than the requested
+target means the operator wants to chain another hop on top of
+the pending one. The framework allows it; the .relup hop author
+is responsible for `from_version` and `code_changes` that match
+whatever base state the running node is in.
+""".
 t_chain_relup_from_pending_marker(Config) ->
     RootDir = ?config(root_dir, Config),
     Tarball = forge_target_tarball(RootDir, ?TARGET_VSN, default_arch()),

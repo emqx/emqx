@@ -31,7 +31,9 @@ end_per_testcase(_Case, _Config) ->
 %%==============================================================================
 %% validate_priv_catalog/0
 %%==============================================================================
--doc "A well-formed .relup file appears in the Valid list.".
+-doc """
+A well-formed .relup file appears in the Valid list.
+""".
 t_validate_priv_catalog_well_formed(_Config) ->
     File = write_test_relup(<<
         "#{from_version => \"1.0.0\","
@@ -55,7 +57,9 @@ t_validate_priv_catalog_well_formed(_Config) ->
         "well-formed file must not appear in Errors"
     ).
 
--doc "A `.relup` file containing a non-map term is reported in Errors.".
+-doc """
+A `.relup` file containing a non-map term is reported in Errors.
+""".
 t_validate_priv_catalog_invalid_term(_Config) ->
     File = write_test_relup(<<"not_a_map.">>),
     {_Valid, Errors} = emqx_relup_handler:validate_priv_catalog(),
@@ -69,7 +73,9 @@ t_validate_priv_catalog_invalid_term(_Config) ->
         )
     ).
 
--doc "A `.relup` file that fails to parse is reported in Errors without crashing the scan.".
+-doc """
+A `.relup` file that fails to parse is reported in Errors without crashing the scan.
+""".
 t_validate_priv_catalog_unparseable(_Config) ->
     File = write_test_relup(<<"this is not erlang at all">>),
     {_Valid, Errors} = emqx_relup_handler:validate_priv_catalog(),

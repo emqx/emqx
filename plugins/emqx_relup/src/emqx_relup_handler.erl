@@ -30,12 +30,16 @@ list_supported_paths() ->
 
 check_and_unpack(CurrVsn, RootDir, #{tarball := TarFile} = Opts) ->
     try
+        ok = assert_patches_dir_clean(
+            filename:join([emqx:data_dir(), "patches"]),
+            maps:get(force, Opts, false)
+        ),
         {ok, UnpackDir} = unpack_release(TarFile),
         TargetVsn = read_rel_vsn(UnpackDir),
         ok = assert_no_duplicate_pending(RootDir, TargetVsn),
         ok = assert_not_same_vsn(CurrVsn, TargetVsn),
         ok = check_write_permission(RootDir),
-        ok = check_otp_comaptibility(CurrVsn, RootDir, UnpackDir, TargetVsn),
+        ok = check_otp_compatibility(CurrVsn, RootDir, UnpackDir, TargetVsn),
         {ok, OldRel} = consult_rel_file(RootDir, CurrVsn),
         {ok, NewRel} = consult_rel_file(UnpackDir, TargetVsn),
         ok = deploy_files(TargetVsn, RootDir, UnpackDir, OldRel, NewRel, Opts),
@@ -122,6 +126,37 @@ assert_not_same_vsn(TargetVsn, TargetVsn) ->
 assert_not_same_vsn(_CurrVsn, _TargetVsn) ->
     ok.
 
+-doc """
+`data/patches/` is prepended to the code path at boot (`vm.args -pa`),
+so any `.beam` left there will shadow modules loaded from the upgrade
+target. If the operator forgot to clear out a hot-patch that the new
+release already supersedes, the upgrade would silently keep running the
+stale beam. Refuse by default; `--force` is the override for operators
+who deliberately want the patches to stay on top of the new release.
+""".
+assert_patches_dir_clean(_PatchesDir, true) ->
+    ok;
+assert_patches_dir_clean(PatchesDir, false) ->
+    case filelib:wildcard(filename:join(PatchesDir, "*.beam")) of
+        [] ->
+            ok;
+        Files ->
+            throw(
+                make_error(patches_dir_not_empty, #{
+                    dir => bin(PatchesDir),
+                    files => [bin(filename:basename(F)) || F <- Files],
+                    hint =>
+                        <<
+                            "hot-patch beam files in this dir will shadow modules "
+                            "from the upgrade target. Delete them if the target "
+                            "already contains those fixes; re-run with --force if "
+                            "you intend the patches to remain applied on top of "
+                            "the target."
+                        >>
+                })
+            )
+    end.
+
 check_write_permission(RootDir) ->
     SubDirs = ["relup"],
     lists:foreach(
@@ -148,7 +183,7 @@ do_check_write_permission(RootDir, SubDir) ->
             throw(make_error(cannot_create_dir, #{dir => Dir, reason => Reason}))
     end.
 
-check_otp_comaptibility(CurrVsn, RootDir, UnpackDir, TargetVsn) ->
+check_otp_compatibility(CurrVsn, RootDir, UnpackDir, TargetVsn) ->
     CurrBuildInfo = read_build_info(RootDir, CurrVsn),
     NewBuildInfo = read_build_info(UnpackDir, TargetVsn),
     CurrOTPVsn = maps:get("erlang", CurrBuildInfo),
@@ -503,7 +538,7 @@ assert_valid_instrs(Instr) ->
     throw(make_error(invalid_instr, #{instruction => Instr})).
 
 eval([], _Opts) ->
-    add_patch_code_path();
+    ok;
 eval([{load, Mod, Bin, FName} | Instrs], Opts) ->
     case code:module_md5(Bin) =:= curr_mod_md5(Mod) of
         true ->
@@ -598,14 +633,6 @@ change_code(Pid, Mod, FromVsn, Extra) ->
                 })
             )
     end.
-
-% add_code_paths(RootDir, TargetVsn, Opts) ->
-%     LibDirs = filename:join([get_deploy_dir(RootDir, TargetVsn, Opts), "lib", "*", "ebin"]),
-%     ok = code:add_pathsa(filelib:wildcard(LibDirs)).
-
-add_patch_code_path() ->
-    true = code:add_patha(filename:join([emqx:data_dir(), "patches"])),
-    ok.
 
 get_supervised_procs() ->
     lists:foldl(
