@@ -13,6 +13,7 @@
 {emqx_bridge,7}.
 {emqx_bridge_kinesis,1}.
 {emqx_broker,1}.
+{emqx_broker_heal,1}.
 {emqx_cluster,1}.
 {emqx_cluster_link,1}.
 {emqx_cm,1}.
@@ -61,7 +62,6 @@
 {emqx_mgmt_api_plugins,2}.
 {emqx_mgmt_api_plugins,3}.
 {emqx_mgmt_api_plugins,4}.
-{emqx_mgmt_api_relup,1}.
 {emqx_mgmt_cluster,1}.
 {emqx_mgmt_cluster,2}.
 {emqx_mgmt_cluster,3}.
@@ -81,6 +81,7 @@
 {emqx_plugins,1}.
 {emqx_plugins,2}.
 {emqx_plugins,3}.
+{emqx_plugins,4}.
 {emqx_prometheus,1}.
 {emqx_prometheus,2}.
 {emqx_resource,1}.

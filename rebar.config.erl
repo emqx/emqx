@@ -138,7 +138,6 @@ project_app_excluded("plugins/" ++ AppStr, ExcludedApps) ->
 
 plugins() ->
     [
-        {emqx_relup, {git, "https://github.com/emqx/emqx-relup.git", {tag, "0.2.2"}}},
         %% emqx main project does not require port-compiler
         %% pin at root level for deterministic
         {pc, "1.15.0"}
@@ -407,6 +406,7 @@ relx_overlay(ReleaseType) ->
         {mkdir, "log/"},
         {mkdir, "data/"},
         {mkdir, "plugins"},
+        {mkdir, "relup"},
         {mkdir, "data/mnesia"},
         {mkdir, "data/configs"},
         {mkdir, "data/patches"},
@@ -418,16 +418,11 @@ relx_overlay(ReleaseType) ->
         {copy, "bin/emqx_cluster_rescue", "bin/emqx_cluster_rescue"},
         {copy, "bin/emqx_fw", "bin/emqx_fw"},
         {copy, "bin/node_dump", "bin/node_dump"},
-        {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript"},
-        {copy, "bin/emqx", "bin/emqx-{{release_version}}"},
-        {copy, "bin/emqx_ctl", "bin/emqx_ctl-{{release_version}}"},
-        {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript-{{release_version}}"},
         {copy, "apps/emqx_gateway_lwm2m/lwm2m_xml", "etc/lwm2m_xml"},
         {copy, "apps/emqx_auth/etc/acl.conf", "etc/acl.conf"},
         {copy, "apps/emqx_auth/etc/auth-built-in-db-bootstrap.csv",
             "etc/auth-built-in-db-bootstrap.csv"},
-        {copy, "bin/nodetool", "bin/nodetool"},
-        {copy, "bin/nodetool", "bin/nodetool-{{release_version}}"}
+        {copy, "bin/nodetool", "bin/nodetool"}
     ] ++ etc_overlay(ReleaseType).
 
 etc_overlay(ReleaseType) ->

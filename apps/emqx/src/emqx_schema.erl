@@ -1343,6 +1343,11 @@ fields("broker") ->
                 ref("broker_routing"),
                 #{importance => ?IMPORTANCE_HIDDEN}
             )},
+        {heal,
+            sc(
+                ref("broker_heal"),
+                #{importance => ?IMPORTANCE_HIDDEN}
+            )},
         %% FIXME: Need new design for shared subscription group
         {shared_subscription_group,
             sc(
@@ -1358,12 +1363,11 @@ fields("broker_routing") ->
     [
         {"storage_schema",
             sc(
-                hoconsc:enum([v1, v2]),
+                hoconsc:enum([v2, v3]),
                 #{
-                    default => v2,
-                    'readOnly' => true,
+                    default => v3,
+                    'readOnly' => false,
                     desc => ?DESC(broker_routing_storage_schema),
-                    deprecated => {since, "5.9.0"},
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
@@ -1372,6 +1376,20 @@ fields("broker_routing") ->
                 ref("broker_routing_batch_sync"),
                 #{importance => ?IMPORTANCE_HIDDEN}
             )}
+    ];
+fields("broker_heal") ->
+    [
+        %% Heal at a rate ≈100 channels/s by default:
+        {interval,
+            sc(pos_integer(), #{
+                default => 1000,
+                importance => ?IMPORTANCE_HIDDEN
+            })},
+        {batch_size,
+            sc(pos_integer(), #{
+                default => 100,
+                importance => ?IMPORTANCE_HIDDEN
+            })}
     ];
 fields("broker_routing_batch_sync") ->
     [

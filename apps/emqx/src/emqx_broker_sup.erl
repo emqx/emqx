@@ -6,7 +6,7 @@
 
 -behaviour(supervisor).
 
--export([start_link/0]).
+-export([start_link/0, start_heal/0]).
 -export([get_broker_pool_workers/0]).
 
 -export([init/1]).
@@ -23,6 +23,29 @@ get_broker_pool_workers() ->
     catch
         _:_ ->
             []
+    end.
+
+start_heal() ->
+    Id = emqx_broker_heal,
+    Spec = #{
+        id => Id,
+        start => {emqx_broker_heal, start_link, []},
+        restart => temporary,
+        shutdown => 1_000,
+        type => worker,
+        modules => [emqx_broker_heal]
+    },
+    case supervisor:start_child(?MODULE, Spec) of
+        {error, {already_started, _}} ->
+            %% Restart heal process to handle another partition:
+            _ = supervisor:terminate_child(?MODULE, Id),
+            start_heal();
+        {error, already_present} ->
+            supervisor:restart_child(?MODULE, Id);
+        {ok, _} ->
+            ok;
+        Err ->
+            Err
     end.
 
 %%--------------------------------------------------------------------

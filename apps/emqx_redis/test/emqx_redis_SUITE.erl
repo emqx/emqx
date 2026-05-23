@@ -17,6 +17,10 @@
 -define(REDIS_SINGLE_PORT, 6379).
 -define(REDIS_SENTINEL_HOST, "redis-sentinel").
 -define(REDIS_SENTINEL_PORT, 26379).
+-define(REDIS_SENTINEL_S_NO_AUTH_M_AUTH_HOST, "redis-sentinel-noauth-master-auth").
+-define(REDIS_SENTINEL_S_AUTH_M_AUTH_HOST, "redis-sentinel-auth-master-auth").
+-define(REDIS_SENTINEL_S_NO_AUTH_M_NO_AUTH_HOST, "redis-sentinel-noauth-master-noauth").
+-define(REDIS_SENTINEL_S_AUTH_M_NO_AUTH_HOST, "redis-sentinel-auth-master-noauth").
 -define(REDIS_CLUSTER_HOST, "redis-cluster-1").
 -define(REDIS_CLUSTER_PORT, 6379).
 -define(REDIS_RESOURCE_MOD, emqx_redis).
@@ -62,7 +66,11 @@ wait_for_redis(Checks) ->
         emqx_common_test_helpers:is_all_tcp_servers_available(
             [
                 {?REDIS_SINGLE_HOST, ?REDIS_SINGLE_PORT},
-                {?REDIS_SENTINEL_HOST, ?REDIS_SENTINEL_PORT}
+                {?REDIS_SENTINEL_HOST, ?REDIS_SENTINEL_PORT},
+                {?REDIS_SENTINEL_S_NO_AUTH_M_AUTH_HOST, ?REDIS_SENTINEL_PORT},
+                {?REDIS_SENTINEL_S_AUTH_M_AUTH_HOST, ?REDIS_SENTINEL_PORT},
+                {?REDIS_SENTINEL_S_NO_AUTH_M_NO_AUTH_HOST, ?REDIS_SENTINEL_PORT},
+                {?REDIS_SENTINEL_S_AUTH_M_NO_AUTH_HOST, ?REDIS_SENTINEL_PORT}
             ]
         )
     of
@@ -97,6 +105,53 @@ t_sentinel_lifecycle(_Config) ->
         redis_config_sentinel(),
         [<<"PING">>]
     ).
+
+t_sentinel_password_auth(_Config) ->
+    ResourceId = <<"emqx_redis_SUITE_sentinel_password_auth">>,
+    {ok, #{config := CheckedConfig}} =
+        emqx_resource:check_config(?REDIS_RESOURCE_MOD, redis_config_sentinel()),
+    {ok, #{status := connected}} = emqx_resource:create_local(
+        ResourceId,
+        ?CONNECTOR_RESOURCE_GROUP,
+        ?REDIS_RESOURCE_MOD,
+        CheckedConfig,
+        #{}
+    ),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId)),
+    ?assertEqual({ok, <<"PONG">>}, emqx_resource:query(ResourceId, {cmd, [<<"PING">>]})),
+    ?assertEqual(ok, emqx_resource:remove_local(ResourceId)).
+
+t_sentinel_auth_master_noauth_sentinel_noauth(_Config) ->
+    run_sentinel_auth_matrix_case(#{
+        name => master_noauth_sentinel_noauth,
+        host => ?REDIS_SENTINEL_S_NO_AUTH_M_NO_AUTH_HOST,
+        redis_auth => none,
+        sentinel_auth => none
+    }).
+
+t_sentinel_auth_master_auth_sentinel_noauth(_Config) ->
+    run_sentinel_auth_matrix_case(#{
+        name => master_auth_sentinel_noauth,
+        host => ?REDIS_SENTINEL_S_NO_AUTH_M_AUTH_HOST,
+        redis_auth => password,
+        sentinel_auth => none
+    }).
+
+t_sentinel_auth_master_noauth_sentinel_auth(_Config) ->
+    run_sentinel_auth_matrix_case(#{
+        name => master_noauth_sentinel_auth,
+        host => ?REDIS_SENTINEL_S_AUTH_M_NO_AUTH_HOST,
+        redis_auth => none,
+        sentinel_auth => password
+    }).
+
+t_sentinel_auth_master_auth_sentinel_auth(_Config) ->
+    run_sentinel_auth_matrix_case(#{
+        name => master_auth_sentinel_auth,
+        host => ?REDIS_SENTINEL_S_AUTH_M_AUTH_HOST,
+        redis_auth => password,
+        sentinel_auth => password
+    }).
 
 perform_lifecycle_check(ResourceId, InitialConfig, RedisCommand) ->
     {ok, #{config := CheckedConfig}} =
@@ -199,6 +254,76 @@ redis_config_cluster() ->
 redis_config_sentinel() ->
     redis_config_base("sentinel", "servers").
 
+redis_config_sentinel_auth_matrix(Host, RedisAuth, SentinelAuth) ->
+    RawConfig = list_to_binary(
+        io_lib:format(
+            "" ++
+                "\n" ++
+                "    auto_reconnect = true\n" ++
+                "    pool_size = 1\n" ++
+                "    redis_type = sentinel\n" ++
+                "    sentinel = mymaster\n" ++
+                "    database = 0\n" ++
+                "    servers = \"~s:~b\"\n" ++
+                "~s" ++
+                "~s",
+            [
+                Host,
+                ?REDIS_SENTINEL_PORT,
+                redis_auth_config(RedisAuth),
+                sentinel_auth_config(SentinelAuth)
+            ]
+        )
+    ),
+    {ok, Config} = hocon:binary(RawConfig),
+    #{<<"config">> => Config}.
+
+redis_auth_config(none) ->
+    "";
+redis_auth_config(password) ->
+    "" ++
+        "    username = \"redis_user\"\n" ++
+        "    password = \"redis-password\"\n".
+
+sentinel_auth_config(none) ->
+    "";
+sentinel_auth_config(password) ->
+    "" ++
+        "    sentinel_username = \"sentinel_user\"\n" ++
+        "    sentinel_password = \"sentinel-password\"\n".
+
+run_sentinel_auth_matrix_case(#{
+    name := Name,
+    host := Host,
+    redis_auth := RedisAuth,
+    sentinel_auth := SentinelAuth
+}) ->
+    ResourceId = iolist_to_binary(["emqx_redis_SUITE_", atom_to_binary(Name)]),
+    Config = redis_config_sentinel_auth_matrix(Host, RedisAuth, SentinelAuth),
+    {ok, #{config := CheckedConfig}} = emqx_resource:check_config(?REDIS_RESOURCE_MOD, Config),
+    try
+        {ok, #{status := connected}} = emqx_resource:create_local(
+            ResourceId,
+            ?CONNECTOR_RESOURCE_GROUP,
+            ?REDIS_RESOURCE_MOD,
+            CheckedConfig,
+            #{spawn_buffer_workers => true}
+        ),
+        Key = atom_to_binary(Name),
+        Value = <<"ok">>,
+        ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId)),
+        ?assertEqual(
+            {ok, <<"OK">>},
+            emqx_resource:query(ResourceId, {cmd, [<<"SET">>, Key, Value]})
+        ),
+        ?assertEqual(
+            {ok, Value},
+            emqx_resource:query(ResourceId, {cmd, [<<"GET">>, Key]})
+        )
+    after
+        catch emqx_resource:remove_local(ResourceId)
+    end.
+
 -define(REDIS_CONFIG_BASE(MaybeSentinel, MaybeDatabase),
     "" ++
         "\n" ++
@@ -219,7 +344,10 @@ redis_config_base(Type, ServerKey) ->
         "sentinel" ->
             Host = ?REDIS_SENTINEL_HOST,
             Port = ?REDIS_SENTINEL_PORT,
-            MaybeSentinel = "    sentinel = mytcpmaster\n",
+            MaybeSentinel =
+                "    sentinel = mytcpmaster\n" ++
+                    "    sentinel_username = test_user\n" ++
+                    "    sentinel_password = test_passwd\n",
             MaybeDatabase = "    database = 1\n";
         "single" ->
             Host = ?REDIS_SINGLE_HOST,

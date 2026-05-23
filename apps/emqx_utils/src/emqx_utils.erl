@@ -71,6 +71,8 @@
     ntoa/1,
     foldl_while/3,
     is_restricted_str/1,
+    is_mqtt_safe_utf8/1,
+    http_header_byte_check/1,
     interactive_load/1
 ]).
 
@@ -872,6 +874,50 @@ ntoa(IP) ->
 is_restricted_str(String) ->
     RE = <<"^[A-Za-z0-9]+[A-Za-z0-9-_]*$">>,
     match =:= re:run(String, RE, [{capture, none}]).
+
+%% @doc Validate that a binary is a well-formed UTF-8 string with no characters
+%% in the ranges 0x00-0x1F (C0 controls) or 0x7F-0x9F (DEL + C1 controls).
+%% This is the same byte-class check `emqx_frame:validate_utf8/1` applies to
+%% MQTT-ingested clientid/username/password and is used to vet bytes that flow
+%% into the same `ClientInfo` map from non-MQTT sources (e.g. PROXY-Protocol
+%% v2 SSL TLVs).
+-spec is_mqtt_safe_utf8(binary()) -> boolean().
+is_mqtt_safe_utf8(<<>>) ->
+    true;
+is_mqtt_safe_utf8(<<H/utf8, _Rest/binary>>) when
+    H >= 16#00, H =< 16#1F;
+    H >= 16#7F, H =< 16#9F
+->
+    false;
+is_mqtt_safe_utf8(<<_H/utf8, Rest/binary>>) ->
+    is_mqtt_safe_utf8(Rest);
+is_mqtt_safe_utf8(<<_BadUtf8, _Rest/binary>>) ->
+    false.
+
+%% @doc Scan a binary for bytes capable of splitting an HTTP/1.1 request line.
+%% Returns `ok' if the binary is safe to emit as an HTTP header name or value,
+%% otherwise `{error, contains_null | contains_cr | contains_lf}'. Non-binary
+%% inputs are treated as safe; callers that templated something other than a
+%% binary have already failed earlier in a more visible way.
+%%
+%% Implemented with `binary:match/2' (NIF) so the happy path stays cheap; the
+%% per-byte inspection only runs when an offending byte is found.
+-spec http_header_byte_check(binary() | term()) ->
+    ok | {error, contains_null | contains_cr | contains_lf}.
+http_header_byte_check(Bin) when is_binary(Bin) ->
+    case binary:match(Bin, [<<$\r>>, <<$\n>>, <<0>>]) of
+        nomatch ->
+            ok;
+        {Pos, _} ->
+            <<_:Pos/binary, Byte, _/binary>> = Bin,
+            {error, control_byte_to_reason(Byte)}
+    end;
+http_header_byte_check(_NonBin) ->
+    ok.
+
+control_byte_to_reason(0) -> contains_null;
+control_byte_to_reason($\r) -> contains_cr;
+control_byte_to_reason($\n) -> contains_lf.
 
 %% @doc Generate random, printable bytes as an ID.
 %% The first byte is ensured to be a-z or A-Z.

@@ -70,17 +70,13 @@ t_fix(Config) ->
 
     %% fix inconsistent_tnx_id_key. tnx_id and key are updated.
     ?ON(Node1, fake_mfa(2, Node1, {?MODULE, undef, []})),
-    %% 2 -> fake_mfa, 3-> mark_begin_log, 4-> mqtt 5 -> zones
-    ?ON(Node2, begin
+    %% The exact tnx_id depends on whether the fix produces follow-up
+    %% default/virtual config updates, so assert the sync contract instead.
+    TnxIdAfterKeyFix = ?ON(Node2, begin
         ok = emqx_conf_cli:admins(["fix"]),
-        ?assertMatch(
-            {atomic, [
-                #{node := Node1, tnx_id := 5},
-                #{node := Node2, tnx_id := 5}
-            ]},
-            emqx_cluster_rpc:status()
-        )
+        ?MODULE:assert_same_tnx_id([Node1, Node2])
     end),
+    ?assert(TnxIdAfterKeyFix > 2),
     ?assertMatch(99, emqx_conf_proto_v4:get_config(Node1, [mqtt, max_topic_levels])),
     ?assertMatch(99, emqx_conf_proto_v4:get_config(Node2, [mqtt, max_topic_levels])),
 
@@ -88,31 +84,30 @@ t_fix(Config) ->
     {ok, _} = ?ON(
         Node1, emqx_conf_proto_v4:update([<<"mqtt">>], #{<<"max_topic_levels">> => 98}, #{})
     ),
-    ?ON(Node2, fake_mfa(7, Node2, {?MODULE, undef1, []})),
-    ?ON(Node1, begin
+    TnxIdAfterUpdate = ?ON(Node1, ?MODULE:assert_same_tnx_id([Node1, Node2])),
+    FakeTnxId = TnxIdAfterUpdate + 1,
+    ?ON(Node2, fake_mfa(FakeTnxId, Node2, {?MODULE, undef1, []})),
+    TnxIdAfterFastForward = ?ON(Node1, begin
         ok = emqx_conf_cli:admins(["fix"]),
-        ?assertMatch(
-            {atomic, [
-                #{node := Node1, tnx_id := 8},
-                #{node := Node2, tnx_id := 8}
-            ]},
-            emqx_cluster_rpc:status()
-        )
+        ?MODULE:assert_same_tnx_id([Node1, Node2])
     end),
+    ?assert(TnxIdAfterFastForward > FakeTnxId),
     ?assertMatch(98, emqx_conf_proto_v4:get_config(Node1, [mqtt, max_topic_levels])),
     ?assertMatch(98, emqx_conf_proto_v4:get_config(Node2, [mqtt, max_topic_levels])),
     %% unchanged
     ?ON(Node1, begin
         ok = emqx_conf_cli:admins(["fix"]),
-        ?assertMatch(
-            {atomic, [
-                #{node := Node1, tnx_id := 8},
-                #{node := Node2, tnx_id := 8}
-            ]},
-            emqx_cluster_rpc:status()
-        )
+        ?assertEqual(TnxIdAfterFastForward, ?MODULE:assert_same_tnx_id([Node1, Node2]))
     end),
     ok.
+
+assert_same_tnx_id(Nodes) ->
+    {atomic, Status} = emqx_cluster_rpc:status(),
+    ?assertEqual(lists:sort(Nodes), lists:sort([Node || #{node := Node} <- Status])),
+    TnxIds = lists:usort([TnxId || #{tnx_id := TnxId} <- Status]),
+    ?assertMatch([_], TnxIds),
+    [TnxId] = TnxIds,
+    TnxId.
 
 fake_mfa(TnxId, Node, MFA) ->
     Func = fun() ->

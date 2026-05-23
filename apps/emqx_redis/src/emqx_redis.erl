@@ -78,7 +78,10 @@ fields(redis_sentinel_connector) ->
             type => string(),
             required => true,
             desc => ?DESC("sentinel_desc")
-        }}
+        }},
+        {sentinel_username, fun sentinel_username/1},
+        {sentinel_password,
+            emqx_connector_schema_lib:password_field(#{desc => ?DESC("sentinel_password")})}
     ] ++ redis_fields().
 
 server() ->
@@ -129,7 +132,7 @@ on_start(InstId, Config0) ->
             {options, Options},
             {pool_size, PoolSize},
             {auto_reconnect, ?AUTO_RECONNECT_INTERVAL}
-        ] ++ database(Config),
+        ] ++ sentinel_auth(Config) ++ database(Config),
 
     State = #{pool_name => InstId, type => Type},
     ok = emqx_resource:allocate_resource(InstId, ?MODULE, type, Type),
@@ -343,3 +346,16 @@ redis_fields() ->
         }},
         {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
     ].
+
+sentinel_username(type) -> binary();
+sentinel_username(desc) -> ?DESC("sentinel_username");
+sentinel_username(required) -> false;
+sentinel_username(_) -> undefined.
+
+sentinel_auth(#{redis_type := sentinel} = Config) ->
+    [
+        {sentinel_username, maps:get(sentinel_username, Config, undefined)},
+        {sentinel_password, maps:get(sentinel_password, Config, "")}
+    ];
+sentinel_auth(_) ->
+    [].

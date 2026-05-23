@@ -6,7 +6,7 @@
 -behaviour(minirest_api).
 
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 %% minirest API
 -export([api_spec/0, paths/0, schema/1]).
@@ -124,19 +124,12 @@ do_get_status(AppStatus, <<"json">>) ->
     emqx_utils_json:encode(#{
         node_name => atom_to_binary(node(), utf8),
         cluster => atom_to_binary(cluster(), utf8),
-        rel_vsn => vsn(),
         broker_status => atom_to_binary(BrokerStatus),
         app_status => atom_to_binary(AppStatus)
     });
 do_get_status(AppStatus, _) ->
     BrokerStatus = broker_status(),
     io_lib:format("Node ~ts is ~ts~nemqx is ~ts", [node(), BrokerStatus, AppStatus]).
-
-vsn() ->
-    iolist_to_binary([
-        emqx_release:edition_vsn_prefix(),
-        emqx_release:version()
-    ]).
 
 broker_status() ->
     case emqx:is_running() of

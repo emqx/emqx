@@ -25,6 +25,7 @@ services:
     image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
       - ./redis/sentinel-tcp/sentinel-base.conf:/usr/local/etc/redis/sentinel-base.conf
+      - ./redis/sentinel-tcp/users.acl:/usr/local/etc/redis/users.acl
     depends_on:
       - redis-sentinel-master
       - redis-sentinel-slave
@@ -34,6 +35,133 @@ services:
     networks:
       - emqx_bridge
 
+  redis-sentinel-master-noauth:
+    container_name: redis-sentinel-master-noauth
+    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
+    volumes:
+      - ./redis/sentinel-auth-matrix/master-noauth.conf:/usr/local/etc/redis/master-noauth.conf:ro
+    command: redis-server /usr/local/etc/redis/master-noauth.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379", "PING"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+    networks:
+      - emqx_bridge
 
+  redis-sentinel-master-auth:
+    container_name: redis-sentinel-master-auth
+    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
+    volumes:
+      - ./redis/sentinel-auth-matrix/master-auth.conf:/usr/local/etc/redis/master-auth.conf:ro
+      - ./redis/sentinel-auth-matrix/master-users.acl:/usr/local/etc/redis/master-users.acl:ro
+    command: redis-server /usr/local/etc/redis/master-auth.conf
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "redis-cli",
+          "-p",
+          "6379",
+          "--user",
+          "redis_user",
+          "--pass",
+          "redis-password",
+          "--no-auth-warning",
+          "PING"
+        ]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+    networks:
+      - emqx_bridge
 
+  redis-sentinel-noauth-master-noauth:
+    container_name: redis-sentinel-noauth-master-noauth
+    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
+    volumes:
+      - ./redis/sentinel-auth-matrix/sentinel-noauth-master-noauth.conf:/usr/local/etc/redis/sentinel-noauth-master-noauth.conf:ro
+    depends_on:
+      - redis-sentinel-master-noauth
+    command: >
+      bash -c "cp -f /usr/local/etc/redis/sentinel-noauth-master-noauth.conf /tmp/sentinel.conf &&
+               redis-sentinel /tmp/sentinel.conf"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "redis-cli -p 26379 SENTINEL get-master-addr-by-name mymaster | grep -q 6379"
+        ]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+    networks:
+      - emqx_bridge
 
+  redis-sentinel-noauth-master-auth:
+    container_name: redis-sentinel-noauth-master-auth
+    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
+    volumes:
+      - ./redis/sentinel-auth-matrix/sentinel-noauth-master-auth.conf:/usr/local/etc/redis/sentinel-noauth-master-auth.conf:ro
+    depends_on:
+      - redis-sentinel-master-auth
+    command: >
+      bash -c "cp -f /usr/local/etc/redis/sentinel-noauth-master-auth.conf /tmp/sentinel.conf &&
+               redis-sentinel /tmp/sentinel.conf"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "redis-cli -p 26379 SENTINEL get-master-addr-by-name mymaster | grep -q 6379"
+        ]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+    networks:
+      - emqx_bridge
+
+  redis-sentinel-auth-master-noauth:
+    container_name: redis-sentinel-auth-master-noauth
+    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
+    volumes:
+      - ./redis/sentinel-auth-matrix/sentinel-auth-master-noauth.conf:/usr/local/etc/redis/sentinel-auth-master-noauth.conf:ro
+      - ./redis/sentinel-auth-matrix/sentinel-users.acl:/usr/local/etc/redis/sentinel-users.acl:ro
+    depends_on:
+      - redis-sentinel-master-noauth
+    command: >
+      bash -c "cp -f /usr/local/etc/redis/sentinel-auth-master-noauth.conf /tmp/sentinel.conf &&
+               redis-sentinel /tmp/sentinel.conf"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "redis-cli -p 26379 --user sentinel_user --pass sentinel-password --no-auth-warning SENTINEL get-master-addr-by-name mymaster | grep -q 6379"
+        ]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+    networks:
+      - emqx_bridge
+
+  redis-sentinel-auth-master-auth:
+    container_name: redis-sentinel-auth-master-auth
+    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
+    volumes:
+      - ./redis/sentinel-auth-matrix/sentinel-auth-master-auth.conf:/usr/local/etc/redis/sentinel-auth-master-auth.conf:ro
+      - ./redis/sentinel-auth-matrix/sentinel-users.acl:/usr/local/etc/redis/sentinel-users.acl:ro
+    depends_on:
+      - redis-sentinel-master-auth
+    command: >
+      bash -c "cp -f /usr/local/etc/redis/sentinel-auth-master-auth.conf /tmp/sentinel.conf &&
+               redis-sentinel /tmp/sentinel.conf"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "redis-cli -p 26379 --user sentinel_user --pass sentinel-password --no-auth-warning SENTINEL get-master-addr-by-name mymaster | grep -q 6379"
+        ]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+    networks:
+      - emqx_bridge

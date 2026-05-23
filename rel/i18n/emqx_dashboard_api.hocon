@@ -84,6 +84,18 @@ version.desc:
 role.desc:
 """User role"""
 
+list_user_scopes_api.desc:
+"""List all scope names that a dashboard login user may hold, with their descriptions and an `admin_only` flag indicating whether the scope is restricted to administrator role.
+
+Returned to any authenticated login user — the endpoint exists to populate the dashboard UI's scope selector and does not itself require a specific scope."""
+
+user_scopes.desc:
+"""Dashboard user scopes — a fine-grained access list applied on top of role.
+
+When the field is absent, the user falls back to role-based access. An empty list denies all paths mapped to a known scope (unmapped paths still allowed).
+
+Login users may hold any of the API key catalog scopes plus the four login-only scopes: `user_management`, `mfa_management`, `sso_management`, `api_key_management`. Of these four, three are administrator-only (`user_management`, `sso_management`, `api_key_management`); `mfa_management` may also be assigned to non-administrator users — for non-admin holders it acts as a self-exemption key allowing the user to bypass force_mfa and admin_required locks on their own MFA only."""
+
 backend.desc:
 """User account source"""
 

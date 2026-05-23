@@ -195,10 +195,6 @@ connector_resource_id(Config) ->
     Name = ?config(connector_name, Config),
     emqx_connector_resource:resource_id(Type, Name).
 
-get_tcp_mqtt_port(Node) ->
-    {_Host, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
-    Port.
-
 create_connector_api(Config, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
@@ -256,7 +252,7 @@ create_rule_and_action_http(Config, RuleTopic, Opts) ->
     ).
 
 connect_client(Node) ->
-    Port = get_tcp_mqtt_port(Node),
+    Port = emqx_cth_cluster:get_tcp_mqtt_port(Node),
     {ok, C} = emqtt:start_link(#{port => Port, proto_ver => v5}),
     on_exit(fun() -> catch emqtt:stop(C) end),
     {ok, _} = emqtt:connect(C),
@@ -296,7 +292,7 @@ t_start_stop(Config) ->
 t_static_clientids(Config) ->
     [N1, N2, N3] = Nodes = ?config(nodes, Config),
     [N1Bin, N2Bin, N3Bin] = lists:map(fun atom_to_binary/1, Nodes),
-    Port = get_tcp_mqtt_port(N1),
+    Port = emqx_cth_cluster:get_tcp_mqtt_port(N1),
     ct:pal("creating connector"),
     {201, _} = create_connector_api(Config, #{
         <<"server">> => <<"127.0.0.1:", (integer_to_binary(Port))/binary>>,

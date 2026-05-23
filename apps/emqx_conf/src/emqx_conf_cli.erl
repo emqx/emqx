@@ -808,11 +808,32 @@ changed(K, V, Conf) ->
 find_running_confs() ->
     lists:map(
         fun(Node) ->
-            Conf = emqx_conf_proto_v4:get_config(Node, []),
+            Conf = normalize_running_conf(Node),
             {Node, maps:without(?READONLY_ROOT_KEYS, Conf)}
         end,
         mria:running_nodes()
     ).
+
+normalize_running_conf(Node) ->
+    try normalize_running_raw_conf(emqx_conf_proto_v4:get_raw_config(Node, [])) of
+        Conf ->
+            Conf
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(warning, #{
+                msg => "failed_to_normalize_cluster_sync_status_conf",
+                node => Node,
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            emqx_conf_proto_v4:get_config(Node, [])
+    end.
+
+normalize_running_raw_conf(RawConf) ->
+    RawConf1 = fill_defaults(RawConf),
+    {_AppEnvs, Conf} = emqx_config:check_config(emqx_conf:schema_module(), RawConf1),
+    Conf.
 
 print_inconsistent_conf(Keys, Target, Status, AllConfs) ->
     {value, {_, TargetConf}, OtherConfs} = lists:keytake(Target, 1, AllConfs),
@@ -852,12 +873,12 @@ print_inconsistent_conf(New = #{}, Old = #{}, Options) ->
         changed := Changed
     } = emqx_utils_maps:diff_maps(New, Old),
     RemovedFmt = "~ts(~w)'s ~s has deleted certain keys, but they are still present on ~ts(~w).~n",
-    print_inconsistent(Removed, RemovedFmt, Options),
+    print_inconsistent(Removed, RemovedFmt, removed, Options),
     AddedFmt = "~ts(~w)'s ~s has new setting, but it has not been applied to ~ts(~w).~n",
-    print_inconsistent(Added, AddedFmt, Options),
+    print_inconsistent(Added, AddedFmt, added, Options),
     ChangedFmt =
         "~ts(~w)'s ~s has been updated, but the changes have not been applied to ~ts(~w).~n",
-    print_inconsistent(Changed, ChangedFmt, Options);
+    print_inconsistent(Changed, ChangedFmt, changed, Options);
 %% authentication rewrite topic_metrics is list(not map).
 print_inconsistent_conf(New, Old, Options) ->
     #{
@@ -873,39 +894,116 @@ print_inconsistent_conf(New, Old, Options) ->
     emqx_ctl:print("~ts:~n", [Target]),
     print_hocon(New).
 
-print_inconsistent(Conf, Fmt, Options) when Conf =/= #{} ->
+print_inconsistent(Conf, Fmt, Kind, Options) when Conf =/= #{} ->
     #{
         key := Key,
         target := {Target, TargetTnxId},
         node := {Node, NodeTnxId}
     } = Options,
-    emqx_ctl:warning(Fmt, [Target, TargetTnxId, Key, Node, NodeTnxId]),
     NodeRawConf = emqx_conf_proto_v4:get_raw_config(Node, [Key]),
     TargetRawConf = emqx_conf_proto_v4:get_raw_config(Target, [Key]),
     {NodeConf, TargetConf} =
         maps:fold(
-            fun(SubKey, _, {NewAcc, OldAcc}) ->
-                SubNew0 = maps:get(atom_to_binary(SubKey), NodeRawConf, undefined),
-                SubOld0 = maps:get(atom_to_binary(SubKey), TargetRawConf, undefined),
-                {SubNew1, SubOld1} = remove_identical_value(SubNew0, SubOld0),
-                {NewAcc#{SubKey => SubNew1}, OldAcc#{SubKey => SubOld1}}
+            fun(SubKey, CheckedDiff, {NodeAcc, TargetAcc}) ->
+                RawSubKey = raw_config_key(SubKey),
+                SubNew0 = maps:get(RawSubKey, NodeRawConf, undefined),
+                SubOld0 = maps:get(RawSubKey, TargetRawConf, undefined),
+                {SubNew1, SubOld1} =
+                    remove_identical_config_value(Kind, SubNew0, SubOld0, CheckedDiff),
+                {
+                    maybe_put_config_diff(SubKey, SubNew1, NodeAcc),
+                    maybe_put_config_diff(SubKey, SubOld1, TargetAcc)
+                }
             end,
             {#{}, #{}},
             Conf
         ),
     %% zones.default is a virtual zone. It will be changed when mqtt changes,
     %% so we can't retrieve the raw data for zones.default(always undefined).
-    case TargetConf =:= NodeConf of
-        true -> ok;
-        false -> print_hocon(#{Target => #{Key => TargetConf}, Node => #{Key => NodeConf}})
+    emqx_ctl:warning(Fmt, [Target, TargetTnxId, Key, Node, NodeTnxId]),
+    case has_config_diff(NodeConf) orelse has_config_diff(TargetConf) of
+        true ->
+            print_hocon(#{Target => #{Key => TargetConf}, Node => #{Key => NodeConf}});
+        false ->
+            ok
     end;
-print_inconsistent(_Conf, _Format, _Options) ->
+print_inconsistent(_Conf, _Format, _Kind, _Options) ->
     ok.
+
+raw_config_key(K) when is_atom(K) ->
+    atom_to_binary(K);
+raw_config_key(K) ->
+    K.
+
+remove_identical_config_value(changed, NodeRaw, TargetRaw, {NodeChecked, TargetChecked}) ->
+    remove_identical_config_values(NodeRaw, TargetRaw, NodeChecked, TargetChecked);
+remove_identical_config_value(_Kind, NodeRaw, TargetRaw, _CheckedDiff) ->
+    remove_identical_value(NodeRaw, TargetRaw).
+
+remove_identical_config_values(NodeRaw, TargetRaw, NodeChecked, TargetChecked) ->
+    {NodeRaw1, TargetRaw1} = remove_identical_value(NodeRaw, TargetRaw),
+    keep_checked_changes(NodeRaw1, TargetRaw1, NodeChecked, TargetChecked).
+
+keep_checked_changes(_NodeRaw, _TargetRaw, SameChecked, SameChecked) ->
+    {undefined, undefined};
+keep_checked_changes(NodeRaw = #{}, TargetRaw = #{}, NodeChecked = #{}, TargetChecked = #{}) ->
+    lists:foldl(
+        fun(K, {NodeAcc, TargetAcc}) ->
+            {NodeV, TargetV} = keep_checked_changes(
+                maps:get(K, NodeRaw, undefined),
+                maps:get(K, TargetRaw, undefined),
+                find_checked_value(K, NodeChecked),
+                find_checked_value(K, TargetChecked)
+            ),
+            {
+                maybe_put_config_diff(K, NodeV, NodeAcc),
+                maybe_put_config_diff(K, TargetV, TargetAcc)
+            }
+        end,
+        {#{}, #{}},
+        lists:usort(maps:keys(NodeRaw) ++ maps:keys(TargetRaw))
+    );
+keep_checked_changes(NodeRaw, TargetRaw, _NodeChecked, _TargetChecked) ->
+    {NodeRaw, TargetRaw}.
+
+find_checked_value(K, Map) when is_map(Map) ->
+    case maps:find(K, Map) of
+        {ok, V} ->
+            V;
+        error ->
+            maps:get(alt_config_key(K), Map, undefined)
+    end.
+
+alt_config_key(K) when is_atom(K) ->
+    atom_to_binary(K);
+alt_config_key(K) when is_binary(K) ->
+    try
+        binary_to_existing_atom(K, utf8)
+    catch
+        _:_ -> K
+    end;
+alt_config_key(K) ->
+    K.
+
+maybe_put_config_diff(K, V, Acc) ->
+    case has_config_diff(V) of
+        true -> Acc#{K => V};
+        false -> Acc
+    end.
+
+has_config_diff(undefined) ->
+    false;
+has_config_diff(Map) when is_map(Map) ->
+    maps:fold(fun(_K, V, Acc) -> Acc orelse has_config_diff(V) end, false, Map);
+has_config_diff(_Value) ->
+    true.
 
 remove_identical_value(New = #{}, Old = #{}) ->
     maps:fold(
         fun(K, NewV, {Acc1, Acc2}) ->
             case maps:find(K, Old) of
+                error ->
+                    {Acc1, Acc2};
                 {ok, NewV} ->
                     {maps:remove(K, Acc1), maps:remove(K, Acc2)};
                 {ok, OldV} ->
@@ -971,5 +1069,112 @@ find_inconsistent_test() ->
         find_lagging(SameStatus, Confs0)
     ),
     ok.
+
+normalize_running_conf_falls_back_to_checked_config_test() ->
+    FallbackConf = #{mqtt => #{max_topic_levels => 128}},
+    ok = meck:new(emqx_conf_proto_v4, [passthrough, no_link]),
+    try
+        ok = meck:expect(
+            emqx_conf_proto_v4,
+            get_raw_config,
+            fun(node, []) -> invalid_raw_conf end
+        ),
+        ok = meck:expect(
+            emqx_conf_proto_v4,
+            get_config,
+            fun(node, []) -> FallbackConf end
+        ),
+        ?assertEqual(FallbackConf, normalize_running_conf(node))
+    after
+        meck:unload(emqx_conf_proto_v4)
+    end.
+
+remove_identical_value_missing_key_test() ->
+    ?assertEqual(
+        {#{<<"present">> => true}, #{}},
+        remove_identical_value(#{<<"present">> => true}, #{})
+    ),
+    ?assertEqual(
+        {#{<<"outer">> => #{<<"present">> => true}}, #{<<"outer">> => #{}}},
+        remove_identical_value(
+            #{<<"outer">> => #{<<"present">> => true}},
+            #{<<"outer">> => #{}}
+        )
+    ).
+
+remove_raw_only_diff_with_same_checked_value_test() ->
+    NodeRaw = #{
+        <<"rules">> => #{
+            <<"same">> => #{<<"enable">> => true},
+            <<"changed">> => #{<<"sql">> => <<"select old">>}
+        }
+    },
+    TargetRaw = #{
+        <<"rules">> => #{
+            <<"same">> => #{},
+            <<"changed">> => #{<<"sql">> => <<"select new">>}
+        }
+    },
+    NodeChecked = #{
+        rules => #{
+            <<"same">> => #{enable => true},
+            <<"changed">> => #{sql => <<"select old">>}
+        }
+    },
+    TargetChecked = #{
+        rules => #{
+            <<"same">> => #{enable => true},
+            <<"changed">> => #{sql => <<"select new">>}
+        }
+    },
+    ?assertEqual(
+        {
+            #{<<"rules">> => #{<<"changed">> => #{<<"sql">> => <<"select old">>}}},
+            #{<<"rules">> => #{<<"changed">> => #{<<"sql">> => <<"select new">>}}}
+        },
+        remove_identical_config_values(NodeRaw, TargetRaw, NodeChecked, TargetChecked)
+    ).
+
+print_warning_when_checked_diff_has_no_raw_payload_test() ->
+    ok = meck:new(emqx_conf_proto_v4, [passthrough, no_link]),
+    ok = meck:new(emqx_ctl, [passthrough, no_link]),
+    Self = self(),
+    try
+        ok = meck:expect(
+            emqx_conf_proto_v4,
+            get_raw_config,
+            fun
+                (node, [zones]) -> #{};
+                (target, [zones]) -> #{}
+            end
+        ),
+        ok = meck:expect(
+            emqx_ctl,
+            warning,
+            fun(Fmt, Args) ->
+                Self ! {warning, Fmt, Args},
+                ok
+            end
+        ),
+        print_inconsistent(
+            #{default => {#{enable => true}, #{enable => false}}},
+            "warning~n",
+            changed,
+            #{
+                key => zones,
+                node => {node, 1},
+                target => {target, 2}
+            }
+        ),
+        ?assert(
+            receive
+                {warning, "warning~n", [target, 2, zones, node, 1]} -> true
+            after 0 ->
+                false
+            end
+        )
+    after
+        meck:unload([emqx_conf_proto_v4, emqx_ctl])
+    end.
 
 -endif.

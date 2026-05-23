@@ -191,6 +191,8 @@ per_type_connector_config(sentinel) ->
                 <<"database">> => <<"0">>,
                 <<"servers">> => <<"redis-sentinel:26379">>,
                 <<"sentinel">> => <<"mytcpmaster">>,
+                <<"sentinel_username">> => <<"test_user">>,
+                <<"sentinel_password">> => <<"test_passwd">>,
                 <<"redis_type">> => <<"sentinel">>
             }
     };
