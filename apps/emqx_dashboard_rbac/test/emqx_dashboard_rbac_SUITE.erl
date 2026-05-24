@@ -166,7 +166,7 @@ t_clean_token(_) ->
     NewDesc = <<"new desc">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, Desc),
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
-    FakeReq = #{},
+    FakeReq = #{path => <<"/api/v5/users">>},
     FakeHandlerInfo = #{method => get, module => any, function => any},
     {ok, #{actor := Username}} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     %% change description
@@ -192,7 +192,7 @@ t_role_change_new_token_survives(_) ->
     Password = <<"public_www1">>,
     Desc = <<"desc">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, Desc),
-    FakeReq = #{},
+    FakeReq = #{path => <<"/api/v5/clients">>},
     FakeHandlerInfo = #{method => get, module => any, function => any},
     {ok, _} = emqx_dashboard_admin:update_user(Username, ?ROLE_VIEWER, Desc),
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
@@ -225,7 +225,7 @@ t_logout(TCConfig) when is_list(TCConfig) ->
         end,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, Role, Desc),
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
-    FakeReq = #{},
+    FakeReq = #{path => <<"/api/v5/logout">>},
     FakeHandlerInfo = #{method => post, function => logout, module => emqx_dashboard_api},
     {ok, #{actor := Username}} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     ok.
@@ -257,7 +257,10 @@ t_change_pwd(_) ->
     ok.
 
 change_pwd(Token, Username) ->
-    Req = #{bindings => #{username => Username}},
+    Req = #{
+        bindings => #{username => Username},
+        path => <<"/api/v5/users/", Username/binary, "/change_pwd">>
+    },
     HandlerInfo = #{method => post, function => change_pwd, module => emqx_dashboard_api},
     emqx_dashboard_admin:verify_token(Req, HandlerInfo, Token).
 
@@ -328,10 +331,10 @@ t_delete_mfa_sso_force_mfa(_) ->
         %% RBAC is policy-independent for self-DELETE: passes regardless
         %% of the backend's current force_mfa value.
         ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig#{force_mfa => false}),
-        ?assertEqual({ok, SsoUser}, delete_mfa(SsoToken, SsoUser)),
+        ?assertMatch({ok, #{actor := SsoUser}}, delete_mfa(SsoToken, SsoUser)),
         ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig#{force_mfa => true}),
-        ?assertEqual({ok, SsoUser}, delete_mfa(SsoToken, SsoUser)),
-        ?assertEqual({ok, LocalUser}, delete_mfa(LocalToken, LocalUser))
+        ?assertMatch({ok, #{actor := SsoUser}}, delete_mfa(SsoToken, SsoUser)),
+        ?assertMatch({ok, #{actor := LocalUser}}, delete_mfa(LocalToken, LocalUser))
     after
         ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig)
     end,
@@ -719,7 +722,10 @@ t_check_login_user_scopes_sso_explicit_scope_grants_only_that_path(_) ->
     ).
 
 delete_mfa(Token, Username) ->
-    Req = #{bindings => #{username => Username}},
+    Req = #{
+        bindings => #{username => Username},
+        path => <<"/api/v5/users/", Username/binary, "/mfa">>
+    },
     HandlerInfo = #{method => delete, module => emqx_dashboard_api, function => change_mfa},
     emqx_dashboard_admin:verify_token(Req, HandlerInfo, Token).
 
@@ -740,7 +746,10 @@ bearer_auth_header(Token) ->
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 setup_mfa(Token, Username) ->
-    Req = #{bindings => #{username => Username}},
+    Req = #{
+        bindings => #{username => Username},
+        path => <<"/api/v5/users/", Username/binary, "/mfa">>
+    },
     HandlerInfo = #{method => post, module => emqx_dashboard_api, function => change_mfa},
     emqx_dashboard_admin:verify_token(Req, HandlerInfo, Token).
 
