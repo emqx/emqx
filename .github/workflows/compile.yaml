@@ -62,7 +62,10 @@ jobs:
         env:
           PROFILE: ${{ matrix.profile }}
         run: |
-          ./scripts/check-api-scope-coverage.escript _build/${PROFILE}/lib
+          ## On release-60 the build system is mix, and `make test-compile`
+          ## targets PROFILE=${PROFILE}-test, so beam files land under
+          ## _build/${PROFILE}-test/lib, not _build/${PROFILE}/lib.
+          ./scripts/check-api-scope-coverage.escript _build/${PROFILE}-test/lib
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.profile }}-${{ inputs.build_type }}
