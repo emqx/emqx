@@ -313,7 +313,6 @@ do_check_rbac(
 do_check_rbac(_, _, _) ->
     false.
 
-
 role_list(dashboard) ->
     [?ROLE_VIEWER, ?ROLE_SUPERUSER];
 role_list(api) ->

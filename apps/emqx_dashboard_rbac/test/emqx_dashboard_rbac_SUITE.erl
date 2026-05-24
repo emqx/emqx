@@ -368,7 +368,6 @@ t_delete_mfa_sso_force_mfa(_) ->
     end,
     ok.
 
-
 test_mfa(VerifyFn) ->
     Viewer1 = <<"viewermfa1">>,
     Viewer2 = <<"viewermfa2">>,
