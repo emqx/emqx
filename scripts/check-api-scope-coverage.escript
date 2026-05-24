@@ -30,6 +30,7 @@ main([LibDir]) ->
                 "ERROR: no ebin dirs under ~s~n",
                 [LibDir]
             ),
+            maybe_hint_test_profile(LibDir),
             halt(1);
         _ ->
             ok
@@ -142,3 +143,31 @@ path_to_bin(P) when is_list(P) ->
 
 ensure_slash(<<"/", _/binary>> = P) -> P;
 ensure_slash(P) -> <<"/", P/binary>>.
+
+%% On release-60 `make test-compile` puts beams under
+%% _build/<profile>-test/lib (mix-driven build). If the caller passed
+%% the release/non-test path by mistake, point them at the test path
+%% if it exists -- saves a round trip when CI is misconfigured.
+maybe_hint_test_profile(LibDir) ->
+    case re:run(LibDir, "_build/([^/]+)/lib$", [{capture, all_but_first, list}]) of
+        {match, [Profile]} ->
+            case lists:suffix("-test", Profile) of
+                true ->
+                    ok;
+                false ->
+                    TestDir = "_build/" ++ Profile ++ "-test/lib",
+                    case filelib:wildcard(TestDir ++ "/*/ebin") of
+                        [] ->
+                            ok;
+                        _ ->
+                            io:format(
+                                standard_error,
+                                "HINT: did you mean ~s? "
+                                "(test builds use the ${PROFILE}-test profile)~n",
+                                [TestDir]
+                            )
+                    end
+            end;
+        _ ->
+            ok
+    end.
