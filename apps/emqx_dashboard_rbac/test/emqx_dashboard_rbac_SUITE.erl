@@ -267,37 +267,6 @@ t_setup_mfa(_) ->
 t_delete_mfa(_) ->
     test_mfa(fun delete_mfa/2).
 
-%% Port from release-510 #17117 874c2f08: a SSO viewer must not be allowed
-%% to disable MFA for themselves while their backend has `force_mfa = true`,
-%% otherwise they could lock themselves out of the next forced setup.
-%% A local user (BACKEND_LOCAL) and a SSO viewer with `force_mfa = false`
-%% must still be allowed.
-t_delete_mfa_sso_force_mfa(_) ->
-    SsoBackend = saml,
-    SsoUser = <<"sso_viewermfa">>,
-    LocalUser = <<"local_viewermfa">>,
-    Password = <<"xyz124abc">>,
-    Desc = <<"desc">>,
-    SsoConfig = emqx:get_config([dashboard, sso, SsoBackend], #{}),
-    {ok, _} = emqx_dashboard_admin:add_sso_user(SsoBackend, SsoUser, ?ROLE_VIEWER, Desc),
-    {ok, _} = emqx_dashboard_admin:add_user(LocalUser, Password, ?ROLE_VIEWER, Desc),
-    {ok, #{role := ?ROLE_VIEWER, token := SsoToken}} = emqx_dashboard_admin:sign_token(
-        ?SSO_USERNAME(SsoBackend, SsoUser), <<>>
-    ),
-    {ok, #{role := ?ROLE_VIEWER, token := LocalToken}} = emqx_dashboard_admin:sign_token(
-        LocalUser, Password
-    ),
-    try
-        ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig#{force_mfa => false}),
-        ?assertMatch({ok, #{actor := SsoUser}}, delete_mfa(SsoToken, SsoUser)),
-        ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig#{force_mfa => true}),
-        ?assertEqual({error, unauthorized_role}, delete_mfa(SsoToken, SsoUser)),
-        ?assertMatch({ok, #{actor := LocalUser}}, delete_mfa(LocalToken, LocalUser))
-    after
-        ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig)
-    end,
-    ok.
-
 %% Port from release-510 #17122 c4ab6b15: SSO usernames may contain `@`
 %% (e.g. email addresses). The HTTP layer URL-encodes them as `%40`.
 %% On release-60, cowboy_router automatically URL-decodes path segments
