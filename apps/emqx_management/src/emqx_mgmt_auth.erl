@@ -805,7 +805,6 @@ maybe_warn_rejected_scopes(File, Line, ApiKey, Rejected) ->
 
 get_role(#{?role := Role}) ->
     Role;
-    Role;
 %% Before v5.4.0,
 %% the field in the position of the `extra` is `desc` which is a binary for description
 get_role(_Desc) ->

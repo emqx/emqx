@@ -313,9 +313,6 @@ do_check_rbac(
 do_check_rbac(_, _, _) ->
     false.
 
-decode_path_segments(SubPath) ->
-    [uri_string:percent_decode(Segment) || Segment <- binary:split(SubPath, <<"/">>, [global])].
-
 
 role_list(dashboard) ->
     [?ROLE_VIEWER, ?ROLE_SUPERUSER];

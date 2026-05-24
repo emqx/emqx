@@ -418,7 +418,6 @@ finalise_create_user(Username, Scopes, Result) ->
         {error, Reason} ->
             {400, ?BAD_REQUEST, Reason}
     end.
-    end.
 
 user(put, #{bindings := #{username := Username0}, body := Params} = Req) ->
     Role = maps:get(<<"role">>, Params, ?ROLE_DEFAULT),
@@ -722,11 +721,6 @@ reload_external_user(Username, Fallback) ->
 %% Returns {error, Reason} when the user record is missing (e.g. concurrent
 %% deletion between add_user/update_user and this call). Callers must
 %% translate to the proper HTTP status; never crash the handler.
-%%
-%% CE: scope enforcement is EE-only (emqx_dashboard_rbac is EE), so we
-%% ignore any `scopes' input rather than persist a value that would
-%% never be checked.
--if(?EMQX_RELEASE_EDITION == ee).
 maybe_set_user_scopes(_Username, undefined) ->
     ok;
 maybe_set_user_scopes(Username, Scopes) when is_list(Scopes) ->
@@ -741,10 +735,6 @@ maybe_set_user_scopes(Username, Scopes) when is_list(Scopes) ->
             }),
             {error, Reason}
     end.
--else.
-maybe_set_user_scopes(_Username, _Scopes) ->
-    ok.
--endif.
 
 %% --- MFA self-lock authorization ---
 %%
