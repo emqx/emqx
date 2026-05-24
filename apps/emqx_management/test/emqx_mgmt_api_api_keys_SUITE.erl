@@ -606,8 +606,8 @@ t_bootstrap_file_scope_runtime_check(_) ->
     %% system
     StatusPath = <<"/api/v5/status">>,
 
-    ?assertEqual(
-        ok,
+    ?assertMatch(
+        {ok, _},
         auth_authorize(BannedPath, <<"scope-conn-only">>, <<"secret-1">>)
     ),
     ?assertEqual(
@@ -625,16 +625,16 @@ t_bootstrap_file_scope_runtime_check(_) ->
     ok = file:write_file(File, Bin2),
     update_file(File),
 
-    ?assertEqual(
-        ok,
+    ?assertMatch(
+        {ok, _},
         auth_authorize(BannedPath, <<"scope-allow-all">>, <<"secret-2">>)
     ),
-    ?assertEqual(
-        ok,
+    ?assertMatch(
+        {ok, _},
         auth_authorize(PublishPath, <<"scope-allow-all">>, <<"secret-2">>)
     ),
-    ?assertEqual(
-        ok,
+    ?assertMatch(
+        {ok, _},
         auth_authorize(StatusPath, <<"scope-allow-all">>, <<"secret-2">>)
     ),
 

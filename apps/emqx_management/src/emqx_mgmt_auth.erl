@@ -781,7 +781,7 @@ parse_bootstrap_scopes_lenient(Role, <<>>) ->
 parse_bootstrap_scopes_lenient(Role, ScopesStr) ->
     Candidates = binary:split(ScopesStr, <<",">>, [global, trim_all]),
     Raw = [string:lowercase(string:trim(S)) || S <- Candidates, string:trim(S) =/= <<>>],
-    Available = [Name || #{name := Name} <- emqx_mgmt_api_key_scopes:scope_catalogue()],
+    Available = [Name || #{name := Name} <- emqx_scope_catalog:scope_catalog()],
     {Valid0, Rejected0} = lists:partition(fun(S) -> lists:member(S, Available) end, Raw),
     filter_publisher_scopes(Role, Valid0, Rejected0).
 

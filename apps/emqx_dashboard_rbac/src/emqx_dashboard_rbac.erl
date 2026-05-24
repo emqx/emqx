@@ -13,7 +13,8 @@
     check_rbac/3,
     check_login_user_scopes/2,
     parse_dashboard_role/1,
-    parse_api_role/1
+    parse_api_role/1,
+    role_list/1
 ]).
 
 -export_type([actor_context/0]).
