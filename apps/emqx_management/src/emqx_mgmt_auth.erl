@@ -708,19 +708,7 @@ parse_namespaced_tail(ApiKey, ApiSecret, Tail) ->
         [NsTag, RoleAndScopes] ->
             case parse_namespace_tag_bin(NsTag) of
                 {ok, Namespace} ->
-                    case binary:split(RoleAndScopes, <<":">>) of
-                        [Role] ->
-                            with_valid_role(Role, fun(R) ->
-                                bootstrap_entry(ApiKey, ApiSecret, R, Namespace, undefined, [])
-                            end);
-                        [Role, ScopesStr] ->
-                            with_valid_role(Role, fun(R) ->
-                                {Scopes, Rejected} = parse_bootstrap_scopes_lenient(R, ScopesStr),
-                                bootstrap_entry(ApiKey, ApiSecret, R, Namespace, Scopes, Rejected)
-                            end);
-                        _ ->
-                            {error, "invalid_format"}
-                    end;
+                    parse_role_and_scopes(ApiKey, ApiSecret, Namespace, RoleAndScopes);
                 {error, Reason} ->
                     {error, Reason}
             end;
@@ -734,6 +722,23 @@ parse_namespace_tag_bin(NsTag) ->
             {ok, Ns};
         _ ->
             {error, {"invalid_namespace_tag", NsTag}}
+    end.
+
+%% Resolve "<role>" | "<role>:scopes" | "<role>:" for a namespaced bootstrap line.
+%% Extracted from parse_namespaced_tail/3 to keep nesting depth within elvis limits.
+parse_role_and_scopes(ApiKey, ApiSecret, Namespace, RoleAndScopes) ->
+    case binary:split(RoleAndScopes, <<":">>) of
+        [Role] ->
+            with_valid_role(Role, fun(R) ->
+                bootstrap_entry(ApiKey, ApiSecret, R, Namespace, undefined, [])
+            end);
+        [Role, ScopesStr] ->
+            with_valid_role(Role, fun(R) ->
+                {Scopes, Rejected} = parse_bootstrap_scopes_lenient(R, ScopesStr),
+                bootstrap_entry(ApiKey, ApiSecret, R, Namespace, Scopes, Rejected)
+            end);
+        _ ->
+            {error, "invalid_format"}
     end.
 
 %% Validate that Role is a known role name. We bypass the namespace-aware
