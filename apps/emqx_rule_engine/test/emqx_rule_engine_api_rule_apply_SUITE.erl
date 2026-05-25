@@ -559,7 +559,8 @@ out_of_service_check_fun(SendErrorMsg, Reason) ->
                 <<"msg">> := SendErrorMsg,
                 <<"time">> := _
             },
-            ReasonEntryJSON
+            ReasonEntryJSON,
+            #{send_error_msg => SendErrorMsg}
         ),
         MetaMap = maps:get(<<"meta">>, ReasonEntryJSON),
         ?assert(not maps:is_key(<<"client_ids">>, MetaMap)),

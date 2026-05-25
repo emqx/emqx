@@ -54,14 +54,16 @@ defmodule Mix.Tasks.Compile.Grpc do
 
     manifest_data = read_manifest(manifest())
 
-    context = %{
-      manifest_data: manifest_data,
-      app_root: app_root,
-      app_build_path: app_build_path,
-      out_dir: out_dir,
-      proto_dirs: proto_dirs,
-      gpb_opts: gpb_opts
-    }
+    context =
+      %{
+        manifest_data: manifest_data,
+        app_root: app_root,
+        app_build_path: app_build_path,
+        out_dir: out_dir,
+        proto_dirs: proto_dirs,
+        gpb_opts: gpb_opts
+      }
+      |> Map.merge(Map.take(config[:grpc_opts], [:generate_server?, :generate_client?]))
 
     Enum.each(proto_srcs, &compile_pb(&1, context))
 

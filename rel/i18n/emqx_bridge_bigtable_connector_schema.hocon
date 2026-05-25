@@ -1,0 +1,18 @@
+emqx_bridge_bigtable_connector_schema {
+  config_connector {
+    label: """Bigtable Connector Configuration"""
+    desc:
+    """Configuration for a connector to Bigtable tables."""
+  }
+
+  connect_timeout {
+    label: "Connect Timeout"
+    desc: """Timeout when connecting to the server."""
+  }
+
+  pool_size {
+    label: "Pool Size"
+    desc: """Size of the connection pool towards the bridge target service."""
+  }
+
+}

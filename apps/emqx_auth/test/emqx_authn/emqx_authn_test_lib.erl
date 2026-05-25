@@ -61,8 +61,11 @@ client_ssl_cert_opts() ->
     }.
 
 register_fake_providers(ProviderTypes) ->
+    %% The fake provider implements add_user/2 — declare that here so
+    %% emqx_authn_chains dispatches optional callbacks instead of returning
+    %% {error, unsupported_operation}.
     Providers = [
-        {ProviderType, emqx_authn_fake_provider}
+        {ProviderType, emqx_authn_fake_provider, #{support_user_operations => true}}
      || ProviderType <- ProviderTypes
     ],
     emqx_authn_chains:register_providers(Providers).

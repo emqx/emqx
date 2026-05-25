@@ -82,6 +82,20 @@ fi
 systemctl enable %{_name}.service
 chown -R %{_user}:%{_group} %{_lib_home}
 
+# Expose the scattered FHS layout under /opt/%{_name} so paths match the docker image.
+mkdir -p /opt/%{_name}
+ln -sfn %{_lib_home}/bin      /opt/%{_name}/bin
+ln -sfn %{_var_home}          /opt/%{_name}/data
+ln -sfn %{_conf_dir}          /opt/%{_name}/etc
+ln -sfn %{_lib_home}/lib      /opt/%{_name}/lib
+ln -sfn %{_log_dir}           /opt/%{_name}/log
+ln -sfn %{_lib_home}/plugins  /opt/%{_name}/plugins
+ln -sfn %{_lib_home}/releases /opt/%{_name}/releases
+for erts in %{_lib_home}/erts-*; do
+    [ -d "$erts" ] || continue
+    ln -sfn "$erts" "/opt/%{_name}/$(basename "$erts")"
+done
+
 %preun
 %{_preun_addition}
 # Only on uninstall, not upgrades
@@ -95,6 +109,16 @@ exit 0
 %postun
 if [ $1 = 0 ]; then
    rm -rf %{_lib_home}
+   if [ -d /opt/%{_name} ]; then
+       for entry in /opt/%{_name}/bin /opt/%{_name}/data /opt/%{_name}/etc \
+                    /opt/%{_name}/lib /opt/%{_name}/log /opt/%{_name}/plugins \
+                    /opt/%{_name}/releases /opt/%{_name}/erts-*; do
+           if [ -L "$entry" ]; then
+               rm -f "$entry"
+           fi
+       done
+       rmdir /opt/%{_name} 2>/dev/null || true
+   fi
 fi
 exit 0
 

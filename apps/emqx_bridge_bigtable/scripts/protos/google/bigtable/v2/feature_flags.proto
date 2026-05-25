@@ -1,0 +1,79 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package google.bigtable.v2;
+
+option csharp_namespace = "Google.Cloud.Bigtable.V2";
+option go_package = "cloud.google.com/go/bigtable/apiv2/bigtablepb;bigtablepb";
+option java_multiple_files = true;
+option java_outer_classname = "FeatureFlagsProto";
+option java_package = "com.google.bigtable.v2";
+option php_namespace = "Google\\Cloud\\Bigtable\\V2";
+option ruby_package = "Google::Cloud::Bigtable::V2";
+
+// Feature flags supported or enabled by a client.
+// This is intended to be sent as part of request metadata to assure the server
+// that certain behaviors are safe to enable. This proto is meant to be
+// serialized and websafe-base64 encoded under the `bigtable-features` metadata
+// key. The value will remain constant for the lifetime of a client and due to
+// HTTP2's HPACK compression, the request overhead will be tiny.
+// This is an internal implementation detail and should not be used by end users
+// directly.
+message FeatureFlags {
+  // Notify the server that the client supports reverse scans. The server will
+  // reject ReadRowsRequests with the reverse bit set when this is absent.
+  bool reverse_scans = 1;
+
+  // Notify the server that the client enables batch write flow control by
+  // requesting RateLimitInfo from MutateRowsResponse. Due to technical reasons,
+  // this disables partial retries.
+  bool mutate_rows_rate_limit = 3;
+
+  // Notify the server that the client enables batch write flow control by
+  // requesting RateLimitInfo from MutateRowsResponse. With partial retries
+  // enabled.
+  bool mutate_rows_rate_limit2 = 5;
+
+  // Notify the server that the client supports the last_scanned_row field
+  // in ReadRowsResponse for long-running scans.
+  bool last_scanned_row_responses = 4;
+
+  // Notify the server that the client supports using encoded routing cookie
+  // strings to retry requests with.
+  bool routing_cookie = 6;
+
+  // Notify the server that the client supports using retry info back off
+  // durations to retry requests with.
+  bool retry_info = 7;
+
+  // Notify the server that the client has client side metrics enabled.
+  bool client_side_metrics_enabled = 8;
+
+  // Notify the server that the client using Traffic Director endpoint.
+  bool traffic_director_enabled = 9;
+
+  // Notify the server that the client explicitly opted in for Direct Access.
+  bool direct_access_requested = 10;
+
+  // If the client can support using BigtablePeerInfo.
+  bool peer_info = 11;
+
+  // Indicates whether the client supports the Bigtable Sessions API.
+  bool sessions_compatible = 12;
+
+  // Internal flag to force sessions for internal projects.
+  bool sessions_required = 13;
+}

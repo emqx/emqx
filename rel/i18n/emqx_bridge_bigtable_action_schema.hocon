@@ -1,0 +1,67 @@
+emqx_bridge_bigtable_action_schema {
+  bigtable {
+    label: """Upload to Bigtable"""
+    desc:
+    """Action that takes incoming events and appends them to Bigtable."""
+  }
+
+  action_parameters {
+    label: """Bigtable Action Parameters"""
+    desc:
+    """Set of parameters for the action."""
+  }
+
+  instance_id {
+    label: """Instance Id"""
+    desc:
+    """Instance identifier.  Note that this is a simple identifier such as `myinst` and not the fully qualified identifier `projects/.../instances/...`."""
+  }
+
+  table_id {
+    label: """Table Id"""
+    desc:
+    """Table identifier.  Note that this is a simple identifier such as `mytable` and not the fully qualified identifier `projects/.../instances/.../tables/...`."""
+  }
+
+  row_key {
+    label: """Row Key"""
+    desc:
+    """Key name that contains the message's row key.  Be sure to explicitly write it out in the rule SQL as (e.g.: `SELECT x as key_name, ...`)."""
+  }
+
+  mutations {
+    label: """Mutations"""
+    desc:
+    """List of cell mutations to apply for a single received message."""
+  }
+
+  set_cell_type {
+    label: """Set Cell"""
+    desc:
+    """Set Cell mutation."""
+  }
+
+  set_cell_family_name {
+    label: """Family Name"""
+    desc:
+    """Key name that contains the mutation's family name.  Be sure to explicitly write it out in the rule SQL as (e.g.: `SELECT x as key_name, ...`)."""
+  }
+
+  set_cell_column_qualifier {
+    label: """Column Qualifier"""
+    desc:
+    """Key name that contains the mutation's column qualifier.  Be sure to explicitly write it out in the rule SQL as (e.g.: `SELECT x as key_name, ...`)."""
+  }
+
+  set_cell_timestamp_micros {
+    label: """Timestamp In Microseconds"""
+    desc:
+    """Key name that contains the mutation's timestamp in microseconds.  Be sure to explicitly write it out in the rule SQL as (e.g.: `SELECT x as key_name, ...`)."""
+  }
+
+  set_cell_value {
+    label: """Value"""
+    desc:
+    """Key name that contains the mutation's value.  Be sure to explicitly write it out in the rule SQL as (e.g.: `SELECT x as key_name, ...`)."""
+  }
+}
