@@ -12,6 +12,7 @@
     get_enabled_authns/0,
 
     register_provider/2,
+    register_provider/3,
     deregister_provider/1
 ]).
 
@@ -58,6 +59,9 @@ tally_authenticators(#{id := AuthenticatorName}, Acc) ->
 
 register_provider(ProviderType, ProviderModule) ->
     ok = ?AUTHN:register_provider(ProviderType, ProviderModule).
+
+register_provider(ProviderType, ProviderModule, Opts) ->
+    ok = ?AUTHN:register_provider(ProviderType, ProviderModule, Opts).
 
 deregister_provider(ProviderType) ->
     ok = ?AUTHN:deregister_provider(ProviderType).

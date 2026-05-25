@@ -1,0 +1,32 @@
+services:
+  bigtable-query:
+    container_name: bigtable-query
+    image: ghcr.io/emqx/bigtable-admin:1.0.0
+    restart: always
+    environment:
+      PROJECT_ID: myproject
+    expose:
+      - "8090"
+    networks:
+      - emqx_bridge
+
+  gcp-emulator-bigtable:
+    container_name: gcp-emulator-bigtable
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:533.0.0-emulators
+    restart: always
+    expose:
+      - "8086"
+    # ports:
+    #   - "8085:8085"
+    networks:
+      - emqx_bridge
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:8086"]
+    #   interval: 5s
+    #   timeout: 5s
+    #   retries: 4
+    command:
+      - bash
+      - "-c"
+      - |
+        gcloud beta emulators bigtable start --project=emqx --host-port=0.0.0.0:8086 --impersonate-service-account test@emqx.iam.gserviceaccount.com

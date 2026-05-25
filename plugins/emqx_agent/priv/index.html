@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMQX Agent</title>
+<link rel="stylesheet" href="assets/index.css">
+<script type="module" src="assets/app.js"></script>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Header ── -->
+  <header>
+    <div class="logo">EMQX <span>Agent</span></div>
+    <span id="status-pill" class="pill">○ disconnected</span>
+    <div class="spacer"></div>
+    <span class="endpoint" id="endpoint-label"></span>
+  </header>
+
+  <!-- ── Tab nav ── -->
+  <nav>
+    <button class="active" onclick="showTab('skills',this)">Skills<span class="cnt" id="cnt-skills">—</span></button>
+    <button onclick="showTab('connections',this)">Connections<span class="cnt" id="cnt-connections">—</span></button>
+    <button onclick="showTab('profiles',this)">AI Providers<span class="cnt" id="cnt-profiles">—</span></button>
+    <button onclick="showTab('pipelines',this)">Pipelines<span class="cnt" id="cnt-pipelines">—</span></button>
+  </nav>
+
+  <!-- ── Main content ── -->
+  <main>
+
+    <!-- Skills -->
+    <section id="tab-skills" class="active">
+      <h2>Skills</h2>
+      <table class="tbl" id="skills-table">
+        <thead><tr><th>ID</th><th>Type</th><th>Description</th><th></th></tr></thead>
+        <tbody id="skills-body"><tr class="empty"><td colspan="4">Not connected</td></tr></tbody>
+      </table>
+
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h3 id="skill-card-title">New Skill</h3>
+          <button id="skill-cancel-btn" class="btn sm" style="display:none" onclick="resetSkillEditor()">✕ Cancel edit</button>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Type</label>
+            <select id="skill-type" onchange="updateSkillForm()">
+              <option value="message__publish">message__publish</option>
+              <option value="message__request">message__request</option>
+              <option value="http">http</option>
+              <option value="postgresql__query">postgresql__query</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>ID</label>
+            <input id="skill-id" type="text" placeholder="my-skill-1">
+          </div>
+        </div>
+        <div class="field">
+          <label>Description</label>
+          <input id="skill-desc" type="text" placeholder="Human-readable description for the LLM">
+        </div>
+
+        <!-- message__publish fields -->
+        <div id="f-publish">
+          <div class="field">
+            <label>Topic Prefix</label>
+            <input id="skill-prefix" type="text" placeholder="out/devices/">
+            <div class="hint">All publishes are restricted to this prefix.</div>
+          </div>
+          <div class="field">
+            <label>Payload schema</label>
+            <div id="se-skill-publish-input"></div>
+            <div class="hint">Optional payload schema. Topic/from/qos are fixed wrapper fields. Output schema is fixed by backend.</div>
+          </div>
+        </div>
+
+        <!-- message__request fields -->
+        <div id="f-request" style="display:none">
+          <div class="field">
+            <label>Topic Prefix</label>
+            <input id="skill-request-prefix" type="text" placeholder="devices/room1/">
+            <div class="hint">Request is published to this prefix + the agent-supplied topic suffix. Responses arrive on a unique temporary topic set via the MQTT 5 Response-Topic property.</div>
+          </div>
+          <div class="field">
+            <label>Request payload schema</label>
+            <div id="se-skill-request-payload-schema"></div>
+            <div class="hint">Schema describing the payload the LLM should send in the request. Leave blank for untyped.</div>
+          </div>
+        </div>
+
+        <!-- http fields -->
+        <div id="f-http" style="display:none">
+          <div class="row">
+            <div class="field">
+              <label>Method</label>
+              <select id="skill-method">
+                <option>post</option><option>get</option>
+                <option>put</option><option>patch</option><option>delete</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>URL</label>
+              <input id="skill-url" type="text" placeholder="http://service:8080/api">
+            </div>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label>Input schema</label>
+              <div id="se-skill-input-schema"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- postgresql fields -->
+        <div id="f-ch" style="display:none">
+          <div class="field">
+            <label>Connection</label>
+            <select id="skill-resource"></select>
+            <div class="hint">Select the PostgreSQL connection used by this skill. Disabled connections can be selected.</div>
+          </div>
+          <div class="field">
+            <label>SQL query template</label>
+            <textarea id="skill-query" placeholder="SELECT metric, value FROM agent_skill_metrics WHERE device_id = ${device_id}"></textarea>
+            <div class="hint">Use ${var} placeholders. Names are extracted automatically and the input schema is generated from them.</div>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn primary" id="skill-submit-btn" onclick="saveSkill()">Create</button>
+          <span id="skill-msg" class="msg"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Connections -->
+    <section id="tab-connections">
+      <h2>Connections</h2>
+      <table class="tbl">
+        <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Server</th><th></th></tr></thead>
+        <tbody id="connections-body"><tr class="empty"><td colspan="5">Not connected</td></tr></tbody>
+      </table>
+
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h3 id="conn-card-title">New Connection</h3>
+          <button id="conn-cancel-btn" class="btn sm" style="display:none" onclick="resetConnectionEditor()">Cancel edit</button>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Connection ID</label>
+            <input id="conn-id" type="text" placeholder="pg-main">
+          </div>
+          <div class="field">
+            <label>Type</label>
+            <input type="text" value="postgresql" readonly style="opacity:0.7">
+          </div>
+          <div class="field" style="max-width:110px">
+            <label>Enabled</label>
+            <label style="display:flex;align-items:center;gap:6px;padding-top:6px;cursor:pointer">
+              <input type="checkbox" id="conn-enable" style="accent-color:var(--accent2);width:14px;height:14px">
+              <span style="font-size:12px;color:var(--muted)">start</span>
+            </label>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Server</label>
+            <input id="conn-server" type="text" value="pgsql:5432" placeholder="host:5432">
+          </div>
+          <div class="field">
+            <label>Database</label>
+            <input id="conn-database" type="text" value="mqtt">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Username</label>
+            <input id="conn-username" type="text" value="root">
+          </div>
+          <div class="field">
+            <label>Password</label>
+            <input id="conn-password" type="password" value="public">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Pool Size</label>
+            <input id="conn-pool-size" type="number" min="1" value="1">
+          </div>
+          <div class="field">
+            <label>Connect Timeout (ms)</label>
+            <input id="conn-connect-timeout" type="number" min="1" value="5000">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="conn-disable-prepared" checked style="accent-color:var(--accent2);width:14px;height:14px">
+              Disable prepared statements
+            </label>
+          </div>
+          <div class="field">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="conn-ssl" style="accent-color:var(--accent2);width:14px;height:14px">
+              Enable SSL
+            </label>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button id="conn-save-btn" class="btn primary" onclick="saveConnection()">Create Connection</button>
+          <span id="conn-msg" class="msg"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- AI Providers -->
+    <section id="tab-profiles">
+      <h2>AI Providers</h2>
+      <table class="tbl">
+        <thead><tr><th>Name</th><th>Type</th><th>Base URL</th></tr></thead>
+        <tbody id="profiles-body"><tr class="empty"><td colspan="3">Not connected</td></tr></tbody>
+      </table>
+
+      <div class="card">
+        <h3>Provider Credentials</h3>
+        <p style="color:var(--muted);line-height:1.5;margin-top:8px">
+          AI providers are managed in the EMQX AI Completion configuration. Create or edit credentials there,
+          then reference the provider by <code>provider_name</code> in agent pipelines.
+        </p>
+      </div>
+    </section>
+
+    <!-- Pipelines -->
+    <section id="tab-pipelines">
+      <h2>Pipelines</h2>
+      <table class="tbl">
+        <thead><tr><th>ID</th><th>Trigger topic</th><th>Steps</th><th>Status</th><th></th></tr></thead>
+        <tbody id="pipelines-body"><tr class="empty"><td colspan="5">Not connected</td></tr></tbody>
+      </table>
+
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h3 id="pipe-card-title">New Pipeline</h3>
+          <button id="pipe-cancel-btn" class="btn sm" style="display:none" onclick="resetPipelineEditor()">Cancel edit</button>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Pipeline ID</label>
+            <input id="pipe-id" type="text" placeholder="hvac-anomaly-response">
+          </div>
+          <div class="field">
+            <label>Trigger topic</label>
+            <input id="pipe-topic" type="text" placeholder="$evt/hvac/anomaly">
+          </div>
+          <div class="field">
+            <label>Key expression</label>
+            <input id="pipe-key-expression" type="text" placeholder="message.topic" value="message.topic">
+          </div>
+          <div class="field" style="max-width:110px">
+            <label>Active</label>
+            <label style="display:flex;align-items:center;gap:6px;padding-top:6px;cursor:pointer">
+              <input type="checkbox" id="pipe-active" checked style="accent-color:var(--accent2);width:14px;height:14px">
+              <span style="font-size:12px;color:var(--muted)">enabled</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Steps</label>
+          <div id="pipe-steps-list"></div>
+          <button class="step-add-btn" onclick="addStep()">+ Add Step</button>
+        </div>
+
+        <div class="form-actions">
+          <button id="pipe-save-btn" class="btn primary" onclick="savePipeline()">Create Pipeline</button>
+          <span id="pipe-msg" class="msg"></span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div id="toast"></div>
+
+
+</body>
+</html>

@@ -1208,9 +1208,13 @@ handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCt
             {?ack, PostFn, Counters};
         false ->
             PostFn = fun(_ResultContext) ->
-                ?TRACE(error, "ERROR", "async_send_error", TraceCtx#{
-                    id => Id, reason => Reason
-                }),
+                ?TRACE_THROTTLE(
+                    error,
+                    Id,
+                    "ERROR",
+                    async_send_error,
+                    TraceCtx#{id => Id, reason => Reason}
+                ),
                 ok
             end,
             {?nack, PostFn, #{}}

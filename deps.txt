@@ -22,6 +22,7 @@ emqx_bridge_azure_blob_storage: none
 emqx_bridge_azure_event_grid: none
 emqx_bridge_azure_event_hub: none
 emqx_bridge_bigquery: none
+emqx_bridge_bigtable: none
 emqx_bridge_cassandra: none
 emqx_bridge_clickhouse: none
 emqx_bridge_cockroachdb: none
@@ -33,7 +34,7 @@ emqx_bridge_doris: none
 emqx_bridge_dynamo: none
 emqx_bridge_emqx_tables: none
 emqx_bridge_es: none
-emqx_bridge_gcp_pubsub: emqx_bridge_bigquery emqx_enterprise
+emqx_bridge_gcp_pubsub: emqx_bridge_bigquery emqx_bridge_bigtable emqx_enterprise
 emqx_bridge_greptimedb: emqx_bridge_emqx_tables
 emqx_bridge_http: all
 emqx_bridge_influxdb: emqx_bridge_aws_timestream emqx_bridge_datalayers emqx_bridge_emqx_tables emqx_bridge_greptimedb emqx_bridge_tablestore

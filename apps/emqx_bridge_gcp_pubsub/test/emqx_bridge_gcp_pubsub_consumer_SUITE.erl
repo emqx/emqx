@@ -32,7 +32,7 @@
 -define(SOURCE_TYPE, gcp_pubsub_consumer).
 -define(SOURCE_TYPE_BIN, <<"gcp_pubsub_consumer">>).
 
--define(PROXY_NAME, "gcp_emulator").
+-define(PROXY_NAME, "gcp_emulator_pubsub").
 -define(PROXY_HOST, "toxiproxy").
 -define(PROXY_PORT, 8474).
 

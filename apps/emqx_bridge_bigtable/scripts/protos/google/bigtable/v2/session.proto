@@ -1,0 +1,706 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package google.bigtable.v2;
+
+import "google/api/field_behavior.proto";
+import "google/api/resource.proto";
+import "google/bigtable/v2/data.proto";
+import "google/bigtable/v2/feature_flags.proto";
+import "google/bigtable/v2/request_stats.proto";
+import "google/protobuf/descriptor.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "google/rpc/error_details.proto";
+import "google/rpc/status.proto";
+
+option csharp_namespace = "Google.Cloud.Bigtable.V2";
+option go_package = "cloud.google.com/go/bigtable/apiv2/bigtablepb;bigtablepb";
+option java_multiple_files = true;
+option java_outer_classname = "SessionProto";
+option java_package = "com.google.bigtable.v2";
+option php_namespace = "Google\\Cloud\\Bigtable\\V2";
+option ruby_package = "Google::Cloud::Bigtable::V2";
+
+extend google.protobuf.MessageOptions {
+  // Only OpenSessionRequest.payload's with a type matching rpc_session_type are
+  // accepted by the server, and only OpenSessionResponse.payload's with a type
+  // matching rpc_session_type are accepted by the client.
+  google.bigtable.v2.SessionType open_session_type = 138898474;
+
+  // Only VirtualRpcRequest.payload's with a type matching rpc_session_type are
+  // accepted by the server, and only VirtualRpcResponse.payload's with a type
+  // matching rpc_session_type are accepted by the client.
+  repeated google.bigtable.v2.SessionType vrpc_session_type = 138899157;
+}
+
+extend google.protobuf.MethodOptions {
+  // All session service methods must set this option to indicate which
+  // messages are permissible within the generic envelope.
+  google.bigtable.v2.SessionType rpc_session_type = 137964804;
+}
+
+// Supported session types.
+enum SessionType {
+  SESSION_TYPE_UNSET = 0;
+
+  SESSION_TYPE_TABLE = 1;
+
+  SESSION_TYPE_AUTHORIZED_VIEW = 2;
+
+  SESSION_TYPE_MATERIALIZED_VIEW = 3;
+
+  // For internal protocol testing only.
+  SESSION_TYPE_TEST = 9999;
+}
+
+// See GetClientConfiguration() RPC in bigtable.proto. Internal usage only.
+message GetClientConfigurationRequest {
+  // Required. The unique name of the instance for which the client will target
+  // with Data API requests.
+  //
+  // Values are of the form `projects/<project>/instances/<instance>`
+  string instance_name = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (google.api.resource_reference) = {
+      type: "bigtableadmin.googleapis.com/Instance"
+    }
+  ];
+
+  // Optional. The name of the AppProfile which will be used by the client when
+  // sending requests in the Data API.
+  //
+  // If not specified, the `default` application profile will be used.
+  string app_profile_id = 2 [(google.api.field_behavior) = OPTIONAL];
+}
+
+// Configuration for how to balance vRPCs over sessions. Internal usage only.
+message LoadBalancingOptions {
+  // Balances vRPCs over backends, preferring to send new vRPCs to AFEs with the
+  // least number of active vRPCs.
+  message LeastInFlight {
+    // Of all connected AFEs, the size of the random subset to run the algorithm
+    // on. Zero implies all connected AFEs.
+    int64 random_subset_size = 1;
+  }
+
+  // Balances vRPCs over backends, by maintaining a moving average of each AFE's
+  // round-trip time, weighted by the number of outstanding vRPCs, and
+  // distribute traffic to AFEs where that cost function is smallest.
+  //
+  // See:
+  // https://linkerd.io/2016/03/16/beyond-round-robin-load-balancing-for-latency
+  message PeakEwma {
+    // Of all connected AFEs, the size of the random subset to compare costs
+    // over. Zero implies all connected AFEs.
+    int64 random_subset_size = 1;
+  }
+
+  // Balances vRPCs over backends, by randomly selecting a backend.
+  message Random {}
+
+  oneof load_balancing_strategy {
+    LeastInFlight least_in_flight = 1;
+
+    PeakEwma peak_ewma = 2;
+
+    Random random = 4;
+  }
+}
+
+// Configuration for the Session API. Internal usage only.
+message SessionClientConfiguration {
+  // Configuration for the channel pool.
+  message ChannelPoolConfiguration {
+    // A channel mode which allows DirectAccess with a fallback to CloudPath if
+    // DirectAccess is unavailable.
+    message DirectAccessWithFallback {
+      // The threshold for errors on DirectAccess to trigger CloudPath fallback.
+      // The error rate is calculated based on a count of vRPCs with errors
+      // divided by a total count of vRPCs, over a rolling window of the past
+      // check_interval. If this ratio exceeds this threshold, the fallback to
+      // CloudPath is triggered. [0, 1].
+      float error_rate_threshold = 1;
+
+      // The interval to check the error rate over.
+      google.protobuf.Duration check_interval = 2;
+    }
+
+    // A channel mode which only allows DirectAccess.
+    message DirectAccessOnly {}
+
+    // A channel mode which only allows CloudPath.
+    message CloudPathOnly {}
+
+    // The minimum number of distcint servers to connect to in the channel pool.
+    // The client will ensure that the channel pool will have at least this many
+    // distinct servers, but may have multiple channels connected to the same
+    // server (e.g. the client may have M channels on N machines, where M > N).
+    int32 min_server_count = 1;
+
+    // The maximum number of distinct servers to connect to in the channel pool.
+    // The client will ensure that the channel pool will have at most this many
+    // distinct servers.
+    int32 max_server_count = 2;
+
+    // Soft maximum for how many sessions are allowed per server. Normally, the
+    // client will ensure that it does not host more than this count of sessions
+    // per server, unless there are other limits encountered (e.g. the connected
+    // servers is already at max_servers).
+    int32 per_server_session_count = 3;
+
+    // The fallback mode of the channel pool.
+    oneof mode {
+      // DirectAccess with a fallback to CloudPath.
+      DirectAccessWithFallback direct_access_with_fallback = 4;
+
+      // DirectAccess only.
+      DirectAccessOnly direct_access_only = 5;
+
+      // CloudPath only.
+      CloudPathOnly cloud_path_only = 6;
+    }
+  }
+
+  // Configuration for the session pools. Session pools are tied to a scope
+  // like a table, an app profile, and a permission.
+  message SessionPoolConfiguration {
+    // Fraction of idle sessions to keep in order to manage an increase in
+    // requests-in-flight. For example, a headroom of 0.5 will keep enough
+    // sessions to deal with a 50% increase in QPS.
+    float headroom = 1;
+
+    // The minimum number of sessions for a given scope.
+    int32 min_session_count = 2;
+
+    // The maximum number of sessions for a given scope.
+    int32 max_session_count = 3;
+
+    // Number of vRPCs that can be queued per starting session.
+    int32 new_session_queue_length = 4;
+
+    // How many concurrent session establishments are allowed. The client will
+    // hold onto a count against this budget whenever it is establishing a new
+    // session, and release that count once the session is successfully
+    // established or failed to establish.
+    int32 new_session_creation_budget = 5;
+
+    // How long to penalize the creation budget for a failed session creation
+    // attempt.
+    google.protobuf.Duration new_session_creation_penalty = 6;
+
+    // A threshold for cancelling all pending vRPCs based on how many
+    // consecutive session establishment errors have been observed. The client
+    // will eagerly cancel queued vRPCs after this threshold is met to avoid
+    // them waiting their entire deadlines before terminating (while waiting for
+    // any session to establish to actually send the vRPC).
+    int32 consecutive_session_failure_threshold = 8;
+
+    // How to balance vRPC load over connections to AFEs.
+    // Set only if session_load > 0.
+    LoadBalancingOptions load_balancing_options = 9;
+  }
+
+  // What share of requests should operate on a session, [0, 1]. The rest
+  // should operate on the old-style API.
+  float session_load = 1;
+
+  LoadBalancingOptions load_balancing_options = 2 [deprecated = true];
+
+  // Configuration for the channel pool.
+  ChannelPoolConfiguration channel_configuration = 3;
+
+  // Configuration for the session pools.
+  SessionPoolConfiguration session_pool_configuration = 4;
+}
+
+// Server provided instructions for enabling finer grained observability on
+// the client to help diagnose customer issues. Internal usage only.
+message TelemetryConfiguration {
+  // The level of detail of telemetry to be sent from the client.
+  enum Level {
+    // Server did not specify a level. Should disable all debug tag counters.
+    LEVEL_UNSPECIFIED = 0;
+
+    // Enables all debug tag counter levels.
+    DEBUG = 1;
+
+    // Eables all debug tag counters except for DEBUG.
+    INFO = 2;
+
+    // Enables all debug tag counters except for DEBUG and INFO.
+    WARN = 3;
+
+    // Enables only error debug tag counters.
+    ERROR = 4;
+  }
+
+  // Selector for the debug counters that should be uploaded.
+  Level debug_tag_level = 1;
+}
+
+// Configuration for the Session API. Internal usage only.
+message ClientConfiguration {
+  message PollingConfiguration {
+    // A duration describing the time between GetClientConfiguration RPCs.
+    // Only strictly positive values are permissible.
+    google.protobuf.Duration polling_interval = 1;
+
+    // How long the client should consider the configuration it receives from
+    // GetClientConfiguration valid for. Once this duration has passed, the
+    // client should consider the configuration invalid and must either:
+    //   - Get a new configuration from GetClientConfiguration
+    //   - Or if it cannot, use a sane default configuration
+    //
+    // This duration will be at least as long as the polling interval.
+    google.protobuf.Duration validity_duration = 2;
+
+    // Number of times the client should retry a failed
+    // GetClientConfiguration RPC per polling interval before giving up.
+    int32 max_rpc_retry_count = 6;
+  }
+
+  // The configuration for Bigtable Sessions.
+  SessionClientConfiguration session_configuration = 2;
+
+  // How often the client should refresh this configuration.
+  oneof polling {
+    // If the client should cease to check for new configurations, e.g. a
+    // backstop to prevent excessive GetClientConfiguration RPCs.
+    bool stop_polling = 3;
+
+    // Deprecated, prerfer polling_configuration.
+    //
+    // A duration describing the time between GetClientConfiguration RPCs.
+    // Only strictly positive values are permissible.
+    google.protobuf.Duration polling_interval = 4 [deprecated = true];
+
+    // If the client should continue to check for new configurations.
+    PollingConfiguration polling_configuration = 5;
+  }
+
+  // Configuration for telemetry.
+  TelemetryConfiguration telemetry_configuration = 6;
+}
+
+// Internal usage only.
+message SessionRequest {
+  oneof payload {
+    OpenSessionRequest open_session = 1;
+
+    CloseSessionRequest close_session = 2;
+
+    VirtualRpcRequest virtual_rpc = 3;
+  }
+}
+
+// Internal usage only.
+message SessionResponse {
+  oneof payload {
+    OpenSessionResponse open_session = 1;
+
+    // A vRPC can result in either a successful result or an error.
+    // Error results are separate to allow for multiple vRPC responses,
+    // e.g. for streaming calls like scans (post-V1). See Flow Control.
+    VirtualRpcResponse virtual_rpc = 2;
+
+    ErrorResponse error = 3;
+
+    SessionParametersResponse session_parameters = 4;
+
+    HeartbeatResponse heartbeat = 5;
+
+    GoAwayResponse go_away = 6;
+
+    SessionRefreshConfig session_refresh_config = 7;
+  }
+}
+
+// Internal usage only.
+message OpenSessionRequest {
+  // A version indicator from the client stating its understanding of the
+  // protocol. This is to disambiguate client behavior amidst changes in
+  // semantic usage of the API, e.g. if the structure remains the same but
+  // behavior changes.
+  int64 protocol_version = 1;
+
+  // Client settings, including a record of
+  FeatureFlags flags = 2;
+
+  // Used for serverside observability.
+  int64 consecutive_failed_connection_attempts = 3;
+
+  // How the request should be routed (if presented as part of a GOAWAY
+  // from a previous session). Post V1.
+  bytes routing_cookie = 4;
+
+  // Can be Open{Table,AuthorizedView,MaterializedView}Request,
+  // (or in post-V1, PrepareSqlQueryRequest)
+  bytes payload = 5;
+}
+
+// Information about the connected backends from a session client's
+// perspective. This information may be used to make choices about session
+// re-establishment en-masse for sessions with the same backend identifiers.
+// Internal usage only.
+message BackendIdentifier {
+  // An opaque identifier for the Google Frontend which serviced this request.
+  // Only set when not using DirectAccess.
+  int64 google_frontend_id = 1;
+
+  // An opaque identifier for the application frontend which serviced this
+  // request.
+  int64 application_frontend_id = 2;
+
+  // The zone of the application frontend that served this request.
+  string application_frontend_zone = 3;
+}
+
+// Internal usage only.
+message OpenSessionResponse {
+  // Information on the backend(s) that are hosting this session.
+  BackendIdentifier backend = 2;
+
+  // Can be Open{Table,AuthorizedView,MaterializedView}Response,
+  // (or in post-V1, PrepareSqlQueryResponse)
+  bytes payload = 1;
+}
+
+// Internal usage only.
+message CloseSessionRequest {
+  // Client-generated reason for terminating the session, including a
+  // plain-text description of why.
+  // 'reason' may be used for metrics, while both may be logged (server-side).
+  enum CloseSessionReason {
+    CLOSE_SESSION_REASON_UNSET = 0;
+
+    CLOSE_SESSION_REASON_GOAWAY = 1;
+
+    CLOSE_SESSION_REASON_ERROR = 2;
+
+    CLOSE_SESSION_REASON_USER = 3;
+
+    CLOSE_SESSION_REASON_DOWNSIZE = 4;
+
+    CLOSE_SESSION_REASON_MISSED_HEARTBEAT = 5;
+  }
+
+  CloseSessionReason reason = 1;
+
+  string description = 2;
+}
+
+// Internal usage only.
+message OpenTableRequest {
+  option (google.bigtable.v2.open_session_type) = SESSION_TYPE_TABLE;
+
+  enum Permission {
+    PERMISSION_UNSET = 0;
+
+    PERMISSION_READ = 1;
+
+    PERMISSION_WRITE = 2;
+
+    PERMISSION_READ_WRITE = 3;
+  }
+
+  string table_name = 1;
+
+  string app_profile_id = 2;
+
+  Permission permission = 3;
+}
+
+// Internal usage only.
+message OpenTableResponse {
+  option (google.bigtable.v2.open_session_type) = SESSION_TYPE_TABLE;
+}
+
+// Open sessions for an AuthorizedView. Internal usage only.
+message OpenAuthorizedViewRequest {
+  option (google.bigtable.v2.open_session_type) = SESSION_TYPE_AUTHORIZED_VIEW;
+
+  enum Permission {
+    PERMISSION_UNSET = 0;
+
+    PERMISSION_READ = 1;
+
+    PERMISSION_WRITE = 2;
+
+    PERMISSION_READ_WRITE = 3;
+  }
+
+  // The Authorized view name to read and write from. Values are of the form
+  // `projects/<project>/instances/<instance>/tables/<table>/authorizedViews/<authorized_view>`.
+  string authorized_view_name = 1;
+
+  // The app profile id to use for the authorized view sessions.
+  string app_profile_id = 2;
+
+  // Permission for the session.
+  Permission permission = 3;
+}
+
+// Internal usage only.
+message OpenAuthorizedViewResponse {
+  option (google.bigtable.v2.open_session_type) = SESSION_TYPE_AUTHORIZED_VIEW;
+}
+
+// Open sessions for a MaterializedView. Internal usage only.
+message OpenMaterializedViewRequest {
+  option (google.bigtable.v2.open_session_type) =
+      SESSION_TYPE_MATERIALIZED_VIEW;
+
+  enum Permission {
+    PERMISSION_UNSET = 0;
+
+    PERMISSION_READ = 1;
+  }
+
+  // The Materialized view name to read and write from. Values are of the form
+  // `projects/<project>/instances/<instance>/materializedViews/<materialized_view>`.
+  string materialized_view_name = 1;
+
+  // The app profile id to use for the materialized view sessions.
+  string app_profile_id = 2;
+
+  // Permission for the session.
+  Permission permission = 3;
+}
+
+// Internal usage only.
+message OpenMaterializedViewResponse {
+  option (google.bigtable.v2.open_session_type) =
+      SESSION_TYPE_MATERIALIZED_VIEW;
+}
+
+// Internal usage only.
+message VirtualRpcRequest {
+  // Container for all vRPC Metadata.
+  message Metadata {
+    // Track retry attempts for this vRPC at the AFE.
+    int64 attempt_number = 1;
+
+    // Track the client's known start time for the attempt. This is likely not
+    // easily compared with the server's time due to clock skew.
+    google.protobuf.Timestamp attempt_start = 2;
+
+    // Link OpenTelemetry traces (e.g. Tapper). This can be used to link
+    // attempts together for the same logical operation (e.g. in logs / traces).
+    //
+    // Note, this may not be needed for V1, TBD.
+    string traceparent = 3;
+  }
+
+  // Client chosen, monotonically increasing identifier for the request.
+  // Must be unique within a session.
+  int64 rpc_id = 1;
+
+  // Attempt deadline.
+  //
+  // Note, this may not be needed for V1, TBD (e.g. operation vs attempt
+  // deadline).
+  google.protobuf.Duration deadline = 2;
+
+  // vRPC metadata.
+  Metadata metadata = 3;
+
+  // Could be TableRequest (or in post-V1, SqlRequest)
+  bytes payload = 4;
+}
+
+// Information on which Cluster served a vRPC, e.g. for Client-Side metrics.
+// Internal usage only.
+message ClusterInformation {
+  string cluster_id = 1;
+
+  string zone_id = 2;
+}
+
+// Internal usage only.
+message SessionRequestStats {
+  // Backend (critical section) latency for the request.
+  google.protobuf.Duration backend_latency = 1;
+}
+
+// Internal usage only.
+message VirtualRpcResponse {
+  // Which vRPC this response is for.
+  int64 rpc_id = 1;
+
+  ClusterInformation cluster_info = 2;
+
+  SessionRequestStats stats = 4;
+
+  // Could be TableResponse (or in post-V1, SqlResponse)
+  bytes payload = 3;
+}
+
+// Internal usage only.
+message ErrorResponse {
+  // Which vRPC this response is for.
+  int64 rpc_id = 1;
+
+  ClusterInformation cluster_info = 2;
+
+  // The error from the vRPC and any retry information to consider.
+  google.rpc.Status status = 3;
+
+  google.rpc.RetryInfo retry_info = 4;
+}
+
+// Internal usage only.
+message TableRequest {
+  option (google.bigtable.v2.vrpc_session_type) = SESSION_TYPE_TABLE;
+
+  // Note in V1 we target only pure point operations.
+  oneof payload {
+    SessionReadRowRequest read_row = 1;
+
+    SessionMutateRowRequest mutate_row = 2;
+  }
+}
+
+// Internal usage only.
+message TableResponse {
+  option (google.bigtable.v2.vrpc_session_type) = SESSION_TYPE_TABLE;
+
+  oneof payload {
+    SessionReadRowResponse read_row = 1;
+
+    SessionMutateRowResponse mutate_row = 2;
+  }
+}
+
+// A request wrapper for operations on an authorized view. Internal usage only.
+message AuthorizedViewRequest {
+  option (google.bigtable.v2.vrpc_session_type) = SESSION_TYPE_AUTHORIZED_VIEW;
+
+  // Note in V1 we target only pure point operations.
+  oneof payload {
+    SessionReadRowRequest read_row = 1;
+
+    SessionMutateRowRequest mutate_row = 2;
+  }
+}
+
+// A response wrapper for operations on an authorized view. Internal usage only.
+message AuthorizedViewResponse {
+  option (google.bigtable.v2.vrpc_session_type) = SESSION_TYPE_AUTHORIZED_VIEW;
+
+  // Note in V1 we target only pure point operations.
+  oneof payload {
+    SessionReadRowResponse read_row = 1;
+
+    SessionMutateRowResponse mutate_row = 2;
+  }
+}
+
+// A request wrapper for operations on a materialized view. Internal usage only.
+message MaterializedViewRequest {
+  option (google.bigtable.v2.vrpc_session_type) =
+      SESSION_TYPE_MATERIALIZED_VIEW;
+
+  // Note in V1 we target only pure point operations.
+  oneof payload {
+    SessionReadRowRequest read_row = 1;
+  }
+}
+
+// A response wrapper for operations on a materialized view. Internal usage
+// only.
+message MaterializedViewResponse {
+  option (google.bigtable.v2.vrpc_session_type) =
+      SESSION_TYPE_MATERIALIZED_VIEW;
+
+  // Note in V1 we target only pure point operations.
+  oneof payload {
+    SessionReadRowResponse read_row = 1;
+  }
+}
+
+// Internal usage only.
+message SessionReadRowRequest {
+  bytes key = 1;
+
+  RowFilter filter = 2;
+}
+
+// Internal usage only.
+message SessionReadRowResponse {
+  Row row = 1;
+
+  RequestStats stats = 2;
+}
+
+// Internal usage only.
+message SessionMutateRowRequest {
+  bytes key = 1;
+
+  repeated Mutation mutations = 2;
+}
+
+// Internal usage only.
+message SessionMutateRowResponse {}
+
+// Internal usage only.
+message SessionParametersResponse {
+  // Maximum time between messages that the AFE will send to the client. The
+  // client may use this information to determine its control-flow in relation
+  // to pruning black-holed or otherwise non-responsive sessions. Must be set
+  // and positive.
+  //
+  // See also Heartbeats.
+  google.protobuf.Duration keep_alive = 1;
+}
+
+// Internal usage only.
+message HeartbeatResponse {}
+
+// Internal usage only.
+message GoAwayResponse {
+  // Server-generated reason for GOAWAY, including a plain-text description of
+  // why. 'reason' may be used for CSM, while both may be logged.
+  string reason = 1;
+
+  string description = 2;
+
+  // The last vRPC which was admitted by the AFE. The client may expect the
+  // result from the vRPC on the stream before disconnecting, and should
+  // retry vRPCs beyond this boundary.
+  int64 last_rpc_id_admitted = 3;
+}
+
+// Internal usage only.
+message SessionRefreshConfig {
+  // Any additional metadata to include when reconnecting. Not a `map<>` type as
+  // this can be a multimap.
+  message Metadata {
+    // Output only. The key for the metadata entry.
+    string key = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Output only. The value for the metadata entry.
+    bytes value = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  }
+
+  // An optimized Open request that the session may use on a retry when
+  // establishing this session again. This can be sent from the AFE to
+  // avoid certain work e.g. encoding a query plan for BTQL.
+  OpenSessionRequest optimized_open_request = 1;
+
+  // Output only. Any additional metadata to include when reconnecting.
+  repeated Metadata metadata = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+}

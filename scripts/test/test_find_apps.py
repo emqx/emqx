@@ -193,6 +193,15 @@ def parse_found_apps(output: str) -> Set[str]:
         return set()
 
 
+def parse_matrix_entries(output: str) -> List[dict]:
+    """Parse JSON output from find_apps.py."""
+    try:
+        data = json.loads(output)
+        return data if isinstance(data, list) else []
+    except json.JSONDecodeError:
+        return []
+
+
 def assert_find_apps(
     project_root: Path,
     test_name: str,
@@ -341,8 +350,66 @@ def test_change_multiple_apps(project_root: Path, original_head: str):
     )
 
 
+def test_change_docker_plugin(project_root: Path, original_head: str):
+    """Test 5: Change a plugin with docker-ct."""
+    test_plugin = "emqx_agent"
+    test_plugin_path = project_root / "plugins" / test_plugin
+
+    if not test_plugin_path.exists():
+        pytest.skip(f"{test_plugin_path} does not exist")
+
+    make_change(project_root, test_plugin_path)
+
+    output, exit_code = run_find_apps(project_root, original_head)
+
+    if exit_code != 0:
+        pytest.fail(f"find_apps.py exited with code {exit_code}\nOutput: {output}")
+
+    entries = parse_matrix_entries(output)
+    expected_app = f"plugins/{test_plugin}"
+    matching = [entry for entry in entries if entry.get("app") == expected_app]
+
+    if not matching:
+        pytest.fail(f"Missing expected plugin: {expected_app}")
+
+    runners = {entry.get("runner") for entry in matching}
+    if runners != {"docker"}:
+        pytest.fail(f"Expected {expected_app} to use docker runner, got: {sorted(runners)}")
+
+    print("PASS")
+
+
+def test_change_host_plugin(project_root: Path, original_head: str):
+    """Test 6: Change a plugin without docker-ct."""
+    test_plugin = "emqx_acme"
+    test_plugin_path = project_root / "plugins" / test_plugin
+
+    if not test_plugin_path.exists():
+        pytest.skip(f"{test_plugin_path} does not exist")
+
+    make_change(project_root, test_plugin_path)
+
+    output, exit_code = run_find_apps(project_root, original_head)
+
+    if exit_code != 0:
+        pytest.fail(f"find_apps.py exited with code {exit_code}\nOutput: {output}")
+
+    entries = parse_matrix_entries(output)
+    expected_app = f"plugins/{test_plugin}"
+    matching = [entry for entry in entries if entry.get("app") == expected_app]
+
+    if not matching:
+        pytest.fail(f"Missing expected plugin: {expected_app}")
+
+    runners = {entry.get("runner") for entry in matching}
+    if runners != {"host"}:
+        pytest.fail(f"Expected {expected_app} to use host runner, got: {sorted(runners)}")
+
+    print("PASS")
+
+
 def test_change_mix_exs(project_root: Path, original_head: str):
-    """Test 5: Change mix.exs (should trigger all apps)."""
+    """Test 7: Change mix.exs (should trigger all apps)."""
     mix_exs = project_root / "mix.exs"
 
     if not mix_exs.exists():
@@ -379,7 +446,7 @@ def test_change_mix_exs(project_root: Path, original_head: str):
 
 
 def test_change_github_directory(project_root: Path, original_head: str):
-    """Test 6: Change .github directory (should trigger all apps)."""
+    """Test 8: Change .github directory (should trigger all apps)."""
     github_dir = project_root / ".github"
 
     if not github_dir.exists():

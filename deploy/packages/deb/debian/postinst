@@ -35,6 +35,20 @@ chmod -R 0755 /usr/lib/emqx/bin
 ln -s /usr/lib/emqx/bin/emqx /usr/bin/emqx
 ln -s /usr/lib/emqx/bin/emqx_ctl /usr/bin/emqx_ctl
 
+# Expose the scattered FHS layout under /opt/emqx so paths match the docker image.
+mkdir -p /opt/emqx
+ln -sfn /usr/lib/emqx/bin      /opt/emqx/bin
+ln -sfn /var/lib/emqx          /opt/emqx/data
+ln -sfn /etc/emqx              /opt/emqx/etc
+ln -sfn /usr/lib/emqx/lib      /opt/emqx/lib
+ln -sfn /var/log/emqx          /opt/emqx/log
+ln -sfn /usr/lib/emqx/plugins  /opt/emqx/plugins
+ln -sfn /usr/lib/emqx/releases /opt/emqx/releases
+for erts in /usr/lib/emqx/erts-*; do
+    [ -d "$erts" ] || continue
+    ln -sfn "$erts" "/opt/emqx/$(basename "$erts")"
+done
+
 if systemctl status --no-pager; then
     systemctl enable emqx;
 else

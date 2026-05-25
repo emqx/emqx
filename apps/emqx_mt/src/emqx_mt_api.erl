@@ -480,7 +480,8 @@ fields(client_limiter_in) ->
         {bytes, mk(ref(limiter_options), #{})},
         {messages, mk(ref(limiter_options), #{})},
         {delivery_bytes, mk(ref(limiter_options), #{})},
-        {delivery_messages, mk(ref(limiter_options), #{})}
+        {delivery_messages, mk(ref(limiter_options), #{})},
+        {subscribes, mk(ref(limiter_options), #{})}
     ];
 fields(session_config_in) ->
     [

@@ -70,6 +70,7 @@ hard_coded_connector_info_modules_ee() ->
         emqx_bridge_azure_event_grid_connector_info,
         emqx_bridge_azure_event_hub_connector_info,
         emqx_bridge_bigquery_connector_info,
+        emqx_bridge_bigtable_connector_info,
         emqx_bridge_cassandra_connector_info,
         emqx_bridge_clickhouse_connector_info,
         emqx_bridge_cockroachdb_connector_info,

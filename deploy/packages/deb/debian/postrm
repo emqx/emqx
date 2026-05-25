@@ -19,11 +19,26 @@
 
 set -e
 
+# Remove the /opt/emqx convenience symlinks installed by postinst.
+# Only touch symlinks we own, so anything the user dropped into /opt/emqx is left alone.
+cleanup_opt_emqx() {
+    [ -d /opt/emqx ] || return 0
+    for entry in /opt/emqx/bin /opt/emqx/data /opt/emqx/etc /opt/emqx/lib \
+                 /opt/emqx/log /opt/emqx/plugins /opt/emqx/releases \
+                 /opt/emqx/erts-*; do
+        if [ -L "$entry" ]; then
+            rm -f "$entry"
+        fi
+    done
+    rmdir /opt/emqx 2>/dev/null || true
+}
+
 case "$1" in
     purge)
         # force kill all processes owned by emqx, if any
         pkill -9 -u emqx || true
         rm -f /etc/default/emqx
+        cleanup_opt_emqx
 
         if [ -d /var/lib/emqx ]; then
                 rm -r /var/lib/emqx
@@ -66,6 +81,7 @@ case "$1" in
     remove)
         rm /usr/bin/emqx
         rm /usr/bin/emqx_ctl
+        cleanup_opt_emqx
     ;;
 
     upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
