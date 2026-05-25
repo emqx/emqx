@@ -203,7 +203,7 @@ NEW_VSN="$TARGET_VSN" BEAM_FILE="$EMQX_RELEASE_BEAM" \
 # Lift the package "flavor" (e.g. "emqx-enterprise") from the source
 # package basename — it's the literal text before "-<CURR_VSN>".
 SOURCE_BASE="$(basename "$SOURCE_PKG" .tar.gz)"
-FLAVOR="${SOURCE_BASE%%-$CURR_VSN-*}"
+FLAVOR="${SOURCE_BASE%%-"$CURR_VSN"-*}"
 if [ "$FLAVOR" = "$SOURCE_BASE" ]; then
     # CURR_VSN not in filename — fall back to a sensible default.
     FLAVOR="emqx"
