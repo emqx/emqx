@@ -153,6 +153,43 @@ t_sentinel_auth_master_auth_sentinel_auth(_Config) ->
         sentinel_auth => password
     }).
 
+t_sentinel_dry_run_rejects_stale_sentinel_auth(_Config) ->
+    ResourceId = <<"emqx_redis_SUITE_sentinel_dry_run_auth">>,
+    GoodConfig = redis_config_sentinel_auth_matrix(
+        ?REDIS_SENTINEL_S_AUTH_M_NO_AUTH_HOST,
+        none,
+        password
+    ),
+    BadConfig = redis_config_sentinel_auth_matrix(
+        ?REDIS_SENTINEL_S_AUTH_M_NO_AUTH_HOST,
+        none,
+        wrong_username
+    ),
+    {ok, #{config := GoodCheckedConfig}} =
+        emqx_resource:check_config(?REDIS_RESOURCE_MOD, GoodConfig),
+    {ok, #{config := BadCheckedConfig}} =
+        emqx_resource:check_config(?REDIS_RESOURCE_MOD, BadConfig),
+    try
+        {ok, #{status := connected}} = emqx_resource:create_local(
+            ResourceId,
+            ?CONNECTOR_RESOURCE_GROUP,
+            ?REDIS_RESOURCE_MOD,
+            GoodCheckedConfig,
+            #{spawn_buffer_workers => true}
+        ),
+        ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId)),
+        ?assertMatch(
+            {error, {sentinel_error, #{type := authentication_error}}},
+            emqx_resource:create_dry_run_local(
+                <<"emqx_redis_SUITE_sentinel_dry_run_wrong_auth">>,
+                ?REDIS_RESOURCE_MOD,
+                BadCheckedConfig
+            )
+        )
+    after
+        catch emqx_resource:remove_local(ResourceId)
+    end.
+
 perform_lifecycle_check(ResourceId, InitialConfig, RedisCommand) ->
     {ok, #{config := CheckedConfig}} =
         emqx_resource:check_config(?REDIS_RESOURCE_MOD, InitialConfig),
@@ -290,6 +327,10 @@ sentinel_auth_config(none) ->
 sentinel_auth_config(password) ->
     "" ++
         "    sentinel_username = \"sentinel_user\"\n" ++
+        "    sentinel_password = \"sentinel-password\"\n";
+sentinel_auth_config(wrong_username) ->
+    "" ++
+        "    sentinel_username = \"wrong_sentinel_user\"\n" ++
         "    sentinel_password = \"sentinel-password\"\n".
 
 run_sentinel_auth_matrix_case(#{

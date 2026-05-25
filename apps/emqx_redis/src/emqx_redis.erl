@@ -34,6 +34,7 @@
 -define(REDIS_HOST_OPTIONS, #{
     default_port => ?REDIS_DEFAULT_PORT
 }).
+-define(SENTINEL_VALIDATION_CLIENT, sentinel_validation_client).
 
 %%=====================================================================
 namespace() -> "redis".
@@ -137,24 +138,104 @@ on_start(InstId, Config0) ->
     State = #{pool_name => InstId, type => Type},
     ok = emqx_resource:allocate_resource(InstId, ?MODULE, type, Type),
     ok = emqx_resource:allocate_resource(InstId, ?MODULE, pool_name, InstId),
-    case Type of
-        cluster ->
-            case eredis_cluster:start_pool(InstId, Opts) of
-                {ok, _} ->
-                    {ok, State};
-                {ok, _, _} ->
-                    {ok, State};
-                {error, Reason} ->
-                    {error, Reason}
-            end;
-        _ ->
-            case emqx_resource_pool:start(InstId, ?MODULE, Opts) of
-                ok ->
-                    {ok, State};
-                {error, Reason} ->
-                    {error, Reason}
-            end
+    case validate_sentinel_connection(Type, InstId, Config, Options) of
+        ok ->
+            do_start(Type, InstId, Opts, State);
+        {error, Reason} ->
+            {error, Reason}
     end.
+
+do_start(cluster, InstId, Opts, State) ->
+    case eredis_cluster:start_pool(InstId, Opts) of
+        {ok, _} ->
+            {ok, State};
+        {ok, _, _} ->
+            {ok, State};
+        {error, Reason} ->
+            {error, Reason}
+    end;
+do_start(_Type, InstId, Opts, State) ->
+    case emqx_resource_pool:start(InstId, ?MODULE, Opts) of
+        ok ->
+            {ok, State};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+validate_sentinel_connection(sentinel, InstId, Config, Options) ->
+    Servers = servers(Config),
+    Sentinel = maps:get(sentinel, Config),
+    SentinelOptions = sentinel_client_options(Config, Options),
+    validate_sentinel_servers(InstId, Servers, Sentinel, SentinelOptions, []);
+validate_sentinel_connection(_Type, _InstId, _Config, _Options) ->
+    ok.
+
+validate_sentinel_servers(_InstId, [], _Sentinel, _Options, Errors) ->
+    {error, {sentinel_error, sentinel_error_reason(Errors)}};
+validate_sentinel_servers(InstId, [{Host, Port} | Rest], Sentinel, Options, Errors) ->
+    case eredis_sentinel_client:start_link(Host, Port, Options) of
+        {ok, Pid} ->
+            ok = emqx_resource:allocate_resource(InstId, ?MODULE, ?SENTINEL_VALIDATION_CLIENT, Pid),
+            try query_sentinel_master(Pid, Sentinel) of
+                {ok, _} ->
+                    ok;
+                {error, Reason} ->
+                    validate_sentinel_servers(InstId, Rest, Sentinel, Options, [Reason | Errors])
+            after
+                ok = cleanup_sentinel_validation_client(InstId, Pid)
+            end;
+        {error, Reason} ->
+            validate_sentinel_servers(InstId, Rest, Sentinel, Options, [Reason | Errors])
+    end.
+
+sentinel_error_reason([Reason | _]) ->
+    Reason;
+sentinel_error_reason([]) ->
+    sentinel_unreachable.
+
+query_sentinel_master(Pid, Sentinel) ->
+    Command = ["SENTINEL", "get-master-addr-by-name", Sentinel],
+    try sentinel_master_response(eredis:q(Pid, Command)) of
+        Result ->
+            Result
+    catch
+        _:_ ->
+            {error, sentinel_unreachable}
+    end.
+
+sentinel_master_response({ok, [_HostBin, PortBin]}) when is_binary(PortBin) ->
+    _ = binary_to_integer(PortBin),
+    {ok, connected};
+sentinel_master_response({ok, undefined}) ->
+    {error, sentinel_master_unknown};
+sentinel_master_response({error, <<"IDONTKNOW", _Rest/binary>>}) ->
+    {error, sentinel_master_unreachable};
+sentinel_master_response({error, Reason}) ->
+    {error, Reason};
+sentinel_master_response(_) ->
+    {error, sentinel_unreachable}.
+
+sentinel_client_options(Config, Options) ->
+    Options0 = lists:keydelete(sentinel, 1, Options),
+    Options1 = prepend_option(password, maps:get(sentinel_password, Config, ""), Options0),
+    prepend_option(username, maps:get(sentinel_username, Config, undefined), Options1).
+
+prepend_option(_Key, undefined, Options) ->
+    Options;
+prepend_option(Key, Value, Options) ->
+    [{Key, Value} | lists:keydelete(Key, 1, Options)].
+
+cleanup_sentinel_validation_client(InstId, Pid) ->
+    ok = stop_sentinel_validation_client(Pid),
+    ok = emqx_resource:deallocate_resource(InstId, ?SENTINEL_VALIDATION_CLIENT).
+
+stop_sentinel_validation_client(#{?SENTINEL_VALIDATION_CLIENT := Pid}) ->
+    stop_sentinel_validation_client(Pid);
+stop_sentinel_validation_client(Pid) when is_pid(Pid) ->
+    eredis_sentinel_client:stop(Pid),
+    ok;
+stop_sentinel_validation_client(_Resources) ->
+    ok.
 
 ssl_options(SSL = #{enable := true}) ->
     [
@@ -169,7 +250,9 @@ on_stop(InstId, _State) ->
         msg => "stopping_redis_connector",
         connector => InstId
     }),
-    case emqx_resource:get_allocated_resources(InstId) of
+    Resources = emqx_resource:get_allocated_resources(InstId),
+    ok = stop_sentinel_validation_client(Resources),
+    case Resources of
         #{pool_name := PoolName, type := cluster} ->
             case eredis_cluster:stop_pool(PoolName) of
                 {error, not_found} -> ok;
