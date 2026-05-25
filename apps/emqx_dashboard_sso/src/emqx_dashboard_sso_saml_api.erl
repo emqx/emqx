@@ -78,7 +78,16 @@ schema("/sso/saml/metadata") ->
             responses => #{
                 200 => emqx_dashboard_api:fields([token, version, license]),
                 404 => response_schema(404)
-            }
+            },
+            %% SAML SP metadata is an unauthenticated SSO protocol
+            %% artifact fetched by the IdP to configure the trust
+            %% relationship. Mark it `security => []' so minirest
+            %% bypasses auth — without this, the dashboard JWT path
+            %% reaches `check_login_user_scopes', the path maps to
+            %% `?SCOPE_DENIED' via `scopes/0', and bearer admins get
+            %% 403. The companion endpoint `/sso/saml/acs' is already
+            %% marked public for the same reason.
+            security => []
         }
     }.
 
