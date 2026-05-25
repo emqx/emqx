@@ -34,6 +34,7 @@ init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
+            emqx_modules,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
@@ -257,7 +258,7 @@ t_trace(_Config) ->
 
 t_traces(_Config) ->
     %% traces list                             # List all cluster traces started
-    emqx_ctl:run_command(["traces", "list"]),
+    0 = emqx_ctl:run_command(["traces", "list"]),
     %% traces start <Name> client <ClientId>   # Traces for a client in cluster
     %% traces start <Name> topic <Topic>       # Traces for a topic in cluster
     %% traces start <Name> ip_address <IPAddr> # Traces for a IP in cluster
@@ -266,29 +267,40 @@ t_traces(_Config) ->
     ok.
 
 t_traces_client(_Config) ->
-    TraceC = "TraceNameClientID",
-    emqx_ctl:run_command(["traces", "start", TraceC, "client", "ClientID"]),
-    emqx_ctl:run_command(["traces", "stop", TraceC]),
-    emqx_ctl:run_command(["traces", "delete", TraceC]).
+    Name = "TraceNameClientID",
+    ok = emqx_ctl:run_command(["traces", "start", Name, "client", "ClientID"]),
+    1 = emqx_ctl:run_command(["traces", "list"]),
+    ok = emqx_ctl:run_command(["traces", "stop", Name]),
+    ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
 t_traces_client_with_duration(_Config) ->
-    TraceC = "TraceNameClientID",
+    Name = "TraceNameClientID",
     Duration = "1000",
-    emqx_ctl:run_command(["traces", "start", TraceC, "client", "ClientID", Duration]),
-    emqx_ctl:run_command(["traces", "stop", TraceC]),
-    emqx_ctl:run_command(["traces", "delete", TraceC]).
+    ok = emqx_ctl:run_command(["traces", "start", Name, "client", "ClientID", Duration]),
+    1 = emqx_ctl:run_command(["traces", "list"]),
+    ok = emqx_ctl:run_command(["traces", "stop", Name]),
+    ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
 t_traces_topic(_Config) ->
-    TraceT = "TraceNameTopic",
-    emqx_ctl:run_command(["traces", "start", TraceT, "topic", "a/b"]),
-    emqx_ctl:run_command(["traces", "stop", TraceT]),
-    emqx_ctl:run_command(["traces", "delete", TraceT]).
+    Name = "TraceNameTopic",
+    ok = emqx_ctl:run_command(["traces", "start", Name, "topic", "a/b"]),
+    1 = emqx_ctl:run_command(["traces", "list"]),
+    ok = emqx_ctl:run_command(["traces", "stop", Name]),
+    ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
 t_traces_ip(_Config) ->
-    TraceI = "TraceNameIP",
-    emqx_ctl:run_command(["traces", "start", TraceI, "ip_address", "127.0.0.1"]),
-    emqx_ctl:run_command(["traces", "stop", TraceI]),
-    emqx_ctl:run_command(["traces", "delete", TraceI]).
+    Name = "TraceNameIP",
+    ok = emqx_ctl:run_command(["traces", "start", Name, "ip_address", "127.0.0.1"]),
+    1 = emqx_ctl:run_command(["traces", "list"]),
+    ok = emqx_ctl:run_command(["traces", "stop", Name]),
+    ok = emqx_ctl:run_command(["traces", "delete", Name]).
+
+t_traces_rule(_Config) ->
+    Name = "TraceNameRule",
+    ok = emqx_ctl:run_command(["traces", "start", Name, "ruleid", "rule:42"]),
+    1 = emqx_ctl:run_command(["traces", "list"]),
+    ok = emqx_ctl:run_command(["traces", "stop", Name]),
+    ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
 t_listeners(_Config) ->
     %% listeners                      # List listeners
