@@ -13,7 +13,9 @@ are arbitrary; `<from>-to-<to>.relup` is the convention.
     from_version => "5.10.4",
     target_version => "5.10.5",
     code_changes => [
-        {load_module, emqx_some_module},
+        % must always reload emqx_release module
+        {load_module, emqx_release},
+        {load_module, another_module},
         {update, emqx_other, {advanced, ExtraTerm}},
         {restart_application, emqx_something}
     ],
