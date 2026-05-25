@@ -21,6 +21,7 @@ init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
+            emqx_modules,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
@@ -218,7 +219,7 @@ t_trace(_Config) ->
 
 t_traces(_Config) ->
     %% traces list                             # List all cluster traces started
-    emqx_ctl:run_command(["traces", "list"]),
+    0 = emqx_ctl:run_command(["traces", "list"]),
     %% traces start <Name> client <ClientId>   # Traces for a client in cluster
     %% traces start <Name> topic <Topic>       # Traces for a topic in cluster
     %% traces start <Name> ip_address <IPAddr> # Traces for a IP in cluster
