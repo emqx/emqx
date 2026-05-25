@@ -31,6 +31,7 @@
 
 -export([render/2, render/3]).
 -export([compile/1, decompile/1]).
+-export([sc/1, compile_variform/2]).
 
 -export_type([compiled/0]).
 
@@ -125,7 +126,9 @@ do_compile(Expression) ->
     case emqx_variform_scan:string(Expression) of
         {ok, Tokens, _Line} ->
             case emqx_variform_parser:parse(Tokens) of
-                {ok, Form} ->
+                {ok, Form0} ->
+                    Form1 = pre_split_vars(Form0),
+                    Form = pre_convert_str_to_binary(Form1),
                     {ok, #{expr => Expression, form => Form}};
                 {error, {_, emqx_variform_parser, Msg}} ->
                     %% syntax error
@@ -147,7 +150,7 @@ eval(Atom, _Bindings, _Opts) when is_atom(Atom) ->
     %% but some bif functions such as regex_match may return an atom.
     atom_to_binary(Atom, utf8);
 eval({str, Str}, _Bindings, _Opts) ->
-    unicode:characters_to_binary(Str);
+    Str;
 eval({integer, Num}, _Bindings, _Opts) ->
     Num;
 eval({float, Num}, _Bindings, _Opts) ->
@@ -285,16 +288,16 @@ resolve_func_name(FuncNameStr) ->
             throw(#{reason => invalid_function_reference, function => FuncNameStr})
     end.
 
-%% _Opts can be extended in the future. For example, unbound var as 'undfeined'
-resolve_var_value(VarName, Bindings, _Opts) ->
-    case emqx_template:lookup_var(split(VarName), Bindings) of
+%% _Opts can be extended in the future. For example, unbound var as 'undefined'
+resolve_var_value({VarName, PrettyVarName}, Bindings, _Opts) ->
+    case emqx_template:lookup_var_precomputed_fallback(VarName, Bindings) of
         {ok, Value} when ?IS_EMPTY(Value) ->
             <<"">>;
         {ok, Value} ->
             Value;
         {error, _Reason} ->
             throw(#{
-                var_name => iolist_to_binary(VarName),
+                var_name => PrettyVarName,
                 reason => var_unbound
             })
     end.
@@ -356,3 +359,58 @@ get_allowed_modules() ->
 
 split(VarName) ->
     lists:map(fun erlang:iolist_to_binary/1, string:tokens(VarName, ".")).
+
+pre_split_vars({var, VarName}) ->
+    Segments0 = split(VarName),
+    Segments = lists:map(
+        fun(S) ->
+            case emqx_utils:safe_to_existing_atom(S, utf8) of
+                {ok, A} ->
+                    {S, A};
+                {error, _} ->
+                    %% fall back to previous non-optimized behavior:
+                    %% treat non-existent atom as missing key
+                    S
+            end
+        end,
+        Segments0
+    ),
+    {var, {Segments, iolist_to_binary(VarName)}};
+pre_split_vars({call, Fn, Args}) ->
+    {call, Fn, lists:map(fun pre_split_vars/1, Args)};
+pre_split_vars({array, Xs}) ->
+    {array, lists:map(fun pre_split_vars/1, Xs)};
+pre_split_vars(X) ->
+    X.
+
+pre_convert_str_to_binary({str, Str}) ->
+    {str, unicode:characters_to_binary(Str)};
+pre_convert_str_to_binary({array, Xs}) ->
+    {array, lists:map(fun pre_convert_str_to_binary/1, Xs)};
+pre_convert_str_to_binary({call, Fn, Args}) ->
+    {call, Fn, lists:map(fun pre_convert_str_to_binary/1, Args)};
+pre_convert_str_to_binary(X) ->
+    X.
+
+sc(#{} = Opts) ->
+    hoconsc:mk(
+        typerefl:alias("string", typerefl:any()),
+        maps:merge(#{converter => fun compile_variform/2}, Opts)
+    ).
+
+compile_variform(undefined, _Opts) ->
+    undefined;
+compile_variform(Expression, #{make_serializable := true}) ->
+    case is_binary(Expression) of
+        true ->
+            Expression;
+        false ->
+            emqx_variform:decompile(Expression)
+    end;
+compile_variform(Expression, _Opts) ->
+    case emqx_variform:compile(Expression) of
+        {ok, Compiled} ->
+            Compiled;
+        {error, Reason} ->
+            throw(#{expression => Expression, reason => Reason})
+    end.

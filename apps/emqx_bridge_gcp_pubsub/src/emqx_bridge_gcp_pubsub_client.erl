@@ -27,6 +27,13 @@
     do_get_attached_sa_token/0
 ]).
 
+%% Internal exports for other GCP-based connectors
+-export([
+    stop_auth_resources/2,
+    maybe_initialize_auth_resources/2,
+    get_authorization_token/1
+]).
+
 %% Only for tests.
 -export([get_transport/1, do_metadata_request/1]).
 
@@ -233,6 +240,18 @@ stop(ResourceId, Ctx) ->
         msg => "stopping_gcp_client",
         connector => ResourceId
     }),
+    stop_auth_resources(ResourceId, Ctx),
+    case ehttpc_sup:stop_pool(ResourceId) of
+        ok ->
+            ok;
+        {error, not_found} ->
+            ok;
+        Error ->
+            Error
+    end.
+
+-spec stop_auth_resources(resource_id(), stop_ctx()) -> ok.
+stop_auth_resources(ResourceId, Ctx) ->
     ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, ResourceId),
     maybe
         #{token_table := Tab, supervisor := Sup} ?= Ctx,
@@ -243,14 +262,7 @@ stop(ResourceId, Ctx) ->
         _ = emqx_connector_jwt_token_cache:unregister(ServerRef, ResourceId),
         _ = emqx_connector_jwt_token_cache:clear_cache(Tab1, ResourceId)
     end,
-    case ehttpc_sup:stop_pool(ResourceId) of
-        ok ->
-            ok;
-        {error, not_found} ->
-            ok;
-        Error ->
-            Error
-    end.
+    ok.
 
 -spec query_sync(
     {prepared_request, prepared_request(), request_opts()},
@@ -675,20 +687,24 @@ fmt(FmtStr, Context) ->
     iolist_to_binary(emqx_template:render_strict(Template, Context)).
 
 -spec get_authorization_header(auth_state()) -> [{binary(), binary()}].
-get_authorization_header(#{type := attached_service_account} = AuthConfig) ->
+get_authorization_header(#{} = AuthConfig) ->
+    JWT = get_authorization_token(AuthConfig),
+    [{<<"Authorization">>, <<"Bearer ", JWT/binary>>}].
+
+get_authorization_token(#{type := attached_service_account} = AuthConfig) ->
     #{
         sa_server_ref := ServerRef,
         sa_token_table := Tab,
         resource_id := ResId
     } = AuthConfig,
     {ok, JWT} = get_or_refresh_attached_sa_token(ServerRef, Tab, ResId),
-    [{<<"Authorization">>, <<"Bearer ", JWT/binary>>}];
-get_authorization_header(#{type := service_account_json, jwt_config := JWTConfig}) ->
+    JWT;
+get_authorization_token(#{type := service_account_json, jwt_config := JWTConfig}) ->
     JWT = emqx_connector_jwt:ensure_jwt(JWTConfig),
-    [{<<"Authorization">>, <<"Bearer ", JWT/binary>>}];
-get_authorization_header(#{type := wif, resource_id := ResourceId, token_table := Tab}) ->
+    JWT;
+get_authorization_token(#{type := wif, resource_id := ResourceId, token_table := Tab}) ->
     [?TOKEN_ROW(_, JWT)] = ets:lookup(Tab, ResourceId),
-    [{<<"Authorization">>, <<"Bearer ", JWT/binary>>}].
+    JWT.
 
 -spec do_send_requests_sync(
     state(),

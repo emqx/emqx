@@ -206,8 +206,11 @@ for dep in ${CT_DEPS}; do
             FILES+=( '.ci/docker-compose-file/docker-compose-minio-tcp.yaml'
                      '.ci/docker-compose-file/docker-compose-minio-tls.yaml' )
             ;;
-        gcp_emulator)
+        gcp_emulator_pubsub)
             FILES+=( '.ci/docker-compose-file/docker-compose-gcp-emulator.yaml' )
+            ;;
+        gcp_emulator_bigtable)
+            FILES+=( '.ci/docker-compose-file/docker-compose-gcp-bigtable.yaml' )
             ;;
         kinesis)
             FILES+=( '.ci/docker-compose-file/docker-compose-kinesis.yaml' )

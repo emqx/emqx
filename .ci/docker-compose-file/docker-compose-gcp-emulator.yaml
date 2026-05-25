@@ -1,6 +1,6 @@
 services:
-  gcp_emulator:
-    container_name: gcp_emulator
+  gcp_emulator_pubsub:
+    container_name: gcp_emulator_pubsub
     image: gcr.io/google.com/cloudsdktool/google-cloud-cli:533.0.0-emulators
     restart: always
     expose:
