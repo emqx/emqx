@@ -832,7 +832,22 @@ to_external_user(UserRecord) ->
         ?role => ensure_role(Role),
         ?namespace => Namespace,
         mfa => format_mfa(Username),
-        scopes => effective_scopes_of_admin(UserRecord)
+        %% @doc Surface raw scope state with a tri-state contract:
+        %%   - `[]`            : explicit deny-all
+        %%   - `[binary(), …]` : explicit allow-list
+        %%   - `null`          : not set; authorization falls back to role
+        %%                       default (administrator/viewer: generic +
+        %%                       login-only scopes; publisher: hard-coded
+        %%                       `/publish*`)
+        %% Authorization keeps using {@link effective_scopes_of_admin/1} which
+        %% still expands the role default. The API surface intentionally does
+        %% not expose the expanded list so that read-modify-write does not
+        %% sediment role-default into an explicit scope list.
+        scopes =>
+            case scopes_of(Username) of
+                undefined -> null;
+                Scopes when is_list(Scopes) -> Scopes
+            end
     }).
 
 format_mfa(Username) ->

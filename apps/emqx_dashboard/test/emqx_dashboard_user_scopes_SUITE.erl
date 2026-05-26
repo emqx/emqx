@@ -148,18 +148,22 @@ t_post_users_response_role_default_scopes_when_not_set(_Config) ->
         post, api_path(["users"]), auth_header(Token), Body
     ),
     Resp = emqx_utils_json:decode(RespBody),
-    ScopesOut = maps:get(<<"scopes">>, Resp),
-    ?assert(is_list(ScopesOut)),
-    %% Admin default contains every login-only scope plus every
-    %% common scope — assert membership rather than exact equality
-    %% to avoid coupling to catalog ordering or count.
+    %% Tri-state contract: `scopes' is always present; `null' means
+    %% "not explicitly set, fall back to role default". The response
+    %% deliberately does NOT project the expanded effective list; that
+    %% would let a dashboard read-modify-write silently sediment the
+    %% role default into an explicit scope list.
+    ?assertEqual(null, maps:get(<<"scopes">>, Resp)),
+    %% Role-default expansion still happens at the authorization layer;
+    %% verify it directly via the internal API.
+    EffectiveScopes = emqx_dashboard_admin:effective_scopes_of(<<"no_scopes">>),
     CommonNames = [N || #{name := N} <- emqx_scope_catalog:common_scope_catalog()],
     LoginOnlyNames = [N || #{name := N} <- emqx_scope_catalog:admin_only_scope_catalog()],
     lists:foreach(
-        fun(N) -> ?assert(lists:member(N, ScopesOut)) end,
+        fun(N) -> ?assert(lists:member(N, EffectiveScopes)) end,
         CommonNames ++ LoginOnlyNames
     ),
-    ?assertEqual(length(CommonNames) + length(LoginOnlyNames), length(ScopesOut)).
+    ?assertEqual(length(CommonNames) + length(LoginOnlyNames), length(EffectiveScopes)).
 
 %% Viewer default = common scopes only (no login-only).
 %% Viewer default = the common scopes, no login-only ones.
@@ -176,12 +180,14 @@ t_post_users_response_viewer_default_scopes(_Config) ->
         post, api_path(["users"]), auth_header(Token), Body
     ),
     Resp = emqx_utils_json:decode(RespBody),
-    ScopesOut = maps:get(<<"scopes">>, Resp),
-    ?assert(is_list(ScopesOut)),
+    %% Same tri-state contract — viewer with no explicit scopes also surfaces `null'.
+    ?assertEqual(null, maps:get(<<"scopes">>, Resp)),
+    %% Role-default expansion verified via the internal API.
+    EffectiveScopes = emqx_dashboard_admin:effective_scopes_of(<<"viewer_no_scopes">>),
     CommonNames = [N || #{name := N} <- emqx_scope_catalog:common_scope_catalog()],
-    ?assertEqual(length(CommonNames), length(ScopesOut)),
-    ?assertNot(lists:member(?SCOPE_USER_MGMT, ScopesOut)),
-    ?assertNot(lists:member(?SCOPE_MFA_MGMT, ScopesOut)).
+    ?assertEqual(length(CommonNames), length(EffectiveScopes)),
+    ?assertNot(lists:member(?SCOPE_USER_MGMT, EffectiveScopes)),
+    ?assertNot(lists:member(?SCOPE_MFA_MGMT, EffectiveScopes)).
 
 %% Response from PUT /users/:name must reflect the updated scopes.
 t_put_users_response_includes_updated_scopes(_Config) ->

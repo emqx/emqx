@@ -423,10 +423,18 @@ to_map(#?APP{
     },
     maybe_add_scopes(Base, Extra).
 
+%% @doc Surface raw scope state to the API consumer with a tri-state contract:
+%%   - `[]`            : explicit deny-all (only `security => []` paths reachable)
+%%   - `[binary(), …]` : explicit allow-list
+%%   - `null`          : not set; authorization falls back to role default (allow-all
+%%                       for administrator/viewer, hard-coded `/publish*` for publisher)
+%% This intentionally exposes the persisted shape rather than an effective list so
+%% that the dashboard read-modify-write cycle cannot silently sediment role-default
+%% into an explicit list.
 maybe_add_scopes(Map, #{scopes := Scopes}) when is_list(Scopes) ->
     Map#{scopes => Scopes};
 maybe_add_scopes(Map, _) ->
-    Map.
+    Map#{scopes => null}.
 
 is_expired(undefined) -> false;
 is_expired(ExpiredTime) -> ExpiredTime < erlang:system_time(second).
