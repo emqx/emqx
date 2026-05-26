@@ -92,10 +92,6 @@ init_per_suite(Config) ->
     [{dynamo_secretfile, SecretFile} | Config].
 
 end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([
-        emqx_rule_engine, emqx_bridge, emqx_resource, emqx_conf, erlcloud
-    ]),
     ok.
 
 init_per_testcase(TestCase, Config) ->
