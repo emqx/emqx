@@ -83,8 +83,7 @@ defmodule EMQXRelup.MixProject do
         compatibility: [
           emqx: "~> #{emqx_major_minor()}"
         ],
-        description: "EMQX hot-upgrade (relup) plugin.",
-        hidden: true
+        description: "EMQX hot-upgrade (relup) plugin."
       ]
     ]
   end
