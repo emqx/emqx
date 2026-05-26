@@ -7,6 +7,34 @@ set -euo pipefail
 HOST=$1
 PORT=$2
 BASE_URL="http://$HOST:$PORT"
+ADMIN_USER="${EMQX_SMOKE_USER:-admin}"
+ADMIN_PASSWORD="${EMQX_SMOKE_PASSWORD:-public}"
+ADMIN_TOKEN=""
+
+## Login to the dashboard and cache a bearer token. The spec endpoints
+## require authentication; this lets the rest of the script call them.
+login() {
+    local attempts=10
+    local resp token
+    while [ $attempts -gt 0 ]; do
+        resp="$(curl -s -X POST "$BASE_URL/api/v5/login" \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASSWORD\"}" || true)"
+        token="$(echo "$resp" | jq -r '.token // empty' 2>/dev/null || true)"
+        if [ -n "$token" ]; then
+            ADMIN_TOKEN="$token"
+            return 0
+        fi
+        sleep 1
+        attempts=$((attempts-1))
+    done
+    echo "failed to login as $ADMIN_USER at $BASE_URL/api/v5/login: $resp"
+    exit 1
+}
+
+auth_curl() {
+    curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "$@"
+}
 
 ## Check if EMQX is responding
 wait_for_emqx() {
@@ -35,30 +63,35 @@ json_status() {
     fi
 }
 
-## Check if the API spec explorer is available
+## Check that /api-spec.html is gated by authentication and serves the
+## explorer to authenticated callers.
 check_api_spec() {
-    local attempts=5
     local url="$BASE_URL/api-spec.html"
-    local status="undefined"
-    while [ "$status" != "200" ]; do
-        status="$(curl -s -o /dev/null -w "%{http_code}" "$url")"
-        if [ "$status" != "200" ]; then
-            if [ $attempts -eq 0 ]; then
-                echo "emqx return non-200 responses($status) on $url"
-                exit 1
-            fi
-            sleep 1
-            attempts=$((attempts-1))
-        fi
-    done
+    local anon_status authed_status
+    anon_status="$(curl -s -o /dev/null -w '%{http_code}' "$url")"
+    if [ "$anon_status" != "401" ]; then
+        echo "expected 401 from anonymous GET $url, got $anon_status"
+        exit 1
+    fi
+    authed_status="$(auth_curl -o /dev/null -w '%{http_code}' "$url")"
+    if [ "$authed_status" != "200" ]; then
+        echo "expected 200 from authenticated GET $url, got $authed_status"
+        exit 1
+    fi
 }
 
-## Check if the swagger.json contains hidden fields
-## fail if it does
+## Check that swagger.json requires authentication and that the
+## authenticated response does not contain hidden fields.
 check_swagger_json() {
     local url="$BASE_URL/api-docs/swagger.json"
-    ## assert swagger.json is valid json
-    JSON="$(curl -s "$url")"
+    local anon_status
+    anon_status="$(curl -s -o /dev/null -w '%{http_code}' "$url")"
+    if [ "$anon_status" != "401" ]; then
+        echo "expected 401 from anonymous GET $url, got $anon_status"
+        exit 1
+    fi
+    ## assert authenticated swagger.json is valid json
+    JSON="$(auth_curl "$url")"
     echo "$JSON" | jq . >/dev/null
     ## assert swagger.json does not contain trie_compaction (which is a hidden field)
     if echo "$JSON" | grep -q trie_compaction; then
@@ -116,6 +149,7 @@ check_schema_json() {
 
 main() {
     wait_for_emqx
+    login
     local JSON_STATUS
     JSON_STATUS="$(json_status)"
     check_api_spec

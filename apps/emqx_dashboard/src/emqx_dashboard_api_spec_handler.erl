@@ -7,6 +7,13 @@
 -moduledoc """
 Cowboy REST handler that serves focused, AI-consumable API specs.
 
+All endpoints require authentication (basic with API key/secret, bearer
+JWT from `POST /api/v5/login`, or the dashboard's `emqx_auth` session
+cookie). Unauthenticated requests get a 401 with a minimal but valid
+OpenAPI document (or its markdown equivalent for `/api-spec.md`) that
+points the caller at how to authenticate. The `WWW-Authenticate` header
+lists the supported schemes per RFC 7235 §4.1.
+
 Endpoints:
 
   - `GET /api-spec.md`
@@ -30,6 +37,14 @@ Endpoints:
 
 -behaviour(cowboy_rest).
 
+%% Same caveat as `emqx_dashboard:authorize/2`: `emqx_mgmt_auth:authorize/4`
+%% and `emqx_dashboard_admin:verify_token/3` have success typings dialyzer
+%% can't see through (the scope-check helper is marked `no_return`), so the
+%% `{ok, _} -> ok` clauses here look unreachable and the bearer branch
+%% looks like it never returns. Silence both warning classes on the auth
+%% helpers and their caller.
+-dialyzer({nowarn_function, [init/2, authenticate/1, verify_bearer/2]}).
+
 -export([
     init/2,
     allowed_methods/2,
@@ -37,8 +52,25 @@ Endpoints:
     resource_exists/2,
     handle_get/2,
     handle_get_markdown/2,
-    handle_get_json/2
+    handle_get_json/2,
+    handle_get_html/2
 ]).
+
+-define(WWW_AUTHENTICATE_FULL,
+    <<"Basic realm=\"emqx-api-spec\", Bearer realm=\"emqx-api-spec\"">>
+).
+%% Browsers pop up their native HTTP Basic dialog when they see a `Basic`
+%% challenge on a 401 to a top-level navigation. For `/api-spec.html` we
+%% want the in-page sign-in widget to handle the flow instead, so the HTML
+%% 401 advertises only `Bearer` — RFC 7235 still requires the header to be
+%% present, but browsers have no native UI for `Bearer` and skip the popup.
+-define(WWW_AUTHENTICATE_BEARER, <<"Bearer realm=\"emqx-api-spec\"">>).
+
+%% Unauthenticated responses must not leak the EMQX release version or
+%% edition (e.g. "Enterprise" vs "Open Source") so security scanners and
+%% logged-out users see a generic stub. The authenticated spec keeps the
+%% real title and version.
+-define(GENERIC_API_TITLE, <<"EMQX API">>).
 
 %%--------------------------------------------------------------------
 %% Cowboy REST callbacks
@@ -46,7 +78,13 @@ Endpoints:
 
 -doc "Initialize the Cowboy REST handler state.".
 init(Req, Opts) ->
-    {cowboy_rest, Req, Opts}.
+    case authenticate(Req) of
+        ok ->
+            {cowboy_rest, Req, Opts};
+        unauthorized ->
+            Req1 = reply_unauthorized(Req),
+            {ok, Req1, Opts}
+    end.
 
 -doc "Advertise GET as the only supported HTTP method.".
 allowed_methods(Req, State) ->
@@ -54,6 +92,8 @@ allowed_methods(Req, State) ->
 
 content_types_provided(Req, State) ->
     case {cowboy_req:path(Req), cowboy_req:binding(tag, Req)} of
+        {<<"/api-spec.html">>, undefined} ->
+            {[{<<"text/html">>, handle_get_html}], Req, State};
         {<<"/api-spec.json">>, undefined} ->
             {[{{<<"application">>, <<"json">>, '*'}, handle_get_json}], Req, State};
         {<<"/api-docs/swagger.json">>, undefined} ->
@@ -87,6 +127,21 @@ resource_exists(Req, State) ->
 handle_get(Req, State) ->
     handle_get_json(Req, State).
 
+handle_get_html(Req, State) ->
+    HtmlPath = filename:join(code:priv_dir(emqx_dashboard), "api-spec.html"),
+    case file:read_file(HtmlPath) of
+        {ok, Body} ->
+            {Body, Req, State};
+        {error, _Reason} ->
+            Req1 = cowboy_req:reply(
+                500,
+                #{<<"content-type">> => <<"text/plain">>},
+                <<"api-spec.html unavailable">>,
+                Req
+            ),
+            {stop, Req1, State}
+    end.
+
 handle_get_markdown(Req, State) ->
     case {cowboy_req:path(Req), cowboy_req:binding(tag, Req)} of
         {<<"/api-spec.md">>, undefined} ->
@@ -119,6 +174,208 @@ handle_get_json(Req, State) ->
 %% Full unfiltered OpenAPI spec, for `/api-docs/swagger.json`.
 full_swagger_json() ->
     cowboy_swagger:to_json(get_trails()).
+
+%%--------------------------------------------------------------------
+%% Authentication gate
+%%--------------------------------------------------------------------
+
+%% Accept a request only if the caller presents a valid API key (Basic),
+%% bearer token, or the dashboard's `emqx_auth` session cookie. Spec
+%% browsing is a read-only operation and does not depend on the API
+%% key's role / scope assignment, but we reuse the same primitives that
+%% guard the rest of the dashboard so the credential checks stay in one
+%% place.
+authenticate(Req) ->
+    case cowboy_req:parse_header(<<"authorization">>, Req) of
+        {basic, Username, Password} ->
+            case emqx_mgmt_auth:authorize(handler_info(Req), Req, Username, Password) of
+                {ok, _ActorContext} -> ok;
+                _ -> unauthorized
+            end;
+        {bearer, Token} ->
+            verify_bearer(Req, Token);
+        _ ->
+            authenticate_via_cookie(Req)
+    end.
+
+authenticate_via_cookie(Req) ->
+    case cowboy_req:match_cookies([{emqx_auth, [], undefined}], Req) of
+        #{emqx_auth := Token} when is_binary(Token), Token =/= <<>> ->
+            verify_bearer(Req, Token);
+        _ ->
+            unauthorized
+    end.
+
+verify_bearer(Req, Token) ->
+    case emqx_dashboard_admin:verify_token(Req, handler_info(Req), Token) of
+        {ok, _ActorContext} -> ok;
+        _ -> unauthorized
+    end.
+
+%% Synthetic HandlerInfo for the auth primitives. The path is the route
+%% pattern rather than the request URL so `emqx_mgmt_auth:check_scopes/2`
+%% treats it as an unmapped path (allow). The module/function are real so
+%% dialyzer can see them.
+handler_info(Req) ->
+    #{
+        module => ?MODULE,
+        function => handle_get,
+        method => 'GET',
+        path => binary_to_list(cowboy_req:path(Req))
+    }.
+
+reply_unauthorized(Req) ->
+    Path = cowboy_req:path(Req),
+    {ContentType, Body} = unauthorized_body(Path),
+    Headers = #{
+        <<"content-type">> => ContentType,
+        <<"www-authenticate">> => www_authenticate(Path)
+    },
+    cowboy_req:reply(401, Headers, Body, Req).
+
+www_authenticate(<<"/api-spec.html">>) -> ?WWW_AUTHENTICATE_BEARER;
+www_authenticate(_) -> ?WWW_AUTHENTICATE_FULL.
+
+unauthorized_body(<<"/api-spec.md">>) ->
+    {<<"text/markdown; charset=utf-8">>, unauthorized_markdown()};
+unauthorized_body(<<"/api-spec.html">>) ->
+    {<<"text/html; charset=utf-8">>, unauthorized_html()};
+unauthorized_body(_) ->
+    {<<"application/json">>, encode_pretty(unauthorized_openapi_doc())}.
+
+unauthorized_openapi_doc() ->
+    %% The stub is served before authentication: it must not leak the EMQX
+    %% release version or edition. `info.version` is mandatory per
+    %% OpenAPI 3.0, so emit a placeholder.
+    #{
+        <<"openapi">> => <<"3.0.0">>,
+        <<"info">> => #{
+            <<"title">> => ?GENERIC_API_TITLE,
+            <<"version">> => <<"unknown">>,
+            <<"description">> =>
+                <<
+                    "Authenticate via one of the security schemes to retrieve the "
+                    "full specification, or create an API key in the dashboard."
+                >>
+        },
+        <<"servers">> => [#{<<"url">> => <<"/api/v5">>}],
+        <<"components">> => #{
+            <<"securitySchemes">> => #{
+                <<"basicAuth">> => #{
+                    <<"type">> => <<"http">>,
+                    <<"scheme">> => <<"basic">>,
+                    <<"description">> =>
+                        <<
+                            "API key as username and API secret as password. "
+                            "Manage keys in the dashboard or via "
+                            "'emqx ctl api_keys'."
+                        >>
+                },
+                <<"bearerAuth">> => #{
+                    <<"type">> => <<"http">>,
+                    <<"scheme">> => <<"bearer">>,
+                    <<"description">> =>
+                        <<"JWT obtained from POST /api/v5/login.">>
+                }
+            }
+        },
+        <<"security">> => [
+            #{<<"basicAuth">> => []},
+            #{<<"bearerAuth">> => []}
+        ],
+        <<"paths">> => #{
+            <<"/login">> => #{
+                <<"post">> => #{
+                    <<"summary">> => <<"Obtain a bearer token.">>,
+                    <<"tags">> => [<<"Authentication">>],
+                    <<"security">> => [],
+                    <<"responses">> => #{
+                        <<"200">> => #{
+                            <<"description">> =>
+                                <<"Bearer token returned in the response body.">>
+                        }
+                    }
+                }
+            },
+            <<"/status">> => #{
+                <<"get">> => #{
+                    <<"summary">> => <<"Broker health check.">>,
+                    <<"tags">> => [<<"Status">>],
+                    <<"security">> => [],
+                    <<"responses">> => #{
+                        <<"200">> => #{
+                            <<"description">> =>
+                                <<"Plain-text 'emqx is running' when the broker is up.">>
+                        }
+                    }
+                }
+            }
+        }
+    }.
+
+unauthorized_html() ->
+    <<
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        "<title>",
+        ?GENERIC_API_TITLE/binary,
+        " - Sign in</title>"
+        "<meta name=\"robots\" content=\"noindex,nofollow\">"
+        "<style>"
+        "body{font:14px system-ui,sans-serif;background:#0e1116;color:#e6e6e6;"
+        "display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}"
+        "form{background:#161b22;border:1px solid #2a313a;border-radius:8px;"
+        "padding:24px;width:min(360px,calc(100vw - 32px))}"
+        "h1{margin:0 0 6px;font-size:16px}"
+        "p{margin:0 0 16px;color:#9aa4ae;font-size:12px}"
+        "label{display:block;font-size:12px;color:#9aa4ae;margin-bottom:4px}"
+        "input{width:100%;padding:8px 10px;margin-bottom:12px;border:1px solid #2a313a;"
+        "border-radius:6px;background:#0e1116;color:#e6e6e6;font-size:13px;box-sizing:border-box}"
+        "button{width:100%;padding:9px 12px;border:0;border-radius:6px;"
+        "background:#3b82f6;color:#fff;font-size:13px;cursor:pointer}"
+        "button:disabled{opacity:.6;cursor:not-allowed}"
+        ".err{color:#ffb4b4;font-size:12px;margin-bottom:10px;min-height:14px}"
+        "</style></head><body>"
+        "<form id=\"f\" autocomplete=\"off\">"
+        "<h1>Sign in to view the API specification</h1>"
+        "<p>Authenticate to access the in-tree API spec explorer.</p>"
+        "<div class=\"err\" id=\"e\"></div>"
+        "<label for=\"u\">Username</label>"
+        "<input id=\"u\" name=\"username\" autocomplete=\"username\" required>"
+        "<label for=\"p\">Password</label>"
+        "<input id=\"p\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required>"
+        "<button id=\"b\" type=\"submit\">Sign in</button>"
+        "</form>"
+        "<script>"
+        "var f=document.getElementById('f'),e=document.getElementById('e'),b=document.getElementById('b');"
+        "f.addEventListener('submit',async function(ev){ev.preventDefault();e.textContent='';b.disabled=true;"
+        "try{var r=await fetch('/api/v5/login',{method:'POST',credentials:'same-origin',"
+        "headers:{'Content-Type':'application/json',Accept:'application/json'},"
+        "body:JSON.stringify({username:f.username.value.trim(),password:f.password.value})});"
+        "var body=null;try{body=await r.json()}catch(_){body=null}"
+        "if(!r.ok){e.textContent=(body&&body.message)||('Sign-in failed (HTTP '+r.status+').');return}"
+        "if(!body||!body.token){e.textContent='Sign-in succeeded but no token was returned.';return}"
+        "var sec=location.protocol==='https:'?'; Secure':'';"
+        "document.cookie='emqx_auth='+encodeURIComponent(body.token)+'; Path=/; SameSite=Strict'+sec;"
+        "location.reload()}catch(err){e.textContent=String(err.message||err)}finally{b.disabled=false}});"
+        "</script>"
+        "</body></html>"
+    >>.
+
+unauthorized_markdown() ->
+    Lines = [
+        <<"# ", ?GENERIC_API_TITLE/binary, " - Authentication Required\n\n">>,
+        <<
+            "Authenticate via one of the security schemes to retrieve the full "
+            "specification, or create an API key in the dashboard.\n\n"
+        >>,
+        <<"## Authentication\n\n">>,
+        <<"- API key: `Authorization: Basic base64(api_key:api_secret)`\n">>,
+        <<"- Bearer token: `POST /api/v5/login`, then `Authorization: Bearer <token>`\n\n">>,
+        <<"## Public endpoints\n\n">>,
+        <<"- `POST /api/v5/login` - interactive login (returns a bearer token).\n">>,
+        <<"- `GET  /api/v5/status` - broker health check.\n">>
+    ],
+    unicode:characters_to_binary(Lines).
 
 %%--------------------------------------------------------------------
 %% Response builders
@@ -198,7 +455,7 @@ overview_sections() ->
 
 auth_help_lines() ->
     [
-        <<"Most `/api/v5/*` endpoints require authentication, even on localhost.">>,
+        <<"All `/api/v5/*` endpoints require authentication, even on localhost.">>,
         <<"- API key: `Authorization: Basic base64(api_key:api_secret)`.">>,
         <<"  * Command to add API keys: `emqx ctl api_keys ...`">>,
         <<
@@ -208,7 +465,11 @@ auth_help_lines() ->
         <<"- Bearer token: `POST /api/v5/login`, then `Authorization: Bearer <token>`.">>,
         <<"  * Request body: `{ \"username\": \"admin\", \"password\": \"...\" }`">>,
         <<"  * Command to add new user: `emqx ctl admins add <Username> <Password> <Description> <Role>`">>,
-        <<"Note: `/api-spec.md`, `/api-spec.json` and `/api-spec.html` do not require authentication.">>
+        <<
+            "The `/api-spec.md`, `/api-spec.json`, `/api-spec/...` and `/api-docs/swagger.json` "
+            "endpoints also require authentication; unauthenticated requests receive a minimal "
+            "OpenAPI document describing how to authenticate."
+        >>
     ].
 
 drilldown_help_lines() ->
