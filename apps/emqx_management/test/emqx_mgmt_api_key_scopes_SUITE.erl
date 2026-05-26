@@ -487,7 +487,9 @@ t_api_create_with_scopes(_Config) ->
 t_api_update_scopes(_Config) ->
     Name = <<"SCOPES-API-UPDATE">>,
     {ok, Created} = create_app(Name),
-    ?assertEqual(false, maps:is_key(<<"scopes">>, Created)),
+    %% Tri-state contract: response always carries `scopes' key; `null'
+    %% means "not set, fall back to role default".
+    ?assertEqual(null, maps:get(<<"scopes">>, Created)),
     %% Update with scopes
     {ok, Updated1} = update_app(Name, #{scopes => [?SCOPE_CONNECTIONS]}),
     ?assertMatch(#{<<"scopes">> := [?SCOPE_CONNECTIONS]}, Updated1),

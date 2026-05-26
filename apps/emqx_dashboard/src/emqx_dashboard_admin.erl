@@ -757,8 +757,21 @@ to_external_user(UserRecord) ->
     flatten_username(maps:merge(Base, ee_user_extra(UserRecord))).
 
 -if(?EMQX_RELEASE_EDITION == ee).
-ee_user_extra(UserRecord) ->
-    #{scopes => effective_scopes_of_admin(UserRecord)}.
+%% @doc Surface raw scope state with a tri-state contract:
+%%   - `[]`            : explicit deny-all
+%%   - `[binary(), …]` : explicit allow-list
+%%   - `null`          : not set; authorization falls back to role default
+%%                       (administrator/viewer: generic + login-only scopes;
+%%                       publisher: hard-coded `/publish*`)
+%% Authorization keeps using {@link effective_scopes_of_admin/1} which still
+%% expands the role default. The API surface intentionally does not expose the
+%% expanded list so that read-modify-write does not sediment role-default into
+%% an explicit scope list.
+ee_user_extra(#?ADMIN{username = Username}) ->
+    case scopes_of(Username) of
+        undefined -> #{scopes => null};
+        Scopes when is_list(Scopes) -> #{scopes => Scopes}
+    end.
 -else.
 ee_user_extra(_UserRecord) ->
     #{}.
