@@ -903,6 +903,72 @@
       border-color: var(--color-primary);
     }
 
+    .auth-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+    }
+
+    .auth-overlay.is-open {
+      display: flex;
+    }
+
+    .auth-dialog {
+      background: var(--color-bg-content);
+      border: 1px solid var(--color-border-primary);
+      border-radius: var(--radius-sm);
+      padding: 20px;
+      width: min(380px, calc(100vw - 32px));
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+    }
+
+    .auth-dialog h3 {
+      margin: 0 0 6px 0;
+      font-size: 16px;
+    }
+
+    .auth-dialog p {
+      margin: 0 0 14px 0;
+      font-size: 12px;
+      color: var(--color-text-secondary);
+    }
+
+    .auth-dialog label {
+      display: block;
+      font-size: 12px;
+      color: var(--color-text-secondary);
+      margin-bottom: 4px;
+    }
+
+    .auth-dialog input {
+      width: 100%;
+      padding: 8px 10px;
+      margin-bottom: 12px;
+      border: 1px solid var(--color-border-primary);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--color-text-primary);
+      font-size: 13px;
+      box-sizing: border-box;
+    }
+
+    .auth-dialog .auth-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .auth-dialog .auth-error {
+      color: #ffc9c9;
+      font-size: 12px;
+      margin-bottom: 10px;
+      min-height: 14px;
+    }
+
     @media (max-width: 1100px) {
       .layout {
         grid-template-columns: 1fr;
@@ -972,11 +1038,27 @@
         </div>
       </div>
       <div class="actions">
+        <button class="btn" id="btn-logout" title="Sign out of the API spec session" hidden>Sign out</button>
         <button class="btn" id="btn-theme" title="Toggle light/dark theme">Dark</button>
         <span class="pill" id="scope-pill">Scope: index</span>
         <span class="status"><span class="dot"></span><span id="status-text">Ready</span></span>
       </div>
     </header>
+
+    <div class="auth-overlay" id="auth-overlay" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+      <form class="auth-dialog" id="auth-form" autocomplete="off">
+        <h3 id="auth-title">Sign in to view the spec</h3>
+        <p id="auth-hint">Use your dashboard username and password. Credentials are scoped to this browser session.</p>
+        <div class="auth-error" id="auth-error"></div>
+        <label for="auth-username">Username</label>
+        <input id="auth-username" name="username" type="text" autocomplete="username" required />
+        <label for="auth-password">Password</label>
+        <input id="auth-password" name="password" type="password" autocomplete="current-password" required />
+        <div class="auth-actions">
+          <button type="submit" class="btn btn-primary" id="auth-submit">Sign in</button>
+        </div>
+      </form>
+    </div>
 
     <div class="layout">
       <aside class="sidebar">
@@ -1042,7 +1124,19 @@
       btnReload: document.getElementById('btn-reload'),
       btnCopyUrl: document.getElementById('btn-copy-url'),
       btnTheme: document.getElementById('btn-theme'),
+      btnLogout: document.getElementById('btn-logout'),
+      authOverlay: document.getElementById('auth-overlay'),
+      authForm: document.getElementById('auth-form'),
+      authUsername: document.getElementById('auth-username'),
+      authPassword: document.getElementById('auth-password'),
+      authError: document.getElementById('auth-error'),
+      authHint: document.getElementById('auth-hint'),
+      authSubmit: document.getElementById('auth-submit'),
     };
+
+    let signedInUsername = '';
+    let sessionToken = '';
+    let pendingAuthAction = null;
 
     init();
 
@@ -1092,6 +1186,99 @@
         const next = current === 'dark' ? 'light' : 'dark';
         setTheme(next);
       });
+
+      els.authForm.addEventListener('submit', onAuthSubmit);
+      els.btnLogout.addEventListener('click', onLogout);
+    }
+
+    function openAuthDialog(retry) {
+      pendingAuthAction = retry || null;
+      els.authError.textContent = '';
+      els.authOverlay.classList.add('is-open');
+      els.authPassword.value = '';
+      setTimeout(() => els.authUsername.focus(), 0);
+    }
+
+    function closeAuthDialog() {
+      els.authOverlay.classList.remove('is-open');
+    }
+
+    async function onAuthSubmit(e) {
+      e.preventDefault();
+      const username = els.authUsername.value.trim();
+      const password = els.authPassword.value;
+      if (!username || !password) return;
+      els.authError.textContent = '';
+      els.authSubmit.disabled = true;
+      try {
+        const res = await fetch('/api/v5/login', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        let body = null;
+        try { body = await res.json(); } catch (_err) { body = null; }
+        if (!res.ok) {
+          let msg = `Sign-in failed (HTTP ${res.status}).`;
+          if (body && body.message) msg = body.message;
+          els.authError.textContent = msg;
+          return;
+        }
+        if (!body || !body.token) {
+          els.authError.textContent = 'Sign-in succeeded but no token was returned.';
+          return;
+        }
+        signedInUsername = username;
+        sessionToken = body.token;
+        setSessionCookie(body.token);
+        els.btnLogout.hidden = false;
+        closeAuthDialog();
+        const retry = pendingAuthAction;
+        pendingAuthAction = null;
+        if (retry) {
+          retry();
+        } else {
+          loadIndex();
+        }
+      } catch (err) {
+        els.authError.textContent = String(err.message || err);
+      } finally {
+        els.authSubmit.disabled = false;
+      }
+    }
+
+    async function onLogout() {
+      try {
+        await fetch('/api/v5/logout', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + sessionToken,
+          },
+          body: JSON.stringify({ username: signedInUsername }),
+        });
+      } catch (_err) {
+        // Even if the call fails, fall through and prompt for credentials again.
+      }
+      clearSessionCookie();
+      signedInUsername = '';
+      sessionToken = '';
+      els.btnLogout.hidden = true;
+      state.indexData = null;
+      state.specData = null;
+      openAuthDialog(() => loadIndex());
+    }
+
+    function setSessionCookie(token) {
+      const secure = location.protocol === 'https:' ? '; Secure' : '';
+      document.cookie = `emqx_auth=${encodeURIComponent(token)}; Path=/; SameSite=Strict${secure}`;
+    }
+
+    function clearSessionCookie() {
+      const secure = location.protocol === 'https:' ? '; Secure' : '';
+      document.cookie = `emqx_auth=; Path=/; Max-Age=0; SameSite=Strict${secure}`;
     }
 
     function initTheme() {
@@ -1162,7 +1349,27 @@
     }
 
     async function fetchJson(url) {
-      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      const res = await fetch(url, {
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+      });
+      if (res.status === 401) {
+        let hint = 'Authentication required. Sign in to view the spec.';
+        try {
+          const body = await res.json();
+          const desc = body && body.info && body.info.description;
+          if (desc) hint = desc;
+        } catch (_err) {
+          // fall through with the default hint
+        }
+        els.authHint.textContent = hint;
+        signedInUsername = '';
+        els.btnLogout.hidden = true;
+        openAuthDialog(null);
+        const err = new Error(hint);
+        err.status = 401;
+        throw err;
+      }
       if (!res.ok) {
         let body = '';
         try {

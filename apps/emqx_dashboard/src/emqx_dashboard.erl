@@ -414,21 +414,20 @@ static_dispatch(SwaggerSupport) ->
         maybe_swagger_dispatch(SwaggerSupport).
 
 maybe_swagger_dispatch(true) ->
-    [
-        {"/api-spec.html", cowboy_static, {priv_file, emqx_dashboard, "api-spec.html"}}
-        | api_spec_dispatch()
-    ];
+    api_spec_dispatch();
 maybe_swagger_dispatch(false) ->
     [].
 
-%% Routes for the focused API spec endpoints (no auth required).
+%% Routes for the focused API spec endpoints.
 %% These are added as raw cowboy routes (not minirest trails) so they do not
-%% appear in the swagger spec they serve and bypass minirest auth middleware.
+%% appear in the swagger spec they serve. They bypass minirest auth middleware
+%% and instead enforce authentication inside the handler itself, returning a
+%% minimal OpenAPI document (or markdown equivalent) on 401.
 %%
 %% `/api-docs/swagger.json` is preserved (returning the full OpenAPI JSON
 %% spec) so external Swagger UI deployments that load EMQX's spec by URL
 %% keep working. `/api-docs` and `/api-docs/index.html` are 308 redirects
-%% to the new in-tree explorer. Other `/api-docs/*` paths used to serve the
+%% to the in-tree explorer. Other `/api-docs/*` paths used to serve the
 %% bundled Swagger UI assets which were removed in cowboy_swagger 3.0.0;
 %% those now 404.
 api_spec_dispatch() ->
@@ -437,6 +436,7 @@ api_spec_dispatch() ->
         {"/api-docs", emqx_dashboard_redirect_handler, ToApiSpec},
         {"/api-docs/index.html", emqx_dashboard_redirect_handler, ToApiSpec},
         {"/api-docs/swagger.json", emqx_dashboard_api_spec_handler, #{}},
+        {"/api-spec.html", emqx_dashboard_api_spec_handler, #{}},
         {"/api-spec.md", emqx_dashboard_api_spec_handler, #{}},
         {"/api-spec.json", emqx_dashboard_api_spec_handler, #{}},
         {"/api-spec/:tag", emqx_dashboard_api_spec_handler, #{}},
