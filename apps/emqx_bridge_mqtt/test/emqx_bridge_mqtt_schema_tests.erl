@@ -307,36 +307,44 @@ schema_test_() ->
                 #{<<"tcp_opts">> := TcpOpts} = parse_and_check_connector(
                     connector_config(#{
                         <<"tcp_opts">> => #{
+                            <<"active_n">> => 100,
                             <<"nodelay">> => true,
                             <<"sndbuf">> => <<"16KB">>,
                             <<"recbuf">> => <<"8KB">>,
                             <<"buffer">> => <<"32KB">>,
-                            <<"keepalive">> => true
+                            <<"keepalive">> => true,
+                            <<"delay_send">> => true
                         }
                     })
                 ),
                 ?assertMatch(
                     #{
+                        <<"active_n">> := 100,
                         <<"nodelay">> := true,
                         <<"sndbuf">> := <<"16KB">>,
                         <<"recbuf">> := <<"8KB">>,
                         <<"buffer">> := <<"32KB">>,
-                        <<"keepalive">> := true
+                        <<"keepalive">> := true,
+                        <<"delay_send">> := true
                     },
                     TcpOpts
                 ),
                 Proplist = emqx_schema:client_tcp_opts_to_proplist(#{
+                    active_n => 100,
                     nodelay => true,
                     sndbuf => 16384,
                     recbuf => 8192,
                     buffer => 32768,
-                    keepalive => true
+                    keepalive => true,
+                    delay_send => true
                 }),
+                ?assertEqual(100, proplists:get_value(active, Proplist)),
                 ?assertEqual(true, proplists:get_value(nodelay, Proplist)),
                 ?assertEqual(16384, proplists:get_value(sndbuf, Proplist)),
                 ?assertEqual(8192, proplists:get_value(recbuf, Proplist)),
                 ?assertEqual(32768, proplists:get_value(buffer, Proplist)),
-                ?assertEqual(true, proplists:get_value(keepalive, Proplist))
+                ?assertEqual(true, proplists:get_value(keepalive, Proplist)),
+                ?assertEqual(true, proplists:get_value(delay_send, Proplist))
             end)},
         {"tcp_opts : empty/unset keys are not forwarded",
             ?_test(begin

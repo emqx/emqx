@@ -30,22 +30,26 @@
 %% re:mp()
 -type re_pattern() :: tuple().
 
--type who_condition() ::
+-type condition() ::
     all
+    | client_condition()
+    | security_profile()
+    | {'and', [condition()]}
+    | {'or', [condition()]}.
+-type client_condition() ::
+    ipaddress()
     | username()
     | clientid()
     | client_attr()
     | zone()
-    | listener()
-    | ipaddress()
-    | {'and', [who_condition()]}
-    | {'or', [who_condition()]}.
+    | listener().
 -type ipaddress() :: {ipaddr, esockd_cidr:cidr_string()} | {ipaddrs, [esockd_cidr:cidr_string()]}.
 -type username() :: {username, binary() | re_pattern()}.
 -type clientid() :: {clientid, binary() | re_pattern()}.
 -type client_attr() :: {client_attr, Name :: binary(), Value :: binary() | re_pattern()}.
 -type zone() :: {zone, Zone :: atom() | binary() | re_pattern()}.
 -type listener() :: {listener, Listener :: atom() | binary() | re_pattern()}.
+-type security_profile() :: {security_profile, legacy | hardened}.
 
 -type action_condition() ::
     subscribe
@@ -58,7 +62,7 @@
 
 -type topic_condition() :: list(emqx_types:topic() | {eq, emqx_types:topic()} | ?ALL_TOPICS).
 
--type rule() :: {permission_resolution(), who_condition(), action_condition(), topic_condition()}.
+-type rule() :: {permission_resolution(), condition(), action_condition(), topic_condition()}.
 
 -export_type([
     permission_resolution/0,
@@ -96,17 +100,21 @@
     {client_attr, binary(), binary()} | {client_attr, binary(), {re, iodata()}}.
 -type zone_precompile() :: {zone, atom() | binary() | {re, iodata()}}.
 -type listener_precompile() :: {listener, atom() | binary() | {re, iodata()}}.
+-type security_profile_precompile() :: {security_profile, legacy | hardened}.
 
--type who_precompile() ::
+-type condition_precompile() ::
+    all
+    | client_condition_precompile()
+    | security_profile_precompile()
+    | {'and', [condition_precompile()]}
+    | {'or', [condition_precompile()]}.
+-type client_condition_precompile() ::
     ip_address_precompile()
     | username_precompile()
     | clientid_precompile()
     | client_attr_precompile()
     | zone_precompile()
-    | listener_precompile()
-    | {'and', [who_precompile()]}
-    | {'or', [who_precompile()]}
-    | all.
+    | listener_precompile().
 
 -type subscribe_option_precompile() :: {qos, qos() | [qos()]}.
 -type publish_option_precompile() :: {qos, qos() | [qos()]} | {retain, retain_condition()}.
@@ -125,14 +133,14 @@
 
 -type rule_precompile() :: {
     permission_resolution_precompile(),
-    who_condition(),
+    condition_precompile(),
     action_precompile(),
     all | [topic_precompile()]
 }.
 
 -export_type([
     permission_resolution_precompile/0,
-    who_precompile/0,
+    condition_precompile/0,
     action_precompile/0,
     topic_precompile/0,
     rule_precompile/0
@@ -149,25 +157,29 @@
 
 -define(RE_PATTERN, {re_pattern, _, _, _, _}).
 
--spec compile(permission_resolution_precompile(), who_precompile(), action_precompile(), [
+-spec compile(permission_resolution_precompile(), condition_precompile(), action_precompile(), [
     topic_precompile()
 ]) -> rule().
-compile(Permission, Who, Action, TopicFilters) ->
-    compile({Permission, Who, Action, TopicFilters}).
+compile(Permission, Cond, Action, TopicFilters) ->
+    compile({Permission, Cond, Action, TopicFilters}).
 
--spec compile({permission_resolution_precompile(), all} | rule_precompile()) -> rule().
+-spec compile(
+    {permission_resolution_precompile(), all | security_profile_precompile()} | rule_precompile()
+) -> rule().
 compile({Permission, all}) when ?IS_PERMISSION(Permission) ->
     compile({Permission, all, all, all});
-compile({Permission, Who, Action, all}) when ?IS_PERMISSION(Permission) ->
-    {Permission, compile_who(Who), compile_action(Action), [?ALL_TOPICS]};
-compile({Permission, Who, Action, TopicFilters}) when
+compile({Permission, {security_profile, _} = Cond}) when ?IS_PERMISSION(Permission) ->
+    compile({Permission, Cond, all, all});
+compile({Permission, Cond, Action, all}) when ?IS_PERMISSION(Permission) ->
+    {Permission, compile_condition(Cond), compile_action(Action), [?ALL_TOPICS]};
+compile({Permission, Cond, Action, TopicFilters}) when
     ?IS_PERMISSION(Permission) andalso is_list(TopicFilters)
 ->
-    {Permission, compile_who(Who), compile_action(Action), [
+    {Permission, compile_condition(Cond), compile_action(Action), [
         compile_topic(Topic)
      || Topic <- TopicFilters
     ]};
-compile({Permission, _Who, _Action, _TopicFilter}) when not ?IS_PERMISSION(Permission) ->
+compile({Permission, _Cond, _Action, _TopicFilter}) when not ?IS_PERMISSION(Permission) ->
     throw(#{
         reason => invalid_authorization_permission,
         value => Permission
@@ -247,45 +259,47 @@ retain_from_opts(Opts) ->
             })
     end.
 
-compile_who(all) ->
+compile_condition(all) ->
     all;
-compile_who({user, Username}) ->
-    compile_who({username, Username});
-compile_who({username, {re, Username}}) ->
+compile_condition({user, Username}) ->
+    compile_condition({username, Username});
+compile_condition({username, {re, Username}}) ->
     re_compile(username, Username);
-compile_who({username, Username}) ->
+compile_condition({username, Username}) ->
     {username, {eq, bin(Username)}};
-compile_who({client, Clientid}) ->
-    compile_who({clientid, Clientid});
-compile_who({clientid, {re, Clientid}}) ->
+compile_condition({client, Clientid}) ->
+    compile_condition({clientid, Clientid});
+compile_condition({clientid, {re, Clientid}}) ->
     re_compile(clientid, Clientid);
-compile_who({clientid, Clientid}) ->
+compile_condition({clientid, Clientid}) ->
     {clientid, {eq, bin(Clientid)}};
-compile_who({client_attr, Name, {re, Attr}}) ->
+compile_condition({client_attr, Name, {re, Attr}}) ->
     {_, MP} = re_compile({client_attr, Name}, bin(Attr)),
     {client_attr, bin(Name), MP};
-compile_who({client_attr, Name, Attr}) ->
+compile_condition({client_attr, Name, Attr}) ->
     {client_attr, bin(Name), {eq, bin(Attr)}};
-compile_who({zone, {re, Zone}}) ->
+compile_condition({zone, {re, Zone}}) ->
     re_compile(zone, Zone);
-compile_who({zone, Zone}) ->
+compile_condition({zone, Zone}) ->
     {zone, {eq, Zone}};
-compile_who({listener, {re, Listener}}) ->
+compile_condition({listener, {re, Listener}}) ->
     re_compile(listener, Listener);
-compile_who({listener, Listener}) ->
+compile_condition({listener, Listener}) ->
     {listener, {eq, Listener}};
-compile_who({ipaddr, CIDR}) ->
+compile_condition({security_profile, Profile}) when Profile =:= legacy; Profile =:= hardened ->
+    {security_profile, Profile};
+compile_condition({ipaddr, CIDR}) ->
     {ipaddr, esockd_cidr:parse(CIDR, true)};
-compile_who({ipaddrs, CIDRs}) ->
+compile_condition({ipaddrs, CIDRs}) ->
     {ipaddrs, lists:map(fun(CIDR) -> esockd_cidr:parse(CIDR, true) end, CIDRs)};
-compile_who({'and', L}) when is_list(L) ->
-    {'and', [compile_who(Who) || Who <- L]};
-compile_who({'or', L}) when is_list(L) ->
-    {'or', [compile_who(Who) || Who <- L]};
-compile_who(Who) ->
+compile_condition({'and', L}) when is_list(L) ->
+    {'and', [compile_condition(Cond) || Cond <- L]};
+compile_condition({'or', L}) when is_list(L) ->
+    {'or', [compile_condition(Cond) || Cond <- L]};
+compile_condition(Cond) ->
     throw(#{
         reason => invalid_client_match_condition,
-        identifier => Who
+        identifier => Cond
     }).
 re_compile(Tag, Pattern) ->
     case re:compile(bin(Pattern)) of
@@ -323,18 +337,18 @@ bin(B) when is_binary(B) ->
     {matched, allow} | {matched, deny} | nomatch.
 matches(_Client, _Action, _Topic, []) ->
     nomatch;
-matches(Client, Action, Topic, [{Permission, WhoCond, ActionCond, TopicCond} | Tail]) ->
-    case match(Client, Action, Topic, {Permission, WhoCond, ActionCond, TopicCond}) of
+matches(Client, Action, Topic, [{Permission, Cond, ActionCond, TopicCond} | Tail]) ->
+    case match(Client, Action, Topic, {Permission, Cond, ActionCond, TopicCond}) of
         nomatch -> matches(Client, Action, Topic, Tail);
         Matched -> Matched
     end.
 
 -spec match(emqx_types:clientinfo(), action(), emqx_types:topic(), rule()) ->
     {matched, allow} | {matched, deny} | nomatch.
-match(Client, Action, Topic, {Permission, WhoCond, ActionCond, TopicCond}) ->
+match(Client, Action, Topic, {Permission, Cond, ActionCond, TopicCond}) ->
     case
         match_action(Action, ActionCond) andalso
-            match_who(Client, WhoCond) andalso
+            match_condition(Client, Cond) andalso
             match_topics(Client, Topic, TopicCond)
     of
         true -> {matched, Permission};
@@ -382,61 +396,63 @@ match_retain(_, all) -> true;
 match_retain(Retain, Retain) when is_boolean(Retain) -> true;
 match_retain(_, _) -> false.
 
-match_who(_, all) ->
+match_condition(_, all) ->
     true;
-match_who(#{username := undefined}, {username, _}) ->
+match_condition(#{username := undefined}, {username, _}) ->
     false;
-match_who(#{username := Username}, {username, {eq, Username}}) ->
+match_condition(#{username := Username}, {username, {eq, Username}}) ->
     true;
-match_who(#{username := Username}, {username, ?RE_PATTERN = MP}) ->
+match_condition(#{username := Username}, {username, ?RE_PATTERN = MP}) ->
     is_re_match(Username, MP);
-match_who(#{clientid := Clientid}, {clientid, {eq, Clientid}}) ->
+match_condition(#{clientid := Clientid}, {clientid, {eq, Clientid}}) ->
     true;
-match_who(#{clientid := Clientid}, {clientid, ?RE_PATTERN = MP}) ->
+match_condition(#{clientid := Clientid}, {clientid, ?RE_PATTERN = MP}) ->
     is_re_match(Clientid, MP);
-match_who(#{client_attrs := Attrs}, {client_attr, Name, {eq, Value}}) ->
+match_condition(#{client_attrs := Attrs}, {client_attr, Name, {eq, Value}}) ->
     maps:get(Name, Attrs, undefined) =:= Value;
-match_who(#{client_attrs := Attrs}, {client_attr, Name, ?RE_PATTERN = MP}) ->
+match_condition(#{client_attrs := Attrs}, {client_attr, Name, ?RE_PATTERN = MP}) ->
     Value = maps:get(Name, Attrs, undefined),
     is_binary(Value) andalso is_re_match(Value, MP);
-match_who(#{zone := Zone}, {zone, {eq, Zone1}}) ->
+match_condition(#{zone := Zone}, {zone, {eq, Zone1}}) ->
     Zone =:= Zone1 orelse bin(Zone) =:= bin(Zone1);
-match_who(#{zone := Zone}, {zone, ?RE_PATTERN = MP}) ->
+match_condition(#{zone := Zone}, {zone, ?RE_PATTERN = MP}) ->
     is_re_match(Zone, MP);
-match_who(#{listener := Listener}, {listener, {eq, Listener1}}) ->
+match_condition(#{listener := Listener}, {listener, {eq, Listener1}}) ->
     Listener =:= Listener1 orelse bin(Listener) =:= bin(Listener1);
-match_who(#{listener := Listener}, {listener, ?RE_PATTERN = MP}) ->
+match_condition(#{listener := Listener}, {listener, ?RE_PATTERN = MP}) ->
     is_re_match(Listener, MP);
-match_who(#{peerhost := undefined}, {ipaddr, _CIDR}) ->
+match_condition(_ClientInfo, {security_profile, Profile}) ->
+    emqx_security_profile:profile() =:= Profile;
+match_condition(#{peerhost := undefined}, {ipaddr, _CIDR}) ->
     false;
-match_who(#{peerhost := IpAddress}, {ipaddr, CIDR}) ->
+match_condition(#{peerhost := IpAddress}, {ipaddr, CIDR}) ->
     esockd_cidr:match(IpAddress, CIDR);
-match_who(#{peerhost := undefined}, {ipaddrs, _CIDR}) ->
+match_condition(#{peerhost := undefined}, {ipaddrs, _CIDR}) ->
     false;
-match_who(#{peerhost := IpAddress}, {ipaddrs, CIDRs}) ->
+match_condition(#{peerhost := IpAddress}, {ipaddrs, CIDRs}) ->
     lists:any(
         fun(CIDR) ->
             esockd_cidr:match(IpAddress, CIDR)
         end,
         CIDRs
     );
-match_who(ClientInfo, {'and', Principals}) when is_list(Principals) ->
+match_condition(ClientInfo, {'and', Conds}) when is_list(Conds) ->
     lists:foldl(
-        fun(Principal, Permission) ->
-            Permission andalso match_who(ClientInfo, Principal)
+        fun(Cond, Matched) ->
+            Matched andalso match_condition(ClientInfo, Cond)
         end,
         true,
-        Principals
+        Conds
     );
-match_who(ClientInfo, {'or', Principals}) when is_list(Principals) ->
+match_condition(ClientInfo, {'or', Conds}) when is_list(Conds) ->
     lists:foldl(
-        fun(Principal, Permission) ->
-            Permission orelse match_who(ClientInfo, Principal)
+        fun(Cond, Matched) ->
+            Matched orelse match_condition(ClientInfo, Cond)
         end,
         false,
-        Principals
+        Conds
     );
-match_who(_, _) ->
+match_condition(_, _) ->
     false.
 
 is_re_match(Value, Pattern) ->

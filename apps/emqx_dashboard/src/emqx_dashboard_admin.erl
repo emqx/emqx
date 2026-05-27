@@ -92,6 +92,7 @@
 -type role() :: binary().
 
 -define(USERNAME_ALREADY_EXISTS_ERROR, <<"username_already_exists">>).
+-define(INSECURE_DEFAULT_PASSWORD, <<"public">>).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -774,16 +775,22 @@ check(Username, Password, MfaToken) ->
         [#?ADMIN{pwdhash = PwdHash} = User] ->
             IsPwdOk = (ok =:= verify_hash(Password, PwdHash)),
             MfaVerifyResult = verify_mfa_token(Username, MfaToken, IsPwdOk),
-            check_mfa_pwd(MfaVerifyResult, IsPwdOk, User);
+            maybe
+                ok ?= check_mfa_pwd(MfaVerifyResult, IsPwdOk),
+                ok ?= check_unchanged_default_credentials(Password),
+                {ok, User}
+            else
+                Error -> Error
+            end;
         [] ->
             {error, <<"username_not_found">>}
     end.
 
-check_mfa_pwd(ok, true, User) ->
-    {ok, User};
-check_mfa_pwd(ok, false, _User) ->
+check_mfa_pwd(ok, true) ->
+    ok;
+check_mfa_pwd(ok, false) ->
     {error, <<"password_error">>};
-check_mfa_pwd({error, MfaError}, IsPwdOk, _User) ->
+check_mfa_pwd({error, MfaError}, IsPwdOk) ->
     %% MFA error
     case emqx_dashboard_mfa:is_need_setup_error(MfaError) of
         true when not IsPwdOk ->
@@ -798,6 +805,21 @@ check_mfa_pwd({error, MfaError}, IsPwdOk, _User) ->
             %% - MFA is setup, but token is NOT provided
             %% - MFA is setup, but bad token prvoided
             {error, MfaError}
+    end.
+
+check_unchanged_default_credentials(Password) ->
+    %% NOTE
+    %% This intentionally triggers if the username was changed but the password is still the standard default.
+    case Password =:= ?INSECURE_DEFAULT_PASSWORD of
+        true ->
+            case emqx_security_profile:policy(dashboard_unchanged_default_credentials) of
+                allow ->
+                    ok;
+                deny ->
+                    {error, <<"default_credentials_not_changed">>}
+            end;
+        false ->
+            ok
     end.
 
 verify_mfa_token(_Username, ?TRUSTED_MFA_TOKEN, _IsPwdOk) ->

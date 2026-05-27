@@ -40,6 +40,18 @@ def emqx_rel_path(profile):
     return rel_path
 
 
+def run_emqx_console(emqx_bin_path, env_overrides, timeout=10):
+    env = os.environ.copy()
+    env.update(env_overrides)
+    return subprocess.run(
+        [str(emqx_bin_path), "console"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=timeout
+    )
+
+
 def test_profile_defaults_to_emqx_enterprise():
     """Test that PROFILE defaults to emqx-enterprise when not set."""
     # This test verifies the default behavior
@@ -63,6 +75,36 @@ def test_emqx_boot_with_invalid_node_name(emqx_bin_path):
     # The command should fail and output should contain error message
     output = result.stdout + result.stderr
     assert "ERROR: Invalid node name," in output or result.returncode != 0
+
+
+def test_hardened_rejects_insecure_cookie(emqx_bin_path):
+    """Test that hardened profile rejects known insecure Erlang cookies."""
+    for cookie in ["emqx50elixir", "emqxsecretcookie"]:
+        result = run_emqx_console(
+            emqx_bin_path,
+            {
+                "EMQX_SECURITY_PROFILE": "hardened",
+                "EMQX_NODE__COOKIE": cookie,
+            },
+        )
+        output = result.stdout + result.stderr
+        assert result.returncode != 0, f"Expected EMQX to reject cookie {cookie}"
+        assert "Cannot continue with default cookie" in output
+        assert "EMQX_SECURITY_PROFILE" in output
+
+
+@pytest.mark.parametrize("security_profile", ["not-a-profile", "HARDENED"])
+def test_invalid_security_profile_fails_fast(emqx_bin_path, security_profile):
+    """Test that malformed EMQX_SECURITY_PROFILE fails before boot."""
+    result = run_emqx_console(
+        emqx_bin_path,
+        {"EMQX_SECURITY_PROFILE": security_profile},
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "Invalid security profile" in output
+    assert "legacy" in output
+    assert "hardened" in output
 
 
 def test_corrupted_cluster_override_conf(emqx_bin_path, emqx_rel_path):

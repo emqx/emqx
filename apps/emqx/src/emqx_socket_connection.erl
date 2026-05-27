@@ -554,7 +554,7 @@ handle_msg({'$socket', Socket, select, Handle}, State = #state{sockstate = SS}) 
         idle ->
             handle_data_ready(Socket, State);
         #congested{handle = Handle} ->
-            handle_send_ready(Socket, SS, State);
+            handle_send_ready(Socket, State);
         _ ->
             handle_data_ready(Socket, State)
     end;
@@ -1062,8 +1062,8 @@ send(Num, IoData, #state{sockstate = SS = #congested{sendq = SQ, deadline = Dead
 send(_Num, _IoVec, #state{sockstate = closed} = State) ->
     {ok, State}.
 
--compile({inline, [handle_send_ready/3]}).
-handle_send_ready(Socket, SS = #congested{sendq = SQ}, State) ->
+-compile({inline, [handle_send_ready/2]}).
+handle_send_ready(Socket, State = #state{sockstate = SS = #congested{sendq = SQ}}) ->
     IoData = sendq_to_iodata(SQ, []),
     Handle = make_ref(),
     case socket:send(Socket, IoData, [], Handle) of
@@ -1075,7 +1075,7 @@ handle_send_ready(Socket, SS = #congested{sendq = SQ}, State) ->
             {ok, queue_send(Handle, Rest, State)};
         {select, _Info} ->
             %% Totally congested, keep the deadline.
-            NSS = SS#congested{handle = Handle, sendq = IoData},
+            NSS = SS#congested{handle = Handle, sendq = [IoData]},
             NState = State#state{sockstate = NSS},
             {ok, NState};
         {error, {Reason, _Rest}} ->
