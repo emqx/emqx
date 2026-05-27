@@ -49,11 +49,11 @@
 
 %% cert files for client
 -define(CERT_ROOT,
-    filename:join([emqx_common_test_helpers:proj_root(), ".ci", "docker-compose-file", "certs"])
+    os:getenv("CI_SHARED_SECRET_PATH", "/var/lib/secret")
 ).
 
 -define(CAFILE, filename:join(?CERT_ROOT, ["ca.crt"])).
--define(CERTFILE, filename:join(?CERT_ROOT, ["client.pem"])).
+-define(CERTFILE, filename:join(?CERT_ROOT, ["client.crt"])).
 -define(KEYFILE, filename:join(?CERT_ROOT, ["client.key"])).
 
 %% How to run it locally:
@@ -66,7 +66,8 @@
 %%  2. Run use cases with special environment variables
 %%    CASSA_TCP_HOST=127.0.0.1 CASSA_TCP_PORT=19042 \
 %%    CASSA_TLS_HOST=127.0.0.1 CASSA_TLS_PORT=19142 \
-%%    PROXY_HOST=127.0.0.1 ./rebar3 as test ct -c -v --name ct@127.0.0.1 \
+%%    PROXY_HOST=127.0.0.1 CI_SHARED_SECRET_PATH=/tmp/emqx-ci/emqx-shared-secret \
+%%    ./rebar3 as test ct -c -v --name ct@127.0.0.1 \
 %%    --suite apps/emqx_bridge_cassandra/test/emqx_bridge_cassandra_SUITE.erl
 %%
 
