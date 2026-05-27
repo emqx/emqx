@@ -937,7 +937,6 @@ t_chan_info_refreshed_after_takeover_replay(Config) ->
     end.
 
 do_chan_info_refreshed_after_takeover_replay(_Config) ->
-    process_flag(trap_exit, true),
     ClientId = iolist_to_binary([
         atom_to_binary(?FUNCTION_NAME),
         "-",
