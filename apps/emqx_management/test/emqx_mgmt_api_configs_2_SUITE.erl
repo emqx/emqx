@@ -16,7 +16,7 @@ init_per_suite(Config) ->
     _ = application:load(emqx),
     CertDir = filename:join([code:lib_dir(emqx), "etc", "certs"]),
     Cert = fun(Name) -> filename:join(CertDir, Name) end,
-    %% keep it the same as default conf in emqx_dashboard.conf
+    %% keep it the same as the dashboard defaults in apps/emqx_conf/etc/base.hocon
     Conf =
         [
             "dashboard.listeners.http { enable = true, bind = 18083 }",

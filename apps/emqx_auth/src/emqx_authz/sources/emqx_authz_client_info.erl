@@ -61,7 +61,7 @@ destroy(_Source) -> ok.
 %%
 %%    [{
 %%        Permission :: emqx_authz_rule:permission_resolution(),
-%%        Who :: emqx_authz_rule:who_condition(),
+%%        Cond :: emqx_authz_rule:condition(),
 %%        Action :: emqx_authz_rule:action_condition(),
 %%        Topics :: emqx_authz_rule:topic_condition()
 %%     }]

@@ -3,7 +3,6 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_schema).
--feature(maybe_expr, enable).
 
 -dialyzer(no_return).
 -dialyzer(no_match).
@@ -633,7 +632,7 @@ fields("crl_cache") ->
             )}
     ];
 fields("mqtt_tcp_listener") ->
-    mqtt_listener(1883) ++
+    mqtt_listener(mqtt_default_bind_schema(1883)) ++
         [
             {"tcp_backend",
                 sc(
@@ -657,7 +656,7 @@ fields("mqtt_tcp_listener") ->
                 )}
         ];
 fields("mqtt_ssl_listener") ->
-    mqtt_listener(8883) ++
+    mqtt_listener(mqtt_default_bind_schema(8883)) ++
         mqtt_parse_options() ++
         [
             {"tcp_options",
@@ -672,7 +671,7 @@ fields("mqtt_ssl_listener") ->
                 )}
         ];
 fields("mqtt_ws_listener") ->
-    mqtt_listener(8083) ++
+    mqtt_listener(mqtt_default_bind_schema(8083)) ++
         [
             {"tcp_options",
                 sc(
@@ -686,7 +685,7 @@ fields("mqtt_ws_listener") ->
                 )}
         ];
 fields("mqtt_wss_listener") ->
-    mqtt_listener(8084) ++
+    mqtt_listener(mqtt_default_bind_schema(8084)) ++
         [
             {"tcp_options",
                 sc(
@@ -1163,6 +1162,14 @@ fields("tcp_opts") ->
     ];
 fields("client_tcp_opts") ->
     [
+        {active_n,
+            sc(
+                non_neg_integer(),
+                #{
+                    default => 10,
+                    desc => ?DESC(fields_tcp_opts_active_n)
+                }
+            )},
         {nodelay,
             sc(
                 boolean(),
@@ -1209,6 +1216,15 @@ fields("client_tcp_opts") ->
                     required => false,
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(fields_client_tcp_opts_keepalive)
+                }
+            )},
+        {delay_send,
+            sc(
+                boolean(),
+                #{
+                    required => false,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(fields_client_tcp_opts_delay_send)
                 }
             )}
     ];
@@ -2177,6 +2193,7 @@ base_listener(Bind) ->
                 ip_port(),
                 #{
                     default => Bind,
+                    converter => fun listener_ip_port_converter/2,
                     required => true,
                     desc => ?DESC(base_listener_bind)
                 }
@@ -3272,6 +3289,8 @@ client_tcp_opts_to_proplist(Map) when is_map(Map) ->
             (recbuf, V, Acc) when is_integer(V) -> [{recbuf, V} | Acc];
             (buffer, V, Acc) when is_integer(V) -> [{buffer, V} | Acc];
             (keepalive, V, Acc) when is_boolean(V) -> [{keepalive, V} | Acc];
+            (delay_send, V, Acc) when is_boolean(V) -> [{delay_send, V} | Acc];
+            (active_n, V, Acc) when is_integer(V) -> [{active, V} | Acc];
             (_, _, Acc) -> Acc
         end,
         [],
@@ -3879,11 +3898,11 @@ assert_required_field(Conf, Key, ErrorMessage) ->
 
 default_listener(tcp) ->
     #{
-        <<"bind">> => <<"0.0.0.0:1883">>
+        <<"bind">> => mqtt_default_bind_config(1883)
     };
 default_listener(ws) ->
     #{
-        <<"bind">> => <<"0.0.0.0:8083">>,
+        <<"bind">> => mqtt_default_bind_config(8083),
         <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
     };
 default_listener(SSLListener) ->
@@ -3896,12 +3915,12 @@ default_listener(SSLListener) ->
     case SSLListener of
         ssl ->
             #{
-                <<"bind">> => <<"0.0.0.0:8883">>,
+                <<"bind">> => mqtt_default_bind_config(8883),
                 <<"ssl_options">> => SslOptions
             };
         wss ->
             #{
-                <<"bind">> => <<"0.0.0.0:8084">>,
+                <<"bind">> => mqtt_default_bind_config(8084),
                 <<"ssl_options">> => SslOptions,
                 <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
             }
@@ -4467,6 +4486,41 @@ listeners() ->
                 }
             )}
     ].
+
+mqtt_default_bind_schema(Port) ->
+    case emqx_security_profile:policy(mqtt_default_bind) of
+        any -> Port;
+        loopback -> <<"127.0.0.1:", (integer_to_binary(Port))/binary>>
+    end.
+
+mqtt_default_bind_config(Port) ->
+    PortBin = integer_to_binary(Port),
+    case emqx_security_profile:policy(mqtt_default_bind) of
+        any -> <<"0.0.0.0:", PortBin/binary>>;
+        loopback -> <<"127.0.0.1:", PortBin/binary>>
+    end.
+
+listener_ip_port_converter(Value, Opts) ->
+    case emqx_security_profile:policy(mqtt_default_bind) of
+        any -> Value;
+        loopback -> maybe_add_loopback_converter(Value, Opts)
+    end.
+
+maybe_add_loopback_converter(undefined, _) ->
+    undefined;
+maybe_add_loopback_converter(Port, _) when is_integer(Port) ->
+    PortBin = integer_to_binary(Port),
+    <<"127.0.0.1:", PortBin/binary>>;
+maybe_add_loopback_converter(BindStr, _) when is_binary(BindStr) ->
+    case split_ip_port(BindStr) of
+        {"", Port} ->
+            PortBin = integer_to_binary(Port),
+            <<"127.0.0.1:", PortBin/binary>>;
+        {_MaybeIp, _Port} ->
+            BindStr
+    end;
+maybe_add_loopback_converter(Other, _) ->
+    Other.
 
 mkunion(Field, Schemas) ->
     mkunion(Field, Schemas, none).

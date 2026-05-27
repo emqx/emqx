@@ -178,7 +178,7 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.24.2", override: true}
-  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.16.2", override: true}
+  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.16.3", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.9", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
@@ -239,7 +239,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:emqtt),
     do:
       {:emqtt,
-       github: "emqx/emqtt", tag: "1.14.6", override: true, system_env: maybe_no_quic_env()}
+       github: "emqx/emqtt", tag: "1.15.1", override: true, system_env: maybe_no_quic_env()}
 
   def common_dep(:typerefl),
     do: {:typerefl, github: "ieQu1/typerefl", tag: "0.9.6", override: true}
@@ -276,13 +276,13 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.18", override: true}
 
-  def common_dep(:wolff), do: {:wolff, "4.1.9"}
+  def common_dep(:wolff), do: {:wolff, "4.1.10"}
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}
 
   def common_dep(:kafka_protocol),
     do: {:kafka_protocol, "4.3.2", override: true}
 
-  def common_dep(:brod), do: {:brod, "4.5.2"}
+  def common_dep(:brod), do: {:brod, "4.5.4"}
   ## TODO: remove `mix.exs` from `wolff` and remove this override
   ## TODO: remove `mix.exs` from `pulsar` and remove this override
   def common_dep(:snappyer), do: {:snappyer, "1.2.10", override: true}
@@ -313,7 +313,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:optvar, override: true, git: "https://github.com/emqx/optvar", tag: "1.0.5"}
 
   def common_dep(:parquer),
-    do: {:parquer, github: "emqx/parquer", tag: "0.1.7", manager: :rebar3}
+    do: {:parquer, github: "emqx/parquer", tag: "0.1.8", manager: :rebar3}
 
   def common_dep(:greptimedb),
     do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.3-emqx.1"}

@@ -42,6 +42,12 @@
 post_boot() ->
     ok = ensure_apps_started(),
     ok = print_vsn(),
+    ?SLOG(info, #{
+        msg => "emqx_is_running",
+        description => emqx_app:get_description(),
+        release => emqx_app:get_release(),
+        security_profile => emqx_security_profile:profile()
+    }),
     ok = start_autocluster(),
     ignore.
 

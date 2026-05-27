@@ -298,6 +298,7 @@ init(
         Zone
     ),
     {NClientInfo, NConnInfo0} = take_conn_info_fields([ws_cookie, peersni], ClientInfo, ConnInfo),
+    ok = validate_clientinfo_string(peersni, maps:get(peersni, NClientInfo, undefined)),
     NConnInfo = maybe_quic_shared_state(NConnInfo0, Opts),
 
     Limiter = emqx_limiter:create_channel_client_container(Zone, ListenerId),
@@ -329,7 +330,10 @@ set_peercert_infos(NoSSL, ClientInfo, _) when
 ->
     ClientInfo#{username => undefined};
 set_peercert_infos(PeerCert, ClientInfo, Zone) ->
-    {DN, CN} = {esockd_peercert:subject(PeerCert), esockd_peercert:common_name(PeerCert)},
+    DN = esockd_peercert:subject(PeerCert),
+    CN = esockd_peercert:common_name(PeerCert),
+    ok = validate_peercert_string(dn, DN, PeerCert),
+    ok = validate_peercert_string(cn, CN, PeerCert),
     PeercetAs = fun(Key) ->
         case get_mqtt_conf(Zone, Key) of
             cn -> CN;
@@ -343,6 +347,52 @@ set_peercert_infos(PeerCert, ClientInfo, Zone) ->
     Username = PeercetAs(peer_cert_as_username),
     ClientId = PeercetAs(peer_cert_as_clientid),
     ClientInfo#{username => Username, clientid => ClientId, dn => DN, cn => CN}.
+
+%% Reject control characters (0x00-0x1F, 0x7F-0x9F) in CN / DN. Mirrors the
+%% byte-class check `emqx_frame:validate_utf8/1` applies to MQTT-ingested
+%% clientid/username/password. Closes a CRLF-injection primitive where bytes
+%% sourced from a PROXY-Protocol v2 SSL TLV could be smuggled into outbound
+%% HTTP authn/authz/bridge requests via `${cert_common_name}` / `${cert_subject}`.
+validate_peercert_string(_Field, undefined, _Source) ->
+    ok;
+validate_peercert_string(Field, Value, Source) when is_binary(Value) ->
+    case emqx_utils:is_mqtt_safe_utf8(Value) of
+        true ->
+            ok;
+        false ->
+            ?SLOG(warning, #{
+                msg => "peer_certificate_field_rejected",
+                field => Field,
+                source => peercert_source(Source),
+                reason => contains_control_characters
+            }),
+            erlang:exit({shutdown, peercert_field_invalid})
+    end.
+
+peercert_source(PeerCert) when is_binary(PeerCert) -> tls_certificate;
+peercert_source(PP2Info) when is_list(PP2Info) -> proxy_protocol_v2;
+peercert_source(_) -> unknown.
+
+%% Same byte-class check as `validate_peercert_string/3', for binary fields
+%% that flow into `ClientInfo' from the connection layer (currently `peersni',
+%% which comes from the TLS handshake SNI or the PROXY-Protocol v2
+%% `pp2_authority' TLV). On bad bytes, terminate the connection and log a
+%% warning, mirroring how `emqx_frame:validate_utf8/1' rejects MQTT-ingested
+%% UTF-8 strings.
+validate_clientinfo_string(_Field, undefined) ->
+    ok;
+validate_clientinfo_string(Field, Value) when is_binary(Value) ->
+    case emqx_utils:is_mqtt_safe_utf8(Value) of
+        true ->
+            ok;
+        false ->
+            ?SLOG(warning, #{
+                msg => "clientinfo_field_rejected",
+                field => Field,
+                reason => contains_control_characters
+            }),
+            erlang:exit({shutdown, clientinfo_field_invalid})
+    end.
 
 take_conn_info_fields(Fields, ClientInfo, ConnInfo) ->
     lists:foldl(
@@ -2201,16 +2251,30 @@ initialize_client_attrs(Inits, #{clientid := ClientId} = ClientInfo) ->
                     ),
                     Acc;
                 {ok, Value} ->
-                    ?SLOG(
-                        debug,
-                        #{
-                            msg => "client_attr_initialized",
-                            set_as_attr => Name,
-                            attr_value => Value
-                        },
-                        #{clientid => ClientId}
-                    ),
-                    Acc#{Name => Value};
+                    case emqx_utils:is_mqtt_safe_utf8(Value) of
+                        true ->
+                            ?SLOG(
+                                debug,
+                                #{
+                                    msg => "client_attr_initialized",
+                                    set_as_attr => Name,
+                                    attr_value => Value
+                                },
+                                #{clientid => ClientId}
+                            ),
+                            Acc#{Name => Value};
+                        false ->
+                            ?SLOG(
+                                warning,
+                                #{
+                                    msg => "client_attr_dropped",
+                                    set_as_attr => Name,
+                                    reason => contains_control_characters
+                                },
+                                #{clientid => ClientId}
+                            ),
+                            Acc
+                    end;
                 {error, Reason} ->
                     ?SLOG(
                         warning,

@@ -37,10 +37,15 @@ end_per_testcase(TCName, Config) ->
 %%
 
 mk_interlinked_clusters(BaseName, NSource, NTarget, Config) ->
+    mk_interlinked_clusters(BaseName, NSource, NTarget, #{}, Config).
+
+mk_interlinked_clusters(BaseName, NSource, NTarget, LinkConf, Config) ->
     SourceName = fmt("~p_~p", [BaseName, s]),
     TargetName = fmt("~p_~p", [BaseName, t]),
-    SourceLink = emqx_cluster_link_cth:mk_link_conf(2, TargetName, #{<<"topics">> => []}),
-    TargetLink = emqx_cluster_link_cth:mk_link_conf(1, SourceName, #{<<"topics">> => [<<"#">>]}),
+    SourceLinkConf = LinkConf#{<<"topics">> => []},
+    SourceLink = emqx_cluster_link_cth:mk_link_conf(2, TargetName, SourceLinkConf),
+    TargetLinkConf = LinkConf#{<<"topics">> => [<<"#">>]},
+    TargetLink = emqx_cluster_link_cth:mk_link_conf(1, SourceName, TargetLinkConf),
     SourceSpec = #{
         apps => [
             {emqx_conf, merge_conf(#{cluster => #{links => [SourceLink]}}, conf_log())}
@@ -86,6 +91,7 @@ nodes_target(Config) ->
 
 %%
 
+%% Verifies that basic message forwarding across cluster links works.
 t_message_forwarding('init', Config) ->
     test_message_forwarding_init(?FUNCTION_NAME, Config);
 t_message_forwarding('end', Config) ->
@@ -94,6 +100,35 @@ t_message_forwarding('end', Config) ->
 t_message_forwarding(Config) ->
     test_message_forwarding(regular, Config).
 
+%% Verifies that basic message forwarding across cluster links works with "random"
+%% dispatch strategy.
+t_message_forwarding_random('init', Config) ->
+    ok = snabbkaffe:start_trace(),
+    LinkConf = #{
+        <<"resource_opts">> => #{
+            <<"dispatch_strategy">> => <<"random">>
+        }
+    },
+    {SourceClusterSpec, TargetClusterSpec} =
+        mk_interlinked_clusters(?FUNCTION_NAME, 2, 2, LinkConf, Config),
+    SourceNodes = emqx_cth_cluster:start(SourceClusterSpec),
+    TargetNodes = emqx_cth_cluster:start(TargetClusterSpec),
+    ok = wait_link_online_on(SourceNodes ++ TargetNodes),
+    [
+        {source_nodes, SourceNodes},
+        {target_nodes, TargetNodes}
+        | Config
+    ];
+t_message_forwarding_random('end', Config) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_cth_cluster:stop(?config(source_nodes, Config)),
+    ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
+
+t_message_forwarding_random(Config) ->
+    test_message_forwarding(regular, Config).
+
+%% Verifies that basic message forwarding across cluster links works for shared
+%% subscribers.
 t_message_forwarding_sharesub('init', Config) ->
     test_message_forwarding_init(?FUNCTION_NAME, Config);
 t_message_forwarding_sharesub('end', Config) ->
@@ -185,6 +220,86 @@ test_message_forwarding(SubType, Config) ->
             ok = emqtt:stop(SourceC1),
             ok = emqtt:stop(TargetC1),
             ok = emqtt:stop(TargetC2)
+        end,
+        []
+    ).
+
+t_message_forwarding_ordering('init', Config) ->
+    ok = snabbkaffe:start_trace(),
+    {SourceClusterSpec, TargetClusterSpec} = mk_interlinked_clusters(?FUNCTION_NAME, 1, 1, Config),
+    SourceNodes = emqx_cth_cluster:start(SourceClusterSpec),
+    TargetNodes = emqx_cth_cluster:start(TargetClusterSpec),
+    ok = wait_link_online_on(SourceNodes ++ TargetNodes),
+    [
+        {source_nodes, SourceNodes},
+        {target_nodes, TargetNodes}
+        | Config
+    ];
+t_message_forwarding_ordering('end', Config) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_cth_cluster:stop(?config(source_nodes, Config)),
+    ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
+
+%% Verifies message forwarding with default "clientid" dispatch strategy preserves per-client
+%% publishing order.
+t_message_forwarding_ordering(Config) ->
+    NClients = 10,
+    NMessages = 10,
+    [SourceNode | _] = nodes_source(Config),
+    [TargetNode | _] = nodes_target(Config),
+    %% Connect client to the target cluster.
+    TargetC1 = emqx_cluster_link_cth:connect_client("t_message_forwarding1", TargetNode),
+    %% Connect clients to the source cluster.
+    CNs = lists:seq(1, NClients),
+    SourceClients = [
+        emqx_cluster_link_cth:connect_client("t_message_forwarding" ++ CN, SourceNode)
+     || CN <- lists:map(fun integer_to_list/1, CNs)
+    ],
+    ?check_trace(
+        #{timetrap => 30_000},
+        try
+            %% Subscribe to a wildcard topic.
+            {ok, _, _} = emqtt:subscribe(TargetC1, <<"t/#">>, qos1),
+            %% Wait while existing routes are replicated.
+            {ok, _} = ?block_until(#{
+                ?snk_kind := "cluster_link_route_sync_complete",
+                ?snk_meta := #{node := TargetNode}
+            }),
+            %% Publish bunch a message to the source cluster concurrently.
+            %% * Use unique topic for each message.
+            %% * Keep publishing order reflected in the payload.
+            SourcePublishes = [
+                [
+                    {Topic, {CN, MN}}
+                 || MN <- lists:seq(1, NMessages),
+                    Topic <- [emqx_topic:join(["t", integer_to_list(CN), integer_to_list(MN)])]
+                ]
+             || CN <- CNs
+            ],
+            WorkerFn = fun
+                WorkerFn(SourceClient, [{Topic, Marker} | Rest]) ->
+                    {ok, _} = emqtt:publish(SourceClient, Topic, term_to_binary(Marker), ?QOS_1),
+                    WorkerFn(SourceClient, Rest);
+                WorkerFn(_, []) ->
+                    ok
+            end,
+            _Workers = [
+                erlang:spawn(fun() -> WorkerFn(Client, Publishes) end)
+             || {Client, Publishes} <- lists:zip(SourceClients, SourcePublishes)
+            ],
+            %% Receive publishes from the target cluster.
+            TargetPublishes = [
+                {Topic, binary_to_term(Payload)}
+             || {publish, #{topic := Topic, payload := Payload}} <- ?drainMailbox(2_500)
+            ],
+            %% Verify per-client publishing order is preserved.
+            ?assertEqual(
+                SourcePublishes,
+                [[TP || TP = {_Topic, {CN0, _MN}} <- TargetPublishes, CN =:= CN0] || CN <- CNs]
+            )
+        after
+            %% Stop clients.
+            lists:foreach(fun emqtt:stop/1, [TargetC1 | SourceClients])
         end,
         []
     ).
