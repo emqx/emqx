@@ -53,7 +53,8 @@ tc_v5_only() ->
         t_takeover_session_then_abnormal_disconnect,
         t_takeover_session_then_abnormal_disconnect_2,
         t_disconnected_at_before_connected_at_on_takeover,
-        t_disconnected_at_before_connected_at_on_discard
+        t_disconnected_at_before_connected_at_on_discard,
+        t_chan_info_refreshed_after_takeover_replay
     ].
 
 init_per_suite(Config) ->
@@ -917,6 +918,124 @@ t_ongoing_takeover(Config) ->
 
 %% t_takover_in_cluster(_) ->
 %%     todo.
+
+-doc """
+Regression test: after a session takeover triggers a replay, the
+?CHAN_INFO_TAB snapshot read by the dashboard and REST API must
+reflect the post-replay inflight, not the (zero) pre-replay value.
+
+Pre-fix, the snapshot would stay stale until the next 15s stats_timer
+tick. Post-fix, REPLY_EVENT(updated) appended to the channel's
+`continue' reply refreshes the snapshot immediately.
+""".
+t_chan_info_refreshed_after_takeover_replay(Config) ->
+    case ?config(persistence_enabled, Config) of
+        true ->
+            {skip, "Classic session only — DS path has its own stats model"};
+        _ ->
+            do_chan_info_refreshed_after_takeover_replay(Config)
+    end.
+
+do_chan_info_refreshed_after_takeover_replay(_Config) ->
+    process_flag(trap_exit, true),
+    ClientId = iolist_to_binary([
+        atom_to_binary(?FUNCTION_NAME),
+        "-",
+        integer_to_binary(erlang:unique_integer([positive]))
+    ]),
+    Topic = <<ClientId/binary, "/t">>,
+    NMsgs = 3,
+    ClientOpts = [
+        {proto_ver, v5},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 60}}
+    ],
+
+    %% GIVEN: client A subscribes, then disconnects leaving session alive.
+    {ok, ClientA} = emqtt:start_link([{clientid, ClientId} | ClientOpts]),
+    {ok, _} = emqtt:connect(ClientA),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(ClientA, Topic, ?QOS_1),
+    [OldChanPid] = emqx_cm:lookup_channels(ClientId),
+    ok = emqtt:disconnect(ClientA),
+
+    %% AND: publish NMsgs messages so they queue in the offline session.
+    {ok, Publisher} = emqtt:start_link([{proto_ver, v5}, {clean_start, true}]),
+    {ok, _} = emqtt:connect(Publisher),
+    lists:foreach(
+        fun(I) ->
+            {ok, _} = emqtt:publish(
+                Publisher, Topic, integer_to_binary(I), ?QOS_1
+            )
+        end,
+        lists:seq(1, NMsgs)
+    ),
+    ok = emqtt:disconnect(Publisher),
+
+    %% WHEN: client B reconnects with same clientid -> takeover + replay.
+    %% auto_ack=false keeps the replayed messages in inflight long enough
+    %% to observe via emqx_cm:get_chan_stats/2.
+    {ok, ClientB} = emqtt:start_link([
+        {clientid, ClientId},
+        {auto_ack, false}
+        | ClientOpts
+    ]),
+    {ok, _} = emqtt:connect(ClientB),
+
+    %% Wait for takeover: the channel pid should change.
+    true = wait_until(
+        fun() ->
+            case emqx_cm:lookup_channels(ClientId) of
+                [Pid] when Pid =/= OldChanPid -> true;
+                _ -> false
+            end
+        end,
+        2000
+    ),
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+
+    %% THEN: chan-info stats reflect the *post-replay* state — messages
+    %% moved from mqueue into inflight — well before the 15s stats_timer
+    %% would tick. Pre-fix, the snapshot is taken on `{event, connected}'
+    %% (before the deferred replay), so it shows inflight_cnt=0 and
+    %% mqueue_len=NMsgs. Post-fix, REPLY_EVENT(updated) fires after the
+    %% replay, refreshing the snapshot to inflight_cnt=NMsgs, mqueue_len=0.
+    PollTimeout = 5_000,
+    Result = wait_until(
+        fun() ->
+            case emqx_cm:get_chan_stats(ClientId, ChanPid) of
+                Stats when is_list(Stats) ->
+                    Inflight = proplists:get_value(inflight_cnt, Stats, 0),
+                    Inflight >= NMsgs;
+                _ ->
+                    false
+            end
+        end,
+        PollTimeout
+    ),
+    ?assertEqual(
+        true,
+        Result,
+        {chan_stats_not_refreshed_post_replay, emqx_cm:get_chan_stats(ClientId, ChanPid)}
+    ),
+
+    catch emqtt:stop(ClientB),
+    ok.
+
+%% End t_chan_info_refreshed_after_takeover_replay helpers --------------
+
+wait_until(Fun, Timeout) ->
+    wait_until(Fun, Timeout, 50).
+
+wait_until(_Fun, Timeout, _Step) when Timeout =< 0 ->
+    false;
+wait_until(Fun, Timeout, Step) ->
+    case Fun() of
+        true ->
+            true;
+        false ->
+            timer:sleep(Step),
+            wait_until(Fun, Timeout - Step, Step)
+    end.
 
 %%--------------------------------------------------------------------
 %% Commands
