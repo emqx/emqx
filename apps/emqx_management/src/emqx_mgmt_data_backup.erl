@@ -1144,7 +1144,8 @@ validate_cluster_hocon(RawConf0) ->
     %% the running value and drop required fields without defaults such as
     %% `node.cookie'.
     RawConfFiltered = maps:without(import_skip_root_keys(), RawConf0),
-    %% write ACL file to comply with the schema...
+    %% Write ACL file(s) locally so the `authz:file` schema's path validator
+    %% (which calls file:consult/1) passes during the schema check below.
     RawConf1 = emqx_authz:maybe_write_files(RawConfFiltered),
     maybe
         {ok, RawConf} ?=
@@ -1153,7 +1154,15 @@ validate_cluster_hocon(RawConf0) ->
                 maps:merge(emqx:get_raw_config([]), RawConf1),
                 #{atom_key => false, required => false, make_serializable => true}
             ),
-        {ok, maps:with(maps:keys(RawConfFiltered), RawConf)}
+        Filtered = maps:with(maps:keys(RawConfFiltered), RawConf),
+        %% For every file authz source whose *input* form carried inline
+        %% `rules`, restore that `rules` field before the config is shipped
+        %% via cluster_rpc. Otherwise remote nodes would receive only a
+        %% `path` — pointing at the file we just wrote on this node — and
+        %% fail with `failed_to_read_acl_file` because they have no such
+        %% file locally. Sources whose input was a bare `path` (user-
+        %% specified) are left untouched so the user's intent is preserved.
+        {ok, restore_inline_authz_rules(Filtered, RawConfFiltered)}
     end.
 
 %% Roots that are dropped from the imported cluster.hocon before the
@@ -1165,6 +1174,35 @@ validate_cluster_hocon(RawConf0) ->
 %% list disjoint from ?CONF_KEYS (see import_skip_root_keys_test/0).
 import_skip_root_keys() ->
     [<<"node">>, <<"rpc">>].
+
+restore_inline_authz_rules(
+    #{<<"authorization">> := #{<<"sources">> := NewSources} = NewAuthz} = NewConf,
+    #{<<"authorization">> := #{<<"sources">> := OldSources}}
+) ->
+    Restored = [maybe_restore_source_rules(S, OldSources) || S <- NewSources],
+    NewConf#{<<"authorization">> := NewAuthz#{<<"sources">> := Restored}};
+restore_inline_authz_rules(NewConf, _OldConf) ->
+    NewConf.
+
+maybe_restore_source_rules(
+    #{<<"type">> := <<"file">>, <<"path">> := _} = NewSrc, OldSources
+) ->
+    case
+        lists:search(
+            fun
+                (#{<<"type">> := <<"file">>, <<"rules">> := _}) -> true;
+                (_) -> false
+            end,
+            OldSources
+        )
+    of
+        {value, #{<<"rules">> := Rules}} ->
+            maps:remove(<<"path">>, NewSrc#{<<"rules">> => Rules});
+        false ->
+            NewSrc
+    end;
+maybe_restore_source_rules(NewSrc, _OldSources) ->
+    NewSrc.
 
 do_import_conf(Namespace, RawConf, Opts) ->
     GenConfErrs = filter_errors(maps:from_list(import_generic_conf(Namespace, RawConf))),

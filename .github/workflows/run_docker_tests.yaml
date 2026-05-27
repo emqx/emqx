@@ -63,13 +63,17 @@ jobs:
         shell: bash
     env:
       EMQX_NAME: ${{ matrix.profile }}
-      _EMQX_TEST_DB_BACKEND: ${{ matrix.profile == 'emqx-enterprise' && 'rlog' || 'mnesia' }}
+      CI_EMQX_DB_BACKEND: ${{ matrix.profile == 'emqx-enterprise' && 'rlog' || 'mnesia' }}
 
     strategy:
       fail-fast: false
       matrix:
         profile:
           - emqx-enterprise
+        overrides:
+          - "--tcp-backend gen_tcp"
+          - "--tcp-backend socket"
+
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -78,14 +82,18 @@ jobs:
       - name: load docker image
         run: |
           EMQX_TAG=$(docker load < ${EMQX_NAME}-docker-*.tar.gz 2>/dev/null | sed 's/Loaded image: //g')
-          echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_TAG" >> $GITHUB_ENV
+          echo "CI_EMQX_DOCKER_IMAGE_TAG=$EMQX_TAG" | tee -a $GITHUB_ENV
+
       - name: run emqx
         timeout-minutes: 5
         run: |
-          ./.ci/docker-compose-file/scripts/run-emqx.sh $_EMQX_DOCKER_IMAGE_TAG $_EMQX_TEST_DB_BACKEND
+          .ci/docker-compose-file/scripts/run-emqx.sh $CI_EMQX_DOCKER_IMAGE_TAG \
+            --db-backend $CI_EMQX_DB_BACKEND \
+            ${{ matrix.overrides }}
+
       - name: make paho tests
         run: |
-          if ! docker exec -i python /scripts/pytest.sh "$_EMQX_TEST_DB_BACKEND"; then
+          if ! docker exec -i python /scripts/pytest.sh "$CI_EMQX_DB_BACKEND"; then
             echo "DUMP_CONTAINER_LOGS_BGN"
             echo "============== haproxy =============="
             docker logs haproxy
@@ -96,8 +104,28 @@ jobs:
             echo "DUMP_CONTAINER_LOGS_END"
             exit 1
           fi
-      # simple smoke test for node_dump
-      - name: test node_dump
+
+  # simple smoke test for node_dump
+  node-dump-test:
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      EMQX_NAME: emqx-enterprise
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ env.EMQX_NAME }}-docker-amd64
+      - name: load docker image
         run: |
+          EMQX_TAG=$(docker load < ${EMQX_NAME}-docker-*.tar.gz 2>/dev/null | sed 's/Loaded image: //g')
+          echo "CI_EMQX_DOCKER_IMAGE_TAG=$EMQX_TAG" | tee -a $GITHUB_ENV
+      - name: run emqx
+        timeout-minutes: 5
+        run: .ci/docker-compose-file/scripts/run-emqx.sh $CI_EMQX_DOCKER_IMAGE_TAG --db-backend rlog
+      - run: |
           docker exec -t -u root node1.emqx.io bash -c 'apt-get -y update && apt-get -y install net-tools'
           docker exec -t -u root node1.emqx.io node_dump

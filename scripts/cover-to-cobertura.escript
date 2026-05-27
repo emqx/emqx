@@ -1,5 +1,4 @@
 #!/usr/bin/env escript
-%%! -mode(compile)
 %%
 %% Convert a directory of .coverdata files into a single Cobertura XML report.
 %%
@@ -21,6 +20,8 @@
 %% larger compressed payload. Each entry is one of:
 %%   {file, Module, BeamPath}
 %%   {#bump{module=M, function=F, arity=A, clause=C, line=L}, Count}
+
+-mode(compile).
 
 -record(bump, {module = '_', function = '_', arity = '_', clause = '_', line = '_'}).
 -record(opts, {
