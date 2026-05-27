@@ -326,7 +326,15 @@ t_create_via_http(Config) ->
     ok.
 
 t_on_get_status(Config) ->
-    emqx_bridge_v2_testlib:t_on_get_status(Config),
+    %% Shorten health_check_interval so recovery fits the 20s retry budget
+    %% on the slow arrow_tls variant (TLS handshake + arrow-flight setup).
+    ResourceOpts = #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}},
+    Config1 = [
+        {connector_overrides, ResourceOpts},
+        {action_overrides, ResourceOpts}
+        | Config
+    ],
+    emqx_bridge_v2_testlib:t_on_get_status(Config1),
     ok.
 
 t_start_action_or_source_with_disabled_connector(Config) ->
