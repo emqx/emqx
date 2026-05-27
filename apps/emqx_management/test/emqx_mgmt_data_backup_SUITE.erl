@@ -74,6 +74,23 @@ init_per_testcase(TC = t_import_on_cluster, Config) ->
     [{cluster, cluster(TC, Config)} | setup(TC, Config)];
 init_per_testcase(TC = t_verify_imported_mnesia_tab_on_cluster, Config) ->
     [{cluster, cluster(TC, Config)} | setup(TC, Config)];
+init_per_testcase(TC = t_import_file_authz_source_on_cluster, Config) ->
+    %% Don't import listeners to avoid port conflicts when running in a cluster.
+    meck:new(emqx_mgmt_listeners_conf, [passthrough]),
+    meck:new(emqx_gateway_conf, [passthrough]),
+    meck:expect(
+        emqx_mgmt_listeners_conf,
+        import_config,
+        2,
+        {ok, #{changed => [], root_key => listeners}}
+    ),
+    meck:expect(
+        emqx_gateway_conf,
+        import_config,
+        2,
+        {ok, #{changed => [], root_key => gateway}}
+    ),
+    [{cluster, cluster(TC, Config)} | setup(TC, Config)];
 init_per_testcase(t_mnesia_bad_tab_schema, Config) ->
     meck:new(emqx_mgmt_data_backup, [passthrough]),
     meck:expect(TC = emqx_mgmt_data_backup, modules_with_mnesia_tabs_to_backup, 0, [?MODULE]),
@@ -89,6 +106,11 @@ end_per_testcase(t_import_on_cluster, Config) ->
 end_per_testcase(t_verify_imported_mnesia_tab_on_cluster, Config) ->
     emqx_cth_cluster:stop(?config(cluster, Config)),
     cleanup(Config);
+end_per_testcase(t_import_file_authz_source_on_cluster, Config) ->
+    emqx_cth_cluster:stop(?config(cluster, Config)),
+    cleanup(Config),
+    meck:unload(emqx_mgmt_listeners_conf),
+    meck:unload(emqx_gateway_conf);
 end_per_testcase(t_mnesia_bad_tab_schema, Config) ->
     cleanup(Config),
     meck:unload(emqx_mgmt_data_backup);
@@ -479,6 +501,37 @@ t_bad_config(Config) ->
     Res = emqx_mgmt_data_backup:import_local(BadConfigFileName),
     ?assertMatch({error, #{kind := validation_error}}, Res).
 
+%% Regression test: when the imported cluster.hocon contains only a sub-set of
+%% a root that has required fields (e.g. a partial `node' section without
+%% `node.cookie'), the schema check must still succeed by falling back to the
+%% running node's value for the missing fields.
+t_import_cluster_hocon_partial_node(Config) ->
+    BackupFileName = filename:join(?config(priv_dir, Config), "export-partial-node-backup.tar.gz"),
+    Meta = unicode:characters_to_binary(
+        hocon_pp:do(#{edition => emqx_release:edition(), version => emqx_release:version()}, #{})
+    ),
+    %% Cluster.hocon contains only a subset of `node' fields; `node.cookie' is
+    %% intentionally omitted to mimic an export produced when only a non-cookie
+    %% field of `node' was overridden.
+    PartialNodeMap = #{
+        <<"node">> => #{
+            <<"global_gc_interval">> => <<"15m">>
+        }
+    },
+    PartialConf = unicode:characters_to_binary(hocon_pp:do(PartialNodeMap, #{})),
+    ok = erl_tar:create(
+        BackupFileName,
+        [
+            {"export-partial-node-backup/cluster.hocon", PartialConf},
+            {"export-partial-node-backup/META.hocon", Meta}
+        ],
+        [compressed]
+    ),
+    ?assertEqual(
+        {ok, #{db_errors => #{}, config_errors => #{}}},
+        emqx_mgmt_data_backup:import_local(BackupFileName)
+    ).
+
 t_cluster_links(_Config) ->
     Link = #{
         <<"name">> => <<"emqxcl_backup_test">>,
@@ -567,6 +620,89 @@ t_verify_imported_mnesia_tab_on_cluster(Config) ->
     %% Give some extra time to replicant to import data...
     timer:sleep(3000),
     ?assertEqual(AllUsers, lists:sort(rpc:call(ReplicantNode, mnesia, dirty_all_keys, [Tab]))).
+
+%% Regression: importing a backup that contains an authz `file` source used to
+%% strip inline `rules` on the importer node and ship only `path` across the
+%% cluster. Peer nodes had no such file on disk and failed to apply the change
+%% with `failed_to_read_acl_file` / `cluster_rpc_apply_failed`. The fix keeps
+%% `rules` inline in the cluster-bound config so each peer writes its own
+%% local copy of acl.conf during pre_config_update.
+t_import_file_authz_source_on_cluster(Config) ->
+    [Core1, Core2, _Replicant] = ?config(cluster, Config),
+    BackupRules = <<"{allow, {username, \"backup_user\"}, all, [\"#\"]}.\n">>,
+    BackupSource = #{
+        <<"type">> => <<"file">>,
+        <<"enable">> => true,
+        <<"rules">> => BackupRules
+    },
+    %% Set the file source via the safe rules-bearing API path so that
+    %% both nodes already have a local acl.conf before export.
+    {ok, _} = ?ON(
+        Core1,
+        emqx_conf:update(
+            [authorization, sources],
+            {replace, [BackupSource]},
+            #{override_to => cluster}
+        )
+    ),
+    {ok, #{filename := FileName}} = ?ON(Core1, emqx_mgmt_data_backup:export()),
+    {ok, Cwd} = ?ON(Core1, file:get_cwd()),
+    AbsPath = filename:join(Cwd, FileName),
+    %% Change authz to something different so re-import triggers a real
+    %% cluster_rpc update on both nodes.
+    OtherSource = #{
+        <<"type">> => <<"file">>,
+        <<"enable">> => true,
+        <<"rules">> => <<"{deny, all}.\n">>
+    },
+    {ok, _} = ?ON(
+        Core1,
+        emqx_conf:update(
+            [authorization, sources],
+            {replace, [OtherSource]},
+            #{override_to => cluster}
+        )
+    ),
+    %% Delete acl.conf on Core2 so that the import actually has to recreate
+    %% the file from the replicated `rules`. Without this, the bug could
+    %% silently leave the stale OtherSource content in place on Core2 and
+    %% only the content assertion below would catch it.
+    ok = ?ON(Core2, file:delete(emqx_authz_file:acl_conf_file())),
+    %% Import — pre-fix this triggered cluster_rpc_apply_failed on Core2
+    %% because the importer used to ship `path` instead of `rules`.
+    ?assertEqual(
+        {ok, #{db_errors => #{}, config_errors => #{}}},
+        ?ON(Core1, emqx_mgmt_data_backup:import_local(AbsPath))
+    ),
+    %% Each node must have written its own copy of acl.conf locally with
+    %% the imported `rules` content. (The stored config's `path` field is
+    %% legitimately node-local because each node resolves the file under
+    %% its own `data_dir`; we don't assert raw-config equality across nodes.)
+    [
+        ?assertMatch(
+            {ok, BackupRules},
+            ?ON(N, file:read_file(emqx_authz_file:acl_conf_file()))
+        )
+     || N <- [Core1, Core2]
+    ],
+    %% cluster_rpc must be fully synced (both nodes at the same tnx_id) and
+    %% the cluster_rpc_apply_failed alarm must not be active on either node.
+    {atomic, StatusOnCore1} = ?ON(Core1, emqx_cluster_rpc:status()),
+    TnxIds = lists:usort([T || #{tnx_id := T} <- StatusOnCore1]),
+    ?assertMatch([_Single], TnxIds, #{status => StatusOnCore1}),
+    [
+        ?assertEqual(
+            [],
+            [
+                A
+             || A <- ?ON(N, emqx_alarm:get_alarms(activated)),
+                cluster_rpc_apply_failed =:= maps:get(name, A, undefined)
+            ],
+            #{node => N}
+        )
+     || N <- [Core1, Core2]
+    ],
+    ok.
 
 backup_tables() ->
     {<<"mocked_test">>, [data_backup_test]}.
