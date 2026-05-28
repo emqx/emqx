@@ -23,6 +23,18 @@ cluster_sync_status_prunes_raw_only_diffs_test_() ->
         end
     end}.
 
+cluster_sync_status_ignores_timestamp_metadata_test_() ->
+    {setup, fun setup_mocks/0, fun teardown_mocks/1, fun(_) ->
+        fun() ->
+            setup_cluster_sync_status_timestamp_metadata_diff(),
+            ?assertEqual(ok, emqx_conf_cli:admins(["status"])),
+            Output = ctl_output(),
+            ?assertNotEqual(nomatch, binary:match(Output, <<"All configuration synchronized">>)),
+            ?assertEqual(nomatch, binary:match(Output, <<"Inconsistent keys">>)),
+            ?assertEqual(nomatch, binary:match(Output, <<"last_modified_at">>))
+        end
+    end}.
+
 setup_mocks() ->
     Modules = [emqx_bpapi, emqx_cluster_rpc, emqx_conf_proto_v5, emqx_ctl, emqx_mgmt_cli],
     lists:foreach(
@@ -35,6 +47,51 @@ teardown_mocks(Modules) ->
     meck:unload(Modules).
 
 setup_cluster_sync_status_raw_diff() ->
+    setup_cluster_sync_status_base(),
+    ok = meck:expect(
+        emqx_conf_proto_v5,
+        get_config,
+        fun
+            (?TARGET_NODE, ?global_ns, []) -> checked_rule_conf(<<"select new">>);
+            (?OTHER_NODE, ?global_ns, []) -> checked_rule_conf(<<"select old">>)
+        end
+    ),
+    ok = meck:expect(
+        emqx_conf_proto_v5,
+        get_raw_config,
+        fun
+            (?TARGET_NODE, ?global_ns, []) ->
+                invalid_raw_conf;
+            (?OTHER_NODE, ?global_ns, []) ->
+                invalid_raw_conf;
+            (?TARGET_NODE, ?global_ns, [rule_engine]) ->
+                raw_rule_conf(#{}, <<"select new">>);
+            (?OTHER_NODE, ?global_ns, [rule_engine]) ->
+                raw_rule_conf(#{<<"enable">> => true}, <<"select old">>)
+        end
+    ),
+    ok.
+
+setup_cluster_sync_status_timestamp_metadata_diff() ->
+    setup_cluster_sync_status_base(),
+    ok = meck:expect(
+        emqx_conf_proto_v5,
+        get_config,
+        fun
+            (?TARGET_NODE, ?global_ns, []) -> checked_action_conf(1);
+            (?OTHER_NODE, ?global_ns, []) -> checked_action_conf(2)
+        end
+    ),
+    ok = meck:expect(
+        emqx_conf_proto_v5,
+        get_raw_config,
+        fun(_Node, ?global_ns, []) ->
+            invalid_raw_conf
+        end
+    ),
+    ok.
+
+setup_cluster_sync_status_base() ->
     ok = meck:expect(
         emqx_cluster_rpc,
         status,
@@ -55,31 +112,9 @@ setup_cluster_sync_status_raw_diff() ->
         nodes_supporting_bpapi_version,
         fun(emqx_conf, 5) -> [?TARGET_NODE, ?OTHER_NODE] end
     ),
-    ok = meck:expect(
-        emqx_conf_proto_v5,
-        get_config,
-        fun
-            (?TARGET_NODE, ?global_ns, []) -> checked_conf(<<"select new">>);
-            (?OTHER_NODE, ?global_ns, []) -> checked_conf(<<"select old">>)
-        end
-    ),
-    ok = meck:expect(
-        emqx_conf_proto_v5,
-        get_raw_config,
-        fun
-            (?TARGET_NODE, ?global_ns, []) ->
-                invalid_raw_conf;
-            (?OTHER_NODE, ?global_ns, []) ->
-                invalid_raw_conf;
-            (?TARGET_NODE, ?global_ns, [rule_engine]) ->
-                raw_conf(#{}, <<"select new">>);
-            (?OTHER_NODE, ?global_ns, [rule_engine]) ->
-                raw_conf(#{<<"enable">> => true}, <<"select old">>)
-        end
-    ),
     ok.
 
-checked_conf(Sql) ->
+checked_rule_conf(Sql) ->
     #{
         rule_engine => #{
             rules => #{
@@ -89,11 +124,26 @@ checked_conf(Sql) ->
         }
     }.
 
-raw_conf(SameRuleRaw, Sql) ->
+raw_rule_conf(SameRuleRaw, Sql) ->
     #{
         <<"rules">> => #{
             <<"same">> => SameRuleRaw,
             <<"changed">> => #{<<"sql">> => Sql}
+        }
+    }.
+
+checked_action_conf(LastModifiedAt) ->
+    #{
+        actions => #{
+            kafka_producer => #{
+                test => #{
+                    connector => <<"test">>,
+                    enable => true,
+                    parameters => #{topic => <<"testtopic-in">>},
+                    created_at => 1779764590042,
+                    last_modified_at => LastModifiedAt
+                }
+            }
         }
     }.
 
