@@ -35,14 +35,11 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(_, Config) ->
-    {ok, Pid} = emqx_trace:start_link(),
-    true = erlang:unlink(Pid),
     ok = emqx_trace:clear(),
-    [{server_pid, Pid} | Config].
+    Config.
 
-end_per_testcase(_, Config) ->
+end_per_testcase(_, _Config) ->
     snabbkaffe:stop(),
-    catch gen_server:stop(?config(server_pid, Config), shutdown, infinity),
     ok.
 
 t_base_create_delete(_Config) ->
