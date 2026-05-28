@@ -1898,8 +1898,10 @@ t_rule_test_trace(Config, Opts) ->
             #{sequence => Sequence}
         )
     end),
+    RuleTraceRetryInterval = maps:get(rule_trace_retry_interval, Opts, 1_000),
+    RuleTraceRetryAttempts = maps:get(rule_trace_retry_attempts, Opts, 10),
     ?tpal("checking logs"),
-    ?retry(1_000, 10, AssertLogFn(TraceName)),
+    ?retry(RuleTraceRetryInterval, RuleTraceRetryAttempts, AssertLogFn(TraceName)),
     ?tpal("logs ok"),
     {204, _} = stop_rule_test_trace(TraceName),
 
@@ -2018,7 +2020,11 @@ t_rule_test_trace(Config, Opts) ->
             ct:pal("trigger test trace response (with error):\n  ~p", [TriggerTestRespErr]),
             _Context4 = PostTestFn(Context3),
             ?tpal("waiting for fallback action test logs"),
-            ?retry(1_000, 10, AssertFallbackLogFn(TraceNameErr))
+            ?retry(
+                RuleTraceRetryInterval,
+                RuleTraceRetryAttempts,
+                AssertFallbackLogFn(TraceNameErr)
+            )
         end
     ),
     {204, _} = stop_rule_test_trace(TraceNameErr),
