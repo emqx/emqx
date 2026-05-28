@@ -710,8 +710,13 @@ read_line(Dev) ->
 parse_bootstrap_line(Bin, MP) ->
     case re:run(Bin, MP, [global, {capture, all_but_first, binary}]) of
         {match, [[ApiKey, ApiSecret]]} ->
-            %% 2-seg: default role + global namespace + no scopes (all-allow).
-            {ok, bootstrap_entry(ApiKey, ApiSecret, ?ROLE_API_DEFAULT, ?global_ns, undefined, [])};
+            %% 2-seg `key:secret' lines have no role/scope column. Materialise
+            %% the role default at parse time so the persisted record is on
+            %% the same footing as a POST that omitted `scopes': only legacy
+            %% records that survived an upgrade can produce `<<"unset">>'.
+            Role = ?ROLE_API_DEFAULT,
+            {ok,
+                bootstrap_entry(ApiKey, ApiSecret, Role, ?global_ns, role_default_scopes(Role), [])};
         {match, [[ApiKey, ApiSecret, Tail]]} ->
             %% 3+ seg: Tail is either
             %%   - "role"                                    (simple)
@@ -742,7 +747,10 @@ parse_simple_tail(ApiKey, ApiSecret, Tail) ->
     case binary:split(Tail, <<":">>) of
         [Role] ->
             with_valid_role(Role, fun(R) ->
-                bootstrap_entry(ApiKey, ApiSecret, R, ?global_ns, undefined, [])
+                %% Simple `role'-only tail: materialise the role default so
+                %% the persisted record is on the same footing as a POST
+                %% that omitted `scopes'.
+                bootstrap_entry(ApiKey, ApiSecret, R, ?global_ns, role_default_scopes(R), [])
             end);
         [Role, ScopesStr] ->
             with_valid_role(Role, fun(R) ->
@@ -781,7 +789,9 @@ parse_role_and_scopes(ApiKey, ApiSecret, Namespace, RoleAndScopes) ->
     case binary:split(RoleAndScopes, <<":">>) of
         [Role] ->
             with_valid_role(Role, fun(R) ->
-                bootstrap_entry(ApiKey, ApiSecret, R, Namespace, undefined, [])
+                %% Namespaced `role'-only tail: same rationale as the
+                %% simple `role'-only case above — materialise role default.
+                bootstrap_entry(ApiKey, ApiSecret, R, Namespace, role_default_scopes(R), [])
             end);
         [Role, ScopesStr] ->
             with_valid_role(Role, fun(R) ->

@@ -165,6 +165,23 @@ parsed_role_to_extra(#{?namespace := Ns}) ->
 parsed_role_to_extra(_) ->
     #{?namespace => ?global_ns}.
 
+%% @doc Internal admin/SSO-user creation entry point.
+%%
+%% `Extra' is a map carrying optional fields written into the new record's
+%% `extra' map.  Recognised keys:
+%%
+%%   * `?namespace'  - the namespace this admin belongs to (defaults to
+%%     `?global_ns' if absent).
+%%
+%%   * `scopes' (binary list) - if present, the listed scopes are written
+%%     into the record atomically inside the same mria transaction as the
+%%     row insertion.  Used by paths that do NOT have a follow-up
+%%     `set_user_scopes' step (SSO auto-provisioning, default-admin
+%%     bootstrap) so a new row never appears in the legacy "no scopes key"
+%%     state.  If the `scopes' key is omitted, no scopes field is written
+%%     and the caller is expected to materialise scopes afterwards (e.g.
+%%     the API POST handler does `maybe_set_user_scopes/2' with
+%%     role-default scopes).
 do_add_user(Username, Password, Role, Desc, Extra) ->
     Res = mria:sync_transaction(
         ?DASHBOARD_SHARD,
@@ -595,6 +612,13 @@ add_user_(Username, Password, Role, Desc, Extra) ->
     Namespace = maps:get(?namespace, Extra, ?global_ns),
     case mnesia:wread({?ADMIN, Username}) of
         [] ->
+            %% `Extra' carries any caller-supplied `?namespace' / `scopes'
+            %% keys. Layer `password_ts' on top — both seedings (namespace
+            %% and initial scopes) happen inside this same mria transaction
+            %% as the row insertion, so a fresh row never appears in the
+            %% "no scopes key" state for SSO / default-admin / API-key
+            %% creation paths. That state is reserved exclusively for legacy
+            %% records upgraded from versions before the scope feature shipped.
             Admin = #?ADMIN{
                 username = Username,
                 pwdhash = hash(Password),
@@ -1048,8 +1072,12 @@ add_default_user(Username, Password) ->
     end.
 
 do_add_default_user(Username, Password) ->
-    Extra = #{},
+    Extra = #{scopes => role_default_scopes(?ROLE_SUPERUSER)},
     maybe
+        %% Seed the default admin with its role-default scopes so the very
+        %% first node bootstrap of a fresh cluster yields a default admin
+        %% that already carries scopes — never the legacy `<<"unset">>'
+        %% sentinel.
         {error, ?USERNAME_ALREADY_EXISTS_ERROR} ?=
             do_add_user(Username, Password, ?ROLE_SUPERUSER, <<"administrator">>, Extra),
         %% race condition: multiple nodes booting at the same time?
@@ -1098,7 +1126,13 @@ add_sso_user(Backend, Username0, Role0, Desc) when is_binary(Username0) ->
     case parse_role(Role0) of
         {ok, #{?role := Role} = ParsedRole} ->
             Username = ?SSO_USERNAME(Backend, Username0),
-            Extra = parsed_role_to_extra(ParsedRole),
+            %% SSO auto-provisioning has no follow-up `set_user_scopes' step
+            %% (LDAP / OIDC / SAML `ensure_user_exists' callers just call
+            %% `add_sso_user' and stop). Seed the role default into the
+            %% same mria transaction so a fresh SSO row never appears in
+            %% the "no scopes key" state — that state is reserved for legacy
+            %% records upgraded from versions before the scope feature shipped.
+            Extra = (parsed_role_to_extra(ParsedRole))#{scopes => role_default_scopes(Role)},
             do_add_user(Username, <<>>, Role, Desc, Extra);
         {error, _} = Error ->
             Error
