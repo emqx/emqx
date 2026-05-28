@@ -328,6 +328,7 @@ dump(Opts) ->
     DialyzerDump = collect_signatures(PLT, APIDump),
     dump_api(#{api => APIDump, signatures => DialyzerDump, release => "master"}),
     dump_versions(APIDump),
+    dump_owner_applications(APIDump),
     xref:stop(?XREF),
     erase(bpapi_ok).
 
@@ -396,6 +397,29 @@ dump_versions(APIs) ->
             ok = io:format(FD, "~p.~n", [API])
         end,
         lists:sort(maps:keys(APIs))
+    ),
+    file:close(FD).
+
+dump_owner_applications(APIs0) ->
+    APIs = maps:groups_from_list(
+        fun({API, Vsn}) -> get_application(API, Vsn) end,
+        fun({API, _Vsn}) -> API end,
+        maps:keys(APIs0)
+    ),
+    Filename = owner_applications_file(),
+    logger:notice("Dumping API owner application to ~p", [Filename]),
+    ok = filelib:ensure_dir(Filename),
+    {ok, FD} = file:open(Filename, [write]),
+    lists:foreach(
+        fun({App, APIs1}) ->
+            lists:foreach(
+                fun(API) ->
+                    ok = io:format(FD, "~p.~n", [{API, App}])
+                end,
+                lists:usort(APIs1)
+            )
+        end,
+        lists:sort(maps:to_list(APIs))
     ),
     file:close(FD).
 
@@ -472,6 +496,9 @@ dumps_dir() ->
 versions_file() ->
     filename:join(emqx_app_dir(), "priv/bpapi.versions").
 
+owner_applications_file() ->
+    filename:join(emqx_app_dir(), "priv/bpapi.apps").
+
 emqx_app_dir() ->
     Info = ?MODULE:module_info(compile),
     case proplists:get_value(source, Info) of
@@ -485,6 +512,11 @@ emqx_app_dir() ->
 
 project_root_dir() ->
     filename:dirname(filename:dirname(emqx_app_dir())).
+
+get_application(API, Vsn) ->
+    ModStr = atom_to_list(API) ++ "_proto_v" ++ integer_to_list(Vsn),
+    {ok, [App]} = xref:q(?XREF, "(App) " ++ ModStr),
+    App.
 
 -if(?OTP_RELEASE >= 26).
 load_plt(File) ->
