@@ -185,7 +185,7 @@ init([]) ->
         ]}
     ]),
     ok = mria_rlog:wait_for_shards([?CM_SHARD], infinity),
-    maybe_subscribe_replica_events(),
+    _ = maybe_subscribe_replica_events(),
     ok = ekka:monitor(membership),
     {ok, #{}}.
 
@@ -208,7 +208,7 @@ handle_info({membership, {node, down, Node}}, State) ->
 handle_info({membership, _Event}, State) ->
     {noreply, State};
 handle_info(#mria_replica_status_update{status = Status}, State) ->
-    ?tp(debug, cm_registry_shard_up, #{}),
+    ?tp(info, cm_registry_shard_up, #{}),
     maybe_trigger_heal(is_enabled(), Status),
     {noreply, State};
 handle_info(Info, State) ->
@@ -355,10 +355,15 @@ maybe_subscribe_replica_events() ->
     end.
 
 maybe_trigger_heal(true, normal) ->
+    ?tp(warning, healing, #{c => emqx_broker_heal:consistency_check(), n => node()}),
     %% Shard re-bootstrapped. Check if my clents still exist in the
     %% registry:
-    emqx_broker_heal:consistency_check() orelse
-        emqx_broker_sup:start_heal(),
-    ok;
-maybe_trigger_heal(_, _) ->
+    case emqx_broker_heal:consistency_check() of
+        false ->
+            %% Inconsistent:
+            emqx_broker_sup:start_heal();
+        true ->
+            ok
+    end;
+maybe_trigger_heal(_Enabled, _Status) ->
     ok.
