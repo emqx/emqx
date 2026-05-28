@@ -42,6 +42,12 @@
     do_force_create_app/1
 ]).
 
+%% Helpers for materializing role-default scopes at record-creation time.
+%% Used by the POST handler, the bootstrap-file loader, and the SSO
+%% user-provisioning path so that `<<"unset">>' in a GET response can be
+%% interpreted unambiguously as "record predates the scopes feature".
+-export([role_default_scopes/1, effective_scopes_on_create/2]).
+
 -ifdef(TEST).
 -export([create/8]).
 -export([trans/2, force_create_app/1]).
@@ -331,6 +337,35 @@ maybe_set_scopes(Extra, undefined) ->
 maybe_set_scopes(Extra, Scopes) when is_list(Scopes) ->
     Extra#{scopes => Scopes}.
 
+%% @doc Resolve the role-default scopes that should be materialized into
+%% the persisted record when the caller did not explicitly supply a scope
+%% list (POST without `scopes', 2-/3-segment bootstrap line).
+%%
+%% After this PR, `undefined' is never written into mnesia by any creation
+%% path; the `<<"unset">>' state in the GET response is only possible for
+%% records that survived an upgrade from a release where the scopes
+%% feature did not exist.
+%%
+%%   * administrator / viewer -> `?GENERIC_SCOPES' (10 management scopes,
+%%     no login-only scopes — those are reserved for dashboard users).
+%%   * publisher              -> `[<<"publish">>]' (the only scope the
+%%     publisher role is ever permitted to hold; runtime RBAC also
+%%     hard-restricts publisher to `/publish*' regardless of the stored
+%%     scope list).
+role_default_scopes(?ROLE_API_PUBLISHER) ->
+    [?SCOPE_PUBLISH];
+role_default_scopes(_Role) ->
+    ?GENERIC_SCOPES.
+
+%% @doc Convenience wrapper for the request-handling layer: if the
+%% caller supplied no scopes, materialize the role default; otherwise
+%% pass the explicit value through unchanged (including the empty list
+%% which means explicit deny-all).
+effective_scopes_on_create(Role, undefined) ->
+    role_default_scopes(Role);
+effective_scopes_on_create(_Role, Scopes) when is_list(Scopes) ->
+    Scopes.
+
 ensure_not_undefined(undefined, Old) -> Old;
 ensure_not_undefined(New, _Old) -> New.
 
@@ -355,15 +390,23 @@ to_map(#?APP{
 %% @doc Surface raw scope state to the API consumer with a tri-state contract:
 %%   - `[]`            : explicit deny-all (only `security => []` paths reachable)
 %%   - `[binary(), …]` : explicit allow-list
-%%   - `null`          : not set; authorization falls back to role default (allow-all
-%%                       for administrator/viewer, hard-coded `/publish*` for publisher)
+%%   - `<<"unset">>`   : the persisted record has no `scopes' field at all (legacy
+%%                       upgrade artefact from before #16942 landed). The runtime
+%%                       authorization path falls back to role-default behaviour
+%%                       (allow-all-mapped-paths for administrator/viewer,
+%%                       hard-coded `/publish*' for publisher).  Newly created
+%%                       records never end up in this state: the POST / bootstrap
+%%                       / SSO-provisioning paths all materialize role-default
+%%                       scopes at creation time.
 %% This intentionally exposes the persisted shape rather than an effective list so
 %% that the dashboard read-modify-write cycle cannot silently sediment role-default
-%% into an explicit list.
+%% into an explicit list.  The `<<"unset">>' binary is a stable string sentinel
+%% (not JSON `null') so the consumer cannot confuse it with `field missing' or
+%% `field cleared' — both of which can happen in HTTP/JSON intermediaries.
 maybe_add_scopes(Map, #{scopes := Scopes}) when is_list(Scopes) ->
     Map#{scopes => Scopes};
 maybe_add_scopes(Map, _) ->
-    Map#{scopes => null}.
+    Map#{scopes => <<"unset">>}.
 
 is_expired(undefined) -> false;
 is_expired(ExpiredTime) -> ExpiredTime < erlang:system_time(second).
