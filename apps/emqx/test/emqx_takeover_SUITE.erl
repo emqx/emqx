@@ -1010,6 +1010,82 @@ wait_for_pub_client_down(#{client := [_SubClient, PubClient]} = CTX) ->
 %% t_takover_in_cluster(_) ->
 %%     todo.
 
+%% Regression test: chan-info stats reflect post-replay state after
+%% session takeover (instead of waiting up to 15s for the stats_timer).
+t_chan_info_refreshed_after_takeover_replay(Config) ->
+    case ?config(persistence_enabled, Config) of
+        true ->
+            {skip, "Classic session only — DS uses seqno_q*/n_streams stats"};
+        _ ->
+            do_chan_info_refreshed_after_takeover_replay(Config)
+    end.
+
+do_chan_info_refreshed_after_takeover_replay(Config) ->
+    MqttVer = ?config(mqtt_vsn, Config),
+    ClientId = iolist_to_binary([
+        atom_to_binary(?FUNCTION_NAME),
+        "-",
+        integer_to_binary(erlang:unique_integer([positive]))
+    ]),
+    Topic = <<ClientId/binary, "/t">>,
+    NMsgs = 3,
+    ClientOpts = [
+        {proto_ver, MqttVer},
+        {clean_start, false}
+        | [{properties, #{'Session-Expiry-Interval' => 60}} || v5 == MqttVer]
+    ],
+
+    %% GIVEN: client A subscribes, then disconnects leaving session alive.
+    {ok, ClientA} = emqtt:start_link([{clientid, ClientId} | ClientOpts]),
+    {ok, _} = emqtt:connect(ClientA),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(ClientA, Topic, ?QOS_1),
+    [OldChanPid] = emqx_cm:lookup_channels(ClientId),
+    ok = emqtt:disconnect(ClientA),
+
+    %% AND: publish NMsgs messages so they queue in the offline session.
+    {ok, Publisher} = emqtt:start_link([{proto_ver, MqttVer}, {clean_start, true}]),
+    {ok, _} = emqtt:connect(Publisher),
+    lists:foreach(
+        fun(I) ->
+            {ok, _} = emqtt:publish(
+                Publisher, Topic, integer_to_binary(I), ?QOS_1
+            )
+        end,
+        lists:seq(1, NMsgs)
+    ),
+    ok = emqtt:disconnect(Publisher),
+
+    %% WHEN: client B reconnects with same clientid -> takeover + replay.
+    %% auto_ack=false keeps the replayed messages in inflight long enough
+    %% to observe via emqx_cm:get_chan_stats/2.
+    {ok, ClientB} = emqtt:start_link([
+        {clientid, ClientId},
+        {auto_ack, false}
+        | ClientOpts
+    ]),
+    {ok, _} = emqtt:connect(ClientB),
+
+    %% THEN: chan-info stats reflect the post-replay inflight well before
+    %% the 15s stats_timer would tick. Comfort margin: 50ms x 100 = 5s.
+    ?retry(
+        50,
+        100,
+        begin
+            [ChanPid] = [
+                Pid
+             || Pid <- emqx_cm:lookup_channels(ClientId), Pid =/= OldChanPid
+            ],
+            ?assertMatch(
+                #{inflight_cnt := N} when N >= NMsgs,
+                maps:from_list(emqx_cm:get_chan_stats(ClientId, ChanPid)),
+                chan_stats_not_refreshed_post_replay
+            )
+        end
+    ),
+
+    catch emqtt:stop(ClientB),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Commands
 start_client(Ctx, ClientId, Topic, Qos, Opts) ->
