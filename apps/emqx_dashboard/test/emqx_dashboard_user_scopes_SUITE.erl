@@ -48,8 +48,18 @@
     end
 ).
 
-all() ->
-    ?EE_ONLY(emqx_common_test_helpers:all(?MODULE), []).
+%% The dashboard's default admin user (created by `do_add_default_user'
+%% at boot) used to land in the legacy "no scopes key" state, which
+%% would surface in API responses as the `<<"unset">>' sentinel.
+%% C3 seeds the administrator role default at row insertion time so a
+%% fresh default-admin is indistinguishable from one created via a POST
+%% that omits the `scopes' field.
+t_default_admin_seeded_with_role_default_scopes(_Config) ->
+    Username = emqx_dashboard_admin:default_username(),
+    ?assertEqual(
+        ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES,
+        emqx_dashboard_admin:scopes_of(Username)
+    ).
 
 init_per_suite(Config) ->
     ?EE_ONLY(

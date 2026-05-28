@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 -include("../../emqx_dashboard/include/emqx_dashboard.hrl").
 
 -define(HOST, "http://127.0.0.1:18083").
@@ -78,6 +79,36 @@ init_users() ->
     %% Create SSO users directly via add_sso_user
     {ok, _} = emqx_dashboard_admin:add_sso_user(?SSO_BACKEND, ?SSO_USER, ?ROLE_VIEWER, <<>>),
     {ok, _} = emqx_dashboard_admin:add_sso_user(?SSO_BACKEND, ?SSO_USER2, ?ROLE_VIEWER, <<>>),
+    ok.
+
+%%====================================================================
+%% Regression: SSO auto-provisioning seeds role-default scopes
+%%====================================================================
+
+%% SSO `ensure_user_exists' callers (LDAP, OIDC, SAML) call
+%% `add_sso_user/4' once per first-login and never run a follow-up
+%% `set_user_scopes' step. Before C3 a fresh SSO row would land in the
+%% legacy "no scopes key" state, surfacing in API responses as the
+%% `<<"unset">>' sentinel. After C3 the row is seeded with the viewer
+%% role default at insertion time, so a fresh SSO user is
+%% indistinguishable from one that listed its scopes explicitly.
+t_add_sso_user_seeds_role_default_scopes({init, Config}) ->
+    init_users(),
+    Config;
+t_add_sso_user_seeds_role_default_scopes({'end', _Config}) ->
+    mnesia:clear_table(?ADMIN),
+    ok;
+t_add_sso_user_seeds_role_default_scopes(_Config) ->
+    SsoUser1 = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),
+    ?assertEqual(
+        ?GENERIC_SCOPES,
+        emqx_dashboard_admin:scopes_of(SsoUser1)
+    ),
+    SsoUser2 = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER2),
+    ?assertEqual(
+        ?GENERIC_SCOPES,
+        emqx_dashboard_admin:scopes_of(SsoUser2)
+    ),
     ok.
 
 %%====================================================================

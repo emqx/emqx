@@ -70,6 +70,8 @@ groups() ->
             t_bootstrap_file_lenient_order_independence,
             t_bootstrap_file_scope_runtime_check,
             t_bootstrap_file_publisher_only_publish_scope,
+            t_bootstrap_file_2_segment_seeds_default_scopes,
+            t_bootstrap_file_3_segment_publisher_seeds_publish_scope,
             t_create_failed
         ]}
     ].
@@ -381,6 +383,12 @@ read_bootstrap_scopes(ApiKey) ->
             not_found;
         {value, #{scopes := Scopes}} when is_list(Scopes) ->
             Scopes;
+        {value, #{scopes := <<"unset">>}} ->
+            %% Legacy upgrade artefact - extra map has no `scopes' key.
+            %% Fresh records (any segment count) materialise role-default
+            %% scopes at parse time, so this branch is only reachable in
+            %% upgrade scenarios.
+            unset;
         {value, _AppMap} ->
             not_set
     end.
@@ -410,8 +418,10 @@ t_bootstrap_file_with_scopes(_) ->
         [?SCOPE_CONNECTIONS, ?SCOPE_PUBLISH, ?SCOPE_MONITORING],
         read_bootstrap_scopes(<<"scope-multi">>)
     ),
-    %% 3-segment line: extra has no `scopes` key → backward-compatible all-allow.
-    ?assertEqual(not_set, read_bootstrap_scopes(<<"scope-no-field">>)),
+    %% 3-segment line: parser materialises role-default scopes (administrator
+    %% → GENERIC_SCOPES). The persisted extra map now carries an explicit
+    %% scope list, never the `<<"unset">>' sentinel.
+    ?assertEqual(?GENERIC_SCOPES, read_bootstrap_scopes(<<"scope-no-field">>)),
     ok.
 
 t_bootstrap_file_with_scopes_invalid(_) ->
@@ -803,6 +813,38 @@ t_bootstrap_file_publisher_only_publish_scope(_) ->
     ?assertEqual(
         [?SCOPE_CONNECTIONS, ?SCOPE_PUBLISH, ?SCOPE_MONITORING],
         read_bootstrap_scopes(<<"from_bootstrap_file_admin_full">>)
+    ),
+    ok.
+
+%% 2-segment `key:secret' bootstrap lines have no role and no scope column.
+%% The parser defaults the role to `?ROLE_API_DEFAULT' (administrator) and
+%% materialises that role's default scope list at parse time. The persisted
+%% record carries an explicit scope list — never the legacy `<<"unset">>'
+%% sentinel — so a fresh `key:secret' bootstrap key behaves identically to
+%% a POST that omits the `scopes' field.
+t_bootstrap_file_2_segment_seeds_default_scopes(_) ->
+    File = "./bootstrap_api_keys.txt",
+    Bin = <<"from_bootstrap_file_2seg:secret-2seg\n">>,
+    ok = file:write_file(File, Bin),
+    update_file(File),
+    ?assertEqual(
+        ?GENERIC_SCOPES,
+        read_bootstrap_scopes(<<"from_bootstrap_file_2seg">>)
+    ),
+    ok.
+
+%% 3-segment `key:secret:publisher' lines materialise the publisher
+%% role default — a single `publish' scope — so the record can be served
+%% via the management API without falling back to the `<<"unset">>'
+%% sentinel and without exposing the publisher to non-publish endpoints.
+t_bootstrap_file_3_segment_publisher_seeds_publish_scope(_) ->
+    File = "./bootstrap_api_keys.txt",
+    Bin = <<"from_bootstrap_file_3seg_pub:secret-3seg:publisher\n">>,
+    ok = file:write_file(File, Bin),
+    update_file(File),
+    ?assertEqual(
+        [?SCOPE_PUBLISH],
+        read_bootstrap_scopes(<<"from_bootstrap_file_3seg_pub">>)
     ),
     ok.
 

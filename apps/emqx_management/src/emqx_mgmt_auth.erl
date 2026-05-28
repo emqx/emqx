@@ -615,11 +615,18 @@ read_line(Dev) ->
 parse_bootstrap_line(Bin, MP) ->
     case re:run(Bin, MP, [global, {capture, all_but_first, binary}]) of
         {match, [[ApiKey, ApiSecret]]} ->
-            {ok, {ApiKey, ApiSecret, ?ROLE_API_DEFAULT, undefined, []}};
+            %% 2-segment `key:secret' lines have no scope column. Materialise
+            %% the role default at parse time so the persisted record is on
+            %% the same footing as a POST that omitted `scopes': only legacy
+            %% records that survived an upgrade can produce `<<"unset">>'.
+            Role = ?ROLE_API_DEFAULT,
+            {ok, {ApiKey, ApiSecret, Role, role_default_scopes(Role), []}};
         {match, [[ApiKey, ApiSecret, Role]]} ->
             case valid_role(Role) of
                 ok ->
-                    {ok, {ApiKey, ApiSecret, Role, undefined, []}};
+                    %% 3-segment `key:secret:role' lines: same rationale as
+                    %% the 2-segment case.
+                    {ok, {ApiKey, ApiSecret, Role, role_default_scopes(Role), []}};
                 _Error ->
                     {error, {"invalid_role", Role}}
             end;

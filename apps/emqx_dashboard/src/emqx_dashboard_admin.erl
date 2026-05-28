@@ -144,7 +144,29 @@ add_user(Username, Password, Role, Desc) when is_binary(Username), is_binary(Pas
     end.
 
 do_add_user(Username, Password, Role, Desc) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun add_user_/4, [Username, Password, Role, Desc]),
+    do_add_user(Username, Password, Role, Desc, undefined).
+
+%% @doc Internal admin/SSO-user creation entry point.
+%%
+%% `InitialScopes' controls what ends up in the persisted `extra' map's
+%% `scopes' key BEFORE any later `set_user_scopes/2' call:
+%%
+%%   * `undefined' (default, 4-arg version) - no scopes key is written; the
+%%     caller is expected to materialise scopes afterwards (e.g. the API POST
+%%     handler does `maybe_set_user_scopes/2' with role-default scopes).
+%%     This keeps the read-modify-write path of `emqx_dashboard_api' unchanged.
+%%
+%%   * `[binary(), ...]' (5-arg version) - the listed scopes are written
+%%     into the record atomically inside the same mria transaction as the
+%%     row insertion. This is used by paths that do NOT have a follow-up
+%%     `set_user_scopes' step (SSO auto-provisioning, default-admin bootstrap)
+%%     so a new row never appears with a missing scopes key.
+do_add_user(Username, Password, Role, Desc, InitialScopes) ->
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD,
+        fun add_user_/5,
+        [Username, Password, Role, Desc, InitialScopes]
+    ),
     return(Res).
 
 get_mfa_enabled_state(Username) ->
@@ -557,15 +579,17 @@ force_add_user(Username, Password, Role, Desc) ->
     end.
 
 %% @private
-add_user_(Username, Password, Role, Desc) ->
+add_user_(Username, Password, Role, Desc, InitialScopes) ->
     case mnesia:wread({?ADMIN, Username}) of
         [] ->
+            Extra0 = #{password_ts => erlang:system_time(second)},
+            Extra = maybe_seed_initial_scopes(Extra0, InitialScopes),
             Admin = #?ADMIN{
                 username = Username,
                 pwdhash = hash(Password),
                 role = Role,
                 description = Desc,
-                extra = #{password_ts => erlang:system_time(second)}
+                extra = Extra
             },
             mnesia:write(Admin),
             ?SLOG(info, #{msg => "dashboard_sso_user_added", username => Username, role => Role}),
@@ -579,6 +603,14 @@ add_user_(Username, Password, Role, Desc) ->
             }),
             mnesia:abort(?USERNAME_ALREADY_EXISTS_ERROR)
     end.
+
+%% Materialise initial scopes inside the same mria transaction as the row
+%% insertion. `undefined' leaves the extra map untouched so the existing
+%% read-modify-write contract of API POST handlers is preserved.
+maybe_seed_initial_scopes(Extra, undefined) ->
+    Extra;
+maybe_seed_initial_scopes(Extra, Scopes) when is_list(Scopes) ->
+    Extra#{scopes => Scopes}.
 
 -spec remove_user(dashboard_username()) -> {ok, any()} | {error, any()}.
 remove_user(Username) ->
@@ -978,8 +1010,18 @@ add_default_user(Username, Password) ->
 
 do_add_default_user(Username, Password) ->
     maybe
+        %% Seed the default admin with its role-default scopes so the very
+        %% first node bootstrap of a fresh cluster yields a default admin
+        %% that already carries scopes — never the legacy `<<"unset">>'
+        %% sentinel.
         {error, ?USERNAME_ALREADY_EXISTS_ERROR} ?=
-            do_add_user(Username, Password, ?ROLE_SUPERUSER, <<"administrator">>),
+            do_add_user(
+                Username,
+                Password,
+                ?ROLE_SUPERUSER,
+                <<"administrator">>,
+                role_default_scopes(?ROLE_SUPERUSER)
+            ),
         %% race condition: multiple nodes booting at the same time?
         {ok, default_user_exists}
     end.
@@ -1013,7 +1055,13 @@ add_sso_user(Backend, Username0, Role, Desc) when is_binary(Username0) ->
     case legal_role(Role) of
         ok ->
             Username = ?SSO_USERNAME(Backend, Username0),
-            do_add_user(Username, <<>>, Role, Desc);
+            %% SSO auto-provisioning has no follow-up `set_user_scopes' step
+            %% (LDAP / OIDC / SAML `ensure_user_exists' callers just call
+            %% `add_sso_user' and stop). Seed the role default into the
+            %% same mria transaction so a fresh SSO row never appears in
+            %% the "no scopes key" state — that state is reserved for legacy
+            %% records upgraded from versions before the scope feature shipped.
+            do_add_user(Username, <<>>, Role, Desc, role_default_scopes(Role));
         {error, _} = Error ->
             Error
     end.
