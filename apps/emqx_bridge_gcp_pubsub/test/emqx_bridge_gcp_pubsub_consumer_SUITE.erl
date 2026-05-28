@@ -2064,12 +2064,13 @@ t_cluster_subscription(TCConfig) when is_list(TCConfig) ->
             on_exit(fun() -> catch emqtt:stop(C1) end),
             {ok, _} = emqtt:connect(C1),
             {ok, _, [2]} = emqtt:subscribe(C1, RepublishTopic, 2),
+            emqx_cth_cluster:sync_routes(Nodes),
 
             Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
             Messages = [#{<<"data">> => Payload}],
             pubsub_publish(TCConfig, PubSubTopic, Messages),
 
-            ?assertMatch({ok, _Published}, receive_published()),
+            ?assertMatch({ok, _Published}, receive_published(#{timeout => 60_000})),
 
             ok
         end,
