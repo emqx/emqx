@@ -130,7 +130,7 @@ schema("/users") ->
             tags => [<<"dashboard">>],
             desc => ?DESC(create_user_api),
             security => [#{'bearerAuth' => []}],
-            'requestBody' => fields([username, password, role, description, scopes]),
+            'requestBody' => fields([username, password, role, description, scopes_request]),
             responses => #{
                 200 => user_fields()
             }
@@ -162,7 +162,7 @@ schema("/users/:username") ->
             tags => [<<"dashboard">>],
             desc => ?DESC(update_user_api),
             parameters => sso_parameters(fields([username_in_path])),
-            'requestBody' => fields([role, description, scopes]),
+            'requestBody' => fields([role, description, scopes_request]),
             responses => #{
                 200 => user_fields(),
                 400 => emqx_dashboard_swagger:error_codes(
@@ -237,7 +237,7 @@ fields(List) ->
     [field(Key) || Key <- List, field_filter(Key)].
 
 user_fields() ->
-    fields([username, role, description, backend, scopes]) ++ ee_user_fields().
+    fields([username, role, description, backend, scopes_response]) ++ ee_user_fields().
 
 ee_user_fields() ->
     [
@@ -291,10 +291,24 @@ field(new_pwd) ->
 field(role) ->
     {role,
         mk(binary(), #{desc => ?DESC(role), default => ?ROLE_DEFAULT, example => ?ROLE_DEFAULT})};
-field(scopes) ->
+field(scopes_request) ->
     {scopes,
         mk(hoconsc:array(binary()), #{
-            desc => ?DESC(user_scopes),
+            desc => ?DESC(user_scopes_request),
+            required => false,
+            example => [?SCOPE_USER_MGMT, ?SCOPE_MFA_MGMT]
+        })};
+field(scopes_response) ->
+    %% Response shape: `scopes' MAY be the binary sentinel <<"unset">> in
+    %% addition to the array-of-binaries form. This sentinel surfaces only
+    %% for legacy records that survived an upgrade from a release where
+    %% the dashboard-user scopes feature did not exist (#17235). The POST
+    %% and SSO-provisioning paths both materialize role-default scopes at
+    %% creation time, so no fresh user will ever appear with
+    %% `scopes => <<"unset">>'.
+    {scopes,
+        mk(hoconsc:union([unset, hoconsc:array(binary())]), #{
+            desc => ?DESC(user_scopes_response),
             required => false,
             example => [?SCOPE_USER_MGMT, ?SCOPE_MFA_MGMT]
         })};
@@ -369,7 +383,12 @@ users(post, #{body := Params}) ->
     Role = maps:get(<<"role">>, Params, ?ROLE_DEFAULT),
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
-    Scopes = maps:get(<<"scopes">>, Params, undefined),
+    %% Materialize role defaults when the client omitted `scopes' entirely.
+    %% Explicit `[]' (deny-all) and explicit lists pass through unchanged.
+    %% After this PR `<<"unset">>' in a GET response is reserved for legacy
+    %% records that survived an upgrade; no creation path stores `undefined'.
+    RawScopes = maps:get(<<"scopes">>, Params, undefined),
+    Scopes = effective_scopes_on_create(Role, RawScopes),
     case ?EMPTY(Username) orelse ?EMPTY(Password) of
         true ->
             {400, ?BAD_REQUEST, <<"Username or password undefined">>};
@@ -619,6 +638,28 @@ register_unsuccessful_login(_, _) ->
 %%     mfa_management is intentionally allowed for any role — non-
 %%     admin holders can self-exempt their own MFA but cannot manage
 %%     other users' MFA (handler-level enforcement).
+%% @doc Resolve the role-default scopes that should be materialized into
+%% the persisted record when the caller did not explicitly supply a
+%% scope list (POST without `scopes', SSO auto-provisioning).
+%%
+%% After this PR, `undefined' is never written into mnesia by any
+%% creation path; the `<<"unset">>' state in the GET response is only
+%% possible for records that survived an upgrade from a release where
+%% the dashboard-user scopes feature did not exist (#17235).
+%%
+%%   * administrator -> `?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES'
+%%   * viewer        -> `?GENERIC_SCOPES'
+%%
+%% Explicit `[]' (deny-all) and explicit lists pass through unchanged.
+effective_scopes_on_create(Role, undefined) ->
+    emqx_dashboard_admin:role_default_scopes(Role);
+effective_scopes_on_create(_Role, Scopes) when is_list(Scopes) ->
+    Scopes;
+effective_scopes_on_create(_Role, Other) ->
+    %% Any non-list, non-undefined value is left as-is; downstream
+    %% validation will reject it with the appropriate 400.
+    Other.
+
 validate_login_user_scopes(_Role, undefined) ->
     ok;
 validate_login_user_scopes(_Role, Scopes) when not is_list(Scopes) ->

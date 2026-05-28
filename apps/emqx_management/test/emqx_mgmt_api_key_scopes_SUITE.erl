@@ -50,7 +50,9 @@ groups() ->
         {api_tests, [parallel], [
             t_api_list_scopes,
             t_api_create_with_scopes,
-            t_api_update_scopes
+            t_api_update_scopes,
+            t_api_post_materialises_default_scopes,
+            t_api_legacy_record_shows_unset_sentinel
         ]}
     ].
 
@@ -485,10 +487,16 @@ t_api_create_with_scopes(_Config) ->
 t_api_update_scopes(_Config) ->
     Name = <<"SCOPES-API-UPDATE">>,
     {ok, Created} = create_app(Name),
-    %% Tri-state contract: response always carries `scopes' key; `null'
-    %% means "not set, fall back to role default".
-    ?assertEqual(null, maps:get(<<"scopes">>, Created)),
-    %% Update with scopes
+    %% POST without `scopes' now materialises the role-default scope list
+    %% (administrator -> the 10 common management scopes). The legacy
+    %% `<<"unset">>' sentinel is reserved for records that pre-date the
+    %% scopes feature and was thus upgraded without a scopes field.
+    DefaultAdminScopes = lists:sort(?GENERIC_SCOPES),
+    ?assertEqual(
+        DefaultAdminScopes,
+        lists:sort(maps:get(<<"scopes">>, Created))
+    ),
+    %% Update with scopes overwrites the materialised default.
     {ok, Updated1} = update_app(Name, #{scopes => [?SCOPE_CONNECTIONS]}),
     ?assertMatch(#{<<"scopes">> := [?SCOPE_CONNECTIONS]}, Updated1),
     %% Update to multiple scopes
@@ -497,9 +505,62 @@ t_api_update_scopes(_Config) ->
         lists:sort([?SCOPE_CONNECTIONS, ?SCOPE_PUBLISH]),
         lists:sort(maps:get(<<"scopes">>, Updated2))
     ),
-    %% Update to empty scopes
+    %% Update to empty scopes (explicit deny-all)
     {ok, Updated3} = update_app(Name, #{scopes => []}),
     ?assertMatch(#{<<"scopes">> := []}, Updated3),
+    delete_app(Name).
+
+%% POST without an explicit `scopes' field materialises the role-default
+%% scope list and persists it (it is not merely a response-time
+%% projection). This is what distinguishes a freshly-created key
+%% from a legacy upgraded one.
+t_api_post_materialises_default_scopes(_Config) ->
+    Name = <<"SCOPES-API-MATERIALISE">>,
+    {ok, Created} = create_app(Name),
+    %% Response carries the materialised admin defaults.
+    DefaultAdminScopes = lists:sort(?GENERIC_SCOPES),
+    ?assertEqual(
+        DefaultAdminScopes,
+        lists:sort(maps:get(<<"scopes">>, Created))
+    ),
+    %% Persisted state matches — `scopes' really is in the extra map,
+    %% not synthesised at response time. Read raw mnesia row directly.
+    [Record] = mnesia:dirty_read(emqx_app, Name),
+    %% Record is #emqx_app{name, api_key, api_secret_hash, enable, expired_at,
+    %%                    extra, created_at}. The `extra' field is at index 6
+    %% (1=record_name, 2=name, ...). We avoid hard-coding the index by using
+    %% emqx_mgmt_auth's normalisation helper via lookup.
+    {ok, MapForm} = emqx_mgmt_auth:read(Name),
+    %% to_map projects materialised scopes verbatim — no sentinel.
+    ?assertEqual(
+        DefaultAdminScopes,
+        lists:sort(maps:get(<<"scopes">>, MapForm))
+    ),
+    %% Defensive: also assert the raw extra map carries `scopes' (not
+    %% the absence of the key, which would have been the legacy state).
+    Extra = element(6, Record),
+    ?assert(is_map(Extra)),
+    ?assert(maps:is_key(scopes, Extra)),
+    delete_app(Name).
+
+%% Records created before the scopes feature shipped have no `scopes'
+%% key in their extra map. Such legacy records still need a sensible
+%% response — the contract is to surface the binary sentinel
+%% `<<"unset">>'. We simulate this by writing a record directly into
+%% mnesia with a stripped extra map.
+t_api_legacy_record_shows_unset_sentinel(_Config) ->
+    Name = <<"SCOPES-API-LEGACY">>,
+    %% First create a normal record via the API so we get a valid record
+    %% layout, then mutate its extra to remove the scopes key.
+    {ok, _} = create_app(Name),
+    [Record0] = mnesia:dirty_read(emqx_app, Name),
+    Extra0 = element(6, Record0),
+    ExtraNoScopes = maps:remove(scopes, Extra0),
+    Record1 = setelement(6, Record0, ExtraNoScopes),
+    ok = mnesia:dirty_write(emqx_app, Record1),
+    %% Now read it back through the API and verify the sentinel surfaces.
+    {ok, ReadBack} = read_app(Name),
+    ?assertEqual(<<"unset">>, maps:get(<<"scopes">>, ReadBack)),
     delete_app(Name).
 
 %%--------------------------------------------------------------------

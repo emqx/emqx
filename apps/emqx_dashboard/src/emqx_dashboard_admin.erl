@@ -48,6 +48,7 @@
     scopes_of/1,
     effective_scopes_of/1,
     effective_scopes_of_admin/1,
+    role_default_scopes/1,
     set_user_scopes/2,
     all_users/0,
     admin_users/0,
@@ -835,17 +836,24 @@ to_external_user(UserRecord) ->
         %% @doc Surface raw scope state with a tri-state contract:
         %%   - `[]`            : explicit deny-all
         %%   - `[binary(), …]` : explicit allow-list
-        %%   - `null`          : not set; authorization falls back to role
-        %%                       default (administrator/viewer: generic +
-        %%                       login-only scopes; publisher: hard-coded
-        %%                       `/publish*`)
-        %% Authorization keeps using {@link effective_scopes_of_admin/1} which
-        %% still expands the role default. The API surface intentionally does
-        %% not expose the expanded list so that read-modify-write does not
-        %% sediment role-default into an explicit scope list.
+        %%   - `<<"unset">>`   : the persisted record has no `scopes' field at all (legacy
+        %%                       upgrade artefact from before #17235 landed).  The runtime
+        %%                       authorization path falls back to role default:
+        %%                       administrator -> generic + login-only scopes;
+        %%                       viewer        -> generic scopes;
+        %%                       publisher     -> hard-coded `/publish*'.
+        %%                       Newly created users never end up in this state: the POST
+        %%                       and SSO-provisioning paths both materialize role-default
+        %%                       scopes at creation time.
+        %% Authorization keeps using {@link effective_scopes_of_admin/1} which still
+        %% expands the role default for legacy records.  The API surface intentionally
+        %% does not expose the expanded list so that read-modify-write does not sediment
+        %% role-default into an explicit scope list.  `<<"unset">>' is a stable string
+        %% sentinel (not JSON `null') so HTTP/JSON intermediaries cannot conflate it with
+        %% `field missing' or `field cleared'.
         scopes =>
             case scopes_of(Username) of
-                undefined -> null;
+                undefined -> <<"unset">>;
                 Scopes when is_list(Scopes) -> Scopes
             end
     }).
