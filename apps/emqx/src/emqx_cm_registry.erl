@@ -209,7 +209,7 @@ handle_info({membership, _Event}, State) ->
     {noreply, State};
 handle_info(#mria_replica_status_update{status = Status}, State) ->
     ?tp(info, cm_registry_shard_up, #{}),
-    maybe_trigger_heal(is_enabled(), Status),
+    _ = maybe_trigger_heal(is_enabled(), Status),
     {noreply, State};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
