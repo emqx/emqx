@@ -37,7 +37,6 @@
 {emqx_mgmt_api_alarms,emqx_management}.
 {emqx_mgmt_api_clients,emqx_management}.
 {emqx_mgmt_api_plugins,emqx_management}.
-{emqx_mgmt_api_relup,emqx_management}.
 {emqx_mgmt_cluster,emqx_management}.
 {emqx_mgmt_data_backup,emqx_management}.
 {emqx_mgmt_trace,emqx_management}.

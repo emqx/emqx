@@ -95,7 +95,7 @@ emqx_gcp_device: none
 emqx_gen_bridge: all
 emqx_ldap: all
 emqx_license: all
-emqx_machine: none
+emqx_machine: all
 emqx_management: all
 emqx_message_transformation: all
 emqx_mix_utils: all

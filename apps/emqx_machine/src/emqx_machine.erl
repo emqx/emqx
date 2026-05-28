@@ -22,9 +22,11 @@
 
 -include_lib("kernel/include/inet.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 %% @doc EMQX boot entrypoint.
 start() ->
+    ensure_valid_features(),
     emqx_mgmt_cli:load(),
     case os:type() of
         {win32, nt} ->
@@ -227,3 +229,19 @@ get_emqx_vsn() ->
         undefined ->
             undefined
     end.
+
+ensure_valid_features() ->
+    try
+        Info = emqx_machine_features:info(),
+        ?SLOG(notice, Info#{msg => "feature_gates_resolved"}),
+        ok
+    catch
+        exit:#{} = Context ->
+            ?tp(critical, "invalid_feature_specification", Context),
+            exit_loop(1)
+    end.
+
+exit_loop(ExitCode) ->
+    timer:sleep(100),
+    init:stop(ExitCode),
+    exit_loop(ExitCode).

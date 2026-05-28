@@ -33,8 +33,10 @@ t_max_supported_version(_Config) ->
 
 t_announce(Config) ->
     meck:new(emqx_bpapi, [passthrough, no_history]),
-    Filename = filename:join(?config(data_dir, Config), "test.versions"),
-    meck:expect(emqx_bpapi, versions_file, fun(_) -> Filename end),
+    VsnFilename = filename:join(?config(data_dir, Config), "test.versions"),
+    meck:expect(emqx_bpapi, versions_file, fun(_) -> VsnFilename end),
+    AppsFilename = filename:join(?config(data_dir, Config), "test.apps"),
+    meck:expect(emqx_bpapi, owner_applications_file, fun() -> AppsFilename end),
     FakeNode = 'fake-node@127.0.0.1',
     ?assertMatch(ok, emqx_bpapi:announce(FakeNode, emqx)),
     timer:sleep(100),
