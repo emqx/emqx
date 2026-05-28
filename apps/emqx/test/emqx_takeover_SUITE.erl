@@ -53,8 +53,7 @@ tc_v5_only() ->
         t_takeover_session_then_abnormal_disconnect,
         t_takeover_session_then_abnormal_disconnect_2,
         t_disconnected_at_before_connected_at_on_takeover,
-        t_disconnected_at_before_connected_at_on_discard,
-        t_chan_info_refreshed_after_takeover_replay
+        t_disconnected_at_before_connected_at_on_discard
     ].
 
 init_per_suite(Config) ->
@@ -931,7 +930,8 @@ t_chan_info_refreshed_after_takeover_replay(Config) ->
             do_chan_info_refreshed_after_takeover_replay(Config)
     end.
 
-do_chan_info_refreshed_after_takeover_replay(_Config) ->
+do_chan_info_refreshed_after_takeover_replay(Config) ->
+    MqttVer = ?config(mqtt_vsn, Config),
     ClientId = iolist_to_binary([
         atom_to_binary(?FUNCTION_NAME),
         "-",
@@ -940,9 +940,9 @@ do_chan_info_refreshed_after_takeover_replay(_Config) ->
     Topic = <<ClientId/binary, "/t">>,
     NMsgs = 3,
     ClientOpts = [
-        {proto_ver, v5},
-        {clean_start, false},
-        {properties, #{'Session-Expiry-Interval' => 60}}
+        {proto_ver, MqttVer},
+        {clean_start, false}
+        | [{properties, #{'Session-Expiry-Interval' => 60}} || v5 == MqttVer]
     ],
 
     %% GIVEN: client A subscribes, then disconnects leaving session alive.
@@ -953,7 +953,7 @@ do_chan_info_refreshed_after_takeover_replay(_Config) ->
     ok = emqtt:disconnect(ClientA),
 
     %% AND: publish NMsgs messages so they queue in the offline session.
-    {ok, Publisher} = emqtt:start_link([{proto_ver, v5}, {clean_start, true}]),
+    {ok, Publisher} = emqtt:start_link([{proto_ver, MqttVer}, {clean_start, true}]),
     {ok, _} = emqtt:connect(Publisher),
     lists:foreach(
         fun(I) ->
