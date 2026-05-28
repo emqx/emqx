@@ -1011,17 +1011,12 @@ wait_for_pub_client_down(#{client := [_SubClient, PubClient]} = CTX) ->
 %% t_takover_in_cluster(_) ->
 %%     todo.
 
-%% Regression test: after a session takeover triggers a replay, the
-%% ?CHAN_INFO_TAB snapshot read by the dashboard and REST API must
-%% reflect the post-replay inflight, not the (zero) pre-replay value.
-%%
-%% Pre-fix, the snapshot would stay stale until the next 15s
-%% stats_timer tick. Post-fix, REPLY_EVENT(updated) appended to the
-%% channel's `continue' reply refreshes the snapshot immediately.
+%% Regression test: chan-info stats reflect post-replay state after
+%% session takeover (instead of waiting up to 15s for the stats_timer).
 t_chan_info_refreshed_after_takeover_replay(Config) ->
     case ?config(persistence_enabled, Config) of
         true ->
-            {skip, "Classic session only — DS path has its own stats model"};
+            {skip, "Classic session only — DS uses seqno_q*/n_streams stats"};
         _ ->
             do_chan_info_refreshed_after_takeover_replay(Config)
     end.
@@ -1070,61 +1065,26 @@ do_chan_info_refreshed_after_takeover_replay(_Config) ->
     ]),
     {ok, _} = emqtt:connect(ClientB),
 
-    %% Wait for takeover: the channel pid should change.
-    true = wait_until(
-        fun() ->
-            case emqx_cm:lookup_channels(ClientId) of
-                [Pid] when Pid =/= OldChanPid -> true;
-                _ -> false
-            end
-        end,
-        2000
-    ),
-    [ChanPid] = emqx_cm:lookup_channels(ClientId),
-
-    %% THEN: chan-info stats reflect the *post-replay* state — messages
-    %% moved from mqueue into inflight — well before the 15s stats_timer
-    %% would tick. Pre-fix, the snapshot is taken on `{event, connected}'
-    %% (before the deferred replay), so it shows inflight_cnt=0 and
-    %% mqueue_len=NMsgs. Post-fix, REPLY_EVENT(updated) fires after the
-    %% replay, refreshing the snapshot to inflight_cnt=NMsgs, mqueue_len=0.
-    PollTimeout = 5_000,
-    Result = wait_until(
-        fun() ->
-            case emqx_cm:get_chan_stats(ClientId, ChanPid) of
-                Stats when is_list(Stats) ->
-                    Inflight = proplists:get_value(inflight_cnt, Stats, 0),
-                    Inflight >= NMsgs;
-                _ ->
-                    false
-            end
-        end,
-        PollTimeout
-    ),
-    ?assertEqual(
-        true,
-        Result,
-        {chan_stats_not_refreshed_post_replay, emqx_cm:get_chan_stats(ClientId, ChanPid)}
+    %% THEN: chan-info stats reflect the post-replay inflight well before
+    %% the 15s stats_timer would tick. Comfort margin: 50ms x 100 = 5s.
+    ?retry(
+        50,
+        100,
+        begin
+            [ChanPid] = [
+                Pid
+             || Pid <- emqx_cm:lookup_channels(ClientId), Pid =/= OldChanPid
+            ],
+            ?assertMatch(
+                #{inflight_cnt := N} when N >= NMsgs,
+                maps:from_list(emqx_cm:get_chan_stats(ClientId, ChanPid)),
+                chan_stats_not_refreshed_post_replay
+            )
+        end
     ),
 
     catch emqtt:stop(ClientB),
     ok.
-
-%% End t_chan_info_refreshed_after_takeover_replay helpers --------------
-
-wait_until(Fun, Timeout) ->
-    wait_until(Fun, Timeout, 50).
-
-wait_until(_Fun, Timeout, _Step) when Timeout =< 0 ->
-    false;
-wait_until(Fun, Timeout, Step) ->
-    case Fun() of
-        true ->
-            true;
-        false ->
-            timer:sleep(Step),
-            wait_until(Fun, Timeout - Step, Step)
-    end.
 
 %%--------------------------------------------------------------------
 %% Commands
