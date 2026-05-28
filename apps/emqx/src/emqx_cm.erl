@@ -53,6 +53,7 @@
     lookup_channels/1,
     lookup_channels/2,
     lookup_client/1,
+    lookup_client_and_format/2,
     pick_channel/1
 ]).
 
@@ -732,6 +733,74 @@ lookup_client({clientid, ClientId}) ->
 lookup_client({chan_pid, ChanPid}) ->
     MatchSpec = [{{{'_', '$1'}, '_', '_'}, [{'=:=', '$1', ChanPid}], ['$_']}],
     ets:select(?CHAN_INFO_TAB, MatchSpec).
+
+%% This is what was previously (before 6.3.0) known as `emqx_mgmt:lookup_client`.  Since
+%% this implementation uses only function from `emqx` application, it has since been moved
+%% here, to avoid a dependency on `emqx_management` solely for this functionality.
+lookup_client_and_format({clientid, ClientId}, FormatFun) ->
+    IsPersistenceEnabled = emqx_persistent_message:is_persistence_enabled(),
+    case do_lookup_running_client_and_format(ClientId, FormatFun) of
+        [] when IsPersistenceEnabled ->
+            [
+                maybe_format(FormatFun, I)
+             || I <- emqx_persistent_session_ds_state:print_channel(ClientId)
+            ];
+        Res ->
+            Res
+    end;
+lookup_client_and_format({username, Username}, FormatFun) ->
+    lists:append([
+        do_lookup_client_and_format(Node, {username, Username}, FormatFun)
+     || Node <- emqx:running_nodes()
+    ]).
+
+do_lookup_client_and_format(Node, Key, FormatFun) ->
+    case unwrap_rpc(emqx_cm_proto_v1:lookup_client(Node, Key)) of
+        {error, Err} ->
+            {error, Err};
+        L ->
+            lists:map(
+                fun({Chan, Info0, Stats}) ->
+                    Info = Info0#{node => Node},
+                    maybe_format(FormatFun, {Chan, Info, Stats})
+                end,
+                L
+            )
+    end.
+
+do_lookup_running_client_and_format(ClientId, FormatFun) ->
+    case emqx_cm_registry:is_enabled() of
+        false ->
+            lists:append([
+                do_lookup_client_and_format(Node, {clientid, ClientId}, FormatFun)
+             || Node <- emqx:running_nodes()
+            ]);
+        true ->
+            with_client_node(
+                ClientId,
+                _WhenNotFound = [],
+                fun(Node) -> do_lookup_client_and_format(Node, {clientid, ClientId}, FormatFun) end
+            )
+    end.
+
+maybe_format(undefined, A) ->
+    A;
+maybe_format({M, F}, A) ->
+    M:F(A).
+
+with_client_node(ClientId, WhenNotFound, Fn) ->
+    case emqx_cm_registry:lookup_channels(ClientId) of
+        [ChanPid | _] ->
+            Node = node(ChanPid),
+            Fn(Node);
+        [] ->
+            WhenNotFound
+    end.
+
+unwrap_rpc({badrpc, Reason}) ->
+    {error, Reason};
+unwrap_rpc(Res) ->
+    Res.
 
 %% @private
 wrap_rpc(Result) ->
