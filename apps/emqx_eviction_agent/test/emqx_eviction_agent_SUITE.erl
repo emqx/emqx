@@ -261,7 +261,7 @@ t_explicit_session_takeover(Config) ->
     ok = rpc:call(Node1, emqx_eviction_agent, disable, [test_eviction]),
 
     {ok, C1} = emqtt_connect_for_publish(Port1),
-    emqtt:publish(C1, <<"t1">>, <<"MessageToEvictedSession1">>),
+    {ok, _} = emqtt:publish(C1, <<"t1">>, <<"MessageToEvictedSession1">>, qos1),
     ok = emqtt:disconnect(C1),
 
     ok = rpc:call(Node1, emqx_eviction_agent, enable, [test_eviction, undefined]),
@@ -286,9 +286,11 @@ t_explicit_session_takeover(Config) ->
 
     ok = rpc:call(Node1, emqx_eviction_agent, disable, [test_eviction]),
 
+    emqx_cth_cluster:sync_routes([Node1, Node2]),
+
     %% Session is on Node2, but we connect to Node1
     {ok, C2} = emqtt_connect_for_publish(Port1),
-    emqtt:publish(C2, <<"t1">>, <<"MessageToEvictedSession2">>),
+    {ok, _} = emqtt:publish(C2, <<"t1">>, <<"MessageToEvictedSession2">>, qos1),
     ok = emqtt:disconnect(C2),
 
     ct:sleep(100),
@@ -553,7 +555,7 @@ assert_receive_publish([#{payload := Msg, topic := Topic} | Rest]) ->
             topic := Topic
         }} ->
             assert_receive_publish(Rest)
-    after 1000 ->
+    after 5000 ->
         ?assert(false, "Message `" ++ binary_to_list(Msg) ++ "` is lost")
     end.
 
