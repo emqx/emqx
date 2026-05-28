@@ -48,8 +48,29 @@
     end
 ).
 
+%% common_test enumerates test cases via Mod:all/0 — without it
+%% `export_all' alone resolves to an empty case list and the suite
+%% silently runs zero cases.
 all() ->
     ?EE_ONLY(emqx_common_test_helpers:all(?MODULE), []).
+
+%% The dashboard's default admin user (created by `do_add_default_user'
+%% at boot) used to land in the legacy "no scopes key" state, which
+%% would surface in API responses as the `<<"unset">>' sentinel.
+%% C3 seeds the administrator role default at row insertion time so a
+%% fresh default-admin is indistinguishable from one created via a POST
+%% that omits the `scopes' field.
+%%
+%% `init_per_testcase' clears the admin table to give every case full
+%% control of `admin_override'.  Re-run the same code path the boot
+%% sequence takes so the assertion exercises the real seeding helper.
+t_default_admin_seeded_with_role_default_scopes(_Config) ->
+    {ok, _} = emqx_dashboard_admin:add_default_user(),
+    Username = emqx_dashboard_admin:default_username(),
+    ?assertEqual(
+        ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES,
+        emqx_dashboard_admin:scopes_of(Username)
+    ).
 
 init_per_suite(Config) ->
     ?EE_ONLY(
@@ -133,8 +154,10 @@ t_post_users_response_includes_scopes(_Config) ->
     ?assertEqual(?ROLE_SUPERUSER, maps:get(<<"role">>, Resp)).
 
 %% Response from POST /users without an explicit `scopes' field
-%% projects the role-default. Admin (?ROLE_SUPERUSER) default is the
-%% full 14-scope list.
+%% materialises the role-default scope list (administrator -> 10 common
+%% + 4 login-only = 14 scopes). The legacy `<<"unset">>' sentinel is
+%% reserved for records that survived an upgrade without scopes
+%% (pre-#17235); fresh POSTs never produce that state.
 t_post_users_response_role_default_scopes_when_not_set(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
@@ -148,21 +171,17 @@ t_post_users_response_role_default_scopes_when_not_set(_Config) ->
         post, api_path(["users"]), auth_header(Token), Body
     ),
     Resp = emqx_utils_json:decode(RespBody),
-    ScopesOut = maps:get(<<"scopes">>, Resp),
-    ?assert(is_list(ScopesOut)),
-    %% Admin default contains every login-only scope plus every
-    %% common scope — assert membership rather than exact equality
-    %% to avoid coupling to catalog ordering or count.
+    %% Response carries the materialised admin defaults (10 common + 4 login-only).
     CommonNames = [N || #{name := N} <- emqx_scope_catalog:common_scope_catalog()],
     LoginOnlyNames = [N || #{name := N} <- emqx_scope_catalog:admin_only_scope_catalog()],
-    lists:foreach(
-        fun(N) -> ?assert(lists:member(N, ScopesOut)) end,
-        CommonNames ++ LoginOnlyNames
-    ),
-    ?assertEqual(length(CommonNames) + length(LoginOnlyNames), length(ScopesOut)).
+    ExpectedScopes = lists:sort(CommonNames ++ LoginOnlyNames),
+    ?assertEqual(ExpectedScopes, lists:sort(maps:get(<<"scopes">>, Resp))),
+    %% Materialisation is real (persisted to mnesia), not a response-only
+    %% projection — `effective_scopes_of/1' returns the same list.
+    EffectiveScopes = emqx_dashboard_admin:effective_scopes_of(<<"no_scopes">>),
+    ?assertEqual(ExpectedScopes, lists:sort(EffectiveScopes)).
 
-%% Viewer default = common scopes only (no login-only).
-%% Viewer default = the common scopes, no login-only ones.
+%% Viewer default = the 10 common scopes, no login-only ones.
 t_post_users_response_viewer_default_scopes(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
@@ -176,12 +195,72 @@ t_post_users_response_viewer_default_scopes(_Config) ->
         post, api_path(["users"]), auth_header(Token), Body
     ),
     Resp = emqx_utils_json:decode(RespBody),
-    ScopesOut = maps:get(<<"scopes">>, Resp),
-    ?assert(is_list(ScopesOut)),
+    %% Response carries the materialised viewer defaults (10 common, no login-only).
     CommonNames = [N || #{name := N} <- emqx_scope_catalog:common_scope_catalog()],
-    ?assertEqual(length(CommonNames), length(ScopesOut)),
-    ?assertNot(lists:member(?SCOPE_USER_MGMT, ScopesOut)),
-    ?assertNot(lists:member(?SCOPE_MFA_MGMT, ScopesOut)).
+    ExpectedScopes = lists:sort(CommonNames),
+    ?assertEqual(ExpectedScopes, lists:sort(maps:get(<<"scopes">>, Resp))),
+    %% Viewer never gets login-only scopes via the role default.
+    ?assertNot(lists:member(?SCOPE_USER_MGMT, maps:get(<<"scopes">>, Resp))),
+    ?assertNot(lists:member(?SCOPE_MFA_MGMT, maps:get(<<"scopes">>, Resp))),
+    %% Confirm persisted state matches.
+    EffectiveScopes = emqx_dashboard_admin:effective_scopes_of(<<"viewer_no_scopes">>),
+    ?assertEqual(ExpectedScopes, lists:sort(EffectiveScopes)).
+
+%% POST without an explicit `scopes' field materialises the role-default
+%% scope list and persists it (it is not merely a response-time
+%% projection). This is what distinguishes a freshly-created user
+%% from a legacy upgraded one.
+t_post_users_materialises_default_scopes(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    Body = #{
+        <<"username">> => <<"materialise_admin">>,
+        <<"password">> => test_password(),
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"test">>
+    },
+    {ok, 200, _RespBody} = request_api(
+        post, api_path(["users"]), auth_header(Token), Body
+    ),
+    %% Verify the raw mnesia extra map carries `scopes' (not absence,
+    %% which would be the legacy state).
+    [Admin] = mnesia:dirty_read(?ADMIN, <<"materialise_admin">>),
+    Extra = element(6, Admin),
+    ?assert(is_map(Extra)),
+    ?assert(maps:is_key(scopes, Extra)),
+    %% Persisted list equals the role default.
+    CommonNames = [N || #{name := N} <- emqx_scope_catalog:common_scope_catalog()],
+    LoginOnlyNames = [N || #{name := N} <- emqx_scope_catalog:admin_only_scope_catalog()],
+    ExpectedScopes = lists:sort(CommonNames ++ LoginOnlyNames),
+    ?assertEqual(ExpectedScopes, lists:sort(maps:get(scopes, Extra))).
+
+%% Records created before the user scopes feature shipped have no
+%% `scopes' key in their extra map. Such legacy records still need
+%% a sensible response — the contract is to surface the binary
+%% sentinel `<<"unset">>'. We simulate this by writing a record
+%% directly into mnesia with a stripped extra map.
+t_legacy_record_shows_unset_sentinel(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    %% Create via the API then mutate mnesia to drop the scopes key.
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"legacy_user">>, test_password(), ?ROLE_SUPERUSER, "u"
+    ),
+    {ok, _} = emqx_dashboard_admin:set_user_scopes(
+        <<"legacy_user">>, [?SCOPE_USER_MGMT]
+    ),
+    [Record0] = mnesia:dirty_read(?ADMIN, <<"legacy_user">>),
+    Extra0 = element(6, Record0),
+    ExtraNoScopes = maps:remove(scopes, Extra0),
+    Record1 = setelement(6, Record0, ExtraNoScopes),
+    ok = mnesia:dirty_write(?ADMIN, Record1),
+    %% Read it back through the API and verify the sentinel surfaces.
+    {ok, 200, RespBody} = request_api(
+        get, api_path(["users"]), auth_header(Token), []
+    ),
+    Resp = emqx_utils_json:decode(RespBody),
+    [LegacyEntry] = [E || E <- Resp, maps:get(<<"username">>, E) =:= <<"legacy_user">>],
+    ?assertEqual(<<"unset">>, maps:get(<<"scopes">>, LegacyEntry)).
 
 %% Response from PUT /users/:name must reflect the updated scopes.
 t_put_users_response_includes_updated_scopes(_Config) ->

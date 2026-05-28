@@ -50,7 +50,7 @@ schema("/api_key") ->
             tags => ?TAGS,
             security => [#{'bearerAuth' => []}],
             responses => #{
-                200 => delete([api_secret], fields(app))
+                200 => delete([api_secret], fields(app_response))
             }
         },
         post => #{
@@ -59,7 +59,7 @@ schema("/api_key") ->
             security => [#{'bearerAuth' => []}],
             'requestBody' => delete([created_at, api_key, api_secret], fields(app)),
             responses => #{
-                200 => hoconsc:ref(app),
+                200 => hoconsc:ref(app_response),
                 400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'])
             }
         }
@@ -72,7 +72,7 @@ schema("/api_key/:name") ->
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
-                200 => delete([api_secret], fields(app)),
+                200 => delete([api_secret], fields(app_response)),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'])
             }
         },
@@ -82,7 +82,7 @@ schema("/api_key/:name") ->
             parameters => [hoconsc:ref(name)],
             'requestBody' => delete([created_at, api_key, api_secret, name], fields(app)),
             responses => #{
-                200 => delete([api_secret], fields(app)),
+                200 => delete([api_secret], fields(app_response)),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'])
             }
         },
@@ -177,7 +177,91 @@ fields(app) ->
             hoconsc:mk(
                 hoconsc:array(binary()),
                 #{
-                    desc => ?DESC(api_key_scopes),
+                    desc => ?DESC(api_key_scopes_request),
+                    required => false,
+                    example => [<<"clients">>, <<"rules">>]
+                }
+            )}
+    ] ++ app_extend_fields();
+%% Response shape: `scopes' MAY be the binary sentinel <<"unset">> in addition
+%% to the array-of-binaries form. This sentinel surfaces only for legacy
+%% records that survived an upgrade from a release where the scopes feature
+%% did not exist; the POST / bootstrap / SSO-provisioning paths all
+%% materialize role-default scopes at creation time, so no fresh record will
+%% ever appear with `scopes => <<"unset">>'.
+%%
+%% Listed explicitly (rather than overriding via `lists:keystore') so that the
+%% OpenAPI spec reads as a self-contained response schema and reviewers do not
+%% have to mentally diff `fields(app)' against `fields(app_response)'.
+fields(app_response) ->
+    [
+        {name,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => "Unique and format by [a-zA-Z0-9-_]",
+                    validator => fun ?MODULE:validate_name/1,
+                    example => <<"EMQX-API-KEY-1">>
+                }
+            )},
+        {api_key,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => "" "TODO:uses HMAC-SHA256 for signing." "",
+                    example => <<"a4697a5c75a769f6">>
+                }
+            )},
+        {api_secret,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc =>
+                        ""
+                        "An API secret is a simple encrypted string that identifies"
+                        ""
+                        ""
+                        "an application without any principal."
+                        ""
+                        ""
+                        "They are useful for accessing public data anonymously,"
+                        ""
+                        ""
+                        "and are used to associate API requests."
+                        "",
+                    example => <<"MzAyMjk3ODMwMDk0NjIzOTUxNjcwNzQ0NzQ3MTE2NDYyMDI">>
+                }
+            )},
+        {expired_at,
+            hoconsc:mk(
+                hoconsc:union([infinity, emqx_utils_calendar:epoch_second()]),
+                #{
+                    desc => "No longer valid datetime",
+                    example => <<"2021-12-05T02:01:34.186Z">>,
+                    required => false,
+                    default => infinity
+                }
+            )},
+        {created_at,
+            hoconsc:mk(
+                emqx_utils_calendar:epoch_second(),
+                #{
+                    desc => "ApiKey create datetime",
+                    example => <<"2021-12-01T00:00:00.000Z">>
+                }
+            )},
+        {desc,
+            hoconsc:mk(
+                binary(),
+                #{example => <<"Note">>, required => false}
+            )},
+        {enable, hoconsc:mk(boolean(), #{desc => "Enable/Disable", required => false})},
+        {expired, hoconsc:mk(boolean(), #{desc => "Expired", required => false})},
+        {scopes,
+            hoconsc:mk(
+                hoconsc:union([unset, hoconsc:array(binary())]),
+                #{
+                    desc => ?DESC(api_key_scopes_response),
                     required => false,
                     example => [<<"clients">>, <<"rules">>]
                 }
@@ -257,7 +341,12 @@ api_key(post, #{body := App}) ->
     ExpiredAt = ensure_expired_at(App),
     Desc = unicode:characters_to_binary(Desc0, unicode),
     Role = maps:get(<<"role">>, App, ?ROLE_API_DEFAULT),
-    Scopes = maps:get(<<"scopes">>, App, undefined),
+    %% Materialize role defaults when the client omitted `scopes' entirely.
+    %% Explicit `[]' (deny-all) and explicit lists pass through unchanged.
+    %% After this PR `<<"unset">>' in a GET response is reserved for legacy
+    %% records that survived an upgrade; no creation path stores `undefined'.
+    RawScopes = maps:get(<<"scopes">>, App, undefined),
+    Scopes = emqx_mgmt_auth:effective_scopes_on_create(Role, RawScopes),
     case validate_scopes(Role, Scopes) of
         ok ->
             case emqx_mgmt_auth:create(Name, Enable, ExpiredAt, Desc, Role, Scopes) of
