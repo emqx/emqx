@@ -2226,7 +2226,7 @@ set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId} = ClientInf
                 Tns0
         end,
     emqx_logger:set_metadata_clientid(ClientId),
-    emqx_logger:set_proc_metadata([{username, Username}, {tns, Tns}]).
+    emqx_logger:set_proc_metadata([{username, Username}, {tns, Tns}, {namespace, Tns0}]).
 
 get_tenant_namespace(ClientInfo) ->
     Attrs = maps:get(client_attrs, ClientInfo, #{}),
