@@ -35,6 +35,21 @@
 
 %% All 'cluster.*' keys, except for 'cluster.link', should also be treated as read-only.
 -define(READONLY_ROOT_KEYS, [rpc, node]).
+%% Generated UI/API metadata should not make status report a runtime config mismatch.
+-define(CLUSTER_SYNC_METADATA_ROOTS, [
+    actions,
+    sources,
+    bridges,
+    <<"actions">>,
+    <<"sources">>,
+    <<"bridges">>
+]).
+-define(CLUSTER_SYNC_TIMESTAMP_KEYS, [
+    created_at,
+    last_modified_at,
+    <<"created_at">>,
+    <<"last_modified_at">>
+]).
 
 -dialyzer({no_match, [load/0]}).
 
@@ -752,7 +767,8 @@ waiting_for_sync_finish(Sec) ->
             waiting_for_sync_finish(Sec + 1)
     end.
 
-find_lagging(Status, AllConfs) ->
+find_lagging(Status, AllConfs0) ->
+    AllConfs = normalize_cluster_sync_status_confs(AllConfs0),
     case find_highest_node(Status) of
         {same_tnx_id, TnxId} ->
             %% check the conf is the same or not
@@ -827,13 +843,96 @@ normalize_running_conf(Node) ->
                 reason => Reason,
                 stacktrace => Stacktrace
             }),
-            emqx_conf_proto_v4:get_config(Node, [])
+            normalize_cluster_sync_status_conf(emqx_conf_proto_v4:get_config(Node, []))
     end.
 
 normalize_running_raw_conf(RawConf) ->
     RawConf1 = fill_defaults(RawConf),
     {_AppEnvs, Conf} = emqx_config:check_config(emqx_conf:schema_module(), RawConf1),
+    normalize_cluster_sync_status_conf(Conf).
+
+normalize_cluster_sync_status_confs(AllConfs) ->
+    [
+        {Node, normalize_cluster_sync_status_conf(Conf)}
+     || {Node, Conf} <- AllConfs
+    ].
+
+normalize_cluster_sync_status_conf(Conf) when is_map(Conf) ->
+    Conf1 = lists:foldl(
+        fun(Root, Acc) ->
+            update_if_present(Root, fun drop_named_config_timestamp_metadata/1, Acc)
+        end,
+        Conf,
+        ?CLUSTER_SYNC_METADATA_ROOTS
+    ),
+    update_if_present(
+        <<"rule_engine">>,
+        fun drop_rule_engine_timestamp_metadata/1,
+        update_if_present(rule_engine, fun drop_rule_engine_timestamp_metadata/1, Conf1)
+    );
+normalize_cluster_sync_status_conf(Conf) ->
     Conf.
+
+update_if_present(Key, Fun, Map) when is_map(Map) ->
+    case maps:find(Key, Map) of
+        {ok, Value} ->
+            Map#{Key => Fun(Value)};
+        error ->
+            Map
+    end.
+
+drop_named_config_timestamp_metadata(ConfigsByType) when is_map(ConfigsByType) ->
+    maps:map(
+        fun(_Type, ConfigsByName) ->
+            drop_named_config_timestamp_metadata_by_name(ConfigsByName)
+        end,
+        ConfigsByType
+    );
+drop_named_config_timestamp_metadata(ConfigsByType) ->
+    ConfigsByType.
+
+drop_named_config_timestamp_metadata_by_name(ConfigsByName) when is_map(ConfigsByName) ->
+    maps:map(
+        fun(_Name, Config) ->
+            drop_timestamp_metadata(Config)
+        end,
+        ConfigsByName
+    );
+drop_named_config_timestamp_metadata_by_name(ConfigsByName) ->
+    ConfigsByName.
+
+drop_rule_engine_timestamp_metadata(RuleEngine) when is_map(RuleEngine) ->
+    update_if_present(
+        <<"rules">>,
+        fun drop_rules_timestamp_metadata/1,
+        update_if_present(rules, fun drop_rules_timestamp_metadata/1, RuleEngine)
+    );
+drop_rule_engine_timestamp_metadata(RuleEngine) ->
+    RuleEngine.
+
+drop_rules_timestamp_metadata(Rules) when is_map(Rules) ->
+    maps:map(
+        fun(_RuleId, Rule) ->
+            drop_rule_timestamp_metadata(Rule)
+        end,
+        Rules
+    );
+drop_rules_timestamp_metadata(Rules) ->
+    Rules.
+
+drop_rule_timestamp_metadata(Rule) when is_map(Rule) ->
+    update_if_present(
+        <<"metadata">>,
+        fun drop_timestamp_metadata/1,
+        update_if_present(metadata, fun drop_timestamp_metadata/1, Rule)
+    );
+drop_rule_timestamp_metadata(Rule) ->
+    Rule.
+
+drop_timestamp_metadata(Config) when is_map(Config) ->
+    maps:without(?CLUSTER_SYNC_TIMESTAMP_KEYS, Config);
+drop_timestamp_metadata(Config) ->
+    Config.
 
 print_inconsistent_conf(Keys, Target, Status, AllConfs) ->
     {value, {_, TargetConf}, OtherConfs} = lists:keytake(Target, 1, AllConfs),
@@ -1067,6 +1166,42 @@ find_inconsistent_test() ->
     ?assertEqual(
         {inconsistent_key, 3, [<<"mqtt">>]},
         find_lagging(SameStatus, Confs0)
+    ),
+    ok.
+
+find_lagging_ignores_action_timestamp_metadata_test() ->
+    Status = [
+        #{node => node1, tnx_id => 3},
+        #{node => node2, tnx_id => 3}
+    ],
+    Action = #{
+        connector => <<"test">>,
+        enable => true,
+        parameters => #{topic => <<"testtopic-in">>},
+        created_at => 1779764590042
+    },
+    ConfsWithOnlyTimestampDiff = [
+        {node1, #{actions => #{kafka_producer => #{test => Action#{last_modified_at => 1}}}}},
+        {node2, #{actions => #{kafka_producer => #{test => Action#{last_modified_at => 2}}}}}
+    ],
+    ?assertEqual(
+        {consistent, <<"All configuration synchronized(tnx_id=3) successfully\n">>},
+        find_lagging(Status, ConfsWithOnlyTimestampDiff)
+    ),
+
+    ConfsWithRealActionDiff = [
+        {node1, #{actions => #{kafka_producer => #{test => Action#{last_modified_at => 1}}}}},
+        {node2, #{
+            actions => #{
+                kafka_producer => #{
+                    test => Action#{last_modified_at => 2, parameters => #{topic => <<"other">>}}
+                }
+            }
+        }}
+    ],
+    ?assertEqual(
+        {inconsistent_key, 3, [actions]},
+        find_lagging(Status, ConfsWithRealActionDiff)
     ),
     ok.
 
