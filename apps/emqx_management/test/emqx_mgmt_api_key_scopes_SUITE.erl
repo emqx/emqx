@@ -532,9 +532,12 @@ t_api_post_materialises_default_scopes(_Config) ->
     %% emqx_mgmt_auth's normalisation helper via lookup.
     {ok, MapForm} = emqx_mgmt_auth:read(Name),
     %% to_map projects materialised scopes verbatim — no sentinel.
+    %% MapForm is the internal atom-keyed shape (read/1 returns the raw
+    %% to_map/1 projection, before the API layer converts keys to
+    %% binaries for the JSON response).
     ?assertEqual(
         DefaultAdminScopes,
-        lists:sort(maps:get(<<"scopes">>, MapForm))
+        lists:sort(maps:get(scopes, MapForm))
     ),
     %% Defensive: also assert the raw extra map carries `scopes' (not
     %% the absence of the key, which would have been the legacy state).

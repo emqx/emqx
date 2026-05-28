@@ -48,13 +48,24 @@
     end
 ).
 
+%% common_test enumerates test cases via Mod:all/0 — without it
+%% `export_all' alone resolves to an empty case list and the suite
+%% silently runs zero cases.
+all() ->
+    ?EE_ONLY(emqx_common_test_helpers:all(?MODULE), []).
+
 %% The dashboard's default admin user (created by `do_add_default_user'
 %% at boot) used to land in the legacy "no scopes key" state, which
 %% would surface in API responses as the `<<"unset">>' sentinel.
 %% C3 seeds the administrator role default at row insertion time so a
 %% fresh default-admin is indistinguishable from one created via a POST
 %% that omits the `scopes' field.
+%%
+%% `init_per_testcase' clears the admin table to give every case full
+%% control of `admin_override'.  Re-run the same code path the boot
+%% sequence takes so the assertion exercises the real seeding helper.
 t_default_admin_seeded_with_role_default_scopes(_Config) ->
+    {ok, _} = emqx_dashboard_admin:add_default_user(),
     Username = emqx_dashboard_admin:default_username(),
     ?assertEqual(
         ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES,

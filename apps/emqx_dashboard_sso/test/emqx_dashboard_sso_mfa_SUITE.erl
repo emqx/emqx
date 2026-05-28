@@ -93,10 +93,12 @@ init_users() ->
 %% role default at insertion time, so a fresh SSO user is
 %% indistinguishable from one that listed its scopes explicitly.
 t_add_sso_user_seeds_role_default_scopes({init, Config}) ->
-    init_users(),
     Config;
 t_add_sso_user_seeds_role_default_scopes({'end', _Config}) ->
-    mnesia:clear_table(?ADMIN),
+    %% Do not clear the admin table here: init_users/0 is invoked once
+    %% from init_per_suite and shared with every other testcase. Clearing
+    %% it would leave subsequent cases without an SSO row to look up
+    %% (manifesting as `username_not_found' on set_mfa_state).
     ok;
 t_add_sso_user_seeds_role_default_scopes(_Config) ->
     SsoUser1 = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),
