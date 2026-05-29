@@ -378,9 +378,24 @@ drain_observe_notifications(
     end.
 
 maybe_attach_pending_blockwise_result(Result, BW) when is_map(BW) ->
-    Result#{blockwise => BW};
+    case maps:get(blockwise, Result, undefined) of
+        CurrentBW when is_map(CurrentBW) ->
+            Result#{blockwise => merge_blockwise_state(CurrentBW, BW)};
+        _ ->
+            Result#{blockwise => BW}
+    end;
 maybe_attach_pending_blockwise_result(Result, _BW) ->
     Result.
+
+merge_blockwise_state(CurrentBW, NextBW) ->
+    maps:fold(fun merge_blockwise_entry/3, CurrentBW, NextBW).
+
+merge_blockwise_entry(opts, Opts, Acc) ->
+    Acc#{opts => Opts};
+merge_blockwise_entry(Key, Value, Acc) when is_map(Value) ->
+    Acc#{Key => maps:merge(maps:get(Key, Acc, #{}), Value)};
+merge_blockwise_entry(Key, Value, Acc) ->
+    Acc#{Key => Value}.
 
 add_outs(Outs, Result) ->
     lists:foldl(
