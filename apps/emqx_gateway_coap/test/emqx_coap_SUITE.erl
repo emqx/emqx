@@ -25,6 +25,7 @@
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
 -define(PS_PREFIX, "coap://127.0.0.1/ps").
 -define(MQTT_PREFIX, "coap://127.0.0.1/mqtt").
+-define(OBSERVE_NOTIFICATION_QUEUE_MAX_LEN, 100).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -981,20 +982,22 @@ t_observe_notify_type_con(_) ->
         with_connection(Fun)
     end).
 
-t_observe_con_notify_drops_duplicate_while_ack_pending(_) ->
+t_observe_con_notify_uses_shared_session_queue(_) ->
     with_notify_type(con, fun() ->
         Fun = fun(Channel, Token) ->
-            Topic = <<"coap/observe_notify_duplicate">>,
-            URI = pubsub_uri(binary_to_list(Topic), Token),
-            Req = make_req(get, <<>>, [{observe, 0}]),
-            {ok, content, _} = do_request(Channel, URI, Req),
+            TopicA = <<"coap/observe_notify_queue/a">>,
+            TopicB = <<"coap/observe_notify_queue/b">>,
+            observe_topic(Channel, Token, TopicA, <<"obsqa">>),
+            observe_topic(Channel, Token, TopicB, <<"obsqb">>),
 
-            Payload1 = <<"first">>,
-            publish(Topic, ?QOS_0, Payload1),
+            Payload1 = <<"first-a">>,
+            publish(TopicA, ?QOS_0, Payload1),
             Notify1 = assert_notify(Channel, con, Payload1),
 
-            Payload2 = <<"second">>,
-            publish(Topic, ?QOS_0, Payload2),
+            Payload2 = <<"second-b">>,
+            publish(TopicB, ?QOS_0, Payload2),
+            Payload3 = <<"third-a">>,
+            publish(TopicA, ?QOS_0, Payload3),
             ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
 
             ?assertNotEqual(
@@ -1002,7 +1005,70 @@ t_observe_con_notify_drops_duplicate_while_ack_pending(_) ->
                 emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
             ),
             ack_if_con(Channel, Notify1),
+            Notify2 = assert_notify(Channel, con, Payload2),
+            ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+            ack_if_con(Channel, Notify2),
+            Notify3 = assert_notify(Channel, con, Payload3),
+            ack_if_con(Channel, Notify3),
             ?assertMatch({ok, changed, _}, send_heartbeat(Channel, Token)),
+            true
+        end,
+        with_connection(Fun)
+    end).
+
+t_observe_con_notify_queue_drops_oldest_when_full(_) ->
+    with_notify_type(con, fun() ->
+        Fun = fun(Channel, Token) ->
+            Topic = <<"coap/observe_notify_queue_full">>,
+            observe_topic(Channel, Token, Topic, <<"obsqf">>),
+            Before = gateway_metric('delivery.dropped.queue_full'),
+
+            publish(Topic, ?QOS_0, <<"inflight">>),
+            Notify = assert_notify(Channel, con, <<"inflight">>),
+
+            QueueOverflow = 1,
+            lists:foreach(
+                fun(N) ->
+                    Payload = iolist_to_binary(["queued-", integer_to_binary(N)]),
+                    publish(Topic, ?QOS_0, Payload)
+                end,
+                lists:seq(1, ?OBSERVE_NOTIFICATION_QUEUE_MAX_LEN + QueueOverflow)
+            ),
+            wait_gateway_metric(
+                'delivery.dropped.queue_full',
+                Before + QueueOverflow,
+                20
+            ),
+            ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+
+            ack_if_con(Channel, Notify),
+            %% The oldest queued entry is dropped when the fixed session queue
+            %% limit is reached.  Later retained entries may vary slightly with
+            %% asynchronous MQTT delivery scheduling, but queued-1 must not be
+            %% delivered after the queue_full metric has advanced.
+            Notify2 = assert_notify(Channel, con),
+            ?assertNotEqual(<<"queued-1">>, notify_payload(Notify2)),
+            true
+        end,
+        with_connection(Fun)
+    end).
+
+t_observe_con_notify_queue_drains_after_reset(_) ->
+    with_notify_type(con, fun() ->
+        Fun = fun(Channel, Token) ->
+            TopicA = <<"coap/observe_notify_queue_reset/a">>,
+            TopicB = <<"coap/observe_notify_queue_reset/b">>,
+            observe_topic(Channel, Token, TopicA, <<"obsra">>),
+            observe_topic(Channel, Token, TopicB, <<"obsrb">>),
+
+            publish(TopicA, ?QOS_0, <<"first-a">>),
+            Notify1 = assert_notify(Channel, con, <<"first-a">>),
+            publish(TopicB, ?QOS_0, <<"second-b">>),
+            ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+
+            reset_if_con(Channel, Notify1),
+            Notify2 = assert_notify(Channel, con, <<"second-b">>),
+            ack_if_con(Channel, Notify2),
             true
         end,
         with_connection(Fun)
@@ -1382,6 +1448,12 @@ observe(Channel, Token, false, ShortenParamName) ->
     {ok, nocontent, _Data} = do_request(Channel, URI, Req),
     ok.
 
+observe_topic(Channel, Token, Topic, ObserveToken) ->
+    URI = pubsub_uri(binary_to_list(Topic), Token),
+    Req = (make_req(get, <<>>, [{observe, 0}]))#coap_message{token = ObserveToken},
+    {ok, content, _} = do_request(Channel, URI, Req),
+    ok.
+
 pubsub_uri(Topic) when is_list(Topic) ->
     ?PS_PREFIX ++ "/" ++ Topic.
 
@@ -1411,15 +1483,41 @@ make_req_type(Type, Method, Payload, Opts) ->
 publish(Topic, QoS, Payload) ->
     emqx:publish(emqx_message:make(<<"coap">>, QoS, Topic, Payload)).
 
+gateway_metric(Name) ->
+    proplists:get_value(Name, emqx_gateway_metrics:lookup(coap), 0).
+
+wait_gateway_metric(Name, Expected, 0) ->
+    ?assertEqual(Expected, gateway_metric(Name));
+wait_gateway_metric(Name, Expected, Retries) ->
+    case gateway_metric(Name) of
+        Value when Value >= Expected ->
+            ok;
+        _ ->
+            timer:sleep(100),
+            wait_gateway_metric(Name, Expected, Retries - 1)
+    end.
+
 assert_notify(Channel, Type, Payload) ->
-    {ok, content, Notify = #coap_message{type = Type}} = with_message_response(Channel),
-    #coap_content{payload = Payload} = er_coap_message:get_content(Notify),
+    Notify = assert_notify(Channel, Type),
+    ?assertEqual(Payload, notify_payload(Notify)),
     Notify.
+
+assert_notify(Channel, Type) ->
+    {ok, content, Notify = #coap_message{type = Type}} = with_message_response(Channel),
+    Notify.
+
+notify_payload(Notify) ->
+    #coap_content{payload = Payload} = er_coap_message:get_content(Notify),
+    Payload.
 
 ack_if_con(Channel, #coap_message{type = con} = Message) ->
     {ok, _} = er_coap_channel:send(Channel, er_coap_message:ack(Message)),
     ok;
 ack_if_con(_Channel, #coap_message{}) ->
+    ok.
+
+reset_if_con(Channel, #coap_message{type = con} = Message) ->
+    {ok, _} = er_coap_channel:send(Channel, emqx_coap_message:reset(Message)),
     ok.
 
 do_request(Channel, URI, #coap_message{options = Opts} = Req) ->
