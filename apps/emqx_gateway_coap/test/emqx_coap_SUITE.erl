@@ -1108,6 +1108,61 @@ t_observe_con_notify_queue_preserves_block2_until_drained(_) ->
         end)
     end).
 
+t_observe_non_blockwise_queue_preserves_all_drained_tokens(_) ->
+    with_notify_type(qos, fun() ->
+        with_blockwise_max_size(16, fun() ->
+            Fun = fun(Channel, Token) ->
+                TopicA = <<"coap/observe_notify_queue_block2_multi/a">>,
+                TopicB = <<"coap/observe_notify_queue_block2_multi/b">>,
+                TopicC = <<"coap/observe_notify_queue_block2_multi/c">>,
+                observe_topic(Channel, Token, TopicA, <<"obsbqa">>),
+                observe_topic(Channel, Token, TopicB, <<"obsbqb">>),
+                observe_topic(Channel, Token, TopicC, <<"obsbqc">>),
+
+                publish(TopicA, ?QOS_1, <<"inflight-a">>),
+                NotifyA = assert_notify(Channel, con, <<"inflight-a">>),
+
+                PayloadB = blockwise_payload(<<"B">>, <<"b">>, <<"1">>),
+                PayloadC = blockwise_payload(<<"C">>, <<"c">>, <<"2">>),
+                publish(TopicB, ?QOS_0, PayloadB),
+                publish(TopicC, ?QOS_0, PayloadC),
+                ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+
+                ack_if_con(Channel, NotifyA),
+                Notify1 = assert_notify(Channel, non),
+                Notify2 = assert_notify(Channel, non),
+                NotifyB = find_notify_by_payload(binary:copy(<<"B">>, 16), Notify1, Notify2),
+                NotifyC = find_notify_by_payload(binary:copy(<<"C">>, 16), Notify1, Notify2),
+                ?assertEqual({0, true, 16}, coap_option(block2, NotifyB, undefined)),
+                ?assertEqual({0, true, 16}, coap_option(block2, NotifyC, undefined)),
+
+                URIb = pubsub_uri(binary_to_list(TopicB), Token),
+                FollowReqB = (make_req(get, <<>>, [{block2, {1, false, 16}}]))#coap_message{
+                    token = NotifyB#coap_message.token
+                },
+                {ok, content, FollowRespB} = do_message_request(Channel, URIb, FollowReqB),
+                ?assertEqual(binary:copy(<<"b">>, 16), notify_payload(FollowRespB)),
+                ?assertEqual(
+                    {1, true, 16},
+                    coap_option(block2, FollowRespB, undefined)
+                ),
+
+                URIc = pubsub_uri(binary_to_list(TopicC), Token),
+                FollowReqC = (make_req(get, <<>>, [{block2, {1, false, 16}}]))#coap_message{
+                    token = NotifyC#coap_message.token
+                },
+                {ok, content, FollowRespC} = do_message_request(Channel, URIc, FollowReqC),
+                ?assertEqual(binary:copy(<<"c">>, 16), notify_payload(FollowRespC)),
+                ?assertEqual(
+                    {1, true, 16},
+                    coap_option(block2, FollowRespC, undefined)
+                ),
+                true
+            end,
+            with_connection(Fun)
+        end)
+    end).
+
 t_observe_con_notify_queue_drops_oldest_when_full(_) ->
     with_notify_type(con, fun() ->
         Fun = fun(Channel, Token) ->
@@ -1643,6 +1698,14 @@ blockwise_payload(First, Second, Third) ->
         binary:copy(Second, 16),
         binary:copy(Third, 8)
     ]).
+
+find_notify_by_payload(Payload, Notify1, Notify2) ->
+    case {notify_payload(Notify1), notify_payload(Notify2)} of
+        {Payload, _} ->
+            Notify1;
+        {_, Payload} ->
+            Notify2
+    end.
 
 ack_if_con(Channel, #coap_message{type = con} = Message) ->
     {ok, _} = er_coap_channel:send(Channel, er_coap_message:ack(Message)),

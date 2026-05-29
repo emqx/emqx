@@ -62,7 +62,7 @@ t_session_notify_qos_types(_) ->
             {ok, Val} ->
                 ok = emqx_config:force_put(KeyPath, Val);
             _ ->
-                ok = emqx_config:force_put(KeyPath, non)
+                ok = emqx_config:force_put(KeyPath, qos)
         end
     end,
     ok.
