@@ -1738,7 +1738,9 @@ handle_info(continue, Channel) ->
             %% Session timers are not restored here, so there's a tiny chance that
             %% the session becomes stuck, when it already has no place to track new
             %% messages.
-            {ok, Outgoing, NChannel2}
+            %% Refresh chan-info / chan-stats so the dashboard and REST API
+            %% reflect post-replay inflight immediately, not on the next stats tick.
+            {ok, Outgoing ++ [?REPLY_EVENT(updated)], NChannel2}
     end;
 handle_info({subscribe, TopicFilters}, Channel) ->
     ?EXT_TRACE_BROKER_SUBSCRIBE(
