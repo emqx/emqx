@@ -693,8 +693,74 @@ ensure_disconnected(Reason, Channel) ->
 shutdown(Reason, Channel) -> {shutdown, Reason, Channel}.
 shutdown_and_reply(Reason, Reply, Channel) -> {shutdown, Reason, Reply, Channel}.
 call_session(Fun, Msg, #channel{session = Session} = Channel) ->
-    Result = emqx_coap_session:Fun(Msg, Session),
-    handle_result(Result, Channel).
+    Result0 = emqx_coap_session:Fun(Msg, Session),
+    {Result, Channel1} = maybe_attach_blockwise_to_session_result(Fun, Msg, Result0, Channel),
+    handle_result(Result, Channel1).
+
+maybe_attach_blockwise_to_session_result(
+    handle_response,
+    #coap_message{type = reset, token = Token},
+    Result,
+    Channel0
+) ->
+    Channel = clear_discarded_observe_blockwise(Result, clear_observe_blockwise(Token, Channel0)),
+    {attach_and_drain_channel_blockwise(Result, Channel), Channel};
+maybe_attach_blockwise_to_session_result(timeout, _Timer, Result, Channel0) ->
+    Channel = clear_discarded_observe_blockwise(Result, Channel0),
+    {attach_and_drain_channel_blockwise(Result, Channel), Channel};
+maybe_attach_blockwise_to_session_result(handle_response, _Msg, Result, Channel) ->
+    {attach_and_drain_channel_blockwise(Result, Channel), Channel};
+maybe_attach_blockwise_to_session_result(_Fun, _Msg, Result, Channel) ->
+    {Result, Channel}.
+
+attach_and_drain_channel_blockwise(Result0, Channel) ->
+    Result = attach_channel_blockwise(Result0, Channel),
+    case {maps:get(session, Result, undefined), maps:get(blockwise, Result, undefined)} of
+        {Session, BW} when Session =/= undefined, is_map(BW) ->
+            DrainResult = emqx_coap_session:drain_pending_observe_notifications(Session, BW),
+            merge_session_drain_result(Result, DrainResult);
+        _ ->
+            Result
+    end.
+
+attach_channel_blockwise(#{blockwise := _} = Result, _Channel) ->
+    Result;
+attach_channel_blockwise(Result, #channel{blockwise = BW}) when is_map(BW) ->
+    Result#{blockwise => BW};
+attach_channel_blockwise(Result, _Channel) ->
+    Result.
+
+clear_discarded_observe_blockwise(Result, Channel) ->
+    case is_discarded_observe_notification(Result) of
+        true ->
+            lists:foldl(
+                fun clear_observe_blockwise/2,
+                Channel,
+                maps:get(observe_notification_done_tokens, Result, [])
+            );
+        false ->
+            Channel
+    end.
+
+is_discarded_observe_notification(#{proto := {reset, _}}) ->
+    true;
+is_discarded_observe_notification(#{proto := {ack_failure, _}}) ->
+    true;
+is_discarded_observe_notification(_Result) ->
+    false.
+
+clear_observe_blockwise(<<>>, Channel) ->
+    Channel;
+clear_observe_blockwise(
+    Token, #channel{blockwise = #{server_tx_block2 := ServerTx0} = BW0} = Channel
+) ->
+    #channel{conninfo = ConnInfo} = Channel,
+    PeerKey = maps:get(peername, ConnInfo, undefined),
+    ServerTx = maps:remove({server_tx_block2, PeerKey, Token}, ServerTx0),
+    Channel#channel{blockwise = BW0#{server_tx_block2 => ServerTx}};
+clear_observe_blockwise(_Token, Channel) ->
+    Channel.
+
 handle_result(Result, Channel) ->
     iter(
         [
@@ -720,12 +786,12 @@ call_handler(
     case emqx_coap_blockwise:server_incoming(Msg, PeerKey, BW0) of
         {reply, Reply, BW1} ->
             maybe_inc_block2_completed(Reply, Ctx),
-            iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW1});
+            drain_observe_after_blockwise(reply(Reply, Result), BW1, Channel, Iter);
         {error, Reply, BW1} ->
             metrics_inc('blockwise.tx_block2.failed', Ctx),
-            iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW1});
+            drain_observe_after_blockwise(reply(Reply, Result), BW1, Channel, Iter);
         {continue, Reply, BW1} ->
-            iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW1});
+            drain_observe_after_blockwise(reply(Reply, Result), BW1, Channel, Iter);
         {Tag, Msg2, BW1} when Tag =:= pass; Tag =:= complete ->
             do_call_handler_request(Msg2, Result, Channel#channel{blockwise = BW1}, Iter)
     end;
@@ -764,6 +830,35 @@ process_out(Outs, Result, Channel, _) ->
     Events = maps:get(events, Result, []),
     {ok, [{outgoing, Outs2}] ++ Events, Channel}.
 process_nothing(_, _, Channel) -> {ok, Channel}.
+
+drain_observe_after_blockwise(
+    Result0,
+    BW0,
+    #channel{session = Session0} = Channel0,
+    Iter
+) when Session0 =/= undefined ->
+    DrainResult = emqx_coap_session:drain_pending_observe_notifications(Session0, BW0),
+    Session = maps:get(session, DrainResult, Session0),
+    BW = maps:get(blockwise, DrainResult, BW0),
+    Result = merge_observe_drain_result(Result0, DrainResult),
+    iter(Iter, Result, Channel0#channel{session = Session, blockwise = BW});
+drain_observe_after_blockwise(Result, BW, Channel, Iter) ->
+    iter(Iter, Result, Channel#channel{blockwise = BW}).
+
+merge_observe_drain_result(Result0, DrainResult) ->
+    Result1 = maps:merge(Result0, maps:without([out, session], DrainResult)),
+    add_outs(maps:get(out, DrainResult, []), Result1).
+
+merge_session_drain_result(Result0, DrainResult) ->
+    Result1 = maps:merge(Result0, maps:without([out], DrainResult)),
+    add_outs(maps:get(out, DrainResult, []), Result1).
+
+add_outs(Outs, Result) ->
+    lists:foldl(
+        fun(Out, Acc) -> emqx_coap_medium:out(Out, Acc) end,
+        Result,
+        Outs
+    ).
 
 process_connection({open, Req}, Result, Channel = #channel{conn_state = idle}, Iter) ->
     Queries = emqx_coap_message:extract_uri_query(Req),

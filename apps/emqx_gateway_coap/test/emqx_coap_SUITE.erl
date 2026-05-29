@@ -1163,6 +1163,83 @@ t_observe_non_blockwise_queue_preserves_all_drained_tokens(_) ->
         end)
     end).
 
+t_observe_same_token_blockwise_queue_serializes_drained_notifications(_) ->
+    with_notify_type(qos, fun() ->
+        with_blockwise_max_size(16, fun() ->
+            Fun = fun(Channel, Token) ->
+                Topic = <<"coap/observe_notify_queue_block2_same_token">>,
+                ObserveToken = <<"obsbst">>,
+                observe_topic(Channel, Token, Topic, ObserveToken),
+
+                publish(Topic, ?QOS_1, <<"inflight">>),
+                NotifyA = assert_notify(Channel, con, <<"inflight">>),
+
+                PayloadB = blockwise_payload(<<"B">>, <<"b">>, <<"1">>),
+                PayloadC = blockwise_payload(<<"C">>, <<"c">>, <<"2">>),
+                publish(Topic, ?QOS_0, PayloadB),
+                publish(Topic, ?QOS_0, PayloadC),
+                ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+
+                ack_if_con(Channel, NotifyA),
+                Notify0 = assert_notify(Channel, non),
+                ?assertEqual({0, true, 16}, coap_option(block2, Notify0, undefined)),
+                FirstPayload = notify_payload(Notify0),
+                ?assert(
+                    lists:member(FirstPayload, [binary:copy(<<"B">>, 16), binary:copy(<<"C">>, 16)])
+                ),
+                {FirstMid, FirstTail, SecondHead, SecondMid, SecondTail} =
+                    case FirstPayload of
+                        <<"BBBBBBBBBBBBBBBB">> ->
+                            {<<"b">>, <<"1">>, <<"C">>, <<"c">>, <<"2">>};
+                        <<"CCCCCCCCCCCCCCCC">> ->
+                            {<<"c">>, <<"2">>, <<"B">>, <<"b">>, <<"1">>}
+                    end,
+                ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+
+                URI = pubsub_uri(binary_to_list(Topic), Token),
+                _ = assert_block2_followup(
+                    Channel,
+                    URI,
+                    Notify0#coap_message.token,
+                    1,
+                    binary:copy(FirstMid, 16),
+                    {1, true, 16}
+                ),
+                ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+
+                _ = assert_block2_followup(
+                    Channel,
+                    URI,
+                    Notify0#coap_message.token,
+                    2,
+                    binary:copy(FirstTail, 8),
+                    {2, false, 16}
+                ),
+                Notify1 = assert_block2_notify(
+                    Channel, non, binary:copy(SecondHead, 16), {0, true, 16}
+                ),
+                _ = assert_block2_followup(
+                    Channel,
+                    URI,
+                    Notify1#coap_message.token,
+                    1,
+                    binary:copy(SecondMid, 16),
+                    {1, true, 16}
+                ),
+                _ = assert_block2_followup(
+                    Channel,
+                    URI,
+                    Notify1#coap_message.token,
+                    2,
+                    binary:copy(SecondTail, 8),
+                    {2, false, 16}
+                ),
+                true
+            end,
+            with_connection(Fun)
+        end)
+    end).
+
 t_observe_con_notify_queue_drops_oldest_when_full(_) ->
     with_notify_type(con, fun() ->
         Fun = fun(Channel, Token) ->
@@ -1682,6 +1759,15 @@ assert_block2_notify(Channel, Type, Payload, Block2) ->
     Notify = assert_notify(Channel, Type, Payload),
     ?assertEqual(Block2, coap_option(block2, Notify, undefined)),
     Notify.
+
+assert_block2_followup(Channel, URI, Token, Num, Payload, Block2) ->
+    FollowReq = (make_req(get, <<>>, [{block2, {Num, false, 16}}]))#coap_message{
+        token = Token
+    },
+    {ok, content, FollowResp} = do_message_request(Channel, URI, FollowReq),
+    ?assertEqual(Payload, notify_payload(FollowResp)),
+    ?assertEqual(Block2, coap_option(block2, FollowResp, undefined)),
+    FollowResp.
 
 notify_payload(Notify) ->
     #coap_content{payload = Payload} = er_coap_message:get_content(Notify),

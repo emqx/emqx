@@ -27,6 +27,7 @@
     seq_id,
     id,
     token,
+    token_key,
     observe,
     observe_notification = false,
     state,

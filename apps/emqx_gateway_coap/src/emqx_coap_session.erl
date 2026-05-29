@@ -28,6 +28,7 @@
     set_reply/2,
     deliver/3,
     deliver/5,
+    drain_pending_observe_notifications/2,
     timeout/2
 ]).
 
@@ -224,6 +225,15 @@ maybe_attach_blockwise_result(BaseResult, _BW0, _BW2) ->
 timeout(Timer, Session) ->
     call_transport_manager(?FUNCTION_NAME, Timer, Session).
 
+drain_pending_observe_notifications(#session{} = Session0, BW0) ->
+    Result0 =
+        case is_map(BW0) of
+            true -> #{blockwise => BW0};
+            false -> #{}
+        end,
+    {Result, Session} = drain_observe_notifications(Result0, Session0),
+    Result#{session => Session}.
+
 %%%-------------------------------------------------------------------
 %%% Internal functions
 %%%-------------------------------------------------------------------
@@ -248,10 +258,17 @@ process_session(_, Result, Session0) ->
 
 send_or_queue_observe_notification(Msg0, MQTT, Ctx, Session, BW0, PeerKey) ->
     TrackInflight = is_confirmable_observe_notification(Msg0),
-    case should_queue_observe_notification(Session) of
+    DeferBlockwise = should_defer_observe_blockwise(Msg0, Session, BW0, PeerKey),
+    case should_queue_observe_notification(Session) orelse DeferBlockwise of
         true ->
-            {Msg, BW1} = maybe_split_notify_block2(Msg0, PeerKey, BW0, Ctx),
-            Session1 = enqueue_observe_notification(Msg, MQTT, BW1, Ctx, Session),
+            {Msg, BW1} =
+                case DeferBlockwise of
+                    true -> {Msg0, undefined};
+                    false -> maybe_split_notify_block2(Msg0, PeerKey, BW0, Ctx)
+                end,
+            Session1 = enqueue_observe_notification(
+                Msg, MQTT, BW1, PeerKey, Ctx, DeferBlockwise, Session
+            ),
             {[], Session1, BW0};
         false ->
             maybe_send_or_enqueue_observe_notification(
@@ -277,7 +294,7 @@ maybe_send_or_enqueue_observe_notification(
     {Msg, BW1} = maybe_split_notify_block2(Msg0, PeerKey, BW0, Ctx),
     case send_observe_notification_now(Msg, TrackInflight, Session) of
         {[], Session1} ->
-            Session2 = enqueue_observe_notification(Msg, MQTT, BW1, Ctx, Session1),
+            Session2 = enqueue_observe_notification(Msg, MQTT, BW1, PeerKey, Ctx, false, Session1),
             {[], Session2, BW0};
         {Out, Session1} ->
             {Out, Session1, BW1}
@@ -303,15 +320,18 @@ enqueue_observe_notification(
     Msg,
     MQTT,
     BW,
-    _Ctx,
+    PeerKey,
+    Ctx,
+    ForceBlockwiseKey,
     #session{
         observe_pending = Queue0,
         observe_pending_len = Len0,
         observe_pending_dropped = Dropped0
     } = Session
 ) when Len0 < ?OBSERVE_NOTIFICATION_QUEUE_MAX_LEN ->
+    Pending = new_pending_observe_notification(Msg, MQTT, BW, PeerKey, Ctx, ForceBlockwiseKey),
     Session#session{
-        observe_pending = queue:in({Msg, MQTT, BW}, Queue0),
+        observe_pending = queue:in(Pending, Queue0),
         observe_pending_len = Len0 + 1,
         observe_pending_dropped = Dropped0
     };
@@ -319,18 +339,22 @@ enqueue_observe_notification(
     Msg,
     MQTT,
     BW,
+    PeerKey,
     Ctx,
+    ForceBlockwiseKey,
     #session{
         observe_pending = Queue0,
         observe_pending_dropped = Dropped0
     } = Session
 ) ->
-    {{value, {_DroppedMsg, DroppedMQTT, _DroppedBW}}, Queue1} = queue:out(Queue0),
+    {{value, Dropped}, Queue1} = queue:out(Queue0),
+    DroppedMQTT = pending_mqtt(Dropped),
+    Pending = new_pending_observe_notification(Msg, MQTT, BW, PeerKey, Ctx, ForceBlockwiseKey),
     metrics_inc('delivery.dropped', Ctx),
     metrics_inc('delivery.dropped.queue_full', Ctx),
     log_observe_notification_queue_full(DroppedMQTT),
     Session#session{
-        observe_pending = queue:in({Msg, MQTT, BW}, Queue1),
+        observe_pending = queue:in(Pending, Queue1),
         observe_pending_dropped = Dropped0 + 1
     }.
 
@@ -357,24 +381,174 @@ drain_observe_notifications(
     #session{observe_pending = Queue0, observe_pending_len = Len0} = Session0
 ) ->
     case queue:out(Queue0) of
-        {{value, {Msg, _MQTT, BW} = Pending}, Queue1} ->
+        {{value, Pending}, Queue1} ->
             Session1 = Session0#session{
                 observe_pending = Queue1,
                 observe_pending_len = Len0 - 1
             },
-            TrackInflight = is_confirmable_observe_notification(Msg),
-            case send_observe_notification_now(Msg, TrackInflight, Session1) of
-                {[], Session2} ->
-                    {Result, Session2#session{
+            case pending_blockwise_active(Pending, Result) of
+                true ->
+                    {Result, Session1#session{
                         observe_pending = queue:in_r(Pending, Queue1),
                         observe_pending_len = Len0
                     }};
-                {Out, Session2} ->
-                    Result1 = add_outs(Out, maybe_attach_pending_blockwise_result(Result, BW)),
-                    drain_observe_notifications(Result1, Session2)
+                false ->
+                    case prepare_pending_observe_notification(Pending, Result) of
+                        wait ->
+                            {Result, Session1#session{
+                                observe_pending = queue:in_r(Pending, Queue1),
+                                observe_pending_len = Len0
+                            }};
+                        {Msg, BW} ->
+                            do_drain_observe_notification(
+                                Msg, BW, Pending, Queue1, Len0, Result, Session1
+                            )
+                    end
             end;
         {empty, _} ->
             {Result, Session0#session{observe_pending_len = 0}}
+    end.
+
+do_drain_observe_notification(Msg, BW, Pending, Queue, Len0, Result, Session0) ->
+    TrackInflight = is_confirmable_observe_notification(Msg),
+    case send_observe_notification_now(Msg, TrackInflight, Session0) of
+        {[], Session} ->
+            {Result, Session#session{
+                observe_pending = queue:in_r(Pending, Queue),
+                observe_pending_len = Len0
+            }};
+        {Out, Session} ->
+            Result1 = add_outs(Out, maybe_attach_pending_blockwise_result(Result, BW)),
+            drain_observe_notifications(Result1, Session)
+    end.
+
+prepare_pending_observe_notification(Pending, Result) ->
+    Msg = pending_msg(Pending),
+    case pending_blockwise(Pending) of
+        BW when is_map(BW) ->
+            {Msg, BW};
+        _ ->
+            case {pending_blockwise_key(Pending), maps:get(blockwise, Result, undefined)} of
+                {undefined, _} ->
+                    {Msg, undefined};
+                {_BlockwiseKey, BW0} when is_map(BW0) ->
+                    maybe_split_notify_block2(
+                        Msg,
+                        pending_peer_key(Pending),
+                        BW0,
+                        pending_ctx(Pending)
+                    );
+                {_BlockwiseKey, _} ->
+                    wait
+            end
+    end.
+
+should_defer_observe_blockwise(Msg, Session, BW, PeerKey) ->
+    case observe_notification_needs_block2(Msg, BW) of
+        false ->
+            false;
+        true ->
+            BlockwiseKey = observe_blockwise_key(Msg, PeerKey),
+            blockwise_key_active(BlockwiseKey, BW) orelse
+                pending_blockwise_key_exists(BlockwiseKey, Session)
+    end.
+
+observe_notification_needs_block2(#coap_message{options = Opts, payload = Payload}, BW) when
+    is_map(Opts), is_map(BW)
+->
+    emqx_coap_blockwise:enabled(BW) andalso
+        byte_size(Payload) > emqx_coap_blockwise:blockwise_size(BW) andalso
+        not maps:is_key(block2, Opts);
+observe_notification_needs_block2(_Msg, _BW) ->
+    false.
+
+pending_blockwise_key_exists(undefined, _Session) ->
+    false;
+pending_blockwise_key_exists(BlockwiseKey, #session{observe_pending = Queue}) ->
+    lists:any(
+        fun(Pending) -> pending_blockwise_key(Pending) =:= BlockwiseKey end,
+        queue:to_list(Queue)
+    ).
+
+blockwise_key_active(undefined, _BW) ->
+    false;
+blockwise_key_active(BlockwiseKey, #{server_tx_block2 := ServerTx}) when is_map(ServerTx) ->
+    maps:is_key(BlockwiseKey, ServerTx);
+blockwise_key_active(_BlockwiseKey, _BW) ->
+    false.
+
+new_pending_observe_notification(Msg, MQTT, BW, PeerKey, Ctx, true) ->
+    {Msg, MQTT, BW, observe_blockwise_key(Msg, PeerKey), PeerKey, Ctx};
+new_pending_observe_notification(Msg, MQTT, BW, PeerKey, Ctx, false) ->
+    {Msg, MQTT, BW, pending_blockwise_key(Msg, PeerKey), PeerKey, Ctx}.
+
+pending_msg({Msg, _MQTT, _BW}) ->
+    Msg;
+pending_msg({Msg, _MQTT, _BW, _BlockwiseKey}) ->
+    Msg;
+pending_msg({Msg, _MQTT, _BW, _BlockwiseKey, _PeerKey, _Ctx}) ->
+    Msg.
+
+pending_mqtt({_Msg, MQTT, _BW}) ->
+    MQTT;
+pending_mqtt({_Msg, MQTT, _BW, _BlockwiseKey}) ->
+    MQTT;
+pending_mqtt({_Msg, MQTT, _BW, _BlockwiseKey, _PeerKey, _Ctx}) ->
+    MQTT.
+
+pending_blockwise({_Msg, _MQTT, BW}) ->
+    BW;
+pending_blockwise({_Msg, _MQTT, BW, _BlockwiseKey}) ->
+    BW;
+pending_blockwise({_Msg, _MQTT, BW, _BlockwiseKey, _PeerKey, _Ctx}) ->
+    BW.
+
+pending_blockwise_key({_Msg, _MQTT, _BW}) ->
+    undefined;
+pending_blockwise_key({_Msg, _MQTT, _BW, BlockwiseKey}) ->
+    BlockwiseKey;
+pending_blockwise_key({_Msg, _MQTT, _BW, BlockwiseKey, _PeerKey, _Ctx}) ->
+    BlockwiseKey.
+
+pending_peer_key({_Msg, _MQTT, _BW, _BlockwiseKey, PeerKey, _Ctx}) ->
+    PeerKey;
+pending_peer_key(_Pending) ->
+    undefined.
+
+pending_ctx({_Msg, _MQTT, _BW, _BlockwiseKey, _PeerKey, Ctx}) ->
+    Ctx;
+pending_ctx(_Pending) ->
+    undefined.
+
+pending_blockwise_key(#coap_message{token = Token} = Msg, PeerKey) when Token =/= <<>> ->
+    case emqx_coap_message:get_option(block2, Msg, undefined) of
+        {_, true, _} ->
+            observe_blockwise_key_from_token(Token, PeerKey);
+        _ ->
+            undefined
+    end;
+pending_blockwise_key(_Msg, _PeerKey) ->
+    undefined.
+
+observe_blockwise_key(#coap_message{token = Token}, PeerKey) when Token =/= <<>> ->
+    observe_blockwise_key_from_token(Token, PeerKey);
+observe_blockwise_key(_Msg, _PeerKey) ->
+    undefined.
+
+observe_blockwise_key_from_token(Token, PeerKey) ->
+    {server_tx_block2, PeerKey, Token}.
+
+pending_blockwise_active(Pending, Result) ->
+    case pending_blockwise_key(Pending) of
+        undefined ->
+            false;
+        BlockwiseKey ->
+            case maps:get(blockwise, Result, undefined) of
+                #{server_tx_block2 := ServerTx} when is_map(ServerTx) ->
+                    maps:is_key(BlockwiseKey, ServerTx);
+                _ ->
+                    false
+            end
     end.
 
 maybe_attach_pending_blockwise_result(Result, BW) when is_map(BW) ->
@@ -487,6 +661,18 @@ is_pending_observe_notification(
     Topic,
     Token,
     {#coap_message{token = Token}, #message{topic = Topic}, _BW}
+) ->
+    true;
+is_pending_observe_notification(
+    Topic,
+    Token,
+    {#coap_message{token = Token}, #message{topic = Topic}, _BW, _BlockwiseKey}
+) ->
+    true;
+is_pending_observe_notification(
+    Topic,
+    Token,
+    {#coap_message{token = Token}, #message{topic = Topic}, _BW, _BlockwiseKey, _PeerKey, _Ctx}
 ) ->
     true;
 is_pending_observe_notification(_Topic, _Token, _Pending) ->
