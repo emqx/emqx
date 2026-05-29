@@ -39,8 +39,8 @@ t_session_info_and_deliver(_) ->
     ?assertEqual(1, length(Out)),
     ok.
 
-t_session_notify_type_qos_types(_) ->
-    KeyPath = [gateway, coap, notify_type],
+t_session_notify_qos_types(_) ->
+    KeyPath = [gateway, coap, notify_qos],
     OldValue = emqx_config:find(KeyPath),
     ok = emqx_config:force_put(KeyPath, qos),
     try
@@ -62,7 +62,7 @@ t_session_notify_type_qos_types(_) ->
             {ok, Val} ->
                 ok = emqx_config:force_put(KeyPath, Val);
             _ ->
-                ok = emqx_config:force_put(KeyPath, qos)
+                ok = emqx_config:force_put(KeyPath, non)
         end
     end,
     ok.
