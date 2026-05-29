@@ -479,6 +479,68 @@ t_channel_block2_reply_error(_) ->
     {ok, [{outgoing, [Reply]}], _Channel2} = emqx_coap_channel:handle_in(Req, Channel1),
     ?assertEqual({error, bad_option}, Reply#coap_message.method).
 
+t_channel_observe_blockwise_ack_failure_drains_pending(_) ->
+    Topic = <<"topic">>,
+    ObserveToken = <<"obs-ack-failure">>,
+    Channel0 = new_block2_channel(#{max_block_size => 16}),
+    SubData = #{topic => Topic, token => ObserveToken, subopts => #{qos => 0}},
+    ObserveReq = #coap_message{
+        type = con,
+        method = get,
+        id = 730,
+        token = ObserveToken,
+        options = #{observe => 0}
+    },
+    #{session := Session1} =
+        emqx_coap_session:process_subscribe(
+            SubData,
+            ObserveReq,
+            #{},
+            Channel0#channel.session
+        ),
+    Channel1 = Channel0#channel{session = Session1},
+
+    PayloadA = blockwise_payload(<<"A">>, <<"a">>, <<"1">>),
+    PayloadB = blockwise_payload(<<"B">>, <<"b">>, <<"2">>),
+    DeliverA = {deliver, Topic, emqx_message:make(undefined, 1, Topic, PayloadA)},
+    DeliverB = {deliver, Topic, emqx_message:make(undefined, 1, Topic, PayloadB)},
+
+    {ok, [{outgoing, [NotifyA0]}], Channel2} =
+        emqx_coap_channel:handle_deliver([DeliverA], Channel1),
+    ?assertEqual(con, NotifyA0#coap_message.type),
+    ?assertEqual(ObserveToken, NotifyA0#coap_message.token),
+    ?assertEqual(binary:copy(<<"A">>, 16), NotifyA0#coap_message.payload),
+    ?assertEqual({0, true, 16}, emqx_coap_message:get_option(block2, NotifyA0, undefined)),
+
+    {ok, [{outgoing, []}], Channel3} = emqx_coap_channel:handle_deliver([DeliverB], Channel2),
+    {ok, [{outgoing, [_Retry1]}], Channel4} = ack_timeout(Channel3),
+    {ok, [{outgoing, [_Retry2]}], Channel5} = ack_timeout(Channel4),
+    {ok, [{outgoing, [_Retry3]}], Channel6} = ack_timeout(Channel5),
+    {ok, [{outgoing, [_Retry4]}], Channel7} = ack_timeout(Channel6),
+
+    {ok, [{outgoing, [NotifyB0]}], Channel8} = ack_timeout(Channel7),
+    ?assertEqual(con, NotifyB0#coap_message.type),
+    ?assertEqual(ObserveToken, NotifyB0#coap_message.token),
+    ?assertEqual(binary:copy(<<"B">>, 16), NotifyB0#coap_message.payload),
+    ?assertEqual({0, true, 16}, emqx_coap_message:get_option(block2, NotifyB0, undefined)),
+
+    FollowReq = #coap_message{
+        type = con,
+        method = get,
+        id = 731,
+        token = ObserveToken,
+        options = #{
+            uri_path => [<<"ps">>, Topic],
+            uri_query => #{},
+            block2 => {1, false, 16}
+        }
+    },
+    {ok, [{outgoing, [FollowResp]}], _Channel9} =
+        emqx_coap_channel:handle_in(FollowReq, Channel8),
+    ?assertEqual({ok, content}, FollowResp#coap_message.method),
+    ?assertEqual(binary:copy(<<"b">>, 16), FollowResp#coap_message.payload),
+    ?assertEqual({1, true, 16}, emqx_coap_message:get_option(block2, FollowResp, undefined)).
+
 new_block2_channel(Opts) ->
     ConnInfo = #{
         peername => {{127, 0, 0, 1}, 9999},
@@ -509,4 +571,25 @@ ps_get_request(Id, Token, ExtraOpts) ->
         id = Id,
         token = Token,
         options = maps:merge(#{uri_path => [<<"ps">>, <<"topic">>], uri_query => #{}}, ExtraOpts)
+    }.
+
+ack_timeout(Channel) ->
+    emqx_coap_channel:handle_timeout(
+        make_ref(),
+        {transport, {1, state_timeout, ack_timeout}},
+        Channel
+    ).
+
+blockwise_payload(First, Second, Third) ->
+    iolist_to_binary([
+        binary:copy(First, 16),
+        binary:copy(Second, 16),
+        binary:copy(Third, 8)
+    ]).
+
+coap_ctx() ->
+    #{
+        gwname => coap,
+        cm => self(),
+        metrics_tab => emqx_gateway_metrics:tabname(coap)
     }.
