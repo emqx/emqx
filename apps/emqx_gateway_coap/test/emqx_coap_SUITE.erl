@@ -102,6 +102,21 @@ with_notify_type(NotifyType, Fun) ->
         {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
     end.
 
+with_blockwise_max_size(MaxBlockSize, Fun) ->
+    OldConf = emqx:get_raw_config([gateway, coap]),
+    OldBlockwise = maps:get(<<"blockwise">>, OldConf, #{}),
+    {ok, _} = emqx_gateway_conf:update_gateway(
+        coap,
+        OldConf#{
+            <<"blockwise">> => OldBlockwise#{<<"max_block_size">> => MaxBlockSize}
+        }
+    ),
+    try
+        Fun()
+    after
+        {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
+    end.
+
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
@@ -982,6 +997,42 @@ t_observe_notify_type_con(_) ->
         with_connection(Fun)
     end).
 
+t_observe_notify_type_non(_) ->
+    with_notify_type(non, fun() ->
+        Fun = fun(Channel, Token) ->
+            Topic = <<"coap/observe_notify_non">>,
+            Payload = <<"non-confirmable">>,
+            URI = pubsub_uri(binary_to_list(Topic), Token),
+            Req = make_req(get, <<>>, [{observe, 0}]),
+            {ok, content, _} = do_request(Channel, URI, Req),
+
+            publish(Topic, ?QOS_1, Payload),
+            Notify = assert_notify(Channel, non, Payload),
+            ack_if_con(Channel, Notify),
+            true
+        end,
+        with_connection(Fun)
+    end).
+
+t_observe_non_notify_waits_for_con_inflight(_) ->
+    with_notify_type(qos, fun() ->
+        Fun = fun(Channel, Token) ->
+            Topic = <<"coap/observe_notify_non_queue">>,
+            observe_topic(Channel, Token, Topic, <<"obsnq">>),
+
+            publish(Topic, ?QOS_1, <<"qos1-con">>),
+            Notify1 = assert_notify(Channel, con, <<"qos1-con">>),
+            publish(Topic, ?QOS_0, <<"qos0-non">>),
+            ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+
+            ack_if_con(Channel, Notify1),
+            Notify2 = assert_notify(Channel, non, <<"qos0-non">>),
+            ack_if_con(Channel, Notify2),
+            true
+        end,
+        with_connection(Fun)
+    end).
+
 t_observe_con_notify_uses_shared_session_queue(_) ->
     with_notify_type(con, fun() ->
         Fun = fun(Channel, Token) ->
@@ -1014,6 +1065,46 @@ t_observe_con_notify_uses_shared_session_queue(_) ->
             true
         end,
         with_connection(Fun)
+    end).
+
+t_observe_con_notify_queue_preserves_block2_until_drained(_) ->
+    with_notify_type(con, fun() ->
+        with_blockwise_max_size(16, fun() ->
+            Fun = fun(Channel, Token) ->
+                Topic = <<"coap/observe_notify_queue_block2">>,
+                ObserveToken = <<"obsbq">>,
+                observe_topic(Channel, Token, Topic, ObserveToken),
+
+                PayloadA = blockwise_payload(<<"A">>, <<"B">>, <<"C">>),
+                PayloadB = blockwise_payload(<<"X">>, <<"Y">>, <<"Z">>),
+                publish(Topic, ?QOS_0, PayloadA),
+                NotifyA0 = assert_block2_notify(
+                    Channel, con, binary:copy(<<"A">>, 16), {0, true, 16}
+                ),
+
+                publish(Topic, ?QOS_0, PayloadB),
+                ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+
+                URI = pubsub_uri(binary_to_list(Topic), Token),
+                FollowReq = (make_req(get, <<>>, [{block2, {1, false, 16}}]))#coap_message{
+                    token = NotifyA0#coap_message.token
+                },
+                {ok, content, FollowResp} = do_message_request(Channel, URI, FollowReq),
+                ?assertEqual(binary:copy(<<"B">>, 16), notify_payload(FollowResp)),
+                ?assertEqual(
+                    {1, true, 16},
+                    coap_option(block2, FollowResp, undefined)
+                ),
+
+                reset_if_con(Channel, NotifyA0),
+                NotifyB0 = assert_block2_notify(
+                    Channel, con, binary:copy(<<"X">>, 16), {0, true, 16}
+                ),
+                reset_if_con(Channel, NotifyB0),
+                true
+            end,
+            with_connection(Fun)
+        end)
     end).
 
 t_observe_con_notify_queue_drops_oldest_when_full(_) ->
@@ -1506,9 +1597,26 @@ assert_notify(Channel, Type) ->
     {ok, content, Notify = #coap_message{type = Type}} = with_message_response(Channel),
     Notify.
 
+assert_block2_notify(Channel, Type, Payload, Block2) ->
+    Notify = assert_notify(Channel, Type, Payload),
+    ?assertEqual(Block2, coap_option(block2, Notify, undefined)),
+    Notify.
+
 notify_payload(Notify) ->
     #coap_content{payload = Payload} = er_coap_message:get_content(Notify),
     Payload.
+
+coap_option(Option, #coap_message{options = Options}, Default) when is_map(Options) ->
+    maps:get(Option, Options, Default);
+coap_option(Option, #coap_message{options = Options}, Default) when is_list(Options) ->
+    proplists:get_value(Option, Options, Default).
+
+blockwise_payload(First, Second, Third) ->
+    iolist_to_binary([
+        binary:copy(First, 16),
+        binary:copy(Second, 16),
+        binary:copy(Third, 8)
+    ]).
 
 ack_if_con(Channel, #coap_message{type = con} = Message) ->
     {ok, _} = er_coap_channel:send(Channel, er_coap_message:ack(Message)),
@@ -1528,6 +1636,15 @@ do_request(Channel, URI, #coap_message{options = Opts} = Req) ->
 
     {ok, _} = er_coap_channel:send(Channel, Req2),
     with_response(Channel).
+
+do_message_request(Channel, URI, #coap_message{options = Opts} = Req) ->
+    {_, _, Path, Query} = er_coap_client:resolve_uri(URI),
+    Opts2 = [{uri_path, Path}, {uri_query, Query} | Opts],
+    Req2 = Req#coap_message{options = Opts2},
+    ?LOGT("send request:~ts~nReq:~p~n", [URI, Req2]),
+
+    {ok, _} = er_coap_channel:send_message(Channel, make_ref(), Req2),
+    with_message_response(Channel).
 
 with_response(Channel) ->
     receive

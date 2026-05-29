@@ -200,10 +200,11 @@ do_deliver(
             {Token, SeqId, OM2} ->
                 metrics_inc('messages.delivered', Ctx),
                 Msg0 = mqtt_to_coap(Message, Token, SeqId),
-                {Msg, BW2} = maybe_split_notify_block2(Msg0, PeerKey, BWAcc, Ctx),
                 SessionAcc1 = SessionAcc#session{observe_manager = OM2},
-                {Out, SessionAcc2} =
-                    send_or_queue_observe_notification(Msg, Message, Ctx, SessionAcc1),
+                {Out, SessionAcc2, BW2} =
+                    send_or_queue_observe_notification(
+                        Msg0, Message, Ctx, SessionAcc1, BWAcc, PeerKey
+                    ),
                 {[Out | OutAcc], SessionAcc2, BW2}
         end
     end,
@@ -245,28 +246,42 @@ process_session(_, Result, Session0) ->
     {Result1, Session1} = maybe_drain_observe_notifications(Result, Session0),
     Result1#{session => Session1}.
 
-send_or_queue_observe_notification(Msg, MQTT, Ctx, Session) ->
-    case is_confirmable_observe_notification(Msg) of
+send_or_queue_observe_notification(Msg0, MQTT, Ctx, Session, BW0, PeerKey) ->
+    TrackInflight = is_confirmable_observe_notification(Msg0),
+    case should_queue_observe_notification(Session) of
         true ->
-            maybe_send_or_enqueue_confirmable_observe_notification(Msg, MQTT, Ctx, Session);
+            {Msg, BW1} = maybe_split_notify_block2(Msg0, PeerKey, BW0, Ctx),
+            Session1 = enqueue_observe_notification(Msg, MQTT, BW1, Ctx, Session),
+            {[], Session1, BW0};
         false ->
-            send_observe_notification_now(Msg, false, Session)
+            maybe_send_or_enqueue_observe_notification(
+                Msg0, MQTT, Ctx, Session, BW0, PeerKey, TrackInflight
+            )
     end.
 
-maybe_send_or_enqueue_confirmable_observe_notification(
-    Msg,
+should_queue_observe_notification(#session{
+    observe_inflight = Inflight,
+    observe_pending_len = PendingLen
+}) ->
+    Inflight >= ?OBSERVE_INFLIGHT_WINDOW orelse PendingLen > 0.
+
+maybe_send_or_enqueue_observe_notification(
+    Msg0,
     MQTT,
     Ctx,
-    #session{observe_inflight = Inflight} = Session
-) when Inflight < ?OBSERVE_INFLIGHT_WINDOW ->
-    case send_observe_notification_now(Msg, true, Session) of
+    Session,
+    BW0,
+    PeerKey,
+    TrackInflight
+) ->
+    {Msg, BW1} = maybe_split_notify_block2(Msg0, PeerKey, BW0, Ctx),
+    case send_observe_notification_now(Msg, TrackInflight, Session) of
         {[], Session1} ->
-            {[], enqueue_observe_notification(Msg, MQTT, Ctx, Session1)};
-        Sent ->
-            Sent
-    end;
-maybe_send_or_enqueue_confirmable_observe_notification(Msg, MQTT, Ctx, Session) ->
-    {[], enqueue_observe_notification(Msg, MQTT, Ctx, Session)}.
+            Session2 = enqueue_observe_notification(Msg, MQTT, BW1, Ctx, Session1),
+            {[], Session2, BW0};
+        {Out, Session1} ->
+            {Out, Session1, BW1}
+    end.
 
 send_observe_notification_now(Msg, TrackInflight, #session{transport_manager = TM0} = Session) ->
     case emqx_coap_tm:handle_out(Msg, TM0) of
@@ -287,6 +302,7 @@ maybe_inc_observe_inflight(false, Session) ->
 enqueue_observe_notification(
     Msg,
     MQTT,
+    BW,
     _Ctx,
     #session{
         observe_pending = Queue0,
@@ -295,25 +311,26 @@ enqueue_observe_notification(
     } = Session
 ) when Len0 < ?OBSERVE_NOTIFICATION_QUEUE_MAX_LEN ->
     Session#session{
-        observe_pending = queue:in({Msg, MQTT}, Queue0),
+        observe_pending = queue:in({Msg, MQTT, BW}, Queue0),
         observe_pending_len = Len0 + 1,
         observe_pending_dropped = Dropped0
     };
 enqueue_observe_notification(
     Msg,
     MQTT,
+    BW,
     Ctx,
     #session{
         observe_pending = Queue0,
         observe_pending_dropped = Dropped0
     } = Session
 ) ->
-    {{value, {_DroppedMsg, DroppedMQTT}}, Queue1} = queue:out(Queue0),
+    {{value, {_DroppedMsg, DroppedMQTT, _DroppedBW}}, Queue1} = queue:out(Queue0),
     metrics_inc('delivery.dropped', Ctx),
     metrics_inc('delivery.dropped.queue_full', Ctx),
     log_observe_notification_queue_full(DroppedMQTT),
     Session#session{
-        observe_pending = queue:in({Msg, MQTT}, Queue1),
+        observe_pending = queue:in({Msg, MQTT, BW}, Queue1),
         observe_pending_dropped = Dropped0 + 1
     }.
 
@@ -340,23 +357,30 @@ drain_observe_notifications(
     #session{observe_pending = Queue0, observe_pending_len = Len0} = Session0
 ) ->
     case queue:out(Queue0) of
-        {{value, {Msg, _MQTT} = Pending}, Queue1} ->
+        {{value, {Msg, _MQTT, BW} = Pending}, Queue1} ->
             Session1 = Session0#session{
                 observe_pending = Queue1,
                 observe_pending_len = Len0 - 1
             },
-            case send_observe_notification_now(Msg, true, Session1) of
+            TrackInflight = is_confirmable_observe_notification(Msg),
+            case send_observe_notification_now(Msg, TrackInflight, Session1) of
                 {[], Session2} ->
                     {Result, Session2#session{
                         observe_pending = queue:in_r(Pending, Queue1),
                         observe_pending_len = Len0
                     }};
                 {Out, Session2} ->
-                    {add_outs(Out, Result), Session2}
+                    Result1 = add_outs(Out, maybe_attach_pending_blockwise_result(Result, BW)),
+                    drain_observe_notifications(Result1, Session2)
             end;
         {empty, _} ->
             {Result, Session0#session{observe_pending_len = 0}}
     end.
+
+maybe_attach_pending_blockwise_result(Result, BW) when is_map(BW) ->
+    Result#{blockwise => BW};
+maybe_attach_pending_blockwise_result(Result, _BW) ->
+    Result.
 
 add_outs(Outs, Result) ->
     lists:foldl(
