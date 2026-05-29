@@ -428,21 +428,36 @@ process_subscribe(
                 session => Session#session{observe_manager = OM2}
             };
         Topic ->
+            Token = observe_token(Topic, OM),
             OM2 = emqx_coap_observe_res:remove(Topic, OM),
             Replay = emqx_coap_message:piggyback({ok, nocontent}, Msg),
-            Session1 = purge_pending_observe_notifications(Topic, Session),
+            Session1 = purge_pending_observe_notifications(Topic, Token, Session),
             Result#{
                 reply => Replay,
                 session => Session1#session{observe_manager = OM2}
             }
     end.
 
+observe_token(Topic, OM) ->
+    case maps:get(Topic, OM, undefined) of
+        #{token := Token} ->
+            Token;
+        _ ->
+            undefined
+    end.
+
+purge_pending_observe_notifications(_Topic, undefined, Session) ->
+    Session;
 purge_pending_observe_notifications(
     Topic,
+    Token,
     #session{observe_pending = Queue0, observe_pending_len = Len0} = Session
 ) ->
     Pending0 = queue:to_list(Queue0),
-    Pending = [Entry || Entry <- Pending0, not is_pending_observe_topic(Topic, Entry)],
+    Pending = [
+        Entry
+     || Entry <- Pending0, not is_pending_observe_notification(Topic, Token, Entry)
+    ],
     case length(Pending) of
         Len0 ->
             Session;
@@ -453,9 +468,13 @@ purge_pending_observe_notifications(
             }
     end.
 
-is_pending_observe_topic(Topic, {_Msg, #message{topic = Topic}, _BW}) ->
+is_pending_observe_notification(
+    Topic,
+    Token,
+    {#coap_message{token = Token}, #message{topic = Topic}, _BW}
+) ->
     true;
-is_pending_observe_topic(_Topic, _Pending) ->
+is_pending_observe_notification(_Topic, _Token, _Pending) ->
     false.
 
 mqtt_to_coap(MQTT, Token, SeqId) ->
