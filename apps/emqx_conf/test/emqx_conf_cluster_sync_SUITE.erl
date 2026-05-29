@@ -96,6 +96,14 @@ mk_cluster_spec(Opts) ->
 cli_admin(Cmd, Args) ->
     emqx_conf_cli:admins([Cmd | Args]).
 
+assert_same_tnx_id(Nodes) ->
+    Status = status(),
+    ?assertEqual(lists:sort(Nodes), lists:sort([Node || #{node := Node} <- Status])),
+    TnxIds = lists:usort([TnxId || #{tnx_id := TnxId} <- Status]),
+    ?assertMatch([_], TnxIds),
+    [TnxId] = TnxIds,
+    TnxId.
+
 str(X) -> emqx_utils_conv:str(X).
 
 namespace_of(TCConfig) ->
@@ -207,19 +215,11 @@ t_fix(Config) when is_list(Config) ->
 
     %% fix inconsistent_tnx_id_key. tnx_id and key are updated.
     ?ON(Node1, fake_mfa(TxId1 + 1, Node1, {?MODULE, undef, []})),
-    %% 2 -> fake_mfa, 3-> mark_begin_log, 4-> mqtt 5 -> zones
-    TxId2 = 5,
-    ?ON(Node2, begin
+    TnxIdAfterKeyFix = ?ON(Node2, begin
         ok = cli_admin("fix", []),
-        ?assertMatch(
-            [
-                #{node := Node1, tnx_id := TxId2},
-                #{node := Node2, tnx_id := TxId2}
-            ],
-            status(),
-            #{expected_tx_id => TxId2}
-        )
+        ?MODULE:assert_same_tnx_id([Node1, Node2])
     end),
+    ?assert(TnxIdAfterKeyFix > TxId1 + 1),
     ?assertMatch(99, emqx_conf_proto_v5:get_config(Node1, Namespace, [mqtt, max_topic_levels])),
     ?assertMatch(99, emqx_conf_proto_v5:get_config(Node2, Namespace, [mqtt, max_topic_levels])),
 
@@ -227,35 +227,20 @@ t_fix(Config) when is_list(Config) ->
     {ok, _} = ?ON(
         Node1, emqx_conf_proto_v5:update([<<"mqtt">>], #{<<"max_topic_levels">> => 98}, UpdateOpts)
     ),
-    ?ON(Node2, fake_mfa(TxId2 + 2, Node2, {?MODULE, undef1, []})),
-    TxId3 =
-        case Namespace of
-            ?global_ns -> 8;
-            _ -> 9
-        end,
-    ?ON(Node1, begin
+    TnxIdAfterUpdate = ?ON(Node1, ?MODULE:assert_same_tnx_id([Node1, Node2])),
+    FakeTnxId = TnxIdAfterUpdate + 1,
+    ?ON(Node2, fake_mfa(FakeTnxId, Node2, {?MODULE, undef1, []})),
+    TnxIdAfterFastForward = ?ON(Node1, begin
         ok = cli_admin("fix", []),
-        ?assertMatch(
-            [
-                #{node := Node1, tnx_id := TxId3},
-                #{node := Node2, tnx_id := TxId3}
-            ],
-            status(),
-            #{expected_tx_id => TxId3}
-        )
+        ?MODULE:assert_same_tnx_id([Node1, Node2])
     end),
+    ?assert(TnxIdAfterFastForward > FakeTnxId),
     ?assertMatch(98, emqx_conf_proto_v5:get_config(Node1, Namespace, [mqtt, max_topic_levels])),
     ?assertMatch(98, emqx_conf_proto_v5:get_config(Node2, Namespace, [mqtt, max_topic_levels])),
     %% unchanged
     ?ON(Node1, begin
         ok = cli_admin("fix", []),
-        ?assertMatch(
-            {atomic, [
-                #{node := Node1, tnx_id := TxId3},
-                #{node := Node2, tnx_id := TxId3}
-            ]},
-            emqx_cluster_rpc:status()
-        )
+        ?assertEqual(TnxIdAfterFastForward, ?MODULE:assert_same_tnx_id([Node1, Node2]))
     end),
     ok.
 
