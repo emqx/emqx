@@ -204,7 +204,7 @@ do_deliver(
                 SessionAcc1 = SessionAcc#session{observe_manager = OM2},
                 {Out, SessionAcc2, BW2} =
                     send_or_queue_observe_notification(
-                        Msg0, Message, Ctx, SessionAcc1, BWAcc, PeerKey
+                        Topic, Msg0, Message, Ctx, SessionAcc1, BWAcc, PeerKey
                     ),
                 {[Out | OutAcc], SessionAcc2, BW2}
         end
@@ -256,7 +256,7 @@ process_session(_, Result, Session0) ->
     {Result1, Session1} = maybe_drain_observe_notifications(Result, Session0),
     Result1#{session => Session1}.
 
-send_or_queue_observe_notification(Msg0, MQTT, Ctx, Session, BW0, PeerKey) ->
+send_or_queue_observe_notification(ObservedTopic, Msg0, MQTT, Ctx, Session, BW0, PeerKey) ->
     TrackInflight = is_confirmable_observe_notification(Msg0),
     DeferBlockwise = should_defer_observe_blockwise(Msg0, Session, BW0, PeerKey),
     case should_queue_observe_notification(Session) orelse DeferBlockwise of
@@ -267,12 +267,12 @@ send_or_queue_observe_notification(Msg0, MQTT, Ctx, Session, BW0, PeerKey) ->
                     false -> maybe_split_notify_block2(Msg0, PeerKey, BW0, Ctx)
                 end,
             Session1 = enqueue_observe_notification(
-                Msg, MQTT, BW1, PeerKey, Ctx, DeferBlockwise, Session
+                Msg, MQTT, ObservedTopic, BW1, PeerKey, Ctx, DeferBlockwise, Session
             ),
             {[], Session1, BW0};
         false ->
             maybe_send_or_enqueue_observe_notification(
-                Msg0, MQTT, Ctx, Session, BW0, PeerKey, TrackInflight
+                ObservedTopic, Msg0, MQTT, Ctx, Session, BW0, PeerKey, TrackInflight
             )
     end.
 
@@ -283,6 +283,7 @@ should_queue_observe_notification(#session{
     Inflight >= ?OBSERVE_INFLIGHT_WINDOW orelse PendingLen > 0.
 
 maybe_send_or_enqueue_observe_notification(
+    ObservedTopic,
     Msg0,
     MQTT,
     Ctx,
@@ -294,7 +295,9 @@ maybe_send_or_enqueue_observe_notification(
     {Msg, BW1} = maybe_split_notify_block2(Msg0, PeerKey, BW0, Ctx),
     case send_observe_notification_now(Msg, TrackInflight, Session) of
         {[], Session1} ->
-            Session2 = enqueue_observe_notification(Msg, MQTT, BW1, PeerKey, Ctx, false, Session1),
+            Session2 = enqueue_observe_notification(
+                Msg, MQTT, ObservedTopic, BW1, PeerKey, Ctx, false, Session1
+            ),
             {[], Session2, BW0};
         {Out, Session1} ->
             {Out, Session1, BW1}
@@ -319,6 +322,7 @@ maybe_inc_observe_inflight(false, Session) ->
 enqueue_observe_notification(
     Msg,
     MQTT,
+    ObservedTopic,
     BW,
     PeerKey,
     Ctx,
@@ -329,7 +333,9 @@ enqueue_observe_notification(
         observe_pending_dropped = Dropped0
     } = Session
 ) when Len0 < ?OBSERVE_NOTIFICATION_QUEUE_MAX_LEN ->
-    Pending = new_pending_observe_notification(Msg, MQTT, BW, PeerKey, Ctx, ForceBlockwiseKey),
+    Pending = new_pending_observe_notification(
+        Msg, MQTT, ObservedTopic, BW, PeerKey, Ctx, ForceBlockwiseKey
+    ),
     Session#session{
         observe_pending = queue:in(Pending, Queue0),
         observe_pending_len = Len0 + 1,
@@ -338,6 +344,7 @@ enqueue_observe_notification(
 enqueue_observe_notification(
     Msg,
     MQTT,
+    ObservedTopic,
     BW,
     PeerKey,
     Ctx,
@@ -349,7 +356,9 @@ enqueue_observe_notification(
 ) ->
     {{value, Dropped}, Queue1} = queue:out(Queue0),
     DroppedMQTT = pending_mqtt(Dropped),
-    Pending = new_pending_observe_notification(Msg, MQTT, BW, PeerKey, Ctx, ForceBlockwiseKey),
+    Pending = new_pending_observe_notification(
+        Msg, MQTT, ObservedTopic, BW, PeerKey, Ctx, ForceBlockwiseKey
+    ),
     metrics_inc('delivery.dropped', Ctx),
     metrics_inc('delivery.dropped.queue_full', Ctx),
     log_observe_notification_queue_full(DroppedMQTT),
@@ -477,11 +486,13 @@ blockwise_key_active(BlockwiseKey, #{server_tx_block2 := ServerTx}) when is_map(
 blockwise_key_active(_BlockwiseKey, _BW) ->
     false.
 
-new_pending_observe_notification(Msg, MQTT, BW, PeerKey, Ctx, true) ->
-    {Msg, MQTT, BW, observe_blockwise_key(Msg, PeerKey), PeerKey, Ctx};
-new_pending_observe_notification(Msg, MQTT, BW, PeerKey, Ctx, false) ->
-    {Msg, MQTT, BW, pending_blockwise_key(Msg, PeerKey), PeerKey, Ctx}.
+new_pending_observe_notification(Msg, MQTT, ObservedTopic, BW, PeerKey, Ctx, true) ->
+    {Msg, MQTT, ObservedTopic, BW, observe_blockwise_key(Msg, PeerKey), PeerKey, Ctx};
+new_pending_observe_notification(Msg, MQTT, ObservedTopic, BW, PeerKey, Ctx, false) ->
+    {Msg, MQTT, ObservedTopic, BW, pending_blockwise_key(Msg, PeerKey), PeerKey, Ctx}.
 
+pending_msg({Msg, _MQTT, _ObservedTopic, _BW, _BlockwiseKey, _PeerKey, _Ctx}) ->
+    Msg;
 pending_msg({Msg, _MQTT, _BW}) ->
     Msg;
 pending_msg({Msg, _MQTT, _BW, _BlockwiseKey}) ->
@@ -489,6 +500,8 @@ pending_msg({Msg, _MQTT, _BW, _BlockwiseKey}) ->
 pending_msg({Msg, _MQTT, _BW, _BlockwiseKey, _PeerKey, _Ctx}) ->
     Msg.
 
+pending_mqtt({_Msg, MQTT, _ObservedTopic, _BW, _BlockwiseKey, _PeerKey, _Ctx}) ->
+    MQTT;
 pending_mqtt({_Msg, MQTT, _BW}) ->
     MQTT;
 pending_mqtt({_Msg, MQTT, _BW, _BlockwiseKey}) ->
@@ -496,6 +509,13 @@ pending_mqtt({_Msg, MQTT, _BW, _BlockwiseKey}) ->
 pending_mqtt({_Msg, MQTT, _BW, _BlockwiseKey, _PeerKey, _Ctx}) ->
     MQTT.
 
+pending_observed_topic({_Msg, _MQTT, ObservedTopic, _BW, _BlockwiseKey, _PeerKey, _Ctx}) ->
+    ObservedTopic;
+pending_observed_topic(_Pending) ->
+    undefined.
+
+pending_blockwise({_Msg, _MQTT, _ObservedTopic, BW, _BlockwiseKey, _PeerKey, _Ctx}) ->
+    BW;
 pending_blockwise({_Msg, _MQTT, BW}) ->
     BW;
 pending_blockwise({_Msg, _MQTT, BW, _BlockwiseKey}) ->
@@ -503,6 +523,8 @@ pending_blockwise({_Msg, _MQTT, BW, _BlockwiseKey}) ->
 pending_blockwise({_Msg, _MQTT, BW, _BlockwiseKey, _PeerKey, _Ctx}) ->
     BW.
 
+pending_blockwise_key({_Msg, _MQTT, _ObservedTopic, _BW, BlockwiseKey, _PeerKey, _Ctx}) ->
+    BlockwiseKey;
 pending_blockwise_key({_Msg, _MQTT, _BW}) ->
     undefined;
 pending_blockwise_key({_Msg, _MQTT, _BW, BlockwiseKey}) ->
@@ -510,11 +532,15 @@ pending_blockwise_key({_Msg, _MQTT, _BW, BlockwiseKey}) ->
 pending_blockwise_key({_Msg, _MQTT, _BW, BlockwiseKey, _PeerKey, _Ctx}) ->
     BlockwiseKey.
 
+pending_peer_key({_Msg, _MQTT, _ObservedTopic, _BW, _BlockwiseKey, PeerKey, _Ctx}) ->
+    PeerKey;
 pending_peer_key({_Msg, _MQTT, _BW, _BlockwiseKey, PeerKey, _Ctx}) ->
     PeerKey;
 pending_peer_key(_Pending) ->
     undefined.
 
+pending_ctx({_Msg, _MQTT, _ObservedTopic, _BW, _BlockwiseKey, _PeerKey, Ctx}) ->
+    Ctx;
 pending_ctx({_Msg, _MQTT, _BW, _BlockwiseKey, _PeerKey, Ctx}) ->
     Ctx;
 pending_ctx(_Pending) ->
@@ -657,26 +683,32 @@ purge_pending_observe_notifications(
             }
     end.
 
-is_pending_observe_notification(
-    Topic,
-    Token,
-    {#coap_message{token = Token}, #message{topic = Topic}, _BW}
-) ->
-    true;
-is_pending_observe_notification(
-    Topic,
-    Token,
-    {#coap_message{token = Token}, #message{topic = Topic}, _BW, _BlockwiseKey}
-) ->
-    true;
-is_pending_observe_notification(
-    Topic,
-    Token,
-    {#coap_message{token = Token}, #message{topic = Topic}, _BW, _BlockwiseKey, _PeerKey, _Ctx}
-) ->
-    true;
-is_pending_observe_notification(_Topic, _Token, _Pending) ->
-    false.
+is_pending_observe_notification(Topic, Token, Pending) ->
+    pending_token(Pending) =:= Token andalso
+        case pending_observed_topic(Pending) of
+            Topic ->
+                true;
+            undefined ->
+                pending_message_topic(Pending) =:= Topic;
+            _ ->
+                false
+        end.
+
+pending_token(Pending) ->
+    case pending_msg(Pending) of
+        #coap_message{token = Token} ->
+            Token;
+        _ ->
+            undefined
+    end.
+
+pending_message_topic(Pending) ->
+    case pending_mqtt(Pending) of
+        #message{topic = Topic} ->
+            Topic;
+        _ ->
+            undefined
+    end.
 
 mqtt_to_coap(MQTT, Token, SeqId) ->
     #message{payload = Payload} = MQTT,

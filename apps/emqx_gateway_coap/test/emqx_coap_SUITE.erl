@@ -1198,6 +1198,33 @@ t_observe_cancel_drops_pending_notifications(_) ->
         with_connection(Fun)
     end).
 
+t_observe_cancel_wildcard_drops_pending_notifications(_) ->
+    with_notify_type(con, fun() ->
+        Fun = fun(Channel, Token) ->
+            ObserveTopic = <<"coap/observe_notify_queue_cancel_wildcard/+">>,
+            PublishTopic1 = <<"coap/observe_notify_queue_cancel_wildcard/1">>,
+            PublishTopic2 = <<"coap/observe_notify_queue_cancel_wildcard/2">>,
+            ObserveToken = <<"obscancelwild">>,
+            observe_topic(Channel, Token, ObserveTopic, ObserveToken),
+
+            publish(PublishTopic1, ?QOS_0, <<"first">>),
+            Notify1 = assert_notify(Channel, con, <<"first">>),
+            publish(PublishTopic2, ?QOS_0, <<"queued-after-wildcard-cancel">>),
+            ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+
+            URI = pubsub_uri(binary_to_list(ObserveTopic), Token),
+            UnReq = (make_req(get, <<>>, [{observe, 1}]))#coap_message{
+                token = ObserveToken
+            },
+            {ok, nocontent, _} = do_request(Channel, URI, UnReq),
+
+            ack_if_con(Channel, Notify1),
+            ?assertEqual({error, timeout}, with_message_response(Channel, 500)),
+            true
+        end,
+        with_connection(Fun)
+    end).
+
 t_clients_api(_) ->
     Fun = fun(_Channel, _Token) ->
         ClientId = <<"client1">>,
