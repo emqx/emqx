@@ -77,7 +77,7 @@ supported_version(API) ->
 -spec supported_apis(node()) -> [{api(), api_version()}].
 supported_apis(Node) ->
     try
-        lists:flatten(ets:match(?TAB, {?TAB, {Node, '$1'}, '$2'}))
+        [{API, Version} || [API, Version] <- ets:match(?TAB, {?TAB, {Node, '$1'}, '$2'})]
     catch
         error:badarg ->
             []
