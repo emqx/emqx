@@ -355,15 +355,6 @@ maybe_subscribe_replica_events() ->
     end.
 
 maybe_trigger_heal(true, normal) ->
-    ?tp(warning, healing, #{c => emqx_broker_heal:consistency_check(), n => node()}),
-    %% Shard re-bootstrapped. Check if my clents still exist in the
-    %% registry:
-    case emqx_broker_heal:consistency_check() of
-        false ->
-            %% Inconsistent:
-            emqx_broker_sup:start_heal();
-        true ->
-            ok
-    end;
+    emqx_broker_sup:start_heal();
 maybe_trigger_heal(_Enabled, _Status) ->
     ok.

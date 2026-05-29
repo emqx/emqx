@@ -26,7 +26,7 @@ Limitations:
 -behaviour(gen_server).
 
 %% API:
--export([start_local/1, on_autoheal/1, consistency_check/0]).
+-export([start_local/1, on_autoheal/1]).
 
 %% behavior callbacks:
 -export([init/1, handle_call/3, handle_continue/2, handle_cast/2, handle_info/2, terminate/2]).
@@ -70,38 +70,6 @@ Start a process that will cause all local channels to renew their registrations 
 -spec start_local({[node()], [[node()]]}) -> ok | {error, _}.
 start_local(_) ->
     emqx_broker_sup:start_heal().
-
--doc """
-Check whether the global registry contains local clients.
-`true` = global registry is consistent.
-
-This check is not precise and is based on heuristics.
-Due to possible race conditions,
-it assumes that the registry is consistent when it contains the majority of local channels.
-""".
--spec consistency_check() -> boolean().
-consistency_check() ->
-    MS = {{'$1', '_'}, [], ['$1']},
-    SampleSize = 1000,
-    case ets:select(?CHAN_TAB, [MS], SampleSize) of
-        '$end_of_table' ->
-            true;
-        {Sample, _Cont} ->
-            {NPresent, NMissing} =
-                lists:foldl(
-                    fun(ClientId, {AccPresent, AccMissing}) ->
-                        case emqx_cm_registry:lookup_all_channels(ClientId) of
-                            [] ->
-                                {AccPresent, AccMissing + 1};
-                            _ ->
-                                {AccPresent + 1, AccMissing}
-                        end
-                    end,
-                    {0, 0},
-                    Sample
-                ),
-            NPresent >= NMissing
-    end.
 
 %%================================================================================
 %% behavior callbacks
