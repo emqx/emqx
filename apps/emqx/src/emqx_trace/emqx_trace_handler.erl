@@ -527,17 +527,27 @@ filter_clientid(
     LogNamespace = maps:get(namespace, Meta, ?global_ns),
     ClientIDs = maps:get(client_ids, Meta, #{}),
     IsMatch =
-        (Namespace =:= ?global_ns orelse LogNamespace =:= Namespace) andalso (ClientId =:= MatchId) orelse
-            maps:get(MatchId, ClientIDs, false),
-    filter_ret(IsMatch andalso is_trace(Meta), Log);
+        %% If trace was created by global admin, it can see all events.
+        %% Otherwise, it matches only on events from its own namespace.
+        (Namespace =:= ?global_ns orelse LogNamespace =:= Namespace) andalso
+            %% Check if clientids match.
+            ((ClientId =:= MatchId) orelse maps:get(MatchId, ClientIDs, false)) andalso
+            %% Check if should trace
+            is_trace(Meta),
+    filter_ret(IsMatch, Log);
 filter_clientid(
     #{meta := Meta = #{client_ids := ClientIDs}} = Log,
     #filterctx{match = MatchId, namespace = Namespace}
 ) ->
     LogNamespace = maps:get(namespace, Meta, ?global_ns),
     IsMatch =
+        %% If trace was created by global admin, it can see all events.
+        %% Otherwise, it matches only on events from its own namespace.
         (Namespace =:= ?global_ns orelse LogNamespace =:= Namespace) andalso
-            maps:get(MatchId, ClientIDs, false) andalso is_trace(Meta),
+            %% Check if clientids match.
+            maps:get(MatchId, ClientIDs, false) andalso
+            %% Check if should trace
+            is_trace(Meta),
     filter_ret(IsMatch, Log);
 filter_clientid(_Log, _FilterCtx) ->
     stop.
@@ -548,7 +558,12 @@ filter_topic(#{meta := Meta = #{topic := Topic}} = Log, #filterctx{
 }) ->
     LogNamespace = maps:get(namespace, Meta, ?global_ns),
     IsMatch =
-        (Namespace =:= ?global_ns orelse LogNamespace =:= Namespace) andalso is_trace(Meta) andalso
+        %% If trace was created by global admin, it can see all events.
+        %% Otherwise, it matches only on events from its own namespace.
+        (Namespace =:= ?global_ns orelse LogNamespace =:= Namespace) andalso
+            %% Check if should trace
+            is_trace(Meta) andalso
+            %% Check if topic matches filter
             emqx_topic:match(Topic, TopicFilter),
     filter_ret(IsMatch, Log);
 filter_topic(_Log, _FilterCtx) ->
@@ -560,7 +575,12 @@ filter_ip_address(#{meta := Meta = #{peername := Peername}} = Log, #filterctx{
 }) ->
     LogNamespace = maps:get(namespace, Meta, ?global_ns),
     IsMatch =
-        (Namespace =:= ?global_ns orelse LogNamespace =:= Namespace) andalso is_trace(Meta) andalso
+        %% If trace was created by global admin, it can see all events.
+        %% Otherwise, it matches only on events from its own namespace.
+        (Namespace =:= ?global_ns orelse LogNamespace =:= Namespace) andalso
+            %% Check if should trace
+            is_trace(Meta) andalso
+            %% Check if ip matches
             lists:prefix(IP, Peername),
     filter_ret(IsMatch, Log);
 filter_ip_address(_Log, _FilterCtx) ->
