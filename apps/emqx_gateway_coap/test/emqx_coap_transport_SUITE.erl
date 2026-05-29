@@ -225,6 +225,19 @@ t_tm_observe_delete_token(_) ->
     ?assertEqual(false, maps:is_key({token, <<"obsdel">>}, TM1)),
     ok.
 
+t_tm_non_observe_notification_does_not_register_token(_) ->
+    TM0 = emqx_coap_tm:new(),
+    Token = <<"obsnon">>,
+    Notify = #coap_message{
+        type = non,
+        method = {ok, content},
+        token = Token,
+        options = #{observe => 0}
+    },
+    #{tm := TM1} = emqx_coap_tm:handle_out(Notify, TM0),
+    ?assertEqual(false, maps:is_key({token, Token}, TM1)),
+    ok.
+
 t_tm_cancel_state_timer_manual(_) ->
     TM0 = emqx_coap_tm:new(),
     MsgId = 77,

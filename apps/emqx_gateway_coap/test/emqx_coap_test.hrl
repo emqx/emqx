@@ -28,6 +28,7 @@
     id,
     token,
     observe,
+    observe_notification = false,
     state,
     timers,
     transport

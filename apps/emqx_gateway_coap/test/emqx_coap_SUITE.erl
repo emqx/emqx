@@ -1047,8 +1047,6 @@ t_observe_con_notify_uses_shared_session_queue(_) ->
 
             Payload2 = <<"second-b">>,
             publish(TopicB, ?QOS_0, Payload2),
-            Payload3 = <<"third-a">>,
-            publish(TopicA, ?QOS_0, Payload3),
             ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
 
             ?assertNotEqual(
@@ -1057,6 +1055,9 @@ t_observe_con_notify_uses_shared_session_queue(_) ->
             ),
             ack_if_con(Channel, Notify1),
             Notify2 = assert_notify(Channel, con, Payload2),
+
+            Payload3 = <<"third-a">>,
+            publish(TopicA, ?QOS_0, Payload3),
             ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
             ack_if_con(Channel, Notify2),
             Notify3 = assert_notify(Channel, con, Payload3),
