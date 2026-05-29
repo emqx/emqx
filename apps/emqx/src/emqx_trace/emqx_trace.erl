@@ -908,7 +908,7 @@ now_second() ->
 
 get_namespace_from_proc_metadata() ->
     case logger:get_process_metadata() of
-        #{namespace := Ns} ->
+        #{tns := Ns} ->
             Ns;
         _ ->
             undefined
