@@ -194,8 +194,12 @@ do_deliver(
                 metrics_inc('messages.delivered', Ctx),
                 Msg0 = mqtt_to_coap(Message, Token, SeqId),
                 {Msg, BW2} = maybe_split_notify_block2(Msg0, PeerKey, BWAcc, Ctx),
-                #{out := Out, tm := TM2} = emqx_coap_tm:handle_out(Msg, TMAcc),
-                {[Out | OutAcc], OM2, TM2, BW2}
+                case emqx_coap_tm:handle_out(Msg, TMAcc) of
+                    #{out := Out, tm := TM2} ->
+                        {[Out | OutAcc], OM2, TM2, BW2};
+                    Empty when map_size(Empty) =:= 0 ->
+                        {OutAcc, OM2, TMAcc, BW2}
+                end
         end
     end,
     {Outs, OM2, TM2, BW2} = lists:foldl(Fun, {[], OM, TM, BW0}, lists:reverse(Delivers)),
@@ -281,7 +285,7 @@ mqtt_to_coap(MQTT, Token, SeqId) ->
     }.
 
 get_notify_type(#message{qos = Qos}) ->
-    case emqx_conf:get([gateway, coap, notify_qos], non) of
+    case emqx_conf:get([gateway, coap, notify_type], qos) of
         qos ->
             case Qos of
                 ?QOS_0 ->

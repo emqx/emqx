@@ -17,6 +17,7 @@
 
 -include_lib("er_coap_client/include/coap.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -87,6 +88,18 @@ update_coap_with_mountpoint(Mp) ->
         coap,
         Conf#{<<"mountpoint">> => Mp}
     ).
+
+with_notify_type(NotifyType, Fun) ->
+    OldConf = emqx:get_raw_config([gateway, coap]),
+    {ok, _} = emqx_gateway_conf:update_gateway(
+        coap,
+        OldConf#{<<"notify_type">> => atom_to_binary(NotifyType)}
+    ),
+    try
+        Fun()
+    after
+        {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
+    end.
 
 %%--------------------------------------------------------------------
 %% Test Cases
@@ -804,6 +817,72 @@ t_observe_wildcard(_) ->
 
     with_connection(Fun).
 
+t_observe_notify_type_qos(_) ->
+    with_notify_type(qos, fun() ->
+        Fun = fun(Channel, Token) ->
+            Topic = <<"coap/observe_notify_qos">>,
+            URI = pubsub_uri(binary_to_list(Topic), Token),
+            Req = make_req(get, <<>>, [{observe, 0}]),
+            {ok, content, _} = do_request(Channel, URI, Req),
+
+            Payload0 = <<"qos0">>,
+            publish(Topic, ?QOS_0, Payload0),
+            Notify0 = assert_notify(Channel, non, Payload0),
+            ack_if_con(Channel, Notify0),
+
+            Payload1 = <<"qos1">>,
+            publish(Topic, ?QOS_1, Payload1),
+            Notify1 = assert_notify(Channel, con, Payload1),
+            ack_if_con(Channel, Notify1),
+            true
+        end,
+        with_connection(Fun)
+    end).
+
+t_observe_notify_type_con(_) ->
+    with_notify_type(con, fun() ->
+        Fun = fun(Channel, Token) ->
+            Topic = <<"coap/observe_notify_con">>,
+            Payload = <<"confirmable">>,
+            URI = pubsub_uri(binary_to_list(Topic), Token),
+            Req = make_req(get, <<>>, [{observe, 0}]),
+            {ok, content, _} = do_request(Channel, URI, Req),
+
+            publish(Topic, ?QOS_0, Payload),
+            Notify = assert_notify(Channel, con, Payload),
+            ack_if_con(Channel, Notify),
+            true
+        end,
+        with_connection(Fun)
+    end).
+
+t_observe_con_notify_drops_duplicate_while_ack_pending(_) ->
+    with_notify_type(con, fun() ->
+        Fun = fun(Channel, Token) ->
+            Topic = <<"coap/observe_notify_duplicate">>,
+            URI = pubsub_uri(binary_to_list(Topic), Token),
+            Req = make_req(get, <<>>, [{observe, 0}]),
+            {ok, content, _} = do_request(Channel, URI, Req),
+
+            Payload1 = <<"first">>,
+            publish(Topic, ?QOS_0, Payload1),
+            Notify1 = assert_notify(Channel, con, Payload1),
+
+            Payload2 = <<"second">>,
+            publish(Topic, ?QOS_0, Payload2),
+            ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+
+            ?assertNotEqual(
+                [],
+                emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+            ),
+            ack_if_con(Channel, Notify1),
+            ?assertMatch({ok, changed, _}, send_heartbeat(Channel, Token)),
+            true
+        end,
+        with_connection(Fun)
+    end).
+
 t_clients_api(_) ->
     Fun = fun(_Channel, _Token) ->
         ClientId = <<"client1">>,
@@ -1296,6 +1375,20 @@ make_req(Method, Payload, Opts) ->
 make_req_type(Type, Method, Payload, Opts) ->
     er_coap_message:request(Type, Method, Payload, Opts).
 
+publish(Topic, QoS, Payload) ->
+    emqx:publish(emqx_message:make(<<"coap">>, QoS, Topic, Payload)).
+
+assert_notify(Channel, Type, Payload) ->
+    {ok, content, Notify = #coap_message{type = Type}} = with_message_response(Channel),
+    #coap_content{payload = Payload} = er_coap_message:get_content(Notify),
+    Notify.
+
+ack_if_con(Channel, #coap_message{type = con} = Message) ->
+    {ok, _} = er_coap_channel:send(Channel, er_coap_message:ack(Message)),
+    ok;
+ack_if_con(_Channel, #coap_message{}) ->
+    ok.
+
 do_request(Channel, URI, #coap_message{options = Opts} = Req) ->
     {_, _, Path, Query} = er_coap_client:resolve_uri(URI),
     Opts2 = [{uri_path, Path}, {uri_query, Query} | Opts],
@@ -1315,12 +1408,30 @@ with_response(Channel) ->
         {error, timeout}
     end.
 
+with_message_response(Channel) ->
+    with_message_response(Channel, 2000).
+
+with_message_response(Channel, Timeout) ->
+    receive
+        {coap_response, _ChId, Channel, _Ref, Message = #coap_message{method = Code}} ->
+            return_message_response(Code, Message);
+        {coap_error, _ChId, Channel, _Ref, reset} ->
+            {error, reset}
+    after Timeout ->
+        {error, timeout}
+    end.
+
 return_response({ok, Code}, Message) ->
     {ok, Code, er_coap_message:get_content(Message)};
 return_response({error, Code}, #coap_message{payload = <<>>}) ->
     {error, Code};
 return_response({error, Code}, Message) ->
     {error, Code, er_coap_message:get_content(Message)}.
+
+return_message_response({ok, Code}, Message) ->
+    {ok, Code, Message};
+return_message_response({error, Code}, Message) ->
+    {error, Code, Message}.
 
 do(Fun) ->
     emqx_coap_test_helpers:with_udp_channel(Fun).
