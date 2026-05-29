@@ -40,7 +40,7 @@ t_session_info_and_deliver(_) ->
     ok.
 
 t_session_notify_qos_types(_) ->
-    KeyPath = [gateway, coap, notify_qos],
+    KeyPath = [gateway, coap, notify_type],
     OldValue = emqx_config:find(KeyPath),
     ok = emqx_config:force_put(KeyPath, qos),
     try
