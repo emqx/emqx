@@ -633,7 +633,7 @@ t_const_timestamp(Config) ->
     Const = (Const0 div 100) * 100 + 1,
     ConstBin = integer_to_binary(Const),
     TsStr = iolist_to_binary(
-        calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, "Z"}])
+        calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, 0}])
     ),
     ?assertMatch(
         {ok, _},
@@ -677,17 +677,32 @@ t_const_timestamp(Config) ->
     TimeReturned = pad_zero(TimeReturned0),
     ?assertEqual(TsStr, TimeReturned).
 
-%% influxdb returns timestamps without trailing zeros such as
-%% "2023-02-28T17:21:51.63678163Z"
+%% Datalayers may return timestamps without trailing zeros such as
+%% "2023-02-28T17:21:51.63678163+00:00"
 %% while the standard should be
-%% "2023-02-28T17:21:51.636781630Z"
+%% "2023-02-28T17:21:51.636781630+00:00"
 pad_zero(BinTs) ->
-    StrTs = binary_to_list(BinTs),
-    [Nano | Rest] = lists:reverse(string:tokens(StrTs, ".")),
-    [$Z | NanoNum] = lists:reverse(Nano),
-    Padding = lists:duplicate(10 - length(Nano), $0),
-    NewNano = lists:reverse(NanoNum) ++ Padding ++ "Z",
-    iolist_to_binary(string:join(lists:reverse([NewNano | Rest]), ".")).
+    case binary:split(BinTs, <<".">>) of
+        [Prefix, FractionWithOffset] ->
+            {Fraction, Offset} = split_fraction_offset(FractionWithOffset),
+            Padding =
+                case 9 - byte_size(Fraction) of
+                    N when N > 0 -> binary:copy(<<"0">>, N);
+                    _ -> <<>>
+                end,
+            <<Prefix/binary, ".", Fraction/binary, Padding/binary, Offset/binary>>;
+        [BinTs] ->
+            BinTs
+    end.
+
+split_fraction_offset(FractionWithOffset) ->
+    case binary:match(FractionWithOffset, [<<"Z">>, <<"+">>, <<"-">>]) of
+        {Pos, _Len} ->
+            <<Fraction:Pos/binary, Offset/binary>> = FractionWithOffset,
+            {Fraction, Offset};
+        nomatch ->
+            {FractionWithOffset, <<>>}
+    end.
 
 %% XXX: this case need:
 %% [ts_engine.schemaless]
@@ -750,7 +765,7 @@ t_any_num_as_float(Config) ->
     Const = erlang:system_time(nanosecond),
     ConstBin = integer_to_binary(Const),
     TsStr = iolist_to_binary(
-        calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, "Z"}])
+        calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, 0}])
     ),
     ?assertMatch(
         {ok, _},
@@ -802,7 +817,7 @@ t_tag_set_use_literal_value(Config) ->
     Const = erlang:system_time(nanosecond),
     ConstBin = integer_to_binary(Const),
     TsStr = iolist_to_binary(
-        calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, "Z"}])
+        calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, 0}])
     ),
     ?assertMatch(
         {ok, _},
