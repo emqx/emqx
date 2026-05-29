@@ -1166,6 +1166,31 @@ t_observe_con_notify_queue_drains_after_reset(_) ->
         with_connection(Fun)
     end).
 
+t_observe_cancel_drops_pending_notifications(_) ->
+    with_notify_type(con, fun() ->
+        Fun = fun(Channel, Token) ->
+            Topic = <<"coap/observe_notify_queue_cancel">>,
+            ObserveToken = <<"obscancel">>,
+            observe_topic(Channel, Token, Topic, ObserveToken),
+
+            publish(Topic, ?QOS_0, <<"first">>),
+            Notify1 = assert_notify(Channel, con, <<"first">>),
+            publish(Topic, ?QOS_0, <<"queued-after-cancel">>),
+            ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+
+            URI = pubsub_uri(binary_to_list(Topic), Token),
+            UnReq = (make_req(get, <<>>, [{observe, 1}]))#coap_message{
+                token = ObserveToken
+            },
+            {ok, nocontent, _} = do_request(Channel, URI, UnReq),
+
+            ack_if_con(Channel, Notify1),
+            ?assertEqual({error, timeout}, with_message_response(Channel, 500)),
+            true
+        end,
+        with_connection(Fun)
+    end).
+
 t_clients_api(_) ->
     Fun = fun(_Channel, _Token) ->
         ClientId = <<"client1">>,

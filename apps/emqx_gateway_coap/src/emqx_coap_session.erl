@@ -430,11 +430,33 @@ process_subscribe(
         Topic ->
             OM2 = emqx_coap_observe_res:remove(Topic, OM),
             Replay = emqx_coap_message:piggyback({ok, nocontent}, Msg),
+            Session1 = purge_pending_observe_notifications(Topic, Session),
             Result#{
                 reply => Replay,
-                session => Session#session{observe_manager = OM2}
+                session => Session1#session{observe_manager = OM2}
             }
     end.
+
+purge_pending_observe_notifications(
+    Topic,
+    #session{observe_pending = Queue0, observe_pending_len = Len0} = Session
+) ->
+    Pending0 = queue:to_list(Queue0),
+    Pending = [Entry || Entry <- Pending0, not is_pending_observe_topic(Topic, Entry)],
+    case length(Pending) of
+        Len0 ->
+            Session;
+        Len ->
+            Session#session{
+                observe_pending = queue:from_list(Pending),
+                observe_pending_len = Len
+            }
+    end.
+
+is_pending_observe_topic(Topic, {_Msg, #message{topic = Topic}, _BW}) ->
+    true;
+is_pending_observe_topic(_Topic, _Pending) ->
+    false.
 
 mqtt_to_coap(MQTT, Token, SeqId) ->
     #message{payload = Payload} = MQTT,
