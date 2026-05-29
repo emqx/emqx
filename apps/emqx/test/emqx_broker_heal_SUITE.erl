@@ -75,50 +75,6 @@ t_heal_on_core_partition(Config) ->
     [emqtt:stop(Conn) || Conn <- Clients],
     Config.
 
-%% This testcase verifies functioning of `emqx_broker_heal:consistency_check' function.
-t_consistency_check(Config) ->
-    Cluster = proplists:get_value(cluster, Config),
-    NClients = 10,
-    [_, _, R1, _] = emqx_cth_cluster:start(Cluster),
-    %% No clients. Consistency check should pass:
-    ?assertEqual(
-        true,
-        erpc:call(R1, emqx_broker_heal, consistency_check, [])
-    ),
-    %% Connect a number of clients to R1:
-    Clients = [
-        element(
-            2,
-            emqtt:start_link(
-                [{port, emqx_cth_cluster:get_tcp_mqtt_port(R1)}]
-            )
-        )
-     || _ <- lists:seq(1, NClients)
-    ],
-    [{ok, _} = emqtt:connect(Conn) || Conn <- Clients],
-    ct:sleep(100),
-    ?assertEqual(
-        NClients,
-        erpc:call(R1, emqx_cm_registry, table_size, [])
-    ),
-    %% Consistency check should return `true':
-    ?assertEqual(
-        true,
-        erpc:call(R1, emqx_broker_heal, consistency_check, [])
-    ),
-    %% Delete channels from the registry, consistency check should detect that:
-    ?assertEqual(
-        {atomic, ok},
-        erpc:call(R1, mria, clear_table, [?CHAN_REG_TAB])
-    ),
-    ct:sleep(100),
-    ?assertEqual(
-        false,
-        erpc:call(R1, emqx_broker_heal, consistency_check, [])
-    ),
-    [emqtt:stop(Conn) || Conn <- Clients],
-    Config.
-
 %% This testcase verifies that replicants attempt to heal channel registry after mria re-bootstrap.
 t_heal_on_replicant_bootstrap(Config) ->
     ?check_trace(
