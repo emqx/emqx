@@ -140,7 +140,7 @@ schema("/sso/token_exchange") ->
     #{
         'operationId' => token_exchange,
         post => #{
-            tags => [?TAGS],
+            tags => ?TAGS,
             desc => ?DESC(token_exchange),
             'requestBody' => ref(token_exchange_request),
             responses => #{
