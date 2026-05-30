@@ -990,7 +990,14 @@ normalize_running_conf(Node) ->
     end.
 
 normalize_running_raw_conf(RawConf) ->
-    RawConf1 = fill_defaults(RawConf),
+    %% Keep only roots that are registered in this node's local schema-mods
+    %% map. `fill_defaults/1` calls `emqx_config:get_schema_mod/1` per key,
+    %% which throws `{badkey, _}` for any raw root the local node never
+    %% loaded a schema for (e.g. `<<"mq">>` when emqx_mq isn't started).
+    %% Dropping unknown roots is safe for cluster-sync comparison since
+    %% every node applies the same filter.
+    KnownRoots = emqx_config:get_root_names(),
+    RawConf1 = fill_defaults(maps:with(KnownRoots, RawConf)),
     {_AppEnvs, Conf} = emqx_config:check_config(emqx_conf:schema_module(), RawConf1),
     normalize_cluster_sync_status_conf(Conf).
 
