@@ -650,7 +650,7 @@ channel_status(#{mode := aggregated} = ActionState, ConnState) ->
     ?status_connected.
 
 health_check(DriverState) ->
-    case erlazure:list_containers(DriverState, []) of
+    case erlazure:list_containers(DriverState, [{max_results, "1"}]) of
         {error, Reason} ->
             {?status_disconnected, Reason};
         {L, _} when is_list(L) ->
