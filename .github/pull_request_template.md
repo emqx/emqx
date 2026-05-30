@@ -1,5 +1,3 @@
-Fixes <issue-or-jira-number>
-
 Release version:
 <!-- uncomment for v5:
 5.8.10, 5.10.4
@@ -22,7 +20,6 @@ Please compose a nontrivial summary in case of significant changes.
 <!--
 Please convert the PR to a draft if any of the following conditions are not met.
 -->
-- [ ] For internal contributor: there is a jira ticket to track this change
 - [ ] The changes are covered with new or existing tests
 - [ ] Change log for changes visible by users has been added to `changes/ee/(feat|perf|fix|breaking)-<PR-id>.en.md` files
 - [ ] Schema changes are backward compatible or intentionally breaking (describe the changes and the reasoning in the summary)

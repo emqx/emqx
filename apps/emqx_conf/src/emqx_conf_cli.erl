@@ -52,6 +52,21 @@
 
 %% All 'cluster.*' keys, except for 'cluster.link', should also be treated as read-only.
 -define(READONLY_ROOT_KEYS, [rpc, node]).
+%% Generated UI/API metadata should not make status report a runtime config mismatch.
+-define(CLUSTER_SYNC_METADATA_ROOTS, [
+    actions,
+    sources,
+    bridges,
+    <<"actions">>,
+    <<"sources">>,
+    <<"bridges">>
+]).
+-define(CLUSTER_SYNC_TIMESTAMP_KEYS, [
+    created_at,
+    last_modified_at,
+    <<"created_at">>,
+    <<"last_modified_at">>
+]).
 
 -define(OPTIONS, #{rawconf_with_defaults => true, override_to => cluster}).
 
@@ -892,7 +907,8 @@ waiting_for_sync_finish(Sec) ->
             waiting_for_sync_finish(Sec + 1)
     end.
 
-find_lagging(Status, AllConfs) ->
+find_lagging(Status, AllConfs0) ->
+    AllConfs = normalize_cluster_sync_status_confs(AllConfs0),
     case find_highest_node(Status) of
         {same_tnx_id, TxId} ->
             %% check the conf is the same or not
@@ -951,11 +967,115 @@ changed(K, V, Conf) ->
 find_running_confs() ->
     lists:map(
         fun(Node) ->
-            Conf = emqx_conf_proto_v5:get_config(Node, ?global_ns, []),
+            Conf = normalize_running_conf(Node),
             {Node, maps:without(?READONLY_ROOT_KEYS, Conf)}
         end,
         emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, 5)
     ).
+
+normalize_running_conf(Node) ->
+    try normalize_running_raw_conf(emqx_conf_proto_v5:get_raw_config(Node, ?global_ns, [])) of
+        Conf ->
+            Conf
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(warning, #{
+                msg => "failed_to_normalize_cluster_sync_status_conf",
+                node => Node,
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            normalize_cluster_sync_status_conf(emqx_conf_proto_v5:get_config(Node, ?global_ns, []))
+    end.
+
+normalize_running_raw_conf(RawConf) ->
+    RawConf1 = fill_defaults(RawConf),
+    {_AppEnvs, Conf} = emqx_config:check_config(emqx_conf:schema_module(), RawConf1),
+    normalize_cluster_sync_status_conf(Conf).
+
+normalize_cluster_sync_status_confs(AllConfs) ->
+    [
+        {Node, normalize_cluster_sync_status_conf(Conf)}
+     || {Node, Conf} <- AllConfs
+    ].
+
+normalize_cluster_sync_status_conf(Conf) when is_map(Conf) ->
+    Conf1 = lists:foldl(
+        fun(Root, Acc) ->
+            update_if_present(Root, fun drop_named_config_timestamp_metadata/1, Acc)
+        end,
+        Conf,
+        ?CLUSTER_SYNC_METADATA_ROOTS
+    ),
+    update_if_present(
+        <<"rule_engine">>,
+        fun drop_rule_engine_timestamp_metadata/1,
+        update_if_present(rule_engine, fun drop_rule_engine_timestamp_metadata/1, Conf1)
+    );
+normalize_cluster_sync_status_conf(Conf) ->
+    Conf.
+
+update_if_present(Key, Fun, Map) when is_map(Map) ->
+    case maps:find(Key, Map) of
+        {ok, Value} ->
+            Map#{Key => Fun(Value)};
+        error ->
+            Map
+    end.
+
+drop_named_config_timestamp_metadata(ConfigsByType) when is_map(ConfigsByType) ->
+    maps:map(
+        fun(_Type, ConfigsByName) ->
+            drop_named_config_timestamp_metadata_by_name(ConfigsByName)
+        end,
+        ConfigsByType
+    );
+drop_named_config_timestamp_metadata(ConfigsByType) ->
+    ConfigsByType.
+
+drop_named_config_timestamp_metadata_by_name(ConfigsByName) when is_map(ConfigsByName) ->
+    maps:map(
+        fun(_Name, Config) ->
+            drop_timestamp_metadata(Config)
+        end,
+        ConfigsByName
+    );
+drop_named_config_timestamp_metadata_by_name(ConfigsByName) ->
+    ConfigsByName.
+
+drop_rule_engine_timestamp_metadata(RuleEngine) when is_map(RuleEngine) ->
+    update_if_present(
+        <<"rules">>,
+        fun drop_rules_timestamp_metadata/1,
+        update_if_present(rules, fun drop_rules_timestamp_metadata/1, RuleEngine)
+    );
+drop_rule_engine_timestamp_metadata(RuleEngine) ->
+    RuleEngine.
+
+drop_rules_timestamp_metadata(Rules) when is_map(Rules) ->
+    maps:map(
+        fun(_RuleId, Rule) ->
+            drop_rule_timestamp_metadata(Rule)
+        end,
+        Rules
+    );
+drop_rules_timestamp_metadata(Rules) ->
+    Rules.
+
+drop_rule_timestamp_metadata(Rule) when is_map(Rule) ->
+    update_if_present(
+        <<"metadata">>,
+        fun drop_timestamp_metadata/1,
+        update_if_present(metadata, fun drop_timestamp_metadata/1, Rule)
+    );
+drop_rule_timestamp_metadata(Rule) ->
+    Rule.
+
+drop_timestamp_metadata(Config) when is_map(Config) ->
+    maps:without(?CLUSTER_SYNC_TIMESTAMP_KEYS, Config);
+drop_timestamp_metadata(Config) ->
+    Config.
 
 print_inconsistent_conf(Keys, Target, Status, AllConfs) ->
     {value, {_, TargetConf}, OtherConfs} = lists:keytake(Target, 1, AllConfs),
@@ -995,12 +1115,12 @@ print_inconsistent_conf(New = #{}, Old = #{}, Options) ->
         changed := Changed
     } = emqx_utils_maps:diff_maps(New, Old),
     RemovedFmt = "~ts(~w)'s ~s has deleted certain keys, but they are still present on ~ts(~w).~n",
-    print_inconsistent(Removed, RemovedFmt, Options),
+    print_inconsistent(Removed, RemovedFmt, removed, Options),
     AddedFmt = "~ts(~w)'s ~s has new setting, but it has not been applied to ~ts(~w).~n",
-    print_inconsistent(Added, AddedFmt, Options),
+    print_inconsistent(Added, AddedFmt, added, Options),
     ChangedFmt =
         "~ts(~w)'s ~s has been updated, but the changes have not been applied to ~ts(~w).~n",
-    print_inconsistent(Changed, ChangedFmt, Options);
+    print_inconsistent(Changed, ChangedFmt, changed, Options);
 %% authentication rewrite topic_metrics is list(not map).
 print_inconsistent_conf(New, Old, Options) ->
     #{
@@ -1016,39 +1136,116 @@ print_inconsistent_conf(New, Old, Options) ->
     emqx_ctl:print("~ts:~n", [Target]),
     print_hocon(New).
 
-print_inconsistent(Conf, Fmt, Options) when Conf =/= #{} ->
+print_inconsistent(Conf, Fmt, Kind, Options) when Conf =/= #{} ->
     #{
         key := Key,
         target := {Target, TargetTxId},
         node := {Node, NodeTxId}
     } = Options,
-    emqx_ctl:warning(Fmt, [Target, TargetTxId, Key, Node, NodeTxId]),
     NodeRawConf = emqx_conf_proto_v5:get_raw_config(Node, ?global_ns, [Key]),
     TargetRawConf = emqx_conf_proto_v5:get_raw_config(Target, ?global_ns, [Key]),
     {NodeConf, TargetConf} =
         maps:fold(
-            fun(SubKey, _, {NewAcc, OldAcc}) ->
-                SubNew0 = maps:get(atom_to_binary(SubKey), NodeRawConf, undefined),
-                SubOld0 = maps:get(atom_to_binary(SubKey), TargetRawConf, undefined),
-                {SubNew1, SubOld1} = remove_identical_value(SubNew0, SubOld0),
-                {NewAcc#{SubKey => SubNew1}, OldAcc#{SubKey => SubOld1}}
+            fun(SubKey, CheckedDiff, {NodeAcc, TargetAcc}) ->
+                RawSubKey = raw_config_key(SubKey),
+                SubNew0 = maps:get(RawSubKey, NodeRawConf, undefined),
+                SubOld0 = maps:get(RawSubKey, TargetRawConf, undefined),
+                {SubNew1, SubOld1} =
+                    remove_identical_config_value(Kind, SubNew0, SubOld0, CheckedDiff),
+                {
+                    maybe_put_config_diff(SubKey, SubNew1, NodeAcc),
+                    maybe_put_config_diff(SubKey, SubOld1, TargetAcc)
+                }
             end,
             {#{}, #{}},
             Conf
         ),
     %% zones.default is a virtual zone. It will be changed when mqtt changes,
     %% so we can't retrieve the raw data for zones.default(always undefined).
-    case TargetConf =:= NodeConf of
-        true -> ok;
-        false -> print_hocon(#{Target => #{Key => TargetConf}, Node => #{Key => NodeConf}})
+    emqx_ctl:warning(Fmt, [Target, TargetTxId, Key, Node, NodeTxId]),
+    case has_config_diff(NodeConf) orelse has_config_diff(TargetConf) of
+        true ->
+            print_hocon(#{Target => #{Key => TargetConf}, Node => #{Key => NodeConf}});
+        false ->
+            ok
     end;
-print_inconsistent(_Conf, _Format, _Options) ->
+print_inconsistent(_Conf, _Format, _Kind, _Options) ->
     ok.
+
+raw_config_key(K) when is_atom(K) ->
+    atom_to_binary(K);
+raw_config_key(K) ->
+    K.
+
+remove_identical_config_value(changed, NodeRaw, TargetRaw, {NodeChecked, TargetChecked}) ->
+    remove_identical_config_values(NodeRaw, TargetRaw, NodeChecked, TargetChecked);
+remove_identical_config_value(_Kind, NodeRaw, TargetRaw, _CheckedDiff) ->
+    remove_identical_value(NodeRaw, TargetRaw).
+
+remove_identical_config_values(NodeRaw, TargetRaw, NodeChecked, TargetChecked) ->
+    {NodeRaw1, TargetRaw1} = remove_identical_value(NodeRaw, TargetRaw),
+    keep_checked_changes(NodeRaw1, TargetRaw1, NodeChecked, TargetChecked).
+
+keep_checked_changes(_NodeRaw, _TargetRaw, SameChecked, SameChecked) ->
+    {undefined, undefined};
+keep_checked_changes(NodeRaw = #{}, TargetRaw = #{}, NodeChecked = #{}, TargetChecked = #{}) ->
+    lists:foldl(
+        fun(K, {NodeAcc, TargetAcc}) ->
+            {NodeV, TargetV} = keep_checked_changes(
+                maps:get(K, NodeRaw, undefined),
+                maps:get(K, TargetRaw, undefined),
+                find_checked_value(K, NodeChecked),
+                find_checked_value(K, TargetChecked)
+            ),
+            {
+                maybe_put_config_diff(K, NodeV, NodeAcc),
+                maybe_put_config_diff(K, TargetV, TargetAcc)
+            }
+        end,
+        {#{}, #{}},
+        lists:usort(maps:keys(NodeRaw) ++ maps:keys(TargetRaw))
+    );
+keep_checked_changes(NodeRaw, TargetRaw, _NodeChecked, _TargetChecked) ->
+    {NodeRaw, TargetRaw}.
+
+find_checked_value(K, Map) when is_map(Map) ->
+    case maps:find(K, Map) of
+        {ok, V} ->
+            V;
+        error ->
+            maps:get(alt_config_key(K), Map, undefined)
+    end.
+
+alt_config_key(K) when is_atom(K) ->
+    atom_to_binary(K);
+alt_config_key(K) when is_binary(K) ->
+    try
+        binary_to_existing_atom(K, utf8)
+    catch
+        _:_ -> K
+    end;
+alt_config_key(K) ->
+    K.
+
+maybe_put_config_diff(K, V, Acc) ->
+    case has_config_diff(V) of
+        true -> Acc#{K => V};
+        false -> Acc
+    end.
+
+has_config_diff(undefined) ->
+    false;
+has_config_diff(Map) when is_map(Map) ->
+    maps:fold(fun(_K, V, Acc) -> Acc orelse has_config_diff(V) end, false, Map);
+has_config_diff(_Value) ->
+    true.
 
 remove_identical_value(New = #{}, Old = #{}) ->
     maps:fold(
         fun(K, NewV, {Acc1, Acc2}) ->
             case maps:find(K, Old) of
+                error ->
+                    {Acc1, Acc2};
                 {ok, NewV} ->
                     {maps:remove(K, Acc1), maps:remove(K, Acc2)};
                 {ok, OldV} ->
@@ -1176,6 +1373,42 @@ find_inconsistent_test() ->
     ?assertEqual(
         {inconsistent_key, 3, [<<"mqtt">>]},
         find_lagging(SameStatus, Confs0)
+    ),
+    ok.
+
+find_lagging_ignores_action_timestamp_metadata_test() ->
+    Status = [
+        #{node => node1, tnx_id => 3},
+        #{node => node2, tnx_id => 3}
+    ],
+    Action = #{
+        connector => <<"test">>,
+        enable => true,
+        parameters => #{topic => <<"testtopic-in">>},
+        created_at => 1779764590042
+    },
+    ConfsWithOnlyTimestampDiff = [
+        {node1, #{actions => #{kafka_producer => #{test => Action#{last_modified_at => 1}}}}},
+        {node2, #{actions => #{kafka_producer => #{test => Action#{last_modified_at => 2}}}}}
+    ],
+    ?assertEqual(
+        {consistent, <<"All configuration synchronized(tnx_id=3) successfully\n">>},
+        find_lagging(Status, ConfsWithOnlyTimestampDiff)
+    ),
+
+    ConfsWithRealActionDiff = [
+        {node1, #{actions => #{kafka_producer => #{test => Action#{last_modified_at => 1}}}}},
+        {node2, #{
+            actions => #{
+                kafka_producer => #{
+                    test => Action#{last_modified_at => 2, parameters => #{topic => <<"other">>}}
+                }
+            }
+        }}
+    ],
+    ?assertEqual(
+        {inconsistent_key, 3, [actions]},
+        find_lagging(Status, ConfsWithRealActionDiff)
     ),
     ok.
 
