@@ -13,7 +13,13 @@
     renew/0,
     status/0,
     reconfigure/0,
-    leader_node/0
+    leader_node/0,
+    %% Imperative listener wiring — used by the API's /apply_listener
+    %% endpoint to bind a single listener (or the dashboard https
+    %% listener) to the bundle without going through the auto-attach
+    %% path in store_result/2 (which only fires on first issuance).
+    migrate_one_listener/3,
+    enable_dashboard_https/2
 ]).
 
 %% gen_server callbacks
@@ -28,7 +34,6 @@
 -ifdef(TEST).
 -export([
     pre_state/2,
-    migrate_one_listener/3,
     maybe_migrate_listeners/3,
     build_acc_key_opt/2,
     ensure_acc_key_file/2,
