@@ -49,6 +49,7 @@
 -include("emqx_cm.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include_lib("mria/include/mria.hrl").
 
 -define(REGISTRY, ?MODULE).
 -define(NODE_DOWN_CLEANUP_LOCK, {?MODULE, cleanup_down}).
@@ -184,6 +185,7 @@ init([]) ->
         ]}
     ]),
     ok = mria_rlog:wait_for_shards([?CM_SHARD], infinity),
+    _ = maybe_subscribe_replica_events(),
     ok = ekka:monitor(membership),
     {ok, #{}}.
 
@@ -205,6 +207,10 @@ handle_info({membership, {node, down, Node}}, State) ->
     {noreply, State};
 handle_info({membership, _Event}, State) ->
     {noreply, State};
+handle_info(#mria_replica_status_update{status = Status}, State) ->
+    ?tp(info, cm_registry_shard_up, #{}),
+    _ = maybe_trigger_heal(is_enabled(), Status),
+    {noreply, State};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -220,12 +226,21 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 cleanup_channels(Node) ->
-    global:trans(
-        {?NODE_DOWN_CLEANUP_LOCK, self()},
-        fun() ->
-            mria:transaction(?CM_SHARD, fun ?MODULE:do_cleanup_channels/1, [Node])
-        end
-    ).
+    case can_run_cleanup(Node) of
+        true ->
+            global:trans(
+                {?NODE_DOWN_CLEANUP_LOCK, self()},
+                fun() ->
+                    ?SLOG(warning, #{
+                        msg => "cleaning up clients connected to disconnected node", node => Node
+                    }),
+                    mria:transaction(?CM_SHARD, fun ?MODULE:do_cleanup_channels/1, [Node])
+                end
+            ),
+            ok;
+        false ->
+            ok
+    end.
 
 do_cleanup_channels(Node) ->
     Pat = [
@@ -313,3 +328,33 @@ fold_hist(F, List) ->
 -spec retain_duration() -> non_neg_integer().
 retain_duration() ->
     emqx:get_config([broker, session_history_retain]).
+
+%% Check if channel cleanup procedure should run:
+can_run_cleanup(Node) ->
+    case mria_rlog:role() of
+        replicant ->
+            %% We don't trust replicants:
+            false;
+        _ ->
+            %% Consult other cores whether they see the node:
+            case mria:is_peer_alive(Node) of
+                {ok, false} ->
+                    true;
+                _ ->
+                    false
+            end
+    end.
+
+%% On replicants we want to monitor mria events
+maybe_subscribe_replica_events() ->
+    case mria_rlog:role() of
+        replicant ->
+            mria:subscribe_replica_events(?CM_SHARD, self());
+        _ ->
+            ok
+    end.
+
+maybe_trigger_heal(true, normal) ->
+    emqx_broker_sup:start_heal();
+maybe_trigger_heal(_Enabled, _Status) ->
+    ok.
