@@ -281,36 +281,48 @@ set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     | {error, Reason :: term()}.
 open_session(CleanStart, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
     Pids = emqx_cm_registry:lookup_all_channels(ClientId),
-    {LocalAlive, LocalDown, Remote} = lists:foldl(
-        fun(Pid, {LA, LD, R}) ->
-            IsLocal = (node(Pid) =:= node()),
-            case {IsLocal, IsLocal andalso is_process_alive(Pid)} of
-                {true, true} ->
-                    {LA + 1, LD, R};
-                {true, false} ->
-                    {LA, LD + 1, R};
-                _ ->
-                    {LA, LD, R + 1}
-            end
-        end,
-        {0, 0, 0},
-        Pids
-    ),
-    case LocalDown > 0 of
-        true ->
+    {Local, Remote} = lists:partition(fun(Pid) -> node(Pid) =:= node() end, Pids),
+    {LocalAlive, LocalDown} = lists:partition(fun erlang:is_process_alive/1, Local),
+    LocalStillDown = drop_stale_local_rows(ClientId, LocalDown),
+    case LocalStillDown of
+        [_ | _] ->
             %% At least one old session is in the middle of getting cleaned up.
             %% i.e. emqx_cm_pool is busy handling the async clean_down messages.
             %% Do not accept this client ID in this node.
             ?SLOG(warning, #{
                 msg => "clientid_registration_throttled",
-                local_alive => LocalAlive,
-                local_down => LocalDown,
-                remote => Remote
+                local_alive => length(LocalAlive),
+                local_down => length(LocalStillDown),
+                remote => length(Remote)
             }),
             {error, client_id_unavailable};
-        false ->
+        [] ->
             do_open_session(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg)
     end.
+
+%% A local dead pid in the registry is either:
+%%   (a) a channel that just exited; its DOWN is queued, emqx_cm_pool is
+%%       about to call do_unregister_channel and remove the row. The
+%%       chan-conn table still has its conn_mod entry. Throttle so the new
+%%       register does not race with the pending unregister.
+%%   (b) a tombstone: the row points at a pid that this node never
+%%       registered (or already cleaned up). No DOWN is coming, the
+%%       chan-conn table has no entry, and the throttle would block this
+%%       clientid on this node forever. Remove the stale row and let the
+%%       connect proceed.
+drop_stale_local_rows(ClientId, LocalDownPids) ->
+    lists:filter(
+        fun(DeadPid) ->
+            case do_get_chann_conn_mod(ClientId, DeadPid) of
+                undefined ->
+                    _ = emqx_cm_registry:unregister_channel({ClientId, DeadPid}),
+                    false;
+                _ConnMod ->
+                    true
+            end
+        end,
+        LocalDownPids
+    ).
 
 %% @private
 do_open_session(_CleanStart = true, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
