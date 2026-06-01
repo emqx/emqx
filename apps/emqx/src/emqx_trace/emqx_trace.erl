@@ -124,23 +124,22 @@ publish(#message{topic = <<"$SYS/", _/binary>>}) ->
 publish(#message{from = From, topic = Topic, payload = Payload} = Msg) when
     is_binary(From); is_atom(From)
 ->
-    Ns = resolve_namespace([
-        get_namespace_from_message(Msg),
-        get_namespace_from_proc_metadata()
-    ]),
     ?TRACE(
         "PUBLISH",
         "publish_to",
         maybe_add_namespace(
             #{topic => Topic, payload => Payload},
-            Ns
+            maybe
+                undefined ?= get_namespace_from_message(Msg),
+                undefined ?= get_namespace_from_proc_metadata(),
+                ?global_ns
+            end
         )
     ).
 
 subscribe(<<"$SYS/", _/binary>>, _SubId, _SubOpts) ->
     ignore;
 subscribe(Topic, SubId, SubOpts) ->
-    Ns = get_namespace_from_proc_metadata(),
     ?TRACE(
         "SUBSCRIBE",
         "subscribe",
@@ -148,19 +147,19 @@ subscribe(Topic, SubId, SubOpts) ->
             #{
                 topic => Topic, sub_opts => SubOpts, sub_id => SubId
             },
-            Ns
+            get_namespace_from_proc_metadata()
         )
     ).
 
 unsubscribe(<<"$SYS/", _/binary>>, _SubOpts) ->
     ignore;
 unsubscribe(Topic, SubOpts) ->
-    Ns = get_namespace_from_proc_metadata(),
     ?TRACE(
         "UNSUBSCRIBE",
         "unsubscribe",
         maybe_add_namespace(
-            #{topic => Topic, sub_opts => SubOpts}, Ns
+            #{topic => Topic, sub_opts => SubOpts},
+            get_namespace_from_proc_metadata()
         )
     ).
 
@@ -921,15 +920,6 @@ get_namespace_from_message(#message{headers = Headers}) ->
         _ ->
             undefined
     end.
-
-resolve_namespace([?global_ns | _]) ->
-    ?global_ns;
-resolve_namespace([Ns | _]) when is_binary(Ns) ->
-    Ns;
-resolve_namespace([_ | Rest]) ->
-    resolve_namespace(Rest);
-resolve_namespace([]) ->
-    ?global_ns.
 
 %% we don't add the namespace key if it's global to differentiate it from a namespaced
 %% called "global"
