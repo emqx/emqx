@@ -563,6 +563,53 @@ t_do_kick_session_keeps_alive_pid(_) ->
         exit(AlivePid, kill)
     end.
 
+%% The open_session throttle protects against a real race: a channel exited,
+%% its DOWN is queued at emqx_cm, the cm pool is about to unregister it. The
+%% chan-conn table still has its conn_mod row. Reconnect must wait.
+t_open_session_throttled_on_inflight_local_cleanup(_) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    ClientInfo = #{
+        zone => default,
+        listener => 'tcp:default',
+        clientid => ClientId,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1}
+    },
+    {DeadPid, MRef} = spawn_monitor(fun() -> exit(normal) end),
+    ChanInfo = ?ChanInfo,
+    #{conninfo := ConnInfo} = ChanInfo,
+    ?assertReceive({'DOWN', MRef, process, DeadPid, _}),
+    ok = emqx_cm:register_channel(ClientId, DeadPid, ChanInfo#{conn_mod => emqx_connection}),
+    ?assertEqual({error, client_id_unavailable}, open_session(true, ClientInfo, ConnInfo)),
+    %% Idempotent cleanup in case cm pool didn't get there first.
+    ok = emqx_cm:do_unregister_channel({ClientId, DeadPid}).
+
+%% A stale local tombstone (registry row pointing at a dead pid that this
+%% node never registered) used to block the same clientid on this node
+%% forever: lookup_all_channels reports a local-down pid, throttle fires,
+%% no DOWN is ever queued, retry blocks again. The throttle must now
+%% recognize the row is stale (no chan-conn entry), reap it, and let the
+%% connect proceed. (open_session creates the session record; the new
+%% channel pid registers itself later via emqx_channel.)
+t_open_session_reaps_local_tombstone(_) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    ClientInfo = #{
+        zone => default,
+        listener => 'tcp:default',
+        clientid => ClientId,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1}
+    },
+    #{conninfo := ConnInfo} = ?ChanInfo,
+    {DeadPid, MRef} = spawn_monitor(fun() -> exit(normal) end),
+    ?assertReceive({'DOWN', MRef, process, DeadPid, _}),
+    ok = mria:dirty_write(?CHAN_REG_TAB, #channel{chid = ClientId, pid = DeadPid}),
+    ?assertEqual([DeadPid], emqx_cm_registry:lookup_all_channels(ClientId)),
+    ?assertMatch({ok, _}, open_session(true, ClientInfo, ConnInfo)),
+    %% Stale tombstone is gone; open_session does not register the new pid
+    %% (that happens later in the channel's connect handler).
+    ?assertEqual([], emqx_cm_registry:lookup_all_channels(ClientId)).
+
 spawn_dummy_chann(Mod, Count) ->
     #{conninfo := ConnInfo0} = ?ChanInfo,
     ConnInfo = ConnInfo0#{conn_mod => Mod},
