@@ -119,7 +119,7 @@ get_enabled_links() ->
 get_link(Name) ->
     find_link(Name, get_links()).
 
--spec get_link_raw(_Name :: binary()) -> emqx_config:raw_config().
+-spec get_link_raw(_Name :: binary()) -> emqx_config:raw_config() | undefined.
 get_link_raw(Name) ->
     find_link(Name, get_links_raw()).
 
