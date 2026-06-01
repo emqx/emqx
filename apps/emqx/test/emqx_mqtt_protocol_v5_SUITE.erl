@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -700,7 +701,16 @@ t_connack_assigned_clientid(Config) ->
 t_connack_client_id_unavailable(Config) ->
     ConnFun = ?config(conn_fun, Config),
     ClientId = atom_to_binary(?FUNCTION_NAME),
+    %% Simulate the race the throttle protects against: a local channel
+    %% just exited, its CHAN_CONN_TAB row is still present (cm pool hasn't
+    %% drained the cleanup yet), and the same client tries to reconnect.
+    %% We bypass emqx_cm:register_channel/3 to keep no monitor on DeadPid
+    %% so the cm pool never drains, and the throttle stays firing for the
+    %% duration of the test.
     DeadPid = spawn(fun() -> exit(normal) end),
+    true = ets:insert(?CHAN_CONN_TAB, #chan_conn{
+        pid = DeadPid, mod = emqx_connection, clientid = ClientId
+    }),
     ok = emqx_cm_registry:register_channel({ClientId, DeadPid}),
     WillTopic = iolist_to_binary([atom_to_binary(?FUNCTION_NAME), "/will"]),
     NotWillMsg = #message{topic = WillTopic, payload = <<"NotWillMsg">>},
@@ -724,7 +734,8 @@ t_connack_client_id_unavailable(Config) ->
             ConnAck
         )
     after
-        ok = emqx_cm_registry:unregister_channel({ClientId, DeadPid})
+        ok = emqx_cm_registry:unregister_channel({ClientId, DeadPid}),
+        true = ets:delete(?CHAN_CONN_TAB, DeadPid)
     end,
     %% Assert no will message is published for server_busy CONNACK reason
     emqx_broker:publish(NotWillMsg),
