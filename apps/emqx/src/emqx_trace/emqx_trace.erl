@@ -121,20 +121,47 @@
 
 publish(#message{topic = <<"$SYS/", _/binary>>}) ->
     ignore;
-publish(#message{from = From, topic = Topic, payload = Payload}) when
+publish(#message{from = From, topic = Topic, payload = Payload} = Msg) when
     is_binary(From); is_atom(From)
 ->
-    ?TRACE("PUBLISH", "publish_to", #{topic => Topic, payload => Payload}).
+    ?TRACE(
+        "PUBLISH",
+        "publish_to",
+        maybe_add_namespace(
+            #{topic => Topic, payload => Payload},
+            maybe
+                undefined ?= get_namespace_from_message(Msg),
+                undefined ?= get_namespace_from_proc_metadata(),
+                ?global_ns
+            end
+        )
+    ).
 
 subscribe(<<"$SYS/", _/binary>>, _SubId, _SubOpts) ->
     ignore;
 subscribe(Topic, SubId, SubOpts) ->
-    ?TRACE("SUBSCRIBE", "subscribe", #{topic => Topic, sub_opts => SubOpts, sub_id => SubId}).
+    ?TRACE(
+        "SUBSCRIBE",
+        "subscribe",
+        maybe_add_namespace(
+            #{
+                topic => Topic, sub_opts => SubOpts, sub_id => SubId
+            },
+            get_namespace_from_proc_metadata()
+        )
+    ).
 
 unsubscribe(<<"$SYS/", _/binary>>, _SubOpts) ->
     ignore;
 unsubscribe(Topic, SubOpts) ->
-    ?TRACE("UNSUBSCRIBE", "unsubscribe", #{topic => Topic, sub_opts => SubOpts}).
+    ?TRACE(
+        "UNSUBSCRIBE",
+        "unsubscribe",
+        maybe_add_namespace(
+            #{topic => Topic, sub_opts => SubOpts},
+            get_namespace_from_proc_metadata()
+        )
+    ).
 
 rendered_action_template(ActionID, RenderResult) when is_binary(ActionID) ->
     try emqx_resource:parse_channel_id(ActionID) of
@@ -877,6 +904,29 @@ filter_cli_handler(Names) ->
 
 now_second() ->
     os:system_time(second).
+
+get_namespace_from_proc_metadata() ->
+    case logger:get_process_metadata() of
+        #{tns := Ns} ->
+            Ns;
+        _ ->
+            undefined
+    end.
+
+get_namespace_from_message(#message{headers = Headers}) ->
+    case Headers of
+        #{client_attrs := #{?CLIENT_ATTR_NAME_TNS := Ns}} ->
+            Ns;
+        _ ->
+            undefined
+    end.
+
+%% we don't add the namespace key if it's global to differentiate it from a namespaced
+%% called "global"
+maybe_add_namespace(Log, Ns) when is_binary(Ns) ->
+    Log#{namespace => Ns};
+maybe_add_namespace(Log, _) ->
+    Log.
 
 %% Tests
 
