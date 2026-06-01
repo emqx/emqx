@@ -187,7 +187,7 @@ fields(app_response) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => "Unique and format by [a-zA-Z0-9-_]",
+                    desc => ?DESC("name_format"),
                     validator => fun ?MODULE:validate_name/1,
                     example => <<"EMQX-API-KEY-1">>
                 }
@@ -196,7 +196,7 @@ fields(app_response) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => "" "TODO:uses HMAC-SHA256 for signing." "",
+                    desc => ?DESC("api_key_desc"),
                     example => <<"a4697a5c75a769f6">>
                 }
             )},
@@ -204,19 +204,7 @@ fields(app_response) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc =>
-                        ""
-                        "An API secret is a simple encrypted string that identifies"
-                        ""
-                        ""
-                        "an application without any principal."
-                        ""
-                        ""
-                        "They are useful for accessing public data anonymously,"
-                        ""
-                        ""
-                        "and are used to associate API requests."
-                        "",
+                    desc => ?DESC("api_secret_desc"),
                     example => <<"MzAyMjk3ODMwMDk0NjIzOTUxNjcwNzQ0NzQ3MTE2NDYyMDI">>
                 }
             )},
@@ -224,7 +212,7 @@ fields(app_response) ->
             hoconsc:mk(
                 hoconsc:union([infinity, emqx_utils_calendar:epoch_second()]),
                 #{
-                    desc => "No longer valid datetime",
+                    desc => ?DESC("expired_at_desc"),
                     example => <<"2021-12-05T02:01:34.186Z">>,
                     required => false,
                     default => infinity
@@ -234,7 +222,7 @@ fields(app_response) ->
             hoconsc:mk(
                 emqx_utils_calendar:epoch_second(),
                 #{
-                    desc => "ApiKey create datetime",
+                    desc => ?DESC("created_at_desc"),
                     example => <<"2021-12-01T00:00:00.000Z">>
                 }
             )},
@@ -243,8 +231,8 @@ fields(app_response) ->
                 binary(),
                 #{example => <<"Note">>, required => false}
             )},
-        {enable, hoconsc:mk(boolean(), #{desc => "Enable/Disable", required => false})},
-        {expired, hoconsc:mk(boolean(), #{desc => "Expired", required => false})},
+        {enable, hoconsc:mk(boolean(), #{desc => ?DESC("enable_desc"), required => false})},
+        {expired, hoconsc:mk(boolean(), #{desc => ?DESC("expired_desc"), required => false})},
         {scopes,
             hoconsc:mk(
                 hoconsc:union([unset, hoconsc:array(binary())]),
