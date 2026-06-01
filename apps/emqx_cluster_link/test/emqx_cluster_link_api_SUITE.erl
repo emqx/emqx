@@ -368,6 +368,34 @@ t_crud(Config) ->
 
     ok.
 
+%% Verify that concurrent DELETEs get either `204` or `404` responses.
+t_concurrent_delete(Config) ->
+    Name = <<"concurrent-delete">>,
+    {201, _} = create_link(Name, link_params(), Config),
+
+    NRequests = 8,
+    Results = emqx_utils:pmap(
+        fun(_) -> delete_link(Name, Config) end,
+        lists:seq(1, NRequests)
+    ),
+    ?assertMatch(
+        [
+            %% Luckiest one gets `204`:
+            {204, _},
+            %% Rest get `404`; no `400`s or `500`s:
+            {404, _},
+            {404, _},
+            {404, _},
+            {404, _},
+            {404, _},
+            {404, _},
+            {404, _}
+        ],
+        lists:sort(Results)
+    ),
+
+    ?assertMatch({404, _}, get_link(Name, Config)).
+
 t_create_invalid(Config) ->
     Params = link_params(),
     EmptyName = <<>>,
