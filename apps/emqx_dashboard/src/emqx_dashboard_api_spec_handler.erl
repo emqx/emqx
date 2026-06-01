@@ -37,12 +37,10 @@ Endpoints:
 
 -behaviour(cowboy_rest).
 
-%% Same caveat as `emqx_dashboard:authorize/2`: `emqx_mgmt_auth:authorize/4`
-%% and `emqx_dashboard_admin:verify_token/3` have success typings dialyzer
-%% can't see through (the scope-check helper is marked `no_return`), so the
-%% `{ok, _} -> ok` clauses here look unreachable and the bearer branch
-%% looks like it never returns. Silence both warning classes on the auth
-%% helpers and their caller.
+%% Dialyzer narrows `emqx_mgmt_auth:authorize/4` and
+%% `emqx_dashboard_admin:verify_token/3` to error-only returns, so the
+%% `{ok, _} -> ok` clauses here look unreachable. Same workaround as
+%% `emqx_dashboard:api_key_authorize/4`.
 -dialyzer({nowarn_function, [init/2, authenticate/1, verify_bearer/2]}).
 
 -export([
