@@ -523,6 +523,46 @@ t_clientid_registration_throttled(_) ->
     ?assertEqual({error, client_id_unavailable}, open_session(true, ClientInfo, ConnInfo)),
     ok = emqx_cm:do_unregister_channel({ClientId, DeadPid}).
 
+%% Stale registry rows can survive a partition + autoheal (the unregister
+%% dirty_delete was on the loser side and got thrown away). When a kick or
+%% takeover-kick RPC subsequently lands on the node owning the dead pid,
+%% the local channel-conn table has no entry for it, so the handler used to
+%% return ok and leave the registry row behind. The handler must now delete
+%% the row so the duplicate doesn't persist.
+t_do_kick_session_cleans_stale_dead_pid(_) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    {DeadPid, MRef} = spawn_monitor(fun() -> exit(normal) end),
+    ?assertReceive({'DOWN', MRef, process, DeadPid, _}),
+    ok = mria:dirty_write(?CHAN_REG_TAB, #channel{chid = ClientId, pid = DeadPid}),
+    ?assertEqual([DeadPid], emqx_cm_registry:lookup_all_channels(ClientId)),
+    ok = emqx_cm:do_kick_session(discard, ClientId, DeadPid),
+    ?assertEqual([], emqx_cm_registry:lookup_all_channels(ClientId)).
+
+t_do_takeover_kick_session_cleans_stale_dead_pid(_) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    {DeadPid, MRef} = spawn_monitor(fun() -> exit(normal) end),
+    ?assertReceive({'DOWN', MRef, process, DeadPid, _}),
+    ok = mria:dirty_write(?CHAN_REG_TAB, #channel{chid = ClientId, pid = DeadPid}),
+    ?assertEqual([DeadPid], emqx_cm_registry:lookup_all_channels(ClientId)),
+    ok = emqx_cm:do_takeover_kick_session_v3(ClientId, DeadPid),
+    ?assertEqual([], emqx_cm_registry:lookup_all_channels(ClientId)).
+
+%% If the registry points at a still-living process that this node knows
+%% nothing about (no chan_conn entry), do NOT delete the row, since the
+%% process might be a real channel in some weird half-state.
+t_do_kick_session_keeps_alive_pid(_) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    AlivePid = erlang:spawn_link(fun() -> timer:sleep(60000) end),
+    try
+        ok = mria:dirty_write(?CHAN_REG_TAB, #channel{chid = ClientId, pid = AlivePid}),
+        ok = emqx_cm:do_kick_session(discard, ClientId, AlivePid),
+        ?assertEqual([AlivePid], emqx_cm_registry:lookup_all_channels(ClientId))
+    after
+        mria:dirty_delete_object(?CHAN_REG_TAB, #channel{chid = ClientId, pid = AlivePid}),
+        unlink(AlivePid),
+        exit(AlivePid, kill)
+    end.
+
 spawn_dummy_chann(Mod, Count) ->
     #{conninfo := ConnInfo0} = ?ChanInfo,
     ConnInfo = ConnInfo0#{conn_mod => Mod},

@@ -535,8 +535,7 @@ kick_session(ClientId, ChanPid) ->
 do_kick_session(Action, ClientId, ChanPid) when node(ChanPid) =:= node() ->
     case do_get_chann_conn_mod(ClientId, ChanPid) of
         undefined ->
-            %% already deregistered
-            ok;
+            ensure_stale_unregistered(ClientId, ChanPid);
         ConnMod when is_atom(ConnMod) ->
             %% NOTE: Ignoring any errors here.
             _ = request_stepdown(Action, ConnMod, ChanPid, ?T_KICK),
@@ -548,12 +547,24 @@ do_kick_session(Action, ClientId, ChanPid) when node(ChanPid) =:= node() ->
 do_takeover_kick_session_v3(ClientId, ChanPid) when node(ChanPid) =:= node() ->
     case do_get_chann_conn_mod(ClientId, ChanPid) of
         undefined ->
-            %% already deregistered
-            ok;
+            ensure_stale_unregistered(ClientId, ChanPid);
         ConnMod when is_atom(ConnMod) ->
             %% NOTE: Ignoring any errors here.
             _ = request_stepdown(takeover_kick, ConnMod, ChanPid, ?T_KICK),
             ok
+    end.
+
+%% The local channel-conn table has no entry for ChanPid.
+%% Either the channel never ran on this node (stale registry row from a
+%% lost dirty_delete during a partition + autoheal) or it exited and its
+%% unregister did not propagate. If the pid is no longer alive, delete the
+%% registry row so the cluster view converges; otherwise leave it alone.
+ensure_stale_unregistered(ClientId, ChanPid) ->
+    case erlang:is_process_alive(ChanPid) of
+        true ->
+            ok;
+        false ->
+            emqx_cm_registry:unregister_channel({ClientId, ChanPid})
     end.
 
 %% @private This function is shared for session `kick' and `discard' (as the first arg
