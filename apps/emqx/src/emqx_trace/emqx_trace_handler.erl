@@ -522,28 +522,67 @@ filter_ruleid(_Log, _FilterCtx) ->
 -spec filter_clientid(logger:log_event(), #filterctx{}) -> logger:log_event() | stop.
 filter_clientid(
     #{meta := Meta = #{clientid := ClientId}} = Log,
-    #filterctx{match = MatchId}
+    #filterctx{match = MatchId, namespace = Namespace}
 ) ->
+    LogNamespace = maps:get(namespace, Meta, ?global_ns),
     ClientIDs = maps:get(client_ids, Meta, #{}),
-    IsMatch = (ClientId =:= MatchId) orelse maps:get(MatchId, ClientIDs, false),
-    filter_ret(IsMatch andalso is_trace(Meta), Log);
+    IsMatch =
+        %% If trace was created by global admin, it can see all events.
+        %% Otherwise, it matches only on events from its own namespace.
+        (Namespace =:= ?global_ns orelse LogNamespace =:= Namespace) andalso
+            %% Check if clientids match.
+            ((ClientId =:= MatchId) orelse maps:get(MatchId, ClientIDs, false)) andalso
+            %% Check if should trace
+            is_trace(Meta),
+    filter_ret(IsMatch, Log);
 filter_clientid(
     #{meta := Meta = #{client_ids := ClientIDs}} = Log,
-    #filterctx{match = MatchId}
+    #filterctx{match = MatchId, namespace = Namespace}
 ) ->
-    filter_ret(maps:get(MatchId, ClientIDs, false) andalso is_trace(Meta), Log);
+    LogNamespace = maps:get(namespace, Meta, ?global_ns),
+    IsMatch =
+        %% If trace was created by global admin, it can see all events.
+        %% Otherwise, it matches only on events from its own namespace.
+        (Namespace =:= ?global_ns orelse LogNamespace =:= Namespace) andalso
+            %% Check if clientids match.
+            maps:get(MatchId, ClientIDs, false) andalso
+            %% Check if should trace
+            is_trace(Meta),
+    filter_ret(IsMatch, Log);
 filter_clientid(_Log, _FilterCtx) ->
     stop.
 
 -spec filter_topic(logger:log_event(), #filterctx{}) -> logger:log_event() | stop.
-filter_topic(#{meta := Meta = #{topic := Topic}} = Log, #filterctx{match = TopicFilter}) ->
-    filter_ret(is_trace(Meta) andalso emqx_topic:match(Topic, TopicFilter), Log);
+filter_topic(#{meta := Meta = #{topic := Topic}} = Log, #filterctx{
+    match = TopicFilter, namespace = Namespace
+}) ->
+    LogNamespace = maps:get(namespace, Meta, ?global_ns),
+    IsMatch =
+        %% If trace was created by global admin, it can see all events.
+        %% Otherwise, it matches only on events from its own namespace.
+        (Namespace =:= ?global_ns orelse LogNamespace =:= Namespace) andalso
+            %% Check if should trace
+            is_trace(Meta) andalso
+            %% Check if topic matches filter
+            emqx_topic:match(Topic, TopicFilter),
+    filter_ret(IsMatch, Log);
 filter_topic(_Log, _FilterCtx) ->
     stop.
 
 -spec filter_ip_address(logger:log_event(), #filterctx{}) -> logger:log_event() | stop.
-filter_ip_address(#{meta := Meta = #{peername := Peername}} = Log, #filterctx{match = IP}) ->
-    filter_ret(is_trace(Meta) andalso lists:prefix(IP, Peername), Log);
+filter_ip_address(#{meta := Meta = #{peername := Peername}} = Log, #filterctx{
+    match = IP, namespace = Namespace
+}) ->
+    LogNamespace = maps:get(namespace, Meta, ?global_ns),
+    IsMatch =
+        %% If trace was created by global admin, it can see all events.
+        %% Otherwise, it matches only on events from its own namespace.
+        (Namespace =:= ?global_ns orelse LogNamespace =:= Namespace) andalso
+            %% Check if should trace
+            is_trace(Meta) andalso
+            %% Check if ip matches
+            lists:prefix(IP, Peername),
+    filter_ret(IsMatch, Log);
 filter_ip_address(_Log, _FilterCtx) ->
     stop.
 
