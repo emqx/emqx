@@ -111,7 +111,8 @@ idle(out, Msg, Transport) ->
     Timeout = ?ACK_TIMEOUT + rand:uniform(?ACK_RANDOM_FACTOR),
     out(Msg, #{
         next => wait_ack,
-        transport => Transport#transport{cache = Msg},
+        %% RFC 7252 Section 4.2: initialize retransmission timeout for ACK handling.
+        transport => Transport#transport{cache = Msg, retry_interval = Timeout},
         timeouts => [
             {state_timeout, Timeout, ack_timeout},
             {stop_timeout, ?EXCHANGE_LIFETIME}
@@ -162,7 +163,11 @@ maybe_reset(
             reset(Message, Ret)
     end.
 
-wait_ack(in, #coap_message{type = Type, method = Method} = Msg, #transport{req_context = Ctx}) ->
+wait_ack(
+    in,
+    #coap_message{type = Type, method = Method} = Msg,
+    #transport{req_context = Ctx, cache = Cache}
+) ->
     CtxMsg = {Ctx, Msg},
     case Type of
         reset ->
@@ -170,8 +175,14 @@ wait_ack(in, #coap_message{type = Type, method = Method} = Msg, #transport{req_c
         _ ->
             case Method of
                 undefined ->
-                    %% empty ack, keep transport to recv response
-                    proto_out({ack, CtxMsg});
+                    case is_response(Cache) of
+                        true ->
+                            %% Empty ACK completes a CON response/notification sent by this server.
+                            proto_out({ack, CtxMsg}, #{next => stop});
+                        false ->
+                            %% Empty ACK for a CON request keeps transport waiting for separate response.
+                            proto_out({ack, CtxMsg})
+                    end;
                 {_, _} ->
                     %% ack with payload
                     proto_out({response, CtxMsg}, #{next => stop});
@@ -202,7 +213,7 @@ wait_ack(
                 }
             );
         _ ->
-            proto_out({ack_failure, Msg}, #{next_state => stop})
+            proto_out({ack_failure, Msg}, #{next => stop})
     end.
 
 observe(
@@ -256,3 +267,8 @@ on_response(
         true ->
             emqx_coap_message:reset(Message)
     end.
+
+is_response(#coap_message{method = {_, _}}) ->
+    true;
+is_response(_) ->
+    false.
