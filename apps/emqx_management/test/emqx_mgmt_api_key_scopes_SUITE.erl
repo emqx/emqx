@@ -38,7 +38,8 @@ groups() ->
             t_all_modules_have_scopes,
             t_all_endpoints_covered_by_scopes,
             t_init_cache_no_missing_path_warnings,
-            t_public_paths_not_in_cache
+            t_public_paths_not_in_cache,
+            t_wildcard_does_not_claim_public_path
         ]},
         {integration_tests, [parallel], [
             t_authorize_with_scopes,
@@ -219,6 +220,7 @@ t_all_modules_have_scopes(_Config) ->
     AllValidScopes =
         [N || #{name := N} <- emqx_scope_catalog:scope_catalog()] ++
             [?SCOPE_DENIED] ++
+            [?SCOPE_PUBLIC] ++
             ?LOGIN_ONLY_SCOPES,
     maps:foreach(
         fun(Path, Scope) ->
@@ -315,9 +317,17 @@ safe_paths(M) ->
     end.
 
 -doc """
-?SCOPE_PUBLIC paths must NOT be inserted into the runtime cache --
-they keep the unmapped/fail-open semantics that production already
-relies on for /login and friends.
+?SCOPE_PUBLIC paths must keep the unmapped/fail-open semantics that
+production already relies on for `/login' and friends: `path_to_scope/1'
+must return `undefined' for these paths so the runtime authorisation
+layer treats them as unscoped.
+
+The cache itself MAY carry ?SCOPE_PUBLIC sentinel values internally
+(this is how exact-match lookup distinguishes "intentionally public"
+from "genuinely unmapped" and stops sibling wildcard templates from
+claiming a public endpoint -- see `t_wildcard_does_not_claim_public_path').
+The user-visible invariant being asserted here is the `path_to_scope/1'
+return value, not the cache representation.
 """.
 t_public_paths_not_in_cache(_Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),
@@ -337,6 +347,63 @@ t_public_paths_not_in_cache(_Config) ->
         end,
         PublicPaths
     ),
+    emqx_mgmt_api_key_scopes:clear_cache().
+
+-doc """
+Regression: a path explicitly marked ?SCOPE_PUBLIC must NOT be
+claimed by a sibling wildcard template at scope-lookup time.
+
+Concrete example: `/sso/running' is declared ?SCOPE_PUBLIC, while
+the sibling template `/sso/:backend' is mapped to `sso_management'.
+Without the sentinel-in-cache fix, segment-wise match would let the
+wildcard absorb the public path and `path_to_scope(<<"/sso/running">>)'
+would return `sso_management', collapsing defense-in-depth (the
+runtime auth layer separately bypasses the scope check via
+`security => []' on these endpoints, but the catalog itself was
+incorrect).
+
+This test asserts the catalog stays honest:
+  * every declared ?SCOPE_PUBLIC path resolves to `undefined' via
+    `path_to_scope/1';
+  * sibling wildcard templates still resolve correctly for genuine
+    parameterised requests (e.g. `/sso/oidc' -> `sso_management').
+""".
+t_wildcard_does_not_claim_public_path(_Config) ->
+    emqx_mgmt_api_key_scopes:init_cache(),
+    Modules = emqx_mgmt_api_key_scopes:find_api_modules(),
+    PublicPaths = collect_public_paths(Modules),
+    ?assert(PublicPaths =/= [], "no ?SCOPE_PUBLIC paths declared -- test now vacuous"),
+    %% Every public path resolves to `undefined', even though the
+    %% cache may contain sibling wildcard templates that would have
+    %% claimed them by segment match.
+    lists:foreach(
+        fun(Path) ->
+            ?assertEqual(
+                undefined,
+                emqx_mgmt_api_key_scopes:path_to_scope(Path),
+                lists:flatten(
+                    io_lib:format(
+                        "public path ~s wrongly claimed by a sibling wildcard template",
+                        [Path]
+                    )
+                )
+            )
+        end,
+        PublicPaths
+    ),
+    %% Sibling wildcard templates still resolve for genuine
+    %% parameterised paths: `/sso/<some-backend>' must map to
+    %% sso_management even though the sibling `/sso/running' is
+    %% public.
+    case lists:member(<<"/sso/running">>, PublicPaths) of
+        true ->
+            ?assertEqual(
+                <<"sso_management">>,
+                emqx_mgmt_api_key_scopes:path_to_scope(<<"/sso/oidc">>)
+            );
+        false ->
+            ok
+    end,
     emqx_mgmt_api_key_scopes:clear_cache().
 
 collect_public_paths(Modules) ->

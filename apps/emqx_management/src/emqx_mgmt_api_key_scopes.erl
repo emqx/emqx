@@ -82,6 +82,11 @@ lookup_path(Path, PathMap) ->
     case maps:get(Path, PathMap, undefined) of
         undefined ->
             match_template(Path, PathMap);
+        ?SCOPE_PUBLIC ->
+            %% Exact-match hit on a path explicitly declared public.
+            %% Surface `undefined' so callers treat it as unmapped
+            %% (fail-open) instead of accidentally enforcing a scope.
+            undefined;
         Scope ->
             Scope
     end.
@@ -90,6 +95,13 @@ lookup_path(Path, PathMap) ->
 %% segments match the request path. Concrete path segments must equal
 %% template segments verbatim except where the template segment starts
 %% with `:' (path parameter), which matches any single segment.
+%%
+%% Entries whose value is ?SCOPE_PUBLIC are skipped: they are kept in
+%% the cache as sentinels (so exact-match lookup can distinguish
+%% "intentionally public" from "genuinely unmapped"), but they must
+%% not claim a sibling concrete path via wildcard segment match.
+%% Without this skip, e.g. `/sso/running' (public) would be claimed
+%% by the sibling template `/sso/:backend' (sso_management).
 %%
 %% Match cost is O(n*m) where n is the number of templates and m is
 %% the average path depth. The cache is small (~250 entries) and this
@@ -104,6 +116,8 @@ match_template_iter(PathSegs, Iter) ->
     case maps:next(Iter) of
         none ->
             undefined;
+        {_Tmpl, ?SCOPE_PUBLIC, Iter1} ->
+            match_template_iter(PathSegs, Iter1);
         {Tmpl, Scope, Iter1} ->
             case segments_match(PathSegs, split_segments(Tmpl)) of
                 true -> Scope;
@@ -310,10 +324,19 @@ collect_paths_with_scope(_Module, Paths, ScopeName, Acc) when is_binary(ScopeNam
     );
 collect_paths_with_scope(Module, Paths, ScopeMap, Acc) when is_map(ScopeMap) ->
     %% Map form: per-path scope assignment. The sentinel ?SCOPE_PUBLIC
-    %% acknowledges that a path is intentionally unscoped (pre-login
-    %% entry points and static catalog endpoints), so it is not added
-    %% to the cache and no warning is emitted. Genuinely missing paths
-    %% still warn.
+    %% marks paths that are intentionally unscoped (pre-login entry
+    %% points and static catalog endpoints). Such paths ARE inserted
+    %% into the cache, carrying ?SCOPE_PUBLIC as the value, so that:
+    %%
+    %%   * exact-match lookup can distinguish "explicitly public" from
+    %%     "genuinely unmapped" and return `undefined' for the former
+    %%     (preventing a sibling wildcard template from silently
+    %%     claiming an endpoint the module owner declared public); and
+    %%   * the template iterator can skip these entries when doing
+    %%     segment matching, so e.g. `/sso/:backend' does not absorb
+    %%     `/sso/running'.
+    %%
+    %% Genuinely missing paths still warn.
     lists:foldl(
         fun(Path, InnerAcc) ->
             PathBin = path_to_binary(Path),
@@ -326,7 +349,7 @@ collect_paths_with_scope(Module, Paths, ScopeMap, Acc) when is_map(ScopeMap) ->
                     }),
                     InnerAcc;
                 ?SCOPE_PUBLIC ->
-                    InnerAcc;
+                    InnerAcc#{PathBin => ?SCOPE_PUBLIC};
                 ScopeName ->
                     InnerAcc#{PathBin => ScopeName}
             end
