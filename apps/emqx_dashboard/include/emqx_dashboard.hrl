@@ -54,7 +54,7 @@
 
 %% admin_override values: admin's explicit decision to override the SSO
 %% backend force_mfa policy for a specific user. undefined / field
-%% absent means "no override — follow snapshot".
+%% absent means "no override — fall back to backend's live force_mfa".
 -define(ADMIN_MFA_REQUIRED, mfa_required).
 -define(ADMIN_MFA_EXEMPTED, mfa_exempted).
 

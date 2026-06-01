@@ -415,11 +415,13 @@ clear_login_lock2(Username) ->
 %%
 %%   scopes :: [binary()]
 %%     Login user's scope list. undefined (key absent) means "fall
-%%     back to role default" — administrator gets implicit full
-%%     access; viewer/publisher get implicit empty (no new-scope
-%%     privileges). Explicit [] means "all mapped paths denied,
-%%     unmapped paths still allowed" (consistent with API key empty
-%%     scope semantics).
+%%     back to role default":
+%%       * administrator → ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES
+%%                          (full catalog including login-only scopes)
+%%       * viewer/publisher → ?GENERIC_SCOPES
+%%                          (all management scopes, no login-only)
+%%     Explicit [] means "all mapped paths denied, unmapped paths
+%%     still allowed" (consistent with API key empty scope semantics).
 
 -type admin_override() :: undefined | ?ADMIN_MFA_REQUIRED | ?ADMIN_MFA_EXEMPTED.
 
