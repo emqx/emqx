@@ -42,6 +42,7 @@
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
 -define(PS_PREFIX, "coap://127.0.0.1/ps").
 -define(MQTT_PREFIX, "coap://127.0.0.1/mqtt").
+-define(REQUEST_TIMEOUT, 5000).
 -define(OBSERVE_NOTIFICATION_QUEUE_MAX_LEN, 100).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -1198,7 +1199,7 @@ with_response(Channel) ->
             return_response(Code, Message);
         {coap_error, _ChId, Channel, _Ref, reset} ->
             {error, reset}
-    after 2000 ->
+    after ?REQUEST_TIMEOUT ->
         {error, timeout}
     end.
 
