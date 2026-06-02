@@ -23,6 +23,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_utils/include/emqx_utils_api.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 
 -export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 
@@ -344,31 +345,39 @@ data_files(get, #{query_string := PageParams}) ->
             {200, #{data => Data, meta => Pager#{count => Count, hasnext => HasNext}}}
     end.
 
-data_file_by_name(Method, #{bindings := #{filename := Filename}, query_string := QS}) ->
+data_file_by_name(get, #{bindings := #{filename := Filename}, query_string := QS} = Req) ->
+    case is_global_admin(auth_meta(Req)) of
+        false ->
+            {403, #{code => ?FORBIDDEN, message => download_forbidden_msg()}};
+        true ->
+            case safe_parse_node(QS) of
+                {error, Msg} ->
+                    {400, #{code => ?BAD_REQUEST, message => Msg}};
+                Node ->
+                    handle_file_op_response(get_or_delete_file(get, Filename, Node))
+            end
+    end;
+data_file_by_name(delete, #{bindings := #{filename := Filename}, query_string := QS}) ->
     case safe_parse_node(QS) of
         {error, Msg} ->
             {400, #{code => ?BAD_REQUEST, message => Msg}};
         Node ->
-            case get_or_delete_file(Method, Filename, Node) of
-                {error, not_found} ->
-                    {404, #{
-                        code => ?NOT_FOUND, message => emqx_mgmt_data_backup:format_error(not_found)
-                    }};
-                ok ->
-                    ?NO_CONTENT;
-                {ok, BinContents} ->
-                    {200, #{<<"content-type">> => <<"application/octet-stream">>}, BinContents};
-                {error, Reason} ->
-                    {400, #{
-                        code => ?BAD_REQUEST, message => emqx_mgmt_data_backup:format_error(Reason)
-                    }};
-                {badrpc, Reason} ->
-                    {500, #{
-                        code => ?SERVICE_UNAVAILABLE(Reason),
-                        message => emqx_mgmt_data_backup:format_error(Reason)
-                    }}
-            end
+            handle_file_op_response(get_or_delete_file(delete, Filename, Node))
     end.
+
+handle_file_op_response({error, not_found}) ->
+    {404, #{code => ?NOT_FOUND, message => emqx_mgmt_data_backup:format_error(not_found)}};
+handle_file_op_response(ok) ->
+    ?NO_CONTENT;
+handle_file_op_response({ok, BinContents}) ->
+    {200, #{<<"content-type">> => <<"application/octet-stream">>}, BinContents};
+handle_file_op_response({error, Reason}) ->
+    {400, #{code => ?BAD_REQUEST, message => emqx_mgmt_data_backup:format_error(Reason)}};
+handle_file_op_response({badrpc, Reason}) ->
+    {500, #{
+        code => ?SERVICE_UNAVAILABLE(Reason),
+        message => emqx_mgmt_data_backup:format_error(Reason)
+    }}.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -413,6 +422,30 @@ check_no_sensitive_tables(Filename, AuthMeta) ->
                 {error, Reason} -> {peek_error, Reason}
             end
     end.
+
+%% Stored backups can contain `dashboard_users' / `api_keys' mnesia tables
+%% (salted password hashes, API-key records). The download path returns the
+%% raw archive bytes without inspecting them, so any caller able to GET
+%% /data/files/:filename can exfiltrate that content offline. The cheap and
+%% correct fix is to gate the download on the dashboard administrator role:
+%%   - dashboard viewers may still list (so they see what exists in the
+%%     backup directory) but cannot download;
+%%   - API-key callers (any scope) fall in the same bucket -- the export
+%%     they trigger is already filtered to remove the sensitive tables, but
+%%     they have no way to download a globally-produced archive.
+%% No archive content inspection is performed: peeking every archive would
+%% pay a tar-table cost per request and still has to make the same role
+%% decision when sensitive content is present.
+download_forbidden_msg() ->
+    <<
+        "Only the dashboard administrator may download backup files. "
+        "Backups may contain dashboard accounts and API key records."
+    >>.
+
+is_global_admin(#{auth_type := jwt_token, role := ?ROLE_SUPERUSER}) ->
+    true;
+is_global_admin(_) ->
+    false.
 
 get_or_delete_file(get, Filename, Node) ->
     emqx_mgmt_data_backup_proto_v1:read_file(Node, Filename, infinity);
