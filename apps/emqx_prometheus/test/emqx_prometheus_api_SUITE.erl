@@ -347,7 +347,47 @@ t_stats_auth_api(_) ->
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Headers = [Auth | accept_json_header()],
     request_stats(Headers, Auth),
+    {ok, _} = emqx:update_config([prometheus, enable_basic_auth], false),
+    ok = emqx_dashboard_dispatch:regenerate_dispatch(Started),
     ok.
+
+-doc """
+Verify the secure-by-default behavior introduced in 6.3.0: with
+`enable_basic_auth` set to its schema default `true`, unauthenticated requests
+to `/api/v5/prometheus/stats` are rejected with 401, and the same request
+succeeds when authenticated or after the operator explicitly opts out by
+setting `enable_basic_auth = false`.
+""".
+t_stats_default_basic_auth_enabled(_) ->
+    {ok, _} = emqx:update_config([prometheus, enable_basic_auth], true),
+    #{started := Started} = emqx_dashboard:listeners_status(),
+    ok = emqx_dashboard_dispatch:regenerate_dispatch(Started),
+    try
+        Path = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
+        ?assertMatch(
+            {error, {"HTTP/1.1", 401, _}},
+            emqx_mgmt_api_test_util:request_api(get, Path, "", accept_json_header())
+        ),
+        Auth = emqx_mgmt_api_test_util:auth_header_(),
+        {ok, AuthedBody} = emqx_mgmt_api_test_util:request_api(
+            get, Path, "", [Auth | accept_json_header()]
+        ),
+        ?assertMatch(#{<<"client">> := _}, emqx_utils_json:decode(AuthedBody)),
+        {ok, _} = emqx:update_config([prometheus, enable_basic_auth], false),
+        ok = emqx_dashboard_dispatch:regenerate_dispatch(Started),
+        {ok, NoAuthBody} = emqx_mgmt_api_test_util:request_api(
+            get, Path, "", accept_json_header()
+        ),
+        ?assertMatch(#{<<"client">> := _}, emqx_utils_json:decode(NoAuthBody))
+    after
+        case emqx:get_config([prometheus, enable_basic_auth], undefined) of
+            false ->
+                ok;
+            _ ->
+                {ok, _} = emqx:update_config([prometheus, enable_basic_auth], false),
+                ok = emqx_dashboard_dispatch:regenerate_dispatch(Started)
+        end
+    end.
 
 %% Simple smoke test for verifying reason code labels in `emqx_client_disconnected_reason'
 %% counter metric.

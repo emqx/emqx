@@ -36,7 +36,7 @@ fields(recommend_setting) ->
             ?HOCON(
                 boolean(),
                 #{
-                    default => false,
+                    default => true,
                     required => true,
                     importance => ?IMPORTANCE_HIGH,
                     desc => ?DESC(enable_basic_auth)
