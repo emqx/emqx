@@ -119,7 +119,7 @@ get_enabled_links() ->
 get_link(Name) ->
     find_link(Name, get_links()).
 
--spec get_link_raw(_Name :: binary()) -> emqx_config:raw_config().
+-spec get_link_raw(_Name :: binary()) -> emqx_config:raw_config() | undefined.
 get_link_raw(Name) ->
     find_link(Name, get_links_raw()).
 
@@ -181,6 +181,8 @@ create_link(LinkConfig) ->
         {ok, #{raw_config := NewConfigRows}} ->
             NewLinkConfig = find_link(Name, NewConfigRows),
             {ok, NewLinkConfig};
+        {error, {pre_config_update, ?MODULE, Reason}} ->
+            {error, Reason};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -195,6 +197,8 @@ delete_link(Name) ->
     of
         {ok, _} ->
             ok;
+        {error, {pre_config_update, ?MODULE, Reason}} ->
+            {error, Reason};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -211,6 +215,8 @@ update_link(LinkConfig) ->
         {ok, #{raw_config := NewConfigRows}} ->
             NewLinkConfig = find_link(Name, NewConfigRows),
             {ok, NewLinkConfig};
+        {error, {pre_config_update, ?MODULE, Reason}} ->
+            {error, Reason};
         {error, Reason} ->
             {error, Reason}
     end.
