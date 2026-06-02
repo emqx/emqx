@@ -441,9 +441,9 @@ merge_acc_with_bridges(Mode, Id, BridgeMetrics, PointsAcc) ->
         BridgeMetrics
     ).
 
-get_action_status(#{resource_data := ResourceData} = _Action) ->
-    Enable = emqx_utils_maps:deep_get([config, enable], ResourceData),
-    Status = ?MG(status, ResourceData),
+get_action_status(#{raw_config := RawConfig, resource_data := ResourceData} = _Action) ->
+    Enable = maps:get(<<"enable">>, RawConfig, true),
+    Status = maps:get(status, ResourceData, disconnected),
     #{
         emqx_action_enable => emqx_prometheus_cluster:boolean_to_number(Enable),
         emqx_action_status => emqx_prometheus_cluster:status_to_number(Status)
