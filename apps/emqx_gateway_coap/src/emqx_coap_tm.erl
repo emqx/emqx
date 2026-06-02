@@ -26,7 +26,9 @@
     seq_id :: seq_id(),
     id :: state_machine_key(),
     token :: token() | undefined,
+    token_key :: token_key() | undefined,
     observe :: 0 | 1 | undefined | observed,
+    observe_notification = false :: boolean(),
     state :: atom(),
     timers :: map(),
     transport :: emqx_coap_transport:transport()
@@ -248,10 +250,25 @@ process_timeouts(
     ),
     iter(Iter, Result, Machine#state_machine{timers = NewTimers}, TM).
 
-process_manager(stop, Result, #state_machine{seq_id = SeqId}, TM) ->
-    Result#{tm => delete_machine(SeqId, TM)};
+process_manager(
+    stop,
+    Result,
+    #state_machine{seq_id = SeqId, observe_notification = ObserveNotification} = Machine,
+    TM
+) ->
+    Result2 = maybe_mark_observe_notification_done(ObserveNotification, Machine, Result),
+    Result2#{tm => delete_machine(SeqId, TM)};
 process_manager(_, Result, #state_machine{seq_id = SeqId} = Machine2, TM) ->
     Result#{tm => TM#{SeqId => Machine2}}.
+
+maybe_mark_observe_notification_done(true, #state_machine{token = Token}, Result) ->
+    Result#{
+        observe_notification_done => maps:get(observe_notification_done, Result, 0) + 1,
+        observe_notification_done_tokens =>
+            [Token | maps:get(observe_notification_done_tokens, Result, [])]
+    };
+maybe_mark_observe_notification_done(false, _Machine, Result) ->
+    Result.
 
 cancel_state_timer(#state_machine{timers = Timers} = Machine) ->
     case maps:get(state_timer, Timers, undefined) of
@@ -274,7 +291,7 @@ delete_machine(Id, Manager) ->
         #state_machine{
             seq_id = SeqId,
             id = MachineId,
-            token = Token,
+            token_key = TokenKey,
             timers = Timers
         } ->
             lists:foreach(
@@ -283,7 +300,12 @@ delete_machine(Id, Manager) ->
                 end,
                 maps:to_list(Timers)
             ),
-            maps:without([SeqId, MachineId, ?TOKEN_ID(Token)], Manager)
+            DeleteKeys =
+                case TokenKey of
+                    undefined -> [SeqId, MachineId];
+                    _ -> [SeqId, MachineId, TokenKey]
+                end,
+            maps:without(DeleteKeys, Manager)
     end.
 
 -spec find_machine(manager_key(), manager()) -> state_machine() | undefined.
@@ -337,15 +359,18 @@ new_in_machine(MachineId, #{seq_id := SeqId} = Manager) ->
 new_out_machine(
     MachineId,
     Ctx,
-    #coap_message{type = Type, token = Token, options = Opts},
+    #coap_message{type = Type, token = Token, options = Opts} = Msg,
     #{seq_id := SeqId} = Manager
 ) ->
     Observe = maps:get(observe, Opts, undefined),
+    IsObserveNotification = is_observe_notification(Msg),
+    ObserveNotification = is_confirmable_observe_notification(Msg),
     Machine = #state_machine{
         seq_id = SeqId,
         id = MachineId,
         token = Token,
         observe = Observe,
+        observe_notification = ObserveNotification,
         state = idle,
         timers = #{},
         transport = emqx_coap_transport:new(Ctx)
@@ -353,27 +378,37 @@ new_out_machine(
 
     Manager2 = Manager#{
         seq_id := SeqId + 1,
-        SeqId => Machine,
         MachineId => SeqId
     },
-    {Machine,
+    {Machine1, Manager3} =
         if
             Token =:= <<>> ->
-                Manager2;
-            Observe =:= 1 ->
+                {Machine, Manager2};
+            Observe =:= 1 andalso not IsObserveNotification ->
                 TokenId = ?TOKEN_ID(Token),
-                delete_machine(TokenId, Manager2);
-            Type =:= con orelse Observe =:= 0 ->
+                {Machine, delete_machine(TokenId, Manager2)};
+            Type =:= con orelse (Observe =:= 0 andalso not IsObserveNotification) ->
                 TokenId = ?TOKEN_ID(Token),
                 case maps:get(TokenId, Manager, undefined) of
                     undefined ->
-                        Manager2#{TokenId => SeqId};
+                        {Machine#state_machine{token_key = TokenId}, Manager2#{TokenId => SeqId}};
                     _ ->
                         throw("token conflict")
                 end;
             true ->
-                Manager2
-        end}.
+                {Machine, Manager2}
+        end,
+    {Machine1, Manager3#{SeqId => Machine1}}.
+
+is_observe_notification(#coap_message{method = {ok, _}} = Msg) ->
+    emqx_coap_message:get_option(observe, Msg, undefined) =/= undefined;
+is_observe_notification(_) ->
+    false.
+
+is_confirmable_observe_notification(#coap_message{type = con, method = {ok, _}} = Msg) ->
+    emqx_coap_message:get_option(observe, Msg, undefined) =/= undefined;
+is_confirmable_observe_notification(_) ->
+    false.
 
 alloc_message_id(#{next_msg_id := MsgId} = TM) ->
     alloc_message_id(MsgId, TM).
