@@ -56,6 +56,7 @@ scopes() ->
     #{
         "/prometheus" => ?SCOPE_SYSTEM,
         "/prometheus/auth" => ?SCOPE_MONITORING,
+        "/prometheus/namespaced_stats" => ?SCOPE_MONITORING,
         "/prometheus/stats" => ?SCOPE_MONITORING,
         "/prometheus/data_integration" => ?SCOPE_MONITORING,
         "/prometheus/schema_validation" => ?SCOPE_MONITORING,
