@@ -27,6 +27,8 @@ services:
     image: ghcr.io/emqx/certgen:latest
     container_name: ssl_cert_gen
     user: "${DOCKER_USER:-root}"
+    environment:
+      CERTGEN_JKS_PREFIX: cassandra
     volumes:
       - /tmp/emqx-ci/emqx-shared-secret:/var/lib/secret
 

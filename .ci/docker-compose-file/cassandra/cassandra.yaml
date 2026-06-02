@@ -1047,11 +1047,11 @@ client_encryption_options:
     enabled: true
     # If enabled and optional is set to true encrypted and unencrypted connections are handled.
     optional: false
-    keystore: /certs/kafka.keystore.jks
+    keystore: /certs/cassandra.keystore.jks
     keystore_password: password
     require_client_auth: true
     # Set trustore and truststore_password if require_client_auth is true
-    truststore: /certs/kafka.truststore.jks
+    truststore: /certs/cassandra.truststore.jks
     truststore_password: password
     # More advanced defaults below:
     protocol: TLS
