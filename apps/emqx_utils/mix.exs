@@ -30,7 +30,8 @@ defmodule EMQXUtils.MixProject do
       :jiffy,
       :emqx_http_lib,
       :snabbkaffe,
-      :erlang_qq
+      :erlang_qq,
+      :hocon
     ])
   end
 
