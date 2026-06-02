@@ -27,6 +27,7 @@ defmodule EMQXPrometheus.MixProject do
   def deps() do
     UMP.deps([
       {:emqx, in_umbrella: true},
+      {:emqx_conf, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_auth, in_umbrella: true},
       {:emqx_management, in_umbrella: true},

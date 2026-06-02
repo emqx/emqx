@@ -11,6 +11,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 %% erlfmt-ignore
 -define(EMQX_CONF_CONFIG, <<"
@@ -165,7 +166,13 @@ init_per_group('/prometheus/stats', Config) ->
 init_per_group('/prometheus/auth', Config) ->
     [{module, emqx_prometheus_auth} | Config];
 init_per_group('/prometheus/data_integration', Config) ->
-    [{module, emqx_prometheus_data_integration} | Config];
+    [
+        {module, emqx_prometheus_data_integration},
+        {setup, fun() ->
+            emqx_prometheus_data_integration:put_namespace_pd(?global_ns)
+        end}
+        | Config
+    ];
 init_per_group('/prometheus/schema_validation', Config) ->
     [{module, emqx_prometheus_schema_validation} | Config];
 init_per_group('/prometheus/message_transformation', Config) ->
@@ -203,6 +210,10 @@ end_per_testcase(_, _Config) ->
 t_collect_prom_data(Config) ->
     CollectOpts = collect_opts(Config),
     Module = ?config(module, Config),
+    maybe
+        {setup, SetupFn} ?= lists:keyfind(setup, 1, Config),
+        SetupFn()
+    end,
     Response = emqx_prometheus_api:collect(Module, CollectOpts),
     assert_data(Module, Response, CollectOpts).
 
