@@ -13,6 +13,7 @@
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 
 -export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 
@@ -346,40 +347,58 @@ data_files(post, #{body := #{<<"filename">> := #{type := _} = File}}) ->
     end;
 data_files(post, #{body := _}) ->
     {400, #{code => ?BAD_REQUEST, message => ?DESC("missing_filename")}};
-data_files(get, #{query_string := PageParams}) ->
-    case emqx_mgmt_api:parse_pager_params(PageParams) of
-        false ->
-            {400, #{code => ?BAD_REQUEST, message => ?DESC("page_limit_invalid")}};
-        #{page := Page, limit := Limit} = Pager ->
-            {Count, HasNext, Data} = list_backup_files(Page, Limit),
-            {200, #{data => Data, meta => Pager#{count => Count, hasnext => HasNext}}}
+data_files(get, #{query_string := PageParams} = Req) ->
+    case forbid_non_global_admin(auth_meta(Req)) of
+        {forbidden, Msg} ->
+            {403, #{code => 'FORBIDDEN', message => Msg}};
+        ok ->
+            case emqx_mgmt_api:parse_pager_params(PageParams) of
+                false ->
+                    {400, #{code => ?BAD_REQUEST, message => ?DESC("page_limit_invalid")}};
+                #{page := Page, limit := Limit} = Pager ->
+                    {Count, HasNext, Data} = list_backup_files(Page, Limit),
+                    {200, #{data => Data, meta => Pager#{count => Count, hasnext => HasNext}}}
+            end
     end.
 
-data_file_by_name(Method, #{bindings := #{filename := Filename}, query_string := QS}) ->
+data_file_by_name(get = Method, #{bindings := #{filename := Filename}, query_string := QS} = Req) ->
     case safe_parse_node(QS) of
         {error, Msg} ->
             {400, #{code => ?BAD_REQUEST, message => Msg}};
         Node ->
-            case get_or_delete_file(Method, Filename, Node) of
-                {error, not_found} ->
-                    {404, #{
-                        code => ?NOT_FOUND, message => emqx_mgmt_data_backup:format_error(not_found)
+            case check_download_allowed(Filename, Node, auth_meta(Req)) of
+                {forbidden, Msg} ->
+                    {403, #{code => 'FORBIDDEN', message => Msg}};
+                {peek_error, Reason} ->
+                    {400, #{
+                        code => ?BAD_REQUEST,
+                        message => emqx_mgmt_data_backup:format_error(Reason)
                     }};
                 ok ->
-                    ?NO_CONTENT;
-                {ok, BinContents} ->
-                    {200, #{<<"content-type">> => <<"application/octet-stream">>}, BinContents};
-                {error, Reason} ->
-                    {400, #{
-                        code => ?BAD_REQUEST, message => emqx_mgmt_data_backup:format_error(Reason)
-                    }};
-                {badrpc, Reason} ->
-                    {500, #{
-                        code => ?SERVICE_UNAVAILABLE(Reason),
-                        message => emqx_mgmt_data_backup:format_error(Reason)
-                    }}
+                    handle_file_op_response(get_or_delete_file(Method, Filename, Node))
             end
+    end;
+data_file_by_name(delete = Method, #{bindings := #{filename := Filename}, query_string := QS}) ->
+    case safe_parse_node(QS) of
+        {error, Msg} ->
+            {400, #{code => ?BAD_REQUEST, message => Msg}};
+        Node ->
+            handle_file_op_response(get_or_delete_file(Method, Filename, Node))
     end.
+
+handle_file_op_response({error, not_found}) ->
+    {404, #{code => ?NOT_FOUND, message => emqx_mgmt_data_backup:format_error(not_found)}};
+handle_file_op_response(ok) ->
+    ?NO_CONTENT;
+handle_file_op_response({ok, BinContents}) ->
+    {200, #{<<"content-type">> => <<"application/octet-stream">>}, BinContents};
+handle_file_op_response({error, Reason}) ->
+    {400, #{code => ?BAD_REQUEST, message => emqx_mgmt_data_backup:format_error(Reason)}};
+handle_file_op_response({badrpc, Reason}) ->
+    {500, #{
+        code => ?SERVICE_UNAVAILABLE(Reason),
+        message => emqx_mgmt_data_backup:format_error(Reason)
+    }}.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -424,6 +443,73 @@ check_no_sensitive_tables(Filename, AuthMeta) ->
                 {error, Reason} -> {peek_error, Reason}
             end
     end.
+
+%% Stored backup download guard. The archive on disk may have been produced by
+%% a global administrator and contain `dashboard_users' / `api_keys' mnesia
+%% tables -- which would let a lower-privileged caller exfiltrate password
+%% hashes, MFA secrets and API key records by downloading and extracting it
+%% offline. Mirrors the import-side guard and additionally blocks dashboard
+%% viewer / namespaced administrator callers when the archive is sensitive.
+%% A clean archive (no sensitive tables) is still downloadable by any caller
+%% that already passed RBAC, provided the archive resides on the local node:
+%% peek runs locally only, so non-global-admins must hit the node where the
+%% file lives. This is the same locality constraint as the import-side guard
+%% and avoids freezing a new BPAPI proto version just for the cross-node peek.
+%% A `not_found' peek result on the local node is forwarded as `ok' so the
+%% downstream file read returns the canonical 404 instead of 400.
+check_download_allowed(Filename, Node, AuthMeta) ->
+    case is_global_admin(AuthMeta) of
+        true ->
+            ok;
+        false when Node =/= node() ->
+            {forbidden, <<
+                "Download refused: file lives on a remote node. "
+                "Only the global administrator can download a backup "
+                "from a remote node."
+            >>};
+        false ->
+            case emqx_mgmt_data_backup:peek_sensitive_table_sets(Filename) of
+                {ok, []} ->
+                    ok;
+                {ok, Sets} ->
+                    {forbidden, sensitive_download_msg(Sets)};
+                {error, not_found} ->
+                    ok;
+                {error, Reason} ->
+                    {peek_error, Reason}
+            end
+    end.
+
+%% GET /data/files listing is restricted to global administrators only:
+%%   - API key callers cannot download archives with sensitive tables, so
+%%     enumerating them serves no legitimate workflow.
+%%   - Dashboard viewers and namespaced administrators are similarly blocked
+%%     from the download path; allowing them to enumerate the backup
+%%     directory would still leak that an administrator-produced archive
+%%     exists.
+%% Restricting the listing endpoint avoids the per-archive `peek' cost we
+%% would otherwise pay on every list call.
+forbid_non_global_admin(AuthMeta) ->
+    case is_global_admin(AuthMeta) of
+        true ->
+            ok;
+        false ->
+            {forbidden, <<"Only the global administrator can list backup files">>}
+    end.
+
+sensitive_download_msg(Sets) ->
+    iolist_to_binary([
+        <<"Download refused: backup contains restricted tables: ">>,
+        lists:join(<<", ">>, Sets)
+    ]).
+
+is_global_admin(#{
+    auth_type := jwt_token,
+    actor := #{?role := ?ROLE_SUPERUSER, ?namespace := ?global_ns}
+}) ->
+    true;
+is_global_admin(_) ->
+    false.
 
 get_or_delete_file(get, Filename, Node) ->
     emqx_mgmt_data_backup_proto_v1:read_file(Node, Filename, infinity);
