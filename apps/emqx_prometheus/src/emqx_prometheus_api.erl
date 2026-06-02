@@ -379,7 +379,7 @@ recommend_setting_example() ->
     {Summary, #{
         summary => Summary,
         value => #{
-            enable_basic_auth => false,
+            enable_basic_auth => true,
             push_gateway => #{
                 interval => <<"15s">>,
                 method => put,
