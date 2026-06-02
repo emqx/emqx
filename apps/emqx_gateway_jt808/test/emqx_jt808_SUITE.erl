@@ -103,7 +103,10 @@ init_per_testcase(Case = t_case02_anonymous_register_and_auth, Config) ->
     [{suite_apps, Apps} | Config];
 init_per_testcase(Case, Config) when
     Case =:= t_create_ALLOW_invalid_auth_config;
-    Case =:= t_create_DISALLOW_invalid_auth_config
+    Case =:= t_create_DISALLOW_invalid_auth_config;
+    Case =:= t_create_ALLOW_empty_reg_url;
+    Case =:= t_create_ALLOW_omitted_reg_url;
+    Case =:= t_create_DISALLOW_empty_reg_url
 ->
     Apps = boot_apps(Case, <<>>, Config),
     [{suite_apps, Apps} | Config];
@@ -2835,6 +2838,74 @@ test_invalid_config(CreateOrUpdate, AnonymousAllowed) ->
         }},
         UpdateResult
     ).
+
+%% allow_anonymous=true with empty registry/authentication URLs should succeed
+t_create_ALLOW_empty_reg_url(_Config) ->
+    test_allow_empty_or_omitted_reg_url(create, empty).
+
+t_update_ALLOW_empty_reg_url(_Config) ->
+    test_allow_empty_or_omitted_reg_url(update, empty).
+
+%% allow_anonymous=true with omitted registry/authentication URLs should succeed
+t_create_ALLOW_omitted_reg_url(_Config) ->
+    test_allow_empty_or_omitted_reg_url(create, omitted).
+
+t_update_ALLOW_omitted_reg_url(_Config) ->
+    test_allow_empty_or_omitted_reg_url(update, omitted).
+
+%% allow_anonymous=false with empty registry/authentication URLs should fail
+t_create_DISALLOW_empty_reg_url(_Config) ->
+    test_disallow_empty_reg_url(create).
+
+t_update_DISALLOW_empty_reg_url(_Config) ->
+    test_disallow_empty_reg_url(update).
+
+test_allow_empty_or_omitted_reg_url(CreateOrUpdate, EmptyOrOmitted) ->
+    Config = raw_jt808_anonymous_config(EmptyOrOmitted),
+    Result = create_or_update(CreateOrUpdate, Config),
+    ?assertMatch({ok, _}, Result).
+
+test_disallow_empty_reg_url(CreateOrUpdate) ->
+    Config = raw_jt808_disallow_empty_config(),
+    Result = create_or_update(CreateOrUpdate, Config),
+    ?assertMatch(
+        {error, #{
+            kind := validation_error,
+            reason := matched_no_union_member,
+            path := "gateway.jt808.proto.auth"
+        }},
+        Result
+    ).
+
+%% allow_anonymous=true with empty string URLs
+raw_jt808_anonymous_config(empty) ->
+    AuthConfig = #{
+        <<"auth">> => #{
+            <<"allow_anonymous">> => true,
+            <<"registry">> => <<>>,
+            <<"authentication">> => <<>>
+        }
+    },
+    emqx_utils_maps:deep_merge(raw_jt808_config(), #{<<"proto">> => AuthConfig});
+%% allow_anonymous=true with URLs omitted entirely
+raw_jt808_anonymous_config(omitted) ->
+    AuthConfig = #{
+        <<"auth">> => #{
+            <<"allow_anonymous">> => true
+        }
+    },
+    emqx_utils_maps:deep_merge(raw_jt808_config(), #{<<"proto">> => AuthConfig}).
+
+%% allow_anonymous=false with empty string URLs (should fail validation)
+raw_jt808_disallow_empty_config() ->
+    AuthConfig = #{
+        <<"auth">> => #{
+            <<"allow_anonymous">> => false,
+            <<"registry">> => <<>>,
+            <<"authentication">> => <<>>
+        }
+    },
+    emqx_utils_maps:deep_merge(raw_jt808_config(), #{<<"proto">> => AuthConfig}).
 
 t_ignore_unsupported_frames_default(_Config) ->
     %% default value is true
