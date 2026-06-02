@@ -1,0 +1,45 @@
+emqx_scope_catalog {
+
+scope_connections.desc:
+"""Client connections, subscriptions, topics, banning, retained messages, file transfer, and delayed messages"""
+
+scope_publish.desc:
+"""MQTT message publishing"""
+
+scope_data_integration.desc:
+"""Rules, bridges, connectors, schema registry, schema validation, message transformation, ExHook, and AI completion"""
+
+scope_access_control.desc:
+"""Client authentication and authorization configuration"""
+
+scope_gateways.desc:
+"""Protocol gateways (CoAP, LwM2M, etc.) and their authentication, clients, and listeners"""
+
+scope_monitoring.desc:
+"""Metrics, monitoring, alarms, trace, slow subscriptions, telemetry, and Prometheus data endpoints"""
+
+scope_cluster_operations.desc:
+"""Cluster management, node operations, load rebalancing, node eviction, and multi-tenancy"""
+
+scope_system.desc:
+"""Core configuration, listeners, plugins, storage, backup, status, hot upgrade, Prometheus settings, and OpenTelemetry"""
+
+scope_audit.desc:
+"""Audit log query"""
+
+scope_license.desc:
+"""License management"""
+
+scope_user_management.desc:
+"""Manage dashboard users (create, update, delete, change other users' password)"""
+
+scope_mfa_management.desc:
+"""Manage MFA. For administrators: reset and re-key any user's MFA, override force_mfa and admin_override locks. For non-administrators: self-exemption only — bypass force_mfa / admin_override locks on the holder's own MFA"""
+
+scope_sso_management.desc:
+"""Configure SSO backends (LDAP, OIDC, SAML)"""
+
+scope_api_key_management.desc:
+"""Manage API keys (create, update, delete)"""
+
+}

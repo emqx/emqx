@@ -6,6 +6,14 @@ set -euo pipefail
 ##
 ## This is a source-level check (no compilation needed) suitable for
 ## CI sanity-checks that run before compilation.
+##
+## NOTE: This is an EXISTENCE check only. Per-path coverage of scopes/0
+## (every path in paths/0 has an entry in the scopes/0 map, or is
+## explicitly marked ?SCOPE_PUBLIC) is verified by
+## scripts/check-api-scope-coverage.escript -- run after compile in the
+## same CI job -- and by the CT case
+## t_init_cache_no_missing_path_warnings in
+## apps/emqx_management/test/emqx_mgmt_api_key_scopes_SUITE.erl.
 
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
