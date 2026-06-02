@@ -72,29 +72,26 @@ t_get_backup(Config) ->
     test_file_op(get, Config).
 
 t_list_backups(Config) ->
-    %% Exports continue to use the API-key auth (export endpoint is API-key
-    %% allowed); listing now requires the dashboard global administrator.
     Auth = ?config(auth, Config),
-    AdminAuth = ?config(dashboard_auth, Config),
 
     [{ok, _} = export_backup(?NODE1_PORT, Auth) || _ <- lists:seq(1, 10)],
     [{ok, _} = export_backup(?NODE2_PORT, Auth) || _ <- lists:seq(1, 10)],
 
-    {ok, RespBody} = list_backups(?NODE1_PORT, AdminAuth, <<"1">>, <<"100">>),
+    {ok, RespBody} = list_backups(?NODE1_PORT, Auth, <<"1">>, <<"100">>),
     #{<<"data">> := Data, <<"meta">> := #{<<"count">> := 20, <<"hasnext">> := false}} = emqx_utils_json:decode(
         RespBody
     ),
     ?assertEqual(20, length(Data)),
 
-    {ok, EmptyRespBody} = list_backups(?NODE2_PORT, AdminAuth, <<"2">>, <<"100">>),
+    {ok, EmptyRespBody} = list_backups(?NODE2_PORT, Auth, <<"2">>, <<"100">>),
     #{<<"data">> := EmptyData, <<"meta">> := #{<<"count">> := 20, <<"hasnext">> := false}} = emqx_utils_json:decode(
         EmptyRespBody
     ),
     ?assertEqual(0, length(EmptyData)),
 
-    {ok, RespBodyP1} = list_backups(?NODE3_PORT, AdminAuth, <<"1">>, <<"10">>),
-    {ok, RespBodyP2} = list_backups(?NODE3_PORT, AdminAuth, <<"2">>, <<"10">>),
-    {ok, RespBodyP3} = list_backups(?NODE3_PORT, AdminAuth, <<"3">>, <<"10">>),
+    {ok, RespBodyP1} = list_backups(?NODE3_PORT, Auth, <<"1">>, <<"10">>),
+    {ok, RespBodyP2} = list_backups(?NODE3_PORT, Auth, <<"2">>, <<"10">>),
+    {ok, RespBodyP3} = list_backups(?NODE3_PORT, Auth, <<"3">>, <<"10">>),
 
     #{<<"data">> := DataP1, <<"meta">> := #{<<"count">> := 20, <<"hasnext">> := true}} = emqx_utils_json:decode(
         RespBodyP1
@@ -365,109 +362,76 @@ t_import_dashboard_token_allows_sensitive_tables(Config) ->
     ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth, ?UPLOAD_CE_BACKUP)),
     ok.
 
-%% API keys must be rejected with 403 when downloading a backup that contains
-%% sensitive mnesia tables. The export/import guards alone would still allow
-%% the bytes out via GET /data/files/:filename without this check.
-t_download_api_key_blocks_sensitive_tables(Config) ->
+%% API-key callers (any scope) must be rejected with 403 when downloading any
+%% backup file. Backups can contain dashboard accounts and API-key records
+%% regardless of who produced them, so we gate the download on the global
+%% administrator role rather than inspect archive contents.
+t_download_api_key_forbidden(Config) ->
     ApiAuth = ?config(auth, Config),
-    upload_sensitive_backup(Config, ApiAuth),
-    {Status, Body} = download_backup(?NODE1_PORT, ApiAuth, ?UPLOAD_CE_BACKUP),
+    {200, #{<<"filename">> := Filename}} =
+        export_backup2(?NODE1_PORT, ApiAuth, #{}),
+    {Status, Body} = download_backup(?NODE1_PORT, ApiAuth, Filename),
     ?assertEqual(403, Status),
     ?assertMatch(#{<<"code">> := <<"FORBIDDEN">>}, Body),
     ok.
 
 %% Dashboard viewers (read-only role) must be rejected with 403 when
-%% downloading a backup that contains sensitive mnesia tables.
-t_download_viewer_blocks_sensitive_tables(Config) ->
+%% downloading a backup file.
+t_download_viewer_forbidden(Config) ->
     ApiAuth = ?config(auth, Config),
     ViewerAuth = ?config(viewer_auth, Config),
-    upload_sensitive_backup(Config, ApiAuth),
-    {Status, Body} = download_backup(?NODE1_PORT, ViewerAuth, ?UPLOAD_CE_BACKUP),
+    {200, #{<<"filename">> := Filename}} =
+        export_backup2(?NODE1_PORT, ApiAuth, #{}),
+    {Status, Body} = download_backup(?NODE1_PORT, ViewerAuth, Filename),
     ?assertEqual(403, Status),
     ?assertMatch(#{<<"code">> := <<"FORBIDDEN">>}, Body),
     ok.
 
 %% Namespaced administrators must be rejected with 403 when downloading a
-%% backup that contains sensitive mnesia tables. Namespace scoping does not
-%% extend to cross-namespace dashboard accounts and API keys, which would
-%% otherwise leak via a global backup.
-t_download_ns_admin_blocks_sensitive_tables(Config) ->
+%% backup file. Backups span all namespaces; downloading one would leak
+%% cross-namespace dashboard accounts and API-key records.
+t_download_ns_admin_forbidden(Config) ->
     ApiAuth = ?config(auth, Config),
     NsAdminAuth = ?config(ns_admin_auth, Config),
-    upload_sensitive_backup(Config, ApiAuth),
-    {Status, Body} = download_backup(?NODE1_PORT, NsAdminAuth, ?UPLOAD_CE_BACKUP),
+    {200, #{<<"filename">> := Filename}} =
+        export_backup2(?NODE1_PORT, ApiAuth, #{}),
+    {Status, Body} = download_backup(?NODE1_PORT, NsAdminAuth, Filename),
     ?assertEqual(403, Status),
     ?assertMatch(#{<<"code">> := <<"FORBIDDEN">>}, Body),
     ok.
 
-%% Global dashboard administrators must be able to download a sensitive
-%% archive. They produced the export and are the only role with the
-%% authority to handle its contents.
-t_download_global_admin_allows_sensitive_tables(Config) ->
+%% Global dashboard administrators must still be able to download a backup
+%% file. Without this regression the download path would be unreachable.
+t_download_global_admin_allowed(Config) ->
     ApiAuth = ?config(auth, Config),
     DashboardAuth = ?config(dashboard_auth, Config),
-    upload_sensitive_backup(Config, ApiAuth),
-    {Status, _Body} = download_backup(?NODE1_PORT, DashboardAuth, ?UPLOAD_CE_BACKUP),
-    ?assertEqual(200, Status),
-    ok.
-
-%% Regression: a clean archive (no sensitive tables) must still be
-%% downloadable by API-key callers. The download guard must not false-positive
-%% on archives whose tar manifest does not include the sensitive tables.
-t_download_api_key_allows_clean_archive(Config) ->
-    ApiAuth = ?config(auth, Config),
     {200, #{<<"filename">> := Filename}} =
         export_backup2(?NODE1_PORT, ApiAuth, #{}),
-    {Status, _Body} = download_backup(?NODE1_PORT, ApiAuth, Filename),
+    {Status, _Body} = download_backup(?NODE1_PORT, DashboardAuth, Filename),
     ?assertEqual(200, Status),
     ok.
 
-%% Regression: a clean archive (no sensitive tables) must still be
-%% downloadable by viewer dashboard accounts.
-t_download_viewer_allows_clean_archive(Config) ->
-    ApiAuth = ?config(auth, Config),
-    ViewerAuth = ?config(viewer_auth, Config),
-    {200, #{<<"filename">> := Filename}} =
-        export_backup2(?NODE1_PORT, ApiAuth, #{}),
-    {Status, _Body} = download_backup(?NODE1_PORT, ViewerAuth, Filename),
-    ?assertEqual(200, Status),
-    ok.
-
-%% Listing the stored backup directory is restricted to global administrators.
-%% API keys, viewers, and namespaced administrators cannot enumerate the
-%% backup directory because they cannot download a sensitive archive even
-%% knowing its name -- exposing the list would only leak that an
-%% administrator-produced archive exists.
-t_list_files_non_admin_forbidden(Config) ->
+%% Listing the backup directory remains open to dashboard viewers and
+%% namespaced administrators: the listing only exposes filenames / sizes /
+%% timestamps, not the archive contents. The download is the dangerous
+%% operation and is gated separately above.
+t_list_files_viewer_allowed(Config) ->
     ApiAuth = ?config(auth, Config),
     ViewerAuth = ?config(viewer_auth, Config),
     NsAdminAuth = ?config(ns_admin_auth, Config),
+    {ok, _} = export_backup(?NODE1_PORT, ApiAuth),
     lists:foreach(
         fun(Auth) ->
-            {Status, Body} = list_backups_status(?NODE1_PORT, Auth, <<"1">>, <<"100">>),
-            ?assertEqual(403, Status, #{auth => Auth}),
-            ?assertMatch(#{<<"code">> := <<"FORBIDDEN">>}, Body, #{auth => Auth})
+            {ok, _} = list_backups(?NODE1_PORT, Auth, <<"1">>, <<"100">>)
         end,
-        [ApiAuth, ViewerAuth, NsAdminAuth]
+        [ViewerAuth, NsAdminAuth]
     ),
     ok.
-
-upload_sensitive_backup(Config, ApiAuth) ->
-    UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
-    ?assertEqual(ok, upload_backup(?NODE1_PORT, ApiAuth, UploadFile)).
 
 download_backup(NodeApiPort, Auth, BackupName) ->
     Path = emqx_mgmt_api_test_util:api_path(
         ?api_base_url(NodeApiPort), ["data", "files", to_list(BackupName)]
     ),
-    emqx_mgmt_api_test_util:simple_request(get, Path, [], Auth).
-
-list_backups_status(NodeApiPort, Auth, Page, Limit) ->
-    Path0 = emqx_mgmt_api_test_util:api_path(?api_base_url(NodeApiPort), ["data", "files"]),
-    Query = unicode:characters_to_list(
-        uri_string:compose_query([{<<"page">>, Page}, {<<"limit">>, Limit}])
-    ),
-    Path = Path0 ++ "?" ++ Query,
     emqx_mgmt_api_test_util:simple_request(get, Path, [], Auth).
 
 to_list(B) when is_binary(B) -> unicode:characters_to_list(B);
@@ -503,22 +467,21 @@ do_init_per_testcase(TC, Config) ->
     ].
 
 test_file_op(Method, Config) ->
-    Auth = ?config(auth, Config),
-    %% Cross-node GET requires the dashboard global administrator: the
-    %% sensitive-table peek runs locally on the API-receiving node and would
-    %% return `not_found' for a file that lives on a remote node, blocking
-    %% any non-admin caller (same locality constraint as the import-side
-    %% guard). DELETE has no sensitive-table check and continues to use the
-    %% API key.
-    CrossNodeAuth =
+    %% GET is restricted to the dashboard global administrator (backups can
+    %% contain dashboard / api-key records). DELETE has no role restriction
+    %% and continues to use the API key.
+    Auth =
         case Method of
             get -> ?config(dashboard_auth, Config);
-            delete -> Auth
+            delete -> ?config(auth, Config)
         end,
+    %% Exports go through the API-key auth on every node so the archives
+    %% to operate on exist regardless of the method-specific auth above.
+    ApiAuth = ?config(auth, Config),
 
-    {ok, Node1Resp} = export_backup(?NODE1_PORT, Auth),
-    {ok, Node2Resp} = export_backup(?NODE2_PORT, Auth),
-    {ok, Node3Resp} = export_backup(?NODE3_PORT, Auth),
+    {ok, Node1Resp} = export_backup(?NODE1_PORT, ApiAuth),
+    {ok, Node2Resp} = export_backup(?NODE2_PORT, ApiAuth),
+    {ok, Node3Resp} = export_backup(?NODE3_PORT, ApiAuth),
 
     ParsedResps = [emqx_utils_json:decode(R) || R <- [Node1Resp, Node2Resp, Node3Resp]],
 
@@ -536,7 +499,7 @@ test_file_op(Method, Config) ->
         backup_file_op(
             Method,
             ?NODE2_PORT,
-            CrossNodeAuth,
+            Auth,
             maps:get(<<"filename">>, Node3Parsed),
             [{<<"node">>, maps:get(<<"node">>, Node3Parsed)}],
             #{return_all => true}
@@ -565,7 +528,7 @@ test_file_op(Method, Config) ->
         backup_file_op(
             Method,
             ?NODE3_PORT,
-            CrossNodeAuth,
+            Auth,
             maps:get(<<"filename">>, Node2Parsed),
             [{<<"node">>, maps:get(<<"node">>, Node2Parsed)}]
         )
@@ -587,6 +550,10 @@ export_test(NodeApiPort, Auth) ->
 
 upload_backup_test(Config, BackupName) ->
     Auth = ?config(auth, Config),
+    %% GET is restricted to the dashboard global administrator (backups can
+    %% contain dashboard / api-key records). The "did the bad upload leave a
+    %% file behind?" probe needs admin auth to reach the 404 path.
+    DashboardAuth = ?config(dashboard_auth, Config),
     UploadFile = ?backup_path(Config, BackupName),
     BadImportFile = ?backup_path(Config, ?BAD_IMPORT_BACKUP),
     BadUploadFile = ?backup_path(Config, ?BAD_UPLOAD_BACKUP),
@@ -597,7 +564,8 @@ upload_backup_test(Config, BackupName) ->
     ?assertEqual({error, bad_request}, upload_backup(?NODE1_PORT, Auth, BadUploadFile)),
     %% Invalid file must not be kept
     ?assertMatch(
-        {error, {_, 404, _}}, backup_file_op(get, ?NODE1_PORT, Auth, ?BAD_UPLOAD_BACKUP, [])
+        {error, {_, 404, _}},
+        backup_file_op(get, ?NODE1_PORT, DashboardAuth, ?BAD_UPLOAD_BACKUP, [])
     ).
 
 import_backup_test(Config, BackupName) ->
@@ -815,11 +783,7 @@ test_case_specific_apps_spec(TC) when
     TC =:= t_upload_ce_backup;
     TC =:= t_import_ce_backup;
     TC =:= t_import_api_key_blocks_sensitive_tables;
-    TC =:= t_import_dashboard_token_allows_sensitive_tables;
-    TC =:= t_download_api_key_blocks_sensitive_tables;
-    TC =:= t_download_viewer_blocks_sensitive_tables;
-    TC =:= t_download_ns_admin_blocks_sensitive_tables;
-    TC =:= t_download_global_admin_allows_sensitive_tables
+    TC =:= t_import_dashboard_token_allows_sensitive_tables
 ->
     [
         emqx_auth,

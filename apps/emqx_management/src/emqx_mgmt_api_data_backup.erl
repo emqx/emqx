@@ -347,43 +347,33 @@ data_files(post, #{body := #{<<"filename">> := #{type := _} = File}}) ->
     end;
 data_files(post, #{body := _}) ->
     {400, #{code => ?BAD_REQUEST, message => ?DESC("missing_filename")}};
-data_files(get, #{query_string := PageParams} = Req) ->
-    case forbid_non_global_admin(auth_meta(Req)) of
-        {forbidden, Msg} ->
-            {403, #{code => 'FORBIDDEN', message => Msg}};
-        ok ->
-            case emqx_mgmt_api:parse_pager_params(PageParams) of
-                false ->
-                    {400, #{code => ?BAD_REQUEST, message => ?DESC("page_limit_invalid")}};
-                #{page := Page, limit := Limit} = Pager ->
-                    {Count, HasNext, Data} = list_backup_files(Page, Limit),
-                    {200, #{data => Data, meta => Pager#{count => Count, hasnext => HasNext}}}
-            end
+data_files(get, #{query_string := PageParams}) ->
+    case emqx_mgmt_api:parse_pager_params(PageParams) of
+        false ->
+            {400, #{code => ?BAD_REQUEST, message => ?DESC("page_limit_invalid")}};
+        #{page := Page, limit := Limit} = Pager ->
+            {Count, HasNext, Data} = list_backup_files(Page, Limit),
+            {200, #{data => Data, meta => Pager#{count => Count, hasnext => HasNext}}}
     end.
 
-data_file_by_name(get = Method, #{bindings := #{filename := Filename}, query_string := QS} = Req) ->
-    case safe_parse_node(QS) of
-        {error, Msg} ->
-            {400, #{code => ?BAD_REQUEST, message => Msg}};
-        Node ->
-            case check_download_allowed(Filename, Node, auth_meta(Req)) of
-                {forbidden, Msg} ->
-                    {403, #{code => 'FORBIDDEN', message => Msg}};
-                {peek_error, Reason} ->
-                    {400, #{
-                        code => ?BAD_REQUEST,
-                        message => emqx_mgmt_data_backup:format_error(Reason)
-                    }};
-                ok ->
-                    handle_file_op_response(get_or_delete_file(Method, Filename, Node))
+data_file_by_name(get, #{bindings := #{filename := Filename}, query_string := QS} = Req) ->
+    case is_global_admin(auth_meta(Req)) of
+        false ->
+            {403, #{code => 'FORBIDDEN', message => download_forbidden_msg()}};
+        true ->
+            case safe_parse_node(QS) of
+                {error, Msg} ->
+                    {400, #{code => ?BAD_REQUEST, message => Msg}};
+                Node ->
+                    handle_file_op_response(get_or_delete_file(get, Filename, Node))
             end
     end;
-data_file_by_name(delete = Method, #{bindings := #{filename := Filename}, query_string := QS}) ->
+data_file_by_name(delete, #{bindings := #{filename := Filename}, query_string := QS}) ->
     case safe_parse_node(QS) of
         {error, Msg} ->
             {400, #{code => ?BAD_REQUEST, message => Msg}};
         Node ->
-            handle_file_op_response(get_or_delete_file(Method, Filename, Node))
+            handle_file_op_response(get_or_delete_file(delete, Filename, Node))
     end.
 
 handle_file_op_response({error, not_found}) ->
@@ -444,64 +434,25 @@ check_no_sensitive_tables(Filename, AuthMeta) ->
             end
     end.
 
-%% Stored backup download guard. The archive on disk may have been produced by
-%% a global administrator and contain `dashboard_users' / `api_keys' mnesia
-%% tables -- which would let a lower-privileged caller exfiltrate password
-%% hashes, MFA secrets and API key records by downloading and extracting it
-%% offline. Mirrors the import-side guard and additionally blocks dashboard
-%% viewer / namespaced administrator callers when the archive is sensitive.
-%% A clean archive (no sensitive tables) is still downloadable by any caller
-%% that already passed RBAC, provided the archive resides on the local node:
-%% peek runs locally only, so non-global-admins must hit the node where the
-%% file lives. This is the same locality constraint as the import-side guard
-%% and avoids freezing a new BPAPI proto version just for the cross-node peek.
-%% A `not_found' peek result on the local node is forwarded as `ok' so the
-%% downstream file read returns the canonical 404 instead of 400.
-check_download_allowed(Filename, Node, AuthMeta) ->
-    case is_global_admin(AuthMeta) of
-        true ->
-            ok;
-        false when Node =/= node() ->
-            {forbidden, <<
-                "Download refused: file lives on a remote node. "
-                "Only the global administrator can download a backup "
-                "from a remote node."
-            >>};
-        false ->
-            case emqx_mgmt_data_backup:peek_sensitive_table_sets(Filename) of
-                {ok, []} ->
-                    ok;
-                {ok, Sets} ->
-                    {forbidden, sensitive_download_msg(Sets)};
-                {error, not_found} ->
-                    ok;
-                {error, Reason} ->
-                    {peek_error, Reason}
-            end
-    end.
-
-%% GET /data/files listing is restricted to global administrators only:
-%%   - API key callers cannot download archives with sensitive tables, so
-%%     enumerating them serves no legitimate workflow.
-%%   - Dashboard viewers and namespaced administrators are similarly blocked
-%%     from the download path; allowing them to enumerate the backup
-%%     directory would still leak that an administrator-produced archive
-%%     exists.
-%% Restricting the listing endpoint avoids the per-archive `peek' cost we
-%% would otherwise pay on every list call.
-forbid_non_global_admin(AuthMeta) ->
-    case is_global_admin(AuthMeta) of
-        true ->
-            ok;
-        false ->
-            {forbidden, <<"Only the global administrator can list backup files">>}
-    end.
-
-sensitive_download_msg(Sets) ->
-    iolist_to_binary([
-        <<"Download refused: backup contains restricted tables: ">>,
-        lists:join(<<", ">>, Sets)
-    ]).
+%% Stored backups may contain `dashboard_users' / `api_keys' mnesia tables
+%% (salted password hashes, MFA / TOTP material, API-key records). The
+%% download path returns the raw archive bytes without inspecting them, so
+%% any caller able to GET /data/files/:filename can exfiltrate that content
+%% offline. The cheap and correct fix is to gate the download on the global
+%% administrator role:
+%%   - dashboard viewers and namespaced administrators may still list (so
+%%     they see what exists in the backup directory) but cannot download;
+%%   - API-key callers fall in the same bucket -- the export they trigger
+%%     is already filtered to remove the sensitive tables, but they have
+%%     no way to download a globally-produced archive.
+%% No archive content inspection is performed: peeking every archive would
+%% pay a tar-table cost per request and still has to make the same role
+%% decision when sensitive content is present.
+download_forbidden_msg() ->
+    <<
+        "Only the global administrator may download backup files. "
+        "Backups may contain dashboard accounts and API key records."
+    >>.
 
 is_global_admin(#{
     auth_type := jwt_token,
