@@ -287,8 +287,13 @@ t_swagger_json(_Config) ->
     %% so external Swagger UI deployments that point at it keep working
     %% after the bundled in-tree UI was removed.
     Url = ?HOST ++ "/api-docs/swagger.json",
+    mnesia:clear_table(?ADMIN),
+    emqx_dashboard_admin:add_user(
+        <<"admin">>, <<"public_www1">>, ?ROLE_SUPERUSER, <<"administrator">>
+    ),
+    AuthHeader = auth_header_(<<"admin">>, <<"public_www1">>),
     {ok, {{"HTTP/1.1", 200, "OK"}, _Headers, Body}} =
-        httpc:request(get, {Url, []}, [], [{body_format, binary}]),
+        httpc:request(get, {Url, [AuthHeader]}, [], [{body_format, binary}]),
     ?assert(emqx_utils_json:is_json(Body)),
     ?assertMatch(
         #{
@@ -297,6 +302,17 @@ t_swagger_json(_Config) ->
             <<"paths">> := _
         },
         emqx_utils_json:decode(Body)
+    ),
+    %% Anonymous callers get a 401 with a minimal OpenAPI stub.
+    {ok, {{"HTTP/1.1", 401, _}, AnonHeaders, AnonBody}} =
+        httpc:request(get, {Url, []}, [], [{body_format, binary}]),
+    ?assertMatch(
+        #{<<"openapi">> := <<"3.", _/binary>>},
+        emqx_utils_json:decode(AnonBody)
+    ),
+    ?assertMatch(
+        {_, "Basic realm" ++ _},
+        lists:keyfind("www-authenticate", 1, AnonHeaders)
     ).
 
 t_disable_swagger_json(_Config) ->
@@ -310,19 +326,26 @@ t_disable_swagger_json(_Config) ->
         ?HOST ++ "/api-spec.md",
         ?HOST ++ "/api-spec.json"
     ],
+    mnesia:clear_table(?ADMIN),
+    emqx_dashboard_admin:add_user(
+        <<"admin">>, <<"public_www1">>, ?ROLE_SUPERUSER, <<"administrator">>
+    ),
+    AuthHeader = auth_header_(<<"admin">>, <<"public_www1">>),
     AssertStatus =
-        fun(Status, Url) ->
+        fun(Status, Url, Headers) ->
             ?assertMatch(
                 {ok, {{"HTTP/1.1", Status, _}, _, _}},
                 httpc:request(
-                    get, {Url, []}, [{autoredirect, false}], [{body_format, binary}]
+                    get, {Url, Headers}, [{autoredirect, false}], [{body_format, binary}]
                 ),
                 #{url => Url, expected_status => Status}
             )
         end,
-    %% Initial state: redirect returns 308, the rest 200.
-    AssertStatus(308, RedirectUrl),
-    lists:foreach(fun(U) -> AssertStatus(200, U) end, OkUrls),
+    %% Initial state: redirect returns 308 (no auth needed); the rest 200
+    %% with auth and 401 without.
+    AssertStatus(308, RedirectUrl, []),
+    lists:foreach(fun(U) -> AssertStatus(200, U, [AuthHeader]) end, OkUrls),
+    lists:foreach(fun(U) -> AssertStatus(401, U, []) end, OkUrls),
     DashboardCfg = emqx:get_raw_config([dashboard]),
     ?check_trace(
         {_, {ok, _}} = ?wait_async_action(
@@ -335,7 +358,7 @@ t_disable_swagger_json(_Config) ->
         ),
         []
     ),
-    lists:foreach(fun(U) -> AssertStatus(404, U) end, [RedirectUrl | OkUrls]),
+    lists:foreach(fun(U) -> AssertStatus(404, U, [AuthHeader]) end, [RedirectUrl | OkUrls]),
     ?check_trace(
         {_, {ok, _}} = ?wait_async_action(
             begin
@@ -347,8 +370,8 @@ t_disable_swagger_json(_Config) ->
         ),
         []
     ),
-    AssertStatus(308, RedirectUrl),
-    lists:foreach(fun(U) -> AssertStatus(200, U) end, OkUrls).
+    AssertStatus(308, RedirectUrl, []),
+    lists:foreach(fun(U) -> AssertStatus(200, U, [AuthHeader]) end, OkUrls).
 
 t_cli(_Config) ->
     [mria:dirty_delete(?ADMIN, Admin) || Admin <- mnesia:dirty_all_keys(?ADMIN)],
