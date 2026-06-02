@@ -283,6 +283,10 @@ t_rest_api(_Config) ->
     ok.
 
 t_swagger_json(_Config) ->
+    mnesia:clear_table(?ADMIN),
+    emqx_dashboard_admin:add_user(
+        <<"admin">>, <<"public_www1">>, ?ROLE_SUPERUSER, <<"administrator">>
+    ),
     Url = ?HOST ++ "/api-docs/swagger.json",
     %% with auth
     Auth = auth_header_(<<"admin">>, <<"public_www1">>),
@@ -292,6 +296,7 @@ t_swagger_json(_Config) ->
     {ok, {{"HTTP/1.1", 200, "OK"}, _Headers, Body2}} =
         httpc:request(get, {Url, []}, [], [{body_format, binary}]),
     ?assertEqual(Body1, Body2),
+    Spec = emqx_utils_json:decode(Body1),
     ?assertMatch(
         #{
             <<"info">> := #{
@@ -299,9 +304,39 @@ t_swagger_json(_Config) ->
                 <<"version">> := _
             }
         },
-        emqx_utils_json:decode(Body1)
+        Spec
     ),
+    %% Every operation's `tags' field must be a flat JSON array of
+    %% strings. A regression in `trans_tags' (e.g. forgetting to
+    %% flatten the chardata returned by `string:titlecase/1', or a
+    %% callsite mistakenly wrapping a list tag in another list) would
+    %% leak an iolist into the JSON and emit a tag such as
+    %% `[68, "ashboard SSO"]', which crashes downstream OpenAPI
+    %% tooling like Redocly's `slugify(tagName)'.
+    BadTags = collect_non_string_tags(Spec),
+    ?assertEqual([], BadTags, {non_string_tags_in_openapi_spec, BadTags}),
     ok.
+
+collect_non_string_tags(#{<<"paths">> := Paths}) ->
+    maps:fold(
+        fun(Path, Methods, Acc) ->
+            maps:fold(
+                fun
+                    (Method, #{<<"tags">> := Tags}, InnerAcc) when is_list(Tags) ->
+                        case [T || T <- Tags, not is_binary(T)] of
+                            [] -> InnerAcc;
+                            Bad -> [{Path, Method, Bad} | InnerAcc]
+                        end;
+                    (_Method, _Op, InnerAcc) ->
+                        InnerAcc
+                end,
+                Acc,
+                Methods
+            )
+        end,
+        [],
+        Paths
+    ).
 
 t_disable_swagger_json(_Config) ->
     Url = ?HOST ++ "/api-docs/index.html",

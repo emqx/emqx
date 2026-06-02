@@ -24,7 +24,9 @@
 %% Internal API
 -export([
     start_link_manager/3,
-    start_link_syncer/4
+    start_link_syncer/4,
+    forward_client_disconnected/2,
+    forward_publish/2
 ]).
 
 %% NOTE
@@ -111,14 +113,16 @@ push_to(SyncerName, OpName, Topic, ID) ->
 %% Supervisor
 
 %% @doc Starts route replication supervisor.
-%% This supervisor manages 2 processes:
+%% This supervisor manages 3 processes:
 %% 1. Route replication manager.
-%%    Owns MQTT client used as a channel for route replication, manages its lifecycle,
-%%    conducts bootstrapping.
+%%    Manages the MQTT client lifecycle and conducts bootstrapping.
 %% 2. Route syncer.
 %%    Handles accumulation / batching / deduplication of routes to be replicated, and
 %%    communication across MQTT client channel according to Cluster Link Route
 %%    Replication protocol, and basic error handling.
+%% 3. MQTT client.
+%%    Used as the channel for route replication. The manager monitors it and handles
+%%    reconnects.
 %% Configured with a "Route Replication Actor" identifier, an MFA supplying actor and
 %% protocol details (e.g. "Incarnation"), and a Cluster Link.
 -spec start_link(actor(), ActorMF, emqx_cluster_link_schema:link()) ->
@@ -142,7 +146,7 @@ start_syncer(TargetCluster, Actor, Incarnation) ->
     end.
 
 %% Manager process.
-%% Owns MQTT Client process.
+%% Manages MQTT Client process.
 %% ClientID: `mycluster:emqx1@emqx.local:routesync`
 %% Occasional TCP/MQTT-level disconnects are expected, and should be handled
 %% gracefully.
@@ -197,6 +201,18 @@ process_syncer_batch(Batch, ClientName, ActorName, Incarnation) ->
 
 batch_get_opname(Op) ->
     element(1, Op).
+
+%% Client callbacks.
+
+forward_publish(Publish, ManagerPid) ->
+    ManagerPid ! {publish, Publish},
+    ok.
+
+forward_client_disconnected({disconnected, RC, Properties}, ManagerPid) ->
+    ManagerPid ! {disconnected, RC, Properties},
+    ok;
+forward_client_disconnected(_Reason, _ManagerPid) ->
+    ok.
 
 %%
 
@@ -256,12 +272,15 @@ child_spec_syncer(TargetCluster, Actor, Incarnation) ->
 %%   ╰─────────────────────── Disconnected
 %%
 
+-define(DOWN(MREF, PID, REASON), {'DOWN', MREF, process, PID, REASON}).
+
 -record(st, {
     link :: emqx_cluster_link_schema:link(),
     actor :: atom(),
     incarnation :: non_neg_integer(),
     marker :: binary(),
     client :: undefined | pid(),
+    client_mref :: undefined | reference(),
     handshake_reqid :: undefined | binary(),
     reconnect_at :: integer(),
     bootstrapped :: boolean(),
@@ -285,7 +304,6 @@ callback_mode() ->
 
 init_manager(St = #st{}) ->
     ?tp_routerepl("init", #{actor => St#st.actor}),
-    _ = erlang:process_flag(trap_exit, true),
     {ok, connecting, St, {next_event, internal, connect}}.
 
 enter_connecting(St) ->
@@ -299,10 +317,10 @@ connecting(
     TargetCluster = target_cluster(St0),
     ReconnectAt = erlang:system_time(millisecond) + reconnect_timeout(),
     St = St0#st{reconnect_at = ReconnectAt},
-    case start_link_client(Actor, ClientMarker, Link) of
-        {ok, ClientPid} ->
+    case start_client(Actor, ClientMarker, Link) of
+        {ok, ClientPid, ClientMRef} ->
             ok = announce_client(TargetCluster, Actor, ClientPid),
-            enter_handshaking(St#st{client = ClientPid});
+            enter_handshaking(St#st{client = ClientPid, client_mref = ClientMRef});
         {error, Reason} ->
             ?tp_routerepl(warning, "connection_failed", #{
                 reason => Reason,
@@ -341,7 +359,7 @@ handshaking(
                 actor => Actor
             }),
             %% Ensure client is stopped, will move into `disconnected` once it is.
-            ok = stop_link_client(St0),
+            ok = terminate_client(St0),
             keep_state_and_data
     end;
 handshaking(
@@ -368,7 +386,7 @@ handshaking(
                 remote_link_proto_ver => maps:get(proto_ver, Ack, undefined)
             }),
             %% Stop client, will move into `disconnected` once it is.
-            ok = stop_link_client(St),
+            ok = terminate_client(St),
             keep_state_and_data
     end;
 handshaking(state_timeout, abandon, St = #st{actor = Actor}) ->
@@ -377,10 +395,10 @@ handshaking(state_timeout, abandon, St = #st{actor = Actor}) ->
         actor => Actor
     }),
     %% Stop client, will move into `disconnected` once it is.
-    ok = stop_link_client(St),
+    ok = terminate_client(St),
     keep_state_and_data;
-handshaking(info, {'EXIT', ClientPid, Reason}, St = #st{client = ClientPid}) ->
-    enter_disconnected(Reason, St);
+handshaking(info, ?DOWN(MRef, _, Reason), St = #st{client_mref = MRef}) ->
+    enter_disconnected(client_down_reason(Reason), St);
 handshaking(Type, Event, St) ->
     handle_event(Type, Event, St).
 
@@ -409,13 +427,13 @@ enter_online(St = #st{actor = Actor, incarnation = Incarnation}) ->
 online(info, {timeout, _TRef, heartbeat}, St = #st{}) ->
     ok = heartbeat(St),
     {keep_state, schedule_heartbeat(St#st{heartbeat_timer = undefined})};
-online(info, {'EXIT', ClientPid, Reason}, St = #st{client = ClientPid, actor = Actor}) ->
+online(info, ?DOWN(MRef, _, Reason), St = #st{client_mref = MRef, actor = Actor}) ->
     %% Occasional client disconnects are expected.
     %% Suspend route syncer: it will start accumulating route ops in the state.
     %% Assuming this is transient condition. otherwise route syncer heap risks
     %% growing indefinitely.
     ok = suspend_syncer(target_cluster(St), Actor),
-    enter_disconnected(Reason, cancel_heartbeat(St));
+    enter_disconnected(client_down_reason(Reason), cancel_heartbeat(St));
 online(Type, Event, St) ->
     handle_event(Type, Event, St).
 
@@ -439,7 +457,7 @@ handle_disconnect(RC, St = #st{actor = Actor}) ->
         target_cluster => target_cluster(St),
         actor => Actor
     }),
-    ok = stop_link_client(St),
+    ok = terminate_client(St),
     keep_state_and_data.
 
 enter_disconnected(Reason, St0 = #st{actor = Actor, reconnect_at = ReconnectAt}) ->
@@ -457,7 +475,7 @@ enter_disconnected(Reason, St0 = #st{actor = Actor, reconnect_at = ReconnectAt})
         actor => Actor,
         reconnect_in_ms => ReconnectIn
     }),
-    St = St0#st{client = undefined},
+    St = St0#st{client = undefined, client_mref = undefined},
     {next_state, disconnected, St, {next_event, internal, {retry, ReconnectIn}}}.
 
 disconnected(internal, {retry, ReconnectIn}, St = #st{client = undefined}) when ReconnectIn > 0 ->
@@ -495,8 +513,8 @@ enter_bootstrapping(St) ->
 
 bootstrapping(internal, go, St = #st{}) ->
     bootstrap(St);
-bootstrapping(info, {'EXIT', ClientPid, Reason}, St = #st{client = ClientPid}) ->
-    enter_disconnected(Reason, St);
+bootstrapping(info, ?DOWN(MRef, _, Reason), St = #st{client_mref = MRef}) ->
+    enter_disconnected(client_down_reason(Reason), St);
 bootstrapping(Type, Event, St) ->
     handle_event(Type, Event, St).
 
@@ -528,7 +546,7 @@ bootstrap(Bootstrap, HeartbeatTs, St = #st{actor = Actor, incarnation = Incarnat
                         actor => Actor
                     }),
                     %% Ensure client is stopped, will move into `disconnected` once it is.
-                    ok = stop_link_client(St),
+                    ok = terminate_client(St),
                     keep_state_and_data
             end
     end.
@@ -552,6 +570,11 @@ next_bootstrap_heartbeat(Ts) ->
     Interval = emqx_cluster_link_config:actor_heartbeat_interval(),
     Ts + Interval.
 
+terminate_client(#st{client = ClientPid}) when is_pid(ClientPid) ->
+    %% Stop the client, tolerate if it's dead / stopping right now.
+    ?tp_routerepl("stop_client", #{}),
+    stop_client(ClientPid).
+
 %%
 
 target_cluster(#st{link = #{name := TargetCluster}}) ->
@@ -562,10 +585,12 @@ local_cluster() ->
 
 %% MQTT Client
 
-start_link_client(Actor, ClientMarker, Link) ->
+start_client(Actor, ClientMarker, Link) ->
+    TargetCluster = maps:get(name, Link),
     Options0 = emqx_cluster_link_config:mk_emqtt_options(Link),
-    Options = refine_client_options(ClientMarker, Options0),
-    case emqtt:start_link(Options) of
+    Options = refine_client_options(ClientMarker, self(), Options0),
+    Spec = child_spec_client(Options),
+    case supervisor:start_child(?REF(?NAME(TargetCluster, Actor)), Spec) of
         {ok, Pid} ->
             try
                 case emqtt:connect(Pid) of
@@ -573,9 +598,10 @@ start_link_client(Actor, ClientMarker, Link) ->
                         ?tp_routerepl("connected", #{actor => Actor}),
                         Topic = ?RESP_TOPIC(local_cluster(), Actor),
                         {ok, _, _} = emqtt:subscribe(Pid, Topic, ?QOS_1),
-                        {ok, Pid};
+                        MRef = erlang:monitor(process, Pid),
+                        {ok, Pid, MRef};
                     Error ->
-                        _ = flush_link_signal(Pid),
+                        ok = stop_client(Pid),
                         Error
                 end
             catch
@@ -583,42 +609,46 @@ start_link_client(Actor, ClientMarker, Link) ->
                     %% NOTE
                     %% For inexplicable reason exit signal may arrive earlier than
                     %% `disconnect` reply.
-                    _ = flush_link_signal(Pid),
-                    _ = flush_disconnect(),
+                    ok = stop_client(Pid),
                     {error, Reason}
             end;
         Error ->
             Error
     end.
 
-stop_link_client(#st{client = ClientPid}) when is_pid(ClientPid) ->
-    %% Stop the client, tolerate if it's dead / stopping right now.
-    ?tp_routerepl("stop_client", #{}),
+child_spec_client(Options) ->
+    #{
+        id => client,
+        start => {emqtt, start_link, [Options]},
+        restart => temporary,
+        shutdown => 5_000,
+        type => worker,
+        modules => [emqtt]
+    }.
+
+stop_client(ClientPid) ->
     try
         emqtt:stop(ClientPid)
     catch
         exit:_ -> ok
     end.
 
-flush_link_signal(Pid) ->
-    receive
-        {'EXIT', Pid, _} -> ok
-    after 1 -> timeout
-    end.
-
-flush_disconnect() ->
-    receive
-        {disconnected, _RC, _} -> ok
-    after 1 -> timeout
-    end.
-
-refine_client_options(ClientMarker, Options = #{clientid := ClientID}) ->
+refine_client_options(ClientMarker, ManagerPid, Options = #{clientid := ClientID}) ->
     %% TODO: Reconnect should help, but it looks broken right now.
     Options#{
         clientid => emqx_bridge_mqtt_lib:clientid_base([ClientID, ":", ClientMarker, ":"]),
         clean_start => true,
-        retry_interval => 0
+        retry_interval => 0,
+        msg_handler => #{
+            publish => {?MODULE, forward_publish, [ManagerPid]},
+            disconnected => {?MODULE, forward_client_disconnected, [ManagerPid]}
+        }
     }.
+
+client_down_reason({shutdown, Reason}) ->
+    Reason;
+client_down_reason(Reason) ->
+    Reason.
 
 announce_client(TargetCluster, Actor, Pid) ->
     true = gproc:reg_other(?CLIENT_NAME(TargetCluster, Actor), Pid),
