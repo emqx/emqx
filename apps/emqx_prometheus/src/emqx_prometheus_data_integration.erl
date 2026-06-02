@@ -51,6 +51,8 @@
 %% automatically register collectors.
 -behaviour(prometheus_collector).
 
+-deprecated([fetch_from_local_node/1, fetch_cluster_consistented_data/0]).
+
 %%--------------------------------------------------------------------
 %% Macros
 %%--------------------------------------------------------------------
@@ -63,17 +65,6 @@
 %%--------------------------------------------------------------------
 
 -define(ROOT_KEY_ACTIONS, actions).
-
-%% fixme todo : deprecated; return empty set for backwards compatibility.
-fetch_from_local_node(Mode) ->
-    Rules = get_rules_all_namespaces(),
-    %% BridgeV2Actions = emqx_bridge_v2:list(?global_ns, ?ROOT_KEY_ACTIONS),
-    Connectors = emqx_connector:list(?global_ns),
-    {node(self()), #{
-        rule_metric_data => rule_metric_data(Mode, Rules),
-        %% action_metric_data => action_metric_data(Mode, BridgeV2Actions),
-        connector_metric_data => connector_metric_data(Mode, Connectors)
-    }}.
 
 fetch_namespaced_metrics_v1(Namespace, Mode) ->
     Rules = get_rules(Namespace),
@@ -89,7 +80,7 @@ fetch_namespaced_metrics_v1(Namespace, Mode) ->
 fetch_cluster_wide_namespaced_metrics(Namespace, _Mode) ->
     Rules = get_rules(Namespace),
     Connectors = get_connectors(Namespace),
-    (maybe_collect_schema_registry())#{
+    (schema_registry_data())#{
         rules_ov_data => rules_ov_data(Rules),
         %% note: "actions" here means rule action, not actual Actions (as in Connector
         %% channels)....
@@ -97,11 +88,22 @@ fetch_cluster_wide_namespaced_metrics(Namespace, _Mode) ->
         connectors_ov_data => connectors_ov_data(Connectors)
     }.
 
-%% fixme todo : deprecated; return empty set for backwards compatibility.
+%% deprecated; return empty set for backwards compatibility. (prometheus_proto_v{1,2} bpapi)
+fetch_from_local_node(Mode) ->
+    Rules = [],
+    BridgeV2Actions = [],
+    Connectors = [],
+    {node(self()), #{
+        rule_metric_data => rule_metric_data(Mode, Rules),
+        action_metric_data => action_metric_data(Mode, BridgeV2Actions),
+        connector_metric_data => connector_metric_data(Mode, Connectors)
+    }}.
+
+%% deprecated; return empty set for backwards compatibility. (prometheus_proto_v{1,2} bpapi)
 fetch_cluster_consistented_data() ->
-    Rules = get_rules_all_namespaces(),
-    Connectors = emqx_connector:list(?global_ns),
-    (maybe_collect_schema_registry())#{
+    Rules = [],
+    Connectors = [],
+    (empty_schema_registry_data())#{
         rules_ov_data => rules_ov_data(Rules),
         %% note: "actions" here means rule action, not actual Actions (as in Connector
         %% channels)....
@@ -298,11 +300,9 @@ rules_ov_metric_meta() ->
 rules_ov_metric(names) ->
     emqx_prometheus_cluster:metric_names(rules_ov_metric_meta()).
 
--define(RULE_TAB, emqx_rule_engine).
-rules_ov_data(_Rules) ->
+rules_ov_data(Rules) ->
     #{
-        %% fixme: wrong, must select by namespace....
-        emqx_rules_count => ets:info(?RULE_TAB, size)
+        emqx_rules_count => length(Rules)
     }.
 
 %%====================
@@ -348,8 +348,10 @@ schema_registry_data() ->
         emqx_schema_registrys_count => erlang:map_size(emqx_schema_registry:list_schemas())
     }.
 
-maybe_collect_schema_registry() ->
-    schema_registry_data().
+empty_schema_registry_data() ->
+    #{
+        emqx_schema_registrys_count => 0
+    }.
 
 %%====================
 %% Connectors
@@ -610,7 +612,7 @@ collect_data_integration_overview(Rules, Connectors) ->
         #{},
         connectors_ov_metric(names)
     ),
-    M4 = maybe_collect_schema_registry(),
+    M4 = schema_registry_data(),
 
     lists:foldl(fun(M, AccIn) -> maps:merge(M, AccIn) end, #{}, [M1, M2, M3, M4]).
 
