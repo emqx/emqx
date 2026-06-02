@@ -1,0 +1,182 @@
+{
+  "type": "record",
+  "name": "ExtendedConfig",
+  "fields": [
+    {
+      "name": "enable",
+      "type": "boolean",
+      "default": false,
+      "$ui": {
+        "component": "switch",
+        "required": true,
+        "label": "Enable",
+        "description": "Enable periodic cluster configuration synchronization."
+      }
+    },
+    {
+      "name": "role",
+      "type": {
+        "type": "enum",
+        "name": "Role",
+        "symbols": ["primary", "secondary"]
+      },
+      "default": "primary",
+      "$ui": {
+        "component": "select",
+        "required": true,
+        "label": "Role",
+        "description": "Only secondary clusters pull and import backups."
+      }
+    },
+    {
+      "name": "primary",
+      "type": {
+        "type": "record",
+        "name": "Primary",
+        "fields": [
+          {
+            "name": "base_url",
+            "type": "string",
+            "default": "",
+            "$ui": {
+              "component": "input",
+              "required": false,
+              "label": "Primary API Base URL",
+              "description": "Primary Dashboard API base URL, for example https://primary.example.com:18083/api/v5."
+            }
+          },
+          {
+            "name": "api_key",
+            "type": "string",
+            "default": "",
+            "$ui": {
+              "component": "input",
+              "required": false,
+              "label": "API Key",
+              "description": "Primary cluster API key."
+            }
+          },
+          {
+            "name": "api_secret",
+            "type": "string",
+            "default": "",
+            "$ui": {
+              "component": "input-password",
+              "required": false,
+              "label": "API Secret",
+              "description": "Primary cluster API secret."
+            }
+          }
+        ]
+      },
+      "default": {
+        "base_url": "",
+        "api_key": "",
+        "api_secret": ""
+      }
+    },
+    {
+      "name": "sync",
+      "type": {
+        "type": "record",
+        "name": "Sync",
+        "fields": [
+          {
+            "name": "interval",
+            "type": "string",
+            "default": "5m",
+            "$ui": {
+              "component": "input",
+              "required": true,
+              "label": "Interval",
+              "description": "Synchronization interval."
+            }
+          },
+          {
+            "name": "root_keys",
+            "type": {
+              "type": "array",
+              "items": "string"
+            },
+            "default": [
+              "connectors",
+              "actions",
+              "sources",
+              "rule_engine",
+              "listeners",
+              "schema_registry"
+            ],
+            "$ui": {
+              "component": "input-array",
+              "required": true,
+              "label": "Root Keys",
+              "description": "Configuration root keys to export from the primary cluster."
+            }
+          },
+          {
+            "name": "table_sets",
+            "type": {
+              "type": "array",
+              "items": "string"
+            },
+            "default": [],
+            "$ui": {
+              "component": "input-array",
+              "required": false,
+              "label": "Table Sets",
+              "description": "Optional Mnesia table sets to export. Empty means configuration-only synchronization."
+            }
+          },
+          {
+            "name": "timeout",
+            "type": "string",
+            "default": "30s",
+            "$ui": {
+              "component": "input",
+              "required": true,
+              "label": "Request Timeout",
+              "description": "HTTP request timeout for calls to the primary cluster."
+            }
+          },
+          {
+            "name": "delete_remote_backup",
+            "type": "boolean",
+            "default": true,
+            "$ui": {
+              "component": "switch",
+              "required": true,
+              "label": "Delete Remote Backup",
+              "description": "Delete the exported backup file from the primary cluster after synchronization."
+            }
+          },
+          {
+            "name": "delete_local_backup",
+            "type": "boolean",
+            "default": true,
+            "$ui": {
+              "component": "switch",
+              "required": true,
+              "label": "Delete Local Backup",
+              "description": "Delete the uploaded local backup file after import."
+            }
+          }
+        ]
+      },
+      "default": {
+        "interval": "5m",
+        "root_keys": [
+          "connectors",
+          "actions",
+          "sources",
+          "rule_engine",
+          "listeners",
+          "schema_registry"
+        ],
+        "table_sets": [],
+        "timeout": "30s",
+        "delete_remote_backup": true,
+        "delete_local_backup": true
+      }
+    }
+  ]
+}

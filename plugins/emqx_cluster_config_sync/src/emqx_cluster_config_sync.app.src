@@ -1,0 +1,21 @@
+%% -*- mode: erlang -*-
+{application, emqx_cluster_config_sync, [
+    {description, "EMQX Cluster Config Sync Plugin"},
+    {vsn, {file, "VERSION"}},
+    {modules, []},
+    {registered, [emqx_cluster_config_sync_sup, emqx_cluster_config_sync]},
+    {applications, [
+        kernel,
+        stdlib,
+        inets,
+        ssl,
+        emqx,
+        emqx_utils,
+        emqx_plugins,
+        emqx_management
+    ]},
+    {mod, {emqx_cluster_config_sync_app, []}},
+    {env, []},
+    {licenses, ["Apache-2.0"]},
+    {maintainers, ["EMQX <emqx@emqx.io>"]}
+]}.

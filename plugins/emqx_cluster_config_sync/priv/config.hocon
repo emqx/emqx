@@ -1,0 +1,24 @@
+enable = false
+role = "primary"
+
+primary {
+    base_url = ""
+    api_key = ""
+    api_secret = ""
+}
+
+sync {
+    interval = "5m"
+    root_keys = [
+        "connectors",
+        "actions",
+        "sources",
+        "rule_engine",
+        "listeners",
+        "schema_registry"
+    ]
+    table_sets = []
+    timeout = "30s"
+    delete_remote_backup = true
+    delete_local_backup = true
+}
