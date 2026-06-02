@@ -10,7 +10,7 @@
 -include_lib("oidcc/include/oidcc_token.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 -export([
     api_spec/0,

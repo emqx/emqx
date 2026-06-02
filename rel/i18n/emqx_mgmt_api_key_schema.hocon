@@ -9,11 +9,13 @@ api_key.label:
 bootstrap_file.desc:
 """The bootstrap file provides API keys for EMQX.
 EMQX will load these keys on startup to authorize API requests.
-It contains colon-separated values in the format: `api_key:api_secret:role`.
-Each line specifies an API key and its associated secret, and the role of this key.
-The 'role' part should be the pre-defined access scope group name,
-for example, `administrator` or `viewer`.
-The 'role' is introduced in 5.4, to be backward compatible, if it is missing, the key is implicitly granted `administrator` role."""
+
+Each non-empty line is colon-delimited with 2, 3, or 4 fields: the API key, the secret, the optional role, and the optional scope list. The 4th field, when present, is a comma-separated list of scope names; if the trailing colon is written, but the field is left empty, the key is created with an empty scope list. For example, `mykey:mysecret:administrator:connections,publish` grants access to those two scopes; `mykey:mysecret:administrator:` grants no scopes.
+
+- The role field (optional) is the pre-defined access role: `administrator` (default), `viewer`, or `publisher`. Introduced in 5.4; older 2-field lines remain valid and are treated as `administrator`.
+- The scopes field (optional, since 5.10) is drawn from the API key scope catalog. When omitted entirely (3-field line), the key has no scope restriction and can reach all non-denied paths (backward compatible). When the field is present but empty, every path that maps to a known scope is denied. Unmapped public endpoints (status, metrics, etc.) remain reachable, so an operator can still observe the node and reconfigure the key from the UI.
+- Unknown scope names in a line are dropped with a warning log. The entry is still created with whatever valid scopes remain. This avoids aborting the whole bootstrap on a typo.
+- Empty lines are ignored. Comments are NOT supported — every non-empty line must be a valid entry."""
 
 bootstrap_file.label:
 """Initialize api_key file"""

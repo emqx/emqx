@@ -11,7 +11,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/2, ref/2]).
 
