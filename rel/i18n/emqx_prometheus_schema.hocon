@@ -31,7 +31,7 @@ push_gateway.desc:
 
 enable_basic_auth.desc:
 """Enable or disable authentication (basic or bearer) for the Prometheus scrape API. Does not affect Push Gateway.
-Defaults to `true` starting from 6.3.0 so the scrape endpoints under `/api/v5/prometheus/*` require credentials.
+Defaults to `true` starting from 6.3.0, so the scrape endpoints under `/api/v5/prometheus/*` require credentials.
 When set to `false`, the endpoints are reachable without authentication, matching the pre-6.3.0 behavior."""
 
 collectors.desc:

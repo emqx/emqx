@@ -622,10 +622,11 @@ all_collectors() ->
     emqx_prometheus_config:all_collectors().
 
 get_stats(Format, Mode) ->
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
     Headers =
         case Format of
-            json -> accept_json_header();
-            prometheus -> []
+            json -> [Auth | accept_json_header()];
+            prometheus -> [Auth]
         end,
     QueryString = uri_string:compose_query([{"mode", atom_to_binary(Mode)}]),
     Path = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
