@@ -568,9 +568,8 @@ t_open_session_throttled_on_inflight_local_cleanup(_) ->
 %% forever: lookup_all_channels reports a local-down pid, throttle fires,
 %% no DOWN is ever queued, retry blocks again. The throttle must now
 %% recognize the row is stale (no chan-conn entry), reap it, and let the
-%% connect proceed. (On release-58 open_session also registers the new
-%% channel inline via create_register_session, so the only row left
-%% afterwards is this test process.)
+%% connect proceed. (open_session creates the session record; the new
+%% channel pid registers itself later via emqx_channel.)
 t_open_session_reaps_local_tombstone(_) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     ClientInfo = #{
@@ -586,10 +585,9 @@ t_open_session_reaps_local_tombstone(_) ->
     ok = mria:dirty_write(?CHAN_REG_TAB, #channel{chid = ClientId, pid = DeadPid}),
     ?assertEqual([DeadPid], emqx_cm_registry:lookup_all_channels(ClientId)),
     ?assertMatch({ok, _}, open_session(true, ClientInfo, ConnInfo)),
-    %% Stale tombstone is gone; the freshly opened session for this test
-    %% process is the only remaining row.
-    ?assertEqual([self()], emqx_cm_registry:lookup_all_channels(ClientId)),
-    ok = emqx_cm:unregister_channel(ClientId).
+    %% Stale tombstone is gone; open_session does not register the new pid
+    %% (that happens later in the channel's connect handler).
+    ?assertEqual([], emqx_cm_registry:lookup_all_channels(ClientId)).
 
 spawn_dummy_chann(Mod, Count) ->
     #{conninfo := ConnInfo0} = ?ChanInfo,
