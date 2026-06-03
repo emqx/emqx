@@ -89,13 +89,13 @@ fields(anonymous_false) ->
             )}
     ] ++ fields_reg_auth_required(true).
 
-fields_reg_auth_required(Required) ->
+fields_reg_auth_required(true) ->
     [
         {registry,
             sc(binary(), #{
                 desc => ?DESC(registry_url),
                 validator => [?NOT_EMPTY("the value of the field 'registry' cannot be empty")],
-                required => Required
+                required => true
             })},
         {authentication,
             sc(
@@ -105,7 +105,23 @@ fields_reg_auth_required(Required) ->
                     validator => [
                         ?NOT_EMPTY("the value of the field 'authentication' cannot be empty")
                     ],
-                    required => Required
+                    required => true
+                }
+            )}
+    ];
+fields_reg_auth_required(false) ->
+    [
+        {registry,
+            sc(binary(), #{
+                desc => ?DESC(registry_url),
+                required => false
+            })},
+        {authentication,
+            sc(
+                binary(),
+                #{
+                    desc => ?DESC(authentication_url),
+                    required => false
                 }
             )}
     ].
