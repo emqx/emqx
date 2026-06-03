@@ -2018,6 +2018,23 @@ t_list_clients_v2_bad_query_string_parameters(Config) ->
     ),
     ok.
 
+-doc """
+Checks that we forbid namespaced users from accessing this API.
+""".
+t_namespaced_user_forbidden(TCConfig0) ->
+    AuthHeader = namespaced_admin_headers(),
+    TCConfig = [{api_auth_header, AuthHeader} | TCConfig0],
+    ?assertMatch({403, _}, list_v2_request_simple([], TCConfig)),
+    ?assertMatch({403, _}, list_request_simple([], TCConfig)),
+    ClientId = <<"some_client">>,
+    ?assertMatch({403, _}, get_client_request_simple(ClientId, TCConfig)),
+    ?assertMatch({403, _}, get_client_authz_cache_simple(ClientId, TCConfig)),
+    ?assertMatch({403, _}, get_client_subs_simple(ClientId, TCConfig)),
+    ?assertMatch({403, _}, get_client_mqueue_messages_simple(ClientId, TCConfig)),
+    ?assertMatch({403, _}, get_client_inflight_messages_simple(ClientId, TCConfig)),
+    ?assertMatch({403, _}, get_session_count_simple(TCConfig)),
+    ok.
+
 t_cursor_serde_prop(_Config) ->
     ?assert(proper:quickcheck(cursor_serde_prop(), [{numtests, 100}, {to_file, user}])).
 
@@ -2139,12 +2156,57 @@ get_client_request(ClientId, Config) ->
     Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId]),
     request(get, Path, [], Config).
 
+get_client_request_simple(ClientId, Config) ->
+    simplify_result(
+        get_client_request(ClientId, Config)
+    ).
+
+get_client_authz_cache_simple(ClientId, Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "authorization", "cache"]),
+    simplify_result(
+        request(get, Path, [], Config)
+    ).
+
+get_client_subs_simple(ClientId, Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "subscriptions"]),
+    simplify_result(
+        request(get, Path, [], Config)
+    ).
+
+get_client_mqueue_messages_simple(ClientId, Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "mqueue_messages"]),
+    simplify_result(
+        request(get, Path, [], Config)
+    ).
+
+get_client_inflight_messages_simple(ClientId, Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "inflight_messages"]),
+    simplify_result(
+        request(get, Path, [], Config)
+    ).
+
+get_session_count_simple(Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["sessions_count"]),
+    simplify_result(
+        request(get, Path, [], Config)
+    ).
+
 list_request(Config) ->
     list_request(_QueryString = "", Config).
 
 list_request(QueryParams, Config) ->
     Path = emqx_mgmt_api_test_util:api_path(["clients"]),
     request(get, Path, [], compose_query_string(QueryParams), Config).
+
+list_request_simple(QueryParams, Config) ->
+    simplify_result(
+        list_request(QueryParams, Config)
+    ).
+
+list_v2_request_simple(QueryParams, Config) ->
+    simplify_result(
+        list_v2_request(QueryParams, Config)
+    ).
 
 bulk_subscribe_request(ClientId, Config, Body) ->
     Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "subscribe", "bulk"]),
@@ -2329,3 +2391,6 @@ stop_and_commit(Client) ->
             #{?snk_kind := ?sessds_terminate}
         ),
     ok.
+
+namespaced_admin_headers() ->
+    emqx_bridge_v2_testlib:create_namespaced_admin_headers(#{}).
