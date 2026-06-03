@@ -121,7 +121,12 @@ compile_cidr(Cidr) when is_binary(Cidr) ->
 compile_cidr(Cidr) when is_list(Cidr) ->
     case string:split(Cidr, "/") of
         [IpStr, PrefixStr] ->
-            case {inet:parse_address(IpStr), to_int(PrefixStr)} of
+            %% `inet:parse_strict_address/1` rejects BSD-style abbreviated
+            %% IPv4 forms such as `10.0.0` (silently expanded to
+            %% `10.0.0.0`) and `10` (expanded to `0.0.0.10`); these are
+            %% almost always typos in a deny-list and would otherwise
+            %% match a different range than the operator intended.
+            case {inet:parse_strict_address(IpStr), to_int(PrefixStr)} of
                 {{ok, IP}, {ok, Prefix}} ->
                     validate_prefix(IP, Prefix),
                     {IP, Prefix};
