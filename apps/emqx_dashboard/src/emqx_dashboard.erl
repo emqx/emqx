@@ -389,9 +389,17 @@ api_key_authorize(Req, HandlerInfo, Key, Secret) ->
 jwt_token_bearer_authorize(Req, HandlerInfo, Token) ->
     case emqx_dashboard_admin:verify_token(Req, HandlerInfo, Token) of
         {ok, #{actor := Username} = ActorContext} ->
+            %% Use the JWT-resolved admin key (SSO tuple for SSO users,
+            %% plain binary otherwise) so handlers can lookup_user/1
+            %% without re-deriving backend from path / query.
+            Source =
+                case emqx_dashboard_token:resolve_admin_key(Token) of
+                    undefined -> Username;
+                    K -> K
+                end,
             AuthnMeta = #{
                 auth_type => jwt_token,
-                source => Username,
+                source => Source,
                 namespace => maps:get(?namespace, ActorContext, ?global_ns),
                 actor => ActorContext
             },

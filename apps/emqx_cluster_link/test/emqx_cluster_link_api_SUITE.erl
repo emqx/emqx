@@ -14,29 +14,6 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
--define(CACERT, <<
-    "-----BEGIN CERTIFICATE-----\n"
-    "MIIDUTCCAjmgAwIBAgIJAPPYCjTmxdt/MA0GCSqGSIb3DQEBCwUAMD8xCzAJBgNV\n"
-    "BAYTAkNOMREwDwYDVQQIDAhoYW5nemhvdTEMMAoGA1UECgwDRU1RMQ8wDQYDVQQD\n"
-    "DAZSb290Q0EwHhcNMjAwNTA4MDgwNjUyWhcNMzAwNTA2MDgwNjUyWjA/MQswCQYD\n"
-    "VQQGEwJDTjERMA8GA1UECAwIaGFuZ3pob3UxDDAKBgNVBAoMA0VNUTEPMA0GA1UE\n"
-    "AwwGUm9vdENBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzcgVLex1\n"
-    "EZ9ON64EX8v+wcSjzOZpiEOsAOuSXOEN3wb8FKUxCdsGrsJYB7a5VM/Jot25Mod2\n"
-    "juS3OBMg6r85k2TWjdxUoUs+HiUB/pP/ARaaW6VntpAEokpij/przWMPgJnBF3Ur\n"
-    "MjtbLayH9hGmpQrI5c2vmHQ2reRZnSFbY+2b8SXZ+3lZZgz9+BaQYWdQWfaUWEHZ\n"
-    "uDaNiViVO0OT8DRjCuiDp3yYDj3iLWbTA/gDL6Tf5XuHuEwcOQUrd+h0hyIphO8D\n"
-    "tsrsHZ14j4AWYLk1CPA6pq1HIUvEl2rANx2lVUNv+nt64K/Mr3RnVQd9s8bK+TXQ\n"
-    "KGHd2Lv/PALYuwIDAQABo1AwTjAdBgNVHQ4EFgQUGBmW+iDzxctWAWxmhgdlE8Pj\n"
-    "EbQwHwYDVR0jBBgwFoAUGBmW+iDzxctWAWxmhgdlE8PjEbQwDAYDVR0TBAUwAwEB\n"
-    "/zANBgkqhkiG9w0BAQsFAAOCAQEAGbhRUjpIred4cFAFJ7bbYD9hKu/yzWPWkMRa\n"
-    "ErlCKHmuYsYk+5d16JQhJaFy6MGXfLgo3KV2itl0d+OWNH0U9ULXcglTxy6+njo5\n"
-    "CFqdUBPwN1jxhzo9yteDMKF4+AHIxbvCAJa17qcwUKR5MKNvv09C6pvQDJLzid7y\n"
-    "E2dkgSuggik3oa0427KvctFf8uhOV94RvEDyqvT5+pgNYZ2Yfga9pD/jjpoHEUlo\n"
-    "88IGU8/wJCx3Ds2yc8+oBg/ynxG8f/HmCC1ET6EHHoe2jlo8FpU/SgGtghS1YL30\n"
-    "IWxNsPrUP+XsZpBJy/mvOhE5QXo6Y35zDqqj8tI7AGmAWu22jg==\n"
-    "-----END CERTIFICATE-----"
->>).
-
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 -define(REDACTED, <<"******">>).
 
@@ -289,7 +266,8 @@ t_put_get_valid(Config) ->
     ?assertMatch({200, #{<<"enable">> := false}}, get_link(Name1, Config)),
     ?assertMatch({200, #{<<"enable">> := true}}, get_link(Name2, Config)),
 
-    SSL = #{<<"enable">> => true, <<"cacertfile">> => ?CACERT},
+    {CACert, _CAKey} = emqx_cth_tls:gen_cert(#{issuer => root, key => ec}),
+    SSL = #{<<"enable">> => true, <<"cacertfile">> => public_key:pem_encode([CACert])},
     SSLLink1 = Link1#{<<"ssl">> => SSL},
     ?assertMatch({200, _}, update_link(Name1, maps:remove(<<"name">>, SSLLink1), Config)),
     ?assertMatch(
@@ -389,6 +367,34 @@ t_crud(Config) ->
     ?assertMatch({200, []}, list(Config)),
 
     ok.
+
+%% Verify that concurrent DELETEs get either `204` or `404` responses.
+t_concurrent_delete(Config) ->
+    Name = <<"concurrent-delete">>,
+    {201, _} = create_link(Name, link_params(), Config),
+
+    NRequests = 8,
+    Results = emqx_utils:pmap(
+        fun(_) -> delete_link(Name, Config) end,
+        lists:seq(1, NRequests)
+    ),
+    ?assertMatch(
+        [
+            %% Luckiest one gets `204`:
+            {204, _},
+            %% Rest get `404`; no `400`s or `500`s:
+            {404, _},
+            {404, _},
+            {404, _},
+            {404, _},
+            {404, _},
+            {404, _},
+            {404, _}
+        ],
+        lists:sort(Results)
+    ),
+
+    ?assertMatch({404, _}, get_link(Name, Config)).
 
 t_create_invalid(Config) ->
     Params = link_params(),

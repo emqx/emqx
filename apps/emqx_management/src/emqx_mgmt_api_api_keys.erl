@@ -8,7 +8,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 -export([api_spec/0, fields/1, paths/0, schema/1, namespace/0]).
 -export([api_key/2, api_key_by_name/2, api_key_scopes/2]).
@@ -20,13 +20,27 @@
 
 namespace() -> "api_key".
 
-scopes() -> ?SCOPE_DENIED.
+scopes() ->
+    %% API key management endpoints are bearer-auth-only; API keys
+    %% themselves cannot reach these paths. The login user scope
+    %% check consults this map.
+    %%
+    %% /api_key_scopes is marked ?SCOPE_PUBLIC: it returns only the
+    %% static scope catalog (names + i18n descriptions), no tenant
+    %% data, so any authenticated login user may read it. It is a
+    %% top-level path (sibling to /action_types, /source_types)
+    %% chosen to avoid wildcard routing collisions with /api_key/:name.
+    #{
+        <<"/api_key">> => ?SCOPE_API_KEY_MGMT,
+        <<"/api_key/:name">> => ?SCOPE_API_KEY_MGMT,
+        <<"/api_key_scopes">> => ?SCOPE_PUBLIC
+    }.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
-    ["/api_key", "/api_key/:name", "/api_key/scopes"].
+    ["/api_key", "/api_key/:name", "/api_key_scopes"].
 
 schema("/api_key") ->
     #{
@@ -36,7 +50,7 @@ schema("/api_key") ->
             tags => ?TAGS,
             security => [#{'bearerAuth' => []}],
             responses => #{
-                200 => delete([api_secret], fields(app))
+                200 => delete([api_secret], fields(app_response))
             }
         },
         post => #{
@@ -45,7 +59,7 @@ schema("/api_key") ->
             security => [#{'bearerAuth' => []}],
             'requestBody' => delete([created_at, api_key, api_secret], fields(app)),
             responses => #{
-                200 => hoconsc:ref(app),
+                200 => hoconsc:ref(app_response),
                 400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'])
             }
         }
@@ -58,7 +72,7 @@ schema("/api_key/:name") ->
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
-                200 => delete([api_secret], fields(app)),
+                200 => delete([api_secret], fields(app_response)),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'])
             }
         },
@@ -68,7 +82,7 @@ schema("/api_key/:name") ->
             parameters => [hoconsc:ref(name)],
             'requestBody' => delete([created_at, api_key, api_secret, name], fields(app)),
             responses => #{
-                200 => delete([api_secret], fields(app)),
+                200 => delete([api_secret], fields(app_response)),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'])
             }
         },
@@ -82,7 +96,7 @@ schema("/api_key/:name") ->
             }
         }
     };
-schema("/api_key/scopes") ->
+schema("/api_key_scopes") ->
     #{
         'operationId' => api_key_scopes,
         get => #{
@@ -151,7 +165,79 @@ fields(app) ->
             hoconsc:mk(
                 hoconsc:array(binary()),
                 #{
-                    desc => ?DESC(api_key_scopes),
+                    desc => ?DESC(api_key_scopes_request),
+                    required => false,
+                    example => [<<"clients">>, <<"rules">>]
+                }
+            )}
+    ] ++ app_extend_fields();
+%% Response shape: `scopes' MAY be the binary sentinel <<"unset">> in addition
+%% to the array-of-binaries form. This sentinel surfaces only for legacy
+%% records that survived an upgrade from a release where the scopes feature
+%% did not exist; the POST / bootstrap / SSO-provisioning paths all
+%% materialize role-default scopes at creation time, so no fresh record will
+%% ever appear with `scopes => <<"unset">>'.
+%%
+%% Listed explicitly (rather than overriding via `lists:keystore') so that the
+%% OpenAPI spec reads as a self-contained response schema and reviewers do not
+%% have to mentally diff `fields(app)' against `fields(app_response)'.
+fields(app_response) ->
+    [
+        {name,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => ?DESC("name_format"),
+                    validator => fun ?MODULE:validate_name/1,
+                    example => <<"EMQX-API-KEY-1">>
+                }
+            )},
+        {api_key,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => ?DESC("api_key_desc"),
+                    example => <<"a4697a5c75a769f6">>
+                }
+            )},
+        {api_secret,
+            hoconsc:mk(
+                binary(),
+                #{
+                    desc => ?DESC("api_secret_desc"),
+                    example => <<"MzAyMjk3ODMwMDk0NjIzOTUxNjcwNzQ0NzQ3MTE2NDYyMDI">>
+                }
+            )},
+        {expired_at,
+            hoconsc:mk(
+                hoconsc:union([infinity, emqx_utils_calendar:epoch_second()]),
+                #{
+                    desc => ?DESC("expired_at_desc"),
+                    example => <<"2021-12-05T02:01:34.186Z">>,
+                    required => false,
+                    default => infinity
+                }
+            )},
+        {created_at,
+            hoconsc:mk(
+                emqx_utils_calendar:epoch_second(),
+                #{
+                    desc => ?DESC("created_at_desc"),
+                    example => <<"2021-12-01T00:00:00.000Z">>
+                }
+            )},
+        {desc,
+            hoconsc:mk(
+                binary(),
+                #{example => <<"Note">>, required => false}
+            )},
+        {enable, hoconsc:mk(boolean(), #{desc => ?DESC("enable_desc"), required => false})},
+        {expired, hoconsc:mk(boolean(), #{desc => ?DESC("expired_desc"), required => false})},
+        {scopes,
+            hoconsc:mk(
+                hoconsc:union([unset, hoconsc:array(binary())]),
+                #{
+                    desc => ?DESC(api_key_scopes_response),
                     required => false,
                     example => [<<"connections">>, <<"monitoring">>]
                 }
@@ -231,8 +317,13 @@ api_key(post, #{body := App}) ->
     ExpiredAt = ensure_expired_at(App),
     Desc = unicode:characters_to_binary(Desc0, unicode),
     Role = maps:get(<<"role">>, App, ?ROLE_API_DEFAULT),
-    Scopes = maps:get(<<"scopes">>, App, undefined),
-    case validate_scopes(Scopes) of
+    %% Materialize role defaults when the client omitted `scopes' entirely.
+    %% Explicit `[]' (deny-all) and explicit lists pass through unchanged.
+    %% After this PR `<<"unset">>' in a GET response is reserved for legacy
+    %% records that survived an upgrade; no creation path stores `undefined'.
+    RawScopes = maps:get(<<"scopes">>, App, undefined),
+    Scopes = emqx_mgmt_auth:effective_scopes_on_create(Role, RawScopes),
+    case validate_scopes(Role, Scopes) of
         ok ->
             case emqx_mgmt_auth:create(Name, Enable, ExpiredAt, Desc, Role, Scopes) of
                 {ok, NewApp} ->
@@ -270,7 +361,15 @@ api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
     Desc = maps:get(<<"desc">>, Body, undefined),
     Role = maps:get(<<"role">>, Body, ?ROLE_API_DEFAULT),
     Scopes = maps:get(<<"scopes">>, Body, undefined),
-    case validate_scopes(Scopes) of
+    %% Validation runs against the effective scope list (request body
+    %% when supplied, otherwise the persisted scopes) so a role change
+    %% to `publisher' on a key that already holds non-`publish' scopes
+    %% via a partial-update PUT is rejected — the runtime RBAC layer
+    %% would catch it at request time, but the stored config and the
+    %% API response must not be allowed to drift from the
+    %% publisher-only-`publish' invariant.
+    EffectiveScopes = effective_request_scopes(Name, Scopes),
+    case validate_scopes(Role, EffectiveScopes) of
         ok ->
             case emqx_mgmt_auth:update(Name, Enable, ExpiredAt, Desc, Role, Scopes) of
                 {ok, App} ->
@@ -289,19 +388,85 @@ api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
             {400, #{code => 'BAD_REQUEST', message => Msg}}
     end.
 
+%% Fall back to persisted scopes only when the body did not supply a
+%% `scopes' field. An explicit list (including `[]') is taken verbatim.
+%% A missing API key surfaces here as `undefined' so validation accepts
+%% the partial update; the downstream `emqx_mgmt_auth:update/6' call
+%% will then return 404 with the proper error.
+effective_request_scopes(_Name, Scopes) when is_list(Scopes) ->
+    Scopes;
+effective_request_scopes(Name, undefined) ->
+    case emqx_mgmt_auth:read(Name) of
+        {ok, #{scopes := Persisted}} when is_list(Persisted) -> Persisted;
+        _ -> undefined
+    end.
+
 ensure_expired_at(#{<<"expired_at">> := ExpiredAt}) when is_integer(ExpiredAt) -> ExpiredAt;
 ensure_expired_at(_) -> infinity.
 
 api_key_scopes(get, _) ->
+    Scopes = [resolve_scope_desc(S) || S <- emqx_scope_catalog:scope_catalog()],
     {200, #{
-        scopes => emqx_mgmt_api_key_scopes:scope_catalogue()
+        scopes => Scopes
     }}.
 
-validate_scopes(undefined) ->
+resolve_scope_desc(#{desc := Desc} = Scope) ->
+    Scope#{desc => emqx_dashboard_swagger:get_i18n(<<"desc">>, Desc, <<>>, #{})}.
+
+validate_scopes(Role, Scopes) ->
+    %% Three-layer schema validation, returning the FIRST error
+    %% encountered. Layer 1 cheapest, layer 3 catalog lookup.
+    case validate_publisher_scopes(Role, Scopes) of
+        ok ->
+            case validate_no_login_only_scopes(Scopes) of
+                ok -> validate_scopes_in_catalog(Scopes);
+                Error -> Error
+            end;
+        Error ->
+            Error
+    end.
+
+%% Layer 1: publisher role can only hold the `publish' scope (or an
+%% empty / absent scope list, which falls back to RBAC `?ROLE_API_PUBLISHER'
+%% hardcoded path matching). Defense-in-depth — the runtime path check
+%% in emqx_dashboard_rbac already restricts publishers to /publish and
+%% /publish/bulk; this validator prevents misconfiguration where an
+%% operator assigns a meaningless scope list to a publisher key.
+validate_publisher_scopes(?ROLE_API_PUBLISHER, undefined) ->
     ok;
-validate_scopes(Scopes) when is_list(Scopes) ->
+validate_publisher_scopes(?ROLE_API_PUBLISHER, []) ->
+    ok;
+validate_publisher_scopes(?ROLE_API_PUBLISHER, [?SCOPE_PUBLISH]) ->
+    ok;
+validate_publisher_scopes(?ROLE_API_PUBLISHER, _Other) ->
+    {error, <<"Publisher API keys can only hold the 'publish' scope">>};
+validate_publisher_scopes(_OtherRole, _Scopes) ->
+    ok.
+
+%% Layer 2: API keys (regardless of role) must not hold login-only
+%% scopes. These four scopes are reserved for dashboard login users.
+validate_no_login_only_scopes(undefined) ->
+    ok;
+validate_no_login_only_scopes(Scopes) when is_list(Scopes) ->
+    case [S || S <- Scopes, lists:member(S, ?LOGIN_ONLY_SCOPES)] of
+        [] ->
+            ok;
+        Conflicts ->
+            Names = lists:join(<<", ">>, Conflicts),
+            Msg = iolist_to_binary([
+                <<"API keys cannot hold login-only scopes: ">>, Names
+            ]),
+            {error, Msg}
+    end;
+validate_no_login_only_scopes(_) ->
+    ok.
+
+%% Layer 3: scope names must exist in the catalog (unknown name -> 400).
+validate_scopes_in_catalog(undefined) ->
+    ok;
+validate_scopes_in_catalog(Scopes) when is_list(Scopes) ->
     emqx_mgmt_api_key_scopes:validate_scopes(Scopes);
-validate_scopes(_) ->
+validate_scopes_in_catalog(_) ->
     {error, <<"scopes must be a list of strings">>}.
 
 app_extend_fields() ->

@@ -35,7 +35,7 @@
 ]).
 
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 -define(LISTENER_NOT_FOUND, <<"Listener not found">>).
 
