@@ -31,7 +31,8 @@
     request_fun => request_fun(),
     upload_fun => fun((binary(), binary()) -> ok | {error, term()}),
     import_fun => fun((binary()) -> emqx_mgmt_data_backup:import_res()),
-    delete_local_fun => fun((binary()) -> ok | {error, term()})
+    delete_local_fun => fun((binary()) -> ok | {error, term()}),
+    cancelled_fun => fun(() -> boolean())
 }.
 
 -spec default_root_keys() -> [binary()].
@@ -73,9 +74,10 @@ normalize_config(Conf0) ->
 sync_once(Conf) ->
     sync_once(Conf, default_deps()).
 
--spec sync_once(map(), deps()) -> {ok, map()} | {error, term()}.
-sync_once(Conf0, Deps) ->
+-spec sync_once(map(), deps() | map()) -> {ok, map()} | {error, term()}.
+sync_once(Conf0, Deps0) ->
     Conf = normalize_config(Conf0),
+    Deps = maps:merge(default_deps(), Deps0),
     case validate_sync_config(Conf) of
         ok ->
             do_sync_once(Conf, Deps);
@@ -84,25 +86,46 @@ sync_once(Conf0, Deps) ->
     end.
 
 do_sync_once(Conf, Deps) ->
+    case check_cancelled(Deps) of
+        ok ->
+            do_sync_once_active(Conf, Deps);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+do_sync_once_active(Conf, Deps) ->
     case export_backup(Conf, Deps) of
         {ok, Filename} ->
-            Result = download_upload_import(Conf, Deps, Filename),
-            Cleanup = cleanup(Conf, Deps, Filename),
-            case Result of
-                ok ->
-                    {ok, #{filename => Filename, cleanup => Cleanup}};
-                {error, Reason} ->
-                    {error, Reason}
-            end;
+            finish_sync_once(Conf, Deps, Filename);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+finish_sync_once(Conf, Deps, Filename) ->
+    Result = download_upload_import(Conf, Deps, Filename),
+    Cleanup = cleanup(Conf, Deps, Filename),
+    case Result of
+        ok ->
+            {ok, #{filename => Filename, cleanup => Cleanup}};
         {error, Reason} ->
             {error, Reason}
     end.
 
 download_upload_import(Conf, Deps, Filename) ->
     maybe
+        ok ?= check_cancelled(Deps),
         {ok, BackupBin} ?= download_backup(Conf, Deps, Filename),
+        ok ?= check_cancelled(Deps),
         ok ?= upload_backup(Deps, Filename, BackupBin),
+        ok ?= check_cancelled(Deps),
         ok ?= import_backup(Deps, Filename)
+    end.
+
+check_cancelled(Deps) ->
+    CancelledFun = maps:get(cancelled_fun, Deps),
+    case CancelledFun() of
+        true -> {error, cancelled};
+        false -> ok
     end.
 
 export_backup(Conf, Deps) ->
@@ -202,7 +225,8 @@ default_deps() ->
         request_fun => fun request/5,
         upload_fun => fun emqx_mgmt_data_backup:upload/2,
         import_fun => fun emqx_mgmt_data_backup:import/1,
-        delete_local_fun => fun emqx_mgmt_data_backup:delete_file/1
+        delete_local_fun => fun emqx_mgmt_data_backup:delete_file/1,
+        cancelled_fun => fun() -> false end
     }.
 
 request(Method, Url, Headers, Body, Timeout) ->
