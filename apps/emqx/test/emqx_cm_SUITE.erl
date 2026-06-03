@@ -561,7 +561,7 @@ t_open_session_throttled_on_inflight_local_cleanup(_) ->
     ok = emqx_cm:register_channel(ClientId, DeadPid, ChanInfo#{conn_mod => emqx_connection}),
     ?assertEqual({error, client_id_unavailable}, open_session(true, ClientInfo, ConnInfo)),
     %% Idempotent cleanup in case cm pool didn't get there first.
-    true = emqx_cm:do_unregister_channel({ClientId, DeadPid}).
+    ok = emqx_cm:do_unregister_channel({ClientId, DeadPid}).
 
 %% A stale local tombstone (registry row pointing at a dead pid that this
 %% node never registered) used to block the same clientid on this node
