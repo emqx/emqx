@@ -10,6 +10,8 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -46,7 +48,7 @@
 -export([lookup_from_local_nodes/3]).
 -export([scopes/0]).
 
--export([namespaced_stats_filter/2]).
+-export([namespaced_stats_filter/2, namespaced_filter/2]).
 
 -define(TAGS, [<<"Monitor">>]).
 
@@ -138,11 +140,12 @@ schema("/prometheus/stats") ->
 schema("/prometheus/data_integration") ->
     #{
         'operationId' => data_integration,
+        filter => fun ?MODULE:namespaced_filter/2,
         get =>
             #{
                 description => ?DESC(get_prom_data_integration_data),
                 tags => ?TAGS,
-                parameters => [ref(mode)],
+                parameters => [ref(mode), ns_qs_param(), only_global_qs_param()],
                 security => security(),
                 responses =>
                     #{200 => prometheus_data_schema()}
@@ -180,6 +183,12 @@ security() ->
         true -> [#{'basicAuth' => []}, #{'bearerAuth' => []}];
         false -> []
     end.
+
+ns_qs_param() ->
+    {ns, mk(binary(), #{in => query, required => false})}.
+
+only_global_qs_param() ->
+    {only_global, mk(boolean(), #{in => query, required => false, default => false})}.
 
 fields(mode) ->
     [
@@ -248,8 +257,9 @@ ns_stats(get, #{headers := Headers, query_string := Qs}) ->
 auth(get, #{headers := Headers, query_string := Qs}) ->
     collect(emqx_prometheus_auth, collect_opts(Headers, Qs)).
 
-data_integration(get, #{headers := Headers, query_string := Qs}) ->
-    collect(emqx_prometheus_data_integration, collect_opts(Headers, Qs)).
+data_integration(get, Req) ->
+    Opts = collect_opts_ns_or_all(Req),
+    collect_data_integration(Opts).
 
 schema_validation(get, #{headers := Headers, query_string := Qs}) ->
     collect(emqx_prometheus_schema_validation, collect_opts(Headers, Qs)).
@@ -276,6 +286,11 @@ collect(Module, #{type := Type, mode := Mode}) ->
                 <<>>
         end,
     gen_response(Type, Data).
+
+collect_data_integration(#{namespace := Namespace, mode := Mode}) ->
+    Format = <<"prometheus">>,
+    Data = emqx_prometheus_data_integration:collect_ns(Namespace, Mode),
+    gen_response(Format, Data).
 
 collect_ns_stats(#{mode := Mode, namespace := Namespace}) ->
     Type = <<"prometheus">>,
@@ -305,6 +320,15 @@ collect_opts(Headers, Qs) ->
 
 collect_opts_ns(Qs) ->
     #{namespace => namespace(Qs), mode => mode(Qs)}.
+
+collect_opts_ns_or_all(Req = #{query_string := Qs}) ->
+    Namespace0 = get_namespace(Req),
+    Namespace =
+        case maps:get(<<"only_global">>, Qs, false) of
+            false when Namespace0 == ?global_ns -> all;
+            _ -> Namespace0
+        end,
+    #{namespace => Namespace, mode => mode(Qs)}.
 
 response_type(#{<<"accept">> := <<"application/json">>}) ->
     <<"json">>;
@@ -435,4 +459,32 @@ namespaced_stats_filter(Req0, Meta) ->
         {ok, Req1} ?= validate_not_json(Req0, Meta),
         {ok, Req2} ?= parse_collect_opt_ns(Req1, Meta),
         rate_limit_all_ns_stats(Req2, Meta)
+    end.
+
+namespaced_filter(Req0, Meta) ->
+    maybe
+        {ok, Req1} ?= resolve_namespace(Req0, Meta),
+        {ok, Req2} ?= validate_not_json(Req1, Meta),
+        {ok, Req3} ?= parse_collect_opt_ns(Req2, Meta),
+        rate_limit_all_ns_stats(Req3, Meta)
+    end.
+
+get_namespace(#{resolved_ns := Namespace}) ->
+    Namespace.
+
+parse_namespace(#{query_string := QueryString} = Req) ->
+    ActorNamespace = emqx_dashboard:get_namespace(Req),
+    case maps:get(<<"ns">>, QueryString, ActorNamespace) of
+        QSNamespace when QSNamespace /= ActorNamespace andalso ActorNamespace /= ?global_ns ->
+            {error, not_authorized};
+        QSNamespace ->
+            {ok, QSNamespace}
+    end.
+
+resolve_namespace(Req, _Meta) ->
+    case parse_namespace(Req) of
+        {ok, Namespace} ->
+            {ok, Req#{resolved_ns => Namespace}};
+        {error, not_authorized} ->
+            ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
     end.
