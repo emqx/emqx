@@ -190,9 +190,21 @@ create_user_and_token(Opts) ->
 start_client(Opts0) ->
     Default = #{proto_ver => v5},
     Opts = maps:merge(Default, Opts0),
+    start_client(Opts, 10).
+
+start_client(Opts, Retries) ->
     {ok, C} = emqtt:start_link(Opts),
-    {ok, _} = emqtt:connect(C),
-    C.
+    unlink(C),
+    case emqtt:connect(C) of
+        {ok, _} ->
+            link(C),
+            C;
+        {error, {server_busy, _}} when Retries > 0 ->
+            _ = catch emqtt:stop(C),
+            ct:pal("server_busy on connect, retrying (~p left)", [Retries - 1]),
+            timer:sleep(10),
+            start_client(Opts, Retries - 1)
+    end.
 
 wait_filesync() ->
     %% NOTE: Twice as long as `?LOG_HANDLER_FILESYNC_INTERVAL` in `emqx_trace_handler`.
