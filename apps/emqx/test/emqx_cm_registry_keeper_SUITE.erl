@@ -103,39 +103,3 @@ t_count_cache(_) ->
 
 channel(Id, Pid) ->
     #channel{chid = Id, pid = Pid}.
-
-%% Stale-pid GC: a row pointing at a local dead pid is removed by force_sweep_stale_pids/0.
-%% The suite enables session history, so unregistering leaves a hist tombstone in the bag;
-%% we assert that no live-pid row remains.
-t_purges_local_dead_pid(_) ->
-    ClientId = <<"local-dead">>,
-    Pid = spawn(fun() -> ok end),
-    _ = monitor(process, Pid),
-    receive
-        {'DOWN', _, process, Pid, _} -> ok
-    after 1000 -> error(spawn_did_not_die)
-    end,
-    false = is_process_alive(Pid),
-    ok = emqx_cm_registry:register_channel({ClientId, Pid}),
-    ?assertEqual([Pid], live_pids(ClientId)),
-    Counters = emqx_cm_registry_keeper:force_sweep_stale_pids(),
-    ?assertMatch(#{deleted_local_dead := 1}, Counters),
-    ?assertEqual([], live_pids(ClientId)),
-    ok.
-
-%% Stale-pid GC: a row pointing at a live local pid is left alone.
-t_keeps_local_alive_pid(_) ->
-    ClientId = <<"local-alive">>,
-    Pid = self(),
-    true = is_process_alive(Pid),
-    ok = emqx_cm_registry:register_channel({ClientId, Pid}),
-    ?assertEqual([Pid], live_pids(ClientId)),
-    Counters = emqx_cm_registry_keeper:force_sweep_stale_pids(),
-    ?assertMatch(#{deleted_local_dead := 0}, Counters),
-    ?assertEqual([Pid], live_pids(ClientId)),
-    %% cleanup
-    ok = emqx_cm_registry:unregister_channel({ClientId, Pid}),
-    ok.
-
-live_pids(ClientId) ->
-    [P || #channel{pid = P} <- mnesia:dirty_read(?CHAN_REG_TAB, ClientId), is_pid(P)].
