@@ -121,14 +121,13 @@ schema("/license/session_hwm_history") ->
                     hoconsc:mk(hoconsc:enum([daily, monthly]), #{
                         in => query,
                         required => false,
-                        default => daily,
+                        default => monthly,
                         desc => ?DESC("param_history_period")
                     })},
                 {limit,
                     hoconsc:mk(pos_integer(), #{
                         in => query,
                         required => false,
-                        default => 30,
                         desc => ?DESC("param_history_limit")
                     })}
             ],
@@ -183,8 +182,15 @@ error_msg(Code, Msg) ->
     {400, error_msg(?BAD_REQUEST, <<"Invalid request params">>)}.
 
 '/license/session_hwm_history'(get, #{query_string := QS}) ->
-    Period = maps:get(period, QS, daily),
-    Limit = maps:get(limit, QS, 30),
+    %% NOTE: minirest passes query-string parameters as binary keys with
+    %% values coerced per the declared schema (atoms for enums, ints for
+    %% pos_integer). Keep the key form binary; values come typed.
+    Period = maps:get(<<"period">>, QS, monthly),
+    Limit =
+        case Period of
+            daily -> maps:get(<<"limit">>, QS, 30);
+            monthly -> maps:get(<<"limit">>, QS, 24)
+        end,
     Rows = emqx_license_session_hwm:list_history(Period, Limit),
     Data = [maps:remove(observed_at_ms, Row) || Row <- Rows],
     {200, #{period => Period, count => length(Data), data => Data}}.
