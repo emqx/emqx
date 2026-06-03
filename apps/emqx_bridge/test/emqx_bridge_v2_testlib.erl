@@ -464,6 +464,10 @@ create_namespaced_user_and_token(Opts) ->
     ct:pal("namespaced token:\n  ~p", [Res]),
     Token.
 
+create_namespaced_admin_headers(Opts) ->
+    Token = create_namespaced_user_and_token(Opts),
+    {"Authorization", <<"Bearer ", Token/binary>>}.
+
 to_rfc3339(Sec) ->
     list_to_binary(calendar:system_time_to_rfc3339(Sec)).
 
