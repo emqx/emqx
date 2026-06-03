@@ -766,8 +766,8 @@ init({DataIn, Opts}) ->
     set_label({resource_manager, Namespace, ResId}),
     ok = set_log_meta(Data),
     emqx_resource_cache_cleaner:add_cache(ResId, self()),
-    % Create metrics for the resource
-    ok = emqx_resource_metrics:create_metrics(ResId),
+    % Ensure metrics for the resource
+    {ok, _} = emqx_resource_metrics:ensure_metrics(ResId),
     IsEnabled = maps:get(enable, Config, true),
     StartAfterCreated = maps:get(start_after_created, Opts, IsEnabled),
     case IsEnabled andalso StartAfterCreated of
