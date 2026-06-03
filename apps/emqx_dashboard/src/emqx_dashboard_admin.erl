@@ -486,10 +486,16 @@ effective_scopes_of_admin(#?ADMIN{username = Username, role = Role}) ->
         Scopes when is_list(Scopes) -> Scopes
     end.
 
-role_default_scopes(?ROLE_SUPERUSER) ->
-    ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES;
-role_default_scopes(_) ->
-    ?GENERIC_SCOPES.
+role_default_scopes(Role) ->
+    %% Parse the role to handle namespaced administrator roles
+    %% (e.g. "ns:test::administrator") - they should receive the
+    %% same default scopes as a plain administrator.
+    case emqx_dashboard_rbac:parse_dashboard_role(Role) of
+        {ok, #{?role := ?ROLE_SUPERUSER}} ->
+            ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES;
+        _ ->
+            ?GENERIC_SCOPES
+    end.
 
 -spec set_user_scopes(dashboard_username(), [binary()]) ->
     {ok, ok} | {error, term()}.

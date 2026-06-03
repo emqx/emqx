@@ -686,17 +686,25 @@ validate_scope_names(Scopes) ->
             {error, iolist_to_binary([<<"Unknown scope name(s): ">>, Names])}
     end.
 
-validate_role_scope_compat(?ROLE_SUPERUSER, _Scopes) ->
-    ok;
-validate_role_scope_compat(_NonAdminRole, Scopes) ->
-    case [S || S <- Scopes, lists:member(S, ?ADMIN_ONLY_SCOPES)] of
-        [] ->
+validate_role_scope_compat(Role, Scopes) ->
+    %% Parse the role to extract the base role name, so that namespaced
+    %% administrator roles (e.g. "ns:test::administrator") are correctly
+    %% recognised as administrator.
+    case emqx_dashboard_rbac:parse_dashboard_role(Role) of
+        {ok, #{?role := ?ROLE_SUPERUSER}} ->
             ok;
-        Conflicts ->
-            Names = lists:join(<<", ">>, Conflicts),
-            Msg = iolist_to_binary([
-                <<"Non-administrator users cannot hold admin-only scopes: ">>, Names
-            ]),
+        {ok, _} ->
+            case [S || S <- Scopes, lists:member(S, ?ADMIN_ONLY_SCOPES)] of
+                [] ->
+                    ok;
+                Conflicts ->
+                    Names = lists:join(<<", ">>, Conflicts),
+                    Msg = iolist_to_binary([
+                        <<"Non-administrator users cannot hold admin-only scopes: ">>, Names
+                    ]),
+                    {error, Msg}
+            end;
+        {error, Msg} ->
             {error, Msg}
     end.
 
