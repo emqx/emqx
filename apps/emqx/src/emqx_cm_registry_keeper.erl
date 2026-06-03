@@ -2,7 +2,10 @@
 %% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc This module implements the global session registry history cleaner.
+%% @doc Global session registry table maintenance: history retention and
+%% stale-pid garbage collection. Walks `?CHAN_REG_TAB' on a slow cadence,
+%% applying per-row predicates to remove (a) expired history tombstones
+%% and (b) rows whose `pid' is provably no longer a live owner.
 -module(emqx_cm_registry_keeper).
 -behaviour(gen_server).
 
@@ -11,6 +14,10 @@
     count/1,
     purge/0
 ]).
+
+-ifdef(TEST).
+-export([force_sweep_stale_pids/0]).
+-endif.
 
 %% gen_server callbacks
 -export([
@@ -23,16 +30,21 @@
 ]).
 
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_cm.hrl").
 
 -define(CACHE_COUNT_THRESHOLD, 1000).
 -define(MIN_COUNT_INTERVAL_SECONDS, 5).
+
 -ifdef(TEST).
--define(CLEANUP_CHUNK_SIZE, 100).
--define(CLEANUP_CHUNK_INTERVAL, 100).
+-define(STALE_PID_GC_MIN_INTERVAL_MS, 1000).
+-define(STALE_PID_GC_CHUNK_SIZE, 50).
+-define(STALE_PID_GC_CHUNK_INTERVAL_MS, 50).
 -else.
--define(CLEANUP_CHUNK_SIZE, 10000).
--define(CLEANUP_CHUNK_INTERVAL, 1000).
+-define(STALE_PID_GC_MIN_INTERVAL_MS, timer:minutes(10)).
+-define(STALE_PID_GC_CHUNK_SIZE, 100).
+%% 100 keys / 200 ms = 500 keys / s
+-define(STALE_PID_GC_CHUNK_INTERVAL_MS, 200).
 -endif.
 
 -define(IS_HIST_ENABLED(RETAIN), (RETAIN > 0)).
@@ -49,7 +61,7 @@ init(_) ->
             {ok, #{no_deletes => true}};
         false ->
             TimerRef = send_delay_start(),
-            {ok, #{next_clientid => undefined, timer_ref => TimerRef}}
+            {ok, new_sweep_state(TimerRef)}
     end.
 
 %% @doc Count the number of sessions.
@@ -72,17 +84,38 @@ count(Since) ->
 %% @doc Delete all retained history. Only for tests.
 -spec purge() -> ok.
 purge() ->
-    purge_loop(undefined).
+    purge_loop(mnesia:dirty_first(?CHAN_REG_TAB)).
 
-purge_loop(StartId) ->
-    NextId = cleanup_one_chunk(StartId, _IsPurge = true),
-    case NextId =:= '$end_of_table' of
-        true ->
-            ok;
-        false ->
-            purge_loop(NextId)
-    end.
+-ifdef(TEST).
+%% @doc Run a synchronous full sweep that applies the stale-pid predicate
+%% (and the hist predicate if enabled) to every row in the registry table.
+%% Returns the per-sweep counter map. Tests only.
+-spec force_sweep_stale_pids() -> map().
+force_sweep_stale_pids() ->
+    gen_server:call(?MODULE, force_sweep_stale_pids, infinity).
+-endif.
 
+purge_loop('$end_of_table') ->
+    ok;
+purge_loop(ClientId) ->
+    Rows = mnesia:dirty_read(?CHAN_REG_TAB, ClientId),
+    Next = mnesia:dirty_next(?CHAN_REG_TAB, ClientId),
+    lists:foreach(
+        fun(R) -> mria:dirty_delete_object(?CHAN_REG_TAB, R) end,
+        Rows
+    ),
+    purge_loop(Next).
+
+handle_call(force_sweep_stale_pids, _From, #{no_deletes := true} = State) ->
+    %% Replicant: never deletes. Return zero counters.
+    {reply, zero_summary(), State};
+handle_call(force_sweep_stale_pids, _From, State0) ->
+    State1 = reset_sweep_state(State0, _Forced = true),
+    ?tp(info, cm_registry_gc_started, #{forced => true}),
+    State2 = run_full_sweep(undefined, State1),
+    Summary = sweep_summary(State2),
+    ?tp(info, cm_registry_gc_finished, Summary#{forced => true}),
+    {reply, Summary, reset_sweep_counters(State2)};
 handle_call({count, Since}, _From, State) ->
     {LastCountTime, LastCount} =
         case State of
@@ -111,27 +144,18 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info(start, #{next_clientid := NextClientId, timer_ref := TimerRef} = State) ->
-    %% ensure old timer is cancelled
-    is_reference(TimerRef) andalso erlang:cancel_timer(TimerRef),
-    case is_hist_enabled() of
-        true ->
-            {NewNext, NewTimerRef} =
-                case cleanup_one_chunk(NextClientId) of
-                    '$end_of_table' ->
-                        {undefined, send_delay_start()};
-                    Id ->
-                        %% ensure the next clientid is not in the cache
-                        _ = erlang:garbage_collect(),
-                        {Id, send_delay_start(?CLEANUP_CHUNK_INTERVAL)}
-                end,
-            {noreply, State#{next_clientid := NewNext, timer_ref := NewTimerRef}};
-        false ->
-            %% if not enabled, delay and check again
-            %% because it might be enabled from online config change while waiting
-            NewTimerRef = send_delay_start(),
-            {noreply, State#{timer_ref := NewTimerRef}}
-    end;
+handle_info(start, #{no_deletes := true} = State) ->
+    {noreply, State};
+handle_info(start, #{next_clientid := undefined, timer_ref := OldTimerRef} = State0) ->
+    %% Starting a fresh sweep.
+    is_reference(OldTimerRef) andalso erlang:cancel_timer(OldTimerRef),
+    State1 = reset_sweep_state(State0, _Forced = false),
+    ?tp(info, cm_registry_gc_started, #{}),
+    do_run_chunk(undefined, State1);
+handle_info(start, #{next_clientid := Cursor, timer_ref := OldTimerRef} = State0) ->
+    %% Continuing an in-progress sweep.
+    is_reference(OldTimerRef) andalso erlang:cancel_timer(OldTimerRef),
+    do_run_chunk(Cursor, State0);
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -141,38 +165,196 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-cleanup_one_chunk(NextClientId) ->
-    cleanup_one_chunk(NextClientId, false).
+%%--------------------------------------------------------------------
+%% Sweep state and counters
+%%--------------------------------------------------------------------
 
-cleanup_one_chunk(NextClientId, IsPurge) ->
-    Retain = retain_duration(),
-    Now = now_ts(),
-    IsExpired = fun(#channel{pid = Ts}) ->
-        IsPurge orelse (is_integer(Ts) andalso (Ts < Now - Retain))
-    end,
-    cleanup_loop(NextClientId, ?CLEANUP_CHUNK_SIZE, IsExpired).
+new_sweep_state(TimerRef) ->
+    (zero_state())#{timer_ref => TimerRef}.
 
-cleanup_loop(ClientId, 0, _IsExpired) ->
-    ClientId;
-cleanup_loop('$end_of_table', _Count, _IsExpired) ->
-    '$end_of_table';
-cleanup_loop(undefined, Count, IsExpired) ->
-    cleanup_loop(mnesia:dirty_first(?CHAN_REG_TAB), Count, IsExpired);
-cleanup_loop(ClientId, Count, IsExpired) ->
-    Records = mnesia:dirty_read(?CHAN_REG_TAB, ClientId),
-    Next = mnesia:dirty_next(?CHAN_REG_TAB, ClientId),
-    lists:foreach(
-        fun(R) ->
-            case IsExpired(R) of
-                true ->
-                    mria:dirty_delete_object(?CHAN_REG_TAB, R);
-                false ->
-                    ok
-            end
+zero_state() ->
+    #{
+        next_clientid => undefined,
+        timer_ref => undefined,
+        sweep_started_at => undefined,
+        gone_nodes => sets:new(),
+        alive_nodes => sets:new(),
+        scanned => 0,
+        deleted_hist => 0,
+        deleted_local_dead => 0,
+        deleted_remote_orphan => 0
+    }.
+
+%% Reset per-sweep accumulators and stamp a fresh start time.
+reset_sweep_state(State, _Forced) ->
+    State#{
+        sweep_started_at => erlang:monotonic_time(millisecond),
+        gone_nodes => sets:new(),
+        alive_nodes => sets:new(),
+        scanned => 0,
+        deleted_hist => 0,
+        deleted_local_dead => 0,
+        deleted_remote_orphan => 0
+    }.
+
+%% Clear counters after a forced sweep so the next scheduled tick starts fresh.
+reset_sweep_counters(State) ->
+    State#{
+        sweep_started_at => undefined,
+        gone_nodes => sets:new(),
+        alive_nodes => sets:new(),
+        scanned => 0,
+        deleted_hist => 0,
+        deleted_local_dead => 0,
+        deleted_remote_orphan => 0
+    }.
+
+sweep_summary(State) ->
+    Now = erlang:monotonic_time(millisecond),
+    StartedAt =
+        case maps:get(sweep_started_at, State, undefined) of
+            undefined -> Now;
+            T -> T
         end,
-        Records
+    #{
+        scanned => maps:get(scanned, State, 0),
+        deleted_hist => maps:get(deleted_hist, State, 0),
+        deleted_local_dead => maps:get(deleted_local_dead, State, 0),
+        deleted_remote_orphan => maps:get(deleted_remote_orphan, State, 0),
+        duration_ms => Now - StartedAt
+    }.
+
+zero_summary() ->
+    #{
+        scanned => 0,
+        deleted_hist => 0,
+        deleted_local_dead => 0,
+        deleted_remote_orphan => 0,
+        duration_ms => 0
+    }.
+
+bump(Key, State) ->
+    maps:update_with(Key, fun(V) -> V + 1 end, State).
+
+%%--------------------------------------------------------------------
+%% Chunked walk (scheduled)
+%%--------------------------------------------------------------------
+
+do_run_chunk(Cursor, State0) ->
+    {NewNext, State1} = run_chunk_loop(Cursor, ?STALE_PID_GC_CHUNK_SIZE, State0),
+    case NewNext of
+        '$end_of_table' ->
+            Summary = sweep_summary(State1),
+            ?tp(info, cm_registry_gc_finished, Summary),
+            TimerRef = send_delay_start(),
+            {noreply, State1#{next_clientid := undefined, timer_ref := TimerRef}};
+        Cid ->
+            %% ensure the next clientid is not in the cache
+            _ = erlang:garbage_collect(),
+            TimerRef = send_delay_start(?STALE_PID_GC_CHUNK_INTERVAL_MS),
+            {noreply, State1#{next_clientid := Cid, timer_ref := TimerRef}}
+    end.
+
+run_chunk_loop(undefined, Budget, State) ->
+    run_chunk_loop(mnesia:dirty_first(?CHAN_REG_TAB), Budget, State);
+run_chunk_loop('$end_of_table', _Budget, State) ->
+    {'$end_of_table', State};
+run_chunk_loop(ClientId, 0, State) ->
+    {ClientId, State};
+run_chunk_loop(ClientId, Budget, State0) ->
+    Rows = mnesia:dirty_read(?CHAN_REG_TAB, ClientId),
+    Next = mnesia:dirty_next(?CHAN_REG_TAB, ClientId),
+    State1 = lists:foldl(
+        fun(R, S) -> process_row(ClientId, R, S) end,
+        State0,
+        Rows
     ),
-    cleanup_loop(Next, Count - 1, IsExpired).
+    State2 = bump(scanned, State1),
+    run_chunk_loop(Next, Budget - 1, State2).
+
+%%--------------------------------------------------------------------
+%% Full synchronous walk (TEST-only force_sweep_stale_pids/0)
+%%--------------------------------------------------------------------
+
+run_full_sweep(undefined, State) ->
+    run_full_sweep(mnesia:dirty_first(?CHAN_REG_TAB), State);
+run_full_sweep('$end_of_table', State) ->
+    State;
+run_full_sweep(ClientId, State0) ->
+    Rows = mnesia:dirty_read(?CHAN_REG_TAB, ClientId),
+    Next = mnesia:dirty_next(?CHAN_REG_TAB, ClientId),
+    State1 = lists:foldl(
+        fun(R, S) -> process_row(ClientId, R, S) end,
+        State0,
+        Rows
+    ),
+    State2 = bump(scanned, State1),
+    run_full_sweep(Next, State2).
+
+%%--------------------------------------------------------------------
+%% Per-row predicates
+%%--------------------------------------------------------------------
+
+%% History row: integer Unix-seconds timestamp in the pid field.
+%% Apply the existing hist-retention predicate; only when hist is enabled.
+process_row(_ClientId, #channel{pid = Ts} = R, State) when is_integer(Ts) ->
+    case is_hist_enabled() andalso (Ts < now_ts() - retain_duration()) of
+        true ->
+            ok = mria:dirty_delete_object(?CHAN_REG_TAB, R),
+            bump(deleted_hist, State);
+        false ->
+            State
+    end;
+%% Live registration row: classify the pid.
+process_row(ClientId, #channel{pid = Pid}, State) when is_pid(Pid) ->
+    {Verdict, State1} = classify_pid(Pid, State),
+    case Verdict of
+        keep ->
+            State1;
+        local_dead ->
+            ok = emqx_cm_registry:unregister_channel({ClientId, Pid}),
+            bump(deleted_local_dead, State1);
+        remote_orphan ->
+            ok = emqx_cm_registry:unregister_channel({ClientId, Pid}),
+            bump(deleted_remote_orphan, State1)
+    end.
+
+classify_pid(Pid, State) when node(Pid) =:= node() ->
+    case erlang:is_process_alive(Pid) of
+        true -> {keep, State};
+        false -> {local_dead, State}
+    end;
+classify_pid(Pid, State) ->
+    %% Remote pid: only cores act on it. Reuse the same cluster-wide
+    %% consensus predicate that emqx_cm_registry:can_run_cleanup/1 uses,
+    %% cached per sweep so each unique remote node-id triggers at most one
+    %% mria:is_peer_alive/1 RPC per sweep. Any non-{ok, false} answer
+    %% (including {aborted, _} on RPC error) is treated as "keep this
+    %% sweep, retry next" to preserve the safety bias.
+    case mria_rlog:role() of
+        replicant ->
+            {keep, State};
+        _ ->
+            N = node(Pid),
+            #{gone_nodes := Gone, alive_nodes := Alive} = State,
+            case {sets:is_element(N, Gone), sets:is_element(N, Alive)} of
+                {true, _} ->
+                    {remote_orphan, State};
+                {_, true} ->
+                    {keep, State};
+                _ ->
+                    case mria:is_peer_alive(N) of
+                        {ok, false} ->
+                            {remote_orphan, State#{gone_nodes := sets:add_element(N, Gone)}};
+                        _ ->
+                            {keep, State#{alive_nodes := sets:add_element(N, Alive)}}
+                    end
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% Helpers
+%%--------------------------------------------------------------------
 
 is_hist_enabled() ->
     retain_duration() > 0.
@@ -182,7 +364,13 @@ is_hist_enabled() ->
 retain_duration() ->
     emqx:get_config([broker, session_history_retain]).
 
+%% Cadence between sweeps. The stale-pid GC requires at least 10 minutes
+%% between sweeps; the hist retention prefers a shorter cadence tied to the
+%% retain duration. Take the max so the stale-pid floor always holds.
 cleanup_delay() ->
+    max(?STALE_PID_GC_MIN_INTERVAL_MS, hist_delay()).
+
+hist_delay() ->
     Default = timer:minutes(2),
     case retain_duration() of
         0 ->
