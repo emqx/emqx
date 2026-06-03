@@ -362,10 +362,9 @@ t_unknown_scope_returns_400(_Config) ->
 -define(NS_CONTROL_USER, <<"ns_admin_control">>).
 -define(NS_ROLE, <<"ns:test::administrator">>).
 
-%% POST a namespaced administrator with admin-only scopes
-%% (api_key_management) — must succeed because an ns admin IS an
-%% administrator.
-t_ns_admin_can_hold_admin_only_scopes(_Config) ->
+%% POST a namespaced administrator with an allowed scope
+%% (api_key_management) — must succeed.
+t_ns_admin_can_hold_allowed_scopes(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
     Body = #{
@@ -379,7 +378,6 @@ t_ns_admin_can_hold_admin_only_scopes(_Config) ->
         {ok, 200, _},
         request_api(post, api_path(["users"]), auth_header(Token), Body)
     ),
-    %% Verify the persisted scopes match the request.
     [Admin] = emqx_dashboard_admin:lookup_user(?NS_ADMIN_USER),
     Stored = emqx_dashboard_admin:scopes_of(Admin#?ADMIN.username),
     ?assert(lists:member(?SCOPE_API_KEY_MGMT, Stored)),
@@ -387,9 +385,9 @@ t_ns_admin_can_hold_admin_only_scopes(_Config) ->
     ?assertEqual(?ROLE_SUPERUSER, Admin#?ADMIN.role).
 
 %% POST a namespaced administrator without an explicit `scopes'
-%% field — must materialise the full admin role defaults
-%% (common + login-only), not just the generic set.
-t_ns_admin_gets_full_role_default_scopes(_Config) ->
+%% field — must materialise the restricted role defaults
+%% (4 common + 2 login-only), not the global-admin full set.
+t_ns_admin_gets_restricted_role_default_scopes(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
     Body = #{
@@ -401,26 +399,39 @@ t_ns_admin_gets_full_role_default_scopes(_Config) ->
     {ok, 200, _} = request_api(
         post, api_path(["users"]), auth_header(Token), Body
     ),
-    %% Must have admin-only scopes in the default set.
     EffectiveScopes = emqx_dashboard_admin:effective_scopes_of(?NS_CONTROL_USER),
+    %% Must have the restricted subset (4 common).
+    ?assert(lists:member(?SCOPE_CONNECTIONS, EffectiveScopes)),
+    ?assert(lists:member(?SCOPE_MONITORING, EffectiveScopes)),
+    ?assert(lists:member(?SCOPE_DATA_INTEGRATION, EffectiveScopes)),
+    ?assert(lists:member(?SCOPE_ACCESS_CONTROL, EffectiveScopes)),
+    %% Must have the two allowed login-only scopes.
     ?assert(lists:member(?SCOPE_USER_MGMT, EffectiveScopes)),
-    ?assert(lists:member(?SCOPE_SSO_MGMT, EffectiveScopes)),
-    ?assert(lists:member(?SCOPE_MFA_MGMT, EffectiveScopes)),
-    ?assert(lists:member(?SCOPE_API_KEY_MGMT, EffectiveScopes)).
+    ?assert(lists:member(?SCOPE_API_KEY_MGMT, EffectiveScopes)),
+    %% Must NOT have system, license, gateways, etc.
+    ?assertNot(lists:member(?SCOPE_SYSTEM, EffectiveScopes)),
+    ?assertNot(lists:member(?SCOPE_LICENSE, EffectiveScopes)),
+    ?assertNot(lists:member(?SCOPE_GATEWAYS, EffectiveScopes)),
+    ?assertNot(lists:member(?SCOPE_PUBLISH, EffectiveScopes)),
+    ?assertNot(lists:member(?SCOPE_CLUSTER_OPERATIONS, EffectiveScopes)),
+    ?assertNot(lists:member(?SCOPE_AUDIT, EffectiveScopes)),
+    %% Must NOT have mfa, sso login-only scopes.
+    ?assertNot(lists:member(?SCOPE_MFA_MGMT, EffectiveScopes)),
+    ?assertNot(lists:member(?SCOPE_SSO_MGMT, EffectiveScopes)),
+    %% Exact count: 6 scopes.
+    ?assertEqual(6, length(EffectiveScopes)).
 
 %% PUT a namespaced administrator with only the description field
-%% updated (role + scopes unchanged). Before the fix this would
-%% return 400 because the validation compared the raw role string
-%% against ?ROLE_SUPERUSER and the effective scopes (from persisted
-%% defaults) contained admin-only entries.
+%% updated (role + scopes unchanged).  The persisted scopes are the
+%% ns-admin default (restricted subset), which the new validation
+%% must accept.
 t_ns_admin_update_description_succeeds(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
-    %% Create a namespaced admin with full defaults.
     {ok, _} = emqx_dashboard_admin:add_user(?NS_ADMIN_USER, test_password(), ?NS_ROLE, "ns admin"),
     {ok, _} = emqx_dashboard_admin:set_user_scopes(
         ?NS_ADMIN_USER,
-        ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES
+        ?NS_ADMIN_ALLOWED_SCOPES
     ),
     PutBody = #{
         <<"role">> => ?NS_ROLE,
@@ -436,16 +447,16 @@ t_ns_admin_update_description_succeeds(_Config) ->
         )
     ).
 
-%% PUT a namespaced administrator with admin-only scopes explicitly
-%% in the body — must succeed just like a plain admin.
-t_ns_admin_can_be_assigned_admin_scopes_via_put(_Config) ->
+%% PUT a namespaced administrator with allowed scopes explicitly
+%% in the body — the restricted subset must be accepted.
+t_ns_admin_can_be_assigned_allowed_scopes_via_put(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
     {ok, _} = emqx_dashboard_admin:add_user(?NS_ADMIN_USER, test_password(), ?NS_ROLE, "ns admin"),
     PutBody = #{
         <<"role">> => ?NS_ROLE,
         <<"description">> => <<"scoped ns admin">>,
-        <<"scopes">> => [?SCOPE_USER_MGMT, ?SCOPE_MFA_MGMT, ?SCOPE_API_KEY_MGMT]
+        <<"scopes">> => [?SCOPE_USER_MGMT, ?SCOPE_API_KEY_MGMT, ?SCOPE_CONNECTIONS]
     },
     {ok, 200, RespBody} = request_api(
         put,
@@ -455,12 +466,45 @@ t_ns_admin_can_be_assigned_admin_scopes_via_put(_Config) ->
     ),
     Resp = emqx_utils_json:decode(RespBody),
     ?assertEqual(
-        [<<"user_management">>, <<"mfa_management">>, <<"api_key_management">>],
+        [<<"user_management">>, <<"api_key_management">>, <<"connections">>],
         maps:get(<<"scopes">>, Resp)
     ),
-    %% Persisted correctly.
     Stored = emqx_dashboard_admin:scopes_of(?NS_ADMIN_USER),
     ?assertEqual(3, length(Stored)).
+
+%% Namespaced administrator cannot hold system scope — RBAC blocks
+%% GET/POST/PUT/DELETE on system endpoints for ns admins.
+t_ns_admin_cannot_hold_system_scope(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    Body = #{
+        <<"username">> => <<"ns_system">>,
+        <<"password">> => test_password(),
+        <<"role">> => ?NS_ROLE,
+        <<"description">> => <<"ns admin with system">>,
+        <<"scopes">> => [?SCOPE_SYSTEM]
+    },
+    ?assertMatch(
+        {ok, 400, _},
+        request_api(post, api_path(["users"]), auth_header(Token), Body)
+    ).
+
+%% Namespaced administrator cannot hold mfa_management — MFA control
+%% is global-admin territory.
+t_ns_admin_cannot_hold_mfa_management(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    Body = #{
+        <<"username">> => <<"ns_mfa">>,
+        <<"password">> => test_password(),
+        <<"role">> => ?NS_ROLE,
+        <<"description">> => <<"ns admin with mfa">>,
+        <<"scopes">> => [?SCOPE_MFA_MGMT]
+    },
+    ?assertMatch(
+        {ok, 400, _},
+        request_api(post, api_path(["users"]), auth_header(Token), Body)
+    ).
 
 %% Viewer still cannot hold admin-only scopes — regression test
 %% proving the fix didn't weaken the non-admin guard.

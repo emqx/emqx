@@ -687,12 +687,27 @@ validate_scope_names(Scopes) ->
     end.
 
 validate_role_scope_compat(Role, Scopes) ->
-    %% Parse the role to extract the base role name, so that namespaced
-    %% administrator roles (e.g. "ns:test::administrator") are correctly
-    %% recognised as administrator.
+    %% Parse the role to extract the base role name and namespace,
+    %% so that namespaced administrator roles (e.g.
+    %% "ns:test::administrator") are correctly recognised.
     case emqx_dashboard_rbac:parse_dashboard_role(Role) of
-        {ok, #{?role := ?ROLE_SUPERUSER}} ->
+        {ok, #{?role := ?ROLE_SUPERUSER, ?namespace := ?global_ns}} ->
             ok;
+        {ok, #{?role := ?ROLE_SUPERUSER}} ->
+            %% Namespaced administrator: only the restricted subset
+            %% is allowed.  Scopes like system, license, mfa_mgmt,
+            %% sso_mgmt are blocked by RBAC for namespaced admins
+            %% anyway — allowing them would be misleading.
+            case Scopes -- ?NS_ADMIN_ALLOWED_SCOPES of
+                [] ->
+                    ok;
+                Forbidden ->
+                    Names = lists:join(<<", ">>, Forbidden),
+                    {error,
+                        iolist_to_binary([
+                            <<"Namespaced administrators cannot hold scopes: ">>, Names
+                        ])}
+            end;
         {ok, _} ->
             case [S || S <- Scopes, lists:member(S, ?ADMIN_ONLY_SCOPES)] of
                 [] ->

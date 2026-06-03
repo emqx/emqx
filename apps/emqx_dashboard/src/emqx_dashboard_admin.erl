@@ -487,12 +487,17 @@ effective_scopes_of_admin(#?ADMIN{username = Username, role = Role}) ->
     end.
 
 role_default_scopes(Role) ->
-    %% Parse the role to handle namespaced administrator roles
-    %% (e.g. "ns:test::administrator") - they should receive the
-    %% same default scopes as a plain administrator.
+    %% Parse the role to distinguish global administrator from
+    %% namespaced administrator and non-admin roles.
     case emqx_dashboard_rbac:parse_dashboard_role(Role) of
-        {ok, #{?role := ?ROLE_SUPERUSER}} ->
+        {ok, #{?role := ?ROLE_SUPERUSER, ?namespace := ?global_ns}} ->
             ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES;
+        {ok, #{?role := ?ROLE_SUPERUSER}} ->
+            %% Namespaced administrator: restricted subset.
+            %% RBAC blocks namespaced admins from mutating system,
+            %% license, gateways, etc. — giving those scopes would
+            %% be misleading.
+            ?NS_ADMIN_ALLOWED_SCOPES;
         _ ->
             ?GENERIC_SCOPES
     end.
