@@ -94,13 +94,24 @@ handle_request(#coap_message{id = MsgId} = Msg, TM) ->
     end.
 
 %% client response
-handle_response(#coap_message{type = Type, id = MsgId, token = Token} = Msg, TM) ->
+handle_response(#coap_message{type = Type, method = Method, id = MsgId, token = Token} = Msg, TM) ->
     Id = {out, MsgId},
     TokenId = ?TOKEN_ID(Token),
-    case find_machine_by_keys([Id, TokenId], TM) of
+    MachineIdKeys =
+        case {Type, Method} of
+            {ack, undefined} ->
+                [Id];
+            {reset, _} ->
+                [Id];
+            _ ->
+                [Id, TokenId]
+        end,
+    case find_machine_by_keys(MachineIdKeys, TM) of
         undefined ->
-            case Type of
-                reset ->
+            case {Type, Method} of
+                {reset, _} ->
+                    empty();
+                {ack, undefined} ->
                     empty();
                 _ ->
                     reset(Msg)

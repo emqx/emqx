@@ -171,8 +171,13 @@ t_tm_paths(_) ->
     ?assertThrow("token conflict", emqx_coap_tm:handle_out(Msg, TMConflict)),
     Empty = emqx_coap_tm:handle_response(#coap_message{type = reset, id = 99, token = <<>>}, TM0),
     ?assertEqual(#{}, Empty),
+    EmptyAck = emqx_coap_tm:handle_response(#coap_message{type = ack, id = 98, token = <<>>}, TM0),
+    ?assertEqual(#{}, EmptyAck),
     #{out := _} =
-        emqx_coap_tm:handle_response(#coap_message{type = ack, id = 98, token = <<>>}, TM0),
+        emqx_coap_tm:handle_response(
+            #coap_message{type = ack, method = {ok, content}, id = 98, token = <<>>},
+            TM0
+        ),
     _ = emqx_coap_tm:handle_out(
         #coap_message{type = non, method = get, token = <<"tok2">>},
         TM0
