@@ -15,6 +15,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx/include/emqx_durable_session_metadata.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -54,6 +55,7 @@
     format_channel_info/2,
     format_channel_info/3
 ]).
+-export([filter/2]).
 
 %% for batch operation
 -export([do_subscribe/3]).
@@ -151,6 +153,7 @@ paths() ->
 schema("/clients_v2") ->
     #{
         'operationId' => list_clients_v2,
+        filter => fun ?MODULE:filter/2,
         get => #{
             description => ?DESC(list_clients),
             hidden => true,
@@ -178,6 +181,7 @@ schema("/clients_v2") ->
 schema("/clients") ->
     #{
         'operationId' => clients,
+        filter => fun ?MODULE:filter/2,
         get => #{
             description => ?DESC(list_clients),
             tags => ?TAGS,
@@ -203,6 +207,7 @@ schema("/clients") ->
 schema("/clients/kickout/bulk") ->
     #{
         'operationId' => kickout_clients,
+        filter => fun ?MODULE:filter/2,
         post => #{
             description => ?DESC(kickout_clients),
             tags => ?TAGS,
@@ -219,6 +224,7 @@ schema("/clients/kickout/bulk") ->
 schema("/clients/:clientid") ->
     #{
         'operationId' => client,
+        filter => fun ?MODULE:filter/2,
         get => #{
             description => ?DESC(clients_info_from_id),
             tags => ?TAGS,
@@ -250,6 +256,7 @@ schema("/clients/:clientid") ->
 schema("/clients/:clientid/authorization/cache") ->
     #{
         'operationId' => authz_cache,
+        filter => fun ?MODULE:filter/2,
         get => #{
             description => ?DESC(get_authz_cache),
             tags => ?TAGS,
@@ -276,6 +283,7 @@ schema("/clients/:clientid/authorization/cache") ->
 schema("/clients/:clientid/subscriptions") ->
     #{
         'operationId' => subscriptions,
+        filter => fun ?MODULE:filter/2,
         get => #{
             description => ?DESC(get_client_subs),
             tags => ?TAGS,
@@ -293,6 +301,7 @@ schema("/clients/:clientid/subscriptions") ->
 schema("/clients/:clientid/subscribe") ->
     #{
         'operationId' => subscribe,
+        filter => fun ?MODULE:filter/2,
         post => #{
             description => ?DESC(subscribe),
             tags => ?TAGS,
@@ -310,6 +319,7 @@ schema("/clients/:clientid/subscribe") ->
 schema("/clients/:clientid/subscribe/bulk") ->
     #{
         'operationId' => subscribe_batch,
+        filter => fun ?MODULE:filter/2,
         post => #{
             description => ?DESC(subscribe_g),
             tags => ?TAGS,
@@ -327,6 +337,7 @@ schema("/clients/:clientid/subscribe/bulk") ->
 schema("/clients/:clientid/unsubscribe") ->
     #{
         'operationId' => unsubscribe,
+        filter => fun ?MODULE:filter/2,
         post => #{
             description => ?DESC(unsubscribe),
             tags => ?TAGS,
@@ -344,6 +355,7 @@ schema("/clients/:clientid/unsubscribe") ->
 schema("/clients/:clientid/unsubscribe/bulk") ->
     #{
         'operationId' => unsubscribe_batch,
+        filter => fun ?MODULE:filter/2,
         post => #{
             description => ?DESC(unsubscribe_g),
             tags => ?TAGS,
@@ -361,6 +373,7 @@ schema("/clients/:clientid/unsubscribe/bulk") ->
 schema("/clients/:clientid/keepalive") ->
     #{
         'operationId' => set_keepalive,
+        filter => fun ?MODULE:filter/2,
         put => #{
             description => ?DESC(set_keepalive_seconds),
             tags => ?TAGS,
@@ -389,6 +402,7 @@ schema("/clients/:clientid/inflight_messages") ->
 schema("/sessions_count") ->
     #{
         'operationId' => sessions_count,
+        filter => fun ?MODULE:filter/2,
         get => #{
             description => ?DESC(get_sessions_count),
             tags => ?TAGS,
@@ -1282,6 +1296,7 @@ unsubscribe_batch(#{clientid := ClientId, topics := Topics}) ->
 client_msgs_schema(OpId, Desc, ContExample, RespSchema) ->
     #{
         'operationId' => OpId,
+        filter => fun ?MODULE:filter/2,
         get => #{
             description => Desc,
             tags => ?TAGS,
@@ -2052,3 +2067,14 @@ sessions_count(get, #{query_string := QString}) ->
             Msg = io_lib:format("Node (~s) cannot handle this request.", [node()]),
             {400, 'BAD_REQUEST', iolist_to_binary(Msg)}
     end.
+
+resolve_namespace(Req, _Meta) ->
+    case emqx_dashboard:get_namespace(Req) of
+        ?global_ns ->
+            {ok, Req};
+        _ ->
+            ?FORBIDDEN(<<"User not authorized to operate on this endpoint">>)
+    end.
+
+filter(Req, Meta) ->
+    resolve_namespace(Req, Meta).
