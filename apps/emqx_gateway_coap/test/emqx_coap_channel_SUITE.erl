@@ -815,6 +815,15 @@ t_channel_observe_blockwise_ack_failure_drains_pending(_) ->
     ?assertEqual(ObserveToken, NotifyB0#coap_message.token),
     ?assertEqual(binary:copy(<<"B">>, 16), NotifyB0#coap_message.payload),
     ?assertEqual({0, true, 16}, emqx_coap_message:get_option(block2, NotifyB0, undefined)),
+    ?assertEqual(1, proplists:get_value(inflight_cnt, emqx_coap_channel:stats(Channel8))),
+
+    OldAck = #coap_message{
+        type = ack,
+        id = NotifyA0#coap_message.id,
+        token = ObserveToken
+    },
+    {ok, Channel9} = emqx_coap_channel:handle_in(OldAck, Channel8),
+    ?assertEqual(1, proplists:get_value(inflight_cnt, emqx_coap_channel:stats(Channel9))),
 
     FollowReq = #coap_message{
         type = con,
@@ -827,8 +836,8 @@ t_channel_observe_blockwise_ack_failure_drains_pending(_) ->
             block2 => {1, false, 16}
         }
     },
-    {ok, [{outgoing, [FollowResp]}], _Channel9} =
-        emqx_coap_channel:handle_in(FollowReq, Channel8),
+    {ok, [{outgoing, [FollowResp]}], _Channel10} =
+        emqx_coap_channel:handle_in(FollowReq, Channel9),
     ?assertEqual({ok, content}, FollowResp#coap_message.method),
     ?assertEqual(binary:copy(<<"b">>, 16), FollowResp#coap_message.payload),
     ?assertEqual({1, true, 16}, emqx_coap_message:get_option(block2, FollowResp, undefined)).
@@ -903,11 +912,14 @@ ps_get_request(Id, Token, ExtraOpts) ->
     }.
 
 ack_timeout(Channel) ->
-    emqx_coap_channel:handle_timeout(
-        make_ref(),
-        {transport, {1, state_timeout, ack_timeout}},
-        Channel
-    ).
+    receive
+        {timeout, TRef, {state_machine, {_SeqId, state_timeout, ack_timeout}} = Msg} ->
+            emqx_coap_channel:handle_timeout(TRef, Msg, Channel);
+        Other ->
+            ct:fail({unexpected_ack_timeout_message, Other})
+    after 70000 ->
+        ct:fail(ack_timeout_not_received)
+    end.
 
 observe_channel(Topic, ObserveToken, #channel{session = Session0} = Channel) ->
     SubData = #{topic => Topic, token => ObserveToken, subopts => #{qos => 0}},
