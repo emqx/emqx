@@ -95,7 +95,9 @@ init_per_testcase(_TC, Config) ->
 
 end_per_testcase(_TC, Config) ->
     Client = proplists:get_value(client, Config),
-    emqtt:disconnect(Client).
+    emqtt:disconnect(Client),
+    emqx_common_test_helpers:call_janitor(),
+    ok.
 
 t_subscription_api(Config) ->
     Client = proplists:get_value(client, Config),
@@ -344,6 +346,15 @@ t_list_with_invalid_match_topic(Config) ->
     ),
     ok.
 
+-doc """
+Checks that we forbid namespaced users from accessing this API.
+""".
+t_namespaced_user_forbidden(_TCConfig) ->
+    AuthHeader = namespaced_admin_headers(),
+    emqx_bridge_v2_testlib:set_auth_header_getter(fun() -> AuthHeader end),
+    ?assertMatch({403, _}, get_subs_simple(#{})),
+    ok.
+
 request_json(Method, Query, Headers) when is_list(Query) ->
     Qs = uri_string:compose_query(Query),
     {ok, MatchRes} = emqx_mgmt_api_test_util:request_api(Method, path(), Qs, Headers),
@@ -351,6 +362,17 @@ request_json(Method, Query, Headers) when is_list(Query) ->
 
 path() ->
     emqx_mgmt_api_test_util:api_path(["subscriptions"]).
+
+namespaced_admin_headers() ->
+    emqx_bridge_v2_testlib:create_namespaced_admin_headers(#{}).
+
+get_subs_simple(_Opts) ->
+    URL = path(),
+    emqx_bridge_v2_testlib:simple_request(#{
+        method => get,
+        url => URL,
+        auth_header => emqx_bridge_v2_testlib:auth_header()
+    }).
 
 get_subs() ->
     get_subs(_QueryParams = #{}).

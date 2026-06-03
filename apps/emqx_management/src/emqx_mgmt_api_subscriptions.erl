@@ -11,7 +11,9 @@
 -include_lib("emqx/include/emqx_router.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     api_spec/0,
@@ -29,6 +31,7 @@
     format/2
 ]).
 -export([scopes/0]).
+-export([filter/2]).
 
 -define(SUBS_QSCHEMA, [
     {<<"clientid">>, binary},
@@ -53,6 +56,7 @@ paths() ->
 schema("/subscriptions") ->
     #{
         'operationId' => subscriptions,
+        filter => fun ?MODULE:filter/2,
         get => #{
             description => ?DESC(list_subs),
             tags => [<<"Subscriptions">>],
@@ -513,3 +517,14 @@ run_fuzzy_filter(_, []) ->
     true;
 run_fuzzy_filter(E = {{SubedTopic, _}, _}, [{topic, match, TopicFilter} | Fuzzy]) ->
     emqx_topic:match(SubedTopic, TopicFilter) andalso run_fuzzy_filter(E, Fuzzy).
+
+resolve_namespace(Req, _Meta) ->
+    case emqx_dashboard:get_namespace(Req) of
+        ?global_ns ->
+            {ok, Req};
+        _ ->
+            ?FORBIDDEN(<<"User not authorized to operate on this endpoint">>)
+    end.
+
+filter(Req, Meta) ->
+    resolve_namespace(Req, Meta).
