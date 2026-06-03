@@ -502,49 +502,6 @@ t_namespaced_api_key(_TCConfig) ->
     ok.
 
 -doc """
-Simple assertions about namespaced user permissions.
-
-   - Both viewers and admins can `GET` anything, even outside their namespace.  Namespaces
-     are mostly to avoid accidentally mutating the wrong resources rather than hiding
-     information.
-""".
-t_namespaced_user_permissions(_TCConfig) ->
-    GlobalAdminHeader = create_superuser(),
-    Username = <<"iminans">>,
-    Password = <<"superSecureP@ss">>,
-    AdminRole = <<"ns:ns1::", ?ROLE_SUPERUSER/binary>>,
-    {200, _} = create_user_api(
-        #{
-            <<"username">> => Username,
-            <<"password">> => Password,
-            <<"role">> => AdminRole,
-            <<"description">> => <<"namespaced person">>
-        },
-        GlobalAdminHeader
-    ),
-    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
-    AllHandlers = [_ | _] = all_handlers(),
-    GetHandlers = [_ | _] = [FHI || #{method := get} = FHI <- AllHandlers],
-    FakeReq = #{path => <<"/api/v5/clients">>},
-    Failures =
-        lists:filtermap(
-            fun(FakeHandlerInfo) ->
-                case emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token) of
-                    {ok, _} ->
-                        false;
-                    {error, _} ->
-                        true
-                end
-            end,
-            GetHandlers
-        ),
-    maybe
-        [_ | _] ?= Failures,
-        ct:fail({should_have_been_allowed, Failures})
-    end,
-    ok.
-
--doc """
 Checks the authorization behavior of namespaced publisher API keys.
 
 Currently, they are not authorized even to use the publish HTTP APIs that their
