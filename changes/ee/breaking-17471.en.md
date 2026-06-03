@@ -1,0 +1,1 @@
+Previously, such admins could `GET` all endpoints.  This has been revoked.  They still can access endpoints which are already namespaced, such as managing Connectors/Actions/Sources/Rules, and its own namespace configurations and info.
