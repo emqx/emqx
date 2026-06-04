@@ -778,7 +778,7 @@ t_join_to_string(_) ->
         <<"a, b, c">>, apply_func(join_to_string, [<<", ">>, [<<"a">>, <<"b">>, <<"c">>]])
     ),
     ?assertEqual(
-        <<"1, a, c, {\"a\":1}, [1,2,3], [{\"value\":2,\"key\":1}]">>,
+        <<"1, a, c, {\"a\":1}, [1,2,3], [{\"key\":1,\"value\":2}]">>,
         apply_func(join_to_string, [<<", ">>, [A, B, C, D, E, F]])
     ),
     ?assertEqual(<<"a">>, apply_func(join_to_string, [<<",">>, [<<"a">>]])),
@@ -802,7 +802,7 @@ t_join_to_sql_values_string(_) ->
         <<"'a', 'b', 'c'">>, apply_func(join_to_sql_values_string, [[<<"a">>, <<"b">>, <<"c">>]])
     ),
     ?assertEqual(
-        <<"1, 'a', 'c', '{\"a\":1}', '[1,2,3]', '[97,98]', '[{\"value\":2,\"key\":1}]'">>,
+        <<"1, 'a', 'c', '{\"a\":1}', '[1,2,3]', '[97,98]', '[{\"key\":1,\"value\":2}]'">>,
         apply_func(join_to_sql_values_string, [[A, B, C, D, E, E1, F]])
     ),
     ?assertEqual(<<"'a'">>, apply_func(join_to_sql_values_string, [[<<"a">>]])),

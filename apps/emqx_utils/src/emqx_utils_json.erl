@@ -66,17 +66,26 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
-%% See `jiffy:encode_options()`.
 -type encode_options() :: [encode_option()].
 -type encode_option() :: uescape | pretty | force_utf8.
 
-%% See `jiffy:decode_options()`.
 -type decode_options() :: [decode_option()].
+%% `return_trailer | dedupe_keys | copy_strings' are accepted but ignored;
+%% they were jiffy-specific. `return_maps' is the default and accepted as a no-op.
 -type decode_option() :: return_maps | return_trailer | dedupe_keys | copy_strings.
 
 -type json_text() :: iolist() | binary().
--type json_term() :: jiffy:json_value().
--type json_term_proplist() :: jiffy:json_value() | [{atom() | binary(), json_term_proplist()}].
+-type json_term() ::
+    null
+    | boolean()
+    | binary()
+    | number()
+    | atom()
+    | [json_term()]
+    | #{atom() | binary() => json_term()}
+    %% jiffy-style ejson object (preserved for backward compatibility):
+    | {[{atom() | binary(), json_term()}]}.
+-type json_term_proplist() :: json_term() | [{atom() | binary(), json_term_proplist()}].
 
 -export_type([json_text/0, json_term/0]).
 -export_type([decode_options/0, encode_options/0]).
@@ -87,7 +96,11 @@ encode(Term) ->
 
 -spec encode(json_term(), encode_options()) -> json_text().
 encode(Term, Opts) ->
-    to_binary(jiffy:encode(Term, Opts)).
+    Bin = iolist_to_binary(json:encode(Term, encoder(Opts))),
+    case lists:member(pretty, Opts) of
+        true -> pretty_print(Bin);
+        false -> Bin
+    end.
 
 -spec encode_proplist(json_term_proplist()) -> json_text().
 encode_proplist(Term) ->
@@ -95,7 +108,7 @@ encode_proplist(Term) ->
 
 -spec encode_proplist(json_term_proplist(), encode_options()) -> json_text().
 encode_proplist(Term, Opts) ->
-    to_binary(jiffy:encode(to_ejson(Term), Opts)).
+    encode(to_ejson(Term), Opts).
 
 -spec safe_encode(json_term()) ->
     {ok, json_text()} | {error, Reason :: term()}.
@@ -118,11 +131,26 @@ decode(Json) ->
 
 -spec decode(json_text(), decode_options()) -> json_term().
 decode(Json, Opts) ->
-    jiffy:decode(Json, Opts).
+    Bin = to_binary(Json),
+    case lists:member(return_maps, Opts) of
+        true ->
+            json:decode(Bin);
+        false ->
+            %% Empty option list keeps the jiffy-era behavior of returning ejson
+            %% form and preserving object key order.
+            {Term, _Acc, _Rest} = json:decode(Bin, [], ejson_decoders()),
+            Term
+    end.
+
+ejson_decoders() ->
+    #{
+        object_push => fun(K, V, Acc) -> [{K, V} | Acc] end,
+        object_finish => fun(Acc, OldAcc) -> {{lists:reverse(Acc)}, OldAcc} end
+    }.
 
 -spec decode_proplist(json_text()) -> json_term_proplist().
 decode_proplist(Json) ->
-    from_ejson(jiffy:decode(Json, [])).
+    from_ejson(decode(Json, [])).
 
 -spec safe_decode(json_text()) ->
     {ok, json_term()} | {error, Reason :: term()}.
@@ -248,6 +276,108 @@ json_key(Term) ->
     end.
 
 %%--------------------------------------------------------------------
+%% Encoder
+%%--------------------------------------------------------------------
+
+%% Custom encoder fun for `json:encode/2`. Handles:
+%%   * jiffy-style ejson objects `{[]}` and `{[{K, V}, ...]}`.
+%%   * `uescape` — escape every non-ASCII codepoint as `\uXXXX`.
+%%   * `force_utf8` — replace invalid UTF-8 bytes with U+FFFD instead of crashing.
+encoder(Opts) ->
+    Uescape = lists:member(uescape, Opts),
+    ForceUtf8 = lists:member(force_utf8, Opts),
+    fun
+        ({[]}, _Enc) ->
+            <<"{}">>;
+        ({L}, Enc) when is_list(L) ->
+            json:encode_key_value_list(L, Enc);
+        (B, _Enc) when is_binary(B) ->
+            encode_binary(B, Uescape, ForceUtf8);
+        (Other, Enc) ->
+            json:encode_value(Other, Enc)
+    end.
+
+encode_binary(B, Uescape, ForceUtf8) ->
+    B1 =
+        case ForceUtf8 of
+            true -> sanitize_utf8(B);
+            false -> B
+        end,
+    case Uescape of
+        true -> json:encode_binary_escape_all(B1);
+        false -> json:encode_binary(B1)
+    end.
+
+%% Replace invalid UTF-8 byte sequences with the Unicode replacement character
+%% U+FFFD, matching jiffy's `force_utf8` behavior. Returns the original binary
+%% unchanged when it is already valid UTF-8.
+sanitize_utf8(B) ->
+    case is_valid_utf8(B) of
+        true -> B;
+        false -> do_sanitize_utf8(B, <<>>)
+    end.
+
+is_valid_utf8(<<>>) -> true;
+is_valid_utf8(<<_/utf8, R/binary>>) -> is_valid_utf8(R);
+is_valid_utf8(_) -> false.
+
+do_sanitize_utf8(<<>>, Acc) ->
+    Acc;
+do_sanitize_utf8(<<C/utf8, R/binary>>, Acc) ->
+    do_sanitize_utf8(R, <<Acc/binary, C/utf8>>);
+do_sanitize_utf8(<<_:8, R/binary>>, Acc) ->
+    do_sanitize_utf8(R, <<Acc/binary, 16#FFFD/utf8>>).
+
+%%--------------------------------------------------------------------
+%% Pretty printer
+%%--------------------------------------------------------------------
+
+%% Pretty-print a compact JSON binary into the format used by the EMQX CLI:
+%%   * 2-space indent per nesting level
+%%   * `\n<indent>` after `{` `[` `,`
+%%   * `\n<indent>` before `}` `]`
+%%   * `" : "` between key and value
+%%   * empty container body keeps a `\n<inner>\n<outer>` pair
+%% This affects the CLI output format, consult the team before changing the format.
+pretty_print(Bin) ->
+    pretty(Bin, 0, <<>>, false, false).
+
+%% pretty(Rest, Depth, Acc, InString, Escaped)
+pretty(<<>>, _D, Acc, _, _) ->
+    Acc;
+pretty(<<C, R/binary>>, D, Acc, true, true) ->
+    pretty(R, D, <<Acc/binary, C>>, true, false);
+pretty(<<$\\, R/binary>>, D, Acc, true, false) ->
+    pretty(R, D, <<Acc/binary, $\\>>, true, true);
+pretty(<<$", R/binary>>, D, Acc, true, false) ->
+    pretty(R, D, <<Acc/binary, $">>, false, false);
+pretty(<<C, R/binary>>, D, Acc, true, false) ->
+    pretty(R, D, <<Acc/binary, C>>, true, false);
+pretty(<<$", R/binary>>, D, Acc, false, _) ->
+    pretty(R, D, <<Acc/binary, $">>, true, false);
+pretty(<<${, R/binary>>, D, Acc, false, _) ->
+    D1 = D + 1,
+    pretty(R, D1, <<Acc/binary, ${, $\n, (indent(D1))/binary>>, false, false);
+pretty(<<$[, R/binary>>, D, Acc, false, _) ->
+    D1 = D + 1,
+    pretty(R, D1, <<Acc/binary, $[, $\n, (indent(D1))/binary>>, false, false);
+pretty(<<$}, R/binary>>, D, Acc, false, _) ->
+    D1 = D - 1,
+    pretty(R, D1, <<Acc/binary, $\n, (indent(D1))/binary, $}>>, false, false);
+pretty(<<$], R/binary>>, D, Acc, false, _) ->
+    D1 = D - 1,
+    pretty(R, D1, <<Acc/binary, $\n, (indent(D1))/binary, $]>>, false, false);
+pretty(<<$,, R/binary>>, D, Acc, false, _) ->
+    pretty(R, D, <<Acc/binary, $,, $\n, (indent(D))/binary>>, false, false);
+pretty(<<$:, R/binary>>, D, Acc, false, _) ->
+    pretty(R, D, <<Acc/binary, " : ">>, false, false);
+pretty(<<C, R/binary>>, D, Acc, false, _) ->
+    pretty(R, D, <<Acc/binary, C>>, false, false).
+
+indent(D) ->
+    binary:copy(<<"  ">>, D).
+
+%%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
 
@@ -258,12 +388,14 @@ json_key(Term) ->
     ]}
 ).
 
+%% Convert a proplist-with-map term to jiffy-style ejson tuple form so the
+%% encoder fun can recognise it.
 to_ejson([{_, _} | _] = L) ->
     {[{K, to_ejson(V)} || {K, V} <- L]};
 to_ejson(L) when is_list(L) ->
     [to_ejson(E) || E <- L];
 to_ejson(M) when is_map(M) ->
-    maps:map(fun(_K, V) -> to_ejson(V) end, M);
+    {[{K, to_ejson(V)} || K := V <- M]};
 to_ejson(T) ->
     T.
 
@@ -360,5 +492,38 @@ iolist_test() ->
     Concat = #{<<"iolist">> => <<"ab">>},
     Encoded = emqx_utils_json:encode(json(Iolist, config())),
     ?assertEqual(Concat, emqx_utils_json:decode(Encoded)).
+
+encode_pretty_empty_object_matches_jiffy_format_test() ->
+    ?assertEqual(<<"{\n  \n}">>, encode(#{}, [pretty])).
+
+encode_force_utf8_handles_invalid_bytes_test() ->
+    Invalid = <<255, 254, 253>>,
+    Encoded = encode(Invalid, [force_utf8]),
+    %% Round-trips to a valid binary without crashing.
+    ?assertMatch(B when is_binary(B), decode(Encoded)).
+
+encode_uescape_escapes_non_ascii_test() ->
+    ?assertEqual(<<"\"h\\u00E9llo\"">>, encode(<<"héllo"/utf8>>, [uescape])).
+
+decode_object_returns_map_test() ->
+    ?assertEqual(#{<<"a">> => 1}, decode(<<"{\"a\":1}">>)).
+
+decode_invalid_json_throws_under_decode_test() ->
+    ?assertError(_, decode(<<"not-json">>)).
+
+safe_decode_returns_error_test() ->
+    ?assertMatch({error, _}, safe_decode(<<"not-json">>)).
+
+encode_proplist_roundtrip_test() ->
+    %% `decode_proplist/1` strips jiffy's outer 1-tuple wrapper, matching the
+    %% pre-existing SUITE expectations in `emqx_utils_json_SUITE`.
+    ?assertEqual(
+        [{<<"k">>, 1}],
+        decode_proplist(encode_proplist({[{<<"k">>, 1}]}))
+    ).
+
+is_json_basic_test() ->
+    ?assert(is_json(<<"{}">>)),
+    ?assertNot(is_json(<<"not-json">>)).
 
 -endif.
