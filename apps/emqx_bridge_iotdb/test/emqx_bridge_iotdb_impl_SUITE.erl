@@ -25,7 +25,10 @@ all() ->
 
 groups() ->
     ThriftOnlyTCs = [t_thrift_auto_recon, t_thrift_protocol_version_1_or_2_is_deprecated],
-    RestAPIOnlyTCs = [t_restapi_auth_probe_with_real_iotdb],
+    RestAPIOnlyTCs = [
+        t_restapi_auth_probe_with_real_iotdb,
+        t_restapi_auth_probe_rejects_bad_password
+    ],
     AllTCs = emqx_common_test_helpers:all(?MODULE) -- ThriftOnlyTCs,
     Async = [
         t_async_device_id_missing,
@@ -441,6 +444,30 @@ t_restapi_auth_probe_with_real_iotdb(Config) ->
                 _Attempts = 20,
                 ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
             ),
+            ok
+        end,
+        fun(Trace) ->
+            Probes = ?of_kind(iotdb_restapi_auth_probe, Trace),
+            ?assertMatch(
+                [#{path := <<"rest/v2/query">>, sql := <<"show version">>} | _],
+                Probes
+            ),
+            ?assertEqual([], [Probe || #{path := <<"rest/v2/nonQuery">>} = Probe <- Probes]),
+            ok
+        end
+    ).
+
+t_restapi_auth_probe_rejects_bad_password(Config) ->
+    BadPassword = #{<<"authentication">> => #{<<"password">> => <<"wrong-password">>}},
+    ?check_trace(
+        begin
+            {ok, {{_, 201, _}, _, Body}} =
+                emqx_bridge_v2_testlib:create_connector_api(Config, BadPassword),
+            #{
+                <<"status">> := <<"disconnected">>,
+                <<"status_reason">> := StatusReason
+            } = Body,
+            ?assertMatch({_, _}, binary:match(StatusReason, <<"WRONG_LOGIN_PASSWORD">>)),
             ok
         end,
         fun(Trace) ->
