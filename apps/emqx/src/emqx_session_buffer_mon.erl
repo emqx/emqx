@@ -17,6 +17,11 @@
     local_top/2
 ]).
 
+-export_type([
+    sort_by/0,
+    row/0
+]).
+
 -export([
     init/1,
     handle_call/3,
@@ -140,8 +145,12 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 do_run_top(#{count := Count, sort := SortBy, out := OutFile}) ->
-    Nodes = emqx:running_nodes(),
-    {Results, BadNodes} = rpc:multicall(Nodes, ?MODULE, local_top, [Count, SortBy], ?TOP_TIMEOUT),
+    RunningNodes = emqx:running_nodes(),
+    Nodes = emqx_bpapi:nodes_supporting_bpapi_version(emqx_session_buffer, 1),
+    UnsupportedNodes = RunningNodes -- Nodes,
+    {Results, BadNodes0} =
+        emqx_session_buffer_proto_v1:local_top(Nodes, Count, SortBy, ?TOP_TIMEOUT),
+    BadNodes = BadNodes0 ++ UnsupportedNodes,
     {Rows0, BadReplies} = result_rows(Results),
     Rows = top_rows(Rows0, Count, SortBy),
     case write_csv(OutFile, Rows) of
