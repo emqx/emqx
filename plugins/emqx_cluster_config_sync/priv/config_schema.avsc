@@ -119,12 +119,16 @@
               "type": "array",
               "items": "string"
             },
-            "default": [],
+            "default": [
+              "banned",
+              "builtin_authn",
+              "builtin_authz"
+            ],
             "$ui": {
               "component": "input-array",
               "required": false,
               "label": "Table Sets",
-              "description": "Optional Mnesia table sets to export. Empty means configuration-only synchronization."
+              "description": "Mnesia table sets to export. Set to an empty list for configuration-only synchronization."
             }
           },
           {
@@ -172,7 +176,11 @@
           "listeners",
           "schema_registry"
         ],
-        "table_sets": [],
+        "table_sets": [
+          "banned",
+          "builtin_authn",
+          "builtin_authz"
+        ],
         "timeout": "30s",
         "delete_remote_backup": true,
         "delete_local_backup": true

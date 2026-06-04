@@ -8,6 +8,7 @@
 
 -export([
     default_root_keys/0,
+    default_table_sets/0,
     normalize_config/1,
     sync_once/1,
     sync_once/2
@@ -46,6 +47,14 @@ default_root_keys() ->
         <<"schema_registry">>
     ].
 
+-spec default_table_sets() -> [binary()].
+default_table_sets() ->
+    [
+        <<"banned">>,
+        <<"builtin_authn">>,
+        <<"builtin_authz">>
+    ].
+
 -spec normalize_config(map()) -> map().
 normalize_config(Conf0) ->
     Primary0 = maps:get(<<"primary">>, Conf0, #{}),
@@ -63,7 +72,9 @@ normalize_config(Conf0) ->
             <<"root_keys">> => to_bin_list(
                 maps:get(<<"root_keys">>, Sync0, default_root_keys())
             ),
-            <<"table_sets">> => to_bin_list(maps:get(<<"table_sets">>, Sync0, [])),
+            <<"table_sets">> => to_bin_list(
+                maps:get(<<"table_sets">>, Sync0, default_table_sets())
+            ),
             <<"timeout">> => to_bin(maps:get(<<"timeout">>, Sync0, ?DEFAULT_TIMEOUT)),
             <<"delete_remote_backup">> => maps:get(<<"delete_remote_backup">>, Sync0, true),
             <<"delete_local_backup">> => maps:get(<<"delete_local_backup">>, Sync0, true)

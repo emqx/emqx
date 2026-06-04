@@ -7,6 +7,7 @@
 -behaviour(gen_server).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API
 -export([
@@ -400,23 +401,74 @@ worker_cancelled(CancelRef) ->
     end.
 
 handle_sync_result(SyncResult, State) ->
+    Metadata = sync_metadata(State#state.config),
     case SyncResult of
         {ok, skipped_by_lock} ->
-            ?SLOG(info, #{msg => "cluster_config_sync_skipped_by_lock"}),
+            log_sync_result(info, Metadata#{
+                msg => "cluster_config_sync_skipped_by_lock",
+                result => skipped_by_lock,
+                stage => lock
+            }),
             State#state{last_status = ok};
         {ok, skipped_no_core_nodes} ->
-            ?SLOG(info, #{msg => "cluster_config_sync_skipped_no_core_nodes"}),
+            log_sync_result(info, Metadata#{
+                msg => "cluster_config_sync_skipped_no_core_nodes",
+                result => skipped_no_core_nodes,
+                stage => node_selection
+            }),
             State#state{last_status = ok};
         {ok, skipped_not_selected_core} ->
-            ?SLOG(info, #{msg => "cluster_config_sync_skipped_not_selected_core"}),
+            log_sync_result(info, Metadata#{
+                msg => "cluster_config_sync_skipped_not_selected_core",
+                result => skipped_not_selected_core,
+                stage => node_selection
+            }),
             State#state{last_status = ok};
         {ok, Result} ->
-            ?SLOG(info, #{msg => "cluster_config_sync_finished", result => Result}),
+            log_sync_result(info, Metadata#{
+                msg => "cluster_config_sync_finished",
+                result => Result,
+                stage => finished,
+                filename => maps:get(filename, Result, undefined),
+                cleanup => maps:get(cleanup, Result, undefined)
+            }),
             State#state{last_status = ok};
         {error, Reason} ->
-            ?SLOG(error, #{msg => "cluster_config_sync_failed", reason => Reason}),
+            log_sync_result(error, Metadata#{
+                msg => "cluster_config_sync_failed",
+                result => failed,
+                stage => sync_stage(Reason),
+                reason => Reason
+            }),
             State#state{last_status = {error, Reason}}
     end.
+
+sync_metadata(Conf0) ->
+    Conf = emqx_cluster_config_sync_client:normalize_config(Conf0),
+    Sync = maps:get(<<"sync">>, Conf),
+    #{
+        root_keys => maps:get(<<"root_keys">>, Sync),
+        table_sets => maps:get(<<"table_sets">>, Sync),
+        node => node(),
+        selected_core_node => selected_core_node()
+    }.
+
+log_sync_result(Level, Fields) ->
+    ?SLOG(Level, Fields),
+    ?tp(cluster_config_sync_result, Fields).
+
+sync_stage({http_error, post, _, _, _}) -> export;
+sync_stage({http_error, post, _, _}) -> export;
+sync_stage({bad_export_response, _}) -> export;
+sync_stage(missing_filename) -> export;
+sync_stage({http_error, get, _, _, _}) -> download;
+sync_stage({http_error, get, _, _}) -> download;
+sync_stage({upload_failed, _}) -> upload;
+sync_stage({import_failed, _}) -> import;
+sync_stage({cleanup_failed, _}) -> cleanup;
+sync_stage(cancelled) -> cancel;
+sync_stage({worker_cancel_timeout, _}) -> cancel;
+sync_stage(_) -> unknown.
 
 health_check(#state{config = Conf, last_status = LastStatus}) ->
     case enabled_secondary(Conf) of

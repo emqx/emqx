@@ -17,7 +17,11 @@ sync {
         "listeners",
         "schema_registry"
     ]
-    table_sets = []
+    table_sets = [
+        "banned",
+        "builtin_authn",
+        "builtin_authz"
+    ]
     timeout = "30s"
     delete_remote_backup = true
     delete_local_backup = true

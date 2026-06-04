@@ -33,7 +33,11 @@ sync {
     "listeners",
     "schema_registry"
   ]
-  table_sets = []
+  table_sets = [
+    "banned",
+    "builtin_authn",
+    "builtin_authz"
+  ]
   timeout = "30s"
   delete_remote_backup = true
   delete_local_backup = true
@@ -47,3 +51,8 @@ primary cluster.
 Rules commonly depend on connectors, actions, sources, and schema registry
 objects. If `rule_engine` is synchronized without its dependencies, imports may
 fail or create incomplete runtime behavior.
+
+By default, synchronization also includes the `banned`, `builtin_authn`, and
+`builtin_authz` table sets. Set `sync.table_sets = []` when configuration-only
+synchronization is required. Other table sets, such as `builtin_retainer`, must
+be added explicitly.
