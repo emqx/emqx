@@ -68,6 +68,8 @@ all() ->
         t_real_primary_sync_connector_action_cert_files,
         t_real_primary_sync_builtin_auth_runtime,
         t_real_primary_sync_repeated_updates_and_config_only_tables,
+        t_real_primary_sync_deletes_default_table_data,
+        t_real_sync_cancelled_during_download_cleans_up_without_import,
         t_real_selected_core_takes_over_after_node_down,
         t_real_sync_reports_failure_stages,
         t_real_sync_reports_observable_failure
@@ -704,6 +706,68 @@ t_real_primary_sync_repeated_updates_and_config_only_tables(Config) ->
     after
         ok = emqx_cth_cluster:stop(SecondaryNodes),
         ok = emqx_cth_cluster:stop(PrimaryNodes)
+    end.
+
+t_real_primary_sync_deletes_default_table_data(Config) ->
+    ExtraApps = table_set_apps(),
+    PrimaryNodes = start_real_primary_cluster(Config, "primary_delete_table_data", ExtraApps),
+    SecondaryNodes = start_real_secondary_cluster(Config, "secondary_delete_table_data", ExtraApps),
+    try
+        [PrimaryNode] = PrimaryNodes,
+        [SelectedNode, OtherNode] = select_cluster_sync_nodes(SecondaryNodes),
+        {PrimaryUrl, ApiKey, ApiSecret} = setup_real_primary(PrimaryNode),
+        ok = create_primary_rule_and_table_data(PrimaryNode),
+
+        RootKeys = [<<"rule_engine">>],
+        SyncConf = conf_with_default_table_sets(PrimaryUrl, ApiKey, ApiSecret, RootKeys),
+        ok = configure_sync_nodes([SelectedNode, OtherNode], SyncConf),
+        assert_real_sync_finished(SelectedNode, RootKeys, default_table_sets()),
+        wait_imported_rule(SecondaryNodes),
+        wait_default_table_data(SecondaryNodes),
+
+        ok = delete_primary_default_table_data(PrimaryNode),
+        assert_default_table_data_absent([PrimaryNode]),
+        ok = configure_sync_nodes([SelectedNode, OtherNode], SyncConf),
+        assert_real_sync_finished(SelectedNode, RootKeys, default_table_sets()),
+        wait_default_table_data_absent(SecondaryNodes),
+        wait_imported_rule(SecondaryNodes),
+        ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check()))
+    after
+        ok = emqx_cth_cluster:stop(SecondaryNodes),
+        ok = emqx_cth_cluster:stop(PrimaryNodes)
+    end.
+
+t_real_sync_cancelled_during_download_cleans_up_without_import(Config) ->
+    BackupName = <<"real-cluster-config-sync-cancelled.tar.gz">>,
+    BackupBin = make_rule_engine_backup(Config, BackupName),
+    {PrimaryPid, PrimaryUrl} = start_fake_primary(
+        fake_primary_opts(#{
+            backup_name => BackupName,
+            backup_bin => BackupBin,
+            download_wait => true
+        })
+    ),
+    Nodes = start_real_secondary_cluster(Config, "secondary_cancel_download"),
+    try
+        [SelectedNode, OtherNode] = select_cluster_sync_nodes(Nodes),
+        SyncConf = conf(PrimaryUrl),
+        ok = configure_sync_nodes([SelectedNode, OtherNode], SyncConf),
+        trigger_sync(SelectedNode),
+        Requests = wait_fake_primary_requests(2),
+        ?assertEqual([post, get], [Method || {Method, _Path, _Body} <- Requests]),
+
+        DownloadHandler = wait_fake_primary_download_blocked(),
+        DisabledConf = SyncConf#{<<"enable">> => false},
+        ok = configure_sync_nodes([SelectedNode, OtherNode], DisabledConf),
+        continue_fake_primary_download(DownloadHandler),
+        [{delete, DeletePath, <<>>}] = wait_fake_primary_requests(1),
+        ?assertMatch(<<"/api/v5/data/files/", _/binary>>, DeletePath),
+        wait_rule_absent(Nodes),
+        ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check())),
+        ?assertEqual(ok, ?ON(OtherNode, emqx_cluster_config_sync:on_health_check()))
+    after
+        stop_fake_primary(PrimaryPid),
+        ok = emqx_cth_cluster:stop(Nodes)
     end.
 
 t_real_selected_core_takes_over_after_node_down(Config) ->
@@ -1357,6 +1421,14 @@ create_primary_config_only_update_and_more_table_data(PrimaryNode) ->
         ok
     end).
 
+delete_primary_default_table_data(PrimaryNode) ->
+    ?ON(PrimaryNode, begin
+        ok = delete_banned(?INTEGRATION_BANNED_CLIENTID),
+        ok = delete_authn_user(?INTEGRATION_AUTHN_USER),
+        ok = delete_authz_rules(?INTEGRATION_AUTHZ_USERNAME),
+        ok
+    end).
+
 create_rule(RuleId, SQL, Description) ->
     {201, _Rule} = emqx_rule_engine_api:'/rules'(post, #{
         body => rule_body(RuleId, SQL, Description)
@@ -1393,6 +1465,9 @@ create_banned(ClientId) ->
     }),
     ok.
 
+delete_banned(ClientId) ->
+    ok = emqx_banned:delete(emqx_banned:who(clientid, ClientId)).
+
 create_authn_user(UserId) ->
     {ok, State} = emqx_authn_mnesia:create(
         <<"cluster_config_sync:built_in_database">>, authn_config()
@@ -1401,6 +1476,9 @@ create_authn_user(UserId) ->
         #{user_id => UserId, password => <<"secret">>}, State
     ),
     ok.
+
+delete_authn_user(UserId) ->
+    ok = emqx_authn_mnesia:delete_user(UserId, authn_config()).
 
 authn_config() ->
     #{
@@ -1423,6 +1501,9 @@ create_authz_rules(Username) ->
             }
         ]
     ).
+
+delete_authz_rules(Username) ->
+    ok = emqx_authz_mnesia:delete_rules({username, Username}).
 
 store_retained_message(Topic, Payload) ->
     Msg = emqx_message:make(
@@ -1777,6 +1858,14 @@ wait_imported_rule(Nodes) ->
 has_imported_rule(Node) ->
     has_rule(Node, ?INTEGRATION_RULE_ID).
 
+wait_rule_absent(Nodes) ->
+    wait_until(
+        fun() ->
+            lists:all(fun(Node) -> not has_imported_rule(Node) end, Nodes)
+        end,
+        #{action => wait_rule_absent, nodes => Nodes}
+    ).
+
 has_rule(Node, RuleId) ->
     ?ON(Node, begin
         Rules = emqx_conf:get([rule_engine, rules]),
@@ -1861,6 +1950,38 @@ wait_default_table_data(Nodes) ->
         #{action => wait_default_table_data, nodes => Nodes}
     ).
 
+wait_default_table_data_absent(Nodes) ->
+    wait_default_table_data_absent(
+        Nodes,
+        erlang:monotonic_time(millisecond) + 30_000
+    ).
+
+wait_default_table_data_absent(Nodes, Deadline) ->
+    case lists:all(fun default_table_data_absent/1, Nodes) of
+        true ->
+            ok;
+        false ->
+            case erlang:monotonic_time(millisecond) >= Deadline of
+                true ->
+                    error(
+                        {timeout, #{
+                            action => wait_default_table_data_absent,
+                            nodes => Nodes,
+                            status => default_table_data_status(Nodes)
+                        }}
+                    );
+                false ->
+                    receive
+                    after 100 ->
+                        wait_default_table_data_absent(Nodes, Deadline)
+                    end
+            end
+    end.
+
+assert_default_table_data_absent(Nodes) ->
+    Status = default_table_data_status(Nodes),
+    ?assert(lists:all(fun default_table_data_absent_status/1, Status), Status).
+
 wait_table_data(Nodes) ->
     wait_until(
         fun() ->
@@ -1905,6 +2026,24 @@ has_default_table_data(Node) ->
     has_banned(Node, ?INTEGRATION_BANNED_CLIENTID) andalso
         has_authn_user(Node, ?INTEGRATION_AUTHN_USER) andalso
         has_authz_rules(Node, ?INTEGRATION_AUTHZ_USERNAME).
+
+default_table_data_absent(Node) ->
+    default_table_data_absent_status(default_table_data_status(Node)).
+
+default_table_data_absent_status(#{banned := false, authn := false, authz := false}) ->
+    true;
+default_table_data_absent_status(_) ->
+    false.
+
+default_table_data_status(Nodes) when is_list(Nodes) ->
+    [default_table_data_status(Node) || Node <- Nodes];
+default_table_data_status(Node) ->
+    #{
+        node => Node,
+        banned => has_banned(Node, ?INTEGRATION_BANNED_CLIENTID),
+        authn => has_authn_user(Node, ?INTEGRATION_AUTHN_USER),
+        authz => has_authz_rules(Node, ?INTEGRATION_AUTHZ_USERNAME)
+    }.
 
 has_additional_default_table_data(Node) ->
     has_banned(Node, ?INTEGRATION_BANNED_CLIENTID_2) andalso
@@ -2388,6 +2527,7 @@ fake_primary_opts(Overrides) ->
             export_body => undefined,
             download_status => 200,
             download_body => undefined,
+            download_wait => false,
             delete_status => 204,
             delete_body => <<>>
         },
@@ -2421,7 +2561,7 @@ handle_fake_primary_request(Sock, Parent, Opts) ->
     try
         {Method, Path, Body} = read_http_request(Sock),
         Parent ! {fake_primary_request, Method, Path, Body},
-        respond_fake_primary(Sock, Method, Path, Opts)
+        respond_fake_primary(Sock, Method, Path, Parent, Opts)
     after
         gen_tcp:close(Sock)
     end.
@@ -2473,19 +2613,31 @@ method(<<"POST">>) -> post;
 method(<<"GET">>) -> get;
 method(<<"DELETE">>) -> delete.
 
-respond_fake_primary(Sock, post, _Path, Opts) ->
+respond_fake_primary(Sock, post, _Path, _Parent, Opts) ->
     Status = maps:get(export_status, Opts),
     DefaultBody = emqx_utils_json:encode(#{<<"filename">> => maps:get(backup_name, Opts)}),
     Body = response_body(maps:get(export_body, Opts), DefaultBody),
     send_http_response(Sock, Status, http_reason(Status), Body);
-respond_fake_primary(Sock, get, _Path, Opts) ->
+respond_fake_primary(Sock, get, _Path, Parent, Opts) ->
+    maybe_wait_fake_primary_download(Parent, Opts),
     Status = maps:get(download_status, Opts),
     Body = response_body(maps:get(download_body, Opts), maps:get(backup_bin, Opts)),
     send_http_response(Sock, Status, http_reason(Status), Body);
-respond_fake_primary(Sock, delete, _Path, Opts) ->
+respond_fake_primary(Sock, delete, _Path, _Parent, Opts) ->
     Status = maps:get(delete_status, Opts),
     Body = maps:get(delete_body, Opts),
     send_http_response(Sock, Status, http_reason(Status), Body).
+
+maybe_wait_fake_primary_download(Parent, #{download_wait := true}) ->
+    Parent ! {fake_primary_download_blocked, self()},
+    receive
+        continue_fake_primary_download ->
+            ok
+    after 30_000 ->
+        error(fake_primary_download_wait_timeout)
+    end;
+maybe_wait_fake_primary_download(_Parent, _Opts) ->
+    ok.
 
 response_body(undefined, DefaultBody) ->
     DefaultBody;
@@ -2525,6 +2677,17 @@ wait_fake_primary_requests(Count, Acc) ->
     after 10_000 ->
         error({missing_fake_primary_requests, Count, lists:reverse(Acc)})
     end.
+
+wait_fake_primary_download_blocked() ->
+    receive
+        {fake_primary_download_blocked, Pid} -> Pid
+    after 10_000 ->
+        error(fake_primary_download_not_blocked)
+    end.
+
+continue_fake_primary_download(Pid) ->
+    Pid ! continue_fake_primary_download,
+    ok.
 
 assert_no_fake_primary_request(Timeout) ->
     receive

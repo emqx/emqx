@@ -609,10 +609,10 @@ t_verify_imported_mnesia_tab_on_cluster(Config) ->
     ),
 
     {_Name, [Tab]} = emqx_dashboard_admin:backup_tables(),
-    AllUsers = lists:sort(mnesia:dirty_all_keys(Tab) ++ UsersBeforeImport),
+    ExportedUsers = lists:sort(mnesia:dirty_all_keys(Tab)),
     [
         ?assertEqual(
-            AllUsers,
+            ExportedUsers,
             lists:sort(rpc:call(N, mnesia, dirty_all_keys, [Tab]))
         )
      || N <- [CoreNode1, CoreNode2]
@@ -620,7 +620,18 @@ t_verify_imported_mnesia_tab_on_cluster(Config) ->
 
     %% Give some extra time to replicant to import data...
     timer:sleep(3000),
-    ?assertEqual(AllUsers, lists:sort(rpc:call(ReplicantNode, mnesia, dirty_all_keys, [Tab]))).
+    ?assertEqual(
+        ExportedUsers,
+        lists:sort(rpc:call(ReplicantNode, mnesia, dirty_all_keys, [Tab]))
+    ),
+    ?assertEqual(
+        [],
+        [
+            U
+         || U <- UsersBeforeImport,
+            rpc:call(CoreNode1, mnesia, dirty_read, [Tab, U]) =/= []
+        ]
+    ).
 
 backup_tables() ->
     {<<"mocked_test">>, [data_backup_test]}.

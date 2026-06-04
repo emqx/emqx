@@ -818,22 +818,33 @@ restore_mnesia_tab(BackupDir, MnesiaBackupFileName, Mod, TabName, Opts) ->
     try
         case Validated of
             {ok, #{backup_file := BackupFile}} ->
-                %% As we use keep_tables option, we don't need to modify 'copies' (nodes)
-                %% in a backup file before restoring it,  as `mnsia:restore/2` will ignore
-                %% backed-up schema and keep the current table schema unchanged
-                Restored = mnesia:restore(BackupFile, [{default_op, keep_tables}]),
-                case Restored of
-                    {atomic, [TabName]} ->
-                        on_table_imported(Mod, TabName, Opts);
-                    RestoreErr ->
+                case clear_mnesia_tab(TabName) of
+                    ok ->
+                        %% keep_tables keeps the current table schema unchanged after the
+                        %% MRIA clear operation has made this a snapshot replacement.
+                        Restored = mnesia:restore(BackupFile, [{default_op, keep_tables}]),
+                        case Restored of
+                            {atomic, [TabName]} ->
+                                on_table_imported(Mod, TabName, Opts);
+                            RestoreErr ->
+                                ?SLOG(error, #{
+                                    msg => "failed_to_restore_mnesia_backup",
+                                    table => TabName,
+                                    backup => BackupDir,
+                                    reason => RestoreErr
+                                }),
+                                maybe_print_mnesia_import_err(TabName, RestoreErr, Opts),
+                                {error, RestoreErr}
+                        end;
+                    ClearErr ->
                         ?SLOG(error, #{
-                            msg => "failed_to_restore_mnesia_backup",
+                            msg => "failed_to_clear_mnesia_table_before_restore",
                             table => TabName,
                             backup => BackupDir,
-                            reason => RestoreErr
+                            reason => ClearErr
                         }),
-                        maybe_print_mnesia_import_err(TabName, RestoreErr, Opts),
-                        {error, RestoreErr}
+                        maybe_print_mnesia_import_err(TabName, ClearErr, Opts),
+                        ClearErr
                 end;
             PrepareErr ->
                 ?SLOG(error, #{
@@ -848,6 +859,16 @@ restore_mnesia_tab(BackupDir, MnesiaBackupFileName, Mod, TabName, Opts) ->
     after
         %% Cleanup files as soon as they are not needed any more for more efficient disk usage
         _ = file:delete(MnesiaBackupFileName)
+    end.
+
+clear_mnesia_tab(TabName) ->
+    case mria:clear_table(TabName) of
+        {atomic, ok} ->
+            ok;
+        {aborted, Reason} ->
+            {error, {clear_table_failed, Reason}};
+        Error ->
+            {error, {clear_table_failed, Error}}
     end.
 
 on_table_imported(Mod, Tab, Opts) ->
