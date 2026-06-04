@@ -755,8 +755,9 @@ do_import(BackupFilePath, Opts) ->
             {ok, _} ?= validate_backup(BackupDir),
             {ok, ConfErrors} ?= import_cluster_hocon(BackupDir, Opts),
             MnesiaErrors = import_mnesia_tabs(BackupDir, Opts),
-            ?SLOG(info, #{msg => "emqx_data_import_success"}),
-            {ok, #{db_errors => MnesiaErrors, config_errors => ConfErrors}}
+            Result = #{db_errors => MnesiaErrors, config_errors => ConfErrors},
+            log_import_result(BackupFilePath, Result),
+            {ok, Result}
         else
             {error, Error} ->
                 ?SLOG(error, #{
@@ -779,6 +780,19 @@ do_import(BackupFilePath, Opts) ->
     after
         cleanup_backup_dir(BackupFilePath)
     end.
+
+log_import_result(_BackupFilePath, #{db_errors := DbErrors, config_errors := ConfErrors}) when
+    map_size(DbErrors) =:= 0,
+    map_size(ConfErrors) =:= 0
+->
+    ?SLOG(info, #{msg => "emqx_data_import_success"});
+log_import_result(BackupFilePath, #{db_errors := DbErrors, config_errors := ConfErrors}) ->
+    ?SLOG(warning, #{
+        msg => "emqx_data_import_completed_with_errors",
+        db_errors => DbErrors,
+        config_errors => ConfErrors,
+        backup_file_path => BackupFilePath
+    }).
 
 import_mnesia_tabs(BackupDir, Opts) ->
     maybe_print("Importing built-in database...~n", [], Opts),
@@ -830,7 +844,7 @@ restore_mnesia_tab(BackupDir, MnesiaBackupFileName, Mod, TabName, Opts) ->
                             reason => RestoreErr
                         }),
                         maybe_print_mnesia_import_err(TabName, RestoreErr, Opts),
-                        wrap_mnesia_restore_error(RestoreErr)
+                        RestoreErr
                 end;
             PrepareErr ->
                 ?SLOG(error, #{
@@ -869,69 +883,15 @@ run_restore_mnesia_transaction(Shard, TabName, Records) ->
     end),
     case Result of
         {atomic, ok} ->
-            wait_for_mria_replicants(TabName, Records);
+            ok;
+        {timeout, {atomic, ok}} ->
+            ok;
         {aborted, Reason} ->
             {error, Reason};
-        {error, _} = Error ->
-            Error;
-        Error ->
-            {error, Error}
-    end.
-
-wrap_mnesia_restore_error({error, _} = Error) ->
-    Error;
-wrap_mnesia_restore_error(Error) ->
-    {error, Error}.
-
-wait_for_mria_replicants(TabName, Records) ->
-    Pattern = mnesia_backup_record_pattern(TabName),
-    Expected = lists:sort(Records),
-    Results = [
-        {Node, wait_for_mria_replicant(Node, TabName, Pattern, Expected)}
-     || Node <- mria_replicant_nodes()
-    ],
-    case [{Node, Result} || {Node, Result} <- Results, Result =/= ok] of
-        [] ->
-            ok;
-        Errors ->
-            {error, {replicant_sync_failed, Errors}}
-    end.
-
-mria_replicant_nodes() ->
-    mria_membership:running_replicant_nodelist().
-
-mnesia_backup_record_pattern(TabName) ->
-    Arity = length(mnesia:table_info(TabName, attributes)) + 1,
-    erlang:make_tuple(Arity, '_').
-
-wait_for_mria_replicant(Node, TabName, Pattern, Expected) ->
-    wait_for_mria_replicant(
-        Node, TabName, Pattern, Expected, erlang:monotonic_time(millisecond) + 30_000
-    ).
-
-wait_for_mria_replicant(Node, TabName, Pattern, Expected, Deadline) ->
-    case read_replicant_records(Node, TabName, Pattern) of
-        {ok, Expected} ->
-            ok;
-        {ok, Records} ->
-            case erlang:monotonic_time(millisecond) >= Deadline of
-                true ->
-                    {records_mismatch, #{expected => length(Expected), got => length(Records)}};
-                false ->
-                    timer:sleep(500),
-                    wait_for_mria_replicant(Node, TabName, Pattern, Expected, Deadline)
-            end;
-        Error ->
-            Error
-    end.
-
-read_replicant_records(Node, TabName, Pattern) ->
-    try erpc:call(Node, mnesia, dirty_match_object, [TabName, Pattern], 5_000) of
-        Records ->
-            {ok, lists:sort(Records)}
-    catch
-        Class:Reason ->
-            {Class, Reason}
+        {timeout, {aborted, Reason}} ->
+            {error, Reason};
+        {timeout, {error, Reason}} ->
+            {error, Reason}
     end.
 
 do_restore_mnesia_tab(TabName, Records) ->
