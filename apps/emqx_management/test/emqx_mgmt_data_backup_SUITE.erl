@@ -709,10 +709,15 @@ t_mnesia_restore_failure_keeps_existing_records(Config) ->
     {atomic, ok} = mria:clear_table(data_backup_test),
     NewRec = {data_backup_test, <<"id">>, <<"new_name">>, <<"new_description">>},
     ok = mria:dirty_write(NewRec),
-    ?assertMatch(
+    ?assertEqual(
         {ok, #{
-            db_errors := #{data_backup_test := {error, _}},
-            config_errors := #{}
+            db_errors => #{
+                data_backup_test =>
+                    {error,
+                        {"Backup traversal failed",
+                            {bad_backup_record, data_backup_test, {data_backup_test, <<"id">>}}}}
+            },
+            config_errors => #{}
         }},
         emqx_mgmt_data_backup:import(basename(FileName))
     ),

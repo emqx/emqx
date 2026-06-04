@@ -830,7 +830,7 @@ restore_mnesia_tab(BackupDir, MnesiaBackupFileName, Mod, TabName, Opts) ->
                             reason => RestoreErr
                         }),
                         maybe_print_mnesia_import_err(TabName, RestoreErr, Opts),
-                        {error, RestoreErr}
+                        wrap_mnesia_restore_error(RestoreErr)
                 end;
             PrepareErr ->
                 ?SLOG(error, #{
@@ -850,26 +850,38 @@ restore_mnesia_tab(BackupDir, MnesiaBackupFileName, Mod, TabName, Opts) ->
 restore_mnesia_tab_as_snapshot(BackupFile, TabName) ->
     case read_mnesia_backup_records(BackupFile, TabName) of
         {ok, Records} ->
-            case mria_config:shard_rlookup(TabName) of
-                undefined ->
-                    {error, {unknown_mria_shard, TabName}};
-                Shard ->
-                    case
-                        mria:sync_transaction(Shard, fun() ->
-                            do_restore_mnesia_tab(TabName, Records)
-                        end)
-                    of
-                        {atomic, ok} ->
-                            wait_for_mria_replicants(TabName, Records);
-                        {aborted, Reason} ->
-                            {error, Reason};
-                        Error ->
-                            {error, Error}
-                    end
-            end;
+            restore_mnesia_records_as_snapshot(TabName, Records);
         Error ->
             Error
     end.
+
+restore_mnesia_records_as_snapshot(TabName, Records) ->
+    case mria_config:shard_rlookup(TabName) of
+        undefined ->
+            {error, {unknown_mria_shard, TabName}};
+        Shard ->
+            run_restore_mnesia_transaction(Shard, TabName, Records)
+    end.
+
+run_restore_mnesia_transaction(Shard, TabName, Records) ->
+    Result = mria:sync_transaction(Shard, fun() ->
+        do_restore_mnesia_tab(TabName, Records)
+    end),
+    case Result of
+        {atomic, ok} ->
+            wait_for_mria_replicants(TabName, Records);
+        {aborted, Reason} ->
+            {error, Reason};
+        {error, _} = Error ->
+            Error;
+        Error ->
+            {error, Error}
+    end.
+
+wrap_mnesia_restore_error({error, _} = Error) ->
+    Error;
+wrap_mnesia_restore_error(Error) ->
+    {error, Error}.
 
 wait_for_mria_replicants(TabName, Records) ->
     Pattern = mnesia_backup_record_pattern(TabName),
@@ -960,6 +972,8 @@ read_mnesia_backup_records(BackupFile, TabName) ->
     case Result of
         {ok, RecordsRev} ->
             {ok, lists:reverse(RecordsRev)};
+        {error, _} = Error ->
+            Error;
         Error ->
             {error, Error}
     end.
