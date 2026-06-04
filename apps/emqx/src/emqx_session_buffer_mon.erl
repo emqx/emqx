@@ -61,9 +61,9 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--spec update(map()) -> ok.
-update(Conf) ->
-    ok = put_conf(Conf),
+-spec update(map() | undefined) -> ok.
+update(Conf0) ->
+    Conf = put_conf(Conf0),
     gen_server:cast(?MODULE, {update, Conf}).
 
 -spec maybe_log(emqx_types:clientid(), pid(), stats()) -> ok.
@@ -104,8 +104,7 @@ local_top(Count, SortBy) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    Conf = emqx_config:get([sysmon, session], ?DEFAULT_CONF),
-    ok = put_conf(Conf),
+    Conf = put_conf(emqx_config:get([sysmon, session], ?DEFAULT_CONF)),
     {ok, #{conf => Conf, scan => undefined}}.
 
 handle_call({run_top, Opts}, _From, State = #{scan := undefined}) ->
@@ -118,8 +117,8 @@ handle_call({local_top, Count, SortBy}, _From, State) ->
 handle_call(_Call, _From, State) ->
     {reply, ignored, State}.
 
-handle_cast({update, Conf}, State) ->
-    ok = put_conf(Conf),
+handle_cast({update, Conf0}, State) ->
+    Conf = put_conf(Conf0),
     {noreply, State#{conf := Conf}};
 handle_cast(_Cast, State) ->
     {noreply, State}.
@@ -335,9 +334,15 @@ maybe_log_scan_down(Reason) ->
 %% Helpers
 %%--------------------------------------------------------------------
 
-put_conf(Conf) ->
-    persistent_term:put(?CONF_KEY, maps:merge(?DEFAULT_CONF, Conf)),
-    ok.
+put_conf(Conf0) ->
+    Conf = normalize_conf(Conf0),
+    persistent_term:put(?CONF_KEY, Conf),
+    Conf.
+
+normalize_conf(undefined) ->
+    ?DEFAULT_CONF;
+normalize_conf(Conf) when is_map(Conf) ->
+    maps:merge(?DEFAULT_CONF, maps:filter(fun(_Key, Value) -> Value =/= undefined end, Conf)).
 
 stat_value(Key, Stats, Default) when is_map(Stats) ->
     maps:get(Key, Stats, Default);
