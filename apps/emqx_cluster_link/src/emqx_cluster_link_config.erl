@@ -343,10 +343,9 @@ all_ok(Results) ->
 add_links(LinksConf) ->
     [add_link(Link) || Link <- LinksConf].
 
-add_link(#{name := ClusterName, enable := true} = LinkConf) ->
+add_link(#{enable := true} = LinkConf) ->
     {ok, _Pid} = emqx_cluster_link_sup:ensure_actor(LinkConf),
     {ok, _} = emqx_cluster_link_mqtt:ensure_msg_fwd_resource(LinkConf),
-    ok = emqx_cluster_link_metrics:maybe_create_metrics(ClusterName),
     ok;
 add_link(_DisabledLinkConf) ->
     ok.
@@ -356,8 +355,7 @@ remove_links(LinksConf) ->
 
 remove_link(Name) ->
     _ = emqx_cluster_link_mqtt:remove_msg_fwd_resource(Name),
-    _ = ensure_actor_stopped(Name),
-    emqx_cluster_link_metrics:drop_metrics(Name).
+    _ = ensure_actor_stopped(Name).
 
 update_links(LinksConf) ->
     [do_update_link(Link) || Link <- LinksConf].
