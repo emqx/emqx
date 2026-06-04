@@ -30,6 +30,10 @@ t_info(_) ->
         dropped := 0
     } = ?Q:info(Q).
 
+t_record_shape_stays_compatible(_) ->
+    Q = ?Q:init(#{max_len => 5, store_qos0 => true}),
+    ?assertEqual(11, tuple_size(Q)).
+
 t_in(_) ->
     Opts = #{max_len => 5, store_qos0 => true},
     Q = ?Q:init(Opts),
@@ -60,11 +64,11 @@ t_out(_) ->
     ?assertEqual(0, ?Q:len(Q2)),
     ?assertEqual({value, #message{payload = <<>>}}, Value).
 
-t_out_resets_stale_counters(_) ->
+t_out_resets_stale_len(_) ->
     Q = ?Q:init(#{max_len => 5, store_qos0 => true}),
-    StaleQ = set_mqueue_counters(Q, 1, 42),
+    StaleQ = set_mqueue_len(Q, 1),
     ?assertEqual(1, ?Q:len(StaleQ)),
-    ?assertEqual(42, ?Q:bytes_size(StaleQ)),
+    ?assertEqual(0, ?Q:bytes_size(StaleQ)),
     ?assertEqual({empty, Q}, ?Q:out(StaleQ)).
 
 t_simple_mqueue(_) ->
@@ -534,8 +538,8 @@ drain(Q) ->
 drain_numeric_payloads(Q) ->
     [{Topic, binary_to_integer(Payload)} || {Topic, Payload} <- drain(Q)].
 
-set_mqueue_counters(Q, Len, Bytes) ->
-    setelement(5, setelement(4, Q, Len), Bytes).
+set_mqueue_len(Q, Len) ->
+    setelement(4, Q, Len).
 
 mqueue_ts(#message{extra = #{mqueue_insert_ts := Ts}}) -> Ts.
 mqueue_prio(#message{extra = #{mqueue_priority := Prio}}) -> Prio.
