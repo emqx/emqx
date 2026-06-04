@@ -744,6 +744,15 @@ t_hash_uses_v1_format(_) ->
     ?assertEqual(32, byte_size(base64:decode(DKB64, #{padding => false}))),
     ok.
 
+-doc "API-secret hash uses iter=1 (fast) but the same v1 format; verifier accepts it.".
+t_hash_api_secret_uses_iter_1(_) ->
+    Secret = <<"this-is-a-32-byte-test-secret-OK">>,
+    Hash = emqx_dashboard_admin:hash_api_secret(Secret),
+    ?assertMatch(<<"$1$1$", _/binary>>, Hash),
+    ?assertEqual(ok, emqx_dashboard_admin:verify_hash(Secret, Hash)),
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"wrong">>, Hash)),
+    ok.
+
 -doc "verify_hash accepts the matching password and rejects the wrong one on v1 hashes.".
 t_verify_v1_hash_roundtrip(_) ->
     Password = <<"correct horse battery staple">>,
