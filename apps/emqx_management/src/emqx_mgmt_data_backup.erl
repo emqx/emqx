@@ -818,33 +818,19 @@ restore_mnesia_tab(BackupDir, MnesiaBackupFileName, Mod, TabName, Opts) ->
     try
         case Validated of
             {ok, #{backup_file := BackupFile}} ->
-                case clear_mnesia_tab(TabName) of
+                Restored = restore_mnesia_tab_as_snapshot(BackupFile, TabName),
+                case Restored of
                     ok ->
-                        %% keep_tables keeps the current table schema unchanged after the
-                        %% MRIA clear operation has made this a snapshot replacement.
-                        Restored = mnesia:restore(BackupFile, [{default_op, keep_tables}]),
-                        case Restored of
-                            {atomic, [TabName]} ->
-                                on_table_imported(Mod, TabName, Opts);
-                            RestoreErr ->
-                                ?SLOG(error, #{
-                                    msg => "failed_to_restore_mnesia_backup",
-                                    table => TabName,
-                                    backup => BackupDir,
-                                    reason => RestoreErr
-                                }),
-                                maybe_print_mnesia_import_err(TabName, RestoreErr, Opts),
-                                {error, RestoreErr}
-                        end;
-                    ClearErr ->
+                        on_table_imported(Mod, TabName, Opts);
+                    RestoreErr ->
                         ?SLOG(error, #{
-                            msg => "failed_to_clear_mnesia_table_before_restore",
+                            msg => "failed_to_restore_mnesia_backup",
                             table => TabName,
                             backup => BackupDir,
-                            reason => ClearErr
+                            reason => RestoreErr
                         }),
-                        maybe_print_mnesia_import_err(TabName, ClearErr, Opts),
-                        ClearErr
+                        maybe_print_mnesia_import_err(TabName, RestoreErr, Opts),
+                        {error, RestoreErr}
                 end;
             PrepareErr ->
                 ?SLOG(error, #{
@@ -861,15 +847,138 @@ restore_mnesia_tab(BackupDir, MnesiaBackupFileName, Mod, TabName, Opts) ->
         _ = file:delete(MnesiaBackupFileName)
     end.
 
-clear_mnesia_tab(TabName) ->
-    case mria:clear_table(TabName) of
-        {atomic, ok} ->
-            ok;
-        {aborted, Reason} ->
-            {error, {clear_table_failed, Reason}};
+restore_mnesia_tab_as_snapshot(BackupFile, TabName) ->
+    case read_mnesia_backup_records(BackupFile, TabName) of
+        {ok, Records} ->
+            case mria_config:shard_rlookup(TabName) of
+                undefined ->
+                    {error, {unknown_mria_shard, TabName}};
+                Shard ->
+                    case
+                        mria:sync_transaction(Shard, fun() ->
+                            do_restore_mnesia_tab(TabName, Records)
+                        end)
+                    of
+                        {atomic, ok} ->
+                            wait_for_mria_replicants(TabName, Records);
+                        {aborted, Reason} ->
+                            {error, Reason};
+                        Error ->
+                            {error, Error}
+                    end
+            end;
         Error ->
-            {error, {clear_table_failed, Error}}
+            Error
     end.
+
+wait_for_mria_replicants(TabName, Records) ->
+    Pattern = mnesia_backup_record_pattern(TabName),
+    Expected = lists:sort(Records),
+    Results = [
+        {Node, wait_for_mria_replicant(Node, TabName, Pattern, Expected)}
+     || Node <- mria_replicant_nodes()
+    ],
+    case [{Node, Result} || {Node, Result} <- Results, Result =/= ok] of
+        [] ->
+            ok;
+        Errors ->
+            {error, {replicant_sync_failed, Errors}}
+    end.
+
+mria_replicant_nodes() ->
+    mria_membership:running_replicant_nodelist().
+
+mnesia_backup_record_pattern(TabName) ->
+    Arity = length(mnesia:table_info(TabName, attributes)) + 1,
+    erlang:make_tuple(Arity, '_').
+
+wait_for_mria_replicant(Node, TabName, Pattern, Expected) ->
+    wait_for_mria_replicant(
+        Node, TabName, Pattern, Expected, erlang:monotonic_time(millisecond) + 30_000
+    ).
+
+wait_for_mria_replicant(Node, TabName, Pattern, Expected, Deadline) ->
+    case read_replicant_records(Node, TabName, Pattern) of
+        {ok, Expected} ->
+            ok;
+        {ok, Records} ->
+            case erlang:monotonic_time(millisecond) >= Deadline of
+                true ->
+                    {records_mismatch, #{expected => length(Expected), got => length(Records)}};
+                false ->
+                    timer:sleep(500),
+                    wait_for_mria_replicant(Node, TabName, Pattern, Expected, Deadline)
+            end;
+        Error ->
+            Error
+    end.
+
+read_replicant_records(Node, TabName, Pattern) ->
+    try erpc:call(Node, mnesia, dirty_match_object, [TabName, Pattern], 5_000) of
+        Records ->
+            {ok, lists:sort(Records)}
+    catch
+        Class:Reason ->
+            {Class, Reason}
+    end.
+
+do_restore_mnesia_tab(TabName, Records) ->
+    lists:foreach(
+        fun(Key) ->
+            ok = mnesia:delete(TabName, Key, write)
+        end,
+        mnesia:all_keys(TabName)
+    ),
+    lists:foreach(
+        fun(Record) ->
+            ok = mnesia:write(TabName, Record, write)
+        end,
+        Records
+    ).
+
+read_mnesia_backup_records(BackupFile, TabName) ->
+    RecordName = mnesia:table_info(TabName, record_name),
+    Arity = length(mnesia:table_info(TabName, attributes)) + 1,
+    Result =
+        catch mnesia:traverse_backup(
+            BackupFile,
+            mnesia_backup,
+            dummy,
+            read_only,
+            fun(Item, Acc) ->
+                case read_mnesia_backup_item(TabName, RecordName, Arity, Item) of
+                    {ok, schema} ->
+                        {[], Acc};
+                    {ok, Record} ->
+                        {[], [Record | Acc]};
+                    Error ->
+                        throw(Error)
+                end
+            end,
+            []
+        ),
+    case Result of
+        {ok, RecordsRev} ->
+            {ok, lists:reverse(RecordsRev)};
+        Error ->
+            {error, Error}
+    end.
+
+read_mnesia_backup_item(_TabName, _RecordName, _Arity, {schema, _Tab, _CreateList}) ->
+    {ok, schema};
+read_mnesia_backup_item(TabName, RecordName, Arity, Record) when
+    is_tuple(Record), tuple_size(Record) =:= Arity
+->
+    case element(1, Record) of
+        RecordName ->
+            {ok, Record};
+        TabName ->
+            {ok, setelement(1, Record, RecordName)};
+        _ ->
+            {error, {bad_backup_record, TabName, Record}}
+    end;
+read_mnesia_backup_item(TabName, _RecordName, _Arity, Record) ->
+    {error, {bad_backup_record, TabName, Record}}.
 
 on_table_imported(Mod, Tab, Opts) ->
     case erlang:function_exported(Mod, on_backup_table_imported, 2) of

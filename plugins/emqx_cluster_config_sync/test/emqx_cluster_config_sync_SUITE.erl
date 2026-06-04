@@ -70,6 +70,9 @@ all() ->
         t_real_primary_sync_repeated_updates_and_config_only_tables,
         t_real_primary_sync_deletes_default_table_data,
         t_real_sync_cancelled_during_download_cleans_up_without_import,
+        t_real_sync_cancelled_during_import_finishes_and_reports_success,
+        t_real_sync_reports_partial_database_failure,
+        t_real_primary_sync_deletes_retained_messages,
         t_real_selected_core_takes_over_after_node_down,
         t_real_sync_reports_failure_stages,
         t_real_sync_reports_observable_failure
@@ -770,6 +773,128 @@ t_real_sync_cancelled_during_download_cleans_up_without_import(Config) ->
         ok = emqx_cth_cluster:stop(Nodes)
     end.
 
+t_real_sync_cancelled_during_import_finishes_and_reports_success(Config) ->
+    BackupName = <<"real-cluster-config-sync-cancelled-during-import.tar.gz">>,
+    BackupBin = make_rule_engine_backup(Config, BackupName),
+    {PrimaryPid, PrimaryUrl} = start_fake_primary(BackupName, BackupBin),
+    Nodes = start_real_secondary_cluster(Config, "secondary_cancel_import"),
+    try
+        [SelectedNode, OtherNode] = select_cluster_sync_nodes(Nodes),
+        SyncConf = conf(PrimaryUrl),
+        ok = configure_sync_nodes([SelectedNode, OtherNode], SyncConf),
+        ok = install_import_gate(SelectedNode),
+        ?check_trace(
+            begin
+                trigger_sync(SelectedNode),
+                Requests = wait_fake_primary_requests(2),
+                ?assertEqual([post, get], [Method || {Method, _Path, _Body} <- Requests]),
+                ImportPid = wait_import_blocked(),
+                DisabledConf = SyncConf#{<<"enable">> => false},
+                ok = configure_sync_nodes([SelectedNode, OtherNode], DisabledConf),
+                continue_import(ImportPid),
+                [{delete, DeletePath, <<>>}] = wait_fake_primary_requests(1),
+                ?assertMatch(<<"/api/v5/data/files/", _/binary>>, DeletePath),
+                wait_imported_rule(Nodes),
+                ?block_until(#{?snk_kind := cluster_config_sync_result, stage := finished}, 60_000),
+                ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check())),
+                ?assertEqual(ok, ?ON(OtherNode, emqx_cluster_config_sync:on_health_check()))
+            end,
+            fun(Trace) ->
+                assert_success_trace(Trace, SelectedNode, default_root_keys(), [])
+            end
+        )
+    after
+        unload_import_gate(Nodes),
+        stop_fake_primary(PrimaryPid),
+        ok = emqx_cth_cluster:stop(Nodes)
+    end.
+
+t_real_sync_reports_partial_database_failure(Config) ->
+    ExtraApps = table_set_apps(),
+    PrimaryNodes = start_real_primary_cluster(Config, "primary_partial_db_failure", ExtraApps),
+    SecondaryNodes = start_real_secondary_cluster(
+        Config, "secondary_partial_db_failure", ExtraApps
+    ),
+    try
+        [PrimaryNode] = PrimaryNodes,
+        [SelectedNode, OtherNode] = select_cluster_sync_nodes(SecondaryNodes),
+        ok = create_primary_rule_and_table_data(PrimaryNode),
+        RootKeys = [<<"rule_engine">>],
+        TableSets = default_table_sets(),
+        BackupName = <<"cluster-config-sync-partial-db-failure.tar.gz">>,
+        BackupBin0 = export_primary_backup_bin(Config, PrimaryNode, RootKeys, TableSets),
+        BackupBin = corrupt_backup_mnesia_records(
+            Config,
+            BackupName,
+            BackupBin0,
+            emqx_authn_mnesia,
+            fun
+                ({schema, _Tab, _CreateList} = Schema) ->
+                    Schema;
+                (_Record) ->
+                    {user_info, <<"bad_record">>}
+            end
+        ),
+        {FakePid, PrimaryUrl} = start_fake_primary(BackupName, BackupBin),
+        try
+            SyncConf = conf(PrimaryUrl, <<"key">>, <<"secret">>, RootKeys, TableSets),
+            ok = configure_sync_nodes([SelectedNode, OtherNode], SyncConf),
+            ?check_trace(
+                begin
+                    trigger_sync(SelectedNode),
+                    wait_partial_default_table_data(SecondaryNodes),
+                    wait_remote_health_error(SelectedNode, <<"emqx_authn_mnesia">>),
+                    ?block_until(
+                        #{?snk_kind := cluster_config_sync_result, result := failed}, 60_000
+                    )
+                end,
+                fun(Trace) ->
+                    Event = assert_failure_trace_stage(
+                        Trace, SelectedNode, RootKeys, TableSets, import
+                    ),
+                    ?assertNotEqual(
+                        nomatch,
+                        binary:match(format_term(maps:get(reason, Event)), <<"emqx_authn_mnesia">>)
+                    )
+                end
+            )
+        after
+            stop_fake_primary(FakePid)
+        end
+    after
+        ok = emqx_cth_cluster:stop(SecondaryNodes),
+        ok = emqx_cth_cluster:stop(PrimaryNodes)
+    end.
+
+t_real_primary_sync_deletes_retained_messages(Config) ->
+    ExtraApps = table_set_apps(),
+    PrimaryNodes = start_real_primary_cluster(Config, "primary_delete_retainer", ExtraApps),
+    SecondaryNodes = start_real_secondary_cluster(Config, "secondary_delete_retainer", ExtraApps),
+    try
+        [PrimaryNode] = PrimaryNodes,
+        [SelectedNode, OtherNode] = select_cluster_sync_nodes(SecondaryNodes),
+        {PrimaryUrl, ApiKey, ApiSecret} = setup_real_primary(PrimaryNode),
+        ok = create_primary_rule_and_table_data(PrimaryNode),
+
+        RootKeys = [<<"rule_engine">>],
+        TableSets = [<<"builtin_retainer">>],
+        SyncConf = conf(PrimaryUrl, ApiKey, ApiSecret, RootKeys, TableSets),
+        ok = configure_sync_nodes([SelectedNode, OtherNode], SyncConf),
+        assert_real_sync_finished(SelectedNode, RootKeys, TableSets),
+        wait_retainer_data(SecondaryNodes),
+
+        ok = delete_primary_retained_message(PrimaryNode),
+        assert_retainer_absent([PrimaryNode]),
+        ok = configure_sync_nodes([SelectedNode, OtherNode], SyncConf),
+        assert_real_sync_finished(SelectedNode, RootKeys, TableSets),
+        wait_retainer_absent(SecondaryNodes),
+        wait_imported_rule(SecondaryNodes),
+        ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check()))
+    after
+        ok = emqx_cth_cluster:stop(SecondaryNodes),
+        ok = emqx_cth_cluster:stop(PrimaryNodes)
+    end.
+
 t_real_selected_core_takes_over_after_node_down(Config) ->
     BackupName = <<"real-cluster-config-sync-failover.tar.gz">>,
     BackupBin = make_rule_engine_backup(Config, BackupName),
@@ -1429,6 +1554,9 @@ delete_primary_default_table_data(PrimaryNode) ->
         ok
     end).
 
+delete_primary_retained_message(PrimaryNode) ->
+    ?ON(PrimaryNode, emqx_retainer:delete(?INTEGRATION_RETAINER_TOPIC)).
+
 create_rule(RuleId, SQL, Description) ->
     {201, _Rule} = emqx_rule_engine_api:'/rules'(post, #{
         body => rule_body(RuleId, SQL, Description)
@@ -1515,6 +1643,19 @@ store_retained_message(Topic, Payload) ->
         #{}
     ),
     emqx_retainer_publisher:store_retained(Msg).
+
+export_primary_backup_bin(Config, PrimaryNode, RootKeys, TableSets) ->
+    OutDir = filename:join(?config(priv_dir, Config), "primary_export"),
+    ?ON(PrimaryNode, begin
+        ok = filelib:ensure_dir(filename:join(OutDir, "placeholder")),
+        {ok, Opts0} = emqx_mgmt_data_backup:parse_export_request(#{
+            <<"root_keys">> => RootKeys,
+            <<"table_sets">> => TableSets
+        }),
+        {ok, #{filename := Filename}} = emqx_mgmt_data_backup:export(Opts0#{out_dir => OutDir}),
+        {ok, Bin} = file:read_file(Filename),
+        Bin
+    end).
 
 create_primary_protobuf_bundle_schema(PrimaryNode) ->
     ?ON(PrimaryNode, begin
@@ -1942,6 +2083,27 @@ assert_retainer_absent(Nodes) ->
         Nodes
     ).
 
+wait_retainer_data(Nodes) ->
+    wait_until(
+        fun() ->
+            lists:all(
+                fun(Node) -> has_retained_message(Node, ?INTEGRATION_RETAINER_TOPIC) end, Nodes
+            )
+        end,
+        #{action => wait_retainer_data, nodes => Nodes}
+    ).
+
+wait_retainer_absent(Nodes) ->
+    wait_until(
+        fun() ->
+            lists:all(
+                fun(Node) -> not has_retained_message(Node, ?INTEGRATION_RETAINER_TOPIC) end,
+                Nodes
+            )
+        end,
+        #{action => wait_retainer_absent, nodes => Nodes}
+    ).
+
 wait_default_table_data(Nodes) ->
     wait_until(
         fun() ->
@@ -1990,6 +2152,14 @@ wait_table_data(Nodes) ->
         #{action => wait_table_data, nodes => Nodes}
     ).
 
+wait_partial_default_table_data(Nodes) ->
+    wait_until(
+        fun() ->
+            lists:all(fun has_partial_default_table_data/1, Nodes)
+        end,
+        #{action => wait_partial_default_table_data, nodes => Nodes}
+    ).
+
 wait_additional_default_table_data(Nodes) ->
     wait_until(
         fun() ->
@@ -2025,6 +2195,11 @@ has_all_table_data(Node) ->
 has_default_table_data(Node) ->
     has_banned(Node, ?INTEGRATION_BANNED_CLIENTID) andalso
         has_authn_user(Node, ?INTEGRATION_AUTHN_USER) andalso
+        has_authz_rules(Node, ?INTEGRATION_AUTHZ_USERNAME).
+
+has_partial_default_table_data(Node) ->
+    has_banned(Node, ?INTEGRATION_BANNED_CLIENTID) andalso
+        not has_authn_user(Node, ?INTEGRATION_AUTHN_USER) andalso
         has_authz_rules(Node, ?INTEGRATION_AUTHZ_USERNAME).
 
 default_table_data_absent(Node) ->
@@ -2533,6 +2708,99 @@ fake_primary_opts(Overrides) ->
         },
         Overrides
     ).
+
+install_import_gate(Node) ->
+    Parent = self(),
+    ?ON(Node, begin
+        meck:new(emqx_mgmt_data_backup, [passthrough, no_link]),
+        meck:expect(emqx_mgmt_data_backup, import, fun(Filename) ->
+            Parent ! {import_blocked, self()},
+            receive
+                continue_import ->
+                    ok
+            after 30_000 ->
+                error(import_gate_timeout)
+            end,
+            meck:passthrough([Filename])
+        end)
+    end),
+    ok.
+
+unload_import_gate(Nodes) ->
+    lists:foreach(
+        fun(Node) ->
+            catch ?ON(Node, meck:unload(emqx_mgmt_data_backup))
+        end,
+        Nodes
+    ),
+    ok.
+
+wait_import_blocked() ->
+    receive
+        {import_blocked, Pid} -> Pid
+    after 10_000 ->
+        error(import_not_blocked)
+    end.
+
+continue_import(Pid) ->
+    Pid ! continue_import,
+    ok.
+
+corrupt_backup_mnesia_records(Config, BackupName, BackupBin, Tab, TransformFun) ->
+    rewrite_backup_archive(
+        Config,
+        BackupName,
+        BackupBin,
+        fun(Path, Bin) ->
+            case is_mnesia_backup_entry(Path, Tab) of
+                true ->
+                    transform_mnesia_backup_bin(Config, Bin, TransformFun);
+                false ->
+                    Bin
+            end
+        end
+    ).
+
+rewrite_backup_archive(Config, BackupName, BackupBin, RewriteFun) ->
+    Prefix = filename:join(?config(priv_dir, Config), integer_to_list(erlang:unique_integer())),
+    InFile = Prefix ++ ".tar.gz",
+    OutFile = Prefix ++ "-rewritten.tar.gz",
+    ok = file:write_file(InFile, BackupBin),
+    {ok, Entries0} = erl_tar:extract(InFile, [compressed, memory]),
+    BackupRoot = filename:basename(binary_to_list(BackupName), ".tar.gz"),
+    Entries = [
+        {replace_archive_root(Path, BackupRoot), RewriteFun(Path, Bin)}
+     || {Path, Bin} <- Entries0
+    ],
+    ok = erl_tar:create(OutFile, Entries, [compressed]),
+    {ok, OutBin} = file:read_file(OutFile),
+    OutBin.
+
+replace_archive_root(Path0, BackupRoot) ->
+    [_OldRoot | Rest] = filename:split(unicode:characters_to_list(Path0)),
+    filename:join([BackupRoot | Rest]).
+
+transform_mnesia_backup_bin(Config, Bin, TransformFun) ->
+    Prefix = filename:join(?config(priv_dir, Config), integer_to_list(erlang:unique_integer())),
+    InFile = Prefix ++ ".mnesia.in",
+    OutFile = Prefix ++ ".mnesia.out",
+    ok = file:write_file(InFile, Bin),
+    {ok, ok} = mnesia:traverse_backup(
+        InFile,
+        mnesia_backup,
+        OutFile,
+        mnesia_backup,
+        fun(Item, Acc) ->
+            {[TransformFun(Item)], Acc}
+        end,
+        ok
+    ),
+    {ok, OutBin} = file:read_file(OutFile),
+    OutBin.
+
+is_mnesia_backup_entry(Path0, Tab) ->
+    Path = unicode:characters_to_list(Path0),
+    lists:suffix(filename:join(["mnesia", atom_to_list(Tab)]), Path).
 
 start_fake_primary(BackupName, BackupBin) ->
     start_fake_primary(fake_primary_opts(#{backup_name => BackupName, backup_bin => BackupBin})).

@@ -172,9 +172,8 @@ handle_info(
     State0 = #state{worker = #worker{pid = Pid, mref = MRef, status = cancelling}}
 ) ->
     erlang:demonitor(MRef, [flush]),
-    ?SLOG(info, #{msg => "cluster_config_sync_cancelled", result => Result}),
-    State1 = clear_worker(State0),
-    {noreply, schedule_sync(State1#state{last_status = ok})};
+    State1 = handle_sync_result(Result, clear_worker(State0)),
+    {noreply, schedule_sync(State1)};
 handle_info({sync_result, _Pid, _Result}, State) ->
     {noreply, State};
 handle_info(
