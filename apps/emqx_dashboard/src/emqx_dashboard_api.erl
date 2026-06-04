@@ -693,12 +693,13 @@ validate_role_scope_compat(Role, Scopes) ->
     case emqx_dashboard_rbac:parse_dashboard_role(Role) of
         {ok, #{?role := ?ROLE_SUPERUSER, ?namespace := ?global_ns}} ->
             ok;
-        {ok, #{?role := ?ROLE_SUPERUSER}} ->
+        {ok, #{?role := ?ROLE_SUPERUSER, ?namespace := _}} ->
             %% Namespaced administrator: only the restricted subset
-            %% is allowed.  Scopes like system, license, mfa_mgmt,
-            %% sso_mgmt are blocked by RBAC for namespaced admins
-            %% anyway — allowing them would be misleading.
-            case Scopes -- ?NS_ADMIN_ALLOWED_SCOPES of
+            %% is allowed.  RBAC is the primary gate — most mutating
+            %% operations on non-whitelisted endpoints are already
+            %% blocked by do_check_rbac/3 (catch-all returns false).
+            %% Scope check is defense-in-depth.
+            case [S || S <- Scopes, not lists:member(S, ?NS_ADMIN_ALLOWED_SCOPES)] of
                 [] ->
                     ok;
                 Forbidden ->

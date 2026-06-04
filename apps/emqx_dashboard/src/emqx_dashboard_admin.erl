@@ -492,7 +492,7 @@ role_default_scopes(Role) ->
     case emqx_dashboard_rbac:parse_dashboard_role(Role) of
         {ok, #{?role := ?ROLE_SUPERUSER, ?namespace := ?global_ns}} ->
             ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES;
-        {ok, #{?role := ?ROLE_SUPERUSER}} ->
+        {ok, #{?role := ?ROLE_SUPERUSER, ?namespace := _}} ->
             %% Namespaced administrator: restricted subset.
             %% RBAC blocks namespaced admins from mutating system,
             %% license, gateways, etc. — giving those scopes would
