@@ -730,3 +730,155 @@ t_cookie_auth_bad_token(_TCConfig) ->
     CookieHeader = <<"emqx_auth=bad_token">>,
     Req = fake_req(<<"/api/v5/plugin_api/my_plugin/foo">>, #{<<"cookie">> => CookieHeader}),
     ?assertMatch({401, _, _}, emqx_dashboard:authorize(Req, HandlerInfo)).
+
+%%------------------------------------------------------------------------------
+%% Password hashing (v1 PBKDF2-HMAC-SHA256 with legacy compat)
+%%------------------------------------------------------------------------------
+
+-doc "Hash output uses PHC-style v1 prefix carrying iteration count and base64 fields.".
+t_hash_uses_v1_format(_) ->
+    Hash = emqx_dashboard_admin:hash(<<"hunter2-XYZ">>),
+    ?assertMatch(<<"$1$600000$", _/binary>>, Hash),
+    [<<>>, <<"1">>, <<"600000">>, SaltB64, DKB64] = binary:split(Hash, <<"$">>, [global]),
+    ?assertEqual(16, byte_size(base64:decode(SaltB64, #{padding => false}))),
+    ?assertEqual(32, byte_size(base64:decode(DKB64, #{padding => false}))),
+    ok.
+
+-doc "verify_hash accepts the matching password and rejects the wrong one on v1 hashes.".
+t_verify_v1_hash_roundtrip(_) ->
+    Password = <<"correct horse battery staple">>,
+    Hash = emqx_dashboard_admin:hash(Password),
+    ?assertEqual(ok, emqx_dashboard_admin:verify_hash(Password, Hash)),
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"wrong">>, Hash)),
+    %% Two hashes of the same password must differ (random salt).
+    Hash2 = emqx_dashboard_admin:hash(Password),
+    ?assertNotEqual(Hash, Hash2),
+    ?assertEqual(ok, emqx_dashboard_admin:verify_hash(Password, Hash2)),
+    ok.
+
+-doc "Legacy 36-byte (4-byte ASCII-hex salt + sha256) hash verifies and signals upgrade.".
+t_verify_legacy_hash_returns_upgrade(_) ->
+    Password = <<"hunter2-XYZ">>,
+    LegacyHash = make_legacy_hash(Password),
+    ?assertEqual(36, byte_size(LegacyHash)),
+    ?assertEqual({ok, upgrade}, emqx_dashboard_admin:verify_hash(Password, LegacyHash)),
+    ok.
+
+-doc "Wrong password against a legacy hash returns plain error (no upgrade hint).".
+t_verify_legacy_hash_wrong_password(_) ->
+    Password = <<"hunter2-XYZ">>,
+    LegacyHash = make_legacy_hash(Password),
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"wrong">>, LegacyHash)),
+    ok.
+
+-doc "Malformed / truncated / unrelated inputs are all rejected.".
+t_verify_rejects_malformed_input(_) ->
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"x">>, <<>>)),
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"x">>, <<"random garbage">>)),
+    %% v1 prefix but missing fields.
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"x">>, <<"$1$">>)),
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"x">>, <<"$1$600000$">>)),
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"x">>, <<"$1$abc$AAAA$AAAA">>)),
+    %% 36-byte non-matching binary — same length as legacy but unrelated bytes.
+    Random = crypto:strong_rand_bytes(36),
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"x">>, Random)),
+    ok.
+
+-doc "Successful login against a legacy stored hash transparently rewrites it in v1 format.".
+t_admin_login_upgrades_legacy_hash(_) ->
+    Username = <<"legacy_admin">>,
+    Password = <<"oldP@ssw0rd">>,
+    %% Seed the user with a legacy hash directly.
+    ok = write_legacy_admin(Username, Password),
+    %% Sanity: stored hash is legacy.
+    [#?ADMIN{pwdhash = Stored0}] = emqx_dashboard_admin:lookup_user(Username),
+    ?assertEqual(36, byte_size(Stored0)),
+    %% Login succeeds and upgrades the stored hash.
+    ?assertMatch({ok, _}, emqx_dashboard_admin:check(Username, Password)),
+    [#?ADMIN{pwdhash = Stored1}] = emqx_dashboard_admin:lookup_user(Username),
+    ?assertMatch(<<"$1$600000$", _/binary>>, Stored1),
+    %% Re-login still works with the upgraded hash.
+    ?assertMatch({ok, _}, emqx_dashboard_admin:check(Username, Password)),
+    ok.
+
+-doc "API-key auth against a legacy api_secret_hash transparently rewrites it in v1 format.".
+t_api_key_secret_upgrade(_) ->
+    Name = <<"legacy_api_key">>,
+    ApiKey = <<"legacy-key-id">>,
+    ApiSecret = <<"this-is-a-32-byte-test-secret-OK">>,
+    LegacyHash = make_legacy_hash(ApiSecret),
+    ok = write_legacy_api_key(Name, ApiKey, LegacyHash),
+    %% Sanity: the stored hash is the legacy format.
+    [Row0] = mnesia:dirty_read(emqx_app, Name),
+    ?assertEqual(LegacyHash, element(4, Row0)),
+    %% Authorize against /status; legacy verify returns upgrade.
+    ?assertMatch({ok, _}, auth_authorize(<<"/api/v5/status">>, ApiKey, ApiSecret)),
+    %% Stored hash is now v1.
+    [Row1] = mnesia:dirty_read(emqx_app, Name),
+    StoredHash = element(4, Row1),
+    ?assertMatch(<<"$1$600000$", _/binary>>, StoredHash),
+    %% Re-authorize using the upgraded hash.
+    ?assertMatch({ok, _}, auth_authorize(<<"/api/v5/status">>, ApiKey, ApiSecret)),
+    ok.
+
+auth_authorize(Path, Key, Secret) ->
+    FakePath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/fake")),
+    FakeReq = #{method => <<"GET">>, path => FakePath},
+    RelPath =
+        case emqx_dashboard_swagger:get_relative_uri(Path) of
+            {ok, Rel} -> binary_to_list(Rel);
+            _ -> binary_to_list(Path)
+        end,
+    HandlerInfo = #{
+        method => get,
+        module => emqx_mgmt_api_status,
+        function => get_status,
+        path => RelPath
+    },
+    emqx_mgmt_auth:authorize(HandlerInfo, FakeReq, Key, Secret).
+
+%%------------------------------------------------------------------------------
+%% Helpers for legacy-hash tests
+%%------------------------------------------------------------------------------
+
+make_legacy_hash(Password) ->
+    SaltAscii = legacy_salt_ascii(),
+    Hash = crypto:hash(sha256, <<SaltAscii/binary, Password/binary>>),
+    <<SaltAscii/binary, Hash/binary>>.
+
+legacy_salt_ascii() ->
+    <<X:16/big-unsigned-integer>> = crypto:strong_rand_bytes(2),
+    iolist_to_binary(io_lib:format("~4.16.0b", [X])).
+
+write_legacy_admin(Username, Password) ->
+    LegacyHash = make_legacy_hash(Password),
+    Admin = #?ADMIN{
+        username = Username,
+        pwdhash = LegacyHash,
+        description = <<"legacy">>,
+        role = ?ROLE_SUPERUSER,
+        extra = #{password_ts => erlang:system_time(second)}
+    },
+    {atomic, ok} = mria:sync_transaction(
+        ?DASHBOARD_SHARD, fun() -> mnesia:write(Admin) end
+    ),
+    ok.
+
+write_legacy_api_key(Name, ApiKey, LegacyHash) ->
+    %% Build the record via emqx_mgmt_auth's public API path: create_with_key
+    %% produces a v1 hash, so we must overwrite the stored hash directly.
+    Now = erlang:system_time(second),
+    {ok, _} = emqx_mgmt_auth:create_with_key(
+        Name,
+        ApiKey,
+        <<"this-is-a-32-byte-test-secret-OK">>,
+        true,
+        Now + 86400,
+        <<"legacy api key">>,
+        ?ROLE_API_DEFAULT
+    ),
+    %% Now swap the v1 hash for a legacy one.
+    [Row0] = mnesia:dirty_read(emqx_app, Name),
+    Row1 = setelement(4, Row0, LegacyHash),
+    ok = mnesia:dirty_write(Row1),
+    ok.
