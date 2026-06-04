@@ -271,9 +271,6 @@ authorize(HandlerInfo, Req, ApiKey, ApiSecret) ->
             case emqx_dashboard_admin:verify_hash(ApiSecret, SecretHash) of
                 ok ->
                     check_rbac_and_scopes(Req, HandlerInfo, ApiKey, Role, Namespace, Extra);
-                {ok, upgrade} ->
-                    _ = upgrade_api_secret_hash(ApiKey, ApiSecret),
-                    check_rbac_and_scopes(Req, HandlerInfo, ApiKey, Role, Namespace, Extra);
                 error ->
                     {error, "secret_error"}
             end;
@@ -284,40 +281,6 @@ authorize(HandlerInfo, Req, ApiKey, ApiSecret) ->
         {error, Reason} ->
             {error, Reason}
     end.
-
-%% Upgrade a legacy api_secret_hash to the v1 format after a successful
-%% verification. Best-effort: concurrent callers each generate independent
-%% salts, both v1 hashes accept the same secret, last-write-wins.
-upgrade_api_secret_hash(ApiKey, ApiSecret) ->
-    NewHash = emqx_dashboard_admin:hash(ApiSecret),
-    Trans = fun() ->
-        case mnesia:match_object(?APP, #?APP{api_key = ApiKey, _ = '_'}, write) of
-            [#?APP{api_secret_hash = Stored} = App] ->
-                case is_legacy_api_secret_hash(Stored) of
-                    true ->
-                        mnesia:write(App#?APP{api_secret_hash = NewHash});
-                    false ->
-                        ok
-                end;
-            _ ->
-                ok
-        end
-    end,
-    case mria:sync_transaction(?COMMON_SHARD, Trans) of
-        {atomic, _} ->
-            ok;
-        {aborted, Reason} ->
-            ?SLOG(warning, #{
-                msg => "api_secret_hash_upgrade_failed",
-                api_key => ApiKey,
-                reason => Reason
-            }),
-            error
-    end.
-
-is_legacy_api_secret_hash(<<"$1$", _/binary>>) -> false;
-is_legacy_api_secret_hash(Bin) when is_binary(Bin), byte_size(Bin) =:= 36 -> true;
-is_legacy_api_secret_hash(_) -> false.
 
 check_rbac_and_scopes(Req, HandlerInfo, ApiKey, Role, Namespace, Extra) ->
     case check_rbac(Req, HandlerInfo, ApiKey, Role, Namespace) of

@@ -611,7 +611,7 @@ hash(Password) ->
     DK = crypto:pbkdf2_hmac(sha256, Password, Salt, ?PBKDF2_ITERATIONS, ?DK_LENGTH),
     encode_v1(?PBKDF2_ITERATIONS, Salt, DK).
 
--spec verify_hash(binary(), binary()) -> ok | {ok, upgrade} | error.
+-spec verify_hash(binary(), binary()) -> ok | error.
 verify_hash(Origin, <<"$1$", Rest/binary>>) ->
     case parse_v1(Rest) of
         {ok, Iter, Salt, ExpectedDK} ->
@@ -626,9 +626,13 @@ verify_hash(Origin, <<"$1$", Rest/binary>>) ->
 verify_hash(Origin, <<Salt:?LEGACY_SALT_SIZE/binary, Hash/binary>> = Legacy) when
     byte_size(Legacy) =:= ?LEGACY_HASH_SIZE
 ->
-    %% Pre-6.4 layout. Caller must rehash on success to upgrade storage.
+    %% Pre-6.4 layout. We do NOT rehash-on-login: during a rolling
+    %% upgrade an older node would be unable to verify the new format,
+    %% so an upgraded hash could lock the user out at the next request
+    %% routed to an old node. Existing legacy hashes are replaced only
+    %% when the user changes their password.
     case crypto:hash_equals(Hash, legacy_sha256(Salt, Origin)) of
-        true -> {ok, upgrade};
+        true -> ok;
         false -> error
     end;
 verify_hash(_Origin, _Other) ->
@@ -825,16 +829,8 @@ check(_, undefined, _) ->
     {error, <<"password_not_provided">>};
 check(Username, Password, MfaToken) ->
     case lookup_user(Username) of
-        [#?ADMIN{pwdhash = PwdHash} = User0] ->
-            {IsPwdOk, User} =
-                case verify_hash(Password, PwdHash) of
-                    ok ->
-                        {true, User0};
-                    {ok, upgrade} ->
-                        {true, maybe_upgrade_pwdhash(User0, Password)};
-                    error ->
-                        {false, User0}
-                end,
+        [#?ADMIN{pwdhash = PwdHash} = User] ->
+            IsPwdOk = (ok =:= verify_hash(Password, PwdHash)),
             MfaVerifyResult = verify_mfa_token(Username, MfaToken, IsPwdOk),
             maybe
                 ok ?= check_mfa_pwd(MfaVerifyResult, IsPwdOk),
@@ -846,49 +842,6 @@ check(Username, Password, MfaToken) ->
         [] ->
             {error, <<"username_not_found">>}
     end.
-
-%% Transparently rewrite a legacy password hash with a v1 hash on
-%% successful verification. Concurrent logins are safe: each writer
-%% generates an independent salt; both v1 hashes verify the same
-%% password, last-write-wins.
-maybe_upgrade_pwdhash(#?ADMIN{username = Username} = User, Password) ->
-    NewHash = hash(Password),
-    Updated = User#?ADMIN{pwdhash = NewHash},
-    Res = mria:sync_transaction(
-        ?DASHBOARD_SHARD,
-        fun upgrade_pwdhash_tx/2,
-        [Username, NewHash]
-    ),
-    case Res of
-        {atomic, ok} ->
-            Updated;
-        {aborted, Reason} ->
-            ?SLOG(warning, #{
-                msg => "dashboard_pwdhash_upgrade_failed",
-                username => Username,
-                reason => Reason
-            }),
-            User
-    end.
-
-upgrade_pwdhash_tx(Username, NewHash) ->
-    case mnesia:wread({?ADMIN, Username}) of
-        [#?ADMIN{pwdhash = Stored} = Admin] ->
-            %% Only upgrade if still legacy — another node may have
-            %% beaten us to it, in which case we leave their v1 hash alone.
-            case is_legacy_hash(Stored) of
-                true ->
-                    mnesia:write(Admin#?ADMIN{pwdhash = NewHash});
-                false ->
-                    ok
-            end;
-        [] ->
-            ok
-    end.
-
-is_legacy_hash(<<"$1$", _/binary>>) -> false;
-is_legacy_hash(Bin) when is_binary(Bin), byte_size(Bin) =:= ?LEGACY_HASH_SIZE -> true;
-is_legacy_hash(_) -> false.
 
 check_mfa_pwd(ok, true) ->
     ok;
