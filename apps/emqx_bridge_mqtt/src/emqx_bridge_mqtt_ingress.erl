@@ -79,7 +79,14 @@ subscribe_remote_topics(Pid, IngressList, WorkerIdx, PoolSize, Name) ->
 
 subscribe_remote_topic(
     Pid,
-    #{remote := #{topic := RemoteTopic, qos := QoS, no_local := NoLocal}} = Ingress,
+    #{
+        remote := #{
+            topic := RemoteTopic,
+            qos := QoS,
+            no_local := NoLocal,
+            retain_as_published := RAP
+        }
+    } = Ingress,
     WorkerIdx,
     PoolSize,
     Name
@@ -92,7 +99,7 @@ subscribe_remote_topic(
                     Pid,
                     subscribe_properties(Ingress),
                     RemoteTopic,
-                    [{qos, QoS}, {nl, NoLocal}]
+                    [{qos, QoS}, {nl, NoLocal}, {rap, RAP}]
                 ),
                 Pid
             );
@@ -119,14 +126,19 @@ maybe_retry_without_subscription_identifier(
 maybe_retry_without_subscription_identifier(
     #{
         subscription_id := _SubscriptionId,
-        remote := #{topic := RemoteTopic, qos := QoS, no_local := NoLocal}
+        remote := #{
+            topic := RemoteTopic,
+            qos := QoS,
+            no_local := NoLocal,
+            retain_as_published := RAP
+        }
     },
     {ok, _Props, ReasonCodes} = Result,
     Pid
 ) ->
     case lists:member(?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED, ReasonCodes) of
         true ->
-            emqtt:subscribe(Pid, #{}, RemoteTopic, [{qos, QoS}, {nl, NoLocal}]);
+            emqtt:subscribe(Pid, #{}, RemoteTopic, [{qos, QoS}, {nl, NoLocal}, {rap, RAP}]);
         false ->
             Result
     end;

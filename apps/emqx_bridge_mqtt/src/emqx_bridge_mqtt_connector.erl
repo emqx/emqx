@@ -102,6 +102,7 @@ on_start(ConnResId, #{server := Server} = Conf) ->
         connector => ConnResId,
         config => emqx_utils:redact(Conf)
     }),
+    maybe_warn_bridge_mode_v5(ConnResId, Conf),
     TopicToHandlerIndex = emqx_topic_index:new(),
     ok = emqx_resource:allocate_resource(
         ConnResId,
@@ -567,6 +568,18 @@ maybe_new_subscription_id_index(#{proto_ver := v5}) ->
     ets:new(?MODULE, [set, public, {read_concurrency, true}]);
 maybe_new_subscription_id_index(_Conf) ->
     undefined.
+
+maybe_warn_bridge_mode_v5(ConnResId, #{proto_ver := v5, bridge_mode := true}) ->
+    ?tp(mqtt_connector_bridge_mode_v5_warning, #{connector => ConnResId}),
+    ?SLOG(warning, #{
+        msg => "bridge_mode_ignored_for_mqtt_v5",
+        connector => ConnResId,
+        hint =>
+            "bridge_mode is a legacy MQTT 3.1.1-era flag with no effect under MQTT 5.0; "
+            "set retain_as_published on individual subscriptions instead."
+    });
+maybe_warn_bridge_mode_v5(_ConnResId, _Conf) ->
+    ok.
 
 maybe_delete_subscription_id_index(undefined) ->
     ok;

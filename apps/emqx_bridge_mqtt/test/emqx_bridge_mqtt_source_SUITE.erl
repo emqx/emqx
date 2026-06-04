@@ -1140,3 +1140,109 @@ t_reconnect_with_session(TCConfig) when is_list(TCConfig) ->
     ?assertReceivePublish(#{payload := #{<<"payload">> := <<"4">>}}),
 
     ok.
+
+-doc """
+With `retain_as_published = true` and `proto_ver = v5`, the upstream broker
+preserves the `retain` flag on PUBLISH packets forwarded to the bridge's
+subscription, so the bridge sees the message with `retain = true`.
+""".
+t_retain_as_published_v5_preserves_retain(TCConfig) ->
+    rap_subscribe_and_publish(TCConfig, <<"v5">>, true, true).
+
+-doc """
+With `retain_as_published = false` (the default) and `proto_ver = v5`,
+the upstream broker clears the `retain` flag on forwarded PUBLISH packets,
+so the bridge sees `retain = false`. Pins down the backwards-compatible
+behavior.
+""".
+t_retain_as_published_default_clears_retain(TCConfig) ->
+    rap_subscribe_and_publish(TCConfig, <<"v5">>, false, false).
+
+rap_subscribe_and_publish(TCConfig, ProtoVer, RAP, ExpectedRetain) ->
+    Self = self(),
+    ok = meck:new(emqtt, [passthrough, no_link, no_history]),
+    on_exit(fun() -> catch meck:unload([emqtt]) end),
+    ok = meck:expect(
+        emqtt,
+        subscribe,
+        fun(Pid, Props, Topic, Opts) ->
+            Self ! {subscribe_opts, Opts},
+            meck:passthrough([Pid, Props, Topic, Opts])
+        end
+    ),
+    UniqueNum = integer_to_binary(erlang:unique_integer([positive])),
+    RemoteTopic = <<"rap/test/", UniqueNum/binary>>,
+    LocalTopic = <<"local/", UniqueNum/binary>>,
+    %% Make sure no retained message lingers from a previous test on this
+    %% topic — the broker must deliver our test message as a "live"
+    %% PUBLISH, not as retained-on-subscribe (which always carries
+    %% retain = 1 regardless of RAP).
+    emqx_broker:publish(emqx_message:set_flag(retain, emqx_message:make(RemoteTopic, <<>>))),
+    {201, _} = create_connector_api(TCConfig, #{<<"proto_ver">> => ProtoVer}),
+    {201, _} =
+        create_source_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"topic">> => RemoteTopic,
+                <<"qos">> => 1,
+                <<"retain_as_published">> => RAP,
+                <<"local">> => #{<<"topic">> => LocalTopic}
+            }
+        }),
+    {subscribe_opts, Opts} = ?assertReceive({subscribe_opts, _}, 3_000),
+    ?assertEqual({rap, RAP}, lists:keyfind(rap, 1, Opts)),
+    %% Subscribe downstream with RAP=true so the local broker forwards
+    %% the bridge's republish without rewriting the retain flag — that
+    %% lets us observe what the bridge actually set.
+    Sub = start_client(TCConfig),
+    {ok, _, [_]} = emqtt:subscribe(Sub, #{}, LocalTopic, [{qos, 1}, {rap, true}]),
+    Pub = start_client(TCConfig),
+    {ok, _} =
+        emqtt:publish(Pub, RemoteTopic, <<"hello">>, [{qos, 1}, {retain, true}]),
+    Publish = ?assertReceive({publish, #{topic := LocalTopic}}, 5_000),
+    {publish, #{retain := ActualRetain}} = Publish,
+    ?assertEqual(ExpectedRetain, ActualRetain),
+    %% Clear the retained message we just published.
+    emqx_broker:publish(emqx_message:set_flag(retain, emqx_message:make(RemoteTopic, <<>>))),
+    ok.
+
+-doc """
+With `proto_ver = v3`, the `retain_as_published` option is accepted by the
+schema (so existing configs do not break) but has no effect at the wire
+level, since MQTT 3.1.1 has no Retain As Published subscription option.
+The bridge subscription is still established successfully.
+""".
+t_retain_as_published_v3_is_no_op(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{<<"proto_ver">> => <<"v3">>}),
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_source_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"qos">> => 1,
+                <<"retain_as_published">> => true
+            }
+        })
+    ),
+    ok.
+
+-doc """
+With `bridge_mode = true` and `proto_ver = v5`, the connector starts
+successfully and emits a single warning log to surface that the legacy
+bridge-mode flag has no effect under MQTT 5.0.
+""".
+t_bridge_mode_v5_logs_warning(TCConfig) ->
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
+                <<"proto_ver">> => <<"v5">>,
+                <<"bridge_mode">> => true
+            }),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [_ | _], ?of_kind(mqtt_connector_bridge_mode_v5_warning, Trace)
+            )
+        end
+    ),
+    ok.
