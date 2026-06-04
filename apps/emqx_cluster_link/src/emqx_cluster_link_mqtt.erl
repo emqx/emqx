@@ -386,6 +386,10 @@ mk_disconnect_handler(ResourceId, WorkerId, ClientId, TargetCluster) ->
 ) -> ok.
 handle_disconnect(Reason, ResourceId, WorkerId, EventCtx) ->
     case Reason of
+        shutdown ->
+            %% NOTE
+            %% Ignoring plain `shutdown`s as they are likely the result of stopping a link.
+            ok;
         {disconnected, RC, _Props} ->
             %% NOTE
             %% Emit warning if RC hints at misconfiguration or integration issues.

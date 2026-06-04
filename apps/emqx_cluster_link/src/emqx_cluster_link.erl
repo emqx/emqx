@@ -117,21 +117,17 @@ forward(Routes, Delivery) ->
 %% EMQX Hooks
 %%--------------------------------------------------------------------
 
-on_message_publish(
-    #message{topic = <<?ROUTE_TOPIC_PREFIX, _/binary>>} = Msg
-) ->
+on_message_publish(#message{topic = <<?ROUTE_TOPIC_PREFIX, _/binary>>} = Msg) ->
     case handle_route_op_msg(Msg) of
         ok ->
             {stop, []};
         error ->
             %% Disconnect so that upstream agent starts anew
-            Headers0 = Msg#message.headers,
-            Headers = Headers0#{
+            Headers = #{
                 allow_publish => false,
                 should_disconnect => true
             },
-            StopMsg = emqx_message:set_headers(Headers, Msg),
-            {stop, StopMsg}
+            {stop, emqx_message:set_headers(Headers, Msg)}
     end;
 on_message_publish(#message{topic = <<?MSG_TOPIC_PREFIX, ClusterName/binary>>, payload = Payload}) ->
     case emqx_cluster_link_mqtt:decode_forwarded_msg(Payload) of

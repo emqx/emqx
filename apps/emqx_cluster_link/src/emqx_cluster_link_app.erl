@@ -13,48 +13,23 @@ start(_StartType, _StartArgs) ->
     ok = emqx_cluster_link_config:load(),
     ok = emqx_cluster_link:register_external_broker(),
     ok = emqx_cluster_link:put_hook(),
-    LinksConf = emqx_cluster_link_config:get_enabled_links(),
-    case LinksConf of
-        [_ | _] ->
-            ok = start_msg_fwd_resources(LinksConf);
-        _ ->
-            ok
-    end,
     {ok, Sup} = emqx_cluster_link_sup:start_link(),
-    ok = create_metrics(LinksConf),
+    lists:foreach(
+        fun(LinkConf) ->
+            {ok, _} = emqx_cluster_link_sup:ensure_actor(LinkConf),
+            {ok, _} = emqx_cluster_link_mqtt:ensure_msg_fwd_resource(LinkConf)
+        end,
+        emqx_cluster_link_config:get_enabled_links()
+    ),
     {ok, Sup}.
 
 stop(_State) ->
     _ = emqx_cluster_link:delete_hook(),
     _ = emqx_cluster_link:unregister_external_broker(),
-    ok = emqx_cluster_link_config:unload(),
-    _ = remove_msg_fwd_resources(emqx_cluster_link_config:get_links()),
-    ok.
-
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-start_msg_fwd_resources(LinksConf) ->
+    _ = emqx_cluster_link_config:unload(),
     lists:foreach(
-        fun(LinkConf) ->
-            {ok, _} = emqx_cluster_link_mqtt:ensure_msg_fwd_resource(LinkConf)
+        fun(_LinkConf = #{name := ClusterName}) ->
+            emqx_cluster_link_mqtt:remove_msg_fwd_resource(ClusterName)
         end,
-        LinksConf
-    ).
-
-remove_msg_fwd_resources(LinksConf) ->
-    lists:foreach(
-        fun(#{name := Name}) ->
-            emqx_cluster_link_mqtt:remove_msg_fwd_resource(Name)
-        end,
-        LinksConf
-    ).
-
-create_metrics(LinksConf) ->
-    lists:foreach(
-        fun(#{name := ClusterName}) ->
-            ok = emqx_cluster_link_metrics:maybe_create_metrics(ClusterName)
-        end,
-        LinksConf
+        emqx_cluster_link_config:get_links()
     ).
