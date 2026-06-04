@@ -32,6 +32,7 @@ all() ->
         t_sync_once_exports_downloads_imports_and_cleans_up,
         t_sync_once_cleans_up_when_cancelled_after_export,
         t_sync_once_reports_import_errors,
+        t_sync_once_reports_cleanup_errors,
         t_sync_once_reports_remote_export_errors,
         t_real_cluster_sync_runs_on_one_core_only
     ].
@@ -331,6 +332,32 @@ t_sync_once_reports_import_errors(_Config) ->
     },
     ?assertMatch(
         {error, {import_failed, {ok, #{config_errors := #{}}}}},
+        emqx_cluster_config_sync_client:sync_once(conf(), Deps)
+    ).
+
+t_sync_once_reports_cleanup_errors(_Config) ->
+    BackupName = <<"emqx-export-2026-06-02.tar.gz">>,
+    Deps = #{
+        request_fun => fun
+            (post, _Url, _Headers, _Body, _Timeout) ->
+                {ok, 200, [], emqx_utils_json:encode(#{<<"filename">> => BackupName})};
+            (get, _Url, _Headers, undefined, _Timeout) ->
+                {ok, 200, [], <<"backup">>};
+            (delete, _Url, _Headers, undefined, _Timeout) ->
+                {ok, 500, [], <<"delete failed">>}
+        end,
+        upload_fun => fun(_Filename, _Bin) -> ok end,
+        import_fun => fun(_Filename) ->
+            {ok, #{db_errors => #{}, config_errors => #{}}}
+        end,
+        delete_local_fun => fun(_Filename) -> {error, eacces} end
+    },
+    ?assertMatch(
+        {error,
+            {cleanup_failed, #{
+                remote := {error, {http_error, delete, _, 500, <<"delete failed">>}},
+                local := {error, eacces}
+            }}},
         emqx_cluster_config_sync_client:sync_once(conf(), Deps)
     ).
 

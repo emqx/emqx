@@ -104,10 +104,12 @@ do_sync_once_active(Conf, Deps) ->
 finish_sync_once(Conf, Deps, Filename) ->
     Result = download_upload_import(Conf, Deps, Filename),
     Cleanup = cleanup(Conf, Deps, Filename),
-    case Result of
-        ok ->
+    case {Result, cleanup_succeeded(Cleanup)} of
+        {ok, true} ->
             {ok, #{filename => Filename, cleanup => Cleanup}};
-        {error, Reason} ->
+        {ok, false} ->
+            {error, {cleanup_failed, Cleanup}};
+        {{error, Reason}, _} ->
             {error, Reason}
     end.
 
@@ -212,6 +214,16 @@ cleanup_local(Conf, Deps, Filename) ->
         false ->
             skipped
     end.
+
+cleanup_succeeded(#{remote := Remote, local := Local}) ->
+    cleanup_status_ok(Remote) andalso cleanup_status_ok(Local).
+
+cleanup_status_ok(ok) ->
+    true;
+cleanup_status_ok(skipped) ->
+    true;
+cleanup_status_ok(_) ->
+    false.
 
 request_json(Method, Url, Conf, Deps, Body) ->
     RequestFun = maps:get(request_fun, Deps),
