@@ -228,6 +228,8 @@ handle_timeout(_, {keepalive, NewVal}, #channel{keepalive = KeepAlive} = Channel
         {error, timeout} ->
             {shutdown, timeout, ensure_disconnected(keepalive_timeout, Channel)}
     end;
+handle_timeout(_, {state_machine, Msg}, Channel) ->
+    call_session(timeout, Msg, Channel);
 handle_timeout(_, {transport, Msg}, Channel) ->
     call_session(timeout, Msg, Channel);
 handle_timeout(_, disconnect, Channel) ->
