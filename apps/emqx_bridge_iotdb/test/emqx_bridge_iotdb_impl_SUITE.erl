@@ -25,6 +25,7 @@ all() ->
 
 groups() ->
     ThriftOnlyTCs = [t_thrift_auto_recon, t_thrift_protocol_version_1_or_2_is_deprecated],
+    RestAPIOnlyTCs = [t_restapi_auth_probe_with_real_iotdb],
     AllTCs = emqx_common_test_helpers:all(?MODULE) -- ThriftOnlyTCs,
     Async = [
         t_async_device_id_missing,
@@ -33,7 +34,7 @@ groups() ->
     ],
     [
         {iotdb130, AllTCs},
-        {thrift, (AllTCs -- Async) ++ ThriftOnlyTCs}
+        {thrift, ((AllTCs -- Async) -- RestAPIOnlyTCs) ++ ThriftOnlyTCs}
     ].
 
 init_per_suite(Config) ->
@@ -426,6 +427,32 @@ t_probe_connector_api(Config) ->
 
 t_on_get_status(Config) ->
     emqx_bridge_v2_testlib:t_on_get_status(Config).
+
+t_restapi_auth_probe_with_real_iotdb(Config) ->
+    ResourceId = emqx_bridge_v2_testlib:connector_resource_id(Config),
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {ok, {{_, 201, _}, _, #{<<"status">> := <<"connected">>}}},
+                emqx_bridge_v2_testlib:create_connector_api(Config)
+            ),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            Probes = ?of_kind(iotdb_restapi_auth_probe, Trace),
+            ?assertMatch(
+                [#{path := <<"rest/v2/query">>, sql := <<"show version">>} | _],
+                Probes
+            ),
+            ?assertEqual([], [Probe || #{path := <<"rest/v2/nonQuery">>} = Probe <- Probes]),
+            ok
+        end
+    ).
 
 t_device_id(Config) ->
     %% Create without device_id configured

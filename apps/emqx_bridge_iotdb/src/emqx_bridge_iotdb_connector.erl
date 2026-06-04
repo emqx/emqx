@@ -80,6 +80,8 @@
 
 -define(CONNECTOR_TYPE, iotdb).
 -define(IOTDB_PING_PATH, <<"ping">>).
+-define(IOTDB_AUTH_PROBE_PATH, <<"rest/v2/query">>).
+-define(IOTDB_AUTH_PROBE_SQL, <<"show version">>).
 
 %% timer:seconds(10)).
 -define(DEFAULT_THRIFT_TIMEOUT, 10000).
@@ -523,8 +525,12 @@ check_auth_restapi(ConnResId, ConnState) ->
     Headers = emqx_bridge_http_connector:render_headers(Headers0),
     Req =
         {post,
-            {<<"rest/v2/nonQuery">>, Headers,
-                emqx_utils_json:encode(#{sql => <<"show databases">>})}},
+            {?IOTDB_AUTH_PROBE_PATH, Headers,
+                emqx_utils_json:encode(#{sql => ?IOTDB_AUTH_PROBE_SQL})}},
+    ?tp(iotdb_restapi_auth_probe, #{
+        path => ?IOTDB_AUTH_PROBE_PATH,
+        sql => ?IOTDB_AUTH_PROBE_SQL
+    }),
     Res = emqx_bridge_http_connector:on_query(ConnResId, Req, ConnState),
     case emqx_bridge_http_connector:transform_result(Res) of
         {ok, 200, _, _} ->
