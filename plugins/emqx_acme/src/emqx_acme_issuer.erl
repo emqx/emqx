@@ -251,10 +251,20 @@ cancel_timer(#state{timer_ref = Ref} = State) ->
 %% Spawn a monitored worker to run the actual ACME flow. The worker
 %% exits with its result wrapped in a tagged tuple, so success and crash
 %% are both delivered via the same DOWN message — no extra signalling
-%% channel needed.
+%% channel needed. run_action/1 is wrapped in a catch-all so that any
+%% exception raised deep in acme-erlang-client (e.g. idna's
+%% `exit:{bad_label, _}` on a malformed domain) lands in last_result as
+%% a structured `{error, {Class, Reason}}` and the gen_server clears
+%% in_progress the same way it does for normal errors.
 spawn_worker(Action) ->
     {Pid, Ref} = spawn_monitor(fun() ->
-        exit({?WORKER_RESULT, run_action(Action)})
+        Result =
+            try
+                run_action(Action)
+            catch
+                Class:Reason -> {error, {Class, Reason}}
+            end,
+        exit({?WORKER_RESULT, Result})
     end),
     #{
         action => Action,
