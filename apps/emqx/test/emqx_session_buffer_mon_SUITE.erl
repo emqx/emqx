@@ -140,6 +140,30 @@ t_maybe_log_uses_supported_throttle_key(_) ->
         ok = emqx_session_buffer_mon:update(#{buffered_payload_high_watermark => 0})
     end.
 
+t_update_normalizes_missing_upgrade_conf(_) ->
+    try
+        ok = emqx_session_buffer_mon:update(undefined),
+        ?assertEqual(
+            #{buffered_payload_high_watermark => 0},
+            persistent_term:get({emqx_session_buffer_mon, conf})
+        ),
+        ok = emqx_session_buffer_mon:update(#{buffered_payload_high_watermark => undefined}),
+        ?assertEqual(
+            #{buffered_payload_high_watermark => 0},
+            persistent_term:get({emqx_session_buffer_mon, conf})
+        ),
+        ?assertEqual(
+            ok,
+            emqx_session_buffer_mon:maybe_log(
+                <<"c1">>,
+                self(),
+                [{mqueue_len, 1}, {inflight_cnt, 1}, {total_payload_bytes, 2}]
+            )
+        )
+    after
+        ok = emqx_session_buffer_mon:update(#{buffered_payload_high_watermark => 0})
+    end.
+
 with_chan_info_table(Fun) ->
     case ets:info(?CHAN_INFO_TAB) of
         undefined ->
