@@ -231,21 +231,22 @@ insert_top(Row, Count, Key, TopRows) ->
         true ->
             gb_trees:insert(Key, Row, TopRows);
         false ->
-            {SmallestKey, SmallestRow, TopRows1} = gb_trees:take_smallest(TopRows),
+            {SmallestKey, _SmallestRow} = gb_trees:smallest(TopRows),
             case Key > SmallestKey of
                 true ->
+                    {_, _, TopRows1} = gb_trees:take_smallest(TopRows),
                     gb_trees:insert(Key, Row, TopRows1);
                 false ->
-                    gb_trees:insert(SmallestKey, SmallestRow, TopRows1)
+                    TopRows
             end
     end.
 
 top_key(Row, SortBy) ->
     {
         sort_value(Row, SortBy),
-        stable_value(Row, clientid),
-        stable_value(Row, node),
-        stable_value(Row, pid)
+        maps:get(clientid, Row),
+        maps:get(node, Row),
+        maps:get(pid, Row)
     }.
 
 top_heap_rows(TopRows) ->
@@ -255,9 +256,6 @@ sort_value(Row, mqueue_length) ->
     maps:get(mqueue_length, Row, 0);
 sort_value(Row, total_payload_bytes) ->
     maps:get(total_payload_bytes, Row, 0).
-
-stable_value(Row, Key) ->
-    to_binary(maps:get(Key, Row)).
 
 write_csv(OutFile, Rows) ->
     case file:open(OutFile, [write, raw, binary]) of

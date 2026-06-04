@@ -104,6 +104,36 @@ t_get_set_chan_stats(_) ->
     ok = emqx_cm:unregister_channel(<<"clientid">>),
     ?assertEqual(undefined, emqx_cm:get_chan_stats(<<"clientid">>)).
 
+t_set_chan_stats_triggers_session_buffer_check(_) ->
+    ClientId = <<"session-buffer-check">>,
+    Stats = [{mqueue_len, 1}, {inflight_cnt, 1}, {total_payload_bytes, 2}],
+    Info = #{conninfo := ConnInfo} = ?ChanInfo,
+    ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
+    ok = emqx_cm:insert_channel_info(ClientId, Info, []),
+    TestPid = self(),
+    ok = meck:new(emqx_session_buffer_mon, [passthrough, no_link]),
+    ok = meck:expect(
+        emqx_session_buffer_mon,
+        maybe_log,
+        fun(ClientId0, ChanPid0, Stats0) ->
+            TestPid ! {session_buffer_check, ClientId0, ChanPid0, Stats0},
+            ok
+        end
+    ),
+    try
+        ChanPid = self(),
+        true = emqx_cm:set_chan_stats(ClientId, Stats),
+        receive
+            {session_buffer_check, ClientId, ChanPid, Stats} ->
+                ok
+        after 1000 ->
+            error(session_buffer_check_not_called)
+        end
+    after
+        ok = meck:unload(emqx_session_buffer_mon),
+        ok = emqx_cm:unregister_channel(ClientId)
+    end.
+
 t_open_session(_) ->
     ok = meck:new(emqx_connection, [passthrough, no_history]),
     ok = meck:expect(emqx_connection, call, fun(_, _) -> ok end),

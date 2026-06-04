@@ -1161,6 +1161,7 @@ t_mqueue_messages(Config) ->
     Topic = <<"t/test_mqueue_msgs">>,
     Count = emqx_mgmt:default_row_limit(),
     ok = client_with_mqueue(ClientId, Topic, Count),
+    assert_total_payload_bytes(ClientId, payloads_bytes(Count), Config),
     Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "mqueue_messages"]),
     ?assert(Count =< emqx:get_config([mqtt, max_mqueue_len])),
 
@@ -1233,6 +1234,35 @@ publish_msgs(Topic, Count) ->
         end,
         lists:seq(1, Count)
     ).
+
+assert_total_payload_bytes(ClientId, ExpectedBytes, Config) ->
+    ?retry(100, 20, begin
+        ?assertMatch(
+            {ok, {?HTTP200, _, #{<<"total_payload_bytes">> := ExpectedBytes}}},
+            get_client_request(ClientId, Config)
+        ),
+        ?assertMatch(
+            {ok,
+                {?HTTP200, _, #{
+                    <<"data">> := [
+                        #{
+                            <<"clientid">> := ClientId,
+                            <<"total_payload_bytes">> := ExpectedBytes
+                        }
+                    ]
+                }}},
+            list_request(
+                [
+                    {"clientid", ClientId},
+                    {"fields", "clientid,total_payload_bytes"}
+                ],
+                Config
+            )
+        )
+    end).
+
+payloads_bytes(Count) ->
+    lists:sum([byte_size(integer_to_binary(Seq)) || Seq <- lists:seq(1, Count)]).
 
 test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
     Qs0 = io_lib:format("payload=~s", [PayloadEncoding]),
