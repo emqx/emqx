@@ -8,6 +8,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -25,6 +26,16 @@
 -define(INTEGRATION_TLS_LISTENER_NAME, cluster_config_sync_tls).
 -define(INTEGRATION_TLS_LISTENER_NAME_BIN, <<"cluster_config_sync_tls">>).
 -define(INTEGRATION_TLS_LISTENER_PORT, 29249).
+-define(INTEGRATION_HTTP_CONNECTOR_NAME, <<"cluster_config_sync_http_connector">>).
+-define(INTEGRATION_HTTP_ACTION_NAME, <<"cluster_config_sync_http_action">>).
+-define(INTEGRATION_UPDATED_RULE_ID, <<"cluster_config_sync_updated_rule">>).
+-define(INTEGRATION_BANNED_CLIENTID_2, <<"cluster_config_sync_banned_client_2">>).
+-define(INTEGRATION_AUTHN_USER_2, <<"cluster_config_sync_authn_user_2">>).
+-define(INTEGRATION_AUTHZ_USERNAME_2, <<"cluster_config_sync_authz_user_2">>).
+-define(INTEGRATION_CONFIG_ONLY_RULE_ID, <<"cluster_config_sync_config_only_rule">>).
+-define(INTEGRATION_BANNED_CLIENTID_3, <<"cluster_config_sync_banned_client_3">>).
+-define(INTEGRATION_AUTHN_USER_3, <<"cluster_config_sync_authn_user_3">>).
+-define(INTEGRATION_AUTHZ_USERNAME_3, <<"cluster_config_sync_authz_user_3">>).
 -define(PRIMARY_API_PORT, 28249).
 -define(PRIMARY_BASE_PORT, 20100).
 -define(CLUSTER_HOCON_FILENAME, "cluster.hocon").
@@ -54,6 +65,11 @@ all() ->
         t_real_primary_sync_respects_root_keys_and_table_sets,
         t_real_primary_sync_file_backed_schema_registry,
         t_real_primary_sync_listener_cert_files,
+        t_real_primary_sync_connector_action_cert_files,
+        t_real_primary_sync_builtin_auth_runtime,
+        t_real_primary_sync_repeated_updates_and_config_only_tables,
+        t_real_selected_core_takes_over_after_node_down,
+        t_real_sync_reports_failure_stages,
         t_real_sync_reports_observable_failure
     ].
 
@@ -589,6 +605,202 @@ t_real_primary_sync_listener_cert_files(Config) ->
         ok = emqx_cth_cluster:stop(PrimaryNodes)
     end.
 
+t_real_primary_sync_connector_action_cert_files(Config) ->
+    ExtraApps = bridge_apps(),
+    PrimaryNodes = start_real_primary_cluster(Config, "primary_connector_files", ExtraApps),
+    SecondaryNodes = start_real_secondary_cluster(Config, "secondary_connector_files", ExtraApps),
+    try
+        [PrimaryNode] = PrimaryNodes,
+        [SelectedNode, OtherNode] = select_cluster_sync_nodes(SecondaryNodes),
+        {PrimaryUrl, ApiKey, ApiSecret} = setup_real_primary(PrimaryNode),
+        {ok, #{data_dir := PrimaryDataDir, certs := Certs}} =
+            create_primary_http_connector_action(PrimaryNode),
+        assert_http_connector_action_absent(SecondaryNodes),
+
+        RootKeys = [<<"connectors">>, <<"actions">>],
+        SyncConf = conf(PrimaryUrl, ApiKey, ApiSecret, RootKeys, []),
+        ok = configure_sync_nodes([SelectedNode, OtherNode], SyncConf),
+        ?check_trace(
+            begin
+                trigger_sync(SelectedNode),
+                wait_http_connector_action_cert_files(SecondaryNodes, PrimaryDataDir, Certs),
+                ?block_until(#{?snk_kind := cluster_config_sync_result, stage := finished}, 10_000),
+                ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check()))
+            end,
+            fun(Trace) ->
+                assert_success_trace(Trace, SelectedNode, RootKeys, [])
+            end
+        )
+    after
+        ok = emqx_cth_cluster:stop(SecondaryNodes),
+        ok = emqx_cth_cluster:stop(PrimaryNodes)
+    end.
+
+t_real_primary_sync_builtin_auth_runtime(Config) ->
+    ExtraApps = table_set_apps(),
+    PrimaryNodes = start_real_primary_cluster(Config, "primary_auth_runtime", ExtraApps),
+    SecondaryNodes = start_real_secondary_cluster(Config, "secondary_auth_runtime", ExtraApps),
+    try
+        [PrimaryNode] = PrimaryNodes,
+        [SelectedNode, OtherNode] = select_cluster_sync_nodes(SecondaryNodes),
+        {PrimaryUrl, ApiKey, ApiSecret} = setup_real_primary(PrimaryNode),
+        ok = setup_primary_builtin_auth_runtime(PrimaryNode),
+        assert_auth_runtime_absent(SecondaryNodes),
+
+        RootKeys = [<<"authentication">>, <<"authorization">>],
+        SyncConf = conf_with_default_table_sets(PrimaryUrl, ApiKey, ApiSecret, RootKeys),
+        ok = configure_sync_nodes([SelectedNode, OtherNode], SyncConf),
+        ?check_trace(
+            begin
+                trigger_sync(SelectedNode),
+                wait_auth_runtime_usable(SecondaryNodes),
+                ?block_until(#{?snk_kind := cluster_config_sync_result, stage := finished}, 10_000),
+                ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check()))
+            end,
+            fun(Trace) ->
+                assert_success_trace(Trace, SelectedNode, RootKeys, default_table_sets())
+            end
+        )
+    after
+        ok = emqx_cth_cluster:stop(SecondaryNodes),
+        ok = emqx_cth_cluster:stop(PrimaryNodes)
+    end.
+
+t_real_primary_sync_repeated_updates_and_config_only_tables(Config) ->
+    ExtraApps = table_set_apps(),
+    PrimaryNodes = start_real_primary_cluster(Config, "primary_repeated_updates", ExtraApps),
+    SecondaryNodes = start_real_secondary_cluster(Config, "secondary_repeated_updates", ExtraApps),
+    try
+        [PrimaryNode] = PrimaryNodes,
+        [SelectedNode, OtherNode] = select_cluster_sync_nodes(SecondaryNodes),
+        {PrimaryUrl, ApiKey, ApiSecret} = setup_real_primary(PrimaryNode),
+        ok = create_primary_rule_and_table_data(PrimaryNode),
+
+        RootKeys = [<<"rule_engine">>],
+        WithDefaultTableSets = conf_with_default_table_sets(
+            PrimaryUrl, ApiKey, ApiSecret, RootKeys
+        ),
+        ok = configure_sync_nodes([SelectedNode, OtherNode], WithDefaultTableSets),
+        assert_real_sync_finished(SelectedNode, RootKeys, default_table_sets()),
+        wait_imported_rule(SecondaryNodes),
+        wait_default_table_data(SecondaryNodes),
+        ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check())),
+
+        ok = update_primary_rule_and_add_table_data(PrimaryNode),
+        ok = configure_sync_nodes([SelectedNode, OtherNode], WithDefaultTableSets),
+        assert_real_sync_finished(SelectedNode, RootKeys, default_table_sets()),
+        wait_updated_rule(SecondaryNodes),
+        wait_additional_default_table_data(SecondaryNodes),
+        ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check())),
+
+        ok = create_primary_config_only_update_and_more_table_data(PrimaryNode),
+        ConfigOnly = conf(PrimaryUrl, ApiKey, ApiSecret, RootKeys, []),
+        ok = configure_sync_nodes([SelectedNode, OtherNode], ConfigOnly),
+        assert_real_sync_finished(SelectedNode, RootKeys, []),
+        wait_config_only_rule(SecondaryNodes),
+        assert_config_only_table_data_not_synced(SecondaryNodes),
+        assert_additional_default_table_data(SecondaryNodes),
+        ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check()))
+    after
+        ok = emqx_cth_cluster:stop(SecondaryNodes),
+        ok = emqx_cth_cluster:stop(PrimaryNodes)
+    end.
+
+t_real_selected_core_takes_over_after_node_down(Config) ->
+    BackupName = <<"real-cluster-config-sync-failover.tar.gz">>,
+    BackupBin = make_rule_engine_backup(Config, BackupName),
+    {PrimaryPid, PrimaryUrl} = start_fake_primary(BackupName, BackupBin),
+    Nodes = start_real_secondary_cluster(Config, "secondary_failover"),
+    try
+        [SelectedNode, OtherNode] = select_cluster_sync_nodes(Nodes),
+        SyncConf = conf(PrimaryUrl),
+        ok = configure_sync_nodes([SelectedNode, OtherNode], SyncConf),
+        ok = emqx_cth_cluster:stop([SelectedNode]),
+        wait_until(
+            fun() -> ?ON(OtherNode, mria_membership:running_core_nodelist()) =:= [OtherNode] end,
+            #{action => wait_failover_membership, node => OtherNode}
+        ),
+
+        ?check_trace(
+            begin
+                trigger_sync(OtherNode),
+                Requests = wait_fake_primary_requests(3),
+                ?assertEqual([post, get, delete], [Method || {Method, _Path, _Body} <- Requests]),
+                wait_imported_rule([OtherNode]),
+                ?block_until(#{?snk_kind := cluster_config_sync_result, stage := finished}, 10_000),
+                ?assertEqual(ok, ?ON(OtherNode, emqx_cluster_config_sync:on_health_check()))
+            end,
+            fun(Trace) ->
+                assert_success_trace(Trace, OtherNode, default_root_keys(), [])
+            end
+        )
+    after
+        stop_fake_primary(PrimaryPid),
+        catch emqx_cth_cluster:stop(Nodes)
+    end.
+
+t_real_sync_reports_failure_stages(Config) ->
+    SecondaryNodes = start_real_secondary_cluster(Config, "secondary_failure_stages"),
+    try
+        [SelectedNode, OtherNode] = select_cluster_sync_nodes(SecondaryNodes),
+        RootKeys = [<<"rule_engine">>],
+        ok = assert_real_sync_failure_stage(
+            Config,
+            [SelectedNode, OtherNode],
+            RootKeys,
+            download,
+            fake_primary_opts(#{
+                backup_name => <<"cluster-config-sync-download-failure.tar.gz">>,
+                download_status => 500,
+                download_body => <<"download failed">>
+            }),
+            <<"http_error">>
+        ),
+        ok = assert_real_sync_failure_stage(
+            Config,
+            [SelectedNode, OtherNode],
+            RootKeys,
+            upload,
+            fake_primary_opts(#{
+                backup_name => <<"cluster-config-sync-upload-failure.tar.gz">>,
+                backup_bin => make_upload_error_backup(
+                    Config, <<"cluster-config-sync-upload-failure.tar.gz">>
+                )
+            }),
+            <<"upload_failed">>
+        ),
+        ok = assert_real_sync_failure_stage(
+            Config,
+            [SelectedNode, OtherNode],
+            RootKeys,
+            import,
+            fake_primary_opts(#{
+                backup_name => <<"cluster-config-sync-import-failure.tar.gz">>,
+                backup_bin => make_import_error_backup(
+                    Config, <<"cluster-config-sync-import-failure.tar.gz">>
+                )
+            }),
+            <<"import_failed">>
+        ),
+        ok = assert_real_sync_failure_stage(
+            Config,
+            [SelectedNode, OtherNode],
+            RootKeys,
+            cleanup,
+            fake_primary_opts(#{
+                backup_name => <<"cluster-config-sync-cleanup-failure.tar.gz">>,
+                backup_bin => make_rule_engine_backup(
+                    Config, <<"cluster-config-sync-cleanup-failure.tar.gz">>
+                ),
+                delete_status => 500,
+                delete_body => <<"delete failed">>
+            }),
+            <<"cleanup_failed">>
+        )
+    after
+        ok = emqx_cth_cluster:stop(SecondaryNodes)
+    end.
+
 t_real_sync_reports_observable_failure(Config) ->
     PrimaryNodes = start_real_primary_cluster(Config, "primary_observable_failure", []),
     SecondaryNodes = start_real_secondary_cluster(Config, "secondary_observable_failure"),
@@ -1061,6 +1273,13 @@ table_set_apps() ->
         emqx_retainer
     ].
 
+bridge_apps() ->
+    [
+        emqx_connector,
+        emqx_bridge,
+        emqx_bridge_http
+    ].
+
 base_cluster_conf() ->
     Conf = #{
         listeners => #{
@@ -1095,22 +1314,71 @@ setup_real_primary(PrimaryNode) ->
 
 create_primary_rule_and_table_data(PrimaryNode) ->
     ?ON(PrimaryNode, begin
-        {201, _Rule} = emqx_rule_engine_api:'/rules'(post, #{
-            body => #{
-                <<"id">> => ?INTEGRATION_RULE_ID,
-                <<"name">> => ?INTEGRATION_RULE_ID,
-                <<"enable">> => true,
-                <<"sql">> => <<"SELECT * FROM \"t/#\"">>,
-                <<"actions">> => [#{<<"function">> => <<"console">>}],
-                <<"description">> => <<"cluster config sync integration test">>
-            }
-        }),
+        ok = create_rule(
+            ?INTEGRATION_RULE_ID,
+            <<"SELECT * FROM \"t/#\"">>,
+            <<"cluster config sync integration test">>
+        ),
         ok = create_banned(?INTEGRATION_BANNED_CLIENTID),
         ok = create_authn_user(?INTEGRATION_AUTHN_USER),
         ok = create_authz_rules(?INTEGRATION_AUTHZ_USERNAME),
         ok = store_retained_message(?INTEGRATION_RETAINER_TOPIC, ?INTEGRATION_RETAINER_PAYLOAD),
         ok
     end).
+
+update_primary_rule_and_add_table_data(PrimaryNode) ->
+    ?ON(PrimaryNode, begin
+        ok = update_rule(
+            ?INTEGRATION_RULE_ID,
+            <<"SELECT * FROM \"t/updated/#\"">>,
+            <<"cluster config sync integration test updated">>
+        ),
+        ok = create_rule(
+            ?INTEGRATION_UPDATED_RULE_ID,
+            <<"SELECT * FROM \"t/added/#\"">>,
+            <<"cluster config sync integration test added">>
+        ),
+        ok = create_banned(?INTEGRATION_BANNED_CLIENTID_2),
+        ok = create_authn_user(?INTEGRATION_AUTHN_USER_2),
+        ok = create_authz_rules(?INTEGRATION_AUTHZ_USERNAME_2),
+        ok
+    end).
+
+create_primary_config_only_update_and_more_table_data(PrimaryNode) ->
+    ?ON(PrimaryNode, begin
+        ok = create_rule(
+            ?INTEGRATION_CONFIG_ONLY_RULE_ID,
+            <<"SELECT * FROM \"t/config-only/#\"">>,
+            <<"cluster config sync integration test config only">>
+        ),
+        ok = create_banned(?INTEGRATION_BANNED_CLIENTID_3),
+        ok = create_authn_user(?INTEGRATION_AUTHN_USER_3),
+        ok = create_authz_rules(?INTEGRATION_AUTHZ_USERNAME_3),
+        ok
+    end).
+
+create_rule(RuleId, SQL, Description) ->
+    {201, _Rule} = emqx_rule_engine_api:'/rules'(post, #{
+        body => rule_body(RuleId, SQL, Description)
+    }),
+    ok.
+
+update_rule(RuleId, SQL, Description) ->
+    {200, _Rule} = emqx_rule_engine_api:'/rules/:id'(put, #{
+        bindings => #{id => RuleId},
+        body => rule_body(RuleId, SQL, Description)
+    }),
+    ok.
+
+rule_body(RuleId, SQL, Description) ->
+    #{
+        <<"id">> => RuleId,
+        <<"name">> => RuleId,
+        <<"enable">> => true,
+        <<"sql">> => SQL,
+        <<"actions">> => [#{<<"function">> => <<"console">>}],
+        <<"description">> => Description
+    }.
 
 create_banned(ClientId) ->
     Now = erlang:system_time(second),
@@ -1141,7 +1409,7 @@ authn_config() ->
             name => bcrypt,
             salt_rounds => 8
         },
-        user_group => <<"global:mqtt">>
+        user_group => 'mqtt:global'
     }.
 
 create_authz_rules(Username) ->
@@ -1217,6 +1485,97 @@ create_primary_tls_listener(PrimaryNode) ->
         ),
         {ok, #{data_dir => emqx:data_dir(), certs => Certs}}
     end).
+
+create_primary_http_connector_action(PrimaryNode) ->
+    ?ON(PrimaryNode, begin
+        Certs = tls_cert_contents(),
+        ConnectorConfig = http_connector_config(Certs),
+        ActionConfig = http_action_config(),
+        {ok, _Connector} = emqx_connector:create(
+            <<"http">>, ?INTEGRATION_HTTP_CONNECTOR_NAME, ConnectorConfig
+        ),
+        {ok, _Action} = emqx_bridge_v2:create(
+            <<"http">>, ?INTEGRATION_HTTP_ACTION_NAME, ActionConfig
+        ),
+        {ok, #{data_dir => emqx:data_dir(), certs => Certs}}
+    end).
+
+http_connector_config(Certs) ->
+    #{
+        <<"enable">> => false,
+        <<"url">> => <<"https://127.0.0.1:65535">>,
+        <<"headers">> => #{},
+        <<"connect_timeout">> => <<"1s">>,
+        <<"max_inactive">> => <<"10s">>,
+        <<"pool_type">> => <<"hash">>,
+        <<"pool_size">> => 1,
+        <<"ssl">> => #{
+            <<"enable">> => true,
+            <<"verify">> => <<"verify_peer">>,
+            <<"cacertfile">> => maps:get(cacertfile, Certs),
+            <<"certfile">> => maps:get(certfile, Certs),
+            <<"keyfile">> => maps:get(keyfile, Certs)
+        },
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"100ms">>
+        }
+    }.
+
+http_action_config() ->
+    #{
+        <<"enable">> => false,
+        <<"connector">> => ?INTEGRATION_HTTP_CONNECTOR_NAME,
+        <<"parameters">> => #{
+            <<"path">> => <<"/cluster-config-sync">>,
+            <<"method">> => <<"post">>,
+            <<"headers">> => #{},
+            <<"body">> => <<"${.}">>
+        },
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"100ms">>
+        }
+    }.
+
+setup_primary_builtin_auth_runtime(PrimaryNode) ->
+    ?ON(PrimaryNode, begin
+        {ok, _} = emqx:update_config(
+            [authentication],
+            {create_authenticator, 'mqtt:global', builtin_authn_raw_config()}
+        ),
+        ok = create_authn_user(?INTEGRATION_AUTHN_USER),
+        {ok, _} = emqx:update_config([authorization], builtin_authz_raw_config()),
+        ok = create_authz_rules(?INTEGRATION_AUTHN_USER),
+        ok
+    end).
+
+builtin_authn_raw_config() ->
+    #{
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"built_in_database">>,
+        <<"enable">> => true,
+        <<"user_id_type">> => <<"username">>,
+        <<"password_hash_algorithm">> => #{
+            <<"name">> => <<"bcrypt">>,
+            <<"salt_rounds">> => 8
+        }
+    }.
+
+builtin_authz_raw_config() ->
+    #{
+        <<"no_match">> => <<"deny">>,
+        <<"cache">> => #{<<"enable">> => false},
+        <<"sources">> => [
+            #{
+                <<"type">> => <<"file">>,
+                <<"enable">> => false,
+                <<"path">> => <<"${EMQX_ETC_DIR}/acl.conf">>
+            },
+            #{
+                <<"type">> => <<"built_in_database">>,
+                <<"enable">> => true
+            }
+        ]
+    }.
 
 tls_listener_bind() ->
     iolist_to_binary(io_lib:format("127.0.0.1:~B", [?INTEGRATION_TLS_LISTENER_PORT])).
@@ -1331,6 +1690,77 @@ make_rule_engine_backup(Config, BackupName) ->
     {ok, BackupBin} = file:read_file(BackupFile),
     BackupBin.
 
+make_upload_error_backup(Config, BackupName) ->
+    PrivDir = ?config(priv_dir, Config),
+    BackupFile = filename:join(PrivDir, binary_to_list(BackupName)),
+    BackupRoot = filename:basename(BackupFile, ".tar.gz"),
+    Meta = unicode:characters_to_binary(
+        hocon_pp:do(
+            #{
+                edition => emqx_release:edition(),
+                version => emqx_release:version()
+            },
+            #{}
+        )
+    ),
+    ClusterHocon = unicode:characters_to_binary(
+        hocon_pp:do(
+            #{
+                <<"rule_engine">> => #{
+                    <<"rules">> => #{
+                        <<"cluster_config_sync_bad_import_rule">> => #{
+                            <<"description">> => <<"invalid rule for import failure">>,
+                            <<"sql">> => <<"SELECT * FROM">>,
+                            <<"actions">> => [
+                                #{
+                                    <<"function">> => <<"republish">>,
+                                    <<"args">> => #{
+                                        <<"topic">> => <<"cluster/config/sync/${topic}">>
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            #{}
+        )
+    ),
+    ok = erl_tar:create(
+        BackupFile,
+        [
+            {filename:join(BackupRoot, "META.hocon"), Meta},
+            {filename:join(BackupRoot, "cluster.hocon"), ClusterHocon}
+        ],
+        [compressed]
+    ),
+    {ok, BackupBin} = file:read_file(BackupFile),
+    BackupBin.
+
+make_import_error_backup(Config, BackupName) ->
+    PrivDir = ?config(priv_dir, Config),
+    BackupFile = filename:join(PrivDir, binary_to_list(BackupName)),
+    BackupRoot = filename:basename(BackupFile, ".tar.gz"),
+    Meta = unicode:characters_to_binary(
+        hocon_pp:do(
+            #{
+                edition => emqx_release:edition(),
+                version => emqx_release:version()
+            },
+            #{}
+        )
+    ),
+    ok = erl_tar:create(
+        BackupFile,
+        [
+            {filename:join(BackupRoot, "META.hocon"), Meta},
+            {filename:join([BackupRoot, "mnesia", "emqx_banned"]), <<"not a mnesia backup">>}
+        ],
+        [compressed]
+    ),
+    {ok, BackupBin} = file:read_file(BackupFile),
+    BackupBin.
+
 wait_imported_rule(Nodes) ->
     try
         wait_until(
@@ -1345,11 +1775,26 @@ wait_imported_rule(Nodes) ->
     end.
 
 has_imported_rule(Node) ->
+    has_rule(Node, ?INTEGRATION_RULE_ID).
+
+has_rule(Node, RuleId) ->
     ?ON(Node, begin
         Rules = emqx_conf:get([rule_engine, rules]),
-        RuleIdAtom = binary_to_existing_atom_or_undefined(?INTEGRATION_RULE_ID),
-        maps:is_key(?INTEGRATION_RULE_ID, Rules) orelse
+        RuleIdAtom = binary_to_existing_atom_or_undefined(RuleId),
+        maps:is_key(RuleId, Rules) orelse
             maps:is_key(RuleIdAtom, Rules)
+    end).
+
+rule_description(Node, RuleId) ->
+    ?ON(Node, begin
+        Rules = emqx_conf:get([rule_engine, rules]),
+        RuleIdAtom = binary_to_existing_atom_or_undefined(RuleId),
+        case maps:get(RuleId, Rules, maps:get(RuleIdAtom, Rules, undefined)) of
+            undefined ->
+                undefined;
+            Rule ->
+                maps:get(description, Rule, maps:get(<<"description">>, Rule, undefined))
+        end
     end).
 
 binary_to_existing_atom_or_undefined(Bin) ->
@@ -1367,6 +1812,27 @@ sync_diagnostics(Nodes) ->
         }}
      || Node <- Nodes
     ].
+
+wait_updated_rule(Nodes) ->
+    wait_until(
+        fun() ->
+            lists:all(fun has_updated_rule/1, Nodes)
+        end,
+        #{action => wait_updated_rule, nodes => Nodes}
+    ).
+
+has_updated_rule(Node) ->
+    has_rule(Node, ?INTEGRATION_UPDATED_RULE_ID) andalso
+        rule_description(Node, ?INTEGRATION_RULE_ID) =:=
+            <<"cluster config sync integration test updated">>.
+
+wait_config_only_rule(Nodes) ->
+    wait_until(
+        fun() ->
+            lists:all(fun(Node) -> has_rule(Node, ?INTEGRATION_CONFIG_ONLY_RULE_ID) end, Nodes)
+        end,
+        #{action => wait_config_only_rule, nodes => Nodes}
+    ).
 
 assert_table_data_absent(Nodes) ->
     lists:foreach(
@@ -1403,6 +1869,32 @@ wait_table_data(Nodes) ->
         #{action => wait_table_data, nodes => Nodes}
     ).
 
+wait_additional_default_table_data(Nodes) ->
+    wait_until(
+        fun() ->
+            lists:all(fun has_additional_default_table_data/1, Nodes)
+        end,
+        #{action => wait_additional_default_table_data, nodes => Nodes}
+    ).
+
+assert_additional_default_table_data(Nodes) ->
+    lists:foreach(
+        fun(Node) ->
+            ?assertEqual(true, has_additional_default_table_data(Node))
+        end,
+        Nodes
+    ).
+
+assert_config_only_table_data_not_synced(Nodes) ->
+    lists:foreach(
+        fun(Node) ->
+            ?assertEqual(false, has_banned(Node, ?INTEGRATION_BANNED_CLIENTID_3)),
+            ?assertEqual(false, has_authn_user(Node, ?INTEGRATION_AUTHN_USER_3)),
+            ?assertEqual(false, has_authz_rules(Node, ?INTEGRATION_AUTHZ_USERNAME_3))
+        end,
+        Nodes
+    ).
+
 has_all_table_data(Node) ->
     has_banned(Node, ?INTEGRATION_BANNED_CLIENTID) andalso
         has_authn_user(Node, ?INTEGRATION_AUTHN_USER) andalso
@@ -1413,6 +1905,11 @@ has_default_table_data(Node) ->
     has_banned(Node, ?INTEGRATION_BANNED_CLIENTID) andalso
         has_authn_user(Node, ?INTEGRATION_AUTHN_USER) andalso
         has_authz_rules(Node, ?INTEGRATION_AUTHZ_USERNAME).
+
+has_additional_default_table_data(Node) ->
+    has_banned(Node, ?INTEGRATION_BANNED_CLIENTID_2) andalso
+        has_authn_user(Node, ?INTEGRATION_AUTHN_USER_2) andalso
+        has_authz_rules(Node, ?INTEGRATION_AUTHZ_USERNAME_2).
 
 has_banned(Node, ClientId) ->
     ?ON(Node, emqx_banned:check_clientid(ClientId)).
@@ -1553,6 +2050,209 @@ tls_cert_file_synced(Key, SSL, PrimaryDataDir, Certs) ->
             end
     end.
 
+assert_http_connector_action_absent(Nodes) ->
+    lists:foreach(
+        fun(Node) ->
+            ?assertEqual(false, has_http_connector_action(Node))
+        end,
+        Nodes
+    ).
+
+has_http_connector_action(Node) ->
+    ?ON(Node, http_connector_conf() =/= undefined andalso http_action_conf() =/= undefined).
+
+wait_http_connector_action_cert_files(Nodes, PrimaryDataDir, Certs) ->
+    wait_until(
+        fun() ->
+            lists:all(
+                fun(Node) ->
+                    http_connector_action_cert_files_synced(Node, PrimaryDataDir, Certs)
+                end,
+                Nodes
+            )
+        end,
+        #{action => wait_http_connector_action_cert_files, nodes => Nodes}
+    ).
+
+http_connector_action_cert_files_synced(Node, PrimaryDataDir, Certs) ->
+    ?ON(Node, begin
+        case {http_connector_conf(), http_action_conf()} of
+            {#{<<"enable">> := false, <<"ssl">> := SSL}, Action} when is_map(Action) ->
+                action_connector_matches(Action) andalso
+                    tls_cert_file_synced(cacertfile, SSL, PrimaryDataDir, Certs) andalso
+                    tls_cert_file_synced(certfile, SSL, PrimaryDataDir, Certs) andalso
+                    tls_cert_file_synced(keyfile, SSL, PrimaryDataDir, Certs);
+            _ ->
+                false
+        end
+    end).
+
+http_connector_conf() ->
+    emqx:get_raw_config([connectors, http, ?INTEGRATION_HTTP_CONNECTOR_NAME], undefined).
+
+http_action_conf() ->
+    emqx:get_raw_config([actions, http, ?INTEGRATION_HTTP_ACTION_NAME], undefined).
+
+action_connector_matches(#{<<"connector">> := Connector, <<"parameters">> := Parameters}) ->
+    Connector =:= ?INTEGRATION_HTTP_CONNECTOR_NAME andalso
+        maps:get(<<"path">>, Parameters, undefined) =:= <<"/cluster-config-sync">>;
+action_connector_matches(_) ->
+    false.
+
+assert_auth_runtime_absent(Nodes) ->
+    lists:foreach(
+        fun(Node) ->
+            ?assertEqual(false, has_builtin_auth_runtime_config(Node)),
+            ?assertEqual(false, has_authn_user(Node, ?INTEGRATION_AUTHN_USER)),
+            ?assertEqual(false, has_authz_rules(Node, ?INTEGRATION_AUTHN_USER))
+        end,
+        Nodes
+    ).
+
+has_builtin_auth_runtime_config(Node) ->
+    ?ON(Node, begin
+        AuthnConfigured =
+            case emqx_authn_chains:list_authenticators('mqtt:global') of
+                {ok, Authenticators} ->
+                    lists:any(
+                        fun(#{id := ID}) -> ID =:= <<"password_based:built_in_database">> end,
+                        Authenticators
+                    );
+                _ ->
+                    false
+            end,
+        AuthzConfigured =
+            lists:any(
+                fun(Source) ->
+                    maps:get(type, Source, maps:get(<<"type">>, Source, undefined)) =:=
+                        built_in_database orelse
+                        maps:get(type, Source, maps:get(<<"type">>, Source, undefined)) =:=
+                            <<"built_in_database">>
+                end,
+                emqx:get_config([authorization, sources], [])
+            ),
+        AuthnConfigured orelse AuthzConfigured
+    end).
+
+wait_auth_runtime_usable(Nodes) ->
+    try
+        wait_until(
+            fun() ->
+                lists:all(fun auth_runtime_usable/1, Nodes)
+            end,
+            #{action => wait_auth_runtime_usable, nodes => Nodes}
+        )
+    catch
+        error:{timeout, Context} ->
+            error({timeout, Context#{diagnostics => auth_runtime_diagnostics(Nodes)}})
+    end.
+
+auth_runtime_diagnostics(Nodes) ->
+    [{Node, auth_runtime_status(Node)} || Node <- Nodes].
+
+auth_runtime_status(Node) ->
+    ?ON(Node, begin
+        GoodCredentials = authn_credentials(?INTEGRATION_AUTHN_USER, <<"secret">>),
+        BadCredentials = authn_credentials(?INTEGRATION_AUTHN_USER, <<"bad-secret">>),
+        ClientInfo = authz_client_info(?INTEGRATION_AUTHN_USER),
+        #{
+            authenticators => safe_eval(fun() ->
+                emqx_authn_chains:list_authenticators('mqtt:global')
+            end),
+            raw_authentication => safe_eval(fun() ->
+                emqx:get_raw_config([authentication], undefined)
+            end),
+            authz_sources => safe_eval(fun() ->
+                emqx:get_config([authorization, sources], [])
+            end),
+            authn_user => safe_eval(fun() ->
+                emqx_authn_mnesia:lookup_user(?INTEGRATION_AUTHN_USER, authn_config())
+            end),
+            authz_rules => safe_eval(fun() ->
+                emqx_authz_mnesia:get_rules({username, ?INTEGRATION_AUTHN_USER})
+            end),
+            authn_good => safe_eval(fun() ->
+                emqx_access_control:authenticate(GoodCredentials)
+            end),
+            authn_bad => safe_eval(fun() ->
+                emqx_access_control:authenticate(BadCredentials)
+            end),
+            authz_allow => safe_eval(fun() ->
+                emqx_access_control:authorize(
+                    ClientInfo, ?AUTHZ_PUBLISH, <<"cluster/config/sync">>
+                )
+            end),
+            authz_deny => safe_eval(fun() ->
+                emqx_access_control:authorize(
+                    ClientInfo, ?AUTHZ_PUBLISH, <<"cluster/config/sync/denied">>
+                )
+            end)
+        }
+    end).
+
+safe_eval(Fun) ->
+    try Fun() of
+        Result -> Result
+    catch
+        Class:Reason:Stacktrace ->
+            {Class, Reason, Stacktrace}
+    end.
+
+auth_runtime_usable(Node) ->
+    ?ON(Node, begin
+        try
+            GoodCredentials = authn_credentials(?INTEGRATION_AUTHN_USER, <<"secret">>),
+            BadCredentials = authn_credentials(?INTEGRATION_AUTHN_USER, <<"bad-secret">>),
+            AuthnOK =
+                case emqx_access_control:authenticate(GoodCredentials) of
+                    {ok, _} -> true;
+                    _ -> false
+                end,
+            AuthnReject =
+                case emqx_access_control:authenticate(BadCredentials) of
+                    {ok, _} -> false;
+                    _ -> true
+                end,
+            ClientInfo = authz_client_info(?INTEGRATION_AUTHN_USER),
+            AuthzAllow =
+                emqx_access_control:authorize(
+                    ClientInfo, ?AUTHZ_PUBLISH, <<"cluster/config/sync">>
+                ) =:= allow,
+            AuthzDeny =
+                emqx_access_control:authorize(
+                    ClientInfo, ?AUTHZ_PUBLISH, <<"cluster/config/sync/denied">>
+                ) =:= deny,
+            AuthnOK andalso AuthnReject andalso AuthzAllow andalso AuthzDeny
+        catch
+            _:_ ->
+                false
+        end
+    end).
+
+authn_credentials(Username, Password) ->
+    #{
+        zone => default,
+        listener => 'tcp:default',
+        protocol => mqtt,
+        clientid => <<"cluster_config_sync_auth_runtime_client">>,
+        username => Username,
+        password => Password,
+        peerhost => {127, 0, 0, 1},
+        peerport => 1883
+    }.
+
+authz_client_info(Username) ->
+    #{
+        zone => default,
+        listener => 'tcp:default',
+        protocol => mqtt,
+        clientid => <<"cluster_config_sync_auth_runtime_client">>,
+        username => Username,
+        peerhost => {127, 0, 0, 1},
+        peerport => 1883,
+        is_superuser => false
+    }.
+
 assert_success_trace(Trace, SelectedNode, RootKeys, TableSets) ->
     Events = [
         Event
@@ -1569,7 +2269,25 @@ assert_success_trace(Trace, SelectedNode, RootKeys, TableSets) ->
     ?assertMatch(#{remote := _, local := _}, maps:get(cleanup, Event)),
     ok.
 
+assert_real_sync_finished(SelectedNode, RootKeys, TableSets) ->
+    ?check_trace(
+        begin
+            trigger_sync(SelectedNode),
+            ?block_until(#{?snk_kind := cluster_config_sync_result, stage := finished}, 60_000)
+        end,
+        fun(Trace) ->
+            assert_success_trace(Trace, SelectedNode, RootKeys, TableSets)
+        end
+    ).
+
 assert_failure_trace(Trace, SelectedNode, RootKeys, TableSets, Secret) ->
+    Event = assert_failure_trace_stage(Trace, SelectedNode, RootKeys, TableSets, export),
+    Reason = maps:get(reason, Event),
+    ?assertMatch({http_error, post, _, _, _}, Reason),
+    ?assertEqual(nomatch, binary:match(format_term(Reason), Secret)),
+    ok.
+
+assert_failure_trace_stage(Trace, SelectedNode, RootKeys, TableSets, Stage) ->
     Events = [
         Event
      || Event <- ?of_kind(cluster_config_sync_result, Trace),
@@ -1581,11 +2299,9 @@ assert_failure_trace(Trace, SelectedNode, RootKeys, TableSets, Secret) ->
     ?assertEqual(SelectedNode, maps:get(selected_core_node, Event)),
     ?assertEqual(RootKeys, maps:get(root_keys, Event)),
     ?assertEqual(TableSets, maps:get(table_sets, Event)),
-    ?assertEqual(export, maps:get(stage, Event)),
-    Reason = maps:get(reason, Event),
-    ?assertMatch({http_error, post, _, _, _}, Reason),
-    ?assertEqual(nomatch, binary:match(format_term(Reason), Secret)),
-    ok.
+    ?assertEqual(Stage, maps:get(stage, Event)),
+    ?assert(maps:is_key(reason, Event)),
+    Event.
 
 format_term(Term) ->
     iolist_to_binary(io_lib:format("~0p", [Term])).
@@ -1612,6 +2328,28 @@ wait_remote_health_error(Node, ExpectedFragment, Deadline) ->
                         wait_remote_health_error(Node, ExpectedFragment, Deadline)
                     end
             end
+    end.
+
+assert_real_sync_failure_stage(_Config, Nodes, RootKeys, Stage, FakePrimaryOpts, HealthFragment) ->
+    [SelectedNode, OtherNode] = Nodes,
+    {PrimaryPid, PrimaryUrl} = start_fake_primary(FakePrimaryOpts),
+    try
+        SyncConf = conf(PrimaryUrl, <<"key">>, <<"secret">>, RootKeys, []),
+        ok = configure_sync_nodes([SelectedNode, OtherNode], SyncConf),
+        ?check_trace(
+            begin
+                trigger_sync(SelectedNode),
+                wait_remote_health_error(SelectedNode, HealthFragment),
+                ?block_until(#{?snk_kind := cluster_config_sync_result, result := failed}, 10_000)
+            end,
+            fun(Trace) ->
+                _Event = assert_failure_trace_stage(Trace, SelectedNode, RootKeys, [], Stage),
+                ok
+            end
+        ),
+        ok
+    after
+        stop_fake_primary(PrimaryPid)
     end.
 
 wait_until(Fun, Context) ->
@@ -1641,31 +2379,49 @@ wait_until(Fun, Context, Deadline) ->
             end
     end.
 
+fake_primary_opts(Overrides) ->
+    maps:merge(
+        #{
+            backup_name => <<"backup.tar.gz">>,
+            backup_bin => <<>>,
+            export_status => 200,
+            export_body => undefined,
+            download_status => 200,
+            download_body => undefined,
+            delete_status => 204,
+            delete_body => <<>>
+        },
+        Overrides
+    ).
+
 start_fake_primary(BackupName, BackupBin) ->
+    start_fake_primary(fake_primary_opts(#{backup_name => BackupName, backup_bin => BackupBin})).
+
+start_fake_primary(Opts) ->
     Parent = self(),
     {ok, LSock} = gen_tcp:listen(0, [binary, {active, false}, {reuseaddr, true}]),
     {ok, {_Addr, Port}} = inet:sockname(LSock),
-    Pid = spawn(fun() -> fake_primary_loop(LSock, Parent, BackupName, BackupBin) end),
+    Pid = spawn(fun() -> fake_primary_loop(LSock, Parent, Opts) end),
     BaseUrl = iolist_to_binary(io_lib:format("http://127.0.0.1:~B/api/v5/", [Port])),
     {Pid, BaseUrl}.
 
 stop_fake_primary(Pid) ->
     exit(Pid, shutdown).
 
-fake_primary_loop(LSock, Parent, BackupName, BackupBin) ->
+fake_primary_loop(LSock, Parent, Opts) ->
     case gen_tcp:accept(LSock) of
         {ok, Sock} ->
-            _ = spawn(fun() -> handle_fake_primary_request(Sock, Parent, BackupName, BackupBin) end),
-            fake_primary_loop(LSock, Parent, BackupName, BackupBin);
+            _ = spawn(fun() -> handle_fake_primary_request(Sock, Parent, Opts) end),
+            fake_primary_loop(LSock, Parent, Opts);
         {error, closed} ->
             ok
     end.
 
-handle_fake_primary_request(Sock, Parent, BackupName, BackupBin) ->
+handle_fake_primary_request(Sock, Parent, Opts) ->
     try
         {Method, Path, Body} = read_http_request(Sock),
         Parent ! {fake_primary_request, Method, Path, Body},
-        respond_fake_primary(Sock, Method, Path, BackupName, BackupBin)
+        respond_fake_primary(Sock, Method, Path, Opts)
     after
         gen_tcp:close(Sock)
     end.
@@ -1717,13 +2473,32 @@ method(<<"POST">>) -> post;
 method(<<"GET">>) -> get;
 method(<<"DELETE">>) -> delete.
 
-respond_fake_primary(Sock, post, _Path, BackupName, _BackupBin) ->
-    Body = emqx_utils_json:encode(#{<<"filename">> => BackupName}),
-    send_http_response(Sock, 200, <<"OK">>, Body);
-respond_fake_primary(Sock, get, _Path, _BackupName, BackupBin) ->
-    send_http_response(Sock, 200, <<"OK">>, BackupBin);
-respond_fake_primary(Sock, delete, _Path, _BackupName, _BackupBin) ->
-    send_http_response(Sock, 204, <<"No Content">>, <<>>).
+respond_fake_primary(Sock, post, _Path, Opts) ->
+    Status = maps:get(export_status, Opts),
+    DefaultBody = emqx_utils_json:encode(#{<<"filename">> => maps:get(backup_name, Opts)}),
+    Body = response_body(maps:get(export_body, Opts), DefaultBody),
+    send_http_response(Sock, Status, http_reason(Status), Body);
+respond_fake_primary(Sock, get, _Path, Opts) ->
+    Status = maps:get(download_status, Opts),
+    Body = response_body(maps:get(download_body, Opts), maps:get(backup_bin, Opts)),
+    send_http_response(Sock, Status, http_reason(Status), Body);
+respond_fake_primary(Sock, delete, _Path, Opts) ->
+    Status = maps:get(delete_status, Opts),
+    Body = maps:get(delete_body, Opts),
+    send_http_response(Sock, Status, http_reason(Status), Body).
+
+response_body(undefined, DefaultBody) ->
+    DefaultBody;
+response_body(Body, _DefaultBody) ->
+    Body.
+
+http_reason(200) -> <<"OK">>;
+http_reason(204) -> <<"No Content">>;
+http_reason(400) -> <<"Bad Request">>;
+http_reason(401) -> <<"Unauthorized">>;
+http_reason(404) -> <<"Not Found">>;
+http_reason(500) -> <<"Internal Server Error">>;
+http_reason(_Status) -> <<"Status">>.
 
 send_http_response(Sock, Status, Reason, Body) ->
     Response = [
