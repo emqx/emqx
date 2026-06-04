@@ -8,6 +8,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
 
 -define(ON(NODES, BODY),
@@ -122,6 +123,61 @@ t_clients(_Config) ->
     %% clients show <ClientId> # Show a client
     %% clients kick <ClientId> # Kick out a client
     ok.
+
+t_session_top(Config) ->
+    OutFile = filename:join(?config(priv_dir, Config), "session-top.csv"),
+    _ = file:delete(OutFile),
+    Rows = [
+        {<<"session-top-c1">>, 10, 1000000001, 1},
+        {<<"session-top-c2">>, 5, 1000000003, 2},
+        {<<"session-top-c3">>, 20, 1000000002, 3}
+    ],
+    lists:foreach(fun insert_session_top_row/1, Rows),
+    try
+        ?assertEqual(
+            ok,
+            emqx_ctl:run_command([
+                "session-top",
+                "--out",
+                OutFile,
+                "--count",
+                "2",
+                "--sort",
+                "total_payload_bytes"
+            ])
+        ),
+        {ok, CSV} = wait_csv_rows(OutFile, 3, 100),
+        [
+            <<"clientid,pid,node,mqueue_length,total_payload_bytes,inflight_count">>,
+            Row1,
+            Row2
+        ] = binary:split(CSV, <<"\n">>, [global, trim_all]),
+        ?assertEqual(
+            [
+                <<"session-top-c2">>,
+                pid_to_list_bin(self()),
+                atom_to_binary(node(), utf8),
+                <<"5">>,
+                <<"1000000003">>,
+                <<"2">>
+            ],
+            binary:split(Row1, <<",">>, [global])
+        ),
+        ?assertEqual(
+            [
+                <<"session-top-c3">>,
+                pid_to_list_bin(self()),
+                atom_to_binary(node(), utf8),
+                <<"20">>,
+                <<"1000000002">>,
+                <<"3">>
+            ],
+            binary:split(Row2, <<",">>, [global])
+        )
+    after
+        [ets:delete(?CHAN_INFO_TAB, {ClientId, self()}) || {ClientId, _, _, _} <- Rows],
+        _ = file:delete(OutFile)
+    end.
 
 t_routes(_Config) ->
     %% routes list         # List all routes
@@ -639,6 +695,37 @@ dump_client_stats(File, Batch, Sleep) ->
         "--sleep",
         str(Sleep)
     ]).
+
+insert_session_top_row({ClientId, MqueueLength, TotalPayloadBytes, InflightCount}) ->
+    ok = emqx_cm:insert_channel_info(
+        ClientId,
+        #{},
+        [
+            {mqueue_len, MqueueLength},
+            {total_payload_bytes, TotalPayloadBytes},
+            {inflight_cnt, InflightCount}
+        ]
+    ).
+
+wait_csv_rows(File, ExpectedRows, Attempts) when Attempts > 0 ->
+    case file:read_file(File) of
+        {ok, Bin} ->
+            case length(binary:split(Bin, <<"\n">>, [global, trim_all])) >= ExpectedRows of
+                true ->
+                    {ok, Bin};
+                false ->
+                    timer:sleep(10),
+                    wait_csv_rows(File, ExpectedRows, Attempts - 1)
+            end;
+        _ ->
+            timer:sleep(10),
+            wait_csv_rows(File, ExpectedRows, Attempts - 1)
+    end;
+wait_csv_rows(File, _ExpectedRows, 0) ->
+    file:read_file(File).
+
+pid_to_list_bin(Pid) ->
+    list_to_binary(pid_to_list(Pid)).
 
 str(I) when is_integer(I) -> integer_to_list(I);
 str(L) when is_list(L) -> L.
