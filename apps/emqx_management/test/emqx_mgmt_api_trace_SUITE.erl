@@ -830,25 +830,51 @@ t_download_empty_trace(_Config) ->
     ok.
 
 -doc """
-Checks that namespaced users (administrator or viewer) cannot download trace
-log archives nor stream trace log chunks.
+Checks the cross-namespace access boundary on per-trace operations.
 
-Both endpoints can deliver content that crosses namespace boundaries — the
-trace name lookup is global and the log file on disk is whatever was
-captured. The minirest filter blocks the request before any handler logic
-runs, so this test exercises a non-existent trace name on purpose: a 403
-confirms the gate fires; a 404 would mean we leaked through to handler
-logic.
+A trace created by a global administrator must not be visible to a
+namespaced administrator from a different namespace via any per-name
+endpoint — list / download / stream / log_detail / delete / stop. We
+return `404` (not `403`) for cross-namespace lookups so the response
+does not leak the existence of traces in other namespaces.
+
+Also asserts that namespaced administrators cannot trigger the bulk
+`DELETE /trace` (clear-all): that one returns `403` because the caller
+asked for a global action.
+
+The namespaced *viewer* role is exercised separately: viewers may only
+issue GETs, so RBAC rejects DELETE/PUT before our handlers see them,
+and we just confirm that listing hides the global trace and that GET
+endpoints return 404.
 """.
-t_namespaced_user_forbidden(_TCConfig) ->
-    Name = <<"sometrace">>,
-    lists:foreach(
-        fun(AuthHeader) ->
-            ?assertMatch({403, _}, download_trace_simple(Name, AuthHeader)),
-            ?assertMatch({403, _}, stream_trace_log_simple(Name, AuthHeader))
-        end,
-        [namespaced_admin_headers(), namespaced_viewer_headers()]
+t_namespaced_user_cross_ns_isolation(_TCConfig) ->
+    %% Use a default-global auth header to create a global trace.
+    Name = <<"global_trace_for_isolation">>,
+    {ok, _} = request_api(
+        post,
+        api_path("trace"),
+        #{
+            <<"name">> => Name,
+            <<"type">> => <<"clientid">>,
+            <<"clientid">> => <<"clientid_xyz">>
+        }
     ),
+    NsAdmin = namespaced_admin_headers(),
+    %% Namespaced administrator: every per-trace lookup is 404, bulk
+    %% clear is 403.
+    ?assertMatch({404, _}, download_trace_simple(Name, NsAdmin)),
+    ?assertMatch({404, _}, stream_trace_log_simple(Name, NsAdmin)),
+    ?assertMatch({404, _}, log_detail_simple(Name, NsAdmin)),
+    ?assertMatch({404, _}, delete_one_trace_simple(Name, NsAdmin)),
+    ?assertMatch({404, _}, stop_trace_simple(Name, NsAdmin)),
+    ?assertMatch({200, []}, list_traces_simple(NsAdmin)),
+    ?assertMatch({403, _}, clear_traces_simple(NsAdmin)),
+    %% Namespaced viewer: GETs only. RBAC blocks DELETE/PUT itself.
+    NsViewer = namespaced_viewer_headers(),
+    ?assertMatch({404, _}, download_trace_simple(Name, NsViewer)),
+    ?assertMatch({404, _}, stream_trace_log_simple(Name, NsViewer)),
+    ?assertMatch({404, _}, log_detail_simple(Name, NsViewer)),
+    ?assertMatch({200, []}, list_traces_simple(NsViewer)),
     ok.
 
 namespaced_admin_headers() ->
@@ -873,6 +899,41 @@ stream_trace_log_simple(Name, AuthHeader) ->
     emqx_mgmt_api_test_util:simple_request(#{
         method => get,
         url => emqx_mgmt_api_test_util:api_path(["trace", Name, "log"]),
+        auth_header => AuthHeader
+    }).
+
+log_detail_simple(Name, AuthHeader) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => emqx_mgmt_api_test_util:api_path(["trace", Name, "log_detail"]),
+        auth_header => AuthHeader
+    }).
+
+delete_one_trace_simple(Name, AuthHeader) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => delete,
+        url => emqx_mgmt_api_test_util:api_path(["trace", Name]),
+        auth_header => AuthHeader
+    }).
+
+stop_trace_simple(Name, AuthHeader) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => put,
+        url => emqx_mgmt_api_test_util:api_path(["trace", Name, "stop"]),
+        auth_header => AuthHeader
+    }).
+
+list_traces_simple(AuthHeader) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => emqx_mgmt_api_test_util:api_path(["trace"]),
+        auth_header => AuthHeader
+    }).
+
+clear_traces_simple(AuthHeader) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => delete,
+        url => emqx_mgmt_api_test_util:api_path(["trace"]),
         auth_header => AuthHeader
     }).
 
