@@ -13,12 +13,11 @@ and table sets that are not selected are left unchanged.
 
 ## Configuration
 
-Enable the plugin on the secondary cluster:
+Install and start the plugin on each secondary cluster. The primary cluster does
+not need this plugin installed; it only needs Dashboard Data Backup APIs
+reachable from the secondary cluster.
 
 ```hocon
-enable = true
-role = "secondary"
-
 primary {
   base_url = "https://primary.example.com:18083/api/v5"
   api_key = "sync-key"
@@ -50,13 +49,16 @@ sync {
   ]
   timeout = "30s"
   delete_remote_backup = true
-  delete_local_backup = true
+  delete_local_backup = false
 }
 ```
 
-On the primary cluster, keep the plugin disabled or set `role = "primary"`.
 The configured API key must be allowed to access Data Backup endpoints on the
 primary cluster.
+
+Supported `sync.root_keys` values are `connectors`, `actions`, `sources`,
+`rule_engine`, `listeners`, `schema_registry`, `authentication`, and
+`authorization`.
 
 Rules commonly depend on connectors, actions, sources, and schema registry
 objects. If `rule_engine` is synchronized without its dependencies, imports may
@@ -66,5 +68,7 @@ fail or create incomplete runtime behavior. Include those dependent roots in
 By default, synchronization also includes the `banned`, `builtin_authn`, and
 `builtin_authz` table sets. These selected table sets are replaced on the
 secondary cluster. Set `sync.table_sets = []` when configuration-only
-synchronization is required. Other table sets, such as `builtin_retainer`, must
-be added explicitly.
+synchronization is required. Supported `sync.table_sets` values are `banned`,
+`builtin_authn`, `builtin_authz`, `builtin_retainer`, `psk`, and `mt`. The
+primary Data Backup API does not include `dashboard_users` or `api_keys` when
+called with an API key.

@@ -24,7 +24,7 @@
 
 %% Testable helpers
 -export([
-    enabled_secondary/1,
+    enabled/1,
     interval_ms/1
 ]).
 
@@ -116,10 +116,9 @@ on_health_check() ->
 %% Testable helpers
 %%------------------------------------------------------------------------------
 
--spec enabled_secondary(map()) -> boolean().
-enabled_secondary(Conf0) ->
-    Conf = emqx_cluster_config_sync_client:normalize_config(Conf0),
-    maps:get(<<"enable">>, Conf) =:= true andalso maps:get(<<"role">>, Conf) =:= <<"secondary">>.
+-spec enabled(map()) -> boolean().
+enabled(Conf0) ->
+    emqx_cluster_config_sync_client:validate_config(Conf0) =:= ok.
 
 -spec interval_ms(map()) -> pos_integer().
 interval_ms(Conf0) ->
@@ -296,10 +295,10 @@ schedule_sync_if_idle(State = #state{worker = #worker{}}) ->
     State.
 
 should_schedule(Conf) ->
-    enabled_secondary(Conf) andalso is_core_node().
+    enabled(Conf) andalso is_core_node().
 
 should_sync(Conf) ->
-    enabled_secondary(Conf) andalso can_run_on_this_node().
+    enabled(Conf) andalso can_run_on_this_node().
 
 can_run_on_this_node() ->
     is_core_node() andalso selected_core_node() =:= node().
@@ -470,14 +469,14 @@ sync_stage({worker_cancel_timeout, _}) -> cancel;
 sync_stage(_) -> unknown.
 
 health_check(#state{config = Conf, last_status = LastStatus}) ->
-    case enabled_secondary(Conf) of
-        false ->
-            ok;
-        true ->
+    case emqx_cluster_config_sync_client:validate_config(Conf) of
+        ok ->
             case LastStatus of
                 ok -> ok;
                 {error, Reason} -> {error, format_reason(Reason)}
-            end
+            end;
+        {error, Reason} ->
+            {error, format_reason(Reason)}
     end.
 
 format_reason(Reason) ->

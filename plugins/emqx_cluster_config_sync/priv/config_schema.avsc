@@ -3,32 +3,6 @@
   "name": "ExtendedConfig",
   "fields": [
     {
-      "name": "enable",
-      "type": "boolean",
-      "default": false,
-      "$ui": {
-        "component": "switch",
-        "required": true,
-        "label": "Enable",
-        "description": "Enable periodic cluster configuration synchronization."
-      }
-    },
-    {
-      "name": "role",
-      "type": {
-        "type": "enum",
-        "name": "Role",
-        "symbols": ["primary", "secondary"]
-      },
-      "default": "primary",
-      "$ui": {
-        "component": "select",
-        "required": true,
-        "label": "Role",
-        "description": "Only secondary clusters pull and import backups."
-      }
-    },
-    {
       "name": "primary",
       "type": {
         "type": "record",
@@ -40,7 +14,7 @@
             "default": "",
             "$ui": {
               "component": "input",
-              "required": false,
+              "required": true,
               "label": "Primary API Base URL",
               "description": "Primary Dashboard API base URL, for example https://primary.example.com:18083/api/v5."
             }
@@ -51,7 +25,7 @@
             "default": "",
             "$ui": {
               "component": "input",
-              "required": false,
+              "required": true,
               "label": "API Key",
               "description": "Primary cluster API key."
             }
@@ -62,7 +36,7 @@
             "default": "",
             "$ui": {
               "component": "input-password",
-              "required": false,
+              "required": true,
               "label": "API Secret",
               "description": "Primary cluster API secret."
             }
@@ -205,7 +179,7 @@
               "component": "input-array",
               "required": true,
               "label": "Root Keys",
-              "description": "Configuration root keys to export from the primary cluster. When rule_engine is selected, include its dependent connectors, actions, sources, and schema_registry roots unless they already exist on the secondary cluster."
+              "description": "Configuration root keys to export from the primary cluster. Supported values: connectors, actions, sources, rule_engine, listeners, schema_registry, authentication, authorization. When rule_engine is selected, include its dependent connectors, actions, sources, and schema_registry roots unless they already exist on the secondary cluster."
             }
           },
           {
@@ -223,7 +197,7 @@
               "component": "input-array",
               "required": false,
               "label": "Table Sets",
-              "description": "Mnesia table sets to export and replace on the secondary cluster. Set to an empty list for configuration-only synchronization."
+              "description": "Mnesia table sets to export and replace on the secondary cluster. Supported values: banned, builtin_authn, builtin_authz, builtin_retainer, psk, mt. Set to an empty list for configuration-only synchronization. Primary API-key export does not include dashboard_users or api_keys."
             }
           },
           {
@@ -251,7 +225,7 @@
           {
             "name": "delete_local_backup",
             "type": "boolean",
-            "default": true,
+            "default": false,
             "$ui": {
               "component": "switch",
               "required": true,
@@ -278,7 +252,7 @@
         ],
         "timeout": "30s",
         "delete_remote_backup": true,
-        "delete_local_backup": true
+        "delete_local_backup": false
       }
     }
   ]

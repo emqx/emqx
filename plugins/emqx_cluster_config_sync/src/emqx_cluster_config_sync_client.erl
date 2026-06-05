@@ -10,6 +10,7 @@
     default_root_keys/0,
     default_table_sets/0,
     normalize_config/1,
+    validate_config/1,
     sync_once/1,
     sync_once/2
 ]).
@@ -68,8 +69,6 @@ normalize_config(Conf0) ->
     Primary0 = maps:get(<<"primary">>, Conf0, #{}),
     Sync0 = maps:get(<<"sync">>, Conf0, #{}),
     #{
-        <<"enable">> => maps:get(<<"enable">>, Conf0, false),
-        <<"role">> => to_bin(maps:get(<<"role">>, Conf0, <<"primary">>)),
         <<"primary">> => #{
             <<"base_url">> => to_bin(maps:get(<<"base_url">>, Primary0, <<>>)),
             <<"api_key">> => to_bin(maps:get(<<"api_key">>, Primary0, <<>>)),
@@ -86,7 +85,7 @@ normalize_config(Conf0) ->
             ),
             <<"timeout">> => to_bin(maps:get(<<"timeout">>, Sync0, ?DEFAULT_TIMEOUT)),
             <<"delete_remote_backup">> => maps:get(<<"delete_remote_backup">>, Sync0, true),
-            <<"delete_local_backup">> => maps:get(<<"delete_local_backup">>, Sync0, true)
+            <<"delete_local_backup">> => maps:get(<<"delete_local_backup">>, Sync0, false)
         }
     }.
 
@@ -98,7 +97,7 @@ sync_once(Conf) ->
 sync_once(Conf0, Deps0) ->
     Conf = normalize_config(Conf0),
     Deps = maps:merge(default_deps(Conf), Deps0),
-    case validate_sync_config(Conf) of
+    case validate_config(Conf) of
         ok ->
             do_sync_once(Conf, Deps);
         {error, Reason} ->
@@ -340,22 +339,22 @@ client_ssl_options(SSL) ->
         keyfile => to_string(maps:get(<<"keyfile">>, SSL, <<>>))
     }.
 
-validate_sync_config(Conf) ->
+-spec validate_config(map()) -> ok | {error, term()}.
+validate_config(Conf0) ->
+    Conf = normalize_config(Conf0),
     Primary = maps:get(<<"primary">>, Conf),
     case
         {
-            maps:get(<<"enable">>, Conf),
-            maps:get(<<"role">>, Conf),
             maps:get(<<"base_url">>, Primary),
             maps:get(<<"api_key">>, Primary),
             maps:get(<<"api_secret">>, Primary)
         }
     of
-        {true, <<"secondary">>, <<>>, _, _} ->
+        {<<>>, _, _} ->
             {error, missing_primary_base_url};
-        {true, <<"secondary">>, _, <<>>, _} ->
+        {_, <<>>, _} ->
             {error, missing_primary_api_key};
-        {true, <<"secondary">>, _, _, <<>>} ->
+        {_, _, <<>>} ->
             {error, missing_primary_api_secret};
         _ ->
             validate_primary_ssl(Primary)

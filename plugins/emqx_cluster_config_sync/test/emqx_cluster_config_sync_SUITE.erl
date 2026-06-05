@@ -42,8 +42,10 @@
 
 all() ->
     [
-        t_enabled_secondary,
+        t_enabled,
+        t_health_reports_missing_primary_config,
         t_interval_ms,
+        t_sync_runs_without_enable_or_role,
         t_sync_runs_async_and_health_check_does_not_block,
         t_sync_does_not_reenter_while_worker_running,
         t_sync_runs_only_on_selected_core,
@@ -56,7 +58,9 @@ all() ->
         t_config_change_reports_cancel_timeout,
         t_terminate_waits_for_worker_cleanup,
         t_sync_once_uses_default_table_sets,
+        t_sync_once_requires_primary_api_config,
         t_sync_once_exports_downloads_imports_and_cleans_up,
+        t_sync_once_keeps_local_backup_by_default,
         t_sync_once_cleans_up_when_cancelled_after_export,
         t_sync_once_reports_import_errors,
         t_sync_once_reports_cleanup_errors,
@@ -91,26 +95,38 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, _Config) ->
     cleanup_test_artifacts().
 
-t_enabled_secondary(_Config) ->
-    ?assertEqual(false, emqx_cluster_config_sync:enabled_secondary(#{})),
+t_enabled(_Config) ->
     ?assertEqual(
         false,
-        emqx_cluster_config_sync:enabled_secondary(#{
-            <<"enable">> => true,
-            <<"role">> => <<"primary">>
-        })
+        emqx_cluster_config_sync:enabled(remove_primary_field(conf(), <<"base_url">>))
     ),
     ?assertEqual(
         true,
-        emqx_cluster_config_sync:enabled_secondary(#{
-            <<"enable">> => true,
-            <<"role">> => <<"secondary">>
-        })
+        emqx_cluster_config_sync:enabled(remove_enable_role(conf()))
     ).
+
+t_health_reports_missing_primary_config(_Config) ->
+    Pid = start_test_server(),
+    ok = emqx_cluster_config_sync:on_config_changed(
+        #{}, remove_primary_field(conf(), <<"base_url">>)
+    ),
+
+    ?assertMatch({error, _}, emqx_cluster_config_sync:on_health_check()),
+    Pid ! sync,
+    assert_no_sync_started(100).
 
 t_interval_ms(_Config) ->
     ?assertEqual(60000, emqx_cluster_config_sync:interval_ms(sync_config(<<"1m">>))),
     ?assertEqual(300000, emqx_cluster_config_sync:interval_ms(sync_config(<<"invalid">>))).
+
+t_sync_runs_without_enable_or_role(_Config) ->
+    setup_core_node(),
+    setup_counting_sync(),
+    Pid = start_test_server(),
+    ok = emqx_cluster_config_sync:on_config_changed(#{}, remove_enable_role(conf())),
+
+    Pid ! sync,
+    _SyncPid = assert_sync_started().
 
 t_sync_runs_async_and_health_check_does_not_block(_Config) ->
     setup_core_node(),
@@ -226,7 +242,8 @@ t_config_change_cancels_running_worker_gracefully(_Config) ->
     Pid ! sync,
     SyncPid = assert_sync_started(),
     Ref = erlang:monitor(process, SyncPid),
-    ok = emqx_cluster_config_sync:on_config_changed(conf(), (conf())#{<<"enable">> => false}),
+    ChangedConf = conf(<<"http://changed-primary:18083/api/v5">>),
+    ok = emqx_cluster_config_sync:on_config_changed(conf(), ChangedConf),
     SyncPid ! check_cancelled,
     assert_sync_cancel_requested(SyncPid),
     assert_sync_cleanup(SyncPid),
@@ -304,6 +321,20 @@ t_sync_once_uses_default_table_sets(_Config) ->
     after 0 ->
         error(missing_export_request)
     end.
+
+t_sync_once_requires_primary_api_config(_Config) ->
+    ?assertEqual(
+        {error, missing_primary_base_url},
+        emqx_cluster_config_sync_client:sync_once(remove_primary_field(conf(), <<"base_url">>))
+    ),
+    ?assertEqual(
+        {error, missing_primary_api_key},
+        emqx_cluster_config_sync_client:sync_once(remove_primary_field(conf(), <<"api_key">>))
+    ),
+    ?assertEqual(
+        {error, missing_primary_api_secret},
+        emqx_cluster_config_sync_client:sync_once(remove_primary_field(conf(), <<"api_secret">>))
+    ).
 
 t_sync_once_cleans_up_when_cancelled_after_export(_Config) ->
     Self = self(),
@@ -388,6 +419,33 @@ t_sync_once_exports_downloads_imports_and_cleans_up(_Config) ->
     assert_seen({import, BackupName}),
     assert_request(delete, "/data/files/" ++ binary_to_list(BackupName), <<>>),
     assert_seen({delete_local, BackupName}).
+
+t_sync_once_keeps_local_backup_by_default(_Config) ->
+    Self = self(),
+    BackupName = <<"emqx-export-keep-local.tar.gz">>,
+    Deps = #{
+        request_fun => fun
+            (post, _Url, _Headers, _Body, _Timeout) ->
+                {ok, 200, [], emqx_utils_json:encode(#{<<"filename">> => BackupName})};
+            (get, _Url, _Headers, undefined, _Timeout) ->
+                {ok, 200, [], <<"backup">>};
+            (delete, _Url, _Headers, undefined, _Timeout) ->
+                {ok, 204, [], <<>>}
+        end,
+        upload_fun => fun(_Filename, _Bin) -> ok end,
+        import_fun => fun(_Filename) -> {ok, #{db_errors => #{}, config_errors => #{}}} end,
+        delete_local_fun => fun(Filename) ->
+            Self ! {delete_local, Filename},
+            ok
+        end
+    },
+    Conf = remove_delete_local_backup(conf()),
+
+    ?assertMatch(
+        {ok, #{filename := BackupName, cleanup := #{local := skipped}}},
+        emqx_cluster_config_sync_client:sync_once(Conf, Deps)
+    ),
+    assert_not_seen({delete_local, BackupName}).
 
 t_sync_once_reports_import_errors(_Config) ->
     BackupName = <<"emqx-export-2026-06-02.tar.gz">>,
@@ -544,10 +602,6 @@ t_real_cluster_sync_runs_on_one_core_only(Config) ->
         trigger_sync(OtherNode),
         assert_no_fake_primary_request(500),
 
-        PrimaryRoleConf = SyncConf#{<<"role">> => <<"primary">>},
-        ok = configure_sync_nodes([SelectedNode, OtherNode], PrimaryRoleConf),
-        trigger_sync(SelectedNode),
-        assert_no_fake_primary_request(500),
         ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check()))
     after
         stop_fake_primary(PrimaryPid),
@@ -833,8 +887,8 @@ t_real_sync_cancelled_during_download_cleans_up_without_import(Config) ->
         ?assertEqual([post, get], [Method || {Method, _Path, _Body} <- Requests]),
 
         DownloadHandler = wait_fake_primary_download_blocked(),
-        DisabledConf = SyncConf#{<<"enable">> => false},
-        ok = configure_sync_nodes([SelectedNode, OtherNode], DisabledConf),
+        ChangedConf = conf(<<"http://changed-primary:18083/api/v5">>),
+        ok = configure_sync_nodes([SelectedNode, OtherNode], ChangedConf),
         continue_fake_primary_download(DownloadHandler),
         [{delete, DeletePath, <<>>}] = wait_fake_primary_requests(1),
         ?assertMatch(<<"/api/v5/data/files/", _/binary>>, DeletePath),
@@ -862,8 +916,8 @@ t_real_sync_cancelled_during_import_finishes_and_reports_success(Config) ->
                 Requests = wait_fake_primary_requests(2),
                 ?assertEqual([post, get], [Method || {Method, _Path, _Body} <- Requests]),
                 ImportPid = wait_import_blocked(),
-                DisabledConf = SyncConf#{<<"enable">> => false},
-                ok = configure_sync_nodes([SelectedNode, OtherNode], DisabledConf),
+                ChangedConf = conf(<<"http://changed-primary:18083/api/v5">>),
+                ok = configure_sync_nodes([SelectedNode, OtherNode], ChangedConf),
                 continue_import(ImportPid),
                 [{delete, DeletePath, <<>>}] = wait_fake_primary_requests(1),
                 ?assertMatch(<<"/api/v5/data/files/", _/binary>>, DeletePath),
@@ -1100,8 +1154,6 @@ conf(BaseUrl) ->
 
 conf(BaseUrl, Interval) ->
     #{
-        <<"enable">> => true,
-        <<"role">> => <<"secondary">>,
         <<"primary">> => #{
             <<"base_url">> => BaseUrl,
             <<"api_key">> => <<"key">>,
@@ -1145,6 +1197,17 @@ remove_table_sets(Conf) ->
     Sync = maps:get(<<"sync">>, Conf),
     Conf#{<<"sync">> => maps:remove(<<"table_sets">>, Sync)}.
 
+remove_delete_local_backup(Conf) ->
+    Sync = maps:get(<<"sync">>, Conf),
+    Conf#{<<"sync">> => maps:remove(<<"delete_local_backup">>, Sync)}.
+
+remove_enable_role(Conf) ->
+    maps:without([<<"enable">>, <<"role">>], Conf).
+
+remove_primary_field(Conf, Field) ->
+    Primary = maps:get(<<"primary">>, Conf),
+    Conf#{<<"primary">> => maps:remove(Field, Primary)}.
+
 with_primary_ssl(Conf, SSL) ->
     Primary = maps:get(<<"primary">>, Conf),
     Conf#{<<"primary">> => Primary#{<<"ssl">> => SSL}}.
@@ -1173,6 +1236,13 @@ assert_seen(Msg) ->
         Msg -> ok
     after 0 ->
         error({missing_message, Msg})
+    end.
+
+assert_not_seen(Msg) ->
+    receive
+        Msg -> error({unexpected_message, Msg})
+    after 0 ->
+        ok
     end.
 
 setup_core_node() ->
