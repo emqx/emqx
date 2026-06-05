@@ -16,6 +16,14 @@
 
 -define(DEFAULT_INTERVAL, <<"5m">>).
 -define(DEFAULT_TIMEOUT, <<"30s">>).
+-define(DEFAULT_SSL, #{
+    <<"enable">> => false,
+    <<"verify">> => <<"verify_none">>,
+    <<"server_name_indication">> => <<"disable">>,
+    <<"cacertfile">> => <<>>,
+    <<"certfile">> => <<>>,
+    <<"keyfile">> => <<>>
+}).
 
 -type request_fun() ::
     fun(
@@ -65,7 +73,8 @@ normalize_config(Conf0) ->
         <<"primary">> => #{
             <<"base_url">> => to_bin(maps:get(<<"base_url">>, Primary0, <<>>)),
             <<"api_key">> => to_bin(maps:get(<<"api_key">>, Primary0, <<>>)),
-            <<"api_secret">> => to_bin(maps:get(<<"api_secret">>, Primary0, <<>>))
+            <<"api_secret">> => to_bin(maps:get(<<"api_secret">>, Primary0, <<>>)),
+            <<"ssl">> => normalize_ssl(maps:get(<<"ssl">>, Primary0, #{}))
         },
         <<"sync">> => #{
             <<"interval">> => to_bin(maps:get(<<"interval">>, Sync0, ?DEFAULT_INTERVAL)),
@@ -83,12 +92,12 @@ normalize_config(Conf0) ->
 
 -spec sync_once(map()) -> {ok, map()} | {error, term()}.
 sync_once(Conf) ->
-    sync_once(Conf, default_deps()).
+    sync_once(Conf, #{}).
 
 -spec sync_once(map(), deps() | map()) -> {ok, map()} | {error, term()}.
 sync_once(Conf0, Deps0) ->
     Conf = normalize_config(Conf0),
-    Deps = maps:merge(default_deps(), Deps0),
+    Deps = maps:merge(default_deps(Conf), Deps0),
     case validate_sync_config(Conf) of
         ok ->
             do_sync_once(Conf, Deps);
@@ -243,9 +252,11 @@ request_json(Method, Url, Conf, Deps, Body) ->
         {error, Reason} -> {error, {http_error, Method, Url, Reason}}
     end.
 
-default_deps() ->
+default_deps(Conf) ->
     #{
-        request_fun => fun request/5,
+        request_fun => fun(Method, Url, Headers, Body, Timeout) ->
+            request(Method, Url, Headers, Body, http_options(Conf, Timeout))
+        end,
         upload_fun => fun emqx_mgmt_data_backup:upload/2,
         import_fun => fun(Filename) ->
             emqx_mgmt_data_backup:import(Filename, #{mnesia_restore_mode => snapshot})
@@ -254,10 +265,9 @@ default_deps() ->
         cancelled_fun => fun() -> false end
     }.
 
-request(Method, Url, Headers, Body, Timeout) ->
+request(Method, Url, Headers, Body, HTTPOpts) ->
     _ = application:ensure_all_started(ssl),
     _ = application:ensure_all_started(inets),
-    HTTPOpts = [{timeout, Timeout}, {autoredirect, false}],
     Opts = [{body_format, binary}],
     Result =
         case Method of
@@ -302,6 +312,30 @@ timeout_ms(Conf) ->
         {ok, Ms} when is_integer(Ms), Ms > 0 -> Ms;
         _ -> 30000
     end.
+
+http_options(Conf, Timeout) ->
+    HTTPOpts0 = [{timeout, Timeout}, {autoredirect, false}],
+    case ssl_options(Conf) of
+        [] -> HTTPOpts0;
+        SSLOpts -> [{ssl, SSLOpts} | HTTPOpts0]
+    end.
+
+ssl_options(Conf) ->
+    Primary = maps:get(<<"primary">>, Conf),
+    SSL = maps:get(<<"ssl">>, Primary, ?DEFAULT_SSL),
+    emqx_tls_lib:to_client_opts(client_ssl_options(SSL)).
+
+client_ssl_options(SSL) ->
+    #{
+        enable => maps:get(<<"enable">>, SSL, false),
+        verify => to_atom(maps:get(<<"verify">>, SSL, <<"verify_none">>)),
+        server_name_indication => to_sni(
+            maps:get(<<"server_name_indication">>, SSL, <<"disable">>)
+        ),
+        cacertfile => to_string(maps:get(<<"cacertfile">>, SSL, <<>>)),
+        certfile => to_string(maps:get(<<"certfile">>, SSL, <<>>)),
+        keyfile => to_string(maps:get(<<"keyfile">>, SSL, <<>>))
+    }.
 
 validate_sync_config(Conf) ->
     Primary = maps:get(<<"primary">>, Conf),
@@ -360,3 +394,36 @@ to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
 
 to_bin_list(List) when is_list(List) ->
     [to_bin(Item) || Item <- List].
+
+normalize_ssl(SSL0) ->
+    Default = ?DEFAULT_SSL,
+    #{
+        <<"enable">> => maps:get(<<"enable">>, SSL0, maps:get(<<"enable">>, Default)),
+        <<"verify">> => to_bin(maps:get(<<"verify">>, SSL0, maps:get(<<"verify">>, Default))),
+        <<"server_name_indication">> =>
+            to_bin(
+                maps:get(
+                    <<"server_name_indication">>,
+                    SSL0,
+                    maps:get(<<"server_name_indication">>, Default)
+                )
+            ),
+        <<"cacertfile">> => to_bin(
+            maps:get(<<"cacertfile">>, SSL0, maps:get(<<"cacertfile">>, Default))
+        ),
+        <<"certfile">> => to_bin(maps:get(<<"certfile">>, SSL0, maps:get(<<"certfile">>, Default))),
+        <<"keyfile">> => to_bin(maps:get(<<"keyfile">>, SSL0, maps:get(<<"keyfile">>, Default)))
+    }.
+
+to_atom(Atom) when is_atom(Atom) -> Atom;
+to_atom(Bin) when is_binary(Bin) -> binary_to_existing_atom(Bin, utf8);
+to_atom(List) when is_list(List) -> list_to_existing_atom(List).
+
+to_sni(<<"disable">>) -> disable;
+to_sni(disable) -> disable;
+to_sni(Value) -> to_string(Value).
+
+to_string(<<>>) -> "";
+to_string(Bin) when is_binary(Bin) -> unicode:characters_to_list(Bin);
+to_string(List) when is_list(List) -> List;
+to_string(Atom) when is_atom(Atom) -> atom_to_list(Atom).

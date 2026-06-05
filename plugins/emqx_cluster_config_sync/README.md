@@ -5,9 +5,11 @@ primary EMQX cluster to a secondary EMQX cluster by using the existing Data
 Backup APIs.
 
 The secondary cluster calls the primary cluster to export a backup file, then
-downloads that file, uploads it locally, and imports it with EMQX's existing
-merge/update import semantics. It does not delete configuration that only
-exists on the secondary cluster.
+downloads that file, uploads it locally, and imports it. Selected
+configuration roots are imported with EMQX's existing configuration import
+semantics. Selected Mnesia table sets are imported as a snapshot, so records in
+those table sets that only exist on the secondary cluster are removed. Roots
+and table sets that are not selected are left unchanged.
 
 ## Configuration
 
@@ -21,6 +23,14 @@ primary {
   base_url = "https://primary.example.com:18083/api/v5"
   api_key = "sync-key"
   api_secret = "sync-secret"
+  ssl {
+    enable = true
+    server_name_indication = "primary.example.com"
+    verify = "verify_peer"
+    cacertfile = "/etc/emqx/certs/primary-ca.pem"
+    certfile = ""
+    keyfile = ""
+  }
 }
 
 sync {
@@ -50,9 +60,11 @@ primary cluster.
 
 Rules commonly depend on connectors, actions, sources, and schema registry
 objects. If `rule_engine` is synchronized without its dependencies, imports may
-fail or create incomplete runtime behavior.
+fail or create incomplete runtime behavior. Include those dependent roots in
+`sync.root_keys` unless they already exist on the secondary cluster.
 
 By default, synchronization also includes the `banned`, `builtin_authn`, and
-`builtin_authz` table sets. Set `sync.table_sets = []` when configuration-only
+`builtin_authz` table sets. These selected table sets are replaced on the
+secondary cluster. Set `sync.table_sets = []` when configuration-only
 synchronization is required. Other table sets, such as `builtin_retainer`, must
 be added explicitly.

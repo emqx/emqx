@@ -66,13 +66,108 @@
               "label": "API Secret",
               "description": "Primary cluster API secret."
             }
+          },
+          {
+            "name": "ssl",
+            "type": {
+              "type": "record",
+              "name": "PrimarySSL",
+              "fields": [
+                {
+                  "name": "enable",
+                  "type": "boolean",
+                  "default": false,
+                  "$ui": {
+                    "component": "switch",
+                    "required": true,
+                    "label": "Enable TLS Options",
+                    "description": "Enable custom TLS options for HTTPS calls to the primary cluster."
+                  }
+                },
+                {
+                  "name": "server_name_indication",
+                  "type": "string",
+                  "default": "disable",
+                  "$ui": {
+                    "component": "input",
+                    "required": false,
+                    "label": "Server Name Indication",
+                    "description": "TLS SNI hostname. Use disable to omit SNI."
+                  }
+                },
+                {
+                  "name": "verify",
+                  "type": "string",
+                  "default": "verify_none",
+                  "$ui": {
+                    "component": "select",
+                    "required": false,
+                    "label": "Verify Server Certificate",
+                    "description": "Use verify_peer with cacertfile for private or self-signed Dashboard certificates.",
+                    "options": [
+                      { "label": "verify_none", "value": "verify_none" },
+                      { "label": "verify_peer", "value": "verify_peer" }
+                    ]
+                  }
+                },
+                {
+                  "name": "cacertfile",
+                  "type": "string",
+                  "default": "",
+                  "$ui": {
+                    "component": "input",
+                    "required": false,
+                    "label": "CA Certificate File",
+                    "description": "Path to the trusted CA certificate file used when verify is verify_peer."
+                  }
+                },
+                {
+                  "name": "certfile",
+                  "type": "string",
+                  "default": "",
+                  "$ui": {
+                    "component": "input",
+                    "required": false,
+                    "label": "Client Certificate File",
+                    "description": "Path to the optional client certificate file."
+                  }
+                },
+                {
+                  "name": "keyfile",
+                  "type": "string",
+                  "default": "",
+                  "$ui": {
+                    "component": "input",
+                    "required": false,
+                    "label": "Client Key File",
+                    "description": "Path to the optional client private key file."
+                  }
+                }
+              ]
+            },
+            "default": {
+              "enable": false,
+              "server_name_indication": "disable",
+              "verify": "verify_none",
+              "cacertfile": "",
+              "certfile": "",
+              "keyfile": ""
+            }
           }
         ]
       },
       "default": {
         "base_url": "",
         "api_key": "",
-        "api_secret": ""
+        "api_secret": "",
+        "ssl": {
+          "enable": false,
+          "server_name_indication": "disable",
+          "verify": "verify_none",
+          "cacertfile": "",
+          "certfile": "",
+          "keyfile": ""
+        }
       }
     },
     {
@@ -110,7 +205,7 @@
               "component": "input-array",
               "required": true,
               "label": "Root Keys",
-              "description": "Configuration root keys to export from the primary cluster."
+              "description": "Configuration root keys to export from the primary cluster. When rule_engine is selected, include its dependent connectors, actions, sources, and schema_registry roots unless they already exist on the secondary cluster."
             }
           },
           {
@@ -128,7 +223,7 @@
               "component": "input-array",
               "required": false,
               "label": "Table Sets",
-              "description": "Mnesia table sets to export. Set to an empty list for configuration-only synchronization."
+              "description": "Mnesia table sets to export and replace on the secondary cluster. Set to an empty list for configuration-only synchronization."
             }
           },
           {

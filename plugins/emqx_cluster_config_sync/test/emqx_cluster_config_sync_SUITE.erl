@@ -61,6 +61,7 @@ all() ->
         t_sync_once_reports_import_errors,
         t_sync_once_reports_cleanup_errors,
         t_sync_once_reports_remote_export_errors,
+        t_sync_once_passes_primary_ssl_options_to_httpc,
         t_sync_once_rejects_redirects_without_forwarding_auth,
         t_real_cluster_sync_runs_on_one_core_only,
         t_real_primary_sync_respects_root_keys_and_table_sets,
@@ -448,6 +449,54 @@ t_sync_once_reports_remote_export_errors(_Config) ->
         {error, {http_error, post, _, 500, <<"boom">>}},
         emqx_cluster_config_sync_client:sync_once(conf(), Deps)
     ).
+
+t_sync_once_passes_primary_ssl_options_to_httpc(Config) ->
+    Self = self(),
+    Cacertfile = filename:join(?config(priv_dir, Config), "cluster_config_sync_ca.pem"),
+    ok = file:write_file(Cacertfile, <<"test ca">>),
+    BackupName = <<"emqx-export-2026-06-02.tar.gz">>,
+    ok = meck:new(httpc, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(httpc, request, fun
+        (post, {_Url, _Headers, _ContentType, _Body}, HTTPOpts, _Opts) ->
+            Self ! {http_options, HTTPOpts},
+            {ok, {
+                {"HTTP/1.1", 200, "OK"}, [], emqx_utils_json:encode(#{<<"filename">> => BackupName})
+            }};
+        (get, {_Url, _Headers}, HTTPOpts, _Opts) ->
+            Self ! {http_options, HTTPOpts},
+            {ok, {{"HTTP/1.1", 200, "OK"}, [], <<"backup">>}};
+        (delete, {_Url, _Headers}, HTTPOpts, _Opts) ->
+            Self ! {http_options, HTTPOpts},
+            {ok, {{"HTTP/1.1", 204, "No Content"}, [], <<>>}}
+    end),
+    try
+        Conf = with_primary_ssl(conf(<<"https://primary.example.com:18083/api/v5">>), #{
+            <<"enable">> => true,
+            <<"verify">> => <<"verify_peer">>,
+            <<"server_name_indication">> => <<"primary.example.com">>,
+            <<"cacertfile">> => unicode:characters_to_binary(Cacertfile)
+        }),
+        Deps = #{
+            upload_fun => fun(_Filename, _Bin) -> ok end,
+            import_fun => fun(_Filename) -> {ok, #{db_errors => #{}, config_errors => #{}}} end,
+            delete_local_fun => fun(_Filename) -> ok end
+        },
+
+        ?assertMatch(
+            {ok, #{filename := BackupName}},
+            emqx_cluster_config_sync_client:sync_once(Conf, Deps)
+        ),
+
+        HTTPOpts = receive_http_options(),
+        ?assertEqual(false, proplists:get_value(autoredirect, HTTPOpts)),
+        SSLOpts = proplists:get_value(ssl, HTTPOpts),
+        ?assert(is_list(SSLOpts)),
+        ?assertEqual(verify_peer, proplists:get_value(verify, SSLOpts)),
+        ?assertEqual(Cacertfile, proplists:get_value(cacertfile, SSLOpts)),
+        ?assertEqual("primary.example.com", proplists:get_value(server_name_indication, SSLOpts))
+    after
+        catch meck:unload(httpc)
+    end.
 
 t_sync_once_rejects_redirects_without_forwarding_auth(_Config) ->
     {TargetPid, TargetUrl} = start_redirect_target(),
@@ -1084,6 +1133,17 @@ default_table_sets() ->
 remove_table_sets(Conf) ->
     Sync = maps:get(<<"sync">>, Conf),
     Conf#{<<"sync">> => maps:remove(<<"table_sets">>, Sync)}.
+
+with_primary_ssl(Conf, SSL) ->
+    Primary = maps:get(<<"primary">>, Conf),
+    Conf#{<<"primary">> => Primary#{<<"ssl">> => SSL}}.
+
+receive_http_options() ->
+    receive
+        {http_options, HTTPOpts} -> HTTPOpts
+    after 0 ->
+        error(missing_http_options)
+    end.
 
 assert_request(Method, UrlSuffix, Body) ->
     receive
