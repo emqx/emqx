@@ -332,7 +332,7 @@ out(MQ = #mqueue{q = Q, len = Len, p_credit = Cnt}) ->
 pqueue_bytes(Q) ->
     ?PQUEUE:fold(
         fun(Msg, _Priority, Acc) ->
-            Acc + msg_bytes(without_ts(Msg))
+            Acc + msg_bytes(Msg)
         end,
         0,
         Q

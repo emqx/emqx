@@ -132,7 +132,7 @@ top_status() ->
 
 -spec local_top(pos_integer(), sort_by()) -> [row()].
 local_top(Count, SortBy) ->
-    gen_server:call(?MODULE, {local_top, Count, SortBy}, infinity).
+    scan_local(Count, SortBy).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -165,8 +165,6 @@ handle_call({top_scan_result, _Pid, _Result}, _From, State) ->
     {reply, ok, State};
 handle_call(top_status, _From, State) ->
     {reply, maps:get(top_status, State, #{status => idle}), State};
-handle_call({local_top, Count, SortBy}, _From, State) ->
-    {reply, scan_local(Count, SortBy), State};
 handle_call(_Call, _From, State) ->
     {reply, ignored, State}.
 
@@ -183,11 +181,6 @@ handle_info(
     maybe_log_scan_down(Reason),
     Status = maps:get(result, Scan, top_scan_failed_status(Opts, Reason)),
     {noreply, State#{scan := undefined, top_status => Status}};
-handle_info({'DOWN', MRef, process, Pid, Reason}, State = #{scan := {Pid, MRef}}) ->
-    maybe_log_scan_down(Reason),
-    {noreply, State#{
-        scan := undefined, top_status => maps:get(top_status, State, #{status => idle})
-    }};
 handle_info(_Info, State) ->
     {noreply, State}.
 
