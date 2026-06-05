@@ -427,8 +427,9 @@ pre_config_update(?GATEWAY, {update_listener, GwName, {LType, LName}, Conf}, Raw
     case get_listener(GwName, LType, LName, RawConf) of
         undefined ->
             badres_listener(not_found, GwName, LType, LName);
-        _OldConf ->
-            NConf = convert_certs(certs_dir(GwName), Conf),
+        OldConf ->
+            Conf1 = emqx_utils:deobfuscate(Conf, OldConf),
+            NConf = convert_certs(certs_dir(GwName), Conf1),
             NRawConf = emqx_utils_maps:deep_put(
                 [GwName, <<"listeners">>, LType, LName],
                 RawConf,
@@ -484,10 +485,11 @@ pre_config_update(?GATEWAY, {update_authn, GwName, Conf}, RawConf) ->
     case get_authn(GwName, RawConf) of
         undefined ->
             badres_authn(not_found, GwName);
-        _OldConf ->
-            CertsDir = authn_certs_dir(GwName, Conf),
-            Conf1 = emqx_authn_config:convert_certs(CertsDir, Conf),
-            {ok, emqx_utils_maps:deep_put(Path, RawConf, Conf1)}
+        OldConf ->
+            Conf1 = emqx_utils:deobfuscate(Conf, OldConf),
+            CertsDir = authn_certs_dir(GwName, Conf1),
+            Conf2 = emqx_authn_config:convert_certs(CertsDir, Conf1),
+            {ok, emqx_utils_maps:deep_put(Path, RawConf, Conf2)}
     end;
 pre_config_update(?GATEWAY, {update_authn, GwName, {LType, LName}, Conf}, RawConf) ->
     Path = [GwName, <<"listeners">>, LType, LName],
@@ -499,11 +501,12 @@ pre_config_update(?GATEWAY, {update_authn, GwName, {LType, LName}, Conf}, RawCon
                 undefined ->
                     badres_listener_authn(not_found, GwName, LType, LName);
                 OldAuthnConf ->
-                    CertsDir = authn_certs_dir(GwName, LType, LName, OldAuthnConf),
-                    Conf1 = emqx_authn_config:convert_certs(CertsDir, Conf),
+                    Conf1 = emqx_utils:deobfuscate(Conf, OldAuthnConf),
+                    CertsDir = authn_certs_dir(GwName, LType, LName, Conf1),
+                    Conf2 = emqx_authn_config:convert_certs(CertsDir, Conf1),
                     NListener = maps:put(
                         ?AUTHN_BIN,
-                        Conf1,
+                        Conf2,
                         Listener
                     ),
                     {ok, emqx_utils_maps:deep_put(Path, RawConf, NListener)}

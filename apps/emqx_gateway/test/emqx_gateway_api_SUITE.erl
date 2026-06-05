@@ -325,11 +325,17 @@ t_authn_redacts_secret(_) ->
         emqx:get_raw_config([gateway, stomp, authentication])
     ),
 
-    AuthConf2 = AuthConf#{secret => <<"new-secret">>},
-    {200, PutResp} = request(put, "/gateways/stomp/authentication", AuthConf2),
+    RedactedUpdate = maps:without(
+        [id, chain_name],
+        GetResp#{verify_claims => #{<<"username">> => <<"${clientid}">>}}
+    ),
+    {200, PutResp} = request(put, "/gateways/stomp/authentication", RedactedUpdate),
     assert_authn_secret_redacted(PutResp),
     ?assertMatch(
-        #{<<"secret">> := <<"new-secret">>},
+        #{
+            <<"secret">> := ?AUTHN_SECRET,
+            <<"verify_claims">> := #{<<"username">> := <<"${clientid}">>}
+        },
         emqx:get_raw_config([gateway, stomp, authentication])
     ),
     {204, _} = request(delete, "/gateways/stomp/authentication"),
@@ -558,12 +564,44 @@ t_listeners_authn_redacts_secret(_) ->
         emqx:get_raw_config([gateway, stomp, listeners, tcp, def, authentication])
     ),
 
-    AuthConf2 = AuthConf#{secret => <<"new-listener-secret">>},
-    {200, PutResp} = request(put, Path, AuthConf2),
+    RedactedUpdate = maps:without(
+        [id, chain_name],
+        GetResp#{verify_claims => #{<<"username">> => <<"${clientid}">>}}
+    ),
+    {200, PutResp} = request(put, Path, RedactedUpdate),
     assert_authn_secret_redacted(PutResp),
     ?assertMatch(
-        #{<<"secret">> := <<"new-listener-secret">>},
+        #{
+            <<"secret">> := ?AUTHN_SECRET,
+            <<"verify_claims">> := #{<<"username">> := <<"${clientid}">>}
+        },
         emqx:get_raw_config([gateway, stomp, listeners, tcp, def, authentication])
+    ),
+
+    {200, ListenerResp} = request(get, "/gateways/stomp/listeners/stomp:tcp:def"),
+    ?assertMatch(
+        #{authentication := #{secret := ?REDACTED}},
+        ListenerResp
+    ),
+    ListenerUpdate = ListenerResp#{bind => <<"127.0.0.1:61614">>},
+    {200, UpdatedListenerResp} = request(
+        put,
+        "/gateways/stomp/listeners/stomp:tcp:def",
+        ListenerUpdate
+    ),
+    ?assertMatch(
+        #{
+            bind := <<"127.0.0.1:61614">>,
+            authentication := #{secret := ?REDACTED}
+        },
+        UpdatedListenerResp
+    ),
+    ?assertMatch(
+        #{
+            <<"bind">> := <<"127.0.0.1:61614">>,
+            <<"authentication">> := #{<<"secret">> := ?AUTHN_SECRET}
+        },
+        emqx:get_raw_config([gateway, stomp, listeners, tcp, def])
     ),
     {204, _} = request(delete, Path),
     ok.
