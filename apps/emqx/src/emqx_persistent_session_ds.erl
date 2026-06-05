@@ -268,6 +268,7 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
     inflight_cnt,
     inflight_max,
     mqueue_len,
+    total_payload_bytes,
     mqueue_dropped,
     seqno_q1_comm,
     seqno_q1_dup,
@@ -381,6 +382,8 @@ info(retry_interval, #{props := Conf}) ->
     maps:get(retry_interval, Conf);
 info(mqueue_len, #{inflight := Inflight}) ->
     emqx_persistent_session_ds_inflight:n_buffered(all, Inflight);
+info(total_payload_bytes, _Session) ->
+    0;
 info(mqueue_dropped, _Session) ->
     0;
 info(awaiting_rel, #{s := S}) ->

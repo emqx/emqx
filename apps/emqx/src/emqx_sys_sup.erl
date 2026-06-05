@@ -32,7 +32,8 @@ init([]) ->
             child_spec(emqx_sys),
             child_spec(emqx_sys_mon),
             child_spec(emqx_vm_mon),
-            child_spec(emqx_broker_mon)
+            child_spec(emqx_broker_mon),
+            child_spec(emqx_session_buffer_mon)
         ] ++ OsMon ++ [child_spec(emqx_corrupt_namespace_config_checker)],
     {ok, {{one_for_one, 10, 100}, Children}}.
 

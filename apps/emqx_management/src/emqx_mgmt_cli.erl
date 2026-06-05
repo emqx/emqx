@@ -23,6 +23,7 @@
     broker/1,
     cluster/1,
     clients/1,
+    'session-top'/1,
     topics/1,
     subscriptions/1,
     plugins/1,
@@ -253,6 +254,31 @@ clients(_) ->
             "--sleep controls delay between batches (default: 10ms).\n"},
         {"clients show <ClientId>", "Show a client"},
         {"clients kick <ClientId>", "Kick out a client"}
+    ]).
+
+'session-top'(Args) ->
+    case parse_session_top_args(Args) of
+        {ok, Opts} ->
+            case emqx_session_buffer_mon:run_top(Opts) of
+                {ok, _Pid} ->
+                    emqx_ctl:print(
+                        "Session top scan started. Results will be written to ~s~n",
+                        [maps:get(out, Opts)]
+                    );
+                {error, busy} ->
+                    emqx_ctl:print("[error] A session-top scan is already running.~n")
+            end;
+        {error, Msg} ->
+            emqx_ctl:print("[error] ~s~n", [Msg]),
+            session_top_usage()
+    end.
+
+session_top_usage() ->
+    emqx_ctl:usage([
+        {
+            "session-top --out <File> [--count <K>] [--sort <mqueue_length|total_payload_bytes>]",
+            "Write cluster top sessions by mqueue length or total payload bytes to a CSV file."
+        }
     ]).
 
 %%--------------------------------------------------------------------
@@ -1192,6 +1218,52 @@ validate_dump_stats_args(Opts) ->
         false ->
             {error, "Invalid parameters"}
     end.
+
+parse_session_top_args(Args) ->
+    maybe
+        {ok, Opts} ?=
+            collect_session_top_args(Args, #{
+                count => 10,
+                sort => total_payload_bytes
+            }),
+        ok ?= validate_session_top_args(Opts),
+        {ok, Opts}
+    end.
+
+collect_session_top_args([], Acc) ->
+    {ok, Acc};
+collect_session_top_args(["--out", Out | Rest], Acc) ->
+    collect_session_top_args(Rest, Acc#{out => Out});
+collect_session_top_args(["--count", CountStr | Rest], Acc) ->
+    case string:to_integer(CountStr) of
+        {Count, []} when Count > 0, Count =< 1000 ->
+            collect_session_top_args(Rest, Acc#{count => Count});
+        {Count, []} when Count > 1000 ->
+            {error, "Invalid count: maximum is 1000."};
+        _ ->
+            {error, io_lib:format("Invalid count: ~s. Must be a positive integer.", [CountStr])}
+    end;
+collect_session_top_args(["--sort", SortStr | Rest], Acc) ->
+    case parse_session_top_sort(SortStr) of
+        {ok, Sort} ->
+            collect_session_top_args(Rest, Acc#{sort => Sort});
+        error ->
+            {error, "Invalid sort key. Supported values are mqueue_length and total_payload_bytes."}
+    end;
+collect_session_top_args(Args, _Acc) ->
+    {error, io_lib:format("unknown arguments: ~p", [Args])}.
+
+parse_session_top_sort("mqueue_length") ->
+    {ok, mqueue_length};
+parse_session_top_sort("total_payload_bytes") ->
+    {ok, total_payload_bytes};
+parse_session_top_sort(_) ->
+    error.
+
+validate_session_top_args(#{out := _Out}) ->
+    ok;
+validate_session_top_args(_Opts) ->
+    {error, "--out <File> is required."}.
 
 %%--------------------------------------------------------------------
 %% @doc Durable storage

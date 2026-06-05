@@ -586,6 +586,7 @@ fields(client) ->
             hoconsc:mk(integer(), #{
                 desc => ?DESC("mqueue_dropped")
             })},
+        {total_payload_bytes, hoconsc:mk(integer(), #{desc => ?DESC("total_payload_bytes")})},
         {mqueue_len, hoconsc:mk(integer(), #{desc => ?DESC("mqueue_len")})},
         {mqueue_max,
             hoconsc:mk(integer(), #{
@@ -2008,6 +2009,7 @@ client_example() ->
         <<"mqueue_max">> => 1000,
         <<"send_oct">> => 31,
         <<"send_msg.dropped.queue_full">> => 0,
+        <<"total_payload_bytes">> => 0,
         <<"mqueue_len">> => 0,
         <<"heap_size">> => 610,
         <<"is_persistent">> => false,

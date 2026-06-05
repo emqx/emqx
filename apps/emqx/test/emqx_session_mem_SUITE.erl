@@ -116,6 +116,35 @@ t_session_stats(_) ->
         maps:from_list(Stats)
     ).
 
+t_session_buffer_bytes_stats(_) ->
+    MqueueMsg = emqx_message:make(<<"clientid">>, ?QOS_1, <<"mqueue/topic">>, <<"queued">>),
+    InflightMsg = emqx_message:make(
+        <<"clientid">>, ?QOS_1, <<"inflight/topic">>, <<"inflight">>
+    ),
+    {undefined, MQueue} = emqx_mqueue:in(
+        MqueueMsg,
+        emqx_mqueue:init(#{max_len => 10, store_qos0 => false})
+    ),
+    Inflight = emqx_inflight:insert(
+        1,
+        emqx_session_mem:with_ts(InflightMsg),
+        emqx_inflight:new(10)
+    ),
+    Stats = maps:from_list(
+        emqx_session_mem:stats(
+            session(#{
+                mqueue => MQueue,
+                inflight => Inflight
+            })
+        )
+    ),
+    MqueueBytes = emqx_message:payload_size(MqueueMsg),
+    InflightBytes = emqx_message:payload_size(InflightMsg),
+    ?assertEqual(MqueueBytes + InflightBytes, maps:get(total_payload_bytes, Stats)),
+    ?assertNot(maps:is_key(mqueue_bytes, Stats)),
+    ?assertNot(maps:is_key(inflight_bytes, Stats)),
+    ?assertNot(maps:is_key(buffered_bytes, Stats)).
+
 t_session_inflight_query(_) ->
     EmptyInflight = emqx_inflight:new(500),
     Session = session(#{inflight => EmptyInflight}),
