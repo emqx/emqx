@@ -922,44 +922,6 @@ t_kanidm_cache_control_max_age_zero(TCConfig) ->
     ?assertMatch([_ | _], supervisor:which_children(emqx_dashboard_sso_oidc_sup)),
     ok.
 
-oidc_content_type_handler(
-    #{method := <<"GET">>, path := <<?OIDC_PATH_PREFIX, "/.well-known/openid-configuration">>} =
-        Req0,
-    State
-) ->
-    Port = cowboy_req:port(Req0),
-    Issuer = iolist_to_binary(host(Port) ++ ?OIDC_PATH_PREFIX),
-    Body = emqx_utils_json:encode(#{
-        issuer => Issuer,
-        jwks_uri => <<Issuer/binary, "/jwks">>,
-        authorization_endpoint => <<Issuer/binary, "/authorize">>,
-        scopes_supported => [<<"openid">>],
-        response_types_supported => [<<"code">>],
-        subject_types_supported => [<<"public">>],
-        id_token_signing_alg_values_supported => [<<"RS256">>]
-    }),
-    Req = cowboy_req:reply(
-        200,
-        #{<<"content-type">> => <<"application/json">>},
-        Body,
-        Req0
-    ),
-    {ok, Req, State};
-oidc_content_type_handler(
-    #{method := <<"GET">>, path := <<?OIDC_PATH_PREFIX, "/jwks">>} = Req0,
-    State
-) ->
-    Req = cowboy_req:reply(
-        200,
-        #{<<"content-type">> => <<"application/jwk-set+json; charset=utf-8">>},
-        emqx_utils_json:encode(#{keys => []}),
-        Req0
-    ),
-    {ok, Req, State};
-oidc_content_type_handler(Req0, State) ->
-    Req = cowboy_req:reply(404, #{}, <<>>, Req0),
-    {ok, Req, State}.
-
 %% Mirrors a Kanidm-style discovery response: ES256 signing, `none' auth on the
 %% revocation / introspection endpoints, and a `Cache-Control: max-age=0' on
 %% the discovery (and JWKS) response.
