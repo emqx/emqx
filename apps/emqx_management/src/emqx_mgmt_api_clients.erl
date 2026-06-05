@@ -151,7 +151,7 @@ paths() ->
 schema("/clients_v2") ->
     #{
         'operationId' => list_clients_v2,
-        filter => fun emqx_dashboard:require_global_namespace_filter/2,
+        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         get => #{
             description => ?DESC(list_clients),
             hidden => true,
@@ -179,7 +179,7 @@ schema("/clients_v2") ->
 schema("/clients") ->
     #{
         'operationId' => clients,
-        filter => fun emqx_dashboard:require_global_namespace_filter/2,
+        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         get => #{
             description => ?DESC(list_clients),
             tags => ?TAGS,
@@ -205,7 +205,7 @@ schema("/clients") ->
 schema("/clients/kickout/bulk") ->
     #{
         'operationId' => kickout_clients,
-        filter => fun emqx_dashboard:require_global_namespace_filter/2,
+        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         post => #{
             description => ?DESC(kickout_clients),
             tags => ?TAGS,
@@ -222,7 +222,7 @@ schema("/clients/kickout/bulk") ->
 schema("/clients/:clientid") ->
     #{
         'operationId' => client,
-        filter => fun emqx_dashboard:require_global_namespace_filter/2,
+        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         get => #{
             description => ?DESC(clients_info_from_id),
             tags => ?TAGS,
@@ -254,7 +254,7 @@ schema("/clients/:clientid") ->
 schema("/clients/:clientid/authorization/cache") ->
     #{
         'operationId' => authz_cache,
-        filter => fun emqx_dashboard:require_global_namespace_filter/2,
+        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         get => #{
             description => ?DESC(get_authz_cache),
             tags => ?TAGS,
@@ -281,7 +281,7 @@ schema("/clients/:clientid/authorization/cache") ->
 schema("/clients/:clientid/subscriptions") ->
     #{
         'operationId' => subscriptions,
-        filter => fun emqx_dashboard:require_global_namespace_filter/2,
+        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         get => #{
             description => ?DESC(get_client_subs),
             tags => ?TAGS,
@@ -299,7 +299,7 @@ schema("/clients/:clientid/subscriptions") ->
 schema("/clients/:clientid/subscribe") ->
     #{
         'operationId' => subscribe,
-        filter => fun emqx_dashboard:require_global_namespace_filter/2,
+        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         post => #{
             description => ?DESC(subscribe),
             tags => ?TAGS,
@@ -317,7 +317,7 @@ schema("/clients/:clientid/subscribe") ->
 schema("/clients/:clientid/subscribe/bulk") ->
     #{
         'operationId' => subscribe_batch,
-        filter => fun emqx_dashboard:require_global_namespace_filter/2,
+        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         post => #{
             description => ?DESC(subscribe_g),
             tags => ?TAGS,
@@ -335,7 +335,7 @@ schema("/clients/:clientid/subscribe/bulk") ->
 schema("/clients/:clientid/unsubscribe") ->
     #{
         'operationId' => unsubscribe,
-        filter => fun emqx_dashboard:require_global_namespace_filter/2,
+        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         post => #{
             description => ?DESC(unsubscribe),
             tags => ?TAGS,
@@ -353,7 +353,7 @@ schema("/clients/:clientid/unsubscribe") ->
 schema("/clients/:clientid/unsubscribe/bulk") ->
     #{
         'operationId' => unsubscribe_batch,
-        filter => fun emqx_dashboard:require_global_namespace_filter/2,
+        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         post => #{
             description => ?DESC(unsubscribe_g),
             tags => ?TAGS,
@@ -371,7 +371,7 @@ schema("/clients/:clientid/unsubscribe/bulk") ->
 schema("/clients/:clientid/keepalive") ->
     #{
         'operationId' => set_keepalive,
-        filter => fun emqx_dashboard:require_global_namespace_filter/2,
+        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         put => #{
             description => ?DESC(set_keepalive_seconds),
             tags => ?TAGS,
@@ -400,7 +400,7 @@ schema("/clients/:clientid/inflight_messages") ->
 schema("/sessions_count") ->
     #{
         'operationId' => sessions_count,
-        filter => fun emqx_dashboard:require_global_namespace_filter/2,
+        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         get => #{
             description => ?DESC(get_sessions_count),
             tags => ?TAGS,
@@ -1294,7 +1294,7 @@ unsubscribe_batch(#{clientid := ClientId, topics := Topics}) ->
 client_msgs_schema(OpId, Desc, ContExample, RespSchema) ->
     #{
         'operationId' => OpId,
-        filter => fun emqx_dashboard:require_global_namespace_filter/2,
+        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         get => #{
             description => Desc,
             tags => ?TAGS,

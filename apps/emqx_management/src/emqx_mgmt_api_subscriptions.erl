@@ -53,7 +53,7 @@ paths() ->
 schema("/subscriptions") ->
     #{
         'operationId' => subscriptions,
-        filter => fun emqx_dashboard:require_global_namespace_filter/2,
+        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         get => #{
             description => ?DESC(list_subs),
             tags => [<<"Subscriptions">>],
