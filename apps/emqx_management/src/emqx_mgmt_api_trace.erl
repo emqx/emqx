@@ -11,6 +11,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     api_spec/0,
@@ -441,8 +442,9 @@ validate_name(Name) ->
 %% API Handlers
 
 -doc "`/trace`".
-trace(get, _Params) ->
-    case emqx_trace:list() of
+trace(get, Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
+    case filter_traces_by_namespace(emqx_trace:list(), Namespace) of
         [] ->
             {200, []};
         List0 ->
@@ -504,9 +506,49 @@ trace(post, #{body := Params} = Req) ->
                 message => emqx_utils:readable_error_msg(Reason)
             }}
     end;
-trace(delete, _Param) ->
-    ok = emqx_trace:clear(),
-    {204}.
+trace(delete, Req) ->
+    case emqx_dashboard:get_namespace(Req) of
+        ?global_ns ->
+            ok = emqx_trace:clear(),
+            {204};
+        _ ->
+            ?FORBIDDEN(
+                <<
+                    "Namespaced users may not clear all traces. "
+                    "Delete by name instead."
+                >>
+            )
+    end.
+
+%% Look up a trace by name and reject it if it belongs to a different
+%% namespace than the caller. Returns `{error, not_found}` for both
+%% missing traces and cross-namespace traces so the response does not
+%% leak the existence of traces in other namespaces. The global
+%% administrator (`?global_ns` caller) sees every trace regardless of
+%% the trace's owning namespace.
+lookup_trace_in_namespace(Name, Req) ->
+    case emqx_trace:get(Name) of
+        {ok, Trace} ->
+            case emqx_dashboard:get_namespace(Req) of
+                ?global_ns ->
+                    {ok, Trace};
+                CallerNs ->
+                    case trace_namespace(Trace) of
+                        CallerNs -> {ok, Trace};
+                        _ -> {error, not_found}
+                    end
+            end;
+        {error, not_found} = E ->
+            E
+    end.
+
+filter_traces_by_namespace(Traces, ?global_ns) ->
+    Traces;
+filter_traces_by_namespace(Traces, Namespace) when is_binary(Namespace) ->
+    [T || T <- Traces, trace_namespace(T) =:= Namespace].
+
+trace_namespace(Trace) ->
+    maps:get(namespace, Trace, ?global_ns).
 
 mk_trace(Params, Namespace) ->
     Trace0 = #{type := Type} = emqx_utils_maps:safe_atom_key_map(Params),
@@ -546,25 +588,31 @@ format_trace(
     }.
 
 -doc "`/trace/:name`".
-delete_trace(delete, #{bindings := #{name := Name}}) ->
-    case emqx_trace:delete(Name) of
-        ok -> {204};
+delete_trace(delete, #{bindings := #{name := Name}} = Req) ->
+    maybe
+        {ok, _} ?= lookup_trace_in_namespace(Name, Req),
+        ok ?= emqx_trace:delete(Name),
+        {204}
+    else
         {error, not_found} -> ?NOT_FOUND_WITH_MSG(Name)
     end.
 
 -doc "`/trace/:name/stop`".
-stop_trace(put, #{bindings := #{name := Name}}) ->
-    case emqx_trace:update(Name, false) of
-        ok -> {200, #{enable => false, name => Name}};
+stop_trace(put, #{bindings := #{name := Name}} = Req) ->
+    maybe
+        {ok, _} ?= lookup_trace_in_namespace(Name, Req),
+        ok ?= emqx_trace:update(Name, false),
+        {200, #{enable => false, name => Name}}
+    else
         {error, not_found} -> ?NOT_FOUND_WITH_MSG(Name)
     end.
 
 -doc "`/trace/:name/download`".
-download_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) ->
+download_trace_log(get, #{bindings := #{name := Name}, query_string := Query} = Req) ->
     %% NOTE
     %% If HTTP request headers include accept-encoding: gzip and file size > 300 bytes.
     %% cowboy_compress_h will auto encode gzip format.
-    case emqx_trace:get(Name) of
+    case lookup_trace_in_namespace(Name, Req) of
         {ok, Trace} ->
             case parse_node(Query, undefined) of
                 {ok, undefined} ->
@@ -688,8 +736,8 @@ serve_trace_log_archive(_Trace = #{name := Name}, ZipDir, Files) ->
     {200, Headers, {file_binary, ZipName, Binary}}.
 
 -doc "`/trace/:name/log_detail`".
-get_trace_log_detail(get, #{bindings := #{name := Name}}) ->
-    case emqx_trace:get(Name) of
+get_trace_log_detail(get, #{bindings := #{name := Name}} = Req) ->
+    case lookup_trace_in_namespace(Name, Req) of
         {ok, _Trace} ->
             Details = cluster_trace_details(Name),
             {200, filter_trace_details(Details)};
@@ -709,9 +757,17 @@ filter_trace_details(TraceLogDetail) ->
     lists:foldl(GroupFun, [], TraceLogDetail).
 
 -doc "`/trace/:name/log`".
-stream_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) ->
+stream_trace_log(get, #{bindings := #{name := Name}, query_string := Query} = Req) ->
     Position = maps:get(<<"position">>, Query, 0),
     Bytes = maps:get(<<"bytes">>, Query, 1000),
+    case lookup_trace_in_namespace(Name, Req) of
+        {error, not_found} ->
+            ?NOT_FOUND_WITH_MSG(Name);
+        {ok, _Trace} ->
+            do_stream_trace_log(Name, Query, Position, Bytes)
+    end.
+
+do_stream_trace_log(Name, Query, Position, Bytes) ->
     maybe
         {ok, Node} ?= parse_node(Query, node()),
         {ok, Cont} ?= parse_position(Position),
