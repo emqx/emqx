@@ -184,6 +184,8 @@ estimate_size(#message{topic = Topic, payload = Payload}) ->
     FixedHeaderSize + VarLenSize + TopicLengthSize + TopicSize + PacketIdSize + PayloadSize.
 
 -spec payload_size(emqx_types:message()) -> non_neg_integer().
+payload_size(#message{payload = undefined}) ->
+    0;
 payload_size(#message{payload = Payload}) ->
     iolist_size(Payload).
 

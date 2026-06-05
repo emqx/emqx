@@ -186,6 +186,22 @@ t_scan_local_top_by_total_payload_bytes(_) ->
         end
     end).
 
+t_local_top_scans_without_server(_) ->
+    without_session_buffer_mon(fun() ->
+        with_chan_info_table(fun() ->
+            Pid = spawn_waiter(),
+            try
+                insert_channel_info(<<"c1">>, Pid, 10, 100, 1),
+                ?assertMatch(
+                    [#{clientid := <<"c1">>, total_payload_bytes := 100}],
+                    emqx_session_buffer_mon:local_top(1, total_payload_bytes)
+                )
+            after
+                stop_waiter(Pid)
+            end
+        end)
+    end).
+
 t_scan_local_top_by_mqueue_length(_) ->
     with_chan_info_table(fun() ->
         Pid1 = spawn_waiter(),
@@ -324,6 +340,15 @@ with_session_buffer_mon(Fun) ->
                 ok = gen_server:stop(Pid)
             end;
         _Pid ->
+            Fun()
+    end.
+
+without_session_buffer_mon(Fun) ->
+    case whereis(emqx_session_buffer_mon) of
+        undefined ->
+            Fun();
+        Pid ->
+            ok = gen_server:stop(Pid),
             Fun()
     end.
 
