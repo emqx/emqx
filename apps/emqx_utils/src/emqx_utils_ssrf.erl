@@ -56,7 +56,6 @@ default_deny_cidrs() ->
     [
         <<"127.0.0.0/8">>,
         <<"::1/128">>,
-        <<"169.254.0.0/16">>,
         <<"fe80::/10">>,
         <<"10.0.0.0/8">>,
         <<"172.16.0.0/12">>,
@@ -68,7 +67,7 @@ default_deny_cidrs() ->
         %% Aliyun metadata service
         <<"100.100.100.200/32">>,
         %% AWS External Metadata Service (literal IP in the wild)
-        <<"69.254.169.253/32">>
+        <<"169.254.0.0/16">>
     ].
 
 -spec default_deny_hosts() -> [binary()].
