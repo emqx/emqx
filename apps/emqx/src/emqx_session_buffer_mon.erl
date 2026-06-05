@@ -14,6 +14,7 @@
     update/1,
     maybe_log/3,
     run_top/1,
+    top_status/0,
     local_top/2
 ]).
 
@@ -49,6 +50,31 @@
 
 -type stats() :: emqx_types:stats() | map().
 -type sort_by() :: mqueue_length | total_payload_bytes.
+-type top_status() ::
+    #{status := idle}
+    | #{
+        status := running,
+        pid := pid(),
+        out := file:name_all(),
+        count := pos_integer(),
+        sort := sort_by()
+    }
+    | #{
+        status := completed,
+        out := file:name_all(),
+        rows := non_neg_integer(),
+        partial := boolean(),
+        bad_nodes := [node()],
+        bad_replies := [term()]
+    }
+    | #{
+        status := failed,
+        out := file:name_all(),
+        reason := term(),
+        partial := boolean(),
+        bad_nodes := [node()],
+        bad_replies := [term()]
+    }.
 -type row() :: #{
     clientid := emqx_types:clientid(),
     pid := pid(),
@@ -100,6 +126,10 @@ maybe_log(ClientId, ChanPid, Stats) ->
 run_top(Opts) ->
     gen_server:call(?MODULE, {run_top, Opts}, infinity).
 
+-spec top_status() -> top_status().
+top_status() ->
+    gen_server:call(?MODULE, top_status, infinity).
+
 -spec local_top(pos_integer(), sort_by()) -> [row()].
 local_top(Count, SortBy) ->
     gen_server:call(?MODULE, {local_top, Count, SortBy}, infinity).
@@ -110,13 +140,31 @@ local_top(Count, SortBy) ->
 
 init([]) ->
     Conf = put_conf(emqx_config:get([sysmon, session], ?DEFAULT_CONF)),
-    {ok, #{conf => Conf, scan => undefined}}.
+    {ok, #{conf => Conf, scan => undefined, top_status => #{status => idle}}}.
 
 handle_call({run_top, Opts}, _From, State = #{scan := undefined}) ->
-    {Pid, MRef} = erlang:spawn_monitor(fun() -> do_run_top(Opts) end),
-    {reply, {ok, Pid}, State#{scan := {Pid, MRef}}};
+    Server = self(),
+    {Pid, MRef} =
+        erlang:spawn_monitor(fun() ->
+            ok = gen_server:call(Server, {top_scan_result, self(), do_run_top(Opts)}, infinity)
+        end),
+    Scan = #{pid => Pid, mref => MRef, opts => Opts},
+    Status = #{
+        status => running,
+        pid => Pid,
+        out => maps:get(out, Opts),
+        count => maps:get(count, Opts),
+        sort => maps:get(sort, Opts)
+    },
+    {reply, {ok, Pid}, State#{scan := Scan, top_status => Status}};
 handle_call({run_top, _Opts}, _From, State) ->
     {reply, {error, busy}, State};
+handle_call({top_scan_result, Pid, Result}, _From, State = #{scan := Scan = #{pid := Pid}}) ->
+    {reply, ok, State#{scan := Scan#{result => Result}}};
+handle_call({top_scan_result, _Pid, _Result}, _From, State) ->
+    {reply, ok, State};
+handle_call(top_status, _From, State) ->
+    {reply, maps:get(top_status, State, #{status => idle}), State};
 handle_call({local_top, Count, SortBy}, _From, State) ->
     {reply, scan_local(Count, SortBy), State};
 handle_call(_Call, _From, State) ->
@@ -128,9 +176,18 @@ handle_cast({update, Conf0}, State) ->
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
+handle_info(
+    {'DOWN', MRef, process, Pid, Reason},
+    State = #{scan := Scan = #{pid := Pid, mref := MRef, opts := Opts}}
+) ->
+    maybe_log_scan_down(Reason),
+    Status = maps:get(result, Scan, top_scan_failed_status(Opts, Reason)),
+    {noreply, State#{scan := undefined, top_status => Status}};
 handle_info({'DOWN', MRef, process, Pid, Reason}, State = #{scan := {Pid, MRef}}) ->
     maybe_log_scan_down(Reason),
-    {noreply, State#{scan := undefined}};
+    {noreply, State#{
+        scan := undefined, top_status => maps:get(top_status, State, #{status => idle})
+    }};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -138,7 +195,7 @@ terminate(_Reason, _State) ->
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+    {ok, ensure_top_status(State)}.
 
 %%--------------------------------------------------------------------
 %% Top-K scan
@@ -153,25 +210,42 @@ do_run_top(#{count := Count, sort := SortBy, out := OutFile}) ->
     BadNodes = BadNodes0 ++ UnsupportedNodes,
     {Rows0, BadReplies} = result_rows(Results),
     Rows = top_rows(Rows0, Count, SortBy),
+    Partial = BadNodes =/= [] orelse BadReplies =/= [],
     case write_csv(OutFile, Rows) of
         ok ->
             ?SLOG(info, #{
                 msg => session_top_written,
                 file => OutFile,
                 rows => length(Rows),
-                partial => BadNodes =/= [] orelse BadReplies =/= [],
+                partial => Partial,
                 bad_nodes => BadNodes,
                 bad_replies => BadReplies
-            });
+            }),
+            #{
+                status => completed,
+                out => OutFile,
+                rows => length(Rows),
+                partial => Partial,
+                bad_nodes => BadNodes,
+                bad_replies => BadReplies
+            };
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => session_top_write_failed,
                 file => OutFile,
                 reason => Reason,
-                partial => BadNodes =/= [] orelse BadReplies =/= [],
+                partial => Partial,
                 bad_nodes => BadNodes,
                 bad_replies => BadReplies
-            })
+            }),
+            #{
+                status => failed,
+                out => OutFile,
+                reason => Reason,
+                partial => Partial,
+                bad_nodes => BadNodes,
+                bad_replies => BadReplies
+            }
     end.
 
 result_rows(Results) ->
@@ -336,6 +410,21 @@ maybe_log_scan_down(normal) ->
     ok;
 maybe_log_scan_down(Reason) ->
     ?SLOG(error, #{msg => session_top_scan_failed, reason => Reason}).
+
+top_scan_failed_status(Opts, Reason) ->
+    #{
+        status => failed,
+        out => maps:get(out, Opts),
+        reason => Reason,
+        partial => false,
+        bad_nodes => [],
+        bad_replies => []
+    }.
+
+ensure_top_status(State = #{top_status := _}) ->
+    State;
+ensure_top_status(State) ->
+    State#{top_status => #{status => idle}}.
 
 %%--------------------------------------------------------------------
 %% Helpers

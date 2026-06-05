@@ -124,6 +124,39 @@ t_clients(_Config) ->
     %% clients kick <ClientId> # Kick out a client
     ok.
 
+t_a_session_top_status_idle(_Config) ->
+    {ok, Output} = capture_ctl(["session-top", "status"]),
+    ?assertEqual(match, re:run(Output, <<"Status: idle">>, [{capture, none}])),
+    ?assertEqual(
+        match,
+        re:run(Output, <<"No session-top scan has been started">>, [{capture, none}])
+    ).
+
+t_session_top_status_running_labels(_Config) ->
+    emqx_common_test_helpers:with_mock(
+        emqx_session_buffer_mon,
+        top_status,
+        fun() ->
+            #{
+                status => running,
+                pid => self(),
+                out => "/tmp/session-top.csv",
+                count => 10,
+                sort => total_payload_bytes
+            }
+        end,
+        fun() ->
+            {ok, Output} = capture_ctl(["session-top", "status"]),
+            ?assertEqual(match, re:run(Output, <<"Status: running">>, [{capture, none}])),
+            ?assertEqual(match, re:run(Output, <<"Limit: 10">>, [{capture, none}])),
+            ?assertEqual(
+                match, re:run(Output, <<"Sort by: total_payload_bytes">>, [{capture, none}])
+            ),
+            ?assertEqual(nomatch, re:run(Output, <<"Count:">>, [{capture, none}])),
+            ?assertEqual(nomatch, re:run(Output, <<"Sort:">>, [{capture, none}]))
+        end
+    ).
+
 t_session_top(Config) ->
     OutFile = filename:join(?config(priv_dir, Config), "session-top.csv"),
     _ = file:delete(OutFile),
@@ -134,19 +167,25 @@ t_session_top(Config) ->
     ],
     lists:foreach(fun insert_session_top_row/1, Rows),
     try
-        ?assertEqual(
-            ok,
-            emqx_ctl:run_command([
-                "session-top",
-                "--out",
-                OutFile,
-                "--count",
-                "2",
-                "--sort",
-                "total_payload_bytes"
-            ])
-        ),
+        {ok, StartOutput} = capture_ctl([
+            "session-top",
+            "--out",
+            OutFile,
+            "--count",
+            "2",
+            "--sort",
+            "total_payload_bytes"
+        ]),
+        ?assertEqual(match, re:run(StartOutput, <<"Session top scan started">>, [{capture, none}])),
+        ?assertEqual(match, re:run(StartOutput, <<"Status: running">>, [{capture, none}])),
+        ?assertEqual(match, re:run(StartOutput, <<"session-top status">>, [{capture, none}])),
         {ok, CSV} = wait_csv_rows(OutFile, 3, 100),
+        StatusOutput = wait_session_top_status(<<"Status: completed">>, 100),
+        ?assertEqual(match, re:run(StatusOutput, <<"Status: completed">>, [{capture, none}])),
+        ?assertEqual(match, re:run(StatusOutput, <<"Result rows: 2">>, [{capture, none}])),
+        ?assertEqual(match, re:run(StatusOutput, <<"Partial result: no">>, [{capture, none}])),
+        ?assertEqual(nomatch, re:run(StatusOutput, <<"Rows:">>, [{capture, none}])),
+        ?assertEqual(nomatch, re:run(StatusOutput, <<"Partial:">>, [{capture, none}])),
         [
             <<"clientid,pid,node,mqueue_length,total_payload_bytes,inflight_count">>,
             Row1,
@@ -682,6 +721,24 @@ dump_client_stats(File, Batch, Sleep) ->
         "--sleep",
         str(Sleep)
     ]).
+
+capture_ctl(Args) ->
+    {Result, OutputChunks} =
+        emqx_common_test_helpers:capture_io_format(fun() -> emqx_ctl:run_command(Args) end),
+    {Result, iolist_to_binary(OutputChunks)}.
+
+wait_session_top_status(Expected, Attempts) when Attempts > 0 ->
+    {ok, Output} = capture_ctl(["session-top", "status"]),
+    case re:run(Output, Expected, [{capture, none}]) of
+        match ->
+            Output;
+        nomatch ->
+            timer:sleep(10),
+            wait_session_top_status(Expected, Attempts - 1)
+    end;
+wait_session_top_status(_Expected, 0) ->
+    {ok, Output} = capture_ctl(["session-top", "status"]),
+    Output.
 
 insert_session_top_row({ClientId, MqueueLength, TotalPayloadBytes, InflightCount}) ->
     ok = emqx_cm:insert_channel_info(

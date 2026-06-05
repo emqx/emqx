@@ -256,15 +256,14 @@ clients(_) ->
         {"clients kick <ClientId>", "Kick out a client"}
     ]).
 
+'session-top'(["status"]) ->
+    print_session_top_status(emqx_session_buffer_mon:top_status());
 'session-top'(Args) ->
     case parse_session_top_args(Args) of
         {ok, Opts} ->
             case emqx_session_buffer_mon:run_top(Opts) of
                 {ok, _Pid} ->
-                    emqx_ctl:print(
-                        "Session top scan started. Results will be written to ~s~n",
-                        [maps:get(out, Opts)]
-                    );
+                    print_session_top_started(Opts);
                 {error, busy} ->
                     emqx_ctl:print("[error] A session-top scan is already running.~n")
             end;
@@ -276,10 +275,87 @@ clients(_) ->
 session_top_usage() ->
     emqx_ctl:usage([
         {
+            "session-top status",
+            "Show status of the latest session-top scan."
+        },
+        {
             "session-top --out <File> [--count <K>] [--sort <mqueue_length|total_payload_bytes>]",
             "Write cluster top sessions by mqueue length or total payload bytes to a CSV file."
         }
     ]).
+
+print_session_top_started(Opts) ->
+    emqx_ctl:print(
+        "Session top scan started.~n"
+        "Status: running~n"
+        "Output: ~ts~n"
+        "Run 'emqx ctl session-top status' to check progress.~n",
+        [maps:get(out, Opts)]
+    ).
+
+print_session_top_status(#{status := idle}) ->
+    emqx_ctl:print("Status: idle~nNo session-top scan has been started.~n");
+print_session_top_status(#{
+    status := running,
+    pid := Pid,
+    out := OutFile,
+    count := Count,
+    sort := Sort
+}) ->
+    emqx_ctl:print(
+        "Status: running~n"
+        "Output: ~ts~n"
+        "Limit: ~B~n"
+        "Sort by: ~s~n"
+        "Worker: ~p~n",
+        [OutFile, Count, atom_to_list(Sort), Pid]
+    );
+print_session_top_status(
+    Status = #{
+        status := completed,
+        out := OutFile,
+        rows := Rows,
+        partial := Partial
+    }
+) ->
+    emqx_ctl:print(
+        "Status: completed~n"
+        "Output: ~ts~n"
+        "Result rows: ~B~n"
+        "Partial result: ~s~n",
+        [OutFile, Rows, yes_no(Partial)]
+    ),
+    print_session_top_bad_results(Status);
+print_session_top_status(
+    Status = #{
+        status := failed,
+        out := OutFile,
+        reason := Reason,
+        partial := Partial
+    }
+) ->
+    emqx_ctl:print(
+        "Status: failed~n"
+        "Output: ~ts~n"
+        "Reason: ~p~n"
+        "Partial result: ~s~n",
+        [OutFile, Reason, yes_no(Partial)]
+    ),
+    print_session_top_bad_results(Status).
+
+print_session_top_bad_results(Status) ->
+    BadNodes = maps:get(bad_nodes, Status, []),
+    BadReplies = maps:get(bad_replies, Status, []),
+    maybe_print_session_top_bad_results("Bad nodes", BadNodes),
+    maybe_print_session_top_bad_results("Bad replies", BadReplies).
+
+maybe_print_session_top_bad_results(_Label, []) ->
+    ok;
+maybe_print_session_top_bad_results(Label, Values) ->
+    emqx_ctl:print("~s: ~p~n", [Label, Values]).
+
+yes_no(true) -> "yes";
+yes_no(false) -> "no".
 
 %%--------------------------------------------------------------------
 %% @private Dump client statistics to CSV file
