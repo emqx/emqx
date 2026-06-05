@@ -190,13 +190,24 @@ call(ConnStr, Req) ->
         Class:Reason:Stk ->
             ?SLOG(error, #{
                 msg => "call_conn_process_crashed",
-                request => Req,
+                request => redact_call_term(Req),
                 conn_str => ConnStr,
-                reason => {Class, Reason},
-                stacktrace => Stk
+                reason => {Class, redact_call_term(Reason)},
+                stacktrace => redact_call_term(Stk)
             }),
             {error, ?RESP_UNKNOWN, <<"Unknown crashes">>}
     end.
+
+redact_call_term({auth, ClientInfo, _Password}) ->
+    {auth, emqx_utils:redact(ClientInfo), <<"******">>};
+redact_call_term(Term) when is_map(Term) ->
+    emqx_utils:redact(maps:map(fun(_K, V) -> redact_call_term(V) end, Term));
+redact_call_term([H | T]) ->
+    emqx_utils:redact([redact_call_term(H) | redact_call_term(T)]);
+redact_call_term(Term) when is_tuple(Term) ->
+    emqx_utils:redact(list_to_tuple([redact_call_term(E) || E <- tuple_to_list(Term)]));
+redact_call_term(Term) ->
+    emqx_utils:redact(Term).
 
 %%--------------------------------------------------------------------
 %% Data types

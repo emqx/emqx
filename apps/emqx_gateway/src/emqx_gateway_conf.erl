@@ -527,7 +527,7 @@ pre_config_update(?GATEWAY, NewRawConf0 = #{}, OldRawConf = #{}) ->
 pre_config_update(Path, UnknownReq, _RawConf) ->
     ?SLOG(error, #{
         msg => "unknown_gateway_update_request",
-        request => UnknownReq,
+        request => emqx_utils:redact(UnknownReq),
         path => Path
     }),
     {error, badreq}.
@@ -885,6 +885,7 @@ convert_certs(Type, SubDir, Conf) ->
         {ok, NSSL = #{}} ->
             Conf#{Type => NSSL};
         {error, Reason} ->
-            ?SLOG(error, Reason#{msg => "bad_ssl_config", reason => Reason}),
+            SafeReason = emqx_utils:redact(Reason),
+            ?SLOG(error, SafeReason#{msg => "bad_ssl_config", reason => SafeReason}),
             throw({bad_ssl_config, Reason})
     end.

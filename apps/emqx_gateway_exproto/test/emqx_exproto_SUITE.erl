@@ -54,6 +54,7 @@
 all() ->
     [
         t_authenticate_log_redacts_password,
+        t_authenticate_failure_log_redacts_password,
         {group, tcp_listener},
         {group, ssl_listener},
         {group, udp_listener},
@@ -114,6 +115,40 @@ t_authenticate_log_redacts_password(_) ->
         LoggedReq = maps:get(request, Report),
         ?assertNotEqual(Password, maps:get(password, LoggedReq)),
         ?assertEqual(?REDACTED, maps:get(password, LoggedReq))
+    after
+        _ = logger:remove_handler(HandlerId),
+        ok = logger:set_primary_config(level, PrevLevel)
+    end.
+
+t_authenticate_failure_log_redacts_password(_) ->
+    Password = <<"secret-pass">>,
+    Req = #{
+        conn => base64:encode(term_to_binary(self())),
+        password => Password,
+        clientinfo => #{
+            proto_name => <<"exproto">>,
+            proto_ver => <<"1">>,
+            clientid => <<"client1">>
+        }
+    },
+    HandlerId = exproto_authenticate_failure_log_capture,
+    #{level := PrevLevel} = logger:get_primary_config(),
+    ok = logger:set_primary_config(level, debug),
+    ok = logger:add_handler(HandlerId, ?MODULE, #{
+        level => debug,
+        config => #{owner => self()}
+    }),
+    try
+        {ok, _Resp, #{}} = emqx_exproto_gsvr:authenticate(Req, #{}),
+        Report = receive_log_report(fun
+            (#{msg := "call_conn_process_crashed"}) -> true;
+            (_) -> false
+        end),
+        LoggedReq = maps:get(request, Report),
+        ReportBin = unicode:characters_to_binary(io_lib:format("~0p", [Report])),
+        ?assertEqual(nomatch, binary:match(ReportBin, Password)),
+        ?assertNotEqual(Password, element(3, LoggedReq)),
+        ?assertEqual(?REDACTED, element(3, LoggedReq))
     after
         _ = logger:remove_handler(HandlerId),
         ok = logger:set_primary_config(level, PrevLevel)
@@ -771,11 +806,20 @@ log(LogEvent, #{config := #{owner := Owner}}) ->
     Owner ! {captured_log, LogEvent}.
 
 receive_log_report() ->
+    receive_log_report(fun(_) -> true end).
+
+receive_log_report(Matcher) ->
     receive
         {captured_log, #{msg := {report, Report}}} ->
-            Report;
+            case Matcher(Report) of
+                true -> Report;
+                false -> receive_log_report(Matcher)
+            end;
         {captured_log, #{msg := Report}} when is_map(Report) ->
-            Report
+            case Matcher(Report) of
+                true -> Report;
+                false -> receive_log_report(Matcher)
+            end
     after 5000 ->
         error(no_log_event)
     end.
