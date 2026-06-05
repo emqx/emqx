@@ -502,6 +502,72 @@ t_namespaced_api_key(_TCConfig) ->
     ok.
 
 -doc """
+Regression net on the RBAC table for namespaced administrators.
+
+Enumerates every registered GET handler in the apps loaded for this suite
+and partitions them by whether `emqx_dashboard_rbac` allows a namespaced
+administrator to access them. The "allowed" set is asserted against an
+explicit whitelist of namespace-scoped API modules (Connector / Bridge-v2 /
+Rule / Trace / Data Backup):
+
+  - any module that becomes allowed and is NOT on the whitelist fails the
+    test (catches accidental leaks of global endpoints to namespaced
+    admins);
+  - any whitelisted module that IS loaded but does NOT get allowed fails
+    the test (catches accidental removal of legitimate access).
+
+Modules not loaded in this suite are simply absent from the partition;
+that is acceptable because the whitelist itself documents the expected
+set and the per-API suites cover those modules end-to-end.
+
+Note: this test only exercises the RBAC layer. Endpoint-level filters
+(see `emqx_dashboard:require_global_namespace_filter/2`) are tested
+separately in the per-API suites where they are wired.
+""".
+t_namespaced_user_permissions(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    Username = <<"iminans">>,
+    Password = <<"superSecureP@ss">>,
+    AdminRole = <<"ns:ns1::", ?ROLE_SUPERUSER/binary>>,
+    {200, _} = create_user_api(
+        #{
+            <<"username">> => Username,
+            <<"password">> => Password,
+            <<"role">> => AdminRole,
+            <<"description">> => <<"namespaced person">>
+        },
+        GlobalAdminHeader
+    ),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
+    AllHandlers = [_ | _] = all_handlers(),
+    GetHandlers = [_ | _] = [FHI || #{method := get} = FHI <- AllHandlers],
+    FakeReq = #{path => <<"/api/v5/clients">>},
+    {Allowed, _Denied} = lists:partition(
+        fun(FakeHandlerInfo) ->
+            case emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token) of
+                {ok, _} -> true;
+                {error, _} -> false
+            end
+        end,
+        GetHandlers
+    ),
+    AllowedModules = lists:usort([Mod || #{module := Mod} <- Allowed]),
+    LoadedModules = lists:usort([Mod || #{module := Mod} <- GetHandlers]),
+    ExpectedAllowedFull = [
+        emqx_bridge_v2_api,
+        emqx_connector_api,
+        emqx_mgmt_api_data_backup,
+        emqx_mgmt_api_trace,
+        emqx_rule_engine_api
+    ],
+    LoadedAllowed = [M || M <- ExpectedAllowedFull, lists:member(M, LoadedModules)],
+    SurprisinglyAllowed = AllowedModules -- ExpectedAllowedFull,
+    SurprisinglyDenied = LoadedAllowed -- AllowedModules,
+    ?assertEqual([], SurprisinglyAllowed),
+    ?assertEqual([], SurprisinglyDenied),
+    ok.
+
+-doc """
 Checks the authorization behavior of namespaced publisher API keys.
 
 Currently, they are not authorized even to use the publish HTTP APIs that their
