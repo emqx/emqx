@@ -409,6 +409,8 @@ make_redis_resource_config(ConfigRaw0) ->
             <<"pool_size">>,
             <<"username">>,
             <<"password">>,
+            <<"sentinel_username">>,
+            <<"sentinel_password">>,
             <<"database">>,
             <<"ssl">>
         ],
@@ -446,7 +448,15 @@ drop_unused_fields(RawConfig) ->
             end
         end,
         RawConfig,
-        [<<"pool_size">>, <<"username">>, <<"password">>, <<"database">>, <<"sentinel">>]
+        [
+            <<"pool_size">>,
+            <<"username">>,
+            <<"password">>,
+            <<"sentinel_username">>,
+            <<"sentinel_password">>,
+            <<"database">>,
+            <<"sentinel">>
+        ]
     ).
 
 maybe_drop_database_field(#{<<"redis_type">> := <<"cluster">>} = RawConfig) ->

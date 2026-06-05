@@ -340,6 +340,28 @@
             }
           },
           {
+            "name": "sentinel_username",
+            "type": "string",
+            "default": "",
+            "$ui": {
+              "component": "input",
+              "required": false,
+              "label": "$redis_sentinel_username_label",
+              "description": "$redis_sentinel_username_desc"
+            }
+          },
+          {
+            "name": "sentinel_password",
+            "type": "string",
+            "default": "",
+            "$ui": {
+              "component": "input-password",
+              "required": false,
+              "label": "$redis_sentinel_password_label",
+              "description": "$redis_sentinel_password_desc"
+            }
+          },
+          {
             "name": "database",
             "type": "int",
             "default": 0,
