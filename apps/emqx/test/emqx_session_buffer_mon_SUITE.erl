@@ -97,6 +97,44 @@ t_top_status_completed(Config) ->
         end
     end).
 
+t_top_status_completed_partial_on_unsupported_node(Config) ->
+    with_session_buffer_mon(fun() ->
+        OutFile = filename:join(?config(priv_dir, Config), "session-top-partial.csv"),
+        _ = file:delete(OutFile),
+        OldNode = 'old-emqx@127.0.0.1',
+        Row = top_row(<<"c1">>, 10, 100, 1),
+        try
+            with_top_scan_mocks(
+                [node(), OldNode],
+                [node()],
+                fun([Node], _Count, _SortBy, _Timeout) when Node =:= node() -> {[[Row]], []} end,
+                fun() ->
+                    ?assertMatch(
+                        {ok, _Pid},
+                        emqx_session_buffer_mon:run_top(#{
+                            count => 1,
+                            sort => total_payload_bytes,
+                            out => OutFile
+                        })
+                    ),
+                    ?assertMatch(
+                        #{
+                            status := completed,
+                            out := OutFile,
+                            rows := 1,
+                            partial := true,
+                            bad_nodes := [OldNode],
+                            bad_replies := []
+                        },
+                        wait_top_status(completed, 100)
+                    )
+                end
+            )
+        after
+            _ = file:delete(OutFile)
+        end
+    end).
+
 t_top_status_failed_on_write_error(_) ->
     with_session_buffer_mon(fun() ->
         case file:open("/dev/full", [write, raw, binary]) of
@@ -334,15 +372,18 @@ top_row(ClientId, MqueueLength, TotalPayloadBytes, InflightCount) ->
     }.
 
 with_top_scan_mocks(LocalTopFun, TestFun) ->
+    with_top_scan_mocks([node()], [node()], LocalTopFun, TestFun).
+
+with_top_scan_mocks(RunningNodes, SupportedNodes, LocalTopFun, TestFun) ->
     ok = meck:new(emqx, [passthrough, no_link]),
     ok = meck:new(emqx_bpapi, [passthrough, no_link]),
     ok = meck:new(emqx_session_buffer_proto_v1, [passthrough, no_link]),
     try
-        ok = meck:expect(emqx, running_nodes, fun() -> [node()] end),
+        ok = meck:expect(emqx, running_nodes, fun() -> RunningNodes end),
         ok = meck:expect(
             emqx_bpapi,
             nodes_supporting_bpapi_version,
-            fun(emqx_session_buffer, 1) -> [node()] end
+            fun(emqx_session_buffer, 1) -> SupportedNodes end
         ),
         ok = meck:expect(emqx_session_buffer_proto_v1, local_top, LocalTopFun),
         TestFun()
