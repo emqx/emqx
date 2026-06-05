@@ -157,6 +157,40 @@ t_session_top_status_running_labels(_Config) ->
         end
     ).
 
+t_session_top_invalid_args(_Config) ->
+    {ok, MissingOut} = capture_ctl(["session-top"]),
+    ?assertEqual(match, re:run(MissingOut, <<"--out <File> is required">>, [{capture, none}])),
+    ?assertEqual(match, re:run(MissingOut, <<"session-top --out <File>">>, [{capture, none}])),
+
+    {ok, InvalidCount} = capture_ctl([
+        "session-top",
+        "--out",
+        "/tmp/session-top.csv",
+        "--count",
+        "1001"
+    ]),
+    ?assertEqual(
+        match,
+        re:run(InvalidCount, <<"Invalid count: maximum is 1000">>, [
+            {capture, none}
+        ])
+    ),
+
+    {ok, InvalidSort} = capture_ctl([
+        "session-top",
+        "--out",
+        "/tmp/session-top.csv",
+        "--sort",
+        "mailbox_len"
+    ]),
+    ?assertEqual(match, re:run(InvalidSort, <<"Invalid sort key">>, [{capture, none}])),
+    ?assertEqual(
+        match,
+        re:run(InvalidSort, <<"mqueue_length and total_payload_bytes">>, [
+            {capture, none}
+        ])
+    ).
+
 t_session_top(Config) ->
     OutFile = filename:join(?config(priv_dir, Config), "session-top.csv"),
     _ = file:delete(OutFile),
