@@ -25,6 +25,8 @@
 %% this parses to #{}, will not cause config cleanup
 %% so we will need call emqx_config:erase
 -define(CONF_DEFAULT, <<"gateway {}">>).
+-define(REDACTED, <<"******">>).
+-define(AUTHN_SECRET, <<"mysecret">>).
 
 %%--------------------------------------------------------------------
 %% Setup
@@ -310,6 +312,29 @@ t_authn(_) ->
     {204, _} = request(get, "/gateways/stomp/authentication"),
     ok.
 
+t_authn_redacts_secret(_) ->
+    init_gw("stomp"),
+    AuthConf = jwt_authn_conf(?AUTHN_SECRET),
+    {201, PostResp} = request(post, "/gateways/stomp/authentication", AuthConf),
+    assert_authn_secret_redacted(PostResp),
+
+    {200, GetResp} = request(get, "/gateways/stomp/authentication"),
+    assert_authn_secret_redacted(GetResp),
+    ?assertMatch(
+        #{<<"secret">> := ?AUTHN_SECRET},
+        emqx:get_raw_config([gateway, stomp, authentication])
+    ),
+
+    AuthConf2 = AuthConf#{secret => <<"new-secret">>},
+    {200, PutResp} = request(put, "/gateways/stomp/authentication", AuthConf2),
+    assert_authn_secret_redacted(PutResp),
+    ?assertMatch(
+        #{<<"secret">> := <<"new-secret">>},
+        emqx:get_raw_config([gateway, stomp, authentication])
+    ),
+    {204, _} = request(delete, "/gateways/stomp/authentication"),
+    ok.
+
 t_authn_data_mgmt(_) ->
     init_gw("stomp"),
     AuthConf = #{
@@ -506,6 +531,43 @@ t_listeners_authn(_) ->
     {404, _} = request(delete, "/gateways/stomp/listeners/not_exists"),
     ok.
 
+t_listeners_authn_redacts_secret(_) ->
+    GwConf = #{
+        name => <<"stomp">>,
+        listeners => [
+            #{
+                name => <<"def">>,
+                type => <<"tcp">>,
+                bind => <<"127.0.0.1:61613">>
+            }
+        ]
+    },
+    ConfResp = init_gw("stomp", GwConf),
+    assert_confs(GwConf, ConfResp),
+
+    AuthConf = jwt_authn_conf(?AUTHN_SECRET),
+    Path = "/gateways/stomp/listeners/stomp:tcp:def/authentication",
+    {204, _} = request(delete, Path),
+    {201, PostResp} = request(post, Path, AuthConf),
+    assert_authn_secret_redacted(PostResp),
+
+    {200, GetResp} = request(get, Path),
+    assert_authn_secret_redacted(GetResp),
+    ?assertMatch(
+        #{<<"secret">> := ?AUTHN_SECRET},
+        emqx:get_raw_config([gateway, stomp, listeners, tcp, def, authentication])
+    ),
+
+    AuthConf2 = AuthConf#{secret => <<"new-listener-secret">>},
+    {200, PutResp} = request(put, Path, AuthConf2),
+    assert_authn_secret_redacted(PutResp),
+    ?assertMatch(
+        #{<<"secret">> := <<"new-listener-secret">>},
+        emqx:get_raw_config([gateway, stomp, listeners, tcp, def, authentication])
+    ),
+    {204, _} = request(delete, Path),
+    ok.
+
 t_listeners_authn_data_mgmt(_) ->
     GwConf = #{
         name => <<"stomp">>,
@@ -606,6 +668,7 @@ t_listeners_authn_data_mgmt(_) ->
         emqx_utils_json:decode(ImportedResults2)
     ),
 
+    {204, _} = request(delete, Path),
     ok.
 
 t_clients(_) ->
@@ -722,6 +785,20 @@ init_gw(GwName, GwConf) ->
 
 %%--------------------------------------------------------------------
 %% Asserts
+
+jwt_authn_conf(Secret) ->
+    #{
+        mechanism => <<"jwt">>,
+        use_jwks => false,
+        algorithm => <<"hmac-based">>,
+        secret => Secret,
+        secret_base64_encoded => false,
+        verify_claims => #{<<"username">> => <<"${username}">>},
+        enable => true
+    }.
+
+assert_authn_secret_redacted(Conf) ->
+    ?assertEqual(?REDACTED, maps:get(secret, Conf)).
 
 assert_gw_unloaded(Gateway) ->
     ?assertEqual(<<"unloaded">>, maps:get(status, Gateway)).

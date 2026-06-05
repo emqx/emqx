@@ -71,7 +71,7 @@ authenticate(
     ?SLOG(debug, #{
         msg => "recv_grpc_function_call",
         function => ?FUNCTION_NAME,
-        request => Req
+        request => emqx_utils:redact(Req)
     }),
     case validate(clientinfo, ClientInfo) of
         false ->

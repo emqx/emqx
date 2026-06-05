@@ -161,7 +161,7 @@ gateway(GwName0) ->
         emqx_utils_maps:deep_get(Path, RawConf)
     ),
     LsConf = maps:get(<<"listeners">>, Confs, #{}),
-    Confs#{<<"listeners">> => convert_listeners(GwName, LsConf)}.
+    emqx_utils:redact(Confs#{<<"listeners">> => convert_listeners(GwName, LsConf)}).
 
 %% @doc convert listeners map to array
 convert_listeners(GwName, Ls) when is_map(Ls) ->
@@ -200,7 +200,7 @@ listeners(GwName0) ->
             [<<"gateway">>, GwName, <<"listeners">>], RawConf, #{}
         )
     ),
-    convert_listeners(GwName, Listeners).
+    emqx_utils:redact(convert_listeners(GwName, Listeners)).
 
 -spec listener(binary()) -> {ok, map()} | {error, not_found} | {error, any()}.
 listener(ListenerId) ->
@@ -216,13 +216,15 @@ listener(ListenerId) ->
         ),
         Running = emqx_gateway_utils:is_listener_running(ListenerRuntimeId),
         {ok,
-            emqx_utils_maps:jsonable_map(
-                ListenerRawConfWithDefaults#{
-                    id => ListenerId,
-                    type => Type,
-                    name => LName,
-                    running => Running
-                }
+            emqx_utils:redact(
+                emqx_utils_maps:jsonable_map(
+                    ListenerRawConfWithDefaults#{
+                        id => ListenerId,
+                        type => Type,
+                        name => LName,
+                        running => Running
+                    }
+                )
             )}
     catch
         error:{config_not_found, _} ->
@@ -324,7 +326,7 @@ ret_gw(GwName, {ok, #{raw_config := GwConf}}) ->
             [],
             maps:to_list(LsConf)
         ),
-    {ok, maps:merge(GwConf1, #{<<"listeners">> => lists:append(NLsConf)})};
+    {ok, emqx_utils:redact(maps:merge(GwConf1, #{<<"listeners">> => lists:append(NLsConf)}))};
 ret_gw(_GwName, Err) ->
     Err.
 
@@ -333,7 +335,7 @@ ret_authn(GwName, {ok, #{raw_config := GwConf}}) ->
         [bin(GwName), <<"authentication">>],
         GwConf
     ),
-    {ok, Authn};
+    {ok, emqx_utils:redact(Authn)};
 ret_authn(_GwName, Err) ->
     Err.
 
@@ -348,7 +350,7 @@ ret_authn(GwName, {LType, LName}, {ok, #{raw_config := GwConf}}) ->
         ],
         GwConf
     ),
-    {ok, Authn};
+    {ok, emqx_utils:redact(Authn)};
 ret_authn(_, _, Err) ->
     Err.
 
@@ -357,7 +359,7 @@ ret_listener_or_err(GwName, {LType, LName}, {ok, #{raw_config := GwConf}}) ->
         [bin(GwName), <<"listeners">>, bin(LType), bin(LName)],
         GwConf
     ),
-    {ok, do_convert_listener2(GwName, LType, LName, LConf)};
+    {ok, emqx_utils:redact(do_convert_listener2(GwName, LType, LName, LConf))};
 ret_listener_or_err(_, _, Err) ->
     Err.
 
