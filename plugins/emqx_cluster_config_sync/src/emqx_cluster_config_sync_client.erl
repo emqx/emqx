@@ -323,12 +323,15 @@ http_options(Conf, Timeout) ->
 ssl_options(Conf) ->
     Primary = maps:get(<<"primary">>, Conf),
     SSL = maps:get(<<"ssl">>, Primary, ?DEFAULT_SSL),
-    emqx_tls_lib:to_client_opts(client_ssl_options(SSL)).
+    case maps:get(<<"enable">>, SSL, false) of
+        true -> emqx_tls_lib:to_client_opts(client_ssl_options(SSL));
+        false -> []
+    end.
 
 client_ssl_options(SSL) ->
     #{
         enable => maps:get(<<"enable">>, SSL, false),
-        verify => to_atom(maps:get(<<"verify">>, SSL, <<"verify_none">>)),
+        verify => to_verify(maps:get(<<"verify">>, SSL, <<"verify_none">>)),
         server_name_indication => to_sni(
             maps:get(<<"server_name_indication">>, SSL, <<"disable">>)
         ),
@@ -348,11 +351,36 @@ validate_sync_config(Conf) ->
             maps:get(<<"api_secret">>, Primary)
         }
     of
-        {true, <<"secondary">>, <<>>, _, _} -> {error, missing_primary_base_url};
-        {true, <<"secondary">>, _, <<>>, _} -> {error, missing_primary_api_key};
-        {true, <<"secondary">>, _, _, <<>>} -> {error, missing_primary_api_secret};
-        _ -> ok
+        {true, <<"secondary">>, <<>>, _, _} ->
+            {error, missing_primary_base_url};
+        {true, <<"secondary">>, _, <<>>, _} ->
+            {error, missing_primary_api_key};
+        {true, <<"secondary">>, _, _, <<>>} ->
+            {error, missing_primary_api_secret};
+        _ ->
+            validate_primary_ssl(Primary)
     end.
+
+validate_primary_ssl(Primary) ->
+    SSL = maps:get(<<"ssl">>, Primary, ?DEFAULT_SSL),
+    case maps:get(<<"enable">>, SSL, false) of
+        true ->
+            Verify = maps:get(<<"verify">>, SSL, <<"verify_none">>),
+            case valid_verify(Verify) of
+                true -> ok;
+                false -> {error, {bad_primary_ssl_verify, Verify}}
+            end;
+        false ->
+            ok
+    end.
+
+valid_verify(verify_none) -> true;
+valid_verify(verify_peer) -> true;
+valid_verify(<<"verify_none">>) -> true;
+valid_verify(<<"verify_peer">>) -> true;
+valid_verify("verify_none") -> true;
+valid_verify("verify_peer") -> true;
+valid_verify(_) -> false.
 
 filename_from_response(Resp) ->
     case maps:find(<<"filename">>, Resp) of
@@ -415,9 +443,12 @@ normalize_ssl(SSL0) ->
         <<"keyfile">> => to_bin(maps:get(<<"keyfile">>, SSL0, maps:get(<<"keyfile">>, Default)))
     }.
 
-to_atom(Atom) when is_atom(Atom) -> Atom;
-to_atom(Bin) when is_binary(Bin) -> binary_to_existing_atom(Bin, utf8);
-to_atom(List) when is_list(List) -> list_to_existing_atom(List).
+to_verify(verify_none) -> verify_none;
+to_verify(verify_peer) -> verify_peer;
+to_verify(<<"verify_none">>) -> verify_none;
+to_verify(<<"verify_peer">>) -> verify_peer;
+to_verify("verify_none") -> verify_none;
+to_verify("verify_peer") -> verify_peer.
 
 to_sni(<<"disable">>) -> disable;
 to_sni(disable) -> disable;

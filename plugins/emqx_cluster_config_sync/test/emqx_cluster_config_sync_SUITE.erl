@@ -62,6 +62,7 @@ all() ->
         t_sync_once_reports_cleanup_errors,
         t_sync_once_reports_remote_export_errors,
         t_sync_once_passes_primary_ssl_options_to_httpc,
+        t_sync_once_rejects_bad_primary_ssl_verify,
         t_sync_once_rejects_redirects_without_forwarding_auth,
         t_real_cluster_sync_runs_on_one_core_only,
         t_real_primary_sync_respects_root_keys_and_table_sets,
@@ -497,6 +498,16 @@ t_sync_once_passes_primary_ssl_options_to_httpc(Config) ->
     after
         catch meck:unload(httpc)
     end.
+
+t_sync_once_rejects_bad_primary_ssl_verify(_Config) ->
+    Conf = with_primary_ssl(conf(), #{
+        <<"enable">> => true,
+        <<"verify">> => <<"verify_bad">>
+    }),
+    ?assertEqual(
+        {error, {bad_primary_ssl_verify, <<"verify_bad">>}},
+        emqx_cluster_config_sync_client:sync_once(Conf)
+    ).
 
 t_sync_once_rejects_redirects_without_forwarding_auth(_Config) ->
     {TargetPid, TargetUrl} = start_redirect_target(),
