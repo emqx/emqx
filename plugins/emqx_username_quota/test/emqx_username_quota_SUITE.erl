@@ -349,8 +349,8 @@ t_api_list_get_kick(_Config) ->
     ?assertMatch(#{username := User, used := 2, limit := _, clientids := [_, _]}, OneBody),
     ?assert(not maps:is_key(count, OneBody)),
     ?assertEqual([<<"c1">>, <<"c2">>], maps:get(clientids, OneBody)),
-    ok = meck:new(emqx_cm, [passthrough]),
-    ok = meck:expect(emqx_cm, kick_session, fun(_ClientId) -> ok end),
+    ok = meck:new(emqx_mgmt, [passthrough]),
+    ok = meck:expect(emqx_mgmt, kickout_clients, fun(_ClientIds) -> ok end),
     {ok, 200, _Headers3, #{kicked := 2}} = emqx_username_quota_api:handle(
         post,
         [
@@ -358,7 +358,7 @@ t_api_list_get_kick(_Config) ->
         ],
         #{}
     ),
-    ok = meck:unload(emqx_cm).
+    ok = meck:unload(emqx_mgmt).
 
 t_api_metrics(_Config) ->
     ok = emqx_username_quota:register_session(<<"alice">>, <<"a1">>),
