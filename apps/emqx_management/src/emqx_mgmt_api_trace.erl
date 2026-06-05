@@ -531,14 +531,20 @@ mk_trace(Params, Namespace) ->
 %% Look up a trace by name and reject it if it belongs to a different
 %% namespace than the caller. Returns `{error, not_found}` for both
 %% missing traces and cross-namespace traces so the response does not
-%% leak the existence of traces in other namespaces.
+%% leak the existence of traces in other namespaces. The global
+%% administrator (`?global_ns` caller) sees every trace regardless of
+%% the trace's owning namespace.
 lookup_trace_in_namespace(Name, Req) ->
-    CallerNs = emqx_dashboard:get_namespace(Req),
     case emqx_trace:get(Name) of
         {ok, Trace} ->
-            case trace_namespace(Trace) of
-                CallerNs -> {ok, Trace};
-                _ -> {error, not_found}
+            case emqx_dashboard:get_namespace(Req) of
+                ?global_ns ->
+                    {ok, Trace};
+                CallerNs ->
+                    case trace_namespace(Trace) of
+                        CallerNs -> {ok, Trace};
+                        _ -> {error, not_found}
+                    end
             end;
         {error, not_found} = E ->
             E
@@ -754,8 +760,15 @@ filter_trace_details(TraceLogDetail) ->
 stream_trace_log(get, #{bindings := #{name := Name}, query_string := Query} = Req) ->
     Position = maps:get(<<"position">>, Query, 0),
     Bytes = maps:get(<<"bytes">>, Query, 1000),
+    case lookup_trace_in_namespace(Name, Req) of
+        {error, not_found} ->
+            ?NOT_FOUND_WITH_MSG(Name);
+        {ok, _Trace} ->
+            do_stream_trace_log(Name, Query, Position, Bytes)
+    end.
+
+do_stream_trace_log(Name, Query, Position, Bytes) ->
     maybe
-        {ok, _} ?= lookup_trace_in_namespace(Name, Req),
         {ok, Node} ?= parse_node(Query, node()),
         {ok, Cont} ?= parse_position(Position),
         case node_stream_trace_log(Node, Name, Cont, Bytes) of
