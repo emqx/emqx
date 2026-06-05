@@ -25,6 +25,7 @@
 %% Authorization
 -export([authorize/2]).
 -export([get_namespace/1]).
+-export([require_global_namespace_filter/2]).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
@@ -339,6 +340,20 @@ get_namespace(#{auth_meta := #{?namespace := Namespace}} = _Request) when is_bin
     Namespace;
 get_namespace(#{} = _Request) ->
     ?global_ns.
+
+%% Minirest filter: reject requests whose authenticated actor is bound to a
+%% non-global namespace. Use on endpoints that operate on global resources
+%% (e.g. cluster-wide client/session/subscription views) and therefore must
+%% not be reachable by namespaced users.
+-spec require_global_namespace_filter(request(), map()) ->
+    {ok, request()} | {403, map()}.
+require_global_namespace_filter(Req, _Meta) ->
+    case get_namespace(Req) of
+        ?global_ns ->
+            {ok, Req};
+        _ ->
+            ?FORBIDDEN(<<"This endpoint is not available to namespaced users">>)
+    end.
 
 listeners() ->
     emqx_conf:get([dashboard, listeners], #{}).
