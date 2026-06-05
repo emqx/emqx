@@ -141,9 +141,11 @@ aliyun_metadata_ip_denied_test() ->
 
 aws_external_metadata_ip_denied_test() ->
     Cfg = default_cfg(),
+    %% 169.254.169.253 is the Amazon Route53 DNS resolver; it falls under
+    %% the link-local 169.254.0.0/16 default deny range.
     ?assertMatch(
-        {error, {denied, _, _, <<"69.254.169.253/32">>}},
-        emqx_utils_ssrf:check_address(<<"69.254.169.253">>, Cfg)
+        {error, {denied, _, _, <<"169.254.0.0/16">>}},
+        emqx_utils_ssrf:check_address(<<"169.254.169.253">>, Cfg)
     ).
 
 aws_ipv6_metadata_denied_test() ->

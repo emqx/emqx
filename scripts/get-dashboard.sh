@@ -26,7 +26,9 @@ if [ -d "$DASHBOARD_PATH/www" ] && [ "$(version)" = "$VERSION" ]; then
 fi
 
 echo "Downloading dashboard from: $DIRECT_DOWNLOAD_URL"
-curl -L --silent --show-error \
+curl -fsSL \
+     --connect-timeout 30 \
+     --max-time 300 \
      --header "Accept: application/octet-stream" \
      --output "${RELEASE_ASSET_FILE}" \
      "$DIRECT_DOWNLOAD_URL"
