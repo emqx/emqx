@@ -14,7 +14,7 @@
 -include_lib("emqx/include/bpapi.hrl").
 
 introduced_in() ->
-    "6.3.0".
+    "6.0.3".
 
 -spec local_top([node()], pos_integer(), emqx_session_buffer_mon:sort_by(), timeout()) ->
     emqx_rpc:multicall_result([emqx_session_buffer_mon:row()]).

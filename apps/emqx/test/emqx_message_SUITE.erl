@@ -55,8 +55,7 @@ t_payload_size(_) ->
     Payload = [<<"payload">>, <<" data">>],
     Msg = emqx_message:make(<<"clientid">>, ?QOS_1, <<"topic">>, Payload),
     ?assertEqual(iolist_size(Payload), emqx_message:payload_size(Msg)),
-    ?assertEqual(0, emqx_message:payload_size(#message{payload = <<>>})),
-    ?assertEqual(0, emqx_message:payload_size(#message{})).
+    ?assertEqual(0, emqx_message:payload_size(#message{payload = <<>>})).
 
 t_timestamp(_) ->
     Msg = emqx_message:make(<<"t">>, <<"payload">>),

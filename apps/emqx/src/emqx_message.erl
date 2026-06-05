@@ -183,11 +183,7 @@ estimate_size(#message{topic = Topic, payload = Payload}) ->
     TopicLengthSize = 2,
     FixedHeaderSize + VarLenSize + TopicLengthSize + TopicSize + PacketIdSize + PayloadSize.
 
--type message_with_optional_payload() :: #message{payload :: emqx_types:payload() | undefined}.
-
--spec payload_size(message_with_optional_payload()) -> non_neg_integer().
-payload_size(#message{payload = undefined}) ->
-    0;
+-spec payload_size(emqx_types:message()) -> non_neg_integer().
 payload_size(#message{payload = Payload}) ->
     iolist_size(Payload).
 
