@@ -70,7 +70,8 @@
     retried_success_get/1,
     success_inc/1,
     success_inc/2,
-    success_get/1
+    success_get/1,
+    actions_executed_inc/3
 ]).
 
 -define(METRICS, [
@@ -117,7 +118,8 @@ events() ->
             received,
             retried_failed,
             retried_success,
-            success
+            success,
+            actions_executed
         ]
     ].
 
@@ -217,7 +219,6 @@ handle_counter_telemetry_event(Event, ID, Val) ->
         late_reply ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'late_reply', Val);
         failed ->
-            emqx_metrics:inc('actions.executed'),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val);
         matched ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'matched', Val);
@@ -225,17 +226,16 @@ handle_counter_telemetry_event(Event, ID, Val) ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'received', Val);
         retried_failed ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val),
-            emqx_metrics:inc('actions.executed'),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried.failed', Val);
         retried_success ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val),
-            emqx_metrics:inc('actions.executed'),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'success', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried.success', Val);
         success ->
-            emqx_metrics:inc('actions.executed'),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'success', Val);
+        actions_executed ->
+            emqx_metrics:inc('actions.executed', Val);
         _ ->
             ok
     end.
@@ -499,3 +499,12 @@ success_inc(ID, Val) ->
 
 success_get(ID) ->
     emqx_metrics_worker:get(?RES_METRICS, ID, 'success').
+
+%% @doc Count of `on_query'/`on_batch_query' invocations.  Batch size, failures
+%% and retries do not affect this count.
+actions_executed_inc(_ID, 0, _ExtraMeta) ->
+    ok;
+actions_executed_inc(ID, Val, ExtraMeta) ->
+    telemetry:execute([?TELEMETRY_PREFIX, actions_executed], #{counter_inc => Val}, ExtraMeta#{
+        resource_id => ID
+    }).

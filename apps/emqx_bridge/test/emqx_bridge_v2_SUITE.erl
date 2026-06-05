@@ -2033,3 +2033,165 @@ t_get_basic_usage_info_0(_TCConfig) ->
         },
         emqx_bridge_v2:get_basic_usage_info()
     ).
+
+-doc """
+In non-batch mode (`batch_size = 1`), `actions.executed` must equal the
+number of messages sent: every per-message completion is one action
+invocation handling one message.  Regression guard for the bug where
+`actions.executed` was incremented once per buffer-worker telemetry flush
+window, falling behind the actual call count when many single-message
+completions were aggregated into one flush event.
+""".
+t_actions_executed_equals_messages_in_single_mode(_Config) ->
+    BridgeName = ?FUNCTION_NAME,
+    BridgeConfig = emqx_utils_maps:deep_merge(
+        bridge_config(),
+        #{<<"resource_opts">> => #{<<"metrics_flush_interval">> => <<"100ms">>}}
+    ),
+    {ok, _} = create(bridge_type(), BridgeName, BridgeConfig),
+    register(registered_process_name(), self()),
+    Executed0 = emqx_metrics:val('actions.executed'),
+    K = 50,
+    lists:foreach(
+        fun(I) ->
+            _ = send_message(
+                bridge_type(),
+                BridgeName,
+                integer_to_binary(I),
+                #{}
+            )
+        end,
+        lists:seq(1, K)
+    ),
+    lists:foreach(
+        fun(_) -> ?assertReceive({query_called, _}, 5_000) end,
+        lists:seq(1, K)
+    ),
+    ?retry(
+        200,
+        20,
+        ?assertEqual(
+            Executed0 + K,
+            emqx_metrics:val('actions.executed')
+        )
+    ),
+    unregister(registered_process_name()),
+    ok = remove(bridge_type(), BridgeName),
+    ok.
+
+-doc """
+Failed executions must still count toward `actions.executed`: the metric
+tracks attempts, not successes.  Sister test for the equality contract in
+non-batch mode, exercising the error path.
+""".
+t_actions_executed_counts_failures(_Config) ->
+    BridgeName = ?FUNCTION_NAME,
+    OnQueryFn = wrap_fun(fun(_Ctx) ->
+        {error, {unrecoverable_error, on_purpose}}
+    end),
+    BridgeConfig = emqx_utils_maps:deep_merge(
+        bridge_config(),
+        #{
+            <<"parameters">> => #{<<"on_query_fn">> => OnQueryFn},
+            <<"resource_opts">> => #{<<"metrics_flush_interval">> => <<"100ms">>}
+        }
+    ),
+    {ok, _} = create(bridge_type(), BridgeName, BridgeConfig),
+    Executed0 = emqx_metrics:val('actions.executed'),
+    K = 20,
+    lists:foreach(
+        fun(I) ->
+            _ = send_message(
+                bridge_type(),
+                BridgeName,
+                integer_to_binary(I),
+                #{}
+            )
+        end,
+        lists:seq(1, K)
+    ),
+    ?retry(
+        200,
+        20,
+        ?assertEqual(
+            Executed0 + K,
+            emqx_metrics:val('actions.executed')
+        )
+    ),
+    ok = remove(bridge_type(), BridgeName),
+    ok.
+
+-doc """
+In batch mode, `actions.executed` counts batches (one per `on_batch_query`
+invocation), so it must be strictly less than the number of messages sent
+whenever any batch is non-trivial.
+""".
+t_actions_messages_exceeds_executed_in_batch_mode(_Config) ->
+    BridgeName = ?FUNCTION_NAME,
+    BatchSize = 20,
+    BridgeConfig = emqx_utils_maps:deep_merge(
+        bridge_config(),
+        #{
+            <<"resource_opts">> => #{
+                <<"batch_size">> => BatchSize,
+                <<"batch_time">> => <<"500ms">>,
+                <<"metrics_flush_interval">> => <<"100ms">>,
+                <<"worker_pool_size">> => 1
+            }
+        }
+    ),
+    {ok, _} = create(bridge_type(), BridgeName, BridgeConfig),
+    register(registered_process_name(), self()),
+    Executed0 = emqx_metrics:val('actions.executed'),
+    K = 200,
+    Parent = self(),
+    %% Fire the sends concurrently so they queue up and form actual batches.
+    _Pids = [
+        spawn(fun() ->
+            _ = send_message(bridge_type(), BridgeName, integer_to_binary(I), #{}),
+            Parent ! sent
+        end)
+     || I <- lists:seq(1, K)
+    ],
+    SeenN = collect_batch_messages(K, 10_000),
+    ?assertEqual(K, SeenN),
+    %% Drain spawn replies.
+    [
+        receive
+            sent -> ok
+        after 5_000 -> ok
+        end
+     || _ <- lists:seq(1, K)
+    ],
+    MinBatches = (K + BatchSize - 1) div BatchSize,
+    ?retry(
+        200,
+        20,
+        begin
+            Executed = emqx_metrics:val('actions.executed') - Executed0,
+            %% At least ceil(K / BatchSize) batches must have been executed;
+            %% possibly more if `batch_time` flushed partial batches.
+            ?assert(
+                Executed >= MinBatches,
+                {expected_at_least, MinBatches, got, Executed}
+            ),
+            %% Strictly less than K, because batching is happening.
+            ?assert(
+                Executed < K,
+                {expected_strictly_less_than, K, got, Executed}
+            )
+        end
+    ),
+    unregister(registered_process_name()),
+    ok = remove(bridge_type(), BridgeName),
+    ok.
+
+collect_batch_messages(Remaining, _Timeout) when Remaining =< 0 ->
+    0;
+collect_batch_messages(Remaining, Timeout) ->
+    receive
+        {batch_called, N, _Msgs} ->
+            N + collect_batch_messages(Remaining - N, Timeout)
+    after Timeout ->
+        0
+    end.
