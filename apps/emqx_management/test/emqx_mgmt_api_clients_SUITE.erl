@@ -974,6 +974,15 @@ t_query_clients_with_fields(Config) ->
         [#{<<"clientid">> => ClientId, <<"username">> => Username}],
         get_clients_all_fields(Auth, "fields=clientid,username")
     ),
+    ?assertEqual(
+        [
+            #{
+                <<"clientid">> => ClientId,
+                <<"total_payload_bytes">> => 0
+            }
+        ],
+        get_clients_all_fields(Auth, "fields=clientid,total_payload_bytes")
+    ),
 
     AllFields = get_clients_all_fields(Auth, "fields=all"),
     DefaultFields = get_clients_all_fields(Auth, ""),

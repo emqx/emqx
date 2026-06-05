@@ -87,6 +87,7 @@
 -export([
     validate_heap_size/1,
     validate_max_packet_size/1,
+    validate_session_buffered_payload_high_watermark/1,
     convert_max_packet_size/2,
     user_lookup_fun_tr/2,
     validate_keepalive_multiplier/1,
@@ -1631,6 +1632,11 @@ fields("sysmon") ->
                 %% but hardly common enough for regular users.
                 #{importance => ?IMPORTANCE_HIDDEN}
             )},
+        {"session",
+            sc(
+                ref("sysmon_session"),
+                #{}
+            )},
         {"mnesia_tm_mailbox_size_alarm_threshold",
             sc(
                 pos_integer(),
@@ -1645,6 +1651,18 @@ fields("sysmon") ->
                 #{
                     default => 500,
                     desc => ?DESC("sysmon_broker_pool_mailbox_size_alarm_threshold")
+                }
+            )}
+    ];
+fields("sysmon_session") ->
+    [
+        {"buffered_payload_high_watermark",
+            sc(
+                bytesize(),
+                #{
+                    default => 0,
+                    validator => fun ?MODULE:validate_session_buffered_payload_high_watermark/1,
+                    desc => ?DESC(sysmon_session_buffered_payload_high_watermark)
                 }
             )}
     ];
@@ -2465,6 +2483,8 @@ desc("sysmon_top") ->
     "This part of the configuration is responsible for monitoring\n"
     " the Erlang processes in the VM. This information can be sent to an external\n"
     " PostgreSQL database. This feature is inactive unless the PostgreSQL sink is configured.";
+desc("sysmon_session") ->
+    "This part of the configuration monitors memory session runtime signals.";
 desc("alarm") ->
     "Settings for the alarms.";
 desc("trace") ->
@@ -3234,6 +3254,11 @@ validate_max_packet_size(Siz) when is_integer(Siz) ->
     ok;
 validate_max_packet_size(_SizStr) ->
     {error, invalid_packet_size}.
+
+validate_session_buffered_payload_high_watermark(Bytes) when is_integer(Bytes), Bytes >= 0 ->
+    ok;
+validate_session_buffered_payload_high_watermark(_Bytes) ->
+    {error, #{cause => session_buffered_payload_high_watermark_out_of_range, minimum => 0}}.
 
 %% This is for backward compatibility.
 %% We used to allow setting 256MB, but in fact the limit is one byte less.

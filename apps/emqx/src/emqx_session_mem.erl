@@ -140,6 +140,7 @@
     inflight_max,
     mqueue_len,
     mqueue_max,
+    total_payload_bytes,
     mqueue_dropped,
     next_pkt_id,
     awaiting_rel_cnt,
@@ -277,6 +278,8 @@ info(mqueue_len, #session{mqueue = MQueue}) ->
     emqx_mqueue:len(MQueue);
 info(mqueue_max, #session{mqueue = MQueue}) ->
     emqx_mqueue:max_len(MQueue);
+info(total_payload_bytes, #session{inflight = Inflight, mqueue = MQueue}) ->
+    inflight_payload_bytes(Inflight) + emqx_mqueue:bytes_size(MQueue);
 info(mqueue_dropped, #session{mqueue = MQueue}) ->
     emqx_mqueue:dropped(MQueue);
 info({mqueue_msgs, PagerParams}, #session{mqueue = MQueue}) ->
@@ -928,6 +931,18 @@ inflight_insert_ts(#message{extra = #{?INFLIGHT_INSERT_TS := Ts}}) -> Ts.
 
 without_inflight_insert_ts(#message{extra = Extra} = Msg) ->
     Msg#message{extra = maps:remove(?INFLIGHT_INSERT_TS, Extra)}.
+
+inflight_payload_bytes(Inflight) ->
+    emqx_inflight:fold(
+        fun
+            (_PacketId, #inflight_data{message = #message{} = Msg}, Acc) ->
+                Acc + emqx_message:payload_size(Msg);
+            (_PacketId, _Data, Acc) ->
+                Acc
+        end,
+        0,
+        Inflight
+    ).
 
 batch_n(Inflight) ->
     case emqx_inflight:max_size(Inflight) of
