@@ -140,6 +140,7 @@ schema("/trace/:name/stop") ->
 schema("/trace/:name/download") ->
     #{
         'operationId' => download_trace_log,
+        filter => fun emqx_dashboard:require_global_namespace_filter/2,
         get => #{
             description => ?DESC(download_trace_log),
             tags => ?TAGS,
@@ -176,6 +177,7 @@ schema("/trace/:name/log_detail") ->
 schema("/trace/:name/log") ->
     #{
         'operationId' => stream_trace_log,
+        filter => fun emqx_dashboard:require_global_namespace_filter/2,
         get => #{
             description => ?DESC(stream_trace_log),
             tags => ?TAGS,

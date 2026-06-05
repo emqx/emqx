@@ -829,6 +829,53 @@ t_download_empty_trace(_Config) ->
     ?assertMatch(#{<<"message">> := <<"Trace is empty">>}, emqx_utils_json:decode(Body)),
     ok.
 
+-doc """
+Checks that namespaced users (administrator or viewer) cannot download trace
+log archives nor stream trace log chunks.
+
+Both endpoints can deliver content that crosses namespace boundaries — the
+trace name lookup is global and the log file on disk is whatever was
+captured. The minirest filter blocks the request before any handler logic
+runs, so this test exercises a non-existent trace name on purpose: a 403
+confirms the gate fires; a 404 would mean we leaked through to handler
+logic.
+""".
+t_namespaced_user_forbidden(_TCConfig) ->
+    Name = <<"sometrace">>,
+    lists:foreach(
+        fun(AuthHeader) ->
+            ?assertMatch({403, _}, download_trace_simple(Name, AuthHeader)),
+            ?assertMatch({403, _}, stream_trace_log_simple(Name, AuthHeader))
+        end,
+        [namespaced_admin_headers(), namespaced_viewer_headers()]
+    ),
+    ok.
+
+namespaced_admin_headers() ->
+    emqx_bridge_v2_testlib:create_namespaced_admin_headers(#{}).
+
+namespaced_viewer_headers() ->
+    emqx_bridge_v2_testlib:create_namespaced_admin_headers(#{
+        params => #{
+            <<"username">> => <<"nsviewer">>,
+            <<"role">> => <<"ns:ns1::viewer">>
+        }
+    }).
+
+download_trace_simple(Name, AuthHeader) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => emqx_mgmt_api_test_util:api_path(["trace", Name, "download"]),
+        auth_header => AuthHeader
+    }).
+
+stream_trace_log_simple(Name, AuthHeader) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => emqx_mgmt_api_test_util:api_path(["trace", Name, "log"]),
+        auth_header => AuthHeader
+    }).
+
 to_rfc3339(Second) ->
     list_to_binary(calendar:system_time_to_rfc3339(Second)).
 
