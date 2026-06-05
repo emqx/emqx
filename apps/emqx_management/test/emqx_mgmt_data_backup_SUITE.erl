@@ -76,6 +76,7 @@ init_per_testcase(TC = t_verify_imported_mnesia_tab_on_cluster, Config) ->
     [{cluster, cluster(TC, Config)} | setup(TC, Config)];
 init_per_testcase(TC, Config) when
     TC =:= t_mnesia_bad_tab_schema;
+    TC =:= t_mnesia_default_restore_keeps_existing_records;
     TC =:= t_mnesia_restore_failure_keeps_existing_records
 ->
     meck:new(emqx_mgmt_data_backup, [passthrough]),
@@ -94,6 +95,7 @@ end_per_testcase(t_verify_imported_mnesia_tab_on_cluster, Config) ->
     cleanup(Config);
 end_per_testcase(TC, Config) when
     TC =:= t_mnesia_bad_tab_schema;
+    TC =:= t_mnesia_default_restore_keeps_existing_records;
     TC =:= t_mnesia_restore_failure_keeps_existing_records
 ->
     cleanup(Config),
@@ -291,15 +293,8 @@ t_cluster_hocon_export_import(Config) ->
     ?assertEqual(Exp, emqx_mgmt_data_backup:import(basename(FileName))),
 
     %% backup data migration test
-    ?assertEqual(
-        lists:sort([<<"key_to_export1">>, <<"key_to_export2">>, <<"test">>]),
-        lists:sort([
-            Name
-         || {emqx_app, Name, _ApiKey, _Hash, _Enable, _Extra, _ExpiredAt, _CreatedAt} <-
-                ets:tab2list(emqx_app)
-        ])
-    ),
-    ?assertEqual({error, not_found}, emqx_mgmt_auth:read(?DEFAULT_APP_ID)),
+    ?assertMatch([_, _, _, _], ets:tab2list(emqx_app)),
+    ?assertMatch({ok, #{name := ?DEFAULT_APP_ID}}, emqx_mgmt_auth:read(?DEFAULT_APP_ID)),
     ?assertMatch(
         {ok, #{name := <<"key_to_export2">>, role := ?ROLE_API_SUPERUSER}},
         emqx_mgmt_auth:read(<<"key_to_export2">>)
@@ -629,7 +624,9 @@ t_verify_imported_mnesia_tab_on_cluster(Config) ->
 
     ?assertEqual(
         {ok, #{db_errors => #{}, config_errors => #{}}},
-        rpc:call(CoreNode1, emqx_mgmt_data_backup, import_local, [AbsFilePath])
+        rpc:call(CoreNode1, emqx_mgmt_data_backup, import_local, [
+            AbsFilePath, #{mnesia_restore_mode => snapshot}
+        ])
     ),
 
     ExportedUsers = lists:sort(mnesia:dirty_all_keys(Tab)),
@@ -683,10 +680,30 @@ t_mnesia_bad_tab_schema(_Config) ->
                 #{data_backup_test => {error, {"Backup traversal failed", different_table_schema}}},
             config_errors => #{}
         }},
-        emqx_mgmt_data_backup:import(basename(FileName))
+        emqx_mgmt_data_backup:import(basename(FileName), #{mnesia_restore_mode => snapshot})
     ),
     ?assertEqual([NewRec], mnesia:dirty_read(data_backup_test, <<"id">>)),
     ?assertEqual([<<"id">>], mnesia:dirty_all_keys(data_backup_test)).
+
+t_mnesia_default_restore_keeps_existing_records(_Config) ->
+    Attributes = [id, name, description],
+    ok = create_test_tab(Attributes),
+    ExportedRec =
+        {data_backup_test, <<"exported">>, <<"exported_name">>, <<"exported_description">>},
+    ok = mria:dirty_write(ExportedRec),
+    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+
+    LocalRec = {data_backup_test, <<"local">>, <<"local_name">>, <<"local_description">>},
+    ok = mria:dirty_write(LocalRec),
+    ?assertEqual(
+        {ok, #{db_errors => #{}, config_errors => #{}}},
+        emqx_mgmt_data_backup:import(basename(FileName))
+    ),
+    ?assertEqual([ExportedRec], mnesia:dirty_read(data_backup_test, <<"exported">>)),
+    ?assertEqual([LocalRec], mnesia:dirty_read(data_backup_test, <<"local">>)),
+    ?assertEqual(
+        [<<"exported">>, <<"local">>], lists:sort(mnesia:dirty_all_keys(data_backup_test))
+    ).
 
 t_mnesia_restore_failure_keeps_existing_records(Config) ->
     Attributes = [id, name, description],
@@ -719,7 +736,7 @@ t_mnesia_restore_failure_keeps_existing_records(Config) ->
             },
             config_errors => #{}
         }},
-        emqx_mgmt_data_backup:import(basename(FileName))
+        emqx_mgmt_data_backup:import(basename(FileName), #{mnesia_restore_mode => snapshot})
     ),
     ?assertEqual([NewRec], mnesia:dirty_read(data_backup_test, <<"id">>)),
     ?assertEqual([<<"id">>], mnesia:dirty_all_keys(data_backup_test)).

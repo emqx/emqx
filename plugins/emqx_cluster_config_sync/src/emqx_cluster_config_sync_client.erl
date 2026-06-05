@@ -247,7 +247,9 @@ default_deps() ->
     #{
         request_fun => fun request/5,
         upload_fun => fun emqx_mgmt_data_backup:upload/2,
-        import_fun => fun emqx_mgmt_data_backup:import/1,
+        import_fun => fun(Filename) ->
+            emqx_mgmt_data_backup:import(Filename, #{mnesia_restore_mode => snapshot})
+        end,
         delete_local_fun => fun emqx_mgmt_data_backup:delete_file/1,
         cancelled_fun => fun() -> false end
     }.
@@ -255,7 +257,7 @@ default_deps() ->
 request(Method, Url, Headers, Body, Timeout) ->
     _ = application:ensure_all_started(ssl),
     _ = application:ensure_all_started(inets),
-    HTTPOpts = [{timeout, Timeout}],
+    HTTPOpts = [{timeout, Timeout}, {autoredirect, false}],
     Opts = [{body_format, binary}],
     Result =
         case Method of

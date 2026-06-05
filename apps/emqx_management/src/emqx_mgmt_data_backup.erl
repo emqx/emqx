@@ -59,6 +59,7 @@
 -define(TAR_SUFFIX, ".tar.gz").
 -define(META_FILENAME, "META.hocon").
 -define(CLUSTER_HOCON_FILENAME, "cluster.hocon").
+-define(DEFAULT_MNESIA_RESTORE_MODE, merge).
 -define(CONF_KEYS, [
     [<<"delayed">>],
     [<<"rewrite">>],
@@ -113,6 +114,10 @@
     mnesia_table_filter => mnesia_table_filter(),
     print_fun => fun((io:format(), [term()]) -> ok),
     raw_conf_transform => fun((raw_config()) -> raw_config())
+}.
+-type import_opts() :: #{
+    mnesia_restore_mode => merge | snapshot,
+    print_fun => fun((io:format(), [term()]) -> ok)
 }.
 -type raw_config() :: #{binary() => any()}.
 -type mnesia_table_filter() :: fun((atom()) -> boolean()).
@@ -309,7 +314,7 @@ and on fail tries to install from backup data directory.
 import_local(BackupFilePath) ->
     import_local(BackupFilePath, ?DEFAULT_OPTS).
 
--spec import_local(file:filename_all(), map()) -> import_res().
+-spec import_local(file:filename_all(), import_opts()) -> import_res().
 import_local(BackupFilePath, Opts) ->
     case import_from_path(BackupFilePath, Opts) of
         {error, not_found} ->
@@ -344,7 +349,7 @@ Backup file should be previously created by `upload/2` function.
 import(BackupFileName) ->
     import(BackupFileName, ?DEFAULT_OPTS).
 
--spec import(file:filename_all(), map()) -> import_res().
+-spec import(file:filename_all(), import_opts()) -> import_res().
 import(BackupFileName, Opts) ->
     maybe
         ok ?= validate_import_allowed(),
@@ -832,7 +837,7 @@ restore_mnesia_tab(BackupDir, MnesiaBackupFileName, Mod, TabName, Opts) ->
     try
         case Validated of
             {ok, #{backup_file := BackupFile}} ->
-                Restored = restore_mnesia_tab_as_snapshot(BackupFile, TabName),
+                Restored = restore_mnesia_tab(BackupFile, TabName, mnesia_restore_mode(Opts)),
                 case Restored of
                     ok ->
                         on_table_imported(Mod, TabName, Opts);
@@ -860,6 +865,21 @@ restore_mnesia_tab(BackupDir, MnesiaBackupFileName, Mod, TabName, Opts) ->
         %% Cleanup files as soon as they are not needed any more for more efficient disk usage
         _ = file:delete(MnesiaBackupFileName)
     end.
+
+mnesia_restore_mode(Opts) ->
+    maps:get(mnesia_restore_mode, Opts, ?DEFAULT_MNESIA_RESTORE_MODE).
+
+restore_mnesia_tab(BackupFile, TabName, merge) ->
+    %% keep_tables is the legacy Data Backup import behavior: backup records are
+    %% merged into existing local tables and local-only records are preserved.
+    case mnesia:restore(BackupFile, [{default_op, keep_tables}]) of
+        {atomic, [TabName]} ->
+            ok;
+        RestoreErr ->
+            {error, RestoreErr}
+    end;
+restore_mnesia_tab(BackupFile, TabName, snapshot) ->
+    restore_mnesia_tab_as_snapshot(BackupFile, TabName).
 
 restore_mnesia_tab_as_snapshot(BackupFile, TabName) ->
     case read_mnesia_backup_records(BackupFile, TabName) of

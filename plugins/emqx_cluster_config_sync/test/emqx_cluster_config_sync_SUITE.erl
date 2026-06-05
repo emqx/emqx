@@ -61,6 +61,7 @@ all() ->
         t_sync_once_reports_import_errors,
         t_sync_once_reports_cleanup_errors,
         t_sync_once_reports_remote_export_errors,
+        t_sync_once_rejects_redirects_without_forwarding_auth,
         t_real_cluster_sync_runs_on_one_core_only,
         t_real_primary_sync_respects_root_keys_and_table_sets,
         t_real_primary_sync_file_backed_schema_registry,
@@ -447,6 +448,18 @@ t_sync_once_reports_remote_export_errors(_Config) ->
         {error, {http_error, post, _, 500, <<"boom">>}},
         emqx_cluster_config_sync_client:sync_once(conf(), Deps)
     ).
+
+t_sync_once_rejects_redirects_without_forwarding_auth(_Config) ->
+    {TargetPid, TargetUrl} = start_redirect_target(),
+    {PrimaryPid, PrimaryUrl} = start_redirect_primary(TargetUrl),
+    try
+        Result = emqx_cluster_config_sync_client:sync_once(conf(PrimaryUrl)),
+        ?assertEqual([], collect_redirect_target_requests(100)),
+        ?assertMatch({error, {http_error, post, _, 302, <<>>}}, Result)
+    after
+        stop_fake_primary(PrimaryPid),
+        stop_fake_primary(TargetPid)
+    end.
 
 t_real_cluster_sync_runs_on_one_core_only(Config) ->
     BackupName = <<"real-cluster-config-sync.tar.gz">>,
@@ -2713,7 +2726,7 @@ install_import_gate(Node) ->
     Parent = self(),
     ?ON(Node, begin
         meck:new(emqx_mgmt_data_backup, [passthrough, no_link]),
-        meck:expect(emqx_mgmt_data_backup, import, fun(Filename) ->
+        meck:expect(emqx_mgmt_data_backup, import, 1, fun(Filename) ->
             Parent ! {import_blocked, self()},
             receive
                 continue_import ->
@@ -2722,6 +2735,16 @@ install_import_gate(Node) ->
                 error(import_gate_timeout)
             end,
             meck:passthrough([Filename])
+        end),
+        meck:expect(emqx_mgmt_data_backup, import, 2, fun(Filename, Opts) ->
+            Parent ! {import_blocked, self()},
+            receive
+                continue_import ->
+                    ok
+            after 30_000 ->
+                error(import_gate_timeout)
+            end,
+            meck:passthrough([Filename, Opts])
         end)
     end),
     ok.
@@ -2835,12 +2858,16 @@ handle_fake_primary_request(Sock, Parent, Opts) ->
     end.
 
 read_http_request(Sock) ->
+    {Method, Path, _HeaderLines, Body} = read_http_request_with_headers(Sock),
+    {Method, Path, Body}.
+
+read_http_request_with_headers(Sock) ->
     {HeaderBin, Body0} = read_http_headers(Sock, <<>>),
     [RequestLine | HeaderLines] = binary:split(HeaderBin, <<"\r\n">>, [global]),
     [MethodBin, Path, _Version] = binary:split(RequestLine, <<" ">>, [global]),
     ContentLength = content_length(HeaderLines),
     Body = read_http_body(Sock, Body0, ContentLength),
-    {method(MethodBin), Path, Body}.
+    {method(MethodBin), Path, HeaderLines, Body}.
 
 read_http_headers(Sock, Acc) ->
     {ok, Bin} = gen_tcp:recv(Sock, 0, 5000),
@@ -2896,6 +2923,75 @@ respond_fake_primary(Sock, delete, _Path, _Parent, Opts) ->
     Body = maps:get(delete_body, Opts),
     send_http_response(Sock, Status, http_reason(Status), Body).
 
+start_redirect_target() ->
+    Parent = self(),
+    {ok, LSock} = gen_tcp:listen(0, [binary, {active, false}, {reuseaddr, true}]),
+    {ok, {_Addr, Port}} = inet:sockname(LSock),
+    Pid = spawn(fun() -> redirect_target_loop(LSock, Parent) end),
+    Url = iolist_to_binary(io_lib:format("http://127.0.0.1:~B/redirect-target", [Port])),
+    {Pid, Url}.
+
+redirect_target_loop(LSock, Parent) ->
+    case gen_tcp:accept(LSock) of
+        {ok, Sock} ->
+            _ = spawn(fun() -> handle_redirect_target_request(Sock, Parent) end),
+            redirect_target_loop(LSock, Parent);
+        {error, closed} ->
+            ok
+    end.
+
+handle_redirect_target_request(Sock, Parent) ->
+    try
+        {Method, Path, HeaderLines, Body} = read_http_request_with_headers(Sock),
+        Auth = header_value(<<"authorization">>, HeaderLines),
+        Parent ! {redirect_target_request, Method, Path, Auth, Body},
+        send_http_response(Sock, 500, http_reason(500), <<"redirect target">>)
+    after
+        gen_tcp:close(Sock)
+    end.
+
+start_redirect_primary(TargetUrl) ->
+    {ok, LSock} = gen_tcp:listen(0, [binary, {active, false}, {reuseaddr, true}]),
+    {ok, {_Addr, Port}} = inet:sockname(LSock),
+    Pid = spawn(fun() -> redirect_primary_loop(LSock, TargetUrl) end),
+    BaseUrl = iolist_to_binary(io_lib:format("http://127.0.0.1:~B/api/v5/", [Port])),
+    {Pid, BaseUrl}.
+
+redirect_primary_loop(LSock, TargetUrl) ->
+    case gen_tcp:accept(LSock) of
+        {ok, Sock} ->
+            _ = spawn(fun() -> handle_redirect_primary_request(Sock, TargetUrl) end),
+            redirect_primary_loop(LSock, TargetUrl);
+        {error, closed} ->
+            ok
+    end.
+
+handle_redirect_primary_request(Sock, TargetUrl) ->
+    try
+        {_Method, _Path, _HeaderLines, _Body} = read_http_request_with_headers(Sock),
+        send_http_redirect(Sock, TargetUrl)
+    after
+        gen_tcp:close(Sock)
+    end.
+
+header_value(HeaderName, HeaderLines) ->
+    LowerName = string:lowercase(binary_to_list(HeaderName)),
+    lists:foldl(
+        fun(Line, Acc) ->
+            case {Acc, binary:split(Line, <<":">>)} of
+                {undefined, [Name, Value]} ->
+                    case string:lowercase(binary_to_list(Name)) of
+                        LowerName -> string:trim(Value);
+                        _ -> undefined
+                    end;
+                _ ->
+                    Acc
+            end
+        end,
+        undefined,
+        HeaderLines
+    ).
+
 maybe_wait_fake_primary_download(Parent, #{download_wait := true}) ->
     Parent ! {fake_primary_download_blocked, self()},
     receive
@@ -2933,6 +3029,14 @@ send_http_response(Sock, Status, Reason, Body) ->
     ],
     ok = gen_tcp:send(Sock, Response).
 
+send_http_redirect(Sock, Location) ->
+    Response = [
+        <<"HTTP/1.1 302 Found\r\nLocation: ">>,
+        Location,
+        <<"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n">>
+    ],
+    ok = gen_tcp:send(Sock, Response).
+
 wait_fake_primary_requests(Count) ->
     wait_fake_primary_requests(Count, []).
 
@@ -2963,4 +3067,15 @@ assert_no_fake_primary_request(Timeout) ->
             error({unexpected_fake_primary_request, Method, Path, Body})
     after Timeout ->
         ok
+    end.
+
+collect_redirect_target_requests(Timeout) ->
+    collect_redirect_target_requests(Timeout, []).
+
+collect_redirect_target_requests(Timeout, Acc) ->
+    receive
+        {redirect_target_request, Method, Path, Auth, Body} ->
+            collect_redirect_target_requests(0, [{Method, Path, Auth, Body} | Acc])
+    after Timeout ->
+        lists:reverse(Acc)
     end.
