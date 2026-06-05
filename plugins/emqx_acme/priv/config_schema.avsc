@@ -140,8 +140,8 @@
     },
     {
       "name": "acc_key",
-      "type": ["null", "string"],
-      "default": null,
+      "type": "string",
+      "default": "",
       "$ui": {
         "component": "input",
         "flex": 12,
@@ -152,8 +152,8 @@
     },
     {
       "name": "acc_key_password",
-      "type": ["null", "string"],
-      "default": null,
+      "type": "string",
+      "default": "",
       "$ui": {
         "component": "input",
         "flex": 12,
