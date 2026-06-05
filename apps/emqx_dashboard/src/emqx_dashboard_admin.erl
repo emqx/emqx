@@ -485,10 +485,21 @@ effective_scopes_of_admin(#?ADMIN{username = Username, role = Role}) ->
         Scopes when is_list(Scopes) -> Scopes
     end.
 
-role_default_scopes(?ROLE_SUPERUSER) ->
-    ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES;
-role_default_scopes(_) ->
-    ?GENERIC_SCOPES.
+role_default_scopes(Role) ->
+    %% Parse the role to distinguish global administrator from
+    %% namespaced administrator and non-admin roles.
+    case emqx_dashboard_rbac:parse_dashboard_role(Role) of
+        {ok, #{?role := ?ROLE_SUPERUSER, ?namespace := ?global_ns}} ->
+            ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES;
+        {ok, #{?role := ?ROLE_SUPERUSER, ?namespace := _}} ->
+            %% Namespaced administrator: restricted subset.
+            %% RBAC blocks namespaced admins from mutating system,
+            %% license, gateways, etc. — giving those scopes would
+            %% be misleading.
+            ?NS_ADMIN_ALLOWED_SCOPES;
+        _ ->
+            ?GENERIC_SCOPES
+    end.
 
 -spec set_user_scopes(dashboard_username(), [binary()]) ->
     {ok, ok} | {error, term()}.

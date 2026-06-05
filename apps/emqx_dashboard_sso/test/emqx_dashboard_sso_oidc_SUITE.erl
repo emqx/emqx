@@ -894,3 +894,138 @@ t_jwks_content_type_suffix(TCConfig) ->
             ?assertMatch({_, _}, lists:keyfind("location", 1, Headers))
         end
     ).
+
+-doc """
+Discovery doc that ships a Cache-Control header with `max-age=0' (as Kanidm
+does) must drive the worker to a healthy state: the SSO login redirect must
+work and the OIDC sup must still hold its children.
+""".
+t_kanidm_cache_control_max_age_zero(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    Node = node(),
+    {ok, {Port, _Pid}} = emqx_utils_http_test_server:start_link(random, "/[...]"),
+    on_exit(fun() -> ok = emqx_utils_http_test_server:stop() end),
+    ok = emqx_utils_http_test_server:set_handler(fun oidc_kanidm_shape_handler/2),
+
+    Issuer = host(Port) ++ ?OIDC_PATH_PREFIX,
+    ProviderParams = oidc_provider_params(Issuer),
+    ?assertMatch({200, _}, create_backend(Node, ProviderParams, #{})),
+
+    ?retry(
+        20,
+        100,
+        begin
+            {302, Headers, _Body} = login_sso(Node, #{}),
+            ?assertMatch({_, _}, lists:keyfind("location", 1, Headers))
+        end
+    ),
+    ?assertMatch([_ | _], supervisor:which_children(emqx_dashboard_sso_oidc_sup)),
+    ok.
+
+oidc_content_type_handler(
+    #{method := <<"GET">>, path := <<?OIDC_PATH_PREFIX, "/.well-known/openid-configuration">>} =
+        Req0,
+    State
+) ->
+    Port = cowboy_req:port(Req0),
+    Issuer = iolist_to_binary(host(Port) ++ ?OIDC_PATH_PREFIX),
+    Body = emqx_utils_json:encode(#{
+        issuer => Issuer,
+        jwks_uri => <<Issuer/binary, "/jwks">>,
+        authorization_endpoint => <<Issuer/binary, "/authorize">>,
+        scopes_supported => [<<"openid">>],
+        response_types_supported => [<<"code">>],
+        subject_types_supported => [<<"public">>],
+        id_token_signing_alg_values_supported => [<<"RS256">>]
+    }),
+    Req = cowboy_req:reply(
+        200,
+        #{<<"content-type">> => <<"application/json">>},
+        Body,
+        Req0
+    ),
+    {ok, Req, State};
+oidc_content_type_handler(
+    #{method := <<"GET">>, path := <<?OIDC_PATH_PREFIX, "/jwks">>} = Req0,
+    State
+) ->
+    Req = cowboy_req:reply(
+        200,
+        #{<<"content-type">> => <<"application/jwk-set+json; charset=utf-8">>},
+        emqx_utils_json:encode(#{keys => []}),
+        Req0
+    ),
+    {ok, Req, State};
+oidc_content_type_handler(Req0, State) ->
+    Req = cowboy_req:reply(404, #{}, <<>>, Req0),
+    {ok, Req, State}.
+
+%% Mirrors a Kanidm-style discovery response: ES256 signing, `none' auth on the
+%% revocation / introspection endpoints, and a `Cache-Control: max-age=0' on
+%% the discovery (and JWKS) response.
+oidc_kanidm_shape_handler(
+    #{method := <<"GET">>, path := <<?OIDC_PATH_PREFIX, "/.well-known/openid-configuration">>} =
+        Req0,
+    State
+) ->
+    Port = cowboy_req:port(Req0),
+    Issuer = iolist_to_binary(host(Port) ++ ?OIDC_PATH_PREFIX),
+    %% `userinfo_endpoint' is intentionally omitted: oidcc's strict parser
+    %% requires it to be HTTPS, and our test server is plain HTTP. The
+    %% regression we are exercising is in the cache-control handling, not
+    %% the OAuth callback flow, so the OpenID redirect path is enough.
+    Body = emqx_utils_json:encode(#{
+        issuer => Issuer,
+        jwks_uri => <<Issuer/binary, "/jwks">>,
+        authorization_endpoint => <<Issuer/binary, "/authorize">>,
+        token_endpoint => <<Issuer/binary, "/token">>,
+        revocation_endpoint => <<Issuer/binary, "/revoke">>,
+        introspection_endpoint => <<Issuer/binary, "/introspect">>,
+        scopes_supported => [<<"groups">>, <<"openid">>, <<"profile">>],
+        response_types_supported => [<<"code">>],
+        response_modes_supported => [<<"query">>, <<"fragment">>],
+        grant_types_supported => [
+            <<"authorization_code">>,
+            <<"urn:ietf:params:oauth:grant-type:token-exchange">>
+        ],
+        subject_types_supported => [<<"public">>],
+        id_token_signing_alg_values_supported => [<<"ES256">>],
+        token_endpoint_auth_methods_supported =>
+            [<<"client_secret_basic">>, <<"client_secret_post">>],
+        display_values_supported => [<<"page">>],
+        claim_types_supported => [<<"normal">>],
+        claims_parameter_supported => false,
+        request_parameter_supported => false,
+        request_uri_parameter_supported => false,
+        require_request_uri_registration => false,
+        code_challenge_methods_supported => [<<"S256">>],
+        revocation_endpoint_auth_methods_supported => [<<"none">>],
+        introspection_endpoint_auth_methods_supported => [<<"none">>]
+    }),
+    Req = cowboy_req:reply(
+        200,
+        #{
+            <<"content-type">> => <<"application/json">>,
+            <<"cache-control">> => <<"max-age=0, no-store">>
+        },
+        Body,
+        Req0
+    ),
+    {ok, Req, State};
+oidc_kanidm_shape_handler(
+    #{method := <<"GET">>, path := <<?OIDC_PATH_PREFIX, "/jwks">>} = Req0,
+    State
+) ->
+    Req = cowboy_req:reply(
+        200,
+        #{
+            <<"content-type">> => <<"application/jwk-set+json">>,
+            <<"cache-control">> => <<"max-age=0, no-store">>
+        },
+        emqx_utils_json:encode(#{keys => []}),
+        Req0
+    ),
+    {ok, Req, State};
+oidc_kanidm_shape_handler(Req0, State) ->
+    Req = cowboy_req:reply(404, #{}, <<>>, Req0),
+    {ok, Req, State}.

@@ -693,17 +693,41 @@ validate_scope_names(Scopes) ->
             {error, iolist_to_binary([<<"Unknown scope name(s): ">>, Names])}
     end.
 
-validate_role_scope_compat(?ROLE_SUPERUSER, _Scopes) ->
-    ok;
-validate_role_scope_compat(_NonAdminRole, Scopes) ->
-    case [S || S <- Scopes, lists:member(S, ?ADMIN_ONLY_SCOPES)] of
-        [] ->
+validate_role_scope_compat(Role, Scopes) ->
+    %% Parse the role to extract the base role name and namespace,
+    %% so that namespaced administrator roles (e.g.
+    %% "ns:test::administrator") are correctly recognised.
+    case emqx_dashboard_rbac:parse_dashboard_role(Role) of
+        {ok, #{?role := ?ROLE_SUPERUSER, ?namespace := ?global_ns}} ->
             ok;
-        Conflicts ->
-            Names = lists:join(<<", ">>, Conflicts),
-            Msg = iolist_to_binary([
-                <<"Non-administrator users cannot hold admin-only scopes: ">>, Names
-            ]),
+        {ok, #{?role := ?ROLE_SUPERUSER, ?namespace := _}} ->
+            %% Namespaced administrator: only the restricted subset
+            %% is allowed.  RBAC is the primary gate — most mutating
+            %% operations on non-whitelisted endpoints are already
+            %% blocked by do_check_rbac/3 (catch-all returns false).
+            %% Scope check is defense-in-depth.
+            case [S || S <- Scopes, not lists:member(S, ?NS_ADMIN_ALLOWED_SCOPES)] of
+                [] ->
+                    ok;
+                Forbidden ->
+                    Names = lists:join(<<", ">>, Forbidden),
+                    {error,
+                        iolist_to_binary([
+                            <<"Namespaced administrators cannot hold scopes: ">>, Names
+                        ])}
+            end;
+        {ok, _} ->
+            case [S || S <- Scopes, lists:member(S, ?ADMIN_ONLY_SCOPES)] of
+                [] ->
+                    ok;
+                Conflicts ->
+                    Names = lists:join(<<", ">>, Conflicts),
+                    Msg = iolist_to_binary([
+                        <<"Non-administrator users cannot hold admin-only scopes: ">>, Names
+                    ]),
+                    {error, Msg}
+            end;
+        {error, Msg} ->
             {error, Msg}
     end.
 

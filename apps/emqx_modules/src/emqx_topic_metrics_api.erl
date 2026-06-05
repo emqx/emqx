@@ -49,7 +49,7 @@ namespace() -> undefined.
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
-scopes() -> ?SCOPE_CONNECTIONS.
+scopes() -> ?SCOPE_MONITORING.
 
 paths() ->
     [

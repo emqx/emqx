@@ -157,6 +157,60 @@
         font-size: 12px;
         color: var(--color-text-secondary);
       }
+
+      .listener {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 14px;
+        border: 1px solid var(--color-border-normal);
+        border-radius: var(--radius-small);
+        margin-bottom: 8px;
+        background: var(--color-bg-soft);
+      }
+
+      .listener:last-child { margin-bottom: 0; }
+
+      .listener .meta {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 0;
+      }
+
+      .listener .title {
+        font-weight: 600;
+        color: var(--color-title-primary);
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+        flex-wrap: wrap;
+      }
+
+      .listener .title .id {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        color: var(--color-text-secondary);
+        font-weight: 400;
+        font-size: 13px;
+      }
+
+      .listener .details {
+        color: var(--color-text-secondary);
+        font-size: 13px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .listener .details code {
+        font-size: 12.5px;
+      }
+
+      .listener .actions {
+        flex-shrink: 0;
+      }
     </style>
   </head>
   <body>
@@ -197,6 +251,17 @@
       </div>
 
       <div class="card">
+        <h2>Bound Listeners</h2>
+        <p class="hint" style="margin-top:0;margin-bottom:12px">
+          Per-listener Apply binds the listener to this plugin's bundle and enables it.
+          Idempotent — clicking again on a listener already bound here is a no-op.
+          Disabled until a certificate has been issued.
+        </p>
+        <div id="listenerList"></div>
+        <div id="listenerStatus" class="status" hidden></div>
+      </div>
+
+      <div class="card">
         <h2>Dashboard Listeners</h2>
         <dl class="kv">
           <dt>Current login scheme</dt>
@@ -224,6 +289,8 @@
         context: base + "/context",
         issue: base + "/issue",
         disableHttp: base + "/disable_dashboard_http",
+        listeners: base + "/listeners",
+        applyListener: base + "/apply_listener",
       };
 
       const els = {
@@ -244,7 +311,14 @@
         disableHint: document.getElementById("disableHint"),
         issueStatus: document.getElementById("issueStatus"),
         disableStatus: document.getElementById("disableStatus"),
+        listenerList: document.getElementById("listenerList"),
+        listenerStatus: document.getElementById("listenerStatus"),
       };
+
+      // Tracks whether a certificate currently exists — used to disable
+      // Apply Certs buttons that would otherwise point listeners at
+      // nonexistent bundle files. Refreshed by refreshStatus().
+      let certExists = false;
 
       function setBox(el, kind, message) {
         if (!message) {
@@ -270,11 +344,22 @@
         return { ok: res.ok, status: res.status, body };
       }
 
-      async function postJSON(url) {
-        const res = await fetch(url, { method: "POST", cache: "no-store" });
+      async function postJSON(url, payload) {
+        const init = { method: "POST", cache: "no-store" };
+        if (payload !== undefined) {
+          init.headers = { "content-type": "application/json" };
+          init.body = JSON.stringify(payload);
+        }
+        const res = await fetch(url, init);
         let body = null;
         try { body = await res.json(); } catch (_) {}
         return { ok: res.ok, status: res.status, body };
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
+        }[c]));
       }
 
       // Updated on every refreshStatus() so the click handler can drive
@@ -290,7 +375,8 @@
         const s = r.body || {};
         els.domains.textContent = (s.domains || []).join(", ") || "(none)";
         els.bundle.textContent = s.cert_bundle_name || "—";
-        if (s.certificate && s.certificate.exists) {
+        certExists = !!(s.certificate && s.certificate.exists);
+        if (certExists) {
           const c = s.certificate;
           els.cert.textContent = c.expiry ? "expires " + c.expiry : "issued (expiry unknown)";
           els.chainPath.textContent = c.chain_path || "—";
@@ -362,8 +448,89 @@
         }
       }
 
+      // Render one row per listener returned by GET /listeners. Each row
+      // owns its own Apply Certs button — clicking POSTs /apply_listener
+      // and re-renders. refreshStatus() must have run first so certExists
+      // is current (used to gate the buttons).
+      function renderListeners(listeners) {
+        if (!listeners || !listeners.length) {
+          els.listenerList.innerHTML =
+            '<p class="hint">No SSL/WSS or dashboard HTTPS listeners found.</p>';
+          return;
+        }
+        const html = listeners.map((l, idx) => {
+          const details = [];
+          if (l.bind === null) {
+            details.push('<span class="pill warn">not configured</span>');
+          } else {
+            details.push('<code>' + escapeHtml(l.bind) + '</code>');
+            details.push(l.enabled
+              ? '<span class="pill ok">enabled</span>'
+              : '<span class="pill warn">disabled</span>');
+          }
+          if (l.bound_to_bundle) {
+            details.push('<span class="pill ok">using this bundle</span>');
+          } else if (l.current_bundle) {
+            details.push('<span class="pill warn">using bundle "'
+              + escapeHtml(l.current_bundle) + '"</span>');
+          }
+          const btnDisabled = !certExists ? "disabled" : "";
+          return (
+            '<div class="listener">' +
+              '<div class="meta">' +
+                '<div class="title">' +
+                  escapeHtml(l.label) +
+                  ' <span class="id">' + escapeHtml(l.id) + '</span>' +
+                '</div>' +
+                '<div class="details">' + details.join("") + '</div>' +
+              '</div>' +
+              '<div class="actions">' +
+                '<button class="btn primary apply-btn" data-idx="' + idx +
+                '" data-id="' + escapeHtml(l.id) + '" ' + btnDisabled + '>' +
+                'Apply Certs' +
+                '</button>' +
+              '</div>' +
+            '</div>'
+          );
+        }).join("");
+        els.listenerList.innerHTML = html;
+        for (const btn of els.listenerList.querySelectorAll(".apply-btn")) {
+          btn.addEventListener("click", onApplyClick);
+        }
+      }
+
+      async function refreshListeners() {
+        const r = await getJSON(urls.listeners);
+        if (!r.ok) {
+          els.listenerList.innerHTML =
+            '<p class="hint">Failed to load listeners (HTTP ' + r.status + ').</p>';
+          return;
+        }
+        renderListeners((r.body && r.body.listeners) || []);
+      }
+
+      async function onApplyClick(ev) {
+        const btn = ev.currentTarget;
+        const id = btn.getAttribute("data-id");
+        btn.disabled = true;
+        setBox(els.listenerStatus, "", "Applying to " + id + "…");
+        const r = await postJSON(urls.applyListener, { id });
+        if (r.ok) {
+          setBox(els.listenerStatus, "ok", "Applied to " + id + ".");
+        } else {
+          setBox(els.listenerStatus, "err",
+            "Failed to apply to " + id + ": " +
+              ((r.body && (r.body.message || r.body.code)) || ("HTTP " + r.status)));
+        }
+        // Reflect post-apply state in the row's pills + dashboard pills.
+        await Promise.all([refreshListeners(), refreshContext()]);
+      }
+
       async function refresh() {
-        await Promise.all([refreshStatus(), refreshContext()]);
+        // refreshStatus must complete before refreshListeners, because the
+        // latter reads certExists to decide whether to enable the buttons.
+        await refreshStatus();
+        await Promise.all([refreshContext(), refreshListeners()]);
       }
 
       els.btnRefresh.addEventListener("click", refresh);
