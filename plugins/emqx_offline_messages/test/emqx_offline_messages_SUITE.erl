@@ -8,6 +8,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -93,6 +94,77 @@ t_resource_health_status_formats_results(_Config) ->
         {error, <<"Resource Backend health check failed", _/binary>>},
         emqx_offline_messages_utils:resource_health_status(<<"Backend">>, <<"broken">>)
     ).
+
+t_redis_restored_subscription_replay_is_consumed(_Config) ->
+    Self = self(),
+    ClientId = <<"client1">>,
+    Topic = <<"offline/redis/distinct/client1">>,
+    SubTable = <<"mqtt:sub:", ClientId/binary>>,
+    Context = #{
+        subscription_key_prefix => <<"mqtt:sub">>,
+        message_key_prefix => <<"mqtt:msg">>,
+        message_ttl => 7200
+    },
+    ok = meck:new(emqx_resource, [non_strict]),
+    ok = meck:new(emqx_metrics_worker, [non_strict]),
+    ok = meck:expect(emqx_metrics_worker, inc, fun(_, _, _) -> ok end),
+    ok = meck:expect(emqx_resource, simple_sync_query, fun
+        (<<"offline_messages_redis">>, {cmd, [<<"HGETALL">>, SubTable0]}) when
+            SubTable0 =:= SubTable
+        ->
+            {ok, [Topic, <<"1">>]};
+        (<<"offline_messages_redis">>, {cmd, [<<"HSET">>, _, _, _]}) ->
+            {ok, 1};
+        (<<"offline_messages_redis">>, {cmd, [<<"ZRANGE">>, _, 0, -1, <<"WITHSCORES">>]}) ->
+            Self ! redis_replay,
+            {ok, []}
+    end),
+
+    ok = emqx_offline_messages_redis:on_client_connected(#{clientid => ClientId}, #{}, Context),
+    ?assertReceive({subscribe, [{Topic, #{qos := 1}}]}),
+    ok = emqx_offline_messages_redis:on_session_subscribed(
+        #{clientid => ClientId}, Topic, #{qos => 1, is_new => false}, Context
+    ),
+    ?assertReceive(redis_replay),
+    ok = emqx_offline_messages_redis:on_session_subscribed(
+        #{clientid => ClientId}, Topic, #{qos => 1, is_new => false}, Context
+    ),
+    ?assertNotReceive(redis_replay, 100).
+
+t_mysql_restored_subscription_replay_is_consumed(_Config) ->
+    Self = self(),
+    ClientId = <<"client1">>,
+    Topic = <<"offline/mysql/distinct/client1">>,
+    Context = #{
+        statements => #{
+            select_subscriptions_sql => {select_subscriptions_sql, []},
+            insert_subscription_sql => {insert_subscription_sql, []},
+            select_message_sql => {select_message_sql, []}
+        }
+    },
+    ok = meck:new(emqx_resource, [non_strict]),
+    ok = meck:new(emqx_metrics_worker, [non_strict]),
+    ok = meck:expect(emqx_metrics_worker, inc, fun(_, _, _) -> ok end),
+    ok = meck:expect(emqx_resource, simple_sync_query, fun
+        (<<"offline_messages_mysql">>, {sql, select_subscriptions_sql, [], 1000}) ->
+            {ok, [<<"topic">>, <<"qos">>], [[Topic, 1]]};
+        (<<"offline_messages_mysql">>, {sql, insert_subscription_sql, [], 1000}) ->
+            ok;
+        (<<"offline_messages_mysql">>, {sql, select_message_sql, [], 1000}) ->
+            Self ! mysql_replay,
+            {ok, [], []}
+    end),
+
+    ok = emqx_offline_messages_mysql:on_client_connected(#{clientid => ClientId}, #{}, Context),
+    ?assertReceive({subscribe, [{Topic, #{qos := 1}}]}),
+    ok = emqx_offline_messages_mysql:on_session_subscribed(
+        #{clientid => ClientId}, Topic, #{qos => 1, is_new => false}, Context
+    ),
+    ?assertReceive(mysql_replay),
+    ok = emqx_offline_messages_mysql:on_session_subscribed(
+        #{clientid => ClientId}, Topic, #{qos => 1, is_new => false}, Context
+    ),
+    ?assertNotReceive(mysql_replay, 100).
 
 t_redis_connector_batches_queries(_Config) ->
     ok = meck:new(emqx_redis, [non_strict]),

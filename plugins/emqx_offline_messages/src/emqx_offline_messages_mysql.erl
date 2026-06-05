@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_offline_messages_mysql).
@@ -142,6 +142,7 @@ on_client_connected(
         case sync_query(Sql, Params) of
             {ok, Columns, Rows} ->
                 Subscriptions = to_subscriptions(Columns, Rows),
+                ok = emqx_offline_messages_utils:mark_restored_subscriptions(Subscriptions),
                 ok = emqx_offline_messages_utils:induce_subscriptions(Subscriptions),
                 ok;
             {error, Reason} ->
@@ -164,8 +165,16 @@ on_session_subscribed(
         topic => Topic,
         subopts => SubOpts
     }),
+    ShouldReplay = should_replay_messages(Topic, SubOpts),
     ok = insert_subscription(ClientId, Topic, SubOpts, Context),
-    ok = fetch_and_deliver_messages(ClientId, Topic, Context).
+    case ShouldReplay of
+        true -> fetch_and_deliver_messages(ClientId, Topic, Context);
+        false -> ok
+    end.
+
+should_replay_messages(Topic, SubOpts) ->
+    emqx_offline_messages_utils:consume_restored_subscription(Topic) orelse
+        maps:get(is_new, SubOpts, true).
 
 insert_subscription(
     ClientId,
