@@ -2020,10 +2020,24 @@ t_list_clients_v2_bad_query_string_parameters(Config) ->
 
 -doc """
 Checks that we forbid namespaced users from accessing this API.
+
+Covers both the namespaced administrator and the namespaced viewer role, and
+exercises both read-only and mutating endpoints, since the minirest filter is
+wired on every method (GET / DELETE / POST / PUT) of `/clients*` and on
+`/sessions_count`.
 """.
 t_namespaced_user_forbidden(TCConfig0) ->
-    AuthHeader = namespaced_admin_headers(),
-    TCConfig = [{api_auth_header, AuthHeader} | TCConfig0],
+    lists:foreach(
+        fun(AuthHeader) ->
+            TCConfig = [{api_auth_header, AuthHeader} | TCConfig0],
+            assert_namespaced_user_forbidden(TCConfig)
+        end,
+        [namespaced_admin_headers(), namespaced_viewer_headers()]
+    ),
+    ok.
+
+assert_namespaced_user_forbidden(TCConfig) ->
+    %% Read-only endpoints.
     ?assertMatch({403, _}, list_v2_request_simple([], TCConfig)),
     ?assertMatch({403, _}, list_request_simple([], TCConfig)),
     ClientId = <<"some_client">>,
@@ -2033,6 +2047,26 @@ t_namespaced_user_forbidden(TCConfig0) ->
     ?assertMatch({403, _}, get_client_mqueue_messages_simple(ClientId, TCConfig)),
     ?assertMatch({403, _}, get_client_inflight_messages_simple(ClientId, TCConfig)),
     ?assertMatch({403, _}, get_session_count_simple(TCConfig)),
+    %% Mutating endpoints — verify the filter blocks these too. Using a
+    %% bogus clientid: if the filter passed, we'd see 404; 403 confirms the
+    %% gate fires before any handler logic runs.
+    SubBody = #{topic => <<"t/1">>, qos => 0},
+    BulkSubBody = [SubBody],
+    UnsubBody = #{topic => <<"t/1">>},
+    BulkUnsubBody = [UnsubBody],
+    ?assertMatch({403, _}, kickout_client_request_simple(ClientId, TCConfig)),
+    ?assertMatch({403, _}, bulk_kickout_request_simple([ClientId], TCConfig)),
+    ?assertMatch({403, _}, subscribe_request_simple(ClientId, SubBody, TCConfig)),
+    ?assertMatch(
+        {403, _}, bulk_subscribe_request_simple(ClientId, BulkSubBody, TCConfig)
+    ),
+    ?assertMatch({403, _}, unsubscribe_request_simple(ClientId, UnsubBody, TCConfig)),
+    ?assertMatch(
+        {403, _}, bulk_unsubscribe_request_simple(ClientId, BulkUnsubBody, TCConfig)
+    ),
+    ?assertMatch(
+        {403, _}, set_keepalive_request_simple(ClientId, #{interval => 60}, TCConfig)
+    ),
     ok.
 
 t_cursor_serde_prop(_Config) ->
@@ -2216,6 +2250,32 @@ bulk_unsubscribe_request(ClientId, Config, Body) ->
     Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "unsubscribe", "bulk"]),
     simplify_result(request(post, Path, Body, Config)).
 
+kickout_client_request_simple(ClientId, Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId]),
+    simplify_result(request(delete, Path, [], Config)).
+
+bulk_kickout_request_simple(ClientIds, Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["clients", "kickout", "bulk"]),
+    simplify_result(request(post, Path, ClientIds, Config)).
+
+subscribe_request_simple(ClientId, Body, Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "subscribe"]),
+    simplify_result(request(post, Path, Body, Config)).
+
+bulk_subscribe_request_simple(ClientId, Body, Config) ->
+    bulk_subscribe_request(ClientId, Config, Body).
+
+unsubscribe_request_simple(ClientId, Body, Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "unsubscribe"]),
+    simplify_result(request(post, Path, Body, Config)).
+
+bulk_unsubscribe_request_simple(ClientId, Body, Config) ->
+    bulk_unsubscribe_request(ClientId, Config, Body).
+
+set_keepalive_request_simple(ClientId, Body, Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "keepalive"]),
+    simplify_result(request(put, Path, Body, Config)).
+
 simplify_result(Res) ->
     case Res of
         {error, {{_, Status, _}, _, Body}} ->
@@ -2394,3 +2454,11 @@ stop_and_commit(Client) ->
 
 namespaced_admin_headers() ->
     emqx_bridge_v2_testlib:create_namespaced_admin_headers(#{}).
+
+namespaced_viewer_headers() ->
+    emqx_bridge_v2_testlib:create_namespaced_admin_headers(#{
+        params => #{
+            <<"username">> => <<"nsviewer">>,
+            <<"role">> => <<"ns:ns1::viewer">>
+        }
+    }).

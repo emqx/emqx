@@ -348,11 +348,21 @@ t_list_with_invalid_match_topic(Config) ->
 
 -doc """
 Checks that we forbid namespaced users from accessing this API.
+
+Covers both the namespaced administrator and the namespaced viewer role: the
+minirest filter blocks every non-global request regardless of role.
 """.
 t_namespaced_user_forbidden(_TCConfig) ->
-    AuthHeader = namespaced_admin_headers(),
-    emqx_bridge_v2_testlib:set_auth_header_getter(fun() -> AuthHeader end),
-    ?assertMatch({403, _}, get_subs_simple(#{})),
+    lists:foreach(
+        fun(AuthHeaderFun) ->
+            emqx_bridge_v2_testlib:set_auth_header_getter(AuthHeaderFun),
+            ?assertMatch({403, _}, get_subs_simple(#{}))
+        end,
+        [
+            fun() -> namespaced_admin_headers() end,
+            fun() -> namespaced_viewer_headers() end
+        ]
+    ),
     ok.
 
 request_json(Method, Query, Headers) when is_list(Query) ->
@@ -365,6 +375,14 @@ path() ->
 
 namespaced_admin_headers() ->
     emqx_bridge_v2_testlib:create_namespaced_admin_headers(#{}).
+
+namespaced_viewer_headers() ->
+    emqx_bridge_v2_testlib:create_namespaced_admin_headers(#{
+        params => #{
+            <<"username">> => <<"nsviewer">>,
+            <<"role">> => <<"ns:ns1::viewer">>
+        }
+    }).
 
 get_subs_simple(_Opts) ->
     URL = path(),
