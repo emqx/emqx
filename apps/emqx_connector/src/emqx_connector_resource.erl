@@ -163,6 +163,7 @@ update(Namespace, Type, Name, {OldConf, Conf0}, Opts) ->
     %% without restarting the connector.
     %%
     Conf = Conf0#{connector_type => bin(Type), connector_name => bin(Name)},
+    TypeBin = bin(Type),
     case emqx_utils_maps:if_only_to_toggle_enable(OldConf, Conf0) of
         false ->
             ?SLOG(info, #{
@@ -193,6 +194,10 @@ update(Namespace, Type, Name, {OldConf, Conf0}, Opts) ->
             _ =
                 case maps:get(enable, Conf, true) of
                     true ->
+                        %% Re-validate the connector (incl. SSRF policy) before
+                        %% re-enabling; disabling is always allowed so admins can
+                        %% always take down a now-denied connector.
+                        _ = parse_confs(TypeBin, Name, Conf),
                         restart(Namespace, Type, Name);
                     false ->
                         stop(Namespace, Type, Name)
@@ -276,6 +281,13 @@ remove(Namespace, Type, Name) ->
 parse_confs(
     <<"mqtt">> = Type,
     Name,
+    #{server := Server} = Conf
+) ->
+    _ = check_ssrf(parse_mqtt_host(Server)),
+    insert_hookpoints(Type, Name, Conf);
+parse_confs(
+    <<"mqtt">> = Type,
+    Name,
     Conf
 ) ->
     insert_hookpoints(Type, Name, Conf);
@@ -350,6 +362,12 @@ check_ssrf(Host) ->
     case emqx_utils_ssrf:check_host(Host) of
         ok -> ok;
         {error, Err} -> invalid_data(emqx_utils_ssrf:format_error(Err))
+    end.
+
+parse_mqtt_host(Server) ->
+    case emqx_schema:parse_server(Server, #{default_port => 1883}) of
+        #{hostname := Host} -> Host;
+        _ -> undefined
     end.
 
 -spec invalid_data(binary()) -> no_return().
