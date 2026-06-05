@@ -1,6 +1,6 @@
 {
   "type": "record",
-  "name": "ExtendedConfig",
+  "name": "ClusterConfigSyncConfig",
   "fields": [
     {
       "name": "primary",
@@ -15,8 +15,8 @@
             "$ui": {
               "component": "input",
               "required": true,
-              "label": "Primary API Base URL",
-              "description": "Primary Dashboard API base URL, for example https://primary.example.com:18083/api/v5."
+              "label": "$primary_base_url_label",
+              "description": "$primary_base_url_desc"
             }
           },
           {
@@ -26,8 +26,8 @@
             "$ui": {
               "component": "input",
               "required": true,
-              "label": "API Key",
-              "description": "Primary cluster API key."
+              "label": "$primary_api_key_label",
+              "description": "$primary_api_key_desc"
             }
           },
           {
@@ -37,8 +37,8 @@
             "$ui": {
               "component": "input-password",
               "required": true,
-              "label": "API Secret",
-              "description": "Primary cluster API secret."
+              "label": "$primary_api_secret_label",
+              "description": "$primary_api_secret_desc"
             }
           },
           {
@@ -54,8 +54,8 @@
                   "$ui": {
                     "component": "switch",
                     "required": true,
-                    "label": "Enable TLS Options",
-                    "description": "Enable custom TLS options for HTTPS calls to the primary cluster."
+                    "label": "$primary_ssl_enable_label",
+                    "description": "$primary_ssl_enable_desc"
                   }
                 },
                 {
@@ -65,8 +65,8 @@
                   "$ui": {
                     "component": "input",
                     "required": false,
-                    "label": "Server Name Indication",
-                    "description": "TLS SNI hostname. Use disable to omit SNI."
+                    "label": "$primary_ssl_sni_label",
+                    "description": "$primary_ssl_sni_desc"
                   }
                 },
                 {
@@ -76,8 +76,8 @@
                   "$ui": {
                     "component": "select",
                     "required": false,
-                    "label": "Verify Server Certificate",
-                    "description": "Use verify_peer with cacertfile for private or self-signed Dashboard certificates.",
+                    "label": "$primary_ssl_verify_label",
+                    "description": "$primary_ssl_verify_desc",
                     "options": [
                       { "label": "verify_none", "value": "verify_none" },
                       { "label": "verify_peer", "value": "verify_peer" }
@@ -91,8 +91,8 @@
                   "$ui": {
                     "component": "input",
                     "required": false,
-                    "label": "CA Certificate File",
-                    "description": "Path to the trusted CA certificate file used when verify is verify_peer."
+                    "label": "$primary_ssl_cacertfile_label",
+                    "description": "$primary_ssl_cacertfile_desc"
                   }
                 },
                 {
@@ -102,8 +102,8 @@
                   "$ui": {
                     "component": "input",
                     "required": false,
-                    "label": "Client Certificate File",
-                    "description": "Path to the optional client certificate file."
+                    "label": "$primary_ssl_certfile_label",
+                    "description": "$primary_ssl_certfile_desc"
                   }
                 },
                 {
@@ -113,8 +113,8 @@
                   "$ui": {
                     "component": "input",
                     "required": false,
-                    "label": "Client Key File",
-                    "description": "Path to the optional client private key file."
+                    "label": "$primary_ssl_keyfile_label",
+                    "description": "$primary_ssl_keyfile_desc"
                   }
                 }
               ]
@@ -157,8 +157,8 @@
             "$ui": {
               "component": "input",
               "required": true,
-              "label": "Interval",
-              "description": "Synchronization interval."
+              "label": "$sync_interval_label",
+              "description": "$sync_interval_desc"
             }
           },
           {
@@ -178,8 +178,8 @@
             "$ui": {
               "component": "input-array",
               "required": true,
-              "label": "Root Keys",
-              "description": "Configuration root keys to export from the primary cluster. Supported values: connectors, actions, sources, rule_engine, listeners, schema_registry, authentication, authorization. When rule_engine is selected, include its dependent connectors, actions, sources, and schema_registry roots unless they already exist on the secondary cluster."
+              "label": "$sync_root_keys_label",
+              "description": "$sync_root_keys_desc"
             }
           },
           {
@@ -196,8 +196,8 @@
             "$ui": {
               "component": "input-array",
               "required": false,
-              "label": "Table Sets",
-              "description": "Mnesia table sets to export and replace on the secondary cluster. Supported values: banned, builtin_authn, builtin_authz, builtin_retainer, psk, mt. Set to an empty list for configuration-only synchronization. Primary API-key export does not include dashboard_users or api_keys."
+              "label": "$sync_table_sets_label",
+              "description": "$sync_table_sets_desc"
             }
           },
           {
@@ -207,8 +207,8 @@
             "$ui": {
               "component": "input",
               "required": true,
-              "label": "Request Timeout",
-              "description": "HTTP request timeout for calls to the primary cluster."
+              "label": "$sync_timeout_label",
+              "description": "$sync_timeout_desc"
             }
           },
           {
@@ -218,8 +218,8 @@
             "$ui": {
               "component": "switch",
               "required": true,
-              "label": "Delete Remote Backup",
-              "description": "Delete the exported backup file from the primary cluster after synchronization."
+              "label": "$sync_delete_remote_backup_label",
+              "description": "$sync_delete_remote_backup_desc"
             }
           },
           {
@@ -229,8 +229,8 @@
             "$ui": {
               "component": "switch",
               "required": true,
-              "label": "Delete Local Backup",
-              "description": "Delete the uploaded local backup file after import."
+              "label": "$sync_delete_local_backup_label",
+              "description": "$sync_delete_local_backup_desc"
             }
           }
         ]

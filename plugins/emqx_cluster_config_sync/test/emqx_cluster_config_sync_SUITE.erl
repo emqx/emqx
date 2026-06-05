@@ -45,6 +45,7 @@ all() ->
         t_enabled,
         t_health_reports_missing_primary_config,
         t_interval_ms,
+        t_config_change_triggers_immediate_sync,
         t_sync_runs_without_enable_or_role,
         t_sync_runs_async_and_health_check_does_not_block,
         t_sync_does_not_reenter_while_worker_running,
@@ -56,7 +57,9 @@ all() ->
         t_sync_skips_when_cluster_lock_is_held,
         t_config_change_cancels_running_worker_gracefully,
         t_config_change_reports_cancel_timeout,
-        t_terminate_waits_for_worker_cleanup,
+        t_terminate_kills_worker_after_cancel_timeout,
+        t_config_schema_has_unique_record_name,
+        t_config_i18n_is_populated,
         t_sync_once_uses_default_table_sets,
         t_sync_once_requires_primary_api_config,
         t_sync_once_exports_downloads_imports_and_cleans_up,
@@ -119,22 +122,29 @@ t_interval_ms(_Config) ->
     ?assertEqual(60000, emqx_cluster_config_sync:interval_ms(sync_config(<<"1m">>))),
     ?assertEqual(300000, emqx_cluster_config_sync:interval_ms(sync_config(<<"invalid">>))).
 
+t_config_change_triggers_immediate_sync(_Config) ->
+    setup_core_node(),
+    setup_counting_sync(),
+    _Pid = start_test_server(),
+
+    ok = emqx_cluster_config_sync:on_config_changed(#{}, conf()),
+
+    _SyncPid = assert_sync_started().
+
 t_sync_runs_without_enable_or_role(_Config) ->
     setup_core_node(),
     setup_counting_sync(),
-    Pid = start_test_server(),
+    _Pid = start_test_server(),
     ok = emqx_cluster_config_sync:on_config_changed(#{}, remove_enable_role(conf())),
 
-    Pid ! sync,
     _SyncPid = assert_sync_started().
 
 t_sync_runs_async_and_health_check_does_not_block(_Config) ->
     setup_core_node(),
     setup_blocking_sync(),
-    Pid = start_test_server(),
+    _Pid = start_test_server(),
     ok = emqx_cluster_config_sync:on_config_changed(#{}, conf()),
 
-    Pid ! sync,
     SyncPid = assert_sync_started(),
     Parent = self(),
     HealthCheck = spawn(fun() ->
@@ -157,7 +167,6 @@ t_sync_does_not_reenter_while_worker_running(_Config) ->
     Pid = start_test_server(),
     ok = emqx_cluster_config_sync:on_config_changed(#{}, conf()),
 
-    Pid ! sync,
     SyncPid = assert_sync_started(),
     Pid ! sync,
     assert_no_sync_started(100),
@@ -236,10 +245,9 @@ t_sync_skips_when_cluster_lock_is_held(_Config) ->
 t_config_change_cancels_running_worker_gracefully(_Config) ->
     setup_core_node(),
     setup_cancellable_sync(),
-    Pid = start_test_server(),
+    _Pid = start_test_server(),
     ok = emqx_cluster_config_sync:on_config_changed(#{}, conf()),
 
-    Pid ! sync,
     SyncPid = assert_sync_started(),
     Ref = erlang:monitor(process, SyncPid),
     ChangedConf = conf(<<"http://changed-primary:18083/api/v5">>),
@@ -252,10 +260,9 @@ t_config_change_cancels_running_worker_gracefully(_Config) ->
 t_config_change_reports_cancel_timeout(_Config) ->
     setup_core_node(),
     setup_cancel_ignoring_sync(),
-    Pid = start_test_server(),
+    _Pid = start_test_server(),
     ok = emqx_cluster_config_sync:on_config_changed(#{}, conf()),
 
-    Pid ! sync,
     SyncPid = assert_sync_started(),
     Ref = erlang:monitor(process, SyncPid),
     try
@@ -269,26 +276,27 @@ t_config_change_reports_cancel_timeout(_Config) ->
         assert_sync_down(Ref, SyncPid)
     end.
 
-t_terminate_waits_for_worker_cleanup(_Config) ->
-    ?assertMatch(#{shutdown := infinity}, emqx_cluster_config_sync:child_spec()),
+t_terminate_kills_worker_after_cancel_timeout(_Config) ->
+    ?assertMatch(#{shutdown := 200}, emqx_cluster_config_sync:child_spec()),
     setup_core_node(),
-    setup_shutdown_cancellable_sync(),
+    setup_cancel_ignoring_sync(),
     Pid = start_test_server(),
     ok = emqx_cluster_config_sync:on_config_changed(#{}, conf()),
 
-    Pid ! sync,
     SyncPid = assert_sync_started(),
     Ref = erlang:monitor(process, SyncPid),
-    Parent = self(),
-    Stopper = spawn(fun() ->
-        Parent ! {server_stopped, gen_server:stop(Pid, shutdown, 5000)}
-    end),
-    assert_sync_cancel_requested(SyncPid),
-    assert_no_server_stopped(Stopper, 100),
-    SyncPid ! finish_cleanup,
-    assert_sync_cleanup(SyncPid),
-    assert_sync_down(Ref, SyncPid),
-    assert_server_stopped(Stopper).
+
+    ?assertEqual(ok, gen_server:stop(Pid, shutdown, 1000)),
+    assert_sync_down(Ref, SyncPid).
+
+t_config_schema_has_unique_record_name(_Config) ->
+    Schema = read_plugin_json("config_schema.avsc"),
+    ?assertEqual(<<"ClusterConfigSyncConfig">>, maps:get(<<"name">>, Schema)).
+
+t_config_i18n_is_populated(_Config) ->
+    I18n = read_plugin_json("config_i18n.json"),
+    ?assert(maps:size(I18n) > 0),
+    ?assertMatch(#{<<"en">> := _, <<"zh">> := _}, maps:get(<<"$primary_base_url_label">>, I18n)).
 
 t_sync_once_uses_default_table_sets(_Config) ->
     Self = self(),
@@ -589,6 +597,10 @@ t_real_cluster_sync_runs_on_one_core_only(Config) ->
         SyncConf = conf(PrimaryUrl),
         ok = ?ON(SelectedNode, emqx_cluster_config_sync:on_config_changed(#{}, SyncConf)),
         ok = ?ON(OtherNode, emqx_cluster_config_sync:on_config_changed(#{}, SyncConf)),
+
+        Requests0 = wait_fake_primary_requests(3),
+        ?assertEqual([post, get, delete], [Method || {Method, _Path, _Body} <- Requests0]),
+        wait_imported_rule(Nodes),
 
         trigger_sync(OtherNode),
         assert_no_fake_primary_request(500),
@@ -908,11 +920,10 @@ t_real_sync_cancelled_during_import_finishes_and_reports_success(Config) ->
     try
         [SelectedNode, OtherNode] = select_cluster_sync_nodes(Nodes),
         SyncConf = conf(PrimaryUrl),
-        ok = configure_sync_nodes([SelectedNode, OtherNode], SyncConf),
         ok = install_import_gate(SelectedNode),
         ?check_trace(
             begin
-                trigger_sync(SelectedNode),
+                ok = configure_sync_nodes([SelectedNode, OtherNode], SyncConf),
                 Requests = wait_fake_primary_requests(2),
                 ?assertEqual([post, get], [Method || {Method, _Path, _Body} <- Requests]),
                 ImportPid = wait_import_blocked(),
@@ -1341,22 +1352,6 @@ setup_cancel_ignoring_sync() ->
         end
     end).
 
-setup_shutdown_cancellable_sync() ->
-    Parent = self(),
-    meck:new(emqx_cluster_config_sync_client, [passthrough]),
-    meck:expect(emqx_cluster_config_sync_client, sync_once, fun(
-        _Conf, #{cancelled_fun := Cancelled}
-    ) ->
-        Parent ! {sync_started, self()},
-        wait_cancelled(Cancelled),
-        Parent ! {sync_cancel_requested, self()},
-        receive
-            finish_cleanup ->
-                Parent ! {sync_cleanup, self()},
-                {error, cancelled}
-        end
-    end).
-
 wait_cancelled(Cancelled) ->
     case Cancelled() of
         true ->
@@ -1391,6 +1386,11 @@ ensure_plugin_app_loaded() ->
         ok -> ok;
         {error, {already_loaded, emqx_cluster_config_sync}} -> ok
     end.
+
+read_plugin_json(Filename) ->
+    Path = filename:join([code:priv_dir(emqx_cluster_config_sync), Filename]),
+    {ok, Bin} = file:read_file(Path),
+    emqx_utils_json:decode(Bin).
 
 cleanup_test_artifacts() ->
     cleanup_test_server(),
@@ -1459,24 +1459,6 @@ assert_worker_alive(Ref, Pid) ->
             error({worker_stopped_before_import_finished, Pid, Reason})
     after 100 ->
         ok
-    end.
-
-assert_no_server_stopped(Stopper, Timeout) ->
-    receive
-        {server_stopped, Result} ->
-            error({server_stopped_before_worker_cleanup, Stopper, Result})
-    after Timeout ->
-        ok
-    end.
-
-assert_server_stopped(Stopper) ->
-    receive
-        {server_stopped, ok} ->
-            ok;
-        {server_stopped, Result} ->
-            error({server_stop_failed, Stopper, Result})
-    after 1000 ->
-        error({server_not_stopped, Stopper})
     end.
 
 assert_no_sync_started(Timeout) ->

@@ -45,8 +45,10 @@
 -define(DEFAULT_INTERVAL_MS, 300000).
 -ifdef(TEST).
 -define(CANCEL_TIMEOUT_MS, 100).
+-define(SHUTDOWN_TIMEOUT_MS, 200).
 -else.
 -define(CANCEL_TIMEOUT_MS, ?TIMEOUT).
+-define(SHUTDOWN_TIMEOUT_MS, 20000).
 -endif.
 
 -record(worker, {
@@ -87,7 +89,7 @@ child_spec() ->
         type => worker,
         modules => [?MODULE],
         restart => permanent,
-        shutdown => infinity
+        shutdown => ?SHUTDOWN_TIMEOUT_MS
     }.
 
 %%------------------------------------------------------------------------------
@@ -227,12 +229,14 @@ apply_config(Conf0, State0) ->
     State1 = State0#state{config = Conf},
     State2 = cancel_sync(State1),
     State3 = cancel_running_worker(State2),
-    schedule_sync_if_idle(State3).
+    schedule_sync_if_idle(State3, 0).
 
 schedule_sync(State = #state{config = Conf}) ->
+    schedule_sync(State, interval_ms(Conf)).
+
+schedule_sync(State = #state{config = Conf}, Interval) ->
     case should_schedule(Conf) of
         true ->
-            Interval = interval_ms(Conf),
             State#state{timer = erlang:send_after(Interval, self(), ?SYNC)};
         false ->
             State
@@ -263,6 +267,14 @@ cancel_worker_and_wait(Worker = #worker{pid = Pid, mref = MRef}) ->
     receive
         {'DOWN', MRef, process, Pid, _Reason} ->
             ok
+    after ?CANCEL_TIMEOUT_MS ->
+        exit(Pid, kill),
+        receive
+            {'DOWN', MRef, process, Pid, _Reason} ->
+                ok
+        after 1000 ->
+            ok
+        end
     end.
 
 cancel_running_worker(State = #state{worker = undefined}) ->
@@ -289,9 +301,9 @@ clear_worker(State) ->
     _ = cancel_timer(State#state.cancel_timer),
     State#state{worker = undefined, cancel_timer = undefined}.
 
-schedule_sync_if_idle(State = #state{worker = undefined}) ->
-    schedule_sync(State);
-schedule_sync_if_idle(State = #state{worker = #worker{}}) ->
+schedule_sync_if_idle(State, Interval) when State#state.worker =:= undefined ->
+    schedule_sync(State, Interval);
+schedule_sync_if_idle(State, _Interval) ->
     State.
 
 should_schedule(Conf) ->
