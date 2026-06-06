@@ -376,13 +376,13 @@ t_disable_swagger_json(_Config) ->
 t_cli(_Config) ->
     [mria:dirty_delete(?ADMIN, Admin) || Admin <- mnesia:dirty_all_keys(?ADMIN)],
     emqx_dashboard_cli:admins(["add", "username", "password_ww2"]),
-    [#?ADMIN{username = <<"username">>, pwdhash = <<Salt:4/binary, Hash/binary>>}] =
+    [#?ADMIN{username = <<"username">>, pwdhash = PwdHash}] =
         emqx_dashboard_admin:lookup_user(<<"username">>),
-    ?assertEqual(Hash, crypto:hash(sha256, <<Salt/binary, <<"password_ww2">>/binary>>)),
+    ?assertEqual(ok, emqx_dashboard_admin:verify_hash(<<"password_ww2">>, PwdHash)),
     emqx_dashboard_cli:admins(["passwd", "username", "new_password"]),
-    [#?ADMIN{username = <<"username">>, pwdhash = <<Salt1:4/binary, Hash1/binary>>}] =
+    [#?ADMIN{username = <<"username">>, pwdhash = PwdHash1}] =
         emqx_dashboard_admin:lookup_user(<<"username">>),
-    ?assertEqual(Hash1, crypto:hash(sha256, <<Salt1/binary, <<"new_password">>/binary>>)),
+    ?assertEqual(ok, emqx_dashboard_admin:verify_hash(<<"new_password">>, PwdHash1)),
     emqx_dashboard_cli:admins(["del", "username"]),
     [] = emqx_dashboard_admin:lookup_user(<<"username">>),
     emqx_dashboard_cli:admins(["add", "admin1", "pass_lkdfkd1"]),
