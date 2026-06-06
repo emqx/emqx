@@ -110,7 +110,16 @@
     ?SCOPE_MONITORING,
     ?SCOPE_DATA_INTEGRATION,
     ?SCOPE_ACCESS_CONTROL,
-    ?SCOPE_SYSTEM
+    ?SCOPE_SYSTEM,
+    %% Allow read-only cluster info such as `GET /nodes`.  RBAC blocks
+    %% the mutating endpoints in this scope (cluster join/leave,
+    %% eviction, node rebalance) for namespaced callers.
+    ?SCOPE_CLUSTER_OPERATIONS,
+    %% Allow read-only license info (`GET /license`,
+    %% `GET /license/setting`, `GET /license/session_hwm_history`).
+    %% RBAC blocks `POST /license` and `PUT /license/setting` for
+    %% namespaced callers, so writes still return 403.
+    ?SCOPE_LICENSE
 ]).
 -define(NS_ADMIN_LOGIN_SCOPES, [
     ?SCOPE_USER_MGMT,
