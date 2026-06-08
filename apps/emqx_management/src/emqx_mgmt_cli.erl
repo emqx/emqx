@@ -789,7 +789,9 @@ trace_name({_Type, Filter}) ->
 -define(DEFAULT_TRACE_DURATION, "1800").
 
 traces(["list"]) ->
-    {200, List} = emqx_mgmt_api_trace:trace(get, []),
+    %% The CLI runs as global administrator; an empty request map signals
+    %% the global namespace to the handler (no auth_meta = global).
+    {200, List} = emqx_mgmt_api_trace:trace(get, #{}),
     case List of
         [] ->
             emqx_ctl:print("Cluster Trace is empty~n", []);

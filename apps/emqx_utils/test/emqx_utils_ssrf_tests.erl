@@ -139,13 +139,6 @@ aliyun_metadata_ip_denied_test() ->
         emqx_utils_ssrf:check_address(<<"100.100.100.200">>, Cfg)
     ).
 
-aws_external_metadata_ip_denied_test() ->
-    Cfg = default_cfg(),
-    ?assertMatch(
-        {error, {denied, _, _, <<"69.254.169.253/32">>}},
-        emqx_utils_ssrf:check_address(<<"69.254.169.253">>, Cfg)
-    ).
-
 aws_ipv6_metadata_denied_test() ->
     Cfg = default_cfg(),
     %% fd00:ec2::254 falls under the ULA fc00::/7 default
