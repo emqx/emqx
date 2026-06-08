@@ -45,13 +45,14 @@ end_per_suite(Config) ->
 init_per_testcase(t_namespaced_user_cross_ns_isolation, Config) ->
     ok = snabbkaffe:start_trace(),
     emqx_trace:clear(),
-    %% The trace API filter rejects namespaced calls unless the namespace
-    %% is registered as a managed one via the
-    %% `namespace.resource_pre_create' hook (normally serviced by emqx_mt,
-    %% which this suite intentionally does not start). Install a tiny
-    %% local callback that marks `ns1' as existing for the duration of
-    %% this test. Harmless on branches whose trace API does not consult
-    %% the hook.
+    %% Starting with release-61, the trace API rejects namespaced calls
+    %% unless the namespace is registered as a managed one via the
+    %% `namespace.resource_pre_create' hook (normally serviced by
+    %% emqx_mt, which this suite intentionally does not start). Install
+    %% a tiny local callback that marks `ns1' as existing for the
+    %% duration of this test. The hookpoint itself was registered in
+    %% release-61 too, so we cannot install this on release-60 (the
+    %% test passes there without it anyway).
     ok = emqx_hooks:add(
         'namespace.resource_pre_create',
         {?MODULE, mark_ns1_managed, []},
