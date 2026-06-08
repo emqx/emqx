@@ -8,6 +8,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).

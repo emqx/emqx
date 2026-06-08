@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_offline_messages_utils).
@@ -12,10 +12,14 @@
     check_config/2,
     deliver_messages/2,
     induce_subscriptions/1,
+    mark_restored_subscriptions/1,
+    consume_restored_subscription/1,
     need_persist_message/2,
     topic_filters/1,
     resource_health_status/2
 ]).
+
+-define(RESTORED_SUBSCRIPTIONS, {?MODULE, restored_subscriptions}).
 
 fix_ssl_config(#{<<"ssl">> := SslConfig0} = RawConfig) ->
     SslConfig = maps:filter(
@@ -75,6 +79,39 @@ induce_subscriptions([]) ->
     ok;
 induce_subscriptions(Subscriptions) ->
     erlang:send(self(), {subscribe, Subscriptions}),
+    ok.
+
+mark_restored_subscriptions(Subscriptions) ->
+    Topics = maps:from_list([{Topic, true} || {Topic, _SubOpts} <- Subscriptions]),
+    case map_size(Topics) of
+        0 ->
+            ok;
+        _ ->
+            Existing = erlang:get(?RESTORED_SUBSCRIPTIONS),
+            erlang:put(?RESTORED_SUBSCRIPTIONS, maps:merge(to_map(Existing), Topics)),
+            ok
+    end.
+
+consume_restored_subscription(Topic) ->
+    Restored = to_map(erlang:get(?RESTORED_SUBSCRIPTIONS)),
+    case maps:take(Topic, Restored) of
+        {true, Restored1} ->
+            store_restored_subscriptions(Restored1),
+            true;
+        error ->
+            false
+    end.
+
+to_map(Map) when is_map(Map) ->
+    Map;
+to_map(_Other) ->
+    #{}.
+
+store_restored_subscriptions(Restored) when map_size(Restored) =:= 0 ->
+    erlang:erase(?RESTORED_SUBSCRIPTIONS),
+    ok;
+store_restored_subscriptions(Restored) ->
+    erlang:put(?RESTORED_SUBSCRIPTIONS, Restored),
     ok.
 
 topic_filters(ConfigRaw) ->
