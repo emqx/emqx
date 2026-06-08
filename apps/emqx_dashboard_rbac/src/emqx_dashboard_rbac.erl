@@ -43,6 +43,9 @@
 -define(TRACE_API(METHOD, FN), ?API(emqx_mgmt_api_trace, METHOD, FN)).
 -define(PUBLISH_API(METHOD, FN), ?API(emqx_mgmt_api_publish, METHOD, FN)).
 -define(DATA_BACKUP_API(METHOD, FN), ?API(emqx_mgmt_api_data_backup, METHOD, FN)).
+-define(CLIENTS_API(METHOD, FN), ?API(emqx_mgmt_api_clients, METHOD, FN)).
+-define(RETAINER_API(METHOD, FN), ?API(emqx_retainer_api, METHOD, FN)).
+-define(DELAYED_API(METHOD, FN), ?API(emqx_delayed_api, METHOD, FN)).
 
 %%=====================================================================
 %% API
@@ -199,6 +202,32 @@ parse_namespace_tag(NsTag) ->
 do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := ?global_ns}, _, _) ->
     %% Global administrator
     true;
+do_check_rbac(#{?namespace := Namespace}, _, ?CLIENTS_API(get, Fn)) when
+    is_binary(Namespace) andalso
+        (Fn == mqueue_msgs orelse Fn == inflight_msgs)
+->
+    %% Whole-endpoint visibility policy belongs in RBAC. These endpoints
+    %% expose MQTT payloads for arbitrary clients and cannot be safely scoped
+    %% by a generic route filter.
+    false;
+do_check_rbac(#{?namespace := Namespace}, _, ?RETAINER_API(Method, Fn)) when
+    is_binary(Namespace) andalso
+        (Fn == '/messages' orelse Fn == with_topic_warp) andalso
+        (Method == get orelse Method == delete)
+->
+    %% The retained message store is global. Listing, fetching, or deleting by
+    %% topic would expose or mutate messages outside the caller's namespace.
+    false;
+do_check_rbac(#{?namespace := Namespace}, _, ?DELAYED_API(Method, Fn)) when
+    is_binary(Namespace) andalso
+        ((Fn == delayed_messages andalso Method == get) orelse
+            (Fn == delayed_message andalso (Method == get orelse Method == delete)) orelse
+            (Fn == delayed_message_topic andalso Method == delete))
+->
+    %% Delayed message records are global and include MQTT payloads. Keep the
+    %% coarse global-only endpoint decision here; filters should resolve or
+    %% validate a namespace, not define the static RBAC surface.
+    false;
 do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, #{method := get}) ->
     %% Namespaced administrator; It's fine for such admins to `GET` anything, even outside
     %% their namespace.  Namespaces are mostly to avoid accidentally mutating the wrong
