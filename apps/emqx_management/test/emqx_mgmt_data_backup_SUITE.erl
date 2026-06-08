@@ -72,7 +72,10 @@ init_per_testcase(TC = t_import_on_cluster, Config) ->
         {ok, #{changed => [], root_key => gateway}}
     ),
     [{cluster, cluster(TC, Config)} | setup(TC, Config)];
-init_per_testcase(TC = t_verify_imported_mnesia_tab_on_cluster, Config) ->
+init_per_testcase(TC, Config) when
+    TC =:= t_verify_imported_mnesia_tab_on_cluster;
+    TC =:= t_verify_merged_mnesia_tab_on_cluster
+->
     [{cluster, cluster(TC, Config)} | setup(TC, Config)];
 init_per_testcase(TC, Config) when
     TC =:= t_mnesia_bad_tab_schema;
@@ -90,7 +93,10 @@ end_per_testcase(t_import_on_cluster, Config) ->
     cleanup(Config),
     meck:unload(emqx_mgmt_listeners_conf),
     meck:unload(emqx_gateway_conf);
-end_per_testcase(t_verify_imported_mnesia_tab_on_cluster, Config) ->
+end_per_testcase(TC, Config) when
+    TC =:= t_verify_imported_mnesia_tab_on_cluster;
+    TC =:= t_verify_merged_mnesia_tab_on_cluster
+->
     emqx_cth_cluster:stop(?config(cluster, Config)),
     cleanup(Config);
 end_per_testcase(TC, Config) when
@@ -659,6 +665,43 @@ t_verify_imported_mnesia_tab_on_cluster(Config) ->
         )
      || N <- [CoreNode1, CoreNode2, ReplicantNode]
     ].
+
+t_verify_merged_mnesia_tab_on_cluster(Config) ->
+    UsersToExport = users(<<"merge_user_to_export_">>),
+    UsersBeforeImport = users(<<"merge_user_before_import_">>),
+    [{ok, _} = emqx_dashboard_admin:add_user(U, U, ?ROLE_SUPERUSER, U) || U <- UsersToExport],
+    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+    {ok, Cwd} = file:get_cwd(),
+    AbsFilePath = filename:join(Cwd, FileName),
+    {_Name, [Tab]} = emqx_dashboard_admin:backup_tables(),
+    ExportedUsers = lists:sort(mnesia:dirty_all_keys(Tab)),
+
+    [CoreNode1, CoreNode2, ReplicantNode] = ?config(cluster, Config),
+    [
+        {ok, _} = rpc:call(CoreNode1, emqx_dashboard_admin, add_user, [U, U, ?ROLE_SUPERUSER, U])
+     || U <- UsersBeforeImport
+    ],
+
+    ?assertEqual(
+        {ok, #{db_errors => #{}, config_errors => #{}}},
+        rpc:call(CoreNode1, emqx_mgmt_data_backup, import_local, [AbsFilePath])
+    ),
+
+    MergedUsers = lists:sort(ExportedUsers ++ UsersBeforeImport),
+    [
+        ?assertEqual(
+            MergedUsers,
+            lists:sort(rpc:call(N, mnesia, dirty_all_keys, [Tab]))
+        )
+     || N <- [CoreNode1, CoreNode2]
+    ],
+
+    %% Give some extra time to replicant to import data...
+    timer:sleep(3000),
+    ?assertEqual(
+        MergedUsers,
+        lists:sort(rpc:call(ReplicantNode, mnesia, dirty_all_keys, [Tab]))
+    ).
 
 backup_tables() ->
     {<<"mocked_test">>, [data_backup_test]}.
