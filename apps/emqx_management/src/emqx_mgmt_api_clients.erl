@@ -1282,6 +1282,7 @@ unsubscribe_batch(#{clientid := ClientId, topics := Topics}) ->
 client_msgs_schema(OpId, Desc, ContExample, RespSchema) ->
     #{
         'operationId' => OpId,
+        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         get => #{
             description => Desc,
             tags => ?TAGS,

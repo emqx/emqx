@@ -386,7 +386,7 @@ t_ns_admin_can_hold_allowed_scopes(_Config) ->
 
 %% POST a namespaced administrator without an explicit `scopes'
 %% field — must materialise the restricted role defaults
-%% (5 common + 2 login-only), not the global-admin full set.
+%% (7 common + 2 login-only), not the global-admin full set.
 t_ns_admin_gets_restricted_role_default_scopes(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
@@ -400,26 +400,29 @@ t_ns_admin_gets_restricted_role_default_scopes(_Config) ->
         post, api_path(["users"]), auth_header(Token), Body
     ),
     EffectiveScopes = emqx_dashboard_admin:effective_scopes_of(?NS_CONTROL_USER),
-    %% Must have the restricted subset (5 common).
+    %% Must have the restricted subset (7 common).
     ?assert(lists:member(?SCOPE_CONNECTIONS, EffectiveScopes)),
     ?assert(lists:member(?SCOPE_MONITORING, EffectiveScopes)),
     ?assert(lists:member(?SCOPE_DATA_INTEGRATION, EffectiveScopes)),
     ?assert(lists:member(?SCOPE_ACCESS_CONTROL, EffectiveScopes)),
     ?assert(lists:member(?SCOPE_SYSTEM, EffectiveScopes)),
+    %% Read-only cluster info (e.g. `GET /nodes`) and license info
+    %% (`GET /license*`).  RBAC denies the mutating endpoints in both
+    %% groups for namespaced callers.
+    ?assert(lists:member(?SCOPE_CLUSTER_OPERATIONS, EffectiveScopes)),
+    ?assert(lists:member(?SCOPE_LICENSE, EffectiveScopes)),
     %% Must have the two allowed login-only scopes.
     ?assert(lists:member(?SCOPE_USER_MGMT, EffectiveScopes)),
     ?assert(lists:member(?SCOPE_API_KEY_MGMT, EffectiveScopes)),
-    %% Must NOT have license, gateways, etc.
-    ?assertNot(lists:member(?SCOPE_LICENSE, EffectiveScopes)),
+    %% Must NOT have gateways, audit, publish.
     ?assertNot(lists:member(?SCOPE_GATEWAYS, EffectiveScopes)),
     ?assertNot(lists:member(?SCOPE_PUBLISH, EffectiveScopes)),
-    ?assertNot(lists:member(?SCOPE_CLUSTER_OPERATIONS, EffectiveScopes)),
     ?assertNot(lists:member(?SCOPE_AUDIT, EffectiveScopes)),
     %% Must NOT have mfa, sso login-only scopes.
     ?assertNot(lists:member(?SCOPE_MFA_MGMT, EffectiveScopes)),
     ?assertNot(lists:member(?SCOPE_SSO_MGMT, EffectiveScopes)),
-    %% Exact count: 7 scopes.
-    ?assertEqual(7, length(EffectiveScopes)).
+    %% Exact count: 9 scopes (7 common + 2 login-only).
+    ?assertEqual(9, length(EffectiveScopes)).
 
 %% PUT a namespaced administrator with only the description field
 %% updated (role + scopes unchanged).  The persisted scopes are the
