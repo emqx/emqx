@@ -212,25 +212,25 @@
             }
           },
           {
-            "name": "delete_remote_backup",
-            "type": "boolean",
-            "default": true,
-            "$ui": {
-              "component": "switch",
-              "required": true,
-              "label": "$sync_delete_remote_backup_label",
-              "description": "$sync_delete_remote_backup_desc"
-            }
-          },
-          {
-            "name": "delete_local_backup",
+            "name": "retain_remote_backup",
             "type": "boolean",
             "default": false,
             "$ui": {
               "component": "switch",
               "required": true,
-              "label": "$sync_delete_local_backup_label",
-              "description": "$sync_delete_local_backup_desc"
+              "label": "$sync_retain_remote_backup_label",
+              "description": "$sync_retain_remote_backup_desc"
+            }
+          },
+          {
+            "name": "retain_backup_after_import",
+            "type": "boolean",
+            "default": true,
+            "$ui": {
+              "component": "switch",
+              "required": true,
+              "label": "$sync_retain_backup_after_import_label",
+              "description": "$sync_retain_backup_after_import_desc"
             }
           }
         ]
@@ -251,8 +251,8 @@
           "builtin_authz"
         ],
         "timeout": "30s",
-        "delete_remote_backup": true,
-        "delete_local_backup": false
+        "retain_remote_backup": false,
+        "retain_backup_after_import": true
       }
     }
   ]

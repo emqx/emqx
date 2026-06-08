@@ -84,8 +84,8 @@ normalize_config(Conf0) ->
                 maps:get(<<"table_sets">>, Sync0, default_table_sets())
             ),
             <<"timeout">> => to_bin(maps:get(<<"timeout">>, Sync0, ?DEFAULT_TIMEOUT)),
-            <<"delete_remote_backup">> => maps:get(<<"delete_remote_backup">>, Sync0, true),
-            <<"delete_local_backup">> => maps:get(<<"delete_local_backup">>, Sync0, false)
+            <<"retain_remote_backup">> => retain_remote_backup(Sync0),
+            <<"retain_backup_after_import">> => retain_backup_after_import(Sync0)
         }
     }.
 
@@ -208,8 +208,8 @@ cleanup(Conf, Deps, Filename) ->
 
 cleanup_remote(Conf, Deps, Filename) ->
     Sync = maps:get(<<"sync">>, Conf),
-    case maps:get(<<"delete_remote_backup">>, Sync) of
-        true ->
+    case maps:get(<<"retain_remote_backup">>, Sync) of
+        false ->
             Url = path(Conf, "/data/files/" ++ uri_encode(Filename)),
             RequestFun = maps:get(request_fun, Deps),
             case RequestFun(delete, Url, headers(Conf), undefined, timeout_ms(Conf)) of
@@ -220,18 +220,34 @@ cleanup_remote(Conf, Deps, Filename) ->
                 {error, Reason} ->
                     {error, {http_error, delete, Url, Reason}}
             end;
-        false ->
+        true ->
             skipped
     end.
 
 cleanup_local(Conf, Deps, Filename) ->
     Sync = maps:get(<<"sync">>, Conf),
-    case maps:get(<<"delete_local_backup">>, Sync) of
-        true ->
+    case maps:get(<<"retain_backup_after_import">>, Sync) of
+        false ->
             DeleteLocalFun = maps:get(delete_local_fun, Deps),
             DeleteLocalFun(Filename);
-        false ->
+        true ->
             skipped
+    end.
+
+retain_remote_backup(Sync) ->
+    case maps:find(<<"retain_remote_backup">>, Sync) of
+        {ok, Value} ->
+            Value;
+        error ->
+            not maps:get(<<"delete_remote_backup">>, Sync, true)
+    end.
+
+retain_backup_after_import(Sync) ->
+    case maps:find(<<"retain_backup_after_import">>, Sync) of
+        {ok, Value} ->
+            Value;
+        error ->
+            not maps:get(<<"delete_local_backup">>, Sync, false)
     end.
 
 cleanup_succeeded(#{remote := Remote, local := Local}) ->

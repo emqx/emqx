@@ -103,20 +103,20 @@
         "en": "HTTP request timeout for calls to the primary cluster.",
         "zh": "访问主集群时的 HTTP 请求超时时间。"
     },
-    "$sync_delete_remote_backup_label": {
-        "en": "Delete Remote Backup",
-        "zh": "删除远端备份"
+    "$sync_retain_remote_backup_label": {
+        "en": "Retain Remote Backup",
+        "zh": "保留远端备份"
     },
-    "$sync_delete_remote_backup_desc": {
-        "en": "Delete the exported backup file from the primary cluster after synchronization.",
-        "zh": "同步完成后删除主集群上导出的备份文件。"
+    "$sync_retain_remote_backup_desc": {
+        "en": "Retain the exported backup file on the primary cluster after synchronization.",
+        "zh": "同步完成后保留主集群上导出的备份文件。"
     },
-    "$sync_delete_local_backup_label": {
-        "en": "Delete Local Backup",
-        "zh": "删除本地备份"
+    "$sync_retain_backup_after_import_label": {
+        "en": "Retain Backup After Import",
+        "zh": "导入后保留备份"
     },
-    "$sync_delete_local_backup_desc": {
-        "en": "Delete the uploaded local backup file after import.",
-        "zh": "导入后删除上传到本地的备份文件。"
+    "$sync_retain_backup_after_import_desc": {
+        "en": "Retain the uploaded local backup file after import.",
+        "zh": "导入后保留上传到本地的备份文件。"
     }
 }

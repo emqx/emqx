@@ -48,8 +48,8 @@ sync {
     "builtin_authz"
   ]
   timeout = "30s"
-  delete_remote_backup = true
-  delete_local_backup = false
+  retain_remote_backup = false
+  retain_backup_after_import = true
 }
 ```
 

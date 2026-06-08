@@ -67,6 +67,7 @@ all() ->
         t_sync_once_requires_primary_api_config,
         t_sync_once_exports_downloads_imports_and_cleans_up,
         t_sync_once_keeps_local_backup_by_default,
+        t_sync_once_supports_legacy_delete_cleanup_options,
         t_sync_once_cleans_up_when_cancelled_after_export,
         t_sync_once_reports_import_errors,
         t_sync_once_reports_cleanup_errors,
@@ -498,13 +499,51 @@ t_sync_once_keeps_local_backup_by_default(_Config) ->
             ok
         end
     },
-    Conf = remove_delete_local_backup(conf()),
+    Conf = remove_retain_backup_after_import(conf()),
 
     ?assertMatch(
         {ok, #{filename := BackupName, cleanup := #{local := skipped}}},
         emqx_backup_sync_client:sync_once(Conf, Deps)
     ),
     assert_not_seen({delete_local, BackupName}).
+
+t_sync_once_supports_legacy_delete_cleanup_options(_Config) ->
+    Self = self(),
+    BackupName = <<"emqx-export-legacy-cleanup.tar.gz">>,
+    Deps = #{
+        request_fun => fun(Method, _Url, _Headers, _Body, _Timeout) ->
+            Self ! {request, Method},
+            case Method of
+                post -> {ok, 200, [], emqx_utils_json:encode(#{<<"filename">> => BackupName})};
+                get -> {ok, 200, [], <<"backup">>};
+                delete -> {ok, 204, [], <<>>}
+            end
+        end,
+        upload_fun => fun(_Filename, _Bin) -> ok end,
+        import_fun => fun(_Filename) -> {ok, #{db_errors => #{}, config_errors => #{}}} end,
+        delete_local_fun => fun(Filename) ->
+            Self ! {delete_local, Filename},
+            ok
+        end
+    },
+    Conf0 = conf(),
+    Sync = maps:get(<<"sync">>, Conf0),
+    Conf = Conf0#{
+        <<"sync">> => maps:without(
+            [<<"retain_remote_backup">>, <<"retain_backup_after_import">>],
+            Sync#{
+                <<"delete_remote_backup">> => true,
+                <<"delete_local_backup">> => true
+            }
+        )
+    },
+
+    ?assertMatch(
+        {ok, #{filename := BackupName, cleanup := #{remote := ok, local := ok}}},
+        emqx_backup_sync_client:sync_once(Conf, Deps)
+    ),
+    assert_seen({request, delete}),
+    assert_seen({delete_local, BackupName}).
 
 t_sync_once_reports_import_errors(_Config) ->
     BackupName = <<"emqx-export-2026-06-02.tar.gz">>,
@@ -1226,8 +1265,8 @@ conf(BaseUrl, Interval) ->
             <<"timeout">> => <<"30s">>,
             <<"root_keys">> => default_root_keys(),
             <<"table_sets">> => [],
-            <<"delete_remote_backup">> => true,
-            <<"delete_local_backup">> => true
+            <<"retain_remote_backup">> => false,
+            <<"retain_backup_after_import">> => false
         }
     }.
 
@@ -1259,9 +1298,9 @@ remove_table_sets(Conf) ->
     Sync = maps:get(<<"sync">>, Conf),
     Conf#{<<"sync">> => maps:remove(<<"table_sets">>, Sync)}.
 
-remove_delete_local_backup(Conf) ->
+remove_retain_backup_after_import(Conf) ->
     Sync = maps:get(<<"sync">>, Conf),
-    Conf#{<<"sync">> => maps:remove(<<"delete_local_backup">>, Sync)}.
+    Conf#{<<"sync">> => maps:remove(<<"retain_backup_after_import">>, Sync)}.
 
 remove_enable_role(Conf) ->
     maps:without([<<"enable">>, <<"role">>], Conf).
