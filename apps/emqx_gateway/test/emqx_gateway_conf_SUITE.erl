@@ -17,6 +17,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(REDACTED, <<"******">>).
+
 %%--------------------------------------------------------------------
 %% Setups
 %%--------------------------------------------------------------------
@@ -310,6 +312,39 @@ t_load_unload_gateway(_) ->
     ?assertMatch({ok, _}, emqx:update_config([gateway], Raw0)),
     ?assertEqual(undefined, emqx_gateway:lookup('stomp')),
     ok.
+
+t_authn_create_failure_log_redacts_secret(_) ->
+    Secret = <<"secret-pass">>,
+    StompConf = compose_authn(?CONF_STOMP_BAISC_1, jwt_authn_conf(Secret)),
+    HandlerId = gateway_authn_create_failure_log_capture,
+    ok = meck:new(emqx_authn_chains, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_authn_chains,
+        create_authenticator,
+        fun(_ChainName, _AuthConf) ->
+            {error, {bad_secret, #{secret => Secret}}}
+        end
+    ),
+    ok = logger:add_handler(HandlerId, ?MODULE, #{
+        level => error,
+        config => #{owner => self()}
+    }),
+    try
+        Ret = emqx_gateway_conf:load_gateway(stomp, StompConf),
+        ?assertMatch({error, _}, Ret),
+        RetBin = unicode:characters_to_binary(io_lib:format("~0p", [Ret])),
+        ?assertEqual(nomatch, binary:match(RetBin, Secret)),
+        Report = receive_log_report(fun
+            (#{msg := "failed_to_create_authenticator"}) -> true;
+            (_) -> false
+        end),
+        ReportBin = unicode:characters_to_binary(io_lib:format("~0p", [Report])),
+        ?assertEqual(nomatch, binary:match(ReportBin, Secret)),
+        ?assertEqual(?REDACTED, maps:get(secret, maps:get(config, Report)))
+    after
+        _ = logger:remove_handler(HandlerId),
+        meck:unload(emqx_authn_chains)
+    end.
 
 t_load_remove_authn(_) ->
     StompConf = compose_listener(?CONF_STOMP_BAISC_1, ?CONF_STOMP_LISTENER_1),
@@ -701,6 +736,17 @@ compose_ssl_listener(Basic, Listener) ->
 compose_authn(Basic, Authn) ->
     maps:merge(Basic, #{<<"authentication">> => Authn}).
 
+jwt_authn_conf(Secret) ->
+    #{
+        <<"mechanism">> => <<"jwt">>,
+        <<"use_jwks">> => false,
+        <<"algorithm">> => <<"hmac-based">>,
+        <<"secret">> => Secret,
+        <<"secret_base64_encoded">> => false,
+        <<"verify_claims">> => #{<<"username">> => <<"${username}">>},
+        <<"enable">> => true
+    }.
+
 compose_listener_authn(Basic, Listener, Authn) ->
     maps:merge(
         Basic,
@@ -726,3 +772,25 @@ ssl_listener(L) ->
             }
         ]
     }.
+
+%%--------------------------------------------------------------------
+%% Logger handler
+
+log(LogEvent, #{config := #{owner := Owner}}) ->
+    Owner ! {captured_log, LogEvent}.
+
+receive_log_report(Matcher) ->
+    receive
+        {captured_log, #{msg := {report, Report}}} ->
+            case Matcher(Report) of
+                true -> Report;
+                false -> receive_log_report(Matcher)
+            end;
+        {captured_log, #{msg := Report}} when is_map(Report) ->
+            case Matcher(Report) of
+                true -> Report;
+                false -> receive_log_report(Matcher)
+            end
+    after 5000 ->
+        error(no_log_event)
+    end.
