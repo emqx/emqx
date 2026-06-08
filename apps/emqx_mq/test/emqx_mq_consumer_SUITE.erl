@@ -95,7 +95,6 @@ t_quick_reconnect(_Config) ->
 
     %% Stop the "conflicting consumer"
     erlang:send(Pid, stop),
-    meck:unload(emqx_mq_consumer),
 
     %% Verify that the message is received within little threshold
     receive
@@ -105,8 +104,18 @@ t_quick_reconnect(_Config) ->
         ct:fail("message not received")
     end,
 
-    %% Clean up
-    ok = emqtt:disconnect(CSub).
+    %% Cleanly tear down the subscriber and wait for the consumer it
+    %% started to auto-shut down BEFORE `meck:unload' restores the
+    %% original `emqx_mq_consumer' BEAM.  Otherwise meck races with
+    %% cover purge: the still-running consumer gen_server holds the
+    %% cover-compiled module, and `restore_original' -> `code:load_file'
+    %% returns `{error, not_purged}', crashing `meck_proc'.
+    ?assertWaitEvent(
+        emqtt:disconnect(CSub),
+        #{?snk_kind := mq_consumer_shutdown, mq_topic_filter := <<"t/#">>},
+        1000
+    ),
+    meck:unload(emqx_mq_consumer).
 
 %% A subscriber may be considered dead and removed by the consumer,
 %% but the it may still try to send late acks/pings.
