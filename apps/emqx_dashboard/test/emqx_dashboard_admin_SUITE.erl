@@ -730,3 +730,78 @@ t_cookie_auth_bad_token(_TCConfig) ->
     CookieHeader = <<"emqx_auth=bad_token">>,
     Req = fake_req(<<"/api/v5/plugin_api/my_plugin/foo">>, #{<<"cookie">> => CookieHeader}),
     ?assertMatch({401, _, _}, emqx_dashboard:authorize(Req, HandlerInfo)).
+
+%%------------------------------------------------------------------------------
+%% Password hashing (v1 PBKDF2-HMAC-SHA256 with legacy compat)
+%%------------------------------------------------------------------------------
+
+-doc "Hash output uses PHC-style v1 prefix carrying iteration count and base64 fields.".
+t_hash_uses_v1_format(_) ->
+    Hash = emqx_dashboard_admin:hash(<<"hunter2-XYZ">>),
+    ?assertMatch(<<"$1$600000$", _/binary>>, Hash),
+    [<<>>, <<"1">>, <<"600000">>, SaltB64, DKB64] = binary:split(Hash, <<"$">>, [global]),
+    ?assertEqual(16, byte_size(base64:decode(SaltB64, #{padding => false}))),
+    ?assertEqual(32, byte_size(base64:decode(DKB64, #{padding => false}))),
+    ok.
+
+-doc "API-secret hash uses iter=1 (fast) but the same v1 format; verifier accepts it.".
+t_hash_api_secret_uses_iter_1(_) ->
+    Secret = <<"this-is-a-32-byte-test-secret-OK">>,
+    Hash = emqx_dashboard_admin:hash_api_secret(Secret),
+    ?assertMatch(<<"$1$1$", _/binary>>, Hash),
+    ?assertEqual(ok, emqx_dashboard_admin:verify_hash(Secret, Hash)),
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"wrong">>, Hash)),
+    ok.
+
+-doc "verify_hash accepts the matching password and rejects the wrong one on v1 hashes.".
+t_verify_v1_hash_roundtrip(_) ->
+    Password = <<"correct horse battery staple">>,
+    Hash = emqx_dashboard_admin:hash(Password),
+    ?assertEqual(ok, emqx_dashboard_admin:verify_hash(Password, Hash)),
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"wrong">>, Hash)),
+    %% Two hashes of the same password must differ (random salt).
+    Hash2 = emqx_dashboard_admin:hash(Password),
+    ?assertNotEqual(Hash, Hash2),
+    ?assertEqual(ok, emqx_dashboard_admin:verify_hash(Password, Hash2)),
+    ok.
+
+-doc "Legacy 36-byte (4-byte ASCII-hex salt + sha256) hash still verifies successfully.".
+t_verify_legacy_hash_succeeds(_) ->
+    Password = <<"hunter2-XYZ">>,
+    LegacyHash = make_legacy_hash(Password),
+    ?assertEqual(36, byte_size(LegacyHash)),
+    ?assertEqual(ok, emqx_dashboard_admin:verify_hash(Password, LegacyHash)),
+    ok.
+
+-doc "Wrong password against a legacy hash returns plain error (no upgrade hint).".
+t_verify_legacy_hash_wrong_password(_) ->
+    Password = <<"hunter2-XYZ">>,
+    LegacyHash = make_legacy_hash(Password),
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"wrong">>, LegacyHash)),
+    ok.
+
+-doc "Malformed / truncated / unrelated inputs are all rejected.".
+t_verify_rejects_malformed_input(_) ->
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"x">>, <<>>)),
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"x">>, <<"random garbage">>)),
+    %% v1 prefix but missing fields.
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"x">>, <<"$1$">>)),
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"x">>, <<"$1$600000$">>)),
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"x">>, <<"$1$abc$AAAA$AAAA">>)),
+    %% 36-byte non-matching binary — same length as legacy but unrelated bytes.
+    Random = crypto:strong_rand_bytes(36),
+    ?assertEqual(error, emqx_dashboard_admin:verify_hash(<<"x">>, Random)),
+    ok.
+
+%%------------------------------------------------------------------------------
+%% Helpers for legacy-hash tests
+%%------------------------------------------------------------------------------
+
+make_legacy_hash(Password) ->
+    SaltAscii = legacy_salt_ascii(),
+    Hash = crypto:hash(sha256, <<SaltAscii/binary, Password/binary>>),
+    <<SaltAscii/binary, Hash/binary>>.
+
+legacy_salt_ascii() ->
+    <<X:16/big-unsigned-integer>> = crypto:strong_rand_bytes(2),
+    iolist_to_binary(io_lib:format("~4.16.0b", [X])).

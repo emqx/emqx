@@ -150,7 +150,7 @@ t_bootstrap_file_dup_override(_) ->
     SameAppWithDiffName = #?APP{
         name = <<"name-1">>,
         api_key = <<"test-1">>,
-        api_secret_hash = emqx_dashboard_admin:hash(<<"duplicated-secret-1">>),
+        api_secret_hash = emqx_dashboard_admin:hash_api_secret(<<"duplicated-secret-1">>),
         enable = true,
         desc = <<"dup api key">>,
         created_at = erlang:system_time(second),
