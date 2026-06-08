@@ -30,6 +30,7 @@
 -define(PORT, 1884).
 
 -define(LOG(Format, Args), ct:log("TEST: " ++ Format, Args)).
+-define(PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
 
 -define(MAX_PRED_TOPIC_ID, ?SN_MAX_PREDEF_TOPIC_ID).
 -define(PREDEF_TOPIC_ID1, 1).
@@ -763,6 +764,97 @@ t_publish_negqos_disabled(_) ->
     update_mqttsn_with_neg_qos_on(),
     gen_udp:close(Socket).
 
+t_publish_negqos_idle_requires_authn_in_hardened_profile(_) ->
+    Topic = <<"ab">>,
+    Payload = <<"idle-negqos-authn">>,
+    ok = emqx:subscribe(Topic),
+    os:putenv(?PROFILE_ENV_VAR, "hardened"),
+    emqx_security_profile:clear_profile(),
+    try
+        {ok, Socket} = gen_udp:open(0, [binary]),
+        ?check_trace(
+            begin
+                send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
+                ?assertNotReceive({deliver, Topic, #message{payload = Payload}}, 500)
+            end,
+            fun(Trace0) ->
+                Trace = ?of_kind(idle_negative_qos_publish_rejected, Trace0),
+                ?assertMatch([#{return_code := ?SN_RC2_NOT_AUTHORIZE}], Trace)
+            end
+        ),
+        gen_udp:close(Socket)
+    after
+        os:unsetenv(?PROFILE_ENV_VAR),
+        emqx_security_profile:clear_profile(),
+        emqx:unsubscribe(Topic)
+    end.
+
+t_publish_negqos_idle_allows_authn_in_hardened_profile(_) ->
+    Topic = <<"ab">>,
+    Payload = <<"idle-negqos-authn-allowed">>,
+    OldAuthz = emqx:get_raw_config([authorization]),
+    ok = emqx:subscribe(Topic),
+    ok = emqx_gateway_test_utils:update_authz_file_rule(
+        <<
+            "{allow, {username, \"user1\"}, {publish, [{qos, 0}, {retain, false}]}, [\"ab\"]}.\n"
+            "{deny, all}."
+        >>
+    ),
+    ok = emqx_gateway_test_utils:enable_gateway_auth(<<"mqttsn">>),
+    ok = emqx_gateway_test_utils:add_gateway_auth_user(<<"mqttsn">>, #{
+        user_id => <<"user1">>,
+        password => <<"pw123">>,
+        is_superuser => false
+    }),
+    os:putenv(?PROFILE_ENV_VAR, "hardened"),
+    emqx_security_profile:clear_profile(),
+    try
+        {ok, Socket} = gen_udp:open(0, [binary]),
+        send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
+        ?assertReceive({deliver, Topic, #message{payload = Payload}}, 1000),
+        gen_udp:close(Socket)
+    after
+        os:unsetenv(?PROFILE_ENV_VAR),
+        emqx_security_profile:clear_profile(),
+        emqx_gateway_test_utils:delete_gateway_auth_user(<<"mqttsn">>, <<"user1">>),
+        emqx_gateway_test_utils:disable_gateway_auth(<<"mqttsn">>),
+        {ok, _} = emqx:update_config([authorization], OldAuthz),
+        emqx:unsubscribe(Topic)
+    end.
+
+t_publish_negqos_idle_rejects_bad_authn_in_hardened_profile(_) ->
+    Topic = <<"ab">>,
+    Payload = <<"idle-negqos-authn-bad">>,
+    ok = emqx:subscribe(Topic),
+    ok = emqx_gateway_test_utils:enable_gateway_auth(<<"mqttsn">>),
+    ok = emqx_gateway_test_utils:add_gateway_auth_user(<<"mqttsn">>, #{
+        user_id => <<"user1">>,
+        password => <<"bad-password">>,
+        is_superuser => false
+    }),
+    os:putenv(?PROFILE_ENV_VAR, "hardened"),
+    emqx_security_profile:clear_profile(),
+    try
+        {ok, Socket} = gen_udp:open(0, [binary]),
+        ?check_trace(
+            begin
+                send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
+                ?assertNotReceive({deliver, Topic, #message{payload = Payload}}, 500)
+            end,
+            fun(Trace0) ->
+                Trace = ?of_kind(idle_negative_qos_publish_rejected, Trace0),
+                ?assertMatch([#{return_code := ?SN_RC2_NOT_AUTHORIZE}], Trace)
+            end
+        ),
+        gen_udp:close(Socket)
+    after
+        os:unsetenv(?PROFILE_ENV_VAR),
+        emqx_security_profile:clear_profile(),
+        emqx_gateway_test_utils:delete_gateway_auth_user(<<"mqttsn">>, <<"user1">>),
+        emqx_gateway_test_utils:disable_gateway_auth(<<"mqttsn">>),
+        emqx:unsubscribe(Topic)
+    end.
+
 t_publish_qos0_case01(_) ->
     Dup = 0,
     QoS = 0,
@@ -1287,6 +1379,57 @@ t_publish_mountpoint(_) ->
     send_disconnect_msg(Socket, undefined),
     update_mqttsn_with_mountpoint(<<>>),
     gen_udp:close(Socket).
+
+t_publish_mountpoint_from_authn_client_attrs(_) ->
+    update_mqttsn_with_mountpoint(<<"mp/${client_attrs.group}/">>),
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun
+            (#{username := <<"user1">>}) ->
+                {ok, #{client_attrs => #{<<"group">> => <<"g1">>}}};
+            (ClientInfo) ->
+                meck:passthrough([ClientInfo])
+        end
+    ),
+    Topic = <<"abc">>,
+    MountedTopic = <<"mp/g1/abc">>,
+    Payload = <<20, 21, 22, 23>>,
+    ok = emqx:subscribe(MountedTopic),
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        Dup = 0,
+        QoS = 1,
+        Retain = 0,
+        Will = 0,
+        CleanSession = 0,
+        MsgId = 1,
+        TopicId1 = ?MAX_PRED_TOPIC_ID + 1,
+        ClientId = ?CLIENTID,
+        send_connect_msg(Socket, ClientId),
+        ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+        send_subscribe_msg_normal_topic(Socket, QoS, Topic, MsgId),
+        ?assertEqual(
+            <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, Will:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+                TopicId1:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+            receive_response(Socket)
+        ),
+
+        send_publish_msg_normal_topic(Socket, QoS, MsgId, TopicId1, Payload),
+        ?assertEqual(
+            <<7, ?SN_PUBACK, TopicId1:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+            receive_response(Socket)
+        ),
+        ?assertReceive({deliver, MountedTopic, #message{payload = Payload}}, 1000),
+
+        send_disconnect_msg(Socket, undefined)
+    after
+        update_mqttsn_with_mountpoint(<<>>),
+        emqx:unsubscribe(MountedTopic),
+        meck:unload(emqx_access_control),
+        gen_udp:close(Socket)
+    end.
 
 t_delivery_qos1_register_invalid_topic_id(_) ->
     Dup = 0,

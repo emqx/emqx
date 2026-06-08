@@ -1150,6 +1150,41 @@ t_mountpoint(_) ->
     with_connection(ReceiveMsgFromMqtt),
     update_stomp_with_mountpoint(<<>>).
 
+t_mountpoint_from_authn_client_attrs(_) ->
+    update_stomp_with_mountpoint(<<"stomp/${client_attrs.group}/">>),
+    meck:new(emqx_access_control, [passthrough, no_history]),
+    meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun
+            (#{username := <<"user1">>}) ->
+                {ok, #{client_attrs => #{<<"group">> => <<"g1">>}}};
+            (ClientInfo) ->
+                meck:passthrough([ClientInfo])
+        end
+    ),
+    MountedTopic = <<"stomp/g1/t/a">>,
+    ok = emqx:subscribe(MountedTopic),
+    try
+        with_connection(fun(Sock) ->
+            ok = send_connection_frame(Sock, <<"user1">>, <<"public">>),
+            ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+            ok = send_message_frame(Sock, <<"t/a">>, <<"hello">>),
+            ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+            receive
+                {deliver, MountedTopic, Msg} ->
+                    ?assertEqual(<<"hello">>, emqx_message:payload(Msg))
+            after 1000 ->
+                ?assert(false, "waiting message timeout")
+            end,
+            ok = send_disconnect_frame(Sock)
+        end)
+    after
+        update_stomp_with_mountpoint(<<>>),
+        emqx:unsubscribe(MountedTopic),
+        meck:unload(emqx_access_control)
+    end.
+
 t_update_not_restart_listener(_) ->
     update_stomp_with_mountpoint(<<"stomp/">>),
     with_connection(fun(Sock) ->

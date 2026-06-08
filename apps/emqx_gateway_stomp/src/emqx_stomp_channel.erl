@@ -249,7 +249,9 @@ enrich_clientinfo(
         [
             fun maybe_assign_clientid/2,
             fun parse_heartbeat/2,
-            %% FIXME: CALL After authentication successfully
+            %% Mountpoint is evaluated again after successful authentication in
+            %% emqx_gateway_ctx:authenticate/2, because authentication results
+            %% may add client attributes used by mountpoint templates.
             fun fix_mountpoint/2
         ],
         Packet,

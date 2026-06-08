@@ -68,6 +68,13 @@ update_gbt32960_with_idle_timeout(IdleTimeout) ->
         Conf#{<<"idle_timeout">> => IdleTimeout}
     ).
 
+update_gbt32960_with_mountpoint(Mountpoint) ->
+    Conf = emqx:get_raw_config([gateway, gbt32960]),
+    emqx_gateway_conf:update_gateway(
+        gbt32960,
+        Conf#{<<"mountpoint">> => Mountpoint}
+    ).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% helper functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 encode(Cmd, Vin, Data) ->
@@ -193,6 +200,43 @@ t_case01_login_channel_info(_Config) ->
     ),
 
     ok = gen_tcp:close(Socket).
+
+t_case01_login_mountpoint_from_authn_client_attrs(_Config) ->
+    Vin = <<"1G1BL52P7TR115520">>,
+    Mountpoint = <<"gbt32960/${client_attrs.group}/${clientid}/">>,
+    MountedVLoginTopic = <<"gbt32960/g1/1G1BL52P7TR115520/upstream/vlogin">>,
+    MountedDnstreamTopic = <<"gbt32960/g1/1G1BL52P7TR115520/dnstream">>,
+    update_gbt32960_with_mountpoint(Mountpoint),
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun
+            (#{clientid := Vin0}) when Vin0 =:= Vin ->
+                {ok, #{client_attrs => #{<<"group">> => <<"g1">>}}};
+            (ClientInfo) ->
+                meck:passthrough([ClientInfo])
+        end
+    ),
+    ok = emqx:subscribe(MountedVLoginTopic),
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    try
+        Time = <<12, 12, 29, 12, 19, 20>>,
+        Data = <<Time/binary, 1:?WORD, "12345678901234567890", 1, 1, "C">>,
+        Packet = encode(?CMD_VIHECLE_LOGIN, Vin, Data),
+
+        ok = gen_tcp:send(Socket, Packet),
+        timer:sleep(200),
+        {ok, _AckPacket} = gen_tcp:recv(Socket, 0, 500),
+
+        ?assertEqual(true, lists:member(MountedDnstreamTopic, get_subscriptions())),
+        {MountedVLoginTopic, _PubedMsg} = get_published_msg()
+    after
+        gen_tcp:close(Socket),
+        update_gbt32960_with_mountpoint(<<"gbt32960/${clientid}/">>),
+        emqx:unsubscribe(MountedVLoginTopic),
+        meck:unload(emqx_access_control)
+    end.
 
 t_case01_auth_expire(_Config) ->
     ok = meck:new(emqx_access_control, [passthrough, no_history]),

@@ -792,6 +792,41 @@ t_publish(_) ->
     end,
     with_connection(Topics, Action).
 
+t_publish_mountpoint_from_authn_client_attrs(_) ->
+    update_coap_with_mountpoint(<<"mp/${client_attrs.group}/">>),
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun
+            (#{username := <<"admin">>}) ->
+                {ok, #{client_attrs => #{<<"group">> => <<"g1">>}}};
+            (ClientInfo) ->
+                meck:passthrough([ClientInfo])
+        end
+    ),
+    MountedTopic = <<"mp/g1/abc">>,
+    Payload = <<"123">>,
+    try
+        emqx:subscribe(MountedTopic),
+        with_connection(fun(Channel, Token) ->
+            URI = pubsub_uri("abc", Token),
+            Req = make_req(post, Payload),
+            {ok, changed, _} = do_request(Channel, URI, Req),
+            receive
+                {deliver, MountedTopic, Msg} ->
+                    ?assertEqual(Payload, Msg#message.payload)
+            after 500 ->
+                ?assert(false)
+            end,
+            true
+        end)
+    after
+        update_coap_with_mountpoint(<<>>),
+        emqx:unsubscribe(MountedTopic),
+        meck:unload(emqx_access_control)
+    end.
+
 t_publish_with_retain_qos_expiry(_) ->
     Topics = [<<"abc">>],
     Action = fun(Topic, Channel, Token) ->
