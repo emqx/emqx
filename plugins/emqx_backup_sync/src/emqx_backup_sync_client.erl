@@ -84,8 +84,9 @@ normalize_config(Conf0) ->
                 maps:get(<<"table_sets">>, Sync0, default_table_sets())
             ),
             <<"timeout">> => to_bin(maps:get(<<"timeout">>, Sync0, ?DEFAULT_TIMEOUT)),
-            <<"retain_remote_backup">> => retain_remote_backup(Sync0),
-            <<"retain_backup_after_import">> => retain_backup_after_import(Sync0)
+            <<"retain_remote_backup">> => maps:get(<<"retain_remote_backup">>, Sync0, false),
+            <<"retain_backup_after_import">> =>
+                maps:get(<<"retain_backup_after_import">>, Sync0, true)
         }
     }.
 
@@ -232,22 +233,6 @@ cleanup_local(Conf, Deps, Filename) ->
             DeleteLocalFun(Filename);
         true ->
             skipped
-    end.
-
-retain_remote_backup(Sync) ->
-    case maps:find(<<"retain_remote_backup">>, Sync) of
-        {ok, Value} ->
-            Value;
-        error ->
-            not maps:get(<<"delete_remote_backup">>, Sync, true)
-    end.
-
-retain_backup_after_import(Sync) ->
-    case maps:find(<<"retain_backup_after_import">>, Sync) of
-        {ok, Value} ->
-            Value;
-        error ->
-            not maps:get(<<"delete_local_backup">>, Sync, false)
     end.
 
 cleanup_succeeded(#{remote := Remote, local := Local}) ->
