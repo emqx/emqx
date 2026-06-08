@@ -49,7 +49,7 @@ init_per_suite(Config) ->
             emqx,
             {emqx_conf, #{
                 config => ?CONF_DEFAULT,
-                schema_mod => emqx_enterprise_schema
+                schema_mod => emqx_conf_schema
             }},
             emqx_modules,
             emqx_audit,

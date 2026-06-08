@@ -28,7 +28,6 @@
 -export([upgrade_raw_conf/1]).
 -export([tr_prometheus_collectors/1]).
 
-%% internal exports for `emqx_enterprise_schema' only.
 -export([
     log_file_path_converter/2,
     fix_bad_log_path/1,
@@ -67,7 +66,17 @@
     emqx_psk_schema,
     emqx_slow_subs_schema,
     emqx_otel_schema,
-    emqx_mgmt_api_key_schema
+    emqx_mgmt_api_key_schema,
+    emqx_license_schema,
+    emqx_schema_registry_schema,
+    emqx_schema_validation_schema,
+    emqx_message_transformation_schema,
+    emqx_ft_schema,
+    emqx_mt_schema,
+    emqx_ai_completion_schema,
+    emqx_mq_schema,
+    emqx_streams_schema,
+    emqx_a2a_registry_schema
 ]).
 
 %% Fallback used when `node.max_ports' is `auto' and the host has more than
@@ -150,7 +159,8 @@
 -define(DEFAULT_RPC_PORT, 5369).
 
 %% Callback to upgrade config after loaded from config file but before validation.
-upgrade_raw_conf(Raw) ->
+upgrade_raw_conf(Raw0) ->
+    Raw = emqx_bridge_gcp_pubsub:upgrade_raw_conf(Raw0),
     emqx_bridge_v2_schema:actions_convert_from_connectors(Raw).
 
 namespace() -> emqx.
@@ -159,7 +169,7 @@ tags() ->
     [<<"EMQX">>].
 
 roots() ->
-    Injections = emqx_conf_schema_inject:schemas(),
+    Injections = schema_injections(),
     ok = emqx_schema_hooks:inject_from_modules(Injections),
     emqx_schema_high_prio_roots() ++
         [
@@ -233,6 +243,73 @@ validate_durable_sessions_strategy(Conf) ->
 
 common_apps() ->
     ?MERGED_CONFIGS.
+
+schema_injections() ->
+    [
+        emqx_cluster_link_schema,
+        {emqx_authn_schema, [
+            emqx_authn_mnesia_schema,
+            emqx_authn_mysql_schema,
+            emqx_authn_postgresql_schema,
+            emqx_authn_mongodb_schema,
+            emqx_authn_redis_schema,
+            emqx_authn_http_schema,
+            emqx_authn_jwt_schema,
+            emqx_authn_scram_mnesia_schema,
+            emqx_authn_ldap_schema,
+            emqx_gcp_device_authn_schema,
+            emqx_authn_scram_restapi_schema,
+            emqx_authn_kerberos_schema,
+            emqx_authn_cinfo_schema
+        ]},
+        {emqx_authz_schema, [
+            emqx_authz_file_schema,
+            emqx_authz_mnesia_schema,
+            emqx_authz_http_schema,
+            emqx_authz_redis_schema,
+            emqx_authz_mysql_schema,
+            emqx_authz_postgresql_schema,
+            emqx_authz_mongodb_schema,
+            emqx_authz_ldap_schema
+        ]},
+        emqx_bridge_disk_log_connector_schema,
+        emqx_bridge_mqtt_connector_schema,
+        emqx_bridge_snowflake_aggregated_connector_schema
+    ].
+
+schema_delegate(Method, Name) ->
+    case schema_module(Name) of
+        {ok, Module} ->
+            apply(Module, Method, [Name]);
+        error ->
+            error(function_clause)
+    end.
+
+schema_desc(Name) ->
+    case schema_module(Name) of
+        {ok, Module} ->
+            apply(Module, desc, [Name]);
+        error ->
+            undefined
+    end.
+
+schema_module(Name) ->
+    schema_module(Name, common_apps()).
+
+schema_module(Name, [Module | Modules]) ->
+    case lists:member(Name, lists:map(fun root_name/1, roots(Module))) of
+        true ->
+            {ok, Module};
+        false ->
+            schema_module(Name, Modules)
+    end;
+schema_module(_Name, []) ->
+    error.
+
+root_name({Root, _Schema}) ->
+    Root;
+root_name(Root) ->
+    Root.
 
 fields("cluster") ->
     [
@@ -1100,7 +1177,7 @@ fields("log") ->
                 desc => ?DESC("log_throttling"),
                 importance => ?IMPORTANCE_MEDIUM
             })}
-    ];
+    ] ++ audit_log_conf();
 fields("console_handler") ->
     log_handler_common_confs(console, #{});
 fields("log_file_handler") ->
@@ -1138,6 +1215,73 @@ fields("log_file_handler") ->
                 }
             )}
     ] ++ log_handler_common_confs(file, #{});
+fields("log_audit_handler") ->
+    CommonConfs = log_handler_common_confs(file, #{}),
+    CommonConfs1 = lists:filter(
+        fun({Key, _}) ->
+            not lists:member(Key, ["level", "formatter"])
+        end,
+        CommonConfs
+    ),
+    [
+        {"level",
+            sc(
+                log_level(),
+                #{
+                    default => info,
+                    desc => ?DESC("audit_handler_level"),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {"path",
+            sc(
+                string(),
+                #{
+                    desc => ?DESC("audit_file_handler_path"),
+                    default => <<"${EMQX_LOG_DIR}/audit.log">>,
+                    importance => ?IMPORTANCE_HIGH,
+                    converter => fun log_file_path_converter/2
+                }
+            )},
+        {"rotation_count",
+            sc(
+                range(1, 128),
+                #{
+                    default => 10,
+                    converter => fun convert_rotation/2,
+                    desc => ?DESC("log_rotation_count"),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {"rotation_size",
+            sc(
+                hoconsc:union([infinity, emqx_schema:bytesize()]),
+                #{
+                    default => <<"50MB">>,
+                    desc => ?DESC("log_file_handler_max_size"),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {"cache_size",
+            sc(
+                range(10, 30000),
+                #{
+                    default => 5000,
+                    desc => ?DESC("audit_log_cache_size"),
+                    aliases => [max_filter_size],
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {"ignore_high_frequency_request",
+            sc(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC("audit_log_ignore_high_frequency_request"),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )}
+    ] ++ CommonConfs1;
 fields("log_overload_kill") ->
     [
         {"enable",
@@ -1248,7 +1392,9 @@ fields(durable_timers) ->
                     mapping => "emqx_durable_timer.batch_size"
                 }
             )}
-    ].
+    ];
+fields(Name) ->
+    schema_delegate(fields, Name).
 
 desc("cluster") ->
     ?DESC("desc_cluster");
@@ -1282,10 +1428,12 @@ desc("authorization") ->
     ?DESC("desc_authorization");
 desc("log_throttling") ->
     ?DESC("desc_log_throttling");
+desc("log_audit_handler") ->
+    ?DESC("desc_audit_log_handler");
 desc(durable_timers) ->
     ?DESC("desc_durable_timers");
-desc(_) ->
-    undefined.
+desc(Name) ->
+    schema_desc(Name).
 
 translations() -> ["ekka", "kernel", "emqx", "gen_rpc", "prometheus", "vm_args"].
 
@@ -1433,6 +1581,8 @@ tr_kernel_inet_dist_listen_options(Conf) ->
 
 tr_prometheus_collectors(Conf) ->
     [
+        {'/prometheus/schema_validation', emqx_prometheus_schema_validation},
+        {'/prometheus/message_transformation', emqx_prometheus_message_transformation},
         %% builtin collectors
         prometheus_boolean,
         prometheus_counter,
@@ -1523,6 +1673,19 @@ tr_conf_file(Conf, Filename) ->
     %% assert, this config is not nullable
     [_ | _] = DataDir,
     filename:join([DataDir, "configs", Filename]).
+
+audit_log_conf() ->
+    [
+        {"audit",
+            sc(
+                ?R_REF("log_audit_handler"),
+                #{
+                    desc => ?DESC("log_audit_handler"),
+                    importance => ?IMPORTANCE_HIGH,
+                    default => #{<<"enable">> => false, <<"level">> => <<"info">>}
+                }
+            )}
+    ].
 
 tr_cluster_discovery(Conf) ->
     Strategy = conf_get("cluster.discovery_strategy", Conf),
@@ -1915,7 +2078,7 @@ address_type(IP) when tuple_size(IP) =:= 4 -> ipv4;
 address_type(IP) when tuple_size(IP) =:= 8 -> ipv6.
 
 node_role_symbols() ->
-    [core] ++ emqx_schema_hooks:list_injection_point('node.role').
+    [core, replicant] ++ emqx_schema_hooks:list_injection_point('node.role').
 
 validate_node_role(Role) ->
     Allowed = node_role_symbols(),

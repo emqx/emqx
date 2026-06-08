@@ -981,7 +981,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
                 begin
                     %% to avoid sharing data between executions and/or
                     %% nodes.  these variables might not be in the
-                    %% config file (e.g.: emqx_enterprise_schema).
+                    %% config file (e.g.: emqx_conf_schema).
                     Cookie = atom_to_list(erlang:get_cookie()),
                     set_env_once("EMQX_NODE__DATA_DIR", NodeDataDir),
                     set_env_once("EMQX_NODE__COOKIE", Cookie),

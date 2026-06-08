@@ -96,7 +96,7 @@ def json_outputs(stdout):
     return out
 
 
-def test_profile_defaults_to_emqx_enterprise():
+def test_profile_defaults_to_enterprise():
     """Test that PROFILE defaults to emqx-enterprise when not set."""
     # This test verifies the default behavior
     # The actual profile value is tested through the fixtures
