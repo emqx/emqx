@@ -1,6 +1,6 @@
-# EMQX Cluster Config Sync
+# EMQX Backup Sync
 
-This plugin periodically synchronizes selected cluster configuration from a
+This plugin periodically synchronizes selected backup data from a
 primary EMQX cluster to a secondary EMQX cluster by using the existing Data
 Backup APIs.
 
@@ -72,3 +72,14 @@ synchronization is required. Supported `sync.table_sets` values are `banned`,
 `builtin_authn`, `builtin_authz`, `builtin_retainer`, `psk`, and `mt`. The
 primary Data Backup API does not include `dashboard_users` or `api_keys` when
 called with an API key.
+
+## CLI
+
+Use the following command on a secondary node to inspect the local sync worker:
+
+```bash
+emqx ctl backup_sync status
+```
+
+The command prints the local node, health, worker state, selected core node,
+next scheduled sync, and the non-sensitive sync configuration.

@@ -2,7 +2,7 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_cluster_config_sync_app).
+-module(emqx_backup_sync_app).
 
 -behaviour(application).
 
@@ -21,13 +21,15 @@
 ]).
 
 start(_StartType, _StartArgs) ->
-    emqx_cluster_config_sync_sup:start_link().
+    {ok, Sup} = emqx_backup_sync_sup:start_link(),
+    ok = emqx_backup_sync_cli:load(),
+    {ok, Sup}.
 
 stop(_State) ->
-    ok.
+    emqx_backup_sync_cli:unload().
 
 on_config_changed(OldConf, NewConf) ->
-    emqx_cluster_config_sync:on_config_changed(OldConf, NewConf).
+    emqx_backup_sync:on_config_changed(OldConf, NewConf).
 
 on_health_check(_Options) ->
-    emqx_cluster_config_sync:on_health_check().
+    emqx_backup_sync:on_health_check().

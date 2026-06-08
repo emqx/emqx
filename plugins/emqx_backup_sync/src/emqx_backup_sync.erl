@@ -2,7 +2,7 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_cluster_config_sync).
+-module(emqx_backup_sync).
 
 -behaviour(gen_server).
 
@@ -13,7 +13,8 @@
 -export([
     start_link/0,
     child_spec/0,
-    current_config/0
+    current_config/0,
+    status/0
 ]).
 
 %% Plugin callbacks
@@ -72,6 +73,7 @@
 }).
 
 -record(on_health_check, {}).
+-record(status, {}).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -114,17 +116,34 @@ on_health_check() ->
             {error, <<"Plugin is not running">>}
     end.
 
+status() ->
+    try
+        gen_server:call(?SERVER, #status{}, ?TIMEOUT)
+    catch
+        exit:{noproc, _} ->
+            #{
+                node => node(),
+                status => error,
+                health => {error, <<"Plugin is not running">>},
+                enabled => false,
+                worker => stopped,
+                selected_core_node => undefined,
+                next_sync_ms => undefined,
+                config => #{}
+            }
+    end.
+
 %%------------------------------------------------------------------------------
 %% Testable helpers
 %%------------------------------------------------------------------------------
 
 -spec enabled(map()) -> boolean().
 enabled(Conf0) ->
-    emqx_cluster_config_sync_client:validate_config(Conf0) =:= ok.
+    emqx_backup_sync_client:validate_config(Conf0) =:= ok.
 
 -spec interval_ms(map()) -> pos_integer().
 interval_ms(Conf0) ->
-    Conf = emqx_cluster_config_sync_client:normalize_config(Conf0),
+    Conf = emqx_backup_sync_client:normalize_config(Conf0),
     Sync = maps:get(<<"sync">>, Conf),
     Duration = maps:get(<<"interval">>, Sync),
     case emqx_schema:to_duration_ms(Duration) of
@@ -146,15 +165,17 @@ handle_call(#on_config_changed{new_conf = NewConf}, _From, State) ->
     {reply, ok, NewState};
 handle_call(#on_health_check{}, _From, State) ->
     {reply, health_check(State), State};
+handle_call(#status{}, _From, State) ->
+    {reply, status(State), State};
 handle_call(Request, From, State) ->
     ?SLOG(error, #{
-        msg => "cluster_config_sync_unexpected_call", request => Request, from => From
+        msg => "backup_sync_unexpected_call", request => Request, from => From
     }),
     {reply, {error, unexpected_call}, State}.
 
 handle_cast(Request, State) ->
     ?SLOG(error, #{
-        msg => "cluster_config_sync_unexpected_cast", request => Request
+        msg => "backup_sync_unexpected_cast", request => Request
     }),
     {noreply, State}.
 
@@ -182,13 +203,13 @@ handle_info(
     State0 = #state{worker = #worker{pid = Pid, mref = MRef, status = running}}
 ) ->
     State1 = (clear_worker(State0))#state{last_status = {error, {worker_down, Reason}}},
-    ?SLOG(error, #{msg => "cluster_config_sync_worker_down", reason => Reason}),
+    ?SLOG(error, #{msg => "backup_sync_worker_down", reason => Reason}),
     {noreply, schedule_sync(State1)};
 handle_info(
     {'DOWN', MRef, process, Pid, Reason},
     State0 = #state{worker = #worker{pid = Pid, mref = MRef, status = cancelling}}
 ) ->
-    ?SLOG(info, #{msg => "cluster_config_sync_cancelled_worker_down", reason => Reason}),
+    ?SLOG(info, #{msg => "backup_sync_cancelled_worker_down", reason => Reason}),
     State1 = clear_worker(State0),
     {noreply, schedule_sync(State1#state{last_status = ok})};
 handle_info({'DOWN', _MRef, process, _Pid, _Reason}, State) ->
@@ -204,13 +225,13 @@ handle_info(
         cancel_timer = undefined,
         last_status = {error, {worker_cancel_timeout, Pid}}
     },
-    ?SLOG(error, #{msg => "cluster_config_sync_worker_cancel_timeout", worker => Pid}),
+    ?SLOG(error, #{msg => "backup_sync_worker_cancel_timeout", worker => Pid}),
     {noreply, State1};
 handle_info({timeout, _Timer, ?CANCEL_TIMEOUT}, State) ->
     {noreply, State};
 handle_info(Info, State) ->
     ?SLOG(error, #{
-        msg => "cluster_config_sync_unexpected_info", info => Info
+        msg => "backup_sync_unexpected_info", info => Info
     }),
     {noreply, State}.
 
@@ -225,7 +246,7 @@ terminate(_Reason, State) ->
 %%------------------------------------------------------------------------------
 
 apply_config(Conf0, State0) ->
-    Conf = emqx_cluster_config_sync_client:normalize_config(Conf0),
+    Conf = emqx_backup_sync_client:normalize_config(Conf0),
     State1 = State0#state{config = Conf},
     State2 = cancel_sync(State1),
     State3 = cancel_running_worker(State2),
@@ -374,7 +395,7 @@ sync_once_with_lock(Conf, CancelRef) ->
                 global:trans(
                     {?SYNC_LOCK_RESOURCE, self()},
                     fun() ->
-                        emqx_cluster_config_sync_client:sync_once(Conf, #{
+                        emqx_backup_sync_client:sync_once(Conf, #{
                             cancelled_fun => fun() -> worker_cancelled(CancelRef) end
                         })
                     end,
@@ -415,28 +436,28 @@ handle_sync_result(SyncResult, State) ->
     case SyncResult of
         {ok, skipped_by_lock} ->
             log_sync_result(info, Metadata#{
-                msg => "cluster_config_sync_skipped_by_lock",
+                msg => "backup_sync_skipped_by_lock",
                 result => skipped_by_lock,
                 stage => lock
             }),
             State#state{last_status = ok};
         {ok, skipped_no_core_nodes} ->
             log_sync_result(info, Metadata#{
-                msg => "cluster_config_sync_skipped_no_core_nodes",
+                msg => "backup_sync_skipped_no_core_nodes",
                 result => skipped_no_core_nodes,
                 stage => node_selection
             }),
             State#state{last_status = ok};
         {ok, skipped_not_selected_core} ->
             log_sync_result(info, Metadata#{
-                msg => "cluster_config_sync_skipped_not_selected_core",
+                msg => "backup_sync_skipped_not_selected_core",
                 result => skipped_not_selected_core,
                 stage => node_selection
             }),
             State#state{last_status = ok};
         {ok, Result} ->
             log_sync_result(info, Metadata#{
-                msg => "cluster_config_sync_finished",
+                msg => "backup_sync_finished",
                 result => Result,
                 stage => finished,
                 filename => maps:get(filename, Result, undefined),
@@ -445,7 +466,7 @@ handle_sync_result(SyncResult, State) ->
             State#state{last_status = ok};
         {error, Reason} ->
             log_sync_result(error, Metadata#{
-                msg => "cluster_config_sync_failed",
+                msg => "backup_sync_failed",
                 result => failed,
                 stage => sync_stage(Reason),
                 reason => Reason
@@ -454,7 +475,7 @@ handle_sync_result(SyncResult, State) ->
     end.
 
 sync_metadata(Conf0) ->
-    Conf = emqx_cluster_config_sync_client:normalize_config(Conf0),
+    Conf = emqx_backup_sync_client:normalize_config(Conf0),
     Sync = maps:get(<<"sync">>, Conf),
     #{
         root_keys => maps:get(<<"root_keys">>, Sync),
@@ -465,7 +486,7 @@ sync_metadata(Conf0) ->
 
 log_sync_result(Level, Fields) ->
     ?SLOG(Level, Fields),
-    ?tp(cluster_config_sync_result, Fields).
+    ?tp(backup_sync_result, Fields).
 
 sync_stage({http_error, post, _, _, _}) -> export;
 sync_stage({http_error, post, _, _}) -> export;
@@ -481,7 +502,7 @@ sync_stage({worker_cancel_timeout, _}) -> cancel;
 sync_stage(_) -> unknown.
 
 health_check(#state{config = Conf, last_status = LastStatus}) ->
-    case emqx_cluster_config_sync_client:validate_config(Conf) of
+    case emqx_backup_sync_client:validate_config(Conf) of
         ok ->
             case LastStatus of
                 ok -> ok;
@@ -494,9 +515,49 @@ health_check(#state{config = Conf, last_status = LastStatus}) ->
 format_reason(Reason) ->
     iolist_to_binary(io_lib:format("~0p", [Reason])).
 
+status(State = #state{config = Conf, timer = Timer, worker = Worker}) ->
+    Health = health_check(State),
+    #{
+        node => node(),
+        status => status_name(Health),
+        health => Health,
+        enabled => enabled(Conf),
+        worker => worker_status(Worker),
+        selected_core_node => selected_core_node(),
+        next_sync_ms => next_sync_ms(Timer),
+        config => status_config(Conf)
+    }.
+
+status_name(ok) -> ok;
+status_name({error, _}) -> error.
+
+worker_status(undefined) ->
+    idle;
+worker_status(#worker{status = Status}) ->
+    Status.
+
+next_sync_ms(undefined) ->
+    undefined;
+next_sync_ms(Timer) ->
+    case erlang:read_timer(Timer) of
+        false -> undefined;
+        Ms -> Ms
+    end.
+
+status_config(Conf0) ->
+    Conf = emqx_backup_sync_client:normalize_config(Conf0),
+    Sync = maps:get(<<"sync">>, Conf, #{}),
+    Primary = maps:get(<<"primary">>, Conf, #{}),
+    #{
+        primary_base_url => maps:get(<<"base_url">>, Primary, <<>>),
+        interval => maps:get(<<"interval">>, Sync, <<>>),
+        root_keys => maps:get(<<"root_keys">>, Sync, []),
+        table_sets => maps:get(<<"table_sets">>, Sync, [])
+    }.
+
 current_config() ->
     emqx_plugins:get_config(name_vsn(), #{}).
 
 name_vsn() ->
-    {ok, Vsn} = application:get_key(emqx_cluster_config_sync, vsn),
-    iolist_to_binary([<<"emqx_cluster_config_sync-">>, Vsn]).
+    {ok, Vsn} = application:get_key(emqx_backup_sync, vsn),
+    iolist_to_binary([<<"emqx_backup_sync-">>, Vsn]).

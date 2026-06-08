@@ -2,7 +2,7 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_cluster_config_sync_SUITE).
+-module(emqx_backup_sync_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -15,27 +15,27 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
--define(CORE_NODES_TAB, emqx_cluster_config_sync_SUITE_core_nodes).
--define(INTEGRATION_RULE_ID, <<"cluster_config_sync_integration_rule">>).
--define(INTEGRATION_BANNED_CLIENTID, <<"cluster_config_sync_banned_client">>).
--define(INTEGRATION_AUTHN_USER, <<"cluster_config_sync_authn_user">>).
--define(INTEGRATION_AUTHZ_USERNAME, <<"cluster_config_sync_authz_user">>).
--define(INTEGRATION_RETAINER_TOPIC, <<"cluster_config_sync/retained">>).
--define(INTEGRATION_RETAINER_PAYLOAD, <<"cluster config sync retained payload">>).
--define(INTEGRATION_SCHEMA_NAME, <<"cluster_config_sync_schema">>).
--define(INTEGRATION_TLS_LISTENER_NAME, cluster_config_sync_tls).
--define(INTEGRATION_TLS_LISTENER_NAME_BIN, <<"cluster_config_sync_tls">>).
+-define(CORE_NODES_TAB, emqx_backup_sync_SUITE_core_nodes).
+-define(INTEGRATION_RULE_ID, <<"backup_sync_integration_rule">>).
+-define(INTEGRATION_BANNED_CLIENTID, <<"backup_sync_banned_client">>).
+-define(INTEGRATION_AUTHN_USER, <<"backup_sync_authn_user">>).
+-define(INTEGRATION_AUTHZ_USERNAME, <<"backup_sync_authz_user">>).
+-define(INTEGRATION_RETAINER_TOPIC, <<"backup_sync/retained">>).
+-define(INTEGRATION_RETAINER_PAYLOAD, <<"backup sync retained payload">>).
+-define(INTEGRATION_SCHEMA_NAME, <<"backup_sync_schema">>).
+-define(INTEGRATION_TLS_LISTENER_NAME, backup_sync_tls).
+-define(INTEGRATION_TLS_LISTENER_NAME_BIN, <<"backup_sync_tls">>).
 -define(INTEGRATION_TLS_LISTENER_PORT, 29249).
--define(INTEGRATION_HTTP_CONNECTOR_NAME, <<"cluster_config_sync_http_connector">>).
--define(INTEGRATION_HTTP_ACTION_NAME, <<"cluster_config_sync_http_action">>).
--define(INTEGRATION_UPDATED_RULE_ID, <<"cluster_config_sync_updated_rule">>).
--define(INTEGRATION_BANNED_CLIENTID_2, <<"cluster_config_sync_banned_client_2">>).
--define(INTEGRATION_AUTHN_USER_2, <<"cluster_config_sync_authn_user_2">>).
--define(INTEGRATION_AUTHZ_USERNAME_2, <<"cluster_config_sync_authz_user_2">>).
--define(INTEGRATION_CONFIG_ONLY_RULE_ID, <<"cluster_config_sync_config_only_rule">>).
--define(INTEGRATION_BANNED_CLIENTID_3, <<"cluster_config_sync_banned_client_3">>).
--define(INTEGRATION_AUTHN_USER_3, <<"cluster_config_sync_authn_user_3">>).
--define(INTEGRATION_AUTHZ_USERNAME_3, <<"cluster_config_sync_authz_user_3">>).
+-define(INTEGRATION_HTTP_CONNECTOR_NAME, <<"backup_sync_http_connector">>).
+-define(INTEGRATION_HTTP_ACTION_NAME, <<"backup_sync_http_action">>).
+-define(INTEGRATION_UPDATED_RULE_ID, <<"backup_sync_updated_rule">>).
+-define(INTEGRATION_BANNED_CLIENTID_2, <<"backup_sync_banned_client_2">>).
+-define(INTEGRATION_AUTHN_USER_2, <<"backup_sync_authn_user_2">>).
+-define(INTEGRATION_AUTHZ_USERNAME_2, <<"backup_sync_authz_user_2">>).
+-define(INTEGRATION_CONFIG_ONLY_RULE_ID, <<"backup_sync_config_only_rule">>).
+-define(INTEGRATION_BANNED_CLIENTID_3, <<"backup_sync_banned_client_3">>).
+-define(INTEGRATION_AUTHN_USER_3, <<"backup_sync_authn_user_3">>).
+-define(INTEGRATION_AUTHZ_USERNAME_3, <<"backup_sync_authz_user_3">>).
 -define(PRIMARY_API_PORT, 28249).
 -define(PRIMARY_BASE_PORT, 20100).
 -define(CLUSTER_HOCON_FILENAME, "cluster.hocon").
@@ -45,6 +45,9 @@ all() ->
         t_enabled,
         t_health_reports_missing_primary_config,
         t_interval_ms,
+        t_app_registers_backup_sync_cli,
+        t_cli_status_ok,
+        t_cli_status_error,
         t_config_change_triggers_immediate_sync,
         t_sync_runs_without_enable_or_role,
         t_sync_runs_async_and_health_check_does_not_block,
@@ -101,33 +104,81 @@ end_per_testcase(_TestCase, _Config) ->
 t_enabled(_Config) ->
     ?assertEqual(
         false,
-        emqx_cluster_config_sync:enabled(remove_primary_field(conf(), <<"base_url">>))
+        emqx_backup_sync:enabled(remove_primary_field(conf(), <<"base_url">>))
     ),
     ?assertEqual(
         true,
-        emqx_cluster_config_sync:enabled(remove_enable_role(conf()))
+        emqx_backup_sync:enabled(remove_enable_role(conf()))
     ).
 
 t_health_reports_missing_primary_config(_Config) ->
     Pid = start_test_server(),
-    ok = emqx_cluster_config_sync:on_config_changed(
+    ok = emqx_backup_sync:on_config_changed(
         #{}, remove_primary_field(conf(), <<"base_url">>)
     ),
 
-    ?assertMatch({error, _}, emqx_cluster_config_sync:on_health_check()),
+    ?assertMatch({error, _}, emqx_backup_sync:on_health_check()),
     Pid ! sync,
     assert_no_sync_started(100).
 
 t_interval_ms(_Config) ->
-    ?assertEqual(60000, emqx_cluster_config_sync:interval_ms(sync_config(<<"1m">>))),
-    ?assertEqual(300000, emqx_cluster_config_sync:interval_ms(sync_config(<<"invalid">>))).
+    ?assertEqual(60000, emqx_backup_sync:interval_ms(sync_config(<<"1m">>))),
+    ?assertEqual(300000, emqx_backup_sync:interval_ms(sync_config(<<"invalid">>))).
+
+t_app_registers_backup_sync_cli(_Config) ->
+    ok = emqx_ctl:stop(),
+    {ok, _} = emqx_ctl:start_link(),
+    try
+        ?assertEqual({error, cmd_not_found}, lookup_command(backup_sync)),
+        ensure_plugin_app_loaded(),
+        {ok, Sup} = emqx_backup_sync_app:start(normal, []),
+        unlink(Sup),
+        ?assertEqual({emqx_backup_sync_cli, cmd}, lookup_command(backup_sync)),
+        ok = emqx_backup_sync_app:stop([]),
+        exit(Sup, shutdown),
+        ct:sleep(100),
+        ?assertEqual({error, cmd_not_found}, lookup_command(backup_sync))
+    after
+        cleanup_test_server(),
+        ok = emqx_ctl:stop()
+    end.
+
+t_cli_status_ok(_Config) ->
+    setup_core_node(),
+    setup_counting_sync(),
+    _Pid = start_test_server(),
+    ok = emqx_backup_sync:on_config_changed(#{}, conf()),
+    _SyncPid = assert_sync_started(),
+
+    mock_print(),
+    try
+        Output = emqx_backup_sync_cli:cmd(["status"]),
+        ?assertMatch({match, _}, re:run(Output, "Status: ok")),
+        ?assertMatch({match, _}, re:run(Output, "Health: ok")),
+        ?assertMatch({match, _}, re:run(Output, "Node: "))
+    after
+        unmock_print()
+    end.
+
+t_cli_status_error(_Config) ->
+    _Pid = start_test_server(),
+    ok = emqx_backup_sync:on_config_changed(#{}, #{}),
+
+    mock_print(),
+    try
+        Output = emqx_backup_sync_cli:cmd(["status"]),
+        ?assertMatch({match, _}, re:run(Output, "Status: error")),
+        ?assertMatch({match, _}, re:run(Output, "missing_primary_base_url"))
+    after
+        unmock_print()
+    end.
 
 t_config_change_triggers_immediate_sync(_Config) ->
     setup_core_node(),
     setup_counting_sync(),
     _Pid = start_test_server(),
 
-    ok = emqx_cluster_config_sync:on_config_changed(#{}, conf()),
+    ok = emqx_backup_sync:on_config_changed(#{}, conf()),
 
     _SyncPid = assert_sync_started().
 
@@ -135,7 +186,7 @@ t_sync_runs_without_enable_or_role(_Config) ->
     setup_core_node(),
     setup_counting_sync(),
     _Pid = start_test_server(),
-    ok = emqx_cluster_config_sync:on_config_changed(#{}, remove_enable_role(conf())),
+    ok = emqx_backup_sync:on_config_changed(#{}, remove_enable_role(conf())),
 
     _SyncPid = assert_sync_started().
 
@@ -143,12 +194,12 @@ t_sync_runs_async_and_health_check_does_not_block(_Config) ->
     setup_core_node(),
     setup_blocking_sync(),
     _Pid = start_test_server(),
-    ok = emqx_cluster_config_sync:on_config_changed(#{}, conf()),
+    ok = emqx_backup_sync:on_config_changed(#{}, conf()),
 
     SyncPid = assert_sync_started(),
     Parent = self(),
     HealthCheck = spawn(fun() ->
-        Parent ! {health_check, emqx_cluster_config_sync:on_health_check()}
+        Parent ! {health_check, emqx_backup_sync:on_health_check()}
     end),
     receive
         {health_check, Reply} ->
@@ -165,7 +216,7 @@ t_sync_does_not_reenter_while_worker_running(_Config) ->
     setup_core_node(),
     setup_blocking_sync(),
     Pid = start_test_server(),
-    ok = emqx_cluster_config_sync:on_config_changed(#{}, conf()),
+    ok = emqx_backup_sync:on_config_changed(#{}, conf()),
 
     SyncPid = assert_sync_started(),
     Pid ! sync,
@@ -179,49 +230,49 @@ t_sync_runs_only_on_selected_core(_Config) ->
     setup_core_nodes([node(), OtherCore]),
     setup_counting_sync(),
     Pid = start_test_server(),
-    ok = emqx_cluster_config_sync:on_config_changed(#{}, conf()),
+    ok = emqx_backup_sync:on_config_changed(#{}, conf()),
 
     Pid ! sync,
     assert_no_sync_started(200),
-    ?assertEqual(ok, emqx_cluster_config_sync:on_health_check()).
+    ?assertEqual(ok, emqx_backup_sync:on_health_check()).
 
 t_sync_rechecks_selected_core_in_worker(_Config) ->
     OtherCore = list_to_atom("a" ++ atom_to_list(node())),
     setup_core_nodes_sequence([[node()], [OtherCore, node()]]),
     setup_counting_sync(),
     Pid = start_test_server(),
-    ok = emqx_cluster_config_sync:on_config_changed(#{}, conf()),
+    ok = emqx_backup_sync:on_config_changed(#{}, conf()),
 
     Pid ! sync,
     assert_no_sync_started(200),
-    ?assertEqual(ok, emqx_cluster_config_sync:on_health_check()).
+    ?assertEqual(ok, emqx_backup_sync:on_health_check()).
 
 t_sync_skips_when_no_running_core_nodes(_Config) ->
     setup_core_nodes([]),
     setup_counting_sync(),
     Pid = start_test_server(),
-    ok = emqx_cluster_config_sync:on_config_changed(#{}, conf()),
+    ok = emqx_backup_sync:on_config_changed(#{}, conf()),
 
     Pid ! sync,
     assert_no_sync_started(200),
-    ?assertEqual(ok, emqx_cluster_config_sync:on_health_check()).
+    ?assertEqual(ok, emqx_backup_sync:on_health_check()).
 
 t_sync_skips_when_core_membership_unavailable(_Config) ->
     setup_core_membership_unavailable(),
     setup_counting_sync(),
     Pid = start_test_server(),
-    ok = emqx_cluster_config_sync:on_config_changed(#{}, conf()),
+    ok = emqx_backup_sync:on_config_changed(#{}, conf()),
 
     Pid ! sync,
     assert_no_sync_started(200),
-    ?assertEqual(ok, emqx_cluster_config_sync:on_health_check()).
+    ?assertEqual(ok, emqx_backup_sync:on_health_check()).
 
 t_non_selected_core_takes_over_on_next_interval(_Config) ->
     OtherCore = list_to_atom("a" ++ atom_to_list(node())),
     setup_dynamic_core_nodes([node(), OtherCore]),
     setup_counting_sync(),
     _Pid = start_test_server(),
-    ok = emqx_cluster_config_sync:on_config_changed(
+    ok = emqx_backup_sync:on_config_changed(
         #{}, conf(<<"http://primary:18083/api/v5/">>, <<"100ms">>)
     ),
 
@@ -233,12 +284,12 @@ t_sync_skips_when_cluster_lock_is_held(_Config) ->
     setup_core_node(),
     setup_counting_sync(),
     Pid = start_test_server(),
-    ok = emqx_cluster_config_sync:on_config_changed(#{}, conf()),
+    ok = emqx_backup_sync:on_config_changed(#{}, conf()),
     LockPid = hold_sync_lock(),
 
     Pid ! sync,
     assert_no_sync_started(200),
-    ?assertEqual(ok, emqx_cluster_config_sync:on_health_check()),
+    ?assertEqual(ok, emqx_backup_sync:on_health_check()),
 
     LockPid ! release_lock.
 
@@ -246,12 +297,12 @@ t_config_change_cancels_running_worker_gracefully(_Config) ->
     setup_core_node(),
     setup_cancellable_sync(),
     _Pid = start_test_server(),
-    ok = emqx_cluster_config_sync:on_config_changed(#{}, conf()),
+    ok = emqx_backup_sync:on_config_changed(#{}, conf()),
 
     SyncPid = assert_sync_started(),
     Ref = erlang:monitor(process, SyncPid),
     ChangedConf = conf(<<"http://changed-primary:18083/api/v5">>),
-    ok = emqx_cluster_config_sync:on_config_changed(conf(), ChangedConf),
+    ok = emqx_backup_sync:on_config_changed(conf(), ChangedConf),
     SyncPid ! check_cancelled,
     assert_sync_cancel_requested(SyncPid),
     assert_sync_cleanup(SyncPid),
@@ -261,12 +312,12 @@ t_config_change_reports_cancel_timeout(_Config) ->
     setup_core_node(),
     setup_cancel_ignoring_sync(),
     _Pid = start_test_server(),
-    ok = emqx_cluster_config_sync:on_config_changed(#{}, conf()),
+    ok = emqx_backup_sync:on_config_changed(#{}, conf()),
 
     SyncPid = assert_sync_started(),
     Ref = erlang:monitor(process, SyncPid),
     try
-        ok = emqx_cluster_config_sync:on_config_changed(
+        ok = emqx_backup_sync:on_config_changed(
             conf(), conf(<<"http://other:18083/api/v5/">>)
         ),
         wait_health_error(<<"worker_cancel_timeout">>),
@@ -277,11 +328,11 @@ t_config_change_reports_cancel_timeout(_Config) ->
     end.
 
 t_terminate_kills_worker_after_cancel_timeout(_Config) ->
-    ?assertMatch(#{shutdown := 200}, emqx_cluster_config_sync:child_spec()),
+    ?assertMatch(#{shutdown := 200}, emqx_backup_sync:child_spec()),
     setup_core_node(),
     setup_cancel_ignoring_sync(),
     Pid = start_test_server(),
-    ok = emqx_cluster_config_sync:on_config_changed(#{}, conf()),
+    ok = emqx_backup_sync:on_config_changed(#{}, conf()),
 
     SyncPid = assert_sync_started(),
     Ref = erlang:monitor(process, SyncPid),
@@ -291,7 +342,7 @@ t_terminate_kills_worker_after_cancel_timeout(_Config) ->
 
 t_config_schema_has_unique_record_name(_Config) ->
     Schema = read_plugin_json("config_schema.avsc"),
-    ?assertEqual(<<"ClusterConfigSyncConfig">>, maps:get(<<"name">>, Schema)).
+    ?assertEqual(<<"BackupSyncConfig">>, maps:get(<<"name">>, Schema)).
 
 t_config_i18n_is_populated(_Config) ->
     I18n = read_plugin_json("config_i18n.json"),
@@ -320,7 +371,7 @@ t_sync_once_uses_default_table_sets(_Config) ->
     Conf = remove_table_sets(conf()),
 
     ?assertMatch(
-        {ok, #{filename := BackupName}}, emqx_cluster_config_sync_client:sync_once(Conf, Deps)
+        {ok, #{filename := BackupName}}, emqx_backup_sync_client:sync_once(Conf, Deps)
     ),
 
     receive
@@ -333,15 +384,15 @@ t_sync_once_uses_default_table_sets(_Config) ->
 t_sync_once_requires_primary_api_config(_Config) ->
     ?assertEqual(
         {error, missing_primary_base_url},
-        emqx_cluster_config_sync_client:sync_once(remove_primary_field(conf(), <<"base_url">>))
+        emqx_backup_sync_client:sync_once(remove_primary_field(conf(), <<"base_url">>))
     ),
     ?assertEqual(
         {error, missing_primary_api_key},
-        emqx_cluster_config_sync_client:sync_once(remove_primary_field(conf(), <<"api_key">>))
+        emqx_backup_sync_client:sync_once(remove_primary_field(conf(), <<"api_key">>))
     ),
     ?assertEqual(
         {error, missing_primary_api_secret},
-        emqx_cluster_config_sync_client:sync_once(remove_primary_field(conf(), <<"api_secret">>))
+        emqx_backup_sync_client:sync_once(remove_primary_field(conf(), <<"api_secret">>))
     ).
 
 t_sync_once_cleans_up_when_cancelled_after_export(_Config) ->
@@ -370,7 +421,7 @@ t_sync_once_cleans_up_when_cancelled_after_export(_Config) ->
         end
     },
 
-    ?assertEqual({error, cancelled}, emqx_cluster_config_sync_client:sync_once(conf(), Deps)),
+    ?assertEqual({error, cancelled}, emqx_backup_sync_client:sync_once(conf(), Deps)),
     assert_seen({delete_local, BackupName}),
     receive
         {delete_remote, Url} ->
@@ -406,7 +457,7 @@ t_sync_once_exports_downloads_imports_and_cleans_up(_Config) ->
     },
 
     ?assertMatch(
-        {ok, #{filename := BackupName}}, emqx_cluster_config_sync_client:sync_once(conf(), Deps)
+        {ok, #{filename := BackupName}}, emqx_backup_sync_client:sync_once(conf(), Deps)
     ),
 
     receive
@@ -451,7 +502,7 @@ t_sync_once_keeps_local_backup_by_default(_Config) ->
 
     ?assertMatch(
         {ok, #{filename := BackupName, cleanup := #{local := skipped}}},
-        emqx_cluster_config_sync_client:sync_once(Conf, Deps)
+        emqx_backup_sync_client:sync_once(Conf, Deps)
     ),
     assert_not_seen({delete_local, BackupName}).
 
@@ -474,7 +525,7 @@ t_sync_once_reports_import_errors(_Config) ->
     },
     ?assertMatch(
         {error, {import_failed, {ok, #{config_errors := #{}}}}},
-        emqx_cluster_config_sync_client:sync_once(conf(), Deps)
+        emqx_backup_sync_client:sync_once(conf(), Deps)
     ).
 
 t_sync_once_reports_cleanup_errors(_Config) ->
@@ -500,7 +551,7 @@ t_sync_once_reports_cleanup_errors(_Config) ->
                 remote := {error, {http_error, delete, _, 500, <<"delete failed">>}},
                 local := {error, eacces}
             }}},
-        emqx_cluster_config_sync_client:sync_once(conf(), Deps)
+        emqx_backup_sync_client:sync_once(conf(), Deps)
     ).
 
 t_sync_once_reports_remote_export_errors(_Config) ->
@@ -514,12 +565,12 @@ t_sync_once_reports_remote_export_errors(_Config) ->
     },
     ?assertMatch(
         {error, {http_error, post, _, 500, <<"boom">>}},
-        emqx_cluster_config_sync_client:sync_once(conf(), Deps)
+        emqx_backup_sync_client:sync_once(conf(), Deps)
     ).
 
 t_sync_once_passes_primary_ssl_options_to_httpc(Config) ->
     Self = self(),
-    Cacertfile = filename:join(?config(priv_dir, Config), "cluster_config_sync_ca.pem"),
+    Cacertfile = filename:join(?config(priv_dir, Config), "backup_sync_ca.pem"),
     ok = file:write_file(Cacertfile, <<"test ca">>),
     BackupName = <<"emqx-export-2026-06-02.tar.gz">>,
     ok = meck:new(httpc, [non_strict, passthrough, no_history, no_link]),
@@ -551,7 +602,7 @@ t_sync_once_passes_primary_ssl_options_to_httpc(Config) ->
 
         ?assertMatch(
             {ok, #{filename := BackupName}},
-            emqx_cluster_config_sync_client:sync_once(Conf, Deps)
+            emqx_backup_sync_client:sync_once(Conf, Deps)
         ),
 
         HTTPOpts = receive_http_options(),
@@ -572,14 +623,14 @@ t_sync_once_rejects_bad_primary_ssl_verify(_Config) ->
     }),
     ?assertEqual(
         {error, {bad_primary_ssl_verify, <<"verify_bad">>}},
-        emqx_cluster_config_sync_client:sync_once(Conf)
+        emqx_backup_sync_client:sync_once(Conf)
     ).
 
 t_sync_once_rejects_redirects_without_forwarding_auth(_Config) ->
     {TargetPid, TargetUrl} = start_redirect_target(),
     {PrimaryPid, PrimaryUrl} = start_redirect_primary(TargetUrl),
     try
-        Result = emqx_cluster_config_sync_client:sync_once(conf(PrimaryUrl)),
+        Result = emqx_backup_sync_client:sync_once(conf(PrimaryUrl)),
         ?assertEqual([], collect_redirect_target_requests(100)),
         ?assertMatch({error, {http_error, post, _, 302, <<>>}}, Result)
     after
@@ -595,8 +646,8 @@ t_real_cluster_sync_runs_on_one_core_only(Config) ->
     try
         [SelectedNode, OtherNode] = select_cluster_sync_nodes(Nodes),
         SyncConf = conf(PrimaryUrl),
-        ok = ?ON(SelectedNode, emqx_cluster_config_sync:on_config_changed(#{}, SyncConf)),
-        ok = ?ON(OtherNode, emqx_cluster_config_sync:on_config_changed(#{}, SyncConf)),
+        ok = ?ON(SelectedNode, emqx_backup_sync:on_config_changed(#{}, SyncConf)),
+        ok = ?ON(OtherNode, emqx_backup_sync:on_config_changed(#{}, SyncConf)),
 
         Requests0 = wait_fake_primary_requests(3),
         ?assertEqual([post, get, delete], [Method || {Method, _Path, _Body} <- Requests0]),
@@ -609,12 +660,12 @@ t_real_cluster_sync_runs_on_one_core_only(Config) ->
         Requests = wait_fake_primary_requests(3),
         ?assertEqual([post, get, delete], [Method || {Method, _Path, _Body} <- Requests]),
         wait_imported_rule(Nodes),
-        ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check())),
+        ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check())),
 
         trigger_sync(OtherNode),
         assert_no_fake_primary_request(500),
 
-        ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check()))
+        ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
     after
         stop_fake_primary(PrimaryPid),
         ok = emqx_cth_cluster:stop(Nodes)
@@ -638,9 +689,9 @@ t_real_primary_sync_respects_root_keys_and_table_sets(Config) ->
             begin
                 trigger_sync(SelectedNode),
                 wait_imported_rule(SecondaryNodes),
-                ?block_until(#{?snk_kind := cluster_config_sync_result, stage := finished}, 10_000),
+                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000),
                 assert_table_data_absent(SecondaryNodes),
-                ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check()))
+                ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
             end,
             fun(Trace) ->
                 assert_success_trace(Trace, SelectedNode, RootKeys, [])
@@ -655,9 +706,9 @@ t_real_primary_sync_respects_root_keys_and_table_sets(Config) ->
             begin
                 trigger_sync(SelectedNode),
                 wait_default_table_data(SecondaryNodes),
-                ?block_until(#{?snk_kind := cluster_config_sync_result, stage := finished}, 10_000),
+                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000),
                 assert_retainer_absent(SecondaryNodes),
-                ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check()))
+                ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
             end,
             fun(Trace) ->
                 assert_success_trace(Trace, SelectedNode, RootKeys, default_table_sets())
@@ -676,8 +727,8 @@ t_real_primary_sync_respects_root_keys_and_table_sets(Config) ->
             begin
                 trigger_sync(SelectedNode),
                 wait_table_data(SecondaryNodes),
-                ?block_until(#{?snk_kind := cluster_config_sync_result, stage := finished}, 10_000),
-                ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check()))
+                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000),
+                ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
             end,
             fun(Trace) ->
                 assert_success_trace(Trace, SelectedNode, RootKeys, TableSets)
@@ -707,8 +758,8 @@ t_real_primary_sync_file_backed_schema_registry(Config) ->
             begin
                 trigger_sync(SelectedNode),
                 wait_schema_usable(SecondaryNodes, PrimaryDataDir, PrimaryRootPath),
-                ?block_until(#{?snk_kind := cluster_config_sync_result, stage := finished}, 10_000),
-                ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check()))
+                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000),
+                ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
             end,
             fun(Trace) ->
                 assert_success_trace(Trace, SelectedNode, RootKeys, [])
@@ -737,8 +788,8 @@ t_real_primary_sync_listener_cert_files(Config) ->
             begin
                 trigger_sync(SelectedNode),
                 wait_tls_listener_cert_files(SecondaryNodes, PrimaryDataDir, Certs),
-                ?block_until(#{?snk_kind := cluster_config_sync_result, stage := finished}, 10_000),
-                ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check()))
+                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000),
+                ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
             end,
             fun(Trace) ->
                 assert_success_trace(Trace, SelectedNode, RootKeys, [])
@@ -768,8 +819,8 @@ t_real_primary_sync_connector_action_cert_files(Config) ->
             begin
                 trigger_sync(SelectedNode),
                 wait_http_connector_action_cert_files(SecondaryNodes, PrimaryDataDir, Certs),
-                ?block_until(#{?snk_kind := cluster_config_sync_result, stage := finished}, 10_000),
-                ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check()))
+                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000),
+                ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
             end,
             fun(Trace) ->
                 assert_success_trace(Trace, SelectedNode, RootKeys, [])
@@ -798,8 +849,8 @@ t_real_primary_sync_builtin_auth_runtime(Config) ->
             begin
                 trigger_sync(SelectedNode),
                 wait_auth_runtime_usable(SecondaryNodes),
-                ?block_until(#{?snk_kind := cluster_config_sync_result, stage := finished}, 10_000),
-                ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check()))
+                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000),
+                ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
             end,
             fun(Trace) ->
                 assert_success_trace(Trace, SelectedNode, RootKeys, default_table_sets())
@@ -828,14 +879,14 @@ t_real_primary_sync_repeated_updates_and_config_only_tables(Config) ->
         assert_real_sync_finished(SelectedNode, RootKeys, default_table_sets()),
         wait_imported_rule(SecondaryNodes),
         wait_default_table_data(SecondaryNodes),
-        ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check())),
+        ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check())),
 
         ok = update_primary_rule_and_add_table_data(PrimaryNode),
         ok = configure_sync_nodes([SelectedNode, OtherNode], WithDefaultTableSets),
         assert_real_sync_finished(SelectedNode, RootKeys, default_table_sets()),
         wait_updated_rule(SecondaryNodes),
         wait_additional_default_table_data(SecondaryNodes),
-        ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check())),
+        ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check())),
 
         ok = create_primary_config_only_update_and_more_table_data(PrimaryNode),
         ConfigOnly = conf(PrimaryUrl, ApiKey, ApiSecret, RootKeys, []),
@@ -844,7 +895,7 @@ t_real_primary_sync_repeated_updates_and_config_only_tables(Config) ->
         wait_config_only_rule(SecondaryNodes),
         assert_config_only_table_data_not_synced(SecondaryNodes),
         assert_additional_default_table_data(SecondaryNodes),
-        ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check()))
+        ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
     after
         ok = emqx_cth_cluster:stop(SecondaryNodes),
         ok = emqx_cth_cluster:stop(PrimaryNodes)
@@ -873,7 +924,7 @@ t_real_primary_sync_deletes_default_table_data(Config) ->
         assert_real_sync_finished(SelectedNode, RootKeys, default_table_sets()),
         wait_default_table_data_absent(SecondaryNodes),
         wait_imported_rule(SecondaryNodes),
-        ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check()))
+        ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
     after
         ok = emqx_cth_cluster:stop(SecondaryNodes),
         ok = emqx_cth_cluster:stop(PrimaryNodes)
@@ -905,8 +956,8 @@ t_real_sync_cancelled_during_download_cleans_up_without_import(Config) ->
         [{delete, DeletePath, <<>>}] = wait_fake_primary_requests(1),
         ?assertMatch(<<"/api/v5/data/files/", _/binary>>, DeletePath),
         wait_rule_absent(Nodes),
-        ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check())),
-        ?assertEqual(ok, ?ON(OtherNode, emqx_cluster_config_sync:on_health_check()))
+        ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check())),
+        ?assertEqual(ok, ?ON(OtherNode, emqx_backup_sync:on_health_check()))
     after
         stop_fake_primary(PrimaryPid),
         ok = emqx_cth_cluster:stop(Nodes)
@@ -933,9 +984,9 @@ t_real_sync_cancelled_during_import_finishes_and_reports_success(Config) ->
                 [{delete, DeletePath, <<>>}] = wait_fake_primary_requests(1),
                 ?assertMatch(<<"/api/v5/data/files/", _/binary>>, DeletePath),
                 wait_imported_rule(Nodes),
-                ?block_until(#{?snk_kind := cluster_config_sync_result, stage := finished}, 60_000),
-                ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check())),
-                ?assertEqual(ok, ?ON(OtherNode, emqx_cluster_config_sync:on_health_check()))
+                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 60_000),
+                ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check())),
+                ?assertEqual(ok, ?ON(OtherNode, emqx_backup_sync:on_health_check()))
             end,
             fun(Trace) ->
                 assert_success_trace(Trace, SelectedNode, default_root_keys(), [])
@@ -983,7 +1034,7 @@ t_real_sync_reports_partial_database_failure(Config) ->
                     wait_partial_default_table_data(SecondaryNodes),
                     wait_remote_health_error(SelectedNode, <<"emqx_authn_mnesia">>),
                     ?block_until(
-                        #{?snk_kind := cluster_config_sync_result, result := failed}, 60_000
+                        #{?snk_kind := backup_sync_result, result := failed}, 60_000
                     )
                 end,
                 fun(Trace) ->
@@ -1027,7 +1078,7 @@ t_real_primary_sync_deletes_retained_messages(Config) ->
         assert_real_sync_finished(SelectedNode, RootKeys, TableSets),
         wait_retainer_absent(SecondaryNodes),
         wait_imported_rule(SecondaryNodes),
-        ?assertEqual(ok, ?ON(SelectedNode, emqx_cluster_config_sync:on_health_check()))
+        ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
     after
         ok = emqx_cth_cluster:stop(SecondaryNodes),
         ok = emqx_cth_cluster:stop(PrimaryNodes)
@@ -1054,8 +1105,8 @@ t_real_selected_core_takes_over_after_node_down(Config) ->
                 Requests = wait_fake_primary_requests(3),
                 ?assertEqual([post, get, delete], [Method || {Method, _Path, _Body} <- Requests]),
                 wait_imported_rule([OtherNode]),
-                ?block_until(#{?snk_kind := cluster_config_sync_result, stage := finished}, 10_000),
-                ?assertEqual(ok, ?ON(OtherNode, emqx_cluster_config_sync:on_health_check()))
+                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000),
+                ?assertEqual(ok, ?ON(OtherNode, emqx_backup_sync:on_health_check()))
             end,
             fun(Trace) ->
                 assert_success_trace(Trace, OtherNode, default_root_keys(), [])
@@ -1142,7 +1193,7 @@ t_real_sync_reports_observable_failure(Config) ->
         ?check_trace(
             begin
                 trigger_sync(SelectedNode),
-                ?block_until(#{?snk_kind := cluster_config_sync_result, result := failed}, 10_000),
+                ?block_until(#{?snk_kind := backup_sync_result, result := failed}, 10_000),
                 wait_remote_health_error(SelectedNode, <<"http_error">>)
             end,
             fun(Trace) ->
@@ -1199,10 +1250,10 @@ conf_with_default_table_sets(BaseUrl, ApiKey, ApiSecret, RootKeys) ->
     remove_table_sets(conf(BaseUrl, ApiKey, ApiSecret, RootKeys, [])).
 
 default_root_keys() ->
-    emqx_cluster_config_sync_client:default_root_keys().
+    emqx_backup_sync_client:default_root_keys().
 
 default_table_sets() ->
-    emqx_cluster_config_sync_client:default_table_sets().
+    emqx_backup_sync_client:default_table_sets().
 
 remove_table_sets(Conf) ->
     Sync = maps:get(<<"sync">>, Conf),
@@ -1309,8 +1360,8 @@ set_core_nodes(Nodes) ->
 
 setup_blocking_sync() ->
     Parent = self(),
-    meck:new(emqx_cluster_config_sync_client, [passthrough]),
-    meck:expect(emqx_cluster_config_sync_client, sync_once, fun(_Conf, _Deps) ->
+    meck:new(emqx_backup_sync_client, [passthrough]),
+    meck:expect(emqx_backup_sync_client, sync_once, fun(_Conf, _Deps) ->
         Parent ! {sync_started, self()},
         receive
             finish_sync ->
@@ -1321,8 +1372,8 @@ setup_blocking_sync() ->
 
 setup_cancellable_sync() ->
     Parent = self(),
-    meck:new(emqx_cluster_config_sync_client, [passthrough]),
-    meck:expect(emqx_cluster_config_sync_client, sync_once, fun(
+    meck:new(emqx_backup_sync_client, [passthrough]),
+    meck:expect(emqx_backup_sync_client, sync_once, fun(
         _Conf, #{cancelled_fun := Cancelled}
     ) ->
         Parent ! {sync_started, self()},
@@ -1343,8 +1394,8 @@ setup_cancellable_sync() ->
 
 setup_cancel_ignoring_sync() ->
     Parent = self(),
-    meck:new(emqx_cluster_config_sync_client, [passthrough]),
-    meck:expect(emqx_cluster_config_sync_client, sync_once, fun(_Conf, _Deps) ->
+    meck:new(emqx_backup_sync_client, [passthrough]),
+    meck:expect(emqx_backup_sync_client, sync_once, fun(_Conf, _Deps) ->
         Parent ! {sync_started, self()},
         receive
             stop_ignoring_sync ->
@@ -1368,8 +1419,8 @@ count(Count) -> Count.
 
 setup_counting_sync() ->
     Parent = self(),
-    meck:new(emqx_cluster_config_sync_client, [passthrough]),
-    meck:expect(emqx_cluster_config_sync_client, sync_once, fun(_Conf, _Deps) ->
+    meck:new(emqx_backup_sync_client, [passthrough]),
+    meck:expect(emqx_backup_sync_client, sync_once, fun(_Conf, _Deps) ->
         Parent ! {sync_started, self()},
         {ok, #{filename => <<"backup.tar.gz">>}}
     end).
@@ -1377,31 +1428,50 @@ setup_counting_sync() ->
 start_test_server() ->
     cleanup_test_server(),
     ensure_plugin_app_loaded(),
-    {ok, Pid} = emqx_cluster_config_sync:start_link(),
+    {ok, Pid} = emqx_backup_sync:start_link(),
     unlink(Pid),
     Pid.
 
 ensure_plugin_app_loaded() ->
-    case application:load(emqx_cluster_config_sync) of
+    case application:load(emqx_backup_sync) of
         ok -> ok;
-        {error, {already_loaded, emqx_cluster_config_sync}} -> ok
+        {error, {already_loaded, emqx_backup_sync}} -> ok
     end.
 
 read_plugin_json(Filename) ->
-    Path = filename:join([code:priv_dir(emqx_cluster_config_sync), Filename]),
+    Path = filename:join([code:priv_dir(emqx_backup_sync), Filename]),
     {ok, Bin} = file:read_file(Path),
     emqx_utils_json:decode(Bin).
+
+lookup_command(Cmd) ->
+    case emqx_ctl:lookup_command(Cmd) of
+        {ok, MF} -> MF;
+        Error -> Error
+    end.
+
+mock_print() ->
+    catch meck:unload(emqx_ctl),
+    meck:new(emqx_ctl, [non_strict, passthrough]),
+    meck:expect(emqx_ctl, print, fun(Arg) -> emqx_ctl:format(Arg, []) end),
+    meck:expect(emqx_ctl, print, fun(Msg, Args) -> emqx_ctl:format(Msg, Args) end),
+    meck:expect(emqx_ctl, usage, fun(Usages) -> emqx_ctl:format_usage(Usages) end),
+    meck:expect(emqx_ctl, usage, fun(CmdParams, Desc) ->
+        emqx_ctl:format_usage(CmdParams, Desc)
+    end).
+
+unmock_print() ->
+    meck:unload(emqx_ctl).
 
 cleanup_test_artifacts() ->
     cleanup_test_server(),
     catch meck:unload(mria_rlog),
     catch meck:unload(mria_membership),
-    catch meck:unload(emqx_cluster_config_sync_client),
+    catch meck:unload(emqx_backup_sync_client),
     catch ets:delete(?CORE_NODES_TAB),
     ok.
 
 cleanup_test_server() ->
-    case whereis(emqx_cluster_config_sync) of
+    case whereis(emqx_backup_sync) of
         undefined ->
             ok;
         Pid ->
@@ -1473,7 +1543,7 @@ hold_sync_lock() ->
     Parent = self(),
     LockPid = spawn_link(fun() ->
         global:trans(
-            {{emqx_cluster_config_sync, sync}, self()},
+            {{emqx_backup_sync, sync}, self()},
             fun() ->
                 Parent ! sync_lock_held,
                 receive
@@ -1495,7 +1565,7 @@ wait_health_error(ExpectedFragment) ->
     wait_health_error(ExpectedFragment, Deadline).
 
 wait_health_error(ExpectedFragment, Deadline) ->
-    case emqx_cluster_config_sync:on_health_check() of
+    case emqx_backup_sync:on_health_check() of
         {error, Reason} ->
             case binary:match(Reason, ExpectedFragment) of
                 nomatch -> error({unexpected_health_error, Reason});
@@ -1523,8 +1593,8 @@ start_real_secondary_cluster(Config, WorkDirSuffix, ExtraApps) ->
     WorkDir = cluster_work_dir(Config, WorkDirSuffix),
     Apps = real_cluster_apps(base_cluster_conf(), ExtraApps),
     ClusterSpec = [
-        {cluster_config_sync_real1, #{role => core, apps => Apps}},
-        {cluster_config_sync_real2, #{role => core, apps => Apps}}
+        {backup_sync_real1, #{role => core, apps => Apps}},
+        {backup_sync_real2, #{role => core, apps => Apps}}
     ],
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(
         ClusterSpec,
@@ -1542,7 +1612,7 @@ start_real_primary_cluster(Config, WorkDirSuffix, ExtraApps) ->
     WorkDir = cluster_work_dir(Config, WorkDirSuffix),
     Apps = real_primary_apps(?PRIMARY_API_PORT, ExtraApps),
     ClusterSpec = [
-        {cluster_config_sync_primary1, #{
+        {backup_sync_primary1, #{
             role => core,
             apps => Apps,
             base_port => ?PRIMARY_BASE_PORT
@@ -1575,7 +1645,7 @@ real_cluster_apps(Conf, ExtraApps) ->
     ] ++
         ExtraApps ++
         [
-            emqx_cluster_config_sync
+            emqx_backup_sync
         ].
 
 real_primary_apps(APIPort) ->
@@ -1642,7 +1712,7 @@ create_primary_rule_and_table_data(PrimaryNode) ->
         ok = create_rule(
             ?INTEGRATION_RULE_ID,
             <<"SELECT * FROM \"t/#\"">>,
-            <<"cluster config sync integration test">>
+            <<"backup sync integration test">>
         ),
         ok = create_banned(?INTEGRATION_BANNED_CLIENTID),
         ok = create_authn_user(?INTEGRATION_AUTHN_USER),
@@ -1656,12 +1726,12 @@ update_primary_rule_and_add_table_data(PrimaryNode) ->
         ok = update_rule(
             ?INTEGRATION_RULE_ID,
             <<"SELECT * FROM \"t/updated/#\"">>,
-            <<"cluster config sync integration test updated">>
+            <<"backup sync integration test updated">>
         ),
         ok = create_rule(
             ?INTEGRATION_UPDATED_RULE_ID,
             <<"SELECT * FROM \"t/added/#\"">>,
-            <<"cluster config sync integration test added">>
+            <<"backup sync integration test added">>
         ),
         ok = create_banned(?INTEGRATION_BANNED_CLIENTID_2),
         ok = create_authn_user(?INTEGRATION_AUTHN_USER_2),
@@ -1674,7 +1744,7 @@ create_primary_config_only_update_and_more_table_data(PrimaryNode) ->
         ok = create_rule(
             ?INTEGRATION_CONFIG_ONLY_RULE_ID,
             <<"SELECT * FROM \"t/config-only/#\"">>,
-            <<"cluster config sync integration test config only">>
+            <<"backup sync integration test config only">>
         ),
         ok = create_banned(?INTEGRATION_BANNED_CLIENTID_3),
         ok = create_authn_user(?INTEGRATION_AUTHN_USER_3),
@@ -1722,7 +1792,7 @@ create_banned(ClientId) ->
     ok = emqx_banned:delete(Who),
     {ok, _} = emqx_banned:create(#{
         who => Who,
-        by => <<"cluster_config_sync_SUITE">>,
+        by => <<"backup_sync_SUITE">>,
         reason => <<"table_set_sync_test">>,
         at => Now,
         until => Now + 3600
@@ -1734,7 +1804,7 @@ delete_banned(ClientId) ->
 
 create_authn_user(UserId) ->
     {ok, State} = emqx_authn_mnesia:create(
-        <<"cluster_config_sync:built_in_database">>, authn_config()
+        <<"backup_sync:built_in_database">>, authn_config()
     ),
     {ok, _} = emqx_authn_mnesia:add_user(
         #{user_id => UserId, password => <<"secret">>}, State
@@ -1771,7 +1841,7 @@ delete_authz_rules(Username) ->
 
 store_retained_message(Topic, Payload) ->
     Msg = emqx_message:make(
-        <<"cluster_config_sync">>,
+        <<"backup_sync">>,
         ?QOS_0,
         Topic,
         Payload,
@@ -1985,7 +2055,7 @@ primary_export_contains_rule(PrimaryNode, OutDir, RootKeys) ->
 configure_sync_nodes(Nodes, SyncConf) ->
     lists:foreach(
         fun(Node) ->
-            ok = ?ON(Node, emqx_cluster_config_sync:on_config_changed(#{}, SyncConf))
+            ok = ?ON(Node, emqx_backup_sync:on_config_changed(#{}, SyncConf))
         end,
         Nodes
     ),
@@ -1998,7 +2068,7 @@ select_cluster_sync_nodes(Nodes) ->
     [SelectedNode, OtherNode].
 
 trigger_sync(Node) ->
-    ?ON(Node, whereis(emqx_cluster_config_sync) ! sync),
+    ?ON(Node, whereis(emqx_backup_sync) ! sync),
     ok.
 
 make_rule_engine_backup(Config, BackupName) ->
@@ -2066,7 +2136,7 @@ make_upload_error_backup(Config, BackupName) ->
             #{
                 <<"rule_engine">> => #{
                     <<"rules">> => #{
-                        <<"cluster_config_sync_bad_import_rule">> => #{
+                        <<"backup_sync_bad_import_rule">> => #{
                             <<"description">> => <<"invalid rule for import failure">>,
                             <<"sql">> => <<"SELECT * FROM">>,
                             <<"actions">> => [
@@ -2173,7 +2243,7 @@ binary_to_existing_atom_or_undefined(Bin) ->
 sync_diagnostics(Nodes) ->
     [
         {Node, #{
-            health => ?ON(Node, emqx_cluster_config_sync:on_health_check()),
+            health => ?ON(Node, emqx_backup_sync:on_health_check()),
             rule_keys => ?ON(Node, maps:keys(emqx_conf:get([rule_engine, rules])))
         }}
      || Node <- Nodes
@@ -2190,7 +2260,7 @@ wait_updated_rule(Nodes) ->
 has_updated_rule(Node) ->
     has_rule(Node, ?INTEGRATION_UPDATED_RULE_ID) andalso
         rule_description(Node, ?INTEGRATION_RULE_ID) =:=
-            <<"cluster config sync integration test updated">>.
+            <<"backup sync integration test updated">>.
 
 wait_config_only_rule(Nodes) ->
     wait_until(
@@ -2684,7 +2754,7 @@ authn_credentials(Username, Password) ->
         zone => default,
         listener => 'tcp:default',
         protocol => mqtt,
-        clientid => <<"cluster_config_sync_auth_runtime_client">>,
+        clientid => <<"backup_sync_auth_runtime_client">>,
         username => Username,
         password => Password,
         peerhost => {127, 0, 0, 1},
@@ -2696,7 +2766,7 @@ authz_client_info(Username) ->
         zone => default,
         listener => 'tcp:default',
         protocol => mqtt,
-        clientid => <<"cluster_config_sync_auth_runtime_client">>,
+        clientid => <<"backup_sync_auth_runtime_client">>,
         username => Username,
         peerhost => {127, 0, 0, 1},
         peerport => 1883,
@@ -2706,7 +2776,7 @@ authz_client_info(Username) ->
 assert_success_trace(Trace, SelectedNode, RootKeys, TableSets) ->
     Events = [
         Event
-     || Event <- ?of_kind(cluster_config_sync_result, Trace),
+     || Event <- ?of_kind(backup_sync_result, Trace),
         maps:get(stage, Event, undefined) =:= finished
     ],
     ?assertMatch([_ | _], Events),
@@ -2723,7 +2793,7 @@ assert_real_sync_finished(SelectedNode, RootKeys, TableSets) ->
     ?check_trace(
         begin
             trigger_sync(SelectedNode),
-            ?block_until(#{?snk_kind := cluster_config_sync_result, stage := finished}, 60_000)
+            ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 60_000)
         end,
         fun(Trace) ->
             assert_success_trace(Trace, SelectedNode, RootKeys, TableSets)
@@ -2740,7 +2810,7 @@ assert_failure_trace(Trace, SelectedNode, RootKeys, TableSets, Secret) ->
 assert_failure_trace_stage(Trace, SelectedNode, RootKeys, TableSets, Stage) ->
     Events = [
         Event
-     || Event <- ?of_kind(cluster_config_sync_result, Trace),
+     || Event <- ?of_kind(backup_sync_result, Trace),
         maps:get(result, Event, undefined) =:= failed
     ],
     ?assertMatch([_ | _], Events),
@@ -2762,7 +2832,7 @@ wait_remote_health_error(Node, ExpectedFragment) ->
     ).
 
 wait_remote_health_error(Node, ExpectedFragment, Deadline) ->
-    case ?ON(Node, emqx_cluster_config_sync:on_health_check()) of
+    case ?ON(Node, emqx_backup_sync:on_health_check()) of
         {error, Reason} ->
             case binary:match(Reason, ExpectedFragment) of
                 nomatch -> error({unexpected_health_error, Node, Reason});
@@ -2790,7 +2860,7 @@ assert_real_sync_failure_stage(_Config, Nodes, RootKeys, Stage, FakePrimaryOpts,
             begin
                 trigger_sync(SelectedNode),
                 wait_remote_health_error(SelectedNode, HealthFragment),
-                ?block_until(#{?snk_kind := cluster_config_sync_result, result := failed}, 10_000)
+                ?block_until(#{?snk_kind := backup_sync_result, result := failed}, 10_000)
             end,
             fun(Trace) ->
                 _Event = assert_failure_trace_stage(Trace, SelectedNode, RootKeys, [], Stage),

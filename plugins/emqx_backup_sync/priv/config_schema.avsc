@@ -1,6 +1,6 @@
 {
   "type": "record",
-  "name": "ClusterConfigSyncConfig",
+  "name": "BackupSyncConfig",
   "fields": [
     {
       "name": "primary",

@@ -2,7 +2,7 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_cluster_config_sync_client).
+-module(emqx_backup_sync_client).
 
 -feature(maybe_expr, enable).
 
