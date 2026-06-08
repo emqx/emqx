@@ -203,7 +203,7 @@ t_backpressure(_Config) ->
 %% Verify that QoS 0 queue subscriptions auto-ack messages in the MQ subscriber.
 t_qos0_subscription_auto_acks_mq_messages(_Config) ->
     LocalMaxInflight = 2,
-    _ = emqx_mq_test_utils:ensure_mq_created(#{
+    _ = emqx_mq_test_utils:create_mq(#{
         name => <<"qos0_auto_ack">>,
         topic_filter => <<"t/#">>,
         is_lastvalue => false,
