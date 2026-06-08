@@ -42,15 +42,41 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
+init_per_testcase(t_namespaced_user_cross_ns_isolation, Config) ->
+    ok = snabbkaffe:start_trace(),
+    emqx_trace:clear(),
+    %% The trace API filter rejects namespaced calls unless the namespace
+    %% is registered as a managed one via the
+    %% `namespace.resource_pre_create' hook (normally serviced by emqx_mt,
+    %% which this suite intentionally does not start). Install a tiny
+    %% local callback that marks `ns1' as existing for the duration of
+    %% this test. Harmless on branches whose trace API does not consult
+    %% the hook.
+    ok = emqx_hooks:add(
+        'namespace.resource_pre_create',
+        {?MODULE, mark_ns1_managed, []},
+        1000
+    ),
+    Config;
 init_per_testcase(_, Config) ->
     ok = snabbkaffe:start_trace(),
     emqx_trace:clear(),
     Config.
 
+end_per_testcase(t_namespaced_user_cross_ns_isolation, _Config) ->
+    ok = emqx_hooks:del('namespace.resource_pre_create', {?MODULE, mark_ns1_managed}),
+    snabbkaffe:stop(),
+    emqx_common_test_helpers:call_janitor(),
+    ok;
 end_per_testcase(_, _Config) ->
     snabbkaffe:stop(),
     emqx_common_test_helpers:call_janitor(),
     ok.
+
+mark_ns1_managed(#{namespace := <<"ns1">>}, Acc) ->
+    {stop, Acc#{exists => true}};
+mark_ns1_managed(_Args, Acc) ->
+    {stop, Acc}.
 
 t_config(_Config) ->
     %% Config should contain schema defaults:
