@@ -34,20 +34,19 @@ init(root) ->
         intensity => 10,
         period => 5
     },
-    Links = emqx_cluster_link_config:get_enabled_links(),
-    Metrics = emqx_metrics_worker:child_spec(metrics, ?METRIC_NAME),
+    MetricsSpec = emqx_cluster_link_metrics:child_spec(),
     BookKeeper = bookkeeper_spec(),
     ExtrouterGC = extrouter_gc_spec(),
-    RouteReplSups = [routerepl_sup_spec(LinkConf) || LinkConf <- Links],
-    {ok, {SupFlags, [Metrics, BookKeeper, ExtrouterGC | RouteReplSups]}};
-init({routerepl, LinkConf}) ->
+    {ok, {SupFlags, [MetricsSpec, BookKeeper, ExtrouterGC]}};
+init({routerepl, LinkConf = #{name := ClusterName}}) ->
     SupFlags = #{
         strategy => one_for_one,
         intensity => 5,
         period => 5
     },
+    InstallerSpec = emqx_cluster_link_metrics:child_spec_link(ClusterName),
     ChildSpecs = [routerepl_spec(Type, Actor, LinkConf) || {Type, Actor} <- actors()],
-    {ok, {SupFlags, ChildSpecs}}.
+    {ok, {SupFlags, [InstallerSpec | ChildSpecs]}}.
 
 extrouter_gc_spec() ->
     %% NOTE: This one is currently global, not per-link.

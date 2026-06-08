@@ -34,7 +34,12 @@
 ]).
 
 -define(CONNECTOR_TYPE, mqtt).
--define(MQTT_HOST_OPTS, #{default_port => 1883, ssrf_check => true}).
+%% SSRF check is intentionally NOT part of the schema-level host options:
+%% schema validation runs on the whole `connectors.mqtt' subtree, which would
+%% reject creating an unrelated valid connector whenever any sibling connector's
+%% `server' is denied by the current SSRF policy. The check is enforced per
+%% connector in `emqx_connector_resource:parse_confs/3' instead.
+-define(MQTT_HOST_OPTS, #{default_port => 1883}).
 
 namespace() -> "connector_mqtt".
 

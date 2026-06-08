@@ -91,10 +91,38 @@ parse_dir_url(Config) ->
     {ok, to_str(get_val(<<"dir_url">>, Config, ?DEFAULT_DIR_URL))}.
 
 parse_domains(Config) ->
-    parse_csv_list(<<"domains">>, Config, invalid_domains).
+    maybe
+        {ok, Domains} ?= parse_csv_list(<<"domains">>, Config, invalid_domains),
+        validate_domains(Domains)
+    end.
 
 parse_contact(Config) ->
     parse_csv_list(<<"contact">>, Config, invalid_contact).
+
+%% Quick sanity check on each domain entry. Deliberately permissive
+%% (no full RFC 1035 enforcement, no IDN normalisation) — only the
+%% characters clearly not part of a hostname (`@`, whitespace, `/`,
+%% `\`, control codes) are rejected. Full label/IDN validation stays
+%% in idna at issuance time.
+validate_domains(Domains) ->
+    case lists:dropwhile(fun is_plausible_domain/1, Domains) of
+        [] -> {ok, Domains};
+        [Bad | _] -> {error, {invalid_domain, Bad}}
+    end.
+
+is_plausible_domain(Bin) when is_binary(Bin), byte_size(Bin) > 0 ->
+    not has_disallowed_char(Bin);
+is_plausible_domain(_) ->
+    false.
+
+has_disallowed_char(<<>>) ->
+    false;
+has_disallowed_char(<<C, _/binary>>) when
+    C =:= $@; C =:= $/; C =:= $\\; C =:= $\s; C =:= $\t; C =:= $\n; C =:= $\r; C < 32
+->
+    true;
+has_disallowed_char(<<_, Rest/binary>>) ->
+    has_disallowed_char(Rest).
 
 %% domains and contact are exposed in the dashboard as a single
 %% comma-separated string field (input-array was hard for operators to

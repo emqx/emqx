@@ -142,6 +142,7 @@ https
 HTTPS
 idp
 iface
+IMDS
 img
 impl
 inet
@@ -168,6 +169,7 @@ Kubernetes
 libcoap
 lifecycle
 localhost
+loopback
 lwm
 LwM
 Makefile
@@ -175,6 +177,7 @@ memtable
 memtables
 MitM
 mnesia
+Mojibake
 mountpoint
 MQTT
 mqueue
@@ -257,6 +260,7 @@ repo
 Req
 RESTful
 reuseaddr
+RFC1918
 rh
 Riak
 rlog
@@ -277,14 +281,15 @@ SHA
 sharded
 shareload
 SMS
-Snowpipe
 sn
 sndbuf
+Snowpipe
 sockname
 Sparkplug
 sql
 src
 ssl
+SSRF
 statsd
 storages
 Struct
@@ -321,6 +326,7 @@ typerefl
 udp
 UDP
 uid
+ULA
 un-acked
 unbusy
 unsub
@@ -341,9 +347,3 @@ ws
 wss
 xml
 XMLs
-Mojibake
-loopback
-IMDS
-ULA
-RFC1918
-SSRF

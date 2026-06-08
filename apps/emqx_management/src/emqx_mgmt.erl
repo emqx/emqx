@@ -571,6 +571,18 @@ list_subscriptions_via_topic(Node, Topic, _FormatFun = {M, F}) ->
 %% PubSub
 %%--------------------------------------------------------------------
 
+-doc """
+Force-subscribe topics on behalf of an already-connected client.
+
+Backs `POST /api/v5/clients/:clientid/subscribe[/bulk]`. The subscription
+is installed directly in the target client's channel and persists for the
+channel's lifetime, just like a client-issued SUBSCRIBE.
+
+By design, this path **bypasses** MQTT authorization
+(`emqx_access_control:authorize/3`): the REST API key / dashboard role is
+the authorization boundary for this operation, not the broker's
+`authorization` configuration.
+""".
 subscribe(ClientId, TopicTables) ->
     case emqx_cm_registry:is_enabled() of
         false ->
@@ -597,8 +609,13 @@ subscribe([], _ClientId, _TopicTables) ->
     {subscribe, _} | {error, atom()}.
 do_subscribe(ClientId, TopicTables) ->
     case ets:lookup(?CHAN_TAB, ClientId) of
-        [] -> {error, channel_not_found};
-        [{_, Pid}] -> Pid ! {subscribe, TopicTables}
+        [] ->
+            {error, channel_not_found};
+        [{_, Pid}] ->
+            %% Hand the subscription straight to the channel process.
+            %% No emqx_access_control:authorize/3 call is made on this path -- the
+            %% ACL bypass is intentional; see -doc on subscribe/2.
+            Pid ! {subscribe, TopicTables}
     end.
 
 publish(Message) ->
@@ -614,6 +631,15 @@ publish(Message) ->
         [Message]
     ).
 
+-doc """
+Force-unsubscribe a topic on behalf of an already-connected client.
+
+Backs `POST /api/v5/clients/:clientid/unsubscribe`. The unsubscribe is
+delivered directly to the target client's channel, mirroring a
+client-issued UNSUBSCRIBE. Like `subscribe/2`, this path bypasses MQTT
+authorization by design; the REST API key / dashboard role is the
+authorization boundary.
+""".
 -spec unsubscribe(emqx_types:clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, channel_not_found}.
 unsubscribe(ClientId, Topic) ->
@@ -637,6 +663,12 @@ do_unsubscribe(ClientId, Topic) ->
         [{_, Pid}] -> Pid ! {unsubscribe, [emqx_topic:parse(Topic)]}
     end.
 
+-doc """
+Bulk variant of `unsubscribe/2`, backing
+`POST /api/v5/clients/:clientid/unsubscribe/bulk`. Same ACL-bypass
+behavior applies: authorization is enforced at the REST API layer, not
+by the broker's `authorization` rules.
+""".
 -spec unsubscribe_batch(emqx_types:clientid(), [emqx_types:topic()]) ->
     {unsubscribe, _} | {error, channel_not_found}.
 unsubscribe_batch(ClientId, Topics) ->

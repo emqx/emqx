@@ -397,8 +397,8 @@ add_channel_async(ConnResId, ChanId, Config) ->
     do_add_channel(ConnResId, ChanId, Config, async).
 
 do_add_channel(ConnResId, ChanId, Config, Mode) ->
-    ok = emqx_resource:create_metrics(ChanId),
-    on_exit(fun() -> emqx_resource:clear_metrics(ChanId) end),
+    ok = emqx_resource_metrics:create_metrics(ChanId),
+    on_exit(fun() -> emqx_resource_metrics:clear_metrics(ChanId) end),
     ResourceOpts = emqx_resource:fetch_creation_opts(Config),
     on_exit(fun() -> emqx_resource_buffer_worker_sup:stop_workers(ChanId, ResourceOpts) end),
     ok = emqx_resource_buffer_worker_sup:start_workers(ChanId, ResourceOpts),

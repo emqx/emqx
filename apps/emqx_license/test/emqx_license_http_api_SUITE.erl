@@ -372,3 +372,90 @@ validate_setting(Res, ExpectLow, ExpectHigh, DynMax) ->
         <<"dynamic_max_connections">> := DynMax
     } =
         emqx_utils_json:decode(Payload).
+
+%%------------------------------------------------------------------------------
+%% Session HWM history API tests
+%%------------------------------------------------------------------------------
+
+session_hwm_setup(Config) ->
+    %% Pin timezone so the period labels are host-independent.
+    OrigTz = emqx_config:get([license, high_watermark_timezone], system),
+    emqx_config:put([license, high_watermark_timezone], <<"+00:00">>),
+    {atomic, ok} = mria:clear_table(emqx_license_session_hwm),
+    %% Seed three days across two months so daily and monthly responses differ.
+    %% 2026-04-18T00:00:00Z
+    ok = emqx_license_session_hwm:observe(1_776_470_400_000, 10),
+    ok = emqx_license_session_hwm:sync(),
+    %% 2026-04-19T00:00:00Z
+    ok = emqx_license_session_hwm:observe(1_776_556_800_000, 20),
+    ok = emqx_license_session_hwm:sync(),
+    %% 2026-05-01T00:00:00Z
+    ok = emqx_license_session_hwm:observe(1_777_593_600_000, 5),
+    ok = emqx_license_session_hwm:sync(),
+    [{orig_tz, OrigTz} | Config].
+
+session_hwm_teardown(Config) ->
+    {atomic, ok} = mria:clear_table(emqx_license_session_hwm),
+    emqx_config:put([license, high_watermark_timezone], ?config(orig_tz, Config)),
+    ok.
+
+session_hwm_uri(Query) ->
+    uri(["license", "session_hwm_history"]) ++ Query.
+
+t_session_hwm_history_default_monthly({init, Config}) ->
+    session_hwm_setup(Config);
+t_session_hwm_history_default_monthly({'end', Config}) ->
+    session_hwm_teardown(Config);
+t_session_hwm_history_default_monthly(_Config) ->
+    %% No `period` query → defaults to monthly, matching the CLI default.
+    {ok, 200, Payload} = request(get, session_hwm_uri(""), []),
+    #{<<"period">> := Period, <<"data">> := Rows} = emqx_utils_json:decode(Payload),
+    ?assertEqual(<<"monthly">>, Period),
+    ?assertMatch(
+        [#{<<"period">> := <<"2026-05">>}, #{<<"period">> := <<"2026-04">>}],
+        Rows
+    ).
+
+t_session_hwm_history_monthly({init, Config}) ->
+    session_hwm_setup(Config);
+t_session_hwm_history_monthly({'end', Config}) ->
+    session_hwm_teardown(Config);
+t_session_hwm_history_monthly(_Config) ->
+    {ok, 200, Payload} = request(get, session_hwm_uri("?period=monthly"), []),
+    #{<<"period">> := Period, <<"data">> := Rows} = emqx_utils_json:decode(Payload),
+    ?assertEqual(<<"monthly">>, Period),
+    ?assertMatch(
+        [
+            #{<<"period">> := <<"2026-05">>, <<"high_watermark">> := 5},
+            #{<<"period">> := <<"2026-04">>, <<"high_watermark">> := 20}
+        ],
+        Rows
+    ).
+
+t_session_hwm_history_daily({init, Config}) ->
+    session_hwm_setup(Config);
+t_session_hwm_history_daily({'end', Config}) ->
+    session_hwm_teardown(Config);
+t_session_hwm_history_daily(_Config) ->
+    {ok, 200, Payload} = request(get, session_hwm_uri("?period=daily"), []),
+    #{<<"period">> := Period, <<"data">> := Rows} = emqx_utils_json:decode(Payload),
+    ?assertEqual(<<"daily">>, Period),
+    ?assertMatch(
+        [
+            #{<<"period">> := <<"2026-05-01">>, <<"high_watermark">> := 5},
+            #{<<"period">> := <<"2026-04-19">>, <<"high_watermark">> := 20},
+            #{<<"period">> := <<"2026-04-18">>, <<"high_watermark">> := 10}
+        ],
+        Rows
+    ).
+
+t_session_hwm_history_limit({init, Config}) ->
+    session_hwm_setup(Config);
+t_session_hwm_history_limit({'end', Config}) ->
+    session_hwm_teardown(Config);
+t_session_hwm_history_limit(_Config) ->
+    {ok, 200, Payload} = request(get, session_hwm_uri("?period=daily&limit=2"), []),
+    #{<<"period">> := <<"daily">>, <<"count">> := Count, <<"data">> := Rows} =
+        emqx_utils_json:decode(Payload),
+    ?assertEqual(2, Count),
+    ?assertEqual(2, length(Rows)).
