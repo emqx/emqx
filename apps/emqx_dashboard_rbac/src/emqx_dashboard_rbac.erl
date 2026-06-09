@@ -50,7 +50,7 @@
 %%=====================================================================
 %% API
 -spec check_rbac(emqx_dashboard:request(), emqx_dashboard:handler_info(), actor_context()) ->
-    {ok, actor_context()} | false.
+    {ok, actor_context()} | {error, binary()}.
 check_rbac(Req, HandlerInfo, ActorContext) ->
     maybe
         true ?= do_check_rbac(ActorContext, Req, HandlerInfo),
@@ -198,7 +198,7 @@ parse_namespace_tag(NsTag) ->
 
 %% ===================================================================
 -spec do_check_rbac(actor_context(), emqx_dashboard:request(), emqx_dashboard:handler_info()) ->
-    boolean().
+    true | {error, binary()}.
 do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := ?global_ns}, _, _) ->
     %% Global administrator
     true;
@@ -209,7 +209,7 @@ do_check_rbac(#{?namespace := Namespace}, _, ?CLIENTS_API(get, Fn)) when
     %% Whole-endpoint visibility policy belongs in RBAC. These endpoints
     %% expose MQTT payloads for arbitrary clients and cannot be safely scoped
     %% by a generic route filter.
-    false;
+    {error, <<"Per-client message endpoints are not available to namespaced users">>};
 do_check_rbac(#{?namespace := Namespace}, _, ?RETAINER_API(Method, Fn)) when
     is_binary(Namespace) andalso
         (Fn == '/messages' orelse Fn == with_topic_warp) andalso
@@ -217,7 +217,7 @@ do_check_rbac(#{?namespace := Namespace}, _, ?RETAINER_API(Method, Fn)) when
 ->
     %% The retained message store is global. Listing, fetching, or deleting by
     %% topic would expose or mutate messages outside the caller's namespace.
-    false;
+    {error, <<"Retained message endpoints are not available to namespaced users">>};
 do_check_rbac(#{?namespace := Namespace}, _, ?DELAYED_API(Method, Fn)) when
     is_binary(Namespace) andalso
         ((Fn == delayed_messages andalso Method == get) orelse
@@ -227,7 +227,7 @@ do_check_rbac(#{?namespace := Namespace}, _, ?DELAYED_API(Method, Fn)) when
     %% Delayed message records are global and include MQTT payloads. Keep the
     %% coarse global-only endpoint decision here; filters should resolve or
     %% validate a namespace, not define the static RBAC surface.
-    false;
+    {error, <<"Delayed message endpoints are not available to namespaced users">>};
 do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, #{method := get}) ->
     %% Namespaced administrator; It's fine for such admins to `GET` anything, even outside
     %% their namespace.  Namespaces are mostly to avoid accidentally mutating the wrong
@@ -252,7 +252,7 @@ do_check_rbac(
     %% emqx_mgmt_api_publish:publish
     %% emqx_mgmt_api_publish:publish_batch
     %% Currently, only namespaced publisher roles may not use these APIs.
-    false;
+    {error, <<"Publishing is not allowed for namespaced API keys">>};
 %% everyone should allow to logout
 do_check_rbac(#{}, _, ?DASHBOARD_API(post, logout)) ->
     %% emqx_dashboard_api:logout
@@ -270,7 +270,7 @@ do_check_rbac(
         #{bindings := #{username := Username}} ->
             true;
         _ ->
-            false
+            {error, <<"Viewers may only change their own password or MFA">>}
     end;
 do_check_rbac(
     #{?role := ?ROLE_VIEWER, ?actor := Username},
@@ -285,7 +285,7 @@ do_check_rbac(
     %% scope holders from self-exempting.
     case Req of
         #{bindings := #{username := Username}} -> true;
-        _ -> false
+        _ -> {error, <<"Viewers may only delete their own MFA">>}
     end;
 do_check_rbac(
     #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace, ?actor := Username},
@@ -301,7 +301,7 @@ do_check_rbac(
     %% admin is a known social-engineering vector.
     case Req of
         #{bindings := #{username := Username}} -> true;
-        _ -> false
+        _ -> {error, <<"Namespaced administrators may only change their own password or MFA">>}
     end;
 do_check_rbac(
     #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace, ?actor := Username},
@@ -312,7 +312,7 @@ do_check_rbac(
     %% Self only -- see the post change_mfa clause above for rationale.
     case Req of
         #{bindings := #{username := Username}} -> true;
-        _ -> false
+        _ -> {error, <<"Namespaced administrators may only delete their own MFA">>}
     end;
 do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?CONNECTOR_API(_, _)) when
     is_binary(Namespace)
@@ -348,7 +348,7 @@ do_check_rbac(
     %% Configuration backup export/import.
     true;
 do_check_rbac(_, _, _) ->
-    false.
+    {error, <<"You don't have permission to access this resource">>}.
 
 role_list(dashboard) ->
     [?ROLE_VIEWER, ?ROLE_SUPERUSER];

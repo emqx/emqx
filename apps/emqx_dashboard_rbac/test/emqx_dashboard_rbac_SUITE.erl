@@ -249,8 +249,8 @@ t_change_pwd(_) ->
     %% viewer can change own password
     ?assertMatch({ok, #{actor := Viewer1}}, change_pwd(Viewer1Token, Viewer1)),
     %% viewer can't change other's password
-    ?assertEqual({error, unauthorized_role}, change_pwd(Viewer1Token, Viewer2)),
-    ?assertEqual({error, unauthorized_role}, change_pwd(Viewer1Token, SuperUser)),
+    ?assertMatch({error, {unauthorized_role, _}}, change_pwd(Viewer1Token, Viewer2)),
+    ?assertMatch({error, {unauthorized_role, _}}, change_pwd(Viewer1Token, SuperUser)),
     %% superuser can change other's password
     ?assertMatch({ok, #{actor := SuperUser}}, change_pwd(SuperToken, Viewer1)),
     ?assertMatch({ok, #{actor := SuperUser}}, change_pwd(SuperToken, Viewer2)),
@@ -368,8 +368,8 @@ test_mfa(VerifyFn) ->
     %% viewer can change own MFA
     ?assertMatch({ok, #{actor := Viewer1}}, VerifyFn(Viewer1Token, Viewer1)),
     %% viewer can't change other's MFA
-    ?assertEqual({error, unauthorized_role}, VerifyFn(Viewer1Token, Viewer2)),
-    ?assertEqual({error, unauthorized_role}, VerifyFn(Viewer1Token, SuperUser)),
+    ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(Viewer1Token, Viewer2)),
+    ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(Viewer1Token, SuperUser)),
     %% superuser can change other's MFA
     ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, Viewer1)),
     ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, Viewer2)),
@@ -379,7 +379,7 @@ test_mfa(VerifyFn) ->
         {ok, #{actor := NamespacedSuperUser}},
         VerifyFn(NamespacedSuperToken, NamespacedSuperUser)
     ),
-    ?assertEqual({error, unauthorized_role}, VerifyFn(NamespacedSuperToken, Viewer1)),
+    ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(NamespacedSuperToken, Viewer1)),
     ok.
 
 %%--------------------------------------------------------------------
@@ -728,8 +728,8 @@ t_global_only_message_endpoints_reject_namespaced_actors(_) ->
         fun(HandlerInfo) ->
             lists:foreach(
                 fun(ActorContext) ->
-                    ?assertEqual(
-                        false,
+                    ?assertMatch(
+                        {error, _},
                         emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext)
                     )
                 end,
@@ -778,8 +778,8 @@ assert_global_viewer_rbac(Req, #{method := get} = HandlerInfo) ->
         emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, global_viewer_actor_context())
     );
 assert_global_viewer_rbac(Req, HandlerInfo) ->
-    ?assertEqual(
-        false,
+    ?assertMatch(
+        {error, _},
         emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, global_viewer_actor_context())
     ).
 
