@@ -544,7 +544,9 @@ enrich_clientinfo(
     {ok, NPacket, NClientInfo} = emqx_utils:pipeline(
         [
             fun maybe_assign_clientid/2,
-            %% FIXME: CALL After authentication successfully
+            %% Mountpoint is evaluated again after successful authentication in
+            %% emqx_gateway_ctx:authenticate/2, because authentication results
+            %% may add client attributes used by mountpoint templates.
             fun fix_mountpoint/2
         ],
         Packet,

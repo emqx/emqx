@@ -12,6 +12,7 @@
 -define(NKEY_ACCOUNT_PREFIX, 16#00).
 -define(NKEY_OPERATOR_PREFIX, 16#70).
 -define(NKEY_USER_PREFIX, 16#A0).
+-define(PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -23,7 +24,13 @@ all() ->
 t_build_authn_ctx_and_auth_required(_Config) ->
     Disabled = mk_authn_ctx(undefined, [], undefined, false),
     ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => false}, Disabled)),
-    ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => true}, Disabled)),
+    with_security_profile("legacy", fun() ->
+        ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => true}, Disabled))
+    end),
+    with_security_profile("hardened", fun() ->
+        ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => false}, Disabled)),
+        ?assertEqual(true, emqx_nats_authn:is_auth_required(#{enable_authn => true}, Disabled))
+    end),
 
     GatewayOnly = mk_authn_ctx(undefined, [], undefined, true),
     ?assertEqual(true, emqx_nats_authn:is_auth_required(#{enable_authn => true}, GatewayOnly)),
@@ -34,7 +41,12 @@ t_build_authn_ctx_and_auth_required(_Config) ->
         #{enable => false, trusted_operators => [<<"OP_TEST">>]},
         false
     ),
-    ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => true}, JWTDisabled)),
+    with_security_profile("legacy", fun() ->
+        ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => true}, JWTDisabled))
+    end),
+    with_security_profile("hardened", fun() ->
+        ?assertEqual(true, emqx_nats_authn:is_auth_required(#{enable_authn => true}, JWTDisabled))
+    end),
 
     Enabled = mk_authn_ctx(
         "token",
@@ -881,3 +893,13 @@ mutate_jwt_signature(JWT) ->
 
 replace_first_char(<<_Old, Rest/binary>>, New) ->
     <<New, Rest/binary>>.
+
+with_security_profile(Profile, Fun) ->
+    os:putenv(?PROFILE_ENV_VAR, Profile),
+    emqx_security_profile:clear_profile(),
+    try
+        Fun()
+    after
+        os:unsetenv(?PROFILE_ENV_VAR),
+        emqx_security_profile:clear_profile()
+    end.

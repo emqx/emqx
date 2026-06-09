@@ -264,7 +264,9 @@ enrich_clientinfo(
     {ok, NPacket, NClientInfo} = emqx_utils:pipeline(
         [
             fun maybe_assign_clientid/2,
-            %% FIXME: CALL After authentication successfully
+            %% Mountpoint is evaluated again after successful authentication in
+            %% emqx_gateway_ctx:authenticate/2, because authentication results
+            %% may add client attributes used by mountpoint templates.
             fun fix_mountpoint/2
         ],
         Packet,
@@ -453,7 +455,7 @@ handle_in(
 handle_in(
     Publish =
         ?SN_PUBLISH_MSG(
-            #mqtt_sn_flags{
+            Flags = #mqtt_sn_flags{
                 qos = ?QOS_NEG1,
                 topic_id_type = TopicIdType
             },
@@ -477,19 +479,7 @@ handle_in(
                 end,
             case TopicName =/= undefined of
                 true ->
-                    Msg = emqx_message:make(
-                        ?NEG_QOS_CLIENT_ID,
-                        ?QOS_0,
-                        TopicName,
-                        Data
-                    ),
-                    ?SLOG(debug, #{
-                        msg => "receive_qo3_message_in_idle_mode",
-                        topic => TopicName,
-                        data => Data
-                    }),
-                    _ = emqx_broker:publish(Msg),
-                    ok;
+                    maybe_publish_idle_negative_qos(Publish, {TopicName, Flags, Data}, Channel);
                 false ->
                     ok
             end,
@@ -1127,10 +1117,53 @@ check_pub_authz(
     {TopicName, #mqtt_sn_flags{qos = QoS, retain = Retain}, _Data},
     #channel{ctx = Ctx, clientinfo = ClientInfo}
 ) ->
-    Action = ?AUTHZ_PUBLISH(QoS, Retain),
+    Action = ?AUTHZ_PUBLISH(get_corrected_qos(QoS), Retain),
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, TopicName) of
         allow -> ok;
         deny -> {error, ?SN_RC2_NOT_AUTHORIZE}
+    end.
+
+maybe_publish_idle_negative_qos(Packet, Publish = {TopicName, _Flags, Data}, Channel) ->
+    case authenticate_idle_negative_qos(Packet, Channel) of
+        {ok, NChannel} ->
+            case check_pub_authz(Publish, NChannel) of
+                ok ->
+                    Msg = emqx_message:make(
+                        ?NEG_QOS_CLIENT_ID,
+                        ?QOS_0,
+                        TopicName,
+                        Data
+                    ),
+                    ?SLOG(debug, #{
+                        msg => "receive_qo3_message_in_idle_mode",
+                        topic => TopicName,
+                        data => Data
+                    }),
+                    _ = emqx_broker:publish(Msg),
+                    ok;
+                {error, RC} ->
+                    ?tp(info, idle_negative_qos_publish_rejected, #{
+                        topic => TopicName,
+                        return_code => RC
+                    }),
+                    ok
+            end;
+        {error, RC} ->
+            ?tp(info, idle_negative_qos_publish_rejected, #{
+                topic => TopicName,
+                return_code => RC
+            }),
+            ok
+    end.
+
+authenticate_idle_negative_qos(Packet, Channel = #channel{conninfo = ConnInfo}) ->
+    NConnInfo = ConnInfo#{clientid => ?NEG_QOS_CLIENT_ID},
+    {ok, _Packet, NChannel} = enrich_clientinfo(Packet, Channel#channel{conninfo = NConnInfo}),
+    case auth_connect(Packet, NChannel) of
+        {ok, AuthenticatedChannel} ->
+            {ok, AuthenticatedChannel};
+        {error, RC} ->
+            {error, RC}
     end.
 
 convert_pub_to_msg(
@@ -2300,4 +2333,13 @@ returncode_name(?SN_RC2_EXCEED_LIMITATION) -> rejected_exceed_limitation;
 returncode_name(?SN_RC2_REACHED_MAX_RETRY) -> reached_max_retry_times;
 returncode_name(_) -> accepted.
 
-name_to_returncode(not_authorized) -> ?SN_RC2_NOT_AUTHORIZE.
+name_to_returncode(Reason) ->
+    maps:get(
+        Reason,
+        #{
+            not_authorized => ?SN_RC2_NOT_AUTHORIZE,
+            not_authenticated => ?SN_RC2_NOT_AUTHORIZE,
+            bad_username_or_password => ?SN_RC2_NOT_AUTHORIZE
+        },
+        ?SN_RC2_NOT_AUTHORIZE
+    ).

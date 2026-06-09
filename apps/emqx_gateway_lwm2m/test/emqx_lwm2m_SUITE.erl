@@ -146,7 +146,8 @@ groups() ->
         {test_grp_10_rest_api, [RepeatOpt], [
             case100_clients_api,
             case100_subscription_api,
-            case102_mountpoint_peerhost_api
+            case102_mountpoint_peerhost_api,
+            case103_mountpoint_from_authn_client_attrs
         ]},
         {test_grp_11_internal, [RepeatOpt], [
             case110_xml_object_helpers,
@@ -227,6 +228,10 @@ init_per_testcase(TestCase, Config) ->
             case102_mountpoint_peerhost_api ->
                 default_config_with_mountpoint_raw(
                     "\"lwm2m/${peerhost}/${endpoint_name}/\""
+                );
+            case103_mountpoint_from_authn_client_attrs ->
+                default_config_with_mountpoint_raw(
+                    "\"lwm2m/${client_attrs.group}/${endpoint_name}/\""
                 );
             _ ->
                 default_config()
@@ -4893,6 +4898,35 @@ case102_mountpoint_peerhost_api(Config) ->
     ExpectedTopic =
         <<"lwm2m/127.0.0.1/", (list_to_binary(Epn))/binary, "/dn/#">>,
     ?assertEqual(ExpectedTopic, maps:get(topic, InitSub)).
+
+case103_mountpoint_from_authn_client_attrs(Config) ->
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun
+            (#{username := Username}) when Username =:= <<"urn:oma:lwm2m:oma:103">> ->
+                {ok, #{client_attrs => #{<<"group">> => <<"g1">>}}};
+            (ClientInfo) ->
+                meck:passthrough([ClientInfo])
+        end
+    ),
+    try
+        Epn = "urn:oma:lwm2m:oma:103",
+        MsgId1 = 26,
+        UdpSock = ?config(sock, Config),
+        ObjectList = <<"</1>, </2>, </3/0>, </4>, </5>">>,
+        RespTopic = list_to_binary("lwm2m/g1/" ++ Epn ++ "/up/resp"),
+        emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+        timer:sleep(200),
+        std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic),
+
+        SubTopic = list_to_binary("lwm2m/g1/" ++ Epn ++ "/dn/#"),
+        ?assertEqual(true, lists:member(SubTopic, test_mqtt_broker:get_subscrbied_topics()))
+    after
+        meck:unload(emqx_access_control)
+    end.
+
 case110_xml_object_helpers(_Config) ->
     ObjDefinition = emqx_lwm2m_xml_object:get_obj_def(3, true),
     ?assert(is_tuple(ObjDefinition)),

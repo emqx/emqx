@@ -427,7 +427,12 @@ ensure_keepalive_timer(Fun, #channel{keepalive = KeepAlive} = Channel) ->
     Fun(keepalive, Heartbeat, keepalive, Channel).
 
 check_auth_state(Msg, #channel{connection_required = false} = Channel) ->
-    call_session(handle_request, Msg, Channel);
+    case is_pubsub_request(Msg) of
+        true ->
+            authenticate_connectionless_pubsub(Msg, Channel);
+        false ->
+            call_session(handle_request, Msg, Channel)
+    end;
 check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
     case is_create_connection_request(Msg) of
         true ->
@@ -442,6 +447,11 @@ check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
                 _ ->
                     check_token(Msg, Channel)
             end
+    end.
+is_pubsub_request(Msg) ->
+    case emqx_coap_message:get_option(uri_path, Msg, []) of
+        [<<"ps">> | _] -> true;
+        _ -> false
     end.
 is_create_connection_request(#coap_message{method = Method} = Msg) ->
     URIPath = emqx_coap_message:get_option(uri_path, Msg, []),
@@ -478,6 +488,71 @@ check_token(Msg, Channel) ->
                     missing_token_or_clientid_reply(Msg, Channel)
             end
     end.
+
+authenticate_connectionless_pubsub(Msg, Channel = #channel{ctx = Ctx}) ->
+    AuthChannel = enrich_connectionless_auth_info(Msg, Channel),
+    #channel{conninfo = ConnInfo0, clientinfo = ClientInfo0} = Channel,
+    #channel{clientinfo = AuthClientInfo} = AuthChannel,
+    case emqx_gateway_ctx:authenticate(Ctx, AuthClientInfo) of
+        {ok, NClientInfo} ->
+            restore_connectionless_auth_info(
+                call_session(handle_request, Msg, AuthChannel#channel{clientinfo = NClientInfo}),
+                ConnInfo0,
+                ClientInfo0
+            );
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "client_login_failed",
+                clientid => maps:get(clientid, AuthClientInfo, undefined),
+                username => maps:get(username, AuthClientInfo, undefined),
+                reason => Reason
+            }),
+            connectionless_unauthorized_reply(Msg, Channel)
+    end.
+
+enrich_connectionless_auth_info(Msg, Channel) ->
+    URIQuery = emqx_coap_message:extract_uri_query(Msg),
+    Channel1 = enrich_connectionless_conninfo(URIQuery, Channel),
+    {ok, Channel2} = enrich_clientinfo({URIQuery, Msg}, Channel1),
+    Channel2.
+
+enrich_connectionless_conninfo(
+    URIQuery,
+    Channel = #channel{
+        keepalive = KeepAlive,
+        conninfo = ConnInfo0,
+        clientinfo = ClientInfo
+    }
+) ->
+    ClientId =
+        case get_query_value(<<"clientid">>, URIQuery) of
+            undefined -> maps:get(clientid, ClientInfo);
+            ReqClientId -> ReqClientId
+        end,
+    IntervalMs = emqx_keepalive:info(check_interval, KeepAlive),
+    InternalS = floor(IntervalMs / 1000),
+    NConnInfo = ConnInfo0#{
+        clientid => ClientId,
+        proto_name => <<"CoAP">>,
+        proto_ver => <<"1">>,
+        clean_start => true,
+        keepalive => InternalS,
+        expiry_interval => 0
+    },
+    Channel#channel{conninfo = NConnInfo}.
+
+restore_connectionless_auth_info({ok, NChannel}, ConnInfo, ClientInfo) ->
+    {ok, NChannel#channel{conninfo = ConnInfo, clientinfo = ClientInfo}};
+restore_connectionless_auth_info({ok, Replies, NChannel}, ConnInfo, ClientInfo) ->
+    {ok, Replies, NChannel#channel{conninfo = ConnInfo, clientinfo = ClientInfo}};
+restore_connectionless_auth_info({shutdown, Reason, NChannel}, ConnInfo, ClientInfo) ->
+    {shutdown, Reason, NChannel#channel{conninfo = ConnInfo, clientinfo = ClientInfo}};
+restore_connectionless_auth_info({shutdown, Reason, Replies, NChannel}, ConnInfo, ClientInfo) ->
+    {shutdown, Reason, Replies, NChannel#channel{conninfo = ConnInfo, clientinfo = ClientInfo}}.
+
+connectionless_unauthorized_reply(Msg, Channel) ->
+    Reply = emqx_coap_message:piggyback({error, unauthorized}, Msg),
+    {ok, {outgoing, Reply}, Channel}.
 
 try_takeover_with_token(Msg, ReqClientId, ReqToken, Channel) ->
     case emqx_gateway_cm:call(coap, ReqClientId, {check_token_and_get_clientinfo, ReqToken}) of
@@ -603,8 +678,8 @@ enrich_clientinfo({Queries, Msg}, Channel) ->
     #channel{conninfo = ConnInfo, clientinfo = ClientInfo0} = Channel,
     ClientInfo = ClientInfo0#{
         clientid => maps:get(clientid, ConnInfo),
-        username => maps:get(<<"username">>, Queries, undefined),
-        password => maps:get(<<"password">>, Queries, undefined)
+        username => get_query_value(<<"username">>, Queries),
+        password => get_query_value(<<"password">>, Queries)
     },
     {ok, NClientInfo} = fix_mountpoint(Msg, ClientInfo),
     {ok, Channel#channel{clientinfo = NClientInfo}}.

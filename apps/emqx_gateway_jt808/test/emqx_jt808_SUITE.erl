@@ -192,6 +192,13 @@ update_jt808_with_idle_timeout(IdleTimeout) ->
         Conf#{<<"idle_timeout">> => IdleTimeout}
     ).
 
+update_jt808_with_mountpoint(Mountpoint) ->
+    Conf = emqx:get_raw_config([gateway, jt808]),
+    emqx_gateway_conf:update_gateway(
+        jt808,
+        Conf#{<<"mountpoint">> => Mountpoint}
+    ).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% helper functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 gen_packet(Header, Body) ->
@@ -564,6 +571,44 @@ t_case04(_) ->
     ),
 
     ok = gen_tcp:close(Socket).
+
+t_case04_mountpoint_from_register_clientinfo(_) ->
+    ClientId = <<"000123456789">>,
+    Mountpoint = <<"jt808/custom/000123456789/">>,
+    update_jt808_with_mountpoint(<<"jt808/custom/${clientid}/">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    try
+        {ok, AuthCode} = client_regi_procedure(Socket),
+        ok = client_auth_procedure(Socket, AuthCode),
+        ?assertMatch(
+            #{clientinfo := #{mountpoint := Mountpoint}},
+            emqx_gateway_cm:get_chan_info(jt808, ClientId)
+        ),
+
+        PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+        EventReportId = 98,
+        MsgBody3 = <<EventReportId>>,
+        MsgId3 = ?MC_EVENT_REPORT,
+        MsgSn3 = 79,
+        Size3 = size(MsgBody3),
+        Header3 =
+            <<MsgId3:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size3),
+                PhoneBCD/binary, MsgSn3:?WORD>>,
+        S3 = gen_packet(Header3, MsgBody3),
+
+        ok = gen_tcp:send(Socket, S3),
+        {ok, _Packet4} = gen_tcp:recv(Socket, 0, 500),
+        timer:sleep(100),
+        {?JT808_UP_TOPIC, Payload} = receive_msg(),
+        ?assertEqual(
+            EventReportId,
+            emqx_utils_maps:deep_get([<<"body">>, <<"id">>], emqx_utils_json:decode(Payload))
+        )
+    after
+        update_jt808_with_mountpoint(<<"jt808/${clientid}/">>),
+        gen_tcp:close(Socket)
+    end.
 
 t_case05(_Config) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
