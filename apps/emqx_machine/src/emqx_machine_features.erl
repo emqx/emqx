@@ -152,7 +152,7 @@ known_features() ->
             deps => [schema_registry]
         },
         metrics => #{
-            apps => [emqx_prometheus],
+            apps => [emqx_prometheus, emqx_topic_metrics],
             deps => [dashboard, auth]
         },
         mqtt_extensions => #{

@@ -42,13 +42,14 @@
     auth/2,
     data_integration/2,
     schema_validation/2,
-    message_transformation/2
+    message_transformation/2,
+    topic_metrics/2
 ]).
 
 -export([lookup_from_local_nodes/3]).
 -export([scopes/0]).
 
--export([namespaced_stats_filter/2, namespaced_filter/2]).
+-export([namespaced_stats_filter/2, namespaced_filter/2, validate_not_json/2]).
 
 -define(TAGS, [<<"Monitor">>]).
 
@@ -62,7 +63,8 @@ scopes() ->
         "/prometheus/stats" => ?SCOPE_MONITORING,
         "/prometheus/data_integration" => ?SCOPE_MONITORING,
         "/prometheus/schema_validation" => ?SCOPE_MONITORING,
-        "/prometheus/message_transformation" => ?SCOPE_MONITORING
+        "/prometheus/message_transformation" => ?SCOPE_MONITORING,
+        "/prometheus/topic_metrics" => ?SCOPE_MONITORING
     }.
 
 api_spec() ->
@@ -76,7 +78,8 @@ paths() ->
         "/prometheus/stats",
         "/prometheus/data_integration",
         "/prometheus/schema_validation",
-        "/prometheus/message_transformation"
+        "/prometheus/message_transformation",
+        "/prometheus/topic_metrics"
     ].
 
 schema("/prometheus") ->
@@ -177,6 +180,20 @@ schema("/prometheus/message_transformation") ->
                 responses =>
                     #{200 => prometheus_data_schema()}
             }
+    };
+schema("/prometheus/topic_metrics") ->
+    #{
+        'operationId' => topic_metrics,
+        filter => fun ?MODULE:validate_not_json/2,
+        get =>
+            #{
+                description => ?DESC(get_prom_topic_metrics),
+                tags => ?TAGS,
+                parameters => [ref(mode)],
+                security => security(),
+                responses =>
+                    #{200 => prometheus_data_schema()}
+            }
     }.
 
 security() ->
@@ -267,6 +284,9 @@ schema_validation(get, #{headers := Headers, query_string := Qs}) ->
 
 message_transformation(get, #{headers := Headers, query_string := Qs}) ->
     collect(emqx_prometheus_message_transformation, collect_opts(Headers, Qs)).
+
+topic_metrics(get, #{headers := Headers, query_string := Qs}) ->
+    collect(emqx_prometheus_topic_metrics, collect_opts(Headers, Qs)).
 
 %%--------------------------------------------------------------------
 %% Internal funcs

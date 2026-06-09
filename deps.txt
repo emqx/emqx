@@ -121,4 +121,5 @@ emqx_setopts: all
 emqx_slow_subs: none
 emqx_streams: none
 emqx_telemetry: all
+emqx_topic_metrics: emqx_prometheus
 emqx_utils: all

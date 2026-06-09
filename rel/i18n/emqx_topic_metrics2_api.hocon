@@ -1,0 +1,77 @@
+emqx_topic_metrics2_api {
+
+list_collections.desc:
+"""List all topic-metric collections visible to the caller."""
+list_collections.label:
+"""List topic-metric collections"""
+
+create_collection.desc:
+"""Create a new topic-metric collection identified by name, scoped to the caller's namespace if any.
+
+Namespaced admins: clients in a tenant namespace publish under a mountpoint prefix (for example a client in namespace `acme` publishing to `t/x` shows up on the broker as `acme/t/x`). The `topic_filter` is matched against the post-mountpoint topic, so collection filters authored by a namespaced admin must include the mountpoint prefix to match their own clients' traffic."""
+create_collection.label:
+"""Create topic-metric collection"""
+
+delete_collections.desc:
+"""Delete every topic-metric collection visible to the caller."""
+delete_collections.label:
+"""Delete all visible topic-metric collections"""
+
+get_collection.desc:
+"""Read a single topic-metric collection. Counters are aggregated across the cluster."""
+get_collection.label:
+"""Get topic-metric collection"""
+
+delete_collection.desc:
+"""Delete a single topic-metric collection by name."""
+delete_collection.label:
+"""Delete topic-metric collection"""
+
+reset_collection.desc:
+"""Reset counters of a single collection across the cluster."""
+reset_collection.label:
+"""Reset topic-metric collection"""
+
+collection_view_resp.desc:
+"""A topic-metric collection with its current counters."""
+collection_view_resp.label:
+"""Topic-metric collection"""
+
+collection_created_resp.desc:
+"""The topic-metric collection that was just created."""
+collection_created_resp.label:
+"""Created"""
+
+bad_request_resp.desc:
+"""Invalid collection name or topic filter."""
+bad_request_resp.label:
+"""Bad request"""
+
+conflict_resp.desc:
+"""Collection name already exists, or the per-cluster collection quota has been reached."""
+conflict_resp.label:
+"""Conflict"""
+
+not_found_resp.desc:
+"""No collection with the given name exists."""
+not_found_resp.label:
+"""Not found"""
+
+field_name.desc:
+"""Unique collection name. Allowed characters: letters, digits, dash, and underscore. Maximum 64 characters."""
+field_name.label:
+"""Collection name"""
+
+field_topic_filter.desc:
+"""MQTT topic filter that messages are matched against. Wildcards (`+`, `#`) are allowed.
+
+For a namespaced collection, the filter is matched against the published topic *after* the tenant mountpoint has been applied — so an `acme` namespace admin who wants to track `t/x` must use a filter that includes the mountpoint (e.g. `acme/t/x`)."""
+field_topic_filter.label:
+"""Topic filter"""
+
+field_namespace.desc:
+"""Owner namespace of the collection. Null for global (cluster-wide) collections."""
+field_namespace.label:
+"""Owner namespace"""
+
+}

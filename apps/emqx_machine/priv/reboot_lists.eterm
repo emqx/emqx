@@ -70,6 +70,7 @@
             emqx_bridge_http,
             emqx_rule_engine,
             emqx_modules,
+            emqx_topic_metrics,
             emqx_management,
             emqx_dashboard,
             emqx_retainer,
