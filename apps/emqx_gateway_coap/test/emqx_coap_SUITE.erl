@@ -26,6 +26,7 @@
 -define(PS_PREFIX, "coap://127.0.0.1/ps").
 -define(MQTT_PREFIX, "coap://127.0.0.1/mqtt").
 -define(OBSERVE_NOTIFICATION_QUEUE_MAX_LEN, 100).
+-define(PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -89,6 +90,48 @@ update_coap_with_mountpoint(Mp) ->
         coap,
         Conf#{<<"mountpoint">> => Mp}
     ).
+
+with_security_profile(Profile, Fun) ->
+    os:putenv(?PROFILE_ENV_VAR, Profile),
+    emqx_security_profile:clear_profile(),
+    try
+        Fun()
+    after
+        os:unsetenv(?PROFILE_ENV_VAR),
+        emqx_security_profile:clear_profile()
+    end.
+
+with_connectionless_coap(EnableAuthn, Fun) ->
+    OldConf = emqx:get_raw_config([gateway, coap]),
+    OldListenerConf = emqx_conf:get([gateway, coap, listeners, udp, default]),
+    try
+        {ok, _} = emqx_gateway_conf:update_gateway(
+            coap,
+            OldConf#{<<"connection_required">> => <<"false">>}
+        ),
+        ok = update_coap_udp_listener_authn(EnableAuthn),
+        Fun()
+    after
+        ok = update_coap_udp_listener(OldListenerConf),
+        {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
+    end.
+
+update_coap_udp_listener_authn(EnableAuthn) ->
+    ListenerPath = [gateway, coap, listeners, udp, default],
+    ListenerConf0 = emqx_conf:get(ListenerPath),
+    ListenerConf1 = ListenerConf0#{enable_authn => EnableAuthn},
+    ok = update_coap_udp_listener(ListenerConf1),
+    ?assertEqual(
+        EnableAuthn,
+        emqx_conf:get([gateway, coap, listeners, udp, default, enable_authn], undefined)
+    ),
+    ok.
+
+update_coap_udp_listener(ListenerConf) ->
+    case emqx_gateway_conf:update_listener(coap, {udp, default}, ListenerConf) of
+        ok -> ok;
+        {ok, _} -> ok
+    end.
 
 with_notify_type(NotifyType, Fun) ->
     OldConf = emqx:get_raw_config([gateway, coap]),
@@ -668,6 +711,123 @@ t_pubsub_unauthorized(_) ->
         ok = emqx_gateway_auth_ct:stop_auth(authz_http),
         {ok, _} = emqx:update_config([authorization], OldAuthz)
     end.
+
+t_connectionless_hardened_no_auth_config_rejects_pub_sub(_) ->
+    with_security_profile("hardened", fun() ->
+        with_connectionless_coap(true, fun() ->
+            PublishTopic = <<"security/coap/hardened/publish">>,
+            SubscribeTopic = <<"security/coap/hardened/subscribe">>,
+            Payload = <<"blocked">>,
+            emqx:subscribe(PublishTopic),
+            try
+                do(fun(Channel) ->
+                    PublishURI = pubsub_uri(binary_to_list(PublishTopic)),
+                    assert_coap_unauthorized(
+                        do_request(Channel, PublishURI, make_req(post, Payload))
+                    ),
+                    receive
+                        {deliver, PublishTopic, _Msg} ->
+                            ct:fail(connectionless_publish_was_published)
+                    after 500 ->
+                        ok
+                    end,
+
+                    SubscribeURI = pubsub_uri(binary_to_list(SubscribeTopic)),
+                    assert_coap_unauthorized(
+                        do_request(Channel, SubscribeURI, make_req(get, <<>>, [{observe, 0}]))
+                    ),
+                    timer:sleep(100),
+                    ?assertEqual([], emqx:subscribers(SubscribeTopic))
+                end)
+            after
+                emqx:unsubscribe(PublishTopic)
+            end
+        end)
+    end).
+
+t_connectionless_legacy_no_auth_config_allows_pub_sub(_) ->
+    with_security_profile("legacy", fun() ->
+        with_connectionless_coap(true, fun() ->
+            assert_connectionless_pub_sub_allowed(
+                <<"security/coap/legacy/publish">>,
+                <<"security/coap/legacy/subscribe">>
+            )
+        end)
+    end).
+
+t_connectionless_hardened_listener_authn_disabled_allows_pub_sub(_) ->
+    with_security_profile("hardened", fun() ->
+        with_connectionless_coap(false, fun() ->
+            assert_connectionless_pub_sub_allowed(
+                <<"security/coap/authn-disabled/publish">>,
+                <<"security/coap/authn-disabled/subscribe">>
+            )
+        end)
+    end).
+
+t_connectionless_hardened_authn_allows_pub_sub(_) ->
+    with_security_profile("hardened", fun() ->
+        ok = emqx_gateway_auth_ct:start_auth(authn_http),
+        try
+            with_connectionless_coap(true, fun() ->
+                Query = #{
+                    "clientid" => <<"connless-auth-ok">>,
+                    "username" => <<"admin">>,
+                    "password" => <<"public">>
+                },
+                assert_connectionless_pub_sub_allowed(
+                    <<"security/coap/authn/publish">>,
+                    <<"security/coap/authn/subscribe">>,
+                    Query
+                )
+            end)
+        after
+            ok = emqx_gateway_auth_ct:stop_auth(authn_http)
+        end
+    end).
+
+t_connectionless_hardened_bad_authn_rejects_pub_sub(_) ->
+    with_security_profile("hardened", fun() ->
+        ok = emqx_gateway_auth_ct:start_auth(authn_http),
+        try
+            with_connectionless_coap(true, fun() ->
+                Query = #{
+                    "clientid" => <<"connless-auth-bad">>,
+                    "username" => <<"deny">>,
+                    "password" => <<"public">>
+                },
+                assert_connectionless_pub_sub_rejected(
+                    <<"security/coap/authn-bad/publish">>,
+                    <<"security/coap/authn-bad/subscribe">>,
+                    Query
+                )
+            end)
+        after
+            ok = emqx_gateway_auth_ct:stop_auth(authn_http)
+        end
+    end).
+
+t_connectionless_hardened_authn_is_request_scoped(_) ->
+    with_security_profile("hardened", fun() ->
+        ok = emqx_gateway_auth_ct:start_auth(authn_http),
+        try
+            with_connectionless_coap(true, fun() ->
+                Query = #{
+                    "clientid" => <<"connless-auth-scoped">>,
+                    "username" => <<"admin">>,
+                    "password" => <<"public">>
+                },
+                assert_connectionless_auth_is_request_scoped(
+                    <<"security/coap/authn-scoped/allowed">>,
+                    <<"security/coap/authn-scoped/rejected-publish">>,
+                    <<"security/coap/authn-scoped/rejected-subscribe">>,
+                    Query
+                )
+            end)
+        after
+            ok = emqx_gateway_auth_ct:stop_auth(authn_http)
+        end
+    end).
 
 t_subscribe_opts_nl_rh(_) ->
     Fun = fun(Channel, Token) ->
@@ -1768,6 +1928,8 @@ observe_topic(Channel, Token, Topic, ObserveToken) ->
 pubsub_uri(Topic) when is_list(Topic) ->
     ?PS_PREFIX ++ "/" ++ Topic.
 
+pubsub_uri(Topic, Query) when is_list(Topic), is_map(Query) ->
+    compose_uri(pubsub_uri(Topic), Query, false);
 pubsub_uri(Topic, Token) ->
     pubsub_uri(Topic, Token, false).
 
@@ -1925,6 +2087,110 @@ return_message_response({error, Code}, Message) ->
 
 do(Fun) ->
     emqx_coap_test_helpers:with_udp_channel(Fun).
+
+assert_connectionless_pub_sub_allowed(PublishTopic, SubscribeTopic) ->
+    assert_connectionless_pub_sub_allowed(PublishTopic, SubscribeTopic, #{}).
+
+assert_connectionless_pub_sub_allowed(PublishTopic, SubscribeTopic, Query) ->
+    Payload = <<"allowed">>,
+    emqx:subscribe(PublishTopic),
+    try
+        do(fun(Channel) ->
+            PublishURI = pubsub_uri(binary_to_list(PublishTopic), Query),
+            {ok, changed, _} = do_request(Channel, PublishURI, make_req(post, Payload)),
+            receive
+                {deliver, PublishTopic, Msg} ->
+                    ?assertEqual(Payload, Msg#message.payload)
+            after 500 ->
+                ct:fail(connectionless_publish_not_delivered)
+            end,
+
+            SubscribeURI = pubsub_uri(binary_to_list(SubscribeTopic), Query),
+            {ok, content, _} = do_request(
+                Channel,
+                SubscribeURI,
+                make_req(get, <<>>, [{observe, 0}])
+            ),
+            timer:sleep(100),
+            [_SubPid] = emqx:subscribers(SubscribeTopic),
+            ok
+        end)
+    after
+        emqx:unsubscribe(PublishTopic)
+    end.
+
+assert_connectionless_pub_sub_rejected(PublishTopic, SubscribeTopic, Query) ->
+    Payload = <<"blocked">>,
+    emqx:subscribe(PublishTopic),
+    try
+        do(fun(Channel) ->
+            PublishURI = pubsub_uri(binary_to_list(PublishTopic), Query),
+            assert_coap_unauthorized(
+                do_request(Channel, PublishURI, make_req(post, Payload))
+            ),
+            receive
+                {deliver, PublishTopic, _Msg} ->
+                    ct:fail(connectionless_publish_was_published)
+            after 500 ->
+                ok
+            end,
+
+            SubscribeURI = pubsub_uri(binary_to_list(SubscribeTopic), Query),
+            assert_coap_unauthorized(
+                do_request(Channel, SubscribeURI, make_req(get, <<>>, [{observe, 0}]))
+            ),
+            timer:sleep(100),
+            ?assertEqual([], emqx:subscribers(SubscribeTopic))
+        end)
+    after
+        emqx:unsubscribe(PublishTopic)
+    end.
+
+assert_connectionless_auth_is_request_scoped(
+    AllowedTopic, RejectedPublishTopic, RejectedSubscribeTopic, Query
+) ->
+    AllowedPayload = <<"allowed">>,
+    BlockedPayload = <<"blocked">>,
+    emqx:subscribe(AllowedTopic),
+    emqx:subscribe(RejectedPublishTopic),
+    try
+        do(fun(Channel) ->
+            AllowedURI = pubsub_uri(binary_to_list(AllowedTopic), Query),
+            {ok, changed, _} = do_request(Channel, AllowedURI, make_req(post, AllowedPayload)),
+            receive
+                {deliver, AllowedTopic, Msg} ->
+                    ?assertEqual(AllowedPayload, Msg#message.payload)
+            after 500 ->
+                ct:fail(connectionless_publish_not_delivered)
+            end,
+
+            RejectedPublishURI = pubsub_uri(binary_to_list(RejectedPublishTopic)),
+            assert_coap_unauthorized(
+                do_request(Channel, RejectedPublishURI, make_req(post, BlockedPayload))
+            ),
+            receive
+                {deliver, RejectedPublishTopic, _Msg} ->
+                    ct:fail(connectionless_publish_was_published)
+            after 500 ->
+                ok
+            end,
+
+            RejectedSubscribeURI = pubsub_uri(binary_to_list(RejectedSubscribeTopic)),
+            assert_coap_unauthorized(
+                do_request(Channel, RejectedSubscribeURI, make_req(get, <<>>, [{observe, 0}]))
+            ),
+            timer:sleep(100),
+            ?assertEqual([], emqx:subscribers(RejectedSubscribeTopic))
+        end)
+    after
+        emqx:unsubscribe(AllowedTopic),
+        emqx:unsubscribe(RejectedPublishTopic)
+    end.
+
+assert_coap_unauthorized({error, unauthorized}) ->
+    ok;
+assert_coap_unauthorized({error, unauthorized, _}) ->
+    ok.
 
 send_raw(Packet, Timeout) ->
     emqx_coap_test_helpers:send_raw(Packet, Timeout).
