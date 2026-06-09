@@ -428,14 +428,18 @@ import_backup_test(Config, BackupName) ->
 
     [N1, N2, N3] = ?config(cluster, Config),
 
-    ?assertMatch({ok, _}, import_backup(?NODE3_PORT, DashboardAuth, BackupName)),
+    DashboardAuth1 = fresh_dashboard_auth(Config),
+    ?assertMatch({ok, _}, import_backup(?NODE3_PORT, DashboardAuth1, BackupName)),
 
-    ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth, BackupName, N3)),
+    DashboardAuth2 = fresh_dashboard_auth(Config),
+    ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth2, BackupName, N3)),
     %% Now this node must also have the file locally
-    ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth, BackupName, N1)),
+    DashboardAuth3 = fresh_dashboard_auth(Config),
+    ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth3, BackupName, N1)),
 
+    DashboardAuth4 = fresh_dashboard_auth(Config),
     ?assertMatch(
-        {error, {_, 400, _}}, import_backup(?NODE2_PORT, DashboardAuth, ?BAD_IMPORT_BACKUP, N2)
+        {error, {_, 400, _}}, import_backup(?NODE2_PORT, DashboardAuth4, ?BAD_IMPORT_BACKUP, N2)
     ).
 
 assert_second_call(get, Res) ->
@@ -569,6 +573,12 @@ dashboard_auth_header(Node) ->
     {ok, #{token := Token}} = erpc:call(Node, emqx_dashboard_admin, sign_token, [User, Pass]),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
+fresh_dashboard_auth(Config) ->
+    [Core1, _Core2, Repl] = ?config(cluster, Config),
+    Auth = dashboard_auth_header(Core1),
+    ok = wait_for_dashboard_auth(Repl, Auth),
+    Auth.
+
 wait_for_auth_replication(ReplNode) ->
     wait_for_auth_replication(ReplNode, 100).
 
@@ -582,6 +592,23 @@ wait_for_auth_replication(ReplNode, Retries) ->
         _:_ ->
             timer:sleep(1),
             wait_for_auth_replication(ReplNode, Retries - 1)
+    end.
+
+wait_for_dashboard_auth(ReplNode, {"Authorization", "Bearer " ++ Token}) ->
+    wait_for_dashboard_auth(ReplNode, unicode:characters_to_binary(Token), 100).
+
+wait_for_dashboard_auth(ReplNode, _Token, 0) ->
+    {error, {ReplNode, dashboard_auth_not_ready}};
+wait_for_dashboard_auth(ReplNode, Token, Retries) ->
+    User = ?DASHBOARD_USER,
+    try
+        [_] = erpc:call(ReplNode, emqx_dashboard_admin, lookup_user, [User]),
+        {ok, _} = erpc:call(ReplNode, emqx_dashboard_token, lookup, [Token]),
+        ok
+    catch
+        _:_ ->
+            timer:sleep(10),
+            wait_for_dashboard_auth(ReplNode, Token, Retries - 1)
     end.
 
 apps_spec(APIPort, TC) ->
