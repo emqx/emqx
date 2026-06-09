@@ -157,6 +157,7 @@ on_start(
         {username, User},
         {password, maps:get(password, Config, emqx_secret:wrap(""))},
         {database, DB},
+        {application_name, "emqx"},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize},
         [{codecs, []} || Codecs /= undefined]
@@ -649,6 +650,8 @@ conn_opts(Opts) ->
 conn_opts([], Acc) ->
     Acc;
 conn_opts([Opt = {database, _} | Opts], Acc) ->
+    conn_opts(Opts, [Opt | Acc]);
+conn_opts([Opt = {application_name, _} | Opts], Acc) ->
     conn_opts(Opts, [Opt | Acc]);
 conn_opts([{ssl, Bool} | Opts], Acc) when is_boolean(Bool) ->
     Flag =
