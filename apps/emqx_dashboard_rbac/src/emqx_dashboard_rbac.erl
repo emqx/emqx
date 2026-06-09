@@ -210,19 +210,18 @@ do_check_rbac(#{?namespace := Namespace}, _, ?CLIENTS_API(get, Fn)) when
     %% expose MQTT payloads for arbitrary clients and cannot be safely scoped
     %% by a generic route filter.
     {error, <<"Per-client message endpoints are not available to namespaced users">>};
-do_check_rbac(#{?namespace := Namespace}, _, ?RETAINER_API(Method, Fn)) when
+do_check_rbac(#{?namespace := Namespace}, _, ?RETAINER_API(_, Fn)) when
     is_binary(Namespace) andalso
-        (Fn == '/messages' orelse Fn == with_topic_warp) andalso
-        (Method == get orelse Method == delete)
+        (Fn == '/messages' orelse Fn == with_topic_warp)
 ->
     %% The retained message store is global. Listing, fetching, or deleting by
     %% topic would expose or mutate messages outside the caller's namespace.
     {error, <<"Retained message endpoints are not available to namespaced users">>};
-do_check_rbac(#{?namespace := Namespace}, _, ?DELAYED_API(Method, Fn)) when
+do_check_rbac(#{?namespace := Namespace}, _, ?DELAYED_API(_, Fn)) when
     is_binary(Namespace) andalso
-        ((Fn == delayed_messages andalso Method == get) orelse
-            (Fn == delayed_message andalso (Method == get orelse Method == delete)) orelse
-            (Fn == delayed_message_topic andalso Method == delete))
+        (Fn == delayed_messages orelse
+            Fn == delayed_message orelse
+            Fn == delayed_message_topic)
 ->
     %% Delayed message records are global and include MQTT payloads. Keep the
     %% coarse global-only endpoint decision here; filters should resolve or
