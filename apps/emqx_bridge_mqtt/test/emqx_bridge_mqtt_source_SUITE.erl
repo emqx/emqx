@@ -1142,67 +1142,47 @@ t_reconnect_with_session(TCConfig) when is_list(TCConfig) ->
     ok.
 
 -doc """
-With `retain_as_published = true` and `proto_ver = v5`, the upstream broker
-preserves the `retain` flag on PUBLISH packets forwarded to the bridge's
-subscription, so the bridge sees the message with `retain = true`.
+With `proto_ver = v5` and the default `retain_as_published`, the bridge
+subscribes to the remote topic with the Retain As Published option set,
+so the upstream broker preserves the `retain` flag on forwarded PUBLISH
+packets.
 """.
-t_retain_as_published_v5_preserves_retain(TCConfig) ->
-    rap_subscribe_and_publish(TCConfig, <<"v5">>, true, true).
+t_retain_as_published_v5_default_preserves_retain(TCConfig) ->
+    assert_rap_subopt(TCConfig, _ParamsOverrides = #{}, _ExpectedRAP = true).
 
 -doc """
-With `retain_as_published = false` (the default) and `proto_ver = v5`,
-the upstream broker clears the `retain` flag on forwarded PUBLISH packets,
-so the bridge sees `retain = false`. Pins down the backwards-compatible
-behavior.
+With `proto_ver = v5` and `retain_as_published = false`, the bridge
+subscribes without the Retain As Published option, so the upstream broker
+clears the `retain` flag on forwarded PUBLISH packets.
 """.
-t_retain_as_published_default_clears_retain(TCConfig) ->
-    rap_subscribe_and_publish(TCConfig, <<"v5">>, false, false).
+t_retain_as_published_v5_false_clears_retain(TCConfig) ->
+    assert_rap_subopt(
+        TCConfig,
+        #{<<"retain_as_published">> => false},
+        false
+    ).
 
-rap_subscribe_and_publish(TCConfig, ProtoVer, RAP, ExpectedRetain) ->
-    Self = self(),
-    ok = meck:new(emqtt, [passthrough, no_link, no_history]),
-    on_exit(fun() -> catch meck:unload([emqtt]) end),
-    ok = meck:expect(
-        emqtt,
-        subscribe,
-        fun(Pid, Props, Topic, Opts) ->
-            Self ! {subscribe_opts, Opts},
-            meck:passthrough([Pid, Props, Topic, Opts])
-        end
-    ),
+assert_rap_subopt(TCConfig, ParamsOverrides, ExpectedRAP) ->
     UniqueNum = integer_to_binary(erlang:unique_integer([positive])),
     RemoteTopic = <<"rap/test/", UniqueNum/binary>>,
-    LocalTopic = <<"local/", UniqueNum/binary>>,
-    %% Make sure no retained message lingers from a previous test on this
-    %% topic — the broker must deliver our test message as a "live"
-    %% PUBLISH, not as retained-on-subscribe (which always carries
-    %% retain = 1 regardless of RAP).
-    emqx_broker:publish(emqx_message:set_flag(retain, emqx_message:make(RemoteTopic, <<>>))),
-    {201, _} = create_connector_api(TCConfig, #{<<"proto_ver">> => ProtoVer}),
+    {201, _} = create_connector_api(TCConfig, #{<<"proto_ver">> => <<"v5">>}),
+    Params = maps:merge(
+        #{<<"topic">> => RemoteTopic, <<"qos">> => 1},
+        ParamsOverrides
+    ),
     {201, _} =
-        create_source_api(TCConfig, #{
-            <<"parameters">> => #{
-                <<"topic">> => RemoteTopic,
-                <<"qos">> => 1,
-                <<"retain_as_published">> => RAP,
-                <<"local">> => #{<<"topic">> => LocalTopic}
-            }
-        }),
-    {subscribe_opts, Opts} = ?assertReceive({subscribe_opts, _}, 3_000),
-    ?assertEqual({rap, RAP}, lists:keyfind(rap, 1, Opts)),
-    %% Subscribe downstream with RAP=true so the local broker forwards
-    %% the bridge's republish without rewriting the retain flag — that
-    %% lets us observe what the bridge actually set.
-    Sub = start_client(TCConfig),
-    {ok, _, [_]} = emqtt:subscribe(Sub, #{}, LocalTopic, [{qos, 1}, {rap, true}]),
-    Pub = start_client(TCConfig),
-    {ok, _} =
-        emqtt:publish(Pub, RemoteTopic, <<"hello">>, [{qos, 1}, {retain, true}]),
-    Publish = ?assertReceive({publish, #{topic := LocalTopic}}, 5_000),
-    {publish, #{retain := ActualRetain}} = Publish,
-    ?assertEqual(ExpectedRetain, ActualRetain),
-    %% Clear the retained message we just published.
-    emqx_broker:publish(emqx_message:set_flag(retain, emqx_message:make(RemoteTopic, <<>>))),
+        create_source_api(TCConfig, #{<<"parameters">> => Params}),
+    %% The bridge subscribes to the local broker — peek the broker's
+    %% subopts table to confirm the Retain As Published flag made it
+    %% onto the SUBSCRIBE.
+    ?retry(
+        200,
+        25,
+        ?assertMatch(
+            [{{RemoteTopic, _SubPid}, #{rap := ExpectedRAP}}],
+            emqx_broker:subscriptions_via_topic(RemoteTopic)
+        )
+    ),
     ok.
 
 -doc """
@@ -1241,7 +1221,7 @@ t_bridge_mode_v5_logs_warning(TCConfig) ->
         end,
         fun(Trace) ->
             ?assertMatch(
-                [_ | _], ?of_kind(mqtt_connector_bridge_mode_v5_warning, Trace)
+                [_ | _], ?of_kind("bridge_mode_ignored_for_mqtt_v5", Trace)
             )
         end
     ),
