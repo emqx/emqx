@@ -90,7 +90,6 @@ schema("/mqtt/delayed") ->
 schema("/mqtt/delayed/messages/:topic") ->
     #{
         'operationId' => delayed_message_topic,
-        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         delete => #{
             tags => ?API_TAG_MQTT,
             description => ?DESC(delete_api),
@@ -117,7 +116,6 @@ schema("/mqtt/delayed/messages/:topic") ->
 schema("/mqtt/delayed/messages/:node/:msgid") ->
     #{
         'operationId' => delayed_message,
-        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         get => #{
             tags => ?API_TAG_MQTT,
             description => ?DESC(get_message_api),
@@ -168,7 +166,6 @@ schema("/mqtt/delayed/messages/:node/:msgid") ->
 schema("/mqtt/delayed/messages") ->
     #{
         'operationId' => delayed_messages,
-        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         get => #{
             tags => ?API_TAG_MQTT,
             description => ?DESC(list_api),

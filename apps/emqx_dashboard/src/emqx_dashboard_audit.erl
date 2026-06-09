@@ -5,7 +5,6 @@
 -module(emqx_dashboard_audit).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx_utils/include/emqx_http_api.hrl").
 %% API
 -export([log/2, log_fun/0, importance/1]).
 
@@ -54,7 +53,7 @@ log_meta(Importance, Meta, Req) ->
             Code = maps:get(code, Meta),
             Meta1 = #{
                 time => logger:timestamp(),
-                from => from(Meta),
+                from => from(Meta, Req),
                 source => source(Meta),
                 duration_ms => duration_ms(Meta),
                 source_ip => source_ip(Req),
@@ -73,20 +72,27 @@ log_meta(Importance, Meta, Req) ->
 duration_ms(#{req_start := ReqStart, req_end := ReqEnd}) ->
     erlang:convert_time_unit(ReqEnd - ReqStart, native, millisecond).
 
-from(#{auth_type := jwt_token}) ->
+from(#{auth_type := jwt_token}, _Req) ->
     dashboard;
-from(#{auth_type := api_key}) ->
+from(#{auth_type := api_key}, _Req) ->
     rest_api;
-from(#{log_from := From}) ->
+from(#{log_from := From}, _Req) ->
     From;
-from(#{code := Code} = Meta) when Code =:= 401 orelse Code =:= 403 ->
+from(#{code := Code} = Meta, Req) when Code =:= 401 orelse Code =:= 403 ->
+    %% Auth failed before `auth_type` could be populated by the authoriser.
+    %% Distinguish by the request's `Authorization` header: Basic ⇒ API key,
+    %% Bearer (or anything else) ⇒ dashboard.  This avoids matching against
+    %% the response body message text, which now varies by RBAC reason.
     case maps:find(failure, Meta) of
-        {ok, #{code := 'BAD_API_KEY_OR_SECRET'}} -> rest_api;
-        {ok, #{code := 'UNAUTHORIZED_ROLE', message := ?API_KEY_NOT_ALLOW_MSG}} -> rest_api;
-        %% 'TOKEN_TIME_OUT' 'BAD_TOKEN' is dashboard code.
-        _ -> dashboard
+        {ok, #{code := 'BAD_API_KEY_OR_SECRET'}} ->
+            rest_api;
+        _ ->
+            case cowboy_req:parse_header(<<"authorization">>, Req) of
+                {basic, _, _} -> rest_api;
+                _ -> dashboard
+            end
     end;
-from(_) ->
+from(_, _Req) ->
     unknown.
 
 source(#{source := Source}) -> Source;

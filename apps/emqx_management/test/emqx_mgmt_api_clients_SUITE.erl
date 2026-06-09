@@ -2020,9 +2020,9 @@ t_list_clients_v2_bad_query_string_parameters(Config) ->
 
 -doc """
 Namespaced users (administrator or viewer) must not be able to read MQTT
-message content via the per-client mqueue / inflight endpoints. The
-filter is wired at the schema level, so we use a bogus clientid: 403
-confirms the gate fires before the handler resolves the client, 404
+message content via the per-client mqueue / inflight endpoints. RBAC owns
+this whole-endpoint restriction, so we use a bogus clientid: 403 confirms
+the request is rejected before the handler resolves the client, while 404
 would mean the request leaked through.
 """.
 t_namespaced_user_message_endpoints(TCConfig0) ->
