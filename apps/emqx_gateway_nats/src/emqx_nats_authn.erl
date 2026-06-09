@@ -49,7 +49,8 @@ is_auth_required(#{enable_authn := false}, _Authn) ->
     false;
 is_auth_required(#{enable_authn := true}, Authn) ->
     has_enabled_internal_method(Authn) orelse
-        gateway_auth_enabled(Authn).
+        gateway_auth_enabled(Authn) orelse
+        authn_not_configured_requires_authn().
 
 -spec ensure_nkey_nonce(map(), authn_ctx()) -> map().
 ensure_nkey_nonce(ConnInfo, Authn) ->
@@ -643,6 +644,9 @@ nonce_auth_enabled(Authn) ->
 
 gateway_auth_enabled(Authn) ->
     maps:get(gateway_auth_enabled, Authn, false) =:= true.
+
+authn_not_configured_requires_authn() ->
+    emqx_security_profile:policy(authn_not_configured) =:= deny.
 
 has_enabled_internal_method(Authn) ->
     lists:any(fun method_enabled/1, maps:get(methods, Authn, [])).
