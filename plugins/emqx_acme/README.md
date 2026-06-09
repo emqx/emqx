@@ -148,9 +148,12 @@ the `file://` URI of the PEM. The plugin reads the file on every issuance
 and never overwrites it; if the file is absent on the local node it
 auto-generates one (this is **not** replicated cluster-wide, so for clusters
 you must pre-distribute the file yourself). If the PEM is encrypted, also
-set `acc_key_password` to a `file://` URI pointing at a plain-text password
-file. `${EMQX_ETC_DIR}` / `${VAR}` are expanded at use time so the same config
-works across docker and DEB/RPM.
+set `acc_key_password` to either a `file://` URI pointing at a plain-text
+password file (recommended — keeps the secret off-config; a trailing newline
+is trimmed) or an inline password string (used verbatim). `${EMQX_ETC_DIR}`
+/ `${VAR}` are expanded at use time on `file://` paths so the same config
+works across docker and DEB/RPM; inline passwords are taken literally with no
+env-var interpolation.
 
 ## Reaching port 80
 

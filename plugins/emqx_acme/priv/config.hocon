@@ -80,6 +80,11 @@ dashboard_https_port = 18084
 # without operator intervention.
 # acc_key = "file://${EMQX_ETC_DIR}/acme_acc_key.pem"
 
-# Optional: file:// URI pointing at a file containing the password for an
-# encrypted acc_key PEM. Only meaningful when acc_key is set above.
+# Optional: password for an encrypted acc_key PEM. Only meaningful when
+# acc_key is set above. Accepts either a file:// URI pointing at a
+# plain-text password file (recommended — keeps the secret off-config and
+# allows it to be rotated independently), or an inline password string.
+# In file:// mode, a trailing newline in the file is trimmed; in inline
+# mode the value is used verbatim with no env-var interpolation.
 # acc_key_password = "file://${EMQX_ETC_DIR}/acme_acc_key_password.txt"
+# acc_key_password = "s3cr3t"

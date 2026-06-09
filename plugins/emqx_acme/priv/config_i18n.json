@@ -96,11 +96,11 @@
     "zh": "可选覆盖。留空（默认）时，插件会在证书包内自动管理 ACME 账户密钥：首次签发时自动生成，并随证书链一起复制到每个集群节点。仅当你需要把密钥固定在证书包之外的路径（例如挂载为 Kubernetes Secret）时，才将本字段设置为 file:// URI。设置后，插件每次签发都会读取该文件，且从不覆盖；若本地节点上该文件缺失，仅会在本地节点自动生成，集群其他节点的密钥需要你自行预先分发。${EMQX_ETC_DIR} 和 ${EMQX_LOG_DIR} 会在使用时展开。"
   },
   "$acc_key_password_label": {
-    "en": "ACME Account Key Password File",
-    "zh": "ACME 账户密钥密码文件"
+    "en": "ACME Account Key Password",
+    "zh": "ACME 账户密钥密码"
   },
   "$acc_key_password_desc": {
-    "en": "Optional. Only meaningful when acc_key is set above and points at an encrypted PEM. file:// URI to a plain-text file containing the password.",
-    "zh": "可选。仅当上面的 acc_key 已设置且指向加密 PEM 时有意义。file:// URI，指向包含密码的纯文本文件。"
+    "en": "Optional. Only meaningful when acc_key is set above and points at an encrypted PEM. Accepts either a file:// URI to a plain-text password file (recommended — keeps the secret off-config; trailing newline is trimmed), or an inline password string used verbatim.",
+    "zh": "可选。仅当上面的 acc_key 已设置且指向加密 PEM 时有意义。可使用 file:// URI 指向纯文本密码文件（推荐，密钥不入配置；尾部换行会被去除），也可直接填写明文密码字符串（按字面值使用）。"
   }
 }

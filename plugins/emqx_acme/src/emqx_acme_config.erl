@@ -67,7 +67,7 @@ parse(RawConfig) ->
         {ok, RenewDays} ?= parse_renew_days(RawConfig),
         {ok, CheckHours} ?= parse_check_hours(RawConfig),
         {ok, AccKey} ?= parse_file_uri(<<"acc_key">>, RawConfig, undefined),
-        {ok, AccKeyPassword} ?= parse_file_uri(<<"acc_key_password">>, RawConfig, undefined),
+        {ok, AccKeyPassword} ?= parse_password(<<"acc_key_password">>, RawConfig),
         {ok, #{
             dir_url => DirUrl,
             domains => Domains,
@@ -270,6 +270,30 @@ parse_file_uri(Key, Config, Default) ->
                 _ -> {error, {invalid_file_uri, Key, to_bin(Val)}}
             end
     end.
+
+%% acc_key_password is more permissive than acc_key: it accepts either
+%% a file:// URI (resolved + read at use time) or an inline password
+%% string. Inline mode is for ops who would rather paste the password
+%% into the plugin config than maintain a separate file; file:// mode
+%% keeps the password off-config (preferred for production). Either way
+%% the value is wrapped in an emqx_secret closure so that:
+%%   - file:// reads are deferred to use time (env vars expand against
+%%     the *current* environment, not parse time);
+%%   - the password never shows up in term-formatted log lines or in
+%%     dashboard responses that dump the settings map.
+parse_password(Key, Config) ->
+    case get_val(Key, Config, undefined) of
+        undefined -> {ok, undefined};
+        null -> {ok, undefined};
+        <<>> -> {ok, undefined};
+        "" -> {ok, undefined};
+        Val -> {ok, wrap_password(to_bin(Val))}
+    end.
+
+wrap_password(<<"file://", _/binary>> = Uri) ->
+    emqx_secret:wrap_load({file, Uri});
+wrap_password(Inline) ->
+    emqx_secret:wrap(Inline).
 
 %% Resolve env vars in the path portion of a file:// URI. Called by use
 %% sites (e.g. emqx_acme_issuer:ensure_acc_key_file/2) just before opening

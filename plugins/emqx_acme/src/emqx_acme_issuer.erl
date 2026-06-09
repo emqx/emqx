@@ -496,14 +496,19 @@ build_acc_key_opt(Params, BundleName) ->
                 Path
         end,
     Base = #{acc_key => AccKeyUri},
-    case
-        emqx_acme_config:resolve_file_uri(
-            maps:get(acc_key_password_config, Params, undefined)
-        )
-    of
+    case maps:get(acc_key_password_config, Params, undefined) of
         undefined -> Base;
-        PassPath -> Base#{acc_key_pass => PassPath}
+        Secret -> Base#{acc_key_pass => unwrap_password(Secret)}
     end.
+
+%% acme_client passes acc_key_pass straight through to
+%% public_key:pem_entry_decode/2, which only accepts string()
+%% (charlist) — a binary throws function_clause. emqx_secret_loader
+%% returns the file contents as a binary (with the trailing newline
+%% trimmed); inline passwords are also stored as binaries by the
+%% parser. unicode:characters_to_list/1 covers both.
+unwrap_password(Secret) ->
+    unicode:characters_to_list(emqx_secret:unwrap(Secret)).
 
 %% Bundle-managed account key. emqx_managed_certs has a first-class slot
 %% (?FILE_KIND_ACC_KEY -> "acc-key.pem") for exactly this. add_managed_files

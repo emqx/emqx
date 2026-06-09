@@ -17,7 +17,11 @@ all() ->
         t_build_acc_key_opt_uses_config_path_when_set,
         t_build_acc_key_opt_uses_bundle_when_unset,
         t_build_acc_key_opt_reuses_bundle_acc_key,
-        t_build_acc_key_opt_passes_password_path_through,
+        t_build_acc_key_opt_reads_password_file,
+        t_build_acc_key_opt_inline_password,
+        t_build_acc_key_opt_password_file_missing_throws,
+        t_build_acc_key_opt_decrypts_encrypted_pem_end_to_end,
+        t_build_acc_key_opt_decrypts_encrypted_pem_inline_password,
         t_ensure_acc_key_file_creates_pem_when_missing,
         t_ensure_acc_key_file_leaves_existing_file_alone,
         t_store_result_never_writes_acc_key_to_bundle
@@ -249,22 +253,137 @@ t_build_acc_key_opt_reuses_bundle_acc_key(_Config) ->
     ),
     ?assertEqual(0, meck:num_calls(emqx_managed_certs, add_managed_files, '_')).
 
--doc "acc_key_password_config flows through as acc_key_pass for "
-"acme_client_issuance:run/2 (encrypted PEM support).".
-t_build_acc_key_opt_passes_password_path_through(_Config) ->
-    Tmp = unique_tmp_path(<<"acc_key_pass">>),
-    Path = "file://" ++ Tmp,
-    PassPath = "file:///does/not/need/to/exist.txt",
+-doc """
+acc_key_pass must be the password bytes, not the file:// URI:
+acme_client passes the value straight to public_key:pem_entry_decode/2,
+which interprets a URI as the literal password and silently fails to
+decrypt. The trailing newline that text editors append is trimmed, and
+the result is a charlist because OTP's pem_entry_decode/2 only accepts
+string() (a binary password throws function_clause).
+""".
+t_build_acc_key_opt_reads_password_file(_Config) ->
+    KeyPath = unique_tmp_path(<<"acc_key">>),
+    PassPath = unique_tmp_path(<<"acc_key_pass_txt">>),
+    ok = filelib:ensure_dir(PassPath),
+    ok = file:write_file(PassPath, <<"s3cr3t\n">>),
+    PassUri = list_to_binary("file://" ++ PassPath),
     Params = #{
-        acc_key_config => Path,
-        acc_key_password_config => PassPath,
+        acc_key_config => "file://" ++ KeyPath,
+        acc_key_password_config => emqx_secret:wrap_load({file, PassUri}),
         cert_type => ec
     },
     ?assertEqual(
-        #{acc_key => Path, acc_key_pass => PassPath},
+        #{acc_key => "file://" ++ KeyPath, acc_key_pass => "s3cr3t"},
         emqx_acme_issuer:build_acc_key_opt(Params, <<"acme">>)
     ),
-    file:delete(Tmp).
+    file:delete(KeyPath),
+    file:delete(PassPath).
+
+-doc """
+Inline password: the parser preserves a non-file:// value verbatim,
+and build_acc_key_opt/2 forwards it as acc_key_pass without any file
+I/O. No env-var interpolation on inline values — a literal $FOO in the
+password stays literal.
+""".
+t_build_acc_key_opt_inline_password(_Config) ->
+    KeyPath = unique_tmp_path(<<"acc_key_inline">>),
+    Inline = <<"p4ss with $FOO and spaces">>,
+    Params = #{
+        acc_key_config => "file://" ++ KeyPath,
+        acc_key_password_config => emqx_secret:wrap(Inline),
+        cert_type => ec
+    },
+    ?assertEqual(
+        #{acc_key => "file://" ++ KeyPath, acc_key_pass => unicode:characters_to_list(Inline)},
+        emqx_acme_issuer:build_acc_key_opt(Params, <<"acme">>)
+    ),
+    file:delete(KeyPath).
+
+-doc """
+Failing to read the password file surfaces as the structured throw
+emqx_secret_loader raises (with the missing path), not as a downstream
+bad_password from the CA that wastes a rate-limited issuance attempt.
+""".
+t_build_acc_key_opt_password_file_missing_throws(_Config) ->
+    KeyPath = unique_tmp_path(<<"acc_key_missing_pw">>),
+    Missing = unique_tmp_path(<<"never_created_pw">>),
+    PassUri = list_to_binary("file://" ++ Missing),
+    Params = #{
+        acc_key_config => "file://" ++ KeyPath,
+        acc_key_password_config => emqx_secret:wrap_load({file, PassUri}),
+        cert_type => ec
+    },
+    ?assertThrow(
+        #{msg := failed_to_read_secret_file, path := Missing},
+        emqx_acme_issuer:build_acc_key_opt(Params, <<"acme">>)
+    ),
+    file:delete(KeyPath).
+
+-doc """
+End-to-end: encrypt an EC private key with a password, write the
+key + password to files, and confirm the acc_key_pass produced by
+build_acc_key_opt/2 actually decrypts the PEM via the same path
+acme_client takes (read_priv_key_file/2). Regression guard for the
+`file://` URI being passed as the literal password.
+""".
+t_build_acc_key_opt_decrypts_encrypted_pem_end_to_end(_Config) ->
+    KeyPath = unique_tmp_path(<<"enc_acc_key">>),
+    PassPath = unique_tmp_path(<<"enc_acc_key_pass">>),
+    ok = filelib:ensure_dir(KeyPath),
+    Password = "correcthorse",
+    EcKey = public_key:generate_key({namedCurve, secp256r1}),
+    CipherInfo = {"AES-256-CBC", crypto:strong_rand_bytes(16)},
+    PemEntry = public_key:pem_entry_encode(
+        'ECPrivateKey', EcKey, {CipherInfo, Password}
+    ),
+    ok = file:write_file(KeyPath, public_key:pem_encode([PemEntry])),
+    ok = file:write_file(PassPath, [Password, $\n]),
+    PassUri = list_to_binary("file://" ++ PassPath),
+    Params = #{
+        acc_key_config => "file://" ++ KeyPath,
+        acc_key_password_config => emqx_secret:wrap_load({file, PassUri}),
+        cert_type => ec
+    },
+    #{acc_key := "file://" ++ KeyPath, acc_key_pass := Pass} =
+        emqx_acme_issuer:build_acc_key_opt(Params, <<"acme">>),
+    ?assertEqual(Password, Pass),
+    %% Exact path acme_client_issuance:ensure_priv_key/3 takes for an
+    %% encrypted PEM: if Pass were the "file://..." URI instead of the
+    %% password bytes, this returns {error, {bad_key, bad_password}}.
+    ?assertMatch(
+        {ok, _Decoded},
+        acme_client_lib:read_priv_key_file(KeyPath, Pass)
+    ),
+    file:delete(KeyPath),
+    file:delete(PassPath).
+
+-doc """
+Same end-to-end check as above, but with the password supplied
+inline instead of via a file. Confirms the parser+issuer dispatch on
+the file:// prefix does not corrupt either path.
+""".
+t_build_acc_key_opt_decrypts_encrypted_pem_inline_password(_Config) ->
+    KeyPath = unique_tmp_path(<<"enc_acc_key_inline">>),
+    ok = filelib:ensure_dir(KeyPath),
+    Password = "inline-pass-42",
+    EcKey = public_key:generate_key({namedCurve, secp256r1}),
+    CipherInfo = {"AES-256-CBC", crypto:strong_rand_bytes(16)},
+    PemEntry = public_key:pem_entry_encode(
+        'ECPrivateKey', EcKey, {CipherInfo, Password}
+    ),
+    ok = file:write_file(KeyPath, public_key:pem_encode([PemEntry])),
+    Params = #{
+        acc_key_config => "file://" ++ KeyPath,
+        acc_key_password_config => emqx_secret:wrap(list_to_binary(Password)),
+        cert_type => ec
+    },
+    #{acc_key_pass := Pass} =
+        emqx_acme_issuer:build_acc_key_opt(Params, <<"acme">>),
+    ?assertMatch(
+        {ok, _Decoded},
+        acme_client_lib:read_priv_key_file(KeyPath, Pass)
+    ),
+    file:delete(KeyPath).
 
 -doc "ensure_acc_key_file/2 creates a PEM-encoded EC private key at the "
 "configured path on first issuance (zero-config single-node UX).".

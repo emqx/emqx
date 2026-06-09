@@ -16,7 +16,9 @@ all() ->
         t_parse_listener_ids_accepts_unknown_name,
         t_parse_acc_key_file_uri,
         t_parse_acc_key_password_file_uri,
+        t_parse_acc_key_password_accepts_inline,
         t_parse_acc_key_rejects_non_file_scheme,
+        t_parse_acc_key_password_does_not_reject_non_file_scheme,
         t_parse_acc_key_treats_empty_as_unset,
         t_parse_acc_key_password_treats_null_as_unset,
         t_parse_enable_dashboard_https_default_true,
@@ -128,7 +130,13 @@ t_parse_acc_key_file_uri(_Config) ->
     ),
     ?assertEqual("file:///etc/emqx/acme/acc_key.pem", maps:get(acc_key, S)).
 
--doc "acc_key_password accepts a file:// URI (typical use: encrypted PEM).".
+-doc """
+acc_key_password accepts a file:// URI (typical use: encrypted PEM).
+The parser wraps the URI in an emqx_secret closure so reads are
+deferred to issuance time; emqx_secret:term/1 exposes the underlying
+{file, Uri} pair without invoking the loader (so this assertion does
+not touch the filesystem).
+""".
 t_parse_acc_key_password_file_uri(_Config) ->
     {ok, S} = emqx_acme_config:parse(
         #{
@@ -137,8 +145,8 @@ t_parse_acc_key_password_file_uri(_Config) ->
         }
     ),
     ?assertEqual(
-        "file:///etc/emqx/acme/acc_key_password.txt",
-        maps:get(acc_key_password, S)
+        {file, <<"file:///etc/emqx/acme/acc_key_password.txt">>},
+        emqx_secret:term(maps:get(acc_key_password, S))
     ).
 
 -doc "acc_key rejects values that don't start with file://.".
@@ -148,6 +156,31 @@ t_parse_acc_key_rejects_non_file_scheme(_Config) ->
         emqx_acme_config:parse(
             #{<<"acc_key">> => <<"https://example.com/key.pem">>}
         )
+    ).
+
+-doc """
+acc_key_password accepts inline password strings (no file://
+prefix). Wrapped via emqx_secret:wrap/1; emqx_secret:unwrap/1 recovers
+the original bytes for build_acc_key_opt/2 at issuance time.
+""".
+t_parse_acc_key_password_accepts_inline(_Config) ->
+    {ok, S} = emqx_acme_config:parse(
+        #{<<"acc_key_password">> => <<"s3cr3t">>}
+    ),
+    ?assertEqual(<<"s3cr3t">>, emqx_secret:unwrap(maps:get(acc_key_password, S))).
+
+-doc """
+Unlike acc_key (where a non-file scheme is almost certainly a
+typo), acc_key_password is permissive: any non-empty string is a
+valid inline password, so no validation rejects it at parse time.
+""".
+t_parse_acc_key_password_does_not_reject_non_file_scheme(_Config) ->
+    {ok, S} = emqx_acme_config:parse(
+        #{<<"acc_key_password">> => <<"https://example.com/anything">>}
+    ),
+    ?assertEqual(
+        <<"https://example.com/anything">>,
+        emqx_secret:unwrap(maps:get(acc_key_password, S))
     ).
 
 -doc "Empty strings for acc_key / acc_key_password are treated as unset, "
