@@ -442,7 +442,10 @@ check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
             case get_query_value(<<"token">>, URIQuery) of
                 undefined ->
                     %% Connection mode policy: reject requests without token/clientid.
-                    ?SLOG(debug, #{msg => "token_required_in_conn_mode", message => Msg}),
+                    ?SLOG(debug, #{
+                        msg => "token_required_in_conn_mode",
+                        message => emqx_utils:redact(Msg)
+                    }),
                     missing_token_or_clientid_reply(Msg, Channel);
                 _ ->
                     check_token(Msg, Channel)

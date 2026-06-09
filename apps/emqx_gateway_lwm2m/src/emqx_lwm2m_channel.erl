@@ -553,7 +553,7 @@ enrich_clientinfo(
         _ ->
             ?SLOG(error, #{
                 msg => "reject_REGISTER_request",
-                reason => {wrong_paramters, Query}
+                reason => {wrong_paramters, emqx_utils:redact(Query)}
             }),
             {error, "invalid queries", Channel}
     end.
