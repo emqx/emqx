@@ -150,6 +150,36 @@ t_publish_and_consume_regular(Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+%% Verify that QoS 0 queue subscriptions auto-ack messages in the MQ subscriber.
+t_qos0_subscription_auto_acks_mq_messages(Config) ->
+    LocalMaxInflight = 2,
+    _ = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"qos0_auto_ack">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false,
+        dispatch_strategy => ?config(dispatch_strategy, Config),
+        local_max_inflight => LocalMaxInflight
+    }),
+
+    %% Populate the MQ with messages to exceed the local max inflight.
+    emqx_mq_test_utils:populate(LocalMaxInflight + 1, #{topic_prefix => <<"t/">>}),
+
+    %% Connect a subscriber and subscribe to the queue.
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    {ok, _, [?QOS_0]} = emqtt:subscribe(
+        CSub, {<<"$queue/qos0_auto_ack/t/#">>, ?QOS_0}
+    ),
+
+    %% Drain the subscriber to receive all messages; without QoS 0 auto-ack,
+    %% this would receive only LocalMaxInflight messages.
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(
+        _MinMsg = LocalMaxInflight + 1, _Timeout = 1000
+    ),
+    ?assertEqual(LocalMaxInflight + 1, length(Msgs)),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
 %% Consume some history messages from a lastvalue queue
 t_publish_and_consume_lastvalue(Config) ->
     %% Create a lastvalue Queue
