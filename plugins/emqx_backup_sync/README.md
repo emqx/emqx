@@ -54,7 +54,8 @@ sync {
 ```
 
 The configured API key must be allowed to access Data Backup endpoints on the
-primary cluster.
+primary cluster. `primary.api_key` and `primary.api_secret` can be set directly
+or as `file://` paths, for example `file:///etc/emqx/backup-sync-api-key`.
 
 Supported `sync.root_keys` values are `connectors`, `actions`, `sources`,
 `rule_engine`, `listeners`, `schema_registry`, `authentication`, and

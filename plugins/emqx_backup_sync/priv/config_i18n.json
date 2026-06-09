@@ -12,16 +12,16 @@
         "zh": "API Key"
     },
     "$primary_api_key_desc": {
-        "en": "Primary cluster API key.",
-        "zh": "主集群 API key。"
+        "en": "Primary cluster API key. Use file://PATH to read the value from a local file.",
+        "zh": "主集群 API key。可使用 file://PATH 从本地文件读取。"
     },
     "$primary_api_secret_label": {
         "en": "API Secret",
         "zh": "API Secret"
     },
     "$primary_api_secret_desc": {
-        "en": "Primary cluster API secret.",
-        "zh": "主集群 API secret。"
+        "en": "Primary cluster API secret. Use file://PATH to read the value from a local file.",
+        "zh": "主集群 API secret。可使用 file://PATH 从本地文件读取。"
     },
     "$primary_ssl_enable_label": {
         "en": "Enable TLS Options",

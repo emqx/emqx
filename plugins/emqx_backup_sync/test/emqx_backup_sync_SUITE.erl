@@ -56,16 +56,20 @@ all() ->
         t_sync_rechecks_selected_core_in_worker,
         t_sync_skips_when_no_running_core_nodes,
         t_sync_skips_when_core_membership_unavailable,
+        t_sync_skips_when_core_role_unavailable,
         t_non_selected_core_takes_over_on_next_interval,
         t_sync_skips_when_cluster_lock_is_held,
         t_config_change_cancels_running_worker_gracefully,
         t_config_change_reports_cancel_timeout,
         t_terminate_kills_worker_after_cancel_timeout,
+        t_sync_reports_unexpected_success_result,
         t_config_schema_has_unique_record_name,
         t_config_i18n_is_populated,
         t_sync_once_uses_default_table_sets,
         t_sync_once_requires_primary_api_config,
         t_sync_once_exports_downloads_imports_and_cleans_up,
+        t_sync_once_reads_primary_api_credentials_from_files,
+        t_sync_once_reports_missing_primary_api_credential_file,
         t_sync_once_keeps_local_backup_by_default,
         t_sync_once_cleans_up_when_cancelled_after_export,
         t_sync_once_reports_import_errors,
@@ -73,8 +77,10 @@ all() ->
         t_sync_once_reports_remote_export_errors,
         t_sync_once_passes_primary_ssl_options_to_httpc,
         t_sync_once_rejects_bad_primary_ssl_verify,
+        t_sync_once_rejects_non_binary_primary_ssl_verify,
         t_sync_once_rejects_redirects_without_forwarding_auth,
         t_real_cluster_sync_runs_on_one_core_only,
+        t_real_status_reads_selected_core,
         t_real_primary_sync_respects_root_keys_and_table_sets,
         t_real_primary_sync_file_backed_schema_registry,
         t_real_primary_sync_listener_cert_files,
@@ -267,6 +273,16 @@ t_sync_skips_when_core_membership_unavailable(_Config) ->
     assert_no_sync_started(200),
     ?assertEqual(ok, emqx_backup_sync:on_health_check()).
 
+t_sync_skips_when_core_role_unavailable(_Config) ->
+    setup_core_role_unavailable(),
+    setup_counting_sync(),
+    Pid = start_test_server(),
+    ok = emqx_backup_sync:on_config_changed(#{}, conf()),
+
+    Pid ! sync,
+    assert_no_sync_started(200),
+    ?assertEqual(ok, emqx_backup_sync:on_health_check()).
+
 t_non_selected_core_takes_over_on_next_interval(_Config) ->
     OtherCore = list_to_atom("a" ++ atom_to_list(node())),
     setup_dynamic_core_nodes([node(), OtherCore]),
@@ -339,6 +355,15 @@ t_terminate_kills_worker_after_cancel_timeout(_Config) ->
 
     ?assertEqual(ok, gen_server:stop(Pid, shutdown, 1000)),
     assert_sync_down(Ref, SyncPid).
+
+t_sync_reports_unexpected_success_result(_Config) ->
+    setup_core_node(),
+    setup_unexpected_success_result_sync(),
+    Pid = start_test_server(),
+    ok = emqx_backup_sync:on_config_changed(#{}, conf()),
+
+    Pid ! sync,
+    wait_health_error(<<"unexpected_success_result">>).
 
 t_config_schema_has_unique_record_name(_Config) ->
     Schema = read_plugin_json("config_schema.avsc"),
@@ -478,6 +503,52 @@ t_sync_once_exports_downloads_imports_and_cleans_up(_Config) ->
     assert_seen({import, BackupName}),
     assert_request(delete, "/data/files/" ++ binary_to_list(BackupName), <<>>),
     assert_seen({delete_local, BackupName}).
+
+t_sync_once_reads_primary_api_credentials_from_files(Config) ->
+    Self = self(),
+    BackupName = <<"emqx-export-file-credentials.tar.gz">>,
+    ApiKeyFile = filename:join(?config(priv_dir, Config), "backup_sync_api_key"),
+    ApiSecretFile = filename:join(?config(priv_dir, Config), "backup_sync_api_secret"),
+    ok = file:write_file(ApiKeyFile, <<"file-key\n">>),
+    ok = file:write_file(ApiSecretFile, <<"file-secret\n">>),
+    Conf = with_primary_credentials(
+        conf(),
+        file_uri(ApiKeyFile),
+        file_uri(ApiSecretFile)
+    ),
+    Deps = #{
+        request_fun => fun
+            (post, _Url, Headers, _Body, _Timeout) ->
+                Self ! {headers, Headers},
+                {ok, 200, [], emqx_utils_json:encode(#{<<"filename">> => BackupName})};
+            (get, _Url, _Headers, undefined, _Timeout) ->
+                {ok, 200, [], <<"backup">>};
+            (delete, _Url, _Headers, undefined, _Timeout) ->
+                {ok, 204, [], <<>>}
+        end,
+        upload_fun => fun(_Filename, _Bin) -> ok end,
+        import_fun => fun(_Filename) -> {ok, #{db_errors => #{}, config_errors => #{}}} end,
+        delete_local_fun => fun(_Filename) -> ok end
+    },
+
+    ?assertMatch({ok, #{filename := BackupName}}, emqx_backup_sync_client:sync_once(Conf, Deps)),
+    assert_seen(
+        {headers, [
+            {"Authorization", "Basic " ++ base64:encode_to_string(<<"file-key:file-secret">>)},
+            {"Accept", "application/json"}
+        ]}
+    ).
+
+t_sync_once_reports_missing_primary_api_credential_file(Config) ->
+    MissingFile = filename:join(?config(priv_dir, Config), "missing_api_key"),
+    Conf = with_primary_credentials(conf(), file_uri(MissingFile), <<"secret">>),
+
+    ?assertEqual(
+        {error,
+            {credential_file_read_failed, <<"api_key">>, unicode:characters_to_binary(MissingFile),
+                enoent}},
+        emqx_backup_sync_client:sync_once(Conf)
+    ).
 
 t_sync_once_keeps_local_backup_by_default(_Config) ->
     Self = self(),
@@ -626,6 +697,16 @@ t_sync_once_rejects_bad_primary_ssl_verify(_Config) ->
         emqx_backup_sync_client:sync_once(Conf)
     ).
 
+t_sync_once_rejects_non_binary_primary_ssl_verify(_Config) ->
+    Conf = with_primary_ssl(conf(), #{
+        <<"enable">> => true,
+        <<"verify">> => verify_peer
+    }),
+    ?assertEqual(
+        {error, {bad_primary_ssl_verify, verify_peer}},
+        emqx_backup_sync_client:validate_config(Conf)
+    ).
+
 t_sync_once_rejects_redirects_without_forwarding_auth(_Config) ->
     {TargetPid, TargetUrl} = start_redirect_target(),
     {PrimaryPid, PrimaryUrl} = start_redirect_primary(TargetUrl),
@@ -666,6 +747,29 @@ t_real_cluster_sync_runs_on_one_core_only(Config) ->
         assert_no_fake_primary_request(500),
 
         ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
+    after
+        stop_fake_primary(PrimaryPid),
+        ok = emqx_cth_cluster:stop(Nodes)
+    end.
+
+t_real_status_reads_selected_core(Config) ->
+    BackupName = <<"real-cluster-status.tar.gz">>,
+    BackupBin = make_rule_engine_backup(Config, BackupName),
+    {PrimaryPid, PrimaryUrl} = start_fake_primary(BackupName, BackupBin),
+    Nodes = start_real_secondary_cluster(Config, "secondary_status"),
+    try
+        [SelectedNode, OtherNode] = select_cluster_sync_nodes(Nodes),
+        SyncConf = conf(PrimaryUrl),
+        ok = configure_sync_nodes([SelectedNode, OtherNode], SyncConf),
+        ?check_trace(
+            begin
+                trigger_sync(OtherNode),
+                ?block_until(#{?snk_kind := backup_sync_result, node := SelectedNode}, 10_000),
+                Status = ?ON(OtherNode, emqx_backup_sync:status()),
+                ?assertMatch(#{node := SelectedNode, selected_core_node := SelectedNode}, Status)
+            end,
+            []
+        )
     after
         stop_fake_primary(PrimaryPid),
         ok = emqx_cth_cluster:stop(Nodes)
@@ -1274,6 +1378,18 @@ with_primary_ssl(Conf, SSL) ->
     Primary = maps:get(<<"primary">>, Conf),
     Conf#{<<"primary">> => Primary#{<<"ssl">> => SSL}}.
 
+with_primary_credentials(Conf, ApiKey, ApiSecret) ->
+    Primary = maps:get(<<"primary">>, Conf),
+    Conf#{
+        <<"primary">> => Primary#{
+            <<"api_key">> => ApiKey,
+            <<"api_secret">> => ApiSecret
+        }
+    }.
+
+file_uri(Path) ->
+    unicode:characters_to_binary(["file://", Path]).
+
 receive_http_options() ->
     receive
         {http_options, HTTPOpts} -> HTTPOpts
@@ -1323,6 +1439,14 @@ setup_core_membership_unavailable() ->
     meck:expect(mria_membership, running_core_nodelist, fun() ->
         error(membership_unavailable)
     end).
+
+setup_core_role_unavailable() ->
+    meck:new(mria_rlog, [passthrough]),
+    meck:expect(mria_rlog, role, fun() ->
+        error(role_unavailable)
+    end),
+    meck:new(mria_membership, [passthrough]),
+    meck:expect(mria_membership, running_core_nodelist, 0, [node()]).
 
 setup_core_nodes_sequence(NodeSequences) ->
     new_core_nodes_tab(),
@@ -1423,6 +1547,14 @@ setup_counting_sync() ->
     meck:expect(emqx_backup_sync_client, sync_once, fun(_Conf, _Deps) ->
         Parent ! {sync_started, self()},
         {ok, #{filename => <<"backup.tar.gz">>}}
+    end).
+
+setup_unexpected_success_result_sync() ->
+    Parent = self(),
+    meck:new(emqx_backup_sync_client, [passthrough]),
+    meck:expect(emqx_backup_sync_client, sync_once, fun(_Conf, _Deps) ->
+        Parent ! {sync_started, self()},
+        {ok, unexpected_result}
     end).
 
 start_test_server() ->

@@ -117,20 +117,25 @@ on_health_check() ->
     end.
 
 status() ->
+    case selected_core_node() of
+        undefined ->
+            call_status(?SERVER, undefined);
+        SelectedCore when SelectedCore =:= node() ->
+            call_status(?SERVER, SelectedCore);
+        SelectedCore ->
+            call_status({?SERVER, SelectedCore}, SelectedCore)
+    end.
+
+call_status(Server, StatusNode) ->
     try
-        gen_server:call(?SERVER, #status{}, ?TIMEOUT)
+        gen_server:call(Server, #status{}, ?TIMEOUT)
     catch
         exit:{noproc, _} ->
-            #{
-                node => node(),
-                status => error,
-                health => {error, <<"Plugin is not running">>},
-                enabled => false,
-                worker => stopped,
-                selected_core_node => undefined,
-                next_sync_ms => undefined,
-                config => #{}
-            }
+            status_not_running(StatusNode);
+        exit:{nodedown, _} ->
+            status_not_running(StatusNode);
+        exit:{timeout, _} ->
+            status_not_running(StatusNode)
     end.
 
 %%------------------------------------------------------------------------------
@@ -341,7 +346,7 @@ is_core_node() ->
         core -> true;
         _ -> false
     catch
-        _:_ -> true
+        _:_ -> false
     end.
 
 selected_core_node() ->
@@ -455,7 +460,7 @@ handle_sync_result(SyncResult, State) ->
                 stage => node_selection
             }),
             State#state{last_status = ok};
-        {ok, Result} ->
+        {ok, Result} when is_map(Result) ->
             log_sync_result(info, Metadata#{
                 msg => "backup_sync_finished",
                 result => Result,
@@ -464,6 +469,15 @@ handle_sync_result(SyncResult, State) ->
                 cleanup => maps:get(cleanup, Result, undefined)
             }),
             State#state{last_status = ok};
+        {ok, Result} ->
+            Reason = {unexpected_success_result, Result},
+            log_sync_result(error, Metadata#{
+                msg => "backup_sync_failed",
+                result => failed,
+                stage => unknown,
+                reason => Reason
+            }),
+            State#state{last_status = {error, Reason}};
         {error, Reason} ->
             log_sync_result(error, Metadata#{
                 msg => "backup_sync_failed",
@@ -526,6 +540,29 @@ status(State = #state{config = Conf, timer = Timer, worker = Worker}) ->
         selected_core_node => selected_core_node(),
         next_sync_ms => next_sync_ms(Timer),
         config => status_config(Conf)
+    }.
+
+status_not_running(undefined) ->
+    #{
+        node => node(),
+        status => error,
+        health => {error, <<"Plugin is not running">>},
+        enabled => false,
+        worker => stopped,
+        selected_core_node => undefined,
+        next_sync_ms => undefined,
+        config => #{}
+    };
+status_not_running(SelectedCore) ->
+    #{
+        node => SelectedCore,
+        status => error,
+        health => {error, <<"Plugin is not running">>},
+        enabled => false,
+        worker => stopped,
+        selected_core_node => SelectedCore,
+        next_sync_ms => undefined,
+        config => #{}
     }.
 
 status_name(ok) -> ok;

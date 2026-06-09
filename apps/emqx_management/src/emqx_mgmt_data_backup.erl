@@ -932,23 +932,25 @@ read_mnesia_backup_records(BackupFile, TabName) ->
     RecordName = mnesia:table_info(TabName, record_name),
     Arity = length(mnesia:table_info(TabName, attributes)) + 1,
     Result =
-        catch mnesia:traverse_backup(
-            BackupFile,
-            mnesia_backup,
-            dummy,
-            read_only,
-            fun(Item, Acc) ->
-                case read_mnesia_backup_item(TabName, RecordName, Arity, Item) of
-                    {ok, schema} ->
-                        {[], Acc};
-                    {ok, Record} ->
-                        {[], [Record | Acc]};
-                    Error ->
-                        throw(Error)
-                end
-            end,
-            []
-        ),
+        try_traverse_backup(fun() ->
+            mnesia:traverse_backup(
+                BackupFile,
+                mnesia_backup,
+                dummy,
+                read_only,
+                fun(Item, Acc) ->
+                    case read_mnesia_backup_item(TabName, RecordName, Arity, Item) of
+                        {ok, schema} ->
+                            {[], Acc};
+                        {ok, Record} ->
+                            {[], [Record | Acc]};
+                        Error ->
+                            throw(Error)
+                    end
+                end,
+                []
+            )
+        end),
     case Result of
         {ok, RecordsRev} ->
             {ok, lists:reverse(RecordsRev)};
@@ -1001,14 +1003,16 @@ on_table_imported(Mod, Tab, Opts) ->
 validate_mnesia_backup(MnesiaBackupFileName, Mod) ->
     Init = #{backup_file => MnesiaBackupFileName},
     Validated =
-        catch mnesia:traverse_backup(
-            MnesiaBackupFileName,
-            mnesia_backup,
-            dummy,
-            read_only,
-            mnesia_backup_validator(Mod),
-            Init
-        ),
+        try_traverse_backup(fun() ->
+            mnesia:traverse_backup(
+                MnesiaBackupFileName,
+                mnesia_backup,
+                dummy,
+                read_only,
+                mnesia_backup_validator(Mod),
+                Init
+            )
+        end),
     case Validated of
         ok ->
             {ok, Init};
@@ -1064,14 +1068,29 @@ migrate_mnesia_backup(MnesiaBackupFileName, Mod, Acc) ->
                         throw(Error)
                 end
             end,
-            catch mnesia:traverse_backup(
-                MnesiaBackupFileName,
-                MigrateFile,
-                Migrator,
-                Acc#{backup_file := MigrateFile}
-            );
+            try_traverse_backup(fun() ->
+                mnesia:traverse_backup(
+                    MnesiaBackupFileName,
+                    MigrateFile,
+                    Migrator,
+                    Acc#{backup_file := MigrateFile}
+                )
+            end);
         _ ->
             {error, no_migrator}
+    end.
+
+try_traverse_backup(Fun) ->
+    try Fun() of
+        Result ->
+            Result
+    catch
+        throw:Reason ->
+            Reason;
+        exit:Reason ->
+            {'EXIT', Reason};
+        error:Reason:Stacktrace ->
+            {'EXIT', {Reason, Stacktrace}}
     end.
 
 extract_backup(BackupFilePath) ->

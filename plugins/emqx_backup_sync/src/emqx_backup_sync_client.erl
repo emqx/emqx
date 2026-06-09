@@ -173,13 +173,18 @@ export_backup(Conf, Deps) ->
 download_backup(Conf, Deps, Filename) ->
     Url = path(Conf, "/data/files/" ++ uri_encode(Filename)),
     RequestFun = maps:get(request_fun, Deps),
-    case RequestFun(get, Url, headers(Conf), undefined, timeout_ms(Conf)) of
-        {ok, 200, _Headers, Body} ->
-            {ok, Body};
-        {ok, Status, _Headers, Body} ->
-            {error, {http_error, get, Url, Status, Body}};
+    case request_headers(Conf) of
+        {ok, Headers} ->
+            case RequestFun(get, Url, Headers, undefined, timeout_ms(Conf)) of
+                {ok, 200, _Headers, Body} ->
+                    {ok, Body};
+                {ok, Status, _Headers, Body} ->
+                    {error, {http_error, get, Url, Status, Body}};
+                {error, Reason} ->
+                    {error, {http_error, get, Url, Reason}}
+            end;
         {error, Reason} ->
-            {error, {http_error, get, Url, Reason}}
+            {error, Reason}
     end.
 
 upload_backup(Deps, Filename, BackupBin) ->
@@ -213,13 +218,18 @@ cleanup_remote(Conf, Deps, Filename) ->
         false ->
             Url = path(Conf, "/data/files/" ++ uri_encode(Filename)),
             RequestFun = maps:get(request_fun, Deps),
-            case RequestFun(delete, Url, headers(Conf), undefined, timeout_ms(Conf)) of
-                {ok, Status, _Headers, _Body} when Status =:= 204; Status =:= 404 ->
-                    ok;
-                {ok, Status, _Headers, Body} ->
-                    {error, {http_error, delete, Url, Status, Body}};
+            case request_headers(Conf) of
+                {ok, Headers} ->
+                    case RequestFun(delete, Url, Headers, undefined, timeout_ms(Conf)) of
+                        {ok, Status, _Headers, _Body} when Status =:= 204; Status =:= 404 ->
+                            ok;
+                        {ok, Status, _Headers, Body} ->
+                            {error, {http_error, delete, Url, Status, Body}};
+                        {error, Reason} ->
+                            {error, {http_error, delete, Url, Reason}}
+                    end;
                 {error, Reason} ->
-                    {error, {http_error, delete, Url, Reason}}
+                    {error, Reason}
             end;
         true ->
             skipped
@@ -247,9 +257,14 @@ cleanup_status_ok(_) ->
 
 request_json(Method, Url, Conf, Deps, Body) ->
     RequestFun = maps:get(request_fun, Deps),
-    case RequestFun(Method, Url, headers(Conf), Body, timeout_ms(Conf)) of
-        {ok, Status, _Headers, RespBody} -> {ok, Status, RespBody};
-        {error, Reason} -> {error, {http_error, Method, Url, Reason}}
+    case request_headers(Conf) of
+        {ok, Headers} ->
+            case RequestFun(Method, Url, Headers, Body, timeout_ms(Conf)) of
+                {ok, Status, _Headers, RespBody} -> {ok, Status, RespBody};
+                {error, Reason} -> {error, {http_error, Method, Url, Reason}}
+            end;
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 default_deps(Conf) ->
@@ -290,15 +305,39 @@ request(Method, Url, Headers, Body, HTTPOpts) ->
             {error, Reason}
     end.
 
-headers(Conf) ->
+request_headers(Conf) ->
     Primary = maps:get(<<"primary">>, Conf),
-    APIKey = maps:get(<<"api_key">>, Primary),
-    APISecret = maps:get(<<"api_secret">>, Primary),
-    Token = base64:encode_to_string(iolist_to_binary([APIKey, <<":">>, APISecret])),
-    [
-        {"Authorization", "Basic " ++ Token},
-        {"Accept", "application/json"}
-    ].
+    maybe
+        {ok, APIKey} ?= resolve_credential(<<"api_key">>, maps:get(<<"api_key">>, Primary)),
+        {ok, APISecret} ?=
+            resolve_credential(<<"api_secret">>, maps:get(<<"api_secret">>, Primary)),
+        Token = base64:encode_to_string(iolist_to_binary([APIKey, <<":">>, APISecret])),
+        {ok, [
+            {"Authorization", "Basic " ++ Token},
+            {"Accept", "application/json"}
+        ]}
+    end.
+
+resolve_credential(Name, <<"file://", Path/binary>>) ->
+    case file:read_file(Path) of
+        {ok, Bin} ->
+            {ok, trim_trailing_newlines(Bin)};
+        {error, Reason} ->
+            {error, {credential_file_read_failed, Name, Path, Reason}}
+    end;
+resolve_credential(_Name, Value) ->
+    {ok, Value}.
+
+trim_trailing_newlines(Bin) when byte_size(Bin) > 0 ->
+    Size = byte_size(Bin) - 1,
+    case Bin of
+        <<Prefix:Size/binary, C>> when C =:= $\n; C =:= $\r ->
+            trim_trailing_newlines(Prefix);
+        _ ->
+            Bin
+    end;
+trim_trailing_newlines(<<>>) ->
+    <<>>.
 
 path(Conf, Path) ->
     Primary = maps:get(<<"primary">>, Conf),
@@ -374,12 +413,8 @@ validate_primary_ssl(Primary) ->
             ok
     end.
 
-valid_verify(verify_none) -> true;
-valid_verify(verify_peer) -> true;
 valid_verify(<<"verify_none">>) -> true;
 valid_verify(<<"verify_peer">>) -> true;
-valid_verify("verify_none") -> true;
-valid_verify("verify_peer") -> true;
 valid_verify(_) -> false.
 
 filename_from_response(Resp) ->
@@ -427,7 +462,7 @@ normalize_ssl(SSL0) ->
     Default = ?DEFAULT_SSL,
     #{
         <<"enable">> => maps:get(<<"enable">>, SSL0, maps:get(<<"enable">>, Default)),
-        <<"verify">> => to_bin(maps:get(<<"verify">>, SSL0, maps:get(<<"verify">>, Default))),
+        <<"verify">> => maps:get(<<"verify">>, SSL0, maps:get(<<"verify">>, Default)),
         <<"server_name_indication">> =>
             to_bin(
                 maps:get(
@@ -443,12 +478,8 @@ normalize_ssl(SSL0) ->
         <<"keyfile">> => to_bin(maps:get(<<"keyfile">>, SSL0, maps:get(<<"keyfile">>, Default)))
     }.
 
-to_verify(verify_none) -> verify_none;
-to_verify(verify_peer) -> verify_peer;
 to_verify(<<"verify_none">>) -> verify_none;
-to_verify(<<"verify_peer">>) -> verify_peer;
-to_verify("verify_none") -> verify_none;
-to_verify("verify_peer") -> verify_peer.
+to_verify(<<"verify_peer">>) -> verify_peer.
 
 to_sni(<<"disable">>) -> disable;
 to_sni(disable) -> disable;
