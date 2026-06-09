@@ -829,6 +829,62 @@ t_connectionless_hardened_authn_is_request_scoped(_) ->
         end
     end).
 
+t_connectionless_mountpoint_from_authn_client_attrs(_) ->
+    with_security_profile("hardened", fun() ->
+        update_coap_with_mountpoint(<<"mp/${client_attrs.group}/">>),
+        ok = meck:new(emqx_access_control, [passthrough, no_history]),
+        ok = meck:expect(
+            emqx_access_control,
+            authenticate,
+            fun
+                (#{username := <<"admin">>}) ->
+                    {ok, #{client_attrs => #{<<"group">> => <<"g1">>}}};
+                (ClientInfo) ->
+                    meck:passthrough([ClientInfo])
+            end
+        ),
+        Query = #{
+            "clientid" => <<"connless-auth-mountpoint">>,
+            "username" => <<"admin">>,
+            "password" => <<"public">>
+        },
+        PublishTopic = <<"security/coap/authn-mountpoint/publish">>,
+        MountedPublishTopic = <<"mp/g1/security/coap/authn-mountpoint/publish">>,
+        SubscribeTopic = <<"security/coap/authn-mountpoint/subscribe">>,
+        MountedSubscribeTopic = <<"mp/g1/security/coap/authn-mountpoint/subscribe">>,
+        Payload = <<"mounted">>,
+        emqx:subscribe(MountedPublishTopic),
+        try
+            with_connectionless_coap(true, fun() ->
+                do(fun(Channel) ->
+                    PublishURI = pubsub_uri(binary_to_list(PublishTopic), Query),
+                    {ok, changed, _} = do_request(Channel, PublishURI, make_req(post, Payload)),
+                    receive
+                        {deliver, MountedPublishTopic, Msg} ->
+                            ?assertEqual(Payload, Msg#message.payload)
+                    after 500 ->
+                        ct:fail(connectionless_mounted_publish_not_delivered)
+                    end,
+
+                    SubscribeURI = pubsub_uri(binary_to_list(SubscribeTopic), Query),
+                    {ok, content, _} = do_request(
+                        Channel,
+                        SubscribeURI,
+                        make_req(get, <<>>, [{observe, 0}])
+                    ),
+                    timer:sleep(100),
+                    ?assertEqual([], emqx:subscribers(SubscribeTopic)),
+                    [_SubPid] = emqx:subscribers(MountedSubscribeTopic),
+                    ok
+                end)
+            end)
+        after
+            emqx:unsubscribe(MountedPublishTopic),
+            update_coap_with_mountpoint(<<>>),
+            meck:unload(emqx_access_control)
+        end
+    end).
+
 t_subscribe_opts_nl_rh(_) ->
     Fun = fun(Channel, Token) ->
         Topic = <<"nlrh">>,

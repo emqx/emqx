@@ -313,6 +313,35 @@ t_hardened_listener_authn_disabled_allows_pub_sub(_) ->
         end)
     end).
 
+t_authn_disabled_rejects_pre_connect_pub_sub(_) ->
+    with_stomp_tcp_listener_authn(false, fun() ->
+        SendTopic = <<"security/stomp/authn-disabled/pre-connect-send">>,
+        SubTopic = <<"security/stomp/authn-disabled/pre-connect-subscribe">>,
+        Payload = <<"blocked">>,
+        emqx:subscribe(SendTopic),
+        try
+            with_connection(fun(Sock) ->
+                ok = send_message_frame(Sock, SendTopic, Payload),
+                assert_error_and_closed(Sock)
+            end),
+            receive
+                {deliver, SendTopic, _Msg} ->
+                    ct:fail(pre_connect_send_was_published)
+            after 500 ->
+                ok
+            end,
+
+            with_connection(fun(Sock) ->
+                ok = send_subscribe_frame(Sock, 0, SubTopic),
+                assert_error_and_closed(Sock)
+            end),
+            timer:sleep(100),
+            ?assertEqual([], emqx:subscribers(SubTopic))
+        after
+            emqx:unsubscribe(SendTopic)
+        end
+    end).
+
 t_heartbeat(_) ->
     %% Test heartbeat
     with_connection(fun(Sock) ->
