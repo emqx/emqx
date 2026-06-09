@@ -570,13 +570,9 @@ maybe_new_subscription_id_index(_Conf) ->
     undefined.
 
 maybe_warn_bridge_mode_v5(ConnResId, #{proto_ver := v5, bridge_mode := true}) ->
-    ?tp(mqtt_connector_bridge_mode_v5_warning, #{connector => ConnResId}),
-    ?SLOG(warning, #{
-        msg => "bridge_mode_ignored_for_mqtt_v5",
+    ?tp(warning, "bridge_mode_ignored_for_mqtt_v5", #{
         connector => ConnResId,
-        hint =>
-            "bridge_mode is a legacy MQTT 3.1.1-era flag with no effect under MQTT 5.0; "
-            "set retain_as_published on individual subscriptions instead."
+        hint => "bridge_mode is a legacy MQTT 3.1.1-era flag with no effect under MQTT 5.0."
     });
 maybe_warn_bridge_mode_v5(_ConnResId, _Conf) ->
     ok.
