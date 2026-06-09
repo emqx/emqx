@@ -2058,6 +2058,25 @@ t_list_clients_v2_bad_query_string_parameters(Config) ->
     ),
     ok.
 
+-doc """
+Namespaced users (administrator or viewer) must not be able to read MQTT
+message content via the per-client mqueue / inflight endpoints. The
+filter is wired at the schema level, so we use a bogus clientid: 403
+confirms the gate fires before the handler resolves the client, 404
+would mean the request leaked through.
+""".
+t_namespaced_user_message_endpoints(TCConfig0) ->
+    ClientId = <<"some_client">>,
+    lists:foreach(
+        fun(AuthHeader) ->
+            TCConfig = [{api_auth_header, AuthHeader} | TCConfig0],
+            ?assertMatch({403, _}, get_client_mqueue_messages_simple(ClientId, TCConfig)),
+            ?assertMatch({403, _}, get_client_inflight_messages_simple(ClientId, TCConfig))
+        end,
+        [namespaced_admin_headers(), namespaced_viewer_headers()]
+    ),
+    ok.
+
 t_cursor_serde_prop(_Config) ->
     ?assert(proper:quickcheck(cursor_serde_prop(), [{numtests, 100}, {to_file, user}])).
 
@@ -2193,6 +2212,25 @@ bulk_subscribe_request(ClientId, Config, Body) ->
 bulk_unsubscribe_request(ClientId, Config, Body) ->
     Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "unsubscribe", "bulk"]),
     simplify_result(request(post, Path, Body, Config)).
+
+get_client_mqueue_messages_simple(ClientId, Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "mqueue_messages"]),
+    simplify_result(request(get, Path, [], Config)).
+
+get_client_inflight_messages_simple(ClientId, Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "inflight_messages"]),
+    simplify_result(request(get, Path, [], Config)).
+
+namespaced_admin_headers() ->
+    emqx_bridge_v2_testlib:create_namespaced_admin_headers(#{}).
+
+namespaced_viewer_headers() ->
+    emqx_bridge_v2_testlib:create_namespaced_admin_headers(#{
+        params => #{
+            <<"username">> => <<"nsviewer">>,
+            <<"role">> => <<"ns:ns1::viewer">>
+        }
+    }).
 
 simplify_result(Res) ->
     case Res of

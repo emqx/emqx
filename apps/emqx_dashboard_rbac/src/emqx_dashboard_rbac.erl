@@ -276,9 +276,15 @@ do_check_rbac(
 do_check_rbac(
     #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace, ?actor := Username},
     Req,
-    ?DASHBOARD_API(post, change_mfa)
-) when is_binary(Namespace) ->
-    %% Namespaced administrators may manage MFA only for themselves.
+    ?DASHBOARD_API(post, Fn)
+) when
+    is_binary(Namespace) andalso (Fn == change_pwd orelse Fn == change_mfa)
+->
+    %% Namespaced administrators may manage their own password and MFA
+    %% only -- never another user's, even within their namespace.  The
+    %% `change_pwd` handler validates the supplied `old_pwd`, so it is
+    %% not a real admin-reset path; and `change_mfa` reset by a tenant
+    %% admin is a known social-engineering vector.
     case Req of
         #{bindings := #{username := Username}} -> true;
         _ -> false
@@ -289,6 +295,7 @@ do_check_rbac(
     ?DASHBOARD_API(delete, change_mfa)
 ) when is_binary(Namespace) ->
     %% Namespaced administrators: same handler-decides policy as viewer.
+    %% Self only -- see the post change_mfa clause above for rationale.
     case Req of
         #{bindings := #{username := Username}} -> true;
         _ -> false
