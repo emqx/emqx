@@ -26,59 +26,14 @@
 info() ->
     format_info(features()).
 
-%% begin core apps
-is_umbrella_application_enabled(emqx) ->
-    true;
-is_umbrella_application_enabled(emqx_machine) ->
-    true;
-is_umbrella_application_enabled(emqx_conf) ->
-    true;
-is_umbrella_application_enabled(emqx_ctl) ->
-    true;
-is_umbrella_application_enabled(emqx_bpapi) ->
-    true;
-is_umbrella_application_enabled(emqx_license) ->
-    true;
-is_umbrella_application_enabled(emqx_plugins) ->
-    true;
-is_umbrella_application_enabled(emqx_durable_storage) ->
-    true;
-is_umbrella_application_enabled(emqx_ds_backends) ->
-    true;
-is_umbrella_application_enabled(emqx_ds_builtin_local) ->
-    true;
-is_umbrella_application_enabled(emqx_ds_builtin_raft) ->
-    true;
-is_umbrella_application_enabled(emqx_durable_timer) ->
-    true;
-is_umbrella_application_enabled(emqx_audit) ->
-    true;
-is_umbrella_application_enabled(emqx_eviction_agent) ->
-    true;
-is_umbrella_application_enabled(emqx_node_rebalance) ->
-    true;
-is_umbrella_application_enabled(emqx_retainer) ->
-    true;
-is_umbrella_application_enabled(emqx_psk) ->
-    true;
-is_umbrella_application_enabled(emqx_telemetry) ->
-    true;
-is_umbrella_application_enabled(emqx_resource) ->
-    true;
-is_umbrella_application_enabled(emqx_utils) ->
-    true;
-is_umbrella_application_enabled(emqx_extsub) ->
-    true;
-is_umbrella_application_enabled(emqx_gen_bridge) ->
-    true;
-%% end core apps
 is_umbrella_application_enabled(Application) when is_atom(Application) ->
-    case features() of
-        #{preset := full} ->
-            true;
-        #{allowed_apps := Apps} ->
-            is_map_key(Application, Apps)
-    end.
+    lists:member(Application, core_apps()) orelse
+        case features() of
+            #{preset := full} ->
+                true;
+            #{allowed_apps := Apps} ->
+                is_map_key(Application, Apps)
+        end.
 
 %% only for tests
 clear_features() ->
