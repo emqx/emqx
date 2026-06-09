@@ -215,7 +215,7 @@ t_qos0_subscription_auto_acks_mq_messages(_Config) ->
 
     %% Connect a subscriber and subscribe to the queue
     CSub = emqx_mq_test_utils:emqtt_connect([]),
-    {ok, _, [?QOS_0]} = emqtt:subscribe(CSub, {<<"$queue/qos0_auto_ack/t/#">>, ?QOS_0}),
+    {ok, _, [?QOS_0]} = emqtt:subscribe(CSub, {<<"$q/t/#">>, ?QOS_0}),
 
     %% Drain the subscriber to receive all messages, without auto ack qos0
     %% this would receive only 2 messages.
