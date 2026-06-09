@@ -36,6 +36,14 @@
 
 -define(CLIENTID(I), iolist_to_binary([atom_to_list(?FUNCTION_NAME), "-", integer_to_list(I)])).
 
+suite() ->
+    [{ct_hooks, [emqx_cth_ct_hook_flaky]}].
+
+flaky_tests() ->
+    #{
+        t_session_takeover => 3
+    }.
+
 all() -> emqx_common_test_helpers:all(?SUITE).
 
 init_per_suite(Config) ->
