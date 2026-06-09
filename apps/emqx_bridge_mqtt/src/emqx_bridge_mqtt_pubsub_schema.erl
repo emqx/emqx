@@ -100,7 +100,7 @@ fields(ingress_parameters) ->
             mk(
                 boolean(),
                 #{
-                    default => false,
+                    default => true,
                     desc => ?DESC("source_retain_as_published")
                 }
             )}

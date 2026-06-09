@@ -27,7 +27,7 @@ emqx_bridge_mqtt_pubsub_schema {
   source_retain_as_published.label:
   """Retain As Published"""
   source_retain_as_published.desc:
-  """Whether to set the MQTT 5.0 Retain As Published subscription option on the remote subscription.  When set to true, the upstream broker preserves the `retain` flag on messages forwarded to this subscription; when set to false (the default), the upstream clears the `retain` flag.  Only takes effect when the connector's `proto_ver` is `v5`."""
+  """Whether to set the MQTT 5.0 Retain As Published subscription option on the remote subscription.  When set to true (the default), the upstream broker preserves the `retain` flag on messages forwarded to this subscription; when set to false, the upstream clears the `retain` flag.  Only takes effect when the connector's `proto_ver` is `v5`."""
 
 
 source_parameters.desc:
