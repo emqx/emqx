@@ -42,6 +42,8 @@
 %% release, depending on the build flags:
 -define(OPTIONAL_APPS, [bcrypt, observer]).
 
+-define(UMBRELLA_APPS_PT_KEY, {?MODULE, umbrella_apps}).
+
 post_boot() ->
     ok = ensure_apps_started(),
     ok = print_vsn(),
@@ -273,13 +275,27 @@ find_loops(G) ->
         digraph:vertices(G)
     ).
 
+get_umbrella_apps() ->
+    case persistent_term:get(?UMBRELLA_APPS_PT_KEY, undefined) of
+        undefined ->
+            cache_umbrella_apps();
+        Apps ->
+            Apps
+    end.
+
+cache_umbrella_apps() ->
+    LibDir = code:lib_dir(emqx_machine),
+    File = filename:join([LibDir, "priv", "umbrella_apps.txt"]),
+    {ok, Raw} = file:read_file(File),
+    AppsBin = binary:split(Raw, [<<"\n">>], [global, trim_all]),
+    AppsMap = maps:from_keys(AppsBin, true),
+    persistent_term:put(?UMBRELLA_APPS_PT_KEY, AppsMap),
+    AppsMap.
+
 is_umbrella_app(App) ->
-    case atom_to_list(App) of
-        "emqx" ->
-            true;
-        "emqx_http_lib" ->
-            false;
-        "emqx_" ++ _ ->
+    AppBin = atom_to_binary(App, utf8),
+    case get_umbrella_apps() of
+        #{AppBin := _} ->
             true;
         _ ->
             false
