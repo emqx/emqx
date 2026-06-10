@@ -26,7 +26,6 @@
 
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 -export([upgrade_raw_conf/1]).
--export([tr_prometheus_collectors/1]).
 
 -export([
     log_file_path_converter/2,
@@ -1473,7 +1472,8 @@ translation("gen_rpc") ->
     ];
 translation("prometheus") ->
     [
-        {"collectors", fun tr_prometheus_collectors/1}
+        {"collectors", fun(_) -> [] end},
+        {"collectors_compat", fun(_) -> true end}
     ];
 translation("vm_args") ->
     [
@@ -1578,66 +1578,6 @@ tr_kernel_inet_dist_connect_options(Conf) ->
 tr_kernel_inet_dist_listen_options(Conf) ->
     Val = conf_get("node.dist_listen_options", Conf, [?DEFAULT_KERNEL_INET_DIST_CONNECT_OPTIONS]),
     lists:flatten(io_lib:format("~0p", [Val])).
-
-tr_prometheus_collectors(Conf) ->
-    [
-        {'/prometheus/schema_validation', emqx_prometheus_schema_validation},
-        {'/prometheus/message_transformation', emqx_prometheus_message_transformation},
-        %% builtin collectors
-        prometheus_boolean,
-        prometheus_counter,
-        prometheus_gauge,
-        prometheus_histogram,
-        prometheus_quantile_summary,
-        prometheus_summary,
-        %% emqx collectors
-        emqx_prometheus,
-        %% {RegistryName, CollectorModule}
-        {emqx_prometheus_ns_stats, emqx_prometheus},
-        {'/prometheus/auth', emqx_prometheus_auth},
-        {'/prometheus/data_integration', emqx_prometheus_data_integration}
-        %% builtin vm collectors
-        | prometheus_collectors(Conf)
-    ].
-
-prometheus_collectors(Conf) ->
-    case conf_get("prometheus.enable_basic_auth", Conf, undefined) of
-        %% legacy
-        undefined ->
-            tr_collector("prometheus.vm_dist_collector", prometheus_vm_dist_collector, Conf) ++
-                tr_collector("prometheus.mnesia_collector", prometheus_mnesia_collector, Conf) ++
-                tr_collector(
-                    "prometheus.vm_statistics_collector", prometheus_vm_statistics_collector, Conf
-                ) ++
-                tr_collector(
-                    "prometheus.vm_system_info_collector", prometheus_vm_system_info_collector, Conf
-                ) ++
-                tr_collector("prometheus.vm_memory_collector", prometheus_vm_memory_collector, Conf) ++
-                tr_collector("prometheus.vm_msacc_collector", prometheus_vm_msacc_collector, Conf);
-        %% new
-        _ ->
-            tr_collector("prometheus.collectors.vm_dist", prometheus_vm_dist_collector, Conf) ++
-                tr_collector("prometheus.collectors.mnesia", prometheus_mnesia_collector, Conf) ++
-                tr_collector(
-                    "prometheus.collectors.vm_statistics", prometheus_vm_statistics_collector, Conf
-                ) ++
-                tr_collector(
-                    "prometheus.collectors.vm_system_info",
-                    prometheus_vm_system_info_collector,
-                    Conf
-                ) ++
-                tr_collector(
-                    "prometheus.collectors.vm_memory", prometheus_vm_memory_collector, Conf
-                ) ++
-                tr_collector("prometheus.collectors.vm_msacc", prometheus_vm_msacc_collector, Conf)
-    end.
-
-tr_collector(Key, Collect, Conf) ->
-    Enabled = conf_get(Key, Conf, disabled),
-    collector_enabled(Enabled, Collect).
-
-collector_enabled(enabled, Collector) -> [Collector];
-collector_enabled(disabled, _) -> [].
 
 tr_gen_rpc_default_client_driver(Conf) ->
     conf_get("rpc.protocol", Conf).

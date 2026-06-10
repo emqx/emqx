@@ -119,13 +119,13 @@ t_legacy_prometheus_api(_) ->
     ?assertEqual(NewConf, Conf2),
 
     EnvCollectors = env_collectors(),
-    PromCollectors = all_collectors(),
-    ?assertEqual(lists:sort(EnvCollectors), lists:sort(PromCollectors)),
-    ?assert(lists:member(prometheus_vm_statistics_collector, EnvCollectors), EnvCollectors),
+    RegCollectors = prometheus_registry:collectors(default),
+    ?assertEqual([], EnvCollectors),
+    ?assert(lists:member(prometheus_vm_statistics_collector, RegCollectors), RegCollectors),
 
     lists:foreach(
         fun({C, Enabled}) ->
-            ?assertEqual(Enabled, lists:member(C, EnvCollectors), EnvCollectors)
+            ?assertEqual(Enabled, lists:member(C, RegCollectors), RegCollectors)
         end,
         [
             {prometheus_vm_dist_collector, false},
@@ -212,13 +212,13 @@ t_prometheus_api(_) ->
     ?assertMatch(NewConf, Conf2),
 
     EnvCollectors = env_collectors(),
-    PromCollectors = all_collectors(),
-    ?assertEqual(lists:sort(EnvCollectors), lists:sort(PromCollectors)),
-    ?assert(lists:member(prometheus_vm_statistics_collector, EnvCollectors), EnvCollectors),
+    RegCollectors = prometheus_registry:collectors(default),
+    ?assertEqual([], EnvCollectors),
+    ?assert(lists:member(prometheus_vm_statistics_collector, RegCollectors), RegCollectors),
 
     lists:foreach(
         fun({C, Enabled}) ->
-            ?assertEqual(Enabled, lists:member(C, EnvCollectors), EnvCollectors)
+            ?assertEqual(Enabled, lists:member(C, RegCollectors), RegCollectors)
         end,
         [
             {prometheus_vm_dist_collector, true},
@@ -618,8 +618,8 @@ do_env_collectors([{_Registry, Collector} | Rest], Acc) when is_atom(Collector) 
 do_env_collectors([Collector | Rest], Acc) when is_atom(Collector) ->
     do_env_collectors(Rest, [Collector | Acc]).
 
-all_collectors() ->
-    emqx_prometheus_config:all_collectors().
+get_stats() ->
+    get_stats(prometheus, ?PROM_DATA_MODE__NODE).
 
 get_stats(Format, Mode) ->
     Auth = emqx_mgmt_api_test_util:auth_header_(),
