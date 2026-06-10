@@ -1163,6 +1163,13 @@ t_retain_as_published_v5_false_clears_retain(TCConfig) ->
     ).
 
 assert_rap_subopt(TCConfig, ParamsOverrides, ExpectedRAP) ->
+    %% The broker's subopts table stores the SUBSCRIBE flags in their
+    %% wire-format integer representation, not as booleans.
+    ExpectedRAPFlag =
+        case ExpectedRAP of
+            true -> 1;
+            false -> 0
+        end,
     UniqueNum = integer_to_binary(erlang:unique_integer([positive])),
     RemoteTopic = <<"rap/test/", UniqueNum/binary>>,
     {201, _} = create_connector_api(TCConfig, #{<<"proto_ver">> => <<"v5">>}),
@@ -1179,7 +1186,7 @@ assert_rap_subopt(TCConfig, ParamsOverrides, ExpectedRAP) ->
         200,
         25,
         ?assertMatch(
-            [{{RemoteTopic, _SubPid}, #{rap := ExpectedRAP}}],
+            [{{RemoteTopic, _SubPid}, #{rap := ExpectedRAPFlag}}],
             emqx_broker:subscriptions_via_topic(RemoteTopic)
         )
     ),
