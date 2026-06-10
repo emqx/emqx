@@ -13,7 +13,8 @@ database_desc.label:
 """Database Name"""
 
 password.desc:
-"""The password associated with the bridge, used for authentication with the external database."""
+"""The password associated with the bridge, used for authentication with the external database.<br/>
+To load the password from a file instead of embedding it inline, use the form <code>file://&lt;path-to-file&gt;</code>; the file's content (with any trailing whitespace stripped) is then used as the password. When clustered, the file must exist on all EMQX nodes."""
 
 password.label:
 """Password"""
