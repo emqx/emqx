@@ -196,6 +196,20 @@ t_collector_no_crash_test(_) ->
     prometheus_text_format:format(),
     ok.
 
+t_authz_matched_metrics(_) ->
+    ?assert(
+        lists:member(
+            {emqx_authorization_matched_allow, counter, 'authorization.matched.allow'},
+            emqx_prometheus:acl_metric_meta()
+        )
+    ),
+    ?assert(
+        lists:member(
+            {emqx_authorization_matched_deny, counter, 'authorization.matched.deny'},
+            emqx_prometheus:acl_metric_meta()
+        )
+    ).
+
 t_assert_push(_) ->
     Self = self(),
     AssertPush = fun(Method, Req = {Url, Headers, ContentType, Data}, HttpOpts, Opts) ->
