@@ -882,19 +882,32 @@ call_handler(_, _, Result, Channel, Iter) ->
     iter(Iter, Result, Channel).
 
 do_call_handler_request(Msg, Result, Channel, Iter) ->
-    #channel{ctx = Ctx, clientinfo = ClientInfo} = Channel,
+    #channel{
+        ctx = Ctx,
+        clientinfo = ClientInfo,
+        connection_required = ConnectionRequired
+    } = Channel,
     Result0 = Result#{request_msg => Msg},
     HandlerResult =
         case emqx_coap_message:get_option(uri_path, Msg) of
             [<<"ps">> | RestPath] ->
-                emqx_coap_pubsub_handler:handle_request(RestPath, Msg, Ctx, ClientInfo);
+                IsConnectionless = ConnectionRequired =:= false,
+                emqx_coap_pubsub_handler:handle_request(
+                    RestPath, Msg, Ctx, ClientInfo, IsConnectionless
+                );
             [<<"mqtt">> | RestPath] ->
                 emqx_coap_mqtt_handler:handle_request(RestPath, Msg, Ctx, ClientInfo);
             _ ->
                 reply({error, bad_request}, Msg)
         end,
     iter(
-        [connection, fun process_connection/4, subscribe, fun process_subscribe/4 | Iter],
+        [
+            connection,
+            fun process_connection/4,
+            subscribe,
+            fun process_subscribe/4
+            | Iter
+        ],
         maps:merge(Result0, HandlerResult),
         Channel
     ).

@@ -17,6 +17,7 @@
 
 -include_lib("er_coap_client/include/coap.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -752,6 +753,40 @@ t_connectionless_legacy_no_auth_config_allows_pub_sub(_) ->
                 <<"security/coap/legacy/publish">>,
                 <<"security/coap/legacy/subscribe">>
             )
+        end)
+    end).
+
+t_connectionless_observe_skips_session_subscribed_hook(_) ->
+    with_security_profile("legacy", fun() ->
+        with_connectionless_coap(true, fun() ->
+            Parent = self(),
+            SubscribedHook = {?MODULE, forward_session_subscribed, [Parent]},
+            ok = emqx_hooks:add('session.subscribed', SubscribedHook, ?HP_HIGHEST),
+            try
+                do(fun(Channel) ->
+                    Topic = <<"coap/connectionless/no-session-subscribed">>,
+                    ClientId = <<"coap-client-observe">>,
+                    URI = pubsub_uri(binary_to_list(Topic), #{
+                        "clientid" => ClientId
+                    }),
+                    Req = (make_req(get, <<>>, [{observe, 0}]))#coap_message{
+                        token = <<"obs-no-session-subscribed">>
+                    },
+                    {ok, content, _} = do_request(Channel, URI, Req),
+
+                    timer:sleep(100),
+                    [SubPid] = emqx:subscribers(Topic),
+                    ?assert(is_pid(SubPid)),
+                    receive
+                        {coap_session_subscribed, _SubClientInfo, Topic, _SubOpts} ->
+                            ct:fail(connectionless_session_subscribed_hook_called)
+                    after 500 ->
+                        ok
+                    end
+                end)
+            after
+                ok = emqx_hooks:del('session.subscribed', {?MODULE, forward_session_subscribed})
+            end
         end)
     end).
 
@@ -2143,6 +2178,12 @@ return_message_response({error, Code}, Message) ->
 
 do(Fun) ->
     emqx_coap_test_helpers:with_udp_channel(Fun).
+
+forward_session_subscribed(#{protocol := coap} = ClientInfo, Topic, SubOpts, Parent) ->
+    Parent ! {coap_session_subscribed, ClientInfo, Topic, SubOpts},
+    ok;
+forward_session_subscribed(_ClientInfo, _Topic, _SubOpts, _Parent) ->
+    ok.
 
 assert_connectionless_pub_sub_allowed(PublishTopic, SubscribeTopic) ->
     assert_connectionless_pub_sub_allowed(PublishTopic, SubscribeTopic, #{}).
