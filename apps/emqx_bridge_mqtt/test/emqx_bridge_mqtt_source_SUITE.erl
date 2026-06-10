@@ -1140,3 +1140,96 @@ t_reconnect_with_session(TCConfig) when is_list(TCConfig) ->
     ?assertReceivePublish(#{payload := #{<<"payload">> := <<"4">>}}),
 
     ok.
+
+-doc """
+With `proto_ver = v5` and the default `retain_as_published`, the bridge
+subscribes to the remote topic with the Retain As Published option set,
+so the upstream broker preserves the `retain` flag on forwarded PUBLISH
+packets.
+""".
+t_retain_as_published_v5_default_preserves_retain(TCConfig) ->
+    assert_rap_subopt(TCConfig, _ParamsOverrides = #{}, _ExpectedRAP = true).
+
+-doc """
+With `proto_ver = v5` and `retain_as_published = false`, the bridge
+subscribes without the Retain As Published option, so the upstream broker
+clears the `retain` flag on forwarded PUBLISH packets.
+""".
+t_retain_as_published_v5_false_clears_retain(TCConfig) ->
+    assert_rap_subopt(
+        TCConfig,
+        #{<<"retain_as_published">> => false},
+        false
+    ).
+
+assert_rap_subopt(TCConfig, ParamsOverrides, ExpectedRAP) ->
+    %% The broker's subopts table stores the SUBSCRIBE flags in their
+    %% wire-format integer representation, not as booleans.
+    ExpectedRAPFlag =
+        case ExpectedRAP of
+            true -> 1;
+            false -> 0
+        end,
+    UniqueNum = integer_to_binary(erlang:unique_integer([positive])),
+    RemoteTopic = <<"rap/test/", UniqueNum/binary>>,
+    {201, _} = create_connector_api(TCConfig, #{<<"proto_ver">> => <<"v5">>}),
+    Params = maps:merge(
+        #{<<"topic">> => RemoteTopic, <<"qos">> => 1},
+        ParamsOverrides
+    ),
+    {201, _} =
+        create_source_api(TCConfig, #{<<"parameters">> => Params}),
+    %% The bridge subscribes to the local broker — peek the broker's
+    %% subopts table to confirm the Retain As Published flag made it
+    %% onto the SUBSCRIBE.
+    ?retry(
+        200,
+        25,
+        ?assertMatch(
+            [{{RemoteTopic, _SubPid}, #{rap := ExpectedRAPFlag}}],
+            emqx_broker:subscriptions_via_topic(RemoteTopic)
+        )
+    ),
+    ok.
+
+-doc """
+With `proto_ver = v3`, the `retain_as_published` option is accepted by the
+schema (so existing configs do not break) but has no effect at the wire
+level, since MQTT 3.1.1 has no Retain As Published subscription option.
+The bridge subscription is still established successfully.
+""".
+t_retain_as_published_v3_is_no_op(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{<<"proto_ver">> => <<"v3">>}),
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_source_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"qos">> => 1,
+                <<"retain_as_published">> => true
+            }
+        })
+    ),
+    ok.
+
+-doc """
+With `bridge_mode = true` and `proto_ver = v5`, the connector starts
+successfully and emits a single warning log to surface that the legacy
+bridge-mode flag has no effect under MQTT 5.0.
+""".
+t_bridge_mode_v5_logs_warning(TCConfig) ->
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
+                <<"proto_ver">> => <<"v5">>,
+                <<"bridge_mode">> => true
+            }),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [_ | _], ?of_kind("bridge_mode_ignored_for_mqtt_v5", Trace)
+            )
+        end
+    ),
+    ok.
