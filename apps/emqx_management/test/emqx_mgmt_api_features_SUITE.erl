@@ -127,8 +127,7 @@ t_list_essential(TCConfig) when is_list(TCConfig) ->
         {200, #{
             <<"preset">> := <<"essential">>,
             <<"enabled">> := [],
-            <<"disabled">> := [_ | _],
-            <<"bundled">> := []
+            <<"disabled">> := [_ | _]
         }},
         list_features()
     ),
@@ -143,8 +142,7 @@ t_list_full(TCConfig) when is_list(TCConfig) ->
         {200, #{
             <<"preset">> := <<"full">>,
             <<"enabled">> := [_ | _],
-            <<"disabled">> := [],
-            <<"bundled">> := [_ | _]
+            <<"disabled">> := []
         }},
         list_features()
     ),
@@ -159,8 +157,7 @@ t_list_custom(TCConfig) when is_list(TCConfig) ->
         {200, #{
             <<"preset">> := <<"custom">>,
             <<"enabled">> := [_ | _],
-            <<"disabled">> := [_ | _],
-            <<"bundled">> := []
+            <<"disabled">> := [_ | _]
         }},
         list_features()
     ),

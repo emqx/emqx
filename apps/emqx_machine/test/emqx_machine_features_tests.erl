@@ -126,8 +126,7 @@ full_test_() ->
             #{
                 preset := full,
                 enabled := [_ | _],
-                disabled := [],
-                bundled := [_ | _]
+                disabled := []
             },
             info()
         ),
@@ -153,8 +152,7 @@ essential_test_() ->
             #{
                 preset := essential,
                 enabled := [],
-                disabled := [_ | _],
-                bundled := []
+                disabled := [_ | _]
             },
             info()
         ),
@@ -232,8 +230,7 @@ test_individual_feature(Feature, Info) ->
             #{
                 preset := custom,
                 enabled := [_ | _],
-                disabled := [_ | _],
-                bundled := []
+                disabled := [_ | _]
             },
             info()
         ),
@@ -285,7 +282,11 @@ test_individual_feature_specific_assertions(Feature) when
     Feature == cluster_link;
     Feature == multi_tenancy;
     Feature == mqtt_extensions;
-    Feature == ai
+    Feature == ai;
+    Feature == file_transfer;
+    Feature == gcp_device;
+    Feature == exhook;
+    Feature == opentelemetry
 ->
     ok.
 

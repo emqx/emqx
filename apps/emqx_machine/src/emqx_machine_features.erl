@@ -77,6 +77,7 @@ core_apps() ->
         emqx_gen_bridge
     ].
 
+%% remember to update `test_emqx_boot.py` test with new features when they appear.
 known_features() ->
     #{
         dashboard => #{
@@ -164,6 +165,25 @@ known_features() ->
                 emqx_mq
             ],
             deps => []
+        },
+        file_transfer => #{
+            apps => [emqx_ft, emqx_s3],
+            deps => []
+        },
+        gcp_device => #{
+            apps => [emqx_gcp_device],
+            deps => [auth]
+        },
+        exhook => #{
+            apps => [emqx_exhook],
+            deps => []
+        },
+        opentelemetry => #{
+            apps => [emqx_opentelemetry],
+            deps => [
+                %% needs emqx_management
+                dashboard
+            ]
         }
     }.
 
@@ -319,8 +339,7 @@ format_info(#{preset := full}) ->
     #{
         preset => full,
         enabled => lists:sort(KnownNames),
-        disabled => [],
-        bundled => [file_transfer, gcp_device, exhook, opentelemetry]
+        disabled => []
     };
 format_info(#{preset := essential}) ->
     KnownFeatures = known_features(),
@@ -328,8 +347,7 @@ format_info(#{preset := essential}) ->
     #{
         preset => essential,
         enabled => [],
-        disabled => KnownNames,
-        bundled => []
+        disabled => KnownNames
     };
 format_info(#{preset := custom} = Info) ->
     KnownFeatures = known_features(),
@@ -339,6 +357,5 @@ format_info(#{preset := custom} = Info) ->
     #{
         preset => custom,
         enabled => Enabled,
-        disabled => Disabled,
-        bundled => []
+        disabled => Disabled
     }.

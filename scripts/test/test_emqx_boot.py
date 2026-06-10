@@ -519,7 +519,10 @@ KNOWN_FEATURES = {
     "multi_tenancy": {},
     "ai": {},
     "metrics": {},
-    "mqtt_extensions": {},
+    "file_transfer": {},
+    "gcp_device": {},
+    "exhook": {},
+    "opentelemetry": {},
 }
 
 

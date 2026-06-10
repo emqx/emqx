@@ -171,14 +171,8 @@ sample_apis() ->
             maps:from_keys([emqx_schema_registry_http_api], true),
         multi_tenancy =>
             maps:from_keys([emqx_mt_config], true),
-        bundled =>
-            maps:from_keys(
-                [
-                    emqx_exhook,
-                    emqx_ft_storage_fs
-                ],
-                true
-            )
+        file_transfer =>
+            maps:from_keys([emqx_ft_storage_fs], true)
     }.
 
 sample_apis(Which) ->
@@ -238,14 +232,12 @@ t_custom(TCConfig) ->
             APIs = supported_apis(),
             %% should contain core
             assert_contains_sample(APIs, core, #{feature => Feature}),
-            %% should not contain bundle (only full does)
-            assert_not_contains_sample(APIs, bundled, #{feature => Feature}),
             %% should contain its own apis
             Sample = maps:get(Feature, sample_apis(), #{}),
             assert_contains_sample(APIs, Sample, #{feature => Feature}),
             %% should not contain other features which are not transitive dependencies
             Deps = resolve_dependent_features(Feature),
-            Exempt = [core, bundled, Feature] ++ Deps,
+            Exempt = [core, Feature] ++ Deps,
             lists:foreach(
                 fun(Which) -> assert_not_contains_sample(APIs, Which, #{feature => Feature}) end,
                 maps:keys(sample_apis()) -- Exempt
