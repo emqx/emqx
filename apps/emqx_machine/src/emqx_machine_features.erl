@@ -292,7 +292,7 @@ parse_features(Str0) ->
                 allowed_apps => #{},
                 enabled_features => #{}
             },
-            string:tokens(Str0, ",")
+            string:tokens(Str0, ", ")
         ),
     Features.
 

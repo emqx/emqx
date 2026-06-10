@@ -164,6 +164,28 @@ essential_test_() ->
         ?with_features("correctly set", "ESSENTIAL", Check())
     ].
 
+custom_test_() ->
+    [
+        ?with_features("two features (separated by comma)", "ai,auth", begin
+            #{
+                preset := custom,
+                enabled := Enabled
+            } = info(),
+            ?assert(lists:member(ai, Enabled), #{enabled => Enabled}),
+            ?assert(lists:member(auth, Enabled), #{enabled => Enabled}),
+            ok
+        end),
+        ?with_features("two features (separated by space)", "ai auth", begin
+            #{
+                preset := custom,
+                enabled := Enabled
+            } = info(),
+            ?assert(lists:member(ai, Enabled), #{enabled => Enabled}),
+            ?assert(lists:member(auth, Enabled), #{enabled => Enabled}),
+            ok
+        end)
+    ].
+
 -doc """
 Checks that each individual feature is consistent:
 
