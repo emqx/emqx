@@ -275,8 +275,6 @@ resolve_dependent_features(Feature, KnownFeatures) ->
         ).
 
 parse_features(Str0) ->
-    %% todo: check all caps
-    %% todo: check empty caps ?
     KnownFeatures = known_features(),
     Features =
         lists:foldl(
