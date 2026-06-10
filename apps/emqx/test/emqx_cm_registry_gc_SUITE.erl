@@ -174,6 +174,42 @@ t_no_concurrent_scans(_) ->
     ?assertMatch(#{deleted_local_dead := 0}, C2),
     ok.
 
+%% On a replicant the sweep walks and purges local-dead rows so a zombie
+%% registration on the replicant does not survive until node restart.
+t_replicant_purges_local_dead_pid(_) ->
+    ClientId = <<"replicant-local-dead">>,
+    Pid = dead_local_pid(),
+    meck:new(mria_rlog, [passthrough, no_history]),
+    meck:expect(mria_rlog, role, fun() -> replicant end),
+    ok = emqx_cm_registry:register_channel({ClientId, Pid}),
+    Counters = emqx_cm_registry_keeper:force_sweep_stale_pids(),
+    ?assertMatch(#{deleted_local_dead := 1, deleted_remote_orphan := 0}, Counters),
+    ?assertEqual([], mnesia:dirty_read(?CHAN_REG_TAB, ClientId)),
+    ok.
+
+%% Hist tombstones are a cluster-wide concern: on a replicant the keeper
+%% must skip them even when the retention predicate would otherwise fire.
+%% Cores remain the single deleter for that table state.
+t_replicant_skips_hist_tombstones(_) ->
+    OldRetain = emqx_config:get([broker, session_history_retain]),
+    emqx_config:put([broker, session_history_retain], 1),
+    meck:new(mria_rlog, [passthrough, no_history]),
+    meck:expect(mria_rlog, role, fun() -> replicant end),
+    try
+        ClientId = <<"replicant-hist">>,
+        ExpiredTs = erlang:system_time(seconds) - 3600,
+        ok = mria:dirty_write(?CHAN_REG_TAB, #channel{chid = ClientId, pid = ExpiredTs}),
+        Counters = emqx_cm_registry_keeper:force_sweep_stale_pids(),
+        ?assertMatch(#{deleted_hist := 0}, Counters),
+        ?assertEqual(
+            [#channel{chid = ClientId, pid = ExpiredTs}],
+            mnesia:dirty_read(?CHAN_REG_TAB, ClientId)
+        )
+    after
+        emqx_config:put([broker, session_history_retain], OldRetain)
+    end,
+    ok.
+
 %% On a replicant the sweep walks but must never purge a remote pid, even
 %% when the cluster consensus would say the peer is gone.
 t_replicant_does_not_act_on_remote(_) ->

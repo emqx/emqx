@@ -12,7 +12,8 @@
 -export([
     start_link/0,
     count/1,
-    purge/0
+    purge/0,
+    ensure_started/0
 ]).
 
 -ifdef(TEST).
@@ -53,15 +54,28 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init(_) ->
-    case mria_config:whoami() =:= replicant of
-        true ->
-            %% Do not run delete loops on replicant nodes
-            %% because the core nodes will do it anyway
-            %% The process is started to serve the 'count' calls
-            {ok, #{no_deletes => true}};
-        false ->
-            TimerRef = send_delay_start(),
-            {ok, new_sweep_state(TimerRef)}
+    %% Both cores and replicants run the sweep:
+    %% - Cores act on hist tombstones, local-dead pids, and remote orphans
+    %%   (the last gated by mria:is_peer_alive/1 consensus).
+    %% - Replicants act only on local-dead pids. They skip hist tombstones
+    %%   (cluster-wide concern: cores are the single deleter) and skip
+    %%   remote pids (the consensus check is core-only).
+    TimerRef = send_delay_start(),
+    {ok, new_sweep_state(TimerRef)}.
+
+%% @doc Kick off a sweep tick on a running process that may have started
+%% under an older beam that never scheduled a timer for its role (the
+%% pre-fix replicant case). Idempotent: when a timer is already
+%% scheduled, this just brings the next tick forward; the new chunk
+%% will reschedule at the normal cadence.
+-spec ensure_started() -> ok.
+ensure_started() ->
+    case whereis(?MODULE) of
+        undefined ->
+            ok;
+        Pid when is_pid(Pid) ->
+            erlang:send(Pid, start),
+            ok
     end.
 
 %% @doc Count the number of sessions.
@@ -106,9 +120,6 @@ purge_loop(ClientId) ->
     ),
     purge_loop(Next).
 
-handle_call(force_sweep_stale_pids, _From, #{no_deletes := true} = State) ->
-    %% Replicant: never deletes. Return zero counters.
-    {reply, zero_summary(), State};
 handle_call(force_sweep_stale_pids, _From, State0) ->
     State1 = reset_sweep_state(State0, _Forced = true),
     ?tp(info, cm_registry_gc_started, #{forced => true}),
@@ -144,8 +155,6 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info(start, #{no_deletes := true} = State) ->
-    {noreply, State};
 handle_info(start, State0) ->
     %% ensure_sweep_keys/1 makes the per-sweep counter and node-cache keys
     %% present, so a hot-loaded beam survives the first tick when the
@@ -237,15 +246,6 @@ sweep_summary(State) ->
         duration_ms => Now - StartedAt
     }.
 
-zero_summary() ->
-    #{
-        scanned => 0,
-        deleted_hist => 0,
-        deleted_local_dead => 0,
-        deleted_remote_orphan => 0,
-        duration_ms => 0
-    }.
-
 bump(Key, State) ->
     maps:update_with(Key, fun(V) -> V + 1 end, State).
 
@@ -309,9 +309,14 @@ run_full_sweep(ClientId, State0) ->
 %%--------------------------------------------------------------------
 
 %% History row: integer Unix-seconds timestamp in the pid field.
-%% Apply the existing hist-retention predicate; only when hist is enabled.
+%% Hist tombstones are a cluster-wide concern: cores are the single
+%% deleter, replicants skip them.
 process_row(_ClientId, #channel{pid = Ts} = R, State) when is_integer(Ts) ->
-    case is_hist_enabled() andalso (Ts < now_ts() - retain_duration()) of
+    case
+        mria_rlog:role() =:= core andalso
+            is_hist_enabled() andalso
+            (Ts < now_ts() - retain_duration())
+    of
         true ->
             ok = mria:dirty_delete_object(?CHAN_REG_TAB, R),
             bump(deleted_hist, State);
