@@ -37,14 +37,14 @@
 -define(MIN_COUNT_INTERVAL_SECONDS, 5).
 
 -ifdef(TEST).
--define(STALE_PID_GC_MIN_INTERVAL_MS, 1000).
--define(STALE_PID_GC_CHUNK_SIZE, 50).
--define(STALE_PID_GC_CHUNK_INTERVAL_MS, 50).
+-define(REGISTRY_GC_INTERVAL_MS, 1000).
+-define(REGISTRY_GC_CHUNK_SIZE, 50).
+-define(REGISTRY_GC_CHUNK_INTERVAL_MS, 50).
 -else.
--define(STALE_PID_GC_MIN_INTERVAL_MS, timer:minutes(10)).
--define(STALE_PID_GC_CHUNK_SIZE, 100).
+-define(REGISTRY_GC_INTERVAL_MS, timer:minutes(10)).
+-define(REGISTRY_GC_CHUNK_SIZE, 100).
 %% 100 keys / 200 ms = 500 keys / s
--define(STALE_PID_GC_CHUNK_INTERVAL_MS, 200).
+-define(REGISTRY_GC_CHUNK_INTERVAL_MS, 200).
 -endif.
 
 -define(IS_HIST_ENABLED(RETAIN), (RETAIN > 0)).
@@ -146,16 +146,22 @@ handle_cast(_Msg, State) ->
 
 handle_info(start, #{no_deletes := true} = State) ->
     {noreply, State};
-handle_info(start, #{next_clientid := undefined, timer_ref := OldTimerRef} = State0) ->
-    %% Starting a fresh sweep.
+handle_info(start, State0) ->
+    %% ensure_sweep_keys/1 makes the per-sweep counter and node-cache keys
+    %% present, so a hot-loaded beam survives the first tick when the
+    %% pre-upgrade state only had next_clientid+timer_ref.
+    #{next_clientid := Cursor, timer_ref := OldTimerRef} =
+        State1 = ensure_sweep_keys(State0),
     is_reference(OldTimerRef) andalso erlang:cancel_timer(OldTimerRef),
-    State1 = reset_sweep_state(State0, _Forced = false),
-    ?tp(info, cm_registry_gc_started, #{}),
-    do_run_chunk(undefined, State1);
-handle_info(start, #{next_clientid := Cursor, timer_ref := OldTimerRef} = State0) ->
-    %% Continuing an in-progress sweep.
-    is_reference(OldTimerRef) andalso erlang:cancel_timer(OldTimerRef),
-    do_run_chunk(Cursor, State0);
+    State2 =
+        case Cursor of
+            undefined ->
+                ?tp(info, cm_registry_gc_started, #{}),
+                reset_sweep_state(State1, _Forced = false);
+            _ ->
+                State1
+        end,
+    do_run_chunk(Cursor, State2);
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -184,6 +190,13 @@ zero_state() ->
         deleted_local_dead => 0,
         deleted_remote_orphan => 0
     }.
+
+%% Defensive: after a hot code load, the running gen_server's state may
+%% have the pre-upgrade shape (only next_clientid + timer_ref). Merge
+%% with zero_state so every key the new code reads with `:=' is present.
+%% Existing values win.
+ensure_sweep_keys(State) ->
+    maps:merge(zero_state(), State).
 
 %% Reset per-sweep accumulators and stamp a fresh start time.
 reset_sweep_state(State, _Forced) ->
@@ -241,7 +254,7 @@ bump(Key, State) ->
 %%--------------------------------------------------------------------
 
 do_run_chunk(Cursor, State0) ->
-    {NewNext, State1} = run_chunk_loop(Cursor, ?STALE_PID_GC_CHUNK_SIZE, State0),
+    {NewNext, State1} = run_chunk_loop(Cursor, ?REGISTRY_GC_CHUNK_SIZE, State0),
     case NewNext of
         '$end_of_table' ->
             Summary = sweep_summary(State1),
@@ -251,7 +264,7 @@ do_run_chunk(Cursor, State0) ->
         Cid ->
             %% ensure the next clientid is not in the cache
             _ = erlang:garbage_collect(),
-            TimerRef = send_delay_start(?STALE_PID_GC_CHUNK_INTERVAL_MS),
+            TimerRef = send_delay_start(?REGISTRY_GC_CHUNK_INTERVAL_MS),
             {noreply, State1#{next_clientid := Cid, timer_ref := TimerRef}}
     end.
 
@@ -364,22 +377,12 @@ is_hist_enabled() ->
 retain_duration() ->
     emqx:get_config([broker, session_history_retain]).
 
-%% Cadence between sweeps. The stale-pid GC requires at least 10 minutes
-%% between sweeps; the hist retention prefers a shorter cadence tied to the
-%% retain duration. Take the max so the stale-pid floor always holds.
+%% Single cadence between sweeps for both hist retention and stale-pid GC.
+%% Hist tombstones may therefore live up to ?REGISTRY_GC_INTERVAL_MS past
+%% their `session_history_retain' expiry; that grace is acceptable since
+%% the field is informational (count/1 already filters by timestamp).
 cleanup_delay() ->
-    max(?STALE_PID_GC_MIN_INTERVAL_MS, hist_delay()).
-
-hist_delay() ->
-    Default = timer:minutes(2),
-    case retain_duration() of
-        0 ->
-            %% prepare for online config change
-            Default;
-        RetainSeconds ->
-            Min = max(timer:seconds(1), timer:seconds(RetainSeconds) div 4),
-            min(Min, Default)
-    end.
+    ?REGISTRY_GC_INTERVAL_MS.
 
 send_delay_start() ->
     Delay = cleanup_delay(),
