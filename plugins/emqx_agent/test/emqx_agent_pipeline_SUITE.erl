@@ -64,7 +64,8 @@ end_per_testcase(TestCase, _Config) ->
 
 maybe_deinit_session_hook(TestCase) when
     TestCase =:= t_set_result_writes_to_context;
-    TestCase =:= t_llm_loop_final_without_set_result_fails
+    TestCase =:= t_llm_loop_final_without_set_result_fails;
+    TestCase =:= t_persistent_llm_loop_ignores_other_iid_frames
 ->
     ok = emqx_agent_session:deinit();
 maybe_deinit_session_hook(_TestCase) ->
@@ -72,7 +73,8 @@ maybe_deinit_session_hook(_TestCase) ->
 
 maybe_restore_session_hook(TestCase) when
     TestCase =:= t_set_result_writes_to_context;
-    TestCase =:= t_llm_loop_final_without_set_result_fails
+    TestCase =:= t_llm_loop_final_without_set_result_fails;
+    TestCase =:= t_persistent_llm_loop_ignores_other_iid_frames
 ->
     ok = emqx_agent_session:init();
 maybe_restore_session_hook(_TestCase) ->
@@ -360,6 +362,7 @@ t_set_result_writes_to_context(Config) ->
 
     Started = recv_pipe_event(PipelineId),
     ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started),
+    Iid = maps:get(<<"iid">>, Started),
     _Request = recv_sess_request(Sid),
     ok = emqx:unsubscribe(SessInTopic),
     SessOutTopic = emqx_agent_topics:sess_out_topic(Sid),
@@ -367,6 +370,7 @@ t_set_result_writes_to_context(Config) ->
     %% Simulate the LLM calling set_result via MQTT publish on $sess/out/<Sid>/.
     publish_frame(SessOutTopic, #{
         <<"type">> => <<"tool_request">>,
+        <<"iid">> => Iid,
         <<"call_id">> => <<"c-sr-1">>,
         <<"tool">> => <<"set_result">>,
         <<"args">> => #{<<"status">> => <<"approved">>}
@@ -374,7 +378,8 @@ t_set_result_writes_to_context(Config) ->
 
     %% Simulate the LLM finishing (set_result has already been stored).
     publish_frame(SessOutTopic, #{
-        <<"type">> => <<"final">>
+        <<"type">> => <<"final">>,
+        <<"iid">> => Iid
     }),
 
     Completed = recv_pipe_event(PipelineId),
@@ -407,12 +412,14 @@ t_llm_loop_final_without_set_result_fails(Config) ->
 
     Started = recv_pipe_event(PipelineId),
     ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started),
+    Iid = maps:get(<<"iid">>, Started),
     _Request = recv_sess_request(Sid),
     ok = emqx:unsubscribe(SessInTopic),
     SessOutTopic = emqx_agent_topics:sess_out_topic(Sid),
 
     publish_frame(SessOutTopic, #{
         <<"type">> => <<"final">>,
+        <<"iid">> => Iid,
         <<"result">> => #{<<"summary">> => <<"could not complete">>}
     }),
 
@@ -441,6 +448,71 @@ t_llm_loop_defaults_are_applied(Config) ->
     ?assertEqual(<<"message.topic">>, KeyExpression),
     ?assertEqual(2048, maps:get(<<"max_tokens">>, Stored)),
     ?assertEqual(50000, maps:get(<<"max_total_tokens">>, Stored)).
+
+t_persistent_llm_loop_ignores_other_iid_frames(Config) ->
+    PipelineId = ?config(pipeline_id, Config),
+    TrigTopic = <<"$evt/test/", PipelineId/binary>>,
+    StepId = <<"llm">>,
+    Sid = persistent_sid(PipelineId, StepId, TrigTopic),
+    SessInTopic = emqx_agent_topics:sess_in_topic(Sid),
+    ok = emqx:subscribe(SessInTopic),
+    Step = #{
+        <<"id">> => StepId,
+        <<"type">> => <<"llm_loop">>,
+        <<"model">> => <<"test-model">>,
+        <<"instructions">> => <<"test">>,
+        <<"provider_name">> => <<"test-provider">>,
+        <<"persistent">> => true,
+        <<"tools">> => [],
+        <<"input">> => #{},
+        <<"set_result_schema">> => set_result_schema(),
+        <<"result_path">> => <<"$.result">>
+    },
+    register_pipeline(PipelineId, TrigTopic, [Step]),
+
+    publish_evt(TrigTopic, #{<<"id">> => <<"first">>}),
+    Started1 = recv_pipe_event(PipelineId),
+    ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started1),
+    Iid1 = maps:get(<<"iid">>, Started1),
+    _Request1 = recv_sess_request(Sid),
+
+    publish_evt(TrigTopic, #{<<"id">> => <<"second">>}),
+    Started2 = recv_pipe_event(PipelineId),
+    ?assertMatch(#{<<"type">> := <<"pipeline_started">>}, Started2),
+    Iid2 = maps:get(<<"iid">>, Started2),
+    ?assertNotEqual(Iid1, Iid2),
+    _Request2 = recv_sess_request(Sid),
+
+    SessOutTopic = emqx_agent_topics:sess_out_topic(Sid),
+    publish_frame(SessOutTopic, #{
+        <<"type">> => <<"tool_request">>,
+        <<"iid">> => Iid1,
+        <<"call_id">> => <<"set-result-1">>,
+        <<"tool">> => <<"set_result">>,
+        <<"args">> => #{<<"status">> => <<"first">>}
+    }),
+    publish_frame(SessOutTopic, #{
+        <<"type">> => <<"final">>,
+        <<"iid">> => Iid1
+    }),
+    Completed1 = recv_pipe_event(PipelineId),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>, <<"iid">> := Iid1}, Completed1),
+    ?assertEqual(timeout, recv_pipe_event_or_timeout(PipelineId, 300)),
+
+    publish_frame(SessOutTopic, #{
+        <<"type">> => <<"tool_request">>,
+        <<"iid">> => Iid2,
+        <<"call_id">> => <<"set-result-2">>,
+        <<"tool">> => <<"set_result">>,
+        <<"args">> => #{<<"status">> => <<"second">>}
+    }),
+    publish_frame(SessOutTopic, #{
+        <<"type">> => <<"final">>,
+        <<"iid">> => Iid2
+    }),
+    Completed2 = recv_pipe_event(PipelineId),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>, <<"iid">> := Iid2}, Completed2),
+    ok = emqx:unsubscribe(SessInTopic).
 
 t_llm_loop_requires_set_result_schema(Config) ->
     PipelineId = ?config(pipeline_id, Config),

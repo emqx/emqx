@@ -32,16 +32,16 @@ State machine:
                                   │                              │
                                   │◀──────── all results ────────┘
                                   │
-                               stop/no pending, persistent=false ──▶  {stop, normal}
-                               stop/no pending, persistent=true  ──▶  idle
-                               stop/pending                          ──▶  calling_llm (extend)
+                               persistent=false             ──▶  {stop, normal}
+                               persistent=true, no pending  ──▶  idle
+                               persistent=true, pending     ──▶  calling_llm (extend)
 
   idle ──event──▶    calling_llm  (continue reasoning with accumulated context)
   idle ──request──▶  calling_llm  (append new input to history, refresh tools/system)
 
-  A request arriving in calling_llm or waiting_tools is queued in
-  `queued_request` and replayed as an idle-state event when the current
-  turn completes (only the latest request is retained).
+  Requests arriving in calling_llm or waiting_tools are queued in
+  `request_queue` and replayed as idle-state events when the current
+  turns complete.
 
 Events in calling_llm / waiting_tools are buffered in `pending` and flushed
 on the next transition to calling_llm.
@@ -70,7 +70,8 @@ Events in initial_idle are buffered and folded in when the first request arrives
 -export([
     init_stream_acc/0,
     test_feed_sse/2,
-    test_stream_chunks/1
+    test_stream_chunks/1,
+    test_busy_request_queue_iids/1
 ]).
 -endif.
 
@@ -103,9 +104,9 @@ Events in initial_idle are buffered and folded in when the first request arrives
     messages = [] :: [map()],
     %% Events buffered across all states; flushed before the next LLM call
     pending = [] :: [map()],
-    %% Incoming request buffered when the session is busy (calling_llm /
-    %% waiting_tools).  Processed as soon as the session returns to idle.
-    queued_request = undefined :: undefined | map(),
+    %% Incoming requests buffered when the session is busy (calling_llm /
+    %% waiting_tools).  Processed FIFO as soon as the session returns to idle.
+    request_queue = queue:new() :: queue:queue(map()),
     compact_request = undefined :: undefined | map(),
     %% Accumulated usage counters
     usage = #{
@@ -595,17 +596,24 @@ maybe_next_llm_call(Data) ->
     end.
 
 %% After publishing final: stop or return to idle based on persistent.
-%% If a request arrived while the session was busy, process it immediately
-%% rather than sitting in idle waiting for the next cast.
+%% If requests arrived while the session was busy, process the oldest one
+%% immediately rather than sitting in idle waiting for the next cast.
 finish(#data{persistent = false} = Data) ->
     {stop, normal, Data};
-finish(#data{persistent = true, queued_request = undefined} = Data) ->
-    ?SLOG(info, #{msg => "session_idle", sid => Data#data.sid}),
-    {next_state, idle, start_idle_timer(Data)};
-finish(#data{persistent = true, queued_request = Queued} = Data) ->
-    ?SLOG(info, #{msg => "session_draining_queued_request", sid => Data#data.sid}),
-    Data1 = Data#data{queued_request = undefined},
-    {next_state, idle, Data1, [{next_event, info, {sess_msg, Queued}}]}.
+finish(#data{persistent = true, request_queue = Queue0} = Data) ->
+    case queue:out(Queue0) of
+        {empty, Queue0} ->
+            ?SLOG(info, #{msg => "session_idle", sid => Data#data.sid}),
+            {next_state, idle, start_idle_timer(Data)};
+        {{value, Queued}, Queue1} ->
+            ?SLOG(info, #{
+                msg => "session_draining_queued_request",
+                sid => Data#data.sid,
+                queued => queue:len(Queue1)
+            }),
+            Data1 = Data#data{request_queue = Queue1},
+            {next_state, idle, Data1, [{next_event, info, {sess_msg, Queued}}]}
+    end.
 
 start_idle_timer(Data) ->
     Data1 = cancel_idle_timer(Data),
@@ -732,15 +740,17 @@ handle_sess_msg(#{<<"type">> := <<"event">>} = Msg, idle, Data) ->
 handle_sess_msg(#{<<"type">> := <<"event">>} = Msg, _State, Data) ->
     Event = maps:get(<<"event">>, Msg, Msg),
     {keep_state, Data#data{pending = Data#data.pending ++ [Event]}};
-%% Request while busy: buffer for replay (latest wins) ───────────────────
+%% Request while busy: buffer for FIFO replay ────────────────────────────
 
 handle_sess_msg(#{<<"type">> := <<"request">>} = Msg, _State, Data) ->
+    Queue = queue:in(Msg, Data#data.request_queue),
     ?SLOG(info, #{
         msg => "session_request_queued",
         sid => Data#data.sid,
-        iid => maps:get(<<"iid">>, Msg, undefined)
+        iid => maps:get(<<"iid">>, Msg, undefined),
+        queued => queue:len(Queue)
     }),
-    {keep_state, Data#data{queued_request = Msg}};
+    {keep_state, Data#data{request_queue = Queue}};
 %% ── unknown type: ignore ───────────────────────────────────────────────
 
 handle_sess_msg(#{<<"type">> := _}, _State, Data) ->
@@ -1304,5 +1314,24 @@ test_stream_chunks(Chunks) ->
         Chunks
     ),
     flush_sse_buf(FinalBuf, Acc1, ?TEST_SID, ?TEST_IID, ?TEST_TRACE, #{}).
+
+test_busy_request_queue_iids(Msgs) ->
+    Data = lists:foldl(
+        fun(Msg, Data0) ->
+            {keep_state, Data1} = handle_sess_msg(Msg, calling_llm, Data0),
+            Data1
+        end,
+        #data{sid = ?TEST_SID},
+        Msgs
+    ),
+    test_request_queue_iids(Data#data.request_queue, []).
+
+test_request_queue_iids(Queue0, Acc) ->
+    case queue:out(Queue0) of
+        {empty, _Queue} ->
+            lists:reverse(Acc);
+        {{value, Msg}, Queue1} ->
+            test_request_queue_iids(Queue1, [maps:get(<<"iid">>, Msg) | Acc])
+    end.
 
 -endif.

@@ -38,7 +38,8 @@
     t_sse_parser_multiple_tool_calls,
     t_sse_parser_crlf_endings,
     t_sse_parser_split_chunks,
-    t_sse_parser_usage_chunk
+    t_sse_parser_usage_chunk,
+    t_request_queue_fifo
 ]).
 -define(LLM_TESTS, [
     t_request_finish,
@@ -213,6 +214,14 @@ t_sse_parser_usage_chunk(_Config) ->
     ?assertMatch(#{tokens_in := 42}, Acc),
     ?assertEqual(7, maps:get(tokens_out, Acc)),
     ?assertEqual(49, maps:get(total_tokens, Acc)).
+
+t_request_queue_fifo(_Config) ->
+    Iids = emqx_agent_session:test_busy_request_queue_iids([
+        #{<<"type">> => <<"request">>, <<"iid">> => <<"iid-1">>},
+        #{<<"type">> => <<"request">>, <<"iid">> => <<"iid-2">>},
+        #{<<"type">> => <<"request">>, <<"iid">> => <<"iid-3">>}
+    ]),
+    ?assertEqual([<<"iid-1">>, <<"iid-2">>, <<"iid-3">>], Iids).
 
 %%--------------------------------------------------------------------
 %% LLM integration test cases (skipped when LLM API is not reachable)
