@@ -19,15 +19,9 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    %% Disable the default MQTT listener so the suite can run on a host
-    %% where ports 1883/8083 are already taken.
     Apps = emqx_cth_suite:start(
         [
-            {emqx,
-                "listeners.tcp.default.enable = false\n"
-                "listeners.ssl.default.enable = false\n"
-                "listeners.ws.default.enable = false\n"
-                "listeners.wss.default.enable = false\n"},
+            emqx,
             emqx_conf,
             emqx_cluster_link
         ],
