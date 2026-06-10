@@ -356,10 +356,17 @@ classify_pid(Pid, State) ->
             N = node(Pid),
             #{gone_nodes := Gone, alive_nodes := Alive} = State,
             case {sets:is_element(N, Gone), sets:is_element(N, Alive)} of
-                {true, _} ->
-                    {remote_orphan, State};
+                {true, true} ->
+                    %% Stale gone-mark: the node was reported gone earlier
+                    %% in this sweep but later cached as alive (e.g. it
+                    %% rejoined the cluster mid-sweep). Trust the alive
+                    %% vote and scrub the gone mark so subsequent rows for
+                    %% this node are not purged.
+                    {keep, State#{gone_nodes := sets:del_element(N, Gone)}};
                 {_, true} ->
                     {keep, State};
+                {true, _} ->
+                    {remote_orphan, State};
                 _ ->
                     case mria:is_peer_alive(N) of
                         {ok, false} ->
