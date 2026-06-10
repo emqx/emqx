@@ -81,7 +81,10 @@ set_max(Value) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
--doc "MQTT 5.0 request below the configured cap is not clamped; CONNACK does not include a Session-Expiry-Interval property.".
+-doc """
+MQTT 5.0 request below the configured cap is not clamped;
+CONNACK does not include a Session-Expiry-Interval property.
+""".
 t_v5_request_within_cap_not_clamped(_Config) ->
     set_max(timer:hours(1)),
     ClientId = <<"v5-within-cap">>,
@@ -94,7 +97,10 @@ t_v5_request_within_cap_not_clamped(_Config) ->
     ?assertEqual(timer:seconds(RequestedSec), stored_expiry_ms(ClientId)),
     ok = emqx_mqtt_test_client:stop(Client).
 
--doc "MQTT 5.0 request above the cap is clamped; CONNACK reflects the clamped value in seconds.".
+-doc """
+MQTT 5.0 request above the cap is clamped;
+CONNACK reflects the clamped value in seconds.
+""".
 t_v5_request_above_cap_is_clamped(_Config) ->
     MaxMs = timer:seconds(30),
     set_max(MaxMs),
@@ -109,7 +115,10 @@ t_v5_request_above_cap_is_clamped(_Config) ->
     ?assertEqual(MaxMs, stored_expiry_ms(ClientId)),
     ok = emqx_mqtt_test_client:stop(Client).
 
--doc "MQTT 5.0 connect without Session-Expiry-Interval property keeps the existing 'expire immediately' semantics; CONNACK does not include the property.".
+-doc """
+MQTT 5.0 connect without Session-Expiry-Interval property expires the session
+immediately; CONNACK does not include the property.
+""".
 t_v5_no_property_unchanged(_Config) ->
     set_max(timer:seconds(30)),
     ClientId = <<"v5-no-prop">>,
@@ -119,7 +128,10 @@ t_v5_no_property_unchanged(_Config) ->
     ?assertEqual(0, stored_expiry_ms(ClientId)),
     ok = emqx_mqtt_test_client:stop(Client).
 
--doc "MQTT 3.1.1 connect with clean_session=0 takes session_expiry_interval from the zone config and is unaffected by max_session_expiry_interval.".
+-doc """
+MQTT 3.1.1 connect with clean_session=0 takes session_expiry_interval from
+the zone config and is unaffected by max_session_expiry_interval.
+""".
 t_v311_clean_session_false_ignores_max(_Config) ->
     set_max(timer:seconds(1)),
     ClientId = <<"v311-non-clean">>,
@@ -128,7 +140,10 @@ t_v311_clean_session_false_ignores_max(_Config) ->
     ?assertEqual(timer:hours(1), stored_expiry_ms(ClientId)),
     ok = emqx_mqtt_test_client:stop(Client).
 
--doc "MQTT 5.0 connect with clean_start=true and no Session-Expiry-Interval expires immediately regardless of the cap; CONNACK does not include the property.".
+-doc """
+MQTT 5.0 connect with clean_start=true and no Session-Expiry-Interval expires
+immediately regardless of the cap; CONNACK does not include the property.
+""".
 t_v5_clean_start_unchanged(_Config) ->
     set_max(timer:hours(1)),
     ClientId = <<"v5-clean">>,
@@ -138,7 +153,10 @@ t_v5_clean_start_unchanged(_Config) ->
     ?assertEqual(0, stored_expiry_ms(ClientId)),
     ok = emqx_mqtt_test_client:stop(Client).
 
--doc "Default config value `infinity` preserves the pre-existing behavior — any v5 request is honored verbatim and CONNACK does not include Session-Expiry-Interval.".
+-doc """
+Default config value `infinity` honors any v5 request verbatim and CONNACK
+does not include Session-Expiry-Interval.
+""".
 t_default_infinity_preserves_behavior(_Config) ->
     %% init_per_testcase already set infinity.
     ClientId = <<"v5-infinity">>,
@@ -151,7 +169,11 @@ t_default_infinity_preserves_behavior(_Config) ->
     ?assertEqual(timer:seconds(RequestedSec), stored_expiry_ms(ClientId)),
     ok = emqx_mqtt_test_client:stop(Client).
 
--doc "Setting max_session_expiry_interval to 0 forces every v5 session to expire immediately, regardless of the value the client requested; CONNACK reflects the clamped 0.".
+-doc """
+Setting max_session_expiry_interval to 0 forces every v5 session to expire
+immediately, regardless of the value the client requested; CONNACK reflects
+the clamped 0.
+""".
 t_max_zero_clamps_all_v5(_Config) ->
     set_max(0),
     ClientId = <<"v5-zero-max">>,
