@@ -89,7 +89,7 @@ t_boot_bad_features(TCConfig) ->
                     ct:pal("crashed with: {~p, ~p}", [K, E]),
                     ok
             after
-                emqx_cth_cluster:stop(Nodes)
+                catch emqx_cth_cluster:stop(Nodes)
             end
         end,
         fun(Trace) ->
