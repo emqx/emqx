@@ -200,6 +200,31 @@ t_backpressure(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+%% Verify that QoS 0 queue subscriptions auto-ack messages in the MQ subscriber.
+t_qos0_subscription_auto_acks_mq_messages(_Config) ->
+    LocalMaxInflight = 2,
+    _ = emqx_mq_test_utils:create_mq(#{
+        name => <<"qos0_auto_ack">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false,
+        local_max_inflight => LocalMaxInflight
+    }),
+
+    %% Populate the MQ with messages to exceed the local max inflight
+    emqx_mq_test_utils:populate(LocalMaxInflight + 1, #{topic_prefix => <<"t/">>}),
+
+    %% Connect a subscriber and subscribe to the queue
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    {ok, _, [?QOS_0]} = emqtt:subscribe(CSub, {<<"$q/t/#">>, ?QOS_0}),
+
+    %% Drain the subscriber to receive all messages, without auto ack qos0
+    %% this would receive only 2 messages.
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = LocalMaxInflight + 1, _Timeout = 1000),
+    ?assertEqual(LocalMaxInflight + 1, length(Msgs)),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
 %% Verify that the consumer redispatches a message to another subscriber
 %% if a subscriber received the message but disconnected before acknowledging it
 t_redispatch_on_disconnect(_Config) ->
