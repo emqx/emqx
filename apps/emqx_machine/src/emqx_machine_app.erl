@@ -19,4 +19,5 @@ start(_Type, _Args) ->
     emqx_machine_sup:start_link().
 
 stop(_State) ->
+    emqx_machine_features:clear_features(),
     ok.

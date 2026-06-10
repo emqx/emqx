@@ -98,7 +98,7 @@ list_cards(Opts) ->
 
 lookup_agent_status(ClientId) ->
     FormatFn = undefined,
-    case emqx_mgmt:lookup_client({clientid, ClientId}, FormatFn) of
+    case emqx_cm:lookup_client_and_format({clientid, ClientId}, FormatFn) of
         [{_Chan, #{conn_state := connected} = _Info, _Stats}] ->
             ?A2A_PROP_ONLINE_VAL;
         _ ->

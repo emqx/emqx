@@ -108,6 +108,9 @@ jobs:
       - name: Check formatting
         run: |
           ./scripts/check-format.sh
+      - name: Check static umbrella application list file
+        run: |
+          ./scripts/check-umbrella-apps.exs
       - name: Run elvis check
         run: |
           ./scripts/elvis-check.sh $GITHUB_BASE_REF

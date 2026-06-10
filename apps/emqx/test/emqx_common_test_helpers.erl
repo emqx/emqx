@@ -32,6 +32,7 @@
     reload/2,
     app_path/2,
     proj_root/0,
+    list_umbrella_apps/0,
     deps_path/2,
     flush/0,
     flush/1,
@@ -500,6 +501,23 @@ proj_root() ->
             fun(X) -> iolist_to_binary(X) =/= <<"_build">> end,
             filename:split(app_path(emqx, "."))
         )
+    ).
+
+list_umbrella_apps() ->
+    lists:filtermap(
+        fun(Dir) ->
+            IsDir = filelib:is_dir(Dir),
+            BaseName = filename:basename(Dir),
+            MixExs = filename:join([Dir, "mix.exs"]),
+            HasMixExs = filelib:is_regular(MixExs),
+            case IsDir andalso HasMixExs andalso BaseName of
+                "emqx" ++ _ = AppStr ->
+                    {true, list_to_atom(AppStr)};
+                _ ->
+                    false
+            end
+        end,
+        filelib:wildcard(filename:join(proj_root(), "apps/*"))
     ).
 
 %% backward compatible

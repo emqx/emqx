@@ -13,10 +13,13 @@
 -export([stop_port_apps/0]).
 -export([read_apps/0]).
 
+%% internal export only for companion module `emqx_machine_features`
+-export([reboot_apps_with_deps/0, full_sorted_reboot_apps/0]).
+
 -dialyzer({no_match, [basic_reboot_apps/0]}).
 
 -ifdef(TEST).
--export([sorted_reboot_apps/1, reboot_apps/0]).
+-export([sorted_reboot_apps/1, reboot_apps/0, runtime_deps/0]).
 -endif.
 
 %% These apps are always (re)started by emqx_machine:
@@ -38,6 +41,8 @@
 %% These apps are optional, they may or may not be present in the
 %% release, depending on the build flags:
 -define(OPTIONAL_APPS, [bcrypt, observer]).
+
+-define(UMBRELLA_APPS_PT_KEY, {?MODULE, umbrella_apps}).
 
 post_boot() ->
     ok = ensure_apps_started(),
@@ -171,10 +176,20 @@ is_app(Name) ->
     end.
 
 sorted_reboot_apps() ->
+    Apps0 = reboot_apps_with_deps(),
+    Apps = filter_allowed_umbrella_apps(Apps0),
+    sorted_reboot_apps(Apps).
+
+%% sorted, full list of apps to reboot; not feature-filtered
+full_sorted_reboot_apps() ->
+    Apps = reboot_apps_with_deps(),
+    sorted_reboot_apps(Apps).
+
+%% internal export only for companion module `emqx_machine_features`
+reboot_apps_with_deps() ->
     RebootApps = reboot_apps(),
     Apps0 = [{App, app_deps(App, RebootApps)} || App <- RebootApps],
-    Apps = emqx_machine_boot_runtime_deps:inject(Apps0, runtime_deps()),
-    sorted_reboot_apps(Apps).
+    emqx_machine_boot_runtime_deps:inject(Apps0, runtime_deps()).
 
 app_deps(App, RebootApps) ->
     case application:get_key(App, applications) of
@@ -258,4 +273,43 @@ find_loops(G) ->
             end
         end,
         digraph:vertices(G)
+    ).
+
+get_umbrella_apps() ->
+    case persistent_term:get(?UMBRELLA_APPS_PT_KEY, undefined) of
+        undefined ->
+            cache_umbrella_apps();
+        Apps ->
+            Apps
+    end.
+
+cache_umbrella_apps() ->
+    LibDir = code:lib_dir(emqx_machine),
+    File = filename:join([LibDir, "priv", "umbrella_apps.txt"]),
+    {ok, Raw} = file:read_file(File),
+    AppsBin = binary:split(Raw, [<<"\n">>], [global, trim_all]),
+    AppsMap = maps:from_keys(AppsBin, true),
+    persistent_term:put(?UMBRELLA_APPS_PT_KEY, AppsMap),
+    AppsMap.
+
+is_umbrella_app(App) ->
+    AppBin = atom_to_binary(App, utf8),
+    case get_umbrella_apps() of
+        #{AppBin := _} ->
+            true;
+        _ ->
+            false
+    end.
+
+filter_allowed_umbrella_apps(Apps0) ->
+    lists:filter(
+        fun({App, _Deps}) ->
+            case is_umbrella_app(App) of
+                false ->
+                    true;
+                true ->
+                    emqx_machine_features:is_umbrella_application_enabled(App)
+            end
+        end,
+        Apps0
     ).

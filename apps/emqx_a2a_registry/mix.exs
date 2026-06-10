@@ -29,8 +29,7 @@ defmodule EMQXA2ARegistry.MixProject do
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_retainer, in_umbrella: true},
-      {:emqx_schema_registry, in_umbrella: true},
-      {:emqx_management, in_umbrella: true}
+      {:emqx_schema_registry, in_umbrella: true}
     ])
   end
 end

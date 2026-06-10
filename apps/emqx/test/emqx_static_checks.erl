@@ -30,12 +30,19 @@ check_if_versions_consistent(OldData, NewData) ->
     %% than the release being checked.
     [] =:= NewData -- OldData.
 
+check_if_apps_consistent(OldApps, NewApps) ->
+    %% If anything changed, there are uncommitted changes.
+    NewApps =:= OldApps.
+
 t_run_check(_) ->
     try
         {ok, OldData} = file:consult(emqx_bpapi_static_checks:versions_file()),
+        {ok, OldApps} = file:consult(emqx_bpapi_static_checks:owner_applications_file()),
         ?assert(emqx_bpapi_static_checks:run()),
         {ok, NewData} = file:consult(emqx_bpapi_static_checks:versions_file()),
-        check_if_versions_consistent(OldData, NewData) orelse
+        {ok, NewApps} = file:consult(emqx_bpapi_static_checks:owner_applications_file()),
+        (check_if_versions_consistent(OldData, NewData) andalso
+            check_if_apps_consistent(OldApps, NewApps)) orelse
             begin
                 logger:critical(
                     asciiart:visible(
@@ -43,7 +50,7 @@ t_run_check(_) ->
                         "BPAPI versions were changed, but not committed to the repo.\n\n"
                         "Versions file is generated automatically, to update it, run\n"
                         "'make && make static_checks' locally, and then add the\n"
-                        "changed 'bpapi.versions' files to the commit.\n",
+                        "changed 'bpapi.versions' and 'bpapi.apps' files to the commit.\n",
                         []
                     )
                 ),

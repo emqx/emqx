@@ -30,6 +30,5 @@ init([]) ->
     {ok,
         {{one_for_one, 10, 3600}, [
             ?CHILD(emqx_topic_metrics),
-            ?CHILD(emqx_trace),
             ?CHILD(emqx_delayed)
         ]}}.

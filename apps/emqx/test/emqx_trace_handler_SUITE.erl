@@ -34,15 +34,12 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(t_trace_clientid, Config) ->
-    init(),
     Config;
 init_per_testcase(_Case, Config) ->
     _ = [logger:remove_handler(Id) || #{id := Id} <- emqx_trace_handler:running()],
-    init(),
     Config.
 
 end_per_testcase(_Case, _Config) ->
-    terminate(),
     ok.
 
 t_trace_clientid(_Config) ->
@@ -362,9 +359,3 @@ install_handler(Name, Filter, Level, LogFile) ->
 uninstall_handler(Name) ->
     HandlerId = list_to_atom(?MODULE_STRING ++ ":" ++ Name),
     emqx_trace_handler:uninstall(HandlerId).
-
-init() ->
-    emqx_trace:start_link().
-
-terminate() ->
-    catch ok = gen_server:stop(emqx_trace, normal, 5000).

@@ -10,7 +10,8 @@
     nodes_supporting_bpapi_version/2,
     supported_version/1, supported_version/2,
     supported_apis/1,
-    versions_file/1
+    versions_file/1,
+    owner_applications_file/0
 ]).
 
 %% Internal exports (RPC)
@@ -77,7 +78,7 @@ supported_version(API) ->
 -spec supported_apis(node()) -> [{api(), api_version()}].
 supported_apis(Node) ->
     try
-        lists:flatten(ets:match(?TAB, {?TAB, {Node, '$1'}, '$2'}))
+        [{API, Version} || [API, Version] <- ets:match(?TAB, {?TAB, {Node, '$1'}, '$2'})]
     catch
         error:badarg ->
             []
@@ -85,7 +86,8 @@ supported_apis(Node) ->
 
 -spec announce(node(), atom()) -> ok.
 announce(Node, App) ->
-    {ok, Data} = file:consult(?MODULE:versions_file(App)),
+    {ok, Data0} = file:consult(?MODULE:versions_file(App)),
+    Data = filter_allowed_umbrella_applications(Data0),
     %% replicant(5.6.0) will call old core(<5.6.0) announce_fun/2 is undef on old core
     %% so we just use anonymous function to update.
     case mria:transaction(?BPAPI_SHARD, fun ?MODULE:announce_fun/2, [Node, Data]) of
@@ -119,6 +121,10 @@ announce(Node, App) ->
 -spec versions_file(atom()) -> file:filename_all().
 versions_file(App) ->
     filename:join(code:priv_dir(App), "bpapi.versions").
+
+-spec owner_applications_file() -> file:filename_all().
+owner_applications_file() ->
+    filename:join(code:priv_dir(emqx), "bpapi.apps").
 
 -spec nodes_supporting_bpapi_version(api(), api_version()) -> [node()].
 nodes_supporting_bpapi_version(BPAPIName, Vsn) ->
@@ -177,3 +183,14 @@ update_minimum(API) ->
     end),
     MinVersion = lists:min(mnesia:select(?TAB, MS)),
     mnesia:write(#?TAB{key = {?multicall, API}, version = MinVersion}).
+
+filter_allowed_umbrella_applications(Data0) ->
+    {ok, Owners0} = file:consult(?MODULE:owner_applications_file()),
+    APIsToOwners = maps:from_list(Owners0),
+    lists:filter(
+        fun({API, _Vsn}) ->
+            App = maps:get(API, APIsToOwners),
+            emqx_machine_features:is_umbrella_application_enabled(App)
+        end,
+        Data0
+    ).

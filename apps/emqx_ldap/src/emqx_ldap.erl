@@ -6,7 +6,6 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
--include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -28,6 +27,7 @@
     default_port => 389
 }).
 -define(REDACT_VAL, "******").
+-define(AUTO_RECONNECT_INTERVAL, 2).
 
 %%--------------------------------------------------------------------
 %% Schema
