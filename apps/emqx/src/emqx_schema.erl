@@ -4253,6 +4253,15 @@ mqtt_session() ->
                     importance => ?IMPORTANCE_LOW
                 }
             )},
+        {"max_session_expiry_interval",
+            sc(
+                hoconsc:union([duration(), infinity]),
+                #{
+                    default => infinity,
+                    desc => ?DESC(mqtt_max_session_expiry_interval),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
         {"message_expiry_interval",
             sc(
                 hoconsc:union([duration(), infinity]),

@@ -203,6 +203,12 @@ mqtt_session_expiry_interval.desc:
 mqtt_session_expiry_interval.label:
 """Session Expiry Interval"""
 
+mqtt_max_session_expiry_interval.desc:
+"""Caps the maximum session expiry interval that an MQTT 5.0 client may request via its `Session-Expiry-Interval` CONNECT property. If the client requests a longer value, the server silently clamps it down to this limit (and reflects the clamped value back to the client via the `Session-Expiry-Interval` property in CONNACK, per MQTT 5.0 spec section 3.2.2.3.2). Has no effect on MQTT 3.1.1 / 3.1 clients, whose session expiry is fully server-controlled via `session_expiry_interval`. Default: `infinity` (no clamp)."""
+
+mqtt_max_session_expiry_interval.label:
+"""Max Session Expiry Interval"""
+
 mqtt_message_expiry_interval.desc:
 """The expiry interval of MQTT messages. For MQTT 5.0 clients, this configuration will only take effect when the `Message-Expiry-Interval` property is not set in the message; otherwise, the value of the `Message-Expiry-Interval` property will be used. For MQTT versions older than 5.0, this configuration will always take effect. Please note that setting `message_expiry_interval` greater than `session_expiry_interval` is meaningless, as all messages will be cleared when the session expires."""
 
