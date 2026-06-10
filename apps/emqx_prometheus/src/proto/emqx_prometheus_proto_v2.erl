@@ -8,8 +8,6 @@
 
 -export([
     introduced_in/0,
-    start/1,
-    stop/1,
 
     raw_prom_data/4
 ]).
@@ -18,14 +16,6 @@
 
 introduced_in() ->
     "5.5.0".
-
--spec start([node()]) -> emqx_rpc:multicall_result().
-start(Nodes) ->
-    rpc:multicall(Nodes, emqx_prometheus, do_start, [], 5000).
-
--spec stop([node()]) -> emqx_rpc:multicall_result().
-stop(Nodes) ->
-    rpc:multicall(Nodes, emqx_prometheus, do_stop, [], 5000).
 
 -type key() :: atom().
 -type arg() :: list(term()).
