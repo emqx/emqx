@@ -343,39 +343,54 @@ classify_pid(Pid, State) when node(Pid) =:= node() ->
         false -> {local_dead, State}
     end;
 classify_pid(Pid, State) ->
-    %% Remote pid: only cores act on it. Reuse the same cluster-wide
-    %% consensus predicate that emqx_cm_registry:can_run_cleanup/1 uses,
-    %% cached per sweep so each unique remote node-id triggers at most one
-    %% mria:is_peer_alive/1 RPC per sweep. Any non-{ok, false} answer
-    %% (including {aborted, _} on RPC error) is treated as "keep this
-    %% sweep, retry next" to preserve the safety bias.
+    %% Remote pid: only cores act on it. Replicants defer to the cores'
+    %% authoritative consensus check.
     case mria_rlog:role() of
-        replicant ->
-            {keep, State};
-        _ ->
-            N = node(Pid),
-            #{gone_nodes := Gone, alive_nodes := Alive} = State,
-            case {sets:is_element(N, Gone), sets:is_element(N, Alive)} of
-                {true, true} ->
-                    %% Stale gone-mark: the node was reported gone earlier
-                    %% in this sweep but later cached as alive (e.g. it
-                    %% rejoined the cluster mid-sweep). Trust the alive
-                    %% vote and scrub the gone mark so subsequent rows for
-                    %% this node are not purged.
-                    {keep, State#{gone_nodes := sets:del_element(N, Gone)}};
-                {_, true} ->
-                    {keep, State};
-                {true, _} ->
-                    {remote_orphan, State};
-                _ ->
-                    case mria:is_peer_alive(N) of
-                        {ok, false} ->
-                            {remote_orphan, State#{gone_nodes := sets:add_element(N, Gone)}};
-                        _ ->
-                            {keep, State#{alive_nodes := sets:add_element(N, Alive)}}
-                    end
-            end
+        replicant -> classify_remote_pid_on_replicant(Pid, State);
+        _ -> classify_remote_pid_on_core(Pid, State)
     end.
+
+classify_remote_pid_on_replicant(_Pid, State) ->
+    {keep, State}.
+
+%% Reuse the same cluster-wide consensus predicate that
+%% emqx_cm_registry:can_run_cleanup/1 uses, cached per sweep so each
+%% unique remote node-id triggers at most one mria:is_peer_alive/1 RPC
+%% per sweep. Any non-{ok, false} answer (including {aborted, _} on RPC
+%% error) is treated as "keep this sweep, retry next" to preserve the
+%% safety bias.
+classify_remote_pid_on_core(Pid, State) ->
+    N = node(Pid),
+    #{gone_nodes := Gone, alive_nodes := Alive} = State,
+    %% Check alive first: a node that rejoined the cluster mid-sweep
+    %% may carry a stale gone-mark from an earlier chunk; the alive
+    %% cache is the authoritative vote.
+    {Verdict, State1} =
+        case {sets:is_element(N, Alive), sets:is_element(N, Gone)} of
+            {true, _} ->
+                {keep, State};
+            {_, true} ->
+                {remote_orphan, State};
+            _ ->
+                case mria:is_peer_alive(N) of
+                    {ok, false} ->
+                        {remote_orphan, State#{
+                            gone_nodes := sets:add_element(N, Gone)
+                        }};
+                    _ ->
+                        {keep, State#{
+                            alive_nodes := sets:add_element(N, Alive)
+                        }}
+                end
+        end,
+    {Verdict, normalize_node_caches(State1)}.
+
+%% Invariant: gone_nodes excludes alive_nodes. Re-established after each
+%% remote-pid classification so a stale gone entry (e.g. for a node that
+%% rejoined the cluster mid-sweep and got re-cached as alive) cannot
+%% survive to cause a wrongful purge in a later chunk.
+normalize_node_caches(#{gone_nodes := Gone, alive_nodes := Alive} = State) ->
+    State#{gone_nodes := sets:subtract(Gone, Alive)}.
 
 %%--------------------------------------------------------------------
 %% Helpers
