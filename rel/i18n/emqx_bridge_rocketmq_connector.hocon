@@ -13,7 +13,8 @@ refresh_interval.label:
 """Topic Route Refresh Interval"""
 
 secret_key.desc:
-"""RocketMQ server `secretKey`."""
+"""RocketMQ server `secretKey`.<br/>
+To load the key from a file instead of embedding it inline, use the form <code>file://&lt;path-to-file&gt;</code>; the file's content (with any trailing whitespace stripped) is then used as the key. When clustered, the file must exist on all EMQX nodes."""
 
 secret_key.label:
 """SecretKey"""
