@@ -9,7 +9,7 @@
 -include_lib("emqx/include/emqx_access_control.hrl").
 -include("emqx_coap.hrl").
 
--export([handle_request/4]).
+-export([handle_request/4, handle_request/5]).
 
 -import(emqx_coap_medium, [reply/2, reply/3]).
 -import(emqx_coap_channel, [run_hooks/3]).
@@ -28,24 +28,27 @@
 
 %% TODO maybe can merge this code into emqx_coap_session, simplify the call chain
 
-handle_request(Path, #coap_message{method = Method} = Msg, Ctx, CInfo) ->
+handle_request(Path, #coap_message{} = Msg, Ctx, CInfo) ->
+    handle_request(Path, Msg, Ctx, CInfo, false).
+
+handle_request(Path, #coap_message{method = Method} = Msg, Ctx, CInfo, IsConnectionless) ->
     case check_topic(Path) of
         {ok, Topic} ->
-            handle_method(Method, Topic, Msg, Ctx, CInfo);
+            handle_method(Method, Topic, Msg, Ctx, CInfo, IsConnectionless);
         _ ->
             reply({error, bad_request}, <<"invalid topic">>, Msg)
     end.
 
-handle_method(get, Topic, Msg, Ctx, CInfo) ->
+handle_method(get, Topic, Msg, Ctx, CInfo, IsConnectionless) ->
     case emqx_coap_message:get_option(observe, Msg) of
         0 ->
-            subscribe(Msg, Topic, Ctx, CInfo);
+            subscribe(Msg, Topic, Ctx, CInfo, IsConnectionless);
         1 ->
             unsubscribe(Msg, Topic, Ctx, CInfo);
         _ ->
             reply({error, bad_request}, <<"invalid observe value">>, Msg)
     end;
-handle_method(post, Topic, #coap_message{payload = Payload} = Msg, Ctx, CInfo) ->
+handle_method(post, Topic, #coap_message{payload = Payload} = Msg, Ctx, CInfo, _IsConnectionless) ->
     PublishOpts = get_publish_opts(Msg),
     QoS = get_publish_qos(Msg, PublishOpts),
     Action = ?AUTHZ_PUBLISH(QoS, get_publish_retain(PublishOpts)),
@@ -61,7 +64,7 @@ handle_method(post, Topic, #coap_message{payload = Payload} = Msg, Ctx, CInfo) -
         _ ->
             reply({error, unauthorized}, Msg)
     end;
-handle_method(_, _, Msg, _, _) ->
+handle_method(_, _, Msg, _, _, _) ->
     reply({error, method_not_allowed}, Msg).
 
 check_topic([]) ->
@@ -161,9 +164,9 @@ apply_publish_opts(Opts, MQTTMsg) ->
         Opts
     ).
 
-subscribe(#coap_message{token = <<>>} = Msg, _, _, _) ->
+subscribe(#coap_message{token = <<>>} = Msg, _, _, _, _) ->
     reply({error, bad_request}, <<"observe without token">>, Msg);
-subscribe(#coap_message{token = Token} = Msg, Topic, Ctx, CInfo) ->
+subscribe(#coap_message{token = Token} = Msg, Topic, Ctx, CInfo, IsConnectionless) ->
     #{qos := QoS} = SubOpts = get_sub_opts(Msg),
     Action = ?AUTHZ_SUBSCRIBE(QoS),
     case emqx_coap_channel:validator(Action, Topic, Ctx, CInfo) of
@@ -172,11 +175,16 @@ subscribe(#coap_message{token = Token} = Msg, Topic, Ctx, CInfo) ->
 
             MountTopic = mount(CInfo, Topic),
             emqx_broker:subscribe(MountTopic, ClientId, SubOpts),
-            run_hooks(Ctx, 'session.subscribed', [CInfo, MountTopic, SubOpts]),
+            maybe_run_session_subscribed(IsConnectionless, Ctx, CInfo, MountTopic, SubOpts),
             ?SUB(MountTopic, Token, SubOpts, Msg);
         _ ->
             reply({error, unauthorized}, Msg)
     end.
+
+maybe_run_session_subscribed(true, _Ctx, _CInfo, _MountTopic, _SubOpts) ->
+    ok;
+maybe_run_session_subscribed(false, Ctx, CInfo, MountTopic, SubOpts) ->
+    run_hooks(Ctx, 'session.subscribed', [CInfo, MountTopic, SubOpts]).
 
 unsubscribe(Msg, Topic, Ctx, CInfo) ->
     MountTopic = mount(CInfo, Topic),
