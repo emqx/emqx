@@ -193,7 +193,7 @@ elif docker info; then
         --env ACLOCAL_PATH="/usr/share/aclocal:/usr/local/share/aclocal" \
         --env EMQX_FLAVOR="$EMQX_FLAVOR" \
         "$EMQX_BUILDER" \
-        bash -euc "git config --global --add safe.directory /emqx && $CMD_RUN"
+        bash -euc "git config --global --add safe.directory /emqx && /emqx/scripts/refresh-builder-dynlibs.sh && $CMD_RUN"
 else
     echo "Error: Docker not available on unsupported platform"
     exit 1;
