@@ -40,12 +40,11 @@ init_per_suite(Config) ->
             emqx_conf,
             emqx_management,
             {emqx_prometheus, #{start => false}},
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},
-            {emqx_license, "license.key = default"}
+            {emqx_license, "license.key = default"},
+            emqx_mgmt_api_test_util:emqx_dashboard()
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    {ok, _} = emqx_common_test_http:create_default_app(),
     [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -168,26 +167,22 @@ t_legacy_prometheus_api(_) ->
     ok.
 
 t_prometheus_api(_) ->
-    Path = emqx_mgmt_api_test_util:api_path(["prometheus"]),
-    Auth = emqx_mgmt_api_test_util:auth_header_(),
-    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
-
-    Conf = emqx_utils_json:decode(Response),
+    {ok, Response} = get_prometheus_conf(),
     ?assertMatch(
         #{
             <<"push_gateway">> := #{},
             <<"collectors">> := _,
             <<"enable_basic_auth">> := _
         },
-        Conf
-    ),
+        emqx_utils_json:decode(Response)
+    ).
+
+t_prometheus_config_update_api(_) ->
+    {ok, Response} = get_prometheus_conf(),
     #{
-        <<"push_gateway">> :=
-            #{<<"url">> := Url, <<"enable">> := Enable} = PushGateway,
+        <<"push_gateway">> := PushGateway,
         <<"collectors">> := Collector
-    } = Conf,
-    Pid = erlang:whereis(emqx_prometheus),
-    ?assertEqual(Enable, undefined =/= Pid, {Url, Pid}),
+    } = Conf = emqx_utils_json:decode(Response),
 
     NewConf = Conf#{
         <<"push_gateway">> => PushGateway#{
@@ -197,38 +192,10 @@ t_prometheus_api(_) ->
                 <<"test-str2">> => <<"42">>
             }
         },
-        <<"collectors">> => Collector#{
-            <<"vm_dist">> => <<"enabled">>,
-            <<"vm_system_info">> => <<"enabled">>,
-            <<"vm_memory">> => <<"enabled">>,
-            <<"vm_msacc">> => <<"enabled">>,
-            <<"mnesia">> => <<"enabled">>,
-            <<"vm_statistics">> => <<"enabled">>
-        }
+        <<"collectors">> => Collector
     },
-    {ok, Response2} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf),
-
-    Conf2 = emqx_utils_json:decode(Response2),
-    ?assertMatch(NewConf, Conf2),
-
-    EnvCollectors = env_collectors(),
-    RegCollectors = prometheus_registry:collectors(default),
-    ?assertEqual([], EnvCollectors),
-    ?assert(lists:member(prometheus_vm_statistics_collector, RegCollectors), RegCollectors),
-
-    lists:foreach(
-        fun({C, Enabled}) ->
-            ?assertEqual(Enabled, lists:member(C, RegCollectors), RegCollectors)
-        end,
-        [
-            {prometheus_vm_dist_collector, true},
-            {prometheus_vm_system_info_collector, true},
-            {prometheus_vm_memory_collector, true},
-            {prometheus_mnesia_collector, true},
-            {prometheus_vm_msacc_collector, true},
-            {prometheus_vm_statistics_collector, true}
-        ]
-    ),
+    {ok, UpdateResponse} = put_prometheus_conf(NewConf),
+    ?assertEqual(NewConf, emqx_utils_json:decode(UpdateResponse)),
 
     ?assertMatch(
         #{
@@ -252,19 +219,64 @@ t_prometheus_api(_) ->
         },
         emqx_config:get([prometheus])
     ),
+    ok.
 
-    NewConf1 = Conf#{<<"push_gateway">> => PushGateway#{<<"enable">> => false}},
-    {ok, _Response3} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf1),
-    ?assertEqual(undefined, erlang:whereis(emqx_prometheus)),
+t_prometheus_push_gateway_lifecycle_api(_) ->
+    {ok, Response} = get_prometheus_conf(),
+    #{<<"push_gateway">> := PushGateway} = Conf = emqx_utils_json:decode(Response),
 
+    EnableConf = Conf#{<<"push_gateway">> => PushGateway#{<<"enable">> => true}},
+    {ok, _} = put_prometheus_conf(EnableConf),
+    ?assert(is_pid(erlang:whereis(emqx_prometheus))),
+
+    DisableConf = Conf#{<<"push_gateway">> => PushGateway#{<<"enable">> => false}},
+    {ok, _} = put_prometheus_conf(DisableConf),
+    ?assertEqual(undefined, erlang:whereis(emqx_prometheus)).
+
+t_prometheus_push_gateway_url_validation_api(_) ->
+    {ok, Response} = get_prometheus_conf(),
+    #{<<"push_gateway">> := PushGateway} = Conf = emqx_utils_json:decode(Response),
     ConfWithoutScheme = Conf#{
-        <<"push_gateway">> => PushGateway#{<<"url">> => <<"127.0.0.1:8081">>}
+        <<"push_gateway">> => PushGateway#{
+            <<"enable">> => true,
+            <<"url">> => <<"127.0.0.1:8081">>
+        }
     },
     ?assertMatch(
         {error, {"HTTP/1.1", 400, _}},
-        emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, ConfWithoutScheme)
+        put_prometheus_conf(ConfWithoutScheme)
+    ).
+
+t_prometheus_collectors_api(_) ->
+    {ok, Response} = get_prometheus_conf(),
+    #{<<"collectors">> := Collector} = Conf = emqx_utils_json:decode(Response),
+
+    EnvCollectors = env_collectors(),
+    ?assertEqual([], EnvCollectors),
+
+    VMStatisticsMetric = <<"erlang_vm_statistics_bytes_output_total">>,
+    ?assertEqual(
+        nomatch,
+        string:find(get_stats(), VMStatisticsMetric)
     ),
-    ok.
+
+    EnableVMStatistics = Conf#{
+        <<"collectors">> => Collector#{<<"vm_statistics">> => <<"enabled">>}
+    },
+    {ok, _} = put_prometheus_conf(EnableVMStatistics),
+    ?assertNotEqual(
+        nomatch,
+        string:find(get_stats(), VMStatisticsMetric)
+    ),
+
+    DisableVMStatistics = Conf#{
+        <<"collectors">> => Collector#{<<"vm_statistics">> => <<"disabled">>}
+    },
+    {ok, _} = put_prometheus_conf(DisableVMStatistics),
+    ?assertEqual(
+        nomatch,
+        string:find(get_stats(), VMStatisticsMetric)
+    ).
 
 t_prometheus_auth_api_aggregated(_) ->
     Path = emqx_mgmt_api_test_util:api_path(["prometheus", "auth?mode=all_nodes_aggregated"]),
@@ -555,6 +567,17 @@ t_latency_metrics(_) ->
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
+
+api_path(Components) ->
+    emqx_mgmt_api_test_util:api_path(["prometheus" | Components]).
+
+get_prometheus_conf() ->
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    emqx_mgmt_api_test_util:request_api(get, api_path([]), Auth).
+
+put_prometheus_conf(Conf) ->
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    emqx_mgmt_api_test_util:request_api(put, api_path([]), "", Auth, Conf).
 
 accept_json_header() ->
     [{"accept", "application/json"}].
