@@ -55,10 +55,10 @@ t_boot_under_community_license_skips_actors(_Config) ->
     Link = link_raw(<<"lic_boot">>, true),
     ok = write_links_directly([Link]),
     ok = restart_app(singleton),
-    ?assertEqual([], routerepl_children()),
-    %% Re-booting under normal mode starts the actor.
+    ?assertEqual(#{}, link_resources()),
+    %% Re-booting under normal mode starts the resource.
     ok = restart_app(normal),
-    ?assertMatch([_ | _], routerepl_children()).
+    ?assertMatch(#{<<"lic_boot">> := _}, link_resources()).
 
 -doc "Creating an enabled link via the REST/config layer is rejected under community license.".
 t_reject_enabled_create_under_community(_Config) ->
@@ -90,9 +90,9 @@ t_upgrade_license_then_enable(_Config) ->
     {ok, _} = emqx_cluster_link_config:create_link(Link),
     %% Simulate a license upgrade.
     ok = set_mode(normal),
-    %% Now the toggle goes through and the actor starts.
+    %% Now the toggle goes through and the message forwarding resource starts.
     {ok, _} = emqx_cluster_link_config:update_link(Link#{<<"enable">> => true}),
-    ?assertMatch([_ | _], routerepl_children()).
+    ?assertMatch(#{<<"lic_upgrade">> := _}, link_resources()).
 
 %%
 
@@ -112,17 +112,8 @@ restart_app(Mode) ->
     {ok, _} = application:ensure_all_started(emqx_cluster_link),
     ok.
 
-routerepl_children() ->
-    case whereis(emqx_cluster_link_sup) of
-        undefined ->
-            [];
-        Pid ->
-            %% Infrastructure children (`metrics', `bookkeeper',
-            %% `{extrouter, gc}') are always present; per-link routerepl
-            %% supervisors are added under the link's cluster name.
-            Infra = [metrics, bookkeeper, {extrouter, gc}],
-            [C || {Id, _, _, _} = C <- supervisor:which_children(Pid), not lists:member(Id, Infra)]
-    end.
+link_resources() ->
+    emqx_cluster_link_mqtt:get_all_resources_local_v1().
 
 write_links_directly(RawLinks) ->
     {ok, _} = emqx_conf:update(
