@@ -433,9 +433,11 @@ prepare_code_change([{load_module, Mod} | CodeChanges], LibModInfo, Instrs) ->
     prepare_code_change(CodeChanges, LibModInfo, [{load, Mod, Bin, FName} | Instrs]);
 prepare_code_change([{restart_application, AppName} | CodeChanges], LibModInfo, Instrs) ->
     Mods = emqx_relup_libs:get_app_mods(AppName, LibModInfo),
+    EbinDir = emqx_relup_libs:get_app_ebin(AppName, LibModInfo),
     CodeChanges1 = [{load_module, Mod} || Mod <- Mods] ++ CodeChanges,
     ExpandedInstrs =
-        [{stop_app, AppName}, {remove_app, AppName} | CodeChanges1] ++ [{start_app, AppName}],
+        [{stop_app, AppName}, {remove_app, AppName} | CodeChanges1] ++
+            [{reload_app, AppName, EbinDir}, {start_app, AppName}],
     prepare_code_change(ExpandedInstrs, LibModInfo, Instrs);
 prepare_code_change([{update, Mod, Change} | CodeChanges], LibModInfo, Instrs) ->
     ModProcs = get_supervised_procs(),
@@ -448,6 +450,10 @@ prepare_code_change([{update, Mod, Change} | CodeChanges], LibModInfo, Instrs) -
             {resume, Pids}
         ] ++ CodeChanges,
     prepare_code_change(ExpandedInstrs, LibModInfo, Instrs);
+prepare_code_change([{apply, Mod, Fun, Args} | CodeChanges], LibModInfo, Instrs) when
+    is_atom(Mod), is_atom(Fun), is_list(Args)
+->
+    prepare_code_change(CodeChanges, LibModInfo, [{apply, Mod, Fun, Args} | Instrs]);
 prepare_code_change([Instr | CodeChanges], LibModInfo, Instrs) ->
     prepare_code_change(CodeChanges, LibModInfo, [assert_valid_instrs(Instr) | Instrs]);
 prepare_code_change([], _, Instrs) ->
@@ -497,7 +503,15 @@ assert_valid_instrs({stop_app, AppName} = Instr) when is_atom(AppName) ->
     Instr;
 assert_valid_instrs({remove_app, AppName} = Instr) when is_atom(AppName) ->
     Instr;
+assert_valid_instrs({reload_app, AppName, EbinDir} = Instr) when
+    is_atom(AppName), is_list(EbinDir)
+->
+    Instr;
 assert_valid_instrs({start_app, AppName} = Instr) when is_atom(AppName) ->
+    Instr;
+assert_valid_instrs({apply, Mod, Fun, Args} = Instr) when
+    is_atom(Mod), is_atom(Fun), is_list(Args)
+->
     Instr;
 assert_valid_instrs(Instr) ->
     throw(make_error(invalid_instr, #{instruction => Instr})).
@@ -548,6 +562,9 @@ eval([{code_change, Pids, Mod, {advanced, Extra}} | Instrs], #{from_vsn := FromV
         Pids
     ),
     eval(Instrs, Opts);
+eval([{apply, Mod, Fun, Args} | Instrs], Opts) ->
+    ok = erlang:apply(Mod, Fun, Args),
+    eval(Instrs, Opts);
 eval([{stop_app, AppName} | Instrs], Opts) ->
     case is_excluded_app(AppName) orelse application:stop(AppName) of
         true ->
@@ -576,12 +593,41 @@ eval([{remove_app, AppName} | Instrs], Opts) ->
             )
     end,
     eval(Instrs, Opts);
+eval([{reload_app, AppName, EbinDir} | Instrs], Opts) ->
+    case is_excluded_app(AppName) of
+        true ->
+            ok;
+        false ->
+            true = code:add_patha(EbinDir),
+            ok = unload_app(AppName),
+            case application:load(AppName) of
+                ok ->
+                    ok;
+                {error, {already_loaded, AppName}} ->
+                    ok;
+                {error, Reason} ->
+                    throw(make_error(failed_to_load_app, #{app => AppName, reason => Reason}))
+            end
+    end,
+    eval(Instrs, Opts);
 eval([{start_app, AppName} | Instrs], Opts) ->
     case is_excluded_app(AppName) of
         true -> ok;
         false -> {ok, _} = application:ensure_all_started(AppName)
     end,
     eval(Instrs, Opts).
+
+unload_app(AppName) ->
+    case application:unload(AppName) of
+        ok ->
+            ok;
+        {error, {not_loaded, AppName}} ->
+            ok;
+        {error, {running, AppName}} ->
+            throw(make_error(failed_to_unload_running_app, #{app => AppName}));
+        {error, Reason} ->
+            throw(make_error(failed_to_unload_app, #{app => AppName, reason => Reason}))
+    end.
 
 change_code(Pid, Mod, FromVsn, Extra) ->
     case sys:change_code(Pid, Mod, FromVsn, Extra) of

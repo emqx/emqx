@@ -20,6 +20,8 @@
 
 -define(CURR_VSN, "9.9.0-fake-curr").
 -define(TARGET_VSN, "9.9.1-fake-target").
+-define(FAKE_APP, emqx_relup_fake_app).
+-define(FAKE_APP_VSN, "2.0.0").
 
 %%==============================================================================
 %% suite setup
@@ -95,6 +97,78 @@ t_round_trip_no_op(Config) ->
     DeployDir = filename:join([RootDir, "relup", ?TARGET_VSN]),
     ?assert(filelib:is_dir(DeployDir), DeployDir ++ " should be a dir"),
     ?assert(filelib:is_regular(filename:join([DeployDir, "releases", ?TARGET_VSN, "emqx.rel"]))).
+
+-doc "`{apply, Mod, Fun, Args}` code changes run in relup order before "
+"the post-upgrade phase.".
+t_code_changes_apply_runs_in_order(Config) ->
+    RootDir = ?config(root_dir, Config),
+    Tarball = forge_target_tarball(RootDir, ?TARGET_VSN, default_arch()),
+    ok = write_sha256_sidecar(Tarball),
+    Key = {?MODULE, ?FUNCTION_NAME, erlang:unique_integer([positive])},
+    persistent_term:erase(Key),
+    _ = write_relup(?CURR_VSN, ?TARGET_VSN, [
+        {apply, ?MODULE, record_apply_order, [Key, first]},
+        {apply, ?MODULE, record_apply_order, [Key, second]}
+    ]),
+
+    {ok, Opts1} = emqx_relup_handler:check_and_unpack(
+        ?CURR_VSN, RootDir, #{tarball => Tarball}
+    ),
+    try
+        ok = emqx_relup_handler:perform_upgrade(?CURR_VSN, ?TARGET_VSN, RootDir, Opts1),
+        ?assertEqual([first, second], persistent_term:get(Key))
+    after
+        persistent_term:erase(Key)
+    end.
+
+-doc "`{apply, Mod, Fun, Args}` code changes must return `ok`; any other "
+"return is treated as a failed code-change step.".
+t_code_changes_apply_requires_ok_return(Config) ->
+    RootDir = ?config(root_dir, Config),
+    Tarball = forge_target_tarball(RootDir, ?TARGET_VSN, default_arch()),
+    ok = write_sha256_sidecar(Tarball),
+    _ = write_relup(?CURR_VSN, ?TARGET_VSN, [
+        {apply, ?MODULE, return_non_ok, []}
+    ]),
+
+    {ok, Opts1} = emqx_relup_handler:check_and_unpack(
+        ?CURR_VSN, RootDir, #{tarball => Tarball}
+    ),
+    ?assertError(
+        {badmatch, {error, unexpected_apply_result}},
+        emqx_relup_handler:perform_upgrade(?CURR_VSN, ?TARGET_VSN, RootDir, Opts1)
+    ).
+
+-doc "`restart_application` reloads the target release's .app file before "
+"starting the app. This matters for dependencies that become OTP apps "
+"during a hot upgrade.".
+t_restart_application_reloads_app_spec(Config) ->
+    RootDir = ?config(root_dir, Config),
+    OldEbin = filename:join([RootDir, "old_fake_app", "ebin"]),
+    OldAppFile = filename:join(OldEbin, atom_to_list(?FAKE_APP) ++ ".app"),
+    ok = filelib:ensure_dir(OldAppFile),
+    ok = file:write_file(OldAppFile, fake_app_desc("old app spec")),
+    true = code:add_patha(OldEbin),
+    ok = unload_fake_app(),
+    ok = application:load(?FAKE_APP),
+    {ok, "old app spec"} = application:get_key(?FAKE_APP, description),
+
+    Tarball = forge_target_tarball_with_fake_app(RootDir, ?TARGET_VSN, default_arch()),
+    ok = write_sha256_sidecar(Tarball),
+    _ = write_relup(?CURR_VSN, ?TARGET_VSN, [
+        {restart_application, ?FAKE_APP}
+    ]),
+
+    {ok, Opts1} = emqx_relup_handler:check_and_unpack(
+        ?CURR_VSN, RootDir, #{tarball => Tarball}
+    ),
+    try
+        ok = emqx_relup_handler:perform_upgrade(?CURR_VSN, ?TARGET_VSN, RootDir, Opts1),
+        {ok, "new app spec"} = application:get_key(?FAKE_APP, description)
+    after
+        unload_fake_app(),
+        code:del_path(OldEbin)
+    end.
 
 %%==============================================================================
 %% negative cases
@@ -270,10 +344,13 @@ forge_release_files(RootDir, Vsn, Arch) ->
     ok = file:write_file(filename:join(Dir, "BUILD_INFO"), build_info_content(Arch)).
 
 rel_file_content(Vsn) ->
-    %% empty Libs list keeps make_libs_info a no-op for the round-trip.
+    rel_file_content(Vsn, []).
+
+rel_file_content(Vsn, Libs) ->
+    %% The default empty Libs list keeps make_libs_info a no-op for most cases.
     iolist_to_binary(
-        io_lib:format("{release, {\"emqx\", \"~s\"}, {erts, \"~s\"}, []}.~n", [
-            Vsn, erlang:system_info(version)
+        io_lib:format("{release, {\"emqx\", \"~s\"}, {erts, \"~s\"}, ~p}.~n", [
+            Vsn, erlang:system_info(version), Libs
         ])
     ).
 
@@ -314,6 +391,13 @@ forge_target_tarball_with_noise(RootDir, TargetVsn, Arch) ->
         include_emqx_vars => true, with_noise => true
     }).
 
+forge_target_tarball_with_fake_app(RootDir, TargetVsn, Arch) ->
+    do_forge_target_tarball(RootDir, TargetVsn, Arch, #{
+        include_emqx_vars => true,
+        with_noise => false,
+        fake_app => true
+    }).
+
 do_forge_target_tarball(RootDir, TargetVsn, Arch, Flags) when is_map(Flags) ->
     StageDir = filename:join([RootDir, "_stage", TargetVsn]),
     RelDir = filename:join([StageDir, "releases", TargetVsn]),
@@ -323,10 +407,17 @@ do_forge_target_tarball(RootDir, TargetVsn, Arch, Flags) when is_map(Flags) ->
     RelFile = filename:join(RelDir, "emqx.rel"),
     BuildFile = filename:join(RelDir, "BUILD_INFO"),
     BeamFile = filename:join(MneDir, "mnesia_hook.beam"),
-    ok = file:write_file(RelFile, rel_file_content(TargetVsn)),
+    {RelLibs, ExtraMembers} =
+        case maps:get(fake_app, Flags, false) of
+            true ->
+                {[{?FAKE_APP, ?FAKE_APP_VSN}], forge_fake_app_members(StageDir)};
+            false ->
+                {[], []}
+        end,
+    ok = file:write_file(RelFile, rel_file_content(TargetVsn, RelLibs)),
     ok = file:write_file(BuildFile, build_info_content(Arch)),
     ok = file:write_file(BeamFile, <<>>),
-    BaseMembers = [RelFile, BuildFile, BeamFile],
+    BaseMembers = [RelFile, BuildFile, BeamFile | ExtraMembers],
     Members1 =
         case maps:get(include_emqx_vars, Flags) of
             true ->
@@ -363,6 +454,29 @@ forge_noise_members(StageDir) ->
      || Rel <- Noise
     ].
 
+forge_fake_app_members(StageDir) ->
+    EbinDir = filename:join([
+        StageDir, "lib", atom_to_list(?FAKE_APP) ++ "-" ++ ?FAKE_APP_VSN, "ebin"
+    ]),
+    AppFile = filename:join(EbinDir, atom_to_list(?FAKE_APP) ++ ".app"),
+    ok = filelib:ensure_dir(AppFile),
+    ok = file:write_file(AppFile, fake_app_desc("new app spec")),
+    [AppFile].
+
+fake_app_desc(Description) ->
+    iolist_to_binary(
+        io_lib:format(
+            "{application, ~p, ["
+            "{description, ~p},"
+            "{vsn, ~p},"
+            "{modules, []},"
+            "{registered, []},"
+            "{applications, [kernel, stdlib]}"
+            "]}.\n",
+            [?FAKE_APP, Description, ?FAKE_APP_VSN]
+        )
+    ).
+
 tarball_dir(RootDir) ->
     %% Models "operator scp'd to some path readable by emqx" — the
     %% handler doesn't care where, only that the file is readable
@@ -386,12 +500,15 @@ write_sha256_sidecar(Tarball) ->
     file:write_file(Tarball ++ ".sha256", <<Digest/binary, "\n">>).
 
 write_no_op_relup(FromVsn, TargetVsn) ->
+    write_relup(FromVsn, TargetVsn, []).
+
+write_relup(FromVsn, TargetVsn, CodeChanges) ->
     Body = io_lib:format(
-        "#{from_version => \"~s\","
-        "  target_version => \"~s\","
-        "  code_changes => [],"
+        "#{from_version => ~p,"
+        "  target_version => ~p,"
+        "  code_changes => ~p,"
         "  post_upgrade_callbacks => []}.",
-        [FromVsn, TargetVsn]
+        [FromVsn, TargetVsn, CodeChanges]
     ),
     Dir = filename:join([code:priv_dir(emqx_relup), "relup"]),
     ok = filelib:ensure_path(Dir),
@@ -399,6 +516,24 @@ write_no_op_relup(FromVsn, TargetVsn) ->
     File = filename:join(Dir, Name),
     ok = file:write_file(File, iolist_to_binary(Body)),
     File.
+
+record_apply_order(Key, Item) ->
+    persistent_term:put(Key, persistent_term:get(Key, []) ++ [Item]).
+
+return_non_ok() ->
+    {error, unexpected_apply_result}.
+
+unload_fake_app() ->
+    _ = application:stop(?FAKE_APP),
+    case application:unload(?FAKE_APP) of
+        ok ->
+            ok;
+        {error, {not_loaded, ?FAKE_APP}} ->
+            ok;
+        {error, {running, ?FAKE_APP}} ->
+            ok = application:stop(?FAKE_APP),
+            unload_fake_app()
+    end.
 
 cleanup_test_catalog_entries() ->
     Dir = filename:join([code:priv_dir(emqx_relup), "relup"]),

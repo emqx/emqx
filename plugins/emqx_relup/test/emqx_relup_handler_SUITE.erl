@@ -84,6 +84,30 @@ t_validate_priv_catalog_unparseable(_Config) ->
         )
     ).
 
+-doc "The 5.10.4 -> 5.10.5 eredis hop uses a relup-plugin helper, not "
+"`emqx_post_upgrade`, because these callbacks run in the `code_changes` "
+"phase rather than the post-upgrade phase.".
+t_5105_catalog_uses_plugin_eredis_upgrade_module(_Config) ->
+    {Valid, _Errors} = emqx_relup_handler:validate_priv_catalog(),
+    #{code_changes := CodeChanges} = find_relup_entry("5.10.4", "5.10.5", Valid),
+    ?assertMatch([{load_module, emqx_release} | _], CodeChanges),
+    ?assert(
+        lists:member({apply, emqx_relup_eredis_upgrade, stop_redis_resources, []}, CodeChanges)
+    ),
+    ?assert(
+        lists:member({apply, emqx_relup_eredis_upgrade, start_redis_resources, []}, CodeChanges)
+    ),
+    ?assertNot(lists:member({load_module, emqx_post_upgrade}, CodeChanges)),
+    ?assertNot(
+        lists:any(
+            fun
+                ({apply, emqx_post_upgrade, _Fun, _Args}) -> true;
+                (_) -> false
+            end,
+            CodeChanges
+        )
+    ).
+
 %%==============================================================================
 %% Helpers
 %%==============================================================================
@@ -101,6 +125,15 @@ write_test_relup(Content) ->
     File = filename:join(Dir, Name),
     ok = file:write_file(File, Content),
     File.
+
+find_relup_entry(FromVsn, TargetVsn, Entries) ->
+    {value, Entry} = lists:search(
+        fun(#{from_version := FromVsn0, target_version := TargetVsn0}) ->
+            FromVsn0 =:= FromVsn andalso TargetVsn0 =:= TargetVsn
+        end,
+        Entries
+    ),
+    Entry.
 
 cleanup_test_catalog_entries() ->
     Dir = filename:join([code:priv_dir(emqx_relup), "relup"]),

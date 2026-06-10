@@ -6,6 +6,12 @@ reads every `*.relup` file under this directory via `file:script/1`
 `{from_version, target_version}` matches the requested hop. Filenames
 are arbitrary; `<from>-to-<to>.relup` is the convention.
 
+## Supported Upgrade Paths
+
+| From | To | Purpose |
+|---|---|---|
+| 5.10.4 | 5.10.5 | Restart Redis resources around the eredis upgrade so Sentinel managers are recreated with isolated manager names. |
+
 ## Schema
 
 ```erlang
@@ -38,10 +44,12 @@ instruction shapes:
 |---|---|
 | `{load_module, Mod}` | Replaces the running beam for `Mod`. Skipped if the new beam's md5 matches what's already loaded. Equivalent to `code:soft_purge/1` + `code:load_binary/3`. |
 | `{update, Mod, {advanced, Extra}}` | OTP-style stateful upgrade for processes whose callback module is `Mod`: `sys:suspend` → `load_module` → `sys:change_code(_, Mod, FromVsn, Extra)` → `sys:resume`. Use when a `gen_server` (or other `sys`-aware process) holds state that needs migrating. |
-| `{restart_application, App}` | `application:stop` → purge & delete every module of `App` → `application:ensure_all_started`. Use when stateless restart is acceptable and many modules changed. |
+| `{restart_application, App}` | `application:stop` → purge & delete every module of `App` → reload the target release's `.app` spec → `application:ensure_all_started`. Use when stateless restart is acceptable and many modules changed. |
+| `{apply, Mod, Fun, Args}` | Calls `erlang:apply(Mod, Fun, Args)` inside `code_changes`, in catalog order, and requires the callback to return `ok`. Use only for idempotent pre/post steps that must run before later code changes. |
 
-`{apply, _}` is **not** supported. Use `post_upgrade_callbacks`
-instead — see below.
+Prefer `post_upgrade_callbacks` unless a callback must run between
+two `code_changes`. Put one-off `{apply, ...}` helpers in this plugin
+rather than `emqx_post_upgrade`, because they are not post-upgrade callbacks.
 
 The handler injects `code:add_patha(<RootDir>/data/patches)` after
 all `code_changes` complete. Beams dropped into `data/patches` will
@@ -119,7 +127,7 @@ healthy cluster is a no-op.
 1. handler verifies <tarball>.sha256 and extracts to a temp dir
 2. handler copies libs and release files into <RootDir>/relup/<TargetVsn>/
 3. eval_code_changes: for each instruction, load_module /
-   update / restart_application
+   update / restart_application / apply
 4. add_patha(<RootDir>/data/patches)             — last step of (3)
 5. eval_post_upgrade_actions: for each entry,
        erlang:apply(get_upgrade_mod(TargetVsn), Func, [FromVsn | Args])
