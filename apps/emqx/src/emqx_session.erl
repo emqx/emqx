@@ -458,7 +458,9 @@ replay(ClientInfo, ReplayContext, Session) ->
     {ok, replies(), t()}.
 deliver(ClientInfo, Delivers, Session) ->
     Messages = enrich_delivers(ClientInfo, Delivers, Session),
-    ?IMPL(Session):deliver(ClientInfo, Messages, Session).
+    Ok = {ok, Replies, Session1} = ?IMPL(Session):deliver(ClientInfo, Messages, Session),
+    _ = on_replies_delivery_completed(Replies, ClientInfo, Session1),
+    Ok.
 
 %%--------------------------------------------------------------------
 
@@ -573,7 +575,14 @@ enrich_message(_ClientInfo, Msg, undefined, _UpgradeQoS) ->
     %% NOTE: only relevant for `common_timer_name()`
     | {ok, replies(), timeout(), t()}.
 handle_timeout(ClientInfo, Timer, Session) ->
-    ?IMPL(Session):handle_timeout(ClientInfo, Timer, Session).
+    case ?IMPL(Session):handle_timeout(ClientInfo, Timer, Session) of
+        {ok, Replies, Session1} = Ok ->
+            _ = on_replies_delivery_completed(Replies, ClientInfo, Session1),
+            Ok;
+        {ok, Replies, _Timeout, Session1} = Ok ->
+            _ = on_replies_delivery_completed(Replies, ClientInfo, Session1),
+            Ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Generic Messages
