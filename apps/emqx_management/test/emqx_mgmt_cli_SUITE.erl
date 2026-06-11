@@ -8,6 +8,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
 
 -define(ON(NODES, BODY),
@@ -122,6 +123,134 @@ t_clients(_Config) ->
     %% clients show <ClientId> # Show a client
     %% clients kick <ClientId> # Kick out a client
     ok.
+
+t_a_session_top_status_idle(_Config) ->
+    {ok, Output} = capture_ctl(["session-top", "status"]),
+    ?assertEqual(match, re:run(Output, <<"Status: idle">>, [{capture, none}])),
+    ?assertEqual(
+        match,
+        re:run(Output, <<"No session-top scan has been started">>, [{capture, none}])
+    ).
+
+t_session_top_status_running_labels(_Config) ->
+    emqx_common_test_helpers:with_mock(
+        emqx_session_buffer_mon,
+        top_status,
+        fun() ->
+            #{
+                status => running,
+                pid => self(),
+                out => "/tmp/session-top.csv",
+                count => 10,
+                sort => total_payload_bytes
+            }
+        end,
+        fun() ->
+            {ok, Output} = capture_ctl(["session-top", "status"]),
+            ?assertEqual(match, re:run(Output, <<"Status: running">>, [{capture, none}])),
+            ?assertEqual(match, re:run(Output, <<"Limit: 10">>, [{capture, none}])),
+            ?assertEqual(
+                match, re:run(Output, <<"Sort by: total_payload_bytes">>, [{capture, none}])
+            ),
+            ?assertEqual(nomatch, re:run(Output, <<"Count:">>, [{capture, none}])),
+            ?assertEqual(nomatch, re:run(Output, <<"Sort:">>, [{capture, none}]))
+        end
+    ).
+
+t_session_top_invalid_args(_Config) ->
+    {ok, MissingOut} = capture_ctl(["session-top"]),
+    ?assertEqual(match, re:run(MissingOut, <<"--out <File> is required">>, [{capture, none}])),
+    ?assertEqual(match, re:run(MissingOut, <<"session-top --out <File>">>, [{capture, none}])),
+
+    {ok, InvalidCount} = capture_ctl([
+        "session-top",
+        "--out",
+        "/tmp/session-top.csv",
+        "--count",
+        "1001"
+    ]),
+    ?assertEqual(
+        match,
+        re:run(InvalidCount, <<"Invalid count: maximum is 1000">>, [
+            {capture, none}
+        ])
+    ),
+
+    {ok, InvalidSort} = capture_ctl([
+        "session-top",
+        "--out",
+        "/tmp/session-top.csv",
+        "--sort",
+        "mailbox_len"
+    ]),
+    ?assertEqual(match, re:run(InvalidSort, <<"Invalid sort key">>, [{capture, none}])),
+    ?assertEqual(
+        match,
+        re:run(InvalidSort, <<"mqueue_length and total_payload_bytes">>, [
+            {capture, none}
+        ])
+    ).
+
+t_session_top(Config) ->
+    OutFile = filename:join(?config(priv_dir, Config), "session-top.csv"),
+    _ = file:delete(OutFile),
+    Rows = [
+        {<<"session-top-c1">>, 10, 1000000001, 1},
+        {<<"session-top-c2">>, 5, 1000000003, 2},
+        {<<"session-top-c3">>, 20, 1000000002, 3}
+    ],
+    lists:foreach(fun insert_session_top_row/1, Rows),
+    try
+        {ok, StartOutput} = capture_ctl([
+            "session-top",
+            "--out",
+            OutFile,
+            "--count",
+            "2",
+            "--sort",
+            "total_payload_bytes"
+        ]),
+        ?assertEqual(match, re:run(StartOutput, <<"Session top scan started">>, [{capture, none}])),
+        ?assertEqual(match, re:run(StartOutput, <<"Status: running">>, [{capture, none}])),
+        ?assertEqual(match, re:run(StartOutput, <<"session-top status">>, [{capture, none}])),
+        {ok, CSV} = wait_csv_rows(OutFile, 3, 100),
+        StatusOutput = wait_session_top_status(<<"Status: completed">>, 100),
+        ?assertEqual(match, re:run(StatusOutput, <<"Status: completed">>, [{capture, none}])),
+        ?assertEqual(match, re:run(StatusOutput, <<"Result rows: 2">>, [{capture, none}])),
+        ?assertEqual(match, re:run(StatusOutput, <<"Partial result: no">>, [{capture, none}])),
+        ?assertEqual(nomatch, re:run(StatusOutput, <<"Rows:">>, [{capture, none}])),
+        ?assertEqual(nomatch, re:run(StatusOutput, <<"Partial:">>, [{capture, none}])),
+        [
+            <<"clientid,pid,node,mqueue_length,total_payload_bytes,inflight_count">>,
+            Row1,
+            Row2
+        ] = binary:split(CSV, <<"\n">>, [global, trim_all]),
+        ?assertEqual(
+            [
+                <<"session-top-c2">>,
+                pid_to_list_bin(self()),
+                atom_to_binary(node(), utf8),
+                <<"5">>,
+                <<"1000000003">>,
+                <<"2">>
+            ],
+            binary:split(Row1, <<",">>, [global])
+        ),
+        ?assertEqual(
+            [
+                <<"session-top-c3">>,
+                pid_to_list_bin(self()),
+                atom_to_binary(node(), utf8),
+                <<"20">>,
+                <<"1000000002">>,
+                <<"3">>
+            ],
+            binary:split(Row2, <<",">>, [global])
+        )
+    after
+        [ets:delete(?CHAN_INFO_TAB, {ClientId, self()}) || {ClientId, _, _, _} <- Rows],
+        _ = file:delete(OutFile)
+    end.
 
 t_routes(_Config) ->
     %% routes list         # List all routes
@@ -626,6 +755,55 @@ dump_client_stats(File, Batch, Sleep) ->
         "--sleep",
         str(Sleep)
     ]).
+
+capture_ctl(Args) ->
+    {Result, OutputChunks} =
+        emqx_common_test_helpers:capture_io_format(fun() -> emqx_ctl:run_command(Args) end),
+    {Result, iolist_to_binary(OutputChunks)}.
+
+wait_session_top_status(Expected, Attempts) when Attempts > 0 ->
+    {ok, Output} = capture_ctl(["session-top", "status"]),
+    case re:run(Output, Expected, [{capture, none}]) of
+        match ->
+            Output;
+        nomatch ->
+            timer:sleep(10),
+            wait_session_top_status(Expected, Attempts - 1)
+    end;
+wait_session_top_status(_Expected, 0) ->
+    {ok, Output} = capture_ctl(["session-top", "status"]),
+    Output.
+
+insert_session_top_row({ClientId, MqueueLength, TotalPayloadBytes, InflightCount}) ->
+    ok = emqx_cm:insert_channel_info(
+        ClientId,
+        #{},
+        [
+            {mqueue_len, MqueueLength},
+            {total_payload_bytes, TotalPayloadBytes},
+            {inflight_cnt, InflightCount}
+        ]
+    ).
+
+wait_csv_rows(File, ExpectedRows, Attempts) when Attempts > 0 ->
+    case file:read_file(File) of
+        {ok, Bin} ->
+            case length(binary:split(Bin, <<"\n">>, [global, trim_all])) >= ExpectedRows of
+                true ->
+                    {ok, Bin};
+                false ->
+                    timer:sleep(10),
+                    wait_csv_rows(File, ExpectedRows, Attempts - 1)
+            end;
+        _ ->
+            timer:sleep(10),
+            wait_csv_rows(File, ExpectedRows, Attempts - 1)
+    end;
+wait_csv_rows(File, _ExpectedRows, 0) ->
+    file:read_file(File).
+
+pid_to_list_bin(Pid) ->
+    list_to_binary(pid_to_list(Pid)).
 
 str(I) when is_integer(I) -> integer_to_list(I);
 str(L) when is_list(L) -> L.

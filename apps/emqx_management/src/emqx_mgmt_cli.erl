@@ -23,6 +23,7 @@
     broker/1,
     cluster/1,
     clients/1,
+    'session-top'/1,
     topics/1,
     subscriptions/1,
     plugins/1,
@@ -254,6 +255,107 @@ clients(_) ->
         {"clients show <ClientId>", "Show a client"},
         {"clients kick <ClientId>", "Kick out a client"}
     ]).
+
+'session-top'(["status"]) ->
+    print_session_top_status(emqx_session_buffer_mon:top_status());
+'session-top'(Args) ->
+    case parse_session_top_args(Args) of
+        {ok, Opts} ->
+            case emqx_session_buffer_mon:run_top(Opts) of
+                {ok, _Pid} ->
+                    print_session_top_started(Opts);
+                {error, busy} ->
+                    emqx_ctl:print("[error] A session-top scan is already running.~n")
+            end;
+        {error, Msg} ->
+            emqx_ctl:print("[error] ~s~n", [Msg]),
+            session_top_usage()
+    end.
+
+session_top_usage() ->
+    emqx_ctl:usage([
+        {
+            "session-top status",
+            "Show status of the latest session-top scan."
+        },
+        {
+            "session-top --out <File> [--count <K>] [--sort <mqueue_length|total_payload_bytes>]",
+            "Write cluster top sessions by mqueue length or total payload bytes to a CSV file."
+        }
+    ]).
+
+print_session_top_started(Opts) ->
+    emqx_ctl:print(
+        "Session top scan started.~n"
+        "Status: running~n"
+        "Output: ~ts~n"
+        "Run 'emqx ctl session-top status' to check progress.~n",
+        [maps:get(out, Opts)]
+    ).
+
+print_session_top_status(#{status := idle}) ->
+    emqx_ctl:print("Status: idle~nNo session-top scan has been started.~n");
+print_session_top_status(#{
+    status := running,
+    pid := Pid,
+    out := OutFile,
+    count := Count,
+    sort := Sort
+}) ->
+    emqx_ctl:print(
+        "Status: running~n"
+        "Output: ~ts~n"
+        "Limit: ~B~n"
+        "Sort by: ~s~n"
+        "Worker: ~p~n",
+        [OutFile, Count, atom_to_list(Sort), Pid]
+    );
+print_session_top_status(
+    Status = #{
+        status := completed,
+        out := OutFile,
+        rows := Rows,
+        partial := Partial
+    }
+) ->
+    emqx_ctl:print(
+        "Status: completed~n"
+        "Output: ~ts~n"
+        "Result rows: ~B~n"
+        "Partial result: ~s~n",
+        [OutFile, Rows, yes_no(Partial)]
+    ),
+    print_session_top_bad_results(Status);
+print_session_top_status(
+    Status = #{
+        status := failed,
+        out := OutFile,
+        reason := Reason,
+        partial := Partial
+    }
+) ->
+    emqx_ctl:print(
+        "Status: failed~n"
+        "Output: ~ts~n"
+        "Reason: ~p~n"
+        "Partial result: ~s~n",
+        [OutFile, Reason, yes_no(Partial)]
+    ),
+    print_session_top_bad_results(Status).
+
+print_session_top_bad_results(Status) ->
+    BadNodes = maps:get(bad_nodes, Status, []),
+    BadReplies = maps:get(bad_replies, Status, []),
+    maybe_print_session_top_bad_results("Bad nodes", BadNodes),
+    maybe_print_session_top_bad_results("Bad replies", BadReplies).
+
+maybe_print_session_top_bad_results(_Label, []) ->
+    ok;
+maybe_print_session_top_bad_results(Label, Values) ->
+    emqx_ctl:print("~s: ~p~n", [Label, Values]).
+
+yes_no(true) -> "yes";
+yes_no(false) -> "no".
 
 %%--------------------------------------------------------------------
 %% @private Dump client statistics to CSV file
@@ -1194,6 +1296,52 @@ validate_dump_stats_args(Opts) ->
         false ->
             {error, "Invalid parameters"}
     end.
+
+parse_session_top_args(Args) ->
+    maybe
+        {ok, Opts} ?=
+            collect_session_top_args(Args, #{
+                count => 10,
+                sort => total_payload_bytes
+            }),
+        ok ?= validate_session_top_args(Opts),
+        {ok, Opts}
+    end.
+
+collect_session_top_args([], Acc) ->
+    {ok, Acc};
+collect_session_top_args(["--out", Out | Rest], Acc) ->
+    collect_session_top_args(Rest, Acc#{out => Out});
+collect_session_top_args(["--count", CountStr | Rest], Acc) ->
+    case string:to_integer(CountStr) of
+        {Count, []} when Count > 0, Count =< 1000 ->
+            collect_session_top_args(Rest, Acc#{count => Count});
+        {Count, []} when Count > 1000 ->
+            {error, "Invalid count: maximum is 1000."};
+        _ ->
+            {error, io_lib:format("Invalid count: ~s. Must be a positive integer.", [CountStr])}
+    end;
+collect_session_top_args(["--sort", SortStr | Rest], Acc) ->
+    case parse_session_top_sort(SortStr) of
+        {ok, Sort} ->
+            collect_session_top_args(Rest, Acc#{sort => Sort});
+        error ->
+            {error, "Invalid sort key. Supported values are mqueue_length and total_payload_bytes."}
+    end;
+collect_session_top_args(Args, _Acc) ->
+    {error, io_lib:format("unknown arguments: ~p", [Args])}.
+
+parse_session_top_sort("mqueue_length") ->
+    {ok, mqueue_length};
+parse_session_top_sort("total_payload_bytes") ->
+    {ok, total_payload_bytes};
+parse_session_top_sort(_) ->
+    error.
+
+validate_session_top_args(#{out := _Out}) ->
+    ok;
+validate_session_top_args(_Opts) ->
+    {error, "--out <File> is required."}.
 
 %%--------------------------------------------------------------------
 %% @doc Durable storage

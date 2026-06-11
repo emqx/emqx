@@ -305,6 +305,11 @@ mqueue_dropped.desc:
 mqueue_dropped.label:
 """Mqueue Dropped"""
 
+total_payload_bytes.desc:
+"""MQTT payload bytes retained by the in-memory session mqueue and inflight window"""
+total_payload_bytes.label:
+"""Total Payload Bytes"""
+
 mqueue_len.desc:
 """Current length of send-buffer queue"""
 mqueue_len.label:

@@ -579,6 +579,7 @@ fields(client) ->
             hoconsc:mk(integer(), #{
                 desc => ?DESC("mqueue_dropped")
             })},
+        {total_payload_bytes, hoconsc:mk(integer(), #{desc => ?DESC("total_payload_bytes")})},
         {mqueue_len, hoconsc:mk(integer(), #{desc => ?DESC("mqueue_len")})},
         {mqueue_max,
             hoconsc:mk(integer(), #{
@@ -1778,10 +1779,11 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}, Opts) ->
         maps:get(conninfo, ClientInfo0)
     ),
     ClientInfo1 = ClientInfo0#{conninfo := ConnInfo},
-    StatsMap = maps:without(
+    StatsMap0 = maps:without(
         [memory, next_pkt_id, total_heap_size],
         maps:from_list(ClientStats)
     ),
+    StatsMap = maps:merge(#{total_payload_bytes => 0}, StatsMap0),
     ClientInfo2 = maps:remove(will_msg, ClientInfo1),
     ClientInfoMap0 = maps:fold(fun take_maps_from_inner/3, #{}, ClientInfo2),
     {IpAddress, Port} = peername_dispart(maps:get(peername, ClientInfoMap0)),
@@ -1995,6 +1997,7 @@ client_example() ->
         <<"mqueue_max">> => 1000,
         <<"send_oct">> => 31,
         <<"send_msg.dropped.queue_full">> => 0,
+        <<"total_payload_bytes">> => 0,
         <<"mqueue_len">> => 0,
         <<"heap_size">> => 610,
         <<"is_persistent">> => false,

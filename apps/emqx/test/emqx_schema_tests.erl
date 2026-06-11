@@ -957,6 +957,22 @@ max_packet_size_test_() ->
             )}
     ].
 
+session_buffered_payload_high_watermark_test_() ->
+    [
+        {"0 disables warning logs",
+            ?_assertEqual(ok, emqx_schema:validate_session_buffered_payload_high_watermark(0))},
+        {"bytesize units are accepted",
+            ?_assertEqual({ok, 1024}, typerefl:from_string(emqx_schema:bytesize(), <<"1KB">>))},
+        {"negative values are rejected",
+            ?_assertMatch(
+                {error, #{
+                    cause := session_buffered_payload_high_watermark_out_of_range,
+                    minimum := 0
+                }},
+                emqx_schema:validate_session_buffered_payload_high_watermark(-1)
+            )}
+    ].
+
 max_heap_size_test_() ->
     WordSize = erlang:system_info(wordsize),
     MaxWords = 128 * 1024 * 1024 * 1024 div WordSize,

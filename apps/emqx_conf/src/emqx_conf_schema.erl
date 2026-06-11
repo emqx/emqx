@@ -103,6 +103,7 @@
     retain_failed_for_rate_exceeded_limit,
     retained_dispatch_failed_for_rate_exceeded_limit,
     retained_delete_failed_for_rate_exceeded_limit,
+    session_buffer_high_watermark,
     socket_receive_paused_by_rate_limit,
     %% ==== message transformation/validation ====
     transformation_failed,

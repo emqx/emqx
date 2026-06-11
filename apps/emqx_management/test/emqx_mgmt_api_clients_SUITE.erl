@@ -156,6 +156,8 @@ end_per_group(Group, Config) when
 end_per_group(_Group, _Config) ->
     ok.
 
+init_per_testcase(t_format_old_style_client_stats_defaults_total_payload_bytes, Config) ->
+    Config;
 init_per_testcase(_TC, Config) ->
     %% NOTE
     %% Wait until there are no stale clients data before running the testcase.
@@ -172,6 +174,8 @@ init_per_testcase(_TC, Config) ->
     ok = snabbkaffe:start_trace(),
     Config.
 
+end_per_testcase(t_format_old_style_client_stats_defaults_total_payload_bytes, _Config) ->
+    ok;
 end_per_testcase(TC, _Config) when
     TC =:= t_inflight_messages;
     TC =:= t_mqueue_messages
@@ -974,6 +978,15 @@ t_query_clients_with_fields(Config) ->
         [#{<<"clientid">> => ClientId, <<"username">> => Username}],
         get_clients_all_fields(Auth, "fields=clientid,username")
     ),
+    ?assertEqual(
+        [
+            #{
+                <<"clientid">> => ClientId,
+                <<"total_payload_bytes">> => 0
+            }
+        ],
+        get_clients_all_fields(Auth, "fields=clientid,total_payload_bytes")
+    ),
 
     AllFields = get_clients_all_fields(Auth, "fields=all"),
     DefaultFields = get_clients_all_fields(Auth, ""),
@@ -987,6 +1000,36 @@ t_query_clients_with_fields(Config) ->
     ?assertMatch({error, _}, get_clients_expect_error(Auth, "fields=bad_field_name")),
     ?assertMatch({error, _}, get_clients_expect_error(Auth, "fields=all,bad_field_name")),
     ?assertMatch({error, _}, get_clients_expect_error(Auth, "fields=all,username,clientid")).
+
+t_format_old_style_client_stats_defaults_total_payload_bytes(_) ->
+    ClientId = <<"old-style-client-stats">>,
+    ChanInfo = old_style_chan_info(ClientId, _Stats = [{mqueue_len, 0}]),
+    ?assertEqual(
+        #{clientid => ClientId, total_payload_bytes => 0},
+        emqx_mgmt_api_clients:format_channel_info(
+            node(),
+            ChanInfo,
+            #{fields => [clientid, total_payload_bytes]}
+        )
+    ),
+    ?assertMatch(
+        #{clientid := ClientId, total_payload_bytes := 0},
+        emqx_mgmt_api_clients:format_channel_info(node(), ChanInfo, #{fields => all})
+    ).
+
+old_style_chan_info(ClientId, Stats) ->
+    ClientInfo = #{
+        clientid => ClientId,
+        username => undefined,
+        conn_state => connected,
+        conninfo => #{
+            clientid => ClientId,
+            username => undefined,
+            peername => {{127, 0, 0, 1}, 1883},
+            expiry_interval => 0
+        }
+    },
+    {{ClientId, self()}, ClientInfo, Stats}.
 
 get_clients_all_fields(Auth, Qs) ->
     get_clients(Auth, Qs, false, false).
@@ -1152,6 +1195,7 @@ t_mqueue_messages(Config) ->
     Topic = <<"t/test_mqueue_msgs">>,
     Count = emqx_mgmt:default_row_limit(),
     ok = client_with_mqueue(ClientId, Topic, Count),
+    assert_total_payload_bytes(ClientId, payloads_bytes(Count), Config),
     Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "mqueue_messages"]),
     ?assert(Count =< emqx:get_config([mqtt, max_mqueue_len])),
 
@@ -1224,6 +1268,35 @@ publish_msgs(Topic, Count) ->
         end,
         lists:seq(1, Count)
     ).
+
+assert_total_payload_bytes(ClientId, ExpectedBytes, Config) ->
+    ?retry(100, 20, begin
+        ?assertMatch(
+            {ok, {?HTTP200, _, #{<<"total_payload_bytes">> := ExpectedBytes}}},
+            get_client_request(ClientId, Config)
+        ),
+        ?assertMatch(
+            {ok,
+                {?HTTP200, _, #{
+                    <<"data">> := [
+                        #{
+                            <<"clientid">> := ClientId,
+                            <<"total_payload_bytes">> := ExpectedBytes
+                        }
+                    ]
+                }}},
+            list_request(
+                [
+                    {"clientid", ClientId},
+                    {"fields", "clientid,total_payload_bytes"}
+                ],
+                Config
+            )
+        )
+    end).
+
+payloads_bytes(Count) ->
+    lists:sum([byte_size(integer_to_binary(Seq)) || Seq <- lists:seq(1, Count)]).
 
 test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
     Qs0 = io_lib:format("payload=~s", [PayloadEncoding]),

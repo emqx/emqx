@@ -275,7 +275,13 @@ set_chan_stats(ClientId, Stats) when ?IS_CLIENTID(ClientId) ->
 set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     Chan = {ClientId, ChanPid},
     try
-        ets:update_element(?CHAN_INFO_TAB, Chan, {3, Stats})
+        case ets:update_element(?CHAN_INFO_TAB, Chan, {3, Stats}) of
+            true ->
+                ok = emqx_session_buffer_mon:maybe_log(ClientId, ChanPid, Stats),
+                true;
+            false ->
+                false
+        end
     catch
         error:badarg -> false
     end.
