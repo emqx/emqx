@@ -1,0 +1,33 @@
+primary {
+    base_url = ""
+    api_key = ""
+    api_secret = ""
+    ssl {
+        enable = false
+        server_name_indication = "disable"
+        verify = "verify_none"
+        cacertfile = ""
+        certfile = ""
+        keyfile = ""
+    }
+}
+
+sync {
+    interval = "5m"
+    root_keys = [
+        "connectors",
+        "actions",
+        "sources",
+        "rule_engine",
+        "listeners",
+        "schema_registry"
+    ]
+    table_sets = [
+        "banned",
+        "builtin_authn",
+        "builtin_authz"
+    ]
+    timeout = "30s"
+    retain_remote_backup = false
+    retain_backup_after_import = true
+}
