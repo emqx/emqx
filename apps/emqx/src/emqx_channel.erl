@@ -1397,7 +1397,8 @@ handle_out(connack, {?RC_SUCCESS, SP, Props}, Channel = #channel{conninfo = Conn
             fun enrich_connack_caps/2,
             fun enrich_server_keepalive/2,
             fun enrich_response_information/2,
-            fun enrich_assigned_clientid/2
+            fun enrich_assigned_clientid/2,
+            fun enrich_clamped_session_expiry_interval/2
         ],
         Props,
         Channel
@@ -2103,15 +2104,22 @@ enrich_conninfo(
     {ok, Channel#channel{conninfo = NConnInfo}}.
 
 %% If the Session Expiry Interval is absent the value 0 is used.
-expiry_interval(_, #mqtt_packet_connect{
+expiry_interval(Zone, #mqtt_packet_connect{
     proto_ver = ?MQTT_PROTO_V5,
     properties = ConnProps
 }) ->
-    timer:seconds(emqx_mqtt_props:get('Session-Expiry-Interval', ConnProps, 0));
+    RequestedSec = emqx_mqtt_props:get('Session-Expiry-Interval', ConnProps, 0),
+    MaxMs = get_mqtt_conf(Zone, max_session_expiry_interval),
+    timer:seconds(clamp_session_expiry(RequestedSec, MaxMs));
 expiry_interval(Zone, #mqtt_packet_connect{clean_start = false}) ->
     get_mqtt_conf(Zone, session_expiry_interval);
 expiry_interval(_, #mqtt_packet_connect{clean_start = true}) ->
     0.
+
+clamp_session_expiry(RequestedSec, infinity) ->
+    RequestedSec;
+clamp_session_expiry(RequestedSec, MaxMs) when is_integer(MaxMs) ->
+    min(RequestedSec, MaxMs div 1000).
 
 receive_maximum(Zone, ConnProps) ->
     MaxInflightConfig =
@@ -3164,6 +3172,22 @@ enrich_assigned_clientid(AckProps, #channel{
         _Origin ->
             AckProps
     end.
+
+%%--------------------------------------------------------------------
+%% Enrich Clamped Session-Expiry-Interval
+%% MQTT 5.0 §3.2.2.3.2: when the server modifies the value requested by the
+%% client, it MUST return the chosen value in CONNACK so the client knows when
+%% its session will actually expire.
+enrich_clamped_session_expiry_interval(AckProps, ?IS_MQTT_V5 = #channel{conninfo = ConnInfo}) ->
+    ClampedSec = maps:get(expiry_interval, ConnInfo, 0) div 1000,
+    ConnProps = maps:get(conn_props, ConnInfo, #{}),
+    RequestedSec = emqx_mqtt_props:get('Session-Expiry-Interval', ConnProps, 0),
+    case ClampedSec =:= RequestedSec of
+        true -> AckProps;
+        false -> AckProps#{'Session-Expiry-Interval' => ClampedSec}
+    end;
+enrich_clamped_session_expiry_interval(AckProps, _Channel) ->
+    AckProps.
 
 %%--------------------------------------------------------------------
 %% Ensure connected
