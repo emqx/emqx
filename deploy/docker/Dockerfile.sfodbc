@@ -1,0 +1,26 @@
+## Extended version of emqx/emqx-enterprise image with Snowflake ODBC driver.
+##
+## Built by CI as `emqx/emqx-enterprise:<vsn>-sf` on top of the base
+## `emqx/emqx-enterprise:<vsn>` image (which does NOT bundle the driver).
+##
+## To reproduce locally:
+##
+## DOCKER_BUILD_NOCACHE=true \
+## EMQX_DOCKERFILE=deploy/docker/Dockerfile.sfodbc \
+## EMQX_IMAGE_TAG_SUFFIX=-sf \
+## BUILD_FROM=emqx/emqx-enterprise:5.10.5 \
+## ./build emqx-enterprise docker
+
+ARG BUILD_FROM=emqx/emqx-enterprise:latest
+FROM $BUILD_FROM
+
+USER root
+
+COPY scripts/install-snowflake-driver.sh ./
+
+RUN ./install-snowflake-driver.sh && \
+    rm -f snowflake-odbc*.deb install-snowflake-driver.sh && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+USER emqx

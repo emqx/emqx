@@ -346,6 +346,7 @@ make_docker() {
     if [[ "$PROFILE" = *-elixir ]]; then
         SUFFIX="-elixir"
     fi
+    SUFFIX="${SUFFIX}${EMQX_IMAGE_TAG_SUFFIX:-}"
 
     local DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
     local DOCKER_REGISTRIES=( )
