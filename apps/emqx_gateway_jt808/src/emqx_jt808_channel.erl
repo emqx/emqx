@@ -9,6 +9,7 @@
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -363,7 +364,7 @@ do_handle_in(
     }
 ) ->
     {MsgId, MsgSn} = msgidsn(Frame),
-    _ = do_publish(Topic, Frame),
+    _ = do_publish(Topic, Frame, Channel),
     case is_driver_id_req_exist(Channel) of
         % this is an device passive command
         false ->
@@ -383,7 +384,7 @@ do_handle_in(
     case IsUnknownMessage of
         %% Normal message, handle it
         false ->
-            _ = do_publish(Topic, Frame),
+            _ = do_publish(Topic, Frame, Channel),
             {MsgId, MsgSn} = msgidsn(Frame),
             case is_general_response_needed(MsgId) of
                 % these frames device passive request
@@ -395,16 +396,30 @@ do_handle_in(
                     dispatch_and_reply(Channel#channel{inflight = NewInflight})
             end;
         true ->
-            _ = do_publish(Topic, Frame),
+            _ = do_publish(Topic, Frame, Channel),
             {ok, Channel}
     end;
 do_handle_in(Frame, Channel) ->
     ?SLOG(error, #{msg => "ignore_unknown_frame", frame => Frame}),
     {ok, Channel}.
 
-do_publish(Topic, Frame) ->
-    ?SLOG(debug, #{msg => "publish_msg", to_topic => Topic, farme => Frame}),
-    emqx:publish(emqx_message:make(jt808, ?QOS_1, Topic, emqx_utils_json:encode(Frame))).
+do_publish(
+    Topic,
+    Frame,
+    #channel{
+        ctx = Ctx,
+        clientinfo = ClientInfo
+    }
+) ->
+    Action = ?AUTHZ_PUBLISH(?QOS_1, false),
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
+        allow ->
+            ?SLOG(debug, #{msg => "publish_msg", to_topic => Topic, farme => Frame}),
+            emqx:publish(emqx_message:make(jt808, ?QOS_1, Topic, emqx_utils_json:encode(Frame)));
+        deny ->
+            ?SLOG(info, #{msg => "publish_msg_denied", to_topic => Topic}),
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle Delivers from broker to client
@@ -1270,15 +1285,23 @@ autosubcribe(#channel{dn_topic = Topic}) when
 ->
     ok;
 autosubcribe(#channel{
+    ctx = Ctx,
     clientinfo =
         ClientInfo =
             #{clientid := ClientId},
     dn_topic = Topic
 }) ->
-    _ = emqx_broker:subscribe(Topic, ClientId, ?DN_TOPIC_SUBOPTS),
-    ok = emqx_hooks:run('session.subscribed', [
-        ClientInfo, Topic, ?DN_TOPIC_SUBOPTS#{is_new => true}
-    ]).
+    Action = ?AUTHZ_SUBSCRIBE(maps:get(qos, ?DN_TOPIC_SUBOPTS, 0)),
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
+        allow ->
+            _ = emqx_broker:subscribe(Topic, ClientId, ?DN_TOPIC_SUBOPTS),
+            ok = emqx_hooks:run('session.subscribed', [
+                ClientInfo, Topic, ?DN_TOPIC_SUBOPTS#{is_new => true}
+            ]);
+        deny ->
+            ?SLOG(info, #{msg => "subscribe_denied", topic => Topic}),
+            ok
+    end.
 
 start_keepalive(Secs, _Channel) when Secs > 0 ->
     self() ! {keepalive, start, round(Secs) * 1000}.
