@@ -340,7 +340,8 @@ data_files(get, #{query_string := PageParams}) ->
     end.
 
 data_file_by_name(get, #{bindings := #{filename := Filename}, query_string := QS} = Req) ->
-    case is_global_admin(auth_meta(Req)) of
+    AuthMeta = auth_meta(Req),
+    case can_attempt_download(AuthMeta) of
         false ->
             {403, #{code => ?FORBIDDEN, message => download_forbidden_msg()}};
         true ->
@@ -348,7 +349,14 @@ data_file_by_name(get, #{bindings := #{filename := Filename}, query_string := QS
                 {error, Msg} ->
                     {400, #{code => ?BAD_REQUEST, message => Msg}};
                 Node ->
-                    handle_file_op_response(get_or_delete_file(get, Filename, Node))
+                    case can_download_backup(AuthMeta, Filename, Node) of
+                        ok ->
+                            handle_file_op_response(get_or_delete_file(get, Filename, Node));
+                        {forbidden, Msg} ->
+                            {403, #{code => ?FORBIDDEN, message => Msg}};
+                        {error, Reason} ->
+                            handle_file_op_response(Reason)
+                    end
             end
     end;
 data_file_by_name(delete, #{bindings := #{filename := Filename}, query_string := QS}) ->
@@ -418,20 +426,42 @@ check_no_sensitive_tables(Filename, AuthMeta) ->
     end.
 
 %% Stored backups can contain `dashboard_users' / `api_keys' mnesia tables
-%% (salted password hashes, API-key records). The download path returns the
-%% raw archive bytes without inspecting them, so any caller able to GET
-%% /data/files/:filename can exfiltrate that content offline. Gate the
-%% download on the dashboard administrator role while preserving list access.
+%% (salted password hashes, API-key records). Dashboard administrators may
+%% download any archive. API-key callers may only download archives whose table
+%% list proves they do not contain those sensitive records; fail closed if we
+%% cannot inspect the archive.
+can_attempt_download(#{auth_type := jwt_token, role := ?ROLE_SUPERUSER}) ->
+    true;
+can_attempt_download(#{auth_type := api_key}) ->
+    true;
+can_attempt_download(_) ->
+    false.
+
+can_download_backup(#{auth_type := jwt_token, role := ?ROLE_SUPERUSER}, _Filename, _Node) ->
+    ok;
+can_download_backup(#{auth_type := api_key}, Filename, Node) ->
+    case emqx_mgmt_data_backup_proto_v2:peek_sensitive_table_sets(Node, Filename, infinity) of
+        {ok, []} ->
+            ok;
+        {ok, Sets} ->
+            {forbidden, api_key_download_forbidden_msg(Sets)};
+        Error ->
+            {error, Error}
+    end;
+can_download_backup(_, _Filename, _Node) ->
+    {forbidden, download_forbidden_msg()}.
+
 download_forbidden_msg() ->
     <<
         "Only the dashboard administrator may download backup files. "
         "Backups may contain dashboard accounts and API key records."
     >>.
 
-is_global_admin(#{auth_type := jwt_token, role := ?ROLE_SUPERUSER}) ->
-    true;
-is_global_admin(_) ->
-    false.
+api_key_download_forbidden_msg(Sets) ->
+    iolist_to_binary([
+        <<"API key download refused: backup contains restricted tables: ">>,
+        lists:join(<<", ">>, Sets)
+    ]).
 
 get_or_delete_file(get, Filename, Node) ->
     emqx_mgmt_data_backup_proto_v1:read_file(Node, Filename, infinity);
