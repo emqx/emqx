@@ -1,18 +1,17 @@
-## Extended version of emqx/emqx-enterprise image with Snowflake ODBC driver
-## docker build -f deploy/docker/Dockerfile.sfodbc \
-##   --build-arg BUILD_FROM=emqx/emqx-enterprise:5.8.0 \
-##   -t emqx/emqx-enterprise:5.8.0-sf .
+## Extended version of emqx/emqx-enterprise image with Snowflake ODBC driver.
 ##
-## or like this
+## Built by CI as `emqx/emqx-enterprise:<vsn>-sf` on top of the base
+## `emqx/emqx-enterprise:<vsn>` image (which does NOT bundle the driver).
+##
+## To reproduce locally:
 ##
 ## DOCKER_BUILD_NOCACHE=true \
-## PKG_VSN=5.8.1-alpha.2-sf \
 ## EMQX_DOCKERFILE=deploy/docker/Dockerfile.sfodbc \
-## BUILD_FROM=emqx/emqx-enterprise:5.8.1-alpha.2 \
-## EMQX_IMAGE_TAG=emqx/emqx-enterprise:5.8.1-alpha.2-sf \
+## EMQX_IMAGE_TAG_SUFFIX=-sf \
+## BUILD_FROM=emqx/emqx-enterprise:5.10.5 \
 ## ./build emqx-enterprise docker
 
-ARG BUILD_FROM=emqx/emqx-enterprise:5.8.1-alpha.2
+ARG BUILD_FROM
 FROM $BUILD_FROM
 
 USER root
