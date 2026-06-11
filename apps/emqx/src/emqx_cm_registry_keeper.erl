@@ -38,11 +38,9 @@
 -define(MIN_COUNT_INTERVAL_SECONDS, 5).
 
 -ifdef(TEST).
--define(REGISTRY_GC_INTERVAL_MS, 1000).
 -define(REGISTRY_GC_CHUNK_SIZE, 50).
 -define(REGISTRY_GC_CHUNK_INTERVAL_MS, 50).
 -else.
--define(REGISTRY_GC_INTERVAL_MS, timer:minutes(10)).
 -define(REGISTRY_GC_CHUNK_SIZE, 100).
 %% 100 keys / 200 ms = 500 keys / s
 -define(REGISTRY_GC_CHUNK_INTERVAL_MS, 200).
@@ -159,16 +157,19 @@ handle_info(start, State0) ->
     %% ensure_sweep_keys/1 makes the per-sweep counter and node-cache keys
     %% present, so a hot-loaded beam survives the first tick when the
     %% pre-upgrade state only had next_clientid+timer_ref.
+    %%
+    %% Scheduled sweeps do NOT emit cm_registry_gc_started: it would just
+    %% be telemetry noise on quiet nodes, and in test mode with hist
+    %% enabled (1s cadence) it would keep unrelated suites' snabbkaffe
+    %% wait-for-silence ticking. cm_registry_gc_finished is emitted only
+    %% when the sweep actually deleted something.
     #{next_clientid := Cursor, timer_ref := OldTimerRef} =
         State1 = ensure_sweep_keys(State0),
     is_reference(OldTimerRef) andalso erlang:cancel_timer(OldTimerRef),
     State2 =
         case Cursor of
-            undefined ->
-                ?tp(info, cm_registry_gc_started, #{}),
-                reset_sweep_state(State1, _Forced = false);
-            _ ->
-                State1
+            undefined -> reset_sweep_state(State1, _Forced = false);
+            _ -> State1
         end,
     do_run_chunk(Cursor, State2);
 handle_info(_Info, State) ->
@@ -249,6 +250,20 @@ sweep_summary(State) ->
 bump(Key, State) ->
     maps:update_with(Key, fun(V) -> V + 1 end, State).
 
+%% Scheduled sweeps stay silent when nothing was deleted: quiet nodes
+%% don't stream a steady event for telemetry / snabbkaffe to wade
+%% through. The forced (test) path always emits unconditionally.
+maybe_emit_finished(
+    #{
+        deleted_hist := 0,
+        deleted_local_dead := 0,
+        deleted_remote_orphan := 0
+    }
+) ->
+    ok;
+maybe_emit_finished(Summary) ->
+    ?tp(info, cm_registry_gc_finished, Summary).
+
 %%--------------------------------------------------------------------
 %% Chunked walk (scheduled)
 %%--------------------------------------------------------------------
@@ -257,8 +272,7 @@ do_run_chunk(Cursor, State0) ->
     {NewNext, State1} = run_chunk_loop(Cursor, ?REGISTRY_GC_CHUNK_SIZE, State0),
     case NewNext of
         '$end_of_table' ->
-            Summary = sweep_summary(State1),
-            ?tp(info, cm_registry_gc_finished, Summary),
+            maybe_emit_finished(sweep_summary(State1)),
             TimerRef = send_delay_start(),
             {noreply, State1#{next_clientid := undefined, timer_ref := TimerRef}};
         Cid ->
@@ -404,12 +418,30 @@ is_hist_enabled() ->
 retain_duration() ->
     emqx:get_config([broker, session_history_retain]).
 
-%% Single cadence between sweeps for both hist retention and stale-pid GC.
-%% Hist tombstones may therefore live up to ?REGISTRY_GC_INTERVAL_MS past
-%% their `session_history_retain' expiry; that grace is acceptable since
-%% the field is informational (count/1 already filters by timestamp).
+-ifdef(TEST).
+%% Test mode: when hist is enabled, schedule on a short cadence so suites
+%% that exercise the scheduled sweep converge quickly. When hist is
+%% disabled, fall back to a 2-minute floor so suites that don't care
+%% about the keeper do not see periodic sweep ?tp events (or sibling
+%% 1 Hz emitters like emqx_stats) keeping snabbkaffe's wait-for-silence
+%% ticking forever.
 cleanup_delay() ->
-    ?REGISTRY_GC_INTERVAL_MS.
+    Default = timer:minutes(2),
+    case retain_duration() of
+        0 ->
+            Default;
+        RetainSeconds ->
+            Min = max(timer:seconds(1), timer:seconds(RetainSeconds) div 4),
+            min(Min, Default)
+    end.
+-else.
+%% Production: single 10-minute cadence for both hist retention and
+%% stale-pid GC. Hist tombstones may therefore live up to 10 minutes
+%% past their `session_history_retain' expiry; that grace is acceptable
+%% since the field is informational (count/1 already filters by ts).
+cleanup_delay() ->
+    timer:minutes(10).
+-endif.
 
 send_delay_start() ->
     Delay = cleanup_delay(),
