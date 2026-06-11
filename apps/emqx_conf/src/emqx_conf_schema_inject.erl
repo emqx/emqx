@@ -7,26 +7,23 @@
 -export([schemas/0]).
 
 schemas() ->
-    schemas(emqx_release:edition()).
-
-schemas(Edition) ->
-    mria(Edition) ++
-        cluster_linking(Edition) ++
-        authn(Edition) ++
+    mria() ++
+        cluster_linking() ++
+        authn() ++
         authz() ++
-        bridges(Edition) ++
-        customized(Edition).
+        bridges() ++
+        customized().
 
-mria(ee) ->
+mria() ->
     [emqx_enterprise_schema].
 
-cluster_linking(ee) ->
+cluster_linking() ->
     [emqx_cluster_link_schema].
 
-authn(Edition) ->
-    [{emqx_authn_schema, authn_mods(Edition)}].
+authn() ->
+    [{emqx_authn_schema, authn_mods()}].
 
-authn_mods(ee) ->
+authn_mods() ->
     [
         emqx_authn_mnesia_schema,
         emqx_authn_mysql_schema,
@@ -58,7 +55,7 @@ authz_mods() ->
         emqx_authz_ldap_schema
     ].
 
-bridges(ee) ->
+bridges() ->
     [
         emqx_bridge_disk_log_connector_schema,
         emqx_bridge_mqtt_connector_schema,
@@ -66,5 +63,5 @@ bridges(ee) ->
     ].
 
 %% Add more schemas here.
-customized(_) ->
+customized() ->
     [].
