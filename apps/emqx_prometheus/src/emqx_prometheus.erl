@@ -50,12 +50,6 @@
 
 -export([collect/1]).
 
--export([
-    %% For bpapi, deprecated_since 5.0.10, remove this when 5.1.x
-    do_start/0,
-    do_stop/0
-]).
-
 -ifdef(TEST).
 -export([cert_expiry_at_from_path/1, acl_metric_meta/0]).
 -endif.
@@ -1356,17 +1350,6 @@ with_node_label(?PROM_DATA_MODE__ALL_NODES_AGGREGATED, Labels) ->
     Labels;
 with_node_label(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, Labels) ->
     [{node, node()} | Labels].
-
-%%--------------------------------------------------------------------
-%% bpapi
-
-%% deprecated_since 5.0.10, remove this when 5.1.x
-do_start() ->
-    emqx_prometheus_sup:start_child(?APP).
-
-%% deprecated_since 5.0.10, remove this when 5.1.x
-do_stop() ->
-    emqx_prometheus_sup:stop_child(?APP).
 
 %%--------------------------------------------------------------------
 %% prometheus_model_helpers proxy

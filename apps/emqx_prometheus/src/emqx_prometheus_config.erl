@@ -10,13 +10,10 @@
 -export([add_handler/0, remove_handler/0]).
 -export([pre_config_update/3, post_config_update/5]).
 -export([update/1]).
+-export([register_collectors/0]).
 -export([conf/0, is_push_gateway_server_enabled/1]).
 -export([to_recommend_type/1]).
 -export([mria_lag_refresh_interval/0]).
-
--ifdef(TEST).
--export([all_collectors/0]).
--endif.
 
 update(Config) ->
     case
@@ -89,35 +86,110 @@ to_collectors(Conf) ->
         ]
     ).
 
-post_config_update(?PROMETHEUS, _Req, New, Old, AppEnvs) ->
-    update_prometheus(AppEnvs),
+post_config_update(?PROMETHEUS, _Req, New, Old, _AppEnvs) ->
+    _ = register_collectors(New),
     _ = update_push_gateway(New),
     ok = emqx_prometheus_auth:update_latency_metrics(New),
     update_auth(New, Old);
 post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
-update_prometheus(AppEnvs) ->
-    PrevCollectors = all_collectors(),
-    CurCollectors = proplists:get_value(collectors, proplists:get_value(prometheus, AppEnvs)),
-    lists:foreach(
-        fun prometheus_registry:deregister_collector/1,
-        PrevCollectors -- CurCollectors
-    ),
-    lists:foreach(
-        fun prometheus_registry:register_collector/1,
-        CurCollectors -- PrevCollectors
-    ),
-    application:set_env(AppEnvs).
+register_collectors() ->
+    register_collectors(conf()).
 
-all_collectors() ->
-    lists:foldl(
-        fun(Registry, AccIn) ->
-            prometheus_registry:collectors(Registry) ++ AccIn
+register_collectors(Conf) ->
+    lists:foreach(
+        fun(Registry) ->
+            register_collectors(Registry, collectors(Registry, Conf))
         end,
-        _InitAcc = [],
         ?PROMETHEUS_ALL_REGISTRIES
     ).
+
+register_collectors(Registry, Collectors) ->
+    PrevCollectors = prometheus_registry:collectors(Registry),
+    lists:foreach(
+        fun(Collector) ->
+            prometheus_registry:deregister_collector(Registry, Collector)
+        end,
+        PrevCollectors -- Collectors
+    ),
+    lists:foreach(
+        fun(Collector) ->
+            prometheus_registry:register_collector(Registry, Collector)
+        end,
+        Collectors -- PrevCollectors
+    ).
+
+collectors(?PROMETHEUS_DEFAULT_REGISTRY, Prometheus) ->
+    default_collectors(Prometheus);
+collectors(Registry, _Prometheus) ->
+    proplists:get_value(Registry, named_collectors(), []).
+
+default_collectors(Prometheus) ->
+    [emqx_prometheus] ++ static_collectors() ++ vm_collectors(Prometheus).
+
+static_collectors() ->
+    [
+        prometheus_boolean,
+        prometheus_counter,
+        prometheus_gauge,
+        prometheus_histogram,
+        prometheus_quantile_summary,
+        prometheus_summary
+    ].
+
+vm_collectors(#{collectors := Collectors}) ->
+    enabled_vm_collectors(Collectors);
+vm_collectors(Prometheus) ->
+    enabled_vm_collectors(legacy_collectors(Prometheus)).
+
+enabled_vm_collectors(Collectors) ->
+    [
+        Collector
+     || {Key, Collector} <- vm_collector_specs(),
+        is_collector_enabled(Key, Collectors)
+    ].
+
+legacy_collectors(Prometheus) ->
+    maps:from_list(
+        [
+            {Key, maps:get(LegacyKey, Prometheus, disabled)}
+         || {LegacyKey, Key} <- legacy_collector_keys()
+        ]
+    ).
+
+legacy_collector_keys() ->
+    [
+        {vm_dist_collector, vm_dist},
+        {mnesia_collector, mnesia},
+        {vm_statistics_collector, vm_statistics},
+        {vm_system_info_collector, vm_system_info},
+        {vm_memory_collector, vm_memory},
+        {vm_msacc_collector, vm_msacc}
+    ].
+
+vm_collector_specs() ->
+    [
+        {vm_dist, prometheus_vm_dist_collector},
+        {mnesia, prometheus_mnesia_collector},
+        {vm_statistics, prometheus_vm_statistics_collector},
+        {vm_system_info, prometheus_vm_system_info_collector},
+        {vm_memory, prometheus_vm_memory_collector},
+        {vm_msacc, prometheus_vm_msacc_collector}
+    ].
+
+is_collector_enabled(Key, Collectors) ->
+    maps:get(Key, Collectors, maps:get(atom_to_binary(Key), Collectors, disabled)) =:= enabled.
+
+named_collectors() ->
+    [
+        {?PROMETHEUS_AUTH_REGISTRY, [?PROMETHEUS_AUTH_COLLECTOR]},
+        {?PROMETHEUS_DATA_INTEGRATION_REGISTRY, [?PROMETHEUS_DATA_INTEGRATION_COLLECTOR]},
+        {?PROMETHEUS_SCHEMA_VALIDATION_REGISTRY, [?PROMETHEUS_SCHEMA_VALIDATION_COLLECTOR]},
+        {?PROMETHEUS_MESSAGE_TRANSFORMATION_REGISTRY, [
+            ?PROMETHEUS_MESSAGE_TRANSFORMATION_COLLECTOR
+        ]}
+    ].
 
 update_push_gateway(Prometheus) ->
     case is_push_gateway_server_enabled(Prometheus) of
