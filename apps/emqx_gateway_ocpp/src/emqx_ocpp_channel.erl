@@ -9,6 +9,7 @@
 -include("emqx_ocpp.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -356,14 +357,16 @@ auth_connect(
 publish(
     Frame,
     Channel = #channel{
+        ctx = Ctx,
         clientinfo =
-            #{
-                clientid := ClientId,
-                username := Username,
-                protocol := Protocol,
-                peerhost := PeerHost,
-                mountpoint := Mountpoint
-            },
+            ClientInfo =
+                #{
+                    clientid := ClientId,
+                    username := Username,
+                    protocol := Protocol,
+                    peerhost := PeerHost,
+                    mountpoint := Mountpoint
+                },
         conninfo = #{proto_ver := ProtoVer}
     }
 ) when
@@ -372,21 +375,28 @@ publish(
     Topic0 = upstream_topic(Frame, Channel),
     Topic = emqx_mountpoint:mount(Mountpoint, Topic0),
     Payload = frame2payload(Frame),
-    emqx_broker:publish(
-        emqx_message:make(
-            ClientId,
-            ?QOS_2,
-            Topic,
-            Payload,
-            #{},
-            #{
-                protocol => Protocol,
-                proto_ver => ProtoVer,
-                username => Username,
-                peerhost => PeerHost
-            }
-        )
-    ).
+    Action = ?AUTHZ_PUBLISH(?QOS_2, false),
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic0) of
+        allow ->
+            emqx_broker:publish(
+                emqx_message:make(
+                    ClientId,
+                    ?QOS_2,
+                    Topic,
+                    Payload,
+                    #{},
+                    #{
+                        protocol => Protocol,
+                        proto_ver => ProtoVer,
+                        username => Username,
+                        peerhost => PeerHost
+                    }
+                )
+            );
+        deny ->
+            ?SLOG(info, #{msg => "publish_denied", topic => Topic0}),
+            ok
+    end.
 
 upstream_topic(
     Frame = #{id := Id, type := Type},
@@ -848,15 +858,29 @@ heartbeat_checking_times_backoff() ->
 %% Ensure Subscriptions
 
 ensure_subscribe_dn_topics(
-    Channel = #channel{clientinfo = #{clientid := ClientId, mountpoint := Mountpoint} = ClientInfo}
+    Channel = #channel{
+        ctx = Ctx,
+        clientinfo = #{clientid := ClientId, mountpoint := Mountpoint} = ClientInfo
+    }
 ) ->
     SubOpts = ?DEFAULT_OCPP_DN_SUBOPTS,
-    Topic = dntopic(ClientId, Mountpoint),
-    ok = emqx_broker:subscribe(Topic, ClientId, SubOpts),
-    ok = emqx_hooks:run('session.subscribed', [ClientInfo, Topic, SubOpts]),
-    Channel.
+    Topic0 = dntopic(ClientId),
+    Topic = emqx_mountpoint:mount(Mountpoint, Topic0),
+    Action = ?AUTHZ_SUBSCRIBE(maps:get(qos, SubOpts, 0)),
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic0) of
+        allow ->
+            ok = emqx_broker:subscribe(Topic, ClientId, SubOpts),
+            ok = emqx_hooks:run('session.subscribed', [ClientInfo, Topic, SubOpts]),
+            Channel;
+        deny ->
+            ?SLOG(info, #{msg => "subscribe_denied", topic => Topic0}),
+            Channel
+    end.
 
 dntopic(ClientId, Mountpoint) ->
+    emqx_mountpoint:mount(Mountpoint, dntopic(ClientId)).
+
+dntopic(ClientId) ->
     Topic0 = proc_tmpl(
         emqx_ocpp_conf:dntopic(),
         #{
@@ -864,7 +888,7 @@ dntopic(ClientId, Mountpoint) ->
             cid => ClientId
         }
     ),
-    emqx_mountpoint:mount(Mountpoint, Topic0).
+    Topic0.
 
 %%--------------------------------------------------------------------
 %% Helper functions
