@@ -11,7 +11,7 @@
 ## BUILD_FROM=emqx/emqx-enterprise:5.10.5 \
 ## ./build emqx-enterprise docker
 
-ARG BUILD_FROM=emqx/emqx-enterprise:latest
+ARG BUILD_FROM=emqx/emqx-enterprise:5.10.5
 FROM $BUILD_FROM
 
 USER root
