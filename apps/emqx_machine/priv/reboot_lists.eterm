@@ -88,7 +88,6 @@
     %% must always be of type `load'
     ee_business_apps =>
         [
-            emqx_enterprise,
             emqx_opentelemetry,
             emqx_mt,
             emqx_mq,

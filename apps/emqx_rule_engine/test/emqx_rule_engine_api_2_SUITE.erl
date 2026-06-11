@@ -104,7 +104,7 @@ app_specs_no_dashboard() ->
                 fun(App, AppOpts) ->
                     %% We need this in the tests because `emqx_cth_suite` does not start apps in
                     %% the exact same way as the release works: in the release,
-                    %% `emqx_enterprise_schema` is the root schema that knows all root keys.  In
+                    %% `emqx_conf_schema` is the root schema that knows all root keys.  In
                     %% CTH, we need to manually load the schema below so that when
                     %% `emqx_config:init_load` runs and encounters a namespaced root key, it knows
                     %% the schema module for it.

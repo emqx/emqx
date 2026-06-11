@@ -76,7 +76,6 @@ emqx_ds_builtin_local
 emqx_ds_builtin_raft
 emqx_durable_storage
 emqx_durable_timer
-emqx_enterprise
 emqx_eviction_agent
 emqx_exhook
 emqx_extsub

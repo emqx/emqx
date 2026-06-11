@@ -457,7 +457,7 @@ warn_bad_namespace(Namespace) ->
 schema_module() ->
     case os:getenv("SCHEMA_MOD") of
         false ->
-            emqx_enterprise_schema;
+            emqx_conf_schema;
         Value ->
             list_to_existing_atom(Value)
     end.

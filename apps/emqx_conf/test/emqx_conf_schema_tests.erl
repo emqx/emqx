@@ -495,6 +495,87 @@ doc_gen_test() ->
         end
     }.
 
+audit_log_test() ->
+    ensure_acl_conf(),
+    Conf0 = <<"node {cookie = aaa, data_dir = \"/tmp\"}, log.audit.enable=true">>,
+    {ok, ConfMap0} = hocon:binary(Conf0, #{format => richmap}),
+    ConfList = hocon_tconf:generate(emqx_conf_schema, ConfMap0),
+    Kernel = proplists:get_value(kernel, ConfList),
+    Loggers = proplists:get_value(logger, Kernel),
+    FileHandlers = lists:filter(fun(L) -> element(3, L) =:= logger_disk_log_h end, Loggers),
+    AuditHandler = lists:keyfind(emqx_audit, 2, FileHandlers),
+    ?assertMatch(
+        {handler, emqx_audit, logger_disk_log_h, #{
+            config := #{
+                type := wrap,
+                file := "log/audit.log",
+                max_no_bytes := _,
+                max_no_files := _
+            },
+            filesync_repeat_interval := no_repeat,
+            filters := [{filter_audit, {_, stop}}],
+            formatter := _,
+            level := info
+        }},
+        AuditHandler
+    ),
+    ok.
+
+injected_roots_test() ->
+    ExpectedRoots = lists:usort(release_app_schema_roots()),
+    InjectedRoots = lists:usort(get_roots(emqx_conf_schema)),
+    MissingRoots = ExpectedRoots -- InjectedRoots,
+    ?assertEqual([], MissingRoots, #{
+        missing => ExpectedRoots -- InjectedRoots,
+        unknown => InjectedRoots -- ExpectedRoots,
+        hint => <<"maybe there's a missing schema module to be added to `MERGED_CONFIGS'">>
+    }),
+    ok.
+
+release_app_schema_roots() ->
+    #{ee_business_apps := Apps} = emqx_machine_boot:read_apps(),
+    lists:append([release_app_schema_roots(atom_to_list(App)) || App <- Apps]).
+
+release_app_schema_roots(AppName) ->
+    lists:foldl(
+        fun(Filepath, Acc) ->
+            Mod = module(Filepath),
+            case has_roots(Mod) of
+                true ->
+                    get_roots(Mod) ++ Acc;
+                false ->
+                    Acc
+            end
+        end,
+        [],
+        filelib:wildcard("apps/" ++ AppName ++ "/src/**/*_schema.erl")
+    ).
+
+module(Filepath) ->
+    ModStr = filename:basename(Filepath, ".erl"),
+    list_to_atom(ModStr).
+
+get_roots(Mod) ->
+    lists:map(
+        fun
+            ({Root, _Sc}) ->
+                Root;
+            (Root) when is_atom(Root) ->
+                Root
+        end,
+        Mod:roots()
+    ).
+
+has_roots(Mod) ->
+    try
+        Mod:module_info(module),
+        erlang:function_exported(Mod, roots, 0) andalso
+            Mod:roots() =/= []
+    catch
+        error:undef ->
+            false
+    end.
+
 to_bin(Format, Args) ->
     iolist_to_binary(io_lib:format(Format, Args)).
 

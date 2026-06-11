@@ -34,7 +34,7 @@ emqx_bridge_doris: none
 emqx_bridge_dynamo: none
 emqx_bridge_emqx_tables: none
 emqx_bridge_es: none
-emqx_bridge_gcp_pubsub: emqx_bridge_bigquery emqx_bridge_bigtable emqx_enterprise
+emqx_bridge_gcp_pubsub: all
 emqx_bridge_greptimedb: emqx_bridge_emqx_tables
 emqx_bridge_http: all
 emqx_bridge_influxdb: emqx_bridge_aws_timestream emqx_bridge_datalayers emqx_bridge_emqx_tables emqx_bridge_greptimedb emqx_bridge_tablestore
@@ -76,7 +76,6 @@ emqx_ds_builtin_local: all
 emqx_ds_builtin_raft: all
 emqx_durable_storage: all
 emqx_durable_timer: all
-emqx_enterprise: none
 emqx_eviction_agent: emqx_node_rebalance
 emqx_exhook: all
 emqx_extsub: all

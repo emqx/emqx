@@ -506,4 +506,4 @@ schema_module() ->
 
 %% "Unofficial" `emqx_conf' API
 upgrade_raw_conf(Conf) ->
-    emqx_enterprise_schema:upgrade_raw_conf(Conf).
+    emqx_conf_schema:upgrade_raw_conf(Conf).

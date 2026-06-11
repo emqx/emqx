@@ -1116,7 +1116,7 @@ defmodule EMQXUmbrella.MixProject do
   defp emqx_configuration_doc(:enterprise, :log),
     do: "https://docs.emqx.com/en/enterprise/latest/configuration/logs.html"
 
-  defp emqx_schema_mod(:enterprise), do: :emqx_enterprise_schema
+  defp emqx_schema_mod(:enterprise), do: :emqx_conf_schema
 
   def jq_dep() do
     if enable_jq?(),
