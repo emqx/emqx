@@ -34,7 +34,7 @@ defmodule EMQXPrometheus.MixProject do
       {:emqx_resource, in_umbrella: true},
       {:emqx_durable_storage, in_umbrella: true},
       {:prometheus,
-       git: "https://github.com/prometheus-erl/prometheus.erl", tag: "v6.1.2", manager: :rebar3}
+       git: "https://github.com/emqx/prometheus.erl", tag: "v6.1.2-emqx-1", manager: :rebar3}
     ])
   end
 
