@@ -58,6 +58,7 @@ init_per_suite(Config) ->
             emqx_gateway_ocpp,
             emqx_gateway,
             emqx_auth,
+            emqx_auth_mnesia,
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
         ],
@@ -154,6 +155,39 @@ gateway_authz_result(
 ) ->
     {ok, DefaultResult}.
 
+create_authenticator() ->
+    AuthnConfig = #{
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"built_in_database">>,
+        <<"user_id_type">> => <<"username">>,
+        <<"password_hash_algorithm">> => #{
+            <<"name">> => <<"plain">>,
+            <<"salt_position">> => <<"suffix">>
+        }
+    },
+    {ok, _} = emqx_gateway_conf:add_authn(<<"ocpp">>, AuthnConfig),
+    ok.
+
+delete_authenticators() ->
+    _ = emqx_gateway_conf:remove_authn(<<"ocpp">>),
+    emqx_authn_test_lib:delete_authenticators([gateway, ocpp, authentication], 'ocpp:global').
+
+add_authenticator_user(UserId, Password) ->
+    {ok, _} = emqx_authn_chains:add_user(
+        'ocpp:global',
+        <<"password_based:built_in_database">>,
+        #{user_id => UserId, password => Password}
+    ),
+    ok.
+
+set_ocpp_listener_enable_authn(EnableAuthn) ->
+    RawCfg = emqx_conf:get_raw([gateway, ocpp], #{}),
+    ListenerCfg = emqx_utils_maps:deep_get([<<"listeners">>, <<"ws">>, <<"default">>], RawCfg),
+    {ok, _} = emqx_gateway_conf:update_listener(ocpp, {ws, default}, ListenerCfg#{
+        <<"enable_authn">> => EnableAuthn
+    }),
+    ok.
+
 %%--------------------------------------------------------------------
 %% cases
 %%--------------------------------------------------------------------
@@ -243,6 +277,22 @@ t_init_respects_listener_enable_authn(_Config) ->
     ClientInfo = emqx_ocpp_channel:info(clientinfo, Channel),
     ?assertMatch(#{enable_authn := false}, ClientInfo),
     ?assertEqual(false, maps:is_key(enalbe_authn, ClientInfo)).
+
+t_listener_enable_authn_false_skips_authentication(_Config) ->
+    ClientId = <<"authn-disabled-ocpp-client">>,
+    Username = <<"ocpp-user">>,
+    AuthHeaders = [basic_auth_header(Username, <<"bad-password">>)],
+    try
+        ok = create_authenticator(),
+        ok = add_authenticator_user(Username, <<"good-password">>),
+        assert_connect_failed(connect("127.0.0.1", 33033, ClientId, AuthHeaders)),
+        ok = set_ocpp_listener_enable_authn(false),
+        {ok, Client} = connect("127.0.0.1", 33033, ClientId, AuthHeaders),
+        close(Client)
+    after
+        ok = set_ocpp_listener_enable_authn(true),
+        delete_authenticators()
+    end.
 
 t_adjust_keepalive_timer(_Config) ->
     {ok, Client} = connect("127.0.0.1", 33033, <<"client1">>),
@@ -509,12 +559,15 @@ t_active_n(_Config) ->
 %% ocpp simple client
 
 connect(Host, Port, ClientId) ->
+    connect(Host, Port, ClientId, []).
+
+connect(Host, Port, ClientId, ExtraHeaders) ->
     Timeout = 5000,
     ConnOpts = #{connect_timeout => 5000},
     case gun:open(Host, Port, ConnOpts) of
         {ok, ConnPid} ->
             {ok, _} = gun:await_up(ConnPid, Timeout),
-            case upgrade(ConnPid, ClientId, Timeout) of
+            case upgrade(ConnPid, ClientId, Timeout, ExtraHeaders) of
                 {ok, StreamRef} -> {ok, {ConnPid, StreamRef}};
                 Error -> Error
             end;
@@ -522,9 +575,9 @@ connect(Host, Port, ClientId) ->
             Error
     end.
 
-upgrade(ConnPid, ClientId, Timeout) ->
+upgrade(ConnPid, ClientId, Timeout, ExtraHeaders) ->
     Path = binary_to_list(<<"/ocpp/", ClientId/binary>>),
-    WsHeaders = [{<<"cache-control">>, <<"no-cache">>}],
+    WsHeaders = [{<<"cache-control">>, <<"no-cache">>} | ExtraHeaders],
     StreamRef = gun:ws_upgrade(ConnPid, Path, WsHeaders, #{protocols => [{<<"ocpp1.6">>, gun_ws_h}]}),
     receive
         {gun_upgrade, ConnPid, StreamRef, [<<"websocket">>], _Headers} ->
@@ -536,6 +589,19 @@ upgrade(ConnPid, ClientId, Timeout) ->
     after Timeout ->
         {error, timeout}
     end.
+
+basic_auth_header(Username, Password) ->
+    Credential = <<Username/binary, ":", Password/binary>>,
+    Encoded = base64:encode(Credential),
+    {<<"authorization">>, <<"Basic ", Encoded/binary>>}.
+
+assert_connect_failed({ok, Client}) ->
+    close(Client),
+    ct:fail(expected_ocpp_websocket_authentication_failure);
+assert_connect_failed({error, {ws_upgrade_failed, _Status, _Headers}}) ->
+    ok;
+assert_connect_failed(Error) ->
+    ct:fail({unexpected_ocpp_websocket_connect_result, Error}).
 
 send_msg({ConnPid, StreamRef}, Frame) when is_map(Frame) ->
     Opts = emqx_ocpp_frame:serialize_opts(),
