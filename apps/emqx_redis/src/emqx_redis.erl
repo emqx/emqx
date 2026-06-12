@@ -124,7 +124,8 @@ on_start(InstId, Config0) ->
     }),
     Config = config(Config0),
     #{pool_size := PoolSize, ssl := SSL, redis_type := Type} = Config,
-    Options = ssl_options(SSL) ++ [{sentinel, maps:get(sentinel, Config, undefined)}],
+    BaseOptions = ssl_options(SSL) ++ [{sentinel, maps:get(sentinel, Config, undefined)}],
+    Options = runtime_options(Type, InstId, BaseOptions),
     Opts =
         [
             {username, maps:get(username, Config, undefined)},
@@ -138,7 +139,7 @@ on_start(InstId, Config0) ->
     State = #{pool_name => InstId, type => Type},
     ok = emqx_resource:allocate_resource(InstId, ?MODULE, type, Type),
     ok = emqx_resource:allocate_resource(InstId, ?MODULE, pool_name, InstId),
-    case validate_sentinel_connection(Type, InstId, Config, Options) of
+    case validate_sentinel_connection(Type, InstId, Config, BaseOptions) of
         ok ->
             do_start(Type, InstId, Opts, State);
         {error, Reason} ->
@@ -159,8 +160,17 @@ do_start(_Type, InstId, Opts, State) ->
         ok ->
             {ok, State};
         {error, Reason} ->
+            ok = stop_sentinel_manager(State),
             {error, Reason}
     end.
+
+runtime_options(sentinel, InstId, Options) ->
+    [{sentinel_manager_ref, sentinel_manager_ref(InstId)} | Options];
+runtime_options(_Type, _InstId, Options) ->
+    Options.
+
+sentinel_manager_ref(InstId) ->
+    {?MODULE, InstId}.
 
 validate_sentinel_connection(sentinel, InstId, Config, Options) ->
     Servers = servers(Config),
@@ -252,6 +262,11 @@ on_stop(InstId, _State) ->
     }),
     Resources = emqx_resource:get_allocated_resources(InstId),
     ok = stop_sentinel_validation_client(Resources),
+    StopResult = stop_pool(Resources),
+    ok = stop_sentinel_manager(Resources),
+    StopResult.
+
+stop_pool(Resources) ->
     case Resources of
         #{pool_name := PoolName, type := cluster} ->
             case eredis_cluster:stop_pool(PoolName) of
@@ -264,6 +279,11 @@ on_stop(InstId, _State) ->
         _ ->
             ok
     end.
+
+stop_sentinel_manager(#{pool_name := PoolName, type := sentinel}) ->
+    eredis:stop_sentinel_manager(sentinel_manager_ref(PoolName));
+stop_sentinel_manager(_Resources) ->
+    ok.
 
 on_query(InstId, {cmd, _} = Query, State) ->
     do_query(InstId, Query, State);

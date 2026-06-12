@@ -153,6 +153,76 @@ t_sentinel_auth_master_auth_sentinel_auth(_Config) ->
         sentinel_auth => password
     }).
 
+t_sentinel_resources_do_not_share_sentinel_state(_Config) ->
+    catch eredis_sentinel:stop(),
+    ResourceId1 = <<"emqx_redis_SUITE_sentinel_isolation_noauth">>,
+    ResourceId2 = <<"emqx_redis_SUITE_sentinel_isolation_auth">>,
+    Config1 = redis_config_sentinel_auth_matrix(
+        ?REDIS_SENTINEL_S_NO_AUTH_M_NO_AUTH_HOST,
+        none,
+        none
+    ),
+    Config2 = redis_config_sentinel_auth_matrix(
+        ?REDIS_SENTINEL_S_NO_AUTH_M_AUTH_HOST,
+        password,
+        none
+    ),
+    {ok, #{config := CheckedConfig1}} = emqx_resource:check_config(?REDIS_RESOURCE_MOD, Config1),
+    {ok, #{config := CheckedConfig2}} = emqx_resource:check_config(?REDIS_RESOURCE_MOD, Config2),
+    try
+        {ok, #{status := connected}} = emqx_resource:create_local(
+            ResourceId1,
+            ?CONNECTOR_RESOURCE_GROUP,
+            ?REDIS_RESOURCE_MOD,
+            CheckedConfig1,
+            #{spawn_buffer_workers => true}
+        ),
+        ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId1)),
+        ?assertEqual({ok, <<"PONG">>}, emqx_resource:query(ResourceId1, {cmd, [<<"PING">>]})),
+        {ok, #{status := connected}} = emqx_resource:create_local(
+            ResourceId2,
+            ?CONNECTOR_RESOURCE_GROUP,
+            ?REDIS_RESOURCE_MOD,
+            CheckedConfig2,
+            #{spawn_buffer_workers => true}
+        ),
+        ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId2)),
+        ?assertEqual({ok, <<"PONG">>}, emqx_resource:query(ResourceId2, {cmd, [<<"PING">>]}))
+    after
+        catch emqx_resource:remove_local(ResourceId1),
+        catch emqx_resource:remove_local(ResourceId2),
+        catch eredis_sentinel:stop()
+    end.
+
+t_sentinel_manager_removed_when_resource_removed(_Config) ->
+    ResourceId = <<"emqx_redis_SUITE_sentinel_manager_cleanup">>,
+    ManagerName = sentinel_manager_name(ResourceId),
+    Config = redis_config_sentinel_auth_matrix(
+        ?REDIS_SENTINEL_S_NO_AUTH_M_NO_AUTH_HOST,
+        none,
+        none
+    ),
+    {ok, #{config := CheckedConfig}} = emqx_resource:check_config(?REDIS_RESOURCE_MOD, Config),
+    try
+        ?assertEqual(undefined, eredis_sentinel_registry:whereis_name(ManagerName)),
+        {ok, #{status := connected}} = emqx_resource:create_local(
+            ResourceId,
+            ?CONNECTOR_RESOURCE_GROUP,
+            ?REDIS_RESOURCE_MOD,
+            CheckedConfig,
+            #{spawn_buffer_workers => true}
+        ),
+        ManagerPid = wait_until_sentinel_manager_started(ManagerName),
+        ?assert(is_process_alive(ManagerPid)),
+        ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId)),
+
+        ?assertEqual(ok, emqx_resource:remove_local(ResourceId)),
+        wait_until_sentinel_manager_stopped(ManagerName, ManagerPid)
+    after
+        catch emqx_resource:remove_local(ResourceId),
+        catch eredis_sentinel:stop(ManagerName)
+    end.
+
 t_sentinel_dry_run_rejects_stale_sentinel_auth(_Config) ->
     ResourceId = <<"emqx_redis_SUITE_sentinel_dry_run_auth">>,
     GoodConfig = redis_config_sentinel_auth_matrix(
@@ -363,6 +433,37 @@ run_sentinel_auth_matrix_case(#{
         )
     after
         catch emqx_resource:remove_local(ResourceId)
+    end.
+
+sentinel_manager_name(ResourceId) ->
+    {eredis_sentinel, {?REDIS_RESOURCE_MOD, ResourceId}}.
+
+wait_until_sentinel_manager_started(ManagerName) ->
+    wait_until_sentinel_manager_started(ManagerName, 20).
+
+wait_until_sentinel_manager_started(ManagerName, 0) ->
+    ct:fail({sentinel_manager_not_started, ManagerName});
+wait_until_sentinel_manager_started(ManagerName, Retries) ->
+    case eredis_sentinel_registry:whereis_name(ManagerName) of
+        Pid when is_pid(Pid) ->
+            Pid;
+        undefined ->
+            timer:sleep(100),
+            wait_until_sentinel_manager_started(ManagerName, Retries - 1)
+    end.
+
+wait_until_sentinel_manager_stopped(ManagerName, ManagerPid) ->
+    wait_until_sentinel_manager_stopped(ManagerName, ManagerPid, 20).
+
+wait_until_sentinel_manager_stopped(ManagerName, ManagerPid, 0) ->
+    ct:fail({sentinel_manager_not_stopped, ManagerName, ManagerPid});
+wait_until_sentinel_manager_stopped(ManagerName, ManagerPid, Retries) ->
+    case {eredis_sentinel_registry:whereis_name(ManagerName), is_process_alive(ManagerPid)} of
+        {undefined, false} ->
+            ok;
+        _ ->
+            timer:sleep(100),
+            wait_until_sentinel_manager_stopped(ManagerName, ManagerPid, Retries - 1)
     end.
 
 -define(REDIS_CONFIG_BASE(MaybeSentinel, MaybeDatabase),

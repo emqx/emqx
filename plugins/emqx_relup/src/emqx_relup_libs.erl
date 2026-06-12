@@ -3,6 +3,7 @@
 -export([
     make_libs_info/2,
     get_app_mods/2,
+    get_app_ebin/2,
     rel_libs/1,
     rel_vsn/1,
     rel_erts_vsn/1,
@@ -17,6 +18,7 @@ make_libs_info(Rel, Dir) ->
     AppDescList = make_app_desc_list(rel_libs(Rel), Dir),
     #{
         mod_app_mapping => make_mod_app_mapping(AppDescList, Dir),
+        app_ebin_mapping => make_app_ebin_mapping(AppDescList, Dir),
         app_desc_list => AppDescList
     }.
 
@@ -31,6 +33,14 @@ get_app_mods(AppName, #{app_desc_list := AppDescL}) ->
                 no_modules_in_app_desc,
                 #{func => get_app_mods, app => AppName}
             )
+    end.
+
+get_app_ebin(AppName, #{app_ebin_mapping := AppEbinMapping}) ->
+    case maps:get(AppName, AppEbinMapping, undefined) of
+        undefined ->
+            throw(make_error(app_not_found, #{app_name => AppName}));
+        EbinDir ->
+            EbinDir
     end.
 
 rel_libs({release, _Emqx, _Erts, Libs}) ->
@@ -94,4 +104,23 @@ make_mod_app_mapping(AppDescList, Dir) ->
         end,
         #{},
         AppDescList
+    ).
+
+make_app_ebin_mapping(AppDescList, Dir) ->
+    maps:from_list(
+        lists:map(
+            fun({application, AppName, Attrs}) ->
+                AppVsn = emqx_relup_utils:assert_propl_get(vsn, Attrs, no_vsn_in_app_desc, #{
+                    app => AppName
+                }),
+                EbinDir = filename:join([
+                    Dir,
+                    "lib",
+                    concat([AppName, "-", AppVsn]),
+                    "ebin"
+                ]),
+                {AppName, EbinDir}
+            end,
+            AppDescList
+        )
     ).

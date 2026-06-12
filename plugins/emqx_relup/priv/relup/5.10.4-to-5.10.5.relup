@@ -1,0 +1,12 @@
+#{
+    from_version => "5.10.4",
+    target_version => "5.10.5",
+    code_changes => [
+        {load_module, emqx_release},
+        {apply, emqx_relup_eredis_upgrade, stop_redis_resources, []},
+        {restart_application, eredis},
+        {load_module, emqx_redis},
+        {apply, emqx_relup_eredis_upgrade, start_redis_resources, []}
+    ],
+    post_upgrade_callbacks => []
+}.
