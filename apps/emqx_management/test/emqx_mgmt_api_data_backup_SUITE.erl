@@ -22,6 +22,8 @@
 -define(BAD_IMPORT_BACKUP, "emqx-export-bad-file.tar.gz").
 -define(DASHBOARD_USER, <<"admin_for_test">>).
 -define(DASHBOARD_PASS, <<"public_for_test_1">>).
+-define(VIEWER_USER, <<"viewer_for_test">>).
+-define(VIEWER_PASS, <<"public_for_test_1">>).
 -define(backup_path(_Config_, _BackupName_),
     filename:join(?config(data_dir, _Config_), _BackupName_)
 ).
@@ -308,6 +310,67 @@ t_import_sensitive_tables_auth_split(Config) ->
     ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth, ?UPLOAD_CE_BACKUP)),
     ok.
 
+%% API-key callers may download archives that do not contain dashboard users or
+%% API-key records. This keeps backup-sync working: its API-key export path
+%% already filters those sensitive table sets.
+t_download_api_key_without_sensitive_tables_allowed(Config) ->
+    ApiAuth = ?config(auth, Config),
+    {200, #{<<"filename">> := Filename}} = export_backup2(?NODE1_PORT, ApiAuth, #{}),
+    {Status, _Body} = download_backup(?NODE1_PORT, ApiAuth, Filename),
+    ?assertEqual(200, Status),
+    ok.
+
+%% API-key callers must still be rejected with 403 when the archive contains
+%% dashboard accounts or API-key records.
+t_download_api_key_with_sensitive_tables_forbidden(Config) ->
+    ApiAuth = ?config(auth, Config),
+    DashboardAuth = ?config(dashboard_auth, Config),
+    {200, #{<<"filename">> := Filename}} = export_backup2(?NODE1_PORT, DashboardAuth, #{}),
+    {Status, Body} = download_backup(?NODE1_PORT, ApiAuth, Filename),
+    ?assertEqual(403, Status),
+    ?assertMatch(#{<<"code">> := <<"FORBIDDEN">>}, Body),
+    ok.
+
+%% Dashboard viewers (read-only role) must be rejected with 403 when
+%% downloading a backup file.
+t_download_viewer_forbidden(Config) ->
+    ApiAuth = ?config(auth, Config),
+    ViewerAuth = ?config(viewer_auth, Config),
+    {200, #{<<"filename">> := Filename}} = export_backup2(?NODE1_PORT, ApiAuth, #{}),
+    {Status, Body} = download_backup(?NODE1_PORT, ViewerAuth, Filename),
+    ?assertEqual(403, Status),
+    ?assertMatch(#{<<"code">> := <<"FORBIDDEN">>}, Body),
+    ok.
+
+%% Dashboard administrators must still be able to download a backup file.
+%% Without this regression the download path would be unreachable.
+t_download_admin_allowed(Config) ->
+    ApiAuth = ?config(auth, Config),
+    DashboardAuth = ?config(dashboard_auth, Config),
+    {200, #{<<"filename">> := Filename}} = export_backup2(?NODE1_PORT, ApiAuth, #{}),
+    {Status, _Body} = download_backup(?NODE1_PORT, DashboardAuth, Filename),
+    ?assertEqual(200, Status),
+    ok.
+
+%% Listing the backup directory remains open to dashboard viewers: the listing
+%% only exposes filenames / sizes / timestamps, not the archive contents. The
+%% download is the dangerous operation and is gated separately above.
+t_list_files_viewer_allowed(Config) ->
+    ApiAuth = ?config(auth, Config),
+    ViewerAuth = ?config(viewer_auth, Config),
+    {ok, _} = export_backup(?NODE1_PORT, ApiAuth),
+    {ok, _} = list_backups(?NODE1_PORT, ViewerAuth, <<"1">>, <<"100">>),
+    ok.
+
+download_backup(NodeApiPort, Auth, BackupName) ->
+    Path = emqx_mgmt_api_test_util:api_path(
+        ?api_base_url(NodeApiPort), ["data", "files", to_list(BackupName)]
+    ),
+    emqx_mgmt_api_test_util:simple_request(get, Path, [], Auth).
+
+to_list(B) when is_binary(B) -> unicode:characters_to_list(B);
+to_list(L) when is_list(L) -> L.
+
 write_tmp_tar(Bin) ->
     Path = filename:join([
         "/tmp",
@@ -320,15 +383,32 @@ do_init_per_testcase(TC, Config) ->
     Cluster = [Core1, _Core2, Repl] = cluster(TC, Config),
     Auth = auth_header(Core1),
     DashboardAuth = dashboard_auth_header(Core1),
+    ViewerAuth = viewer_auth_header(Core1),
     ok = wait_for_auth_replication(Repl),
-    [{auth, Auth}, {dashboard_auth, DashboardAuth}, {cluster, Cluster} | Config].
+    [
+        {auth, Auth},
+        {dashboard_auth, DashboardAuth},
+        {viewer_auth, ViewerAuth},
+        {cluster, Cluster}
+        | Config
+    ].
 
 test_file_op(Method, Config) ->
-    Auth = ?config(auth, Config),
+    %% GET is restricted to the dashboard administrator (backups can contain
+    %% dashboard / api-key records). DELETE has no role restriction and
+    %% continues to use the API key.
+    Auth =
+        case Method of
+            get -> ?config(dashboard_auth, Config);
+            delete -> ?config(auth, Config)
+        end,
+    %% Exports always go through the API-key auth so the archives to operate
+    %% on exist regardless of the method-specific auth above.
+    ApiAuth = ?config(auth, Config),
 
-    {ok, Node1Resp} = export_backup(?NODE1_PORT, Auth),
-    {ok, Node2Resp} = export_backup(?NODE2_PORT, Auth),
-    {ok, Node3Resp} = export_backup(?NODE3_PORT, Auth),
+    {ok, Node1Resp} = export_backup(?NODE1_PORT, ApiAuth),
+    {ok, Node2Resp} = export_backup(?NODE2_PORT, ApiAuth),
+    {ok, Node3Resp} = export_backup(?NODE3_PORT, ApiAuth),
 
     ParsedResps = [emqx_utils_json:decode(R) || R <- [Node1Resp, Node2Resp, Node3Resp]],
 
@@ -397,6 +477,10 @@ export_test(NodeApiPort, Auth) ->
 
 upload_backup_test(Config, BackupName) ->
     Auth = ?config(auth, Config),
+    %% GET is restricted to the dashboard administrator (backups can contain
+    %% dashboard / api-key records). The "did the bad upload leave a file
+    %% behind?" probe needs admin auth to reach the 404 path.
+    DashboardAuth = ?config(dashboard_auth, Config),
     UploadFile = ?backup_path(Config, BackupName),
     BadImportFile = ?backup_path(Config, ?BAD_IMPORT_BACKUP),
     BadUploadFile = ?backup_path(Config, ?BAD_UPLOAD_BACKUP),
@@ -407,7 +491,8 @@ upload_backup_test(Config, BackupName) ->
     ?assertEqual({error, bad_request}, upload_backup(?NODE1_PORT, Auth, BadUploadFile)),
     %% Invalid file must not be kept
     ?assertMatch(
-        {error, {_, 404, _}}, backup_file_op(get, ?NODE1_PORT, Auth, ?BAD_UPLOAD_BACKUP, [])
+        {error, {_, 404, _}},
+        backup_file_op(get, ?NODE1_PORT, DashboardAuth, ?BAD_UPLOAD_BACKUP, [])
     ).
 
 import_backup_test(Config, BackupName) ->
@@ -565,10 +650,14 @@ auth_header(Node) ->
     emqx_common_test_http:auth_header(API).
 
 dashboard_auth_header(Node) ->
-    User = ?DASHBOARD_USER,
-    Pass = ?DASHBOARD_PASS,
+    dashboard_token_auth(Node, ?DASHBOARD_USER, ?DASHBOARD_PASS, <<"administrator">>).
+
+viewer_auth_header(Node) ->
+    dashboard_token_auth(Node, ?VIEWER_USER, ?VIEWER_PASS, <<"viewer">>).
+
+dashboard_token_auth(Node, User, Pass, Role) ->
     _ = erpc:call(Node, emqx_dashboard_admin, add_user, [
-        User, Pass, <<"administrator">>, <<"data backup test admin">>
+        User, Pass, Role, <<"data backup test user">>
     ]),
     {ok, #{token := Token}} = erpc:call(Node, emqx_dashboard_admin, sign_token, [User, Pass]),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.

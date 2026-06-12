@@ -25,6 +25,9 @@
 -define(SP_CERT_DIR, ".ci/docker-compose-file/keycloak/sp_certs").
 
 -define(BASE_URL, "http://127.0.0.1:18083").
+-define(SAML_HTTP_REDIRECT_BINDING,
+    <<"urn:oasis:names:tc:SAML:2.0:bindings:URL-Encoding:DEFLATE">>
+).
 
 %%------------------------------------------------------------------------------
 %% CT Callbacks
@@ -42,7 +45,9 @@ groups() ->
     [
         {unit, [sequence], [
             t_validate_signature_config,
-            t_maybe_load_cert_or_key
+            t_maybe_load_cert_or_key,
+            t_decode_response_rejects_xxe_response,
+            t_decode_response_rejects_deflate_xxe_response
         ]},
         {api, [sequence], [
             t_sso_running_disabled,
@@ -188,6 +193,12 @@ t_maybe_load_cert_or_key(_Config) ->
     ),
 
     ok.
+
+t_decode_response_rejects_xxe_response(Config) ->
+    assert_decode_response_rejects_xxe_response(Config, undefined).
+
+t_decode_response_rejects_deflate_xxe_response(Config) ->
+    assert_decode_response_rejects_xxe_response(Config, ?SAML_HTTP_REDIRECT_BINDING).
 
 %%------------------------------------------------------------------------------
 %% API Tests
@@ -529,6 +540,37 @@ cleanup_saml_module() ->
     catch persistent_term:erase(saml_test_state),
     _ = emqx_dashboard_sso_manager:delete(saml),
     ok.
+
+assert_decode_response_rejects_xxe_response(Config, SAMLEncoding) ->
+    SecretPath = filename:join(?config(priv_dir, Config), "xxe-secret.txt"),
+    ok = file:write_file(SecretPath, <<"emqx_xxe_secret">>),
+    try
+        SAMLResponse = xxe_saml_response(SecretPath, SAMLEncoding),
+        ?assertExit(
+            {fatal, {{error, entities_not_allowed}, _, _, _}},
+            esaml_binding:decode_response(SAMLEncoding, SAMLResponse)
+        )
+    after
+        file:delete(SecretPath)
+    end.
+
+xxe_saml_response(SecretPath, SAMLEncoding) ->
+    Xml = iolist_to_binary([
+        <<"<?xml version=\"1.0\"?>">>,
+        <<"<!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file://">>,
+        SecretPath,
+        <<"\">]>\n">>,
+        <<"<samlp:Response ">>,
+        <<"xmlns:samlp=\"urn:oasis:names:tc:SAML:2.0:protocol\" ">>,
+        <<"xmlns:saml=\"urn:oasis:names:tc:SAML:2.0:assertion\" ">>,
+        <<"Version=\"2.0\" IssueInstant=\"2026-01-01T00:00:00Z\">">>,
+        <<"<saml:Issuer>&xxe;</saml:Issuer>">>,
+        <<"</samlp:Response>">>
+    ]),
+    case SAMLEncoding of
+        undefined -> base64:encode(Xml);
+        ?SAML_HTTP_REDIRECT_BINDING -> base64:encode(zlib:zip(Xml))
+    end.
 
 %%------------------------------------------------------------------------------
 %% E2E Test Helper Functions
