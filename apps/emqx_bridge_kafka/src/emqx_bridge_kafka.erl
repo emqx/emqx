@@ -309,6 +309,21 @@ fields(auth_gssapi_kerberos) ->
                 desc => ?DESC(auth_kerberos_keytab_file)
             })}
     ];
+fields(auth_msk_iam_roles_anywhere) ->
+    [
+        {type,
+            mk(msk_iam_roles_anywhere, #{
+                required => true, desc => ?DESC("auth_msk_iam_roles_anywhere_type")
+            })},
+        {endpoint,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC("auth_msk_iam_roles_anywhere_endpoint"),
+                validator => fun msk_iam_roles_anywhere_endpoint_validator/1
+            })},
+        {region,
+            mk(binary(), #{required => true, desc => ?DESC("auth_msk_iam_roles_anywhere_region")})}
+    ];
 fields(socket_opts) ->
     [
         {sndbuf,
@@ -597,6 +612,8 @@ desc("post_" ++ Type) when
     ["Configuration for Kafka using `POST` method."];
 desc(kafka_producer_action) ->
     ?DESC("kafka_producer_action");
+desc(auth_msk_iam_roles_anywhere) ->
+    ?DESC("auth_msk_iam_roles_anywhere_type");
 desc(Name) ->
     ?DESC(Name).
 
@@ -640,6 +657,7 @@ kafka_connector_config_fields() ->
                 hoconsc:union([
                     none,
                     msk_iam,
+                    ref(auth_msk_iam_roles_anywhere),
                     ref(auth_oauth_client_credentials),
                     ref(auth_username_password),
                     ref(auth_gssapi_kerberos)
@@ -782,4 +800,12 @@ kafka_ext_header_value_validator(Value) ->
                 "The value of 'kafka_ext_headers' must either be a single "
                 "placeholder like ${foo}, or a simple string."
             }
+    end.
+
+msk_iam_roles_anywhere_endpoint_validator(Value) ->
+    case emqx_schema:parse_server(Value, #{supported_schemes => ["http"]}) of
+        #{} = Parsed when not is_map_key(scheme, Parsed) ->
+            throw("missing_scheme");
+        #{} ->
+            ok
     end.

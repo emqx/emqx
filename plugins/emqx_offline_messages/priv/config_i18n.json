@@ -209,6 +209,22 @@
         "en": "Redis sentinel name",
         "zh": "Redis 哨兵名称"
     },
+    "$redis_sentinel_username_label": {
+        "en": "Redis Sentinel Username",
+        "zh": "Redis 哨兵用户名"
+    },
+    "$redis_sentinel_username_desc": {
+        "en": "Username for authenticating with Redis Sentinel",
+        "zh": "用于 Redis 哨兵认证的用户名"
+    },
+    "$redis_sentinel_password_label": {
+        "en": "Redis Sentinel Password",
+        "zh": "Redis 哨兵密码"
+    },
+    "$redis_sentinel_password_desc": {
+        "en": "Password for authenticating with Redis Sentinel",
+        "zh": "用于 Redis 哨兵认证的密码"
+    },
     "$redis_server_label": {
         "en": "Redis Servers",
         "zh": "Redis 服务器"

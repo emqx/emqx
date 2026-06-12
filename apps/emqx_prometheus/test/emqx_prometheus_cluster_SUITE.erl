@@ -50,7 +50,7 @@ mk_cluster(TestCase, #{n := NumNodes} = Opts, TCConfig) ->
     AppSpecs0 = [
         emqx_conf,
         emqx_management,
-        emqx_prometheus
+        {emqx_prometheus, "prometheus { enable_basic_auth = false }"}
     ],
     NodeSpecs0 = lists:map(
         fun(N) ->

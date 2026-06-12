@@ -192,14 +192,17 @@ on_stop(ResourceId, _State) ->
     #{pool_name := PoolName} = emqx_resource:get_allocated_resources(ResourceId),
     emqx_resource_pool:stop(PoolName).
 
-on_query(_ResourceId, FwdMsg, #{pool_name := PoolName, topic := LinkTopic} = _State) when
-    is_record(FwdMsg, message)
-->
-    #message{topic = Topic, qos = QoS} = FwdMsg,
+on_query(
+    _ResourceId,
+    FwdMsg = #message{qos = FwdQoS, extra = PoolKey},
+    _State = #{pool_name := PoolName, topic := LinkTopic}
+) ->
+    QoS = min(?QOS_1, FwdQoS),
+    Payload = encode_payload(FwdMsg#message{extra = #{}}),
     PubResult = ecpool:pick_and_do(
-        {PoolName, Topic},
+        {PoolName, PoolKey},
         fun(ConnPid) ->
-            emqtt:publish(ConnPid, LinkTopic, encode_payload(FwdMsg), QoS)
+            emqtt:publish(ConnPid, LinkTopic, Payload, QoS)
         end,
         no_handover
     ),
@@ -211,17 +214,17 @@ on_query(_ResourceId, FwdMsg, #{pool_name := PoolName, topic := LinkTopic} = _St
     handle_send_result(PubResult).
 
 on_query_async(
-    _ResourceId, FwdMsg, CallbackIn, #{pool_name := PoolName, topic := LinkTopic} = _State
+    _ResourceId,
+    FwdMsg = #message{qos = FwdQoS, extra = PoolKey},
+    CallbackIn,
+    _State = #{pool_name := PoolName, topic := LinkTopic}
 ) ->
     Callback = {fun on_async_result/2, [CallbackIn]},
-    #message{topic = Topic, qos = QoS} = FwdMsg,
-    %% TODO check message ordering, pick by topic,client pair?
+    QoS = min(?QOS_1, FwdQoS),
+    Payload = encode_payload(FwdMsg#message{extra = #{}}),
     Result = ecpool:pick_and_do(
-        {PoolName, Topic},
+        {PoolName, PoolKey},
         fun(ConnPid) ->
-            %% #delivery{} record has no valuable data for a remote link...
-            Payload = encode_payload(FwdMsg),
-            %% TODO: check override QOS requirements (if any)
             PubResult = emqtt:publish_async(ConnPid, LinkTopic, Payload, QoS, Callback),
             ?tp_debug("cluster_link_message_forwarded", #{
                 pool => PoolName,
@@ -578,7 +581,10 @@ decode_field(route, Route = {_Topic, _ID}) ->
     {add, Route}.
 
 encode_payload(Payload) ->
-    erlang:term_to_binary(Payload).
+    %% NOTE
+    %% Producing compressed binary. Beneficial almost only for messages with large
+    %% compressible payloads.
+    erlang:term_to_binary(Payload, [compressed]).
 
 decode_payload(Payload) ->
     erlang:binary_to_term(Payload, [safe]).
@@ -587,6 +593,16 @@ decode_payload(Payload) ->
 %% emqx_external_broker
 %%--------------------------------------------------------------------
 
-forward(ClusterName, #delivery{message = #message{topic = Topic} = Msg}) ->
-    QueryOpts = #{pick_key => Topic},
-    emqx_resource:query(?MSG_RES_ID(ClusterName), Msg, QueryOpts).
+forward(ClusterName, #delivery{message = Msg}) ->
+    %% NOTE
+    %% Attaching pick key to the message to pick forwarding connection accordingly.
+    #{query_opts := QueryOpts} = emqx_cluster_link_config:link(ClusterName),
+    Key = choose_pick_key(QueryOpts),
+    FwdMsg = Msg#message{extra = Key},
+    emqx_resource:query(?MSG_RES_ID(ClusterName), FwdMsg, QueryOpts#{pick_key => Key}).
+
+choose_pick_key(#{buffer_worker_dispatch_strategy := random}) ->
+    %% NOTE: Cheap and has high rate of change.
+    erlang:monotonic_time();
+choose_pick_key(_LinkConf) ->
+    self().

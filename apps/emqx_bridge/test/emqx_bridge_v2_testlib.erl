@@ -1115,13 +1115,14 @@ do_action_simple_create_rule_api(ActionId, Opts, _TCConfig) ->
         end,
     UniqueNum = integer_to_binary(erlang:unique_integer([positive])),
     RuleTopic = <<"t/", UniqueNum/binary>>,
-    {201, #{<<"id">> := RuleId}} = create_rule_api2(
-        #{
-            <<"sql">> => fmt(SQL, #{t => RuleTopic}),
-            <<"actions">> => [ActionId],
-            <<"description">> => <<"bridge_v2 test rule">>
-        }
-    ),
+    Params0 = #{
+        <<"sql">> => fmt(SQL, #{t => RuleTopic}),
+        <<"actions">> => [ActionId],
+        <<"description">> => <<"bridge_v2 test rule">>
+    },
+    Id0 = maps:get(id, Opts, undefined),
+    Params = emqx_utils_maps:put_if(Params0, <<"id">>, Id0, Id0 /= undefined),
+    {201, #{<<"id">> := RuleId}} = create_rule_api2(Params),
     #{topic => RuleTopic, id => RuleId}.
 
 do_source_simple_create_rule_api(Hookpoint, Opts, _TCConfig) ->

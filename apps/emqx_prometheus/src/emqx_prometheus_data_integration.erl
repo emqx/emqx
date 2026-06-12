@@ -10,7 +10,7 @@
     collect_metrics/2
 ]).
 
--export([collect/1]).
+-export([collect/1, collect_ns/2]).
 
 -export([
     zip_json_data_integration_metrics/3
@@ -19,6 +19,8 @@
 %% for bpapi
 -behaviour(emqx_prometheus_cluster).
 -export([
+    fetch_namespaced_metrics_v1/2,
+    fetch_cluster_wide_namespaced_metrics/2,
     fetch_from_local_node/1,
     fetch_cluster_consistented_data/0,
     aggre_or_zip_init_acc/0,
@@ -27,8 +29,13 @@
 
 -export([add_collect_family/4]).
 
+-ifdef(TEST).
+-export([put_namespace_pd/1, erase_namespace_pd/0]).
+-endif.
+
 -include("emqx_prometheus.hrl").
 -include_lib("prometheus/include/prometheus.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(
     prometheus_model_helpers,
@@ -44,6 +51,8 @@
 %% automatically register collectors.
 -behaviour(prometheus_collector).
 
+-deprecated([fetch_from_local_node/1, fetch_cluster_consistented_data/0]).
+
 %%--------------------------------------------------------------------
 %% Macros
 %%--------------------------------------------------------------------
@@ -51,30 +60,53 @@
 -define(MG(K, MAP), maps:get(K, MAP)).
 -define(MG0(K, MAP), maps:get(K, MAP, 0)).
 
-%% See `emqx_config.hrl`.
--define(global_ns, global).
-
 %%--------------------------------------------------------------------
 %% Callback for emqx_prometheus_cluster
 %%--------------------------------------------------------------------
 
 -define(ROOT_KEY_ACTIONS, actions).
 
-fetch_from_local_node(Mode) ->
-    Rules = get_rules_all_namespaces(),
-    BridgeV2Actions = emqx_bridge_v2:list(?global_ns, ?ROOT_KEY_ACTIONS),
-    Connectors = emqx_connector:list(?global_ns),
+fetch_namespaced_metrics_v1(Namespace, Mode) ->
+    Rules = get_rules(Namespace),
+    BridgeV2Actions = emqx_bridge_v2:list(Namespace, ?ROOT_KEY_ACTIONS),
+    Connectors = emqx_connector:list(Namespace),
     {node(self()), #{
         rule_metric_data => rule_metric_data(Mode, Rules),
         action_metric_data => action_metric_data(Mode, BridgeV2Actions),
         connector_metric_data => connector_metric_data(Mode, Connectors)
     }}.
 
-fetch_cluster_consistented_data() ->
-    Rules = get_rules_all_namespaces(),
-    Connectors = emqx_connector:list(?global_ns),
-    (maybe_collect_schema_registry())#{
+-spec fetch_cluster_wide_namespaced_metrics(all | emqx_config:namespace(), _Mode) -> map().
+fetch_cluster_wide_namespaced_metrics(Namespace, _Mode) ->
+    Rules = get_rules(Namespace),
+    Connectors = get_connectors(Namespace),
+    (schema_registry_data())#{
         rules_ov_data => rules_ov_data(Rules),
+        %% note: "actions" here means rule action, not actual Actions (as in Connector
+        %% channels)....
+        actions_ov_data => actions_ov_data(Rules),
+        connectors_ov_data => connectors_ov_data(Connectors)
+    }.
+
+%% deprecated; return empty set for backwards compatibility. (prometheus_proto_v{1,2} bpapi)
+fetch_from_local_node(Mode) ->
+    Rules = [],
+    BridgeV2Actions = [],
+    Connectors = [],
+    {node(self()), #{
+        rule_metric_data => rule_metric_data(Mode, Rules),
+        action_metric_data => action_metric_data(Mode, BridgeV2Actions),
+        connector_metric_data => connector_metric_data(Mode, Connectors)
+    }}.
+
+%% deprecated; return empty set for backwards compatibility. (prometheus_proto_v{1,2} bpapi)
+fetch_cluster_consistented_data() ->
+    Rules = [],
+    Connectors = [],
+    (empty_schema_registry_data())#{
+        rules_ov_data => rules_ov_data(Rules),
+        %% note: "actions" here means rule action, not actual Actions (as in Connector
+        %% channels)....
         actions_ov_data => actions_ov_data(Rules),
         connectors_ov_data => connectors_ov_data(Connectors)
     }.
@@ -83,7 +115,7 @@ aggre_or_zip_init_acc() ->
     #{
         rule_metric_data => maps:from_keys(rule_metric(names), []),
         action_metric_data => maps:from_keys(action_metric(names), []),
-        connector_metric_data => maps:from_keys(connectr_metric(names), [])
+        connector_metric_data => maps:from_keys(connector_metric(names), [])
     }.
 
 logic_sum_metrics() ->
@@ -105,7 +137,9 @@ deregister_cleanup(_) -> ok.
     _Registry :: prometheus_registry:registry(),
     Callback :: prometheus_collector:collect_mf_callback().
 collect_mf(?PROMETHEUS_DATA_INTEGRATION_REGISTRY, Callback) ->
-    RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
+    RawData = emqx_prometheus_cluster:raw_data_ns(
+        ?MODULE, get_namespace_pd(), ?GET_PROM_DATA_MODE()
+    ),
 
     %% Data Integration Overview
     ok = add_collect_family(
@@ -156,6 +190,16 @@ collect(<<"json">>) ->
     };
 collect(<<"prometheus">>) ->
     prometheus_text_format:format(?PROMETHEUS_DATA_INTEGRATION_REGISTRY).
+
+collect_ns(Namespace, Mode) ->
+    try
+        ?PUT_PROM_DATA_MODE(Mode),
+        put_namespace_pd(Namespace),
+        prometheus_text_format:format(?PROMETHEUS_DATA_INTEGRATION_REGISTRY)
+    after
+        _ = erase(?PROM_DATA_MODE_KEY__),
+        _ = erase_namespace_pd()
+    end.
 
 %%====================
 %% API Helpers
@@ -256,10 +300,9 @@ rules_ov_metric_meta() ->
 rules_ov_metric(names) ->
     emqx_prometheus_cluster:metric_names(rules_ov_metric_meta()).
 
--define(RULE_TAB, emqx_rule_engine).
-rules_ov_data(_Rules) ->
+rules_ov_data(Rules) ->
     #{
-        emqx_rules_count => ets:info(?RULE_TAB, size)
+        emqx_rules_count => length(Rules)
     }.
 
 %%====================
@@ -305,8 +348,10 @@ schema_registry_data() ->
         emqx_schema_registrys_count => erlang:map_size(emqx_schema_registry:list_schemas())
     }.
 
-maybe_collect_schema_registry() ->
-    schema_registry_data().
+empty_schema_registry_data() ->
+    #{
+        emqx_schema_registrys_count => 0
+    }.
 
 %%====================
 %% Connectors
@@ -353,24 +398,31 @@ rule_metric(names) ->
 
 rule_metric_data(Mode, Rules) ->
     lists:foldl(
-        fun(#{id := Id} = Rule, AccIn) ->
-            merge_acc_with_rules(Mode, Id, get_metric(Rule), AccIn)
+        fun(#{id := Id, namespace := Namespace} = Rule, AccIn) ->
+            merge_acc_with_rules(Namespace, Mode, Id, get_metric(Rule), AccIn)
         end,
         maps:from_keys(rule_metric(names), []),
         Rules
     ).
 
-merge_acc_with_rules(Mode, Id, RuleMetrics, PointsAcc) ->
+merge_acc_with_rules(Namespace, Mode, Id, RuleMetrics, PointsAcc) ->
     maps:fold(
         fun(K, V, AccIn) ->
-            AccIn#{K => [rule_point(Mode, Id, V) | ?MG(K, AccIn)]}
+            AccIn#{K => [rule_point(Namespace, Mode, Id, V) | ?MG(K, AccIn)]}
         end,
         PointsAcc,
         RuleMetrics
     ).
 
-rule_point(Mode, Id, V) ->
-    {with_node_label(Mode, [{id, Id}]), V}.
+rule_point(Namespace, Mode, Id, V) ->
+    Labels = mk_labels(Namespace, Id),
+    {with_node_label(Mode, Labels), V}.
+
+mk_labels(Namespace, Id) ->
+    case Namespace of
+        ?global_ns -> [{id, Id}];
+        _ -> [{id, Id}, {namespace, Namespace}]
+    end.
 
 get_metric(#{enable := Bool} = Rule) ->
     RuleResId = emqx_rule_engine:rule_resource_id(Rule),
@@ -422,39 +474,45 @@ action_metric(names) ->
 
 action_metric_data(Mode, Bridges) ->
     lists:foldl(
-        fun(#{type := Type, name := Name} = Action, AccIn) ->
+        fun(Action, AccIn) ->
+            #{
+                type := Type,
+                name := Name,
+                namespace := Namespace
+            } = Action,
             Id = emqx_bridge_resource:bridge_id(Type, Name),
             Status = get_action_status(Action),
-            Metrics = get_action_metric(Type, Name),
-            merge_acc_with_bridges(Mode, Id, maps:merge(Status, Metrics), AccIn)
+            Metrics = get_action_metric(Namespace, Type, Name),
+            merge_acc_with_bridges(Namespace, Mode, Id, maps:merge(Status, Metrics), AccIn)
         end,
         maps:from_keys(action_metric(names), []),
         Bridges
     ).
 
-merge_acc_with_bridges(Mode, Id, BridgeMetrics, PointsAcc) ->
+merge_acc_with_bridges(Namespace, Mode, Id, BridgeMetrics, PointsAcc) ->
     maps:fold(
         fun(K, V, AccIn) ->
-            AccIn#{K => [action_point(Mode, Id, V) | ?MG(K, AccIn)]}
+            AccIn#{K => [action_point(Namespace, Mode, Id, V) | ?MG(K, AccIn)]}
         end,
         PointsAcc,
         BridgeMetrics
     ).
 
-get_action_status(#{resource_data := ResourceData} = _Action) ->
-    Enable = emqx_utils_maps:deep_get([config, enable], ResourceData),
-    Status = ?MG(status, ResourceData),
+get_action_status(#{raw_config := RawConfig, resource_data := ResourceData} = _Action) ->
+    Enable = maps:get(<<"enable">>, RawConfig, true),
+    Status = maps:get(status, ResourceData, disconnected),
     #{
         emqx_action_enable => emqx_prometheus_cluster:boolean_to_number(Enable),
         emqx_action_status => emqx_prometheus_cluster:status_to_number(Status)
     }.
 
-action_point(Mode, Id, V) ->
-    {with_node_label(Mode, [{id, Id}]), V}.
+action_point(Namespace, Mode, Id, V) ->
+    Labels = mk_labels(Namespace, Id),
+    {with_node_label(Mode, Labels), V}.
 
-get_action_metric(Type, Name) ->
+get_action_metric(Namespace, Type, Name) ->
     #{counters := Counters, gauges := Gauges} = emqx_bridge_v2:get_metrics(
-        ?global_ns, actions, Type, Name
+        Namespace, actions, Type, Name
     ),
     #{
         emqx_action_matched => ?MG0(matched, Counters),
@@ -485,34 +543,40 @@ connector_metric_meta() ->
         {emqx_connector_status, gauge}
     ].
 
-connectr_metric(names) ->
+connector_metric(names) ->
     emqx_prometheus_cluster:metric_names(connector_metric_meta()).
 
 connector_metric_data(Mode, Connectors) ->
-    AccIn = maps:from_keys(connectr_metric(names), []),
-    connector_metric_data_v2(Mode, Connectors, AccIn).
-
-connector_metric_data_v2(Mode, Connectors, InitAcc) ->
+    AccIn0 = maps:from_keys(connector_metric(names), []),
     lists:foldl(
-        fun(#{type := Type, name := Name, resource_data := ResourceData} = _Connector, AccIn) ->
+        fun(Connector, AccIn) ->
+            #{
+                type := Type,
+                name := Name,
+                resource_data := ResourceData,
+                namespace := Namespace
+            } = Connector,
             Id = emqx_connector_resource:connector_id(Type, Name),
-            merge_acc_with_connectors(Mode, Id, get_connector_status(ResourceData), AccIn)
+            merge_acc_with_connectors(
+                Namespace, Mode, Id, get_connector_status(ResourceData), AccIn
+            )
         end,
-        InitAcc,
+        AccIn0,
         Connectors
     ).
 
-merge_acc_with_connectors(Mode, Id, ConnectorMetrics, PointsAcc) ->
+merge_acc_with_connectors(Namespace, Mode, Id, ConnectorMetrics, PointsAcc) ->
     maps:fold(
         fun(K, V, AccIn) ->
-            AccIn#{K => [connector_point(Mode, Id, V) | ?MG(K, AccIn)]}
+            AccIn#{K => [connector_point(Namespace, Mode, Id, V) | ?MG(K, AccIn)]}
         end,
         PointsAcc,
         ConnectorMetrics
     ).
 
-connector_point(Mode, Id, V) ->
-    {with_node_label(Mode, [{id, Id}]), V}.
+connector_point(Namespace, Mode, Id, V) ->
+    Labels = mk_labels(Namespace, Id),
+    {with_node_label(Mode, Labels), V}.
 
 get_connector_status(ResourceData) ->
     Enabled = emqx_utils_maps:deep_get([config, enable], ResourceData),
@@ -548,7 +612,7 @@ collect_data_integration_overview(Rules, Connectors) ->
         #{},
         connectors_ov_metric(names)
     ),
-    M4 = maybe_collect_schema_registry(),
+    M4 = schema_registry_data(),
 
     lists:foldl(fun(M, AccIn) -> maps:merge(M, AccIn) end, #{}, [M1, M2, M3, M4]).
 
@@ -591,3 +655,26 @@ with_node_label(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, Labels) ->
 get_rules_all_namespaces() ->
     NamespaceToRules = emqx_rule_engine:get_rules_from_all_namespaces(),
     lists:append(maps:values(NamespaceToRules)).
+
+put_namespace_pd(Namespace) when
+    is_binary(Namespace);
+    Namespace == ?global_ns;
+    Namespace == all
+->
+    _ = put({?MODULE, ns}, Namespace),
+    ok.
+
+erase_namespace_pd() ->
+    _ = erase({?MODULE, ns}),
+    ok.
+
+get_namespace_pd() ->
+    get({?MODULE, ns}).
+
+get_rules(all) ->
+    get_rules_all_namespaces();
+get_rules(Namespace) ->
+    emqx_rule_engine:get_rules(Namespace).
+
+get_connectors(Namespace) ->
+    emqx_connector:list(Namespace).

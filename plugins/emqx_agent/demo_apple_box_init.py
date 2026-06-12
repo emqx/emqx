@@ -11,7 +11,7 @@ Optional env vars (for this init script):
   EMQX_CORE_BASE_URL — EMQX core API base URL (default: http://$EMQX_HOST:18083/api/v5)
   EMQX_API_CREDS     — Basic-auth "key:secret" (default: key:secret)
   OPENAI_BASE_URL    — OpenAI-compatible base URL (default: https://api.openai.com/v1)
-  OPENAI_MODEL       — Model name              (default: gpt-4o)
+  OPENAI_MODEL       — Model name              (default: gpt-5.4-mini)
   PGHOST / PGPORT / PGDATABASE / PGUSER / PGPASSWORD  — PostgreSQL connection
 
 Usage:
@@ -36,7 +36,9 @@ def env(name: str, default: str | None = None) -> str:
 
 
 EMQX_HOST = env("EMQX_HOST", "localhost")
-BASE_URL = env("EMQX_BASE_URL", f"http://{EMQX_HOST}:18083/api/v5/plugin_api/emqx_agent")
+BASE_URL = env(
+    "EMQX_BASE_URL", f"http://{EMQX_HOST}:18083/api/v5/plugin_api/emqx_agent"
+)
 CORE_BASE_URL = env("EMQX_CORE_BASE_URL", f"http://{EMQX_HOST}:18083/api/v5")
 CREDS = env("EMQX_API_CREDS", "key:secret")
 
@@ -102,6 +104,7 @@ def alert_payload_schema() -> dict:
 
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
 
+
 def auth_header() -> str:
     raw = CREDS.encode("utf-8")
     return "Basic " + base64.b64encode(raw).decode("ascii")
@@ -135,9 +138,7 @@ def api_request(
         print(f"  HTTP {method} {path} -> {e.code}")
         if e.code in ok_codes:
             return payload
-        raise RuntimeError(
-            f"{method} {path} failed: HTTP {e.code}: {payload}"
-        ) from e
+        raise RuntimeError(f"{method} {path} failed: HTTP {e.code}: {payload}") from e
 
 
 def api_delete_maybe(path: str, *, base_url: str = BASE_URL) -> None:
@@ -160,6 +161,7 @@ def deactivate_pipeline_maybe(pid: str) -> None:
 
 # ── Database setup ─────────────────────────────────────────────────────────────
 
+
 def create_db_table() -> None:
     """Create the inspections table via the PostgreSQL skill resource."""
     sql = (
@@ -175,6 +177,7 @@ def create_db_table() -> None:
     # Use psycopg2 if available, otherwise fall back to psql subprocess.
     try:
         import psycopg2  # type: ignore
+
         conn = psycopg2.connect(
             host=PGHOST,
             port=int(PGPORT),
@@ -189,6 +192,7 @@ def create_db_table() -> None:
         print(f"  table apple_box_inspections ready (psycopg2)")
     except ImportError:
         import subprocess
+
         env_vars = os.environ.copy()
         env_vars["PGPASSWORD"] = PGPASSWORD
         result = subprocess.run(
@@ -211,6 +215,7 @@ def create_db_table() -> None:
 
 
 # ── Skills ─────────────────────────────────────────────────────────────────────
+
 
 def delete_old_assets() -> None:
     deactivate_pipeline_maybe(PIPELINE_ID)

@@ -451,7 +451,7 @@ create_app(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role0, Scopes) ->
                 expired_at = ExpiredAt,
                 extra = Extra,
                 created_at = erlang:system_time(second),
-                api_secret_hash = emqx_dashboard_admin:hash(ApiSecret),
+                api_secret_hash = emqx_dashboard_admin:hash_api_secret(ApiSecret),
                 api_key = ApiKey
             },
         {ok, Res} ?= trans(fun ?MODULE:do_create_app/1, [App]),
@@ -596,7 +596,7 @@ add_bootstrap_file(File, Dev, MP, Line) ->
                         #?APP{
                             name = generate_unique_name(?FROM_BOOTSTRAP_FILE_PREFIX, ApiKey),
                             api_key = ApiKey,
-                            api_secret_hash = emqx_dashboard_admin:hash(ApiSecret),
+                            api_secret_hash = emqx_dashboard_admin:hash_api_secret(ApiSecret),
                             enable = true,
                             extra = Extra,
                             created_at = erlang:system_time(second),

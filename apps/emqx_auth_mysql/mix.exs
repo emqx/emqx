@@ -5,7 +5,7 @@ defmodule EMQXAuthMySQL.MixProject do
   def project do
     [
       app: :emqx_auth_mysql,
-      version: "6.2.0",
+      version: "6.2.1",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
       erlc_options: UMP.erlc_options(),
@@ -27,8 +27,8 @@ defmodule EMQXAuthMySQL.MixProject do
     UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
-      {:emqx_auth, in_umbrella: true},
-      {:emqx_connector, in_umbrella: true}
+      {:emqx_resource, in_umbrella: true},
+      {:emqx_auth, in_umbrella: true}
     ])
   end
 end

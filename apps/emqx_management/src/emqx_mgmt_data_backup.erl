@@ -49,6 +49,7 @@
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
+-include_lib("eunit/include/eunit.hrl").
 -endif.
 
 -elvis([
@@ -698,6 +699,14 @@ do_export_mnesia_tab(TabName, BackupName) ->
 tabs_to_backup() ->
     %% Allow mocking in tests
     ?MODULE:modules_with_mnesia_tabs_to_backup().
+
+import_skip_root_keys_test() ->
+    %% A root listed in import_skip_root_keys/0 must not also appear as the
+    %% first segment of any ?CONF_KEYS path: those would silently never be
+    %% imported.
+    ConfRoots = lists:usort([hd(KP) || KP <- ?CONF_KEYS]),
+    Overlap = [K || K <- import_skip_root_keys(), lists:member(K, ConfRoots)],
+    ?assertEqual([], Overlap).
 -else.
 tabs_to_backup() ->
     modules_with_mnesia_tabs_to_backup().
@@ -1129,8 +1138,15 @@ do_read_file(Filename) ->
     end.
 
 validate_cluster_hocon(RawConf0) ->
-    %% write ACL file to comply with the schema...
-    RawConf1 = emqx_authz:maybe_write_files(RawConf0),
+    %% Drop read-only root keys (e.g. `node', `rpc') from the imported config
+    %% before merging with the running raw config. The importer never applies
+    %% those roots, and a partial sub-tree from the backup would shallow-replace
+    %% the running value and drop required fields without defaults such as
+    %% `node.cookie'.
+    RawConfFiltered = maps:without(import_skip_root_keys(), RawConf0),
+    %% Write ACL file(s) locally so the `authz:file` schema's path validator
+    %% (which calls file:consult/1) passes during the schema check below.
+    RawConf1 = emqx_authz:maybe_write_files(RawConfFiltered),
     maybe
         {ok, RawConf} ?=
             emqx_hocon:check(
@@ -1138,8 +1154,55 @@ validate_cluster_hocon(RawConf0) ->
                 maps:merge(emqx:get_raw_config([]), RawConf1),
                 #{atom_key => false, required => false, make_serializable => true}
             ),
-        {ok, maps:with(maps:keys(RawConf0), RawConf)}
+        Filtered = maps:with(maps:keys(RawConfFiltered), RawConf),
+        %% For every file authz source whose *input* form carried inline
+        %% `rules`, restore that `rules` field before the config is shipped
+        %% via cluster_rpc. Otherwise remote nodes would receive only a
+        %% `path` — pointing at the file we just wrote on this node — and
+        %% fail with `failed_to_read_acl_file` because they have no such
+        %% file locally. Sources whose input was a bare `path` (user-
+        %% specified) are left untouched so the user's intent is preserved.
+        {ok, restore_inline_authz_rules(Filtered, RawConfFiltered)}
     end.
+
+%% Roots that are dropped from the imported cluster.hocon before the
+%% pre-flight schema check. These roots are never applied by the importer
+%% (they are not in ?CONF_KEYS and no emqx_config_backup handler covers
+%% them), so validating a partial sub-tree from the backup would only
+%% cause false negatives - in particular wiping required-no-default
+%% fields like `node.cookie' that only the running node has. Keep this
+%% list disjoint from ?CONF_KEYS (see import_skip_root_keys_test/0).
+import_skip_root_keys() ->
+    [<<"node">>, <<"rpc">>].
+
+restore_inline_authz_rules(
+    #{<<"authorization">> := #{<<"sources">> := NewSources} = NewAuthz} = NewConf,
+    #{<<"authorization">> := #{<<"sources">> := OldSources}}
+) ->
+    Restored = [maybe_restore_source_rules(S, OldSources) || S <- NewSources],
+    NewConf#{<<"authorization">> := NewAuthz#{<<"sources">> := Restored}};
+restore_inline_authz_rules(NewConf, _OldConf) ->
+    NewConf.
+
+maybe_restore_source_rules(
+    #{<<"type">> := <<"file">>, <<"path">> := _} = NewSrc, OldSources
+) ->
+    case
+        lists:search(
+            fun
+                (#{<<"type">> := <<"file">>, <<"rules">> := _}) -> true;
+                (_) -> false
+            end,
+            OldSources
+        )
+    of
+        {value, #{<<"rules">> := Rules}} ->
+            maps:remove(<<"path">>, NewSrc#{<<"rules">> => Rules});
+        false ->
+            NewSrc
+    end;
+maybe_restore_source_rules(NewSrc, _OldSources) ->
+    NewSrc.
 
 do_import_conf(Namespace, RawConf, Opts) ->
     GenConfErrs = filter_errors(maps:from_list(import_generic_conf(Namespace, RawConf))),

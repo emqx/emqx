@@ -205,7 +205,7 @@ listeners(Listeners) ->
             ({_Protocol, #{bind := 0}}) ->
                 false;
             ({Protocol, Conf = #{}}) ->
-                {Conf1, Bind} = ip_port(Conf),
+                {Conf1, Bind} = ip_port(Protocol, Conf),
                 {true, {
                     listener_name(Protocol),
                     Protocol,
@@ -220,11 +220,29 @@ listeners(Listeners) ->
 list_listeners() ->
     listeners(listeners()).
 
-ip_port(Opts) -> ip_port(maps:take(bind, Opts), Opts).
+%% http
+ip_port(http = _Protocol, #{bind := Port} = Opts) when is_integer(Port) ->
+    case emqx_security_profile:policy(dashboard_http_default_bind) of
+        any ->
+            {maps:without([bind], Opts#{port => Port}), Port};
+        loopback ->
+            IP = loopback_ip(Opts),
+            {maps:without([bind], Opts#{port => Port, ip => IP}), {IP, Port}}
+    end;
+ip_port(http = _Protocol, #{bind := {IP, Port} = Bind} = Opts) ->
+    {maps:without([bind], Opts#{port => Port, ip => IP}), Bind};
+ip_port(http = Protocol, Opts) ->
+    ip_port(Protocol, Opts#{bind => 18083});
+%% https
+ip_port(https = _Protocol, #{bind := Port} = Opts) when is_integer(Port) ->
+    {maps:without([bind], Opts#{port => Port}), Port};
+ip_port(https = _Protocol, #{bind := {IP, Port} = Bind} = Opts) ->
+    {maps:without([bind], Opts#{port => Port, ip => IP}), Bind};
+ip_port(https = Protocol, Opts) ->
+    ip_port(Protocol, Opts#{bind => 18084}).
 
-ip_port(error, Opts) -> {Opts#{port => 18083}, 18083};
-ip_port({Port, Opts}, _) when is_integer(Port) -> {Opts#{port => Port}, Port};
-ip_port({{IP, Port}, Opts}, _) -> {Opts#{port => Port, ip => IP}, {IP, Port}}.
+loopback_ip(#{inet6 := true}) -> {0, 0, 0, 0, 0, 0, 0, 1};
+loopback_ip(_Opts) -> {127, 0, 0, 1}.
 
 ranch_opts(Options) ->
     Keys = [
@@ -414,21 +432,20 @@ static_dispatch(SwaggerSupport) ->
         maybe_swagger_dispatch(SwaggerSupport).
 
 maybe_swagger_dispatch(true) ->
-    [
-        {"/api-spec.html", cowboy_static, {priv_file, emqx_dashboard, "api-spec.html"}}
-        | api_spec_dispatch()
-    ];
+    api_spec_dispatch();
 maybe_swagger_dispatch(false) ->
     [].
 
-%% Routes for the focused API spec endpoints (no auth required).
+%% Routes for the focused API spec endpoints.
 %% These are added as raw cowboy routes (not minirest trails) so they do not
-%% appear in the swagger spec they serve and bypass minirest auth middleware.
+%% appear in the swagger spec they serve. They bypass minirest auth middleware
+%% and instead enforce authentication inside the handler itself, returning a
+%% minimal OpenAPI document (or markdown equivalent) on 401.
 %%
 %% `/api-docs/swagger.json` is preserved (returning the full OpenAPI JSON
 %% spec) so external Swagger UI deployments that load EMQX's spec by URL
 %% keep working. `/api-docs` and `/api-docs/index.html` are 308 redirects
-%% to the new in-tree explorer. Other `/api-docs/*` paths used to serve the
+%% to the in-tree explorer. Other `/api-docs/*` paths used to serve the
 %% bundled Swagger UI assets which were removed in cowboy_swagger 3.0.0;
 %% those now 404.
 api_spec_dispatch() ->
@@ -437,6 +454,7 @@ api_spec_dispatch() ->
         {"/api-docs", emqx_dashboard_redirect_handler, ToApiSpec},
         {"/api-docs/index.html", emqx_dashboard_redirect_handler, ToApiSpec},
         {"/api-docs/swagger.json", emqx_dashboard_api_spec_handler, #{}},
+        {"/api-spec.html", emqx_dashboard_api_spec_handler, #{}},
         {"/api-spec.md", emqx_dashboard_api_spec_handler, #{}},
         {"/api-spec.json", emqx_dashboard_api_spec_handler, #{}},
         {"/api-spec/:tag", emqx_dashboard_api_spec_handler, #{}},

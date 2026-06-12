@@ -206,7 +206,9 @@ vm_stats() ->
             {mnesia_tm_mailbox_size, vm_stats('mnesia.tm.mailbox.size')},
             {broker_pool_max_mailbox_size, vm_stats('broker.pool.max.mailbox.size')},
             {total_memory, MemTotal},
-            {used_memory, erlang:round(MemTotal * MemUsedRatio)}
+            {used_memory, erlang:round(MemTotal * MemUsedRatio)},
+            {uptime, emqx_sys:uptime()},
+            {max_fds, esockd:ulimit()}
         ].
 
 cpu_stats() ->
@@ -337,22 +339,8 @@ nodes_info_count(PropList) ->
 %% Clients
 %%--------------------------------------------------------------------
 
-lookup_client({clientid, ClientId}, FormatFun) ->
-    IsPersistenceEnabled = emqx_persistent_message:is_persistence_enabled(),
-    case lookup_running_client(ClientId, FormatFun) of
-        [] when IsPersistenceEnabled ->
-            [
-                maybe_format(FormatFun, I)
-             || I <- emqx_persistent_session_ds_state:print_channel(ClientId)
-            ];
-        Res ->
-            Res
-    end;
-lookup_client({username, Username}, FormatFun) ->
-    lists:append([
-        lookup_client(Node, {username, Username}, FormatFun)
-     || Node <- emqx:running_nodes()
-    ]).
+lookup_client(What, FormatFun) ->
+    emqx_cm:lookup_client_and_format(What, FormatFun).
 
 lookup_client(Node, Key, FormatFun) ->
     case unwrap_rpc(emqx_cm_proto_v1:lookup_client(Node, Key)) of

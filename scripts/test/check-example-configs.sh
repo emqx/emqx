@@ -8,7 +8,7 @@ source ./env.sh
 
 PROFILE="${PROFILE:-emqx-enterprise}"
 DIR_NAME='examples'
-SCHEMA_MOD='emqx_enterprise_schema'
+SCHEMA_MOD='emqx_conf_schema'
 
 IFS=$'\n' read -r -d '' -a FILES < <(find "rel/config/${DIR_NAME}" -name "*.example" 2>/dev/null | sort && printf '\0')
 

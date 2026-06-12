@@ -62,7 +62,9 @@ init_per_group(?local, TCConfig) ->
                     )
                 end
             }},
-            emqx_prometheus,
+            {emqx_prometheus,
+                "prometheus.enable_basic_auth = false\n"
+                "prometheus.namespaced_metrics_limiter.rate = infinity"},
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
         #{work_dir => emqx_cth_suite:work_dir(?local, TCConfig)}

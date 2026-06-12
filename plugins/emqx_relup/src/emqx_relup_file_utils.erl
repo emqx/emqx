@@ -9,9 +9,7 @@
     real_dir_path/1,
     ensure_dir_deleted/1,
     ensure_file_deleted/1,
-    expand_env_variable/3,
-    sh/2,
-    chr/2
+    sh/2
 ]).
 
 -import(emqx_relup_utils, [make_error/2, bin/1]).
@@ -25,36 +23,31 @@ ensure_dir(Path) ->
 cp_r([], _Dest) ->
     ok;
 cp_r(Sources, Dest) ->
-    case os:type() of
-        {unix, Os} ->
-            % ensure destination exists before copying files into it
+    {unix, Os} = os:type(),
+    % ensure destination exists before copying files into it
+    {ok, []} = sh(
+        ?FMT("mkdir -p ~ts", [escape_chars(Dest)]),
+        [{use_stdout, false}]
+    ),
+    case filter_cp_dirs(Sources, Dest) of
+        [] ->
+            ok;
+        Sources1 ->
+            EscSources = [escape_chars(Src) || Src <- Sources1],
+            SourceStr = join(EscSources, " "),
+            % On darwin the following cp command will cp everything inside
+            % target vs target and everything inside, so we chop the last char
+            % off if it is a '/'
+            Source =
+                case {Os == darwin, lists:last(SourceStr) == $/} of
+                    {true, true} -> string:trim(SourceStr, trailing, "/");
+                    {true, false} -> SourceStr;
+                    {false, _} -> SourceStr
+                end,
             {ok, []} = sh(
-                ?FMT("mkdir -p ~ts", [escape_chars(Dest)]),
-                [{use_stdout, false}]
+                ?FMT("cp -Rp ~ts \"~ts\"", [Source, escape_double_quotes(Dest)]),
+                [{use_stdout, true}]
             ),
-            case filter_cp_dirs(Sources, Dest) of
-                [] ->
-                    ok;
-                Sources1 ->
-                    EscSources = [escape_chars(Src) || Src <- Sources1],
-                    SourceStr = join(EscSources, " "),
-                    % On darwin the following cp command will cp everything inside
-                    % target vs target and everything inside, so we chop the last char
-                    % off if it is a '/'
-                    Source =
-                        case {Os == darwin, lists:last(SourceStr) == $/} of
-                            {true, true} -> string:trim(SourceStr, trailing, "/");
-                            {true, false} -> SourceStr;
-                            {false, _} -> SourceStr
-                        end,
-                    {ok, []} = sh(
-                        ?FMT("cp -Rp ~ts \"~ts\"", [Source, escape_double_quotes(Dest)]),
-                        [{use_stdout, true}]
-                    ),
-                    ok
-            end;
-        {win32, _} ->
-            lists:foreach(fun(Src) -> ok = cp_r_win32(Src, Dest) end, Sources),
             ok
     end.
 
@@ -113,28 +106,6 @@ escape_double_quotes(Str) ->
         [global, {return, list}, unicode]
     ).
 
-%% @doc Given env. variable `FOO' we want to expand all references to
-%% it in `InStr'. References can have two forms: `$FOO' and `${FOO}'
-%% The end of form `$FOO' is delimited with whitespace or EOL
-expand_env_variable(InStr, VarName, RawVarValue) ->
-    case chr(InStr, $$) of
-        0 ->
-            %% No variables to expand
-            InStr;
-        _ ->
-            ReOpts = [global, unicode, {return, list}],
-            VarValue = re:replace(RawVarValue, "\\\\", "\\\\\\\\", ReOpts),
-            %% Use a regex to match/replace:
-            %% Given variable "FOO": match $FOO\s | $FOOeol | ${FOO}
-            RegEx = ?FMT("\\\$(~ts(\\W|$)|{~ts})", [VarName, VarName]),
-            re:replace(InStr, RegEx, [VarValue, "\\2"], ReOpts)
-    end.
-
-chr(S, C) when is_integer(C) -> chr(S, C, 1).
-chr([C | _Cs], C, I) -> I;
-chr([_ | Cs], C, I) -> chr(Cs, C, I + 1);
-chr([], _C, _I) -> 0.
-
 sh(Command0, Options0) ->
     DefaultOptions = [
         {use_stdout, false},
@@ -143,7 +114,7 @@ sh(Command0, Options0) ->
     Options = [expand_sh_flag(V) || V <- proplists:compact(Options0 ++ DefaultOptions)],
     ErrorHandler = proplists:get_value(error_handler, Options),
     OutputHandler = proplists:get_value(output_handler, Options),
-    Command = lists:flatten(patch_on_windows(Command0, proplists:get_value(env, Options0, []))),
+    Command = lists:flatten(Command0),
     PortSettings =
         proplists:get_all_values(port_settings, Options) ++
             [exit_status, {line, 16384}, use_stdio, stderr_to_stdout, hide, eof, binary],
@@ -162,105 +133,6 @@ sh(Command0, Options0) ->
 %%==============================================================================
 %% Internal functions
 %%==============================================================================
-cp_r_win32({true, SourceDir}, {true, DestDir}) ->
-    %% from directory to directory
-    ok =
-        case file:make_dir(DestDir) of
-            {error, eexist} -> ok;
-            Other -> Other
-        end,
-    ok = xcopy_win32(SourceDir, DestDir);
-cp_r_win32({false, Source} = S, {true, DestDir}) ->
-    %% from file to directory
-    cp_r_win32(S, {false, filename:join(DestDir, filename:basename(Source))});
-cp_r_win32({false, Source}, {false, Dest}) ->
-    %% from file to file
-    {ok, _} = file:copy(Source, Dest),
-    ok;
-cp_r_win32({true, SourceDir}, {false, DestDir}) ->
-    case filelib:is_regular(DestDir) of
-        true ->
-            %% From directory to file? This shouldn't happen
-            {error,
-                lists:flatten(
-                    ?FMT(
-                        "Cannot copy dir (~p) to file (~p)\n",
-                        [SourceDir, DestDir]
-                    )
-                )};
-        false ->
-            %% Specifying a target directory that doesn't currently exist.
-            %% So let's attempt to create this directory
-            case ensure_dir(DestDir) of
-                ok ->
-                    ok = xcopy_win32(SourceDir, DestDir);
-                {error, Reason} ->
-                    {error,
-                        lists:flatten(
-                            ?FMT(
-                                "Unable to create dir ~p: ~p\n",
-                                [DestDir, Reason]
-                            )
-                        )}
-            end
-    end;
-cp_r_win32(Source, Dest) ->
-    Dst = {filelib:is_dir(Dest), Dest},
-    lists:foreach(
-        fun(Src) ->
-            ok = cp_r_win32({filelib:is_dir(Src), Src}, Dst)
-        end,
-        filelib:wildcard(Source)
-    ),
-    ok.
-
-xcopy_win32(Source, Dest) ->
-    %% "xcopy \"~ts\" \"~ts\" /q /y /e 2> nul", Changed to robocopy to
-    %% handle long names. May have issues with older windows.
-    Cmd =
-        case filelib:is_dir(Source) of
-            true ->
-                %% For robocopy, copying /a/b/c/ to /d/e/f/ recursively does not
-                %% create /d/e/f/c/*, but rather copies all files to /d/e/f/*.
-                %% The usage we make here expects the former, not the later, so we
-                %% must manually add the last fragment of a directory to the `Dest`
-                %% in order to properly replicate POSIX platforms
-                NewDest = filename:join([Dest, filename:basename(Source)]),
-                ?FMT(
-                    "robocopy \"~ts\" \"~ts\" /e 1> nul",
-                    [
-                        escape_double_quotes(filename:nativename(Source)),
-                        escape_double_quotes(filename:nativename(NewDest))
-                    ]
-                );
-            false ->
-                ?FMT(
-                    "robocopy \"~ts\" \"~ts\" \"~ts\" /e 1> nul",
-                    [
-                        escape_double_quotes(filename:nativename(filename:dirname(Source))),
-                        escape_double_quotes(filename:nativename(Dest)),
-                        escape_double_quotes(filename:basename(Source))
-                    ]
-                )
-        end,
-    Res = sh(Cmd, [{use_stdout, false}, return_on_error]),
-    case win32_ok(Res) of
-        true ->
-            ok;
-        false ->
-            {error,
-                lists:flatten(
-                    ?FMT(
-                        "Failed to copy ~ts to ~ts~n",
-                        [Source, Dest]
-                    )
-                )}
-    end.
-
-win32_ok({ok, _}) -> true;
-win32_ok({error, {Rc, _}}) when Rc < 9; Rc =:= 16 -> true;
-win32_ok(_) -> false.
-
 join([], Sep) when is_list(Sep) ->
     [];
 join([H | T], Sep) ->
@@ -292,31 +164,6 @@ resolve_real_dirs([H | T], Acc) ->
             resolve_real_dirs(T, Acc#{Dir => RealDir});
         _RealDir ->
             resolve_real_dirs(T, Acc)
-    end.
-
-%% We do the shell variable substitution ourselves on Windows and hope that the
-%% command doesn't use any other shell magic.
-patch_on_windows(Cmd, Env) ->
-    case os:type() of
-        {win32, nt} ->
-            Cmd1 =
-                "cmd /q /c " ++
-                    lists:foldl(
-                        fun({Key, Value}, Acc) ->
-                            expand_env_variable(Acc, Key, Value)
-                        end,
-                        Cmd,
-                        Env
-                    ),
-            %% Remove left-over vars
-            re:replace(
-                Cmd1,
-                "\\\$\\w+|\\\${\\w+}",
-                "",
-                [global, {return, list}, unicode]
-            );
-        _ ->
-            Cmd
     end.
 
 expand_sh_flag({abort_on_error, Message}) ->

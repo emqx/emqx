@@ -38,6 +38,8 @@ redis {
     servers = "redis:6379"
     redis_type = "single"
     sentinel = ""
+    sentinel_username = ""
+    sentinel_password = ""
     pool_size = 8
     username = ""
     password = "public"
@@ -49,9 +51,3 @@ redis {
     batch_size = 1
     batch_time = 100
 }
-
-
-
-
-
-

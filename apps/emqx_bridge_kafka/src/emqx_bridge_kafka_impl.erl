@@ -28,6 +28,11 @@ sasl(msk_iam) ->
     {callback, brod_oauth, #{
         token_callback => fun emqx_bridge_kafka_msk_iam_authn:token_callback/1
     }};
+sasl(#{type := msk_iam_roles_anywhere} = Opts) ->
+    #{region := _Region, endpoint := _Endpoint} = Opts,
+    {callback, brod_oauth, #{
+        token_callback => emqx_bridge_kafka_msk_iam_authn:mk_token_callback(Opts)
+    }};
 sasl(#{mechanism := oauth, grant_type := client_credentials} = Opts) ->
     Extensions = emqx_utils_maps:binary_key_map(maps:get(extensions, Opts, #{})),
     {callback, brod_oauth, #{
