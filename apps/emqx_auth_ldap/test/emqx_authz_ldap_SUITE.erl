@@ -12,6 +12,9 @@
 
 -define(LDAP_HOST, "ldap").
 -define(LDAP_DEFAULT_PORT, 389).
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
+-define(PROXY_NAME, "ldap_tcp").
 
 all() ->
     emqx_authz_test_lib:all_with_table_case(?MODULE, t_run_case, cases()).
@@ -80,6 +83,7 @@ t_node_cache(_Config) ->
         %% but we just test that the filter's vars are used for caching
         <<"filter">> => <<"(objectClass=${cert_common_name})">>
     }),
+    ok = emqx_authz_test_lib:reset_node_cache(),
     ok = emqx_authz_test_lib:enable_node_cache(true),
 
     %% Subscribe to twice, should hit cache the second time
@@ -113,6 +117,68 @@ t_node_cache(_Config) ->
         #{hits := #{value := 1}, misses := #{value := 3}},
         emqx_auth_cache:metrics(?AUTHZ_CACHE)
     ).
+
+%% mqttuser0011 user has malformed ACL records
+%% so they should be denied in hardened mode
+t_invalid_acl_rules_legacy_ignores(_Config) ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ok = setup_authz_source(),
+        {ok, _} = emqx:update_config([authorization, no_match], allow),
+        ?assertEqual(
+            allow,
+            emqx_access_control:authorize(
+                #{username => <<"mqttuser0011">>},
+                ?AUTHZ_PUBLISH,
+                <<"t">>
+            )
+        )
+    end).
+
+t_invalid_acl_rules_hardened_denies(_Config) ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ok = setup_authz_source(),
+        {ok, _} = emqx:update_config([authorization, no_match], allow),
+        ?assertEqual(
+            deny,
+            emqx_access_control:authorize(
+                #{username => <<"mqttuser0011">>},
+                ?AUTHZ_PUBLISH,
+                <<"t">>
+            )
+        )
+    end).
+
+t_conn_error_legacy_ignores(_Config) ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        setup_config(#{<<"server">> => <<"toxiproxy:389">>}),
+        {ok, _} = emqx:update_config([authorization, no_match], allow),
+        with_failure(down, fun() ->
+            ?assertEqual(
+                allow,
+                emqx_access_control:authorize(
+                    #{username => <<"mqttuser0001">>},
+                    ?AUTHZ_PUBLISH,
+                    <<"mqttuser0001/pub/1">>
+                )
+            )
+        end)
+    end).
+
+t_conn_error_hardened_denies(_Config) ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        setup_config(#{<<"server">> => <<"toxiproxy:389">>}),
+        {ok, _} = emqx:update_config([authorization, no_match], allow),
+        with_failure(down, fun() ->
+            ?assertEqual(
+                deny,
+                emqx_access_control:authorize(
+                    #{username => <<"mqttuser0001">>},
+                    ?AUTHZ_PUBLISH,
+                    <<"mqttuser0001/pub/1">>
+                )
+            )
+        end)
+    end).
 
 %%------------------------------------------------------------------------------
 %% Case
@@ -199,3 +265,12 @@ setup_config(SpecialParams) ->
 
 ldap_server() ->
     iolist_to_binary(io_lib:format("~s:~B", [?LDAP_HOST, ?LDAP_DEFAULT_PORT])).
+
+with_failure(FailureType, Fun) ->
+    emqx_common_test_helpers:with_failure(
+        FailureType,
+        ?PROXY_NAME,
+        ?PROXY_HOST,
+        ?PROXY_PORT,
+        Fun
+    ).

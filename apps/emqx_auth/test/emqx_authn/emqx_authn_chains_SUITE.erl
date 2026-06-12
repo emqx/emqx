@@ -24,8 +24,6 @@
 ).
 -define(CONF_ROOT, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
 -define(NOT_SUPERUSER, #{is_superuser => false}).
--define(PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
-
 -define(assertAuthSuccessForUser(User),
     ?assertMatch(
         {ok, _},
@@ -578,16 +576,16 @@ t_authn_not_configured_missing_chain(Config) when is_list(Config) ->
     ok = cleanup_authn_not_configured_chains(),
     ClientInfo = authn_not_configured_clientinfo(),
 
-    with_profile("legacy", fun() ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
         ?assertMatch({ok, _}, emqx_access_control:authenticate(ClientInfo))
     end),
-    with_profile("hardened", fun() ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo))
     end),
     ok;
 t_authn_not_configured_missing_chain({'end', _Config}) ->
     ok = cleanup_authn_not_configured_chains(),
-    clear_security_profile().
+    emqx_common_test_helpers:clear_security_profile().
 
 t_authn_not_configured_empty_chain({'init', Config}) ->
     Config;
@@ -604,17 +602,17 @@ t_authn_not_configured_empty_chain(Config) when is_list(Config) ->
     {ok, _} = ?AUTHN:create_authenticator(ListenerID, AuthenticatorConfig),
     ClientInfo = authn_not_configured_clientinfo(),
 
-    with_profile("legacy", fun() ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
         ?assertMatch({ok, _}, emqx_access_control:authenticate(ClientInfo))
     end),
-    with_profile("hardened", fun() ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo))
     end),
     ok;
 t_authn_not_configured_empty_chain({'end', _Config}) ->
     ok = cleanup_authn_not_configured_chains(),
     ok = ?AUTHN:deregister_provider({password_based, built_in_database}),
-    clear_security_profile().
+    emqx_common_test_helpers:clear_security_profile().
 
 %%=================================================================================
 %% Helpers fns
@@ -628,20 +626,6 @@ authn_not_configured_clientinfo() ->
         username => <<"bad">>,
         password => <<"any">>
     }.
-
-with_profile(Profile, Fun) ->
-    os:putenv(?PROFILE_ENV_VAR, Profile),
-    emqx_security_profile:clear_profile(),
-    try
-        Fun()
-    after
-        clear_security_profile()
-    end.
-
-clear_security_profile() ->
-    os:unsetenv(?PROFILE_ENV_VAR),
-    emqx_security_profile:clear_profile(),
-    ok.
 
 cleanup_authn_not_configured_chains() ->
     _ = ?AUTHN:delete_chain('tcp:default'),

@@ -14,6 +14,9 @@
 
 -define(REDIS_HOST, "redis").
 -define(REDIS_RESOURCE, <<"emqx_authz_redis_SUITE">>).
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
+-define(PROXY_NAME, "redis_single_tcp").
 
 all() ->
     emqx_authz_test_lib:all_with_table_case(?MODULE, t_run_case, cases()).
@@ -161,6 +164,44 @@ t_node_cache(_Config) ->
         emqx_auth_cache:metrics(?AUTHZ_CACHE)
     ).
 
+t_resource_failure_legacy_ignores(_Config) ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ok = setup_config(#{
+            <<"server">> => <<"toxiproxy:6379">>,
+            <<"cmd">> => <<"HGETALL acl:${username}">>
+        }),
+        {ok, _} = emqx:update_config([authorization, no_match], allow),
+        with_failure(down, fun() ->
+            ?assertEqual(
+                allow,
+                emqx_access_control:authorize(
+                    emqx_authz_test_lib:base_client_info(),
+                    ?AUTHZ_PUBLISH,
+                    <<"a">>
+                )
+            )
+        end)
+    end).
+
+t_resource_failure_hardened_denies(_Config) ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ok = setup_config(#{
+            <<"server">> => <<"toxiproxy:6379">>,
+            <<"cmd">> => <<"HGETALL acl:${username}">>
+        }),
+        {ok, _} = emqx:update_config([authorization, no_match], allow),
+        with_failure(down, fun() ->
+            ?assertEqual(
+                deny,
+                emqx_access_control:authorize(
+                    emqx_authz_test_lib:base_client_info(),
+                    ?AUTHZ_PUBLISH,
+                    <<"a">>
+                )
+            )
+        end)
+    end).
+
 %%------------------------------------------------------------------------------
 %% Cases
 %%------------------------------------------------------------------------------
@@ -214,6 +255,23 @@ cases() ->
                 {deny, ?AUTHZ_PUBLISH, <<"a">>},
                 {deny, ?AUTHZ_PUBLISH, <<"b">>},
                 {deny, ?AUTHZ_PUBLISH, <<"c">>},
+                {deny, ?AUTHZ_PUBLISH(1, true), <<"d">>}
+            ]
+        },
+        #{
+            name => invalid_rule_hardened_fail_closed,
+            security_profile => hardened,
+            default_permission => allow,
+            setup => [
+                [
+                    "HMSET",
+                    "acl:username",
+                    "d",
+                    emqx_utils_json:encode(#{qos => 1, retain => true})
+                ]
+            ],
+            cmd => "HGETALL acl:${username}",
+            checks => [
                 {deny, ?AUTHZ_PUBLISH(1, true), <<"d">>}
             ]
         },
@@ -462,6 +520,15 @@ q(Command) ->
     emqx_resource:simple_sync_query(
         ?REDIS_RESOURCE,
         {cmd, Command}
+    ).
+
+with_failure(FailureType, Fun) ->
+    emqx_common_test_helpers:with_failure(
+        FailureType,
+        ?PROXY_NAME,
+        ?PROXY_HOST,
+        ?PROXY_PORT,
+        Fun
     ).
 
 redis_config() ->

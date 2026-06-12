@@ -54,7 +54,7 @@ authorize(
                 msg => "mongo_authorize_error",
                 reason => EncodeError
             }),
-            nomatch
+            emqx_authz_utils:backend_failure_result()
     end.
 
 %%--------------------------------------------------------------------
@@ -103,7 +103,7 @@ authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
                 options => Options,
                 resource_id => ResourceId
             }),
-            nomatch;
+            emqx_authz_utils:backend_failure_result();
         {ok, Rows} ->
             Rules = lists:flatmap(fun parse_rule/1, Rows),
             do_authorize(Client, Action, Topic, Rules)

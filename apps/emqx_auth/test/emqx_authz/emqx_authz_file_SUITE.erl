@@ -12,8 +12,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
-
 -define(RAW_SOURCE, #{
     <<"type">> => <<"file">>,
     <<"enable">> => true,
@@ -216,14 +214,14 @@ t_security_profile(_Config) ->
         <<"rules">> => <<"{allow, {security_profile, legacy}, all, [\"t/#\"]}.">>
     }),
 
-    with_security_profile("legacy", fun() ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
         ?assertEqual(
             allow,
             emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t/1">>)
         )
     end),
 
-    with_security_profile("hardened", fun() ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         ?assertEqual(
             deny,
             emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t/1">>)
@@ -363,13 +361,3 @@ setup_config(SpecialParams) ->
 
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).
-
-with_security_profile(Profile, Fun) ->
-    os:putenv(?PROFILE_ENV_VAR, Profile),
-    emqx_security_profile:clear_profile(),
-    try
-        Fun()
-    after
-        os:unsetenv(?PROFILE_ENV_VAR),
-        emqx_security_profile:clear_profile()
-    end.

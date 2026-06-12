@@ -18,6 +18,7 @@
     update_config/2,
     vars_for_rule_query/2,
     authorize_with_row/6,
+    backend_failure_result/0,
     init_state/2,
     cleanup_resource_config/2
 ]).
@@ -178,7 +179,7 @@ cached_simple_sync_query(CacheKey, ResourceID, Query) ->
     emqx_types:topic(),
     [binary()] | undefined,
     [binary()] | map()
-) -> nomatch | {matched, allow | deny | ignore}.
+) -> ignore | nomatch | {matched, allow | deny | ignore}.
 authorize_with_row(Type, Client, Action, Topic, ColumnNames, Row) ->
     try
         maybe
@@ -190,12 +191,19 @@ authorize_with_row(Type, Client, Action, Topic, ColumnNames, Row) ->
                 nomatch;
             {error, Reason0} ->
                 log_match_rule_error(Type, Row, Reason0),
-                nomatch
+                backend_failure_result()
         end
     catch
         throw:Reason1 ->
             log_match_rule_error(Type, Row, Reason1),
-            nomatch
+            backend_failure_result()
+    end.
+
+-spec backend_failure_result() -> ignore | {matched, deny}.
+backend_failure_result() ->
+    case emqx_security_profile:policy(authz_backend_failure) of
+        ignore -> ignore;
+        deny -> {matched, deny}
     end.
 
 -spec init_state(emqx_authz_source:source(), map()) -> emqx_authz_source:source_state().
