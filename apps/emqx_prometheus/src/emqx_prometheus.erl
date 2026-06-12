@@ -474,7 +474,6 @@ emqx_collect(K = emqx_vm_cpu_idle, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_run_queue, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_uptime_ms, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_max_fds, D) -> gauge_metrics(?MG(K, D));
-emqx_collect(K = emqx_vm_process_messages_in_queues, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_total_memory, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_used_memory, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_mnesia_tm_mailbox_size, D) -> gauge_metrics(?MG(K, D));
@@ -753,7 +752,6 @@ vm_metric_meta() ->
         {emqx_vm_run_queue, gauge, 'run_queue'},
         {emqx_vm_uptime_ms, gauge, 'uptime'},
         {emqx_vm_max_fds, gauge, 'max_fds'},
-        {emqx_vm_process_messages_in_queues, gauge, 'process_total_messages'},
         {emqx_vm_total_memory, gauge, 'total_memory'},
         {emqx_vm_used_memory, gauge, 'used_memory'},
         {emqx_vm_mnesia_tm_mailbox_size, gauge, 'mnesia_tm_mailbox_size'},
