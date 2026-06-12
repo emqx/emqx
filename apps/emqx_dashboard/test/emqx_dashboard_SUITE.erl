@@ -310,7 +310,14 @@ production_api_modules() ->
     %% `reboot_apps/0' is the canonical EMQX umbrella business-app list
     %% and lets us load each one explicitly here.
     Apps = emqx_machine_boot:reboot_apps(),
-    lists:foreach(fun ensure_loaded/1, Apps),
+    AlreadyLoaded = [App || {App, _, _} <- application:loaded_applications()],
+    NewlyLoaded = [App || App <- Apps, ensure_loaded(App, AlreadyLoaded)],
+    %% `cth_suite' unloads the apps it started; we only need to
+    %% unload the ones we just loaded ourselves, so other code that
+    %% relies on the original load state isn't surprised.
+    emqx_common_test_helpers:on_exit(
+        fun() -> lists:foreach(fun application:unload/1, NewlyLoaded) end
+    ),
     AllModules = lists:flatten([app_modules(App) || App <- Apps]),
     [
         M
@@ -319,11 +326,22 @@ production_api_modules() ->
         implements_minirest_api(M)
     ].
 
-ensure_loaded(App) ->
-    case application:load(App) of
-        ok -> ok;
-        {error, {already_loaded, _}} -> ok;
-        {error, Other} -> ct:pal("Skip ~p: ~p", [App, Other])
+%% Returns true when this call actually loaded the app (so the caller
+%% knows to undo it later).
+ensure_loaded(App, AlreadyLoaded) ->
+    case lists:member(App, AlreadyLoaded) of
+        true ->
+            false;
+        false ->
+            case application:load(App) of
+                ok ->
+                    true;
+                {error, {already_loaded, _}} ->
+                    false;
+                {error, Other} ->
+                    ct:pal("Skip ~p: ~p", [App, Other]),
+                    false
+            end
     end.
 
 app_modules(App) ->
