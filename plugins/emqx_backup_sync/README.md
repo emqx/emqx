@@ -53,9 +53,11 @@ sync {
 }
 ```
 
-The configured API key must be allowed to access Data Backup endpoints on the
-primary cluster. `primary.api_key` and `primary.api_secret` can be set directly
-or as `file://` paths, for example `file:///etc/emqx/backup-sync-api-key`.
+The configured API key must be created on the primary cluster beforehand and
+must be allowed to access Data Backup endpoints. API keys cannot create or
+manage other API keys through the Dashboard API. `primary.api_key` and
+`primary.api_secret` can be set directly or as `file://` paths, for example
+`file:///etc/emqx/backup-sync-api-key`.
 
 Supported `sync.root_keys` values are `connectors`, `actions`, `sources`,
 `rule_engine`, `listeners`, `schema_registry`, `authentication`, and
@@ -70,9 +72,12 @@ By default, synchronization also includes the `banned`, `builtin_authn`, and
 `builtin_authz` table sets. These selected table sets are replaced on the
 secondary cluster. Set `sync.table_sets = []` when configuration-only
 synchronization is required. Supported `sync.table_sets` values are `banned`,
-`builtin_authn`, `builtin_authz`, `builtin_retainer`, `psk`, and `mt`. The
-primary Data Backup API does not include `dashboard_users` or `api_keys` when
-called with an API key.
+`builtin_authn`, `builtin_authz`, `builtin_retainer`, `psk`, and `mt`.
+
+Dashboard users and API keys are intentionally not supported by this plugin.
+The primary Data Backup API does not include `dashboard_users` or `api_keys`
+when called with an API key, and API-key callers cannot download or import
+backup archives that contain those table sets.
 
 ## CLI
 
