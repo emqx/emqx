@@ -624,6 +624,12 @@ generate_method_desc(Spec, Options) ->
     enforce_method_desc_policy(Spec),
     trans_tags(trans_summary(Spec, Spec, Options)).
 
+trans_summary(Spec = #{summary := ?DESC(_, _) = Struct}, _Hocon, Options) ->
+    %% Explicit i18n summary ref wins over auto-derivation from the
+    %% desc/description ref.  This is the escape hatch for operations
+    %% that need a static title but render their description dynamically.
+    Summary = resolve_i18n(<<"label">>, Struct, Options),
+    Spec#{summary => Summary};
 trans_summary(Spec = #{summary := _}, Hocon, Options) ->
     forbidden_summary_ref(Spec),
     trans_summary(maps:remove(summary, Spec), Hocon, Options);
@@ -753,22 +759,31 @@ forbidden_summary_ref(_Spec) ->
 -dialyzer({nowarn_function, forbidden_summary_ref/1}).
 missing_i18n_ref(Text) ->
     error({missing_i18n_ref, Text}).
-%% In production, explicit operation summary is forbidden. Summary must be
-%% derived from the same ?DESC(...) reference used by desc/description.
+%% In production, operation summary must be an i18n ?DESC(...) reference, never a
+%% literal binary.  A literal would bypass i18n and force every consumer (Redoc,
+%% SDK generators) to render the source-language string verbatim.
 forbidden_summary_ref(Spec) ->
     error({forbidden_summary_ref, Spec}).
 -endif.
 
 %% Policy for operation docs:
-%% 1) Tagged endpoint methods must not define summary in source.
-%% 2) Tagged endpoint methods must define desc/description so summary can be
-%%    derived from i18n label and description from i18n desc.
+%% 1) Tagged endpoint methods may declare `summary => ?DESC(M, S)' explicitly.
+%%    A literal binary summary is forbidden — i18n must flow through ?DESC.
+%% 2) Tagged endpoint methods without an explicit summary must define
+%%    desc/description as a ?DESC(...) ref so summary can be auto-derived
+%%    from the i18n `label' entry and description from the `desc' entry.
+%%    A raw binary description is forbidden because it leaves the operation
+%%    without a summary, and Redoc would fall back to truncating the
+%%    description as the title.
+enforce_method_desc_policy(#{tags := _, summary := ?DESC(_, _)}) ->
+    ok;
 enforce_method_desc_policy(#{tags := _, summary := _} = Spec) ->
     forbidden_summary_ref(Spec);
 enforce_method_desc_policy(#{tags := _} = Spec) ->
     case desc_struct(Spec) of
+        ?DESC(_, _) -> ok;
         undefined -> missing_i18n_ref(missing_operation_description);
-        _ -> ok
+        _ -> missing_i18n_ref(missing_desc_ref_for_summary)
     end;
 enforce_method_desc_policy(_Spec) ->
     ok.
