@@ -228,6 +228,22 @@ t_enable_disable_gw_ocpp(_Config) ->
     ?assertEqual({204, #{}}, request(put, "/gateways/ocpp/enable/true", <<>>)),
     AssertEnabled(true).
 
+t_init_respects_listener_enable_authn(_Config) ->
+    Channel = emqx_ocpp_channel:init(
+        #{
+            peername => {{127, 0, 0, 1}, 12345},
+            sockname => {{127, 0, 0, 1}, 33033}
+        },
+        #{
+            ctx => undefined,
+            listener => {ocpp, ws, default},
+            enable_authn => false
+        }
+    ),
+    ClientInfo = emqx_ocpp_channel:info(clientinfo, Channel),
+    ?assertMatch(#{enable_authn := false}, ClientInfo),
+    ?assertEqual(false, maps:is_key(enalbe_authn, ClientInfo)).
+
 t_adjust_keepalive_timer(_Config) ->
     {ok, Client} = connect("127.0.0.1", 33033, <<"client1">>),
     UniqueId = <<"3335862321">>,
