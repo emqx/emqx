@@ -868,7 +868,11 @@ stats(transformation_failed) ->
 stats(dropped) ->
     emqx_metrics:val('messages.dropped');
 stats(persisted) ->
-    emqx_metrics:val('messages.persisted').
+    emqx_metrics:val('messages.persisted');
+stats(rules_matched) ->
+    emqx_metrics:val('rules.matched');
+stats(actions_executed) ->
+    emqx_metrics:val('actions.executed').
 
 %% -------------------------------------------------------------------------------------------------
 %% Retained && License Quota

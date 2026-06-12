@@ -296,4 +296,14 @@ session_disonnected.desc:
 session_disonnected.label:
 """Disconnected Sessions"""
 
+rules_matched.desc:
+"""Number of rules matched."""
+rules_matched.label:
+"""Rules Matched"""
+
+actions_executed.desc:
+"""Number of rule-engine actions executed."""
+actions_executed.label:
+"""Actions Executed"""
+
 }
