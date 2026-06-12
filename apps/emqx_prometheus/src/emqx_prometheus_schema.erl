@@ -139,7 +139,7 @@ fields(collectors) ->
             ?HOCON(
                 hoconsc:enum([disabled, enabled]),
                 #{
-                    default => disabled,
+                    default => enabled,
                     required => true,
                     desc => ?DESC(vm_dist_collector)
                 }
@@ -159,7 +159,7 @@ fields(collectors) ->
             ?HOCON(
                 hoconsc:enum([enabled, disabled]),
                 #{
-                    default => disabled,
+                    default => enabled,
                     required => true,
                     desc => ?DESC(vm_statistics_collector)
                 }
@@ -169,7 +169,7 @@ fields(collectors) ->
             ?HOCON(
                 hoconsc:enum([enabled, disabled]),
                 #{
-                    default => disabled,
+                    default => enabled,
                     required => true,
                     desc => ?DESC(vm_system_info_collector)
                 }
@@ -180,7 +180,7 @@ fields(collectors) ->
             ?HOCON(
                 hoconsc:enum([enabled, disabled]),
                 #{
-                    default => disabled,
+                    default => enabled,
                     required => true,
                     desc => ?DESC(vm_memory_collector)
                 }
