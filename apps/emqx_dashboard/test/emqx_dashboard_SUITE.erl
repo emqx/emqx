@@ -303,7 +303,14 @@ t_swagger_summary_required(_Config) ->
     ?assertEqual([], Missing, {ops_missing_summary, Missing}).
 
 production_api_modules() ->
-    Apps = [App || {App, _, _} <- application:loaded_applications(), is_emqx_app(App)],
+    %% Use `emqx_machine_boot:reboot_apps/0' rather than
+    %% `application:loaded_applications/0': the latter only sees apps
+    %% the SUITE happens to have loaded, so a future init_per_suite
+    %% trimming could silently shrink coverage to a handful of apps.
+    %% `reboot_apps/0' is the canonical EMQX umbrella business-app list
+    %% and lets us load each one explicitly here.
+    Apps = emqx_machine_boot:reboot_apps(),
+    lists:foreach(fun ensure_loaded/1, Apps),
     AllModules = lists:flatten([app_modules(App) || App <- Apps]),
     [
         M
@@ -312,10 +319,11 @@ production_api_modules() ->
         implements_minirest_api(M)
     ].
 
-is_emqx_app(App) ->
-    case atom_to_list(App) of
-        "emqx" ++ _ -> true;
-        _ -> false
+ensure_loaded(App) ->
+    case application:load(App) of
+        ok -> ok;
+        {error, {already_loaded, _}} -> ok;
+        {error, Other} -> ct:pal("Skip ~p: ~p", [App, Other])
     end.
 
 app_modules(App) ->
