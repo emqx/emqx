@@ -347,7 +347,6 @@ metric_meta(<<"emqx_vm_cpu_idle">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_run_queue">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_uptime_ms">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_max_fds">>) -> ?meta(0, 1, 1);
-metric_meta(<<"emqx_vm_process_messages_in_queues">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_total_memory">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_used_memory">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_mnesia_tm_mailbox_size">>) -> ?meta(0, 1, 1);
@@ -562,7 +561,6 @@ assert_json_data__metrics(M, ?PROM_DATA_MODE__NODE) ->
             emqx_vm_run_queue := _,
             emqx_vm_uptime_ms := _,
             emqx_vm_max_fds := _,
-            emqx_vm_process_messages_in_queues := _,
             emqx_vm_total_memory := _,
             emqx_vm_used_memory := _
         },

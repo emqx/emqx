@@ -5,7 +5,7 @@ defmodule EMQXPrometheus.MixProject do
   def project do
     [
       app: :emqx_prometheus,
-      version: "6.2.0",
+      version: "6.2.1",
       build_path: "../../_build",
       compilers: Mix.compilers() ++ [:copy_srcs],
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler
@@ -32,7 +32,8 @@ defmodule EMQXPrometheus.MixProject do
       {:emqx_management, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
       {:emqx_durable_storage, in_umbrella: true},
-      {:prometheus, git: "https://github.com/emqx/prometheus.erl", tag: "v4.10.0.3"}
+      {:prometheus,
+       git: "https://github.com/emqx/prometheus.erl", tag: "v6.1.2-emqx-1", manager: :rebar3}
     ])
   end
 
