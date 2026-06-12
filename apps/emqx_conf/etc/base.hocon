@@ -22,3 +22,21 @@ log {
         # level = warning
     }
 }
+
+## Dashboard listener defaults.
+## Placed here (rather than in `emqx.conf`) so that overrides written by the
+## dashboard, the REST API, or plugins such as `emqx_acme` -- which land in
+## `cluster.hocon` -- take effect across restarts. Pin a value in `emqx.conf`
+## only when you want to prevent runtime overrides.
+dashboard {
+    listeners {
+        http.bind = 18083
+        # https.bind = 18084
+        https {
+            ssl_options {
+                certfile = "${EMQX_ETC_DIR}/certs/cert.pem"
+                keyfile = "${EMQX_ETC_DIR}/certs/key.pem"
+            }
+        }
+    }
+}

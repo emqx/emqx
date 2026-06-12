@@ -509,7 +509,7 @@ emulate_emqx_conf_init_load(NewNode, SeedNode) ->
             ]
         ]),
 
-        SchemaMod = emqx_enterprise_schema,
+        SchemaMod = emqx_conf_schema,
         ok = application:stop(emqx_schema_registry),
         ok = emqx_config:init_load(SchemaMod),
         ok = application:start(emqx_schema_registry)

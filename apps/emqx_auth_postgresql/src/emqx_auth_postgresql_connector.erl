@@ -5,7 +5,6 @@
 -module(emqx_auth_postgresql_connector).
 
 -include_lib("emqx_resource/include/emqx_resource.hrl").
--include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -35,6 +34,7 @@
 -define(PGSQL_HOST_OPTIONS, #{
     default_port => ?PGSQL_DEFAULT_PORT
 }).
+-define(AUTO_RECONNECT_INTERVAL, 2).
 
 -type prepare_statement_key() :: atom() | binary().
 -type prepare_statement_sql() :: unicode:chardata().

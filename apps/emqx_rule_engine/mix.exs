@@ -28,7 +28,6 @@ defmodule EMQXRuleEngine.MixProject do
           {:emqx, in_umbrella: true},
           {:emqx_ctl, in_umbrella: true},
           {:emqx_utils, in_umbrella: true},
-          {:emqx_modules, in_umbrella: true},
           {:emqx_resource, in_umbrella: true},
           {:emqx_connector, in_umbrella: true},
           {:emqx_bridge, in_umbrella: true},

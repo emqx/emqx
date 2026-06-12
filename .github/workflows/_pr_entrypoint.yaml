@@ -78,13 +78,13 @@ jobs:
         run: ./scripts/shellcheck.sh
       - name: Run shell tests
         run: scripts/shelltest/run_tests.sh
-      - name: Run pytest find-apps tests
+      - name: Run pytest script tests
         run: |
           python3 -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
           pip install pytest
-          pytest scripts/test/test_find_apps.py -v
+          pytest scripts/test/test_find_apps.py scripts/test/test_docker_entrypoint.py -v
       - name: Check workflow files
         env:
           ACTIONLINT_VSN: 1.7.12
@@ -108,6 +108,9 @@ jobs:
       - name: Check formatting
         run: |
           ./scripts/check-format.sh
+      - name: Check static umbrella application list file
+        run: |
+          ./scripts/check-umbrella-apps.exs
       - name: Run elvis check
         run: |
           ./scripts/elvis-check.sh $GITHUB_BASE_REF
@@ -135,6 +138,7 @@ jobs:
       - init
       - sanity-checks
     strategy:
+      fail-fast: false
       matrix:
         build_type:
           - test

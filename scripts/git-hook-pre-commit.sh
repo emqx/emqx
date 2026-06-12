@@ -27,3 +27,5 @@ else
     fi
     ./scripts/apps-version-check.exs
 fi
+
+./scripts/check-umbrella-apps.exs

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_offline_messages_mysql).
@@ -59,6 +59,7 @@
 -type param_template() :: emqx_template_sql:row_template().
 
 -type context() :: #{
+    insert_message_sql => {statement(), param_template()},
     select_message_sql => {statement(), param_template()},
     delete_message_sql => {statement(), param_template()},
     insert_subscription_sql => {statement(), param_template()},
@@ -107,6 +108,7 @@ start(ConfigRaw) ->
 
     Statements = parse_statements(
         [
+            insert_message_sql,
             delete_message_sql,
             select_message_sql,
             insert_subscription_sql,
@@ -115,6 +117,7 @@ start(ConfigRaw) ->
         ],
         ConfigRaw
     ),
+
     TopicFilters = emqx_offline_messages_utils:topic_filters(ConfigRaw),
     Context = #{
         statements => Statements,
@@ -142,6 +145,7 @@ on_client_connected(
         case sync_query(Sql, Params) of
             {ok, Columns, Rows} ->
                 Subscriptions = to_subscriptions(Columns, Rows),
+                ok = emqx_offline_messages_utils:mark_restored_subscriptions(Subscriptions),
                 ok = emqx_offline_messages_utils:induce_subscriptions(Subscriptions),
                 ok;
             {error, Reason} ->
@@ -164,8 +168,16 @@ on_session_subscribed(
         topic => Topic,
         subopts => SubOpts
     }),
+    ShouldReplay = should_replay_messages(Topic, SubOpts),
     ok = insert_subscription(ClientId, Topic, SubOpts, Context),
-    ok = fetch_and_deliver_messages(ClientId, Topic, Context).
+    case ShouldReplay of
+        true -> fetch_and_deliver_messages(ClientId, Topic, Context);
+        false -> ok
+    end.
+
+should_replay_messages(Topic, SubOpts) ->
+    emqx_offline_messages_utils:consume_restored_subscription(Topic) orelse
+        maps:get(is_new, SubOpts, true).
 
 insert_subscription(
     ClientId,
@@ -239,7 +251,11 @@ delete_subscription(
 
 on_message_publish(Message = #message{topic = <<"$SYS/", _/binary>>}, _Context) ->
     {ok, Message};
-on_message_publish(Message, #{topic_filters := TopicFilters} = _Context) ->
+on_message_publish(
+    Message,
+    #{topic_filters := TopicFilters, statements := #{insert_message_sql := {Sql, ParamTemplate}}} =
+        _Context
+) ->
     _ =
         case emqx_offline_messages_utils:need_persist_message(Message, TopicFilters) of
             false ->
@@ -249,7 +265,7 @@ on_message_publish(Message, #{topic_filters := TopicFilters} = _Context) ->
                 });
             true ->
                 MessageMap = message_to_map(Message),
-                Res = emqx_resource:query(?RESOURCE_ID, {insert_message, MessageMap}),
+                Res = sync_query(Sql, render_row(ParamTemplate, MessageMap)),
                 ?SLOG(info, #{
                     msg => offline_messages_mysql_message_publish,
                     message => MessageMap,
@@ -388,7 +404,7 @@ start_resource(MysqlConfig, ResourceOpts) ->
     {ok, _} = emqx_resource:create_local(
         ?RESOURCE_ID,
         ?RESOURCE_GROUP,
-        emqx_bridge_mysql_connector,
+        emqx_omp_mysql_connector,
         MysqlConfig,
         ResourceOpts
     ),
@@ -401,7 +417,7 @@ stop_resource() ->
     }),
     emqx_resource:remove_local(?RESOURCE_ID).
 
-make_mysql_resource_config(#{<<"insert_message_sql">> := InsertMessageStatement} = RawConfig0) ->
+make_mysql_resource_config(RawConfig0) ->
     RawMysqlConfig0 = maps:with(
         [
             <<"server">>,
@@ -417,16 +433,10 @@ make_mysql_resource_config(#{<<"insert_message_sql">> := InsertMessageStatement}
 
     MysqlConfig0 = emqx_offline_messages_utils:check_config(emqx_mysql, RawMysqlConfig),
 
-    MysqlConfig = MysqlConfig0#{
-        prepare_statement => #{
-            insert_message => InsertMessageStatement
-        }
-    },
-
     ResourceOpts0 = emqx_offline_messages_utils:make_resource_opts(RawConfig0),
     ResourceOpts = ResourceOpts0#{spawn_buffer_workers => true},
 
-    {MysqlConfig, ResourceOpts}.
+    {MysqlConfig0, ResourceOpts}.
 
 init_default_schema(#{<<"init_default_schema">> := true} = ConfigRaw) ->
     ?SLOG(info, #{
@@ -434,17 +444,16 @@ init_default_schema(#{<<"init_default_schema">> := true} = ConfigRaw) ->
         config => ConfigRaw
     }),
     {MysqlConfig0, ResourceOpts} = make_mysql_resource_config(ConfigRaw),
-    MysqlConfig = MysqlConfig0#{prepare_statement => #{}},
     {ok, _} = emqx_resource:create_local(
         ?RESOURCE_ID_INIT,
         ?RESOURCE_GROUP,
-        emqx_mysql,
-        MysqlConfig,
+        emqx_omp_mysql_connector,
+        MysqlConfig0,
         ResourceOpts
     ),
     ok = lists:foreach(
         fun(Sql) ->
-            case emqx_resource:simple_sync_query(?RESOURCE_ID_INIT, {sql, Sql, [], ?TIMEOUT}) of
+            case emqx_resource:simple_sync_query(?RESOURCE_ID_INIT, query(Sql, [])) of
                 {error, Reason} ->
                     ?SLOG(error, #{
                         msg => "offline_messages_mysql_init_default_schema_error",
@@ -461,8 +470,11 @@ init_default_schema(#{<<"init_default_schema">> := true} = ConfigRaw) ->
 init_default_schema(_ConfigRaw) ->
     ok.
 
-sync_query(Sql, Params) ->
-    emqx_resource:simple_sync_query(?RESOURCE_ID, {sql, Sql, Params, ?TIMEOUT}).
+sync_query(Key, Params) ->
+    emqx_resource:simple_sync_query(?RESOURCE_ID, query(Key, Params)).
+
+query(Sql, Params) ->
+    {query, Sql, Params, #{timeout => ?TIMEOUT}}.
 
 %% Render helpers
 

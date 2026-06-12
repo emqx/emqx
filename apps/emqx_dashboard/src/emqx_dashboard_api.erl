@@ -279,6 +279,13 @@ login(post, #{body := Params}) ->
             format_login_failed_error(R)
     end.
 
+format_login_failed_error(<<"default_credentials_not_changed">>) ->
+    {401, ?BAD_USERNAME_OR_PWD,
+        ~b"""
+    Default admin password must be changed before login is allowed.
+    Run: emqx ctl admins passwd admin <a-strong-password>.
+    Or configure: dashboard.default_password = "<a-strong-password>".
+    """};
 format_login_failed_error(Reason) ->
     maybe
         {is_mfa_error, false} ?= {is_mfa_error, emqx_dashboard_mfa:is_mfa_error(Reason)},

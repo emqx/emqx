@@ -69,6 +69,18 @@ t_log_conf(_Conf) ->
         <<"timestamp_format">> => <<"auto">>,
         <<"payload_encode">> => <<"text">>
     },
+    AuditExpect = #{
+        <<"enable">> => false,
+        <<"level">> => <<"info">>,
+        <<"path">> => <<"${EMQX_LOG_DIR}/audit.log">>,
+        <<"ignore_high_frequency_request">> => true,
+        <<"cache_size">> => 5000,
+        <<"rotation_count">> => 10,
+        <<"rotation_size">> => <<"50MB">>,
+        <<"time_offset">> => <<"system">>,
+        <<"timestamp_format">> => <<"auto">>,
+        <<"payload_encode">> => <<"text">>
+    },
     ExpectLog1 = #{
         <<"console">> =>
             #{
@@ -81,6 +93,7 @@ t_log_conf(_Conf) ->
             },
         <<"file">> =>
             #{<<"default">> => FileExpect},
+        <<"audit">> => AuditExpect,
         <<"throttling">> =>
             #{<<"time_window">> => <<"1m">>, <<"msgs">> => []}
     },

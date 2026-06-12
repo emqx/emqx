@@ -601,28 +601,38 @@ links_config_response_example() ->
 links_config_example() ->
     [
         #{
+            <<"name">> => <<"emqxcl_b">>,
             <<"enable">> => true,
             <<"pool_size">> => 10,
+            <<"resource_opts">> => #{
+                <<"dispatch_strategy">> => <<"per_clientid">>,
+                <<"health_check_interval">> => <<"15s">>,
+                <<"request_ttl">> => <<"45s">>,
+                <<"worker_pool_size">> => 16
+            },
             <<"server">> => <<"emqxcl_b.host:1883">>,
             <<"ssl">> => #{<<"enable">> => false},
-            <<"topics">> =>
-                [
-                    <<"t/topic-example">>,
-                    <<"t/topic-filter-example/1/#">>
-                ],
-            <<"name">> => <<"emqxcl_b">>
+            <<"topics">> => [
+                <<"t/topic-example">>,
+                <<"t/topic-filter-example/1/#">>
+            ]
         },
         #{
+            <<"name">> => <<"emqxcl_c">>,
             <<"enable">> => true,
             <<"pool_size">> => 10,
+            <<"resource_opts">> => #{
+                <<"dispatch_strategy">> => <<"random">>,
+                <<"health_check_interval">> => <<"10s">>,
+                <<"request_ttl">> => <<"30s">>,
+                <<"worker_pool_size">> => 16
+            },
             <<"server">> => <<"emqxcl_c.host:1883">>,
             <<"ssl">> => #{<<"enable">> => false},
-            <<"topics">> =>
-                [
-                    <<"t/topic-example">>,
-                    <<"t/topic-filter-example/1/#">>
-                ],
-            <<"name">> => <<"emqxcl_c">>
+            <<"topics">> => [
+                <<"t/topic-example">>,
+                <<"t/topic-filter-example/1/#">>
+            ]
         }
     ].
 

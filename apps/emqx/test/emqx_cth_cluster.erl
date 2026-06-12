@@ -35,6 +35,7 @@
 -export([node_name/1, mk_nodespecs/2]).
 -export([start_apps/2]).
 -export([sync_routes/1, sync_routes/2, setup_logging/1, get_tcp_mqtt_port/1]).
+-export([when_cover_enabled/1]).
 
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
@@ -88,7 +89,10 @@
     %% Working directory
     %% Everything a test produces should go here. Each node's stuff should go in its
     %% own directory.
-    work_dir := file:name()
+    work_dir := file:name(),
+    %% Environment variables
+    %% Defaults to `[]`.
+    env_vars => [{string(), string()}]
 }.
 
 -type bakedspec() :: #{atom() => _}.
@@ -108,7 +112,7 @@ start(NodeSpecs) ->
 perform(Act, NodeSpecs, Opts) ->
     ct:pal("~ping nodes: ~p", [Act, NodeSpecs]),
     % 1. Start bare nodes with only basic applications running
-    ok = start_nodes_init(NodeSpecs, ?TIMEOUT_NODE_START_MS),
+    ok = start_nodes_init(NodeSpecs, ?TIMEOUT_NODE_START_MS, Opts),
     % 2. Start applications needed to enable clustering
     % Generally, this causes some applications to restart, but we deliberately don't
     % start them yet.
@@ -189,7 +193,7 @@ restart(NodeSpec = #{}) ->
     restart([NodeSpec]).
 
 get_start_opts(ClusterOpts) ->
-    maps:with([start_apps_timeout], ClusterOpts).
+    maps:with([start_apps_timeout, env_vars], ClusterOpts).
 
 -spec mk_nodespecs([nodespec()], opts()) -> [bakedspec()].
 mk_nodespecs(Nodes, ClusterOpts) ->
@@ -353,13 +357,13 @@ allocate_listener_port(Type, #{base_port := BasePort}) ->
 allocate_listener_ports(Types, Spec) ->
     lists:foldl(fun maps:merge/2, #{}, [allocate_listener_port(Type, Spec) || Type <- Types]).
 
-start_nodes_init(Specs, Timeout) ->
-    _Nodes = start_bare_nodes(Specs, Timeout),
+start_nodes_init(Specs, Timeout, StartOpts) ->
+    _Nodes = start_bare_nodes(Specs, Timeout, StartOpts),
     lists:foreach(fun node_init/1, Specs).
 
-start_bare_nodes(Specs, Timeout) ->
+start_bare_nodes(Specs, Timeout, StartOpts) ->
     Args = erl_flags(),
-    Envs = [],
+    Envs = maps:get(env_vars, StartOpts, []),
     Waits = lists:map(
         fun(#{name := Name} = Spec) ->
             WaitTag = {boot_complete, Name},

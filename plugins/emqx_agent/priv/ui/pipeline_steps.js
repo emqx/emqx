@@ -147,8 +147,8 @@ function stepFieldsHTML(step, idx) {
           <input type="number" class="sf-max-total-tokens" value="${esc(step.max_total_tokens||50000)}" min="1">
         </div>
       </div>
-      <div style="margin-bottom:10px;display:flex;align-items:center;gap:6px">
-        <input type="checkbox" class="sf-persistent"${step.persistent?' checked':''}>
+      <div style="margin-bottom:10px;display:inline-flex;align-items:center;gap:6px">
+        <input type="checkbox" class="sf-persistent" style="width:auto;min-width:0;flex:0 0 auto"${step.persistent?' checked':''}>
         <span style="font-size:11px">Persistent mode <small style="color:var(--muted)">(reuse session for the same pipeline key; default: false)</small></span>
       </div>
       <div class="field"><label>Tools (select skills available to the LLM)</label>

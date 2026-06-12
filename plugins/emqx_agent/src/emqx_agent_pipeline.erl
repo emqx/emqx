@@ -352,18 +352,23 @@ maybe_break(Step, Data) ->
 %% Tool request proxying (llm_loop ↔ skills)
 %%--------------------------------------------------------------------
 
-handle_sess_delivery(Sid, Payload, Data) ->
+handle_sess_delivery(Sid, Payload, #data{iid = Iid} = Data) ->
     Frame = safe_decode(Payload),
-    case Frame of
-        #{<<"type">> := <<"tool_request">>} ->
-            handle_llm_tool_request(Sid, Frame, Data);
-        #{<<"type">> := <<"final">>} ->
-            handle_llm_final(Sid, Frame, Data);
-        #{<<"type">> := <<"error">>} ->
-            handle_llm_error(Sid, Frame, Data);
-        _ ->
+    case maps:get(<<"iid">>, Frame, undefined) of
+        Iid ->
+            handle_own_sess_frame(Sid, Frame, Data);
+        _OtherIid ->
             {keep_state, Data}
     end.
+
+handle_own_sess_frame(Sid, #{<<"type">> := <<"tool_request">>} = Frame, Data) ->
+    handle_llm_tool_request(Sid, Frame, Data);
+handle_own_sess_frame(Sid, #{<<"type">> := <<"final">>} = Frame, Data) ->
+    handle_llm_final(Sid, Frame, Data);
+handle_own_sess_frame(Sid, #{<<"type">> := <<"error">>} = Frame, Data) ->
+    handle_llm_error(Sid, Frame, Data);
+handle_own_sess_frame(_Sid, _Frame, Data) ->
+    {keep_state, Data}.
 
 handle_cap_delivery(Topic, Payload, State, Data) ->
     Frame = safe_decode(Payload),

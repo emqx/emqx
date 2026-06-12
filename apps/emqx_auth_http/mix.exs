@@ -29,7 +29,6 @@ defmodule EMQXAuthHTTP.MixProject do
       {:emqx_utils, in_umbrella: true},
       {:emqx_auth, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
-      {:emqx_connector, in_umbrella: true},
       {:emqx_bridge_http, in_umbrella: true},
       :hocon
     ])

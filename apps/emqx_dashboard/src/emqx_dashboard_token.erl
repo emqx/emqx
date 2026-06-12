@@ -35,7 +35,7 @@
 %% gen server part
 -behaviour(gen_server).
 
--export([start_link/0, salt/0]).
+-export([start_link/0]).
 
 -export([
     init/1,
@@ -68,12 +68,6 @@ destroy(Token) when is_binary(Token) ->
 -spec destroy_by_username(Username :: term()) -> ok.
 destroy_by_username(Username) ->
     do_destroy_by_username(Username).
-
-%% @doc create 4 bytes salt.
--spec salt() -> binary().
-salt() ->
-    <<X:16/big-unsigned-integer>> = crypto:strong_rand_bytes(2),
-    iolist_to_binary(io_lib:format("~4.16.0b", [X])).
 
 create_tables() ->
     ok = mria:create_table(?TAB, [

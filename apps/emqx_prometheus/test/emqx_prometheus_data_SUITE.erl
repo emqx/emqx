@@ -11,6 +11,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 %% erlfmt-ignore
 -define(EMQX_CONF_CONFIG, <<"
@@ -165,7 +166,13 @@ init_per_group('/prometheus/stats', Config) ->
 init_per_group('/prometheus/auth', Config) ->
     [{module, emqx_prometheus_auth} | Config];
 init_per_group('/prometheus/data_integration', Config) ->
-    [{module, emqx_prometheus_data_integration} | Config];
+    [
+        {module, emqx_prometheus_data_integration},
+        {setup, fun() ->
+            emqx_prometheus_data_integration:put_namespace_pd(?global_ns)
+        end}
+        | Config
+    ];
 init_per_group('/prometheus/schema_validation', Config) ->
     [{module, emqx_prometheus_schema_validation} | Config];
 init_per_group('/prometheus/message_transformation', Config) ->
@@ -203,6 +210,10 @@ end_per_testcase(_, _Config) ->
 t_collect_prom_data(Config) ->
     CollectOpts = collect_opts(Config),
     Module = ?config(module, Config),
+    maybe
+        {setup, SetupFn} ?= lists:keyfind(setup, 1, Config),
+        SetupFn()
+    end,
     Response = emqx_prometheus_api:collect(Module, CollectOpts),
     assert_data(Module, Response, CollectOpts).
 
@@ -345,6 +356,8 @@ metric_meta(<<"emqx_subscriptions_shared_max">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_vm_cpu_use">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_cpu_idle">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_run_queue">>) -> ?meta(0, 1, 1);
+metric_meta(<<"emqx_vm_uptime_ms">>) -> ?meta(0, 1, 1);
+metric_meta(<<"emqx_vm_max_fds">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_process_messages_in_queues">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_total_memory">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_used_memory">>) -> ?meta(0, 1, 1);
@@ -558,6 +571,8 @@ assert_json_data__metrics(M, ?PROM_DATA_MODE__NODE) ->
             emqx_vm_cpu_use := _,
             emqx_vm_cpu_idle := _,
             emqx_vm_run_queue := _,
+            emqx_vm_uptime_ms := _,
+            emqx_vm_max_fds := _,
             emqx_vm_process_messages_in_queues := _,
             emqx_vm_total_memory := _,
             emqx_vm_used_memory := _

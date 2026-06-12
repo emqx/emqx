@@ -1,0 +1,8 @@
+emqx_mgmt_api_features {
+    features_list {
+        desc: """~
+            List current preset, enabled, disabled and bundled features.~"""
+        label: "List Features"
+    }
+
+}

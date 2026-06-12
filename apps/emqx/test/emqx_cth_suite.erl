@@ -472,6 +472,8 @@ verify_clean_suite_state(#{work_dir := WorkDir}) ->
 clean_suite_state() ->
     _ = emqx_schema_hooks:erase_injections(),
     _ = emqx_config:erase_all(),
+    emqx_machine_features:clear_features(),
+    emqx_security_profile:clear_profile(),
     ok.
 
 %%
@@ -504,4 +506,4 @@ schema_module() ->
 
 %% "Unofficial" `emqx_conf' API
 upgrade_raw_conf(Conf) ->
-    emqx_enterprise_schema:upgrade_raw_conf(Conf).
+    emqx_conf_schema:upgrade_raw_conf(Conf).

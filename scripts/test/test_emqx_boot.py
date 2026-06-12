@@ -7,7 +7,9 @@ Usage:
     pytest scripts/test/test_emqx_boot.py -v
 """
 
+import json
 import os
+import time
 import subprocess
 import shutil
 import pytest
@@ -40,7 +42,61 @@ def emqx_rel_path(profile):
     return rel_path
 
 
-def test_profile_defaults_to_emqx_enterprise():
+def run_emqx_console(emqx_bin_path, env_overrides, timeout=10):
+    env = os.environ.copy()
+    env.update(env_overrides)
+    return subprocess.run(
+        [str(emqx_bin_path), "console"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def open_emqx_console(emqx_bin_path, env_overrides, **kwargs):
+    env = os.environ.copy()
+    env.update(env_overrides)
+    return subprocess.Popen(
+        [str(emqx_bin_path), "console"],
+        env=env,
+        **kwargs
+    )
+
+
+def wait_until_stdout(proc, expected, timeout_s=10):
+    now = time.time()
+    deadline = now + timeout_s
+    found = False
+    outputs = []
+    while time.time() <= deadline:
+        out = proc.stdout.readline()
+        if out:
+            outputs.append(out)
+        if expected not in out:
+            time.sleep(1)
+        else:
+            found = True
+            break
+    if not found:
+        print(outputs)
+        raise TimeoutError(f"didn't find {expected} in the output")
+    else:
+        return outputs
+
+
+def json_outputs(stdout):
+    out = []
+    for line in stdout:
+        try:
+            log = json.loads(line)
+            out.append(log)
+        except:
+            continue
+    return out
+
+
+def test_profile_defaults_to_enterprise():
     """Test that PROFILE defaults to emqx-enterprise when not set."""
     # This test verifies the default behavior
     # The actual profile value is tested through the fixtures
@@ -63,6 +119,36 @@ def test_emqx_boot_with_invalid_node_name(emqx_bin_path):
     # The command should fail and output should contain error message
     output = result.stdout + result.stderr
     assert "ERROR: Invalid node name," in output or result.returncode != 0
+
+
+def test_hardened_rejects_insecure_cookie(emqx_bin_path):
+    """Test that hardened profile rejects known insecure Erlang cookies."""
+    for cookie in ["emqx50elixir", "emqxsecretcookie"]:
+        result = run_emqx_console(
+            emqx_bin_path,
+            {
+                "EMQX_SECURITY_PROFILE": "hardened",
+                "EMQX_NODE__COOKIE": cookie,
+            },
+        )
+        output = result.stdout + result.stderr
+        assert result.returncode != 0, f"Expected EMQX to reject cookie {cookie}"
+        assert "Cannot continue with default cookie" in output
+        assert "EMQX_SECURITY_PROFILE" in output
+
+
+@pytest.mark.parametrize("security_profile", ["not-a-profile", "HARDENED"])
+def test_invalid_security_profile_fails_fast(emqx_bin_path, security_profile):
+    """Test that malformed EMQX_SECURITY_PROFILE fails before boot."""
+    result = run_emqx_console(
+        emqx_bin_path,
+        {"EMQX_SECURITY_PROFILE": security_profile},
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "Invalid security profile" in output
+    assert "legacy" in output
+    assert "hardened" in output
 
 
 def test_corrupted_cluster_override_conf(emqx_bin_path, emqx_rel_path):
@@ -347,3 +433,195 @@ def test_acl_file_corrupted_content(emqx_bin_path, emqx_rel_path):
         setup_corrupted,
         "bad_acl_file_content"
     )
+
+
+def test_feature_gate_full(emqx_bin_path):
+    """Verifies that full preset starts the node successfully and with nothing disabled.
+    """
+    with open_emqx_console(
+            emqx_bin_path,
+            {
+                "EMQX_LOG__CONSOLE__FORMATTER": "json",
+                "EMQX_FEATURES": "FULL",
+            },
+            stdout=subprocess.PIPE,
+            text=True,
+    ) as emqx:
+        try:
+            expected = "feature_gates_resolved"
+            outputs = wait_until_stdout(emqx, expected, 15)
+            line = [line for line in outputs if expected in line][0]
+            log = json.loads(line)
+            assert "full" == log["preset"]
+            assert [] == log["disabled"]
+            enabled = log["enabled"]
+            match enabled:
+                case [_, _, _, *_]:
+                    pass;
+                case _:
+                    raise AssertionError(f"bad enabled: {enabled}")
+            bundled = log["bundled"]
+            match bundled:
+                case [_, _, _, *_]:
+                    pass;
+                case _:
+                    raise AssertionError(f"bad bundled: {bundled}")
+        finally:
+            emqx.kill()
+
+
+def test_feature_gate_essential(emqx_bin_path):
+    """Verifies that essential preset starts the node successfully and with nothing enabled.
+    """
+    with open_emqx_console(
+            emqx_bin_path,
+            {
+                "EMQX_LOG__CONSOLE__FORMATTER": "json",
+                "EMQX_FEATURES": "ESSENTIAL",
+            },
+            stdout=subprocess.PIPE,
+            text=True,
+    ) as emqx:
+        try:
+            expected = "feature_gates_resolved"
+            outputs = wait_until_stdout(emqx, expected, 15)
+            line = [line for line in outputs if expected in line][0]
+            log = json.loads(line)
+            assert "essential" == log["preset"]
+            assert [] == log["enabled"]
+            disabled = log["disabled"]
+            match disabled:
+                case [_, _, _, *_]:
+                    pass;
+                case _:
+                    raise AssertionError(f"bad disabled: {disabled}")
+            bundled = log["bundled"]
+            match bundled:
+                case []:
+                    pass;
+                case _:
+                    raise AssertionError(f"bad bundled: {bundled}")
+        finally:
+            emqx.kill()
+
+
+# Using a dict value to allow specifying feature-specific stuff to test, if needed
+# Remember to update known feature list when `emqx_machine_features:known_features` change.
+KNOWN_FEATURES = {
+    "dashboard": {},
+    "auth": {},
+    "data_integration": {},
+    "message_transformation": {},
+    "schema_validation": {},
+    "schema_registry": {},
+    "gateways": {},
+    "cluster_link": {},
+    "multi_tenancy": {},
+    "ai": {},
+    "metrics": {},
+    "file_transfer": {},
+    "gcp_device": {},
+    "exhook": {},
+    "opentelemetry": {},
+}
+
+
+@pytest.mark.parametrize("feature", KNOWN_FEATURES.keys())
+def test_feature_gate_custom(emqx_bin_path, feature):
+    """Verifies that custom presets starts the node successfully and with the expected feature(s).
+    """
+    with open_emqx_console(
+            emqx_bin_path,
+            {
+                "EMQX_LOG__CONSOLE__FORMATTER": "json",
+                "EMQX_FEATURES": feature,
+            },
+            stdout=subprocess.PIPE,
+            text=True,
+    ) as emqx:
+        try:
+            expected = "feature_gates_resolved"
+            outputs = wait_until_stdout(emqx, expected, 15)
+            line = [line for line in outputs if expected in line][0]
+            log = json.loads(line)
+            assert "custom" == log["preset"]
+            enabled = log["enabled"]
+            assert feature in enabled
+            bundled = log["bundled"]
+            assert [] == bundled
+        finally:
+            emqx.kill()
+
+
+def test_feature_gate_custom_multiple(emqx_bin_path):
+    """Verifies multiple features enabled at once.
+    """
+    all_features = KNOWN_FEATURES.keys()
+    features = ",".join(all_features)
+    with open_emqx_console(
+            emqx_bin_path,
+            {
+                "EMQX_LOG__CONSOLE__FORMATTER": "json",
+                "EMQX_FEATURES": features,
+            },
+            stdout=subprocess.PIPE,
+            text=True,
+    ) as emqx:
+        try:
+            expected = "feature_gates_resolved"
+            outputs = wait_until_stdout(emqx, expected, 15)
+            line = [line for line in outputs if expected in line][0]
+            log = json.loads(line)
+            assert "custom" == log["preset"]
+            enabled = log["enabled"]
+            for f in all_features:
+                assert f in enabled
+            bundled = log["bundled"]
+            assert [] == bundled
+        finally:
+            emqx.kill()
+
+
+def test_feature_gate_bad_preset(emqx_bin_path):
+    """Verifies that an unknown preset prevents the node from booting
+    """
+    result = run_emqx_console(
+        emqx_bin_path,
+        {
+            "EMQX_LOG__CONSOLE__FORMATTER": "json",
+            "EMQX_FEATURES": "UNKNOWN",
+        },
+    )
+    assert result.returncode != 0, "Expected emqx console to fail with bad preset"
+    logs = json_outputs(result.stdout.splitlines())
+    log = [l for l in logs if "invalid_feature_specification" == l["msg"]][0]
+    match log:
+        case {"known": [_, *_], "level": "critical", "reason": "unknown_feature"}:
+            pass
+        case _:
+            raise AssertionError(f"bad log: {log}")
+
+
+def test_feature_gate_bad_feature(emqx_bin_path):
+    """Verifies that an unknown feature prevents the node from booting
+    """
+    result = run_emqx_console(
+        emqx_bin_path,
+        {
+            "EMQX_LOG__CONSOLE__FORMATTER": "json",
+            "EMQX_FEATURES": "data_integratio",
+        },
+    )
+    assert result.returncode != 0, "Expected emqx console to fail with bad preset"
+    logs = json_outputs(result.stdout.splitlines())
+    log = [l for l in logs if "invalid_feature_specification" == l["msg"]][0]
+    match log:
+        case {"known": [_, *_],
+              "level": "critical",
+              "reason": "unknown_feature",
+              "feature": "data_integratio",
+              "hint": "did you mean data_integration?"
+              }:
+            pass
+        case _:
+            raise AssertionError(f"bad log: {log}")

@@ -423,7 +423,9 @@ mk_cluster(TestCase, #{n := NumNodes} = _Opts, TCConfig) ->
         emqx_auth_mnesia,
         emqx_auth,
         emqx_mt,
-        {emqx_prometheus, "prometheus.namespaced_metrics_limiter.rate = infinity"},
+        {emqx_prometheus,
+            "prometheus.enable_basic_auth = false\n"
+            "prometheus.namespaced_metrics_limiter.rate = infinity"},
         emqx_management
     ],
     MkDashApp = fun(N) ->

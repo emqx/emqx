@@ -32,6 +32,7 @@
     reload/2,
     app_path/2,
     proj_root/0,
+    list_umbrella_apps/0,
     deps_path/2,
     flush/0,
     flush/1,
@@ -502,6 +503,23 @@ proj_root() ->
         )
     ).
 
+list_umbrella_apps() ->
+    lists:filtermap(
+        fun(Dir) ->
+            IsDir = filelib:is_dir(Dir),
+            BaseName = filename:basename(Dir),
+            MixExs = filename:join([Dir, "mix.exs"]),
+            HasMixExs = filelib:is_regular(MixExs),
+            case IsDir andalso HasMixExs andalso BaseName of
+                "emqx" ++ _ = AppStr ->
+                    {true, list_to_atom(AppStr)};
+                _ ->
+                    false
+            end
+        end,
+        filelib:wildcard(filename:join(proj_root(), "apps/*"))
+    ).
+
 %% backward compatible
 deps_path(App, RelativePath) -> app_path(App, RelativePath).
 
@@ -963,7 +981,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
                 begin
                     %% to avoid sharing data between executions and/or
                     %% nodes.  these variables might not be in the
-                    %% config file (e.g.: emqx_enterprise_schema).
+                    %% config file (e.g.: emqx_conf_schema).
                     Cookie = atom_to_list(erlang:get_cookie()),
                     set_env_once("EMQX_NODE__DATA_DIR", NodeDataDir),
                     set_env_once("EMQX_NODE__COOKIE", Cookie),

@@ -496,6 +496,21 @@ allow_auto_topic_creation.label:
     desc: "If necessary, specify the extensions to be passed down to the SASL handshake."
   }
 
+  auth_msk_iam_roles_anywhere_type {
+    label: "MSK IAM Roles Anywhere"
+    desc: "MSK IAM Roles Anywhere"
+  }
+
+  auth_msk_iam_roles_anywhere_endpoint {
+    label: "Endpoint"
+    desc: "Endpoint for the endpoint where the AWS IAM Roles Anywhere credential process is serving its API."
+  }
+
+  auth_msk_iam_roles_anywhere_region {
+    label: "Region"
+    desc: "AWS region where the MSK cluster is running."
+  }
+
 resource_opts.desc:
 """Resource options."""
 resource_opts.label:

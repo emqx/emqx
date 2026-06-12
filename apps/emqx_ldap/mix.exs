@@ -5,7 +5,7 @@ defmodule EMQXLdap.MixProject do
   def project do
     [
       app: :emqx_ldap,
-      version: "6.2.0",
+      version: "6.2.1",
       build_path: "../../_build",
       compilers: [:yecc, :leex] ++ Mix.compilers(),
       erlc_options: UMP.erlc_options(),
@@ -23,6 +23,8 @@ defmodule EMQXLdap.MixProject do
   end
 
   def deps() do
-    UMP.deps([{:emqx_connector, in_umbrella: true}, {:emqx_resource, in_umbrella: true}])
+    UMP.deps([
+      {:emqx_resource, in_umbrella: true}
+    ])
   end
 end

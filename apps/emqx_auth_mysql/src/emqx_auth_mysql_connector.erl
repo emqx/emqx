@@ -5,7 +5,6 @@
 -module(emqx_auth_mysql_connector).
 
 -include_lib("emqx_resource/include/emqx_resource.hrl").
--include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -36,6 +35,8 @@
 }).
 
 -define(DEFAULT_CONNECT_TIMEOUT, 15000).
+-define(AUTO_RECONNECT_INTERVAL, 2).
+-define(MYSQL_DEFAULT_PORT, 3306).
 
 -type prepare_statement_key() :: atom().
 -type prepare_statement_sql() :: unicode:chardata().

@@ -538,6 +538,7 @@ zone_global_defaults() ->
                 message_expiry_interval => infinity,
                 server_keepalive => disabled,
                 session_expiry_interval => 7200000,
+                max_session_expiry_interval => infinity,
                 shared_subscription => true,
                 shared_subscription_strategy => round_robin,
                 shared_subscription_initial_sticky_pick => random,

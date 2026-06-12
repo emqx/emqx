@@ -381,6 +381,9 @@ create_connector_api(TCConfig, Overrides) ->
         emqx_bridge_v2_testlib:create_connector_api(TCConfig, Overrides)
     ).
 
+probe_connector_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:probe_connector_api2(TCConfig, Overrides).
+
 update_connector_api(TCConfig, Overrides) ->
     #{
         connector_type := Type,
@@ -461,7 +464,7 @@ mock_iam_metadata_v2_calls() ->
     ok = meck:expect(
         erlcloud_ec2_meta,
         get_metadata_v2_session_token,
-        fun(_Cfg) -> {ok, <<"mocked token">>} end
+        fun(_Cfg, _Opts) -> {ok, <<"mocked token">>} end
     ),
     ok = meck:expect(
         erlcloud_ec2_meta,
@@ -2070,6 +2073,181 @@ t_msk_iam_authn(TCConfig) ->
                 ] when A /= B,
                 meck:history(emqx_bridge_kafka_msk_iam_authn)
             )
+        end
+    ),
+    ok.
+
+%% Exercises the code path where we use MSK IAM Roles Anywhere authentication.
+%% Unfortunately, there seems to be no good way to accurately test this as it would
+%% require running this in an EC2 instance to pass, and also to have a Kafka cluster
+%% configured to use MSK IAM authentication.
+t_msk_iam_roles_anywhere_authn(TCConfig) ->
+    %% We mock the innermost call with the SASL authentication made by the OAuth plugin to
+    %% try and exercise most of the code.
+    TestPid = self(),
+    emqx_common_test_helpers:with_mock(
+        kpro_lib,
+        send_and_recv,
+        fun(Req, Sock, Mod, ClientId, Timeout) ->
+            case Req of
+                #kpro_req{api = sasl_handshake} ->
+                    #{error_code => no_error};
+                #kpro_req{api = sasl_authenticate} ->
+                    TestPid ! sasl_auth,
+                    #{error_code => no_error, session_lifetime_ms => 2_000};
+                _ ->
+                    meck:passthrough([Req, Sock, Mod, ClientId, Timeout])
+            end
+        end,
+        fun() ->
+            %% We validate the endpoint has scheme and port.
+            ?assertMatch(
+                {400, #{
+                    <<"message">> := #{
+                        <<"mismatches">> := #{
+                            <<"bridge_kafka:auth_msk_iam_roles_anywhere">> := #{
+                                <<"reason">> := <<"missing_port_number">>
+                            }
+                        }
+                    }
+                }},
+                probe_connector_api(TCConfig, #{
+                    <<"authentication">> => #{
+                        <<"type">> => <<"msk_iam_roles_anywhere">>,
+                        <<"region">> => <<"sa-east-1">>,
+                        <<"endpoint">> => <<"http://127.0.0.1">>
+                    }
+                })
+            ),
+            ?assertMatch(
+                {400, #{
+                    <<"message">> := #{
+                        <<"mismatches">> := #{
+                            <<"bridge_kafka:auth_msk_iam_roles_anywhere">> := #{
+                                <<"reason">> := <<"missing_scheme">>
+                            }
+                        }
+                    }
+                }},
+                probe_connector_api(TCConfig, #{
+                    <<"authentication">> => #{
+                        <<"type">> => <<"msk_iam_roles_anywhere">>,
+                        <<"region">> => <<"sa-east-1">>,
+                        <<"endpoint">> => <<"127.0.0.1:9911">>
+                    }
+                })
+            ),
+            ?assertMatch(
+                {400, #{
+                    <<"message">> := #{
+                        <<"mismatches">> := #{
+                            <<"bridge_kafka:auth_msk_iam_roles_anywhere">> := #{
+                                <<"reason">> := <<"unsupported_scheme">>
+                            }
+                        }
+                    }
+                }},
+                probe_connector_api(TCConfig, #{
+                    <<"authentication">> => #{
+                        <<"type">> => <<"msk_iam_roles_anywhere">>,
+                        <<"region">> => <<"sa-east-1">>,
+                        <<"endpoint">> => <<"https://127.0.0.1:9911">>
+                    }
+                })
+            ),
+            %% First with credential provider server not running.
+            {400, #{<<"message">> := Msg0}} = probe_connector_api(TCConfig, #{
+                <<"authentication">> => #{
+                    <<"type">> => <<"msk_iam_roles_anywhere">>,
+                    <<"region">> => <<"sa-east-1">>,
+                    <<"endpoint">> => <<"http://127.0.0.1:9911">>
+                }
+            }),
+            ?assertEqual(
+                match,
+                re:run(Msg0, <<"econnrefused">>, [{capture, none}]),
+                #{msg => Msg0}
+            ),
+
+            %% Then, it's running, but ill configured.  It returns a "success" response
+            %% with an empty token...
+            on_exit(fun emqx_utils_http_test_server:stop/0),
+            {ok, {Port, _}} = emqx_utils_http_test_server:start_link(random, '_', false),
+            Endpoint = <<"http://127.0.0.1:", (integer_to_binary(Port))/binary>>,
+            Auth = #{
+                <<"type">> => <<"msk_iam_roles_anywhere">>,
+                <<"region">> => <<"sa-east-1">>,
+                <<"endpoint">> => Endpoint
+            },
+            emqx_utils_http_test_server:set_handler(fun(Req, St) ->
+                BadSuccess = #{
+                    <<"AccessKeyId">> => <<"">>,
+                    <<"Code">> => <<"Success">>,
+                    <<"Expiration">> => <<"0001-01-01T00:00:00Z">>,
+                    <<"LastUpdated">> => <<"2026-06-10T17:03:48.999984825Z">>,
+                    <<"SecretAccessKey">> => <<"">>,
+                    <<"Token">> => <<"">>,
+                    <<"Type">> => <<"AWS-HMAC">>
+                },
+                Resp = cowboy_req:reply(
+                    200,
+                    #{<<"content-type">> => <<"application/json">>},
+                    emqx_utils_json:encode(BadSuccess),
+                    Req
+                ),
+                {ok, Resp, St}
+            end),
+            {400, #{<<"message">> := Msg1}} = probe_connector_api(TCConfig, #{
+                <<"authentication">> => Auth
+            }),
+            ?assertEqual(
+                match,
+                re:run(
+                    Msg1,
+                    <<"kafka_msk_credential_endpoint_returned_empty_token">>,
+                    [{capture, none}]
+                ),
+                #{msg => Msg1}
+            ),
+
+            %% Now a successful connection
+            emqx_utils_http_test_server:set_handler(fun(Req, St) ->
+                Success = #{
+                    <<"AccessKeyId">> => <<"">>,
+                    <<"Code">> => <<"Success">>,
+                    <<"Expiration">> => <<"0001-01-01T00:00:00Z">>,
+                    <<"LastUpdated">> => <<"2026-06-10T17:03:48.999984825Z">>,
+                    <<"SecretAccessKey">> => <<"">>,
+                    <<"Token">> => <<"mockedtoken">>,
+                    <<"Type">> => <<"AWS-HMAC">>
+                },
+                TestPid ! helper_called,
+                Resp = cowboy_req:reply(
+                    200,
+                    #{<<"content-type">> => <<"application/json">>},
+                    emqx_utils_json:encode(Success),
+                    Req
+                ),
+                {ok, Resp, St}
+            end),
+            ?assertMatch(
+                {201, #{<<"status">> := <<"connected">>}},
+                create_connector_api(TCConfig, #{<<"authentication">> => Auth})
+            ),
+            %% Must have called our callback once
+            ?assertReceive(helper_called),
+            receive
+                sasl_auth -> ok
+            after 0 -> ct:fail("the impossible has happened!?")
+            end,
+            %% Should renew auth after according to `session_lifetime_ms`.
+            ct:pal("waiting for renewal"),
+            receive
+                sasl_auth -> ok
+            after 3_000 -> ct:fail("did not renew sasl auth")
+            end,
+            ?assertReceive(helper_called),
+            ok
         end
     ),
     ok.

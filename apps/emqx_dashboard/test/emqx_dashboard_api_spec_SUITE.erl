@@ -35,6 +35,78 @@ end_per_suite(Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+-doc "Verify unauthenticated GET requests return 401 with a minimal but valid "
+"OpenAPI JSON document and the WWW-Authenticate header.".
+t_unauthenticated_json_stub(_Config) ->
+    lists:foreach(
+        fun(Path) ->
+            {401, Headers, RawBody} = do_get_raw(Path, []),
+            WwwAuth = proplists:get_value("www-authenticate", Headers, ""),
+            ?assert(
+                string:find(string:lowercase(WwwAuth), "basic") =/= nomatch,
+                #{path => Path, header => WwwAuth}
+            ),
+            ?assert(
+                string:find(string:lowercase(WwwAuth), "bearer") =/= nomatch,
+                #{path => Path, header => WwwAuth}
+            ),
+            ContentType = proplists:get_value("content-type", Headers, ""),
+            ?assert(
+                string:find(list_to_binary(ContentType), <<"application/json">>) =/= nomatch,
+                #{path => Path, content_type => ContentType}
+            ),
+            Body = emqx_utils_json:decode(list_to_binary(RawBody)),
+            ?assertMatch(#{<<"openapi">> := <<"3.0.0">>}, Body),
+            ?assertMatch(
+                #{<<"info">> := #{<<"description">> := _, <<"title">> := _, <<"version">> := _}},
+                Body
+            ),
+            ?assertMatch(
+                #{
+                    <<"components">> := #{
+                        <<"securitySchemes">> := #{
+                            <<"basicAuth">> := _,
+                            <<"bearerAuth">> := _
+                        }
+                    }
+                },
+                Body
+            ),
+            Paths = maps:get(<<"paths">>, Body),
+            ?assert(maps:is_key(<<"/login">>, Paths), #{path => Path, paths => Paths}),
+            ?assert(maps:is_key(<<"/status">>, Paths), #{path => Path, paths => Paths})
+        end,
+        [
+            "/api-spec.json",
+            "/api-docs/swagger.json",
+            "/api-spec/status",
+            "/api-spec/status/something"
+        ]
+    ).
+
+-doc "Verify unauthenticated GET /api-spec.md returns 401 with markdown body and "
+"the WWW-Authenticate header.".
+t_unauthenticated_markdown_stub(_Config) ->
+    {401, Headers, RawBody} = do_get_raw("/api-spec.md", []),
+    WwwAuth = proplists:get_value("www-authenticate", Headers, ""),
+    ?assert(string:find(string:lowercase(WwwAuth), "basic") =/= nomatch),
+    ?assert(string:find(string:lowercase(WwwAuth), "bearer") =/= nomatch),
+    ContentType = proplists:get_value("content-type", Headers, ""),
+    ?assert(
+        string:find(list_to_binary(ContentType), <<"text/markdown">>) =/= nomatch,
+        #{content_type => ContentType}
+    ),
+    BodyBin = list_to_binary(RawBody),
+    ?assert(string:find(BodyBin, <<"Authentication Required">>) =/= nomatch),
+    ?assert(string:find(BodyBin, <<"POST /api/v5/login">>) =/= nomatch).
+
+-doc "Verify an invalid bearer token also produces the 401 stub.".
+t_unauthenticated_invalid_bearer(_Config) ->
+    BadAuth = {"Authorization", "Bearer not-a-valid-token"},
+    {401, _Headers, RawBody} = do_get_raw("/api-spec.json", [BadAuth]),
+    Body = emqx_utils_json:decode(list_to_binary(RawBody)),
+    ?assertMatch(#{<<"openapi">> := <<"3.0.0">>}, Body).
+
 -doc "Verify /api-spec.md returns markdown with expected content-type and body.".
 t_index_markdown(_Config) ->
     {200, Headers, Body} = do_get_raw("/api-spec.md"),
@@ -85,12 +157,33 @@ t_index_json(_Config) ->
         ]
     ).
 
--doc "Verify api-spec.html exists in priv dir and contains the expected title.".
+-doc "Verify authenticated /api-spec.html serves the full explorer page and "
+"unauthenticated requests get a 401 with a tiny login HTML.".
 t_api_spec_html(_Config) ->
-    HtmlPath = filename:join([code:priv_dir(emqx_dashboard), "api-spec.html"]),
-    ?assertMatch({ok, _}, file:read_file_info(HtmlPath)),
-    {ok, Body} = file:read_file(HtmlPath),
-    ?assert(string:find(Body, <<"EMQX API Spec Explorer">>) =/= nomatch).
+    {200, Headers, Body} = do_get_raw("/api-spec.html"),
+    ContentType = proplists:get_value("content-type", Headers, ""),
+    ?assert(string:find(list_to_binary(ContentType), <<"text/html">>) =/= nomatch),
+    BodyBin = list_to_binary(Body),
+    ?assert(string:find(BodyBin, <<"EMQX API Spec Explorer">>) =/= nomatch),
+    {401, StubHeaders, StubBody} = do_get_raw("/api-spec.html", []),
+    StubContentType = proplists:get_value("content-type", StubHeaders, ""),
+    ?assert(string:find(list_to_binary(StubContentType), <<"text/html">>) =/= nomatch),
+    %% The HTML 401 must NOT advertise Basic, so browsers skip the native
+    %% popup and let our in-page widget handle sign-in.
+    StubWww = proplists:get_value("www-authenticate", StubHeaders, ""),
+    ?assertEqual(
+        nomatch,
+        string:find(string:lowercase(StubWww), "basic"),
+        #{header => StubWww}
+    ),
+    ?assert(
+        string:find(string:lowercase(StubWww), "bearer") =/= nomatch,
+        #{header => StubWww}
+    ),
+    StubBin = list_to_binary(StubBody),
+    ?assert(string:find(StubBin, <<"Sign in">>) =/= nomatch),
+    %% Stub must not include the full explorer markup.
+    ?assertEqual(nomatch, string:find(StubBin, <<"EMQX API Spec Explorer">>)).
 
 -doc "Verify /api-spec/:tag returns a valid OpenAPI 3.0.0 doc with correctly tagged paths.".
 t_tag_spec(_Config) ->
@@ -301,17 +394,23 @@ t_drilldown_no_full_union_fallback(_Config) ->
 %%--------------------------------------------------------------------
 
 do_get_raw(Path) ->
+    do_get_raw(Path, [auth_header()]).
+
+do_get_raw(Path, Headers) ->
     Url = ?HOST ++ Path,
-    case httpc:request(get, {Url, []}, [], []) of
-        {ok, {{_, Code, _}, Headers, RawBody}} ->
-            {Code, Headers, RawBody};
+    case httpc:request(get, {Url, Headers}, [], []) of
+        {ok, {{_, Code, _}, RespHeaders, RawBody}} ->
+            {Code, RespHeaders, RawBody};
         {error, Reason} ->
             error({http_request_failed, Reason})
     end.
 
 do_get(Path) ->
+    do_get(Path, [auth_header()]).
+
+do_get(Path, Headers) ->
     Url = ?HOST ++ Path,
-    case httpc:request(get, {Url, []}, [], []) of
+    case httpc:request(get, {Url, Headers}, [], []) of
         {ok, {{_, Code, _}, _Headers, RawBody}} ->
             Body =
                 try
@@ -323,6 +422,9 @@ do_get(Path) ->
         {error, Reason} ->
             error({http_request_failed, Reason})
     end.
+
+auth_header() ->
+    emqx_common_test_http:default_auth_header().
 
 assert_openapi_shape(Spec) ->
     ?assertMatch(#{<<"openapi">> := <<"3.0.0">>}, Spec),
