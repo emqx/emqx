@@ -20,6 +20,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/http_api.hrl").
 -include_lib("emqx/include/emqx_release.hrl").
+-include("emqx_dashboard.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(EMQX_MIDDLE, emqx_dashboard_middleware).
@@ -264,7 +265,8 @@ authorize(Req, HandlerInfo) ->
         {bearer, Token} ->
             case emqx_dashboard_admin:verify_token(Req, Token) of
                 {ok, Username} ->
-                    {ok, #{auth_type => jwt_token, source => Username}};
+                    Role = jwt_role(Token),
+                    {ok, #{auth_type => jwt_token, source => Username, role => Role}};
                 {error, token_timeout} ->
                     {401, 'TOKEN_TIME_OUT', <<"Token expired, get new token by POST /login">>};
                 {error, not_found} ->
@@ -287,6 +289,17 @@ return_unauthorized(Code, Message) ->
                 <<"Basic Realm=\"emqx-dashboard\"">>
         },
         #{code => Code, message => Message}}.
+
+%% Surface the dashboard role into auth_meta so downstream handlers (e.g.
+%% the data backup download guard) can decide on it without re-reading
+%% the JWT or the admin record themselves. The lookup is cheap (ets-backed
+%% mnesia read) and already-verified by `verify_token/2'. Returns
+%% `undefined' if the token was destroyed between verify and this lookup.
+jwt_role(Token) ->
+    case emqx_dashboard_token:lookup(Token) of
+        {ok, #emqx_admin_jwt{extra = #{role := Role}}} -> Role;
+        _ -> undefined
+    end.
 
 listeners() ->
     emqx_conf:get([dashboard, listeners], #{}).
