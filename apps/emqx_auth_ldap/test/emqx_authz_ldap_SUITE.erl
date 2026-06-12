@@ -83,6 +83,7 @@ t_node_cache(_Config) ->
         %% but we just test that the filter's vars are used for caching
         <<"filter">> => <<"(objectClass=${cert_common_name})">>
     }),
+    ok = emqx_authz_test_lib:reset_node_cache(),
     ok = emqx_authz_test_lib:enable_node_cache(true),
 
     %% Subscribe to twice, should hit cache the second time
