@@ -261,13 +261,22 @@ t_import_sensitive_tables_auth_split(Config) ->
     ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth, ?UPLOAD_CE_BACKUP)),
     ok.
 
-%% API-key callers (any scope) must be rejected with 403 when downloading any
-%% backup file. Backups can contain dashboard accounts and API-key records
-%% regardless of who produced them, so we gate the download on the dashboard
-%% administrator role rather than inspect archive contents.
-t_download_api_key_forbidden(Config) ->
+%% API-key callers may download archives that do not contain dashboard users or
+%% API-key records. This keeps backup-sync working: its API-key export path
+%% already filters those sensitive table sets.
+t_download_api_key_without_sensitive_tables_allowed(Config) ->
     ApiAuth = ?config(auth, Config),
     {200, #{<<"filename">> := Filename}} = export_backup2(?NODE1_PORT, ApiAuth, #{}),
+    {Status, _Body} = download_backup(?NODE1_PORT, ApiAuth, Filename),
+    ?assertEqual(200, Status),
+    ok.
+
+%% API-key callers must still be rejected with 403 when the archive contains
+%% dashboard accounts or API-key records.
+t_download_api_key_with_sensitive_tables_forbidden(Config) ->
+    ApiAuth = ?config(auth, Config),
+    DashboardAuth = ?config(dashboard_auth, Config),
+    {200, #{<<"filename">> := Filename}} = export_backup2(?NODE1_PORT, DashboardAuth, #{}),
     {Status, Body} = download_backup(?NODE1_PORT, ApiAuth, Filename),
     ?assertEqual(403, Status),
     ?assertMatch(#{<<"code">> := <<"FORBIDDEN">>}, Body),
