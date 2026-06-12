@@ -71,7 +71,7 @@ authorize(
                 params => RenderedArgs,
                 resource_id => ResourceId
             }),
-            nomatch
+            emqx_authz_utils:backend_failure_result()
     end.
 
 %%--------------------------------------------------------------------
@@ -105,6 +105,8 @@ do_authorize(Client, Action, Topic, ColumnNames, [Row | Tail]) ->
     case emqx_authz_utils:authorize_with_row(mysql, Client, Action, Topic, ColumnNames, Row) of
         nomatch ->
             do_authorize(Client, Action, Topic, ColumnNames, Tail);
+        ignore ->
+            ignore;
         {matched, Permission} ->
             {matched, Permission}
     end.

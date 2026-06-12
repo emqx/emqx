@@ -27,7 +27,6 @@
 
 -define(BASE_PATH, "/api/v5").
 -define(CAPTURE(Expr), emqx_common_test_helpers:capture_io_format(fun() -> Expr end)).
--define(PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
 
 -define(OVERVIEWS, [
     "alarms",
@@ -66,7 +65,7 @@ init_per_test_case(_, Config) ->
     Config.
 
 end_per_test_case(t_default_public_password_login_security_profile, _Config) ->
-    clear_security_profile(),
+    emqx_common_test_helpers:clear_security_profile(),
     mnesia:clear_table(?ADMIN);
 end_per_test_case(_Case, _Config) ->
     ok.
@@ -210,14 +209,14 @@ t_default_public_password_login_security_profile(_TCConfig) ->
         Username, PublicPassword, ?ROLE_SUPERUSER, <<"public password test">>, #{}
     ),
 
-    with_security_profile("legacy", fun() ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
         ?assertMatch(
             {ok, {{_, 200, _}, _, _}},
             login_api(Username, PublicPassword)
         )
     end),
 
-    with_security_profile("hardened", fun() ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         {ok, {{_, 401, _}, _, Body}} = login_api(Username, PublicPassword),
         #{
             <<"code">> := <<"BAD_USERNAME_OR_PWD">>,
@@ -685,20 +684,6 @@ login_api(Username, Password) ->
         [],
         [{body_format, binary}]
     ).
-
-with_security_profile(Profile, Fun) ->
-    os:putenv(?PROFILE_ENV_VAR, Profile),
-    emqx_security_profile:clear_profile(),
-    try
-        Fun()
-    after
-        clear_security_profile()
-    end.
-
-clear_security_profile() ->
-    os:unsetenv(?PROFILE_ENV_VAR),
-    emqx_security_profile:clear_profile(),
-    ok.
 
 api_path(Parts) ->
     ?HOST ++ filename:join([?BASE_PATH | Parts]).

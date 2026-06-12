@@ -27,26 +27,23 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(t_legacy, Config) ->
-    os:putenv(?PROFILE_ENV_VAR, "legacy"),
-    emqx_security_profile:clear_profile(),
+    emqx_common_test_helpers:set_security_profile("legacy"),
     Config;
 init_per_testcase(t_hardened, Config) ->
-    os:putenv(?PROFILE_ENV_VAR, "hardened"),
-    emqx_security_profile:clear_profile(),
+    emqx_common_test_helpers:set_security_profile("hardened"),
     Config;
 init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(_, _Config) ->
-    os:unsetenv(?PROFILE_ENV_VAR),
-    emqx_security_profile:clear_profile(),
-    ok.
+    emqx_common_test_helpers:clear_security_profile().
 
 t_legacy(_) ->
     {ok, _} = emqx:update_config([listeners], #{}),
 
     %% verify the mode itself
     ?assertEqual(legacy, emqx_security_profile:profile()),
+    ?assertEqual(ignore, emqx_security_profile:policy(authz_backend_failure)),
 
     %% Full defaults
     ?assertEqual({{0, 0, 0, 0}, 1883}, emqx:get_config([listeners, tcp, default, bind])),
@@ -83,6 +80,7 @@ t_hardened(_) ->
 
     %% verify the mode itself
     ?assertEqual(hardened, emqx_security_profile:profile()),
+    ?assertEqual(deny, emqx_security_profile:policy(authz_backend_failure)),
 
     %% Full defaults are secure in hardened profile
     ?assertEqual({{127, 0, 0, 1}, 1883}, emqx:get_config([listeners, tcp, default, bind])),

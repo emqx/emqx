@@ -77,6 +77,7 @@
 ]).
 
 -export([clear_screen/0]).
+-export([set_security_profile/1, with_security_profile/2, clear_security_profile/0]).
 -export([with_mock/4, with_mock/5, with_mocks/2, with_mocks/3]).
 -export([
     on_exit/1,
@@ -120,6 +121,7 @@
 -export([seed_defaults_for_all_roots_namespaced_cluster/2]).
 
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
+-define(SECURITY_PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
 
 -define(MQTT_SSL_CLIENT_CERTS, [
     {keyfile, ?CERTS_PATH("client-key.pem")},
@@ -1772,6 +1774,24 @@ capture_io_format(Fn) ->
             error(timeout)
         end,
     {Result, format_io_requests(Prints)}.
+
+with_security_profile(Profile, Fun) ->
+    set_security_profile(Profile),
+    try
+        Fun()
+    after
+        clear_security_profile()
+    end.
+
+set_security_profile(Profile) ->
+    os:putenv(?SECURITY_PROFILE_ENV_VAR, Profile),
+    emqx_security_profile:clear_profile(),
+    ok.
+
+clear_security_profile() ->
+    os:unsetenv(?SECURITY_PROFILE_ENV_VAR),
+    emqx_security_profile:clear_profile(),
+    ok.
 
 gl_sink(Owner, Acc) ->
     receive
