@@ -472,6 +472,26 @@ t_pre_config_update_crash(_) ->
     ),
     ok = meck:unload(emqx_authz_fake_source).
 
+t_authorizer_crash_legacy_continues_chain(_) ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        {Result, Calls} = authorize_with_crashing_http_and_allowing_redis(),
+        ?assertEqual(
+            allow,
+            Result
+        ),
+        ?assertEqual([http, redis], Calls)
+    end).
+
+t_authorizer_crash_hardened_denies_and_aborts_chain(_) ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        {Result, Calls} = authorize_with_crashing_http_and_allowing_redis(),
+        ?assertEqual(
+            deny,
+            Result
+        ),
+        ?assertEqual([http], Calls)
+    end).
+
 t_get_enabled_authzs_none_enabled(_Config) ->
     ?assertEqual([], emqx_authz:get_enabled_authzs()).
 
@@ -824,3 +844,44 @@ t_mount_prefix_for_authz(_TCConfig) ->
     ),
     snabbkaffe:stop(),
     ok.
+
+authorize_with_crashing_http_and_allowing_redis() ->
+    TestPid = self(),
+    Ref = make_ref(),
+    ok = meck:new(emqx_authz_fake_source, [passthrough]),
+    try
+        ok = meck:expect(
+            emqx_authz_fake_source,
+            authorize,
+            fun
+                (_Client, _Action, _Topic, #{type := http}) ->
+                    TestPid ! {Ref, http},
+                    error(fake_authz_crash);
+                (_Client, _Action, _Topic, #{type := redis}) ->
+                    TestPid ! {Ref, redis},
+                    {matched, allow};
+                (Client, Action, Topic, Source) ->
+                    meck:passthrough([Client, Action, Topic, Source])
+            end
+        ),
+        {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE_HTTP, ?SOURCE_REDIS]),
+        Result = emqx_access_control:authorize(
+            emqx_authz_test_lib:base_client_info(),
+            ?AUTHZ_PUBLISH,
+            <<"t">>
+        ),
+        {Result, collect_authz_calls(Ref)}
+    after
+        ok = meck:unload(emqx_authz_fake_source)
+    end.
+
+collect_authz_calls(Ref) ->
+    collect_authz_calls(Ref, []).
+
+collect_authz_calls(Ref, Acc) ->
+    receive
+        {Ref, Type} ->
+            collect_authz_calls(Ref, [Type | Acc])
+    after 0 ->
+        lists:reverse(Acc)
+    end.
