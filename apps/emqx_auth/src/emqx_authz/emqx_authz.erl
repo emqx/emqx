@@ -610,8 +610,6 @@ log_trace(Res, Type, Module, Username, Topic, PubSub) ->
             })
     end.
 
-format_result(error) ->
-    error;
 format_result(nomatch) ->
     nomatch;
 format_result(ignore) ->
