@@ -171,8 +171,7 @@ reconcile_tool({Type, ToolId}, ToolConfig) ->
     ok = drop_runtime(Type, ToolId),
     case resolve_type_safe(Type) of
         {ok, Module} ->
-            Ctx = create_context(ToolConfig),
-            case Module:create(Ctx) of
+            case Module:create(ToolConfig) of
                 {ok, Tool} ->
                     ?SLOG(info, #{
                         msg => "agent_tool_reconcile_created",
@@ -208,10 +207,6 @@ resolve_type_safe(Type) ->
     catch
         throw:Reason -> {error, Reason}
     end.
-
-create_context(#{<<"id">> := ToolId} = ToolConfig) ->
-    Runtime0 = maps:remove(<<"id">>, ToolConfig),
-    Runtime0#{<<"tool_id">> => ToolId}.
 
 destroy_runtime([]) ->
     ok;

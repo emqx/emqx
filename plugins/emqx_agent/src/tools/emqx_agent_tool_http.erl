@@ -11,7 +11,7 @@ Invoke topic:  cap/http/<id>/request/<req_id>
 Reply  topic:  cap/http/<id>/response/<req_id>
 
 Context keys:
-  <<"tool_id">>      => binary()         — unique instance identifier
+  <<"id">>           => binary()         — unique instance identifier
   <<"desc">>         => binary()         — human-readable description
   <<"method">>       => atom() | binary() — http method: get | post | put | patch | delete
   <<"url">>          => binary()         — base URL (query string appended for GET)
@@ -23,7 +23,7 @@ For all other methods, input args are sent as a JSON body.
 
 Lifecycle:
   init()        — register the tool type
-  create(Ctx)   — build a runtime tool instance; tool_id taken from Ctx
+  create(Ctx)   — build a runtime tool instance; id taken from Ctx
   destroy(Tool) — clean up runtime resources owned by the tool
   deinit()      — unregister the tool type
 """.
@@ -52,7 +52,7 @@ deinit() ->
 -spec create(Context :: map()) -> {ok, map()} | {error, term()}.
 create(
     #{
-        <<"tool_id">> := ToolId,
+        <<"id">> := ToolId,
         <<"desc">> := Desc,
         <<"method">> := _Method,
         <<"url">> := _Url,

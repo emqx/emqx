@@ -38,7 +38,7 @@ deinit() ->
 -spec create(Context :: map()) -> {ok, map()} | {error, term()}.
 create(
     #{
-        <<"tool_id">> := ToolId,
+        <<"id">> := ToolId,
         <<"desc">> := Desc,
         <<"query">> := Query,
         <<"resource">> := ConnectionId

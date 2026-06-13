@@ -15,7 +15,7 @@ Invoke topic:  cap/message__publish/<tool_id>/request/<req_id>
 Reply  topic:  cap/message__publish/<tool_id>/response/<req_id>
 
 Context keys:
-  <<"tool_id">>     => binary()  — unique instance identifier
+  <<"id">>          => binary()  — unique instance identifier
   <<"desc">>        => binary()  — human-readable description
   <<"topic_prefix">> => binary()  — prepended to the agent-supplied topic
                                     (e.g. <<"devices/room1/">>)
@@ -24,7 +24,7 @@ Context keys:
 Input args (fixed wrapper + configurable payload schema):
   topic   => binary()  — topic suffix; combined with topic_prefix
   payload => json()    — payload value validated by payload_schema
-  from    => binary()  — publisher identity (optional, defaults to tool_id)
+  from    => binary()  — publisher identity (optional, defaults to id)
   qos     => 0 | 1 | 2  — QoS level (optional, default 0)
 
 Lifecycle:
@@ -91,12 +91,12 @@ deinit() ->
     emqx_agent_tool_registry:unregister_type(?TOOL_TYPE).
 
 %% Context keys:
-%%   <<"tool_id">>     => binary()
+%%   <<"id">>          => binary()
 %%   <<"desc">>        => binary()
 %%   <<"topic_prefix">> => binary()
 -spec create(Context :: map()) -> {ok, map()} | {error, term()}.
 create(#{
-    <<"tool_id">> := ToolId,
+    <<"id">> := ToolId,
     <<"desc">> := Desc,
     <<"topic_prefix">> := TopicPrefix,
     <<"payload_schema">> := PayloadSchema0
@@ -107,7 +107,7 @@ create(#{
         {error, Reason} ->
             {error, {invalid_payload_schema, Reason}}
     end;
-create(#{<<"tool_id">> := _, <<"desc">> := _, <<"topic_prefix">> := _}) ->
+create(#{<<"id">> := _, <<"desc">> := _, <<"topic_prefix">> := _}) ->
     {error, missing_payload_schema}.
 
 create_with_payload_schema(_ToolId, _Desc, _TopicPrefix, undefined) ->
@@ -123,7 +123,7 @@ create_with_payload_schema(ToolId, Desc, TopicPrefix, PayloadSchema) ->
                 description =>
                     <<"Publish an MQTT message to a topic under the prefix: ", TopicPrefix/binary>>,
                 context => #{
-                    <<"tool_id">> => ToolId,
+                    <<"id">> => ToolId,
                     <<"topic_prefix">> => TopicPrefix,
                     <<"payload_schema">> => PayloadSchema
                 },

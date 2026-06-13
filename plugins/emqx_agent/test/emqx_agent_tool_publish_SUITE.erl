@@ -73,7 +73,7 @@ t_custom_payload_schema_is_stored(_Config) ->
 t_create_requires_payload_schema(_Config) ->
     Context = maps:without([<<"payload_schema">>], test_context()),
     RuntimeContext = #{
-        <<"tool_id">> => maps:get(<<"id">>, Context),
+        <<"id">> => maps:get(<<"id">>, Context),
         <<"desc">> => maps:get(<<"desc">>, Context),
         <<"topic_prefix">> => maps:get(<<"topic_prefix">>, Context)
     },
@@ -81,7 +81,7 @@ t_create_requires_payload_schema(_Config) ->
 
 t_create_rejects_invalid_payload_schema(_Config) ->
     RuntimeContext = #{
-        <<"tool_id">> => ?TOOL_ID,
+        <<"id">> => ?TOOL_ID,
         <<"desc">> => <<"bad schema">>,
         <<"topic_prefix">> => ?TOPIC_PREFIX,
         <<"payload_schema">> => #{<<"type">> => <<"object">>}
@@ -92,7 +92,7 @@ t_create_rejects_invalid_payload_schema(_Config) ->
 
 t_create_rejects_malformed_payload_schema(_Config) ->
     RuntimeContext = #{
-        <<"tool_id">> => ?TOOL_ID,
+        <<"id">> => ?TOOL_ID,
         <<"desc">> => <<"bad schema">>,
         <<"topic_prefix">> => ?TOPIC_PREFIX,
         <<"payload_schema">> => <<"{">>

@@ -50,7 +50,7 @@ t_destroy_accepts_runtime_tool(_Config) ->
     ?assertEqual(ok, emqx_agent_tool_postgresql:destroy(Tool)).
 
 t_multiple_instances(_Config) ->
-    Ctx2 = test_context(#{<<"tool_id">> => <<"pg-test-2">>}),
+    Ctx2 = test_context(#{<<"id">> => <<"pg-test-2">>}),
     ok = register_tool(Ctx2),
     {ok, S1} = emqx_agent_tool_registry:lookup(?TOOL_TYPE, ?TOOL_ID),
     {ok, S2} = emqx_agent_tool_registry:lookup(?TOOL_TYPE, <<"pg-test-2">>),
@@ -168,7 +168,7 @@ test_context() ->
 test_context(Overrides) ->
     maps:merge(
         #{
-            <<"tool_id">> => ?TOOL_ID,
+            <<"id">> => ?TOOL_ID,
             <<"desc">> => <<"Query PostgreSQL telemetry by device ID.">>,
             <<"resource">> => ?CONNECTION_ID,
             <<"query">> =>
@@ -182,6 +182,5 @@ register_tool(Context) ->
 
 context_to_body(Context) ->
     Context#{
-        <<"type">> => ?TOOL_TYPE,
-        <<"id">> => maps:get(<<"tool_id">>, Context)
+        <<"type">> => ?TOOL_TYPE
     }.

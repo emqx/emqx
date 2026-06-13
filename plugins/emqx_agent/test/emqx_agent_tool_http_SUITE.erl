@@ -50,7 +50,7 @@ t_create_returns_tool(_Config) ->
 
 t_create_rejects_malformed_input_schema(_Config) ->
     RuntimeContext = #{
-        <<"tool_id">> => ?TOOL_ID,
+        <<"id">> => ?TOOL_ID,
         <<"desc">> => <<"bad schema">>,
         <<"method">> => <<"get">>,
         <<"url">> => <<"http://127.0.0.1">>,

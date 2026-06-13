@@ -52,14 +52,14 @@ deinit() ->
     emqx_agent_tool_registry:unregister_type(?TOOL_TYPE).
 
 -spec create(map()) -> {ok, map()} | {error, term()}.
-create(#{<<"tool_id">> := ToolId}) ->
+create(#{<<"id">> := ToolId}) ->
     {ok, #{
         tool_id => ToolId,
         type => ?TOOL_TYPE,
         module => ?MODULE,
         display_name => <<"Query Tools">>,
         description => <<"List all registered tools or look up a specific one by type and id">>,
-        context => #{<<"tool_id">> => ToolId},
+        context => #{<<"id">> => ToolId},
         input_schema => ?INPUT_SCHEMA
     }}.
 

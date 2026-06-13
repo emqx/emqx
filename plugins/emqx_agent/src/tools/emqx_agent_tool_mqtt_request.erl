@@ -17,7 +17,7 @@ Invoke topic:  $cap/message__request/<tool_id>/request/<req_id>
 Reply  topic:  $cap/message__request/<tool_id>/response/<req_id>
 
 Context keys:
-  <<"tool_id">>     => binary()  — unique instance identifier
+  <<"id">>          => binary()  — unique instance identifier
   <<"desc">>        => binary()  — human-readable description
   <<"topic_prefix">> => binary()  — prepended to the agent-supplied topic
 
@@ -93,7 +93,7 @@ deinit() ->
     emqx_agent_tool_registry:unregister_type(?TOOL_TYPE).
 
 -spec create(Context :: map()) -> {ok, map()} | {error, term()}.
-create(#{<<"tool_id">> := ToolId, <<"desc">> := Desc, <<"topic_prefix">> := TopicPrefix} = Context) ->
+create(#{<<"id">> := ToolId, <<"desc">> := Desc, <<"topic_prefix">> := TopicPrefix} = Context) ->
     case request_payload_schema(Context) of
         {ok, RequestPayloadSchema} ->
             create_with_request_payload_schema(ToolId, Desc, TopicPrefix, RequestPayloadSchema);
@@ -111,7 +111,7 @@ create_with_request_payload_schema(ToolId, Desc, TopicPrefix, RequestPayloadSche
             <<"Send an MQTT request to a topic under the prefix: ", TopicPrefix/binary,
                 " and wait for a response">>,
         context => #{
-            <<"tool_id">> => ToolId,
+            <<"id">> => ToolId,
             <<"topic_prefix">> => TopicPrefix,
             <<"request_payload_schema">> => RequestPayloadSchema
         },

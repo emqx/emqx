@@ -45,7 +45,7 @@ t_create_returns_tool(_Config) ->
 
 t_create_rejects_malformed_request_payload_schema(_Config) ->
     RuntimeContext = maps:merge(test_context(), #{
-        <<"tool_id">> => ?TOOL_ID,
+        <<"id">> => ?TOOL_ID,
         <<"request_payload_schema">> => <<"{">>
     }),
     ?assertMatch(
