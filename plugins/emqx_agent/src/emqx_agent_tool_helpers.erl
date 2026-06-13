@@ -6,7 +6,7 @@
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
--export([cap_response/1, format_error/1, publish_reply/4, error_response/1]).
+-export([cap_response/1, format_error/1, publish_reply/4, error_response/1, unwrap_union/1]).
 
 %% Copies correlation fields from an invoke Request into a reply skeleton.
 %%
@@ -49,6 +49,14 @@ publish_reply(Type, ToolId, Request, Data) ->
 -spec cap_response(map()) -> map().
 cap_response(Frame) ->
     maps:get(<<"response">>, Frame, #{}).
+
+unwrap_union(Map) when is_map(Map), map_size(Map) =:= 1 ->
+    case maps:to_list(Map) of
+        [{Key, Value}] when is_binary(Key), is_map(Value) -> Value;
+        _ -> Map
+    end;
+unwrap_union(Value) ->
+    Value.
 
 -spec correlation(_Request :: map(), _Reply :: map()) -> map().
 correlation(Request, Reply) ->

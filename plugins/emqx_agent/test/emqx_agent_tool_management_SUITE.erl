@@ -20,6 +20,11 @@
 
 -define(SK_TOOL_ID, <<"meta-create-tool">>).
 -define(SK_PIPELINE_ID, <<"meta-create-pipeline">>).
+-define(SK_UPDATE_TOOL_ID, <<"meta-update-tool">>).
+-define(SK_UPDATE_PIPELINE_ID, <<"meta-update-pipeline">>).
+-define(SK_DELETE_STEP_ID, <<"meta-delete-pipeline-step">>).
+-define(SK_INSERT_STEP_ID, <<"meta-insert-pipeline-step">>).
+-define(SK_UPDATE_STEP_ID, <<"meta-update-pipeline-step">>).
 
 -define(VALID_INPUT_SCHEMA,
     <<"{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}">>
@@ -53,6 +58,21 @@ init_per_testcase(_TestCase, Config) ->
         <<"id">> => <<"some-pub">>,
         <<"desc">> => <<"Some publisher">>,
         <<"topic_prefix">> => <<"some/">>
+    }),
+    ok = emqx_agent_service:tool_create(#{
+        <<"type">> => <<"agent__update_tool">>, <<"id">> => ?SK_UPDATE_TOOL_ID
+    }),
+    ok = emqx_agent_service:tool_create(#{
+        <<"type">> => <<"agent__update_pipeline">>, <<"id">> => ?SK_UPDATE_PIPELINE_ID
+    }),
+    ok = emqx_agent_service:tool_create(#{
+        <<"type">> => <<"agent__delete_pipeline_step">>, <<"id">> => ?SK_DELETE_STEP_ID
+    }),
+    ok = emqx_agent_service:tool_create(#{
+        <<"type">> => <<"agent__insert_pipeline_step">>, <<"id">> => ?SK_INSERT_STEP_ID
+    }),
+    ok = emqx_agent_service:tool_create(#{
+        <<"type">> => <<"agent__update_pipeline_step">>, <<"id">> => ?SK_UPDATE_STEP_ID
     }),
     Config.
 
@@ -461,6 +481,256 @@ t_create_pipeline_reply_correlation(_Config) ->
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
 %%--------------------------------------------------------------------
+%% agent__update_tool
+%%--------------------------------------------------------------------
+
+t_update_tool_invoke(_Config) ->
+    ok = emqx_agent_service:tool_create(#{
+        <<"type">> => <<"message__publish">>,
+        <<"id">> => <<"updateable-pub">>,
+        <<"desc">> => <<"Before">>,
+        <<"topic_prefix">> => <<"before/">>
+    }),
+
+    ReqId = <<"req-ut-ok">>,
+    ok = emqx:subscribe(reply_topic(ReqId)),
+    invoke(
+        <<"agent__update_tool">>,
+        ?SK_UPDATE_TOOL_ID,
+        #{
+            <<"type">> => <<"message__publish">>,
+            <<"id">> => <<"updateable-pub">>,
+            <<"definition">> => #{<<"desc">> => <<"After">>}
+        },
+        ReqId
+    ),
+    Reply = recv_reply(ReqId),
+    #{<<"status">> := <<"ok">>, <<"result">> := #{<<"item">> := Item}} = cap_response(Reply),
+    ?assertEqual(<<"After">>, maps:get(<<"desc">>, Item)),
+    ?assertEqual(<<"before/">>, maps:get(<<"topic_prefix">>, Item)),
+    ok = emqx:unsubscribe(reply_topic(ReqId)).
+
+t_update_tool_not_found(_Config) ->
+    ReqId = <<"req-ut-nf">>,
+    ok = emqx:subscribe(reply_topic(ReqId)),
+    invoke(
+        <<"agent__update_tool">>,
+        ?SK_UPDATE_TOOL_ID,
+        #{
+            <<"type">> => <<"message__publish">>,
+            <<"id">> => <<"no-such">>,
+            <<"definition">> => #{<<"desc">> => <<"x">>}
+        },
+        ReqId
+    ),
+    Reply = recv_reply(ReqId),
+    ?assertMatch(#{<<"status">> := <<"error">>}, cap_response(Reply)),
+    ok = emqx:unsubscribe(reply_topic(ReqId)).
+
+%%--------------------------------------------------------------------
+%% agent__update_pipeline
+%%--------------------------------------------------------------------
+
+t_update_pipeline_invoke_retain_steps(_Config) ->
+    ok = emqx_agent_service:pipeline_create(#{
+        <<"pipeline_id">> => <<"updateable-pipe">>,
+        <<"active">> => true,
+        <<"trigger">> => #{<<"topic">> => <<"$evt/up/+">>},
+        <<"steps">> => [
+            #{
+                <<"id">> => <<"s1">>,
+                <<"type">> => <<"call_tool">>,
+                <<"tool">> => <<"message__publish@some-pub">>,
+                <<"args">> => #{<<"topic">> => <<"out">>, <<"payload">> => <<"hi">>}
+            }
+        ]
+    }),
+
+    ReqId = <<"req-up-ok">>,
+    ok = emqx:subscribe(reply_topic(ReqId)),
+    invoke(
+        <<"agent__update_pipeline">>,
+        ?SK_UPDATE_PIPELINE_ID,
+        #{
+            <<"id">> => <<"updateable-pipe">>,
+            <<"definition">> => #{<<"active">> => false}
+        },
+        ReqId
+    ),
+    Reply = recv_reply(ReqId),
+    #{<<"status">> := <<"ok">>, <<"result">> := #{<<"item">> := Item}} = cap_response(Reply),
+    ?assertMatch(#{<<"active">> := false}, Item),
+    ?assertMatch([#{<<"id">> := <<"s1">>}], maps:get(<<"steps">>, Item)),
+    ok = emqx:unsubscribe(reply_topic(ReqId)).
+
+t_update_pipeline_not_found(_Config) ->
+    ReqId = <<"req-up-nf">>,
+    ok = emqx:subscribe(reply_topic(ReqId)),
+    invoke(
+        <<"agent__update_pipeline">>,
+        ?SK_UPDATE_PIPELINE_ID,
+        #{<<"id">> => <<"no-such">>, <<"definition">> => #{<<"active">> => false}},
+        ReqId
+    ),
+    Reply = recv_reply(ReqId),
+    ?assertMatch(#{<<"status">> := <<"error">>}, cap_response(Reply)),
+    ok = emqx:unsubscribe(reply_topic(ReqId)).
+
+%%--------------------------------------------------------------------
+%% Pipeline step mutation tools
+%%--------------------------------------------------------------------
+
+t_delete_pipeline_step_invoke(_Config) ->
+    PipelineId = <<"step-mut-pipe">>,
+    ok = emqx_agent_service:pipeline_create(#{
+        <<"pipeline_id">> => PipelineId,
+        <<"active">> => false,
+        <<"trigger">> => #{<<"topic">> => <<"$evt/sm/+">>},
+        <<"steps">> => [
+            #{
+                <<"id">> => <<"s1">>,
+                <<"type">> => <<"call_tool">>,
+                <<"tool">> => <<"message__publish@some-pub">>,
+                <<"args">> => #{<<"topic">> => <<"out">>, <<"payload">> => <<"1">>}
+            },
+            #{<<"id">> => <<"s2">>, <<"type">> => <<"break">>, <<"path">> => <<"$.skip">>}
+        ]
+    }),
+
+    ReqId = <<"req-ds-ok">>,
+    ok = emqx:subscribe(reply_topic(ReqId)),
+    invoke(
+        <<"agent__delete_pipeline_step">>,
+        ?SK_DELETE_STEP_ID,
+        #{<<"pipeline_id">> => PipelineId, <<"step_id">> => <<"s1">>},
+        ReqId
+    ),
+    Reply = recv_reply(ReqId),
+    #{<<"status">> := <<"ok">>, <<"result">> := #{<<"item">> := Item}} = cap_response(Reply),
+    ?assertEqual(1, length(maps:get(<<"steps">>, Item))),
+    ?assertEqual(<<"s2">>, step_id(hd(maps:get(<<"steps">>, Item)))),
+    ok = emqx:unsubscribe(reply_topic(ReqId)).
+
+t_insert_pipeline_step_first_last_after(_Config) ->
+    PipelineId = <<"insert-step-pipe">>,
+    ok = emqx_agent_service:pipeline_create(#{
+        <<"pipeline_id">> => PipelineId,
+        <<"active">> => false,
+        <<"trigger">> => #{<<"topic">> => <<"$evt/ins/+">>},
+        <<"steps">> => [
+            #{
+                <<"id">> => <<"s1">>,
+                <<"type">> => <<"call_tool">>,
+                <<"tool">> => <<"message__publish@some-pub">>,
+                <<"args">> => #{<<"topic">> => <<"out">>, <<"payload">> => <<"1">>}
+            }
+        ]
+    }),
+
+    %% Insert first
+    ReqId1 = <<"req-is-first">>,
+    ok = emqx:subscribe(reply_topic(ReqId1)),
+    invoke(
+        <<"agent__insert_pipeline_step">>,
+        ?SK_INSERT_STEP_ID,
+        #{
+            <<"pipeline_id">> => PipelineId,
+            <<"step">> => #{
+                <<"id">> => <<"first-step">>, <<"type">> => <<"break">>, <<"path">> => <<"$.x">>
+            },
+            <<"position">> => #{<<"first">> => true}
+        },
+        ReqId1
+    ),
+    Reply1 = recv_reply(ReqId1),
+    #{<<"status">> := <<"ok">>, <<"result">> := #{<<"item">> := Item1}} = cap_response(Reply1),
+    ?assertEqual(2, length(maps:get(<<"steps">>, Item1))),
+    ?assertEqual(<<"first-step">>, step_id(hd(maps:get(<<"steps">>, Item1)))),
+    ok = emqx:unsubscribe(reply_topic(ReqId1)),
+
+    %% Insert after
+    ReqId2 = <<"req-is-after">>,
+    ok = emqx:subscribe(reply_topic(ReqId2)),
+    invoke(
+        <<"agent__insert_pipeline_step">>,
+        ?SK_INSERT_STEP_ID,
+        #{
+            <<"pipeline_id">> => PipelineId,
+            <<"step">> => #{
+                <<"id">> => <<"after-step">>,
+                <<"type">> => <<"call_tool">>,
+                <<"tool">> => <<"message__publish@some-pub">>,
+                <<"args">> => #{<<"topic">> => <<"out">>, <<"payload">> => <<"2">>}
+            },
+            <<"position">> => #{<<"after">> => <<"s1">>}
+        },
+        ReqId2
+    ),
+    Reply2 = recv_reply(ReqId2),
+    #{<<"status">> := <<"ok">>, <<"result">> := #{<<"item">> := Item2}} = cap_response(Reply2),
+    Ids2 = [step_id(S) || S <- maps:get(<<"steps">>, Item2)],
+    ?assertEqual([<<"first-step">>, <<"s1">>, <<"after-step">>], Ids2),
+    ok = emqx:unsubscribe(reply_topic(ReqId2)),
+
+    %% Insert last
+    ReqId3 = <<"req-is-last">>,
+    ok = emqx:subscribe(reply_topic(ReqId3)),
+    invoke(
+        <<"agent__insert_pipeline_step">>,
+        ?SK_INSERT_STEP_ID,
+        #{
+            <<"pipeline_id">> => PipelineId,
+            <<"step">> => #{
+                <<"id">> => <<"last-step">>, <<"type">> => <<"break">>, <<"path">> => <<"$.y">>
+            },
+            <<"position">> => #{<<"last">> => true}
+        },
+        ReqId3
+    ),
+    Reply3 = recv_reply(ReqId3),
+    #{<<"status">> := <<"ok">>, <<"result">> := #{<<"item">> := Item3}} = cap_response(Reply3),
+    ?assertEqual(<<"last-step">>, step_id(lists:last(maps:get(<<"steps">>, Item3)))),
+    ok = emqx:unsubscribe(reply_topic(ReqId3)).
+
+t_update_pipeline_step_invoke(_Config) ->
+    PipelineId = <<"update-step-pipe">>,
+    ok = emqx_agent_service:pipeline_create(#{
+        <<"pipeline_id">> => PipelineId,
+        <<"active">> => false,
+        <<"trigger">> => #{<<"topic">> => <<"$evt/us/+">>},
+        <<"steps">> => [
+            #{
+                <<"id">> => <<"s1">>,
+                <<"type">> => <<"call_tool">>,
+                <<"tool">> => <<"message__publish@some-pub">>,
+                <<"args">> => #{<<"topic">> => <<"out">>, <<"payload">> => <<"1">>}
+            }
+        ]
+    }),
+
+    ReqId = <<"req-us-ok">>,
+    ok = emqx:subscribe(reply_topic(ReqId)),
+    invoke(
+        <<"agent__update_pipeline_step">>,
+        ?SK_UPDATE_STEP_ID,
+        #{
+            <<"pipeline_id">> => PipelineId,
+            <<"step_id">> => <<"s1">>,
+            <<"step">> => #{<<"args">> => #{<<"topic">> => <<"changed">>, <<"payload">> => <<"2">>}}
+        },
+        ReqId
+    ),
+    Reply = recv_reply(ReqId),
+    #{<<"status">> := <<"ok">>, <<"result">> := #{<<"item">> := Item}} = cap_response(Reply),
+    [UpdatedStep] = maps:get(<<"steps">>, Item),
+    ?assertEqual(<<"s1">>, step_id(UpdatedStep)),
+    ?assertEqual(
+        #{<<"topic">> => <<"changed">>, <<"payload">> => <<"2">>},
+        maps:get(<<"args">>, UpdatedStep)
+    ),
+    ok = emqx:unsubscribe(reply_topic(ReqId)).
+
+%%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
 
@@ -503,3 +773,6 @@ receive_result(Pid) ->
 
 cap_response(Reply) ->
     emqx_agent_tool_helpers:cap_response(Reply).
+
+step_id(Step) ->
+    maps:get(<<"id">>, emqx_agent_tool_helpers:unwrap_union(Step), undefined).

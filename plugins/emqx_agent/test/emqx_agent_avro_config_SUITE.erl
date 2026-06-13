@@ -189,6 +189,30 @@ sample_config() ->
             simple_tool(<<"Agent_DeleteTool">>, <<"agent__delete_tool">>, <<"delete-tool">>),
             simple_tool(
                 <<"Agent_DeletePipeline">>, <<"agent__delete_pipeline">>, <<"delete-pipe">>
+            ),
+            simple_tool(
+                <<"Agent_QueryConnections">>,
+                <<"agent__query_connections">>,
+                <<"query-connections">>
+            ),
+            simple_tool(<<"Agent_UpdateTool">>, <<"agent__update_tool">>, <<"update-tool">>),
+            simple_tool(
+                <<"Agent_UpdatePipeline">>, <<"agent__update_pipeline">>, <<"update-pipeline">>
+            ),
+            simple_tool(
+                <<"Agent_DeletePipelineStep">>,
+                <<"agent__delete_pipeline_step">>,
+                <<"delete-pipeline-step">>
+            ),
+            simple_tool(
+                <<"Agent_InsertPipelineStep">>,
+                <<"agent__insert_pipeline_step">>,
+                <<"insert-pipeline-step">>
+            ),
+            simple_tool(
+                <<"Agent_UpdatePipelineStep">>,
+                <<"agent__update_pipeline_step">>,
+                <<"update-pipeline-step">>
             )
         ],
         <<"connections">> => [postgresql_connection()],

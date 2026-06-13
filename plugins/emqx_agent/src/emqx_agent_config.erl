@@ -791,10 +791,6 @@ normalize_step(Step, _Index) ->
 step_key_expression(Step) ->
     maps:get(<<"key_expression">>, Step, ?DEFAULT_PIPELINE_KEY_EXPRESSION).
 
-normalize_break_step(#{<<"eq">> := <<"true">>} = Step) ->
-    Step#{<<"eq">> => true};
-normalize_break_step(#{<<"eq">> := <<"false">>} = Step) ->
-    Step#{<<"eq">> => false};
 normalize_break_step(Step) ->
     Step.
 
@@ -910,7 +906,7 @@ wrap_connection(Entry0) ->
 
 wrap_pipeline(Entry0) ->
     case normalize_pipeline(Entry0) of
-        {ok, _} -> {ok, prepare_pipeline_for_config(unwrap_union(Entry0))};
+        {ok, Pipeline} -> {ok, prepare_pipeline_for_config(Pipeline)};
         {error, _} = Error -> Error
     end.
 
@@ -924,7 +920,7 @@ wrap_pipeline_step(Step0) ->
     Step = prepare_step_for_config(Step1),
     case pipeline_step_record_name(maps:get(?TOOL_TYPE, Step, undefined)) of
         RecordName when is_binary(RecordName) -> #{RecordName => Step};
-        _ -> Step0
+        _ -> Step1
     end.
 
 pipeline_step_record_name(Type) when is_binary(Type) ->

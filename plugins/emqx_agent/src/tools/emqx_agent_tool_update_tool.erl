@@ -2,39 +2,41 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_agent_tool_query_tools).
+-module(emqx_agent_tool_update_tool).
 
 -moduledoc """
-Management tool: list or introspect registered tools.
+Management tool: update an existing tool at runtime.
 
-Args (all optional):
-  type — tool type filter, e.g. "message__publish"
-  id   — tool instance id (requires type)
+Args:
+  type       — tool type, e.g. "message__publish"  (required)
+  id         — tool instance id                   (required)
+  definition — partial tool definition             (required)
 
-No args → list all tools
-type only → list tools of that type
-type + id → get single tool
+The definition is merged into the existing tool, replacing only the
+provided fields. The type and id cannot be changed.
 
-Invoke topic:  cap/agent__query_tools/<tool_id>/request/<req_id>
-Reply  topic:  cap/agent__query_tools/<tool_id>/response/<req_id>
+Invoke topic:  cap/agent__update_tool/<tool_id>/request/<req_id>
+Reply  topic:  cap/agent__update_tool/<tool_id>/response/<req_id>
 """.
 
 -behaviour(emqx_agent_tool).
 
--define(TOOL_TYPE, <<"agent__query_tools">>).
+-define(TOOL_TYPE, <<"agent__update_tool">>).
 
 -define(INPUT_SCHEMA, #{
     <<"type">> => <<"object">>,
     <<"properties">> => #{
         <<"type">> => #{
             <<"type">> => <<"string">>,
-            <<"description">> => <<"Tool type filter, e.g. message__publish. Omit to list all.">>
+            <<"description">> => <<"Tool type, e.g. message__publish">>
         },
-        <<"id">> => #{
-            <<"type">> => <<"string">>,
-            <<"description">> => <<"Tool instance id. Requires type. Returns a single tool.">>
+        <<"id">> => #{<<"type">> => <<"string">>, <<"description">> => <<"Tool instance id">>},
+        <<"definition">> => #{
+            <<"type">> => <<"object">>,
+            <<"description">> => <<"Partial tool definition; only provided fields are replaced">>
         }
-    }
+    },
+    <<"required">> => [<<"type">>, <<"id">>, <<"definition">>]
 }).
 
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/2]).
@@ -57,8 +59,8 @@ create(#{<<"id">> := ToolId}) ->
         tool_id => ToolId,
         type => ?TOOL_TYPE,
         module => ?MODULE,
-        display_name => <<"Query Tools">>,
-        description => <<"List all registered tools or look up a specific one by type and id">>,
+        display_name => <<"Update Tool">>,
+        description => <<"Update an existing tool by merging a partial definition">>,
         context => #{<<"id">> => ToolId},
         input_schema => ?INPUT_SCHEMA
     }}.
@@ -81,23 +83,24 @@ handle_invoke(_Context, Request) ->
 
 do_handle_invoke(Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
-    query(Args).
+    do_update(Args).
 
 %%--------------------------------------------------------------------
 %% Internal
 %%--------------------------------------------------------------------
 
-query(#{<<"type">> := Type, <<"id">> := Id}) ->
+do_update(#{<<"type">> := Type, <<"id">> := Id, <<"definition">> := Def}) when
+    is_map(Def)
+->
     case emqx_agent_service:tool_get(Type, Id) of
-        {ok, Tool} ->
-            {ok, #{<<"item">> => emqx_utils:redact(Tool)}};
+        {ok, Existing} ->
+            Merged = maps:merge(Existing, maps:without([<<"type">>, <<"id">>], Def)),
+            case emqx_agent_service:tool_update(Type, Id, Merged) of
+                {ok, Tool} -> {ok, #{<<"item">> => Tool}};
+                {error, Reason} -> {error, emqx_agent_tool_helpers:format_error(Reason)}
+            end;
         {error, not_found} ->
-            {error, <<"not found">>}
+            {error, <<"tool not found">>}
     end;
-query(#{<<"type">> := Type}) ->
-    All = emqx_agent_service:tool_list(),
-    Items = [emqx_utils:redact(S) || S <- All, maps:get(<<"type">>, S, undefined) =:= Type],
-    {ok, #{<<"items">> => Items}};
-query(_) ->
-    Items = [emqx_utils:redact(S) || S <- emqx_agent_service:tool_list()],
-    {ok, #{<<"items">> => Items}}.
+do_update(_) ->
+    {error, <<"missing required fields: type, id, definition">>}.

@@ -2,39 +2,30 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_agent_tool_query_tools).
+-module(emqx_agent_tool_delete_pipeline_step).
 
 -moduledoc """
-Management tool: list or introspect registered tools.
+Management tool: delete a step from a pipeline by step id.
 
-Args (all optional):
-  type — tool type filter, e.g. "message__publish"
-  id   — tool instance id (requires type)
+Args:
+  pipeline_id — pipeline id (required)
+  step_id     — step id to delete (required)
 
-No args → list all tools
-type only → list tools of that type
-type + id → get single tool
-
-Invoke topic:  cap/agent__query_tools/<tool_id>/request/<req_id>
-Reply  topic:  cap/agent__query_tools/<tool_id>/response/<req_id>
+Invoke topic:  cap/agent__delete_pipeline_step/<tool_id>/request/<req_id>
+Reply  topic:  cap/agent__delete_pipeline_step/<tool_id>/response/<req_id>
 """.
 
 -behaviour(emqx_agent_tool).
 
--define(TOOL_TYPE, <<"agent__query_tools">>).
+-define(TOOL_TYPE, <<"agent__delete_pipeline_step">>).
 
 -define(INPUT_SCHEMA, #{
     <<"type">> => <<"object">>,
     <<"properties">> => #{
-        <<"type">> => #{
-            <<"type">> => <<"string">>,
-            <<"description">> => <<"Tool type filter, e.g. message__publish. Omit to list all.">>
-        },
-        <<"id">> => #{
-            <<"type">> => <<"string">>,
-            <<"description">> => <<"Tool instance id. Requires type. Returns a single tool.">>
-        }
-    }
+        <<"pipeline_id">> => #{<<"type">> => <<"string">>, <<"description">> => <<"Pipeline id">>},
+        <<"step_id">> => #{<<"type">> => <<"string">>, <<"description">> => <<"Step id to delete">>}
+    },
+    <<"required">> => [<<"pipeline_id">>, <<"step_id">>]
 }).
 
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/2]).
@@ -57,8 +48,8 @@ create(#{<<"id">> := ToolId}) ->
         tool_id => ToolId,
         type => ?TOOL_TYPE,
         module => ?MODULE,
-        display_name => <<"Query Tools">>,
-        description => <<"List all registered tools or look up a specific one by type and id">>,
+        display_name => <<"Delete Pipeline Step">>,
+        description => <<"Delete a step from a pipeline by step id">>,
         context => #{<<"id">> => ToolId},
         input_schema => ?INPUT_SCHEMA
     }}.
@@ -81,23 +72,18 @@ handle_invoke(_Context, Request) ->
 
 do_handle_invoke(Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
-    query(Args).
+    do_delete(Args).
 
 %%--------------------------------------------------------------------
 %% Internal
 %%--------------------------------------------------------------------
 
-query(#{<<"type">> := Type, <<"id">> := Id}) ->
-    case emqx_agent_service:tool_get(Type, Id) of
-        {ok, Tool} ->
-            {ok, #{<<"item">> => emqx_utils:redact(Tool)}};
-        {error, not_found} ->
-            {error, <<"not found">>}
+do_delete(#{<<"pipeline_id">> := PipelineId, <<"step_id">> := StepId}) ->
+    case emqx_agent_service:pipeline_step_delete(PipelineId, StepId) of
+        {ok, Pipeline} -> {ok, #{<<"item">> => Pipeline}};
+        {error, not_found} -> {error, <<"pipeline not found">>};
+        {error, step_not_found} -> {error, <<"step not found">>};
+        {error, Reason} -> {error, emqx_agent_tool_helpers:format_error(Reason)}
     end;
-query(#{<<"type">> := Type}) ->
-    All = emqx_agent_service:tool_list(),
-    Items = [emqx_utils:redact(S) || S <- All, maps:get(<<"type">>, S, undefined) =:= Type],
-    {ok, #{<<"items">> => Items}};
-query(_) ->
-    Items = [emqx_utils:redact(S) || S <- emqx_agent_service:tool_list()],
-    {ok, #{<<"items">> => Items}}.
+do_delete(_) ->
+    {error, <<"missing required fields: pipeline_id, step_id">>}.

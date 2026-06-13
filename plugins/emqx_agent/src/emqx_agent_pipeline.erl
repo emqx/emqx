@@ -354,8 +354,8 @@ maybe_break(Step, Data) ->
     Value = emqx_agent_pipeline_ctx:resolve(Path, Data#data.context),
     IsTrue =
         case EqValue of
-            undefined -> Value =:= true;
-            Eq -> Value =:= Eq
+            undefined -> is_truthy(Value);
+            Eq -> emqx_utils_conv:bin(Value) =:= Eq
         end,
     ShouldBreak =
         case Negate of
@@ -374,6 +374,13 @@ maybe_break(Step, Data) ->
         true -> do_complete(Data);
         false -> advance_and_step(Data)
     end.
+
+is_truthy(false) -> false;
+is_truthy(<<>>) -> false;
+is_truthy(0) -> false;
+is_truthy(null) -> false;
+is_truthy(undefined) -> false;
+is_truthy(_) -> true.
 
 %%--------------------------------------------------------------------
 %% Tool request proxying (llm_loop ↔ tools)

@@ -2,39 +2,40 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_agent_tool_query_tools).
+-module(emqx_agent_tool_update_pipeline).
 
 -moduledoc """
-Management tool: list or introspect registered tools.
+Management tool: update a pipeline definition while retaining steps.
 
-Args (all optional):
-  type — tool type filter, e.g. "message__publish"
-  id   — tool instance id (requires type)
+Args:
+  id         — pipeline id (required)
+  definition — map of fields to update (optional)
 
-No args → list all tools
-type only → list tools of that type
-type + id → get single tool
+Allowed update fields: trigger, active, and any other pipeline fields
+except pipeline_id and steps. Existing steps are always retained.
 
-Invoke topic:  cap/agent__query_tools/<tool_id>/request/<req_id>
-Reply  topic:  cap/agent__query_tools/<tool_id>/response/<req_id>
+Invoke topic:  cap/agent__update_pipeline/<tool_id>/request/<req_id>
+Reply  topic:  cap/agent__update_pipeline/<tool_id>/response/<req_id>
 """.
 
 -behaviour(emqx_agent_tool).
 
--define(TOOL_TYPE, <<"agent__query_tools">>).
+-define(TOOL_TYPE, <<"agent__update_pipeline">>).
 
 -define(INPUT_SCHEMA, #{
     <<"type">> => <<"object">>,
     <<"properties">> => #{
-        <<"type">> => #{
-            <<"type">> => <<"string">>,
-            <<"description">> => <<"Tool type filter, e.g. message__publish. Omit to list all.">>
-        },
         <<"id">> => #{
             <<"type">> => <<"string">>,
-            <<"description">> => <<"Tool instance id. Requires type. Returns a single tool.">>
+            <<"description">> => <<"Pipeline id">>
+        },
+        <<"definition">> => #{
+            <<"type">> => <<"object">>,
+            <<"description">> =>
+                <<"Pipeline fields to update. Cannot change pipeline_id or steps.">>
         }
-    }
+    },
+    <<"required">> => [<<"id">>]
 }).
 
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/2]).
@@ -57,8 +58,8 @@ create(#{<<"id">> := ToolId}) ->
         tool_id => ToolId,
         type => ?TOOL_TYPE,
         module => ?MODULE,
-        display_name => <<"Query Tools">>,
-        description => <<"List all registered tools or look up a specific one by type and id">>,
+        display_name => <<"Update Pipeline">>,
+        description => <<"Update a pipeline definition while retaining its steps">>,
         context => #{<<"id">> => ToolId},
         input_schema => ?INPUT_SCHEMA
     }}.
@@ -81,23 +82,20 @@ handle_invoke(_Context, Request) ->
 
 do_handle_invoke(Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
-    query(Args).
+    do_update(Args).
 
 %%--------------------------------------------------------------------
 %% Internal
 %%--------------------------------------------------------------------
 
-query(#{<<"type">> := Type, <<"id">> := Id}) ->
-    case emqx_agent_service:tool_get(Type, Id) of
-        {ok, Tool} ->
-            {ok, #{<<"item">> => emqx_utils:redact(Tool)}};
-        {error, not_found} ->
-            {error, <<"not found">>}
-    end;
-query(#{<<"type">> := Type}) ->
-    All = emqx_agent_service:tool_list(),
-    Items = [emqx_utils:redact(S) || S <- All, maps:get(<<"type">>, S, undefined) =:= Type],
-    {ok, #{<<"items">> => Items}};
-query(_) ->
-    Items = [emqx_utils:redact(S) || S <- emqx_agent_service:tool_list()],
-    {ok, #{<<"items">> => Items}}.
+do_update(#{<<"id">> := Id} = Args) ->
+    do_update(Id, maps:get(<<"definition">>, Args, #{}));
+do_update(_) ->
+    {error, <<"missing required field: id">>}.
+
+do_update(Id, Def) when is_map(Def) ->
+    case emqx_agent_service:pipeline_update_retain_steps(Id, Def) of
+        {ok, Pipeline} -> {ok, #{<<"item">> => Pipeline}};
+        {error, not_found} -> {error, <<"pipeline not found">>};
+        {error, Reason} -> {error, emqx_agent_tool_helpers:format_error(Reason)}
+    end.

@@ -51,7 +51,11 @@ Reasons include:
     pipeline_create/1,
     pipeline_get/1,
     pipeline_update/2,
-    pipeline_delete/1
+    pipeline_delete/1,
+    pipeline_update_retain_steps/2,
+    pipeline_step_delete/2,
+    pipeline_step_insert/4,
+    pipeline_step_update/3
 ]).
 
 %%--------------------------------------------------------------------
@@ -166,6 +170,21 @@ pipeline_get(Id) ->
 pipeline_update(Id, Body) ->
     emqx_agent_config:update_pipeline(Id, Body).
 
+%% Update a pipeline's non-step fields while keeping the existing steps list.
+%% The LLM cannot accidentally replace or clear steps via this tool.
+-spec pipeline_update_retain_steps(binary(), map()) ->
+    {ok, map()} | {error, term()}.
+pipeline_update_retain_steps(Id, Body) ->
+    case emqx_agent_config:lookup_pipeline(Id) of
+        {error, not_found} ->
+            {error, not_found};
+        {ok, Existing} ->
+            Steps = maps:get(<<"steps">>, Existing, []),
+            Update = maps:without([<<"steps">>, <<"pipeline_id">>], Body),
+            Merged = maps:merge(Existing, Update#{<<"steps">> => Steps}),
+            emqx_agent_config:update_pipeline(Id, Merged)
+    end.
+
 -spec pipeline_delete(binary()) ->
     ok | {error, not_found | pipeline_is_active}.
 pipeline_delete(Id) ->
@@ -177,6 +196,42 @@ pipeline_delete(Id) ->
         {ok, _} ->
             emqx_agent_config:delete_pipeline(Id)
     end.
+
+-spec pipeline_step_delete(binary(), binary()) ->
+    {ok, map()} | {error, not_found | step_not_found}.
+pipeline_step_delete(PipelineId, StepId) ->
+    mutate_steps(PipelineId, fun(Steps) ->
+        case remove_step(StepId, Steps) of
+            {ok, NewSteps} -> {ok, NewSteps};
+            {error, not_found} -> {error, step_not_found}
+        end
+    end).
+
+-spec pipeline_step_insert(binary(), map(), first | last | {'after', binary()}, map()) ->
+    {ok, map()} | {error, not_found | step_not_found | duplicate_step_id | term()}.
+pipeline_step_insert(PipelineId, Step, Position, _Opts) ->
+    StepId = maps:get(<<"id">>, Step, undefined),
+    mutate_steps(PipelineId, fun(Steps) ->
+        case StepId =/= undefined andalso step_exists(StepId, Steps) of
+            true ->
+                {error, duplicate_step_id};
+            false ->
+                insert_step_at(Position, Step, Steps)
+        end
+    end).
+
+-spec pipeline_step_update(binary(), binary(), map()) ->
+    {ok, map()} | {error, not_found | step_not_found | term()}.
+pipeline_step_update(PipelineId, StepId, Step) ->
+    mutate_steps(PipelineId, fun(Steps) ->
+        case find_step(StepId, Steps) of
+            {ok, Existing} ->
+                Merged = maps:merge(Existing, Step#{<<"id">> => StepId}),
+                replace_step(StepId, Merged, Steps);
+            {error, not_found} ->
+                {error, step_not_found}
+        end
+    end).
 
 %%--------------------------------------------------------------------
 %% Internal
@@ -203,8 +258,7 @@ tool_ref_in_step(_Ref, _Step) ->
 tools_using_connection(ConnectionId) ->
     [
         maps:get(<<"id">>, Tool)
-     || S <- emqx_agent_config:list_tools(),
-        Tool <- [unwrap_union(S)],
+     || Tool <- emqx_agent_config:list_tools(),
         #{<<"type">> := <<"postgresql__query">>, <<"resource">> := ConnectionId0} <- [Tool],
         ConnectionId0 =:= ConnectionId
     ].
@@ -239,13 +293,70 @@ update_connection_enable(ConnectionId, Enable) ->
             Error
     end.
 
-unwrap_union(Map) when is_map(Map), map_size(Map) =:= 1 ->
-    case maps:to_list(Map) of
-        [{Key, Value}] when is_binary(Key), is_map(Value) -> Value;
-        _ -> Map
-    end;
-unwrap_union(Value) ->
-    Value.
+mutate_steps(PipelineId, MutateFun) ->
+    case emqx_agent_config:lookup_pipeline(PipelineId) of
+        {error, not_found} ->
+            {error, not_found};
+        {ok, Pipeline} ->
+            Steps = maps:get(<<"steps">>, Pipeline, []),
+            case MutateFun(Steps) of
+                {ok, NewSteps} ->
+                    emqx_agent_config:update_pipeline(
+                        PipelineId, Pipeline#{<<"steps">> => NewSteps}
+                    );
+                {error, _} = Error ->
+                    Error
+            end
+    end.
+
+remove_step(StepId, Steps) ->
+    remove_step(StepId, Steps, []).
+
+remove_step(_StepId, [], _Acc) ->
+    {error, not_found};
+remove_step(StepId, [Step | Rest], Acc) ->
+    case step_id(Step) =:= StepId of
+        true -> {ok, lists:reverse(Acc) ++ Rest};
+        false -> remove_step(StepId, Rest, [Step | Acc])
+    end.
+
+insert_step_at(first, Step, Steps) ->
+    {ok, [Step | Steps]};
+insert_step_at(last, Step, Steps) ->
+    {ok, Steps ++ [Step]};
+insert_step_at({'after', AfterId}, Step, Steps) ->
+    insert_after(AfterId, Step, Steps, []).
+
+insert_after(_AfterId, _Step, [], _Acc) ->
+    {error, step_not_found};
+insert_after(AfterId, Step, [S | Rest], Acc) ->
+    case step_id(S) =:= AfterId of
+        true -> {ok, lists:reverse(Acc) ++ [S, Step | Rest]};
+        false -> insert_after(AfterId, Step, Rest, [S | Acc])
+    end.
+
+replace_step(StepId, Step, Steps) ->
+    replace_step(StepId, Step, Steps, []).
+
+replace_step(_StepId, _Step, [], _Acc) ->
+    {error, not_found};
+replace_step(StepId, Step, [S | Rest], Acc) ->
+    case step_id(S) =:= StepId of
+        true -> {ok, lists:reverse(Acc) ++ [Step | Rest]};
+        false -> replace_step(StepId, Step, Rest, [S | Acc])
+    end.
+
+find_step(StepId, Steps) ->
+    case lists:filter(fun(S) -> step_id(S) =:= StepId end, Steps) of
+        [Step | _] -> {ok, Step};
+        [] -> {error, not_found}
+    end.
+
+step_exists(StepId, Steps) ->
+    lists:any(fun(Step) -> step_id(Step) =:= StepId end, Steps).
+
+step_id(Step) ->
+    maps:get(<<"id">>, Step, undefined).
 
 set_connection_enable(Conn, Enable) when is_map(Conn), map_size(Conn) =:= 1 ->
     case maps:to_list(Conn) of

@@ -134,7 +134,7 @@
     requests another model. Do not invent a model name.
 
     --- break ---
-      {"id": "check", "type": "break", "path": "$.triage.skip", "eq": true}
+      {"id": "check", "type": "break", "path": "$.triage.skip", "eq": "true"}
 
     ═══════════════════════════════════════════════════════
     PIPELINE CONTEXT AND JSONPATH

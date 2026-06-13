@@ -2,37 +2,28 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_agent_tool_query_tools).
+-module(emqx_agent_tool_query_connections).
 
 -moduledoc """
-Management tool: list or introspect registered tools.
+Management tool: list or introspect configured connections.
 
 Args (all optional):
-  type — tool type filter, e.g. "message__publish"
-  id   — tool instance id (requires type)
+  id — connection id. Omit to list all connections.
 
-No args → list all tools
-type only → list tools of that type
-type + id → get single tool
-
-Invoke topic:  cap/agent__query_tools/<tool_id>/request/<req_id>
-Reply  topic:  cap/agent__query_tools/<tool_id>/response/<req_id>
+Invoke topic:  cap/agent__query_connections/<tool_id>/request/<req_id>
+Reply  topic:  cap/agent__query_connections/<tool_id>/response/<req_id>
 """.
 
 -behaviour(emqx_agent_tool).
 
--define(TOOL_TYPE, <<"agent__query_tools">>).
+-define(TOOL_TYPE, <<"agent__query_connections">>).
 
 -define(INPUT_SCHEMA, #{
     <<"type">> => <<"object">>,
     <<"properties">> => #{
-        <<"type">> => #{
-            <<"type">> => <<"string">>,
-            <<"description">> => <<"Tool type filter, e.g. message__publish. Omit to list all.">>
-        },
         <<"id">> => #{
             <<"type">> => <<"string">>,
-            <<"description">> => <<"Tool instance id. Requires type. Returns a single tool.">>
+            <<"description">> => <<"Connection id. Omit to list all connections.">>
         }
     }
 }).
@@ -57,8 +48,8 @@ create(#{<<"id">> := ToolId}) ->
         tool_id => ToolId,
         type => ?TOOL_TYPE,
         module => ?MODULE,
-        display_name => <<"Query Tools">>,
-        description => <<"List all registered tools or look up a specific one by type and id">>,
+        display_name => <<"Query Connections">>,
+        description => <<"List all configured connections or look up a specific one by id">>,
         context => #{<<"id">> => ToolId},
         input_schema => ?INPUT_SCHEMA
     }}.
@@ -87,17 +78,13 @@ do_handle_invoke(Request) ->
 %% Internal
 %%--------------------------------------------------------------------
 
-query(#{<<"type">> := Type, <<"id">> := Id}) ->
-    case emqx_agent_service:tool_get(Type, Id) of
-        {ok, Tool} ->
-            {ok, #{<<"item">> => emqx_utils:redact(Tool)}};
+query(#{<<"id">> := Id}) ->
+    case emqx_agent_service:connection_get(Id) of
+        {ok, Conn} ->
+            {ok, #{<<"item">> => emqx_utils:redact(Conn)}};
         {error, not_found} ->
             {error, <<"not found">>}
     end;
-query(#{<<"type">> := Type}) ->
-    All = emqx_agent_service:tool_list(),
-    Items = [emqx_utils:redact(S) || S <- All, maps:get(<<"type">>, S, undefined) =:= Type],
-    {ok, #{<<"items">> => Items}};
 query(_) ->
-    Items = [emqx_utils:redact(S) || S <- emqx_agent_service:tool_list()],
+    Items = [emqx_utils:redact(Conn) || Conn <- emqx_agent_service:connection_list()],
     {ok, #{<<"items">> => Items}}.

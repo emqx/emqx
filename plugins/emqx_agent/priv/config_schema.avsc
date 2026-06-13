@@ -108,6 +108,54 @@
               {"name": "type", "type": {"type": "enum", "name": "Agent_DeletePipelineType", "symbols": ["agent__delete_pipeline"]}, "default": "agent__delete_pipeline", "description": "$tool_type_desc"},
               {"name": "id", "type": "string", "description": "$tool_id_desc"}
             ]
+          },
+          {
+            "type": "record",
+            "name": "Agent_QueryConnections",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "Agent_QueryConnectionsType", "symbols": ["agent__query_connections"]}, "default": "agent__query_connections", "description": "$tool_type_desc"},
+              {"name": "id", "type": "string", "description": "$tool_id_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "Agent_UpdateTool",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "Agent_UpdateToolType", "symbols": ["agent__update_tool"]}, "default": "agent__update_tool", "description": "$tool_type_desc"},
+              {"name": "id", "type": "string", "description": "$tool_id_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "Agent_UpdatePipeline",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "Agent_UpdatePipelineType", "symbols": ["agent__update_pipeline"]}, "default": "agent__update_pipeline", "description": "$tool_type_desc"},
+              {"name": "id", "type": "string", "description": "$tool_id_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "Agent_DeletePipelineStep",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "Agent_DeletePipelineStepType", "symbols": ["agent__delete_pipeline_step"]}, "default": "agent__delete_pipeline_step", "description": "$tool_type_desc"},
+              {"name": "id", "type": "string", "description": "$tool_id_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "Agent_InsertPipelineStep",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "Agent_InsertPipelineStepType", "symbols": ["agent__insert_pipeline_step"]}, "default": "agent__insert_pipeline_step", "description": "$tool_type_desc"},
+              {"name": "id", "type": "string", "description": "$tool_id_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "Agent_UpdatePipelineStep",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "Agent_UpdatePipelineStepType", "symbols": ["agent__update_pipeline_step"]}, "default": "agent__update_pipeline_step", "description": "$tool_type_desc"},
+              {"name": "id", "type": "string", "description": "$tool_id_desc"}
+            ]
           }
         ]
       },
