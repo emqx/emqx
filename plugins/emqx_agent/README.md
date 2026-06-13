@@ -20,7 +20,7 @@ This makes EMQX a place where connected-device events can directly trigger safe 
 - **Pipeline orchestration**: compose workflows from `call_tool`, `llm_loop`, and `break` steps.
 - **LLM reasoning loops**: run OpenAI-compatible model calls through configured EMQX AI providers.
 - **Tool-backed agents**: expose EMQX tools to the LLM as function tools and route invocations over internal `$cap/...` MQTT topics.
-- **One-shot or persistent sessions**: run stateless LLM loops per event, or reuse a session by pipeline key for conversational workflows.
+- **One-shot or persistent sessions**: run stateless LLM loops per event, or reuse a session by LLM step key for conversational workflows.
 - **Structured output**: use `set_result_schema` to make the LLM return schema-validated data instead of free-form text.
 - **Runtime lifecycle events**: publish pipeline start, completion, and failure events to `$pipe/<pipeline_id>/inst/<iid>/events`.
 - **Admin and builder UIs**: manage providers, tools, PostgreSQL connections, and pipelines from browser-based plugin pages.

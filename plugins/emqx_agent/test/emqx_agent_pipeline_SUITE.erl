@@ -65,7 +65,8 @@ end_per_testcase(TestCase, _Config) ->
 maybe_deinit_session_hook(TestCase) when
     TestCase =:= t_set_result_writes_to_context;
     TestCase =:= t_llm_loop_final_without_set_result_fails;
-    TestCase =:= t_persistent_llm_loop_ignores_other_iid_frames
+    TestCase =:= t_persistent_llm_loop_ignores_other_iid_frames;
+    TestCase =:= t_llm_loop_custom_key_expression
 ->
     ok = emqx_agent_session:deinit();
 maybe_deinit_session_hook(_TestCase) ->
@@ -74,7 +75,8 @@ maybe_deinit_session_hook(_TestCase) ->
 maybe_restore_session_hook(TestCase) when
     TestCase =:= t_set_result_writes_to_context;
     TestCase =:= t_llm_loop_final_without_set_result_fails;
-    TestCase =:= t_persistent_llm_loop_ignores_other_iid_frames
+    TestCase =:= t_persistent_llm_loop_ignores_other_iid_frames;
+    TestCase =:= t_llm_loop_custom_key_expression
 ->
     ok = emqx_agent_session:init();
 maybe_restore_session_hook(_TestCase) ->
@@ -266,8 +268,8 @@ t_one_off_pipeline_stops_on_completion(Config) ->
         ct:fail("pipeline did not stop after completion")
     end,
     Ctx = maps:get(<<"context">>, Completed),
-    ?assertEqual(TrigTopic, maps:get(<<"key">>, Ctx)),
-    ?assertEqual(emqx_base62:encode(TrigTopic), maps:get(<<"key_base62">>, Ctx)).
+    ?assertNot(maps:is_key(<<"key">>, Ctx)),
+    ?assertNot(maps:is_key(<<"key_base62">>, Ctx)).
 
 %% Step 1 writes its result to $.lookup.  Step 2 reads $.lookup.topic
 %% out of context and uses it as the `topic` arg for the tool call.
@@ -440,12 +442,11 @@ t_llm_loop_defaults_are_applied(Config) ->
         <<"result_path">> => <<"$.result">>
     },
     register_pipeline(PipelineId, TrigTopic, [Step]),
-    {ok, #{<<"key_expression">> := KeyExpression, <<"steps">> := [Stored]}} =
-        emqx_agent_config:lookup_pipeline(PipelineId),
+    {ok, #{<<"steps">> := [Stored]}} = emqx_agent_config:lookup_pipeline(PipelineId),
     ?assertMatch(#{<<"tools">> := []}, Stored),
     ?assertMatch(#{<<"input">> := #{}}, Stored),
     ?assertMatch(#{<<"persistent">> := false}, Stored),
-    ?assertEqual(<<"message.topic">>, KeyExpression),
+    ?assertEqual(<<"message.topic">>, maps:get(<<"key_expression">>, Stored)),
     ?assertEqual(2048, maps:get(<<"max_tokens">>, Stored)),
     ?assertEqual(50000, maps:get(<<"max_total_tokens">>, Stored)).
 
@@ -556,41 +557,70 @@ t_llm_loop_requires_model(Config) ->
         })
     ).
 
-t_pipeline_rejects_invalid_key_expression(Config) ->
+t_llm_loop_rejects_invalid_key_expression(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
+    Step = #{
+        <<"id">> => <<"llm">>,
+        <<"type">> => <<"llm_loop">>,
+        <<"model">> => <<"test-model">>,
+        <<"instructions">> => <<"test">>,
+        <<"provider_name">> => <<"test-provider">>,
+        <<"key_expression">> => <<"not existing fun(">>,
+        <<"set_result_schema">> => set_result_schema(),
+        <<"result_path">> => <<"$.result">>
+    },
     ?assertMatch(
         {error, _},
         emqx_agent_service:pipeline_create(#{
             <<"pipeline_id">> => PipelineId,
             <<"active">> => true,
-            <<"key_expression">> => <<"not existing fun(">>,
             <<"trigger">> => #{<<"topic">> => TrigTopic},
-            <<"steps">> => []
+            <<"steps">> => [Step]
         })
     ).
 
-t_pipeline_custom_key_expression(Config) ->
+t_llm_loop_custom_key_expression(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
-    Def = #{
-        <<"pipeline_id">> => PipelineId,
-        <<"active">> => true,
+    StepId = <<"llm">>,
+    From = atom_to_binary(?MODULE, utf8),
+    Sid = persistent_sid(PipelineId, StepId, From),
+    SessInTopic = emqx_agent_topics:sess_in_topic(Sid),
+    ok = emqx:subscribe(SessInTopic),
+    Step = #{
+        <<"id">> => StepId,
+        <<"type">> => <<"llm_loop">>,
+        <<"model">> => <<"test-model">>,
+        <<"instructions">> => <<"test">>,
+        <<"provider_name">> => <<"test-provider">>,
+        <<"persistent">> => true,
         <<"key_expression">> => <<"message.from">>,
-        <<"trigger">> => #{<<"topic">> => TrigTopic},
-        <<"steps">> => []
+        <<"input">> => #{},
+        <<"set_result_schema">> => set_result_schema(),
+        <<"result_path">> => <<"$.result">>
     },
-    Msg = trigger_message(TrigTopic, #{<<"id">> => <<"key-1">>}),
-    {ok, _Pid} = emqx_agent_pipeline_sup:start_pipeline(Def, #{
-        event => #{<<"id">> => <<"key-1">>},
-        message => Msg
+    register_pipeline(PipelineId, TrigTopic, [Step]),
+    publish_evt(TrigTopic, #{<<"id">> => <<"key-1">>}),
+    Started = recv_pipe_event(PipelineId),
+    Iid = maps:get(<<"iid">>, Started),
+    _Request = recv_sess_request(Sid),
+    ok = emqx:unsubscribe(SessInTopic),
+    SessOutTopic = emqx_agent_topics:sess_out_topic(Sid),
+    publish_frame(SessOutTopic, #{
+        <<"type">> => <<"tool_request">>,
+        <<"iid">> => Iid,
+        <<"call_id">> => <<"set-result-key">>,
+        <<"tool">> => <<"set_result">>,
+        <<"args">> => #{<<"status">> => <<"ok">>}
     }),
-    _Started = recv_pipe_event(PipelineId),
+    publish_frame(emqx_agent_topics:sess_out_topic(Sid), #{
+        <<"type">> => <<"final">>,
+        <<"iid">> => Iid
+    }),
     Completed = recv_pipe_event(PipelineId),
     Ctx = maps:get(<<"context">>, Completed),
-    From = atom_to_binary(?MODULE, utf8),
-    ?assertEqual(From, maps:get(<<"key">>, Ctx)),
-    ?assertEqual(emqx_base62:encode(From), maps:get(<<"key_base62">>, Ctx)).
+    ?assertEqual(#{<<"status">> => <<"ok">>}, maps:get(<<"result">>, Ctx)).
 
 %% Unregistered pipeline definitions must not trigger new instances.
 t_unregistered_pipeline_not_triggered(Config) ->

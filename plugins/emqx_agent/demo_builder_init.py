@@ -319,6 +319,7 @@ The LLM receives the "input" map as its first user message, then calls tools
    {"id": "analyse", "type": "llm_loop",
     "provider_name": "my-provider",
     "model": "gpt-5.4-mini",
+    "key_expression": "message.topic",
    "instructions": "You are a quality inspector. Examine the photo and return a verdict.",
     "persistent": false,
    "tools": ["message__request@box-camera", "message__publish@box-alert"],
@@ -336,10 +337,10 @@ The LLM receives the "input" map as its first user message, then calls tools
 
 persistent controls session lifecycle:
   false — session is discarded after each trigger; every event starts fresh (default).
-  true  — session persists for messages with the same pipeline key and accumulates
+  true  — session persists for messages with the same step key and accumulates
           conversation history (useful for ongoing reasoning or multi-turn interactions).
 
-Persistent session IDs are derived from pipeline id, step id, and pipeline key.
+Persistent session IDs are derived from pipeline id, step id, and step key.
 
 When you create an llm_loop step, use model "gpt-5.4-mini" unless the user
 explicitly requests another model. Do not invent a model name.
@@ -364,16 +365,16 @@ substituted with the resolved context value at runtime.
 result_path writes only to top-level keys (one level deep).
 
 ═══════════════════════════════════════════════════════
-PIPELINE KEY
+LLM STEP KEY
 ═══════════════════════════════════════════════════════
 
-key_expression is a Variform expression evaluated against MQTT message metadata.
+key_expression is an llm_loop step field evaluated against MQTT message metadata.
 It is not evaluated against pipeline context. The only root binding is message.
 Default key_expression is message.topic.
 
-The pipeline key groups persistent LLM sessions. For a persistent llm_loop, the
+The step key groups persistent LLM sessions. For a persistent llm_loop, the
 same pipeline id + step id + key reuses the same LLM session and history.
-For pipelines whose llm_loop steps are persistent: false, omit key_expression
+For llm_loop steps whose persistent is false, omit key_expression
 unless the user explicitly asks for custom grouping by message metadata.
 
 Valid examples: message.topic, message.from, message.headers.username,

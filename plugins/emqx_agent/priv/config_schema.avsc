@@ -155,7 +155,6 @@
       "type": {"type": "array", "items": {"type": "record", "name": "Pipeline", "fields": [
         {"name": "pipeline_id", "type": "string", "description": "$pipeline_id_desc"},
         {"name": "active", "type": "boolean", "default": true, "description": "$pipeline_active_desc"},
-        {"name": "key_expression", "type": "string", "default": "message.topic", "description": "$pipeline_key_expression_desc"},
         {"name": "trigger", "type": {"type": "record", "name": "PipelineTrigger", "fields": [
           {"name": "topic", "type": "string", "description": "$pipeline_trigger_topic_desc"}
         ]}, "description": "$pipeline_trigger_desc"},
@@ -173,6 +172,7 @@
             {"name": "type", "type": {"type": "enum", "name": "PipelineStepLlmLoopType", "symbols": ["llm_loop"]}, "default": "llm_loop", "description": "$pipeline_step_type_desc"},
             {"name": "provider_name", "type": "string", "description": "$pipeline_step_provider_name_desc"},
             {"name": "model", "type": "string", "description": "$pipeline_step_model_desc"},
+            {"name": "key_expression", "type": "string", "default": "message.topic", "description": "$pipeline_step_key_expression_desc"},
             {"name": "persistent", "type": "boolean", "default": false, "description": "$pipeline_step_persistent_desc"},
             {"name": "max_tokens", "type": "int", "default": 2048, "description": "$pipeline_step_max_tokens_desc"},
             {"name": "max_total_tokens", "type": "int", "default": 50000, "description": "$pipeline_step_max_total_tokens_desc"},

@@ -726,14 +726,9 @@ validate_pipelines_loop([Pipeline | Rest]) ->
 
 normalize_pipeline(Pipeline0) when is_map(Pipeline0) ->
     Pipeline1 = unwrap_union(Pipeline0),
-    case validate_pipeline_key_expression(Pipeline1) of
-        ok ->
-            case validate_pipeline_trigger(Pipeline1) of
-                ok -> normalize_pipeline_steps(Pipeline1);
-                {error, _} = Error -> Error
-            end;
-        {error, _} = Error ->
-            Error
+    case validate_pipeline_trigger(Pipeline1) of
+        ok -> normalize_pipeline_steps(Pipeline1);
+        {error, _} = Error -> Error
     end;
 normalize_pipeline(_) ->
     {error, invalid_pipeline}.
@@ -743,15 +738,12 @@ normalize_pipeline_steps(Pipeline) ->
         #{<<"steps">> := Steps} when is_list(Steps) ->
             case normalize_steps(Steps, 1, []) of
                 {ok, NormalizedSteps} ->
-                    {ok, Pipeline#{
-                        <<"key_expression">> => pipeline_key_expression(Pipeline),
-                        <<"steps">> => NormalizedSteps
-                    }};
+                    {ok, Pipeline#{<<"steps">> => NormalizedSteps}};
                 {error, _} = Error ->
                     Error
             end;
         #{} ->
-            {ok, Pipeline#{<<"key_expression">> => pipeline_key_expression(Pipeline)}}
+            {ok, Pipeline}
     end.
 
 validate_pipeline_trigger(Pipeline) ->
@@ -767,15 +759,11 @@ validate_pipeline_trigger(Pipeline) ->
             ok
     end.
 
-validate_pipeline_key_expression(Pipeline) ->
-    Expression = pipeline_key_expression(Pipeline),
+validate_key_expression(Expression) ->
     case emqx_variform:compile(Expression) of
         {ok, _Compiled} -> ok;
         {error, Reason} -> {error, {invalid_key_expression, Expression, Reason}}
     end.
-
-pipeline_key_expression(Pipeline) ->
-    maps:get(<<"key_expression">>, Pipeline, ?DEFAULT_PIPELINE_KEY_EXPRESSION).
 
 normalize_steps([], _Index, Acc) ->
     {ok, lists:reverse(Acc)};
@@ -790,11 +778,18 @@ normalize_steps([_ | _], Index, _Acc) ->
 
 normalize_step(#{<<"type">> := <<"llm_loop">>} = Step0, _Index) ->
     Step1 = name_value_entries_to_map(<<"input">>, Step0),
-    {ok, decode_json_schema_field(<<"set_result_schema">>, Step1)};
+    Step2 = Step1#{<<"key_expression">> => step_key_expression(Step1)},
+    case validate_key_expression(maps:get(<<"key_expression">>, Step2)) of
+        ok -> {ok, decode_json_schema_field(<<"set_result_schema">>, Step2)};
+        {error, _} = Error -> Error
+    end;
 normalize_step(#{<<"type">> := <<"break">>} = Step0, _Index) ->
     {ok, normalize_break_step(Step0)};
 normalize_step(Step, _Index) ->
     {ok, name_value_entries_to_map(<<"args">>, Step)}.
+
+step_key_expression(Step) ->
+    maps:get(<<"key_expression">>, Step, ?DEFAULT_PIPELINE_KEY_EXPRESSION).
 
 normalize_break_step(#{<<"eq">> := <<"true">>} = Step) ->
     Step#{<<"eq">> => true};

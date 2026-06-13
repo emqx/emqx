@@ -5,7 +5,7 @@ import { createSchemaEditor, getSchemaEditorValue } from './schema_editor.js';
 export function defaultStep(type) {
   const n = pipelineSteps.length + 1;
   if (type === 'call_tool')     return { id: 'step_' + n, type, tool: '', args: [['', '']], result_path: '' };
-  if (type === 'llm_loop')       return { id: 'step_' + n, type, provider_name: '', model: 'gpt-5.4-mini', max_tokens: 2048, max_total_tokens: 50000, persistent: false, tools: [], input: [['event', '$.event']], set_result_schema: { type: 'object', properties: { status: { type: 'string' } }, required: ['status'], additionalProperties: false }, result_path: '' };
+  if (type === 'llm_loop')       return { id: 'step_' + n, type, provider_name: '', model: 'gpt-5.4-mini', key_expression: 'message.topic', max_tokens: 2048, max_total_tokens: 50000, persistent: false, tools: [], input: [['event', '$.event']], set_result_schema: { type: 'object', properties: { status: { type: 'string' } }, required: ['status'], additionalProperties: false }, result_path: '' };
   if (type === 'break')          return { id: 'step_' + n, type, path: '', not: false };
   return { id: 'step_' + n, type };
 }
@@ -140,6 +140,9 @@ function stepFieldsHTML(step, idx) {
         <div class="field"><label>Model</label>
           <input type="text" class="sf-model" value="${esc(step.model||'gpt-5.4-mini')}" placeholder="e.g. gpt-5.4-mini">
         </div>
+        <div class="field"><label>Key expression</label>
+          <input type="text" class="sf-key-expression" value="${esc(step.key_expression||'message.topic')}" placeholder="message.topic">
+        </div>
         <div class="field"><label>Max tokens</label>
           <input type="number" class="sf-max-tokens" value="${esc(step.max_tokens||2048)}" min="1">
         </div>
@@ -149,7 +152,7 @@ function stepFieldsHTML(step, idx) {
       </div>
       <div style="margin-bottom:10px;display:inline-flex;align-items:center;gap:6px">
         <input type="checkbox" class="sf-persistent" style="width:auto;min-width:0;flex:0 0 auto"${step.persistent?' checked':''}>
-        <span style="font-size:11px">Persistent mode <small style="color:var(--muted)">(reuse session for the same pipeline key; default: false)</small></span>
+        <span style="font-size:11px">Persistent mode <small style="color:var(--muted)">(reuse session for the same step key; default: false)</small></span>
       </div>
       <div class="field"><label>Tools (select tools available to the LLM)</label>
         <div class="tools-grid sf-tools">${toolsHTML}</div>
@@ -197,6 +200,7 @@ export function syncStep(idx) {
   } else if (step.type === 'llm_loop') {
     step.provider_name = card.querySelector('.sf-provider')?.value ?? '';
     step.model = card.querySelector('.sf-model')?.value?.trim() ?? '';
+    step.key_expression = card.querySelector('.sf-key-expression')?.value?.trim() || 'message.topic';
     step.max_tokens = Number(card.querySelector('.sf-max-tokens')?.value || 2048);
     step.max_total_tokens = Number(card.querySelector('.sf-max-total-tokens')?.value || 50000);
     step.persistent = card.querySelector('.sf-persistent')?.checked ?? false;
@@ -231,6 +235,7 @@ export function collectSteps() {
     } else if (s.type === 'llm_loop') {
       if (s.provider_name) out.provider_name = s.provider_name;
       if (s.model) out.model = s.model;
+      out.key_expression = s.key_expression || 'message.topic';
       if (s.max_tokens) out.max_tokens = s.max_tokens;
       out.max_total_tokens = s.max_total_tokens || 50000;
       out.persistent = s.persistent ?? false;

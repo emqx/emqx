@@ -67,10 +67,9 @@ match_triggers(Topic) ->
 -record(data, {
     pipeline_id :: binary(),
     iid :: binary(),
-    key :: binary(),
-    key_base62 :: binary(),
     trace_id :: binary(),
     definition :: map(),
+    trigger_message :: map(),
     steps :: [map()],
     step_idx = 0 :: non_neg_integer(),
     context :: map(),
@@ -109,47 +108,33 @@ callback_mode() -> handle_event_function.
 
 init({Iid, Def, TriggerInput}) ->
     PipelineId = maps:get(<<"pipeline_id">>, Def),
-    case pipeline_key(Def, TriggerInput) of
-        {ok, Key} ->
-            Event = maps:get(event, TriggerInput, #{}),
-            TraceId = maps:get(<<"trace_id">>, Event, Iid),
-            KeyBase62 = emqx_base62:encode(Key),
-            Steps = maps:get(<<"steps">>, Def, []),
-            Data = #data{
-                pipeline_id = PipelineId,
-                iid = Iid,
-                key = Key,
-                key_base62 = KeyBase62,
-                trace_id = TraceId,
-                definition = Def,
-                steps = Steps,
-                step_idx = 0,
-                context = emqx_agent_pipeline_ctx:init(Event, Key),
-                active_sid = undefined,
-                tool_map = #{},
-                pending_calls = #{},
-                cap_req_id = undefined,
-                cap_result_path = undefined,
-                reply_topics = [],
-                reply_timer_ref = undefined
-            },
-            ?SLOG(info, #{
-                msg => "pipeline_started",
-                pipeline_id => PipelineId,
-                iid => Iid,
-                key => Key
-            }),
-            publish_pipeline_event(Data, #{<<"type">> => <<"pipeline_started">>}),
-            {ok, running, Data, [{next_event, internal, step}]};
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "pipeline_key_expression_error",
-                pipeline_id => PipelineId,
-                iid => Iid,
-                reason => Reason
-            }),
-            {stop, Reason}
-    end.
+    Event = maps:get(event, TriggerInput, #{}),
+    TraceId = maps:get(<<"trace_id">>, Event, Iid),
+    Steps = maps:get(<<"steps">>, Def, []),
+    Data = #data{
+        pipeline_id = PipelineId,
+        iid = Iid,
+        trace_id = TraceId,
+        definition = Def,
+        trigger_message = message_to_map(maps:get(message, TriggerInput)),
+        steps = Steps,
+        step_idx = 0,
+        context = emqx_agent_pipeline_ctx:init(Event),
+        active_sid = undefined,
+        tool_map = #{},
+        pending_calls = #{},
+        cap_req_id = undefined,
+        cap_result_path = undefined,
+        reply_topics = [],
+        reply_timer_ref = undefined
+    },
+    ?SLOG(info, #{
+        msg => "pipeline_started",
+        pipeline_id => PipelineId,
+        iid => Iid
+    }),
+    publish_pipeline_event(Data, #{<<"type">> => <<"pipeline_started">>}),
+    {ok, running, Data, [{next_event, internal, step}]}.
 
 terminate(Reason, _State, Data) ->
     _ = cleanup_reply_wait(Data),
@@ -240,7 +225,7 @@ do_execute_step(Step, Data) ->
 %% -- llm_loop step ----------------------------------------------------------
 
 start_llm_loop(
-    #{<<"id">> := StepId, <<"provider_name">> := ProviderName, <<"model">> := Model} = Step,
+    #{<<"id">> := StepId, <<"provider_name">> := _, <<"model">> := _} = Step,
     Data
 ) ->
     Instructions = maps:get(<<"instructions">>, Step, <<"You are a helpful assistant.">>),
@@ -253,7 +238,40 @@ start_llm_loop(
     {ToolManifest0, ToolMap0} = build_tool_manifest(ToolSpecs),
     {ToolManifest, ToolMap} = maybe_inject_set_result(ToolManifest0, ToolMap0, SetResultSchema),
     Input = emqx_agent_pipeline_ctx:resolve_map(InputSpec, Data#data.context),
-    Sid = llm_sid(Persistent, StepId, Data),
+    case llm_sid(Persistent, Step, Data) of
+        {ok, Sid} ->
+            start_llm_loop_with_sid(Sid, Step, Data, #{
+                instructions => Instructions,
+                tool_manifest => ToolManifest,
+                tool_map => ToolMap,
+                input => Input,
+                max_tokens => MaxTokens,
+                max_total_tokens => MaxTotalTokens
+            });
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "pipeline_llm_key_expression_error",
+                iid => Data#data.iid,
+                step => StepId,
+                reason => Reason
+            }),
+            do_fail(Data, Reason)
+    end.
+
+start_llm_loop_with_sid(
+    Sid,
+    #{<<"id">> := StepId, <<"provider_name">> := ProviderName, <<"model">> := Model} = Step,
+    Data,
+    #{
+        instructions := Instructions,
+        tool_manifest := ToolManifest,
+        tool_map := ToolMap,
+        input := Input,
+        max_tokens := MaxTokens,
+        max_total_tokens := MaxTotalTokens
+    }
+) ->
+    Persistent = maps:get(<<"persistent">>, Step, false),
     SessOutTopic = sess_out_topic(Sid),
     Data0 = subscribe_reply_topic(SessOutTopic, Data),
     Request = #{
@@ -283,11 +301,17 @@ start_llm_loop(
     }),
     {next_state, llm_loop, Data1}.
 
-llm_sid(false, StepId, #data{iid = Iid}) ->
-    <<"pipe-", (emqx_base62:encode(<<Iid/binary, 0, StepId/binary>>))/binary>>;
-llm_sid(true, StepId, #data{pipeline_id = PipelineId, key = Key}) ->
-    <<"pipe-",
-        (emqx_base62:encode(<<PipelineId/binary, 0, StepId/binary, 0, Key/binary>>))/binary>>.
+llm_sid(false, #{<<"id">> := StepId}, #data{iid = Iid}) ->
+    {ok, <<"pipe-", (emqx_base62:encode(<<Iid/binary, 0, StepId/binary>>))/binary>>};
+llm_sid(true, #{<<"id">> := StepId} = Step, #data{pipeline_id = PipelineId} = Data) ->
+    case step_key(Step, Data) of
+        {ok, Key} ->
+            {ok,
+                <<"pipe-",
+                    (emqx_base62:encode(<<PipelineId/binary, 0, StepId/binary, 0, Key/binary>>))/binary>>};
+        {error, _} = Error ->
+            Error
+    end.
 
 %% -- call_tool step --------------------------------------------------------
 
@@ -577,17 +601,17 @@ step_timeout_ms(Step, Default) ->
         _ -> Default
     end.
 
-pipeline_key(Def, TriggerInput) ->
-    Expression = maps:get(<<"key_expression">>, Def, <<"message.topic">>),
-    Bindings = #{message => message_to_map(maps:get(message, TriggerInput))},
+step_key(Step, #data{trigger_message = Message}) ->
+    Expression = maps:get(<<"key_expression">>, Step, <<"message.topic">>),
+    Bindings = #{message => Message},
     case emqx_variform:compile(Expression) of
         {ok, Compiled} ->
             case emqx_variform:render(Compiled, Bindings, #{eval_as_string => true}) of
                 {ok, Key} -> {ok, Key};
-                {error, Reason} -> {error, {render_key_expression, Reason}}
+                {error, Reason} -> {error, {render_llm_key_expression, Reason}}
             end;
         {error, Reason} ->
-            {error, {compile_key_expression, Reason}}
+            {error, {compile_llm_key_expression, Reason}}
     end.
 
 message_to_map(Message) ->

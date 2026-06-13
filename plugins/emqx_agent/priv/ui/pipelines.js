@@ -72,12 +72,11 @@ export async function deletePipeline(id) {
 export async function savePipeline() {
   const id    = document.getElementById('pipe-id').value.trim();
   const topic = document.getElementById('pipe-topic').value.trim();
-  const keyExpression = document.getElementById('pipe-key-expression').value.trim() || 'message.topic';
   if (!id)    return setMsg('pipe-msg', 'Pipeline ID is required', true);
   if (!topic) return setMsg('pipe-msg', 'Trigger topic is required', true);
   const steps  = collectSteps();
   const active = document.getElementById('pipe-active').checked;
-  const body   = { pipeline_id: id, key_expression: keyExpression, trigger: { topic }, steps, active };
+  const body   = { pipeline_id: id, trigger: { topic }, steps, active };
   try {
     if (editingPipelineId.value) {
       await api('PUT', `/pipelines/${encodeURIComponent(editingPipelineId.value)}`, body);
@@ -104,7 +103,6 @@ export function editPipeline(id) {
   document.getElementById('pipe-id').readOnly     = true;
   document.getElementById('pipe-id').style.opacity = '0.6';
   document.getElementById('pipe-topic').value     = pipeline.trigger?.topic ?? '';
-  document.getElementById('pipe-key-expression').value = pipeline.key_expression ?? 'message.topic';
   document.getElementById('pipe-active').checked  = pipeline.active === true;
   document.getElementById('pipe-card-title').textContent = 'Edit Pipeline: ' + id;
   document.getElementById('pipe-save-btn').textContent   = 'Update Pipeline';
@@ -128,7 +126,7 @@ function deserializeStep(s, i) {
   if (type === 'llm_loop') {
     const input = s.input ? Object.entries(s.input) : [['event', '$.event']];
     const setResultSchema = s.set_result_schema || null;
-    return { id, type, provider_name: s.provider_name ?? '', model: s.model ?? '', persistent: s.persistent ?? false, tools: s.tools ?? [], input, instructions: s.instructions ?? '', set_result_schema: setResultSchema, result_path: s.result_path ?? '' };
+    return { id, type, provider_name: s.provider_name ?? '', model: s.model ?? '', key_expression: s.key_expression ?? 'message.topic', persistent: s.persistent ?? false, tools: s.tools ?? [], input, instructions: s.instructions ?? '', set_result_schema: setResultSchema, result_path: s.result_path ?? '' };
   }
   if (type === 'break') {
     return { id, type, path: s.path ?? '', not: s.not === true };
@@ -143,7 +141,6 @@ export function resetPipelineEditor() {
   document.getElementById('pipe-id').readOnly        = false;
   document.getElementById('pipe-id').style.opacity   = '';
   document.getElementById('pipe-topic').value        = '';
-  document.getElementById('pipe-key-expression').value = 'message.topic';
   document.getElementById('pipe-active').checked     = true;
   document.getElementById('pipe-card-title').textContent    = 'New Pipeline';
   document.getElementById('pipe-save-btn').textContent      = 'Create Pipeline';
