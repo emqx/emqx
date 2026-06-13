@@ -141,23 +141,70 @@ decode(Json) ->
 -spec decode(json_text(), decode_options()) -> json_term().
 decode(Json, Opts) ->
     Bin = to_binary(Json),
-    case lists:member(return_maps, Opts) of
-        true ->
-            decode_result(json:decode(Bin, [], map_decoders()));
-        false ->
-            %% Empty option list keeps the jiffy-era behavior of returning ejson
-            %% form and preserving object key order.
-            decode_result(json:decode(Bin, [], ejson_decoders()))
+    Decoders =
+        case lists:member(return_maps, Opts) of
+            true ->
+                map_decoders();
+            false ->
+                %% Empty option list keeps the jiffy-era behavior of returning
+                %% ejson form and preserving object key order.
+                ejson_decoders()
+        end,
+    try json:decode(Bin, [], Decoders) of
+        {Term, _Acc, <<>>} ->
+            Term;
+        {_Term, _Acc, Trailer} ->
+            %% `json:decode/3' consumes trailing whitespace but returns any other
+            %% remaining bytes as a trailer instead of rejecting them (unlike
+            %% `json:decode/1'). Reject so trailing garbage is an error too.
+            Pos = byte_size(Bin) - byte_size(Trailer),
+            erlang:error({Pos, invalid_trailing_data})
+    catch
+        error:Reason:Stacktrace ->
+            erlang:error(jiffy_compat_error(Reason, Stacktrace, Bin))
     end.
 
-%% `json:decode/3' consumes trailing whitespace but, unlike `json:decode/1',
-%% returns any remaining bytes as a trailer instead of rejecting them. Reject a
-%% non-empty trailer so trailing garbage is an error, matching `json:decode/1'
-%% and jiffy (both accept trailing whitespace, which leaves an empty trailer).
-decode_result({Term, _Acc, <<>>}) ->
-    Term;
-decode_result({_Term, _Acc, <<Byte, _/binary>>}) ->
-    erlang:error({invalid_byte, Byte}).
+%% Translate OTP `json' decode errors into jiffy's `{Position, Reason}' shape.
+%% Several call sites pattern-match that shape — e.g. `emqx_schema:to_json_binary/1'
+%% maps the reason atom to a human-readable message and `emqx_ft_storage_exporter_fs'
+%% matches `{Loc, Atom}' — so keeping it makes the jiffy -> OTP json migration
+%% transparent. Position is best-effort (and ignored by current call sites); the
+%% reason atoms mirror jiffy's vocabulary.
+jiffy_compat_error(unexpected_end, _Stacktrace, Bin) ->
+    {byte_size(Bin), truncated_json};
+jiffy_compat_error({invalid_byte, Byte}, Stacktrace, _Bin) ->
+    {error_position(Stacktrace), classify_invalid_byte(Byte)};
+jiffy_compat_error({unexpected_sequence, _}, Stacktrace, _Bin) ->
+    {error_position(Stacktrace), invalid_string};
+jiffy_compat_error(Reason, Stacktrace, _Bin) when is_atom(Reason) ->
+    {error_position(Stacktrace), Reason};
+jiffy_compat_error(_Reason, Stacktrace, _Bin) ->
+    {error_position(Stacktrace), invalid_json}.
+
+%% A stray ASCII letter where a JSON value is expected is almost always a
+%% mistyped `true'/`false'/`null' literal, which jiffy reports as `invalid_literal';
+%% any other unexpected byte is a structural error (`invalid_json').
+classify_invalid_byte(Byte) when
+    (Byte >= $a andalso Byte =< $z) orelse (Byte >= $A andalso Byte =< $Z)
+->
+    invalid_literal;
+classify_invalid_byte(_Byte) ->
+    invalid_json.
+
+%% OTP attaches the failing byte offset under `error_info' in the stacktrace.
+error_position(Stacktrace) ->
+    case lists:filtermap(fun frame_position/1, Stacktrace) of
+        [Pos | _] -> Pos;
+        [] -> 0
+    end.
+
+frame_position({_M, _F, _A, Opts}) ->
+    case lists:keyfind(error_info, 1, Opts) of
+        {error_info, #{cause := #{position := Pos}}} -> {true, Pos};
+        _ -> false
+    end;
+frame_position(_) ->
+    false.
 
 %% Decoders for the default `return_maps' path.
 %%
@@ -513,12 +560,20 @@ decode_duplicate_key_last_wins_test() ->
     ?assertEqual({[{<<"k">>, 1}, {<<"k">>, 2}]}, decode(<<"{\"k\":1,\"k\":2}">>, [])).
 
 decode_rejects_trailing_garbage_test() ->
-    ?assertError({invalid_byte, $x}, decode(<<"{}x">>)),
-    ?assertError({invalid_byte, $x}, decode(<<"{}x">>, [])).
+    ?assertError({_, invalid_trailing_data}, decode(<<"{}x">>)),
+    ?assertError({_, invalid_trailing_data}, decode(<<"{}x">>, [])).
 
 decode_allows_trailing_whitespace_test() ->
     ?assertEqual(#{}, decode(<<"{} \n\t">>)),
     ?assertEqual({[]}, decode(<<"{} \n\t">>, [])).
+
+%% Decode errors keep jiffy's `{Position, Reason}' shape so callers that
+%% pattern-match the reason atom (e.g. emqx_schema:to_json_binary/1) keep working.
+decode_error_shape_test() ->
+    ?assertMatch({error, {_, truncated_json}}, safe_decode(<<"{">>)),
+    ?assertMatch({error, {_, invalid_literal}}, safe_decode(<<"not valid">>)),
+    ?assertMatch({error, {_, invalid_json}}, safe_decode(<<"[1 2]">>)),
+    ?assertMatch({error, {_, invalid_trailing_data}}, safe_decode(<<"{}x">>)).
 
 safe_decode_returns_error_test() ->
     ?assertMatch({error, _}, safe_decode(<<"not-json">>)).
