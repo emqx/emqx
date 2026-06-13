@@ -96,11 +96,7 @@ encode(Term) ->
 
 -spec encode(json_term(), encode_options()) -> json_text().
 encode(Term, Opts) ->
-    Bin = iolist_to_binary(json:encode(Term, encoder(Opts))),
-    case lists:member(pretty, Opts) of
-        true -> pretty_print(Bin);
-        false -> Bin
-    end.
+    do_encode(Term, encoder(Opts, false), Opts).
 
 -spec encode_proplist(json_term_proplist()) -> json_text().
 encode_proplist(Term) ->
@@ -108,7 +104,16 @@ encode_proplist(Term) ->
 
 -spec encode_proplist(json_term_proplist(), encode_options()) -> json_text().
 encode_proplist(Term, Opts) ->
-    encode(to_ejson(Term), Opts).
+    %% `proplist' mode makes the encoder treat any `[{K, V}, ...]' list as a
+    %% JSON object, so no pre-pass conversion of the term is needed.
+    do_encode(Term, encoder(Opts, true), Opts).
+
+do_encode(Term, Encoder, Opts) ->
+    Bin = iolist_to_binary(json:encode(Term, Encoder)),
+    case lists:member(pretty, Opts) of
+        true -> pretty_print(Bin);
+        false -> Bin
+    end.
 
 -spec safe_encode(json_term()) ->
     {ok, json_text()} | {error, Reason :: term()}.
@@ -281,9 +286,11 @@ json_key(Term) ->
 
 %% Custom encoder fun for `json:encode/2`. Handles:
 %%   * jiffy-style ejson objects `{[]}` and `{[{K, V}, ...]}`.
+%%   * `Proplist' mode (set by `encode_proplist') — also treat any
+%%     `[{K, V}, ...]' list as a JSON object.
 %%   * `uescape` — escape every non-ASCII codepoint as `\uXXXX`.
 %%   * `force_utf8` — replace invalid UTF-8 bytes with U+FFFD instead of crashing.
-encoder(Opts) ->
+encoder(Opts, Proplist) ->
     Uescape = lists:member(uescape, Opts),
     ForceUtf8 = lists:member(force_utf8, Opts),
     fun
@@ -293,6 +300,8 @@ encoder(Opts) ->
             json:encode_key_value_list(L, Enc);
         (B, _Enc) when is_binary(B) ->
             encode_binary(B, Uescape, ForceUtf8);
+        ([{_, _} | _] = L, Enc) when Proplist ->
+            json:encode_key_value_list(L, Enc);
         (Other, Enc) ->
             json:encode_value(Other, Enc)
     end.
@@ -383,21 +392,9 @@ indent(D) ->
 
 -compile(
     {inline, [
-        to_ejson/1,
         from_ejson/1
     ]}
 ).
-
-%% Convert a proplist-with-map term to jiffy-style ejson tuple form so the
-%% encoder fun can recognise it.
-to_ejson([{_, _} | _] = L) ->
-    {[{K, to_ejson(V)} || {K, V} <- L]};
-to_ejson(L) when is_list(L) ->
-    [to_ejson(E) || E <- L];
-to_ejson(M) when is_map(M) ->
-    {[{K, to_ejson(V)} || K := V <- M]};
-to_ejson(T) ->
-    T.
 
 from_ejson(L) when is_list(L) ->
     [from_ejson(E) || E <- L];
