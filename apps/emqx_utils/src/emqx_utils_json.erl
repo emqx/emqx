@@ -96,7 +96,7 @@ encode(Term) ->
 
 -spec encode(json_term(), encode_options()) -> json_text().
 encode(Term, Opts) ->
-    do_encode(Term, encoder(Opts, false), Opts).
+    do_encode(Term, false, Opts).
 
 -spec encode_proplist(json_term_proplist()) -> json_text().
 encode_proplist(Term) ->
@@ -106,13 +106,17 @@ encode_proplist(Term) ->
 encode_proplist(Term, Opts) ->
     %% `proplist' mode makes the encoder treat any `[{K, V}, ...]' list as a
     %% JSON object, so no pre-pass conversion of the term is needed.
-    do_encode(Term, encoder(Opts, true), Opts).
+    do_encode(Term, true, Opts).
 
-do_encode(Term, Encoder, Opts) ->
-    Bin = iolist_to_binary(json:encode(Term, Encoder)),
+%% `pretty' is rendered by OTP's `json:format/3' (2-space indent); otherwise the
+%% compact `json:encode/2' is used. Both share the same custom callback behavior
+%% for ejson tuples, proplist mode, `uescape', and `force_utf8'.
+do_encode(Term, Proplist, Opts) ->
     case lists:member(pretty, Opts) of
-        true -> pretty_print(Bin);
-        false -> Bin
+        true ->
+            iolist_to_binary(json:format(Term, formatter(Opts, Proplist), #{}));
+        false ->
+            iolist_to_binary(json:encode(Term, encoder(Opts, Proplist)))
     end.
 
 -spec safe_encode(json_term()) ->
@@ -139,13 +143,39 @@ decode(Json, Opts) ->
     Bin = to_binary(Json),
     case lists:member(return_maps, Opts) of
         true ->
-            json:decode(Bin);
+            decode_result(json:decode(Bin, [], map_decoders()));
         false ->
             %% Empty option list keeps the jiffy-era behavior of returning ejson
             %% form and preserving object key order.
-            {Term, _Acc, _Rest} = json:decode(Bin, [], ejson_decoders()),
-            Term
+            decode_result(json:decode(Bin, [], ejson_decoders()))
     end.
+
+%% `json:decode/3' consumes trailing whitespace but, unlike `json:decode/1',
+%% returns any remaining bytes as a trailer instead of rejecting them. Reject a
+%% non-empty trailer so trailing garbage is an error, matching `json:decode/1'
+%% and jiffy (both accept trailing whitespace, which leaves an empty trailer).
+decode_result({Term, _Acc, <<>>}) ->
+    Term;
+decode_result({_Term, _Acc, <<Byte, _/binary>>}) ->
+    erlang:error({invalid_byte, Byte}).
+
+%% Decoders for the default `return_maps' path.
+%%
+%% OTP's native `json:decode/1' resolves duplicate object keys as first-wins,
+%% whereas jiffy — and the de-facto convention followed by JavaScript, Python,
+%% Go, ... — is last-wins. We override `object_finish' to restore last-wins so
+%% the migration stays behavior-compatible.
+%%
+%% `object_push' is left as OTP's inline default (it prepends each pair, so the
+%% accumulator ends up in reverse document order). `lists:reverse' restores
+%% document order before `maps:from_list', which keeps the rightmost value for a
+%% duplicated key — i.e. the last occurrence wins. Only `object_finish' is
+%% customised, so `object_push' stays on the native fast path; the sole added
+%% cost is one `lists:reverse/1' per object.
+map_decoders() ->
+    #{
+        object_finish => fun(Acc, OldAcc) -> {maps:from_list(lists:reverse(Acc)), OldAcc} end
+    }.
 
 ejson_decoders() ->
     #{
@@ -306,6 +336,24 @@ encoder(Opts, Proplist) ->
             json:encode_value(Other, Enc)
     end.
 
+%% Custom formatter fun for `json:format/3' (pretty printing). Same handling as
+%% `encoder/2', but uses the `format_*' callbacks which carry indentation state.
+formatter(Opts, Proplist) ->
+    Uescape = lists:member(uescape, Opts),
+    ForceUtf8 = lists:member(force_utf8, Opts),
+    fun
+        ({[]}, _Enc, _State) ->
+            <<"{}">>;
+        ({L}, Enc, State) when is_list(L) ->
+            json:format_key_value_list(L, Enc, State);
+        (B, _Enc, _State) when is_binary(B) ->
+            encode_binary(B, Uescape, ForceUtf8);
+        ([{_, _} | _] = L, Enc, State) when Proplist ->
+            json:format_key_value_list(L, Enc, State);
+        (Other, Enc, State) ->
+            json:format_value(Other, Enc, State)
+    end.
+
 encode_binary(B, Uescape, ForceUtf8) ->
     B1 =
         case ForceUtf8 of
@@ -336,55 +384,6 @@ do_sanitize_utf8(<<C/utf8, R/binary>>, Acc) ->
     do_sanitize_utf8(R, <<Acc/binary, C/utf8>>);
 do_sanitize_utf8(<<_:8, R/binary>>, Acc) ->
     do_sanitize_utf8(R, <<Acc/binary, 16#FFFD/utf8>>).
-
-%%--------------------------------------------------------------------
-%% Pretty printer
-%%--------------------------------------------------------------------
-
-%% Pretty-print a compact JSON binary into the format used by the EMQX CLI:
-%%   * 2-space indent per nesting level
-%%   * `\n<indent>` after `{` `[` `,`
-%%   * `\n<indent>` before `}` `]`
-%%   * `" : "` between key and value
-%%   * empty container body keeps a `\n<inner>\n<outer>` pair
-%% This affects the CLI output format, consult the team before changing the format.
-pretty_print(Bin) ->
-    pretty(Bin, 0, <<>>, false, false).
-
-%% pretty(Rest, Depth, Acc, InString, Escaped)
-pretty(<<>>, _D, Acc, _, _) ->
-    Acc;
-pretty(<<C, R/binary>>, D, Acc, true, true) ->
-    pretty(R, D, <<Acc/binary, C>>, true, false);
-pretty(<<$\\, R/binary>>, D, Acc, true, false) ->
-    pretty(R, D, <<Acc/binary, $\\>>, true, true);
-pretty(<<$", R/binary>>, D, Acc, true, false) ->
-    pretty(R, D, <<Acc/binary, $">>, false, false);
-pretty(<<C, R/binary>>, D, Acc, true, false) ->
-    pretty(R, D, <<Acc/binary, C>>, true, false);
-pretty(<<$", R/binary>>, D, Acc, false, _) ->
-    pretty(R, D, <<Acc/binary, $">>, true, false);
-pretty(<<${, R/binary>>, D, Acc, false, _) ->
-    D1 = D + 1,
-    pretty(R, D1, <<Acc/binary, ${, $\n, (indent(D1))/binary>>, false, false);
-pretty(<<$[, R/binary>>, D, Acc, false, _) ->
-    D1 = D + 1,
-    pretty(R, D1, <<Acc/binary, $[, $\n, (indent(D1))/binary>>, false, false);
-pretty(<<$}, R/binary>>, D, Acc, false, _) ->
-    D1 = D - 1,
-    pretty(R, D1, <<Acc/binary, $\n, (indent(D1))/binary, $}>>, false, false);
-pretty(<<$], R/binary>>, D, Acc, false, _) ->
-    D1 = D - 1,
-    pretty(R, D1, <<Acc/binary, $\n, (indent(D1))/binary, $]>>, false, false);
-pretty(<<$,, R/binary>>, D, Acc, false, _) ->
-    pretty(R, D, <<Acc/binary, $,, $\n, (indent(D))/binary>>, false, false);
-pretty(<<$:, R/binary>>, D, Acc, false, _) ->
-    pretty(R, D, <<Acc/binary, " : ">>, false, false);
-pretty(<<C, R/binary>>, D, Acc, false, _) ->
-    pretty(R, D, <<Acc/binary, C>>, false, false).
-
-indent(D) ->
-    binary:copy(<<"  ">>, D).
 
 %%--------------------------------------------------------------------
 %% Helpers
@@ -424,20 +423,19 @@ best_effort_unicode(Input, Config) ->
 
 -ifdef(TEST).
 
-%% NOTE: pretty-printing format is asserted in the test
-%% This affects the CLI output format, consult the team before changing
-%% the format.
+%% NOTE: pretty-printing is delegated to OTP's `json:format/3'; the format is
+%% asserted here because it affects the CLI/HTTP output.
 best_effort_json_test() ->
     ?assertEqual(
-        <<"{\n  \n}">>,
+        <<"{}\n">>,
         best_effort_json([])
     ),
     ?assertEqual(
-        <<"{\n  \"key\" : [\n    \n  ]\n}">>,
+        <<"{\n  \"key\": []\n}\n">>,
         best_effort_json(#{key => []})
     ),
     ?assertEqual(
-        <<"[\n  {\n    \"key\" : [\n      \n    ]\n  }\n]">>,
+        <<"[\n  {\n    \"key\": []\n  }\n]\n">>,
         best_effort_json([#{key => []}])
     ),
     %% List is IO Data
@@ -490,8 +488,8 @@ iolist_test() ->
     Encoded = emqx_utils_json:encode(json(Iolist, config())),
     ?assertEqual(Concat, emqx_utils_json:decode(Encoded)).
 
-encode_pretty_empty_object_matches_jiffy_format_test() ->
-    ?assertEqual(<<"{\n  \n}">>, encode(#{}, [pretty])).
+encode_pretty_empty_object_test() ->
+    ?assertEqual(<<"{}\n">>, encode(#{}, [pretty])).
 
 encode_force_utf8_handles_invalid_bytes_test() ->
     Invalid = <<255, 254, 253>>,
@@ -507,6 +505,20 @@ decode_object_returns_map_test() ->
 
 decode_invalid_json_throws_under_decode_test() ->
     ?assertError(_, decode(<<"not-json">>)).
+
+decode_duplicate_key_last_wins_test() ->
+    %% In map form the last occurrence wins, matching jiffy / the de-facto
+    %% convention. The ejson form keeps every pair (it is a proplist).
+    ?assertEqual(#{<<"k">> => 2}, decode(<<"{\"k\":1,\"k\":2}">>)),
+    ?assertEqual({[{<<"k">>, 1}, {<<"k">>, 2}]}, decode(<<"{\"k\":1,\"k\":2}">>, [])).
+
+decode_rejects_trailing_garbage_test() ->
+    ?assertError({invalid_byte, $x}, decode(<<"{}x">>)),
+    ?assertError({invalid_byte, $x}, decode(<<"{}x">>, [])).
+
+decode_allows_trailing_whitespace_test() ->
+    ?assertEqual(#{}, decode(<<"{} \n\t">>)),
+    ?assertEqual({[]}, decode(<<"{} \n\t">>, [])).
 
 safe_decode_returns_error_test() ->
     ?assertMatch({error, _}, safe_decode(<<"not-json">>)).
