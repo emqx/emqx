@@ -43,6 +43,16 @@ t_create_returns_tool(_Config) ->
     ?assertMatch(#{type := <<"message__request">>}, Tool),
     ?assertEqual(?TOOL_ID, maps:get(tool_id, Tool)).
 
+t_create_rejects_malformed_request_payload_schema(_Config) ->
+    RuntimeContext = maps:merge(test_context(), #{
+        <<"tool_id">> => ?TOOL_ID,
+        <<"request_payload_schema">> => <<"{">>
+    }),
+    ?assertMatch(
+        {error, {invalid_request_payload_schema, {invalid_json, _}}},
+        emqx_agent_tool_mqtt_request:create(RuntimeContext)
+    ).
+
 %% destroy/1 accepts the full runtime tool.
 t_destroy_accepts_runtime_tool(_Config) ->
     {ok, Tool} = emqx_agent_tool_registry:lookup(<<"message__request">>, ?TOOL_ID),

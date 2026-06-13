@@ -48,6 +48,19 @@ t_create_returns_tool(_Config) ->
     ?assertMatch(#{type := ?TOOL_TYPE}, Tool),
     ?assert(is_map(maps:get(input_schema, Tool))).
 
+t_create_rejects_malformed_input_schema(_Config) ->
+    RuntimeContext = #{
+        <<"tool_id">> => ?TOOL_ID,
+        <<"desc">> => <<"bad schema">>,
+        <<"method">> => <<"get">>,
+        <<"url">> => <<"http://127.0.0.1">>,
+        <<"input_schema">> => <<"{">>
+    },
+    ?assertMatch(
+        {error, {invalid_input_schema, {invalid_json, _}}},
+        emqx_agent_tool_http:create(RuntimeContext)
+    ).
+
 t_destroy_accepts_runtime_tool(_Config) ->
     {ok, Tool} = emqx_agent_tool_registry:lookup(?TOOL_TYPE, ?TOOL_ID),
     ?assertEqual(ok, emqx_agent_tool_http:destroy(Tool)).

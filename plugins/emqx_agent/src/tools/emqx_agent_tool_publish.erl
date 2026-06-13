@@ -15,10 +15,11 @@ Invoke topic:  cap/message__publish/<tool_id>/request/<req_id>
 Reply  topic:  cap/message__publish/<tool_id>/response/<req_id>
 
 Context keys:
-  tool_id     => binary()  — unique instance identifier
-  desc         => binary()  — human-readable description
-  topic_prefix => binary()  — prepended to the agent-supplied topic
-                              (e.g. <<"devices/room1/">>)
+  <<"tool_id">>     => binary()  — unique instance identifier
+  <<"desc">>        => binary()  — human-readable description
+  <<"topic_prefix">> => binary()  — prepended to the agent-supplied topic
+                                    (e.g. <<"devices/room1/">>)
+
 
 Input args (fixed wrapper + configurable payload schema):
   topic   => binary()  — topic suffix; combined with topic_prefix
@@ -90,27 +91,23 @@ deinit() ->
     emqx_agent_tool_registry:unregister_type(?TOOL_TYPE).
 
 %% Context keys:
-%%   tool_id     => binary()
-%%   desc         => binary()
-%%   topic_prefix => binary()
+%%   <<"tool_id">>     => binary()
+%%   <<"desc">>        => binary()
+%%   <<"topic_prefix">> => binary()
 -spec create(Context :: map()) -> {ok, map()} | {error, term()}.
 create(#{
-    tool_id := ToolId, desc := Desc, topic_prefix := TopicPrefix, input_schema := InputSchema
+    <<"tool_id">> := ToolId,
+    <<"desc">> := Desc,
+    <<"topic_prefix">> := TopicPrefix,
+    <<"payload_schema">> := PayloadSchema0
 }) ->
-    create(#{
-        tool_id => ToolId,
-        desc => Desc,
-        topic_prefix => TopicPrefix,
-        payload_schema => InputSchema
-    });
-create(#{
-    tool_id := ToolId,
-    desc := Desc,
-    topic_prefix := TopicPrefix,
-    payload_schema := PayloadSchema
-}) ->
-    create_with_payload_schema(ToolId, Desc, TopicPrefix, PayloadSchema);
-create(#{tool_id := _ToolId, desc := _Desc, topic_prefix := _TopicPrefix}) ->
+    case decode_schema(PayloadSchema0) of
+        {ok, PayloadSchema} ->
+            create_with_payload_schema(ToolId, Desc, TopicPrefix, PayloadSchema);
+        {error, Reason} ->
+            {error, {invalid_payload_schema, Reason}}
+    end;
+create(#{<<"tool_id">> := _, <<"desc">> := _, <<"topic_prefix">> := _}) ->
     {error, missing_payload_schema}.
 
 create_with_payload_schema(_ToolId, _Desc, _TopicPrefix, undefined) ->
@@ -126,9 +123,9 @@ create_with_payload_schema(ToolId, Desc, TopicPrefix, PayloadSchema) ->
                 description =>
                     <<"Publish an MQTT message to a topic under the prefix: ", TopicPrefix/binary>>,
                 context => #{
-                    tool_id => ToolId,
-                    topic_prefix => TopicPrefix,
-                    payload_schema => PayloadSchema
+                    <<"tool_id">> => ToolId,
+                    <<"topic_prefix">> => TopicPrefix,
+                    <<"payload_schema">> => PayloadSchema
                 },
                 input_schema => ?INPUT_SCHEMA(PayloadSchema)
             }};
@@ -145,7 +142,7 @@ to_map(
     #{
         tool_id := Id,
         description := Desc,
-        context := #{topic_prefix := TopicPrefix, payload_schema := PayloadSchema},
+        context := #{<<"topic_prefix">> := TopicPrefix, <<"payload_schema">> := PayloadSchema},
         input_schema := InputSchema
     }
 ) ->
@@ -161,7 +158,7 @@ to_map(
     #{
         tool_id := Id,
         description := Desc,
-        context := #{topic_prefix := TopicPrefix},
+        context := #{<<"topic_prefix">> := TopicPrefix},
         input_schema := InputSchema
     }
 ) ->
@@ -176,7 +173,7 @@ to_map(
         <<"input_schema">> => InputSchema
     }.
 
-handle_invoke(#{topic_prefix := TopicPrefix, payload_schema := PayloadSchema}, Request) ->
+handle_invoke(#{<<"topic_prefix">> := TopicPrefix, <<"payload_schema">> := PayloadSchema}, Request) ->
     do_publish(TopicPrefix, PayloadSchema, Request);
 handle_invoke(_Context, _Request) ->
     {error, missing_payload_schema}.
@@ -222,3 +219,14 @@ normalize_payload(Payload) when is_map(Payload) ->
     emqx_utils_json:encode(Payload);
 normalize_payload(Payload) ->
     Payload.
+
+decode_schema(<<>>) ->
+    {ok, undefined};
+decode_schema(V) when is_binary(V) ->
+    try emqx_utils_json:decode(V) of
+        Decoded -> {ok, Decoded}
+    catch
+        _:Reason -> {error, {invalid_json, Reason}}
+    end;
+decode_schema(V) ->
+    {ok, V}.

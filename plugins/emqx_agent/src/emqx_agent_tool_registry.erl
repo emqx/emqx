@@ -210,29 +210,8 @@ resolve_type_safe(Type) ->
     end.
 
 create_context(#{<<"id">> := ToolId} = ToolConfig) ->
-    Runtime = maps:from_list([runtime_field(K, V) || {K, V} <- maps:to_list(ToolConfig)]),
-    maps:put(tool_id, ToolId, maps:remove(id, Runtime)).
-
-runtime_field(<<"type">>, V) -> {type, V};
-runtime_field(<<"id">>, V) -> {id, V};
-runtime_field(<<"desc">>, V) -> {desc, V};
-runtime_field(<<"topic_prefix">>, V) -> {topic_prefix, V};
-runtime_field(<<"payload_schema">>, <<>>) -> {payload_schema, undefined};
-runtime_field(<<"payload_schema">>, V) -> {payload_schema, decode_schema(V)};
-runtime_field(<<"request_payload_schema">>, <<>>) -> {request_payload_schema, undefined};
-runtime_field(<<"request_payload_schema">>, V) -> {request_payload_schema, decode_schema(V)};
-runtime_field(<<"method">>, V) -> {method, V};
-runtime_field(<<"url">>, V) -> {url, V};
-runtime_field(<<"headers">>, V) -> {headers, V};
-runtime_field(<<"input_schema">>, V) -> {input_schema, decode_schema(V)};
-runtime_field(<<"query">>, V) -> {query, V};
-runtime_field(<<"resource">>, V) -> {resource, V};
-runtime_field(K, V) -> {K, V}.
-
-decode_schema(V) when is_binary(V) ->
-    emqx_utils_json:decode(V);
-decode_schema(V) ->
-    V.
+    Runtime0 = maps:remove(<<"id">>, ToolConfig),
+    Runtime0#{<<"tool_id">> => ToolId}.
 
 destroy_runtime([]) ->
     ok;

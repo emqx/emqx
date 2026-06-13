@@ -11,12 +11,12 @@ Invoke topic:  cap/http/<id>/request/<req_id>
 Reply  topic:  cap/http/<id>/response/<req_id>
 
 Context keys:
-  tool_id      => binary()         — unique instance identifier
-  desc          => binary()         — human-readable description
-  method        => atom() | binary() — http method: get | post | put | patch | delete
-  url           => binary()         — base URL (query string appended for GET)
-  headers       => map() | [{binary(), binary()}]  — request headers
-  input_schema  => map()            — full JSON Schema for request args
+  <<"tool_id">>      => binary()         — unique instance identifier
+  <<"desc">>         => binary()         — human-readable description
+  <<"method">>       => atom() | binary() — http method: get | post | put | patch | delete
+  <<"url">>          => binary()         — base URL (query string appended for GET)
+  <<"headers">>      => map() | [{binary(), binary()}]  — request headers
+  <<"input_schema">> => map()            — full JSON Schema for request args
 
 For GET, input args are serialised as a URL query string.
 For all other methods, input args are sent as a JSON body.
@@ -52,22 +52,27 @@ deinit() ->
 -spec create(Context :: map()) -> {ok, map()} | {error, term()}.
 create(
     #{
-        tool_id := ToolId,
-        desc := Desc,
-        method := _Method,
-        url := _Url,
-        input_schema := InputSchema
+        <<"tool_id">> := ToolId,
+        <<"desc">> := Desc,
+        <<"method">> := _Method,
+        <<"url">> := _Url,
+        <<"input_schema">> := InputSchema0
     } = Context
 ) ->
-    {ok, #{
-        tool_id => ToolId,
-        type => ?TOOL_TYPE,
-        module => ?MODULE,
-        display_name => <<"HTTP Tool">>,
-        description => Desc,
-        context => Context,
-        input_schema => InputSchema
-    }}.
+    case decode_schema(InputSchema0) of
+        {ok, InputSchema} ->
+            {ok, #{
+                tool_id => ToolId,
+                type => ?TOOL_TYPE,
+                module => ?MODULE,
+                display_name => <<"HTTP Tool">>,
+                description => Desc,
+                context => Context#{<<"input_schema">> => InputSchema},
+                input_schema => InputSchema
+            }};
+        {error, Reason} ->
+            {error, {invalid_input_schema, Reason}}
+    end.
 
 -spec destroy(map()) -> ok.
 destroy(_Tool) ->
@@ -80,7 +85,7 @@ to_map(#{
     context := Ctx,
     input_schema := InSchema
 }) ->
-    Method = maps:get(method, Ctx, post),
+    Method = maps:get(<<"method">>, Ctx, post),
     MethodBin =
         if
             is_atom(Method) -> atom_to_binary(Method, utf8);
@@ -91,7 +96,7 @@ to_map(#{
         <<"type">> => ?TOOL_TYPE,
         <<"description">> => Desc,
         <<"method">> => MethodBin,
-        <<"url">> => maps:get(url, Ctx, <<>>),
+        <<"url">> => maps:get(<<"url">>, Ctx, <<>>),
         <<"input_schema">> => InSchema
     }.
 
@@ -104,8 +109,8 @@ handle_invoke(Context, Request) ->
 %%--------------------------------------------------------------------
 
 do_reply(Context, Request) ->
-    #{method := Method, url := BaseUrl} = Context,
-    Headers = normalize_headers(maps:get(headers, Context, [])),
+    #{<<"method">> := Method, <<"url">> := BaseUrl} = Context,
+    Headers = normalize_headers(maps:get(<<"headers">>, Context, [])),
     Args = maps:get(<<"args">>, Request, #{}),
 
     {ok, RespBody} = call(normalize_method(Method), BaseUrl, Headers, Args),
@@ -168,3 +173,12 @@ to_str(V) when is_binary(V) -> binary_to_list(V);
 to_str(V) when is_integer(V) -> integer_to_list(V);
 to_str(V) when is_float(V) -> float_to_list(V, [{decimals, 10}, compact]);
 to_str(V) when is_atom(V) -> atom_to_list(V).
+
+decode_schema(V) when is_binary(V) ->
+    try emqx_utils_json:decode(V) of
+        Decoded -> {ok, Decoded}
+    catch
+        _:Reason -> {error, {invalid_json, Reason}}
+    end;
+decode_schema(V) ->
+    {ok, V}.

@@ -36,7 +36,7 @@ deinit() ->
     emqx_agent_tool_registry:unregister_type(?TOOL_TYPE).
 
 -spec create(map()) -> {ok, map()} | {error, term()}.
-create(#{tool_id := ToolId}) ->
+create(#{<<"tool_id">> := ToolId}) ->
     {ok, #{
         tool_id => ToolId,
         type => ?TOOL_TYPE,
@@ -44,7 +44,7 @@ create(#{tool_id := ToolId}) ->
         display_name => <<"Create Pipeline">>,
         description =>
             <<"Create or overwrite a pipeline definition (upsert). Registered as inactive draft; activate via the API or admin UI.">>,
-        context => #{tool_id => ToolId},
+        context => #{<<"tool_id">> => ToolId},
         input_schema => input_schema()
     }}.
 

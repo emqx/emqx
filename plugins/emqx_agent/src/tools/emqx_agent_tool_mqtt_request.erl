@@ -17,9 +17,9 @@ Invoke topic:  $cap/message__request/<tool_id>/request/<req_id>
 Reply  topic:  $cap/message__request/<tool_id>/response/<req_id>
 
 Context keys:
-  tool_id     => binary()  — unique instance identifier
-  desc         => binary()  — human-readable description
-  topic_prefix => binary()  — prepended to the agent-supplied topic
+  <<"tool_id">>     => binary()  — unique instance identifier
+  <<"desc">>        => binary()  — human-readable description
+  <<"topic_prefix">> => binary()  — prepended to the agent-supplied topic
 
 Input args:
   topic       => binary()   — topic suffix; combined with topic_prefix
@@ -93,12 +93,15 @@ deinit() ->
     emqx_agent_tool_registry:unregister_type(?TOOL_TYPE).
 
 -spec create(Context :: map()) -> {ok, map()} | {error, term()}.
-create(#{tool_id := ToolId, desc := Desc, topic_prefix := TopicPrefix} = Context) ->
-    RequestPayloadSchema =
-        case maps:get(request_payload_schema, Context, ?DEFAULT_REQUEST_PAYLOAD_SCHEMA) of
-            undefined -> ?DEFAULT_REQUEST_PAYLOAD_SCHEMA;
-            Schema -> Schema
-        end,
+create(#{<<"tool_id">> := ToolId, <<"desc">> := Desc, <<"topic_prefix">> := TopicPrefix} = Context) ->
+    case request_payload_schema(Context) of
+        {ok, RequestPayloadSchema} ->
+            create_with_request_payload_schema(ToolId, Desc, TopicPrefix, RequestPayloadSchema);
+        {error, Reason} ->
+            {error, {invalid_request_payload_schema, Reason}}
+    end.
+
+create_with_request_payload_schema(ToolId, Desc, TopicPrefix, RequestPayloadSchema) ->
     {ok, #{
         tool_id => ToolId,
         type => ?TOOL_TYPE,
@@ -108,9 +111,9 @@ create(#{tool_id := ToolId, desc := Desc, topic_prefix := TopicPrefix} = Context
             <<"Send an MQTT request to a topic under the prefix: ", TopicPrefix/binary,
                 " and wait for a response">>,
         context => #{
-            tool_id => ToolId,
-            topic_prefix => TopicPrefix,
-            request_payload_schema => RequestPayloadSchema
+            <<"tool_id">> => ToolId,
+            <<"topic_prefix">> => TopicPrefix,
+            <<"request_payload_schema">> => RequestPayloadSchema
         },
         input_schema => ?INPUT_SCHEMA(RequestPayloadSchema)
     }}.
@@ -123,7 +126,7 @@ destroy(_Tool) ->
 to_map(#{
     tool_id := Id,
     description := Desc,
-    context := #{topic_prefix := TopicPrefix} = Ctx,
+    context := #{<<"topic_prefix">> := TopicPrefix} = Ctx,
     input_schema := InputSchema
 }) ->
     #{
@@ -132,12 +135,12 @@ to_map(#{
         <<"description">> => Desc,
         <<"topic_prefix">> => TopicPrefix,
         <<"request_payload_schema">> => maps:get(
-            request_payload_schema, Ctx, ?DEFAULT_REQUEST_PAYLOAD_SCHEMA
+            <<"request_payload_schema">>, Ctx, ?DEFAULT_REQUEST_PAYLOAD_SCHEMA
         ),
         <<"input_schema">> => InputSchema
     }.
 
-handle_invoke(#{topic_prefix := TopicPrefix}, Request) ->
+handle_invoke(#{<<"topic_prefix">> := TopicPrefix}, Request) ->
     do_request(TopicPrefix, Request).
 
 %%--------------------------------------------------------------------
@@ -184,3 +187,20 @@ normalize_payload(Payload) when is_map(Payload) ->
     emqx_utils_json:encode(Payload);
 normalize_payload(Payload) ->
     Payload.
+
+request_payload_schema(Context) ->
+    case maps:get(<<"request_payload_schema">>, Context, ?DEFAULT_REQUEST_PAYLOAD_SCHEMA) of
+        undefined -> {ok, ?DEFAULT_REQUEST_PAYLOAD_SCHEMA};
+        Schema -> decode_schema(Schema)
+    end.
+
+decode_schema(<<>>) ->
+    {ok, undefined};
+decode_schema(V) when is_binary(V) ->
+    try emqx_utils_json:decode(V) of
+        Decoded -> {ok, Decoded}
+    catch
+        _:Reason -> {error, {invalid_json, Reason}}
+    end;
+decode_schema(V) ->
+    {ok, V}.

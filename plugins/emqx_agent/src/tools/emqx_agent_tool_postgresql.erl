@@ -36,7 +36,14 @@ deinit() ->
     ok.
 
 -spec create(Context :: map()) -> {ok, map()} | {error, term()}.
-create(#{tool_id := ToolId, desc := Desc, query := Query, resource := ConnectionId} = Context) ->
+create(
+    #{
+        <<"tool_id">> := ToolId,
+        <<"desc">> := Desc,
+        <<"query">> := Query,
+        <<"resource">> := ConnectionId
+    } = Context
+) ->
     ?SLOG(info, #{
         msg => "postgresql_tool_create_started",
         tool_id => ToolId,
@@ -47,9 +54,9 @@ create(#{tool_id := ToolId, desc := Desc, query := Query, resource := Connection
             {ParsedQuery, RowTemplate, VarNames} = parse_query(Query),
             InSchema = input_schema(VarNames),
             ToolContext = Context#{
-                parsed_query => ParsedQuery,
-                row_template => RowTemplate,
-                var_names => VarNames
+                <<"parsed_query">> => ParsedQuery,
+                <<"row_template">> => RowTemplate,
+                <<"var_names">> => VarNames
             },
             {ok, #{
                 tool_id => ToolId,
@@ -82,8 +89,8 @@ to_map(#{
         <<"tool_id">> => Id,
         <<"type">> => ?TOOL_TYPE,
         <<"description">> => Desc,
-        <<"query">> => maps:get(query, Ctx, <<>>),
-        <<"resource">> => maps:get(resource, Ctx, <<>>),
+        <<"query">> => maps:get(<<"query">>, Ctx, <<>>),
+        <<"resource">> => maps:get(<<"resource">>, Ctx, <<>>),
         <<"input_schema">> => In
     }.
 
@@ -92,9 +99,9 @@ handle_invoke(Context, Request) ->
 
 do_reply(Context, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
-    Query = maps:get(parsed_query, Context, maps:get(query, Context, <<>>)),
-    ConnectionId = maps:get(resource, Context),
-    RowTemplate = maps:get(row_template, Context, []),
+    Query = maps:get(<<"parsed_query">>, Context, maps:get(<<"query">>, Context, <<>>)),
+    ConnectionId = maps:get(<<"resource">>, Context),
+    RowTemplate = maps:get(<<"row_template">>, Context, []),
     Params = render_params(RowTemplate, Args),
     case run_query(ConnectionId, Query, Params) of
         {ok, Rows} ->

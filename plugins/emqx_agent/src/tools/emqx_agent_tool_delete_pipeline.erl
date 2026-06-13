@@ -44,14 +44,14 @@ deinit() ->
     emqx_agent_tool_registry:unregister_type(?TOOL_TYPE).
 
 -spec create(map()) -> {ok, map()} | {error, term()}.
-create(#{tool_id := ToolId}) ->
+create(#{<<"tool_id">> := ToolId}) ->
     {ok, #{
         tool_id => ToolId,
         type => ?TOOL_TYPE,
         module => ?MODULE,
         display_name => <<"Delete Pipeline">>,
         description => <<"Delete a pipeline definition. Refused if the pipeline is active.">>,
-        context => #{tool_id => ToolId},
+        context => #{<<"tool_id">> => ToolId},
         input_schema => ?INPUT_SCHEMA
     }}.
 

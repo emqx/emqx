@@ -50,7 +50,7 @@ t_destroy_accepts_runtime_tool(_Config) ->
     ?assertEqual(ok, emqx_agent_tool_postgresql:destroy(Tool)).
 
 t_multiple_instances(_Config) ->
-    Ctx2 = test_context(#{tool_id => <<"pg-test-2">>}),
+    Ctx2 = test_context(#{<<"tool_id">> => <<"pg-test-2">>}),
     ok = register_tool(Ctx2),
     {ok, S1} = emqx_agent_tool_registry:lookup(?TOOL_TYPE, ?TOOL_ID),
     {ok, S2} = emqx_agent_tool_registry:lookup(?TOOL_TYPE, <<"pg-test-2">>),
@@ -168,10 +168,10 @@ test_context() ->
 test_context(Overrides) ->
     maps:merge(
         #{
-            tool_id => ?TOOL_ID,
-            desc => <<"Query PostgreSQL telemetry by device ID.">>,
-            resource => ?CONNECTION_ID,
-            query =>
+            <<"tool_id">> => ?TOOL_ID,
+            <<"desc">> => <<"Query PostgreSQL telemetry by device ID.">>,
+            <<"resource">> => ?CONNECTION_ID,
+            <<"query">> =>
                 <<"SELECT metric, value FROM agent_tool_metrics WHERE device_id = ${device_id} ORDER BY metric">>
         },
         Overrides
@@ -181,10 +181,7 @@ register_tool(Context) ->
     emqx_agent_config:create_tool(context_to_body(Context)).
 
 context_to_body(Context) ->
-    #{
+    Context#{
         <<"type">> => ?TOOL_TYPE,
-        <<"id">> => maps:get(tool_id, Context),
-        <<"desc">> => maps:get(desc, Context),
-        <<"resource">> => maps:get(resource, Context),
-        <<"query">> => maps:get(query, Context)
+        <<"id">> => maps:get(<<"tool_id">>, Context)
     }.
