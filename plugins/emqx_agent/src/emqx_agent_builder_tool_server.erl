@@ -5,12 +5,12 @@
 -module(emqx_agent_builder_tool_server).
 
 -moduledoc """
-This gen server just serializes metatool invocations (skill/pipeline creation, etc.).
+This gen server just serializes metatool invocations (tool/pipeline creation, etc.).
 The serialization is needed because `emqx_plugin` does not handle concurrent config updates well.
 
 This serialization is not ideal, since it serializes only updates on a single node.
 
-We just assume that no one edits the same pipline and related skills simultaneously.
+We just assume that no one edits the same pipline and related tools simultaneously.
 This is the same level assumption as `emqx_plugin`'s assumption about config updates
 through API or dashboard.
 

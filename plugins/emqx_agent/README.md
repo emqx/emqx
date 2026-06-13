@@ -8,39 +8,39 @@ It is not primarily a chat interface. It is built for human-less AI automation: 
 
 The plugin is organized around three composable primitives:
 
-- **Skills**: reusable, schema-validated capabilities for MQTT publishing, MQTT request/reply, HTTP calls, database queries, and agent management.
+- **Tools**: reusable, schema-validated capabilities for MQTT publishing, MQTT request/reply, HTTP calls, database queries, and agent management.
 - **Sessions**: addressable LLM conversations routed over MQTT topics, with optional persistence beyond the lifecycle of any single MQTT client.
-- **Pipelines**: event-driven workflows that bind MQTT events, deterministic steps, skills, and LLM reasoning loops into production automation.
+- **Pipelines**: event-driven workflows that bind MQTT events, deterministic steps, tools, and LLM reasoning loops into production automation.
 
-This makes EMQX a place where connected-device events can directly trigger safe AI workflows: LLMs only see approved tools, skills can enforce topic and resource boundaries, sessions can track usage, and pipelines can run at EMQX scale with OTP fault isolation.
+This makes EMQX a place where connected-device events can directly trigger safe AI workflows: LLMs only see approved tools, tools can enforce topic and resource boundaries, sessions can track usage, and pipelines can run at EMQX scale with OTP fault isolation.
 
 ## Main Features
 
 - **MQTT-triggered pipelines**: start workflows from MQTT topic filters, including wildcard filters such as `$evt/device/+/done`.
-- **Pipeline orchestration**: compose workflows from `call_skill`, `llm_loop`, and `break` steps.
+- **Pipeline orchestration**: compose workflows from `call_tool`, `llm_loop`, and `break` steps.
 - **LLM reasoning loops**: run OpenAI-compatible model calls through configured EMQX AI providers.
-- **Tool-backed agents**: expose EMQX skills to the LLM as function tools and route invocations over internal `$cap/...` MQTT topics.
+- **Tool-backed agents**: expose EMQX tools to the LLM as function tools and route invocations over internal `$cap/...` MQTT topics.
 - **One-shot or persistent sessions**: run stateless LLM loops per event, or reuse a session by pipeline key for conversational workflows.
 - **Structured output**: use `set_result_schema` to make the LLM return schema-validated data instead of free-form text.
 - **Runtime lifecycle events**: publish pipeline start, completion, and failure events to `$pipe/<pipeline_id>/inst/<iid>/events`.
-- **Admin and builder UIs**: manage providers, skills, PostgreSQL connections, and pipelines from browser-based plugin pages.
+- **Admin and builder UIs**: manage providers, tools, PostgreSQL connections, and pipelines from browser-based plugin pages.
 
-## Built-In Skills
+## Built-In Tools
 
-Skills are reusable capabilities that can be called directly by a pipeline step or exposed to an LLM loop as tools.
+Tools are reusable capabilities that can be called directly by a pipeline step or exposed to an LLM loop as tools.
 
-| Skill type | Purpose |
+| Tool type | Purpose |
 |---|---|
 | `message__publish` | Publish MQTT messages under a configured topic prefix. |
 | `message__request` | Send MQTT 5 request/reply messages and wait for a response. |
 | `http` | Call external HTTP endpoints with schema-defined input. |
 | `postgresql__query` | Execute parameterized PostgreSQL queries through a configured connection. |
-| `agent__create_skill` | Let an agent create configured skills. |
+| `agent__create_tool` | Let an agent create configured tools. |
 | `agent__create_pipeline` | Let an agent create inactive draft pipelines. |
-| `agent__query_skills` | List or inspect configured skills. |
+| `agent__query_tools` | List or inspect configured tools. |
 | `agent__query_providers` | List or inspect configured AI providers. |
 | `agent__query_pipelines` | List or inspect configured pipelines. |
-| `agent__delete_skill` | Delete a configured skill when it is not in use. |
+| `agent__delete_tool` | Delete a configured tool when it is not in use. |
 | `agent__delete_pipeline` | Delete a configured pipeline. |
 
 ## Pipeline Model
@@ -49,8 +49,8 @@ A pipeline definition contains an ID, an MQTT trigger, an optional key expressio
 
 Supported step types:
 
-- `call_skill`: invoke a skill such as MQTT publish, HTTP, or PostgreSQL query and write its result into context.
-- `llm_loop`: start an LLM reasoning loop, expose selected skills as tools, and store the final or structured result.
+- `call_tool`: invoke a tool such as MQTT publish, HTTP, or PostgreSQL query and write its result into context.
+- `llm_loop`: start an LLM reasoning loop, expose selected tools as tools, and store the final or structured result.
 - `break`: stop the pipeline early based on a context value.
 
 Pipeline inputs can reference previous context values with JSONPath-like strings such as `$.event.device_id` or `$.inspection.status`. Pipelines can be active or draft; draft pipelines are stored but do not run until activated.
@@ -74,10 +74,10 @@ The same management surface is available through plugin API paths under `/api/v5
 
 | Path | Purpose |
 |---|---|
-| `/skills` | List and create skills. |
-| `/skills/:type/:id` | Get, update, or delete a skill. |
-| `/skills/statuses` | Inspect runtime skill reconciliation status. |
-| `/connections` | List and create skill connections. |
+| `/tools` | List and create tools. |
+| `/tools/:type/:id` | Get, update, or delete a tool. |
+| `/tools/statuses` | Inspect runtime tool reconciliation status. |
+| `/connections` | List and create tool connections. |
 | `/connections/:id` | Get, update, or delete a connection. |
 | `/connections/:id/start` | Enable and reconcile a connection. |
 | `/connections/:id/stop` | Disable and reconcile a connection. |
@@ -108,7 +108,7 @@ Optional environment variables:
 | `EMQX_API_CREDS` | `key:secret` | Basic-auth API credentials. |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible API base URL. |
 | `OPENAI_MODEL` | script-specific default | Model used by the demo pipeline. |
-| `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` | `pgsql`, `5432`, `mqtt`, `root`, `public` | PostgreSQL connection used by demo skills. |
+| `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` | `pgsql`, `5432`, `mqtt`, `root`, `public` | PostgreSQL connection used by demo tools. |
 
 Provision the Apple Box Conveyor demo:
 
@@ -116,7 +116,7 @@ Provision the Apple Box Conveyor demo:
 python3 plugins/emqx_agent/demo_apple_box_init.py
 ```
 
-The script creates the `apple-inspector` AI provider, PostgreSQL connection, apple-box skills, database table, and active `apple-box-inspection` pipeline. Open the UI at:
+The script creates the `apple-inspector` AI provider, PostgreSQL connection, apple-box tools, database table, and active `apple-box-inspection` pipeline. Open the UI at:
 
 ```text
 /api/v5/plugin_api/emqx_agent/apple-box/ui
@@ -128,7 +128,7 @@ Provision the Pipeline Builder demo:
 python3 plugins/emqx_agent/demo_builder_init.py
 ```
 
-The script creates the builder AI provider, PostgreSQL connection, builder meta-skills, reply skill, database table, and active `pipeline-builder` pipeline. Open the UI at:
+The script creates the builder AI provider, PostgreSQL connection, builder meta-tools, reply tool, database table, and active `pipeline-builder` pipeline. Open the UI at:
 
 ```text
 /api/v5/plugin_api/emqx_agent/builder/ui

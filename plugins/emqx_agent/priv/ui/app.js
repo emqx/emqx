@@ -1,6 +1,6 @@
 import { setSchemaEditorValue } from './schema_editor.js';
 import { loadConnections, saveConnection, editConnection, deleteConnection, startConnection, stopConnection, resetConnectionEditor } from './connections.js';
-import { loadSkills, saveSkill, editSkill, deleteSkill, updateSkillForm, resetSkillEditor, defaultPublishInputSchema } from './skills.js';
+import { loadTools, saveTool, editTool, deleteTool, updateToolForm, resetToolEditor, defaultPublishInputSchema } from './tools.js';
 import { loadProfiles } from './providers.js';
 import { loadPipelines, savePipeline, editPipeline, deletePipeline, togglePipelineActive, resetPipelineEditor } from './pipelines.js';
 import { addStep, removeStep, moveStep, stepTypeChanged, addKV } from './pipeline_steps.js';
@@ -8,15 +8,15 @@ import { setStatus, showTab, toast } from './ui_helpers.js';
 
 window.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('endpoint-label').textContent = window.location.host;
-  setSchemaEditorValue('se-skill-publish-input', defaultPublishInputSchema());
-  setSchemaEditorValue('se-skill-request-payload-schema', null);
-  setSchemaEditorValue('se-skill-input-schema', null);
+  setSchemaEditorValue('se-tool-publish-input', defaultPublishInputSchema());
+  setSchemaEditorValue('se-tool-request-payload-schema', null);
+  setSchemaEditorValue('se-tool-input-schema', null);
   await refresh();
 });
 
 async function refresh() {
   try {
-    await Promise.all([loadConnections(), loadSkills(), loadProfiles(), loadPipelines()]);
+    await Promise.all([loadConnections(), loadTools(), loadProfiles(), loadPipelines()]);
     setStatus('ok');
   } catch(e) {
     setStatus('err');
@@ -26,11 +26,11 @@ async function refresh() {
 
 // Expose handlers for inline onclick attributes
 window.showTab = showTab;
-window.saveSkill = saveSkill;
-window.editSkill = editSkill;
-window.deleteSkill = deleteSkill;
-window.updateSkillForm = updateSkillForm;
-window.resetSkillEditor = resetSkillEditor;
+window.saveTool = saveTool;
+window.editTool = editTool;
+window.deleteTool = deleteTool;
+window.updateToolForm = updateToolForm;
+window.resetToolEditor = resetToolEditor;
 window.saveConnection = saveConnection;
 window.editConnection = editConnection;
 window.deleteConnection = deleteConnection;

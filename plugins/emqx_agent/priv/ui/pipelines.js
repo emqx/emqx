@@ -40,7 +40,7 @@ export async function loadPipelines() {
 
 function stepClass(t) {
   if (t === 'llm_loop')      return 'llm';
-  if (t === 'call_skill')    return 'publish';
+  if (t === 'call_tool')    return 'publish';
   if (t === 'break')         return 'kv';
   return '';
 }
@@ -119,11 +119,11 @@ export function editPipeline(id) {
 
 function deserializeStep(s, i) {
   const id   = s.id ?? ('step_' + (i + 1));
-  const type = s.type ?? 'call_skill';
-  if (type === 'call_skill') {
+  const type = s.type ?? 'call_tool';
+  if (type === 'call_tool') {
     const serVal = v => (v !== null && typeof v === 'object') ? JSON.stringify(v) : v;
     const args = s.args ? Object.entries(s.args).map(([k, v]) => [k, serVal(v)]) : [['', '']];
-    return { id, type, skill: s.skill ?? '', args, result_path: s.result_path ?? '' };
+    return { id, type, tool: s.tool ?? '', args, result_path: s.result_path ?? '' };
   }
   if (type === 'llm_loop') {
     const input = s.input ? Object.entries(s.input) : [['event', '$.event']];

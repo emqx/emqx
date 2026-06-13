@@ -20,7 +20,7 @@ Reasons include:
   not_found
   unknown_type
   already_exists
-  invalid_skill
+  invalid_tool
   invalid_connection
   invalid_pipeline
   pipeline_is_active
@@ -30,13 +30,13 @@ Reasons include:
 """.
 
 -export([
-    %% Skills
-    skill_list/0,
-    skill_create/1,
-    skill_get/2,
-    skill_update/3,
-    skill_delete/2,
-    skill_statuses/0,
+    %% Tools
+    tool_list/0,
+    tool_create/1,
+    tool_get/2,
+    tool_update/3,
+    tool_delete/2,
+    tool_statuses/0,
     %% Connections
     connection_list/0,
     connection_create/1,
@@ -55,44 +55,44 @@ Reasons include:
 ]).
 
 %%--------------------------------------------------------------------
-%% Skills
+%% Tools
 %%--------------------------------------------------------------------
 
--spec skill_list() -> [map()].
-skill_list() ->
-    emqx_agent_config:list_skills().
+-spec tool_list() -> [map()].
+tool_list() ->
+    emqx_agent_config:list_tools().
 
--spec skill_create(map()) ->
+-spec tool_create(map()) ->
     ok | {error, unknown_type | {missing_field, binary()} | term()}.
-skill_create(Body) ->
-    reconcile_skills_after(emqx_agent_config:create_skill(Body)).
+tool_create(Body) ->
+    reconcile_tools_after(emqx_agent_config:create_tool(Body)).
 
--spec skill_get(binary(), binary()) -> {ok, map()} | {error, not_found}.
-skill_get(Type, Id) ->
-    emqx_agent_config:lookup_skill(Type, Id).
+-spec tool_get(binary(), binary()) -> {ok, map()} | {error, not_found}.
+tool_get(Type, Id) ->
+    emqx_agent_config:lookup_tool(Type, Id).
 
--spec skill_update(binary(), binary(), map()) ->
+-spec tool_update(binary(), binary(), map()) ->
     {ok, map()} | {error, unknown_type | {missing_field, binary()} | not_found | term()}.
-skill_update(Type, Id, Body) ->
-    reconcile_skills_after(emqx_agent_config:update_skill(Type, Id, Body)).
+tool_update(Type, Id, Body) ->
+    reconcile_tools_after(emqx_agent_config:update_tool(Type, Id, Body)).
 
--spec skill_delete(binary(), binary()) ->
+-spec tool_delete(binary(), binary()) ->
     ok | {error, not_found | {in_use, [binary()]}}.
-skill_delete(Type, Id) ->
-    case emqx_agent_config:lookup_skill(Type, Id) of
+tool_delete(Type, Id) ->
+    case emqx_agent_config:lookup_tool(Type, Id) of
         {error, not_found} ->
             {error, not_found};
-        {ok, _Skill} ->
+        {ok, _Tool} ->
             Ref = <<Type/binary, "@", Id/binary>>,
-            case pipelines_using_skill(Ref) of
-                [] -> reconcile_skills_after(emqx_agent_config:delete_skill(Type, Id));
+            case pipelines_using_tool(Ref) of
+                [] -> reconcile_tools_after(emqx_agent_config:delete_tool(Type, Id));
                 Ids -> {error, {in_use, Ids}}
             end
     end.
 
--spec skill_statuses() -> map().
-skill_statuses() ->
-    emqx_agent_skill_registry:statuses().
+-spec tool_statuses() -> map().
+tool_statuses() ->
+    emqx_agent_tool_registry:statuses().
 
 %%--------------------------------------------------------------------
 %% Connections
@@ -120,7 +120,7 @@ connection_delete(ConnectionId) ->
         {error, not_found} ->
             {error, not_found};
         {ok, _} ->
-            case skills_using_connection(ConnectionId) of
+            case tools_using_connection(ConnectionId) of
                 [] ->
                     reconcile_connections_after(emqx_agent_config:delete_connection(ConnectionId));
                 Ids ->
@@ -139,7 +139,7 @@ connection_stop(ConnectionId) ->
 -spec connection_statuses() -> map().
 connection_statuses() ->
     maps:from_list([
-        {ConnectionId, emqx_agent_skill_connections:status(Conn)}
+        {ConnectionId, emqx_agent_tool_connections:status(Conn)}
      || #{<<"id">> := ConnectionId} = Conn <-
             emqx_agent_config:parsed_config([connections], [])
     ]).
@@ -182,47 +182,47 @@ pipeline_delete(Id) ->
 %% Internal
 %%--------------------------------------------------------------------
 
-pipelines_using_skill(Ref) ->
+pipelines_using_tool(Ref) ->
     [
         maps:get(<<"pipeline_id">>, P)
      || P <- emqx_agent_config:list_pipelines(),
-        skill_ref_in_pipeline(Ref, P)
+        tool_ref_in_pipeline(Ref, P)
     ].
 
-skill_ref_in_pipeline(Ref, Pipeline) ->
+tool_ref_in_pipeline(Ref, Pipeline) ->
     Steps = maps:get(<<"steps">>, Pipeline, []),
-    lists:any(fun(Step) -> skill_ref_in_step(Ref, Step) end, Steps).
+    lists:any(fun(Step) -> tool_ref_in_step(Ref, Step) end, Steps).
 
-skill_ref_in_step(Ref, #{<<"type">> := <<"call_skill">>} = Step) ->
-    maps:get(<<"skill">>, Step, undefined) =:= Ref;
-skill_ref_in_step(Ref, #{<<"type">> := <<"llm_loop">>} = Step) ->
+tool_ref_in_step(Ref, #{<<"type">> := <<"call_tool">>} = Step) ->
+    maps:get(<<"tool">>, Step, undefined) =:= Ref;
+tool_ref_in_step(Ref, #{<<"type">> := <<"llm_loop">>} = Step) ->
     lists:member(Ref, maps:get(<<"tools">>, Step, []));
-skill_ref_in_step(_Ref, _Step) ->
+tool_ref_in_step(_Ref, _Step) ->
     false.
 
-skills_using_connection(ConnectionId) ->
+tools_using_connection(ConnectionId) ->
     [
-        maps:get(<<"id">>, Skill)
-     || S <- emqx_agent_config:list_skills(),
-        Skill <- [unwrap_union(S)],
-        #{<<"type">> := <<"postgresql__query">>, <<"resource">> := ConnectionId0} <- [Skill],
+        maps:get(<<"id">>, Tool)
+     || S <- emqx_agent_config:list_tools(),
+        Tool <- [unwrap_union(S)],
+        #{<<"type">> := <<"postgresql__query">>, <<"resource">> := ConnectionId0} <- [Tool],
         ConnectionId0 =:= ConnectionId
     ].
 
-reconcile_skills_after(ok) ->
-    ok = emqx_agent_skill_registry:reconcile(),
+reconcile_tools_after(ok) ->
+    ok = emqx_agent_tool_registry:reconcile(),
     ok;
-reconcile_skills_after({ok, _} = Result) ->
-    ok = emqx_agent_skill_registry:reconcile(),
+reconcile_tools_after({ok, _} = Result) ->
+    ok = emqx_agent_tool_registry:reconcile(),
     Result;
-reconcile_skills_after({error, _} = Error) ->
+reconcile_tools_after({error, _} = Error) ->
     Error.
 
 reconcile_connections_after(ok) ->
-    ok = emqx_agent_skill_connections:reconcile(),
+    ok = emqx_agent_tool_connections:reconcile(),
     ok;
 reconcile_connections_after({ok, _} = Result) ->
-    ok = emqx_agent_skill_connections:reconcile(),
+    ok = emqx_agent_tool_connections:reconcile(),
     Result;
 reconcile_connections_after({error, _} = Error) ->
     Error.

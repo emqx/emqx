@@ -18,7 +18,7 @@ Message types on in-topic:
   stop        — explicitly terminate the session from outside
 
 Message types on out-topic:
-  tool_request — session asks the pipeline to invoke a skill
+  tool_request — session asks the pipeline to invoke a tool
   final        — loop finished; carries result + usage counters
 
 Architecture

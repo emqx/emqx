@@ -17,11 +17,11 @@ Lifecycle
 States
   running        — executing a deterministic step
   llm_loop       — active LLM session; proxying tool_request ↔ $cap/
-  waiting_cap    — $cap/ request sent for a call_skill step; awaiting cap_reply
+  waiting_cap    — $cap/ request sent for a call_tool step; awaiting cap_reply
 
 Incoming MQTT messages received via emqx:subscribe as #deliver{} info events:
   $sess/out/<sid>/   — frames from the LLM session
-  $cap/<type>/<id>/response/<req_id> — skill invocation replies
+  $cap/<type>/<id>/response/<req_id> — tool invocation replies
 
 Context and JSONPath
   The pipeline maintains a `context` map.  Reading uses dotted paths
@@ -30,7 +30,7 @@ Context and JSONPath
   to context[<<"triage">>]).
 
 Tool specs
-  Format:  "<type>@<skill_id>"  e.g. "message__publish@slack-dev"
+  Format:  "<type>@<tool_id>"  e.g. "message__publish@slack-dev"
   The type becomes the $cap/<type> topic segment.
   The tool name sent to the LLM is the spec with non-[a-zA-Z0-9_-] replaced
   by underscore (e.g. "message_publish_slack_dev").
@@ -76,13 +76,13 @@ match_triggers(Topic) ->
     context :: map(),
     %% llm_loop step state
     active_sid :: binary() | undefined,
-    %% tool_name => {Type, SkillId}
+    %% tool_name => {Type, ToolId}
     tool_map = #{} :: #{binary() => {binary(), binary()}},
-    %% req_id => call_id (tracks outstanding skill calls within a loop)
+    %% req_id => call_id (tracks outstanding tool calls within a loop)
     pending_calls = #{} :: #{binary() => binary()},
     %% value stored by a set_result tool call; written to result_path on final
     set_result_value = undefined :: map() | undefined,
-    %% waiting_cap (call_skill step)
+    %% waiting_cap (call_tool step)
     cap_req_id :: binary() | undefined,
     cap_result_path :: binary() | undefined,
     %% topics subscribed by this pipeline process while awaiting replies
@@ -225,8 +225,8 @@ execute_step(Step, Data) ->
 
 do_execute_step(#{<<"type">> := <<"llm_loop">>} = Step, Data) ->
     start_llm_loop(Step, Data);
-do_execute_step(#{<<"type">> := <<"call_skill">>} = Step, Data) ->
-    invoke_call_skill(Step, Data);
+do_execute_step(#{<<"type">> := <<"call_tool">>} = Step, Data) ->
+    invoke_call_tool(Step, Data);
 do_execute_step(#{<<"type">> := <<"break">>} = Step, Data) ->
     maybe_break(Step, Data);
 do_execute_step(Step, Data) ->
@@ -289,17 +289,17 @@ llm_sid(true, StepId, #data{pipeline_id = PipelineId, key = Key}) ->
     <<"pipe-",
         (emqx_base62:encode(<<PipelineId/binary, 0, StepId/binary, 0, Key/binary>>))/binary>>.
 
-%% -- call_skill step --------------------------------------------------------
+%% -- call_tool step --------------------------------------------------------
 
-invoke_call_skill(Step, Data) ->
-    SkillSpec = maps:get(<<"skill">>, Step),
+invoke_call_tool(Step, Data) ->
+    ToolSpec = maps:get(<<"tool">>, Step),
     Args = emqx_agent_pipeline_ctx:resolve_map(maps:get(<<"args">>, Step, #{}), Data#data.context),
     ResultPath = maps:get(<<"result_path">>, Step, undefined),
-    {Type, SkillId} = parse_tool_spec(SkillSpec),
+    {Type, ToolId} = parse_tool_spec(ToolSpec),
     ReqId = gen_req_id(),
-    ReplyTopic = cap_response_topic(Type, SkillId, ReqId),
+    ReplyTopic = cap_response_topic(Type, ToolId, ReqId),
     Data0 = subscribe_reply_topic(ReplyTopic, Data),
-    publish_cap_invoke(Type, SkillId, #{
+    publish_cap_invoke(Type, ToolId, #{
         <<"req_id">> => ReqId,
         <<"iid">> => Data0#data.iid,
         <<"trace_id">> => Data0#data.trace_id,
@@ -311,9 +311,9 @@ invoke_call_skill(Step, Data) ->
         Data0#data{cap_req_id = ReqId, cap_result_path = ResultPath}
     ),
     ?SLOG(info, #{
-        msg => "pipeline_call_skill_invoked",
+        msg => "pipeline_call_tool_invoked",
         iid => Data0#data.iid,
-        skill => SkillSpec,
+        tool => ToolSpec,
         req_id => ReqId
     }),
     {next_state, waiting_cap, Data1}.
@@ -349,7 +349,7 @@ maybe_break(Step, Data) ->
     end.
 
 %%--------------------------------------------------------------------
-%% Tool request proxying (llm_loop ↔ skills)
+%% Tool request proxying (llm_loop ↔ tools)
 %%--------------------------------------------------------------------
 
 handle_sess_delivery(Sid, Payload, #data{iid = Iid} = Data) ->
@@ -438,7 +438,7 @@ handle_llm_cap_reply(ReqId, Frame, Data) ->
 
 handle_waiting_cap_reply(ReqId, Frame, Data) ->
     log_received(cap_reply, Data, #{req_id => ReqId, frame => Frame}),
-    Result = emqx_agent_skill_helpers:cap_response(Frame),
+    Result = emqx_agent_tool_helpers:cap_response(Frame),
     Data0 = cleanup_reply_wait(Data),
     Data1 = Data0#data{
         context = emqx_agent_pipeline_ctx:write(
@@ -447,7 +447,7 @@ handle_waiting_cap_reply(ReqId, Frame, Data) ->
     },
     Data2 = Data1#data{cap_req_id = undefined, cap_result_path = undefined},
     ?SLOG(info, #{
-        msg => "pipeline_call_skill_done",
+        msg => "pipeline_call_tool_done",
         iid => Data0#data.iid,
         step => maps:get(<<"id">>, current_step(Data0), <<"?">>)
     }),
@@ -474,11 +474,11 @@ dispatch_tool_request(Frame, Data) ->
             ?SLOG(info, #{msg => "pipeline_set_result_called", iid => Data#data.iid, args => Args}),
             send_tool_result(Data#data.active_sid, CallId, #{<<"status">> => <<"ok">>}),
             {keep_state, Data#data{set_result_value = Args}};
-        {Type, SkillId} ->
+        {Type, ToolId} ->
             ReqId = gen_req_id(),
-            ReplyTopic = cap_response_topic(Type, SkillId, ReqId),
+            ReplyTopic = cap_response_topic(Type, ToolId, ReqId),
             Data0 = subscribe_reply_topic(ReplyTopic, Data),
-            publish_cap_invoke(Type, SkillId, #{
+            publish_cap_invoke(Type, ToolId, #{
                 <<"req_id">> => ReqId,
                 <<"iid">> => Data0#data.iid,
                 <<"trace_id">> => Data0#data.trace_id,
@@ -498,7 +498,7 @@ route_cap_reply_to_session(ReqId, Frame, Data) ->
             %% Stale or unrecognised reply — ignore
             {keep_state, Data};
         CallId ->
-            Result = emqx_agent_skill_helpers:cap_response(Frame),
+            Result = emqx_agent_tool_helpers:cap_response(Frame),
             send_tool_result(Data#data.active_sid, CallId, Result),
             Pending1 = maps:remove(ReqId, Data#data.pending_calls),
             Data1 = unsubscribe_cap_response_topic(ReqId, Data#data{pending_calls = Pending1}),
@@ -628,25 +628,25 @@ maybe_inject_set_result(Manifest, ToolMap, Schema) ->
     {[Entry | Manifest], maps:put(<<"set_result">>, {<<"pipeline">>, <<"set_result">>}, ToolMap)}.
 
 %% Returns {ManifestList, ToolMap} where ManifestList is the OpenAI-format
-%% tool list and ToolMap maps sanitised tool names → {Type, SkillId}.
+%% tool list and ToolMap maps sanitised tool names → {Type, ToolId}.
 build_tool_manifest(ToolSpecs) ->
     lists:foldl(
         fun(Spec, {ManAcc, MapAcc}) ->
             case parse_tool_spec(Spec) of
                 undefined ->
                     {ManAcc, MapAcc};
-                {Type, SkillId} ->
+                {Type, ToolId} ->
                     ToolName = sanitize_tool_name(Spec),
-                    case emqx_agent_skill_registry:lookup(Type, SkillId) of
-                        {ok, Skill} ->
+                    case emqx_agent_tool_registry:lookup(Type, ToolId) of
+                        {ok, Tool} ->
                             Entry = #{
                                 <<"name">> => ToolName,
-                                <<"description">> => maps:get(description, Skill, Spec),
+                                <<"description">> => maps:get(description, Tool, Spec),
                                 <<"parameters">> => maps:get(
-                                    input_schema, Skill, #{<<"type">> => <<"object">>}
+                                    input_schema, Tool, #{<<"type">> => <<"object">>}
                                 )
                             },
-                            {[Entry | ManAcc], maps:put(ToolName, {Type, SkillId}, MapAcc)};
+                            {[Entry | ManAcc], maps:put(ToolName, {Type, ToolId}, MapAcc)};
                         {error, not_found} ->
                             ?SLOG(warning, #{
                                 msg => "pipeline_tool_spec_not_in_registry",
@@ -663,13 +663,13 @@ build_tool_manifest(ToolSpecs) ->
 %% "message__publish@slack-dev"  ->  {<<"message__publish">>, <<"slack-dev">>}
 parse_tool_spec(Spec) ->
     case binary:split(Spec, <<"@">>) of
-        [Type, SkillId] -> {Type, SkillId};
+        [Type, ToolId] -> {Type, ToolId};
         _ -> undefined
     end.
 
 %% Replace any character outside [a-zA-Z0-9_-] with _, then truncate to 64
 %% characters (OpenAI's hard limit on function names).  Truncation preserves
-%% uniqueness within a single pipeline because the skill ID suffix is the part
+%% uniqueness within a single pipeline because the tool ID suffix is the part
 %% most likely to differ across tools.
 sanitize_tool_name(Name) ->
     Sanitized = <<<<(san(C))>> || <<C>> <= Name>>,
@@ -698,8 +698,8 @@ safe_decode(Payload) ->
 sess_out_topic(Sid) ->
     emqx_agent_topics:sess_out_topic(Sid).
 
-cap_response_topic(Type, SkillId, ReqId) ->
-    emqx_agent_topics:cap_response_topic(Type, SkillId, ReqId).
+cap_response_topic(Type, ToolId, ReqId) ->
+    emqx_agent_topics:cap_response_topic(Type, ToolId, ReqId).
 
 req_id_from_cap_response_topic(Topic) ->
     emqx_agent_topics:req_id_from_cap_response_topic(Topic).
@@ -752,9 +752,9 @@ publish_to_sess_in(Sid, Payload) ->
     _ = emqx_broker:publish(Msg),
     ok.
 
-publish_cap_invoke(Type, SkillId, PayloadMap) ->
+publish_cap_invoke(Type, ToolId, PayloadMap) ->
     ReqId = maps:get(<<"req_id">>, PayloadMap),
-    Topic = emqx_agent_topics:cap_request_topic(Type, SkillId, ReqId),
+    Topic = emqx_agent_topics:cap_request_topic(Type, ToolId, ReqId),
     Msg = emqx_message:make(
         ?MODULE, ?QOS_0, Topic, emqx_utils_json:encode(maps:remove(<<"req_id">>, PayloadMap))
     ),

@@ -26,11 +26,11 @@ sess_in_topic(Sid) ->
 sess_out_topic(Sid) ->
     <<?AGENT_SESS_OUT_PREFIX/binary, Sid/binary, "/">>.
 
-cap_request_topic(Type, SkillId, ReqId) ->
-    <<?AGENT_CAP_PREFIX/binary, Type/binary, "/", SkillId/binary, "/request/", ReqId/binary>>.
+cap_request_topic(Type, ToolId, ReqId) ->
+    <<?AGENT_CAP_PREFIX/binary, Type/binary, "/", ToolId/binary, "/request/", ReqId/binary>>.
 
-cap_response_topic(Type, SkillId, ReqId) ->
-    <<?AGENT_CAP_PREFIX/binary, Type/binary, "/", SkillId/binary, "/response/", ReqId/binary>>.
+cap_response_topic(Type, ToolId, ReqId) ->
+    <<?AGENT_CAP_PREFIX/binary, Type/binary, "/", ToolId/binary, "/response/", ReqId/binary>>.
 
 cap_tmp_response_prefix() ->
     <<?AGENT_CAP_PREFIX/binary, "tmp/response/">>.
@@ -40,6 +40,6 @@ pipe_events_topic(PipelineId, Iid) ->
 
 req_id_from_cap_response_topic(Topic) ->
     case binary:split(Topic, <<"/response/">>) of
-        [_TypeSkill, ReqId] -> ReqId;
+        [_TypeTool, ReqId] -> ReqId;
         _ -> undefined
     end.

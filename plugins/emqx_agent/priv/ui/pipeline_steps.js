@@ -1,17 +1,17 @@
-import { loadedSkills, loadedProfiles, pipelineSteps } from './state.js';
+import { loadedTools, loadedProfiles, pipelineSteps } from './state.js';
 import { esc, stepClass } from './ui_helpers.js';
 import { createSchemaEditor, getSchemaEditorValue } from './schema_editor.js';
 
 export function defaultStep(type) {
   const n = pipelineSteps.length + 1;
-  if (type === 'call_skill')     return { id: 'step_' + n, type, skill: '', args: [['', '']], result_path: '' };
+  if (type === 'call_tool')     return { id: 'step_' + n, type, tool: '', args: [['', '']], result_path: '' };
   if (type === 'llm_loop')       return { id: 'step_' + n, type, provider_name: '', model: 'gpt-5.4-mini', max_tokens: 2048, max_total_tokens: 50000, persistent: false, tools: [], input: [['event', '$.event']], set_result_schema: { type: 'object', properties: { status: { type: 'string' } }, required: ['status'], additionalProperties: false }, result_path: '' };
   if (type === 'break')          return { id: 'step_' + n, type, path: '', not: false };
   return { id: 'step_' + n, type };
 }
 
 export function addStep() {
-  pipelineSteps.push(defaultStep('call_skill'));
+  pipelineSteps.push(defaultStep('call_tool'));
   renderSteps();
 }
 
@@ -64,7 +64,7 @@ export function renderStepBody(idx) {
 
 function stepCardHTML(step, idx) {
   const last = pipelineSteps.length - 1;
-  const types = ['call_skill','llm_loop','break'];
+  const types = ['call_tool','llm_loop','break'];
   const typeOpts = types.map(t =>
     `<option value="${t}"${t===step.type?' selected':''}>${t}</option>`
   ).join('');
@@ -97,15 +97,15 @@ function stepFieldsHTML(step, idx) {
   const idF = `<div class="field"><label>Step ID</label>
     <input type="text" class="sf-id" value="${esc(step.id)}" placeholder="step_1"></div>`;
 
-  if (step.type === 'call_skill') {
-    const skillOpts = loadedSkills.map(s => {
+  if (step.type === 'call_tool') {
+    const toolOpts = loadedTools.map(s => {
       const ref = s.type + '@' + s.id;
-      return `<option value="${esc(ref)}"${ref===step.skill?' selected':''}>${esc(s.id)} (${esc(s.type)})</option>`;
+      return `<option value="${esc(ref)}"${ref===step.tool?' selected':''}>${esc(s.id)} (${esc(s.type)})</option>`;
     }).join('');
     return idF + `
-      <div class="field"><label>Skill</label>
-        <select class="sf-skill">
-          <option value="">— select skill —</option>${skillOpts}
+      <div class="field"><label>Tool</label>
+        <select class="sf-tool">
+          <option value="">— select tool —</option>${toolOpts}
         </select>
       </div>
       <div class="field"><label>Args <small style="color:var(--muted)">key → $.path or literal</small></label>
@@ -121,15 +121,15 @@ function stepFieldsHTML(step, idx) {
     const providerOpts = loadedProfiles.map(p =>
       `<option value="${esc(p.name)}"${p.name===step.provider_name?' selected':''}>${esc(p.name)}</option>`
     ).join('');
-    const toolsHTML = loadedSkills.length
-      ? loadedSkills.map(s => {
+    const toolsHTML = loadedTools.length
+      ? loadedTools.map(s => {
           const ref = s.type + '@' + s.id;
           const on = (step.tools||[]).includes(ref);
           return `<label>
             <input type="checkbox" value="${esc(ref)}"${on?' checked':''}>
             ${esc(s.id)} <small>${esc(s.type)}</small></label>`;
         }).join('')
-      : '<span style="color:var(--muted);font-size:11px">No skills registered yet</span>';
+      : '<span style="color:var(--muted);font-size:11px">No tools registered yet</span>';
     return idF + `
       <div class="row">
         <div class="field"><label>AI provider</label>
@@ -151,7 +151,7 @@ function stepFieldsHTML(step, idx) {
         <input type="checkbox" class="sf-persistent" style="width:auto;min-width:0;flex:0 0 auto"${step.persistent?' checked':''}>
         <span style="font-size:11px">Persistent mode <small style="color:var(--muted)">(reuse session for the same pipeline key; default: false)</small></span>
       </div>
-      <div class="field"><label>Tools (select skills available to the LLM)</label>
+      <div class="field"><label>Tools (select tools available to the LLM)</label>
         <div class="tools-grid sf-tools">${toolsHTML}</div>
       </div>
       <div class="field"><label>Input <small style="color:var(--muted)">key → $.path (e.g. $.event, $.history)</small></label>
@@ -187,8 +187,8 @@ export function syncStep(idx) {
   const step = pipelineSteps[idx];
   step.id   = card.querySelector('.sf-id')?.value?.trim() ?? step.id;
   step.type = card.querySelector('.step-type-sel')?.value ?? step.type;
-  if (step.type === 'call_skill') {
-    step.skill       = card.querySelector('.sf-skill')?.value ?? '';
+  if (step.type === 'call_tool') {
+    step.tool       = card.querySelector('.sf-tool')?.value ?? '';
     step.result_path = card.querySelector('.sf-result')?.value?.trim() ?? '';
     step.args = [...card.querySelectorAll('.sf-args .kv-row')].map(r => [
       r.querySelector('.kv-key').value.trim(),
@@ -223,8 +223,8 @@ export function collectSteps() {
   syncAll();
   return pipelineSteps.map(s => {
     const out = { id: s.id, type: s.type };
-    if (s.type === 'call_skill') {
-      if (s.skill) out.skill = s.skill;
+    if (s.type === 'call_tool') {
+      if (s.tool) out.tool = s.tool;
       const args = Object.fromEntries((s.args||[]).filter(([k]) => k));
       if (Object.keys(args).length) out.args = args;
       if (s.result_path) out.result_path = s.result_path;

@@ -7,11 +7,11 @@
 %% Requires the API key for EMQX_AGENT_TEST_LLM_PROVIDER.
 %%
 %% What this suite tests:
-%%   1. All 9 meta-skills + builder-reply skill are registered.
+%%   1. All 9 meta-tools + builder-reply tool are registered.
 %%   2. The pipeline-builder AI provider and pipeline are created.
 %%   3. A natural-language request is published to $evt/builder/request.
-%%   4. The LLM uses the meta-skills to create the apple-box-inspection
-%%      pipeline (skills + provider reference + pipeline definition).
+%%   4. The LLM uses the meta-tools to create the apple-box-inspection
+%%      pipeline (tools + provider reference + pipeline definition).
 %%   5. The suite verifies the resulting pipeline structure matches the
 %%      reference definition from demo_apple_box_init.py.
 
@@ -43,42 +43,42 @@
     design, create, and manage event-driven automation pipelines over MQTT.
 
     You have access to tools that let you fully manage the EMQX Agent runtime: query, \
-    create and delete skills and pipelines, and query AI providers.
+    create and delete tools and pipelines, and query AI providers.
 
     ═══════════════════════════════════════════════════════
     CORE CONCEPTS
     ═══════════════════════════════════════════════════════
 
-    SKILLS are named capability instances registered in the skill registry.
-    Each skill has a TYPE (what it does) and an ID (its name within that type).
-    Skills are referenced in pipeline steps as "type@id", e.g. "message__publish@my-notifier".
+    TOOLS are named capability instances registered in the tool registry.
+    Each tool has a TYPE (what it does) and an ID (its name within that type).
+    Tools are referenced in pipeline steps as "type@id", e.g. "message__publish@my-notifier".
 
     An AI PROVIDER holds LLM credentials.
     It is referenced by provider_name inside an llm_loop step.
     Providers are pre-created by administrators and are not modified by agent tools.
 
     A PIPELINE reacts to MQTT events and executes an ordered list of steps.
-    Steps can call skills, run LLM reasoning loops, wait for more MQTT events,
+    Steps can call tools, run LLM reasoning loops, wait for more MQTT events,
     or break out early based on conditions.
     Every trigger event spawns a new pipeline INSTANCE that runs the steps in sequence.
     Trigger topics MUST use the $evt/ prefix (e.g., $evt/conveyor/+/box/done).
 
     ═══════════════════════════════════════════════════════
-    HOW SKILLS, PROVIDERS, AND PIPELINES FIT TOGETHER
+    HOW TOOLS, PROVIDERS, AND PIPELINES FIT TOGETHER
     ═══════════════════════════════════════════════════════
 
     Building a working pipeline requires these steps:
 
-      1. Create SKILLS — register the capabilities the pipeline will use.
-         Pipelines can only reference registered skills. Before creating a pipeline,
-         make sure every skill referenced by its steps already exists or is created
-         successfully first. Do not reference a skill unless you have confirmed it
+      1. Create TOOLS — register the capabilities the pipeline will use.
+         Pipelines can only reference registered tools. Before creating a pipeline,
+         make sure every tool referenced by its steps already exists or is created
+         successfully first. Do not reference a tool unless you have confirmed it
          exists or successfully created it.
       2. Choose an existing AI PROVIDER for llm_loop provider_name.
       3. Create the PIPELINE — wire everything together.
 
     ═══════════════════════════════════════════════════════
-    SKILL TYPES
+    TOOL TYPES
     ═══════════════════════════════════════════════════════
 
       message__publish   Publish to an MQTT topic.
@@ -93,21 +93,21 @@
 
       postgresql__query  Execute a parameterised SQL query.
                         Required: id, desc, resource, query (using ${var} placeholders).
-                        Use resource "apple-box-pg" for apple-box PostgreSQL skills.
+                        Use resource "apple-box-pg" for apple-box PostgreSQL tools.
                         Placeholder names are extracted automatically and the input
                         schema is generated from them. No arg_keys or input_schema needed.
                         If a pipeline must read from or write to PostgreSQL, you MUST
-                        create a postgresql__query skill for that SQL operation before
+                        create a postgresql__query tool for that SQL operation before
                         creating the pipeline. The pipeline then references it as
-                        "postgresql__query@<id>" in a call_skill step.
+                        "postgresql__query@<id>" in a call_tool step.
 
     ═══════════════════════════════════════════════════════
     PIPELINE STEP TYPES
     ═══════════════════════════════════════════════════════
 
-    --- call_skill ---
-      {"id": "notify", "type": "call_skill",
-       "skill": "message__publish@my-notifier",
+    --- call_tool ---
+      {"id": "notify", "type": "call_tool",
+       "tool": "message__publish@my-notifier",
        "args": [{"name": "topic", "value": "$.event.device_id"},
                 {"name": "payload", "value": "$.analysis"}],
        "result_path": "$.notify_result"}
@@ -116,7 +116,7 @@
       {"id": "analyse", "type": "llm_loop",
        "provider_name": "my-provider",
        "persistent": false,
-       "tools": ["<skill-type>@<skill-id>"],
+       "tools": ["<tool-type>@<tool-id>"],
        "input": [{"name": "box_id", "value": "$.event.box_id"}],
        "set_result_schema": "{\"type\":\"object\",\"properties\":{\"verdict\":{\"type\":\"string\"}},\"required\":[\"verdict\"],\"additionalProperties\":false}",
        "result_path": "$.analysis"}
@@ -185,13 +185,13 @@
     ═══════════════════════════════════════════════════════
 
     1. Understand what the user wants to automate.
-    2. Query existing skills, AI providers, and pipelines to avoid duplication.
-    3. Create skills first, then the pipeline.
-    4. Before creating the pipeline, verify that every referenced skill exists or has
-       been created successfully. This includes every call_skill "skill" value and
-       every skill listed in every llm_loop "tools" array.
+    2. Query existing tools, AI providers, and pipelines to avoid duplication.
+    3. Create tools first, then the pipeline.
+    4. Before creating the pipeline, verify that every referenced tool exists or has
+       been created successfully. This includes every call_tool "tool" value and
+       every tool listed in every llm_loop "tools" array.
     5. If the pipeline has any database step, create the required postgresql__query
-       skill first. A PostgreSQL connection is not itself a skill and cannot be
+       tool first. A PostgreSQL connection is not itself a tool and cannot be
        referenced directly from a pipeline step.
     6. Confirm with a plain-language summary of what was created.
 
@@ -232,8 +232,8 @@
     Pipeline id: apple-box-inspection.
     Run the inspection as an ephemeral LLM loop (fresh session per box),
     then persist the result to the database and broadcast the verdict. Make sure that
-    instructions include proper description of how to use camera skill (topic structure).
-    Do not make separate skill call for camera skill, let llm inspection step call it.
+    instructions include proper description of how to use camera tool (topic structure).
+    Do not make separate tool call for camera tool, let llm inspection step call it.
     Instruct llm step to _always_ publish warning if the box is rejected.
     The final verdict structure should be: {"status": "approved" | "rejected", "reason": "string"}.
     It should be done via explicit step, do not send it as part of the llm inspection step.
@@ -269,17 +269,17 @@ init_per_suite(Config) ->
 
 end_per_suite(Config) ->
     _ = emqx_agent_service:pipeline_delete(?TARGET_PIPELINE_ID),
-    _ = emqx_agent_service:skill_delete(<<"message__request">>, <<"box-shot">>),
-    _ = emqx_agent_service:skill_delete(<<"message__publish">>, <<"box-alert">>),
-    _ = emqx_agent_service:skill_delete(<<"message__publish">>, <<"box-status">>),
-    _ = emqx_agent_service:skill_delete(<<"postgresql__query">>, <<"box-register">>),
+    _ = emqx_agent_service:tool_delete(<<"message__request">>, <<"box-shot">>),
+    _ = emqx_agent_service:tool_delete(<<"message__publish">>, <<"box-alert">>),
+    _ = emqx_agent_service:tool_delete(<<"message__publish">>, <<"box-status">>),
+    _ = emqx_agent_service:tool_delete(<<"postgresql__query">>, <<"box-register">>),
     ok = cleanup_builder_infra(),
     emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(_TC, Config) ->
     ct:timetrap({seconds, 240}),
     ok = emqx_agent_plugin_config_fixture:setup(),
-    ok = register_builder_skills(),
+    ok = register_builder_tools(),
     ok = register_pg_connection(),
     ok = register_builder_pipeline(),
     ok = emqx:subscribe(?REPLY_TOPIC),
@@ -327,11 +327,11 @@ assert_pipeline() ->
     [Inspect | _] = LLMSteps,
     Tools = maps:get(<<"tools">>, Inspect),
     ?assert(
-        lists:any(fun(T) -> skill_type(T) =:= <<"message__request">> end, Tools),
+        lists:any(fun(T) -> tool_type(T) =:= <<"message__request">> end, Tools),
         {no_message_request_tool, Tools}
     ),
     ?assert(
-        lists:any(fun(T) -> skill_type(T) =:= <<"message__publish">> end, Tools),
+        lists:any(fun(T) -> tool_type(T) =:= <<"message__publish">> end, Tools),
         {no_message_publish_tool, Tools}
     ),
     Instructions = maps:get(<<"instructions">>, Inspect, <<>>),
@@ -341,24 +341,24 @@ assert_pipeline() ->
     ?assert(is_map_key(<<"status">>, SRSProps)),
     ?assert(is_map_key(<<"reason">>, SRSProps)),
 
-    %% Must contain at least one call_skill using postgresql__query.
+    %% Must contain at least one call_tool using postgresql__query.
     ?assert(
         lists:any(
             fun(S) ->
-                maps:get(<<"type">>, S) =:= <<"call_skill">> andalso
-                    skill_type(maps:get(<<"skill">>, S, <<>>)) =:= <<"postgresql__query">>
+                maps:get(<<"type">>, S) =:= <<"call_tool">> andalso
+                    tool_type(maps:get(<<"tool">>, S, <<>>)) =:= <<"postgresql__query">>
             end,
             Steps
         ),
         {no_postgresql_step, Steps}
     ),
 
-    %% Must contain at least one call_skill using message__publish.
+    %% Must contain at least one call_tool using message__publish.
     ?assert(
         lists:any(
             fun(S) ->
-                maps:get(<<"type">>, S) =:= <<"call_skill">> andalso
-                    skill_type(maps:get(<<"skill">>, S, <<>>)) =:= <<"message__publish">>
+                maps:get(<<"type">>, S) =:= <<"call_tool">> andalso
+                    tool_type(maps:get(<<"tool">>, S, <<>>)) =:= <<"message__publish">>
             end,
             Steps
         ),
@@ -366,7 +366,7 @@ assert_pipeline() ->
     ).
 
 %% Extract the type portion from "type@id" or just return the whole value.
-skill_type(Spec) ->
+tool_type(Spec) ->
     case binary:split(Spec, <<"@">>) of
         [Type, _] -> Type;
         _ -> Spec
@@ -406,29 +406,29 @@ await_reply() ->
 %% Builder infrastructure setup
 %%--------------------------------------------------------------------
 
-register_builder_skills() ->
-    ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"agent__create_skill">>, <<"id">> => <<"builder-create-skill">>
+register_builder_tools() ->
+    ok = emqx_agent_service:tool_create(#{
+        <<"type">> => <<"agent__create_tool">>, <<"id">> => <<"builder-create-tool">>
     }),
-    ok = emqx_agent_service:skill_create(#{
+    ok = emqx_agent_service:tool_create(#{
         <<"type">> => <<"agent__create_pipeline">>, <<"id">> => <<"builder-create-pipeline">>
     }),
-    ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"agent__query_skills">>, <<"id">> => <<"builder-query-skills">>
+    ok = emqx_agent_service:tool_create(#{
+        <<"type">> => <<"agent__query_tools">>, <<"id">> => <<"builder-query-tools">>
     }),
-    ok = emqx_agent_service:skill_create(#{
+    ok = emqx_agent_service:tool_create(#{
         <<"type">> => <<"agent__query_providers">>, <<"id">> => <<"builder-query-providers">>
     }),
-    ok = emqx_agent_service:skill_create(#{
+    ok = emqx_agent_service:tool_create(#{
         <<"type">> => <<"agent__query_pipelines">>, <<"id">> => <<"builder-query-pipelines">>
     }),
-    ok = emqx_agent_service:skill_create(#{
-        <<"type">> => <<"agent__delete_skill">>, <<"id">> => <<"builder-delete-skill">>
+    ok = emqx_agent_service:tool_create(#{
+        <<"type">> => <<"agent__delete_tool">>, <<"id">> => <<"builder-delete-tool">>
     }),
-    ok = emqx_agent_service:skill_create(#{
+    ok = emqx_agent_service:tool_create(#{
         <<"type">> => <<"agent__delete_pipeline">>, <<"id">> => <<"builder-delete-pipeline">>
     }),
-    ok = emqx_agent_service:skill_create(#{
+    ok = emqx_agent_service:tool_create(#{
         <<"type">> => <<"message__publish">>,
         <<"id">> => <<"builder-reply">>,
         <<"desc">> => <<"Send a reply from the pipeline builder back to the chat UI">>,
@@ -480,12 +480,12 @@ register_builder_pipeline() ->
                 <<"instructions">> => ?BUILDER_INSTRUCTIONS,
                 <<"persistent">> => true,
                 <<"tools">> => [
-                    <<"agent__create_skill@builder-create-skill">>,
+                    <<"agent__create_tool@builder-create-tool">>,
                     <<"agent__create_pipeline@builder-create-pipeline">>,
-                    <<"agent__query_skills@builder-query-skills">>,
+                    <<"agent__query_tools@builder-query-tools">>,
                     <<"agent__query_providers@builder-query-providers">>,
                     <<"agent__query_pipelines@builder-query-pipelines">>,
-                    <<"agent__delete_skill@builder-delete-skill">>,
+                    <<"agent__delete_tool@builder-delete-tool">>,
                     <<"agent__delete_pipeline@builder-delete-pipeline">>,
                     <<"message__publish@builder-reply">>
                 ],

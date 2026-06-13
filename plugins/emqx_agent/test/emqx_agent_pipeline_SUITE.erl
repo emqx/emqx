@@ -10,7 +10,7 @@
 %%   - Register minimal pipeline definitions directly via the registry.
 %%   - Publish trigger events through the broker (fires the hook).
 %%   - Use emqx:subscribe to observe pipe/.../events and cap/... topics.
-%%   - For call_skill tests the emqx_agent_skill_publish skill is used
+%%   - For call_tool tests the emqx_agent_tool_publish tool is used
 %%     (it executes immediately and replies with cap/<type>/<id>/response/<req_id>).
 
 -module(emqx_agent_pipeline_SUITE).
@@ -93,23 +93,23 @@ t_trigger_starts_pipeline(Config) ->
     Started = recv_pipe_event(PipelineId),
     ?assertEqual(<<"pipeline_started">>, maps:get(<<"type">>, Started)).
 
-%% A pipeline with a single call_skill step should invoke the skill and
+%% A pipeline with a single call_tool step should invoke the tool and
 %% then complete.
-t_call_skill_completes(Config) ->
+t_call_tool_completes(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    SkillId = PipelineId,
+    ToolId = PipelineId,
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Step = #{
         <<"id">> => <<"notify">>,
-        <<"type">> => <<"call_skill">>,
-        <<"skill">> => <<"message__publish@", SkillId/binary>>,
+        <<"type">> => <<"call_tool">>,
+        <<"tool">> => <<"message__publish@", ToolId/binary>>,
         <<"args">> => #{
             <<"topic">> => <<"output">>,
             <<"payload">> => <<"hello">>
         },
         <<"result_path">> => <<"$.notify_result">>
     },
-    setup_publish_skill(SkillId),
+    setup_publish_tool(ToolId),
     register_pipeline(PipelineId, TrigTopic, [Step]),
     publish_evt(TrigTopic, #{<<"id">> => <<"e1">>}),
     %% pipeline_started
@@ -125,29 +125,29 @@ t_call_skill_completes(Config) ->
         maps:get(<<"notify_result">>, Ctx, #{})
     ).
 
-%% A two-step pipeline: call_skill → call_skill.
+%% A two-step pipeline: call_tool → call_tool.
 %% Both steps must complete and the final context must carry both results.
 t_multi_step_pipeline(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    SkillId = PipelineId,
+    ToolId = PipelineId,
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Steps = [
         #{
             <<"id">> => <<"step1">>,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message__publish@", SkillId/binary>>,
+            <<"type">> => <<"call_tool">>,
+            <<"tool">> => <<"message__publish@", ToolId/binary>>,
             <<"args">> => #{<<"topic">> => <<"s1">>, <<"payload">> => <<"p1">>},
             <<"result_path">> => <<"$.step1">>
         },
         #{
             <<"id">> => <<"step2">>,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message__publish@", SkillId/binary>>,
+            <<"type">> => <<"call_tool">>,
+            <<"tool">> => <<"message__publish@", ToolId/binary>>,
             <<"args">> => #{<<"topic">> => <<"s2">>, <<"payload">> => <<"p2">>},
             <<"result_path">> => <<"$.step2">>
         }
     ],
-    setup_publish_skill(SkillId),
+    setup_publish_tool(ToolId),
     register_pipeline(PipelineId, TrigTopic, Steps),
     publish_evt(TrigTopic, #{<<"id">> => <<"e2">>}),
     _Started = recv_pipe_event(PipelineId),
@@ -161,15 +161,15 @@ t_multi_step_pipeline(Config) ->
 %% context and reachable for arg resolution in subsequent steps.
 t_context_propagation(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    SkillId = PipelineId,
+    ToolId = PipelineId,
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Steps = [
         #{
             <<"id">> => <<"echo">>,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message__publish@", SkillId/binary>>,
+            <<"type">> => <<"call_tool">>,
+            <<"tool">> => <<"message__publish@", ToolId/binary>>,
             %% Resolve $.event (a map) — it becomes the args value.
-            %% Only the <<"topic">> and <<"payload">> keys are used by the skill;
+            %% Only the <<"topic">> and <<"payload">> keys are used by the tool;
             %% we supply them as literals here.
             <<"args">> => #{
                 <<"topic">> => <<"ctx_test">>,
@@ -178,7 +178,7 @@ t_context_propagation(Config) ->
             <<"result_path">> => <<"$.echo">>
         }
     ],
-    setup_publish_skill(SkillId),
+    setup_publish_tool(ToolId),
     register_pipeline(PipelineId, TrigTopic, Steps),
     publish_evt(TrigTopic, #{<<"id">> => <<"ctx-evt">>, <<"data">> => #{<<"v">> => 7}}),
     _Started = recv_pipe_event(PipelineId),
@@ -194,7 +194,7 @@ t_context_propagation(Config) ->
 %% A break step must finish the pipeline when the selected context value is true.
 t_break_stops_pipeline_when_true(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    SkillId = PipelineId,
+    ToolId = PipelineId,
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Steps = [
         #{
@@ -204,13 +204,13 @@ t_break_stops_pipeline_when_true(Config) ->
         },
         #{
             <<"id">> => <<"should_not_run">>,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message__publish@", SkillId/binary>>,
+            <<"type">> => <<"call_tool">>,
+            <<"tool">> => <<"message__publish@", ToolId/binary>>,
             <<"args">> => #{<<"topic">> => <<"post-break">>, <<"payload">> => <<"x">>},
             <<"result_path">> => <<"$.post">>
         }
     ],
-    setup_publish_skill(SkillId),
+    setup_publish_tool(ToolId),
     register_pipeline(PipelineId, TrigTopic, Steps),
     publish_evt(TrigTopic, #{<<"id">> => <<"e-break-1">>, <<"data">> => #{<<"stop">> => true}}),
     _Started = recv_pipe_event(PipelineId),
@@ -222,7 +222,7 @@ t_break_stops_pipeline_when_true(Config) ->
 %% With not=true, break must finish when the selected value is not true.
 t_break_with_not_stops_pipeline_when_not_true(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    SkillId = PipelineId,
+    ToolId = PipelineId,
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Steps = [
         #{
@@ -233,13 +233,13 @@ t_break_with_not_stops_pipeline_when_not_true(Config) ->
         },
         #{
             <<"id">> => <<"should_not_run">>,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message__publish@", SkillId/binary>>,
+            <<"type">> => <<"call_tool">>,
+            <<"tool">> => <<"message__publish@", ToolId/binary>>,
             <<"args">> => #{<<"topic">> => <<"post-break-not">>, <<"payload">> => <<"x">>},
             <<"result_path">> => <<"$.post">>
         }
     ],
-    setup_publish_skill(SkillId),
+    setup_publish_tool(ToolId),
     register_pipeline(PipelineId, TrigTopic, Steps),
     publish_evt(TrigTopic, #{
         <<"id">> => <<"e-break-2">>, <<"data">> => #{<<"keep_going">> => false}
@@ -270,19 +270,19 @@ t_one_off_pipeline_stops_on_completion(Config) ->
     ?assertEqual(emqx_base62:encode(TrigTopic), maps:get(<<"key_base62">>, Ctx)).
 
 %% Step 1 writes its result to $.lookup.  Step 2 reads $.lookup.topic
-%% out of context and uses it as the `topic` arg for the skill call.
+%% out of context and uses it as the `topic` arg for the tool call.
 %% This verifies that result_path + arg resolution actually chain across steps.
 t_context_flows_between_steps(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    SkillId = PipelineId,
+    ToolId = PipelineId,
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Steps = [
-        %% Step 1 — publishes to "first" and stores the skill reply at $.lookup.
+        %% Step 1 — publishes to "first" and stores the tool reply at $.lookup.
         %% The reply from message__publish is #{status => ok, topic => "test/first"}.
         #{
             <<"id">> => <<"step1">>,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message__publish@", SkillId/binary>>,
+            <<"type">> => <<"call_tool">>,
+            <<"tool">> => <<"message__publish@", ToolId/binary>>,
             <<"args">> => #{
                 <<"topic">> => <<"first">>,
                 <<"payload">> => <<"ping">>
@@ -293,8 +293,8 @@ t_context_flows_between_steps(Config) ->
         %% that the previous step's result is visible to the next step's args.
         #{
             <<"id">> => <<"step2">>,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message__publish@", SkillId/binary>>,
+            <<"type">> => <<"call_tool">>,
+            <<"tool">> => <<"message__publish@", ToolId/binary>>,
             <<"args">> => #{
                 <<"topic">> => <<"second">>,
                 <<"payload">> => <<"$.lookup.result.topic">>
@@ -302,10 +302,10 @@ t_context_flows_between_steps(Config) ->
             <<"result_path">> => <<"$.echo">>
         }
     ],
-    setup_publish_skill(SkillId),
+    setup_publish_tool(ToolId),
     register_pipeline(PipelineId, TrigTopic, Steps),
 
-    %% Subscribe to the raw publish-skill output so we can inspect what payload
+    %% Subscribe to the raw publish-tool output so we can inspect what payload
     %% step 2 actually sent.
     emqx:subscribe(<<"test/second">>),
 
@@ -703,10 +703,10 @@ persistent_sid(PipelineId, StepId, Key) ->
     <<"pipe-",
         (emqx_base62:encode(<<PipelineId/binary, 0, StepId/binary, 0, Key/binary>>))/binary>>.
 
-setup_publish_skill(SkillId) ->
-    ok = emqx_agent_service:skill_create(#{
+setup_publish_tool(ToolId) ->
+    ok = emqx_agent_service:tool_create(#{
         <<"type">> => <<"message__publish">>,
-        <<"id">> => SkillId,
+        <<"id">> => ToolId,
         <<"desc">> => <<"test">>,
         <<"topic_prefix">> => <<"test/">>,
         <<"payload_schema">> => emqx_utils_json:encode(#{<<"type">> => <<"string">>})
