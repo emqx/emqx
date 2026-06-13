@@ -2,7 +2,7 @@
 """Provision all EMQX Agent resources for the Pipeline Builder demo.
 
 The Pipeline Builder lets an LLM conversationally create and manage
-EMQX Agent skills, AI providers, and pipelines via MQTT.
+EMQX Agent tools, AI providers, and pipelines via MQTT.
 
 Optional env vars (for this init script):
   EMQX_BASE_URL      — EMQX Agent plugin API base URL
@@ -55,12 +55,12 @@ PGPASSWORD = env("PGPASSWORD", "public")
 PROVIDER_NAME = "openai"
 PIPELINE_ID = "pipeline-builder"
 
-SK_CREATE_SKILL    = "builder-create-skill"
+SK_CREATE_TOOL    = "builder-create-tool"
 SK_CREATE_PIPELINE = "builder-create-pipeline"
-SK_QUERY_SKILLS    = "builder-query-skills"
+SK_QUERY_TOOLS    = "builder-query-tools"
 SK_QUERY_PROVIDERS = "builder-query-providers"
 SK_QUERY_PIPELINES = "builder-query-pipelines"
-SK_DELETE_SKILL    = "builder-delete-skill"
+SK_DELETE_TOOL    = "builder-delete-tool"
 SK_DELETE_PIPELINE = "builder-delete-pipeline"
 SK_REPLY           = "builder-reply"
 CONNECTION_ID = "pg-main"
@@ -134,10 +134,10 @@ def delete_old_assets() -> None:
         delete_pipeline(pid)
         print(f"  deleted pipeline {pid!r}")
 
-    # Skills
-    for s in json.loads(api_request("GET", "/skills")):
-        api_delete_maybe(f"/skills/{s['type']}/{s['skill_id']}")
-        print(f"  deleted skill {s['type']}@{s['skill_id']!r}")
+    # Tools
+    for s in json.loads(api_request("GET", "/tools")):
+        api_delete_maybe(f"/tools/{s['type']}/{s['tool_id']}")
+        print(f"  deleted tool {s['type']}@{s['tool_id']!r}")
 
     # Connections
     for c in json.loads(api_request("GET", "/connections")):
@@ -192,25 +192,25 @@ def create_ai_providers() -> None:
     )
     print(f"  AI provider {PROVIDER_NAME!r} created")
 
-# ── Skills ─────────────────────────────────────────────────────────────────────
+# ── Tools ─────────────────────────────────────────────────────────────────────
 
-def create_skills() -> None:
-    meta_skills = [
-        ("agent__create_skill",    SK_CREATE_SKILL),
+def create_tools() -> None:
+    meta_tools = [
+        ("agent__create_tool",    SK_CREATE_TOOL),
         ("agent__create_pipeline", SK_CREATE_PIPELINE),
-        ("agent__query_skills",    SK_QUERY_SKILLS),
+        ("agent__query_tools",    SK_QUERY_TOOLS),
         ("agent__query_providers", SK_QUERY_PROVIDERS),
         ("agent__query_pipelines", SK_QUERY_PIPELINES),
-        ("agent__delete_skill",    SK_DELETE_SKILL),
+        ("agent__delete_tool",    SK_DELETE_TOOL),
         ("agent__delete_pipeline", SK_DELETE_PIPELINE),
     ]
-    for skill_type, skill_id in meta_skills:
-        api_request("POST", "/skills", {"type": skill_type, "id": skill_id})
-        print(f"  skill {skill_type}@{skill_id!r} created")
+    for tool_type, tool_id in meta_tools:
+        api_request("POST", "/tools", {"type": tool_type, "id": tool_id})
+        print(f"  tool {tool_type}@{tool_id!r} created")
 
     api_request(
         "POST",
-        "/skills",
+        "/tools",
         {
             "type": "message__publish",
             "id": SK_REPLY,
@@ -219,7 +219,7 @@ def create_skills() -> None:
             "payload_schema": json.dumps({"type": "string"}),
         },
     )
-    print(f"  skill message__publish@{SK_REPLY!r} created")
+    print(f"  tool message__publish@{SK_REPLY!r} created")
 
 
 # ── Builder prompt ─────────────────────────────────────────────────────────────
@@ -229,46 +229,46 @@ You are a Pipeline Architect for EMQX Agent — an intelligent system that helps
 design, create, and manage event-driven automation pipelines over MQTT.
 
 You have access to tools that let you fully manage the EMQX Agent runtime: query, \
-create and delete skills and pipelines, and query AI providers.
+create and delete tools and pipelines, and query AI providers.
 
 ═══════════════════════════════════════════════════════
 CORE CONCEPTS
 ═══════════════════════════════════════════════════════
 
-SKILLS are named capability instances registered in the skill registry.
-Each skill has a TYPE (what it does) and an ID (its name within that type).
-Skills are referenced in pipeline steps as "type@id", e.g. "message__publish@my-notifier".
+TOOLS are named capability instances registered in the tool registry.
+Each tool has a TYPE (what it does) and an ID (its name within that type).
+Tools are referenced in pipeline steps as "type@id", e.g. "message__publish@my-notifier".
 
 An AI PROVIDER holds LLM credentials.
 It is referenced by provider_name inside an llm_loop step.
 Providers are pre-created by administrators and are not modified by agent tools.
 
 A PIPELINE reacts to MQTT events and executes an ordered list of steps.
-Steps can call skills, run LLM reasoning loops, wait for more MQTT events,
+Steps can call tools, run LLM reasoning loops, wait for more MQTT events,
 or break out early based on conditions.
 Every trigger event spawns a new pipeline INSTANCE that runs the steps in sequence.
 
 ═══════════════════════════════════════════════════════
-HOW SKILLS, PROVIDERS, AND PIPELINES FIT TOGETHER
+HOW TOOLS, PROVIDERS, AND PIPELINES FIT TOGETHER
 ═══════════════════════════════════════════════════════
 
 Building a working pipeline requires these steps:
 
-  1. Create SKILLS — register the capabilities the pipeline will use.
-     Skills are stateless; they just describe what MQTT topics to publish to,
+  1. Create TOOLS — register the capabilities the pipeline will use.
+     Tools are stateless; they just describe what MQTT topics to publish to,
      what HTTP endpoint to call, what SQL to execute, etc.
-     Pipelines can only reference registered skills. Before creating a pipeline,
-     make sure every skill referenced by its steps already exists or is created
-     successfully first. Do not reference a skill unless you have confirmed it
+     Pipelines can only reference registered tools. Before creating a pipeline,
+     make sure every tool referenced by its steps already exists or is created
+     successfully first. Do not reference a tool unless you have confirmed it
      exists or successfully created it.
 
   2. Choose an existing AI PROVIDER for llm_loop provider_name.
   3. Create the PIPELINE — wire everything together.
-     Reference skills inside steps as "type@id".
+     Reference tools inside steps as "type@id".
      Reference the provider by name inside llm_loop steps.
 
 ═══════════════════════════════════════════════════════
-SKILL TYPES
+TOOL TYPES
 ═══════════════════════════════════════════════════════
 
   message__publish   Publish to an MQTT topic.
@@ -291,34 +291,35 @@ SKILL TYPES
                                         PostgreSQL connection)
                     input_schema is auto-generated from the query placeholders.
                     If a pipeline must read from or write to PostgreSQL, you MUST
-                    create a postgresql__query skill for that SQL operation before
+                    create a postgresql__query tool for that SQL operation before
                     creating the pipeline. The pipeline then references it as
-                    "postgresql__query@<id>" in a call_skill step.
+                    "postgresql__query@<id>" in a call_tool step.
 
 ═══════════════════════════════════════════════════════
 PIPELINE STEP TYPES
 ═══════════════════════════════════════════════════════
 
---- call_skill ---
-Invokes a registered skill directly (no LLM involved).
-The "skill" field is "type@id". The "args" map is passed to the skill;
+--- call_tool ---
+Invokes a registered tool directly (no LLM involved).
+The "tool" field is "type@id". The "args" map is passed to the tool;
 values starting with "$." are resolved from the pipeline context at runtime.
-The skill result is written to result_path.
+The tool result is written to result_path.
 
-  {"id": "notify", "type": "call_skill",
-   "skill": "message__publish@my-notifier",
+  {"id": "notify", "type": "call_tool",
+   "tool": "message__publish@my-notifier",
    "args": {"topic": "$.event.device_id", "payload": "$.analysis"},
    "result_path": "$.notify_result"}
 
 --- llm_loop ---
 Starts an LLM session using an AI provider.
 The LLM receives the "input" map as its first user message, then calls tools
-(skills listed in "tools") until it either calls the built-in set_result tool
+(tools listed in "tools") until it either calls the built-in set_result tool
 (when set_result_schema is provided) or sends a final frame.
 
    {"id": "analyse", "type": "llm_loop",
     "provider_name": "my-provider",
     "model": "gpt-5.4-mini",
+    "key_expression": "message.topic",
    "instructions": "You are a quality inspector. Examine the photo and return a verdict.",
     "persistent": false,
    "tools": ["message__request@box-camera", "message__publish@box-alert"],
@@ -336,10 +337,10 @@ The LLM receives the "input" map as its first user message, then calls tools
 
 persistent controls session lifecycle:
   false — session is discarded after each trigger; every event starts fresh (default).
-  true  — session persists for messages with the same pipeline key and accumulates
+  true  — session persists for messages with the same step key and accumulates
           conversation history (useful for ongoing reasoning or multi-turn interactions).
 
-Persistent session IDs are derived from pipeline id, step id, and pipeline key.
+Persistent session IDs are derived from pipeline id, step id, and step key.
 
 When you create an llm_loop step, use model "gpt-5.4-mini" unless the user
 explicitly requests another model. Do not invent a model name.
@@ -364,16 +365,16 @@ substituted with the resolved context value at runtime.
 result_path writes only to top-level keys (one level deep).
 
 ═══════════════════════════════════════════════════════
-PIPELINE KEY
+LLM STEP KEY
 ═══════════════════════════════════════════════════════
 
-key_expression is a Variform expression evaluated against MQTT message metadata.
+key_expression is an llm_loop step field evaluated against MQTT message metadata.
 It is not evaluated against pipeline context. The only root binding is message.
 Default key_expression is message.topic.
 
-The pipeline key groups persistent LLM sessions. For a persistent llm_loop, the
+The step key groups persistent LLM sessions. For a persistent llm_loop, the
 same pipeline id + step id + key reuses the same LLM session and history.
-For pipelines whose llm_loop steps are persistent: false, omit key_expression
+For llm_loop steps whose persistent is false, omit key_expression
 unless the user explicitly asks for custom grouping by message metadata.
 
 Valid examples: message.topic, message.from, message.headers.username,
@@ -411,15 +412,15 @@ YOUR WORKFLOW
 ═══════════════════════════════════════════════════════
 
 1. Understand what the user wants to automate.
-2. Query existing skills, AI providers, and pipelines to avoid duplication.
+2. Query existing tools, AI providers, and pipelines to avoid duplication.
 3. Design the pipeline on paper: what triggers it, what data flows through,
-   which skills are needed, whether an LLM reasoning step is required.
-4. Create skills first, then the pipeline using an existing provider.
-5. Before creating the pipeline, verify that every referenced skill exists or has
-   been created successfully. This includes every call_skill "skill" value and
-   every skill listed in every llm_loop "tools" array.
+   which tools are needed, whether an LLM reasoning step is required.
+4. Create tools first, then the pipeline using an existing provider.
+5. Before creating the pipeline, verify that every referenced tool exists or has
+   been created successfully. This includes every call_tool "tool" value and
+   every tool listed in every llm_loop "tools" array.
 6. If the pipeline has any database step, create the required postgresql__query
-   skill first. A PostgreSQL connection is not itself a skill and cannot be
+   tool first. A PostgreSQL connection is not itself a tool and cannot be
    referenced directly from a pipeline step.
 7. Confirm with a plain-language summary of what was created and how to trigger it.
 
@@ -469,12 +470,12 @@ def create_pipeline() -> None:
                     "instructions": SYSTEM_PROMPT,
                     "persistent": True,
                     "tools": [
-                        f"agent__create_skill@{SK_CREATE_SKILL}",
+                        f"agent__create_tool@{SK_CREATE_TOOL}",
                         f"agent__create_pipeline@{SK_CREATE_PIPELINE}",
-                        f"agent__query_skills@{SK_QUERY_SKILLS}",
+                        f"agent__query_tools@{SK_QUERY_TOOLS}",
                         f"agent__query_providers@{SK_QUERY_PROVIDERS}",
                         f"agent__query_pipelines@{SK_QUERY_PIPELINES}",
-                        f"agent__delete_skill@{SK_DELETE_SKILL}",
+                        f"agent__delete_tool@{SK_DELETE_TOOL}",
                         f"agent__delete_pipeline@{SK_DELETE_PIPELINE}",
                         f"message__publish@{SK_REPLY}",
                     ],
@@ -543,8 +544,8 @@ def main() -> int:
     print("==> Creating apple_box_inspections table")
     create_db_table()
 
-    print("==> Creating skills (7 meta-skills + 1 reply)")
-    create_skills()
+    print("==> Creating tools (7 meta-tools + 1 reply)")
+    create_tools()
 
     print("==> Creating AI providers")
     create_ai_providers()

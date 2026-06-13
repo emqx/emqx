@@ -62,7 +62,7 @@ defmodule EMQXAgent.MixProject do
           website: "https://www.emqx.com"
         ],
         repo: "https://github.com/emqx/emqx",
-        functionality: ["Agent workflows and skills"],
+        functionality: ["Agent workflows and tools"],
         compatibility: [
           emqx: "~> #{emqx_major_minor()}"
         ],

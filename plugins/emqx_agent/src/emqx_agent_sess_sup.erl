@@ -5,11 +5,12 @@
 -module(emqx_agent_sess_sup).
 
 -moduledoc """
-Supervisor for session gen_servers.
+Supervisor for session gen_statem processes.
 
 Sessions are lazy: started on the first message arriving at
-sess/in/<SID>/. They terminate normally once the LLM loop finishes
-and there is nothing left to process, so restart => transient.
+sess/in/<SID>/. Non-persistent sessions terminate normally once the current LLM
+request finishes and there is nothing left to process. Persistent sessions keep
+the LLM context until idle timeout, so restart => transient.
 """.
 
 -behaviour(supervisor).

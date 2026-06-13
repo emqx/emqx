@@ -29,20 +29,20 @@ init([]) ->
             modules => [emqx_agent_builder_tool_server]
         },
         #{
-            id => emqx_agent_skill_connection_reconciler,
-            start => {emqx_agent_skill_connection_reconciler, start_link, []},
+            id => emqx_agent_tool_connection_reconciler,
+            start => {emqx_agent_tool_connection_reconciler, start_link, []},
             restart => permanent,
             shutdown => 5000,
             type => worker,
-            modules => [emqx_agent_skill_connection_reconciler]
+            modules => [emqx_agent_tool_connection_reconciler]
         },
         #{
-            id => emqx_agent_skill_registry,
-            start => {emqx_agent_skill_registry, start_link, []},
+            id => emqx_agent_tool_registry,
+            start => {emqx_agent_tool_registry, start_link, []},
             restart => permanent,
             shutdown => 5000,
             type => worker,
-            modules => [emqx_agent_skill_registry]
+            modules => [emqx_agent_tool_registry]
         },
         #{
             id => emqx_agent_sess_sup,
@@ -61,12 +61,12 @@ init([]) ->
             modules => [emqx_agent_pipeline_sup]
         },
         #{
-            id => emqx_agent_skill_invocation_sup,
-            start => {emqx_agent_skill_invocation_sup, start_link, []},
+            id => emqx_agent_tool_invocation_sup,
+            start => {emqx_agent_tool_invocation_sup, start_link, []},
             restart => permanent,
             shutdown => infinity,
             type => supervisor,
-            modules => [emqx_agent_skill_invocation_sup]
+            modules => [emqx_agent_tool_invocation_sup]
         }
     ],
     {ok, {SupFlags, ChildSpecs}}.

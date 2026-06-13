@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Remove EMQX Agent demo resources.
 
-This script deletes all Agent pipelines, skills, and connections, removes demo
+This script deletes all Agent pipelines, tools, and connections, removes demo
 AI providers, and drops the apple-box demo PostgreSQL table.
 
 Optional env vars:
@@ -103,14 +103,14 @@ def delete_pipelines() -> None:
         print(f"  pipeline {pid!r}: {'removed' if removed else 'not found'}")
 
 
-def delete_skills() -> None:
-    print("==> Removing skills")
-    skills = json.loads(api_request("GET", "/skills"))
-    for skill in skills:
-        skill_type = skill["type"]
-        skill_id = skill.get("skill_id", skill.get("id"))
-        removed = api_delete_maybe(f"/skills/{skill_type}/{skill_id}")
-        print(f"  skill {skill_type}@{skill_id!r}: {'removed' if removed else 'not found'}")
+def delete_tools() -> None:
+    print("==> Removing tools")
+    tools = json.loads(api_request("GET", "/tools"))
+    for tool in tools:
+        tool_type = tool["type"]
+        tool_id = tool.get("tool_id", tool.get("id"))
+        removed = api_delete_maybe(f"/tools/{tool_type}/{tool_id}")
+        print(f"  tool {tool_type}@{tool_id!r}: {'removed' if removed else 'not found'}")
 
 
 def delete_connections() -> None:
@@ -175,7 +175,7 @@ def drop_db_table() -> None:
 
 def main() -> int:
     delete_pipelines()
-    delete_skills()
+    delete_tools()
     delete_connections()
     delete_demo_providers()
 

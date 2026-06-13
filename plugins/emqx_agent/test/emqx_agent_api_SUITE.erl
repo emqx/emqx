@@ -5,7 +5,7 @@
 %% Simple integration tests for the agent REST API.
 %%
 %% Coverage:
-%%   Skills           — create (all four types), list, get, delete, validation
+%%   Tools           — create (all four types), list, get, delete, validation
 %%   Pipelines        — create, list, get, update, delete, validation
 %%
 %% Each test case starts from a clean registry state (see end_per_testcase).
@@ -79,54 +79,54 @@ t_ui_returns_html(_Config) ->
     ?assertEqual(AppJs, CompatAppJs).
 
 %%--------------------------------------------------------------------
-%% Skills — individual type tests
+%% Tools — individual type tests
 %%--------------------------------------------------------------------
 
-t_skill_publish_crud(Config) ->
+t_tool_publish_crud(Config) ->
     Id = ?config(tc_id, Config),
 
     ?assertMatch(
         {ok, 201, _},
-        api_post([agent, skills], #{
+        api_post([agent, tools], #{
             <<"type">> => <<"message__publish">>,
             <<"id">> => Id,
-            <<"desc">> => <<"test publish skill">>,
+            <<"desc">> => <<"test publish tool">>,
             <<"topic_prefix">> => <<"test/", Id/binary, "/">>
         })
     ),
 
     ?assertMatch(
         {ok, 200, #{<<"id">> := _, <<"type">> := <<"message__publish">>}},
-        api_get([agent, skills, <<"message__publish">>, Id])
+        api_get([agent, tools, <<"message__publish">>, Id])
     ),
 
-    {ok, 200, List} = api_get([agent, skills]),
+    {ok, 200, List} = api_get([agent, tools]),
     ?assert(lists:any(fun(S) -> maps:get(<<"id">>, S) =:= Id end, List)),
 
-    ?assertMatch({ok, 204}, api_delete([agent, skills, <<"message__publish">>, Id])),
-    ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"message__publish">>, Id])).
+    ?assertMatch({ok, 204}, api_delete([agent, tools, <<"message__publish">>, Id])),
+    ?assertMatch({ok, 404, _}, api_get([agent, tools, <<"message__publish">>, Id])).
 
-t_skill_schema_strings_are_accepted(Config) ->
+t_tool_schema_strings_are_accepted(Config) ->
     Id = ?config(tc_id, Config),
     PubId = <<Id/binary, "-pub">>,
     ReqId = <<Id/binary, "-req">>,
 
     ?assertMatch(
         {ok, 201, _},
-        api_post([agent, skills], #{
+        api_post([agent, tools], #{
             <<"type">> => <<"message__publish">>,
             <<"id">> => PubId,
-            <<"desc">> => <<"test publish skill">>,
+            <<"desc">> => <<"test publish tool">>,
             <<"topic_prefix">> => <<"test/pub/">>,
             <<"payload_schema">> => ?VALID_INPUT_SCHEMA
         })
     ),
     ?assertMatch(
         {ok, 201, _},
-        api_post([agent, skills], #{
+        api_post([agent, tools], #{
             <<"type">> => <<"message__request">>,
             <<"id">> => ReqId,
-            <<"desc">> => <<"test request skill">>,
+            <<"desc">> => <<"test request tool">>,
             <<"topic_prefix">> => <<"test/req/">>,
             <<"request_payload_schema">> => ?VALID_INPUT_SCHEMA
         })
@@ -134,14 +134,14 @@ t_skill_schema_strings_are_accepted(Config) ->
 
     ?assertMatch(
         {ok, 200, #{<<"payload_schema">> := ?VALID_INPUT_SCHEMA}},
-        api_get([agent, skills, <<"message__publish">>, PubId])
+        api_get([agent, tools, <<"message__publish">>, PubId])
     ),
     ?assertMatch(
         {ok, 200, #{<<"request_payload_schema">> := ?VALID_INPUT_SCHEMA}},
-        api_get([agent, skills, <<"message__request">>, ReqId])
+        api_get([agent, tools, <<"message__request">>, ReqId])
     ).
 
-t_skill_schema_maps_are_rejected(Config) ->
+t_tool_schema_maps_are_rejected(Config) ->
     Id = ?config(tc_id, Config),
     Schema = #{
         <<"type">> => <<"object">>,
@@ -152,24 +152,24 @@ t_skill_schema_maps_are_rejected(Config) ->
 
     ?assertMatch(
         {ok, 400, _},
-        api_post([agent, skills], #{
+        api_post([agent, tools], #{
             <<"type">> => <<"message__publish">>,
             <<"id">> => Id,
-            <<"desc">> => <<"test publish skill">>,
+            <<"desc">> => <<"test publish tool">>,
             <<"topic_prefix">> => <<"test/pub/">>,
             <<"payload_schema">> => Schema
         })
     ).
 
-t_skill_http_crud(Config) ->
+t_tool_http_crud(Config) ->
     Id = ?config(tc_id, Config),
 
     ?assertMatch(
         {ok, 201, _},
-        api_post([agent, skills], #{
+        api_post([agent, tools], #{
             <<"type">> => <<"http">>,
             <<"id">> => Id,
-            <<"desc">> => <<"test http skill">>,
+            <<"desc">> => <<"test http tool">>,
             <<"method">> => <<"post">>,
             <<"url">> => <<"http://stub:8080/api">>,
             <<"input_schema">> => ?VALID_INPUT_SCHEMA
@@ -178,23 +178,23 @@ t_skill_http_crud(Config) ->
 
     ?assertMatch(
         {ok, 200, #{<<"id">> := _, <<"type">> := <<"http">>}},
-        api_get([agent, skills, <<"http">>, Id])
+        api_get([agent, tools, <<"http">>, Id])
     ),
 
-    ?assertMatch({ok, 204}, api_delete([agent, skills, <<"http">>, Id])),
-    ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"http">>, Id])).
+    ?assertMatch({ok, 204}, api_delete([agent, tools, <<"http">>, Id])),
+    ?assertMatch({ok, 404, _}, api_get([agent, tools, <<"http">>, Id])).
 
-t_skill_postgresql_crud(Config) ->
+t_tool_postgresql_crud(Config) ->
     Id = ?config(tc_id, Config),
     ConnId = <<Id/binary, "-conn">>,
     ?assertMatch({ok, 201, _}, api_post([agent, connections], pg_conn_body(ConnId))),
 
     ?assertMatch(
         {ok, 201, _},
-        api_post([agent, skills], #{
+        api_post([agent, tools], #{
             <<"type">> => <<"postgresql__query">>,
             <<"id">> => Id,
-            <<"desc">> => <<"test postgresql skill">>,
+            <<"desc">> => <<"test postgresql tool">>,
             <<"resource">> => ConnId,
             <<"query">> => <<"SELECT 1">>
         })
@@ -202,11 +202,11 @@ t_skill_postgresql_crud(Config) ->
 
     ?assertMatch(
         {ok, 200, #{<<"id">> := _, <<"type">> := <<"postgresql__query">>}},
-        api_get([agent, skills, <<"postgresql__query">>, Id])
+        api_get([agent, tools, <<"postgresql__query">>, Id])
     ),
 
-    ?assertMatch({ok, 204}, api_delete([agent, skills, <<"postgresql__query">>, Id])),
-    ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"postgresql__query">>, Id])).
+    ?assertMatch({ok, 204}, api_delete([agent, tools, <<"postgresql__query">>, Id])),
+    ?assertMatch({ok, 404, _}, api_get([agent, tools, <<"postgresql__query">>, Id])).
 
 %%--------------------------------------------------------------------
 %% Connections
@@ -267,10 +267,10 @@ t_connection_delete_in_use(Config) ->
     ?assertMatch({ok, 201, _}, api_post([agent, connections], pg_conn_body(ConnId))),
     ?assertMatch(
         {ok, 201, _},
-        api_post([agent, skills], #{
+        api_post([agent, tools], #{
             <<"type">> => <<"postgresql__query">>,
             <<"id">> => Id,
-            <<"desc">> => <<"test postgresql skill">>,
+            <<"desc">> => <<"test postgresql tool">>,
             <<"resource">> => ConnId,
             <<"query">> => <<"SELECT 1">>
         })
@@ -278,17 +278,17 @@ t_connection_delete_in_use(Config) ->
     ?assertMatch({ok, 409, _}, api_delete([agent, connections, ConnId])).
 
 %%--------------------------------------------------------------------
-%% Skills — list and validation
+%% Tools — list and validation
 %%--------------------------------------------------------------------
 
-t_skills_list(Config) ->
+t_tools_list(Config) ->
     Id = ?config(tc_id, Config),
 
-    {ok, 200, []} = api_get([agent, skills]),
+    {ok, 200, []} = api_get([agent, tools]),
 
     ?assertMatch(
         {ok, 201, _},
-        api_post([agent, skills], #{
+        api_post([agent, tools], #{
             <<"type">> => <<"message__publish">>,
             <<"id">> => Id,
             <<"desc">> => <<"list test">>,
@@ -296,18 +296,18 @@ t_skills_list(Config) ->
         })
     ),
 
-    {ok, 200, [Entry]} = api_get([agent, skills]),
+    {ok, 200, [Entry]} = api_get([agent, tools]),
     ?assertEqual(Id, maps:get(<<"id">>, Entry)).
 
-t_skill_statuses(Config) ->
+t_tool_statuses(Config) ->
     Id = ?config(tc_id, Config),
 
     ?assertMatch(
         {ok, 201, _},
-        api_post([agent, skills], #{
+        api_post([agent, tools], #{
             <<"type">> => <<"postgresql__query">>,
             <<"id">> => Id,
-            <<"desc">> => <<"bad postgresql skill">>,
+            <<"desc">> => <<"bad postgresql tool">>,
             <<"resource">> => <<"missing-connection">>,
             <<"query">> => <<"SELECT 1">>
         })
@@ -321,21 +321,21 @@ t_skill_statuses(Config) ->
                 <<"error">> := _
             }
         }},
-        api_get([agent, skills, statuses])
+        api_get([agent, tools, statuses])
     ),
-    ?assertEqual({error, not_found}, emqx_agent_skill_registry:lookup(<<"postgresql__query">>, Id)).
+    ?assertEqual({error, not_found}, emqx_agent_tool_registry:lookup(<<"postgresql__query">>, Id)).
 
-t_skills_validation(_Config) ->
+t_tools_validation(_Config) ->
     %% Missing type field
     ?assertMatch(
         {ok, 400, _},
-        api_post([agent, skills], #{<<"id">> => <<"x">>, <<"desc">> => <<"x">>})
+        api_post([agent, tools], #{<<"id">> => <<"x">>, <<"desc">> => <<"x">>})
     ),
 
-    %% Unknown skill type
+    %% Unknown tool type
     ?assertMatch(
         {ok, 400, _},
-        api_post([agent, skills], #{
+        api_post([agent, tools], #{
             <<"type">> => <<"no_such_type">>,
             <<"id">> => <<"x">>,
             <<"desc">> => <<"x">>
@@ -345,7 +345,7 @@ t_skills_validation(_Config) ->
     %% message__publish missing topic_prefix
     ?assertMatch(
         {ok, 400, _},
-        api_post([agent, skills], #{
+        api_post([agent, tools], #{
             <<"type">> => <<"message__publish">>,
             <<"id">> => <<"x">>,
             <<"desc">> => <<"x">>
@@ -355,7 +355,7 @@ t_skills_validation(_Config) ->
     %% http missing method
     ?assertMatch(
         {ok, 400, _},
-        api_post([agent, skills], #{
+        api_post([agent, tools], #{
             <<"type">> => <<"http">>,
             <<"id">> => <<"x">>,
             <<"desc">> => <<"x">>,
@@ -364,8 +364,8 @@ t_skills_validation(_Config) ->
         })
     ),
 
-    ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"message__publish">>, <<"no_such">>])),
-    ?assertMatch({ok, 404, _}, api_delete([agent, skills, <<"message__publish">>, <<"no_such">>])).
+    ?assertMatch({ok, 404, _}, api_get([agent, tools, <<"message__publish">>, <<"no_such">>])),
+    ?assertMatch({ok, 404, _}, api_delete([agent, tools, <<"message__publish">>, <<"no_such">>])).
 
 %%--------------------------------------------------------------------
 %% Pipelines
@@ -377,7 +377,7 @@ t_pipelines_crud(Config) ->
     {ok, 200, []} = api_get([agent, pipelines]),
     ?assertMatch(
         {ok, 201, _},
-        api_post([agent, skills], #{
+        api_post([agent, tools], #{
             <<"type">> => <<"message__publish">>,
             <<"id">> => Id,
             <<"desc">> => <<"Pipeline CRUD publisher">>,
@@ -393,8 +393,8 @@ t_pipelines_crud(Config) ->
         <<"steps">> => [
             #{
                 <<"id">> => <<"step1">>,
-                <<"type">> => <<"call_skill">>,
-                <<"skill">> => <<"message__publish@", Id/binary>>,
+                <<"type">> => <<"call_tool">>,
+                <<"tool">> => <<"message__publish@", Id/binary>>,
                 <<"args">> => #{<<"topic">> => <<"out">>, <<"payload">> => <<"hi">>},
                 <<"result_path">> => <<"$.result">>
             }
@@ -421,8 +421,8 @@ t_pipelines_crud(Config) ->
                 },
                 #{
                     <<"id">> => <<"step3">>,
-                    <<"type">> => <<"call_skill">>,
-                    <<"skill">> => <<"message__publish@", Id/binary>>,
+                    <<"type">> => <<"call_tool">>,
+                    <<"tool">> => <<"message__publish@", Id/binary>>,
                     <<"args">> => #{<<"topic">> => <<"out2">>, <<"payload">> => <<"bye">>},
                     <<"result_path">> => <<"$.result2">>
                 }

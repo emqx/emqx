@@ -14,24 +14,24 @@
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_agent_sup:start_link(),
     ok = emqx_agent_config:init_config(),
-    ok = emqx_agent_skill_registry:reconcile(),
-    ok = emqx_agent_skill_connections:init(),
-    ok = emqx_agent_skill:init(),
+    ok = emqx_agent_tool_registry:reconcile(),
+    ok = emqx_agent_tool_connections:init(),
+    ok = emqx_agent_tool:init(),
     ok = emqx_agent_session:init(),
     ok = emqx_agent_pipeline_mgr:init(),
     {ok, Sup}.
 
 stop(_State) ->
-    ok = emqx_agent_skill:deinit(),
-    ok = emqx_agent_skill_connections:deinit(),
+    ok = emqx_agent_tool:deinit(),
+    ok = emqx_agent_tool_connections:deinit(),
     ok = emqx_agent_session:deinit(),
     ok = emqx_agent_pipeline_mgr:deinit(),
     ok = emqx_agent_config:clear_config_schema().
 
 on_config_changed(OldConfig, NewConfig) ->
     ok = emqx_agent_config:update_config(OldConfig, NewConfig),
-    ok = emqx_agent_skill_registry:reconcile(),
-    emqx_agent_skill_connections:reconcile().
+    ok = emqx_agent_tool_registry:reconcile(),
+    emqx_agent_tool_connections:reconcile().
 
 on_health_check(_Options) ->
     ok.

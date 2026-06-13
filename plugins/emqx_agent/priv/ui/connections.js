@@ -164,7 +164,7 @@ export async function stopConnection(id) {
 }
 
 export function renderConnectionOptions() {
-  const sel = document.getElementById('skill-resource');
+  const sel = document.getElementById('tool-resource');
   if (!sel) return;
   const current = sel.value;
   const pg = loadedConnections.filter(c => c.type === 'postgresql');
