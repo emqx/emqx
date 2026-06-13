@@ -66,17 +66,26 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
-%% See `jiffy:encode_options()`.
 -type encode_options() :: [encode_option()].
 -type encode_option() :: uescape | pretty | force_utf8.
 
-%% See `jiffy:decode_options()`.
 -type decode_options() :: [decode_option()].
+%% `return_trailer | dedupe_keys | copy_strings' are accepted but ignored;
+%% they were jiffy-specific. `return_maps' is the default and accepted as a no-op.
 -type decode_option() :: return_maps | return_trailer | dedupe_keys | copy_strings.
 
 -type json_text() :: iolist() | binary().
--type json_term() :: jiffy:json_value().
--type json_term_proplist() :: jiffy:json_value() | [{atom() | binary(), json_term_proplist()}].
+-type json_term() ::
+    null
+    | boolean()
+    | binary()
+    | number()
+    | atom()
+    | [json_term()]
+    | #{atom() | binary() => json_term()}
+    %% jiffy-style ejson object (preserved for backward compatibility):
+    | {[{atom() | binary(), json_term()}]}.
+-type json_term_proplist() :: json_term() | [{atom() | binary(), json_term_proplist()}].
 
 -export_type([json_text/0, json_term/0]).
 -export_type([decode_options/0, encode_options/0]).
@@ -87,7 +96,7 @@ encode(Term) ->
 
 -spec encode(json_term(), encode_options()) -> json_text().
 encode(Term, Opts) ->
-    to_binary(jiffy:encode(Term, Opts)).
+    do_encode(Term, false, Opts).
 
 -spec encode_proplist(json_term_proplist()) -> json_text().
 encode_proplist(Term) ->
@@ -95,7 +104,20 @@ encode_proplist(Term) ->
 
 -spec encode_proplist(json_term_proplist(), encode_options()) -> json_text().
 encode_proplist(Term, Opts) ->
-    to_binary(jiffy:encode(to_ejson(Term), Opts)).
+    %% `proplist' mode makes the encoder treat any `[{K, V}, ...]' list as a
+    %% JSON object, so no pre-pass conversion of the term is needed.
+    do_encode(Term, true, Opts).
+
+%% `pretty' is rendered by OTP's `json:format/3' (2-space indent); otherwise the
+%% compact `json:encode/2' is used. Both share the same custom callback behavior
+%% for ejson tuples, proplist mode, `uescape', and `force_utf8'.
+do_encode(Term, Proplist, Opts) ->
+    case lists:member(pretty, Opts) of
+        true ->
+            iolist_to_binary(json:format(Term, formatter(Opts, Proplist), #{}));
+        false ->
+            iolist_to_binary(json:encode(Term, encoder(Opts, Proplist)))
+    end.
 
 -spec safe_encode(json_term()) ->
     {ok, json_text()} | {error, Reason :: term()}.
@@ -118,11 +140,99 @@ decode(Json) ->
 
 -spec decode(json_text(), decode_options()) -> json_term().
 decode(Json, Opts) ->
-    jiffy:decode(Json, Opts).
+    Bin = to_binary(Json),
+    Decoders =
+        case lists:member(return_maps, Opts) of
+            true ->
+                map_decoders();
+            false ->
+                %% Empty option list keeps the jiffy-era behavior of returning
+                %% ejson form and preserving object key order.
+                ejson_decoders()
+        end,
+    try json:decode(Bin, [], Decoders) of
+        {Term, _Acc, <<>>} ->
+            Term;
+        {_Term, _Acc, Trailer} ->
+            %% `json:decode/3' consumes trailing whitespace but returns any other
+            %% remaining bytes as a trailer instead of rejecting them (unlike
+            %% `json:decode/1'). Reject so trailing garbage is an error too.
+            Pos = byte_size(Bin) - byte_size(Trailer),
+            erlang:error({Pos, invalid_trailing_data})
+    catch
+        error:Reason:Stacktrace ->
+            erlang:error(jiffy_compat_error(Reason, Stacktrace, Bin))
+    end.
+
+%% Translate OTP `json' decode errors into jiffy's `{Position, Reason}' shape.
+%% Several call sites pattern-match that shape — e.g. `emqx_schema:to_json_binary/1'
+%% maps the reason atom to a human-readable message and `emqx_ft_storage_exporter_fs'
+%% matches `{Loc, Atom}' — so keeping it makes the jiffy -> OTP json migration
+%% transparent. Position is best-effort (and ignored by current call sites); the
+%% reason atoms mirror jiffy's vocabulary.
+jiffy_compat_error(unexpected_end, _Stacktrace, Bin) ->
+    {byte_size(Bin), truncated_json};
+jiffy_compat_error({invalid_byte, Byte}, Stacktrace, _Bin) ->
+    {error_position(Stacktrace), classify_invalid_byte(Byte)};
+jiffy_compat_error({unexpected_sequence, _}, Stacktrace, _Bin) ->
+    {error_position(Stacktrace), invalid_string};
+jiffy_compat_error(Reason, Stacktrace, _Bin) when is_atom(Reason) ->
+    {error_position(Stacktrace), Reason};
+jiffy_compat_error(_Reason, Stacktrace, _Bin) ->
+    {error_position(Stacktrace), invalid_json}.
+
+%% A stray ASCII letter where a JSON value is expected is almost always a
+%% mistyped `true'/`false'/`null' literal, which jiffy reports as `invalid_literal';
+%% any other unexpected byte is a structural error (`invalid_json').
+classify_invalid_byte(Byte) when
+    (Byte >= $a andalso Byte =< $z) orelse (Byte >= $A andalso Byte =< $Z)
+->
+    invalid_literal;
+classify_invalid_byte(_Byte) ->
+    invalid_json.
+
+%% OTP attaches the failing byte offset under `error_info' in the stacktrace.
+error_position(Stacktrace) ->
+    case lists:filtermap(fun frame_position/1, Stacktrace) of
+        [Pos | _] -> Pos;
+        [] -> 0
+    end.
+
+frame_position({_M, _F, _A, Opts}) ->
+    case lists:keyfind(error_info, 1, Opts) of
+        {error_info, #{cause := #{position := Pos}}} -> {true, Pos};
+        _ -> false
+    end;
+frame_position(_) ->
+    false.
+
+%% Decoders for the default `return_maps' path.
+%%
+%% OTP's native `json:decode/1' resolves duplicate object keys as first-wins,
+%% whereas jiffy — and the de-facto convention followed by JavaScript, Python,
+%% Go, ... — is last-wins. We override `object_finish' to restore last-wins so
+%% the migration stays behavior-compatible.
+%%
+%% `object_push' is left as OTP's inline default (it prepends each pair, so the
+%% accumulator ends up in reverse document order). `lists:reverse' restores
+%% document order before `maps:from_list', which keeps the rightmost value for a
+%% duplicated key — i.e. the last occurrence wins. Only `object_finish' is
+%% customised, so `object_push' stays on the native fast path; the sole added
+%% cost is one `lists:reverse/1' per object.
+map_decoders() ->
+    #{
+        object_finish => fun(Acc, OldAcc) -> {maps:from_list(lists:reverse(Acc)), OldAcc} end
+    }.
+
+ejson_decoders() ->
+    #{
+        object_push => fun(K, V, Acc) -> [{K, V} | Acc] end,
+        object_finish => fun(Acc, OldAcc) -> {{lists:reverse(Acc)}, OldAcc} end
+    }.
 
 -spec decode_proplist(json_text()) -> json_term_proplist().
 decode_proplist(Json) ->
-    from_ejson(jiffy:decode(Json, [])).
+    from_ejson(decode(Json, [])).
 
 -spec safe_decode(json_text()) ->
     {ok, json_term()} | {error, Reason :: term()}.
@@ -248,24 +358,89 @@ json_key(Term) ->
     end.
 
 %%--------------------------------------------------------------------
+%% Encoder
+%%--------------------------------------------------------------------
+
+%% Custom encoder fun for `json:encode/2`. Handles:
+%%   * jiffy-style ejson objects `{[]}` and `{[{K, V}, ...]}`.
+%%   * `Proplist' mode (set by `encode_proplist') — also treat any
+%%     `[{K, V}, ...]' list as a JSON object.
+%%   * `uescape` — escape every non-ASCII codepoint as `\uXXXX`.
+%%   * `force_utf8` — replace invalid UTF-8 bytes with U+FFFD instead of crashing.
+encoder(Opts, Proplist) ->
+    Uescape = lists:member(uescape, Opts),
+    ForceUtf8 = lists:member(force_utf8, Opts),
+    fun
+        ({[]}, _Enc) ->
+            <<"{}">>;
+        ({L}, Enc) when is_list(L) ->
+            json:encode_key_value_list(L, Enc);
+        (B, _Enc) when is_binary(B) ->
+            encode_binary(B, Uescape, ForceUtf8);
+        ([{_, _} | _] = L, Enc) when Proplist ->
+            json:encode_key_value_list(L, Enc);
+        (Other, Enc) ->
+            json:encode_value(Other, Enc)
+    end.
+
+%% Custom formatter fun for `json:format/3' (pretty printing). Same handling as
+%% `encoder/2', but uses the `format_*' callbacks which carry indentation state.
+formatter(Opts, Proplist) ->
+    Uescape = lists:member(uescape, Opts),
+    ForceUtf8 = lists:member(force_utf8, Opts),
+    fun
+        ({[]}, _Enc, _State) ->
+            <<"{}">>;
+        ({L}, Enc, State) when is_list(L) ->
+            json:format_key_value_list(L, Enc, State);
+        (B, _Enc, _State) when is_binary(B) ->
+            encode_binary(B, Uescape, ForceUtf8);
+        ([{_, _} | _] = L, Enc, State) when Proplist ->
+            json:format_key_value_list(L, Enc, State);
+        (Other, Enc, State) ->
+            json:format_value(Other, Enc, State)
+    end.
+
+encode_binary(B, Uescape, ForceUtf8) ->
+    B1 =
+        case ForceUtf8 of
+            true -> sanitize_utf8(B);
+            false -> B
+        end,
+    case Uescape of
+        true -> json:encode_binary_escape_all(B1);
+        false -> json:encode_binary(B1)
+    end.
+
+%% Replace invalid UTF-8 byte sequences with the Unicode replacement character
+%% U+FFFD, matching jiffy's `force_utf8` behavior. Returns the original binary
+%% unchanged when it is already valid UTF-8.
+sanitize_utf8(B) ->
+    case is_valid_utf8(B) of
+        true -> B;
+        false -> do_sanitize_utf8(B, <<>>)
+    end.
+
+is_valid_utf8(<<>>) -> true;
+is_valid_utf8(<<_/utf8, R/binary>>) -> is_valid_utf8(R);
+is_valid_utf8(_) -> false.
+
+do_sanitize_utf8(<<>>, Acc) ->
+    Acc;
+do_sanitize_utf8(<<C/utf8, R/binary>>, Acc) ->
+    do_sanitize_utf8(R, <<Acc/binary, C/utf8>>);
+do_sanitize_utf8(<<_:8, R/binary>>, Acc) ->
+    do_sanitize_utf8(R, <<Acc/binary, 16#FFFD/utf8>>).
+
+%%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
 
 -compile(
     {inline, [
-        to_ejson/1,
         from_ejson/1
     ]}
 ).
-
-to_ejson([{_, _} | _] = L) ->
-    {[{K, to_ejson(V)} || {K, V} <- L]};
-to_ejson(L) when is_list(L) ->
-    [to_ejson(E) || E <- L];
-to_ejson(M) when is_map(M) ->
-    maps:map(fun(_K, V) -> to_ejson(V) end, M);
-to_ejson(T) ->
-    T.
 
 from_ejson(L) when is_list(L) ->
     [from_ejson(E) || E <- L];
@@ -295,20 +470,19 @@ best_effort_unicode(Input, Config) ->
 
 -ifdef(TEST).
 
-%% NOTE: pretty-printing format is asserted in the test
-%% This affects the CLI output format, consult the team before changing
-%% the format.
+%% NOTE: pretty-printing is delegated to OTP's `json:format/3'; the format is
+%% asserted here because it affects the CLI/HTTP output.
 best_effort_json_test() ->
     ?assertEqual(
-        <<"{\n  \n}">>,
+        <<"{}\n">>,
         best_effort_json([])
     ),
     ?assertEqual(
-        <<"{\n  \"key\" : [\n    \n  ]\n}">>,
+        <<"{\n  \"key\": []\n}\n">>,
         best_effort_json(#{key => []})
     ),
     ?assertEqual(
-        <<"[\n  {\n    \"key\" : [\n      \n    ]\n  }\n]">>,
+        <<"[\n  {\n    \"key\": []\n  }\n]\n">>,
         best_effort_json([#{key => []}])
     ),
     %% List is IO Data
@@ -360,5 +534,60 @@ iolist_test() ->
     Concat = #{<<"iolist">> => <<"ab">>},
     Encoded = emqx_utils_json:encode(json(Iolist, config())),
     ?assertEqual(Concat, emqx_utils_json:decode(Encoded)).
+
+encode_pretty_empty_object_test() ->
+    ?assertEqual(<<"{}\n">>, encode(#{}, [pretty])).
+
+encode_force_utf8_handles_invalid_bytes_test() ->
+    Invalid = <<255, 254, 253>>,
+    Encoded = encode(Invalid, [force_utf8]),
+    %% Round-trips to a valid binary without crashing.
+    ?assertMatch(B when is_binary(B), decode(Encoded)).
+
+encode_uescape_escapes_non_ascii_test() ->
+    ?assertEqual(<<"\"h\\u00E9llo\"">>, encode(<<"héllo"/utf8>>, [uescape])).
+
+decode_object_returns_map_test() ->
+    ?assertEqual(#{<<"a">> => 1}, decode(<<"{\"a\":1}">>)).
+
+decode_invalid_json_throws_under_decode_test() ->
+    ?assertError(_, decode(<<"not-json">>)).
+
+decode_duplicate_key_last_wins_test() ->
+    %% In map form the last occurrence wins, matching jiffy / the de-facto
+    %% convention. The ejson form keeps every pair (it is a proplist).
+    ?assertEqual(#{<<"k">> => 2}, decode(<<"{\"k\":1,\"k\":2}">>)),
+    ?assertEqual({[{<<"k">>, 1}, {<<"k">>, 2}]}, decode(<<"{\"k\":1,\"k\":2}">>, [])).
+
+decode_rejects_trailing_garbage_test() ->
+    ?assertError({_, invalid_trailing_data}, decode(<<"{}x">>)),
+    ?assertError({_, invalid_trailing_data}, decode(<<"{}x">>, [])).
+
+decode_allows_trailing_whitespace_test() ->
+    ?assertEqual(#{}, decode(<<"{} \n\t">>)),
+    ?assertEqual({[]}, decode(<<"{} \n\t">>, [])).
+
+%% Decode errors keep jiffy's `{Position, Reason}' shape so callers that
+%% pattern-match the reason atom (e.g. emqx_schema:to_json_binary/1) keep working.
+decode_error_shape_test() ->
+    ?assertMatch({error, {_, truncated_json}}, safe_decode(<<"{">>)),
+    ?assertMatch({error, {_, invalid_literal}}, safe_decode(<<"not valid">>)),
+    ?assertMatch({error, {_, invalid_json}}, safe_decode(<<"[1 2]">>)),
+    ?assertMatch({error, {_, invalid_trailing_data}}, safe_decode(<<"{}x">>)).
+
+safe_decode_returns_error_test() ->
+    ?assertMatch({error, _}, safe_decode(<<"not-json">>)).
+
+encode_proplist_roundtrip_test() ->
+    %% `decode_proplist/1` strips jiffy's outer 1-tuple wrapper, matching the
+    %% pre-existing SUITE expectations in `emqx_utils_json_SUITE`.
+    ?assertEqual(
+        [{<<"k">>, 1}],
+        decode_proplist(encode_proplist({[{<<"k">>, 1}]}))
+    ).
+
+is_json_basic_test() ->
+    ?assert(is_json(<<"{}">>)),
+    ?assertNot(is_json(<<"not-json">>)).
 
 -endif.

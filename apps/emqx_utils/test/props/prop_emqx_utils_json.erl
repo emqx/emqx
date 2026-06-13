@@ -103,13 +103,15 @@ prop_object_map_to_proplist() ->
         T0,
         json_object_map(),
         begin
-            %% jiffy encode a map with descending order, that is,
-            %% it is opposite with maps traversal sequence
-            %% see: the `to_list` implementation
-            T = to_list(T0),
+            %% Key order within a JSON object is not significant, and the native
+            %% encoder's map traversal order need not match any particular
+            %% proplist order. Verify the `[]' (ejson) decode roundtrips by
+            %% normalising the decoded proplist back to a map before comparing.
             {ok, J} = safe_encode(T0),
-            {ok, T} = safe_decode(J, []),
-            T = decode(encode(T0), []),
+            {ok, P1} = safe_decode(J, []),
+            P2 = decode(encode(T0), []),
+            T0 = to_map(P1),
+            T0 = to_map(P2),
             true
         end
     ).
@@ -149,19 +151,6 @@ to_map({L}) when is_list(L) ->
 to_map(L) when is_list(L) ->
     [to_map(E) || E <- L];
 to_map(T) ->
-    T.
-
-to_list(L) when is_list(L) ->
-    [to_list(E) || E <- L];
-to_list(M) when is_map(M) ->
-    {maps:fold(
-        fun(K, V, Acc) ->
-            [{K, to_list(V)} | Acc]
-        end,
-        [],
-        M
-    )};
-to_list(T) ->
     T.
 
 %%--------------------------------------------------------------------
