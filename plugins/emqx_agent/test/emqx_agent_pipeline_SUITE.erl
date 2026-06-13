@@ -66,7 +66,9 @@ maybe_deinit_session_hook(TestCase) when
     TestCase =:= t_set_result_writes_to_context;
     TestCase =:= t_llm_loop_final_without_set_result_fails;
     TestCase =:= t_persistent_llm_loop_ignores_other_iid_frames;
-    TestCase =:= t_llm_loop_custom_key_expression
+    TestCase =:= t_llm_loop_custom_key_expression;
+    TestCase =:= t_llm_loop_key_expression_can_share_across_pipelines;
+    TestCase =:= t_llm_loop_key_expression_can_isolate_by_pipeline_and_step
 ->
     ok = emqx_agent_session:deinit();
 maybe_deinit_session_hook(_TestCase) ->
@@ -76,7 +78,9 @@ maybe_restore_session_hook(TestCase) when
     TestCase =:= t_set_result_writes_to_context;
     TestCase =:= t_llm_loop_final_without_set_result_fails;
     TestCase =:= t_persistent_llm_loop_ignores_other_iid_frames;
-    TestCase =:= t_llm_loop_custom_key_expression
+    TestCase =:= t_llm_loop_custom_key_expression;
+    TestCase =:= t_llm_loop_key_expression_can_share_across_pipelines;
+    TestCase =:= t_llm_loop_key_expression_can_isolate_by_pipeline_and_step
 ->
     ok = emqx_agent_session:init();
 maybe_restore_session_hook(_TestCase) ->
@@ -622,6 +626,77 @@ t_llm_loop_custom_key_expression(Config) ->
     Ctx = maps:get(<<"context">>, Completed),
     ?assertEqual(#{<<"status">> => <<"ok">>}, maps:get(<<"result">>, Ctx)).
 
+t_llm_loop_key_expression_can_share_across_pipelines(Config) ->
+    PipelineId1 = ?config(pipeline_id, Config),
+    PipelineId2 = <<PipelineId1/binary, "-other">>,
+    TrigTopic1 = <<"$evt/test/", PipelineId1/binary>>,
+    TrigTopic2 = <<"$evt/test/", PipelineId2/binary>>,
+    StepId = <<"llm">>,
+    From = atom_to_binary(?MODULE, utf8),
+    Sid = persistent_sid(PipelineId1, StepId, From),
+    SessInTopic = emqx_agent_topics:sess_in_topic(Sid),
+    ok = emqx:subscribe(SessInTopic),
+    Step = persistent_llm_step(StepId, #{<<"key_expression">> => <<"message.from">>}),
+    register_pipeline(PipelineId1, TrigTopic1, [Step]),
+    register_pipeline(PipelineId2, TrigTopic2, [Step]),
+
+    publish_evt(TrigTopic1, #{<<"id">> => <<"shared-1">>}),
+    Started1 = recv_pipe_event(PipelineId1),
+    Iid1 = maps:get(<<"iid">>, Started1),
+    _Request1 = recv_sess_request(Sid),
+
+    publish_evt(TrigTopic2, #{<<"id">> => <<"shared-2">>}),
+    Started2 = recv_pipe_event(PipelineId2),
+    Iid2 = maps:get(<<"iid">>, Started2),
+    _Request2 = recv_sess_request(Sid),
+    ok = emqx:unsubscribe(SessInTopic),
+
+    SessOutTopic = emqx_agent_topics:sess_out_topic(Sid),
+    complete_llm_step(SessOutTopic, Iid1, <<"shared-1">>),
+    Completed1 = recv_pipe_event(PipelineId1),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>, <<"iid">> := Iid1}, Completed1),
+    complete_llm_step(SessOutTopic, Iid2, <<"shared-2">>),
+    Completed2 = recv_pipe_event(PipelineId2),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>, <<"iid">> := Iid2}, Completed2).
+
+t_llm_loop_key_expression_can_isolate_by_pipeline_and_step(Config) ->
+    PipelineId1 = ?config(pipeline_id, Config),
+    PipelineId2 = <<PipelineId1/binary, "-other">>,
+    TrigTopic1 = <<"$evt/test/", PipelineId1/binary>>,
+    TrigTopic2 = <<"$evt/test/", PipelineId2/binary>>,
+    StepId = <<"llm">>,
+    From = atom_to_binary(?MODULE, utf8),
+    KeyExpression = <<"concat([pipeline.id, step.id, message.from])">>,
+    Sid1 = persistent_sid(PipelineId1, StepId, <<PipelineId1/binary, StepId/binary, From/binary>>),
+    Sid2 = persistent_sid(PipelineId2, StepId, <<PipelineId2/binary, StepId/binary, From/binary>>),
+    ?assertNotEqual(Sid1, Sid2),
+    SessInTopic1 = emqx_agent_topics:sess_in_topic(Sid1),
+    SessInTopic2 = emqx_agent_topics:sess_in_topic(Sid2),
+    ok = emqx:subscribe(SessInTopic1),
+    ok = emqx:subscribe(SessInTopic2),
+    Step = persistent_llm_step(StepId, #{<<"key_expression">> => KeyExpression}),
+    register_pipeline(PipelineId1, TrigTopic1, [Step]),
+    register_pipeline(PipelineId2, TrigTopic2, [Step]),
+
+    publish_evt(TrigTopic1, #{<<"id">> => <<"isolated-1">>}),
+    Started1 = recv_pipe_event(PipelineId1),
+    Iid1 = maps:get(<<"iid">>, Started1),
+    _Request1 = recv_sess_request(Sid1),
+
+    publish_evt(TrigTopic2, #{<<"id">> => <<"isolated-2">>}),
+    Started2 = recv_pipe_event(PipelineId2),
+    Iid2 = maps:get(<<"iid">>, Started2),
+    _Request2 = recv_sess_request(Sid2),
+    ok = emqx:unsubscribe(SessInTopic1),
+    ok = emqx:unsubscribe(SessInTopic2),
+
+    complete_llm_step(emqx_agent_topics:sess_out_topic(Sid1), Iid1, <<"isolated-1">>),
+    Completed1 = recv_pipe_event(PipelineId1),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>, <<"iid">> := Iid1}, Completed1),
+    complete_llm_step(emqx_agent_topics:sess_out_topic(Sid2), Iid2, <<"isolated-2">>),
+    Completed2 = recv_pipe_event(PipelineId2),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>, <<"iid">> := Iid2}, Completed2).
+
 %% Unregistered pipeline definitions must not trigger new instances.
 t_unregistered_pipeline_not_triggered(Config) ->
     PipelineId = ?config(pipeline_id, Config),
@@ -729,9 +804,38 @@ start_pipeline_direct(PipelineId, TrigTopic, Steps, Event) ->
 trigger_message(Topic, Event) ->
     emqx_message:make(?MODULE, 0, Topic, emqx_utils_json:encode(Event)).
 
-persistent_sid(PipelineId, StepId, Key) ->
-    <<"pipe-",
-        (emqx_base62:encode(<<PipelineId/binary, 0, StepId/binary, 0, Key/binary>>))/binary>>.
+persistent_sid(_PipelineId, _StepId, Key) ->
+    <<"pipe-", (emqx_base62:encode(Key))/binary>>.
+
+persistent_llm_step(StepId, Overrides) ->
+    maps:merge(
+        #{
+            <<"id">> => StepId,
+            <<"type">> => <<"llm_loop">>,
+            <<"model">> => <<"test-model">>,
+            <<"instructions">> => <<"test">>,
+            <<"provider_name">> => <<"test-provider">>,
+            <<"persistent">> => true,
+            <<"tools">> => [],
+            <<"input">> => #{},
+            <<"set_result_schema">> => set_result_schema(),
+            <<"result_path">> => <<"$.result">>
+        },
+        Overrides
+    ).
+
+complete_llm_step(SessOutTopic, Iid, Status) ->
+    publish_frame(SessOutTopic, #{
+        <<"type">> => <<"tool_request">>,
+        <<"iid">> => Iid,
+        <<"call_id">> => <<"set-result-", Status/binary>>,
+        <<"tool">> => <<"set_result">>,
+        <<"args">> => #{<<"status">> => Status}
+    }),
+    publish_frame(SessOutTopic, #{
+        <<"type">> => <<"final">>,
+        <<"iid">> => Iid
+    }).
 
 setup_publish_tool(ToolId) ->
     ok = emqx_agent_service:tool_create(#{

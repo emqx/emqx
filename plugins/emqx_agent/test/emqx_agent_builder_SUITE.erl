@@ -58,10 +58,16 @@
     Providers are pre-created by administrators and are not modified by agent tools.
 
     A PIPELINE reacts to MQTT events and executes an ordered list of steps.
-    Steps can call tools, run LLM reasoning loops, wait for more MQTT events,
-    or break out early based on conditions.
-    Every trigger event spawns a new pipeline INSTANCE that runs the steps in sequence.
+    It is not an agent loop. EMQX/MQTT is event-based, so the outer loop is
+    implicit in message publication, hooks, subscriptions, and routing.
+    Every trigger event spawns a new one-shot pipeline INSTANCE that runs the
+    steps in sequence.
     Trigger topics MUST use the $evt/ prefix (e.g., $evt/conveyor/+/box/done).
+
+    A SESSION is the context keeper for LLM work. It owns conversation history,
+    pending events, queued requests, tool-call state, and usage counters. An
+    llm_loop step sends work to a session and waits for the session's final
+    frame; the pipeline itself does not keep the long-running agent context.
 
     ═══════════════════════════════════════════════════════
     HOW TOOLS, PROVIDERS, AND PIPELINES FIT TOGETHER
@@ -122,7 +128,7 @@
        "set_result_schema": "{\"type\":\"object\",\"properties\":{\"verdict\":{\"type\":\"string\"}},\"required\":[\"verdict\"],\"additionalProperties\":false}",
        "result_path": "$.analysis"}
 
-    persistent: false = ephemeral session (default). true = persistent across triggers with the same step key.
+    persistent: false = fresh session per trigger (default). true = persistent context across triggers with the same step key.
 
     When creating an llm_loop step, use model "gpt-5.4-mini" unless the user explicitly
     requests another model. Do not invent a model name.
@@ -142,23 +148,26 @@
     LLM STEP KEY
     ═══════════════════════════════════════════════════════
 
-    key_expression is an llm_loop step field evaluated against MQTT message metadata.
-    It is not evaluated against pipeline context. The only root binding is message.
+    key_expression is an llm_loop step field evaluated against MQTT message metadata
+    plus pipeline and step metadata. It is not evaluated against pipeline context.
     Default key_expression is message.topic.
 
     The step key groups persistent LLM sessions. For a persistent llm_loop, the
-    same pipeline id + step id + key reuses the same LLM session and history.
+    evaluated key is the session grouping identity. Different pipelines reuse
+    the same LLM session and history when their key_expression evaluates to the
+    same key. Include pipeline.id or step.id in key_expression when isolation by
+    pipeline or step is required.
     For llm_loop steps whose persistent is false, omit key_expression
     unless the user explicitly asks for custom grouping by message metadata.
 
     Valid examples: message.topic, message.from, message.headers.username,
-    message.headers.peerhost.
+    message.headers.peerhost, concat([pipeline.id, step.id, message.topic]).
 
     Do not use JSONPath such as $.event.foo in key_expression. Do not use ${...}
-    template syntax. Do not reference bare payload.foo because only message is bound.
+    template syntax. Do not reference bare payload.foo; use message, pipeline, or step.
     Do not assume decoded event payload fields are available in key_expression.
 
-    Message data available to key_expression looks like:
+    Bindings available to key_expression look like:
     {
       "message": {
         "qos": 0,
@@ -178,7 +187,9 @@
         "id": "..non utf8 bytes...",
         "flags": {"retain": false, "dup": false},
         "extra": {}
-      }
+      },
+      "pipeline": {"id": "pipeline-id"},
+      "step": {"id": "step-id"}
     }
 
     ═══════════════════════════════════════════════════════

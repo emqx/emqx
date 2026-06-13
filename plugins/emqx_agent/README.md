@@ -2,15 +2,17 @@
 
 EMQX Agent turns EMQX from MQTT infrastructure into an MQTT-native AI orchestration platform.
 
-EMQX Agent enables EMQX to run multiple autonomous agents reacting to client events using EMQX connectivity capabilities.
+EMQX Agent enables EMQX to run event-driven AI automation that reacts to client events using EMQX connectivity capabilities.
 
 It is not primarily a chat interface. It is built for human-less AI automation: many devices, many concurrent workflows, restricted access to external systems, and auditable tool use. Instead of wiring together a broker, API gateway, serverless runtime, AI service, workflow engine, and integration platform, EMQX Agent brings those primitives into one MQTT-native runtime.
 
 The plugin is organized around three composable primitives:
 
 - **Tools**: reusable, schema-validated capabilities for MQTT publishing, MQTT request/reply, HTTP calls, database queries, and agent management.
-- **Sessions**: addressable LLM conversations routed over MQTT topics, with optional persistence beyond the lifecycle of any single MQTT client.
-- **Pipelines**: event-driven workflows that bind MQTT events, deterministic steps, tools, and LLM reasoning loops into production automation.
+- **Sessions**: addressable LLM conversations routed over MQTT topics. A session is the context keeper: it owns conversation history, pending events, queued requests, tool-call state, and usage counters.
+- **Pipelines**: event-triggered workflow instances that bind MQTT events, deterministic steps, tools, and session-backed LLM turns into production automation.
+
+The pipeline is not an agent loop. EMQX is event-based, so the outer loop is implicit in MQTT publication, hooks, subscriptions, and routing. A pipeline reacts to one trigger event and coordinates the ordered steps for that event; when it needs iterative LLM/tool behavior, it delegates that stateful context to a session.
 
 This makes EMQX a place where connected-device events can directly trigger safe AI workflows: LLMs only see approved tools, tools can enforce topic and resource boundaries, sessions can track usage, and pipelines can run at EMQX scale with OTP fault isolation.
 
@@ -18,16 +20,16 @@ This makes EMQX a place where connected-device events can directly trigger safe 
 
 - **MQTT-triggered pipelines**: start workflows from MQTT topic filters, including wildcard filters such as `$evt/device/+/done`.
 - **Pipeline orchestration**: compose workflows from `call_tool`, `llm_loop`, and `break` steps.
-- **LLM reasoning loops**: run OpenAI-compatible model calls through configured EMQX AI providers.
+- **Session-backed LLM turns**: run OpenAI-compatible model calls through configured EMQX AI providers while the session keeps context across turns.
 - **Tool-backed agents**: expose EMQX tools to the LLM as function tools and route invocations over internal `$cap/...` MQTT topics.
-- **One-shot or persistent sessions**: run stateless LLM loops per event, or reuse a session by LLM step key for conversational workflows.
+- **One-shot or persistent sessions**: run with a fresh session per event, or reuse a session by LLM step key for conversational workflows.
 - **Structured output**: use `set_result_schema` to make the LLM return schema-validated data instead of free-form text.
 - **Runtime lifecycle events**: publish pipeline start, completion, and failure events to `$pipe/<pipeline_id>/inst/<iid>/events`.
 - **Admin and builder UIs**: manage providers, tools, PostgreSQL connections, and pipelines from browser-based plugin pages.
 
 ## Built-In Tools
 
-Tools are reusable capabilities that can be called directly by a pipeline step or exposed to an LLM loop as tools.
+Tools are reusable capabilities that can be called directly by a pipeline step or exposed to a session-backed LLM step as tools.
 
 | Tool type | Purpose |
 |---|---|
@@ -45,15 +47,15 @@ Tools are reusable capabilities that can be called directly by a pipeline step o
 
 ## Pipeline Model
 
-A pipeline definition contains an ID, an MQTT trigger, an optional key expression, and ordered steps. When an incoming MQTT message matches the trigger topic filter, EMQX Agent starts a pipeline instance with the message available as `$.event` in the pipeline context.
+A pipeline definition contains an ID, an MQTT trigger, and ordered steps. When an incoming MQTT message matches the trigger topic filter, EMQX Agent starts a pipeline instance with the message available as `$.event` in the pipeline context. The pipeline instance is a one-shot coordinator for that event, not a long-running agent loop.
 
 Supported step types:
 
 - `call_tool`: invoke a tool such as MQTT publish, HTTP, or PostgreSQL query and write its result into context.
-- `llm_loop`: start an LLM reasoning loop, expose selected tools as tools, and store the final or structured result.
+- `llm_loop`: send work to a session, expose selected tools as LLM tools, and store the final or structured result when the session replies.
 - `break`: stop the pipeline early based on a context value.
 
-Pipeline inputs can reference previous context values with JSONPath-like strings such as `$.event.device_id` or `$.inspection.status`. Pipelines can be active or draft; draft pipelines are stored but do not run until activated.
+Pipeline inputs can reference previous step outputs with JSONPath-like strings such as `$.event.device_id` or `$.inspection.status`. Pipelines can be active or draft; draft pipelines are stored but do not run until activated.
 
 ## Management Surface
 
@@ -90,8 +92,8 @@ The same management surface is available through plugin API paths under `/api/v5
 
 The plugin includes two browser demos:
 
-- **Pipeline Builder** at `/builder/ui`: a chat-style interface for building agent workflows.
-- **Apple Box Conveyor** at `/apple-box/ui`: an MQTT/agent workflow demo that simulates inspecting apple boxes.
+- **Pipeline Builder** at `/builder/ui`: a chat-style interface for building event-driven AI workflows.
+- **Apple Box Conveyor** at `/apple-box/ui`: an MQTT/AI workflow demo that simulates inspecting apple boxes.
 
 Provision demo resources from the repository root after EMQX is running with the plugin enabled. Both demos require an OpenAI-compatible API key:
 

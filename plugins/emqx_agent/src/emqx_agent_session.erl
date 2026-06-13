@@ -6,13 +6,18 @@
 
 -moduledoc """
 Session gen_statem: one process per logical session, globally registered
-so it is unique across the cluster.
+so persistent sessions are unique across the cluster.
+
+The session is the context keeper for LLM work. It owns conversation history,
+pending events, queued requests, tool-call state, and usage counters. The
+environment is event-based, so there is no separate agent loop process outside
+MQTT routing and the session state machine.
 
 Incoming topic:  $sess/in/<SID>/
 Outgoing topic:  $sess/out/<SID>/
 
 Message types on in-topic:
-  request     — start an LLM reasoning loop; carries optional persistent (default false)
+  request     — start LLM work; carries optional persistent (default false)
   tool_result — result of a previously requested tool call
   event       — new context to be merged into the next LLM turn
   stop        — explicitly terminate the session from outside
@@ -22,9 +27,9 @@ Message types on out-topic:
   final        — loop finished; carries result + usage counters
 
 Architecture
-  The gen_statem IS the loop.  Only the blocking LLM HTTP request is
-  offloaded to a short-lived child process (spawn_monitor).  The child
-  sends {llm_result, Tag, Result} back and exits.
+  The gen_statem owns the LLM turn state.  Only the blocking LLM HTTP request
+  is offloaded to a short-lived child process (spawn_monitor).  The child sends
+  {llm_result, Tag, Result} back and exits.
 
 State machine:
 

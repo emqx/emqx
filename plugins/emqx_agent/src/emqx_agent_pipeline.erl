@@ -7,8 +7,13 @@
 -moduledoc """
 Pipeline instance gen_statem.
 
-One process per trigger. Pipeline instances are one-off and terminate after
-completion or failure.
+One process per trigger. Pipeline instances are one-off event coordinators and
+terminate after completion or failure.
+
+The pipeline is not an agent loop. EMQX/MQTT provides the outer event loop via
+message publication, hooks, subscriptions, and routing. When a step needs
+iterative LLM/tool behavior, the pipeline delegates that stateful work to a
+session and waits for session frames.
 
 Lifecycle
   start_link/2 is called by emqx_agent_pipeline_sup (simple_one_for_one).
@@ -16,7 +21,7 @@ Lifecycle
 
 States
   running        — executing a deterministic step
-  llm_loop       — active LLM session; proxying tool_request ↔ $cap/
+  llm_loop       — waiting on a session; proxying tool_request ↔ $cap/
   waiting_cap    — $cap/ request sent for a call_tool step; awaiting cap_reply
 
 Incoming MQTT messages received via emqx:subscribe as #deliver{} info events:
@@ -303,12 +308,10 @@ start_llm_loop_with_sid(
 
 llm_sid(false, #{<<"id">> := StepId}, #data{iid = Iid}) ->
     {ok, <<"pipe-", (emqx_base62:encode(<<Iid/binary, 0, StepId/binary>>))/binary>>};
-llm_sid(true, #{<<"id">> := StepId} = Step, #data{pipeline_id = PipelineId} = Data) ->
+llm_sid(true, Step, Data) ->
     case step_key(Step, Data) of
         {ok, Key} ->
-            {ok,
-                <<"pipe-",
-                    (emqx_base62:encode(<<PipelineId/binary, 0, StepId/binary, 0, Key/binary>>))/binary>>};
+            {ok, <<"pipe-", (emqx_base62:encode(Key))/binary>>};
         {error, _} = Error ->
             Error
     end.
@@ -601,9 +604,13 @@ step_timeout_ms(Step, Default) ->
         _ -> Default
     end.
 
-step_key(Step, #data{trigger_message = Message}) ->
+step_key(#{<<"id">> := StepId} = Step, #data{pipeline_id = PipelineId, trigger_message = Message}) ->
     Expression = maps:get(<<"key_expression">>, Step, <<"message.topic">>),
-    Bindings = #{message => Message},
+    Bindings = #{
+        message => Message,
+        pipeline => #{id => PipelineId},
+        step => #{id => StepId}
+    },
     case emqx_variform:compile(Expression) of
         {ok, Compiled} ->
             case emqx_variform:render(Compiled, Bindings, #{eval_as_string => true}) of
