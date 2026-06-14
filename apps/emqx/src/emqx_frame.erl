@@ -555,7 +555,7 @@ parse_properties(Bin, ?MQTT_PROTO_V5, StrictMode) ->
     {Len, Rest} = parse_variable_byte_integer(Bin),
     case Rest of
         <<PropsBin:Len/binary, Rest1/binary>> ->
-            {parse_property(PropsBin, #{}, StrictMode), Rest1};
+            {finalize_user_property(parse_property(PropsBin, #{}, StrictMode)), Rest1};
         _ ->
             ?PARSE_ERR(#{
                 cause => user_property_not_enough_bytes,
@@ -620,10 +620,11 @@ parse_property(<<16#25, Val, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Retain-Available' => Val}, StrictMode);
 parse_property(<<16#26, Bin/binary>>, Props, StrictMode) ->
     {Pair, Rest} = parse_utf8_pair(Bin, StrictMode),
+    %% Accumulate in reverse order to keep this O(1) per entry; the list is
+    %% reversed back to wire order in parse_properties/3 once parsing finishes.
     case maps:find('User-Property', Props) of
         {ok, UserProps} ->
-            UserProps1 = lists:append(UserProps, [Pair]),
-            parse_property(Rest, Props#{'User-Property' := UserProps1}, StrictMode);
+            parse_property(Rest, Props#{'User-Property' := [Pair | UserProps]}, StrictMode);
         error ->
             parse_property(Rest, Props#{'User-Property' => [Pair]}, StrictMode)
     end;
@@ -638,6 +639,13 @@ parse_property(<<16#2A, Val, Bin/binary>>, Props, StrictMode) ->
 parse_property(<<Property:8, _Rest/binary>>, _Props, _StrictMode) ->
     ?PARSE_ERR(#{cause => invalid_property_code, property_code => Property}).
 %% TODO: invalid property in specific packet.
+
+%% Restore wire order for the 'User-Property' list, which parse_property/3
+%% accumulates in reverse to keep per-entry cost constant.
+finalize_user_property(#{'User-Property' := UserProps} = Props) ->
+    Props#{'User-Property' := lists:reverse(UserProps)};
+finalize_user_property(Props) ->
+    Props.
 
 parse_variable_byte_integer(Bin) ->
     parse_variable_byte_integer(Bin, 1, 0).

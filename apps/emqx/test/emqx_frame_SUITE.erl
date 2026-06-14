@@ -55,6 +55,7 @@ groups() ->
             t_serialize_parse_v3_connect,
             t_serialize_parse_v4_connect,
             t_serialize_parse_v5_connect,
+            t_parse_many_user_properties_is_linear,
             t_serialize_parse_connect_without_clientid,
             t_serialize_parse_connect_with_will,
             t_serialize_parse_connect_with_malformed_will,
@@ -245,6 +246,48 @@ t_serialize_parse_v5_connect(_) ->
         }
     ),
     ?assertEqual(Packet, parse_serialize(Packet)).
+
+%% A CONNECT packet carrying a large number of MQTT v5 'User-Property' entries must
+%% parse in time linear to the number of entries. Builds a raw CONNECT frame with
+%% 50k empty user-properties (5 bytes each, ~250 KB, well under max_packet_size) and
+%% asserts the parse finishes quickly while preserving the count and wire order.
+t_parse_many_user_properties_is_linear(_) ->
+    N = 50_000,
+    %% Each user-property on the wire: 0x26 + 2-byte empty key + value tagged
+    %% with its 1-based index so wire order can be asserted after parsing.
+    Props = iolist_to_binary([
+        begin
+            V = integer_to_binary(I),
+            <<16#26, 0:16, (byte_size(V)):16, V/binary>>
+        end
+     || I <- lists:seq(1, N)
+    ]),
+    PropsSection = <<(encode_vbi(byte_size(Props)))/binary, Props/binary>>,
+    %% Variable header: protocol name + level + connect flags + keepalive + props.
+    VarHeader = <<4:16, "MQTT", ?MQTT_PROTO_V5:8, 2:8, 60:16, PropsSection/binary>>,
+    %% Empty client id payload.
+    Body = <<VarHeader/binary, 0:16>>,
+    Frame = <<16#10, (encode_vbi(byte_size(Body)))/binary, Body/binary>>,
+    ParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
+    T0 = erlang:monotonic_time(millisecond),
+    {ok, Packet, <<>>, _} = emqx_frame:parse(Frame, ParseState),
+    Elapsed = erlang:monotonic_time(millisecond) - T0,
+    #mqtt_packet{variable = #mqtt_packet_connect{properties = ParsedProps}} = Packet,
+    UserProps = maps:get('User-Property', ParsedProps),
+    ?assertEqual(N, length(UserProps)),
+    %% Order must follow the wire: first entry has value <<"1">>, last <<"50000">>.
+    ?assertEqual({<<>>, <<"1">>}, hd(UserProps)),
+    ?assertEqual({<<>>, integer_to_binary(N)}, lists:last(UserProps)),
+    %% Generous threshold: the point is that 50k entries is now feasible at all,
+    %% not a microbenchmark. The old quadratic path took seconds here.
+    ?assert(Elapsed < 2000, #{elapsed_ms => Elapsed}),
+    ok.
+
+%% Encode an unsigned integer as an MQTT variable byte integer.
+encode_vbi(N) when N < 16#80 ->
+    <<N>>;
+encode_vbi(N) ->
+    <<1:1, (N rem 16#80):7, (encode_vbi(N div 16#80))/binary>>.
 
 t_serialize_parse_connect_without_clientid(_) ->
     Bin = <<16, 12, 0, 4, 77, 81, 84, 84, 4, 2, 0, 60, 0, 0>>,
