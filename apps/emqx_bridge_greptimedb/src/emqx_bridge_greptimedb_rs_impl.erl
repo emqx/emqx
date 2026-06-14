@@ -454,7 +454,8 @@ maybe_put_tls(_ConnConfig, Opts) ->
 
 extract_tls_opts(SSLOpts) ->
     TLSCertOpts = extract_tls_cert_opts(SSLOpts),
-    maybe_put_tls_verify_opt(SSLOpts, TLSCertOpts).
+    TLSCertOpts1 = maybe_put_tls_verify_opt(SSLOpts, TLSCertOpts),
+    maybe_put_cipher_suites(SSLOpts, TLSCertOpts1).
 
 extract_tls_cert_opts(SSLOpts) ->
     TLSOpts0 = maps:fold(
@@ -491,6 +492,87 @@ maybe_put_tls_verify_opt(SSLOpts, TLSOpts) ->
                     TLSOpts
             end
     end.
+
+maybe_put_cipher_suites(SSLOpts, TLSOpts) ->
+    Ciphers = find_opt([ciphers, <<"ciphers">>], SSLOpts),
+    case Ciphers of
+        {ok, List} when is_list(List), List =/= [] ->
+            {Converted, Unsupported} = convert_ciphers_to_rfc(List),
+            case Unsupported of
+                [] ->
+                    TLSOpts#{cipher_suites => Converted};
+                _ ->
+                    throw(
+                        iolist_to_binary([
+                            "unsupported cipher suites: ",
+                            lists:join(", ", Unsupported),
+                            ". Supported: "
+                            "TLS_AES_256_GCM_SHA384, TLS_AES_128_GCM_SHA256, "
+                            "TLS_CHACHA20_POLY1305_SHA256, "
+                            "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, "
+                            "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, "
+                            "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, "
+                            "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+                        ])
+                    )
+            end;
+        _ ->
+            TLSOpts
+    end.
+
+find_opt(Keys, Map) ->
+    lists:foldl(
+        fun
+            (_K, {ok, _} = Acc) ->
+                Acc;
+            (K, Acc) ->
+                case maps:find(K, Map) of
+                    {ok, _} = Found -> Found;
+                    error -> Acc
+                end
+        end,
+        error,
+        Keys
+    ).
+
+convert_ciphers_to_rfc(Ciphers) ->
+    lists:foldr(
+        fun(Cipher, {Ok, Bad}) ->
+            case ssl_cipher_to_rfc(Cipher) of
+                {ok, RfcName} ->
+                    case lists:member(RfcName, supported_cipher_suites()) of
+                        true -> {[RfcName | Ok], Bad};
+                        false -> {Ok, [Cipher | Bad]}
+                    end;
+                error ->
+                    {Ok, [Cipher | Bad]}
+            end
+        end,
+        {[], []},
+        Ciphers
+    ).
+
+ssl_cipher_to_rfc(Cipher) when is_binary(Cipher) ->
+    ssl_cipher_to_rfc(binary_to_list(Cipher));
+ssl_cipher_to_rfc(Cipher) ->
+    try
+        Suite = ssl:str_to_suite(Cipher),
+        {ok, list_to_binary(ssl:suite_to_str(Suite))}
+    catch
+        _:_ ->
+            error
+    end.
+
+supported_cipher_suites() ->
+    [
+        <<"TLS_AES_256_GCM_SHA384">>,
+        <<"TLS_AES_128_GCM_SHA256">>,
+        <<"TLS_CHACHA20_POLY1305_SHA256">>,
+        <<"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384">>,
+        <<"TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256">>,
+        <<"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384">>,
+        <<"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256">>
+    ].
 
 normalize_tls_verify(verify_none) ->
     verify_none;
