@@ -121,7 +121,7 @@ purge_loop(ClientId) ->
 handle_call(force_sweep_stale_pids, _From, State0) ->
     State1 = reset_sweep_state(State0, _Forced = true),
     ?tp(info, cm_registry_gc_started, #{forced => true}),
-    State2 = run_full_sweep(undefined, State1),
+    {'$end_of_table', State2} = run_chunk_loop(undefined, infinity, State1),
     Summary = sweep_summary(State2),
     ?tp(info, cm_registry_gc_finished, Summary#{forced => true}),
     {reply, Summary, reset_sweep_counters(State2)};
@@ -157,12 +157,6 @@ handle_info(start, State0) ->
     %% ensure_sweep_keys/1 makes the per-sweep counter and node-cache keys
     %% present, so a hot-loaded beam survives the first tick when the
     %% pre-upgrade state only had next_clientid+timer_ref.
-    %%
-    %% Scheduled sweeps do NOT emit cm_registry_gc_started: it would just
-    %% be telemetry noise on quiet nodes, and in test mode with hist
-    %% enabled (1s cadence) it would keep unrelated suites' snabbkaffe
-    %% wait-for-silence ticking. cm_registry_gc_finished is emitted only
-    %% when the sweep actually deleted something.
     #{next_clientid := Cursor, timer_ref := OldTimerRef} =
         State1 = ensure_sweep_keys(State0),
     is_reference(OldTimerRef) andalso erlang:cancel_timer(OldTimerRef),
@@ -186,7 +180,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 new_sweep_state(TimerRef) ->
-    (zero_state())#{timer_ref => TimerRef}.
+    (zero_state())#{timer_ref := TimerRef}.
 
 zero_state() ->
     #{
@@ -252,7 +246,9 @@ bump(Key, State) ->
 
 %% Scheduled sweeps stay silent when nothing was deleted: quiet nodes
 %% don't stream a steady event for telemetry / snabbkaffe to wade
-%% through. The forced (test) path always emits unconditionally.
+%% through. (In test mode with hist enabled, the cadence is 1s; a
+%% per-tick event would also keep unrelated suites' snabbkaffe
+%% wait-for-silence ticking.) The forced (test) path always emits.
 maybe_emit_finished(
     #{
         deleted_hist := 0,
@@ -276,12 +272,18 @@ do_run_chunk(Cursor, State0) ->
             TimerRef = send_delay_start(),
             {noreply, State1#{next_clientid := undefined, timer_ref := TimerRef}};
         Cid ->
-            %% ensure the next clientid is not in the cache
+            %% Force a full GC so any sub-binaries pinning mnesia row
+            %% data from this chunk (next_clientid is the most obvious;
+            %% lingering refc-binary references inside the process heap
+            %% are the broader concern) get released before we sleep.
             _ = erlang:garbage_collect(),
             TimerRef = send_delay_start(?REGISTRY_GC_CHUNK_INTERVAL_MS),
             {noreply, State1#{next_clientid := Cid, timer_ref := TimerRef}}
     end.
 
+%% `Budget` is either a non-negative integer (scheduled sweep, processes
+%% at most N rows before returning the cursor) or `infinity' (forced
+%% sweep, run to '$end_of_table' in one go).
 run_chunk_loop(undefined, Budget, State) ->
     run_chunk_loop(mnesia:dirty_first(?CHAN_REG_TAB), Budget, State);
 run_chunk_loop('$end_of_table', _Budget, State) ->
@@ -297,26 +299,12 @@ run_chunk_loop(ClientId, Budget, State0) ->
         Rows
     ),
     State2 = bump(scanned, State1),
-    run_chunk_loop(Next, Budget - 1, State2).
-
-%%--------------------------------------------------------------------
-%% Full synchronous walk (TEST-only force_sweep_stale_pids/0)
-%%--------------------------------------------------------------------
-
-run_full_sweep(undefined, State) ->
-    run_full_sweep(mnesia:dirty_first(?CHAN_REG_TAB), State);
-run_full_sweep('$end_of_table', State) ->
-    State;
-run_full_sweep(ClientId, State0) ->
-    Rows = mnesia:dirty_read(?CHAN_REG_TAB, ClientId),
-    Next = mnesia:dirty_next(?CHAN_REG_TAB, ClientId),
-    State1 = lists:foldl(
-        fun(R, S) -> process_row(ClientId, R, S) end,
-        State0,
-        Rows
-    ),
-    State2 = bump(scanned, State1),
-    run_full_sweep(Next, State2).
+    NewBudget =
+        case Budget of
+            infinity -> infinity;
+            _ -> Budget - 1
+        end,
+    run_chunk_loop(Next, NewBudget, State2).
 
 %%--------------------------------------------------------------------
 %% Per-row predicates
@@ -378,31 +366,29 @@ classify_remote_pid_on_core(Pid, State) ->
     #{gone_nodes := Gone, alive_nodes := Alive} = State,
     %% Check alive first: a node that rejoined the cluster mid-sweep
     %% may carry a stale gone-mark from an earlier chunk; the alive
-    %% cache is the authoritative vote.
-    {Verdict, State1} =
-        case {sets:is_element(N, Alive), sets:is_element(N, Gone)} of
-            {true, _} ->
-                {keep, State};
-            {_, true} ->
-                {remote_orphan, State};
-            _ ->
-                case mria:is_peer_alive(N) of
-                    {ok, false} ->
-                        {remote_orphan, State#{
-                            gone_nodes := sets:add_element(N, Gone)
-                        }};
-                    _ ->
-                        {keep, State#{
-                            alive_nodes := sets:add_element(N, Alive)
-                        }}
-                end
-        end,
-    {Verdict, normalize_node_caches(State1)}.
+    %% cache is the authoritative vote. On a cache hit the per-sweep
+    %% caches are unchanged so the gone-excludes-alive invariant
+    %% trivially still holds; only the cache-miss branch needs to
+    %% re-establish it after mutating one of the sets.
+    case {sets:is_element(N, Alive), sets:is_element(N, Gone)} of
+        {true, _} ->
+            {keep, State};
+        {_, true} ->
+            {remote_orphan, State};
+        _ ->
+            case mria:is_peer_alive(N) of
+                {ok, false} ->
+                    State1 = State#{gone_nodes := sets:add_element(N, Gone)},
+                    {remote_orphan, normalize_node_caches(State1)};
+                _ ->
+                    State1 = State#{alive_nodes := sets:add_element(N, Alive)},
+                    {keep, normalize_node_caches(State1)}
+            end
+    end.
 
-%% Invariant: gone_nodes excludes alive_nodes. Re-established after each
-%% remote-pid classification so a stale gone entry (e.g. for a node that
-%% rejoined the cluster mid-sweep and got re-cached as alive) cannot
-%% survive to cause a wrongful purge in a later chunk.
+%% Invariant: gone_nodes excludes alive_nodes. Called from the
+%% cache-miss branch only -- after the sets are mutated -- so we
+%% don't pay sets:subtract/2 on every remote-pid classification.
 normalize_node_caches(#{gone_nodes := Gone, alive_nodes := Alive} = State) ->
     State#{gone_nodes := sets:subtract(Gone, Alive)}.
 
