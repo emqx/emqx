@@ -456,7 +456,18 @@ t_sock_closed_reason_normal(_) ->
                     )
                 end,
                 fun(Trace0) ->
-                    ?assertMatch([#{clientid := ClientId}], ?of_kind(sock_closed_normal, Trace0)),
+                    %% Filter by this iteration's unique client id: the captured
+                    %% trace can contain sock_closed events from other clients,
+                    %% so assert on this client's event rather than requiring it
+                    %% to be the only one in the trace.
+                    ?assertMatch(
+                        [#{clientid := ClientId} | _],
+                        [
+                            E
+                         || #{clientid := CId} = E <- ?of_kind(sock_closed_normal, Trace0),
+                            CId =:= ClientId
+                        ]
+                    ),
                     ok
                 end
             )
@@ -482,8 +493,16 @@ t_sock_closed_force_closed_by_client(_) ->
                     )
                 end,
                 fun(Trace0) ->
+                    %% Filter by this iteration's unique client id, see
+                    %% t_sock_closed_reason_normal.
                     ?assertMatch(
-                        [#{clientid := ClientId}], ?of_kind(sock_closed_with_other_reason, Trace0)
+                        [#{clientid := ClientId} | _],
+                        [
+                            E
+                         || #{clientid := CId} = E <-
+                                ?of_kind(sock_closed_with_other_reason, Trace0),
+                            CId =:= ClientId
+                        ]
                     ),
                     ok
                 end
