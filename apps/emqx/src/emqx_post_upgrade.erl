@@ -29,7 +29,10 @@
 
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 
--export([pr_16802_restart_rabbitmq_connectors/1]).
+-export([
+    pr_16802_restart_rabbitmq_connectors/1,
+    pr_17522_kickoff_registry_keeper/1
+]).
 
 -ignore_xref([
     {emqx_resource, list_instances_by_type, 1},
@@ -56,3 +59,12 @@ pr_16802_restart_rabbitmq_connectors(_FromVsn) ->
             ConnResIds0
         ),
     lists:foreach(fun Mod:restart/1, ConnResIds).
+
+%% Replicants started on the pre-fix beam stored {no_deletes => true} in
+%% the keeper's state and never scheduled a sweep timer. After the new
+%% beam is loaded the process still has that state shape; this hook
+%% sends `start' so handle_info/2 runs ensure_sweep_keys/1 and begins
+%% the periodic local-pid sweep. Idempotent on cores (where a timer is
+%% already running) — just brings the next tick forward.
+pr_17522_kickoff_registry_keeper(_FromVsn) ->
+    emqx_cm_registry_keeper:ensure_started().
