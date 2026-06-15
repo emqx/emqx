@@ -332,9 +332,9 @@ evict_ccache(Username) ->
     ok.
 
 delete_client_records(Username, ClientId, ?RECORD_KEY(Username, ClientId, Pid) = Key) ->
+    _ = ets:delete_object(?MONITOR_TAB, ?MONITOR(Pid, Username, ClientId)),
     ok = mria:dirty_delete(?RECORD_TAB, Key),
     dec_counter(Username),
-    _ = ets:delete_object(?MONITOR_TAB, ?MONITOR(Pid, Username, ClientId)),
     evict_ccache(Username),
     delete_client_records(Username, ClientId, ets:next(?RECORD_TAB, Key));
 delete_client_records(_Username, _ClientId, _Key) ->
