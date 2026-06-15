@@ -119,7 +119,7 @@ get_enabled_links() ->
 get_link(Name) ->
     find_link(Name, get_links()).
 
--spec get_link_raw(_Name :: binary()) -> emqx_config:raw_config().
+-spec get_link_raw(_Name :: binary()) -> emqx_config:raw_config() | undefined.
 get_link_raw(Name) ->
     find_link(Name, get_links_raw()).
 
@@ -181,6 +181,8 @@ create_link(LinkConfig) ->
         {ok, #{raw_config := NewConfigRows}} ->
             NewLinkConfig = find_link(Name, NewConfigRows),
             {ok, NewLinkConfig};
+        {error, {pre_config_update, ?MODULE, Reason}} ->
+            {error, Reason};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -195,6 +197,8 @@ delete_link(Name) ->
     of
         {ok, _} ->
             ok;
+        {error, {pre_config_update, ?MODULE, Reason}} ->
+            {error, Reason};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -211,6 +215,8 @@ update_link(LinkConfig) ->
         {ok, #{raw_config := NewConfigRows}} ->
             NewLinkConfig = find_link(Name, NewConfigRows),
             {ok, NewLinkConfig};
+        {error, {pre_config_update, ?MODULE, Reason}} ->
+            {error, Reason};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -337,10 +343,9 @@ all_ok(Results) ->
 add_links(LinksConf) ->
     [add_link(Link) || Link <- LinksConf].
 
-add_link(#{name := ClusterName, enable := true} = LinkConf) ->
+add_link(#{enable := true} = LinkConf) ->
     {ok, _Pid} = emqx_cluster_link_sup:ensure_actor(LinkConf),
     {ok, _} = emqx_cluster_link_mqtt:ensure_msg_fwd_resource(LinkConf),
-    ok = emqx_cluster_link_metrics:maybe_create_metrics(ClusterName),
     ok;
 add_link(_DisabledLinkConf) ->
     ok.
@@ -350,8 +355,7 @@ remove_links(LinksConf) ->
 
 remove_link(Name) ->
     _ = emqx_cluster_link_mqtt:remove_msg_fwd_resource(Name),
-    _ = ensure_actor_stopped(Name),
-    emqx_cluster_link_metrics:drop_metrics(Name).
+    _ = ensure_actor_stopped(Name).
 
 update_links(LinksConf) ->
     [do_update_link(Link) || Link <- LinksConf].

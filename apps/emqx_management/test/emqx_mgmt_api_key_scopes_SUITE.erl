@@ -9,7 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 %%--------------------------------------------------------------------
 %% CT boilerplate
@@ -28,7 +28,7 @@ groups() ->
     [
         {unit_tests, [], [
             t_init_cache,
-            t_scope_catalogue,
+            t_scope_catalog,
             t_path_to_scope,
             t_path_to_scope_denied,
             t_path_to_scope_no_cache,
@@ -36,7 +36,10 @@ groups() ->
             t_validate_scopes_bad_input,
             t_is_denied_scope,
             t_all_modules_have_scopes,
-            t_all_endpoints_covered_by_scopes
+            t_all_endpoints_covered_by_scopes,
+            t_init_cache_no_missing_path_warnings,
+            t_public_paths_not_in_cache,
+            t_wildcard_does_not_claim_public_path
         ]},
         {integration_tests, [parallel], [
             t_authorize_with_scopes,
@@ -48,7 +51,9 @@ groups() ->
         {api_tests, [parallel], [
             t_api_list_scopes,
             t_api_create_with_scopes,
-            t_api_update_scopes
+            t_api_update_scopes,
+            t_api_post_materialises_default_scopes,
+            t_api_legacy_record_shows_unset_sentinel
         ]}
     ].
 
@@ -96,23 +101,23 @@ t_init_cache(_Config) ->
         undefined, persistent_term:get({emqx_mgmt_api_key_scopes, scope_cache}, undefined)
     ).
 
-t_scope_catalogue(_Config) ->
-    Catalogue = emqx_mgmt_api_key_scopes:scope_catalogue(),
-    ?assert(is_list(Catalogue)),
-    %% 10 user-visible scopes
-    ?assertEqual(10, length(Catalogue)),
-    %% Each entry has name and desc
+t_scope_catalog(_Config) ->
+    Catalog = emqx_scope_catalog:scope_catalog(),
+    ?assert(is_list(Catalog)),
+    %% Each entry has name (binary) and desc (i18n handle).
     lists:foreach(
         fun(Entry) ->
             ?assertMatch(#{name := _, desc := _}, Entry),
             #{name := Name, desc := Desc} = Entry,
             ?assert(is_binary(Name)),
-            ?assert(is_binary(Desc))
+            %% desc is the `?DESC(Mod, Id)' tuple; runtime callers
+            %% resolve it via emqx_dashboard_swagger:get_i18n/4.
+            ?assertMatch({desc, _Mod, _Id}, Desc)
         end,
-        Catalogue
+        Catalog
     ),
     %% Known scopes must be present
-    Names = [N || #{name := N} <- Catalogue],
+    Names = [N || #{name := N} <- Catalog],
     ?assert(lists:member(?SCOPE_CONNECTIONS, Names)),
     ?assert(lists:member(?SCOPE_PUBLISH, Names)),
     ?assert(lists:member(?SCOPE_DATA_INTEGRATION, Names)),
@@ -123,7 +128,7 @@ t_scope_catalogue(_Config) ->
     ?assert(lists:member(?SCOPE_SYSTEM, Names)),
     ?assert(lists:member(?SCOPE_AUDIT, Names)),
     ?assert(lists:member(?SCOPE_LICENSE, Names)),
-    %% $denied must NOT be in the catalogue
+    %% $denied must NOT be in the catalog
     ?assertNot(lists:member(?SCOPE_DENIED, Names)).
 
 t_path_to_scope(_Config) ->
@@ -143,9 +148,14 @@ t_path_to_scope(_Config) ->
 
 t_path_to_scope_denied(_Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),
-    %% Dashboard paths should resolve to $denied
-    ?assertEqual(?SCOPE_DENIED, emqx_mgmt_api_key_scopes:path_to_scope(<<"/users">>)),
-    ?assertEqual(?SCOPE_DENIED, emqx_mgmt_api_key_scopes:path_to_scope(<<"/api_key">>)),
+    %% Dashboard / API-key management paths formerly resolved to
+    %% $denied. They now map to login-only scopes
+    %% (api_key_management, user_management, mfa_management,
+    %% sso_management). API keys still cannot reach these endpoints
+    %% — minirest's bearer-only `security` declaration
+    %% rejects API key authentication before scope check.
+    ?assertEqual(?SCOPE_USER_MGMT, emqx_mgmt_api_key_scopes:path_to_scope(<<"/users">>)),
+    ?assertEqual(?SCOPE_API_KEY_MGMT, emqx_mgmt_api_key_scopes:path_to_scope(<<"/api_key">>)),
     emqx_mgmt_api_key_scopes:clear_cache().
 
 t_path_to_scope_no_cache(_Config) ->
@@ -203,10 +213,15 @@ t_all_modules_have_scopes(_Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),
     PathToScope = emqx_mgmt_api_key_scopes:collect_scopes_from_modules(),
     ?assert(map_size(PathToScope) > 0),
-    %% Every path should map to a known scope or $denied
+    %% Every path should map to a known scope, $denied, or one of the
+    %% four login-only scopes (user/mfa/sso/api_key_management — these
+    %% apply to dashboard login users only and are not in the API key
+    %% scope catalog).
     AllValidScopes =
-        [N || #{name := N} <- emqx_mgmt_api_key_scopes:scope_catalogue()] ++
-            [?SCOPE_DENIED],
+        [N || #{name := N} <- emqx_scope_catalog:scope_catalog()] ++
+            [?SCOPE_DENIED] ++
+            [?SCOPE_PUBLIC] ++
+            ?LOGIN_ONLY_SCOPES,
     maps:foreach(
         fun(Path, Scope) ->
             ?assert(
@@ -236,19 +251,177 @@ t_all_endpoints_covered_by_scopes(_Config) ->
             Modules
         )
     ),
+    %% Paths explicitly marked ?SCOPE_PUBLIC are intentionally unscoped
+    %% (pre-login entry points, static catalog endpoints). They are
+    %% derived from each module's scopes/0 map so adding a new public
+    %% path only requires editing that module, no allow-list edit here.
+    PublicPaths = collect_public_paths(Modules),
     MappedPaths = lists:sort(maps:keys(PathToScope)),
-    Uncovered = AllDeclaredPaths -- MappedPaths,
+    Uncovered = (AllDeclaredPaths -- MappedPaths) -- PublicPaths,
     ?assertEqual(
         [],
         Uncovered,
         lists:flatten(
             io_lib:format(
-                "~p endpoint path(s) not covered by any scope: ~p",
+                "~p endpoint path(s) not covered by any scope and not "
+                "marked ?SCOPE_PUBLIC: ~p",
                 [length(Uncovered), Uncovered]
             )
         )
     ),
     emqx_mgmt_api_key_scopes:clear_cache().
+
+-doc """
+Every map-form scopes/0 callback must list every path returned by
+that module's paths/0. This is the precondition that determines
+whether the collector emits `path_missing_from_scopes_map` at boot;
+checking it directly here avoids the need to scrape the live logger
+and keeps the failure message specific (module + missing path).
+""".
+t_init_cache_no_missing_path_warnings(_Config) ->
+    Modules = emqx_mgmt_api_key_scopes:find_api_modules(),
+    Missing = lists:flatmap(
+        fun(M) ->
+            case safe_scopes(M) of
+                Map when is_map(Map) ->
+                    Paths = [path_to_binary(P) || P <- safe_paths(M)],
+                    [{M, P} || P <- Paths, not maps:is_key(P, Map)];
+                _ ->
+                    []
+            end
+        end,
+        Modules
+    ),
+    ?assertEqual(
+        [],
+        Missing,
+        lists:flatten(
+            io_lib:format(
+                "modules with paths missing from their scopes/0 map: ~p", [Missing]
+            )
+        )
+    ).
+
+safe_scopes(M) ->
+    try
+        apply(M, scopes, [])
+    catch
+        _:_ -> undefined
+    end.
+
+safe_paths(M) ->
+    try
+        apply(M, paths, [])
+    catch
+        _:_ -> []
+    end.
+
+-doc """
+?SCOPE_PUBLIC paths must keep the unmapped/fail-open semantics that
+production already relies on for `/login' and friends: `path_to_scope/1'
+must return `undefined' for these paths so the runtime authorisation
+layer treats them as unscoped.
+
+The cache itself MAY carry ?SCOPE_PUBLIC sentinel values internally
+(this is how exact-match lookup distinguishes "intentionally public"
+from "genuinely unmapped" and stops sibling wildcard templates from
+claiming a public endpoint -- see `t_wildcard_does_not_claim_public_path').
+The user-visible invariant being asserted here is the `path_to_scope/1'
+return value, not the cache representation.
+""".
+t_public_paths_not_in_cache(_Config) ->
+    emqx_mgmt_api_key_scopes:init_cache(),
+    Modules = emqx_mgmt_api_key_scopes:find_api_modules(),
+    PublicPaths = collect_public_paths(Modules),
+    %% Sanity: the production code under test declares at least one
+    %% public path. If this drops to zero, the test no longer guards
+    %% anything; loudly fail instead of silently passing.
+    ?assert(PublicPaths =/= [], "no ?SCOPE_PUBLIC paths declared -- test now vacuous"),
+    lists:foreach(
+        fun(Path) ->
+            ?assertEqual(
+                undefined,
+                emqx_mgmt_api_key_scopes:path_to_scope(Path),
+                lists:flatten(io_lib:format("public path ~s leaked into cache", [Path]))
+            )
+        end,
+        PublicPaths
+    ),
+    emqx_mgmt_api_key_scopes:clear_cache().
+
+-doc """
+Regression: a path explicitly marked ?SCOPE_PUBLIC must NOT be
+claimed by a sibling wildcard template at scope-lookup time.
+
+Concrete example: `/sso/running' is declared ?SCOPE_PUBLIC, while
+the sibling template `/sso/:backend' is mapped to `sso_management'.
+Without the sentinel-in-cache fix, segment-wise match would let the
+wildcard absorb the public path and `path_to_scope(<<"/sso/running">>)'
+would return `sso_management', collapsing defense-in-depth (the
+runtime auth layer separately bypasses the scope check via
+`security => []' on these endpoints, but the catalog itself was
+incorrect).
+
+This test asserts the catalog stays honest:
+  * every declared ?SCOPE_PUBLIC path resolves to `undefined' via
+    `path_to_scope/1';
+  * sibling wildcard templates still resolve correctly for genuine
+    parameterised requests (e.g. `/sso/oidc' -> `sso_management').
+""".
+t_wildcard_does_not_claim_public_path(_Config) ->
+    emqx_mgmt_api_key_scopes:init_cache(),
+    Modules = emqx_mgmt_api_key_scopes:find_api_modules(),
+    PublicPaths = collect_public_paths(Modules),
+    ?assert(PublicPaths =/= [], "no ?SCOPE_PUBLIC paths declared -- test now vacuous"),
+    %% Every public path resolves to `undefined', even though the
+    %% cache may contain sibling wildcard templates that would have
+    %% claimed them by segment match.
+    lists:foreach(
+        fun(Path) ->
+            ?assertEqual(
+                undefined,
+                emqx_mgmt_api_key_scopes:path_to_scope(Path),
+                lists:flatten(
+                    io_lib:format(
+                        "public path ~s wrongly claimed by a sibling wildcard template",
+                        [Path]
+                    )
+                )
+            )
+        end,
+        PublicPaths
+    ),
+    %% Sibling wildcard templates still resolve for genuine
+    %% parameterised paths: `/sso/<some-backend>' must map to
+    %% sso_management even though the sibling `/sso/running' is
+    %% public.
+    case lists:member(<<"/sso/running">>, PublicPaths) of
+        true ->
+            ?assertEqual(
+                <<"sso_management">>,
+                emqx_mgmt_api_key_scopes:path_to_scope(<<"/sso/oidc">>)
+            );
+        false ->
+            ok
+    end,
+    emqx_mgmt_api_key_scopes:clear_cache().
+
+collect_public_paths(Modules) ->
+    lists:sort(
+        lists:flatmap(
+            fun(M) ->
+                try apply(M, scopes, []) of
+                    Map when is_map(Map) ->
+                        [path_to_binary(P) || {P, ?SCOPE_PUBLIC} <- maps:to_list(Map)];
+                    _ ->
+                        []
+                catch
+                    _:_ -> []
+                end
+            end,
+            Modules
+        )
+    ).
 
 path_to_binary(P) when is_binary(P) ->
     case P of
@@ -298,22 +471,36 @@ t_authorize_denied_path(_Config) ->
     Name = <<"SCOPES-TEST-DENIED">>,
     {ok, #{<<"api_key">> := _ApiKey, <<"api_secret">> := _ApiSecret}} =
         create_app(Name),
-    %% Denied paths blocked even without scopes restriction
-    Extra = #{role => ?ROLE_API_SUPERUSER},
-    ?assertMatch(
-        {error, unauthorized_role},
-        emqx_mgmt_auth:check_scopes(Extra, <<"/users">>, <<"GET">>)
-    ),
-    ?assertMatch(
-        {error, unauthorized_role},
-        emqx_mgmt_auth:check_scopes(Extra, <<"/api_key">>, <<"GET">>)
-    ),
-    %% Even with explicit scopes, denied paths are still blocked
-    ExtraWithScopes = #{role => ?ROLE_API_SUPERUSER, scopes => [?SCOPE_CONNECTIONS]},
-    ?assertMatch(
-        {error, unauthorized_role},
-        emqx_mgmt_auth:check_scopes(ExtraWithScopes, <<"/users">>, <<"GET">>)
-    ),
+    %% Dashboard / SSO / API-key-management paths no longer use
+    %% ?SCOPE_DENIED — they map to login-only scopes.
+    %% ?SCOPE_DENIED stays as an internal sentinel for SSO public flow
+    %% modules (OIDC callback / SAML ACS / SSO MFA setup) which are not
+    %% loaded in this test app's dep graph. We mock the scope cache to
+    %% inject a denied entry and verify that emqx_mgmt_auth still
+    %% rejects API key access to such paths.
+    DeniedPath = <<"/__test_denied__">>,
+    meck:new(emqx_mgmt_api_key_scopes, [passthrough]),
+    meck:expect(emqx_mgmt_api_key_scopes, path_to_scope, fun
+        (P) when P =:= DeniedPath -> ?SCOPE_DENIED;
+        (P) -> meck:passthrough([P])
+    end),
+    try
+        Extra = #{role => ?ROLE_API_SUPERUSER},
+        ?assertMatch(
+            {error, unauthorized_role},
+            emqx_mgmt_auth:check_scopes(Extra, DeniedPath, <<"GET">>)
+        ),
+        %% Even with explicit scopes, denied paths are still blocked
+        ExtraWithScopes = #{
+            role => ?ROLE_API_SUPERUSER, scopes => [?SCOPE_CONNECTIONS]
+        },
+        ?assertMatch(
+            {error, unauthorized_role},
+            emqx_mgmt_auth:check_scopes(ExtraWithScopes, DeniedPath, <<"GET">>)
+        )
+    after
+        meck:unload(emqx_mgmt_api_key_scopes)
+    end,
     delete_app(Name).
 
 t_check_scopes_unmapped_path(_Config) ->
@@ -336,14 +523,14 @@ t_check_scopes_unmapped_path(_Config) ->
 
 t_api_list_scopes(_Config) ->
     AuthHeader = emqx_dashboard_SUITE:auth_header_(),
-    Path = emqx_mgmt_api_test_util:api_path(["api_key", "scopes"]),
+    Path = emqx_mgmt_api_test_util:api_path(["api_key_scopes"]),
     {ok, Res} = emqx_mgmt_api_test_util:request_api(get, Path, AuthHeader),
     Body = emqx_utils_json:decode(Res),
     %% New format: #{scopes => [...]}
     ?assertMatch(#{<<"scopes">> := _}, Body),
     Scopes = maps:get(<<"scopes">>, Body),
     ?assert(is_list(Scopes)),
-    ?assertEqual(10, length(Scopes)),
+    ?assertEqual(length(emqx_scope_catalog:scope_catalog()), length(Scopes)),
     %% Each entry has name and desc (no paths)
     lists:foreach(
         fun(Scope) ->
@@ -367,8 +554,16 @@ t_api_create_with_scopes(_Config) ->
 t_api_update_scopes(_Config) ->
     Name = <<"SCOPES-API-UPDATE">>,
     {ok, Created} = create_app(Name),
-    ?assertEqual(false, maps:is_key(<<"scopes">>, Created)),
-    %% Update with scopes
+    %% POST without `scopes' now materialises the role-default scope list
+    %% (administrator -> the 10 common management scopes). The legacy
+    %% `<<"unset">>' sentinel is reserved for records that pre-date the
+    %% scopes feature and was thus upgraded without a scopes field.
+    DefaultAdminScopes = lists:sort(?GENERIC_SCOPES),
+    ?assertEqual(
+        DefaultAdminScopes,
+        lists:sort(maps:get(<<"scopes">>, Created))
+    ),
+    %% Update with scopes overwrites the materialised default.
     {ok, Updated1} = update_app(Name, #{scopes => [?SCOPE_CONNECTIONS]}),
     ?assertMatch(#{<<"scopes">> := [?SCOPE_CONNECTIONS]}, Updated1),
     %% Update to multiple scopes
@@ -377,9 +572,65 @@ t_api_update_scopes(_Config) ->
         lists:sort([?SCOPE_CONNECTIONS, ?SCOPE_PUBLISH]),
         lists:sort(maps:get(<<"scopes">>, Updated2))
     ),
-    %% Update to empty scopes
+    %% Update to empty scopes (explicit deny-all)
     {ok, Updated3} = update_app(Name, #{scopes => []}),
     ?assertMatch(#{<<"scopes">> := []}, Updated3),
+    delete_app(Name).
+
+%% POST without an explicit `scopes' field materialises the role-default
+%% scope list and persists it (it is not merely a response-time
+%% projection). This is what distinguishes a freshly-created key
+%% from a legacy upgraded one.
+t_api_post_materialises_default_scopes(_Config) ->
+    Name = <<"SCOPES-API-MATERIALISE">>,
+    {ok, Created} = create_app(Name),
+    %% Response carries the materialised admin defaults.
+    DefaultAdminScopes = lists:sort(?GENERIC_SCOPES),
+    ?assertEqual(
+        DefaultAdminScopes,
+        lists:sort(maps:get(<<"scopes">>, Created))
+    ),
+    %% Persisted state matches — `scopes' really is in the extra map,
+    %% not synthesised at response time. Read raw mnesia row directly.
+    [Record] = mnesia:dirty_read(emqx_app, Name),
+    %% Record is #emqx_app{name, api_key, api_secret_hash, enable, expired_at,
+    %%                    extra, created_at}. The `extra' field is at index 6
+    %% (1=record_name, 2=name, ...). We avoid hard-coding the index by using
+    %% emqx_mgmt_auth's normalisation helper via lookup.
+    {ok, MapForm} = emqx_mgmt_auth:read(Name),
+    %% to_map projects materialised scopes verbatim — no sentinel.
+    %% MapForm is the internal atom-keyed shape (read/1 returns the raw
+    %% to_map/1 projection, before the API layer converts keys to
+    %% binaries for the JSON response).
+    ?assertEqual(
+        DefaultAdminScopes,
+        lists:sort(maps:get(scopes, MapForm))
+    ),
+    %% Defensive: also assert the raw extra map carries `scopes' (not
+    %% the absence of the key, which would have been the legacy state).
+    Extra = element(6, Record),
+    ?assert(is_map(Extra)),
+    ?assert(maps:is_key(scopes, Extra)),
+    delete_app(Name).
+
+%% Records created before the scopes feature shipped have no `scopes'
+%% key in their extra map. Such legacy records still need a sensible
+%% response — the contract is to surface the binary sentinel
+%% `<<"unset">>'. We simulate this by writing a record directly into
+%% mnesia with a stripped extra map.
+t_api_legacy_record_shows_unset_sentinel(_Config) ->
+    Name = <<"SCOPES-API-LEGACY">>,
+    %% First create a normal record via the API so we get a valid record
+    %% layout, then mutate its extra to remove the scopes key.
+    {ok, _} = create_app(Name),
+    [Record0] = mnesia:dirty_read(emqx_app, Name),
+    Extra0 = element(6, Record0),
+    ExtraNoScopes = maps:remove(scopes, Extra0),
+    Record1 = setelement(6, Record0, ExtraNoScopes),
+    ok = mnesia:dirty_write(emqx_app, Record1),
+    %% Now read it back through the API and verify the sentinel surfaces.
+    {ok, ReadBack} = read_app(Name),
+    ?assertEqual(<<"unset">>, maps:get(<<"scopes">>, ReadBack)),
     delete_app(Name).
 
 %%--------------------------------------------------------------------

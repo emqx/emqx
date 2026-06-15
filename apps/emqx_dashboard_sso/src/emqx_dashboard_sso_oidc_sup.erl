@@ -24,4 +24,8 @@ stop_child(Mod) ->
     ok.
 
 init([]) ->
-    {ok, {{one_for_one, 0, 1}, []}}.
+    %% The oidcc worker has its own soft-failure backoff (random 5-10 s) for
+    %% unreachable or malformed providers; this intensity budget only burns
+    %% when the worker actually crashes, and is sized to survive a handful of
+    %% such crashes within a minute before giving up.
+    {ok, {{one_for_one, 10, 60}, []}}.

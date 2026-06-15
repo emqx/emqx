@@ -9,7 +9,7 @@
 -include("emqx_prometheus.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 
@@ -58,6 +58,7 @@ scopes() ->
     #{
         "/prometheus" => ?SCOPE_SYSTEM,
         "/prometheus/auth" => ?SCOPE_MONITORING,
+        "/prometheus/namespaced_stats" => ?SCOPE_MONITORING,
         "/prometheus/stats" => ?SCOPE_MONITORING,
         "/prometheus/data_integration" => ?SCOPE_MONITORING,
         "/prometheus/schema_validation" => ?SCOPE_MONITORING,

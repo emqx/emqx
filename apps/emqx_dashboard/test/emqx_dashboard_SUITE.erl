@@ -161,8 +161,11 @@ t_admin_delete_self_failed(_) ->
     {error, {_, 401, _}} = request_dashboard(delete, api_path(["users", "username1"]), Header2),
     mnesia:clear_table(?ADMIN).
 
-%% This verifies that we can delete the default admin only if there is at least another
-%% admin username in the database.
+%% The default admin user (configured via `dashboard.default_username') is
+%% a break-glass account and must never be deleted via the REST API,
+%% regardless of how many other admins exist. Restarting the application
+%% re-creates the default user if it is missing only when the table is
+%% empty; once any admin exists, no recreation happens.
 t_admin_delete_default_username(_TCConfig) ->
     mnesia:clear_table(?ADMIN),
     DefaultUsername = emqx_dashboard_admin:default_username(),
@@ -172,6 +175,8 @@ t_admin_delete_default_username(_TCConfig) ->
     ?assertNotEqual(<<"">>, DefaultPassword),
     {ok, #{}} = emqx_dashboard_admin:add_default_user(),
     HeaderDefault = auth_header_(DefaultUsername, DefaultPassword),
+    %% The default admin cannot delete itself (both the default-user
+    %% protection and the self-delete guard apply).
     ?assertMatch(
         {error, {_, 400, _}},
         request_dashboard(delete, api_path(["users", DefaultUsername]), HeaderDefault)
@@ -182,25 +187,19 @@ t_admin_delete_default_username(_TCConfig) ->
         NewAdmin, NewPassword, ?ROLE_SUPERUSER, <<"description">>
     ),
     NewHeader = auth_header_(NewAdmin, NewPassword),
-    %% Now we can delete the default admin user
+    %% Even with another admin present, the default admin remains
+    %% protected from deletion.
     ?assertMatch(
-        {ok, _},
+        {error, {_, 400, _}},
         request_dashboard(delete, api_path(["users", DefaultUsername]), NewHeader)
     ),
-    ?assertMatch(
-        {error, {_, 404, _}},
-        request_dashboard(delete, api_path(["users", DefaultUsername]), NewHeader)
-    ),
-    %% Cannot delete self
+    %% The new admin still cannot delete itself.
     ?assertMatch(
         {error, {_, 400, _}},
         request_dashboard(delete, api_path(["users", NewAdmin]), NewHeader)
     ),
-    %% Restarting the application should not restore the default admin user
-    ?assertMatch([_], emqx_dashboard_admin:admin_users()),
-    ok = application:stop(emqx_dashboard),
-    ok = application:start(emqx_dashboard),
-    ?assertMatch([_], emqx_dashboard_admin:admin_users()),
+    %% The default admin record is still present.
+    ?assertMatch([_ | _], emqx_dashboard_admin:lookup_user(DefaultUsername)),
     ok.
 
 t_default_public_password_login_security_profile(_TCConfig) ->
@@ -239,18 +238,21 @@ t_rest_api(_Config) ->
     Password = <<"public_www1">>,
     emqx_dashboard_admin:add_user(<<"admin">>, Password, ?ROLE_SUPERUSER, Desc),
     {ok, 200, Res0} = http_get(["users"]),
+    %% to_external_user/1 also surfaces the effective scopes list
+    %% (admin -> common + login-only scopes by role-default). This test doesn't care
+    %% about the exact list, so drop the field before asserting the
+    %% rest of the user record.
+    [User0] = get_http_data(Res0),
     ?assertEqual(
-        [
-            filter_req(#{
-                <<"backend">> => <<"local">>,
-                <<"username">> => <<"admin">>,
-                <<"description">> => <<"administrator">>,
-                <<"role">> => ?ROLE_SUPERUSER,
-                <<"namespace">> => null,
-                <<"mfa">> => <<"none">>
-            })
-        ],
-        get_http_data(Res0)
+        filter_req(#{
+            <<"backend">> => <<"local">>,
+            <<"username">> => <<"admin">>,
+            <<"description">> => <<"administrator">>,
+            <<"role">> => ?ROLE_SUPERUSER,
+            <<"namespace">> => null,
+            <<"mfa">> => <<"none">>
+        }),
+        maps:remove(<<"scopes">>, User0)
     ),
     {ok, 200, _} = http_put(
         ["users", "admin"],
@@ -295,13 +297,14 @@ t_swagger_json(_Config) ->
     {ok, {{"HTTP/1.1", 200, "OK"}, _Headers, Body}} =
         httpc:request(get, {Url, [AuthHeader]}, [], [{body_format, binary}]),
     ?assert(emqx_utils_json:is_json(Body)),
+    Spec = emqx_utils_json:decode(Body),
     ?assertMatch(
         #{
             <<"openapi">> := <<"3.", _/binary>>,
             <<"info">> := #{<<"title">> := _, <<"version">> := _},
             <<"paths">> := _
         },
-        emqx_utils_json:decode(Body)
+        Spec
     ),
     %% Anonymous callers get a 401 with a minimal OpenAPI stub.
     {ok, {{"HTTP/1.1", 401, _}, AnonHeaders, AnonBody}} =
@@ -313,6 +316,37 @@ t_swagger_json(_Config) ->
     ?assertMatch(
         {_, "Basic realm" ++ _},
         lists:keyfind("www-authenticate", 1, AnonHeaders)
+    ),
+    %% Every operation's `tags' field must be a flat JSON array of
+    %% strings. A regression in `trans_tags' (e.g. forgetting to
+    %% flatten the chardata returned by `string:titlecase/1', or a
+    %% callsite mistakenly wrapping a list tag in another list) would
+    %% leak an iolist into the JSON and emit a tag such as
+    %% `[68, "ashboard SSO"]', which crashes downstream OpenAPI
+    %% tooling like Redocly's `slugify(tagName)'.
+    BadTags = collect_non_string_tags(Spec),
+    ?assertEqual([], BadTags, {non_string_tags_in_openapi_spec, BadTags}),
+    ok.
+
+collect_non_string_tags(#{<<"paths">> := Paths}) ->
+    maps:fold(
+        fun(Path, Methods, Acc) ->
+            maps:fold(
+                fun
+                    (Method, #{<<"tags">> := Tags}, InnerAcc) when is_list(Tags) ->
+                        case [T || T <- Tags, not is_binary(T)] of
+                            [] -> InnerAcc;
+                            Bad -> [{Path, Method, Bad} | InnerAcc]
+                        end;
+                    (_Method, _Op, InnerAcc) ->
+                        InnerAcc
+                end,
+                Acc,
+                Methods
+            )
+        end,
+        [],
+        Paths
     ).
 
 t_disable_swagger_json(_Config) ->

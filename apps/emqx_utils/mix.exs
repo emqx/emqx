@@ -6,7 +6,7 @@ defmodule EMQXUtils.MixProject do
   def project do
     [
       app: :emqx_utils,
-      version: "6.2.1",
+      version: "6.2.2",
       build_path: "../../_build",
       compilers: [:yecc, :leex] ++ Mix.compilers(),
       erlc_options: UMP.erlc_options(),
@@ -30,7 +30,8 @@ defmodule EMQXUtils.MixProject do
       :jiffy,
       :emqx_http_lib,
       :snabbkaffe,
-      :erlang_qq
+      :erlang_qq,
+      :hocon
     ])
   end
 

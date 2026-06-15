@@ -21,6 +21,7 @@
 -export([compose_filters/2]).
 -export([validate_content_type_json/2, validate_content_type/3]).
 -export([hocon_schema_to_spec/2, components/2]).
+-export([get_i18n/4]).
 
 -export([
     filter_check_request/2,
@@ -652,7 +653,13 @@ trans_summary(Spec, Hocon, Options) ->
     end.
 
 trans_tags(Spec = #{tags := Tags}) ->
-    Spec#{tags => [string:titlecase(to_bin(Tag)) || Tag <- Tags]};
+    %% `string:titlecase/1' may return chardata (an improper list with
+    %% a binary tail) even for a plain binary input. JSON encoders then
+    %% serialise that chardata as a JSON array of integers + strings,
+    %% which crashes downstream OpenAPI tooling (e.g. Redocly's
+    %% `slugify(tagName)`). Flatten back to a binary so the wire shape
+    %% is always a JSON string.
+    Spec#{tags => [iolist_to_binary(string:titlecase(to_bin(Tag))) || Tag <- Tags]};
 trans_tags(Spec) ->
     Spec.
 

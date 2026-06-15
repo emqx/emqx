@@ -25,7 +25,12 @@ else
         echo "EXECUTE 'make fmt-diff' to fix" >&2
         exit 1
     fi
-    ./scripts/apps-version-check.exs
+    if [ -f  "./scripts/apps-version-check.exs" ]; then
+        ./scripts/apps-version-check.exs
+    fi
+    if [ -f  "./scripts/apps-version-check.sh" ]; then
+        ./scripts/apps-version-check.sh
+    fi
 fi
 
 ./scripts/check-umbrella-apps.exs

@@ -138,7 +138,11 @@ kick_username(Username) ->
         [] ->
             {error, not_found};
         _ ->
-            lists:foreach(fun(ClientId) -> _ = emqx_cm:kick_session(ClientId) end, ClientIds),
+            %% Fan out to every node so the kick lands regardless of whether the
+            %% session registry is enabled. emqx_cm:kick_session/1 resolves the
+            %% channel via the (optionally disabled) registry, which silently
+            %% misses channels living on remote nodes when the registry is off.
+            ok = emqx_mgmt:kickout_clients(ClientIds),
             {ok, length(ClientIds)}
     end.
 

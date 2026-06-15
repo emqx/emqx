@@ -275,6 +275,49 @@ h_graceful_retry_on_actor_error(
 h_graceful_retry_on_actor_error(_Msg) ->
     ok.
 
+%% Stopping route replication should not wait for a stuck MQTT CONNECT attempt.
+t_unresponsive_endpoint('init', Config) ->
+    HSt = mk_hookst(),
+    ok = emqx_hooks:put(
+        'client.connect',
+        {?MODULE, h_stall_client_connect, [HSt]},
+        ?HP_HIGHEST
+    ),
+    hookst_put(test_runner_pid, self(), HSt),
+    [{hook_state, HSt} | Config];
+t_unresponsive_endpoint('end', _Config) ->
+    emqx_hooks:del('client.connect', {?MODULE, h_stall_client_connect}),
+    snabbkaffe:stop().
+
+t_unresponsive_endpoint(_Config) ->
+    Actor = ?FUNCTION_NAME,
+    TargetCluster = <<"blackhole">>,
+    ActorMF = fun
+        (incarnation) -> erlang:system_time(millisecond);
+        (marker) -> TargetCluster
+    end,
+    Link = mk_self_link(TargetCluster, [<<"#">>]),
+    {ok, RouteRepl} = emqx_cluster_link_routerepl:start_link(Actor, ActorMF, Link),
+    ?assertMatch(
+        {_, _ConnPid, #{clientid := <<"rrtest:blackhole:", _/bytes>>}},
+        ?assertReceive({client_connect_stalled, _ConnPid, _ConnInfo})
+    ),
+    T0 = erlang:monotonic_time(millisecond),
+    true = erlang:unlink(RouteRepl),
+    ok = gen:stop(RouteRepl, shutdown, infinity),
+    T1 = erlang:monotonic_time(millisecond),
+    ?assertMatch(
+        {_, Elapsed} when Elapsed < 1000,
+        {stop_routerepl_took, T1 - T0}
+    ).
+
+h_stall_client_connect(ConnInfo, ConnProps, HSt) ->
+    ConnPid = self(),
+    TestRunner = hookst_get(test_runner_pid, HSt),
+    TestRunner ! {client_connect_stalled, ConnPid, ConnInfo},
+    timer:sleep(10_000),
+    {ok, ConnProps}.
+
 %% Network issues do not result in route replication inconsistencies.
 t_consistency_under_unstable_connectivity('init', Config) ->
     HSt = mk_hookst(),

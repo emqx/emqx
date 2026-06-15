@@ -298,7 +298,7 @@ t_clean_token(_) ->
     NewPassword = <<"public_www2">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, <<"desc">>),
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
-    FakeReq = #{},
+    FakeReq = #{path => <<"/api/v5/users">>},
     FakeHandlerInfo = #{method => get, function => any, module => any},
     {ok, #{actor := Username}} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     %% change password
@@ -525,7 +525,7 @@ t_namespaced_user_permissions(_TCConfig) ->
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
     AllHandlers = [_ | _] = all_handlers(),
     GetHandlers = [_ | _] = [FHI || #{method := get} = FHI <- AllHandlers],
-    FakeReq = #{},
+    FakeReq = #{path => <<"/api/v5/clients">>},
     Failures =
         lists:filtermap(
             fun(FakeHandlerInfo) ->
@@ -577,7 +577,10 @@ t_namespaced_api_publisher(TCConfig) when is_list(TCConfig) ->
     {_, BasicAuth} = emqx_common_test_http:auth_header(Key, Secret),
 
     AllHandlers = [_ | _] = all_handlers(),
-    FakeReq = #{headers => #{<<"authorization">> => bin(BasicAuth)}},
+    FakeReq = #{
+        path => <<"/api/v5/users">>,
+        headers => #{<<"authorization">> => bin(BasicAuth)}
+    },
     Failures =
         lists:filtermap(
             fun(FakeHandlerInfo) ->

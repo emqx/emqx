@@ -1,5 +1,3 @@
-Fixes <issue-or-jira-number>
-
 Release version:
 <!-- uncomment for v5:
 5.8.10, 5.10.4
