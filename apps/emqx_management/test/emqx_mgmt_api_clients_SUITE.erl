@@ -770,9 +770,15 @@ t_kickout_clients(Config) ->
     ?assertReceive({'DOWN', _MRef, process, C1, _}),
     ?assertReceive({'DOWN', _MRef, process, C2, _}),
     ?assertReceive({'DOWN', _MRef, process, C3, _}),
-    ?assertMatch(
-        {ok, {_200, _, #{<<"meta">> := #{<<"count">> := 0}}}},
-        request(get, ClientsPath, Config)
+    %% Client process death and CM deregistration are async, so the listing
+    %% may still report the clients right after the DOWNs; retry until empty.
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            {ok, {_200, _, #{<<"meta">> := #{<<"count">> := 0}}}},
+            request(get, ClientsPath, Config)
+        )
     ).
 
 t_query_clients_with_time(Config) ->
