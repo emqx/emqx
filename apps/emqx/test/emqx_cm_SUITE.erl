@@ -519,8 +519,14 @@ t_clientid_registration_throttled(_) ->
     ChanInfo = ?ChanInfo,
     #{conninfo := ConnInfo} = ChanInfo,
     ?assertReceive({'DOWN', MRef, process, DeadPid, _}),
+    %% Suspend emqx_cm so it cannot process the {registered, DeadPid} monitor +
+    %% subsequent DOWN that would asynchronously clean up the dead pid's
+    %% conn-mod row. Otherwise that cleanup can race ahead of the throttle check
+    %% below, which then sees no stale row and lets the session open.
+    ok = sys:suspend(emqx_cm),
     ok = emqx_cm:register_channel(ClientId, DeadPid, ChanInfo#{conn_mod => emqx_connection}),
     ?assertEqual({error, client_id_unavailable}, open_session(true, ClientInfo, ConnInfo)),
+    ok = sys:resume(emqx_cm),
     ok = emqx_cm:do_unregister_channel({ClientId, DeadPid}).
 
 %% Stale registry rows can survive a partition + autoheal (the unregister
