@@ -803,12 +803,43 @@ t_counter_consistency_concurrent(_Config) ->
     timer:sleep(100),
     RecCount = ets:info(?RECORD_TAB, size),
     CtrSum = emqx_username_quota:session_count(User),
-    CtrEntries = ets:tab2list(?COUNTER_TAB),
     ?assertEqual(0, RecCount),
     ?assertEqual(0, CtrSum),
     ?assertEqual(
         [{?COUNTER_TAB, {User, node()}, 0}],
-        CtrEntries
+        ets:lookup(?COUNTER_TAB, {User, node()})
+    ).
+
+t_counter_consistency_concurrent_del_client(_Config) ->
+    User = <<"race-dc-user">>,
+    N = 40,
+    Parent = self(),
+    Procs = [
+        spawn_link(fun() ->
+            ClientId = list_to_binary(io_lib:format("dc~p", [I])),
+            emqx_username_quota_state:add(User, ClientId, self()),
+            timer:sleep(rand:uniform(5)),
+            emqx_username_quota_state:del_client(User, ClientId),
+            Parent ! {done, I}
+        end)
+     || I <- lists:seq(1, N)
+    ],
+    lists:foreach(
+        fun(_) ->
+            receive
+                {done, _} -> ok
+            end
+        end,
+        lists:seq(1, N)
+    ),
+    timer:sleep(100),
+    RecCount = ets:info(?RECORD_TAB, size),
+    CtrSum = emqx_username_quota:session_count(User),
+    ?assertEqual(0, RecCount),
+    ?assertEqual(0, CtrSum),
+    ?assertEqual(
+        [{?COUNTER_TAB, {User, node()}, 0}],
+        ets:lookup(?COUNTER_TAB, {User, node()})
     ).
 
 t_counter_not_deleted_when_zero(_Config) ->
@@ -819,10 +850,9 @@ t_counter_not_deleted_when_zero(_Config) ->
     emqx_username_quota:unregister_session(User, <<"c1">>),
     ?assertEqual(0, emqx_username_quota:session_count(User)),
     %% Verify counter entry still exists (key not deleted)
-    CtrEntries = ets:tab2list(?COUNTER_TAB),
     ?assertMatch(
-        [{?COUNTER_TAB, {User, _}, 0}],
-        CtrEntries
+        [#?COUNTER_TAB{key = {User, _}, count = 0}],
+        ets:lookup(?COUNTER_TAB, {User, node()})
     ),
     %% Re-register should bring counter back to positive
     emqx_username_quota:register_session(User, <<"c1">>),
