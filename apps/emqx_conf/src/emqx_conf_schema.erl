@@ -1472,8 +1472,7 @@ translation("gen_rpc") ->
     ];
 translation("prometheus") ->
     [
-        {"collectors", fun(_) -> [] end},
-        {"collectors_compat", fun(_) -> true end}
+        {"collectors", fun(_) -> [] end}
     ];
 translation("vm_args") ->
     [
