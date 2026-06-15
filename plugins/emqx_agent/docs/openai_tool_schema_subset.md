@@ -481,8 +481,8 @@ For example, a pipeline step array can be modeled like this:
         "type": "object",
         "properties": {
           "id": { "type": "string" },
-          "type": { "type": "string", "enum": ["call_skill"] },
-          "skill": { "type": "string" },
+          "type": { "type": "string", "enum": ["call_tool"] },
+          "tool": { "type": "string" },
           "args": {
             "type": ["object", "null"],
             "properties": {},
@@ -491,7 +491,7 @@ For example, a pipeline step array can be modeled like this:
           },
           "result_path": { "type": ["string", "null"] }
         },
-        "required": ["id", "type", "skill", "args", "result_path"],
+        "required": ["id", "type", "tool", "args", "result_path"],
         "additionalProperties": false
       },
       {
@@ -1109,7 +1109,7 @@ emqx_agent_oai_tool_value
   - validate decoded JSON values against validated schemas
 ```
 
-These may be integrated into the existing skill registry and pipeline execution
+These may be integrated into the existing tool registry and pipeline execution
 paths rather than requiring separate `config`, `registry`, or `runner` modules.
 
 Suggested public functions:

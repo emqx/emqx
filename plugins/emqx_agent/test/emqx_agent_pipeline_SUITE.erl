@@ -10,7 +10,7 @@
 %%   - Register minimal pipeline definitions directly via the registry.
 %%   - Publish trigger events through the broker (fires the hook).
 %%   - Use emqx:subscribe to observe pipe/.../events and cap/... topics.
-%%   - For call_skill tests the emqx_agent_skill_publish skill is used
+%%   - For call_tool tests the emqx_agent_tool_publish tool is used
 %%     (it executes immediately and replies with cap/<type>/<id>/response/<req_id>).
 
 -module(emqx_agent_pipeline_SUITE).
@@ -65,7 +65,10 @@ end_per_testcase(TestCase, _Config) ->
 maybe_deinit_session_hook(TestCase) when
     TestCase =:= t_set_result_writes_to_context;
     TestCase =:= t_llm_loop_final_without_set_result_fails;
-    TestCase =:= t_persistent_llm_loop_ignores_other_iid_frames
+    TestCase =:= t_persistent_llm_loop_ignores_other_iid_frames;
+    TestCase =:= t_llm_loop_custom_key_expression;
+    TestCase =:= t_llm_loop_key_expression_can_share_across_pipelines;
+    TestCase =:= t_llm_loop_key_expression_can_isolate_by_pipeline_and_step
 ->
     ok = emqx_agent_session:deinit();
 maybe_deinit_session_hook(_TestCase) ->
@@ -74,7 +77,10 @@ maybe_deinit_session_hook(_TestCase) ->
 maybe_restore_session_hook(TestCase) when
     TestCase =:= t_set_result_writes_to_context;
     TestCase =:= t_llm_loop_final_without_set_result_fails;
-    TestCase =:= t_persistent_llm_loop_ignores_other_iid_frames
+    TestCase =:= t_persistent_llm_loop_ignores_other_iid_frames;
+    TestCase =:= t_llm_loop_custom_key_expression;
+    TestCase =:= t_llm_loop_key_expression_can_share_across_pipelines;
+    TestCase =:= t_llm_loop_key_expression_can_isolate_by_pipeline_and_step
 ->
     ok = emqx_agent_session:init();
 maybe_restore_session_hook(_TestCase) ->
@@ -93,23 +99,23 @@ t_trigger_starts_pipeline(Config) ->
     Started = recv_pipe_event(PipelineId),
     ?assertEqual(<<"pipeline_started">>, maps:get(<<"type">>, Started)).
 
-%% A pipeline with a single call_skill step should invoke the skill and
+%% A pipeline with a single call_tool step should invoke the tool and
 %% then complete.
-t_call_skill_completes(Config) ->
+t_call_tool_completes(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    SkillId = PipelineId,
+    ToolId = PipelineId,
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Step = #{
         <<"id">> => <<"notify">>,
-        <<"type">> => <<"call_skill">>,
-        <<"skill">> => <<"message__publish@", SkillId/binary>>,
+        <<"type">> => <<"call_tool">>,
+        <<"tool">> => <<"message__publish@", ToolId/binary>>,
         <<"args">> => #{
             <<"topic">> => <<"output">>,
             <<"payload">> => <<"hello">>
         },
         <<"result_path">> => <<"$.notify_result">>
     },
-    setup_publish_skill(SkillId),
+    setup_publish_tool(ToolId),
     register_pipeline(PipelineId, TrigTopic, [Step]),
     publish_evt(TrigTopic, #{<<"id">> => <<"e1">>}),
     %% pipeline_started
@@ -125,29 +131,29 @@ t_call_skill_completes(Config) ->
         maps:get(<<"notify_result">>, Ctx, #{})
     ).
 
-%% A two-step pipeline: call_skill → call_skill.
+%% A two-step pipeline: call_tool → call_tool.
 %% Both steps must complete and the final context must carry both results.
 t_multi_step_pipeline(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    SkillId = PipelineId,
+    ToolId = PipelineId,
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Steps = [
         #{
             <<"id">> => <<"step1">>,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message__publish@", SkillId/binary>>,
+            <<"type">> => <<"call_tool">>,
+            <<"tool">> => <<"message__publish@", ToolId/binary>>,
             <<"args">> => #{<<"topic">> => <<"s1">>, <<"payload">> => <<"p1">>},
             <<"result_path">> => <<"$.step1">>
         },
         #{
             <<"id">> => <<"step2">>,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message__publish@", SkillId/binary>>,
+            <<"type">> => <<"call_tool">>,
+            <<"tool">> => <<"message__publish@", ToolId/binary>>,
             <<"args">> => #{<<"topic">> => <<"s2">>, <<"payload">> => <<"p2">>},
             <<"result_path">> => <<"$.step2">>
         }
     ],
-    setup_publish_skill(SkillId),
+    setup_publish_tool(ToolId),
     register_pipeline(PipelineId, TrigTopic, Steps),
     publish_evt(TrigTopic, #{<<"id">> => <<"e2">>}),
     _Started = recv_pipe_event(PipelineId),
@@ -161,15 +167,15 @@ t_multi_step_pipeline(Config) ->
 %% context and reachable for arg resolution in subsequent steps.
 t_context_propagation(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    SkillId = PipelineId,
+    ToolId = PipelineId,
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Steps = [
         #{
             <<"id">> => <<"echo">>,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message__publish@", SkillId/binary>>,
+            <<"type">> => <<"call_tool">>,
+            <<"tool">> => <<"message__publish@", ToolId/binary>>,
             %% Resolve $.event (a map) — it becomes the args value.
-            %% Only the <<"topic">> and <<"payload">> keys are used by the skill;
+            %% Only the <<"topic">> and <<"payload">> keys are used by the tool;
             %% we supply them as literals here.
             <<"args">> => #{
                 <<"topic">> => <<"ctx_test">>,
@@ -178,7 +184,7 @@ t_context_propagation(Config) ->
             <<"result_path">> => <<"$.echo">>
         }
     ],
-    setup_publish_skill(SkillId),
+    setup_publish_tool(ToolId),
     register_pipeline(PipelineId, TrigTopic, Steps),
     publish_evt(TrigTopic, #{<<"id">> => <<"ctx-evt">>, <<"data">> => #{<<"v">> => 7}}),
     _Started = recv_pipe_event(PipelineId),
@@ -194,7 +200,7 @@ t_context_propagation(Config) ->
 %% A break step must finish the pipeline when the selected context value is true.
 t_break_stops_pipeline_when_true(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    SkillId = PipelineId,
+    ToolId = PipelineId,
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Steps = [
         #{
@@ -204,13 +210,13 @@ t_break_stops_pipeline_when_true(Config) ->
         },
         #{
             <<"id">> => <<"should_not_run">>,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message__publish@", SkillId/binary>>,
+            <<"type">> => <<"call_tool">>,
+            <<"tool">> => <<"message__publish@", ToolId/binary>>,
             <<"args">> => #{<<"topic">> => <<"post-break">>, <<"payload">> => <<"x">>},
             <<"result_path">> => <<"$.post">>
         }
     ],
-    setup_publish_skill(SkillId),
+    setup_publish_tool(ToolId),
     register_pipeline(PipelineId, TrigTopic, Steps),
     publish_evt(TrigTopic, #{<<"id">> => <<"e-break-1">>, <<"data">> => #{<<"stop">> => true}}),
     _Started = recv_pipe_event(PipelineId),
@@ -222,7 +228,7 @@ t_break_stops_pipeline_when_true(Config) ->
 %% With not=true, break must finish when the selected value is not true.
 t_break_with_not_stops_pipeline_when_not_true(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    SkillId = PipelineId,
+    ToolId = PipelineId,
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Steps = [
         #{
@@ -233,13 +239,13 @@ t_break_with_not_stops_pipeline_when_not_true(Config) ->
         },
         #{
             <<"id">> => <<"should_not_run">>,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message__publish@", SkillId/binary>>,
+            <<"type">> => <<"call_tool">>,
+            <<"tool">> => <<"message__publish@", ToolId/binary>>,
             <<"args">> => #{<<"topic">> => <<"post-break-not">>, <<"payload">> => <<"x">>},
             <<"result_path">> => <<"$.post">>
         }
     ],
-    setup_publish_skill(SkillId),
+    setup_publish_tool(ToolId),
     register_pipeline(PipelineId, TrigTopic, Steps),
     publish_evt(TrigTopic, #{
         <<"id">> => <<"e-break-2">>, <<"data">> => #{<<"keep_going">> => false}
@@ -266,23 +272,23 @@ t_one_off_pipeline_stops_on_completion(Config) ->
         ct:fail("pipeline did not stop after completion")
     end,
     Ctx = maps:get(<<"context">>, Completed),
-    ?assertEqual(TrigTopic, maps:get(<<"key">>, Ctx)),
-    ?assertEqual(emqx_base62:encode(TrigTopic), maps:get(<<"key_base62">>, Ctx)).
+    ?assertNot(maps:is_key(<<"key">>, Ctx)),
+    ?assertNot(maps:is_key(<<"key_base62">>, Ctx)).
 
 %% Step 1 writes its result to $.lookup.  Step 2 reads $.lookup.topic
-%% out of context and uses it as the `topic` arg for the skill call.
+%% out of context and uses it as the `topic` arg for the tool call.
 %% This verifies that result_path + arg resolution actually chain across steps.
 t_context_flows_between_steps(Config) ->
     PipelineId = ?config(pipeline_id, Config),
-    SkillId = PipelineId,
+    ToolId = PipelineId,
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
     Steps = [
-        %% Step 1 — publishes to "first" and stores the skill reply at $.lookup.
+        %% Step 1 — publishes to "first" and stores the tool reply at $.lookup.
         %% The reply from message__publish is #{status => ok, topic => "test/first"}.
         #{
             <<"id">> => <<"step1">>,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message__publish@", SkillId/binary>>,
+            <<"type">> => <<"call_tool">>,
+            <<"tool">> => <<"message__publish@", ToolId/binary>>,
             <<"args">> => #{
                 <<"topic">> => <<"first">>,
                 <<"payload">> => <<"ping">>
@@ -293,8 +299,8 @@ t_context_flows_between_steps(Config) ->
         %% that the previous step's result is visible to the next step's args.
         #{
             <<"id">> => <<"step2">>,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => <<"message__publish@", SkillId/binary>>,
+            <<"type">> => <<"call_tool">>,
+            <<"tool">> => <<"message__publish@", ToolId/binary>>,
             <<"args">> => #{
                 <<"topic">> => <<"second">>,
                 <<"payload">> => <<"$.lookup.result.topic">>
@@ -302,10 +308,10 @@ t_context_flows_between_steps(Config) ->
             <<"result_path">> => <<"$.echo">>
         }
     ],
-    setup_publish_skill(SkillId),
+    setup_publish_tool(ToolId),
     register_pipeline(PipelineId, TrigTopic, Steps),
 
-    %% Subscribe to the raw publish-skill output so we can inspect what payload
+    %% Subscribe to the raw publish-tool output so we can inspect what payload
     %% step 2 actually sent.
     emqx:subscribe(<<"test/second">>),
 
@@ -440,12 +446,11 @@ t_llm_loop_defaults_are_applied(Config) ->
         <<"result_path">> => <<"$.result">>
     },
     register_pipeline(PipelineId, TrigTopic, [Step]),
-    {ok, #{<<"key_expression">> := KeyExpression, <<"steps">> := [Stored]}} =
-        emqx_agent_config:lookup_pipeline(PipelineId),
+    {ok, #{<<"steps">> := [Stored]}} = emqx_agent_config:lookup_pipeline(PipelineId),
     ?assertMatch(#{<<"tools">> := []}, Stored),
     ?assertMatch(#{<<"input">> := #{}}, Stored),
     ?assertMatch(#{<<"persistent">> := false}, Stored),
-    ?assertEqual(<<"message.topic">>, KeyExpression),
+    ?assertEqual(<<"message.topic">>, maps:get(<<"key_expression">>, Stored)),
     ?assertEqual(2048, maps:get(<<"max_tokens">>, Stored)),
     ?assertEqual(50000, maps:get(<<"max_total_tokens">>, Stored)).
 
@@ -556,41 +561,141 @@ t_llm_loop_requires_model(Config) ->
         })
     ).
 
-t_pipeline_rejects_invalid_key_expression(Config) ->
+t_llm_loop_rejects_invalid_key_expression(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
+    Step = #{
+        <<"id">> => <<"llm">>,
+        <<"type">> => <<"llm_loop">>,
+        <<"model">> => <<"test-model">>,
+        <<"instructions">> => <<"test">>,
+        <<"provider_name">> => <<"test-provider">>,
+        <<"key_expression">> => <<"not existing fun(">>,
+        <<"set_result_schema">> => set_result_schema(),
+        <<"result_path">> => <<"$.result">>
+    },
     ?assertMatch(
         {error, _},
         emqx_agent_service:pipeline_create(#{
             <<"pipeline_id">> => PipelineId,
             <<"active">> => true,
-            <<"key_expression">> => <<"not existing fun(">>,
             <<"trigger">> => #{<<"topic">> => TrigTopic},
-            <<"steps">> => []
+            <<"steps">> => [Step]
         })
     ).
 
-t_pipeline_custom_key_expression(Config) ->
+t_llm_loop_custom_key_expression(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
-    Def = #{
-        <<"pipeline_id">> => PipelineId,
-        <<"active">> => true,
+    StepId = <<"llm">>,
+    From = atom_to_binary(?MODULE, utf8),
+    Sid = persistent_sid(PipelineId, StepId, From),
+    SessInTopic = emqx_agent_topics:sess_in_topic(Sid),
+    ok = emqx:subscribe(SessInTopic),
+    Step = #{
+        <<"id">> => StepId,
+        <<"type">> => <<"llm_loop">>,
+        <<"model">> => <<"test-model">>,
+        <<"instructions">> => <<"test">>,
+        <<"provider_name">> => <<"test-provider">>,
+        <<"persistent">> => true,
         <<"key_expression">> => <<"message.from">>,
-        <<"trigger">> => #{<<"topic">> => TrigTopic},
-        <<"steps">> => []
+        <<"input">> => #{},
+        <<"set_result_schema">> => set_result_schema(),
+        <<"result_path">> => <<"$.result">>
     },
-    Msg = trigger_message(TrigTopic, #{<<"id">> => <<"key-1">>}),
-    {ok, _Pid} = emqx_agent_pipeline_sup:start_pipeline(Def, #{
-        event => #{<<"id">> => <<"key-1">>},
-        message => Msg
+    register_pipeline(PipelineId, TrigTopic, [Step]),
+    publish_evt(TrigTopic, #{<<"id">> => <<"key-1">>}),
+    Started = recv_pipe_event(PipelineId),
+    Iid = maps:get(<<"iid">>, Started),
+    _Request = recv_sess_request(Sid),
+    ok = emqx:unsubscribe(SessInTopic),
+    SessOutTopic = emqx_agent_topics:sess_out_topic(Sid),
+    publish_frame(SessOutTopic, #{
+        <<"type">> => <<"tool_request">>,
+        <<"iid">> => Iid,
+        <<"call_id">> => <<"set-result-key">>,
+        <<"tool">> => <<"set_result">>,
+        <<"args">> => #{<<"status">> => <<"ok">>}
     }),
-    _Started = recv_pipe_event(PipelineId),
+    publish_frame(emqx_agent_topics:sess_out_topic(Sid), #{
+        <<"type">> => <<"final">>,
+        <<"iid">> => Iid
+    }),
     Completed = recv_pipe_event(PipelineId),
     Ctx = maps:get(<<"context">>, Completed),
+    ?assertEqual(#{<<"status">> => <<"ok">>}, maps:get(<<"result">>, Ctx)).
+
+t_llm_loop_key_expression_can_share_across_pipelines(Config) ->
+    PipelineId1 = ?config(pipeline_id, Config),
+    PipelineId2 = <<PipelineId1/binary, "-other">>,
+    TrigTopic1 = <<"$evt/test/", PipelineId1/binary>>,
+    TrigTopic2 = <<"$evt/test/", PipelineId2/binary>>,
+    StepId = <<"llm">>,
     From = atom_to_binary(?MODULE, utf8),
-    ?assertEqual(From, maps:get(<<"key">>, Ctx)),
-    ?assertEqual(emqx_base62:encode(From), maps:get(<<"key_base62">>, Ctx)).
+    Sid = persistent_sid(PipelineId1, StepId, From),
+    SessInTopic = emqx_agent_topics:sess_in_topic(Sid),
+    ok = emqx:subscribe(SessInTopic),
+    Step = persistent_llm_step(StepId, #{<<"key_expression">> => <<"message.from">>}),
+    register_pipeline(PipelineId1, TrigTopic1, [Step]),
+    register_pipeline(PipelineId2, TrigTopic2, [Step]),
+
+    publish_evt(TrigTopic1, #{<<"id">> => <<"shared-1">>}),
+    Started1 = recv_pipe_event(PipelineId1),
+    Iid1 = maps:get(<<"iid">>, Started1),
+    _Request1 = recv_sess_request(Sid),
+
+    publish_evt(TrigTopic2, #{<<"id">> => <<"shared-2">>}),
+    Started2 = recv_pipe_event(PipelineId2),
+    Iid2 = maps:get(<<"iid">>, Started2),
+    _Request2 = recv_sess_request(Sid),
+    ok = emqx:unsubscribe(SessInTopic),
+
+    SessOutTopic = emqx_agent_topics:sess_out_topic(Sid),
+    complete_llm_step(SessOutTopic, Iid1, <<"shared-1">>),
+    Completed1 = recv_pipe_event(PipelineId1),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>, <<"iid">> := Iid1}, Completed1),
+    complete_llm_step(SessOutTopic, Iid2, <<"shared-2">>),
+    Completed2 = recv_pipe_event(PipelineId2),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>, <<"iid">> := Iid2}, Completed2).
+
+t_llm_loop_key_expression_can_isolate_by_pipeline_and_step(Config) ->
+    PipelineId1 = ?config(pipeline_id, Config),
+    PipelineId2 = <<PipelineId1/binary, "-other">>,
+    TrigTopic1 = <<"$evt/test/", PipelineId1/binary>>,
+    TrigTopic2 = <<"$evt/test/", PipelineId2/binary>>,
+    StepId = <<"llm">>,
+    From = atom_to_binary(?MODULE, utf8),
+    KeyExpression = <<"concat([pipeline.id, step.id, message.from])">>,
+    Sid1 = persistent_sid(PipelineId1, StepId, <<PipelineId1/binary, StepId/binary, From/binary>>),
+    Sid2 = persistent_sid(PipelineId2, StepId, <<PipelineId2/binary, StepId/binary, From/binary>>),
+    ?assertNotEqual(Sid1, Sid2),
+    SessInTopic1 = emqx_agent_topics:sess_in_topic(Sid1),
+    SessInTopic2 = emqx_agent_topics:sess_in_topic(Sid2),
+    ok = emqx:subscribe(SessInTopic1),
+    ok = emqx:subscribe(SessInTopic2),
+    Step = persistent_llm_step(StepId, #{<<"key_expression">> => KeyExpression}),
+    register_pipeline(PipelineId1, TrigTopic1, [Step]),
+    register_pipeline(PipelineId2, TrigTopic2, [Step]),
+
+    publish_evt(TrigTopic1, #{<<"id">> => <<"isolated-1">>}),
+    Started1 = recv_pipe_event(PipelineId1),
+    Iid1 = maps:get(<<"iid">>, Started1),
+    _Request1 = recv_sess_request(Sid1),
+
+    publish_evt(TrigTopic2, #{<<"id">> => <<"isolated-2">>}),
+    Started2 = recv_pipe_event(PipelineId2),
+    Iid2 = maps:get(<<"iid">>, Started2),
+    _Request2 = recv_sess_request(Sid2),
+    ok = emqx:unsubscribe(SessInTopic1),
+    ok = emqx:unsubscribe(SessInTopic2),
+
+    complete_llm_step(emqx_agent_topics:sess_out_topic(Sid1), Iid1, <<"isolated-1">>),
+    Completed1 = recv_pipe_event(PipelineId1),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>, <<"iid">> := Iid1}, Completed1),
+    complete_llm_step(emqx_agent_topics:sess_out_topic(Sid2), Iid2, <<"isolated-2">>),
+    Completed2 = recv_pipe_event(PipelineId2),
+    ?assertMatch(#{<<"type">> := <<"pipeline_completed">>, <<"iid">> := Iid2}, Completed2).
 
 %% Unregistered pipeline definitions must not trigger new instances.
 t_unregistered_pipeline_not_triggered(Config) ->
@@ -699,14 +804,43 @@ start_pipeline_direct(PipelineId, TrigTopic, Steps, Event) ->
 trigger_message(Topic, Event) ->
     emqx_message:make(?MODULE, 0, Topic, emqx_utils_json:encode(Event)).
 
-persistent_sid(PipelineId, StepId, Key) ->
-    <<"pipe-",
-        (emqx_base62:encode(<<PipelineId/binary, 0, StepId/binary, 0, Key/binary>>))/binary>>.
+persistent_sid(_PipelineId, _StepId, Key) ->
+    <<"pipe-", (emqx_base62:encode(Key))/binary>>.
 
-setup_publish_skill(SkillId) ->
-    ok = emqx_agent_service:skill_create(#{
+persistent_llm_step(StepId, Overrides) ->
+    maps:merge(
+        #{
+            <<"id">> => StepId,
+            <<"type">> => <<"llm_loop">>,
+            <<"model">> => <<"test-model">>,
+            <<"instructions">> => <<"test">>,
+            <<"provider_name">> => <<"test-provider">>,
+            <<"persistent">> => true,
+            <<"tools">> => [],
+            <<"input">> => #{},
+            <<"set_result_schema">> => set_result_schema(),
+            <<"result_path">> => <<"$.result">>
+        },
+        Overrides
+    ).
+
+complete_llm_step(SessOutTopic, Iid, Status) ->
+    publish_frame(SessOutTopic, #{
+        <<"type">> => <<"tool_request">>,
+        <<"iid">> => Iid,
+        <<"call_id">> => <<"set-result-", Status/binary>>,
+        <<"tool">> => <<"set_result">>,
+        <<"args">> => #{<<"status">> => Status}
+    }),
+    publish_frame(SessOutTopic, #{
+        <<"type">> => <<"final">>,
+        <<"iid">> => Iid
+    }).
+
+setup_publish_tool(ToolId) ->
+    ok = emqx_agent_service:tool_create(#{
         <<"type">> => <<"message__publish">>,
-        <<"id">> => SkillId,
+        <<"id">> => ToolId,
         <<"desc">> => <<"test">>,
         <<"topic_prefix">> => <<"test/">>,
         <<"payload_schema">> => emqx_utils_json:encode(#{<<"type">> => <<"string">>})

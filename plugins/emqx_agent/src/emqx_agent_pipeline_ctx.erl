@@ -23,20 +23,15 @@ Resolve map (resolve_map/2): recursively substitute "$."-prefixed values
     write/3,
     delete/2,
     resolve_map/2,
-    init/2,
+    init/1,
     deep_get/2,
     deep_put/3,
     deep_delete/2
 ]).
 
--spec init(map(), binary()) -> map().
-init(Event, Key) ->
-    KeyBase62 = emqx_base62:encode(Key),
-    #{
-        <<"event">> => Event,
-        <<"key">> => Key,
-        <<"key_base62">> => KeyBase62
-    }.
+-spec init(map()) -> map().
+init(Event) ->
+    #{<<"event">> => Event}.
 
 -spec resolve(binary(), map()) -> term().
 resolve(<<"$.", Path/binary>>, Context) ->

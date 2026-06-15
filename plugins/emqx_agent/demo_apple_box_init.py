@@ -163,7 +163,7 @@ def deactivate_pipeline_maybe(pid: str) -> None:
 
 
 def create_db_table() -> None:
-    """Create the inspections table via the PostgreSQL skill resource."""
+    """Create the inspections table via the PostgreSQL tool resource."""
     sql = (
         "CREATE TABLE IF NOT EXISTS apple_box_inspections ("
         "  id SERIAL PRIMARY KEY,"
@@ -214,16 +214,16 @@ def create_db_table() -> None:
         print(f"  table apple_box_inspections ready (psql)")
 
 
-# ── Skills ─────────────────────────────────────────────────────────────────────
+# ── Tools ─────────────────────────────────────────────────────────────────────
 
 
 def delete_old_assets() -> None:
     deactivate_pipeline_maybe(PIPELINE_ID)
     api_delete_maybe(f"/pipelines/{PIPELINE_ID}")
-    api_delete_maybe(f"/skills/message__request/{SK_SHOT}")
-    api_delete_maybe(f"/skills/message__publish/{SK_ALERT}")
-    api_delete_maybe(f"/skills/message__publish/{SK_STATUS}")
-    api_delete_maybe(f"/skills/postgresql__query/{SK_REGISTER}")
+    api_delete_maybe(f"/tools/message__request/{SK_SHOT}")
+    api_delete_maybe(f"/tools/message__publish/{SK_ALERT}")
+    api_delete_maybe(f"/tools/message__publish/{SK_STATUS}")
+    api_delete_maybe(f"/tools/postgresql__query/{SK_REGISTER}")
     api_delete_maybe(f"/connections/{CONNECTION_ID}")
     api_delete_maybe(f"/ai/providers/{PROVIDER_NAME}", base_url=CORE_BASE_URL)
 
@@ -268,10 +268,10 @@ def create_ai_provider() -> None:
     print(f"  AI provider {PROVIDER_NAME!r} created")
 
 
-def create_skills() -> None:
+def create_tools() -> None:
     api_request(
         "POST",
-        "/skills",
+        "/tools",
         {
             "type": "message__request",
             "id": SK_SHOT,
@@ -280,11 +280,11 @@ def create_skills() -> None:
             "request_payload_schema": json.dumps(empty_object_schema()),
         },
     )
-    print(f"  skill {SK_SHOT!r} created")
+    print(f"  tool {SK_SHOT!r} created")
 
     api_request(
         "POST",
-        "/skills",
+        "/tools",
         {
             "type": "message__publish",
             "id": SK_ALERT,
@@ -293,11 +293,11 @@ def create_skills() -> None:
             "payload_schema": json.dumps(alert_payload_schema()),
         },
     )
-    print(f"  skill {SK_ALERT!r} created")
+    print(f"  tool {SK_ALERT!r} created")
 
     api_request(
         "POST",
-        "/skills",
+        "/tools",
         {
             "type": "message__publish",
             "id": SK_STATUS,
@@ -306,11 +306,11 @@ def create_skills() -> None:
             "payload_schema": json.dumps(inspection_schema()),
         },
     )
-    print(f"  skill {SK_STATUS!r} created")
+    print(f"  tool {SK_STATUS!r} created")
 
     api_request(
         "POST",
-        "/skills",
+        "/tools",
         {
             "type": "postgresql__query",
             "id": SK_REGISTER,
@@ -323,7 +323,7 @@ def create_skills() -> None:
             ),
         },
     )
-    print(f"  skill {SK_REGISTER!r} created")
+    print(f"  tool {SK_REGISTER!r} created")
 
 
 INSPECTOR_INSTRUCTIONS = (
@@ -370,8 +370,8 @@ def create_pipeline() -> None:
                 },
                 {
                     "id": "register",
-                    "type": "call_skill",
-                    "skill": f"postgresql__query@{SK_REGISTER}",
+                    "type": "call_tool",
+                    "tool": f"postgresql__query@{SK_REGISTER}",
                     "args": {
                         "conveyor_id": "$.event.conveyor_id",
                         "box_id": "$.event.box_id",
@@ -382,8 +382,8 @@ def create_pipeline() -> None:
                 },
                 {
                     "id": "notify",
-                    "type": "call_skill",
-                    "skill": f"message__publish@{SK_STATUS}",
+                    "type": "call_tool",
+                    "tool": f"message__publish@{SK_STATUS}",
                     "args": {
                         "topic": "$.event.box_id",
                         "payload": "$.inspection",
@@ -406,8 +406,8 @@ def main() -> int:
     print(f"==> Creating database table on {PGHOST}:{PGPORT}/{PGDATABASE}")
     create_db_table()
 
-    print("==> Creating skills")
-    create_skills()
+    print("==> Creating tools")
+    create_tools()
 
     print("==> Creating AI provider")
     create_ai_provider()

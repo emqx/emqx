@@ -36,11 +36,11 @@ same external shape that was submitted by users.
 ]).
 
 -export([
-    create_skill/1,
-    list_skills/0,
-    lookup_skill/2,
-    update_skill/3,
-    delete_skill/2
+    create_tool/1,
+    list_tools/0,
+    lookup_tool/2,
+    update_tool/3,
+    delete_tool/2
 ]).
 
 -export([
@@ -65,20 +65,20 @@ same external shape that was submitted by users.
 
 -define(CONFIG_KEY, {?MODULE, parsed_config}).
 -define(CONFIG_SCHEMA_KEY, {?MODULE, config_schema}).
--define(SKILLS, <<"skills">>).
--define(SKILL_TYPE, <<"type">>).
--define(SKILL_ID, <<"id">>).
+-define(TOOLS, <<"tools">>).
+-define(TOOL_TYPE, <<"type">>).
+-define(TOOL_ID, <<"id">>).
 -define(CONNECTIONS, <<"connections">>).
 -define(CONNECTION_ID, <<"id">>).
 -define(PIPELINES, <<"pipelines">>).
 -define(PIPELINE_ID, <<"pipeline_id">>).
 -define(DEFAULT_PIPELINE_KEY_EXPRESSION, <<"message.topic">>).
 
--type skill_type() :: binary().
--type skill_id() :: binary().
+-type tool_type() :: binary().
+-type tool_id() :: binary().
 -type connection_id() :: binary().
 -type raw_config() :: map().
--type raw_skill() :: map().
+-type raw_tool() :: map().
 -type raw_connection() :: map().
 -type pipeline_id() :: binary().
 -type raw_pipeline() :: map().
@@ -134,23 +134,23 @@ clear_config_schema() ->
     ok.
 
 %%--------------------------------------------------------------------
-%% Skill CRUD
+%% Tool CRUD
 %%--------------------------------------------------------------------
 
--spec create_skill(raw_skill()) -> ok | {error, term()}.
-create_skill(Body) when is_map(Body) ->
-    case required_skill_key(Body) of
-        {ok, Type, SkillId} ->
-            case wrap_skill(Body) of
-                {ok, Skill} ->
+-spec create_tool(raw_tool()) -> ok | {error, term()}.
+create_tool(Body) when is_map(Body) ->
+    case required_tool_key(Body) of
+        {ok, Type, ToolId} ->
+            case wrap_tool(Body) of
+                {ok, Tool} ->
                     update_raw_config(fun(Config0) ->
-                        Skills0 = entries(Config0, ?SKILLS),
-                        Pred = skill_pred(Type, SkillId),
-                        case find_entry(Pred, Skills0) of
+                        Tools0 = entries(Config0, ?TOOLS),
+                        Pred = tool_pred(Type, ToolId),
+                        case find_entry(Pred, Tools0) of
                             {ok, _} ->
                                 {error, already_exists};
                             {error, not_found} ->
-                                {ok, Config0#{?SKILLS => Skills0 ++ [Skill]}}
+                                {ok, Config0#{?TOOLS => Tools0 ++ [Tool]}}
                         end
                     end);
                 {error, _} = Error ->
@@ -159,46 +159,46 @@ create_skill(Body) when is_map(Body) ->
         {error, _} = Error ->
             Error
     end;
-create_skill(_) ->
-    {error, invalid_skill}.
+create_tool(_) ->
+    {error, invalid_tool}.
 
--spec list_skills() -> [raw_skill()].
-list_skills() ->
-    normalize_entries(entries(current_config(), ?SKILLS)).
+-spec list_tools() -> [raw_tool()].
+list_tools() ->
+    normalize_entries(entries(current_config(), ?TOOLS)).
 
--spec lookup_skill(skill_type(), skill_id()) -> {ok, raw_skill()} | {error, not_found}.
-lookup_skill(Type, SkillId) ->
-    find_entry(skill_pred(Type, SkillId), list_skills()).
+-spec lookup_tool(tool_type(), tool_id()) -> {ok, raw_tool()} | {error, not_found}.
+lookup_tool(Type, ToolId) ->
+    find_entry(tool_pred(Type, ToolId), list_tools()).
 
--spec update_skill(skill_type(), skill_id(), raw_skill()) ->
-    {ok, raw_skill()} | {error, term()}.
-update_skill(Type, SkillId, Body) when is_map(Body) ->
-    case wrap_skill(put_entry_fields(Body, [{?SKILL_TYPE, Type}, {?SKILL_ID, SkillId}])) of
-        {ok, Skill} ->
+-spec update_tool(tool_type(), tool_id(), raw_tool()) ->
+    {ok, raw_tool()} | {error, term()}.
+update_tool(Type, ToolId, Body) when is_map(Body) ->
+    case wrap_tool(put_entry_fields(Body, [{?TOOL_TYPE, Type}, {?TOOL_ID, ToolId}])) of
+        {ok, Tool} ->
             case
                 update_raw_config(fun(Config0) ->
-                    Skills0 = entries(Config0, ?SKILLS),
-                    case replace_entry(skill_pred(Type, SkillId), Skill, Skills0) of
-                        {ok, Skills} -> {ok, Config0#{?SKILLS => Skills}};
+                    Tools0 = entries(Config0, ?TOOLS),
+                    case replace_entry(tool_pred(Type, ToolId), Tool, Tools0) of
+                        {ok, Tools} -> {ok, Config0#{?TOOLS => Tools}};
                         {error, _} = Error -> Error
                     end
                 end)
             of
-                ok -> lookup_skill(Type, SkillId);
+                ok -> lookup_tool(Type, ToolId);
                 {error, _} = Error -> Error
             end;
         {error, _} = Error ->
             Error
     end;
-update_skill(_, _, _) ->
-    {error, invalid_skill}.
+update_tool(_, _, _) ->
+    {error, invalid_tool}.
 
--spec delete_skill(skill_type(), skill_id()) -> ok | {error, term()}.
-delete_skill(Type, SkillId) ->
+-spec delete_tool(tool_type(), tool_id()) -> ok | {error, term()}.
+delete_tool(Type, ToolId) ->
     update_raw_config(fun(Config0) ->
-        Skills0 = entries(Config0, ?SKILLS),
-        case remove_entry(skill_pred(Type, SkillId), Skills0) of
-            {ok, Skills} -> {ok, Config0#{?SKILLS => Skills}};
+        Tools0 = entries(Config0, ?TOOLS),
+        case remove_entry(tool_pred(Type, ToolId), Tools0) of
+            {ok, Tools} -> {ok, Config0#{?TOOLS => Tools}};
             {error, _} = Error -> Error
         end
     end).
@@ -382,7 +382,7 @@ normalize_config_for_storage(Config) ->
 
 validate_config(Config) ->
     case validate_oai_schemas(Config) of
-        ok -> validate_pipeline_skill_refs(Config);
+        ok -> validate_pipeline_tool_refs(Config);
         {error, _} = Error -> Error
     end.
 
@@ -410,36 +410,36 @@ avro_config_with_defaults(Config, Name) ->
     end.
 
 validate_oai_schemas(Config) ->
-    Errors = validate_skill_oai_schemas(Config) ++ validate_pipeline_oai_schemas(Config),
+    Errors = validate_tool_oai_schemas(Config) ++ validate_pipeline_oai_schemas(Config),
     case Errors of
         [] -> ok;
         _ -> {error, {invalid_oai_schema, iolist_to_binary(lists:join("; ", Errors))}}
     end.
 
-validate_skill_oai_schemas(Config) ->
-    Skills = maps:get(?SKILLS, Config, []),
+validate_tool_oai_schemas(Config) ->
+    Tools = maps:get(?TOOLS, Config, []),
     lists:flatmap(
-        fun({Index, Skill0}) ->
-            Skill = unwrap_union(Skill0),
-            case maps:get(?SKILL_TYPE, Skill, undefined) of
+        fun({Index, Tool0}) ->
+            Tool = unwrap_union(Tool0),
+            case maps:get(?TOOL_TYPE, Tool, undefined) of
                 <<"message__publish">> ->
                     validate_schema_string(
-                        [?SKILLS, Index, <<"payload_schema">>],
-                        maps:get(<<"payload_schema">>, Skill, undefined),
+                        [?TOOLS, Index, <<"payload_schema">>],
+                        maps:get(<<"payload_schema">>, Tool, undefined),
                         field,
                         true
                     );
                 <<"message__request">> ->
                     validate_schema_string(
-                        [?SKILLS, Index, <<"request_payload_schema">>],
-                        maps:get(<<"request_payload_schema">>, Skill, undefined),
+                        [?TOOLS, Index, <<"request_payload_schema">>],
+                        maps:get(<<"request_payload_schema">>, Tool, undefined),
                         field,
                         false
                     );
                 <<"http">> ->
                     validate_schema_string(
-                        [?SKILLS, Index, <<"input_schema">>],
-                        maps:get(<<"input_schema">>, Skill, undefined),
+                        [?TOOLS, Index, <<"input_schema">>],
+                        maps:get(<<"input_schema">>, Tool, undefined),
                         root,
                         true
                     );
@@ -447,7 +447,7 @@ validate_skill_oai_schemas(Config) ->
                     []
             end
         end,
-        indexed(Skills)
+        indexed(Tools)
     ).
 
 validate_pipeline_oai_schemas(Config) ->
@@ -459,7 +459,7 @@ validate_pipeline_oai_schemas(Config) ->
             lists:flatmap(
                 fun({StepIndex, Step0}) ->
                     Step = unwrap_union(Step0),
-                    case maps:get(?SKILL_TYPE, Step, undefined) of
+                    case maps:get(?TOOL_TYPE, Step, undefined) of
                         <<"llm_loop">> ->
                             validate_schema_string(
                                 [
@@ -544,7 +544,7 @@ parse_config({avro_value, _Type, Value}) ->
 parse_config(Config) when is_map(Config) ->
     case validate_pipelines(maps:get(?PIPELINES, Config, [])) of
         ok ->
-            case validate_pipeline_skill_refs(Config) of
+            case validate_pipeline_tool_refs(Config) of
                 ok -> {ok, normalize_config(Config)};
                 {error, _} = Error -> Error
             end;
@@ -552,53 +552,53 @@ parse_config(Config) when is_map(Config) ->
             Error
     end.
 
-validate_pipeline_skill_refs(Config) ->
-    ExistingRefs = lists:usort(skill_refs(maps:get(?SKILLS, Config, []))),
-    ReferencedRefs = lists:usort(pipeline_skill_refs(maps:get(?PIPELINES, Config, []))),
+validate_pipeline_tool_refs(Config) ->
+    ExistingRefs = lists:usort(tool_refs(maps:get(?TOOLS, Config, []))),
+    ReferencedRefs = lists:usort(pipeline_tool_refs(maps:get(?PIPELINES, Config, []))),
     MissingRefs = ReferencedRefs -- ExistingRefs,
     case MissingRefs of
         [] -> ok;
-        _ -> {error, {missing_skills, MissingRefs}}
+        _ -> {error, {missing_tools, MissingRefs}}
     end.
 
-skill_refs(Skills) ->
+tool_refs(Tools) ->
     lists:filtermap(
-        fun(Skill0) ->
-            Skill = unwrap_union(Skill0),
-            case {maps:get(?SKILL_TYPE, Skill, undefined), maps:get(?SKILL_ID, Skill, undefined)} of
+        fun(Tool0) ->
+            Tool = unwrap_union(Tool0),
+            case {maps:get(?TOOL_TYPE, Tool, undefined), maps:get(?TOOL_ID, Tool, undefined)} of
                 {Type, Id} when is_binary(Type), is_binary(Id) ->
                     {true, <<Type/binary, "@", Id/binary>>};
                 _ ->
                     false
             end
         end,
-        Skills
+        Tools
     ).
 
-pipeline_skill_refs(Pipelines) ->
+pipeline_tool_refs(Pipelines) ->
     lists:flatmap(
         fun(Pipeline0) ->
             Pipeline = unwrap_union(Pipeline0),
             Steps = maps:get(<<"steps">>, Pipeline, []),
-            lists:flatmap(fun step_skill_refs/1, Steps)
+            lists:flatmap(fun step_tool_refs/1, Steps)
         end,
         Pipelines
     ).
 
-step_skill_refs(Step0) ->
+step_tool_refs(Step0) ->
     Step = unwrap_union(Step0),
-    case maps:get(?SKILL_TYPE, Step, undefined) of
-        <<"call_skill">> ->
-            skill_ref(maps:get(<<"skill">>, Step, undefined));
+    case maps:get(?TOOL_TYPE, Step, undefined) of
+        <<"call_tool">> ->
+            tool_ref(maps:get(<<"tool">>, Step, undefined));
         <<"llm_loop">> ->
-            lists:flatmap(fun skill_ref/1, maps:get(<<"tools">>, Step, []));
+            lists:flatmap(fun tool_ref/1, maps:get(<<"tools">>, Step, []));
         _ ->
             []
     end.
 
-skill_ref(Ref) when is_binary(Ref), Ref =/= <<>> ->
+tool_ref(Ref) when is_binary(Ref), Ref =/= <<>> ->
     [Ref];
-skill_ref(_) ->
+tool_ref(_) ->
     [].
 
 cache_config(Parsed) ->
@@ -620,24 +620,24 @@ required_id(#{?CONNECTION_ID := _}) ->
 required_id(_) ->
     {error, {missing_field, ?CONNECTION_ID}}.
 
-required_skill_key(Skill) when is_map(Skill), map_size(Skill) =:= 1 ->
-    required_skill_key(unwrap_union(Skill));
-required_skill_key(#{?SKILL_TYPE := Type, ?SKILL_ID := SkillId}) when
-    is_binary(Type), Type =/= <<>>, is_binary(SkillId), SkillId =/= <<>>
+required_tool_key(Tool) when is_map(Tool), map_size(Tool) =:= 1 ->
+    required_tool_key(unwrap_union(Tool));
+required_tool_key(#{?TOOL_TYPE := Type, ?TOOL_ID := ToolId}) when
+    is_binary(Type), Type =/= <<>>, is_binary(ToolId), ToolId =/= <<>>
 ->
-    {ok, Type, SkillId};
-required_skill_key(#{?SKILL_TYPE := Type, ?SKILL_ID := _}) when
+    {ok, Type, ToolId};
+required_tool_key(#{?TOOL_TYPE := Type, ?TOOL_ID := _}) when
     not is_binary(Type); Type =:= <<>>
 ->
-    {error, {invalid_field, ?SKILL_TYPE}};
-required_skill_key(#{?SKILL_TYPE := _, ?SKILL_ID := _}) ->
-    {error, {invalid_field, ?SKILL_ID}};
-required_skill_key(#{?SKILL_ID := _}) ->
-    {error, {missing_field, ?SKILL_TYPE}};
-required_skill_key(#{?SKILL_TYPE := _}) ->
-    {error, {missing_field, ?SKILL_ID}};
-required_skill_key(_) ->
-    {error, {missing_field, ?SKILL_TYPE}}.
+    {error, {invalid_field, ?TOOL_TYPE}};
+required_tool_key(#{?TOOL_TYPE := _, ?TOOL_ID := _}) ->
+    {error, {invalid_field, ?TOOL_ID}};
+required_tool_key(#{?TOOL_ID := _}) ->
+    {error, {missing_field, ?TOOL_TYPE}};
+required_tool_key(#{?TOOL_TYPE := _}) ->
+    {error, {missing_field, ?TOOL_ID}};
+required_tool_key(_) ->
+    {error, {missing_field, ?TOOL_TYPE}}.
 
 required_pipeline_id(Pipeline) when is_map(Pipeline), map_size(Pipeline) =:= 1 ->
     required_pipeline_id(unwrap_union(Pipeline));
@@ -653,11 +653,11 @@ required_pipeline_id(_) ->
 id_pred(Id) ->
     fun(Entry) -> maps:get(?CONNECTION_ID, unwrap_union(Entry), undefined) =:= Id end.
 
-skill_pred(Type, SkillId) ->
-    fun(Skill) ->
-        Unwrapped = unwrap_union(Skill),
-        maps:get(?SKILL_TYPE, Unwrapped, undefined) =:= Type andalso
-            maps:get(?SKILL_ID, Unwrapped, undefined) =:= SkillId
+tool_pred(Type, ToolId) ->
+    fun(Tool) ->
+        Unwrapped = unwrap_union(Tool),
+        maps:get(?TOOL_TYPE, Unwrapped, undefined) =:= Type andalso
+            maps:get(?TOOL_ID, Unwrapped, undefined) =:= ToolId
     end.
 
 pipeline_pred(PipelineId) ->
@@ -666,7 +666,7 @@ pipeline_pred(PipelineId) ->
     end.
 
 normalize_config(Config) ->
-    Config1 = maybe_put(#{}, ?SKILLS, normalize_entries(maps:get(?SKILLS, Config, []))),
+    Config1 = maybe_put(#{}, ?TOOLS, normalize_entries(maps:get(?TOOLS, Config, []))),
     Config2 = maybe_put(
         Config1, ?CONNECTIONS, normalize_entries(maps:get(?CONNECTIONS, Config, []))
     ),
@@ -674,7 +674,7 @@ normalize_config(Config) ->
 
 prepare_config_for_storage(Config) when is_map(Config) ->
     Config1 = maybe_put(
-        #{}, ?SKILLS, [wrap_skill_for_storage(Entry) || Entry <- maps:get(?SKILLS, Config, [])]
+        #{}, ?TOOLS, [wrap_tool_for_storage(Entry) || Entry <- maps:get(?TOOLS, Config, [])]
     ),
     Config2 = maybe_put(
         Config1,
@@ -689,8 +689,8 @@ prepare_config_for_storage(Config) when is_map(Config) ->
 prepare_config_for_storage(_Config) ->
     #{}.
 
-wrap_skill_for_storage(Entry) ->
-    case wrap_skill(Entry) of
+wrap_tool_for_storage(Entry) ->
+    case wrap_tool(Entry) of
         {ok, Wrapped} -> Wrapped;
         {error, _} -> Entry
     end.
@@ -726,14 +726,9 @@ validate_pipelines_loop([Pipeline | Rest]) ->
 
 normalize_pipeline(Pipeline0) when is_map(Pipeline0) ->
     Pipeline1 = unwrap_union(Pipeline0),
-    case validate_pipeline_key_expression(Pipeline1) of
-        ok ->
-            case validate_pipeline_trigger(Pipeline1) of
-                ok -> normalize_pipeline_steps(Pipeline1);
-                {error, _} = Error -> Error
-            end;
-        {error, _} = Error ->
-            Error
+    case validate_pipeline_trigger(Pipeline1) of
+        ok -> normalize_pipeline_steps(Pipeline1);
+        {error, _} = Error -> Error
     end;
 normalize_pipeline(_) ->
     {error, invalid_pipeline}.
@@ -743,15 +738,12 @@ normalize_pipeline_steps(Pipeline) ->
         #{<<"steps">> := Steps} when is_list(Steps) ->
             case normalize_steps(Steps, 1, []) of
                 {ok, NormalizedSteps} ->
-                    {ok, Pipeline#{
-                        <<"key_expression">> => pipeline_key_expression(Pipeline),
-                        <<"steps">> => NormalizedSteps
-                    }};
+                    {ok, Pipeline#{<<"steps">> => NormalizedSteps}};
                 {error, _} = Error ->
                     Error
             end;
         #{} ->
-            {ok, Pipeline#{<<"key_expression">> => pipeline_key_expression(Pipeline)}}
+            {ok, Pipeline}
     end.
 
 validate_pipeline_trigger(Pipeline) ->
@@ -767,15 +759,11 @@ validate_pipeline_trigger(Pipeline) ->
             ok
     end.
 
-validate_pipeline_key_expression(Pipeline) ->
-    Expression = pipeline_key_expression(Pipeline),
+validate_key_expression(Expression) ->
     case emqx_variform:compile(Expression) of
         {ok, _Compiled} -> ok;
         {error, Reason} -> {error, {invalid_key_expression, Expression, Reason}}
     end.
-
-pipeline_key_expression(Pipeline) ->
-    maps:get(<<"key_expression">>, Pipeline, ?DEFAULT_PIPELINE_KEY_EXPRESSION).
 
 normalize_steps([], _Index, Acc) ->
     {ok, lists:reverse(Acc)};
@@ -790,16 +778,19 @@ normalize_steps([_ | _], Index, _Acc) ->
 
 normalize_step(#{<<"type">> := <<"llm_loop">>} = Step0, _Index) ->
     Step1 = name_value_entries_to_map(<<"input">>, Step0),
-    {ok, decode_json_schema_field(<<"set_result_schema">>, Step1)};
+    Step2 = Step1#{<<"key_expression">> => step_key_expression(Step1)},
+    case validate_key_expression(maps:get(<<"key_expression">>, Step2)) of
+        ok -> {ok, decode_json_schema_field(<<"set_result_schema">>, Step2)};
+        {error, _} = Error -> Error
+    end;
 normalize_step(#{<<"type">> := <<"break">>} = Step0, _Index) ->
     {ok, normalize_break_step(Step0)};
 normalize_step(Step, _Index) ->
     {ok, name_value_entries_to_map(<<"args">>, Step)}.
 
-normalize_break_step(#{<<"eq">> := <<"true">>} = Step) ->
-    Step#{<<"eq">> => true};
-normalize_break_step(#{<<"eq">> := <<"false">>} = Step) ->
-    Step#{<<"eq">> => false};
+step_key_expression(Step) ->
+    maps:get(<<"key_expression">>, Step, ?DEFAULT_PIPELINE_KEY_EXPRESSION).
+
 normalize_break_step(Step) ->
     Step.
 
@@ -856,23 +847,23 @@ put_entry_fields(Entry, Fields) ->
 put_fields(Entry, Fields) ->
     lists:foldl(fun({Key, Value}, Acc) -> Acc#{Key => Value} end, Entry, Fields).
 
-wrap_skill(Entry0) ->
+wrap_tool(Entry0) ->
     Entry = unwrap_union(Entry0),
-    Type = maps:get(?SKILL_TYPE, Entry, undefined),
-    RecordName = skill_record_name(Type),
-    case skill_record_exists(RecordName) of
+    Type = maps:get(?TOOL_TYPE, Entry, undefined),
+    RecordName = tool_record_name(Type),
+    case tool_record_exists(RecordName) of
         true -> {ok, #{RecordName => Entry}};
         false -> {error, unknown_type}
     end.
 
-skill_record_exists(RecordName) when is_binary(RecordName) ->
-    lists:member(RecordName, skill_record_names());
-skill_record_exists(_) ->
+tool_record_exists(RecordName) when is_binary(RecordName) ->
+    lists:member(RecordName, tool_record_names());
+tool_record_exists(_) ->
     false.
 
-skill_record_names() ->
+tool_record_names() ->
     Schema = config_schema(),
-    #{<<"type">> := #{<<"items">> := Items}} = field_schema(?SKILLS, Schema),
+    #{<<"type">> := #{<<"items">> := Items}} = field_schema(?TOOLS, Schema),
     [Name || #{<<"type">> := <<"record">>, <<"name">> := Name} <- Items].
 
 field_schema(Name, #{<<"fields">> := Fields}) ->
@@ -886,10 +877,10 @@ read_config_schema_bin() ->
     File = filename:join(code:priv_dir(emqx_agent), "config_schema.avsc"),
     file:read_file(File).
 
-skill_record_name(Type) when is_binary(Type) ->
+tool_record_name(Type) when is_binary(Type) ->
     Parts = binary:split(Type, <<"__">>, [global]),
     iolist_to_binary(lists:join(<<"_">>, [camel_part(Part) || Part <- Parts]));
-skill_record_name(Type) ->
+tool_record_name(Type) ->
     Type.
 
 camel_part(Part) ->
@@ -908,14 +899,14 @@ uppercase(Char) ->
 
 wrap_connection(Entry0) ->
     Entry = unwrap_union(Entry0),
-    case maps:get(?SKILL_TYPE, Entry, undefined) of
+    case maps:get(?TOOL_TYPE, Entry, undefined) of
         <<"postgresql">> -> #{<<"ConnectionPostgresql">> => Entry};
         _ -> Entry0
     end.
 
 wrap_pipeline(Entry0) ->
     case normalize_pipeline(Entry0) of
-        {ok, _} -> {ok, prepare_pipeline_for_config(unwrap_union(Entry0))};
+        {ok, Pipeline} -> {ok, prepare_pipeline_for_config(Pipeline)};
         {error, _} = Error -> Error
     end.
 
@@ -927,17 +918,17 @@ prepare_pipeline_for_config(Pipeline) ->
 wrap_pipeline_step(Step0) ->
     Step1 = unwrap_union(Step0),
     Step = prepare_step_for_config(Step1),
-    case pipeline_step_record_name(maps:get(?SKILL_TYPE, Step, undefined)) of
+    case pipeline_step_record_name(maps:get(?TOOL_TYPE, Step, undefined)) of
         RecordName when is_binary(RecordName) -> #{RecordName => Step};
-        _ -> Step0
+        _ -> Step1
     end.
 
 pipeline_step_record_name(Type) when is_binary(Type) ->
-    <<"PipelineStep", (skill_record_name(Type))/binary>>;
+    <<"PipelineStep", (tool_record_name(Type))/binary>>;
 pipeline_step_record_name(Type) ->
     Type.
 
-prepare_step_for_config(#{<<"type">> := <<"call_skill">>, <<"args">> := Args} = Step) when
+prepare_step_for_config(#{<<"type">> := <<"call_tool">>, <<"args">> := Args} = Step) when
     is_map(Args)
 ->
     Step#{<<"args">> => map_to_name_value_entries(Args)};
