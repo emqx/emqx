@@ -438,48 +438,57 @@ t_client_attr_from_user_property(_Config) ->
 
 t_sock_closed_reason_normal(_) ->
     ProtoVers = [v3, v4, v5],
-    ClientId = atom_to_binary(?FUNCTION_NAME),
     [
-        ?check_trace(
-            begin
-                {ok, C} = emqtt:start_link([{proto_ver, Ver}, {clientid, ClientId}]),
-                {ok, _} = emqtt:connect(C),
-                ?wait_async_action(
-                    emqtt:disconnect(C),
-                    #{?snk_kind := sock_closed_normal},
-                    5_000
-                )
-            end,
-            fun(Trace0) ->
-                ?assertMatch([#{clientid := ClientId}], ?of_kind(sock_closed_normal, Trace0)),
-                ok
-            end
-        )
+        begin
+            %% Use a per-version unique client id: reusing one client id across
+            %% the iterations can reconnect before the previous connection's
+            %% async deregistration completes, tripping the open_session
+            %% throttle (rejected as server_unavailable / server_busy).
+            ClientId = iolist_to_binary([atom_to_binary(?FUNCTION_NAME), "-", atom_to_binary(Ver)]),
+            ?check_trace(
+                begin
+                    {ok, C} = emqtt:start_link([{proto_ver, Ver}, {clientid, ClientId}]),
+                    {ok, _} = emqtt:connect(C),
+                    ?wait_async_action(
+                        emqtt:disconnect(C),
+                        #{?snk_kind := sock_closed_normal},
+                        5_000
+                    )
+                end,
+                fun(Trace0) ->
+                    ?assertMatch([#{clientid := ClientId}], ?of_kind(sock_closed_normal, Trace0)),
+                    ok
+                end
+            )
+        end
      || Ver <- ProtoVers
     ].
 
 t_sock_closed_force_closed_by_client(_) ->
     ProtoVers = [v3, v4, v5],
-    ClientId = atom_to_binary(?FUNCTION_NAME),
     process_flag(trap_exit, true),
     [
-        ?check_trace(
-            begin
-                {ok, C} = emqtt:start_link([{proto_ver, Ver}, {clientid, ClientId}]),
-                {ok, _} = emqtt:connect(C),
-                ?wait_async_action(
-                    exit(C, kill),
-                    #{?snk_kind := sock_closed_with_other_reason},
-                    5_000
-                )
-            end,
-            fun(Trace0) ->
-                ?assertMatch(
-                    [#{clientid := ClientId}], ?of_kind(sock_closed_with_other_reason, Trace0)
-                ),
-                ok
-            end
-        )
+        begin
+            %% Per-version unique client id, see t_sock_closed_reason_normal.
+            ClientId = iolist_to_binary([atom_to_binary(?FUNCTION_NAME), "-", atom_to_binary(Ver)]),
+            ?check_trace(
+                begin
+                    {ok, C} = emqtt:start_link([{proto_ver, Ver}, {clientid, ClientId}]),
+                    {ok, _} = emqtt:connect(C),
+                    ?wait_async_action(
+                        exit(C, kill),
+                        #{?snk_kind := sock_closed_with_other_reason},
+                        5_000
+                    )
+                end,
+                fun(Trace0) ->
+                    ?assertMatch(
+                        [#{clientid := ClientId}], ?of_kind(sock_closed_with_other_reason, Trace0)
+                    ),
+                    ok
+                end
+            )
+        end
      || Ver <- ProtoVers
     ],
     process_flag(trap_exit, false).
