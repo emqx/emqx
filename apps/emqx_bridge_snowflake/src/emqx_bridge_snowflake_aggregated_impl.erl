@@ -376,7 +376,7 @@ health_check_connector(ConnResId) ->
     emqx_resource_pool:common_health_check_workers(ConnResId, Opts).
 
 do_health_check_connector(ConnectionPid) ->
-    case odbc:sql_query(ConnectionPid, "show schemas") of
+    case odbc:sql_query(ConnectionPid, "show schemas limit 1") of
         {selected, _, _} ->
             ok;
         {error, Reason} ->
