@@ -2,11 +2,11 @@ Fixes <issue-or-jira-number>
 
 Release version:
 <!-- uncomment for v5:
-5.8.10, 5.10.4
+5.8.11, 5.10.4
 -->
 
 <!-- uncomment for v6:
-6.0.3, 6.1.2, 6.2.0
+6.0.3, 6.1.3, 6.2.1
 -->
 
 ## Summary
