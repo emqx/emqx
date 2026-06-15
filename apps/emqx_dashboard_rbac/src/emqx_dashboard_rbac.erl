@@ -93,8 +93,19 @@ parse_dashboard_role(Role) ->
 check_login_user_scopes(Username, Req) when is_map(Req) ->
     AbsPath = cowboy_req:path(Req),
     case emqx_dashboard_swagger:get_relative_uri(AbsPath) of
-        {ok, Path} -> check_login_user_scopes_for_path(Username, Path);
-        _ -> false
+        {ok, Path} ->
+            check_login_user_scopes_for_path(Username, Path);
+        _ ->
+            %% Requests outside the `/api/v5' management API — e.g. the
+            %% OpenAPI spec endpoints (`/api-docs/swagger.json',
+            %% `/api-spec.html', `/api-spec.md', ...) served by
+            %% emqx_dashboard_api_spec_handler — are not scope-mapped
+            %% management operations. They are already gated by
+            %% authentication and role-based RBAC; the login-user scope
+            %% layer must not deny them. Treat them as unmapped (allow),
+            %% consistent with check_login_user_scopes_strict/2 which
+            %% allows any path that has no scope mapping.
+            true
     end;
 check_login_user_scopes(Username, Path) when is_binary(Path) ->
     check_login_user_scopes_for_path(Username, Path).
