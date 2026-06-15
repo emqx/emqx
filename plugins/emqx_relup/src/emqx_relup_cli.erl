@@ -3,14 +3,9 @@
 -export([cmd/1]).
 
 cmd(["upgrade", TarballPath]) ->
-    case emqx_relup_main:upgrade(TarballPath) of
-        ok ->
-            emqx_ctl:print("upgrade complete~n");
-        {error, Reason} ->
-            emqx_ctl:print("upgrade failed, reason: ~p~n", [Reason]);
-        {error_vm_restarted, Reason} ->
-            emqx_ctl:print("upgrade failed, emqx restarted, reason: ~p~n", [Reason])
-    end;
+    do_upgrade(TarballPath, #{});
+cmd(["upgrade", TarballPath, "--force"]) ->
+    do_upgrade(TarballPath, #{force => true});
 cmd(["list-supported-paths"]) ->
     case emqx_relup_handler:list_supported_paths() of
         [] ->
@@ -45,11 +40,14 @@ cmd(["logs-clear"]) ->
     emqx_ctl:print("cleared all upgrade logs~n");
 cmd(_) ->
     emqx_ctl:usage([
-        {"relup upgrade <TarballPath>",
+        {"relup upgrade <TarballPath> [--force]",
             "Upgrade using the EMQX target tarball at <TarballPath>.\n"
             "A `<TarballPath>.sha256` sidecar must sit next to it.\n"
             "Target version is read from the tarball's\n"
-            "`releases/emqx_vars` (`REL_VSN`)."},
+            "`releases/emqx_vars` (`REL_VSN`).\n"
+            "Refuses to proceed if `data/patches/` contains any\n"
+            "`*.beam` (they would shadow the target's modules). Pass\n"
+            "--force to keep the patches and proceed anyway."},
         {"relup list-supported-paths", "List the {From, Target} hops the priv catalog supports."},
         {"relup status",
             "Print the current upgrade state of this node:\n"
@@ -63,6 +61,16 @@ cmd(_) ->
             "one row per attempt, oldest first."},
         {"relup logs-clear", "Wipe this node's upgrade log table."}
     ]).
+
+do_upgrade(TarballPath, Opts) ->
+    case emqx_relup_main:upgrade(TarballPath, Opts) of
+        ok ->
+            emqx_ctl:print("upgrade complete~n");
+        {error, Reason} ->
+            emqx_ctl:print("upgrade failed, reason: ~p~n", [Reason]);
+        {error_vm_restarted, Reason} ->
+            emqx_ctl:print("upgrade failed, emqx restarted, reason: ~p~n", [Reason])
+    end.
 
 print_log(#{
     started_at := Started,

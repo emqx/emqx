@@ -14,7 +14,8 @@
 -export([
     load/1,
     unload/0,
-    upgrade/1
+    upgrade/1,
+    upgrade/2
 ]).
 
 -export([
@@ -75,7 +76,11 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 upgrade(TarballPath) ->
-    gen_server:call(?MODULE, {upgrade, #{tarball => TarballPath}}, infinity).
+    upgrade(TarballPath, #{}).
+
+upgrade(TarballPath, ExtraOpts) when is_map(ExtraOpts) ->
+    Opts = ExtraOpts#{tarball => TarballPath},
+    gen_server:call(?MODULE, {upgrade, Opts}, infinity).
 
 %% Called when the plugin application start
 load(_Env) ->

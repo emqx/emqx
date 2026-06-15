@@ -57,8 +57,14 @@ init_per_testcase(Case, Config) ->
     ok = forge_release_files(RootDir, ?CURR_VSN, default_arch()),
     [{root_dir, RootDir} | Config].
 
-end_per_testcase(_Case, _Config) ->
+end_per_testcase(_Case, Config) ->
     cleanup_test_catalog_entries(),
+    %% The patches-dir preflight reads the shared emqx:data_dir()/patches;
+    %% make sure no stale beam leaks into a later case.
+    _ = [
+        file:delete(F)
+     || F <- filelib:wildcard(filename:join(?config(patches_dir, Config), "*.beam"))
+    ],
     ok.
 
 %%==============================================================================
@@ -320,6 +326,50 @@ t_chain_relup_from_pending_marker(Config) ->
     ?assertMatch(
         {ok, #{target_vsn := ?TARGET_VSN}},
         emqx_relup_handler:check_and_unpack(?CURR_VSN, RootDir, #{tarball => Tarball})
+    ).
+
+-doc "`data/patches/` is prepended to the code path via `vm.args -pa`, so "
+"a `*.beam` left there would shadow modules from the upgrade target. The "
+"preflight refuses with `patches_dir_not_empty` by default; `force => "
+"true` skips it; an empty patches dir passes. Driven through "
+"`check_and_unpack/3` (not the `emqx_relup_main` gen_server) so the temp "
+"RootDir stays hermetic and the real install is never touched.".
+t_patches_dir_preflight(Config) ->
+    RootDir = ?config(root_dir, Config),
+    PatchesDir = ?config(patches_dir, Config),
+    Tarball = forge_target_tarball(RootDir, ?TARGET_VSN, default_arch()),
+    ok = write_sha256_sidecar(Tarball),
+    _ = write_no_op_relup(?CURR_VSN, ?TARGET_VSN),
+    StaleBeam = filename:join(PatchesDir, "stale_patch.beam"),
+    ok = file:write_file(StaleBeam, <<>>),
+    try
+        %% A stale hot-patch beam present, no force -> refuse before unpack.
+        ?assertMatch(
+            {error, #{
+                err_type := patches_dir_not_empty,
+                files := [<<"stale_patch.beam">>]
+            }},
+            emqx_relup_handler:check_and_unpack(
+                ?CURR_VSN, RootDir, #{tarball => Tarball}
+            )
+        ),
+        %% force => true skips the preflight; downstream checks still run
+        %% and (with the no-op catalog entry) the upgrade proceeds.
+        ?assertMatch(
+            {ok, #{target_vsn := ?TARGET_VSN}},
+            emqx_relup_handler:check_and_unpack(
+                ?CURR_VSN, RootDir, #{tarball => Tarball, force => true}
+            )
+        )
+    after
+        ok = file:delete(StaleBeam)
+    end,
+    %% Empty patches dir -> preflight passes without force.
+    ?assertMatch(
+        {ok, #{target_vsn := ?TARGET_VSN}},
+        emqx_relup_handler:check_and_unpack(
+            ?CURR_VSN, RootDir, #{tarball => Tarball}
+        )
     ).
 
 %%==============================================================================

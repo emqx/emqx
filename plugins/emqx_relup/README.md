@@ -25,10 +25,17 @@ CLI on each node.
    - `<tarball>.sha256` - sha256 digest of the tarball. The
      `sha256sum` output format (`<digest>  <filename>`) is accepted.
 
-4. **Trigger the upgrade.** `emqx ctl relup upgrade <TarballPath>`
+4. **Trigger the upgrade.** `emqx ctl relup upgrade <TarballPath> [--force]`
    on each node. The handler:
    - Verifies `<TarballPath>.sha256` against the tarball's actual
      digest - refuses to extract on mismatch.
+   - Refuses if `data/patches/` contains any `*.beam`. Those would
+     shadow modules from the upgrade target (the patches dir is
+     prepended to the code path via `vm.args -pa`), so if the new
+     release already supersedes a hot-patched module, the stale beam
+     would silently keep running. Delete the patches first, or pass
+     `--force` if you intend them to remain applied on top of the
+     target.
    - Extracts the tarball and reads `REL_VSN` from
      `releases/emqx_vars`.
    - Looks up the matching `{from, target}` hop in
