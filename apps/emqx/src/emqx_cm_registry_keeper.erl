@@ -270,12 +270,18 @@ do_run_chunk(Cursor, State0) ->
         '$end_of_table' ->
             maybe_emit_finished(sweep_summary(State1)),
             TimerRef = send_delay_start(),
-            {noreply, State1#{next_clientid := undefined, timer_ref := TimerRef}};
+            %% Hibernate now that the sweep is done: the next tick is
+            %% one cleanup_delay/0 away (10 minutes in prod), so the
+            %% full GC + compacted heap that hibernate gives us is
+            %% worth the wake-up cost.
+            {noreply, State1#{next_clientid := undefined, timer_ref := TimerRef}, hibernate};
         Cid ->
-            %% Force a full GC so any sub-binaries pinning mnesia row
-            %% data from this chunk (next_clientid is the most obvious;
-            %% lingering refc-binary references inside the process heap
-            %% are the broader concern) get released before we sleep.
+            %% Mid-sweep: free any sub-binaries pinning mnesia row data
+            %% from this chunk before we sleep through
+            %% REGISTRY_GC_CHUNK_INTERVAL_MS. We do NOT hibernate here
+            %% -- the inter-chunk delay is too short for the wake-up
+            %% cost to pay back, and the next chunk will reuse the
+            %% same code paths anyway.
             _ = erlang:garbage_collect(),
             TimerRef = send_delay_start(?REGISTRY_GC_CHUNK_INTERVAL_MS),
             {noreply, State1#{next_clientid := Cid, timer_ref := TimerRef}}
