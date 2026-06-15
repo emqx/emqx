@@ -1173,23 +1173,32 @@ filter_payload(List, Payload) when is_binary(Payload) ->
     {length(List) =/= length(Filtered), Filtered}.
 
 %% @doc assert emqtt *client* process exits as expected.
+%% The expected client EXIT always follows the admin action (takeover/kick/
+%% kill); only its arrival time varies. Use a generous timeout so a loaded CI
+%% runner does not trip the assertion before the EXIT is delivered.
 assert_client_exit(Pid, v5, takenover) ->
     %% @ref: MQTT 5.0 spec [MQTT-3.1.4-3]
-    ?assertReceive({'EXIT', Pid, {shutdown, {disconnected, ?RC_SESSION_TAKEN_OVER, _}}});
+    ?assertReceive(
+        {'EXIT', Pid, {shutdown, {disconnected, ?RC_SESSION_TAKEN_OVER, _}}}, 5_000, #{pid => Pid}
+    );
 assert_client_exit(Pid, v3, takenover) ->
     ?assertReceive(
         {'EXIT', Pid, {shutdown, Reason}} when
             Reason =:= tcp_closed orelse
                 Reason =:= closed,
-        1_000,
+        5_000,
         #{pid => Pid}
     );
 assert_client_exit(Pid, v3, kicked) ->
-    ?assertReceive({'EXIT', Pid, _}, 1_000, #{pid => Pid});
+    ?assertReceive({'EXIT', Pid, _}, 5_000, #{pid => Pid});
 assert_client_exit(Pid, v5, kicked) ->
-    ?assertReceive({'EXIT', Pid, {shutdown, {disconnected, ?RC_ADMINISTRATIVE_ACTION, _}}});
+    ?assertReceive(
+        {'EXIT', Pid, {shutdown, {disconnected, ?RC_ADMINISTRATIVE_ACTION, _}}}, 5_000, #{
+            pid => Pid
+        }
+    );
 assert_client_exit(Pid, _, killed) ->
-    ?assertReceive({'EXIT', Pid, killed}).
+    ?assertReceive({'EXIT', Pid, killed}, 5_000, #{pid => Pid}).
 
 make_client_id(Case, Config) ->
     Vsn = atom_to_list(?config(mqtt_vsn, Config)),
