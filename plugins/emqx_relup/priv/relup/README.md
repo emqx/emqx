@@ -8,9 +8,17 @@ are arbitrary; `<from>-to-<to>.relup` is the convention.
 
 ## Supported Upgrade Paths
 
-| From | To | Purpose |
+| From | To | Changes |
 |---|---|---|
-| 5.10.4 | 5.10.5 | Restart Redis resources around the eredis upgrade so Sentinel managers are recreated with isolated manager names. |
+| 5.10.4 | 5.10.5 | [5.10.4-5.10.5](#5104-5105) |
+
+## Changes
+
+### 5.10.4-5.10.5
+
+- Restart `esaml` so hot-upgraded nodes pick up SAML XXE protection.
+- Load dashboard/data-backup modules and re-announce `emqx` BPAPI so backup-file download authorization changes take effect for API-key callers.
+- Stop Redis resources, restart `eredis`, reload `emqx_redis`, then start Redis resources so Sentinel managers are recreated with isolated manager names.
 
 ## Schema
 
@@ -23,6 +31,7 @@ are arbitrary; `<from>-to-<to>.relup` is the convention.
         {load_module, emqx_release},
         {load_module, another_module},
         {update, emqx_other, {advanced, ExtraTerm}},
+        {apply, emqx_bpapi, announce, [node(), emqx]},
         {restart_application, emqx_something}
     ],
     post_upgrade_callbacks => [
