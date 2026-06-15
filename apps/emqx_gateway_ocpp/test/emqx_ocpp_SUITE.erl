@@ -5,6 +5,8 @@
 -module(emqx_ocpp_SUITE).
 
 -include("emqx_ocpp.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
@@ -56,6 +58,7 @@ init_per_suite(Config) ->
             emqx_gateway_ocpp,
             emqx_gateway,
             emqx_auth,
+            emqx_auth_mnesia,
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
         ],
@@ -86,6 +89,104 @@ update_ocpp_with_idle_timeout(IdleTimeout) ->
         ocpp,
         Conf#{<<"idle_timeout">> => IdleTimeout}
     ).
+
+boot_notification(UniqueId) ->
+    #{
+        id => UniqueId,
+        type => ?OCPP_MSG_TYPE_ID_CALL,
+        action => <<"BootNotification">>,
+        payload => #{
+            <<"chargePointVendor">> => <<"vendor1">>,
+            <<"chargePointModel">> => <<"model1">>
+        }
+    }.
+
+ack_payload(UniqueId) ->
+    emqx_utils_json:encode(#{
+        <<"MessageTypeId">> => ?OCPP_MSG_TYPE_ID_CALLRESULT,
+        <<"UniqueId">> => UniqueId,
+        <<"Payload">> => #{
+            <<"currentTime">> => "2026-06-11T00:00:00+00:00",
+            <<"interval">> => 300,
+            <<"status">> => <<"Accepted">>
+        }
+    }).
+
+receive_broker_message(Topic, Timeout) ->
+    receive
+        {deliver, Topic, #message{payload = Payload}} ->
+            {ok, emqx_utils_json:decode(Payload)}
+    after Timeout ->
+        {error, timeout}
+    end.
+
+get_subscriptions() ->
+    lists:map(fun({_, Topic}) -> Topic end, ets:tab2list(emqx_subscription)).
+
+with_gateway_authz_result(Protocol, ActionType, Topic, Result, Fun) ->
+    Action = {?MODULE, gateway_authz_result, [Protocol, ActionType, Topic, Result]},
+    ok = emqx_hooks:put('client.authorize', Action, ?HP_HIGHEST),
+    try
+        Fun()
+    after
+        ok = emqx_hooks:del('client.authorize', Action)
+    end.
+
+gateway_authz_result(
+    #{protocol := Protocol},
+    #{action_type := ActionType},
+    Topic,
+    _DefaultResult,
+    Protocol,
+    ActionType,
+    Topic,
+    Result
+) ->
+    {stop, #{result => Result, from => test, is_cacheable => false}};
+gateway_authz_result(
+    _ClientInfo,
+    _Action,
+    _Topic,
+    DefaultResult,
+    _Protocol,
+    _ActionType,
+    _ExpectedTopic,
+    _Result
+) ->
+    {ok, DefaultResult}.
+
+create_authenticator() ->
+    AuthnConfig = #{
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"built_in_database">>,
+        <<"user_id_type">> => <<"username">>,
+        <<"password_hash_algorithm">> => #{
+            <<"name">> => <<"plain">>,
+            <<"salt_position">> => <<"suffix">>
+        }
+    },
+    {ok, _} = emqx_gateway_conf:add_authn(<<"ocpp">>, AuthnConfig),
+    ok.
+
+delete_authenticators() ->
+    _ = emqx_gateway_conf:remove_authn(<<"ocpp">>),
+    emqx_authn_test_lib:delete_authenticators([gateway, ocpp, authentication], 'ocpp:global').
+
+add_authenticator_user(UserId, Password) ->
+    {ok, _} = emqx_authn_chains:add_user(
+        'ocpp:global',
+        <<"password_based:built_in_database">>,
+        #{user_id => UserId, password => Password}
+    ),
+    ok.
+
+set_ocpp_listener_enable_authn(EnableAuthn) ->
+    RawCfg = emqx_conf:get_raw([gateway, ocpp], #{}),
+    ListenerCfg = emqx_utils_maps:deep_get([<<"listeners">>, <<"ws">>, <<"default">>], RawCfg),
+    {ok, _} = emqx_gateway_conf:update_listener(ocpp, {ws, default}, ListenerCfg#{
+        <<"enable_authn">> => EnableAuthn
+    }),
+    ok.
 
 %%--------------------------------------------------------------------
 %% cases
@@ -161,6 +262,38 @@ t_enable_disable_gw_ocpp(_Config) ->
     ?assertEqual({204, #{}}, request(put, "/gateways/ocpp/enable/true", <<>>)),
     AssertEnabled(true).
 
+t_init_respects_listener_enable_authn(_Config) ->
+    Channel = emqx_ocpp_channel:init(
+        #{
+            peername => {{127, 0, 0, 1}, 12345},
+            sockname => {{127, 0, 0, 1}, 33033}
+        },
+        #{
+            ctx => undefined,
+            listener => {ocpp, ws, default},
+            enable_authn => false
+        }
+    ),
+    ClientInfo = emqx_ocpp_channel:info(clientinfo, Channel),
+    ?assertMatch(#{enable_authn := false}, ClientInfo),
+    ?assertEqual(false, maps:is_key(enalbe_authn, ClientInfo)).
+
+t_listener_enable_authn_false_skips_authentication(_Config) ->
+    ClientId = <<"authn-disabled-ocpp-client">>,
+    Username = <<"ocpp-user">>,
+    AuthHeaders = [basic_auth_header(Username, <<"bad-password">>)],
+    try
+        ok = create_authenticator(),
+        ok = add_authenticator_user(Username, <<"good-password">>),
+        assert_connect_failed(connect("127.0.0.1", 33033, ClientId, AuthHeaders)),
+        ok = set_ocpp_listener_enable_authn(false),
+        {ok, Client} = connect("127.0.0.1", 33033, ClientId, AuthHeaders),
+        close(Client)
+    after
+        ok = set_ocpp_listener_enable_authn(true),
+        delete_authenticators()
+    end.
+
 t_adjust_keepalive_timer(_Config) ->
     {ok, Client} = connect("127.0.0.1", 33033, <<"client1">>),
     UniqueId = <<"3335862321">>,
@@ -223,6 +356,92 @@ t_auth_expire(_Config) ->
     ),
 
     meck:unload(emqx_access_control).
+
+t_authz_denies_upstream_publish(_Config) ->
+    ClientId = <<"authz-up-denied">>,
+    AuthzTopic = <<"cp/", ClientId/binary>>,
+    BrokerTopic = <<"ocpp/", AuthzTopic/binary>>,
+    ok = emqx:subscribe(BrokerTopic),
+    try
+        with_gateway_authz_result(ocpp, publish, AuthzTopic, deny, fun() ->
+            {ok, Client} = connect("127.0.0.1", 33033, ClientId),
+            try
+                ok = send_msg(Client, boot_notification(<<"authz-up-denied-id">>)),
+                ?assertEqual({error, timeout}, receive_broker_message(BrokerTopic, 500))
+            after
+                close(Client)
+            end
+        end)
+    after
+        emqx:unsubscribe(BrokerTopic)
+    end.
+
+t_authz_allows_upstream_publish(_Config) ->
+    ClientId = <<"authz-up-allowed">>,
+    UniqueId = <<"authz-up-allowed-id">>,
+    AuthzTopic = <<"cp/", ClientId/binary>>,
+    BrokerTopic = <<"ocpp/", AuthzTopic/binary>>,
+    ok = emqx:subscribe(BrokerTopic),
+    try
+        with_gateway_authz_result(ocpp, publish, AuthzTopic, allow, fun() ->
+            {ok, Client} = connect("127.0.0.1", 33033, ClientId),
+            try
+                ok = send_msg(Client, boot_notification(UniqueId)),
+                ?assertMatch(
+                    {ok, #{
+                        <<"MessageTypeId">> := ?OCPP_MSG_TYPE_ID_CALL,
+                        <<"UniqueId">> := UniqueId,
+                        <<"Action">> := <<"BootNotification">>
+                    }},
+                    receive_broker_message(BrokerTopic, 1000)
+                )
+            after
+                close(Client)
+            end
+        end)
+    after
+        emqx:unsubscribe(BrokerTopic)
+    end.
+
+t_authz_denies_auto_subscribe(_Config) ->
+    ClientId = <<"authz-dn-denied">>,
+    UniqueId = <<"authz-dn-denied-id">>,
+    AuthzTopic = <<"cs/", ClientId/binary>>,
+    BrokerTopic = <<"ocpp/", AuthzTopic/binary>>,
+    with_gateway_authz_result(ocpp, subscribe, AuthzTopic, deny, fun() ->
+        {ok, Client} = connect("127.0.0.1", 33033, ClientId),
+        try
+            timer:sleep(100),
+            ?assertEqual(false, lists:member(BrokerTopic, get_subscriptions())),
+            _ = emqx:publish(emqx_message:make(BrokerTopic, ack_payload(UniqueId))),
+            ?assertMatch({error, {timeout, _}}, receive_msg(Client))
+        after
+            close(Client)
+        end
+    end).
+
+t_authz_allows_auto_subscribe(_Config) ->
+    ClientId = <<"authz-dn-allowed">>,
+    UniqueId = <<"authz-dn-allowed-id">>,
+    AuthzTopic = <<"cs/", ClientId/binary>>,
+    BrokerTopic = <<"ocpp/", AuthzTopic/binary>>,
+    with_gateway_authz_result(ocpp, subscribe, AuthzTopic, allow, fun() ->
+        {ok, Client} = connect("127.0.0.1", 33033, ClientId),
+        try
+            timer:sleep(100),
+            ?assertEqual(true, lists:member(BrokerTopic, get_subscriptions())),
+            _ = emqx:publish(emqx_message:make(BrokerTopic, ack_payload(UniqueId))),
+            ?assertMatch(
+                {ok, #{
+                    type := ?OCPP_MSG_TYPE_ID_CALLRESULT,
+                    id := UniqueId
+                }},
+                receive_msg(Client)
+            )
+        after
+            close(Client)
+        end
+    end).
 
 t_update_not_restart_listener(_Config) ->
     {ok, Client} = connect("127.0.0.1", 33033, <<"client1">>),
@@ -340,12 +559,15 @@ t_active_n(_Config) ->
 %% ocpp simple client
 
 connect(Host, Port, ClientId) ->
+    connect(Host, Port, ClientId, []).
+
+connect(Host, Port, ClientId, ExtraHeaders) ->
     Timeout = 5000,
     ConnOpts = #{connect_timeout => 5000},
     case gun:open(Host, Port, ConnOpts) of
         {ok, ConnPid} ->
             {ok, _} = gun:await_up(ConnPid, Timeout),
-            case upgrade(ConnPid, ClientId, Timeout) of
+            case upgrade(ConnPid, ClientId, Timeout, ExtraHeaders) of
                 {ok, StreamRef} -> {ok, {ConnPid, StreamRef}};
                 Error -> Error
             end;
@@ -353,9 +575,9 @@ connect(Host, Port, ClientId) ->
             Error
     end.
 
-upgrade(ConnPid, ClientId, Timeout) ->
+upgrade(ConnPid, ClientId, Timeout, ExtraHeaders) ->
     Path = binary_to_list(<<"/ocpp/", ClientId/binary>>),
-    WsHeaders = [{<<"cache-control">>, <<"no-cache">>}],
+    WsHeaders = [{<<"cache-control">>, <<"no-cache">>} | ExtraHeaders],
     StreamRef = gun:ws_upgrade(ConnPid, Path, WsHeaders, #{protocols => [{<<"ocpp1.6">>, gun_ws_h}]}),
     receive
         {gun_upgrade, ConnPid, StreamRef, [<<"websocket">>], _Headers} ->
@@ -367,6 +589,19 @@ upgrade(ConnPid, ClientId, Timeout) ->
     after Timeout ->
         {error, timeout}
     end.
+
+basic_auth_header(Username, Password) ->
+    Credential = <<Username/binary, ":", Password/binary>>,
+    Encoded = base64:encode(Credential),
+    {<<"authorization">>, <<"Basic ", Encoded/binary>>}.
+
+assert_connect_failed({ok, Client}) ->
+    close(Client),
+    ct:fail(expected_ocpp_websocket_authentication_failure);
+assert_connect_failed({error, {ws_upgrade_failed, _Status, _Headers}}) ->
+    ok;
+assert_connect_failed(Error) ->
+    ct:fail({unexpected_ocpp_websocket_connect_result, Error}).
 
 send_msg({ConnPid, StreamRef}, Frame) when is_map(Frame) ->
     Opts = emqx_ocpp_frame:serialize_opts(),

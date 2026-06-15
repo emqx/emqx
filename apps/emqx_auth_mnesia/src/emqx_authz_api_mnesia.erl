@@ -13,7 +13,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 -import(hoconsc, [mk/1, mk/2, ref/1, ref/2, array/1, enum/1]).
 

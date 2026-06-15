@@ -9,6 +9,7 @@
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 -export([
@@ -544,7 +545,9 @@ enrich_clientinfo(
     {ok, NPacket, NClientInfo} = emqx_utils:pipeline(
         [
             fun maybe_assign_clientid/2,
-            %% FIXME: CALL After authentication successfully
+            %% Mountpoint is evaluated again after successful authentication in
+            %% emqx_gateway_ctx:authenticate/2, because authentication results
+            %% may add client attributes used by mountpoint templates.
             fun fix_mountpoint/2
         ],
         Packet,
@@ -744,11 +747,29 @@ retry_delivery([{Key, {Frame, RetxCount, Ts}} | Frames], Now, Interval, Inflight
     end.
 
 upstreaming(
-    Frame, Channel = #channel{clientinfo = #{mountpoint := Mountpoint, clientid := ClientId}}
+    Frame,
+    Channel = #channel{
+        ctx = Ctx,
+        clientinfo =
+            ClientInfo =
+                #{
+                    mountpoint := Mountpoint,
+                    clientid := ClientId
+                }
+    }
 ) ->
     {Topic, Payload} = transform(Frame, Mountpoint),
-    log(debug, #{msg => "upstreaming_to_topic", topic => Topic, payload => Payload}, Channel),
-    emqx:publish(emqx_message:make(ClientId, ?QOS_1, Topic, Payload)).
+    Action = ?AUTHZ_PUBLISH(?QOS_1, false),
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
+        allow ->
+            log(
+                debug, #{msg => "upstreaming_to_topic", topic => Topic, payload => Payload}, Channel
+            ),
+            emqx:publish(emqx_message:make(ClientId, ?QOS_1, Topic, Payload));
+        deny ->
+            log(info, #{msg => "upstream_publish_denied", topic => Topic}, Channel),
+            ok
+    end.
 
 transform(Frame = ?CMD(Cmd), Mountpoint) ->
     Suffix =
@@ -928,6 +949,13 @@ subscribe_downlink(
     {ParsedTopic, SubOpts0} = emqx_topic:parse(Topic),
     SubOpts = maps:merge(emqx_gateway_utils:default_subopts(), SubOpts0),
     MountedTopic = emqx_mountpoint:mount(Mountpoint, ParsedTopic),
-    _ = emqx_broker:subscribe(MountedTopic, ClientId, SubOpts),
-    run_hooks(Ctx, 'session.subscribed', [ClientInfo, MountedTopic, SubOpts]),
-    Channel#channel{subscriptions = Subscriptions#{MountedTopic => SubOpts}}.
+    Action = ?AUTHZ_SUBSCRIBE(maps:get(qos, SubOpts, 0)),
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, MountedTopic) of
+        allow ->
+            _ = emqx_broker:subscribe(MountedTopic, ClientId, SubOpts),
+            run_hooks(Ctx, 'session.subscribed', [ClientInfo, MountedTopic, SubOpts]),
+            Channel#channel{subscriptions = Subscriptions#{MountedTopic => SubOpts}};
+        deny ->
+            log(info, #{msg => "subscribe_denied", topic => MountedTopic}, Channel),
+            Channel
+    end.

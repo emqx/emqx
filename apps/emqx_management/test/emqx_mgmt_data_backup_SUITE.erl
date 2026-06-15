@@ -556,6 +556,174 @@ t_cluster_links(_Config) ->
     ] = emqx:get_raw_config([cluster, links]),
     ?assertEqual({ok, ?CACERT}, file:read_file(CertPath1)).
 
+-doc """
+The link's `password` field is typed `emqx_schema_secret`; the raw config
+on disk stores it verbatim, but the runtime config wraps it in an
+`emqx_secret` closure. This case verifies a full export → wipe → import
+round-trip preserves the original secret value (as observed via
+`emqx_secret:unwrap/1`).
+
+Also inspects the actual exported archive bytes to document how the
+secret travels in the backup file.
+""".
+t_cluster_link_password_round_trip(_Config) ->
+    %% Long, distinctive value so any truncation/mangling shows up obviously.
+    Password = <<"d3adb33fc4f3-pw-r0undtr1p-t3st-EMQX-2026-05-26-aaa">>,
+    LinkName = <<"clink_pw_roundtrip">>,
+    Link = #{
+        <<"name">> => LinkName,
+        <<"server">> => <<"emqx.clink_pw.host:41883">>,
+        <<"clientid">> => <<"clink-pw-client">>,
+        <<"password">> => Password,
+        <<"topics">> => [<<"t/pw/#">>]
+    },
+    {ok, [_]} = emqx_cluster_link_config:update([Link]),
+    [#{password := WrappedBefore}] = emqx:get_config([cluster, links]),
+    ?assertEqual(Password, emqx_secret:unwrap(WrappedBefore)),
+    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+    {ok, []} = emqx_cluster_link_config:update([]),
+    ?assertEqual(
+        {ok, #{db_errors => #{}, config_errors => #{}}},
+        emqx_mgmt_data_backup:import(basename(FileName))
+    ),
+    [#{name := LinkName, password := WrappedAfter}] = emqx:get_config([cluster, links]),
+    ?assertEqual(Password, emqx_secret:unwrap(WrappedAfter)),
+    %% Inspect the archive: the secret is *not* encrypted nor file-referenced
+    %% by export, it ends up in cluster.hocon as the literal value the user
+    %% supplied. Encoding the current behaviour so a future change to
+    %% encrypt/redact secrets-at-rest in backups breaks this assertion loudly.
+    #{cluster_hocon := RawHocon} = inspect_backup(FileName),
+    ?assertNotEqual(nomatch, binary:match(RawHocon, Password)).
+
+-doc """
+Round-trips multiple distinct links and verifies all are restored with
+fields intact and in the original list order.
+
+Order matters: cluster-link uses first-link-matched semantics, so a
+re-ordered import would silently change message routing.
+
+As a bonus, updates one link post-import and asserts the others are
+untouched.
+""".
+t_cluster_link_multi_round_trip(_Config) ->
+    L1Name = <<"clink_multi_a">>,
+    L2Name = <<"clink_multi_b">>,
+    L3Name = <<"clink_multi_c">>,
+    L1 = #{
+        <<"name">> => L1Name,
+        <<"server">> => <<"emqx.a.host:41883">>,
+        <<"clientid">> => <<"client-a">>,
+        <<"topics">> => [<<"a/#">>]
+    },
+    L2 = #{
+        <<"name">> => L2Name,
+        <<"server">> => <<"emqx.b.host:41884">>,
+        <<"clientid">> => <<"client-b">>,
+        <<"topics">> => [<<"b/topic">>, <<"b/other/#">>],
+        <<"ssl">> => #{<<"enable">> => true, <<"cacertfile">> => ?CACERT}
+    },
+    L3 = #{
+        <<"name">> => L3Name,
+        <<"server">> => <<"emqx.c.host:41885">>,
+        <<"clientid">> => <<"client-c">>,
+        <<"topics">> => [<<"c/#">>],
+        <<"pool_size">> => 4
+    },
+    Links = [L1, L2, L3],
+    {ok, RawBefore} = emqx_cluster_link_config:update(Links),
+    ?assertEqual(
+        [L1Name, L2Name, L3Name],
+        [maps:get(<<"name">>, L) || L <- RawBefore]
+    ),
+    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+    %% Clean up SSL side-files so the import has to re-create them.
+    lists:foreach(
+        fun
+            (#{<<"ssl">> := #{<<"cacertfile">> := P}}) -> _ = file:delete(P);
+            (_) -> ok
+        end,
+        RawBefore
+    ),
+    {ok, []} = emqx_cluster_link_config:update([]),
+    ?assertEqual(
+        {ok, #{db_errors => #{}, config_errors => #{}}},
+        emqx_mgmt_data_backup:import(basename(FileName))
+    ),
+    RawAfter = emqx:get_raw_config([cluster, links]),
+    ?assertEqual(
+        [L1Name, L2Name, L3Name],
+        [maps:get(<<"name">>, L) || L <- RawAfter]
+    ),
+    ?assertMatch(
+        [
+            #{<<"name">> := L1Name, <<"server">> := <<"emqx.a.host:41883">>},
+            #{
+                <<"name">> := L2Name,
+                <<"server">> := <<"emqx.b.host:41884">>,
+                <<"topics">> := [<<"b/topic">>, <<"b/other/#">>],
+                <<"ssl">> := #{<<"enable">> := true, <<"cacertfile">> := _}
+            },
+            #{
+                <<"name">> := L3Name,
+                <<"server">> := <<"emqx.c.host:41885">>,
+                <<"pool_size">> := 4
+            }
+        ],
+        RawAfter
+    ),
+    [_, #{<<"ssl">> := #{<<"cacertfile">> := CertPath}} | _] = RawAfter,
+    ?assertEqual({ok, ?CACERT}, file:read_file(CertPath)),
+    %% Bonus: update one link, the others must be untouched.
+    L2Updated = L2#{<<"pool_size">> => 9},
+    {ok, _} = emqx_cluster_link_config:update_link(L2Updated),
+    [
+        #{<<"name">> := L1Name, <<"server">> := <<"emqx.a.host:41883">>},
+        #{<<"name">> := L2Name, <<"pool_size">> := 9},
+        #{<<"name">> := L3Name, <<"pool_size">> := 4}
+    ] = emqx:get_raw_config([cluster, links]).
+
+-doc """
+`ps_actor_incarnation` is a per-link integer set by the config handler
+(`maybe_increment_ps_actor_incr/2` in `emqx_cluster_link_config`) and
+used as a globally synchronised sequence so persistent-routes actors
+agree on the next incarnation after each config change. It is a
+schema field with importance `?IMPORTANCE_HIDDEN` and is settable via
+raw config.
+
+This case verifies the value is preserved across an export/wipe/import
+round-trip — i.e. the imported live config does not reset back to the
+schema default of 0 — so persistent-routes actors after import resume
+with the same generation as before export.
+""".
+t_cluster_link_ps_actor_incarnation_preserved(_Config) ->
+    LinkName = <<"clink_ps_actor">>,
+    Incarnation = 7,
+    Link = #{
+        <<"name">> => LinkName,
+        <<"server">> => <<"emqx.ps_actor.host:41883">>,
+        <<"topics">> => [<<"ps/#">>],
+        <<"ps_actor_incarnation">> => Incarnation
+    },
+    {ok, _} = emqx_cluster_link_config:update([Link]),
+    ?assertMatch(
+        [#{name := LinkName, ps_actor_incarnation := Incarnation}],
+        emqx:get_config([cluster, links])
+    ),
+    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+    {ok, []} = emqx_cluster_link_config:update([]),
+    ?assertEqual(
+        [],
+        emqx:get_config([cluster, links])
+    ),
+    ?assertEqual(
+        {ok, #{db_errors => #{}, config_errors => #{}}},
+        emqx_mgmt_data_backup:import(basename(FileName))
+    ),
+    ?assertMatch(
+        [#{name := LinkName, ps_actor_incarnation := Incarnation}],
+        emqx:get_config([cluster, links])
+    ).
+
 t_import_on_cluster(Config) ->
     %% Randomly chosen config key to verify import result additionally
     ?assertEqual([], emqx:get_config([authentication])),
@@ -988,6 +1156,12 @@ create_test_tab(Attributes) ->
     ok = mria:wait_for_tables([data_backup_test]).
 
 apps_to_start(t_cluster_links) ->
+    apps_to_start() ++ [emqx_cluster_link];
+apps_to_start(t_cluster_link_password_round_trip) ->
+    apps_to_start() ++ [emqx_cluster_link];
+apps_to_start(t_cluster_link_multi_round_trip) ->
+    apps_to_start() ++ [emqx_cluster_link];
+apps_to_start(t_cluster_link_ps_actor_incarnation_preserved) ->
     apps_to_start() ++ [emqx_cluster_link];
 apps_to_start(t_export_cloud_subset) ->
     apps_to_start() ++ [emqx_schema_registry, emqx_cluster_link];

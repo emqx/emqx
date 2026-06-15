@@ -9,7 +9,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 %% Swagger specs from hocon schema
 -export([

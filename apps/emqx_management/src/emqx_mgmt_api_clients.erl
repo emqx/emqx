@@ -19,7 +19,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -include("emqx_mgmt.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 %% API
 -export([
@@ -1289,6 +1289,7 @@ unsubscribe_batch(#{clientid := ClientId, topics := Topics}) ->
 client_msgs_schema(OpId, Desc, ContExample, RespSchema) ->
     #{
         'operationId' => OpId,
+        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         get => #{
             description => Desc,
             tags => ?TAGS,

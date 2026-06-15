@@ -117,7 +117,7 @@ init(
             undefined -> undefined;
             {GwName, Type, LisName} -> emqx_gateway_utils:listener_id(GwName, Type, LisName)
         end,
-    EnableAuthn = maps:get(enable_authn, Option, true),
+    EnableAuthn = listener_enable_authn(ListenerId, maps:get(enable_authn, Option, true)),
     ClientInfo = setting_peercert_infos(
         Peercert,
         #{
@@ -241,6 +241,12 @@ tls_required_and_verify(ListenerId) ->
         _ ->
             #{tls_required => false}
     end.
+
+listener_enable_authn(undefined, Default) ->
+    Default;
+listener_enable_authn(ListenerId, Default) ->
+    {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
+    emqx_conf:get([gateway, nats, listeners, Type, Name, enable_authn], Default).
 
 setting_peercert_infos(NoSSL, ClientInfo) when
     NoSSL =:= nossl;
@@ -444,14 +450,29 @@ auth_connect(
                                 Username
                             );
                         false ->
-                            NClientInfo0 = maps:put(auth_expire_at, undefined, NClientInfo),
-                            NClientInfo1 = normalize_mountpoint(ConnParams, NClientInfo0),
-                            {ok, set_clientinfo(Channel, NClientInfo1)}
+                            auth_connect_without_configured_authn(
+                                ConnParams,
+                                NClientInfo,
+                                Channel,
+                                ClientId,
+                                Username
+                            )
                     end;
                 {error, {Method, Reason}} ->
                     log_auth_failed(auth_failed_msg(Method), ClientId, Username, Reason),
                     {error, Reason}
             end
+    end.
+
+auth_connect_without_configured_authn(ConnParams, ClientInfo, Channel, ClientId, Username) ->
+    case emqx_security_profile:policy(authn_not_configured) of
+        allow ->
+            NClientInfo0 = maps:put(auth_expire_at, undefined, ClientInfo),
+            NClientInfo1 = normalize_mountpoint(ConnParams, NClientInfo0),
+            {ok, set_clientinfo(Channel, NClientInfo1)};
+        deny ->
+            log_auth_failed("client_login_failed", ClientId, Username, not_authorized),
+            {error, not_authorized}
     end.
 
 auth_connect_with_gateway(Ctx, ConnParams, ClientInfo, Channel, ClientId, Username) ->

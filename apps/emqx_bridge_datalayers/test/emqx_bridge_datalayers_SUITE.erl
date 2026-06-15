@@ -18,32 +18,50 @@
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 all() ->
-    [
-        {group, with_batch},
-        {group, without_batch}
-    ].
+    [{group, Group} || {Group, _Cases} <- matrix_cases()].
 
 groups() ->
-    TCs = emqx_common_test_helpers:all(?MODULE),
+    [{Group, Cases} || {Group, Cases} <- matrix_cases()].
+
+matrix_cases() ->
     [
-        {with_batch, [
-            {group, sync_query},
-            {group, async_query}
-        ]},
-        {without_batch, [
-            {group, sync_query},
-            {group, async_query}
-        ]},
-        {sync_query, [
-            {group, apiv1_http},
-            {group, apiv1_https}
-        ]},
-        {async_query, [
-            {group, apiv1_http},
-            {group, apiv1_https}
-        ]},
-        {apiv1_http, TCs},
-        {apiv1_https, TCs}
+        {without_batch_sync_apiv1_http, representative_cases()},
+        {with_batch_sync_apiv1_http, batch_cases()},
+        {without_batch_async_apiv1_http, async_cases()},
+        {with_batch_async_apiv1_http, lists:usort(batch_cases() ++ async_cases())},
+        {without_batch_sync_apiv1_https, https_cases()}
+    ].
+
+representative_cases() ->
+    emqx_common_test_helpers:all(?MODULE).
+
+batch_cases() ->
+    [
+        t_start_ok,
+        t_boolean_variants,
+        t_bad_timestamp,
+        t_missing_field,
+        t_write_failure
+    ].
+
+async_cases() ->
+    [
+        t_start_ok,
+        t_boolean_variants,
+        t_bad_timestamp,
+        t_missing_field,
+        t_write_failure,
+        t_authentication_error_on_send_message
+    ].
+
+https_cases() ->
+    [
+        t_start_ok,
+        t_get_status,
+        t_create_disconnected,
+        t_authentication_error,
+        t_authentication_error_on_get_status,
+        t_authentication_error_on_send_message
     ].
 
 init_per_suite(Config) ->
@@ -52,7 +70,23 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-init_per_group(DatalayersType, Config0) when
+init_per_group(Group, Config0) ->
+    {BatchSize, QueryMode, DatalayersType} = matrix_group_config(Group),
+    Config = [{batch_size, BatchSize}, {query_mode, QueryMode} | Config0],
+    init_datalayers_group(DatalayersType, Config).
+
+matrix_group_config(without_batch_sync_apiv1_http) ->
+    {1, sync, apiv1_http};
+matrix_group_config(with_batch_sync_apiv1_http) ->
+    {100, sync, apiv1_http};
+matrix_group_config(without_batch_async_apiv1_http) ->
+    {1, async, apiv1_http};
+matrix_group_config(with_batch_async_apiv1_http) ->
+    {100, async, apiv1_http};
+matrix_group_config(without_batch_sync_apiv1_https) ->
+    {1, sync, apiv1_https}.
+
+init_datalayers_group(DatalayersType, Config0) when
     DatalayersType =:= apiv1_http;
     DatalayersType =:= apiv1_https
 ->
@@ -140,21 +174,18 @@ init_per_group(DatalayersType, Config0) when
         ],
     ensure_database(NewConfig),
     NewConfig;
-init_per_group(sync_query, Config) ->
+init_datalayers_group(sync_query, Config) ->
     [{query_mode, sync} | Config];
-init_per_group(async_query, Config) ->
+init_datalayers_group(async_query, Config) ->
     [{query_mode, async} | Config];
-init_per_group(with_batch, Config) ->
+init_datalayers_group(with_batch, Config) ->
     [{batch_size, 100} | Config];
-init_per_group(without_batch, Config) ->
+init_datalayers_group(without_batch, Config) ->
     [{batch_size, 1} | Config];
-init_per_group(_Group, Config) ->
+init_datalayers_group(_Group, Config) ->
     Config.
 
-end_per_group(Group, Config) when
-    Group =:= apiv1_http;
-    Group =:= apiv1_https
-->
+end_per_group(_Group, Config) ->
     Apps = ?config(apps, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
@@ -162,8 +193,6 @@ end_per_group(Group, Config) when
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     ehttpc_sup:stop_pool(EHttpcPoolName),
     emqx_cth_suite:stop(Apps),
-    ok;
-end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(_Testcase, Config) ->
@@ -402,6 +431,22 @@ assert_persisted_data(ClientId, Expected, PersistedData) ->
     ),
     ok.
 
+wait_until_persisted_data(Table, ClientId, Expected, Config) ->
+    wait_until_persisted_data(Table, ClientId, Expected, Config, _Attempts = 20).
+
+wait_until_persisted_data(Table, ClientId, Expected, Config, Attempts) ->
+    try
+        PersistedData = query_by_clientid(Table, ClientId, Config),
+        assert_persisted_data(ClientId, Expected, PersistedData),
+        PersistedData
+    catch
+        Class:Reason:Stacktrace when Attempts =:= 1 ->
+            erlang:raise(Class, Reason, Stacktrace);
+        _Class:_Reason:_Stacktrace ->
+            ct:sleep(100),
+            wait_until_persisted_data(Table, ClientId, Expected, Config, Attempts - 1)
+    end.
+
 connector_id(Config) ->
     emqx_bridge_v2_testlib:connector_resource_id(Config).
 
@@ -632,13 +677,37 @@ t_const_timestamp(Config) ->
         baz3 => <<"au">>,
         baz4 => <<"1u">>
     },
-    ?retry(200, 10, begin
-        PersistedData = query_by_clientid(<<"mqtt">>, ClientId, Config),
-        assert_persisted_data(ClientId, Expected, PersistedData),
-        TimeReturned = maps:get(<<"time">>, PersistedData),
-        ?assertEqual(TsStr, TimeReturned)
-    end),
-    ok.
+    PersistedData = wait_until_persisted_data(<<"mqtt">>, ClientId, Expected, Config),
+    TimeReturned0 = maps:get(<<"time">>, PersistedData),
+    TimeReturned = pad_zero(TimeReturned0),
+    ?assertEqual(TsStr, TimeReturned).
+
+%% Datalayers may return timestamps without trailing zeros such as
+%% "2023-02-28T17:21:51.63678163+00:00"
+%% while the standard should be
+%% "2023-02-28T17:21:51.636781630+00:00"
+pad_zero(BinTs) ->
+    case binary:split(BinTs, <<".">>) of
+        [Prefix, FractionWithOffset] ->
+            {Fraction, Offset} = split_fraction_offset(FractionWithOffset),
+            Padding =
+                case 9 - byte_size(Fraction) of
+                    N when N > 0 -> binary:copy(<<"0">>, N);
+                    _ -> <<>>
+                end,
+            <<Prefix/binary, ".", Fraction/binary, Padding/binary, Offset/binary>>;
+        [BinTs] ->
+            BinTs
+    end.
+
+split_fraction_offset(FractionWithOffset) ->
+    case binary:match(FractionWithOffset, [<<"Z">>, <<"+">>, <<"-">>]) of
+        {Pos, _Len} ->
+            <<Fraction:Pos/binary, Offset/binary>> = FractionWithOffset,
+            {Fraction, Offset};
+        nomatch ->
+            {FractionWithOffset, <<>>}
+    end.
 
 %% XXX: this case need:
 %% [ts_engine.schemaless]
@@ -683,15 +752,13 @@ t_boolean_variants(Config) ->
                 async ->
                     ?assertMatch(ok, send_message(Config, SentData))
             end,
-            ct:sleep(2000),
-            PersistedData = query_by_clientid(Table, ClientId, Config),
             Expected = #{
                 bool => Translation,
                 int_value => -123,
                 uint_value => 123,
                 payload => emqx_utils_json:encode(Payload)
             },
-            assert_persisted_data(ClientId, Expected, PersistedData),
+            wait_until_persisted_data(Table, ClientId, Expected, Config),
             ok
         end,
         BoolVariants
@@ -743,14 +810,11 @@ t_any_num_as_float(Config) ->
         async ->
             ?assertMatch(ok, send_message(Config, SentData))
     end,
-    ?retry(200, 10, begin
-        PersistedData = query_by_clientid(<<"mqtt">>, ClientId, Config),
-        Expected = #{float_no_dp => 123.0, float_dp => 123.0},
-        assert_persisted_data(ClientId, Expected, PersistedData),
-        TimeReturned = maps:get(<<"time">>, PersistedData),
-        ?assertEqual(TsStr, TimeReturned)
-    end),
-    ok.
+    Expected = #{float_no_dp => 123.0, float_dp => 123.0},
+    PersistedData = wait_until_persisted_data(<<"mqtt">>, ClientId, Expected, Config),
+    TimeReturned0 = maps:get(<<"time">>, PersistedData),
+    TimeReturned = pad_zero(TimeReturned0),
+    ?assertEqual(TsStr, TimeReturned).
 
 t_tag_set_use_literal_value(Config) ->
     Table = atom_to_binary(?FUNCTION_NAME),
@@ -799,12 +863,10 @@ t_tag_set_use_literal_value(Config) ->
         async ->
             ?assertMatch(ok, send_message(Config, SentData))
     end,
-    %% sleep is still need even in sync mode, or we would get an empty result sometimes
-    ct:sleep(1500),
-    PersistedData = query_by_clientid(Table, ClientId, Config),
     Expected = #{field_key1 => 100.1, field_key2 => 100, field_key3 => 123.4},
-    assert_persisted_data(ClientId, Expected, PersistedData),
-    TimeReturned = maps:get(<<"time">>, PersistedData),
+    PersistedData = wait_until_persisted_data(Table, ClientId, Expected, Config),
+    TimeReturned0 = maps:get(<<"time">>, PersistedData),
+    TimeReturned = pad_zero(TimeReturned0),
     ?assertEqual(TsStr, TimeReturned).
 
 t_bad_timestamp(Config) ->
@@ -991,7 +1053,9 @@ t_write_failure(Config) ->
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
     QueryMode = ?config(query_mode, Config),
-    {ok, _} = create_bridge(Config),
+    {ok, _} = create_bridge(Config, #{
+        <<"resource_opts">> => #{<<"request_ttl">> => <<"500ms">>}
+    }),
     ClientId = random_clientid_(),
     Payload = #{
         int_key => -123,
@@ -1240,7 +1304,10 @@ t_authentication_error_on_send_message(Config0) ->
     ok.
 
 t_rule_test_trace(Config) ->
-    Opts = #{},
+    Opts = #{
+        rule_trace_retry_interval => 100,
+        rule_trace_retry_attempts => 100
+    },
     emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).
 
 random_clientid_() ->

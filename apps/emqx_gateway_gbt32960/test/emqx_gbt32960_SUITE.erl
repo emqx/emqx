@@ -9,6 +9,7 @@
 
 -include("emqx_gbt32960.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
@@ -68,6 +69,13 @@ update_gbt32960_with_idle_timeout(IdleTimeout) ->
         Conf#{<<"idle_timeout">> => IdleTimeout}
     ).
 
+update_gbt32960_with_mountpoint(Mountpoint) ->
+    Conf = emqx:get_raw_config([gateway, gbt32960]),
+    emqx_gateway_conf:update_gateway(
+        gbt32960,
+        Conf#{<<"mountpoint">> => Mountpoint}
+    ).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% helper functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 encode(Cmd, Vin, Data) ->
@@ -101,15 +109,88 @@ to_json(#frame{cmd = Cmd, vin = Vin, encrypt = Encrypt, data = Data}) ->
     emqx_utils_json:encode(#{'Cmd' => Cmd, 'Vin' => Vin, 'Encrypt' => Encrypt, 'Data' => Data}).
 
 get_published_msg() ->
+    case receive_published_msg(5000) of
+        {error, timeout} -> error(timeout);
+        Msg -> Msg
+    end.
+
+receive_published_msg(Timeout) ->
     receive
         {deliver, _Topic, #message{topic = Topic, payload = Payload}} ->
             {Topic, Payload}
-    after 5000 ->
-        error(timeout)
+    after Timeout ->
+        {error, timeout}
     end.
 
 get_subscriptions() ->
     lists:map(fun({_, Topic}) -> Topic end, ets:tab2list(emqx_subscription)).
+
+login_first_without_broker_asserts() ->
+    Time = <<12, 12, 29, 12, 19, 20>>,
+    Data = <<Time/binary, 1:?WORD, "12345678901234567890", 1, 1, "C">>,
+    Packet = encode(?CMD_VIHECLE_LOGIN, <<"1G1BL52P7TR115520">>, Data),
+
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    ok = gen_tcp:send(Socket, Packet),
+    timer:sleep(200),
+    {ok, AckPacket} = gen_tcp:recv(Socket, 0, 500),
+    ?LOGT("ack packet: ~p", [binary_to_hex_string(AckPacket)]),
+
+    BodyLen = byte_size(AckPacket) - 3,
+    <<"##", Body:BodyLen/binary, Crc:8>> = AckPacket,
+    <<?CMD_VIHECLE_LOGIN, ?ACK_SUCCESS, "1G1BL52P7TR115520", ?ENCRYPT_NONE, 31:?WORD, _/binary>> =
+        Body,
+    ?assertEqual(Crc, make_crc(Body, undefined)),
+    {ok, Socket}.
+
+publish_param_query_downlink() ->
+    Req = #{
+        <<"Action">> => <<"Query">>,
+        <<"Total">> => 2,
+        <<"Ids">> => [<<"0x01">>, <<"0x02">>]
+    },
+    Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
+    _ = emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
+    ok.
+
+assert_param_query_downlink(Packet) ->
+    BodyLen = byte_size(Packet) - 3,
+    <<"##", Body:BodyLen/binary, Crc>> = Packet,
+    <<?CMD_PARAM_QUERY, ?ACK_IS_CMD, "1G1BL52P7TR115520", ?ENCRYPT_NONE, 9:?WORD, _Time:6/binary, 2,
+        1, 2>> = Body,
+    ?assertEqual(Crc, make_crc(Body, undefined)).
+
+with_gateway_authz_result(Protocol, ActionType, Topic, Result, Fun) ->
+    Action = {?MODULE, gateway_authz_result, [Protocol, ActionType, Topic, Result]},
+    ok = emqx_hooks:put('client.authorize', Action, ?HP_HIGHEST),
+    try
+        Fun()
+    after
+        ok = emqx_hooks:del('client.authorize', Action)
+    end.
+
+gateway_authz_result(
+    #{protocol := Protocol},
+    #{action_type := ActionType},
+    Topic,
+    _DefaultResult,
+    Protocol,
+    ActionType,
+    Topic,
+    Result
+) ->
+    {stop, #{result => Result, from => test, is_cacheable => false}};
+gateway_authz_result(
+    _ClientInfo,
+    _Action,
+    _Topic,
+    DefaultResult,
+    _Protocol,
+    _ActionType,
+    _ExpectedTopic,
+    _Result
+) ->
+    {ok, DefaultResult}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%% test cases %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 login_first() ->
@@ -179,6 +260,67 @@ t_case01_login(_Config) ->
 
     ok = gen_tcp:close(Socket).
 
+t_authz_denies_login_upstream_publish(_Config) ->
+    Topic = <<"gbt32960/1G1BL52P7TR115520/upstream/vlogin">>,
+    ok = emqx:subscribe("gbt32960/+/upstream/#"),
+    try
+        with_gateway_authz_result(gbt32960, publish, Topic, deny, fun() ->
+            {ok, Socket} = login_first_without_broker_asserts(),
+            try
+                ?assertEqual({error, timeout}, receive_published_msg(500))
+            after
+                ok = gen_tcp:close(Socket)
+            end
+        end)
+    after
+        emqx:unsubscribe("gbt32960/+/upstream/#")
+    end.
+
+t_authz_allows_login_upstream_publish(_Config) ->
+    Topic = <<"gbt32960/1G1BL52P7TR115520/upstream/vlogin">>,
+    ok = emqx:subscribe("gbt32960/+/upstream/#"),
+    try
+        with_gateway_authz_result(gbt32960, publish, Topic, allow, fun() ->
+            {ok, Socket} = login_first_without_broker_asserts(),
+            try
+                {Topic, _PubedMsg} = get_published_msg()
+            after
+                ok = gen_tcp:close(Socket)
+            end
+        end)
+    after
+        emqx:unsubscribe("gbt32960/+/upstream/#")
+    end.
+
+t_authz_denies_auto_subscribe(_Config) ->
+    Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
+    with_gateway_authz_result(gbt32960, subscribe, Topic, deny, fun() ->
+        {ok, Socket} = login_first_without_broker_asserts(),
+        try
+            ?assertEqual(false, lists:member(Topic, get_subscriptions())),
+            ok = publish_param_query_downlink(),
+            timer:sleep(200),
+            ?assertEqual({error, timeout}, gen_tcp:recv(Socket, 0, 500))
+        after
+            ok = gen_tcp:close(Socket)
+        end
+    end).
+
+t_authz_allows_auto_subscribe(_Config) ->
+    Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
+    with_gateway_authz_result(gbt32960, subscribe, Topic, allow, fun() ->
+        {ok, Socket} = login_first_without_broker_asserts(),
+        try
+            ?assertEqual(true, lists:member(Topic, get_subscriptions())),
+            ok = publish_param_query_downlink(),
+            timer:sleep(200),
+            {ok, Packet} = gen_tcp:recv(Socket, 0, 500),
+            assert_param_query_downlink(Packet)
+        after
+            ok = gen_tcp:close(Socket)
+        end
+    end).
+
 t_case01_login_channel_info(_Config) ->
     % send VEHICLE LOGIN
     {ok, Socket} = login_first(),
@@ -193,6 +335,43 @@ t_case01_login_channel_info(_Config) ->
     ),
 
     ok = gen_tcp:close(Socket).
+
+t_case01_login_mountpoint_from_authn_client_attrs(_Config) ->
+    Vin = <<"1G1BL52P7TR115520">>,
+    Mountpoint = <<"gbt32960/${client_attrs.group}/${clientid}/">>,
+    MountedVLoginTopic = <<"gbt32960/g1/1G1BL52P7TR115520/upstream/vlogin">>,
+    MountedDnstreamTopic = <<"gbt32960/g1/1G1BL52P7TR115520/dnstream">>,
+    update_gbt32960_with_mountpoint(Mountpoint),
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun
+            (#{clientid := Vin0}) when Vin0 =:= Vin ->
+                {ok, #{client_attrs => #{<<"group">> => <<"g1">>}}};
+            (ClientInfo) ->
+                meck:passthrough([ClientInfo])
+        end
+    ),
+    ok = emqx:subscribe(MountedVLoginTopic),
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    try
+        Time = <<12, 12, 29, 12, 19, 20>>,
+        Data = <<Time/binary, 1:?WORD, "12345678901234567890", 1, 1, "C">>,
+        Packet = encode(?CMD_VIHECLE_LOGIN, Vin, Data),
+
+        ok = gen_tcp:send(Socket, Packet),
+        timer:sleep(200),
+        {ok, _AckPacket} = gen_tcp:recv(Socket, 0, 500),
+
+        ?assertEqual(true, lists:member(MountedDnstreamTopic, get_subscriptions())),
+        {MountedVLoginTopic, _PubedMsg} = get_published_msg()
+    after
+        gen_tcp:close(Socket),
+        update_gbt32960_with_mountpoint(<<"gbt32960/${clientid}/">>),
+        emqx:unsubscribe(MountedVLoginTopic),
+        meck:unload(emqx_access_control)
+    end.
 
 t_case01_auth_expire(_Config) ->
     ok = meck:new(emqx_access_control, [passthrough, no_history]),

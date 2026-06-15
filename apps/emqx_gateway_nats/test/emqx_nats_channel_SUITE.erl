@@ -483,22 +483,35 @@ update_nats_with_clientinfo_override(ClientInfoOverride) ->
 
 restore_nats_conf(Conf) ->
     _ = emqx_gateway_conf:update_gateway(nats, Conf),
+    restore_nats_listeners(Conf),
     ok.
 
 update_nats_tcp_listener_authn_and_mountpoint(EnableAuthn, Mountpoint) ->
-    Conf = emqx:get_config([gateway, nats]),
-    Conf1 = emqx_utils_maps:deep_put([mountpoint], Conf, Mountpoint),
-    Conf2 = emqx_utils_maps:deep_put(
-        [listeners, tcp, default, enable_authn],
-        Conf1,
-        EnableAuthn
-    ),
+    Conf = emqx:get_raw_config([gateway, nats]),
+    _ = emqx_gateway_conf:update_gateway(nats, Conf#{<<"mountpoint">> => Mountpoint}),
+    ListenerConf0 = emqx_conf:get([gateway, nats, listeners, tcp, default]),
+    ListenerConf1 = ListenerConf0#{enable_authn => EnableAuthn},
     ok =
-        case emqx_gateway:update(nats, Conf2) of
+        case emqx_gateway_conf:update_listener(nats, {tcp, default}, ListenerConf1) of
             ok -> ok;
             {ok, _} -> ok
         end,
     ok.
+
+restore_nats_listeners(Conf) ->
+    Listeners = maps:get(<<"listeners">>, Conf, maps:get(listeners, Conf, #{})),
+    maps:foreach(
+        fun(Type, TypeListeners) ->
+            maps:foreach(
+                fun(Name, ListenerConf) ->
+                    _ = emqx_gateway_conf:update_listener(nats, {Type, Name}, ListenerConf),
+                    ok
+                end,
+                TypeListeners
+            )
+        end,
+        Listeners
+    ).
 
 update_nats_with_internal_authn_and_mountpoint(InternalAuthn, Mountpoint) ->
     Conf = emqx:get_raw_config([gateway, nats]),

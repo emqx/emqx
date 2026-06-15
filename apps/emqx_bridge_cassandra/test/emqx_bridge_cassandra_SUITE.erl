@@ -230,13 +230,13 @@ with_failure(FailureType, TCConfig, Fn) ->
     emqx_common_test_helpers:with_failure(FailureType, ProxyName, ?PROXY_HOST, ?PROXY_PORT, Fn).
 
 cert_root() ->
-    filename:join([emqx_common_test_helpers:proj_root(), ".ci", "docker-compose-file", "certs"]).
+    os:getenv("CI_SHARED_SECRET_PATH", "/var/lib/secret").
 
 cacertfile() ->
     filename:join(cert_root(), ["ca.crt"]).
 
 certfile() ->
-    filename:join(cert_root(), ["client.pem"]).
+    filename:join(cert_root(), ["client.crt"]).
 
 keyfile() ->
     filename:join(cert_root(), ["client.key"]).

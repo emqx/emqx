@@ -171,8 +171,13 @@ t_tm_paths(_) ->
     ?assertThrow("token conflict", emqx_coap_tm:handle_out(Msg, TMConflict)),
     Empty = emqx_coap_tm:handle_response(#coap_message{type = reset, id = 99, token = <<>>}, TM0),
     ?assertEqual(#{}, Empty),
+    EmptyAck = emqx_coap_tm:handle_response(#coap_message{type = ack, id = 98, token = <<>>}, TM0),
+    ?assertEqual(#{}, EmptyAck),
     #{out := _} =
-        emqx_coap_tm:handle_response(#coap_message{type = ack, id = 98, token = <<>>}, TM0),
+        emqx_coap_tm:handle_response(
+            #coap_message{type = ack, method = {ok, content}, id = 98, token = <<>>},
+            TM0
+        ),
     _ = emqx_coap_tm:handle_out(
         #coap_message{type = non, method = get, token = <<"tok2">>},
         TM0
@@ -223,6 +228,49 @@ t_tm_observe_delete_token(_) ->
     },
     #{tm := TM1} = emqx_coap_tm:handle_out(Msg, TM0),
     ?assertEqual(false, maps:is_key({token, <<"obsdel">>}, TM1)),
+    ok.
+
+t_tm_non_observe_notification_does_not_register_token(_) ->
+    TM0 = emqx_coap_tm:new(),
+    Token = <<"obsnon">>,
+    Notify = #coap_message{
+        type = non,
+        method = {ok, content},
+        token = Token,
+        options = #{observe => 0}
+    },
+    #{tm := TM1} = emqx_coap_tm:handle_out(Notify, TM0),
+    ?assertEqual(false, maps:is_key({token, Token}, TM1)),
+    ok.
+
+t_tm_non_observe_notification_timeout_preserves_token_owner(_) ->
+    TM0 = emqx_coap_tm:new(),
+    Token = <<"obsnonowner">>,
+    Notify = #coap_message{
+        type = non,
+        method = {ok, content},
+        token = Token,
+        options = #{observe => 0}
+    },
+    #{out := [NotifyOut], tm := TM1} = emqx_coap_tm:handle_out(Notify, TM0),
+    NotifySeqId = maps:get({out, NotifyOut#coap_message.id}, TM1),
+
+    Request = #coap_message{
+        type = con,
+        method = get,
+        token = Token
+    },
+    #{tm := TM2} = emqx_coap_tm:handle_out(Request, TM1),
+    TokenKey = {token, Token},
+    RequestSeqId = maps:get(TokenKey, TM2),
+    ?assertNotEqual(NotifySeqId, RequestSeqId),
+
+    NotifyMachine = maps:get(NotifySeqId, TM2),
+    TM3 = TM2#{
+        NotifySeqId => NotifyMachine#state_machine{timers = #{stop_timeout => make_ref()}}
+    },
+    #{tm := TM4} = emqx_coap_tm:timeout({NotifySeqId, stop_timeout, stop}, TM3),
+    ?assertEqual(RequestSeqId, maps:get(TokenKey, TM4)),
     ok.
 
 t_tm_cancel_state_timer_manual(_) ->

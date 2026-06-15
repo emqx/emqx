@@ -7,12 +7,14 @@
 
 %% API
 -export([
-    maybe_create_metrics/1,
-    drop_metrics/1,
-
-    get_metrics/1,
-    reset_metrics/1,
-    routes_set/2
+    %% Lifecycle
+    child_spec/0,
+    child_spec_link/1,
+    %% Reporting
+    set_num_external_routes/2,
+    %% Cluster-wide operations
+    get_cluster_metrics/1,
+    reset_cluster_metrics/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -22,50 +24,64 @@
 -define(METRICS, [
     ?route_metric
 ]).
+
 -define(RATE_METRICS, []).
+
+-define(METRICS_RPC_TIMEOUT, 15_000).
 
 %%--------------------------------------------------------------------
 %% metrics API
 %%--------------------------------------------------------------------
 
-get_metrics(ClusterName) ->
-    Nodes = emqx:running_nodes(),
-    Timeout = 15_000,
-    RouterResults = emqx_metrics_proto_v2:get_metrics(Nodes, ?METRIC_NAME, ClusterName, Timeout),
-    ResourceId = emqx_cluster_link_mqtt:resource_id(ClusterName),
-    ResourceResults = emqx_metrics_proto_v2:get_metrics(
-        Nodes, resource_metrics, ResourceId, Timeout
-    ),
-    lists:zip3(Nodes, RouterResults, ResourceResults).
+child_spec() ->
+    emqx_metrics_worker:child_spec(metrics, ?METRIC_NAME).
 
-maybe_create_metrics(ClusterName) ->
-    case emqx_metrics_worker:has_metrics(?METRIC_NAME, ClusterName) of
-        true ->
-            ok = emqx_metrics_worker:reset_metrics(?METRIC_NAME, ClusterName);
-        false ->
-            ok = emqx_metrics_worker:create_metrics(
-                ?METRIC_NAME, ClusterName, ?METRICS, ?RATE_METRICS
-            )
-    end.
-
-reset_metrics(ClusterName) ->
-    Nodes = emqx:running_nodes(),
-    Timeout = 15_000,
-    RouterResults = emqx_metrics_proto_v2:reset_metrics(Nodes, ?METRIC_NAME, ClusterName, Timeout),
-    ResourceId = emqx_cluster_link_mqtt:resource_id(ClusterName),
-    ResourceResults = emqx_metrics_proto_v2:reset_metrics(
-        Nodes, resource_metrics, ResourceId, Timeout
-    ),
-    lists:zip3(Nodes, RouterResults, ResourceResults).
-
-drop_metrics(ClusterName) ->
-    ok = emqx_metrics_worker:clear_metrics(?METRIC_NAME, ClusterName).
-
-routes_set(ClusterName, Val) ->
-    catch emqx_metrics_worker:set_gauge(
-        ?METRIC_NAME, ClusterName, <<"singleton">>, ?route_metric, Val
+child_spec_link(ClusterName) ->
+    emqx_metrics_installer:child_spec(
+        metrics_installer,
+        ?METRIC_NAME,
+        ClusterName,
+        ?METRICS,
+        ?RATE_METRICS
     ).
 
 %%--------------------------------------------------------------------
-%% Internal functions
+
+-spec set_num_external_routes(emqx_cluster_link_schema:cluster(), non_neg_integer()) ->
+    ok.
+set_num_external_routes(ClusterName, N) ->
+    emqx_metrics_worker:set_gauge(?METRIC_NAME, ClusterName, routerepl, ?route_metric, N).
+
 %%--------------------------------------------------------------------
+
+-spec get_cluster_metrics(emqx_cluster_link_schema:cluster()) ->
+    [
+        {
+            node(),
+            emqx_rpc:erpc(_Router :: emqx_metrics_worker:metrics()),
+            emqx_rpc:erpc(_Resource :: emqx_metrics_worker:metrics())
+        }
+    ].
+get_cluster_metrics(ClusterName) ->
+    Nodes = emqx:running_nodes(),
+    RouterResults = emqx_metrics_proto_v2:get_metrics(
+        Nodes, ?METRIC_NAME, ClusterName, ?METRICS_RPC_TIMEOUT
+    ),
+    ResourceId = emqx_cluster_link_mqtt:resource_id(ClusterName),
+    ResourceResults = emqx_metrics_proto_v2:get_metrics(
+        Nodes, resource_metrics, ResourceId, ?METRICS_RPC_TIMEOUT
+    ),
+    lists:zip3(Nodes, RouterResults, ResourceResults).
+
+-spec reset_cluster_metrics(emqx_cluster_link_schema:cluster()) ->
+    [{node(), emqx_rpc:erpc(ok), emqx_rpc:erpc(ok)}].
+reset_cluster_metrics(ClusterName) ->
+    Nodes = emqx:running_nodes(),
+    RouterResults = emqx_metrics_proto_v2:reset_metrics(
+        Nodes, ?METRIC_NAME, ClusterName, ?METRICS_RPC_TIMEOUT
+    ),
+    ResourceId = emqx_cluster_link_mqtt:resource_id(ClusterName),
+    ResourceResults = emqx_metrics_proto_v2:reset_metrics(
+        Nodes, resource_metrics, ResourceId, ?METRICS_RPC_TIMEOUT
+    ),
+    lists:zip3(Nodes, RouterResults, ResourceResults).

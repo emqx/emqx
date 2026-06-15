@@ -277,6 +277,15 @@ is_success_check(Other) ->
 is_code(Code, #{<<"code">> := Code}) -> true;
 is_code(_, _) -> false.
 
+assert_restapi_auth_probe(Trace) ->
+    Probes = ?of_kind(iotdb_restapi_auth_probe, Trace),
+    ?assertMatch(
+        [#{path := <<"rest/v2/query">>, sql := <<"show version">>} | _],
+        Probes
+    ),
+    ?assertEqual([], [Probe || #{path := <<"rest/v2/nonQuery">>} = Probe <- Probes]),
+    ok.
+
 make_iotdb_payload(DeviceId, Measurement, Type, Value) ->
     #{
         measurement => bin(Measurement),
@@ -352,6 +361,45 @@ t_on_get_status(matrix) ->
     [[?iotdb130], [?thrift]];
 t_on_get_status(TCConfig) when is_list(TCConfig) ->
     emqx_bridge_v2_testlib:t_on_get_status(TCConfig).
+
+t_restapi_auth_probe_with_real_iotdb() ->
+    [{matrix, true}].
+t_restapi_auth_probe_with_real_iotdb(matrix) ->
+    [[?iotdb130]];
+t_restapi_auth_probe_with_real_iotdb(TCConfig) when is_list(TCConfig) ->
+    ResourceId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    ?check_trace(
+        begin
+            {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{}),
+            ?retry(
+                1_000,
+                20,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+            ),
+            ok
+        end,
+        fun assert_restapi_auth_probe/1
+    ).
+
+t_restapi_auth_probe_rejects_bad_password() ->
+    [{matrix, true}].
+t_restapi_auth_probe_rejects_bad_password(matrix) ->
+    [[?iotdb130]];
+t_restapi_auth_probe_rejects_bad_password(TCConfig) when is_list(TCConfig) ->
+    BadPassword = #{<<"authentication">> => #{<<"password">> => <<"wrong-password">>}},
+    ?check_trace(
+        begin
+            {201, #{
+                <<"status">> := <<"disconnected">>,
+                <<"status_reason">> := StatusReason
+            }} = create_connector_api(TCConfig, BadPassword),
+            ?assertMatch(
+                match, re:run(StatusReason, <<"WRONG_LOGIN_PASSWORD">>, [{capture, none}])
+            ),
+            ok
+        end,
+        fun assert_restapi_auth_probe/1
+    ).
 
 t_rule_action() ->
     [{matrix, true}].
