@@ -528,7 +528,6 @@ do_authorize(
                         Res
                 catch
                     Class:Reason:Stacktrace ->
-                        ok = inc_metrics(Type, nomatch),
                         ?SLOG(warning, #{
                             msg => "unexpected_error_in_authorize",
                             exception => Class,
@@ -536,7 +535,10 @@ do_authorize(
                             stacktrace => Stacktrace,
                             authorize_type => Type
                         }),
-                        error
+                        Res = emqx_authz_utils:backend_failure_result(),
+                        ok = inc_metrics(Type, Res),
+                        ok = log_trace(Res, Type, Module, Username, Topic, Action),
+                        Res
                 end,
             ?EXT_TRACE_ADD_ATTRS(#{'authz.result' => format_result(Result0)}),
             Result0
@@ -545,8 +547,6 @@ do_authorize(
     ),
 
     case Result of
-        error ->
-            do_authorize(Client, Action, Topic, SourceStates);
         nomatch ->
             do_authorize(Client, Action, Topic, SourceStates);
         ignore ->
@@ -610,8 +610,6 @@ log_trace(Res, Type, Module, Username, Topic, PubSub) ->
             })
     end.
 
-format_result(error) ->
-    error;
 format_result(nomatch) ->
     nomatch;
 format_result(ignore) ->

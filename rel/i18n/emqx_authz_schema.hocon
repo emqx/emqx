@@ -129,6 +129,12 @@ It is NOT allowed to configure two or more sources of the same type."""
 sources.label:
 """sources"""
 
+ignore_backend_failures.desc:
+"""When enabled, authorization backend failures are ignored even when the active security profile would deny them."""
+
+ignore_backend_failures.label:
+"""Ignore Backend Failures"""
+
 node_metrics.desc:
 """The metrics of the resource for each node."""
 

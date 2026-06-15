@@ -13,7 +13,6 @@
 
 -define(NKEY_ACCOUNT_PREFIX, 16#00).
 -define(NKEY_OPERATOR_PREFIX, 16#70).
--define(PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
 
 %%--------------------------------------------------------------------
 %% CT Callbacks
@@ -892,16 +891,6 @@ update_nats_gateway(Conf) ->
     case emqx_gateway:update(nats, Conf) of
         ok -> ok;
         {ok, _} -> ok
-    end.
-
-with_security_profile(Profile, Fun) ->
-    os:putenv(?PROFILE_ENV_VAR, Profile),
-    emqx_security_profile:clear_profile(),
-    try
-        Fun()
-    after
-        os:unsetenv(?PROFILE_ENV_VAR),
-        emqx_security_profile:clear_profile()
     end.
 
 token_auth_setup(Config, Type, Token) ->
@@ -1845,7 +1834,7 @@ t_auth_dynamic_enable_disable(Config) ->
     emqx_nats_client:stop(Client3).
 
 t_hardened_no_auth_config_rejects_anonymous_pub_sub_connect(Config) ->
-    with_security_profile("hardened", fun() ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         with_nats_no_auth_config(Config, true, fun() ->
             ClientOpts = maps:merge(?config(auth_disabled_opts, Config), #{verbose => true}),
             assert_info_auth_required(ClientOpts, true),
@@ -1856,7 +1845,7 @@ t_hardened_no_auth_config_rejects_anonymous_pub_sub_connect(Config) ->
     end).
 
 t_legacy_no_auth_config_allows_anonymous_pub_sub_connect(Config) ->
-    with_security_profile("legacy", fun() ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
         with_nats_no_auth_config(Config, true, fun() ->
             ClientOpts = maps:merge(?config(auth_disabled_opts, Config), #{verbose => true}),
             assert_info_auth_required(ClientOpts, false),
@@ -1866,7 +1855,7 @@ t_legacy_no_auth_config_allows_anonymous_pub_sub_connect(Config) ->
     end).
 
 t_hardened_listener_authn_disabled_allows_anonymous_pub_sub_connect(Config) ->
-    with_security_profile("hardened", fun() ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         with_nats_no_auth_config(Config, false, fun() ->
             ClientOpts = maps:merge(?config(auth_disabled_opts, Config), #{verbose => true}),
             assert_info_auth_required(ClientOpts, false),

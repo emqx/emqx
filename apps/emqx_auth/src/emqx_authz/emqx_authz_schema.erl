@@ -125,6 +125,12 @@ injected_fields(AuthzSchemaMods) ->
 
 authz_fields() ->
     [
+        {ignore_backend_failures,
+            hoconsc:mk(boolean(), #{
+                default => false,
+                desc => ?DESC(ignore_backend_failures),
+                importance => ?IMPORTANCE_HIDDEN
+            })},
         {builtin_record_count_refresh_interval,
             hoconsc:mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"1h">>,

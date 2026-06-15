@@ -112,15 +112,18 @@ client_info(Overrides) ->
     maps:merge(base_client_info(), Overrides).
 
 run_checks(#{checks := Checks} = Case) ->
-    _ = setup_default_permission(Case),
-    ClientInfoOverrides = maps:get(client_info, Case, #{}),
-    ClientInfo = client_info(ClientInfoOverrides),
-    lists:foreach(
-        fun(Check) ->
-            run_check(ClientInfo, Check)
-        end,
-        Checks
-    ).
+    SecurityProfile = atom_to_list(maps:get(security_profile, Case, legacy)),
+    emqx_common_test_helpers:with_security_profile(SecurityProfile, fun() ->
+        _ = setup_default_permission(Case),
+        ClientInfoOverrides = maps:get(client_info, Case, #{}),
+        ClientInfo = client_info(ClientInfoOverrides),
+        lists:foreach(
+            fun(Check) ->
+                run_check(ClientInfo, Check)
+            end,
+            Checks
+        )
+    end).
 
 run_check(ClientInfo, Fun) when is_function(Fun, 0) ->
     run_check(ClientInfo, Fun());
