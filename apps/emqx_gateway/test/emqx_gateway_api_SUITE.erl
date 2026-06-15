@@ -639,7 +639,10 @@ t_clients(_) ->
     {404, _} = request(delete, MyClientSubscriptions ++ "/test%2Ftopic"),
 
     {204, _} = request(delete, MyClient),
-    {404, _} = request(delete, MyClient),
+    %% Channel teardown and CM deregistration after the kick above are
+    %% asynchronous; retry until the client is gone and the delete returns 404
+    %% instead of kicking a still-registered dying pid (204).
+    ?retry(500, 10, {404, _} = request(delete, MyClient)),
     {404, _} = request(get, MyClient),
     {404, _} = request(get, MyClientSubscriptions),
     {404, _} = request(post, MyClientSubscriptions, #{topic => <<"foo">>}),
