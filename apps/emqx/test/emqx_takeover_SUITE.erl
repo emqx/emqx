@@ -924,11 +924,10 @@ t_kick_session(Config) ->
     ),
     #{client := [CPidSub, CPid1]} = FCtx,
     assert_client_exit(CPid1, ?config(mqtt_vsn, Config), kicked),
-    Received = [Msg || {publish, Msg} <- ?drainMailbox(timer:seconds(1))],
-    ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
-    %% THEN: payload <<"willpayload_kick">> should be published
-    {IsWill, _ReceivedNoWill} = filter_payload(Received, <<"willpayload_kick">>),
-    ?assert(IsWill),
+    %% THEN: payload <<"willpayload_kick">> should be published.
+    %% Wait for the specific will message rather than draining for a fixed
+    %% window: on a slow runner the will publish can arrive later than 1s.
+    ?assertReceive({publish, #{payload := <<"willpayload_kick">>}}, timer:seconds(5)),
     emqtt:stop(CPidSub),
     ?assert(not is_process_alive(CPid1)),
     ok.
