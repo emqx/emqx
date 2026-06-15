@@ -1280,7 +1280,8 @@ enrich_clientinfo(
     Channel = #channel{clientinfo = ClientInfo}
 ) ->
     ProtoVer = maps:get(<<"proto_ver">>, Header, ?PROTO_VER_2013),
-    NClientInfo = maybe_fix_mountpoint(ClientInfo#{
+    NClientInfo0 = maps:remove(authenticated_phone, ClientInfo),
+    NClientInfo = maybe_fix_mountpoint(NClientInfo0#{
         phone => Phone,
         clientid => Phone,
         manufacturer => Manu,

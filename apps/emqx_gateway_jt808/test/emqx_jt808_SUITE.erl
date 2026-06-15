@@ -233,6 +233,9 @@ client_regi_procedure(Socket) ->
     client_regi_procedure(Socket, <<"123456">>).
 
 client_regi_procedure(Socket, ExpectedAuthCode) ->
+    client_regi_procedure(Socket, ExpectedAuthCode, <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>).
+
+client_regi_procedure(Socket, ExpectedAuthCode, PhoneBCD) ->
     %
     % send REGISTER
     %
@@ -245,7 +248,6 @@ client_regi_procedure(Socket, ExpectedAuthCode) ->
     RegisterPacket =
         <<58:?WORD, 59:?WORD, Manuf/binary, Model/binary, DevId/binary, Color, Plate/binary>>,
     MsgId = ?MC_REGISTER,
-    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
     MsgSn = 78,
     Size = size(RegisterPacket),
     Header =
@@ -268,6 +270,37 @@ client_regi_procedure(Socket, ExpectedAuthCode) ->
     ?LOGT("Packet=~p", [binary_to_hex_string(Packet)]),
     ?assertEqual(S2, Packet),
     {ok, ExpectedAuthCode}.
+
+client_register_expect_result(Socket, PhoneBCD, ExpectedResult) ->
+    ?LOGT("start register procedure expecting result ~p", [ExpectedResult]),
+    Manuf = <<"examp">>,
+    Model = <<"33333333333333333", 0, 0, 0>>,
+    DevId = <<"123456", 0>>,
+    Color = 3,
+    Plate = <<"ujvl239">>,
+    RegisterPacket =
+        <<58:?WORD, 59:?WORD, Manuf/binary, Model/binary, DevId/binary, Color, Plate/binary>>,
+    MsgId = ?MC_REGISTER,
+    MsgSn = 78,
+    Size = size(RegisterPacket),
+    Header =
+        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?WORD>>,
+
+    ok = gen_tcp:send(Socket, gen_packet(Header, RegisterPacket)),
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 500),
+    assert_register_result(Packet, PhoneBCD, ExpectedResult).
+
+assert_register_result(Packet, ExpectedPhoneBCD, ExpectedResult) ->
+    <<16#7E, Inner/binary>> = Packet,
+    InnerSize = byte_size(Inner) - 1,
+    <<Escaped:InnerSize/binary, 16#7E>> = Inner,
+    Unescaped = unescape_packet(Escaped),
+    <<?MS_REGISTER_ACK:?WORD, _Attrs:?WORD, Phone:6/binary, _RespMsgSn:?WORD, _Seq:?WORD, Result:8,
+        _Crc:8>> = Unescaped,
+    ?assertEqual(ExpectedPhoneBCD, Phone),
+    ?assertEqual(ExpectedResult, Result),
+    ok.
 
 client_auth_procedure(Socket, AuthCode) ->
     ?LOGT("start auth procedure", []),
@@ -549,6 +582,28 @@ t_jt808_reject_connected_frame_with_other_phone(_) ->
     ok = send_event_report(Socket, ?JT808_VICTIM_PHONE_BCD, 98, 79),
     {error, timeout} = gen_tcp:recv(Socket, 0, 500),
     {error, timeout} = receive_msg(),
+
+    ok = gen_tcp:close(Socket).
+
+t_jt808_register_ack_uses_register_phone_after_failed_auth(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_expect_result(Socket, AuthCode, ?JT808_VICTIM_PHONE_BCD, 1),
+    emqx_jt808_auth_http_test_server:set_handler(
+        fun(Req0 = #{method := <<"POST">>, path := <<?PROTO_REG_REGISTRY_PATH>>}, State) ->
+            Req = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"application/json">>},
+                emqx_utils_json:encode(#{code => 1}),
+                Req0
+            ),
+            {ok, Req, State}
+        end
+    ),
+    ok = client_register_expect_result(
+        Socket, <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>, 1
+    ),
 
     ok = gen_tcp:close(Socket).
 
