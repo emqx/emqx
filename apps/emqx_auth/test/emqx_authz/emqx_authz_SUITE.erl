@@ -492,6 +492,20 @@ t_authorizer_crash_hardened_denies_and_aborts_chain(_) ->
         ?assertEqual([http], Calls)
     end).
 
+t_authz_backend_failure_policy_override(_) ->
+    on_exit(fun() ->
+        {ok, _} = emqx:update_config([authorization, ignore_backend_failures], false)
+    end),
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        {ok, _} = emqx:update_config([authorization, ignore_backend_failures], false),
+        ?assertEqual(deny, emqx_authz_utils:authz_backend_failure_policy()),
+        ?assertEqual({matched, deny}, emqx_authz_utils:backend_failure_result()),
+
+        {ok, _} = emqx:update_config([authorization, ignore_backend_failures], true),
+        ?assertEqual(ignore, emqx_authz_utils:authz_backend_failure_policy()),
+        ?assertEqual(ignore, emqx_authz_utils:backend_failure_result())
+    end).
+
 t_get_enabled_authzs_none_enabled(_Config) ->
     ?assertEqual([], emqx_authz:get_enabled_authzs()).
 

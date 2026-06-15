@@ -4,8 +4,6 @@
 
 -module(emqx_authz_utils).
 
--feature(maybe_expr, enable).
-
 -include("emqx_authz.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
@@ -18,6 +16,7 @@
     update_config/2,
     vars_for_rule_query/2,
     authorize_with_row/6,
+    authz_backend_failure_policy/0,
     backend_failure_result/0,
     init_state/2,
     cleanup_resource_config/2
@@ -201,9 +200,21 @@ authorize_with_row(Type, Client, Action, Topic, ColumnNames, Row) ->
 
 -spec backend_failure_result() -> ignore | {matched, deny}.
 backend_failure_result() ->
-    case emqx_security_profile:policy(authz_backend_failure) of
+    case authz_backend_failure_policy() of
         ignore -> ignore;
         deny -> {matched, deny}
+    end.
+
+-spec authz_backend_failure_policy() -> ignore | deny.
+authz_backend_failure_policy() ->
+    case emqx_security_profile:policy(authz_backend_failure) of
+        deny ->
+            case emqx:get_config([authorization, ignore_backend_failures], false) of
+                true -> ignore;
+                false -> deny
+            end;
+        ignore ->
+            ignore
     end.
 
 -spec init_state(emqx_authz_source:source(), map()) -> emqx_authz_source:source_state().
