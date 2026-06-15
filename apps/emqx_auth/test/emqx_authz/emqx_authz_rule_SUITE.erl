@@ -712,6 +712,24 @@ t_security_profile_condition(_) ->
         )
     end).
 
+t_topic_template_allow_security_profile(_) ->
+    Default = emqx_config:get([authorization, topic_template_allow]),
+    AllowAll = #{plus => true, hash => true, slash => true},
+    try
+        emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+            assert_topic_template_injection_result(nomatch)
+        end),
+        emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+            assert_topic_template_injection_result({matched, deny})
+        end),
+        emqx_config:put([authorization, topic_template_allow], AllowAll),
+        emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+            assert_topic_template_injection_result({matched, allow})
+        end)
+    after
+        emqx_config:put([authorization, topic_template_allow], Default)
+    end.
+
 t_invalid_rule(_) ->
     ?assertThrow(
         #{reason := invalid_authorization_permission},
@@ -844,5 +862,37 @@ client_info() ->
 
 client_info(Overrides) ->
     maps:merge(?CLIENT_INFO_BASE, Overrides).
+
+with_security_profile(Profile, Fun) ->
+    os:putenv(?PROFILE_ENV_VAR, Profile),
+    emqx_security_profile:clear_profile(),
+    try
+        Fun()
+    after
+        os:unsetenv(?PROFILE_ENV_VAR),
+        emqx_security_profile:clear_profile()
+    end.
+
+assert_topic_template_injection_result(Expected) ->
+    Action = #{action_type => publish, qos => 0, retain => false},
+    Cases = [
+        {#{username => <<"+">>}, <<"tenant/other/data">>, "tenant/${username}/data"},
+        {#{username => <<"#">>}, <<"tenant/other/data">>, "tenant/${username}"},
+        {#{username => <<"other/level">>}, <<"tenant/other/level/data">>, "tenant/${username}/data"}
+    ],
+    lists:foreach(
+        fun({ClientInfoOverride, Topic, TopicTemplate}) ->
+            ?assertEqual(
+                Expected,
+                emqx_authz_rule:match(
+                    client_info(ClientInfoOverride),
+                    Action,
+                    Topic,
+                    emqx_authz_rule:compile({allow, all, publish, [TopicTemplate]})
+                )
+            )
+        end,
+        Cases
+    ).
 
 bin(X) -> iolist_to_binary(X).

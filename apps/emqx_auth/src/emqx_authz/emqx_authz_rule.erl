@@ -346,13 +346,19 @@ matches(Client, Action, Topic, [{Permission, Cond, ActionCond, TopicCond} | Tail
 -spec match(emqx_types:clientinfo(), action(), emqx_types:topic(), rule()) ->
     {matched, allow} | {matched, deny} | nomatch.
 match(Client, Action, Topic, {Permission, Cond, ActionCond, TopicCond}) ->
-    case
+    try
         match_action(Action, ActionCond) andalso
             match_condition(Client, Cond) andalso
             match_topics(Client, Topic, TopicCond)
     of
         true -> {matched, Permission};
         _ -> nomatch
+    catch
+        throw:_Reason ->
+            case emqx_authz_utils:authz_backend_failure_policy() of
+                ignore -> nomatch;
+                deny -> {matched, deny}
+            end
     end.
 
 -spec match_action(action(), action_condition()) -> boolean().
@@ -481,7 +487,14 @@ match_topic(Topic, TopicFilter) ->
 
 render_topic(Topic, ClientInfo) ->
     try
-        bin(emqx_auth_template:render_strict(Topic, ClientInfo))
+        TopicTemplateAllow = topic_template_allow(),
+        bin(
+            emqx_auth_template:render_strict(Topic, ClientInfo, #{
+                var_trans => fun(Name, Value) ->
+                    validate_topic_template_value(Name, Value, TopicTemplateAllow)
+                end
+            })
+        )
     catch
         error:Reason ->
             ?SLOG(debug, #{
@@ -489,5 +502,43 @@ render_topic(Topic, ClientInfo) ->
                 template => Topic,
                 reason => Reason
             }),
-            error
+            case emqx_security_profile:policy(authz_backend_failure) of
+                ignore -> error;
+                deny -> throw({cannot_render_topic_template, Reason})
+            end
     end.
+
+topic_template_allow() ->
+    AllowMap = emqx:get_config([authorization, topic_template_allow], #{
+        plus => false,
+        hash => false,
+        slash => false
+    }),
+    #{
+        $+ => maps:get(plus, AllowMap, false),
+        $# => maps:get(hash, AllowMap, false),
+        $/ => maps:get(slash, AllowMap, false)
+    }.
+
+validate_topic_template_value(Name, Value, TopicTemplateAllow) ->
+    Rendered = emqx_template:to_string(Value),
+    ok = do_validate_topic_template_value(
+        Name, unicode:characters_to_list(Rendered), TopicTemplateAllow
+    ),
+    Rendered.
+
+do_validate_topic_template_value(_Name, [], _TopicTemplateAllow) ->
+    ok;
+do_validate_topic_template_value(Name, [Char | Rest], TopicTemplateAllow) when
+    Char =:= $/ orelse Char =:= $# orelse Char =:= $+
+->
+    case maps:get(Char, TopicTemplateAllow) of
+        true ->
+            do_validate_topic_template_value(Name, Rest, TopicTemplateAllow);
+        false ->
+            throw({invalid_char_in_value_substituted_in_topic, {Name, Char}})
+    end;
+do_validate_topic_template_value(Name, [_Char | Rest], TopicTemplateAllow) ->
+    do_validate_topic_template_value(Name, Rest, TopicTemplateAllow);
+do_validate_topic_template_value(Name, InvalidUnicode, _TopicTemplateAllow) ->
+    throw({invalid_value_substituted_in_topic, {Name, InvalidUnicode}}).
