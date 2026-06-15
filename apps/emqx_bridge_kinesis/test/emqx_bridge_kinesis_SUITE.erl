@@ -651,7 +651,7 @@ t_access_denied(TCConfig) ->
     emqx_common_test_helpers:with_mock(
         erlcloud_kinesis,
         list_streams,
-        fun() -> {error, AccessError} end,
+        fun(_, _, _) -> {error, AccessError} end,
         fun() ->
             %% probe
             ?assertMatch(
@@ -843,7 +843,7 @@ t_connector_health_check_rate_limit_call_timeout(TCConfig) when is_list(TCConfig
             emqx_common_test_helpers:with_mock(
                 erlcloud_kinesis,
                 list_streams,
-                fun() ->
+                fun(_, _, _) ->
                     timer:sleep(1_500),
                     meck:passthrough([])
                 end,
@@ -1012,7 +1012,7 @@ t_action_health_check_rate_limit_call_timeout(TCConfig) when is_list(TCConfig) -
             emqx_common_test_helpers:with_mock(
                 erlcloud_kinesis,
                 describe_stream,
-                fun(StreamName) ->
+                fun(StreamName, _Limit) ->
                     timer:sleep(1_500),
                     meck:passthrough([StreamName])
                 end,
@@ -1073,7 +1073,7 @@ t_connector_health_check_throttled(TCConfig) ->
     emqx_common_test_helpers:with_mock(
         erlcloud_kinesis,
         list_streams,
-        fun() ->
+        fun(_, _, _) ->
             {error, {<<"LimitExceededException">>, <<"Rate exceeded for account 123456789012.">>}}
         end,
         fun() ->
@@ -1091,7 +1091,7 @@ t_action_health_check_throttled(TCConfig) ->
     emqx_common_test_helpers:with_mock(
         erlcloud_kinesis,
         describe_stream,
-        fun(_StreamName) ->
+        fun(_StreamName, _Limit) ->
             {error, {<<"LimitExceededException">>, <<"Rate exceeded for account 123456789012.">>}}
         end,
         fun() ->
