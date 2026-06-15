@@ -81,8 +81,8 @@ del(Pid) ->
         Monitors ->
             lists:foreach(
                 fun(?MONITOR(_, Username, ClientId)) ->
-                    dec_counter(Username),
                     ok = mria:dirty_delete(?RECORD_TAB, ?RECORD_KEY(Username, ClientId, Pid)),
+                    dec_counter(Username),
                     evict_ccache(Username)
                 end,
                 Monitors
@@ -332,9 +332,9 @@ evict_ccache(Username) ->
     ok.
 
 delete_client_records(Username, ClientId, ?RECORD_KEY(Username, ClientId, Pid) = Key) ->
-    dec_counter(Username),
-    ok = mria:dirty_delete(?RECORD_TAB, Key),
     _ = ets:delete_object(?MONITOR_TAB, ?MONITOR(Pid, Username, ClientId)),
+    ok = mria:dirty_delete(?RECORD_TAB, Key),
+    dec_counter(Username),
     evict_ccache(Username),
     delete_client_records(Username, ClientId, ets:next(?RECORD_TAB, Key));
 delete_client_records(_Username, _ClientId, _Key) ->
@@ -349,14 +349,8 @@ do_clear_for_node(Node) ->
     ok.
 
 dec_counter(Username) ->
-    Key = ?COUNTER_KEY(Username, node()),
-    case mria:dirty_update_counter(?COUNTER_TAB, Key, -1) of
-        NewCount when is_integer(NewCount), NewCount =< 0 ->
-            _ = mria:dirty_delete(?COUNTER_TAB, Key),
-            ok;
-        _ ->
-            ok
-    end.
+    _ = mria:dirty_update_counter(?COUNTER_TAB, ?COUNTER_KEY(Username, node()), -1),
+    ok.
 
 monitor_exists(Pid, Username, ClientId) ->
     lists:any(

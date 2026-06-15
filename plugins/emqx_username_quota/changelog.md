@@ -44,3 +44,12 @@
 - Moved quota exceeded warning logs into the stats worker and throttled them per username.
   A warning is emitted for the first rejection, when the previous warning is older than 1 minute,
   or on every 100th rejection for that username.
+
+## 1.2.1
+
+- Fixed a race condition that could cause per-username session counter to become inconsistent
+  with the tracked client records. The counter could be lost when a concurrent session registration
+  incremented it while a cleanup process deleted the counter key after decrementing it to zero.
+- Swapped the order of record deletion and counter decrement in cleanup paths so that
+  a crash between the two operations leaves the counter slightly higher (safe direction)
+  rather than lower.
