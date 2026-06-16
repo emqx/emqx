@@ -13,16 +13,22 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    DashboardPort = emqx_common_test_helpers:select_free_port(tcp),
     Apps = emqx_cth_suite:start(
         [
             {emqx_conf, #{config => listeners_conf()}},
             emqx_modules,
-            emqx_management
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard(dashboard_conf(DashboardPort))
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     ok = emqx_mgmt_cli:load(),
-    [{apps, Apps} | Config].
+    [
+        {apps, Apps},
+        {api_host, "http://127.0.0.1:" ++ integer_to_list(DashboardPort)}
+        | Config
+    ].
 
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
@@ -131,6 +137,36 @@ t_update_cluster_config(_Config) ->
         ?assertMatch({ok, _}, logger:get_handler_config(new))
     end).
 
+t_http_api_cli_roundtrip(Config) ->
+    Host = ?config(api_host, Config),
+    with_log_conf_restore(fun() ->
+        {ok, Log0} = http_get_log_config(Host),
+        Log1 = emqx_utils_maps:deep_put([<<"file">>, <<"default">>, <<"enable">>], Log0, false),
+        {ok, #{}} = http_update_log_config(Host, Log1),
+
+        {ok, Output} = capture_ctl(fun() ->
+            emqx_ctl:run_command(["log", "outputs", "list"])
+        end),
+        ?assertMatch(
+            match,
+            re:run(Output, <<"LogOutput\\(name=file[^\\n]*status=disabled">>, [{capture, none}])
+        ),
+
+        ok = emqx_ctl:run_command(["log", "outputs", "enable", "file"]),
+        {ok, Log2} = http_get_log_config(Host),
+        ?assertEqual(
+            true,
+            emqx_utils_maps:deep_get([<<"file">>, <<"default">>, <<"enable">>], Log2)
+        ),
+
+        ok = emqx_ctl:run_command(["log", "outputs", "set-level", "file", "error"]),
+        {ok, Log3} = http_get_log_config(Host),
+        ?assertEqual(
+            <<"error">>,
+            emqx_utils_maps:deep_get([<<"file">>, <<"default">>, <<"level">>], Log3)
+        )
+    end).
+
 t_hide_legacy_handlers_usage(_Config) ->
     {ok, Output} = capture_ctl(fun() ->
         emqx_ctl:run_command(["log"])
@@ -157,6 +193,20 @@ capture_ctl(Fun) ->
     {Res, Prints} = emqx_common_test_helpers:capture_io_format(Fun),
     {Res, iolist_to_binary(Prints)}.
 
+http_get_log_config(Host) ->
+    Path = emqx_mgmt_api_test_util:api_path(Host, ["configs", "log"]),
+    case emqx_mgmt_api_test_util:simple_request(get, Path, []) of
+        {200, Log} -> {ok, Log};
+        Error -> Error
+    end.
+
+http_update_log_config(Host, Log) ->
+    Path = emqx_mgmt_api_test_util:api_path(Host, ["configs", "log"]),
+    case emqx_mgmt_api_test_util:simple_request(put, Path, Log) of
+        {200, Resp} -> {ok, Resp};
+        Error -> Error
+    end.
+
 listeners_conf() ->
     #{
         listeners =>
@@ -172,3 +222,14 @@ select_free_listener_port(wss) ->
     emqx_common_test_helpers:select_free_port(tcp);
 select_free_listener_port(Type) ->
     emqx_common_test_helpers:select_free_port(Type).
+
+dashboard_conf(Port) ->
+    io_lib:format(
+        """
+        dashboard {
+            listeners.http { enable = true, bind = ~B }
+            password_expired_time = "86400s"
+        }
+        """,
+        [Port]
+    ).
