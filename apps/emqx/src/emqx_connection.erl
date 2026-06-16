@@ -98,15 +98,16 @@
     serialize :: emqx_frame:serialize_opts(),
     %% Channel State
     channel :: emqx_channel:channel(),
-    %% GC State
-    gc_state :: option(emqx_gc:gc_state()),
+    %% FIXME
+    threshold_in :: option(emqx_threshold:state()),
+    threshold_out :: option(emqx_threshold:state()),
     %% Stats Timer
     %% When `disabled` stats are never reported.
     %% Until complete CONNECT packet received acts as idle timer, which shuts
     %% the connection down once triggered.
     stats_timer :: disabled | option(reference()) | {idle, reference()},
-    %% ActiveN + GC tracker
-    gc_tracker :: gc_tracker(),
+    %% ActiveN
+    active_n :: pos_integer(),
     %% Hibernate connection process if inactive for
     hibernate_after :: integer() | infinity,
     %% Zone name
@@ -123,13 +124,6 @@
     %% Extra field for future hot-upgrade support
     extra = []
 }).
-
--type gc_tracker() ::
-    {
-        ActiveN :: non_neg_integer(),
-        {PktsIn :: non_neg_integer(), BytesIn :: non_neg_integer()},
-        {PktsOut :: non_neg_integer(), BytesOut :: non_neg_integer()}
-    }.
 
 -type parser() ::
     %% Special, slightly better optimized "complete-frames" parser.
@@ -157,8 +151,6 @@
     send_pend
 ]).
 
--define(ENABLED(X), (X =/= undefined)).
-
 -define(LOG(Level, Data),
     ?SLOG(Level, begin
         Data
@@ -166,6 +158,7 @@
         tag => "MQTT"
     })
 ).
+
 -define(IS_NORMAL_SOCKET_ERROR(R),
     % Normal close
     (R =:= closed orelse
@@ -347,17 +340,14 @@ init_state(
         conn_mod => ?MODULE,
         sock => Socket
     },
-
     ActiveN = get_active_n(Type, Listener),
-    %% Init Channel
     Channel = emqx_channel:init(ConnInfo, Opts),
-
     State0 = #state{
         transport = Transport,
         socket = Socket,
         sockstate = idle,
         channel = Channel,
-        gc_tracker = init_gc_tracker(ActiveN),
+        active_n = ActiveN,
         listener = {Type, Listener},
         %% for quic streams to inherit
         quic_conn_ss = maps:get(conn_shared_state, Opts, undefined),
@@ -365,9 +355,6 @@ init_state(
         extra = []
     },
     init_zone_specific_state(Zone, Opts, State0).
-
-init_gc_tracker(ActiveN) ->
-    {ActiveN, {0, 0}, {0, 0}}.
 
 run_loop(
     Parent,
@@ -564,16 +551,18 @@ handle_msg({Closed, _Sock}, State) when
     Closed == tcp_closed; Closed == ssl_closed
 ->
     handle_info({sock_closed, Closed}, close_socket(State));
-handle_msg({Passive, _Sock}, State = #state{gc_tracker = {ActiveN, {Pubs, Bytes}, _}}) when
+handle_msg({Passive, _Sock}, State = #state{threshold_in = ThresholdIn}) when
     Passive == tcp_passive; Passive == ssl_passive; Passive =:= quic_passive
 ->
     %% Run GC and Check OOM
-    NState = check_oom(Pubs, Bytes, run_gc(Pubs, Bytes, State)),
-    FState = NState#state{gc_tracker = init_gc_tracker(ActiveN)},
-    handle_info(activate_socket, FState);
+    %% FIXME
+    Triggers = emqx_threshold:trigger(ThresholdIn),
+    NState = run_triggers(in, Triggers, State),
+    check_oom(0, 0, NState),
+    handle_info(activate_socket, NState);
 handle_msg(
     Deliver = #deliver{},
-    #state{gc_tracker = {ActiveN, _, _}} = State
+    #state{active_n = ActiveN} = State
 ) ->
     ?BROKER_INSTR_SETMARK(t0_deliver, {_Msg#message.extra, ?BROKER_INSTR_TS()}),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
@@ -757,7 +746,7 @@ try_set_chan_stats(State = #state{channel = Channel}) ->
 %%--------------------------------------------------------------------
 %% Parse incoming data
 -compile({inline, [on_bytes_in/3]}).
-on_bytes_in(Oct, Data, State = #state{gc_tracker = {ActiveN, {Pkts, Bytes}, Out}}) ->
+on_bytes_in(Oct, Data, State = #state{threshold_in = ThresholdIn}) ->
     ?LOG(debug, #{
         msg => "raw_bin_received",
         size => Oct,
@@ -765,7 +754,7 @@ on_bytes_in(Oct, Data, State = #state{gc_tracker = {ActiveN, {Pkts, Bytes}, Out}
         type => "hex"
     }),
     {N, Packets, NState} = parse_incoming(Data, State),
-    FState = NState#state{gc_tracker = {ActiveN, {Pkts + N, Bytes + Oct}, Out}},
+    FState = NState#state{threshold_in = emqx_threshold:account(N, Oct, ThresholdIn)},
     {ok, next_incoming_msgs(Packets), FState}.
 
 %% @doc: return a reversed Msg list
@@ -1046,16 +1035,65 @@ send(Num, Oct, IoData, #state{transport = Transport, socket = Socket} = State) -
 
 %% Some bytes sent
 -spec sent(non_neg_integer(), non_neg_integer(), state()) -> {ok, state()}.
-sent(Num, Oct, State = #state{gc_tracker = {ActiveN, In, {Pkts, Bytes}}}) ->
+sent(Num, Oct, State = #state{threshold_out = ThresholdOut}) ->
     %% Run GC and check OOM after certain amount of messages or bytes sent.
-    NBytes = Bytes + Oct,
-    case Pkts + Num of
-        NPkts when NPkts > ActiveN ->
-            NState = State#state{gc_tracker = init_gc_tracker(ActiveN)},
-            {ok, check_oom(NPkts, NBytes, run_gc(NPkts, NBytes, NState))};
-        NPkts ->
-            NState = State#state{gc_tracker = {ActiveN, In, {NPkts, NBytes}}},
-            {ok, NState}
+    Triggers = emqx_threshold:run(Num, Oct, ThresholdOut),
+    NState = run_triggers(out, Triggers, State),
+    {ok, NState}.
+
+%%--------------------------------------------------------------------
+%% Thresholds
+
+run_triggers(Dir, [gc | Rest], State) ->
+    run_gc(State),
+    run_triggers(Dir, skip_trigger(gc, Rest), State);
+run_triggers(Dir, [oom | Rest], State) ->
+    %% FIXME
+    check_oom(0, 0, State),
+    run_triggers(Dir, Rest, State);
+run_triggers(Dir, [sendq | Rest], State) ->
+    %% TODO
+    run_triggers(Dir, Rest, State);
+run_triggers(Dir, NThreshold, State) when not is_list(NThreshold) ->
+    case Dir of
+        in ->
+            State#state{threshold_in = NThreshold};
+        out ->
+            State#state{threshold_out = NThreshold}
+    end.
+
+skip_trigger(Name, [Name | Rest]) ->
+    Rest;
+skip_trigger(_, Triggers) ->
+    Triggers.
+
+run_gc(#state{zone = Zone}) ->
+    case emqx_olp:backoff_gc(Zone) of
+        false -> erlang:garbage_collect();
+        true -> ok
+    end.
+
+check_oom(Pubs, Bytes, #state{zone = Zone}) ->
+    ShutdownPolicy = emqx_config:get_zone_conf(Zone, [force_shutdown]),
+    case emqx_utils:check_oom(ShutdownPolicy) of
+        {shutdown, Reason} ->
+            %% triggers terminate/2 callback immediately
+            ?tp(warning, check_oom_shutdown, #{
+                policy => ShutdownPolicy,
+                %% FIXME
+                incoming_pubs => Pubs,
+                incoming_bytes => Bytes,
+                shutdown => Reason
+            }),
+            erlang:exit({shutdown, Reason});
+        Result ->
+            ?tp(debug, check_oom_ok, #{
+                policy => ShutdownPolicy,
+                %% FIXME
+                incoming_pubs => Pubs,
+                incoming_bytes => Bytes,
+                result => Result
+            })
     end.
 
 %%--------------------------------------------------------------------
@@ -1135,41 +1173,6 @@ handle_cast(Req, State) ->
     State.
 
 %%--------------------------------------------------------------------
-%% Run GC and Check OOM
-
-run_gc(Pubs, Bytes, State = #state{gc_state = GcSt, zone = Zone}) ->
-    case
-        ?ENABLED(GcSt) andalso not emqx_olp:backoff_gc(Zone) andalso
-            emqx_gc:run(Pubs, Bytes, GcSt)
-    of
-        false -> State;
-        {_IsGC, GcSt1} -> State#state{gc_state = GcSt1}
-    end.
-
-check_oom(Pubs, Bytes, State = #state{zone = Zone}) ->
-    ShutdownPolicy = emqx_config:get_zone_conf(Zone, [force_shutdown]),
-    case emqx_utils:check_oom(ShutdownPolicy) of
-        {shutdown, Reason} ->
-            %% triggers terminate/2 callback immediately
-            ?tp(warning, check_oom_shutdown, #{
-                policy => ShutdownPolicy,
-                incoming_pubs => Pubs,
-                incoming_bytes => Bytes,
-                shutdown => Reason
-            }),
-            erlang:exit({shutdown, Reason});
-        Result ->
-            ?tp(debug, check_oom_ok, #{
-                policy => ShutdownPolicy,
-                incoming_pubs => Pubs,
-                incoming_bytes => Bytes,
-                result => Result
-            }),
-            ok
-    end,
-    State.
-
-%%--------------------------------------------------------------------
 %% Activate Socket
 %% TODO: maybe we could keep socket passive for receiving socket closed event.
 -compile({inline, [activate_socket/1]}).
@@ -1178,7 +1181,7 @@ activate_socket(
         transport = Transport,
         sockstate = SockState,
         socket = Socket,
-        gc_tracker = {ActiveN, _, _}
+        active_n = ActiveN
     } = State
 ) when
     SockState =/= closed
@@ -1329,7 +1332,7 @@ wait_for_quic_stream_close(
 start_timer(Time, Msg) ->
     emqx_utils:start_timer(Time, Msg).
 
-init_zone_specific_state(Zone, Opts, #state{} = State0) ->
+init_zone_specific_state(Zone, Opts, #state{listener = {Type, Listener}} = State0) ->
     FrameOpts0 = #{
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
@@ -1350,15 +1353,28 @@ init_zone_specific_state(Zone, Opts, #state{} = State0) ->
                         {State0#state.parser, State0#state.serialize}
                 end
         end,
-    GcState =
-        case emqx_config:get_zone_conf(Zone, [force_gc]) of
-            #{enable := false} -> undefined;
-            GcPolicy -> emqx_gc:init(GcPolicy)
+    ActiveN = get_active_n(Type, Listener),
+    GcPolicy = emqx_config:get_zone_conf(Zone, [force_gc]),
+    GcTriggers =
+        case GcPolicy of
+            #{enable := false} ->
+                [];
+            #{enable := true, count := Count, bytes := Bytes} ->
+                [{gc, count, Count}, {gc, bytes, Bytes}]
         end,
+    HighWatermark = get_high_watermark(Type, Listener),
+    HWMTriggers =
+        case HighWatermark of
+            0 -> [];
+            _ -> [{sendq, bytes, HighWatermark div 4}]
+        end,
+    ThresholdIn = emqx_threshold:init(GcTriggers),
+    ThresholdOut = emqx_threshold:init([{oom, count, ActiveN}] ++ HWMTriggers ++ GcTriggers),
     State0#state{
         parser = Parser,
         serialize = Serialize,
-        gc_state = GcState,
+        threshold_in = ThresholdIn,
+        threshold_out = ThresholdOut,
         hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
         zone = Zone
     }.
@@ -1393,3 +1409,8 @@ get_active_n(quic, _Listener) ->
     ?ACTIVE_N;
 get_active_n(Type, Listener) ->
     emqx_config:get_listener_conf(Type, Listener, [tcp_options, active_n]).
+
+get_high_watermark(quic, _Listener) ->
+    0;
+get_high_watermark(Type, Listener) ->
+    emqx_config:get_listener_conf(Type, Listener, [tcp_options, high_watermark]).
