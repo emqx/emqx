@@ -4,7 +4,7 @@ Release version:
 -->
 
 <!-- uncomment for v6:
-6.0.3, 6.1.2, 6.2.0
+6.1.2, 6.2.0, 6.3.0
 -->
 
 ## Summary
