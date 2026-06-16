@@ -438,8 +438,8 @@ t_client_attr_from_user_property(_Config) ->
 
 t_sock_closed_reason_normal(_) ->
     ProtoVers = [v3, v4, v5],
-    [
-        begin
+    lists:foreach(
+        fun(Ver) ->
             %% Use a per-version unique client id: reusing one client id across
             %% the iterations can reconnect before the previous connection's
             %% async deregistration completes, tripping the open_session
@@ -471,15 +471,15 @@ t_sock_closed_reason_normal(_) ->
                     ok
                 end
             )
-        end
-     || Ver <- ProtoVers
-    ].
+        end,
+        ProtoVers
+    ).
 
 t_sock_closed_force_closed_by_client(_) ->
     ProtoVers = [v3, v4, v5],
     process_flag(trap_exit, true),
-    [
-        begin
+    lists:foreach(
+        fun(Ver) ->
             %% Per-version unique client id, see t_sock_closed_reason_normal.
             ClientId = iolist_to_binary([atom_to_binary(?FUNCTION_NAME), "-", atom_to_binary(Ver)]),
             ?check_trace(
@@ -507,9 +507,9 @@ t_sock_closed_force_closed_by_client(_) ->
                     ok
                 end
             )
-        end
-     || Ver <- ProtoVers
-    ],
+        end,
+        ProtoVers
+    ),
     process_flag(trap_exit, false).
 
 t_clientid_override(_) ->
