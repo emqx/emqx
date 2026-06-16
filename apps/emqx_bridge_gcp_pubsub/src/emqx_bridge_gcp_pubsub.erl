@@ -18,7 +18,8 @@
 ]).
 -export([
     service_account_json_validator/1,
-    service_account_json_converter/2
+    service_account_json_converter/2,
+    decode_service_account_json/1
 ]).
 
 -export([upgrade_raw_conf/1]).
@@ -82,13 +83,11 @@ fields(connector_config) ->
                 }
             )},
         {service_account_json,
-            sc(
-                binary(),
+            emqx_schema_secret:mk(
                 #{
                     required => true,
                     validator => fun ?MODULE:service_account_json_validator/1,
                     converter => fun ?MODULE:service_account_json_converter/2,
-                    sensitive => true,
                     desc => ?DESC("service_account_json")
                 }
             )}
@@ -249,12 +248,12 @@ type_field_consumer() ->
 name_field() ->
     {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
 
--spec service_account_json_validator(binary()) ->
+-spec service_account_json_validator(emqx_secret:t(binary())) ->
     ok
     | {error, {wrong_type, term()}}
     | {error, {missing_keys, [binary()]}}.
 service_account_json_validator(Val) ->
-    case emqx_utils_json:safe_decode(Val) of
+    case emqx_utils_json:safe_decode(emqx_secret:unwrap(Val)) of
         {ok, Map} ->
             ExpectedKeys = [
                 <<"type">>,
@@ -272,7 +271,7 @@ service_account_json_validator(Val) ->
             case {MissingKeys, Type} of
                 {[], <<"service_account">>} ->
                     ok;
-                {[], Type} ->
+                {[], _} ->
                     {error, #{wrong_type => Type}};
                 {_, _} ->
                     {error, #{missing_keys => MissingKeys}}
@@ -281,20 +280,20 @@ service_account_json_validator(Val) ->
             {error, "not a json"}
     end.
 
-service_account_json_converter(Val, #{make_serializable := true}) ->
-    case is_map(Val) of
-        true -> emqx_utils_json:encode(Val);
-        false -> Val
-    end;
-service_account_json_converter(Map, _Opts) when is_map(Map) ->
+service_account_json_converter(Map = #{}, #{make_serializable := true}) ->
     emqx_utils_json:encode(Map);
-service_account_json_converter(Val, _Opts) ->
-    case emqx_utils_json:safe_decode(Val) of
+service_account_json_converter(Map = #{}, Opts) ->
+    emqx_schema_secret:convert_secret(emqx_utils_json:encode(Map), Opts);
+service_account_json_converter(Val, Opts) ->
+    case is_binary(Val) andalso emqx_utils_json:safe_decode(Val) of
         {ok, Str} when is_binary(Str) ->
-            emqx_utils_json:decode(Str);
+            emqx_schema_secret:convert_secret(Str, Opts);
         _ ->
-            Val
+            emqx_schema_secret:convert_secret(Val, Opts)
     end.
+
+decode_service_account_json(Val) ->
+    emqx_utils_json:decode(emqx_secret:unwrap(Val)).
 
 deep_update(Path, Fun, Map) ->
     case emqx_utils_maps:deep_get(Path, Map, #{}) of
