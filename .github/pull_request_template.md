@@ -1,10 +1,10 @@
 Release version:
 <!-- uncomment for v5:
-5.8.10, 5.10.4
+5.8.12, 5.10.5
 -->
 
 <!-- uncomment for v6:
-6.1.2, 6.2.0, 6.3.0
+6.0.4, 6.1.3, 6.2.2
 -->
 
 ## Summary
