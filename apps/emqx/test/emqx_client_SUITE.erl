@@ -7,6 +7,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/asserts.hrl").
@@ -90,6 +91,7 @@ groups() ->
             t_sock_closed_on_shutdown,
             t_sock_closed_on_kick_shutdown,
             t_sub_non_utf8_topic,
+            t_slow_client_survives_qos0_publish_storm,
             t_congestion_send_timeout,
             t_congestion_decongested,
             t_first_packet_not_connect
@@ -1066,6 +1068,158 @@ t_sub_non_utf8_topic(_) ->
     TopicInvalidCount = proplists:get_value(topic_filter_invalid, ListenerCounts),
     ?assert(is_integer(TopicInvalidCount) andalso TopicInvalidCount > 0),
     ok.
+
+t_slow_client_survives_qos0_publish_storm(init, Config) ->
+    override_conf(
+        [force_shutdown],
+        #{
+            enable => true,
+            max_heap_size => 1024 * 1024 div erlang:system_info(wordsize),
+            max_mailbox_size => 1000
+        },
+        override_conf([mqtt, mqueue_store_qos0], false, Config)
+    ).
+
+t_slow_client_survives_qos0_publish_storm(_) ->
+    NQoS1Publishes = 16,
+    QoS0StormSize = 2500,
+    Suffix = integer_to_list(erlang:unique_integer()),
+    ClientId = iolist_to_binary([atom_to_binary(?FUNCTION_NAME), Suffix]),
+    %% Estabilish TCP connection:
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [
+        {active, false},
+        binary,
+        {buffer, 1024},
+        {recbuf, 1024},
+        {sndbuf, 1024}
+    ]),
+    %% Connect MQTT client:
+    Parser0 = emqx_frame:initial_parse_state(),
+    ok = gen_tcp:send(
+        Socket,
+        emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{clientid = ClientId}))
+    ),
+    {ok, Frame1} = gen_tcp:recv(Socket, 0, 1000),
+    {?CONNACK_PACKET(0), <<>>, Parser1} = emqx_frame:parse(Frame1, Parser0),
+    %% Subscribe to 2 topics:
+    QoS0Topic = emqx_topic:join(["slow-client", Suffix, "qos0"]),
+    QoS1Topic = emqx_topic:join(["slow-client", Suffix, "qos1"]),
+    SubOpts = #{rh => 0, rap => 0, nl => 0},
+    ok = gen_tcp:send(
+        Socket,
+        emqx_frame:serialize(
+            ?SUBSCRIBE_PACKET(1, [
+                {QoS0Topic, SubOpts#{qos => ?QOS_0}},
+                {QoS1Topic, SubOpts#{qos => ?QOS_1}}
+            ])
+        )
+    ),
+    {ok, Frame2} = gen_tcp:recv(Socket, 0, 1000),
+    {?SUBACK_PACKET(1, [0, 1]), <<>>, Parser2} = emqx_frame:parse(Frame2, Parser1),
+    %% Find the channel process on the broker side:
+    [ConnPid] = emqx_cm:lookup_channels(ClientId),
+    MRef = erlang:monitor(process, ConnPid),
+    %% Construct a stream of messages to publish:
+    QoS0Publisher = <<"qos0-storm-publisher">>,
+    QoS1Publisher = <<"qos1-publisher">>,
+    QoS0Payload = binary:copy(<<"qos0-storm">>, 1000),
+    QoS1Payload = fun(I) -> iolist_to_binary("qos1-" ++ integer_to_list(I)) end,
+    QoS1Messages = [
+        emqx_message:make(QoS1Publisher, ?QOS_1, QoS1Topic, QoS1Payload(I))
+     || I <- lists:seq(1, NQoS1Publishes)
+    ],
+    StreamQoS0 = emqx_utils_stream:const(
+        emqx_message:make(QoS0Publisher, ?QOS_0, QoS0Topic, QoS0Payload)
+    ),
+    StreamQoS1 = emqx_utils_stream:list(QoS1Messages),
+    Stream = emqx_utils_stream:chain(
+        %% 1250 QoS0 messages, ...
+        emqx_utils_stream:limit_length(QoS0StormSize div 2, StreamQoS0),
+        %% Followed by 16 QoS1 messages evenly interspersed with 1250 QoS0 messages
+        emqx_utils_stream:interleave(
+            [
+                {1, StreamQoS1},
+                {QoS0StormSize div (2 * NQoS1Publishes), StreamQoS0}
+            ],
+            false
+        )
+    ),
+    %% Publish them all at once:
+    emqx_utils_stream:foreach(
+        fun
+            (Msg = #message{}) ->
+                emqx:publish(Msg);
+            (sleep) ->
+                timer:sleep(1)
+        end,
+        emqx_utils_stream:interleave(
+            [
+                {100, Stream},
+                emqx_utils_stream:const(sleep)
+            ],
+            false
+        )
+    ),
+    %% Receive pending QoS1 publishes from the socket:
+    {QoS1Received, _Parser} = drain_qos1_publishes(Socket, Parser2, NQoS1Publishes, 10_000),
+    %% Verify ALL QoS1 publishes has successfully reached the socket:
+    ?assertEqual(
+        [],
+        lists:foldl(
+            fun({_PacketId, Payload}, Ms) -> lists:keydelete(Payload, #message.payload, Ms) end,
+            QoS1Messages,
+            QoS1Received
+        )
+    ),
+    %% Verify channel process is alive and well:
+    ?assertEqual([ConnPid], emqx_cm:lookup_channels(ClientId)),
+    ?assert(is_process_alive(ConnPid)),
+    ?assertNotReceive({'DOWN', MRef, process, ConnPid, _}, 0),
+    ok = gen_tcp:close(Socket).
+
+drain_qos1_publishes(Socket, Parser, N, Timeout) ->
+    Deadline = erlang:monotonic_time(millisecond) + Timeout,
+    drain_qos1_publishes(Socket, Parser, [], N, Deadline).
+
+drain_qos1_publishes(Socket, Parser0, Acc, N, Deadline) ->
+    Left = Deadline - erlang:monotonic_time(millisecond),
+    maybe
+        true ?= N > 0,
+        true ?= Left > 0,
+        {ok, Data} ?= gen_tcp:recv(Socket, 0, min(1000, Left)),
+        {Parser, Seen} = parse_incoming_qos1(Socket, Data, Parser0, []),
+        ok = lists:foreach(
+            fun({PacketId, _}) ->
+                case gen_tcp:send(Socket, emqx_frame:serialize(?PUBACK_PACKET(PacketId))) of
+                    ok ->
+                        ok;
+                    {error, closed} ->
+                        ct:fail(slow_client_socket_closed_while_ack_qos1)
+                end
+            end,
+            Seen
+        ),
+        drain_qos1_publishes(Socket, Parser, Seen ++ Acc, N - length(Seen), Deadline)
+    else
+        false ->
+            {Acc, Parser0};
+        {error, timeout} ->
+            drain_qos1_publishes(Socket, Parser0, Acc, Deadline);
+        {error, closed} ->
+            ct:fail(slow_client_socket_closed)
+    end.
+
+parse_incoming_qos1(Socket, Data, Parser0, Acc) ->
+    case emqx_frame:parse(Data, Parser0) of
+        {?PUBLISH_PACKET(?QOS_1, _Topic, PacketId, Payload), Rest, Parser} ->
+            parse_incoming_qos1(Socket, Rest, Parser, [{PacketId, Payload} | Acc]);
+        {?PUBLISH_PACKET(?QOS_0, _Topic, _PacketId, _Payload), Rest, Parser} ->
+            parse_incoming_qos1(Socket, Rest, Parser, Acc);
+        {_Packet, Rest, Parser} ->
+            parse_incoming_qos1(Socket, Rest, Parser, Acc);
+        {_More, Parser} ->
+            {Parser, Acc}
+    end.
 
 t_congestion_send_timeout(init, Config) ->
     override_conf(
