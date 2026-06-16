@@ -460,27 +460,37 @@ t_persistent_sessions5(Config) ->
                 port => Port2, clientid => ClientId4, expiry => 0, clean_start => true
             }),
 
-            P1 = list_request(#{limit => 3, page => 1}, Config),
-            P2 = list_request(#{limit => 3, page => 2}, Config),
-            ?assertMatch(
-                {ok,
-                    {?HTTP200, _, #{
-                        <<"data">> := [_, _, _],
-                        <<"meta">> := #{
-                            <<"count">> := 4
-                        }
-                    }}},
-                P1
-            ),
-            ?assertMatch(
-                {ok,
-                    {?HTTP200, _, #{
-                        <<"data">> := [_],
-                        <<"meta">> := #{
-                            <<"count">> := 4
-                        }
-                    }}},
-                P2
+            %% The cluster-wide client listing is eventually consistent right
+            %% after connecting clients across nodes, so the count can briefly
+            %% include a stale registration. Retry until it settles at 4.
+            {P1, P2} = ?retry(
+                100,
+                30,
+                begin
+                    P1_ = list_request(#{limit => 3, page => 1}, Config),
+                    P2_ = list_request(#{limit => 3, page => 2}, Config),
+                    ?assertMatch(
+                        {ok,
+                            {?HTTP200, _, #{
+                                <<"data">> := [_, _, _],
+                                <<"meta">> := #{
+                                    <<"count">> := 4
+                                }
+                            }}},
+                        P1_
+                    ),
+                    ?assertMatch(
+                        {ok,
+                            {?HTTP200, _, #{
+                                <<"data">> := [_],
+                                <<"meta">> := #{
+                                    <<"count">> := 4
+                                }
+                            }}},
+                        P2_
+                    ),
+                    {P1_, P2_}
+                end
             ),
             {ok, {_, _, #{<<"data">> := R1}}} = P1,
             {ok, {_, _, #{<<"data">> := R2}}} = P2,
@@ -770,9 +780,15 @@ t_kickout_clients(Config) ->
     ?assertReceive({'DOWN', _MRef, process, C1, _}),
     ?assertReceive({'DOWN', _MRef, process, C2, _}),
     ?assertReceive({'DOWN', _MRef, process, C3, _}),
-    ?assertMatch(
-        {ok, {_200, _, #{<<"meta">> := #{<<"count">> := 0}}}},
-        request(get, ClientsPath, Config)
+    %% Client process death and CM deregistration are async, so the listing
+    %% may still report the clients right after the DOWNs; retry until empty.
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            {ok, {_200, _, #{<<"meta">> := #{<<"count">> := 0}}}},
+            request(get, ClientsPath, Config)
+        )
     ).
 
 t_query_clients_with_time(Config) ->
@@ -1463,22 +1479,33 @@ t_subscribe_shared_topic(Config) ->
     ),
 
     %% assert subscription
-    ?assertMatch(
-        [
-            {_, #share{group = <<"group">>, topic = <<"testtopic">>}},
-            {_, <<"t/#">>}
-        ],
-        ets:tab2list(?SUBSCRIPTION)
+    %% The subscribe requests above return as soon as the API call is
+    %% accepted; the subscription tables are populated asynchronously, so
+    %% retry until both subscriptions are registered.
+    ?retry(
+        _Interval = 100,
+        _Attempts = 20,
+        ?assertMatch(
+            [
+                {_, #share{group = <<"group">>, topic = <<"testtopic">>}},
+                {_, <<"t/#">>}
+            ],
+            ets:tab2list(?SUBSCRIPTION)
+        )
     ),
 
-    ?assertMatch(
-        [
-            {{#share{group = <<"group">>, topic = <<"testtopic">>}, _}, #{
-                nl := 0, qos := 1, rh := 1, rap := 0
-            }},
-            {{<<"t/#">>, _}, #{nl := 0, qos := 1, rh := 1, rap := 0}}
-        ],
-        ets:tab2list(?SUBOPTION)
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            [
+                {{#share{group = <<"group">>, topic = <<"testtopic">>}, _}, #{
+                    nl := 0, qos := 1, rh := 1, rap := 0
+                }},
+                {{<<"t/#">>, _}, #{nl := 0, qos := 1, rh := 1, rap := 0}}
+            ],
+            ets:tab2list(?SUBOPTION)
+        )
     ),
     ?assertMatch(
         [{emqx_shared_subscription, <<"group">>, <<"testtopic">>, _}],

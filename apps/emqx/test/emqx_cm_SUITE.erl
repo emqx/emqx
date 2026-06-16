@@ -519,9 +519,24 @@ t_clientid_registration_throttled(_) ->
     ChanInfo = ?ChanInfo,
     #{conninfo := ConnInfo} = ChanInfo,
     ?assertReceive({'DOWN', MRef, process, DeadPid, _}),
-    ok = emqx_cm:register_channel(ClientId, DeadPid, ChanInfo#{conn_mod => emqx_connection}),
-    ?assertEqual({error, client_id_unavailable}, open_session(true, ClientInfo, ConnInfo)),
-    ok = emqx_cm:do_unregister_channel({ClientId, DeadPid}).
+    %% Suspend emqx_cm so the {registered, DeadPid} cast from
+    %% register_channel sits in its mailbox: the monitor is not set up,
+    %% no DOWN fires, the cm-pool cleanup cannot race us, the chan-conn
+    %% row stays, and the throttle has the conditions it is meant to
+    %% detect.
+    ok = sys:suspend(emqx_cm),
+    try
+        ok = emqx_cm:register_channel(
+            ClientId, DeadPid, ChanInfo#{conn_mod => emqx_connection}
+        ),
+        ?assertEqual(
+            {error, client_id_unavailable},
+            open_session(true, ClientInfo, ConnInfo)
+        )
+    after
+        ok = sys:resume(emqx_cm),
+        ok = emqx_cm:do_unregister_channel({ClientId, DeadPid})
+    end.
 
 %% Stale registry rows can survive a partition + autoheal (the unregister
 %% dirty_delete was on the loser side and got thrown away). When a kick or
@@ -579,10 +594,25 @@ t_open_session_throttled_on_inflight_local_cleanup(_) ->
     ChanInfo = ?ChanInfo,
     #{conninfo := ConnInfo} = ChanInfo,
     ?assertReceive({'DOWN', MRef, process, DeadPid, _}),
-    ok = emqx_cm:register_channel(ClientId, DeadPid, ChanInfo#{conn_mod => emqx_connection}),
-    ?assertEqual({error, client_id_unavailable}, open_session(true, ClientInfo, ConnInfo)),
-    %% Idempotent cleanup in case cm pool didn't get there first.
-    ok = emqx_cm:do_unregister_channel({ClientId, DeadPid}).
+    %% Suspend emqx_cm so the {registered, DeadPid} cast from
+    %% register_channel sits in its mailbox: the monitor is not set up,
+    %% no DOWN fires, the cm-pool cleanup cannot race us, the chan-conn
+    %% row stays, and the throttle has the conditions it is meant to
+    %% detect.
+    ok = sys:suspend(emqx_cm),
+    try
+        ok = emqx_cm:register_channel(
+            ClientId, DeadPid, ChanInfo#{conn_mod => emqx_connection}
+        ),
+        ?assertEqual(
+            {error, client_id_unavailable},
+            open_session(true, ClientInfo, ConnInfo)
+        )
+    after
+        ok = sys:resume(emqx_cm),
+        %% Idempotent cleanup in case cm pool didn't get there first.
+        ok = emqx_cm:do_unregister_channel({ClientId, DeadPid})
+    end.
 
 %% A stale local tombstone (registry row pointing at a dead pid that this
 %% node never registered) used to block the same clientid on this node
