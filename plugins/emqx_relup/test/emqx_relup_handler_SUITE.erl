@@ -108,6 +108,38 @@ t_5105_catalog_uses_plugin_eredis_upgrade_module(_Config) ->
         )
     ).
 
+-doc "The 5.10.4 -> 5.10.5 hop also applies SAML XXE and backup download "
+"authorization fixes without extending the Redis stop/start window.".
+t_5105_catalog_covers_saml_xxe_and_backup_download_fixes(_Config) ->
+    {Valid, _Errors} = emqx_relup_handler:validate_priv_catalog(),
+    #{code_changes := CodeChanges} = find_relup_entry("5.10.4", "5.10.5", Valid),
+    LoadRelease = {load_module, emqx_release},
+    StopRedis = {apply, emqx_relup_eredis_upgrade, stop_redis_resources, []},
+    StartRedis = {apply, emqx_relup_eredis_upgrade, start_redis_resources, []},
+    AnnounceBPAPI = {apply, emqx_bpapi, announce, [node(), emqx]},
+    ?assert(is_before(StopRedis, StartRedis, CodeChanges)),
+    lists:foreach(
+        fun(Instruction) ->
+            ?assert(
+                lists:member(Instruction, CodeChanges),
+                #{missing_instruction => Instruction}
+            ),
+            ?assert(
+                is_before(LoadRelease, Instruction, CodeChanges),
+                #{instruction_must_run_after_emqx_release_load => Instruction}
+            )
+        end,
+        [
+            {restart_application, esaml},
+            {load_module, emqx_dashboard},
+            {load_module, emqx_mgmt_data_backup},
+            {load_module, emqx_mgmt_data_backup_proto_v2},
+            {load_module, emqx_mgmt_api_data_backup},
+            AnnounceBPAPI
+        ]
+    ),
+    ?assert(is_before({load_module, emqx_mgmt_data_backup_proto_v2}, AnnounceBPAPI, CodeChanges)).
+
 %%==============================================================================
 %% Helpers
 %%==============================================================================
@@ -134,6 +166,19 @@ find_relup_entry(FromVsn, TargetVsn, Entries) ->
         Entries
     ),
     Entry.
+
+is_before(Earlier, Later, List) ->
+    index_of(Earlier, List) < index_of(Later, List).
+
+index_of(Item, List) ->
+    index_of(Item, List, 1).
+
+index_of(Item, [Item | _], Index) ->
+    Index;
+index_of(Item, [_ | Rest], Index) ->
+    index_of(Item, Rest, Index + 1);
+index_of(Item, [], _Index) ->
+    error({not_found, Item}).
 
 cleanup_test_catalog_entries() ->
     Dir = filename:join([code:priv_dir(emqx_relup), "relup"]),

@@ -3,6 +3,12 @@
     target_version => "5.10.5",
     code_changes => [
         {load_module, emqx_release},
+        {restart_application, esaml},
+        {load_module, emqx_dashboard},
+        {load_module, emqx_mgmt_data_backup},
+        {load_module, emqx_mgmt_data_backup_proto_v2},
+        {load_module, emqx_mgmt_api_data_backup},
+        {apply, emqx_bpapi, announce, [node(), emqx]},
         {apply, emqx_relup_eredis_upgrade, stop_redis_resources, []},
         {restart_application, eredis},
         {load_module, emqx_redis},
