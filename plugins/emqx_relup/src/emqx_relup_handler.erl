@@ -30,6 +30,10 @@ list_supported_paths() ->
 
 check_and_unpack(CurrVsn, RootDir, #{tarball := TarFile} = Opts) ->
     try
+        ok = assert_patches_dir_clean(
+            filename:join([emqx:data_dir(), "patches"]),
+            maps:get(force, Opts, false)
+        ),
         {ok, UnpackDir} = unpack_release(TarFile),
         TargetVsn = read_rel_vsn(UnpackDir),
         ok = assert_no_duplicate_pending(RootDir, TargetVsn),
@@ -121,6 +125,37 @@ assert_not_same_vsn(TargetVsn, TargetVsn) ->
     throw(make_error(already_upgraded_to_target_vsn, #{vsn => TargetVsn}));
 assert_not_same_vsn(_CurrVsn, _TargetVsn) ->
     ok.
+
+-doc """
+`data/patches/` is prepended to the code path at boot (`vm.args -pa`),
+so any `.beam` left there will shadow modules loaded from the upgrade
+target. If the operator forgot to clear out a hot-patch that the new
+release already supersedes, the upgrade would silently keep running the
+stale beam. Refuse by default; `--force` is the override for operators
+who deliberately want the patches to stay on top of the new release.
+""".
+assert_patches_dir_clean(_PatchesDir, true) ->
+    ok;
+assert_patches_dir_clean(PatchesDir, false) ->
+    case filelib:wildcard(filename:join(PatchesDir, "*.beam")) of
+        [] ->
+            ok;
+        Files ->
+            throw(
+                make_error(patches_dir_not_empty, #{
+                    dir => bin(PatchesDir),
+                    files => [bin(filename:basename(F)) || F <- Files],
+                    hint =>
+                        <<
+                            "hot-patch beam files in this dir will shadow modules "
+                            "from the upgrade target. Delete them if the target "
+                            "already contains those fixes; re-run with --force if "
+                            "you intend the patches to remain applied on top of "
+                            "the target."
+                        >>
+                })
+            )
+    end.
 
 check_write_permission(RootDir) ->
     SubDirs = ["relup"],
