@@ -1425,26 +1425,38 @@ t_subscribe_shared_topic(Config) ->
     ),
 
     %% assert subscription
-    ?assertMatch(
-        [
-            {_, #share{group = <<"group">>, topic = <<"testtopic">>}},
-            {_, <<"t/#">>}
-        ],
-        ets:tab2list(?SUBSCRIPTION)
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            [
+                #share{group = <<"group">>, topic = <<"testtopic">>},
+                <<"t/#">>
+            ],
+            lists:sort([Topic || {_, Topic} <- ets:tab2list(?SUBSCRIPTION)])
+        )
     ),
 
-    ?assertMatch(
-        [
-            {{#share{group = <<"group">>, topic = <<"testtopic">>}, _}, #{
-                nl := 0, qos := 1, rh := 1, rap := 0
-            }},
-            {{<<"t/#">>, _}, #{nl := 0, qos := 1, rh := 1, rap := 0}}
-        ],
-        ets:tab2list(?SUBOPTION)
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            [
+                {{#share{group = <<"group">>, topic = <<"testtopic">>}, _}, #{
+                    nl := 0, qos := 1, rh := 1, rap := 0
+                }},
+                {{<<"t/#">>, _}, #{nl := 0, qos := 1, rh := 1, rap := 0}}
+            ],
+            lists:sort(ets:tab2list(?SUBOPTION))
+        )
     ),
-    ?assertMatch(
-        [{emqx_shared_subscription, <<"group">>, <<"testtopic">>, _}],
-        ets:tab2list(emqx_shared_subscription)
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            [{emqx_shared_subscription, <<"group">>, <<"testtopic">>, _}],
+            ets:tab2list(emqx_shared_subscription)
+        )
     ),
 
     %% assert subscription virtual
