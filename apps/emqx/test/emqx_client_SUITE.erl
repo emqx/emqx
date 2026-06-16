@@ -114,18 +114,9 @@ end_per_suite(_Config) ->
 init_per_group(gen_tcp_listener, Config) ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx,
-                %% t_congestion_send_timeout
-                "listeners.tcp.default.tcp_backend = gen_tcp\n"
-                "listeners.tcp.default.tcp_options.send_timeout = 2500\n"
-                "listeners.tcp.default.tcp_options.sndbuf = 4KB\n"
-                "listeners.tcp.default.tcp_options.recbuf = 4KB\n"
-                "listeners.tcp.default.tcp_options.high_watermark = 160KB\n"
-                %% t_congestion_decongested
-                "conn_congestion.enable_alarm = true\n"
-                "conn_congestion.min_alarm_sustain_duration = 0\n"
-                %% others
-                "listeners.ssl.default.ssl_options.verify = verify_peer\n"}
+            {emqx, emqx_config() ++ "\n" ++ """
+                listeners.tcp.default.tcp_backend = gen_tcp
+            """}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -133,17 +124,9 @@ init_per_group(gen_tcp_listener, Config) ->
 init_per_group(socket_listener, Config) ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx,
-                %% t_congestion_send_timeout
-                "listeners.tcp.default.tcp_backend = socket\n"
-                "listeners.tcp.default.tcp_options.send_timeout = 2500\n"
-                "listeners.tcp.default.tcp_options.sndbuf = 4KB\n"
-                "listeners.tcp.default.tcp_options.recbuf = 4KB\n"
-                %% t_congestion_decongested
-                "conn_congestion.enable_alarm = true\n"
-                "conn_congestion.min_alarm_sustain_duration = 0\n"
-                %% others
-                "listeners.ssl.default.ssl_options.verify = verify_peer\n"}
+            {emqx, emqx_config() ++ "\n" ++ """
+                listeners.tcp.default.tcp_backend = socket
+            """}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -157,35 +140,54 @@ init_per_group(mqttv5, Config) ->
 init_per_group(_GroupName, Config) ->
     Config.
 
-end_per_group(gen_tcp_listener, Config) ->
-    emqx_cth_suite:stop(?config(group_apps, Config));
-end_per_group(socket_listener, Config) ->
+emqx_config() ->
+    """
+    listeners.tcp.default {
+        tcp_options { send_timeout = 2500
+                      sndbuf = 4KB
+                      recbuf = 4KB
+                      buffer = 4KB
+                      high_watermark = 160KB
+                      send_timeout_close = true
+                    }
+    }
+    listeners.ssl.default {
+        tcp_options { send_timeout = 2500
+                      sndbuf = 4KB
+                      recbuf = 4KB
+                      buffer = 4KB
+                      high_watermark = 160KB
+                      send_timeout_close = true
+                    }
+        ssl_options { verify = verify_peer }
+    }
+    """.
+
+end_per_group(GroupName, Config) when
+    GroupName == gen_tcp_listener;
+    GroupName == socket_listener
+->
     emqx_cth_suite:stop(?config(group_apps, Config));
 end_per_group(_GroupName, _Config) ->
     ok.
 
-init_per_testcase(_Case, Config) ->
+init_per_testcase(Case, Config) ->
     ok = snabbkaffe:start_trace(),
-    Config.
+    emqx_common_test_helpers:init_per_testcase(?MODULE, Case, Config).
 
-end_per_testcase(_Case, _Config) ->
+end_per_testcase(_Case, Config) ->
     ok = snabbkaffe:stop(),
-    %% restore default values
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000),
-    emqx_config:put_zone_conf(default, [mqtt, use_username_as_clientid], false),
-    emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], disabled),
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
-    emqx_config:put_zone_conf(default, [mqtt, clientid_override], disabled),
-    emqx_config:put_zone_conf(default, [mqtt, namespace_as_mountpoint], false),
-    emqx_config:put_listener_conf(tcp, default, [tcp_options, keepalive], "none"),
-    ok.
+    restore_conf(Config),
+    restore_listener_conf(Config).
 
 %%--------------------------------------------------------------------
 %% Test cases for MQTT v4
 %%--------------------------------------------------------------------
 
+t_cm(init, Config) ->
+    override_conf([mqtt, idle_timeout], 1000, Config).
+
 t_cm(_) ->
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 1000),
     ClientId = atom_to_binary(?FUNCTION_NAME),
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
@@ -202,8 +204,10 @@ t_cm(_) ->
     ),
     ok.
 
+t_idle_timeout_infinity(init, Config) ->
+    override_conf([mqtt, idle_timeout], infinity, Config).
+
 t_idle_timeout_infinity(_) ->
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], infinity),
     ClientId = atom_to_binary(?FUNCTION_NAME),
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
@@ -401,8 +405,10 @@ t_basic(Opts) ->
     ?assertEqual(3, length(recv_msgs(3))),
     ok = emqtt:disconnect(C).
 
+t_username_as_clientid(init, Config) ->
+    override_conf([mqtt, use_username_as_clientid], true, Config).
+
 t_username_as_clientid(_) ->
-    emqx_config:put_zone_conf(default, [mqtt, use_username_as_clientid], true),
     Username = <<"usera">>,
     {ok, C} = emqtt:start_link([{username, Username}]),
     {ok, _} = emqtt:connect(C),
@@ -417,11 +423,20 @@ t_username_as_clientid(_) ->
     end,
     emqtt:disconnect(C).
 
+t_certcn_as_alias(init, Config) ->
+    save_conf([mqtt, client_attrs_init], Config).
+
 t_certcn_as_alias(_) ->
     test_cert_extraction_as_alias(cn).
 
+t_certdn_as_alias(init, Config) ->
+    save_conf([mqtt, client_attrs_init], Config).
+
 t_certdn_as_alias(_) ->
     test_cert_extraction_as_alias(dn).
+
+t_cert_common_name_as_alias(init, Config) ->
+    save_conf([mqtt, client_attrs_init], Config).
 
 t_cert_common_name_as_alias(_) ->
     test_cert_extraction_as_alias(cert_common_name).
@@ -450,6 +465,9 @@ test_cert_extraction_as_alias(Which) ->
         emqx_cm:get_chan_info(ClientId)
     ),
     emqtt:disconnect(Client).
+
+t_client_attr_from_user_property(init, Config) ->
+    save_conf([mqtt, client_attrs_init], Config).
 
 t_client_attr_from_user_property(_Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
@@ -481,6 +499,9 @@ t_client_attr_from_user_property(_Config) ->
     ),
     emqtt:disconnect(Client).
 
+t_client_attr_from_password(init, Config) ->
+    save_conf([mqtt, client_attrs_init], Config).
+
 t_client_attr_from_password(_Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     Password = <<"secret-password">>,
@@ -505,6 +526,9 @@ t_client_attr_from_password(_Config) ->
     ClientInfo = maps:get(clientinfo, ChanInfo),
     ?assertNot(maps:is_key(password, ClientInfo)),
     emqtt:disconnect(Client).
+
+t_sock_keepalive(init, Config) ->
+    save_listener_conf(tcp, default, [tcp_options, keepalive], Config).
 
 t_sock_keepalive(Config) ->
     %% Configure TCP Keepalive:
@@ -640,44 +664,53 @@ t_sock_closed_force_closed_by_client(Config) ->
         end
     ).
 
+t_clientid_override(init, Config) ->
+    Override = <<"username">>,
+    {ok, Rule} = emqx_variform:compile(Override),
+    override_conf([mqtt, clientid_override], Rule, Config).
+
 t_clientid_override(_) ->
     ClientId = <<"original-clientid-0">>,
     Username = <<"username1">>,
-    Override = <<"username">>,
-    {ok, Rule1} = emqx_variform:compile(Override),
-    emqx_config:put_zone_conf(default, [mqtt, clientid_override], Rule1),
     {ok, Client} = emqtt:start_link([{clientid, ClientId}, {port, 1883}, {username, Username}]),
     {ok, _} = emqtt:connect(Client),
     ?assertMatch(#{clientid := Username}, maps:get(clientinfo, emqx_cm:get_chan_info(Username))),
     ?assertMatch(undefined, emqx_cm:get_chan_info(ClientId)),
     emqtt:disconnect(Client).
 
+t_clientid_override_fail_with_empty_render_result(init, Config) ->
+    {ok, Rule} = emqx_variform:compile(<<"undefined_var">>),
+    override_conf([mqtt, clientid_override], Rule, Config).
+
 t_clientid_override_fail_with_empty_render_result(_) ->
-    test_clientid_override_fail(<<"original-clientid-1">>, <<"undefined_var">>).
+    test_clientid_override_fail(<<"original-clientid-1">>).
+
+t_clientid_override_fail_with_expression_exception(init, Config) ->
+    {ok, Rule} = emqx_variform:compile(<<"nth(1,undefined_var)">>),
+    override_conf([mqtt, clientid_override], Rule, Config).
 
 t_clientid_override_fail_with_expression_exception(_) ->
-    test_clientid_override_fail(<<"original-clientid-2">>, <<"nth(1,undefined_var)">>).
+    test_clientid_override_fail(<<"original-clientid-2">>).
 
-test_clientid_override_fail(ClientId, Expr) ->
-    {ok, Rule1} = emqx_variform:compile(Expr),
-    emqx_config:put_zone_conf(default, [mqtt, clientid_override], Rule1),
+test_clientid_override_fail(ClientId) ->
     {ok, Client} = emqtt:start_link([{clientid, ClientId}, {port, 1883}]),
     {ok, _} = emqtt:connect(Client),
     ?assertMatch(#{clientid := ClientId}, maps:get(clientinfo, emqx_cm:get_chan_info(ClientId))),
     emqtt:disconnect(Client).
 
+t_namespace_as_mountpoint_enabled(init, Config) ->
+    %% Set tns attribute from user property
+    override_conf(
+        #{
+            [mqtt, client_attrs_init] => [mk_client_attrs_init_tns("user_property.namespace")],
+            [mqtt, namespace_as_mountpoint] => true
+        },
+        Config
+    ).
+
 t_namespace_as_mountpoint_enabled(_) ->
     Namespace = <<"n1">>,
     ClientId = <<"test-client-1">>,
-    %% Set tns attribute from user property
-    {ok, Compiled} = emqx_variform:compile("user_property.namespace"),
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
-        #{
-            expression => Compiled,
-            set_as_attr => <<"tns">>
-        }
-    ]),
-    emqx_config:put_zone_conf(default, [mqtt, namespace_as_mountpoint], true),
     {ok, Client} = emqtt:start_link([
         {clientid, ClientId},
         {port, 1883},
@@ -692,18 +725,19 @@ t_namespace_as_mountpoint_enabled(_) ->
     ),
     emqtt:disconnect(Client).
 
+t_namespace_as_mountpoint_disabled(init, Config) ->
+    %% Set tns attribute from user property
+    override_conf(
+        #{
+            [mqtt, client_attrs_init] => [mk_client_attrs_init_tns("user_property.namespace")],
+            [mqtt, namespace_as_mountpoint] => false
+        },
+        Config
+    ).
+
 t_namespace_as_mountpoint_disabled(_) ->
     Namespace = <<"n1">>,
     ClientId = <<"test-client-2">>,
-    %% Set tns attribute from user property
-    {ok, Compiled} = emqx_variform:compile("user_property.namespace"),
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
-        #{
-            expression => Compiled,
-            set_as_attr => <<"tns">>
-        }
-    ]),
-    emqx_config:put_zone_conf(default, [mqtt, namespace_as_mountpoint], false),
     {ok, Client} = emqtt:start_link([
         {clientid, ClientId},
         {port, 1883},
@@ -717,11 +751,18 @@ t_namespace_as_mountpoint_disabled(_) ->
     ),
     emqtt:disconnect(Client).
 
+t_namespace_as_mountpoint_no_tns(init, Config) ->
+    %% Don't set tns attribute
+    override_conf(
+        #{
+            [mqtt, client_attrs_init] => [],
+            [mqtt, namespace_as_mountpoint] => true
+        },
+        Config
+    ).
+
 t_namespace_as_mountpoint_no_tns(_) ->
     ClientId = <<"test-client-3">>,
-    %% Don't set tns attribute
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
-    emqx_config:put_zone_conf(default, [mqtt, namespace_as_mountpoint], true),
     {ok, Client} = emqtt:start_link([
         {clientid, ClientId},
         {port, 1883}
@@ -733,17 +774,35 @@ t_namespace_as_mountpoint_no_tns(_) ->
     ),
     emqtt:disconnect(Client).
 
+mk_client_attrs_init_tns(Expr) ->
+    {ok, Compiled} = emqx_variform:compile(Expr),
+    #{
+        expression => Compiled,
+        set_as_attr => <<"tns">>
+    }.
+
+t_certcn_as_clientid_default_config_tls(init, Config) ->
+    override_conf([mqtt, peer_cert_as_clientid], cn, Config).
+
 t_certcn_as_clientid_default_config_tls(_) ->
     tls_certcn_as_clientid(default).
+
+t_certcn_as_clientid_tlsv1_3(init, Config) ->
+    override_conf([mqtt, peer_cert_as_clientid], cn, Config).
 
 t_certcn_as_clientid_tlsv1_3(_) ->
     tls_certcn_as_clientid('tlsv1.3').
 
+t_certcn_as_clientid_tlsv1_2(init, Config) ->
+    override_conf([mqtt, peer_cert_as_clientid], cn, Config).
+
 t_certcn_as_clientid_tlsv1_2(_) ->
     tls_certcn_as_clientid('tlsv1.2').
 
+t_peercert_preserved_before_connected(init, Config) ->
+    override_conf([mqtt, peer_cert_as_clientid], false, Config).
+
 t_peercert_preserved_before_connected(_) ->
-    ok = emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], false),
     ok = emqx_hooks:add(
         'client.connect',
         {?MODULE, on_hook, ['client.connect', self()]},
@@ -1008,8 +1067,17 @@ t_sub_non_utf8_topic(_) ->
     ?assert(is_integer(TopicInvalidCount) andalso TopicInvalidCount > 0),
     ok.
 
+t_congestion_send_timeout(init, Config) ->
+    override_conf(
+        #{
+            [conn_congestion, enable_alarm] => true,
+            [conn_congestion, min_alarm_sustain_duration] => 0,
+            [mqtt, idle_timeout] => 1000
+        },
+        Config
+    ).
+
 t_congestion_send_timeout(_) ->
-    ok = emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 1000),
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, false}, binary]),
     %% Send manually constructed CONNECT:
     ok = gen_tcp:send(
@@ -1067,8 +1135,17 @@ t_congestion_send_timeout(_) ->
     ?assertReceive({'DOWN', MRef, process, ConnPid, {shutdown, send_timeout}}, 5_000),
     ok = gen_tcp:close(Socket).
 
+t_congestion_decongested(init, Config) ->
+    override_conf(
+        #{
+            [conn_congestion, enable_alarm] => true,
+            [conn_congestion, min_alarm_sustain_duration] => 0,
+            [mqtt, idle_timeout] => 1000
+        },
+        Config
+    ).
+
 t_congestion_decongested(_) ->
-    ok = emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 1000),
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, false}, binary]),
     %% Send manually constructed CONNECT:
     ok = gen_tcp:send(
@@ -1178,6 +1255,34 @@ recv_msgs(Count, Msgs) ->
         Msgs
     end.
 
+override_conf(KVs, Config) ->
+    maps:fold(fun(KeyPath, X, Acc) -> override_conf(KeyPath, X, Acc) end, Config, KVs).
+
+override_conf(KeyPath, X, Config0) ->
+    Config = save_conf(KeyPath, Config0),
+    emqx_config:put(KeyPath, X),
+    Config.
+
+save_conf(KeyPath, Config) ->
+    X = emqx_config:get(KeyPath),
+    [{conf_saved, {KeyPath, X}} | Config].
+
+restore_conf(Config) ->
+    [
+        emqx_config:put(KeyPath, X)
+     || {conf_saved, {KeyPath, X}} <- Config
+    ].
+
+save_listener_conf(Type, Name, KeyPath, Config) ->
+    LConf = emqx_config:get_listener_conf(Type, Name, KeyPath),
+    [{listener_conf_saved, {Type, Name, KeyPath, LConf}} | Config].
+
+restore_listener_conf(Config) ->
+    [
+        ok = emqx_config:put_listener_conf(Type, Name, KeyPath, LConf)
+     || {listener_conf_saved, {Type, Name, KeyPath, LConf}} <- Config
+    ].
+
 confirm_tls_version(Client, RequiredProtocol) ->
     Info = emqtt:info(Client),
     SocketInfo = proplists:get_value(socket, Info),
@@ -1194,7 +1299,6 @@ tls_certcn_as_clientid(TLSVsn) ->
 
 tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
     CN = <<"Client">>,
-    emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], cn),
     SslConf = emqx_common_test_helpers:client_mtls(TLSVsn),
     {ok, Client} = emqtt:start_link([{port, 8883}, {ssl, true}, {ssl_opts, SslConf}]),
     {ok, _} = emqtt:connect(Client),
