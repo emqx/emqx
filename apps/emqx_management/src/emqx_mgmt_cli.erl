@@ -15,6 +15,7 @@
 
 -define(DATA_BACKUP_OPTS, #{print_fun => fun emqx_ctl:print/2}).
 -define(EXCLUSIVE_TAB, emqx_exclusive_subscription).
+-define(LOG_UPDATE_OPTS, #{rawconf_with_defaults => true, override_to => cluster}).
 
 -export([load/0]).
 
@@ -633,6 +634,36 @@ log(["primary-level", Level]) ->
             emqx_ctl:print("[error] invalid level: ~p~n", [Level])
     end,
     emqx_ctl:print("~ts~n", [emqx_logger:get_primary_log_level()]);
+log(["outputs", "list"]) ->
+    LogConf = emqx_conf:get_raw([log], #{}),
+    lists:foreach(fun print_log_output/1, log_outputs(LogConf)),
+    ok;
+log(["outputs", "set-level", Name, Level]) ->
+    case emqx_utils:safe_to_existing_atom(Level) of
+        {ok, _} ->
+            case log_output_path(Name, <<"level">>, emqx_conf:get_raw([log], #{})) of
+                {ok, Path, OutputName} ->
+                    update_log_output_level(Path, unicode:characters_to_binary(Level), OutputName);
+                {error, Reason} ->
+                    emqx_ctl:print("[error] ~ts~n", [Reason])
+            end;
+        _ ->
+            emqx_ctl:print("[error] invalid level: ~p~n", [Level])
+    end;
+log(["outputs", "enable", Name]) ->
+    case log_output_path(Name, <<"enable">>, emqx_conf:get_raw([log], #{})) of
+        {ok, Path, OutputName} ->
+            update_log_output(Path, true, OutputName);
+        {error, Reason} ->
+            emqx_ctl:print("[error] ~ts~n", [Reason])
+    end;
+log(["outputs", "disable", Name]) ->
+    case log_output_path(Name, <<"enable">>, emqx_conf:get_raw([log], #{})) of
+        {ok, Path, OutputName} ->
+            update_log_output(Path, false, OutputName);
+        {error, Reason} ->
+            emqx_ctl:print("[error] ~ts~n", [Reason])
+    end;
 log(["handlers", "list"]) ->
     _ = [
         emqx_ctl:print(
@@ -699,12 +730,112 @@ log(_) ->
             {"log set-level <Level>", "Set the overall log level"},
             {"log primary-level", "Show the primary log level now"},
             {"log primary-level <Level>", "Set the primary log level"},
-            {"log handlers list", "Show log handlers"},
-            {"log handlers start <HandlerId>", "Start a log handler"},
-            {"log handlers stop  <HandlerId>", "Stop a log handler"},
-            {"log handlers set-level <HandlerId> <Level>", "Set log level of a log handler"}
+            {"log outputs list", "Show configured log outputs"},
+            {"log outputs enable <name>", "Enable console, file, or a file handler name"},
+            {"log outputs disable <name>", "Disable console, file, or a file handler name"},
+            {"log outputs set-level <name> <Level>",
+                "Set log level for console, file, or a file handler name"}
         ]
     ).
+
+log_outputs(LogConf) ->
+    Console = maps:get(<<"console">>, LogConf, #{}),
+    Files = maps:get(<<"file">>, LogConf, #{}),
+    [
+        #{
+            name => <<"console">>,
+            level => maps:get(<<"level">>, Console, undefined),
+            destination => <<"console">>,
+            status => output_status(Console)
+        }
+        | [
+            #{
+                name => log_file_output_name(Name),
+                level => maps:get(<<"level">>, FileConf, undefined),
+                destination => maps:get(<<"path">>, FileConf, <<>>),
+                status => output_status(FileConf)
+            }
+         || {Name, FileConf} <- lists:sort(maps:to_list(Files))
+        ]
+    ].
+
+log_file_output_name(<<"default">>) ->
+    <<"file">>;
+log_file_output_name(Name) ->
+    Name.
+
+output_status(#{<<"enable">> := true}) ->
+    <<"enabled">>;
+output_status(_) ->
+    <<"disabled">>.
+
+print_log_output(#{
+    name := Name,
+    level := Level,
+    destination := Destination,
+    status := Status
+}) ->
+    emqx_ctl:print(
+        "LogOutput(name=~ts, level=~ts, destination=~ts, status=~ts)~n",
+        [Name, fmt_cli(Level), fmt_cli(Destination), Status]
+    ).
+
+log_output_path("console", Field, _LogConf) ->
+    {ok, [<<"console">>, Field], <<"console">>};
+log_output_path("file", Field, _LogConf) ->
+    {ok, [<<"file">>, <<"default">>, Field], <<"file">>};
+log_output_path("default", Field, _LogConf) ->
+    {ok, [<<"file">>, <<"default">>, Field], <<"file">>};
+log_output_path(Name, Field, LogConf) ->
+    NameBin = unicode:characters_to_binary(Name),
+    Files = maps:get(<<"file">>, LogConf, #{}),
+    case maps:is_key(NameBin, Files) of
+        true ->
+            {ok, [<<"file">>, NameBin, Field], NameBin};
+        false ->
+            {error, iolist_to_binary(io_lib:format("unknown log output: ~ts", [Name]))}
+    end.
+
+update_log_output(Path, Enable, OutputName) ->
+    LogConf0 = emqx_conf:get_raw([log], #{}),
+    LogConf = emqx_utils_maps:deep_put(Path, LogConf0, Enable),
+    case emqx_conf:update([log], LogConf, ?LOG_UPDATE_OPTS) of
+        {ok, _} ->
+            emqx_ctl:print("log output ~ts ~ts~n", [
+                OutputName,
+                case Enable of
+                    true -> <<"enabled">>;
+                    false -> <<"disabled">>
+                end
+            ]),
+            ok;
+        {error, Reason} = Error ->
+            emqx_ctl:print("[error] failed to update log output ~ts: ~0p~n", [OutputName, Reason]),
+            Error
+    end.
+
+update_log_output_level(Path, Level, OutputName) ->
+    LogConf0 = emqx_conf:get_raw([log], #{}),
+    LogConf = emqx_utils_maps:deep_put(Path, LogConf0, Level),
+    case emqx_conf:update([log], LogConf, ?LOG_UPDATE_OPTS) of
+        {ok, _} ->
+            emqx_ctl:print("log output ~ts level set to ~ts~n", [OutputName, Level]),
+            ok;
+        {error, Reason} = Error ->
+            emqx_ctl:print("[error] failed to update log output ~ts level: ~0p~n", [
+                OutputName, Reason
+            ]),
+            Error
+    end.
+
+fmt_cli(undefined) ->
+    <<"">>;
+fmt_cli(Value) when is_binary(Value) ->
+    Value;
+fmt_cli(Value) when is_atom(Value) ->
+    atom_to_binary(Value, utf8);
+fmt_cli(Value) ->
+    iolist_to_binary(io_lib:format("~0p", [Value])).
 
 %%--------------------------------------------------------------------
 %% @doc Trace Command
