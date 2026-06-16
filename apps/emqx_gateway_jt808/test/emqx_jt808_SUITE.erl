@@ -31,12 +31,16 @@
 -define(PROTO_REG_REGISTRY_PATH, "/jt808/registry").
 
 -define(JT808_PHONE, "000123456789").
+-define(JT808_VICTIM_PHONE, "000123456790").
+-define(JT808_VICTIM_PHONE_BCD, <<16#00, 16#01, 16#23, 16#45, 16#67, 16#90>>).
 %% <<"jt808/000123456789/">>
 -define(JT808_MOUNTPOINT, "jt808/" ?JT808_PHONE "/").
 %% <<"jt808/000123456789/000123456789/up">>
 -define(JT808_UP_TOPIC, <<?JT808_MOUNTPOINT, ?JT808_PHONE, "/up">>).
 %% <<"jt808/000123456789/000123456789/dn">>
 -define(JT808_DN_TOPIC, <<?JT808_MOUNTPOINT, ?JT808_PHONE, "/dn">>).
+%% <<"jt808/000123456790/000123456790/dn">>
+-define(JT808_VICTIM_DN_TOPIC, <<"jt808/" ?JT808_VICTIM_PHONE "/" ?JT808_VICTIM_PHONE "/dn">>).
 
 %% erlfmt-ignore
 -define(CONF_DEFAULT, <<"
@@ -131,7 +135,10 @@ end_per_suite(_Config) ->
 init_per_testcase(Case = t_case_invalid_auth_reg_server, Config) ->
     Apps = boot_apps(Case, ?CONF_INVALID_AUTH_SERVER, Config),
     [{suite_apps, Apps} | Config];
-init_per_testcase(Case = t_case02_anonymous_register_and_auth, Config) ->
+init_per_testcase(Case, Config) when
+    Case =:= t_case02_anonymous_register_and_auth;
+    Case =:= t_jt808_reject_anonymous_auth_with_unregistered_phone
+->
     Apps = boot_apps(Case, ?CONF_ANONYMOUS, Config),
     [{suite_apps, Apps} | Config];
 init_per_testcase(Case, Config) when
@@ -226,6 +233,9 @@ client_regi_procedure(Socket) ->
     client_regi_procedure(Socket, <<"123456">>).
 
 client_regi_procedure(Socket, ExpectedAuthCode) ->
+    client_regi_procedure(Socket, ExpectedAuthCode, <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>).
+
+client_regi_procedure(Socket, ExpectedAuthCode, PhoneBCD) ->
     %
     % send REGISTER
     %
@@ -238,7 +248,6 @@ client_regi_procedure(Socket, ExpectedAuthCode) ->
     RegisterPacket =
         <<58:?WORD, 59:?WORD, Manuf/binary, Model/binary, DevId/binary, Color, Plate/binary>>,
     MsgId = ?MC_REGISTER,
-    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
     MsgSn = 78,
     Size = size(RegisterPacket),
     Header =
@@ -261,6 +270,37 @@ client_regi_procedure(Socket, ExpectedAuthCode) ->
     ?LOGT("Packet=~p", [binary_to_hex_string(Packet)]),
     ?assertEqual(S2, Packet),
     {ok, ExpectedAuthCode}.
+
+client_register_expect_result(Socket, PhoneBCD, ExpectedResult) ->
+    ?LOGT("start register procedure expecting result ~p", [ExpectedResult]),
+    Manuf = <<"examp">>,
+    Model = <<"33333333333333333", 0, 0, 0>>,
+    DevId = <<"123456", 0>>,
+    Color = 3,
+    Plate = <<"ujvl239">>,
+    RegisterPacket =
+        <<58:?WORD, 59:?WORD, Manuf/binary, Model/binary, DevId/binary, Color, Plate/binary>>,
+    MsgId = ?MC_REGISTER,
+    MsgSn = 78,
+    Size = size(RegisterPacket),
+    Header =
+        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?WORD>>,
+
+    ok = gen_tcp:send(Socket, gen_packet(Header, RegisterPacket)),
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 500),
+    assert_register_result(Packet, PhoneBCD, ExpectedResult).
+
+assert_register_result(Packet, ExpectedPhoneBCD, ExpectedResult) ->
+    <<16#7E, Inner/binary>> = Packet,
+    InnerSize = byte_size(Inner) - 1,
+    <<Escaped:InnerSize/binary, 16#7E>> = Inner,
+    Unescaped = unescape_packet(Escaped),
+    <<?MS_REGISTER_ACK:?WORD, _Attrs:?WORD, Phone:6/binary, _RespMsgSn:?WORD, _Seq:?WORD, Result:8,
+        _Crc:8>> = Unescaped,
+    ?assertEqual(ExpectedPhoneBCD, Phone),
+    ?assertEqual(ExpectedResult, Result),
+    ok.
 
 client_auth_procedure(Socket, AuthCode) ->
     ?LOGT("start auth procedure", []),
@@ -294,6 +334,39 @@ client_auth_procedure(Socket, AuthCode) ->
     ?assert(lists:member(?JT808_DN_TOPIC, emqx:topics())),
 
     ?LOGT("============= auth procedure success ===============", []).
+
+client_auth_expect_result(Socket, AuthCode, PhoneBCD, ExpectedResult) ->
+    ?LOGT("start auth procedure expecting result ~p", [ExpectedResult]),
+    MsgId = ?MC_AUTH,
+    MsgSn = 78,
+    Size = size(AuthCode),
+    Header =
+        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?WORD>>,
+    S1 = gen_packet(Header, AuthCode),
+
+    ok = gen_tcp:send(Socket, S1),
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 500),
+    assert_auth_result(Packet, ExpectedResult).
+
+assert_auth_result(Packet, ExpectedResult) ->
+    <<16#7E, Inner/binary>> = Packet,
+    InnerSize = byte_size(Inner) - 1,
+    <<Escaped:InnerSize/binary, 16#7E>> = Inner,
+    Unescaped = unescape_packet(Escaped),
+    <<?MS_GENERAL_RESPONSE:?WORD, _Attrs:?WORD, _Phone:6/binary, _RespMsgSn:?WORD, _Seq:?WORD,
+        ?MC_AUTH:?WORD, Result:8, _Crc:8>> = Unescaped,
+    ?assertEqual(ExpectedResult, Result),
+    ok.
+
+send_event_report(Socket, PhoneBCD, EventReportId, MsgSn) ->
+    MsgBody = <<EventReportId>>,
+    MsgId = ?MC_EVENT_REPORT,
+    Size = size(MsgBody),
+    Header =
+        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?WORD>>,
+    ok = gen_tcp:send(Socket, gen_packet(Header, MsgBody)).
 
 client_send_general_response(Socket, MsgId3, MsgSn3, PhoneBCD) ->
     GenAckPacket4 = <<MsgSn3:?WORD, MsgId3:?WORD, 0>>,
@@ -478,6 +551,59 @@ t_case02_anonymous_register_and_auth(_) ->
     ?assertEqual(AuthCode, DefaultAuthCode),
 
     ok = client_auth_procedure(Socket, AuthCode),
+
+    ok = gen_tcp:close(Socket).
+
+t_jt808_reject_auth_with_unregistered_phone(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_expect_result(Socket, AuthCode, ?JT808_VICTIM_PHONE_BCD, 1),
+    ?assertNot(lists:member(?JT808_VICTIM_DN_TOPIC, emqx:topics())),
+
+    ok = gen_tcp:close(Socket).
+
+t_jt808_reject_anonymous_auth_with_unregistered_phone(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+
+    DefaultAuthCode = <<"anonymous">>,
+    {ok, AuthCode} = client_regi_procedure(Socket, DefaultAuthCode),
+    ok = client_auth_expect_result(Socket, AuthCode, ?JT808_VICTIM_PHONE_BCD, 1),
+    ?assertNot(lists:member(?JT808_VICTIM_DN_TOPIC, emqx:topics())),
+
+    ok = gen_tcp:close(Socket).
+
+t_jt808_reject_connected_frame_with_other_phone(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
+    ok = send_event_report(Socket, ?JT808_VICTIM_PHONE_BCD, 98, 79),
+    {error, timeout} = gen_tcp:recv(Socket, 0, 500),
+    {error, timeout} = receive_msg(),
+
+    ok = gen_tcp:close(Socket).
+
+t_jt808_register_ack_uses_register_phone_after_failed_auth(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_expect_result(Socket, AuthCode, ?JT808_VICTIM_PHONE_BCD, 1),
+    emqx_jt808_auth_http_test_server:set_handler(
+        fun(Req0 = #{method := <<"POST">>, path := <<?PROTO_REG_REGISTRY_PATH>>}, State) ->
+            Req = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"application/json">>},
+                emqx_utils_json:encode(#{code => 1}),
+                Req0
+            ),
+            {ok, Req, State}
+        end
+    ),
+    ok = client_register_expect_result(
+        Socket, <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>, 1
+    ),
 
     ok = gen_tcp:close(Socket).
 
@@ -770,9 +896,14 @@ t_case08_dl_0x8500_vehicle_ctrl(_Config) ->
     ?assertEqual(S3, Packet3),
 
     % client send "client answer"
-    CtrlAck =
-        <<126, 5, 0, 0, 30, 1, 136, 118, 99, 137, 114, 1, 244, 0, 7, 0, 0, 0, 0, 0, 4, 0, 0, 1, 49,
-            122, 103, 6, 147, 104, 81, 0, 24, 0, 0, 0, 121, 23, 16, 32, 18, 3, 25, 69, 126>>,
+    CtrlAckBody =
+        <<0, 7, 0, 0, 0, 0, 0, 4, 0, 0, 1, 49, 122, 103, 6, 147, 104, 81, 0, 24, 0, 0, 0, 121, 23,
+            16, 32, 18, 3, 25>>,
+    CtrlAckSize = size(CtrlAckBody),
+    CtrlAckHeader =
+        <<?MC_VEHICLE_CTRL_ACK:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(CtrlAckSize), PhoneBCD/binary, 500:?WORD>>,
+    CtrlAck = gen_packet(CtrlAckHeader, CtrlAckBody),
     ?LOGT("S4 = ~p", [CtrlAck]),
 
     ok = gen_tcp:send(Socket, CtrlAck),
@@ -787,7 +918,7 @@ t_case08_dl_0x8500_vehicle_ctrl(_Config) ->
                     <<"len">> => 30,
                     <<"msg_id">> => 1280,
                     <<"msg_sn">> => 500,
-                    <<"phone">> => <<"018876638972">>
+                    <<"phone">> => <<"000123456789">>
                 },
             <<"body">> =>
                 #{
@@ -3186,13 +3317,19 @@ raw_jt808_config() ->
     }.
 
 unsupported_frame_packet() ->
-    <<126, 2, 5, 0, 128, 1, 137, 112, 19, 0, 64, 1, 98, 72, 66, 77, 54, 48, 49, 67, 86, 77, 48, 49,
-        49, 77, 50, 50, 48, 50, 53, 45, 48, 49, 45, 49, 55, 253, 255, 2, 0, 255, 127, 0, 128, 80,
-        17, 1, 54, 69, 67, 56, 48, 48, 77, 0, 0, 0, 0, 0, 0, 0, 0, 0, 56, 54, 56, 48, 49, 57, 48,
-        55, 51, 55, 48, 52, 51, 56, 48, 52, 54, 48, 49, 49, 51, 56, 55, 49, 49, 48, 49, 53, 55, 52,
-        56, 57, 56, 54, 49, 49, 50, 52, 50, 51, 51, 48, 56, 49, 51, 49, 53, 55, 57, 53, 0, 0, 76,
-        67, 48, 68, 55, 52, 67, 52, 49, 80, 48, 50, 49, 49, 50, 54, 48, 4, 20, 164, 132, 0, 0, 0, 0,
-        66, 126>>.
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgBody =
+        <<72, 66, 77, 54, 48, 49, 67, 86, 77, 48, 49, 49, 77, 50, 50, 48, 50, 53, 45, 48, 49, 45,
+            49, 55, 253, 255, 2, 0, 255, 127, 0, 128, 80, 17, 1, 54, 69, 67, 56, 48, 48, 77, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 56, 54, 56, 48, 49, 57, 48, 55, 51, 55, 48, 52, 51, 56, 48, 52, 54,
+            48, 49, 49, 51, 56, 55, 49, 49, 48, 49, 53, 55, 52, 56, 57, 56, 54, 49, 49, 50, 52, 50,
+            51, 51, 48, 56, 49, 51, 49, 53, 55, 57, 53, 0, 0, 76, 67, 48, 68, 55, 52, 67, 52, 49,
+            80, 48, 50, 49, 49, 50, 54, 48, 4, 20, 164, 132, 0, 0, 0, 0>>,
+    Size = size(MsgBody),
+    Header =
+        <<16#0205:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size),
+            PhoneBCD/binary, 16#0162:?WORD>>,
+    gen_packet(Header, MsgBody).
 
 %%--------------------------------------------------------------------
 %% JT/T 808-2019 Protocol Integration Tests
