@@ -760,7 +760,9 @@ transform(Frame = ?CMD(Cmd), Mountpoint) ->
             ?CMD_PLATFORM_LOGIN -> <<"upstream/plogin">>;
             ?CMD_PLATFORM_LOGOUT -> <<"upstream/plogout">>;
             ?CMD_ACTIVATION -> <<"upstream/activation">>;
-            %CMD_HEARTBEAT, CMD_SCHOOL_TIME ...
+            ?CMD_PARAM_QUERY -> <<"upstream/response">>;
+            ?CMD_PARAM_SETTING -> <<"upstream/response">>;
+            ?CMD_TERMINAL_CTRL -> <<"upstream/response">>;
             _ -> <<"upstream/transparent">>
         end,
     Topic = emqx_mountpoint:mount(Mountpoint, Suffix),
