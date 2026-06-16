@@ -102,6 +102,7 @@ jobs:
         env:
           DOCKER_CT_RUNNER_IMAGE: ${{ inputs.builder }}
           MONGO_TAG: "5"
+          MONGO_TAG_SINGLE_TCP: "8"
           MYSQL_TAG: "8"
           PGSQL_TAG: "13"
           REDIS_TAG: "7.0"
