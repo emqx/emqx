@@ -1213,18 +1213,6 @@
           "legendFormat": "Run queue length",
           "refId": "B",
           "step": 60
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "exemplar": true,
-          "expr": "emqx_vm_process_messages_in_queues {job=~\"$job\", instance=\"$instance\"}",
-          "hide": false,
-          "interval": "",
-          "legendFormat": "messages_in_queue",
-          "refId": "C"
         }
       ],
       "title": "Process",
