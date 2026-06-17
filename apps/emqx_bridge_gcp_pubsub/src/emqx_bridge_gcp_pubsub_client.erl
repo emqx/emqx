@@ -262,7 +262,8 @@ get_status(#{connect_timeout := _, pool_name := _} = State) ->
 
 get_project_id(#{authentication := #{type := service_account_json} = AuthConfig}) ->
     #{service_account_json := ServiceAccountJSON0} = AuthConfig,
-    #{<<"project_id">> := ProjectId} = emqx_utils_json:decode(ServiceAccountJSON0),
+    #{<<"project_id">> := ProjectId} =
+        emqx_utils_json:decode(emqx_secret:unwrap(ServiceAccountJSON0)),
     ProjectId;
 get_project_id(#{authentication := #{type := wif} = AuthConfig}) ->
     #{gcp_project_id := ProjectId} = AuthConfig,
@@ -347,7 +348,7 @@ parse_jwt_config(ResourceId, #{
     jwt_opts := #{aud := Aud},
     authentication := #{service_account_json := ServiceAccountJSON0}
 }) ->
-    ServiceAccountJSON = emqx_utils_json:decode(ServiceAccountJSON0),
+    ServiceAccountJSON = emqx_utils_json:decode(emqx_secret:unwrap(ServiceAccountJSON0)),
     #{
         <<"project_id">> := ProjectId,
         <<"private_key_id">> := KId,
