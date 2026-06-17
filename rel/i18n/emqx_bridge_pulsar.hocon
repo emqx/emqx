@@ -16,7 +16,8 @@ auth_basic.label:
 """Basic auth parameters"""
 
 auth_basic_password.desc:
-"""Basic authentication password. The `password` part of the `username:password` authentication string."""
+"""Basic authentication password. The `password` part of the `username:password` authentication string.<br/>
+To load the password from a file instead of embedding it inline, use the form <code>file://&lt;path-to-file&gt;</code>; the file's content (with any trailing whitespace stripped) is then used as the password. When clustered, the file must exist on all EMQX nodes."""
 auth_basic_password.label:
 """Password"""
 
@@ -31,7 +32,8 @@ auth_token.label:
 """Token auth params"""
 
 auth_token_jwt.desc:
-"""JWT authentication token."""
+"""JWT authentication token.<br/>
+To load the token from a file instead of embedding it inline, use the form <code>file://&lt;path-to-file&gt;</code>; the file's content (with any trailing whitespace stripped) is then used as the token. When clustered, the file must exist on all EMQX nodes."""
 auth_token_jwt.label:
 """JWT"""
 

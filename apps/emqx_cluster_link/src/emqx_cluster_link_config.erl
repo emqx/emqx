@@ -248,22 +248,28 @@ pre_config_update(?LINKS_PATH, RawConf, RawConf) ->
 pre_config_update(?LINKS_PATH, {create, LinkRawConf}, OldRawConf) ->
     #{<<"name">> := Name} = LinkRawConf,
     maybe
+        ok ?= check_license([LinkRawConf]),
         undefined ?= find_link(Name, OldRawConf),
         NewRawConf0 = OldRawConf ++ [LinkRawConf],
         NewRawConf = convert_certs(maybe_increment_ps_actor_incr(NewRawConf0, OldRawConf)),
         {ok, NewRawConf}
     else
+        {error, _} = Err ->
+            Err;
         _ ->
             {error, already_exists}
     end;
 pre_config_update(?LINKS_PATH, {update, LinkRawConf}, OldRawConf) ->
     #{<<"name">> := Name} = LinkRawConf,
     maybe
+        ok ?= check_license([LinkRawConf]),
         {_Found, Front, Rear} ?= safe_take(Name, OldRawConf),
         NewRawConf0 = Front ++ [LinkRawConf] ++ Rear,
         NewRawConf = convert_certs(maybe_increment_ps_actor_incr(NewRawConf0, OldRawConf)),
         {ok, NewRawConf}
     else
+        {error, _} = Err ->
+            Err;
         not_found ->
             {error, not_found}
     end;
@@ -277,7 +283,29 @@ pre_config_update(?LINKS_PATH, {delete, Name}, OldRawConf) ->
             {error, not_found}
     end;
 pre_config_update(?LINKS_PATH, NewRawConf, OldRawConf) ->
-    {ok, convert_certs(maybe_increment_ps_actor_incr(NewRawConf, OldRawConf))}.
+    maybe
+        ok ?= check_license(NewRawConf),
+        {ok, convert_certs(maybe_increment_ps_actor_incr(NewRawConf, OldRawConf))}
+    end.
+
+%% Cluster linking requires a non-community license. Reject any config update
+%% that would enable a link when this node is running under a community
+%% (single-node) license. Disabling or deleting links is always allowed.
+check_license(RawLinks) ->
+    case emqx_cluster:is_single_node_mode() of
+        false ->
+            ok;
+        true ->
+            case lists:any(fun is_link_enabled/1, RawLinks) of
+                true -> {error, single_node_license};
+                false -> ok
+            end
+    end.
+
+%% `enable' defaults to `true' in the schema, so a raw link map without the
+%% key is treated as enabled.
+is_link_enabled(#{<<"enable">> := Enabled}) -> Enabled;
+is_link_enabled(#{}) -> true.
 
 post_config_update(?LINKS_PATH, _Req, Old, Old, _AppEnvs) ->
     ok;

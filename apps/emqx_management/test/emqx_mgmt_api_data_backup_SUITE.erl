@@ -43,6 +43,10 @@ end_per_suite(_) ->
     ok.
 
 init_per_testcase(TC, Config) when
+    TC =:= t_download_api_key_inspection_error_fails_closed
+->
+    Config;
+init_per_testcase(TC, Config) when
     TC =:= t_upload_ee_backup;
     TC =:= t_import_ee_backup
 ->
@@ -362,18 +366,53 @@ t_import_dashboard_token_allows_sensitive_tables(Config) ->
     ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth, ?UPLOAD_CE_BACKUP)),
     ok.
 
-%% API-key callers (any scope) must be rejected with 403 when downloading any
-%% backup file. Backups can contain dashboard accounts and API-key records
-%% regardless of who produced them, so we gate the download on the global
-%% administrator role rather than inspect archive contents.
-t_download_api_key_forbidden(Config) ->
+%% API-key callers may download archives that do not contain dashboard users or
+%% API-key records. This keeps backup-sync working: its API-key export path
+%% already filters those sensitive table sets.
+t_download_api_key_without_sensitive_tables_allowed(Config) ->
     ApiAuth = ?config(auth, Config),
     {200, #{<<"filename">> := Filename}} =
         export_backup2(?NODE1_PORT, ApiAuth, #{}),
+    {Status, _Body} = download_backup(?NODE1_PORT, ApiAuth, Filename),
+    ?assertEqual(200, Status),
+    ok.
+
+%% API-key callers must still be rejected with 403 when the archive contains
+%% dashboard accounts or API-key records.
+t_download_api_key_with_sensitive_tables_forbidden(Config) ->
+    ApiAuth = ?config(auth, Config),
+    DashboardAuth = ?config(dashboard_auth, Config),
+    {200, #{<<"filename">> := Filename}} =
+        export_backup2(?NODE1_PORT, DashboardAuth, #{}),
     {Status, Body} = download_backup(?NODE1_PORT, ApiAuth, Filename),
     ?assertEqual(403, Status),
     ?assertMatch(#{<<"code">> := <<"FORBIDDEN">>}, Body),
     ok.
+
+%% If the archive cannot be inspected, API-key download must fail closed.
+t_download_api_key_inspection_error_fails_closed(_Config) ->
+    Filename = <<"emqx-export-inspection-error.tar.gz">>,
+    ok = meck:new(emqx_mgmt_data_backup_proto_v2, [passthrough, no_link, no_history]),
+    try
+        meck:expect(
+            emqx_mgmt_data_backup_proto_v2,
+            peek_sensitive_table_sets,
+            fun(Node, Filename0, infinity) ->
+                ?assertEqual(node(), Node),
+                ?assertEqual(Filename, Filename0),
+                {error, not_found}
+            end
+        ),
+        {Status, Body} = emqx_mgmt_api_data_backup:data_file_by_name(get, #{
+            bindings => #{filename => Filename},
+            query_string => #{},
+            auth_meta => #{auth_type => api_key}
+        }),
+        ?assertEqual(404, Status),
+        ?assertMatch(#{code := 'NOT_FOUND'}, Body)
+    after
+        meck:unload(emqx_mgmt_data_backup_proto_v2)
+    end.
 
 %% Dashboard viewers (read-only role) must be rejected with 403 when
 %% downloading a backup file.
@@ -586,14 +625,18 @@ import_backup_test(Config, BackupName) ->
 
     [N1, N2, N3] = ?config(cluster, Config),
 
-    ?assertMatch({ok, _}, import_backup(?NODE3_PORT, DashboardAuth, BackupName)),
+    DashboardAuth1 = fresh_dashboard_auth(Config),
+    ?assertMatch({ok, _}, import_backup(?NODE3_PORT, DashboardAuth1, BackupName)),
 
-    ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth, BackupName, N3)),
+    DashboardAuth2 = fresh_dashboard_auth(Config),
+    ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth2, BackupName, N3)),
     %% Now this node must also have the file locally
-    ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth, BackupName, N1)),
+    DashboardAuth3 = fresh_dashboard_auth(Config),
+    ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth3, BackupName, N1)),
 
+    DashboardAuth4 = fresh_dashboard_auth(Config),
     ?assertMatch(
-        {error, {_, 400, _}}, import_backup(?NODE2_PORT, DashboardAuth, ?BAD_IMPORT_BACKUP, N2)
+        {error, {_, 400, _}}, import_backup(?NODE2_PORT, DashboardAuth4, ?BAD_IMPORT_BACKUP, N2)
     ).
 
 assert_second_call(get, Res) ->
@@ -731,6 +774,12 @@ dashboard_token_auth(Node, User, Pass, Role) ->
     {ok, #{token := Token}} = erpc:call(Node, emqx_dashboard_admin, sign_token, [User, Pass]),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
+fresh_dashboard_auth(Config) ->
+    [Core1, _Core2, Repl] = ?config(cluster, Config),
+    Auth = dashboard_auth_header(Core1),
+    ok = wait_for_dashboard_auth(Repl, Auth),
+    Auth.
+
 wait_for_auth_replication(ReplNode) ->
     wait_for_auth_replication(ReplNode, 100).
 
@@ -744,6 +793,23 @@ wait_for_auth_replication(ReplNode, Retries) ->
         _:_ ->
             timer:sleep(1),
             wait_for_auth_replication(ReplNode, Retries - 1)
+    end.
+
+wait_for_dashboard_auth(ReplNode, {"Authorization", "Bearer " ++ Token}) ->
+    wait_for_dashboard_auth(ReplNode, unicode:characters_to_binary(Token), 100).
+
+wait_for_dashboard_auth(ReplNode, _Token, 0) ->
+    {error, {ReplNode, dashboard_auth_not_ready}};
+wait_for_dashboard_auth(ReplNode, Token, Retries) ->
+    User = ?DASHBOARD_USER,
+    try
+        [_] = erpc:call(ReplNode, emqx_dashboard_admin, lookup_user, [User]),
+        {ok, _} = erpc:call(ReplNode, emqx_dashboard_token, lookup, [Token]),
+        ok
+    catch
+        _:_ ->
+            timer:sleep(10),
+            wait_for_dashboard_auth(ReplNode, Token, Retries - 1)
     end.
 
 apps_spec(APIPort, TC) ->

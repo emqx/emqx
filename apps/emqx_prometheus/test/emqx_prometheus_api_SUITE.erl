@@ -352,9 +352,6 @@ t_stats_auth_api(_) ->
 %% Simple smoke test for verifying reason code labels in `emqx_client_disconnected_reason'
 %% counter metric.
 t_listener_shutdown_count(_Config) ->
-    ClientId1 = fresh_clientid(?FUNCTION_NAME),
-    {ok, C1} = emqtt:start_link(#{clientid => ClientId1}),
-    {ok, _} = emqtt:connect(C1),
     ConnectRetry = fun Retry(ClientId) ->
         {ok, C0} = emqtt:start_link(#{clientid => ClientId}),
         try emqtt:connect(C0) of
@@ -365,6 +362,8 @@ t_listener_shutdown_count(_Config) ->
                 Retry(ClientId)
         end
     end,
+    ClientId1 = fresh_clientid(?FUNCTION_NAME),
+    {ok, C1} = ConnectRetry(ClientId1),
     %% Takeover
     unlink(C1),
     {ok, C2} = ConnectRetry(ClientId1),
@@ -598,4 +597,8 @@ get_stats(Format, Mode) ->
     end.
 
 fresh_clientid(TestCase) ->
-    iolist_to_binary([atom_to_binary(TestCase), integer_to_binary(erlang:monotonic_time())]).
+    iolist_to_binary([
+        atom_to_binary(TestCase),
+        "-",
+        integer_to_binary(erlang:unique_integer([positive, monotonic]))
+    ]).

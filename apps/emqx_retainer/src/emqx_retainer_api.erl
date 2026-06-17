@@ -66,7 +66,6 @@ schema(?PREFIX) ->
 schema(?PREFIX ++ "/messages") ->
     #{
         'operationId' => '/messages',
-        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         get => #{
             tags => ?TAGS,
             description => ?DESC(list_retained_api),
@@ -90,7 +89,6 @@ schema(?PREFIX ++ "/messages") ->
 schema(?PREFIX ++ "/message/:topic") ->
     #{
         'operationId' => with_topic_warp,
-        filter => fun emqx_mgmt_api:require_global_namespace_filter/2,
         get => #{
             tags => ?TAGS,
             description => ?DESC(lookup_api),

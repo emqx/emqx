@@ -398,7 +398,7 @@ puback(ClientInfo, PacketId, ReasonCode, Session) ->
     case ?IMPL(Session):puback(ClientInfo, PacketId, Session) of
         {ok, Msg, Replies, Session1} = Ok ->
             _ = on_delivery_completed(Msg, ReasonCode, ClientInfo, Session1),
-            _ = on_replies_delivery_completed(Replies, ClientInfo, Session1),
+            _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
             Ok;
         {error, _} = Error ->
             Error
@@ -437,7 +437,7 @@ pubcomp(ClientInfo, PacketId, ReasonCode, Session) ->
     case ?IMPL(Session):pubcomp(ClientInfo, PacketId, Session) of
         {ok, Msg, Replies, Session1} ->
             _ = on_delivery_completed(Msg, ReasonCode, ClientInfo, Session1),
-            _ = on_replies_delivery_completed(Replies, ClientInfo, Session1),
+            _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
             {ok, Replies, Session1};
         {error, _} = Error ->
             Error
@@ -459,7 +459,7 @@ replay(ClientInfo, ReplayContext, Session) ->
 deliver(ClientInfo, Delivers, Session) ->
     Messages = enrich_delivers(ClientInfo, Delivers, Session),
     Ok = {ok, Replies, Session1} = ?IMPL(Session):deliver(ClientInfo, Messages, Session),
-    _ = on_replies_delivery_completed(Replies, ClientInfo, Session1),
+    _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
     Ok.
 
 %%--------------------------------------------------------------------
@@ -577,10 +577,10 @@ enrich_message(_ClientInfo, Msg, undefined, _UpgradeQoS) ->
 handle_timeout(ClientInfo, Timer, Session) ->
     case ?IMPL(Session):handle_timeout(ClientInfo, Timer, Session) of
         {ok, Replies, Session1} = Ok ->
-            _ = on_replies_delivery_completed(Replies, ClientInfo, Session1),
+            _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
             Ok;
         {ok, Replies, _Timeout, Session1} = Ok ->
-            _ = on_replies_delivery_completed(Replies, ClientInfo, Session1),
+            _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
             Ok
     end.
 
@@ -677,28 +677,26 @@ on_delivery_completed(Msg, ReasonCode, #{clientid := ClientId}, Session) ->
         ]
     ).
 
-on_delivery_completed_qos0(Msg, #{clientid := ClientId}, Session) ->
-    emqx_hooks:run(
-        'delivery.completed',
-        [
-            Msg,
-            #{
-                session_birth_time => ?IMPL(Session):info(created_at, Session),
-                clientid => ClientId
-            }
-        ]
-    ).
-
-on_replies_delivery_completed(Replies, ClientInfo, Session) ->
+%% NOTE
+%% The function is called when the session returns new messages
+%% to send to the client.
+%% The client will not send PUBACK for QoS 0 messages.
+%% So we call the 'delivery.completed' callback for them here.
+on_maybe_delivery_completed_qos0(Replies, #{clientid := ClientId}, Session) ->
     lists:foreach(
         fun({_PacketId, Msg}) ->
             case Msg of
                 #message{qos = ?QOS_0} ->
-                    %% NOTE
-                    %% Session returned some new messages to send to the client.
-                    %% The client will not send PUBACK for QoS 0 messages.
-                    %% So we call the callback for them here.
-                    on_delivery_completed_qos0(Msg, ClientInfo, Session);
+                    emqx_hooks:run(
+                        'delivery.completed',
+                        [
+                            Msg,
+                            #{
+                                session_birth_time => ?IMPL(Session):info(created_at, Session),
+                                clientid => ClientId
+                            }
+                        ]
+                    );
                 _ ->
                     ok
             end

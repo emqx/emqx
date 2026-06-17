@@ -7,7 +7,8 @@ clientid.desc:
 """The clientId for this backend."""
 
 secret.desc:
-"""The client secret."""
+"""The client secret.<br/>
+To load the secret from a file instead of embedding it inline, use the form <code>file://&lt;path-to-file&gt;</code>; the file's content (with any trailing whitespace stripped) is then used as the secret. When clustered, the file must exist on all EMQX nodes."""
 
 scopes.desc:
 """The scopes, its default value is `["openid"]`."""

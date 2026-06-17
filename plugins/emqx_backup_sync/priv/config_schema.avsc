@@ -1,0 +1,259 @@
+{
+  "type": "record",
+  "name": "BackupSyncConfig",
+  "fields": [
+    {
+      "name": "primary",
+      "type": {
+        "type": "record",
+        "name": "Primary",
+        "fields": [
+          {
+            "name": "base_url",
+            "type": "string",
+            "default": "",
+            "$ui": {
+              "component": "input",
+              "required": true,
+              "label": "$primary_base_url_label",
+              "description": "$primary_base_url_desc"
+            }
+          },
+          {
+            "name": "api_key",
+            "type": "string",
+            "default": "",
+            "$ui": {
+              "component": "input",
+              "required": true,
+              "label": "$primary_api_key_label",
+              "description": "$primary_api_key_desc"
+            }
+          },
+          {
+            "name": "api_secret",
+            "type": "string",
+            "default": "",
+            "$ui": {
+              "component": "input-password",
+              "required": true,
+              "label": "$primary_api_secret_label",
+              "description": "$primary_api_secret_desc"
+            }
+          },
+          {
+            "name": "ssl",
+            "type": {
+              "type": "record",
+              "name": "PrimarySSL",
+              "fields": [
+                {
+                  "name": "enable",
+                  "type": "boolean",
+                  "default": false,
+                  "$ui": {
+                    "component": "switch",
+                    "required": true,
+                    "label": "$primary_ssl_enable_label",
+                    "description": "$primary_ssl_enable_desc"
+                  }
+                },
+                {
+                  "name": "server_name_indication",
+                  "type": "string",
+                  "default": "disable",
+                  "$ui": {
+                    "component": "input",
+                    "required": false,
+                    "label": "$primary_ssl_sni_label",
+                    "description": "$primary_ssl_sni_desc"
+                  }
+                },
+                {
+                  "name": "verify",
+                  "type": "string",
+                  "default": "verify_none",
+                  "$ui": {
+                    "component": "select",
+                    "required": false,
+                    "label": "$primary_ssl_verify_label",
+                    "description": "$primary_ssl_verify_desc",
+                    "options": [
+                      { "label": "verify_none", "value": "verify_none" },
+                      { "label": "verify_peer", "value": "verify_peer" }
+                    ]
+                  }
+                },
+                {
+                  "name": "cacertfile",
+                  "type": "string",
+                  "default": "",
+                  "$ui": {
+                    "component": "input",
+                    "required": false,
+                    "label": "$primary_ssl_cacertfile_label",
+                    "description": "$primary_ssl_cacertfile_desc"
+                  }
+                },
+                {
+                  "name": "certfile",
+                  "type": "string",
+                  "default": "",
+                  "$ui": {
+                    "component": "input",
+                    "required": false,
+                    "label": "$primary_ssl_certfile_label",
+                    "description": "$primary_ssl_certfile_desc"
+                  }
+                },
+                {
+                  "name": "keyfile",
+                  "type": "string",
+                  "default": "",
+                  "$ui": {
+                    "component": "input",
+                    "required": false,
+                    "label": "$primary_ssl_keyfile_label",
+                    "description": "$primary_ssl_keyfile_desc"
+                  }
+                }
+              ]
+            },
+            "default": {
+              "enable": false,
+              "server_name_indication": "disable",
+              "verify": "verify_none",
+              "cacertfile": "",
+              "certfile": "",
+              "keyfile": ""
+            }
+          }
+        ]
+      },
+      "default": {
+        "base_url": "",
+        "api_key": "",
+        "api_secret": "",
+        "ssl": {
+          "enable": false,
+          "server_name_indication": "disable",
+          "verify": "verify_none",
+          "cacertfile": "",
+          "certfile": "",
+          "keyfile": ""
+        }
+      }
+    },
+    {
+      "name": "sync",
+      "type": {
+        "type": "record",
+        "name": "Sync",
+        "fields": [
+          {
+            "name": "interval",
+            "type": "string",
+            "default": "5m",
+            "$ui": {
+              "component": "input",
+              "required": true,
+              "label": "$sync_interval_label",
+              "description": "$sync_interval_desc"
+            }
+          },
+          {
+            "name": "root_keys",
+            "type": {
+              "type": "array",
+              "items": "string"
+            },
+            "default": [
+              "connectors",
+              "actions",
+              "sources",
+              "rule_engine",
+              "listeners",
+              "schema_registry"
+            ],
+            "$ui": {
+              "component": "input-array",
+              "required": true,
+              "label": "$sync_root_keys_label",
+              "description": "$sync_root_keys_desc"
+            }
+          },
+          {
+            "name": "table_sets",
+            "type": {
+              "type": "array",
+              "items": "string"
+            },
+            "default": [
+              "banned",
+              "builtin_authn",
+              "builtin_authz"
+            ],
+            "$ui": {
+              "component": "input-array",
+              "required": false,
+              "label": "$sync_table_sets_label",
+              "description": "$sync_table_sets_desc"
+            }
+          },
+          {
+            "name": "timeout",
+            "type": "string",
+            "default": "30s",
+            "$ui": {
+              "component": "input",
+              "required": true,
+              "label": "$sync_timeout_label",
+              "description": "$sync_timeout_desc"
+            }
+          },
+          {
+            "name": "retain_remote_backup",
+            "type": "boolean",
+            "default": false,
+            "$ui": {
+              "component": "switch",
+              "required": true,
+              "label": "$sync_retain_remote_backup_label",
+              "description": "$sync_retain_remote_backup_desc"
+            }
+          },
+          {
+            "name": "retain_backup_after_import",
+            "type": "boolean",
+            "default": true,
+            "$ui": {
+              "component": "switch",
+              "required": true,
+              "label": "$sync_retain_backup_after_import_label",
+              "description": "$sync_retain_backup_after_import_desc"
+            }
+          }
+        ]
+      },
+      "default": {
+        "interval": "5m",
+        "root_keys": [
+          "connectors",
+          "actions",
+          "sources",
+          "rule_engine",
+          "listeners",
+          "schema_registry"
+        ],
+        "table_sets": [
+          "banned",
+          "builtin_authn",
+          "builtin_authz"
+        ],
+        "timeout": "30s",
+        "retain_remote_backup": false,
+        "retain_backup_after_import": true
+      }
+    }
+  ]
+}

@@ -571,14 +571,17 @@ t_connect_keepalive_timeout(Config) ->
 t_connect_duplicate_clientid(Config) ->
     ConnFun = ?config(conn_fun, Config),
     process_flag(trap_exit, true),
+    %% generate fresh clientid on each run to avoid throttling
+    N = erlang:unique_integer(),
+    ClientId = <<"t_connect_duplicate_clientid", (integer_to_binary(N))/binary>>,
     {ok, Client1} = emqtt:start_link([
-        {clientid, <<"t_connect_duplicate_clientid">>},
+        {clientid, ClientId},
         {proto_ver, v5}
         | Config
     ]),
     {ok, _} = emqtt:ConnFun(Client1),
     {ok, Client2} = emqtt:start_link([
-        {clientid, <<"t_connect_duplicate_clientid">>},
+        {clientid, ClientId},
         {proto_ver, v5}
         | Config
     ]),
@@ -596,8 +599,11 @@ t_connect_duplicate_clientid(Config) ->
 
 t_connack_session_present(Config) ->
     ConnFun = ?config(conn_fun, Config),
+    %% generate fresh clientid on each run to avoid throttling
+    N = erlang:unique_integer(),
+    ClientId = <<"t_connect_duplicate_clientid", (integer_to_binary(N))/binary>>,
     {ok, Client1} = emqtt:start_link([
-        {clientid, <<"t_connect_duplicate_clientid">>},
+        {clientid, ClientId},
         {proto_ver, v5},
         {properties, #{'Session-Expiry-Interval' => 7200}},
         {clean_start, true}
@@ -609,7 +615,7 @@ t_connack_session_present(Config) ->
     ok = emqtt:disconnect(Client1),
 
     {ok, Client2} = emqtt:start_link([
-        {clientid, <<"t_connect_duplicate_clientid">>},
+        {clientid, ClientId},
         {proto_ver, v5},
         {properties, #{'Session-Expiry-Interval' => 7200}},
         {clean_start, false}

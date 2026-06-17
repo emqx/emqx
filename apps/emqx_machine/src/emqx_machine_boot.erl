@@ -189,7 +189,11 @@ runtime_deps() ->
         {emqx_connector, fun(App) -> lists:prefix("emqx_bridge_", atom_to_list(App)) end},
         %% emqx_ds_builtin is an EE app
         {emqx_ds_backends, emqx_ds_builtin_raft},
-        {emqx_dashboard, emqx_license}
+        {emqx_dashboard, emqx_license},
+        %% Cluster link reads `emqx_cluster:is_single_node_mode/0' at boot to
+        %% decide whether to start configured links; the license checker is
+        %% what writes the underlying `cluster_mode' env, so it must boot first.
+        {emqx_cluster_link, emqx_license}
     ].
 
 sorted_reboot_apps(Apps) ->

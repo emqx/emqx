@@ -77,7 +77,7 @@ on_start(InstanceId, Config0) ->
         instance_id => InstanceId
     }),
     Config1 = maps:update_with(
-        service_account_json, fun(X) -> emqx_utils_json:decode(X) end, Config0
+        service_account_json, fun emqx_bridge_gcp_pubsub:decode_service_account_json/1, Config0
     ),
     {Transport, HostPort} = emqx_bridge_gcp_pubsub_client:get_transport(pubsub),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{
