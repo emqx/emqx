@@ -209,6 +209,61 @@ sql_drop_table() ->
 sql_check_table_exist() ->
     "SELECT COUNT(*) FROM user_tables WHERE table_name = 'MQTT_TEST'".
 
+sql_check_table_exist(TableName) ->
+    "SELECT COUNT(*) FROM user_tables WHERE table_name = '" ++ TableName ++ "'".
+
+sql_drop_probe_audit_table() ->
+    "BEGIN\n"
+    "        EXECUTE IMMEDIATE 'DROP TABLE mqtt_probe_audit';\n"
+    "     EXCEPTION\n"
+    "        WHEN OTHERS THEN\n"
+    "            IF SQLCODE = -942 THEN\n"
+    "                NULL;\n"
+    "            ELSE\n"
+    "                RAISE;\n"
+    "            END IF;\n"
+    "     END;".
+
+sql_drop_probe_trigger() ->
+    "BEGIN\n"
+    "        EXECUTE IMMEDIATE 'DROP TRIGGER mqtt_probe_trigger';\n"
+    "     EXCEPTION\n"
+    "        WHEN OTHERS THEN\n"
+    "            IF SQLCODE = -4080 THEN\n"
+    "                NULL;\n"
+    "            ELSE\n"
+    "                RAISE;\n"
+    "            END IF;\n"
+    "     END;".
+
+sql_create_probe_audit_table() ->
+    "CREATE TABLE mqtt_probe_audit (marker VARCHAR2(64))".
+
+sql_create_probe_trigger() ->
+    "CREATE OR REPLACE TRIGGER mqtt_probe_trigger\n"
+    "BEFORE INSERT ON mqtt_test\n"
+    "DECLARE\n"
+    "    PRAGMA AUTONOMOUS_TRANSACTION;\n"
+    "BEGIN\n"
+    "    INSERT INTO mqtt_probe_audit(marker) VALUES ('prepare');\n"
+    "    COMMIT;\n"
+    "END;".
+
+sql_drop_prepare_probe_table() ->
+    "BEGIN\n"
+    "        EXECUTE IMMEDIATE 'DROP TABLE mqtt_prepare_probe';\n"
+    "     EXCEPTION\n"
+    "        WHEN OTHERS THEN\n"
+    "            IF SQLCODE = -942 THEN\n"
+    "                NULL;\n"
+    "            ELSE\n"
+    "                RAISE;\n"
+    "            END IF;\n"
+    "     END;".
+
+sql_create_prepare_probe_table() ->
+    "CREATE TABLE mqtt_prepare_probe (id NUMBER)".
+
 new_jamdb_connection(Config) ->
     JamdbOpts = [
         {host, get_config(oracle_host, Config, "toxiproxy.emqx.net")},
@@ -244,10 +299,59 @@ drop_table_if_exists(Config) ->
     end,
     ok.
 
+create_probe_audit_objects(Config) ->
+    {ok, Conn} = new_jamdb_connection(Config),
+    try
+        ok = drop_probe_audit_objects(Conn),
+        {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_create_probe_audit_table()),
+        {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_create_probe_trigger())
+    after
+        close_jamdb_connection(Conn)
+    end.
+
+drop_probe_audit_objects(Conn) when is_pid(Conn) ->
+    {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_drop_probe_trigger()),
+    {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_drop_probe_audit_table()),
+    ok;
+drop_probe_audit_objects(Config) ->
+    {ok, Conn} = new_jamdb_connection(Config),
+    try
+        ok = drop_probe_audit_objects(Conn)
+    after
+        close_jamdb_connection(Conn)
+    end.
+
+drop_prepare_probe_table(Conn) when is_pid(Conn) ->
+    {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_drop_prepare_probe_table()),
+    ok;
+drop_prepare_probe_table(Config) ->
+    {ok, Conn} = new_jamdb_connection(Config),
+    try
+        ok = drop_prepare_probe_table(Conn)
+    after
+        close_jamdb_connection(Conn)
+    end.
+
 scan_table(TCConfig) ->
     {ok, Conn} = new_jamdb_connection(TCConfig),
     try
         jamdb_oracle:sql_query(Conn, "select * from mqtt_test")
+    after
+        close_jamdb_connection(Conn)
+    end.
+
+scan_probe_audit_table(TCConfig) ->
+    {ok, Conn} = new_jamdb_connection(TCConfig),
+    try
+        jamdb_oracle:sql_query(Conn, "select count(*) from mqtt_probe_audit")
+    after
+        close_jamdb_connection(Conn)
+    end.
+
+count_user_table(TCConfig, TableName) ->
+    {ok, Conn} = new_jamdb_connection(TCConfig),
+    try
+        jamdb_oracle:sql_query(Conn, sql_check_table_exist(TableName))
     after
         close_jamdb_connection(Conn)
     end.
@@ -372,6 +476,38 @@ t_probe_with_inconsistent_datatype(TCConfig) ->
             #{<<"parameters">> => #{<<"sql">> => sql_insert_template_with_inconsistent_datatype()}}
         )
     ).
+
+t_prepare_does_not_execute_user_sql(TCConfig) ->
+    create_probe_audit_objects(TCConfig),
+    on_exit(fun() -> drop_probe_audit_objects(TCConfig) end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+    ?assertMatch(
+        {ok, [{result_set, _, _, [[{0}]]}]},
+        scan_probe_audit_table(TCConfig)
+    ),
+    ok.
+
+t_prepare_rejects_ddl_without_executing(TCConfig) ->
+    drop_prepare_probe_table(TCConfig),
+    on_exit(fun() -> drop_prepare_probe_table(TCConfig) end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"sql">> => sql_create_prepare_probe_table()}
+    }),
+    ?assertMatch(
+        {ok, [{result_set, _, _, [[{0}]]}]},
+        count_user_table(TCConfig, "MQTT_PREPARE_PROBE")
+    ),
+    ?retry(
+        _Sleep = 1_000,
+        _Attempts = 20,
+        begin
+            {200, #{<<"status_reason">> := StatusReason}} = get_action_api(TCConfig),
+            ?assertNotEqual(nomatch, binary:match(StatusReason, <<"unsupported_sql_statement">>))
+        end
+    ),
+    ok.
 
 t_no_sid_nor_service_name(TCConfig0) ->
     TCConfig = emqx_bridge_v2_testlib:proplist_update(
