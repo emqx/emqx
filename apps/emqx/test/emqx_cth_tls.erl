@@ -37,7 +37,12 @@
     {_From :: calendar:date(), _To :: calendar:date()}.
 
 -type cert_extensions() :: #{
-    subject_alt_name => string(),
+    subject_alt_name => [
+        {dns, string()}
+        | {ip, inet:ip_address()}
+        | {email, string()}
+        | {uri, string()}
+    ],
     basic_constraints => false | ca | _PathLenContraint :: pos_integer(),
     key_usage => false | certsign
 }.
@@ -281,8 +286,22 @@ extension(key_usage, certsign) ->
         }
     ].
 
-subject_alt_name({ip, IPAddr}) when tuple_size(IPAddr) == 4 ->
-    {iPAddress, tuple_to_list(IPAddr)}.
+subject_alt_name({dns, Name}) ->
+    {dNSName, Name};
+subject_alt_name({ip, IPAddr}) ->
+    {iPAddress, ip_address_bytes(IPAddr)};
+subject_alt_name({email, Email}) ->
+    {rfc822Name, Email};
+subject_alt_name({uri, URI}) ->
+    {uniformResourceIdentifier, URI}.
+
+ip_address_bytes({A, B, C, D}) ->
+    [A, B, C, D];
+ip_address_bytes({A, B, C, D, E, F, G, H}) ->
+    lists:append([integer_to_2bytes(I) || I <- [A, B, C, D, E, F, G, H]]).
+
+integer_to_2bytes(I) ->
+    [I bsr 8, I band 16#ff].
 
 default_validity() ->
     {shift_date(date(), -1), shift_date(date(), +7)}.
