@@ -782,7 +782,7 @@ t_counter_consistency_concurrent(_Config) ->
     User = <<"race-user">>,
     N = 40,
     Parent = self(),
-    Procs = [
+    _ = [
         spawn_link(fun() ->
             ClientId = list_to_binary(io_lib:format("rc~p", [I])),
             emqx_username_quota_state:add(User, ClientId, self()),
@@ -814,7 +814,7 @@ t_counter_consistency_concurrent_del_client(_Config) ->
     User = <<"race-dc-user">>,
     N = 40,
     Parent = self(),
-    Procs = [
+    _ = [
         spawn_link(fun() ->
             ClientId = list_to_binary(io_lib:format("dc~p", [I])),
             emqx_username_quota_state:add(User, ClientId, self()),
