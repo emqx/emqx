@@ -628,6 +628,7 @@ t_file_secret_service_account_json(TCConfig) when is_list(TCConfig) ->
                 <<"connectors">>,
                 ?CONNECTOR_TYPE_BIN,
                 ConnectorName,
+                <<"authentication">>,
                 <<"service_account_json">>
             ],
             Hocon
