@@ -445,7 +445,14 @@ t_write_failure() ->
 t_write_failure(matrix) ->
     full_matrix();
 t_write_failure(TCConfig) when is_list(TCConfig) ->
-    {201, _} = create_connector_api(TCConfig, #{}),
+    %% Use a short health-check interval so that, once the proxy is switched
+    %% off, the connector is promptly marked `disconnected'.  With the default
+    %% 15s interval the detection races the 15s `buffer_worker_flush_nack' wait
+    %% below: the message would otherwise stay queued against a still-`connecting'
+    %% resource until `request_ttl', making this test flaky.
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}
+    }),
     {201, _} = create_action_api(TCConfig, #{}),
     #{topic := Topic} = simple_create_rule_api(TCConfig),
     C = start_client(),
