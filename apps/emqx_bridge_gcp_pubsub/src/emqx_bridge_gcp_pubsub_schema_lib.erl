@@ -47,7 +47,9 @@ authentication_field() ->
     | {error, {wrong_type, term()}}
     | {error, {missing_keys, [binary()]}}.
 service_account_json_validator(Val) ->
-    case emqx_utils_json:safe_decode(Val) of
+    %% `Val' may be a secret reference (e.g. `file://...'); unwrap it before
+    %% decoding so file-based service account credentials validate correctly.
+    case emqx_utils_json:safe_decode(emqx_secret:unwrap(Val)) of
         {ok, Map} ->
             ExpectedKeys = [
                 <<"type">>,
