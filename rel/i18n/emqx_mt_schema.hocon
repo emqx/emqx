@@ -34,7 +34,10 @@ emqx_mt_schema {
             <code>coalesce(client_attrs.tag, username)</code>.
             If the expression renders to an empty string, the existing
             <code>tns</code> value (if any) is kept. If the expression errors, a
-            warning is logged and the client is treated as having no <code>tns</code>.~"""
+            warning is logged and the client is treated as having no <code>tns</code>.
+            Reserved names that cannot be used as a namespace: <code>global</code>,
+            <code>undefined</code>, <code>null</code>, <code>none</code>; a client
+            resolving to one of these is rejected.~"""
         label: "Post-authentication tns expression"
     }
 }

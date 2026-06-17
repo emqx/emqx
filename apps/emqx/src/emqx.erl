@@ -67,7 +67,8 @@
     get_namespaced_config/2,
     get_namespaced_config/3,
     get_raw_namespaced_config/2,
-    get_raw_namespaced_config/3
+    get_raw_namespaced_config/3,
+    is_reserved_namespace/1
 ]).
 
 -define(APP, ?MODULE).
@@ -212,6 +213,21 @@ get_namespaced_config(Namespace, KeyPath0, Default) when is_binary(Namespace) ->
     end;
 get_namespaced_config(?global_ns, KeyPath, Default) ->
     get_config(KeyPath, Default).
+
+-doc """
+Check whether a user-supplied namespace name is reserved.
+
+Reserved names collide with internal sentinels (notably the `global` atom
+used as `?global_ns`) and would produce ambiguous log lines and dashboard
+output once collapsed to their textual form. They must be rejected at every
+input boundary so they can never become a namespace identifier.
+""".
+-spec is_reserved_namespace(binary()) -> boolean().
+is_reserved_namespace(<<"global">>) -> true;
+is_reserved_namespace(<<"undefined">>) -> true;
+is_reserved_namespace(<<"null">>) -> true;
+is_reserved_namespace(<<"none">>) -> true;
+is_reserved_namespace(_) -> false.
 
 -spec get_raw_config(config_key_path()) -> term().
 get_raw_config(KeyPath) ->

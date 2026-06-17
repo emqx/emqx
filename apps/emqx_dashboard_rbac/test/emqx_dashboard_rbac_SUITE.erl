@@ -71,6 +71,31 @@ t_create_bad_role(_) ->
         )
     ).
 
+t_reserved_namespace_role(_) ->
+    %% Reserved namespace names cannot be used as the namespace tag of a role.
+    lists:foreach(
+        fun(Ns) ->
+            Role = <<"ns:", Ns/binary, "::", ?ROLE_SUPERUSER/binary>>,
+            ?assertEqual(
+                {error, <<"Reserved namespace">>},
+                emqx_dashboard_rbac:parse_dashboard_role(Role),
+                #{ns => Ns}
+            ),
+            ?assertEqual(
+                {error, <<"Reserved namespace">>},
+                emqx_dashboard_rbac:parse_api_role(Role),
+                #{ns => Ns}
+            )
+        end,
+        [<<"global">>, <<"undefined">>, <<"null">>, <<"none">>]
+    ),
+    %% Regression guard: a non-reserved namespace still parses.
+    ?assertMatch(
+        {ok, #{?namespace := <<"tenant-a">>, ?role := ?ROLE_SUPERUSER}},
+        emqx_dashboard_rbac:parse_dashboard_role(<<"ns:tenant-a::", ?ROLE_SUPERUSER/binary>>)
+    ),
+    ok.
+
 t_permission(_) ->
     add_default_superuser(),
 

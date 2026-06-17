@@ -637,6 +637,15 @@ handle_get_managed_ns_config(Ns) ->
     end.
 
 handle_create_managed_ns(Ns) ->
+    maybe
+        ok ?= validate_ns_not_reserved(Ns),
+        do_create_managed_ns(Ns)
+    else
+        {error, Reason} ->
+            ?BAD_REQUEST(Reason)
+    end.
+
+do_create_managed_ns(Ns) ->
     case emqx_mt_client_kicker:whereis_kicker(Ns) of
         {error, not_found} ->
             case emqx_mt_config:create_managed_ns(Ns) of
@@ -673,6 +682,15 @@ handle_update_managed_ns_config(Ns, Configs) ->
     end.
 
 handle_bulk_import_configs(Entries) ->
+    maybe
+        ok ?= validate_nss_not_reserved([Ns || #{ns := Ns} <- Entries]),
+        do_bulk_import_configs(Entries)
+    else
+        {error, Reason} ->
+            ?BAD_REQUEST(Reason)
+    end.
+
+do_bulk_import_configs(Entries) ->
     case emqx_mt_config:bulk_import_configs(Entries) of
         {ok, #{errors := []}} ->
             ?NO_CONTENT;
@@ -723,6 +741,7 @@ handle_bulk_import_ns_configs(Params) ->
     #{<<"configs">> := NssToConfigs} = Params,
     Namespaces = maps:keys(NssToConfigs),
     maybe
+        ok ?= validate_nss_not_reserved(Namespaces),
         ok ?= validate_namespaces_existence(Namespaces),
         {ok, ConfigsOut} ?= do_bulk_import_ns_configs(NssToConfigs, Params),
         ?OK(ConfigsOut)
@@ -1029,6 +1048,23 @@ undefined_to_null(undefined) ->
     null;
 undefined_to_null(X) ->
     X.
+
+%% Reject the small set of reserved namespace names (see
+%% `emqx:is_reserved_namespace/1') before any namespace is created or imported.
+validate_ns_not_reserved(Ns) ->
+    validate_nss_not_reserved([Ns]).
+
+validate_nss_not_reserved(Namespaces) ->
+    case lists:filter(fun emqx:is_reserved_namespace/1, Namespaces) of
+        [] ->
+            ok;
+        Reserved ->
+            Msg = iolist_to_binary([
+                <<"Reserved namespace name(s) cannot be used: ">>,
+                lists:join(<<", ">>, Reserved)
+            ]),
+            {error, Msg}
+    end.
 
 validate_namespaces_existence(Namespaces) ->
     UnknownNss = lists:filter(
