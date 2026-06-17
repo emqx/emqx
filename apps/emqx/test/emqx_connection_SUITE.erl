@@ -104,8 +104,7 @@ end_per_testcase(TestCase, Config) ->
     case erlang:function_exported(?MODULE, TestCase, 2) of
         true -> ?MODULE:TestCase('end', Config);
         false -> ok
-    end,
-    Config.
+    end.
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -509,6 +508,40 @@ t_activate_socket(_) ->
 
     State2 = st(#{sockstate => closed}),
     ?assertEqual({ok, State2}, emqx_connection:activate_socket(State2)).
+
+t_sendq_congestion_trigger(_) ->
+    ok = meck:expect(emqx_channel, handle_signal, fun
+        ({connection, congested, _Info}, Channel) ->
+            erlang:put(sendq_congested_notified, true),
+            Channel;
+        ({connection, decongested, _Info}, Channel) ->
+            erlang:put(sendq_decongested_notified, true),
+            Channel;
+        (Signal, Channel) ->
+            meck:passthrough([Signal, Channel])
+    end),
+    Threshold = emqx_threshold:init([
+        {oom, count, 1},
+        {sendq, bytes, 50}
+    ]),
+    State0 = st(#{
+        sockstate => running,
+        sendq_watermark => 100,
+        threshold_out => Threshold
+    }),
+    ok = meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
+        {ok, [{K, 60} || K <- Options]}
+    end),
+    {ok, State1} = emqx_connection:sent(0, 50, State0),
+    ?assertEqual(congested, emqx_connection:info(sockstate, State1)),
+    ?assertEqual(true, erlang:get(sendq_congested_notified)),
+
+    ok = meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
+        {ok, [{K, 20} || K <- Options]}
+    end),
+    {ok, State2} = emqx_connection:sent(1, 0, State1),
+    ?assertEqual(running, emqx_connection:info(sockstate, State2)),
+    ?assertEqual(true, erlang:get(sendq_decongested_notified)).
 
 t_close_socket(_) ->
     State = emqx_connection:close_socket(st(#{sockstate => closed})),

@@ -91,8 +91,9 @@
     transport :: esockd:transport(),
     %% TCP/TLS Socket
     socket :: esockd:socket() | emqx_quic_stream:socket(),
-    %% Sock State
-    sockstate :: emqx_types:sockstate(),
+    %% Sock State.
+    %% `congested` denotes send queue congestion.
+    sockstate :: emqx_types:sockstate() | congested,
     %% Packet parser / serializer (undefined before initialization)
     parser :: undefined | parser(),
     serialize :: emqx_frame:serialize_opts(),
@@ -108,6 +109,8 @@
     stats_timer :: disabled | option(reference()) | {idle, reference()},
     %% ActiveN
     active_n :: pos_integer(),
+    %% Send queue high watermark in bytes
+    sendq_watermark :: non_neg_integer(),
     %% Hibernate connection process if inactive for
     hibernate_after :: integer() | infinity,
     %% Zone name
@@ -555,10 +558,8 @@ handle_msg({Passive, _Sock}, State = #state{threshold_in = ThresholdIn}) when
     Passive == tcp_passive; Passive == ssl_passive; Passive =:= quic_passive
 ->
     %% Run GC and Check OOM
-    %% FIXME
     Triggers = emqx_threshold:trigger(ThresholdIn),
-    NState = run_triggers(in, Triggers, State),
-    check_oom(0, 0, NState),
+    NState = run_triggers(in, [oom | Triggers], State),
     handle_info(activate_socket, NState);
 handle_msg(
     Deliver = #deliver{},
@@ -1046,32 +1047,66 @@ sent(Num, Oct, State = #state{threshold_out = ThresholdOut}) ->
 
 run_triggers(Dir, [gc | Rest], State) ->
     run_gc(State),
-    run_triggers(Dir, skip_trigger(gc, Rest), State);
+    run_triggers(Dir, Rest, State);
 run_triggers(Dir, [oom | Rest], State) ->
     %% FIXME
     check_oom(0, 0, State),
-    run_triggers(Dir, Rest, State);
+    NState = check_sendq_congestion(State),
+    run_triggers(Dir, Rest, NState);
 run_triggers(Dir, [sendq | Rest], State) ->
-    %% TODO
-    run_triggers(Dir, Rest, State);
+    NState = probe_sendq_congestion(State),
+    run_triggers(Dir, Rest, NState);
 run_triggers(Dir, NThreshold, State) when not is_list(NThreshold) ->
     case Dir of
-        in ->
-            State#state{threshold_in = NThreshold};
-        out ->
-            State#state{threshold_out = NThreshold}
+        in -> State#state{threshold_in = NThreshold};
+        out -> State#state{threshold_out = NThreshold}
     end.
-
-skip_trigger(Name, [Name | Rest]) ->
-    Rest;
-skip_trigger(_, Triggers) ->
-    Triggers.
 
 run_gc(#state{zone = Zone}) ->
     case emqx_olp:backoff_gc(Zone) of
         false -> erlang:garbage_collect();
         true -> ok
     end.
+
+probe_sendq_congestion(State = #state{sockstate = congested}) ->
+    check_sendq_congestion(State);
+probe_sendq_congestion(State = #state{sendq_watermark = 0}) ->
+    State;
+probe_sendq_congestion(State = #state{sockstate = running, sendq_watermark = Watermark}) ->
+    SQSize = get_sendq_size(State),
+    case SQSize > Watermark div 2 of
+        true ->
+            NState = State#state{sockstate = congested},
+            signal_channel_congestion(congested, SQSize, NState);
+        false ->
+            State
+    end;
+probe_sendq_congestion(State) ->
+    State.
+
+check_sendq_congestion(State = #state{sockstate = congested, sendq_watermark = Watermark}) ->
+    SQSize = get_sendq_size(State),
+    case SQSize < Watermark div 4 of
+        true ->
+            NState = State#state{sockstate = running},
+            signal_channel_congestion(decongested, SQSize, NState);
+        false ->
+            State
+    end;
+check_sendq_congestion(State) ->
+    State.
+
+get_sendq_size(State) ->
+    case sockstats([send_pend], State) of
+        [{send_pend, SendPend}] -> SendPend;
+        _ -> 0
+    end.
+
+signal_channel_congestion(Status, SQSize, State = #state{channel = Channel}) ->
+    %% TODO: handle_info?
+    Signal = {connection, Status, #{sendq_size => SQSize}},
+    NChannel = emqx_channel:handle_signal(Signal, Channel),
+    State#state{channel = NChannel}.
 
 check_oom(Pubs, Bytes, #state{zone = Zone}) ->
     ShutdownPolicy = emqx_config:get_zone_conf(Zone, [force_shutdown]),
@@ -1187,11 +1222,16 @@ activate_socket(
     SockState =/= closed
 ->
     case Transport:setopts(Socket, [{active, ActiveN}]) of
-        ok -> {ok, State#state{sockstate = running}};
+        ok -> {ok, State#state{sockstate = activate_sockstate(SockState)}};
         Error -> Error
     end;
 activate_socket(State) ->
     {ok, State}.
+
+activate_sockstate(congested) ->
+    congested;
+activate_sockstate(_SockState) ->
+    running.
 
 %%--------------------------------------------------------------------
 %% Close Socket
@@ -1375,6 +1415,7 @@ init_zone_specific_state(Zone, Opts, #state{listener = {Type, Listener}} = State
         serialize = Serialize,
         threshold_in = ThresholdIn,
         threshold_out = ThresholdOut,
+        sendq_watermark = HighWatermark,
         hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
         zone = Zone
     }.
@@ -1413,4 +1454,5 @@ get_active_n(Type, Listener) ->
 get_high_watermark(quic, _Listener) ->
     0;
 get_high_watermark(Type, Listener) ->
+    %% TODO protect against too small hwm
     emqx_config:get_listener_conf(Type, Listener, [tcp_options, high_watermark]).

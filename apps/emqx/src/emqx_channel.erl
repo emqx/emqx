@@ -41,6 +41,7 @@
     handle_call/2,
     handle_cast/2,
     handle_info/2,
+    handle_signal/2,
     terminate/2
 ]).
 
@@ -1885,6 +1886,17 @@ die_if_test_compiled() ->
     ok.
 
 -endif.
+
+%%--------------------------------------------------------------------
+%% Handle signal
+%%--------------------------------------------------------------------
+
+handle_signal({connection, congested, _Info}, Channel) ->
+    %% TODO: react to connection sendq congestion.
+    Channel;
+handle_signal({connection, decongested, _Info}, Channel) ->
+    %% TODO: react to connection sendq decongestion.
+    Channel.
 
 %%--------------------------------------------------------------------
 %% Handle timeout
