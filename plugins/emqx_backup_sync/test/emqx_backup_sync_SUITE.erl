@@ -1947,7 +1947,7 @@ create_authn_user(UserId) ->
     ok.
 
 delete_authn_user(UserId) ->
-    ok = emqx_authn_mnesia:delete_user(UserId, authn_config()).
+    ok = emqx_authn_mnesia:delete_user(?global_ns, UserId, authn_config()).
 
 authn_config() ->
     #{
@@ -1961,6 +1961,7 @@ authn_config() ->
 
 create_authz_rules(Username) ->
     emqx_authz_mnesia:store_rules(
+        ?global_ns,
         {username, Username},
         [
             #{
@@ -1972,7 +1973,7 @@ create_authz_rules(Username) ->
     ).
 
 delete_authz_rules(Username) ->
-    ok = emqx_authz_mnesia:delete_rules({username, Username}).
+    ok = emqx_authz_mnesia:delete_rules(?global_ns, {username, Username}).
 
 store_retained_message(Topic, Payload) ->
     Msg = emqx_message:make(
@@ -2545,7 +2546,7 @@ has_banned(Node, ClientId) ->
 
 has_authn_user(Node, UserId) ->
     ?ON(Node, begin
-        case emqx_authn_mnesia:lookup_user(UserId, authn_config()) of
+        case emqx_authn_mnesia:lookup_user(?global_ns, UserId, authn_config()) of
             {ok, _} -> true;
             _ -> false
         end
@@ -2553,7 +2554,7 @@ has_authn_user(Node, UserId) ->
 
 has_authz_rules(Node, Username) ->
     ?ON(Node, begin
-        case emqx_authz_mnesia:get_rules({username, Username}) of
+        case emqx_authz_mnesia:get_rules(?global_ns, {username, Username}) of
             {ok, [_ | _]} -> true;
             _ -> false
         end
@@ -2795,10 +2796,10 @@ auth_runtime_status(Node) ->
                 emqx:get_config([authorization, sources], [])
             end),
             authn_user => safe_eval(fun() ->
-                emqx_authn_mnesia:lookup_user(?INTEGRATION_AUTHN_USER, authn_config())
+                emqx_authn_mnesia:lookup_user(?global_ns, ?INTEGRATION_AUTHN_USER, authn_config())
             end),
             authz_rules => safe_eval(fun() ->
-                emqx_authz_mnesia:get_rules({username, ?INTEGRATION_AUTHN_USER})
+                emqx_authz_mnesia:get_rules(?global_ns, {username, ?INTEGRATION_AUTHN_USER})
             end),
             authn_good => safe_eval(fun() ->
                 emqx_access_control:authenticate(GoodCredentials)
