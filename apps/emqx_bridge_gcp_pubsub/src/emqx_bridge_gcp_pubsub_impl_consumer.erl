@@ -393,6 +393,7 @@ get_client_status(Client) ->
 check_workers(SourceResId, Client) ->
     Opts = #{
         check_fn => fun emqx_bridge_gcp_pubsub_consumer_worker:health_check/1,
+        run_on => independent,
         is_success_fn => fun
             (subscription_ok) -> false;
             (_) -> true
