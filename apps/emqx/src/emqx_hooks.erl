@@ -27,6 +27,8 @@
     run/3,
     run_fold/3,
     run_fold/4,
+    run_fold_strict/3,
+    run_fold_strict/4,
     lookup/1
 ]).
 
@@ -70,6 +72,7 @@
 -type hookpoint() :: atom() | binary().
 -type action() :: {module(), atom(), [term()] | undefined}.
 -type filter() :: {module(), atom(), [term()] | undefined}.
+-type context() :: term().
 
 -record(callback, {
     action :: action(),
@@ -156,7 +159,7 @@ run(HookPoint, Args) ->
     ok = emqx_hookpoints:verify_hookpoint(HookPoint),
     do_run(lookup(HookPoint), Args).
 
--spec run(hookpoint(), map(), list(Arg :: term())) -> ok.
+-spec run(hookpoint(), context(), list(Arg :: term())) -> ok.
 run(HookPoint, Ctx, Args) ->
     ok = emqx_hookpoints:verify_hookpoint(HookPoint),
     ok = stash_context(HookPoint, Ctx),
@@ -164,11 +167,12 @@ run(HookPoint, Ctx, Args) ->
     ok = unstash_context(HookPoint).
 
 %% @doc Run hooks with Accumulator.
--spec run_fold(hookpoint(), list(Arg :: term()), Acc :: term()) -> Acc :: term().
+-spec run_fold(hookpoint(), list(_Arg :: term()), Acc) -> Acc when Acc :: term().
 run_fold(HookPoint, Args, Acc) ->
     ok = emqx_hookpoints:verify_hookpoint(HookPoint),
     do_run_fold(lookup(HookPoint), Args, Acc).
 
+-spec run_fold(hookpoint(), context(), list(_Arg :: term()), Acc) -> Acc when Acc :: term().
 run_fold(HookPoint, Ctx, Args, Acc) ->
     ok = emqx_hookpoints:verify_hookpoint(HookPoint),
     ok = stash_context(HookPoint, Ctx),
@@ -176,10 +180,27 @@ run_fold(HookPoint, Ctx, Args, Acc) ->
     ok = unstash_context(HookPoint),
     Result.
 
+-spec run_fold_strict(hookpoint(), list(_Arg :: term()), Acc) -> {ok, Acc} | {error, term()} when
+    Acc :: term().
+run_fold_strict(HookPoint, Args, Acc) ->
+    ok = emqx_hookpoints:verify_hookpoint(HookPoint),
+    do_run_fold_strict(lookup(HookPoint), Args, Acc).
+
+-spec run_fold_strict(hookpoint(), context(), list(_Arg :: term()), Acc) ->
+    {ok, Acc} | {error, term()}
+when
+    Acc :: term().
+run_fold_strict(HookPoint, Ctx, Args, Acc) ->
+    ok = emqx_hookpoints:verify_hookpoint(HookPoint),
+    ok = stash_context(HookPoint, Ctx),
+    Result = do_run_fold_strict(lookup(HookPoint), Args, Acc),
+    ok = unstash_context(HookPoint),
+    Result.
+
 do_run([#callback{action = Action, filter = Filter} | Callbacks], Args) ->
     case filter_passed(Filter, Args) andalso safe_execute(Action, Args) of
         %% stop the hook chain and return
-        stop -> ok;
+        {ok, stop} -> ok;
         %% continue the hook chain, in following cases:
         %%   - the filter validation failed with 'false'
         %%   - the callback returns any term other than 'stop'
@@ -192,18 +213,39 @@ do_run_fold([#callback{action = Action, filter = Filter} | Callbacks], Args, Acc
     Args1 = Args ++ [Acc],
     case filter_passed(Filter, Args1) andalso safe_execute(Action, Args1) of
         %% stop the hook chain
-        stop -> Acc;
+        {ok, stop} -> Acc;
         %% stop the hook chain with NewAcc
-        {stop, NewAcc} -> NewAcc;
+        {ok, {stop, NewAcc}} -> NewAcc;
         %% continue the hook chain with NewAcc
-        {ok, NewAcc} -> do_run_fold(Callbacks, Args, NewAcc);
+        {ok, {ok, NewAcc}} -> do_run_fold(Callbacks, Args, NewAcc);
         %% continue the hook chain, in following cases:
         %%   - the filter validation failed with 'false'
         %%   - the callback returns any term other than 'stop' or {'stop', NewAcc}
+        %%   - the callback crashes
         _ -> do_run_fold(Callbacks, Args, Acc)
     end;
 do_run_fold([], _Args, Acc) ->
     Acc.
+
+do_run_fold_strict([#callback{action = Action, filter = Filter} | Callbacks], Args, Acc) ->
+    Args1 = Args ++ [Acc],
+    case filter_passed(Filter, Args1) andalso safe_execute(Action, Args1) of
+        %% stop on crash
+        {error, Reason} -> {error, Reason};
+        %% stop the hook chain
+        {ok, stop} -> {ok, Acc};
+        %% stop the hook chain with NewAcc
+        {ok, {stop, NewAcc}} -> {ok, NewAcc};
+        %% continue the hook chain with NewAcc
+        {ok, {ok, NewAcc}} -> do_run_fold_strict(Callbacks, Args, NewAcc);
+        %% continue the hook chain, in following cases:
+        %%   - the filter validation failed with 'false'
+        %%   - the callback returns any term other than 'stop' or {'stop', NewAcc}
+        %%   - the callback crashes
+        _ -> do_run_fold_strict(Callbacks, Args, Acc)
+    end;
+do_run_fold_strict([], _Args, Acc) ->
+    {ok, Acc}.
 
 -spec filter_passed(filter(), Args :: term()) -> true | false.
 filter_passed(undefined, _Args) -> true;
@@ -211,7 +253,7 @@ filter_passed(Filter, Args) -> execute(Filter, Args).
 
 safe_execute({M, F, A}, Args) ->
     try execute({M, F, A}, Args) of
-        Result -> Result
+        Result -> {ok, Result}
     catch
         Error:Reason:Stacktrace ->
             ?tp(error, "hook_callback_exception", #{
@@ -221,7 +263,8 @@ safe_execute({M, F, A}, Args) ->
                 callback_module => M,
                 callback_function => F,
                 callback_args => emqx_utils_redact:redact(Args ++ A)
-            })
+            }),
+            {error, Reason}
     end.
 
 %% @doc execute a function.
@@ -239,11 +282,11 @@ lookup(HookPoint) ->
 %%   thread more context down to hooks.
 %%--------------------------------------------------------------------
 
--spec context(hookpoint()) -> undefined | term().
+-spec context(hookpoint()) -> undefined | context().
 context(Name) ->
     get(?HOOK_CTX_PD_KEY(Name)).
 
--spec stash_context(hookpoint(), term()) -> ok.
+-spec stash_context(hookpoint(), context()) -> ok.
 stash_context(Name, Context) ->
     _ = put(?HOOK_CTX_PD_KEY(Name), Context),
     ok.
