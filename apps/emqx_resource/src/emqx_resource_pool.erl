@@ -103,11 +103,12 @@ common_health_check_workers(PoolName, #{} = Opts) ->
     end),
     OnSuccessFn = maps:get(on_success_fn, Opts, fun() -> ?status_connected end),
     Timeout = maps:get(timeout, Opts, emqx_resource_pool:health_check_timeout()),
+    RunOn = maps:get(run_on, Opts, worker),
     Res = emqx_resource_pool:health_check_workers(
         PoolName,
         CheckFn,
         Timeout,
-        #{return_values => true}
+        #{return_values => true, run_on => RunOn}
     ),
     case Res of
         {ok, []} ->
@@ -136,6 +137,7 @@ common_health_check_workers(PoolName, #{} = Opts) ->
 
 do_health_check_workers(PoolName, CheckFunc, Timeout, Opts) ->
     ReturnValues = maps:get(return_values, Opts, false),
+    RunOn = maps:get(run_on, Opts, worker),
     Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
     DoPerWorker =
         fun(Worker) ->
@@ -143,7 +145,12 @@ do_health_check_workers(PoolName, CheckFunc, Timeout, Opts) ->
                 {ok, Conn} ?= ecpool_worker:client(Worker),
                 true ?= erlang:is_process_alive(Conn),
                 try
-                    ecpool_worker:exec(Worker, CheckFunc, Timeout)
+                    case RunOn of
+                        worker ->
+                            ecpool_worker:exec(Worker, CheckFunc, Timeout);
+                        independent ->
+                            CheckFunc(Conn)
+                    end
                 catch
                     exit:{timeout, _} ->
                         {error, timeout}
