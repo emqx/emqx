@@ -305,7 +305,10 @@ start_consumers(ConnectorResId, SourceResId, Client, ProjectId, SourceConfig) ->
         emqx_resource_pool:start(SourceResId, emqx_bridge_gcp_pubsub_consumer_worker, ConsumerOpts)
     of
         ok ->
-            State = #{pool_name => SourceResId},
+            State = #{
+                pool_name => SourceResId,
+                pool_size => PoolSize
+            },
             {ok, State};
         {error, Reason} ->
             {error, Reason}
@@ -321,7 +324,10 @@ stop_consumers(ConnectorState) ->
     ).
 
 stop_consumers1(SourceState) ->
-    #{pool_name := PoolName} = SourceState,
+    #{
+        pool_name := PoolName,
+        pool_size := PoolSize
+    } = SourceState,
     _ = log_when_error(
         fun() ->
             ok = emqx_resource_pool:stop(PoolName)
@@ -330,6 +336,12 @@ stop_consumers1(SourceState) ->
             msg => "failed_to_stop_pull_worker_pool",
             pool_name => PoolName
         }
+    ),
+    lists:foreach(
+        fun(WorkerId) ->
+            emqx_bridge_gcp_pubsub_consumer_worker:clear_optvar(WorkerId)
+        end,
+        lists:seq(1, PoolSize)
     ),
     ok.
 
@@ -374,7 +386,9 @@ get_client_status(Client) ->
     ?status_connected | ?status_connecting.
 check_workers(SourceResId, Client) ->
     Opts = #{
-        check_fn => fun emqx_bridge_gcp_pubsub_consumer_worker:health_check/1,
+        check_fn => fun(#{id := WorkerId}) ->
+            emqx_bridge_gcp_pubsub_consumer_worker:health_check(WorkerId)
+        end,
         run_on => independent,
         is_success_fn => fun
             (subscription_ok) -> false;

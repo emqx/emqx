@@ -138,9 +138,9 @@ common_health_check_workers(PoolName, #{} = Opts) ->
 do_health_check_workers(PoolName, CheckFunc, Timeout, Opts) ->
     ReturnValues = maps:get(return_values, Opts, false),
     RunOn = maps:get(run_on, Opts, worker),
-    Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
+    Workers = [{WorkerId, Worker} || {{_Name, WorkerId}, Worker} <- ecpool:workers(PoolName)],
     DoPerWorker =
-        fun(Worker) ->
+        fun({WorkerId, Worker}) ->
             maybe
                 {ok, Conn} ?= ecpool_worker:client(Worker),
                 true ?= erlang:is_process_alive(Conn),
@@ -149,7 +149,7 @@ do_health_check_workers(PoolName, CheckFunc, Timeout, Opts) ->
                         worker ->
                             ecpool_worker:exec(Worker, CheckFunc, Timeout);
                         independent ->
-                            CheckFunc(Conn)
+                            CheckFunc(#{conn => Conn, id => WorkerId})
                     end
                 catch
                     exit:{timeout, _} ->
