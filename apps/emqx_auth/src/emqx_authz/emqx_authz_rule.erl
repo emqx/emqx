@@ -522,23 +522,34 @@ topic_template_allow() ->
 
 validate_topic_template_value(Name, Value, TopicTemplateAllow) ->
     Rendered = emqx_template:to_string(Value),
-    ok = do_validate_topic_template_value(
-        Name, unicode:characters_to_list(Rendered), TopicTemplateAllow
-    ),
+    ok = do_validate_topic_template_value(Name, Rendered, TopicTemplateAllow),
     Rendered.
 
+%% emqx_template:to_string/1 returns either a binary or a unicode character list
+%% we directly handle both cases to avoid additional conversions.
+do_validate_topic_template_value(_Name, <<>>, _TopicTemplateAllow) ->
+    ok;
+do_validate_topic_template_value(Name, <<Char, Rest/binary>>, TopicTemplateAllow) when
+    Char =:= $/ orelse Char =:= $# orelse Char =:= $+
+->
+    check_special_char(Name, Char, Rest, TopicTemplateAllow);
+do_validate_topic_template_value(Name, <<_Char, Rest/binary>>, TopicTemplateAllow) ->
+    do_validate_topic_template_value(Name, Rest, TopicTemplateAllow);
 do_validate_topic_template_value(_Name, [], _TopicTemplateAllow) ->
     ok;
 do_validate_topic_template_value(Name, [Char | Rest], TopicTemplateAllow) when
     Char =:= $/ orelse Char =:= $# orelse Char =:= $+
 ->
+    check_special_char(Name, Char, Rest, TopicTemplateAllow);
+do_validate_topic_template_value(Name, [_Char | Rest], TopicTemplateAllow) ->
+    do_validate_topic_template_value(Name, Rest, TopicTemplateAllow);
+do_validate_topic_template_value(Name, InvalidUnicode, _TopicTemplateAllow) ->
+    throw({invalid_value_substituted_in_topic, {Name, InvalidUnicode}}).
+
+check_special_char(Name, Char, Rest, TopicTemplateAllow) ->
     case maps:get(Char, TopicTemplateAllow) of
         true ->
             do_validate_topic_template_value(Name, Rest, TopicTemplateAllow);
         false ->
             throw({invalid_char_in_value_substituted_in_topic, {Name, Char}})
-    end;
-do_validate_topic_template_value(Name, [_Char | Rest], TopicTemplateAllow) ->
-    do_validate_topic_template_value(Name, Rest, TopicTemplateAllow);
-do_validate_topic_template_value(Name, InvalidUnicode, _TopicTemplateAllow) ->
-    throw({invalid_value_substituted_in_topic, {Name, InvalidUnicode}}).
+    end.

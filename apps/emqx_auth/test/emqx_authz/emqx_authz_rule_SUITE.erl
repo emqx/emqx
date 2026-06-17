@@ -19,6 +19,8 @@
     listener => 'tcp:default'
 }).
 
+-define(PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -878,7 +880,14 @@ assert_topic_template_injection_result(Expected) ->
     Cases = [
         {#{username => <<"+">>}, <<"tenant/other/data">>, "tenant/${username}/data"},
         {#{username => <<"#">>}, <<"tenant/other/data">>, "tenant/${username}"},
-        {#{username => <<"other/level">>}, <<"tenant/other/level/data">>, "tenant/${username}/data"}
+        {
+            #{username => <<"other/level">>},
+            <<"tenant/other/level/data">>,
+            "tenant/${username}/data"
+        },
+        {#{username => "+"}, <<"tenant/other/data">>, "tenant/${username}/data"},
+        {#{username => "#"}, <<"tenant/other/data">>, "tenant/${username}"},
+        {#{username => "other/level"}, <<"tenant/other/level/data">>, "tenant/${username}/data"}
     ],
     lists:foreach(
         fun({ClientInfoOverride, Topic, TopicTemplate}) ->

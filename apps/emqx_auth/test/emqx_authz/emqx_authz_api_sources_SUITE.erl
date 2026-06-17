@@ -134,6 +134,7 @@ end_per_suite(Config) ->
     _ = emqx_common_test_http:delete_default_app(),
     emqx_cth_suite:stop(?config(suite_apps, Config)),
     meck:unload(emqx_resource),
+    meck:unload(emqx_authz_file),
     ok.
 
 init_per_testcase(t_api, Config) ->
