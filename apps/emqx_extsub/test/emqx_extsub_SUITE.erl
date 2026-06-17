@@ -143,3 +143,37 @@ test_smoke(_Config, NBatches, BatchSize, IntervalMs) ->
     }),
     ?assertEqual(ExpectedMessages, length(Msgs)),
     ok = emqtt:disconnect(CSub).
+
+%% Test that session's QoS0 fallback for `delivery.completed` does
+%% not interfere with extsubs's fallback.
+%%
+%% Previously, there was an issue where extsubs's fallback counted a message
+%% as delivered in `message.delivered` and then once more in `delivery.completed`.
+t_qos0_not_double_completed(_Config) ->
+    ClientId = <<"qos0-not-double-completed">>,
+    TopicFilter = <<"extsub_st_test/qos0/1/5/0">>,
+    CSub = emqx_extsub_test_utils:emqtt_connect([
+        {clientid, ClientId},
+        {clean_start, true}
+    ]),
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    ok = emqx_extsub_test_utils:emqtt_subscribe(CSub, TopicFilter),
+    {ok, Msgs} = emqx_extsub_test_utils:emqtt_drain(5, 5000),
+    ?assertEqual(5, length(Msgs)),
+    ?retry(
+        100,
+        20,
+        begin
+            {ok, #{
+                registry := #{
+                    buffer := #{
+                        message_buffer_size := 0,
+                        delivering := Delivering
+                    }
+                },
+                unacked_count := 0
+            }} = emqx_extsub:inspect(ChanPid),
+            ?assert(lists:all(fun(N) -> N =:= 0 end, maps:values(Delivering)))
+        end
+    ),
+    ok = emqtt:disconnect(CSub).

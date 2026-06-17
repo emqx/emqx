@@ -1,0 +1,122 @@
+{
+    "$primary_base_url_label": {
+        "en": "Primary API Base URL",
+        "zh": "主集群 API 基础 URL"
+    },
+    "$primary_base_url_desc": {
+        "en": "Primary Dashboard API base URL, for example https://primary.example.com:18083/api/v5.",
+        "zh": "主集群 Dashboard API 基础 URL，例如 https://primary.example.com:18083/api/v5。"
+    },
+    "$primary_api_key_label": {
+        "en": "API Key",
+        "zh": "API Key"
+    },
+    "$primary_api_key_desc": {
+        "en": "Primary cluster API key. Use file://PATH to read the value from a local file.",
+        "zh": "主集群 API key。可使用 file://PATH 从本地文件读取。"
+    },
+    "$primary_api_secret_label": {
+        "en": "API Secret",
+        "zh": "API Secret"
+    },
+    "$primary_api_secret_desc": {
+        "en": "Primary cluster API secret. Use file://PATH to read the value from a local file.",
+        "zh": "主集群 API secret。可使用 file://PATH 从本地文件读取。"
+    },
+    "$primary_ssl_enable_label": {
+        "en": "Enable TLS Options",
+        "zh": "启用 TLS 选项"
+    },
+    "$primary_ssl_enable_desc": {
+        "en": "Enable custom TLS options for HTTPS calls to the primary cluster.",
+        "zh": "为访问主集群的 HTTPS 请求启用自定义 TLS 选项。"
+    },
+    "$primary_ssl_sni_label": {
+        "en": "Server Name Indication",
+        "zh": "服务器名称指示"
+    },
+    "$primary_ssl_sni_desc": {
+        "en": "TLS SNI hostname. Use disable to omit SNI.",
+        "zh": "TLS SNI 主机名。设置为 disable 表示不发送 SNI。"
+    },
+    "$primary_ssl_verify_label": {
+        "en": "Verify Server Certificate",
+        "zh": "验证服务端证书"
+    },
+    "$primary_ssl_verify_desc": {
+        "en": "Use verify_peer with cacertfile for private or self-signed Dashboard certificates.",
+        "zh": "对于私有 CA 或自签名 Dashboard 证书，请配合 cacertfile 使用 verify_peer。"
+    },
+    "$primary_ssl_cacertfile_label": {
+        "en": "CA Certificate File",
+        "zh": "CA 证书文件"
+    },
+    "$primary_ssl_cacertfile_desc": {
+        "en": "Path to the trusted CA certificate file used when verify is verify_peer.",
+        "zh": "verify 为 verify_peer 时使用的可信 CA 证书文件路径。"
+    },
+    "$primary_ssl_certfile_label": {
+        "en": "Client Certificate File",
+        "zh": "客户端证书文件"
+    },
+    "$primary_ssl_certfile_desc": {
+        "en": "Path to the optional client certificate file.",
+        "zh": "可选的客户端证书文件路径。"
+    },
+    "$primary_ssl_keyfile_label": {
+        "en": "Client Key File",
+        "zh": "客户端私钥文件"
+    },
+    "$primary_ssl_keyfile_desc": {
+        "en": "Path to the optional client private key file.",
+        "zh": "可选的客户端私钥文件路径。"
+    },
+    "$sync_interval_label": {
+        "en": "Interval",
+        "zh": "同步间隔"
+    },
+    "$sync_interval_desc": {
+        "en": "Synchronization interval.",
+        "zh": "同步间隔。"
+    },
+    "$sync_root_keys_label": {
+        "en": "Root Keys",
+        "zh": "配置根键"
+    },
+    "$sync_root_keys_desc": {
+        "en": "Configuration root keys to export from the primary cluster. Supported values: connectors, actions, sources, rule_engine, listeners, schema_registry, authentication, authorization. When rule_engine is selected, include its dependent connectors, actions, sources, and schema_registry roots unless they already exist on the secondary cluster.",
+        "zh": "从主集群导出的配置根键。支持的值：connectors、actions、sources、rule_engine、listeners、schema_registry、authentication、authorization。选择 rule_engine 时，除非依赖对象已存在于备集群，否则应同时包含 connectors、actions、sources 和 schema_registry。"
+    },
+    "$sync_table_sets_label": {
+        "en": "Table Sets",
+        "zh": "表集合"
+    },
+    "$sync_table_sets_desc": {
+        "en": "Mnesia table sets to export and replace on the secondary cluster. Supported values: banned, builtin_authn, builtin_authz, builtin_retainer, psk, mt. Set to an empty list for configuration-only synchronization. Primary API-key export does not include dashboard_users or api_keys.",
+        "zh": "导出并在备集群替换的 Mnesia 表集合。支持的值：banned、builtin_authn、builtin_authz、builtin_retainer、psk、mt。设置为空列表表示仅同步配置。主集群 API-key 导出不包含 dashboard_users 或 api_keys。"
+    },
+    "$sync_timeout_label": {
+        "en": "Request Timeout",
+        "zh": "请求超时时间"
+    },
+    "$sync_timeout_desc": {
+        "en": "HTTP request timeout for calls to the primary cluster.",
+        "zh": "访问主集群时的 HTTP 请求超时时间。"
+    },
+    "$sync_retain_remote_backup_label": {
+        "en": "Retain Remote Backup",
+        "zh": "保留远端备份"
+    },
+    "$sync_retain_remote_backup_desc": {
+        "en": "Retain the exported backup file on the primary cluster after synchronization.",
+        "zh": "同步完成后保留主集群上导出的备份文件。"
+    },
+    "$sync_retain_backup_after_import_label": {
+        "en": "Retain Backup After Import",
+        "zh": "导入后保留备份"
+    },
+    "$sync_retain_backup_after_import_desc": {
+        "en": "Retain the uploaded local backup file after import.",
+        "zh": "导入后保留上传到本地的备份文件。"
+    }
+}
