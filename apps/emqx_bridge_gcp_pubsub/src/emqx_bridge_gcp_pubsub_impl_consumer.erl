@@ -25,6 +25,7 @@
 -export([
     mark_as_unhealthy/2,
     clear_unhealthy/1,
+    clear_one_unhealthy/1,
     check_if_unhealthy/1
 ]).
 
@@ -162,6 +163,7 @@ on_add_channel(ConnectorResId, ConnectorState0, SourceResId, SourceConfig) ->
     {ok, connector_state()}.
 on_remove_channel(_ConnectorResId, ConnectorState0, SourceResId) ->
     #{installed_sources := InstalledSources0} = ConnectorState0,
+    clear_one_unhealthy(SourceResId),
     case maps:take(SourceResId, InstalledSources0) of
         {SourceState, InstalledSources} ->
             stop_consumers1(SourceState),
@@ -215,12 +217,17 @@ mark_as_unhealthy(SourceResId, Reason) ->
     optvar:set(?OPTVAR_UNHEALTHY(SourceResId), Reason),
     ok.
 
+clear_one_unhealthy(SourceResId) ->
+    optvar:unset(?OPTVAR_UNHEALTHY(SourceResId)),
+    ?tp(gcp_pubsub_consumer_clear_unhealthy, #{source_res_id => SourceResId}),
+    ok.
+
 -spec clear_unhealthy(connector_state()) -> ok.
 clear_unhealthy(ConnectorState) ->
     #{installed_sources := InstalledSources} = ConnectorState,
     maps:foreach(
         fun(SourceResId, _SourceState) ->
-            optvar:unset(?OPTVAR_UNHEALTHY(SourceResId))
+            clear_one_unhealthy(SourceResId)
         end,
         InstalledSources
     ),
@@ -272,6 +279,7 @@ start_consumers(ConnectorResId, SourceResId, Client, ProjectId, SourceConfig) ->
     ConsumerOpts = maps:to_list(ConsumerConfig),
     ReqOpts = #{request_ttl => RequestTTL},
     PubsubTopics = [PubsubTopic],
+    clear_one_unhealthy(SourceResId),
     case validate_pubsub_topics(PubsubTopics, Client, ReqOpts) of
         ok ->
             ok;

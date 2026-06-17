@@ -832,7 +832,7 @@ t_start_stop(TCConfig) ->
             prop_client_stopped(),
             prop_workers_stopped(PubSubTopic),
             fun(Trace) ->
-                ?assertMatch([_], ?of_kind(gcp_pubsub_consumer_clear_unhealthy, Trace)),
+                ?assertMatch([_, _ | _], ?of_kind(gcp_pubsub_consumer_clear_unhealthy, Trace)),
                 ok
             end
         ]
