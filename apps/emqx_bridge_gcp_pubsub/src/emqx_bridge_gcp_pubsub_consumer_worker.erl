@@ -217,6 +217,7 @@ handle_continue(?ensure_subscription, State0) ->
             #{source_resource_id := SourceResId} = State0,
             ?MODULE:pull_async(self()),
             optvar:set(?OPTVAR_SUB_OK(self()), subscription_ok),
+            clear_unhealthy_status(State0),
             ?tp(
                 debug,
                 "gcp_pubsub_consumer_worker_subscription_ready",
@@ -240,6 +241,7 @@ handle_continue(?patch_subscription, State0) ->
             #{source_resource_id := SourceResId} = State0,
             ?MODULE:pull_async(self()),
             optvar:set(?OPTVAR_SUB_OK(self()), subscription_ok),
+            clear_unhealthy_status(State0),
             ?tp(
                 debug,
                 "gcp_pubsub_consumer_worker_subscription_ready",
@@ -807,6 +809,11 @@ render(FullMessage, PayloadTemplate) ->
 forget_message_ids_after(MsgIds0, Timeout) ->
     MsgIds = sets:from_list(MsgIds0, [{version, 2}]),
     _ = erlang:send_after(Timeout, self(), {forget_message_ids, MsgIds}),
+    ok.
+
+clear_unhealthy_status(State) ->
+    #{source_resource_id := SourceResId} = State,
+    emqx_bridge_gcp_pubsub_impl_consumer:clear_one_unhealthy(SourceResId),
     ok.
 
 to_bin(A) when is_atom(A) -> atom_to_binary(A);
