@@ -27,7 +27,6 @@
 -define(PS_PREFIX, "coap://127.0.0.1/ps").
 -define(MQTT_PREFIX, "coap://127.0.0.1/mqtt").
 -define(OBSERVE_NOTIFICATION_QUEUE_MAX_LEN, 100).
--define(PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -91,16 +90,6 @@ update_coap_with_mountpoint(Mp) ->
         coap,
         Conf#{<<"mountpoint">> => Mp}
     ).
-
-with_security_profile(Profile, Fun) ->
-    os:putenv(?PROFILE_ENV_VAR, Profile),
-    emqx_security_profile:clear_profile(),
-    try
-        Fun()
-    after
-        os:unsetenv(?PROFILE_ENV_VAR),
-        emqx_security_profile:clear_profile()
-    end.
 
 with_connectionless_coap(EnableAuthn, Fun) ->
     OldConf = emqx:get_raw_config([gateway, coap]),
@@ -714,7 +703,7 @@ t_pubsub_unauthorized(_) ->
     end.
 
 t_connectionless_hardened_no_auth_config_rejects_pub_sub(_) ->
-    with_security_profile("hardened", fun() ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         with_connectionless_coap(true, fun() ->
             PublishTopic = <<"security/coap/hardened/publish">>,
             SubscribeTopic = <<"security/coap/hardened/subscribe">>,
@@ -747,7 +736,7 @@ t_connectionless_hardened_no_auth_config_rejects_pub_sub(_) ->
     end).
 
 t_connectionless_legacy_no_auth_config_allows_pub_sub(_) ->
-    with_security_profile("legacy", fun() ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
         with_connectionless_coap(true, fun() ->
             assert_connectionless_pub_sub_allowed(
                 <<"security/coap/legacy/publish">>,
@@ -757,7 +746,7 @@ t_connectionless_legacy_no_auth_config_allows_pub_sub(_) ->
     end).
 
 t_connectionless_observe_skips_session_subscribed_hook(_) ->
-    with_security_profile("legacy", fun() ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
         with_connectionless_coap(true, fun() ->
             Parent = self(),
             SubscribedHook = {?MODULE, forward_session_subscribed, [Parent]},
@@ -791,7 +780,7 @@ t_connectionless_observe_skips_session_subscribed_hook(_) ->
     end).
 
 t_connectionless_hardened_listener_authn_disabled_allows_pub_sub(_) ->
-    with_security_profile("hardened", fun() ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         with_connectionless_coap(false, fun() ->
             assert_connectionless_pub_sub_allowed(
                 <<"security/coap/authn-disabled/publish">>,
@@ -801,7 +790,7 @@ t_connectionless_hardened_listener_authn_disabled_allows_pub_sub(_) ->
     end).
 
 t_connectionless_hardened_authn_allows_pub_sub(_) ->
-    with_security_profile("hardened", fun() ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         ok = emqx_gateway_auth_ct:start_auth(authn_http),
         try
             with_connectionless_coap(true, fun() ->
@@ -822,7 +811,7 @@ t_connectionless_hardened_authn_allows_pub_sub(_) ->
     end).
 
 t_connectionless_hardened_bad_authn_rejects_pub_sub(_) ->
-    with_security_profile("hardened", fun() ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         ok = emqx_gateway_auth_ct:start_auth(authn_http),
         try
             with_connectionless_coap(true, fun() ->
@@ -843,7 +832,7 @@ t_connectionless_hardened_bad_authn_rejects_pub_sub(_) ->
     end).
 
 t_connectionless_hardened_authn_is_request_scoped(_) ->
-    with_security_profile("hardened", fun() ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         ok = emqx_gateway_auth_ct:start_auth(authn_http),
         try
             with_connectionless_coap(true, fun() ->
@@ -865,7 +854,7 @@ t_connectionless_hardened_authn_is_request_scoped(_) ->
     end).
 
 t_connectionless_mountpoint_from_authn_client_attrs(_) ->
-    with_security_profile("hardened", fun() ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         update_coap_with_mountpoint(<<"mp/${client_attrs.group}/">>),
         ok = meck:new(emqx_access_control, [passthrough, no_history]),
         ok = meck:expect(

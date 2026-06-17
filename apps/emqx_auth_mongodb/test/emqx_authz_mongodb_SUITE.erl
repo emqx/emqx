@@ -15,6 +15,9 @@
 
 -define(MONGO_HOST, "mongo").
 -define(MONGO_CLIENT, 'emqx_authz_mongo_SUITE_client').
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
+-define(PROXY_NAME, "mongo_single_tcp").
 
 all() ->
     [
@@ -129,6 +132,80 @@ t_node_cache(_Config) ->
         #{hits := #{value := 1}, misses := #{value := 2}},
         emqx_auth_cache:metrics(?AUTHZ_CACHE)
     ).
+
+t_render_filter_failure_legacy_ignores(Config) ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ok = setup_authz_source(#{
+            filter => #{<<"username">> => <<"${username}">>},
+            use_legacy_protocol => ?config(use_legacy_protocol, Config)
+        }),
+        {ok, _} = emqx:update_config([authorization, no_match], allow),
+        ?assertEqual(
+            allow,
+            emqx_access_control:authorize(
+                #{username => <<255>>},
+                ?AUTHZ_PUBLISH,
+                <<"a">>
+            )
+        )
+    end).
+
+t_render_filter_failure_hardened_denies(Config) ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ok = setup_authz_source(#{
+            filter => #{<<"username">> => <<"${username}">>},
+            use_legacy_protocol => ?config(use_legacy_protocol, Config)
+        }),
+        {ok, _} = emqx:update_config([authorization, no_match], allow),
+        ?assertEqual(
+            deny,
+            emqx_access_control:authorize(
+                #{username => <<255>>},
+                ?AUTHZ_PUBLISH,
+                <<"a">>
+            )
+        )
+    end).
+
+t_resource_failure_legacy_ignores(Config) ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ok = setup_authz_source(#{
+            filter => #{<<"username">> => <<"${username}">>},
+            use_legacy_protocol => ?config(use_legacy_protocol, Config),
+            settings => #{<<"server">> => <<"toxiproxy:27017">>}
+        }),
+        {ok, _} = emqx:update_config([authorization, no_match], allow),
+        with_failure(down, fun() ->
+            ?assertEqual(
+                allow,
+                emqx_access_control:authorize(
+                    emqx_authz_test_lib:base_client_info(),
+                    ?AUTHZ_PUBLISH,
+                    <<"a">>
+                )
+            )
+        end)
+    end).
+
+t_resource_failure_hardened_denies(Config) ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ok = setup_authz_source(#{
+            filter => #{<<"username">> => <<"${username}">>},
+            use_legacy_protocol => ?config(use_legacy_protocol, Config),
+            settings => #{<<"server">> => <<"toxiproxy:27017">>}
+        }),
+        {ok, _} = emqx:update_config([authorization, no_match], allow),
+        with_failure(down, fun() ->
+            ?assertEqual(
+                deny,
+                emqx_access_control:authorize(
+                    emqx_authz_test_lib:base_client_info(),
+                    ?AUTHZ_PUBLISH,
+                    <<"a">>
+                )
+            )
+        end)
+    end).
 
 %%------------------------------------------------------------------------------
 %% Cases
@@ -512,6 +589,15 @@ mongo_config() ->
         {password, mongo_password()},
         {register, ?MONGO_CLIENT}
     ].
+
+with_failure(FailureType, Fun) ->
+    emqx_common_test_helpers:with_failure(
+        FailureType,
+        ?PROXY_NAME,
+        ?PROXY_HOST,
+        ?PROXY_PORT,
+        Fun
+    ).
 
 mongo_authsource() ->
     iolist_to_binary(os:getenv("MONGO_AUTHSOURCE", "admin")).
