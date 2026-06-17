@@ -109,7 +109,8 @@ get_status(S3ClientConfig) ->
         {error, Reason} ->
             {?status_disconnected, emqx_s3_utils:map_error_details(Reason)};
         AWSConfig ->
-            try erlcloud_s3:list_buckets(AWSConfig) of
+            Opts = #{max_buckets => 1},
+            try erlcloud_s3:list_buckets(Opts, AWSConfig) of
                 Props when is_list(Props) ->
                     ?status_connected
             catch

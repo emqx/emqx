@@ -59,6 +59,7 @@ groups() ->
 init_per_suite(TCConfig) ->
     Server = render_str("${host}:${port}", #{host => ?PROXY_HOST, port => ?PORT}),
     os:putenv("BIGQUERY_EMULATOR_HOST", Server),
+    WorkDir = emqx_cth_suite:work_dir(TCConfig),
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -69,9 +70,10 @@ init_per_suite(TCConfig) ->
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
-        #{work_dir => emqx_cth_suite:work_dir(TCConfig)}
+        #{work_dir => WorkDir}
     ),
     [
+        {work_dir, WorkDir},
         {apps, Apps},
         {proxy_host, ?PROXY_HOST},
         {proxy_port, ?PROXY_PORT},
@@ -456,6 +458,18 @@ get_action_api(TCConfig) ->
         emqx_bridge_v2_testlib:get_action_api(TCConfig)
     ).
 
+mk_service_account_file(TCConfig, Content) ->
+    Filename = filename:join(
+        ?config(work_dir, TCConfig),
+        lists:flatten([
+            binary_to_list(?config(connector_name, TCConfig)),
+            integer_to_list(erlang:unique_integer()),
+            ".json"
+        ])
+    ),
+    ok = file:write_file(Filename, Content),
+    Filename.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -465,6 +479,15 @@ t_start_stop(TCConfig) when is_list(TCConfig) ->
 
 t_on_get_status(TCConfig) when is_list(TCConfig) ->
     emqx_bridge_v2_testlib:t_on_get_status(TCConfig).
+
+t_on_get_status_with_service_account_file_secret(TCConfig) ->
+    ServiceAccountJSON = ?config(service_account_json, TCConfig),
+    Filename = mk_service_account_file(TCConfig, emqx_utils_json:encode(ServiceAccountJSON)),
+    FileRef = iolist_to_binary(["file://", Filename]),
+    emqx_bridge_v2_testlib:t_on_get_status([
+        {connector_overrides, #{<<"service_account_json">> => FileRef}}
+        | TCConfig
+    ]).
 
 t_rule_action() ->
     [{matrix, true}].
@@ -492,6 +515,26 @@ t_rule_action(TCConfig) when is_list(TCConfig) ->
         post_publish_fn => PostPublishFn
     },
     emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts).
+
+t_file_secret_service_account_json(TCConfig) when is_list(TCConfig) ->
+    ConnectorName = ?config(connector_name, TCConfig),
+    ServiceAccountJSON = ?config(service_account_json, TCConfig),
+    Filename = mk_service_account_file(TCConfig, emqx_utils_json:encode(ServiceAccountJSON)),
+    FileRef = iolist_to_binary(["file://", Filename]),
+    {201, _} = create_connector_api(TCConfig, #{<<"service_account_json">> => FileRef}),
+    {ok, Hocon} = hocon:files([application:get_env(emqx, cluster_hocon_file, undefined)]),
+    ?assertEqual(
+        FileRef,
+        emqx_utils_maps:deep_get(
+            [
+                <<"connectors">>,
+                ?CONNECTOR_TYPE_BIN,
+                ConnectorName,
+                <<"service_account_json">>
+            ],
+            Hocon
+        )
+    ).
 
 %% Checks that we mark the resource as unhealthy if the dataset does not exist at channel
 %% creation time.

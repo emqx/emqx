@@ -24,6 +24,11 @@ emqx_bridge_mqtt_pubsub_schema {
   source_no_local.desc:
   """Whether to set the no-local flag when subscribing to the remote topic.  If set to true, and you use the same connector to publish messages to a topic you also subscribe to, this prevents the server from forwarding your own published messages back to you.  Only takes effect when using MQTT protocol version 5.  Note that if you use a pool of workers larger than 1 you will still receive duplicated messages back."""
 
+  source_retain_as_published.label:
+  """Retain As Published"""
+  source_retain_as_published.desc:
+  """Whether to set the MQTT 5.0 Retain As Published subscription option on the remote subscription.  When set to true (the default), the upstream broker preserves the `retain` flag on messages forwarded to this subscription; when set to false, the upstream clears the `retain` flag.  Only takes effect when the connector's `proto_ver` is `v5`."""
+
 
 source_parameters.desc:
 """Source-specific parameters."""

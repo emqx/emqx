@@ -492,15 +492,14 @@ t_retained_sys_messages(_Config) ->
 -doc """
 Namespaced users (admin or viewer) must not be able to reach the retained
 message endpoints, because the retained store is global and exposes MQTT
-payloads from other namespaces. The minirest filter is wired at the
-schema level, so all methods on those paths return `403` -- including
-the `DELETE` variants that would let a namespaced caller wipe other-
-namespace retained messages.
+payloads from other namespaces. RBAC owns this whole-endpoint restriction,
+so all methods on those paths return `403` -- including the `DELETE`
+variants that would let a namespaced caller wipe other-namespace retained
+messages.
 """.
 t_namespaced_user_forbidden(_Config) ->
     %% No slash in the topic so we don't have to URL-encode it just to
-    %% exercise the schema-level filter; the gate fires before any
-    %% topic parsing happens.
+    %% exercise the RBAC gate; it fires before any topic parsing happens.
     Topic = <<"sometopic">>,
     lists:foreach(
         fun(AuthHeader) ->

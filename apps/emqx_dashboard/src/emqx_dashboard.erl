@@ -359,8 +359,8 @@ api_key_authorize(Req, HandlerInfo, Key, Secret) ->
                 <<"Please use bearer Token instead, using API key/secret in ", Resource/binary,
                     " path is not permitted">>
             );
-        {error, unauthorized_role} ->
-            {403, 'UNAUTHORIZED_ROLE', ?API_KEY_NOT_ALLOW_MSG};
+        {error, {unauthorized_role, Msg}} when is_binary(Msg) ->
+            {403, 'UNAUTHORIZED_ROLE', Msg};
         {error, _} ->
             return_unauthorized(
                 ?BAD_API_KEY_OR_SECRET,
@@ -401,8 +401,8 @@ jwt_token_bearer_authorize(Req, HandlerInfo, Token) ->
                 "API keys can be bootstrapped from config "
                 "(api_key.bootstrap_file) or created via POST /api/v5/api_key"
             >>};
-        {error, unauthorized_role} ->
-            {403, 'UNAUTHORIZED_ROLE', <<"You don't have permission to access this resource">>}
+        {error, {unauthorized_role, Msg}} when is_binary(Msg) ->
+            {403, 'UNAUTHORIZED_ROLE', Msg}
     end.
 
 ensure_ssl_cert(Listeners = #{https := Https0 = #{ssl_options := SslOpts}}) ->

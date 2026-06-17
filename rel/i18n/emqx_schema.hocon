@@ -1225,7 +1225,8 @@ fields_mqtt_quic_listener_migration_enabled.label:
 """Migration enabled"""
 
 common_ssl_opts_schema_password.desc:
-"""String containing the user's password. Only used if the private key file is password-protected."""
+"""String containing the user's password. Only used if the private key file is password-protected.<br/>
+To load the password from a file instead of embedding it inline, use the form <code>file://&lt;path-to-file&gt;</code>. The file's content (with any trailing whitespace stripped) is then used as the password. When clustered, the file must exist on all EMQX nodes."""
 
 common_ssl_opts_schema_password.label:
 """Keyfile Passphrase"""

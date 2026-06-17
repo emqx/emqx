@@ -18,6 +18,7 @@
 
 -define(ROLE_SUPERUSER, <<"administrator">>).
 -define(ROLE_API_SUPERUSER, <<"administrator">>).
+-define(DEFAULT_APP_ID, <<"default_appid">>).
 -define(BOOTSTRAP_BACKUP, "emqx-export-test-bootstrap-ce.tar.gz").
 
 -define(CACERT, <<
@@ -72,7 +73,10 @@ init_per_testcase(TC = t_import_on_cluster, Config) ->
         {ok, #{changed => [], root_key => gateway}}
     ),
     [{cluster, cluster(TC, Config)} | setup(TC, Config)];
-init_per_testcase(TC = t_verify_imported_mnesia_tab_on_cluster, Config) ->
+init_per_testcase(TC, Config) when
+    TC =:= t_verify_imported_mnesia_tab_on_cluster;
+    TC =:= t_verify_merged_mnesia_tab_on_cluster
+->
     [{cluster, cluster(TC, Config)} | setup(TC, Config)];
 init_per_testcase(TC = t_import_file_authz_source_on_cluster, Config) ->
     %% Don't import listeners to avoid port conflicts when running in a cluster.
@@ -91,9 +95,20 @@ init_per_testcase(TC = t_import_file_authz_source_on_cluster, Config) ->
         {ok, #{changed => [], root_key => gateway}}
     ),
     [{cluster, cluster(TC, Config)} | setup(TC, Config)];
-init_per_testcase(t_mnesia_bad_tab_schema, Config) ->
+init_per_testcase(TC, Config) when
+    TC =:= t_parse_export_request_invalid_namespace;
+    TC =:= t_mnesia_restore_low_level_error_branches;
+    TC =:= t_mnesia_backup_reader_error_branches
+->
+    Config;
+init_per_testcase(TC, Config) when
+    TC =:= t_mnesia_bad_tab_schema;
+    TC =:= t_mnesia_backup_migration;
+    TC =:= t_mnesia_default_restore_keeps_existing_records;
+    TC =:= t_mnesia_restore_failure_keeps_existing_records
+->
     meck:new(emqx_mgmt_data_backup, [passthrough]),
-    meck:expect(TC = emqx_mgmt_data_backup, modules_with_mnesia_tabs_to_backup, 0, [?MODULE]),
+    meck:expect(emqx_mgmt_data_backup, modules_with_mnesia_tabs_to_backup, 0, [?MODULE]),
     setup(TC, Config);
 init_per_testcase(TC, Config) ->
     setup(TC, Config).
@@ -103,7 +118,10 @@ end_per_testcase(t_import_on_cluster, Config) ->
     cleanup(Config),
     meck:unload(emqx_mgmt_listeners_conf),
     meck:unload(emqx_gateway_conf);
-end_per_testcase(t_verify_imported_mnesia_tab_on_cluster, Config) ->
+end_per_testcase(TC, Config) when
+    TC =:= t_verify_imported_mnesia_tab_on_cluster;
+    TC =:= t_verify_merged_mnesia_tab_on_cluster
+->
     emqx_cth_cluster:stop(?config(cluster, Config)),
     cleanup(Config);
 end_per_testcase(t_import_file_authz_source_on_cluster, Config) ->
@@ -111,7 +129,18 @@ end_per_testcase(t_import_file_authz_source_on_cluster, Config) ->
     cleanup(Config),
     meck:unload(emqx_mgmt_listeners_conf),
     meck:unload(emqx_gateway_conf);
-end_per_testcase(t_mnesia_bad_tab_schema, Config) ->
+end_per_testcase(TC, Config) when
+    TC =:= t_parse_export_request_invalid_namespace;
+    TC =:= t_mnesia_restore_low_level_error_branches;
+    TC =:= t_mnesia_backup_reader_error_branches
+->
+    Config;
+end_per_testcase(TC, Config) when
+    TC =:= t_mnesia_bad_tab_schema;
+    TC =:= t_mnesia_backup_migration;
+    TC =:= t_mnesia_default_restore_keeps_existing_records;
+    TC =:= t_mnesia_restore_failure_keeps_existing_records
+->
     cleanup(Config),
     meck:unload(emqx_mgmt_data_backup);
 end_per_testcase(_TestCase, Config) ->
@@ -315,6 +344,7 @@ t_cluster_hocon_export_import(Config) ->
 
     %% backup data migration test
     ?assertMatch([_, _, _, _], ets:tab2list(emqx_app)),
+    ?assertMatch({ok, #{name := ?DEFAULT_APP_ID}}, emqx_mgmt_auth:read(?DEFAULT_APP_ID)),
     ?assertMatch(
         {ok, #{name := <<"key_to_export2">>, role := ?ROLE_API_SUPERUSER}},
         emqx_mgmt_auth:read(<<"key_to_export2">>)
@@ -761,9 +791,72 @@ t_verify_imported_mnesia_tab_on_cluster(Config) ->
     {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
     {ok, Cwd} = file:get_cwd(),
     AbsFilePath = filename:join(Cwd, FileName),
+    {_Name, [Tab]} = emqx_dashboard_admin:backup_tables(),
+    OverlapUser = hd(UsersToExport),
+    [ExportedOverlapRec] = mnesia:dirty_read(Tab, OverlapUser),
 
     [CoreNode1, CoreNode2, ReplicantNode] = ?config(cluster, Config),
 
+    [
+        {ok, _} = rpc:call(CoreNode1, emqx_dashboard_admin, add_user, [U, U, ?ROLE_SUPERUSER, U])
+     || U <- UsersBeforeImport
+    ],
+    {ok, _} = rpc:call(CoreNode1, emqx_dashboard_admin, add_user, [
+        OverlapUser,
+        <<"overwritten_password">>,
+        ?ROLE_SUPERUSER,
+        <<"overwritten_description">>
+    ]),
+
+    ?assertEqual(
+        {ok, #{db_errors => #{}, config_errors => #{}}},
+        rpc:call(CoreNode1, emqx_mgmt_data_backup, import_local, [
+            AbsFilePath, #{mnesia_restore_mode => snapshot}
+        ])
+    ),
+
+    ExportedUsers = lists:sort(mnesia:dirty_all_keys(Tab)),
+    [
+        ?assertEqual(
+            ExportedUsers,
+            lists:sort(rpc:call(N, mnesia, dirty_all_keys, [Tab]))
+        )
+     || N <- [CoreNode1, CoreNode2]
+    ],
+
+    %% Give some extra time to replicant to import data...
+    timer:sleep(3000),
+    ?assertEqual(
+        ExportedUsers,
+        lists:sort(rpc:call(ReplicantNode, mnesia, dirty_all_keys, [Tab]))
+    ),
+    ?assertEqual(
+        [],
+        [
+            U
+         || U <- UsersBeforeImport,
+            rpc:call(CoreNode1, mnesia, dirty_read, [Tab, U]) =/= []
+        ]
+    ),
+    [
+        ?assertEqual(
+            [ExportedOverlapRec],
+            rpc:call(N, mnesia, dirty_read, [Tab, OverlapUser])
+        )
+     || N <- [CoreNode1, CoreNode2, ReplicantNode]
+    ].
+
+t_verify_merged_mnesia_tab_on_cluster(Config) ->
+    UsersToExport = users(<<"merge_user_to_export_">>),
+    UsersBeforeImport = users(<<"merge_user_before_import_">>),
+    [{ok, _} = emqx_dashboard_admin:add_user(U, U, ?ROLE_SUPERUSER, U) || U <- UsersToExport],
+    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+    {ok, Cwd} = file:get_cwd(),
+    AbsFilePath = filename:join(Cwd, FileName),
+    {_Name, [Tab]} = emqx_dashboard_admin:backup_tables(),
+    ExportedUsers = lists:sort(mnesia:dirty_all_keys(Tab)),
+
+    [CoreNode1, CoreNode2, ReplicantNode] = ?config(cluster, Config),
     [
         {ok, _} = rpc:call(CoreNode1, emqx_dashboard_admin, add_user, [U, U, ?ROLE_SUPERUSER, U])
      || U <- UsersBeforeImport
@@ -774,11 +867,10 @@ t_verify_imported_mnesia_tab_on_cluster(Config) ->
         rpc:call(CoreNode1, emqx_mgmt_data_backup, import_local, [AbsFilePath])
     ),
 
-    {_Name, [Tab]} = emqx_dashboard_admin:backup_tables(),
-    AllUsers = lists:sort(mnesia:dirty_all_keys(Tab) ++ UsersBeforeImport),
+    MergedUsers = lists:sort(ExportedUsers ++ UsersBeforeImport),
     [
         ?assertEqual(
-            AllUsers,
+            MergedUsers,
             lists:sort(rpc:call(N, mnesia, dirty_all_keys, [Tab]))
         )
      || N <- [CoreNode1, CoreNode2]
@@ -786,7 +878,10 @@ t_verify_imported_mnesia_tab_on_cluster(Config) ->
 
     %% Give some extra time to replicant to import data...
     timer:sleep(3000),
-    ?assertEqual(AllUsers, lists:sort(rpc:call(ReplicantNode, mnesia, dirty_all_keys, [Tab]))).
+    ?assertEqual(
+        MergedUsers,
+        lists:sort(rpc:call(ReplicantNode, mnesia, dirty_all_keys, [Tab]))
+    ).
 
 %% Regression: importing a backup that contains an authz `file` source used to
 %% strip inline `rules` on the importer node and ship only `path` across the
@@ -874,6 +969,12 @@ t_import_file_authz_source_on_cluster(Config) ->
 backup_tables() ->
     {<<"mocked_test">>, [data_backup_test]}.
 
+t_parse_export_request_invalid_namespace(_Config) ->
+    ?assertEqual(
+        {error, {invalid_namespace, 42}},
+        emqx_mgmt_data_backup:parse_export_request(#{<<"namespace">> => 42})
+    ).
+
 t_mnesia_bad_tab_schema(_Config) ->
     OldAttributes = [id, name, description],
     ok = create_test_tab(OldAttributes),
@@ -891,10 +992,206 @@ t_mnesia_bad_tab_schema(_Config) ->
                 #{data_backup_test => {error, {"Backup traversal failed", different_table_schema}}},
             config_errors => #{}
         }},
-        emqx_mgmt_data_backup:import(basename(FileName))
+        emqx_mgmt_data_backup:import(basename(FileName), #{mnesia_restore_mode => snapshot})
     ),
     ?assertEqual([NewRec], mnesia:dirty_read(data_backup_test, <<"id">>)),
     ?assertEqual([<<"id">>], mnesia:dirty_all_keys(data_backup_test)).
+
+t_mnesia_default_restore_keeps_existing_records(_Config) ->
+    Attributes = [id, name, description],
+    ok = create_test_tab(Attributes),
+    ExportedRec =
+        {data_backup_test, <<"exported">>, <<"exported_name">>, <<"exported_description">>},
+    ok = mria:dirty_write(ExportedRec),
+    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+
+    LocalRec = {data_backup_test, <<"local">>, <<"local_name">>, <<"local_description">>},
+    ok = mria:dirty_write(LocalRec),
+    ?assertEqual(
+        {ok, #{db_errors => #{}, config_errors => #{}}},
+        emqx_mgmt_data_backup:import(basename(FileName))
+    ),
+    ?assertEqual([ExportedRec], mnesia:dirty_read(data_backup_test, <<"exported">>)),
+    ?assertEqual([LocalRec], mnesia:dirty_read(data_backup_test, <<"local">>)),
+    ?assertEqual(
+        [<<"exported">>, <<"local">>], lists:sort(mnesia:dirty_all_keys(data_backup_test))
+    ).
+
+t_mnesia_restore_failure_keeps_existing_records(Config) ->
+    Attributes = [id, name, description],
+    ok = create_test_tab(Attributes),
+    OldRec = {data_backup_test, <<"id">>, <<"old_name">>, <<"old_description">>},
+    ok = mria:dirty_write(OldRec),
+    {ok, #{filename := FileName0}} = emqx_mgmt_data_backup:export(),
+    FileName = corrupt_mnesia_backup_records(
+        Config,
+        FileName0,
+        data_backup_test,
+        fun
+            ({schema, _Tab, _CreateList} = Schema) ->
+                Schema;
+            ({data_backup_test, Id, _Name, _Description}) ->
+                {data_backup_test, Id}
+        end
+    ),
+
+    {atomic, ok} = mria:clear_table(data_backup_test),
+    NewRec = {data_backup_test, <<"id">>, <<"new_name">>, <<"new_description">>},
+    ok = mria:dirty_write(NewRec),
+    ?assertEqual(
+        {ok, #{
+            db_errors => #{
+                data_backup_test =>
+                    {error,
+                        {"Backup traversal failed",
+                            {bad_backup_record, data_backup_test, {data_backup_test, <<"id">>}}}}
+            },
+            config_errors => #{}
+        }},
+        emqx_mgmt_data_backup:import(basename(FileName), #{mnesia_restore_mode => snapshot})
+    ),
+    ?assertEqual([NewRec], mnesia:dirty_read(data_backup_test, <<"id">>)),
+    ?assertEqual([<<"id">>], mnesia:dirty_all_keys(data_backup_test)).
+
+t_mnesia_restore_low_level_error_branches(_Config) ->
+    ok = meck:new(mria_config, [passthrough, no_link, no_history]),
+    ok = meck:new(mria, [passthrough, no_link, no_history]),
+    ok = meck:new(mnesia, [passthrough, no_link, no_history]),
+    try
+        meck:expect(mria_config, shard_rlookup, fun(data_backup_test) -> undefined end),
+        ?assertEqual(
+            {error, {unknown_mria_shard, data_backup_test}},
+            emqx_mgmt_data_backup:restore_mnesia_records_as_snapshot(data_backup_test, [])
+        ),
+
+        meck:expect(mnesia, restore, fun(_BackupFile, [{default_op, keep_tables}]) ->
+            {aborted, restore_failed}
+        end),
+        ?assertEqual(
+            {error, {aborted, restore_failed}},
+            emqx_mgmt_data_backup:restore_mnesia_tab("backup", data_backup_test, merge)
+        ),
+
+        meck:expect(mria, sync_transaction, fun(_Shard, _Fun) ->
+            get(mria_sync_transaction_result)
+        end),
+        AssertTransaction = fun(Result, Expected) ->
+            put(mria_sync_transaction_result, Result),
+            ?assertEqual(
+                Expected,
+                emqx_mgmt_data_backup:run_restore_mnesia_transaction(
+                    data_backup_test_shard,
+                    data_backup_test,
+                    []
+                )
+            )
+        end,
+        AssertTransaction({timeout, {atomic, ok}}, ok),
+        AssertTransaction({aborted, aborted_reason}, {error, aborted_reason}),
+        AssertTransaction({timeout, {aborted, aborted_reason}}, {error, aborted_reason}),
+        AssertTransaction({timeout, {error, timeout_reason}}, {error, timeout_reason})
+    after
+        erase(mria_sync_transaction_result),
+        meck:unload(mnesia),
+        meck:unload(mria),
+        meck:unload(mria_config)
+    end.
+
+t_mnesia_backup_reader_error_branches(_Config) ->
+    ?assertEqual(
+        {ok, {data_backup_record, <<"id">>, <<"name">>}},
+        emqx_mgmt_data_backup:read_mnesia_backup_item(
+            data_backup_test,
+            data_backup_record,
+            3,
+            {data_backup_record, <<"id">>, <<"name">>}
+        )
+    ),
+    ?assertEqual(
+        {ok, {data_backup_record, <<"id">>, <<"name">>}},
+        emqx_mgmt_data_backup:read_mnesia_backup_item(
+            data_backup_test,
+            data_backup_record,
+            3,
+            {data_backup_test, <<"id">>, <<"name">>}
+        )
+    ),
+    ?assertEqual(
+        {error, {bad_backup_record, data_backup_test, {other_record, <<"id">>, <<"name">>}}},
+        emqx_mgmt_data_backup:read_mnesia_backup_item(
+            data_backup_test,
+            data_backup_record,
+            3,
+            {other_record, <<"id">>, <<"name">>}
+        )
+    ),
+    ?assertEqual(
+        {error, bad_backup_item},
+        emqx_mgmt_data_backup:try_traverse_backup(fun() -> throw({error, bad_backup_item}) end)
+    ),
+    ?assertEqual(
+        {'EXIT', bad_exit},
+        emqx_mgmt_data_backup:try_traverse_backup(fun() -> exit(bad_exit) end)
+    ),
+    ?assertMatch(
+        {'EXIT', {bad_error, [_ | _]}},
+        emqx_mgmt_data_backup:try_traverse_backup(fun() -> error(bad_error) end)
+    ),
+
+    ok = meck:new(mnesia, [passthrough, no_link, no_history]),
+    try
+        meck:expect(mnesia, table_info, fun
+            (data_backup_test, record_name) -> data_backup_record;
+            (data_backup_test, attributes) -> [id, name]
+        end),
+        meck:expect(mnesia, traverse_backup, fun(
+            _BackupFile, mnesia_backup, dummy, read_only, _Fun, []
+        ) ->
+            {error, traverse_error}
+        end),
+        ?assertEqual(
+            {error, traverse_error},
+            emqx_mgmt_data_backup:read_mnesia_backup_records("backup", data_backup_test)
+        ),
+        meck:expect(mnesia, traverse_backup, fun(
+            _BackupFile, mnesia_backup, dummy, read_only, _Fun, []
+        ) ->
+            unexpected_traverse_result
+        end),
+        ?assertEqual(
+            {error, unexpected_traverse_result},
+            emqx_mgmt_data_backup:read_mnesia_backup_records("backup", data_backup_test)
+        )
+    after
+        meck:unload(mnesia)
+    end.
+
+t_mnesia_backup_migration(Config) ->
+    OldAttributes = [id, name],
+    ok = create_test_tab(OldAttributes),
+    OldRec = {data_backup_test, <<"id">>, <<"old_name">>},
+    ok = mria:dirty_write(OldRec),
+    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+
+    BackupFile = extract_mnesia_backup_file(Config, FileName, data_backup_test),
+    MigratedRec = {data_backup_test, <<"id">>, <<"old_name">>, <<"migrated">>},
+    {ok, #{backup_file := MigrateFile}} =
+        emqx_mgmt_data_backup:migrate_mnesia_backup(BackupFile, ?MODULE, #{
+            backup_file => BackupFile
+        }),
+    Items = read_mnesia_backup_items(MigrateFile),
+    ?assert(lists:member(MigratedRec, Items)),
+    ?assert(
+        lists:any(
+            fun
+                ({schema, data_backup_test, CreateList}) ->
+                    [id, name, description] =:= proplists:get_value(attributes, CreateList);
+                (_) ->
+                    false
+            end,
+            Items
+        )
+    ).
 
 t_read_files(_Config) ->
     DataDir = emqx:data_dir(),
@@ -1153,6 +1450,95 @@ create_test_tab(Attributes) ->
         ]}
     ]),
     ok = mria:wait_for_tables([data_backup_test]).
+
+corrupt_mnesia_backup_records(Config, BackupFileName0, Tab, TransformFun) ->
+    BackupFileName = unicode:characters_to_list(BackupFileName0),
+    {ok, Entries0} = erl_tar:extract(BackupFileName, [compressed, memory]),
+    CorruptFileName = filename:join([
+        ?config(priv_dir, Config),
+        "corrupt-" ++ filename:basename(BackupFileName)
+    ]),
+    CorruptRoot = filename:basename(CorruptFileName, ".tar.gz"),
+    Entries = [
+        {
+            replace_archive_root(Path, CorruptRoot),
+            case is_mnesia_backup_entry(Path, Tab) of
+                true ->
+                    transform_mnesia_backup_bin(Config, Bin, TransformFun);
+                false ->
+                    Bin
+            end
+        }
+     || {Path, Bin} <- Entries0
+    ],
+    ok = erl_tar:create(CorruptFileName, Entries, [compressed]),
+    {ok, CorruptBin} = file:read_file(CorruptFileName),
+    ok = emqx_mgmt_data_backup:upload(filename:basename(CorruptFileName), CorruptBin),
+    CorruptFileName.
+
+transform_mnesia_backup_bin(Config, Bin, TransformFun) ->
+    Prefix = filename:join(?config(priv_dir, Config), integer_to_list(erlang:unique_integer())),
+    InFile = Prefix ++ ".in",
+    OutFile = Prefix ++ ".out",
+    ok = file:write_file(InFile, Bin),
+    {ok, ok} = mnesia:traverse_backup(
+        InFile,
+        mnesia_backup,
+        OutFile,
+        mnesia_backup,
+        fun(Item, Acc) ->
+            {[TransformFun(Item)], Acc}
+        end,
+        ok
+    ),
+    {ok, OutBin} = file:read_file(OutFile),
+    OutBin.
+
+is_mnesia_backup_entry(Path0, Tab) ->
+    Path = unicode:characters_to_list(Path0),
+    lists:suffix(filename:join(["mnesia", atom_to_list(Tab)]), Path).
+
+replace_archive_root(Path0, BackupRoot) ->
+    [_OldRoot | Rest] = filename:split(unicode:characters_to_list(Path0)),
+    filename:join([BackupRoot | Rest]).
+
+extract_mnesia_backup_file(Config, BackupFileName0, Tab) ->
+    BackupFileName = unicode:characters_to_list(BackupFileName0),
+    {ok, Entries} = erl_tar:extract(BackupFileName, [compressed, memory]),
+    [{_Path, Bin}] = [
+        Entry
+     || {Path, _Bin} = Entry <- Entries,
+        is_mnesia_backup_entry(Path, Tab)
+    ],
+    BackupFile = filename:join([
+        ?config(priv_dir, Config),
+        integer_to_list(erlang:unique_integer()) ++ "-" ++ atom_to_list(Tab)
+    ]),
+    ok = file:write_file(BackupFile, Bin),
+    BackupFile.
+
+read_mnesia_backup_items(BackupFile) ->
+    {ok, ItemsRev} = mnesia:traverse_backup(
+        BackupFile,
+        mnesia_backup,
+        dummy,
+        read_only,
+        fun(Item, Acc) ->
+            {[], [Item | Acc]}
+        end,
+        []
+    ),
+    lists:reverse(ItemsRev).
+
+migrate_mnesia_backup({schema, data_backup_test, CreateList}) ->
+    NewCreateList = lists:keystore(
+        attributes, 1, CreateList, {attributes, [id, name, description]}
+    ),
+    {ok, {schema, data_backup_test, NewCreateList}};
+migrate_mnesia_backup({data_backup_test, Id, Name}) ->
+    {ok, {data_backup_test, Id, Name, <<"migrated">>}};
+migrate_mnesia_backup(Item) ->
+    {ok, Item}.
 
 apps_to_start(t_cluster_links) ->
     apps_to_start() ++ [emqx_cluster_link];

@@ -47,6 +47,7 @@ groups() ->
 
 init_per_suite(TCConfig) ->
     reset_proxy(),
+    WorkDir = emqx_cth_suite:work_dir(TCConfig),
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -57,10 +58,11 @@ init_per_suite(TCConfig) ->
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
-        #{work_dir => emqx_cth_suite:work_dir(TCConfig)}
+        #{work_dir => WorkDir}
     ),
     set_emulator_host_env(),
     [
+        {work_dir, WorkDir},
         {apps, Apps}
         | TCConfig
     ].
@@ -700,23 +702,31 @@ start_client(Opts) ->
     {ok, _} = emqtt:connect(C),
     C.
 
-assert_persisted_service_account_json_is_binary(TCConfig) ->
+persisted_service_account_json(TCConfig) ->
     #{connector_name := ConnectorName} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
     %% ensure cluster.hocon has a binary encoded json string as the value
     {ok, Hocon} = hocon:files([application:get_env(emqx, cluster_hocon_file, undefined)]),
-    ?assertMatch(
-        Bin when is_binary(Bin),
-        emqx_utils_maps:deep_get(
-            [
-                <<"connectors">>,
-                <<"gcp_pubsub_producer">>,
-                ConnectorName,
-                <<"service_account_json">>
-            ],
-            Hocon
-        )
+    emqx_utils_maps:deep_get(
+        [
+            <<"connectors">>,
+            <<"gcp_pubsub_producer">>,
+            ConnectorName,
+            <<"service_account_json">>
+        ],
+        Hocon
+    ).
+
+mk_service_account_file(TCConfig, Content) ->
+    Filename = filename:join(
+        ?config(work_dir, TCConfig),
+        lists:flatten([
+            binary_to_list(?config(connector_name, TCConfig)),
+            integer_to_list(erlang:unique_integer()),
+            ".json"
+        ])
     ),
-    ok.
+    ok = file:write_file(Filename, Content),
+    Filename.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -731,6 +741,15 @@ t_start_stop(Config) when is_list(Config) ->
 
 t_on_get_status(Config) when is_list(Config) ->
     emqx_bridge_v2_testlib:t_on_get_status(Config).
+
+t_on_get_status_with_service_account_file_secret(TCConfig) ->
+    ServiceAccountJSON = get_config(service_account_json, TCConfig),
+    Filename = mk_service_account_file(TCConfig, emqx_utils_json:encode(ServiceAccountJSON)),
+    FileRef = iolist_to_binary(["file://", Filename]),
+    emqx_bridge_v2_testlib:t_on_get_status([
+        {connector_overrides, #{<<"service_account_json">> => FileRef}}
+        | TCConfig
+    ]).
 
 t_publish_success() ->
     [{matrix, true}].
@@ -934,6 +953,33 @@ t_not_a_json(TCConfig) ->
         )
     ),
     ok.
+
+t_file_secret_service_account_json_not_a_json(TCConfig) ->
+    Filename = mk_service_account_file(TCConfig, <<"not a json">>),
+    ?assertMatch(
+        {400, #{
+            <<"message">> := #{
+                <<"kind">> := <<"validation_error">>,
+                <<"reason">> := <<"not a json">>,
+                %% should be censored as it contains secrets
+                <<"value">> := <<"******">>
+            }
+        }},
+        create_connector_api(
+            TCConfig,
+            #{<<"service_account_json">> => iolist_to_binary(["file://", Filename])}
+        )
+    ).
+
+t_file_secret_service_account_json(TCConfig) ->
+    ServiceAccountJSON = get_config(service_account_json, TCConfig),
+    Filename = mk_service_account_file(TCConfig, emqx_utils_json:encode(ServiceAccountJSON)),
+    FileRef = iolist_to_binary(["file://", Filename]),
+    {201, _} = create_connector_api(
+        TCConfig,
+        #{<<"service_account_json">> => FileRef}
+    ),
+    ?assertEqual(FileRef, persisted_service_account_json(TCConfig)).
 
 t_not_of_service_account_type(TCConfig) ->
     JSON = emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
@@ -1874,8 +1920,7 @@ t_create_via_http_json_object_service_account(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{
         <<"service_account_json">> => ServiceAccountJSON
     }),
-    assert_persisted_service_account_json_is_binary(TCConfig),
-    ok.
+    ?assertMatch(<<_/binary>>, persisted_service_account_json(TCConfig)).
 
 %% Check that creating an action (V2) with a non-existent topic returns an error.
 t_bad_topic(TCConfig) ->
