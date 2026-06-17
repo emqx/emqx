@@ -81,17 +81,17 @@ api_key_scopes_list.label:
 """List API key scopes"""
 
 api_key_scopes_request.desc:
-"""List of scope names to grant this API key. Each scope is a stable functional category (e.g., connections, publish, monitoring). When omitted on creation, the server materializes the role default — administrator/viewer get all management scopes, publisher gets `publish` only. Send an explicit empty list `[]` to create a deny-all key (only anonymous endpoints such as `/status` remain reachable)."""
+"""List of scope names to grant this API key. Each scope is a stable functional category (e.g., connections, publish, monitoring). When omitted on creation, the server materializes the role default: administrator/viewer get all management scopes, publisher gets `publish` only. Send an explicit empty list `[]` to create a deny-all key (only anonymous endpoints such as `/status` remain reachable)."""
 api_key_scopes_request.label:
 """API key scopes (request)"""
 
 api_key_scopes_response.desc:
-"""List of scope names granted to this API key. Each scope is a stable functional category (e.g., connections, publish, monitoring). The literal string `unset` is a legacy-only sentinel surfaced for records that survived an upgrade from a release where the scopes feature did not exist; the runtime falls back to role default for such records and a client should treat them as "no explicit scope policy yet". An empty list `[]` means deny-all (only anonymous endpoints such as `/status` remain reachable)."""
+"""List of scope names granted to this API key. Each scope is a stable functional category (e.g., connections, publish, monitoring). The literal string `unset` is a legacy-only sentinel surfaced for records that survived an upgrade from a release where the scopes feature did not exist; the runtime falls back to role default for such records, and a client should treat them as "no explicit scope policy yet". An empty list `[]` means deny-all (only anonymous endpoints such as `/status` remain reachable)."""
 api_key_scopes_response.label:
 """API key scopes (response)"""
 
 scope_info_name.desc:
-"""Scope name — a stable identifier for a functional category of API endpoints."""
+"""Scope name: a stable identifier for a functional category of API endpoints."""
 scope_info_name.label:
 """Scope name"""
 
