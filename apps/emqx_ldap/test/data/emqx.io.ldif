@@ -218,3 +218,14 @@ isEnabled: TRUE
 clientIdOverride: overridden_clientid
 mqttAccountName: user10
 userPassword:: e1NIQX16blNQUDBoei8wUUdzODhpaUVCNEQ4cW53T3c9
+
+## create user=mqttuser0011 with invalid ACL rule JSON
+dn:uid=mqttuser0011,ou=testdevice,dc=emqx,dc=io
+objectClass: top
+objectClass: mqttUser
+objectClass: mqttDevice
+objectClass: mqttSecurity
+uid: mqttuser0011
+isEnabled: TRUE
+mqttAclRule: {invalid-json
+userPassword: {SHA}znSPP0hz/0QGs88iiEB4D8qnwOw=

@@ -87,7 +87,7 @@ authorize(
                         reason => Reason,
                         ldap_entry => Entry
                     }),
-                    nomatch
+                    emqx_authz_utils:backend_failure_result()
             end;
         {error, Reason} ->
             ?SLOG(error, #{
@@ -95,7 +95,7 @@ authorize(
                 reason => emqx_utils:redact(Reason),
                 resource_id => ResourceId
             }),
-            nomatch
+            emqx_authz_utils:backend_failure_result()
     end.
 
 %%------------------------------------------------------------------------------

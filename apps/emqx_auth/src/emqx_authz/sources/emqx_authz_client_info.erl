@@ -57,7 +57,7 @@ destroy(_Source) -> ok.
 %%        all => [TopicFilter]
 %%    }
 %%
-%% v2: (rules are checked in sequence, passthrough when no match)
+%% v2: (rules are checked in sequence, passthrough when no rules match)
 %%
 %%    [{
 %%        Permission :: emqx_authz_rule:permission_resolution(),

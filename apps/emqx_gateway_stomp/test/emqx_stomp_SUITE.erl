@@ -22,7 +22,6 @@
 ).
 
 -define(HEARTBEAT, <<$\n>>).
--define(PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
 
 -define(CONF_DEFAULT, <<
     "\n"
@@ -88,16 +87,6 @@ update_stomp_with_mountpoint(Mountpoint) ->
         stomp,
         Conf#{<<"mountpoint">> => Mountpoint}
     ).
-
-with_security_profile(Profile, Fun) ->
-    os:putenv(?PROFILE_ENV_VAR, Profile),
-    emqx_security_profile:clear_profile(),
-    try
-        Fun()
-    after
-        os:unsetenv(?PROFILE_ENV_VAR),
-        emqx_security_profile:clear_profile()
-    end.
 
 with_stomp_tcp_listener_authn(EnableAuthn, Fun) ->
     ListenerPath = [gateway, stomp, listeners, tcp, default],
@@ -235,7 +224,7 @@ t_auth_failed(_) ->
     meck:unload(emqx_access_control).
 
 t_hardened_rejects_pre_connect_send(_) ->
-    with_security_profile("hardened", fun() ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         Topic = <<"security/stomp/pre-connect-send">>,
         Payload = <<"blocked">>,
         emqx:subscribe(Topic),
@@ -256,7 +245,7 @@ t_hardened_rejects_pre_connect_send(_) ->
     end).
 
 t_hardened_rejects_pre_connect_subscribe(_) ->
-    with_security_profile("hardened", fun() ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         Topic = <<"security/stomp/pre-connect-subscribe">>,
         with_connection(fun(Sock) ->
             ok = send_subscribe_frame(Sock, 0, Topic),
@@ -267,7 +256,7 @@ t_hardened_rejects_pre_connect_subscribe(_) ->
     end).
 
 t_hardened_rejects_pre_connect_transactional_send(_) ->
-    with_security_profile("hardened", fun() ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         Topic = <<"security/stomp/pre-connect-transaction">>,
         Payload = <<"blocked">>,
         emqx:subscribe(Topic),
@@ -292,7 +281,7 @@ t_hardened_rejects_pre_connect_transactional_send(_) ->
     end).
 
 t_hardened_listener_authn_disabled_allows_pub_sub(_) ->
-    with_security_profile("hardened", fun() ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         with_stomp_tcp_listener_authn(false, fun() ->
             with_connection(fun(Sock) ->
                 Topic = <<"security/stomp/authn-disabled">>,

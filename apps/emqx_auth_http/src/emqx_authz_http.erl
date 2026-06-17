@@ -96,10 +96,10 @@ authorize(
                                 content_type => ContentType,
                                 body => Body
                             }),
-                            nomatch;
+                            emqx_authz_utils:backend_failure_result();
                         {error, Reason} ->
                             ?tp(error, bad_authz_http_response, #{reason => Reason}),
-                            nomatch;
+                            emqx_authz_utils:backend_failure_result();
                         Result ->
                             {matched, Result}
                     end;
@@ -116,14 +116,14 @@ authorize(
                         resource => ResourceId,
                         reason => Reason
                     }),
-                    ignore
+                    emqx_authz_utils:backend_failure_result()
             end;
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "http_request_generation_failed",
                 reason => Reason
             }),
-            ignore
+            emqx_authz_utils:backend_failure_result()
     end.
 
 format_for_api(#{<<"headers">> := Headers} = Source) ->

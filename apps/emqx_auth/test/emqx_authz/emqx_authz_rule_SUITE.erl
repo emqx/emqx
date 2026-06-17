@@ -11,8 +11,6 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
--define(PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
-
 -define(CLIENT_INFO_BASE, #{
     clientid => <<"test">>,
     username => <<"test">>,
@@ -691,7 +689,7 @@ t_match(_) ->
 
 t_security_profile_condition(_) ->
     Rule = emqx_authz_rule:compile({allow, {security_profile, legacy}, all, all}),
-    with_security_profile("legacy", fun() ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
         ?assertEqual(
             {matched, allow},
             emqx_authz_rule:match(
@@ -702,7 +700,7 @@ t_security_profile_condition(_) ->
             )
         )
     end),
-    with_security_profile("hardened", fun() ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         ?assertEqual(
             nomatch,
             emqx_authz_rule:match(
@@ -846,15 +844,5 @@ client_info() ->
 
 client_info(Overrides) ->
     maps:merge(?CLIENT_INFO_BASE, Overrides).
-
-with_security_profile(Profile, Fun) ->
-    os:putenv(?PROFILE_ENV_VAR, Profile),
-    emqx_security_profile:clear_profile(),
-    try
-        Fun()
-    after
-        os:unsetenv(?PROFILE_ENV_VAR),
-        emqx_security_profile:clear_profile()
-    end.
 
 bin(X) -> iolist_to_binary(X).

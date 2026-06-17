@@ -65,7 +65,7 @@ authorize(
                 cmd => Cmd,
                 resource_id => ResourceId
             }),
-            nomatch
+            emqx_authz_utils:backend_failure_result()
     end.
 
 %%--------------------------------------------------------------------
@@ -111,6 +111,8 @@ do_authorize(Client, Action, Topic, [TopicFilterRaw, RuleEncoded | Tail], ACLCom
             of
                 nomatch ->
                     do_authorize(Client, Action, Topic, Tail, ACLCompatibilityMode);
+                ignore ->
+                    ignore;
                 {matched, Permission} ->
                     {matched, Permission}
             end;

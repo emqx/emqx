@@ -15,6 +15,9 @@
 
 -define(MYSQL_HOST, "mysql").
 -define(MYSQL_RESOURCE, <<"emqx_authz_mysql_SUITE">>).
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
+-define(PROXY_NAME, "mysql_tcp").
 
 -define(TABLE_TESTS, [t_run_case, t_run_case_with_disable_prepared_statements]).
 
@@ -89,6 +92,7 @@ t_create_invalid(_Config) ->
     [_] = emqx_authz:lookup_states().
 
 t_node_cache(_Config) ->
+    ok = emqx_authz_test_lib:reset_node_cache(),
     Case = #{
         name => cache_publish,
         setup => [
@@ -135,6 +139,38 @@ t_node_cache(_Config) ->
         #{hits := #{value := 1}, misses := #{value := 2}},
         emqx_auth_cache:metrics(?AUTHZ_CACHE)
     ).
+
+t_conn_error_legacy_ignores(_Config) ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ok = setup_conn_error_source(),
+        {ok, _} = emqx:update_config([authorization, no_match], allow),
+        with_failure(down, fun() ->
+            ?assertEqual(
+                allow,
+                emqx_access_control:authorize(
+                    emqx_authz_test_lib:base_client_info(),
+                    ?AUTHZ_PUBLISH,
+                    <<"a">>
+                )
+            )
+        end)
+    end).
+
+t_conn_error_hardened_denies(_Config) ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ok = setup_conn_error_source(),
+        {ok, _} = emqx:update_config([authorization, no_match], allow),
+        with_failure(down, fun() ->
+            ?assertEqual(
+                deny,
+                emqx_access_control:authorize(
+                    emqx_authz_test_lib:base_client_info(),
+                    ?AUTHZ_PUBLISH,
+                    <<"a">>
+                )
+            )
+        end)
+    end).
 
 %%------------------------------------------------------------------------------
 %% Cases
@@ -511,6 +547,23 @@ cases() ->
             checks => [
                 {deny, ?AUTHZ_PUBLISH, <<"a">>}
             ]
+        },
+        #{
+            name => invalid_rule_hardened_fail_closed,
+            security_profile => hardened,
+            default_permission => allow,
+            setup => [
+                """
+                CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255),
+                permission VARCHAR(255), action VARCHAR(255))
+                """,
+                %% 'permit' is invalid value for action
+                "INSERT INTO acl(username, topic, permission, action) VALUES('username', 'a', 'permit', 'publish')"
+            ],
+            query => <<"SELECT permission, action, topic FROM acl WHERE username = ${username}">>,
+            checks => [
+                {deny, ?AUTHZ_PUBLISH, <<"a">>}
+            ]
         }
     ].
 
@@ -533,6 +586,12 @@ setup_authz_source(#{query := Query}, SpecialParams) ->
             <<"query">> => Query
         }
     ).
+
+setup_conn_error_source() ->
+    ok = q(
+        "CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), permission VARCHAR(255), action VARCHAR(255))"
+    ),
+    setup_config(#{<<"server">> => <<"toxiproxy:3306">>}).
 
 raw_mysql_authz_config() ->
     #{
@@ -571,6 +630,15 @@ setup_config(SpecialParams) ->
     emqx_authz_test_lib:setup_config(
         raw_mysql_authz_config(),
         SpecialParams
+    ).
+
+with_failure(FailureType, Fun) ->
+    emqx_common_test_helpers:with_failure(
+        FailureType,
+        ?PROXY_NAME,
+        ?PROXY_HOST,
+        ?PROXY_PORT,
+        Fun
     ).
 
 mysql_config() ->
