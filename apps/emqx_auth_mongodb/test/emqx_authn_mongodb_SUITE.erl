@@ -13,7 +13,6 @@
 -include_lib("common_test/include/ct.hrl").
 
 -define(MONGO_HOST, "mongo").
--define(MONGO_CLIENT, 'emqx_authn_mongo_SUITE_client').
 
 -define(PATH, [authentication]).
 
@@ -25,14 +24,19 @@ init_per_testcase(_TestCase, Config) ->
         [authentication],
         ?GLOBAL
     ),
-    {ok, _} = mc_worker_api:connect(mongo_config()),
-    ok = init_seeds(),
-    Config.
+    %% Address the seeding connection by pid: the driver keys the negotiated
+    %% wire protocol by pid, so a registered name would resolve to the
+    %% legacy-protocol default, which MongoDB 5.1+ rejects. The pid
+    %% auto-negotiates OP_MSG on every supported server.
+    {ok, Client} = mc_worker_api:connect(mongo_config()),
+    ok = init_seeds(Client),
+    [{mongo_client, Client} | Config].
 
-end_per_testcase(_TestCase, _Config) ->
+end_per_testcase(_TestCase, Config) ->
+    Client = ?config(mongo_client, Config),
     ok = emqx_authn_test_lib:enable_node_cache(false),
-    ok = drop_seeds(),
-    ok = mc_worker_api:disconnect(?MONGO_CLIENT).
+    ok = drop_seeds(Client),
+    ok = mc_worker_api:disconnect(Client).
 
 init_per_suite(Config) ->
     case emqx_common_test_helpers:is_tcp_server_available(?MONGO_HOST, ?MONGO_DEFAULT_PORT) of
@@ -98,8 +102,24 @@ t_authenticate(_Config) ->
             ct:pal("test_user_auth sample: ~p", [Sample]),
             test_user_auth(Sample)
         end,
-        user_seeds()
+        applicable_user_seeds()
     ).
+
+%% The legacy-protocol seed only applies to MongoDB servers that still support
+%% the legacy OP_QUERY opcodes (removed in MongoDB 5.1, wire protocol 14).
+applicable_user_seeds() ->
+    case mongo_supports_legacy_protocol(?MONGO_HOST, ?MONGO_DEFAULT_PORT) of
+        true ->
+            user_seeds();
+        false ->
+            [
+                Seed
+             || Seed <- user_seeds(),
+                maps:get(
+                    <<"use_legacy_protocol">>, maps:get(config_params, Seed, #{}), undefined
+                ) =/= <<"true">>
+            ]
+    end.
 
 test_user_auth(#{
     credentials := Credentials0,
@@ -124,8 +144,9 @@ test_user_auth(#{
         ?GLOBAL
     ).
 
-t_destroy(_Config) ->
-    ok = init_seeds(),
+t_destroy(Config) ->
+    Client = ?config(mongo_client, Config),
+    ok = init_seeds(Client),
     AuthConfig = raw_mongo_auth_config(),
 
     {ok, _} = emqx:update_config(
@@ -161,10 +182,11 @@ t_destroy(_Config) ->
         )
     ),
 
-    ok = drop_seeds().
+    ok = drop_seeds(Client).
 
-t_update(_Config) ->
-    ok = init_seeds(),
+t_update(Config) ->
+    Client = ?config(mongo_client, Config),
+    ok = init_seeds(Client),
     CorrectConfig = raw_mongo_auth_config(),
     IncorrectConfig =
         CorrectConfig#{<<"filter">> => #{<<"wrongfield">> => <<"wrongvalue">>}},
@@ -197,9 +219,10 @@ t_update(_Config) ->
             protocol => mqtt
         }
     ),
-    ok = drop_seeds().
+    ok = drop_seeds(Client).
 
-t_is_superuser(_Config) ->
+t_is_superuser(TCConfig) ->
+    Client = ?config(mongo_client, TCConfig),
     Config = raw_mongo_auth_config(),
     {ok, _} = emqx:update_config(
         ?PATH,
@@ -221,10 +244,10 @@ t_is_superuser(_Config) ->
         {true, true}
     ],
 
-    lists:foreach(fun test_is_superuser/1, Checks).
+    lists:foreach(fun(Check) -> test_is_superuser(Client, Check) end, Checks).
 
-test_is_superuser({Value, ExpectedValue}) ->
-    {true, _} = mc_worker_api:delete(?MONGO_CLIENT, <<"users">>, #{}),
+test_is_superuser(Client, {Value, ExpectedValue}) ->
+    {true, _} = mc_worker_api:delete(Client, <<"users">>, #{}),
 
     UserData = #{
         username => <<"user">>,
@@ -233,7 +256,7 @@ test_is_superuser({Value, ExpectedValue}) ->
         is_superuser => Value
     },
 
-    ok = create_user(UserData),
+    ok = create_user(Client, UserData),
 
     Credentials = #{
         listener => 'tcp:default',
@@ -247,8 +270,9 @@ test_is_superuser({Value, ExpectedValue}) ->
         emqx_access_control:authenticate(Credentials)
     ).
 
-t_node_cache(_Config) ->
-    ok = create_user(#{
+t_node_cache(TCConfig) ->
+    Client = ?config(mongo_client, TCConfig),
+    ok = create_user(Client, #{
         username => <<"node_cache_user">>, password_hash => <<"password">>, salt => <<"">>
     }),
     Config = raw_mongo_auth_config(),
@@ -290,11 +314,12 @@ Checks that, if an authentication backend returns the `clientid_override` attrib
 used to override.
 """.
 t_clientid_override(TCConfig) when is_list(TCConfig) ->
+    Client = ?config(mongo_client, TCConfig),
     OverriddenClientId = <<"overridden_clientid">>,
     Username = <<"overriden_clientid">>,
     Password = <<"password">>,
     MkConfigFn = fun() ->
-        ok = create_user(#{
+        ok = create_user(Client, #{
             username => Username,
             password_hash => Password,
             salt => <<"">>,
@@ -513,17 +538,17 @@ user_seeds() ->
         }
     ].
 
-init_seeds() ->
+init_seeds(Client) ->
     Users = [Values || #{data := Values} <- user_seeds()],
-    ok = lists:foreach(fun create_user/1, Users),
+    ok = lists:foreach(fun(User) -> create_user(Client, User) end, Users),
     ok.
 
-create_user(User) ->
-    {{true, _}, _} = mc_worker_api:insert(?MONGO_CLIENT, <<"users">>, [User]),
+create_user(Client, User) ->
+    {{true, _}, _} = mc_worker_api:insert(Client, <<"users">>, [User]),
     ok.
 
-drop_seeds() ->
-    {true, _} = mc_worker_api:delete(?MONGO_CLIENT, <<"users">>, #{}),
+drop_seeds(Client) ->
+    {true, _} = mc_worker_api:delete(Client, <<"users">>, #{}),
     ok.
 
 mongo_server() ->
@@ -536,9 +561,29 @@ mongo_config() ->
         {port, ?MONGO_DEFAULT_PORT},
         {auth_source, mongo_authsource()},
         {login, mongo_username()},
-        {password, mongo_password()},
-        {register, ?MONGO_CLIENT}
+        {password, mongo_password()}
     ].
+
+%% MongoDB 5.1 removed the legacy OP_QUERY opcodes (wire protocol version 14),
+%% so the legacy-protocol seeds only apply to servers reporting wire version 13
+%% (MongoDB 5.0) or below. `isMaster` is answered before authentication, so no
+%% credentials are required to probe the running server.
+mongo_supports_legacy_protocol(Host, Port) ->
+    %% Force the modern OP_MSG protocol for the probe itself: the legacy
+    %% OP_QUERY opcodes the probe is checking for are exactly what newer servers
+    %% reject, so a legacy probe connection would fail on them.
+    {ok, Conn} = mc_worker_api:connect([
+        {database, <<"admin">>},
+        {host, Host},
+        {port, Port},
+        {use_legacy_protocol, false}
+    ]),
+    try
+        {true, Info} = mc_worker_api:command(Conn, {<<"isMaster">>, 1}),
+        maps:get(<<"maxWireVersion">>, Info, 0) =< 13
+    after
+        mc_worker_api:disconnect(Conn)
+    end.
 
 mongo_authsource() ->
     iolist_to_binary(os:getenv("MONGO_AUTHSOURCE", "admin")).
