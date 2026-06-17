@@ -1898,14 +1898,16 @@ delete_primary_retained_message(PrimaryNode) ->
 
 create_rule(RuleId, SQL, Description) ->
     {201, _Rule} = emqx_rule_engine_api:'/rules'(post, #{
-        body => rule_body(RuleId, SQL, Description)
+        body => rule_body(RuleId, SQL, Description),
+        resolved_ns => ?global_ns
     }),
     ok.
 
 update_rule(RuleId, SQL, Description) ->
     {200, _Rule} = emqx_rule_engine_api:'/rules/:id'(put, #{
         bindings => #{id => RuleId},
-        body => rule_body(RuleId, SQL, Description)
+        body => rule_body(RuleId, SQL, Description),
+        resolved_ns => ?global_ns
     }),
     ok.
 

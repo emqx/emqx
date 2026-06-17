@@ -377,7 +377,8 @@ do_check_rbac(
         #{bindings := #{namespace := Namespace}} ->
             true;
         _ ->
-            false
+            {error,
+                <<"Namespaced administrators may only manage certificates in their own namespace">>}
     end;
 do_check_rbac(_, _, _) ->
     {error, <<"You don't have permission to access this resource">>}.
