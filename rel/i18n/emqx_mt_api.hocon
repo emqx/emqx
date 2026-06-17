@@ -98,7 +98,7 @@ emqx_mt_api {
         label: "List managed namespaces with extra details"
     }
     create_managed_ns {
-        desc: "Create managed namespace"
+        desc: "Create managed namespace. Reserved names that cannot be used: `global`, `undefined`, `null`, `none`."
         label: "Create managed namespace"
     }
     delete_ns {
@@ -192,7 +192,7 @@ last_clientid_in_query.label:
 
 
 param_path_ns.desc:
-"""Namespace in path parameter."""
+"""Namespace in path parameter. Reserved names that cannot be used: `global`, `undefined`, `null`, `none`."""
 param_path_ns.label:
 """Namespace"""
 

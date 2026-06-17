@@ -26,7 +26,7 @@ delete_api_key.label:
 """Delete the specific api_key"""
 
 role.desc:
-"""Role for this API"""
+"""Role for this API. A namespaced role is written as `ns:<namespace>::<role>`. Reserved namespace names that cannot be used: `global`, `undefined`, `null`, `none`."""
 role.label:
 """Role"""
 

@@ -82,7 +82,7 @@ version.desc:
 """EMQX Version"""
 
 role.desc:
-"""User role"""
+"""User role. A namespaced role is written as `ns:<namespace>::<role>`. Reserved namespace names that cannot be used: `global`, `undefined`, `null`, `none`."""
 
 list_user_scopes_api.desc:
 """List all scope names that a dashboard login user may hold, with their descriptions and an `admin_only` flag indicating whether the scope is restricted to administrator role.
