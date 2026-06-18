@@ -832,7 +832,7 @@ t_start_stop(TCConfig) ->
             prop_client_stopped(),
             prop_workers_stopped(PubSubTopic),
             fun(Trace) ->
-                ?assertMatch([_], ?of_kind(gcp_pubsub_consumer_clear_unhealthy, Trace)),
+                ?assertMatch([_, _ | _], ?of_kind(gcp_pubsub_consumer_clear_unhealthy, Trace)),
                 ok
             end
         ]
@@ -2136,4 +2136,48 @@ t_create_via_http_json_object_service_account(TCConfig) ->
         <<"service_account_json">> => ServiceAccountJSON
     }),
     assert_persisted_service_account_json_is_binary(TCConfig),
+    ok.
+
+%% original issue: source was created with a service account without the correct
+%% permissions.  later, the permissions were granted to the service account.  in the
+%% meantime, if the resource manager attempted to reinstall the source more than once, it
+%% could end up in a state where the source would not be part of its internal installed
+%% channels, and then the optvar marking the source as unhealthy would not be cleared.
+%% here, we ensure that such optvar is cleared, and the source eventually recovers once
+%% the permissions are granted.
+t_clear_stuck_unhealthy(TCConfig) ->
+    emqx_common_test_helpers:with_mock(
+        emqx_bridge_gcp_pubsub_client,
+        query_sync,
+        fun(PreparedRequest = ?PREPARED_REQUEST_PAT(Method, _Path, _Body), Client) ->
+            %% original issue: 403 when creating subscription
+            case Method =:= put of
+                true ->
+                    ct:pal("mocking response"),
+                    permission_denied_response();
+                false ->
+                    meck:passthrough([PreparedRequest, Client])
+            end
+        end,
+        fun() ->
+            {201, #{<<"status">> := <<"connected">>}} =
+                create_connector_api(TCConfig, #{}),
+            {201, #{<<"status">> := <<"disconnected">>}} =
+                create_source_api(TCConfig, #{}),
+            ?assertMatch(
+                {200, #{<<"status">> := <<"disconnected">>}},
+                get_source_api(TCConfig)
+            ),
+            ok
+        end
+    ),
+    %% now, we "grant" the permissions by removing the mock.  should recover by itself.
+    ?retry(
+        1_000,
+        10,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"connected">>}},
+            get_source_api(TCConfig)
+        )
+    ),
     ok.
