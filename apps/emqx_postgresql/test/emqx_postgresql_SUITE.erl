@@ -91,6 +91,85 @@ t_concurrent_raw_queries_no_errors(_Config) ->
     Errors = [R || R <- Results, not match_ok(R)],
     ?assertEqual([], Errors).
 
+%% Verify that concurrent raw batch queries with different parameter counts do not
+%% race through the unnamed prepared statement.
+t_concurrent_raw_batch_queries_no_errors(_Config) ->
+    ResourceId = <<"emqx_postgresql_SUITE_concurrent_batch">>,
+    Table = <<"emqx_postgresql_batch_race">>,
+    Sql4 =
+        <<"INSERT INTO ", Table/binary, "(a, b, c, d) VALUES (${a}, ${b}, ${c}, ${d})">>,
+    Sql8 =
+        <<"INSERT INTO ", Table/binary,
+            "(a, b, c, d, e, f, g, h) VALUES "
+            "(${a}, ${b}, ${c}, ${d}, ${e}, ${f}, ${g}, ${h})">>,
+    {ok, #{config := CheckedConfig}} =
+        emqx_resource:check_config(
+            ?PGSQL_RESOURCE_MOD,
+            pgsql_config(#{
+                pool_size => 1,
+                disable_prepared_statements => true
+            })
+        ),
+    {ok, #{state := State0}} = emqx_resource:create_local(
+        ResourceId,
+        ?CONNECTOR_RESOURCE_GROUP,
+        ?PGSQL_RESOURCE_MOD,
+        CheckedConfig,
+        #{spawn_buffer_workers => false}
+    ),
+    {ok, State1} = emqx_postgresql:on_add_channel(
+        ResourceId, State0, <<"stmt4">>, #{parameters => #{sql => Sql4}}
+    ),
+    {ok, State} = emqx_postgresql:on_add_channel(
+        ResourceId, State1, <<"stmt8">>, #{parameters => #{sql => Sql8}}
+    ),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId)),
+    ?assert(
+        match_ok(
+            emqx_resource:simple_sync_query(
+                ResourceId,
+                {query, <<"DROP TABLE IF EXISTS ", Table/binary>>, []}
+            )
+        )
+    ),
+    ?assert(
+        match_ok(
+            emqx_resource:simple_sync_query(
+                ResourceId,
+                {query,
+                    <<"CREATE TABLE ", Table/binary,
+                        " (a integer, b integer, c integer, d integer, "
+                        "e integer, f integer, g integer, h integer)">>,
+                    []}
+            )
+        )
+    ),
+    Self = self(),
+    N = 50,
+    [
+        spawn(fun() ->
+            Res = batch_query_with_timeout(
+                ResourceId,
+                batch_query(I),
+                State
+            ),
+            Self ! {result, Res}
+        end)
+     || I <- lists:seq(1, N)
+    ],
+    Results = [
+        receive
+            {result, R} -> R
+        after 10_000 -> timeout
+        end
+     || _ <- lists:seq(1, N)
+    ],
+    _ = emqx_resource:simple_sync_query(ResourceId, {query, <<"DROP TABLE ", Table/binary>>, []}),
+    emqx_resource:remove_local(ResourceId),
+    Errors = [R || R <- Results, R =/= {ok, 2}],
+    ct:pal("concurrent raw batch query errors: ~p", [Errors]),
+    ?assertEqual([], Errors).
+
 perform_lifecycle_check(ResourceId, InitialConfig) ->
     {ok, #{config := CheckedConfig}} =
         emqx_resource:check_config(?PGSQL_RESOURCE_MOD, InitialConfig),
@@ -158,6 +237,9 @@ pgsql_config(Overrides) ->
         <<"config">> => #{
             <<"auto_reconnect">> => true,
             <<"database">> => <<"mqtt">>,
+            <<"disable_prepared_statements">> => maps:get(
+                disable_prepared_statements, Overrides, false
+            ),
             <<"username">> => <<"root">>,
             <<"password">> => <<"public">>,
             <<"pool_size">> => PoolSize,
@@ -172,6 +254,50 @@ test_query_no_params() ->
 
 test_query_with_params() ->
     {query, <<"SELECT $1::integer">>, [1]}.
+
+batch_query(I) when I rem 2 =:= 0 ->
+    [
+        {<<"stmt4">>, #{a => I, b => I + 1, c => I + 2, d => I + 3}},
+        {<<"stmt4">>, #{a => I, b => I + 1, c => I + 2, d => I + 3}}
+    ];
+batch_query(I) ->
+    [
+        {<<"stmt8">>, #{
+            a => I,
+            b => I + 1,
+            c => I + 2,
+            d => I + 3,
+            e => I + 4,
+            f => I + 5,
+            g => I + 6,
+            h => I + 7
+        }},
+        {<<"stmt8">>, #{
+            a => I,
+            b => I + 1,
+            c => I + 2,
+            d => I + 3,
+            e => I + 4,
+            f => I + 5,
+            g => I + 6,
+            h => I + 7
+        }}
+    ].
+
+batch_query_with_timeout(ResourceId, Batch, State) ->
+    try
+        emqx_utils:nolink_apply(
+            fun() ->
+                emqx_postgresql:on_batch_query(ResourceId, Batch, State)
+            end,
+            3_000
+        )
+    catch
+        exit:timeout ->
+            timeout;
+        Class:Reason:Stacktrace ->
+            {exception, Class, Reason, Stacktrace}
+    end.
 
 match_ok({ok, _, _}) -> true;
 match_ok(_) -> false.
