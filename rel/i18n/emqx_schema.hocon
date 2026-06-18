@@ -1910,6 +1910,12 @@ client_attrs_init_expression {
     - `cert_common_name`: Alias of `cn`.
     - `dn`: Client's TLS certificate distinguished name (the subject).
     - `cert_subject`: Alias of `dn`.
+    For directly connected TLS clients, the subject alternative names in the client certificate
+    can be used:
+    - `cert_san.dns`: DNS names in the client certificate.
+    - `cert_san.ip`: IP addresses in the client certificate.
+    - `cert_san.email`: Email addresses in the client certificate.
+    - `cert_san.uri`: URIs in the client certificate.
     - `peersni`: TLS server name indication sent by the client.
 
     You can read more about variform expressions in EMQX docs."""

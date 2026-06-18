@@ -348,11 +348,12 @@ set_peercert_infos(PeerCert, ClientInfo, Zone) ->
     ClientId = PeercetAs(peer_cert_as_clientid),
     ClientInfo#{username => Username, clientid => ClientId, dn => DN, cn => CN}.
 
-%% Reject control characters (0x00-0x1F, 0x7F-0x9F) in CN / DN. Mirrors the
-%% byte-class check `emqx_frame:validate_utf8/1` applies to MQTT-ingested
-%% clientid/username/password. Closes a CRLF-injection primitive where bytes
-%% sourced from a PROXY-Protocol v2 SSL TLV could be smuggled into outbound
-%% HTTP authn/authz/bridge requests via `${cert_common_name}` / `${cert_subject}`.
+%% Reject control characters (0x00-0x1F, 0x7F-0x9F) in peer certificate strings.
+%% Mirrors the byte-class check `emqx_frame:validate_utf8/1` applies to
+%% MQTT-ingested clientid/username/password. Closes a CRLF-injection primitive
+%% where bytes sourced from a peer certificate or PROXY-Protocol v2 SSL TLV could
+%% be smuggled into outbound HTTP authn/authz/bridge requests via
+%% `${cert_common_name}` / `${cert_subject}` / `${cert_san.*}`.
 validate_peercert_string(_Field, undefined, _Source) ->
     ok;
 validate_peercert_string(Field, Value, Source) when is_binary(Value) ->
@@ -2152,7 +2153,7 @@ check_connect(ConnPkt, #channel{clientinfo = #{zone := Zone}}) ->
 %%--------------------------------------------------------------------
 %% Enrich Client Info
 
-enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
+enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo, conninfo = ConnInfo}) ->
     Pipe = emqx_utils:pipeline(
         [
             fun set_username/2,
@@ -2160,7 +2161,9 @@ enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
             fun maybe_username_as_clientid/2,
             fun maybe_assign_clientid/2,
             %% attr init should happen after clientid and username assign
-            fun maybe_set_client_initial_attrs/2,
+            fun(NConnPkt, NClientInfo) ->
+                maybe_set_client_initial_attrs(NConnPkt, NClientInfo, ConnInfo)
+            end,
             %% clientid override should happen after client_attrs is initialized
             fun maybe_override_clientid/2
         ],
@@ -2218,7 +2221,7 @@ maybe_assign_clientid(#mqtt_packet_connect{clientid = ClientId}, ClientInfo) ->
 get_client_attrs_init_config(Zone) ->
     get_mqtt_conf(Zone, client_attrs_init, []).
 
-maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo) ->
+maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo, ConnInfo) ->
     case get_client_attrs_init_config(Zone) of
         [] ->
             {ok, ClientInfo};
@@ -2226,7 +2229,8 @@ maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo) ->
             UserProperty = get_user_property_as_map(ConnPkt),
             Password = get_connect_password(ConnPkt),
             RenderCtx = client_attrs_init_render_ctx(
-                ClientInfo#{user_property => UserProperty, password => Password}
+                ClientInfo#{user_property => UserProperty, password => Password},
+                ConnInfo
             ),
             Attrs0 = maps:get(client_attrs, ClientInfo, #{}),
             Attrs1 = initialize_client_attrs(Inits, RenderCtx),
@@ -2236,15 +2240,47 @@ maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo) ->
 get_connect_password(#mqtt_packet_connect{password = Password}) ->
     Password.
 
-client_attrs_init_render_ctx(#{cn := CN} = Ctx) ->
+client_attrs_init_render_ctx(Ctx, ConnInfo) ->
+    client_attrs_init_render_ctx_cn(add_cert_san_render_ctx(Ctx, ConnInfo)).
+
+client_attrs_init_render_ctx_cn(#{cn := CN} = Ctx) ->
     client_attrs_init_render_ctx_dn(Ctx#{cert_common_name => CN});
-client_attrs_init_render_ctx(Ctx) ->
+client_attrs_init_render_ctx_cn(Ctx) ->
     client_attrs_init_render_ctx_dn(Ctx).
 
 client_attrs_init_render_ctx_dn(#{dn := DN} = Ctx) ->
     Ctx#{cert_subject => DN};
 client_attrs_init_render_ctx_dn(Ctx) ->
     Ctx.
+
+add_cert_san_render_ctx(Ctx, ConnInfo) ->
+    PeerCert = maps:get(peercert, ConnInfo, undefined),
+    CertSAN = esockd_peercert:subject_alt_names(PeerCert),
+    ok = validate_cert_san(CertSAN, PeerCert),
+    Ctx#{cert_san => cert_san_render_ctx(CertSAN)}.
+
+validate_cert_san(nosan, _Source) ->
+    ok;
+validate_cert_san(CertSAN, Source) when is_map(CertSAN) ->
+    maps:foreach(
+        fun(NameType, Values) ->
+            lists:foreach(
+                fun(Value) ->
+                    validate_peercert_string({cert_san, NameType}, Value, Source)
+                end,
+                Values
+            )
+        end,
+        CertSAN
+    ).
+
+cert_san_render_ctx(nosan) ->
+    empty_cert_san_render_ctx();
+cert_san_render_ctx(CertSAN) when is_map(CertSAN) ->
+    maps:merge(empty_cert_san_render_ctx(), CertSAN).
+
+empty_cert_san_render_ctx() ->
+    #{dns => [], ip => [], email => [], uri => []}.
 
 initialize_client_attrs(Inits, #{clientid := ClientId} = ClientInfo) ->
     lists:foldl(
