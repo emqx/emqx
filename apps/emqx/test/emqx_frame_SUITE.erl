@@ -262,7 +262,7 @@ t_parse_many_user_properties_is_linear(_) ->
     Frame = <<16#10, (encode_vbi(byte_size(Body)))/binary, Body/binary>>,
     ParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
     T0 = erlang:monotonic_time(millisecond),
-    {ok, Packet, <<>>, _} = emqx_frame:parse(Frame, ParseState),
+    {Packet, <<>>, _} = emqx_frame:parse(Frame, ParseState),
     Elapsed = erlang:monotonic_time(millisecond) - T0,
     #mqtt_packet{variable = #mqtt_packet_connect{properties = ParsedProps}} = Packet,
     UserProps = maps:get('User-Property', ParsedProps),
