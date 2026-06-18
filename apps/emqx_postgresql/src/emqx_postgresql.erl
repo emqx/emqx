@@ -514,13 +514,13 @@ on_sql_query(InstId, PoolName, Type, NameOrSQL, Data, State) ->
     end.
 
 apply_mode(query, _State) ->
-    %% `epgsql:equery/3' parses an unnamed statement before binding parameters.
-    %% Keep the full call serialized for each worker connection.
+    %% query calls equery, which is not atomic and can interleave with other
+    %% queries on the same worker connection.
     handover;
 apply_mode(execute_batch, State) ->
-    %% With disabled prepared statements, batch execution uses raw SQL and
-    %% parses an unnamed statement before binding rows.  Different concurrent
-    %% SQL templates must not interleave on the same connection.
+    %% When prepared statements are disabled, execute_batch receives SQL text.
+    %% epgsql parses the SQL inside the call, so concurrent raw batch calls can
+    %% interleave on the same worker connection.
     case prepared_statements_disabled(State) of
         true -> handover;
         false -> no_handover
