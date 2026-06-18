@@ -92,18 +92,18 @@ list_user_scopes_api.label:
 """List dashboard user scopes"""
 
 user_scopes_request.desc:
-"""Dashboard user scopes — a fine-grained access list applied on top of role.
+"""Dashboard user scopes: a fine-grained access list applied in addition to the user's role.
 
-When omitted on creation, the server materializes the role default — administrator gets all management scopes plus the four login-only scopes; viewer gets all management scopes; publisher (where applicable) gets the `publish` scope only. Send an explicit empty list `[]` to create a deny-all user (only anonymous endpoints such as `/status` remain reachable).
+If this field is omitted when a user is created, the server applies the default scopes for the role. An administrator receives all management scopes plus the four login-only scopes. A viewer receives all management scopes. A publisher, where applicable, receives only the `publish` scope. To create a deny-all user, send an explicit empty list `[]`; only anonymous endpoints such as `/status` remain reachable.
 
-Login users may hold any of the API key catalog scopes plus the four login-only scopes: `user_management`, `mfa_management`, `sso_management`, `api_key_management`. Of these four, three are administrator-only (`user_management`, `sso_management`, `api_key_management`); `mfa_management` may also be assigned to non-administrator users — for non-admin holders it acts as a self-exemption key allowing the user to bypass force_mfa and admin_required locks on their own MFA only."""
+Login users may be assigned any API key catalog scope plus the four login-only scopes: `user_management`, `mfa_management`, `sso_management`, and `api_key_management`. Among these four scopes, `user_management`, `sso_management`, and `api_key_management` are administrator-only. `mfa_management` may also be assigned to non-administrator users. For non-administrator users, it acts only as a self-exemption key that allows the user to bypass `force_mfa` and `admin_required` locks for their own MFA."""
 
 user_scopes_response.desc:
-"""Dashboard user scopes — a fine-grained access list applied on top of role.
+"""Dashboard user scopes: a fine-grained access list applied in addition to the user's role.
 
-The literal string `unset` is a legacy-only sentinel surfaced for records that survived an upgrade from a release where the dashboard-user scopes feature did not exist; the runtime falls back to role default for such records and a client should treat them as "no explicit scope policy yet". An empty list `[]` means deny-all (only anonymous endpoints such as `/status` remain reachable).
+The literal string `unset` is a legacy-only sentinel for records upgraded from a release that did not support dashboard user scopes. At runtime, such records fall back to the default scopes for the role. Clients should treat `unset` as \"no explicit scope policy has been set yet\". An empty list `[]` means deny-all; only anonymous endpoints such as `/status` remain reachable.
 
-Login users may hold any of the API key catalog scopes plus the four login-only scopes: `user_management`, `mfa_management`, `sso_management`, `api_key_management`. Of these four, three are administrator-only (`user_management`, `sso_management`, `api_key_management`); `mfa_management` may also be assigned to non-administrator users — for non-admin holders it acts as a self-exemption key allowing the user to bypass force_mfa and admin_required locks on their own MFA only."""
+Login users may be assigned any API key catalog scope plus the four login-only scopes: `user_management`, `mfa_management`, `sso_management`, and `api_key_management`. Among these four scopes, `user_management`, `sso_management`, and `api_key_management` are administrator-only. `mfa_management` may also be assigned to non-administrator users. For non-administrator users, it acts only as a self-exemption key that allows the user to bypass `force_mfa` and `admin_required` locks for their own MFA."""
 
 backend.desc:
 """User account source"""

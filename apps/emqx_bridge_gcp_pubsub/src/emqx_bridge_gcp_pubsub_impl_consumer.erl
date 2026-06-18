@@ -24,7 +24,7 @@
 %% health check API
 -export([
     mark_as_unhealthy/2,
-    clear_unhealthy/1,
+    clear_one_unhealthy/1,
     check_if_unhealthy/1
 ]).
 
@@ -78,6 +78,9 @@
 
 -define(SUP, emqx_bridge_gcp_pubsub_sup).
 
+%% Allocatable resources
+-define(worker_pool, worker_pool).
+
 %%-------------------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------------------
@@ -122,10 +125,9 @@ on_start(ConnectorResId, Config0) ->
     end.
 
 -spec on_stop(resource_id(), connector_state()) -> ok | {error, term()}.
-on_stop(ConnectorResId, ConnectorState) ->
+on_stop(ConnectorResId, _ConnectorState) ->
     ?tp(gcp_pubsub_consumer_stop_enter, #{}),
-    clear_unhealthy(ConnectorState),
-    ok = stop_consumers(ConnectorState),
+    clear_resources(ConnectorResId),
     emqx_bridge_gcp_pubsub_client:stop(ConnectorResId, ?SUP, ?TOKEN_TAB).
 
 -spec on_get_status(resource_id(), connector_state()) ->
@@ -166,7 +168,7 @@ on_remove_channel(_ConnectorResId, ConnectorState0, SourceResId) ->
     #{installed_sources := InstalledSources0} = ConnectorState0,
     case maps:take(SourceResId, InstalledSources0) of
         {SourceState, InstalledSources} ->
-            stop_consumers1(SourceState),
+            clear_one_resource(SourceResId, SourceState),
             ok;
         error ->
             InstalledSources = InstalledSources0
@@ -217,16 +219,26 @@ mark_as_unhealthy(SourceResId, Reason) ->
     optvar:set(?OPTVAR_UNHEALTHY(SourceResId), Reason),
     ok.
 
--spec clear_unhealthy(connector_state()) -> ok.
-clear_unhealthy(ConnectorState) ->
-    #{installed_sources := InstalledSources} = ConnectorState,
+clear_one_unhealthy(SourceResId) ->
+    optvar:unset(?OPTVAR_UNHEALTHY(SourceResId)),
+    ?tp(gcp_pubsub_consumer_clear_unhealthy, #{source_res_id => SourceResId}),
+    ok.
+
+clear_resources(ConnResId) ->
     maps:foreach(
-        fun(SourceResId, _SourceState) ->
-            optvar:unset(?OPTVAR_UNHEALTHY(SourceResId))
+        fun
+            ({?worker_pool, SourceResId}, Data) ->
+                clear_one_resource(SourceResId, Data);
+            (_, _) ->
+                ok
         end,
-        InstalledSources
-    ),
-    ?tp(gcp_pubsub_consumer_clear_unhealthy, #{}),
+        emqx_resource:get_allocated_resources(ConnResId)
+    ).
+
+clear_one_resource(SourceResId, Data) ->
+    #{pool_size := PoolSize} = Data,
+    stop_consumers1(SourceResId, PoolSize),
+    clear_one_unhealthy(SourceResId),
     ok.
 
 -spec check_if_unhealthy(source_resource_id()) ->
@@ -274,6 +286,7 @@ start_consumers(ConnectorResId, SourceResId, Client, ProjectId, SourceConfig) ->
     ConsumerOpts = maps:to_list(ConsumerConfig),
     ReqOpts = #{request_ttl => RequestTTL},
     PubsubTopics = [PubsubTopic],
+    clear_one_unhealthy(SourceResId),
     case validate_pubsub_topics(PubsubTopics, Client, ReqOpts) of
         ok ->
             ok;
@@ -295,35 +308,40 @@ start_consumers(ConnectorResId, SourceResId, Client, ProjectId, SourceConfig) ->
             %% topic when upserting their subscription.
             ok
     end,
+    ok = emqx_resource:allocate_resource(
+        ConnectorResId,
+        ?MODULE,
+        {?worker_pool, SourceResId},
+        #{pool_size => PoolSize}
+    ),
     case
         emqx_resource_pool:start(SourceResId, emqx_bridge_gcp_pubsub_consumer_worker, ConsumerOpts)
     of
         ok ->
-            State = #{pool_name => SourceResId},
+            State = #{
+                pool_name => SourceResId,
+                pool_size => PoolSize
+            },
             {ok, State};
         {error, Reason} ->
             {error, Reason}
     end.
 
-stop_consumers(ConnectorState) ->
-    #{installed_sources := InstalledSources} = ConnectorState,
-    maps:foreach(
-        fun(_SourceResId, SourceState) ->
-            stop_consumers1(SourceState)
-        end,
-        InstalledSources
-    ).
-
-stop_consumers1(SourceState) ->
-    #{pool_name := PoolName} = SourceState,
+stop_consumers1(SourceResId, PoolSize) ->
     _ = log_when_error(
         fun() ->
-            ok = emqx_resource_pool:stop(PoolName)
+            ok = emqx_resource_pool:stop(SourceResId)
         end,
         #{
             msg => "failed_to_stop_pull_worker_pool",
-            pool_name => PoolName
+            pool_name => SourceResId
         }
+    ),
+    lists:foreach(
+        fun(WorkerId) ->
+            emqx_bridge_gcp_pubsub_consumer_worker:clear_optvar(WorkerId)
+        end,
+        lists:seq(1, PoolSize)
     ),
     ok.
 
@@ -368,7 +386,10 @@ get_client_status(Client) ->
     ?status_connected | ?status_connecting.
 check_workers(SourceResId, Client) ->
     Opts = #{
-        check_fn => fun emqx_bridge_gcp_pubsub_consumer_worker:health_check/1,
+        check_fn => fun(#{id := WorkerId}) ->
+            emqx_bridge_gcp_pubsub_consumer_worker:health_check(WorkerId)
+        end,
+        run_on => independent,
         is_success_fn => fun
             (subscription_ok) -> false;
             (_) -> true

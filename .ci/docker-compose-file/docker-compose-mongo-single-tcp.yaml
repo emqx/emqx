@@ -1,7 +1,7 @@
 services:
   mongo_server:
     container_name: mongo
-    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG_SINGLE_TCP}
     restart: always
     networks:
       - emqx_bridge
@@ -15,7 +15,7 @@ services:
       --bind_ip_all
 
   mongo_single_setup:
-    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG_SINGLE_TCP}
     container_name: mongo_single_setup
     networks:
       - emqx_bridge
@@ -26,18 +26,16 @@ services:
       - /bin/bash
       - -c
       - |
-        while ! mongo --host mongo --eval 'db.runCommand("ping").ok' --quiet > /dev/null 2>&1; do
+        while ! mongosh --host mongo --quiet --eval 'db.runCommand({ping: 1}).ok' > /dev/null 2>&1; do
             sleep 1
         done
-        cat <<EOF >cmds.js
-          use mqtt
-          db.createRole({role: "role1", privileges: [], roles: []})
-          db.createUser({user: "user1", pwd: "abc123", roles: [{role: "role1", db: "mqtt"}]})
+        mongosh --host mongo -u emqx -p passw0rd --authenticationDatabase admin --quiet <<'EOF'
+        db.getSiblingDB("mqtt").createRole({role: "role1", privileges: [], roles: []})
+        db.getSiblingDB("mqtt").createUser({user: "user1", pwd: "abc123", roles: [{role: "role1", db: "mqtt"}]})
         EOF
-        mongo --host mongo -u emqx -p passw0rd < cmds.js
 
   mongo_single_setup_done:
-    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG_SINGLE_TCP}
     networks:
       - emqx_bridge
     restart: no
