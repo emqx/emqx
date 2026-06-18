@@ -95,6 +95,14 @@ fields(ingress_parameters) ->
                     default => false,
                     desc => ?DESC("source_no_local")
                 }
+            )},
+        {retain_as_published,
+            mk(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC("source_retain_as_published")
+                }
             )}
         | emqx_bridge_mqtt_connector_schema:fields("ingress_remote")
     ];

@@ -66,6 +66,7 @@
 -define(TAR_SUFFIX, ".tar.gz").
 -define(META_FILENAME, "META.hocon").
 -define(CLUSTER_HOCON_FILENAME, "cluster.hocon").
+-define(DEFAULT_MNESIA_RESTORE_MODE, merge).
 -define(CONF_KEYS, [
     [<<"delayed">>],
     [<<"rewrite">>],
@@ -117,6 +118,11 @@
     mnesia_table_filter => mnesia_table_filter(),
     print_fun => fun((io:format(), [term()]) -> ok),
     raw_conf_transform => fun((raw_config()) -> raw_config()),
+    namespace => emqx_config:maybe_namespace()
+}.
+-type import_opts() :: #{
+    mnesia_restore_mode => merge | snapshot,
+    print_fun => fun((io:format(), [term()]) -> ok),
     namespace => emqx_config:maybe_namespace()
 }.
 -type raw_config() :: #{binary() => any()}.
@@ -326,7 +332,7 @@ and on fail tries to install from backup data directory.
 import_local(BackupFilePath) ->
     import_local(BackupFilePath, ?DEFAULT_OPTS).
 
--spec import_local(file:filename_all(), map()) -> import_res().
+-spec import_local(file:filename_all(), import_opts()) -> import_res().
 import_local(BackupFilePath, Opts) ->
     case import_from_path(BackupFilePath, Opts) of
         {error, not_found} ->
@@ -344,7 +350,7 @@ import_local(BackupFilePath, Opts) ->
 This function is called from CLI.
 Backup file is manually placed somewhere in the local file system.
 """.
--spec import_from_path(file:filename_all(), map()) -> import_res().
+-spec import_from_path(file:filename_all(), import_opts()) -> import_res().
 import_from_path(BackupFilePath, Opts) ->
     maybe
         ok ?= validate_import_allowed(),
@@ -361,7 +367,7 @@ Backup file should be previously created by `upload/2` function.
 import(BackupFilename) ->
     import(BackupFilename, ?DEFAULT_OPTS).
 
--spec import(file:filename_all(), map()) -> import_res().
+-spec import(file:filename_all(), import_opts()) -> import_res().
 import(BackupFilename, Opts) ->
     maybe
         ok ?= validate_import_allowed(),
@@ -386,7 +392,7 @@ It runs on a core node.
 
 `FileNode` is the node to take backup file from.
 """.
--spec maybe_copy_and_import(node(), file:filename_all(), map()) -> import_res().
+-spec maybe_copy_and_import(node(), file:filename_all(), import_opts()) -> import_res().
 maybe_copy_and_import(FileNode, BackupFilename, Opts) ->
     maybe
         ok ?= maybe_copy(FileNode, BackupFilename),
@@ -810,8 +816,9 @@ do_import(BackupFilePath, Opts) ->
             {ok, _} ?= validate_backup(BackupDir),
             {ok, #{conf_errors := ConfErrors, mnesia_errors := MnesiaErrors}} ?=
                 do_import_for_namespace(Namespace, BackupDir, Opts),
-            ?SLOG(info, #{msg => "emqx_data_import_success"}),
-            {ok, #{db_errors => MnesiaErrors, config_errors => ConfErrors}}
+            Result = #{db_errors => MnesiaErrors, config_errors => ConfErrors},
+            log_import_result(BackupFilePath, Result),
+            {ok, Result}
         else
             {error, Error} ->
                 ?SLOG(error, #{
@@ -834,6 +841,19 @@ do_import(BackupFilePath, Opts) ->
     after
         cleanup_backup_dir(BackupFilePath)
     end.
+
+log_import_result(_BackupFilePath, #{db_errors := DbErrors, config_errors := ConfErrors}) when
+    map_size(DbErrors) =:= 0,
+    map_size(ConfErrors) =:= 0
+->
+    ?SLOG(info, #{msg => "emqx_data_import_success"});
+log_import_result(BackupFilePath, #{db_errors := DbErrors, config_errors := ConfErrors}) ->
+    ?SLOG(warning, #{
+        msg => "emqx_data_import_completed_with_errors",
+        db_errors => DbErrors,
+        config_errors => ConfErrors,
+        backup_file_path => BackupFilePath
+    }).
 
 do_import_for_namespace(?global_ns, BackupDir, Opts) ->
     maybe
@@ -893,12 +913,9 @@ restore_mnesia_tab(BackupDir, MnesiaBackupFilename, Mod, TabName, Opts) ->
     try
         case Validated of
             {ok, #{backup_file := BackupFile}} ->
-                %% As we use keep_tables option, we don't need to modify 'copies' (nodes)
-                %% in a backup file before restoring it,  as `mnsia:restore/2` will ignore
-                %% backed-up schema and keep the current table schema unchanged
-                Restored = mnesia:restore(BackupFile, [{default_op, keep_tables}]),
+                Restored = restore_mnesia_tab(BackupFile, TabName, mnesia_restore_mode(Opts)),
                 case Restored of
-                    {atomic, [TabName]} ->
+                    ok ->
                         on_table_imported(Mod, TabName, Opts);
                     RestoreErr ->
                         ?SLOG(error, #{
@@ -908,7 +925,7 @@ restore_mnesia_tab(BackupDir, MnesiaBackupFilename, Mod, TabName, Opts) ->
                             reason => RestoreErr
                         }),
                         maybe_print_mnesia_import_err(TabName, RestoreErr, Opts),
-                        {error, RestoreErr}
+                        RestoreErr
                 end;
             PrepareErr ->
                 ?SLOG(error, #{
@@ -924,6 +941,116 @@ restore_mnesia_tab(BackupDir, MnesiaBackupFilename, Mod, TabName, Opts) ->
         %% Cleanup files as soon as they are not needed any more for more efficient disk usage
         _ = file:delete(MnesiaBackupFilename)
     end.
+
+mnesia_restore_mode(Opts) ->
+    maps:get(mnesia_restore_mode, Opts, ?DEFAULT_MNESIA_RESTORE_MODE).
+
+restore_mnesia_tab(BackupFile, TabName, merge) ->
+    %% keep_tables is the legacy Data Backup import behavior: backup records are
+    %% merged into existing local tables and local-only records are preserved.
+    case mnesia:restore(BackupFile, [{default_op, keep_tables}]) of
+        {atomic, [TabName]} ->
+            ok;
+        RestoreErr ->
+            {error, RestoreErr}
+    end;
+restore_mnesia_tab(BackupFile, TabName, snapshot) ->
+    restore_mnesia_tab_as_snapshot(BackupFile, TabName).
+
+restore_mnesia_tab_as_snapshot(BackupFile, TabName) ->
+    case read_mnesia_backup_records(BackupFile, TabName) of
+        {ok, Records} ->
+            restore_mnesia_records_as_snapshot(TabName, Records);
+        Error ->
+            Error
+    end.
+
+restore_mnesia_records_as_snapshot(TabName, Records) ->
+    case mria_config:shard_rlookup(TabName) of
+        undefined ->
+            {error, {unknown_mria_shard, TabName}};
+        Shard ->
+            run_restore_mnesia_transaction(Shard, TabName, Records)
+    end.
+
+run_restore_mnesia_transaction(Shard, TabName, Records) ->
+    Result = mria:sync_transaction(Shard, fun() ->
+        do_restore_mnesia_tab(TabName, Records)
+    end),
+    case Result of
+        {atomic, ok} ->
+            ok;
+        {timeout, {atomic, ok}} ->
+            ok;
+        {aborted, Reason} ->
+            {error, Reason};
+        {timeout, {aborted, Reason}} ->
+            {error, Reason};
+        {timeout, {error, Reason}} ->
+            {error, Reason}
+    end.
+
+do_restore_mnesia_tab(TabName, Records) ->
+    lists:foreach(
+        fun(Key) ->
+            ok = mnesia:delete(TabName, Key, write)
+        end,
+        mnesia:all_keys(TabName)
+    ),
+    lists:foreach(
+        fun(Record) ->
+            ok = mnesia:write(TabName, Record, write)
+        end,
+        Records
+    ).
+
+read_mnesia_backup_records(BackupFile, TabName) ->
+    RecordName = mnesia:table_info(TabName, record_name),
+    Arity = length(mnesia:table_info(TabName, attributes)) + 1,
+    Result =
+        try_traverse_backup(fun() ->
+            mnesia:traverse_backup(
+                BackupFile,
+                mnesia_backup,
+                dummy,
+                read_only,
+                fun(Item, Acc) ->
+                    case read_mnesia_backup_item(TabName, RecordName, Arity, Item) of
+                        {ok, schema} ->
+                            {[], Acc};
+                        {ok, Record} ->
+                            {[], [Record | Acc]};
+                        Error ->
+                            throw(Error)
+                    end
+                end,
+                []
+            )
+        end),
+    case Result of
+        {ok, RecordsRev} ->
+            {ok, lists:reverse(RecordsRev)};
+        {error, _} = Error ->
+            Error;
+        Error ->
+            {error, Error}
+    end.
+
+read_mnesia_backup_item(_TabName, _RecordName, _Arity, {schema, _Tab, _CreateList}) ->
+    {ok, schema};
+read_mnesia_backup_item(TabName, RecordName, Arity, Record) when
+    is_tuple(Record), tuple_size(Record) =:= Arity
+->
+    case element(1, Record) of
+        RecordName ->
+            {ok, Record};
+        TabName ->
+            {ok, setelement(1, Record, RecordName)};
+        _ ->
+            {error, {bad_backup_record, TabName, Record}}
+    end;
+read_mnesia_backup_item(TabName, _RecordName, _Arity, Record) ->
+    {error, {bad_backup_record, TabName, Record}}.
 
 on_table_imported(Mod, Tab, Opts) ->
     case erlang:function_exported(Mod, on_backup_table_imported, 2) of
@@ -952,14 +1079,16 @@ on_table_imported(Mod, Tab, Opts) ->
 validate_mnesia_backup(MnesiaBackupFilename, Mod) ->
     Init = #{backup_file => MnesiaBackupFilename},
     Validated =
-        catch mnesia:traverse_backup(
-            MnesiaBackupFilename,
-            mnesia_backup,
-            dummy,
-            read_only,
-            mnesia_backup_validator(Mod),
-            Init
-        ),
+        try_traverse_backup(fun() ->
+            mnesia:traverse_backup(
+                MnesiaBackupFilename,
+                mnesia_backup,
+                dummy,
+                read_only,
+                mnesia_backup_validator(Mod),
+                Init
+            )
+        end),
     case Validated of
         ok ->
             {ok, Init};
@@ -1015,14 +1144,29 @@ migrate_mnesia_backup(MnesiaBackupFilename, Mod, Acc) ->
                         throw(Error)
                 end
             end,
-            catch mnesia:traverse_backup(
-                MnesiaBackupFilename,
-                MigrateFile,
-                Migrator,
-                Acc#{backup_file := MigrateFile}
-            );
+            try_traverse_backup(fun() ->
+                mnesia:traverse_backup(
+                    MnesiaBackupFilename,
+                    MigrateFile,
+                    Migrator,
+                    Acc#{backup_file := MigrateFile}
+                )
+            end);
         _ ->
             {error, no_migrator}
+    end.
+
+try_traverse_backup(Fun) ->
+    try Fun() of
+        Result ->
+            Result
+    catch
+        throw:Reason ->
+            Reason;
+        exit:Reason ->
+            {'EXIT', Reason};
+        error:Reason:Stacktrace ->
+            {'EXIT', {Reason, Stacktrace}}
     end.
 
 extract_backup(BackupFilePath) ->

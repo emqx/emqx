@@ -8,6 +8,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include("emqx_username_quota.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -772,3 +773,102 @@ await_list_usernames(QueryString, N) ->
             timer:sleep(25),
             await_list_usernames(QueryString, N - 1)
     end.
+
+%%--------------------------------------------------------------------
+%% Counter race fix tests
+%%--------------------------------------------------------------------
+
+t_counter_consistency_concurrent(_Config) ->
+    User = <<"race-user">>,
+    N = 40,
+    Parent = self(),
+    _ = [
+        spawn_link(fun() ->
+            ClientId = list_to_binary(io_lib:format("rc~p", [I])),
+            emqx_username_quota_state:add(User, ClientId, self()),
+            timer:sleep(rand:uniform(5)),
+            emqx_username_quota_state:del(self()),
+            Parent ! {done, I}
+        end)
+     || I <- lists:seq(1, N)
+    ],
+    lists:foreach(
+        fun(_) ->
+            receive
+                {done, _} -> ok
+            end
+        end,
+        lists:seq(1, N)
+    ),
+    timer:sleep(100),
+    RecCount = ets:info(?RECORD_TAB, size),
+    CtrSum = emqx_username_quota:session_count(User),
+    ?assertEqual(0, RecCount),
+    ?assertEqual(0, CtrSum),
+    ?assertEqual(
+        [{?COUNTER_TAB, {User, node()}, 0}],
+        ets:lookup(?COUNTER_TAB, {User, node()})
+    ).
+
+t_counter_consistency_concurrent_del_client(_Config) ->
+    User = <<"race-dc-user">>,
+    N = 40,
+    Parent = self(),
+    _ = [
+        spawn_link(fun() ->
+            ClientId = list_to_binary(io_lib:format("dc~p", [I])),
+            emqx_username_quota_state:add(User, ClientId, self()),
+            timer:sleep(rand:uniform(5)),
+            emqx_username_quota_state:del_client(User, ClientId),
+            Parent ! {done, I}
+        end)
+     || I <- lists:seq(1, N)
+    ],
+    lists:foreach(
+        fun(_) ->
+            receive
+                {done, _} -> ok
+            end
+        end,
+        lists:seq(1, N)
+    ),
+    timer:sleep(100),
+    RecCount = ets:info(?RECORD_TAB, size),
+    CtrSum = emqx_username_quota:session_count(User),
+    ?assertEqual(0, RecCount),
+    ?assertEqual(0, CtrSum),
+    ?assertEqual(
+        [{?COUNTER_TAB, {User, node()}, 0}],
+        ets:lookup(?COUNTER_TAB, {User, node()})
+    ).
+
+t_counter_not_deleted_when_zero(_Config) ->
+    User = <<"zero-user">>,
+    emqx_username_quota:register_session(User, <<"c1">>),
+    ?assertEqual(1, emqx_username_quota:session_count(User)),
+    %% Delete all sessions — counter should stay at 0, not disappear
+    emqx_username_quota:unregister_session(User, <<"c1">>),
+    ?assertEqual(0, emqx_username_quota:session_count(User)),
+    %% Verify counter entry still exists (key not deleted)
+    ?assertMatch(
+        [#?COUNTER_TAB{key = {User, _}, count = 0}],
+        ets:lookup(?COUNTER_TAB, {User, node()})
+    ),
+    %% Re-register should bring counter back to positive
+    emqx_username_quota:register_session(User, <<"c1">>),
+    ?assertEqual(1, emqx_username_quota:session_count(User)).
+
+t_double_unregister_counter_safety(_Config) ->
+    User = <<"doubler">>,
+    emqx_username_quota:register_session(User, <<"c1">>),
+    emqx_username_quota:register_session(User, <<"c2">>),
+    ?assertEqual(2, emqx_username_quota:session_count(User)),
+    %% Unregister the same client twice — counter should not go below 0 visually
+    emqx_username_quota:unregister_session(User, <<"c1">>),
+    emqx_username_quota:unregister_session(User, <<"c1">>),
+    ?assertEqual(1, emqx_username_quota:session_count(User)),
+    emqx_username_quota:unregister_session(User, <<"c2">>),
+    ?assertEqual(0, emqx_username_quota:session_count(User)),
+    %% After all deletions, re-register and verify counter recovers
+    emqx_username_quota:register_session(User, <<"c3">>),
+    ?assertEqual(1, emqx_username_quota:session_count(User)).

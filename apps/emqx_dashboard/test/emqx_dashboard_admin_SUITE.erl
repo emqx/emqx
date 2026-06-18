@@ -507,6 +507,11 @@ Simple assertions about namespaced user permissions.
    - Both viewers and admins can `GET` anything, even outside their namespace.  Namespaces
      are mostly to avoid accidentally mutating the wrong resources rather than hiding
      information.
+   - Exception: endpoints whose response would expose MQTT payload content (per-client
+     mqueue/inflight, retained, delayed) are denied for namespaced users by RBAC, because
+     the underlying stores are global and cannot be safely filtered by namespace.  Those
+     handlers are kept in a static deny list here so this assertion does not have to
+     reach into RBAC internals.
 """.
 t_namespaced_user_permissions(_TCConfig) ->
     GlobalAdminHeader = create_superuser(),
@@ -524,7 +529,14 @@ t_namespaced_user_permissions(_TCConfig) ->
     ),
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
     AllHandlers = [_ | _] = all_handlers(),
-    GetHandlers = [_ | _] = [FHI || #{method := get} = FHI <- AllHandlers],
+    Denied = namespaced_get_denylist(),
+    GetHandlers =
+        [_ | _] =
+        [
+            FHI
+         || #{method := get} = FHI <- AllHandlers,
+            not lists:member(maps:with([method, module, function], FHI), Denied)
+        ],
     FakeReq = #{path => <<"/api/v5/clients">>},
     Failures =
         lists:filtermap(
@@ -543,6 +555,19 @@ t_namespaced_user_permissions(_TCConfig) ->
         ct:fail({should_have_been_allowed, Failures})
     end,
     ok.
+
+%% Keep in sync with the namespaced-deny clauses in
+%% `emqx_dashboard_rbac:do_check_rbac/3' for these three modules.  Adding a new
+%% global-only message endpoint there means adding it here too.
+namespaced_get_denylist() ->
+    [
+        #{method => get, module => emqx_mgmt_api_clients, function => mqueue_msgs},
+        #{method => get, module => emqx_mgmt_api_clients, function => inflight_msgs},
+        #{method => get, module => emqx_retainer_api, function => '/messages'},
+        #{method => get, module => emqx_retainer_api, function => with_topic_warp},
+        #{method => get, module => emqx_delayed_api, function => delayed_messages},
+        #{method => get, module => emqx_delayed_api, function => delayed_message}
+    ].
 
 -doc """
 Checks the authorization behavior of namespaced publisher API keys.

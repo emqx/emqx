@@ -122,9 +122,20 @@ Smoke test for cache concurrency (if not cached, linearizes refresh calls to pro
 """.
 t_smoke_cache_concurrency(_TCConfig) ->
     RefreshFn = mk_fetch_success(),
+    %% N.B. Register the cleanup once, from the main test process.  Calling `on_exit/1`
+    %% from inside the `pmap` workers would make each worker spawn its own janitor (the
+    %% janitor lookup is keyed on the per-process dictionary), and each janitor would run
+    %% `unregister` when its worker exits, deleting the cache mid-batch and forcing extra
+    %% refreshes.
+    on_exit(fun() -> emqx_bridge_kafka_token_cache:unregister(?client_id) end),
     Responses =
         [OneResponse | _] =
-        emqx_utils:pmap(fun(_) -> get_or_refresh(RefreshFn) end, lists:seq(1, 10)),
+        emqx_utils:pmap(
+            fun(_) ->
+                emqx_bridge_kafka_token_cache:get_or_refresh(?client_id, RefreshFn)
+            end,
+            lists:seq(1, 10)
+        ),
     ?assertMatch([OneResponse], lists:usort(Responses)),
     ?assertNotReceive({fetched, #{times_called := N}} when N > 1),
     ok.

@@ -282,6 +282,8 @@ handle_create(Name, Params) ->
                     ?CREATED(redact(add_status(Name, Link)));
                 {error, already_exists} ->
                     ?LINK_ALREADY_EXISTS;
+                {error, single_node_license} ->
+                    ?BAD_REQUEST(single_node_license_message());
                 {error, Reason} ->
                     Message = emqx_utils:format("Create link failed: ~p", [redact(Reason)]),
                     ?BAD_REQUEST(Message)
@@ -303,6 +305,8 @@ handle_update(Name, Params0, OldLinkRaw) ->
             ?OK(redact(add_status(Name, Link)));
         {error, not_found} ->
             ?LINK_NOT_FOUND;
+        {error, single_node_license} ->
+            ?BAD_REQUEST(single_node_license_message());
         {error, Reason} ->
             Message = emqx_utils:format("Update link failed: ~p", [redact(Reason)]),
             ?BAD_REQUEST(Message)
@@ -318,6 +322,12 @@ handle_delete(Name) ->
             Message = list_to_binary(io_lib:format("Delete link failed: ~p", [Reason])),
             ?BAD_REQUEST(Message)
     end.
+
+single_node_license_message() ->
+    <<
+        "Cluster linking is not available under the community (single-node) license. "
+        "Load a non-community license and retry."
+    >>.
 
 handle_metrics(Name) ->
     Results = emqx_cluster_link_metrics:get_cluster_metrics(Name),

@@ -963,6 +963,9 @@ subscribe(_TopicFilter, _SubOpts = #{}, {?MODULE, Session0}) ->
 get_subscription(_TopicFilter, {?MODULE, _Session}) ->
     undefined.
 
+info(created_at, {?MODULE, _Session}) ->
+    0.
+
 handle_timeout(_ClientInfo, t1, {?MODULE, Session0}) ->
     Msg = emqx_message:make(<<"a/b">>, <<"t1">>),
     Session1 = maps:remove(t1, Session0),
