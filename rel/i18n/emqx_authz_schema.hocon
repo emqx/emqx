@@ -164,6 +164,30 @@ ignore_backend_failures.desc:
 ignore_backend_failures.label:
 """Ignore Backend Failures"""
 
+topic_template_allow.desc:
+"""Controls whether client-controlled values interpolated into authorization topic templates may contain MQTT topic-filter characters."""
+
+topic_template_allow.label:
+"""Topic Template Allowed Characters"""
+
+topic_template_allow_plus.desc:
+"""Allows the plus sign (<code>+</code>) in values interpolated into authorization topic templates."""
+
+topic_template_allow_plus.label:
+"""Allow Plus"""
+
+topic_template_allow_hash.desc:
+"""Allows the hash sign (<code>#</code>) in values interpolated into authorization topic templates."""
+
+topic_template_allow_hash.label:
+"""Allow Hash"""
+
+topic_template_allow_slash.desc:
+"""Allows the slash character (<code>/</code>) in values interpolated into authorization topic templates."""
+
+topic_template_allow_slash.label:
+"""Allow Slash"""
+
 node_metrics.desc:
 """The metrics of the resource for each node."""
 
