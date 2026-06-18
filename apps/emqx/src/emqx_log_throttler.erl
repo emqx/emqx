@@ -180,6 +180,7 @@ new_throttler(Msg) when
     Msg =:= buffer_worker_dropped_expired_messages;
     Msg =:= resource_exception;
     Msg =:= failed_to_trigger_fallback_action;
+    Msg =:= gcp_client_ehttpc_health_check_failed;
     Msg =:= transformation_failed;
     Msg =:= transformation_eval_operation_failure;
     Msg =:= transformation_eval_operation_exception;

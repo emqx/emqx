@@ -469,13 +469,18 @@ do_get_status1(ResourceId, Timeout) ->
                 ok ->
                     ok;
                 {error, Reason} ->
-                    ?SLOG(error, #{
-                        msg => "gcp_client_ehttpc_health_check_failed",
-                        connector => ResourceId,
-                        reason => Reason,
-                        worker => Worker,
-                        wait_time => Timeout
-                    }),
+                    ?SLOG_THROTTLE(
+                        error,
+                        ResourceId,
+                        #{
+                            msg => gcp_client_ehttpc_health_check_failed,
+                            resource_id => ResourceId,
+                            reason => Reason,
+                            worker => Worker,
+                            wait_time => Timeout
+                        },
+                        #{tag => ?TAG}
+                    ),
                     {error, Reason}
             end
         end,
