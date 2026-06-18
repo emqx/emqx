@@ -14,6 +14,10 @@
 -define(CONNECTOR_TYPE_BIN, <<"gcp_pubsub_consumer">>).
 -define(SOURCE_TYPE_BIN, <<"gcp_pubsub_consumer">>).
 
+-define(PREPARED_REQUEST_PAT(METHOD, PATH, BODY),
+    {prepared_request, {METHOD, PATH, BODY}, _}
+).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -57,6 +61,7 @@ common_init_per_testcase(TestCase, Config0) ->
         | Config0
     ],
     ok = emqx_bridge_gcp_pubsub_consumer_SUITE:ensure_topic(Config, PubsubTopic),
+    snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(_Testcase, Config) ->
@@ -126,6 +131,48 @@ assert_persisted_service_account_json_is_binary(ConnectorName) ->
         )
     ),
     ok.
+
+create_connector_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
+    ).
+
+create_source_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:create_source_api(TCConfig, Overrides).
+
+get_source_api(TCConfig) ->
+    #{type := Type, name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_source_api(Type, Name)
+    ).
+
+start_source_api(TCConfig) ->
+    #{
+        kind := Kind,
+        type := Type,
+        name := Name
+    } =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:op_bridge_api(
+            Kind, "start", Type, Name
+        )
+    ).
+
+disable_connector_api(TCConfig) ->
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:disable_connector_api(Type, Name)
+    ).
+
+enable_connector_api(TCConfig) ->
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:enable_connector_api(Type, Name)
+    ).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -251,5 +298,49 @@ t_update_topic(Config) ->
     ?assertMatch(
         {ok, {{_, 200, _}, _, #{<<"parameters">> := #{<<"topic">> := <<"new_topic">>}}}},
         emqx_bridge_v2_testlib:get_source_api(?SOURCE_TYPE_BIN, Name)
+    ),
+    ok.
+
+%% original issue: source was created with a service account without the correct
+%% permissions.  later, the permissions were granted to the service account.  in the
+%% meantime, if the resource manager attempted to reinstall the source more than once, it
+%% could end up in a state where the source would not be part of its internal installed
+%% channels, and then the optvar marking the source as unhealthy would not be cleared.
+%% here, we ensure that such optvar is cleared, and the source eventually recovers once
+%% the permissions are granted.
+t_clear_stuck_unhealthy(TCConfig) ->
+    emqx_common_test_helpers:with_mock(
+        emqx_bridge_gcp_pubsub_client,
+        query_sync,
+        fun(PreparedRequest = ?PREPARED_REQUEST_PAT(Method, _Path, _Body), Client) ->
+            %% original issue: 403 when creating subscription
+            case Method =:= put of
+                true ->
+                    ct:pal("mocking response"),
+                    emqx_bridge_gcp_pubsub_consumer_SUITE:permission_denied_response();
+                false ->
+                    meck:passthrough([PreparedRequest, Client])
+            end
+        end,
+        fun() ->
+            {201, #{<<"status">> := <<"connected">>}} =
+                create_connector_api(TCConfig, #{}),
+            {201, #{<<"status">> := <<"disconnected">>}} =
+                create_source_api(TCConfig, #{}),
+            ?assertMatch(
+                {200, #{<<"status">> := <<"disconnected">>}},
+                get_source_api(TCConfig)
+            ),
+            ok
+        end
+    ),
+    %% now, we "grant" the permissions by removing the mock.  should recover by itself.
+    ?retry(
+        1_000,
+        10,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"connected">>}},
+            get_source_api(TCConfig)
+        )
     ),
     ok.
