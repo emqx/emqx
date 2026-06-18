@@ -183,7 +183,8 @@ groups() ->
             case141_channel_blockwise_server_paths,
             case142_clear_blockwise_downlink,
             case143_blockwise_busy_no_context,
-            case144_blockwise_consume_only
+            case144_blockwise_consume_only,
+            case147_cleanup_lwm2m_channels
         ]}
     ].
 
@@ -248,6 +249,7 @@ init_per_testcase(TestCase, Config) ->
 
 end_per_testcase(_AllTestCase, Config) ->
     timer:sleep(300),
+    cleanup_lwm2m_channels(),
     gen_udp:close(?config(sock, Config)),
     emqtt:disconnect(?config(emqx_c, Config)),
     snabbkaffe:stop(),
@@ -5993,6 +5995,52 @@ case144_blockwise_consume_only(_Config) ->
     #{return := {_Outs, _Session2}} =
         emqx_lwm2m_session:handle_protocol_in({response, {Ctx, Resp}}, WithContext, Session1),
     ok.
+
+case147_cleanup_lwm2m_channels(_Config) ->
+    ClientId = <<"cleanup-test-client">>,
+    Parent = self(),
+    Pid = spawn_link(fun() -> fake_lwm2m_channel(Parent, ClientId) end),
+    ok = emqx_gateway_cm:register_channel(lwm2m, ClientId, Pid, #{conn_mod => ?MODULE}),
+    ?assertMatch([Pid], emqx_gateway_cm_registry:lookup_channels(lwm2m, ClientId)),
+
+    cleanup_lwm2m_channels(),
+
+    receive
+        {fake_channel_kicked, ClientId, kick} ->
+            ok
+    after 1000 ->
+        ct:fail(fake_lwm2m_channel_was_not_kicked)
+    end,
+    ?assertEqual([], emqx_gateway_cm_registry:lookup_channels(lwm2m, ClientId)).
+
+fake_lwm2m_channel(Parent, ClientId) ->
+    receive
+        {gateway_cm_call, kick} ->
+            emqx_gateway_cm:connection_closed(lwm2m, ClientId),
+            emqx_gateway_cm:unregister_channel(lwm2m, ClientId),
+            Parent ! {fake_channel_kicked, ClientId, kick}
+    end.
+
+call(Pid, Action, _Timeout) ->
+    Pid ! {gateway_cm_call, Action},
+    ok.
+
+cleanup_lwm2m_channels() ->
+    lists:foreach(
+        fun({ClientId, ChanPid}) ->
+            _ = emqx_gateway_cm:kick_session(lwm2m, ClientId, ChanPid)
+        end,
+        lwm2m_channels()
+    ),
+    ?retry(100, 20, ?assertEqual([], lwm2m_channels())).
+
+lwm2m_channels() ->
+    Tab = emqx_gateway_cm:tabname(chan, lwm2m),
+    try ets:tab2list(Tab) of
+        Channels -> Channels
+    catch
+        error:badarg -> []
+    end.
 
 capture_with_context(Pid) ->
     fun
