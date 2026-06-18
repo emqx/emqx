@@ -214,7 +214,12 @@ do_parse_role(_) ->
 parse_namespace_tag(NsTag) ->
     case binary:split(NsTag, <<":">>) of
         [<<"ns">>, Ns] ->
-            {ok, Ns};
+            case emqx:is_reserved_namespace(Ns) of
+                true ->
+                    {error, <<"Reserved namespace">>};
+                false ->
+                    {ok, Ns}
+            end;
         _ ->
             {error, <<"Invalid namespace tag">>}
     end.
