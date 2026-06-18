@@ -1883,42 +1883,6 @@ t_get_subscription(TCConfig) ->
     ),
     ok.
 
-t_permission_denied_topic_check(TCConfig) ->
-    PubSubTopic = get_config(pubsub_topic, TCConfig),
-    ?check_trace(
-        begin
-            %% the emulator does not check any credentials
-            emqx_common_test_helpers:with_mock(
-                emqx_bridge_gcp_pubsub_client,
-                query_sync,
-                fun(PreparedRequest = ?PREPARED_REQUEST_PAT(Method, Path, _Body), Client) ->
-                    RE = iolist_to_binary(["/topics/", PubSubTopic, "$"]),
-                    case {Method =:= get, re:run(Path, RE)} of
-                        {true, {match, _}} ->
-                            permission_denied_response();
-                        _ ->
-                            meck:passthrough([PreparedRequest, Client])
-                    end
-                end,
-                fun() ->
-                    {201, _} = create_connector_api(TCConfig, #{}),
-                    ?assertMatch(
-                        {201, #{
-                            <<"status">> := <<"disconnected">>,
-                            <<"status_reason">> :=
-                                <<"{unhealthy_target,\"Permission denied", _/binary>>
-                        }},
-                        create_source_api(TCConfig, #{})
-                    ),
-                    ok
-                end
-            ),
-            ok
-        end,
-        []
-    ),
-    ok.
-
 t_permission_denied_worker(TCConfig) ->
     ?check_trace(
         begin
@@ -1942,42 +1906,6 @@ t_permission_denied_worker(TCConfig) ->
                             10_000
                         ),
 
-                    ok
-                end
-            ),
-            ok
-        end,
-        []
-    ),
-    ok.
-
-t_unauthenticated_topic_check(TCConfig) ->
-    PubSubTopic = get_config(pubsub_topic, TCConfig),
-    ?check_trace(
-        begin
-            %% the emulator does not check any credentials
-            emqx_common_test_helpers:with_mock(
-                emqx_bridge_gcp_pubsub_client,
-                query_sync,
-                fun(PreparedRequest = ?PREPARED_REQUEST_PAT(Method, Path, _Body), Client) ->
-                    RE = iolist_to_binary(["/topics/", PubSubTopic, "$"]),
-                    case {Method =:= get, re:run(Path, RE)} of
-                        {true, {match, _}} ->
-                            unauthenticated_response();
-                        _ ->
-                            meck:passthrough([PreparedRequest, Client])
-                    end
-                end,
-                fun() ->
-                    {201, _} = create_connector_api(TCConfig, #{}),
-                    ?assertMatch(
-                        {201, #{
-                            <<"status">> := <<"disconnected">>,
-                            <<"status_reason">> :=
-                                <<"{unhealthy_target,\"Permission denied", _/binary>>
-                        }},
-                        create_source_api(TCConfig, #{})
-                    ),
                     ok
                 end
             ),

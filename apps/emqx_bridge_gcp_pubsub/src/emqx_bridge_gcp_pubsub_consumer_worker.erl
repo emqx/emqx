@@ -332,8 +332,8 @@ terminate({error, Reason}, State) when
         source_resource_id := SourceResId,
         topic := _Topic
     } = State,
-    clear_optvar(WorkerId),
     emqx_bridge_gcp_pubsub_impl_consumer:mark_as_unhealthy(SourceResId, Reason),
+    optvar:set(?OPTVAR_SUB_OK(WorkerId), Reason),
     ?tp(gcp_pubsub_consumer_worker_terminate, #{reason => {error, Reason}, topic => _Topic}),
     ok;
 terminate(_Reason, State) ->
@@ -444,6 +444,17 @@ ensure_subscription_exists(State) ->
                 }
             ),
             continue;
+        {error, {_, econnrefused} = Reason} ->
+            ?tp(
+                debug,
+                "gcp_pubsub_consumer_worker_subscription_error",
+                #{
+                    instance_id => SourceResId,
+                    topic => Topic,
+                    reason => Reason
+                }
+            ),
+            retry;
         {error, Reason} ->
             ?tp(
                 error,
