@@ -69,8 +69,7 @@
 -type prepares() :: #{atom() => binary()}.
 -type prepare_state() ::
     prepares()
-    | {error, _Reason :: term(), prepares()}
-    | {error, prepares()}.
+    | {error, _Reason :: term(), prepares()}.
 -type params_tokens() :: #{atom() => list()}.
 
 -type state() ::
@@ -379,14 +378,6 @@ do_check_prepares(
     } = _State
 ) ->
     {error, Reason};
-do_check_prepares(
-    _ChannelId,
-    _PoolName,
-    #{
-        prepare_sql := {error, _Prepares}
-    } = _State
-) ->
-    {error, undefined_table};
 do_check_prepares(
     ChannelId,
     PoolName,

@@ -194,9 +194,44 @@ sql_insert_template_with_inconsistent_datatype() ->
 sql_create_table() ->
     "CREATE TABLE mqtt_test (topic VARCHAR2(255), msgid VARCHAR2(64), payload NCLOB, retain NUMBER(1))".
 
+sql_eec_1322_insert_template() ->
+    "INSERT INTO t_mqtt_msgs(msgid, sender, topic, qos, retain, arrived, payload) VALUES(\n"
+    "  ${id},\n"
+    "  ${clientid},\n"
+    "  ${topic},\n"
+    "  ${qos},\n"
+    "  ${flags.retain},\n"
+    "  TO_TIMESTAMP('1970-01-01 00:00:00', 'YYYY-MM-DD HH24:MI:SS') + "
+    "NUMTODSINTERVAL(${timestamp}/1000, 'SECOND'),\n"
+    "  ${payload}\n"
+    ")".
+
+sql_create_eec_1322_table() ->
+    "CREATE TABLE t_mqtt_msgs ("
+    "msgid VARCHAR2(64), "
+    "sender VARCHAR2(64), "
+    "topic VARCHAR2(255), "
+    "qos NUMBER(1), "
+    "retain NUMBER(1), "
+    "payload NCLOB, "
+    "arrived TIMESTAMP"
+    ")".
+
 sql_drop_table() ->
     "BEGIN\n"
     "        EXECUTE IMMEDIATE 'DROP TABLE mqtt_test';\n"
+    "     EXCEPTION\n"
+    "        WHEN OTHERS THEN\n"
+    "            IF SQLCODE = -942 THEN\n"
+    "                NULL;\n"
+    "            ELSE\n"
+    "                RAISE;\n"
+    "            END IF;\n"
+    "     END;".
+
+sql_drop_eec_1322_table() ->
+    "BEGIN\n"
+    "        EXECUTE IMMEDIATE 'DROP TABLE t_mqtt_msgs';\n"
     "     EXCEPTION\n"
     "        WHEN OTHERS THEN\n"
     "            IF SQLCODE = -942 THEN\n"
@@ -287,6 +322,16 @@ reset_table(Config) ->
     end,
     ok.
 
+reset_eec_1322_table(Config) ->
+    {ok, Conn} = new_jamdb_connection(Config),
+    try
+        ok = drop_eec_1322_table_if_exists(Conn),
+        {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_create_eec_1322_table())
+    after
+        close_jamdb_connection(Conn)
+    end,
+    ok.
+
 drop_table_if_exists(Conn) when is_pid(Conn) ->
     {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_drop_table()),
     ok;
@@ -294,6 +339,18 @@ drop_table_if_exists(Config) ->
     {ok, Conn} = new_jamdb_connection(Config),
     try
         ok = drop_table_if_exists(Conn)
+    after
+        close_jamdb_connection(Conn)
+    end,
+    ok.
+
+drop_eec_1322_table_if_exists(Conn) when is_pid(Conn) ->
+    {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_drop_eec_1322_table()),
+    ok;
+drop_eec_1322_table_if_exists(Config) ->
+    {ok, Conn} = new_jamdb_connection(Config),
+    try
+        ok = drop_eec_1322_table_if_exists(Conn)
     after
         close_jamdb_connection(Conn)
     end,
@@ -348,6 +405,25 @@ scan_probe_audit_table(TCConfig) ->
         close_jamdb_connection(Conn)
     end.
 
+count_eec_1322_rows(TCConfig) ->
+    {ok, Conn} = new_jamdb_connection(TCConfig),
+    try
+        jamdb_oracle:sql_query(Conn, "select count(*) from t_mqtt_msgs")
+    after
+        close_jamdb_connection(Conn)
+    end.
+
+scan_one_eec_1322_row(TCConfig) ->
+    {ok, Conn} = new_jamdb_connection(TCConfig),
+    try
+        jamdb_oracle:sql_query(
+            Conn,
+            "select sender, topic, qos, retain, payload from t_mqtt_msgs where rownum = 1"
+        )
+    after
+        close_jamdb_connection(Conn)
+    end.
+
 count_user_table(TCConfig, TableName) ->
     {ok, Conn} = new_jamdb_connection(TCConfig),
     try
@@ -381,6 +457,9 @@ start_client() ->
 
 unique_payload() ->
     integer_to_binary(erlang:unique_integer()).
+
+large_json_payload() ->
+    emqx_utils_json:encode(#{<<"msg">> => binary:copy(<<"a">>, 5000)}).
 
 simple_create_rule_api(TCConfig) ->
     emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
@@ -417,6 +496,115 @@ t_rule_action(TCConfig) when is_list(TCConfig) ->
         post_publish_fn => PostPublishFn
     },
     emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts).
+
+t_eec_1322_t_mqtt_msgs_write_path() ->
+    [{matrix, true}].
+t_eec_1322_t_mqtt_msgs_write_path(matrix) ->
+    [[?with_batch]];
+t_eec_1322_t_mqtt_msgs_write_path(TCConfig) when is_list(TCConfig) ->
+    reset_eec_1322_table(TCConfig),
+    on_exit(fun() -> drop_eec_1322_table_if_exists(TCConfig) end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"sql">> => sql_eec_1322_insert_template()}
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    Clients = [start_client() || _ <- lists:seq(1, 10)],
+    Payload = emqx_utils_json:encode(#{<<"msg">> => <<"heelo">>}),
+    TopicStr = str(Topic),
+    MessagesPerClient = 10,
+    PublishCount = length(Clients) * MessagesPerClient,
+    ?check_trace(
+        begin
+            lists:foreach(
+                fun(C) ->
+                    lists:foreach(
+                        fun(_) ->
+                            emqtt:publish(C, Topic, Payload)
+                        end,
+                        lists:seq(1, MessagesPerClient)
+                    )
+                end,
+                Clients
+            ),
+            ?retry(
+                _Sleep = 500,
+                _Attempts = 60,
+                ?assertMatch(
+                    {ok, [{result_set, _, _, [[{PublishCount}]]}]},
+                    count_eec_1322_rows(TCConfig)
+                )
+            ),
+            ?assertMatch(
+                {ok, [{result_set, _, _, [[_, TopicStr, {0}, {0}, "{\"msg\":\"heelo\"}"]]}]},
+                scan_one_eec_1322_row(TCConfig)
+            ),
+            ?assertMatch(
+                {200, #{<<"status">> := <<"connected">>}},
+                get_action_api(TCConfig)
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertEqual(
+                [],
+                [Event || #{error := _} = Event <- ?of_kind(oracle_connector_query_return, Trace)]
+            ),
+            ok
+        end
+    ),
+    ok.
+
+t_eec_1322_large_payload_after_small_payload() ->
+    [{matrix, true}].
+t_eec_1322_large_payload_after_small_payload(matrix) ->
+    [[?with_batch]];
+t_eec_1322_large_payload_after_small_payload(TCConfig) when is_list(TCConfig) ->
+    reset_eec_1322_table(TCConfig),
+    on_exit(fun() -> drop_eec_1322_table_if_exists(TCConfig) end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"sql">> => sql_eec_1322_insert_template()}
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    SmallPayload = emqx_utils_json:encode(#{<<"msg">> => <<"heelo">>}),
+    LargePayload = large_json_payload(),
+    ?check_trace(
+        begin
+            emqtt:publish(C, Topic, SmallPayload),
+            ?retry(
+                _Sleep1 = 500,
+                _Attempts1 = 60,
+                ?assertMatch(
+                    {ok, [{result_set, _, _, [[{1}]]}]},
+                    count_eec_1322_rows(TCConfig)
+                )
+            ),
+            emqtt:publish(C, Topic, LargePayload),
+            ?retry(
+                _Sleep2 = 500,
+                _Attempts2 = 60,
+                ?assertMatch(
+                    {ok, [{result_set, _, _, [[{2}]]}]},
+                    count_eec_1322_rows(TCConfig)
+                )
+            ),
+            ?assertMatch(
+                {200, #{<<"status">> := <<"connected">>}},
+                get_action_api(TCConfig)
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertEqual(
+                [],
+                [Event || #{error := _} = Event <- ?of_kind(oracle_connector_query_return, Trace)]
+            ),
+            ok
+        end
+    ),
+    ok.
 
 t_update_with_invalid_prepare(TCConfig) ->
     Opts = #{
@@ -482,6 +670,8 @@ t_prepare_does_not_execute_user_sql(TCConfig) ->
     on_exit(fun() -> drop_probe_audit_objects(TCConfig) end),
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+    #{topic := _Topic} = simple_create_rule_api(TCConfig),
+    _ = get_action_api(TCConfig),
     ?assertMatch(
         {ok, [{result_set, _, _, [[{0}]]}]},
         scan_probe_audit_table(TCConfig)
