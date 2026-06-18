@@ -13,10 +13,7 @@
     setup_classy_hooks/0,
     on_run_level/2,
 
-    node_status/0,
-
-    mria_join/3,
-    mria_leave/3
+    node_status/0
 ]).
 
 -export([open_ports_check/0]).
@@ -34,27 +31,10 @@
 start() ->
     ensure_valid_features(),
     emqx_mgmt_cli:load(),
-    case os:type() of
-        {win32, nt} ->
-            ok;
-        _Nix ->
-            os:set_signal(sighup, ignore),
-            %% default is handle
-            os:set_signal(sigterm, handle)
-    end,
-    ok = set_backtrace_depth(),
-    configure_shard_transports(),
-    set_mnesia_extra_diagnostic_checks(),
+    setup_vm(),
     ok = configure_otel_deps(),
-    %% Register mria callbacks that help to check compatibility of the
-    %% replicant with the core node. Currently they rely on the exact
-    %% match of the version of EMQX OTP application:
-    _ = application:load(mria),
-    _ = application:load(emqx),
+    %% Hand over control to classy:
     _ = application:load(classy),
-    mria_config:register_callback(lb_custom_info, fun ?MODULE:mria_lb_custom_info/0),
-    mria_config:register_callback(lb_custom_info_check, fun ?MODULE:mria_lb_custom_info_check/1),
-    %% Prepare and start classy:
     ClassyDir = filename:join(emqx:data_dir(), "classy"),
     ok = filelib:ensure_path(ClassyDir),
     application:set_env(classy, table_dir, ClassyDir),
@@ -62,9 +42,13 @@ start() ->
     {ok, _} = application:ensure_all_started(classy, permanent),
     ok.
 
+setup_vm() ->
+    os:set_signal(sighup, ignore),
+    %% default is handle
+    os:set_signal(sigterm, handle),
+    ok = set_backtrace_depth().
+
 setup_classy_hooks() ->
-    %% Node initialization:
-    mria_config:register_callback(heal_partition, fun emqx_broker_heal:on_autoheal/1),
     classy:on_node_init(fun emqx_dsch:migrate_to_classy/0, 1),
     %% Cluster:
     classy:pre_join(fun emqx_cluster:pre_join/4, 0),
@@ -74,20 +58,34 @@ setup_classy_hooks() ->
     %% Application start:
     classy:run_level(fun ?MODULE:on_run_level/2, 99).
 
-mria_join(_ClusterId, _Local, JoinToNode) ->
-    mria:join(JoinToNode).
+on_run_level(From, To) ->
+    ?SLOG(warning, #{msg => "run_level_change", from => From, to => To}),
+    case {From, To} of
+        {stopped, single} ->
+            setup_mria(),
+            mria:start();
+        {single, stopped} ->
+            mria:stop();
+        {single, cluster} ->
+            _ = emqx_machine_boot:post_boot(),
+            ok;
+        {cluster, single} ->
+            emqx_machine_boot:stop_apps();
+        _ ->
+            ok
+    end.
 
-mria_leave(_ClusterId, _Local, _Intent) ->
-    mria:leave().
-
-on_run_level(_, single) ->
-    mria:start(),
-    _ = emqx_machine_boot:post_boot(),
-    ok;
-on_run_level(_, stopped) ->
-    emqx_machine_boot:stop_apps(),
-    mria:stop();
-on_run_level(_From, _To) ->
+setup_mria() ->
+    %% Register mria callbacks that help to check compatibility of the
+    %% replicant with the core node. Currently they rely on the exact
+    %% match of the version of EMQX OTP application:
+    _ = application:load(mria),
+    _ = application:load(emqx),
+    mria_config:register_callback(lb_custom_info, fun ?MODULE:mria_lb_custom_info/0),
+    mria_config:register_callback(lb_custom_info_check, fun ?MODULE:mria_lb_custom_info_check/1),
+    configure_shard_transports(),
+    set_mnesia_extra_diagnostic_checks(),
+    mria_config:register_callback(heal_partition, fun emqx_broker_heal:on_autoheal/1),
     ok.
 
 graceful_shutdown() ->
