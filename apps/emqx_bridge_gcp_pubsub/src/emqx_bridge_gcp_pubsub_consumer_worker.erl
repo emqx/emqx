@@ -53,6 +53,7 @@
     ack_retry_interval := emqx_schema:timeout_duration_ms(),
     ack_timer := undefined | reference(),
     async_workers := #{pid() => reference()},
+    backoff := non_neg_integer(),
     client := emqx_bridge_gcp_pubsub_client:state(),
     connector_resource_id := binary(),
     ecpool_worker_id := non_neg_integer(),
@@ -208,7 +209,8 @@ init(Config) ->
         async_workers => #{},
         pending_acks => #{},
         pull_timer => undefined,
-        seen_message_ids => sets:new([{version, 2}])
+        seen_message_ids => sets:new([{version, 2}]),
+        backoff => 0
     },
     ?tp(gcp_pubsub_consumer_worker_init, #{topic => maps:get(topic, State)}),
     {ok, State, {continue, ?ensure_subscription}}.
@@ -216,7 +218,8 @@ init(Config) ->
 handle_continue(?ensure_subscription, State0) ->
     case ensure_subscription_exists(State0) of
         already_exists ->
-            {noreply, State0, {continue, ?patch_subscription}};
+            State = clear_backoff(State0),
+            {noreply, State, {continue, ?patch_subscription}};
         continue ->
             #{
                 source_resource_id := SourceResId,
@@ -225,14 +228,16 @@ handle_continue(?ensure_subscription, State0) ->
             ?MODULE:pull_async(self()),
             optvar:set(?OPTVAR_SUB_OK(WorkerId), subscription_ok),
             clear_unhealthy_status(State0),
+            State = clear_backoff(State0),
             ?tp(
                 debug,
                 "gcp_pubsub_consumer_worker_subscription_ready",
                 #{instance_id => SourceResId}
             ),
-            {noreply, State0};
+            {noreply, State};
         retry ->
-            {noreply, State0, {continue, ?ensure_subscription}};
+            State = backoff(State0),
+            {noreply, State, {continue, ?ensure_subscription}};
         not_found ->
             %% there's nothing much to do if the topic suddenly doesn't exist anymore.
             {stop, {error, topic_not_found}, State0};
@@ -827,3 +832,16 @@ clear_unhealthy_status(State) ->
 to_bin(A) when is_atom(A) -> atom_to_binary(A);
 to_bin(L) when is_list(L) -> iolist_to_binary(L);
 to_bin(B) when is_binary(B) -> B.
+
+backoff(State0) ->
+    %% could be missing afte hot upgrade...
+    Backoff0 = maps:get(backoff, State0, 0),
+    SleepMS0 = (1 bsl Backoff0) * 100,
+    SleepMS = emqx_utils:clamp(SleepMS0, 0, timer:seconds(30)),
+    timer:sleep(SleepMS),
+    Backoff = emqx_utils:clamp(Backoff0 + 1, 0, 10),
+    State0#{backoff => Backoff}.
+
+clear_backoff(State0) ->
+    %% could be missing afte hot upgrade...
+    State0#{backoff => 0}.
