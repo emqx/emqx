@@ -802,6 +802,13 @@ assert_persisted_service_account_json_is_binary(TCConfig) ->
     ),
     ok.
 
+disable_connector_api(TCConfig) ->
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:disable_connector_api(Type, Name)
+    ).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -2179,5 +2186,54 @@ t_clear_stuck_unhealthy(TCConfig) ->
             {200, #{<<"status">> := <<"connected">>}},
             get_source_api(TCConfig)
         )
+    ),
+    ok.
+
+%% test for hot upgrade post-upgrade hook.
+-define(OPTVAR_SUB_OK(X), {emqx_bridge_gcp_pubsub_consumer_worker, subscription_ok, X}).
+t_post_upgrade_pr_17625(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_source_api(TCConfig, #{}),
+    ConnNameB = <<"disabled">>,
+    SourceNameB = ConnNameB,
+    TCConfigB = [{connector_name, ConnNameB}, {source_name, SourceNameB} | TCConfig],
+    {201, _} = create_connector_api(TCConfigB, #{}),
+    {201, _} = create_source_api(TCConfigB, #{
+        <<"connector">> => ConnNameB
+    }),
+
+    %% set up old opvars to simulate previous version
+    WorkerPids = get_pull_worker_pids(TCConfig),
+    [Pid0 | _] = WorkerPids,
+    optvar:set(?OPTVAR_SUB_OK(Pid0), subscription_ok),
+    %% also create one to simulate a dead worker leak
+    optvar:set(?OPTVAR_SUB_OK(self()), subscription_ok),
+
+    {204, _} = disable_connector_api(TCConfigB),
+
+    ?check_trace(
+        begin
+            emqx_post_upgrade:pr_17625_gcp_pubsub_consumer_worker_optvars("vsn"),
+            ok
+        end,
+        fun(Trace) ->
+            ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+            ?assertMatch(
+                [
+                    #{?snk_kind := gcp_pubsub_consumer_stop_enter, instance_id := ConnResId},
+                    #{?snk_kind := gcp_pubsub_consumer_start, instance_id := ConnResId}
+                ],
+                ?of_kind([gcp_pubsub_consumer_stop_enter, gcp_pubsub_consumer_start], Trace)
+            ),
+            ?assertEqual(
+                [],
+                [
+                    K
+                 || ?OPTVAR_SUB_OK(Pid) = K <- optvar:list_all(),
+                    is_pid(Pid)
+                ]
+            ),
+            ok
+        end
     ),
     ok.
