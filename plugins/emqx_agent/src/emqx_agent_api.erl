@@ -130,7 +130,8 @@ normalize_plugin_response(Status) when is_integer(Status) ->
 %%--------------------------------------------------------------------
 
 '/agent/providers'(get, _Params) ->
-    ?OK(emqx_ai_completion_config:get_providers_raw()).
+    Providers = [emqx_utils:redact(P) || P <- emqx_ai_completion_config:get_providers_raw()],
+    ?OK(Providers).
 
 %%--------------------------------------------------------------------
 %% Handler — UI
