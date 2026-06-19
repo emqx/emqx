@@ -450,14 +450,6 @@ t_070_global_registration(_Config) ->
     ?check_trace(
         begin
             #{site := Site} = Schema = emqx_dsch:get_site_schema(),
-            ?assertEqual(
-                {ok, node()},
-                emqx_dsch:whereis_site(Site)
-            ),
-            ?assertEqual(
-                undefined,
-                emqx_dsch:whereis_site(<<"bad">>)
-            ),
             %% Try to access schema via RPC:
             ?assertEqual(
                 {ok, Schema},

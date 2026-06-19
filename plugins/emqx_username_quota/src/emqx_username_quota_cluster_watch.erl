@@ -45,7 +45,7 @@ immediate_node_clear(Node) ->
 
 init([]) ->
     process_flag(trap_exit, true),
-    ok = ekka:monitor(membership),
+    ok = mria_membership:monitor(membership, self(), true),
     ok = emqx_username_quota_state:clear_self_node(),
     self() ! bootstrap,
     {ok, #{}}.
@@ -98,7 +98,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    ekka:unmonitor(membership).
+    mria_membership:monitor(membership, self(), false).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

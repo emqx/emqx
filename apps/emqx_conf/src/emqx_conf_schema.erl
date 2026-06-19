@@ -182,7 +182,7 @@ roots() ->
             {cluster,
                 sc(
                     ?R_REF("cluster"),
-                    #{translate_to => ["ekka"]}
+                    #{translate_to => ["classy"]}
                 )},
             {log,
                 sc(
@@ -1434,10 +1434,10 @@ desc(durable_timers) ->
 desc(Name) ->
     schema_desc(Name).
 
-translations() -> ["ekka", "kernel", "emqx", "gen_rpc", "prometheus", "vm_args"].
+translations() -> ["classy", "kernel", "emqx", "gen_rpc", "prometheus", "vm_args"].
 
-translation("ekka") ->
-    [{"cluster_discovery", fun tr_cluster_discovery/1}];
+translation("classy") ->
+    [{"discovery_strategy", fun tr_cluster_discovery/1}];
 translation("kernel") ->
     [
         {"logger_level", fun emqx_config_logger:tr_level/1},
@@ -1628,7 +1628,7 @@ audit_log_conf() ->
 
 tr_cluster_discovery(Conf) ->
     Strategy = conf_get("cluster.discovery_strategy", Conf),
-    {Strategy, filter(cluster_options(Strategy, Conf))}.
+    {Strategy, maps:from_list(filter(cluster_options(Strategy, Conf)))}.
 
 log_handler_common_confs(Handler, Default) ->
     %% We rarely support dynamic defaults like this.

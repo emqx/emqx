@@ -116,7 +116,7 @@ init([Name]) ->
         ]}
     ]),
     ok = mria:wait_for_tables([Tab]),
-    ok = ekka:monitor(membership),
+    ok = mria_monitor:monitor(membership, self(), true),
     {ok, #{name => Name}}.
 
 handle_call(Req, _From, State) ->

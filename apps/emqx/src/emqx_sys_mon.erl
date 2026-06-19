@@ -64,7 +64,7 @@ init([]) ->
 handle_continue(setup, undefined) ->
     init_system_monitor(),
     %% Monitor cluster partition event
-    ekka:monitor(partition, fun handle_partition_event/1),
+    mria_membership:monitor(partition, fun handle_partition_event/1, true),
     NewState = start_timer(#{timer => undefined, events => []}),
     {noreply, NewState, hibernate}.
 

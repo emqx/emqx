@@ -477,7 +477,7 @@ stop_apps(Apps) ->
     stop_apps(Apps, #{}).
 
 stop_apps(Apps, Opts) ->
-    [application:stop(App) || App <- Apps ++ [emqx, ekka, mria, mnesia]],
+    [application:stop(App) || App <- Apps ++ [emqx, mria, mnesia]],
     ok = mria_mnesia:delete_schema(),
     %% to avoid inter-suite flakiness
     application:unset_env(emqx, config_loader),

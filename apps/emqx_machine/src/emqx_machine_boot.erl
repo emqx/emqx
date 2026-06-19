@@ -36,7 +36,7 @@
 ]).
 
 %% If any of these applications crash, the entire EMQX node shuts down:
--define(BASIC_PERMANENT_APPS, [mria, ekka, esockd, emqx, emqx_license]).
+-define(BASIC_PERMANENT_APPS, [classy, mria, esockd, emqx, emqx_license]).
 
 %% These apps are optional, they may or may not be present in the
 %% release, depending on the build flags:

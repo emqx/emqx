@@ -186,7 +186,7 @@ init([]) ->
     ]),
     ok = mria_rlog:wait_for_shards([?CM_SHARD], infinity),
     _ = maybe_subscribe_replica_events(),
-    ok = ekka:monitor(membership),
+    ok = mria_membership:monitor(membership, self(), true),
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->

@@ -7,7 +7,7 @@ This module migrates data from pre-6.3.0 release
 """.
 
 %% API:
--export([restore/0]).
+-export([read_old/0]).
 
 %% behavior callbacks:
 -export([]).
@@ -69,6 +69,13 @@ A type of WAL entries.
     | #sop_add_pending{}
     | #sop_del_pending{}.
 
+-type schema() :: #{
+    site := binary(),
+    cluster := _,
+    peers := #{classy:site() => _},
+    dbs := #{emqx_ds:db() => emqx_dsch:db_schema()}
+}.
+
 -doc """
 Persistent state of the node including some private data. (OLD)
 """.
@@ -76,7 +83,7 @@ Persistent state of the node including some private data. (OLD)
     ver := 1,
     pending_ctr := emqx_dsch:pending_id(),
     pending := #{emqx_dsch:pending_id() => emqx_dsch:pending()},
-    schema := emqx_dsch:schema()
+    schema := schema()
 }.
 
 %%================================================================================
@@ -90,23 +97,24 @@ state, thus re-creating the state before shutdown of the node.
 If the log is empty, then initialize the schema by creating a new
 random site ID.
 """.
--spec restore() -> pstate() | ?empty_schema.
-restore() ->
+-spec read_old() -> {ok, pstate() | ?empty_schema} | {error, _}.
+read_old() ->
     File = schema_file(),
-    case filelib:is_file(File) of
+    case filelib:is_regular(File) of
         true ->
-            %% FIXME: close log
-            case open_log(read_write, ?log_current, File) of
-                ok ->
-                    restore_from_wal(?log_current);
-                {error, Reason} ->
-                    ?tp(critical, "Failed to read durable storage schema", #{
-                        reason => Reason, file => File
-                    }),
-                    exit(badschema)
+            Name = make_ref(),
+            try
+                case open_log(read_only, Name, File) of
+                    ok ->
+                        {ok, restore_from_wal(Name)};
+                    {error, _} = Err ->
+                        Err
+                end
+            after
+                disk_log:close(Name)
             end;
         false ->
-            ?empty_schema
+            {ok, ?empty_schema}
     end.
 
 %%================================================================================

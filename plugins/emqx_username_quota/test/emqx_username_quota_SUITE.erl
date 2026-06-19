@@ -641,10 +641,9 @@ t_api_overrides_validation_edge_cases(_Config) ->
     ).
 
 t_cluster_watch_init_terminate(_Config) ->
-    ok = meck:new(ekka, [passthrough]),
+    ok = meck:new(mria_monitor, [passthrough]),
     ok = meck:new(emqx_username_quota_state, [passthrough]),
-    ok = meck:expect(ekka, monitor, fun(membership) -> ok end),
-    ok = meck:expect(ekka, unmonitor, fun(membership) -> ok end),
+    ok = meck:expect(mria_monitor, monitor, fun(membership, _, _) -> ok end),
     ok = meck:expect(emqx_username_quota_state, clear_self_node, fun() -> ok end),
     {ok, State} = emqx_username_quota_cluster_watch:init([]),
     ?assertEqual(#{}, State),
@@ -711,12 +710,11 @@ t_cluster_watch_call_cast_code_change(_Config) ->
     ?assertEqual({ok, State}, emqx_username_quota_cluster_watch:code_change(old, State, extra)).
 
 t_cluster_watch_immediate_node_clear(_Config) ->
-    ok = meck:new(ekka, [passthrough]),
+    ok = meck:new(mria_monitor, [passthrough]),
     ok = meck:new(emqx, [passthrough]),
     ok = meck:new(emqx_cm, [passthrough]),
     ok = meck:new(emqx_username_quota_state, [passthrough]),
-    ok = meck:expect(ekka, monitor, fun(membership) -> ok end),
-    ok = meck:expect(ekka, unmonitor, fun(membership) -> ok end),
+    ok = meck:expect(mria_monitor, monitor, fun(membership, _, _) -> ok end),
     ok = meck:expect(emqx_username_quota_state, clear_self_node, fun() -> ok end),
     ok = meck:expect(emqx, running_nodes, fun() -> [] end),
     ok = meck:expect(emqx_cm, all_channels_stream, fun(_) -> [] end),

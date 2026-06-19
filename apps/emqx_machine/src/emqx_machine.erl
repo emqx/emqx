@@ -17,7 +17,7 @@
 ]).
 
 -export([open_ports_check/0]).
--export([mria_lb_custom_info/0, mria_lb_custom_info_check/1]).
+-export([mria_lb_discover/0, mria_lb_custom_info/0, mria_lb_custom_info_check/1]).
 
 -ifdef(TEST).
 -export([create_plan/0]).
@@ -49,7 +49,7 @@ setup_vm() ->
     ok = set_backtrace_depth().
 
 setup_classy_hooks() ->
-    classy:on_node_init(fun emqx_dsch:migrate_to_classy/0, 1),
+    classy:on_node_init(fun migrate_site_id/0, 1),
     %% Cluster:
     classy:pre_join(fun emqx_cluster:pre_join/4, 0),
     classy:pre_kick(fun emqx_mgmt_api_ds:pre_kick/3, 0),
@@ -75,6 +75,18 @@ on_run_level(From, To) ->
             ok
     end.
 
+migrate_site_id() ->
+    case emqx_dsch_migrate:read_old() of
+        {ok, #{schema := #{site := Site}}} ->
+            ?SLOG(notice, #{msg => "migrate_site_id", site => Site}),
+            classy_node:maybe_init_the_site(Site);
+        {ok, #{} = Bad} ->
+            ?SLOG(critical, #{msg => "bad_ds_schema", schema => Bad}),
+            ok;
+        _ ->
+            ok
+    end.
+
 setup_mria() ->
     %% Register mria callbacks that help to check compatibility of the
     %% replicant with the core node. Currently they rely on the exact
@@ -83,6 +95,7 @@ setup_mria() ->
     _ = application:load(emqx),
     mria_config:register_callback(lb_custom_info, fun ?MODULE:mria_lb_custom_info/0),
     mria_config:register_callback(lb_custom_info_check, fun ?MODULE:mria_lb_custom_info_check/1),
+    mria_config:register_callback(core_node_discovery, fun ?MODULE:mria_lb_discover/0),
     configure_shard_transports(),
     set_mnesia_extra_diagnostic_checks(),
     mria_config:register_callback(heal_partition, fun emqx_broker_heal:on_autoheal/1),
@@ -258,6 +271,13 @@ mria_lb_custom_info_check(undefined) ->
     false;
 mria_lb_custom_info_check(OtherVsn) ->
     get_emqx_vsn() =:= OtherVsn.
+
+%% Forward classy autocluster results to mria
+%% TODO: integrate mria directly with classy?
+mria_lb_discover() ->
+    classy:nodes(connected).
+
+%% TODO: Forward mria start/stop callbacks for autoheal
 
 get_emqx_vsn() ->
     case application:get_key(emqx, vsn) of

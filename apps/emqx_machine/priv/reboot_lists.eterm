@@ -13,8 +13,7 @@
         [
             mnesia_rocksdb,
             mnesia,
-            mria,
-            ekka
+            mria
         ],
     system_apps =>
         [
