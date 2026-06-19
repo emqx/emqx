@@ -34,6 +34,7 @@ init_per_suite(Config) ->
             emqx,
             emqx_conf,
             emqx_resource,
+            emqx_ai_completion,
             emqx_agent,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
@@ -77,6 +78,29 @@ t_ui_returns_html(_Config) ->
 
     {ok, 200, CompatAppJs} = api_get([agent, ui, assets, <<"app.js">>]),
     ?assertEqual(AppJs, CompatAppJs).
+
+%%--------------------------------------------------------------------
+%% AI Providers
+%%--------------------------------------------------------------------
+
+t_providers_are_redacted(Config) ->
+    Id = ?config(tc_id, Config),
+    ProviderName = <<"test-provider-", Id/binary>>,
+    Provider = #{
+        <<"name">> => ProviderName,
+        <<"type">> => <<"openai">>,
+        <<"api_key">> => <<"super-secret-key">>,
+        <<"base_url">> => <<"https://api.openai.com/v1">>
+    },
+    ok = emqx_ai_completion_config:update_providers_raw({add, Provider}),
+    try
+        {ok, 200, [Response]} = api_get([agent, providers]),
+        ?assertEqual(ProviderName, maps:get(<<"name">>, Response)),
+        ?assertEqual(<<"openai">>, maps:get(<<"type">>, Response)),
+        ?assertEqual(<<"******">>, maps:get(<<"api_key">>, Response))
+    after
+        _ = emqx_ai_completion_config:update_providers_raw({delete, ProviderName})
+    end.
 
 %%--------------------------------------------------------------------
 %% Tools — individual type tests
