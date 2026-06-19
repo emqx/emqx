@@ -61,7 +61,7 @@
 ]).
 
 -ifdef(TEST).
--export([cert_expiry_at_from_path/1]).
+-export([cert_expiry_at_from_path/1, acl_metric_meta/0]).
 -endif.
 
 %%--------------------------------------------------------------------
@@ -1106,8 +1106,8 @@ acl_metric_meta() ->
         {emqx_authorization_cache_miss, counter, 'authorization.cache_miss'},
         {emqx_authorization_superuser, counter, 'authorization.superuser'},
         {emqx_authorization_nomatch, counter, 'authorization.nomatch'},
-        {emqx_authorization_matched_allow, counter, 'authorization.matched_allow'},
-        {emqx_authorization_matched_deny, counter, 'authorization.matched_deny'}
+        {emqx_authorization_matched_allow, counter, 'authorization.matched.allow'},
+        {emqx_authorization_matched_deny, counter, 'authorization.matched.deny'}
     ].
 
 authz_metric_ns_meta() ->

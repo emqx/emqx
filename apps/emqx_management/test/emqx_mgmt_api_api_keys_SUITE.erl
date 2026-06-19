@@ -620,12 +620,12 @@ t_bootstrap_file_scope_runtime_check(_) ->
         {ok, _},
         auth_authorize(BannedPath, <<"scope-conn-only">>, <<"secret-1">>)
     ),
-    ?assertEqual(
-        {error, unauthorized_role},
+    ?assertMatch(
+        {error, {unauthorized_role, _}},
         auth_authorize(PublishPath, <<"scope-conn-only">>, <<"secret-1">>)
     ),
-    ?assertEqual(
-        {error, unauthorized_role},
+    ?assertMatch(
+        {error, {unauthorized_role, _}},
         auth_authorize(StatusPath, <<"scope-conn-only">>, <<"secret-1">>)
     ),
 
@@ -656,17 +656,17 @@ t_bootstrap_file_scope_runtime_check(_) ->
     update_file(File),
 
     %% Mapped paths under `connections' / `publish' scopes — denied.
-    ?assertEqual(
-        {error, unauthorized_role},
+    ?assertMatch(
+        {error, {unauthorized_role, _}},
         auth_authorize(BannedPath, <<"scope-empty">>, <<"secret-3">>)
     ),
-    ?assertEqual(
-        {error, unauthorized_role},
+    ?assertMatch(
+        {error, {unauthorized_role, _}},
         auth_authorize(PublishPath, <<"scope-empty">>, <<"secret-3">>)
     ),
     %% `/status' is mapped to `system' scope — also denied.
-    ?assertEqual(
-        {error, unauthorized_role},
+    ?assertMatch(
+        {error, {unauthorized_role, _}},
         auth_authorize(StatusPath, <<"scope-empty">>, <<"secret-3">>)
     ),
     %% Unmapped path: there should not be any in the management app at the

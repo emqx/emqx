@@ -9,7 +9,8 @@
     leave/0,
     force_leave/1,
     ensure_normal_mode/0,
-    ensure_singleton_mode/0
+    ensure_singleton_mode/0,
+    is_single_node_mode/0
 ]).
 
 %% RPC callback functions
@@ -70,6 +71,8 @@ can_i_join(_RequestingNode) ->
             ok
     end.
 
+%% @doc Returns `true' when this node runs under a community (single-node) license.
+-spec is_single_node_mode() -> boolean().
 is_single_node_mode() ->
     case application:get_env(emqx, cluster_mode, ?DEFAULT_MODE) of
         ?CLUSTER_MODE_SINGLE -> true;

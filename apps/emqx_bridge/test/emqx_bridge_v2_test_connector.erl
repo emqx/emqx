@@ -13,6 +13,7 @@
     on_start/2,
     on_stop/2,
     on_query/3,
+    on_batch_query/3,
     on_query_async/4,
     on_get_status/2,
     on_add_channel/4,
@@ -93,6 +94,26 @@ on_query(
             OnQueryFn(Ctx);
         #{parameters := #{send_to := SendTo}} ->
             SendTo ! {query_called, Ctx},
+            ok
+    end.
+
+on_batch_query(
+    _InstId,
+    [{ChannelId, _Message} | _] = Reqs,
+    ConnectorState
+) ->
+    Channels = maps:get(channels, ConnectorState, #{}),
+    ChannelState = maps:get(ChannelId, Channels, not_found),
+    case ChannelState of
+        #{parameters := #{on_query_fn := OnQueryFn0}} ->
+            OnQueryFn = emqx_bridge_v2_SUITE:unwrap_fun(OnQueryFn0),
+            OnQueryFn(#{
+                batch_size => length(Reqs),
+                action_res_id => ChannelId,
+                messages => [M || {_, M} <- Reqs]
+            });
+        #{parameters := #{send_to := SendTo}} ->
+            SendTo ! {batch_called, length(Reqs), [M || {_, M} <- Reqs]},
             ok
     end.
 

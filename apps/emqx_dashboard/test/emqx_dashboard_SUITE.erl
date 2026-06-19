@@ -327,6 +327,140 @@ t_swagger_json(_Config) ->
     ?assertEqual([], BadTags, {non_string_tags_in_openapi_spec, BadTags}),
     ok.
 
+-doc """
+Every tagged operation in every production API module must carry a
+non-empty binary `summary'.  Without it, Redoc falls back to the first
+~50 chars of the description for the sidebar title and operation header,
+which silently truncates a complete sentence (e.g. `GET /banned' once
+surfaced "List all currently banned client IDs, usernames an").
+
+This guard is paired with the boot-time enforcement in
+`emqx_dashboard_swagger:enforce_method_desc_policy/1' so a future
+regression cannot ship even if the boot check is loosened.
+
+We walk production API modules directly via
+`emqx_dashboard_swagger:spec/2' instead of the live `/api-docs/swagger.json'
+spec, because the test build profile bundles test-SUITE modules into the
+dashboard app's module list and they pollute the live spec with
+intentionally permissive synthetic operations.
+""".
+t_swagger_summary_required(_Config) ->
+    Modules = production_api_modules(),
+    ?assert(length(Modules) > 30, {too_few_api_modules, length(Modules)}),
+    Missing = lists:flatmap(fun module_missing_summaries/1, Modules),
+    ?assertEqual([], Missing, {ops_missing_summary, Missing}).
+
+production_api_modules() ->
+    %% Use `emqx_machine_boot:reboot_apps/0' rather than
+    %% `application:loaded_applications/0': the latter only sees apps
+    %% the SUITE happens to have loaded, so a future init_per_suite
+    %% trimming could silently shrink coverage to a handful of apps.
+    %% `reboot_apps/0' is the canonical EMQX umbrella business-app list
+    %% and lets us load each one explicitly here.
+    Apps = emqx_machine_boot:reboot_apps(),
+    AlreadyLoaded = [App || {App, _, _} <- application:loaded_applications()],
+    NewlyLoaded = [App || App <- Apps, ensure_loaded(App, AlreadyLoaded)],
+    %% `cth_suite' unloads the apps it started; we only need to
+    %% unload the ones we just loaded ourselves, so other code that
+    %% relies on the original load state isn't surprised.
+    emqx_common_test_helpers:on_exit(
+        fun() -> lists:foreach(fun application:unload/1, NewlyLoaded) end
+    ),
+    AllModules = lists:flatten([app_modules(App) || App <- Apps]),
+    [
+        M
+     || M <- AllModules,
+        not is_suite_module(M),
+        implements_minirest_api(M)
+    ].
+
+%% Returns true when this call actually loaded the app (so the caller
+%% knows to undo it later).
+ensure_loaded(App, AlreadyLoaded) ->
+    case lists:member(App, AlreadyLoaded) of
+        true ->
+            false;
+        false ->
+            case application:load(App) of
+                ok ->
+                    true;
+                {error, {already_loaded, _}} ->
+                    false;
+                {error, Other} ->
+                    ct:pal("Skip ~p: ~p", [App, Other]),
+                    false
+            end
+    end.
+
+app_modules(App) ->
+    case application:get_key(App, modules) of
+        {ok, Modules} -> Modules;
+        undefined -> []
+    end.
+
+is_suite_module(Module) ->
+    case lists:reverse(atom_to_list(Module)) of
+        "ETIUS_" ++ _ -> true;
+        _ -> false
+    end.
+
+implements_minirest_api(Module) ->
+    try
+        Attrs = Module:module_info(attributes),
+        Behaviours =
+            proplists:get_all_values(behaviour, Attrs) ++
+                proplists:get_all_values(behavior, Attrs),
+        lists:member(minirest_api, lists:flatten(Behaviours))
+    catch
+        _:_ -> false
+    end.
+
+module_missing_summaries(Module) ->
+    try
+        {ApiSpec, _Components} = emqx_dashboard_swagger:spec(Module, #{check_schema => false}),
+        lists:flatmap(
+            fun({Path, MethodSpecs, _Refs, _Extras}) ->
+                missing_in_path(Module, Path, MethodSpecs)
+            end,
+            ApiSpec
+        )
+    catch
+        Class:Reason:Stack ->
+            ct:pal(
+                "Failed to introspect spec for ~p:~n~p:~p~n~p",
+                [Module, Class, Reason, Stack]
+            ),
+            [{Module, spec_introspection_failed, {Class, Reason}}]
+    end.
+
+missing_in_path(Module, Path, MethodSpecs) when is_map(MethodSpecs) ->
+    maps:fold(
+        fun(Method, OpSpec, Acc) ->
+            case is_op_spec(OpSpec) andalso has_tags(OpSpec) of
+                true ->
+                    case maps:get(summary, OpSpec, maps:get(<<"summary">>, OpSpec, undefined)) of
+                        S when is_binary(S), byte_size(S) > 0 ->
+                            Acc;
+                        Other ->
+                            [{Module, Path, Method, Other} | Acc]
+                    end;
+                false ->
+                    Acc
+            end
+        end,
+        [],
+        MethodSpecs
+    );
+missing_in_path(_Module, _Path, _Other) ->
+    [].
+
+is_op_spec(Spec) when is_map(Spec) -> true;
+is_op_spec(_) -> false.
+
+has_tags(#{tags := Tags}) -> is_list(Tags) andalso Tags =/= [];
+has_tags(#{<<"tags">> := Tags}) -> is_list(Tags) andalso Tags =/= [];
+has_tags(_) -> false.
+
 collect_non_string_tags(#{<<"paths">> := Paths}) ->
     maps:fold(
         fun(Path, Methods, Acc) ->

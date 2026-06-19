@@ -89,8 +89,7 @@ fields(connector_config) ->
         emqx_connector_schema:ehttpc_max_inactive_sc(),
         emqx_bridge_gcp_pubsub_schema_lib:authentication_field(),
         {service_account_json,
-            mk(
-                binary(),
+            emqx_schema_secret:mk(
                 #{
                     required => false,
                     importance => ?IMPORTANCE_HIDDEN,

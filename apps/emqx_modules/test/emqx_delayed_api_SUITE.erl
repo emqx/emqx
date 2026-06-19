@@ -263,10 +263,9 @@ t_large_payload(_) ->
 -doc """
 Namespaced users (admin or viewer) must not be able to reach the delayed
 message endpoints, because the delayed store is global and `GET` returns
-the message `payload`. The minirest filter is wired at the schema level,
-so all methods on those paths return `403` -- including the `DELETE`
-variants that would let a namespaced caller drop other-namespace delayed
-messages.
+the message `payload`. RBAC owns this whole-endpoint restriction, so all
+methods on those paths return `403` -- including the `DELETE` variants
+that would let a namespaced caller drop other-namespace delayed messages.
 """.
 t_namespaced_user_forbidden(_Config) ->
     Topic = <<"some/topic">>,

@@ -369,7 +369,7 @@ ensure_ssl_file(Dir, KeyPath, SSL, MaybePem, Opts) ->
 
 do_ensure_ssl_file(Dir, RawDir, KeyPath, SSL, MaybePem, DryRun) ->
     Type = keypath_to_type(KeyPath),
-    Password = maps:get(password, SSL, maps:get(<<"password">>, SSL, undefined)),
+    Password = resolve_password(maps:get(password, SSL, maps:get(<<"password">>, SSL, undefined))),
     case is_pem(MaybePem) of
         true ->
             maybe
@@ -398,6 +398,15 @@ keypath_to_type(KeyPath) when is_list(KeyPath) ->
         _ ->
             undefined
     end.
+
+%% @doc Wrap a raw `<<"file://...">>' binary into a secret closure so that
+%% `emqx_secret:unwrap/1' at the use site resolves it to the file contents.
+%% Pre-config-update validation runs before the schema converter, so the
+%% password value in `RawConf' may still be a literal `file://' string here.
+resolve_password(<<"file://", _/binary>> = Bin) ->
+    emqx_schema_secret:convert_secret(Bin, #{});
+resolve_password(Other) ->
+    Other.
 
 is_valid_string(Empty) when Empty == <<>>; Empty == "" -> false;
 is_valid_string(String) when is_list(String) ->
@@ -575,7 +584,7 @@ do_drop_invalid_certs([], SSL) ->
     SSL;
 do_drop_invalid_certs([KeyPath | KeyPaths], SSL) ->
     Type = keypath_to_type(KeyPath),
-    Password = maps:get(password, SSL, maps:get(<<"password">>, SSL, undefined)),
+    Password = resolve_password(maps:get(password, SSL, maps:get(<<"password">>, SSL, undefined))),
     case emqx_utils_maps:deep_get(KeyPath, SSL, undefined) of
         undefined ->
             do_drop_invalid_certs(KeyPaths, SSL);

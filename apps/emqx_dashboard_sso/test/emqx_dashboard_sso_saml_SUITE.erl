@@ -24,6 +24,9 @@
 -define(SP_CERT_DIR, ".ci/docker-compose-file/keycloak/sp_certs").
 
 -define(BASE_URL, "http://127.0.0.1:18083").
+-define(SAML_HTTP_REDIRECT_BINDING,
+    <<"urn:oasis:names:tc:SAML:2.0:bindings:URL-Encoding:DEFLATE">>
+).
 
 %%------------------------------------------------------------------------------
 %% CT Callbacks
@@ -41,7 +44,9 @@ groups() ->
     [
         {unit, [sequence], [
             t_validate_signature_config,
-            t_maybe_load_cert_or_key
+            t_maybe_load_cert_or_key,
+            t_callback_rejects_xxe_response,
+            t_callback_rejects_deflate_xxe_response
         ]},
         {api, [sequence], [
             t_sso_running_disabled,
@@ -188,6 +193,27 @@ t_maybe_load_cert_or_key(_Config) ->
     ),
 
     ok.
+
+t_callback_rejects_xxe_response(Config) ->
+    assert_callback_rejects_xxe_response(Config, undefined).
+
+t_callback_rejects_deflate_xxe_response(Config) ->
+    assert_callback_rejects_xxe_response(Config, ?SAML_HTTP_REDIRECT_BINDING).
+
+assert_callback_rejects_xxe_response(Config, SAMLEncoding) ->
+    SecretPath = filename:join(?config(priv_dir, Config), "xxe-secret.txt"),
+    Secret = <<"emqx_xxe_secret">>,
+    ok = file:write_file(SecretPath, Secret),
+    try
+        State = xxe_callback_state(),
+        Body = xxe_callback_body(SecretPath, SAMLEncoding, State),
+        Result = emqx_dashboard_sso_saml:callback(#{body => Body}, State),
+        ?assertMatch({error, _}, Result),
+        ?assertEqual([], emqx_dashboard_admin:lookup_user(saml, Secret))
+    after
+        _ = emqx_dashboard_admin:remove_user({saml, Secret}),
+        _ = file:delete(SecretPath)
+    end.
 
 %%------------------------------------------------------------------------------
 %% API Tests
@@ -473,6 +499,61 @@ request(Method, Url, Body) ->
     AuthHeader = persistent_term:get({?MODULE, auth_header}),
     Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
     emqx_mgmt_api_test_util:request_api(Method, Url, [], AuthHeader, Body, Opts).
+
+xxe_callback_state() ->
+    DashboardAddr = list_to_binary(?BASE_URL),
+    ConsumeURI = ?BASE_URL ++ "/api/v5/sso/saml/acs",
+    MetadataURI = ?BASE_URL ++ "/api/v5/sso/saml/metadata",
+    SP = #esaml_sp{
+        consume_uri = ConsumeURI,
+        metadata_uri = MetadataURI,
+        idp_signs_envelopes = false,
+        idp_signs_assertions = false
+    },
+    #{sp => SP, dashboard_addr => DashboardAddr}.
+
+xxe_callback_body(SecretPath, SAMLEncoding, #{sp := SP}) ->
+    Xml = iolist_to_binary([
+        <<"<?xml version=\"1.0\"?>">>,
+        <<"<!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file://">>,
+        SecretPath,
+        <<"\">]>\n">>,
+        <<"<samlp:Response ">>,
+        <<"xmlns:samlp=\"urn:oasis:names:tc:SAML:2.0:protocol\" ">>,
+        <<"xmlns:saml=\"urn:oasis:names:tc:SAML:2.0:assertion\" ">>,
+        <<"Version=\"2.0\" IssueInstant=\"2026-01-01T00:00:00Z\">">>,
+        <<"<samlp:Status><samlp:StatusCode ">>,
+        <<"Value=\"urn:oasis:names:tc:SAML:2.0:status:Success\"/>">>,
+        <<"</samlp:Status>">>,
+        <<"<saml:Assertion Version=\"2.0\" IssueInstant=\"2026-01-01T00:00:00Z\">">>,
+        <<"<saml:Issuer>emqx-test-idp</saml:Issuer>">>,
+        <<"<saml:Subject>">>,
+        <<"<saml:NameID>&xxe;</saml:NameID>">>,
+        <<"<saml:SubjectConfirmation Method=\"urn:oasis:names:tc:SAML:2.0:cm:bearer\">">>,
+        <<"<saml:SubjectConfirmationData Recipient=\"">>,
+        SP#esaml_sp.consume_uri,
+        <<"\" NotOnOrAfter=\"2099-01-01T00:00:00Z\"/>">>,
+        <<"</saml:SubjectConfirmation>">>,
+        <<"</saml:Subject>">>,
+        <<"<saml:Conditions NotOnOrAfter=\"2099-01-01T00:00:00Z\">">>,
+        <<"<saml:AudienceRestriction><saml:Audience>">>,
+        SP#esaml_sp.metadata_uri,
+        <<"</saml:Audience></saml:AudienceRestriction>">>,
+        <<"</saml:Conditions>">>,
+        <<"</saml:Assertion>">>,
+        <<"</samlp:Response>">>
+    ]),
+    Payload =
+        case SAMLEncoding of
+            undefined -> base64:encode(Xml);
+            ?SAML_HTTP_REDIRECT_BINDING -> base64:encode(zlib:zip(Xml))
+        end,
+    Query =
+        case SAMLEncoding of
+            undefined -> [{<<"SAMLResponse">>, Payload}];
+            _ -> [{<<"SAMLEncoding">>, SAMLEncoding}, {<<"SAMLResponse">>, Payload}]
+        end,
+    iolist_to_binary(uri_string:compose_query(Query)).
 
 %% @doc Check if Keycloak is available for integration tests
 is_keycloak_available() ->

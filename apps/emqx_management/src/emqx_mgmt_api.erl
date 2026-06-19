@@ -6,7 +6,6 @@
 
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
--include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include("emqx_mgmt.hrl").
 
 -elvis([{elvis_style, dont_repeat_yourself, #{min_complexity => 100}}]).
@@ -43,8 +42,6 @@
     format_query_result/4,
     maybe_collect_total_from_tail_nodes/2
 ]).
-
--export([require_global_namespace_filter/2]).
 
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
@@ -810,22 +807,6 @@ b2i(Bin) when is_binary(Bin) ->
     binary_to_integer(Bin);
 b2i(Any) ->
     Any.
-
-%% Minirest filter: reject requests whose authenticated actor is bound to a
-%% non-global namespace. Used on endpoints that expose MQTT message content
-%% (mqueue/inflight/retained/delayed payloads, trace logs) which would
-%% otherwise leak across tenants.
--spec require_global_namespace_filter(Req, map()) ->
-    {ok, Req} | {403, map()}
-when
-    Req :: emqx_dashboard:request().
-require_global_namespace_filter(Req, _Meta) ->
-    case emqx_dashboard:get_namespace(Req) of
-        ?global_ns ->
-            {ok, Req};
-        _ ->
-            ?FORBIDDEN(<<"This endpoint is not available to namespaced users">>)
-    end.
 
 %%--------------------------------------------------------------------
 %% EUnits
