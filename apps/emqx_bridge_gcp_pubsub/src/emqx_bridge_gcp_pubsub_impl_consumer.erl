@@ -106,6 +106,7 @@ on_start(ConnectorResId, Config0) ->
     #{service_account_json := #{<<"project_id">> := ProjectId}} = Config,
     case emqx_bridge_gcp_pubsub_client:start(ConnectorResId, Config) of
         {ok, Client} ->
+            ?tp(gcp_pubsub_consumer_start, #{instance_id => ConnectorResId}),
             ConnectorState = #{
                 client => Client,
                 installed_sources => #{},
@@ -118,7 +119,7 @@ on_start(ConnectorResId, Config0) ->
 
 -spec on_stop(resource_id(), connector_state()) -> ok | {error, term()}.
 on_stop(ConnectorResId, _ConnectorState) ->
-    ?tp(gcp_pubsub_consumer_stop_enter, #{}),
+    ?tp(gcp_pubsub_consumer_stop_enter, #{instance_id => ConnectorResId}),
     clear_resources(ConnectorResId),
     emqx_bridge_gcp_pubsub_client:stop(ConnectorResId).
 

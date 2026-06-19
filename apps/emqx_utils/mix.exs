@@ -30,6 +30,7 @@ defmodule EMQXUtils.MixProject do
       UMP.common_dep(:emqx_http_lib),
       UMP.common_dep(:snabbkaffe),
       UMP.common_dep(:erlang_qq),
+      UMP.common_dep(:hocon),
     ]
   end
 end
