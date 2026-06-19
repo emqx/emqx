@@ -23,6 +23,7 @@
     render_urlencoded_str/2,
     render_sql_params/2,
     render_strict/2,
+    render_strict/3,
     escape_disallowed_placeholders_str/2,
     rename_client_info_vars/1
 ]).
@@ -305,7 +306,10 @@ render_var(_Name, Value) ->
     Value.
 
 render_strict(Topic, ClientInfo) ->
-    emqx_template:render_strict(Topic, rename_client_info_vars(ClientInfo)).
+    render_strict(Topic, ClientInfo, #{}).
+
+render_strict(Topic, ClientInfo, Opts) ->
+    emqx_template:render_strict(Topic, rename_client_info_vars(ClientInfo), Opts).
 
 first_present_kv([Key | Keys], Map) ->
     case Map of

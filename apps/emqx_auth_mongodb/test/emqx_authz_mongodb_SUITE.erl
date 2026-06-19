@@ -15,6 +15,9 @@
 
 -define(MONGO_HOST, "mongo").
 -define(MONGO_CLIENT, 'emqx_authz_mongo_SUITE_client').
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
+-define(PROXY_NAME, "mongo_single_tcp").
 
 all() ->
     [
@@ -33,16 +36,27 @@ groups() ->
         emqx_authz_test_lib:table_groups(t_run_case, cases()).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start(
-        [
-            emqx,
-            {emqx_conf, "authorization.no_match = deny, authorization.cache.enable = false"},
-            emqx_auth,
-            emqx_auth_mongodb
-        ],
-        #{work_dir => ?config(priv_dir, Config)}
-    ),
-    [{suite_apps, Apps} | Config].
+    case emqx_common_test_helpers:is_tcp_server_available(?MONGO_HOST, ?MONGO_DEFAULT_PORT) of
+        true ->
+            Apps = emqx_cth_suite:start(
+                [
+                    emqx,
+                    {emqx_conf,
+                        "authorization.no_match = deny, authorization.cache.enable = false"},
+                    emqx_auth,
+                    emqx_auth_mongodb
+                ],
+                #{work_dir => ?config(priv_dir, Config)}
+            ),
+            [
+                {suite_apps, Apps},
+                {mongo_supports_legacy_protocol,
+                    mongo_supports_legacy_protocol(?MONGO_HOST, ?MONGO_DEFAULT_PORT)}
+                | Config
+            ];
+        false ->
+            {skip, no_mongo}
+    end.
 
 end_per_suite(Config) ->
     ok = emqx_authz_test_lib:restore_authorizers(),
@@ -60,30 +74,50 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(_TestCase, Config) ->
-    {ok, _} = mc_worker_api:connect(mongo_config()),
-    ok = emqx_authz_test_lib:reset_authorizers(),
-    Config.
+    %% The forced-legacy cases only run against MongoDB servers that still
+    %% support the legacy OP_QUERY opcodes (removed in MongoDB 5.1).
+    case
+        ?config(use_legacy_protocol, Config) =:= true andalso
+            not proplists:get_value(mongo_supports_legacy_protocol, Config, true)
+    of
+        true ->
+            {skip, mongo_server_dropped_legacy_protocol};
+        false ->
+            %% Address the seeding connection by pid: the driver keys the
+            %% negotiated wire protocol by pid, so a registered name would
+            %% resolve to the legacy-protocol default, which MongoDB 5.1+
+            %% rejects. The pid auto-negotiates OP_MSG on every supported server.
+            {ok, Client} = mc_worker_api:connect(mongo_config()),
+            ok = emqx_authz_test_lib:reset_authorizers(),
+            [{mongo_client, Client} | Config]
+    end.
 
-end_per_testcase(_TestCase, _Config) ->
+end_per_testcase(_TestCase, Config) ->
+    Client = ?config(mongo_client, Config),
     ok = emqx_authz_test_lib:enable_node_cache(false),
-    ok = reset_samples(),
-    ok = mc_worker_api:disconnect(?MONGO_CLIENT).
+    ok = reset_samples(Client),
+    ok = mc_worker_api:disconnect(Client).
 
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
 
 t_run_case(Config) ->
-    run_test(?config(test_case, Config), ?config(use_legacy_protocol, Config)).
+    run_test(
+        ?config(mongo_client, Config),
+        ?config(test_case, Config),
+        ?config(use_legacy_protocol, Config)
+    ).
 
-run_test(#{name := extended_query_with_order_skip_limit}, true) ->
+run_test(_Client, #{name := extended_query_with_order_skip_limit}, true) ->
     ok;
-run_test(Case, UseLegacyProtocol) ->
-    ok = setup_source_data(Case),
+run_test(Client, Case, UseLegacyProtocol) ->
+    ok = setup_source_data(Client, Case),
     ok = setup_authz_source(Case#{use_legacy_protocol => UseLegacyProtocol}),
     ok = emqx_authz_test_lib:run_checks(Case).
 
-t_node_cache(_Config) ->
+t_node_cache(Config) ->
+    Client = ?config(mongo_client, Config),
     ok = emqx_authz_test_lib:reset_node_cache(),
     Case = #{
         name => cache_publish,
@@ -100,7 +134,7 @@ t_node_cache(_Config) ->
         use_legacy_protocol => <<"auto">>,
         checks => []
     },
-    ok = setup_source_data(Case),
+    ok = setup_source_data(Client, Case),
     ok = setup_authz_source(Case),
     ok = emqx_authz_test_lib:enable_node_cache(true),
 
@@ -129,6 +163,80 @@ t_node_cache(_Config) ->
         #{hits := #{value := 1}, misses := #{value := 2}},
         emqx_auth_cache:metrics(?AUTHZ_CACHE)
     ).
+
+t_render_filter_failure_legacy_ignores(Config) ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ok = setup_authz_source(#{
+            filter => #{<<"username">> => <<"${username}">>},
+            use_legacy_protocol => ?config(use_legacy_protocol, Config)
+        }),
+        {ok, _} = emqx:update_config([authorization, no_match], allow),
+        ?assertEqual(
+            allow,
+            emqx_access_control:authorize(
+                #{username => <<255>>},
+                ?AUTHZ_PUBLISH,
+                <<"a">>
+            )
+        )
+    end).
+
+t_render_filter_failure_hardened_denies(Config) ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ok = setup_authz_source(#{
+            filter => #{<<"username">> => <<"${username}">>},
+            use_legacy_protocol => ?config(use_legacy_protocol, Config)
+        }),
+        {ok, _} = emqx:update_config([authorization, no_match], allow),
+        ?assertEqual(
+            deny,
+            emqx_access_control:authorize(
+                #{username => <<255>>},
+                ?AUTHZ_PUBLISH,
+                <<"a">>
+            )
+        )
+    end).
+
+t_resource_failure_legacy_ignores(Config) ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ok = setup_authz_source(#{
+            filter => #{<<"username">> => <<"${username}">>},
+            use_legacy_protocol => ?config(use_legacy_protocol, Config),
+            settings => #{<<"server">> => <<"toxiproxy:27017">>}
+        }),
+        {ok, _} = emqx:update_config([authorization, no_match], allow),
+        with_failure(down, fun() ->
+            ?assertEqual(
+                allow,
+                emqx_access_control:authorize(
+                    emqx_authz_test_lib:base_client_info(),
+                    ?AUTHZ_PUBLISH,
+                    <<"a">>
+                )
+            )
+        end)
+    end).
+
+t_resource_failure_hardened_denies(Config) ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ok = setup_authz_source(#{
+            filter => #{<<"username">> => <<"${username}">>},
+            use_legacy_protocol => ?config(use_legacy_protocol, Config),
+            settings => #{<<"server">> => <<"toxiproxy:27017">>}
+        }),
+        {ok, _} = emqx:update_config([authorization, no_match], allow),
+        with_failure(down, fun() ->
+            ?assertEqual(
+                deny,
+                emqx_access_control:authorize(
+                    emqx_authz_test_lib:base_client_info(),
+                    ?AUTHZ_PUBLISH,
+                    <<"a">>
+                )
+            )
+        end)
+    end).
 
 %%------------------------------------------------------------------------------
 %% Cases
@@ -458,12 +566,12 @@ cases() ->
 %% Helpers
 %%------------------------------------------------------------------------------
 
-reset_samples() ->
-    {true, _} = mc_worker_api:delete(?MONGO_CLIENT, <<"acl">>, #{}),
+reset_samples(Client) ->
+    {true, _} = mc_worker_api:delete(Client, <<"acl">>, #{}),
     ok.
 
-setup_source_data(#{records := Records}) ->
-    {{true, _}, _} = mc_worker_api:insert(?MONGO_CLIENT, <<"acl">>, Records),
+setup_source_data(Client, #{records := Records}) ->
+    {{true, _}, _} = mc_worker_api:insert(Client, <<"acl">>, Records),
     ok.
 
 setup_authz_source(#{filter := Filter, use_legacy_protocol := UseLegacyProtocol} = Case) ->
@@ -509,9 +617,38 @@ mongo_config() ->
         {port, ?MONGO_DEFAULT_PORT},
         {auth_source, mongo_authsource()},
         {login, mongo_username()},
-        {password, mongo_password()},
-        {register, ?MONGO_CLIENT}
+        {password, mongo_password()}
     ].
+
+with_failure(FailureType, Fun) ->
+    emqx_common_test_helpers:with_failure(
+        FailureType,
+        ?PROXY_NAME,
+        ?PROXY_HOST,
+        ?PROXY_PORT,
+        Fun
+    ).
+
+%% MongoDB 5.1 removed the legacy OP_QUERY opcodes (wire protocol version 14),
+%% so the legacy-protocol cases only apply to servers reporting wire version 13
+%% (MongoDB 5.0) or below. `isMaster` is answered before authentication, so no
+%% credentials are required to probe the running server.
+mongo_supports_legacy_protocol(Host, Port) ->
+    %% Force the modern OP_MSG protocol for the probe itself: the legacy
+    %% OP_QUERY opcodes the probe is checking for are exactly what newer servers
+    %% reject, so a legacy probe connection would fail on them.
+    {ok, Conn} = mc_worker_api:connect([
+        {database, <<"admin">>},
+        {host, Host},
+        {port, Port},
+        {use_legacy_protocol, false}
+    ]),
+    try
+        {true, Info} = mc_worker_api:command(Conn, {<<"isMaster">>, 1}),
+        maps:get(<<"maxWireVersion">>, Info, 0) =< 13
+    after
+        mc_worker_api:disconnect(Conn)
+    end.
 
 mongo_authsource() ->
     iolist_to_binary(os:getenv("MONGO_AUTHSOURCE", "admin")).

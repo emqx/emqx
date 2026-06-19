@@ -968,7 +968,7 @@ t_start_stop(TCConfig) ->
             prop_client_stopped(),
             prop_workers_stopped(PubSubTopic),
             fun(Trace) ->
-                ?assertMatch([_], ?of_kind(gcp_pubsub_consumer_clear_unhealthy, Trace)),
+                ?assertMatch([_, _ | _], ?of_kind(gcp_pubsub_consumer_clear_unhealthy, Trace)),
                 ok
             end
         ]
@@ -2200,12 +2200,13 @@ t_cluster_subscription(TCConfig) when is_list(TCConfig) ->
             on_exit(fun() -> catch emqtt:stop(C1) end),
             {ok, _} = emqtt:connect(C1),
             {ok, _, [2]} = emqtt:subscribe(C1, RepublishTopic, 2),
+            emqx_cth_cluster:sync_routes(Nodes),
 
             Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
             Messages = [#{<<"data">> => Payload}],
             pubsub_publish(TCConfig, PubSubTopic, Messages),
 
-            ?assertMatch({ok, _Published}, receive_published()),
+            ?assertMatch({ok, _Published}, receive_published(#{timeout => 60_000})),
 
             ok
         end,
@@ -2441,4 +2442,48 @@ t_attached_service_account_auth(TCConfig) ->
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ensure_attached_service_account_token_resources_cleared(),
 
+    ok.
+
+%% original issue: source was created with a service account without the correct
+%% permissions.  later, the permissions were granted to the service account.  in the
+%% meantime, if the resource manager attempted to reinstall the source more than once, it
+%% could end up in a state where the source would not be part of its internal installed
+%% channels, and then the optvar marking the source as unhealthy would not be cleared.
+%% here, we ensure that such optvar is cleared, and the source eventually recovers once
+%% the permissions are granted.
+t_clear_stuck_unhealthy(TCConfig) ->
+    emqx_common_test_helpers:with_mock(
+        emqx_bridge_gcp_pubsub_client,
+        query_sync,
+        fun(PreparedRequest = ?PREPARED_REQUEST_PAT(Method, _Path, _Body), Client) ->
+            %% original issue: 403 when creating subscription
+            case Method =:= put of
+                true ->
+                    ct:pal("mocking response"),
+                    permission_denied_response();
+                false ->
+                    meck:passthrough([PreparedRequest, Client])
+            end
+        end,
+        fun() ->
+            {201, #{<<"status">> := <<"connected">>}} =
+                create_connector_api(TCConfig, #{}),
+            {201, #{<<"status">> := <<"disconnected">>}} =
+                create_source_api(TCConfig, #{}),
+            ?assertMatch(
+                {200, #{<<"status">> := <<"disconnected">>}},
+                get_source_api(TCConfig)
+            ),
+            ok
+        end
+    ),
+    %% now, we "grant" the permissions by removing the mock.  should recover by itself.
+    ?retry(
+        1_000,
+        10,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"connected">>}},
+            get_source_api(TCConfig)
+        )
+    ),
     ok.

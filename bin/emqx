@@ -451,7 +451,7 @@ check_emqx_process() {
     ## Find the running node from 'ps -ef'
     ##  * The grep args like '[e]mqx' but not 'emqx' is to avoid greping the grep command itself
     ##  * The running 'remsh' and 'nodetool' processes must be excluded
-    ps -ef | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -oE "\-[r]oot ${rootdir}.*" || true
+    ps -efww | $GREP '[e]mqx' | $GREP -v -E '(remsh|nodetool)' | $GREP -oE "\-[r]oot ${rootdir}.*" || true
 }
 
 find_emqx_process() {

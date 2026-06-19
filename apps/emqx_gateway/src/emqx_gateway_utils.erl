@@ -152,7 +152,7 @@ start_listeners([ListenerConfig | ListenerConfigs], Acc) ->
                 end,
                 Acc
             ),
-            {error, {Reason, ListenerConfig}}
+            {error, {emqx_utils:redact(Reason), emqx_utils:redact(ListenerConfig)}}
     end.
 
 -doc """
@@ -163,20 +163,20 @@ start_listener(ListenerConfig) ->
     case do_start_listener(ListenerConfig) of
         {ok, Pid} ->
             ?tp(debug, gateway_listener_started, #{
-                listener_config => ListenerConfig,
+                listener_config => emqx_utils:redact(ListenerConfig),
                 pid => Pid
             }),
             {ok, Pid};
         {error, {already_started, Pid}} ->
             ?tp(debug, gateway_listener_already_started, #{
-                listener_config => ListenerConfig,
+                listener_config => emqx_utils:redact(ListenerConfig),
                 pid => Pid
             }),
             {ok, Pid};
         {error, Reason} ->
             ?tp(debug, gateway_listener_start_failed, #{
-                listener_config => ListenerConfig,
-                reason => Reason
+                listener_config => emqx_utils:redact(ListenerConfig),
+                reason => emqx_utils:redact(Reason)
             }),
             emqx_gateway_utils:supervisor_ret({error, Reason})
     end.

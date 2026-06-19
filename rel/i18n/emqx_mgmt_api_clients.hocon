@@ -99,22 +99,28 @@ msg_mqueue_priority.label:
 """Message Mqueue Priority"""
 
 subscribe.desc:
-"""Subscribe"""
+"""Force the broker to add a subscription on the named client's behalf.
+The subscription is installed directly in the client's channel and persists for the channel's lifetime, just like a client-issued SUBSCRIBE.
+This operation bypasses MQTT authorization (ACL) rules by design: the REST API key / dashboard role is the authorization boundary, not the broker's `authorization` configuration."""
 subscribe.label:
 """Subscribe"""
 
 subscribe_g.desc:
-"""Subscribe bulk"""
+"""Force the broker to add multiple subscriptions on the named client's behalf, in a single request.
+Each subscription is installed directly in the client's channel and persists for the channel's lifetime, just like a client-issued SUBSCRIBE.
+This operation bypasses MQTT authorization (ACL) rules by design: the REST API key / dashboard role is the authorization boundary, not the broker's `authorization` configuration."""
 subscribe_g.label:
 """Subscribe bulk"""
 
 unsubscribe.desc:
-"""Unsubscribe"""
+"""Force the broker to remove a subscription on the named client's behalf.
+This operation bypasses MQTT authorization (ACL) rules by design: the REST API key / dashboard role is the authorization boundary, not the broker's `authorization` configuration."""
 unsubscribe.label:
 """Unsubscribe"""
 
 unsubscribe_g.desc:
-"""Unsubscribe bulk"""
+"""Force the broker to remove multiple subscriptions on the named client's behalf, in a single request.
+This operation bypasses MQTT authorization (ACL) rules by design: the REST API key / dashboard role is the authorization boundary, not the broker's `authorization` configuration."""
 unsubscribe_g.label:
 """Unsubscribe bulk"""
 

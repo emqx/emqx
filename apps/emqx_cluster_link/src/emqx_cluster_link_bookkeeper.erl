@@ -84,7 +84,7 @@ handle_tally_routes() ->
 
 tally_routes([ClusterName | ClusterNames]) ->
     NumRoutes = emqx_cluster_link_extrouter:count(ClusterName),
-    emqx_cluster_link_metrics:routes_set(ClusterName, NumRoutes),
+    emqx_cluster_link_metrics:set_num_external_routes(ClusterName, NumRoutes),
     tally_routes(ClusterNames);
 tally_routes([]) ->
     ok.

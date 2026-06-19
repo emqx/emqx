@@ -65,6 +65,27 @@ namespace() -> undefined.
 %% "authorization"
 fields(?CONF_NS) ->
     emqx_schema:authz_fields() ++ authz_fields();
+fields(topic_template_allow) ->
+    [
+        {plus,
+            hoconsc:mk(boolean(), #{
+                default => false,
+                desc => ?DESC(topic_template_allow_plus),
+                importance => ?IMPORTANCE_HIDDEN
+            })},
+        {hash,
+            hoconsc:mk(boolean(), #{
+                default => false,
+                desc => ?DESC(topic_template_allow_hash),
+                importance => ?IMPORTANCE_HIDDEN
+            })},
+        {slash,
+            hoconsc:mk(boolean(), #{
+                default => false,
+                desc => ?DESC(topic_template_allow_slash),
+                importance => ?IMPORTANCE_HIDDEN
+            })}
+    ];
 fields("metrics_status_fields") ->
     [
         {"resource_metrics", ?HOCON(?R_REF("resource_metrics"), #{desc => ?DESC("metrics")})},
@@ -125,6 +146,22 @@ injected_fields(AuthzSchemaMods) ->
 
 authz_fields() ->
     [
+        {ignore_backend_failures,
+            hoconsc:mk(boolean(), #{
+                default => false,
+                desc => ?DESC(ignore_backend_failures),
+                importance => ?IMPORTANCE_LOW
+            })},
+        {topic_template_allow,
+            hoconsc:mk(?R_REF(topic_template_allow), #{
+                default => #{
+                    <<"plus">> => false,
+                    <<"hash">> => false,
+                    <<"slash">> => false
+                },
+                desc => ?DESC(topic_template_allow),
+                importance => ?IMPORTANCE_HIDDEN
+            })},
         {builtin_record_count_refresh_interval,
             hoconsc:mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"1h">>,

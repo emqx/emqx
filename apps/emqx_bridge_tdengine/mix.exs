@@ -5,7 +5,7 @@ defmodule EMQXBridgeTdengine.MixProject do
   def project do
     [
       app: :emqx_bridge_tdengine,
-      version: "6.2.0",
+      version: "6.3.0",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),

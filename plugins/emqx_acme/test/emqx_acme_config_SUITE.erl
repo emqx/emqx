@@ -29,7 +29,11 @@ all() ->
         t_parse_domains_csv_splits_and_trims,
         t_parse_domains_drops_empty_entries,
         t_parse_domains_accepts_legacy_list,
-        t_parse_contact_csv_splits_and_trims
+        t_parse_contact_csv_splits_and_trims,
+        t_parse_domains_rejects_email_like_entry,
+        t_parse_domains_rejects_whitespace_inside_label,
+        t_parse_domains_rejects_url_like_entry,
+        t_avsc_acc_key_fields_are_plain_string
     ].
 
 -define(TEST_ENV_VAR, "EMQX_ACME_TEST_DIR").
@@ -156,9 +160,8 @@ t_parse_acc_key_treats_empty_as_unset(_Config) ->
     ?assertEqual(undefined, maps:get(acc_key, S)),
     ?assertEqual(undefined, maps:get(acc_key_password, S)).
 
--doc "acc_key_password is declared as nullable in the avsc schema, so the "
-"dashboard sends `null` when the field is left empty. Parser must accept "
-"that and treat it the same as 'unset'.".
+-doc "Parser accepts a literal `null` for acc_key_password and treats "
+"it as 'unset', so a config that carries that value loads cleanly.".
 t_parse_acc_key_password_treats_null_as_unset(_Config) ->
     {ok, S} = emqx_acme_config:parse(
         #{<<"acc_key_password">> => null}
@@ -262,3 +265,51 @@ t_parse_contact_csv_splits_and_trims(_Config) ->
         [<<"mailto:admin@example.com">>, <<"mailto:ops@example.com">>],
         maps:get(contact, S)
     ).
+
+-doc "A domain entry containing `@` is rejected at parse time with "
+"`{invalid_domain, <<\"admin@example\">>}`.".
+t_parse_domains_rejects_email_like_entry(_Config) ->
+    ?assertMatch(
+        {error, {invalid_domain, <<"admin@example">>}},
+        emqx_acme_config:parse(
+            #{<<"domains">> => <<"mqtt.example.com,admin@example">>}
+        )
+    ).
+
+-doc "A domain entry with whitespace inside the label is rejected. "
+"Surrounding whitespace around the comma separators is trimmed by "
+"split_csv_bin/1 and remains accepted.".
+t_parse_domains_rejects_whitespace_inside_label(_Config) ->
+    ?assertMatch(
+        {error, {invalid_domain, <<"foo bar.example.com">>}},
+        emqx_acme_config:parse(
+            #{<<"domains">> => <<"foo bar.example.com">>}
+        )
+    ).
+
+-doc "A domain entry containing `/` (typically a pasted URL) is "
+"rejected at parse time.".
+t_parse_domains_rejects_url_like_entry(_Config) ->
+    ?assertMatch(
+        {error, {invalid_domain, <<"https://mqtt.example.com">>}},
+        emqx_acme_config:parse(
+            #{<<"domains">> => <<"https://mqtt.example.com">>}
+        )
+    ).
+
+-doc "acc_key and acc_key_password are declared as plain \"string\" in "
+"the avsc schema. The dashboard's untagged JSON (`\"acc_key\": "
+"\"file://...\"`) decodes directly against a string type; a union with "
+"`null` would require the tagged form `{\"string\": \"...\"}`.".
+t_avsc_acc_key_fields_are_plain_string(_Config) ->
+    Avsc = read_avsc(),
+    Fields = maps:get(<<"fields">>, Avsc),
+    [AccKey] = [F || F <- Fields, maps:get(<<"name">>, F) =:= <<"acc_key">>],
+    [AccKeyPw] = [F || F <- Fields, maps:get(<<"name">>, F) =:= <<"acc_key_password">>],
+    ?assertEqual(<<"string">>, maps:get(<<"type">>, AccKey)),
+    ?assertEqual(<<"string">>, maps:get(<<"type">>, AccKeyPw)).
+
+read_avsc() ->
+    Path = filename:join([code:lib_dir(emqx_acme), "priv", "config_schema.avsc"]),
+    {ok, Bin} = file:read_file(Path),
+    emqx_utils_json:decode(Bin).

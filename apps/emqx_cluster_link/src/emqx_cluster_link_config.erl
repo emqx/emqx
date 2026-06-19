@@ -119,7 +119,7 @@ get_enabled_links() ->
 get_link(Name) ->
     find_link(Name, get_links()).
 
--spec get_link_raw(_Name :: binary()) -> emqx_config:raw_config().
+-spec get_link_raw(_Name :: binary()) -> emqx_config:raw_config() | undefined.
 get_link_raw(Name) ->
     find_link(Name, get_links_raw()).
 
@@ -181,6 +181,8 @@ create_link(LinkConfig) ->
         {ok, #{raw_config := NewConfigRows}} ->
             NewLinkConfig = find_link(Name, NewConfigRows),
             {ok, NewLinkConfig};
+        {error, {pre_config_update, ?MODULE, Reason}} ->
+            {error, Reason};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -195,6 +197,8 @@ delete_link(Name) ->
     of
         {ok, _} ->
             ok;
+        {error, {pre_config_update, ?MODULE, Reason}} ->
+            {error, Reason};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -211,6 +215,8 @@ update_link(LinkConfig) ->
         {ok, #{raw_config := NewConfigRows}} ->
             NewLinkConfig = find_link(Name, NewConfigRows),
             {ok, NewLinkConfig};
+        {error, {pre_config_update, ?MODULE, Reason}} ->
+            {error, Reason};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -242,22 +248,28 @@ pre_config_update(?LINKS_PATH, RawConf, RawConf) ->
 pre_config_update(?LINKS_PATH, {create, LinkRawConf}, OldRawConf) ->
     #{<<"name">> := Name} = LinkRawConf,
     maybe
+        ok ?= check_license([LinkRawConf]),
         undefined ?= find_link(Name, OldRawConf),
         NewRawConf0 = OldRawConf ++ [LinkRawConf],
         NewRawConf = convert_certs(maybe_increment_ps_actor_incr(NewRawConf0, OldRawConf)),
         {ok, NewRawConf}
     else
+        {error, _} = Err ->
+            Err;
         _ ->
             {error, already_exists}
     end;
 pre_config_update(?LINKS_PATH, {update, LinkRawConf}, OldRawConf) ->
     #{<<"name">> := Name} = LinkRawConf,
     maybe
+        ok ?= check_license([LinkRawConf]),
         {_Found, Front, Rear} ?= safe_take(Name, OldRawConf),
         NewRawConf0 = Front ++ [LinkRawConf] ++ Rear,
         NewRawConf = convert_certs(maybe_increment_ps_actor_incr(NewRawConf0, OldRawConf)),
         {ok, NewRawConf}
     else
+        {error, _} = Err ->
+            Err;
         not_found ->
             {error, not_found}
     end;
@@ -271,7 +283,29 @@ pre_config_update(?LINKS_PATH, {delete, Name}, OldRawConf) ->
             {error, not_found}
     end;
 pre_config_update(?LINKS_PATH, NewRawConf, OldRawConf) ->
-    {ok, convert_certs(maybe_increment_ps_actor_incr(NewRawConf, OldRawConf))}.
+    maybe
+        ok ?= check_license(NewRawConf),
+        {ok, convert_certs(maybe_increment_ps_actor_incr(NewRawConf, OldRawConf))}
+    end.
+
+%% Cluster linking requires a non-community license. Reject any config update
+%% that would enable a link when this node is running under a community
+%% (single-node) license. Disabling or deleting links is always allowed.
+check_license(RawLinks) ->
+    case emqx_cluster:is_single_node_mode() of
+        false ->
+            ok;
+        true ->
+            case lists:any(fun is_link_enabled/1, RawLinks) of
+                true -> {error, single_node_license};
+                false -> ok
+            end
+    end.
+
+%% `enable' defaults to `true' in the schema, so a raw link map without the
+%% key is treated as enabled.
+is_link_enabled(#{<<"enable">> := Enabled}) -> Enabled;
+is_link_enabled(#{}) -> true.
 
 post_config_update(?LINKS_PATH, _Req, Old, Old, _AppEnvs) ->
     ok;
@@ -337,10 +371,9 @@ all_ok(Results) ->
 add_links(LinksConf) ->
     [add_link(Link) || Link <- LinksConf].
 
-add_link(#{name := ClusterName, enable := true} = LinkConf) ->
+add_link(#{enable := true} = LinkConf) ->
     {ok, _Pid} = emqx_cluster_link_sup:ensure_actor(LinkConf),
     {ok, _} = emqx_cluster_link_mqtt:ensure_msg_fwd_resource(LinkConf),
-    ok = emqx_cluster_link_metrics:maybe_create_metrics(ClusterName),
     ok;
 add_link(_DisabledLinkConf) ->
     ok.
@@ -350,8 +383,7 @@ remove_links(LinksConf) ->
 
 remove_link(Name) ->
     _ = emqx_cluster_link_mqtt:remove_msg_fwd_resource(Name),
-    _ = ensure_actor_stopped(Name),
-    emqx_cluster_link_metrics:drop_metrics(Name).
+    _ = ensure_actor_stopped(Name).
 
 update_links(LinksConf) ->
     [do_update_link(Link) || Link <- LinksConf].

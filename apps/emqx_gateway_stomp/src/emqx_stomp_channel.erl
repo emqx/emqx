@@ -249,7 +249,9 @@ enrich_clientinfo(
         [
             fun maybe_assign_clientid/2,
             fun parse_heartbeat/2,
-            %% FIXME: CALL After authentication successfully
+            %% Mountpoint is evaluated again after successful authentication in
+            %% emqx_gateway_ctx:authenticate/2, because authentication results
+            %% may add client attributes used by mountpoint templates.
             fun fix_mountpoint/2
         ],
         Packet,
@@ -454,6 +456,11 @@ handle_in(Packet = ?PACKET(?CMD_CONNECT), Channel) ->
             handle_out(connerr, {[], undefined, ReasonCode, ErrMsg}, NChannel)
     end;
 handle_in(
+    ?PACKET(?CMD_SEND, Headers),
+    Channel = #channel{conn_state = ConnState}
+) when ConnState =/= connected ->
+    reject_not_connected(Headers, Channel);
+handle_in(
     Frame = ?PACKET(?CMD_SEND, Headers),
     Channel = #channel{
         ctx = Ctx,
@@ -482,6 +489,11 @@ handle_in(
                     )
             end
     end;
+handle_in(
+    ?PACKET(?CMD_SUBSCRIBE, Headers),
+    Channel = #channel{conn_state = ConnState}
+) when ConnState =/= connected ->
+    reject_not_connected(Headers, Channel);
 handle_in(
     ?PACKET(?CMD_SUBSCRIBE, Headers),
     Channel = #channel{
@@ -749,6 +761,10 @@ check_sub_acl(
         deny -> {error, acl_denied};
         allow -> ok
     end.
+
+reject_not_connected(Headers, Channel) ->
+    ErrorFrame = error_frame(receipt_id(Headers), <<"Not connected">>),
+    shutdown(not_connected, ErrorFrame, Channel).
 
 do_subscribe(TopicFilters, Channel) ->
     do_subscribe(TopicFilters, Channel, []).

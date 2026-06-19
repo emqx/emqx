@@ -9,8 +9,11 @@
 
 -include("emqx_coap.hrl").
 -include("emqx_coap_test.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
+
+-define(OBSERVE_NOTIFICATION_QUEUE_MAX_LEN, 100).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -768,6 +771,114 @@ t_channel_block2_reply_error(_) ->
     {ok, [{outgoing, [Reply]}], _Channel2} = emqx_coap_channel:handle_in(Req, Channel1),
     ?assertEqual({error, bad_option}, Reply#coap_message.method).
 
+t_channel_observe_blockwise_ack_failure_drains_pending(_) ->
+    Topic = <<"topic">>,
+    ObserveToken = <<"obs-ack-failure">>,
+    Channel0 = new_block2_channel(#{max_block_size => 16}),
+    SubData = #{topic => Topic, token => ObserveToken, subopts => #{qos => 0}},
+    ObserveReq = #coap_message{
+        type = con,
+        method = get,
+        id = 730,
+        token = ObserveToken,
+        options = #{observe => 0}
+    },
+    #{session := Session1} =
+        emqx_coap_session:process_subscribe(
+            SubData,
+            ObserveReq,
+            #{},
+            Channel0#channel.session
+        ),
+    Channel1 = Channel0#channel{session = Session1},
+
+    PayloadA = blockwise_payload(<<"A">>, <<"a">>, <<"1">>),
+    PayloadB = blockwise_payload(<<"B">>, <<"b">>, <<"2">>),
+    DeliverA = {deliver, Topic, emqx_message:make(undefined, 1, Topic, PayloadA)},
+    DeliverB = {deliver, Topic, emqx_message:make(undefined, 1, Topic, PayloadB)},
+
+    {ok, [{outgoing, [NotifyA0]}], Channel2} =
+        emqx_coap_channel:handle_deliver([DeliverA], Channel1),
+    ?assertEqual(con, NotifyA0#coap_message.type),
+    ?assertEqual(ObserveToken, NotifyA0#coap_message.token),
+    ?assertEqual(binary:copy(<<"A">>, 16), NotifyA0#coap_message.payload),
+    ?assertEqual({0, true, 16}, emqx_coap_message:get_option(block2, NotifyA0, undefined)),
+
+    {ok, [{outgoing, []}], Channel3} = emqx_coap_channel:handle_deliver([DeliverB], Channel2),
+    {ok, [{outgoing, [_Retry1]}], Channel4} = ack_timeout(Channel3),
+    {ok, [{outgoing, [_Retry2]}], Channel5} = ack_timeout(Channel4),
+    {ok, [{outgoing, [_Retry3]}], Channel6} = ack_timeout(Channel5),
+    {ok, [{outgoing, [_Retry4]}], Channel7} = ack_timeout(Channel6),
+
+    {ok, [{outgoing, [NotifyB0]}], Channel8} = ack_timeout(Channel7),
+    ?assertEqual(con, NotifyB0#coap_message.type),
+    ?assertEqual(ObserveToken, NotifyB0#coap_message.token),
+    ?assertEqual(binary:copy(<<"B">>, 16), NotifyB0#coap_message.payload),
+    ?assertEqual({0, true, 16}, emqx_coap_message:get_option(block2, NotifyB0, undefined)),
+    ?assertEqual(1, proplists:get_value(inflight_cnt, emqx_coap_channel:stats(Channel8))),
+
+    OldAck = #coap_message{
+        type = ack,
+        id = NotifyA0#coap_message.id,
+        token = ObserveToken
+    },
+    {ok, Channel9} = emqx_coap_channel:handle_in(OldAck, Channel8),
+    ?assertEqual(1, proplists:get_value(inflight_cnt, emqx_coap_channel:stats(Channel9))),
+
+    FollowReq = #coap_message{
+        type = con,
+        method = get,
+        id = 731,
+        token = ObserveToken,
+        options = #{
+            uri_path => [<<"ps">>, Topic],
+            uri_query => #{},
+            block2 => {1, false, 16}
+        }
+    },
+    {ok, [{outgoing, [FollowResp]}], _Channel10} =
+        emqx_coap_channel:handle_in(FollowReq, Channel9),
+    ?assertEqual({ok, content}, FollowResp#coap_message.method),
+    ?assertEqual(binary:copy(<<"b">>, 16), FollowResp#coap_message.payload),
+    ?assertEqual({1, true, 16}, emqx_coap_message:get_option(block2, FollowResp, undefined)).
+
+t_channel_observe_queue_drops_oldest_deterministically(_) ->
+    with_notify_type(con, fun() ->
+        Topic = <<"queue/drop/oldest">>,
+        ObserveToken = <<"obs-drop-oldest">>,
+        Channel0 = new_block2_channel(#{enable => false}),
+        Channel1 = observe_channel(Topic, ObserveToken, Channel0),
+
+        {ok, [{outgoing, [Notify0]}], Channel2} =
+            emqx_coap_channel:handle_deliver(
+                [deliver(Topic, ?QOS_0, <<"inflight">>)],
+                Channel1
+            ),
+        ?assertEqual(con, Notify0#coap_message.type),
+        ?assertEqual(<<"inflight">>, Notify0#coap_message.payload),
+
+        Channel3 =
+            lists:foldl(
+                fun(N, ChannelAcc) ->
+                    Payload = iolist_to_binary(["queued-", integer_to_binary(N)]),
+                    {ok, [{outgoing, []}], ChannelNext} =
+                        emqx_coap_channel:handle_deliver(
+                            [deliver(Topic, ?QOS_0, Payload)],
+                            ChannelAcc
+                        ),
+                    ChannelNext
+                end,
+                Channel2,
+                lists:seq(1, ?OBSERVE_NOTIFICATION_QUEUE_MAX_LEN + 1)
+            ),
+
+        Ack = #coap_message{type = ack, id = Notify0#coap_message.id, token = ObserveToken},
+        {ok, [{outgoing, [Notify1]}], _Channel4} =
+            emqx_coap_channel:handle_in(Ack, Channel3),
+        ?assertEqual(con, Notify1#coap_message.type),
+        ?assertEqual(<<"queued-2">>, Notify1#coap_message.payload)
+    end).
+
 new_block2_channel(Opts) ->
     ConnInfo = #{
         peername => {{127, 0, 0, 1}, 9999},
@@ -799,6 +910,53 @@ ps_get_request(Id, Token, ExtraOpts) ->
         token = Token,
         options = maps:merge(#{uri_path => [<<"ps">>, <<"topic">>], uri_query => #{}}, ExtraOpts)
     }.
+
+ack_timeout(Channel) ->
+    receive
+        {timeout, TRef, {state_machine, {_SeqId, state_timeout, ack_timeout}} = Msg} ->
+            emqx_coap_channel:handle_timeout(TRef, Msg, Channel);
+        Other ->
+            ct:fail({unexpected_ack_timeout_message, Other})
+    after 70000 ->
+        ct:fail(ack_timeout_not_received)
+    end.
+
+observe_channel(Topic, ObserveToken, #channel{session = Session0} = Channel) ->
+    SubData = #{topic => Topic, token => ObserveToken, subopts => #{qos => 0}},
+    ObserveReq = #coap_message{
+        type = con,
+        method = get,
+        token = ObserveToken,
+        options = #{observe => 0}
+    },
+    #{session := Session1} =
+        emqx_coap_session:process_subscribe(SubData, ObserveReq, #{}, Session0),
+    Channel#channel{session = Session1}.
+
+deliver(Topic, QoS, Payload) ->
+    {deliver, Topic, emqx_message:make(undefined, QoS, Topic, Payload)}.
+
+with_notify_type(NotifyType, Fun) ->
+    KeyPath = [gateway, coap, notify_type],
+    OldValue = emqx_config:find(KeyPath),
+    ok = emqx_config:force_put(KeyPath, NotifyType),
+    try
+        Fun()
+    after
+        case OldValue of
+            {ok, Val} ->
+                ok = emqx_config:force_put(KeyPath, Val);
+            _ ->
+                ok = emqx_config:force_put(KeyPath, qos)
+        end
+    end.
+
+blockwise_payload(First, Second, Third) ->
+    iolist_to_binary([
+        binary:copy(First, 16),
+        binary:copy(Second, 16),
+        binary:copy(Third, 8)
+    ]).
 
 coap_ctx() ->
     #{

@@ -377,8 +377,8 @@ api_key_authorize(Req, HandlerInfo, Key, Secret) ->
                 <<"Please use bearer Token instead, using API key/secret in ", Resource/binary,
                     " path is not permitted">>
             );
-        {error, unauthorized_role} ->
-            {403, 'UNAUTHORIZED_ROLE', ?API_KEY_NOT_ALLOW_MSG};
+        {error, {unauthorized_role, Msg}} when is_binary(Msg) ->
+            {403, 'UNAUTHORIZED_ROLE', Msg};
         {error, _} ->
             return_unauthorized(
                 ?BAD_API_KEY_OR_SECRET,
@@ -389,9 +389,17 @@ api_key_authorize(Req, HandlerInfo, Key, Secret) ->
 jwt_token_bearer_authorize(Req, HandlerInfo, Token) ->
     case emqx_dashboard_admin:verify_token(Req, HandlerInfo, Token) of
         {ok, #{actor := Username} = ActorContext} ->
+            %% Use the JWT-resolved admin key (SSO tuple for SSO users,
+            %% plain binary otherwise) so handlers can lookup_user/1
+            %% without re-deriving backend from path / query.
+            Source =
+                case emqx_dashboard_token:resolve_admin_key(Token) of
+                    undefined -> Username;
+                    K -> K
+                end,
             AuthnMeta = #{
                 auth_type => jwt_token,
-                source => Username,
+                source => Source,
                 namespace => maps:get(?namespace, ActorContext, ?global_ns),
                 actor => ActorContext
             },
@@ -411,8 +419,8 @@ jwt_token_bearer_authorize(Req, HandlerInfo, Token) ->
                 "API keys can be bootstrapped from config "
                 "(api_key.bootstrap_file) or created via POST /api/v5/api_key"
             >>};
-        {error, unauthorized_role} ->
-            {403, 'UNAUTHORIZED_ROLE', <<"You don't have permission to access this resource">>}
+        {error, {unauthorized_role, Msg}} when is_binary(Msg) ->
+            {403, 'UNAUTHORIZED_ROLE', Msg}
     end.
 
 ensure_ssl_cert(Listeners = #{https := Https0 = #{ssl_options := SslOpts}}) ->

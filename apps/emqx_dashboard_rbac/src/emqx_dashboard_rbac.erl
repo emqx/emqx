@@ -4,15 +4,18 @@
 
 -module(emqx_dashboard_rbac).
 
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     check_rbac/3,
+    check_login_user_scopes/2,
     parse_dashboard_role/1,
     parse_api_role/1,
-    serialize_role/1
+    serialize_role/1,
+    role_list/1
 ]).
 
 -export_type([actor_context/0]).
@@ -45,11 +48,14 @@
 -define(AUTHN_API(METHOD, FN), ?API(emqx_authn_api, METHOD, FN)).
 -define(CERTS_API(METHOD, FN), ?API(emqx_mgmt_api_certs, METHOD, FN)).
 -define(A2A_REGISTRY_API(METHOD, FN), ?API(emqx_a2a_registry_api, METHOD, FN)).
+-define(CLIENTS_API(METHOD, FN), ?API(emqx_mgmt_api_clients, METHOD, FN)).
+-define(RETAINER_API(METHOD, FN), ?API(emqx_retainer_api, METHOD, FN)).
+-define(DELAYED_API(METHOD, FN), ?API(emqx_delayed_api, METHOD, FN)).
 
 %%=====================================================================
 %% API
 -spec check_rbac(emqx_dashboard:request(), emqx_dashboard:handler_info(), actor_context()) ->
-    {ok, actor_context()} | false.
+    {ok, actor_context()} | {error, binary()}.
 check_rbac(Req, HandlerInfo, ActorContext) ->
     maybe
         true ?= do_check_rbac(ActorContext, Req, HandlerInfo),
@@ -59,8 +65,114 @@ check_rbac(Req, HandlerInfo, ActorContext) ->
 parse_dashboard_role(Role) ->
     parse_role(dashboard, Role).
 
+%% Look up the login user's `scopes' from the admin record's extra map
+%% and cross-reference against the path-to-scope mapping built from all
+%% minirest_api modules' scopes/0 callbacks. Semantics:
+%%
+%%   * scopes absent  (undefined)        -> fall back to RBAC default
+%%                                          (already passed at this
+%%                                          point), so allow.
+%%   * scopes = [...]  (list)            -> path must map to one of
+%%                                          the listed scopes; unmapped
+%%                                          paths fail-open (allow).
+%%
+%% The unmapped-path fail-open is consistent with API key scope
+%% semantics (emqx_mgmt_auth:check_path_in_scopes/2). CT
+%% t_all_endpoints_covered_by_scopes guards against accidentally
+%% leaving a non-public path unmapped.
+%%
+%% IMPORTANT: this predicate is for dashboard LOGIN users only. It must
+%% NOT be invoked from API-key authorisation paths because:
+%%   1. API keys have their own scope mechanism via
+%%      emqx_mgmt_auth:check_path_in_scopes/2 — invoking this on top
+%%      is redundant.
+%%   2. If an API-key string value collided with a dashboard username,
+%%      this lookup would resolve against that user's extra.scopes and
+%%      produce a wrong authorisation decision for the API key.
+%% Callers MUST ensure `Username' is the dashboard admin record's
+%% primary key (binary for local users, ?SSO_USERNAME tuple for SSO
+%% users). The dashboard token verifier reconstructs the SSO tuple via
+%% emqx_dashboard_token:resolve_admin_key/1 before invoking us.
+check_login_user_scopes(Username, Req) when is_map(Req) ->
+    AbsPath = cowboy_req:path(Req),
+    case emqx_dashboard_swagger:get_relative_uri(AbsPath) of
+        {ok, Path} ->
+            check_login_user_scopes_for_path(Username, Path);
+        _ ->
+            %% Requests outside the `/api/v5' management API — e.g. the
+            %% OpenAPI spec endpoints (`/api-docs/swagger.json',
+            %% `/api-spec.html', `/api-spec.md', ...) served by
+            %% emqx_dashboard_api_spec_handler — are not scope-mapped
+            %% management operations. They are already gated by
+            %% authentication and role-based RBAC; the login-user scope
+            %% layer must not deny them. Treat them as unmapped (allow),
+            %% consistent with check_login_user_scopes_strict/2 which
+            %% allows any path that has no scope mapping.
+            true
+    end;
+check_login_user_scopes(Username, Path) when is_binary(Path) ->
+    check_login_user_scopes_for_path(Username, Path).
+
+check_login_user_scopes_for_path(Username, Path) ->
+    %% Self-service endpoints — the user's own change_pwd / mfa —
+    %% bypass the scope check: they are gated by RBAC's self rule
+    %% and, for MFA, by emqx_dashboard_api:authorize_mfa_change/3
+    %% (admin_override decision, mfa_management self-exemption).
+    %% Locking viewers out of changing their own password / setting
+    %% up their own MFA via the scope check would defeat the
+    %% scope's purpose, which is to gate management of OTHER users.
+    %%
+    %% The bypass is intentionally restricted to those two actions.
+    %% PUT/DELETE on /users/<self> itself MUST still be scope-
+    %% checked — otherwise an admin who explicitly set
+    %% `scopes = []' could PUT their own record to add admin-only
+    %% scopes back, defeating the explicit self-restriction.
+    case is_self_service_endpoint(Path, Username) of
+        true -> true;
+        false -> check_login_user_scopes_strict(Username, Path)
+    end.
+
 parse_api_role(Role) ->
     parse_role(api, Role).
+
+check_login_user_scopes_strict(Username, Path) ->
+    %% Always work on the effective scope list (role-default expanded)
+    %% so administrators with no explicit scopes implicitly hold the
+    %% full catalog and viewers implicitly hold the common scopes.
+    %% Explicit [] is honoured as "no permissions".
+    Scopes = emqx_dashboard_admin:effective_scopes_of(Username),
+    case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
+        undefined -> true;
+        PathScope -> lists:member(PathScope, Scopes)
+    end.
+
+%% Whitelist of self-service paths that may skip the login-user
+%% scope check. Currently only the own password and MFA endpoints —
+%% extending this whitelist requires careful thought because it
+%% creates a hole where an admin who self-restricted via explicit
+%% scopes can no longer be reliably restricted.
+%%
+%% Match /users/<self>/change_pwd or /users/<self>/mfa (with
+%% %-encoded segments) regardless of whether Username is a bare
+%% binary (local) or a ?SSO_USERNAME(Backend, Name) tuple (SSO;
+%% the sub-path uses just Name).
+is_self_service_endpoint(<<"/users/", SubPath/binary>>, Username) ->
+    case binary:split(SubPath, <<"/">>, [global]) of
+        [SelfSeg, Action] when
+            Action =:= <<"change_pwd">>;
+            Action =:= <<"mfa">>
+        ->
+            Decoded = uri_string:percent_decode(SelfSeg),
+            is_same_user(Decoded, Username);
+        _ ->
+            false
+    end;
+is_self_service_endpoint(_Path, _Username) ->
+    false.
+
+is_same_user(Decoded, Decoded) -> true;
+is_same_user(Decoded, {_Backend, Decoded}) -> true;
+is_same_user(_, _) -> false.
 
 %% ===================================================================
 
@@ -105,17 +217,47 @@ do_parse_role(_) ->
 parse_namespace_tag(NsTag) ->
     case binary:split(NsTag, <<":">>) of
         [<<"ns">>, Ns] ->
-            {ok, Ns};
+            case emqx:is_reserved_namespace(Ns) of
+                true ->
+                    {error, <<"Reserved namespace">>};
+                false ->
+                    {ok, Ns}
+            end;
         _ ->
             {error, <<"Invalid namespace tag">>}
     end.
 
 %% ===================================================================
 -spec do_check_rbac(actor_context(), emqx_dashboard:request(), emqx_dashboard:handler_info()) ->
-    boolean().
+    true | {error, binary()}.
 do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := ?global_ns}, _, _) ->
     %% Global administrator
     true;
+do_check_rbac(#{?namespace := Namespace}, _, ?CLIENTS_API(get, Fn)) when
+    is_binary(Namespace) andalso
+        (Fn == mqueue_msgs orelse Fn == inflight_msgs)
+->
+    %% Whole-endpoint visibility policy belongs in RBAC. These endpoints
+    %% expose MQTT payloads for arbitrary clients and cannot be safely scoped
+    %% by a generic route filter.
+    {error, <<"Per-client message endpoints are not available to namespaced users">>};
+do_check_rbac(#{?namespace := Namespace}, _, ?RETAINER_API(_, Fn)) when
+    is_binary(Namespace) andalso
+        (Fn == '/messages' orelse Fn == with_topic_warp)
+->
+    %% The retained message store is global. Listing, fetching, or deleting by
+    %% topic would expose or mutate messages outside the caller's namespace.
+    {error, <<"Retained message endpoints are not available to namespaced users">>};
+do_check_rbac(#{?namespace := Namespace}, _, ?DELAYED_API(_, Fn)) when
+    is_binary(Namespace) andalso
+        (Fn == delayed_messages orelse
+            Fn == delayed_message orelse
+            Fn == delayed_message_topic)
+->
+    %% Delayed message records are global and include MQTT payloads. Keep the
+    %% coarse global-only endpoint decision here; filters should resolve or
+    %% validate a namespace, not define the static RBAC surface.
+    {error, <<"Delayed message endpoints are not available to namespaced users">>};
 do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, #{method := get}) ->
     %% Namespaced administrator; It's fine for such admins to `GET` anything, even outside
     %% their namespace.  Namespaces are mostly to avoid accidentally mutating the wrong
@@ -140,7 +282,7 @@ do_check_rbac(
     %% emqx_mgmt_api_publish:publish
     %% emqx_mgmt_api_publish:publish_batch
     %% Currently, only namespaced publisher roles may not use these APIs.
-    false;
+    {error, <<"Publishing is not allowed for namespaced API keys">>};
 %% everyone should allow to logout
 do_check_rbac(#{}, _, ?DASHBOARD_API(post, logout)) ->
     %% emqx_dashboard_api:logout
@@ -158,45 +300,49 @@ do_check_rbac(
         #{bindings := #{username := Username}} ->
             true;
         _ ->
-            false
+            {error, <<"Viewers may only change their own password or MFA">>}
     end;
 do_check_rbac(
-    #{?role := ?ROLE_VIEWER, ?actor := Username} = Actor,
+    #{?role := ?ROLE_VIEWER, ?actor := Username},
     Req,
     ?DASHBOARD_API(delete, change_mfa)
 ) ->
-    %% emqx_dashboard_api:change_mfa
-    %% A SSO viewer whose backend has `force_mfa = true` is not allowed to
-    %% disable MFA for themselves; otherwise they could lock themselves out
-    %% of the next forced setup. Local users (BACKEND_LOCAL) and SSO users
-    %% with `force_mfa = false` may proceed.
+    %% RBAC decides only that viewer may DELETE its OWN mfa endpoint.
+    %% Policy state (admin_override lock and mfa_management self-
+    %% exemption) is decided in emqx_dashboard_api:authorize_mfa_change/3.
+    %% RBAC must not consult the live backend force_mfa flag here —
+    %% doing so would bypass admin_override and prevent mfa_management
+    %% scope holders from self-exempting.
     case Req of
-        #{bindings := #{username := Username}} ->
-            not is_forced_sso_mfa(maps:get(?backend, Actor, ?BACKEND_LOCAL));
-        _ ->
-            false
+        #{bindings := #{username := Username}} -> true;
+        _ -> {error, <<"Viewers may only delete their own MFA">>}
     end;
 do_check_rbac(
     #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace, ?actor := Username},
     Req,
-    ?DASHBOARD_API(post, change_mfa)
-) when is_binary(Namespace) ->
-    %% Namespaced administrators may manage MFA only for themselves.
+    ?DASHBOARD_API(post, Fn)
+) when
+    is_binary(Namespace) andalso (Fn == change_pwd orelse Fn == change_mfa)
+->
+    %% Namespaced administrators may manage their own password and MFA
+    %% only -- never another user's, even within their namespace.  The
+    %% `change_pwd` handler validates the supplied `old_pwd`, so it is
+    %% not a real admin-reset path; and `change_mfa` reset by a tenant
+    %% admin is a known social-engineering vector.
     case Req of
         #{bindings := #{username := Username}} -> true;
-        _ -> false
+        _ -> {error, <<"Namespaced administrators may only change their own password or MFA">>}
     end;
 do_check_rbac(
-    #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace, ?actor := Username} = Actor,
+    #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace, ?actor := Username},
     Req,
     ?DASHBOARD_API(delete, change_mfa)
 ) when is_binary(Namespace) ->
-    %% Namespaced administrators may manage MFA only for themselves.
+    %% Namespaced administrators: same handler-decides policy as viewer.
+    %% Self only -- see the post change_mfa clause above for rationale.
     case Req of
-        #{bindings := #{username := Username}} ->
-            not is_forced_sso_mfa(maps:get(?backend, Actor, ?BACKEND_LOCAL));
-        _ ->
-            false
+        #{bindings := #{username := Username}} -> true;
+        _ -> {error, <<"Namespaced administrators may only delete their own MFA">>}
     end;
 do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?CONNECTOR_API(_, _)) when
     is_binary(Namespace)
@@ -259,7 +405,8 @@ do_check_rbac(
         #{bindings := #{namespace := Namespace}} ->
             true;
         _ ->
-            false
+            {error,
+                <<"Namespaced administrators may only manage certificates in their own namespace">>}
     end;
 do_check_rbac(
     #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?A2A_REGISTRY_API(_, _)
@@ -271,19 +418,7 @@ do_check_rbac(
     %% appropriate namespace.
     true;
 do_check_rbac(_, _, _) ->
-    false.
-
-%% @doc Whether the given backend has `force_mfa = true` configured.
-%% Local users always return false (no SSO config to inspect). For SSO
-%% backends, look up `dashboard.sso.<backend>.force_mfa`. Missing config
-%% (e.g. backend disabled) is treated as `force_mfa = false`.
-is_forced_sso_mfa(?BACKEND_LOCAL) ->
-    false;
-is_forced_sso_mfa(Backend) ->
-    case emqx:get_config([dashboard, sso, Backend], undefined) of
-        #{force_mfa := true} -> true;
-        _ -> false
-    end.
+    {error, <<"You don't have permission to access this resource">>}.
 
 role_list(dashboard) ->
     [?ROLE_VIEWER, ?ROLE_SUPERUSER];

@@ -5,7 +5,7 @@ defmodule EMQXMongodb.MixProject do
   def project do
     [
       app: :emqx_mongodb,
-      version: "6.2.0",
+      version: "6.3.0",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -25,7 +25,7 @@ defmodule EMQXMongodb.MixProject do
     UMP.deps([
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
-      {:mongodb, github: "emqx/mongodb-erlang", tag: "v3.1.1"}
+      {:mongodb, github: "emqx/mongodb-erlang", tag: "v3.1.2"}
     ])
   end
 end

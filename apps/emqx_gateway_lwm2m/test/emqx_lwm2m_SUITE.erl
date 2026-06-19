@@ -146,7 +146,8 @@ groups() ->
         {test_grp_10_rest_api, [RepeatOpt], [
             case100_clients_api,
             case100_subscription_api,
-            case102_mountpoint_peerhost_api
+            case102_mountpoint_peerhost_api,
+            case103_mountpoint_from_authn_client_attrs
         ]},
         {test_grp_11_internal, [RepeatOpt], [
             case110_xml_object_helpers,
@@ -183,7 +184,8 @@ groups() ->
             case141_channel_blockwise_server_paths,
             case142_clear_blockwise_downlink,
             case143_blockwise_busy_no_context,
-            case144_blockwise_consume_only
+            case144_blockwise_consume_only,
+            case147_cleanup_lwm2m_channels
         ]}
     ].
 
@@ -228,6 +230,10 @@ init_per_testcase(TestCase, Config) ->
                 default_config_with_mountpoint_raw(
                     "\"lwm2m/${peerhost}/${endpoint_name}/\""
                 );
+            case103_mountpoint_from_authn_client_attrs ->
+                default_config_with_mountpoint_raw(
+                    "\"lwm2m/${client_attrs.group}/${endpoint_name}/\""
+                );
             _ ->
                 default_config()
         end,
@@ -248,6 +254,7 @@ init_per_testcase(TestCase, Config) ->
 
 end_per_testcase(_AllTestCase, Config) ->
     timer:sleep(300),
+    cleanup_lwm2m_channels(),
     gen_udp:close(?config(sock, Config)),
     emqtt:disconnect(?config(emqx_c, Config)),
     snabbkaffe:stop(),
@@ -4893,6 +4900,35 @@ case102_mountpoint_peerhost_api(Config) ->
     ExpectedTopic =
         <<"lwm2m/127.0.0.1/", (list_to_binary(Epn))/binary, "/dn/#">>,
     ?assertEqual(ExpectedTopic, maps:get(topic, InitSub)).
+
+case103_mountpoint_from_authn_client_attrs(Config) ->
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun
+            (#{username := Username}) when Username =:= <<"urn:oma:lwm2m:oma:103">> ->
+                {ok, #{client_attrs => #{<<"group">> => <<"g1">>}}};
+            (ClientInfo) ->
+                meck:passthrough([ClientInfo])
+        end
+    ),
+    try
+        Epn = "urn:oma:lwm2m:oma:103",
+        MsgId1 = 26,
+        UdpSock = ?config(sock, Config),
+        ObjectList = <<"</1>, </2>, </3/0>, </4>, </5>">>,
+        RespTopic = list_to_binary("lwm2m/g1/" ++ Epn ++ "/up/resp"),
+        emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+        timer:sleep(200),
+        std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic),
+
+        SubTopic = list_to_binary("lwm2m/g1/" ++ Epn ++ "/dn/#"),
+        ?assertEqual(true, lists:member(SubTopic, test_mqtt_broker:get_subscrbied_topics()))
+    after
+        meck:unload(emqx_access_control)
+    end.
+
 case110_xml_object_helpers(_Config) ->
     ObjDefinition = emqx_lwm2m_xml_object:get_obj_def(3, true),
     ?assert(is_tuple(ObjDefinition)),
@@ -5993,6 +6029,52 @@ case144_blockwise_consume_only(_Config) ->
     #{return := {_Outs, _Session2}} =
         emqx_lwm2m_session:handle_protocol_in({response, {Ctx, Resp}}, WithContext, Session1),
     ok.
+
+case147_cleanup_lwm2m_channels(_Config) ->
+    ClientId = <<"cleanup-test-client">>,
+    Parent = self(),
+    Pid = spawn_link(fun() -> fake_lwm2m_channel(Parent, ClientId) end),
+    ok = emqx_gateway_cm:register_channel(lwm2m, ClientId, Pid, #{conn_mod => ?MODULE}),
+    ?assertMatch([Pid], emqx_gateway_cm_registry:lookup_channels(lwm2m, ClientId)),
+
+    cleanup_lwm2m_channels(),
+
+    receive
+        {fake_channel_kicked, ClientId, kick} ->
+            ok
+    after 1000 ->
+        ct:fail(fake_lwm2m_channel_was_not_kicked)
+    end,
+    ?assertEqual([], emqx_gateway_cm_registry:lookup_channels(lwm2m, ClientId)).
+
+fake_lwm2m_channel(Parent, ClientId) ->
+    receive
+        {gateway_cm_call, kick} ->
+            emqx_gateway_cm:connection_closed(lwm2m, ClientId),
+            emqx_gateway_cm:unregister_channel(lwm2m, ClientId),
+            Parent ! {fake_channel_kicked, ClientId, kick}
+    end.
+
+call(Pid, Action, _Timeout) ->
+    Pid ! {gateway_cm_call, Action},
+    ok.
+
+cleanup_lwm2m_channels() ->
+    lists:foreach(
+        fun({ClientId, ChanPid}) ->
+            _ = emqx_gateway_cm:kick_session(lwm2m, ClientId, ChanPid)
+        end,
+        lwm2m_channels()
+    ),
+    ?retry(100, 20, ?assertEqual([], lwm2m_channels())).
+
+lwm2m_channels() ->
+    Tab = emqx_gateway_cm:tabname(chan, lwm2m),
+    try ets:tab2list(Tab) of
+        Channels -> Channels
+    catch
+        error:badarg -> []
+    end.
 
 capture_with_context(Pid) ->
     fun

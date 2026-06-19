@@ -61,15 +61,15 @@ init_per_suite(Config) ->
                 ],
                 #{work_dir => emqx_cth_suite:work_dir(Config)}
             ),
-            %% PostgreSQL skill init must run before we can use the resource.
-            ok = emqx_agent_skill_postgresql:init(),
+            %% PostgreSQL tool init must run before we can use the resource.
+            ok = emqx_agent_tool_postgresql:init(),
             ok = register_provider(),
             [{suite_apps, Apps} | Config]
     end.
 
 end_per_suite(Config) ->
     _ = emqx_ai_completion_config:update_providers_raw({delete, ?PROVIDER_NAME}),
-    ok = emqx_agent_skill_postgresql:deinit(),
+    ok = emqx_agent_tool_postgresql:deinit(),
     emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(_TC, Config) ->
@@ -77,7 +77,7 @@ init_per_testcase(_TC, Config) ->
     ok = emqx_agent_plugin_config_fixture:setup(),
     ok = create_connection(),
     ok = create_table(),
-    ok = register_skills(),
+    ok = register_tools(),
     ok = register_pipeline(),
     ConvId = <<"conv-", (integer_to_binary(erlang:unique_integer([positive, monotonic])))/binary>>,
     BoxId = <<"box-", (integer_to_binary(erlang:unique_integer([positive, monotonic])))/binary>>,
@@ -95,7 +95,7 @@ end_per_testcase(_TC, Config) ->
     ok = emqx:unsubscribe(<<"box/shot/", BoxId/binary>>),
     ok = drop_table(),
     ok = emqx_agent_config:delete_pipeline(?PIPELINE_ID),
-    ok = delete_skills(),
+    ok = delete_tools(),
     ok = emqx_agent_service:connection_delete(?CONNECTION_ID),
     ok = emqx_agent_plugin_config_fixture:teardown().
 
@@ -202,7 +202,7 @@ publish_done(ConvId, BoxId, AppleCount) ->
 %%--------------------------------------------------------------------
 
 assert_db_row(BoxId) ->
-    ResId = emqx_agent_skill_postgresql:resource_id(?CONNECTION_ID),
+    ResId = emqx_agent_tool_postgresql:resource_id(?CONNECTION_ID),
     SQL = <<"SELECT status FROM apple_box_inspections WHERE box_id = $1">>,
     Result = emqx_resource:simple_sync_query(ResId, {query, SQL, [BoxId]}),
     case Result of
@@ -228,7 +228,7 @@ fixture(File) ->
 %%--------------------------------------------------------------------
 
 create_table() ->
-    ResId = emqx_agent_skill_postgresql:resource_id(?CONNECTION_ID),
+    ResId = emqx_agent_tool_postgresql:resource_id(?CONNECTION_ID),
     SQL = <<
         "CREATE TABLE IF NOT EXISTS apple_box_inspections ("
         "  id SERIAL PRIMARY KEY,"
@@ -242,7 +242,7 @@ create_table() ->
     expect_query_ok(emqx_resource:simple_sync_query(ResId, {query, SQL})).
 
 drop_table() ->
-    ResId = emqx_agent_skill_postgresql:resource_id(?CONNECTION_ID),
+    ResId = emqx_agent_tool_postgresql:resource_id(?CONNECTION_ID),
     _ = emqx_resource:simple_sync_query(
         ResId, {query, <<"DROP TABLE IF EXISTS apple_box_inspections">>}
     ),
@@ -271,29 +271,29 @@ create_connection() ->
         }
     }).
 
-register_skills() ->
-    ok = register_skill(#{
+register_tools() ->
+    ok = register_tool(#{
         <<"type">> => <<"message__request">>,
         <<"id">> => <<"box-shot">>,
         <<"desc">> => <<"Request a box snapshot from the SPA">>,
         <<"topic_prefix">> => <<"box/shot/">>,
         <<"request_payload_schema">> => emqx_utils_json:encode(empty_object_schema())
     }),
-    ok = register_skill(#{
+    ok = register_tool(#{
         <<"type">> => <<"message__publish">>,
         <<"id">> => <<"box-alert">>,
         <<"desc">> => <<"Publish a box quality alert">>,
         <<"topic_prefix">> => <<"box/alert/">>,
         <<"payload_schema">> => emqx_utils_json:encode(alert_payload_schema())
     }),
-    ok = register_skill(#{
+    ok = register_tool(#{
         <<"type">> => <<"message__publish">>,
         <<"id">> => <<"box-status">>,
         <<"desc">> => <<"Publish final box inspection status">>,
         <<"topic_prefix">> => <<"box/status/">>,
         <<"payload_schema">> => emqx_utils_json:encode(inspection_schema())
     }),
-    ok = register_skill(#{
+    ok = register_tool(#{
         <<"type">> => <<"postgresql__query">>,
         <<"id">> => <<"box-register">>,
         <<"desc">> => <<"Record inspection result in the database">>,
@@ -304,14 +304,14 @@ register_skills() ->
         >>
     }).
 
-register_skill(Body) ->
-    emqx_agent_config:create_skill(Body).
+register_tool(Body) ->
+    emqx_agent_config:create_tool(Body).
 
-delete_skills() ->
-    ok = emqx_agent_config:delete_skill(<<"message__request">>, <<"box-shot">>),
-    ok = emqx_agent_config:delete_skill(<<"message__publish">>, <<"box-alert">>),
-    ok = emqx_agent_config:delete_skill(<<"message__publish">>, <<"box-status">>),
-    emqx_agent_config:delete_skill(<<"postgresql__query">>, <<"box-register">>).
+delete_tools() ->
+    ok = emqx_agent_config:delete_tool(<<"message__request">>, <<"box-shot">>),
+    ok = emqx_agent_config:delete_tool(<<"message__publish">>, <<"box-alert">>),
+    ok = emqx_agent_config:delete_tool(<<"message__publish">>, <<"box-status">>),
+    emqx_agent_config:delete_tool(<<"postgresql__query">>, <<"box-register">>).
 
 register_provider() ->
     emqx_ai_completion_config:update_providers_raw(
@@ -359,8 +359,8 @@ register_pipeline() ->
             },
             #{
                 <<"id">> => <<"register">>,
-                <<"type">> => <<"call_skill">>,
-                <<"skill">> => <<"postgresql__query@box-register">>,
+                <<"type">> => <<"call_tool">>,
+                <<"tool">> => <<"postgresql__query@box-register">>,
                 <<"args">> => #{
                     <<"conveyor_id">> => <<"$.event.conveyor_id">>,
                     <<"box_id">> => <<"$.event.box_id">>,
@@ -371,8 +371,8 @@ register_pipeline() ->
             },
             #{
                 <<"id">> => <<"notify">>,
-                <<"type">> => <<"call_skill">>,
-                <<"skill">> => <<"message__publish@box-status">>,
+                <<"type">> => <<"call_tool">>,
+                <<"tool">> => <<"message__publish@box-status">>,
                 <<"args">> => #{
                     <<"topic">> => <<"$.event.box_id">>,
                     <<"payload">> => <<"$.inspection">>

@@ -623,6 +623,39 @@ t_managed_namespaces_crud(_Config) ->
 
     ok.
 
+-doc """
+Reserved namespace names (`global`, `undefined`, `null`, `none`) are rejected
+with HTTP 400 at the creation and bulk-import boundaries, while a non-reserved
+name still works.
+""".
+t_reserved_namespaces(_Config) ->
+    Reserved = [<<"global">>, <<"undefined">>, <<"null">>, <<"none">>],
+    lists:foreach(
+        fun(Ns) ->
+            ?assertMatch({400, _}, create_managed_ns(Ns), #{ns => Ns})
+        end,
+        Reserved
+    ),
+    %% Regression guard: a non-reserved name still works.
+    ?assertMatch({204, _}, create_managed_ns(<<"tns-ok">>)),
+    ?assertMatch({200, [<<"tns-ok">>]}, list_managed_nss(#{})),
+
+    %% Bulk upsert path rejects reserved names.
+    ReservedEntries = bulk_import_configs_params([{<<"global">>, #{}}]),
+    ?assertMatch({400, _}, bulk_import_configs(ReservedEntries)),
+
+    %% Bulk namespaced-config import path rejects reserved names.
+    ?assertMatch(
+        {400, _},
+        bulk_import_ns_configs(#{
+            <<"configs">> => #{<<"null">> => #{}},
+            <<"dry_run">> => true
+        })
+    ),
+
+    ?assertMatch({204, _}, delete_managed_ns(<<"tns-ok">>)),
+    ok.
+
 t_bulk_delete_ns(_Config) ->
     ?assertMatch({200, []}, list_managed_nss(#{})),
 

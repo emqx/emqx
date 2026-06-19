@@ -23,7 +23,13 @@ all() ->
 t_build_authn_ctx_and_auth_required(_Config) ->
     Disabled = mk_authn_ctx(undefined, [], undefined, false),
     ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => false}, Disabled)),
-    ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => true}, Disabled)),
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => true}, Disabled))
+    end),
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => false}, Disabled)),
+        ?assertEqual(true, emqx_nats_authn:is_auth_required(#{enable_authn => true}, Disabled))
+    end),
 
     GatewayOnly = mk_authn_ctx(undefined, [], undefined, true),
     ?assertEqual(true, emqx_nats_authn:is_auth_required(#{enable_authn => true}, GatewayOnly)),
@@ -34,7 +40,12 @@ t_build_authn_ctx_and_auth_required(_Config) ->
         #{enable => false, trusted_operators => [<<"OP_TEST">>]},
         false
     ),
-    ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => true}, JWTDisabled)),
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => true}, JWTDisabled))
+    end),
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ?assertEqual(true, emqx_nats_authn:is_auth_required(#{enable_authn => true}, JWTDisabled))
+    end),
 
     Enabled = mk_authn_ctx(
         "token",

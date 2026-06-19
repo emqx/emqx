@@ -14,7 +14,6 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(HTTP_PATH, "/authz/[...]").
-
 -define(AUTHZ_HTTP_RESP(Result, Req),
     cowboy_req:reply(
         200,
@@ -513,6 +512,48 @@ t_bad_response_content_type(TCConfig) ->
         end
     ).
 
+t_bad_response_content_type_legacy_ignores(TCConfig) ->
+    ClientInfo = #{
+        clientid => <<"client id">>,
+        username => <<"user name">>,
+        peerhost => {127, 0, 0, 1},
+        protocol => <<"MQTT">>,
+        mountpoint => <<"MOUNTPOINT">>,
+        zone => default,
+        listener => 'tcp:default',
+        cn => ?PH_CERT_CN_NAME,
+        dn => ?PH_CERT_SUBJECT
+    },
+    ok = setup_bad_response_content_type(TCConfig),
+    {ok, _} = emqx:update_config([authorization, no_match], allow),
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ?assertEqual(
+            allow,
+            emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        )
+    end).
+
+t_bad_response_content_type_hardened_denies(TCConfig) ->
+    ClientInfo = #{
+        clientid => <<"client id">>,
+        username => <<"user name">>,
+        peerhost => {127, 0, 0, 1},
+        protocol => <<"MQTT">>,
+        mountpoint => <<"MOUNTPOINT">>,
+        zone => default,
+        listener => 'tcp:default',
+        cn => ?PH_CERT_CN_NAME,
+        dn => ?PH_CERT_SUBJECT
+    },
+    ok = setup_bad_response_content_type(TCConfig),
+    {ok, _} = emqx:update_config([authorization, no_match], allow),
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ?assertEqual(
+            deny,
+            emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        )
+    end).
+
 %% Checks that we bump the correct metrics when we receive an error response
 t_bad_response(TCConfig) ->
     ok = setup_handler_and_config(
@@ -928,3 +969,26 @@ get_status_api() ->
 
 http_port_bin(TCConfig) ->
     integer_to_binary(?config(http_port, TCConfig)).
+
+setup_bad_response_content_type(TCConfig) ->
+    setup_handler_and_config(
+        TCConfig,
+        fun(Req0, State) ->
+            {ok, _PostVars, Req1} = cowboy_req:read_urlencoded_body(Req0),
+            Req = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"text/csv">>},
+                "hi",
+                Req1
+            ),
+            {ok, Req, State}
+        end,
+        #{
+            <<"method">> => <<"post">>,
+            <<"body">> => #{<<"username">> => <<"${username}">>},
+            <<"headers">> => #{
+                <<"accept">> => <<"text/plain">>,
+                <<"content-type">> => <<"application/json">>
+            }
+        }
+    ).

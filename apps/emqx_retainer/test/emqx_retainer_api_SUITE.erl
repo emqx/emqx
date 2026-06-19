@@ -27,7 +27,10 @@ init_per_suite(Config) ->
             emqx,
             emqx_retainer,
             emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},
+            %% Needed for namespaced user / role parsing in the namespaced-user
+            %% denial test cases.
+            emqx_dashboard_rbac
         ],
         #{
             work_dir => emqx_cth_suite:work_dir(Config)
@@ -486,9 +489,71 @@ t_retained_sys_messages(_Config) ->
     ),
     ok.
 
+-doc """
+Namespaced users (admin or viewer) must not be able to reach the retained
+message endpoints, because the retained store is global and exposes MQTT
+payloads from other namespaces. RBAC owns this whole-endpoint restriction,
+so all methods on those paths return `403` -- including the `DELETE`
+variants that would let a namespaced caller wipe other-namespace retained
+messages.
+""".
+t_namespaced_user_forbidden(_Config) ->
+    %% No slash in the topic so we don't have to URL-encode it just to
+    %% exercise the RBAC gate; it fires before any topic parsing happens.
+    Topic = <<"sometopic">>,
+    lists:foreach(
+        fun(AuthHeader) ->
+            ?assertMatch({403, _}, retainer_messages_get(AuthHeader)),
+            ?assertMatch({403, _}, retainer_messages_delete(AuthHeader)),
+            ?assertMatch({403, _}, retainer_message_get(Topic, AuthHeader)),
+            ?assertMatch({403, _}, retainer_message_delete(Topic, AuthHeader))
+        end,
+        [namespaced_admin_headers(), namespaced_viewer_headers()]
+    ),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
+
+namespaced_admin_headers() ->
+    emqx_bridge_v2_testlib:create_namespaced_admin_headers(#{}).
+
+namespaced_viewer_headers() ->
+    emqx_bridge_v2_testlib:create_namespaced_admin_headers(#{
+        params => #{
+            <<"username">> => <<"nsviewer">>,
+            <<"role">> => <<"ns:ns1::viewer">>
+        }
+    }).
+
+retainer_messages_get(AuthHeader) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => emqx_mgmt_api_test_util:api_path(["mqtt", "retainer", "messages"]),
+        auth_header => AuthHeader
+    }).
+
+retainer_messages_delete(AuthHeader) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => delete,
+        url => emqx_mgmt_api_test_util:api_path(["mqtt", "retainer", "messages"]),
+        auth_header => AuthHeader
+    }).
+
+retainer_message_get(Topic, AuthHeader) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => emqx_mgmt_api_test_util:api_path(["mqtt", "retainer", "message", Topic]),
+        auth_header => AuthHeader
+    }).
+
+retainer_message_delete(Topic, AuthHeader) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => delete,
+        url => emqx_mgmt_api_test_util:api_path(["mqtt", "retainer", "message", Topic]),
+        auth_header => AuthHeader
+    }).
 
 decode_json(Data) ->
     BinJson = emqx_utils_json:decode(Data),

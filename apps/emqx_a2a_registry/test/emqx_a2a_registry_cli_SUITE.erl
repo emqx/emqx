@@ -291,13 +291,21 @@ t_list_cards(TCConfig) ->
         ?CAPTURE(list_cards(["--status", "offline"], TCConfig))
     ),
     C = start_client(#{clientid => Id1}),
-    ?assertMatch(
-        {ok, [[#{<<"name">> := Id2}]]},
-        ?CAPTURE(list_cards(["--status", "offline"], TCConfig))
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {ok, [[#{<<"name">> := Id2}]]},
+            ?CAPTURE(list_cards(["--status", "offline"], TCConfig))
+        )
     ),
-    ?assertMatch(
-        {ok, [[#{<<"name">> := Id1}]]},
-        ?CAPTURE(list_cards(["--status", "online"], TCConfig))
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {ok, [[#{<<"name">> := Id1}]]},
+            ?CAPTURE(list_cards(["--status", "online"], TCConfig))
+        )
     ),
     emqtt:stop(C),
 

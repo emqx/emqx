@@ -15,6 +15,7 @@
 ]).
 
 start(_StartType, _StartArgs) ->
+    ok = emqx_prometheus_config:register_collectors(),
     Res = emqx_prometheus_sup:start_link(),
     emqx_prometheus_config:add_handler(),
     init_latency_metrics(),
