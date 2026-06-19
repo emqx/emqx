@@ -15,6 +15,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
@@ -293,11 +294,13 @@ check_rbac_and_scopes(Req, HandlerInfo, ApiKey, Role, Namespace, Extra) ->
     case check_rbac(Req, HandlerInfo, ApiKey, Role, Namespace) of
         {ok, ActorContext} ->
             case check_scopes(Extra, HandlerInfo) of
-                ok -> {ok, ActorContext};
-                {error, _} = Error -> Error
+                ok ->
+                    {ok, ActorContext};
+                {error, unauthorized_role} ->
+                    {error, {unauthorized_role, ?API_KEY_NOT_ALLOW_MSG}}
             end;
-        false ->
-            {error, unauthorized_role}
+        {error, Reason} when is_binary(Reason) ->
+            {error, {unauthorized_role, Reason}}
     end.
 
 find_by_api_key(ApiKey) ->

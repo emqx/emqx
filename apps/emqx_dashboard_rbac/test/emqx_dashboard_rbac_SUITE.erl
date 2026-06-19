@@ -10,6 +10,7 @@
 -include("../../emqx_dashboard/include/emqx_dashboard.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 -import(emqx_dashboard_api_test_helpers, [uri/1]).
@@ -273,8 +274,8 @@ t_change_pwd(_) ->
     %% viewer can change own password
     ?assertMatch({ok, #{actor := Viewer1}}, change_pwd(Viewer1Token, Viewer1)),
     %% viewer can't change other's password
-    ?assertEqual({error, unauthorized_role}, change_pwd(Viewer1Token, Viewer2)),
-    ?assertEqual({error, unauthorized_role}, change_pwd(Viewer1Token, SuperUser)),
+    ?assertMatch({error, {unauthorized_role, _}}, change_pwd(Viewer1Token, Viewer2)),
+    ?assertMatch({error, {unauthorized_role, _}}, change_pwd(Viewer1Token, SuperUser)),
     %% superuser can change other's password
     ?assertMatch({ok, #{actor := SuperUser}}, change_pwd(SuperToken, Viewer1)),
     ?assertMatch({ok, #{actor := SuperUser}}, change_pwd(SuperToken, Viewer2)),
@@ -392,8 +393,8 @@ test_mfa(VerifyFn) ->
     %% viewer can change own MFA
     ?assertMatch({ok, #{actor := Viewer1}}, VerifyFn(Viewer1Token, Viewer1)),
     %% viewer can't change other's MFA
-    ?assertEqual({error, unauthorized_role}, VerifyFn(Viewer1Token, Viewer2)),
-    ?assertEqual({error, unauthorized_role}, VerifyFn(Viewer1Token, SuperUser)),
+    ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(Viewer1Token, Viewer2)),
+    ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(Viewer1Token, SuperUser)),
     %% superuser can change other's MFA
     ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, Viewer1)),
     ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, Viewer2)),
@@ -403,7 +404,7 @@ test_mfa(VerifyFn) ->
         {ok, #{actor := NamespacedSuperUser}},
         VerifyFn(NamespacedSuperToken, NamespacedSuperUser)
     ),
-    ?assertEqual({error, unauthorized_role}, VerifyFn(NamespacedSuperToken, Viewer1)),
+    ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(NamespacedSuperToken, Viewer1)),
     ok.
 
 %%--------------------------------------------------------------------
@@ -744,6 +745,67 @@ t_check_login_user_scopes_sso_explicit_scope_grants_only_that_path(_) ->
     ?assertEqual(
         false,
         emqx_dashboard_rbac:check_login_user_scopes(SsoKey, <<"/alarms">>)
+    ).
+
+t_global_only_message_endpoints_reject_namespaced_actors(_) ->
+    Req = #{},
+    lists:foreach(
+        fun(HandlerInfo) ->
+            lists:foreach(
+                fun(ActorContext) ->
+                    ?assertMatch(
+                        {error, _},
+                        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext)
+                    )
+                end,
+                namespaced_actor_contexts()
+            ),
+            ?assertMatch(
+                {ok, _},
+                emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, global_admin_actor_context())
+            ),
+            assert_global_viewer_rbac(Req, HandlerInfo)
+        end,
+        global_only_message_endpoint_handlers()
+    ).
+
+global_only_message_endpoint_handlers() ->
+    [
+        #{method => get, module => emqx_mgmt_api_clients, function => mqueue_msgs},
+        #{method => get, module => emqx_mgmt_api_clients, function => inflight_msgs},
+        #{method => get, module => emqx_retainer_api, function => '/messages'},
+        #{method => delete, module => emqx_retainer_api, function => '/messages'},
+        #{method => get, module => emqx_retainer_api, function => with_topic_warp},
+        #{method => delete, module => emqx_retainer_api, function => with_topic_warp},
+        #{method => get, module => emqx_delayed_api, function => delayed_messages},
+        #{method => get, module => emqx_delayed_api, function => delayed_message},
+        #{method => delete, module => emqx_delayed_api, function => delayed_message},
+        #{method => delete, module => emqx_delayed_api, function => delayed_message_topic}
+    ].
+
+namespaced_actor_contexts() ->
+    [
+        #{?actor => <<"ns_admin">>, ?role => ?ROLE_SUPERUSER, ?namespace => <<"ns1">>},
+        #{?actor => <<"ns_viewer">>, ?role => ?ROLE_VIEWER, ?namespace => <<"ns1">>},
+        #{?actor => <<"ns_api_admin">>, ?role => ?ROLE_API_SUPERUSER, ?namespace => <<"ns1">>},
+        #{?actor => <<"ns_api_viewer">>, ?role => ?ROLE_API_VIEWER, ?namespace => <<"ns1">>}
+    ].
+
+global_admin_actor_context() ->
+    #{?actor => <<"global_admin">>, ?role => ?ROLE_SUPERUSER, ?namespace => ?global_ns}.
+
+global_viewer_actor_context() ->
+    #{?actor => <<"global_viewer">>, ?role => ?ROLE_VIEWER, ?namespace => ?global_ns}.
+
+assert_global_viewer_rbac(Req, #{method := get} = HandlerInfo) ->
+    ?assertMatch(
+        {ok, _},
+        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, global_viewer_actor_context())
+    );
+assert_global_viewer_rbac(Req, HandlerInfo) ->
+    ?assertMatch(
+        {error, _},
+        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, global_viewer_actor_context())
     ).
 
 delete_mfa(Token, Username) ->

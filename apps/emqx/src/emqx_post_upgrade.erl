@@ -26,3 +26,16 @@
 %     supervisor:start_child(emqx_sup, ChildSpec);
 % pr20000_ensure_sup_started(_FromVsn, _TargetVsn, _) ->
 %     ok.
+
+-export([
+    pr_17586_kickoff_registry_keeper/1
+]).
+
+%% Replicants started on the pre-fix beam stored {no_deletes => true} in
+%% the keeper's state and never scheduled a sweep timer. After the new
+%% beam is loaded the process still has that state shape; this hook
+%% sends `start' so handle_info/2 runs ensure_sweep_keys/1 and begins
+%% the periodic local-pid sweep. Idempotent on cores (where a timer is
+%% already running) — just brings the next tick forward.
+pr_17586_kickoff_registry_keeper(_FromVsn) ->
+    emqx_cm_registry_keeper:ensure_started().

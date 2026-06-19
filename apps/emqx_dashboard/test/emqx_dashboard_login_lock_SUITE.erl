@@ -129,6 +129,10 @@ t_cancel_lock_with_successful_login(_) ->
     ).
 
 t_cancel_lock_with_cli(_Config) ->
+    %% Use a long lock duration so the lock cannot expire between locking and the
+    %% assertions below under a slow CI (the suite default is 1s, kept short only
+    %% for `t_login_lock' which tests lock release).
+    emqx_config:put([dashboard, unsuccessful_login_lock_duration], 600),
     %% make 5 unsuccessful logins to lock the account
     ok = lists:foreach(
         fun(_I) ->
