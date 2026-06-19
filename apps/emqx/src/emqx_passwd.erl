@@ -62,6 +62,10 @@ do_check_pass({bcrypt, Salt}, PasswordHash, Password) ->
         {error, _Reason} ->
             false
     end;
+do_check_pass({plain, _Salt, _SaltPosition} = HashParams, PasswordHash, Password) ->
+    %% Plaintext passwords must be compared case-sensitively.
+    Hash = hash(HashParams, Password),
+    compare_secure(Hash, PasswordHash);
 do_check_pass({_SimpleHash, _Salt, _SaltPosition} = HashParams, PasswordHash, Password) ->
     Hash = hash(HashParams, Password),
     compare_secure_caseless(Hash, PasswordHash).
