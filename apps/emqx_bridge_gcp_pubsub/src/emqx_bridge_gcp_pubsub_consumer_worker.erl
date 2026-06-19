@@ -106,6 +106,8 @@ reply_delegator(WorkerPid, pull_async = _Action, SourceResId, Result) ->
     case Result of
         {error, timeout} ->
             ?MODULE:pull_async(WorkerPid);
+        {error, {_, timeout}} ->
+            ?MODULE:pull_async(WorkerPid);
         {error, {_, econnrefused}} ->
             %% throttle retries to avoid burning too much cpu
             SleepMS = 500 + rand:uniform(500),
@@ -255,11 +257,11 @@ handle_continue(?ensure_subscription, State0) ->
             {noreply, State, {continue, ?ensure_subscription}};
         not_found ->
             %% there's nothing much to do if the topic suddenly doesn't exist anymore.
-            {stop, {error, topic_not_found}, State0};
+            {stop, {shutdown, {error, topic_not_found}}, State0};
         bad_credentials ->
-            {stop, {error, bad_credentials}, State0};
+            {stop, {shutdown, {error, bad_credentials}}, State0};
         permission_denied ->
-            {stop, {error, permission_denied}, State0}
+            {stop, {shutdown, {error, permission_denied}}, State0}
     end;
 handle_continue(?patch_subscription, State0) ->
     ?tp(gcp_pubsub_consumer_worker_patch_subscription_enter, #{}),
@@ -342,7 +344,7 @@ handle_info(Msg, State0) ->
     }),
     {noreply, State0}.
 
-terminate({error, Reason}, State) when
+terminate({shutdown, {error, Reason}}, State) when
     Reason =:= topic_not_found;
     Reason =:= bad_credentials;
     Reason =:= permission_denied
