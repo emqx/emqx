@@ -403,13 +403,23 @@ handle_response(Result, ResourceId, QueryMode) ->
             Reason =:= timeout
         ->
             ?tp(
-                warning,
                 gcp_client_request_failed,
                 #{
                     reason => Reason,
                     recoverable_error => true,
                     connector => ResourceId
                 }
+            ),
+            ?SLOG_THROTTLE(
+                warning,
+                ResourceId,
+                #{
+                    msg => gcp_client_request_failed,
+                    reason => Reason,
+                    recoverable_error => true,
+                    connector => ResourceId
+                },
+                #{tag => ?TAG}
             ),
             {error, {recoverable_error, Reason}};
         {error, Reason} ->

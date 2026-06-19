@@ -98,6 +98,8 @@
     failed_to_trigger_fallback_action,
     failed_to_update_metric_counter,
     gcp_client_ehttpc_health_check_failed,
+    gcp_client_request_failed,
+    gcp_pubsub_consumer_worker_pull_error,
     handle_resource_metrics_failed,
     resource_exception,
     retain_failed_for_payload_size_exceeded_limit,

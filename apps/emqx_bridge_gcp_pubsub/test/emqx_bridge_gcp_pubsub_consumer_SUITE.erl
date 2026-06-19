@@ -1573,7 +1573,7 @@ t_subscription_deleted_while_consumer_is_running(TCConfig) ->
             {ok, SRef0} =
                 snabbkaffe:subscribe(
                     ?match_event(
-                        #{?snk_kind := "gcp_pubsub_consumer_worker_pull_error"}
+                        #{?snk_kind := gcp_pubsub_consumer_worker_pull_error}
                     ),
                     30_000
                 ),
@@ -1826,7 +1826,7 @@ t_connection_down_during_pull(TCConfig) ->
                 )
             end),
 
-            ?block_until("gcp_pubsub_consumer_worker_pull_error", 10_000),
+            ?block_until(gcp_pubsub_consumer_worker_pull_error, 10_000),
             heal_failure(FailureType),
 
             {ok, _Published} = receive_published(),

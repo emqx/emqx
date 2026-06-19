@@ -9,6 +9,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 %% `ecpool_worker' API
 -export([connect/1, health_check/1, clear_optvar/1]).
@@ -105,14 +106,28 @@ reply_delegator(WorkerPid, pull_async = _Action, SourceResId, Result) ->
     case Result of
         {error, timeout} ->
             ?MODULE:pull_async(WorkerPid);
+        {error, {_, econnrefused}} ->
+            %% throttle retries to avoid burning too much cpu
+            SleepMS = 500 + rand:uniform(500),
+            timer:sleep(SleepMS),
+            ?MODULE:pull_async(WorkerPid);
         {error, Reason} ->
             ?tp(
-                warning,
-                "gcp_pubsub_consumer_worker_pull_error",
+                gcp_pubsub_consumer_worker_pull_error,
                 #{
                     instance_id => SourceResId,
                     reason => Reason
                 }
+            ),
+            ?SLOG_THROTTLE(
+                warning,
+                SourceResId,
+                #{
+                    msg => gcp_pubsub_consumer_worker_pull_error,
+                    instance_id => SourceResId,
+                    reason => Reason
+                },
+                #{tag => ?TAG}
             ),
             case Reason of
                 #{status_code := 404} ->
