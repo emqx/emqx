@@ -55,6 +55,86 @@
           },
           {
             "type": "record",
+            "name": "StreamWrite",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "StreamWriteType", "symbols": ["stream_write"]}, "default": "stream_write", "description": "$tool_type_desc"},
+              {"name": "id", "type": "string", "description": "$tool_id_desc"},
+              {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
+              {"name": "stream", "type": "string", "description": "$tool_stream_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "StreamRead",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "StreamReadType", "symbols": ["stream_read"]}, "default": "stream_read", "description": "$tool_type_desc"},
+              {"name": "id", "type": "string", "description": "$tool_id_desc"},
+              {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
+              {"name": "stream", "type": "string", "description": "$tool_stream_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "StreamDel",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "StreamDelType", "symbols": ["stream_del"]}, "default": "stream_del", "description": "$tool_type_desc"},
+              {"name": "id", "type": "string", "description": "$tool_id_desc"},
+              {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
+              {"name": "stream", "type": "string", "description": "$tool_stream_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "KvWrite",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "KvWriteType", "symbols": ["kv_write"]}, "default": "kv_write", "description": "$tool_type_desc"},
+              {"name": "id", "type": "string", "description": "$tool_id_desc"},
+              {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
+              {"name": "stream", "type": "string", "description": "$tool_stream_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "KvRead",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "KvReadType", "symbols": ["kv_read"]}, "default": "kv_read", "description": "$tool_type_desc"},
+              {"name": "id", "type": "string", "description": "$tool_id_desc"},
+              {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
+              {"name": "stream", "type": "string", "description": "$tool_stream_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "KvReadAll",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "KvReadAllType", "symbols": ["kv_read_all"]}, "default": "kv_read_all", "description": "$tool_type_desc"},
+              {"name": "id", "type": "string", "description": "$tool_id_desc"},
+              {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
+              {"name": "stream", "type": "string", "description": "$tool_stream_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "KvDel",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "KvDelType", "symbols": ["kv_del"]}, "default": "kv_del", "description": "$tool_type_desc"},
+              {"name": "id", "type": "string", "description": "$tool_id_desc"},
+              {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
+              {"name": "stream", "type": "string", "description": "$tool_stream_desc"}
+            ]
+          },
+          {
+            "type": "record",
+            "name": "KvClear",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "KvClearType", "symbols": ["kv_clear"]}, "default": "kv_clear", "description": "$tool_type_desc"},
+              {"name": "id", "type": "string", "description": "$tool_id_desc"},
+              {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
+              {"name": "stream", "type": "string", "description": "$tool_stream_desc"}
+            ]
+          },
+          {
+            "type": "record",
             "name": "Agent_CreateTool",
             "fields": [
               {"name": "type", "type": {"type": "enum", "name": "Agent_CreateToolType", "symbols": ["agent__create_tool"]}, "default": "agent__create_tool", "description": "$tool_type_desc"},
