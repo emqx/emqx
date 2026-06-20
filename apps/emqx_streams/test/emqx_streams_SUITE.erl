@@ -122,6 +122,107 @@ t_smoke(_Config) ->
     ?assertEqual(10, length(AllMessages)),
     ok.
 
+t_message_db_insert_with_key(_Config) ->
+    Stream = emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"message_db_insert_with_key">>,
+        topic_filter => <<"db/#">>,
+        is_lastvalue => false
+    }),
+    Message = emqx_message:make(<<"ct">>, ?QOS_1, <<"db/original">>, <<"payload">>),
+
+    ok = emqx_streams_message_db:insert(Stream, <<"custom-key">>, Message),
+
+    ?assertEqual([], emqx_streams_message_db:dirty_read_key(Stream, <<"other-key">>)),
+    [Record] = emqx_streams_message_db:dirty_read_key(Stream, <<"custom-key">>),
+    ?assertEqual([<<"payload">>], record_payloads([Record])),
+    ok.
+
+t_message_db_dirty_read_limits(_Config) ->
+    Stream = emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"message_db_dirty_read_limits">>,
+        topic_filter => <<"db/#">>,
+        is_lastvalue => false
+    }),
+    Message1 = emqx_message:make(<<"ct">>, ?QOS_1, <<"db/1">>, <<"payload-1">>),
+    Message2 = emqx_message:make(<<"ct">>, ?QOS_1, <<"db/2">>, <<"payload-2">>),
+
+    ok = emqx_streams_message_db:insert(Stream, <<"key-1">>, Message1),
+    ok = emqx_streams_message_db:insert(Stream, <<"key-2">>, Message2),
+
+    [{_, T1, _}] = emqx_streams_message_db:dirty_read_key(Stream, <<"key-1">>),
+    [{_, T2, _}] = emqx_streams_message_db:dirty_read_key(Stream, <<"key-2">>),
+    ?assert(T1 < T2),
+
+    ?assertEqual(
+        [<<"payload-1">>, <<"payload-2">>],
+        record_payloads(emqx_streams_message_db:dirty_read_all(Stream))
+    ),
+    ?assertEqual(
+        [<<"payload-2">>],
+        record_payloads(emqx_streams_message_db:dirty_read_all(Stream, #{start_time => T2}))
+    ),
+    ?assertEqual(
+        [<<"payload-1">>],
+        record_payloads(emqx_streams_message_db:dirty_read_all(Stream, #{end_time => T2}))
+    ),
+    ?assertEqual(
+        [<<"payload-2">>],
+        record_payloads(
+            emqx_streams_message_db:dirty_read_key(Stream, <<"key-2">>, #{
+                start_time => T2,
+                end_time => T2 + 1
+            })
+        )
+    ),
+    ok.
+
+t_message_db_delete_key(_Config) ->
+    Stream = emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"message_db_delete_key">>,
+        topic_filter => <<"db/#">>,
+        is_lastvalue => false
+    }),
+    Message1 = emqx_message:make(<<"ct">>, ?QOS_1, <<"db/1">>, <<"payload-1">>),
+    Message2 = emqx_message:make(<<"ct">>, ?QOS_1, <<"db/2">>, <<"payload-2">>),
+    Message3 = emqx_message:make(<<"ct">>, ?QOS_1, <<"db/3">>, <<"payload-3">>),
+
+    ok = emqx_streams_message_db:insert(Stream, <<"key-1">>, Message1),
+    ok = emqx_streams_message_db:add_regular_db_generation(),
+    ok = emqx_streams_message_db:insert(Stream, <<"key-1">>, Message2),
+    ok = emqx_streams_message_db:insert(Stream, <<"key-2">>, Message3),
+    ?assertEqual(
+        [<<"payload-1">>, <<"payload-2">>],
+        record_payloads(emqx_streams_message_db:dirty_read_key(Stream, <<"key-1">>))
+    ),
+
+    ok = emqx_streams_message_db:delete_key(Stream, <<"key-1">>),
+
+    ?assertEqual([], emqx_streams_message_db:dirty_read_key(Stream, <<"key-1">>)),
+    ?assertEqual(
+        [<<"payload-3">>],
+        record_payloads(emqx_streams_message_db:dirty_read_key(Stream, <<"key-2">>))
+    ),
+    ok.
+
+t_message_db_delete_all(_Config) ->
+    Stream = emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"message_db_delete_all">>,
+        topic_filter => <<"db/#">>,
+        is_lastvalue => false
+    }),
+    Message1 = emqx_message:make(<<"ct">>, ?QOS_1, <<"db/1">>, <<"payload-1">>),
+    Message2 = emqx_message:make(<<"ct">>, ?QOS_1, <<"db/2">>, <<"payload-2">>),
+
+    ok = emqx_streams_message_db:insert(Stream, <<"key-1">>, Message1),
+    ok = emqx_streams_message_db:add_regular_db_generation(),
+    ok = emqx_streams_message_db:insert(Stream, <<"key-2">>, Message2),
+    ?assertEqual(2, length(emqx_streams_message_db:dirty_read_all(Stream))),
+
+    ok = emqx_streams_message_db:delete_all(Stream),
+
+    ?assertEqual([], emqx_streams_message_db:dirty_read_all(Stream)),
+    ok.
+
 %% Verify reading stream messages from the earliest timestamp.
 t_read_earliest(Config) ->
     %% Create a stream
@@ -954,6 +1055,12 @@ user_properties(_Msg = #{properties := #{'User-Property' := UserProperties}}) ->
     maps:from_list(UserProperties);
 user_properties(_Msg) ->
     #{}.
+
+record_payloads(Records) ->
+    [
+        emqx_message:payload(emqx_streams_message_db:decode_message(MessageBin))
+     || {_, _, MessageBin} <- lists:sort(Records)
+    ].
 
 binfmt(Format, Args) ->
     iolist_to_binary(io_lib:format(Format, Args)).
