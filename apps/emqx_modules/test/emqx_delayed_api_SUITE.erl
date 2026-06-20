@@ -26,7 +26,10 @@ init_per_suite(Config) ->
             emqx_conf,
             {emqx_modules, #{config => ?BASE_CONF}},
             emqx_management,
-            emqx_mgmt_api_test_util:emqx_dashboard()
+            emqx_mgmt_api_test_util:emqx_dashboard(),
+            %% Needed for namespaced user / role parsing in the namespaced-user
+            %% denial test cases.
+            emqx_dashboard_rbac
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -257,9 +260,70 @@ t_large_payload(_) ->
         decode_json(Msg)
     ).
 
+-doc """
+Namespaced users (admin or viewer) must not be able to reach the delayed
+message endpoints, because the delayed store is global and `GET` returns
+the message `payload`. RBAC owns this whole-endpoint restriction, so all
+methods on those paths return `403` -- including the `DELETE` variants
+that would let a namespaced caller drop other-namespace delayed messages.
+""".
+t_namespaced_user_forbidden(_Config) ->
+    Topic = <<"some/topic">>,
+    NodeBin = atom_to_binary(node()),
+    MsgId = <<"0001E8D8DD0AE264F44300003ECF0001">>,
+    lists:foreach(
+        fun(AuthHeader) ->
+            ?assertMatch({403, _}, delayed_messages_get(AuthHeader)),
+            ?assertMatch({403, _}, delayed_message_get(NodeBin, MsgId, AuthHeader)),
+            ?assertMatch({403, _}, delayed_message_delete(NodeBin, MsgId, AuthHeader)),
+            ?assertMatch({403, _}, delayed_messages_topic_delete(Topic, AuthHeader))
+        end,
+        [namespaced_admin_headers(), namespaced_viewer_headers()]
+    ),
+    ok.
+
 %%--------------------------------------------------------------------
 %% HTTP Request
 %%--------------------------------------------------------------------
+
+namespaced_admin_headers() ->
+    emqx_bridge_v2_testlib:create_namespaced_admin_headers(#{}).
+
+namespaced_viewer_headers() ->
+    emqx_bridge_v2_testlib:create_namespaced_admin_headers(#{
+        params => #{
+            <<"username">> => <<"nsviewer">>,
+            <<"role">> => <<"ns:ns1::viewer">>
+        }
+    }).
+
+delayed_messages_get(AuthHeader) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => emqx_mgmt_api_test_util:api_path(["mqtt", "delayed", "messages"]),
+        auth_header => AuthHeader
+    }).
+
+delayed_message_get(Node, MsgId, AuthHeader) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => emqx_mgmt_api_test_util:api_path(["mqtt", "delayed", "messages", Node, MsgId]),
+        auth_header => AuthHeader
+    }).
+
+delayed_message_delete(Node, MsgId, AuthHeader) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => delete,
+        url => emqx_mgmt_api_test_util:api_path(["mqtt", "delayed", "messages", Node, MsgId]),
+        auth_header => AuthHeader
+    }).
+
+delayed_messages_topic_delete(Topic, AuthHeader) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => delete,
+        url => emqx_mgmt_api_test_util:api_path(["mqtt", "delayed", "messages", Topic]),
+        auth_header => AuthHeader
+    }).
 
 decode_json(Data) ->
     BinJson = emqx_utils_json:decode(Data),

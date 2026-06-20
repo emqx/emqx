@@ -166,7 +166,8 @@ mode.label:
 """MQTT Bridge Mode"""
 
 password.desc:
-"""The password of the MQTT protocol.  When using static clientids, this value is used if defined, and if there is no specific password associated with the static clientid."""
+"""The password of the MQTT protocol.  When using static clientids, this value is used if defined, and if there is no specific password associated with the static clientid.<br/>
+To load the password from a file instead of embedding it inline, use the form <code>file://&lt;path-to-file&gt;</code>; the file's content (with any trailing whitespace stripped) is then used as the password. When clustered, the file must exist on all EMQX nodes."""
 
 password.label:
 """Password"""

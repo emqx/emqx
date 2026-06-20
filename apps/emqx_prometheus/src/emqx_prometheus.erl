@@ -50,24 +50,18 @@
 
 -export([collect/1, collect_ns/2]).
 
--export([
-    %% For bpapi, deprecated_since 5.0.10, remove this when 5.1.x
-    do_start/0,
-    do_stop/0
-]).
-
 -export([fetch_cluster_wide_namespaced_metrics/2]).
 
 %% RPC targets
 -export([
-    %% Proto v{1..2}
+    %% Proto v2
     fetch_from_local_node/1,
     %% Proto v{3..}
     fetch_namespaced_metrics_v1/2
 ]).
 
 -ifdef(TEST).
--export([cert_expiry_at_from_path/1]).
+-export([cert_expiry_at_from_path/1, acl_metric_meta/0]).
 -endif.
 
 %%--------------------------------------------------------------------
@@ -358,7 +352,7 @@ prefix_collect_helpful_family(Callback, Prefix, MetricsTypeAndHelp, Metrics) ->
     ).
 
 %% behaviour
-%% RPC target (`emqx_prometheus_proto_v{1..2}`)
+%% RPC target (`emqx_prometheus_proto_v2`)
 fetch_from_local_node(Mode) ->
     {node(), (maybe_collect_ds_data(Mode))#{
         stats_data => stats_data(Mode),
@@ -480,7 +474,6 @@ emqx_collect(K = emqx_vm_cpu_idle, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_run_queue, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_uptime_ms, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_max_fds, D) -> gauge_metrics(?MG(K, D));
-emqx_collect(K = emqx_vm_process_messages_in_queues, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_total_memory, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_used_memory, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_mnesia_tm_mailbox_size, D) -> gauge_metrics(?MG(K, D));
@@ -759,7 +752,6 @@ vm_metric_meta() ->
         {emqx_vm_run_queue, gauge, 'run_queue'},
         {emqx_vm_uptime_ms, gauge, 'uptime'},
         {emqx_vm_max_fds, gauge, 'max_fds'},
-        {emqx_vm_process_messages_in_queues, gauge, 'process_total_messages'},
         {emqx_vm_total_memory, gauge, 'total_memory'},
         {emqx_vm_used_memory, gauge, 'used_memory'},
         {emqx_vm_mnesia_tm_mailbox_size, gauge, 'mnesia_tm_mailbox_size'},
@@ -1114,8 +1106,8 @@ acl_metric_meta() ->
         {emqx_authorization_cache_miss, counter, 'authorization.cache_miss'},
         {emqx_authorization_superuser, counter, 'authorization.superuser'},
         {emqx_authorization_nomatch, counter, 'authorization.nomatch'},
-        {emqx_authorization_matched_allow, counter, 'authorization.matched_allow'},
-        {emqx_authorization_matched_deny, counter, 'authorization.matched_deny'}
+        {emqx_authorization_matched_allow, counter, 'authorization.matched.allow'},
+        {emqx_authorization_matched_deny, counter, 'authorization.matched.deny'}
     ].
 
 authz_metric_ns_meta() ->
@@ -1543,17 +1535,6 @@ with_node_label(?PROM_DATA_MODE__ALL_NODES_AGGREGATED, Labels) ->
     Labels;
 with_node_label(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, Labels) ->
     [{node, node()} | Labels].
-
-%%--------------------------------------------------------------------
-%% bpapi
-
-%% deprecated_since 5.0.10, remove this when 5.1.x
-do_start() ->
-    emqx_prometheus_sup:start_child(?APP).
-
-%% deprecated_since 5.0.10, remove this when 5.1.x
-do_stop() ->
-    emqx_prometheus_sup:stop_child(?APP).
 
 %%--------------------------------------------------------------------
 %% prometheus_model_helpers proxy

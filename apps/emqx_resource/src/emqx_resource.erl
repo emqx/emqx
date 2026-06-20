@@ -38,12 +38,7 @@
     remove_local/1,
     reset_metrics/1,
     reset_metrics_local/1,
-    reset_metrics_local/2,
-    %% Create metrics for a resource ID
-    create_metrics/1,
-    ensure_metrics/1,
-    %% Delete metrics for a resource ID
-    clear_metrics/1
+    reset_metrics_local/2
 ]).
 
 %% Calls to the callback module with current resource state
@@ -370,7 +365,7 @@ reset_metrics_local(ResId) ->
 
 -spec reset_metrics_local(resource_id(), map()) -> ok.
 reset_metrics_local(ResId, _ClusterOpts) ->
-    emqx_resource_manager:reset_metrics(ResId).
+    emqx_resource_metrics:reset_metrics(ResId).
 
 -spec reset_metrics(resource_id()) -> ok | {error, Reason :: term()}.
 reset_metrics(ResId) ->
@@ -498,7 +493,7 @@ is_exist(ResId) ->
 -spec get_metrics(resource_id()) ->
     emqx_metrics_worker:metrics().
 get_metrics(ResId) ->
-    emqx_resource_manager:get_metrics(ResId).
+    emqx_resource_metrics:get_metrics(ResId).
 
 -spec fetch_creation_opts(map()) -> creation_opts().
 fetch_creation_opts(Opts) ->
@@ -808,46 +803,10 @@ deallocate_resource(InstanceId, Key) ->
 
 -undef(RES_MOD_KEY).
 
--spec create_metrics(resource_id()) -> ok.
-create_metrics(ResId) ->
-    emqx_metrics_worker:create_metrics(?RES_METRICS, ResId, metrics(), rate_metrics()).
-
--spec ensure_metrics(resource_id()) -> {ok, created | already_created}.
-ensure_metrics(ResId) ->
-    emqx_metrics_worker:ensure_metrics(?RES_METRICS, ResId, metrics(), rate_metrics()).
-
--spec clear_metrics(resource_id()) -> ok.
-clear_metrics(ResId) ->
-    emqx_metrics_worker:clear_metrics(?RES_METRICS, ResId).
-
 get_health_check_timeout(Opts) ->
     emqx_utils_maps:deep_get([resource_opts, health_check_timeout], Opts, ?HEALTHCHECK_TIMEOUT).
 
 %% =================================================================================
-
-%% Update `emqx_bridge_v2_api:{format_metrics,empty_metrics}` when adding a new metric.
-metrics() ->
-    [
-        'matched',
-        'retried',
-        'retried.success',
-        'retried.failed',
-        'success',
-        'late_reply',
-        'failed',
-        'dropped',
-        'dropped.expired',
-        'dropped.queue_full',
-        'dropped.resource_not_found',
-        'dropped.resource_stopped',
-        'dropped.other',
-        'received',
-        'aggregated_upload.success',
-        'aggregated_upload.failure'
-    ].
-
-rate_metrics() ->
-    ['matched'].
 
 filter_instances(Filter) ->
     [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].

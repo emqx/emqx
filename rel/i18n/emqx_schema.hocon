@@ -1237,7 +1237,8 @@ fields_mqtt_quic_listener_migration_enabled.label:
 """Migration enabled"""
 
 common_ssl_opts_schema_password.desc:
-"""String containing the user's password. Only used if the private key file is password-protected."""
+"""String containing the user's password. Only used if the private key file is password-protected.<br/>
+To load the password from a file instead of embedding it inline, use the form <code>file://&lt;path-to-file&gt;</code>. The file's content (with any trailing whitespace stripped) is then used as the password. When clustered, the file must exist on all EMQX nodes."""
 
 common_ssl_opts_schema_password.label:
 """Keyfile Passphrase"""
@@ -1910,6 +1911,12 @@ client_attrs_init_expression {
     - `cert_common_name`: Alias of `cn`.
     - `dn`: Client's TLS certificate distinguished name (the subject).
     - `cert_subject`: Alias of `dn`.
+    For directly connected TLS clients, the subject alternative names in the client certificate
+    can be used:
+    - `cert_san.dns`: DNS names in the client certificate.
+    - `cert_san.ip`: IP addresses in the client certificate.
+    - `cert_san.email`: Email addresses in the client certificate.
+    - `cert_san.uri`: URIs in the client certificate.
     - `peersni`: TLS server name indication sent by the client.
 
     You can read more about variform expressions in EMQX docs."""

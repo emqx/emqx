@@ -15,18 +15,18 @@ Resources:
   /agent/assets/:file             — serve bundled UI assets
   /agent/ui/assets/:file          — serve bundled UI assets
   /agent/providers                — list configured AI providers
-  /agent/skills                   — list / create configured skills
-  /agent/skills/statuses          — runtime skill reconciliation statuses
-  /agent/skills/:type/:id         — get / update / delete a configured skill
-  /agent/connections              — list / create skill connections
+  /agent/tools                   — list / create configured tools
+  /agent/tools/statuses          — runtime tool reconciliation statuses
+  /agent/tools/:type/:id         — get / update / delete a configured tool
+  /agent/connections              — list / create tool connections
   /agent/connections/statuses     — runtime connection reconciliation statuses
-  /agent/connections/:id          — get / update / delete a skill connection
-  /agent/connections/:id/start    — enable and reconcile a skill connection
-  /agent/connections/:id/stop     — disable and reconcile a skill connection
+  /agent/connections/:id          — get / update / delete a tool connection
+  /agent/connections/:id/start    — enable and reconcile a tool connection
+  /agent/connections/:id/stop     — disable and reconcile a tool connection
   /agent/pipelines                — list / create pipeline definitions
   /agent/pipelines/:id            — get / update / delete a pipeline
 
-Skill types accepted on POST:
+Tool types accepted on POST:
   message__publish  — MQTT publish capability scoped to a topic prefix
   message__request  — MQTT request/reply capability scoped to a topic prefix
   http             — HTTP call capability
@@ -68,18 +68,18 @@ dispatch(get, [<<"assets">>, File], _Params) ->
     serve_ui_asset(File);
 dispatch(get, [<<"ui">>, <<"assets">>, File], _Params) ->
     serve_ui_asset(File);
-dispatch(get, [<<"skills">>], Params) ->
-    '/agent/skills'(get, Params);
-dispatch(post, [<<"skills">>], Params) ->
-    '/agent/skills'(post, Params);
-dispatch(get, [<<"skills">>, <<"statuses">>], Params) ->
-    '/agent/skills/statuses'(get, Params);
-dispatch(get, [<<"skills">>, Type, Id], Params) ->
-    '/agent/skills/:type/:id'(get, Params#{bindings => #{type => Type, id => Id}});
-dispatch(put, [<<"skills">>, Type, Id], Params) ->
-    '/agent/skills/:type/:id'(put, Params#{bindings => #{type => Type, id => Id}});
-dispatch(delete, [<<"skills">>, Type, Id], Params) ->
-    '/agent/skills/:type/:id'(delete, Params#{bindings => #{type => Type, id => Id}});
+dispatch(get, [<<"tools">>], Params) ->
+    '/agent/tools'(get, Params);
+dispatch(post, [<<"tools">>], Params) ->
+    '/agent/tools'(post, Params);
+dispatch(get, [<<"tools">>, <<"statuses">>], Params) ->
+    '/agent/tools/statuses'(get, Params);
+dispatch(get, [<<"tools">>, Type, Id], Params) ->
+    '/agent/tools/:type/:id'(get, Params#{bindings => #{type => Type, id => Id}});
+dispatch(put, [<<"tools">>, Type, Id], Params) ->
+    '/agent/tools/:type/:id'(put, Params#{bindings => #{type => Type, id => Id}});
+dispatch(delete, [<<"tools">>, Type, Id], Params) ->
+    '/agent/tools/:type/:id'(delete, Params#{bindings => #{type => Type, id => Id}});
 dispatch(get, [<<"connections">>], Params) ->
     '/agent/connections'(get, Params);
 dispatch(post, [<<"connections">>], Params) ->
@@ -211,55 +211,55 @@ no_cache_headers(ContentType) ->
     }.
 
 %%--------------------------------------------------------------------
-%% Handlers — Skills
+%% Handlers — Tools
 %%--------------------------------------------------------------------
 
-'/agent/skills'(get, _Params) ->
-    ?OK(emqx_agent_service:skill_list());
-'/agent/skills'(post, #{body := Body}) ->
-    case emqx_agent_service:skill_create(Body) of
+'/agent/tools'(get, _Params) ->
+    ?OK(emqx_agent_service:tool_list());
+'/agent/tools'(post, #{body := Body}) ->
+    case emqx_agent_service:tool_create(Body) of
         ok ->
             ?CREATED(#{});
         {error, {missing_field, Field}} ->
             ?BAD_REQUEST(iolist_to_binary(["Missing required field: ", field_to_str(Field)]));
         {error, already_exists} ->
-            ?CONFLICT(<<"Skill already exists">>);
+            ?CONFLICT(<<"Tool already exists">>);
         {error, unknown_type} ->
             ?BAD_REQUEST(
-                <<"Unknown skill type. Valid types: message__publish, message__request, http, postgresql__query">>
+                <<"Unknown tool type. Valid types: message__publish, message__request, http, postgresql__query">>
             );
         {error, Reason} ->
             ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
     end.
 
-'/agent/skills/statuses'(get, _Params) ->
-    ?OK(emqx_agent_service:skill_statuses()).
+'/agent/tools/statuses'(get, _Params) ->
+    ?OK(emqx_agent_service:tool_statuses()).
 
-'/agent/skills/:type/:id'(get, #{bindings := #{type := Type, id := Id}}) ->
-    case emqx_agent_service:skill_get(Type, Id) of
-        {ok, Skill} -> ?OK(Skill);
-        {error, not_found} -> ?NOT_FOUND(<<"Skill not found">>)
+'/agent/tools/:type/:id'(get, #{bindings := #{type := Type, id := Id}}) ->
+    case emqx_agent_service:tool_get(Type, Id) of
+        {ok, Tool} -> ?OK(Tool);
+        {error, not_found} -> ?NOT_FOUND(<<"Tool not found">>)
     end;
-'/agent/skills/:type/:id'(put, #{bindings := #{type := Type, id := Id}, body := Body}) ->
-    case emqx_agent_service:skill_update(Type, Id, Body) of
-        {ok, Skill} ->
-            ?OK(Skill);
+'/agent/tools/:type/:id'(put, #{bindings := #{type := Type, id := Id}, body := Body}) ->
+    case emqx_agent_service:tool_update(Type, Id, Body) of
+        {ok, Tool} ->
+            ?OK(Tool);
         {error, {missing_field, Field}} ->
             ?BAD_REQUEST(iolist_to_binary(["Missing required field: ", field_to_str(Field)]));
         {error, not_found} ->
-            ?NOT_FOUND(<<"Skill not found">>);
+            ?NOT_FOUND(<<"Tool not found">>);
         {error, Reason} ->
             ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
     end;
-'/agent/skills/:type/:id'(delete, #{bindings := #{type := Type, id := Id}}) ->
-    case emqx_agent_service:skill_delete(Type, Id) of
+'/agent/tools/:type/:id'(delete, #{bindings := #{type := Type, id := Id}}) ->
+    case emqx_agent_service:tool_delete(Type, Id) of
         ok ->
             ?NO_CONTENT;
         {error, not_found} ->
-            ?NOT_FOUND(<<"Skill not found">>);
+            ?NOT_FOUND(<<"Tool not found">>);
         {error, {in_use, Ids}} ->
             Joined = iolist_to_binary(lists:join(<<", ">>, Ids)),
-            ?CONFLICT(<<"Skill is used in pipeline(s): ", Joined/binary>>)
+            ?CONFLICT(<<"Tool is used in pipeline(s): ", Joined/binary>>)
     end.
 
 %%--------------------------------------------------------------------
@@ -305,7 +305,7 @@ no_cache_headers(ContentType) ->
             ?NOT_FOUND(<<"Connection not found">>);
         {error, {in_use, Ids}} ->
             Joined = iolist_to_binary(lists:join(<<", ">>, Ids)),
-            ?CONFLICT(<<"Connection is used by skill(s): ", Joined/binary>>);
+            ?CONFLICT(<<"Connection is used by tool(s): ", Joined/binary>>);
         {error, Reason} ->
             ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
     end.

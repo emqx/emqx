@@ -22,15 +22,31 @@ x-cassandra: &cassandra
     - emqx_bridge
 
 services:
+  ssl_cert_gen:
+    # see https://github.com/emqx/docker-images
+    image: ghcr.io/emqx/certgen:latest
+    container_name: ssl_cert_gen
+    user: "${DOCKER_USER:-root}"
+    environment:
+      CERTGEN_JKS_PREFIX: cassandra
+    volumes:
+      - /tmp/emqx-ci/emqx-shared-secret:/var/lib/secret
+
   cassandra_server:
     <<: *cassandra
     container_name: cassandra
+    depends_on:
+      ssl_cert_gen:
+        condition: service_completed_successfully
     volumes:
-      - ./certs:/certs
+      - /tmp/emqx-ci/emqx-shared-secret:/certs:ro
       - ./cassandra/cassandra.yaml:/etc/cassandra/cassandra.yaml
   cassandra_noauth_server:
     <<: *cassandra
     container_name: cassandra_noauth
+    depends_on:
+      ssl_cert_gen:
+        condition: service_completed_successfully
     volumes:
-      - ./certs:/certs
+      - /tmp/emqx-ci/emqx-shared-secret:/certs:ro
       - ./cassandra/cassandra_noauth.yaml:/etc/cassandra/cassandra.yaml

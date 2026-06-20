@@ -135,8 +135,9 @@ handle_call({connection_status, StreamName}, _From, State) ->
     Status = get_status(StreamName),
     {reply, Status, State};
 handle_call(connection_status, _From, State) ->
+    AWSConfig = aws_config(),
     Status =
-        case erlcloud_kinesis:list_streams() of
+        case erlcloud_kinesis:list_streams(<<".">>, 1, AWSConfig) of
             {ok, _ListStreamsResult} ->
                 {ok, ?status_connected};
             {error, Error} ->
@@ -166,8 +167,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
+aws_config() ->
+    erlcloud_aws:default_config().
+
 get_status(StreamName) ->
-    case erlcloud_kinesis:describe_stream(StreamName) of
+    case erlcloud_kinesis:describe_stream(StreamName, 1) of
         {ok, _} ->
             {ok, ?status_connected};
         {error, {<<"ResourceNotFoundException">>, _}} ->

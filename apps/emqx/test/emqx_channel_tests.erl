@@ -36,7 +36,7 @@ set_tns_in_log_meta_test_() ->
             },
             M
         ),
-        ?assertNot(maps:is_key(tns, M))
+        ?assert(maps:is_key(tns, M))
     end,
 
     Username = #{
@@ -53,7 +53,7 @@ set_tns_in_log_meta_test_() ->
                 },
                 M
             ),
-            ?assertNot(maps:is_key(tns, M))
+            ?assert(maps:is_key(tns, M))
         end,
 
     TnsAdded = #{

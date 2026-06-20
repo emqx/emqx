@@ -85,10 +85,10 @@ t_resolve_map_non_map_passthrough(_Config) ->
     ?assertEqual(<<"not a map">>, emqx_agent_pipeline_ctx:resolve_map(<<"not a map">>, #{})).
 
 t_init_creates_context(_Config) ->
-    Ctx = emqx_agent_pipeline_ctx:init(#{<<"topic">> => <<"t">>}, <<"my-key">>),
-    ?assertEqual(<<"my-key">>, maps:get(<<"key">>, Ctx)),
+    Ctx = emqx_agent_pipeline_ctx:init(#{<<"topic">> => <<"t">>}),
     ?assertEqual(#{<<"topic">> => <<"t">>}, maps:get(<<"event">>, Ctx)),
-    ?assert(is_binary(maps:get(<<"key_base62">>, Ctx))).
+    ?assertNot(maps:is_key(<<"key">>, Ctx)),
+    ?assertNot(maps:is_key(<<"key_base62">>, Ctx)).
 
 t_deep_get_empty_path(_Config) ->
     ?assertEqual(42, emqx_agent_pipeline_ctx:deep_get([], 42)).

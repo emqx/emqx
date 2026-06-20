@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 -include("../../emqx_dashboard/include/emqx_dashboard.hrl").
 
 -define(HOST, "http://127.0.0.1:18083").
@@ -78,6 +79,38 @@ init_users() ->
     %% Create SSO users directly via add_sso_user
     {ok, _} = emqx_dashboard_admin:add_sso_user(?SSO_BACKEND, ?SSO_USER, ?ROLE_VIEWER, <<>>),
     {ok, _} = emqx_dashboard_admin:add_sso_user(?SSO_BACKEND, ?SSO_USER2, ?ROLE_VIEWER, <<>>),
+    ok.
+
+%%====================================================================
+%% Regression: SSO auto-provisioning seeds role-default scopes
+%%====================================================================
+
+%% SSO `ensure_user_exists' callers (LDAP, OIDC, SAML) call
+%% `add_sso_user/4' once per first-login and never run a follow-up
+%% `set_user_scopes' step. Before C3 a fresh SSO row would land in the
+%% legacy "no scopes key" state, surfacing in API responses as the
+%% `<<"unset">>' sentinel. After C3 the row is seeded with the viewer
+%% role default at insertion time, so a fresh SSO user is
+%% indistinguishable from one that listed its scopes explicitly.
+t_add_sso_user_seeds_role_default_scopes({init, Config}) ->
+    Config;
+t_add_sso_user_seeds_role_default_scopes({'end', _Config}) ->
+    %% Do not clear the admin table here: init_users/0 is invoked once
+    %% from init_per_suite and shared with every other testcase. Clearing
+    %% it would leave subsequent cases without an SSO row to look up
+    %% (manifesting as `username_not_found' on set_mfa_state).
+    ok;
+t_add_sso_user_seeds_role_default_scopes(_Config) ->
+    SsoUser1 = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),
+    ?assertEqual(
+        ?GENERIC_SCOPES,
+        emqx_dashboard_admin:scopes_of(SsoUser1)
+    ),
+    SsoUser2 = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER2),
+    ?assertEqual(
+        ?GENERIC_SCOPES,
+        emqx_dashboard_admin:scopes_of(SsoUser2)
+    ),
     ok.
 
 %%====================================================================
@@ -367,17 +400,81 @@ t_check_sso_mfa_admin_disabled({init, Config}) ->
     %% First set MFA enabled so disable_mfa can work
     MfaState = #{mechanism => totp, secret => <<"TESTSECRET">>, first_verify_ts => 1000},
     {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, MfaState),
-    ok = emqx_dashboard_admin:disable_mfa(SsoUsername),
+    ok = emqx_dashboard_admin:disable_mfa(SsoUsername, _ByAdmin = true),
     Config;
 t_check_sso_mfa_admin_disabled({'end', _Config}) ->
     clear_force_mfa(?SSO_BACKEND),
     _ = emqx_dashboard_admin:clear_mfa_state(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    _ = emqx_dashboard_admin:set_admin_override(
+        ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER), undefined
+    ),
     ok;
 t_check_sso_mfa_admin_disabled(_Config) ->
     [User] = emqx_dashboard_admin:lookup_user(?SSO_BACKEND, ?SSO_USER),
     Result = emqx_dashboard_sso_mfa:check_sso_mfa(User, ?SSO_BACKEND),
     %% force_mfa=true, admin_disabled => skip MFA, JWT signed at exchange time
     ?assertEqual({ok, login}, Result),
+    ok.
+
+%% Regression for PR #17361 P1 review (HJianBo):
+%% An SSO viewer on a `force_mfa = true' backend completes MFA once,
+%% then self-DELETE /users/:self/mfa. Before the fix, the next login
+%% returned `{ok, login}' because `classify_mfa_state({ok, disabled})'
+%% mapped to `admin_disabled' regardless of WHO disabled it. Now,
+%% self-disable (admin_override = undefined) must still honour the
+%% live `force_mfa', forcing re-setup on the next login.
+t_check_sso_mfa_self_disabled_still_forced({init, Config}) ->
+    mock_force_mfa(?SSO_BACKEND, true),
+    SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),
+    %% Start from MFA configured-and-verified (simulating the user
+    %% completed SSO MFA setup at first login).
+    MfaState = #{mechanism => totp, secret => <<"TESTSECRET">>, first_verify_ts => 1000},
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, MfaState),
+    %% Self-initiated disable (ByAdmin = false) — must NOT touch
+    %% admin_override; mfa_state becomes `disabled' but the user has
+    %% not been admin-exempted.
+    ok = emqx_dashboard_admin:disable_mfa(SsoUsername, _ByAdmin = false),
+    %% Sanity-check the precondition the fix relies on.
+    ?assertEqual(undefined, emqx_dashboard_admin:admin_override_of(SsoUsername)),
+    ?assertEqual({ok, disabled}, emqx_dashboard_admin:get_mfa_state(SsoUsername)),
+    Config;
+t_check_sso_mfa_self_disabled_still_forced({'end', _Config}) ->
+    clear_force_mfa(?SSO_BACKEND),
+    _ = emqx_dashboard_admin:clear_mfa_state(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    _ = emqx_dashboard_admin:set_admin_override(
+        ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER), undefined
+    ),
+    ok;
+t_check_sso_mfa_self_disabled_still_forced(_Config) ->
+    [User] = emqx_dashboard_admin:lookup_user(?SSO_BACKEND, ?SSO_USER),
+    Result = emqx_dashboard_sso_mfa:check_sso_mfa(User, ?SSO_BACKEND),
+    %% force_mfa=true + self-disabled (admin_override=undefined)
+    %% => MFA must be re-required, not bypassed.
+    ?assertMatch({mfa_setup, _SetupToken, _QRInfo}, Result),
+    {mfa_setup, SetupToken, _QRInfo} = Result,
+    ?assert(is_binary(SetupToken)),
+    ok.
+
+%% Companion negative-control for PR #17361 P1 review:
+%% When `force_mfa = false', a self-disabled MFA state behaves as
+%% before — login proceeds without MFA. This guards against an
+%% over-eager fix that would force MFA re-setup even with no policy
+%% requiring it.
+t_check_sso_mfa_self_disabled_no_force({init, Config}) ->
+    mock_force_mfa(?SSO_BACKEND, false),
+    SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),
+    MfaState = #{mechanism => totp, secret => <<"TESTSECRET">>, first_verify_ts => 1000},
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, MfaState),
+    ok = emqx_dashboard_admin:disable_mfa(SsoUsername, _ByAdmin = false),
+    ?assertEqual(undefined, emqx_dashboard_admin:admin_override_of(SsoUsername)),
+    Config;
+t_check_sso_mfa_self_disabled_no_force({'end', _Config}) ->
+    clear_force_mfa(?SSO_BACKEND),
+    _ = emqx_dashboard_admin:clear_mfa_state(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    ok;
+t_check_sso_mfa_self_disabled_no_force(_Config) ->
+    [User] = emqx_dashboard_admin:lookup_user(?SSO_BACKEND, ?SSO_USER),
+    ?assertEqual({ok, login}, emqx_dashboard_sso_mfa:check_sso_mfa(User, ?SSO_BACKEND)),
     ok.
 
 %%====================================================================
@@ -388,13 +485,16 @@ t_admin_disable_mfa({init, Config}) ->
     Config;
 t_admin_disable_mfa({'end', _Config}) ->
     _ = emqx_dashboard_admin:clear_mfa_state(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    _ = emqx_dashboard_admin:set_admin_override(
+        ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER), undefined
+    ),
     ok;
 t_admin_disable_mfa(_Config) ->
     SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),
     OrigState = #{mechanism => totp, secret => <<"MYSECRET">>, first_verify_ts => 12345},
     {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, OrigState),
     %% Admin disables MFA
-    ok = emqx_dashboard_admin:disable_mfa(SsoUsername),
+    ok = emqx_dashboard_admin:disable_mfa(SsoUsername, _ByAdmin = true),
     %% Verify state is disabled (secret cleared, record preserved as admin_disabled)
     ?assertEqual({ok, disabled}, emqx_dashboard_admin:get_mfa_state(SsoUsername)),
     ok.
@@ -896,12 +996,15 @@ t_token_exchange_unknown_backend(_Config) ->
 t_disable_mfa_not_configured({init, Config}) ->
     Config;
 t_disable_mfa_not_configured({'end', _Config}) ->
+    _ = emqx_dashboard_admin:set_admin_override(
+        ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER), undefined
+    ),
     ok;
 t_disable_mfa_not_configured(_Config) ->
     SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),
     _ = emqx_dashboard_admin:clear_mfa_state(SsoUsername),
     %% Disabling a user with no MFA configured sets mfa_state => disabled (ok, not error)
-    Result = emqx_dashboard_admin:disable_mfa(SsoUsername),
+    Result = emqx_dashboard_admin:disable_mfa(SsoUsername, _ByAdmin = true),
     ?assertEqual(ok, Result),
     ?assertEqual({ok, disabled}, emqx_dashboard_admin:get_mfa_state(SsoUsername)),
     ok.
@@ -911,6 +1014,9 @@ t_disable_mfa_already_disabled({init, Config}) ->
     Config;
 t_disable_mfa_already_disabled({'end', _Config}) ->
     _ = emqx_dashboard_admin:clear_mfa_state(?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER)),
+    _ = emqx_dashboard_admin:set_admin_override(
+        ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER), undefined
+    ),
     ok;
 t_disable_mfa_already_disabled(_Config) ->
     SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),
@@ -918,10 +1024,11 @@ t_disable_mfa_already_disabled(_Config) ->
     MfaState = #{mechanism => totp, secret => <<"SECRET">>, first_verify_ts => 1000},
     {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, MfaState),
     %% First disable should succeed
-    ok = emqx_dashboard_admin:disable_mfa(SsoUsername),
+    ok = emqx_dashboard_admin:disable_mfa(SsoUsername, _ByAdmin = true),
     %% Second disable should fail
     ?assertMatch(
-        {error, <<"MFA is already disabled">>}, emqx_dashboard_admin:disable_mfa(SsoUsername)
+        {error, <<"MFA is already disabled">>},
+        emqx_dashboard_admin:disable_mfa(SsoUsername, _ByAdmin = true)
     ),
     ok.
 

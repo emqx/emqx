@@ -98,21 +98,25 @@ init([Gateway, Ctx, _GwDscrptr]) ->
         created_at = erlang:system_time(millisecond)
     },
     Enable = maps:get(enable, Config, true),
-    ok = ensure_authn_running(State, Enable),
-    case Enable of
-        false ->
-            ?SLOG(info, #{
-                msg => "skip_to_start_gateway_due_to_disabled",
-                gateway_name => GwName
-            }),
-            {ok, State};
-        true ->
-            case cb_gateway_load(State) of
-                {error, Reason} ->
-                    {stop, Reason};
-                {ok, NState} ->
-                    {ok, NState}
-            end
+    case ensure_authn_running(State, Enable) of
+        ok ->
+            case Enable of
+                false ->
+                    ?SLOG(info, #{
+                        msg => "skip_to_start_gateway_due_to_disabled",
+                        gateway_name => GwName
+                    }),
+                    {ok, State};
+                true ->
+                    case cb_gateway_load(State) of
+                        {error, Reason} ->
+                            {stop, emqx_utils:redact(Reason)};
+                        {ok, NState} ->
+                            {ok, NState}
+                    end
+            end;
+        {error, Reason} ->
+            {stop, emqx_utils:redact(Reason)}
     end.
 
 handle_call(info, _From, State) ->
@@ -309,13 +313,14 @@ do_create_authenticator(ChainName, AuthConf) ->
         {ok, _} ->
             ok;
         {error, Reason} ->
+            SafeReason = emqx_utils:redact(Reason),
             ?SLOG(error, #{
                 msg => "failed_to_create_authenticator",
                 chain_name => ChainName,
-                reason => Reason,
-                config => AuthConf
+                reason => SafeReason,
+                config => emqx_utils:redact(AuthConf)
             }),
-            {error, {badauth, Reason}}
+            {error, {badauth, SafeReason}}
     end.
 
 do_update_one_by_one(
@@ -401,9 +406,9 @@ cb_gateway_unload(
             ?SLOG(error, #{
                 msg => "unload_gateway_crashed",
                 gateway_name => GwName,
-                inner_state => GwState,
-                reason => {Class, Reason},
-                stacktrace => Stk
+                inner_state => emqx_utils:redact(GwState),
+                reason => {Class, emqx_utils:redact(Reason)},
+                stacktrace => emqx_utils:redact(Stk)
             }),
             {error, Reason}
     end.
@@ -439,9 +444,9 @@ cb_gateway_load(
             ?SLOG(error, #{
                 msg => "load_gateway_crashed",
                 gateway_name => GwName,
-                gateway => Gateway,
-                reason => {Class, Reason1},
-                stacktrace => Stk
+                gateway => emqx_utils:redact(Gateway),
+                reason => {Class, emqx_utils:redact(Reason1)},
+                stacktrace => emqx_utils:redact(Stk)
             }),
             {error, Reason1}
     end.
@@ -471,9 +476,9 @@ cb_gateway_update(
             ?SLOG(error, #{
                 msg => "update_gateway_crashed",
                 gateway_name => GwName,
-                new_config => Config,
-                reason => {Class, Reason1},
-                stacktrace => Stk
+                new_config => emqx_utils:redact(Config),
+                reason => {Class, emqx_utils:redact(Reason1)},
+                stacktrace => emqx_utils:redact(Stk)
             }),
             {error, Reason1}
     end.

@@ -177,8 +177,8 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.24.2", override: true}
-  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.16.3", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.0", override: true}
+  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.0", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.9", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
@@ -190,7 +190,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:ehttpc),
     do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.3", override: true}
 
-  def common_dep(:jiffy), do: {:jiffy, "1.1.2", override: true}
+  def common_dep(:jiffy), do: {:jiffy, "2.0.1", override: true}
 
   def common_dep(:grpc),
     do:
@@ -239,7 +239,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:emqtt),
     do:
       {:emqtt,
-       github: "emqx/emqtt", tag: "1.15.1", override: true, system_env: maybe_no_quic_env()}
+       github: "emqx/emqtt", tag: "1.15.3", override: true, system_env: maybe_no_quic_env()}
 
   def common_dep(:typerefl),
     do: {:typerefl, github: "ieQu1/typerefl", tag: "0.9.6", override: true}
@@ -282,7 +282,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:kafka_protocol),
     do: {:kafka_protocol, "4.3.2", override: true}
 
-  def common_dep(:brod), do: {:brod, "4.5.4"}
+  def common_dep(:brod), do: {:brod, "4.5.5"}
   ## TODO: remove `mix.exs` from `wolff` and remove this override
   ## TODO: remove `mix.exs` from `pulsar` and remove this override
   def common_dep(:snappyer), do: {:snappyer, "1.2.10", override: true}
@@ -292,7 +292,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:erlavro),
     do: {:erlavro, github: "emqx/erlavro", tag: "2.10.2-emqx-3", override: true}
 
-  def common_dep(:erlcloud), do: {:erlcloud, github: "emqx/erlcloud", tag: "3.8.3.1"}
+  def common_dep(:erlcloud), do: {:erlcloud, github: "emqx/erlcloud", tag: "3.8.3.2"}
 
   # transitive dependency of pulsar-client-erl, and direct dep in s3tables bridge
   def common_dep(:murmerl3),

@@ -564,6 +564,40 @@ t_connect_disconnect(_Config) ->
     ),
     ok.
 
+-doc """
+A client whose resolved `client_attrs.tns` is a reserved namespace name
+(`global`, `undefined`, `null`, `none`) is rejected at connect time, while a
+client with a non-reserved namespace connects as before.
+""".
+t_reserved_namespace_tns({init, Config}) ->
+    Config;
+t_reserved_namespace_tns({'end', _Config}) ->
+    ok;
+t_reserved_namespace_tns(_Config) ->
+    %% `mqtt.client_attrs_init' maps `username' to `tns', so connecting with a
+    %% reserved username makes `tns' reserved and must be denied.
+    lists:foreach(
+        fun(Ns) ->
+            ClientId = ?NEW_CLIENTID(),
+            ?assertError(
+                {error, {not_authorized, _}},
+                connect(ClientId, Ns),
+                #{ns => Ns}
+            )
+        end,
+        [<<"global">>, <<"undefined">>, <<"null">>, <<"none">>]
+    ),
+    %% Regression guard: a non-reserved namespace connects fine.
+    ClientId = ?NEW_CLIENTID(),
+    Username = <<"tenant-a">>,
+    Pid = connect(ClientId, Username),
+    ?assertMatch(
+        {ok, #{tns := Username, clientid := ClientId}},
+        ?block_until(#{?snk_kind := multi_tenant_client_added}, 3000)
+    ),
+    ok = emqtt:stop(Pid),
+    ok.
+
 t_session_limit_exceeded({init, Config}) ->
     emqx_mt_config:tmp_set_default_max_sessions(1),
     Config;

@@ -549,7 +549,7 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
     IsSimpleQuery = false,
     QueryOpts = #{simple_query => IsSimpleQuery},
     Result = call_query(force_sync, Id, Index, Ref, QueryOrBatch, QueryOpts),
-    {Decision, PostFn, DeltaCounters} =
+    {Decision, PostFn, DeltaCounters0} =
         case QueryOrBatch of
             ?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt, RequestContext, TraceCtx) ->
                 Reply = ?REPLY(ReplyTo, HasBeenSent, Result, RequestContext, TraceCtx),
@@ -557,6 +557,7 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
             [?QUERY(_, _, _, _, _, _) | _] = Batch ->
                 batch_reply_caller_defer_metrics(Id, Result, Batch, IsSimpleQuery)
         end,
+    DeltaCounters = delta_with_actions_executed(Decision, Result, DeltaCounters0),
     Queries =
         case QueryOrBatch of
             ?QUERY(_, _, _, _, _, _) ->
@@ -792,7 +793,8 @@ do_flush(
     QueryOpts = #{inflight_tid => InflightTID, simple_query => false},
     Result = call_query(async_if_possible, Id, Index, Ref, Request, QueryOpts),
     Reply = ?REPLY(ReplyTo, HasBeenSent, Result, RequestContext, TraceCtx),
-    {Decision, PostFn, DeltaCounters} = reply_caller_defer_metrics(Id, Reply, QueryOpts),
+    {Decision, PostFn, DeltaCounters0} = reply_caller_defer_metrics(Id, Reply, QueryOpts),
+    DeltaCounters = delta_with_actions_executed(Decision, Result, DeltaCounters0),
     PostFn(result_context([Request])),
     Data1 = aggregate_counters(Data0, DeltaCounters),
     case Decision of
@@ -880,8 +882,9 @@ do_flush(#{queue := Q1} = Data0, #{
     IsSimpleQuery = false,
     QueryOpts = #{inflight_tid => InflightTID, simple_query => IsSimpleQuery},
     Result = call_query(async_if_possible, Id, Index, Ref, Batch, QueryOpts),
-    {Decision, PostFn, DeltaCounters} =
+    {Decision, PostFn, DeltaCounters0} =
         batch_reply_caller_defer_metrics(Id, Result, Batch, IsSimpleQuery),
+    DeltaCounters = delta_with_actions_executed(Decision, Result, DeltaCounters0),
     PostFn(result_context(Batch)),
     Data1 = aggregate_counters(Data0, DeltaCounters),
     case Decision of
@@ -1075,7 +1078,8 @@ batch_reply_dropped(Id, Batch, Result) ->
 %% This is only called by `simple_{,a}sync_query', so we can bump the
 %% counters here.
 handle_simple_query_result(Id, Query, Result, HasBeenSent) ->
-    {Decision, PostFn, DeltaCounters} = handle_query_result_pure(Id, Result, HasBeenSent, #{}),
+    {Decision, PostFn, DeltaCounters0} = handle_query_result_pure(Id, Result, HasBeenSent, #{}),
+    DeltaCounters = delta_with_actions_executed(Decision, Result, DeltaCounters0),
     PostFn(result_context([Query])),
     Namespace = infer_namespace_from_id(Id),
     bump_counters(Id, DeltaCounters, Namespace),
@@ -1311,7 +1315,10 @@ do_bump_counters1(retried_success, Val, Id, Namespace) ->
 do_bump_counters1(dropped_resource_not_found, Val, Id, _Namespace) ->
     emqx_resource_metrics:dropped_resource_not_found_inc(Id, Val);
 do_bump_counters1(dropped_resource_stopped, Val, Id, _Namespace) ->
-    emqx_resource_metrics:dropped_resource_stopped_inc(Id, Val).
+    emqx_resource_metrics:dropped_resource_stopped_inc(Id, Val);
+do_bump_counters1(actions_executed, Val, Id, Namespace) ->
+    ExtraMeta = #{namespace => Namespace},
+    emqx_resource_metrics:actions_executed_inc(Id, Val, ExtraMeta).
 
 -spec log_expired_message_count(data()) -> ok.
 log_expired_message_count(_Data = #{id := Id, index := Index, counters := Counters}) ->
@@ -1437,6 +1444,24 @@ collect_rule_trigger_times(?QUERY(_, _, _, _, _, #{rule_trigger_ts := Time}), Ac
     [Time | Acc];
 collect_rule_trigger_times(?QUERY(_, _, _, _, _, _), Acc) ->
     Acc.
+
+%% Per-`call_query' delta that bumps `actions.executed' iff the invocation produced
+%% a final result attributable to the connector callback.  Skip when:
+%%   * Decision is `?nack' (recoverable; the same request will be retried and
+%%     finalised later in `retry_inflight_sync').
+%%   * Result indicates `call_query/6' short-circuited before `apply_query_fun/9'
+%%     (resource not found / stopped), so no callback ran.
+%% The `pre_query_channel_check/4' failure on a simple query produces a final
+%% `?ack' here even though the callback didn't run; we accept that edge case
+%% rather than thread the channel-check outcome out of `apply_query_fun/9'.
+delta_with_actions_executed(?nack, _Result, DeltaCounters) ->
+    DeltaCounters;
+delta_with_actions_executed(?ack, ?RESOURCE_ERROR_M(Kind, _), DeltaCounters) when
+    Kind =:= not_found; Kind =:= stopped
+->
+    DeltaCounters;
+delta_with_actions_executed(?ack, _Result, DeltaCounters) ->
+    DeltaCounters#{actions_executed => 1}.
 
 %% action:kafka_producer:actionname:connector:kafka_producer:connectorname
 %% ns:ns1:action:kafka_producer:actionname:connector:kafka_producer:connectorname

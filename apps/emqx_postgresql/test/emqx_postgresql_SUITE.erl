@@ -13,6 +13,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("stdlib/include/assert.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(PGSQL_HOST, "pgsql").
 -define(PGSQL_RESOURCE_MOD, emqx_postgresql).
@@ -49,6 +50,34 @@ t_lifecycle(_Config) ->
     perform_lifecycle_check(
         <<"emqx_postgresql_SUITE">>,
         pgsql_config()
+    ).
+
+t_application_name_connect_option(_Config) ->
+    ResourceId = <<"emqx_postgresql_SUITE_application_name">>,
+    {ok, #{config := CheckedConfig}} =
+        emqx_resource:check_config(
+            ?PGSQL_RESOURCE_MOD,
+            pgsql_config(#{server => <<"invalid-postgresql-host:5432">>, pool_size => 1})
+        ),
+    ?check_trace(
+        begin
+            {ok, _} = emqx_resource:create_local(
+                ResourceId,
+                ?CONNECTOR_RESOURCE_GROUP,
+                ?PGSQL_RESOURCE_MOD,
+                CheckedConfig,
+                #{spawn_buffer_workers => false, start_timeout => 500}
+            ),
+            emqx_resource:remove_local(ResourceId)
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{opts := _} | _],
+                ?of_kind("postgres_epgsql_connect", Trace)
+            ),
+            [#{opts := Opts} | _] = ?of_kind("postgres_epgsql_connect", Trace),
+            ?assert(lists:member({application_name, "emqx"}, Opts))
+        end
     ).
 
 %% Verify that concurrent raw queries do not produce errors because of race conditions.
@@ -111,6 +140,10 @@ perform_lifecycle_check(ResourceId, InitialConfig) ->
     % % Perform query as further check that the resource is working as expected
     ?assertMatch({ok, _, [{1}]}, emqx_resource:query(ResourceId, test_query_no_params())),
     ?assertMatch({ok, _, [{1}]}, emqx_resource:query(ResourceId, test_query_with_params())),
+    ?assertMatch(
+        {ok, _, [{<<"emqx">>}]},
+        emqx_resource:query(ResourceId, test_query_application_name())
+    ),
     ?assertEqual(ok, emqx_resource:stop(ResourceId)),
     % Resource will be listed still, but state will be changed and healthcheck will fail
     % as the worker no longer exists.
@@ -167,6 +200,9 @@ test_query_no_params() ->
 
 test_query_with_params() ->
     {query, <<"SELECT $1::integer">>, [1]}.
+
+test_query_application_name() ->
+    {query, <<"SELECT current_setting('application_name')">>}.
 
 match_ok({ok, _, _}) -> true;
 match_ok(_) -> false.

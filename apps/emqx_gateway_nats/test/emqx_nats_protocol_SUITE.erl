@@ -533,7 +533,8 @@ target_caps(emqx, _Group) ->
     [
         jwt_auth,
         jwt_acl_intersection,
-        mixed_auth_priority
+        mixed_auth_priority,
+        security_profile
     ];
 target_caps(nats, Group) ->
     case nats_jwt_fixture_available(Group) of
@@ -576,6 +577,12 @@ required_caps(t_nkey_auth_priority_over_jwt) ->
     [jwt_auth];
 required_caps(t_nkey_auth_fallback_to_jwt) ->
     [jwt_auth];
+required_caps(t_hardened_no_auth_config_rejects_anonymous_pub_sub_connect) ->
+    [security_profile];
+required_caps(t_legacy_no_auth_config_allows_anonymous_pub_sub_connect) ->
+    [security_profile];
+required_caps(t_hardened_listener_authn_disabled_allows_anonymous_pub_sub_connect) ->
+    [security_profile];
 required_caps(_TestCase) ->
     [].
 
@@ -849,6 +856,42 @@ auth_cleanup(Config) ->
             ok
     end,
     Config.
+
+with_nats_no_auth_config(Config, EnableAuthn, Fun) ->
+    PrevConf = emqx:get_config([gateway, nats]),
+    try
+        _ = emqx_conf:update(
+            [gateway, nats, internal_authn],
+            [],
+            #{override_to => cluster}
+        ),
+        _ = disable_auth(),
+        ok = update_listener_authn(Config, EnableAuthn),
+        Fun()
+    after
+        ok = update_nats_gateway(PrevConf)
+    end.
+
+update_listener_authn(Config, EnableAuthn) ->
+    Group = group_from(Config),
+    ListenerConf0 = emqx_conf:get([gateway, nats, listeners, Group, default]),
+    ListenerConf1 = ListenerConf0#{enable_authn => EnableAuthn},
+    ok =
+        case emqx_gateway_conf:update_listener(nats, {Group, default}, ListenerConf1) of
+            ok -> ok;
+            {ok, _} -> ok
+        end,
+    ?assertEqual(
+        EnableAuthn,
+        emqx_conf:get([gateway, nats, listeners, Group, default, enable_authn], undefined)
+    ),
+    ok.
+
+update_nats_gateway(Conf) ->
+    case emqx_gateway:update(nats, Conf) of
+        ok -> ok;
+        {ok, _} -> ok
+    end.
 
 token_auth_setup(Config, Type, Token) ->
     case target_from(Config) of
@@ -1790,6 +1833,37 @@ t_auth_dynamic_enable_disable(Config) ->
     recv_ok_frame(Client3),
     emqx_nats_client:stop(Client3).
 
+t_hardened_no_auth_config_rejects_anonymous_pub_sub_connect(Config) ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        with_nats_no_auth_config(Config, true, fun() ->
+            ClientOpts = maps:merge(?config(auth_disabled_opts, Config), #{verbose => true}),
+            assert_info_auth_required(ClientOpts, true),
+            assert_pre_connect_publish_rejected(ClientOpts),
+            assert_pre_connect_subscribe_rejected(ClientOpts),
+            assert_connect_rejected(ClientOpts)
+        end)
+    end).
+
+t_legacy_no_auth_config_allows_anonymous_pub_sub_connect(Config) ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        with_nats_no_auth_config(Config, true, fun() ->
+            ClientOpts = maps:merge(?config(auth_disabled_opts, Config), #{verbose => true}),
+            assert_info_auth_required(ClientOpts, false),
+            assert_pre_connect_pub_sub_allowed(ClientOpts),
+            assert_connect_allowed(ClientOpts)
+        end)
+    end).
+
+t_hardened_listener_authn_disabled_allows_anonymous_pub_sub_connect(Config) ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        with_nats_no_auth_config(Config, false, fun() ->
+            ClientOpts = maps:merge(?config(auth_disabled_opts, Config), #{verbose => true}),
+            assert_info_auth_required(ClientOpts, false),
+            assert_pre_connect_pub_sub_allowed(ClientOpts),
+            assert_connect_allowed(ClientOpts)
+        end)
+    end).
+
 t_token_auth_plain_success(init, Config) ->
     token_auth_setup(Config, plain, token_plain());
 t_token_auth_plain_success('end', Config) ->
@@ -2400,6 +2474,54 @@ assert_info_message(#nats_frame{operation = ?OP_INFO, message = Message}) ->
 assert_auth_required(#nats_frame{operation = ?OP_INFO, message = Message}, Expected) ->
     ?assert(is_map(Message)),
     ?assertEqual(Expected, maps:get(<<"auth_required">>, Message, false)).
+
+assert_info_auth_required(ClientOpts, Expected) ->
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, Expected),
+    emqx_nats_client:stop(Client).
+
+assert_pre_connect_publish_rejected(ClientOpts) ->
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:publish(Client, <<"test.topic">>, <<"test message">>),
+    {ok, [ErrorMsg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(#nats_frame{operation = ?OP_ERR}, ErrorMsg),
+    emqx_nats_client:stop(Client).
+
+assert_pre_connect_subscribe_rejected(ClientOpts) ->
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:subscribe(Client, <<"test.topic">>, <<"sid-1">>),
+    {ok, [ErrorMsg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(#nats_frame{operation = ?OP_ERR}, ErrorMsg),
+    emqx_nats_client:stop(Client).
+
+assert_connect_rejected(ClientOpts) ->
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_auth_failed(Msgs),
+    emqx_nats_client:stop(Client).
+
+assert_pre_connect_pub_sub_allowed(ClientOpts) ->
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:subscribe(Client, <<"test.topic">>, <<"sid-1">>),
+    recv_ok_frame(Client),
+    ok = emqx_nats_client:publish(Client, <<"test.topic">>, <<"test message">>),
+    recv_ok_frame(Client),
+    {ok, [Msg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(#nats_frame{operation = ?OP_MSG}, Msg),
+    emqx_nats_client:stop(Client).
+
+assert_connect_allowed(ClientOpts) ->
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    emqx_nats_client:stop(Client).
 
 assert_auth_failed(Msgs) ->
     case Msgs of

@@ -56,7 +56,6 @@ default_deny_cidrs() ->
     [
         <<"127.0.0.0/8">>,
         <<"::1/128">>,
-        <<"169.254.0.0/16">>,
         <<"fe80::/10">>,
         <<"10.0.0.0/8">>,
         <<"172.16.0.0/12">>,
@@ -68,7 +67,7 @@ default_deny_cidrs() ->
         %% Aliyun metadata service
         <<"100.100.100.200/32">>,
         %% AWS External Metadata Service (literal IP in the wild)
-        <<"69.254.169.253/32">>
+        <<"169.254.0.0/16">>
     ].
 
 -spec default_deny_hosts() -> [binary()].
@@ -121,7 +120,12 @@ compile_cidr(Cidr) when is_binary(Cidr) ->
 compile_cidr(Cidr) when is_list(Cidr) ->
     case string:split(Cidr, "/") of
         [IpStr, PrefixStr] ->
-            case {inet:parse_address(IpStr), to_int(PrefixStr)} of
+            %% `inet:parse_strict_address/1` rejects BSD-style abbreviated
+            %% IPv4 forms such as `10.0.0` (silently expanded to
+            %% `10.0.0.0`) and `10` (expanded to `0.0.0.10`); these are
+            %% almost always typos in a deny-list and would otherwise
+            %% match a different range than the operator intended.
+            case {inet:parse_strict_address(IpStr), to_int(PrefixStr)} of
                 {{ok, IP}, {ok, Prefix}} ->
                     validate_prefix(IP, Prefix),
                     {IP, Prefix};

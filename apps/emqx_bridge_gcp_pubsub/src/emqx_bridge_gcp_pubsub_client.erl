@@ -479,7 +479,7 @@ parse_jwt_config(ResourceId, #{
     jwt_opts := #{aud := Aud},
     authentication := #{service_account_json := ServiceAccountJSON0}
 }) ->
-    ServiceAccountJSON = emqx_utils_json:decode(ServiceAccountJSON0),
+    ServiceAccountJSON = emqx_utils_json:decode(emqx_secret:unwrap(ServiceAccountJSON0)),
     #{
         <<"project_id">> := ProjectId,
         <<"private_key_id">> := KId,

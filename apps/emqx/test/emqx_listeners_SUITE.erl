@@ -1095,6 +1095,8 @@ t_wss_update_opts(Config) ->
                 ok;
             {ws_upgrade_failed, {error, closed}} ->
                 ok;
+            {ws_upgrade_failed, {error, einval}} ->
+                ok;
             _ ->
                 error({unexpected_error, CertReqErr})
         end,

@@ -16,6 +16,7 @@
     fields/1,
     desc/1,
     post_config_update/5,
+    propagated_post_config_update/5,
     rule_engine_settings/0
 ]).
 
@@ -381,4 +382,25 @@ post_config_update(
     _AppEnvs
 ) ->
     emqx_utils_ssrf:refresh_cache(NewSysConf),
+    ok.
+
+%% Public REST endpoints (`PUT /api/v5/configs?mode=merge`,
+%% `PUT /api/v5/configs/rule_engine`) update at the parent `[rule_engine]`
+%% path; the framework then propagates into sub-handlers using the
+%% `propagated_post_config_update` callback name. Without these clauses
+%% the SSRF policy cache is never refreshed for runtime toggles via
+%% those endpoints.
+%%
+%% The `undefined` guards skip propagation when the sub-key isn't carried
+%% by the new parent config — e.g. `jq_implementation_module` is hidden
+%% and deprecated, so it never appears in the atomized rule-engine map.
+propagated_post_config_update(
+    [rule_engine, ssrf] = Path, Req, NewSysConf, OldSysConf, AppEnvs
+) when NewSysConf =/= undefined ->
+    post_config_update(Path, Req, NewSysConf, OldSysConf, AppEnvs);
+propagated_post_config_update(
+    [rule_engine, jq_implementation_module] = Path, Req, NewSysConf, OldSysConf, AppEnvs
+) when NewSysConf =/= undefined ->
+    post_config_update(Path, Req, NewSysConf, OldSysConf, AppEnvs);
+propagated_post_config_update(_, _, _, _, _) ->
     ok.

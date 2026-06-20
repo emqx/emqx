@@ -14,6 +14,8 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
@@ -55,6 +57,12 @@
     do_create_app/1,
     do_force_create_app/1
 ]).
+
+%% Helpers for materializing role-default scopes at record-creation time.
+%% Used by the POST handler, the bootstrap-file loader, and the SSO
+%% user-provisioning path so that `<<"unset">>' in a GET response can be
+%% interpreted unambiguously as "record predates the scopes feature".
+-export([role_default_scopes/1, effective_scopes_on_create/2]).
 
 -ifdef(TEST).
 -export([trans/2, force_create_app/1]).
@@ -286,11 +294,13 @@ check_rbac_and_scopes(Req, HandlerInfo, ApiKey, Role, Namespace, Extra) ->
     case check_rbac(Req, HandlerInfo, ApiKey, Role, Namespace) of
         {ok, ActorContext} ->
             case check_scopes(Extra, HandlerInfo) of
-                ok -> {ok, ActorContext};
-                {error, _} = Error -> Error
+                ok ->
+                    {ok, ActorContext};
+                {error, unauthorized_role} ->
+                    {error, {unauthorized_role, ?API_KEY_NOT_ALLOW_MSG}}
             end;
-        false ->
-            {error, unauthorized_role}
+        {error, Reason} when is_binary(Reason) ->
+            {error, {unauthorized_role, Reason}}
     end.
 
 find_by_api_key(ApiKey) ->
@@ -314,7 +324,9 @@ find_by_api_key(ApiKey) ->
 %% @doc Check if the request path is within the allowed scopes for this API key.
 %% Denied scopes are always blocked, regardless of configuration.
 %% If no scopes are configured (key not present or undefined), all non-denied paths are allowed.
-%% If scopes is an empty list, all paths are denied.
+%% If scopes is an empty list, all *mapped* paths are denied; unmapped paths
+%% (e.g. status, prometheus data) remain allowed so an operator can still
+%% reach the node and reconfigure the key via the UI.
 %% Publisher role skips scope check (has its own hardcoded path restrictions).
 %%
 %% Path is obtained from minirest HandlerInfo (the route template, e.g., "/clients/:clientid"),
@@ -359,13 +371,15 @@ check_scopes_for_path(Extra, Path) ->
             end
     end.
 
-check_path_in_scopes(_Path, []) ->
-    {error, unauthorized_role};
 check_path_in_scopes(Path, Scopes) ->
     case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
         undefined ->
-            %% Path not mapped to any scope — allow access
-            %% (e.g., status, prometheus, or other public endpoints)
+            %% Path not mapped to any scope — allow access regardless of
+            %% whether `Scopes' is empty. This keeps unmapped public
+            %% endpoints (status, prometheus data, etc.) reachable for
+            %% keys whose scope list was filtered down to `[]' by the
+            %% bootstrap loader, so an operator can still observe the
+            %% node and reconfigure the key via the UI.
             ok;
         PathScope ->
             case lists:member(PathScope, Scopes) of
@@ -395,11 +409,34 @@ maybe_set_scopes(Extra, undefined) ->
 maybe_set_scopes(Extra, Scopes) when is_list(Scopes) ->
     Extra#{scopes => Scopes}.
 
-%% @doc Default scopes granted to keys provisioned from bootstrap files.
-%% Returns every user-visible scope so these keys behave as administrative
-%% all-allow credentials, matching the semantics of pre-scope releases.
-default_bootstrap_scopes() ->
-    [Name || #{name := Name} <- emqx_mgmt_api_key_scopes:scope_catalogue()].
+%% @doc Resolve the role-default scopes that should be materialized into
+%% the persisted record when the caller did not explicitly supply a scope
+%% list (POST without `scopes', 2-/3-segment bootstrap line).
+%%
+%% After this PR, `undefined' is never written into mnesia by any creation
+%% path; the `<<"unset">>' state in the GET response is only possible for
+%% records that survived an upgrade from a release where the scopes
+%% feature did not exist.
+%%
+%%   * administrator / viewer -> `?GENERIC_SCOPES' (10 management scopes,
+%%     no login-only scopes — those are reserved for dashboard users).
+%%   * publisher              -> `[<<"publish">>]' (the only scope the
+%%     publisher role is ever permitted to hold; runtime RBAC also
+%%     hard-restricts publisher to `/publish*' regardless of the stored
+%%     scope list).
+role_default_scopes(?ROLE_API_PUBLISHER) ->
+    [?SCOPE_PUBLISH];
+role_default_scopes(_Role) ->
+    ?GENERIC_SCOPES.
+
+%% @doc Convenience wrapper for the request-handling layer: if the
+%% caller supplied no scopes, materialize the role default; otherwise
+%% pass the explicit value through unchanged (including the empty list
+%% which means explicit deny-all).
+effective_scopes_on_create(Role, undefined) ->
+    role_default_scopes(Role);
+effective_scopes_on_create(_Role, Scopes) when is_list(Scopes) ->
+    Scopes.
 
 ensure_not_undefined(undefined, Old) -> Old;
 ensure_not_undefined(New, _Old) -> New.
@@ -424,10 +461,26 @@ to_map(#?APP{
     },
     maybe_add_scopes(Base, Extra).
 
+%% @doc Surface raw scope state to the API consumer with a tri-state contract:
+%%   - `[]`            : explicit deny-all (only `security => []` paths reachable)
+%%   - `[binary(), …]` : explicit allow-list
+%%   - `<<"unset">>`   : the persisted record has no `scopes' field at all (legacy
+%%                       upgrade artefact from before #16942 landed). The runtime
+%%                       authorization path falls back to role-default behaviour
+%%                       (allow-all-mapped-paths for administrator/viewer,
+%%                       hard-coded `/publish*' for publisher).  Newly created
+%%                       records never end up in this state: the POST / bootstrap
+%%                       / SSO-provisioning paths all materialize role-default
+%%                       scopes at creation time.
+%% This intentionally exposes the persisted shape rather than an effective list so
+%% that the dashboard read-modify-write cycle cannot silently sediment role-default
+%% into an explicit list.  The `<<"unset">>' binary is a stable string sentinel
+%% (not JSON `null') so the consumer cannot confuse it with `field missing' or
+%% `field cleared' — both of which can happen in HTTP/JSON intermediaries.
 maybe_add_scopes(Map, #{scopes := Scopes}) when is_list(Scopes) ->
     Map#{scopes => Scopes};
 maybe_add_scopes(Map, _) ->
-    Map.
+    Map#{scopes => <<"unset">>}.
 
 is_expired(undefined) -> false;
 is_expired(ExpiredTime) -> ExpiredTime < erlang:system_time(second).
@@ -543,11 +596,21 @@ init_bootstrap_file(<<>>) ->
 init_bootstrap_file(File) ->
     case file:open(File, [read, binary]) of
         {ok, Dev} ->
-            %% Format: key:secret[:role]  -- role may contain colons
-            %% (e.g. "ns:<namespace>::<role>" for namespaced keys).
-            %% Scopes cannot be expressed inline here; grant all user-visible
-            %% scopes below as the bootstrap default (administrative all-allow).
-            {ok, MP} = re:compile(<<"(.+):(.+)(?::(.+))?$">>, [ungreedy]),
+            %% Bootstrap line grammar:
+            %%   key:secret
+            %%   key:secret:role
+            %%   key:secret:role:scopes
+            %% where `role' may be either a simple name (e.g. "administrator")
+            %% or a namespaced tag "ns:<namespace>::<role>" (the `::' separates
+            %% the namespace prefix from the role). `scopes' is a comma-separated
+            %% list of scope names; an empty 4th segment means "deny all mapped
+            %% paths". Unknown scope names are dropped at load time with a
+            %% warning (lenient).
+            %%
+            %% The regex only splits off `key' and `secret' (both forbid `:').
+            %% The remaining tail is parsed in parse_bootstrap_line/2 where we
+            %% disambiguate namespace-vs-simple by looking for `::'.
+            {ok, MP} = re:compile(<<"^([^:]+):([^:]+)(?::(.+))?$">>),
             init_bootstrap_file(File, Dev, MP);
         {error, Reason0} ->
             Reason = emqx_utils:explain_posix(Reason0),
@@ -581,17 +644,22 @@ add_bootstrap_file(File, Dev, MP, Line) ->
     case read_line(Dev) of
         {ok, Bin} ->
             case parse_bootstrap_line(Bin, MP) of
-                {ok, [ApiKey, ApiSecret, Role, Namespace]} ->
-                    %% Bootstrap keys default to all user-visible scopes
-                    %% (all-allow) so operators upgrading from pre-scope
-                    %% releases keep full access until they edit the key.
+                {ok, #{
+                    api_key := ApiKey,
+                    api_secret := ApiSecret,
+                    role := Role,
+                    namespace := Namespace,
+                    scopes := Scopes,
+                    rejected_scopes := Rejected
+                }} ->
+                    maybe_warn_rejected_scopes(File, Line, ApiKey, Rejected),
                     Extra0 = emqx_utils_maps:put_if(
                         #{desc => ?BOOTSTRAP_TAG, role => Role},
                         ?namespace,
                         Namespace,
                         is_binary(Namespace)
                     ),
-                    Extra = Extra0#{scopes => default_bootstrap_scopes()},
+                    Extra = maybe_set_scopes(Extra0, Scopes),
                     App =
                         #?APP{
                             name = generate_unique_name(?FROM_BOOTSTRAP_FILE_PREFIX, ApiKey),
@@ -644,19 +712,165 @@ read_line(Dev) ->
 
 parse_bootstrap_line(Bin, MP) ->
     case re:run(Bin, MP, [global, {capture, all_but_first, binary}]) of
-        {match, [[_ApiKey, _ApiSecret] = Args]} ->
-            Namespace = ?global_ns,
-            {ok, Args ++ [?ROLE_API_DEFAULT, Namespace]};
-        {match, [[ApiKey, ApiSecret, Role0]]} ->
-            case parse_role(Role0) of
-                {ok, #{?role := Role, ?namespace := Namespace}} ->
-                    {ok, [ApiKey, ApiSecret, Role, Namespace]};
-                _Error ->
-                    {error, {"invalid_role", Role0}}
+        {match, [[ApiKey, ApiSecret]]} ->
+            %% 2-seg `key:secret' lines have no role/scope column. Materialise
+            %% the role default at parse time so the persisted record is on
+            %% the same footing as a POST that omitted `scopes': only legacy
+            %% records that survived an upgrade can produce `<<"unset">>'.
+            Role = ?ROLE_API_DEFAULT,
+            {ok,
+                bootstrap_entry(ApiKey, ApiSecret, Role, ?global_ns, role_default_scopes(Role), [])};
+        {match, [[ApiKey, ApiSecret, Tail]]} ->
+            %% 3+ seg: Tail is either
+            %%   - "role"                                    (simple)
+            %%   - "role:scopes"                             (simple + scopes)
+            %%   - "ns:<namespace>::<role>"                  (namespaced)
+            %%   - "ns:<namespace>::<role>:scopes"           (namespaced + scopes)
+            parse_bootstrap_tail(ApiKey, ApiSecret, Tail);
+        _ ->
+            {error, "invalid_format"}
+    end.
+
+%% @doc Parse the role[:scopes] tail of a bootstrap line.
+%%
+%% Disambiguation rule: a tail containing `::' is the namespaced form
+%% (`ns:<namespace>::<role>[:<scopes>]'). Otherwise it is the simple form
+%% (`<role>[:<scopes>]'). Scope names are simple words and cannot contain
+%% colons, so the absence of `::' is a reliable signal.
+parse_bootstrap_tail(ApiKey, ApiSecret, Tail) ->
+    case binary:match(Tail, <<"::">>) of
+        nomatch ->
+            parse_simple_tail(ApiKey, ApiSecret, Tail);
+        _ ->
+            parse_namespaced_tail(ApiKey, ApiSecret, Tail)
+    end.
+
+%% Tail = "role" | "role:scopes" | "role:"
+parse_simple_tail(ApiKey, ApiSecret, Tail) ->
+    case binary:split(Tail, <<":">>) of
+        [Role] ->
+            with_valid_role(Role, fun(R) ->
+                %% Simple `role'-only tail: materialise the role default so
+                %% the persisted record is on the same footing as a POST
+                %% that omitted `scopes'.
+                bootstrap_entry(ApiKey, ApiSecret, R, ?global_ns, role_default_scopes(R), [])
+            end);
+        [Role, ScopesStr] ->
+            with_valid_role(Role, fun(R) ->
+                {Scopes, Rejected} = parse_bootstrap_scopes_lenient(R, ScopesStr),
+                bootstrap_entry(ApiKey, ApiSecret, R, ?global_ns, Scopes, Rejected)
+            end);
+        _ ->
+            {error, "invalid_format"}
+    end.
+
+%% Tail = "ns:<ns>::<role>" | "ns:<ns>::<role>:scopes" | "ns:<ns>::<role>:"
+parse_namespaced_tail(ApiKey, ApiSecret, Tail) ->
+    case binary:split(Tail, <<"::">>) of
+        [NsTag, RoleAndScopes] ->
+            case parse_namespace_tag_bin(NsTag) of
+                {ok, Namespace} ->
+                    parse_role_and_scopes(ApiKey, ApiSecret, Namespace, RoleAndScopes);
+                {error, Reason} ->
+                    {error, Reason}
             end;
         _ ->
             {error, "invalid_format"}
     end.
+
+parse_namespace_tag_bin(NsTag) ->
+    case binary:split(NsTag, <<":">>) of
+        [<<"ns">>, Ns] when byte_size(Ns) > 0 ->
+            {ok, Ns};
+        _ ->
+            {error, {"invalid_namespace_tag", NsTag}}
+    end.
+
+%% Resolve "<role>" | "<role>:scopes" | "<role>:" for a namespaced bootstrap line.
+%% Extracted from parse_namespaced_tail/3 to keep nesting depth within elvis limits.
+parse_role_and_scopes(ApiKey, ApiSecret, Namespace, RoleAndScopes) ->
+    case binary:split(RoleAndScopes, <<":">>) of
+        [Role] ->
+            with_valid_role(Role, fun(R) ->
+                %% Namespaced `role'-only tail: same rationale as the
+                %% simple `role'-only case above — materialise role default.
+                bootstrap_entry(ApiKey, ApiSecret, R, Namespace, role_default_scopes(R), [])
+            end);
+        [Role, ScopesStr] ->
+            with_valid_role(Role, fun(R) ->
+                {Scopes, Rejected} = parse_bootstrap_scopes_lenient(R, ScopesStr),
+                bootstrap_entry(ApiKey, ApiSecret, R, Namespace, Scopes, Rejected)
+            end);
+        _ ->
+            {error, "invalid_format"}
+    end.
+
+%% Validate that Role is a known role name. We bypass the namespace-aware
+%% parse_role/1 here because the namespace has already been stripped (or was
+%% never present) before reaching this function — `Role' is always a simple
+%% role binary at this point.
+with_valid_role(Role, Cont) ->
+    case lists:member(Role, emqx_dashboard_rbac:role_list(api)) of
+        true ->
+            {ok, Cont(Role)};
+        false ->
+            {error, {"invalid_role", Role}}
+    end.
+
+bootstrap_entry(ApiKey, ApiSecret, Role, Namespace, Scopes, Rejected) ->
+    #{
+        api_key => ApiKey,
+        api_secret => ApiSecret,
+        role => Role,
+        namespace => Namespace,
+        scopes => Scopes,
+        rejected_scopes => Rejected
+    }.
+
+%% @doc Parse the comma-separated scopes string from the 4th bootstrap segment.
+%% Lenient by design — unknown scope names are dropped and reported separately.
+%%
+%% Publisher API keys can only hold the `publish' scope; other scope names
+%% are dropped (same lenient policy as unknown scopes — a typo in ops
+%% config must not abort the whole load).
+%%
+%% Returns `{Valid, Rejected}'.
+%%   Valid    — list of validated scope name binaries (possibly empty).
+%%   Rejected — list of scope name binaries that were not recognised or
+%%              not allowed for the given role.
+%%
+%% An empty input (`<<>>') returns `{[], []}' — explicit deny-all marker.
+parse_bootstrap_scopes_lenient(Role, <<>>) ->
+    filter_publisher_scopes(Role, [], []);
+parse_bootstrap_scopes_lenient(Role, ScopesStr) ->
+    Candidates = binary:split(ScopesStr, <<",">>, [global, trim_all]),
+    Raw = [string:lowercase(string:trim(S)) || S <- Candidates, string:trim(S) =/= <<>>],
+    Available = [Name || #{name := Name} <- emqx_scope_catalog:scope_catalog()],
+    {Valid0, Rejected0} = lists:partition(fun(S) -> lists:member(S, Available) end, Raw),
+    filter_publisher_scopes(Role, Valid0, Rejected0).
+
+%% Restrict publisher role to the `publish' scope only. Other roles
+%% pass through unchanged. Returns updated {Valid, Rejected}.
+filter_publisher_scopes(?ROLE_API_PUBLISHER, Valid, Rejected) ->
+    {Keep, Drop} = lists:partition(
+        fun(S) -> S =:= ?SCOPE_PUBLISH end,
+        Valid
+    ),
+    {Keep, Rejected ++ Drop};
+filter_publisher_scopes(_OtherRole, Valid, Rejected) ->
+    {Valid, Rejected}.
+
+maybe_warn_rejected_scopes(_File, _Line, _ApiKey, []) ->
+    ok;
+maybe_warn_rejected_scopes(File, Line, ApiKey, Rejected) ->
+    ?SLOG(warning, #{
+        msg => "bootstrap_file_unknown_scopes_dropped",
+        info => <<"Unknown scope names in bootstrap file were dropped; valid scopes still apply.">>,
+        file => File,
+        line => Line,
+        api_key => ApiKey,
+        rejected_scopes => Rejected
+    }).
 
 get_role(#{?role := Role}) ->
     Role;

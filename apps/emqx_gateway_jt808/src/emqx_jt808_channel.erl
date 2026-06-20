@@ -9,6 +9,7 @@
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -256,7 +257,12 @@ handle_in(Frame = ?MSG(MType), Channel = #channel{conn_state = ConnState}) when
     do_handle_in(Frame, Channel#channel{conn_state = connecting});
 handle_in(Frame, Channel = #channel{conn_state = connected}) ->
     ?SLOG(debug, #{msg => "recv_frame", frame => Frame}),
-    do_handle_in(Frame, Channel);
+    case check_connected_frame_phone(Frame, Channel) of
+        ok ->
+            do_handle_in(Frame, Channel);
+        {error, Reason} ->
+            handle_invalid_frame_phone(Frame, Reason, Channel)
+    end;
 handle_in(Frame = ?MSG(MType), Channel) when
     MType =:= ?MC_DEREGISTER
 ->
@@ -325,7 +331,8 @@ do_handle_in(Frame = ?MSG(?MC_AUTH), Channel0) ->
         {ok, _NFrame, Channel} ->
             case authenticate(Frame, Channel) of
                 true ->
-                    NChannel = process_connect(Frame, ensure_connected(Channel)),
+                    NChannel0 = normalize_authenticated_phone(Frame, Channel),
+                    NChannel = process_connect(Frame, ensure_connected(NChannel0)),
                     authack({0, MsgSn, NChannel});
                 false ->
                     authack({1, MsgSn, Channel})
@@ -363,7 +370,7 @@ do_handle_in(
     }
 ) ->
     {MsgId, MsgSn} = msgidsn(Frame),
-    _ = do_publish(Topic, Frame),
+    _ = do_publish(Topic, Frame, Channel),
     case is_driver_id_req_exist(Channel) of
         % this is an device passive command
         false ->
@@ -383,7 +390,7 @@ do_handle_in(
     case IsUnknownMessage of
         %% Normal message, handle it
         false ->
-            _ = do_publish(Topic, Frame),
+            _ = do_publish(Topic, Frame, Channel),
             {MsgId, MsgSn} = msgidsn(Frame),
             case is_general_response_needed(MsgId) of
                 % these frames device passive request
@@ -395,16 +402,30 @@ do_handle_in(
                     dispatch_and_reply(Channel#channel{inflight = NewInflight})
             end;
         true ->
-            _ = do_publish(Topic, Frame),
+            _ = do_publish(Topic, Frame, Channel),
             {ok, Channel}
     end;
 do_handle_in(Frame, Channel) ->
     ?SLOG(error, #{msg => "ignore_unknown_frame", frame => Frame}),
     {ok, Channel}.
 
-do_publish(Topic, Frame) ->
-    ?SLOG(debug, #{msg => "publish_msg", to_topic => Topic, farme => Frame}),
-    emqx:publish(emqx_message:make(jt808, ?QOS_1, Topic, emqx_utils_json:encode(Frame))).
+do_publish(
+    Topic,
+    Frame,
+    #channel{
+        ctx = Ctx,
+        clientinfo = ClientInfo
+    }
+) ->
+    Action = ?AUTHZ_PUBLISH(?QOS_1, false),
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
+        allow ->
+            ?SLOG(debug, #{msg => "publish_msg", to_topic => Topic, farme => Frame}),
+            emqx:publish(emqx_message:make(jt808, ?QOS_1, Topic, emqx_utils_json:encode(Frame)));
+        deny ->
+            ?SLOG(info, #{msg => "publish_msg_denied", to_topic => Topic}),
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle Delivers from broker to client
@@ -1047,14 +1068,19 @@ get_msg_ack(MsgId, MsgSn) ->
     error({invalid_message_type, MsgId, MsgSn}).
 
 build_frame_header(MsgId, #channel{clientinfo = ClientInfo, msg_sn = TxMsgSn}) ->
-    #{phone := Phone} = ClientInfo,
+    Phone = frame_header_phone(ClientInfo),
     ProtoVer = maps:get(proto_ver, ClientInfo, ?PROTO_VER_2013),
     build_frame_header(MsgId, 0, Phone, TxMsgSn, ProtoVer).
 
 build_frame_header_with_sn(MsgId, MsgSn, #channel{clientinfo = ClientInfo}) ->
-    #{phone := Phone} = ClientInfo,
+    Phone = frame_header_phone(ClientInfo),
     ProtoVer = maps:get(proto_ver, ClientInfo, ?PROTO_VER_2013),
     build_frame_header(MsgId, 0, Phone, MsgSn, ProtoVer).
+
+frame_header_phone(#{authenticated_phone := Phone}) ->
+    Phone;
+frame_header_phone(#{phone := Phone}) ->
+    Phone.
 
 build_downlink_header(MsgId, PayloadHeader, Channel) ->
     case maps:get(<<"msg_sn">>, PayloadHeader, undefined) of
@@ -1132,10 +1158,14 @@ is_driver_id_req_exist(#channel{inflight = Inflight}) ->
     Key = get_msg_ack(?MC_DRIVER_ID_REPORT, none),
     emqx_inflight:contain(Key, Inflight).
 
-register_(Frame, Channel0) ->
+register_(Frame = #{<<"header">> := #{<<"phone">> := Phone}}, Channel0) ->
     case emqx_jt808_auth:register(Frame, Channel0#channel.auth) of
         {ok, AuthCode} ->
-            {ok, Channel0#channel{authcode = AuthCode}};
+            ClientInfo = maps:remove(
+                authenticated_phone,
+                (Channel0#channel.clientinfo)#{registered_phone => Phone}
+            ),
+            {ok, Channel0#channel{authcode = AuthCode, clientinfo = ClientInfo}};
         {error, Reason} ->
             ?SLOG(error, #{msg => "register_failed", reason => Reason}),
             ResCode =
@@ -1146,22 +1176,75 @@ register_(Frame, Channel0) ->
             {error, ResCode}
     end.
 
-authenticate(_AuthFrame, #channel{authcode = anonymous}) ->
-    true;
-authenticate(AuthFrame, #channel{authcode = undefined, auth = Auth}) ->
+authenticate(AuthFrame, Channel = #channel{authcode = anonymous}) ->
+    auth_phone_matches(AuthFrame, Channel);
+authenticate(AuthFrame, Channel = #channel{authcode = undefined, auth = Auth}) ->
     %% Try request authentication server
-    case emqx_jt808_auth:authenticate(AuthFrame, Auth) of
-        {ok, #{auth_result := IsAuth}} ->
-            IsAuth;
-        {error, Reason} ->
-            ?SLOG(error, #{msg => "request_auth_server_failed", reason => Reason}),
+    case auth_phone_matches(AuthFrame, Channel) of
+        true ->
+            case emqx_jt808_auth:authenticate(AuthFrame, Auth) of
+                {ok, #{auth_result := IsAuth}} ->
+                    IsAuth;
+                {error, Reason} ->
+                    ?SLOG(error, #{msg => "request_auth_server_failed", reason => Reason}),
+                    false
+            end;
+        false ->
             false
     end;
 authenticate(
-    #{<<"body">> := #{<<"code">> := InCode}},
-    #channel{authcode = AuthCode}
+    AuthFrame = #{<<"body">> := #{<<"code">> := InCode}},
+    Channel = #channel{authcode = AuthCode}
 ) ->
-    InCode == AuthCode.
+    InCode == AuthCode andalso auth_phone_matches(AuthFrame, Channel).
+
+auth_phone_matches(
+    #{<<"header">> := #{<<"phone">> := Phone}},
+    #channel{clientinfo = ClientInfo}
+) ->
+    case maps:get(registered_phone, ClientInfo, undefined) of
+        undefined -> true;
+        Phone -> true;
+        _RegisteredPhone -> false
+    end.
+
+normalize_authenticated_phone(
+    #{<<"header">> := #{<<"phone">> := Phone}},
+    Channel = #channel{clientinfo = ClientInfo0, conninfo = ConnInfo}
+) ->
+    ClientInfo = maps:without(
+        [registered_phone, authenticated_phone],
+        ClientInfo0#{phone => Phone, clientid => Phone}
+    ),
+    Channel#channel{
+        clientinfo = ClientInfo,
+        conninfo = ConnInfo#{clientid => Phone}
+    }.
+
+check_connected_frame_phone(
+    #{<<"header">> := #{<<"phone">> := Phone}},
+    #channel{clientinfo = #{phone := Phone}}
+) ->
+    ok;
+check_connected_frame_phone(
+    #{<<"header">> := #{<<"phone">> := Phone}},
+    #channel{clientinfo = #{phone := AuthenticatedPhone}}
+) ->
+    {error, #{expected_phone => AuthenticatedPhone, received_phone => Phone}};
+check_connected_frame_phone(_Frame, _Channel) ->
+    ok.
+
+handle_invalid_frame_phone(Frame, Reason, Channel = #channel{clientinfo = ClientInfo}) ->
+    case maps:get(ignore_unsupported_frames, ClientInfo, ?IGNORE_UNSUPPORTED_FRAMES) of
+        true ->
+            ?SLOG(warning, #{
+                msg => "ignore_frame_with_unexpected_phone", reason => Reason, frame => Frame
+            }),
+            {ok, Channel};
+        false ->
+            ?SLOG(error, #{msg => "disconnect_client", reason => Reason, frame => Frame}),
+            {shutdown, unexpected_frame, Channel}
+    end.
 
 enrich_conninfo(
     #{<<"header">> := Header = #{<<"phone">> := Phone}},
@@ -1212,7 +1295,8 @@ enrich_clientinfo(
     Channel = #channel{clientinfo = ClientInfo}
 ) ->
     ProtoVer = maps:get(<<"proto_ver">>, Header, ?PROTO_VER_2013),
-    NClientInfo = maybe_fix_mountpoint(ClientInfo#{
+    NClientInfo0 = maps:remove(authenticated_phone, ClientInfo),
+    NClientInfo = maybe_fix_mountpoint(NClientInfo0#{
         phone => Phone,
         clientid => Phone,
         manufacturer => Manu,
@@ -1227,8 +1311,7 @@ enrich_clientinfo(
 ) ->
     ProtoVer = maps:get(<<"proto_ver">>, Header, ?PROTO_VER_2013),
     NClientInfo = ClientInfo#{
-        phone => Phone,
-        clientid => Phone,
+        authenticated_phone => Phone,
         proto_ver => ProtoVer
     },
     {ok, Channel#channel{clientinfo = NClientInfo}}.
@@ -1270,15 +1353,23 @@ autosubcribe(#channel{dn_topic = Topic}) when
 ->
     ok;
 autosubcribe(#channel{
+    ctx = Ctx,
     clientinfo =
         ClientInfo =
             #{clientid := ClientId},
     dn_topic = Topic
 }) ->
-    _ = emqx_broker:subscribe(Topic, ClientId, ?DN_TOPIC_SUBOPTS),
-    ok = emqx_hooks:run('session.subscribed', [
-        ClientInfo, Topic, ?DN_TOPIC_SUBOPTS#{is_new => true}
-    ]).
+    Action = ?AUTHZ_SUBSCRIBE(maps:get(qos, ?DN_TOPIC_SUBOPTS, 0)),
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
+        allow ->
+            _ = emqx_broker:subscribe(Topic, ClientId, ?DN_TOPIC_SUBOPTS),
+            ok = emqx_hooks:run('session.subscribed', [
+                ClientInfo, Topic, ?DN_TOPIC_SUBOPTS#{is_new => true}
+            ]);
+        deny ->
+            ?SLOG(info, #{msg => "subscribe_denied", topic => Topic}),
+            ok
+    end.
 
 start_keepalive(Secs, _Channel) when Secs > 0 ->
     self() ! {keepalive, start, round(Secs) * 1000}.

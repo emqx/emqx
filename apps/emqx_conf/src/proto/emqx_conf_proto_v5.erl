@@ -102,7 +102,8 @@ get_override_config_file(Nodes) ->
 get_hocon_config(Node, Namespace) ->
     rpc:call(Node, emqx_conf_cli, get_config_namespaced, [Namespace]).
 
--spec get_raw_config(node(), maybe_namespace(), update_config_key_path()) -> map() | {badrpc, _}.
+-spec get_raw_config(node(), maybe_namespace(), emqx_utils_maps:config_key_path()) ->
+    map() | {badrpc, _}.
 get_raw_config(Node, Namespace, KeyPath) ->
     rpc:call(Node, emqx, get_raw_namespaced_config, [Namespace, KeyPath]).
 

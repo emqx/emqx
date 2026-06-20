@@ -11,8 +11,6 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
-
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -30,7 +28,7 @@ init_per_testcase(TestCase, Config) ->
 end_per_testcase(_TestCase, Config) ->
     Apps = ?config(apps, Config),
     emqx_cth_suite:stop(Apps),
-    clear_security_profile(),
+    emqx_common_test_helpers:clear_security_profile(),
     ok.
 
 t_change_i18n_lang(_Config) ->
@@ -54,7 +52,7 @@ change_i18n_lang(Lang) ->
     ok.
 
 assert_http_default_bind(Profile, Inet6, ExpectedBind, ExpectedInetOpt) ->
-    set_security_profile(Profile),
+    emqx_common_test_helpers:set_security_profile(Profile),
     {ok, _} = emqx:update_config([dashboard, listeners], #{
         <<"http">> => #{
             <<"enable">> => true,
@@ -72,14 +70,4 @@ assert_http_default_bind(Profile, Inet6, ExpectedBind, ExpectedInetOpt) ->
     SocketOpts = maps:get(socket_opts, RanchOpts),
     ?assert(lists:member(ExpectedInetOpt, SocketOpts)),
     ?assertEqual(false, lists:keymember(bind, 1, SocketOpts)),
-    ok.
-
-set_security_profile(Profile) ->
-    os:putenv(?PROFILE_ENV_VAR, Profile),
-    emqx_security_profile:clear_profile(),
-    ok.
-
-clear_security_profile() ->
-    os:unsetenv(?PROFILE_ENV_VAR),
-    emqx_security_profile:clear_profile(),
     ok.

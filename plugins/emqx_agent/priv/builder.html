@@ -350,8 +350,8 @@ optionally raise an alert, then return a verdict: approved or rejected with a sh
 Pipeline id: apple-box-inspection.
 Run the inspection as an ephemeral LLM loop (fresh session per box),
 then persist the result to the database and broadcast the verdict. Make sure that
-instructions include proper description of how to use camera skill (topic structure).
-Do not make separate skill call for camera skill, let llm inspection step call it.
+instructions include proper description of how to use camera tool (topic structure).
+Do not make separate tool call for camera tool, let llm inspection step call it.
 Instruct llm step to _always_ publish warning if the box is rejected.
 The final verdict structure should be: {"status": "approved" | "rejected", "reason": "string"}.
 It should be done via explicit step, do not send it as part of the llm inspection step.`;
@@ -399,7 +399,7 @@ It should be done via explicit step, do not send it as part of the llm inspectio
                 let text = raw;
                 try {
                     const obj = JSON.parse(raw);
-                    // The message__publish skill wraps: {"topic":..., "payload":...}
+                    // The message__publish tool wraps: {"topic":..., "payload":...}
                     // The LLM publishes plain text as the payload value.
                     if (obj && typeof obj.payload !== "undefined") {
                         const p = obj.payload;

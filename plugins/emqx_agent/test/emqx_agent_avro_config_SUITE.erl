@@ -15,10 +15,10 @@ t_valid_full_config(_Config) ->
     ?assertMatch({ok, _}, decode(sample_config())).
 
 t_publish_payload_schema_default_materialized(_Config) ->
-    Publish0 = maps:get(<<"Message_Publish">>, publish_skill()),
+    Publish0 = maps:get(<<"Message_Publish">>, publish_tool()),
     Publish = #{<<"Message_Publish">> => maps:remove(<<"payload_schema">>, Publish0)},
-    {ok, Config} = encode_with_defaults(sample_config_with_skill(Publish)),
-    [#{<<"Message_Publish">> := PublishWithDefault}] = maps:get(<<"skills">>, Config),
+    {ok, Config} = encode_with_defaults(sample_config_with_tool(Publish)),
+    [#{<<"Message_Publish">> := PublishWithDefault}] = maps:get(<<"tools">>, Config),
     PayloadSchema = emqx_utils_json:decode(maps:get(<<"payload_schema">>, PublishWithDefault)),
     ?assertEqual(
         #{
@@ -34,13 +34,13 @@ t_all_config_oai_schemas_valid(_Config) ->
     {ok, Config} = encode_with_defaults(sample_config()),
     ?assertEqual([], oai_schema_errors(Config)).
 
-t_reject_missing_required_skill_field(_Config) ->
-    Skill = #{
+t_reject_missing_required_tool_field(_Config) ->
+    Tool = #{
         <<"Message_Publish">> => maps:remove(
-            <<"id">>, maps:get(<<"Message_Publish">>, publish_skill())
+            <<"id">>, maps:get(<<"Message_Publish">>, publish_tool())
         )
     },
-    Config = sample_config_with_skill(Skill),
+    Config = sample_config_with_tool(Tool),
     ?assertMatch({error, _}, decode(Config)).
 
 t_reject_invalid_connection_enable_type(_Config) ->
@@ -55,26 +55,26 @@ t_reject_invalid_pipeline_step_union(_Config) ->
     ?assertMatch({error, _}, decode((sample_config())#{<<"pipelines">> => [Pipeline]})).
 
 t_reject_invalid_name_value_type(_Config) ->
-    Config = sample_config_with_skill(
-        (http_skill())#{
-            <<"Http">> => (maps:get(<<"Http">>, http_skill()))#{
+    Config = sample_config_with_tool(
+        (http_tool())#{
+            <<"Http">> => (maps:get(<<"Http">>, http_tool()))#{
                 <<"headers">> => [#{<<"name">> => <<"x-api-key">>, <<"value">> => #{}}]
             }
         }
     ),
     ?assertMatch({error, _}, decode(Config)).
 
-t_reject_pipeline_missing_call_skill_ref(_Config) ->
-    Config = (sample_config())#{<<"pipelines">> => [pipeline_with_call_skill(<<"missing@skill">>)]},
-    ?assertMatch({error, {missing_skills, [<<"missing@skill">>]}}, validate_config(Config)).
+t_reject_pipeline_missing_call_tool_ref(_Config) ->
+    Config = (sample_config())#{<<"pipelines">> => [pipeline_with_call_tool(<<"missing@tool">>)]},
+    ?assertMatch({error, {missing_tools, [<<"missing@tool">>]}}, validate_config(Config)).
 
 t_reject_pipeline_missing_llm_tool_ref(_Config) ->
     Config = (sample_config())#{<<"pipelines">> => [pipeline_with_llm_tool(<<"missing@tool">>)]},
-    ?assertMatch({error, {missing_skills, [<<"missing@tool">>]}}, validate_config(Config)).
+    ?assertMatch({error, {missing_tools, [<<"missing@tool">>]}}, validate_config(Config)).
 
-t_accept_pipeline_with_duplicate_existing_skill_refs(_Config) ->
+t_accept_pipeline_with_duplicate_existing_tool_refs(_Config) ->
     Config = (sample_config())#{
-        <<"pipelines">> => [pipeline_with_duplicate_call_skill(<<"message__publish@pub">>)]
+        <<"pipelines">> => [pipeline_with_duplicate_call_tool(<<"message__publish@pub">>)]
     },
     ?assertEqual(ok, validate_config(Config)).
 
@@ -104,25 +104,25 @@ validate_config(Config) ->
     emqx_agent_config:validate_config(ConfigWithDefaults).
 
 oai_schema_errors(Config) ->
-    skill_oai_schema_errors(maps:get(<<"skills">>, Config, [])) ++
+    tool_oai_schema_errors(maps:get(<<"tools">>, Config, [])) ++
         pipeline_oai_schema_errors(maps:get(<<"pipelines">>, Config, [])).
 
-skill_oai_schema_errors(Skills) ->
+tool_oai_schema_errors(Tools) ->
     lists:flatmap(
-        fun(Skill0) ->
-            Skill = unwrap_union(Skill0),
-            case maps:get(<<"type">>, Skill, undefined) of
+        fun(Tool0) ->
+            Tool = unwrap_union(Tool0),
+            case maps:get(<<"type">>, Tool, undefined) of
                 <<"message__publish">> ->
-                    validate_field_schema(maps:get(<<"payload_schema">>, Skill));
+                    validate_field_schema(maps:get(<<"payload_schema">>, Tool));
                 <<"message__request">> ->
-                    validate_field_schema(maps:get(<<"request_payload_schema">>, Skill));
+                    validate_field_schema(maps:get(<<"request_payload_schema">>, Tool));
                 <<"http">> ->
-                    validate_root_schema(maps:get(<<"input_schema">>, Skill));
+                    validate_root_schema(maps:get(<<"input_schema">>, Tool));
                 _ ->
                     []
             end
         end,
-        Skills
+        Tools
     ).
 
 pipeline_oai_schema_errors(Pipelines) ->
@@ -165,37 +165,61 @@ unwrap_union(Map) when is_map(Map), map_size(Map) =:= 1 ->
 unwrap_union(Value) ->
     Value.
 
-sample_config_with_skill(Skill) ->
-    (sample_config())#{<<"skills">> => [Skill]}.
+sample_config_with_tool(Tool) ->
+    (sample_config())#{<<"tools">> => [Tool]}.
 
 sample_config() ->
     #{
-        <<"skills">> => [
-            publish_skill(),
-            request_skill(),
-            http_skill(),
-            postgresql_skill(),
-            simple_skill(<<"Agent_CreateSkill">>, <<"agent__create_skill">>, <<"create-skill">>),
-            simple_skill(
+        <<"tools">> => [
+            publish_tool(),
+            request_tool(),
+            http_tool(),
+            postgresql_tool(),
+            simple_tool(<<"Agent_CreateTool">>, <<"agent__create_tool">>, <<"create-tool">>),
+            simple_tool(
                 <<"Agent_CreatePipeline">>, <<"agent__create_pipeline">>, <<"create-pipe">>
             ),
-            simple_skill(<<"Agent_QuerySkills">>, <<"agent__query_skills">>, <<"query-skills">>),
-            simple_skill(
+            simple_tool(<<"Agent_QueryTools">>, <<"agent__query_tools">>, <<"query-tools">>),
+            simple_tool(
                 <<"Agent_QueryProviders">>, <<"agent__query_providers">>, <<"query-providers">>
             ),
-            simple_skill(
+            simple_tool(
                 <<"Agent_QueryPipelines">>, <<"agent__query_pipelines">>, <<"query-pipelines">>
             ),
-            simple_skill(<<"Agent_DeleteSkill">>, <<"agent__delete_skill">>, <<"delete-skill">>),
-            simple_skill(
+            simple_tool(<<"Agent_DeleteTool">>, <<"agent__delete_tool">>, <<"delete-tool">>),
+            simple_tool(
                 <<"Agent_DeletePipeline">>, <<"agent__delete_pipeline">>, <<"delete-pipe">>
+            ),
+            simple_tool(
+                <<"Agent_QueryConnections">>,
+                <<"agent__query_connections">>,
+                <<"query-connections">>
+            ),
+            simple_tool(<<"Agent_UpdateTool">>, <<"agent__update_tool">>, <<"update-tool">>),
+            simple_tool(
+                <<"Agent_UpdatePipeline">>, <<"agent__update_pipeline">>, <<"update-pipeline">>
+            ),
+            simple_tool(
+                <<"Agent_DeletePipelineStep">>,
+                <<"agent__delete_pipeline_step">>,
+                <<"delete-pipeline-step">>
+            ),
+            simple_tool(
+                <<"Agent_InsertPipelineStep">>,
+                <<"agent__insert_pipeline_step">>,
+                <<"insert-pipeline-step">>
+            ),
+            simple_tool(
+                <<"Agent_UpdatePipelineStep">>,
+                <<"agent__update_pipeline_step">>,
+                <<"update-pipeline-step">>
             )
         ],
         <<"connections">> => [postgresql_connection()],
         <<"pipelines">> => [pipeline()]
     }.
 
-publish_skill() ->
+publish_tool() ->
     #{
         <<"Message_Publish">> => #{
             <<"type">> => <<"message__publish">>,
@@ -206,7 +230,7 @@ publish_skill() ->
         }
     }.
 
-request_skill() ->
+request_tool() ->
     #{
         <<"Message_Request">> => #{
             <<"type">> => <<"message__request">>,
@@ -217,7 +241,7 @@ request_skill() ->
         }
     }.
 
-http_skill() ->
+http_tool() ->
     #{
         <<"Http">> => #{
             <<"type">> => <<"http">>,
@@ -230,7 +254,7 @@ http_skill() ->
         }
     }.
 
-postgresql_skill() ->
+postgresql_tool() ->
     #{
         <<"Postgresql_Query">> => #{
             <<"type">> => <<"postgresql__query">>,
@@ -241,7 +265,7 @@ postgresql_skill() ->
         }
     }.
 
-simple_skill(RecordName, Type, Id) ->
+simple_tool(RecordName, Type, Id) ->
     #{RecordName => #{<<"type">> => Type, <<"id">> => Id}}.
 
 postgresql_connection() ->
@@ -277,10 +301,10 @@ pipeline() ->
         <<"trigger">> => #{<<"topic">> => <<"$evt/devices/+">>},
         <<"steps">> => [
             #{
-                <<"PipelineStepCallSkill">> => #{
+                <<"PipelineStepCallTool">> => #{
                     <<"id">> => <<"notify">>,
-                    <<"type">> => <<"call_skill">>,
-                    <<"skill">> => <<"message__publish@pub">>,
+                    <<"type">> => <<"call_tool">>,
+                    <<"tool">> => <<"message__publish@pub">>,
                     <<"args">> => [
                         #{<<"name">> => <<"topic">>, <<"value">> => <<"$.event.device_id">>},
                         #{<<"name">> => <<"payload">>, <<"value">> => <<"$.event">>}
@@ -316,17 +340,17 @@ pipeline() ->
         ]
     }.
 
-pipeline_with_call_skill(Ref) ->
+pipeline_with_call_tool(Ref) ->
     #{
         <<"pipeline_id">> => <<"pipe-missing-call">>,
         <<"active">> => true,
         <<"trigger">> => #{<<"topic">> => <<"$evt/missing/call">>},
         <<"steps">> => [
             #{
-                <<"PipelineStepCallSkill">> => #{
+                <<"PipelineStepCallTool">> => #{
                     <<"id">> => <<"notify">>,
-                    <<"type">> => <<"call_skill">>,
-                    <<"skill">> => Ref,
+                    <<"type">> => <<"call_tool">>,
+                    <<"tool">> => Ref,
                     <<"args">> => [],
                     <<"result_path">> => <<"$.notify">>
                 }
@@ -359,23 +383,23 @@ pipeline_with_llm_tool(Ref) ->
         ]
     }.
 
-pipeline_with_duplicate_call_skill(Ref) ->
+pipeline_with_duplicate_call_tool(Ref) ->
     #{
         <<"pipeline_id">> => <<"pipe-duplicate-call">>,
         <<"active">> => true,
         <<"trigger">> => #{<<"topic">> => <<"$evt/duplicate/call">>},
         <<"steps">> => [
-            pipeline_call_skill_step(<<"notify1">>, Ref),
-            pipeline_call_skill_step(<<"notify2">>, Ref)
+            pipeline_call_tool_step(<<"notify1">>, Ref),
+            pipeline_call_tool_step(<<"notify2">>, Ref)
         ]
     }.
 
-pipeline_call_skill_step(Id, Ref) ->
+pipeline_call_tool_step(Id, Ref) ->
     #{
-        <<"PipelineStepCallSkill">> => #{
+        <<"PipelineStepCallTool">> => #{
             <<"id">> => Id,
-            <<"type">> => <<"call_skill">>,
-            <<"skill">> => Ref,
+            <<"type">> => <<"call_tool">>,
+            <<"tool">> => Ref,
             <<"args">> => [],
             <<"result_path">> => <<"$.notify">>
         }

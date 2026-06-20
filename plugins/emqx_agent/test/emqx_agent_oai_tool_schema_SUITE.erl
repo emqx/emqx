@@ -100,11 +100,11 @@ t_reject_enum_value_wrong_type(_Config) ->
     Schema = one_field_schema(#{<<"type">> => <<"string">>, <<"enum">> => [1]}),
     assert_error(invalid_enum_value, emqx_agent_oai_tool_schema:validate_schema(Schema)).
 
-t_generated_create_skill_schema_valid(_Config) ->
+t_generated_create_tool_schema_valid(_Config) ->
     Schema = #{
         <<"type">> => <<"object">>,
         <<"properties">> => #{
-            <<"definition">> => emqx_agent_schema_oai_tool_converter:to_json_schema([skills, items])
+            <<"definition">> => emqx_agent_schema_oai_tool_converter:to_json_schema([tools, items])
         },
         <<"required">> => [<<"definition">>],
         <<"additionalProperties">> => false
@@ -137,7 +137,7 @@ t_generated_create_pipeline_schema_has_typed_steps(_Config) ->
      || Branch <- maps:get(<<"anyOf">>, StepSchema)
     ]),
     ?assertEqual(
-        [<<"break">>, <<"call_skill">>, <<"llm_loop">>],
+        [<<"break">>, <<"call_tool">>, <<"llm_loop">>],
         StepTypes
     ).
 
@@ -148,9 +148,9 @@ t_generated_pipeline_dynamic_maps_are_entry_arrays(_Config) ->
         maps:get(<<"steps">>, maps:get(<<"properties">>, Schema))
     ),
     Branches = maps:get(<<"anyOf">>, StepSchema),
-    CallSkill = branch_by_type(<<"call_skill">>, Branches),
+    CallTool = branch_by_type(<<"call_tool">>, Branches),
     LlmLoop = branch_by_type(<<"llm_loop">>, Branches),
-    ?assertEqual(<<"array">>, property_type(<<"args">>, CallSkill)),
+    ?assertEqual(<<"array">>, property_type(<<"args">>, CallTool)),
     ?assertEqual(<<"array">>, property_type(<<"input">>, LlmLoop)).
 
 empty_object() ->

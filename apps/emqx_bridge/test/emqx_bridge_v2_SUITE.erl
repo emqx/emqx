@@ -2073,3 +2073,257 @@ t_get_basic_usage_info_0(_TCConfig) ->
         },
         emqx_bridge_v2:get_basic_usage_info()
     ).
+
+-doc """
+In non-batch mode (`batch_size = 1`), `actions.executed` must equal
+`actions.messages` after sending K messages: every per-message completion is
+one action invocation handling one message.  Regression guard for the bug
+where `actions.executed` was incremented once per buffer-worker telemetry
+flush window, falling behind `actions.messages` when many single-message
+completions were aggregated into one flush event.
+""".
+t_actions_executed_equals_messages_in_single_mode(_Config) ->
+    BridgeName = ?FUNCTION_NAME,
+    BridgeConfig = emqx_utils_maps:deep_merge(
+        bridge_config(),
+        #{<<"resource_opts">> => #{<<"metrics_flush_interval">> => <<"100ms">>}}
+    ),
+    {ok, _} = create(bridge_type(), BridgeName, BridgeConfig),
+    register(registered_process_name(), self()),
+    Executed0 = emqx_metrics:val_global('actions.executed'),
+    Messages0 = emqx_metrics:val_global('actions.messages'),
+    K = 50,
+    lists:foreach(
+        fun(I) ->
+            _ = send_message(
+                bridge_type(),
+                BridgeName,
+                integer_to_binary(I),
+                #{}
+            )
+        end,
+        lists:seq(1, K)
+    ),
+    lists:foreach(
+        fun(_) -> ?assertReceive({query_called, _}, 5_000) end,
+        lists:seq(1, K)
+    ),
+    ?retry(
+        200,
+        20,
+        begin
+            ?assertEqual(
+                Messages0 + K,
+                emqx_metrics:val_global('actions.messages')
+            ),
+            ?assertEqual(
+                Executed0 + K,
+                emqx_metrics:val_global('actions.executed')
+            )
+        end
+    ),
+    unregister(registered_process_name()),
+    ok = remove(bridge_type(), BridgeName),
+    ok.
+
+-doc """
+Failed executions must still count toward `actions.executed`: the metric
+tracks attempts, not successes.  Sister test for the equality contract in
+non-batch mode, exercising the error path.
+""".
+t_actions_executed_counts_failures(_Config) ->
+    BridgeName = ?FUNCTION_NAME,
+    OnQueryFn = wrap_fun(fun(_Ctx) ->
+        {error, {unrecoverable_error, on_purpose}}
+    end),
+    BridgeConfig = emqx_utils_maps:deep_merge(
+        bridge_config(),
+        #{
+            <<"parameters">> => #{<<"on_query_fn">> => OnQueryFn},
+            <<"resource_opts">> => #{<<"metrics_flush_interval">> => <<"100ms">>}
+        }
+    ),
+    {ok, _} = create(bridge_type(), BridgeName, BridgeConfig),
+    Executed0 = emqx_metrics:val_global('actions.executed'),
+    Messages0 = emqx_metrics:val_global('actions.messages'),
+    K = 20,
+    lists:foreach(
+        fun(I) ->
+            _ = send_message(
+                bridge_type(),
+                BridgeName,
+                integer_to_binary(I),
+                #{}
+            )
+        end,
+        lists:seq(1, K)
+    ),
+    ?retry(
+        200,
+        20,
+        begin
+            ?assertEqual(
+                Messages0 + K,
+                emqx_metrics:val_global('actions.messages')
+            ),
+            ?assertEqual(
+                Executed0 + K,
+                emqx_metrics:val_global('actions.executed')
+            )
+        end
+    ),
+    ok = remove(bridge_type(), BridgeName),
+    ok.
+
+-doc """
+In batch mode, `actions.messages` counts individual messages while
+`actions.executed` counts batches (one per `on_batch_query` invocation),
+so `actions.messages > actions.executed` whenever any batch is non-trivial.
+""".
+t_actions_messages_exceeds_executed_in_batch_mode(_Config) ->
+    BridgeName = ?FUNCTION_NAME,
+    BatchSize = 20,
+    BridgeConfig = emqx_utils_maps:deep_merge(
+        bridge_config(),
+        #{
+            <<"resource_opts">> => #{
+                <<"batch_size">> => BatchSize,
+                <<"batch_time">> => <<"500ms">>,
+                <<"metrics_flush_interval">> => <<"100ms">>,
+                <<"worker_pool_size">> => 1
+            }
+        }
+    ),
+    {ok, _} = create(bridge_type(), BridgeName, BridgeConfig),
+    register(registered_process_name(), self()),
+    Executed0 = emqx_metrics:val_global('actions.executed'),
+    Messages0 = emqx_metrics:val_global('actions.messages'),
+    K = 200,
+    Parent = self(),
+    %% Fire the sends concurrently so they queue up and form actual batches.
+    _Pids = [
+        spawn(fun() ->
+            _ = send_message(bridge_type(), BridgeName, integer_to_binary(I), #{}),
+            Parent ! sent
+        end)
+     || I <- lists:seq(1, K)
+    ],
+    SeenN = collect_batch_messages(K, 10_000),
+    ?assertEqual(K, SeenN),
+    %% Drain spawn replies.
+    [
+        receive
+            sent -> ok
+        after 5_000 -> ok
+        end
+     || _ <- lists:seq(1, K)
+    ],
+    MinBatches = (K + BatchSize - 1) div BatchSize,
+    ?retry(
+        200,
+        20,
+        begin
+            ?assertEqual(
+                Messages0 + K,
+                emqx_metrics:val_global('actions.messages')
+            ),
+            Executed = emqx_metrics:val_global('actions.executed') - Executed0,
+            %% At least ceil(K / BatchSize) batches must have been executed;
+            %% possibly more if `batch_time` flushed partial batches.
+            ?assert(
+                Executed >= MinBatches,
+                {expected_at_least, MinBatches, got, Executed}
+            ),
+            %% Strictly less than K, because batching is happening.
+            ?assert(
+                Executed < K,
+                {expected_strictly_less_than, K, got, Executed}
+            )
+        end
+    ),
+    unregister(registered_process_name()),
+    ok = remove(bridge_type(), BridgeName),
+    ok.
+
+collect_batch_messages(Remaining, _Timeout) when Remaining =< 0 ->
+    0;
+collect_batch_messages(Remaining, Timeout) ->
+    receive
+        {batch_called, N, _Msgs} ->
+            N + collect_batch_messages(Remaining - N, Timeout)
+    after Timeout ->
+        0
+    end.
+
+-doc """
+Both global and per-namespace `actions.executed` counters must track the
+number of invocations correctly when the action is namespaced.
+""".
+t_actions_executed_namespaced(_Config) ->
+    Namespace = <<"ns_actions_executed">>,
+    ok = emqx_metrics:register_namespace(Namespace),
+    on_exit(fun() -> emqx_metrics:unregister_namespace(Namespace) end),
+    ConnectorName = ?FUNCTION_NAME,
+    {ok, _} = emqx_connector:create(Namespace, con_type(), ConnectorName, con_config()),
+    ActionName = ?FUNCTION_NAME,
+    ActionConfig = emqx_utils_maps:deep_merge(
+        bridge_config(),
+        #{
+            <<"connector">> => atom_to_binary(ConnectorName),
+            <<"resource_opts">> => #{<<"metrics_flush_interval">> => <<"100ms">>}
+        }
+    ),
+    {ok, _} = create(#{
+        namespace => Namespace,
+        kind => action,
+        type => bridge_type(),
+        name => ActionName,
+        config => ActionConfig
+    }),
+    _ = emqx_bridge_v2_testlib:kickoff_kind_health_check(#{
+        namespace => Namespace,
+        kind => action,
+        type => bridge_type(),
+        name => ActionName
+    }),
+    register(registered_process_name(), self()),
+    ExecutedGlobal0 = emqx_metrics:val_global('actions.executed'),
+    ExecutedNs0 = emqx_metrics:val(Namespace, 'actions.executed'),
+    MessagesGlobal0 = emqx_metrics:val_global('actions.messages'),
+    MessagesNs0 = emqx_metrics:val(Namespace, 'actions.messages'),
+    K = 10,
+    lists:foreach(
+        fun(I) ->
+            _ = emqx_bridge_v2:send_message(
+                Namespace,
+                bridge_type(),
+                ActionName,
+                integer_to_binary(I),
+                #{}
+            )
+        end,
+        lists:seq(1, K)
+    ),
+    lists:foreach(
+        fun(_) -> ?assertReceive({query_called, _}, 5_000) end,
+        lists:seq(1, K)
+    ),
+    ?retry(
+        200,
+        20,
+        begin
+            ?assertEqual(
+                MessagesNs0 + K,
+                emqx_metrics:val(Namespace, 'actions.messages')
+            ),
+            ?assertEqual(
+                ExecutedNs0 + K,
+                emqx_metrics:val(Namespace, 'actions.executed')
+            )
+        end
+    ),
+    %% Global counter unchanged (namespaced action does not bump global).
+    ?assertEqual(ExecutedGlobal0, emqx_metrics:val_global('actions.executed')),
+    ?assertEqual(MessagesGlobal0, emqx_metrics:val_global('actions.messages')),
+    unregister(registered_process_name()),
+    ok.

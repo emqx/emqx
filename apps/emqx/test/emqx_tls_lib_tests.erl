@@ -951,6 +951,91 @@ password_file_test() ->
     ?assertEqual(T, PasswordResolved),
     ok.
 
+%% Reproduce https://github.com/emqx/emqx/issues/17523:
+%% `emqx ctl conf load --merge' runs `ensure_ssl_files_in_mutable_certs_dir' on
+%% RawConf BEFORE the schema converter wraps the password, so the password may
+%% still be a literal `<<"file://...">>' binary at validation time. The library
+%% must resolve it from disk, not treat the URL as the passphrase.
+ensure_ssl_files_resolves_file_url_password_test_() ->
+    {setup, setup_ssl_files(), fun cleanup_ssl_files/1, fun ensure_ssl_files_file_url_cases/1}.
+
+ensure_ssl_files_file_url_cases(Context) ->
+    #{
+        key := EncKey,
+        keyfile_path := KeyfilePath,
+        cert := Cert,
+        cacert := Cacert,
+        password := Password,
+        temp_dir := TmpDir
+    } = Context,
+    PwdFile = filename:join(TmpDir, "pwd.txt"),
+    ok = file:write_file(PwdFile, [Password, $\n]),
+    FileUrlBin = iolist_to_binary(["file://", PwdFile]),
+    [
+        {"raw file:// password resolved from PEM contents",
+            ?_test(
+                ?assertMatch(
+                    {ok, _},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
+                        <<"keyfile">> => EncKey,
+                        <<"certfile">> => Cert,
+                        <<"cacertfile">> => Cacert,
+                        <<"password">> => FileUrlBin
+                    })
+                )
+            )},
+        {"raw file:// password resolved from keyfile path",
+            ?_test(
+                ?assertMatch(
+                    {ok, _},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
+                        <<"keyfile">> => KeyfilePath,
+                        <<"certfile">> => Cert,
+                        <<"cacertfile">> => Cacert,
+                        <<"password">> => FileUrlBin
+                    })
+                )
+            )},
+        {"raw file:// password with wrong content fails as bad password",
+            ?_test(begin
+                WrongPwdFile = filename:join(TmpDir, "wrong-pwd.txt"),
+                ok = file:write_file(WrongPwdFile, <<"not-the-password">>),
+                WrongUrl = iolist_to_binary(["file://", WrongPwdFile]),
+                ?assertMatch(
+                    {error, #{
+                        reason := bad_password_or_invalid_keyfile,
+                        which_option := <<"keyfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
+                        <<"keyfile">> => EncKey,
+                        <<"certfile">> => Cert,
+                        <<"cacertfile">> => Cacert,
+                        <<"password">> => WrongUrl
+                    })
+                )
+            end)},
+        {"raw file:// password pointing at non-existent file",
+            ?_test(begin
+                Missing = filename:join(TmpDir, "no-such-pwd-file"),
+                MissingUrl = iolist_to_binary(["file://", Missing]),
+                %% The secret-loader throw is currently swallowed by the
+                %% wrapping ?catching in der_decode_file; the user sees a
+                %% bad-password error rather than failed_to_read_secret_file.
+                ?assertMatch(
+                    {error, #{
+                        reason := bad_password_or_invalid_keyfile,
+                        which_option := <<"keyfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
+                        <<"keyfile">> => EncKey,
+                        <<"certfile">> => Cert,
+                        <<"cacertfile">> => Cacert,
+                        <<"password">> => MissingUrl
+                    })
+                )
+            end)}
+    ].
+
 to_server_opts_test() ->
     VersionsAll = [tlsv1, 'tlsv1.1', 'tlsv1.2', 'tlsv1.3'],
     Versions13Only = ['tlsv1.3'],

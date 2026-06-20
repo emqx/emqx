@@ -11,7 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% `ecpool_worker' API
--export([connect/1, health_check/1]).
+-export([connect/1, health_check/1, clear_optvar/1]).
 
 %% `gen_server' API
 -export([
@@ -35,7 +35,7 @@
     ack_deadline := emqx_schema:timeout_duration_s(),
     ack_retry_interval := emqx_schema:timeout_duration_ms(),
     client := emqx_bridge_gcp_pubsub_client:state(),
-    ecpool_worker_id => non_neg_integer(),
+    ecpool_worker_id := non_neg_integer(),
     forget_interval := duration(),
     namespace := emqx_bridge_v2:maybe_namespace(),
     hookpoints := [binary()],
@@ -54,12 +54,11 @@
     ack_timer := undefined | reference(),
     async_workers := #{pid() => reference()},
     client := emqx_bridge_gcp_pubsub_client:state(),
+    connector_resource_id := binary(),
     ecpool_worker_id := non_neg_integer(),
     forget_interval := duration(),
     namespace := emqx_bridge_v2:maybe_namespace(),
     hookpoints := [binary()],
-    connector_resource_id := binary(),
-    source_resource_id := binary(),
     pending_acks := #{message_id() => ack_id()},
     project_id := emqx_bridge_gcp_pubsub_client:project_id(),
     pull_max_messages := non_neg_integer(),
@@ -70,6 +69,7 @@
     %% between acknlowledging a message and receiving a duplicate pulled message, we need
     %% to keep the seen message IDs for a while...
     seen_message_ids := sets:set(message_id()),
+    source_resource_id := binary(),
     subscription_id := subscription_id(),
     topic := emqx_bridge_gcp_pubsub_client:topic()
 }.
@@ -136,14 +136,19 @@ get_subscription(WorkerPid) ->
 %% `ecpool' health check
 %%-------------------------------------------------------------------------------------------------
 
--spec health_check(pid()) -> subscription_ok | topic_not_found | timeout.
-health_check(WorkerPid) ->
-    case optvar:read(?OPTVAR_SUB_OK(WorkerPid), ?HEALTH_CHECK_TIMEOUT) of
+-spec health_check(integer()) -> subscription_ok | topic_not_found | timeout.
+health_check(WorkerId) ->
+    case optvar:read(?OPTVAR_SUB_OK(WorkerId), ?HEALTH_CHECK_TIMEOUT) of
         {ok, Status} ->
             Status;
         timeout ->
             timeout
     end.
+
+-spec clear_optvar(integer()) -> ok.
+clear_optvar(WorkerId) ->
+    optvar:unset(?OPTVAR_SUB_OK(WorkerId)),
+    ok.
 
 %%-------------------------------------------------------------------------------------------------
 %% `ecpool' API
@@ -159,6 +164,7 @@ connect(Opts0) ->
         forget_interval := ForgetInterval,
         hookpoints := Hookpoints,
         namespace := Namespace,
+        ecpool_worker_id := WorkerId,
         connector_resource_id := ConnectorResId,
         source_resource_id := SourceResId,
         project_id := ProjectId,
@@ -174,6 +180,7 @@ connect(Opts0) ->
         %% bridge during `on_get_status', since we have handed it over to the pull
         %% workers.
         client => Client,
+        ecpool_worker_id => WorkerId,
         forget_interval => ForgetInterval,
         hookpoints => Hookpoints,
         namespace => Namespace,
@@ -211,9 +218,13 @@ handle_continue(?ensure_subscription, State0) ->
         already_exists ->
             {noreply, State0, {continue, ?patch_subscription}};
         continue ->
-            #{source_resource_id := SourceResId} = State0,
+            #{
+                source_resource_id := SourceResId,
+                ecpool_worker_id := WorkerId
+            } = State0,
             ?MODULE:pull_async(self()),
-            optvar:set(?OPTVAR_SUB_OK(self()), subscription_ok),
+            optvar:set(?OPTVAR_SUB_OK(WorkerId), subscription_ok),
+            clear_unhealthy_status(State0),
             ?tp(
                 debug,
                 "gcp_pubsub_consumer_worker_subscription_ready",
@@ -234,9 +245,13 @@ handle_continue(?patch_subscription, State0) ->
     ?tp(gcp_pubsub_consumer_worker_patch_subscription_enter, #{}),
     case patch_subscription(State0) of
         ok ->
-            #{source_resource_id := SourceResId} = State0,
+            #{
+                source_resource_id := SourceResId,
+                ecpool_worker_id := WorkerId
+            } = State0,
             ?MODULE:pull_async(self()),
-            optvar:set(?OPTVAR_SUB_OK(self()), subscription_ok),
+            optvar:set(?OPTVAR_SUB_OK(WorkerId), subscription_ok),
+            clear_unhealthy_status(State0),
             ?tp(
                 debug,
                 "gcp_pubsub_consumer_worker_subscription_ready",
@@ -313,16 +328,20 @@ terminate({error, Reason}, State) when
     Reason =:= permission_denied
 ->
     #{
+        ecpool_worker_id := WorkerId,
         source_resource_id := SourceResId,
         topic := _Topic
     } = State,
-    optvar:unset(?OPTVAR_SUB_OK(self())),
+    clear_optvar(WorkerId),
     emqx_bridge_gcp_pubsub_impl_consumer:mark_as_unhealthy(SourceResId, Reason),
     ?tp(gcp_pubsub_consumer_worker_terminate, #{reason => {error, Reason}, topic => _Topic}),
     ok;
-terminate(_Reason, _State) ->
-    optvar:unset(?OPTVAR_SUB_OK(self())),
-    ?tp(gcp_pubsub_consumer_worker_terminate, #{reason => _Reason, topic => maps:get(topic, _State)}),
+terminate(_Reason, State) ->
+    #{
+        ecpool_worker_id := WorkerId
+    } = State,
+    clear_optvar(WorkerId),
+    ?tp(gcp_pubsub_consumer_worker_terminate, #{reason => _Reason, topic => maps:get(topic, State)}),
     ok.
 
 %%-------------------------------------------------------------------------------------------------
@@ -787,6 +806,11 @@ add_if_present(FromKey, Message, ToKey, Map) ->
 forget_message_ids_after(MsgIds0, Timeout) ->
     MsgIds = sets:from_list(MsgIds0, [{version, 2}]),
     _ = erlang:send_after(Timeout, self(), {forget_message_ids, MsgIds}),
+    ok.
+
+clear_unhealthy_status(State) ->
+    #{source_resource_id := SourceResId} = State,
+    emqx_bridge_gcp_pubsub_impl_consumer:clear_one_unhealthy(SourceResId),
     ok.
 
 to_bin(A) when is_atom(A) -> atom_to_binary(A);

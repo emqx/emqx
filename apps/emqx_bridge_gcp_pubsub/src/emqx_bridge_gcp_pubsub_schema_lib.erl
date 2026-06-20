@@ -48,7 +48,9 @@ authentication_field() ->
     | {error, {wrong_type, term()}}
     | {error, {missing_keys, [binary()]}}.
 service_account_json_validator(Val) ->
-    case emqx_utils_json:safe_decode(Val) of
+    %% `Val' may be a secret reference (e.g. `file://...'); unwrap it before
+    %% decoding so file-based service account credentials validate correctly.
+    case emqx_utils_json:safe_decode(emqx_secret:unwrap(Val)) of
         {ok, Map} ->
             ExpectedKeys = [
                 <<"type">>,
@@ -116,8 +118,11 @@ fields(auth_service_account_json) ->
                 required => true, desc => ?DESC("auth_service_account_json")
             })},
         {service_account_json,
-            mk(
-                binary(),
+            %% Use a secret schema so file-based references (`file://...') are
+            %% wrapped into a file-reading secret; the validator then unwraps
+            %% and reads the file content. A plain binary field would pass the
+            %% literal `file://...' to the validator and fail as "not a json".
+            emqx_schema_secret:mk(
                 #{
                     required => false,
                     validator => fun ?MODULE:service_account_json_validator/1,

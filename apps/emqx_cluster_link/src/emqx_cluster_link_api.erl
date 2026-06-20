@@ -10,7 +10,7 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_cluster_link.hrl").
--include_lib("emqx/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 -export([
     api_spec/0,
@@ -26,6 +26,10 @@
     '/cluster/links/link/:name/metrics'/2,
     '/cluster/links/link/:name/metrics/reset'/2
 ]).
+
+%% Request filters:
+-export([filter_nonexistent/2]).
+
 -export([scopes/0]).
 
 -define(CONF_PATH, [cluster, links]).
@@ -77,6 +81,7 @@ schema("/cluster/links") ->
 schema("/cluster/links/link/:name") ->
     #{
         'operationId' => '/cluster/links/link/:name',
+        filter => fun ?MODULE:filter_nonexistent/2,
         get =>
             #{
                 description => ?DESC("get_cluster_link_config"),
@@ -125,6 +130,7 @@ schema("/cluster/links/link/:name") ->
 schema("/cluster/links/link/:name/metrics") ->
     #{
         'operationId' => '/cluster/links/link/:name/metrics',
+        filter => fun ?MODULE:filter_nonexistent/2,
         get =>
             #{
                 description => ?DESC("get_cluster_link_metrics"),
@@ -142,6 +148,7 @@ schema("/cluster/links/link/:name/metrics") ->
 schema("/cluster/links/link/:name/metrics/reset") ->
     #{
         'operationId' => '/cluster/links/link/:name/metrics/reset',
+        filter => fun ?MODULE:filter_nonexistent/2,
         put =>
             #{
                 description => ?DESC("reset_cluster_link_metrics"),
@@ -186,39 +193,44 @@ fields(node_metrics) ->
 %% API Handler funcs
 %%--------------------------------------------------------------------
 
+-define(LINK_NOT_FOUND, ?NOT_FOUND(<<"Cluster link not found">>)).
+-define(LINK_ALREADY_EXISTS, ?BAD_REQUEST('ALREADY_EXISTS', <<"Cluster link already exists">>)).
+
 '/cluster/links'(get, _Params) ->
     handle_list();
 '/cluster/links'(post, #{body := Body = #{<<"name">> := Name}}) ->
-    with_link(
-        Name,
-        return(?BAD_REQUEST('ALREADY_EXISTS', <<"Cluster link already exists">>)),
-        fun() -> handle_create(Name, Body) end
-    ).
+    case emqx_cluster_link_config:get_link_raw(Name) of
+        undefined ->
+            handle_create(Name, Body);
+        _Link = #{} ->
+            ?LINK_ALREADY_EXISTS
+    end.
 
-'/cluster/links/link/:name'(get, #{bindings := #{name := Name}}) ->
-    with_link(Name, fun(Link) -> handle_lookup(Name, Link) end, not_found());
-'/cluster/links/link/:name'(put, #{bindings := #{name := Name}, body := Params0}) ->
-    with_link(Name, fun(OldLink) -> handle_update(Name, Params0, OldLink) end, not_found());
+'/cluster/links/link/:name'(get, #{bindings := #{name := Name}, link := Link}) ->
+    handle_lookup(Name, Link);
+'/cluster/links/link/:name'(put, #{bindings := #{name := Name}, link := Link, body := Update}) ->
+    handle_update(Name, Update, Link);
 '/cluster/links/link/:name'(delete, #{bindings := #{name := Name}}) ->
-    with_link(
-        Name,
-        fun() ->
-            case emqx_cluster_link_config:delete_link(Name) of
-                ok ->
-                    ?NO_CONTENT;
-                {error, Reason} ->
-                    Message = list_to_binary(io_lib:format("Delete link failed ~p", [Reason])),
-                    ?BAD_REQUEST(Message)
-            end
-        end,
-        not_found()
-    ).
+    handle_delete(Name).
 
 '/cluster/links/link/:name/metrics'(get, #{bindings := #{name := Name}}) ->
-    with_link(Name, fun() -> handle_metrics(Name) end, not_found()).
+    handle_metrics(Name).
 
 '/cluster/links/link/:name/metrics/reset'(put, #{bindings := #{name := Name}}) ->
-    with_link(Name, fun() -> handle_reset_metrics(Name) end, not_found()).
+    handle_reset_metrics(Name).
+
+filter_nonexistent(Request = #{bindings := Bindings}, _Meta) ->
+    case Bindings of
+        #{name := Name} ->
+            case emqx_cluster_link_config:get_link_raw(Name) of
+                Link = #{} ->
+                    {ok, Request#{link => Link}};
+                undefined ->
+                    ?LINK_NOT_FOUND
+            end;
+        #{} ->
+            ?LINK_NOT_FOUND
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
@@ -265,25 +277,60 @@ handle_create(Name, Params) ->
         end,
     case Check of
         ok ->
-            do_create(Name, Params);
+            case emqx_cluster_link_config:create_link(Params) of
+                {ok, Link} ->
+                    ?CREATED(redact(add_status(Name, Link)));
+                {error, already_exists} ->
+                    ?LINK_ALREADY_EXISTS;
+                {error, single_node_license} ->
+                    ?BAD_REQUEST(single_node_license_message());
+                {error, Reason} ->
+                    Message = emqx_utils:format("Create link failed: ~p", [redact(Reason)]),
+                    ?BAD_REQUEST(Message)
+            end;
         BadRequest ->
             redact(BadRequest)
     end.
 
-do_create(Name, Params) ->
-    case emqx_cluster_link_config:create_link(Params) of
+handle_lookup(Name, Link0) ->
+    Link1 = fill_defaults_single(Link0),
+    Link = add_status(Name, Link1),
+    ?OK(redact(Link)).
+
+handle_update(Name, Params0, OldLinkRaw) ->
+    Params1 = Params0#{<<"name">> => Name},
+    Params = emqx_utils:deobfuscate(Params1, OldLinkRaw),
+    case emqx_cluster_link_config:update_link(Params) of
         {ok, Link} ->
-            ?CREATED(redact(add_status(Name, Link)));
+            ?OK(redact(add_status(Name, Link)));
+        {error, not_found} ->
+            ?LINK_NOT_FOUND;
+        {error, single_node_license} ->
+            ?BAD_REQUEST(single_node_license_message());
         {error, Reason} ->
-            Message = list_to_binary(io_lib:format("Create link failed ~p", [redact(Reason)])),
+            Message = emqx_utils:format("Update link failed: ~p", [redact(Reason)]),
             ?BAD_REQUEST(Message)
     end.
 
-handle_lookup(Name, Link) ->
-    ?OK(redact(add_status(Name, Link))).
+handle_delete(Name) ->
+    case emqx_cluster_link_config:delete_link(Name) of
+        ok ->
+            ?NO_CONTENT;
+        {error, not_found} ->
+            ?LINK_NOT_FOUND;
+        {error, Reason} ->
+            Message = list_to_binary(io_lib:format("Delete link failed: ~p", [Reason])),
+            ?BAD_REQUEST(Message)
+    end.
+
+single_node_license_message() ->
+    <<
+        "Cluster linking is not available under the community (single-node) license. "
+        "Load a non-community license and retry."
+    >>.
 
 handle_metrics(Name) ->
-    Results = emqx_cluster_link_metrics:get_metrics(Name),
+    Results = emqx_cluster_link_metrics:get_cluster_metrics(Name),
     {NodeMetrics0, NodeErrors} =
         lists:foldl(
             fun({Node, RouterMetrics0, ResourceMetrics0}, {OkAccIn, ErrAccIn}) ->
@@ -387,7 +434,7 @@ format_metrics(Node, RouterMetrics, ResourceMetrics) ->
     }.
 
 handle_reset_metrics(Name) ->
-    Res = emqx_cluster_link_metrics:reset_metrics(Name),
+    Res = emqx_cluster_link_metrics:reset_cluster_metrics(Name),
     ErrorNodes =
         lists:filtermap(
             fun
@@ -412,17 +459,6 @@ add_status(Name, Link) ->
     NodeRPCResults = emqx_cluster_link_mqtt:get_resource_cluster(Name),
     Status = collect_single_status(NodeRPCResults),
     maps:merge(Link, Status).
-
-handle_update(Name, Params0, OldLinkRaw) ->
-    Params1 = Params0#{<<"name">> => Name},
-    Params = emqx_utils:deobfuscate(Params1, OldLinkRaw),
-    case emqx_cluster_link_config:update_link(Params) of
-        {ok, Link} ->
-            ?OK(redact(add_status(Name, Link)));
-        {error, Reason} ->
-            Message = list_to_binary(io_lib:format("Update link failed ~p", [redact(Reason)])),
-            ?BAD_REQUEST(Message)
-    end.
 
 get_raw() ->
     #{<<"cluster">> := #{<<"links">> := Links}} =
@@ -647,17 +683,6 @@ link_metrics_response_example() ->
         ]
     }.
 
-with_link(Name, FoundFn, NotFoundFn) ->
-    case emqx_cluster_link_config:get_link_raw(Name) of
-        undefined ->
-            NotFoundFn();
-        Link0 = #{} when is_function(FoundFn, 1) ->
-            Link = fill_defaults_single(Link0),
-            FoundFn(Link);
-        _Link = #{} when is_function(FoundFn, 0) ->
-            FoundFn()
-    end.
-
 fill_defaults_single(Link0) ->
     #{<<"cluster">> := #{<<"links">> := [Link]}} =
         emqx_config:fill_defaults(
@@ -665,12 +690,6 @@ fill_defaults_single(Link0) ->
             #{obfuscate_sensitive_values => false}
         ),
     Link.
-
-return(Response) ->
-    fun() -> Response end.
-
-not_found() ->
-    return(?NOT_FOUND(<<"Cluster link not found">>)).
 
 redact(Value) ->
     emqx_utils:redact(Value).

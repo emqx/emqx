@@ -5,6 +5,7 @@
 -module(emqx_mgmt_api).
 
 -include_lib("stdlib/include/qlc.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 -include("emqx_mgmt.hrl").
 
 -elvis([{elvis_style, dont_repeat_yourself, #{min_complexity => 100}}]).
