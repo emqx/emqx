@@ -16,6 +16,8 @@
 -define(WRITE_ID, <<"stream-writer">>).
 -define(READ_ID, <<"stream-reader">>).
 -define(DEL_ID, <<"stream-deleter">>).
+-define(BIN_WRITE_ID, <<"stream-binary-writer">>).
+-define(BIN_READ_ID, <<"stream-binary-reader">>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -59,18 +61,71 @@ t_write_read_roundtrip(_Config) ->
     }),
     ?assertMatch(#{<<"status">> := <<"ok">>}, response(<<"stream_write">>, ?WRITE_ID)),
 
-    ok = invoke(<<"stream_read">>, ?READ_ID, #{}),
+    ok = invoke(<<"stream_read">>, ?READ_ID, #{<<"key">> => <<"k1">>}),
+    ReadReply = response(<<"stream_read">>, ?READ_ID),
     ?assertMatch(
         #{
             <<"status">> := <<"ok">>,
             <<"result">> := [
                 #{
                     <<"key">> := <<"k1">>,
+                    <<"time">> := _,
                     <<"data">> := #{<<"temperature">> := 23, <<"unit">> := <<"C">>}
                 }
             ]
         },
-        response(<<"stream_read">>, ?READ_ID)
+        ReadReply
+    ),
+    #{<<"result">> := [#{<<"time">> := Time}]} = ReadReply,
+    ?assert(is_integer(Time)).
+
+t_binary_format_roundtrip(_Config) ->
+    ok = invoke(<<"stream_write">>, ?BIN_WRITE_ID, #{
+        <<"key">> => <<"raw">>,
+        <<"data">> => <<"not-json">>
+    }),
+    ?assertMatch(#{<<"status">> := <<"ok">>}, response(<<"stream_write">>, ?BIN_WRITE_ID)),
+
+    ok = invoke(<<"stream_read">>, ?BIN_READ_ID, #{<<"key">> => <<"raw">>}),
+    ReadReply = response(<<"stream_read">>, ?BIN_READ_ID),
+    ?assertMatch(
+        #{
+            <<"status">> := <<"ok">>,
+            <<"result">> := [
+                #{<<"key">> := <<"raw">>, <<"time">> := _, <<"data">> := <<"not-json">>}
+            ]
+        },
+        ReadReply
+    ),
+    #{<<"result">> := [#{<<"time">> := Time}]} = ReadReply,
+    ?assert(is_integer(Time)).
+
+t_write_input_schema_matches_format(_Config) ->
+    {ok, #{input_schema := JsonSchema}} = emqx_agent_tool_stream:create(
+        tool(<<"stream_write">>, <<"json-schema-writer">>, <<"Write JSON stream">>)
+    ),
+    ?assertMatch(
+        #{<<"properties">> := #{<<"data">> := #{<<"type">> := <<"object">>}}},
+        JsonSchema
+    ),
+
+    {ok, #{input_schema := BinarySchema}} = emqx_agent_tool_stream:create(
+        tool(
+            <<"stream_write">>, <<"binary-schema-writer">>, <<"Write binary stream">>, <<"binary">>
+        )
+    ),
+    ?assertMatch(
+        #{<<"properties">> := #{<<"data">> := #{<<"type">> := <<"string">>}}},
+        BinarySchema
+    ).
+
+t_write_returns_error_on_json_encode_failure(_Config) ->
+    ?assertMatch(
+        {error, _},
+        emqx_agent_tool_stream:write(?STREAM, #{
+            <<"key">> => <<"bad-json">>,
+            <<"data">> => fun() -> ok end
+        })
     ).
 
 t_read_by_key(_Config) ->
@@ -88,19 +143,22 @@ t_read_from_and_from_ago(_Config) ->
     From = erlang:system_time(second) - 1,
     ok = write(<<"k1">>, #{<<"v">> => 1}),
 
-    ok = invoke(<<"stream_read">>, ?READ_ID, #{<<"from">> => From}),
+    ok = invoke(<<"stream_read">>, ?READ_ID, #{<<"key">> => <<"k1">>, <<"from">> => From}),
     ?assertMatch(
         #{<<"status">> := <<"ok">>, <<"result">> := [#{<<"key">> := <<"k1">>}]},
         response(<<"stream_read">>, ?READ_ID)
     ),
 
-    ok = invoke(<<"stream_read">>, ?READ_ID, #{<<"from_ago">> => 60}),
+    ok = invoke(<<"stream_read">>, ?READ_ID, #{<<"key">> => <<"k1">>, <<"from_ago">> => 60}),
     ?assertMatch(
         #{<<"status">> := <<"ok">>, <<"result">> := [#{<<"key">> := <<"k1">>}]},
         response(<<"stream_read">>, ?READ_ID)
     ),
 
-    ok = invoke(<<"stream_read">>, ?READ_ID, #{<<"from">> => erlang:system_time(second) + 60}),
+    ok = invoke(<<"stream_read">>, ?READ_ID, #{
+        <<"key">> => <<"k1">>,
+        <<"from">> => erlang:system_time(second) + 60
+    }),
     ?assertMatch(
         #{<<"status">> := <<"ok">>, <<"result">> := []},
         response(<<"stream_read">>, ?READ_ID)
@@ -113,6 +171,13 @@ t_read_rejects_conflicting_from_args(_Config) ->
         response(<<"stream_read">>, ?READ_ID)
     ).
 
+t_read_rejects_missing_key(_Config) ->
+    ok = invoke(<<"stream_read">>, ?READ_ID, #{}),
+    ?assertMatch(
+        #{<<"status">> := <<"error">>, <<"reason">> := <<"missing required field: key">>},
+        response(<<"stream_read">>, ?READ_ID)
+    ).
+
 t_delete_by_key(_Config) ->
     ok = write(<<"k1">>, #{<<"v">> => 1}),
     ok = write(<<"k2">>, #{<<"v">> => 2}),
@@ -120,7 +185,7 @@ t_delete_by_key(_Config) ->
     ok = invoke(<<"stream_del">>, ?DEL_ID, #{<<"key">> => <<"k1">>}),
     ?assertMatch(#{<<"status">> := <<"ok">>}, response(<<"stream_del">>, ?DEL_ID)),
 
-    ok = invoke(<<"stream_read">>, ?READ_ID, #{}),
+    ok = invoke(<<"stream_read">>, ?READ_ID, #{<<"key">> => <<"k2">>}),
     ?assertMatch(
         #{<<"status">> := <<"ok">>, <<"result">> := [#{<<"key">> := <<"k2">>}]},
         response(<<"stream_read">>, ?READ_ID)
@@ -133,7 +198,7 @@ t_delete_all(_Config) ->
     ok = invoke(<<"stream_del">>, ?DEL_ID, #{}),
     ?assertMatch(#{<<"status">> := <<"ok">>}, response(<<"stream_del">>, ?DEL_ID)),
 
-    ok = invoke(<<"stream_read">>, ?READ_ID, #{}),
+    ok = invoke(<<"stream_read">>, ?READ_ID, #{<<"key">> => <<"k1">>}),
     ?assertMatch(
         #{<<"status">> := <<"ok">>, <<"result">> := []},
         response(<<"stream_read">>, ?READ_ID)
@@ -147,10 +212,19 @@ write(Key, Data) ->
 register_tools() ->
     ok = emqx_agent_config:create_tool(tool(<<"stream_write">>, ?WRITE_ID, <<"Write stream">>)),
     ok = emqx_agent_config:create_tool(tool(<<"stream_read">>, ?READ_ID, <<"Read stream">>)),
-    ok = emqx_agent_config:create_tool(tool(<<"stream_del">>, ?DEL_ID, <<"Delete stream">>)).
+    ok = emqx_agent_config:create_tool(tool(<<"stream_del">>, ?DEL_ID, <<"Delete stream">>)),
+    ok = emqx_agent_config:create_tool(
+        tool(<<"stream_write">>, ?BIN_WRITE_ID, <<"Write binary stream">>, <<"binary">>)
+    ),
+    ok = emqx_agent_config:create_tool(
+        tool(<<"stream_read">>, ?BIN_READ_ID, <<"Read binary stream">>, <<"binary">>)
+    ).
 
 tool(Type, Id, Desc) ->
     #{<<"type">> => Type, <<"id">> => Id, <<"desc">> => Desc, <<"stream">> => ?STREAM}.
+
+tool(Type, Id, Desc, Format) ->
+    maps:merge(tool(Type, Id, Desc), #{<<"format">> => Format}).
 
 invoke(Type, ToolId, Args) ->
     ReqId = integer_to_binary(erlang:unique_integer([positive, monotonic])),

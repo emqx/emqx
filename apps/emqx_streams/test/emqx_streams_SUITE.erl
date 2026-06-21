@@ -122,7 +122,9 @@ t_smoke(_Config) ->
     ?assertEqual(10, length(AllMessages)),
     ok.
 
+%% Verify inserting a message with an explicit key stores it under that key.
 t_message_db_insert_with_key(_Config) ->
+    %% Create a stream and a message whose topic differs from the explicit key.
     Stream = emqx_streams_test_utils:ensure_stream_created(#{
         name => <<"message_db_insert_with_key">>,
         topic_filter => <<"db/#">>,
@@ -130,14 +132,18 @@ t_message_db_insert_with_key(_Config) ->
     }),
     Message = emqx_message:make(<<"ct">>, ?QOS_1, <<"db/original">>, <<"payload">>),
 
+    %% Insert the message with an explicit key.
     ok = emqx_streams_message_db:insert(Stream, <<"custom-key">>, Message),
 
+    %% Verify that the message is indexed by the explicit key only.
     ?assertEqual([], emqx_streams_message_db:dirty_read_key(Stream, <<"other-key">>)),
     [Record] = emqx_streams_message_db:dirty_read_key(Stream, <<"custom-key">>),
     ?assertEqual([<<"payload">>], record_payloads([Record])),
     ok.
 
+%% Verify dirty reads can be limited by start and end timestamps.
 t_message_db_dirty_read_limits(_Config) ->
+    %% Create a stream and insert two messages with different keys.
     Stream = emqx_streams_test_utils:ensure_stream_created(#{
         name => <<"message_db_dirty_read_limits">>,
         topic_filter => <<"db/#">>,
@@ -149,10 +155,12 @@ t_message_db_dirty_read_limits(_Config) ->
     ok = emqx_streams_message_db:insert(Stream, <<"key-1">>, Message1),
     ok = emqx_streams_message_db:insert(Stream, <<"key-2">>, Message2),
 
+    %% Read back timestamps to build exact time-window filters.
     [{_, T1, _}] = emqx_streams_message_db:dirty_read_key(Stream, <<"key-1">>),
     [{_, T2, _}] = emqx_streams_message_db:dirty_read_key(Stream, <<"key-2">>),
     ?assert(T1 < T2),
 
+    %% Verify all-record and keyed reads honor start/end limits.
     ?assertEqual(
         [<<"payload-1">>, <<"payload-2">>],
         record_payloads(emqx_streams_message_db:dirty_read_all(Stream))
@@ -176,7 +184,9 @@ t_message_db_dirty_read_limits(_Config) ->
     ),
     ok.
 
+%% Verify deleting one key removes matching records from every generation.
 t_message_db_delete_key(_Config) ->
+    %% Create a stream and insert messages across generations.
     Stream = emqx_streams_test_utils:ensure_stream_created(#{
         name => <<"message_db_delete_key">>,
         topic_filter => <<"db/#">>,
@@ -190,13 +200,17 @@ t_message_db_delete_key(_Config) ->
     ok = emqx_streams_message_db:add_regular_db_generation(),
     ok = emqx_streams_message_db:insert(Stream, <<"key-1">>, Message2),
     ok = emqx_streams_message_db:insert(Stream, <<"key-2">>, Message3),
+
+    %% Verify both generations contain records for the key being deleted.
     ?assertEqual(
         [<<"payload-1">>, <<"payload-2">>],
         record_payloads(emqx_streams_message_db:dirty_read_key(Stream, <<"key-1">>))
     ),
 
+    %% Delete one key from all generations.
     ok = emqx_streams_message_db:delete_key(Stream, <<"key-1">>),
 
+    %% Verify only the targeted key was removed.
     ?assertEqual([], emqx_streams_message_db:dirty_read_key(Stream, <<"key-1">>)),
     ?assertEqual(
         [<<"payload-3">>],
@@ -204,7 +218,9 @@ t_message_db_delete_key(_Config) ->
     ),
     ok.
 
+%% Verify deleting all stream records removes them from all generations.
 t_message_db_delete_all(_Config) ->
+    %% Create a stream and insert messages across generations.
     Stream = emqx_streams_test_utils:ensure_stream_created(#{
         name => <<"message_db_delete_all">>,
         topic_filter => <<"db/#">>,
@@ -218,8 +234,10 @@ t_message_db_delete_all(_Config) ->
     ok = emqx_streams_message_db:insert(Stream, <<"key-2">>, Message2),
     ?assertEqual(2, length(emqx_streams_message_db:dirty_read_all(Stream))),
 
+    %% Delete all records for the stream from all generations.
     ok = emqx_streams_message_db:delete_all(Stream),
 
+    %% Verify the stream has no remaining records.
     ?assertEqual([], emqx_streams_message_db:dirty_read_all(Stream)),
     ok.
 

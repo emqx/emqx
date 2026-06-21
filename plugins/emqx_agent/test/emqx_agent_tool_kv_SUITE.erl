@@ -19,6 +19,9 @@
 -define(READ_ALL_ID, <<"kv-reader-all">>).
 -define(DEL_ID, <<"kv-deleter">>).
 -define(CLEAR_ID, <<"kv-clearer">>).
+-define(BIN_WRITE_ID, <<"kv-binary-writer">>).
+-define(BIN_READ_ID, <<"kv-binary-reader">>).
+-define(BIN_READ_ALL_ID, <<"kv-binary-reader-all">>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -63,6 +66,47 @@ t_write_read(_Config) ->
     ?assertMatch(
         #{<<"status">> := <<"ok">>, <<"result">> := [#{<<"v">> := 1}]},
         response(<<"kv_read">>, ?READ_ID)
+    ).
+
+t_binary_format_roundtrip(_Config) ->
+    ok = invoke(<<"kv_write">>, ?BIN_WRITE_ID, #{
+        <<"key">> => <<"raw">>,
+        <<"payload">> => <<"not-json">>
+    }),
+    ?assertMatch(#{<<"status">> := <<"ok">>}, response(<<"kv_write">>, ?BIN_WRITE_ID)),
+
+    ok = invoke(<<"kv_read">>, ?BIN_READ_ID, #{<<"key">> => <<"raw">>}),
+    ?assertMatch(
+        #{<<"status">> := <<"ok">>, <<"result">> := [<<"not-json">>]},
+        response(<<"kv_read">>, ?BIN_READ_ID)
+    ),
+
+    ok = invoke(<<"kv_read_all">>, ?BIN_READ_ALL_ID, #{}),
+    ?assertMatch(
+        #{
+            <<"status">> := <<"ok">>,
+            <<"result">> := [#{<<"key">> := <<"raw">>, <<"value">> := <<"not-json">>}]
+        },
+        response(<<"kv_read_all">>, ?BIN_READ_ALL_ID)
+    ).
+
+t_write_input_schema_matches_format(_Config) ->
+    {ok, #{input_schema := JsonSchema}} = emqx_agent_tool_kv:create(
+        tool(<<"kv_write">>, <<"json-schema-writer">>, <<"Write JSON KV">>, ?STREAM)
+    ),
+    ?assertMatch(
+        #{<<"properties">> := #{<<"payload">> := #{<<"type">> := <<"object">>}}},
+        JsonSchema
+    ),
+
+    {ok, #{input_schema := BinarySchema}} = emqx_agent_tool_kv:create(
+        tool(
+            <<"kv_write">>, <<"binary-schema-writer">>, <<"Write binary KV">>, ?STREAM, <<"binary">>
+        )
+    ),
+    ?assertMatch(
+        #{<<"properties">> := #{<<"payload">> := #{<<"type">> := <<"string">>}}},
+        BinarySchema
     ).
 
 t_write_overwrites_key(_Config) ->
@@ -141,10 +185,22 @@ register_tools() ->
         tool(<<"kv_read_all">>, ?READ_ALL_ID, <<"Read All KV">>, ?STREAM)
     ),
     ok = emqx_agent_config:create_tool(tool(<<"kv_del">>, ?DEL_ID, <<"Delete KV">>, ?STREAM)),
-    ok = emqx_agent_config:create_tool(tool(<<"kv_clear">>, ?CLEAR_ID, <<"Clear KV">>, ?STREAM)).
+    ok = emqx_agent_config:create_tool(tool(<<"kv_clear">>, ?CLEAR_ID, <<"Clear KV">>, ?STREAM)),
+    ok = emqx_agent_config:create_tool(
+        tool(<<"kv_write">>, ?BIN_WRITE_ID, <<"Write Binary KV">>, ?STREAM, <<"binary">>)
+    ),
+    ok = emqx_agent_config:create_tool(
+        tool(<<"kv_read">>, ?BIN_READ_ID, <<"Read Binary KV">>, ?STREAM, <<"binary">>)
+    ),
+    ok = emqx_agent_config:create_tool(
+        tool(<<"kv_read_all">>, ?BIN_READ_ALL_ID, <<"Read All Binary KV">>, ?STREAM, <<"binary">>)
+    ).
 
 tool(Type, Id, Desc, Stream) ->
     #{<<"type">> => Type, <<"id">> => Id, <<"desc">> => Desc, <<"stream">> => Stream}.
+
+tool(Type, Id, Desc, Stream, Format) ->
+    maps:merge(tool(Type, Id, Desc, Stream), #{<<"format">> => Format}).
 
 invoke(Type, ToolId, Args) ->
     ReqId = integer_to_binary(erlang:unique_integer([positive, monotonic])),

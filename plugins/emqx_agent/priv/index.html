@@ -144,6 +144,18 @@
           </div>
         </div>
 
+        <!-- stream / kv read-write format -->
+        <div id="f-format" style="display:none">
+          <div class="field">
+            <label>Format</label>
+            <select id="tool-format">
+              <option value="json">json</option>
+              <option value="binary">binary</option>
+            </select>
+            <div class="hint">json encodes write bodies and tries to decode read payloads. binary reads and writes payloads as-is.</div>
+          </div>
+        </div>
+
         <div class="form-actions">
           <button class="btn primary" id="tool-submit-btn" onclick="saveTool()">Create</button>
           <span id="tool-msg" class="msg"></span>

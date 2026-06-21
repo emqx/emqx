@@ -16,16 +16,6 @@ Key-value tools backed by last-value EMQX streams.
 -define(DEL_TYPE, <<"kv_del">>).
 -define(CLEAR_TYPE, <<"kv_clear">>).
 
--define(WRITE_SCHEMA, #{
-    <<"type">> => <<"object">>,
-    <<"properties">> => #{
-        <<"key">> => #{<<"type">> => <<"string">>},
-        <<"payload">> => #{<<"description">> => <<"JSON value to write">>}
-    },
-    <<"required">> => [<<"key">>, <<"payload">>],
-    <<"additionalProperties">> => false
-}).
-
 -define(KEY_SCHEMA, #{
     <<"type">> => <<"object">>,
     <<"properties">> => #{
@@ -57,24 +47,30 @@ deinit() ->
     ok = emqx_agent_tool_registry:unregister_type(?DEL_TYPE),
     ok = emqx_agent_tool_registry:unregister_type(?CLEAR_TYPE).
 
-create(#{<<"type">> := Type, <<"id">> := ToolId, <<"desc">> := Desc, <<"stream">> := Stream}) when
+create(
+    #{<<"type">> := Type, <<"id">> := ToolId, <<"desc">> := Desc, <<"stream">> := Stream} =
+        CreateContext
+) when
     Type =:= ?WRITE_TYPE;
     Type =:= ?READ_TYPE;
     Type =:= ?READ_ALL_TYPE;
     Type =:= ?DEL_TYPE;
     Type =:= ?CLEAR_TYPE
 ->
-    case validate_lastvalue_stream(Stream) of
-        ok ->
-            {ok, #{
-                tool_id => ToolId,
-                type => Type,
-                module => ?MODULE,
-                display_name => display_name(Desc, Type),
-                description => description(Stream, Type),
-                context => #{<<"type">> => Type, <<"stream">> => Stream},
-                input_schema => input_schema(Type)
-            }};
+    maybe
+        ok ?= validate_lastvalue_stream(Stream),
+        {ok, Format} ?= tool_format(CreateContext),
+        Context = context(Type, Stream, Format),
+        {ok, #{
+            tool_id => ToolId,
+            type => Type,
+            module => ?MODULE,
+            display_name => display_name(Desc, Type),
+            description => description(Stream, Type),
+            context => Context,
+            input_schema => input_schema(Context)
+        }}
+    else
         {error, _} = Error ->
             Error
     end.
@@ -82,33 +78,50 @@ create(#{<<"type">> := Type, <<"id">> := ToolId, <<"desc">> := Desc, <<"stream">
 destroy(_Tool) ->
     ok.
 
-to_map(#{tool_id := Id, type := Type, description := Desc, context := #{<<"stream">> := Stream}}) ->
-    #{
+to_map(#{
+    tool_id := Id, type := Type, description := Desc, context := #{<<"stream">> := Stream} = Context
+}) ->
+    Base = #{
         <<"tool_id">> => Id,
         <<"type">> => Type,
         <<"description">> => Desc,
         <<"stream">> => Stream,
-        <<"input_schema">> => input_schema(Type)
-    }.
+        <<"input_schema">> => input_schema(Context)
+    },
+    maps:merge(Base, maps:with([<<"format">>], Context)).
 
-handle_invoke(#{<<"type">> := ?WRITE_TYPE, <<"stream">> := Stream}, Request) ->
+handle_invoke(
+    #{<<"type">> := ?WRITE_TYPE, <<"stream">> := Stream, <<"format">> := Format}, Request
+) ->
     Args = maps:get(<<"args">>, Request, #{}),
-    emqx_agent_tool_stream:write(Stream, #{
-        <<"key">> => maps:get(<<"key">>, Args),
-        <<"data">> => maps:get(<<"payload">>, Args)
-    });
-handle_invoke(#{<<"type">> := ?READ_TYPE, <<"stream">> := Stream}, Request) ->
+    emqx_agent_tool_stream:write(
+        Stream,
+        #{
+            <<"key">> => maps:get(<<"key">>, Args),
+            <<"data">> => maps:get(<<"payload">>, Args)
+        },
+        Format
+    );
+handle_invoke(#{<<"type">> := ?READ_TYPE, <<"stream">> := Stream, <<"format">> := Format}, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
-    case emqx_agent_tool_stream:read(Stream, #{<<"key">> => maps:get(<<"key">>, Args)}) of
+    case
+        emqx_agent_tool_stream:read(
+            Stream,
+            #{<<"key">> => maps:get(<<"key">>, Args)},
+            Format
+        )
+    of
         {ok, Items} -> {ok, [maps:get(<<"data">>, Item) || Item <- Items]};
         {error, _} = Error -> Error
     end;
-handle_invoke(#{<<"type">> := ?READ_ALL_TYPE, <<"stream">> := Stream}, _Request) ->
-    case emqx_agent_tool_stream:read(Stream, #{}) of
+handle_invoke(
+    #{<<"type">> := ?READ_ALL_TYPE, <<"stream">> := Stream, <<"format">> := Format}, _Request
+) ->
+    case emqx_agent_tool_stream:read_all(Stream, Format) of
         {ok, Items} ->
             {ok, [
-                #{<<"key">> => maps:get(<<"key">>, Item), <<"value">> => maps:get(<<"data">>, Item)}
-             || Item <- Items
+                #{<<"key">> => Key, <<"value">> => Data}
+             || #{<<"key">> := Key, <<"data">> := Data} <- Items
             ]};
         {error, _} = Error ->
             Error
@@ -130,6 +143,31 @@ validate_lastvalue_stream(StreamName) ->
             {error, stream_not_found}
     end.
 
+context(?WRITE_TYPE, Stream, Format) ->
+    #{<<"type">> => ?WRITE_TYPE, <<"stream">> => Stream, <<"format">> => Format};
+context(?READ_TYPE, Stream, Format) ->
+    #{<<"type">> => ?READ_TYPE, <<"stream">> => Stream, <<"format">> => Format};
+context(?READ_ALL_TYPE, Stream, Format) ->
+    #{<<"type">> => ?READ_ALL_TYPE, <<"stream">> => Stream, <<"format">> => Format};
+context(?DEL_TYPE, Stream, _Format) ->
+    #{<<"type">> => ?DEL_TYPE, <<"stream">> => Stream};
+context(?CLEAR_TYPE, Stream, _Format) ->
+    #{<<"type">> => ?CLEAR_TYPE, <<"stream">> => Stream}.
+
+tool_format(#{<<"type">> := Type, <<"format">> := Format}) when
+    (Type =:= ?WRITE_TYPE orelse Type =:= ?READ_TYPE orelse Type =:= ?READ_ALL_TYPE) andalso
+        (Format =:= <<"json">> orelse Format =:= <<"binary">>)
+->
+    {ok, Format};
+tool_format(#{<<"type">> := Type}) when
+    Type =:= ?WRITE_TYPE; Type =:= ?READ_TYPE; Type =:= ?READ_ALL_TYPE
+->
+    {ok, <<"json">>};
+tool_format(#{<<"type">> := Type}) when Type =:= ?DEL_TYPE; Type =:= ?CLEAR_TYPE ->
+    {ok, undefined};
+tool_format(#{<<"format">> := Format}) ->
+    {error, {invalid_format, Format}}.
+
 display_name(Desc, ?WRITE_TYPE) -> <<Desc/binary, " — KV Write">>;
 display_name(Desc, ?READ_TYPE) -> <<Desc/binary, " — KV Read">>;
 display_name(Desc, ?READ_ALL_TYPE) -> <<Desc/binary, " — KV Read All">>;
@@ -147,8 +185,24 @@ description(Stream, ?DEL_TYPE) ->
 description(Stream, ?CLEAR_TYPE) ->
     <<"Clear all key-value entries from stream: ", Stream/binary>>.
 
-input_schema(?WRITE_TYPE) -> ?WRITE_SCHEMA;
-input_schema(?READ_TYPE) -> ?KEY_SCHEMA;
-input_schema(?READ_ALL_TYPE) -> ?EMPTY_SCHEMA;
-input_schema(?DEL_TYPE) -> ?KEY_SCHEMA;
-input_schema(?CLEAR_TYPE) -> ?EMPTY_SCHEMA.
+input_schema(#{<<"type">> := ?WRITE_TYPE, <<"format">> := Format}) -> write_schema(Format);
+input_schema(#{<<"type">> := ?READ_TYPE}) -> ?KEY_SCHEMA;
+input_schema(#{<<"type">> := ?READ_ALL_TYPE}) -> ?EMPTY_SCHEMA;
+input_schema(#{<<"type">> := ?DEL_TYPE}) -> ?KEY_SCHEMA;
+input_schema(#{<<"type">> := ?CLEAR_TYPE}) -> ?EMPTY_SCHEMA.
+
+write_schema(Format) ->
+    #{
+        <<"type">> => <<"object">>,
+        <<"properties">> => #{
+            <<"key">> => #{<<"type">> => <<"string">>},
+            <<"payload">> => write_payload_schema(Format)
+        },
+        <<"required">> => [<<"key">>, <<"payload">>],
+        <<"additionalProperties">> => false
+    }.
+
+write_payload_schema(<<"binary">>) ->
+    #{<<"type">> => <<"string">>, <<"description">> => <<"Binary value to write">>};
+write_payload_schema(_Format) ->
+    #{<<"type">> => <<"object">>, <<"description">> => <<"JSON object to write">>}.

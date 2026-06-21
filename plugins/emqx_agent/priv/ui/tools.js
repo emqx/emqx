@@ -40,6 +40,10 @@ function isStreamTool(type) {
   return type?.startsWith('stream_') || type?.startsWith('kv_');
 }
 
+function hasFormat(type) {
+  return ['stream_write', 'stream_read', 'kv_write', 'kv_read', 'kv_read_all'].includes(type);
+}
+
 export function collectToolBody() {
   const type = document.getElementById('tool-type').value;
   const id   = document.getElementById('tool-id').value.trim();
@@ -62,6 +66,7 @@ export function collectToolBody() {
     body.query = document.getElementById('tool-query').value.trim();
   } else if (isStreamTool(type)) {
     body.stream = document.getElementById('tool-stream').value.trim();
+    if (hasFormat(type)) body.format = document.getElementById('tool-format').value;
   }
   return body;
 }
@@ -121,6 +126,7 @@ export function editTool(type, id) {
     document.getElementById('tool-query').value = tool.query ?? '';
   } else if (isStreamTool(type)) {
     document.getElementById('tool-stream').value = tool.stream ?? '';
+    if (hasFormat(type)) document.getElementById('tool-format').value = tool.format ?? 'json';
   }
 
   document.querySelector('#tab-tools .card').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -174,6 +180,7 @@ export function resetToolEditor() {
   document.getElementById('tool-resource').value = '';
   document.getElementById('tool-query').value = '';
   document.getElementById('tool-stream').value = '';
+  document.getElementById('tool-format').value = 'json';
   updateToolForm();
   setMsg('tool-msg', '');
 }
@@ -196,5 +203,6 @@ export function updateToolForm() {
   document.getElementById('f-http').style.display     = type === 'http'              ? '' : 'none';
   document.getElementById('f-ch').style.display       = type === 'postgresql__query'  ? '' : 'none';
   document.getElementById('f-stream').style.display   = isStreamTool(type) ? '' : 'none';
+  document.getElementById('f-format').style.display   = hasFormat(type) ? '' : 'none';
   if (type === 'postgresql__query') renderConnectionOptions();
 }

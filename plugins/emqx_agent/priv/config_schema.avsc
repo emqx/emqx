@@ -60,7 +60,8 @@
               {"name": "type", "type": {"type": "enum", "name": "StreamWriteType", "symbols": ["stream_write"]}, "default": "stream_write", "description": "$tool_type_desc"},
               {"name": "id", "type": "string", "description": "$tool_id_desc"},
               {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
-              {"name": "stream", "type": "string", "description": "$tool_stream_desc"}
+              {"name": "stream", "type": "string", "description": "$tool_stream_desc"},
+              {"name": "format", "type": "string", "default": "json", "description": "$tool_format_desc"}
             ]
           },
           {
@@ -70,7 +71,8 @@
               {"name": "type", "type": {"type": "enum", "name": "StreamReadType", "symbols": ["stream_read"]}, "default": "stream_read", "description": "$tool_type_desc"},
               {"name": "id", "type": "string", "description": "$tool_id_desc"},
               {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
-              {"name": "stream", "type": "string", "description": "$tool_stream_desc"}
+              {"name": "stream", "type": "string", "description": "$tool_stream_desc"},
+              {"name": "format", "type": "string", "default": "json", "description": "$tool_format_desc"}
             ]
           },
           {
@@ -90,7 +92,8 @@
               {"name": "type", "type": {"type": "enum", "name": "KvWriteType", "symbols": ["kv_write"]}, "default": "kv_write", "description": "$tool_type_desc"},
               {"name": "id", "type": "string", "description": "$tool_id_desc"},
               {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
-              {"name": "stream", "type": "string", "description": "$tool_stream_desc"}
+              {"name": "stream", "type": "string", "description": "$tool_stream_desc"},
+              {"name": "format", "type": "string", "default": "json", "description": "$tool_format_desc"}
             ]
           },
           {
@@ -100,7 +103,8 @@
               {"name": "type", "type": {"type": "enum", "name": "KvReadType", "symbols": ["kv_read"]}, "default": "kv_read", "description": "$tool_type_desc"},
               {"name": "id", "type": "string", "description": "$tool_id_desc"},
               {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
-              {"name": "stream", "type": "string", "description": "$tool_stream_desc"}
+              {"name": "stream", "type": "string", "description": "$tool_stream_desc"},
+              {"name": "format", "type": "string", "default": "json", "description": "$tool_format_desc"}
             ]
           },
           {
@@ -110,7 +114,8 @@
               {"name": "type", "type": {"type": "enum", "name": "KvReadAllType", "symbols": ["kv_read_all"]}, "default": "kv_read_all", "description": "$tool_type_desc"},
               {"name": "id", "type": "string", "description": "$tool_id_desc"},
               {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
-              {"name": "stream", "type": "string", "description": "$tool_stream_desc"}
+              {"name": "stream", "type": "string", "description": "$tool_stream_desc"},
+              {"name": "format", "type": "string", "default": "json", "description": "$tool_format_desc"}
             ]
           },
           {
