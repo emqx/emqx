@@ -26,9 +26,9 @@ init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx_durable_storage,
-            {emqx, emqx_config()},
-            {emqx_mq, emqx_mq_config()},
-            {emqx_streams, emqx_streams_config()},
+            {emqx, emqx_streams_test_utils:cth_config(emqx)},
+            {emqx_mq, emqx_streams_test_utils:cth_config(emqx_mq)},
+            {emqx_streams, emqx_streams_test_utils:cth_config(emqx_streams)},
             emqx_conf,
             emqx_resource,
             emqx_agent
@@ -41,15 +41,19 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
-    ok = emqx_streams_registry:delete_all(),
+    ok = emqx_streams_test_utils:cleanup_streams(),
     ok = emqx_agent_plugin_config_fixture:setup(),
-    {ok, _Stream} = emqx_streams_registry:create(stream(?STREAM, true)),
+    _Stream = emqx_streams_test_utils:ensure_stream_created(#{
+        name => ?STREAM,
+        topic_filter => ?TOPIC_FILTER,
+        is_lastvalue => true
+    }),
     ok = register_tools(),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
     ok = emqx_agent_plugin_config_fixture:teardown(),
-    ok = emqx_streams_registry:delete_all().
+    ok = emqx_streams_test_utils:cleanup_streams().
 
 t_write_read(_Config) ->
     ok = write(<<"k1">>, #{<<"v">> => 1}),
@@ -114,7 +118,11 @@ t_clear(_Config) ->
     ).
 
 t_create_rejects_regular_stream(_Config) ->
-    {ok, _Stream} = emqx_streams_registry:create(stream(?REGULAR_STREAM, false)),
+    _Stream = emqx_streams_test_utils:ensure_stream_created(#{
+        name => ?REGULAR_STREAM,
+        topic_filter => ?TOPIC_FILTER,
+        is_lastvalue => false
+    }),
 
     ?assertEqual(
         {error, stream_is_not_lastvalue},
@@ -137,18 +145,6 @@ register_tools() ->
 
 tool(Type, Id, Desc, Stream) ->
     #{<<"type">> => Type, <<"id">> => Id, <<"desc">> => Desc, <<"stream">> => Stream}.
-
-stream(Name, IsLastValue) ->
-    {ok, KeyExpression} = emqx_variform:compile(<<"message.from">>),
-    #{
-        name => Name,
-        topic_filter => ?TOPIC_FILTER,
-        key_expression => KeyExpression,
-        is_lastvalue => IsLastValue,
-        limits => #{max_shard_message_count => infinity, max_shard_message_bytes => infinity},
-        data_retention_period => 7 * 24 * 60 * 60 * 1000,
-        read_max_unacked => 1000
-    }.
 
 invoke(Type, ToolId, Args) ->
     ReqId = integer_to_binary(erlang:unique_integer([positive, monotonic])),
@@ -183,35 +179,3 @@ await_deliver(Topic) ->
 
 decode_reply(#deliver{message = #message{payload = P}}) ->
     emqx_utils_json:decode(P).
-
-emqx_config() ->
-    #{
-        config => #{
-            <<"durable_storage">> => #{
-                <<"streams_messages">> => #{
-                    <<"n_shards">> => 2,
-                    <<"transaction">> => #{
-                        <<"flush_interval">> => 100,
-                        <<"idle_flush_interval">> => 20,
-                        <<"conflict_window">> => 5000
-                    },
-                    <<"subscriptions">> => #{<<"batch_size">> => 1}
-                }
-            }
-        }
-    }.
-
-emqx_mq_config() ->
-    #{config => #{<<"mq">> => #{<<"enable">> => false}}}.
-
-emqx_streams_config() ->
-    #{
-        config => #{
-            <<"streams">> => #{
-                <<"enable">> => true,
-                <<"max_stream_count">> => 1000,
-                <<"auto_create">> => #{<<"regular">> => false, <<"lastvalue">> => false}
-            }
-        },
-        after_start => fun() -> started = emqx_streams_controller:wait_status(15_000) end
-    }.
