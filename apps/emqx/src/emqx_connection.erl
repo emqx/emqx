@@ -86,6 +86,21 @@
     parser/0
 ]).
 
+-record(conf, {
+    %% Listener Type and Name
+    listener :: {Type :: atom(), Name :: atom()},
+    %% Zone name
+    zone :: atom(),
+    %% ActiveN
+    active_n :: pos_integer(),
+    %% Send queue high watermark in bytes
+    sendq_watermark :: non_neg_integer(),
+    %% Hibernate connection process if inactive for
+    hibernate_after :: integer() | infinity,
+    %%
+    force_shutdown :: _TODO
+}).
+
 -record(state, {
     %% TCP/TLS Transport
     transport :: esockd:transport(),
@@ -107,16 +122,9 @@
     %% Until complete CONNECT packet received acts as idle timer, which shuts
     %% the connection down once triggered.
     stats_timer :: disabled | option(reference()) | {idle, reference()},
-    %% ActiveN
-    active_n :: pos_integer(),
-    %% Send queue high watermark in bytes
-    sendq_watermark :: non_neg_integer(),
-    %% Hibernate connection process if inactive for
-    hibernate_after :: integer() | infinity,
-    %% Zone name
-    zone :: atom(),
-    %% Listener Type and Name
-    listener :: {Type :: atom(), Name :: atom()},
+
+    %% Conf tuple, rarely changes:
+    conf :: #conf{},
 
     %% QUIC conn shared state
     quic_conn_ss :: option(map()),
@@ -232,8 +240,8 @@ info(sockstate, #state{sockstate = SockSt}) ->
     SockSt;
 info(stats_timer, #state{stats_timer = StatsTimer}) ->
     StatsTimer;
-info(zone, #state{zone = Zone}) ->
-    Zone;
+info(zone, #state{conf = Conf}) ->
+    Conf#conf.zone;
 info({channel, Info}, #state{channel = Channel}) ->
     emqx_channel:info(Info, Channel).
 
@@ -343,15 +351,15 @@ init_state(
         conn_mod => ?MODULE,
         sock => Socket
     },
-    ActiveN = get_active_n(Type, Listener),
     Channel = emqx_channel:init(ConnInfo, Opts),
     State0 = #state{
         transport = Transport,
         socket = Socket,
         sockstate = idle,
         channel = Channel,
-        active_n = ActiveN,
-        listener = {Type, Listener},
+        conf = #conf{
+            listener = {Type, Listener}
+        },
         %% for quic streams to inherit
         quic_conn_ss = maps:get(conn_shared_state, Opts, undefined),
         namespace = ?global_ns,
@@ -365,8 +373,7 @@ run_loop(
         transport = Transport,
         socket = Socket,
         channel = Channel,
-        listener = Listener,
-        zone = Zone
+        conf = #conf{listener = Listener, zone = Zone}
     }
 ) ->
     emqx_connection_util:label_process(Listener, emqx_channel:info(conninfo, Channel)),
@@ -398,8 +405,10 @@ exit_on_sock_error(Reason) ->
 recvloop(
     Parent,
     State = #state{
-        hibernate_after = HibernateTimeout,
-        zone = Zone
+        conf = #conf{
+            hibernate_after = HibernateTimeout,
+            zone = Zone
+        }
     }
 ) ->
     receive
@@ -438,15 +447,15 @@ wakeup_from_hib(Parent, State) ->
 %%--------------------------------------------------------------------
 %% Ensure/cancel stats timer
 
-init_stats_timer(#state{zone = Zone}) ->
+init_stats_timer(#state{conf = #conf{zone = Zone}}) ->
     case emqx_config:get_zone_conf(Zone, [stats, enable]) of
         true -> undefined;
         false -> disabled
     end.
 
 -compile({inline, [ensure_stats_timer/1]}).
-ensure_stats_timer(State = #state{stats_timer = undefined}) ->
-    Timeout = get_zone_idle_timeout(State#state.zone),
+ensure_stats_timer(State = #state{stats_timer = undefined, conf = #conf{zone = Zone}}) ->
+    Timeout = get_zone_idle_timeout(Zone),
     State#state{stats_timer = start_timer(Timeout, emit_stats)};
 ensure_stats_timer(State) ->
     %% Either already active, disabled, or paused.
@@ -563,7 +572,7 @@ handle_msg({Passive, _Sock}, State = #state{threshold_in = ThresholdIn}) when
     handle_info(activate_socket, NState);
 handle_msg(
     Deliver = #deliver{},
-    #state{active_n = ActiveN} = State
+    #state{conf = #conf{active_n = ActiveN}} = State
 ) ->
     ?BROKER_INSTR_SETMARK(t0_deliver, {_Msg#message.extra, ?BROKER_INSTR_TS()}),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
@@ -1062,7 +1071,7 @@ run_triggers(Dir, NThreshold, State) when not is_list(NThreshold) ->
         out -> State#state{threshold_out = NThreshold}
     end.
 
-run_gc(#state{zone = Zone}) ->
+run_gc(#state{conf = #conf{zone = Zone}}) ->
     case emqx_olp:backoff_gc(Zone) of
         false -> erlang:garbage_collect();
         true -> ok
@@ -1070,9 +1079,14 @@ run_gc(#state{zone = Zone}) ->
 
 probe_sendq_congestion(State = #state{sockstate = congested}) ->
     check_sendq_congestion(State);
-probe_sendq_congestion(State = #state{sendq_watermark = 0}) ->
+probe_sendq_congestion(State = #state{conf = #conf{sendq_watermark = 0}}) ->
     State;
-probe_sendq_congestion(State = #state{sockstate = running, sendq_watermark = Watermark}) ->
+probe_sendq_congestion(
+    State = #state{
+        sockstate = running,
+        conf = #conf{sendq_watermark = Watermark}
+    }
+) ->
     SQSize = get_sendq_size(State),
     case SQSize > Watermark div 2 of
         true ->
@@ -1084,7 +1098,12 @@ probe_sendq_congestion(State = #state{sockstate = running, sendq_watermark = Wat
 probe_sendq_congestion(State) ->
     State.
 
-check_sendq_congestion(State = #state{sockstate = congested, sendq_watermark = Watermark}) ->
+check_sendq_congestion(
+    State = #state{
+        sockstate = congested,
+        conf = #conf{sendq_watermark = Watermark}
+    }
+) ->
     SQSize = get_sendq_size(State),
     case SQSize < Watermark div 4 of
         true ->
@@ -1108,8 +1127,7 @@ signal_channel_congestion(Status, SQSize, State = #state{channel = Channel}) ->
     NChannel = emqx_channel:handle_signal(Signal, Channel),
     State#state{channel = NChannel}.
 
-check_oom(Pubs, Bytes, #state{zone = Zone}) ->
-    ShutdownPolicy = emqx_config:get_zone_conf(Zone, [force_shutdown]),
+check_oom(Pubs, Bytes, #state{conf = #conf{force_shutdown = ShutdownPolicy}}) ->
     case emqx_utils:check_oom(ShutdownPolicy) of
         {shutdown, Reason} ->
             %% triggers terminate/2 callback immediately
@@ -1216,7 +1234,7 @@ activate_socket(
         transport = Transport,
         sockstate = SockState,
         socket = Socket,
-        active_n = ActiveN
+        conf = #conf{active_n = ActiveN}
     } = State
 ) when
     SockState =/= closed
@@ -1372,7 +1390,8 @@ wait_for_quic_stream_close(
 start_timer(Time, Msg) ->
     emqx_utils:start_timer(Time, Msg).
 
-init_zone_specific_state(Zone, Opts, #state{listener = {Type, Listener}} = State0) ->
+init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
+    #conf{listener = {Type, Listener}} = Conf,
     FrameOpts0 = #{
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
@@ -1415,9 +1434,13 @@ init_zone_specific_state(Zone, Opts, #state{listener = {Type, Listener}} = State
         serialize = Serialize,
         threshold_in = ThresholdIn,
         threshold_out = ThresholdOut,
-        sendq_watermark = HighWatermark,
-        hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
-        zone = Zone
+        conf = Conf#conf{
+            zone = Zone,
+            active_n = ActiveN,
+            sendq_watermark = HighWatermark,
+            hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
+            force_shutdown = emqx_config:get_zone_conf(Zone, [force_shutdown])
+        }
     }.
 
 init_parser_and_serializer(FrameOpts0, State0) ->
