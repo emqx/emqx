@@ -23,7 +23,8 @@
 -export([
     create_esockd_limiter_client/2,
     create_listener_limiter_client/2,
-    create_channel_client_container/2
+    create_channel_client_container/2,
+    create_session_client_container/1
 ]).
 
 %% Generic limiter client API
@@ -78,15 +79,15 @@
 %%--------------------------------------------------------------------
 
 %% remember to keep similar macro in `emqx_mt_limiter` in sync, if necessary.
--define(CHANNEL_LIM_NAMES, [messages, bytes, delivery_bytes, delivery_messages, subscribes]).
--define(LISTENER_LIM_NAMES, [max_conn]).
--define(ZONE_LIM_NAMES, [max_conn, messages, bytes]).
+-define(CHANNEL_LIMITS, [messages, bytes, subscribes]).
+-define(SESSION_LIMITS, [delivery_bytes, delivery_messages]).
+-define(CLIENT_LIMITS, ?CHANNEL_LIMITS ++ ?SESSION_LIMITS).
+-define(LISTENER_LIMITS, [max_conn]).
+-define(ZONE_LIMITS, [max_conn, messages, bytes]).
 
 %% remember to keep similar macro in `emqx_mt_limiter` in sync, if necessary.
 -define(IS_CHANNEL_ONLY_LIMITER(NAME),
-    ((NAME) =:= delivery_bytes orelse
-        (NAME) =:= delivery_messages orelse
-        (NAME) =:= subscribes)
+    ((NAME) =:= subscribes)
 ).
 
 %%--------------------------------------------------------------------
@@ -115,16 +116,16 @@ create_zone_limiters() ->
 -spec create_listener_limiters(listener_id(), term()) -> ok.
 create_listener_limiters(ListenerId, ListenerConfig) ->
     ListenerLimiters = listener_limiter_options(ListenerConfig),
-    ChannelLimiters = channel_limiter_options(ListenerConfig),
+    ClientLimiters = client_limiter_options(ListenerConfig),
     ok = create_group(shared, listener_group(ListenerId), ListenerLimiters),
-    ok = create_group(exclusive, channel_group(ListenerId), ChannelLimiters).
+    ok = create_group(exclusive, channel_group(ListenerId), ClientLimiters).
 
 -spec update_listener_limiters(listener_id(), term()) -> ok.
 update_listener_limiters(ListenerId, ListenerConfig) ->
     ListenerLimiters = listener_limiter_options(ListenerConfig),
-    ChannelLimiters = channel_limiter_options(ListenerConfig),
+    ClientLimiters = client_limiter_options(ListenerConfig),
     ok = update_group(listener_group(ListenerId), ListenerLimiters),
-    ok = update_group(channel_group(ListenerId), ChannelLimiters).
+    ok = update_group(channel_group(ListenerId), ClientLimiters).
 
 -spec delete_listener_limiters(listener_id()) -> ok.
 delete_listener_limiters(ListenerId) ->
@@ -141,7 +142,11 @@ try_delete_group(Group) ->
 
 -spec create_channel_client_container(zone(), listener_id()) -> emqx_limiter_client_container:t().
 create_channel_client_container(ZoneName, ListenerId) ->
-    create_client_container(ZoneName, ListenerId, ?CHANNEL_LIM_NAMES).
+    create_channel_client_container(ZoneName, ListenerId, ?CHANNEL_LIMITS).
+
+-spec create_session_client_container(listener_id()) -> emqx_limiter_client_container:t().
+create_session_client_container(ListenerId) ->
+    create_session_client_container(ListenerId, ?SESSION_LIMITS).
 
 -spec create_esockd_limiter_client(zone(), listener_id()) -> emqx_esockd_limiter:create_options().
 create_esockd_limiter_client(ZoneName, ListenerId) ->
@@ -379,8 +384,7 @@ create_listener_limiter(ZoneName, ListenerId, Name) ->
 
 create_channel_limiter(_ZoneName, ListenerId, Name) when ?IS_CHANNEL_ONLY_LIMITER(Name) ->
     ChannelLimiterId = {channel_group(ListenerId), Name},
-    ChannelLimiterClient = connect(ChannelLimiterId),
-    emqx_limiter_composite:new([ChannelLimiterClient]);
+    connect(ChannelLimiterId);
 create_channel_limiter(ZoneName, ListenerId, Name) ->
     ZoneLimiterId = {zone_group(ZoneName), Name},
     ZoneLimiterClient = connect(ZoneLimiterId),
@@ -390,10 +394,24 @@ create_channel_limiter(ZoneName, ListenerId, Name) ->
         ZoneLimiterClient, ChannelLimiterClient
     ]).
 
-create_client_container(ZoneName, ListenerId, Names) ->
+create_session_limiter(ListenerId, Name) ->
+    ChannelLimiterId = {channel_group(ListenerId), Name},
+    connect(ChannelLimiterId).
+
+create_channel_client_container(ZoneName, ListenerId, Names) ->
     Clients = lists:map(
         fun(Name) ->
             LimiterClient = create_channel_limiter(ZoneName, ListenerId, Name),
+            {Name, LimiterClient}
+        end,
+        Names
+    ),
+    emqx_limiter_client_container:new(Clients).
+
+create_session_client_container(ListenerId, Names) ->
+    Clients = lists:map(
+        fun(Name) ->
+            LimiterClient = create_session_limiter(ListenerId, Name),
             {Name, LimiterClient}
         end,
         Names
@@ -411,13 +429,13 @@ to_burst_key(Name) ->
     list_to_atom(NameStr ++ "_burst").
 
 zone_limiter_options(Config) ->
-    limiter_options(?ZONE_LIM_NAMES, Config).
+    limiter_options(?ZONE_LIMITS, Config).
 
-channel_limiter_options(Config) ->
-    limiter_options(?CHANNEL_LIM_NAMES, Config).
+client_limiter_options(Config) ->
+    limiter_options(?CLIENT_LIMITS, Config).
 
 listener_limiter_options(Config) ->
-    limiter_options(?LISTENER_LIM_NAMES, Config).
+    limiter_options(?LISTENER_LIMITS, Config).
 
 limiter_options(Names, Config) ->
     [{Name, config(Name, Config)} || Name <- Names].

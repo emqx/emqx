@@ -95,7 +95,7 @@
     %% Authentication Data Cache
     auth_cache :: option(map()),
     %% Quota checkers
-    quota :: emqx_limiter_client_container:t(),
+    quota :: option(emqx_limiter_client_container:t()),
     %% Timers
     timers :: #{
         %% Common timers
@@ -149,12 +149,9 @@
     ((ConnState == connected) orelse (ConnState == reauthenticating))
 ).
 
-%% Used by mem sessions
--define(RETRY_DEQUEUE_TIMER, retry_dequeue).
-
 %% Timers implemented by sessions
 -define(IS_COMMON_SESSION_TIMER(N),
-    ((N == retry_delivery) orelse (N == expire_awaiting_rel) orelse (N == ?RETRY_DEQUEUE_TIMER))
+    ((N == retry_delivery) orelse (N == expire_awaiting_rel))
 ).
 %% Timers implemented by sessions that need to be handled only when the client is connected
 -define(IS_COMMON_SESSION_ONLINE_TIMER(N),
@@ -303,9 +300,6 @@ init(
     {NClientInfo, NConnInfo0} = take_conn_info_fields([ws_cookie, peersni], ClientInfo, ConnInfo),
     ok = validate_clientinfo_string(peersni, maps:get(peersni, NClientInfo, undefined)),
     NConnInfo = maybe_quic_shared_state(NConnInfo0, Opts),
-
-    Limiter = emqx_limiter:create_channel_client_container(Zone, ListenerId),
-
     #channel{
         conninfo = NConnInfo,
         clientinfo = NClientInfo,
@@ -314,7 +308,6 @@ init(
             outbound => #{}
         },
         auth_cache = #{},
-        quota = Limiter,
         timers = #{},
         conn_state = idle,
         conn_flags = [],
@@ -611,7 +604,7 @@ handle_in(Packet, Channel) ->
 %% Process Connect
 %%--------------------------------------------------------------------
 
-process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
+process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel0) ->
     case
         emqx_utils:pipeline(
             [
@@ -629,24 +622,23 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                 fun count_flapping_event/2
             ],
             ConnPkt,
-            Channel#channel{conn_state = connecting}
+            Channel0#channel{conn_state = connecting}
         )
     of
-        {ok, NConnPkt, NChannel = #channel{clientinfo = ClientInfo}} ->
+        {ok, NConnPkt, Channel1 = #channel{clientinfo = ClientInfo}} ->
             ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
-            NChannel1 = NChannel#channel{
-                alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)
-            },
-            case authenticate(?CONNECT_PACKET(NConnPkt), NChannel1) of
-                {ok, Properties, NChannel2} ->
-                    %% only store will_msg after successful authn
-                    %% fix for: https://github.com/emqx/emqx/issues/8886
-                    NChannel3 = NChannel2#channel{will_msg = emqx_packet:will_msg(NConnPkt)},
-                    post_process_connect(Properties, NChannel3);
-                {continue, Properties, NChannel2} ->
-                    handle_out(auth, {?RC_CONTINUE_AUTHENTICATION, Properties}, NChannel2);
-                {error, ReasonCode, NChannel2} ->
-                    handle_out(connack, ReasonCode, NChannel2)
+            case authenticate(?CONNECT_PACKET(NConnPkt), Channel1) of
+                {ok, Properties, Channel3} ->
+                    Channel = Channel3#channel{
+                        %% NOTE: Only store will_msg after successful authn.
+                        will_msg = emqx_packet:will_msg(NConnPkt),
+                        alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)
+                    },
+                    post_process_connect(Properties, Channel);
+                {continue, Properties, Channel} ->
+                    handle_out(auth, {?RC_CONTINUE_AUTHENTICATION, Properties}, Channel);
+                {error, ReasonCode, Channel} ->
+                    handle_out(connack, ReasonCode, Channel)
             end;
         {error, ReasonCode, NChannel} ->
             handle_out(connack, ReasonCode, NChannel)
@@ -654,12 +646,15 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
 
 post_process_connect(
     AckProps,
-    Channel = #channel{
+    Channel0 = #channel{
         conninfo = #{clean_start := CleanStart} = ConnInfo,
         clientinfo = #{clientid := ClientId} = ClientInfo,
         will_msg = MaybeWillMsg
     }
 ) ->
+    Channel = Channel0#channel{
+        quota = create_limiter(ClientInfo)
+    },
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg) of
         {ok, #{session := Session, present := false}} ->
             ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
@@ -679,6 +674,15 @@ post_process_connect(
             ?SLOG(error, #{msg => "failed_to_open_session", reason => Reason}),
             handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
     end.
+
+create_limiter(#{zone := Zone, listener := ListenerId} = ClientInfo) ->
+    Limiter = emqx_limiter:create_channel_client_container(Zone, ListenerId),
+    Context = #{
+        zone => Zone,
+        listener_id => ListenerId,
+        tns => get_tenant_namespace(ClientInfo)
+    },
+    emqx_hooks:run_fold('channel.limiter_adjustment', [Context], Limiter).
 
 %%--------------------------------------------------------------------
 %% Process Publish
@@ -837,30 +841,26 @@ puback_reason_code(_PacketId, _Msg, disconnect) ->
 
 process_puback(
     ?PUBACK_PACKET(PacketId, ReasonCode, Properties),
-    Channel0 =
-        #channel{clientinfo = ClientInfo, session = Session}
+    Channel = #channel{
+        clientinfo = ClientInfo,
+        session = Session
+    }
 ) ->
-    stash_limiter_ctx(Channel0),
     case emqx_session:puback(ClientInfo, PacketId, ReasonCode, Session) of
         {ok, Msg, [], NSession} ->
-            Channel = pop_limiter_ctx(Channel0),
             ok = after_message_acked(Msg, Properties, Channel),
             {ok, Channel#channel{session = NSession}};
         {ok, Msg, Publishes, NSession} ->
-            Channel = pop_limiter_ctx(Channel0),
             ok = after_message_acked(Msg, Properties, Channel),
             handle_out(publish, Publishes, Channel#channel{session = NSession});
         {error, ?RC_PROTOCOL_ERROR} ->
-            Channel = pop_limiter_ctx(Channel0),
             handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?SLOG(warning, #{msg => "puback_packetId_inuse", packetId => PacketId}),
-            Channel = pop_limiter_ctx(Channel0),
             ok = inc_metrics('packets.puback.inuse', Channel),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?SLOG(warning, #{msg => "puback_packetId_not_found", packetId => PacketId}),
-            Channel = pop_limiter_ctx(Channel0),
             ok = inc_metrics('packets.puback.missed', Channel),
             {ok, Channel}
     end.
@@ -919,28 +919,23 @@ process_pubrel(
 
 process_pubcomp(
     ?PUBCOMP_PACKET(PacketId, ReasonCode),
-    Channel0 = #channel{
-        clientinfo = ClientInfo, session = Session
+    Channel = #channel{
+        clientinfo = ClientInfo,
+        session = Session
     }
 ) ->
-    stash_limiter_ctx(Channel0),
     case emqx_session:pubcomp(ClientInfo, PacketId, ReasonCode, Session) of
         {ok, [], NSession} ->
-            Channel = pop_limiter_ctx(Channel0),
             {ok, Channel#channel{session = NSession}};
         {ok, Publishes, NSession} ->
-            Channel = pop_limiter_ctx(Channel0),
             handle_out(publish, Publishes, Channel#channel{session = NSession});
         {error, ?RC_PROTOCOL_ERROR} ->
-            Channel = pop_limiter_ctx(Channel0),
             handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
-            Channel = pop_limiter_ctx(Channel0),
             ok = inc_metrics('packets.pubcomp.inuse', Channel),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?SLOG(warning, #{msg => "pubcomp_packetId_not_found", packetId => PacketId}),
-            Channel = pop_limiter_ctx(Channel0),
             ok = inc_metrics('packets.pubcomp.missed', Channel),
             {ok, Channel}
     end.
@@ -1264,44 +1259,19 @@ handle_deliver(Delivers, Channel) ->
 
 do_handle_deliver(
     Delivers,
-    Channel0 = #channel{
+    Channel = #channel{
         session = Session,
         takeover = false,
         clientinfo = ClientInfo,
         conn_flags = Flags
     }
 ) ->
-    stash_limiter_ctx(Channel0),
     case emqx_session:deliver(ClientInfo, Delivers, Flags, Session) of
         {ok, [], NSession} ->
-            Channel = pop_limiter_ctx(Channel0),
             {ok, Channel#channel{session = NSession}};
         {ok, Publishes, NSession} ->
-            Channel = pop_limiter_ctx(Channel0),
             NChannel = Channel#channel{session = NSession},
             handle_out(publish, Publishes, ensure_timer(retry_delivery, NChannel))
-    end.
-
-stash_limiter_ctx(Channel) ->
-    #channel{quota = Limiter0} = Channel,
-    DeliverCtx = #{limiter => Limiter0},
-    emqx_session:put_context(DeliverCtx).
-
-pop_limiter_ctx(Channel0) ->
-    case emqx_session:pop_context() of
-        #{limiter := Limiter, ?RETRY_DEQUEUE_TIMER := Time} when is_integer(Time) ->
-            Channel = Channel0#channel{quota = Limiter},
-            Timer = {emqx_session, ?RETRY_DEQUEUE_TIMER},
-            case Channel#channel.timers of
-                #{Timer := TRef} when is_reference(TRef) ->
-                    Channel;
-                #{} ->
-                    ensure_timer(Timer, Time, Channel)
-            end;
-        #{limiter := Limiter} ->
-            Channel0#channel{quota = Limiter};
-        _ ->
-            Channel0
     end.
 
 %% Nack delivers from shared subscription
@@ -1950,30 +1920,23 @@ handle_timeout(
     %% responsible for the actual timeout logic. Yet they are managed here, since
     %% they are kind of common to all session implementations.
     Channel1 = clean_timer(TimerName, Channel0),
-    stash_limiter_ctx(Channel1),
     case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
         {ok, Publishes, NSession} ->
-            Channel2 = pop_limiter_ctx(Channel1),
-            Channel = Channel2#channel{session = NSession},
+            Channel = Channel1#channel{session = NSession},
             handle_out(publish, Publishes, clean_timer(TimerName, Channel));
         {ok, Publishes, Timeout, NSession} ->
-            Channel2 = pop_limiter_ctx(Channel1),
-            Channel = Channel2#channel{session = NSession},
+            Channel = Channel1#channel{session = NSession},
             handle_out(publish, Publishes, reset_timer(TimerName, Timeout, Channel))
     end;
 handle_timeout(
     _TRef,
-    {emqx_session, TimerName} = Timer,
-    Channel0 = #channel{session = Session, clientinfo = ClientInfo}
+    {emqx_session, TimerName},
+    Channel = #channel{session = Session, clientinfo = ClientInfo}
 ) ->
-    Channel1 = clean_timer(Timer, Channel0),
-    stash_limiter_ctx(Channel1),
     case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
         {ok, [], NSession} ->
-            Channel = pop_limiter_ctx(Channel1),
             {ok, Channel#channel{session = NSession}};
         {ok, Replies, NSession} ->
-            Channel = pop_limiter_ctx(Channel1),
             handle_out(publish, Replies, Channel#channel{session = NSession})
     end;
 handle_timeout(_TRef, expire_session, Channel = #channel{session = Session}) ->
