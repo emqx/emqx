@@ -95,6 +95,7 @@ authenticate(
                         keys => NKey,
                         fields => Fields
                     }),
+                    %% The entry does not actually exist, not a error, so ignore.
                     ignore
             end;
         {error, Reason} ->

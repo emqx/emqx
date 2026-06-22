@@ -240,6 +240,7 @@ render_expected([{Name, ExpectedTemplate} | More], Variables) ->
     [{Name, Expected} | render_expected(More, Variables)].
 
 verify(undefined, _, _, _, _) ->
+    %% No value in `From` field, where we expect a JWT token
     ignore;
 verify(JWT, JWKs, VerifyClaims, AclClaimName, DisconnectAfterExpire) ->
     case do_verify(JWT, JWKs, VerifyClaims) of
