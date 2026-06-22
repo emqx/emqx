@@ -174,6 +174,14 @@ hash_examples() ->
         }
     ].
 
+t_plain_password_case_sensitive(_Config) ->
+    Algorithm = #{name => plain, salt_position => disable},
+    Password = <<"password">>,
+    {Hash, Salt} = emqx_authn_password_hashing:hash(Algorithm, Password),
+    true = emqx_authn_password_hashing:check_password(Algorithm, Salt, Hash, Password),
+    false = emqx_authn_password_hashing:check_password(Algorithm, Salt, Hash, <<"PASSWORD">>),
+    false = emqx_authn_password_hashing:check_password(Algorithm, Salt, Hash, <<"Password">>).
+
 t_pbkdf2_schema(_Config) ->
     Config = fun(Iterations) ->
         #{

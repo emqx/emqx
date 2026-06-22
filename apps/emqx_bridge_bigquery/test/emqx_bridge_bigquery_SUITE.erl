@@ -363,10 +363,7 @@ do_create_dataset(Dataset, TCConfig) ->
         <<"datasetReference">> => #{<<"datasetId">> => Dataset}
     }),
     on_exit(fun() -> do_delete_dataset(Dataset, TCConfig) end),
-    {ok, _} = emqx_bridge_gcp_pubsub_client:query_sync(
-        ?PREPARED_REQUEST(Method, Path, Body),
-        Client
-    ),
+    {ok, _} = query_sync_with_retry(?PREPARED_REQUEST(Method, Path, Body), Client),
     ct:pal("dataset ~s created", [Dataset]),
     ok.
 
@@ -408,12 +405,24 @@ do_create_table(Dataset, Table, TCConfig) ->
         }
     }),
     on_exit(fun() -> do_delete_table(Dataset, Table, TCConfig) end),
-    {ok, _} = emqx_bridge_gcp_pubsub_client:query_sync(
-        ?PREPARED_REQUEST(Method, Path, Body),
-        Client
-    ),
+    {ok, _} = query_sync_with_retry(?PREPARED_REQUEST(Method, Path, Body), Client),
     ct:pal("table ~s created", [Table]),
     ok.
+
+%% The bigquery emulator (goccy/bigquery-emulator) intermittently drops its
+%% internal SQL connection and replies `500 "sql: connection is already
+%% closed"' to the next request. That made dataset/table setup in
+%% init_per_testcase fail (and skip the whole case). Retry such transient
+%% failures; a 409 means a previous retried attempt already succeeded.
+query_sync_with_retry(Request, Client) ->
+    ?retry(
+        _Sleep = 300,
+        _Attempts = 10,
+        case emqx_bridge_gcp_pubsub_client:query_sync(Request, Client) of
+            {ok, Result} -> {ok, Result};
+            {error, #{status_code := 409}} -> {ok, already_exists}
+        end
+    ).
 
 do_delete_table(Dataset, Table, TCConfig) ->
     ProjectId = get_value(project_id, TCConfig),
