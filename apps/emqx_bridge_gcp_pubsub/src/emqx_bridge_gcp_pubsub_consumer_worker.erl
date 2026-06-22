@@ -9,6 +9,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 %% `ecpool_worker' API
 -export([connect/1, health_check/1, clear_optvar/1]).
@@ -53,6 +54,7 @@
     ack_retry_interval := emqx_schema:timeout_duration_ms(),
     ack_timer := undefined | reference(),
     async_workers := #{pid() => reference()},
+    backoff := non_neg_integer(),
     client := emqx_bridge_gcp_pubsub_client:state(),
     connector_resource_id := binary(),
     ecpool_worker_id := non_neg_integer(),
@@ -104,14 +106,30 @@ reply_delegator(WorkerPid, pull_async = _Action, SourceResId, Result) ->
     case Result of
         {error, timeout} ->
             ?MODULE:pull_async(WorkerPid);
+        {error, {_, timeout}} ->
+            ?MODULE:pull_async(WorkerPid);
+        {error, {_, econnrefused}} ->
+            %% throttle retries to avoid burning too much cpu
+            SleepMS = 500 + rand:uniform(500),
+            timer:sleep(SleepMS),
+            ?MODULE:pull_async(WorkerPid);
         {error, Reason} ->
             ?tp(
-                warning,
-                "gcp_pubsub_consumer_worker_pull_error",
+                gcp_pubsub_consumer_worker_pull_error,
                 #{
                     instance_id => SourceResId,
                     reason => Reason
                 }
+            ),
+            ?SLOG_THROTTLE(
+                warning,
+                SourceResId,
+                #{
+                    msg => gcp_pubsub_consumer_worker_pull_error,
+                    instance_id => SourceResId,
+                    reason => Reason
+                },
+                #{tag => ?TAG}
             ),
             case Reason of
                 #{status_code := 404} ->
@@ -208,7 +226,8 @@ init(Config) ->
         async_workers => #{},
         pending_acks => #{},
         pull_timer => undefined,
-        seen_message_ids => sets:new([{version, 2}])
+        seen_message_ids => sets:new([{version, 2}]),
+        backoff => 0
     },
     ?tp(gcp_pubsub_consumer_worker_init, #{topic => maps:get(topic, State)}),
     {ok, State, {continue, ?ensure_subscription}}.
@@ -216,7 +235,8 @@ init(Config) ->
 handle_continue(?ensure_subscription, State0) ->
     case ensure_subscription_exists(State0) of
         already_exists ->
-            {noreply, State0, {continue, ?patch_subscription}};
+            State = clear_backoff(State0),
+            {noreply, State, {continue, ?patch_subscription}};
         continue ->
             #{
                 source_resource_id := SourceResId,
@@ -225,21 +245,23 @@ handle_continue(?ensure_subscription, State0) ->
             ?MODULE:pull_async(self()),
             optvar:set(?OPTVAR_SUB_OK(WorkerId), subscription_ok),
             clear_unhealthy_status(State0),
+            State = clear_backoff(State0),
             ?tp(
                 debug,
                 "gcp_pubsub_consumer_worker_subscription_ready",
                 #{instance_id => SourceResId}
             ),
-            {noreply, State0};
+            {noreply, State};
         retry ->
-            {noreply, State0, {continue, ?ensure_subscription}};
+            State = backoff(State0),
+            {noreply, State, {continue, ?ensure_subscription}};
         not_found ->
             %% there's nothing much to do if the topic suddenly doesn't exist anymore.
-            {stop, {error, topic_not_found}, State0};
+            {stop, {shutdown, {error, topic_not_found}}, State0};
         bad_credentials ->
-            {stop, {error, bad_credentials}, State0};
+            {stop, {shutdown, {error, bad_credentials}}, State0};
         permission_denied ->
-            {stop, {error, permission_denied}, State0}
+            {stop, {shutdown, {error, permission_denied}}, State0}
     end;
 handle_continue(?patch_subscription, State0) ->
     ?tp(gcp_pubsub_consumer_worker_patch_subscription_enter, #{}),
@@ -322,7 +344,7 @@ handle_info(Msg, State0) ->
     }),
     {noreply, State0}.
 
-terminate({error, Reason}, State) when
+terminate({shutdown, {error, Reason}}, State) when
     Reason =:= topic_not_found;
     Reason =:= bad_credentials;
     Reason =:= permission_denied
@@ -332,8 +354,8 @@ terminate({error, Reason}, State) when
         source_resource_id := SourceResId,
         topic := _Topic
     } = State,
-    clear_optvar(WorkerId),
     emqx_bridge_gcp_pubsub_impl_consumer:mark_as_unhealthy(SourceResId, Reason),
+    optvar:set(?OPTVAR_SUB_OK(WorkerId), Reason),
     ?tp(gcp_pubsub_consumer_worker_terminate, #{reason => {error, Reason}, topic => _Topic}),
     ok;
 terminate(_Reason, State) ->
@@ -444,6 +466,17 @@ ensure_subscription_exists(State) ->
                 }
             ),
             continue;
+        {error, {_, econnrefused} = Reason} ->
+            ?tp(
+                debug,
+                "gcp_pubsub_consumer_worker_subscription_error",
+                #{
+                    instance_id => SourceResId,
+                    topic => Topic,
+                    reason => Reason
+                }
+            ),
+            retry;
         {error, Reason} ->
             ?tp(
                 error,
@@ -816,3 +849,16 @@ clear_unhealthy_status(State) ->
 to_bin(A) when is_atom(A) -> atom_to_binary(A);
 to_bin(L) when is_list(L) -> iolist_to_binary(L);
 to_bin(B) when is_binary(B) -> B.
+
+backoff(State0) ->
+    %% could be missing afte hot upgrade...
+    Backoff0 = maps:get(backoff, State0, 0),
+    SleepMS0 = (1 bsl Backoff0) * 100,
+    SleepMS = emqx_utils:clamp(SleepMS0, 0, timer:seconds(30)),
+    timer:sleep(SleepMS),
+    Backoff = emqx_utils:clamp(Backoff0 + 1, 0, 10),
+    State0#{backoff => Backoff}.
+
+clear_backoff(State0) ->
+    %% could be missing afte hot upgrade...
+    State0#{backoff => 0}.

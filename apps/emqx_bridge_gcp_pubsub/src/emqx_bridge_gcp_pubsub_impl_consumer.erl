@@ -115,6 +115,7 @@ on_start(ConnectorResId, Config0) ->
     },
     case emqx_bridge_gcp_pubsub_client:start(ConnectorResId, Config) of
         {ok, ExtraInfo, Client} ->
+            ?tp(gcp_pubsub_consumer_start, #{instance_id => ConnectorResId}),
             #{project_id := ProjectId} = ExtraInfo,
             ConnectorState = #{
                 client => Client,
@@ -128,7 +129,7 @@ on_start(ConnectorResId, Config0) ->
 
 -spec on_stop(resource_id(), connector_state()) -> ok | {error, term()}.
 on_stop(ConnectorResId, _ConnectorState) ->
-    ?tp(gcp_pubsub_consumer_stop_enter, #{}),
+    ?tp(gcp_pubsub_consumer_stop_enter, #{instance_id => ConnectorResId}),
     clear_resources(ConnectorResId),
     Ctx = #{
         supervisor => ?SUP,
@@ -270,7 +271,7 @@ check_if_unhealthy(SourceResId) ->
 start_consumers(ConnectorResId, SourceResId, Client, ProjectId, SourceConfig) ->
     #{
         bridge_name := BridgeName,
-        parameters := #{topic := PubsubTopic} = ConsumerConfig0,
+        parameters := #{topic := _PubsubTopic} = ConsumerConfig0,
         hookpoints := Hookpoints,
         resource_opts := #{request_ttl := RequestTTL}
     } = SourceConfig,
@@ -289,33 +290,12 @@ start_consumers(ConnectorResId, SourceResId, Client, ProjectId, SourceConfig) ->
         pool_size => PoolSize,
         project_id => ProjectId,
         pull_retry_interval => RequestTTL,
-        request_ttl => RequestTTL
+        request_ttl => RequestTTL,
+        worker_restart => permanent,
+        worker_shutdown => 1_000
     },
     ConsumerOpts = maps:to_list(ConsumerConfig),
-    ReqOpts = #{request_ttl => RequestTTL},
-    PubsubTopics = [PubsubTopic],
     clear_one_unhealthy(SourceResId),
-    case validate_pubsub_topics(PubsubTopics, Client, ReqOpts) of
-        ok ->
-            ok;
-        {error, not_found} ->
-            throw(
-                {unhealthy_target, ?TOPIC_MESSAGE}
-            );
-        {error, permission_denied} ->
-            throw(
-                {unhealthy_target, ?PERMISSION_MESSAGE}
-            );
-        {error, bad_credentials} ->
-            throw(
-                {unhealthy_target, ?PERMISSION_MESSAGE}
-            );
-        {error, _} ->
-            %% connection might be down; we'll have to check topic existence during health
-            %% check, or the workers will kill themselves when they realized there's no
-            %% topic when upserting their subscription.
-            ok
-    end,
     ok = emqx_resource:allocate_resource(
         ConnectorResId,
         ?MODULE,
@@ -353,35 +333,6 @@ stop_consumers1(SourceResId, PoolSize) ->
     ),
     ok.
 
-validate_pubsub_topics(PubsubTopics, Client, ReqOpts) ->
-    do_validate_pubsub_topics(Client, PubsubTopics, ReqOpts).
-
-do_validate_pubsub_topics(Client, [Topic | Rest], ReqOpts) ->
-    case check_for_topic_existence(Topic, Client, ReqOpts) of
-        ok ->
-            do_validate_pubsub_topics(Client, Rest, ReqOpts);
-        {error, _} = Err ->
-            Err
-    end;
-do_validate_pubsub_topics(_Client, [], _ReqOpts) ->
-    ok.
-
-check_for_topic_existence(Topic, Client, ReqOpts) ->
-    Res = emqx_bridge_gcp_pubsub_client:pubsub_get_topic(Topic, Client, ReqOpts),
-    case Res of
-        {ok, _} ->
-            ok;
-        {error, #{status_code := 404}} ->
-            {error, not_found};
-        {error, #{status_code := 403}} ->
-            {error, permission_denied};
-        {error, #{status_code := 401}} ->
-            {error, bad_credentials};
-        {error, Reason} ->
-            ?tp(warning, "gcp_pubsub_consumer_check_topic_error", #{reason => Reason}),
-            {error, Reason}
-    end.
-
 -spec get_client_status(emqx_bridge_gcp_pubsub_client:state()) ->
     ?status_connected | {?status_connecting, term()}.
 get_client_status(Client) ->
@@ -400,6 +351,9 @@ check_workers(SourceResId, Client) ->
         run_on => independent,
         is_success_fn => fun
             (subscription_ok) -> false;
+            (topic_not_found) -> {true, {unhealthy_target, ?TOPIC_MESSAGE}};
+            (permission_denied) -> {true, {unhealthy_target, ?PERMISSION_MESSAGE}};
+            (bad_credentials) -> {true, {unhealthy_target, ?PERMISSION_MESSAGE}};
             (_) -> true
         end,
         on_success_fn => fun() -> get_client_status(Client) end

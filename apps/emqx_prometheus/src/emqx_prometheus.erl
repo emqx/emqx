@@ -240,6 +240,7 @@ collect_mf(?PROMETHEUS_NS_STATS_REGISTRY, Callback) ->
 
     ok = add_collect_family(Callback, packet_metric_ns_meta(), ?MG(packet_data_ns, RawData)),
     ok = add_collect_family(Callback, message_metric_ns_meta(), ?MG(message_data_ns, RawData)),
+    ok = add_collect_family(Callback, delivery_metric_ns_meta(), ?MG(delivery_data_ns, RawData)),
     ok = add_collect_family(Callback, session_metric_ns_meta(), ?MG(session_metric_ns, RawData)),
     ok = add_collect_family(Callback, authz_metric_ns_meta(), ?MG(authz_metric_ns, RawData)),
     ok = add_collect_family(Callback, authn_metric_ns_meta(), ?MG(authn_metric_ns, RawData)),
@@ -417,7 +418,8 @@ get_namespace_pd() ->
 fetch_namespaced_metrics_v1(Namespace, Mode) ->
     {node(), #{
         packet_data_ns => metric_data_ns(Namespace, packet_metric_ns_meta(), Mode),
-        message_data_ns => metric_data_ns(Namespace, message_metric_ns_meta(), Mode)
+        message_data_ns => metric_data_ns(Namespace, message_metric_ns_meta(), Mode),
+        delivery_data_ns => metric_data_ns(Namespace, delivery_metric_ns_meta(), Mode)
     }}.
 
 -spec fetch_cluster_wide_namespaced_metrics(all | emqx_config:namespace(), _Mode) -> map().
@@ -1062,6 +1064,9 @@ delivery_metric_meta() ->
         {emqx_delivery_dropped_queue_full, counter, 'delivery.dropped.queue_full'},
         {emqx_delivery_dropped_expired, counter, 'delivery.dropped.expired'}
     ].
+
+delivery_metric_ns_meta() ->
+    delivery_metric_meta().
 
 %%==========
 %% Client
