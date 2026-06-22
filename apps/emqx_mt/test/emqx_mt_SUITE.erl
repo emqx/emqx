@@ -1679,3 +1679,218 @@ authn_inject_tag(#{username := <<"user_bad">>}, _Acc) ->
     {stop, {ok, #{is_superuser => false, client_attrs => #{<<"tag">> => <<"ghost">>}}}};
 authn_inject_tag(_ClientInfo, Acc) ->
     {ok, Acc}.
+
+%%------------------------------------------------------------------------------
+%% Per-namespace counters for dropped messages and dropped deliveries
+%%------------------------------------------------------------------------------
+
+-doc """
+`messages.dropped' is bumped per-namespace when a publish from a namespaced
+client matches no subscribers.  Both the umbrella counter and the
+`no_subscribers' fine-grained counter must move; the global counters move
+by the same amount; counters belonging to other namespaces stay at zero.
+""".
+t_namespaced_metrics_dropped_no_subscribers({init, Config}) ->
+    Namespace = <<"explicit_ns_dropped_no_subs">>,
+    ok = emqx_mt_config:create_managed_ns(Namespace),
+    reset_global_metrics(),
+    [{explicit_ns, Namespace} | Config];
+t_namespaced_metrics_dropped_no_subscribers({'end', Config}) ->
+    Namespace = ?config(explicit_ns, Config),
+    ok = emqx_mt_config:delete_managed_ns(Namespace),
+    ?retry(250, 10, ?assertNot(emqx_mt_state:is_tombstoned(Namespace))),
+    reset_global_metrics(),
+    delete_all_namespaces(),
+    ok;
+t_namespaced_metrics_dropped_no_subscribers(Config) when is_list(Config) ->
+    Namespace = ?config(explicit_ns, Config),
+    ClientId = ?NEW_CLIENTID(),
+    Pid = connect(ClientId, Namespace),
+    %% Fresh state.
+    ?assertEqual(0, emqx_metrics:val_global('messages.dropped')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.dropped')),
+    ?assertEqual(0, emqx_metrics:val_global('messages.dropped.no_subscribers')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.dropped.no_subscribers')),
+    %% Publish QoS 1 to a topic with no subscribers.
+    {ok, _} = emqtt:publish(Pid, <<"no_one_here">>, <<"hey">>, [{qos, 1}]),
+    %% Both umbrella and fine-grained counter move on the namespace, mirroring
+    %% the global counters.
+    ?retry(
+        100,
+        10,
+        ?assertEqual(
+            {1, 1, 1, 1},
+            {
+                emqx_metrics:val_global('messages.dropped'),
+                emqx_metrics:val(Namespace, 'messages.dropped'),
+                emqx_metrics:val_global('messages.dropped.no_subscribers'),
+                emqx_metrics:val(Namespace, 'messages.dropped.no_subscribers')
+            }
+        )
+    ),
+    ok = emqtt:stop(Pid),
+    ok.
+
+-doc """
+`messages.dropped' from a client without a tenant-namespace must only move
+the global counters; per-namespace counters are not touched (no Ns to attach
+to).
+""".
+t_namespaced_metrics_dropped_no_subscribers_implicit({init, Config}) ->
+    Namespace = <<"explicit_ns_dropped_implicit">>,
+    ok = emqx_mt_config:create_managed_ns(Namespace),
+    reset_global_metrics(),
+    [{explicit_ns, Namespace} | Config];
+t_namespaced_metrics_dropped_no_subscribers_implicit({'end', Config}) ->
+    Namespace = ?config(explicit_ns, Config),
+    ok = emqx_mt_config:delete_managed_ns(Namespace),
+    ?retry(250, 10, ?assertNot(emqx_mt_state:is_tombstoned(Namespace))),
+    reset_global_metrics(),
+    delete_all_namespaces(),
+    ok;
+t_namespaced_metrics_dropped_no_subscribers_implicit(Config) when is_list(Config) ->
+    Namespace = ?config(explicit_ns, Config),
+    ClientId = ?NEW_CLIENTID(),
+    %% Username does not match an existing namespace, so client has no tns.
+    Pid = connect(ClientId, <<"no_such_tenant">>),
+    ?assertEqual(0, emqx_metrics:val_global('messages.dropped')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.dropped')),
+    {ok, _} = emqtt:publish(Pid, <<"no_one_here">>, <<"hey">>, [{qos, 1}]),
+    ?retry(
+        100,
+        10,
+        ?assertEqual(1, emqx_metrics:val_global('messages.dropped'))
+    ),
+    %% Per-namespace counter stays at zero — the publish does not belong to
+    %% any namespace.
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.dropped')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.dropped.no_subscribers')),
+    ok = emqtt:stop(Pid),
+    ok.
+
+-doc """
+`delivery.dropped' is bumped per-namespace for the `no_local' reason when a
+namespaced client publishes to a topic to which it itself is subscribed with
+`no local' set.
+""".
+t_namespaced_metrics_delivery_dropped_no_local({init, Config}) ->
+    Namespace = <<"explicit_ns_no_local">>,
+    ok = emqx_mt_config:create_managed_ns(Namespace),
+    reset_global_metrics(),
+    [{explicit_ns, Namespace} | Config];
+t_namespaced_metrics_delivery_dropped_no_local({'end', Config}) ->
+    Namespace = ?config(explicit_ns, Config),
+    ok = emqx_mt_config:delete_managed_ns(Namespace),
+    ?retry(250, 10, ?assertNot(emqx_mt_state:is_tombstoned(Namespace))),
+    reset_global_metrics(),
+    delete_all_namespaces(),
+    ok;
+t_namespaced_metrics_delivery_dropped_no_local(Config) when is_list(Config) ->
+    Namespace = ?config(explicit_ns, Config),
+    ClientId = ?NEW_CLIENTID(),
+    Pid = connect(ClientId, Namespace),
+    ?assertEqual(0, emqx_metrics:val_global('delivery.dropped')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'delivery.dropped')),
+    ?assertEqual(0, emqx_metrics:val_global('delivery.dropped.no_local')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'delivery.dropped.no_local')),
+    Topic = <<"self_loop">>,
+    {ok, _, [2]} = emqtt:subscribe(Pid, #{}, [{Topic, [{nl, true}, {qos, 2}]}]),
+    ok = emqtt:publish(Pid, Topic, <<"will be dropped">>, [{qos, 0}]),
+    %% Both umbrella and fine-grained counter move on the namespace, mirroring
+    %% the global counters.
+    ?retry(
+        100,
+        10,
+        ?assertEqual(
+            {1, 1, 1, 1},
+            {
+                emqx_metrics:val_global('delivery.dropped'),
+                emqx_metrics:val(Namespace, 'delivery.dropped'),
+                emqx_metrics:val_global('delivery.dropped.no_local'),
+                emqx_metrics:val(Namespace, 'delivery.dropped.no_local')
+            }
+        )
+    ),
+    ok = emqtt:stop(Pid),
+    ok.
+
+-doc """
+Verifies that `delivery_data_ns' is included in the per-namespace metric map
+returned by `emqx_prometheus:fetch_namespaced_metrics_v1/2', and that the
+rendered Prometheus text exposes `emqx_delivery_dropped' families labelled
+with the originating namespace.
+""".
+t_namespaced_metrics_prometheus_delivery_dropped({init, TCConfig}) ->
+    Nodes = mk_cluster(?FUNCTION_NAME, #{n => 1}, TCConfig),
+    ?ON_ALL(Nodes, begin
+        meck:new(emqx_license_checker, [non_strict, passthrough, no_link]),
+        meck:expect(emqx_license_checker, expiry_epoch, fun() -> 1859673600 end)
+    end),
+    [{nodes, Nodes} | TCConfig];
+t_namespaced_metrics_prometheus_delivery_dropped({'end', _TCConfig}) ->
+    ok;
+t_namespaced_metrics_prometheus_delivery_dropped(TCConfig) when is_list(TCConfig) ->
+    [N | _] = ?config(nodes, TCConfig),
+    Namespace = <<"prom_delivery_ns">>,
+    ok = ?ON(N, emqx_mt_config:create_managed_ns(Namespace)),
+
+    %% Provision an authn entry so the client can connect with this namespace.
+    ?ON(N, begin
+        {ok, _} = emqx_authn_chains:add_user(
+            'mqtt:global',
+            <<"password_based:built_in_database">>,
+            #{user_id => Namespace, namespace => Namespace, password => Namespace}
+        )
+    end),
+
+    %% Connect and trigger a no_local delivery drop.
+    Port = emqx_mt_api_SUITE:get_mqtt_tcp_port(N),
+    ClientId = ?NEW_CLIENTID(),
+    Opts0 = #{
+        clientid => ClientId,
+        username => Namespace,
+        password => Namespace,
+        port => Port
+    },
+    Opts1 = connect_opts_of(TCConfig),
+    Opts = maps:merge(Opts1, Opts0),
+    C1 = connect(Opts),
+    Topic = <<"self_loop">>,
+    {ok, _, [2]} = emqtt:subscribe(C1, #{}, [{Topic, [{nl, true}, {qos, 2}]}]),
+    ok = emqtt:publish(C1, Topic, <<"will be dropped">>, [{qos, 0}]),
+
+    %% The fetched map must include the new key.
+    ?assertMatch(
+        {_, #{delivery_data_ns := _}},
+        ?ON(N, emqx_prometheus:fetch_namespaced_metrics_v1(Namespace, ?PROM_DATA_MODE__NODE))
+    ),
+
+    %% The Prometheus text must contain the delivery_dropped family labelled
+    %% with the namespace, with non-zero values.
+    NsLabel = #{<<"node">> => atom_to_binary(N), <<"namespace">> => Namespace},
+    ?retry(
+        200,
+        25,
+        begin
+            {200, Metrics} =
+                get_prometheus_ns_stats(
+                    Namespace, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, prometheus
+                ),
+            ?assertMatch(
+                #{
+                    <<"emqx_delivery_dropped">> := #{NsLabel := 1},
+                    <<"emqx_delivery_dropped_no_local">> := #{NsLabel := 1}
+                },
+                Metrics,
+                #{
+                    sample =>
+                        maps:with(
+                            [<<"emqx_delivery_dropped">>, <<"emqx_delivery_dropped_no_local">>],
+                            Metrics
+                        )
+                }
+            )
+        end
+    ),
+    ok = emqtt:stop(C1),
+    ok.

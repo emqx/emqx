@@ -792,8 +792,8 @@ init({DataIn, Opts}) ->
 
 terminate({shutdown, removed}, _State, _Data) ->
     ok;
-terminate(_Reason, _State, Data) ->
-    ok = terminate_health_check_workers(Data),
+terminate(_Reason, _State, Data0) ->
+    Data = terminate_health_check_workers(Data0),
     _ = maybe_stop_resource(Data),
     _ = erase_cache(Data),
     ok.
@@ -1066,10 +1066,10 @@ retry_actions(Data) ->
 resource_health_check_actions(Data) ->
     [{state_timeout, health_check_interval(Data#data.opts), health_check}].
 
-handle_remove_event(From, ClearMetrics, Data) ->
+handle_remove_event(From, ClearMetrics, Data0) ->
     %% stop the buffer workers first, brutal_kill, so it should be fast
-    ok = emqx_resource_buffer_worker_sup:stop_workers(Data#data.id, Data#data.opts),
-    ok = terminate_health_check_workers(Data),
+    ok = emqx_resource_buffer_worker_sup:stop_workers(Data0#data.id, Data0#data.opts),
+    Data = terminate_health_check_workers(Data0),
     %% now stop the resource, this can be slow
     _ = stop_resource(Data),
     case ClearMetrics of
@@ -1279,25 +1279,27 @@ maybe_stop_resource(#data{status = Status} = Data) when Status =/= ?rm_status_st
 maybe_stop_resource(#data{status = ?rm_status_stopped} = Data) ->
     Data.
 
-stop_resource(#data{id = ResId} = Data) ->
+stop_resource(#data{id = ResId} = Data0) ->
     %% We don't care about the return value of `Mod:on_stop/2'.
     %% The callback mod should make sure the resource is stopped after on_stop/2
     %% is returned.
     HasAllocatedResources = emqx_resource:has_allocated_resources(ResId),
+    %% Abort any health checks going on to avoid weird crashes.
+    Data1 = terminate_health_check_workers(Data0),
     %% Before stop is called we remove all the channels from the resource
-    NewData = remove_channels(Data),
-    NewResState = NewData#data.state,
+    Data2 = remove_channels(Data1),
+    NewResState = Data2#data.state,
     case NewResState =/= undefined orelse HasAllocatedResources of
         true ->
             %% we clear the allocated resources after stop is successful
-            emqx_resource:call_stop(NewData#data.id, NewData#data.mod, NewResState);
+            emqx_resource:call_stop(Data2#data.id, Data2#data.mod, NewResState);
         false ->
             ok
     end,
     IsDryRun = emqx_resource:is_dry_run(ResId),
     _ = maybe_clear_alarm(IsDryRun, ResId),
     ok = emqx_resource_metrics:reset_metrics(ResId),
-    NewData#data{status = ?rm_status_stopped}.
+    Data2#data{status = ?rm_status_stopped}.
 
 remove_channels(Data) ->
     Channels = maps:keys(Data#data.added_channels),
@@ -1351,14 +1353,14 @@ terminate_health_check_workers(Data) ->
     } = Data,
     maps:foreach(
         fun(Pid, _) ->
-            exit(Pid, kill)
+            abort_health_check_process(Pid)
         end,
         RHCWorkers
     ),
     maps:foreach(
         fun
             (Pid, _) when is_pid(Pid) ->
-                exit(Pid, kill);
+                abort_health_check_process(Pid);
             (_, _) ->
                 ok
         end,
@@ -1370,7 +1372,17 @@ terminate_health_check_workers(Data) ->
             gen_statem:reply(From, {error, resource_shutting_down})
         end,
         Pending
-    ).
+    ),
+    Data#data{
+        hc_workers = #{
+            resource => #{},
+            channel => #{
+                ongoing => #{},
+                kicked_off => #{}
+            }
+        },
+        hc_pending_callers = #{resource => [], channel => #{}}
+    }.
 
 handle_add_channel(From, Data, ChannelId, Config) ->
     Channels = Data#data.added_channels,
@@ -2554,7 +2566,7 @@ abort_all_channel_health_checks(Data0) ->
     maps:foreach(
         fun
             (Pid, _ChannelId) when is_pid(Pid) ->
-                abort_channel_health_check(Pid);
+                abort_health_check_process(Pid);
             (_, _) ->
                 ok
         end,
@@ -2567,7 +2579,7 @@ abort_all_channel_health_checks(Data0) ->
         hc_pending_callers = Pending
     }.
 
-abort_channel_health_check(Pid) ->
+abort_health_check_process(Pid) ->
     %% We're already linked to the worker pids due to `spawn_link'.
     MRef = monitor(process, Pid),
     exit(Pid, kill),
@@ -2612,7 +2624,7 @@ abort_health_checks_for_channel(Data0, ChannelId) ->
         fun
             (Pid, ChannelId0, Acc) when is_pid(Pid), ChannelId0 == ChannelId ->
                 ?tp(warning, "aborting_channel_hc", #{channel_id => ChannelId, pid => Pid}),
-                abort_channel_health_check(Pid),
+                abort_health_check_process(Pid),
                 maps:remove(Pid, Acc);
             (ChannelId0, _Config, Acc) when ChannelId0 == ChannelId ->
                 maps:remove(ChannelId0, Acc);
