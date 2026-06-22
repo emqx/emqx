@@ -105,7 +105,9 @@
 -define(LOG_THROTTLING_MSGS, [
     async_send_error,
     authentication_failure,
+    authenticator_rejection,
     authorization_permission_denied,
+    authorization_source_denied,
     buffer_worker_dropped_expired_messages,
     cannot_deliver_from_topic_due_to_quota_exceeded,
     cannot_publish_to_topic_due_to_not_authorized,

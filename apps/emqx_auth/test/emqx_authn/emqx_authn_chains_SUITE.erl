@@ -287,6 +287,86 @@ t_authenticate({'end', Config}) ->
     ?AUTHN:deregister_provider(?config(authn_type)),
     ok.
 
+-doc "A per-authenticator rejection is logged at warning level with the authenticator id.".
+t_authenticate_rejection_log({init, Config}) ->
+    [
+        {listener_id, 'tcp:default'},
+        {authn_type, {password_based, built_in_database}}
+        | Config
+    ];
+t_authenticate_rejection_log(Config) when is_list(Config) ->
+    ListenerID = ?config(listener_id),
+    AuthNType = ?config(authn_type),
+    ok = register_provider(AuthNType, ?MODULE),
+    AuthenticatorConfig = #{
+        mechanism => password_based,
+        backend => built_in_database,
+        enable => true
+    },
+    {ok, _} = ?AUTHN:create_authenticator(ListenerID, AuthenticatorConfig),
+    ClientInfo = #{
+        zone => default,
+        listener => ListenerID,
+        protocol => mqtt,
+        username => <<"bad">>,
+        password => <<"any">>
+    },
+    Logs = capture_warnings(fun() ->
+        ?assertEqual(
+            {error, bad_username_or_password},
+            emqx_access_control:authenticate(ClientInfo)
+        )
+    end),
+    ?assertMatch(
+        [
+            #{
+                msg := authenticator_rejection,
+                authenticator := <<"password_based:built_in_database">>,
+                provider := _,
+                reason := bad_username_or_password
+            }
+            | _
+        ],
+        [M || #{msg := authenticator_rejection} = M <- Logs]
+    );
+t_authenticate_rejection_log({'end', Config}) ->
+    ?AUTHN:delete_chain(?config(listener_id)),
+    ?AUTHN:deregister_provider(?config(authn_type)),
+    ok.
+
+%% Logger handler callback used by capture_warnings/1.
+log(#{msg := {report, Report}}, #{config := #{test_pid := Pid}}) when is_map(Report) ->
+    Pid ! {captured_log, Report},
+    ok;
+log(_Event, _Config) ->
+    ok.
+
+%% Install a temporary logger handler that forwards warning reports to the test
+%% process, run `Fun', and return the captured reports in emission order.
+capture_warnings(Fun) ->
+    HandlerId = test_capture_handler,
+    ok = logger:add_handler(HandlerId, ?MODULE, #{
+        level => warning,
+        config => #{test_pid => self()},
+        filter_default => log,
+        filters => []
+    }),
+    PrevLevel = emqx_logger:get_primary_log_level(),
+    ok = emqx_logger:set_primary_log_level(warning),
+    try
+        _ = Fun(),
+        collect_captured([])
+    after
+        ok = emqx_logger:set_primary_log_level(PrevLevel),
+        ok = logger:remove_handler(HandlerId)
+    end.
+
+collect_captured(Acc) ->
+    receive
+        {captured_log, Report} -> collect_captured([Report | Acc])
+    after 200 -> lists:reverse(Acc)
+    end.
+
 t_update_config({init, Config}) ->
     Global = 'mqtt:global',
     AuthNType1 = {password_based, built_in_database},

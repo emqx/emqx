@@ -551,6 +551,58 @@ t_precondition_render_error_skips_source(_Config) ->
         end
     ).
 
+t_source_denied_logged_at_warning(_Config) ->
+    Source = ?SOURCE_FILE(<<"{deny, all}.">>),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [Source]),
+    ClientInfo = emqx_authz_test_lib:base_client_info(),
+    Logs = capture_warnings(fun() ->
+        deny = emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>)
+    end),
+    ?assertMatch(
+        [
+            #{
+                msg := authorization_source_denied,
+                authorize_type := file,
+                module := emqx_authz_file
+            }
+            | _
+        ],
+        [M || #{msg := authorization_source_denied} = M <- Logs]
+    ).
+
+%% Logger handler callback used by capture_warnings/1.
+log(#{msg := {report, Report}}, #{config := #{test_pid := Pid}}) when is_map(Report) ->
+    Pid ! {captured_log, Report},
+    ok;
+log(_Event, _Config) ->
+    ok.
+
+%% Install a temporary logger handler that forwards warning reports to the test
+%% process, run `Fun', and return the captured reports in emission order.
+capture_warnings(Fun) ->
+    HandlerId = test_capture_handler,
+    ok = logger:add_handler(HandlerId, ?MODULE, #{
+        level => warning,
+        config => #{test_pid => self()},
+        filter_default => log,
+        filters => []
+    }),
+    PrevLevel = emqx_logger:get_primary_log_level(),
+    ok = emqx_logger:set_primary_log_level(warning),
+    try
+        _ = Fun(),
+        collect_captured([])
+    after
+        ok = emqx_logger:set_primary_log_level(PrevLevel),
+        ok = logger:remove_handler(HandlerId)
+    end.
+
+collect_captured(Acc) ->
+    receive
+        {captured_log, Report} -> collect_captured([Report | Acc])
+    after 200 -> lists:reverse(Acc)
+    end.
+
 t_precondition_skips_source(_Config) ->
     ClientInfo = #{
         username => <<"u">>,
