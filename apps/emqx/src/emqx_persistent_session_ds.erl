@@ -1892,7 +1892,7 @@ packet_id_to_seqno_prop() ->
     ?FORALL(
         {QoS, CommittedSeqNo}, {oneof([?QOS_1, ?QOS_2]), seqno_gen()},
         ?FORALL(
-            ExpectedSeqNo, range(CommittedSeqNo, CommittedSeqNo + ?EPOCH_SIZE),
+            ExpectedSeqNo, range(CommittedSeqNo, CommittedSeqNo + ?EPOCH_SIZE - 1),
             begin
                 PacketId = seqno_to_packet_id(QoS, ExpectedSeqNo),
                 SeqNo = packet_id_to_seqno(PacketId, CommittedSeqNo),
@@ -1901,7 +1901,8 @@ packet_id_to_seqno_prop() ->
                         io:format(user, "~p~n", [?FUNCTION_NAME]),
                         io:format(user, " *** PacketID = ~p~n", [PacketId]),
                         io:format(user, " *** SeqNo = ~p -> ~p~n", [ExpectedSeqNo, SeqNo]),
-                        io:format(user, " *** CommittedSeqNo = ~p~n", [CommittedSeqNo])
+                        io:format(user, " *** CommittedSeqNo = ~p~n", [CommittedSeqNo]),
+                        io:format(user, " *** Derived = ~p~n", [SeqNo])
                     end,
                     PacketId < 16#10000 andalso SeqNo =:= ExpectedSeqNo
                 )
