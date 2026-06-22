@@ -515,6 +515,7 @@ reserved_idx('messages.transformation_succeeded') -> 408;
 reserved_idx('messages.transformation_failed') -> 409;
 reserved_idx('rules.matched') -> 410;
 reserved_idx('actions.executed') -> 411;
+reserved_idx('messages.retained') -> 412;
 reserved_idx(_) -> undefined.
 
 all_metrics() ->
@@ -609,7 +610,8 @@ message_metrics() ->
         {counter, 'messages.validation_succeeded', ?DESC("messages_validation_succeeded")},
         {counter, 'messages.transformation_failed', ?DESC("messages_transformation_failed")},
         {counter, 'messages.transformation_succeeded', ?DESC("messages_transformation_succeeded")},
-        {counter, 'messages.persisted', ?DESC("messages_persisted")}
+        {counter, 'messages.persisted', ?DESC("messages_persisted")},
+        {counter, 'messages.retained', ?DESC("messages_retained")}
     ].
 
 %% Rule and Action related metrics
