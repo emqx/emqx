@@ -44,6 +44,28 @@ t_hash_data(_) ->
 
     Sha512 = emqx_passwd:hash_data(sha512, Password).
 
+t_plain_password(_) ->
+    Password = <<"password">>,
+    Salt = <<"salt">>,
+
+    ?assertEqual(Password, emqx_passwd:hash_data(plain, Password)),
+    ?assertEqual(Password, emqx_passwd:hash({plain, <<>>, disable}, Password)),
+    ?assertEqual(
+        <<Salt/binary, Password/binary>>,
+        emqx_passwd:hash({plain, Salt, prefix}, Password)
+    ),
+
+    true = emqx_passwd:check_pass({plain, <<>>, disable}, Password, Password),
+    false = emqx_passwd:check_pass({plain, <<>>, disable}, Password, <<"PASSWORD">>),
+    false = emqx_passwd:check_pass({plain, <<>>, disable}, Password, <<"Password">>),
+
+    true = emqx_passwd:check_pass(
+        {plain, Salt, prefix}, <<Salt/binary, Password/binary>>, Password
+    ),
+    false = emqx_passwd:check_pass(
+        {plain, Salt, prefix}, <<Salt/binary, Password/binary>>, <<"PASSWORD">>
+    ).
+
 t_hash(_) ->
     Password = <<"password">>,
     Salt = <<"salt">>,

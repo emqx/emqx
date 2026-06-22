@@ -94,7 +94,7 @@ t_legacy_prometheus_api(_) ->
             <<"push_gateway">> :=
                 #{
                     <<"enable">> := true,
-                    <<"headers">> := #{<<"Authorization">> := <<"some-authz-tokens">>},
+                    <<"headers">> := #{<<"Authorization">> := <<"******">>},
                     <<"interval">> := <<"1s">>,
                     <<"job_name">> := <<"${cluster_name}~${name}~${host}">>,
                     <<"url">> := <<"http://127.0.0.1:9091">>
@@ -186,6 +186,10 @@ t_prometheus_api(_) ->
             #{<<"url">> := Url, <<"enable">> := Enable} = PushGateway,
         <<"collectors">> := Collector
     } = Conf,
+    ?assertEqual(
+        #{<<"Authorization">> => <<"******">>},
+        maps:get(<<"headers">>, PushGateway)
+    ),
     Pid = erlang:whereis(emqx_prometheus),
     ?assertEqual(Enable, undefined =/= Pid, {Url, Pid}),
 
