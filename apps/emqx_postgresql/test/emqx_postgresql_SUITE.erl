@@ -12,6 +12,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("epgsql/include/epgsql.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
 -define(PGSQL_HOST, "pgsql").
@@ -170,6 +171,138 @@ t_concurrent_raw_batch_queries_no_errors(_Config) ->
     ct:pal("concurrent raw batch query errors: ~p", [Errors]),
     ?assertEqual([], Errors).
 
+%% Verify that table-existence checks do not race with raw batch execution on
+%% the same connection.
+t_raw_batch_not_confused_by_table_check(_Config) ->
+    ResourceId = <<"emqx_postgresql_SUITE_batch_status">>,
+    Table = <<"emqx_postgresql_batch_status_race">>,
+    Sql4 =
+        <<"INSERT INTO ", Table/binary, "(a, b, c, d) VALUES (${a}, ${b}, ${c}, ${d})">>,
+    Sql18 =
+        <<"INSERT INTO ", Table/binary,
+            "(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r) VALUES "
+            "(${a}, ${b}, ${c}, ${d}, ${e}, ${f}, ${g}, ${h}, ${i}, ${j}, ${k}, "
+            "${l}, ${m}, ${n}, ${o}, ${p}, ${q}, ${r})">>,
+    {ok, #{config := CheckedConfig}} =
+        emqx_resource:check_config(
+            ?PGSQL_RESOURCE_MOD,
+            pgsql_config(#{
+                pool_size => 1,
+                disable_prepared_statements => true
+            })
+        ),
+    {ok, #{state := State0}} = emqx_resource:create_local(
+        ResourceId,
+        ?CONNECTOR_RESOURCE_GROUP,
+        ?PGSQL_RESOURCE_MOD,
+        CheckedConfig,
+        #{spawn_buffer_workers => false}
+    ),
+    {ok, State1} = emqx_postgresql:on_add_channel(
+        ResourceId, State0, <<"stmt4">>, #{parameters => #{sql => Sql4}}
+    ),
+    {ok, State} = emqx_postgresql:on_add_channel(
+        ResourceId, State1, <<"stmt18">>, #{parameters => #{sql => Sql18}}
+    ),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId)),
+    ?assert(
+        match_ok(
+            emqx_resource:simple_sync_query(
+                ResourceId,
+                {query, <<"DROP TABLE IF EXISTS ", Table/binary>>, []}
+            )
+        )
+    ),
+    ?assert(
+        match_ok(
+            emqx_resource:simple_sync_query(
+                ResourceId,
+                {query,
+                    <<"CREATE TABLE ", Table/binary,
+                        " (a integer, b integer, c integer, d integer, "
+                        "e integer, f integer, g integer, h integer, "
+                        "i integer, j integer, k integer, l integer, "
+                        "m integer, n integer, o integer, p integer, "
+                        "q integer, r integer)">>,
+                    []}
+            )
+        )
+    ),
+    TestPid = self(),
+    meck:new(epgsql, [passthrough, no_link]),
+    try
+        install_interleaving_meck(TestPid),
+        _StatusPid =
+            spawn_link(fun() ->
+                Res = emqx_postgresql:on_get_channel_status(ResourceId, <<"stmt18">>, State),
+                TestPid ! {status_result, Res}
+            end),
+        StatusWaiterPid =
+            receive
+                {status_has_conn, Pid1} ->
+                    Pid1
+            after 5_000 ->
+                error(status_check_did_not_reach_parse)
+            end,
+        _BatchPid =
+            spawn_link(fun() ->
+                Res = emqx_postgresql:on_batch_query(
+                    ResourceId,
+                    [
+                        {<<"stmt4">>, #{a => 1, b => 2, c => 3, d => 4}},
+                        {<<"stmt4">>, #{a => 5, b => 6, c => 7, d => 8}}
+                    ],
+                    State
+                ),
+                TestPid ! {batch_result, Res}
+            end),
+        case wait_for_batch_parse(500) of
+            {interleaved, BatchWaiterPid} ->
+                StatusWaiterPid ! run_status_parse,
+                receive
+                    {status_parsed, _} ->
+                        ok
+                after 5_000 ->
+                    error(status_check_did_not_finish_parse)
+                end,
+                BatchWaiterPid ! run_batch;
+            serialized ->
+                StatusWaiterPid ! run_status_parse,
+                receive
+                    {status_parsed, _} ->
+                        ok
+                after 5_000 ->
+                    error(status_check_did_not_finish_parse)
+                end,
+                receive
+                    {batch_parsed, BatchWaiterPid} ->
+                        BatchWaiterPid ! run_batch
+                after 5_000 ->
+                    error(batch_query_did_not_reach_parse)
+                end
+        end,
+        ?assertEqual(
+            connected,
+            receive
+                {status_result, StatusRes} -> StatusRes
+            after 5_000 -> timeout
+            end
+        ),
+        ?assertEqual(
+            {ok, 2},
+            receive
+                {batch_result, BatchRes} -> BatchRes
+            after 5_000 -> timeout
+            end
+        )
+    after
+        meck:unload(epgsql),
+        _ = emqx_resource:simple_sync_query(
+            ResourceId, {query, <<"DROP TABLE ", Table/binary>>, []}
+        ),
+        emqx_resource:remove_local(ResourceId)
+    end.
+
 perform_lifecycle_check(ResourceId, InitialConfig) ->
     {ok, #{config := CheckedConfig}} =
         emqx_resource:check_config(?PGSQL_RESOURCE_MOD, InitialConfig),
@@ -297,6 +430,49 @@ batch_query_with_timeout(ResourceId, Batch, State) ->
             timeout;
         Class:Reason:Stacktrace ->
             {exception, Class, Reason, Stacktrace}
+    end.
+
+install_interleaving_meck(TestPid) ->
+    meck:expect(epgsql, parse2, fun
+        (Conn, "", SQL, []) ->
+            TestPid ! {status_has_conn, self()},
+            receive
+                run_status_parse ->
+                    ok
+            after 5_000 ->
+                error(status_parse_timeout)
+            end,
+            Res = meck:passthrough([Conn, "", SQL, []]),
+            TestPid ! {status_parsed, self()},
+            Res;
+        (Conn, Name, SQL, Types) ->
+            meck:passthrough([Conn, Name, SQL, Types])
+    end),
+    meck:expect(epgsql, execute_batch, fun
+        (Conn, #statement{} = Statement, Batch) ->
+            meck:passthrough([Conn, Statement, Batch]);
+        (Conn, SQL, Batch) ->
+            case epgsql:parse(Conn, SQL) of
+                {ok, #statement{} = Statement} ->
+                    TestPid ! {batch_parsed, self()},
+                    receive
+                        run_batch ->
+                            ok
+                    after 5_000 ->
+                        error(batch_parse_timeout)
+                    end,
+                    epgsql:execute_batch(Conn, Statement, Batch);
+                Error ->
+                    Error
+            end
+    end).
+
+wait_for_batch_parse(Timeout) ->
+    receive
+        {batch_parsed, BatchWaiterPid} ->
+            {interleaved, BatchWaiterPid}
+    after Timeout ->
+        serialized
     end.
 
 match_ok({ok, _, _}) -> true;
