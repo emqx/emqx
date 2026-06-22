@@ -1525,11 +1525,10 @@ do_deliver(
     }
 ) ->
     ok = inc_metrics('messages.delivered', Channel),
-    Msg1 = run_fold_with_context(
+    Msg1 = emqx_hooks:run_fold(
         'message.delivered',
         [ClientInfo],
-        emqx_message:update_expiry(Msg),
-        Channel
+        emqx_message:update_expiry(Msg)
     ),
     Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
     Packet = emqx_message:to_packet(PacketId, Msg2),
