@@ -43,6 +43,7 @@ t_legacy(_) ->
 
     %% verify the mode itself
     ?assertEqual(legacy, emqx_security_profile:profile()),
+    ?assertEqual(ignore, emqx_security_profile:policy(authn_backend_failure)),
     ?assertEqual(ignore, emqx_security_profile:policy(authz_backend_failure)),
 
     %% Full defaults
@@ -80,6 +81,7 @@ t_hardened(_) ->
 
     %% verify the mode itself
     ?assertEqual(hardened, emqx_security_profile:profile()),
+    ?assertEqual(deny, emqx_security_profile:policy(authn_backend_failure)),
     ?assertEqual(deny, emqx_security_profile:policy(authz_backend_failure)),
 
     %% Full defaults are secure in hardened profile

@@ -71,7 +71,7 @@ authenticate(
             ?TRACE_AUTHN_PROVIDER(error, "mongodb_render_filter_failed", #{
                 reason => EncodeError
             }),
-            ignore
+            emqx_authn_utils:backend_failure_result()
     end.
 
 authenticate_with_filter(
@@ -99,7 +99,7 @@ authenticate_with_filter(
                 filter => Filter,
                 reason => Reason
             }),
-            ignore;
+            emqx_authn_utils:backend_failure_result();
         {ok, Doc} ->
             case check_password(Password, Doc, State) of
                 ok ->
@@ -112,7 +112,7 @@ authenticate_with_filter(
                         document => Doc,
                         password_hash_field => PasswordHashField
                     }),
-                    ignore;
+                    emqx_authn_utils:backend_failure_result();
                 {error, Reason} ->
                     {error, Reason}
             end

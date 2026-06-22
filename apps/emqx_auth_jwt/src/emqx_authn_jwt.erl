@@ -108,7 +108,7 @@ authenticate(
                 resource => ResourceId,
                 reason => Reason
             }),
-            ignore;
+            emqx_authn_utils:backend_failure_result();
         {ok, JWKs} ->
             JWT = maps:get(From, Credential),
             VerifyClaims = render_expected(VerifyClaims0, Credential),
@@ -252,7 +252,7 @@ verify(JWT, JWKs, VerifyClaims, AclClaimName, DisconnectAfterExpire) ->
         {error, invalid_signature} ->
             %% it's a invalid token, so it's ok to log
             ?TRACE_AUTHN_PROVIDER("invalid_jwt_signature", #{jwks => JWKs, jwt => JWT}),
-            ignore;
+            emqx_authn_utils:backend_failure_result();
         {error, {claims, Claims}} ->
             %% it's a invalid token, so it's ok to log
             ?TRACE_AUTHN_PROVIDER("invalid_jwt_claims", #{jwt => JWT, claims => Claims}),

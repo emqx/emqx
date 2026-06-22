@@ -79,6 +79,23 @@ enable_node_cache(Enable) ->
     emqx_auth_cache:reset(?AUTHN_CACHE),
     ok.
 
+add_permissive_builtin_authenticator(Path, Chain, Username, Password) ->
+    Config = #{
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"built_in_database">>,
+        <<"password_hash_algorithm">> => #{
+            <<"name">> => <<"plain">>,
+            <<"salt_position">> => <<"disable">>
+        }
+    },
+    {ok, _} = emqx:update_config(Path, {create_authenticator, Chain, Config}),
+    {ok, _} = emqx_authn_chains:add_user(
+        Chain,
+        <<"password_based:built_in_database">>,
+        #{user_id => Username, password => Password}
+    ),
+    ok.
+
 -doc """
 Checks that, if an authentication backend returns the `clientid_override` attribute, it's
 used to override.

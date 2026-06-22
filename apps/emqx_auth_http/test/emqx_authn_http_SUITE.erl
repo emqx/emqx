@@ -79,9 +79,11 @@ groups() ->
 
 init_per_suite(TCConfig) ->
     emqx_utils:interactive_load(emqx_variform_bif),
-    Apps = emqx_cth_suite:start([cowboy, emqx, emqx_conf, emqx_auth, emqx_auth_http], #{
-        work_dir => ?config(priv_dir, TCConfig)
-    }),
+    Apps = emqx_cth_suite:start(
+        [cowboy, emqx, emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_auth_http], #{
+            work_dir => ?config(priv_dir, TCConfig)
+        }
+    ),
     [{apps, Apps} | TCConfig].
 
 end_per_suite(TCConfig) ->
@@ -178,6 +180,22 @@ t_authenticate(TCConfig) ->
         end,
         samples()
     ).
+
+t_backend_failure_legacy_ignores(TCConfig) ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ?assertEqual(
+            {ok, #{is_superuser => false}},
+            authenticate_with_unexpected_status(TCConfig)
+        )
+    end).
+
+t_backend_failure_hardened_denies(TCConfig) ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ?assertEqual(
+            {error, not_authorized},
+            authenticate_with_unexpected_status(TCConfig)
+        )
+    end).
 
 test_user_auth(
     TCConfig,
@@ -1478,6 +1496,24 @@ samples() ->
             result => {error, not_authorized}
         }
     ].
+
+unexpected_status_handler() ->
+    fun(Req0, State) ->
+        Req = cowboy_req:reply(500, Req0),
+        {ok, Req, State}
+    end.
+
+authenticate_with_unexpected_status(TCConfig) ->
+    AuthConfig = raw_http_auth_config(TCConfig),
+    {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
+    ok = emqx_utils_http_test_server:set_handler(unexpected_status_handler()),
+    ok = emqx_authn_test_lib:add_permissive_builtin_authenticator(
+        ?PATH,
+        ?GLOBAL,
+        maps:get(username, ?CREDENTIALS),
+        maps:get(password, ?CREDENTIALS)
+    ),
+    emqx_access_control:authenticate(?CREDENTIALS).
 
 uri_encode(T) ->
     emqx_http_lib:uri_encode(to_list(T)).

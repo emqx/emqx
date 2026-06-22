@@ -13,6 +13,9 @@
 -include_lib("common_test/include/ct.hrl").
 
 -define(MONGO_HOST, "mongo").
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
+-define(PROXY_NAME, "mongo_single_tcp").
 
 -define(PATH, [authentication]).
 
@@ -39,9 +42,11 @@ end_per_testcase(_TestCase, Config) ->
     ok = mc_worker_api:disconnect(Client).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mongodb], #{
-        work_dir => ?config(priv_dir, Config)
-    }),
+    Apps = emqx_cth_suite:start(
+        [emqx, emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_auth_mongodb], #{
+            work_dir => ?config(priv_dir, Config)
+        }
+    ),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -97,30 +102,32 @@ t_authenticate(_Config) ->
             ct:pal("test_user_auth sample: ~p", [Sample]),
             test_user_auth(Sample)
         end,
-        applicable_user_seeds()
+        applicable_cases()
     ).
 
 %% The legacy-protocol seed only applies to MongoDB servers that still support
 %% the legacy OP_QUERY opcodes (removed in MongoDB 5.1, wire protocol 14).
-applicable_user_seeds() ->
+applicable_cases() ->
     case mongo_supports_legacy_protocol(?MONGO_HOST, ?MONGO_DEFAULT_PORT) of
         true ->
-            user_seeds();
+            cases();
         false ->
             [
                 Seed
-             || Seed <- user_seeds(),
+             || Seed <- cases(),
                 maps:get(
                     <<"use_legacy_protocol">>, maps:get(config_params, Seed, #{}), undefined
                 ) =/= <<"true">>
             ]
     end.
 
-test_user_auth(#{
-    credentials := Credentials0,
-    config_params := SpecificConfigParams,
-    result := Result
-}) ->
+test_user_auth(
+    #{
+        credentials := Credentials0,
+        config_params := SpecificConfigParams,
+        result := Result
+    } = Sample
+) ->
     AuthConfig = maps:merge(raw_mongo_auth_config(), SpecificConfigParams),
 
     {ok, _} = emqx:update_config(
@@ -132,7 +139,8 @@ test_user_auth(#{
         listener => 'tcp:default',
         protocol => mqtt
     },
-    ?assertEqual(Result, emqx_access_control:authenticate(Credentials)),
+    Auth = fun() -> ?assertEqual(Result, emqx_access_control:authenticate(Credentials)) end,
+    run(Sample, Credentials, Auth),
 
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
@@ -367,7 +375,7 @@ raw_mongo_auth_config() ->
         <<"use_legacy_protocol">> => <<"auto">>
     }.
 
-user_seeds() ->
+cases() ->
     PlainSeed =
         #{
             data => #{
@@ -387,6 +395,72 @@ user_seeds() ->
         PlainSeed#{config_params => #{<<"use_legacy_protocol">> => <<"auto">>}},
         PlainSeed#{config_params => #{<<"use_legacy_protocol">> => <<"true">>}},
         PlainSeed#{config_params => #{<<"use_legacy_protocol">> => <<"false">>}},
+        #{
+            data => #{
+                username => <<"backend_failure_legacy">>,
+                password_hash => <<"backend_failure_legacy">>,
+                salt => <<"">>,
+                is_superuser => <<"1">>
+            },
+            credentials => #{
+                username => <<"backend_failure_legacy">>,
+                password => <<"backend_failure_legacy">>
+            },
+            config_params => #{<<"server">> => <<"toxiproxy:27017">>},
+            add_permissive => true,
+            backend_failure => true,
+            security_profile => legacy,
+            result => {ok, #{is_superuser => false}}
+        },
+        #{
+            data => #{
+                username => <<"backend_failure_hardened">>,
+                password_hash => <<"backend_failure_hardened">>,
+                salt => <<"">>,
+                is_superuser => <<"1">>
+            },
+            credentials => #{
+                username => <<"backend_failure_hardened">>,
+                password => <<"backend_failure_hardened">>
+            },
+            config_params => #{<<"server">> => <<"toxiproxy:27017">>},
+            add_permissive => true,
+            backend_failure => true,
+            security_profile => hardened,
+            result => {error, not_authorized}
+        },
+        #{
+            data => #{
+                username => <<"render_failure_legacy">>,
+                password_hash => <<"render_failure_legacy">>,
+                salt => <<"">>,
+                is_superuser => <<"1">>
+            },
+            credentials => #{
+                username => <<255>>,
+                password => <<"render_failure_legacy">>
+            },
+            config_params => #{<<"filter">> => #{<<"username">> => <<"${username}">>}},
+            add_permissive => true,
+            security_profile => legacy,
+            result => {ok, #{is_superuser => false}}
+        },
+        #{
+            data => #{
+                username => <<"render_failure_hardened">>,
+                password_hash => <<"render_failure_hardened">>,
+                salt => <<"">>,
+                is_superuser => <<"1">>
+            },
+            credentials => #{
+                username => <<255>>,
+                password => <<"render_failure_hardened">>
+            },
+            config_params => #{<<"filter">> => #{<<"username">> => <<"${username}">>}},
+            add_permissive => true,
+            security_profile => hardened,
+            result => {error, not_authorized}
+        },
         #{
             data => #{
                 username => <<"md5">>,
@@ -534,7 +608,7 @@ user_seeds() ->
     ].
 
 init_seeds(Client) ->
-    Users = [Values || #{data := Values} <- user_seeds()],
+    Users = [Values || #{data := Values} <- cases()],
     ok = lists:foreach(fun(User) -> create_user(Client, User) end, Users),
     ok.
 
@@ -545,6 +619,36 @@ create_user(Client, User) ->
 drop_seeds(Client) ->
     {true, _} = mc_worker_api:delete(Client, <<"users">>, #{}),
     ok.
+
+run(Sample, Credentials, Auth) ->
+    run([failure, profile, permissive_auth], Sample, Credentials, Auth).
+
+run([failure | Rest], #{backend_failure := true} = Sample, Credentials, Auth) ->
+    emqx_common_test_helpers:with_failure(
+        down,
+        ?PROXY_NAME,
+        ?PROXY_HOST,
+        ?PROXY_PORT,
+        fun() -> run(Rest, Sample, Credentials, Auth) end
+    );
+run([failure | Rest], Sample, Credentials, Auth) ->
+    run(Rest, Sample, Credentials, Auth);
+run([profile | Rest], #{security_profile := Profile} = Sample, Credentials, Auth) ->
+    emqx_common_test_helpers:with_security_profile(atom_to_list(Profile), fun() ->
+        run(Rest, Sample, Credentials, Auth)
+    end);
+run([profile | Rest], Sample, Credentials, Auth) ->
+    run(Rest, Sample, Credentials, Auth);
+run([permissive_auth | Rest], #{add_permissive := true} = Sample, Credentials, Auth) ->
+    #{username := Username, password := Password} = Credentials,
+    ok = emqx_authn_test_lib:add_permissive_builtin_authenticator(
+        ?PATH, ?GLOBAL, Username, Password
+    ),
+    run(Rest, Sample, Credentials, Auth);
+run([permissive_auth | Rest], Sample, Credentials, Auth) ->
+    run(Rest, Sample, Credentials, Auth);
+run([], _Sample, _Credentials, Auth) ->
+    Auth().
 
 mongo_server() ->
     iolist_to_binary(io_lib:format("~s", [?MONGO_HOST])).

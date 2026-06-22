@@ -25,6 +25,8 @@
     make_resource_id/1,
     without_password/1,
     to_bool/1,
+    backend_failure_result/0,
+    authn_backend_failure_policy/0,
     cached_simple_sync_query/3
 ]).
 
@@ -214,6 +216,25 @@ to_bool(_) ->
 
 cached_simple_sync_query(CacheKey, ResourceID, Query) ->
     emqx_auth_utils:cached_simple_sync_query(?AUTHN_CACHE, CacheKey, ResourceID, Query).
+
+-spec backend_failure_result() -> ignore | {error, not_authorized}.
+backend_failure_result() ->
+    case authn_backend_failure_policy() of
+        ignore -> ignore;
+        deny -> {error, not_authorized}
+    end.
+
+-spec authn_backend_failure_policy() -> ignore | deny.
+authn_backend_failure_policy() ->
+    case emqx_security_profile:policy(authn_backend_failure) of
+        deny ->
+            case emqx:get_config([authentication_settings, ignore_backend_failures], false) of
+                true -> ignore;
+                false -> deny
+            end;
+        ignore ->
+            ignore
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions
