@@ -106,7 +106,7 @@ gateway(Method, Params, Request) ->
     ReqInfo = #{
         method => Method,
         query_string => QueryString,
-        headers => Headers,
+        headers => sanitize_headers(Headers),
         body => maps:get(body, Params, #{})
     },
     AuthMeta = maps:get(auth_meta, Params, #{}),
@@ -183,6 +183,9 @@ request_namespace(#{auth_meta := #{namespace := ?global_ns}}) ->
     ?global_ns;
 request_namespace(_Request) ->
     ?global_ns.
+
+sanitize_headers(Headers) ->
+    maps:without([<<"authorization">>, <<"cookie">>], Headers).
 
 -ifdef(TEST).
 
