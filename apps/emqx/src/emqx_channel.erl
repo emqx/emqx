@@ -653,7 +653,7 @@ post_process_connect(
     }
 ) ->
     Channel = Channel0#channel{
-        quota = create_limiter(ClientInfo)
+        quota = create_limiter(Channel0)
     },
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg) of
         {ok, #{session := Session, present := false}} ->
@@ -675,7 +675,7 @@ post_process_connect(
             handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
     end.
 
-create_limiter(#{zone := Zone, listener := ListenerId} = ClientInfo) ->
+create_limiter(#channel{clientinfo = #{zone := Zone, listener := ListenerId} = ClientInfo}) ->
     Limiter = emqx_limiter:create_channel_client_container(Zone, ListenerId),
     Context = #{
         zone => Zone,
@@ -683,6 +683,32 @@ create_limiter(#{zone := Zone, listener := ListenerId} = ClientInfo) ->
         tns => get_tenant_namespace(ClientInfo)
     },
     emqx_hooks:run_fold('channel.limiter_adjustment', [Context], Limiter).
+
+handle_zone_change(
+    _Output,
+    #channel{clientinfo = #{old_zone := _}} = Channel0
+) ->
+    Channel1 = maybe_recreate_limiter(Channel0),
+    Channel = maybe_handle_session_zone_change(Channel1),
+    {ok, Channel};
+handle_zone_change(_Output, Channel) ->
+    {ok, Channel}.
+
+maybe_recreate_limiter(#channel{quota = undefined} = Channel) ->
+    Channel;
+maybe_recreate_limiter(Channel) ->
+    Channel#channel{quota = create_limiter(Channel)}.
+
+maybe_handle_session_zone_change(#channel{session = undefined} = Channel) ->
+    Channel;
+maybe_handle_session_zone_change(
+    Channel = #channel{
+        clientinfo = ClientInfo,
+        session = Session0
+    }
+) ->
+    Session = emqx_session:handle_info(zone_changed, Session0, ClientInfo),
+    Channel#channel{session = Session}.
 
 %%--------------------------------------------------------------------
 %% Process Publish
@@ -2376,15 +2402,6 @@ fix_mountpoint(_PipelineOutput, #channel{clientinfo = ClientInfo0} = Channel0) -
     Channel = Channel0#channel{clientinfo = ClientInfo},
     {ok, Channel}.
 
-%% Re-init limiter if zone changed during authentication.
-maybe_update_limiter(_, #channel{clientinfo = #{old_zone := _} = ClientInfo} = Channel0) ->
-    #{listener := ListenerId, zone := NewZone} = ClientInfo,
-    Limiter = emqx_limiter:create_channel_client_container(NewZone, ListenerId),
-    Channel = Channel0#channel{quota = Limiter},
-    {ok, Channel};
-maybe_update_limiter(_, Channel) ->
-    {ok, Channel}.
-
 %%--------------------------------------------------------------------
 %% Set log metadata
 
@@ -2398,16 +2415,6 @@ set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId} = ClientInf
 get_tenant_namespace(ClientInfo) ->
     Attrs = maps:get(client_attrs, ClientInfo, #{}),
     maps:get(?CLIENT_ATTR_NAME_TNS, Attrs, undefined).
-
-%%--------------------------------------------------------------------
-%% Adjust limiter
-
-adjust_limiter(_ConnPkt, #channel{clientinfo = ClientInfo, quota = Limiter0} = Channel0) ->
-    #{zone := Zone, listener := ListenerId} = ClientInfo,
-    Tns = get_tenant_namespace(ClientInfo),
-    Context = #{zone => Zone, listener_id => ListenerId, tns => Tns},
-    Limiter = emqx_hooks:run_fold('channel.limiter_adjustment', [Context], Limiter0),
-    {ok, Channel0#channel{quota = Limiter}}.
 
 %%--------------------------------------------------------------------
 %% Check banned
@@ -2536,12 +2543,11 @@ authentication_pipeline(Credential, Channel) ->
         [
             fun do_authenticate/2,
             fun fix_mountpoint/2,
-            fun maybe_update_limiter/2,
+            fun handle_zone_change/2,
             %% We call `set_log_meta' again here because authentication may have injected
             %% different attributes.  Note that `clientid` might have changed as well, if
             %% authentication returned a non-empty `clientid_override` value.
-            fun set_log_meta/2,
-            fun adjust_limiter/2
+            fun set_log_meta/2
         ]
     ).
 

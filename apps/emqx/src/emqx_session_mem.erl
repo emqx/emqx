@@ -720,8 +720,9 @@ handle_timeout(ClientInfo, ?DEQUEUE_RETRY_TIMER, Session) ->
 %% Geneic messages
 %%--------------------------------------------------------------------
 
-%% Mem session doesn't handle any messages
 -spec handle_info(term(), session(), clientinfo()) -> session().
+handle_info(zone_changed, Session, ClientInfo) ->
+    apply_conf(emqx_session:get_session_conf(ClientInfo), Session);
 handle_info(_Msg, Session, _ClientInfo) ->
     Session.
 
