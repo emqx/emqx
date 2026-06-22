@@ -203,7 +203,7 @@ handle_response(Headers, Body) ->
         {ok, NBody} ->
             body_to_auth_data(NBody);
         {error, _Reason} ->
-            ignore
+            emqx_authn_utils:backend_failure_result()
     end.
 
 body_to_auth_data(Body) ->
@@ -215,7 +215,7 @@ body_to_auth_data(Body) ->
         <<"ignore">> ->
             ignore;
         _ ->
-            ignore
+            emqx_authn_utils:backend_failure_result()
     end.
 
 extract_auth_data(Source, Body) ->
