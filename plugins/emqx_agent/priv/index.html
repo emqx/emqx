@@ -50,6 +50,14 @@
               <option value="message__request">message__request</option>
               <option value="http">http</option>
               <option value="postgresql__query">postgresql__query</option>
+              <option value="stream_write">stream_write</option>
+              <option value="stream_read">stream_read</option>
+              <option value="stream_del">stream_del</option>
+              <option value="kv_write">kv_write</option>
+              <option value="kv_read">kv_read</option>
+              <option value="kv_read_all">kv_read_all</option>
+              <option value="kv_del">kv_del</option>
+              <option value="kv_clear">kv_clear</option>
             </select>
           </div>
           <div class="field">
@@ -124,6 +132,27 @@
             <label>SQL query template</label>
             <textarea id="tool-query" placeholder="SELECT metric, value FROM agent_tool_metrics WHERE device_id = ${device_id}"></textarea>
             <div class="hint">Use ${var} placeholders. Names are extracted automatically and the input schema is generated from them.</div>
+          </div>
+        </div>
+
+        <!-- stream / kv fields -->
+        <div id="f-stream" style="display:none">
+          <div class="field">
+            <label>Stream</label>
+            <input id="tool-stream" type="text" placeholder="stream-name">
+            <div class="hint">Name of the EMQX stream used by this tool. KV tools require a last-value stream.</div>
+          </div>
+        </div>
+
+        <!-- stream / kv read-write format -->
+        <div id="f-format" style="display:none">
+          <div class="field">
+            <label>Format</label>
+            <select id="tool-format">
+              <option value="json">json</option>
+              <option value="binary">binary</option>
+            </select>
+            <div class="hint">json encodes write bodies and tries to decode read payloads. binary reads and writes payloads as-is.</div>
           </div>
         </div>
 

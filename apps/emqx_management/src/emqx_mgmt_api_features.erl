@@ -109,7 +109,8 @@ example_features_list() ->
                         <<"multi_tenancy">>,
                         <<"ai">>,
                         <<"metrics">>,
-                        <<"mqtt_extensions">>
+                        <<"mqtt_extensions">>,
+                        <<"plugins">>
                     ],
                     bundled => []
                 }
