@@ -497,10 +497,12 @@ maybe_put_cipher_suites(SSLOpts, TLSOpts) ->
     Ciphers = find_opt([ciphers, <<"ciphers">>], SSLOpts),
     case Ciphers of
         {ok, List} when is_list(List), List =/= [] ->
-            {Converted, Unsupported} = convert_ciphers_to_rfc(List),
+            {Converted, Unsupported} = emqx_tls_lib:convert_ciphers_to_rfc(
+                List, supported_cipher_suites()
+            ),
             case Unsupported of
                 [] ->
-                    TLSOpts#{cipher_suites => Converted};
+                    TLSOpts#{cipher_suites => lists:map(fun erlang:list_to_binary/1, Converted)};
                 _ ->
                     throw(
                         iolist_to_binary([
@@ -534,34 +536,6 @@ find_opt(Keys, Map) ->
         error,
         Keys
     ).
-
-convert_ciphers_to_rfc(Ciphers) ->
-    lists:foldr(
-        fun(Cipher, {Ok, Bad}) ->
-            case ssl_cipher_to_rfc(Cipher) of
-                {ok, RfcName} ->
-                    case lists:member(RfcName, supported_cipher_suites()) of
-                        true -> {[RfcName | Ok], Bad};
-                        false -> {Ok, [Cipher | Bad]}
-                    end;
-                error ->
-                    {Ok, [Cipher | Bad]}
-            end
-        end,
-        {[], []},
-        Ciphers
-    ).
-
-ssl_cipher_to_rfc(Cipher) when is_binary(Cipher) ->
-    ssl_cipher_to_rfc(binary_to_list(Cipher));
-ssl_cipher_to_rfc(Cipher) ->
-    try
-        Suite = ssl:str_to_suite(Cipher),
-        {ok, list_to_binary(ssl:suite_to_str(Suite))}
-    catch
-        _:_ ->
-            error
-    end.
 
 supported_cipher_suites() ->
     [
