@@ -72,7 +72,7 @@
 ]).
 
 -export([
-    deliver/3,
+    deliver/4,
     handle_info/3,
     handle_timeout/3,
     disconnect/3,
@@ -115,6 +115,7 @@
     t/0,
     conf/0,
     conninfo/0,
+    connflag/0,
     clientinfo/0,
     reply/0,
     replies/0,
@@ -134,6 +135,8 @@
         receive_maximum => non_neg_integer(),
         expiry_interval => non_neg_integer()
     }.
+
+-type connflag() :: congested.
 
 -type common_timer_name() :: retry_delivery | expire_awaiting_rel.
 -type custom_timer_name() :: atom().
@@ -231,7 +234,7 @@
 -callback replay(clientinfo(), _ReplayContext, t()) ->
     {ok, replies(), t()}.
 
--callback deliver(clientinfo(), [emqx_types:deliver()], t()) ->
+-callback deliver(clientinfo(), [emqx_types:deliver()], [connflag()], t()) ->
     {ok, replies(), t()}.
 
 -callback info(atom(), t()) -> term().
@@ -454,11 +457,11 @@ replay(ClientInfo, ReplayContext, Session) ->
 %% Broker -> Client: Deliver
 %%--------------------------------------------------------------------
 
--spec deliver(clientinfo(), [emqx_types:deliver()], t()) ->
+-spec deliver(clientinfo(), [emqx_types:deliver()], [connflag()], t()) ->
     {ok, replies(), t()}.
-deliver(ClientInfo, Delivers, Session) ->
+deliver(ClientInfo, Delivers, Flags, Session) ->
     Messages = enrich_delivers(ClientInfo, Delivers, Session),
-    Ok = {ok, Replies, Session1} = ?IMPL(Session):deliver(ClientInfo, Messages, Session),
+    Ok = {ok, Replies, Session1} = ?IMPL(Session):deliver(ClientInfo, Messages, Flags, Session),
     _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
     Ok.
 

@@ -73,7 +73,7 @@
 ]).
 
 -export([
-    deliver/3,
+    deliver/4,
     replay/3,
     handle_timeout/3,
     handle_info/3,
@@ -503,8 +503,7 @@ dequeue(ClientInfo, Session = #session{inflight = Inflight, mqueue = Q}) ->
         false ->
             {Msgs, Q1} = dequeue(ClientInfo, batch_n(Inflight), [], Q),
             %% Limiter was already checked during dequeue
-            CheckLimiter = false,
-            do_deliver(ClientInfo, Msgs, [], CheckLimiter, Session#session{mqueue = Q1})
+            deliver_unlimited(ClientInfo, Msgs, Session#session{mqueue = Q1})
     end.
 
 dequeue(_ClientInfo, 0, Msgs, Q) ->
@@ -546,64 +545,70 @@ acc_cnt(_Msg, Cnt) -> Cnt - 1.
 %% Broker -> Client: Deliver
 %%--------------------------------------------------------------------
 
--spec deliver(clientinfo(), [emqx_types:deliver()], session()) ->
+-spec deliver(clientinfo(), [emqx_types:deliver()], [emqx_session:connflag()], session()) ->
     {ok, replies(), session()}.
-deliver(ClientInfo, Msgs, Session) ->
-    do_deliver(ClientInfo, Msgs, [], _CheckLimiter = true, Session).
+deliver(ClientInfo, Msgs, Flags, Session) ->
+    Limited = true,
+    Congested = lists:member(congested, Flags),
+    do_deliver(ClientInfo, Msgs, Limited, Congested, Session, []).
 
-do_deliver(_ClientInfo, [], Publishes, _CheckLimiter, Session) ->
-    {ok, lists:reverse(Publishes), Session};
-do_deliver(ClientInfo, [Msg | More], Acc, CheckLimiter, Session) ->
-    case deliver_msg(ClientInfo, Msg, CheckLimiter, Session) of
-        {ok, [], Session1} ->
-            do_deliver(ClientInfo, More, Acc, CheckLimiter, Session1);
-        {ok, [Publish], Session1} ->
-            do_deliver(ClientInfo, More, [Publish | Acc], CheckLimiter, Session1)
+deliver_unlimited(ClientInfo, Msgs, Session) ->
+    do_deliver(ClientInfo, Msgs, false, false, Session, []).
+
+do_deliver(_ClientInfo, [], _, _, Session, Acc) ->
+    {ok, lists:reverse(Acc), Session};
+do_deliver(ClientInfo, [Msg | More], Limited, Congested, Session, Acc) ->
+    case deliver_msg(ClientInfo, Msg, Limited, Congested, Session) of
+        {ok, Session1} ->
+            do_deliver(ClientInfo, More, Limited, Congested, Session1, Acc);
+        {ok, Publish, Session1} ->
+            do_deliver(ClientInfo, More, Limited, Congested, Session1, [Publish | Acc])
     end.
 
-deliver_msg(_ClientInfo, Msg = #message{qos = ?QOS_0}, CheckLimiter, Session) ->
+deliver_msg(ClientInfo, Msg = #message{qos = ?QOS_0}, Limited, Congested, Session) ->
     %% Ensure `maybe_ack` is called here, even if rate limit is hit.
-    Publishes = [{undefined, maybe_ack(Msg)}],
-    case CheckLimiter andalso try_consume_delivery_rate_limit(Msg) of
-        false ->
-            {ok, Publishes, Session};
-        ok ->
-            {ok, Publishes, Session};
+    case try_consume_delivery_rate_limit(Limited, Msg) of
+        ok when not Congested ->
+            {ok, {undefined, maybe_ack(Msg)}, Session};
+        ok when Congested ->
+            Session1 = enqueue_msg(ClientInfo, Msg, Session),
+            {ok, Session1};
         {error, Reason} ->
             log_rate_limit_reason(Reason, Msg),
-            {ok, [], Session}
+            {ok, Session}
     end;
 deliver_msg(
     ClientInfo,
     Msg = #message{qos = QoS},
-    CheckLimiter,
+    Limited,
+    _Congested,
     Session = #session{next_pkt_id = PacketId, inflight = Inflight}
 ) when
     QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2
 ->
-    RateLimiterRes = CheckLimiter andalso try_consume_delivery_rate_limit(Msg),
-    case {emqx_inflight:is_full(Inflight), RateLimiterRes} of
-        {true, _} ->
+    case emqx_inflight:is_full(Inflight) of
+        true ->
             Session1 =
                 case maybe_nack(Msg) of
                     true -> Session;
                     false -> enqueue_msg(ClientInfo, Msg, Session)
                 end,
-            {ok, [], Session1};
-        {false, {error, Reason}} ->
-            log_rate_limit_reason(Reason, Msg),
-            Session1 = enqueue_msg(ClientInfo, Msg, Session),
-            {ok, [], Session1};
-        {false, _} ->
-            %% `RateLimiterRes :: false | ok` here.
-            %%
-            %% Note that we publish message without shared ack header
-            %% But add to inflight with ack headers
-            %% This ack header is required for redispatch-on-terminate feature to work
-            Publish = {PacketId, maybe_ack(Msg)},
-            MarkedMsg = mark_begin_deliver(Msg),
-            Inflight1 = emqx_inflight:insert(PacketId, with_ts(MarkedMsg), Inflight),
-            {ok, [Publish], next_pkt_id(Session#session{inflight = Inflight1})}
+            {ok, Session1};
+        false ->
+            case try_consume_delivery_rate_limit(Limited, Msg) of
+                ok ->
+                    %% Note that we publish message without shared ack header
+                    %% But add to inflight with ack headers
+                    %% This ack header is required for redispatch-on-terminate feature to work
+                    Publish = {PacketId, maybe_ack(Msg)},
+                    MarkedMsg = mark_begin_deliver(Msg),
+                    Inflight1 = emqx_inflight:insert(PacketId, with_ts(MarkedMsg), Inflight),
+                    {ok, Publish, next_pkt_id(Session#session{inflight = Inflight1})};
+                {error, Reason} ->
+                    log_rate_limit_reason(Reason, Msg),
+                    Session1 = enqueue_msg(ClientInfo, Msg, Session),
+                    {ok, Session1}
+            end
     end.
 
 -spec enqueue(clientinfo(), [emqx_types:message()], session()) ->
@@ -825,7 +830,7 @@ replay(ClientInfo, DeliversLocal, TakeoverState, Session) ->
             PendingsRemote = filter_remote_pendings(ClientInfo, Session, PendingsRemote0),
             PendingsAll = dedup(PendingsRemote, PendingsLocal),
             {ok, PubsResendQueued, Session1} = replay(ClientInfo, Session),
-            {ok, PubsPending, Session2} = deliver(ClientInfo, PendingsAll, Session1),
+            {ok, PubsPending, Session2} = deliver(ClientInfo, PendingsAll, [], Session1),
             {ok, append(PubsResendQueued, PubsPending), Session2};
         {error, _} ->
             % TODO log error?
@@ -945,6 +950,11 @@ publish_will_message_now(#session{} = Session, #message{} = WillMsg) ->
 %%--------------------------------------------------------------------
 %% Delivery rate limiting
 %%--------------------------------------------------------------------
+
+try_consume_delivery_rate_limit(true, Msg) ->
+    try_consume_delivery_rate_limit(Msg);
+try_consume_delivery_rate_limit(false, _) ->
+    ok.
 
 try_consume_delivery_rate_limit(Msg) ->
     case emqx_session:get_context() of

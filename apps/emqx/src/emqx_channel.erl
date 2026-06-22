@@ -105,6 +105,8 @@
     },
     %% Conn State
     conn_state :: conn_state(),
+    %% Conn Flags
+    conn_flags :: [atom()],
     %% Takeover
     takeover :: boolean(),
     %% Resume
@@ -315,6 +317,7 @@ init(
         quota = Limiter,
         timers = #{},
         conn_state = idle,
+        conn_flags = [],
         takeover = false,
         resuming = false,
         pendings = []
@@ -1264,11 +1267,12 @@ do_handle_deliver(
     Channel0 = #channel{
         session = Session,
         takeover = false,
-        clientinfo = ClientInfo
+        clientinfo = ClientInfo,
+        conn_flags = Flags
     }
 ) ->
     stash_limiter_ctx(Channel0),
-    case emqx_session:deliver(ClientInfo, Delivers, Session) of
+    case emqx_session:deliver(ClientInfo, Delivers, Flags, Session) of
         {ok, [], NSession} ->
             Channel = pop_limiter_ctx(Channel0),
             {ok, Channel#channel{session = NSession}};
@@ -1892,11 +1896,9 @@ die_if_test_compiled() ->
 %%--------------------------------------------------------------------
 
 handle_signal({connection, congested, _Info}, Channel) ->
-    %% TODO: react to connection sendq congestion.
-    Channel;
+    Channel#channel{conn_flags = [congested]};
 handle_signal({connection, decongested, _Info}, Channel) ->
-    %% TODO: react to connection sendq decongestion.
-    Channel.
+    Channel#channel{conn_flags = []}.
 
 %%--------------------------------------------------------------------
 %% Handle timeout

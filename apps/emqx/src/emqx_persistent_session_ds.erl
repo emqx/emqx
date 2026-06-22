@@ -67,7 +67,7 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
 ]).
 
 -export([
-    deliver/3,
+    deliver/4,
     replay/3,
     handle_timeout/3,
     handle_info/3,
@@ -649,9 +649,9 @@ pubcomp(ClientInfo, PacketId, Session0) ->
 %% Delivers
 %%--------------------------------------------------------------------
 
--spec deliver(clientinfo(), [emqx_types:deliver()], session()) ->
+-spec deliver(clientinfo(), [emqx_types:deliver()], [emqx_session:connflag()], session()) ->
     {ok, replies(), session()}.
-deliver(ClientInfo, Delivers, Session0) ->
+deliver(ClientInfo, Delivers, _Flags, Session0) ->
     %% Durable sessions still have to handle some transient messages.
     %% For example, retainer sends messages to the session directly.
     Session = lists:foldl(

@@ -391,7 +391,7 @@ t_deliver_qos0(_) ->
     {ok, Session1} = emqx_session_mem:subscribe(<<"t1">>, subopts(), Session),
     Deliveries = enrich([delivery(?QOS_0, T) || T <- [<<"t0">>, <<"t1">>]], Session1),
     {ok, [{undefined, Msg1}, {undefined, Msg2}], Session1} =
-        emqx_session_mem:deliver(clientinfo(), Deliveries, Session1),
+        emqx_session_mem:deliver(clientinfo(), Deliveries, [], Session1),
     ?assertEqual(<<"t0">>, emqx_message:topic(Msg1)),
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg2)).
 
@@ -433,7 +433,7 @@ t_deliver_qos1(_) ->
     ),
     Delivers = enrich([delivery(?QOS_1, T) || T <- [<<"t1">>, <<"t2">>]], Session),
     {ok, [{1, Msg1}, {2, Msg2}], Session1} =
-        emqx_session_mem:deliver(clientinfo(), Delivers, Session),
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session),
     ?assertEqual(2, emqx_session_mem:info(inflight_cnt, Session1)),
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg1)),
     ?assertEqual(<<"t2">>, emqx_message:topic(Msg2)),
@@ -449,7 +449,7 @@ t_deliver_qos2(_) ->
     Session = session(),
     Delivers = enrich([delivery(?QOS_2, <<"t0">>), delivery(?QOS_2, <<"t1">>)], Session),
     {ok, [{1, Msg1}, {2, Msg2}], Session1} =
-        emqx_session_mem:deliver(clientinfo(), Delivers, Session),
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session),
     ?assertEqual(2, emqx_session_mem:info(inflight_cnt, Session1)),
     ?assertEqual(<<"t0">>, emqx_message:topic(Msg1)),
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg2)).
@@ -459,6 +459,7 @@ t_deliver_one_msg(_) ->
     {ok, [{1, Msg}], Session1} = emqx_session_mem:deliver(
         clientinfo(),
         enrich(delivery(?QOS_1, <<"t1">>), Session),
+        [],
         Session
     ),
     ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session1)),
@@ -468,7 +469,7 @@ t_deliver_when_inflight_is_full(_) ->
     Session = session(#{inflight => emqx_inflight:new(1)}),
     Delivers = enrich([delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>)], Session),
     {ok, Publishes, Session1} =
-        emqx_session_mem:deliver(clientinfo(), Delivers, Session),
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session),
     ?assertEqual(1, length(Publishes)),
     ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session1)),
     ?assertEqual(1, emqx_session_mem:info(mqueue_len, Session1)),
@@ -535,7 +536,7 @@ t_retry(_) ->
         ],
         Session
     ),
-    {ok, Pubs, Session1} = emqx_session_mem:deliver(clientinfo(), Delivers, Session),
+    {ok, Pubs, Session1} = emqx_session_mem:deliver(clientinfo(), Delivers, [], Session),
     [_Pub1, Pub2, _Pub3, Pub4] = Pubs,
     {ok, _Msg, Session2} = emqx_session_mem:pubrec(get_packet_id(Pub2), Session1),
     ElapseMs = 1500,
@@ -692,7 +693,7 @@ t_delivery_rate_limit_puback(_TCConfig) ->
     put_context(Ctx0),
     %% Should have 3 messages enqueued
     {ok, [{PacketId1, _Pub1}, {PacketId2, _Pub2}], Session1} =
-        emqx_session_mem:deliver(clientinfo(), Delivers, Session0),
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session0L),
 
     %% Now, a puback comes in while limiter is still recovering.  It shouldn't yield more
     %% publishes.
@@ -730,7 +731,7 @@ t_delivery_rate_limit_pubcomp(_TCConfig) ->
     put_context(Ctx0),
     %% Should have 3 messages enqueued
     {ok, [{PacketId1, _Pub1}, {PacketId2, _Pub2}], Session1} =
-        emqx_session_mem:deliver(clientinfo(), Delivers, Session0),
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session0L),
 
     %% Now, a puback comes in while limiter is still recovering.  It shouldn't yield more
     %% publishes.
@@ -764,7 +765,7 @@ t_resume(_) ->
 t_replay(_) ->
     Session = session(),
     Messages = enrich([delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>)], Session),
-    {ok, Pubs, Session1} = emqx_session_mem:deliver(clientinfo(), Messages, Session),
+    {ok, Pubs, Session1} = emqx_session_mem:deliver(clientinfo(), Messages, [], Session),
     Msg = emqx_message:make(clientid, ?QOS_1, <<"t1">>, <<"payload">>),
     Session2 = emqx_session_mem:enqueue(clientinfo(), [Msg], Session1),
     Pubs1 = [{I, emqx_message:set_flag(dup, M)} || {I, M} <- Pubs],
