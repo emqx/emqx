@@ -2286,6 +2286,8 @@ packet_id_to_seqno_prop() ->
                         io:format(user, " *** CommittedSeqNo = ~p (-~p)~n",
                                   [CommittedSeqNo, ExpectedSeqNo - CommittedSeqNo]),
                         io:format(user, " *** PacketID = ~p~n", [PacketId]),
+                        io:format(user, " *** SeqNo = ~p -> ~p~n", [ExpectedSeqNo, SeqNo]),
+                        io:format(user, " *** CommittedSeqNo = ~p~n", [CommittedSeqNo]),
                         io:format(user, " *** Derived = ~p~n", [SeqNo])
                     end,
                     PacketId < 16#10000 andalso SeqNo =:= ExpectedSeqNo

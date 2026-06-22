@@ -114,7 +114,7 @@ common_health_check_workers(PoolName, #{} = Opts) ->
         {ok, []} ->
             {?status_disconnected, <<"connection_pool_not_initialized">>};
         {ok, Results} ->
-            Errors = lists:filter(IsSuccessFn, Results),
+            Errors = lists:filtermap(IsSuccessFn, Results),
             case Errors of
                 [] ->
                     OnSuccessFn();
