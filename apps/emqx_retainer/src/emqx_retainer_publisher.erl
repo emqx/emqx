@@ -56,7 +56,8 @@ store_retained(#message{topic = Topic, payload = Payload} = Msg) ->
             end),
             case WithinLimits of
                 true ->
-                    ?tp(retain_within_limit, #{topic => Topic});
+                    ?tp(retain_within_limit, #{topic => Topic}),
+                    emqx_metrics:inc_global('messages.retained');
                 {false, Reason} ->
                     ?tp(retain_failed_for_rate_exceeded_limit, #{topic => Topic}),
                     ?SLOG_THROTTLE(warning, #{
