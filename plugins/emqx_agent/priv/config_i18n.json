@@ -14,6 +14,8 @@
   "$tool_input_schema_desc": {"en": "JSON schema string for HTTP tool input arguments."},
   "$tool_pg_query_desc": {"en": "PostgreSQL SQL query template."},
   "$tool_pg_resource_desc": {"en": "Connection ID used by this PostgreSQL tool."},
+  "$tool_stream_desc": {"en": "Stream name used by this tool."},
+  "$tool_format_desc": {"en": "Payload format: json encodes/decodes JSON values, binary reads and writes payloads as-is."},
   "$name_value_name_desc": {"en": "Entry name."},
   "$name_value_value_desc": {"en": "Entry value."},
   "$connection_type_desc": {"en": "Connection type discriminator."},
