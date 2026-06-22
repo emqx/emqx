@@ -13,6 +13,11 @@
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
+suite() ->
+    %% Enables the flaky-test hook to clean up leftover state (e.g. the work
+    %% dir) between the retry attempts declared in `flaky_tests/0`.
+    [{ct_hooks, [emqx_cth_ct_hook_flaky]}].
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -230,9 +235,14 @@ assert_data_copy_done([_First | Rest], File) ->
     lists:foreach(
         fun(Node0) ->
             NodeDataDir = erpc:call(Node0, emqx, data_dir, []),
+            %% The cert/authz files are zipped and sent from the first node and
+            %% extracted on this node after the local `emqx_conf` app start
+            %% completes. Under heavy CI load the assertions can race with the
+            %% sync; allow up to 10s for the data to land. The unzip is atomic,
+            %% so retrying any one of the files is enough to gate the others.
             ?retry(
                 200,
-                10,
+                50,
                 ?assertEqual(
                     {ok, FakeCertFile},
                     file:read_file(NodeDataDir ++ "/certs/fake-cert"),

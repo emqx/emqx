@@ -30,11 +30,30 @@ pre_init_per_testcase(Suite, TestCase, TCConfig, State0) ->
                     State = set_remaining_attempts(Suite, TestCase, max(0, Attempts - 1), State0),
                     {TCConfig, State};
                 true ->
-                    %% Already repeating
+                    %% This is a retry. The previous attempt may have left state
+                    %% behind (a populated `work_dir`, registered peer-control
+                    %% names, etc.) that would make the next attempt fail in the
+                    %% same way as the first. Best-effort cleanup so the retry
+                    %% actually starts from a clean slate.
+                    ok = cleanup_for_retry(TestCase, TCConfig),
                     {TCConfig, State0}
             end;
         error ->
             {TCConfig, State0}
+    end.
+
+cleanup_for_retry(TestCase, TCConfig) ->
+    %% `emqx_cth_suite:work_dir/2` is deterministic for `(TC, TCConfig)`, so
+    %% wiping it here is safe and gives `emqx_cth_suite:start/2`'s
+    %% `verify_clean_suite_state/1` a chance to actually match `{ok, []}`.
+    WorkDir = emqx_cth_suite:work_dir(TestCase, TCConfig),
+    case filelib:is_dir(WorkDir) of
+        true ->
+            ct:pal("flaky-retry: wiping leftover work_dir ~p", [WorkDir]),
+            _ = file:del_dir_r(WorkDir),
+            ok;
+        false ->
+            ok
     end.
 
 post_end_per_testcase(Suite, TestCase, _TCConfig, ok = Return, State0) ->
