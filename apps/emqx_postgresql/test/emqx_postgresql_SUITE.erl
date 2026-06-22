@@ -244,8 +244,15 @@ t_raw_batch_not_confused_by_table_check(_Config) ->
             after 5_000 ->
                 error(status_check_did_not_reach_parse)
             end,
-        _BatchPid =
+        ?assert(lists:member(StatusWaiterPid, ecpool_worker_pids(State))),
+        BatchPid =
             spawn_link(fun() ->
+                receive
+                    run_batch_query ->
+                        ok
+                after 5_000 ->
+                    error(batch_query_not_started)
+                end,
                 Res = emqx_postgresql:on_batch_query(
                     ResourceId,
                     [
@@ -256,30 +263,25 @@ t_raw_batch_not_confused_by_table_check(_Config) ->
                 ),
                 TestPid ! {batch_result, Res}
             end),
-        case wait_for_batch_parse(500) of
-            {interleaved, BatchWaiterPid} ->
-                StatusWaiterPid ! run_status_parse,
-                receive
-                    {status_parsed, _} ->
-                        ok
-                after 5_000 ->
-                    error(status_check_did_not_finish_parse)
-                end,
-                BatchWaiterPid ! run_batch;
-            serialized ->
-                StatusWaiterPid ! run_status_parse,
-                receive
-                    {status_parsed, _} ->
-                        ok
-                after 5_000 ->
-                    error(status_check_did_not_finish_parse)
-                end,
-                receive
-                    {batch_parsed, BatchWaiterPid} ->
-                        BatchWaiterPid ! run_batch
-                after 5_000 ->
-                    error(batch_query_did_not_reach_parse)
-                end
+        trace_batch_handover(BatchPid),
+        try
+            BatchPid ! run_batch_query,
+            wait_for_batch_handover(BatchPid),
+            StatusWaiterPid ! run_status_parse,
+            receive
+                {status_parsed, _} ->
+                    ok
+            after 5_000 ->
+                error(status_check_did_not_finish_parse)
+            end,
+            receive
+                {batch_parsed, BatchWaiterPid} ->
+                    BatchWaiterPid ! run_batch
+            after 5_000 ->
+                error(batch_query_did_not_reach_parse)
+            end
+        after
+            untrace_batch_handover(BatchPid)
         end,
         ?assertEqual(
             connected,
@@ -432,6 +434,19 @@ batch_query_with_timeout(ResourceId, Batch, State) ->
             {exception, Class, Reason, Stacktrace}
     end.
 
+ecpool_worker_pids(#{pool_name := PoolName}) ->
+    [WorkerPid || {_WorkerName, WorkerPid} <- ecpool:workers(PoolName)].
+
+trace_batch_handover(BatchPid) ->
+    _ = erlang:trace_pattern({ecpool_worker, exec, 3}, true, [local]),
+    _ = erlang:trace(BatchPid, true, [call]),
+    ok.
+
+untrace_batch_handover(BatchPid) ->
+    _ = erlang:trace(BatchPid, false, [call]),
+    _ = erlang:trace_pattern({ecpool_worker, exec, 3}, false, [local]),
+    ok.
+
 install_interleaving_meck(TestPid) ->
     meck:expect(epgsql, parse2, fun
         (Conn, "", SQL, []) ->
@@ -467,12 +482,13 @@ install_interleaving_meck(TestPid) ->
             end
     end).
 
-wait_for_batch_parse(Timeout) ->
+wait_for_batch_handover(BatchPid) ->
     receive
-        {batch_parsed, BatchWaiterPid} ->
-            {interleaved, BatchWaiterPid}
-    after Timeout ->
-        serialized
+        {trace, BatchPid, call,
+            {ecpool_worker, exec, [_WorkerPid, {emqx_postgresql, execute_batch, _Args}, _Timeout]}} ->
+            ok
+    after 5_000 ->
+        error(batch_query_did_not_reach_handover)
     end.
 
 match_ok({ok, _, _}) -> true;
