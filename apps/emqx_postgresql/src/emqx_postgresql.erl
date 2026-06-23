@@ -356,7 +356,7 @@ on_query(
             data => Data
         }
     ),
-    Res = on_sql_query(InstId, PoolName, QueryType, NameOrSQL2, Data),
+    Res = on_sql_query(InstId, PoolName, QueryType, NameOrSQL2, Data, State),
     ?tp(postgres_bridge_connector_on_query_return, #{instance_id => InstId, result => Res}),
     handle_result(Res).
 
@@ -387,7 +387,7 @@ on_batch_query(
                     data => Rows
                 }
             ),
-            case on_sql_query(InstId, PoolName, execute_batch, StatementTemplate, Rows) of
+            case on_sql_query(InstId, PoolName, execute_batch, StatementTemplate, Rows, State) of
                 {error, _Error} = Result ->
                     handle_result(Result);
                 {_Column, Results} ->
@@ -463,14 +463,9 @@ get_templated_statement(Key, #{prepares := PrepStatements}) ->
     BinKey = to_bin(Key),
     {ok, maps:get(BinKey, PrepStatements)}.
 
-on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
-    %% query calls equery, which is not atomic and can interleave with other equery calls
-    Handover =
-        case Type of
-            query -> handover;
-            _ -> no_handover
-        end,
-    try ecpool:pick_and_do(PoolName, {?MODULE, Type, [NameOrSQL, Data]}, Handover) of
+on_sql_query(InstId, PoolName, Type, NameOrSQL, Data, State) ->
+    ApplyMode = apply_mode(Type, State),
+    try ecpool:pick_and_do(PoolName, {?MODULE, Type, [NameOrSQL, Data]}, ApplyMode) of
         {error, Reason} ->
             ?tp(
                 pgsql_connector_query_return,
@@ -517,6 +512,21 @@ on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
             }),
             {error, {unrecoverable_error, invalid_request}}
     end.
+
+apply_mode(query, _State) ->
+    %% query calls equery, which is not atomic and can interleave with other
+    %% queries on the same worker connection.
+    handover;
+apply_mode(execute_batch, State) ->
+    %% When prepared statements are disabled, execute_batch receives SQL text.
+    %% epgsql parses the SQL inside the call, so concurrent raw batch calls can
+    %% interleave on the same worker connection.
+    case prepared_statements_disabled(State) of
+        true -> handover;
+        false -> no_handover
+    end;
+apply_mode(_Type, _State) ->
+    no_handover.
 
 on_get_status(_InstId, #{pool_name := PoolName} = ConnState) ->
     Opts = #{
@@ -572,21 +582,28 @@ do_check_prepares(_) ->
 
 -spec validate_table_existence([pid()], binary()) -> ok | {error, undefined_table}.
 validate_table_existence([WorkerPid | Rest], SQL) ->
-    try ecpool_worker:client(WorkerPid) of
-        {ok, Conn} ->
-            case epgsql:parse2(Conn, "", SQL, []) of
-                {error, {_, _, _, undefined_table, _, _}} ->
-                    {error, undefined_table};
-                Res when is_tuple(Res) andalso ok == element(1, Res) ->
-                    ok;
-                Res ->
-                    ?tp(postgres_connector_bad_parse2, #{result => Res}),
-                    validate_table_existence(Rest, SQL)
-            end;
-        _ ->
+    try
+        ecpool_worker:exec(
+            WorkerPid,
+            fun(Conn) ->
+                epgsql:parse2(Conn, "", SQL, [])
+            end,
+            emqx_resource_pool:health_check_timeout()
+        )
+    of
+        {error, {_, _, _, undefined_table, _, _}} ->
+            {error, undefined_table};
+        Res when is_tuple(Res) andalso ok == element(1, Res) ->
+            ok;
+        Res ->
+            ?tp(postgres_connector_bad_parse2, #{result => Res}),
             validate_table_existence(Rest, SQL)
     catch
         exit:{noproc, _} ->
+            validate_table_existence(Rest, SQL);
+        exit:{timeout, _} ->
+            validate_table_existence(Rest, SQL);
+        exit:timeout ->
             validate_table_existence(Rest, SQL)
     end;
 validate_table_existence([], _SQL) ->

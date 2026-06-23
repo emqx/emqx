@@ -108,9 +108,9 @@ t_5105_catalog_uses_plugin_eredis_upgrade_module(_Config) ->
         )
     ).
 
--doc "The 5.10.4 -> 5.10.5 hop also applies SAML XXE and backup download "
-"authorization fixes without extending the Redis stop/start window.".
-t_5105_catalog_covers_saml_xxe_and_backup_download_fixes(_Config) ->
+-doc "The 5.10.4 -> 5.10.5 hop also applies SAML XXE, backup download "
+"authorization, and PostgreSQL fixes without extending the Redis stop/start window.".
+t_5105_catalog_covers_saml_xxe_backup_download_and_postgresql_fixes(_Config) ->
     {Valid, _Errors} = emqx_relup_handler:validate_priv_catalog(),
     #{code_changes := CodeChanges} = find_relup_entry("5.10.4", "5.10.5", Valid),
     LoadRelease = {load_module, emqx_release},
@@ -127,6 +127,10 @@ t_5105_catalog_covers_saml_xxe_and_backup_download_fixes(_Config) ->
             ?assert(
                 is_before(LoadRelease, Instruction, CodeChanges),
                 #{instruction_must_run_after_emqx_release_load => Instruction}
+            ),
+            ?assert(
+                is_before(Instruction, StopRedis, CodeChanges),
+                #{instruction_must_not_extend_redis_stop_window => Instruction}
             )
         end,
         [
@@ -135,7 +139,8 @@ t_5105_catalog_covers_saml_xxe_and_backup_download_fixes(_Config) ->
             {load_module, emqx_mgmt_data_backup},
             {load_module, emqx_mgmt_data_backup_proto_v2},
             {load_module, emqx_mgmt_api_data_backup},
-            AnnounceBPAPI
+            AnnounceBPAPI,
+            {load_module, emqx_postgresql}
         ]
     ),
     ?assert(is_before({load_module, emqx_mgmt_data_backup_proto_v2}, AnnounceBPAPI, CodeChanges)).
