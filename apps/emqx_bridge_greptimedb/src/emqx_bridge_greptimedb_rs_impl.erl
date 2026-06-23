@@ -454,7 +454,8 @@ maybe_put_tls(_ConnConfig, Opts) ->
 
 extract_tls_opts(SSLOpts) ->
     TLSCertOpts = extract_tls_cert_opts(SSLOpts),
-    maybe_put_tls_verify_opt(SSLOpts, TLSCertOpts).
+    TLSCertOpts1 = maybe_put_tls_verify_opt(SSLOpts, TLSCertOpts),
+    maybe_put_cipher_suites(SSLOpts, TLSCertOpts1).
 
 extract_tls_cert_opts(SSLOpts) ->
     TLSOpts0 = maps:fold(
@@ -491,6 +492,61 @@ maybe_put_tls_verify_opt(SSLOpts, TLSOpts) ->
                     TLSOpts
             end
     end.
+
+maybe_put_cipher_suites(SSLOpts, TLSOpts) ->
+    Ciphers = find_opt([ciphers, <<"ciphers">>], SSLOpts),
+    case Ciphers of
+        {ok, List} when is_list(List), List =/= [] ->
+            {Converted, Unsupported} = emqx_tls_lib:convert_ciphers_to_rfc(
+                List, supported_cipher_suites()
+            ),
+            case Unsupported of
+                [] ->
+                    TLSOpts#{cipher_suites => lists:map(fun erlang:list_to_binary/1, Converted)};
+                _ ->
+                    throw(
+                        iolist_to_binary([
+                            "unsupported cipher suites: ",
+                            lists:join(", ", Unsupported),
+                            ". Supported: "
+                            "TLS_AES_256_GCM_SHA384, TLS_AES_128_GCM_SHA256, "
+                            "TLS_CHACHA20_POLY1305_SHA256, "
+                            "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, "
+                            "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, "
+                            "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, "
+                            "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+                        ])
+                    )
+            end;
+        _ ->
+            TLSOpts
+    end.
+
+find_opt(Keys, Map) ->
+    lists:foldl(
+        fun
+            (_K, {ok, _} = Acc) ->
+                Acc;
+            (K, Acc) ->
+                case maps:find(K, Map) of
+                    {ok, _} = Found -> Found;
+                    error -> Acc
+                end
+        end,
+        error,
+        Keys
+    ).
+
+supported_cipher_suites() ->
+    [
+        <<"TLS_AES_256_GCM_SHA384">>,
+        <<"TLS_AES_128_GCM_SHA256">>,
+        <<"TLS_CHACHA20_POLY1305_SHA256">>,
+        <<"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384">>,
+        <<"TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256">>,
+        <<"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384">>,
+        <<"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256">>
+    ].
 
 normalize_tls_verify(verify_none) ->
     verify_none;
