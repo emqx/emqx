@@ -15,8 +15,8 @@ touch mria — they only update the local ETS overlay
 `do_uninstall_local/1`, `do_reset_local/1`,
 `do_uninstall_all_local/1`).
 
-Read operations use `emqx_rpc:multicall` and the caller aggregates
-the per-node results.
+Read operations use `erpc:multicall` and the caller aggregates the
+per-node results.
 """.
 
 -behaviour(emqx_bpapi).
@@ -76,11 +76,11 @@ uninstall_all_local(Names) ->
 %%--------------------------------------------------------------------
 
 -spec list([node()], emqx_topic_metrics_registry:owner_ns() | all_ns) ->
-    emqx_rpc:multicall_result().
+    emqx_rpc:erpc_multicall([map()]).
 list(Nodes, OwnerNs) ->
-    emqx_rpc:multicall(Nodes, emqx_topic_metrics2, list, [OwnerNs]).
+    erpc:multicall(Nodes, emqx_topic_metrics2, list, [OwnerNs]).
 
 -spec lookup([node()], emqx_topic_metrics_registry:name()) ->
-    emqx_rpc:multicall_result().
+    emqx_rpc:erpc_multicall({ok, map()} | {error, not_found}).
 lookup(Nodes, Name) ->
-    emqx_rpc:multicall(Nodes, emqx_topic_metrics2, lookup, [Name]).
+    erpc:multicall(Nodes, emqx_topic_metrics2, lookup, [Name]).

@@ -61,6 +61,15 @@ restart.
     persist_deregister_all_owned_by/1
 ]).
 
+%% Transaction bodies — exported only so mria:transaction/3 can
+%% reference them as `fun ?MODULE:Name/Arity', avoiding the
+%% rolling-upgrade badfun risk of inline lambdas.
+-export([
+    do_persist_register_txn/1,
+    do_persist_deregister_txn/1,
+    do_persist_deregister_all_txn/1
+]).
+
 %% Cluster-coordinated LOCAL side-effect operations, fanned out via
 %% emqx_cluster_rpc:multicall AFTER the durable mria write/delete has
 %% already happened on the initiator. These callbacks NEVER touch
@@ -119,7 +128,7 @@ restart.
 create_tables() ->
     Options = [
         {type, ordered_set},
-        {rlog_shard, ?COMMON_SHARD},
+        {rlog_shard, ?TOPIC_METRICS_SHARD},
         {storage, disc_copies},
         {record_name, topic_metric},
         {attributes, record_info(fields, topic_metric)},
@@ -166,72 +175,87 @@ persist_register({OwnerNs, BinName} = Name, TopicFilter, CreateTime) when
         topic_filter = TopicFilter,
         create_time = CreateTime
     },
-    Fun = fun() ->
-        case mnesia:read(?MRIA_TAB, Name, write) of
-            [#topic_metric{}] ->
-                %% Idempotent — keep the existing row untouched so
-                %% topic_filter and create_time are never silently
-                %% overwritten by a re-register.
-                existing;
-            [] ->
-                case mnesia:table_info(?MRIA_TAB, size) >= ?MAX_COLLECTIONS of
-                    true ->
-                        mnesia:abort(quota_exceeded);
-                    false ->
-                        ok = mnesia:write(?MRIA_TAB, Rec, write),
-                        new
-                end
-        end
-    end,
-    case mria:transaction(?COMMON_SHARD, Fun) of
+    %% Pass the function as a code reference, NOT an inline lambda —
+    %% transactions delivered as anonymous funs can hit badfun across
+    %% mixed-version cluster nodes during rolling upgrades.
+    case mria:transaction(?TOPIC_METRICS_SHARD, fun ?MODULE:do_persist_register_txn/1, [Rec]) of
         {atomic, new} -> {ok, new};
         {atomic, existing} -> {ok, existing};
         {aborted, Reason} -> {error, Reason}
+    end.
+
+do_persist_register_txn(#topic_metric{name = Name} = Rec) ->
+    case mnesia:read(?MRIA_TAB, Name, write) of
+        [#topic_metric{}] ->
+            %% Idempotent — keep the existing row untouched so
+            %% topic_filter and create_time are never silently
+            %% overwritten by a re-register.
+            existing;
+        [] ->
+            case mnesia:table_info(?MRIA_TAB, size) >= ?MAX_COLLECTIONS of
+                true ->
+                    mnesia:abort(quota_exceeded);
+                false ->
+                    ok = mnesia:write(?MRIA_TAB, Rec, write),
+                    new
+            end
     end.
 
 -spec persist_deregister(name()) -> {ok, gone} | {error, not_found}.
 persist_deregister({OwnerNs, BinName} = Name) when
     is_binary(BinName), ?IS_NAMESPACE(OwnerNs)
 ->
-    Fun = fun() ->
-        case mnesia:read(?MRIA_TAB, Name, write) of
-            [] ->
-                absent;
-            [#topic_metric{}] ->
-                ok = mnesia:delete({?MRIA_TAB, Name}),
-                gone
-        end
-    end,
-    case mria:transaction(?COMMON_SHARD, Fun) of
+    case mria:transaction(?TOPIC_METRICS_SHARD, fun ?MODULE:do_persist_deregister_txn/1, [Name]) of
         {atomic, gone} -> {ok, gone};
         {atomic, absent} -> {error, not_found};
         {aborted, Reason} -> {error, Reason}
     end.
 
+do_persist_deregister_txn(Name) ->
+    case mnesia:read(?MRIA_TAB, Name, write) of
+        [] ->
+            absent;
+        [#topic_metric{}] ->
+            ok = mnesia:delete({?MRIA_TAB, Name}),
+            gone
+    end.
+
 %% Scope: `all_ns' bulk-deletes the whole table; a namespace value
 %% (`?global_ns' or a binary tenant) limits the sweep to rows owned
 %% by that namespace.
+%%
+%% The collected `Names' list is returned to the facade so it can
+%% broadcast `uninstall_all_local' with the same set; that's why we
+%% can't use `mria:match_delete/2' (which doesn't surface the deleted
+%% keys) and instead do a single-pass foldl-with-delete inside one
+%% transaction.
 -spec persist_deregister_all_owned_by(owner_ns() | all_ns) -> {ok, [name()]}.
 persist_deregister_all_owned_by(OwnerNs) ->
-    Fun = fun() ->
-        Names = lists:filtermap(
-            fun(#topic_metric{name = N}) ->
-                case scope_match(OwnerNs, N) of
-                    true ->
-                        ok = mnesia:delete({?MRIA_TAB, N}),
-                        {true, N};
-                    false ->
-                        false
-                end
-            end,
-            mnesia:foldl(fun(R, Acc) -> [R | Acc] end, [], ?MRIA_TAB)
-        ),
-        Names
-    end,
-    case mria:transaction(?COMMON_SHARD, Fun) of
+    case
+        mria:transaction(
+            ?TOPIC_METRICS_SHARD,
+            fun ?MODULE:do_persist_deregister_all_txn/1,
+            [OwnerNs]
+        )
+    of
         {atomic, Names} -> {ok, Names};
         {aborted, _Reason} -> {ok, []}
     end.
+
+do_persist_deregister_all_txn(OwnerNs) ->
+    mnesia:foldl(
+        fun(#topic_metric{name = N}, Acc) ->
+            case scope_match(OwnerNs, N) of
+                true ->
+                    ok = mnesia:delete({?MRIA_TAB, N}),
+                    [N | Acc];
+                false ->
+                    Acc
+            end
+        end,
+        [],
+        ?MRIA_TAB
+    ).
 
 scope_match(all_ns, _Name) -> true;
 scope_match(OwnerNs, {OwnerNs, _Bin}) -> true;
@@ -320,11 +344,11 @@ lookup({_OwnerNs, _BinName} = Name) ->
 list(all_ns) ->
     [expand(Name, Rec) || {Name, Rec} <- ets:tab2list(?REGISTRY_TAB)];
 list(Scope) ->
-    [
-        expand(Name, Rec)
-     || {{O, _Bin} = Name, Rec} <- ets:tab2list(?REGISTRY_TAB),
-        O =:= Scope
-    ].
+    %% ets:select with a native match-spec keyed on the namespace
+    %% half of the {Ns, BinName} tuple — avoids walking the table
+    %% on the consumer side.
+    MS = [{{{Scope, '_'}, '_'}, [], ['$_']}],
+    [expand(Name, Rec) || {Name, Rec} <- ets:select(?REGISTRY_TAB, MS)].
 
 -spec matches(emqx_types:topic()) -> [name()].
 matches(Topic) ->
@@ -369,20 +393,19 @@ ns_owner_matches(_, _) -> false.
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%
-%% The gen_server's sole job is to own the local ETS tables (so they
-%% die with it on a clean shutdown) and to rehydrate them from mria
-%% on init. Reads / writes do NOT go through this process.
+%% The gen_server's sole job is to rehydrate the supervisor-owned
+%% local ETS tables from mria on init. Reads / writes do NOT go
+%% through this process, and the ETS tables are owned by the
+%% supervisor so they outlive the registry across restarts.
 %%--------------------------------------------------------------------
 
+%% Both ETS tables and the mria table are ready by the time we get
+%% here: ETS is created in `emqx_topic_metrics_sup:init/1' (so the
+%% supervisor owns them and survives our restarts); mria is awaited
+%% in `emqx_topic_metrics_app:start/2' before the supervisor is
+%% started. All we have to do is rehydrate the local overlay.
 init([]) ->
     process_flag(trap_exit, true),
-    ?REGISTRY_TAB = ets:new(?REGISTRY_TAB, [
-        ordered_set, named_table, public, {read_concurrency, true}
-    ]),
-    ?INDEX_TAB = ets:new(?INDEX_TAB, [
-        ordered_set, named_table, public, {read_concurrency, true}
-    ]),
-    ok = mria:wait_for_tables([?MRIA_TAB]),
     ok = rehydrate(),
     {ok, #{}}.
 
@@ -491,7 +514,7 @@ emit_reset_audit({OwnerNs, BinName}, Ctx) ->
 %%--------------------------------------------------------------------
 
 mria_all_names() ->
-    mria:async_dirty(?COMMON_SHARD, fun() ->
+    mria:async_dirty(?TOPIC_METRICS_SHARD, fun() ->
         mnesia:foldl(
             fun(#topic_metric{name = N}, Acc) -> [N | Acc] end,
             [],

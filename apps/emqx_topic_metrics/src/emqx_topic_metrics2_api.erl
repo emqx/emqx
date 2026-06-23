@@ -20,6 +20,7 @@ mria `disc_copies` table owned by `emqx_topic_metrics_registry`.
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include("emqx_topic_metrics.hrl").
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 
 -import(hoconsc, [mk/2, ref/1, array/1]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
@@ -41,12 +42,12 @@ mria `disc_copies` table owned by `emqx_topic_metrics_registry`.
 ]).
 
 -define(TAGS, [<<"MQTT">>]).
--define(PREFIX, "/mqtt/topic_metrics2").
+%% Path prefix is deliberately repeated in each schema/1 clause head and
+%% in paths/0 so a `grep "/mqtt/topic_metrics2"' finds every reference.
 -define(NAME_NOT_FOUND, 'NAME_NOT_FOUND').
 -define(BAD_NAME, 'BAD_NAME').
 -define(BAD_TOPIC_FILTER, 'BAD_TOPIC_FILTER').
--define(EXCEED_LIMIT, 'EXCEED_LIMIT').
--define(ALREADY_EXISTS, 'ALREADY_EXISTS').
+%% ?EXCEED_LIMIT and ?ALREADY_EXISTS come from emqx_utils/include/emqx_http_api.hrl.
 
 namespace() -> "topic_metrics2".
 
@@ -57,12 +58,12 @@ scopes() -> ?SCOPE_MONITORING.
 
 paths() ->
     [
-        ?PREFIX,
-        ?PREFIX ++ "/:name",
-        ?PREFIX ++ "/:name/reset"
+        "/mqtt/topic_metrics2",
+        "/mqtt/topic_metrics2/:name",
+        "/mqtt/topic_metrics2/:name/reset"
     ].
 
-schema(?PREFIX) ->
+schema("/mqtt/topic_metrics2") ->
     #{
         'operationId' => collections,
         get => #{
@@ -96,7 +97,7 @@ schema(?PREFIX) ->
             }
         }
     };
-schema(?PREFIX ++ "/:name") ->
+schema("/mqtt/topic_metrics2/:name") ->
     #{
         'operationId' => collection,
         get => #{
@@ -118,7 +119,7 @@ schema(?PREFIX ++ "/:name") ->
             }
         }
     };
-schema(?PREFIX ++ "/:name/reset") ->
+schema("/mqtt/topic_metrics2/:name/reset") ->
     #{
         'operationId' => reset,
         put => #{
@@ -149,6 +150,12 @@ fields(collection_create) ->
     ];
 fields(collection_view) ->
     [
+        {id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(field_id),
+                example => <<"$global:alpha">>
+            })},
         {name, mk(binary(), #{required => true, example => <<"alpha">>})},
         {topic_filter, mk(binary(), #{required => true, example => <<"alpha/#">>})},
         {namespace,
@@ -216,7 +223,7 @@ collections(post, #{body := Body} = Req) ->
                     end
             end;
         {error, Code, Msg} ->
-            {400, #{code => Code, message => Msg}}
+            ?BAD_REQUEST(Code, Msg)
     end;
 collections(delete, Req) ->
     OwnerNs = actor_ns(Req),
@@ -250,37 +257,38 @@ reset(put, #{bindings := #{name := BinName}} = Req) ->
 %%--------------------------------------------------------------------
 
 actor_ns(Req) ->
-    case emqx_dashboard:get_namespace(Req) of
-        ?global_ns -> ?global_ns;
-        NS when is_binary(NS) -> NS
-    end.
+    emqx_dashboard:get_namespace(Req).
 
 %% Cluster-aggregated list. Short-circuits the RPC when this node is
 %% the only cluster member. A global admin sees every collection; a
 %% namespaced admin only sees collections they own.
 aggregated_list(OwnerNs) ->
     Scope = list_scope(OwnerNs),
-    case mria:running_nodes() of
+    case emqx:running_nodes() of
         [_OnlyNode] ->
             emqx_topic_metrics2:list(Scope);
         Nodes ->
-            {Results, _Bad} = emqx_topic_metrics2_proto_v1:list(Nodes, Scope),
+            Results = emqx_topic_metrics2_proto_v1:list(Nodes, Scope),
             aggregate_node_lists(Results)
     end.
 
 list_scope(?global_ns) -> all_ns;
 list_scope(NS) when is_binary(NS) -> NS.
 
-aggregate_node_lists(NodeResults) ->
+%% `Results' is the flat list returned by `erpc:multicall' — each
+%% element is `{ok, NodeList} | {error, _} | {exit, _} | {throw, _}'.
+%% Bad responses are ignored so a single dead/lagging node never fails
+%% the whole list.
+aggregate_node_lists(Results) ->
     Map = lists:foldl(
         fun
-            (NodeList, Acc) when is_list(NodeList) ->
+            ({ok, NodeList}, Acc) when is_list(NodeList) ->
                 lists:foldl(fun merge_into/2, Acc, NodeList);
             (_BadResp, Acc) ->
                 Acc
         end,
         #{},
-        NodeResults
+        Results
     ),
     maps:values(Map).
 
@@ -296,17 +304,21 @@ sum_metrics(A, B) ->
     maps:map(fun(K, V) -> V + maps:get(K, B, 0) end, A).
 
 with_cluster_counters(#{name := Name} = Rec) ->
-    case mria:running_nodes() of
+    case emqx:running_nodes() of
         [_OnlyNode] ->
             case emqx_topic_metrics2:lookup(Name) of
                 {ok, #{metrics := M}} -> Rec#{metrics => M};
                 _ -> Rec
             end;
         Nodes ->
-            {Results, _} = emqx_topic_metrics2_proto_v1:lookup(Nodes, Name),
+            Results = emqx_topic_metrics2_proto_v1:lookup(Nodes, Name),
+            %% Each Result entry is `{ok, FunReturn} | {error, _} |
+            %% {exit, _} | {throw, _}'. The success path nests once
+            %% more because the called fun itself returns `{ok, _} |
+            %% {error, not_found}'.
             Summed = lists:foldl(
                 fun
-                    ({ok, #{metrics := M}}, Acc) -> sum_metrics(Acc, M);
+                    ({ok, {ok, #{metrics := M}}}, Acc) -> sum_metrics(Acc, M);
                     (_, Acc) -> Acc
                 end,
                 zero_metrics(),
@@ -327,6 +339,7 @@ view(
     } = Rec
 ) ->
     #{
+        id => collection_id(OwnerNs, BinName),
         name => BinName,
         topic_filter => TF,
         namespace => ns_to_view(OwnerNs),
@@ -336,6 +349,18 @@ view(
 
 ns_to_view(?global_ns) -> null;
 ns_to_view(NS) when is_binary(NS) -> NS.
+
+%% Composite identifier safe to use as the unique key in
+%% dashboard/scripted consumers. Two collections with the same
+%% bin-name in different namespaces produce distinct ids
+%% (`acme:foo' vs `bravo:foo'); a global collection is prefixed
+%% with the literal `$global' sentinel (`$global:foo'). The `:'
+%% separator is safe because it is not allowed in either
+%% namespace tenant ids or the bin-name regex.
+collection_id(?global_ns, BinName) ->
+    <<"$global:", BinName/binary>>;
+collection_id(NS, BinName) when is_binary(NS) ->
+    <<NS/binary, ":", BinName/binary>>.
 
 parse_create(#{<<"name">> := Name, <<"topic_filter">> := TF}) ->
     case emqx_topic_metrics_schema:validate_name(Name) of

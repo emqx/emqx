@@ -57,8 +57,13 @@ not_found_resp.desc:
 not_found_resp.label:
 """Not found"""
 
+field_id.desc:
+"""Composite identifier unique across all namespaces, formatted as `<namespace>:<name>` (the literal `$global` is used for collections without a tenant namespace). Use this as the row key in dashboards and scripts — `name` alone is NOT unique because the same name may be reused under a different namespace."""
+field_id.label:
+"""Composite id"""
+
 field_name.desc:
-"""Unique collection name. Allowed characters: letters, digits, dash, and underscore. Maximum 64 characters."""
+"""Collection name, unique within its namespace. Allowed characters: letters, digits, dash, and underscore. Maximum 64 characters. NOT unique across namespaces — use `id` as the row key in consumers."""
 field_name.label:
 """Collection name"""
 

@@ -23,6 +23,9 @@
 %% set survives a full cluster restart without needing HOCON.
 -define(MRIA_TAB, emqx_topic_metrics_mria).
 
+%% Mria rlog shard name.
+-define(TOPIC_METRICS_SHARD, emqx_topic_metrics_shard).
+
 %% Record stored in ?MRIA_TAB. The mnesia key is the {OwnerNs, BinName}
 %% tuple in `name'. Counter refs are per-node and do NOT live in mria
 %% — every node rehydrates a fresh counter_ref on boot. Reset events
@@ -31,7 +34,8 @@
 -record(topic_metric, {
     name :: {'_' | global | binary(), '_' | binary()},
     topic_filter :: binary(),
-    create_time :: binary()
+    create_time :: binary(),
+    extra = #{} :: map()
 }).
 
 %% Owner namespace guard: either the global sentinel or a binary

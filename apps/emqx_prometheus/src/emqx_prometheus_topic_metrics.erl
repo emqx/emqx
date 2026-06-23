@@ -150,8 +150,8 @@ to_points(Mode, Rows) ->
 labels(Mode, #{bin_name := BinName, topic_filter := TF, owner_ns := NS}) ->
     with_node_label(Mode, [
         {name, BinName},
-        {topic_filter, TF},
-        {namespace, ns_label(NS)}
+        {topic_filter, TF}
+        | [{namespace, NS} || is_binary(NS)]
     ]).
 
 with_node_label(?PROM_DATA_MODE__NODE, Labels) ->
@@ -160,9 +160,6 @@ with_node_label(?PROM_DATA_MODE__ALL_NODES_AGGREGATED, Labels) ->
     Labels;
 with_node_label(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, Labels) ->
     [{node, node()} | Labels].
-
-ns_label(?global_ns) -> <<"$global">>;
-ns_label(NS) when is_binary(NS) -> NS.
 
 metric_names() ->
     [prometheus_metric_name(M) || M <- ?METRICS].

@@ -59,11 +59,14 @@ t_emits_series_per_collection(_Config) ->
     %% one metric family per counter:
     ?assert(string:str(OutStr, "emqx_topic_metric_messages_in_count") > 0),
     ?assert(string:str(OutStr, "emqx_topic_metric_messages_dropped_count") > 0),
-    %% label set:
+    %% label set: tenant namespaces get a `namespace' label; the
+    %% global namespace is represented by the *absence* of the label
+    %% so PromQL queries can filter via `{namespace=""}' for global
+    %% or `{namespace="acme"}' for a tenant.
     ?assert(string:str(OutStr, "name=\"alpha\"") > 0),
     ?assert(string:str(OutStr, "topic_filter=\"alpha/#\"") > 0),
-    ?assert(string:str(OutStr, "namespace=\"$global\"") > 0),
     ?assert(string:str(OutStr, "namespace=\"acme\"") > 0),
+    ?assertEqual(0, string:str(OutStr, "namespace=\"$global\"")),
     %% counter value:
     ?assert(
         contains_line(

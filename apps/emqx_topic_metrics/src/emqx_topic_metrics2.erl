@@ -86,7 +86,7 @@ register(BinName, TopicFilter, OwnerNs) when is_binary(BinName), is_binary(Topic
     case validate_inputs(BinName, TopicFilter) of
         ok ->
             CreateTime = emqx_utils_calendar:now_to_rfc3339(),
-            Name = {normalize_ns(OwnerNs), BinName},
+            Name = {check_ns(OwnerNs), BinName},
             case emqx_topic_metrics_registry:persist_register(Name, TopicFilter, CreateTime) of
                 {ok, new} ->
                     %% Durable row is in mria; tell every node to
@@ -107,7 +107,7 @@ register(BinName, TopicFilter, OwnerNs) when is_binary(BinName), is_binary(Topic
 
 -spec deregister(bin_name(), owner_ns()) -> ok | {error, not_found}.
 deregister(BinName, OwnerNs) when is_binary(BinName) ->
-    Name = {normalize_ns(OwnerNs), BinName},
+    Name = {check_ns(OwnerNs), BinName},
     case emqx_topic_metrics_registry:persist_deregister(Name) of
         {ok, gone} ->
             _ = emqx_topic_metrics2_proto_v1:uninstall_local(Name),
@@ -125,7 +125,7 @@ deregister_all() ->
 %% owned by that namespace.
 -spec deregister_all(owner_ns() | all_ns) -> ok.
 deregister_all(Scope) ->
-    NormScope = normalize_scope(Scope),
+    NormScope = check_scope(Scope),
     {ok, Names} = emqx_topic_metrics_registry:persist_deregister_all_owned_by(NormScope),
     case Names of
         [] ->
@@ -137,7 +137,7 @@ deregister_all(Scope) ->
 
 -spec reset(bin_name(), owner_ns()) -> ok | {error, not_found}.
 reset(BinName, OwnerNs) when is_binary(BinName) ->
-    Name = {normalize_ns(OwnerNs), BinName},
+    Name = {check_ns(OwnerNs), BinName},
     %% Reset is not persisted in mria — counters are per-node atomics
     %% recreated at every boot, so a stored "reset_time" would lie
     %% after the next restart. We do a local existence check so the
@@ -158,7 +158,7 @@ reset(BinName, OwnerNs) when is_binary(BinName) ->
 
 -spec lookup(bin_name(), owner_ns()) -> {ok, map()} | {error, not_found}.
 lookup(BinName, OwnerNs) when is_binary(BinName) ->
-    lookup({normalize_ns(OwnerNs), BinName}).
+    lookup({check_ns(OwnerNs), BinName}).
 
 %% Variant that takes the qualified `{OwnerNs, BinName}' key
 %% directly. Used by the read-side proto module so per-node lookups
@@ -172,7 +172,7 @@ lookup({_OwnerNs, BinName} = Name) when is_binary(BinName) ->
 
 -spec list(owner_ns() | all_ns) -> [map()].
 list(Scope) ->
-    [with_counters(Rec) || Rec <- emqx_topic_metrics_registry:list(normalize_scope(Scope))].
+    [with_counters(Rec) || Rec <- emqx_topic_metrics_registry:list(check_scope(Scope))].
 
 %%--------------------------------------------------------------------
 %% Internal
@@ -195,12 +195,12 @@ validate_inputs(BinName, TopicFilter) ->
         {error, _} = Err -> Err
     end.
 
-normalize_ns(?global_ns) -> ?global_ns;
-normalize_ns(NS) when is_binary(NS) -> NS.
+check_ns(?global_ns) -> ?global_ns;
+check_ns(NS) when is_binary(NS) -> NS.
 
-normalize_scope(all_ns) -> all_ns;
-normalize_scope(?global_ns) -> ?global_ns;
-normalize_scope(NS) when is_binary(NS) -> NS.
+check_scope(all_ns) -> all_ns;
+check_scope(?global_ns) -> ?global_ns;
+check_scope(NS) when is_binary(NS) -> NS.
 
 with_counters(#{counter_ref := CRef} = Rec) ->
     Rec#{metrics => counters_snapshot(CRef)}.

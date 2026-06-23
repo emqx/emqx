@@ -48,6 +48,7 @@
 -define(AUTHN_API(METHOD, FN), ?API(emqx_authn_api, METHOD, FN)).
 -define(CERTS_API(METHOD, FN), ?API(emqx_mgmt_api_certs, METHOD, FN)).
 -define(A2A_REGISTRY_API(METHOD, FN), ?API(emqx_a2a_registry_api, METHOD, FN)).
+-define(TOPIC_METRICS2_API(METHOD, FN), ?API(emqx_topic_metrics2_api, METHOD, FN)).
 
 %%=====================================================================
 %% API
@@ -382,6 +383,16 @@ do_check_rbac(
     %% Agent-to-agent (A2A) registry; may only alter resources in its own namespace.
     %% This is enforced by the handlers themselves, by only fetching/acting on the
     %% appropriate namespace.
+    true;
+do_check_rbac(
+    #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?TOPIC_METRICS2_API(_, _)
+) when
+    is_binary(Namespace)
+->
+    %% v2 topic-metrics: namespaced admins may CRUD collections owned by
+    %% their namespace. The handler resolves the URL `:name' against the
+    %% actor's namespace, so cross-namespace access by short name is
+    %% impossible and there is nothing for RBAC to additionally guard.
     true;
 do_check_rbac(_, _, _) ->
     false.
