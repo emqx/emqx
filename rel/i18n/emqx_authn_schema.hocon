@@ -198,4 +198,9 @@ authentication_cache.desc:
 authentication_cache.label:
 """Authentication Cache"""
 
+ignore_backend_failures.desc:
+"""Ignore authentication backend failures in hardened security profile and continue to the next authenticator in the chain."""
+ignore_backend_failures.label:
+"""Ignore Backend Failures"""
+
 }
