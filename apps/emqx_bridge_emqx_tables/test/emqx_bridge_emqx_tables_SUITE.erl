@@ -824,3 +824,121 @@ t_start_ok_ttl(TCConfig) when is_list(TCConfig) ->
         end
     ),
     ok.
+
+%%------------------------------------------------------------------------------
+%% TLS Cipher Suite Test Cases (Rust NIF)
+%%------------------------------------------------------------------------------
+
+-doc """
+Connect with a TLS 1.3 cipher suite (TLS_AES_256_GCM_SHA384).
+Verifies the cipher_suites option is forwarded to the Rust NIF layer.
+""".
+t_tls_cipher_tls13() ->
+    [{matrix, true}].
+t_tls_cipher_tls13(matrix) ->
+    [[?tls, ?sync, ?without_batch]];
+t_tls_cipher_tls13(TCConfig) when is_list(TCConfig) ->
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_connector_api(TCConfig, #{
+            <<"ssl">> => #{<<"ciphers">> => [<<"TLS_AES_256_GCM_SHA384">>]}
+        })
+    ),
+    ok.
+
+-doc """
+Connect with a TLS 1.2 cipher suite (TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384).
+""".
+t_tls_cipher_tls12() ->
+    [{matrix, true}].
+t_tls_cipher_tls12(matrix) ->
+    [[?tls, ?sync, ?without_batch]];
+t_tls_cipher_tls12(TCConfig) when is_list(TCConfig) ->
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_connector_api(TCConfig, #{
+            <<"ssl">> => #{<<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>]}
+        })
+    ),
+    ok.
+
+-doc """
+Connect with mixed TLS 1.2 + 1.3 cipher suites.
+""".
+t_tls_cipher_mixed() ->
+    [{matrix, true}].
+t_tls_cipher_mixed(matrix) ->
+    [[?tls, ?sync, ?without_batch]];
+t_tls_cipher_mixed(TCConfig) when is_list(TCConfig) ->
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_connector_api(TCConfig, #{
+            <<"ssl">> => #{
+                <<"ciphers">> => [
+                    <<"TLS_AES_256_GCM_SHA384">>,
+                    <<"TLS_AES_128_GCM_SHA256">>,
+                    <<"ECDHE-RSA-AES256-GCM-SHA384">>
+                ]
+            }
+        })
+    ),
+    ok.
+
+-doc """
+Empty cipher_suites list should use defaults (same as not specifying).
+""".
+t_tls_cipher_empty_default() ->
+    [{matrix, true}].
+t_tls_cipher_empty_default(matrix) ->
+    [[?tls, ?sync, ?without_batch]];
+t_tls_cipher_empty_default(TCConfig) when is_list(TCConfig) ->
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_connector_api(TCConfig, #{
+            <<"ssl">> => #{<<"ciphers">> => []}
+        })
+    ),
+    ok.
+
+-doc """
+All invalid cipher names should cause a connection failure.
+""".
+t_tls_cipher_all_invalid() ->
+    [{matrix, true}].
+t_tls_cipher_all_invalid(matrix) ->
+    [[?tls, ?sync, ?without_batch]];
+t_tls_cipher_all_invalid(TCConfig) when is_list(TCConfig) ->
+    ?assertMatch(
+        {201, #{<<"status">> := <<"disconnected">>}},
+        create_connector_api(TCConfig, #{
+            <<"ssl">> => #{
+                <<"ciphers">> => [
+                    <<"DHE-RSA-AES256-GCM-SHA384">>,
+                    <<"DHE-RSA-AES128-GCM-SHA256">>
+                ]
+            }
+        })
+    ),
+    ok.
+
+-doc """
+Mix of valid + unsupported cipher names: any unsupported cipher
+causes an immediate connection failure (fail-fast).
+""".
+t_tls_cipher_partial_invalid() ->
+    [{matrix, true}].
+t_tls_cipher_partial_invalid(matrix) ->
+    [[?tls, ?sync, ?without_batch]];
+t_tls_cipher_partial_invalid(TCConfig) when is_list(TCConfig) ->
+    ?assertMatch(
+        {201, #{<<"status">> := <<"disconnected">>}},
+        create_connector_api(TCConfig, #{
+            <<"ssl">> => #{
+                <<"ciphers">> => [
+                    <<"ECDHE-RSA-AES256-GCM-SHA384">>,
+                    <<"DHE-RSA-AES256-GCM-SHA384">>
+                ]
+            }
+        })
+    ),
+    ok.
