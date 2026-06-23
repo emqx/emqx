@@ -224,7 +224,7 @@ collections(delete, Req) ->
     %% A global admin's "delete all visible" really means "delete
     %% everything"; a namespaced admin's call is scoped to their ns.
     ok = emqx_topic_metrics2:deregister_all(list_scope(OwnerNs)),
-    {?NO_CONTENT}.
+    ?NO_CONTENT.
 
 collection(get, #{bindings := #{name := BinName}} = Req) ->
     OwnerNs = actor_ns(Req),
@@ -235,14 +235,14 @@ collection(get, #{bindings := #{name := BinName}} = Req) ->
 collection(delete, #{bindings := #{name := BinName}} = Req) ->
     OwnerNs = actor_ns(Req),
     case emqx_topic_metrics2:deregister(BinName, OwnerNs) of
-        ok -> {?NO_CONTENT};
+        ok -> ?NO_CONTENT;
         {error, not_found} -> not_found(BinName)
     end.
 
 reset(put, #{bindings := #{name := BinName}} = Req) ->
     OwnerNs = actor_ns(Req),
     case emqx_topic_metrics2:reset(BinName, OwnerNs) of
-        ok -> {?NO_CONTENT};
+        ok -> ?NO_CONTENT;
         {error, not_found} -> not_found(BinName)
     end.
 

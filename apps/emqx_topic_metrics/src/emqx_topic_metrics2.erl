@@ -90,8 +90,18 @@ register(BinName, TopicFilter, OwnerNs) when is_binary(BinName), is_binary(Topic
             case emqx_topic_metrics_registry:persist_register(Name, TopicFilter, CreateTime) of
                 {ok, new} ->
                     %% Durable row is in mria; tell every node to
-                    %% materialise the local ETS overlay.
-                    _ = emqx_topic_metrics2_proto_v1:install_local(Name, TopicFilter, CreateTime),
+                    %% materialise the local ETS overlay. Eventual
+                    %% consistency: a multicall init failure still
+                    %% leaves the row in mria, and lagging nodes
+                    %% catch up via the cluster_rpc tx log or via
+                    %% `rehydrate/0' on next restart — so we don't
+                    %% bubble the error to the caller, but we do
+                    %% log it so operators can spot the lag.
+                    check_broadcast(
+                        install_local,
+                        Name,
+                        emqx_topic_metrics2_proto_v1:install_local(Name, TopicFilter, CreateTime)
+                    ),
                     ok;
                 {ok, existing} ->
                     %% Idempotent — the row was already in mria.
@@ -123,7 +133,11 @@ deregister(BinName, OwnerNs) when is_binary(BinName) ->
     Name = {check_ns(OwnerNs), BinName},
     case emqx_topic_metrics_registry:persist_deregister(Name) of
         {ok, gone} ->
-            _ = emqx_topic_metrics2_proto_v1:uninstall_local(Name),
+            check_broadcast(
+                uninstall_local,
+                Name,
+                emqx_topic_metrics2_proto_v1:uninstall_local(Name)
+            ),
             ok;
         {error, _} = Err ->
             Err
@@ -144,7 +158,11 @@ deregister_all(Scope) ->
         [] ->
             ok;
         _ ->
-            _ = emqx_topic_metrics2_proto_v1:uninstall_all_local(Names),
+            check_broadcast(
+                uninstall_all_local,
+                Names,
+                emqx_topic_metrics2_proto_v1:uninstall_all_local(Names)
+            ),
             ok
     end.
 
@@ -161,7 +179,11 @@ reset(BinName, OwnerNs) when is_binary(BinName) ->
         {error, not_found} ->
             {error, not_found};
         {ok, _} ->
-            _ = emqx_topic_metrics2_proto_v1:reset_local(Name),
+            check_broadcast(
+                reset_local,
+                Name,
+                emqx_topic_metrics2_proto_v1:reset_local(Name)
+            ),
             ok
     end.
 
@@ -212,6 +234,26 @@ check_ns(NS) when ?IS_NAMESPACE(NS) -> NS.
 
 check_scope(all_ns) -> all_ns;
 check_scope(NS) when ?IS_NAMESPACE(NS) -> NS.
+
+%% Inspect the return of an `emqx_cluster_rpc:multicall' wrapper.
+%% On success (`ok'), nothing to log. On init failure (timeout, no
+%% quorum, etc.) the multicall returns the error term; `cluster_rpc'
+%% already logs "peers lagging" internally when SOME nodes fail, so
+%% the only silent path was the init-failure case. We don't bubble
+%% the error up to the caller because the durable mria row already
+%% exists and lagging nodes will catch up via the cluster_rpc tx
+%% log or rehydrate at next restart — but operators need a log
+%% trail to spot the lag.
+check_broadcast(_Op, _Subject, ok) ->
+    ok;
+check_broadcast(Op, Subject, Other) ->
+    ?SLOG(warning, #{
+        msg => "topic_metrics2_cluster_rpc_broadcast_failed",
+        operation => Op,
+        subject => Subject,
+        return => Other
+    }),
+    ok.
 
 with_counters(#{counter_ref := CRef} = Rec) ->
     Rec#{metrics => counters_snapshot(CRef)}.
