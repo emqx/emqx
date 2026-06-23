@@ -94,7 +94,7 @@ t_chan_info(_) ->
     ?assertMatch(
         #{
             zone := default,
-            listener := {tcp, default},
+            listener := 'tcp:default',
             protocol := mqtt,
             peername := {{127, 0, 0, 1}, 3456},
             peerhost := {127, 0, 0, 1},
@@ -615,9 +615,9 @@ t_quota_qos0(_) ->
     timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
     Chann = channel(
-        clientinfo(#{listener => {tcp, low_message_rate}}), #{conn_state => connected}, #{
-            listener => {tcp, low_message_rate}
-        }
+        clientinfo(#{listener => 'tcp:low_message_rate'}),
+        #{conn_state => connected},
+        #{listener => {tcp, low_message_rate}}
     ),
     Pub = ?PUBLISH_PACKET(?QOS_0, <<"topic">>, undefined, <<"payload">>),
 
@@ -640,9 +640,9 @@ t_quota_qos1(_) ->
     timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
     Chann = channel(
-        clientinfo(#{listener => {tcp, low_message_rate}}), #{conn_state => connected}, #{
-            listener => {tcp, low_message_rate}
-        }
+        clientinfo(#{listener => 'tcp:low_message_rate'}),
+        #{conn_state => connected},
+        #{listener => {tcp, low_message_rate}}
     ),
     Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
     %% Quota per connections
@@ -658,9 +658,9 @@ t_quota_qos2(_) ->
     timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
     Chann = channel(
-        clientinfo(#{listener => {tcp, low_message_rate}}), #{conn_state => connected}, #{
-            listener => {tcp, low_message_rate}
-        }
+        clientinfo(#{listener => 'tcp:low_message_rate'}),
+        #{conn_state => connected},
+        #{listener => {tcp, low_message_rate}}
     ),
     Pub1 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 1, <<"payload">>),
     Pub2 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 2, <<"payload">>),
@@ -678,9 +678,11 @@ t_quota_qos2(_) ->
 t_quota_bytes(_) ->
     timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
-    Chann = channel(clientinfo(#{listener => {tcp, low_byte_rate}}), #{conn_state => connected}, #{
-        listener => {tcp, low_byte_rate}
-    }),
+    Chann = channel(
+        clientinfo(#{listener => 'tcp:low_byte_rate'}),
+        #{conn_state => connected},
+        #{listener => {tcp, low_byte_rate}}
+    ),
     Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
     %% Quota per connections
     {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann1} = emqx_channel:handle_in(Pub, Chann),
@@ -1386,18 +1388,22 @@ channel(ClientInfo, InitFields, ListenerOpts) ->
             #{
                 clientinfo => ClientInfo,
                 session => session(ClientInfo, #{}),
+                quota => channel_quota(ClientInfo),
                 conn_state => connected
             },
             InitFields
         )
     ).
 
+channel_quota(#{zone := Zone, listener := ListenerId}) ->
+    emqx_limiter:create_channel_client_container(Zone, ListenerId).
+
 clientinfo() -> clientinfo(#{}).
 clientinfo(InitProps) ->
     maps:merge(
         #{
             zone => default,
-            listener => {tcp, default},
+            listener => 'tcp:default',
             protocol => mqtt,
             peername => {{127, 0, 0, 1}, 3456},
             peerhost => {127, 0, 0, 1},
@@ -1429,8 +1435,8 @@ connpkt(Props) ->
         password = <<"passwd">>
     }.
 
-session() -> session(#{zone => default, clientid => <<"fake-test">>}, #{}).
-session(InitFields) -> session(#{zone => default, clientid => <<"fake-test">>}, InitFields).
+session() -> session(clientinfo(), #{}).
+session(InitFields) -> session(clientinfo(), InitFields).
 session(ClientInfo, InitFields) when is_map(InitFields) ->
     Session = emqx_session:create(
         ClientInfo,
