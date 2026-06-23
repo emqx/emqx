@@ -785,18 +785,38 @@ filter_remote_pendings(ClientInfo, Session, Pendings) ->
 
 -spec replay(emqx_types:clientinfo(), session()) ->
     {ok, replies(), session()}.
-replay(ClientInfo, Session) ->
-    PubsResend = lists:map(
-        fun
-            ({PacketId, #inflight_data{phase = wait_comp}}) ->
-                {pubrel, PacketId};
-            ({PacketId, #inflight_data{message = Msg}}) ->
-                {PacketId, without_inflight_insert_ts(emqx_message:set_flag(dup, true, Msg))}
-        end,
-        emqx_inflight:to_list(Session#session.inflight)
-    ),
-    {ok, More, Session1} = dequeue(ClientInfo, Session),
+replay(ClientInfo = #{zone := Zone}, Session = #session{inflight = Inflight}) ->
+    {PubsResend, Inflight1} = replay_inflight(ClientInfo, Zone, Inflight),
+    {ok, More, Session1} = dequeue(ClientInfo, Session#session{inflight = Inflight1}),
     {ok, append(PubsResend, More), Session1}.
+
+%% Resend inflight messages to the resuming channel, dropping any that have
+%% expired their `Message-Expiry-Interval` while the client was disconnected.
+%% This mirrors the expiry check `dequeue/4` applies to queued messages, so an
+%% expired message is treated the same whether it sat in the inflight set or the
+%% mqueue at takeover time.
+replay_inflight(ClientInfo, Zone, Inflight) ->
+    {Resends, Inflight1} = lists:foldl(
+        fun
+            ({PacketId, #inflight_data{phase = wait_comp}}, {Acc, IFL}) ->
+                %% Post-PUBREC, awaiting PUBCOMP: the message was already
+                %% delivered and acked by the receiver, so the QoS-2 handshake
+                %% must be completed regardless of the original message expiry.
+                {[{pubrel, PacketId} | Acc], IFL};
+            ({PacketId, #inflight_data{message = Msg}}, {Acc, IFL}) ->
+                case emqx_message:is_expired(Msg, Zone) of
+                    true ->
+                        _ = emqx_session_events:handle_event(ClientInfo, {expired, Msg}),
+                        {Acc, emqx_inflight:delete(PacketId, IFL)};
+                    false ->
+                        Msg1 = without_inflight_insert_ts(emqx_message:set_flag(dup, true, Msg)),
+                        {[{PacketId, Msg1} | Acc], IFL}
+                end
+        end,
+        {[], Inflight},
+        emqx_inflight:to_list(Inflight)
+    ),
+    {lists:reverse(Resends), Inflight1}.
 
 -spec dedup([emqx_types:message()], [emqx_types:message()]) ->
     [emqx_types:message()].

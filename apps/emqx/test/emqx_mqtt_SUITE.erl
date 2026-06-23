@@ -248,6 +248,66 @@ t_puback_not_lost_on_disconnect(_) ->
     ?assertNot(lists:member(<<"1">>, Msgs1)),
     emqtt:stop(C1).
 
+-doc "An inflight (sent-but-unacked) QoS>0 message that expired while the client was disconnected is dropped at takeover instead of being redelivered.".
+t_inflight_expired_dropped_on_takeover(_) ->
+    ClientId = <<"inflight_expired_drop">>,
+    {ok, CPub} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, <<"inflight_expired_pub">>}
+    ]),
+    {ok, _} = emqtt:connect(CPub),
+    %% Subscriber with a persistent in-mem session, manual acking so the broker
+    %% keeps the delivered message in its inflight set awaiting PUBACK.
+    {ok, C0} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {auto_ack, false},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 360}}
+    ]),
+    {ok, _} = emqtt:connect(C0),
+    {ok, _, [1]} = emqtt:subscribe(C0, <<"t/a">>, 1),
+    %% Publish a QoS-1 message that expires in 1s.
+    _ = emqtt:publish(
+        CPub,
+        <<"t/a">>,
+        #{'Message-Expiry-Interval' => 1},
+        <<"inflight, will expire">>,
+        [{qos, 1}]
+    ),
+    %% The message reaches the subscriber and enters the session inflight set,
+    %% but we deliberately do NOT acknowledge it.
+    receive
+        {publish, #{client_pid := C0, topic := <<"t/a">>}} ->
+            ok
+    after 2000 ->
+        ct:fail(should_receive_publish)
+    end,
+    %% Disconnect (keep the session); the un-acked message stays in inflight.
+    ok = emqtt:disconnect(C0),
+    ?retry(100, 20, [] =:= emqx_cm:lookup_channels(ClientId)),
+    %% Sleep well past Message-Expiry-Interval (1s) with a wide margin so the
+    %% wall-clock-based expiry check at takeover is not racy on slow CI.
+    ct:sleep(2000),
+    %% Resume the session, triggering takeover/replay of the inflight set.
+    {ok, C1} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {auto_ack, true},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 360}}
+    ]),
+    {ok, _} = emqtt:connect(C1),
+    %% The expired inflight message must NOT be redelivered.
+    receive
+        {publish, #{client_pid := C1, topic := <<"t/a">>}} ->
+            ct:fail(should_have_expired)
+    after 500 ->
+        ok
+    end,
+    emqtt:stop(C1),
+    emqtt:stop(CPub).
+
 drain_messages(C) ->
     receive
         {publish, #{topic := <<"t/1">>, payload := IBin, client_pid := C}} ->
