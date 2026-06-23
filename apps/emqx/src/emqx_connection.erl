@@ -727,9 +727,10 @@ handle_timeout(
     }
 ) ->
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:set_chan_stats(ClientId, stats(State)),
-    emqx_congestion:maybe_alarm_conn_congestion(?MODULE, State),
-    {ok, State#state{stats_timer = undefined}};
+    NState = check_sendq_congestion(State),
+    emqx_cm:set_chan_stats(ClientId, stats(NState)),
+    emqx_congestion:maybe_alarm_conn_congestion(?MODULE, NState),
+    {ok, NState#state{stats_timer = undefined}};
 handle_timeout(
     TRef,
     keepalive,
