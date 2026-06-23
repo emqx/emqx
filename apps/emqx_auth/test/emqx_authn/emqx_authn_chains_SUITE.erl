@@ -311,7 +311,7 @@ t_authenticate_rejection_log(Config) when is_list(Config) ->
         username => <<"bad">>,
         password => <<"any">>
     },
-    Logs = capture_warnings(fun() ->
+    Logs = emqx_cth_log_capture:capture(fun() ->
         ?assertEqual(
             {error, bad_username_or_password},
             emqx_access_control:authenticate(ClientInfo)
@@ -333,39 +333,6 @@ t_authenticate_rejection_log({'end', Config}) ->
     ?AUTHN:delete_chain(?config(listener_id)),
     ?AUTHN:deregister_provider(?config(authn_type)),
     ok.
-
-%% Logger handler callback used by capture_warnings/1.
-log(#{msg := {report, Report}}, #{config := #{test_pid := Pid}}) when is_map(Report) ->
-    Pid ! {captured_log, Report},
-    ok;
-log(_Event, _Config) ->
-    ok.
-
-%% Install a temporary logger handler that forwards warning reports to the test
-%% process, run `Fun', and return the captured reports in emission order.
-capture_warnings(Fun) ->
-    HandlerId = test_capture_handler,
-    ok = logger:add_handler(HandlerId, ?MODULE, #{
-        level => warning,
-        config => #{test_pid => self()},
-        filter_default => log,
-        filters => []
-    }),
-    PrevLevel = emqx_logger:get_primary_log_level(),
-    ok = emqx_logger:set_primary_log_level(warning),
-    try
-        _ = Fun(),
-        collect_captured([])
-    after
-        ok = emqx_logger:set_primary_log_level(PrevLevel),
-        ok = logger:remove_handler(HandlerId)
-    end.
-
-collect_captured(Acc) ->
-    receive
-        {captured_log, Report} -> collect_captured([Report | Acc])
-    after 200 -> lists:reverse(Acc)
-    end.
 
 t_update_config({init, Config}) ->
     Global = 'mqtt:global',
