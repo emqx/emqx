@@ -109,6 +109,38 @@ jwt_jwks_ssl_verify_omitted_test_() ->
         end}
     ].
 
+jwt_on_missing_jwt_default_test_() ->
+    ok = ensure_schema_load(),
+    [
+        {"legacy", fun() ->
+            emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+                ?assertMatch(
+                    {ok, #{authentication := [#{on_missing_jwt := ignore}]}},
+                    check(jwt_jwks_config())
+                )
+            end)
+        end},
+        {"hardened", fun() ->
+            emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+                ?assertMatch(
+                    {ok, #{authentication := [#{on_missing_jwt := deny}]}},
+                    check(jwt_jwks_config())
+                )
+            end)
+        end}
+    ].
+
+jwt_on_missing_jwt_explicit_test() ->
+    ok = ensure_schema_load(),
+    ?assertMatch(
+        {ok, #{authentication := [#{on_missing_jwt := ignore}]}},
+        check(jwt_jwks_config_on_missing_jwt(ignore))
+    ),
+    ?assertMatch(
+        {ok, #{authentication := [#{on_missing_jwt := deny}]}},
+        check(jwt_jwks_config_on_missing_jwt(deny))
+    ).
+
 union_member_selector_redis_test_() ->
     ok = ensure_schema_load(),
     [
@@ -177,6 +209,19 @@ jwt_jwks_config() ->
         }
     ]
     """.
+
+jwt_jwks_config_on_missing_jwt(OnMissingJWT) ->
+    C = """
+    [
+        {
+            mechanism = jwt,
+            use_jwks = true,
+            endpoint = "https://127.0.0.1/jwks.json"
+            on_missing_jwt = ~s
+        }
+    ]
+    """,
+    io_lib:format(C, [atom_to_list(OnMissingJWT)]).
 
 jwt_jwks_config_with_ssl() ->
     """

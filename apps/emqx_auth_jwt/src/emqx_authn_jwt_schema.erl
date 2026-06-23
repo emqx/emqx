@@ -132,6 +132,7 @@ common_fields() ->
             default => <<"acl">>,
             desc => ?DESC(acl_claim_name)
         }},
+        {on_missing_jwt, fun on_missing_jwt/1},
         {verify_claims, fun verify_claims/1},
         {disconnect_after_expire, fun disconnect_after_expire/1},
         {from, fun from/1}
@@ -199,6 +200,11 @@ disconnect_after_expire(type) -> boolean();
 disconnect_after_expire(desc) -> ?DESC(?FUNCTION_NAME);
 disconnect_after_expire(default) -> true;
 disconnect_after_expire(_) -> undefined.
+
+on_missing_jwt(type) -> hoconsc:enum([deny, ignore]);
+on_missing_jwt(desc) -> ?DESC(?FUNCTION_NAME);
+on_missing_jwt(default) -> atom_to_binary(emqx_security_profile:policy(authn_jwt_missing));
+on_missing_jwt(_) -> undefined.
 
 do_check_verify_claims([]) ->
     true;

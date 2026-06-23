@@ -51,7 +51,8 @@ Returns policy depending on the current security profile.
     (authz_backend_failure) -> ignore | deny;
     (dashboard_unchanged_default_credentials) -> allow | deny;
     (access_control_hook_failure) -> ignore | interrupt;
-    (outbound_tls_verify) -> verify_none | verify_peer.
+    (outbound_tls_verify) -> verify_none | verify_peer;
+    (authn_jwt_missing) -> ignore | deny.
 policy(mqtt_default_bind) ->
     case profile() of
         legacy -> any;
@@ -91,6 +92,11 @@ policy(outbound_tls_verify) ->
     case profile() of
         legacy -> verify_none;
         hardened -> verify_peer
+    end;
+policy(authn_jwt_missing) ->
+    case profile() of
+        legacy -> ignore;
+        hardened -> deny
     end.
 
 -doc """

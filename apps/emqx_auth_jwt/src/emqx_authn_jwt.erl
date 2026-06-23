@@ -80,26 +80,39 @@ authenticate(#{auth_method := _}, _) ->
 authenticate(
     Credential,
     #{
+        from := From,
+        on_missing_jwt := OnMissingJWT
+    } = State
+) ->
+    case maps:get(From, Credential, undefined) of
+        undefined ->
+            missing_jwt(OnMissingJWT);
+        JWT ->
+            do_authenticate(JWT, Credential, State)
+    end.
+
+do_authenticate(
+    JWT,
+    Credential,
+    #{
         verify_claims := VerifyClaims0,
         disconnect_after_expire := DisconnectAfterExpire,
         jwk := JWK,
-        acl_claim_name := AclClaimName,
-        from := From
+        acl_claim_name := AclClaimName
     }
 ) ->
-    JWT = maps:get(From, Credential),
     %% XXX: Only supports single public key
     JWKs = [JWK],
     VerifyClaims = render_expected(VerifyClaims0, Credential),
     verify(JWT, JWKs, VerifyClaims, AclClaimName, DisconnectAfterExpire);
-authenticate(
+do_authenticate(
+    JWT,
     Credential,
     #{
         verify_claims := VerifyClaims0,
         disconnect_after_expire := DisconnectAfterExpire,
         resource_id := ResourceId,
-        acl_claim_name := AclClaimName,
-        from := From
+        acl_claim_name := AclClaimName
     }
 ) ->
     case emqx_resource:simple_sync_query(ResourceId, get_jwks) of
@@ -109,8 +122,9 @@ authenticate(
                 reason => Reason
             }),
             emqx_authn_utils:backend_failure_result();
+        {ok, undefined} ->
+            emqx_authn_utils:backend_failure_result();
         {ok, JWKs} ->
-            JWT = maps:get(From, Credential),
             VerifyClaims = render_expected(VerifyClaims0, Credential),
             verify(JWT, JWKs, VerifyClaims, AclClaimName, DisconnectAfterExpire)
     end.
@@ -130,6 +144,7 @@ create_authn_hmac_based(#{
     secret_base64_encoded := Base64Encoded,
     verify_claims := VerifyClaims,
     disconnect_after_expire := DisconnectAfterExpire,
+    on_missing_jwt := OnMissingJWT,
     acl_claim_name := AclClaimName,
     from := From,
     enable := Enable
@@ -143,6 +158,7 @@ create_authn_hmac_based(#{
                 jwk => JWK,
                 verify_claims => handle_verify_claims(VerifyClaims),
                 disconnect_after_expire => DisconnectAfterExpire,
+                on_missing_jwt => OnMissingJWT,
                 acl_claim_name => AclClaimName,
                 from => From,
                 enable => Enable
@@ -154,6 +170,7 @@ create_authn_public_key(
         public_key := PublicKey,
         verify_claims := VerifyClaims,
         disconnect_after_expire := DisconnectAfterExpire,
+        on_missing_jwt := OnMissingJWT,
         acl_claim_name := AclClaimName,
         from := From,
         enable := Enable
@@ -169,6 +186,7 @@ create_authn_public_key(
             jwk => JWK,
             verify_claims => handle_verify_claims(VerifyClaims),
             disconnect_after_expire => DisconnectAfterExpire,
+            on_missing_jwt => OnMissingJWT,
             acl_claim_name => AclClaimName,
             from => From,
             enable => Enable
@@ -180,12 +198,13 @@ create_authn_public_key_with_jwks(
     #{
         verify_claims := VerifyClaims,
         disconnect_after_expire := DisconnectAfterExpire,
+        on_missing_jwt := OnMissingJWT,
         acl_claim_name := AclClaimName,
         from := From
     } = Config
 ) ->
     ResourceConfig = emqx_authn_utils:cleanup_resource_config(
-        [verify_claims, disconnect_after_expire, acl_claim_name, from], Config
+        [verify_claims, disconnect_after_expire, on_missing_jwt, acl_claim_name, from], Config
     ),
     State = emqx_authn_utils:init_state(
         Config,
@@ -193,6 +212,7 @@ create_authn_public_key_with_jwks(
             resource_id => ResourceId,
             verify_claims => handle_verify_claims(VerifyClaims),
             disconnect_after_expire => DisconnectAfterExpire,
+            on_missing_jwt => OnMissingJWT,
             acl_claim_name => AclClaimName,
             from => From
         }
@@ -239,9 +259,6 @@ render_expected([{Name, ExpectedTemplate} | More], Variables) ->
     Expected = emqx_auth_template:render_str(ExpectedTemplate, Variables),
     [{Name, Expected} | render_expected(More, Variables)].
 
-verify(undefined, _, _, _, _) ->
-    %% No value in `From` field, where we expect a JWT token
-    ignore;
 verify(JWT, JWKs, VerifyClaims, AclClaimName, DisconnectAfterExpire) ->
     case do_verify(JWT, JWKs, VerifyClaims) of
         {ok, Extra} ->
@@ -259,6 +276,9 @@ verify(JWT, JWKs, VerifyClaims, AclClaimName, DisconnectAfterExpire) ->
             ?TRACE_AUTHN_PROVIDER("invalid_jwt_claims", #{jwt => JWT, claims => Claims}),
             {error, bad_username_or_password}
     end.
+
+missing_jwt(ignore) -> ignore;
+missing_jwt(deny) -> {error, bad_username_or_password}.
 
 extra_to_auth_data(Extra, JWT, AclClaimName, DisconnectAfterExpire) ->
     IsSuperuser = emqx_authn_utils:is_superuser(Extra),
