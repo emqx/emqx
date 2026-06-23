@@ -51,8 +51,17 @@ do_start(Name0, Args, Envs, TimeoutOrWaitBoot, Func, Opts0) when is_atom(Name0) 
         Opts0
     ),
     {ok, Pid, Node} = peer:Func(Opts),
-    true = register(Node, Pid),
-    {ok, Node}.
+    try
+        true = register(Node, Pid),
+        {ok, Node}
+    catch
+        error:badarg ->
+            %% The node name is already registered, presumably to a control process
+            %% leaked by an earlier (failed) start of the same node. Don't leak the
+            %% peer we just started on top of it; stop it and fail loudly.
+            catch peer:stop(Pid),
+            error({already_registered, Node, whereis(Node)})
+    end.
 
 stop(Node) when is_atom(Node) ->
     Pid = whereis(Node),

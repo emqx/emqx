@@ -407,33 +407,38 @@ t_stats_default_basic_auth_enabled(_) ->
         end
     end.
 
+emqtt_connect(ClientId) ->
+    {ok, C0} = emqtt:start_link(#{clientid => ClientId}),
+    %% temp unlink to avoid self (tester) exit due to server_unavailable race
+    unlink(C0),
+    try emqtt:connect(C0) of
+        {ok, _} ->
+            %% link again
+            link(C0),
+            {ok, C0}
+    catch
+        exit:{shutdown, server_unavailable} ->
+            ct:sleep(100),
+            emqtt_connect(ClientId)
+    end.
+
 %% Simple smoke test for verifying reason code labels in `emqx_client_disconnected_reason'
 %% counter metric.
 t_listener_shutdown_count(_Config) ->
-    ConnectRetry = fun Retry(ClientId) ->
-        {ok, C0} = emqtt:start_link(#{clientid => ClientId}),
-        try emqtt:connect(C0) of
-            {ok, _} -> {ok, C0}
-        catch
-            exit:{shutdown, server_unavailable} ->
-                ct:sleep(1),
-                Retry(ClientId)
-        end
-    end,
     ClientId1 = fresh_clientid(?FUNCTION_NAME),
-    {ok, C1} = ConnectRetry(ClientId1),
+    {ok, C1} = emqtt_connect(ClientId1),
     %% Takeover
     unlink(C1),
-    {ok, C2} = ConnectRetry(ClientId1),
+    {ok, C2} = emqtt_connect(ClientId1),
     %% Kick
     unlink(C2),
     ok = emqx_cm:kick_session(ClientId1),
     %% Normal disconnect
     ClientId2 = fresh_clientid(?FUNCTION_NAME),
-    {ok, C3} = ConnectRetry(ClientId2),
+    {ok, C3} = emqtt_connect(ClientId2),
     ok = emqtt:stop(C3),
     %% Disconnect with reason code
-    {ok, C4} = ConnectRetry(ClientId2),
+    {ok, C4} = emqtt_connect(ClientId2),
     ok = emqtt:disconnect(C4, ?RC_IMPLEMENTATION_SPECIFIC_ERROR),
     NodeBin = atom_to_binary(node()),
     AssertExpectedLines = fun(L, ExpectedLines, Output) ->
