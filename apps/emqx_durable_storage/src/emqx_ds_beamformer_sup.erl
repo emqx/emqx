@@ -72,7 +72,6 @@ init({top, Module, ShardId, Opts}) ->
     },
     {ok, {SupFlags, Children}};
 init({workers, Module, ShardId, Opts}) ->
-    #{n_workers := InitialNWorkers} = Opts,
     Children = [
         #{
             id => {Type, I},
@@ -80,11 +79,11 @@ init({workers, Module, ShardId, Opts}) ->
             shutdown => 5000,
             start => {Type, start_link, [Module, ShardId, I, Opts]}
         }
-     || I <- lists:seq(1, InitialNWorkers),
-        Type <- [
+     || Type <- [
             emqx_ds_beamformer_catchup,
             emqx_ds_beamformer_rt
-        ]
+        ],
+        I <- lists:seq(1, n_workers(Opts, Type))
     ],
     %% FIXME: currently we want crash in one worker to immediately
     %% escalate to the leader, since currently there's no mechanism to
@@ -119,3 +118,14 @@ child_status({Name, Pid, supervisor, _}) ->
         Name,
         {Pid, maps:from_list(ChildrenInfo)}
     }.
+
+n_workers(Opts, Type) ->
+    #{n_workers := Default} = Opts,
+    case Opts of
+        #{n_rt_workers := N} when Type =:= emqx_ds_beamformer_rt ->
+            N;
+        #{n_catchup_workers := N} when Type =:= emqx_ds_beamformer_catchup ->
+            N;
+        _ ->
+            Default
+    end.
