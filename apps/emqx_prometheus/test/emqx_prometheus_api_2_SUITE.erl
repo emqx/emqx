@@ -49,16 +49,11 @@ end_per_testcase(_TestCase, _TCConfig) ->
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-get_data_integration(Mode, Format, Opts) ->
+get_data_integration(Mode, Opts) ->
     URL = emqx_mgmt_api_test_util:api_path(["prometheus", "data_integration"]),
-    get_prometheus(URL, Mode, Format, Opts).
+    get_prometheus(URL, Mode, Opts).
 
-get_prometheus(URL, Mode, Format, Opts) ->
-    Headers =
-        case Format of
-            json -> [{"accept", "application/json"}];
-            prometheus -> []
-        end,
+get_prometheus(URL, Mode, Opts) ->
     Ns = maps:get(ns, Opts, undefined),
     OnlyGlobal = maps:get(only_global, Opts, undefined),
     QueryString = uri_string:compose_query(
@@ -72,16 +67,14 @@ get_prometheus(URL, Mode, Format, Opts) ->
     {Status, Response} = emqx_mgmt_api_test_util:simple_request(#{
         method => get,
         url => URL,
-        extra_headers => Headers,
+        extra_headers => [],
         query_params => QueryString,
         auth_header => AuthHeader
     }),
-    case Format of
-        json ->
-            {Status, Response};
-        prometheus when Status == 200 ->
+    case Status of
+        200 ->
             {Status, parse_prometheus(Response)};
-        prometheus ->
+        _ ->
             {Status, Response}
     end.
 
@@ -211,7 +204,7 @@ t_action_without_connector(TCConfig) ->
         fun(Mode) ->
             ?assertMatch(
                 {200, _},
-                get_data_integration(Mode, prometheus, #{auth_header => AuthHeader}),
+                get_data_integration(Mode, #{auth_header => AuthHeader}),
                 #{mode => Mode}
             )
         end,
@@ -229,7 +222,7 @@ t_namespaced_data_integration(TCConfig) ->
         ]
     }),
     %% sanity check: auth should be enabled
-    ?assertMatch({401, _}, get_data_integration(?PROM_DATA_MODE__NODE, prometheus, #{})),
+    ?assertMatch({401, _}, get_data_integration(?PROM_DATA_MODE__NODE, #{})),
 
     MkBridgeConfig = fun(Name) ->
         [
@@ -271,13 +264,13 @@ t_namespaced_data_integration(TCConfig) ->
             %% namespaced admin cannot see other namespaces
             ?assertMatch(
                 {403, _},
-                get_data_integration(Mode, prometheus, #{
+                get_data_integration(Mode, #{
                     auth_header => NsAuthHeader,
                     ns => <<"other_ns">>
                 })
             ),
 
-            {200, NsNodeRes1} = get_data_integration(Mode, prometheus, #{
+            {200, NsNodeRes1} = get_data_integration(Mode, #{
                 auth_header => NsAuthHeader
             }),
             ?assertNotMatch(
@@ -319,7 +312,7 @@ t_namespaced_data_integration(TCConfig) ->
             ),
 
             %% without specifying `only_global`, global admin sees metrics from all namespaces
-            {200, GlobalNodeRes1} = get_data_integration(Mode, prometheus, #{
+            {200, GlobalNodeRes1} = get_data_integration(Mode, #{
                 auth_header => GlobalAuthHeader
             }),
             ?assertMatch(
@@ -353,7 +346,7 @@ t_namespaced_data_integration(TCConfig) ->
                 GetLabels(<<"emqx_rule_enable">>, GlobalNodeRes1)
             ),
             %% with `only_global`, global admin sees metrics only from global ns
-            {200, GlobalNodeRes2} = get_data_integration(Mode, prometheus, #{
+            {200, GlobalNodeRes2} = get_data_integration(Mode, #{
                 auth_header => GlobalAuthHeader,
                 only_global => true
             }),
@@ -377,7 +370,7 @@ t_namespaced_data_integration(TCConfig) ->
             ),
 
             %% namespaced admin can filter specific namespaces
-            {200, GlobalNodeRes3} = get_data_integration(Mode, prometheus, #{
+            {200, GlobalNodeRes3} = get_data_integration(Mode, #{
                 auth_header => GlobalAuthHeader,
                 ns => Ns
             }),
@@ -423,7 +416,7 @@ t_namespaced_data_integration(TCConfig) ->
         fun(Mode) ->
             ct:pal("mode ~s", [Mode]),
             %% without specifying `only_global`, global admin sees metrics from all namespaces
-            {200, GlobalNodeRes1} = get_data_integration(Mode, prometheus, #{}),
+            {200, GlobalNodeRes1} = get_data_integration(Mode, #{}),
             ?assertMatch(
                 [
                     #{<<"id">> := <<"mqtt:global">>},
@@ -455,7 +448,7 @@ t_namespaced_data_integration(TCConfig) ->
                 GetLabels(<<"emqx_rule_enable">>, GlobalNodeRes1)
             ),
             %% with `only_global`, global admin sees metrics only from global ns
-            {200, GlobalNodeRes2} = get_data_integration(Mode, prometheus, #{
+            {200, GlobalNodeRes2} = get_data_integration(Mode, #{
                 only_global => true
             }),
             ?assertMatch(

@@ -12,10 +12,6 @@
 
 -export([collect/1, collect_ns/2]).
 
--export([
-    zip_json_data_integration_metrics/3
-]).
-
 %% for bpapi
 -behaviour(emqx_prometheus_cluster).
 -export([
@@ -176,18 +172,6 @@ collect_mf(_, _) ->
     ok.
 
 %% @private
-collect(<<"json">>) ->
-    RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
-    Rules = get_rules_all_namespaces(),
-    Connectors = emqx_connector:list(?global_ns),
-    #{
-        data_integration_overview => collect_data_integration_overview(
-            Rules, Connectors
-        ),
-        rules => collect_json_data(?MG(rule_metric_data, RawData)),
-        actions => collect_json_data(?MG(action_metric_data, RawData)),
-        connectors => collect_json_data(?MG(connector_metric_data, RawData))
-    };
 collect(<<"prometheus">>) ->
     prometheus_text_format:format(?PROMETHEUS_DATA_INTEGRATION_REGISTRY).
 
@@ -297,9 +281,6 @@ rules_ov_metric_meta() ->
         {emqx_rules_count, gauge}
     ].
 
-rules_ov_metric(names) ->
-    emqx_prometheus_cluster:metric_names(rules_ov_metric_meta()).
-
 rules_ov_data(Rules) ->
     #{
         emqx_rules_count => length(Rules)
@@ -312,9 +293,6 @@ actions_ov_metric_meta() ->
     [
         {emqx_actions_count, gauge}
     ].
-
-actions_ov_metric(names) ->
-    emqx_prometheus_cluster:metric_names(actions_ov_metric_meta()).
 
 actions_ov_data(Rules) ->
     ActionsCount = lists:foldl(
@@ -360,9 +338,6 @@ connectors_ov_metric_meta() ->
     [
         {emqx_connectors_count, gauge}
     ].
-
-connectors_ov_metric(names) ->
-    emqx_prometheus_cluster:metric_names(connectors_ov_metric_meta()).
 
 connectors_ov_data(Connectors) ->
     #{
@@ -585,62 +560,6 @@ get_connector_status(ResourceData) ->
         emqx_connector_enable => emqx_prometheus_cluster:boolean_to_number(Enabled),
         emqx_connector_status => emqx_prometheus_cluster:status_to_number(Status)
     }.
-
-%%--------------------------------------------------------------------
-%% Collect functions
-%%--------------------------------------------------------------------
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% merge / zip formatting funcs for type `application/json`
-collect_data_integration_overview(Rules, Connectors) ->
-    RulesD = rules_ov_data(Rules),
-    ActionsD = actions_ov_data(Rules),
-    ConnectorsD = connectors_ov_data(Connectors),
-
-    M1 = lists:foldl(
-        fun(K, AccIn) -> AccIn#{K => ?MG(K, RulesD)} end,
-        #{},
-        rules_ov_metric(names)
-    ),
-    M2 = lists:foldl(
-        fun(K, AccIn) -> AccIn#{K => ?MG(K, ActionsD)} end,
-        #{},
-        actions_ov_metric(names)
-    ),
-    M3 = lists:foldl(
-        fun(K, AccIn) -> AccIn#{K => ?MG(K, ConnectorsD)} end,
-        #{},
-        connectors_ov_metric(names)
-    ),
-    M4 = schema_registry_data(),
-
-    lists:foldl(fun(M, AccIn) -> maps:merge(M, AccIn) end, #{}, [M1, M2, M3, M4]).
-
-collect_json_data(Data) ->
-    emqx_prometheus_cluster:collect_json_data(Data, fun zip_json_data_integration_metrics/3).
-
-%% for initialized empty AccIn
-%% The following fields will be put into Result
-%% For Rules:
-%%     `id` => [RULE_ID]
-%% For Actions
-%%     `id` => [ACTION_ID]
-%% FOR Connectors
-%%     `id` => [CONNECTOR_ID] %% CONNECTOR_ID = BRIDGE_ID
-%%     formatted with {type}:{name}
-zip_json_data_integration_metrics(Key, Points, [] = _AccIn) ->
-    lists:foldl(
-        fun({Lables, Metric}, AccIn2) ->
-            LablesKVMap = maps:from_list(Lables),
-            Point = LablesKVMap#{Key => Metric},
-            [Point | AccIn2]
-        end,
-        [],
-        Points
-    );
-zip_json_data_integration_metrics(Key, Points, AllResultedAcc) ->
-    ThisKeyResult = lists:foldl(emqx_prometheus_cluster:point_to_map_fun(Key), [], Points),
-    lists:zipwith(fun maps:merge/2, AllResultedAcc, ThisKeyResult).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Helper funcs
