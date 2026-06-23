@@ -98,10 +98,23 @@ register(BinName, TopicFilter, OwnerNs) when is_binary(BinName), is_binary(Topic
                     %% Each node's ETS overlay was installed on the
                     %% prior register, so nothing to broadcast.
                     ok;
-                {error, _} = Err ->
+                {error, Reason} = Err ->
+                    ?SLOG(warning, #{
+                        msg => "topic_metrics2_register_failed",
+                        name => Name,
+                        topic_filter => TopicFilter,
+                        reason => Reason
+                    }),
                     Err
             end;
-        {error, _} = Err ->
+        {error, Reason} = Err ->
+            ?SLOG(warning, #{
+                msg => "topic_metrics2_register_invalid_input",
+                bin_name => BinName,
+                topic_filter => TopicFilter,
+                owner_ns => OwnerNs,
+                reason => Reason
+            }),
             Err
     end.
 
@@ -195,12 +208,10 @@ validate_inputs(BinName, TopicFilter) ->
         {error, _} = Err -> Err
     end.
 
-check_ns(?global_ns) -> ?global_ns;
-check_ns(NS) when is_binary(NS) -> NS.
+check_ns(NS) when ?IS_NAMESPACE(NS) -> NS.
 
 check_scope(all_ns) -> all_ns;
-check_scope(?global_ns) -> ?global_ns;
-check_scope(NS) when is_binary(NS) -> NS.
+check_scope(NS) when ?IS_NAMESPACE(NS) -> NS.
 
 with_counters(#{counter_ref := CRef} = Rec) ->
     Rec#{metrics => counters_snapshot(CRef)}.

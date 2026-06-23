@@ -245,18 +245,12 @@ reset_one(Config, Ns, Name) ->
 %% Real HTTP request through the dashboard listener. Returns
 %% `{StatusCode, DecodedBody}'.
 request(Config, Ns, Method, PathParts, Body) ->
-    Path = emqx_mgmt_api_test_util:api_path(PathParts),
-    Headers = auth_header(Config, Ns),
-    case
-        emqx_mgmt_api_test_util:request_api(
-            Method, Path, _Qs = "", Headers, Body, #{return_all => true}
-        )
-    of
-        {ok, {{_HttpVer, Status, _Reason}, _RespHdrs, RespBody}} ->
-            {Status, decode(RespBody)};
-        {error, {{_HttpVer, Status, _Reason}, _RespHdrs, RespBody}} ->
-            {Status, decode(RespBody)}
-    end.
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => Method,
+        url => emqx_mgmt_api_test_util:api_path(PathParts),
+        body => Body,
+        auth_header => auth_header(Config, Ns)
+    }).
 
 auth_header(_Config, ?global_ns) ->
     emqx_mgmt_api_test_util:auth_header_();
@@ -267,15 +261,6 @@ auth_header(Config, ?NS_BRAVO) ->
 
 bearer(Token) ->
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
-
-decode(<<>>) ->
-    <<>>;
-decode(Bin) ->
-    try
-        emqx_utils_json:decode(Bin)
-    catch
-        _:_ -> Bin
-    end.
 
 b2l(B) when is_binary(B) -> binary_to_list(B);
 b2l(L) when is_list(L) -> L.
