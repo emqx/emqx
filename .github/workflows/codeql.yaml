@@ -20,6 +20,7 @@ jobs:
       BUILDER_release-60: ${{ steps.env.outputs.BUILDER_release-60 }}
       BUILDER_release-61: ${{ steps.env.outputs.BUILDER_release-61 }}
       BUILDER_release-62: ${{ steps.env.outputs.BUILDER_release-62 }}
+      BUILDER_release-63: ${{ steps.env.outputs.BUILDER_release-63 }}
 
     strategy:
       fail-fast: false
@@ -32,6 +33,7 @@ jobs:
           - release-60
           - release-61
           - release-62
+          - release-63
 
     steps:
       - name: Checkout repository
@@ -67,6 +69,7 @@ jobs:
           - release-60
           - release-61
           - release-62
+          - release-63
         language:
           - cpp
           - python
