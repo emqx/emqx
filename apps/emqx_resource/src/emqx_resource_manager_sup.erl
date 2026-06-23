@@ -15,6 +15,10 @@
 
 ensure_child(ResId, Group, ResourceType, Config, Opts) ->
     case supervisor:start_child(?MODULE, child_spec(ResId, Group, ResourceType, Config, Opts)) of
+        {error, {already_started, _}} ->
+            ok;
+        {error, already_present} ->
+            ok;
         {error, Reason} ->
             %% This should not happen in production but it can be a huge time sink in
             %% development environments if the error is just silently ignored.
