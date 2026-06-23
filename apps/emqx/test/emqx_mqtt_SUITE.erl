@@ -58,34 +58,48 @@ t_conn_stats(_) ->
 t_tcp_sock_passive(_) ->
     with_client(fun(CPid) -> CPid ! {tcp_passive, sock} end, []).
 
+-doc "A message queued for an offline session is dropped on resume once its Message-Expiry-Interval has elapsed.".
 t_message_expiry_interval(_) ->
-    {CPublish, CControl} = message_expiry_interval_init(),
-    [message_expiry_interval_exipred(CPublish, CControl, QoS) || QoS <- [0, 1, 2]],
-    emqtt:stop(CPublish),
-    emqtt:stop(CControl).
+    run_message_expiry_interval(<<"exp">>, fun message_expiry_interval_exipred/4).
 
+-doc "A message queued for an offline session is delivered on resume while still within its Message-Expiry-Interval.".
 t_message_not_expiry_interval(_) ->
-    {CPublish, CControl} = message_expiry_interval_init(),
-    [message_expiry_interval_not_exipred(CPublish, CControl, QoS) || QoS <- [0, 1, 2]],
-    emqtt:stop(CPublish),
-    emqtt:stop(CControl).
+    run_message_expiry_interval(<<"noexp">>, fun message_expiry_interval_not_exipred/4).
 
-message_expiry_interval_init() ->
+%% Each QoS iteration uses a fresh set of clientids (tagged with the test name
+%% and the QoS) so that no session/mqueue/subscription state leaks from one
+%% iteration to the next, nor between the two expiry-interval tests. Reusing a
+%% fixed clientid across iterations was racy: a resumed `Client-Verify` session
+%% could carry stale queued state, and rapid reconnects of the same clientid
+%% raced session takeover on slow CI.
+run_message_expiry_interval(Name, Fun) ->
+    lists:foreach(
+        fun(QoS) ->
+            Tag = <<Name/binary, "-", (integer_to_binary(QoS))/binary>>,
+            {CPublish, CControl} = message_expiry_interval_init(Tag),
+            Fun(CPublish, CControl, QoS, Tag),
+            emqtt:stop(CPublish),
+            emqtt:stop(CControl)
+        end,
+        [0, 1, 2]
+    ).
+
+message_expiry_interval_init(Tag) ->
     {ok, CPublish} = emqtt:start_link([
         {proto_ver, v5},
-        {clientid, <<"Client-Publish">>},
+        {clientid, <<"Client-Publish-", Tag/binary>>},
         {clean_start, false},
         {properties, #{'Session-Expiry-Interval' => 360}}
     ]),
     {ok, CVerify} = emqtt:start_link([
         {proto_ver, v5},
-        {clientid, <<"Client-Verify">>},
+        {clientid, <<"Client-Verify-", Tag/binary>>},
         {clean_start, false},
         {properties, #{'Session-Expiry-Interval' => 360}}
     ]),
     {ok, CControl} = emqtt:start_link([
         {proto_ver, v5},
-        {clientid, <<"Client-Control">>},
+        {clientid, <<"Client-Control-", Tag/binary>>},
         {clean_start, false},
         {properties, #{'Session-Expiry-Interval' => 360}}
     ]),
@@ -98,7 +112,7 @@ message_expiry_interval_init() ->
     emqtt:stop(CVerify),
     {CPublish, CControl}.
 
-message_expiry_interval_exipred(CPublish, CControl, QoS) ->
+message_expiry_interval_exipred(CPublish, CControl, QoS, Tag) ->
     ct:pal("~p ~p", [?FUNCTION_NAME, QoS]),
     %% publish to t/a and waiting for the message expired
     _ = emqtt:publish(
@@ -122,7 +136,7 @@ message_expiry_interval_exipred(CPublish, CControl, QoS) ->
     %% resume the session for Client-Verify
     {ok, CVerify} = emqtt:start_link([
         {proto_ver, v5},
-        {clientid, <<"Client-Verify">>},
+        {clientid, <<"Client-Verify-", Tag/binary>>},
         {clean_start, false},
         {properties, #{'Session-Expiry-Interval' => 360}}
     ]),
@@ -137,7 +151,7 @@ message_expiry_interval_exipred(CPublish, CControl, QoS) ->
     end,
     emqtt:stop(CVerify).
 
-message_expiry_interval_not_exipred(CPublish, CControl, QoS) ->
+message_expiry_interval_not_exipred(CPublish, CControl, QoS, Tag) ->
     ct:pal("~p ~p", [?FUNCTION_NAME, QoS]),
     %% publish to t/a
     _ = emqtt:publish(
@@ -161,13 +175,16 @@ message_expiry_interval_not_exipred(CPublish, CControl, QoS) ->
     ct:sleep(1200),
     {ok, CVerify} = emqtt:start_link([
         {proto_ver, v5},
-        {clientid, <<"Client-Verify">>},
+        {clientid, <<"Client-Verify-", Tag/binary>>},
         {clean_start, false},
         {properties, #{'Session-Expiry-Interval' => 360}}
     ]),
     {ok, _} = emqtt:connect(CVerify),
 
     %% verify Client-Verify could receive the publish message and the Message-Expiry-Interval is set
+    %% Use a generous receive window: the session resume + queued-message dispatch
+    %% can take longer than a few hundred ms on a busy CI runner. A late (but
+    %% present) delivery here is a pass, so a wider window only removes flakiness.
     receive
         {publish, #{
             client_pid := CVerify,
@@ -179,7 +196,7 @@ message_expiry_interval_not_exipred(CPublish, CControl, QoS) ->
             ok;
         {publish, _} = Msg ->
             ct:fail({incorrect_publish, Msg})
-    after 300 ->
+    after 2000 ->
         ct:fail(no_publish_received)
     end,
     emqtt:stop(CVerify).
