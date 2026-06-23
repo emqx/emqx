@@ -195,7 +195,7 @@ count_keys() ->
 
 collections(get, Req) ->
     OwnerNs = actor_ns(Req),
-    {200, [view(R) || R <- aggregated_list(OwnerNs)]};
+    ?OK([view(R) || R <- aggregated_list(OwnerNs)]);
 collections(post, #{body := Body} = Req) ->
     OwnerNs = actor_ns(Req),
     case parse_create(Body) of
@@ -211,7 +211,7 @@ collections(post, #{body := Body} = Req) ->
                     case emqx_topic_metrics2:register(BinName, TopicFilter, OwnerNs) of
                         ok ->
                             {ok, Rec} = emqx_topic_metrics2:lookup(Name),
-                            {201, view(with_cluster_counters(Rec))};
+                            ?CREATED(view(with_cluster_counters(Rec)));
                         {error, Reason} ->
                             err_create(Reason)
                     end
@@ -224,25 +224,25 @@ collections(delete, Req) ->
     %% A global admin's "delete all visible" really means "delete
     %% everything"; a namespaced admin's call is scoped to their ns.
     ok = emqx_topic_metrics2:deregister_all(list_scope(OwnerNs)),
-    {204}.
+    {?NO_CONTENT}.
 
 collection(get, #{bindings := #{name := BinName}} = Req) ->
     OwnerNs = actor_ns(Req),
     case emqx_topic_metrics2:lookup(BinName, OwnerNs) of
-        {ok, Rec} -> {200, view(with_cluster_counters(Rec))};
+        {ok, Rec} -> ?OK(view(with_cluster_counters(Rec)));
         {error, not_found} -> not_found(BinName)
     end;
 collection(delete, #{bindings := #{name := BinName}} = Req) ->
     OwnerNs = actor_ns(Req),
     case emqx_topic_metrics2:deregister(BinName, OwnerNs) of
-        ok -> {204};
+        ok -> {?NO_CONTENT};
         {error, not_found} -> not_found(BinName)
     end.
 
 reset(put, #{bindings := #{name := BinName}} = Req) ->
     OwnerNs = actor_ns(Req),
     case emqx_topic_metrics2:reset(BinName, OwnerNs) of
-        ok -> {204};
+        ok -> {?NO_CONTENT};
         {error, not_found} -> not_found(BinName)
     end.
 
@@ -357,28 +357,24 @@ parse_create(_) ->
     {error, ?BAD_NAME, <<"name and topic_filter are required">>}.
 
 err_create(quota_exceeded) ->
-    {409, #{
-        code => ?EXCEED_LIMIT,
-        message => to_msg({"Max topic_metrics2 collections is ~p", [?MAX_COLLECTIONS]})
-    }};
+    ?CONFLICT(
+        ?EXCEED_LIMIT,
+        fmt("Max topic_metrics2 collections is ~p", [?MAX_COLLECTIONS])
+    );
 err_create(already_registered) ->
-    {409, #{code => ?ALREADY_EXISTS, message => <<"Name already exists">>}};
+    ?CONFLICT(?ALREADY_EXISTS, <<"Name already exists">>);
 err_create(#{cause := bad_name}) ->
-    {400, #{code => ?BAD_NAME, message => <<"Invalid name">>}};
+    ?BAD_REQUEST(?BAD_NAME, <<"Invalid name">>);
 err_create(#{cause := bad_topic_filter}) ->
-    {400, #{code => ?BAD_TOPIC_FILTER, message => <<"Invalid topic filter">>}};
+    ?BAD_REQUEST(?BAD_TOPIC_FILTER, <<"Invalid topic filter">>);
 err_create(Reason) ->
-    {400, #{code => 'BAD_REQUEST', message => to_msg(Reason)}}.
+    ?BAD_REQUEST(Reason).
 
+%% Custom code (`NAME_NOT_FOUND'), so we hand-build the response
+%% map via `?ERROR_MSG' rather than the generic `?NOT_FOUND' macro
+%% (which always uses code `NOT_FOUND').
 not_found(Name) when is_binary(Name) ->
-    {404, #{
-        code => ?NAME_NOT_FOUND,
-        message => iolist_to_binary([<<"Collection '">>, Name, <<"' not found">>])
-    }}.
+    {404, ?ERROR_MSG(?NAME_NOT_FOUND, fmt("Collection '~ts' not found", [Name]))}.
 
-to_msg({Fmt, Args}) when is_list(Args) ->
-    iolist_to_binary(io_lib:format(Fmt, Args));
-to_msg(Bin) when is_binary(Bin) ->
-    Bin;
-to_msg(Term) ->
-    iolist_to_binary(io_lib:format("~0p", [Term])).
+fmt(Fmt, Args) ->
+    iolist_to_binary(io_lib:format(Fmt, Args)).
