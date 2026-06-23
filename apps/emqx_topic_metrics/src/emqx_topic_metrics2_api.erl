@@ -150,12 +150,6 @@ fields(collection_create) ->
     ];
 fields(collection_view) ->
     [
-        {id,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(field_id),
-                example => <<"$global:alpha">>
-            })},
         {name, mk(binary(), #{required => true, example => <<"alpha">>})},
         {topic_filter, mk(binary(), #{required => true, example => <<"alpha/#">>})},
         {namespace,
@@ -339,7 +333,6 @@ view(
     } = Rec
 ) ->
     #{
-        id => collection_id(OwnerNs, BinName),
         name => BinName,
         topic_filter => TF,
         namespace => ns_to_view(OwnerNs),
@@ -349,18 +342,6 @@ view(
 
 ns_to_view(?global_ns) -> null;
 ns_to_view(NS) when is_binary(NS) -> NS.
-
-%% Composite identifier safe to use as the unique key in
-%% dashboard/scripted consumers. Two collections with the same
-%% bin-name in different namespaces produce distinct ids
-%% (`acme:foo' vs `bravo:foo'); a global collection is prefixed
-%% with the literal `$global' sentinel (`$global:foo'). The `:'
-%% separator is safe because it is not allowed in either
-%% namespace tenant ids or the bin-name regex.
-collection_id(?global_ns, BinName) ->
-    <<"$global:", BinName/binary>>;
-collection_id(NS, BinName) when is_binary(NS) ->
-    <<NS/binary, ":", BinName/binary>>.
 
 parse_create(#{<<"name">> := Name, <<"topic_filter">> := TF}) ->
     case emqx_topic_metrics_schema:validate_name(Name) of

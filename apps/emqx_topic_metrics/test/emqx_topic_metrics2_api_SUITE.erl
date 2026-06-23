@@ -90,7 +90,6 @@ t_crud(Config) ->
     ?assertEqual(201, Status),
     ?assertMatch(
         #{
-            <<"id">> := <<"$global:alpha">>,
             <<"name">> := <<"alpha">>,
             <<"topic_filter">> := <<"alpha/#">>,
             <<"namespace">> := null,
@@ -101,7 +100,7 @@ t_crud(Config) ->
 
     %% read one
     {200, One} = get_one(Config, ?global_ns, <<"alpha">>),
-    ?assertMatch(#{<<"name">> := <<"alpha">>, <<"id">> := <<"$global:alpha">>}, One),
+    ?assertMatch(#{<<"name">> := <<"alpha">>, <<"namespace">> := null}, One),
 
     %% list one
     {200, Many} = list(Config, ?global_ns),
@@ -188,14 +187,13 @@ t_namespace_isolation(Config) ->
         {404, #{<<"code">> := <<"NAME_NOT_FOUND">>}},
         delete_one(Config, ?NS_ACME, <<"g">>)
     ),
-    %% Same bin-name reused across namespaces does not clash. The
-    %% composite id is what differentiates the two rows in any
-    %% client-side keying.
+    %% Same bin-name reused across namespaces does not clash; the
+    %% {namespace, name} pair is the unique row identity.
     {201, _} = create(Config, ?NS_ACME, <<"a">>, <<"acme/a/#">>),
     {200, AcmeA} = get_one(Config, ?NS_ACME, <<"a">>),
     ?assertMatch(
         #{
-            <<"id">> := <<"acme:a">>,
+            <<"name">> := <<"a">>,
             <<"namespace">> := ?NS_ACME,
             <<"topic_filter">> := <<"acme/a/#">>
         },
@@ -205,17 +203,17 @@ t_namespace_isolation(Config) ->
     {200, GlobalA} = get_one(Config, ?global_ns, <<"a">>),
     ?assertMatch(
         #{
-            <<"id">> := <<"$global:a">>,
+            <<"name">> := <<"a">>,
             <<"namespace">> := null,
             <<"topic_filter">> := <<"a/#">>
         },
         GlobalA
     ),
     %% Global can list everything across namespaces; (namespace, name)
-    %% must be unique even when `name' alone is not.
+    %% pairs must be unique even when `name' alone is not.
     {200, AllForGlobal} = list(Config, ?global_ns),
-    Ids = [maps:get(<<"id">>, R) || R <- AllForGlobal],
-    ?assertEqual(lists:sort(Ids), lists:usort(Ids)),
+    Keys = [{maps:get(<<"namespace">>, R), maps:get(<<"name">>, R)} || R <- AllForGlobal],
+    ?assertEqual(lists:sort(Keys), lists:usort(Keys)),
     ?assertEqual(4, length(AllForGlobal)).
 
 %%------------------------------------------------------------------------------
