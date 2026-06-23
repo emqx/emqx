@@ -26,6 +26,7 @@ jobs:
           - ['emqx-enterprise', 'release-60']
           - ['emqx-enterprise', 'release-61']
           - ['emqx-enterprise', 'release-62']
+          - ['emqx-enterprise', 'release-63']
         os:
           - ubuntu22.04
           - ubuntu24.04
@@ -84,6 +85,7 @@ jobs:
           - release-60
           - release-61
           - release-62
+          - release-63
 
     defaults:
       run:
@@ -137,6 +139,7 @@ jobs:
           - release-60
           - release-61
           - release-62
+          - release-63
         os:
           - macos-15
 
