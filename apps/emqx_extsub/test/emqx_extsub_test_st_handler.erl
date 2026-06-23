@@ -136,7 +136,12 @@ make_messages(#{batch_size := BatchSize} = State, #fake_msg{n = BatchN}) ->
 
 make_message(#{topic_filter := TopicFilter} = _State, BatchN, I, _BatchSize) ->
     Body = iolist_to_binary(io_lib:format("fake msg batch_n=~p, n in batch=~p", [BatchN, I])),
-    emqx_message:make(<<"from">>, ?QOS_1, TopicFilter, Body).
+    QoS =
+        case TopicFilter of
+            <<"extsub_st_test/qos0/", _/binary>> -> ?QOS_0;
+            _ -> ?QOS_1
+        end,
+    emqx_message:make(<<"from">>, QoS, TopicFilter, Body).
 
 %% Toy buffer functions
 

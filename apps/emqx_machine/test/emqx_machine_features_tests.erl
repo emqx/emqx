@@ -281,6 +281,7 @@ test_individual_feature_specific_assertions(Feature) when
     Feature == metrics;
     Feature == cluster_link;
     Feature == multi_tenancy;
+    Feature == plugins;
     Feature == mqtt_extensions;
     Feature == ai;
     Feature == file_transfer;

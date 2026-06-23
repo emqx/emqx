@@ -398,6 +398,29 @@ start_client() ->
 unique_payload() ->
     integer_to_binary(erlang:unique_integer()).
 
+%% MongoDB 5.1 removed the legacy OP_QUERY opcodes (wire protocol version 14),
+%% so forcing the legacy protocol only works against servers reporting wire
+%% version 13 (MongoDB 5.0) or below. `isMaster` is answered before
+%% authentication, so no credentials are required to probe the running server.
+mongo_supports_legacy_protocol() ->
+    Host = os:getenv("MONGO_SINGLE_HOST", "mongo"),
+    Port = list_to_integer(os:getenv("MONGO_SINGLE_PORT", "27017")),
+    %% Force the modern OP_MSG protocol for the probe itself: the legacy
+    %% OP_QUERY opcodes the probe is checking for are exactly what newer servers
+    %% reject, so a legacy probe connection would fail on them.
+    {ok, Conn} = mc_worker_api:connect([
+        {database, <<"admin">>},
+        {host, Host},
+        {port, Port},
+        {use_legacy_protocol, false}
+    ]),
+    try
+        {true, Info} = mc_worker_api:command(Conn, {<<"isMaster">>, 1}),
+        maps:get(<<"maxWireVersion">>, Info, 0) =< 13
+    after
+        mc_worker_api:disconnect(Conn)
+    end.
+
 get_worker_pids(TCConfig) ->
     ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
     %% abusing health check api a bit...
@@ -560,6 +583,14 @@ t_get_status_server_selection_too_short(TCConfig) ->
     ok.
 
 t_use_legacy_protocol_option(TCConfig) ->
+    case mongo_supports_legacy_protocol() of
+        false ->
+            {skip, mongo_server_dropped_legacy_protocol};
+        true ->
+            do_t_use_legacy_protocol_option(TCConfig)
+    end.
+
+do_t_use_legacy_protocol_option(TCConfig) ->
     {201, #{<<"status">> := <<"connected">>}} =
         create_connector_api(TCConfig, #{<<"use_legacy_protocol">> => true}),
     WorkerPids0 = get_worker_pids(TCConfig),

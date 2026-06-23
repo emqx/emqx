@@ -4,7 +4,8 @@ access_key_id.desc:
 """The access key ID of the S3 bucket."""
 
 secret_access_key.desc:
-"""The secret access key of the S3 bucket."""
+"""The secret access key of the S3 bucket.<br/>
+To load the key from a file instead of embedding it inline, use the form <code>file://&lt;path-to-file&gt;</code>; the file's content (with any trailing whitespace stripped) is then used as the key. When clustered, the file must exist on all EMQX nodes."""
 
 bucket.desc:
 """The name of the S3 bucket."""

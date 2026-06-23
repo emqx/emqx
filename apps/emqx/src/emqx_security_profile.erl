@@ -48,7 +48,8 @@ Returns policy depending on the current security profile.
     (dashboard_http_default_bind) -> loopback | any;
     (authn_not_configured) -> allow | deny;
     (authz_backend_failure) -> ignore | deny;
-    (dashboard_unchanged_default_credentials) -> allow | deny.
+    (dashboard_unchanged_default_credentials) -> allow | deny;
+    (access_control_hook_failure) -> ignore | interrupt.
 policy(mqtt_default_bind) ->
     case profile() of
         legacy -> any;
@@ -73,6 +74,11 @@ policy(dashboard_unchanged_default_credentials) ->
     case profile() of
         legacy -> allow;
         hardened -> deny
+    end;
+policy(access_control_hook_failure) ->
+    case profile() of
+        legacy -> ignore;
+        hardened -> interrupt
     end.
 
 -doc """

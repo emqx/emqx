@@ -938,6 +938,13 @@ ensure_attached_service_account_token_resources_cleared() ->
     ?assertMatch([], ets:tab2list(?SA_TOKEN_RESP_TAB)),
     ok.
 
+disable_connector_api(TCConfig) ->
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:disable_connector_api(Type, Name)
+    ).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -968,7 +975,7 @@ t_start_stop(TCConfig) ->
             prop_client_stopped(),
             prop_workers_stopped(PubSubTopic),
             fun(Trace) ->
-                ?assertMatch([_], ?of_kind(gcp_pubsub_consumer_clear_unhealthy, Trace)),
+                ?assertMatch([_, _ | _], ?of_kind(gcp_pubsub_consumer_clear_unhealthy, Trace)),
                 ok
             end
         ]
@@ -1709,7 +1716,7 @@ t_subscription_deleted_while_consumer_is_running(TCConfig) ->
             {ok, SRef0} =
                 snabbkaffe:subscribe(
                     ?match_event(
-                        #{?snk_kind := "gcp_pubsub_consumer_worker_pull_error"}
+                        #{?snk_kind := gcp_pubsub_consumer_worker_pull_error}
                     ),
                     30_000
                 ),
@@ -1962,7 +1969,7 @@ t_connection_down_during_pull(TCConfig) ->
                 )
             end),
 
-            ?block_until("gcp_pubsub_consumer_worker_pull_error", 10_000),
+            ?block_until(gcp_pubsub_consumer_worker_pull_error, 10_000),
             heal_failure(FailureType),
 
             {ok, _Published} = receive_published(),
@@ -2019,42 +2026,6 @@ t_get_subscription(TCConfig) ->
     ),
     ok.
 
-t_permission_denied_topic_check(TCConfig) ->
-    PubSubTopic = get_config(pubsub_topic, TCConfig),
-    ?check_trace(
-        begin
-            %% the emulator does not check any credentials
-            emqx_common_test_helpers:with_mock(
-                emqx_bridge_gcp_pubsub_client,
-                query_sync,
-                fun(PreparedRequest = ?PREPARED_REQUEST_PAT(Method, Path, _Body), Client) ->
-                    RE = iolist_to_binary(["/topics/", PubSubTopic, "$"]),
-                    case {Method =:= get, re:run(Path, RE)} of
-                        {true, {match, _}} ->
-                            permission_denied_response();
-                        _ ->
-                            meck:passthrough([PreparedRequest, Client])
-                    end
-                end,
-                fun() ->
-                    {201, _} = create_connector_api(TCConfig, #{}),
-                    ?assertMatch(
-                        {201, #{
-                            <<"status">> := <<"disconnected">>,
-                            <<"status_reason">> :=
-                                <<"{unhealthy_target,\"Permission denied", _/binary>>
-                        }},
-                        create_source_api(TCConfig, #{})
-                    ),
-                    ok
-                end
-            ),
-            ok
-        end,
-        []
-    ),
-    ok.
-
 t_permission_denied_worker(TCConfig) ->
     ?check_trace(
         begin
@@ -2078,42 +2049,6 @@ t_permission_denied_worker(TCConfig) ->
                             10_000
                         ),
 
-                    ok
-                end
-            ),
-            ok
-        end,
-        []
-    ),
-    ok.
-
-t_unauthenticated_topic_check(TCConfig) ->
-    PubSubTopic = get_config(pubsub_topic, TCConfig),
-    ?check_trace(
-        begin
-            %% the emulator does not check any credentials
-            emqx_common_test_helpers:with_mock(
-                emqx_bridge_gcp_pubsub_client,
-                query_sync,
-                fun(PreparedRequest = ?PREPARED_REQUEST_PAT(Method, Path, _Body), Client) ->
-                    RE = iolist_to_binary(["/topics/", PubSubTopic, "$"]),
-                    case {Method =:= get, re:run(Path, RE)} of
-                        {true, {match, _}} ->
-                            unauthenticated_response();
-                        _ ->
-                            meck:passthrough([PreparedRequest, Client])
-                    end
-                end,
-                fun() ->
-                    {201, _} = create_connector_api(TCConfig, #{}),
-                    ?assertMatch(
-                        {201, #{
-                            <<"status">> := <<"disconnected">>,
-                            <<"status_reason">> :=
-                                <<"{unhealthy_target,\"Permission denied", _/binary>>
-                        }},
-                        create_source_api(TCConfig, #{})
-                    ),
                     ok
                 end
             ),
@@ -2442,4 +2377,97 @@ t_attached_service_account_auth(TCConfig) ->
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ensure_attached_service_account_token_resources_cleared(),
 
+    ok.
+
+%% original issue: source was created with a service account without the correct
+%% permissions.  later, the permissions were granted to the service account.  in the
+%% meantime, if the resource manager attempted to reinstall the source more than once, it
+%% could end up in a state where the source would not be part of its internal installed
+%% channels, and then the optvar marking the source as unhealthy would not be cleared.
+%% here, we ensure that such optvar is cleared, and the source eventually recovers once
+%% the permissions are granted.
+t_clear_stuck_unhealthy(TCConfig) ->
+    emqx_common_test_helpers:with_mock(
+        emqx_bridge_gcp_pubsub_client,
+        query_sync,
+        fun(PreparedRequest = ?PREPARED_REQUEST_PAT(Method, _Path, _Body), Client) ->
+            %% original issue: 403 when creating subscription
+            case Method =:= put of
+                true ->
+                    ct:pal("mocking response"),
+                    permission_denied_response();
+                false ->
+                    meck:passthrough([PreparedRequest, Client])
+            end
+        end,
+        fun() ->
+            {201, #{<<"status">> := <<"connected">>}} =
+                create_connector_api(TCConfig, #{}),
+            {201, #{<<"status">> := <<"disconnected">>}} =
+                create_source_api(TCConfig, #{}),
+            ?assertMatch(
+                {200, #{<<"status">> := <<"disconnected">>}},
+                get_source_api(TCConfig)
+            ),
+            ok
+        end
+    ),
+    %% now, we "grant" the permissions by removing the mock.  should recover by itself.
+    ?retry(
+        1_000,
+        10,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"connected">>}},
+            get_source_api(TCConfig)
+        )
+    ),
+    ok.
+
+%% test for hot upgrade post-upgrade hook.
+-define(OPTVAR_SUB_OK(X), {emqx_bridge_gcp_pubsub_consumer_worker, subscription_ok, X}).
+t_post_upgrade_pr_17625(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_source_api(TCConfig, #{}),
+    ConnNameB = <<"disabled">>,
+    SourceNameB = ConnNameB,
+    TCConfigB = [{connector_name, ConnNameB}, {source_name, SourceNameB} | TCConfig],
+    {201, _} = create_connector_api(TCConfigB, #{}),
+    {201, _} = create_source_api(TCConfigB, #{
+        <<"connector">> => ConnNameB
+    }),
+
+    %% set up old opvars to simulate previous version
+    WorkerPids = get_pull_worker_pids(TCConfig),
+    [Pid0 | _] = WorkerPids,
+    optvar:set(?OPTVAR_SUB_OK(Pid0), subscription_ok),
+    %% also create one to simulate a dead worker leak
+    optvar:set(?OPTVAR_SUB_OK(self()), subscription_ok),
+
+    {204, _} = disable_connector_api(TCConfigB),
+
+    ?check_trace(
+        begin
+            emqx_post_upgrade:pr_17625_gcp_pubsub_consumer_worker_optvars("vsn"),
+            ok
+        end,
+        fun(Trace) ->
+            ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+            ?assertMatch(
+                [
+                    #{?snk_kind := gcp_pubsub_consumer_stop_enter, instance_id := ConnResId},
+                    #{?snk_kind := gcp_pubsub_consumer_start, instance_id := ConnResId}
+                ],
+                ?of_kind([gcp_pubsub_consumer_stop_enter, gcp_pubsub_consumer_start], Trace)
+            ),
+            ?assertEqual(
+                [],
+                [
+                    K
+                 || ?OPTVAR_SUB_OK(Pid) = K <- optvar:list_all(),
+                    is_pid(Pid)
+                ]
+            ),
+            ok
+        end
+    ),
     ok.

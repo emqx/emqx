@@ -479,7 +479,7 @@ parse_jwt_config(ResourceId, #{
     jwt_opts := #{aud := Aud},
     authentication := #{service_account_json := ServiceAccountJSON0}
 }) ->
-    ServiceAccountJSON = emqx_utils_json:decode(ServiceAccountJSON0),
+    ServiceAccountJSON = emqx_utils_json:decode(emqx_secret:unwrap(ServiceAccountJSON0)),
     #{
         <<"project_id">> := ProjectId,
         <<"private_key_id">> := KId,
@@ -796,13 +796,23 @@ handle_response(Result, ResourceId, QueryMode) ->
             Reason =:= timeout
         ->
             ?tp(
-                warning,
                 gcp_client_request_failed,
                 #{
                     reason => Reason,
                     recoverable_error => true,
                     connector => ResourceId
                 }
+            ),
+            ?SLOG_THROTTLE(
+                warning,
+                ResourceId,
+                #{
+                    msg => gcp_client_request_failed,
+                    reason => Reason,
+                    recoverable_error => true,
+                    connector => ResourceId
+                },
+                #{tag => ?TAG}
             ),
             {error, {recoverable_error, Reason}};
         {error, Reason} ->
@@ -871,13 +881,18 @@ do_get_status_pool1(ResourceId, Timeout) ->
                 ok ->
                     ok;
                 {error, Reason} ->
-                    ?SLOG(error, #{
-                        msg => "gcp_client_ehttpc_health_check_failed",
-                        connector => ResourceId,
-                        reason => Reason,
-                        worker => Worker,
-                        wait_time => Timeout
-                    }),
+                    ?SLOG_THROTTLE(
+                        error,
+                        ResourceId,
+                        #{
+                            msg => gcp_client_ehttpc_health_check_failed,
+                            resource_id => ResourceId,
+                            reason => Reason,
+                            worker => Worker,
+                            wait_time => Timeout
+                        },
+                        #{tag => ?TAG}
+                    ),
                     {error, Reason}
             end
         end,

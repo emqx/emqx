@@ -1868,3 +1868,74 @@ t_case25_param_query_2025(_Config) ->
         }
     } = emqx_utils_json:decode(PubedMsg),
     ok.
+
+t_case26_param_query_ack_fe(_Config) ->
+    {ok, Socket} = login_first(),
+
+    Req = #{
+        <<"Action">> => <<"Query">>,
+        <<"Total">> => 2,
+        <<"Ids">> => [<<"0x01">>, <<"0x02">>]
+    },
+    Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
+    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
+    timer:sleep(200),
+    {ok, _Packet} = gen_tcp:recv(Socket, 0, 500),
+
+    Time = <<17, 2, 2, 11, 12, 12>>,
+    Info = <<2, 1, 6000:?WORD, 2, 10:?WORD>>,
+    Resp = encode(
+        ?CMD_PARAM_QUERY, ?ACK_IS_CMD, <<"1G1BL52P7TR115520">>, <<Time/binary, Info/binary>>
+    ),
+    gen_tcp:send(Socket, Resp),
+    timer:sleep(200),
+    {<<"gbt32960/1G1BL52P7TR115520/upstream/response">>, _PubedMsg} = get_published_msg(),
+    ok.
+
+t_case27_param_setting_ack_fe(_Config) ->
+    {ok, Socket} = login_first(),
+
+    Req = #{
+        <<"Action">> => <<"Setting">>,
+        <<"Total">> => 2,
+        <<"Params">> => [
+            #{<<"0x01">> => 5000},
+            #{<<"0x02">> => 200}
+        ]
+    },
+    Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
+    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
+    timer:sleep(200),
+    {ok, _Packet} = gen_tcp:recv(Socket, 0, 500),
+
+    Time = <<17, 2, 2, 11, 12, 12>>,
+    Info = <<2, 1, 5000:?WORD, 2, 200:?WORD>>,
+    Resp = encode(
+        ?CMD_PARAM_SETTING, ?ACK_IS_CMD, <<"1G1BL52P7TR115520">>, <<Time/binary, Info/binary>>
+    ),
+    gen_tcp:send(Socket, Resp),
+    timer:sleep(200),
+    {<<"gbt32960/1G1BL52P7TR115520/upstream/response">>, _PubedMsg} = get_published_msg(),
+    ok.
+
+t_case28_terminal_ctrl_ack_fe(_Config) ->
+    {ok, Socket} = login_first(),
+
+    Req = #{
+        <<"Action">> => <<"Control">>,
+        <<"Command">> => "0x02"
+    },
+    Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
+    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
+    timer:sleep(200),
+    {ok, _Packet} = gen_tcp:recv(Socket, 0, 500),
+
+    Time = <<17, 2, 2, 11, 12, 12>>,
+    Info = <<2>>,
+    Resp = encode(
+        ?CMD_TERMINAL_CTRL, ?ACK_IS_CMD, <<"1G1BL52P7TR115520">>, <<Time/binary, Info/binary>>
+    ),
+    gen_tcp:send(Socket, Resp),
+    timer:sleep(200),
+    {<<"gbt32960/1G1BL52P7TR115520/upstream/response">>, _PubedMsg} = get_published_msg(),
+    ok.

@@ -90,27 +90,20 @@ mk_node_name(TestCase, N) ->
     Name0 = iolist_to_binary([atom_to_binary(TestCase), "_", integer_to_binary(N)]),
     binary_to_atom(Name0).
 
-get_prometheus_stats(Mode, Format) ->
-    Headers =
-        case Format of
-            json -> [{"accept", "application/json"}];
-            prometheus -> []
-        end,
+get_prometheus_stats(Mode) ->
     QueryString = uri_string:compose_query([{"mode", atom_to_binary(Mode)}]),
     URL = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
     {Status, Response} = emqx_mgmt_api_test_util:simple_request(#{
         method => get,
         url => URL,
-        extra_headers => Headers,
+        extra_headers => [],
         query_params => QueryString,
         auth_header => {"no", "auth"}
     }),
-    case Format of
-        json ->
-            {Status, Response};
-        prometheus when Status == 200 ->
+    case Status of
+        200 ->
             {Status, parse_prometheus(Response)};
-        prometheus ->
+        _ ->
             {Status, Response}
     end.
 
@@ -187,7 +180,7 @@ t_mria_shard_lag_cache(TCConfig) ->
         end)
     end),
     T0 = erlang:monotonic_time(millisecond),
-    {200, Stats0} = get_prometheus_stats(?PROM_DATA_MODE__ALL_NODES_AGGREGATED, prometheus),
+    {200, Stats0} = get_prometheus_stats(?PROM_DATA_MODE__ALL_NODES_AGGREGATED),
     T1 = erlang:monotonic_time(millisecond),
     ct:pal("call took ~b ms", [T1 - T0]),
     #{<<"emqx_mria_lag">> := Stats1} = Stats0,

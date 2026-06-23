@@ -319,9 +319,13 @@ format_retain_flag(false) ->
 
 run_hooks(Name, Args, Acc) when Name == 'client.authenticate'; Name == 'client.authorize' ->
     ok = emqx_metrics:inc_global(Name),
-    {Time, Value} = timer:tc(
-        fun() -> emqx_hooks:run_fold(Name, Args, Acc) end
-    ),
+    {Time, Value} =
+        case emqx_security_profile:policy(access_control_hook_failure) of
+            ignore ->
+                timer:tc(fun() -> {ok, emqx_hooks:run_fold(Name, Args, Acc)} end);
+            interrupt ->
+                timer:tc(fun() -> emqx_hooks:run_fold_strict(Name, Args, Acc) end)
+        end,
     try
         emqx_metrics_worker:observe_hist(
             ?ACCESS_CONTROL_METRICS_WORKER,
@@ -333,7 +337,15 @@ run_hooks(Name, Args, Acc) when Name == 'client.authenticate'; Name == 'client.a
         _:_ ->
             ok
     end,
-    Value.
+    case Value of
+        {ok, Result} -> Result;
+        {error, _Reason} -> fail_close_result(Name)
+    end.
+
+fail_close_result('client.authenticate') ->
+    ignore;
+fail_close_result('client.authorize') ->
+    #{result => deny, from => default_on_fail}.
 
 -compile({inline, [inc_authz_metrics/1]}).
 inc_authz_metrics(allow) ->

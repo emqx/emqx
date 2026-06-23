@@ -80,7 +80,8 @@
     aggregated_upload_success_get/1,
     aggregated_upload_failure_inc/1,
     aggregated_upload_failure_inc/2,
-    aggregated_upload_failure_get/1
+    aggregated_upload_failure_get/1,
+    actions_executed_inc/3
 ]).
 
 -export([mk_delivery_finished_callback_for_action/1, on_delivery_finished/2]).
@@ -134,7 +135,8 @@ events() ->
             retried_success,
             success,
             aggregated_upload_success,
-            aggregated_upload_failure
+            aggregated_upload_failure,
+            actions_executed
         ]
     ].
 
@@ -234,7 +236,7 @@ handle_counter_telemetry_event(Event, ID, Val, Metadata) ->
         late_reply ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'late_reply', Val);
         failed ->
-            inc_actions_executed(Metadata, Val),
+            inc_actions_messages(Metadata, Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val);
         matched ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'matched', Val);
@@ -242,21 +244,23 @@ handle_counter_telemetry_event(Event, ID, Val, Metadata) ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'received', Val);
         retried_failed ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val),
-            inc_actions_executed(Metadata, Val),
+            inc_actions_messages(Metadata, Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried.failed', Val);
         retried_success ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val),
-            inc_actions_executed(Metadata, Val),
+            inc_actions_messages(Metadata, Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'success', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried.success', Val);
         success ->
-            inc_actions_executed(Metadata, Val),
+            inc_actions_messages(Metadata, Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'success', Val);
         aggregated_upload_success ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'aggregated_upload.success', Val);
         aggregated_upload_failure ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'aggregated_upload.failure', Val);
+        actions_executed ->
+            inc_actions_executed(Metadata, Val);
         _ ->
             ok
     end.
@@ -573,6 +577,15 @@ aggregated_upload_failure_inc(ID, Val) ->
 aggregated_upload_failure_get(ID) ->
     emqx_metrics_worker:get(?RES_METRICS, ID, 'aggregated_upload.failure').
 
+%% @doc Count of `on_query'/`on_batch_query' invocations.  Batch size, failures
+%% and retries do not affect this count.
+actions_executed_inc(_ID, 0, _ExtraMeta) ->
+    ok;
+actions_executed_inc(ID, Val, ExtraMeta) ->
+    telemetry:execute([?TELEMETRY_PREFIX, actions_executed], #{counter_inc => Val}, ExtraMeta#{
+        resource_id => ID
+    }).
+
 -doc """
 Helper for aggregated actions to add a callback to bump their metrics.
 """.
@@ -594,9 +607,12 @@ on_delivery_finished(Result, ActionResId) ->
             emqx_resource_metrics:aggregated_upload_failure_inc(ActionResId)
     end.
 
-inc_actions_executed(#{namespace := Namespace}, Val) ->
-    emqx_metrics:inc(Namespace, 'actions.executed'),
+inc_actions_messages(#{namespace := Namespace}, Val) ->
     emqx_metrics:inc(Namespace, 'actions.messages', Val);
-inc_actions_executed(_Metadata, Val) ->
-    emqx_metrics:inc_global('actions.executed'),
+inc_actions_messages(_Metadata, Val) ->
     emqx_metrics:inc_global('actions.messages', Val).
+
+inc_actions_executed(#{namespace := Namespace}, Val) ->
+    emqx_metrics:inc(Namespace, 'actions.executed', Val);
+inc_actions_executed(_Metadata, Val) ->
+    emqx_metrics:inc_global('actions.executed', Val).

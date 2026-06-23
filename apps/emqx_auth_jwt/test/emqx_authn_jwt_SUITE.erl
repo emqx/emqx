@@ -543,6 +543,84 @@ t_jwks_custom_headers(_Config) ->
     ),
     ok.
 
+%% @doc verify that the JWKS HTTP request always carries an explicit, non-empty
+%% `TE' header. Inets versions prior to 9.4.2 (OTP 28.1) emit a default empty
+%% `TE:' header which is an RFC 2616 violation and is rejected by some
+%% identity providers (e.g. PingFederate) with 503 / TCP RST.
+t_jwks_te_header(_Config) ->
+    Parent = self(),
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    ListenerPid = spawn_link(fun() -> raw_http_capture_loop(Port, Parent) end),
+    on_exit(fun() -> exit(ListenerPid, kill) end),
+    %% Wait for the listener to be ready.
+    receive
+        {ListenerPid, listening} -> ok
+    after 5000 ->
+        ct:fail("raw http listener did not start")
+    end,
+    Endpoint = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/jwks.json",
+    Opts = #{
+        endpoint => Endpoint,
+        headers => #{<<"Accept">> => <<"application/json">>},
+        refresh_interval => 1000,
+        ssl => #{enable => false}
+    },
+    {ok, Pid} = emqx_authn_jwks_client:start_link(Opts),
+    on_exit(fun() -> catch emqx_authn_jwks_client:stop(Pid) end),
+    RequestBytes =
+        receive
+            {http_request_bytes, Bytes} -> Bytes
+        after 5000 ->
+            ct:fail("raw http listener captured no request")
+        end,
+    ct:pal("captured request bytes:~n~s", [RequestBytes]),
+    %% The broken default emits exactly `\r\nte: \r\n' (empty value).
+    ?assertEqual(
+        nomatch,
+        binary:match(RequestBytes, <<"\r\nte: \r\n">>),
+        "empty TE header must not be sent on the wire"
+    ),
+    %% And we explicitly inject `te: trailers'.
+    ?assertMatch(
+        {_, _},
+        binary:match(RequestBytes, <<"\r\nte: trailers\r\n">>)
+    ),
+    ok.
+
+%% @doc verify that a user-supplied `te' header is preserved (case-insensitive)
+%% and not overridden by the default injection.
+t_jwks_te_header_user_supplied(_Config) ->
+    Parent = self(),
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    ListenerPid = spawn_link(fun() -> raw_http_capture_loop(Port, Parent) end),
+    on_exit(fun() -> exit(ListenerPid, kill) end),
+    receive
+        {ListenerPid, listening} -> ok
+    after 5000 ->
+        ct:fail("raw http listener did not start")
+    end,
+    Endpoint = "http://127.0.0.1:" ++ integer_to_list(Port) ++ "/jwks.json",
+    Opts = #{
+        endpoint => Endpoint,
+        headers => #{<<"te">> => <<"trailers, deflate">>},
+        refresh_interval => 1000,
+        ssl => #{enable => false}
+    },
+    {ok, Pid} = emqx_authn_jwks_client:start_link(Opts),
+    on_exit(fun() -> catch emqx_authn_jwks_client:stop(Pid) end),
+    RequestBytes =
+        receive
+            {http_request_bytes, Bytes} -> Bytes
+        after 5000 ->
+            ct:fail("raw http listener captured no request")
+        end,
+    ct:pal("captured request bytes:~n~s", [RequestBytes]),
+    ?assertMatch(
+        {_, _},
+        binary:match(RequestBytes, <<"\r\nte: trailers, deflate\r\n">>)
+    ),
+    ok.
+
 %% @doc verify that the authenticator state is actually updated when we update its config
 t_jwks_config_update(_Config) ->
     {ok, _} = emqx_utils_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
@@ -1056,6 +1134,44 @@ check_schema(RawClaims) ->
             {ok, VerifyClaims};
         Error ->
             Error
+    end.
+
+%% Minimal raw HTTP/1.1 listener that captures the first request bytes from
+%% a single client and forwards them to the parent test process. Used to
+%% inspect the wire-level shape of headers emitted by `httpc' inside the
+%% JWKS client (in particular the `TE' header injected to work around an
+%% RFC 2616 violation in inets < 9.4.2).
+raw_http_capture_loop(Port, Parent) ->
+    {ok, LSock} = gen_tcp:listen(Port, [
+        binary, {active, false}, {reuseaddr, true}, {packet, raw}
+    ]),
+    Parent ! {self(), listening},
+    {ok, Sock} = gen_tcp:accept(LSock, 5000),
+    Bytes = read_until_headers(Sock, <<>>),
+    Parent ! {http_request_bytes, Bytes},
+    Body = <<"{\"keys\":[]}">>,
+    Resp = iolist_to_binary([
+        <<"HTTP/1.1 200 OK\r\n">>,
+        <<"Content-Type: application/json\r\n">>,
+        <<"Content-Length: ">>,
+        integer_to_binary(byte_size(Body)),
+        <<"\r\nConnection: close\r\n\r\n">>,
+        Body
+    ]),
+    _ = gen_tcp:send(Sock, Resp),
+    _ = gen_tcp:close(Sock),
+    _ = gen_tcp:close(LSock),
+    ok.
+
+read_until_headers(Sock, Acc) ->
+    case binary:match(Acc, <<"\r\n\r\n">>) of
+        nomatch ->
+            case gen_tcp:recv(Sock, 0, 5000) of
+                {ok, Data} -> read_until_headers(Sock, <<Acc/binary, Data/binary>>);
+                {error, _} -> Acc
+            end;
+        _ ->
+            Acc
     end.
 
 jwks_handler(Req0, State) ->

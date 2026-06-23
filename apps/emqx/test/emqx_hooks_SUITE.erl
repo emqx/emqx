@@ -21,8 +21,13 @@ init_per_testcase(_TestCase, Config) ->
             foldl_hook,
             foldl_hook2,
             foreach_hook,
+            foreach_stop_hook,
             foreach_filter1_hook,
-            foldl_filter2_hook
+            foldl_filter2_hook,
+            foldl_strict_hook,
+            foldl_crash_hook,
+            foldl_strict_crash_hook,
+            foldl_strict_context_hook
         ]
     ),
     Config.
@@ -180,6 +185,45 @@ t_run_hooks(_) ->
     ?assertEqual(3, emqx_hooks:run_fold(foldl_filter2_hook, [arg], 1)),
     ?assertEqual(2, emqx_hooks:run_fold(foldl_filter2_hook, [arg1], 1)).
 
+t_run_stops_on_stop(_) ->
+    _ = erlang:erase(hook_mark_run),
+    ok = emqx_hooks:add(foreach_stop_hook, {?MODULE, hook_stop_run, []}, 1),
+    ok = emqx_hooks:add(foreach_stop_hook, {?MODULE, hook_mark_run, []}, 0),
+    ?assertEqual(ok, emqx_hooks:run(foreach_stop_hook, [arg])),
+    ?assertEqual(undefined, erlang:get(hook_mark_run)).
+
+t_run_fold_strict(_) ->
+    ok = emqx_hooks:add(foldl_strict_hook, {?MODULE, hook_fun2, []}, 0),
+    ok = emqx_hooks:add(foldl_strict_hook, {?MODULE, hook_fun2_1, []}, 0),
+    ?assertEqual({ok, 3}, emqx_hooks:run_fold_strict(foldl_strict_hook, [arg], 1)),
+
+    ok = emqx_hooks:put(foldl_strict_hook, {?MODULE, hook_stop_new_acc, []}, 1),
+    ?assertEqual({ok, 11}, emqx_hooks:run_fold_strict(foldl_strict_hook, [arg], 1)),
+
+    ok = emqx_hooks:add(foldl_strict_crash_hook, {?MODULE, hook_crash, []}, 1),
+    ok = emqx_hooks:add(foldl_strict_crash_hook, {?MODULE, hook_fun2, []}, 0),
+    ?assertEqual(
+        {error, strict_fold_crashed},
+        emqx_hooks:run_fold_strict(foldl_strict_crash_hook, [arg], 1)
+    ).
+
+t_run_fold_ignores_crashed_callbacks(_) ->
+    ok = emqx_hooks:add(foldl_crash_hook, {?MODULE, hook_crash, []}, 1),
+    ok = emqx_hooks:add(foldl_crash_hook, {?MODULE, hook_fun2, []}, 0),
+    ?assertEqual(2, emqx_hooks:run_fold(foldl_crash_hook, [arg], 1)).
+
+t_run_fold_strict_with_context(_) ->
+    ok = emqx_hooks:add(
+        foldl_strict_context_hook,
+        {?MODULE, hook_context_fold, [foldl_strict_context_hook]},
+        0
+    ),
+    ?assertEqual(
+        {ok, [#{ctx => value}]},
+        emqx_hooks:run_fold_strict(foldl_strict_context_hook, #{ctx => value}, [arg], [])
+    ),
+    ?assertEqual(undefined, emqx_hooks:context(foldl_strict_context_hook)).
+
 t_uncovered_func(_) ->
     Pid = erlang:whereis(emqx_hooks),
     gen_server:call(Pid, test),
@@ -210,6 +254,18 @@ hook_fun8(arg, initArg) -> ok.
 
 hook_fun9(arg, Acc) -> {stop, [r9 | Acc]}.
 hook_fun10(arg, Acc) -> {stop, [r10 | Acc]}.
+
+hook_stop_run(_Arg) -> stop.
+
+hook_mark_run(_Arg) ->
+    _ = erlang:put(hook_mark_run, true),
+    ok.
+
+hook_stop_new_acc(_Arg, Acc) -> {stop, Acc + 10}.
+
+hook_crash(_Arg, _Acc) -> erlang:error(strict_fold_crashed).
+
+hook_context_fold(arg, Acc, HookPoint) -> {ok, [emqx_hooks:context(HookPoint) | Acc]}.
 
 hook_filter1(arg) -> true;
 hook_filter1(_) -> false.

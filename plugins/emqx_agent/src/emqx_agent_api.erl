@@ -31,9 +31,17 @@ Tool types accepted on POST:
   message__request  — MQTT request/reply capability scoped to a topic prefix
   http             — HTTP call capability
   postgresql__query — PostgreSQL query
+  stream_write      — Write data to an EMQX stream
+  stream_read       — Read data from an EMQX stream
+  stream_del        — Delete data from an EMQX stream
+  kv_write          — Write a value to a last-value stream key
+  kv_read           — Read a value from a last-value stream key
+  kv_read_all       — Read all values from a last-value stream
+  kv_del            — Delete a key from a last-value stream
+  kv_clear          — Clear a last-value stream
 
 For GET/DELETE, use the actual registry type in the :type URL segment
-(message__publish, message__request, http, postgresql__query).
+(message__publish, message__request, http, postgresql__query, stream_write, stream_read, stream_del, kv_write, kv_read, kv_read_all, kv_del, kv_clear).
 """.
 
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
@@ -130,7 +138,8 @@ normalize_plugin_response(Status) when is_integer(Status) ->
 %%--------------------------------------------------------------------
 
 '/agent/providers'(get, _Params) ->
-    ?OK(emqx_ai_completion_config:get_providers_raw()).
+    Providers = [emqx_utils:redact(P) || P <- emqx_ai_completion_config:get_providers_raw()],
+    ?OK(Providers).
 
 %%--------------------------------------------------------------------
 %% Handler — UI
@@ -226,7 +235,7 @@ no_cache_headers(ContentType) ->
             ?CONFLICT(<<"Tool already exists">>);
         {error, unknown_type} ->
             ?BAD_REQUEST(
-                <<"Unknown tool type. Valid types: message__publish, message__request, http, postgresql__query">>
+                <<"Unknown tool type. Valid types: message__publish, message__request, http, postgresql__query, stream_write, stream_read, stream_del, kv_write, kv_read, kv_read_all, kv_del, kv_clear">>
             );
         {error, Reason} ->
             ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))

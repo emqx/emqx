@@ -19,6 +19,10 @@ init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
+            %% `emqx_plugins' must be started for the `/plugin_api/*' gateway routes
+            %% to be registered: the `plugins' feature gates the route list, and the
+            %% API module is only discovered when its app is loaded.
+            emqx_plugins,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
@@ -93,6 +97,26 @@ t_plugin_api_headers_passthrough(_Config) ->
     {200, Body} = request(get, ?SERVER ++ "/plugin_api/fake/ping"),
     %% Headers should be populated from the cowboy request, not empty
     ?assert(maps:get(<<"header_count">>, Body) > 0).
+
+t_plugin_api_sensitive_headers_redacted(_Config) ->
+    ok = meck:expect(
+        emqx_plugins,
+        handle_api_call,
+        fun(<<"fake">>, #{request := ReqInfo}, _Timeout) ->
+            Headers = maps:get(headers, ReqInfo, #{}),
+            {200, #{
+                has_authorization => maps:is_key(<<"authorization">>, Headers),
+                has_cookie => maps:is_key(<<"cookie">>, Headers),
+                has_x_test => maps:is_key(<<"x-test">>, Headers)
+            }}
+        end
+    ),
+    AuthHeaders = [emqx_mgmt_api_test_util:auth_header_()],
+    ExtraHeaders = [{"cookie", "emqx_auth=secret; other=value"}, {"x-test", "1"}],
+    {200, Body} = request(get, ?SERVER ++ "/plugin_api/fake/ping", AuthHeaders ++ ExtraHeaders),
+    ?assertEqual(false, maps:get(<<"has_authorization">>, Body)),
+    ?assertEqual(false, maps:get(<<"has_cookie">>, Body)),
+    ?assertEqual(true, maps:get(<<"has_x_test">>, Body)).
 
 t_plugin_api_query_string_passthrough(_Config) ->
     ok = meck:expect(

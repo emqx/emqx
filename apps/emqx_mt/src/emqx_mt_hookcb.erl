@@ -12,7 +12,9 @@
     on_authenticate/2,
     on_post_authn/1,
     on_api_actor_will_be_created/2,
-    on_namespace_resource_pre_create/2
+    on_namespace_resource_pre_create/2,
+    on_message_dropped/3,
+    on_delivery_dropped/3
 ]).
 
 -include_lib("emqx/include/emqx.hrl").
@@ -27,6 +29,8 @@
 -define(POST_AUTHN_HOOK, {?MODULE, on_post_authn, []}).
 -define(LIMITER_HOOK, {emqx_mt_limiter, adjust_limiter, []}).
 -define(USER_CREATION_HOOK, {?MODULE, on_api_actor_will_be_created, []}).
+-define(MSG_DROPPED_HOOK, {?MODULE, on_message_dropped, []}).
+-define(DELIVERY_DROPPED_HOOK, {?MODULE, on_delivery_dropped, []}).
 
 register_hooks() ->
     ok = emqx_hooks:add('session.created', ?SESSION_HOOK, ?HP_HIGHEST),
@@ -39,6 +43,10 @@ register_hooks() ->
         {?MODULE, on_namespace_resource_pre_create, []},
         ?HP_HIGHEST
     ),
+    %% Drop-event hooks run at the lowest priority so any higher-priority
+    %% handlers (filters, rule-engine, etc.) have already executed.
+    ok = emqx_hooks:add('message.dropped', ?MSG_DROPPED_HOOK, ?HP_LOWEST),
+    ok = emqx_hooks:add('delivery.dropped', ?DELIVERY_DROPPED_HOOK, ?HP_LOWEST),
     ok.
 
 unregister_hooks() ->
@@ -50,6 +58,8 @@ unregister_hooks() ->
     ok = emqx_hooks:del(
         'namespace.resource_pre_create', {?MODULE, on_namespace_resource_pre_create}
     ),
+    ok = emqx_hooks:del('message.dropped', ?MSG_DROPPED_HOOK),
+    ok = emqx_hooks:del('delivery.dropped', ?DELIVERY_DROPPED_HOOK),
     ok.
 
 on_session_created(
@@ -82,12 +92,18 @@ on_authenticate(ClientInfo, DefaultResult) ->
 do_on_authenticate(
     #{clientid := ClientId, client_attrs := #{?CLIENT_ATTR_NAME_TNS := Tns}}, DefaultResult
 ) ->
-    case emqx_config:get_namespace_config_errors(Tns) of
-        undefined ->
-            decide(ClientId, Tns, DefaultResult);
-        #{} ->
-            ?TRACE("deny_due_to_namespace_config_errors", #{tns => Tns}),
-            {stop, {error, server_unavailable}}
+    case emqx:is_reserved_namespace(Tns) of
+        true ->
+            ?TRACE("deny_due_to_reserved_namespace", #{tns => Tns}),
+            {stop, {error, not_authorized}};
+        false ->
+            case emqx_config:get_namespace_config_errors(Tns) of
+                undefined ->
+                    decide(ClientId, Tns, DefaultResult);
+                #{} ->
+                    ?TRACE("deny_due_to_namespace_config_errors", #{tns => Tns}),
+                    {stop, {error, server_unavailable}}
+            end
     end;
 do_on_authenticate(_, DefaultResult) ->
     AllowOnlyManagedNSs = emqx_mt_config:get_allow_only_managed_namespaces(),
@@ -158,7 +174,10 @@ eval_post_auth_tns_expression(Compiled, ClientId, ClientInfo, Ctx) ->
     case emqx_variform:render(Compiled, ClientInfo) of
         {ok, <<>>} ->
             ?TRACE("post_auth_tns_expression_rendered_empty", #{}),
-            ok;
+            %% The pre-auth `tns' (if any) is retained; it was not gated by the
+            %% `client.authenticate' hook because expression evaluation is
+            %% deferred to here, so reject it now if it is a reserved name.
+            reject_if_retained_tns_reserved(ClientInfo);
         {ok, Tns} ->
             decide_with_rewritten_tns(ClientId, Tns, ClientInfo, Ctx);
         {error, Reason} ->
@@ -167,16 +186,36 @@ eval_post_auth_tns_expression(Compiled, ClientId, ClientInfo, Ctx) ->
                 #{msg => "post_auth_tns_expression_error", reason => Reason},
                 #{clientid => ClientId}
             ),
+            reject_if_retained_tns_reserved(ClientInfo)
+    end.
+
+reject_if_retained_tns_reserved(ClientInfo) ->
+    case maps:get(client_attrs, ClientInfo, #{}) of
+        #{?CLIENT_ATTR_NAME_TNS := Tns} ->
+            case emqx:is_reserved_namespace(Tns) of
+                true ->
+                    ?TRACE("deny_due_to_reserved_namespace", #{tns => Tns}),
+                    {stop, {error, not_authorized}};
+                false ->
+                    ok
+            end;
+        _ ->
             ok
     end.
 
 decide_with_rewritten_tns(ClientId, Tns, ClientInfo, Ctx) ->
-    case emqx_config:get_namespace_config_errors(Tns) of
-        undefined ->
-            decide(ClientId, Tns, {ok, Ctx#{client_info := set_tns(ClientInfo, Tns)}});
-        #{} ->
-            ?TRACE("deny_due_to_namespace_config_errors", #{tns => Tns}),
-            {stop, {error, server_unavailable}}
+    case emqx:is_reserved_namespace(Tns) of
+        true ->
+            ?TRACE("deny_due_to_reserved_namespace", #{tns => Tns}),
+            {stop, {error, not_authorized}};
+        false ->
+            case emqx_config:get_namespace_config_errors(Tns) of
+                undefined ->
+                    decide(ClientId, Tns, {ok, Ctx#{client_info := set_tns(ClientInfo, Tns)}});
+                #{} ->
+                    ?TRACE("deny_due_to_namespace_config_errors", #{tns => Tns}),
+                    {stop, {error, server_unavailable}}
+            end
     end.
 
 set_tns(ClientInfo, Tns) ->
@@ -202,3 +241,71 @@ on_namespace_resource_pre_create(#{?namespace := Namespace}, ResCtx) when is_bin
         false ->
             {stop, ResCtx#{exists := false}}
     end.
+
+%%--------------------------------------------------------------------
+%% Drop-event hooks
+%%--------------------------------------------------------------------
+
+%% @doc `message.dropped' hook: bump per-namespace `messages.dropped' counters.
+%%
+%% Notes:
+%%   * Reason `no_subscribers' is the only one that has a dedicated
+%%     fine-grained global counter ticked at the call site
+%%     (`emqx_broker:inc_dropped_cnt/1'); we mirror it per-namespace.
+%%   * QoS2 PUBREL await-timeout drops bump the global
+%%     `messages.dropped.await_pubrel_timeout' counter via
+%%     `emqx_session_events:inc_await_pubrel_timeout/1' but do not fire the
+%%     `message.dropped' hook (the event carries only a count, not the
+%%     `#message{}'s). So the per-namespace counter for that reason stays at
+%%     zero until the upstream gap is closed. Tracked in
+%%     https://github.com/emqx/emqx/issues/17663.
+on_message_dropped(Msg, _Info, Reason) ->
+    inc_ns(ns_from_msg(Msg), drop_metric_names('messages.dropped', Reason)).
+
+%% @doc `delivery.dropped' hook: bump per-namespace `delivery.dropped' counters.
+on_delivery_dropped(ClientInfo, Msg, Reason) ->
+    inc_ns(
+        ns_from_clientinfo(ClientInfo, Msg),
+        drop_metric_names('delivery.dropped', Reason)
+    ).
+
+%% Build the list of per-namespace counter names to bump for a given
+%% drop event. We always bump the umbrella counter, plus a reason-specific
+%% counter when one exists in `emqx_prometheus:message_metric_meta/0' /
+%% `delivery_metric_meta/0'.
+drop_metric_names('messages.dropped', no_subscribers) ->
+    ['messages.dropped', 'messages.dropped.no_subscribers'];
+drop_metric_names('messages.dropped', _OtherReason) ->
+    ['messages.dropped'];
+drop_metric_names('delivery.dropped', expired) ->
+    ['delivery.dropped', 'delivery.dropped.expired'];
+drop_metric_names('delivery.dropped', no_local) ->
+    ['delivery.dropped', 'delivery.dropped.no_local'];
+drop_metric_names('delivery.dropped', qos0_msg) ->
+    ['delivery.dropped', 'delivery.dropped.qos0_msg'];
+drop_metric_names('delivery.dropped', queue_full) ->
+    ['delivery.dropped', 'delivery.dropped.queue_full'];
+drop_metric_names('delivery.dropped', too_large) ->
+    ['delivery.dropped', 'delivery.dropped.too_large'];
+drop_metric_names('delivery.dropped', _OtherReason) ->
+    ['delivery.dropped'].
+
+ns_from_msg(#message{headers = #{client_attrs := #{?CLIENT_ATTR_NAME_TNS := Ns}}}) when
+    is_binary(Ns)
+->
+    Ns;
+ns_from_msg(_) ->
+    undefined.
+
+ns_from_clientinfo(#{client_attrs := #{?CLIENT_ATTR_NAME_TNS := Ns}}, _Msg) when is_binary(Ns) ->
+    Ns;
+ns_from_clientinfo(_, Msg) ->
+    ns_from_msg(Msg).
+
+inc_ns(undefined, _Names) ->
+    ok;
+inc_ns(Ns, Names) when is_binary(Ns) ->
+    lists:foreach(
+        fun(Name) -> _ = emqx_metrics:inc_safe(Ns, Name) end,
+        Names
+    ).

@@ -32,7 +32,13 @@ end_per_testcase(_, _Config) ->
     ok = emqx_hooks:del('client.authorize', {?MODULE, authz_stub}),
     ok = emqx_hooks:del('client.authorize', {?MODULE, authz_stub_cache}),
     ok = emqx_hooks:del('client.authorize', {?MODULE, authz_stub_non_cacheable}),
-    ok = emqx_hooks:del('client.authenticate', {?MODULE, quick_deny_anonymous_authn}).
+    ok = emqx_hooks:del('client.authorize', {?MODULE, crashing_authz}),
+    ok = emqx_hooks:del('client.authorize', {?MODULE, permissive_authz_stop}),
+    ok = emqx_hooks:del('client.authorize', {?MODULE, permissive_authz_ok}),
+    ok = emqx_hooks:del('client.authenticate', {?MODULE, quick_deny_anonymous_authn}),
+    ok = emqx_hooks:del('client.authenticate', {?MODULE, crashing_authn}),
+    ok = emqx_hooks:del('client.authenticate', {?MODULE, permissive_authn_stop}),
+    ok = emqx_hooks:del('client.authenticate', {?MODULE, permissive_authn_ok}).
 
 t_authenticate(_) ->
     ClientInfo = clientinfo(),
@@ -108,9 +114,72 @@ t_quick_deny_anonymous(_) ->
     ?assertMatch({error, _}, emqx_access_control:authenticate(Client5)),
     ok.
 
+t_authn_hook_crash_security_profile(_) ->
+    Cases = [
+        {"legacy", [crashing_authn, permissive_authn_stop], ok},
+        {"legacy", [permissive_authn_stop, crashing_authn], ok},
+        {"legacy", [crashing_authn, permissive_authn_ok], ok},
+        {"legacy", [permissive_authn_ok, crashing_authn], ok},
+        {"hardened", [crashing_authn, permissive_authn_stop], error},
+        {"hardened", [permissive_authn_stop, crashing_authn], ok},
+        {"hardened", [crashing_authn, permissive_authn_ok], error},
+        {"hardened", [permissive_authn_ok, crashing_authn], error}
+    ],
+    lists:foreach(fun check_authn_hook_crash_case/1, Cases).
+
+t_authz_hook_crash_security_profile(_) ->
+    Cases = [
+        {"legacy", [crashing_authz, permissive_authz_stop], allow},
+        {"legacy", [permissive_authz_stop, crashing_authz], allow},
+        {"legacy", [crashing_authz, permissive_authz_ok], allow},
+        {"legacy", [permissive_authz_ok, crashing_authz], allow},
+        {"hardened", [crashing_authz, permissive_authz_stop], deny},
+        {"hardened", [permissive_authz_stop, crashing_authz], allow},
+        {"hardened", [crashing_authz, permissive_authz_ok], deny},
+        {"hardened", [permissive_authz_ok, crashing_authz], deny}
+    ],
+    lists:foreach(fun check_authz_hook_crash_case/1, Cases).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
+
+check_authn_hook_crash_case({Profile, Hooks, Expected}) ->
+    cleanup_crash_test_hooks(),
+    emqx_common_test_helpers:with_security_profile(Profile, fun() ->
+        ok = add_crash_test_hooks('client.authenticate', ?HP_AUTHN, Hooks),
+        Result = emqx_access_control:authenticate(clientinfo()),
+        assert_authn_result(Expected, Result)
+    end),
+    cleanup_crash_test_hooks().
+
+check_authz_hook_crash_case({Profile, Hooks, Expected}) ->
+    cleanup_crash_test_hooks(),
+    emqx_common_test_helpers:with_security_profile(Profile, fun() ->
+        ok = emqx_authz_cache:empty_authz_cache(),
+        ok = add_crash_test_hooks('client.authorize', ?HP_AUTHZ, Hooks),
+        ?assertEqual(Expected, emqx_access_control:authorize(clientinfo(), ?AUTHZ_PUBLISH, <<"t">>))
+    end),
+    cleanup_crash_test_hooks().
+
+add_crash_test_hooks(HookPoint, BasePriority, [HookFirst, HookSecond]) ->
+    ok = emqx_hooks:put(HookPoint, {?MODULE, HookFirst, []}, BasePriority + 1),
+    ok = emqx_hooks:put(HookPoint, {?MODULE, HookSecond, []}, BasePriority),
+    ok.
+
+assert_authn_result(ok, Result) ->
+    ?assertMatch({ok, _}, Result);
+assert_authn_result(error, Result) ->
+    ?assertEqual({error, not_authorized}, Result).
+
+cleanup_crash_test_hooks() ->
+    ok = emqx_hooks:del('client.authenticate', {?MODULE, crashing_authn}),
+    ok = emqx_hooks:del('client.authenticate', {?MODULE, permissive_authn_stop}),
+    ok = emqx_hooks:del('client.authenticate', {?MODULE, permissive_authn_ok}),
+    ok = emqx_hooks:del('client.authorize', {?MODULE, crashing_authz}),
+    ok = emqx_hooks:del('client.authorize', {?MODULE, permissive_authz_stop}),
+    ok = emqx_hooks:del('client.authorize', {?MODULE, permissive_authz_ok}),
+    ok.
 
 authz_stub(_Client, _Action, ValidTopic, _DefaultResult, ValidTopic) -> {stop, #{result => allow}};
 authz_stub(_Client, _Action, _Topic, _DefaultResult, _ValidTopic) -> {stop, #{result => deny}}.
@@ -125,6 +194,24 @@ quick_deny_anonymous_authn(#{username := <<"badname">>}, _AuthResult) ->
     {stop, {error, not_authorized}};
 quick_deny_anonymous_authn(_ClientInfo, _AuthResult) ->
     {stop, {ok, #{is_superuser => false}}}.
+
+crashing_authn(_ClientInfo, _AuthResult) ->
+    erlang:error(authn_hook_crashed).
+
+permissive_authn_stop(_ClientInfo, _AuthResult) ->
+    {stop, {ok, #{is_superuser => false}}}.
+
+permissive_authn_ok(_ClientInfo, _AuthResult) ->
+    {ok, {ok, #{is_superuser => false}}}.
+
+crashing_authz(_ClientInfo, _Action, _Topic, _AuthzResult) ->
+    erlang:error(authz_hook_crashed).
+
+permissive_authz_stop(_ClientInfo, _Action, _Topic, _AuthzResult) ->
+    {stop, #{result => allow, from => test}}.
+
+permissive_authz_ok(_ClientInfo, _Action, _Topic, _AuthzResult) ->
+    {ok, #{result => allow, from => test}}.
 
 clientinfo() -> clientinfo(#{}).
 clientinfo(InitProps) ->

@@ -517,6 +517,7 @@ KNOWN_FEATURES = {
     "gateways": {},
     "cluster_link": {},
     "multi_tenancy": {},
+    "plugins": {},
     "ai": {},
     "metrics": {},
     "file_transfer": {},

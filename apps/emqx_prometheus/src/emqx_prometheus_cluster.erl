@@ -11,10 +11,6 @@
     raw_data/2,
     raw_data_ns/3,
 
-    collect_json_data/2,
-
-    point_to_map_fun/1,
-
     boolean_to_number/1,
     status_to_number/1,
     metric_names/1
@@ -96,17 +92,6 @@ fetch_data_from_all_nodes(Module, Mode) ->
     _ResL = emqx_prometheus_proto_v2:raw_prom_data(
         Nodes, Module, fetch_from_local_node, [Mode]
     ).
-
-collect_json_data(Data, Func) when is_function(Func, 3) ->
-    maps:fold(
-        fun(K, V, Acc) ->
-            Func(K, V, Acc)
-        end,
-        [],
-        Data
-    );
-collect_json_data(_, _) ->
-    error(badarg).
 
 aggre_cluster(Module, Mode) ->
     do_aggre_cluster(
@@ -232,12 +217,6 @@ do_zip_cluster(NodeMetrics, AccIn0) ->
         AccIn0,
         maps:keys(NodeMetrics)
     ).
-
-point_to_map_fun(Key) ->
-    fun({Labels, Metric}, AccIn2) ->
-        LabelsKVMap = maps:from_list(Labels),
-        [maps:merge(LabelsKVMap, #{Key => Metric}) | AccIn2]
-    end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

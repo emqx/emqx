@@ -22,11 +22,6 @@
     logic_sum_metrics/0
 ]).
 
-%% %% @private
--export([
-    zip_json_auth_metrics/3
-]).
-
 -include("emqx_prometheus.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx_auth/include/emqx_authn_chains.hrl").
@@ -96,13 +91,6 @@ collect_mf(_, _) ->
     ok.
 
 %% @private
-collect(<<"json">>) ->
-    RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
-    #{
-        emqx_authn => collect_json_data(?MG(authn_data, RawData)),
-        emqx_authz => collect_json_data(?MG(authz_data, RawData)),
-        emqx_banned => collect_banned_data()
-    };
 collect(<<"prometheus">>) ->
     prometheus_text_format:format(?PROMETHEUS_AUTH_REGISTRY).
 
@@ -466,58 +454,6 @@ authz_latency_data(Mode) ->
          || {Name, Hist} <- maps:to_list(Hists)
         ]
     }.
-
-%%--------------------------------------------------------------------
-%% Collect functions
-%%--------------------------------------------------------------------
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% merge / zip formatting funcs for type `application/json`
-
-collect_json_data(Data) ->
-    emqx_prometheus_cluster:collect_json_data(Data, fun zip_json_auth_metrics/3).
-
-collect_banned_data() ->
-    #{emqx_banned_count => banned_count_data()}.
-
-%% for initialized empty AccIn
-%% The following fields will be put into Result
-%% For Authn:
-%%     `id`, `emqx_authn_users_count`
-%% For Authz:
-%%     `type`, `emqx_authz_rules_count`n
-zip_json_auth_metrics(Key, Points, [] = _AccIn) ->
-    lists:foldl(
-        fun({Lables, Metric}, AccIn2) ->
-            LablesKVMap = maps:from_list(Lables),
-            Point = (maps:merge(LablesKVMap, users_or_rule_count(LablesKVMap)))#{Key => Metric},
-            [Point | AccIn2]
-        end,
-        [],
-        Points
-    );
-zip_json_auth_metrics(Key, Points, AllResultedAcc) ->
-    ThisKeyResult = lists:foldl(emqx_prometheus_cluster:point_to_map_fun(Key), [], Points),
-    lists:zipwith(fun maps:merge/2, AllResultedAcc, ThisKeyResult).
-
-users_or_rule_count(#{id := Id}) ->
-    #{emqx_authn_users_count := Points} = authn_users_count_data(),
-    case lists:keyfind([{id, Id}], 1, Points) of
-        {_, Metric} ->
-            #{emqx_authn_users_count => Metric};
-        false ->
-            #{}
-    end;
-users_or_rule_count(#{type := Type}) ->
-    #{emqx_authz_rules_count := Points} = authz_rules_count_data(),
-    case lists:keyfind([{type, Type}], 1, Points) of
-        {_, Metric} ->
-            #{emqx_authz_rules_count => Metric};
-        false ->
-            #{}
-    end;
-users_or_rule_count(_) ->
-    #{}.
 
 %%--------------------------------------------------------------------
 %% Configuration initialization and update

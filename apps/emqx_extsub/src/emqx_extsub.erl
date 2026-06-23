@@ -111,7 +111,7 @@ inspect(ChannelPid) ->
 on_message_delivered(_ClientInfo, Msg) ->
     ?tp_debug(extsub_message_delivered, #{message => Msg}),
     emqx_extsub_metrics:inc(delivered_messages),
-    case emqx_message:qos(Msg) =:= ?QOS_0 orelse (not can_receive_acks()) of
+    case emqx_message:qos(Msg) =/= ?QOS_0 andalso (not can_receive_acks()) of
         true ->
             ok = on_delivered(Msg, undefined);
         false ->

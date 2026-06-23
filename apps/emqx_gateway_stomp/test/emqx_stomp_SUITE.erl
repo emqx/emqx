@@ -456,7 +456,10 @@ t_subscribe_inuse(_) ->
         fun(Sock) ->
             Setup(Sock),
             %% assert subscription stats
-            [#{clientid := ClientId}] = clients(),
+            %% the previous connection's session may still be draining
+            %% asynchronously after its socket was closed, so retry until
+            %% exactly one client is listed
+            [#{clientid := ClientId}] = ?retry(100, 30, [_] = clients()),
             {error, ErrMsg} = create_subscription(ClientId, <<"/queue/bar">>, UsedSubId),
             ?assertEqual(<<"Subscription id 0 is in used">>, ErrMsg),
 
@@ -467,7 +470,10 @@ t_subscribe_inuse(_) ->
         fun(Sock) ->
             Setup(Sock),
             %% assert subscription stats
-            [#{clientid := ClientId}] = clients(),
+            %% the previous connection's session may still be draining
+            %% asynchronously after its socket was closed, so retry until
+            %% exactly one client is listed
+            [#{clientid := ClientId}] = ?retry(100, 30, [_] = clients()),
             {error, ErrMsg} = create_subscription(ClientId, UsedTopic, <<"1">>),
             ?assertEqual(<<"Topic /queue/foo already in subscribed">>, ErrMsg),
 
