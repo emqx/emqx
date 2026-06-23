@@ -67,6 +67,48 @@ union_member_selector_jwt_test_() ->
         end}
     ].
 
+jwt_jwks_ssl_verify_default_test_() ->
+    ok = ensure_schema_load(),
+    [
+        {"legacy", fun() ->
+            emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+                ?assertMatch(
+                    {ok, #{authentication := [#{ssl := #{verify := verify_none}}]}},
+                    check(jwt_jwks_config())
+                )
+            end)
+        end},
+        {"hardened", fun() ->
+            emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+                ?assertMatch(
+                    {ok, #{authentication := [#{ssl := #{verify := verify_peer}}]}},
+                    check(jwt_jwks_config())
+                )
+            end)
+        end}
+    ].
+
+jwt_jwks_ssl_verify_omitted_test_() ->
+    ok = ensure_schema_load(),
+    [
+        {"legacy", fun() ->
+            emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+                ?assertMatch(
+                    {ok, #{authentication := [#{ssl := #{verify := verify_none}}]}},
+                    check(jwt_jwks_config_with_ssl())
+                )
+            end)
+        end},
+        {"hardened", fun() ->
+            emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+                ?assertMatch(
+                    {ok, #{authentication := [#{ssl := #{verify := verify_peer}}]}},
+                    check(jwt_jwks_config_with_ssl())
+                )
+            end)
+        end}
+    ].
+
 union_member_selector_redis_test_() ->
     ok = ensure_schema_load(),
     [
@@ -124,6 +166,31 @@ check(HoconConf) ->
         #{roots => emqx_authn_schema:global_auth_fields()},
         ["authentication= ", HoconConf]
     ).
+
+jwt_jwks_config() ->
+    """
+    [
+        {
+            mechanism = jwt,
+            use_jwks = true,
+            endpoint = "https://127.0.0.1/jwks.json"
+        }
+    ]
+    """.
+
+jwt_jwks_config_with_ssl() ->
+    """
+    [
+        {
+            mechanism = jwt,
+            use_jwks = true,
+            endpoint = "https://127.0.0.1/jwks.json",
+            ssl = {
+                enable = true
+            }
+        }
+    ]
+    """.
 
 ensure_schema_load() ->
     _ = emqx_conf_schema:roots(),

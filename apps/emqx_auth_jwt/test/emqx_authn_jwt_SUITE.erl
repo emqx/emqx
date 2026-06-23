@@ -630,6 +630,82 @@ t_jwks_te_header_user_supplied(_Config) ->
         {_, _},
         binary:match(RequestBytes, <<"\r\nte: trailers, deflate\r\n">>)
     ),
+
+    ok.
+
+%% Verify default verify behavior for jwk fetching
+t_jwks_default_ssl_verify_profiles(_Config) ->
+    {ok, _} = emqx_utils_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
+    on_exit(fun() -> ok = emqx_utils_http_test_server:stop() end),
+    ok = emqx_utils_http_test_server:set_handler(jwks_handler_spy()),
+    ok = snabbkaffe:start_trace(),
+
+    PrivateKey = test_rsa_key(private),
+    Payload = #{<<"username">> => <<"myuser">>},
+    JWS = generate_jws('public-key', Payload, PrivateKey),
+    Credential = #{
+        username => <<"myuser">>,
+        password => JWS
+    },
+
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        Config = jwks_api_config(#{
+            <<"enable">> => true,
+            <<"cacertfile">> => cert_file("ca.crt"),
+            <<"certfile">> => cert_file("client.crt"),
+            <<"keyfile">> => cert_file("client.key"),
+            <<"server_name_indication">> => <<"authn-server-unknown-host">>
+        }),
+        %% Legacy defaults to verify_none and updates keys successfully.
+        {
+            {ok, #{raw_config := [#{<<"ssl">> := #{<<"verify">> := <<"verify_none">>}}]}},
+            {ok, #{response := {{_, 200, _}, _, _}}}
+        } = ?wait_async_action(
+            emqx_authn_api:update_config(
+                [authentication],
+                {create_authenticator, 'mqtt:global', Config}
+            ),
+            #{?snk_kind := jwks_endpoint_response},
+            5_000
+        ),
+        ?assertReceive({http_request, _}),
+        {ok, [#{provider := emqx_authn_jwt, state := State}]} =
+            emqx_authn_chains:list_authenticators('mqtt:global'),
+        ?assertMatch(
+            {ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential, State)
+        ),
+        ok = delete_jwks_authenticator()
+    end),
+
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        Config = jwks_api_config(#{
+            <<"enable">> => true,
+            <<"cacertfile">> => cert_file("ca.crt"),
+            <<"certfile">> => cert_file("client.crt"),
+            <<"keyfile">> => cert_file("client.key"),
+            <<"server_name_indication">> => <<"authn-server-unknown-host">>
+        }),
+        {
+            {ok, #{raw_config := [#{<<"ssl">> := #{<<"verify">> := <<"verify_peer">>}}]}},
+            {ok, #{response := {error, _}}}
+        } = ?wait_async_action(
+            emqx_authn_api:update_config(
+                [authentication],
+                {create_authenticator, 'mqtt:global', Config}
+            ),
+            #{?snk_kind := jwks_endpoint_response},
+            5_000
+        ),
+        ?assertNotReceive({http_request, _}),
+        {ok, [#{provider := emqx_authn_jwt, state := State}]} =
+            emqx_authn_chains:list_authenticators('mqtt:global'),
+        ?assertEqual(
+            {error, not_authorized},
+            emqx_authn_jwt:authenticate(Credential, State)
+        ),
+        ok = delete_jwks_authenticator()
+    end),
+    ok = snabbkaffe:stop(),
     ok.
 
 %% @doc verify that the authenticator state is actually updated when we update its config
@@ -1265,6 +1341,27 @@ generate_jws('public-key', Payload, PrivateKey) ->
     Signed = jose_jwt:sign(JWK, Header, Payload),
     {_, JWS} = jose_jws:compact(Signed),
     JWS.
+
+jwks_api_config(SSL) ->
+    Endpoint = iolist_to_binary("https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT) ++ ?JWKS_PATH),
+    #{
+        <<"mechanism">> => <<"jwt">>,
+        <<"use_jwks">> => true,
+        <<"from">> => <<"password">>,
+        <<"endpoint">> => Endpoint,
+        <<"headers">> => #{<<"Accept">> => <<"application/json">>},
+        <<"pool_size">> => 1,
+        <<"refresh_interval">> => 1_000,
+        <<"ssl">> => SSL,
+        <<"verify_claims">> => #{}
+    }.
+
+delete_jwks_authenticator() ->
+    {ok, _} = emqx_authn_api:update_config(
+        [authentication],
+        {delete_authenticator, 'mqtt:global', <<"jwt">>}
+    ),
+    ok.
 
 client_ssl_opts() ->
     #{

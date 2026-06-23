@@ -99,12 +99,19 @@ fields(jwt_jwks) ->
             )},
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {refresh_interval, fun refresh_interval/1},
-        {ssl, #{
-            type => hoconsc:ref(emqx_schema, "ssl_client_opts"),
-            default => #{<<"enable">> => false},
-            desc => ?DESC("ssl")
-        }}
-    ] ++ common_fields().
+        {ssl,
+            sc(hoconsc:ref(jwks_client_ssl_opts), #{
+                default => #{
+                    <<"enable">> => false,
+                    <<"verify">> => emqx_security_profile:policy(outbound_tls_verify)
+                },
+                desc => ?DESC("ssl")
+            })}
+    ] ++ common_fields();
+fields(jwks_client_ssl_opts) ->
+    emqx_schema:client_ssl_opts_schema(#{
+        verify => emqx_security_profile:policy(outbound_tls_verify)
+    }).
 
 desc(jwt_hmac) ->
     ?DESC(jwt_hmac);
@@ -112,6 +119,8 @@ desc(jwt_public_key) ->
     ?DESC(jwt_public_key);
 desc(jwt_jwks) ->
     ?DESC(jwt_jwks);
+desc(jwks_client_ssl_opts) ->
+    ?DESC("ssl");
 desc(undefined) ->
     undefined.
 
