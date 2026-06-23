@@ -5,7 +5,7 @@ defmodule EMQXOracle.MixProject do
   def project do
     [
       app: :emqx_oracle,
-      version: "6.0.2",
+      version: "6.0.3",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -23,7 +23,7 @@ defmodule EMQXOracle.MixProject do
 
   def deps() do
     UMP.deps([
-      {:jamdb_oracle, github: "emqx/jamdb_oracle", tag: "0.4.9.6", manager: :rebar3},
+      {:jamdb_oracle, github: "emqx/jamdb_oracle", tag: "0.4.9.7", manager: :rebar3},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true}
     ])
