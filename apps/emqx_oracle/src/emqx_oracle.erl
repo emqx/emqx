@@ -732,3 +732,254 @@ convert_role_to_integer(?SYSDBA_ROLE) ->
     1;
 convert_role_to_integer(_) ->
     0.
+
+%%------------------------------------------------------------------------------
+%% Tests
+%%------------------------------------------------------------------------------
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+sql_has_parse_side_effect_test_() ->
+    SideEffectSQLs = [
+        <<"ALTER TABLE t ADD c NUMBER">>,
+        <<"ANALYZE TABLE t COMPUTE STATISTICS">>,
+        <<"ASSOCIATE STATISTICS WITH TYPES t USING pkg">>,
+        <<"AUDIT SELECT TABLE">>,
+        <<"COMMENT ON TABLE t IS 'x'">>,
+        <<"COMMIT">>,
+        <<"CREATE TABLE t(id NUMBER)">>,
+        <<"DISASSOCIATE STATISTICS FROM TYPES t">>,
+        <<"DROP TABLE t">>,
+        <<"EXPLAIN PLAN FOR SELECT * FROM t">>,
+        <<"FLASHBACK TABLE t TO BEFORE DROP">>,
+        <<"GRANT SELECT ON t TO u">>,
+        <<"LOCK TABLE t IN EXCLUSIVE MODE">>,
+        <<"NOAUDIT SELECT TABLE">>,
+        <<"PURGE TABLE t">>,
+        <<"RENAME t TO t2">>,
+        <<"REVOKE SELECT ON t FROM u">>,
+        <<"ROLLBACK">>,
+        <<"SAVEPOINT sp">>,
+        <<"SET TRANSACTION READ ONLY">>,
+        <<"TRUNCATE TABLE t">>
+    ],
+    RegularSQLs = [
+        <<"INSERT INTO t(id, payload) VALUES(:1, :2)">>,
+        <<"UPDATE t SET payload = :1 WHERE id = :2">>,
+        <<"DELETE FROM t WHERE id = :1">>,
+        <<"MERGE INTO t USING dual ON (t.id = :1) WHEN MATCHED THEN UPDATE SET c = :2">>,
+        <<"SELECT * FROM t WHERE id = :1">>,
+        <<"WITH q AS (SELECT 1 FROM dual) SELECT * FROM q">>,
+        <<"BEGIN NULL; END;">>,
+        <<>>
+    ],
+    [
+        {"statements with parse side effects are rejected", [
+            ?_assertEqual(true, sql_has_parse_side_effect(SQL))
+         || SQL <- SideEffectSQLs
+        ]},
+        {"regular action SQL statements are accepted", [
+            ?_assertEqual(false, sql_has_parse_side_effect(SQL))
+         || SQL <- RegularSQLs
+        ]},
+        ?_assertEqual(true, sql_has_parse_side_effect(create))
+    ].
+
+first_sql_token_test_() ->
+    [
+        ?_assertEqual(<<"insert">>, first_sql_token(<<" \t\nINSERT INTO t VALUES (1)">>)),
+        ?_assertEqual(<<"select">>, first_sql_token(<<"-- comment\nSELECT 1 FROM dual">>)),
+        ?_assertEqual(<<"update">>, first_sql_token(<<"-- comment\r\nUPDATE t SET c = :1">>)),
+        ?_assertEqual(<<"delete">>, first_sql_token(<<"/* block comment */ DELETE FROM t">>)),
+        ?_assertEqual(<<"merge_1">>, first_sql_token(<<"MERGE_1 INTO t USING dual">>)),
+        ?_assertEqual(<<>>, first_sql_token(<<"/* unterminated comment">>)),
+        ?_assertEqual(<<>>, first_sql_token(<<"-- only a comment">>)),
+        ?_assertEqual(<<>>, first_sql_token(<<"?">>))
+    ].
+
+check_if_table_exists_rejects_unsupported_sql_statement_test() ->
+    ?assertEqual(
+        {error, unsupported_sql_statement},
+        check_if_table_exists(undefined, <<"CREATE TABLE t(id NUMBER)">>, [])
+    ).
+
+check_if_table_exists_accepts_parseable_action_sql_test() ->
+    SQL = <<"INSERT INTO t(id, payload) VALUES(:1, :2)">>,
+    with_mocked_sql_query(
+        fun(conn, {ParseSQL, [SQLChars]}) ->
+            ?assertMatch({match, _}, re:run(ParseSQL, "dbms_sql\\.parse")),
+            ?assertEqual(binary_to_list(SQL), SQLChars),
+            {ok, [{proc_result, 0, <<>>}]}
+        end,
+        fun() ->
+            ?assertEqual(ok, check_if_table_exists(conn, SQL, []))
+        end
+    ).
+
+check_if_sql_parseable_retries_once_test() ->
+    SQL = <<"INSERT INTO t(id, payload) VALUES(:1, :2)">>,
+    with_mocked_sql_results(
+        [{error, socket, closed}, {ok, [{proc_result, 0, <<>>}]}],
+        fun() ->
+            ?assertEqual(ok, check_if_sql_parseable(conn, SQL, 1)),
+            ?assertEqual(2, get(parse_query_calls))
+        end
+    ).
+
+check_if_sql_parseable_result_test_() ->
+    SQL = <<"INSERT INTO t(id, payload) VALUES(:1, :2)">>,
+    [
+        ?_test(
+            with_mocked_sql_results(
+                [{ok, [{proc_result, 0, <<>>}]}],
+                fun() -> ?assertEqual(ok, check_if_sql_parseable(conn, SQL, 1)) end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [{ok, [{proc_result, 904, <<>>}]}],
+                fun() ->
+                    ?assertEqual({error, undefined_table}, check_if_sql_parseable(conn, SQL, 1))
+                end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [{ok, [{proc_result, 942, <<>>}]}],
+                fun() ->
+                    ?assertEqual({error, undefined_table}, check_if_sql_parseable(conn, SQL, 1))
+                end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [{ok, [{proc_result, 1013, <<"ORA-01013">>}]}, {ok, [{proc_result, 0, <<>>}]}],
+                fun() -> ?assertEqual(ok, check_if_sql_parseable(conn, SQL, 1)) end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [{ok, [{proc_result, 1013, <<"ORA-01013">>}]}],
+                fun() -> ?assertEqual(ok, check_if_sql_parseable(conn, SQL, 0)) end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [{ok, [{proc_result, 900, <<"ORA-00942">>}]}],
+                fun() ->
+                    ?assertEqual({error, undefined_table}, check_if_sql_parseable(conn, SQL, 1))
+                end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [{exit, {noproc, self()}}, {ok, [{proc_result, 0, <<>>}]}],
+                fun() -> ?assertEqual(ok, check_if_sql_parseable(conn, SQL, 1)) end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [{exit, {noproc, self()}}],
+                fun() ->
+                    ?assertMatch(
+                        {error, {error, {noproc, _}}}, check_if_sql_parseable(conn, SQL, 0)
+                    )
+                end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [{error, socket, closed}],
+                fun() ->
+                    ?assertEqual(
+                        {error, {error, socket, closed}}, check_if_sql_parseable(conn, SQL, 0)
+                    )
+                end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [other],
+                fun() -> ?assertEqual({error, other}, check_if_sql_parseable(conn, SQL, 1)) end
+            )
+        )
+    ].
+
+with_mocked_sql_results_errors_when_sequence_is_exhausted_test() ->
+    SQL = <<"INSERT INTO t(id, payload) VALUES(:1, :2)">>,
+    ?assertError(
+        no_more_mocked_sql_results,
+        with_mocked_sql_results([], fun() -> check_if_sql_parseable(conn, SQL, 1) end)
+    ).
+
+with_mocked_sql_query(QueryFun, TestFun) ->
+    meck:new(jamdb_oracle, [passthrough, no_link]),
+    meck:expect(jamdb_oracle, sql_query, QueryFun),
+    try
+        TestFun()
+    after
+        meck:unload(jamdb_oracle)
+    end.
+
+with_mocked_sql_results(Results, TestFun) ->
+    put(parse_query_calls, 0),
+    put(parse_query_results, Results),
+    try
+        with_mocked_sql_query(
+            fun(_Conn, _Req) ->
+                Calls = get(parse_query_calls),
+                put(parse_query_calls, Calls + 1),
+                case get(parse_query_results) of
+                    [Result | Rest] ->
+                        put(parse_query_results, Rest),
+                        mock_sql_result(Result);
+                    [] ->
+                        error(no_more_mocked_sql_results)
+                end
+            end,
+            TestFun
+        )
+    after
+        erase(parse_query_calls),
+        erase(parse_query_results)
+    end.
+
+mock_sql_result({exit, Reason}) ->
+    exit(Reason);
+mock_sql_result(Result) ->
+    Result.
+
+oracle_error_codes_test_() ->
+    [
+        ?_assertEqual(
+            #{<<"ORA-00942">> => true, <<"ORA-01013">> => true},
+            oracle_error_codes([
+                <<"ORA-00942: table or view does not exist\n">>,
+                "ORA-01013: user requested cancel of current operation\n",
+                <<"ORA-00942: repeated code is de-duplicated">>
+            ])
+        ),
+        ?_assertEqual(#{}, oracle_error_codes(<<"not an oracle error">>))
+    ].
+
+handle_parse_error_description_test_() ->
+    [
+        ?_assertEqual(
+            {error, undefined_table},
+            handle_parse_error_description(<<"ORA-00904: invalid identifier">>)
+        ),
+        ?_assertEqual(
+            {error, undefined_table},
+            handle_parse_error_description(<<"ORA-00942: table or view does not exist">>)
+        ),
+        ?_assertEqual(
+            ok,
+            handle_parse_error_description(<<"ORA-01013: user requested cancel">>)
+        ),
+        ?_assertEqual(
+            {error, <<"ORA-00932: inconsistent datatypes">>},
+            handle_parse_error_description(<<"ORA-00932: inconsistent datatypes">>)
+        )
+    ].
+
+-endif.
