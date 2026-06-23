@@ -15,6 +15,9 @@
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 -define(DEFAULT_TIMEOUT, 5000).
 
@@ -24,7 +27,15 @@ api_spec() ->
 scopes() -> ?SCOPE_SYSTEM.
 
 paths() ->
-    ["/plugin_api/:plugin/[...]"].
+    %% The plugin framework is a gated feature: when it is not in the active
+    %% `EMQX_FEATURES' preset, `emqx_plugins' is not started and this gateway
+    %% route must not be registered.
+    case emqx_machine_features:is_umbrella_application_enabled(emqx_plugins) of
+        false ->
+            [];
+        true ->
+            ["/plugin_api/:plugin/[...]"]
+    end.
 
 schema("/plugin_api/:plugin/[...]") ->
     #{
@@ -95,7 +106,7 @@ gateway(Method, Params, Request) ->
     ReqInfo = #{
         method => Method,
         query_string => QueryString,
-        headers => Headers,
+        headers => sanitize_headers(Headers),
         body => maps:get(body, Params, #{})
     },
     AuthMeta = maps:get(auth_meta, Params, #{}),
@@ -172,3 +183,34 @@ request_namespace(#{auth_meta := #{namespace := ?global_ns}}) ->
     ?global_ns;
 request_namespace(_Request) ->
     ?global_ns.
+
+sanitize_headers(Headers) ->
+    maps:without([<<"authorization">>, <<"cookie">>], Headers).
+
+-ifdef(TEST).
+
+paths_gated_by_feature_test_() ->
+    {foreach, fun setup_feature_env/0, fun clear_feature_env/1, [
+        {"enabled when plugins feature is on", fun() ->
+            os:putenv("EMQX_FEATURES", "plugins"),
+            emqx_machine_features:clear_features(),
+            ?assertMatch([_ | _], paths())
+        end},
+        {"empty when plugins feature is off", fun() ->
+            os:putenv("EMQX_FEATURES", "dashboard"),
+            emqx_machine_features:clear_features(),
+            ?assertEqual([], paths())
+        end}
+    ]}.
+
+setup_feature_env() ->
+    os:getenv("EMQX_FEATURES").
+
+clear_feature_env(Prev) ->
+    case Prev of
+        false -> os:unsetenv("EMQX_FEATURES");
+        _ -> os:putenv("EMQX_FEATURES", Prev)
+    end,
+    emqx_machine_features:clear_features().
+
+-endif.

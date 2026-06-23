@@ -59,7 +59,6 @@ core_apps() ->
         emqx_ctl,
         emqx_bpapi,
         emqx_license,
-        emqx_plugins,
         emqx_durable_storage,
         emqx_ds_backends,
         emqx_ds_builtin_local,
@@ -145,6 +144,10 @@ known_features() ->
         },
         multi_tenancy => #{
             apps => [emqx_mt],
+            deps => []
+        },
+        plugins => #{
+            apps => [emqx_plugins],
             deps => []
         },
         ai => #{

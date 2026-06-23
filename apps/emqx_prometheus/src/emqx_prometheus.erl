@@ -17,8 +17,6 @@
     logic_sum_metrics/0
 ]).
 
--export([zip_json_prom_stats_metrics/3]).
-
 -include("emqx_prometheus.hrl").
 
 -include_lib("public_key/include/public_key.hrl").
@@ -240,6 +238,7 @@ collect_mf(?PROMETHEUS_NS_STATS_REGISTRY, Callback) ->
 
     ok = add_collect_family(Callback, packet_metric_ns_meta(), ?MG(packet_data_ns, RawData)),
     ok = add_collect_family(Callback, message_metric_ns_meta(), ?MG(message_data_ns, RawData)),
+    ok = add_collect_family(Callback, delivery_metric_ns_meta(), ?MG(delivery_data_ns, RawData)),
     ok = add_collect_family(Callback, session_metric_ns_meta(), ?MG(session_metric_ns, RawData)),
     ok = add_collect_family(Callback, authz_metric_ns_meta(), ?MG(authz_metric_ns, RawData)),
     ok = add_collect_family(Callback, authn_metric_ns_meta(), ?MG(authn_metric_ns, RawData)),
@@ -297,25 +296,6 @@ collect_ds_raft_cluster_data() ->
     maps:merge(emqx_ds_builtin_raft_metrics:shards(), Acc2).
 
 %% @private
-collect(<<"json">>) ->
-    RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
-    (maybe_license_collect_json_data(RawData))#{
-        stats => collect_stats_json_data(
-            ?MG(stats_data, RawData), ?MG(stats_data_cluster_consistented, RawData)
-        ),
-        metrics => collect_vm_json_data(?MG(vm_data, RawData)),
-        packets => collect_json_data(?MG(emqx_packet_data, RawData)),
-        messages => collect_json_data(?MG(emqx_message_data, RawData)),
-        delivery => collect_json_data(?MG(emqx_delivery_data, RawData)),
-        client => collect_client_json_data(?MG(emqx_client_data, RawData)),
-        session => collect_json_data(?MG(emqx_session_data, RawData)),
-        cluster => collect_json_data(?MG(cluster_data, RawData)),
-        olp => collect_json_data(?MG(emqx_olp_data, RawData)),
-        acl => collect_json_data(?MG(emqx_acl_data, RawData)),
-        authn => collect_json_data(?MG(emqx_authn_data, RawData)),
-        certs => collect_cert_json_data(?MG(cert_data, RawData)),
-        cluster_rpc => collect_json_data(?MG(cluster_rpc, RawData))
-    };
 collect(<<"prometheus">>) ->
     prometheus_text_format:format(?PROMETHEUS_DEFAULT_REGISTRY).
 
@@ -417,7 +397,8 @@ get_namespace_pd() ->
 fetch_namespaced_metrics_v1(Namespace, Mode) ->
     {node(), #{
         packet_data_ns => metric_data_ns(Namespace, packet_metric_ns_meta(), Mode),
-        message_data_ns => metric_data_ns(Namespace, message_metric_ns_meta(), Mode)
+        message_data_ns => metric_data_ns(Namespace, message_metric_ns_meta(), Mode),
+        delivery_data_ns => metric_data_ns(Namespace, delivery_metric_ns_meta(), Mode)
     }}.
 
 -spec fetch_cluster_wide_namespaced_metrics(all | emqx_config:namespace(), _Mode) -> map().
@@ -1063,6 +1044,9 @@ delivery_metric_meta() ->
         {emqx_delivery_dropped_expired, counter, 'delivery.dropped.expired'}
     ].
 
+delivery_metric_ns_meta() ->
+    delivery_metric_meta().
+
 %%==========
 %% Client
 client_metric_meta() ->
@@ -1159,9 +1143,6 @@ maybe_license_add_collect_family(Callback, RawData) ->
 
 maybe_license_fetch_data() ->
     #{license_data => license_data()}.
-
-maybe_license_collect_json_data(RawData) ->
-    #{license => ?MG(license_data, RawData)}.
 
 %% license
 license_metric_meta() ->
@@ -1450,78 +1431,6 @@ collect_hist_family(Callback, Id, Name, #{count := Count, sum := Sum, bucket_cou
 %%--------------------------------------------------------------------
 %% Collect functions
 %%--------------------------------------------------------------------
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% merge / zip formatting funcs for type `application/json`
-
-collect_stats_json_data(StatsData, StatsClData) ->
-    StatsDatas = collect_json_data_(StatsData),
-    CLData = hd(collect_json_data_(StatsClData)),
-    Res = lists:map(
-        fun(NodeData) ->
-            maps:merge(NodeData, CLData)
-        end,
-        StatsDatas
-    ),
-    json_obj_or_array(Res).
-
-%% always return json array
-collect_cert_json_data(Data) ->
-    collect_json_data_(Data).
-
-collect_client_json_data(Data0) ->
-    ShutdownCounts = maps:with([emqx_client_disconnected_reason], Data0),
-    Data = maps:without([emqx_client_disconnected_reason], Data0),
-    JSON0 = collect_json_data(Data),
-    JSON1 = collect_json_data_(ShutdownCounts),
-    lists:flatten([JSON0 | JSON1]).
-
-collect_vm_json_data(Data) ->
-    DataListPerNode = collect_json_data_(Data),
-    case ?GET_PROM_DATA_MODE() of
-        ?PROM_DATA_MODE__NODE ->
-            hd(DataListPerNode);
-        _ ->
-            DataListPerNode
-    end.
-
-collect_json_data(Data0) ->
-    DataListPerNode = collect_json_data_(Data0),
-    json_obj_or_array(DataListPerNode).
-
-%% compatibility with previous api format in json mode
-json_obj_or_array(DataL) ->
-    case ?GET_PROM_DATA_MODE() of
-        ?PROM_DATA_MODE__NODE ->
-            data_list_to_json_obj(DataL);
-        ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED ->
-            DataL;
-        ?PROM_DATA_MODE__ALL_NODES_AGGREGATED ->
-            data_list_to_json_obj(DataL)
-    end.
-
-data_list_to_json_obj([]) ->
-    %% olp maybe not enabled, with empty list to empty object
-    #{};
-data_list_to_json_obj(DataL) ->
-    hd(DataL).
-
-collect_json_data_(Data) ->
-    emqx_prometheus_cluster:collect_json_data(Data, fun zip_json_prom_stats_metrics/3).
-
-zip_json_prom_stats_metrics(Key, Points, [] = _AccIn) ->
-    lists:foldl(
-        fun({Labels, Metric}, AccIn2) ->
-            LabelsKVMap = maps:from_list(Labels),
-            Point = LabelsKVMap#{Key => Metric},
-            [Point | AccIn2]
-        end,
-        [],
-        Points
-    );
-zip_json_prom_stats_metrics(Key, Points, AllResultedAcc) ->
-    ThisKeyResult = lists:foldl(emqx_prometheus_cluster:point_to_map_fun(Key), [], Points),
-    lists:zipwith(fun maps:merge/2, AllResultedAcc, ThisKeyResult).
 
 meta_to_init_from(Meta) ->
     maps:from_keys(metrics_name(Meta), []).

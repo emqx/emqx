@@ -100,11 +100,6 @@ collect_mf(_, _) ->
     ok.
 
 %% @private
-collect(<<"json">>) ->
-    RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
-    #{
-        message_transformations => collect_json_data(?MG(?metrics_data_key, RawData))
-    };
 collect(<<"prometheus">>) ->
     prometheus_text_format:format(?PROMETHEUS_MESSAGE_TRANSFORMATION_REGISTRY).
 
@@ -182,30 +177,6 @@ get_validation_metrics(#{name := Name, enable := Enabled} = _Rule) ->
         ?key_failed => ?MG0('failed', Counters),
         ?key_succeeded => ?MG0('succeeded', Counters)
     }.
-
-%%--------------------------------------------------------------------
-%% Collect functions
-%%--------------------------------------------------------------------
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% merge / zip formatting funcs for type `application/json`
-
-collect_json_data(Data) ->
-    emqx_prometheus_cluster:collect_json_data(Data, fun zip_json_message_transformation_metrics/3).
-
-zip_json_message_transformation_metrics(Key, Points, [] = _AccIn) ->
-    lists:foldl(
-        fun({Labels, Metric}, AccIn2) ->
-            LabelsKVMap = maps:from_list(Labels),
-            Point = LabelsKVMap#{Key => Metric},
-            [Point | AccIn2]
-        end,
-        [],
-        Points
-    );
-zip_json_message_transformation_metrics(Key, Points, AllResultsAcc) ->
-    ThisKeyResult = lists:foldl(emqx_prometheus_cluster:point_to_map_fun(Key), [], Points),
-    lists:zipwith(fun maps:merge/2, AllResultsAcc, ThisKeyResult).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Helper funcs

@@ -93,7 +93,7 @@ t_legacy_prometheus_api(_) ->
             <<"push_gateway">> :=
                 #{
                     <<"enable">> := true,
-                    <<"headers">> := #{<<"Authorization">> := <<"some-authz-tokens">>},
+                    <<"headers">> := #{<<"Authorization">> := <<"******">>},
                     <<"interval">> := <<"1s">>,
                     <<"job_name">> := <<"${cluster_name}~${name}~${host}">>,
                     <<"url">> := <<"http://127.0.0.1:9091">>
@@ -183,6 +183,13 @@ t_prometheus_config_update_api(_) ->
         <<"push_gateway">> := PushGateway,
         <<"collectors">> := Collector
     } = Conf = emqx_utils_json:decode(Response),
+    #{<<"url">> := Url, <<"enable">> := Enable} = PushGateway,
+    ?assertEqual(
+        #{<<"Authorization">> => <<"******">>},
+        maps:get(<<"headers">>, PushGateway)
+    ),
+    Pid = erlang:whereis(emqx_prometheus),
+    ?assertEqual(Enable, undefined =/= Pid, {Url, Pid}),
 
     NewConf = Conf#{
         <<"push_gateway">> => PushGateway#{
@@ -349,16 +356,14 @@ t_stats_no_auth_api(_) ->
     end,
     #{started := Started} = emqx_dashboard:listeners_status(),
     ok = emqx_dashboard_dispatch:regenerate_dispatch(Started),
-    Headers = accept_json_header(),
-    request_stats(Headers, []).
+    request_stats([], []).
 
 t_stats_auth_api(_) ->
     {ok, _} = emqx:update_config([prometheus, enable_basic_auth], true),
     #{started := Started} = emqx_dashboard:listeners_status(),
     ok = emqx_dashboard_dispatch:regenerate_dispatch(Started),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
-    Headers = [Auth | accept_json_header()],
-    request_stats(Headers, Auth),
+    request_stats([Auth], Auth),
     {ok, _} = emqx:update_config([prometheus, enable_basic_auth], false),
     ok = emqx_dashboard_dispatch:regenerate_dispatch(Started),
     ok.
@@ -374,23 +379,24 @@ t_stats_default_basic_auth_enabled(_) ->
     {ok, _} = emqx:update_config([prometheus, enable_basic_auth], true),
     #{started := Started} = emqx_dashboard:listeners_status(),
     ok = emqx_dashboard_dispatch:regenerate_dispatch(Started),
+    NoAuthHeaders = [{"accept", "text/plain"}],
     try
         Path = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
         ?assertMatch(
             {error, {"HTTP/1.1", 401, _}},
-            emqx_mgmt_api_test_util:request_api(get, Path, "", accept_json_header())
+            emqx_mgmt_api_test_util:request_api(get, Path, "", NoAuthHeaders)
         ),
         Auth = emqx_mgmt_api_test_util:auth_header_(),
         {ok, AuthedBody} = emqx_mgmt_api_test_util:request_api(
-            get, Path, "", [Auth | accept_json_header()]
+            get, Path, "", [Auth]
         ),
-        ?assertMatch(#{<<"client">> := _}, emqx_utils_json:decode(AuthedBody)),
+        ?assertEqual(match, re:run(AuthedBody, "emqx_", [{capture, none}])),
         {ok, _} = emqx:update_config([prometheus, enable_basic_auth], false),
         ok = emqx_dashboard_dispatch:regenerate_dispatch(Started),
         {ok, NoAuthBody} = emqx_mgmt_api_test_util:request_api(
-            get, Path, "", accept_json_header()
+            get, Path, "", NoAuthHeaders
         ),
-        ?assertMatch(#{<<"client">> := _}, emqx_utils_json:decode(NoAuthBody))
+        ?assertEqual(match, re:run(NoAuthBody, "emqx_", [{capture, none}]))
     after
         case emqx:get_config([prometheus, enable_basic_auth], undefined) of
             false ->
@@ -429,96 +435,7 @@ t_listener_shutdown_count(_Config) ->
     %% Disconnect with reason code
     {ok, C4} = ConnectRetry(ClientId2),
     ok = emqtt:disconnect(C4, ?RC_IMPLEMENTATION_SPECIFIC_ERROR),
-    OnlyDisconnectStats = fun(Stats0) ->
-        Stats = lists:filter(
-            fun
-                (#{<<"emqx_client_disconnected_reason">> := _}) ->
-                    true;
-                (_) ->
-                    false
-            end,
-            Stats0
-        ),
-        lists:sort(Stats)
-    end,
-    #{<<"client">> := JSONClientStatsNode} = get_stats(json, ?PROM_DATA_MODE__NODE),
-    ?assertEqual(
-        [
-            #{
-                <<"emqx_client_disconnected_reason">> => 1,
-                <<"listener_type">> => <<"tcp">>,
-                <<"listener_name">> => <<"default">>,
-                <<"reason">> => <<"discarded">>
-            },
-            #{
-                <<"emqx_client_disconnected_reason">> => 1,
-                <<"listener_type">> => <<"tcp">>,
-                <<"listener_name">> => <<"default">>,
-                <<"reason">> => <<"kicked">>
-            },
-            #{
-                <<"emqx_client_disconnected_reason">> => 1,
-                <<"listener_type">> => <<"tcp">>,
-                <<"listener_name">> => <<"default">>,
-                <<"reason">> => <<"tcp_closed">>
-            }
-        ],
-        OnlyDisconnectStats(JSONClientStatsNode)
-    ),
-    #{<<"client">> := JSONClientStatsAgg} = get_stats(json, ?PROM_DATA_MODE__ALL_NODES_AGGREGATED),
-    ?assertEqual(
-        [
-            #{
-                <<"emqx_client_disconnected_reason">> => 1,
-                <<"listener_type">> => <<"tcp">>,
-                <<"listener_name">> => <<"default">>,
-                <<"reason">> => <<"discarded">>
-            },
-            #{
-                <<"emqx_client_disconnected_reason">> => 1,
-                <<"listener_type">> => <<"tcp">>,
-                <<"listener_name">> => <<"default">>,
-                <<"reason">> => <<"kicked">>
-            },
-            #{
-                <<"emqx_client_disconnected_reason">> => 1,
-                <<"listener_type">> => <<"tcp">>,
-                <<"listener_name">> => <<"default">>,
-                <<"reason">> => <<"tcp_closed">>
-            }
-        ],
-        OnlyDisconnectStats(JSONClientStatsAgg)
-    ),
-    #{<<"client">> := JSONClientStatsUnagg} = get_stats(
-        json, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED
-    ),
     NodeBin = atom_to_binary(node()),
-    ?assertEqual(
-        [
-            #{
-                <<"emqx_client_disconnected_reason">> => 1,
-                <<"node">> => NodeBin,
-                <<"listener_type">> => <<"tcp">>,
-                <<"listener_name">> => <<"default">>,
-                <<"reason">> => <<"discarded">>
-            },
-            #{
-                <<"emqx_client_disconnected_reason">> => 1,
-                <<"node">> => NodeBin,
-                <<"listener_type">> => <<"tcp">>,
-                <<"listener_name">> => <<"default">>,
-                <<"reason">> => <<"kicked">>
-            },
-            #{
-                <<"emqx_client_disconnected_reason">> => 1,
-                <<"node">> => NodeBin,
-                <<"listener_type">> => <<"tcp">>,
-                <<"listener_name">> => <<"default">>,
-                <<"reason">> => <<"tcp_closed">>
-            }
-        ],
-        OnlyDisconnectStats(JSONClientStatsUnagg)
-    ),
     AssertExpectedLines = fun(L, ExpectedLines, Output) ->
         lists:foreach(
             fun(ExpectedLine) ->
@@ -603,6 +520,23 @@ t_latency_metrics(_) ->
         ['client.authenticate', 'client.authorize']
     ).
 
+%% The JSON metrics format has been dropped; requesting it must be rejected.
+t_stats_json_not_supported(_) ->
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    lists:foreach(
+        fun(Endpoint) ->
+            Path = emqx_mgmt_api_test_util:api_path(["prometheus", Endpoint]),
+            ?assertMatch(
+                {error, {"HTTP/1.1", 400, _}},
+                emqx_mgmt_api_test_util:request_api(
+                    get, Path, "", [Auth | accept_json_header()]
+                ),
+                #{endpoint => Endpoint}
+            )
+        end,
+        ["stats", "auth", "schema_validation", "message_transformation"]
+    ).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
@@ -624,8 +558,8 @@ accept_json_header() ->
 request_stats(Headers, Auth) ->
     Path = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Headers),
-    Data = emqx_utils_json:decode(Response),
-    ?assertMatch(#{<<"client">> := _, <<"delivery">> := _}, Data),
+    %% Only the Prometheus text format is supported.
+    ?assertEqual(match, re:run(Response, "emqx_", [{capture, none}])),
     {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
     ok = meck:expect(mria_rlog, backend, fun() -> rlog end),
     {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth).
@@ -643,22 +577,12 @@ do_env_collectors([Collector | Rest], Acc) when is_atom(Collector) ->
 get_stats() ->
     get_stats(prometheus, ?PROM_DATA_MODE__NODE).
 
-get_stats(Format, Mode) ->
+get_stats(prometheus, Mode) ->
     Auth = emqx_mgmt_api_test_util:auth_header_(),
-    Headers =
-        case Format of
-            json -> [Auth | accept_json_header()];
-            prometheus -> [Auth]
-        end,
     QueryString = uri_string:compose_query([{"mode", atom_to_binary(Mode)}]),
     Path = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
-    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, QueryString, Headers),
-    case Format of
-        json ->
-            emqx_utils_json:decode(Response);
-        prometheus ->
-            Response
-    end.
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, QueryString, [Auth]),
+    Response.
 
 fresh_clientid(TestCase) ->
     iolist_to_binary([

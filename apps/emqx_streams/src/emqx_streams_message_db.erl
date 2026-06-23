@@ -25,6 +25,7 @@ Facade for all operations with the message database.
 
 -export([
     insert/2,
+    insert/3,
     suback/3,
     create_client/1,
     subscribe/4,
@@ -57,12 +58,26 @@ Facade for all operations with the message database.
     quota_buffer_flush_tx_write/3
 ]).
 
+-export([
+    dirty_read_all/1,
+    dirty_read_all/2,
+    delete_all/1,
+    delete_key/2,
+    dirty_read_key/2,
+    dirty_read_key/3
+]).
+
 %% For testing/maintenance
 -export([
     delete_all/0,
-    dirty_read_all/1,
     dirty_index/2
 ]).
+
+-type read_limits() :: #{
+    start_time => emqx_ds:time(),
+    end_time => emqx_ds:time() | infinity
+}.
+-type key() :: binary().
 
 -define(STREAMS_MESSAGE_DB_APPEND_RETRY, 3).
 -define(STREAMS_MESSAGE_DB_QUOTA_INDEX_APPEND_RETRY, 3).
@@ -127,8 +142,14 @@ insert(Stream, Message) ->
         {error, _} = Error ->
             Error;
         {ok, Key} ->
-            insert(Stream, emqx_streams_prop:is_limited(Stream), Key, Message)
+            insert(Stream, Key, Message)
     end.
+
+-spec insert(emqx_streams_types:stream(), key(), emqx_types:message()) ->
+    ok | {error, term()}.
+insert(Stream, Key, Message) ->
+    IsLimited = emqx_streams_prop:is_limited(Stream),
+    insert(Stream, IsLimited, Key, Message).
 
 insert(#{is_lastvalue := true, id := Id} = Stream, IsLimited, Key, Message) ->
     DB = ?STREAMS_MESSAGE_LASTVALUE_DB,
@@ -447,10 +468,42 @@ initial_generations(Stream) ->
 drop_regular_db_slab(Slab) ->
     ok = emqx_ds:drop_slab(?STREAMS_MESSAGE_REGULAR_DB, Slab).
 
+-spec dirty_read_key(emqx_streams_types:stream(), key() | '#') ->
+    [emqx_ds:ttv()].
+dirty_read_key(Stream, Key) ->
+    dirty_read_key(Stream, Key, #{}).
+
+-spec dirty_read_key(emqx_streams_types:stream(), key() | '#', read_limits()) ->
+    [emqx_ds:ttv()].
+dirty_read_key(#{id := Id} = Stream, Key, Limits) ->
+    DB = db(Stream),
+    Opts = maps:merge(
+        maps:with([start_time, end_time], Limits),
+        #{
+            db => DB,
+            shard => emqx_ds:shard_of(DB, Id)
+        }
+    ),
+    emqx_ds:dirty_read(Opts, stream_message_topic(Stream, Key)).
+
 -spec dirty_read_all(emqx_streams_types:stream()) ->
     [emqx_ds:ttv()].
 dirty_read_all(Stream) ->
-    emqx_ds:dirty_read(db(Stream), stream_message_topic(Stream, '#')).
+    dirty_read_all(Stream, #{}).
+
+-spec dirty_read_all(emqx_streams_types:stream(), read_limits()) ->
+    [emqx_ds:ttv()].
+dirty_read_all(Stream, Limits) ->
+    dirty_read_key(Stream, '#', Limits).
+
+-spec delete_key(emqx_streams_types:stream(), key() | '#') -> ok | {error, term()}.
+delete_key(Stream, Key) ->
+    DB = db(Stream),
+    delete(DB, [stream_message_topic(Stream, Key)]).
+
+-spec delete_all(emqx_streams_types:stream()) -> ok | {error, term()}.
+delete_all(Stream) ->
+    delete_key(Stream, '#').
 
 -spec partitions(emqx_streams_types:stream()) ->
     [emqx_streams_types:partition()].

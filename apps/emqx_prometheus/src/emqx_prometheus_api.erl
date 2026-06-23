@@ -48,7 +48,7 @@
 -export([lookup_from_local_nodes/3]).
 -export([scopes/0]).
 
--export([namespaced_stats_filter/2, namespaced_filter/2]).
+-export([namespaced_stats_filter/2, namespaced_filter/2, validate_not_json/2]).
 
 -define(TAGS, [<<"Monitor">>]).
 
@@ -115,6 +115,7 @@ schema("/prometheus/namespaced_stats") ->
 schema("/prometheus/auth") ->
     #{
         'operationId' => auth,
+        filter => fun ?MODULE:validate_not_json/2,
         get =>
             #{
                 description => ?DESC(get_prom_auth_data),
@@ -128,6 +129,7 @@ schema("/prometheus/auth") ->
 schema("/prometheus/stats") ->
     #{
         'operationId' => stats,
+        filter => fun ?MODULE:validate_not_json/2,
         get =>
             #{
                 description => ?DESC(get_prom_data),
@@ -155,6 +157,7 @@ schema("/prometheus/data_integration") ->
 schema("/prometheus/schema_validation") ->
     #{
         'operationId' => schema_validation,
+        filter => fun ?MODULE:validate_not_json/2,
         get =>
             #{
                 description => ?DESC(get_prom_schema_validation),
@@ -168,6 +171,7 @@ schema("/prometheus/schema_validation") ->
 schema("/prometheus/message_transformation") ->
     #{
         'operationId' => message_transformation,
+        filter => fun ?MODULE:validate_not_json/2,
         get =>
             #{
                 description => ?DESC(get_prom_message_transformation),
@@ -234,50 +238,47 @@ setting(get, _Params) ->
             true -> Raw;
             false -> emqx_prometheus_config:to_recommend_type(Raw)
         end,
-    {200, Conf};
+    {200, emqx_utils:redact(Conf)};
 setting(put, #{body := Body}) ->
-    case emqx_prometheus_config:update(Body) of
+    Raw = emqx:get_raw_config([<<"prometheus">>], #{}),
+    Deobfuscated = emqx_utils:deobfuscate(Body, Raw),
+    case emqx_prometheus_config:update(Deobfuscated) of
         {ok, NewConfig} ->
-            {200, NewConfig};
+            {200, emqx_utils:redact(NewConfig)};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("Update config failed ~p", [Reason])),
             {500, 'INTERNAL_ERROR', Message}
     end.
 
-stats(get, #{headers := Headers, query_string := Qs}) ->
-    collect(emqx_prometheus, collect_opts(Headers, Qs)).
+stats(get, #{query_string := Qs}) ->
+    collect(emqx_prometheus, collect_opts(Qs)).
 
-ns_stats(get, #{headers := Headers, query_string := Qs}) ->
-    case response_type(Headers) of
-        <<"json">> ->
-            {400, <<"only prometheus format is supported">>};
-        <<"prometheus">> ->
-            collect_ns_stats(collect_opts_ns(Qs))
-    end.
+ns_stats(get, #{query_string := Qs}) ->
+    collect_ns_stats(collect_opts_ns(Qs)).
 
-auth(get, #{headers := Headers, query_string := Qs}) ->
-    collect(emqx_prometheus_auth, collect_opts(Headers, Qs)).
+auth(get, #{query_string := Qs}) ->
+    collect(emqx_prometheus_auth, collect_opts(Qs)).
 
 data_integration(get, Req) ->
     Opts = collect_opts_ns_or_all(Req),
     collect_data_integration(Opts).
 
-schema_validation(get, #{headers := Headers, query_string := Qs}) ->
-    collect(emqx_prometheus_schema_validation, collect_opts(Headers, Qs)).
+schema_validation(get, #{query_string := Qs}) ->
+    collect(emqx_prometheus_schema_validation, collect_opts(Qs)).
 
-message_transformation(get, #{headers := Headers, query_string := Qs}) ->
-    collect(emqx_prometheus_message_transformation, collect_opts(Headers, Qs)).
+message_transformation(get, #{query_string := Qs}) ->
+    collect(emqx_prometheus_message_transformation, collect_opts(Qs)).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-collect(Module, #{type := Type, mode := Mode}) ->
+collect(Module, #{mode := Mode}) ->
     put_prom_data_mode(Mode),
     Data =
         case erlang:function_exported(Module, collect, 1) of
             true ->
-                erlang:apply(Module, collect, [Type]);
+                erlang:apply(Module, collect, [<<"prometheus">>]);
             false ->
                 ?SLOG(error, #{
                     msg => "prometheus callback module not found, empty data responded",
@@ -285,20 +286,18 @@ collect(Module, #{type := Type, mode := Mode}) ->
                 }),
                 <<>>
         end,
-    gen_response(Type, Data).
+    gen_response(Data).
 
 collect_data_integration(#{namespace := Namespace, mode := Mode}) ->
-    Format = <<"prometheus">>,
     Data = emqx_prometheus_data_integration:collect_ns(Namespace, Mode),
-    gen_response(Format, Data).
+    gen_response(Data).
 
 collect_ns_stats(#{mode := Mode, namespace := Namespace}) ->
-    Type = <<"prometheus">>,
     Data = emqx_prometheus:collect_ns(Namespace, Mode),
-    gen_response(Type, Data).
+    gen_response(Data).
 
-collect_opts(Headers, Qs) ->
-    #{type => response_type(Headers), mode => mode(Qs)}.
+collect_opts(Qs) ->
+    #{mode => mode(Qs)}.
 
 collect_opts_ns(Qs) ->
     #{namespace => namespace(Qs), mode => mode(Qs)}.
@@ -312,10 +311,16 @@ collect_opts_ns_or_all(Req = #{query_string := Qs}) ->
         end,
     #{namespace => Namespace, mode => mode(Qs)}.
 
-response_type(#{<<"accept">> := <<"application/json">>}) ->
-    <<"json">>;
-response_type(_) ->
-    <<"prometheus">>.
+%% The JSON metrics format is no longer supported; only the Prometheus text
+%% format is produced. Requests asking for JSON are rejected (see the
+%% `validate_not_json/2' filter wired into the relevant `schema/1' declarations).
+is_json_requested(#{<<"accept">> := <<"application/json">>}) ->
+    true;
+is_json_requested(_) ->
+    false.
+
+json_not_supported() ->
+    {400, <<"only prometheus format is supported">>}.
 
 put_prom_data_mode(Mode) ->
     %% `Mode` is used to control the format of the returned data
@@ -338,9 +343,7 @@ namespace(#{<<"ns">> := Namespace}) ->
 namespace(_) ->
     all.
 
-gen_response(<<"json">>, Data) ->
-    {200, Data};
-gen_response(<<"prometheus">>, Data) ->
+gen_response(Data) ->
     {200, #{<<"content-type">> => <<"text/plain">>}, Data}.
 
 prometheus_setting_request() ->
@@ -408,16 +411,15 @@ prometheus_data_schema() ->
     #{
         content =>
             [
-                {'text/plain', #{schema => #{type => string}}},
-                {'application/json', #{schema => #{type => object}}}
+                {'text/plain', #{schema => #{type => string}}}
             ]
     }.
 
 validate_not_json(#{headers := Headers} = Req, _Meta) ->
-    case response_type(Headers) of
-        <<"json">> ->
-            {400, <<"only prometheus format is supported">>};
-        <<"prometheus">> ->
+    case is_json_requested(Headers) of
+        true ->
+            json_not_supported();
+        false ->
             {ok, Req}
     end.
 
