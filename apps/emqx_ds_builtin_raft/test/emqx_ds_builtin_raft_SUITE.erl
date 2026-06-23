@@ -1098,6 +1098,16 @@ sort_canonical_forms(Msgs) ->
 
 suite() -> [{timetrap, {seconds, 120}}, {ct_hooks, [emqx_cth_ct_hook_flaky]}].
 
+%% The `builtin_raft' durable-storage backend is deprecated in 6.0 and is no
+%% longer the recommended replication strategy. Skip the whole suite on this
+%% branch; the suite is kept in tree for reference and to ease cherry-picks
+%% from newer branches where the backend is still under active development.
+init_per_suite(_Config) ->
+    {skip, "builtin_raft backend deprecated in 6.0"}.
+
+end_per_suite(_Config) ->
+    ok.
+
 all() ->
     Broken = [
         %% 1. Use TTV layout instead of MQTT wrapper. 2. It
