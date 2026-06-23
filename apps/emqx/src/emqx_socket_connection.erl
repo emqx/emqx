@@ -189,8 +189,11 @@ info(peername, #state{channel = Channel}) ->
     emqx_channel:info(peername, Channel);
 info(sockname, #state{channel = Channel}) ->
     emqx_channel:info(sockname, Channel);
-info(sockstate, #state{sockstate = SockSt}) ->
-    SockSt;
+info(sockstate, #state{sockstate = SS}) ->
+    case SS of
+        #congested{} -> congested;
+        _ -> SS
+    end;
 info(stats_timer, #state{stats_timer = StatsTimer}) ->
     StatsTimer;
 info(zone, #state{zone = Zone}) ->

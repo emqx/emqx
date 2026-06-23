@@ -85,11 +85,16 @@ do_cancel_alarm_congestion(ConnMod, State, Reason) ->
     ok.
 
 is_tcp_congested(ConnMod, State) ->
-    case ConnMod:sockstats([send_pend], State) of
-        [{send_pend, N}] ->
-            N > 0;
+    case ConnMod:info(sockstate, State) of
+        congested ->
+            true;
         _ ->
-            false
+            case ConnMod:sockstats([send_pend], State) of
+                [{send_pend, N}] ->
+                    N > 0;
+                _ ->
+                    false
+            end
     end.
 
 has_alarm_sent(Reason) ->
