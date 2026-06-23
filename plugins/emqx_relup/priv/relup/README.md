@@ -18,6 +18,7 @@ are arbitrary; `<from>-to-<to>.relup` is the convention.
 
 - Restart `esaml` so hot-upgraded nodes pick up SAML XXE protection.
 - Load dashboard/data-backup modules and re-announce `emqx` BPAPI so backup-file download authorization changes take effect for API-key callers.
+- Load the PostgreSQL connector module so disabled-prepared-statement batch execution and table-existence checks use the serialized worker path.
 - Stop Redis resources, restart `eredis`, reload `emqx_redis`, then start Redis resources so Sentinel managers are recreated with isolated manager names.
 
 ## Schema
