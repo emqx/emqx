@@ -286,8 +286,8 @@ schema_validation(get, #{query_string := Qs}) ->
 message_transformation(get, #{query_string := Qs}) ->
     collect(emqx_prometheus_message_transformation, collect_opts(Qs)).
 
-topic_metrics(get, #{headers := Headers, query_string := Qs}) ->
-    collect(emqx_prometheus_topic_metrics, collect_opts(Headers, Qs)).
+topic_metrics(get, #{query_string := Qs}) ->
+    collect(emqx_prometheus_topic_metrics, collect_opts(Qs)).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
