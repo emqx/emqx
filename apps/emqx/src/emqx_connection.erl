@@ -97,8 +97,17 @@
     sendq_watermark :: non_neg_integer(),
     %% Hibernate connection process if inactive for
     hibernate_after :: integer() | infinity,
-    %%
-    force_shutdown :: _TODO
+    %% Forced GC thresholds, `false` if disabled
+    force_gc :: false | {_EachNMessages :: pos_integer(), _EachNBytes :: pos_integer()},
+    %% Forced shutdown policy
+    force_shutdown :: emqx_types:oom_policy()
+}).
+
+-record(thresholds, {
+    gc_packets,
+    gc_bytes,
+    oom_packets,
+    senq_bytes
 }).
 
 -record(state, {
@@ -115,8 +124,7 @@
     %% Channel State
     channel :: emqx_channel:channel(),
     %% FIXME
-    threshold_in :: option(emqx_threshold:state()),
-    threshold_out :: option(emqx_threshold:state()),
+    thresholds :: #thresholds{},
     %% Stats Timer
     %% When `disabled` stats are never reported.
     %% Until complete CONNECT packet received acts as idle timer, which shuts
@@ -531,6 +539,7 @@ process_msg(Msg, State) ->
 
 %%--------------------------------------------------------------------
 %% Handle a Msg
+
 handle_msg({'$gen_call', From, Req}, State) ->
     case handle_call(From, Req, State) of
         {reply, Reply, NState} ->
@@ -554,7 +563,12 @@ handle_msg({incoming, Packet}, State) ->
     ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
     handle_incoming(Packet, State);
 handle_msg({outgoing, Packets}, State) ->
-    handle_outgoing(Packets, State);
+    case handle_outgoing(Packets, State) of
+        {ok, NState} ->
+            trigger_sendq_congestion(NState);
+        Other ->
+            Other
+    end;
 handle_msg({Error, _Sock, Reason}, State) when
     Error == tcp_error; Error == ssl_error
 ->
@@ -563,13 +577,19 @@ handle_msg({Closed, _Sock}, State) when
     Closed == tcp_closed; Closed == ssl_closed
 ->
     handle_info({sock_closed, Closed}, close_socket(State));
-handle_msg({Passive, _Sock}, State = #state{threshold_in = ThresholdIn}) when
+handle_msg({Passive, _Sock}, State0) when
     Passive == tcp_passive; Passive == ssl_passive; Passive =:= quic_passive
 ->
     %% Run GC and Check OOM
-    Triggers = emqx_threshold:trigger(ThresholdIn),
-    NState = run_triggers(in, [oom | Triggers], State),
-    handle_info(activate_socket, NState);
+    State1 = trigger_gc(State0),
+    check_oom(0, 0, State1),
+    {Msgs1, State2} = check_sendq_congestion(State1),
+    case handle_info(activate_socket, State2) of
+        {ok, State} ->
+            {ok, Msgs1, State};
+        {ok, Msgs2, State} ->
+            {ok, append_msgs(Msgs1, Msgs2), State}
+    end;
 handle_msg(
     Deliver = #deliver{},
     #state{conf = #conf{active_n = ActiveN}} = State
@@ -727,10 +747,10 @@ handle_timeout(
     }
 ) ->
     ClientId = emqx_channel:info(clientid, Channel),
-    NState = check_sendq_congestion(State),
+    {Msgs, NState} = check_sendq_congestion(State),
     emqx_cm:set_chan_stats(ClientId, stats(NState)),
     emqx_congestion:maybe_alarm_conn_congestion(?MODULE, NState),
-    {ok, NState#state{stats_timer = undefined}};
+    {ok, Msgs, NState#state{stats_timer = undefined}};
 handle_timeout(
     TRef,
     keepalive,
@@ -757,7 +777,7 @@ try_set_chan_stats(State = #state{channel = Channel}) ->
 %%--------------------------------------------------------------------
 %% Parse incoming data
 -compile({inline, [on_bytes_in/3]}).
-on_bytes_in(Oct, Data, State = #state{threshold_in = ThresholdIn}) ->
+on_bytes_in(Oct, Data, State = #state{thresholds = T0}) ->
     ?LOG(debug, #{
         msg => "raw_bin_received",
         size => Oct,
@@ -765,7 +785,11 @@ on_bytes_in(Oct, Data, State = #state{threshold_in = ThresholdIn}) ->
         type => "hex"
     }),
     {N, Packets, NState} = parse_incoming(Data, State),
-    FState = NState#state{threshold_in = emqx_threshold:account(N, Oct, ThresholdIn)},
+    Thresholds = T0#thresholds{
+        gc_bytes = dec_threshold(T0#thresholds.gc_bytes, Oct),
+        gc_packets = dec_threshold(T0#thresholds.gc_packets, N)
+    },
+    FState = NState#state{thresholds = Thresholds},
     {ok, next_incoming_msgs(Packets), FState}.
 
 %% @doc: return a reversed Msg list
@@ -915,10 +939,10 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
         {ok, NChannel} ->
             {ok, State#state{channel = NChannel}};
         {ok, Replies, NChannel} ->
-            {ok, next_msgs(Replies), State#state{channel = NChannel}};
+            {ok, Replies, State#state{channel = NChannel}};
         {continue, Replies, NChannel} ->
             %% NOTE: Will later go back to `emqx_channel:handle_info/2`.
-            {ok, [next_msgs(Replies), continue], State#state{channel = NChannel}};
+            {ok, [Replies, continue], State#state{channel = NChannel}};
         {shutdown, Reason, NChannel} ->
             shutdown(Reason, State#state{channel = NChannel});
         {shutdown, Reason, Packet, NChannel} ->
@@ -1045,32 +1069,78 @@ send(Num, Oct, IoData, #state{transport = Transport, socket = Socket} = State) -
     end.
 
 %% Some bytes sent
--spec sent(non_neg_integer(), non_neg_integer(), state()) -> {ok, state()}.
-sent(Num, Oct, State = #state{threshold_out = ThresholdOut}) ->
+-spec sent(non_neg_integer(), non_neg_integer(), state()) ->
+    {ok, state()}.
+sent(Num, Oct, State = #state{thresholds = T0}) ->
     %% Run GC and check OOM after certain amount of messages or bytes sent.
-    Triggers = emqx_threshold:run(Num, Oct, ThresholdOut),
-    NState = run_triggers(out, Triggers, State),
-    {ok, NState}.
+    Thresholds = T0#thresholds{
+        gc_bytes = dec_threshold(T0#thresholds.gc_bytes, Oct),
+        gc_packets = dec_threshold(T0#thresholds.gc_packets, Num),
+        oom_packets = dec_threshold(T0#thresholds.oom_packets, Num),
+        senq_bytes = dec_threshold(T0#thresholds.senq_bytes, Oct)
+    },
+    NState = State#state{thresholds = Thresholds},
+    {ok, trigger_oom(trigger_gc(NState))}.
 
 %%--------------------------------------------------------------------
 %% Thresholds
 
-run_triggers(Dir, [gc | Rest], State) ->
+trigger_sendq_congestion(
+    #state{thresholds = #thresholds{senq_bytes = Bytes}} = State
+) when Bytes > 0 ->
+    {ok, State};
+trigger_sendq_congestion(
+    #state{thresholds = Thresholds, conf = Conf} = State
+) ->
+    {Msgs, NState} = probe_sendq_congestion(State),
+    {ok, Msgs, NState#state{
+        thresholds = reset_sendq_threshold(Conf, Thresholds)
+    }}.
+
+trigger_gc(
+    #state{thresholds = #thresholds{gc_bytes = Bytes, gc_packets = Packets}} = State
+) when Bytes > 0 andalso Packets > 0 ->
+    State;
+trigger_gc(
+    #state{thresholds = Thresholds, conf = Conf} = State
+) ->
     run_gc(State),
-    run_triggers(Dir, Rest, State);
-run_triggers(Dir, [oom | Rest], State) ->
-    %% FIXME
+    State#state{
+        thresholds = reset_gc_threshold(Conf, Thresholds)
+    }.
+
+trigger_oom(
+    #state{thresholds = #thresholds{oom_packets = Packets}} = State
+) when Packets > 0 ->
+    State;
+trigger_oom(
+    #state{thresholds = Thresholds, conf = Conf} = State
+) ->
     check_oom(0, 0, State),
-    NState = check_sendq_congestion(State),
-    run_triggers(Dir, Rest, NState);
-run_triggers(Dir, [sendq | Rest], State) ->
-    NState = probe_sendq_congestion(State),
-    run_triggers(Dir, Rest, NState);
-run_triggers(Dir, NThreshold, State) when not is_list(NThreshold) ->
-    case Dir of
-        in -> State#state{threshold_in = NThreshold};
-        out -> State#state{threshold_out = NThreshold}
-    end.
+    State#state{
+        thresholds = reset_oom_threshold(Conf, Thresholds)
+    }.
+
+reset_thresholds(Conf, Thresholds) ->
+    reset_sendq_threshold(Conf, reset_oom_threshold(Conf, reset_gc_threshold(Conf, Thresholds))).
+
+reset_gc_threshold(#conf{force_gc = {Count, Bytes}}, Thresholds) ->
+    Thresholds#thresholds{gc_packets = Count, gc_bytes = Bytes};
+reset_gc_threshold(#conf{force_gc = false}, Thresholds) ->
+    Thresholds.
+
+reset_oom_threshold(#conf{active_n = ActiveN}, Thresholds) ->
+    Thresholds#thresholds{oom_packets = ActiveN}.
+
+reset_sendq_threshold(#conf{sendq_watermark = HWM}, Thresholds) when HWM > 0 ->
+    Thresholds#thresholds{senq_bytes = HWM div 4};
+reset_sendq_threshold(#conf{sendq_watermark = 0}, Thresholds) ->
+    Thresholds.
+
+dec_threshold(undefined, _) ->
+    undefined;
+dec_threshold(T, N) ->
+    T - N.
 
 run_gc(#state{conf = #conf{zone = Zone}}) ->
     case emqx_olp:backoff_gc(Zone) of
@@ -1081,7 +1151,7 @@ run_gc(#state{conf = #conf{zone = Zone}}) ->
 probe_sendq_congestion(State = #state{sockstate = congested}) ->
     check_sendq_congestion(State);
 probe_sendq_congestion(State = #state{conf = #conf{sendq_watermark = 0}}) ->
-    State;
+    {[], State};
 probe_sendq_congestion(
     State = #state{
         sockstate = running,
@@ -1094,10 +1164,10 @@ probe_sendq_congestion(
             NState = State#state{sockstate = congested},
             signal_channel_congestion(congested, SQSize, NState);
         false ->
-            State
+            {[], State}
     end;
 probe_sendq_congestion(State) ->
-    State.
+    {[], State}.
 
 check_sendq_congestion(
     State = #state{
@@ -1111,10 +1181,10 @@ check_sendq_congestion(
             NState = State#state{sockstate = running},
             signal_channel_congestion(decongested, SQSize, NState);
         false ->
-            State
+            {[], State}
     end;
 check_sendq_congestion(State) ->
-    State.
+    {[], State}.
 
 get_sendq_size(State) ->
     case sockstats([send_pend], State) of
@@ -1123,10 +1193,13 @@ get_sendq_size(State) ->
     end.
 
 signal_channel_congestion(Status, SQSize, State = #state{channel = Channel}) ->
-    %% TODO: handle_info?
     Signal = {connection, Status, #{sendq_size => SQSize}},
-    NChannel = emqx_channel:handle_signal(Signal, Channel),
-    State#state{channel = NChannel}.
+    case emqx_channel:handle_signal(Signal, Channel) of
+        {ok, NChannel} ->
+            {[], State#state{channel = NChannel}};
+        {ok, Replies, NChannel} ->
+            {Replies, State#state{channel = NChannel}}
+    end.
 
 check_oom(Pubs, Bytes, #state{conf = #conf{force_shutdown = ShutdownPolicy}}) ->
     case emqx_utils:check_oom(ShutdownPolicy) of
@@ -1320,13 +1393,13 @@ inc_metrics(Name, State, Val) ->
 %%--------------------------------------------------------------------
 %% Helper functions
 
--compile({inline, [next_msgs/1]}).
-next_msgs(Packet) when is_record(Packet, mqtt_packet) ->
-    {outgoing, Packet};
-next_msgs(Event) when is_tuple(Event) ->
-    Event;
-next_msgs(More) when is_list(More) ->
-    More.
+-compile({inline, append_msgs/2}).
+append_msgs([], Msgs) ->
+    Msgs;
+append_msgs(Msgs, []) ->
+    Msgs;
+append_msgs(Msgs1, Msgs2) ->
+    [Msgs1, Msgs2].
 
 -compile({inline, [shutdown/2, shutdown/3]}).
 shutdown(Reason, State) ->
@@ -1413,35 +1486,26 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
                         {State0#state.parser, State0#state.serialize}
                 end
         end,
-    ActiveN = get_active_n(Type, Listener),
-    GcPolicy = emqx_config:get_zone_conf(Zone, [force_gc]),
-    GcTriggers =
-        case GcPolicy of
+    GcThresholds =
+        case emqx_config:get_zone_conf(Zone, [force_gc]) of
             #{enable := false} ->
-                [];
+                false;
             #{enable := true, count := Count, bytes := Bytes} ->
-                [{gc, count, Count}, {gc, bytes, Bytes}]
+                {Count, Bytes}
         end,
-    HighWatermark = get_high_watermark(Type, Listener),
-    HWMTriggers =
-        case HighWatermark of
-            0 -> [];
-            _ -> [{sendq, bytes, HighWatermark div 4}]
-        end,
-    ThresholdIn = emqx_threshold:init(GcTriggers),
-    ThresholdOut = emqx_threshold:init([{oom, count, ActiveN}] ++ HWMTriggers ++ GcTriggers),
+    NConf = Conf#conf{
+        zone = Zone,
+        active_n = get_active_n(Type, Listener),
+        sendq_watermark = get_high_watermark(Type, Listener),
+        hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
+        force_shutdown = emqx_config:get_zone_conf(Zone, [force_shutdown]),
+        force_gc = GcThresholds
+    },
     State0#state{
         parser = Parser,
         serialize = Serialize,
-        threshold_in = ThresholdIn,
-        threshold_out = ThresholdOut,
-        conf = Conf#conf{
-            zone = Zone,
-            active_n = ActiveN,
-            sendq_watermark = HighWatermark,
-            hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
-            force_shutdown = emqx_config:get_zone_conf(Zone, [force_shutdown])
-        }
+        thresholds = reset_thresholds(NConf, #thresholds{}),
+        conf = NConf
     }.
 
 init_parser_and_serializer(FrameOpts0, State0) ->

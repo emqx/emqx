@@ -46,7 +46,7 @@ t_send_congestion_times_out(_) ->
             listener => {tcp, default}
         }),
         %% Simulate entering congested socket state:
-        State1 = emqx_socket_connection:queue_send(make_ref(), <<"a">>, State0),
+        State1 = emqx_socket_connection:queue_send(make_ref(), <<"a">>, 1, State0),
         {ok, State2} = emqx_socket_connection:send(1, <<"b">>, State1),
         {ok, State3} = emqx_socket_connection:send(1, <<"c">>, State2),
         ?assertNotEqual(idle, emqx_socket_connection:info(sockstate, State3)),
@@ -101,7 +101,7 @@ t_repeated_send_congestion_preserves_send_order(_) ->
             listener => {tcp, default}
         }),
         %% Simulate entering congested socket state:
-        State1 = emqx_socket_connection:queue_send(make_ref(), <<"a">>, State0),
+        State1 = emqx_socket_connection:queue_send(make_ref(), <<"a">>, 1, State0),
         %% Queue one more packet:
         {ok, State2} = emqx_socket_connection:send(1, <<"b">>, State1),
         %% Simulate socket getting ready, it goes back unready w/o sending anything:

@@ -333,7 +333,7 @@ t_handle_in_qos0_publish(_) ->
 t_handle_in_qos1_publish(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Publish = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
-    {ok, ?PUBACK_PACKET(1, ?RC_NO_MATCHING_SUBSCRIBERS), _Channel} =
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_NO_MATCHING_SUBSCRIBERS)}, _Channel} =
         emqx_channel:handle_in(Publish, channel(#{conn_state => connected})).
 
 t_handle_in_qos2_publish(_) ->
@@ -342,11 +342,11 @@ t_handle_in_qos2_publish(_) ->
     %% waiting limiter server
     timer:sleep(200),
     Publish1 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 1, <<"payload">>),
-    {ok, ?PUBREC_PACKET(1, ?RC_SUCCESS), Channel1} =
+    {ok, {outgoing, ?PUBREC_PACKET(1, ?RC_SUCCESS)}, Channel1} =
         emqx_channel:handle_in(Publish1, Channel),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Publish2 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 2, <<"payload">>),
-    {ok, ?PUBREC_PACKET(2, ?RC_NO_MATCHING_SUBSCRIBERS), Channel2} =
+    {ok, {outgoing, ?PUBREC_PACKET(2, ?RC_NO_MATCHING_SUBSCRIBERS)}, Channel2} =
         emqx_channel:handle_in(Publish2, Channel1),
     ?assertEqual(2, proplists:get_value(awaiting_rel_cnt, emqx_channel:stats(Channel2))).
 
@@ -358,10 +358,10 @@ t_handle_in_qos2_publish_with_error_return(_) ->
     timer:sleep(200),
     M1 = emqx_metrics:val_global('messages.dropped.receive_maximum'),
     Publish1 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 1, <<"payload">>),
-    {ok, ?PUBREC_PACKET(1, ?RC_PACKET_IDENTIFIER_IN_USE), Channel} =
+    {ok, {outgoing, ?PUBREC_PACKET(1, ?RC_PACKET_IDENTIFIER_IN_USE)}, Channel} =
         emqx_channel:handle_in(Publish1, Channel),
     Publish2 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 2, <<"payload">>),
-    {ok, ?PUBREC_PACKET(2, ?RC_NO_MATCHING_SUBSCRIBERS), Channel1} =
+    {ok, {outgoing, ?PUBREC_PACKET(2, ?RC_NO_MATCHING_SUBSCRIBERS)}, Channel1} =
         emqx_channel:handle_in(Publish2, Channel),
     Publish3 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 3, <<"payload">>),
     {ok,
@@ -434,7 +434,7 @@ t_handle_in_pubrec_ok(_) ->
     Msg = emqx_message:make(test, ?QOS_2, <<"t">>, <<"payload">>),
     ok = meck:expect(emqx_session, pubrec, fun(_, _, Session) -> {ok, Msg, Session} end),
     Channel = channel(#{conn_state => connected}),
-    {ok, ?PUBREL_PACKET(1, ?RC_SUCCESS), _Channel1} =
+    {ok, {outgoing, ?PUBREL_PACKET(1, ?RC_SUCCESS)}, _Channel1} =
         emqx_channel:handle_in(?PUBREC_PACKET(1, ?RC_SUCCESS), Channel).
 
 t_handle_in_pubrec_id_in_use(_) ->
@@ -445,7 +445,7 @@ t_handle_in_pubrec_id_in_use(_) ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE}
         end
     ),
-    {ok, ?PUBREL_PACKET(1, ?RC_PACKET_IDENTIFIER_IN_USE), _Channel} =
+    {ok, {outgoing, ?PUBREL_PACKET(1, ?RC_PACKET_IDENTIFIER_IN_USE)}, _Channel} =
         emqx_channel:handle_in(?PUBREC_PACKET(1, ?RC_SUCCESS), channel()).
 
 t_handle_in_pubrec_id_not_found(_) ->
@@ -456,13 +456,13 @@ t_handle_in_pubrec_id_not_found(_) ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
         end
     ),
-    {ok, ?PUBREL_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND), _Channel} =
+    {ok, {outgoing, ?PUBREL_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND)}, _Channel} =
         emqx_channel:handle_in(?PUBREC_PACKET(1, ?RC_SUCCESS), channel()).
 
 t_handle_in_pubrel_ok(_) ->
     ok = meck:expect(emqx_session, pubrel, fun(_, _, Session) -> {ok, Session} end),
     Channel = channel(#{conn_state => connected}),
-    {ok, ?PUBCOMP_PACKET(1, ?RC_SUCCESS), _Channel1} =
+    {ok, {outgoing, ?PUBCOMP_PACKET(1, ?RC_SUCCESS)}, _Channel1} =
         emqx_channel:handle_in(?PUBREL_PACKET(1, ?RC_SUCCESS), Channel).
 
 t_handle_in_pubrel_not_found_error(_) ->
@@ -473,7 +473,7 @@ t_handle_in_pubrel_not_found_error(_) ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
         end
     ),
-    {ok, ?PUBCOMP_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND), _Channel} =
+    {ok, {outgoing, ?PUBCOMP_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND)}, _Channel} =
         emqx_channel:handle_in(?PUBREL_PACKET(1, ?RC_SUCCESS), channel()).
 
 t_handle_in_pubcomp_ok(_) ->
@@ -517,7 +517,7 @@ t_handle_in_unsubscribe(_) ->
         emqx_channel:handle_in(?UNSUBSCRIBE_PACKET(1, #{}, [<<"+">>]), Channel).
 
 t_handle_in_pingreq(_) ->
-    {ok, ?PACKET(?PINGRESP), _Channel} =
+    {ok, {outgoing, ?PACKET(?PINGRESP)}, _Channel} =
         emqx_channel:handle_in(?PACKET(?PINGREQ), channel()).
 
 t_handle_in_disconnect(_) ->
@@ -597,7 +597,7 @@ t_process_publish_qos0(_) ->
 t_process_publish_qos1(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Publish = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>),
-    {ok, ?PUBACK_PACKET(1, ?RC_NO_MATCHING_SUBSCRIBERS), _Channel} =
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_NO_MATCHING_SUBSCRIBERS)}, _Channel} =
         emqx_channel:process_publish(Publish, channel()).
 
 t_process_subscribe(_) ->
@@ -646,12 +646,16 @@ t_quota_qos1(_) ->
     ),
     Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
     %% Quota per connections
-    {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann1} = emqx_channel:handle_in(Pub, Chann),
-    {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), Chann2} = emqx_channel:handle_in(Pub, Chann1),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann1} =
+        emqx_channel:handle_in(Pub, Chann),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, Chann2} =
+        emqx_channel:handle_in(Pub, Chann1),
     timer:sleep(1200),
-    {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann3} = emqx_channel:handle_in(Pub, Chann2),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann3} =
+        emqx_channel:handle_in(Pub, Chann2),
     %% Quota in overall
-    {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub, Chann3),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
+        emqx_channel:handle_in(Pub, Chann3),
     ok.
 
 t_quota_qos2(_) ->
@@ -667,12 +671,16 @@ t_quota_qos2(_) ->
     Pub3 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 3, <<"payload">>),
     Pub4 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 4, <<"payload">>),
     %% Quota per connections
-    {ok, ?PUBREC_PACKET(1, ?RC_SUCCESS), Chann1} = emqx_channel:handle_in(Pub1, Chann),
-    {ok, ?PUBREC_PACKET(2, ?RC_QUOTA_EXCEEDED), Chann2} = emqx_channel:handle_in(Pub2, Chann1),
+    {ok, {outgoing, ?PUBREC_PACKET(1, ?RC_SUCCESS)}, Chann1} =
+        emqx_channel:handle_in(Pub1, Chann),
+    {ok, {outgoing, ?PUBREC_PACKET(2, ?RC_QUOTA_EXCEEDED)}, Chann2} =
+        emqx_channel:handle_in(Pub2, Chann1),
     timer:sleep(1200),
-    {ok, ?PUBREC_PACKET(3, ?RC_SUCCESS), Chann3} = emqx_channel:handle_in(Pub3, Chann2),
+    {ok, {outgoing, ?PUBREC_PACKET(3, ?RC_SUCCESS)}, Chann3} =
+        emqx_channel:handle_in(Pub3, Chann2),
     %% Quota in overall
-    {ok, ?PUBREC_PACKET(4, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub4, Chann3),
+    {ok, {outgoing, ?PUBREC_PACKET(4, ?RC_QUOTA_EXCEEDED)}, _} =
+        emqx_channel:handle_in(Pub4, Chann3),
     ok.
 
 t_quota_bytes(_) ->
@@ -685,12 +693,16 @@ t_quota_bytes(_) ->
     ),
     Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
     %% Quota per connections
-    {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann1} = emqx_channel:handle_in(Pub, Chann),
-    {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), Chann2} = emqx_channel:handle_in(Pub, Chann1),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann1} =
+        emqx_channel:handle_in(Pub, Chann),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, Chann2} =
+        emqx_channel:handle_in(Pub, Chann1),
     timer:sleep(1200),
-    {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann3} = emqx_channel:handle_in(Pub, Chann2),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann3} =
+        emqx_channel:handle_in(Pub, Chann2),
     %% Quota in overall
-    {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub, Chann3),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
+        emqx_channel:handle_in(Pub, Chann3),
     ok.
 
 t_mount_will_msg(_) ->
@@ -794,23 +806,23 @@ t_handle_out_connack_failure(_) ->
 
 t_handle_out_puback(_) ->
     Channel = channel(#{conn_state => connected}),
-    {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), _NChannel} =
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, _NChannel} =
         emqx_channel:handle_out(puback, {1, ?RC_SUCCESS}, Channel).
 
 t_handle_out_pubrec(_) ->
     Channel = channel(#{conn_state => connected}),
-    {ok, ?PUBREC_PACKET(1, ?RC_SUCCESS), _NChannel} =
+    {ok, {outgoing, ?PUBREC_PACKET(1, ?RC_SUCCESS)}, _NChannel} =
         emqx_channel:handle_out(pubrec, {1, ?RC_SUCCESS}, Channel).
 
 t_handle_out_pubrel(_) ->
     Channel = channel(#{conn_state => connected}),
-    {ok, ?PUBREL_PACKET(1), Channel1} =
+    {ok, {outgoing, ?PUBREL_PACKET(1)}, Channel1} =
         emqx_channel:handle_out(pubrel, {1, ?RC_SUCCESS}, Channel),
-    {ok, ?PUBREL_PACKET(2, ?RC_SUCCESS), _Channel2} =
+    {ok, {outgoing, ?PUBREL_PACKET(2, ?RC_SUCCESS)}, _Channel2} =
         emqx_channel:handle_out(pubrel, {2, ?RC_SUCCESS}, Channel1).
 
 t_handle_out_pubcomp(_) ->
-    {ok, ?PUBCOMP_PACKET(1, ?RC_SUCCESS), _Channel} =
+    {ok, {outgoing, ?PUBCOMP_PACKET(1, ?RC_SUCCESS)}, _Channel} =
         emqx_channel:handle_out(pubcomp, {1, ?RC_SUCCESS}, channel()).
 
 t_handle_out_suback(_) ->

@@ -77,6 +77,7 @@
     replay/3,
     handle_timeout/3,
     handle_info/3,
+    handle_signal/3,
     disconnect/2,
     terminate/3
 ]).
@@ -720,11 +721,19 @@ handle_timeout(ClientInfo, ?DEQUEUE_RETRY_TIMER, Session) ->
 %% Geneic messages
 %%--------------------------------------------------------------------
 
--spec handle_info(term(), session(), clientinfo()) -> session().
-handle_info(zone_changed, Session, ClientInfo) ->
+-spec handle_info(clientinfo(), term(), session()) -> session().
+handle_info(ClientInfo, zone_changed, Session) ->
     apply_conf(emqx_session:get_session_conf(ClientInfo), Session);
-handle_info(_Msg, Session, _ClientInfo) ->
+handle_info(_ClientInfo, _Msg, Session) ->
     Session.
+
+-spec handle_signal(clientinfo(), term(), session()) ->
+    {ok, session()}
+    | {ok, replies(), session()}.
+handle_signal(ClientInfo, {connection, decongested, _Info}, Session) ->
+    dequeue(ClientInfo, Session);
+handle_signal(_ClientInfo, _Signal, Session) ->
+    {ok, Session}.
 
 %%--------------------------------------------------------------------
 %% Retry Delivery

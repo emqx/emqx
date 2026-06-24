@@ -577,7 +577,12 @@ handle_msg({incoming, Packet}, State) ->
     ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
     handle_incoming(Packet, State);
 handle_msg({outgoing, Packets}, State) ->
-    handle_outgoing(Packets, State);
+    case handle_outgoing(Packets, State) of
+        {ok, NState} ->
+            maybe_signal_congestion(NState);
+        {ok, {sock_error, _}, _State} = Error ->
+            Error
+    end;
 handle_msg(
     Deliver = {deliver, _Topic, _Msg},
     #state{gc_tracker = {ActiveN, _, _}} = State
@@ -942,10 +947,10 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
         {ok, NChannel} ->
             {ok, State#state{channel = NChannel}};
         {ok, Replies, NChannel} ->
-            {ok, next_msgs(Replies), State#state{channel = NChannel}};
+            {ok, Replies, State#state{channel = NChannel}};
         {continue, Replies, NChannel} ->
             %% NOTE: Will later go back to `emqx_channel:handle_info/2`.
-            {ok, [next_msgs(Replies), continue], State#state{channel = NChannel}};
+            {ok, [Replies, continue], State#state{channel = NChannel}};
         {shutdown, Reason, NChannel} ->
             shutdown(Reason, State#state{channel = NChannel});
         {shutdown, Reason, Packet, NChannel} ->
@@ -1001,8 +1006,8 @@ do_handle_outgoing_loop(MaxBufSize, Rest, State0, N, _BufOctets, Buf) ->
     case send(N, lists:reverse(Buf), State0) of
         {ok, State} ->
             do_handle_outgoing_loop(MaxBufSize, Rest, State, 0, 0, []);
-        Err ->
-            Err
+        {ok, {sock_error, _}, _State} = Error ->
+            Error
     end.
 
 serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
@@ -1053,11 +1058,13 @@ send(
     Handle = make_ref(),
     case socket:send(Socket, IoData, [], Handle) of
         ok ->
-            sent(Num, Oct, State);
+            {ok, sent(Num, Oct, State)};
         {select, {_Info, Rest}} ->
-            sent(Num, Oct, queue_send(Handle, Rest, iolist_size(Rest), State));
+            NState = queue_send(Handle, Rest, iolist_size(Rest), State),
+            {ok, sent(Num, Oct, NState)};
         {select, _Info} ->
-            sent(Num, Oct, queue_send(Handle, IoData, Oct, State));
+            NState = queue_send(Handle, IoData, Oct, State),
+            {ok, sent(Num, Oct, NState)};
         {error, {Reason, _Rest}} ->
             %% Defer error handling:
             {ok, {sock_error, Reason}, State};
@@ -1073,8 +1080,8 @@ send(
     case erlang:monotonic_time(millisecond) of
         BeforeDeadline when BeforeDeadline < Deadline ->
             NSS = SS#congested{sendq = [IoData | SQ], queued = NOctets + Oct},
-            NState = maybe_signal_congestion(NSS, State),
-            sent(Num, Oct, NState);
+            NState = State#state{sockstate = NSS},
+            {ok, sent(Num, Oct, NState)};
         _PastDeadline ->
             {ok, {sock_error, send_timeout}, State}
     end;
@@ -1084,19 +1091,18 @@ send(_Num, _IoVec, #state{sockstate = closed} = State) ->
 -compile({inline, [handle_send_ready/2]}).
 handle_send_ready(
     Socket,
-    State = #state{sockstate = SS = #congested{sendq = SQ, watermark = WM}, channel = Channel}
+    State = #state{sockstate = SS = #congested{sendq = SQ, watermark = WM}}
 ) ->
     IoData = sendq_to_iodata(SQ, []),
     Handle = make_ref(),
     case socket:send(Socket, IoData, [], Handle) of
         ok ->
             Signal = {connection, decongested, #{sendq_size => 0}},
-            NChannel = emqx_channel:handle_signal(Signal, Channel),
-            NState = State#state{sockstate = idle, channel = NChannel},
-            {ok, NState};
+            signal_channel(Signal, State#state{sockstate = idle});
         {select, {_Info, Rest}} ->
             %% Partially accepted, renew deadline.
-            {ok, queue_send(Handle, Rest, iolist_size(Rest), WM, State)};
+            NState = queue_send(Handle, Rest, iolist_size(Rest), WM, State),
+            maybe_signal_congestion(NState);
         {select, _Info} ->
             %% Totally congested, keep the deadline.
             NSS = SS#congested{handle = Handle, sendq = [IoData]},
@@ -1123,26 +1129,34 @@ queue_send(Handle, IoData, NOctets, WM, State = #state{listener = {Type, Name}})
         queued = NOctets,
         watermark = WM
     },
-    maybe_signal_congestion(SS, State).
+    State#state{sockstate = SS}.
 
 maybe_signal_congestion(
-    SS = #congested{queued = NOctets, watermark = {high, WM}},
-    State = #state{channel = Channel}
+    State = #state{
+        sockstate = SS = #congested{queued = NOctets, watermark = {high, WM}}
+    }
 ) when NOctets > WM ->
     Signal = {connection, congested, #{sendq_size => NOctets}},
-    NChannel = emqx_channel:handle_signal(Signal, Channel),
     NSS = SS#congested{watermark = {low, WM div 2}},
-    State#state{sockstate = NSS, channel = NChannel};
+    signal_channel(Signal, State#state{sockstate = NSS});
 maybe_signal_congestion(
-    SS = #congested{queued = NOctets, watermark = {low, WM}},
-    State = #state{channel = Channel}
+    State = #state{
+        sockstate = SS = #congested{queued = NOctets, watermark = {low, WM}}
+    }
 ) when NOctets < WM ->
     Signal = {connection, decongested, #{sendq_size => NOctets}},
-    NChannel = emqx_channel:handle_signal(Signal, Channel),
     NSS = SS#congested{watermark = {high, WM * 2}},
-    State#state{sockstate = NSS, channel = NChannel};
-maybe_signal_congestion(SS, State) ->
-    State#state{sockstate = SS}.
+    signal_channel(Signal, State#state{sockstate = NSS});
+maybe_signal_congestion(State) ->
+    {ok, State}.
+
+signal_channel(Signal, State = #state{channel = Channel}) ->
+    case emqx_channel:handle_signal(Signal, Channel) of
+        {ok, NChannel} ->
+            {ok, State#state{channel = NChannel}};
+        {ok, Replies, NChannel} ->
+            {ok, Replies, State#state{channel = NChannel}}
+    end.
 
 check_send_timeout(#congested{deadline = Deadline}, State) ->
     case erlang:monotonic_time(millisecond) of
@@ -1165,6 +1179,7 @@ sendq_bytesize(_) ->
     0.
 
 %% Some bytes sent
+-spec sent(non_neg_integer(), non_neg_integer(), state()) -> state().
 sent(
     Num,
     Oct,
@@ -1189,7 +1204,7 @@ sent(
         ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_delay_us, ?US(TDeliver - T0)),
         ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_total_lat_us, ?US(TSent - T0))
     end),
-    {ok, NState}.
+    NState.
 
 -compile({inline, [trigger_gc/4]}).
 trigger_gc(NPkts, NBytes, ActiveN, State) ->
@@ -1347,14 +1362,6 @@ inc_metrics(Name, State, Val) ->
 
 %%--------------------------------------------------------------------
 %% Helper functions
-
--compile({inline, [next_msgs/1]}).
-next_msgs(Packet) when is_record(Packet, mqtt_packet) ->
-    {outgoing, Packet};
-next_msgs(Event) when is_tuple(Event) ->
-    Event;
-next_msgs(More) when is_list(More) ->
-    More.
 
 -compile({inline, [shutdown/2, shutdown/3]}).
 shutdown(Reason, State) ->

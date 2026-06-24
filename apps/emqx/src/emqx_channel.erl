@@ -142,7 +142,7 @@
     | {event, conn_state() | updated}
     | {close, Reason :: atom()}.
 
--type replies() :: emqx_types:packet() | reply() | [reply()].
+-type replies() :: reply() | [reply()].
 
 -define(IS_MQTT_V5, #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}).
 -define(IS_CONNECTED_OR_REAUTHENTICATING(ConnState),
@@ -573,7 +573,7 @@ handle_in(?PACKET(?PINGREQ), Channel = #channel{keepalive = KeepAlive}) ->
         ok,
         NChannel
     ),
-    {ok, ?PACKET(?PINGRESP), reset_timer(keepalive, NChannel)};
+    {ok, ?REPLY_OUTGOING(?PACKET(?PINGRESP)), reset_timer(keepalive, NChannel)};
 handle_in(
     ?PACKET(?DISCONNECT, _PktVar) = Packet,
     Channel
@@ -701,14 +701,9 @@ maybe_recreate_limiter(Channel) ->
 
 maybe_handle_session_zone_change(#channel{session = undefined} = Channel) ->
     Channel;
-maybe_handle_session_zone_change(
-    Channel = #channel{
-        clientinfo = ClientInfo,
-        session = Session0
-    }
-) ->
-    Session = emqx_session:handle_info(zone_changed, Session0, ClientInfo),
-    Channel#channel{session = Session}.
+maybe_handle_session_zone_change(Channel) ->
+    self() ! {session, zone_changed},
+    Channel.
 
 %%--------------------------------------------------------------------
 %% Process Publish
@@ -1450,29 +1445,25 @@ handle_out(publish, Publishes, Channel) ->
 handle_out(puback, {PacketId, ReasonCode}, Channel) ->
     {ok,
         ?EXT_TRACE_OUTGOING_START(
-            basic_attrs(Channel),
-            ?PUBACK_PACKET(PacketId, ReasonCode)
+            basic_attrs(Channel), ?REPLY_OUTGOING(?PUBACK_PACKET(PacketId, ReasonCode))
         ),
         Channel};
 handle_out(pubrec, {PacketId, ReasonCode}, Channel) ->
     {ok,
         ?EXT_TRACE_OUTGOING_START(
-            basic_attrs(Channel),
-            ?PUBREC_PACKET(PacketId, ReasonCode)
+            basic_attrs(Channel), ?REPLY_OUTGOING(?PUBREC_PACKET(PacketId, ReasonCode))
         ),
         Channel};
 handle_out(pubrel, {PacketId, ReasonCode}, Channel) ->
     {ok,
         ?EXT_TRACE_OUTGOING_START(
-            basic_attrs(Channel),
-            ?PUBREL_PACKET(PacketId, ReasonCode)
+            basic_attrs(Channel), ?REPLY_OUTGOING(?PUBREL_PACKET(PacketId, ReasonCode))
         ),
         Channel};
 handle_out(pubcomp, {PacketId, ReasonCode}, Channel) ->
     {ok,
         ?EXT_TRACE_OUTGOING_START(
-            basic_attrs(Channel),
-            ?PUBCOMP_PACKET(PacketId, ReasonCode)
+            basic_attrs(Channel), ?REPLY_OUTGOING(?PUBCOMP_PACKET(PacketId, ReasonCode))
         ),
         Channel};
 handle_out(suback, {PacketId, ReasonCodes}, Channel = ?IS_MQTT_V5) ->
@@ -1846,19 +1837,22 @@ handle_info({puback, PacketId, PubRes, RC}, Channel) ->
 handle_info(heal_cluster_partition, Channel) ->
     handle_heal_partition(Channel),
     {ok, Channel};
+handle_info({session, Info}, Channel = #channel{session = Session0, clientinfo = ClientInfo}) ->
+    Session = emqx_session:handle_info(ClientInfo, Info, Session0),
+    {ok, Channel#channel{session = Session}};
 handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInfo}) ->
-    Session = emqx_session:handle_info(Info, Session0, ClientInfo),
+    Session = emqx_session:handle_info(ClientInfo, Info, Session0),
     Channel1 = Channel0#channel{session = Session},
     Acc0 = #{deliver => [], replies => []},
     Acc = run_fold_with_context('client.handle_info', [ClientInfo, Info], Acc0, Channel1),
-    Delivers = maps:get(deliver, Acc, []),
-    Replies = maps:get(replies, Acc, []),
+    HookDelivers = maps:get(deliver, Acc, []),
+    HookReplies = maps:get(replies, Acc, []),
     {AllReplies, Channel} =
-        case handle_deliver(Delivers, Channel1) of
+        case handle_deliver(HookDelivers, Channel1) of
             {ok, Channel2} ->
-                {Replies, Channel2};
+                {HookReplies, Channel2};
             {ok, DeliverReplies, Channel2} ->
-                {append_replies(DeliverReplies, Replies), Channel2}
+                {append_replies(DeliverReplies, HookReplies), Channel2}
         end,
     case AllReplies of
         [] ->
@@ -1890,10 +1884,45 @@ die_if_test_compiled() ->
 %% Handle signal
 %%--------------------------------------------------------------------
 
-handle_signal({connection, congested, _Info}, Channel) ->
-    Channel#channel{conn_flags = [congested]};
-handle_signal({connection, decongested, _Info}, Channel) ->
-    Channel#channel{conn_flags = []}.
+-spec handle_signal(term(), channel()) ->
+    {ok, channel()}
+    | {ok, reply() | [reply()], channel()}.
+handle_signal(
+    {connection, congested, _Info} = Signal,
+    Channel = #channel{conn_flags = Flags, clientinfo = ClientInfo, session = Session}
+) ->
+    case lists:usort([congested | Flags]) of
+        Flags ->
+            {ok, Channel};
+        NFlags ->
+            handle_session_signal(ClientInfo, Signal, Channel#channel{conn_flags = NFlags}, Session)
+    end;
+handle_signal(
+    {connection, decongested, _Info} = Signal,
+    Channel = #channel{conn_flags = Flags, clientinfo = ClientInfo, session = Session}
+) ->
+    case Flags -- [congested] of
+        Flags ->
+            {ok, Channel};
+        NFlags ->
+            handle_session_signal(ClientInfo, Signal, Channel#channel{conn_flags = NFlags}, Session)
+    end.
+
+handle_session_signal(ClientInfo, Signal, Channel, Session) ->
+    case emqx_session:handle_signal(ClientInfo, Signal, Session) of
+        {ok, NSession} ->
+            {ok, Channel#channel{session = NSession}};
+        {ok, Publishes, NSession} ->
+            handle_signal_publishes(Publishes, Channel#channel{session = NSession})
+    end.
+
+handle_signal_publishes(Publishes, Channel) ->
+    case do_deliver(Publishes, Channel) of
+        {[], NChannel} ->
+            {ok, NChannel};
+        {Packets, NChannel} ->
+            {ok, ?REPLY_OUTGOING(Packets), NChannel}
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle timeout

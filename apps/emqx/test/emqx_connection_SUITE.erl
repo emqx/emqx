@@ -50,6 +50,7 @@ init_per_suite(Config) ->
     ok = meck:expect(emqx_alarm, deactivate, fun(_, _) -> ok end),
 
     Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
+    ok = emqx_limiter:create_listener_limiters('tcp:default', #{}),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -285,7 +286,7 @@ t_handle_timeout(_) ->
         emqx_connection:handle_timeout(TRef, idle_timeout, State)
     ),
     ?assertMatch(
-        {ok, _NState},
+        {ok, _Msgs, _NState},
         emqx_connection:handle_timeout(TRef, emit_stats, State)
     ),
     ?assertMatch(
@@ -510,37 +511,40 @@ t_activate_socket(_) ->
     ?assertEqual({ok, State2}, emqx_connection:activate_socket(State2)).
 
 t_sendq_congestion_trigger(_) ->
+    HWM = emqx_config:get_listener_conf(tcp, default, [tcp_options, high_watermark]),
     ok = meck:expect(emqx_channel, handle_signal, fun
         ({connection, congested, _Info}, Channel) ->
             erlang:put(sendq_congested_notified, true),
-            Channel;
+            {ok, Channel};
         ({connection, decongested, _Info}, Channel) ->
             erlang:put(sendq_decongested_notified, true),
-            Channel;
+            {ok, Channel};
         (Signal, Channel) ->
             meck:passthrough([Signal, Channel])
     end),
-    Threshold = emqx_threshold:init([
-        {oom, count, 1},
-        {sendq, bytes, 50}
-    ]),
-    State0 = st(#{
-        sockstate => running,
-        sendq_watermark => 100,
-        threshold_out => Threshold
-    }),
+    %% Simulate sendq congestion:
+    State0 = st(#{sockstate => running}),
     ok = meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
-        {ok, [{K, 60} || K <- Options]}
+        {ok, [{K, round(HWM * 0.8)} || K <- Options]}
     end),
-    {ok, State1} = emqx_connection:sent(0, 50, State0),
-    ?assertEqual(congested, emqx_connection:info(sockstate, State1)),
+    %% Small packet does not trigger sendq probe:
+    {ok, State1} = handle_msg(
+        {outgoing, ?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 1, payload(10))},
+        State0
+    ),
+    %% Enough bytes passed through the connection to notice sendq congestion:
+    {ok, _Msgs1, State2} = handle_msg(
+        {outgoing, ?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 1, payload(HWM div 2))},
+        State1
+    ),
+    ?assertEqual(congested, emqx_connection:info(sockstate, State2)),
     ?assertEqual(true, erlang:get(sendq_congested_notified)),
-
+    %% Simulate sendq got decongested:
     ok = meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
-        {ok, [{K, 20} || K <- Options]}
+        {ok, [{K, round(HWM * 0.2)} || K <- Options]}
     end),
-    {ok, State2} = emqx_connection:sent(1, 0, State1),
-    ?assertEqual(running, emqx_connection:info(sockstate, State2)),
+    {ok, _Msgs2, State3} = handle_msg({tcp_passive, sock}, State2),
+    ?assertEqual(running, emqx_connection:info(sockstate, State3)),
     ?assertEqual(true, erlang:get(sendq_decongested_notified)).
 
 t_close_socket(_) ->
@@ -552,11 +556,6 @@ t_close_socket(_) ->
 t_system_code_change(_) ->
     State = st(),
     ?assertEqual({ok, State}, emqx_connection:system_code_change(State, [], [], [])).
-
-t_next_msgs(_) ->
-    ?assertEqual({outgoing, ?CONNECT_PACKET()}, emqx_connection:next_msgs(?CONNECT_PACKET())),
-    ?assertEqual({}, emqx_connection:next_msgs({})),
-    ?assertEqual([], emqx_connection:next_msgs([])).
 
 t_start_link_ok(_) ->
     with_conn(fun(CPid) -> state = element(1, sys:get_state(CPid)) end).
@@ -771,7 +770,7 @@ channel(InitFields) ->
     },
     ClientInfo = #{
         zone => default,
-        listener => {tcp, default},
+        listener => 'tcp:default',
         protocol => mqtt,
         peerhost => {127, 0, 0, 1},
         clientid => <<"clientid">>,

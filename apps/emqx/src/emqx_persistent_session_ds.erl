@@ -71,6 +71,7 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
     replay/3,
     handle_timeout/3,
     handle_info/3,
+    handle_signal/3,
     disconnect/2,
     terminate/3
 ]).
@@ -685,31 +686,33 @@ handle_timeout(_ClientInfo, Timeout, Session) ->
 %% Generic messages
 %%--------------------------------------------------------------------
 
--spec handle_info(term(), session(), clientinfo()) -> session().
+-spec handle_info(clientinfo(), term(), session()) -> session().
+handle_info(ClientInfo, zone_changed, Session) ->
+    Conf = emqx_session:get_session_conf(ClientInfo),
+    Session#{props := Conf};
 handle_info(
+    ClientInfo,
     ?shared_sub_message = Msg,
-    Session,
-    ClientInfo
+    Session
 ) ->
     schedule_delivery(emqx_persistent_session_ds_shared_subs:on_info(Msg, Session, ClientInfo));
-handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
+handle_info(_ClientInfo, #req_sync{from = From, ref = Ref}, Session0) ->
     Session = commit(Session0, #{lifetime => up, sync => true}),
     From ! Ref,
     Session;
-handle_info(Message, Session0 = #{dscli := DSCli0}, ClientInfo) ->
+handle_info(ClientInfo, Message, Session0 = #{dscli := DSCli0}) ->
     case emqx_ds_client:dispatch_message(Message, DSCli0, Session0) of
         {data, SubId, Stream, DSSubHandle, AsyncReply} ->
             handle_ds_reply(SubId, Stream, DSSubHandle, AsyncReply, Session0, ClientInfo);
         {DSCli, Session} ->
             Session#{dscli := DSCli};
         ignore ->
-            handle_info1(Message, Session0, ClientInfo)
+            handle_info1(Message, Session0)
     end.
 
 handle_info1(
     Info,
-    Session = #{s := S0},
-    _ClientInfo
+    Session = #{s := S0}
 ) ->
     %% Handle all the other messages.
     %%
@@ -726,6 +729,12 @@ handle_info1(
             ?tp(debug, ?sessds_unknown_message, #{message => Info}),
             Session
     end.
+
+-spec handle_signal(clientinfo(), term(), session()) ->
+    {ok, session()}
+    | {ok, emqx_session:replies(), session()}.
+handle_signal(_ClientInfo, _Signal, Session) ->
+    {ok, Session}.
 
 %%--------------------------------------------------------------------
 %% Replay of old messages during session restart
@@ -1062,7 +1071,7 @@ sync(ClientID) ->
     case emqx_cm:lookup_channels(ClientID) of
         [Pid] ->
             Ref = monitor(process, Pid),
-            Pid ! #req_sync{from = self(), ref = Ref},
+            Pid ! {session, #req_sync{from = self(), ref = Ref}},
             receive
                 {'DOWN', Ref, process, _Pid, Reason} ->
                     {error, Reason};

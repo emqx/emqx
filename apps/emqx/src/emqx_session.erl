@@ -74,6 +74,7 @@
 -export([
     deliver/4,
     handle_info/3,
+    handle_signal/3,
     handle_timeout/3,
     disconnect/3,
     terminate/3
@@ -199,7 +200,12 @@
     {ok, replies(), t()}
     | {ok, replies(), timeout(), t()}.
 
--callback handle_info(term(), t(), clientinfo()) -> t().
+-callback handle_info(clientinfo(), term(), t()) ->
+    t().
+
+-callback handle_signal(clientinfo(), term(), t()) ->
+    {ok, t()}
+    | {ok, replies(), t()}.
 
 -callback get_subscription(emqx_types:topic(), t()) ->
     emqx_types:subopts() | undefined.
@@ -610,9 +616,16 @@ handle_timeout(ClientInfo, Timer, Session) ->
 %% Generic Messages
 %%--------------------------------------------------------------------
 
--spec handle_info(term(), t(), clientinfo()) -> t().
-handle_info(Info, Session, ClientInfo) ->
-    ?IMPL(Session):handle_info(Info, Session, ClientInfo).
+-spec handle_info(clientinfo(), term(), t()) ->
+    t().
+handle_info(ClientInfo, Info, Session) ->
+    ?IMPL(Session):handle_info(ClientInfo, Info, Session).
+
+-spec handle_signal(clientinfo(), term(), t()) ->
+    {ok, t()}
+    | {ok, replies(), t()}.
+handle_signal(ClientInfo, Signal, Session) ->
+    ?IMPL(Session):handle_signal(ClientInfo, Signal, Session).
 
 %%--------------------------------------------------------------------
 
