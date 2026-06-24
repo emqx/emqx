@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -define(STATS_KYES, [
     recv_pkt,
@@ -248,7 +249,11 @@ t_puback_not_lost_on_disconnect(_) ->
     ?assertNot(lists:member(<<"1">>, Msgs1)),
     emqtt:stop(C1).
 
--doc "An inflight (sent-but-unacked) QoS-1 message is retried at takeover even after its Message-Expiry-Interval elapsed: per [MQTT-3.3.2-5] expiry only drops messages whose onward delivery has not started.".
+-doc """
+An inflight (sent-but-unacked) QoS-1 message is retried at takeover even after
+its Message-Expiry-Interval elapsed: per [MQTT-3.3.2-5], expiry only drops
+messages whose onward delivery has not started.
+""".
 t_inflight_retried_after_expiry_on_takeover(_) ->
     ClientId = <<"inflight_retry_after_expiry">>,
     {ok, CPub} = emqtt:start_link([
@@ -277,12 +282,7 @@ t_inflight_retried_after_expiry_on_takeover(_) ->
     ),
     %% The message reaches the subscriber and enters the session inflight set;
     %% onward delivery has started, but we deliberately do NOT acknowledge it.
-    receive
-        {publish, #{client_pid := C0, topic := <<"t/a">>}} ->
-            ok
-    after 2000 ->
-        ct:fail(should_receive_publish)
-    end,
+    {publish, #{client_pid := C0}} = ?assertReceive({publish, #{topic := <<"t/a">>}}),
     %% Disconnect (keep the session); the un-acked message stays in inflight.
     ok = emqtt:disconnect(C0),
     ?retry(100, 20, [] =:= emqx_cm:lookup_channels(ClientId)),
