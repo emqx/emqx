@@ -686,6 +686,23 @@ t_update_user_namespace_in_body(_TCConfig) ->
         {200, _},
         update_user(<<"u1">>, #{<<"password">> => <<"p2">>, <<"namespace">> => Ns}, #{})
     ),
+    %% A body namespace pointing at a different namespace (where the user does
+    %% not exist) is honored and yields 404 rather than touching another record.
+    ?assertMatch(
+        {404, _},
+        update_user(
+            <<"u1">>, #{<<"password">> => <<"p2">>, <<"namespace">> => <<"another_ns">>}, #{}
+        )
+    ),
+    %% The `ns' query parameter takes precedence over the `namespace' body field.
+    ?assertMatch(
+        {200, _},
+        update_user(
+            <<"u1">>,
+            #{<<"password">> => <<"p3">>, <<"namespace">> => <<"another_ns">>},
+            #{<<"ns">> => Ns}
+        )
+    ),
     ?assertMatch({204, _}, delete_user(<<"u1">>, #{<<"ns">> => Ns})),
     ok.
 

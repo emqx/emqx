@@ -1785,35 +1785,27 @@ user_out(User) ->
 get_namespace(#{resolved_ns := Namespace}) ->
     Namespace.
 
-parse_namespace(Req, Method) ->
+parse_namespace(Req) ->
     ActorNamespace = emqx_dashboard:get_namespace(Req),
-    case requested_namespace(Method, Req) of
+    case requested_namespace(Req) of
         undefined ->
             {ok, ActorNamespace};
         ActorNamespace ->
             {ok, ActorNamespace};
-        _Other when ActorNamespace =:= ?global_ns ->
+        Other when ActorNamespace =:= ?global_ns ->
             %% Only a global admin may operate on an arbitrary namespace.
-            {ok, _Other};
+            {ok, Other};
         _Other ->
             {error, not_authorized}
     end.
 
-%% Decide where the requested namespace comes from, per HTTP method:
-%%   * POST / PUT carry a body, so the `namespace' body field takes precedence,
-%%     falling back to the `ns' query parameter.
-%%   * DELETE may carry a body too, but the `ns' query parameter wins; the body
-%%     `namespace' is only a fallback.
-%%   * GET (and anything else) only reads the `ns' query parameter, as a GET body
-%%     has no defined semantics.
-%% Returns `undefined' when no namespace was requested, so the caller can default
-%% to the actor's namespace.
-requested_namespace(Method, Req) when Method =:= post; Method =:= put ->
-    first_defined([body_namespace(Req), qs_namespace(Req)]);
-requested_namespace(delete, Req) ->
-    first_defined([qs_namespace(Req), body_namespace(Req)]);
-requested_namespace(_Method, Req) ->
-    qs_namespace(Req).
+%% The requested namespace may be carried in the `ns' query parameter or in the
+%% `namespace' request body field. The query parameter always takes precedence;
+%% the body field is only a fallback (and is the only option for GET, which has
+%% no body). Returns `undefined' when no namespace was requested, so the caller
+%% can default to the actor's namespace.
+requested_namespace(Req) ->
+    first_defined([qs_namespace(Req), body_namespace(Req)]).
 
 qs_namespace(#{query_string := QueryString}) ->
     maps:get(<<"ns">>, QueryString, undefined);
@@ -1829,8 +1821,8 @@ first_defined([undefined | Rest]) -> first_defined(Rest);
 first_defined([Value | _Rest]) -> Value;
 first_defined([]) -> undefined.
 
-resolve_namespace(Req, #{method := Method}) ->
-    case parse_namespace(Req, Method) of
+resolve_namespace(Req, _Meta) ->
+    case parse_namespace(Req) of
         {ok, Namespace} ->
             {ok, Req#{resolved_ns => Namespace}};
         {error, not_authorized} ->
