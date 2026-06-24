@@ -204,7 +204,7 @@ fields(transport_options) ->
                 }
             )}
     ] ++
-        emqx_connector_schema_lib:ssl_fields(_EnableByDefault = true) ++
+        emqx_connector_schema_lib:ssl_fields(#{enable_by_default => true}) ++
         fields(http_request);
 fields(http_request) ->
     Fields = props_with(
