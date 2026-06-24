@@ -48,6 +48,43 @@ t_json_fmt_lazy_values_only_in_debug_level_events(_) ->
 t_json_payload(_) ->
     check_fmt_payload(emqx_logger_jsonfmt).
 
+t_json_fmt_tuple_field_without_chars_limit(_) ->
+    check_fmt_tuple_field_without_chars_limit(emqx_logger_jsonfmt).
+
+%% A formatter config may legitimately omit the `chars_limit' rendering hint
+%% (e.g. handlers added programmatically). Such a config must not crash the
+%% formatter when a log field holds a tuple. This reproduces the "FORMATTER
+%% CRASH" seen on authn trace events, whose `result' field is a tuple such as
+%% `{ok, #{...}}' / `{error, _}' / `{stop, _}'.
+check_fmt_tuple_field_without_chars_limit(FormatModule) ->
+    %% Note: no `chars_limit' key in the config on purpose.
+    Conf = #{
+        time_offset => [],
+        depth => 100,
+        single_line => true,
+        template => ["[", level, "] ", msg, "\n"],
+        timestamp_format => auto
+    },
+    Event = #{
+        level => debug,
+        msg =>
+            {report, #{
+                msg => authenticator_result,
+                tag => "AUTHN",
+                authenticator => <<"password_based:built_in_database">>,
+                result => {ok, #{is_superuser => false}}
+            }},
+        meta => #{
+            time => 0,
+            report_cb => fun logger:format_otp_report/1
+        }
+    },
+    LogEntryIOData = FormatModule:format(Event, Conf),
+    LogEntryBin = unicode:characters_to_binary(LogEntryIOData),
+    ?assertNotEqual(nomatch, binary:match(LogEntryBin, [<<"authenticator_result">>])),
+    ?assertNotEqual(nomatch, binary:match(LogEntryBin, [<<"is_superuser">>])),
+    ok.
+
 check_fmt_lazy_values(FormatModule) ->
     LogEntryIOData = FormatModule:format(event_with_lazy_value(), conf()),
     LogEntryBin = unicode:characters_to_binary(LogEntryIOData),
