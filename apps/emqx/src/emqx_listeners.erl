@@ -1087,6 +1087,7 @@ to_quicer_listener_opts(Name, Opts) ->
     %% Conn Opts
     HibernateAfterMs = maps:get(hibernate_after, ListenOpts),
     ConnectionOpts = #{
+        alpn => ["mqtt"],
         conn_callback => emqx_quic_connection,
         peer_unidi_stream_count => maps:get(peer_unidi_stream_count, Opts, 1),
         peer_bidi_stream_count => maps:get(peer_bidi_stream_count, Opts, 10),
