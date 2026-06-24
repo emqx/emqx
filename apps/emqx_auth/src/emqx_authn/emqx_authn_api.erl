@@ -125,6 +125,7 @@ roots() ->
     [
         request_user_create,
         request_user_update,
+        request_user_delete,
         response_user,
         response_users,
         request_authn_order
@@ -132,12 +133,16 @@ roots() ->
 
 fields(request_user_create) ->
     [
-        {namespace, mk(binary(), #{required => false})},
         {user_id, mk(binary(), #{required => true})}
         | fields(request_user_update)
     ];
+fields(request_user_delete) ->
+    [
+        {namespace, mk(binary(), #{required => false})}
+    ];
 fields(request_user_update) ->
     [
+        {namespace, mk(binary(), #{required => false})},
         {password, mk(binary(), #{required => true})},
         {is_superuser, mk(boolean(), #{default => false, required => false})}
     ];
@@ -380,7 +385,7 @@ schema("/authentication/:id/users") ->
         post => #{
             tags => ?API_TAGS_GLOBAL,
             description => ?DESC(authentication_id_users_post),
-            parameters => [param_auth_id()],
+            parameters => [param_auth_id(), ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(request_user_create),
                 request_user_create_examples()
@@ -507,6 +512,10 @@ schema("/authentication/:id/users/:user_id") ->
             tags => ?API_TAGS_GLOBAL,
             description => ?DESC(authentication_id_users_user_id_delete),
             parameters => [param_auth_id(), param_user_id(), ns_qs_param()],
+            'requestBody' => emqx_dashboard_swagger:schema_with_example(
+                ref(request_user_delete),
+                #{<<"namespace">> => <<"ns1">>}
+            ),
             responses => #{
                 204 => ?DESC("user_deleted"),
                 404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
@@ -851,17 +860,17 @@ listener_authenticator_position(
         end
     ).
 
-authenticator_users(post, #{
-    bindings := #{id := AuthenticatorID},
-    body := UserInfo,
-    resolved_ns := ResolvedNs
-}) ->
-    case effective_user_namespace(UserInfo, ResolvedNs) of
-        {ok, Namespace} ->
-            add_user(?GLOBAL, AuthenticatorID, UserInfo#{<<"namespace">> => Namespace});
-        {error, forbidden} ->
-            ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
-    end;
+authenticator_users(
+    post,
+    #{
+        bindings := #{id := AuthenticatorID},
+        body := UserInfo
+    } = Req
+) ->
+    %% Namespace is resolved (and authorized against the actor) in `filter/2',
+    %% honoring the `namespace' body field and the `ns' query param.
+    Namespace = get_namespace(Req),
+    add_user(?GLOBAL, AuthenticatorID, UserInfo#{<<"namespace">> => Namespace});
 authenticator_users(get, #{
     bindings := #{id := AuthenticatorID},
     query_string := QueryString,
@@ -1306,17 +1315,6 @@ update_user(ChainName, Namespace, AuthenticatorID, UserID, UserInfo0) ->
                 {error, Reason} ->
                     serialize_error(Reason)
             end
-    end.
-
-%% A global admin (resolved_ns = ?global_ns) may write to any namespace by
-%% specifying it in the body; a namespaced admin may only write to their own
-%% namespace and any mismatch in the body is rejected.
-effective_user_namespace(UserInfo, ?global_ns) ->
-    {ok, maps:get(<<"namespace">>, UserInfo, ?global_ns)};
-effective_user_namespace(UserInfo, ResolvedNs) ->
-    case maps:get(<<"namespace">>, UserInfo, ResolvedNs) of
-        ResolvedNs -> {ok, ResolvedNs};
-        _Other -> {error, forbidden}
     end.
 
 %% MQTT users in a non-global namespace must never be superusers: explicit ACL
@@ -1787,17 +1785,52 @@ user_out(User) ->
 get_namespace(#{resolved_ns := Namespace}) ->
     Namespace.
 
-parse_namespace(#{query_string := QueryString} = Req) ->
+parse_namespace(Req, Method) ->
     ActorNamespace = emqx_dashboard:get_namespace(Req),
-    case maps:get(<<"ns">>, QueryString, ActorNamespace) of
-        QSNamespace when QSNamespace /= ActorNamespace andalso ActorNamespace /= ?global_ns ->
-            {error, not_authorized};
-        QSNamespace ->
-            {ok, QSNamespace}
+    case requested_namespace(Method, Req) of
+        undefined ->
+            {ok, ActorNamespace};
+        ActorNamespace ->
+            {ok, ActorNamespace};
+        _Other when ActorNamespace =:= ?global_ns ->
+            %% Only a global admin may operate on an arbitrary namespace.
+            {ok, _Other};
+        _Other ->
+            {error, not_authorized}
     end.
 
-resolve_namespace(Req, _Meta) ->
-    case parse_namespace(Req) of
+%% Decide where the requested namespace comes from, per HTTP method:
+%%   * POST / PUT carry a body, so the `namespace' body field takes precedence,
+%%     falling back to the `ns' query parameter.
+%%   * DELETE may carry a body too, but the `ns' query parameter wins; the body
+%%     `namespace' is only a fallback.
+%%   * GET (and anything else) only reads the `ns' query parameter, as a GET body
+%%     has no defined semantics.
+%% Returns `undefined' when no namespace was requested, so the caller can default
+%% to the actor's namespace.
+requested_namespace(Method, Req) when Method =:= post; Method =:= put ->
+    first_defined([body_namespace(Req), qs_namespace(Req)]);
+requested_namespace(delete, Req) ->
+    first_defined([qs_namespace(Req), body_namespace(Req)]);
+requested_namespace(_Method, Req) ->
+    qs_namespace(Req).
+
+qs_namespace(#{query_string := QueryString}) ->
+    maps:get(<<"ns">>, QueryString, undefined);
+qs_namespace(_Req) ->
+    undefined.
+
+body_namespace(#{body := Body}) when is_map(Body) ->
+    maps:get(<<"namespace">>, Body, undefined);
+body_namespace(_Req) ->
+    undefined.
+
+first_defined([undefined | Rest]) -> first_defined(Rest);
+first_defined([Value | _Rest]) -> Value;
+first_defined([]) -> undefined.
+
+resolve_namespace(Req, #{method := Method}) ->
+    case parse_namespace(Req, Method) of
         {ok, Namespace} ->
             {ok, Req#{resolved_ns => Namespace}};
         {error, not_authorized} ->
@@ -1806,15 +1839,23 @@ resolve_namespace(Req, _Meta) ->
 
 validate_managed_namespace(#{resolved_ns := ?global_ns} = Req, _Meta) ->
     {ok, Req};
-validate_managed_namespace(#{resolved_ns := Namespace} = Req, _Meta) ->
-    Res = emqx_hooks:run_fold('namespace.resource_pre_create', [#{namespace => Namespace}], #{
-        exists => false
-    }),
-    case Res of
-        #{exists := false} ->
-            ?BAD_REQUEST(<<"Managed namespace not found">>);
-        #{exists := true} ->
-            {ok, Req}
+validate_managed_namespace(#{resolved_ns := Namespace} = Req, #{method := Method}) ->
+    %% A global admin must be able to delete built-in auth records even when the
+    %% owning namespace has already been deleted (cleanup of orphaned data), so
+    %% the existence check is skipped for global-admin deletes.
+    case Method =:= delete andalso emqx_dashboard:get_namespace(Req) =:= ?global_ns of
+        true ->
+            {ok, Req};
+        false ->
+            Res = emqx_hooks:run_fold(
+                'namespace.resource_pre_create', [#{namespace => Namespace}], #{exists => false}
+            ),
+            case Res of
+                #{exists := false} ->
+                    ?BAD_REQUEST(<<"Managed namespace not found">>);
+                #{exists := true} ->
+                    {ok, Req}
+            end
     end.
 
 filter(Req0, Meta) ->
