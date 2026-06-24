@@ -45,7 +45,15 @@ introduced_in() ->
 %% tuple — owner namespace is encoded in the key.
 %%--------------------------------------------------------------------
 
--spec install_local(emqx_topic_metrics_registry:name(), binary(), binary()) -> ok.
+%% Return type mirrors `emqx_cluster_rpc:multicall/3': `ok' when the
+%% MFA succeeds on the initiator AND every peer catches up, otherwise
+%% an error term (`init_failure', `disconnected', RPC timeout, etc.).
+%% Spec includes the error half so the caller can pattern-match on
+%% non-`ok' returns; declaring just `-> ok' makes dialyzer flag any
+%% such match as unreachable.
+-type broadcast_result() :: ok | term().
+
+-spec install_local(emqx_topic_metrics_registry:name(), binary(), binary()) -> broadcast_result().
 install_local(Name, TopicFilter, CreateTime) ->
     emqx_cluster_rpc:multicall(
         emqx_topic_metrics_registry,
@@ -53,19 +61,19 @@ install_local(Name, TopicFilter, CreateTime) ->
         [Name, TopicFilter, CreateTime]
     ).
 
--spec uninstall_local(emqx_topic_metrics_registry:name()) -> ok.
+-spec uninstall_local(emqx_topic_metrics_registry:name()) -> broadcast_result().
 uninstall_local(Name) ->
     emqx_cluster_rpc:multicall(
         emqx_topic_metrics_registry, do_uninstall_local, [Name]
     ).
 
--spec reset_local(emqx_topic_metrics_registry:name()) -> ok.
+-spec reset_local(emqx_topic_metrics_registry:name()) -> broadcast_result().
 reset_local(Name) ->
     emqx_cluster_rpc:multicall(
         emqx_topic_metrics_registry, do_reset_local, [Name]
     ).
 
--spec uninstall_all_local([emqx_topic_metrics_registry:name()]) -> ok.
+-spec uninstall_all_local([emqx_topic_metrics_registry:name()]) -> broadcast_result().
 uninstall_all_local(Names) ->
     emqx_cluster_rpc:multicall(
         emqx_topic_metrics_registry, do_uninstall_all_local, [Names]
