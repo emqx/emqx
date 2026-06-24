@@ -160,11 +160,15 @@ format_msg({report, Report}, #{report_cb := Fun}, Config) when is_function(Fun, 
 format_msg({Fmt, Args}, _Meta, Config) ->
     do_format_msg(Fmt, Args, Config).
 
-do_format_msg(Format0, Args, #{
-    depth := Depth,
-    single_line := SingleLine,
-    chars_limit := Limit
-}) ->
+do_format_msg(Format0, Args, Config) when is_map(Config) ->
+    %% `depth', `single_line' and `chars_limit' are rendering hints that may be
+    %% absent from a formatter config (e.g. a handler added programmatically).
+    %% Treat them as optional and fall back to the same defaults
+    %% `logger_formatter' uses, so that formatting never crashes with
+    %% `function_clause' on an otherwise valid config.
+    Depth = maps:get(depth, Config, unlimited),
+    SingleLine = maps:get(single_line, Config, true),
+    Limit = maps:get(chars_limit, Config, unlimited),
     Opts = chars_limit_to_opts(Limit),
     Format1 = io_lib:scan_format(Format0, Args),
     Format = reformat(Format1, Depth, SingleLine),
@@ -205,7 +209,7 @@ limit_depth(#{control_char := C0, args := Args} = M0, Depth) ->
     M0#{control_char := C, args := Args ++ [Depth]}.
 
 add_default_config(Config0) ->
-    Default = #{single_line => true},
+    Default = #{single_line => true, chars_limit => unlimited},
     Depth = get_depth(maps:get(depth, Config0, undefined)),
     maps:merge(Default, Config0#{depth => Depth}).
 
