@@ -151,9 +151,19 @@ ensure_installed(NameVsn, LogFun) ->
 ensure_installed_cluster(NameVsn, LogFun) ->
     case emqx_plugins_fs:get_tar(NameVsn) of
         {ok, TarBin} ->
-            Nodes = emqx:running_nodes(),
-            Results = emqx_plugins_proto_v5:install_package(Nodes, NameVsn, TarBin),
-            print_cluster_result(Nodes, Results, NameVsn, LogFun);
+            Running = emqx:running_nodes(),
+            V5Nodes = nodes_supporting_bpapi_version(5),
+            case Running -- V5Nodes of
+                [] ->
+                    Results = emqx_plugins_proto_v5:install_package(V5Nodes, NameVsn, TarBin),
+                    print_cluster_result(V5Nodes, Results, NameVsn, LogFun);
+                Missing ->
+                    Reason = #{
+                        hint => <<"cluster install requires all nodes to support proto v5">>,
+                        nodes_missing_v5 => Missing
+                    },
+                    ?PRINT({error, Reason}, LogFun)
+            end;
         {error, Reason} ->
             ?PRINT({error, Reason}, LogFun)
     end.
