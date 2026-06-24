@@ -466,17 +466,16 @@ assert_successful_connection(Config, ClientNum) ->
         end
     ).
 
-trace_between(Trace0, Marker1, Marker2) ->
-    {Trace1, [_ | _]} = ?split_trace_at(#{?snk_kind := Marker2}, Trace0),
-    {[_ | _], [_ | Trace2]} = ?split_trace_at(#{?snk_kind := Marker1}, Trace1),
-    Trace2.
-
 of_kinds(Trace0, Kinds0) ->
     Kinds = sets:from_list(Kinds0, [{version, 2}]),
     lists:filter(
         fun(#{?snk_kind := K}) -> sets:is_element(K, Kinds) end,
         Trace0
     ).
+
+%% The cache mutation events, emitted by the single emqx_crl_cache gen_server.
+cache_trace(Trace) ->
+    of_kinds(Trace, [new_crl_url_inserted, crl_cache_overflow, crl_cache_ensure_timer]).
 
 ensure_ssl_manager_alive() ->
     ?retry(
@@ -487,18 +486,6 @@ ensure_ssl_manager_alive() ->
 
 now_ms() ->
     erlang:system_time(millisecond).
-
-%% Since some events in this suite might come from different processes, relying on time
-%% ordering might be flaky.
-sort_trace(Trace) ->
-    lists:sort(
-        fun(#{?snk_kind := K1} = E1, #{?snk_kind := K2} = E2) ->
-            S1 = maps:get(?snk_span, E1, undefined),
-            S2 = maps:get(?snk_span, E2, undefined),
-            {K1, S1} =< {K2, S2}
-        end,
-        Trace
-    ).
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -772,181 +759,44 @@ t_cache_overflow(Config) ->
     ?check_trace(
         begin
             %% First and second connections goes into the cache
-            ?tp(first_connections, #{}),
             assert_successful_connection(Config, 1),
             assert_successful_connection(Config, 2),
             %% These should be cached
-            ?tp(first_reconnections, #{}),
             assert_successful_connection(Config, 1),
             assert_successful_connection(Config, 2),
             %% A third client connects and evicts the oldest URL (1)
-            ?tp(first_eviction, #{}),
             assert_successful_connection(Config, 3),
             assert_successful_connection(Config, 3),
             %% URL (1) connects again and needs to be re-cached; this
             %% time, (2) gets evicted
-            ?tp(second_eviction, #{}),
             assert_successful_connection(Config, 1),
             %% TODO: force race condition where the same URL is fetched
             %% at the same time and tries to be registered
-            ?tp(test_end, #{}),
             ok
         end,
         fun(Trace) ->
             URL1 = "http://localhost:9878/intermediate1.crl.pem",
             URL2 = "http://localhost:9878/intermediate2.crl.pem",
             URL3 = "http://localhost:9878/intermediate3.crl.pem",
-            Kinds = [
-                mqtt_client_connection,
-                new_crl_url_inserted,
-                crl_cache_ensure_timer,
-                crl_cache_overflow
-            ],
-            Trace1 = of_kinds(
-                trace_between(Trace, first_connections, first_reconnections),
-                Kinds
-            ),
+            %% The cache mutation events all come from the single
+            %% emqx_crl_cache gen_server, so their global order is
+            %% deterministic: URL1 and URL2 fill the cache, URL3 evicts the
+            %% oldest (URL1), then URL1 re-enters and evicts the new oldest
+            %% (URL2).
             ?assertMatch(
                 [
-                    #{
-                        ?snk_kind := crl_cache_ensure_timer,
-                        url := URL1
-                    },
-                    #{
-                        ?snk_kind := crl_cache_ensure_timer,
-                        url := URL2
-                    },
-                    #{
-                        ?snk_kind := mqtt_client_connection,
-                        ?snk_span := start,
-                        client_num := 1
-                    },
-                    #{
-                        ?snk_kind := mqtt_client_connection,
-                        ?snk_span := start,
-                        client_num := 2
-                    },
-                    #{
-                        ?snk_kind := mqtt_client_connection,
-                        ?snk_span := {complete, ok},
-                        client_num := 1
-                    },
-                    #{
-                        ?snk_kind := mqtt_client_connection,
-                        ?snk_span := {complete, ok},
-                        client_num := 2
-                    },
-                    #{
-                        ?snk_kind := new_crl_url_inserted,
-                        url := URL1
-                    },
-                    #{
-                        ?snk_kind := new_crl_url_inserted,
-                        url := URL2
-                    }
+                    #{?snk_kind := new_crl_url_inserted, url := URL1},
+                    #{?snk_kind := crl_cache_ensure_timer, url := URL1},
+                    #{?snk_kind := new_crl_url_inserted, url := URL2},
+                    #{?snk_kind := crl_cache_ensure_timer, url := URL2},
+                    #{?snk_kind := new_crl_url_inserted, url := URL3},
+                    #{?snk_kind := crl_cache_overflow, oldest_url := URL1},
+                    #{?snk_kind := crl_cache_ensure_timer, url := URL3},
+                    #{?snk_kind := new_crl_url_inserted, url := URL1},
+                    #{?snk_kind := crl_cache_overflow, oldest_url := URL2},
+                    #{?snk_kind := crl_cache_ensure_timer, url := URL1}
                 ],
-                sort_trace(Trace1)
-            ),
-            Trace2 = of_kinds(
-                trace_between(Trace, first_reconnections, first_eviction),
-                Kinds
-            ),
-            ?assertMatch(
-                [
-                    #{
-                        ?snk_kind := mqtt_client_connection,
-                        ?snk_span := start,
-                        client_num := 1
-                    },
-                    #{
-                        ?snk_kind := mqtt_client_connection,
-                        ?snk_span := start,
-                        client_num := 2
-                    },
-                    #{
-                        ?snk_kind := mqtt_client_connection,
-                        ?snk_span := {complete, ok},
-                        client_num := 1
-                    },
-                    #{
-                        ?snk_kind := mqtt_client_connection,
-                        ?snk_span := {complete, ok},
-                        client_num := 2
-                    }
-                ],
-                sort_trace(Trace2)
-            ),
-            Trace3 = of_kinds(
-                trace_between(Trace, first_eviction, second_eviction),
-                Kinds
-            ),
-            ?assertMatch(
-                [
-                    #{
-                        ?snk_kind := crl_cache_ensure_timer,
-                        url := URL3
-                    },
-                    #{
-                        ?snk_kind := crl_cache_overflow,
-                        oldest_url := URL1
-                    },
-                    #{
-                        ?snk_kind := mqtt_client_connection,
-                        ?snk_span := start,
-                        client_num := 3
-                    },
-                    #{
-                        ?snk_kind := mqtt_client_connection,
-                        ?snk_span := start,
-                        client_num := 3
-                    },
-                    #{
-                        ?snk_kind := mqtt_client_connection,
-                        ?snk_span := {complete, ok},
-                        client_num := 3
-                    },
-                    #{
-                        ?snk_kind := mqtt_client_connection,
-                        ?snk_span := {complete, ok},
-                        client_num := 3
-                    },
-                    #{
-                        ?snk_kind := new_crl_url_inserted,
-                        url := URL3
-                    }
-                ],
-                sort_trace(Trace3)
-            ),
-            Trace4 = of_kinds(
-                trace_between(Trace, second_eviction, test_end),
-                Kinds
-            ),
-            ?assertMatch(
-                [
-                    #{
-                        ?snk_kind := crl_cache_ensure_timer,
-                        url := URL1
-                    },
-                    #{
-                        ?snk_kind := crl_cache_overflow,
-                        oldest_url := URL2
-                    },
-                    #{
-                        ?snk_kind := mqtt_client_connection,
-                        ?snk_span := start,
-                        client_num := 1
-                    },
-                    #{
-                        ?snk_kind := mqtt_client_connection,
-                        ?snk_span := {complete, ok},
-                        client_num := 1
-                    },
-                    #{
-                        ?snk_kind := new_crl_url_inserted,
-                        url := URL1
-                    }
-                ],
-                sort_trace(Trace4)
+                cache_trace(Trace)
             ),
             ok
         end
