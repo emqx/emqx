@@ -28,7 +28,7 @@
 -define(TIMEOUT, 25_000).
 
 introduced_in() ->
-    "5.10.5".
+    "6.0.4".
 
 -spec install_package([node()], binary() | string(), binary()) ->
     emqx_rpc:erpc_multicall(ok | {error, term()}).
