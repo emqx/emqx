@@ -110,7 +110,36 @@ message_expiry_interval_init(Tag) ->
     emqtt:subscribe(CControl, <<"t/a">>, 1),
     emqtt:subscribe(CVerify, <<"t/a">>, 1),
     emqtt:stop(CVerify),
+    %% Wait until the broker has fully processed Client-Verify's DISCONNECT and
+    %% moved its (retained) session into the `disconnected` state before any
+    %% message is published. Until then the channel is still `connected`, so a
+    %% delivered QoS>0 message is placed into the session's inflight window
+    %% instead of the mqueue. Inflight messages are replayed verbatim on resume,
+    %% bypassing the mqueue's Message-Expiry-Interval check -- which made the
+    %% expiry assertions race (most visibly for QoS=2, whose longer publish
+    %% handshake widens the window).
+    ok = wait_until_session_disconnected(<<"Client-Verify-", Tag/binary>>),
     {CPublish, CControl}.
+
+wait_until_session_disconnected(ClientId) ->
+    wait_until_session_disconnected(ClientId, 100).
+
+wait_until_session_disconnected(ClientId, 0) ->
+    error({session_still_connected, ClientId});
+wait_until_session_disconnected(ClientId, N) ->
+    case emqx_cm:lookup_channels(ClientId) of
+        [_ | _] = Pids ->
+            case lists:any(fun emqx_cm:is_channel_connected/1, Pids) of
+                false -> ok;
+                true -> retry_until_session_disconnected(ClientId, N)
+            end;
+        [] ->
+            retry_until_session_disconnected(ClientId, N)
+    end.
+
+retry_until_session_disconnected(ClientId, N) ->
+    ct:sleep(50),
+    wait_until_session_disconnected(ClientId, N - 1).
 
 message_expiry_interval_exipred(CPublish, CControl, QoS, Tag) ->
     ct:pal("~p ~p", [?FUNCTION_NAME, QoS]),
