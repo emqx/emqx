@@ -13,7 +13,9 @@
     default_ciphers/0,
     selected_ciphers/1,
     integral_ciphers/2,
-    all_ciphers_set_cached/0
+    all_ciphers_set_cached/0,
+    cipher_to_rfc/1,
+    convert_ciphers_to_rfc/2
 ]).
 
 %% SSL files
@@ -156,6 +158,45 @@ all_ciphers_set_cached() ->
         Set ->
             Set
     end.
+
+%% @doc Convert an OpenSSL cipher name to RFC/IANA format.
+-spec cipher_to_rfc(string() | binary()) -> string().
+cipher_to_rfc(Cipher) when is_binary(Cipher) ->
+    cipher_to_rfc(binary_to_list(Cipher));
+cipher_to_rfc(Cipher) ->
+    Suite = ssl:str_to_suite(Cipher),
+    ssl:suite_to_str(Suite).
+
+%% @doc Convert a list of OpenSSL cipher names to RFC format,
+%% filtering against a supported list.
+%% Returns {Converted, Unsupported} where both lists contain
+%% original cipher name strings.
+-spec convert_ciphers_to_rfc([string() | binary()], [string() | binary()]) ->
+    {[string()], [string() | binary()]}.
+convert_ciphers_to_rfc(Ciphers, Supported) ->
+    StrSupported = lists:map(
+        fun
+            (C) when is_binary(C) -> binary_to_list(C);
+            (C) -> C
+        end,
+        Supported
+    ),
+    lists:foldr(
+        fun(Cipher, {Ok, Bad}) ->
+            try cipher_to_rfc(Cipher) of
+                Rfc ->
+                    case lists:member(Rfc, StrSupported) of
+                        true -> {[Rfc | Ok], Bad};
+                        false -> {Ok, [Cipher | Bad]}
+                    end
+            catch
+                _:_ ->
+                    {Ok, [Cipher | Bad]}
+            end
+        end,
+        {[], []},
+        Ciphers
+    ).
 
 %% @hidden Return a list of all supported ciphers.
 all_ciphers() ->

@@ -111,6 +111,24 @@ start(NodeSpecs) ->
 
 perform(Act, NodeSpecs, Opts) ->
     ct:pal("~ping nodes: ~p", [Act, NodeSpecs]),
+    try
+        do_perform(Act, NodeSpecs, Opts)
+    catch
+        Kind:Reason:Stacktrace ->
+            %% A failure partway through startup leaves the already-started peer
+            %% control processes registered locally (by their node name). If we
+            %% leak them, a retry of the same test case (e.g. via the flaky-test
+            %% hook, `emqx_cth_ct_hook_flaky`) reuses the same node names and
+            %% `emqx_cth_peer:do_start/6`'s `erlang:register/2` would crash with
+            %% `badarg`. Best-effort cleanup before re-raising so a retry starts
+            %% from scratch.
+            Nodes = [Node || #{name := Node} <- NodeSpecs],
+            ct:pal("cleaning up partially started nodes after ~p:~p: ~p", [Kind, Reason, Nodes]),
+            catch stop(Nodes),
+            erlang:raise(Kind, Reason, Stacktrace)
+    end.
+
+do_perform(Act, NodeSpecs, Opts) ->
     % 1. Start bare nodes with only basic applications running
     ok = start_nodes_init(NodeSpecs, ?TIMEOUT_NODE_START_MS, Opts),
     % 2. Start applications needed to enable clustering
