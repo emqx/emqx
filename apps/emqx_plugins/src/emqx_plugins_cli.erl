@@ -8,6 +8,7 @@
     list/1,
     describe/2,
     ensure_installed/2,
+    ensure_installed_cluster/2,
     ensure_uninstalled/2,
     ensure_started/2,
     ensure_stopped/2,
@@ -19,6 +20,7 @@
     disallow_installation/2
 ]).
 
+-include("emqx_plugins.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -define(BPAPI_NAME, emqx_plugins).
@@ -98,6 +100,22 @@ print_allow_result(Nodes, Results, NameVsn, LogFun) ->
         end,
     print(NameVsn, Result, LogFun, allow_installation).
 
+print_cluster_result(Nodes, Results, NameVsn, LogFun) ->
+    Errors =
+        lists:filter(
+            fun
+                ({_Node, {ok, ok}}) -> false;
+                ({_Node, _}) -> true
+            end,
+            lists:zip(Nodes, Results)
+        ),
+    Result =
+        case Errors of
+            [] -> ok;
+            _ -> {error, maps:from_list(Errors)}
+        end,
+    print(NameVsn, Result, LogFun, ensure_installed_cluster).
+
 disallow_installation(NameVsn, LogFun) ->
     try emqx_plugins_utils:parse_name_vsn(NameVsn) of
         {_AppName, _Vsn} ->
@@ -128,7 +146,17 @@ do_disallow_installation(NameVsn, LogFun) ->
     ?PRINT(Result, LogFun).
 
 ensure_installed(NameVsn, LogFun) ->
-    ?PRINT(emqx_plugins:ensure_installed(NameVsn), LogFun).
+    ?PRINT(emqx_plugins:ensure_installed(NameVsn, ?fresh_install), LogFun).
+
+ensure_installed_cluster(NameVsn, LogFun) ->
+    case emqx_plugins_fs:get_tar(NameVsn) of
+        {ok, TarBin} ->
+            Nodes = emqx:running_nodes(),
+            Results = emqx_plugins_proto_v5:install_package(Nodes, NameVsn, TarBin),
+            print_cluster_result(Nodes, Results, NameVsn, LogFun);
+        {error, Reason} ->
+            ?PRINT({error, Reason}, LogFun)
+    end.
 
 ensure_uninstalled(NameVsn, LogFun) ->
     ?PRINT(emqx_plugins:ensure_uninstalled(NameVsn), LogFun).
