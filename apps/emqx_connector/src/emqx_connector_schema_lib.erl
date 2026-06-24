@@ -23,6 +23,7 @@
     pool_size/1,
     relational_db_fields/0,
     ssl_fields/0,
+    ssl_fields/1,
     prepare_statement_fields/0,
     password_field/0,
     password_field/1
@@ -45,10 +46,14 @@
 ]).
 
 ssl_fields() ->
+    ssl_fields(#{enable_by_default => false}).
+
+ssl_fields(Opts) ->
+    EnableByDefault = maps:get(enable_by_default, Opts, false),
     [
         {ssl, #{
             type => hoconsc:ref(emqx_schema, "ssl_client_opts"),
-            default => #{<<"enable">> => false},
+            default => #{<<"enable">> => EnableByDefault},
             desc => ?DESC("ssl")
         }}
     ].
