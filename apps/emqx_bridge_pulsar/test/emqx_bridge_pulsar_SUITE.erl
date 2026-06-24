@@ -559,18 +559,24 @@ t_rule_action(TCConfig) when is_list(TCConfig) ->
         #{payload := Payload} = Context,
         Consumed = receive_consumed(),
         ?assertMatch([#{<<"payload">> := Payload}], Consumed),
-        ?assertMatch(
-            {200, #{
-                <<"metrics">> := #{
-                    <<"matched">> := 1,
-                    <<"success">> := 1,
-                    <<"failed">> := 0,
-                    <<"dropped">> := 0,
-                    <<"late_reply">> := 0,
-                    <<"received">> := 0
-                }
-            }},
-            get_action_metrics_api(TCConfig)
+        %% Async producer mode bumps `inflight' synchronously but `success'
+        %% only after Pulsar's ACK is received. Poll until counters settle.
+        ?retry(
+            _Sleep = 200,
+            _Attempts = 25,
+            ?assertMatch(
+                {200, #{
+                    <<"metrics">> := #{
+                        <<"matched">> := 1,
+                        <<"success">> := 1,
+                        <<"failed">> := 0,
+                        <<"dropped">> := 0,
+                        <<"late_reply">> := 0,
+                        <<"received">> := 0
+                    }
+                }},
+                get_action_metrics_api(TCConfig)
+            )
         )
     end,
     Opts = #{

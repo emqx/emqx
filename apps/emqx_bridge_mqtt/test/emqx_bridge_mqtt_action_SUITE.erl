@@ -341,19 +341,6 @@ start_client(Node, Opts) when is_atom(Node) ->
     {ok, _} = emqtt:connect(C),
     C.
 
-recv_downs(N, Timeout) ->
-    recv_downs(N, Timeout, []).
-
-recv_downs(0, _Timeout, Acc) ->
-    lists:reverse(Acc);
-recv_downs(N, Timeout, Acc) ->
-    receive
-        {'DOWN', _MRef, process, Pid, _Reason} ->
-            recv_downs(N - 1, Timeout, [Pid | Acc])
-    after Timeout ->
-        ct:fail("timeout waiting for ~b more DOWN messages, got: ~p", [N, lists:reverse(Acc)])
-    end.
-
 get_emqtt_clients(PoolName) ->
     lists:filtermap(
         fun({_Id, Worker}) ->
@@ -406,6 +393,25 @@ wait_until_all_clients_disconnected(Retries) ->
         _ ->
             timer:sleep(100),
             wait_until_all_clients_disconnected(Retries - 1)
+    end.
+
+%% Collect N `'DOWN'' messages from monitors already set up by the caller,
+%% waiting up to `Timeout' total for them all to arrive. Fails the test if
+%% fewer than N arrive within the timeout. Unlike `emqx_utils:drain_down/1'
+%% (which uses `after 0' and races mailbox arrival), this actually waits.
+wait_for_downs(N, Timeout) ->
+    Deadline = erlang:monotonic_time(millisecond) + Timeout,
+    wait_for_downs(N, Deadline, []).
+
+wait_for_downs(0, _Deadline, Acc) ->
+    lists:reverse(Acc);
+wait_for_downs(N, Deadline, Acc) ->
+    Remaining = max(0, Deadline - erlang:monotonic_time(millisecond)),
+    receive
+        {'DOWN', _MRef, process, Pid, _Reason} ->
+            wait_for_downs(N - 1, Deadline, [Pid | Acc])
+    after Remaining ->
+        ct:fail({timeout_waiting_for_downs, #{missing => N, got => lists:reverse(Acc)}})
     end.
 
 start_publisher(Topic, Interval, CtrlPid) ->
@@ -796,7 +802,10 @@ t_reconnect(TCConfig) ->
             lists:foreach(fun(Pid) -> monitor(process, Pid) end, ChanPids),
             ct:pal("kicking ~p (leaving 1 client alive)", [ClientIds]),
             {204, _} = emqx_bridge_v2_testlib:kick_clients_http(ClientIds),
-            DownPids = recv_downs(PoolSize - 1, 5_000),
+            %% `emqx_utils:drain_down/1' returns whatever is already in the
+            %% mailbox (`after 0'), so it races the kick propagation. Wait
+            %% with a generous timeout for the expected count to arrive.
+            DownPids = wait_for_downs(PoolSize - 1, 5_000),
             ?assertEqual(lists:sort(ChanPids), lists:sort(DownPids)),
             %% Recovery
             ct:pal("clients kicked; waiting for recovery..."),
