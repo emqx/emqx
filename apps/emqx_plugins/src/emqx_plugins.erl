@@ -83,7 +83,8 @@
 %% internal RPC targets
 -export([
     get_tar/1,
-    get_config/3
+    get_config/3,
+    install_package/2
 ]).
 
 %% for test cases
@@ -682,6 +683,11 @@ get_config(NameVsn, ?CONFIG_FORMAT_MAP, Default) ->
 
 get_tar(NameVsn) ->
     emqx_plugins_fs:get_tar(NameVsn).
+
+-spec install_package(name_vsn(), binary()) -> ok | {error, term()}.
+install_package(NameVsn, Bin) ->
+    ok = write_package(NameVsn, Bin),
+    ensure_installed(NameVsn, ?fresh_install).
 
 %%--------------------------------------------------------------------
 %% Internal functions
