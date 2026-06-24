@@ -87,7 +87,6 @@
 {emqx_plugins,2}.
 {emqx_plugins,3}.
 {emqx_plugins,4}.
-{emqx_prometheus,1}.
 {emqx_prometheus,2}.
 {emqx_prometheus,3}.
 {emqx_resource,1}.
@@ -101,3 +100,4 @@
 {emqx_slow_subs,1}.
 {emqx_telemetry,1}.
 {emqx_topic_metrics,1}.
+{emqx_topic_metrics2,1}.

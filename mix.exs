@@ -527,6 +527,7 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_bridge,
             :emqx_bridge_mqtt,
             :emqx_modules,
+            :emqx_topic_metrics,
             :emqx_management,
             :emqx_retainer,
             :emqx_prometheus,

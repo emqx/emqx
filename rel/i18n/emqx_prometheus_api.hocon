@@ -40,6 +40,11 @@ get_prom_message_transformation.desc:
 get_prom_message_transformation.label:
 """Prometheus Metrics for Message Validation"""
 
+get_prom_topic_metrics.desc:
+"""Get Prometheus Metrics for Topic Metric Collections (v2). Each collection's counters are exposed as Prometheus gauges labelled by collection name."""
+get_prom_topic_metrics.label:
+"""Prometheus Metrics for Topic Metric Collections"""
+
 mode_parameter.desc:
 """Metrics format mode.
 
