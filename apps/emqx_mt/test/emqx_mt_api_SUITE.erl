@@ -1185,8 +1185,9 @@ t_adjust_limiters(Config) when is_list(Config) ->
             ok
         end,
         fun(Trace) ->
-            ?assertMatch([_, _, _], ?of_kind("channel_limiter_adjusted", Trace)),
-            ok
+            Events = ?of_kind("mt_limiter_adjusted", Trace),
+            ?assertMatch([_, _, _], [E || E = #{level := channel} <- Events]),
+            ?assertMatch([_, _, _], [E || E = #{level := session} <- Events])
         end
     ),
     ok.
