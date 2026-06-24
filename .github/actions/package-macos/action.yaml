@@ -39,7 +39,7 @@ runs:
         APPLE_DEVELOPER_IDENTITY: ${{ inputs.apple_developer_identity }}
         APPLE_DEVELOPER_ID_BUNDLE: ${{ inputs.apple_developer_id_bundle }}
         APPLE_DEVELOPER_ID_BUNDLE_PASSWORD: ${{ inputs.apple_developer_id_bundle_password }}
-        QUICER_TLS_VER: openssl3
+        QUICER_TLS_VER: quictls
       run: |
         erl -s init stop
         elixir -e "System.version() |> IO.puts()"
