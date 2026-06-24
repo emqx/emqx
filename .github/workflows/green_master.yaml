@@ -35,7 +35,7 @@ jobs:
         with:
           ref: ${{ matrix.ref }}
 
-      - name: run script
+      - name: rerun failed push-entrypoint runs (up to 3 attempts)
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -43,4 +43,49 @@ jobs:
         run: |
           for id in $(gh run list --branch ${{ matrix.ref }} --workflow "Push Entrypoint" --commit $(git rev-parse HEAD) --status failure --json databaseId,attempt --jq '.[] | select(.attempt < 3) | .databaseId'); do
             gh run rerun "$id" --failed
+          done
+
+      - name: alert Slack when retries are exhausted
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then
+            echo "SLACK_WEBHOOK_URL is unset; skipping alert."
+            exit 0
+          fi
+          HEAD_SHA=$(git rev-parse HEAD)
+          # Only alert about runs that EXHAUSTED their retry budget within the
+          # last ~65 minutes (one cron window + buffer). Without this guard the
+          # workflow would alert every hour until a human fixes the branch.
+          SINCE=$(date -u -d '65 minutes ago' +%Y-%m-%dT%H:%M:%SZ)
+          mapfile -t runs < <(gh run list \
+            --branch "${{ matrix.ref }}" \
+            --workflow "Push Entrypoint" \
+            --commit "$HEAD_SHA" \
+            --status failure \
+            --json databaseId,attempt,url,updatedAt,headSha \
+            --jq ".[] | select(.attempt >= 3 and .updatedAt >= \"$SINCE\") | @base64")
+          for r in "${runs[@]:-}"; do
+            [ -z "$r" ] && continue
+            decoded=$(echo "$r" | base64 -d)
+            run_url=$(echo "$decoded" | jq -r .url)
+            head_sha=$(echo "$decoded" | jq -r .headSha)
+            cat <<EOF > payload.json
+          {
+            "blocks": [
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "Push CI on \`${{ matrix.ref }}\` (${head_sha}) is still red after 3 attempts: ${run_url}"
+                }
+              }
+            ]
+          }
+          EOF
+            curl -X POST -H 'Content-type: application/json' --data @payload.json "$SLACK_WEBHOOK_URL"
           done
