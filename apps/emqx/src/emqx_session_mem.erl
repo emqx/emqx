@@ -162,13 +162,13 @@
 -spec create(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     session().
 create(
-    #{zone := Zone, listener := ListenerId, clientid := ClientId},
+    #{zone := Zone, clientid := ClientId} = ClientInfo,
     #{expiry_interval := EI, receive_maximum := ReceiveMax},
     _MaybeWillMsg,
     Conf
 ) ->
     QueueOpts = get_mqueue_conf(Zone),
-    Limiter = emqx_limiter:create_session_client_container(ListenerId),
+    Limiter = create_limiter(ClientInfo),
     #session{
         id = emqx_guid:gen(),
         clientid = ClientId,
@@ -187,6 +187,10 @@ create(
         retry_interval = maps:get(retry_interval, Conf),
         await_rel_timeout = maps:get(await_rel_timeout, Conf)
     }.
+
+create_limiter(#{listener := ListenerId} = ClientInfo) ->
+    Limiter = emqx_limiter:create_session_client_container(ListenerId),
+    emqx_hooks:run_fold('session.limiter_adjustment', [ClientInfo], Limiter).
 
 get_mqueue_conf(Zone) ->
     #{
@@ -723,7 +727,10 @@ handle_timeout(ClientInfo, ?DEQUEUE_RETRY_TIMER, Session) ->
 
 -spec handle_info(clientinfo(), term(), session()) -> session().
 handle_info(ClientInfo, zone_changed, Session) ->
-    apply_conf(emqx_session:get_session_conf(ClientInfo), Session);
+    NSession = apply_conf(emqx_session:get_session_conf(ClientInfo), Session),
+    NSession#session{
+        quota = create_limiter(ClientInfo)
+    };
 handle_info(_ClientInfo, _Msg, Session) ->
     Session.
 

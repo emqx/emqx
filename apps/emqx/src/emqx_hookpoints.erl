@@ -27,7 +27,6 @@
 %%-----------------------------------------------------------------------------
 
 -define(MQTT_CLIENT_LIFECYCLE_HOOKPOINTS, [
-    'channel.limiter_adjustment',
     'client.connect',
     'client.connack',
     'client.connected',
@@ -61,7 +60,9 @@
     'message.nack',
     'delivery.dropped',
     'delivery.completed',
-    'cm.channel.unregistered'
+    'cm.channel.unregistered',
+    'channel.limiter_adjustment',
+    'session.limiter_adjustment'
 ]).
 
 -define(MANAGEMENT_HOOKPOINTS, [
@@ -273,14 +274,10 @@ when
 }) ->
     callback_result().
 
--callback 'channel.limiter_adjustment'(
-    #{
-        zone := emqx_types:zone(),
-        listener_id := emqx_listeners:listener_id(),
-        tns := undefined | binary()
-    },
-    emqx_limiter_client:t()
-) ->
+-callback 'channel.limiter_adjustment'(emqx_types:clientinfo(), emqx_limiter_client:t()) ->
+    fold_callback_result(emqx_limiter_client:t()).
+
+-callback 'session.limiter_adjustment'(emqx_types:clientinfo(), emqx_limiter_client:t()) ->
     fold_callback_result(emqx_limiter_client:t()).
 
 %% NOTE

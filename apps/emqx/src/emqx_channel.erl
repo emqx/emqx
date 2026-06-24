@@ -653,7 +653,7 @@ post_process_connect(
     }
 ) ->
     Channel = Channel0#channel{
-        quota = create_limiter(Channel0)
+        quota = create_limiter(ClientInfo)
     },
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg) of
         {ok, #{session := Session, present := false}} ->
@@ -675,35 +675,31 @@ post_process_connect(
             handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
     end.
 
-create_limiter(#channel{clientinfo = #{zone := Zone, listener := ListenerId} = ClientInfo}) ->
+create_limiter(#{zone := Zone, listener := ListenerId} = ClientInfo) ->
     Limiter = emqx_limiter:create_channel_client_container(Zone, ListenerId),
-    Context = #{
-        zone => Zone,
-        listener_id => ListenerId,
-        tns => get_tenant_namespace(ClientInfo)
-    },
-    emqx_hooks:run_fold('channel.limiter_adjustment', [Context], Limiter).
+    emqx_hooks:run_fold('channel.limiter_adjustment', [ClientInfo], Limiter).
 
 handle_zone_change(
     _Output,
     #channel{clientinfo = #{old_zone := _}} = Channel0
 ) ->
-    Channel1 = maybe_recreate_limiter(Channel0),
-    Channel = maybe_handle_session_zone_change(Channel1),
+    Channel1 = recreate_limiter(Channel0),
+    Channel = handle_session_zone_change(Channel1),
     {ok, Channel};
 handle_zone_change(_Output, Channel) ->
     {ok, Channel}.
 
-maybe_recreate_limiter(#channel{quota = undefined} = Channel) ->
+recreate_limiter(#channel{quota = undefined} = Channel) ->
     Channel;
-maybe_recreate_limiter(Channel) ->
-    Channel#channel{quota = create_limiter(Channel)}.
+recreate_limiter(#channel{clientinfo = ClientInfo} = Channel) ->
+    Channel#channel{quota = create_limiter(ClientInfo)}.
 
-maybe_handle_session_zone_change(#channel{session = undefined} = Channel) ->
+handle_session_zone_change(#channel{session = undefined} = Channel) ->
     Channel;
-maybe_handle_session_zone_change(Channel) ->
-    self() ! {session, zone_changed},
-    Channel.
+handle_session_zone_change(#channel{session = Session, clientinfo = ClientInfo} = Channel) ->
+    Channel#channel{
+        session = emqx_session:handle_info(ClientInfo, zone_changed, Session)
+    }.
 
 %%--------------------------------------------------------------------
 %% Process Publish
