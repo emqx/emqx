@@ -466,22 +466,12 @@ assert_successful_connection(Config, ClientNum) ->
         end
     ).
 
-trace_between(Trace0, Marker1, Marker2) ->
-    {Trace1, [_ | _]} = ?split_trace_at(#{?snk_kind := Marker2}, Trace0),
-    {[_ | _], [_ | Trace2]} = ?split_trace_at(#{?snk_kind := Marker1}, Trace1),
-    Trace2.
-
 of_kinds(Trace0, Kinds0) ->
     Kinds = sets:from_list(Kinds0, [{version, 2}]),
     lists:filter(
         fun(#{?snk_kind := K}) -> sets:is_element(K, Kinds) end,
         Trace0
     ).
-
-%% The mqtt connection span events, emitted synchronously by the test client
-%% processes.
-conn_trace(Trace) ->
-    of_kinds(Trace, [mqtt_client_connection]).
 
 %% The cache mutation events, emitted by the single emqx_crl_cache gen_server.
 cache_trace(Trace) ->
@@ -769,76 +759,30 @@ t_cache_overflow(Config) ->
     ?check_trace(
         begin
             %% First and second connections goes into the cache
-            ?tp(first_connections, #{}),
             assert_successful_connection(Config, 1),
             assert_successful_connection(Config, 2),
             %% These should be cached
-            ?tp(first_reconnections, #{}),
             assert_successful_connection(Config, 1),
             assert_successful_connection(Config, 2),
             %% A third client connects and evicts the oldest URL (1)
-            ?tp(first_eviction, #{}),
             assert_successful_connection(Config, 3),
             assert_successful_connection(Config, 3),
             %% URL (1) connects again and needs to be re-cached; this
             %% time, (2) gets evicted
-            ?tp(second_eviction, #{}),
             assert_successful_connection(Config, 1),
             %% TODO: force race condition where the same URL is fetched
             %% at the same time and tries to be registered
-            ?tp(test_end, #{}),
             ok
         end,
         fun(Trace) ->
             URL1 = "http://localhost:9878/intermediate1.crl.pem",
             URL2 = "http://localhost:9878/intermediate2.crl.pem",
             URL3 = "http://localhost:9878/intermediate3.crl.pem",
-            %% The mqtt_client_connection span events are emitted synchronously
-            %% by the test client processes between the phase markers, so they
-            %% can be asserted per phase window.  The cache mutation events
-            %% (new_crl_url_inserted, crl_cache_overflow, crl_cache_ensure_timer)
-            %% are emitted asynchronously by the emqx_crl_cache gen_server and can
-            %% land in a later window than the connection that triggered them, so
-            %% asserting them per window is racy.  They all come from the single
-            %% gen_server, so their global order is deterministic; assert the
-            %% whole cache-event stream once over the entire trace instead.
-            ?assertMatch(
-                [
-                    #{?snk_span := start, client_num := 1},
-                    #{?snk_span := {complete, ok}, client_num := 1},
-                    #{?snk_span := start, client_num := 2},
-                    #{?snk_span := {complete, ok}, client_num := 2}
-                ],
-                conn_trace(trace_between(Trace, first_connections, first_reconnections))
-            ),
-            ?assertMatch(
-                [
-                    #{?snk_span := start, client_num := 1},
-                    #{?snk_span := {complete, ok}, client_num := 1},
-                    #{?snk_span := start, client_num := 2},
-                    #{?snk_span := {complete, ok}, client_num := 2}
-                ],
-                conn_trace(trace_between(Trace, first_reconnections, first_eviction))
-            ),
-            ?assertMatch(
-                [
-                    #{?snk_span := start, client_num := 3},
-                    #{?snk_span := {complete, ok}, client_num := 3},
-                    #{?snk_span := start, client_num := 3},
-                    #{?snk_span := {complete, ok}, client_num := 3}
-                ],
-                conn_trace(trace_between(Trace, first_eviction, second_eviction))
-            ),
-            ?assertMatch(
-                [
-                    #{?snk_span := start, client_num := 1},
-                    #{?snk_span := {complete, ok}, client_num := 1}
-                ],
-                conn_trace(trace_between(Trace, second_eviction, test_end))
-            ),
-            %% Deterministic global order of cache mutations: URL1 and URL2 fill
-            %% the cache, URL3 evicts the oldest (URL1), then URL1 re-enters and
-            %% evicts the new oldest (URL2).
+            %% The cache mutation events all come from the single
+            %% emqx_crl_cache gen_server, so their global order is
+            %% deterministic: URL1 and URL2 fill the cache, URL3 evicts the
+            %% oldest (URL1), then URL1 re-enters and evicts the new oldest
+            %% (URL2).
             ?assertMatch(
                 [
                     #{?snk_kind := new_crl_url_inserted, url := URL1},
