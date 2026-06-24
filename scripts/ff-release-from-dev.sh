@@ -36,15 +36,21 @@ if [ "${DEV_SHA}" = "${REL_SHA}" ]; then
     exit 0
 fi
 
-# Verify dev is a strict descendant of release (ff is possible).
-if ! git merge-base --is-ancestor "${REL_SHA}" "${DEV_SHA}"; then
+# git push (without --force) is intrinsically ff-only — the server rejects
+# non-fast-forward updates with "non-fast-forward" / "fetch first". Use that
+# instead of a pre-check via merge-base; only the push contacts the remote.
+PUSH_ERR=$(mktemp)
+trap 'rm -f "$PUSH_ERR"' EXIT
+if git push origin "${DEV_SHA}:refs/heads/${RELEASE_BRANCH}" 2>"$PUSH_ERR"; then
+    echo "::notice::${RELEASE_BRANCH} advanced from ${REL_SHA} to ${DEV_SHA}."
+    exit 0
+fi
+
+cat "$PUSH_ERR" >&2
+if grep -qE 'non-fast-forward|fetch first|rejected' "$PUSH_ERR"; then
     if [ -n "${GITHUB_ENV:-}" ]; then
         echo "NOT_FAST_FORWARD=1" >> "$GITHUB_ENV"
     fi
-    echo "::error::${RELEASE_BRANCH} (${REL_SHA}) is not an ancestor of ${DEV_BRANCH} (${DEV_SHA}); ff not possible."
-    exit 1
+    echo "::error::${RELEASE_BRANCH} (${REL_SHA}) has diverged from ${DEV_BRANCH} (${DEV_SHA}); ff not possible."
 fi
-
-# Fast-forward the remote release branch.
-git push origin "${DEV_SHA}:refs/heads/${RELEASE_BRANCH}"
-echo "::notice::${RELEASE_BRANCH} advanced from ${REL_SHA} to ${DEV_SHA}."
+exit 1
