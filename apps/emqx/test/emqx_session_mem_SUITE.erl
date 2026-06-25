@@ -643,6 +643,41 @@ test_retry_dequeue(QoS, _TCConfig) ->
     ?assertNotReceive({timeout, _, {emqx_session, _}}, 2500).
 
 -doc """
+Verifies that delivery limits do not compromise message ordering.
+""".
+t_delivery_rate_limit_preserves_qos12_order(_TCConfig) ->
+    ListenerId = 'tcp:ordering',
+    create_limiters(ListenerId, #{<<"delivery_bytes_rate">> => <<"10KB/5s">>}),
+    ?on_exit(delete_limiters(ListenerId)),
+    Session0 = session(#{listener => ListenerId}, #{}),
+    %% Out of 3 messages, either `t1` fits into delivery limit or `t0` & `t2`.
+    Delivers = enrich(
+        [
+            delivery(?QOS_1, <<"t0">>, binary:copy(<<"x">>, 4000)),
+            delivery(?QOS_1, <<"t1">>, binary:copy(<<"x">>, 8000)),
+            delivery(?QOS_1, <<"t2">>, <<"x">>)
+        ],
+        Session0
+    ),
+    %% Delivery limit admits `t0` delivery but not `t1`, this should make both `t1` & `t2`
+    %% enter mqueue.
+    {ok, [_Msg1], Session1} = emqx_session_mem:deliver(clientinfo(), Delivers, [], Session0),
+    ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session1)),
+    ?assertEqual(2, emqx_session_mem:info(mqueue_len, Session1)),
+    ?assertMatch(
+        {[#message{topic = <<"t1">>}, #message{topic = <<"t2">>}], _},
+        emqx_session_mem:info({mqueue_msgs, #{position => none, limit => 10}}, Session1)
+    ),
+    %% After cooldown, both `t1` and `t2` should pass through.
+    Session2 = emqx_session_mem:set_field(quota, limiter_client(ListenerId), Session1),
+    {ok, Publishes, _Session3} =
+        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, Session2),
+    ?assertMatch(
+        [{_, #message{topic = <<"t1">>}}, {_, #message{topic = <<"t2">>}}],
+        Publishes
+    ).
+
+-doc """
 Verifies that we apply delivery rate limiters when processing a `PUBACK`.
 """.
 t_delivery_rate_limit_puback(_TCConfig) ->
