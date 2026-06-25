@@ -100,7 +100,7 @@ authenticate(
                 timeout => Timeout,
                 reason => Reason
             }),
-            ignore
+            emqx_authn_utils:backend_failure_result()
     end.
 
 create_state(

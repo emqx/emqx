@@ -65,7 +65,7 @@ authenticate(
                 timeout => Timeout,
                 reason => Reason
             }),
-            ignore
+            emqx_authn_utils:backend_failure_result()
     end.
 
 do_authenticate(Password, Entry, #{resource_id := ResourceId} = State) ->

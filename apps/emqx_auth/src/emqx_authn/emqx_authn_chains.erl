@@ -864,17 +864,27 @@ do_authenticate(
                             Stacktrace
                         )
                     ),
-                    emqx_metrics_worker:inc(authn_metrics, MetricsID, nomatch),
-                    with_provider_failed
+                    FailureResult = emqx_authn_utils:backend_failure_result(),
+                    inc_failure_metric(MetricsID, FailureResult),
+                    maybe_stop_on_failure(FailureResult)
             end
         end,
         []
     ),
     case Result of
-        with_provider_failed -> do_authenticate(ChainName, More, Credential);
         ignore -> do_authenticate(ChainName, More, Credential);
         {stop, _} -> Result
     end.
+
+inc_failure_metric(MetricsID, ignore) ->
+    emqx_metrics_worker:inc(authn_metrics, MetricsID, nomatch);
+inc_failure_metric(MetricsID, {error, _}) ->
+    emqx_metrics_worker:inc(authn_metrics, MetricsID, failed).
+
+maybe_stop_on_failure(ignore) ->
+    ignore;
+maybe_stop_on_failure({error, _} = Error) ->
+    {stop, Error}.
 
 maybe_add_stacktrace('throw', Data, _Stacktrace) ->
     Data;
@@ -882,21 +892,28 @@ maybe_add_stacktrace(_, Data, Stacktrace) ->
     Data#{stacktrace => Stacktrace}.
 
 check_precondition(undefined, _) ->
-    true;
+    {ok, true};
 check_precondition(Precondition, Credential0) ->
     Credential = emqx_auth_template:rename_client_info_vars(Credential0),
     case emqx_variform:render(Precondition, Credential) of
         {ok, <<"true">>} ->
-            true;
+            {ok, true};
         Other ->
             Other
     end.
 
 authenticate_with_provider(#authenticator{precondition = Precondition} = A, Credential) ->
     case check_precondition(Precondition, Credential) of
-        true ->
+        {ok, true} ->
             do_authenticate_with_provider(A, Credential);
-        Other ->
+        {error, _} = Error ->
+            ?TRACE_AUTHN("precondition_error", #{
+                authenticator => A#authenticator.id,
+                expression => emqx_variform:decompile(Precondition),
+                result => Error
+            }),
+            emqx_authn_utils:backend_failure_result();
+        {ok, Other} ->
             ?TRACE_AUTHN("precondition_not_met", #{
                 authenticator => A#authenticator.id,
                 expression => emqx_variform:decompile(Precondition),

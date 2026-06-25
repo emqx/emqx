@@ -13,6 +13,9 @@
 
 -define(LDAP_HOST, "ldap").
 -define(LDAP_DEFAULT_PORT, 389).
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
+-define(PROXY_NAME, "ldap_tcp").
 
 -define(PATH, [authentication]).
 -define(AUTHN_ID, <<"password_based:ldap">>).
@@ -37,7 +40,7 @@ end_per_testcase(_, Config) ->
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_ldap], #{
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_auth_ldap], #{
         work_dir => ?config(priv_dir, Config)
     }),
     [{apps, Apps} | Config].
@@ -167,14 +170,16 @@ t_authenticate(_Config) ->
         fun(Sample) ->
             test_user_auth(Sample)
         end,
-        user_seeds()
+        cases()
     ).
 
-test_user_auth(#{
-    credentials := Credentials0,
-    config_params := SpecificConfigParams,
-    result := ExpectedResult
-}) ->
+test_user_auth(
+    #{
+        credentials := Credentials0,
+        config_params := SpecificConfigParams,
+        result := ExpectedResult
+    } = Sample
+) ->
     AuthConfig = maps:merge(raw_ldap_auth_config(), SpecificConfigParams),
 
     ct:pal("test_user_auth~ncredentials: ~p~nconfig: ~p~nresult: ~p", [
@@ -190,7 +195,11 @@ test_user_auth(#{
         protocol => mqtt
     },
 
-    ActualAuthResult0 = emqx_access_control:authenticate(Credentials),
+    ActualAuthResult0 = run(
+        Sample,
+        Credentials,
+        fun() -> emqx_access_control:authenticate(Credentials) end
+    ),
     ActualAuthResult = filter_expected_fields(ExpectedResult, ActualAuthResult0),
     ?assertEqual(ExpectedResult, ActualAuthResult),
 
@@ -357,7 +366,7 @@ raw_ldap_auth_config() ->
         <<"pool_size">> => 8
     }.
 
-user_seeds() ->
+cases() ->
     New4 = fun(Username, Password, Result, Params) ->
         #{
             credentials => #{
@@ -384,6 +393,24 @@ user_seeds() ->
     [
         %% Not exists
         New(<<"notexists">>, <<"notexists">>, {error, not_authorized}),
+        maps:merge(
+            New4(
+                <<"mqttuser0001">>,
+                <<"mqttuser0001">>,
+                {ok, #{is_superuser => false}},
+                #{<<"server">> => <<"toxiproxy:389">>}
+            ),
+            #{add_permissive => true, backend_failure => true, security_profile => legacy}
+        ),
+        maps:merge(
+            New4(
+                <<"mqttuser0001">>,
+                <<"mqttuser0001">>,
+                {error, not_authorized},
+                #{<<"server">> => <<"toxiproxy:389">>}
+            ),
+            #{add_permissive => true, backend_failure => true, security_profile => hardened}
+        ),
         %% Wrong Password
         New(<<"mqttuser0001">>, <<"wrongpassword">>, {error, bad_username_or_password}),
         %% Disabled
@@ -427,6 +454,36 @@ user_seeds() ->
 
 ldap_server() ->
     iolist_to_binary(io_lib:format("~s:~B", [?LDAP_HOST, ?LDAP_DEFAULT_PORT])).
+
+run(Sample, Credentials, Auth) ->
+    run([failure, profile, permissive_auth], Sample, Credentials, Auth).
+
+run([failure | Rest], #{backend_failure := true} = Sample, Credentials, Auth) ->
+    emqx_common_test_helpers:with_failure(
+        down,
+        ?PROXY_NAME,
+        ?PROXY_HOST,
+        ?PROXY_PORT,
+        fun() -> run(Rest, Sample, Credentials, Auth) end
+    );
+run([failure | Rest], Sample, Credentials, Auth) ->
+    run(Rest, Sample, Credentials, Auth);
+run([profile | Rest], #{security_profile := Profile} = Sample, Credentials, Auth) ->
+    emqx_common_test_helpers:with_security_profile(atom_to_list(Profile), fun() ->
+        run(Rest, Sample, Credentials, Auth)
+    end);
+run([profile | Rest], Sample, Credentials, Auth) ->
+    run(Rest, Sample, Credentials, Auth);
+run([permissive_auth | Rest], #{add_permissive := true} = Sample, Credentials, Auth) ->
+    #{username := Username, password := Password} = Credentials,
+    ok = emqx_authn_test_lib:add_permissive_builtin_authenticator(
+        ?PATH, ?GLOBAL, Username, Password
+    ),
+    run(Rest, Sample, Credentials, Auth);
+run([permissive_auth | Rest], Sample, Credentials, Auth) ->
+    run(Rest, Sample, Credentials, Auth);
+run([], _Sample, _Credentials, Auth) ->
+    Auth().
 
 filter_expected_fields({ok, Expected}, {ok, Actual}) ->
     {ok, maps:with(maps:keys(Expected), Actual)};

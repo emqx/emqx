@@ -95,6 +95,7 @@ authenticate(
                         keys => NKey,
                         fields => Fields
                     }),
+                    %% The entry does not actually exist, not a error, so ignore.
                     ignore
             end;
         {error, Reason} ->
@@ -105,7 +106,7 @@ authenticate(
                 fields => Fields,
                 reason => Reason
             }),
-            ignore
+            emqx_authn_utils:backend_failure_result()
     end.
 
 %%------------------------------------------------------------------------------

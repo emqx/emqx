@@ -97,7 +97,7 @@ check_jwt(ClientInfo, DeviceId) ->
                 reason => "key not found",
                 client => ClientInfo
             }),
-            ignore;
+            emqx_authn_utils:backend_failure_result();
         Keys ->
             case any_key_matches(Keys, ClientInfo) of
                 true ->

@@ -234,7 +234,12 @@ t_offline_message_queueing(_) ->
     ok = emqtt:publish(C2, <<"TopicA/B">>, <<"qos 0">>, 0),
     {ok, _} = emqtt:publish(C2, <<"Topic/C">>, <<"qos 1">>, 1),
     {ok, _} = emqtt:publish(C2, <<"TopicA/C">>, <<"qos 2">>, 2),
-    timer:sleep(10),
+    %% Wait until all three messages have been dispatched into c1's offline
+    %% session mqueue before tearing down the publisher. The publish calls can
+    %% return before dispatch reaches the subscriber: QoS 0 has no broker ack at
+    %% all, and the QoS 1/2 acks are sent before the broker drives the dispatch
+    %% to subscribers. A fixed sleep here races the disconnect on slow runners.
+    ?WAIT(?assertEqual(3, proplists:get_value(mqueue_len, emqx_cm:get_chan_stats(<<"c1">>))), 30),
     emqtt:disconnect(C2),
 
     {ok, C3} = emqtt:start_link([{clean_start, false}, {clientid, <<"c1">>}]),

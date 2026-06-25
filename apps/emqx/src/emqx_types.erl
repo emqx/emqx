@@ -50,6 +50,10 @@
 ]).
 
 -export_type([
+    auth_result/0
+]).
+
+-export_type([
     connack/0,
     subopts/0,
     reason_code/0,
@@ -204,7 +208,8 @@
     | server_unavailable
     | server_busy
     | banned
-    | bad_authentication_method.
+    | bad_authentication_method
+    | quota_exceeded.
 
 -type packet_type() :: ?RESERVED..?AUTH.
 -type connack() :: ?CONNACK_ACCEPT..?CONNACK_AUTH.
