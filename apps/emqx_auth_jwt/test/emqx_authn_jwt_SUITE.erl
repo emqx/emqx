@@ -532,6 +532,7 @@ t_jwks_cache_invalidated_after_refresh_failures(_Config) ->
         endpoint => "https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT) ++ ?JWKS_PATH,
         headers => #{<<"Accept">> => <<"application/json">>},
         refresh_interval => 1000,
+        max_fail_count => 2,
         ssl => client_ssl_opts()
     },
     {{ok, Pid}, {ok, _}} = ?wait_async_action(
@@ -543,13 +544,8 @@ t_jwks_cache_invalidated_after_refresh_failures(_Config) ->
     ?assertMatch({ok, [_ | _]}, emqx_authn_jwks_client:get_jwks(Pid)),
 
     ok = emqx_utils_http_test_server:set_handler(fun invalid_jwks_handler/2),
-    lists:foreach(
-        fun(_) ->
-            force_jwks_refresh(Pid),
-            ?assertMatch({ok, [_ | _]}, emqx_authn_jwks_client:get_jwks(Pid))
-        end,
-        lists:seq(1, 4)
-    ),
+    force_jwks_refresh(Pid),
+    ?assertMatch({ok, [_ | _]}, emqx_authn_jwks_client:get_jwks(Pid)),
 
     force_jwks_refresh(Pid),
     ?assertEqual({ok, undefined}, emqx_authn_jwks_client:get_jwks(Pid)),

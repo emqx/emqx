@@ -99,6 +99,7 @@ fields(jwt_jwks) ->
             )},
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {refresh_interval, fun refresh_interval/1},
+        {max_fail_count, fun max_fail_count/1},
         {ssl,
             sc(hoconsc:ref(jwks_client_ssl_opts), #{
                 default => #{
@@ -158,11 +159,16 @@ endpoint(desc) -> ?DESC(?FUNCTION_NAME);
 endpoint(required) -> true;
 endpoint(_) -> undefined.
 
-refresh_interval(type) -> integer();
+refresh_interval(type) -> pos_integer();
 refresh_interval(desc) -> ?DESC(?FUNCTION_NAME);
 refresh_interval(default) -> 300;
-refresh_interval(validator) -> [fun(I) -> I > 0 end];
 refresh_interval(_) -> undefined.
+
+max_fail_count(type) -> pos_integer();
+max_fail_count(desc) -> ?DESC(?FUNCTION_NAME);
+max_fail_count(default) -> 5;
+max_fail_count(importance) -> ?IMPORTANCE_HIDDEN;
+max_fail_count(_) -> undefined.
 
 verify_claims(type) ->
     %% user input is a map, converted to a list of {binary(), validated_value_type()}

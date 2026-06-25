@@ -10,7 +10,7 @@
 -include_lib("jose/include/jose_jwk.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(MAX_FAIL_COUNT, 5).
+-define(DEFAULT_MAX_FAIL_COUNT, 5).
 
 -export([
     start_link/1,
@@ -116,16 +116,19 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-handle_options(#{
-    endpoint := Endpoint,
-    headers := Headers,
-    refresh_interval := RefreshInterval0,
-    ssl := SSLOpts
-}) ->
+handle_options(
+    #{
+        endpoint := Endpoint,
+        headers := Headers,
+        refresh_interval := RefreshInterval0,
+        ssl := SSLOpts
+    } = Opts
+) ->
     #{
         endpoint => Endpoint,
         headers => to_httpc_headers(Headers),
         refresh_interval => limit_refresh_interval(RefreshInterval0),
+        max_fail_count => maps:get(max_fail_count, Opts, ?DEFAULT_MAX_FAIL_COUNT),
         ssl_opts => emqx_tls_lib:to_client_opts(SSLOpts),
         jwks => undefined,
         failure_count => 0,
@@ -166,10 +169,12 @@ refresh_jwks(
         end,
     ensure_expiry_timer(NState).
 
-record_jwks_refresh_failure(#{failure_count := FailureCount0} = State) ->
+record_jwks_refresh_failure(
+    #{failure_count := FailureCount0, max_fail_count := MaxFailCount} = State
+) ->
     FailureCount = FailureCount0 + 1,
     State1 = State#{failure_count := FailureCount},
-    case FailureCount >= ?MAX_FAIL_COUNT of
+    case FailureCount >= MaxFailCount of
         true ->
             State1#{jwks := undefined};
         false ->
@@ -185,8 +190,9 @@ limit_refresh_interval(Interval) ->
     Interval.
 
 to_httpc_headers(Headers) ->
-    UserHeaders = [{binary_to_list(bin(K)), V} || {K, V} <- maps:to_list(Headers)] ++
-        [{"connection", "close"}],
+    UserHeaders =
+        [{binary_to_list(bin(K)), V} || {K, V} <- maps:to_list(Headers)] ++
+            [{"connection", "close"}],
     ensure_te_header(UserHeaders).
 
 %% Inets versions prior to 9.4.2 (OTP 28.1) emit an RFC 2616-violating

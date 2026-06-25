@@ -165,6 +165,12 @@ on_missing_jwt.desc:
 on_missing_jwt.label:
 """On Missing JWT"""
 
+max_fail_count.desc:
+"""Maximum number of consecutive JWKS refresh failures before cached keys are invalidated."""
+
+max_fail_count.label:
+"""Max Fail Count"""
+
 jwks_headers.label:
 """HTTP Headers"""
 jwks_headers.desc:

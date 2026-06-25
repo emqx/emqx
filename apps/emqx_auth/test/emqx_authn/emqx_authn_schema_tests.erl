@@ -141,6 +141,21 @@ jwt_on_missing_jwt_explicit_test() ->
         check(jwt_jwks_config_on_missing_jwt(deny))
     ).
 
+jwt_jwks_max_fail_count_test() ->
+    ok = ensure_schema_load(),
+    ?assertMatch(
+        {ok, #{authentication := [#{max_fail_count := 5}]}},
+        check(jwt_jwks_config())
+    ),
+    ?assertMatch(
+        {ok, #{authentication := [#{max_fail_count := 2}]}},
+        check(jwt_jwks_config_max_fail_count(2))
+    ),
+    ?assertMatch(
+        ?ERR(_),
+        check(jwt_jwks_config_max_fail_count(0))
+    ).
+
 union_member_selector_redis_test_() ->
     ok = ensure_schema_load(),
     [
@@ -222,6 +237,19 @@ jwt_jwks_config_on_missing_jwt(OnMissingJWT) ->
     ]
     """,
     io_lib:format(C, [atom_to_list(OnMissingJWT)]).
+
+jwt_jwks_config_max_fail_count(MaxFailCount) ->
+    C = """
+    [
+        {
+            mechanism = jwt,
+            use_jwks = true,
+            endpoint = "https://127.0.0.1/jwks.json"
+            max_fail_count = ~B
+        }
+    ]
+    """,
+    io_lib:format(C, [MaxFailCount]).
 
 jwt_jwks_config_with_ssl() ->
     """
