@@ -18,7 +18,14 @@ all() ->
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
-        [emqx, emqx_conf, emqx_auth, emqx_gcp_device, {emqx_retainer, "retainer {enable = true}"}],
+        [
+            emqx,
+            emqx_conf,
+            emqx_auth,
+            emqx_auth_mnesia,
+            emqx_gcp_device,
+            {emqx_retainer, "retainer {enable = true}"}
+        ],
         #{
             work_dir => ?config(priv_dir, Config)
         }
@@ -148,6 +155,16 @@ t_no_keys(_Config) ->
         keys()
     ),
     ok.
+
+t_no_keys_legacy_ignores(_Config) ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ?assertEqual({ok, #{is_superuser => false}}, authenticate_with_no_keys())
+    end).
+
+t_no_keys_hardened_denies(_Config) ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ?assertEqual({error, not_authorized}, authenticate_with_no_keys())
+    end).
 
 t_expired_keys(_Config) ->
     lists:foreach(
@@ -384,6 +401,19 @@ key_data(Filename) ->
 
 generate_jws(Payload, KeyType, PrivateKeyName) ->
     emqx_gcp_device_test_helpers:generate_jws(Payload, KeyType, PrivateKeyName).
+
+authenticate_with_no_keys() ->
+    [{DeviceId, KeyType, PrivateKeyName, _PublicKey} | _] = keys(),
+    ClientId = gcp_client_id(DeviceId),
+    Payload = #{<<"exp">> => erlang:system_time(second) + 3600},
+    JWT = generate_jws(Payload, KeyType, PrivateKeyName),
+    Credentials = (client_info(ClientId, JWT))#{username => ClientId},
+    Config = #{<<"mechanism">> => <<"gcp_device">>, <<"enable">> => true},
+    {ok, _} = emqx:update_config([authentication], {create_authenticator, ?GLOBAL, Config}),
+    ok = emqx_authn_test_lib:add_permissive_builtin_authenticator(
+        [authentication], ?GLOBAL, maps:get(username, Credentials), maps:get(password, Credentials)
+    ),
+    emqx_access_control:authenticate(Credentials).
 
 clear_data() ->
     emqx_gcp_device_test_helpers:clear_data(),

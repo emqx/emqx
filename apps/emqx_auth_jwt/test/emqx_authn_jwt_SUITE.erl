@@ -24,7 +24,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_jwt], #{
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_auth_jwt], #{
         work_dir => emqx_cth_suite:work_dir(Config)
     }),
     [{apps, Apps} | Config].
@@ -34,6 +34,7 @@ end_per_suite(Config) ->
     ok.
 
 end_per_testcase(_TestCase, _Config) ->
+    emqx_authn_test_lib:delete_authenticators([authentication], 'mqtt:global'),
     emqx_common_test_helpers:call_janitor(),
     ok.
 
@@ -194,6 +195,16 @@ t_public_key(_) ->
 
     ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
     ok.
+
+t_invalid_signature_legacy_ignores(_) ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ?assertEqual({ok, #{is_superuser => false}}, authenticate_with_invalid_signature())
+    end).
+
+t_invalid_signature_hardened_denies(_) ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ?assertEqual({error, not_authorized}, authenticate_with_invalid_signature())
+    end).
 
 t_bad_public_keys(_) ->
     BaseConfig = #{
@@ -1173,6 +1184,35 @@ read_until_headers(Sock, Acc) ->
         _ ->
             Acc
     end.
+
+authenticate_with_invalid_signature() ->
+    Secret = <<"abcdef">>,
+    Config = #{
+        <<"mechanism">> => <<"jwt">>,
+        <<"from">> => <<"password">>,
+        <<"acl_claim_name">> => <<"acl">>,
+        <<"use_jwks">> => false,
+        <<"algorithm">> => <<"hmac-based">>,
+        <<"secret">> => Secret,
+        <<"secret_base64_encoded">> => false,
+        <<"verify_claims">> => #{},
+        <<"disconnect_after_expire">> => false,
+        <<"enable">> => true
+    },
+    Payload = #{<<"username">> => <<"myuser">>, <<"exp">> => erlang:system_time(second) + 60},
+    BadJWS = generate_jws('hmac-based', Payload, <<"bad_secret">>),
+    Credentials = #{
+        username => <<"myuser">>,
+        password => BadJWS,
+        listener => 'tcp:default',
+        protocol => mqtt
+    },
+    Chain = 'mqtt:global',
+    {ok, _} = emqx:update_config([authentication], {create_authenticator, Chain, Config}),
+    ok = emqx_authn_test_lib:add_permissive_builtin_authenticator(
+        [authentication], Chain, maps:get(username, Credentials), maps:get(password, Credentials)
+    ),
+    emqx_access_control:authenticate(Credentials).
 
 jwks_handler(Req0, State) ->
     JWK = jose_jwk:from_pem_file(test_rsa_key(public)),

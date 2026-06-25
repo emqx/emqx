@@ -93,7 +93,7 @@ fields(connector_config) ->
                     desc => ?DESC(emqx_bridge_gcp_pubsub_schema_lib, "service_account_json")
                 }
             )}
-    ];
+    ] ++ emqx_connector_schema_lib:ssl_fields(#{enable_by_default => true});
 fields(producer) ->
     [
         {attributes_template,

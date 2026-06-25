@@ -95,11 +95,11 @@ authenticate(
                 {ok, 200, Headers, Body} ->
                     handle_response(Headers, Body);
                 {ok, _StatusCode, _Headers} = Response ->
-                    ignore;
+                    emqx_authn_utils:backend_failure_result();
                 {ok, _StatusCode, _Headers, _Body} = Response ->
-                    ignore;
+                    emqx_authn_utils:backend_failure_result();
                 {error, _Reason} ->
-                    ignore
+                    emqx_authn_utils:backend_failure_result()
             end;
         {error, Reason} ->
             ?TRACE_AUTHN_PROVIDER(
@@ -107,7 +107,7 @@ authenticate(
                 "generate_http_request_failed",
                 #{reason => Reason, credential => emqx_authn_utils:without_password(Credential)}
             ),
-            ignore
+            emqx_authn_utils:backend_failure_result()
     end.
 
 destroy(#{resource_id := ResourceId}) ->
@@ -203,7 +203,7 @@ handle_response(Headers, Body) ->
         {ok, NBody} ->
             body_to_auth_data(NBody);
         {error, _Reason} ->
-            ignore
+            emqx_authn_utils:backend_failure_result()
     end.
 
 body_to_auth_data(Body) ->
@@ -215,7 +215,7 @@ body_to_auth_data(Body) ->
         <<"ignore">> ->
             ignore;
         _ ->
-            ignore
+            emqx_authn_utils:backend_failure_result()
     end.
 
 extract_auth_data(Source, Body) ->
