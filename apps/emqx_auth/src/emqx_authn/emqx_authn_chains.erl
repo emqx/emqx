@@ -798,7 +798,7 @@ do_authenticate(_ChainName, [], _) ->
     {ok, {error, not_authorized}};
 do_authenticate(
     ChainName,
-    [#authenticator{id = ID, provider = _Module} = Authenticator | More],
+    [#authenticator{id = ID, provider = Module} = Authenticator | More],
     Credential
 ) ->
     MetricsID = metrics_id(ChainName, ID),
@@ -819,7 +819,7 @@ do_authenticate(
             'client.username' => maps:get(username, Credential, undefined),
             'authn.authenticator' => ID,
             'authn.chain' => ChainName,
-            'authn.module' => _Module
+            'authn.module' => Module
         }),
         fun() ->
             try authenticate_with_provider(Authenticator, Credential) of
@@ -840,7 +840,12 @@ do_authenticate(
                         {ok, _, _} ->
                             emqx_metrics_worker:inc(authn_metrics, MetricsID, success),
                             ?EXT_TRACE_ADD_ATTRS(#{'authn.result' => ok});
-                        {error, _} ->
+                        {error, ErrReason} ->
+                            ?TRACE_AUTHN_THROTTLE(warning, ID, authenticator_rejection, #{
+                                authenticator => ID,
+                                provider => Module,
+                                reason => ErrReason
+                            }),
                             emqx_metrics_worker:inc(authn_metrics, MetricsID, failed),
                             ?EXT_TRACE_ADD_ATTRS(#{'authn.result' => error}),
                             ?EXT_TRACE_SET_STATUS_ERROR();

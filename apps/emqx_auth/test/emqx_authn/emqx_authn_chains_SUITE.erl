@@ -287,6 +287,53 @@ t_authenticate({'end', Config}) ->
     ?AUTHN:deregister_provider(?config(authn_type)),
     ok.
 
+-doc "A per-authenticator rejection is logged at warning level with the authenticator id.".
+t_authenticate_rejection_log({init, Config}) ->
+    [
+        {listener_id, 'tcp:default'},
+        {authn_type, {password_based, built_in_database}}
+        | Config
+    ];
+t_authenticate_rejection_log(Config) when is_list(Config) ->
+    ListenerID = ?config(listener_id),
+    AuthNType = ?config(authn_type),
+    ok = register_provider(AuthNType, ?MODULE),
+    AuthenticatorConfig = #{
+        mechanism => password_based,
+        backend => built_in_database,
+        enable => true
+    },
+    {ok, _} = ?AUTHN:create_authenticator(ListenerID, AuthenticatorConfig),
+    ClientInfo = #{
+        zone => default,
+        listener => ListenerID,
+        protocol => mqtt,
+        username => <<"bad">>,
+        password => <<"any">>
+    },
+    Logs = emqx_cth_log_capture:capture(fun() ->
+        ?assertEqual(
+            {error, bad_username_or_password},
+            emqx_access_control:authenticate(ClientInfo)
+        )
+    end),
+    ?assertMatch(
+        [
+            #{
+                msg := authenticator_rejection,
+                authenticator := <<"password_based:built_in_database">>,
+                provider := _,
+                reason := bad_username_or_password
+            }
+            | _
+        ],
+        [M || #{msg := authenticator_rejection} = M <- Logs]
+    );
+t_authenticate_rejection_log({'end', Config}) ->
+    ?AUTHN:delete_chain(?config(listener_id)),
+    ?AUTHN:deregister_provider(?config(authn_type)),
+    ok.
+
 t_update_config({init, Config}) ->
     Global = 'mqtt:global',
     AuthNType1 = {password_based, built_in_database},
