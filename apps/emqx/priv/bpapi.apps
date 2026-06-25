@@ -59,3 +59,4 @@
 {emqx_setopts,emqx_setopts}.
 {emqx_slow_subs,emqx_slow_subs}.
 {emqx_telemetry,emqx_telemetry}.
+{emqx_topic_metrics2,emqx_topic_metrics}.

@@ -21,9 +21,9 @@ message_qos0_in_rate.label:
 """QoS0 in messages rate"""
 
 get_topic_metrics_api.desc:
-"""List topic metrics"""
+"""(Deprecated — use GET /mqtt/topic_metrics2.) List topic metrics."""
 get_topic_metrics_api.label:
-"""List topic metrics"""
+"""List topic metrics (deprecated)"""
 
 reset_time.desc:
 """Reset time. In rfc3339. Nullable if never reset"""
@@ -46,9 +46,9 @@ topic_metrics_api_response409.label:
 """Conflict"""
 
 post_topic_metrics_api.desc:
-"""Create topic metrics"""
+"""(Deprecated — use POST /mqtt/topic_metrics2.) Create topic metrics."""
 post_topic_metrics_api.label:
-"""Create topic metrics"""
+"""Create topic metrics (deprecated)"""
 
 message_dropped_rate.desc:
 """Dropped messages rate"""
@@ -111,9 +111,9 @@ topic.label:
 """Topic"""
 
 reset_topic_metrics_api.desc:
-"""Reset telemetry status"""
+"""(Deprecated — use PUT /mqtt/topic_metrics2/:name/reset.) Reset telemetry status."""
 reset_topic_metrics_api.label:
-"""Reset telemetry status"""
+"""Reset telemetry status (deprecated)"""
 
 create_time.desc:
 """Create time"""
@@ -131,9 +131,9 @@ message_qos1_out_count.label:
 """QoS1 out messages count"""
 
 gat_topic_metrics_data_api.desc:
-"""Get topic metrics"""
+"""(Deprecated — use GET /mqtt/topic_metrics2/:name.) Get topic metrics."""
 gat_topic_metrics_data_api.label:
-"""Get topic metrics"""
+"""Get topic metrics (deprecated)"""
 
 message_qos1_in_count.desc:
 """QoS1 in messages count"""
@@ -141,9 +141,9 @@ message_qos1_in_count.label:
 """QoS1 in messages count"""
 
 delete_topic_metrics_data_api.desc:
-"""Delete topic metrics"""
+"""(Deprecated — use DELETE /mqtt/topic_metrics2/:name.) Delete topic metrics."""
 delete_topic_metrics_data_api.label:
-"""Delete topic metrics"""
+"""Delete topic metrics (deprecated)"""
 
 message_qos0_out_count.desc:
 """QoS0 out messages count"""

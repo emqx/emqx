@@ -4,6 +4,15 @@
 
 -module(emqx_topic_metrics_api).
 
+-moduledoc """
+Legacy (v1) HTTP API for the topic-metrics feature.
+
+**Deprecated since 6.3.** Use the v2 surface in `emqx_topic_metrics2_api`
+(routes under `/mqtt/topic_metrics2`) for new integrations. The v1 routes
+continue to work unchanged for backward compatibility; only their
+swagger spec is now marked `deprecated`.
+""".
+
 -behaviour(minirest_api).
 
 -include_lib("hocon/include/hoconsc.hrl").
@@ -62,6 +71,7 @@ schema("/mqtt/topic_metrics") ->
         'operationId' => topic_metrics,
         get =>
             #{
+                deprecated => true,
                 description => ?DESC(get_topic_metrics_api),
                 tags => ?API_TAG_MQTT,
                 responses =>
@@ -74,6 +84,7 @@ schema("/mqtt/topic_metrics") ->
             },
         put =>
             #{
+                deprecated => true,
                 description => ?DESC(reset_topic_metrics_api),
                 tags => ?API_TAG_MQTT,
                 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -91,6 +102,7 @@ schema("/mqtt/topic_metrics") ->
             },
         post =>
             #{
+                deprecated => true,
                 description => ?DESC(post_topic_metrics_api),
                 tags => ?API_TAG_MQTT,
                 'requestBody' => [topic(body)],
@@ -113,6 +125,7 @@ schema("/mqtt/topic_metrics/:topic") ->
         'operationId' => operate_topic_metrics,
         get =>
             #{
+                deprecated => true,
                 description => ?DESC(gat_topic_metrics_data_api),
                 tags => ?API_TAG_MQTT,
                 parameters => [topic(path)],
@@ -127,6 +140,7 @@ schema("/mqtt/topic_metrics/:topic") ->
             },
         delete =>
             #{
+                deprecated => true,
                 description => ?DESC(delete_topic_metrics_data_api),
                 tags => ?API_TAG_MQTT,
                 parameters => [topic(path)],
@@ -314,7 +328,7 @@ operate_topic_metrics(delete, #{bindings := #{topic := Topic}}) ->
 %%--------------------------------------------------------------------
 
 cluster_accumulation_metrics() ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     case emqx_topic_metrics_proto_v1:metrics(Nodes) of
         {SuccResList, []} ->
             {ok, accumulate_nodes_metrics(SuccResList)};
@@ -323,7 +337,7 @@ cluster_accumulation_metrics() ->
     end.
 
 cluster_accumulation_metrics(Topic) ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     case emqx_topic_metrics_proto_v1:metrics(Nodes, Topic) of
         {SuccResList, []} ->
             case
@@ -415,12 +429,12 @@ do_accumulation_metrics(MetricsIn, {MetricsAcc, _}) ->
     ).
 
 reset() ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     _ = emqx_topic_metrics_proto_v1:reset(Nodes),
     ok.
 
 reset(Topic) ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     {SuccResList, []} = emqx_topic_metrics_proto_v1:reset(Nodes, Topic),
     case
         lists:filter(

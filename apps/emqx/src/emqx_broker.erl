@@ -59,6 +59,9 @@
 
 -export([topics/0]).
 
+%% Extract the publisher's namespace from a message (`tns' client attribute).
+-export([get_namespace/1]).
+
 %% gen_server callbacks
 -export([
     init/1,

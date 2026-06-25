@@ -63,6 +63,7 @@ fields(connector_config) ->
         {pool_size, mk(pos_integer(), #{default => 8, desc => ?DESC("pool_size")})},
         emqx_bridge_gcp_pubsub_schema_lib:authentication_field()
     ] ++
+        emqx_connector_schema_lib:ssl_fields(#{enable_by_default => true}) ++
         emqx_connector_schema:resource_opts().
 
 desc("config_connector") ->
