@@ -3026,3 +3026,82 @@ t_limit_selects_in_namespace(TCConfig0) when is_list(TCConfig0) ->
     emqtt:stop(C1),
     emqtt:stop(C2),
     ok.
+
+-doc """
+Regression test: with `rule_engine.limit_selects_in_namespace = true` (the default), a
+*global* rule must keep matching messages from clients that carry a tenant namespace
+(`client_attrs.tns`).
+
+This reproduces a customer report after a 6.0 -> 6.2.x upgrade: a metrics-only global rule
+(no action output) stopped matching traffic on its `FROM` topic because the publishing
+clients carried a `tns` attribute, so messages resolved to a non-global namespace and the
+restriction dropped the global rule.  Global rules retain system-wide visibility.
+""".
+t_global_rule_matches_namespaced_traffic() ->
+    [{matrix, true}].
+t_global_rule_matches_namespaced_traffic(matrix) ->
+    [[?custom_cluster]];
+t_global_rule_matches_namespaced_traffic(TCConfig0) when is_list(TCConfig0) ->
+    NodeSpecs = emqx_cth_cluster:mk_nodespecs(
+        [{global_rule_ns_traffic, #{apps => app_specs()}}],
+        #{
+            work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, TCConfig0),
+            shutdown => 10_000
+        }
+    ),
+    Nodes = [Node | _] = emqx_cth_cluster:start(NodeSpecs),
+    on_exit(fun() -> ok = emqx_cth_cluster:stop(Nodes) end),
+
+    ?ON(Node, begin
+        {ok, _} = emqx_conf:update(
+            [rule_engine, limit_selects_in_namespace],
+            true,
+            #{override_to => cluster}
+        ),
+        %% Clients get a tenant namespace from their username, but the published topic is
+        %% NOT namespace-prefixed (no mountpoint), mirroring the customer's setup.
+        {ok, _} = emqx_conf:update(
+            [mqtt, client_attrs_init],
+            [
+                #{
+                    <<"expression">> => <<"username">>,
+                    <<"set_as_attr">> => <<"tns">>
+                }
+            ],
+            #{override_to => cluster}
+        )
+    end),
+
+    {ok, APIKey} = erpc:call(Node, emqx_common_test_http, create_default_app, []),
+    TCConfigGlobal = [{node, Node}, {api_key, APIKey} | TCConfig0],
+
+    %% A global, metrics-only rule (no action output) on the customer's topic pattern.
+    RuleId = <<"global_geo_metrics">>,
+    RuleConfig = rule_config(#{
+        <<"id">> => RuleId,
+        <<"description">> => <<"global metrics rule">>,
+        <<"sql">> => <<"select * from \"hhag/v1/+/+/geolocation\"">>,
+        <<"actions">> => []
+    }),
+    ?assertMatch({201, _}, create(RuleConfig, TCConfigGlobal)),
+
+    %% A client carrying a tenant namespace (tns = its username) publishing to the topic.
+    %% Use MQTT v3 to mirror the customer report and confirm version is irrelevant here.
+    Port = get_tcp_mqtt_port(Node),
+    {ok, C} = emqtt:start_link(#{port => Port, proto_ver => v3, username => <<"tenant1">>}),
+    on_exit(fun() -> catch emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    {ok, _} = emqtt:publish(C, <<"hhag/v1/a/b/geolocation">>, <<"hi">>, [{qos, 1}]),
+
+    %% The global rule must have matched the namespaced client's message.
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {200, #{<<"metrics">> := #{<<"matched">> := 1, <<"passed">> := 1}}},
+            get_metrics(RuleId, TCConfigGlobal)
+        )
+    ),
+
+    emqtt:stop(C),
+    ok.
