@@ -200,6 +200,14 @@ defmodule AppsVersionCheck do
     IO.puts(IO.ANSI.format([:red, args]))
   end
 
+  def log_debug(args) do
+    debug = System.get_env("DEBUG", "0")
+
+    if debug == "1" do
+      IO.puts(IO.ANSI.format(args))
+    end
+  end
+
   def log(args) do
     IO.puts(IO.ANSI.format(args))
   end
@@ -277,7 +285,7 @@ defmodule AppsVersionCheck do
         false
 
       old_app_version == current_app_version && not has_changes? ->
-        log("IGNORE: #{src_file}: no code changes in app")
+        log_debug("IGNORE: #{src_file}: no code changes in app")
         true
 
       not old_follows_convention? ->

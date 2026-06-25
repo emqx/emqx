@@ -1507,37 +1507,66 @@ t_post_auth_tns_expression_coalesce_fallback(_Config) ->
         emqx_mt_hookcb:on_post_authn(#{client_info => CI2})
     ).
 
--doc "When expression renders empty, ClientInfo is left unchanged (pre-auth tns kept).".
-t_post_auth_tns_expression_empty_render_keeps_preauth({init, Config}) ->
+-doc """
+When the expression renders empty, the client is treated as having no tenant
+namespace: under `allow_only_managed_namespaces = false' it passes through and
+any pre-auth `client_attrs.tns' is stripped; under `true' it is rejected.
+""".
+t_post_auth_tns_expression_empty_render_gates({init, Config}) ->
     ok = set_post_auth_tns_expression(<<"client_attrs.tag">>),
     Config;
-t_post_auth_tns_expression_empty_render_keeps_preauth({'end', _Config}) ->
+t_post_auth_tns_expression_empty_render_gates({'end', _Config}) ->
+    emqx_config:put([multi_tenancy, allow_only_managed_namespaces], false),
     ok = clear_post_auth_tns_expression();
-t_post_auth_tns_expression_empty_render_keeps_preauth(_Config) ->
+t_post_auth_tns_expression_empty_render_gates(_Config) ->
     ClientInfo = #{
         clientid => <<"c1">>,
         username => <<"alice">>,
         client_attrs => #{<<"tns">> => <<"preauth">>}
     },
-    ?assertEqual(ok, emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})).
+    %% allow_only_managed_namespaces = false: pass through, pre-auth tns stripped.
+    emqx_config:put([multi_tenancy, allow_only_managed_namespaces], false),
+    {ok, #{client_info := Stripped}} =
+        emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo}),
+    ?assertNot(maps:is_key(<<"tns">>, maps:get(client_attrs, Stripped))),
+    %% allow_only_managed_namespaces = true: rejected.
+    emqx_config:put([multi_tenancy, allow_only_managed_namespaces], true),
+    ?assertEqual(
+        {stop, {error, not_authorized}},
+        emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})
+    ).
 
--doc "Expression errors are logged and treated as no-op (client not rejected).".
-t_post_auth_tns_expression_error_is_noop({init, Config}) ->
+-doc """
+When the expression raises, the client is treated as having no tenant
+namespace: it passes through under `allow_only_managed_namespaces = false' and
+is rejected under `true'.
+""".
+t_post_auth_tns_expression_error_gates({init, Config}) ->
     ok = set_post_auth_tns_expression(<<"nth(100, tokens('a', ','))">>),
     Config;
-t_post_auth_tns_expression_error_is_noop({'end', _Config}) ->
+t_post_auth_tns_expression_error_gates({'end', _Config}) ->
+    emqx_config:put([multi_tenancy, allow_only_managed_namespaces], false),
     ok = clear_post_auth_tns_expression();
-t_post_auth_tns_expression_error_is_noop(_Config) ->
+t_post_auth_tns_expression_error_gates(_Config) ->
     ClientInfo = #{
         clientid => <<"c1">>,
         username => <<"alice">>,
         client_attrs => #{}
     },
-    ?assertEqual(ok, emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})).
+    emqx_config:put([multi_tenancy, allow_only_managed_namespaces], false),
+    ?assertMatch(
+        {ok, #{client_info := #{}}},
+        emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})
+    ),
+    emqx_config:put([multi_tenancy, allow_only_managed_namespaces], true),
+    ?assertEqual(
+        {stop, {error, not_authorized}},
+        emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})
+    ).
 
 -doc "After rewriting tns, decide/3 enforces the namespace quota.".
 t_post_auth_tns_expression_quota_enforced({init, Config}) ->
-    ok = set_post_auth_tns_expression(<<"client_attrs.tag">>),
+    ok = set_post_auth_tns_expression(<<"coalesce(client_attrs.tag, username)">>),
     emqx_mt_config:tmp_set_default_max_sessions(1),
     Config;
 t_post_auth_tns_expression_quota_enforced({'end', _Config}) ->
@@ -1547,8 +1576,9 @@ t_post_auth_tns_expression_quota_enforced(_Config) ->
     Ns = <<"acme_quota">>,
     C1 = ?NEW_CLIENTID(),
     C2 = ?NEW_CLIENTID(),
-    %% First client occupies the namespace via the normal pre-auth path
-    %% (mqtt.client_attrs_init sets tns=username) so we register a real session.
+    %% First client occupies the namespace via the post-authn expression:
+    %% it has no `client_attrs.tag', so `coalesce' falls back to its username
+    %% (= Ns) and the post-authn hook registers a real session under Ns.
     Pid1 = connect(C1, Ns),
     ?assertMatch(
         {ok, #{tns := Ns, clientid := C1}},
@@ -1679,6 +1709,37 @@ authn_inject_tag(#{username := <<"user_bad">>}, _Acc) ->
     {stop, {ok, #{is_superuser => false, client_attrs => #{<<"tag">> => <<"ghost">>}}}};
 authn_inject_tag(_ClientInfo, Acc) ->
     {ok, Acc}.
+
+-doc """
+End-to-end: when `allow_only_managed_namespaces = true' and the post-auth
+expression renders empty (the authn response carries no `client_attrs.tag'),
+the client is disconnected with `not_authorized'. The pre-auth tns (the
+username) is unmanaged, and the empty post-auth render must not let it slip
+through the managed-namespace gate.
+""".
+t_post_auth_expression_empty_render_rejects_managed_gate({init, Config}) ->
+    ok = set_post_auth_tns_expression(<<"client_attrs.tag">>),
+    emqx_config:put([multi_tenancy, allow_only_managed_namespaces], true),
+    %% `authn_inject_tag' only sets a tag for `user_good'/`user_bad'; other
+    %% usernames authenticate with no tag, so the expression renders empty.
+    ok = emqx_hooks:add(
+        'client.authenticate', {?MODULE, authn_inject_tag, []}, 975
+    ),
+    on_exit(fun() ->
+        emqx_hooks:del('client.authenticate', {?MODULE, authn_inject_tag})
+    end),
+    Config;
+t_post_auth_expression_empty_render_rejects_managed_gate({'end', _Config}) ->
+    ok = clear_post_auth_tns_expression(),
+    emqx_config:put([multi_tenancy, allow_only_managed_namespaces], false),
+    ok;
+t_post_auth_expression_empty_render_rejects_managed_gate(_Config) ->
+    Cid = ?NEW_CLIENTID(),
+    ?assertError(
+        {error, {not_authorized, _}},
+        connect(Cid, <<"no_tag_user">>)
+    ),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Per-namespace counters for dropped messages and dropped deliveries

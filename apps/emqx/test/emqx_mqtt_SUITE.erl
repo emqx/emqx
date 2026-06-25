@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -define(STATS_KYES, [
     recv_pkt,
@@ -110,7 +111,36 @@ message_expiry_interval_init(Tag) ->
     emqtt:subscribe(CControl, <<"t/a">>, 1),
     emqtt:subscribe(CVerify, <<"t/a">>, 1),
     emqtt:stop(CVerify),
+    %% Wait until the broker has fully processed Client-Verify's DISCONNECT and
+    %% moved its (retained) session into the `disconnected` state before any
+    %% message is published. Until then the channel is still `connected`, so a
+    %% delivered QoS>0 message is placed into the session's inflight window
+    %% instead of the mqueue. Inflight messages are replayed verbatim on resume,
+    %% bypassing the mqueue's Message-Expiry-Interval check -- which made the
+    %% expiry assertions race (most visibly for QoS=2, whose longer publish
+    %% handshake widens the window).
+    ok = wait_until_session_disconnected(<<"Client-Verify-", Tag/binary>>),
     {CPublish, CControl}.
+
+wait_until_session_disconnected(ClientId) ->
+    wait_until_session_disconnected(ClientId, 100).
+
+wait_until_session_disconnected(ClientId, 0) ->
+    error({session_still_connected, ClientId});
+wait_until_session_disconnected(ClientId, N) ->
+    case emqx_cm:lookup_channels(ClientId) of
+        [_ | _] = Pids ->
+            case lists:any(fun emqx_cm:is_channel_connected/1, Pids) of
+                false -> ok;
+                true -> retry_until_session_disconnected(ClientId, N)
+            end;
+        [] ->
+            retry_until_session_disconnected(ClientId, N)
+    end.
+
+retry_until_session_disconnected(ClientId, N) ->
+    ct:sleep(50),
+    wait_until_session_disconnected(ClientId, N - 1).
 
 message_expiry_interval_exipred(CPublish, CControl, QoS, Tag) ->
     ct:pal("~p ~p", [?FUNCTION_NAME, QoS]),
@@ -252,6 +282,65 @@ t_puback_not_lost_on_disconnect(_) ->
     ?assertEqual(99, length(Msgs1)),
     ?assertNot(lists:member(<<"1">>, Msgs1)),
     emqtt:stop(C1).
+
+-doc """
+An inflight (sent-but-unacked) QoS-1 message is retried at takeover even after
+its Message-Expiry-Interval elapsed: per [MQTT-3.3.2-5], expiry only drops
+messages whose onward delivery has not started.
+""".
+t_inflight_retried_after_expiry_on_takeover(_) ->
+    ClientId = <<"inflight_retry_after_expiry">>,
+    {ok, CPub} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, <<"inflight_retry_pub">>}
+    ]),
+    {ok, _} = emqtt:connect(CPub),
+    %% Subscriber with a persistent in-mem session, manual acking so the broker
+    %% keeps the delivered message in its inflight set awaiting PUBACK.
+    {ok, C0} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {auto_ack, false},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 360}}
+    ]),
+    {ok, _} = emqtt:connect(C0),
+    {ok, _, [1]} = emqtt:subscribe(C0, <<"t/a">>, 1),
+    %% Publish a QoS-1 message that expires in 1s.
+    _ = emqtt:publish(
+        CPub,
+        <<"t/a">>,
+        #{'Message-Expiry-Interval' => 1},
+        <<"inflight, retried after expiry">>,
+        [{qos, 1}]
+    ),
+    %% The message reaches the subscriber and enters the session inflight set;
+    %% onward delivery has started, but we deliberately do NOT acknowledge it.
+    {publish, #{client_pid := C0}} = ?assertReceive({publish, #{topic := <<"t/a">>}}),
+    %% Disconnect (keep the session); the un-acked message stays in inflight.
+    ok = emqtt:disconnect(C0),
+    ?retry(100, 20, [] =:= emqx_cm:lookup_channels(ClientId)),
+    %% Sleep well past Message-Expiry-Interval (1s) so the message is expired.
+    ct:sleep(2000),
+    %% Resume the session, triggering takeover/replay of the inflight set.
+    {ok, C1} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {auto_ack, true},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 360}}
+    ]),
+    {ok, _} = emqtt:connect(C1),
+    %% Onward delivery had already started, so the message MUST still be retried
+    %% (as a DUP) despite having expired.
+    receive
+        {publish, #{client_pid := C1, topic := <<"t/a">>, dup := Dup}} ->
+            ?assertEqual(true, Dup)
+    after 2000 ->
+        ct:fail(inflight_message_not_retried)
+    end,
+    emqtt:stop(C1),
+    emqtt:stop(CPub).
 
 drain_messages(C) ->
     receive

@@ -18,11 +18,15 @@
 
 -export([format/3]).
 
-format(Format0, Args, #{
-    depth := Depth,
-    single_line := SingleLine,
-    chars_limit := Limit
-}) ->
+%% `depth', `single_line' and `chars_limit' are rendering hints that may be
+%% absent from a formatter config (e.g. a handler added programmatically, or a
+%% trace formatter that only carries `payload_fmt_opts'). Treat them as optional
+%% and fall back to the same defaults `logger_formatter' uses, so that formatting
+%% never crashes with `function_clause' on an otherwise valid config.
+format(Format0, Args, Config) when is_map(Config) ->
+    Depth = maps:get(depth, Config, unlimited),
+    SingleLine = maps:get(single_line, Config, true),
+    Limit = maps:get(chars_limit, Config, unlimited),
     Opts = chars_limit_to_opts(Limit),
     Format1 = io_lib:scan_format(Format0, Args),
     Format = reformat(Format1, Depth, SingleLine),
