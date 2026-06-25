@@ -85,11 +85,13 @@ redact_common_token_aliases_test() ->
     ?assertEqual(
         #{
             access_token => <<"******">>,
+            client_jwks => <<"******">>,
             <<"refresh_token">> => <<"******">>,
             "id_token" => "******"
         },
         redact(#{
             access_token => <<"access-token">>,
+            client_jwks => #{type => file, file => <<"private-jwk">>},
             <<"refresh_token">> => <<"refresh-token">>,
             "id_token" => "id-token"
         })
