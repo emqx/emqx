@@ -183,21 +183,6 @@ t_on_missing_jwt(_) ->
     },
     Credential = #{username => <<"myuser">>},
 
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config#{on_missing_jwt => ignore}),
-        ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential, State)),
-        ?assertEqual(ok, emqx_authn_jwt:destroy(State))
-    end),
-
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config#{on_missing_jwt => deny}),
-        ?assertEqual(
-            {error, bad_username_or_password},
-            emqx_authn_jwt:authenticate(Credential, State)
-        ),
-        ?assertEqual(ok, emqx_authn_jwt:destroy(State))
-    end),
-
     {ok, IgnoreState} = emqx_authn_jwt:create(?AUTHN_ID, Config#{on_missing_jwt => ignore}),
     ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential, IgnoreState)),
     ?assertEqual(ok, emqx_authn_jwt:destroy(IgnoreState)),
@@ -398,14 +383,8 @@ t_jwks_renewal(_Config) ->
 
     ok = snabbkaffe:stop(),
 
-    ?assertEqual(
-        emqx_authn_utils:backend_failure_result(),
-        emqx_authn_jwt:authenticate(Credential0, State0)
-    ),
-    ?assertEqual(
-        emqx_authn_utils:backend_failure_result(),
-        emqx_authn_jwt:authenticate(Credential0#{password => <<"badpassword">>}, State0)
-    ),
+    assert_jwks_backend_failure(Credential0, State0),
+    assert_jwks_backend_failure(Credential0#{password => <<"badpassword">>}, State0),
 
     ClientSSLOpts = client_ssl_opts(),
     BadClientSSLOpts = ClientSSLOpts#{server_name_indication => "authn-server-unknown-host"},
@@ -426,14 +405,8 @@ t_jwks_renewal(_Config) ->
 
     ok = snabbkaffe:stop(),
 
-    ?assertEqual(
-        emqx_authn_utils:backend_failure_result(),
-        emqx_authn_jwt:authenticate(Credential0, State1)
-    ),
-    ?assertEqual(
-        emqx_authn_utils:backend_failure_result(),
-        emqx_authn_jwt:authenticate(Credential0#{password => <<"badpassword">>}, State0)
-    ),
+    assert_jwks_backend_failure(Credential0, State1),
+    assert_jwks_backend_failure(Credential0#{password => <<"badpassword">>}, State0),
 
     GoodConfig = BadConfig1#{
         ssl => ClientSSLOpts,
@@ -838,10 +811,7 @@ t_jwks_config_update(_Config) ->
     ok = snabbkaffe:stop(),
 
     %% The authentication should fail, because the `from` is set to `username` in settings
-    ?assertEqual(
-        emqx_authn_utils:backend_failure_result(),
-        emqx_authn_jwt:authenticate(Credential, State0)
-    ),
+    assert_jwks_backend_failure(Credential, State0),
 
     %% Fix from field in the config
     ok = snabbkaffe:start_trace(),
@@ -1426,6 +1396,17 @@ force_jwks_refresh(Pid) ->
         5_000
     ),
     ok.
+
+assert_jwks_backend_failure(Credential, State) ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential, State))
+    end),
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ?assertEqual(
+            {error, not_authorized},
+            emqx_authn_jwt:authenticate(Credential, State)
+        )
+    end).
 
 test_rsa_key(public) ->
     data_file("public_key.pem");
