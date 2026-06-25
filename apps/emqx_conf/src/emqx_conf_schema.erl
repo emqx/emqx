@@ -566,7 +566,13 @@ fields("node") ->
             sc(
                 string(),
                 #{
-                    mapping => "vm_args.-setcookie",
+                    %% NOTE: intentionally NOT mapped to "vm_args.-setcookie".
+                    %% The cookie is passed to the Erlang VM via the `-setcookie`
+                    %% command-line flag from `bin/emqx` instead, so the resolved
+                    %% secret is never written to the generated vm.<time>.args file
+                    %% on disk. This also lets `bin/emqx` resolve `file://` sources
+                    %% (which the VM/HOCON layer cannot do, as the cookie is needed
+                    %% before the VM starts).
                     required => true,
                     'readOnly' => true,
                     sensitive => true,
