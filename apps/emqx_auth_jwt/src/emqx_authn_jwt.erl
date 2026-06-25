@@ -271,15 +271,15 @@ verify(JWT, JWKs, AllowedAlgs, VerifyClaims, AclClaimName, DisconnectAfterExpire
             extra_to_auth_data(Extra, JWT, AclClaimName, DisconnectAfterExpire);
         {error, {missing_claim, Claim}} ->
             %% it's a invalid token, so it's ok to log
-            ?TRACE_AUTHN_PROVIDER("missing_jwt_claim", #{jwt => JWT, claim => Claim}),
+            ?TRACE_AUTHN_PROVIDER("missing_jwt_claim", #{jwt => <<"******">>, claim => Claim}),
             {error, bad_username_or_password};
         {error, invalid_signature} ->
             %% it's a invalid token, so it's ok to log
-            ?TRACE_AUTHN_PROVIDER("invalid_jwt_signature", #{jwks => JWKs, jwt => JWT}),
+            ?TRACE_AUTHN_PROVIDER("invalid_jwt_signature", #{jwks => JWKs, jwt => <<"******">>}),
             ignore;
         {error, {claims, Claims}} ->
             %% it's a invalid token, so it's ok to log
-            ?TRACE_AUTHN_PROVIDER("invalid_jwt_claims", #{jwt => JWT, claims => Claims}),
+            ?TRACE_AUTHN_PROVIDER("invalid_jwt_claims", #{jwt => <<"******">>, claims => Claims}),
             {error, bad_username_or_password}
     end.
 
@@ -295,7 +295,7 @@ extra_to_auth_data(Extra, JWT, AclClaimName, DisconnectAfterExpire) ->
     catch
         throw:{bad_acl_rule, Reason} ->
             %% it's a invalid token, so ok to log
-            ?TRACE_AUTHN_PROVIDER("bad_acl_rule", Reason#{jwt => JWT}),
+            ?TRACE_AUTHN_PROVIDER("bad_acl_rule", Reason#{jwt => <<"******">>}),
             {error, bad_username_or_password}
     end.
 
@@ -337,7 +337,7 @@ do_verify(JWT, [JWK | More], AllowedAlgs, VerifyClaims) ->
             do_verify(JWT, More, AllowedAlgs, VerifyClaims)
     catch
         _:Reason ->
-            ?TRACE_AUTHN_PROVIDER("jwt_verify_error", #{jwt => JWT, reason => Reason}),
+            ?TRACE_AUTHN_PROVIDER("jwt_verify_error", #{jwt => <<"******">>, reason => Reason}),
             do_verify(JWT, More, AllowedAlgs, VerifyClaims)
     end.
 
