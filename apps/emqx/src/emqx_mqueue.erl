@@ -67,7 +67,7 @@
 -type priority() :: infinity | integer().
 -type pq() :: emqx_pqueue:q().
 -type count() :: non_neg_integer().
--type p_table() :: ?NO_PRIORITY_TABLE | #{emqx_types:topic() := priority()}.
+-type p_table() :: #{emqx_types:topic() := priority()}.
 -type options() :: #{
     max_len := count(),
     priorities => p_table(),
@@ -95,13 +95,11 @@
 -record(mqueue, {
     store_qos0 = false :: boolean(),
     max_len = ?MAX_LEN_INFINITY :: count(),
-    len = 0 :: count(),
     dropped = 0 :: count(),
-    p_table = ?NO_PRIORITY_TABLE :: p_table(),
+    p_table = ?NO_PRIORITY_TABLE :: p_table() | ?NO_PRIORITY_TABLE,
     default_p = ?LOWEST_PRIORITY :: priority(),
     q = emqx_pqueue:new() :: pq(),
     shift_opts :: #shift_opts{},
-    last_prio :: non_neg_integer() | undefined,
     p_credit :: non_neg_integer() | undefined
 }).
 
@@ -131,14 +129,16 @@ info(store_qos0, #mqueue{store_qos0 = True}) ->
     True;
 info(max_len, #mqueue{max_len = MaxLen}) ->
     MaxLen;
-info(len, #mqueue{len = Len}) ->
-    Len;
+info(len, #mqueue{q = Q}) ->
+    emqx_pqueue:len(Q);
 info(dropped, #mqueue{dropped = Dropped}) ->
     Dropped.
 
-is_empty(#mqueue{len = Len}) -> Len =:= 0.
+is_empty(#mqueue{q = Q}) ->
+    emqx_pqueue:len(Q) =:= 0.
 
-len(#mqueue{len = Len}) -> Len.
+len(#mqueue{q = Q}) ->
+    emqx_pqueue:len(Q).
 
 max_len(#mqueue{max_len = MaxLen}) -> MaxLen.
 
@@ -148,16 +148,14 @@ to_list(MQ) ->
     to_list(MQ, []).
 
 -spec filter(fun((any()) -> boolean()), mqueue()) -> mqueue().
-filter(_Pred, #mqueue{len = 0} = MQ) ->
-    MQ;
-filter(Pred, #mqueue{q = Q, len = Len, dropped = Droppend} = MQ) ->
-    Q2 = emqx_pqueue:filter(Pred, Q),
-    case emqx_pqueue:len(Q2) of
-        Len ->
+filter(Pred, #mqueue{q = Q, dropped = Dropped} = MQ) ->
+    L0 = emqx_pqueue:len(Q),
+    Q1 = emqx_pqueue:filter(Pred, Q),
+    case emqx_pqueue:len(Q1) of
+        L0 ->
             MQ;
-        Len2 ->
-            Diff = Len - Len2,
-            MQ#mqueue{q = Q2, len = Len2, dropped = Droppend + Diff}
+        L1 ->
+            MQ#mqueue{q = Q1, dropped = Dropped + (L0 - L1)}
     end.
 
 -spec query(mqueue(), #{position => Pos, limit := Limit}) ->
@@ -265,7 +263,6 @@ in(
             default_p = Dp,
             p_table = PTab,
             q = Q,
-            len = Len,
             max_len = MaxLen,
             dropped = Dropped
         } = MQ
@@ -281,37 +278,40 @@ in(
             {DroppedMsg, MQ#mqueue{q = Q2, dropped = Dropped + 1}};
         false ->
             Q1 = emqx_pqueue:in(Msg1, Priority, Q),
-            {_DroppedMsg = undefined, MQ#mqueue{len = Len + 1, q = Q1}}
+            {_DroppedMsg = undefined, MQ#mqueue{q = Q1}}
     end.
 
 -spec out(mqueue()) -> {empty | {value, message()}, mqueue()}.
-out(MQ = #mqueue{len = 0, q = Q}) ->
-    %% assert, in this case, emqx_pqueue:len should be very cheap
-    0 = emqx_pqueue:len(Q),
-    {empty, MQ};
-out(MQ = #mqueue{q = Q, len = Len, last_prio = undefined, shift_opts = ShiftOpts}) ->
-    %% Shouldn't fail, since we've checked the length
-    {{value, Val, Prio}, Q1} = emqx_pqueue:out_p(Q),
-    MQ1 = MQ#mqueue{
-        q = Q1,
-        len = Len - 1,
-        last_prio = Prio,
-        p_credit = get_credits(Prio, ShiftOpts)
-    },
-    {{value, without_ts(Val)}, MQ1};
+out(MQ = #mqueue{q = Q, p_table = ?NO_PRIORITY_TABLE}) ->
+    case emqx_pqueue:out(Q) of
+        {{value, V}, Q1} ->
+            {{value, without_ts(V)}, MQ#mqueue{q = Q1}};
+        {empty, _} ->
+            {empty, MQ}
+    end;
+out(MQ = #mqueue{q = Q, p_credit = undefined, shift_opts = ShiftOpts}) ->
+    case emqx_pqueue:out_p(Q) of
+        {{value, V, Prio}, Q1} ->
+            MQ1 = MQ#mqueue{
+                q = Q1,
+                p_credit = get_credits(Prio, ShiftOpts)
+            },
+            {{value, without_ts(V)}, MQ1};
+        {empty, _} ->
+            {empty, MQ}
+    end;
 out(MQ = #mqueue{q = Q, p_credit = 0}) ->
-    MQ1 = MQ#mqueue{
+    out(MQ#mqueue{
         q = emqx_pqueue:shift(Q),
-        last_prio = undefined
-    },
-    out(MQ1);
-out(MQ = #mqueue{q = Q, len = Len, p_credit = Cnt}) ->
-    {R, Q2} =
-        case emqx_pqueue:out(Q) of
-            {{value, Val}, Q1} -> {{value, without_ts(Val)}, Q1};
-            Other -> Other
-        end,
-    {R, MQ#mqueue{q = Q2, len = Len - 1, p_credit = Cnt - 1}}.
+        p_credit = undefined
+    });
+out(MQ = #mqueue{q = Q, p_credit = C}) ->
+    case emqx_pqueue:out(Q) of
+        {{value, V}, Q1} ->
+            {{value, without_ts(V)}, MQ#mqueue{q = Q1, p_credit = C - 1}};
+        {empty, _} ->
+            {empty, MQ}
+    end.
 
 get_opt(Key, Opts, Default) ->
     case maps:get(Key, Opts, Default) of

@@ -46,10 +46,7 @@ t_in(_) ->
 t_in_qos0(_) ->
     Opts = #{max_len => 5, store_qos0 => false},
     Q = ?Q:init(Opts),
-    {_, Q1} = ?Q:in(#message{qos = 0}, Q),
-    ?assert(?Q:is_empty(Q1)),
-    {_, Q2} = ?Q:in(#message{qos = 0}, Q1),
-    ?assert(?Q:is_empty(Q2)).
+    false = ?Q:in(#message{qos = 0}, Q).
 
 t_out(_) ->
     Opts = #{max_len => 5, store_qos0 => true},
@@ -265,9 +262,11 @@ t_length_priority_mqueue(_) ->
 
 t_dropped(_) ->
     Q = ?Q:init(#{max_len => 1, store_qos0 => true}),
-    Msg = emqx_message:make(<<"t">>, <<"payload">>),
-    {undefined, Q1} = ?Q:in(Msg, Q),
-    {Msg, Q2} = ?Q:in(Msg, Q1),
+    Msg1 = emqx_message:make(<<"t1">>, <<"payload">>),
+    Msg2 = emqx_message:make(<<"t2">>, <<"payload">>),
+    {undefined, Q1} = ?Q:in(Msg1, Q),
+    {Dropped, Q2} = ?Q:in(Msg2, Q1),
+    ?assertMatch(#message{topic = <<"t1">>}, Dropped),
     ?assertEqual(1, ?Q:dropped(Q2)).
 
 t_query(_) ->
