@@ -10,6 +10,8 @@
 -include_lib("jose/include/jose_jwk.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-define(DEFAULT_MAX_FAIL_COUNT, 5).
+
 -export([
     start_link/1,
     stop/1
@@ -79,12 +81,12 @@ handle_info(
                     endpoint => Endpoint,
                     reason => Reason
                 }),
-                State1;
+                record_jwks_refresh_failure(State1);
             {StatusLine, Headers, Body} ->
                 try
                     JWK = jose_jwk:from(emqx_utils_json:decode(Body)),
                     {_, JWKS} = JWK#jose_jwk.keys,
-                    State1#{jwks := JWKS}
+                    State1#{jwks := JWKS, failure_count := 0}
                 catch
                     _:_ ->
                         ?SLOG(warning, #{
@@ -94,7 +96,7 @@ handle_info(
                             headers => Headers,
                             body => Body
                         }),
-                        State1
+                        record_jwks_refresh_failure(State1)
                 end
         end,
     {noreply, NewState};
@@ -114,18 +116,22 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-handle_options(#{
-    endpoint := Endpoint,
-    headers := Headers,
-    refresh_interval := RefreshInterval0,
-    ssl := SSLOpts
-}) ->
+handle_options(
+    #{
+        endpoint := Endpoint,
+        headers := Headers,
+        refresh_interval := RefreshInterval0,
+        ssl := SSLOpts
+    } = Opts
+) ->
     #{
         endpoint => Endpoint,
         headers => to_httpc_headers(Headers),
         refresh_interval => limit_refresh_interval(RefreshInterval0),
+        max_fail_count => maps:get(max_fail_count, Opts, ?DEFAULT_MAX_FAIL_COUNT),
         ssl_opts => emqx_tls_lib:to_client_opts(SSLOpts),
-        jwks => [],
+        jwks => undefined,
+        failure_count => 0,
         request_id => undefined
     }.
 
@@ -156,12 +162,24 @@ refresh_jwks(
                     http_opts => HTTPOpts,
                     reason => Reason
                 }),
-                State;
+                record_jwks_refresh_failure(State);
             {ok, RequestID} ->
                 ?tp(debug, jwks_endpoint_request_ok, #{request_id => RequestID}),
                 State#{request_id := RequestID}
         end,
     ensure_expiry_timer(NState).
+
+record_jwks_refresh_failure(
+    #{failure_count := FailureCount0, max_fail_count := MaxFailCount} = State
+) ->
+    FailureCount = FailureCount0 + 1,
+    State1 = State#{failure_count := FailureCount},
+    case FailureCount >= MaxFailCount of
+        true ->
+            State1#{jwks := undefined};
+        false ->
+            State1
+    end.
 
 ensure_expiry_timer(State = #{refresh_interval := Interval}) ->
     State#{refresh_timer => erlang:send_after(timer:seconds(Interval), self(), refresh_jwks)}.
@@ -172,7 +190,9 @@ limit_refresh_interval(Interval) ->
     Interval.
 
 to_httpc_headers(Headers) ->
-    UserHeaders = [{binary_to_list(bin(K)), V} || {K, V} <- maps:to_list(Headers)],
+    UserHeaders =
+        [{binary_to_list(bin(K)), V} || {K, V} <- maps:to_list(Headers)] ++
+            [{"connection", "close"}],
     ensure_te_header(UserHeaders).
 
 %% Inets versions prior to 9.4.2 (OTP 28.1) emit an RFC 2616-violating
