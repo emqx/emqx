@@ -142,6 +142,7 @@
     inflight_max,
     mqueue_len,
     mqueue_max,
+    total_payload_bytes,
     mqueue_dropped,
     next_pkt_id,
     awaiting_rel_cnt,
@@ -281,6 +282,8 @@ info(mqueue_len, #session{mqueue = MQueue}) ->
     emqx_mqueue:len(MQueue);
 info(mqueue_max, #session{mqueue = MQueue}) ->
     emqx_mqueue:max_len(MQueue);
+info(total_payload_bytes, #session{inflight = Inflight, mqueue = MQueue}) ->
+    emqx_inflight:bytes_size(Inflight) + emqx_mqueue:bytes_size(MQueue);
 info(mqueue_dropped, #session{mqueue = MQueue}) ->
     emqx_mqueue:dropped(MQueue);
 info({mqueue_msgs, PagerParams}, #session{mqueue = MQueue}) ->
@@ -553,12 +556,18 @@ deliver(ClientInfo, Msgs, Session) ->
 
 do_deliver(_ClientInfo, [], Publishes, _CheckLimiter, Session) ->
     {ok, lists:reverse(Publishes), Session};
-do_deliver(ClientInfo, [Msg | More], Acc, CheckLimiter, Session) ->
-    case deliver_msg(ClientInfo, Msg, CheckLimiter, Session) of
-        {ok, [], Session1} ->
-            do_deliver(ClientInfo, More, Acc, CheckLimiter, Session1);
-        {ok, [Publish], Session1} ->
-            do_deliver(ClientInfo, More, [Publish | Acc], CheckLimiter, Session1)
+do_deliver(ClientInfo = #{zone := Zone}, [Msg | More], Acc, CheckLimiter, Session) ->
+    case emqx_message:is_expired(Msg, Zone) of
+        true ->
+            _ = emqx_session_events:handle_event(ClientInfo, {expired, Msg}),
+            do_deliver(ClientInfo, More, Acc, CheckLimiter, Session);
+        false ->
+            case deliver_msg(ClientInfo, Msg, CheckLimiter, Session) of
+                {ok, [], Session1} ->
+                    do_deliver(ClientInfo, More, Acc, CheckLimiter, Session1);
+                {ok, [Publish], Session1} ->
+                    do_deliver(ClientInfo, More, [Publish | Acc], CheckLimiter, Session1)
+            end
     end.
 
 deliver_msg(_ClientInfo, Msg = #message{qos = ?QOS_0}, CheckLimiter, Session) ->

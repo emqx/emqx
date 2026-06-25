@@ -15,6 +15,7 @@
 -define(THROTTLE_MSG, authorization_permission_denied).
 -define(THROTTLE_MSG1, cannot_publish_to_topic_due_to_not_authorized).
 -define(THROTTLE_UNRECOVERABLE_MSG, unrecoverable_resource_error).
+-define(THROTTLE_SESSION_BUFFER_MSG, session_buffer_high_watermark).
 -define(TIME_WINDOW, <<"1s">>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -68,6 +69,10 @@ end_per_testcase(t_throttle_recoverable_msg, _Config) ->
     {ok, _} = emqx_conf:update([log, throttling, msgs], [?THROTTLE_MSG], #{}),
     ok;
 end_per_testcase(t_throttle_add_new_msg, _Config) ->
+    ok = snabbkaffe:stop(),
+    {ok, _} = emqx_conf:update([log, throttling, msgs], [?THROTTLE_MSG], #{}),
+    ok;
+end_per_testcase(t_throttle_session_buffer_msg_globally, _Config) ->
     ok = snabbkaffe:stop(),
     {ok, _} = emqx_conf:update([log, throttling, msgs], [?THROTTLE_MSG], #{}),
     ok;
@@ -162,6 +167,29 @@ t_throttle_add_new_msg(_Config) ->
                 },
                 3000
             )
+        end,
+        []
+    ).
+
+t_throttle_session_buffer_msg_globally(_Config) ->
+    ?check_trace(
+        begin
+            [?THROTTLE_MSG] = Conf = emqx:get_config([log, throttling, msgs]),
+            {ok, _} = emqx_conf:update(
+                [log, throttling, msgs],
+                [?THROTTLE_SESSION_BUFFER_MSG | Conf],
+                #{}
+            ),
+            {ok, _} = ?block_until(
+                #{
+                    ?snk_kind := log_throttler_new_msg,
+                    throttled_msg := ?THROTTLE_SESSION_BUFFER_MSG
+                },
+                5000
+            ),
+            ?assert(emqx_log_throttler:allow(?THROTTLE_SESSION_BUFFER_MSG, <<"c1">>)),
+            ?assertNot(emqx_log_throttler:allow(?THROTTLE_SESSION_BUFFER_MSG, <<"c1">>)),
+            ?assertNot(emqx_log_throttler:allow(?THROTTLE_SESSION_BUFFER_MSG, <<"c2">>))
         end,
         []
     ).

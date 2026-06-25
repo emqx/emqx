@@ -46,8 +46,11 @@ remove_handler() ->
 post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
     #{os := OS1, vm := VM1} = OldConf,
     #{os := OS2, vm := VM2} = NewConf,
+    Session1 = maps:get(session, OldConf, #{}),
+    Session2 = maps:get(session, NewConf, #{}),
     (VM1 =/= VM2) andalso ?MODULE:update(VM2),
     (OS1 =/= OS2) andalso emqx_os_mon:update(OS2),
+    (Session1 =/= Session2) andalso emqx_session_buffer_mon:update(Session2),
     ok.
 
 update(VM) ->

@@ -6,6 +6,8 @@
 
 -compile(inline).
 
+-include("emqx.hrl").
+
 %% APIs
 -export([
     new/0,
@@ -21,6 +23,7 @@
     to_list/1,
     to_list/2,
     size/1,
+    bytes_size/1,
     max_size/1,
     is_full/1,
     is_empty/1,
@@ -33,18 +36,18 @@
 
 -type max_size() :: pos_integer().
 
--opaque inflight() :: {inflight, max_size(), gb_trees:tree()}.
+-opaque inflight() :: {inflight, max_size(), non_neg_integer(), gb_trees:tree()}.
 
--define(INFLIGHT(Tree), {inflight, _MaxSize, Tree}).
+-define(INFLIGHT(Tree), {inflight, _MaxSize, _BytesSize, Tree}).
 
--define(INFLIGHT(MaxSize, Tree), {inflight, MaxSize, (Tree)}).
+-define(INFLIGHT(MaxSize, BytesSize, Tree), {inflight, MaxSize, BytesSize, (Tree)}).
 
 -spec new() -> inflight().
 new() -> new(0).
 
 -spec new(non_neg_integer()) -> inflight().
 new(MaxSize) when MaxSize >= 0 ->
-    ?INFLIGHT(MaxSize, gb_trees:empty()).
+    ?INFLIGHT(MaxSize, 0, gb_trees:empty()).
 
 -spec contain(key(), inflight()) -> boolean().
 contain(Key, ?INFLIGHT(Tree)) ->
@@ -55,16 +58,19 @@ lookup(Key, ?INFLIGHT(Tree)) ->
     gb_trees:lookup(Key, Tree).
 
 -spec insert(key(), Val :: term(), inflight()) -> inflight().
-insert(Key, Val, ?INFLIGHT(MaxSize, Tree)) ->
-    ?INFLIGHT(MaxSize, gb_trees:insert(Key, Val, Tree)).
+insert(Key, Val, ?INFLIGHT(MaxSize, BytesSize, Tree)) ->
+    ?INFLIGHT(MaxSize, BytesSize + val_bytes(Val), gb_trees:insert(Key, Val, Tree)).
 
 -spec delete(key(), inflight()) -> inflight().
-delete(Key, ?INFLIGHT(MaxSize, Tree)) ->
-    ?INFLIGHT(MaxSize, gb_trees:delete(Key, Tree)).
+delete(Key, ?INFLIGHT(MaxSize, BytesSize, Tree)) ->
+    Val = gb_trees:get(Key, Tree),
+    ?INFLIGHT(MaxSize, dec_bytes(BytesSize, Val), gb_trees:delete(Key, Tree)).
 
 -spec update(key(), Val :: term(), inflight()) -> inflight().
-update(Key, Val, ?INFLIGHT(MaxSize, Tree)) ->
-    ?INFLIGHT(MaxSize, gb_trees:update(Key, Val, Tree)).
+update(Key, Val, ?INFLIGHT(MaxSize, BytesSize, Tree)) ->
+    OldVal = gb_trees:get(Key, Tree),
+    BytesSize1 = dec_bytes(BytesSize, OldVal) + val_bytes(Val),
+    ?INFLIGHT(MaxSize, BytesSize1, gb_trees:update(Key, Val, Tree)).
 
 -spec fold(fun((key(), Val :: term(), Acc) -> Acc), Acc, inflight()) -> Acc.
 fold(FoldFun, AccIn, ?INFLIGHT(Tree)) ->
@@ -79,13 +85,13 @@ fold_iterator(FoldFun, Acc, It) ->
     end.
 
 -spec resize(integer(), inflight()) -> inflight().
-resize(MaxSize, ?INFLIGHT(Tree)) ->
-    ?INFLIGHT(MaxSize, Tree).
+resize(MaxSize, ?INFLIGHT(_OldMaxSize, BytesSize, Tree)) ->
+    ?INFLIGHT(MaxSize, BytesSize, Tree).
 
 -spec is_full(inflight()) -> boolean().
-is_full(?INFLIGHT(0, _Tree)) ->
+is_full(?INFLIGHT(0, _BytesSize, _Tree)) ->
     false;
-is_full(?INFLIGHT(MaxSize, Tree)) ->
+is_full(?INFLIGHT(MaxSize, _BytesSize, Tree)) ->
     MaxSize =< gb_trees:size(Tree).
 
 -spec is_empty(inflight()) -> boolean().
@@ -123,6 +129,22 @@ window(Inflight = ?INFLIGHT(Tree)) ->
 size(?INFLIGHT(Tree)) ->
     gb_trees:size(Tree).
 
+-spec bytes_size(inflight()) -> non_neg_integer().
+bytes_size(?INFLIGHT(_MaxSize, BytesSize, _Tree)) ->
+    BytesSize.
+
 -spec max_size(inflight()) -> non_neg_integer().
-max_size(?INFLIGHT(MaxSize, _Tree)) ->
+max_size(?INFLIGHT(MaxSize, _BytesSize, _Tree)) ->
     MaxSize.
+
+dec_bytes(BytesSize, Val) ->
+    BytesSize1 = BytesSize - val_bytes(Val),
+    true = BytesSize1 >= 0,
+    BytesSize1.
+
+val_bytes({inflight_data, _Phase, #message{} = Msg, _Timestamp}) ->
+    emqx_message:payload_size(Msg);
+val_bytes(#message{} = Msg) ->
+    emqx_message:payload_size(Msg);
+val_bytes(_Val) ->
+    0.

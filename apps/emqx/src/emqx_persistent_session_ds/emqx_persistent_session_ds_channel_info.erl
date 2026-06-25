@@ -162,6 +162,7 @@ enrich(Bin, #{
         {heap_size, 0},
         {total_heap_size, 0},
         {mqueue_dropped, 0},
+        {total_payload_bytes, 0},
         {mqueue_len, 0},
         {n_streams, maps:size(Streams)},
         %% TODO: this data is available

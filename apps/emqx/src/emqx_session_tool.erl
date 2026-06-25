@@ -6,7 +6,8 @@
 
 -moduledoc """
 Operator-facing diagnostics for finding the top-K sessions by a session
-gauge or counter (e.g. `mqueue_len', `mqueue_dropped', `inflight_cnt').
+gauge or counter (e.g. `mqueue_len', `total_payload_bytes',
+`mqueue_dropped', `inflight_cnt').
 
 Intended use is from the remote console on a live cluster to locate the
 small set of clients with a backlog or that are dropping messages, in
@@ -67,6 +68,7 @@ with `engine => mem | persistent_ds' once supported).
     | mqueue_len
     | mqueue_max
     | mqueue_dropped
+    | total_payload_bytes
     | awaiting_rel_cnt
     | awaiting_rel_max
     %% channel packet/message counters (see ?CHANNEL_METRICS)
@@ -103,6 +105,9 @@ with `engine => mem | persistent_ds' once supported).
     %% the cached session/clientinfo/conninfo maps, e.g. created_at,
     %% username, peername, connected_at, proto_ver
     extra_keys => [atom()],
+    %% extra cached stats keys to attach to each result row, e.g.
+    %% mqueue_len, total_payload_bytes, inflight_cnt
+    extra_stats => [atom()],
     %% per-node RPC timeout (ms) for cluster_top_by/2 (default 30000);
     %% ignored by the single-node scan/1
     rpc_timeout => timeout()
@@ -110,6 +115,7 @@ with `engine => mem | persistent_ds' once supported).
 
 -type row() :: #{
     clientid := emqx_types:clientid(),
+    pid := pid(),
     node := node(),
     metric := metric(),
     value := number(),
@@ -131,6 +137,7 @@ with `engine => mem | persistent_ds' once supported).
     top_k := pos_integer(),
     chunk := pos_integer(),
     extra_keys := [atom()],
+    extra_stats := [atom()],
     heap := gb_sets:set(heap_entry()),
     stream := emqx_utils_stream:stream(row_input())
 }.
@@ -155,6 +162,7 @@ with `engine => mem | persistent_ds' once supported).
     mqueue_len,
     mqueue_max,
     mqueue_dropped,
+    total_payload_bytes,
     awaiting_rel_cnt,
     awaiting_rel_max
 ]).
@@ -226,6 +234,7 @@ scan_acc_new(Opts) ->
         top_k => maps:get(top_k, Opts, ?DEFAULT_TOP_K),
         chunk => Chunk,
         extra_keys => maps:get(extra_keys, Opts, []),
+        extra_stats => maps:get(extra_stats, Opts, []),
         heap => gb_sets:empty(),
         stream => session_stream(Chunk)
     }.
@@ -260,10 +269,10 @@ call at any point, including after an early abort, to read the partial
 result.
 """.
 -spec scan_acc_rows(scan_acc()) -> [row()].
-scan_acc_rows(#{heap := Heap, metric := Metric, extra_keys := ExtraKeys}) ->
+scan_acc_rows(#{heap := Heap, metric := Metric, extra_keys := ExtraKeys, extra_stats := ExtraStats}) ->
     %% gb_sets:to_list is ascending; reverse for highest-first.
     Candidates = lists:reverse(gb_sets:to_list(Heap)),
-    [resolve_row(C, Metric, ExtraKeys) || C <- Candidates].
+    [resolve_row(C, Metric, ExtraKeys, ExtraStats) || C <- Candidates].
 
 %% Lazy stream over the channel registry, scanned in `Chunk'-sized ets
 %% batches. Each row is projected to {ClientId, ChanPid, Stats}; Stats is
@@ -302,9 +311,8 @@ heap_offer(Candidate, TopK, Heap) ->
         true ->
             gb_sets:add(Candidate, Heap);
         false ->
-            {{SmallestValue, _, _}, Heap1} = gb_sets:take_smallest(Heap),
-            {CandValue, _, _} = Candidate,
-            case CandValue > SmallestValue of
+            {Smallest, Heap1} = gb_sets:take_smallest(Heap),
+            case Candidate > Smallest of
                 true -> gb_sets:add(Candidate, Heap1);
                 false -> Heap
             end
@@ -316,27 +324,32 @@ maybe_sleep(_SleepMs) ->
     ok.
 
 %% Build the result row. Extras are resolved here, once per winner, by
-%% re-reading the cached info map. If the session has since disconnected
+%% re-reading the cached info/stats maps. If the session has since disconnected
 %% the info row is gone and extras come back empty (best effort).
-resolve_row({Value, ClientId, ChanPid}, Metric, ExtraKeys) ->
+resolve_row({Value, ClientId, ChanPid}, Metric, ExtraKeys, ExtraStats) ->
     Base = #{
         clientid => ClientId,
+        pid => ChanPid,
         node => node(),
         metric => Metric,
         value => Value
     },
-    case ExtraKeys of
-        [] ->
+    case ExtraKeys =:= [] andalso ExtraStats =:= [] of
+        true ->
             Base;
-        _ ->
-            Info = lookup_info(ClientId, ChanPid),
-            Base#{extras => maps:from_list([{K, read_extra(K, Info)} || K <- ExtraKeys])}
+        false ->
+            {Info, Stats} = lookup_info_stats(ClientId, ChanPid),
+            Extras =
+                [{K, read_extra(K, Info)} || K <- ExtraKeys] ++
+                    [{K, read_stat_extra(K, Stats)} || K <- ExtraStats],
+            Base#{extras => maps:from_list(Extras)}
     end.
 
-lookup_info(ClientId, ChanPid) ->
+lookup_info_stats(ClientId, ChanPid) ->
     case ets:lookup(?CHAN_INFO_TAB, {ClientId, ChanPid}) of
-        [{_Chan, Info, _Stats}] when is_map(Info) -> Info;
-        _ -> #{}
+        [{_Chan, Info, Stats}] when is_map(Info) -> {Info, Stats};
+        [{_Chan, _Info, Stats}] -> {#{}, Stats};
+        _ -> {#{}, []}
     end.
 
 %% Resolve an extra key against the cached channel info map. The info map
@@ -355,6 +368,13 @@ find_first(Key, [Map | Rest]) ->
         true -> maps:get(Key, Map);
         false -> find_first(Key, Rest)
     end.
+
+read_stat_extra(Key, Stats) when is_list(Stats) ->
+    proplists:get_value(Key, Stats, undefined);
+read_stat_extra(Key, Stats) when is_map(Stats) ->
+    maps:get(Key, Stats, undefined);
+read_stat_extra(_Key, _Stats) ->
+    undefined.
 
 %%--------------------------------------------------------------------
 %% Cluster-wide scan
