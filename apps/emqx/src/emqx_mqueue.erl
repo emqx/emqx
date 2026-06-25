@@ -81,7 +81,6 @@
     | {max_len, non_neg_integer()}
     | {dropped, non_neg_integer()}.
 
--define(PQUEUE, emqx_pqueue).
 -define(LOWEST_PRIORITY, 0).
 -define(HIGHEST_PRIORITY, infinity).
 -define(MAX_LEN_INFINITY, 0).
@@ -152,8 +151,8 @@ to_list(MQ) ->
 filter(_Pred, #mqueue{len = 0} = MQ) ->
     MQ;
 filter(Pred, #mqueue{q = Q, len = Len, dropped = Droppend} = MQ) ->
-    Q2 = ?PQUEUE:filter(Pred, Q),
-    case ?PQUEUE:len(Q2) of
+    Q2 = emqx_pqueue:filter(Pred, Q),
+    case emqx_pqueue:len(Q2) of
         Len ->
             MQ;
         Len2 ->
@@ -168,14 +167,14 @@ when
     Limit :: non_neg_integer().
 query(MQ, #{limit := Limit} = PagerParams) ->
     Pos = maps:get(position, PagerParams, none),
-    PQsList = ?PQUEUE:to_queues_list(MQ#mqueue.q),
+    PQsList = emqx_pqueue:to_queues_list(MQ#mqueue.q),
     {Msgs, NxtPos} = sublist(skip_until(PQsList, Pos), Limit, [], Pos),
     {Msgs, #{position => NxtPos, start => first_msg_pos(PQsList)}}.
 
 first_msg_pos([]) ->
     none;
 first_msg_pos([{Prio, PQ} | T]) ->
-    case ?PQUEUE:out(PQ) of
+    case emqx_pqueue:out(PQ) of
         {empty, _PQ} ->
             first_msg_pos(T);
         {{value, Msg}, _Q} ->
@@ -197,7 +196,7 @@ skip_until_prio(PQsList, PrioPos) ->
     lists:dropwhile(fun({Prio, _PQ}) -> Prio > PrioPos end, PQsList).
 
 skip_until_msg(PQ, MsgPos) ->
-    case ?PQUEUE:out(PQ) of
+    case emqx_pqueue:out(PQ) of
         {empty, PQ1} ->
             PQ1;
         {{value, Msg}, PQ1} ->
@@ -227,7 +226,7 @@ sublist([{Prio, PQ} | T], Len, Acc, LastPosPrio) ->
 sublist_single_pq(_Prio, _PQ, 0, Acc, AccSize) ->
     {Acc, AccSize};
 sublist_single_pq(Prio, PQ, Len, Acc, AccSize) ->
-    case ?PQUEUE:out(0, PQ) of
+    case emqx_pqueue:out(0, PQ) of
         {empty, _PQ} ->
             {Acc, AccSize};
         {{value, Msg}, PQ1} ->
@@ -272,26 +271,27 @@ in(
         } = MQ
 ) ->
     Priority = get_priority(Topic, PTab, Dp),
-    PLen = ?PQUEUE:plen(Priority, Q),
+    PLen = emqx_pqueue:plen(Priority, Q),
     Msg1 = with_ts(Msg),
     case MaxLen =/= ?MAX_LEN_INFINITY andalso PLen =:= MaxLen of
         true ->
             %% reached max length, drop the oldest message
-            {{value, DroppedMsg}, Q1} = ?PQUEUE:out(Priority, Q),
-            Q2 = ?PQUEUE:in(Msg1, Priority, Q1),
+            {{value, DroppedMsg}, Q1} = emqx_pqueue:out(Priority, Q),
+            Q2 = emqx_pqueue:in(Msg1, Priority, Q1),
             {without_ts(DroppedMsg), MQ#mqueue{q = Q2, dropped = Dropped + 1}};
         false ->
-            {_DroppedMsg = undefined, MQ#mqueue{len = Len + 1, q = ?PQUEUE:in(Msg1, Priority, Q)}}
+            Q1 = emqx_pqueue:in(Msg1, Priority, Q),
+            {_DroppedMsg = undefined, MQ#mqueue{len = Len + 1, q = Q1}}
     end.
 
 -spec out(mqueue()) -> {empty | {value, message()}, mqueue()}.
 out(MQ = #mqueue{len = 0, q = Q}) ->
-    %% assert, in this case, ?PQUEUE:len should be very cheap
-    0 = ?PQUEUE:len(Q),
+    %% assert, in this case, emqx_pqueue:len should be very cheap
+    0 = emqx_pqueue:len(Q),
     {empty, MQ};
 out(MQ = #mqueue{q = Q, len = Len, last_prio = undefined, shift_opts = ShiftOpts}) ->
     %% Shouldn't fail, since we've checked the length
-    {{value, Val, Prio}, Q1} = ?PQUEUE:out_p(Q),
+    {{value, Val, Prio}, Q1} = emqx_pqueue:out_p(Q),
     MQ1 = MQ#mqueue{
         q = Q1,
         len = Len - 1,
@@ -301,13 +301,13 @@ out(MQ = #mqueue{q = Q, len = Len, last_prio = undefined, shift_opts = ShiftOpts
     {{value, without_ts(Val)}, MQ1};
 out(MQ = #mqueue{q = Q, p_credit = 0}) ->
     MQ1 = MQ#mqueue{
-        q = ?PQUEUE:shift(Q),
+        q = emqx_pqueue:shift(Q),
         last_prio = undefined
     },
     out(MQ1);
 out(MQ = #mqueue{q = Q, len = Len, p_credit = Cnt}) ->
     {R, Q2} =
-        case ?PQUEUE:out(Q) of
+        case emqx_pqueue:out(Q) of
             {{value, Val}, Q1} -> {{value, without_ts(Val)}, Q1};
             Other -> Other
         end,
@@ -341,7 +341,7 @@ get_credits(Prio, #shift_opts{multiplier = Mult, base = Base}) ->
 
 get_shift_opt(Opts) ->
     %% Using 10 as a multiplier by default. This is needed to minimize
-    %% overhead of ?PQUEUE:rotate
+    %% overhead of emqx_pqueue:rotate
     Mult = maps:get(shift_multiplier, Opts, 10),
     true = is_integer(Mult) andalso Mult > 0,
     Min =
