@@ -203,7 +203,7 @@ fields(transport_options) ->
                 }
             )}
     ] ++
-        emqx_connector_schema_lib:ssl_fields(_EnableByDefault = true) ++
+        emqx_connector_schema_lib:ssl_fields(#{enable_by_default => true}) ++
         props_with(
             [headers, max_retries, request_timeout], emqx_bridge_http_connector:fields("request")
         ).

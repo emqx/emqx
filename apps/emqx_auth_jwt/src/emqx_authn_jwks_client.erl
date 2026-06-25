@@ -172,7 +172,18 @@ limit_refresh_interval(Interval) ->
     Interval.
 
 to_httpc_headers(Headers) ->
-    [{binary_to_list(bin(K)), V} || {K, V} <- maps:to_list(Headers)].
+    UserHeaders = [{binary_to_list(bin(K)), V} || {K, V} <- maps:to_list(Headers)],
+    ensure_te_header(UserHeaders).
+
+%% Override inets' RFC 2616-violating default empty `te:' header
+%% (fixed upstream in inets 9.4.2 / OTP 28.1). Some identity providers
+%% (notably PingFederate) reject an empty TE header value with 503 or TCP RST.
+%% The keys produced by `to_httpc_headers/1' are lower-case strings.
+ensure_te_header(Headers) ->
+    case lists:keymember("te", 1, Headers) of
+        true -> Headers;
+        false -> [{"te", "trailers"} | Headers]
+    end.
 
 cancel_http_request(#{request_id := undefined} = State) ->
     State;
