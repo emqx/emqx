@@ -220,6 +220,16 @@ add_user(Params) ->
         body => Params
     }).
 
+add_user(Params, QueryParams) ->
+    URL = uri([?CONF_NS, "password_based:built_in_database", "users"]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
+        method => post,
+        url => URL,
+        body => Params,
+        query_params => QueryParams
+    }).
+
 get_user(UserId, QueryParams) ->
     URL = uri([?CONF_NS, "password_based:built_in_database", "users", UserId]),
     emqx_mgmt_api_test_util:simple_request(#{
@@ -704,6 +714,25 @@ t_update_user_namespace_in_body(_TCConfig) ->
         )
     ),
     ?assertMatch({204, _}, delete_user(<<"u1">>, #{<<"ns">> => Ns})),
+    ok.
+
+%% Creating a built-in user that targets a namespace which is not a known
+%% managed namespace must be rejected, whether the namespace is given in the
+%% request body or in the `ns' query parameter.
+t_create_user_unknown_namespace_rejected(_TCConfig) ->
+    put_auth_header(create_superuser()),
+    {200, _} = create_authenticator(emqx_authn_test_lib:built_in_database_example()),
+    Ns = ?OTHER_NS,
+    %% Mark the namespace as not managed (never created / already deleted).
+    mark_namespace_deleted(Ns),
+    ?assertMatch(
+        {400, #{<<"message">> := <<"Managed namespace not found">>}},
+        add_user(#{<<"user_id">> => <<"u1">>, <<"password">> => <<"p1">>, <<"namespace">> => Ns})
+    ),
+    ?assertMatch(
+        {400, #{<<"message">> := <<"Managed namespace not found">>}},
+        add_user(#{<<"user_id">> => <<"u2">>, <<"password">> => <<"p2">>}, #{<<"ns">> => Ns})
+    ),
     ok.
 
 t_authenticator_import_users_global() ->
