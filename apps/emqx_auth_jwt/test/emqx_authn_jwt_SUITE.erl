@@ -399,11 +399,11 @@ t_jwks_renewal(_Config) ->
     ok = snabbkaffe:stop(),
 
     ?assertEqual(
-        {error, not_authorized},
+        emqx_authn_utils:backend_failure_result(),
         emqx_authn_jwt:authenticate(Credential0, State0)
     ),
     ?assertEqual(
-        {error, not_authorized},
+        emqx_authn_utils:backend_failure_result(),
         emqx_authn_jwt:authenticate(Credential0#{password => <<"badpassword">>}, State0)
     ),
 
@@ -427,11 +427,11 @@ t_jwks_renewal(_Config) ->
     ok = snabbkaffe:stop(),
 
     ?assertEqual(
-        {error, not_authorized},
+        emqx_authn_utils:backend_failure_result(),
         emqx_authn_jwt:authenticate(Credential0, State1)
     ),
     ?assertEqual(
-        {error, not_authorized},
+        emqx_authn_utils:backend_failure_result(),
         emqx_authn_jwt:authenticate(Credential0#{password => <<"badpassword">>}, State0)
     ),
 
@@ -843,7 +843,7 @@ t_jwks_config_update(_Config) ->
 
     %% The authentication should fail, because the `from` is set to `username` in settings
     ?assertEqual(
-        {error, not_authorized},
+        emqx_authn_utils:backend_failure_result(),
         emqx_authn_jwt:authenticate(Credential, State0)
     ),
 
