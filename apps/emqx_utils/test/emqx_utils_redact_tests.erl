@@ -81,6 +81,38 @@ redact_sentinel_password_test() ->
         redact(#{sentinel_password => <<"sentinel-password">>})
     ).
 
+redact_common_token_aliases_test() ->
+    ?assertEqual(
+        #{
+            access_token => <<"******">>,
+            <<"refresh_token">> => <<"******">>,
+            "id_token" => "******"
+        },
+        redact(#{
+            access_token => <<"access-token">>,
+            <<"refresh_token">> => <<"refresh-token">>,
+            "id_token" => "id-token"
+        })
+    ).
+
+redact_secret_headers_test() ->
+    ?assertEqual(
+        #{
+            headers => #{
+                "X-API-Key" => "******",
+                <<"API-Key">> => <<"******">>,
+                cookie => "******"
+            }
+        },
+        redact(#{
+            headers => #{
+                "X-API-Key" => "api-key",
+                <<"API-Key">> => <<"api-key">>,
+                cookie => "emqx_auth=token"
+            }
+        })
+    ).
+
 deobfuscate_file_path_secrets_test_() ->
     Original1 = #{foo => #{bar => #{headers => #{"authorization" => "file://a"}}}},
     Original2 = #{foo => #{bar => #{headers => #{"authorization" => "a"}}}},

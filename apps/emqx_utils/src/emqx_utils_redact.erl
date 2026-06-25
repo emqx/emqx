@@ -29,9 +29,15 @@ is_sensitive_key(<<"account_key">>) -> true;
 is_sensitive_key(api_key) -> true;
 is_sensitive_key("api_key") -> true;
 is_sensitive_key(<<"api_key">>) -> true;
+is_sensitive_key(access_token) -> true;
+is_sensitive_key("access_token") -> true;
+is_sensitive_key(<<"access_token">>) -> true;
 is_sensitive_key(aws_secret_access_key) -> true;
 is_sensitive_key("aws_secret_access_key") -> true;
 is_sensitive_key(<<"aws_secret_access_key">>) -> true;
+is_sensitive_key(id_token) -> true;
+is_sensitive_key("id_token") -> true;
+is_sensitive_key(<<"id_token">>) -> true;
 is_sensitive_key(password) -> true;
 is_sensitive_key("password") -> true;
 is_sensitive_key(<<"password">>) -> true;
@@ -63,6 +69,9 @@ is_sensitive_key(sp_private_key) -> true;
 is_sensitive_key(<<"sp_private_key">>) -> true;
 is_sensitive_key(private_key_password) -> true;
 is_sensitive_key(<<"private_key_password">>) -> true;
+is_sensitive_key(refresh_token) -> true;
+is_sensitive_key("refresh_token") -> true;
+is_sensitive_key(<<"refresh_token">>) -> true;
 is_sensitive_key(token) -> true;
 is_sensitive_key("token") -> true;
 is_sensitive_key(<<"token">>) -> true;
@@ -159,7 +168,15 @@ check_is_sensitive_header(Key) ->
 
 is_sensitive_header("authorization") ->
     true;
+is_sensitive_header("api-key") ->
+    true;
+is_sensitive_header("cookie") ->
+    true;
 is_sensitive_header("proxy-authorization") ->
+    true;
+is_sensitive_header("x-api-key") ->
+    true;
+is_sensitive_header("x-auth-token") ->
     true;
 is_sensitive_header(_Any) ->
     false.
@@ -347,11 +364,15 @@ deobfuscate_test() ->
 redact_header_test_() ->
     Types = [string, binary, atom],
     Keys = [
+        "api-key",
         "auThorization",
         "Authorization",
         "authorizaTion",
+        "cookie",
         "proxy-authorizaTion",
-        "proXy-authoriZaTion"
+        "proXy-authoriZaTion",
+        "x-api-key",
+        "x-auth-token"
     ],
 
     Case = fun(Type, Key0) ->
