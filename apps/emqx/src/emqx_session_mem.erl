@@ -667,24 +667,29 @@ enqueue_messages(ClientInfo, Msgs, Q) when is_list(Msgs) ->
         Msgs
     ).
 
-enqueue_msg(ClientInfo, #message{qos = QoS} = Msg, Q) ->
-    {Dropped, NQ} = emqx_mqueue:in(Msg, Q),
-    case Dropped of
-        undefined ->
-            ok;
-        _Msg ->
-            NQInfo = emqx_mqueue:info(NQ),
-            Reason =
-                case NQInfo of
-                    #{store_qos0 := false} when QoS =:= ?QOS_0 -> qos0_msg;
-                    _ -> queue_full
-                end,
+enqueue_msg(ClientInfo, Msg, Q) ->
+    case emqx_mqueue:in(Msg, Q) of
+        {undefined, NQ} ->
+            NQ;
+        {Dropped, NQ} ->
             emqx_session_events:handle_event(
                 ClientInfo,
-                {dropped, Dropped, #{reason => Reason, logctx => #{queue => NQInfo}}}
-            )
-    end,
-    NQ.
+                {dropped, Dropped, #{
+                    reason => queue_full,
+                    logctx => #{queue => emqx_mqueue:info(NQ)}
+                }}
+            ),
+            NQ;
+        false ->
+            emqx_session_events:handle_event(
+                ClientInfo,
+                {dropped, Msg, #{
+                    reason => qos0_msg,
+                    logctx => #{queue => emqx_mqueue:info(Q)}
+                }}
+            ),
+            Q
+    end.
 
 maybe_ack(Msg) ->
     emqx_shared_sub:maybe_ack(Msg).

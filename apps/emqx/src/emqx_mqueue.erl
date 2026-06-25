@@ -255,9 +255,9 @@ stats(#mqueue{max_len = MaxLen, dropped = Dropped} = MQ) ->
     [{len, len(MQ)}, {max_len, MaxLen}, {dropped, Dropped}].
 
 %% @doc Enqueue a message.
--spec in(message(), mqueue()) -> {option(message()), mqueue()}.
-in(Msg = #message{qos = ?QOS_0}, MQ = #mqueue{store_qos0 = false}) ->
-    {_Dropped = Msg, MQ};
+-spec in(message(), mqueue()) -> {option(message()), mqueue()} | false.
+in(#message{qos = ?QOS_0}, #mqueue{store_qos0 = false}) ->
+    false;
 in(
     Msg = #message{topic = Topic},
     MQ =
@@ -278,7 +278,7 @@ in(
             %% reached max length, drop the oldest message
             {{value, DroppedMsg}, Q1} = emqx_pqueue:out(Priority, Q),
             Q2 = emqx_pqueue:in(Msg1, Priority, Q1),
-            {without_ts(DroppedMsg), MQ#mqueue{q = Q2, dropped = Dropped + 1}};
+            {DroppedMsg, MQ#mqueue{q = Q2, dropped = Dropped + 1}};
         false ->
             Q1 = emqx_pqueue:in(Msg1, Priority, Q),
             {_DroppedMsg = undefined, MQ#mqueue{len = Len + 1, q = Q1}}
