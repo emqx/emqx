@@ -1788,24 +1788,31 @@ get_namespace(#{resolved_ns := Namespace}) ->
 parse_namespace(Req) ->
     ActorNamespace = emqx_dashboard:get_namespace(Req),
     case requested_namespace(Req) of
-        undefined ->
+        {error, conflicting_namespaces} = Err ->
+            Err;
+        {ok, undefined} ->
             {ok, ActorNamespace};
-        ActorNamespace ->
+        {ok, ActorNamespace} ->
             {ok, ActorNamespace};
-        Other when ActorNamespace =:= ?global_ns ->
+        {ok, Other} when ActorNamespace =:= ?global_ns ->
             %% Only a global admin may operate on an arbitrary namespace.
             {ok, Other};
-        _Other ->
+        {ok, _Other} ->
             {error, not_authorized}
     end.
 
 %% The requested namespace may be carried in the `ns' query parameter or in the
-%% `namespace' request body field. The query parameter always takes precedence;
-%% the body field is only a fallback (and is the only option for GET, which has
-%% no body). Returns `undefined' when no namespace was requested, so the caller
-%% can default to the actor's namespace.
+%% `namespace' request body field. If both are present they must agree, otherwise
+%% the request is rejected. Returns `{ok, undefined}' when no namespace was
+%% requested, so the caller can default to the actor's namespace.
 requested_namespace(Req) ->
-    first_defined([qs_namespace(Req), body_namespace(Req)]).
+    case {qs_namespace(Req), body_namespace(Req)} of
+        {undefined, undefined} -> {ok, undefined};
+        {Ns, undefined} -> {ok, Ns};
+        {undefined, Ns} -> {ok, Ns};
+        {Ns, Ns} -> {ok, Ns};
+        {_QsNs, _BodyNs} -> {error, conflicting_namespaces}
+    end.
 
 qs_namespace(#{query_string := QueryString}) ->
     maps:get(<<"ns">>, QueryString, undefined);
@@ -1817,14 +1824,14 @@ body_namespace(#{body := Body}) when is_map(Body) ->
 body_namespace(_Req) ->
     undefined.
 
-first_defined([undefined | Rest]) -> first_defined(Rest);
-first_defined([Value | _Rest]) -> Value;
-first_defined([]) -> undefined.
-
 resolve_namespace(Req, _Meta) ->
     case parse_namespace(Req) of
         {ok, Namespace} ->
             {ok, Req#{resolved_ns => Namespace}};
+        {error, conflicting_namespaces} ->
+            ?BAD_REQUEST(
+                <<"Conflicting namespace in the `ns` query parameter and request body">>
+            );
         {error, not_authorized} ->
             ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
     end.

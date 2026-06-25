@@ -646,8 +646,8 @@ t_authenticator_user(TCConfig) ->
     ok.
 
 %% A global admin may select the target namespace of a built-in user delete via
-%% either the `namespace' body field or the `ns' query parameter; the query
-%% parameter wins when both are given.
+%% either the `namespace' body field or the `ns' query parameter; if both are
+%% given they must agree.
 t_delete_user_namespace_resolution(_TCConfig) ->
     put_auth_header(create_superuser()),
     {200, _} = create_authenticator(emqx_authn_test_lib:built_in_database_example()),
@@ -658,17 +658,20 @@ t_delete_user_namespace_resolution(_TCConfig) ->
     ?assertMatch({200, #{<<"data">> := [_]}}, list_users(#{<<"ns">> => Ns})),
     ?assertMatch({204, _}, delete_user(<<"u1">>, #{}, #{<<"namespace">> => Ns})),
     ?assertMatch({200, #{<<"data">> := []}}, list_users(#{<<"ns">> => Ns})),
-    %% The `ns' query parameter wins over a conflicting `namespace' body field.
+    %% The `ns' query parameter alone selects the namespace.
+    ?assertMatch({201, _}, add_user(User)),
+    ?assertMatch({204, _}, delete_user(<<"u1">>, #{<<"ns">> => Ns}, #{})),
+    ?assertMatch({200, #{<<"data">> := []}}, list_users(#{<<"ns">> => Ns})),
+    %% A conflicting `ns' query parameter and `namespace' body field is rejected,
+    %% leaving the record untouched.
     ?assertMatch({201, _}, add_user(User)),
     ?assertMatch(
-        {204, _},
+        {400, _},
         delete_user(<<"u1">>, #{<<"ns">> => Ns}, #{<<"namespace">> => <<"wrong_ns">>})
     ),
-    ?assertMatch({200, #{<<"data">> := []}}, list_users(#{<<"ns">> => Ns})),
+    ?assertMatch({200, #{<<"data">> := [_]}}, list_users(#{<<"ns">> => Ns})),
     %% A `namespace' body field pointing at another namespace (where the user
-    %% does not exist) is honored as the fallback and yields 404 rather than
-    %% touching the record in `Ns'.
-    ?assertMatch({201, _}, add_user(User)),
+    %% does not exist) yields 404 rather than touching the record in `Ns'.
     ?assertMatch({404, _}, delete_user(<<"u1">>, #{}, #{<<"namespace">> => <<"another_ns">>})),
     ?assertMatch({200, #{<<"data">> := [_]}}, list_users(#{<<"ns">> => Ns})),
     ?assertMatch({204, _}, delete_user(<<"u1">>, #{<<"ns">> => Ns})),
@@ -711,9 +714,9 @@ t_update_user_namespace_in_body(_TCConfig) ->
             <<"u1">>, #{<<"password">> => <<"p2">>, <<"namespace">> => <<"another_ns">>}, #{}
         )
     ),
-    %% The `ns' query parameter takes precedence over the `namespace' body field.
+    %% A conflicting `ns' query parameter and `namespace' body field is rejected.
     ?assertMatch(
-        {200, _},
+        {400, _},
         update_user(
             <<"u1">>,
             #{<<"password">> => <<"p3">>, <<"namespace">> => <<"another_ns">>},
