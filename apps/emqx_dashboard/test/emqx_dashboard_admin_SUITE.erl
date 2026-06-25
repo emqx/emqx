@@ -43,7 +43,9 @@ end_per_suite(Config) ->
 
 end_per_testcase(_, _Config) ->
     All = emqx_dashboard_admin:all_users(),
-    [emqx_dashboard_admin:remove_user(Name) || #{username := Name} <- All].
+    [emqx_dashboard_admin:remove_user(Name) || #{username := Name} <- All],
+    [emqx_mgmt_auth:delete(Name) || #{name := Name} <- emqx_mgmt_auth:list()],
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Helper fns
@@ -104,6 +106,70 @@ update_api_key_api(Name, Params, AuthHeader) ->
         url => URL,
         body => Params
     }).
+
+list_api_keys_api(AuthHeader) ->
+    URL = emqx_mgmt_api_test_util:api_path(["api_key"]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => AuthHeader,
+        method => get,
+        url => URL
+    }).
+
+get_api_key_api(Name, AuthHeader) ->
+    URL = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => AuthHeader,
+        method => get,
+        url => URL
+    }).
+
+delete_api_key_api(Name, AuthHeader) ->
+    URL = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => AuthHeader,
+        method => delete,
+        url => URL
+    }).
+
+%% Create a namespaced dashboard administrator and return their bearer auth
+%% header. Used to exercise namespace-scoped API-key management (issue #17728).
+create_namespaced_admin(Namespace, GlobalAdminHeader) ->
+    Username = <<"nsadmin_", Namespace/binary>>,
+    Password = <<"superSecureP@ss1">>,
+    Role = <<"ns:", Namespace/binary, "::", ?ROLE_SUPERUSER/binary>>,
+    {200, _} = create_user_api(
+        #{
+            <<"username">> => Username,
+            <<"password">> => Password,
+            <<"role">> => Role,
+            <<"description">> => <<"namespaced admin">>
+        },
+        GlobalAdminHeader
+    ),
+    {200, #{<<"token">> := Token}} =
+        login(#{<<"username">> => Username, <<"password">> => Password}),
+    bearer_auth_header(Token).
+
+%% Create an API key scoped to `Namespace' (or global when `?global_ns') as the
+%% global administrator, returning the key name.
+create_key_in_namespace(Name, Namespace, GlobalAdminHeader) ->
+    ExpiresAt = to_rfc3339(erlang:system_time(second) + 1_000),
+    Role =
+        case Namespace of
+            global -> ?ROLE_SUPERUSER;
+            _ -> <<"ns:", Namespace/binary, "::", ?ROLE_SUPERUSER/binary>>
+        end,
+    {200, _} = create_api_key_api(
+        #{
+            <<"name">> => Name,
+            <<"expired_at">> => ExpiresAt,
+            <<"desc">> => <<"seed key">>,
+            <<"enable">> => true,
+            <<"role">> => Role
+        },
+        GlobalAdminHeader
+    ),
+    Name.
 
 to_rfc3339(Sec) ->
     list_to_binary(calendar:system_time_to_rfc3339(Sec)).
@@ -819,6 +885,183 @@ t_api_key_namespace_field_absent(_TCConfig) ->
             GlobalAdminHeader
         )
     ),
+    ok.
+
+-doc """
+A namespaced administrator may create an API key within their own namespace
+(issue #17728).
+""".
+t_ns_admin_create_own_namespace(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    NsAdminHeader = create_namespaced_admin(<<"ns1">>, GlobalAdminHeader),
+    ExpiresAt = to_rfc3339(erlang:system_time(second) + 1_000),
+    ?assertMatch(
+        {200, #{
+            <<"role">> := <<"administrator">>,
+            <<"namespace">> := <<"ns1">>
+        }},
+        create_api_key_api(
+            #{
+                <<"name">> => <<"ownkey">>,
+                <<"expired_at">> => ExpiresAt,
+                <<"desc">> => <<"own namespace key">>,
+                <<"enable">> => true,
+                <<"role">> => <<"administrator">>,
+                <<"namespace">> => <<"ns1">>
+            },
+            NsAdminHeader
+        )
+    ),
+    ok.
+
+-doc """
+A namespaced administrator may not create a global API key (issue #17728).
+""".
+t_ns_admin_create_global_forbidden(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    NsAdminHeader = create_namespaced_admin(<<"ns1">>, GlobalAdminHeader),
+    ExpiresAt = to_rfc3339(erlang:system_time(second) + 1_000),
+    ?assertMatch(
+        {403, _},
+        create_api_key_api(
+            #{
+                <<"name">> => <<"globalkey">>,
+                <<"expired_at">> => ExpiresAt,
+                <<"desc">> => <<"global key attempt">>,
+                <<"enable">> => true,
+                <<"role">> => <<"administrator">>
+            },
+            NsAdminHeader
+        )
+    ),
+    ok.
+
+-doc """
+A namespaced administrator may not create an API key in another namespace
+(issue #17728).
+""".
+t_ns_admin_create_other_namespace_forbidden(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    NsAdminHeader = create_namespaced_admin(<<"ns1">>, GlobalAdminHeader),
+    ExpiresAt = to_rfc3339(erlang:system_time(second) + 1_000),
+    ?assertMatch(
+        {403, _},
+        create_api_key_api(
+            #{
+                <<"name">> => <<"otherkey">>,
+                <<"expired_at">> => ExpiresAt,
+                <<"desc">> => <<"other namespace attempt">>,
+                <<"enable">> => true,
+                <<"role">> => <<"administrator">>,
+                <<"namespace">> => <<"ns2">>
+            },
+            NsAdminHeader
+        )
+    ),
+    ok.
+
+-doc """
+A namespaced administrator listing API keys sees only the keys in their own
+namespace -- not global keys nor keys in other namespaces (issue #17728).
+""".
+t_ns_admin_list_scoped(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    NsAdminHeader = create_namespaced_admin(<<"ns1">>, GlobalAdminHeader),
+    _ = create_key_in_namespace(<<"globalkey">>, global, GlobalAdminHeader),
+    _ = create_key_in_namespace(<<"ns1key">>, <<"ns1">>, GlobalAdminHeader),
+    _ = create_key_in_namespace(<<"ns2key">>, <<"ns2">>, GlobalAdminHeader),
+    %% Global admin sees all three.
+    {200, AllKeys} = list_api_keys_api(GlobalAdminHeader),
+    AllNames = [N || #{<<"name">> := N} <- AllKeys],
+    ?assert(lists:member(<<"globalkey">>, AllNames)),
+    ?assert(lists:member(<<"ns1key">>, AllNames)),
+    ?assert(lists:member(<<"ns2key">>, AllNames)),
+    %% Namespaced admin sees only its own namespace's key.
+    {200, NsKeys} = list_api_keys_api(NsAdminHeader),
+    ?assertEqual(
+        [<<"ns1key">>],
+        [N || #{<<"name">> := N} <- NsKeys]
+    ),
+    ?assertMatch(
+        [#{<<"namespace">> := <<"ns1">>}],
+        NsKeys
+    ),
+    ok.
+
+-doc """
+A namespaced administrator gets 404 (not 403) when reading an API key in another
+namespace, so the key's existence is not leaked (issue #17728).
+""".
+t_ns_admin_get_other_namespace_404(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    NsAdminHeader = create_namespaced_admin(<<"ns1">>, GlobalAdminHeader),
+    _ = create_key_in_namespace(<<"ns2key">>, <<"ns2">>, GlobalAdminHeader),
+    ?assertMatch({404, _}, get_api_key_api(<<"ns2key">>, NsAdminHeader)),
+    ok.
+
+-doc """
+A namespaced administrator may update an API key in their own namespace, but a
+request that would move it to another namespace is rejected; updating a key in
+another namespace returns 404 (issue #17728).
+""".
+t_ns_admin_put_own_and_change_namespace(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    NsAdminHeader = create_namespaced_admin(<<"ns1">>, GlobalAdminHeader),
+    _ = create_key_in_namespace(<<"ns1key">>, <<"ns1">>, GlobalAdminHeader),
+    _ = create_key_in_namespace(<<"ns2key">>, <<"ns2">>, GlobalAdminHeader),
+    %% Update own key (keeping the same namespace) is allowed.
+    ?assertMatch(
+        {200, #{<<"namespace">> := <<"ns1">>, <<"desc">> := <<"updated">>}},
+        update_api_key_api(
+            <<"ns1key">>,
+            #{
+                <<"role">> => <<"administrator">>,
+                <<"namespace">> => <<"ns1">>,
+                <<"desc">> => <<"updated">>
+            },
+            NsAdminHeader
+        )
+    ),
+    %% Attempting to move the key to another namespace is rejected with 400 by
+    %% the storage layer (changing a key's namespace is forbidden).
+    ?assertMatch(
+        {400, #{<<"message">> := <<"changing_namespace_is_forbidden">>}},
+        update_api_key_api(
+            <<"ns1key">>,
+            #{
+                <<"role">> => <<"administrator">>,
+                <<"namespace">> => <<"ns2">>,
+                <<"desc">> => <<"shouldn't work">>
+            },
+            NsAdminHeader
+        )
+    ),
+    %% Updating a key in another namespace is hidden as 404.
+    ?assertMatch(
+        {404, _},
+        update_api_key_api(
+            <<"ns2key">>,
+            #{
+                <<"role">> => <<"administrator">>,
+                <<"namespace">> => <<"ns2">>,
+                <<"desc">> => <<"shouldn't work">>
+            },
+            NsAdminHeader
+        )
+    ),
+    ok.
+
+-doc """
+A namespaced administrator gets 404 when deleting an API key in another
+namespace, and the key remains (issue #17728).
+""".
+t_ns_admin_delete_other_namespace_404(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    NsAdminHeader = create_namespaced_admin(<<"ns1">>, GlobalAdminHeader),
+    _ = create_key_in_namespace(<<"ns2key">>, <<"ns2">>, GlobalAdminHeader),
+    ?assertMatch({404, _}, delete_api_key_api(<<"ns2key">>, NsAdminHeader)),
+    %% The key still exists for the global admin.
+    ?assertMatch({200, _}, get_api_key_api(<<"ns2key">>, GlobalAdminHeader)),
     ok.
 
 %%------------------------------------------------------------------------------

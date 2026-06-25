@@ -61,7 +61,8 @@ schema("/api_key") ->
             'requestBody' => delete([created_at, api_key, api_secret], fields(app)),
             responses => #{
                 200 => hoconsc:ref(app_response),
-                400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'])
+                400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST']),
+                403 => emqx_dashboard_swagger:error_codes(['FORBIDDEN'])
             }
         }
     };
@@ -84,6 +85,7 @@ schema("/api_key/:name") ->
             'requestBody' => delete([created_at, api_key, api_secret, name], fields(app)),
             responses => #{
                 200 => delete([api_secret], fields(app_response)),
+                400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST']),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'])
             }
         },
@@ -307,9 +309,11 @@ validate_name(Name) ->
 delete(Keys, Fields) ->
     lists:foldl(fun(Key, Acc) -> lists:keydelete(Key, 1, Acc) end, Fields, Keys).
 
-api_key(get, _) ->
-    {200, [emqx_mgmt_auth:format(App) || App <- emqx_mgmt_auth:list()]};
-api_key(post, #{body := App}) ->
+api_key(get, Req) ->
+    CallerNs = emqx_dashboard:get_namespace(Req),
+    Apps = [App || App <- emqx_mgmt_auth:list(), namespace_accessible(CallerNs, App)],
+    {200, [emqx_mgmt_auth:format(App) || App <- Apps]};
+api_key(post, #{body := App} = Req) ->
     #{
         <<"name">> := Name,
         <<"desc">> := Desc0,
@@ -319,9 +323,14 @@ api_key(post, #{body := App}) ->
     Desc = unicode:characters_to_binary(Desc0, unicode),
     Role0 = maps:get(<<"role">>, App, ?ROLE_API_DEFAULT),
     Namespace = maps:get(<<"namespace">>, App, undefined),
-    case resolve_effective_role(Role0, Namespace) of
-        {ok, Role} ->
-            create_api_key(App, Name, Enable, ExpiredAt, Desc, Role);
+    CallerNs = emqx_dashboard:get_namespace(Req),
+    maybe
+        {ok, Role} ?= resolve_effective_role(Role0, Namespace),
+        ok ?= authorize_target_namespace(CallerNs, role_namespace(Role)),
+        create_api_key(App, Name, Enable, ExpiredAt, Desc, Role)
+    else
+        {error, forbidden, Msg} ->
+            {403, #{code => 'FORBIDDEN', message => Msg}};
         {error, Msg} ->
             {400, #{code => 'BAD_REQUEST', message => Msg}}
     end.
@@ -355,24 +364,41 @@ create_api_key(App, Name, Enable, ExpiredAt, Desc, Role) ->
 
 -define(NOT_FOUND_RESPONSE, #{code => 'NOT_FOUND', message => ?DESC("name_not_found")}).
 
-api_key_by_name(get, #{bindings := #{name := Name}}) ->
-    case emqx_mgmt_auth:read(Name) of
+api_key_by_name(get, #{bindings := #{name := Name}} = Req) ->
+    CallerNs = emqx_dashboard:get_namespace(Req),
+    case read_in_namespace(CallerNs, Name) of
         {ok, App} -> {200, emqx_mgmt_auth:format(App)};
         {error, not_found} -> {404, ?NOT_FOUND_RESPONSE}
     end;
-api_key_by_name(delete, #{bindings := #{name := Name}}) ->
-    case emqx_mgmt_auth:delete(Name) of
-        {ok, _} -> {204};
-        {error, not_found} -> {404, ?NOT_FOUND_RESPONSE}
+api_key_by_name(delete, #{bindings := #{name := Name}} = Req) ->
+    CallerNs = emqx_dashboard:get_namespace(Req),
+    case read_in_namespace(CallerNs, Name) of
+        {ok, _App} ->
+            case emqx_mgmt_auth:delete(Name) of
+                {ok, _} -> {204};
+                {error, not_found} -> {404, ?NOT_FOUND_RESPONSE}
+            end;
+        {error, not_found} ->
+            {404, ?NOT_FOUND_RESPONSE}
     end;
-api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
+api_key_by_name(put, #{bindings := #{name := Name}, body := Body} = Req) ->
+    CallerNs = emqx_dashboard:get_namespace(Req),
     Role0 = maps:get(<<"role">>, Body, ?ROLE_API_DEFAULT),
     Namespace = maps:get(<<"namespace">>, Body, undefined),
-    case resolve_effective_role(Role0, Namespace) of
-        {ok, Role} ->
-            update_api_key(Name, Role, Body);
-        {error, Msg} ->
-            {400, #{code => 'BAD_REQUEST', message => Msg}}
+    case read_in_namespace(CallerNs, Name) of
+        {ok, _App} ->
+            case resolve_effective_role(Role0, Namespace) of
+                {ok, Role} ->
+                    %% A move into another namespace is rejected with 400 by
+                    %% `emqx_mgmt_auth:update/6' (changing_namespace_is_forbidden).
+                    update_api_key(Name, Role, Body);
+                {error, Msg} ->
+                    {400, #{code => 'BAD_REQUEST', message => Msg}}
+            end;
+        {error, not_found} ->
+            %% A key in another namespace is reported as not found so its
+            %% existence is not leaked to a namespaced administrator.
+            {404, ?NOT_FOUND_RESPONSE}
     end.
 
 update_api_key(Name, Role, Body) ->
@@ -460,6 +486,45 @@ namespace_mismatch_msg(RoleNs, FieldNs) ->
         FieldNs,
         <<"'">>
     ]).
+
+%% The namespace an effective role string resolves to (`?global_ns' or a binary).
+role_namespace(Role) ->
+    case emqx_dashboard_rbac:parse_api_role(Role) of
+        {ok, #{?namespace := Ns}} -> Ns;
+        _ -> ?global_ns
+    end.
+
+%% A global caller may create keys in any namespace (including global); a
+%% namespaced caller may only create keys in its own namespace.
+authorize_target_namespace(?global_ns, _TargetNs) ->
+    ok;
+authorize_target_namespace(CallerNs, CallerNs) ->
+    ok;
+authorize_target_namespace(_CallerNs, _TargetNs) ->
+    {error, forbidden, <<"You may only manage API keys within your own namespace">>}.
+
+%% A global caller sees every key; a namespaced caller sees only keys in its
+%% own namespace. `KeyApp' is a formatted-or-raw map carrying a `namespace' key.
+namespace_accessible(?global_ns, _KeyApp) ->
+    true;
+namespace_accessible(CallerNs, #{namespace := CallerNs}) ->
+    true;
+namespace_accessible(_CallerNs, _KeyApp) ->
+    false.
+
+%% Read a key only if it is visible to the caller's namespace. A key in a
+%% different namespace is reported as `not_found' so its existence is not
+%% leaked to a namespaced administrator.
+read_in_namespace(CallerNs, Name) ->
+    case emqx_mgmt_auth:read(Name) of
+        {ok, App} ->
+            case namespace_accessible(CallerNs, App) of
+                true -> {ok, App};
+                false -> {error, not_found}
+            end;
+        {error, not_found} ->
+            {error, not_found}
+    end.
 
 api_key_scopes(get, _) ->
     Scopes = [resolve_scope_desc(S) || S <- emqx_scope_catalog:scope_catalog()],
