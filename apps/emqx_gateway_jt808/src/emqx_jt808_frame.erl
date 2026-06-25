@@ -69,7 +69,17 @@ serialize_pkt(Frame, Opts) ->
     serialize(Frame, Opts).
 
 format(Msg) ->
-    io_lib:format("~p", [Msg]).
+    io_lib:format("~p", [redact_auth_code(Msg)]).
+
+redact_auth_code(
+    #{
+        <<"header">> := #{<<"msg_id">> := ?MC_AUTH},
+        <<"body">> := #{<<"code">> := _} = Body
+    } = Msg
+) ->
+    Msg#{<<"body">> := Body#{<<"code">> := <<"******">>}};
+redact_auth_code(Msg) ->
+    Msg.
 
 type(_) ->
     jt808.
