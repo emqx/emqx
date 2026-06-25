@@ -14,6 +14,10 @@
 -define(UNHEALTHY_TARGET_MSG,
     "Oracle table is invalid. Please check if the table exists in Oracle Database."
 ).
+-define(UNSUPPORTED_SQL_STATEMENT_MSG,
+    "unsupported_sql_statement: DDL, DCL, and transaction control statements are not supported "
+    "in Oracle Action SQL templates."
+).
 
 -define(DEFAULT_ROLE, normal).
 -define(SYSDBA_ROLE, sysdba).
@@ -63,6 +67,9 @@
 }).
 
 -type prepares() :: #{atom() => binary()}.
+-type prepare_state() ::
+    prepares()
+    | {error, _Reason :: term(), prepares()}.
 -type params_tokens() :: #{atom() => list()}.
 
 -type state() ::
@@ -70,7 +77,7 @@
         pool_name := binary(),
         installed_channels := map(),
         health_check_timeout := timeout(),
-        prepare_sql := prepares(),
+        prepare_sql := prepare_state(),
         params_tokens := params_tokens(),
         batch_params_tokens := params_tokens()
     }.
@@ -197,6 +204,8 @@ on_get_channel_status(
         {error, undefined_table} ->
             %% return new state indicating that we are connected but the target table is not created
             {?status_disconnected, {unhealthy_target, ?UNHEALTHY_TARGET_MSG}};
+        {error, unsupported_sql_statement} ->
+            {?status_disconnected, {unhealthy_target, ?UNSUPPORTED_SQL_STATEMENT_MSG}};
         {error, _Reason} ->
             %% do not log error, it is logged in prepare_sql_to_conn
             ?status_connecting
@@ -365,10 +374,10 @@ do_check_prepares(
     _ChannelId,
     _PoolName,
     #{
-        prepare_sql := {error, _Prepares}
+        prepare_sql := {error, Reason, _Prepares}
     } = _State
 ) ->
-    {error, undefined_table};
+    {error, Reason};
 do_check_prepares(
     ChannelId,
     PoolName,
@@ -387,8 +396,12 @@ do_check_prepares(
                 case ecpool_worker:client(WorkerPid) of
                     {ok, Conn} ->
                         case check_if_table_exists(Conn, SQL, Tokens) of
-                            {error, undefined_table} -> {error, undefined_table};
-                            _ -> ok
+                            {error, undefined_table} ->
+                                {error, undefined_table};
+                            {error, unsupported_sql_statement} ->
+                                {error, unsupported_sql_statement};
+                            _ ->
+                                ok
                         end;
                     _ ->
                         ok
@@ -479,8 +492,11 @@ init_prepare(PoolName, State = #{prepare_sql := Prepares, params_tokens := Token
             },
             ?SLOG(error, LogMeta),
             %% mark the prepare_sql as failed
-            State#{prepare_sql => {error, Prepares}}
+            State#{prepare_sql => {error, prepare_error_reason(Error), Prepares}}
     end.
+
+prepare_error_reason({error, Reason}) ->
+    Reason.
 
 prepare_sql(Prepares, PoolName, TokensMap) when is_map(Prepares) ->
     prepare_sql(maps:to_list(Prepares), PoolName, TokensMap);
@@ -536,78 +552,147 @@ prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList], TokensMap, Statements) whe
 get_reconnect_callback_signature([[{ChannelId, _Template}]]) ->
     ChannelId.
 
-check_if_table_exists(Conn, SQL, Tokens0) ->
-    % Discard nested tokens for checking if table exist. As payload here is defined as
-    % a single string, it would fail if Token is, for instance, ${payload.msg}, causing
-    % bridge probe to fail.
-    Tokens = lists:map(
-        fun
-            ({var, [Token | _DiscardedDeepTokens]}) ->
-                {var, [Token]};
-            (Token) ->
-                Token
-        end,
-        Tokens0
-    ),
-    {Event, _Headers} = emqx_rule_events:eventmsg_publish(
-        emqx_message:make(<<"t/opic">>, "test query")
-    ),
-    SqlQuery = "begin " ++ binary_to_list(SQL) ++ "; rollback; end;",
-    Params = emqx_placeholder:proc_sql(Tokens, Event),
-    case do_sql_query(Conn, {SqlQuery, Params}) of
+check_if_table_exists(Conn, SQL, _Tokens0) ->
+    case sql_has_parse_side_effect(SQL) of
+        true ->
+            {error, unsupported_sql_statement};
+        false ->
+            check_if_sql_parseable(Conn, SQL, 1)
+    end.
+
+check_if_sql_parseable(Conn, SQL, Retries) ->
+    ParseSQL =
+        "declare "
+        "  c integer; "
+        "begin "
+        "  c := dbms_sql.open_cursor; "
+        "  dbms_sql.parse(c, :1, dbms_sql.native); "
+        "  dbms_sql.close_cursor(c); "
+        "exception "
+        "  when others then "
+        "    if dbms_sql.is_open(c) then "
+        "      dbms_sql.close_cursor(c); "
+        "    end if; "
+        "    raise; "
+        "end;",
+    case do_sql_query(Conn, {ParseSQL, [binary_to_list(SQL)]}) of
         {ok, [{proc_result, 0, _Description}]} ->
             ok;
-        {ok, [{proc_result, 942, _Description}]} ->
-            %% Target table is not created
+        {ok, [{proc_result, RetCode, _Description}]} when
+            RetCode =:= 904; RetCode =:= 942
+        ->
+            %% ORA-00904: invalid identifier
+            %% ORA-00942: table or view does not exist
             {error, undefined_table};
-        {ok, [{proc_result, 1013, _Description}]} ->
-            %% "ORA-01013: user requested cancel of current operation"
-            check_if_table_exists(Conn, SQL, Tokens0);
-        {ok, [{proc_result, _, Description}]} ->
-            % only the last result is returned, so we need to check on description if it
-            % contains the "Table doesn't exist" error as it can not be the last one.
-            % (for instance, the ORA-06550 can be the result value when table does not exist)
-            ErrorCodes =
-                case re:run(Description, <<"(ORA-[0-9]+)">>, [global, {capture, first, binary}]) of
-                    {match, OraCodes} -> OraCodes;
-                    _ -> []
-                end,
-            OraMap = maps:from_keys([ErrorCode || [ErrorCode] <- ErrorCodes], true),
-            case OraMap of
-                _ when is_map_key(<<"ORA-00942">>, OraMap) ->
-                    % ORA-00942: table or view does not exist
-                    {error, undefined_table};
-                _ when is_map_key(<<"ORA-00932">>, OraMap) ->
-                    % ORA-00932: inconsistent datatypes
-                    % There is a some type inconsistency with table definition but
-                    % table does exist. Probably this inconsistency was caused by
-                    % token discarding in this test query.
-                    ok;
-                _ when is_map_key(<<"ORA-01400">>, OraMap) ->
-                    % ORA-01400: cannot insert NULL into (string)
-                    % There is a some type inconsistency with table definition but
-                    % table does exist. Probably this inconsistency was caused by
-                    % token discarding in this test query.
-                    ok;
-                _ when is_map_key(<<"ORA-01013">>, OraMap) ->
-                    % ORA-01013: user requested cancel of current operation
-                    % This error is returned when the query is canceled by the user.
-                    ok;
-                _ when is_map_key(<<"ORA-12899">>, OraMap) ->
-                    % ORA-12899: value too large for column
-                    % This error is returned when the value is too large for the column.
-                    ok;
-                _ ->
-                    {error, Description}
-            end;
-        {error, {noproc, _}} ->
+        {ok, [{proc_result, 1013, _Description}]} when Retries > 0 ->
+            %% ORA-01013: user requested cancel of current operation
+            check_if_sql_parseable(Conn, SQL, Retries - 1);
+        {ok, [{proc_result, _RetCode, Description}]} ->
+            handle_parse_error_description(Description);
+        {error, {noproc, _}} when Retries > 0 ->
             %% See Note [jamdb oracle race condition]
-            check_if_table_exists(Conn, SQL, Tokens0);
-        {error, socket, closed} ->
-            check_if_table_exists(Conn, SQL, Tokens0);
+            check_if_sql_parseable(Conn, SQL, Retries - 1);
+        {error, socket, closed} when Retries > 0 ->
+            check_if_sql_parseable(Conn, SQL, Retries - 1);
         Reason ->
             {error, Reason}
     end.
+
+handle_parse_error_description(Description) ->
+    case oracle_error_codes(Description) of
+        #{<<"ORA-00904">> := true} ->
+            {error, undefined_table};
+        #{<<"ORA-00942">> := true} ->
+            {error, undefined_table};
+        #{<<"ORA-01013">> := true} ->
+            ok;
+        _ ->
+            {error, Description}
+    end.
+
+oracle_error_codes(Description) ->
+    case
+        re:run(iolist_to_binary(Description), <<"(ORA-[0-9]+)">>, [
+            global,
+            {capture, first, binary}
+        ])
+    of
+        {match, OraCodes} ->
+            maps:from_keys([ErrorCode || [ErrorCode] <- OraCodes], true);
+        nomatch ->
+            #{}
+    end.
+
+sql_has_parse_side_effect(SQL) ->
+    case first_sql_token(SQL) of
+        <<"alter">> -> true;
+        <<"analyze">> -> true;
+        <<"associate">> -> true;
+        <<"audit">> -> true;
+        <<"comment">> -> true;
+        <<"commit">> -> true;
+        <<"create">> -> true;
+        <<"disassociate">> -> true;
+        <<"drop">> -> true;
+        <<"explain">> -> true;
+        <<"flashback">> -> true;
+        <<"grant">> -> true;
+        <<"lock">> -> true;
+        <<"noaudit">> -> true;
+        <<"purge">> -> true;
+        <<"rename">> -> true;
+        <<"revoke">> -> true;
+        <<"rollback">> -> true;
+        <<"savepoint">> -> true;
+        <<"set">> -> true;
+        <<"truncate">> -> true;
+        _ -> false
+    end.
+
+first_sql_token(SQL) ->
+    take_sql_token(skip_sql_prefix(to_bin(SQL)), <<>>).
+
+skip_sql_prefix(<<C, Rest/binary>>) when
+    C =:= $\s; C =:= $\t; C =:= $\n; C =:= $\r; C =:= $\f; C =:= $\v
+->
+    skip_sql_prefix(Rest);
+skip_sql_prefix(<<"--", Rest/binary>>) ->
+    skip_sql_prefix(skip_line_comment(Rest));
+skip_sql_prefix(<<"/*", Rest/binary>>) ->
+    skip_sql_prefix(skip_block_comment(Rest));
+skip_sql_prefix(SQL) ->
+    SQL.
+
+skip_line_comment(<<"\n", Rest/binary>>) ->
+    Rest;
+skip_line_comment(<<"\r", Rest/binary>>) ->
+    Rest;
+skip_line_comment(<<_, Rest/binary>>) ->
+    skip_line_comment(Rest);
+skip_line_comment(<<>>) ->
+    <<>>.
+
+skip_block_comment(<<"*/", Rest/binary>>) ->
+    Rest;
+skip_block_comment(<<_, Rest/binary>>) ->
+    skip_block_comment(Rest);
+skip_block_comment(<<>>) ->
+    <<>>.
+
+take_sql_token(<<C, Rest/binary>>, Acc) when
+    (C >= $A andalso C =< $Z) orelse
+        (C >= $a andalso C =< $z) orelse
+        (C >= $0 andalso C =< $9) orelse
+        C =:= $_
+->
+    take_sql_token(Rest, <<Acc/binary, (lower_ascii(C))>>);
+take_sql_token(_Rest, Acc) ->
+    Acc.
+
+lower_ascii(C) when C >= $A, C =< $Z ->
+    C + 32;
+lower_ascii(C) ->
+    C.
 
 to_bin(Bin) when is_binary(Bin) ->
     Bin;
@@ -647,3 +732,254 @@ convert_role_to_integer(?SYSDBA_ROLE) ->
     1;
 convert_role_to_integer(_) ->
     0.
+
+%%------------------------------------------------------------------------------
+%% Tests
+%%------------------------------------------------------------------------------
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+sql_has_parse_side_effect_test_() ->
+    SideEffectSQLs = [
+        <<"ALTER TABLE t ADD c NUMBER">>,
+        <<"ANALYZE TABLE t COMPUTE STATISTICS">>,
+        <<"ASSOCIATE STATISTICS WITH TYPES t USING pkg">>,
+        <<"AUDIT SELECT TABLE">>,
+        <<"COMMENT ON TABLE t IS 'x'">>,
+        <<"COMMIT">>,
+        <<"CREATE TABLE t(id NUMBER)">>,
+        <<"DISASSOCIATE STATISTICS FROM TYPES t">>,
+        <<"DROP TABLE t">>,
+        <<"EXPLAIN PLAN FOR SELECT * FROM t">>,
+        <<"FLASHBACK TABLE t TO BEFORE DROP">>,
+        <<"GRANT SELECT ON t TO u">>,
+        <<"LOCK TABLE t IN EXCLUSIVE MODE">>,
+        <<"NOAUDIT SELECT TABLE">>,
+        <<"PURGE TABLE t">>,
+        <<"RENAME t TO t2">>,
+        <<"REVOKE SELECT ON t FROM u">>,
+        <<"ROLLBACK">>,
+        <<"SAVEPOINT sp">>,
+        <<"SET TRANSACTION READ ONLY">>,
+        <<"TRUNCATE TABLE t">>
+    ],
+    RegularSQLs = [
+        <<"INSERT INTO t(id, payload) VALUES(:1, :2)">>,
+        <<"UPDATE t SET payload = :1 WHERE id = :2">>,
+        <<"DELETE FROM t WHERE id = :1">>,
+        <<"MERGE INTO t USING dual ON (t.id = :1) WHEN MATCHED THEN UPDATE SET c = :2">>,
+        <<"SELECT * FROM t WHERE id = :1">>,
+        <<"WITH q AS (SELECT 1 FROM dual) SELECT * FROM q">>,
+        <<"BEGIN NULL; END;">>,
+        <<>>
+    ],
+    [
+        {"statements with parse side effects are rejected", [
+            ?_assertEqual(true, sql_has_parse_side_effect(SQL))
+         || SQL <- SideEffectSQLs
+        ]},
+        {"regular action SQL statements are accepted", [
+            ?_assertEqual(false, sql_has_parse_side_effect(SQL))
+         || SQL <- RegularSQLs
+        ]},
+        ?_assertEqual(true, sql_has_parse_side_effect(create))
+    ].
+
+first_sql_token_test_() ->
+    [
+        ?_assertEqual(<<"insert">>, first_sql_token(<<" \t\nINSERT INTO t VALUES (1)">>)),
+        ?_assertEqual(<<"select">>, first_sql_token(<<"-- comment\nSELECT 1 FROM dual">>)),
+        ?_assertEqual(<<"update">>, first_sql_token(<<"-- comment\r\nUPDATE t SET c = :1">>)),
+        ?_assertEqual(<<"delete">>, first_sql_token(<<"/* block comment */ DELETE FROM t">>)),
+        ?_assertEqual(<<"merge_1">>, first_sql_token(<<"MERGE_1 INTO t USING dual">>)),
+        ?_assertEqual(<<>>, first_sql_token(<<"/* unterminated comment">>)),
+        ?_assertEqual(<<>>, first_sql_token(<<"-- only a comment">>)),
+        ?_assertEqual(<<>>, first_sql_token(<<"?">>))
+    ].
+
+check_if_table_exists_rejects_unsupported_sql_statement_test() ->
+    ?assertEqual(
+        {error, unsupported_sql_statement},
+        check_if_table_exists(undefined, <<"CREATE TABLE t(id NUMBER)">>, [])
+    ).
+
+check_if_table_exists_accepts_parseable_action_sql_test() ->
+    SQL = <<"INSERT INTO t(id, payload) VALUES(:1, :2)">>,
+    with_mocked_sql_query(
+        fun(conn, {ParseSQL, [SQLChars]}) ->
+            ?assertMatch({match, _}, re:run(ParseSQL, "dbms_sql\\.parse")),
+            ?assertEqual(binary_to_list(SQL), SQLChars),
+            {ok, [{proc_result, 0, <<>>}]}
+        end,
+        fun() ->
+            ?assertEqual(ok, check_if_table_exists(conn, SQL, []))
+        end
+    ).
+
+check_if_sql_parseable_retries_once_test() ->
+    SQL = <<"INSERT INTO t(id, payload) VALUES(:1, :2)">>,
+    with_mocked_sql_results(
+        [{error, socket, closed}, {ok, [{proc_result, 0, <<>>}]}],
+        fun() ->
+            ?assertEqual(ok, check_if_sql_parseable(conn, SQL, 1)),
+            ?assertEqual(2, get(parse_query_calls))
+        end
+    ).
+
+check_if_sql_parseable_result_test_() ->
+    SQL = <<"INSERT INTO t(id, payload) VALUES(:1, :2)">>,
+    [
+        ?_test(
+            with_mocked_sql_results(
+                [{ok, [{proc_result, 0, <<>>}]}],
+                fun() -> ?assertEqual(ok, check_if_sql_parseable(conn, SQL, 1)) end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [{ok, [{proc_result, 904, <<>>}]}],
+                fun() ->
+                    ?assertEqual({error, undefined_table}, check_if_sql_parseable(conn, SQL, 1))
+                end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [{ok, [{proc_result, 942, <<>>}]}],
+                fun() ->
+                    ?assertEqual({error, undefined_table}, check_if_sql_parseable(conn, SQL, 1))
+                end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [{ok, [{proc_result, 1013, <<"ORA-01013">>}]}, {ok, [{proc_result, 0, <<>>}]}],
+                fun() -> ?assertEqual(ok, check_if_sql_parseable(conn, SQL, 1)) end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [{ok, [{proc_result, 1013, <<"ORA-01013">>}]}],
+                fun() -> ?assertEqual(ok, check_if_sql_parseable(conn, SQL, 0)) end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [{ok, [{proc_result, 900, <<"ORA-00942">>}]}],
+                fun() ->
+                    ?assertEqual({error, undefined_table}, check_if_sql_parseable(conn, SQL, 1))
+                end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [{exit, {noproc, self()}}, {ok, [{proc_result, 0, <<>>}]}],
+                fun() -> ?assertEqual(ok, check_if_sql_parseable(conn, SQL, 1)) end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [{exit, {noproc, self()}}],
+                fun() ->
+                    ?assertMatch(
+                        {error, {error, {noproc, _}}}, check_if_sql_parseable(conn, SQL, 0)
+                    )
+                end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [{error, socket, closed}],
+                fun() ->
+                    ?assertEqual(
+                        {error, {error, socket, closed}}, check_if_sql_parseable(conn, SQL, 0)
+                    )
+                end
+            )
+        ),
+        ?_test(
+            with_mocked_sql_results(
+                [other],
+                fun() -> ?assertEqual({error, other}, check_if_sql_parseable(conn, SQL, 1)) end
+            )
+        )
+    ].
+
+with_mocked_sql_results_errors_when_sequence_is_exhausted_test() ->
+    SQL = <<"INSERT INTO t(id, payload) VALUES(:1, :2)">>,
+    ?assertError(
+        no_more_mocked_sql_results,
+        with_mocked_sql_results([], fun() -> check_if_sql_parseable(conn, SQL, 1) end)
+    ).
+
+with_mocked_sql_query(QueryFun, TestFun) ->
+    meck:new(jamdb_oracle, [passthrough, no_link]),
+    meck:expect(jamdb_oracle, sql_query, QueryFun),
+    try
+        TestFun()
+    after
+        meck:unload(jamdb_oracle)
+    end.
+
+with_mocked_sql_results(Results, TestFun) ->
+    put(parse_query_calls, 0),
+    put(parse_query_results, Results),
+    try
+        with_mocked_sql_query(
+            fun(_Conn, _Req) ->
+                Calls = get(parse_query_calls),
+                put(parse_query_calls, Calls + 1),
+                case get(parse_query_results) of
+                    [Result | Rest] ->
+                        put(parse_query_results, Rest),
+                        mock_sql_result(Result);
+                    [] ->
+                        error(no_more_mocked_sql_results)
+                end
+            end,
+            TestFun
+        )
+    after
+        erase(parse_query_calls),
+        erase(parse_query_results)
+    end.
+
+mock_sql_result({exit, Reason}) ->
+    exit(Reason);
+mock_sql_result(Result) ->
+    Result.
+
+oracle_error_codes_test_() ->
+    [
+        ?_assertEqual(
+            #{<<"ORA-00942">> => true, <<"ORA-01013">> => true},
+            oracle_error_codes([
+                <<"ORA-00942: table or view does not exist\n">>,
+                "ORA-01013: user requested cancel of current operation\n",
+                <<"ORA-00942: repeated code is de-duplicated">>
+            ])
+        ),
+        ?_assertEqual(#{}, oracle_error_codes(<<"not an oracle error">>))
+    ].
+
+handle_parse_error_description_test_() ->
+    [
+        ?_assertEqual(
+            {error, undefined_table},
+            handle_parse_error_description(<<"ORA-00904: invalid identifier">>)
+        ),
+        ?_assertEqual(
+            {error, undefined_table},
+            handle_parse_error_description(<<"ORA-00942: table or view does not exist">>)
+        ),
+        ?_assertEqual(
+            ok,
+            handle_parse_error_description(<<"ORA-01013: user requested cancel">>)
+        ),
+        ?_assertEqual(
+            {error, <<"ORA-00932: inconsistent datatypes">>},
+            handle_parse_error_description(<<"ORA-00932: inconsistent datatypes">>)
+        )
+    ].
+
+-endif.

@@ -168,7 +168,7 @@ eval_post_auth_tns_expression(Compiled, ClientId, ClientInfo, Ctx) ->
     case emqx_variform:render(Compiled, ClientInfo) of
         {ok, <<>>} ->
             ?TRACE("post_auth_tns_expression_rendered_empty", #{}),
-            ok;
+            gate_with_no_tns(ClientInfo, Ctx);
         {ok, Tns} ->
             decide_with_rewritten_tns(ClientId, Tns, ClientInfo, Ctx);
         {error, Reason} ->
@@ -177,8 +177,29 @@ eval_post_auth_tns_expression(Compiled, ClientId, ClientInfo, Ctx) ->
                 #{msg => "post_auth_tns_expression_error", reason => Reason},
                 #{clientid => ClientId}
             ),
-            ok
+            gate_with_no_tns(ClientInfo, Ctx)
     end.
+
+%% The post-auth expression did not yield a namespace (it rendered empty or
+%% raised). Treat the client as having no tenant namespace and run the same
+%% gate as the pre-auth no-tns clause of `do_on_authenticate/2': reject when
+%% `allow_only_managed_namespaces' is set, otherwise pass through. Any pre-auth
+%% `client_attrs.tns' is stripped so it cannot linger after the expression
+%% declined to assign one.
+gate_with_no_tns(ClientInfo, Ctx) ->
+    case emqx_mt_config:get_allow_only_managed_namespaces() of
+        true ->
+            ?TRACE("deny_due_to_no_tenant_namespace_post_authn", #{}),
+            {stop, {error, not_authorized}};
+        false ->
+            ?TRACE("no_tenant_namespace_post_authn", #{}),
+            {ok, Ctx#{client_info := strip_tns(ClientInfo)}}
+    end.
+
+strip_tns(#{client_attrs := Attrs} = ClientInfo) ->
+    ClientInfo#{client_attrs => maps:remove(?CLIENT_ATTR_NAME_TNS, Attrs)};
+strip_tns(ClientInfo) ->
+    ClientInfo.
 
 decide_with_rewritten_tns(ClientId, Tns, ClientInfo, Ctx) ->
     case emqx_config:get_namespace_config_errors(Tns) of
