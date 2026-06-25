@@ -274,12 +274,12 @@ verify(JWT, JWKs, AllowedAlgs, VerifyClaims, AclClaimName, DisconnectAfterExpire
             ?TRACE_AUTHN_PROVIDER("missing_jwt_claim", #{jwt => <<"******">>, claim => Claim}),
             {error, bad_username_or_password};
         {error, invalid_signature} ->
-            %% it's a invalid token, so it's ok to log
-            ?TRACE_AUTHN_PROVIDER("invalid_jwt_signature", #{jwks => JWKs, jwt => <<"******">>}),
+            ?TRACE_AUTHN_PROVIDER("invalid_jwt_signature", #{
+                jwks => redact_jwks_for_log(JWKs)
+            }),
             ignore;
         {error, {claims, Claims}} ->
-            %% it's a invalid token, so it's ok to log
-            ?TRACE_AUTHN_PROVIDER("invalid_jwt_claims", #{jwt => <<"******">>, claims => Claims}),
+            ?TRACE_AUTHN_PROVIDER("invalid_jwt_claims", #{claims => Claims}),
             {error, bad_username_or_password}
     end.
 
@@ -340,6 +340,16 @@ do_verify(JWT, [JWK | More], AllowedAlgs, VerifyClaims) ->
             ?TRACE_AUTHN_PROVIDER("jwt_verify_error", #{jwt => <<"******">>, reason => Reason}),
             do_verify(JWT, More, AllowedAlgs, VerifyClaims)
     end.
+
+redact_jwks_for_log(JWKs) when is_list(JWKs) ->
+    [redact_jwk_for_log(JWK) || JWK <- JWKs];
+redact_jwks_for_log(JWK) ->
+    redact_jwk_for_log(JWK).
+
+redact_jwk_for_log(#jose_jwk{kty = {jose_jwk_kty_oct, _}}) ->
+    <<"******">>;
+redact_jwk_for_log(JWK) ->
+    JWK.
 
 verify_claims(Claims, VerifyClaims0) ->
     Now = erlang:system_time(seconds),
