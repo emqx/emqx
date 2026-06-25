@@ -66,7 +66,7 @@ authorize(
                 msg => "query_mysql_error",
                 reason => Reason,
                 tmpl_token => TmplToken,
-                params => RenderParams,
+                params => emqx_auth_template:render_sql_params_redacted(TmplToken, Vars),
                 resource_id => ResourceId
             }),
             nomatch
