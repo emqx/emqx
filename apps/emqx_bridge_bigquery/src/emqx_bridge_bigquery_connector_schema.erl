@@ -95,6 +95,7 @@ fields(connector_config) ->
                 }
             )}
     ] ++
+        emqx_connector_schema_lib:ssl_fields(#{enable_by_default => true}) ++
         emqx_connector_schema:resource_opts().
 
 desc("config_connector") ->

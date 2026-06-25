@@ -841,6 +841,11 @@ filter_remote_pendings(ClientInfo, Session, Pendings) ->
 
 -spec replay(emqx_types:clientinfo(), session()) ->
     {ok, replies(), session()}.
+%% Inflight messages are resent verbatim without an expiry check, unlike the
+%% queued messages dropped on expiry by dequeue/4. This asymmetry is intentional:
+%% per [MQTT-3.3.2-5] an expired message is only deleted if onward delivery has
+%% not started; an inflight message was already sent (awaiting PUBACK/PUBREC/
+%% PUBCOMP), so its delivery must be completed regardless of Message-Expiry-Interval.
 replay(ClientInfo, Session) ->
     PubsResend = lists:map(
         fun
