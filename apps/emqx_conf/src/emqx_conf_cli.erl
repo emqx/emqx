@@ -815,7 +815,7 @@ reload_config(AllConf, Opts) ->
                         ?SLOG(error, #{
                             msg => "failed_to_reload_etc_config",
                             key => Key,
-                            value => Conf,
+                            value => emqx_utils:redact(Conf),
                             error => Error
                         }),
                         [{Key, Error} | Acc]
