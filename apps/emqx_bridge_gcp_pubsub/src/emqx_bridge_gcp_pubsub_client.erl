@@ -81,9 +81,11 @@ start(
     {Transport, HostPort} = get_transport(),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
     PoolType = random,
+    TLSOpts0 = maps:get(ssl, Config, #{}),
+    TLSOpts = emqx_utils_maps:deep_merge(#{enable => true, verify => verify_none}, TLSOpts0),
     TransportOpts =
         case Transport of
-            tls -> emqx_tls_lib:to_client_opts(#{enable => true, verify => verify_none});
+            tls -> emqx_tls_lib:to_client_opts(TLSOpts);
             tcp -> []
         end,
     NTransportOpts = emqx_utils:ipv6_probe(TransportOpts),

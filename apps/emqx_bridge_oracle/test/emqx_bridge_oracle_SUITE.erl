@@ -180,6 +180,29 @@ sql_insert_template_with_inconsistent_datatype() ->
 sql_create_table() ->
     "CREATE TABLE mqtt_test (topic VARCHAR2(255), msgid VARCHAR2(64), payload NCLOB, retain NUMBER(1))".
 
+sql_eec_1322_insert_template() ->
+    "INSERT INTO t_mqtt_msgs(msgid, sender, topic, qos, retain, arrived, payload) VALUES(\n"
+    "  ${id},\n"
+    "  ${clientid},\n"
+    "  ${topic},\n"
+    "  ${qos},\n"
+    "  ${flags.retain},\n"
+    "  TO_TIMESTAMP('1970-01-01 00:00:00', 'YYYY-MM-DD HH24:MI:SS') + "
+    "NUMTODSINTERVAL(${timestamp}/1000, 'SECOND'),\n"
+    "  ${payload}\n"
+    ")".
+
+sql_create_eec_1322_table() ->
+    "CREATE TABLE t_mqtt_msgs ("
+    "msgid VARCHAR2(64), "
+    "sender VARCHAR2(64), "
+    "topic VARCHAR2(255), "
+    "qos NUMBER(1), "
+    "retain NUMBER(1), "
+    "payload NCLOB, "
+    "arrived TIMESTAMP"
+    ")".
+
 sql_drop_table() ->
     "BEGIN\n"
     "        EXECUTE IMMEDIATE 'DROP TABLE mqtt_test';\n"
@@ -192,8 +215,75 @@ sql_drop_table() ->
     "            END IF;\n"
     "     END;".
 
+sql_drop_eec_1322_table() ->
+    "BEGIN\n"
+    "        EXECUTE IMMEDIATE 'DROP TABLE t_mqtt_msgs';\n"
+    "     EXCEPTION\n"
+    "        WHEN OTHERS THEN\n"
+    "            IF SQLCODE = -942 THEN\n"
+    "                NULL;\n"
+    "            ELSE\n"
+    "                RAISE;\n"
+    "            END IF;\n"
+    "     END;".
+
 sql_check_table_exist() ->
     "SELECT COUNT(*) FROM user_tables WHERE table_name = 'MQTT_TEST'".
+
+sql_check_table_exist(TableName) ->
+    "SELECT COUNT(*) FROM user_tables WHERE table_name = '" ++ TableName ++ "'".
+
+sql_drop_probe_audit_table() ->
+    "BEGIN\n"
+    "        EXECUTE IMMEDIATE 'DROP TABLE mqtt_probe_audit';\n"
+    "     EXCEPTION\n"
+    "        WHEN OTHERS THEN\n"
+    "            IF SQLCODE = -942 THEN\n"
+    "                NULL;\n"
+    "            ELSE\n"
+    "                RAISE;\n"
+    "            END IF;\n"
+    "     END;".
+
+sql_drop_probe_trigger() ->
+    "BEGIN\n"
+    "        EXECUTE IMMEDIATE 'DROP TRIGGER mqtt_probe_trigger';\n"
+    "     EXCEPTION\n"
+    "        WHEN OTHERS THEN\n"
+    "            IF SQLCODE = -4080 THEN\n"
+    "                NULL;\n"
+    "            ELSE\n"
+    "                RAISE;\n"
+    "            END IF;\n"
+    "     END;".
+
+sql_create_probe_audit_table() ->
+    "CREATE TABLE mqtt_probe_audit (marker VARCHAR2(64))".
+
+sql_create_probe_trigger() ->
+    "CREATE OR REPLACE TRIGGER mqtt_probe_trigger\n"
+    "BEFORE INSERT ON mqtt_test\n"
+    "DECLARE\n"
+    "    PRAGMA AUTONOMOUS_TRANSACTION;\n"
+    "BEGIN\n"
+    "    INSERT INTO mqtt_probe_audit(marker) VALUES ('prepare');\n"
+    "    COMMIT;\n"
+    "END;".
+
+sql_drop_prepare_probe_table() ->
+    "BEGIN\n"
+    "        EXECUTE IMMEDIATE 'DROP TABLE mqtt_prepare_probe';\n"
+    "     EXCEPTION\n"
+    "        WHEN OTHERS THEN\n"
+    "            IF SQLCODE = -942 THEN\n"
+    "                NULL;\n"
+    "            ELSE\n"
+    "                RAISE;\n"
+    "            END IF;\n"
+    "     END;".
+
+sql_create_prepare_probe_table() ->
+    "CREATE TABLE mqtt_prepare_probe (id NUMBER)".
 
 new_jamdb_connection(Config) ->
     JamdbOpts = [
@@ -218,6 +308,16 @@ reset_table(Config) ->
     end,
     ok.
 
+reset_eec_1322_table(Config) ->
+    {ok, Conn} = new_jamdb_connection(Config),
+    try
+        ok = drop_eec_1322_table_if_exists(Conn),
+        {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_create_eec_1322_table())
+    after
+        close_jamdb_connection(Conn)
+    end,
+    ok.
+
 drop_table_if_exists(Conn) when is_pid(Conn) ->
     {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_drop_table()),
     ok;
@@ -229,6 +329,75 @@ drop_table_if_exists(Config) ->
         close_jamdb_connection(Conn)
     end,
     ok.
+
+drop_eec_1322_table_if_exists(Conn) when is_pid(Conn) ->
+    {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_drop_eec_1322_table()),
+    ok;
+drop_eec_1322_table_if_exists(Config) ->
+    {ok, Conn} = new_jamdb_connection(Config),
+    try
+        ok = drop_eec_1322_table_if_exists(Conn)
+    after
+        close_jamdb_connection(Conn)
+    end,
+    ok.
+
+create_probe_audit_objects(Config) ->
+    {ok, Conn} = new_jamdb_connection(Config),
+    try
+        ok = drop_probe_audit_objects(Conn),
+        {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_create_probe_audit_table()),
+        {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_create_probe_trigger())
+    after
+        close_jamdb_connection(Conn)
+    end.
+
+drop_probe_audit_objects(Conn) when is_pid(Conn) ->
+    {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_drop_probe_trigger()),
+    {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_drop_probe_audit_table()),
+    ok;
+drop_probe_audit_objects(Config) ->
+    {ok, Conn} = new_jamdb_connection(Config),
+    try
+        ok = drop_probe_audit_objects(Conn)
+    after
+        close_jamdb_connection(Conn)
+    end.
+
+drop_prepare_probe_table(Conn) when is_pid(Conn) ->
+    {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_drop_prepare_probe_table()),
+    ok;
+drop_prepare_probe_table(Config) ->
+    {ok, Conn} = new_jamdb_connection(Config),
+    try
+        ok = drop_prepare_probe_table(Conn)
+    after
+        close_jamdb_connection(Conn)
+    end.
+
+scan_probe_audit_table(Config) ->
+    {ok, Conn} = new_jamdb_connection(Config),
+    try
+        jamdb_oracle:sql_query(Conn, "select count(*) from mqtt_probe_audit")
+    after
+        close_jamdb_connection(Conn)
+    end.
+
+count_eec_1322_rows(Config) ->
+    {ok, Conn} = new_jamdb_connection(Config),
+    try
+        jamdb_oracle:sql_query(Conn, "select count(*) from t_mqtt_msgs")
+    after
+        close_jamdb_connection(Conn)
+    end.
+
+count_user_table(Config, TableName) ->
+    {ok, Conn} = new_jamdb_connection(Config),
+    try
+        jamdb_oracle:sql_query(Conn, sql_check_table_exist(TableName))
+    after
+        close_jamdb_connection(Conn)
+    end.
 
 oracle_config(TestCase, _ConnectionType, Config) ->
     UniqueNum = integer_to_binary(erlang:unique_integer()),
@@ -369,6 +538,9 @@ probe_bridge_api(Config, Overrides) ->
         Error ->
             Error
     end.
+
+large_json_payload() ->
+    emqx_utils_json:encode(#{<<"msg">> => binary:copy(<<"a">>, 5000)}).
 
 create_rule_and_action_http(Config) ->
     OracleName = ?config(oracle_name, Config),
@@ -724,6 +896,95 @@ t_probe_with_inconsistent_datatype(Config) ->
         #{<<"sql">> => sql_insert_template_with_inconsistent_datatype()}
     ),
     ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes0).
+
+t_prepare_does_not_execute_user_sql(Config) ->
+    reset_table(Config),
+    create_probe_audit_objects(Config),
+    on_exit(fun() -> drop_probe_audit_objects(Config) end),
+    ?assertMatch({ok, _}, create_bridge_api(Config)),
+    _ = emqx_bridge_testlib:get_bridge_api(Config),
+    ?assertMatch(
+        {ok, [{result_set, _, _, [[{0}]]}]},
+        scan_probe_audit_table(Config)
+    ),
+    ok.
+
+t_prepare_rejects_ddl_without_executing(Config) ->
+    drop_prepare_probe_table(Config),
+    on_exit(fun() -> drop_prepare_probe_table(Config) end),
+    ?assertMatch(
+        {ok, _},
+        create_bridge_api(Config, #{<<"sql">> => sql_create_prepare_probe_table()})
+    ),
+    ?assertMatch(
+        {ok, [{result_set, _, _, [[{0}]]}]},
+        count_user_table(Config, "MQTT_PREPARE_PROBE")
+    ),
+    ?retry(
+        _Sleep = 1_000,
+        _Attempts = 20,
+        begin
+            {ok, #{<<"status_reason">> := StatusReason}} =
+                emqx_bridge_testlib:get_bridge_api(Config),
+            ?assertNotEqual(nomatch, binary:match(StatusReason, <<"unsupported_sql_statement">>))
+        end
+    ),
+    ok.
+
+t_eec_1322_large_payload_after_small_payload(Config) ->
+    reset_eec_1322_table(Config),
+    on_exit(fun() -> drop_eec_1322_table_if_exists(Config) end),
+    ?assertMatch(
+        {ok, _},
+        create_bridge_api(Config, #{<<"sql">> => sql_eec_1322_insert_template()})
+    ),
+    BridgeId = bridge_id(Config),
+    SmallPayload = emqx_utils_json:encode(#{<<"msg">> => <<"heelo">>}),
+    LargePayload = large_json_payload(),
+    BaseParams = #{
+        clientid => <<"client1">>,
+        topic => <<"mqtt/eec1322">>,
+        qos => 0,
+        flags => #{retain => false},
+        timestamp => erlang:system_time(millisecond)
+    },
+    ?check_trace(
+        begin
+            emqx_bridge:send_message(BridgeId, BaseParams#{
+                id => integer_to_binary(erlang:unique_integer()),
+                payload => SmallPayload
+            }),
+            ?retry(
+                _Sleep1 = 500,
+                _Attempts1 = 60,
+                ?assertMatch(
+                    {ok, [{result_set, _, _, [[{1}]]}]},
+                    count_eec_1322_rows(Config)
+                )
+            ),
+            emqx_bridge:send_message(BridgeId, BaseParams#{
+                id => integer_to_binary(erlang:unique_integer()),
+                payload => LargePayload
+            }),
+            ?retry(
+                _Sleep2 = 500,
+                _Attempts2 = 60,
+                ?assertMatch(
+                    {ok, [{result_set, _, _, [[{2}]]}]},
+                    count_eec_1322_rows(Config)
+                )
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertEqual(
+                [],
+                [Event || #{error := _} = Event <- ?of_kind(oracle_connector_query_return, Trace)]
+            ),
+            ok
+        end
+    ),
+    ok.
 
 t_on_get_status(Config) ->
     ProxyPort = ?config(proxy_port, Config),
