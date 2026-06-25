@@ -47,10 +47,19 @@ if git push origin "${DEV_SHA}:refs/heads/${RELEASE_BRANCH}" 2>"$PUSH_ERR"; then
 fi
 
 cat "$PUSH_ERR" >&2
-if grep -qE 'non-fast-forward|fetch first|rejected' "$PUSH_ERR"; then
+
+# Be specific: don't match the bare substring "rejected" because git uses
+# "[remote rejected]" for every push failure (e.g. branch-protection denial)
+# and we'd misreport those as a divergence.
+if grep -qE 'non-fast-forward|fetch first' "$PUSH_ERR"; then
     if [ -n "${GITHUB_ENV:-}" ]; then
         echo "NOT_FAST_FORWARD=1" >> "$GITHUB_ENV"
     fi
     echo "::error::${RELEASE_BRANCH} (${REL_SHA}) has diverged from ${DEV_BRANCH} (${DEV_SHA}); ff not possible."
+elif grep -qE 'protected branch hook declined|protected branch' "$PUSH_ERR"; then
+    if [ -n "${GITHUB_ENV:-}" ]; then
+        echo "BRANCH_PROTECTION_DENIED=1" >> "$GITHUB_ENV"
+    fi
+    echo "::error::${RELEASE_BRANCH} push rejected by branch protection. Add the bot identity (AUTH_APP_ID) as a bypass principal on the ${RELEASE_BRANCH} branch protection rule, and confirm required status checks (if any) pass on the dev-XX HEAD."
 fi
 exit 1

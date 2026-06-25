@@ -76,6 +76,8 @@ jobs:
         run: |
           if [ "${NOT_FAST_FORWARD:-0}" = "1" ]; then
             REASON="${RELEASE_BRANCH} has diverged from ${DEV_BRANCH}; rebase ${DEV_BRANCH} on top of ${RELEASE_BRANCH} (or reset ${DEV_BRANCH} to a descendant of ${RELEASE_BRANCH}) before the next run."
+          elif [ "${BRANCH_PROTECTION_DENIED:-0}" = "1" ]; then
+            REASON="${RELEASE_BRANCH} push rejected by branch protection. Add the bot identity (AUTH_APP_ID) as a bypass principal on the ${RELEASE_BRANCH} branch protection rule, and confirm required status checks (if any) pass on the ${DEV_BRANCH} HEAD."
           else
             REASON="Automatic fast-forward of ${RELEASE_BRANCH} from ${DEV_BRANCH} failed."
           fi
