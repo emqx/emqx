@@ -665,6 +665,13 @@ t_delete_user_namespace_resolution(_TCConfig) ->
         delete_user(<<"u1">>, #{<<"ns">> => Ns}, #{<<"namespace">> => <<"wrong_ns">>})
     ),
     ?assertMatch({200, #{<<"data">> := []}}, list_users(#{<<"ns">> => Ns})),
+    %% A `namespace' body field pointing at another namespace (where the user
+    %% does not exist) is honored as the fallback and yields 404 rather than
+    %% touching the record in `Ns'.
+    ?assertMatch({201, _}, add_user(User)),
+    ?assertMatch({404, _}, delete_user(<<"u1">>, #{}, #{<<"namespace">> => <<"another_ns">>})),
+    ?assertMatch({200, #{<<"data">> := [_]}}, list_users(#{<<"ns">> => Ns})),
+    ?assertMatch({204, _}, delete_user(<<"u1">>, #{<<"ns">> => Ns})),
     ok.
 
 %% A built-in user that belongs to a namespace which has since been deleted must
