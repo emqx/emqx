@@ -103,7 +103,7 @@ new(StartIterator, MQ) ->
 
 -spec restore(progress(), emqx_mq_types:mq()) -> t().
 %% The previous buffer did not see any messages, so we can just start a new buffer
-restore(#{last_message_id := undefined, it_begin := It}, MQ) ->
+restore(#{last_message_id := undefined, it := It}, MQ) ->
     new(It, MQ);
 %% The previous buffer saw some messages, so we need to restore the buffer from the saved state
 restore(#{it := It, last_message_id := LastMessageId, unacked := UnackedMaps}, MQ) ->
