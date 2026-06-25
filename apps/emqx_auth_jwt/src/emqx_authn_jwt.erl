@@ -283,7 +283,7 @@ verify(JWT, JWKs, AllowedAlgs, VerifyClaims, AclClaimName, DisconnectAfterExpire
             {error, bad_username_or_password}
     end.
 
-extra_to_auth_data(Extra, JWT, AclClaimName, DisconnectAfterExpire) ->
+extra_to_auth_data(Extra, _JWT, AclClaimName, DisconnectAfterExpire) ->
     IsSuperuser = emqx_authn_utils:is_superuser(Extra),
     Attrs = emqx_authn_utils:client_attrs(Extra),
     ExpireAt = expire_at(DisconnectAfterExpire, Extra),
