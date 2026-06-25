@@ -55,7 +55,8 @@
 -ifdef(TEST).
 -export([
     reason/1,
-    hook_fun/1
+    hook_fun/1,
+    restrict_rules_to_namespace/2
 ]).
 -endif.
 
@@ -1678,7 +1679,13 @@ restrict_rules_to_namespace(EnrichedRules0, Message) ->
     Ns = get_namespace_from_message(Message),
     lists:filter(
         fun
+            (#{rule := #{namespace := ?global_ns}}) ->
+                %% Global rules retain system-wide visibility: they keep matching
+                %% messages from any namespace, preserving pre-6.2 behavior for
+                %% non-multi-tenant deployments.
+                true;
             (#{rule := #{namespace := Ns0}}) ->
+                %% Namespaced rules only match traffic from their own namespace.
                 Ns0 == Ns;
             (_) ->
                 false
