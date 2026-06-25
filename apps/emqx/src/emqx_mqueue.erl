@@ -87,19 +87,19 @@
 -define(INFO_KEYS, [store_qos0, max_len, len, dropped]).
 -define(INSERT_TS, mqueue_insert_ts).
 
--record(shift_opts, {
-    multiplier :: non_neg_integer(),
-    base :: integer()
+-record(prios, {
+    t :: p_table(),
+    default :: priority(),
+    shift_mult :: non_neg_integer(),
+    shift_base :: integer()
 }).
 
 -record(mqueue, {
     store_qos0 = false :: boolean(),
     max_len = ?MAX_LEN_INFINITY :: count(),
     dropped = 0 :: count(),
-    p_table = ?NO_PRIORITY_TABLE :: p_table() | ?NO_PRIORITY_TABLE,
-    default_p = ?LOWEST_PRIORITY :: priority(),
     q = emqx_pqueue:new() :: pq(),
-    shift_opts :: #shift_opts{},
+    prios = ?NO_PRIORITY_TABLE :: #prios{} | ?NO_PRIORITY_TABLE,
     p_credit :: non_neg_integer() | undefined
 }).
 
@@ -112,12 +112,23 @@ init(Opts = #{max_len := MaxLen0, store_qos0 := Qos0}) ->
             true -> MaxLen0;
             false -> ?MAX_LEN_INFINITY
         end,
+    Prios =
+        case get_opt(priorities, Opts, ?NO_PRIORITY_TABLE) of
+            ?NO_PRIORITY_TABLE ->
+                ?NO_PRIORITY_TABLE;
+            PTab ->
+                {Mult, Base} = get_shift_opt(Opts),
+                #prios{
+                    t = p_table(PTab),
+                    default = get_priority_opt(Opts),
+                    shift_mult = Mult,
+                    shift_base = Base
+                }
+        end,
     #mqueue{
         max_len = MaxLen,
         store_qos0 = Qos0,
-        p_table = p_table(get_opt(priorities, Opts, ?NO_PRIORITY_TABLE)),
-        default_p = get_priority_opt(Opts),
-        shift_opts = get_shift_opt(Opts)
+        prios = Prios
     }.
 
 -spec info(mqueue()) -> emqx_types:infos().
@@ -260,16 +271,25 @@ in(
     Msg = #message{topic = Topic},
     MQ =
         #mqueue{
-            default_p = Dp,
-            p_table = PTab,
+            prios = Prios,
             q = Q,
             max_len = MaxLen,
             dropped = Dropped
         } = MQ
 ) ->
-    Priority = get_priority(Topic, PTab, Dp),
-    PLen = emqx_pqueue:plen(Priority, Q),
+    Priority =
+        case Prios of
+            %% MICRO-OPTIMIZATION: When there is no priority table defined (from config),
+            %% disregard default priority from config, always use lowest (?LOWEST_PRIORITY=0)
+            %% because the lowest priority in emqx_pqueue is a fallback to queue:queue()
+            %% while the highest 'infinity' is a [{infinity, queue:queue()}]
+            ?NO_PRIORITY_TABLE ->
+                ?LOWEST_PRIORITY;
+            #prios{t = PTab, default = Dp} ->
+                maps:get(Topic, PTab, Dp)
+        end,
     Msg1 = with_ts(Msg),
+    PLen = emqx_pqueue:plen(Priority, Q),
     case MaxLen =/= ?MAX_LEN_INFINITY andalso PLen =:= MaxLen of
         true ->
             %% reached max length, drop the oldest message
@@ -282,19 +302,19 @@ in(
     end.
 
 -spec out(mqueue()) -> {empty | {value, message()}, mqueue()}.
-out(MQ = #mqueue{q = Q, p_table = ?NO_PRIORITY_TABLE}) ->
+out(MQ = #mqueue{q = Q, prios = ?NO_PRIORITY_TABLE}) ->
     case emqx_pqueue:out(Q) of
         {{value, V}, Q1} ->
             {{value, without_ts(V)}, MQ#mqueue{q = Q1}};
         {empty, _} ->
             {empty, MQ}
     end;
-out(MQ = #mqueue{q = Q, p_credit = undefined, shift_opts = ShiftOpts}) ->
+out(MQ = #mqueue{q = Q, p_credit = undefined, prios = Prios}) ->
     case emqx_pqueue:out_p(Q) of
         {{value, V, Prio}, Q1} ->
             MQ1 = MQ#mqueue{
                 q = Q1,
-                p_credit = get_credits(Prio, ShiftOpts)
+                p_credit = get_credits(Prio, Prios)
             },
             {{value, without_ts(V)}, MQ1};
         {empty, _} ->
@@ -326,17 +346,10 @@ get_priority_opt(Opts) ->
         N when is_integer(N) -> N
     end.
 
-%% MICRO-OPTIMIZATION: When there is no priority table defined (from config),
-%% disregard default priority from config, always use lowest (?LOWEST_PRIORITY=0)
-%% because the lowest priority in emqx_pqueue is a fallback to queue:queue()
-%% while the highest 'infinity' is a [{infinity, queue:queue()}]
-get_priority(_Topic, ?NO_PRIORITY_TABLE, _) -> ?LOWEST_PRIORITY;
-get_priority(Topic, PTab, Dp) -> maps:get(Topic, PTab, Dp).
-
-get_credits(?HIGHEST_PRIORITY, Opts) ->
+get_credits(?HIGHEST_PRIORITY, Prios) ->
     Infinity = 1000000,
-    get_credits(Infinity, Opts);
-get_credits(Prio, #shift_opts{multiplier = Mult, base = Base}) ->
+    get_credits(Infinity, Prios);
+get_credits(Prio, #prios{shift_mult = Mult, shift_base = Base}) ->
     (Prio + Base + 1) * Mult - 1.
 
 get_shift_opt(Opts) ->
@@ -362,10 +375,7 @@ get_shift_opt(Opts) ->
             true -> -Min;
             false -> 0
         end,
-    #shift_opts{
-        multiplier = Mult,
-        base = Base
-    }.
+    {Mult, Base}.
 
 %% topic from mqtt.mqueue_priorities(map()) is atom.
 p_table(PTab = #{}) ->
@@ -378,9 +388,7 @@ p_table(PTab = #{}) ->
         end,
         #{},
         PTab
-    );
-p_table(PTab) ->
-    PTab.
+    ).
 
 %% This is used to sort/traverse messages in query/2
 with_ts(#message{extra = Extra} = Msg) ->
