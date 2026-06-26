@@ -94,7 +94,7 @@ authorize(
                             ?SLOG(error, #{
                                 msg => authz_http_response_incorrect,
                                 content_type => ContentType,
-                                body => Body
+                                body => <<"******">>
                             }),
                             nomatch;
                         {error, Reason} ->
@@ -140,14 +140,14 @@ format_for_api(#{<<"headers">> := Headers} = Source) ->
 format_for_api(Source) ->
     Source.
 
-log_nomtach_msg(Status, Headers, Body) ->
+log_nomtach_msg(Status, Headers, _Body) ->
     ?SLOG(
         debug,
         #{
             msg => unexpected_authz_http_response,
             status => Status,
             content_type => emqx_authz_utils:content_type(Headers),
-            body => Body
+            body => <<"******">>
         }
     ).
 

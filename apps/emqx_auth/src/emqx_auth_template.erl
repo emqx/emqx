@@ -17,12 +17,16 @@
     cache_key/3,
     placeholder_vars_from_str/1,
     render_deep_for_json/2,
+    render_deep_for_json_redacted/2,
     render_deep_for_url/2,
     render_deep_for_raw/2,
+    render_deep_for_raw_redacted/2,
     render_str/2,
+    render_str_redacted/2,
     render_str_for_raw/2,
     render_urlencoded_str/2,
     render_sql_params/2,
+    render_sql_params_redacted/2,
     render_strict/2,
     escape_disallowed_placeholders_str/2,
     rename_client_info_vars/1
@@ -190,6 +194,9 @@ render_deep_for_json(Template, Credential) ->
     ),
     Term.
 
+render_deep_for_json_redacted(Template, Credential) ->
+    render_deep_for_json(Template, redacted_bindings(Credential)).
+
 render_deep_for_raw(Template, Credential) ->
     % NOTE
     % Ignoring errors here, undefined bindings will be replaced with empty string.
@@ -199,6 +206,9 @@ render_deep_for_raw(Template, Credential) ->
         #{var_trans => fun to_string_for_raw/2}
     ),
     Term.
+
+render_deep_for_raw_redacted(Template, Credential) ->
+    render_deep_for_raw(Template, redacted_bindings(Credential)).
 
 render_deep_for_url(Template, Credential) ->
     render_deep_for_raw(Template, Credential).
@@ -212,6 +222,9 @@ render_str(Template, Credential) ->
         #{var_trans => fun to_string/2}
     ),
     unicode:characters_to_binary(String).
+
+render_str_redacted(Template, Credential) ->
+    render_str(Template, redacted_bindings(Credential)).
 
 render_str_for_raw(Template, Credential) ->
     % NOTE
@@ -242,6 +255,17 @@ render_sql_params(ParamList, Credential) ->
         #{var_trans => fun to_sql_value/2}
     ),
     Row.
+
+render_sql_params_redacted(ParamList, Credential) ->
+    render_sql_params(ParamList, redacted_bindings(Credential)).
+
+redacted_bindings(Bindings) ->
+    emqx_utils:redact(Bindings, fun is_sensitive_binding/1).
+
+is_sensitive_binding("cert_pem") -> true;
+is_sensitive_binding(cert_pem) -> true;
+is_sensitive_binding(<<"cert_pem">>) -> true;
+is_sensitive_binding(_) -> false.
 
 to_urlencoded_string(Name, Value) ->
     case uri_string:compose_query([{<<"q">>, to_string(Name, Value)}]) of

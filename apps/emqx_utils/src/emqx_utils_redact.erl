@@ -23,6 +23,15 @@
 -define(IS_KEY_HEADERS(K), (K == headers orelse K == <<"headers">> orelse K == "headers")).
 
 %% NOTE: keep alphabetical order
+is_sensitive_key(access_key_id) -> true;
+is_sensitive_key("access_key_id") -> true;
+is_sensitive_key(<<"access_key_id">>) -> true;
+is_sensitive_key(access_key_secret) -> true;
+is_sensitive_key("access_key_secret") -> true;
+is_sensitive_key(<<"access_key_secret">>) -> true;
+is_sensitive_key(access_token) -> true;
+is_sensitive_key("access_token") -> true;
+is_sensitive_key(<<"access_token">>) -> true;
 is_sensitive_key(account_key) -> true;
 is_sensitive_key("account_key") -> true;
 is_sensitive_key(<<"account_key">>) -> true;
@@ -32,24 +41,44 @@ is_sensitive_key(<<"api_key">>) -> true;
 is_sensitive_key(aws_secret_access_key) -> true;
 is_sensitive_key("aws_secret_access_key") -> true;
 is_sensitive_key(<<"aws_secret_access_key">>) -> true;
+is_sensitive_key(bind_password) -> true;
+is_sensitive_key("bind_password") -> true;
+is_sensitive_key(<<"bind_password">>) -> true;
+is_sensitive_key(client_jwks) -> true;
+is_sensitive_key("client_jwks") -> true;
+is_sensitive_key(<<"client_jwks">>) -> true;
+is_sensitive_key(id_token) -> true;
+is_sensitive_key("id_token") -> true;
+is_sensitive_key(<<"id_token">>) -> true;
+is_sensitive_key(jwt) -> true;
+is_sensitive_key("jwt") -> true;
+is_sensitive_key(<<"jwt">>) -> true;
+is_sensitive_key(mfa_token) -> true;
+is_sensitive_key("mfa_token") -> true;
+is_sensitive_key(<<"mfa_token">>) -> true;
+is_sensitive_key(new_pwd) -> true;
+is_sensitive_key("new_pwd") -> true;
+is_sensitive_key(<<"new_pwd">>) -> true;
+is_sensitive_key(old_pwd) -> true;
+is_sensitive_key("old_pwd") -> true;
+is_sensitive_key(<<"old_pwd">>) -> true;
 is_sensitive_key(password) -> true;
 is_sensitive_key("password") -> true;
 is_sensitive_key(<<"password">>) -> true;
 is_sensitive_key(private_key) -> true;
 is_sensitive_key("private_key") -> true;
 is_sensitive_key(<<"private_key">>) -> true;
+is_sensitive_key(private_key_password) -> true;
+is_sensitive_key(<<"private_key_password">>) -> true;
+is_sensitive_key(refresh_token) -> true;
+is_sensitive_key("refresh_token") -> true;
+is_sensitive_key(<<"refresh_token">>) -> true;
 is_sensitive_key(secret) -> true;
 is_sensitive_key("secret") -> true;
 is_sensitive_key(<<"secret">>) -> true;
 is_sensitive_key(secret_access_key) -> true;
 is_sensitive_key("secret_access_key") -> true;
 is_sensitive_key(<<"secret_access_key">>) -> true;
-is_sensitive_key(access_key_secret) -> true;
-is_sensitive_key("access_key_secret") -> true;
-is_sensitive_key(<<"access_key_secret">>) -> true;
-is_sensitive_key(access_key_id) -> true;
-is_sensitive_key("access_key_id") -> true;
-is_sensitive_key(<<"access_key_id">>) -> true;
 is_sensitive_key(secret_key) -> true;
 is_sensitive_key("secret_key") -> true;
 is_sensitive_key(<<"secret_key">>) -> true;
@@ -61,17 +90,9 @@ is_sensitive_key("sentinel_password") -> true;
 is_sensitive_key(<<"sentinel_password">>) -> true;
 is_sensitive_key(sp_private_key) -> true;
 is_sensitive_key(<<"sp_private_key">>) -> true;
-is_sensitive_key(private_key_password) -> true;
-is_sensitive_key(<<"private_key_password">>) -> true;
 is_sensitive_key(token) -> true;
 is_sensitive_key("token") -> true;
 is_sensitive_key(<<"token">>) -> true;
-is_sensitive_key(jwt) -> true;
-is_sensitive_key("jwt") -> true;
-is_sensitive_key(<<"jwt">>) -> true;
-is_sensitive_key(bind_password) -> true;
-is_sensitive_key("bind_password") -> true;
-is_sensitive_key(<<"bind_password">>) -> true;
 is_sensitive_key(_) -> false.
 
 redact(Term) ->
@@ -159,7 +180,15 @@ check_is_sensitive_header(Key) ->
 
 is_sensitive_header("authorization") ->
     true;
+is_sensitive_header("api-key") ->
+    true;
+is_sensitive_header("cookie") ->
+    true;
 is_sensitive_header("proxy-authorization") ->
+    true;
+is_sensitive_header("x-api-key") ->
+    true;
+is_sensitive_header("x-auth-token") ->
     true;
 is_sensitive_header(_Any) ->
     false.
@@ -347,11 +376,15 @@ deobfuscate_test() ->
 redact_header_test_() ->
     Types = [string, binary, atom],
     Keys = [
+        "api-key",
         "auThorization",
         "Authorization",
         "authorizaTion",
+        "cookie",
         "proxy-authorizaTion",
-        "proXy-authoriZaTion"
+        "proXy-authoriZaTion",
+        "x-api-key",
+        "x-auth-token"
     ],
 
     Case = fun(Type, Key0) ->

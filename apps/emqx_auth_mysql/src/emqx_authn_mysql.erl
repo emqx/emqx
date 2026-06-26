@@ -96,7 +96,7 @@ authenticate(
             ?TRACE_AUTHN_PROVIDER(error, "mysql_query_failed", #{
                 resource => ResourceId,
                 tmpl_token => TmplToken,
-                params => Params,
+                params => emqx_auth_template:render_sql_params_redacted(TmplToken, Credential),
                 timeout => Timeout,
                 reason => Reason
             }),
