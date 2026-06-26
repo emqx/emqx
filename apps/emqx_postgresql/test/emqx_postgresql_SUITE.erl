@@ -305,6 +305,42 @@ t_raw_batch_not_confused_by_table_check(_Config) ->
         emqx_resource:remove_local(ResourceId)
     end.
 
+t_batch_query_rejects_row_returning_sql(_Config) ->
+    ResourceId = <<"emqx_postgresql_SUITE_row_returning_batch">>,
+    Sql = <<"SELECT ${a}">>,
+    {ok, #{config := CheckedConfig}} =
+        emqx_resource:check_config(?PGSQL_RESOURCE_MOD, pgsql_config()),
+    {ok, #{state := State0}} = emqx_resource:create_local(
+        ResourceId,
+        ?CONNECTOR_RESOURCE_GROUP,
+        ?PGSQL_RESOURCE_MOD,
+        CheckedConfig,
+        #{spawn_buffer_workers => false}
+    ),
+    try
+        {ok, State} = emqx_postgresql:on_add_channel(
+            ResourceId, State0, <<"row_returning">>, #{parameters => #{sql => Sql}}
+        ),
+        Result = batch_query_with_timeout(
+            ResourceId,
+            [
+                {<<"row_returning">>, #{a => 1}},
+                {<<"row_returning">>, #{a => 2}}
+            ],
+            State
+        ),
+        ?assertMatch(
+            {error,
+                {unrecoverable_error, #{
+                    reason := row_returning_batch_sql_unsupported,
+                    msg := <<"PostgreSQL action batch SQL must not return rows">>
+                }}},
+            Result
+        )
+    after
+        emqx_resource:remove_local(ResourceId)
+    end.
+
 perform_lifecycle_check(ResourceId, InitialConfig) ->
     {ok, #{config := CheckedConfig}} =
         emqx_resource:check_config(?PGSQL_RESOURCE_MOD, InitialConfig),
