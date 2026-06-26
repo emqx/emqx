@@ -81,6 +81,12 @@ t_hmac_based(_) ->
     Credential2 = Credential#{password => BadJWS},
     ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential2, State)),
 
+    NoneJWS = generate_none_jws(Payload),
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential#{password => NoneJWS}, State)),
+
+    RSAJWS = generate_jws('public-key', Payload, test_rsa_key(private)),
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential#{password => RSAJWS}, State)),
+
     %% secret_base64_encoded
     Config2 = Config#{
         secret => base64:encode(Secret),
@@ -191,6 +197,10 @@ t_public_key(_) ->
     ?assertEqual(
         ignore, emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State)
     ),
+
+    {ok, PublicKeyPEM} = file:read_file(PublicKey),
+    HMACJWS = generate_jws('hmac-based', Payload, PublicKeyPEM),
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential#{password => HMACJWS}, State)),
 
     ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
     ok.
@@ -404,6 +414,10 @@ t_jwks_renewal(_Config) ->
         {error, bad_username_or_password},
         emqx_authn_jwt:authenticate(Credential1#{password => JWS2}, State2)
     ),
+
+    {ok, PublicKeyPEM} = file:read_file(test_rsa_key(public)),
+    HMACJWS = generate_jws('hmac-based', Payload1, PublicKeyPEM),
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential1#{password => HMACJWS}, State2)),
 
     ?assertEqual(ok, emqx_authn_jwt:destroy(State2)),
     ok = emqx_utils_http_test_server:stop().
@@ -1225,6 +1239,18 @@ generate_jws('public-key', Payload, PrivateKey) ->
     Signed = jose_jwt:sign(JWK, Header, Payload),
     {_, JWS} = jose_jws:compact(Signed),
     JWS.
+
+generate_none_jws(Payload) ->
+    Header = emqx_utils_json:encode(#{
+        <<"alg">> => <<"none">>,
+        <<"typ">> => <<"JWT">>
+    }),
+    iolist_to_binary([
+        jose_jwa_base64url:encode(Header),
+        <<".">>,
+        jose_jwa_base64url:encode(emqx_utils_json:encode(Payload)),
+        <<".">>
+    ]).
 
 client_ssl_opts() ->
     #{

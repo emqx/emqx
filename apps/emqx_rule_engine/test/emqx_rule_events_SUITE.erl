@@ -8,6 +8,8 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -75,4 +77,33 @@ t_event_topics_enum_and_names_consistency(_Config) ->
         missing_from_event_info_topics => MissingTopicsFromEventInfos
     },
     ?assertEqual(#{}, maps:filter(fun(_, M) -> length(M) > 0 end, Missing)),
+    ok.
+
+-doc """
+Checks the namespace restriction applied by `restrict_rules_to_namespace/2`:
+
+- a global rule keeps system-wide visibility and matches messages from any namespace;
+- a namespaced rule only matches traffic from its own namespace.
+""".
+t_restrict_rules_to_namespace(_) ->
+    GlobalMsg = #message{topic = <<"hhag/v1/a/b/geolocation">>, headers = #{}},
+    Ns1Msg = #message{
+        topic = <<"hhag/v1/a/b/geolocation">>,
+        headers = #{client_attrs => #{?CLIENT_ATTR_NAME_TNS => <<"ns1">>}}
+    },
+    GlobalRule = #{rule => #{namespace => ?global_ns}},
+    Ns1Rule = #{rule => #{namespace => <<"ns1">>}},
+    Ns2Rule = #{rule => #{namespace => <<"ns2">>}},
+    All = [GlobalRule, Ns1Rule, Ns2Rule],
+    %% Global (non-namespaced) message: only the global rule matches.
+    ?assertEqual(
+        [GlobalRule],
+        emqx_rule_events:restrict_rules_to_namespace(All, GlobalMsg)
+    ),
+    %% Message from namespace `ns1`: the global rule still matches (system-wide
+    %% visibility) and the `ns1` rule matches; the `ns2` rule does not.
+    ?assertEqual(
+        [GlobalRule, Ns1Rule],
+        emqx_rule_events:restrict_rules_to_namespace(All, Ns1Msg)
+    ),
     ok.
