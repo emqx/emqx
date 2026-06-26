@@ -121,4 +121,5 @@ emqx_setopts
 emqx_slow_subs
 emqx_streams
 emqx_telemetry
+emqx_topic_metrics
 emqx_utils

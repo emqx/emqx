@@ -4,6 +4,15 @@
 
 -module(emqx_topic_metrics).
 
+-moduledoc """
+Legacy (v1) topic-metrics gen_server.
+
+**Deprecated since 6.3.** New code should target the v2 surface in
+`emqx_topic_metrics2` and the routes under `/mqtt/topic_metrics2`. The
+v1 module continues to run unchanged for backward compatibility — it
+keeps its own gen_server, ETS table, hooks, and moving-average rates.
+""".
+
 -behaviour(gen_server).
 
 -include_lib("emqx/include/emqx.hrl").
