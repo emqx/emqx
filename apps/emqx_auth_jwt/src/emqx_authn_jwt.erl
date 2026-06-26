@@ -22,6 +22,25 @@
     ?VAR_USERNAME
 ]).
 
+-define(JWT_HMAC_ALGORITHMS, [
+    <<"HS256">>,
+    <<"HS384">>,
+    <<"HS512">>
+]).
+
+-define(JWT_PUBLIC_KEY_ALGORITHMS, [
+    <<"RS256">>,
+    <<"RS384">>,
+    <<"RS512">>,
+    <<"PS256">>,
+    <<"PS384">>,
+    <<"PS512">>,
+    <<"ES256">>,
+    <<"ES384">>,
+    <<"ES512">>,
+    <<"EdDSA">>
+]).
+
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
@@ -98,13 +117,14 @@ do_authenticate(
         verify_claims := VerifyClaims0,
         disconnect_after_expire := DisconnectAfterExpire,
         jwk := JWK,
+        allowed_algs := AllowedAlgs,
         acl_claim_name := AclClaimName
     }
 ) ->
     %% XXX: Only supports single public key
     JWKs = [JWK],
     VerifyClaims = render_expected(VerifyClaims0, Credential),
-    verify(JWT, JWKs, VerifyClaims, AclClaimName, DisconnectAfterExpire);
+    verify(JWT, JWKs, AllowedAlgs, VerifyClaims, AclClaimName, DisconnectAfterExpire);
 do_authenticate(
     JWT,
     Credential,
@@ -112,6 +132,7 @@ do_authenticate(
         verify_claims := VerifyClaims0,
         disconnect_after_expire := DisconnectAfterExpire,
         resource_id := ResourceId,
+        allowed_algs := AllowedAlgs,
         acl_claim_name := AclClaimName
     }
 ) ->
@@ -126,7 +147,7 @@ do_authenticate(
             emqx_authn_utils:backend_failure_result();
         {ok, JWKs} ->
             VerifyClaims = render_expected(VerifyClaims0, Credential),
-            verify(JWT, JWKs, VerifyClaims, AclClaimName, DisconnectAfterExpire)
+            verify(JWT, JWKs, AllowedAlgs, VerifyClaims, AclClaimName, DisconnectAfterExpire)
     end.
 
 destroy(#{resource_id := ResourceId}) ->
@@ -156,6 +177,7 @@ create_authn_hmac_based(#{
             JWK = jose_jwk:from_oct(Secret),
             {ok, #{
                 jwk => JWK,
+                allowed_algs => ?JWT_HMAC_ALGORITHMS,
                 verify_claims => handle_verify_claims(VerifyClaims),
                 disconnect_after_expire => DisconnectAfterExpire,
                 on_missing_jwt => OnMissingJWT,
@@ -184,6 +206,7 @@ create_authn_public_key(
             ),
         {ok, #{
             jwk => JWK,
+            allowed_algs => ?JWT_PUBLIC_KEY_ALGORITHMS,
             verify_claims => handle_verify_claims(VerifyClaims),
             disconnect_after_expire => DisconnectAfterExpire,
             on_missing_jwt => OnMissingJWT,
@@ -210,6 +233,7 @@ create_authn_public_key_with_jwks(
         Config,
         #{
             resource_id => ResourceId,
+            allowed_algs => ?JWT_PUBLIC_KEY_ALGORITHMS,
             verify_claims => handle_verify_claims(VerifyClaims),
             disconnect_after_expire => DisconnectAfterExpire,
             on_missing_jwt => OnMissingJWT,
@@ -259,8 +283,8 @@ render_expected([{Name, ExpectedTemplate} | More], Variables) ->
     Expected = emqx_auth_template:render_str(ExpectedTemplate, Variables),
     [{Name, Expected} | render_expected(More, Variables)].
 
-verify(JWT, JWKs, VerifyClaims, AclClaimName, DisconnectAfterExpire) ->
-    case do_verify(JWT, JWKs, VerifyClaims) of
+verify(JWT, JWKs, AllowedAlgs, VerifyClaims, AclClaimName, DisconnectAfterExpire) ->
+    case do_verify(JWT, JWKs, AllowedAlgs, VerifyClaims) of
         {ok, Extra} ->
             extra_to_auth_data(Extra, JWT, AclClaimName, DisconnectAfterExpire);
         {error, {missing_claim, Claim}} ->
@@ -317,10 +341,10 @@ acl(Claims, AclClaimName) ->
             #{}
     end.
 
-do_verify(_JWT, [], _VerifyClaims) ->
+do_verify(_JWT, [], _AllowedAlgs, _VerifyClaims) ->
     {error, invalid_signature};
-do_verify(JWT, [JWK | More], VerifyClaims) ->
-    try jose_jws:verify(JWK, JWT) of
+do_verify(JWT, [JWK | More], AllowedAlgs, VerifyClaims) ->
+    try jose_jws:verify_strict(JWK, AllowedAlgs, JWT) of
         {true, Payload, _JWT} ->
             Claims0 = emqx_utils_json:decode(Payload),
             Claims = try_convert_to_num(Claims0, [<<"exp">>, <<"nbf">>]),
@@ -331,11 +355,11 @@ do_verify(JWT, [JWK | More], VerifyClaims) ->
                     {error, Reason}
             end;
         {false, _, _} ->
-            do_verify(JWT, More, VerifyClaims)
+            do_verify(JWT, More, AllowedAlgs, VerifyClaims)
     catch
         _:Reason ->
             ?TRACE_AUTHN_PROVIDER("jwt_verify_error", #{jwt => JWT, reason => Reason}),
-            do_verify(JWT, More, VerifyClaims)
+            do_verify(JWT, More, AllowedAlgs, VerifyClaims)
     end.
 
 verify_claims(Claims, VerifyClaims0) ->

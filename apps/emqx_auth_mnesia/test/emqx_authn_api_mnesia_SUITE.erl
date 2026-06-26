@@ -116,14 +116,23 @@ init_per_testcase(_Case, Config) ->
     Config.
 
 end_per_testcase(_, Config) ->
+    _ = persistent_term:erase({?MODULE, deleted_namespaces}),
     Config.
 
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-on_namespace_resource_pre_create(#{namespace := _Namespace}, ResCtx) ->
-    {stop, ResCtx#{exists := true}}.
+on_namespace_resource_pre_create(#{namespace := Namespace}, ResCtx) ->
+    Deleted = persistent_term:get({?MODULE, deleted_namespaces}, []),
+    Exists = not lists:member(Namespace, Deleted),
+    {stop, ResCtx#{exists := Exists}}.
+
+%% Simulate a managed namespace that has been deleted: its resources no longer
+%% "exist" as far as `namespace.resource_pre_create' is concerned.
+mark_namespace_deleted(Namespace) ->
+    Deleted = persistent_term:get({?MODULE, deleted_namespaces}, []),
+    persistent_term:put({?MODULE, deleted_namespaces}, lists:usort([Namespace | Deleted])).
 
 put_auth_header(Header) ->
     _ = put({?MODULE, authn}, Header),
@@ -211,6 +220,16 @@ add_user(Params) ->
         body => Params
     }).
 
+add_user(Params, QueryParams) ->
+    URL = uri([?CONF_NS, "password_based:built_in_database", "users"]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
+        method => post,
+        url => URL,
+        body => Params,
+        query_params => QueryParams
+    }).
+
 get_user(UserId, QueryParams) ->
     URL = uri([?CONF_NS, "password_based:built_in_database", "users", UserId]),
     emqx_mgmt_api_test_util:simple_request(#{
@@ -237,6 +256,16 @@ delete_user(UserId, QueryParams) ->
         method => delete,
         url => URL,
         query_params => QueryParams
+    }).
+
+delete_user(UserId, QueryParams, Body) ->
+    URL = uri([?CONF_NS, "password_based:built_in_database", "users", UserId]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
+        method => delete,
+        url => URL,
+        query_params => QueryParams,
+        body => Body
     }).
 
 list_users(QueryParams) ->
@@ -575,9 +604,11 @@ t_authenticator_user(TCConfig) ->
         ok
     end,
 
+    %% `namespace' is now an accepted body field (it selects the target
+    %% namespace), so it is no longer rejected here; `user_id' remains invalid in
+    %% an update body.
     InvalidUserUpdates = [
-        #{user_id => <<"u1">>, password => <<"p1">>},
-        #{namespace => ?OTHER_NS, password => <<"p1">>}
+        #{user_id => <<"u1">>, password => <<"p1">>}
     ],
 
     lists:foreach(
@@ -612,6 +643,106 @@ t_authenticator_user(TCConfig) ->
         ok
     end,
 
+    ok.
+
+%% A global admin may select the target namespace of a built-in user delete via
+%% either the `namespace' body field or the `ns' query parameter; if both are
+%% given they must agree.
+t_delete_user_namespace_resolution(_TCConfig) ->
+    put_auth_header(create_superuser()),
+    {200, _} = create_authenticator(emqx_authn_test_lib:built_in_database_example()),
+    Ns = ?OTHER_NS,
+    User = #{<<"user_id">> => <<"u1">>, <<"password">> => <<"p1">>, <<"namespace">> => Ns},
+    %% `namespace' in the body (no query param) selects the namespace to delete from.
+    ?assertMatch({201, #{<<"namespace">> := Ns}}, add_user(User)),
+    ?assertMatch({200, #{<<"data">> := [_]}}, list_users(#{<<"ns">> => Ns})),
+    ?assertMatch({204, _}, delete_user(<<"u1">>, #{}, #{<<"namespace">> => Ns})),
+    ?assertMatch({200, #{<<"data">> := []}}, list_users(#{<<"ns">> => Ns})),
+    %% The `ns' query parameter alone selects the namespace.
+    ?assertMatch({201, _}, add_user(User)),
+    ?assertMatch({204, _}, delete_user(<<"u1">>, #{<<"ns">> => Ns}, #{})),
+    ?assertMatch({200, #{<<"data">> := []}}, list_users(#{<<"ns">> => Ns})),
+    %% A conflicting `ns' query parameter and `namespace' body field is rejected,
+    %% leaving the record untouched.
+    ?assertMatch({201, _}, add_user(User)),
+    ?assertMatch(
+        {400, _},
+        delete_user(<<"u1">>, #{<<"ns">> => Ns}, #{<<"namespace">> => <<"wrong_ns">>})
+    ),
+    ?assertMatch({200, #{<<"data">> := [_]}}, list_users(#{<<"ns">> => Ns})),
+    %% A `namespace' body field pointing at another namespace (where the user
+    %% does not exist) yields 404 rather than touching the record in `Ns'.
+    ?assertMatch({404, _}, delete_user(<<"u1">>, #{}, #{<<"namespace">> => <<"another_ns">>})),
+    ?assertMatch({200, #{<<"data">> := [_]}}, list_users(#{<<"ns">> => Ns})),
+    ?assertMatch({204, _}, delete_user(<<"u1">>, #{<<"ns">> => Ns})),
+    ok.
+
+%% A built-in user that belongs to a namespace which has since been deleted must
+%% still be deletable by a global admin (no "Managed namespace not found").
+t_delete_user_orphaned_namespace(_TCConfig) ->
+    put_auth_header(create_superuser()),
+    {200, _} = create_authenticator(emqx_authn_test_lib:built_in_database_example()),
+    Ns = ?OTHER_NS,
+    User = #{<<"user_id">> => <<"u1">>, <<"password">> => <<"p1">>, <<"namespace">> => Ns},
+    ?assertMatch({201, _}, add_user(User)),
+    %% The namespace is deleted out from under the record.
+    mark_namespace_deleted(Ns),
+    %% Creating in a now-missing namespace is still rejected ...
+    NewUser = #{<<"user_id">> => <<"u2">>, <<"password">> => <<"p2">>, <<"namespace">> => Ns},
+    ?assertMatch({400, #{<<"message">> := <<"Managed namespace not found">>}}, add_user(NewUser)),
+    %% ... but a global admin can still delete the orphaned record.
+    ?assertMatch({204, _}, delete_user(<<"u1">>, #{<<"ns">> => Ns})),
+    ok.
+
+%% A global admin may select the target namespace of a built-in user update via
+%% the `namespace' body field.
+t_update_user_namespace_in_body(_TCConfig) ->
+    put_auth_header(create_superuser()),
+    {200, _} = create_authenticator(emqx_authn_test_lib:built_in_database_example()),
+    Ns = ?OTHER_NS,
+    User = #{<<"user_id">> => <<"u1">>, <<"password">> => <<"p1">>, <<"namespace">> => Ns},
+    ?assertMatch({201, _}, add_user(User)),
+    ?assertMatch(
+        {200, _},
+        update_user(<<"u1">>, #{<<"password">> => <<"p2">>, <<"namespace">> => Ns}, #{})
+    ),
+    %% A body namespace pointing at a different namespace (where the user does
+    %% not exist) is honored and yields 404 rather than touching another record.
+    ?assertMatch(
+        {404, _},
+        update_user(
+            <<"u1">>, #{<<"password">> => <<"p2">>, <<"namespace">> => <<"another_ns">>}, #{}
+        )
+    ),
+    %% A conflicting `ns' query parameter and `namespace' body field is rejected.
+    ?assertMatch(
+        {400, _},
+        update_user(
+            <<"u1">>,
+            #{<<"password">> => <<"p3">>, <<"namespace">> => <<"another_ns">>},
+            #{<<"ns">> => Ns}
+        )
+    ),
+    ?assertMatch({204, _}, delete_user(<<"u1">>, #{<<"ns">> => Ns})),
+    ok.
+
+%% Creating a built-in user that targets a namespace which is not a known
+%% managed namespace must be rejected, whether the namespace is given in the
+%% request body or in the `ns' query parameter.
+t_create_user_unknown_namespace_rejected(_TCConfig) ->
+    put_auth_header(create_superuser()),
+    {200, _} = create_authenticator(emqx_authn_test_lib:built_in_database_example()),
+    Ns = ?OTHER_NS,
+    %% Mark the namespace as not managed (never created / already deleted).
+    mark_namespace_deleted(Ns),
+    ?assertMatch(
+        {400, #{<<"message">> := <<"Managed namespace not found">>}},
+        add_user(#{<<"user_id">> => <<"u1">>, <<"password">> => <<"p1">>, <<"namespace">> => Ns})
+    ),
+    ?assertMatch(
+        {400, #{<<"message">> := <<"Managed namespace not found">>}},
+        add_user(#{<<"user_id">> => <<"u2">>, <<"password">> => <<"p2">>}, #{<<"ns">> => Ns})
+    ),
     ok.
 
 t_authenticator_import_users_global() ->
