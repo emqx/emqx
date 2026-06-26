@@ -1,24 +1,24 @@
 emqx_dashboard_api {
 
 change_pwd_api.desc:
-"""Change dashboard user password"""
+"""Change Dashboard user password"""
 change_pwd_api.label:
-"""Change dashboard user password"""
+"""Change Dashboard user password"""
 
 create_user_api.desc:
-"""Create dashboard user"""
+"""Create Dashboard user"""
 create_user_api.label:
-"""Create dashboard user"""
+"""Create Dashboard user"""
 
 create_user_api_success.desc:
-"""Create dashboard user success"""
+"""Create Dashboard user success"""
 create_user_api_success.label:
-"""Create dashboard user success"""
+"""Create Dashboard user success"""
 
 delete_user_api.desc:
-"""Delete dashboard user"""
+"""Delete Dashboard user"""
 delete_user_api.label:
-"""Delete dashboard user"""
+"""Delete Dashboard user"""
 
 license.desc:
 """EMQX License. opensource or enterprise"""
@@ -62,12 +62,12 @@ token.desc:
 """Dashboard Auth Token"""
 
 update_user_api.desc:
-"""Update dashboard user description"""
+"""Update Dashboard user description"""
 update_user_api.label:
-"""Update dashboard user description"""
+"""Update Dashboard user description"""
 
 update_user_api200.desc:
-"""Update dashboard user success"""
+"""Update Dashboard user success"""
 
 user_description.desc:
 """Dashboard User Description"""
@@ -110,10 +110,10 @@ password_expire_in_seconds.desc:
 """Time in seconds until the password expires."""
 
 change_mfa.desc:
-"""Set up or reset MFA for a dashboard user. Calling this endpoint generates a fresh TOTP secret."""
+"""Set up or reset MFA for a Dashboard user. Calling this endpoint generates a fresh TOTP secret."""
 
 delete_mfa.desc:
-"""Disable MFA for a dashboard user. To reset or re-key TOTP, call the `POST` method."""
+"""Disable MFA for a Dashboard user. To reset or re-key TOTP, call the `POST` method."""
 
 mfa_token.desc:
 """Multifactor authentication token."""
