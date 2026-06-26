@@ -15,6 +15,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("jose/include/jose_jwk.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_auth_jwt.hrl").
 
 -define(ALLOWED_VARS, [
@@ -341,9 +342,14 @@ do_verify(JWT, [JWK | More], AllowedAlgs, VerifyClaims) ->
             do_verify(JWT, More, AllowedAlgs, VerifyClaims)
     end.
 
-redact_jwks_for_log(JWKs) when is_list(JWKs) ->
+redact_jwks_for_log(JWKs) ->
+    Redacted = do_redact_jwks_for_log(JWKs),
+    ?tp(redact_jwks_for_log, #{jwks => Redacted}),
+    Redacted.
+
+do_redact_jwks_for_log(JWKs) when is_list(JWKs) ->
     [redact_jwk_for_log(JWK) || JWK <- JWKs];
-redact_jwks_for_log(JWK) ->
+do_redact_jwks_for_log(JWK) ->
     redact_jwk_for_log(JWK).
 
 redact_jwk_for_log(#jose_jwk{kty = {jose_jwk_kty_oct, _}}) ->
