@@ -51,13 +51,26 @@ get_data_integration(Mode, Format, Opts) ->
     URL = emqx_mgmt_api_test_util:api_path(["prometheus", "data_integration"]),
     get_prometheus(URL, Mode, Format, Opts).
 
+get_namespaced_stats(Mode, Opts) ->
+    URL = emqx_mgmt_api_test_util:api_path(["prometheus", "namespaced_stats"]),
+    %% format argument is dropped on 6.3
+    get_prometheus(URL, Mode, _Format = prometheus, Opts).
+
 get_prometheus(URL, Mode, Format, Opts) ->
+    Ns = maps:get(ns, Opts, undefined),
+    OnlyGlobal = maps:get(only_global, Opts, undefined),
     Headers =
         case Format of
             json -> [{"accept", "application/json"}];
             prometheus -> []
         end,
-    QueryString = uri_string:compose_query([{"mode", atom_to_binary(Mode)}]),
+    QueryString = uri_string:compose_query(
+        lists:flatten([
+            {"mode", atom_to_binary(Mode)},
+            [{"ns", Ns} || Ns /= undefined],
+            [{"only_global", OnlyGlobal} || OnlyGlobal /= undefined]
+        ])
+    ),
     AuthHeader = maps:get(auth_header, Opts, {"no", "auth"}),
     {Status, Response} = emqx_mgmt_api_test_util:simple_request(#{
         method => get,
@@ -129,7 +142,7 @@ start_local(TestCase, TCConfig, Opts) ->
             emqx_conf,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard(),
-            emqx_prometheus
+            {emqx_prometheus, "prometheus.namespaced_metrics_limiter.rate = infinity"}
         ] ++ ExtraApps,
     Apps = emqx_cth_suite:start(AppSpecs, #{work_dir => emqx_cth_suite:work_dir(TestCase, TCConfig)}),
     on_exit(fun() -> emqx_cth_suite:stop(Apps) end),
@@ -157,6 +170,127 @@ create_action_api(TCConfig, Overrides) ->
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
+
+-doc """
+Checks that global admins may observe namespaced metrics from all namespaces, and
+namespaced admins only see their own namespace.
+""".
+t_namespaced_stats(TCConfig) ->
+    start_local(?FUNCTION_NAME, TCConfig, #{
+        extra_apps => [
+            emqx_auth_mnesia,
+            emqx_auth,
+            emqx_mt
+        ]
+    }),
+
+    GetLabels = fun(Key, Res) -> lists:sort(maps:keys(maps:get(Key, Res))) end,
+    Ns1 = <<"ns1">>,
+    ok = emqx_mt_config:create_managed_ns(Ns1),
+    Ns2 = <<"ns2">>,
+    ok = emqx_mt_config:create_managed_ns(Ns2),
+
+    %% without authn enabled, there's nothing much we can do...  all namespaces are returned
+    {ok, _} = emqx:update_config([prometheus, enable_basic_auth], false),
+    #{started := Started0} = emqx_dashboard:listeners_status(),
+    ok = emqx_dashboard_dispatch:regenerate_dispatch(Started0),
+
+    {200, NoAuthRes} = get_namespaced_stats(?PROM_DATA_MODE__NODE, #{}),
+    ?assertMatch(
+        [
+            #{<<"namespace">> := Ns1},
+            #{<<"namespace">> := Ns2}
+        ],
+        GetLabels(<<"emqx_bytes_received">>, NoAuthRes)
+    ),
+
+    {ok, _} = emqx:update_config([prometheus, enable_basic_auth], true),
+    #{started := Started1} = emqx_dashboard:listeners_status(),
+    ok = emqx_dashboard_dispatch:regenerate_dispatch(Started1),
+
+    %% sanity check: auth should be enabled
+    ?assertMatch({401, _}, get_namespaced_stats(?PROM_DATA_MODE__NODE, #{})),
+
+    Ns1AuthHeader = create_namespaced_user_auth_header(#{
+        params => #{
+            <<"username">> => Ns1,
+            <<"role">> => <<"ns:", Ns1/binary, "::administrator">>
+        }
+    }),
+    Ns2AuthHeader = create_namespaced_user_auth_header(#{
+        params => #{
+            <<"username">> => Ns2,
+            <<"role">> => <<"ns:", Ns2/binary, "::administrator">>
+        }
+    }),
+    GlobalAuthHeader = global_admin_auth_header(),
+
+    lists:foreach(
+        fun(Mode) ->
+            ct:pal("mode ~s", [Mode]),
+
+            %% global admin sees metrics from all namespaces (except global; there's
+            %% another endpoint for that)
+            {200, GlobalNodeRes1} = get_namespaced_stats(Mode, #{
+                auth_header => GlobalAuthHeader
+            }),
+            ?assertMatch(
+                [
+                    #{<<"namespace">> := Ns1},
+                    #{<<"namespace">> := Ns2}
+                ],
+                GetLabels(<<"emqx_bytes_received">>, GlobalNodeRes1)
+            ),
+            %% possible to filter one specific namespace
+            {200, GlobalNodeRes2} = get_namespaced_stats(Mode, #{
+                auth_header => GlobalAuthHeader,
+                ns => Ns2
+            }),
+            ?assertMatch(
+                [
+                    #{<<"namespace">> := Ns2}
+                ],
+                GetLabels(<<"emqx_bytes_received">>, GlobalNodeRes2)
+            ),
+
+            %% namespaced admin can only filter its own namespace
+            {200, NsNodeRes1} = get_namespaced_stats(Mode, #{
+                auth_header => Ns1AuthHeader
+            }),
+            ?assertMatch(
+                [#{<<"namespace">> := Ns1}],
+                GetLabels(<<"emqx_bytes_received">>, NsNodeRes1)
+            ),
+            {200, NsNodeRes2} = get_namespaced_stats(Mode, #{
+                auth_header => Ns1AuthHeader,
+                ns => Ns1
+            }),
+            ?assertMatch(
+                [#{<<"namespace">> := Ns1}],
+                GetLabels(<<"emqx_bytes_received">>, NsNodeRes2)
+            ),
+            ?assertMatch(
+                {403, _},
+                get_namespaced_stats(Mode, #{
+                    auth_header => Ns1AuthHeader,
+                    ns => Ns2
+                })
+            ),
+
+            {200, NsNodeRes3} = get_namespaced_stats(Mode, #{
+                auth_header => Ns2AuthHeader
+            }),
+            ?assertMatch(
+                [#{<<"namespace">> := Ns2}],
+                GetLabels(<<"emqx_bytes_received">>, NsNodeRes3)
+            ),
+
+            ok
+        end,
+        ?PROM_DATA_MODES
+    ),
+
+    ok.
 
 -doc """
 Regression test for the case where there is an action whose connector does not exist.
