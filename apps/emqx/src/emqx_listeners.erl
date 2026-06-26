@@ -529,7 +529,7 @@ do_update_listener(Type, Name, OldConf, NewConf) when
     end,
     ok = ranch:set_protocol_options(Id, WsOpts),
     %% No-op if the listener was not suspended.
-    ranch:resume_listener(Id);
+    resume_cowboy_listener(Id);
 do_update_listener(quic = Type, Name, OldConf, NewConf) ->
     case quicer:listener(listener_id(Type, Name)) of
         {ok, ListenerPid} ->
@@ -561,6 +561,24 @@ do_update_listener(quic = Type, Name, OldConf, NewConf) ->
     end;
 do_update_listener(_Type, _Name, _OldConf, _NewConf) ->
     {error, not_supported}.
+
+%% Resuming a ws/wss listener after a transport-options change rebinds the same
+%% port (`ranch:suspend_listener' closes the old listen socket, `resume' reopens
+%% it). The OS may not have released the port yet when we rebind, which surfaces
+%% as a transient `eaddrinuse'. Retry a few times with a short backoff before
+%% giving up. The proper fix (avoid rebinding when the bind address is unchanged)
+%% is tracked separately.
+resume_cowboy_listener(Id) ->
+    resume_cowboy_listener(Id, 10).
+
+resume_cowboy_listener(Id, Retries) ->
+    case ranch:resume_listener(Id) of
+        {error, eaddrinuse} when Retries > 0 ->
+            timer:sleep(100),
+            resume_cowboy_listener(Id, Retries - 1);
+        Res ->
+            Res
+    end.
 
 %% Update the listeners at runtime
 pre_config_update([?ROOT_KEY, Type, Name], {create, NewConf}, V) when
