@@ -85,7 +85,7 @@ redact_common_token_aliases_test() ->
     ?assertEqual(
         #{
             access_token => <<"******">>,
-            client_jwks => <<"******">>,
+            client_jwks => "******",
             <<"refresh_token">> => <<"******">>,
             "id_token" => "******"
         },
