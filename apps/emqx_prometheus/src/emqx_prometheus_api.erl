@@ -10,6 +10,8 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -36,14 +38,18 @@
 -export([
     setting/2,
     stats/2,
+    ns_stats/2,
     auth/2,
     data_integration/2,
     schema_validation/2,
-    message_transformation/2
+    message_transformation/2,
+    topic_metrics/2
 ]).
 
 -export([lookup_from_local_nodes/3]).
 -export([scopes/0]).
+
+-export([namespaced_filter/2, validate_not_json/2]).
 
 -define(TAGS, [<<"Monitor">>]).
 
@@ -53,10 +59,12 @@ scopes() ->
     #{
         "/prometheus" => ?SCOPE_SYSTEM,
         "/prometheus/auth" => ?SCOPE_MONITORING,
+        "/prometheus/namespaced_stats" => ?SCOPE_MONITORING,
         "/prometheus/stats" => ?SCOPE_MONITORING,
         "/prometheus/data_integration" => ?SCOPE_MONITORING,
         "/prometheus/schema_validation" => ?SCOPE_MONITORING,
-        "/prometheus/message_transformation" => ?SCOPE_MONITORING
+        "/prometheus/message_transformation" => ?SCOPE_MONITORING,
+        "/prometheus/topic_metrics" => ?SCOPE_MONITORING
     }.
 
 api_spec() ->
@@ -65,15 +73,13 @@ api_spec() ->
 paths() ->
     [
         "/prometheus",
+        "/prometheus/namespaced_stats",
         "/prometheus/auth",
         "/prometheus/stats",
-        "/prometheus/data_integration"
-    ] ++ paths_ee().
-
-paths_ee() ->
-    [
+        "/prometheus/data_integration",
         "/prometheus/schema_validation",
-        "/prometheus/message_transformation"
+        "/prometheus/message_transformation",
+        "/prometheus/topic_metrics"
     ].
 
 schema("/prometheus") ->
@@ -95,9 +101,24 @@ schema("/prometheus") ->
                     #{200 => prometheus_setting_response()}
             }
     };
+schema("/prometheus/namespaced_stats") ->
+    #{
+        'operationId' => ns_stats,
+        filter => fun ?MODULE:namespaced_filter/2,
+        get =>
+            #{
+                description => ?DESC("ns_stats"),
+                tags => ?TAGS,
+                parameters => [ref(mode), ref(ns)],
+                security => security(),
+                responses =>
+                    #{200 => prometheus_data_schema()}
+            }
+    };
 schema("/prometheus/auth") ->
     #{
         'operationId' => auth,
+        filter => fun ?MODULE:validate_not_json/2,
         get =>
             #{
                 description => ?DESC(get_prom_auth_data),
@@ -111,6 +132,7 @@ schema("/prometheus/auth") ->
 schema("/prometheus/stats") ->
     #{
         'operationId' => stats,
+        filter => fun ?MODULE:validate_not_json/2,
         get =>
             #{
                 description => ?DESC(get_prom_data),
@@ -124,11 +146,12 @@ schema("/prometheus/stats") ->
 schema("/prometheus/data_integration") ->
     #{
         'operationId' => data_integration,
+        filter => fun ?MODULE:namespaced_filter/2,
         get =>
             #{
                 description => ?DESC(get_prom_data_integration_data),
                 tags => ?TAGS,
-                parameters => [ref(mode)],
+                parameters => [ref(mode), ns_qs_param(), only_global_qs_param()],
                 security => security(),
                 responses =>
                     #{200 => prometheus_data_schema()}
@@ -137,6 +160,7 @@ schema("/prometheus/data_integration") ->
 schema("/prometheus/schema_validation") ->
     #{
         'operationId' => schema_validation,
+        filter => fun ?MODULE:validate_not_json/2,
         get =>
             #{
                 description => ?DESC(get_prom_schema_validation),
@@ -150,9 +174,24 @@ schema("/prometheus/schema_validation") ->
 schema("/prometheus/message_transformation") ->
     #{
         'operationId' => message_transformation,
+        filter => fun ?MODULE:validate_not_json/2,
         get =>
             #{
                 description => ?DESC(get_prom_message_transformation),
+                tags => ?TAGS,
+                parameters => [ref(mode)],
+                security => security(),
+                responses =>
+                    #{200 => prometheus_data_schema()}
+            }
+    };
+schema("/prometheus/topic_metrics") ->
+    #{
+        'operationId' => topic_metrics,
+        filter => fun ?MODULE:validate_not_json/2,
+        get =>
+            #{
+                description => ?DESC(get_prom_topic_metrics),
                 tags => ?TAGS,
                 parameters => [ref(mode)],
                 security => security(),
@@ -167,7 +206,12 @@ security() ->
         false -> []
     end.
 
-%% erlfmt-ignore
+ns_qs_param() ->
+    {ns, mk(binary(), #{in => query, required => false})}.
+
+only_global_qs_param() ->
+    {only_global, mk(boolean(), #{in => query, required => false, default => false})}.
+
 fields(mode) ->
     [
         {mode,
@@ -179,6 +223,19 @@ fields(mode) ->
                     in => query,
                     required => false,
                     example => node
+                }
+            )}
+    ];
+fields(ns) ->
+    [
+        {ns,
+            mk(
+                binary(),
+                #{
+                    required => false,
+                    desc => ?DESC("qp_namespace"),
+                    in => query,
+                    example => <<"some_ns">>
                 }
             )}
     ].
@@ -210,37 +267,39 @@ setting(put, #{body := Body}) ->
             {500, 'INTERNAL_ERROR', Message}
     end.
 
-stats(get, #{headers := Headers, query_string := Qs}) ->
-    collect(emqx_prometheus, collect_opts(Headers, Qs)).
+stats(get, #{query_string := Qs}) ->
+    collect(emqx_prometheus, collect_opts(Qs)).
 
-auth(get, #{headers := Headers, query_string := Qs}) ->
-    collect(emqx_prometheus_auth, collect_opts(Headers, Qs)).
+ns_stats(get, Req) ->
+    Opts = get_collect_opts(Req),
+    collect_ns_stats(Opts).
 
-data_integration(get, #{headers := Headers, query_string := Qs}) ->
-    collect(emqx_prometheus_data_integration, collect_opts(Headers, Qs)).
+auth(get, #{query_string := Qs}) ->
+    collect(emqx_prometheus_auth, collect_opts(Qs)).
 
-schema_validation(get, #{headers := Headers, query_string := Qs}) ->
-    collect(emqx_prometheus_schema_validation, collect_opts(Headers, Qs)).
+data_integration(get, Req) ->
+    Opts = collect_opts_ns_or_all(Req),
+    collect_data_integration(Opts).
 
-message_transformation(get, #{headers := Headers, query_string := Qs}) ->
-    collect(emqx_prometheus_message_transformation, collect_opts(Headers, Qs)).
+schema_validation(get, #{query_string := Qs}) ->
+    collect(emqx_prometheus_schema_validation, collect_opts(Qs)).
+
+message_transformation(get, #{query_string := Qs}) ->
+    collect(emqx_prometheus_message_transformation, collect_opts(Qs)).
+
+topic_metrics(get, #{query_string := Qs}) ->
+    collect(emqx_prometheus_topic_metrics, collect_opts(Qs)).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-collect(Module, #{type := Type, mode := Mode}) ->
-    %% `Mode` is used to control the format of the returned data
-    %% It will used in callback `Module:collect_mf/1` to fetch data from node or cluster
-    %% And use this mode parameter to determine the formatting method of the returned information.
-    %% Since the arity of the callback function has been fixed.
-    %% so it is placed in the process dictionary of the current process.
-    ?PUT_PROM_DATA_MODE(Mode),
-    maybe_ensure_prometheus_registry(Type),
+collect(Module, #{mode := Mode}) ->
+    put_prom_data_mode(Mode),
     Data =
         case erlang:function_exported(Module, collect, 1) of
             true ->
-                erlang:apply(Module, collect, [Type]);
+                erlang:apply(Module, collect, [<<"prometheus">>]);
             false ->
                 ?SLOG(error, #{
                     msg => "prometheus callback module not found, empty data responded",
@@ -248,33 +307,49 @@ collect(Module, #{type := Type, mode := Mode}) ->
                 }),
                 <<>>
         end,
-    gen_response(Type, Data).
+    gen_response(Data).
 
-maybe_ensure_prometheus_registry(<<"prometheus">>) ->
-    case ets:info(prometheus_registry_table) of
-        undefined ->
-            case erlang:whereis(prometheus_sup) of
-                undefined ->
-                    case prometheus_sup:start_link() of
-                        {ok, _Pid} -> ok;
-                        {error, {already_started, _Pid}} -> ok
-                    end;
-                _Pid ->
-                    ok
-            end;
-        _Info ->
-            ok
-    end;
-maybe_ensure_prometheus_registry(_) ->
-    ok.
+collect_data_integration(#{namespace := Namespace, mode := Mode}) ->
+    Data = emqx_prometheus_data_integration:collect_ns(Namespace, Mode),
+    gen_response(Data).
 
-collect_opts(Headers, Qs) ->
-    #{type => response_type(Headers), mode => mode(Qs)}.
+collect_ns_stats(#{mode := Mode, namespace := Namespace}) ->
+    Data = emqx_prometheus:collect_ns(Namespace, Mode),
+    gen_response(Data).
 
-response_type(#{<<"accept">> := <<"application/json">>}) ->
-    <<"json">>;
-response_type(_) ->
-    <<"prometheus">>.
+collect_opts(Qs) ->
+    #{mode => mode(Qs)}.
+
+collect_opts_ns(Qs) ->
+    #{namespace => namespace(Qs), mode => mode(Qs)}.
+
+collect_opts_ns_or_all(Req = #{query_string := Qs}) ->
+    Namespace0 = get_namespace(Req),
+    Namespace =
+        case maps:get(<<"only_global">>, Qs, false) of
+            false when Namespace0 == ?global_ns -> all;
+            _ -> Namespace0
+        end,
+    #{namespace => Namespace, mode => mode(Qs)}.
+
+%% The JSON metrics format is no longer supported; only the Prometheus text
+%% format is produced. Requests asking for JSON are rejected (see the
+%% `validate_not_json/2' filter wired into the relevant `schema/1' declarations).
+is_json_requested(#{<<"accept">> := <<"application/json">>}) ->
+    true;
+is_json_requested(_) ->
+    false.
+
+json_not_supported() ->
+    {400, <<"only prometheus format is supported">>}.
+
+put_prom_data_mode(Mode) ->
+    %% `Mode` is used to control the format of the returned data
+    %% It will used in callback `Module:collect_mf/1` to fetch data from node or cluster
+    %% And use this mode parameter to determine the formatting method of the returned information.
+    %% Since the arity of the callback function has been fixed.
+    %% so it is placed in the process dictionary of the current process.
+    ?PUT_PROM_DATA_MODE(Mode).
 
 mode(#{<<"mode">> := Mode}) ->
     case lists:member(Mode, ?PROM_DATA_MODES) of
@@ -284,9 +359,12 @@ mode(#{<<"mode">> := Mode}) ->
 mode(_) ->
     ?PROM_DATA_MODE__NODE.
 
-gen_response(<<"json">>, Data) ->
-    {200, Data};
-gen_response(<<"prometheus">>, Data) ->
+namespace(#{<<"ns">> := Namespace}) ->
+    Namespace;
+namespace(_) ->
+    all.
+
+gen_response(Data) ->
     {200, #{<<"content-type">> => <<"text/plain">>}, Data}.
 
 prometheus_setting_request() ->
@@ -331,7 +409,7 @@ recommend_setting_example() ->
     {Summary, #{
         summary => Summary,
         value => #{
-            enable_basic_auth => false,
+            enable_basic_auth => true,
             push_gateway => #{
                 interval => <<"15s">>,
                 method => put,
@@ -354,7 +432,60 @@ prometheus_data_schema() ->
     #{
         content =>
             [
-                {'text/plain', #{schema => #{type => string}}},
-                {'application/json', #{schema => #{type => object}}}
+                {'text/plain', #{schema => #{type => string}}}
             ]
     }.
+
+validate_not_json(#{headers := Headers} = Req, _Meta) ->
+    case is_json_requested(Headers) of
+        true ->
+            json_not_supported();
+        false ->
+            {ok, Req}
+    end.
+
+parse_collect_opt_ns(#{} = Req, _Meta) ->
+    Opts = collect_opts_ns_or_all(Req),
+    {ok, Req#{collect_opts => Opts}}.
+
+get_collect_opts(Req) ->
+    maps:get(collect_opts, Req).
+
+rate_limit_all_ns_stats(#{collect_opts := #{namespace := all}} = Req, _Meta) ->
+    Client = emqx_prometheus_limiter:connect_api(),
+    case emqx_limiter_client:try_consume(Client, 1) of
+        {true, _NewClient} ->
+            {ok, Req};
+        {false, _NewClient, _Reason} ->
+            {429, <<"Too many requests">>}
+    end;
+rate_limit_all_ns_stats(Req, _Meta) ->
+    {ok, Req}.
+
+namespaced_filter(Req0, Meta) ->
+    maybe
+        {ok, Req1} ?= resolve_namespace(Req0, Meta),
+        {ok, Req2} ?= validate_not_json(Req1, Meta),
+        {ok, Req3} ?= parse_collect_opt_ns(Req2, Meta),
+        rate_limit_all_ns_stats(Req3, Meta)
+    end.
+
+get_namespace(#{resolved_ns := Namespace}) ->
+    Namespace.
+
+parse_namespace(#{query_string := QueryString} = Req) ->
+    ActorNamespace = emqx_dashboard:get_namespace(Req),
+    case maps:get(<<"ns">>, QueryString, ActorNamespace) of
+        QSNamespace when QSNamespace /= ActorNamespace andalso ActorNamespace /= ?global_ns ->
+            {error, not_authorized};
+        QSNamespace ->
+            {ok, QSNamespace}
+    end.
+
+resolve_namespace(Req, _Meta) ->
+    case parse_namespace(Req) of
+        {ok, Namespace} ->
+            {ok, Req#{resolved_ns => Namespace}};
+        {error, not_authorized} ->
+            ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
+    end.
