@@ -490,35 +490,10 @@ on_llm_choice(Choice, Data) ->
 
 on_tool_result(CallId, Msg, Data) ->
     Result = maps:get(<<"response">>, Msg, #{}),
-    %% Build the tool-role acknowledgement.  Tool messages must carry a string
-    %% content; image_url is not a valid tool-message content type for OpenAI.
-    %% When the result contains an image we acknowledge the tool call with a
-    %% plain string, then append a separate user-role message whose content is
-    %% the multimodal array — that is the form gpt-4o accepts for vision input.
-    {ToolContent, ExtraMsgs} =
-        case
-            maps:get(<<"status">>, Result, <<"ok">>) =:= <<"ok">> andalso
-                try_extract_image_url(
-                    maps:get(<<"payload">>, maps:get(<<"result">>, Result, #{}), undefined)
-                )
-        of
-            {ok, ImageUrl} ->
-                AckJson = emqx_utils_json:encode(
-                    #{<<"status">> => <<"ok">>, <<"result">> => <<"image received">>}
-                ),
-                VisionMsg = #{
-                    <<"role">> => <<"user">>,
-                    <<"content">> => [
-                        #{
-                            <<"type">> => <<"image_url">>,
-                            <<"image_url">> => #{<<"url">> => ImageUrl}
-                        }
-                    ]
-                },
-                {AckJson, [VisionMsg]};
-            _ ->
-                {emqx_utils_json:encode(Result), []}
-        end,
+    %% Tool messages must carry string content.  Multimodal artifacts returned by
+    %% tools are rendered as separate user messages for OpenAI-compatible models.
+    ToolContent = emqx_utils_json:encode(maps:remove(<<"attachments">>, Result)),
+    ExtraMsgs = attachment_msgs(maps:get(<<"attachments">>, Result, [])),
     ToolMsg = #{
         <<"role">> => <<"tool">>,
         <<"tool_call_id">> => CallId,
@@ -1269,14 +1244,36 @@ publish(#data{sid = Sid, iid = Iid, trace_id = TraceId, usage = Usage} = _Data, 
     _ = emqx_broker:publish(Msg),
     ok.
 
-%% Parse `Payload` (a binary JSON string) and return the image_url if present.
-try_extract_image_url(Payload) when is_binary(Payload) ->
-    case emqx_utils_json:safe_decode(Payload) of
-        {ok, #{<<"image_url">> := <<"data:image/", _/binary>> = Url}} -> {ok, Url};
-        _ -> error
+attachment_msgs([]) ->
+    [];
+attachment_msgs(Attachments) when is_list(Attachments) ->
+    Parts = lists:filtermap(fun attachment_part/1, Attachments),
+    case Parts of
+        [] ->
+            [];
+        [_ | _] ->
+            Text = attachment_text_part(Attachments),
+            [#{<<"role">> => <<"user">>, <<"content">> => [Text | Parts]}]
     end;
-try_extract_image_url(_) ->
-    error.
+attachment_msgs(_) ->
+    [].
+
+attachment_text_part(Attachments) ->
+    Ids = [Id || #{<<"id">> := Id, <<"type">> := <<"image">>} <- Attachments],
+    Text = iolist_to_binary(["Tool returned image attachment(s): ", lists:join(", ", Ids)]),
+    #{<<"type">> => <<"text">>, <<"text">> => Text}.
+
+attachment_part(
+    #{
+        <<"type">> := <<"image">>,
+        <<"mime_type">> := MimeType,
+        <<"data">> := Data
+    }
+) when is_binary(MimeType), is_binary(Data) ->
+    Url = <<"data:", MimeType/binary, ";base64,", Data/binary>>,
+    {true, #{<<"type">> => <<"image_url">>, <<"image_url">> => #{<<"url">> => Url}}};
+attachment_part(_) ->
+    false.
 
 try_parse_result(Content) when is_binary(Content) ->
     try

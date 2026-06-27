@@ -26,7 +26,10 @@
               {"name": "id", "type": "string", "description": "$tool_id_desc"},
               {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
               {"name": "topic_prefix", "type": "string", "description": "$tool_topic_prefix_desc"},
-              {"name": "request_payload_schema", "type": "string", "default": "", "description": "$tool_request_payload_schema_desc"}
+              {"name": "request_payload_schema", "type": "string", "default": "", "description": "$tool_request_payload_schema_desc"},
+              {"name": "payload_type", "type": "string", "default": "json", "description": "$tool_response_payload_type_desc"},
+              {"name": "autodiscover_images", "type": "boolean", "default": true, "description": "$tool_autodiscover_images_desc"},
+              {"name": "images", "type": {"type": "array", "items": "string"}, "default": [], "description": "$tool_images_desc"}
             ]
           },
           {
@@ -39,7 +42,10 @@
               {"name": "method", "type": {"type": "enum", "name": "HttpMethod", "symbols": ["get", "post", "put", "patch", "delete"]}, "description": "$tool_http_method_desc"},
               {"name": "url", "type": "string", "description": "$tool_http_url_desc"},
               {"name": "headers", "type": {"type": "array", "items": {"type": "record", "name": "NameValueEntry", "fields": [{"name": "name", "type": "string", "description": "$name_value_name_desc"}, {"name": "value", "type": "string", "description": "$name_value_value_desc"}]}}, "default": [], "description": "$tool_http_headers_desc"},
-              {"name": "input_schema", "type": "string", "description": "$tool_input_schema_desc"}
+              {"name": "input_schema", "type": "string", "description": "$tool_input_schema_desc"},
+              {"name": "payload_type", "type": "string", "default": "json", "description": "$tool_response_payload_type_desc"},
+              {"name": "autodiscover_images", "type": "boolean", "default": true, "description": "$tool_autodiscover_images_desc"},
+              {"name": "images", "type": {"type": "array", "items": "string"}, "default": [], "description": "$tool_images_desc"}
             ]
           },
           {

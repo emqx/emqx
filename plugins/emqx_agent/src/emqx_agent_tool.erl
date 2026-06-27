@@ -13,7 +13,8 @@
 -callback create(Context :: map()) -> {ok, map()} | {error, term()}.
 -callback destroy(Tool :: map()) -> ok.
 -callback to_map(Tool :: map()) -> map().
--callback handle_invoke(Context :: map(), Request :: map()) -> {ok, map()} | {error, term()}.
+-callback handle_invoke(Context :: map(), Request :: map()) ->
+    ok | {ok, map()} | {ok, map(), [map()]} | {error, term()}.
 
 -export([init/0, deinit/0, on_message_publish/1]).
 -export([discover_tool_modules/0]).

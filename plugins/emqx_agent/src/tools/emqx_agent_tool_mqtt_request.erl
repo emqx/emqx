@@ -30,7 +30,8 @@ Input args:
 
 Tool output (in `data`):
   status  => <<"ok">>    — response arrived in time
-    payload => binary()  — raw response payload
+    payload => json() | binary()  — decoded/sanitized response payload
+    attachments => [map()]        — extracted attachments, when present
   status  => <<"error">>
     reason  => <<"timeout">> | binary()
 """.
@@ -96,12 +97,14 @@ deinit() ->
 create(#{<<"id">> := ToolId, <<"desc">> := Desc, <<"topic_prefix">> := TopicPrefix} = Context) ->
     case request_payload_schema(Context) of
         {ok, RequestPayloadSchema} ->
-            create_with_request_payload_schema(ToolId, Desc, TopicPrefix, RequestPayloadSchema);
+            create_with_request_payload_schema(
+                ToolId, Desc, TopicPrefix, RequestPayloadSchema, Context
+            );
         {error, Reason} ->
             {error, {invalid_request_payload_schema, Reason}}
     end.
 
-create_with_request_payload_schema(ToolId, Desc, TopicPrefix, RequestPayloadSchema) ->
+create_with_request_payload_schema(ToolId, Desc, TopicPrefix, RequestPayloadSchema, Context) ->
     {ok, #{
         tool_id => ToolId,
         type => ?TOOL_TYPE,
@@ -109,12 +112,17 @@ create_with_request_payload_schema(ToolId, Desc, TopicPrefix, RequestPayloadSche
         display_name => <<Desc/binary, " — Request">>,
         description =>
             <<"Send an MQTT request to a topic under the prefix: ", TopicPrefix/binary,
-                " and wait for a response">>,
-        context => #{
-            <<"id">> => ToolId,
-            <<"topic_prefix">> => TopicPrefix,
-            <<"request_payload_schema">> => RequestPayloadSchema
-        },
+                " and wait for a response. If the response contains image attachments, "
+                "the result payload uses Attachment <id> placeholders and the actual images "
+                "are provided to the model after the tool result.">>,
+        context => maps:merge(
+            #{
+                <<"payload_type">> => <<"json">>,
+                <<"autodiscover_images">> => true,
+                <<"images">> => []
+            },
+            Context#{<<"request_payload_schema">> => RequestPayloadSchema}
+        ),
         input_schema => ?INPUT_SCHEMA(RequestPayloadSchema)
     }}.
 
@@ -137,17 +145,20 @@ to_map(#{
         <<"request_payload_schema">> => maps:get(
             <<"request_payload_schema">>, Ctx, ?DEFAULT_REQUEST_PAYLOAD_SCHEMA
         ),
+        <<"payload_type">> => maps:get(<<"payload_type">>, Ctx, <<"json">>),
+        <<"autodiscover_images">> => maps:get(<<"autodiscover_images">>, Ctx, true),
+        <<"images">> => maps:get(<<"images">>, Ctx, []),
         <<"input_schema">> => InputSchema
     }.
 
-handle_invoke(#{<<"topic_prefix">> := TopicPrefix}, Request) ->
-    do_request(TopicPrefix, Request).
+handle_invoke(#{<<"topic_prefix">> := TopicPrefix} = Context, Request) ->
+    do_request(TopicPrefix, Context, Request).
 
 %%--------------------------------------------------------------------
 %% Internal
 %%--------------------------------------------------------------------
 
-do_request(TopicPrefix, Request) ->
+do_request(TopicPrefix, Context, Request) ->
     Args = maps:get(<<"args">>, Request, #{}),
     TopicSuffix = maps:get(<<"topic">>, Args),
     MsgPayload = normalize_payload(maps:get(<<"payload">>, Args, <<>>)),
@@ -161,9 +172,9 @@ do_request(TopicPrefix, Request) ->
     Unique = integer_to_binary(erlang:unique_integer([positive, monotonic])),
     ResponseTopic = <<?RESPONSE_TOPIC_PREFIX/binary, Unique/binary>>,
 
-    do_round_trip(FullTopic, MsgPayload, From, Qos, ResponseTopic, TimeoutMs).
+    do_round_trip(FullTopic, MsgPayload, From, Qos, ResponseTopic, TimeoutMs, Context).
 
-do_round_trip(FullTopic, MsgPayload, From, Qos, ResponseTopic, TimeoutMs) ->
+do_round_trip(FullTopic, MsgPayload, From, Qos, ResponseTopic, TimeoutMs, Context) ->
     %% Subscribe before publishing so we cannot miss the response.
     ok = emqx:subscribe(ResponseTopic),
 
@@ -174,7 +185,7 @@ do_round_trip(FullTopic, MsgPayload, From, Qos, ResponseTopic, TimeoutMs) ->
     Result =
         receive
             #deliver{topic = ResponseTopic, message = #message{payload = RespPayload}} ->
-                {ok, #{<<"payload">> => RespPayload}}
+                decode_response(RespPayload, Context)
         after TimeoutMs ->
             {error, <<"timeout">>}
         end,
@@ -187,6 +198,39 @@ normalize_payload(Payload) when is_map(Payload) ->
     emqx_utils_json:encode(Payload);
 normalize_payload(Payload) ->
     Payload.
+
+decode_response(RespPayload, Context) ->
+    case decode_payload(RespPayload, Context) of
+        {ok, Payload0} ->
+            {ok, Payload, Attachments} = emqx_agent_tool_attachments:process(
+                Payload0,
+                attachment_opts(Context)
+            ),
+            case Attachments of
+                [] -> {ok, #{<<"payload">> => Payload}};
+                [_ | _] -> {ok, #{<<"payload">> => Payload}, Attachments}
+            end;
+        {error, Reason} ->
+            {error, emqx_agent_tool_helpers:format_error(Reason)}
+    end.
+
+decode_payload(RespPayload, #{<<"payload_type">> := <<"json">>}) ->
+    case emqx_utils_json:safe_decode(RespPayload) of
+        {ok, Payload} -> {ok, Payload};
+        {error, Reason} -> {error, {invalid_json_response, Reason}}
+    end;
+decode_payload(RespPayload, #{<<"payload_type">> := <<"binary">>}) ->
+    {ok, RespPayload}.
+
+attachment_opts(#{
+    <<"autodiscover_images">> := AutodiscoverImages,
+    <<"images">> := Images
+}) ->
+    #{
+        autodiscover_images => AutodiscoverImages,
+        images => Images,
+        content_type => undefined
+    }.
 
 request_payload_schema(Context) ->
     case maps:get(<<"request_payload_schema">>, Context, ?DEFAULT_REQUEST_PAYLOAD_SCHEMA) of

@@ -17,6 +17,7 @@ Context keys:
   <<"url">>          => binary()         — base URL (query string appended for GET)
   <<"headers">>      => map() | [{binary(), binary()}]  — request headers
   <<"input_schema">> => map()            — full JSON Schema for request args
+  <<"payload_type">> => <<"json">> | <<"binary">> — response body type
 
 For GET, input args are serialised as a URL query string.
 For all other methods, input args are sent as a JSON body.
@@ -66,8 +67,15 @@ create(
                 type => ?TOOL_TYPE,
                 module => ?MODULE,
                 display_name => <<"HTTP Tool">>,
-                description => Desc,
-                context => Context#{<<"input_schema">> => InputSchema},
+                description => attachment_aware_desc(Desc),
+                context => maps:merge(
+                    #{
+                        <<"payload_type">> => <<"json">>,
+                        <<"autodiscover_images">> => true,
+                        <<"images">> => []
+                    },
+                    Context#{<<"input_schema">> => InputSchema}
+                ),
                 input_schema => InputSchema
             }};
         {error, Reason} ->
@@ -82,25 +90,30 @@ destroy(_Tool) ->
 to_map(#{
     tool_id := Id,
     description := Desc,
-    context := Ctx,
+    context := #{
+        <<"method">> := Method,
+        <<"url">> := Url,
+        <<"headers">> := Headers,
+        <<"payload_type">> := PayloadType,
+        <<"autodiscover_images">> := AutodiscoverImages,
+        <<"images">> := Images
+    },
     input_schema := InSchema
 }) ->
-    Method = maps:get(<<"method">>, Ctx, post),
-    MethodBin =
-        if
-            is_atom(Method) -> atom_to_binary(Method, utf8);
-            true -> Method
-        end,
     #{
         <<"tool_id">> => Id,
         <<"type">> => ?TOOL_TYPE,
         <<"description">> => Desc,
-        <<"method">> => MethodBin,
-        <<"url">> => maps:get(<<"url">>, Ctx, <<>>),
+        <<"method">> => Method,
+        <<"url">> => Url,
+        <<"headers">> => Headers,
+        <<"payload_type">> => PayloadType,
+        <<"autodiscover_images">> => AutodiscoverImages,
+        <<"images">> => Images,
         <<"input_schema">> => InSchema
     }.
 
--spec handle_invoke(map(), map()) -> {ok, term()} | {error, term()}.
+-spec handle_invoke(map(), map()) -> {ok, term()} | {ok, term(), [map()]} | {error, term()}.
 handle_invoke(Context, Request) ->
     do_reply(Context, Request).
 
@@ -113,24 +126,41 @@ do_reply(Context, Request) ->
     Headers = normalize_headers(maps:get(<<"headers">>, Context, [])),
     Args = maps:get(<<"args">>, Request, #{}),
 
-    {ok, RespBody} = call(normalize_method(Method), BaseUrl, Headers, Args),
-    Data = decode_response(RespBody),
-
-    {ok, Data}.
+    {ok, StatusCode, RespHeaders, RespBody} = call(
+        normalize_method(Method), BaseUrl, Headers, Args
+    ),
+    case decode_body(RespBody, Context) of
+        {ok, Body} ->
+            {ok, Payload, Attachments} = emqx_agent_tool_attachments:process(
+                Body,
+                attachment_opts(Context, response_content_type(RespHeaders))
+            ),
+            Result = #{
+                <<"body">> => Payload,
+                <<"status_code">> => StatusCode,
+                <<"headers">> => response_headers_to_map(RespHeaders)
+            },
+            case Attachments of
+                [] -> {ok, Result};
+                [_ | _] -> {ok, Result, Attachments}
+            end;
+        {error, Reason} ->
+            {error, emqx_agent_tool_helpers:format_error(Reason)}
+    end.
 
 %% GET — append input args as query string; no body.
 call(get, BaseUrl, Headers, Args) ->
     Url = append_query(BaseUrl, Args),
-    {ok, _Status, _RespHeaders, Body} = hackney:request(get, Url, Headers, <<>>, [with_body]),
-    {ok, Body};
+    {ok, Status, RespHeaders, Body} = hackney:request(get, Url, Headers, <<>>, [with_body]),
+    {ok, Status, RespHeaders, Body};
 %% All other methods — send args as JSON body.
 call(Method, BaseUrl, Headers, Args) ->
     ReqBody = emqx_utils_json:encode(Args),
     AllHeaders = [{<<"content-type">>, <<"application/json">>} | Headers],
-    {ok, _Status, _RespHeaders, Body} = hackney:request(
+    {ok, Status, RespHeaders, Body} = hackney:request(
         Method, BaseUrl, AllHeaders, ReqBody, [with_body]
     ),
-    {ok, Body}.
+    {ok, Status, RespHeaders, Body}.
 
 -spec append_query(binary(), map()) -> binary().
 append_query(BaseUrl, Args) when map_size(Args) =:= 0 ->
@@ -140,11 +170,6 @@ append_query(BaseUrl, Args) ->
     QS = list_to_binary(uri_string:compose_query(Pairs)),
     <<BaseUrl/binary, "?", QS/binary>>.
 
-normalize_method(get) -> get;
-normalize_method(post) -> post;
-normalize_method(put) -> put;
-normalize_method(patch) -> patch;
-normalize_method(delete) -> delete;
 normalize_method(<<"get">>) -> get;
 normalize_method(<<"post">>) -> post;
 normalize_method(<<"put">>) -> put;
@@ -162,12 +187,37 @@ normalize_header(#{<<"name">> := Name, <<"value">> := Value}) ->
 normalize_header(#{name := Name, value := Value}) ->
     {Name, Value}.
 
-decode_response(Body) ->
-    try
-        emqx_utils_json:decode(Body)
-    catch
-        _:_ -> #{<<"raw">> => Body}
-    end.
+attachment_aware_desc(Desc) ->
+    <<Desc/binary,
+        " If the response contains image attachments, the result payload uses Attachment <id> "
+        "placeholders and the actual images are provided to the model after the tool result.">>.
+
+decode_body(Body, #{<<"payload_type">> := <<"json">>}) ->
+    case emqx_utils_json:safe_decode(Body) of
+        {ok, Data} -> {ok, Data};
+        {error, Reason} -> {error, {invalid_json_response, Reason}}
+    end;
+decode_body(Body, #{<<"payload_type">> := <<"binary">>}) ->
+    {ok, Body}.
+
+attachment_opts(
+    #{
+        <<"autodiscover_images">> := AutodiscoverImages,
+        <<"images">> := Images
+    },
+    ContentType
+) ->
+    #{
+        autodiscover_images => AutodiscoverImages,
+        images => Images,
+        content_type => ContentType
+    }.
+
+response_content_type(Headers) ->
+    maps:get(<<"content-type">>, response_headers_to_map(Headers), undefined).
+
+response_headers_to_map(Headers) ->
+    maps:from_list([{string:lowercase(Name), Value} || {Name, Value} <- Headers]).
 
 to_str(V) when is_binary(V) -> binary_to_list(V);
 to_str(V) when is_integer(V) -> integer_to_list(V);

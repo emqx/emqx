@@ -96,6 +96,26 @@
             <div id="se-tool-request-payload-schema"></div>
             <div class="hint">Schema describing the payload the LLM should send in the request. Leave blank for untyped.</div>
           </div>
+          <div class="row">
+            <div class="field">
+              <label>Response payload type</label>
+              <select id="tool-request-payload-type">
+                <option value="json">json</option>
+                <option value="binary">binary</option>
+              </select>
+            </div>
+            <div class="field">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding-top:24px">
+                <input type="checkbox" id="tool-request-autodiscover-images" checked style="accent-color:var(--accent2);width:14px;height:14px">
+                Autodiscover images
+              </label>
+            </div>
+          </div>
+          <div class="field">
+            <label>Image paths</label>
+            <div id="tool-request-images"></div>
+            <div class="hint">Optional JSON paths to extract as image attachments, one per line. Use . for binary root.</div>
+          </div>
         </div>
 
         <!-- http fields -->
@@ -118,6 +138,26 @@
               <label>Input schema</label>
               <div id="se-tool-input-schema"></div>
             </div>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label>Response payload type</label>
+              <select id="tool-http-payload-type">
+                <option value="json">json</option>
+                <option value="binary">binary</option>
+              </select>
+            </div>
+            <div class="field">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding-top:24px">
+                <input type="checkbox" id="tool-http-autodiscover-images" checked style="accent-color:var(--accent2);width:14px;height:14px">
+                Autodiscover images
+              </label>
+            </div>
+          </div>
+          <div class="field">
+            <label>Image paths</label>
+            <div id="tool-http-images"></div>
+            <div class="hint">Optional JSON paths to extract as image attachments, one per line. Use . for binary root.</div>
           </div>
         </div>
 

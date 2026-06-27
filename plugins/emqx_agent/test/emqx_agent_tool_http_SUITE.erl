@@ -122,15 +122,66 @@ t_get_passes_headers_to_server(Config) ->
         ct:fail(no_request_received)
     end.
 
-t_non_json_response_wrapped_in_raw(Config) ->
+t_non_json_response_errors(Config) ->
     emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
         Req = cowboy_req:reply(
             200, #{<<"content-type">> => <<"text/plain">>}, <<"plain text">>, Req0
         ),
         {ok, Req, State}
     end),
-    invoke_and_assert(Config, #{}, fun(Data) ->
-        ?assertMatch(#{<<"raw">> := <<"plain text">>}, Data)
+    invoke_and_assert_response(Config, #{}, fun(Response) ->
+        ?assertMatch(
+            #{<<"status">> := <<"error">>, <<"reason">> := Reason} when is_binary(Reason), Response
+        ),
+        ?assertNotEqual(
+            nomatch, binary:match(maps:get(<<"reason">>, Response), <<"invalid_json_response">>)
+        )
+    end).
+
+t_binary_image_response_extracts_attachment(Config) ->
+    ok = emqx_agent_config:delete_tool(?TOOL_TYPE, ?TOOL_ID),
+    ok = register_tool(test_context(Config, #{<<"payload_type">> => <<"binary">>})),
+    emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
+        Req = cowboy_req:reply(
+            200, #{<<"content-type">> => <<"image/png">>}, <<"png bytes">>, Req0
+        ),
+        {ok, Req, State}
+    end),
+    invoke_and_assert_response(Config, #{}, fun(Response) ->
+        ?assertMatch(
+            #{
+                <<"status">> := <<"ok">>,
+                <<"result">> := #{
+                    <<"body">> := <<"Attachment .">>,
+                    <<"status_code">> := 200,
+                    <<"headers">> := #{<<"content-type">> := <<"image/png">>}
+                },
+                <<"attachments">> := [#{<<"id">> := <<".">>, <<"mime_type">> := <<"image/png">>}]
+            },
+            Response
+        )
+    end).
+
+t_json_image_response_extracts_attachment(Config) ->
+    emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
+        reply_json(200, #{<<"image_url">> => <<"data:image/png;base64,abc123">>}, Req0, State)
+    end),
+    invoke_and_assert_response(Config, #{<<"city">> => <<"Oslo">>, <<"units">> => null}, fun(
+        Response
+    ) ->
+        ?assertMatch(
+            #{
+                <<"status">> := <<"ok">>,
+                <<"result">> := #{
+                    <<"body">> := #{<<"image_url">> := <<"Attachment .image_url">>},
+                    <<"status_code">> := 200
+                },
+                <<"attachments">> := [
+                    #{<<"id">> := <<".image_url">>, <<"mime_type">> := <<"image/png">>}
+                ]
+            },
+            Response
+        )
     end).
 
 t_unregistered_tool_is_silently_ignored(_Config) ->
@@ -154,6 +205,12 @@ reply_topic(ReqId) ->
     <<"$cap/http/", ?TOOL_ID/binary, "/response/", ReqId/binary>>.
 
 invoke_and_assert(_Config, Args, AssertFn) ->
+    invoke_and_assert_response(_Config, Args, fun(Response) ->
+        Result = maps:get(<<"result">>, Response),
+        AssertFn(maps:get(<<"body">>, Result))
+    end).
+
+invoke_and_assert_response(_Config, Args, AssertFn) ->
     ReqId = base64:encode(crypto:strong_rand_bytes(8)),
     ReplyTopic = reply_topic(ReqId),
     ok = emqx:subscribe(ReplyTopic),
@@ -174,7 +231,7 @@ invoke_and_assert(_Config, Args, AssertFn) ->
 
     ?assertMatch(#{<<"req_id">> := ReqId}, Reply),
     ?assertMatch(#{<<"type">> := ?TOOL_TYPE, <<"id">> := ?TOOL_ID}, maps:get(<<"tool">>, Reply)),
-    AssertFn(maps:get(<<"result">>, emqx_agent_tool_helpers:cap_response(Reply))),
+    AssertFn(emqx_agent_tool_helpers:cap_response(Reply)),
 
     ok = emqx:unsubscribe(ReplyTopic).
 
