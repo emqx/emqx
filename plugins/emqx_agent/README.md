@@ -97,14 +97,14 @@ The same pattern applies to other tool types: a `message__publish` instance fixe
 | `message__request` | Send MQTT 5 request/reply messages and wait for a response. |
 | `http` | Call external HTTP endpoints with schema-defined input. |
 | `postgresql__query` | Execute parameterized PostgreSQL queries through a configured connection. |
-| `stream_write` | Write keyed data into an EMQX stream. |
-| `stream_read` | Read keyed data from an EMQX stream. |
-| `stream_del` | Delete keyed data or clear an EMQX stream. |
-| `kv_write` | Write a key-value entry to a last-value EMQX stream. |
-| `kv_read` | Read a key-value entry from a last-value EMQX stream. |
-| `kv_read_all` | Read all key-value entries from a last-value EMQX stream. |
-| `kv_del` | Delete one key-value entry from a last-value EMQX stream. |
-| `kv_clear` | Clear all key-value entries from a last-value EMQX stream. |
+| `stream__write` | Write keyed data into an EMQX stream. |
+| `stream__read` | Read keyed data from an EMQX stream. |
+| `stream__del` | Delete keyed data or clear an EMQX stream. |
+| `kv__write` | Write a key-value entry to a last-value EMQX stream. |
+| `kv__read` | Read a key-value entry from a last-value EMQX stream. |
+| `kv__read_all` | Read all key-value entries from a last-value EMQX stream. |
+| `kv__del` | Delete one key-value entry from a last-value EMQX stream. |
+| `kv__clear` | Clear all key-value entries from a last-value EMQX stream. |
 
 ### Image Machinery
 

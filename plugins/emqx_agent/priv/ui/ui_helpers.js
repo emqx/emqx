@@ -7,8 +7,8 @@ export function typeClass(t) {
   if (t === 'message__request')  return 'request';
   if (t === 'http')              return 'http';
   if (t?.startsWith('postgresql')) return 'ch';
-  if (t?.startsWith('stream_')) return 'request';
-  if (t?.startsWith('kv_')) return 'kv';
+  if (t?.startsWith('stream__')) return 'request';
+  if (t?.startsWith('kv__')) return 'kv';
   return '';
 }
 

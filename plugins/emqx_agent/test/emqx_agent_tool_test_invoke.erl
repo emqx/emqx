@@ -4,8 +4,6 @@
 
 -module(emqx_agent_tool_test_invoke).
 
--behaviour(emqx_agent_tool).
-
 -define(TOOL_TYPE, <<"agent__query_tools">>).
 
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/2]).

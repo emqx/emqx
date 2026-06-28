@@ -36,17 +36,17 @@ function typeClass(t) {
   if (t === 'message__request')  return 'request';
   if (t === 'http')              return 'http';
   if (t?.startsWith('postgresql')) return 'ch';
-  if (t?.startsWith('stream_')) return 'request';
-  if (t?.startsWith('kv_')) return 'kv';
+  if (t?.startsWith('stream__')) return 'request';
+  if (t?.startsWith('kv__')) return 'kv';
   return '';
 }
 
 function isStreamTool(type) {
-  return type?.startsWith('stream_') || type?.startsWith('kv_');
+  return type?.startsWith('stream__') || type?.startsWith('kv__');
 }
 
 function hasFormat(type) {
-  return ['stream_write', 'stream_read', 'kv_write', 'kv_read', 'kv_read_all'].includes(type);
+  return ['stream__write', 'stream__read', 'kv__write', 'kv__read', 'kv__read_all'].includes(type);
 }
 
 export function collectToolBody() {

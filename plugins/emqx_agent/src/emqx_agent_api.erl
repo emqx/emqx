@@ -31,17 +31,17 @@ Tool types accepted on POST:
   message__request  — MQTT request/reply capability scoped to a topic prefix
   http             — HTTP call capability
   postgresql__query — PostgreSQL query
-  stream_write      — Write data to an EMQX stream
-  stream_read       — Read data from an EMQX stream
-  stream_del        — Delete data from an EMQX stream
-  kv_write          — Write a value to a last-value stream key
-  kv_read           — Read a value from a last-value stream key
-  kv_read_all       — Read all values from a last-value stream
-  kv_del            — Delete a key from a last-value stream
-  kv_clear          — Clear a last-value stream
+  stream__write     — Write data to an EMQX stream
+  stream__read      — Read data from an EMQX stream
+  stream__del       — Delete data from an EMQX stream
+  kv__write         — Write a value to a last-value stream key
+  kv__read          — Read a value from a last-value stream key
+  kv__read_all      — Read all values from a last-value stream
+  kv__del           — Delete a key from a last-value stream
+  kv__clear         — Clear a last-value stream
 
 For GET/DELETE, use the actual registry type in the :type URL segment
-(message__publish, message__request, http, postgresql__query, stream_write, stream_read, stream_del, kv_write, kv_read, kv_read_all, kv_del, kv_clear).
+(message__publish, message__request, http, postgresql__query, stream__write, stream__read, stream__del, kv__write, kv__read, kv__read_all, kv__del, kv__clear).
 """.
 
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
@@ -235,7 +235,7 @@ no_cache_headers(ContentType) ->
             ?CONFLICT(<<"Tool already exists">>);
         {error, unknown_type} ->
             ?BAD_REQUEST(
-                <<"Unknown tool type. Valid types: message__publish, message__request, http, postgresql__query, stream_write, stream_read, stream_del, kv_write, kv_read, kv_read_all, kv_del, kv_clear">>
+                <<"Unknown tool type. Valid types: message__publish, message__request, http, postgresql__query, stream__write, stream__read, stream__del, kv__write, kv__read, kv__read_all, kv__del, kv__clear">>
             );
         {error, Reason} ->
             ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))

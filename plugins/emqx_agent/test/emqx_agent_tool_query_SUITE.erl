@@ -88,7 +88,7 @@ t_query_tools_destroy(_Config) ->
     ).
 
 t_query_tools_list_empty(_Config) ->
-    ReqId = <<"req-qs-empty">>,
+    ReqId = unique_req_id(<<"req-qs-empty">>),
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(<<"agent__query_tools">>, ?SK_TOOLS_ID, #{}, ReqId),
     Reply = recv_reply(ReqId),
@@ -105,7 +105,7 @@ t_query_tools_list_with_items(_Config) ->
         <<"topic_prefix">> => <<"x/">>
     }),
 
-    ReqId = <<"req-qs-list">>,
+    ReqId = unique_req_id(<<"req-qs-list">>),
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(<<"agent__query_tools">>, ?SK_TOOLS_ID, #{}, ReqId),
     Reply = recv_reply(ReqId),
@@ -129,7 +129,7 @@ t_query_tools_filter_by_type(_Config) ->
         <<"input_schema">> => ?VALID_INPUT_SCHEMA
     }),
 
-    ReqId = <<"req-qs-type">>,
+    ReqId = unique_req_id(<<"req-qs-type">>),
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(
         <<"agent__query_tools">>, ?SK_TOOLS_ID, #{<<"type">> => <<"message__publish">>}, ReqId
@@ -147,7 +147,7 @@ t_query_tools_get_by_type_and_id(_Config) ->
         <<"topic_prefix">> => <<"z/">>
     }),
 
-    ReqId = <<"req-qs-get">>,
+    ReqId = unique_req_id(<<"req-qs-get">>),
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(
         <<"agent__query_tools">>,
@@ -166,7 +166,7 @@ t_query_tools_get_by_type_and_id(_Config) ->
     ok = emqx:unsubscribe(reply_topic(ReqId)).
 
 t_query_tools_get_not_found(_Config) ->
-    ReqId = <<"req-qs-nf">>,
+    ReqId = unique_req_id(<<"req-qs-nf">>),
     ok = emqx:subscribe(reply_topic(ReqId)),
     invoke(
         <<"agent__query_tools">>,
@@ -497,6 +497,7 @@ invoke(Type, ToolId, Args, ReqId) ->
 
 invoke(Type, ToolId, Args, ReqId, Extra) ->
     Topic = <<"$cap/", Type/binary, "/", ToolId/binary, "/request/", ReqId/binary>>,
+    erlang:put({reply_tool, ReqId}, {Type, ToolId}),
     Payload = emqx_utils_json:encode(
         maps:merge(
             #{
@@ -512,12 +513,38 @@ invoke(Type, ToolId, Args, ReqId, Extra) ->
     ok.
 
 recv_reply(ReqId) ->
+    {Type, ToolId} = erlang:get({reply_tool, ReqId}),
     receive
         #deliver{message = #message{payload = P}} ->
-            emqx_utils_json:decode(P)
+            Reply = emqx_utils_json:decode(P),
+            case Reply of
+                #{
+                    <<"req_id">> := ReqId,
+                    <<"tool">> := #{<<"type">> := Type, <<"id">> := ToolId}
+                } ->
+                    case is_query_tool_reply(Reply) of
+                        true -> Reply;
+                        false -> recv_reply(ReqId)
+                    end;
+                _ ->
+                    recv_reply(ReqId)
+            end
     after 3000 ->
         ct:fail("no reply for req_id=~s within 3 s", [ReqId])
     end.
+
+unique_req_id(Base) ->
+    Suffix = integer_to_binary(erlang:unique_integer([positive, monotonic])),
+    <<Base/binary, "-", Suffix/binary>>.
+
+is_query_tool_reply(#{<<"response">> := #{<<"status">> := <<"error">>}}) ->
+    true;
+is_query_tool_reply(#{<<"response">> := #{<<"result">> := #{<<"items">> := _}}}) ->
+    true;
+is_query_tool_reply(#{<<"response">> := #{<<"result">> := #{<<"item">> := _}}}) ->
+    true;
+is_query_tool_reply(_) ->
+    false.
 
 cap_response(Reply) ->
     emqx_agent_tool_helpers:cap_response(Reply).
