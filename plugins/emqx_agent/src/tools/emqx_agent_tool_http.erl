@@ -14,13 +14,14 @@ Context keys:
   <<"id">>           => binary()         — unique instance identifier
   <<"desc">>         => binary()         — human-readable description
   <<"method">>       => atom() | binary() — http method: get | post | put | patch | delete
-  <<"url">>          => binary()         — base URL (query string appended for GET)
+  <<"url">>          => binary()         — URL prefix allowed for invocations
   <<"headers">>      => map() | [{binary(), binary()}]  — request headers
-  <<"input_schema">> => map()            — full JSON Schema for request args
+  <<"input_schema">> => map()            — JSON Schema for query_args (GET) or body (others)
   <<"payload_type">> => <<"json">> | <<"binary">> — response body type
 
-For GET, input args are serialised as a URL query string.
-For all other methods, input args are sent as a JSON body.
+Invocations use args shaped as #{path => ..., query_args => ..., body => ...}.
+GET does not accept body. The invocation path is the actual HTTP path and must
+remain under the configured URL path prefix.
 
 Lifecycle:
   init()        — register the tool type
@@ -32,6 +33,12 @@ Lifecycle:
 -behaviour(emqx_agent_tool).
 
 -define(TOOL_TYPE, <<"http">>).
+
+-define(QUERY_ARGS_SCHEMA, #{
+    <<"type">> => <<"object">>,
+    <<"properties">> => #{},
+    <<"additionalProperties">> => true
+}).
 
 -export([init/0, deinit/0, create/1, destroy/1, to_map/1, handle_invoke/2]).
 
@@ -55,19 +62,20 @@ create(
     #{
         <<"id">> := ToolId,
         <<"desc">> := Desc,
-        <<"method">> := _Method,
-        <<"url">> := _Url,
+        <<"method">> := Method,
+        <<"url">> := Url,
         <<"input_schema">> := InputSchema0
     } = Context
 ) ->
     case decode_schema(InputSchema0) of
         {ok, InputSchema} ->
+            Method1 = normalize_method(Method),
             {ok, #{
                 tool_id => ToolId,
                 type => ?TOOL_TYPE,
                 module => ?MODULE,
                 display_name => <<"HTTP Tool">>,
-                description => attachment_aware_desc(Desc),
+                description => attachment_aware_desc(Desc, Url),
                 context => maps:merge(
                     #{
                         <<"payload_type">> => <<"json">>,
@@ -76,7 +84,7 @@ create(
                     },
                     Context#{<<"input_schema">> => InputSchema}
                 ),
-                input_schema => InputSchema
+                input_schema => invocation_schema(Method1, Url, InputSchema)
             }};
         {error, Reason} ->
             {error, {invalid_input_schema, Reason}}
@@ -150,17 +158,28 @@ do_reply(Context, Request) ->
             {error, emqx_agent_tool_helpers:format_error({request_failed, Reason})}
     end.
 
-%% GET — append input args as query string; no body.
+%% GET — append query_args as query string; no body.
 call(get, BaseUrl, Headers, Args) ->
-    Url = append_query(BaseUrl, Args),
-    hackney:request(get, Url, Headers, <<>>, [with_body]);
-%% All other methods — send args as JSON body.
+    case invocation_url(BaseUrl, Args) of
+        {ok, Url0} ->
+            Url = append_query(Url0, maps:get(<<"query_args">>, Args, #{})),
+            hackney:request(get, Url, Headers, <<>>, [with_body]);
+        {error, _} = Error ->
+            Error
+    end;
+%% All other methods — append query_args and send body as JSON body.
 call(Method, BaseUrl, Headers, Args) ->
-    ReqBody = emqx_utils_json:encode(Args),
-    AllHeaders = [{<<"content-type">>, <<"application/json">>} | Headers],
-    hackney:request(
-        Method, BaseUrl, AllHeaders, ReqBody, [with_body]
-    ).
+    case invocation_url(BaseUrl, Args) of
+        {ok, Url0} ->
+            Url = append_query(Url0, maps:get(<<"query_args">>, Args, #{})),
+            ReqBody = emqx_utils_json:encode(maps:get(<<"body">>, Args, #{})),
+            AllHeaders = [{<<"content-type">>, <<"application/json">>} | Headers],
+            hackney:request(
+                Method, Url, AllHeaders, ReqBody, [with_body]
+            );
+        {error, _} = Error ->
+            Error
+    end.
 
 -spec append_query(binary(), map()) -> binary().
 append_query(BaseUrl, Args) when map_size(Args) =:= 0 ->
@@ -187,10 +206,82 @@ normalize_header(#{<<"name">> := Name, <<"value">> := Value}) ->
 normalize_header(#{name := Name, value := Value}) ->
     {Name, Value}.
 
-attachment_aware_desc(Desc) ->
-    <<Desc/binary,
+attachment_aware_desc(Desc, Url) ->
+    <<Desc/binary, " Configured URL: ", Url/binary, ".",
         " If the response contains images, the result payload uses Image <id> "
         "placeholders and the images are provided in the tool response.">>.
+
+invocation_schema(get, Url, QueryArgsSchema) ->
+    #{
+        <<"type">> => <<"object">>,
+        <<"properties">> => #{
+            <<"path">> => path_schema(Url),
+            <<"query_args">> => QueryArgsSchema
+        },
+        <<"required">> => [<<"path">>, <<"query_args">>],
+        <<"additionalProperties">> => false
+    };
+invocation_schema(_Method, Url, BodySchema) ->
+    #{
+        <<"type">> => <<"object">>,
+        <<"properties">> => #{
+            <<"path">> => path_schema(Url),
+            <<"query_args">> => ?QUERY_ARGS_SCHEMA,
+            <<"body">> => BodySchema
+        },
+        <<"required">> => [<<"path">>, <<"query_args">>, <<"body">>],
+        <<"additionalProperties">> => false
+    }.
+
+path_schema(Url) ->
+    Prefix = configured_path_prefix(Url),
+    #{
+        <<"type">> => <<"string">>,
+        <<"description">> =>
+            <<
+                "Actual HTTP request path. It is absolute and must start with the configured URL path prefix '",
+                Prefix/binary,
+                "'."
+            >>
+    }.
+
+invocation_url(BaseUrl, Args) ->
+    Path0 = maps:get(<<"path">>, Args, undefined),
+    Path = normalize_path(Path0),
+    Prefix = configured_path_prefix(BaseUrl),
+    case is_path_prefix(Prefix, Path) of
+        true -> {ok, <<(origin(BaseUrl))/binary, Path/binary>>};
+        false -> {error, {path_outside_configured_prefix, #{prefix => Prefix, path => Path}}}
+    end.
+
+normalize_path(<<"/", _/binary>> = Path) ->
+    Path;
+normalize_path(<<>>) ->
+    <<"/">>;
+normalize_path(Path) when is_binary(Path) ->
+    <<"/", Path/binary>>;
+normalize_path(_) ->
+    <<"/">>.
+
+is_path_prefix(Prefix, Path) ->
+    case binary:match(Path, Prefix) of
+        {0, _} -> true;
+        _ -> false
+    end.
+
+configured_path_prefix(Url) ->
+    normalize_path(maps:get(path, uri_string:parse(Url), <<"/">>)).
+
+origin(Url) ->
+    Parts = uri_string:parse(Url),
+    Scheme = maps:get(scheme, Parts),
+    Host = maps:get(host, Parts),
+    PortPart =
+        case maps:get(port, Parts, undefined) of
+            undefined -> <<>>;
+            Port -> <<":", (integer_to_binary(Port))/binary>>
+        end,
+    <<Scheme/binary, "://", Host/binary, PortPart/binary>>.
 
 decode_body(Body, #{<<"payload_type">> := <<"json">>}) ->
     case emqx_utils_json:safe_decode(Body) of
