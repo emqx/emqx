@@ -60,6 +60,14 @@ t_binary_root_explicit_image_path(_Config) ->
     ?assertEqual(<<"Image .">>, Payload),
     ?assertMatch([#{<<"id">> := <<".">>, <<"mime_type">> := <<"image/png">>}], Attachments).
 
+t_binary_root_explicit_path_with_content_type_keeps_original_image(_Config) ->
+    Png = <<137, 80, 78, 71, 13, 10, 26, 10, 0, 0>>,
+    {ok, <<"Image .">>, [#{<<"data">> := Data}]} = process(Png, #{
+        images => [<<".">>],
+        content_type => <<"image/png">>
+    }),
+    ?assertEqual(base64:encode(Png), Data).
+
 process(Body) ->
     process(Body, #{}).
 

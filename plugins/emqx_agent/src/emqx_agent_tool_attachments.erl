@@ -182,7 +182,7 @@ maybe_extract_binary_image_root(Payload, ContentType, Attachments) when is_binar
     case is_image_content_type(ContentType) andalso not is_data_image_url(Payload) of
         true ->
             Attachment = image_attachment(<<".">>, ContentType, base64:encode(Payload)),
-            {attachment_ref(<<".">>), maps:put(<<".">>, Attachment, Attachments)};
+            {attachment_ref(<<".">>), put_attachment(<<".">>, Attachment, Attachments)};
         false ->
             {Payload, Attachments}
     end;
@@ -194,7 +194,7 @@ maybe_extract_value(PathRev, Value, Replace, Attachments) when is_binary(Value) 
         {ok, MimeType, Data} ->
             Path = path_id(PathRev),
             Attachment = image_attachment(Path, MimeType, Data),
-            {Replace(attachment_ref(Path)), maps:put(Path, Attachment, Attachments)};
+            {Replace(attachment_ref(Path)), put_attachment(Path, Attachment, Attachments)};
         error ->
             {Value, Attachments}
     end;
@@ -205,12 +205,12 @@ maybe_extract_explicit_value(Path, Value, Attachments) when is_binary(Value) ->
     case parse_data_image_url(Value) of
         {ok, MimeType, Data} ->
             Attachment = image_attachment(Path, MimeType, Data),
-            {attachment_ref(Path), maps:put(Path, Attachment, Attachments)};
+            {attachment_ref(Path), put_attachment(Path, Attachment, Attachments)};
         error ->
             case sniff_image_binary(Value) of
                 {ok, MimeType} ->
                     Attachment = image_attachment(Path, MimeType, base64:encode(Value)),
-                    {attachment_ref(Path), maps:put(Path, Attachment, Attachments)};
+                    {attachment_ref(Path), put_attachment(Path, Attachment, Attachments)};
                 error ->
                     {Value, Attachments}
             end
@@ -240,6 +240,12 @@ image_attachment(Id, MimeType, Data) ->
         <<"mime_type">> => MimeType,
         <<"data">> => Data
     }.
+
+put_attachment(Id, Attachment, Attachments) ->
+    case maps:is_key(Id, Attachments) of
+        true -> Attachments;
+        false -> maps:put(Id, Attachment, Attachments)
+    end.
 
 attachment_ref(Id) ->
     <<"Image ", Id/binary>>.
