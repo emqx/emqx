@@ -45,7 +45,7 @@ end_per_suite(Config) ->
 init_per_testcase(TestCase, Config) ->
     ct:timetrap({seconds, 240}),
     ok = emqx_agent_plugin_config_fixture:setup(),
-    {ok, {Port, _Pid}} = emqx_utils_http_test_server:start_link(random, "/", false),
+    {ok, {Port, _Pid}} = emqx_utils_http_test_server:start_link(random, "/[...]", false),
     BaseUrl = iolist_to_binary(io_lib:format("http://127.0.0.1:~p", [Port])),
     ok = emqx:subscribe(?PIPE_EVENTS_FILTER),
     [{tc_id, atom_to_binary(TestCase, utf8)}, {http_base_url, BaseUrl} | Config].
@@ -155,8 +155,8 @@ run_http_json_case(Config, Autodiscover, Images) ->
     }),
     install_http_json_image_handler(),
     ok = register_pipeline(PipelineId, TcId, [<<"http@", ToolId/binary>>], <<
-        "Call the HTTP tool with empty arguments to fetch a JSON image response. "
-        "Inspect the returned image. Finish by calling set_result."
+        "Call the HTTP tool with empty arguments. "
+        "Inspect the image returned in the tool response. Finish by calling set_result."
     >>),
     assert_apple(trigger_and_await(PipelineId, TcId)).
 
@@ -172,8 +172,8 @@ run_http_raw_case(Config, ContentMode, Autodiscover, Images) ->
     }),
     install_http_raw_image_handler(ContentMode),
     ok = register_pipeline(PipelineId, TcId, [<<"http@", ToolId/binary>>], <<
-        "Call the HTTP tool with empty arguments to fetch an image. "
-        "Inspect the returned image. Finish by calling set_result."
+        "Call the HTTP tool with empty arguments. "
+        "Inspect the image returned in the tool response. Finish by calling set_result."
     >>),
     assert_apple(trigger_and_await(PipelineId, TcId)).
 
@@ -188,7 +188,7 @@ register_mqtt_tool(ToolId, Overrides) ->
             #{
                 <<"type">> => <<"message__request">>,
                 <<"id">> => ToolId,
-                <<"desc">> => <<"Return an apple image over MQTT request/reply">>,
+                <<"desc">> => <<"Return an image over MQTT request/reply">>,
                 <<"topic_prefix">> => mqtt_prefix(),
                 <<"request_payload_schema">> => emqx_utils_json:encode(empty_object_schema())
             },
@@ -224,10 +224,10 @@ register_pipeline(PipelineId, TcId, Tools, Instructions) ->
                 <<"provider_name">> => ?PROVIDER_NAME,
                 <<"model">> => emqx_agent_test_llm_helper:default_model(),
                 <<"instructions">> => <<
-                    "You are a deterministic visual test agent. ",
+                    "Inspect the image returned by the tool. ",
                     Instructions/binary,
-                    " Return true only if you actually received and inspected an image. "
-                    "Use set_result with is_apple=true, object='apple', and a short evidence string."
+                    " Identify the primary visible object and provide a short evidence string. "
+                    "Finish by calling set_result."
                 >>,
                 <<"persistent">> => false,
                 <<"tools">> => Tools,
@@ -265,7 +265,6 @@ await_pipeline_result(PipelineId) ->
     end.
 
 assert_apple(Result) ->
-    ?assertMatch(#{<<"is_apple">> := true}, Result),
     Object = string:lowercase(binary_to_list(maps:get(<<"object">>, Result, <<>>))),
     ?assertNotEqual(nomatch, string:find(Object, "apple")),
     ok.
@@ -368,17 +367,16 @@ image_data() ->
 
 image_path() ->
     SrcFile = proplists:get_value(source, ?MODULE:module_info(compile), ""),
-    filename:join([filename:dirname(SrcFile), "fixtures", "box-no-bad-apple.png"]).
+    filename:join([filename:dirname(SrcFile), "fixtures", "object.png"]).
 
 result_schema() ->
     #{
         <<"type">> => <<"object">>,
         <<"properties">> => #{
-            <<"is_apple">> => #{<<"type">> => <<"boolean">>},
             <<"object">> => #{<<"type">> => <<"string">>},
             <<"evidence">> => #{<<"type">> => <<"string">>}
         },
-        <<"required">> => [<<"is_apple">>, <<"object">>, <<"evidence">>],
+        <<"required">> => [<<"object">>, <<"evidence">>],
         <<"additionalProperties">> => false
     }.
 

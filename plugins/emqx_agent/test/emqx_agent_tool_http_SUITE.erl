@@ -152,7 +152,7 @@ t_binary_image_response_extracts_attachment(Config) ->
             #{
                 <<"status">> := <<"ok">>,
                 <<"result">> := #{
-                    <<"body">> := <<"Attachment .">>,
+                    <<"body">> := <<"Image .">>,
                     <<"status_code">> := 200,
                     <<"headers">> := #{<<"content-type">> := <<"image/png">>}
                 },
@@ -173,7 +173,7 @@ t_json_image_response_extracts_attachment(Config) ->
             #{
                 <<"status">> := <<"ok">>,
                 <<"result">> := #{
-                    <<"body">> := #{<<"image_url">> := <<"Attachment .image_url">>},
+                    <<"body">> := #{<<"image_url">> := <<"Image .image_url">>},
                     <<"status_code">> := 200
                 },
                 <<"attachments">> := [

@@ -29,7 +29,7 @@ Opts = #{
 - `content_type` is used for binary payload responses, e.g.`<<"image/png">>`.
 
 When an image is extracted, the value in the data structure is replaced with an
-`Attachment <id>` binary, and the image is returned separately:
+`Image <id>` binary, and the image is returned separately:
 
 ```erlang
 Data = #{
@@ -40,7 +40,7 @@ Data = #{
     images => [],
     content_type => undefined
 }),
-Sanitized = #{<<"image_url">> => <<"Attachment .image_url">>},
+Sanitized = #{<<"image_url">> => <<"Image .image_url">>},
 Attachments = [#{
     <<"id">> => <<".image_url">>,
     <<"type">> => <<"image">>,
@@ -52,7 +52,7 @@ Attachments = [#{
 For binary image responses, callers can either pass an image content type:
 
 ```erlang
-{ok, <<"Attachment .">>, [Attachment]} = process(PngBytes, #{
+{ok, <<"Image .">>, [Attachment]} = process(PngBytes, #{
     autodiscover_images => true,
     images => [],
     content_type => <<"image/png">>
@@ -242,7 +242,7 @@ image_attachment(Id, MimeType, Data) ->
     }.
 
 attachment_ref(Id) ->
-    <<"Attachment ", Id/binary>>.
+    <<"Image ", Id/binary>>.
 
 attachments_to_list(Attachments) ->
     [maps:get(Id, Attachments) || Id <- lists:sort(maps:keys(Attachments))].

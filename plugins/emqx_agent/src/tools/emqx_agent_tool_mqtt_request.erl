@@ -112,9 +112,9 @@ create_with_request_payload_schema(ToolId, Desc, TopicPrefix, RequestPayloadSche
         display_name => <<Desc/binary, " — Request">>,
         description =>
             <<"Send an MQTT request to a topic under the prefix: ", TopicPrefix/binary,
-                " and wait for a response. If the response contains image attachments, "
-                "the result payload uses Attachment <id> placeholders and the actual images "
-                "are provided to the model after the tool result.">>,
+                " and wait for a response. If the response contains images, "
+                "the result payload uses Image <id> placeholders and the images "
+                "are provided in the tool response.">>,
         context => maps:merge(
             #{
                 <<"payload_type">> => <<"json">>,

@@ -189,8 +189,8 @@ normalize_header(#{name := Name, value := Value}) ->
 
 attachment_aware_desc(Desc) ->
     <<Desc/binary,
-        " If the response contains image attachments, the result payload uses Attachment <id> "
-        "placeholders and the actual images are provided to the model after the tool result.">>.
+        " If the response contains images, the result payload uses Image <id> "
+        "placeholders and the images are provided in the tool response.">>.
 
 decode_body(Body, #{<<"payload_type">> := <<"json">>}) ->
     case emqx_utils_json:safe_decode(Body) of

@@ -17,7 +17,7 @@ t_json_autodiscovers_data_image_url(_Config) ->
         <<"label">> => <<"box">>
     },
     ?assertMatch(
-        {ok, #{<<"image_url">> := <<"Attachment .image_url">>, <<"label">> := <<"box">>}, [
+        {ok, #{<<"image_url">> := <<"Image .image_url">>, <<"label">> := <<"box">>}, [
             #{<<"id">> := <<".image_url">>, <<"mime_type">> := <<"image/png">>}
         ]},
         process(Data)
@@ -31,7 +31,7 @@ t_json_extracts_explicit_path(_Config) ->
         autodiscover_images => false,
         images => [<<".nested.photo">>]
     }),
-    ?assertMatch(#{<<"nested">> := #{<<"photo">> := <<"Attachment .nested.photo">>}}, Payload),
+    ?assertMatch(#{<<"nested">> := #{<<"photo">> := <<"Image .nested.photo">>}}, Payload),
     ?assertMatch(
         [#{<<"id">> := <<".nested.photo">>, <<"mime_type">> := <<"image/jpeg">>}], Attachments
     ).
@@ -48,7 +48,7 @@ t_binary_root_image_by_content_type(_Config) ->
     {ok, Payload, Attachments} = process(Body, #{
         content_type => <<"image/png">>
     }),
-    ?assertEqual(<<"Attachment .">>, Payload),
+    ?assertEqual(<<"Image .">>, Payload),
     ?assertMatch([#{<<"id">> := <<".">>, <<"mime_type">> := <<"image/png">>}], Attachments).
 
 t_binary_root_explicit_image_path(_Config) ->
@@ -57,7 +57,7 @@ t_binary_root_explicit_image_path(_Config) ->
         autodiscover_images => false,
         images => [<<".">>]
     }),
-    ?assertEqual(<<"Attachment .">>, Payload),
+    ?assertEqual(<<"Image .">>, Payload),
     ?assertMatch([#{<<"id">> := <<".">>, <<"mime_type">> := <<"image/png">>}], Attachments).
 
 process(Body) ->

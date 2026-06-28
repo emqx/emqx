@@ -116,7 +116,7 @@ t_json_response_autodiscovers_images(_Config) ->
         #{
             <<"status">> := <<"ok">>,
             <<"result">> := #{
-                <<"payload">> := #{<<"image_url">> := <<"Attachment .image_url">>}
+                <<"payload">> := #{<<"image_url">> := <<"Image .image_url">>}
             },
             <<"attachments">> := [#{<<"id">> := <<".image_url">>}]
         },

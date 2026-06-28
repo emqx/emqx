@@ -1260,7 +1260,7 @@ attachment_msgs(_) ->
 
 attachment_text_part(Attachments) ->
     Ids = [Id || #{<<"id">> := Id, <<"type">> := <<"image">>} <- Attachments],
-    Text = iolist_to_binary(["Tool returned image attachment(s): ", lists:join(", ", Ids)]),
+    Text = iolist_to_binary(["Tool response image(s): ", lists:join(", ", Ids)]),
     #{<<"type">> => <<"text">>, <<"text">> => Text}.
 
 attachment_part(
