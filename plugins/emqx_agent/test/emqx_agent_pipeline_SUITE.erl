@@ -343,7 +343,7 @@ t_context_flows_between_steps(Config) ->
 %% Strategy: the session hook is disabled for this test case, so the real
 %% session is not started.  The test subscribes to the deterministic persistent
 %% session input topic before triggering the pipeline, observes the request on
-%% $sess/in/<sid>/, then publishes fake $sess/out/<sid>/ frames via the broker.
+%% $sess/in/<sid>, then publishes fake $sess/out/<sid> frames via the broker.
 t_set_result_writes_to_context(Config) ->
     PipelineId = ?config(pipeline_id, Config),
     TrigTopic = <<"$evt/test/", PipelineId/binary>>,
@@ -373,7 +373,7 @@ t_set_result_writes_to_context(Config) ->
     ok = emqx:unsubscribe(SessInTopic),
     SessOutTopic = emqx_agent_topics:sess_out_topic(Sid),
 
-    %% Simulate the LLM calling set_result via MQTT publish on $sess/out/<Sid>/.
+    %% Simulate the LLM calling set_result via MQTT publish on $sess/out/<Sid>.
     publish_frame(SessOutTopic, #{
         <<"type">> => <<"tool_request">>,
         <<"iid">> => Iid,

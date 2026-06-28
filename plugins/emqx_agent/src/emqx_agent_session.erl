@@ -13,8 +13,8 @@ pending events, queued requests, tool-call state, and usage counters. The
 environment is event-based, so there is no separate agent loop process outside
 MQTT routing and the session state machine.
 
-Incoming topic:  $sess/in/<SID>/
-Outgoing topic:  $sess/out/<SID>/
+Incoming topic:  $sess/in/<SID>
+Outgoing topic:  $sess/out/<SID>
 
 Message types on in-topic:
   request     — start LLM work; carries optional persistent (default false)
@@ -82,8 +82,8 @@ Events in initial_idle are buffered and folded in when the first request arrives
 
 -define(NAME(Sid), {?MODULE, Sid}).
 -define(REG(Sid), {global, ?NAME(Sid)}).
--define(IN(Sid), <<?AGENT_SESS_IN_PREFIX/binary, (Sid)/binary, "/">>).
--define(OUT(Sid), <<?AGENT_SESS_OUT_PREFIX/binary, (Sid)/binary, "/">>).
+-define(IN(Sid), <<?AGENT_SESS_IN_PREFIX/binary, (Sid)/binary>>).
+-define(OUT(Sid), <<?AGENT_SESS_OUT_PREFIX/binary, (Sid)/binary>>).
 -define(MAX_ITERATIONS, 20).
 -define(PERSISTENT_IDLE_TIMEOUT_MS, 3_600_000).
 
@@ -152,8 +152,9 @@ deinit() ->
 on_message_publish(
     #message{topic = <<"$sess/in/", Rest/binary>>, payload = Payload} = Message
 ) ->
-    case binary:split(Rest, <<"/">>) of
-        [Sid, <<>>] ->
+    case is_session_topic_sid(Rest) of
+        true ->
+            Sid = Rest,
             Msg = safe_decode(Payload),
             case Msg of
                 #{<<"type">> := <<"request">>} ->
@@ -169,7 +170,7 @@ on_message_publish(
                 _ ->
                     ok
             end;
-        _ ->
+        false ->
             ok
     end,
     {ok, Message};
@@ -219,7 +220,7 @@ terminate(_Reason, _State, #data{sid = Sid}) ->
 %% Clauses are ordered: specific state first, catch-alls last.
 %%--------------------------------------------------------------------
 
-%% ── MQTT delivery: messages on $sess/in/<Sid>/ arrive via subscription ────
+%% ── MQTT delivery: messages on $sess/in/<Sid> arrive via subscription ─────
 
 handle_event(
     info,
@@ -607,7 +608,7 @@ cancel_idle_timer(#data{idle_timer_ref = Ref} = Data) ->
     Data#data{idle_timer_ref = undefined}.
 
 %%--------------------------------------------------------------------
-%% Session message dispatch — handles decoded JSON from $sess/in/<Sid>/
+%% Session message dispatch — handles decoded JSON from $sess/in/<Sid>
 %%--------------------------------------------------------------------
 
 %% ── initial_idle: accept the first request ─────────────────────────────
@@ -742,6 +743,11 @@ safe_decode(Payload) ->
     catch
         _:_ -> #{}
     end.
+
+is_session_topic_sid(<<>>) ->
+    false;
+is_session_topic_sid(Sid) ->
+    binary:match(Sid, <<"/">>) =:= nomatch.
 
 %%--------------------------------------------------------------------
 %% Tool request publishing
@@ -1227,7 +1233,7 @@ compaction_request_msg() ->
         >>
     }.
 
-%% Publish a frame to $sess/out/<Sid>/, automatically filling correlation fields
+%% Publish a frame to $sess/out/<Sid>, automatically filling correlation fields
 %% (sid, iid, trace_id) and usage counters from Data.
 publish(#data{sid = Sid, iid = Iid, trace_id = TraceId, usage = Usage} = _Data, Frame) ->
     Payload = maps:merge(

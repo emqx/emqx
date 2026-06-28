@@ -21,10 +21,10 @@ evt_topic(Suffix) ->
     <<?AGENT_EVT_PREFIX/binary, Suffix/binary>>.
 
 sess_in_topic(Sid) ->
-    <<?AGENT_SESS_IN_PREFIX/binary, Sid/binary, "/">>.
+    <<?AGENT_SESS_IN_PREFIX/binary, Sid/binary>>.
 
 sess_out_topic(Sid) ->
-    <<?AGENT_SESS_OUT_PREFIX/binary, Sid/binary, "/">>.
+    <<?AGENT_SESS_OUT_PREFIX/binary, Sid/binary>>.
 
 cap_request_topic(Type, ToolId, ReqId) ->
     <<?AGENT_CAP_PREFIX/binary, Type/binary, "/", ToolId/binary, "/request/", ReqId/binary>>.
