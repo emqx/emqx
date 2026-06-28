@@ -138,6 +138,18 @@ t_non_json_response_errors(Config) ->
         )
     end).
 
+t_request_failure_errors(Config) ->
+    ok = emqx_agent_config:delete_tool(?TOOL_TYPE, ?TOOL_ID),
+    ok = register_tool(test_context(Config, #{<<"url">> => <<"http://127.0.0.1:1/">>})),
+    invoke_and_assert_response(Config, #{}, fun(Response) ->
+        ?assertMatch(
+            #{<<"status">> := <<"error">>, <<"reason">> := Reason} when is_binary(Reason), Response
+        ),
+        ?assertNotEqual(
+            nomatch, binary:match(maps:get(<<"reason">>, Response), <<"request_failed">>)
+        )
+    end).
+
 t_binary_image_response_extracts_attachment(Config) ->
     ok = emqx_agent_config:delete_tool(?TOOL_TYPE, ?TOOL_ID),
     ok = register_tool(test_context(Config, #{<<"payload_type">> => <<"binary">>})),

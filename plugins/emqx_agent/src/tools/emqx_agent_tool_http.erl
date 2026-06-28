@@ -126,41 +126,41 @@ do_reply(Context, Request) ->
     Headers = normalize_headers(maps:get(<<"headers">>, Context, [])),
     Args = maps:get(<<"args">>, Request, #{}),
 
-    {ok, StatusCode, RespHeaders, RespBody} = call(
-        normalize_method(Method), BaseUrl, Headers, Args
-    ),
-    case decode_body(RespBody, Context) of
-        {ok, Body} ->
-            {ok, Payload, Attachments} = emqx_agent_tool_attachments:process(
-                Body,
-                attachment_opts(Context, response_content_type(RespHeaders))
-            ),
-            Result = #{
-                <<"body">> => Payload,
-                <<"status_code">> => StatusCode,
-                <<"headers">> => response_headers_to_map(RespHeaders)
-            },
-            case Attachments of
-                [] -> {ok, Result};
-                [_ | _] -> {ok, Result, Attachments}
+    case call(normalize_method(Method), BaseUrl, Headers, Args) of
+        {ok, StatusCode, RespHeaders, RespBody} ->
+            case decode_body(RespBody, Context) of
+                {ok, Body} ->
+                    {ok, Payload, Attachments} = emqx_agent_tool_attachments:process(
+                        Body,
+                        attachment_opts(Context, response_content_type(RespHeaders))
+                    ),
+                    Result = #{
+                        <<"body">> => Payload,
+                        <<"status_code">> => StatusCode,
+                        <<"headers">> => response_headers_to_map(RespHeaders)
+                    },
+                    case Attachments of
+                        [] -> {ok, Result};
+                        [_ | _] -> {ok, Result, Attachments}
+                    end;
+                {error, Reason} ->
+                    {error, emqx_agent_tool_helpers:format_error(Reason)}
             end;
         {error, Reason} ->
-            {error, emqx_agent_tool_helpers:format_error(Reason)}
+            {error, emqx_agent_tool_helpers:format_error({request_failed, Reason})}
     end.
 
 %% GET — append input args as query string; no body.
 call(get, BaseUrl, Headers, Args) ->
     Url = append_query(BaseUrl, Args),
-    {ok, Status, RespHeaders, Body} = hackney:request(get, Url, Headers, <<>>, [with_body]),
-    {ok, Status, RespHeaders, Body};
+    hackney:request(get, Url, Headers, <<>>, [with_body]);
 %% All other methods — send args as JSON body.
 call(Method, BaseUrl, Headers, Args) ->
     ReqBody = emqx_utils_json:encode(Args),
     AllHeaders = [{<<"content-type">>, <<"application/json">>} | Headers],
-    {ok, Status, RespHeaders, Body} = hackney:request(
+    hackney:request(
         Method, BaseUrl, AllHeaders, ReqBody, [with_body]
-    ),
-    {ok, Status, RespHeaders, Body}.
+    ).
 
 -spec append_query(binary(), map()) -> binary().
 append_query(BaseUrl, Args) when map_size(Args) =:= 0 ->
