@@ -10,6 +10,8 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -46,7 +48,7 @@
 -export([lookup_from_local_nodes/3]).
 -export([scopes/0]).
 
--export([namespaced_stats_filter/2]).
+-export([namespaced_filter/2]).
 
 -define(TAGS, [<<"Monitor">>]).
 
@@ -99,7 +101,7 @@ schema("/prometheus") ->
 schema("/prometheus/namespaced_stats") ->
     #{
         'operationId' => ns_stats,
-        filter => fun ?MODULE:namespaced_stats_filter/2,
+        filter => fun ?MODULE:namespaced_filter/2,
         get =>
             #{
                 description => ?DESC("ns_stats"),
@@ -240,13 +242,9 @@ setting(put, #{body := Body}) ->
 stats(get, #{headers := Headers, query_string := Qs}) ->
     collect(emqx_prometheus, collect_opts(Headers, Qs)).
 
-ns_stats(get, #{headers := Headers, query_string := Qs}) ->
-    case response_type(Headers) of
-        <<"json">> ->
-            {400, <<"only prometheus format is supported">>};
-        <<"prometheus">> ->
-            collect_ns_stats(collect_opts_ns(Qs))
-    end.
+ns_stats(get, Req) ->
+    Opts = get_collect_opts(Req),
+    collect_ns_stats(Opts).
 
 auth(get, #{headers := Headers, query_string := Qs}) ->
     collect(emqx_prometheus_auth, collect_opts(Headers, Qs)).
@@ -306,8 +304,14 @@ maybe_ensure_prometheus_registry(_) ->
 collect_opts(Headers, Qs) ->
     #{type => response_type(Headers), mode => mode(Qs)}.
 
-collect_opts_ns(Qs) ->
-    #{namespace => namespace(Qs), mode => mode(Qs)}.
+collect_opts_ns_or_all(Req = #{query_string := Qs}) ->
+    Namespace0 = get_namespace(Req),
+    Namespace =
+        case maps:get(<<"only_global">>, Qs, false) of
+            false when Namespace0 == ?global_ns -> all;
+            _ -> Namespace0
+        end,
+    #{namespace => Namespace, mode => mode(Qs)}.
 
 response_type(#{<<"accept">> := <<"application/json">>}) ->
     <<"json">>;
@@ -329,11 +333,6 @@ mode(#{<<"mode">> := Mode}) ->
     end;
 mode(_) ->
     ?PROM_DATA_MODE__NODE.
-
-namespace(#{<<"ns">> := Namespace}) ->
-    Namespace;
-namespace(_) ->
-    all.
 
 gen_response(<<"json">>, Data) ->
     {200, Data};
@@ -418,9 +417,12 @@ validate_not_json(#{headers := Headers} = Req, _Meta) ->
             {ok, Req}
     end.
 
-parse_collect_opt_ns(#{query_string := Qs} = Req, _Meta) ->
-    Opts = collect_opts_ns(Qs),
+parse_collect_opt_ns(#{} = Req, _Meta) ->
+    Opts = collect_opts_ns_or_all(Req),
     {ok, Req#{collect_opts => Opts}}.
+
+get_collect_opts(Req) ->
+    maps:get(collect_opts, Req).
 
 rate_limit_all_ns_stats(#{collect_opts := #{namespace := all}} = Req, _Meta) ->
     Client = emqx_prometheus_limiter:connect_api(),
@@ -433,9 +435,30 @@ rate_limit_all_ns_stats(#{collect_opts := #{namespace := all}} = Req, _Meta) ->
 rate_limit_all_ns_stats(Req, _Meta) ->
     {ok, Req}.
 
-namespaced_stats_filter(Req0, Meta) ->
+namespaced_filter(Req0, Meta) ->
     maybe
-        {ok, Req1} ?= validate_not_json(Req0, Meta),
-        {ok, Req2} ?= parse_collect_opt_ns(Req1, Meta),
-        rate_limit_all_ns_stats(Req2, Meta)
+        {ok, Req1} ?= resolve_namespace(Req0, Meta),
+        {ok, Req2} ?= validate_not_json(Req1, Meta),
+        {ok, Req3} ?= parse_collect_opt_ns(Req2, Meta),
+        rate_limit_all_ns_stats(Req3, Meta)
+    end.
+
+get_namespace(#{resolved_ns := Namespace}) ->
+    Namespace.
+
+parse_namespace(#{query_string := QueryString} = Req) ->
+    ActorNamespace = emqx_dashboard:get_namespace(Req),
+    case maps:get(<<"ns">>, QueryString, ActorNamespace) of
+        QSNamespace when QSNamespace /= ActorNamespace andalso ActorNamespace /= ?global_ns ->
+            {error, not_authorized};
+        QSNamespace ->
+            {ok, QSNamespace}
+    end.
+
+resolve_namespace(Req, _Meta) ->
+    case parse_namespace(Req) of
+        {ok, Namespace} ->
+            {ok, Req#{resolved_ns => Namespace}};
+        {error, not_authorized} ->
+            ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
     end.
