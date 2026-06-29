@@ -98,6 +98,7 @@ groups() ->
             t_sub_non_utf8_topic,
             t_slow_client_survives_qos0_publish_storm,
             t_congestion_send_timeout,
+            t_congestion_qos0_no_send_timeout,
             t_congestion_decongested,
             t_first_packet_not_connect
         ]},
@@ -1240,6 +1241,8 @@ parse_incoming_qos1(Socket, Data, Parser0, Acc) ->
             {Parser, Acc}
     end.
 
+%% Verify that slow send-congested MQTT client overwhelmed by a stream of QoS1 publishes gets
+%% its connection terminated with `send_timeout` reason in configured timeout.
 t_congestion_send_timeout(init, Config) ->
     override_conf(
         #{
@@ -1257,7 +1260,7 @@ t_congestion_send_timeout(Config) ->
     PayloadSize = 12000,
     PublishInterval = 80,
     ConsumeRecvlen = 1000,
-    ConsumeInterval = 80,
+    ConsumeInterval = 100,
     Socket = socket_connect(Config, [{buffer, 4096}, {active, false}, binary]),
     %% Send manually constructed CONNECT:
     ok = socket_send(
@@ -1292,18 +1295,9 @@ t_congestion_send_timeout(Config) ->
     end,
     _PublisherPid = spawn_link(fun() -> Publisher(1) end),
     %% Start lagging consumer:
-    Consumer = fun Consumer() ->
-        case socket_recv(Socket, ConsumeRecvlen, 1000) of
-            {ok, _Bytes} ->
-                ok = timer:sleep(ConsumeInterval),
-                Consumer();
-            {error, timeout} ->
-                Consumer();
-            {error, closed} ->
-                closed
-        end
-    end,
-    _ConsumerPid = spawn_link(fun() -> Consumer() end),
+    _ConsumerPid = spawn_link(fun() ->
+        loop_slow_consumer(active, Socket, ConsumeRecvlen, ConsumeInterval)
+    end),
     %% Congestion alarm should be raised soon:
     {deliver, _, AlarmMsg} = ?assertReceive({deliver, AlarmTopic, _AlarmMsg}, 10_000),
     #{
@@ -1316,6 +1310,103 @@ t_congestion_send_timeout(Config) ->
     ?assertReceive({'DOWN', MRef, process, ConnPid, {shutdown, send_timeout}}, 10_000),
     ok = socket_close(Socket).
 
+%% Verify that slow send-congested MQTT client survives a stream of QoS0-only publishes,
+%% the connection stays up and no `send_timeout` socket errors are observed.
+%% Expectations:
+%% 1. Connection observes socket congestion.
+%% 2. Connection is never closed abnormally.
+%% 3. Under congestion, QoS0 messages enter mqueue and get dropped once mqueue is full.
+t_congestion_qos0_no_send_timeout(init, Config) ->
+    override_conf(
+        #{
+            [conn_congestion, enable_alarm] => true,
+            [conn_congestion, min_alarm_sustain_duration] => 0,
+            %% This timeout drives congestion alarms, decrease to receive alarms sooner:
+            [mqtt, idle_timeout] => 500,
+            %% Once the connection is marked congested, QoS0 must not keep pushing
+            %% the transport toward send_timeout through the session queue.
+            %% Keep the mqueue severely constrained to make sure connection survives
+            %% full mqueue flush each time it's considered decongested. In a better
+            %% world, connection would have adaptive flow control for such situations.
+            [mqtt, max_mqueue_len] => 20
+        },
+        Config
+    ).
+
+t_congestion_qos0_no_send_timeout(Config) ->
+    %% Configure a mismatch between publishing pace and subscriber capacity:
+    %% These are chosen to work similarly for all 3 listener types: `gen_tcp`,
+    %% `socket` and `ssl`.
+    PayloadSize = 5000,
+    PublishInterval = 50,
+    ConsumeRecvlen = 2000,
+    ConsumeInterval = 60,
+    %% Record dropped QoS0 count before the storm:
+    DroppedBefore = emqx_metrics:val_global('delivery.dropped.queue_full'),
+    ClientId = <<"t_congestion_qos0_no_send_timeout">>,
+    Socket = socket_connect(Config, [{buffer, 4096}, {active, false}, binary]),
+    %% Send manually constructed CONNECT:
+    ok = socket_send(
+        Socket,
+        emqx_frame:serialize(
+            ?CONNECT_PACKET(#mqtt_packet_connect{clientid = ClientId})
+        )
+    ),
+    {ok, Frames1} = socket_recv(Socket, 0, 1000),
+    {Pkt1, <<>>, Parser1} = emqx_frame:parse(Frames1, emqx_frame:initial_parse_state()),
+    ?assertMatch(?CONNACK_PACKET(0), Pkt1),
+    %% Send manually constructed SUBSCRIBE to subscribe to "t" at QoS0:
+    Topic = <<"t">>,
+    ok = socket_send(
+        Socket,
+        emqx_frame:serialize(
+            ?SUBSCRIBE_PACKET(1, [{Topic, #{rh => 0, rap => 0, nl => 0, qos => ?QOS_0}}])
+        )
+    ),
+    {ok, Frames2} = socket_recv(Socket, 0, 1000),
+    {Pkt2, <<>>, _Parser2} = emqx_frame:parse(Frames2, Parser1),
+    ?assertMatch(?SUBACK_PACKET(1, [?QOS_0]), Pkt2),
+    %% Subscribe to alarms:
+    AlarmTopic = <<"$SYS/brokers/+/alarms/activate">>,
+    ok = emqx_broker:subscribe(AlarmTopic),
+    %% Start filling up send buffers with QoS0 publishes:
+    Publisher = fun Publisher(N) ->
+        Payload = binary:copy(<<N:64>>, PayloadSize div 8),
+        _ = emqx:publish(emqx_message:make(<<"publisher">>, ?QOS_0, Topic, Payload)),
+        ok = timer:sleep(PublishInterval),
+        Publisher(N + 1)
+    end,
+    _PublisherPid = spawn_link(fun() -> Publisher(1) end),
+    %% Start lagging consumer:
+    ConsumerPid = spawn_link(fun() ->
+        loop_slow_consumer(active, Socket, ConsumeRecvlen, ConsumeInterval)
+    end),
+    %% Congestion alarm should be raised soon by QoS0 traffic:
+    {deliver, _, AlarmMsg} = ?assertReceive({deliver, AlarmTopic, _AlarmMsg}, 10_000),
+    #{
+        <<"name">> := <<"conn_congestion/t_congestion_qos0_no_send_timeout/undefined">>,
+        <<"details">> := AlarmDetails
+    } = emqx_utils_json:decode(emqx_message:payload(AlarmMsg)),
+    ConnPid = list_to_pid(binary_to_list(maps:get(<<"pid">>, AlarmDetails))),
+    MRef = erlang:monitor(process, ConnPid),
+    %% Wait 3 times listener send timeout:
+    %% QoS0 congestion must not cause the connection to close with `send_timeout`.
+    ?assertNotReceive({'DOWN', MRef, process, ConnPid, {shutdown, _}}, 7_500),
+    %% Verify that some QoS0 messages were actually dropped due to congestion:
+    ?assertMatch(
+        Dropped when Dropped > DroppedBefore,
+        emqx_metrics:val_global('delivery.dropped.queue_full')
+    ),
+    ?assertMatch(
+        SS when SS == idle; SS == running; SS == congested,
+        emqx_cth_broker:connection_info(sockstate, ClientId)
+    ),
+    true = unlink(ConsumerPid),
+    exit(ConsumerPid, shutdown),
+    ok = socket_close(Socket).
+
+%% Verify that slow send-congested MQTT client overwhelmed by a stream of QoS1 publishes raises
+%% an alarm, and this alarm deactivates once congestion is relieved.
 t_congestion_decongested(init, Config) ->
     override_conf(
         #{
@@ -1366,25 +1457,7 @@ t_congestion_decongested(Config) ->
     end,
     PublisherPid = spawn_link(fun() -> Publisher(1) end),
     %% Start consumer, initially paused:
-    Consumer = fun
-        Consumer(paused) ->
-            receive
-                activate ->
-                    Consumer(active)
-            after 5_000 ->
-                exit(activate_timeout)
-            end;
-        Consumer(active) ->
-            case socket_recv(Socket, 0, 1000) of
-                {ok, _Bytes} ->
-                    Consumer(active);
-                {error, timeout} ->
-                    Consumer(active);
-                {error, closed} ->
-                    exit(closed)
-            end
-    end,
-    ConsumerPid = spawn_link(fun() -> Consumer(paused) end),
+    ConsumerPid = spawn_link(fun() -> loop_slow_consumer(paused, Socket, 0, 0) end),
     %% Congestion alarm should be raised soon:
     {deliver, _, AlarmActivated} =
         ?assertReceive({deliver, <<"$SYS/brokers/+/alarms/activate">>, _}, 10_000),
@@ -1411,6 +1484,24 @@ t_congestion_decongested(Config) ->
     exit(PublisherPid, shutdown),
     exit(ConsumerPid, shutdown),
     ok = socket_close(Socket).
+
+loop_slow_consumer(paused, Socket, Recvlen, Interval) ->
+    receive
+        activate ->
+            loop_slow_consumer(active, Socket, Recvlen, Interval)
+    after 10_000 ->
+        exit(activate_timeout)
+    end;
+loop_slow_consumer(active, Socket, Recvlen, Interval) ->
+    case socket_recv(Socket, Recvlen, 1000) of
+        {ok, _Bytes} ->
+            ok = timer:sleep(Interval),
+            loop_slow_consumer(active, Socket, Recvlen, Interval);
+        {error, timeout} ->
+            loop_slow_consumer(active, Socket, Recvlen, Interval);
+        {error, closed} ->
+            closed
+    end.
 
 t_first_packet_not_connect(Config) ->
     Socket = socket_connect(Config, [{active, true}, binary]),
