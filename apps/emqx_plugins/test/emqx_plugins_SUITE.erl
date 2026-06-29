@@ -52,6 +52,7 @@ groups() ->
             group_t_copy_plugin_to_a_new_node,
             group_t_copy_plugin_to_a_new_node_single_node,
             group_t_cluster_leave,
+            group_t_cluster_rejoin_after_uninstall,
             group_t_cluster_force_sync_vsn
         ]},
         {create_tar_copy_plugin, [sequence], [group_t_copy_plugin_to_a_new_node]}
@@ -881,6 +882,125 @@ group_t_cluster_leave(Config) ->
         erpc:call(N2, emqx_mgmt_api_plugins, list_plugins, [get, Params])
     ),
     ok.
+
+group_t_cluster_rejoin_after_uninstall({init, Config}) ->
+    Specs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {plugin_rejoin_clean1, #{
+                role => core, apps => [emqx, emqx_conf, emqx_ctl]
+            }},
+            {plugin_rejoin_clean2, #{
+                role => core, apps => [emqx, emqx_conf, emqx_ctl]
+            }}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    Nodes = emqx_cth_cluster:start(Specs),
+    InstallRelDir = "plugins_rejoin_after_uninstall",
+    InstallDirs = [filename:join(WD, InstallRelDir) || #{work_dir := WD} <- Specs],
+    ok = lists:foreach(fun filelib:ensure_path/1, InstallDirs),
+    [#{package := Package} | _] = [make_minimal_plugin_package(Dir) || Dir <- InstallDirs],
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{ok, _}, {ok, _}] = erpc:multicall(Nodes, emqx_cth_suite, start_app, [
+        emqx_plugins,
+        #{
+            config => #{
+                plugins => #{
+                    install_dir => InstallRelDir,
+                    states => [#{name_vsn => NameVsn, enable => false}]
+                }
+            }
+        }
+    ]),
+    [
+        {nodes, Nodes},
+        {name_vsn, NameVsn}
+        | Config
+    ];
+group_t_cluster_rejoin_after_uninstall({'end', Config}) ->
+    Nodes = ?config(nodes, Config),
+    ok = emqx_cth_cluster:stop(Nodes);
+group_t_cluster_rejoin_after_uninstall(Config) ->
+    [N1, N2] = ?config(nodes, Config),
+    NameVsn = ?config(name_vsn, Config),
+    Params = unused,
+
+    %% Both nodes start with the plugin installed and configured.
+    ?assertMatch(
+        {ok, #{config_status := disabled}},
+        erpc:call(N1, emqx_plugins, describe, [NameVsn])
+    ),
+    ?assertMatch(
+        {ok, #{config_status := disabled}},
+        erpc:call(N2, emqx_plugins, describe, [NameVsn])
+    ),
+
+    %% N2 leaves and misses the later cluster-wide uninstall.
+    ok = erpc:call(N2, ekka, leave, []),
+    timer:sleep(1000),
+    ?assertEqual([N2], erpc:call(N2, emqx, running_nodes, [])),
+    ?assertEqual([N1], erpc:call(N1, emqx, running_nodes, [])),
+
+    {204} = erpc:call(N1, emqx_mgmt_api_plugins, plugin, [
+        delete, #{bindings => #{name => NameVsn}}
+    ]),
+    ?assertEqual([], erpc:call(N1, emqx_plugins, list, [])),
+
+    %% The isolated node still has the old local package.
+    ?assertMatch(
+        {ok, #{config_status := disabled}},
+        erpc:call(N2, emqx_plugins, describe, [NameVsn])
+    ),
+
+    ok = erpc:call(N2, ekka, join, [N1]),
+    timer:sleep(1000),
+    %% Mimic the cluster config copied from N1 after rejoin: no plugin states.
+    ok = erpc:call(N2, emqx_plugins, put_config_internal, [[states], []]),
+    ok = erpc:call(N2, application, stop, [emqx_plugins]),
+    {ok, _} = erpc:call(N2, application, ensure_all_started, [emqx_plugins]),
+
+    ?assertMatch({error, _}, erpc:call(N2, emqx_plugins, describe, [NameVsn])),
+    ?assertEqual([], erpc:call(N2, emqx_plugins, list, [])),
+    ?assertMatch(
+        {200, []},
+        erpc:call(N1, emqx_mgmt_api_plugins, list_plugins, [get, Params])
+    ),
+    ok.
+
+make_minimal_plugin_package(InstallDir) ->
+    PluginName = "emqx_plugin_rejoin_test",
+    PluginVsn = "1.0.0",
+    NameVsn = PluginName ++ "-" ++ PluginVsn,
+    PluginDir = filename:join(InstallDir, NameVsn),
+    EbinDir = filename:join([PluginDir, NameVsn, "ebin"]),
+    ok = filelib:ensure_path(filename:join(EbinDir, "dummy")),
+    ok = file:write_file(
+        filename:join(PluginDir, "release.json"),
+        io_lib:format(
+            "name=\"~s\", rel_vsn=\"~s\", rel_apps=[\"~s\"], description=\"test plugin\"",
+            [PluginName, PluginVsn, NameVsn]
+        )
+    ),
+    ok = file:write_file(
+        filename:join(EbinDir, PluginName ++ ".app"),
+        io_lib:format(
+            "{application, ~s, [{description, \"test plugin\"}, {vsn, \"~s\"}, "
+            "{registered, []}, {applications, [kernel, stdlib]}, {env, []}]}.\n",
+            [PluginName, PluginVsn]
+        )
+    ),
+    Package = filename:join(InstallDir, NameVsn ++ ?PACKAGE_SUFFIX),
+    ok = create_tar_from_dir(InstallDir, Package, NameVsn),
+    #{package => Package, name_vsn => NameVsn, release_name => PluginName}.
+
+create_tar_from_dir(Dir, Package, NameVsn) ->
+    {ok, Cwd} = file:get_cwd(),
+    ok = file:set_cwd(Dir),
+    try
+        erl_tar:create(filename:basename(Package), [NameVsn], [compressed])
+    after
+        ok = file:set_cwd(Cwd)
+    end.
 
 group_t_cluster_force_sync_vsn({init, Config}) ->
     OldInstallDir = filename:join(emqx_cth_suite:work_dir(?FUNCTION_NAME, Config), old),
