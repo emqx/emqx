@@ -53,7 +53,6 @@
     out/1,
     out/2,
     out_p/1,
-    join/2,
     filter/2,
     fold/3,
     highest/1,
@@ -263,47 +262,6 @@ add_p(R, P) ->
         {empty, Q} -> {empty, Q};
         {{value, V}, Q} -> {{value, V, P}, Q}
     end.
-
--spec join(pqueue(), pqueue()) -> pqueue().
-join(A, {queue, [], [], 0}) ->
-    A;
-join({queue, [], [], 0}, B) ->
-    B;
-join({queue, AIn, AOut, ALen}, {queue, BIn, BOut, BLen}) ->
-    {queue, BIn, AOut ++ lists:reverse(AIn, BOut), ALen + BLen};
-join(A = {queue, _, _, _}, {pqueue, BPQ}) ->
-    {Pre, Post} =
-        lists:splitwith(fun({P, _}) -> P < 0 orelse P == infinity end, BPQ),
-    Post1 =
-        case Post of
-            [] -> [{0, A}];
-            [{0, ZeroQueue} | Rest] -> [{0, join(A, ZeroQueue)} | Rest];
-            _ -> [{0, A} | Post]
-        end,
-    {pqueue, Pre ++ Post1};
-join({pqueue, APQ}, B = {queue, _, _, _}) ->
-    {Pre, Post} =
-        lists:splitwith(fun({P, _}) -> P < 0 orelse P == infinity end, APQ),
-    Post1 =
-        case Post of
-            [] -> [{0, B}];
-            [{0, ZeroQueue} | Rest] -> [{0, join(ZeroQueue, B)} | Rest];
-            _ -> [{0, B} | Post]
-        end,
-    {pqueue, Pre ++ Post1};
-join({pqueue, APQ}, {pqueue, BPQ}) ->
-    {pqueue, merge(APQ, BPQ, [])}.
-
-merge([], BPQ, Acc) ->
-    lists:reverse(Acc, BPQ);
-merge(APQ, [], Acc) ->
-    lists:reverse(Acc, APQ);
-merge([{P, A} | As], [{P, B} | Bs], Acc) ->
-    merge(As, Bs, [{P, join(A, B)} | Acc]);
-merge([{PA, A} | As], Bs = [{PB, _} | _], Acc) when PA < PB orelse PA == infinity ->
-    merge(As, Bs, [{PA, A} | Acc]);
-merge(As = [{_, _} | _], [{PB, B} | Bs], Acc) ->
-    merge(As, Bs, [{PB, B} | Acc]).
 
 -spec filter(fun((any()) -> boolean()), pqueue()) -> pqueue().
 filter(Pred, Q) ->
