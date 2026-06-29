@@ -203,7 +203,7 @@ connect_attrs(
         'client.will_qos' => WillQos,
         'client.will_retain' => WillRetain,
         'client.keepalive' => KeepAlive,
-        'client.conn_props' => json_encode_proplist(Properties),
+        'client.conn_props' => json_encode_proplist(redact_conn_props(Properties)),
         'client.will_props' => json_encode(WillProps),
         'client.will_topic' => WillTopic,
         'client.sockname' => emqx_utils:ntoa(emqx_channel:info(sockname, Channel)),
@@ -398,6 +398,11 @@ json_encode(Term) ->
 %% Properties is a map which may include 'User-Property' of key-value pairs
 json_encode_proplist(Properties) ->
     emqx_utils_json:encode_proplist(Properties).
+
+redact_conn_props(#{'Authentication-Data' := _} = Properties) ->
+    Properties#{'Authentication-Data' := <<"******">>};
+redact_conn_props(Properties) ->
+    Properties.
 
 format_datetime(undefined) ->
     undefined;
