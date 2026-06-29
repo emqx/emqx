@@ -881,14 +881,7 @@ configured() ->
     get_config_internal(states, []).
 
 configured_name_vsns() ->
-    [bin(NameVsn) || Item <- configured(), NameVsn <- configured_name_vsn(Item)].
-
-configured_name_vsn(#{name_vsn := NameVsn}) ->
-    [NameVsn];
-configured_name_vsn(#{<<"name_vsn">> := NameVsn}) ->
-    [NameVsn];
-configured_name_vsn(_) ->
-    [].
+    lists:map(fun(#{name_vsn := NameVsn}) -> bin(NameVsn) end, configured()).
 
 configured_app_names(ConfiguredNameVsns) ->
     lists:filtermap(

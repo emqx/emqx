@@ -179,7 +179,7 @@ meck_emqx() ->
         emqx,
         update_config,
         fun(Path, Values, _Opts) ->
-            emqx_config:put(Path, Values)
+            emqx_config:put(Path, mock_schema_key_transform(Values))
         end
     ),
     meck:expect(
@@ -188,6 +188,23 @@ meck_emqx() ->
         fun(_NameVsn) -> ok end
     ),
     ok.
+
+mock_schema_key_transform(List = [#{} | _]) ->
+    [mock_schema_key_transform(Item) || Item <- List];
+mock_schema_key_transform(Map) when is_map(Map) ->
+    maps:fold(
+        fun(K, V, Acc) ->
+            Acc#{mock_schema_key_transform(K) => mock_schema_key_transform(V)}
+        end,
+        #{},
+        Map
+    );
+mock_schema_key_transform(<<"name_vsn">>) ->
+    name_vsn;
+mock_schema_key_transform(<<"enable">>) ->
+    enable;
+mock_schema_key_transform(Term) ->
+    Term.
 
 unmeck_emqx() ->
     meck:unload(emqx),
