@@ -35,6 +35,7 @@ function typeClass(t) {
   if (t === 'message__publish')  return 'publish';
   if (t === 'message__request')  return 'request';
   if (t === 'http')              return 'http';
+  if (t === 'image__fetch')      return 'http';
   if (t?.startsWith('postgresql')) return 'ch';
   if (t?.startsWith('stream__')) return 'request';
   if (t?.startsWith('kv__')) return 'kv';
@@ -72,6 +73,8 @@ export function collectToolBody() {
     body.payload_type  = document.getElementById('tool-http-payload-type').value;
     body.autodiscover_images = document.getElementById('tool-http-autodiscover-images').checked;
     body.images = imagePaths('tool-http-images');
+  } else if (type === 'image__fetch') {
+    body.url = document.getElementById('tool-image-fetch-url').value.trim();
   } else if (type === 'postgresql__query') {
     body.resource = document.getElementById('tool-resource').value;
     body.query = document.getElementById('tool-query').value.trim();
@@ -127,6 +130,8 @@ export function editTool(type, id) {
     document.getElementById('tool-http-autodiscover-images').checked = tool.autodiscover_images ?? true;
     setImagePathEditorValue('tool-http-images', tool.images ?? []);
     setSchemaEditorValue('se-tool-input-schema', parseSchema(tool.input_schema));
+  } else if (type === 'image__fetch') {
+    document.getElementById('tool-image-fetch-url').value = tool.url ?? '';
   } else if (type === 'message__publish') {
     document.getElementById('tool-prefix').value = tool.topic_prefix ?? '';
     const legacyPayloadSchema = tool.input_schema?.properties?.payload;
@@ -238,6 +243,7 @@ export function resetToolEditor() {
   setSchemaEditorValue('se-tool-request-payload-schema', null);
   document.getElementById('tool-method').value = 'post';
   document.getElementById('tool-url').value = '';
+  document.getElementById('tool-image-fetch-url').value = '';
   document.getElementById('tool-http-payload-type').value = 'json';
   document.getElementById('tool-http-autodiscover-images').checked = true;
   setImagePathEditorValue('tool-http-images', []);
@@ -267,6 +273,7 @@ export function updateToolForm() {
   document.getElementById('f-publish').style.display  = type === 'message__publish'  ? '' : 'none';
   document.getElementById('f-request').style.display  = type === 'message__request'  ? '' : 'none';
   document.getElementById('f-http').style.display     = type === 'http'              ? '' : 'none';
+  document.getElementById('f-image-fetch').style.display = type === 'image__fetch'   ? '' : 'none';
   document.getElementById('f-ch').style.display       = type === 'postgresql__query'  ? '' : 'none';
   document.getElementById('f-stream').style.display   = isStreamTool(type) ? '' : 'none';
   document.getElementById('f-format').style.display   = hasFormat(type) ? '' : 'none';

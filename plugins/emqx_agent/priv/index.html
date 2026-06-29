@@ -49,6 +49,7 @@
               <option value="message__publish">message__publish</option>
               <option value="message__request">message__request</option>
               <option value="http">http</option>
+              <option value="image__fetch">image__fetch</option>
               <option value="postgresql__query">postgresql__query</option>
               <option value="stream__write">stream__write</option>
               <option value="stream__read">stream__read</option>
@@ -158,6 +159,15 @@
             <label>Image paths</label>
             <div id="tool-http-images"></div>
             <div class="hint">Optional JSON paths to extract as image attachments, one per line. Use . for binary root.</div>
+          </div>
+        </div>
+
+        <!-- image__fetch fields -->
+        <div id="f-image-fetch" style="display:none">
+          <div class="field">
+            <label>Base URL</label>
+            <input id="tool-image-fetch-url" type="text" placeholder="https://example.com/images">
+            <div class="hint">Invoked image URLs must be full URLs under this base URL. The tool validates the URL and does not fetch it.</div>
           </div>
         </div>
 

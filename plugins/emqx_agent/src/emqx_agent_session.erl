@@ -73,6 +73,8 @@ Events in initial_idle are buffered and folded in when the first request arrives
 
 -ifdef(TEST).
 -export([
+    test_attachment_msgs/1,
+    test_order_tool_result_msgs/1,
     init_stream_acc/0,
     test_feed_sse/2,
     test_stream_chunks/1,
@@ -522,7 +524,7 @@ on_tool_result(CallId, Msg, Data) ->
                     <<"required">> -> <<"auto">>;
                     TC -> TC
                 end,
-            Results = Data1#data.tool_result_msgs,
+            Results = order_tool_result_msgs(Data1#data.tool_result_msgs),
             EventMsgs = [event_to_llm_msg(E) || E <- Data1#data.pending],
             Data2 = Data1#data{
                 messages = Data1#data.messages ++ Results ++ EventMsgs,
@@ -1264,11 +1266,27 @@ attachment_msgs(Attachments) when is_list(Attachments) ->
 attachment_msgs(_) ->
     [].
 
+order_tool_result_msgs(Msgs) ->
+    {ToolMsgs, ExtraMsgs} = lists:partition(fun is_tool_msg/1, Msgs),
+    ToolMsgs ++ ExtraMsgs.
+
+is_tool_msg(#{<<"role">> := <<"tool">>}) ->
+    true;
+is_tool_msg(_) ->
+    false.
+
 attachment_text_part(Attachments) ->
     Ids = [Id || #{<<"id">> := Id, <<"type">> := <<"image">>} <- Attachments],
     Text = iolist_to_binary(["Tool response image(s): ", lists:join(", ", Ids)]),
     #{<<"type">> => <<"text">>, <<"text">> => Text}.
 
+attachment_part(
+    #{
+        <<"type">> := <<"image">>,
+        <<"url">> := Url
+    }
+) when is_binary(Url) ->
+    {true, #{<<"type">> => <<"image_url">>, <<"image_url">> => #{<<"url">> => Url}}};
 attachment_part(
     #{
         <<"type">> := <<"image">>,
@@ -1295,6 +1313,12 @@ try_parse_result(Content) ->
 %%--------------------------------------------------------------------
 
 -ifdef(TEST).
+
+test_attachment_msgs(Attachments) ->
+    attachment_msgs(Attachments).
+
+test_order_tool_result_msgs(Msgs) ->
+    order_tool_result_msgs(Msgs).
 
 -define(TEST_SID, <<"test-sid">>).
 -define(TEST_IID, <<"test-iid">>).

@@ -30,6 +30,7 @@ Tool types accepted on POST:
   message__publish  — MQTT publish capability scoped to a topic prefix
   message__request  — MQTT request/reply capability scoped to a topic prefix
   http             — HTTP call capability
+  image__fetch     — Image URL attachment capability
   postgresql__query — PostgreSQL query
   stream__write     — Write data to an EMQX stream
   stream__read      — Read data from an EMQX stream
@@ -41,7 +42,7 @@ Tool types accepted on POST:
   kv__clear         — Clear a last-value stream
 
 For GET/DELETE, use the actual registry type in the :type URL segment
-(message__publish, message__request, http, postgresql__query, stream__write, stream__read, stream__del, kv__write, kv__read, kv__read_all, kv__del, kv__clear).
+(message__publish, message__request, http, image__fetch, postgresql__query, stream__write, stream__read, stream__del, kv__write, kv__read, kv__read_all, kv__del, kv__clear).
 """.
 
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
@@ -235,7 +236,7 @@ no_cache_headers(ContentType) ->
             ?CONFLICT(<<"Tool already exists">>);
         {error, unknown_type} ->
             ?BAD_REQUEST(
-                <<"Unknown tool type. Valid types: message__publish, message__request, http, postgresql__query, stream__write, stream__read, stream__del, kv__write, kv__read, kv__read_all, kv__del, kv__clear">>
+                <<"Unknown tool type. Valid types: message__publish, message__request, http, image__fetch, postgresql__query, stream__write, stream__read, stream__del, kv__write, kv__read, kv__read_all, kv__del, kv__clear">>
             );
         {error, Reason} ->
             ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))

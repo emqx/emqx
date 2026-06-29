@@ -50,6 +50,16 @@
           },
           {
             "type": "record",
+            "name": "Image_Fetch",
+            "fields": [
+              {"name": "type", "type": {"type": "enum", "name": "Image_FetchType", "symbols": ["image__fetch"]}, "default": "image__fetch", "description": "$tool_type_desc"},
+              {"name": "id", "type": "string", "description": "$tool_id_desc"},
+              {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
+              {"name": "url", "type": "string", "description": "$tool_image_fetch_url_desc"}
+            ]
+          },
+          {
+            "type": "record",
             "name": "Postgresql_Query",
             "fields": [
               {"name": "type", "type": {"type": "enum", "name": "Postgresql_QueryType", "symbols": ["postgresql__query"]}, "default": "postgresql__query", "description": "$tool_type_desc"},
