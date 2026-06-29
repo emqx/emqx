@@ -770,6 +770,16 @@ t_cache_overflow(Config) ->
             %% URL (1) connects again and needs to be re-cached; this
             %% time, (2) gets evicted
             assert_successful_connection(Config, 1),
+            %% The final emqtt:connect returns before the server-side
+            %% emqx_crl_cache gen_server has emitted the URL1 re-insert /
+            %% URL2 overflow / URL1 timer events.  Block until the second
+            %% overflow (evicting URL2) lands so ?check_trace snapshots the
+            %% full event sequence rather than a 7-event prefix.
+            URL2 = "http://localhost:9878/intermediate2.crl.pem",
+            {ok, _} = ?block_until(
+                #{?snk_kind := crl_cache_overflow, oldest_url := URL2},
+                5_000
+            ),
             %% TODO: force race condition where the same URL is fetched
             %% at the same time and tries to be registered
             ok

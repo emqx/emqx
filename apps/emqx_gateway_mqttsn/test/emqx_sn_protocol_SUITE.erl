@@ -22,6 +22,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -1393,6 +1394,74 @@ t_will_case01(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
     gen_udp:close(Socket).
+
+t_will_publish_denied_by_authz(_) ->
+    QoS = 1,
+    Duration = 1,
+    WillMsg = <<"will-authz-denied">>,
+    WillTopic = <<"will/authz/denied">>,
+    ClientId = ?CLIENTID,
+    ok = emqx_broker:subscribe(WillTopic),
+    try
+        with_gateway_authz_result('mqtt-sn', publish, WillTopic, deny, fun() ->
+            {ok, Socket} = gen_udp:open(0, [binary]),
+            try
+                send_connect_msg_with_will(Socket, Duration, ClientId),
+                ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+
+                send_willtopic_msg(Socket, WillTopic, QoS),
+                ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+
+                send_willmsg_msg(Socket, WillMsg),
+                ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+                send_pingreq_msg(Socket, undefined),
+                ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+
+                timer:sleep(3000),
+                ?assertNotReceive({deliver, WillTopic, #message{payload = WillMsg}}, 1000),
+                ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket))
+            after
+                gen_udp:close(Socket)
+            end
+        end)
+    after
+        ok = emqx_broker:unsubscribe(WillTopic)
+    end.
+
+t_will_publish_allowed_by_authz(_) ->
+    QoS = 1,
+    Duration = 1,
+    WillMsg = <<"will-authz-allowed">>,
+    WillTopic = <<"will/authz/allowed">>,
+    ClientId = ?CLIENTID,
+    ok = emqx_broker:subscribe(WillTopic),
+    try
+        with_gateway_authz_result('mqtt-sn', publish, WillTopic, allow, fun() ->
+            {ok, Socket} = gen_udp:open(0, [binary]),
+            try
+                send_connect_msg_with_will(Socket, Duration, ClientId),
+                ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+
+                send_willtopic_msg(Socket, WillTopic, QoS),
+                ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+
+                send_willmsg_msg(Socket, WillMsg),
+                ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+                send_pingreq_msg(Socket, undefined),
+                ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+
+                timer:sleep(3000),
+                ?assertReceive({deliver, WillTopic, #message{payload = WillMsg}}, 1000),
+                ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket))
+            after
+                gen_udp:close(Socket)
+            end
+        end)
+    after
+        ok = emqx_broker:unsubscribe(WillTopic)
+    end.
 
 t_will_test2(_) ->
     QoS = 2,
@@ -2957,6 +3026,38 @@ receive_response(Socket, Timeout) ->
     after Timeout ->
         udp_receive_timeout
     end.
+
+with_gateway_authz_result(Protocol, ActionType, Topic, Result, Fun) ->
+    Action = {?MODULE, gateway_authz_result, [Protocol, ActionType, Topic, Result]},
+    ok = emqx_hooks:put('client.authorize', Action, ?HP_HIGHEST),
+    try
+        Fun()
+    after
+        ok = emqx_hooks:del('client.authorize', Action)
+    end.
+
+gateway_authz_result(
+    #{protocol := Protocol},
+    #{action_type := ActionType},
+    Topic,
+    _DefaultResult,
+    Protocol,
+    ActionType,
+    Topic,
+    Result
+) ->
+    {stop, #{result => Result, from => test, is_cacheable => false}};
+gateway_authz_result(
+    _ClientInfo,
+    _Action,
+    _Topic,
+    DefaultResult,
+    _Protocol,
+    _ActionType,
+    _ExpectedTopic,
+    _Result
+) ->
+    {ok, DefaultResult}.
 
 check_dispatched_message(Dup, QoS, Retain, TopicIdType, TopicId, Payload, Socket) ->
     PubMsg = receive_response(Socket),

@@ -89,22 +89,21 @@ authenticate(
                             Error
                     end;
                 _ ->
-                    ?TRACE_AUTHN_PROVIDER(info, "redis_query_not_matched", #{
-                        resource => ResourceId,
-                        cmd => Command,
-                        keys => NKey,
-                        fields => Fields
-                    }),
+                    ?TRACE_AUTHN_PROVIDER(
+                        info,
+                        "redis_query_not_matched",
+                        redis_log_meta(ResourceId, CommandName, KeyTemplate, Credential, Fields)
+                    ),
                     ignore
             end;
         {error, Reason} ->
-            ?TRACE_AUTHN_PROVIDER(error, "redis_query_failed", #{
-                resource => ResourceId,
-                cmd => Command,
-                keys => NKey,
-                fields => Fields,
-                reason => Reason
-            }),
+            ?TRACE_AUTHN_PROVIDER(
+                error,
+                "redis_query_failed",
+                (redis_log_meta(ResourceId, CommandName, KeyTemplate, Credential, Fields))#{
+                    reason => Reason
+                }
+            ),
             ignore
     end.
 
@@ -116,6 +115,15 @@ authn_result(Selected) ->
     Res0 = emqx_authn_utils:is_superuser(Selected),
     Res1 = emqx_authn_utils:clientid_override(Selected),
     maps:merge(Res0, Res1).
+
+redis_log_meta(ResourceId, CommandName, KeyTemplate, Credential, Fields) ->
+    LogKey = emqx_auth_template:render_str_redacted(KeyTemplate, Credential),
+    #{
+        resource => ResourceId,
+        cmd => [CommandName, LogKey | Fields],
+        keys => LogKey,
+        fields => Fields
+    }.
 
 create_state(
     ResourceId,

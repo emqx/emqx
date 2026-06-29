@@ -100,7 +100,7 @@ authenticate(
         {error, Reason} ->
             ?TRACE_AUTHN_PROVIDER(error, "postgresql_query_failed", #{
                 resource => ResourceId,
-                params => Params,
+                params => emqx_auth_template:render_sql_params_redacted(PlaceHolders, Credential),
                 reason => Reason
             }),
             ignore

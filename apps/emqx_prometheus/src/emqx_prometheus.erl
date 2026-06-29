@@ -150,7 +150,7 @@ push_to_push_gateway(Method, Url, Headers) when
                 msg => "post_to_push_gateway_failed",
                 error => Error,
                 url => Url,
-                headers => Headers
+                headers => emqx_utils_redact:redact_headers(Headers)
             }),
             failed
     end.
