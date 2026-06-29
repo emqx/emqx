@@ -178,6 +178,7 @@ t_store_and_clean(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
 
+    Retained0 = emqx_metrics:val_global('messages.retained'),
     emqtt:publish(
         C1,
         <<"retained">>,
@@ -185,6 +186,7 @@ t_store_and_clean(_) ->
         [{qos, 0}, {retain, true}]
     ),
     timer:sleep(100),
+    ?assertEqual(Retained0 + 1, emqx_metrics:val_global('messages.retained')),
 
     {ok, _, List} = emqx_retainer:page_read(<<"retained">>, 1, 10),
     ?assertEqual(1, length(List)),
@@ -205,6 +207,7 @@ t_store_and_clean(_) ->
 
     emqtt:publish(C1, <<"retained">>, <<"">>, [{qos, 0}, {retain, true}]),
     timer:sleep(100),
+    ?assertEqual(Retained0 + 1, emqx_metrics:val_global('messages.retained')),
 
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(0, length(receive_messages(1))),
