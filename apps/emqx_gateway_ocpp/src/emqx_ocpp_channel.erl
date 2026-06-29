@@ -225,7 +225,7 @@ init(
             username => undefined,
             is_bridge => false,
             is_superuser => false,
-            enalbe_authn => EnableAuthn,
+            enable_authn => EnableAuthn,
             mountpoint => Mountpoint
         }
     ),
