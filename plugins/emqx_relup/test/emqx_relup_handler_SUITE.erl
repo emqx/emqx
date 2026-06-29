@@ -109,7 +109,8 @@ t_5105_catalog_uses_plugin_eredis_upgrade_module(_Config) ->
     ).
 
 -doc "The 5.10.4 -> 5.10.5 hop also applies SAML XXE, backup download "
-"authorization, and PostgreSQL fixes without extending the Redis stop/start window.".
+"authorization, PostgreSQL, and plugin cleanup fixes without extending the "
+"Redis stop/start window.".
 t_5105_catalog_covers_saml_xxe_backup_download_and_postgresql_fixes(_Config) ->
     {Valid, _Errors} = emqx_relup_handler:validate_priv_catalog(),
     #{code_changes := CodeChanges} = find_relup_entry("5.10.4", "5.10.5", Valid),
@@ -117,6 +118,7 @@ t_5105_catalog_covers_saml_xxe_backup_download_and_postgresql_fixes(_Config) ->
     StopRedis = {apply, emqx_relup_eredis_upgrade, stop_redis_resources, []},
     StartRedis = {apply, emqx_relup_eredis_upgrade, start_redis_resources, []},
     AnnounceBPAPI = {apply, emqx_bpapi, announce, [node(), emqx]},
+    PluginPurge = {apply, emqx_plugins, purge_unconfigured, []},
     ?assert(is_before(StopRedis, StartRedis, CodeChanges)),
     lists:foreach(
         fun(Instruction) ->
@@ -140,9 +142,14 @@ t_5105_catalog_covers_saml_xxe_backup_download_and_postgresql_fixes(_Config) ->
             {load_module, emqx_mgmt_data_backup_proto_v2},
             {load_module, emqx_mgmt_api_data_backup},
             AnnounceBPAPI,
-            {load_module, emqx_postgresql}
+            {load_module, emqx_postgresql},
+            {load_module, emqx_plugins},
+            {load_module, emqx_plugins_app},
+            PluginPurge
         ]
     ),
+    ?assert(is_before({load_module, emqx_plugins}, PluginPurge, CodeChanges)),
+    ?assert(is_before({load_module, emqx_plugins_app}, PluginPurge, CodeChanges)),
     ?assert(is_before({load_module, emqx_mgmt_data_backup_proto_v2}, AnnounceBPAPI, CodeChanges)).
 
 %%==============================================================================
