@@ -19,6 +19,7 @@ init_per_suite(Config) ->
             {emqx,
                 "listeners.tcp.default.tcp_backend = socket\n"
                 "listeners.tcp.default.tcp_options.active_n = 10\n"
+                "listeners.tcp.default.tcp_options.high_watermark = 5\n"
                 "listeners.tcp.default.tcp_options.send_timeout = 2s\n"}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -46,7 +47,7 @@ t_send_congestion_times_out(_) ->
             listener => {tcp, default}
         }),
         %% Simulate entering congested socket state:
-        State1 = emqx_socket_connection:queue_send(make_ref(), <<"a">>, 1, State0),
+        State1 = emqx_socket_connection:queue_send(make_ref(), <<"aaaaa">>, 5, State0),
         {ok, State2} = emqx_socket_connection:send(1, <<"b">>, State1),
         {ok, State3} = emqx_socket_connection:send(1, <<"c">>, State2),
         ?assertNotEqual(idle, emqx_socket_connection:info(sockstate, State3)),
@@ -54,20 +55,20 @@ t_send_congestion_times_out(_) ->
         ok = timer:sleep(1500),
         erlang:put(?FUNCTION_NAME, {select, {info1, _Rest = <<"c">>}}),
         {ok, State4} = emqx_socket_connection:handle_send_ready(sock, State3),
-        ?assertReceive({socket, send, <<"abc">>}),
+        ?assertReceive({socket, send, <<"aaaaabc">>}),
         ?assertNotEqual(idle, emqx_socket_connection:info(sockstate, State4)),
         %% Put more packets in the send queue:
-        {ok, State5} = emqx_socket_connection:send(1, <<"d">>, State4),
-        {ok, State6} = emqx_socket_connection:send(1, <<"e">>, State5),
+        {ok, State5} = emqx_socket_connection:send(3, <<"ddd">>, State4),
+        {ok, State6} = emqx_socket_connection:send(3, <<"eee">>, State5),
         %% Simulate totally congested socket after 1.5 seconds:
         %% This still succeeds because partial decongestion reset the deadline.
         ok = timer:sleep(1500),
         erlang:put(?FUNCTION_NAME, {select, info2}),
         {ok, State7} = emqx_socket_connection:handle_send_ready(sock, State6),
-        ?assertReceive({socket, send, <<"cde">>}),
+        ?assertReceive({socket, send, <<"cdddeee">>}),
         ?assertNotEqual(idle, emqx_socket_connection:info(sockstate, State7)),
         %% Queue another packet:
-        {ok, State8} = emqx_socket_connection:send(1, <<"f">>, State7),
+        {ok, State8} = emqx_socket_connection:send(5, <<"fffff">>, State7),
         %% Sending more packets after 1.5 seconds fails because of send timeout:
         ok = timer:sleep(1500),
         ?assertMatch(

@@ -128,7 +128,7 @@
 
 -record(congested, {
     handle :: reference(),
-    deadline :: _TimestampMs :: integer(),
+    deadline :: _TimestampMs :: integer() | infinity,
     sendq :: [erlang:iodata()],
     queued :: non_neg_integer(),
     watermark :: {high | low, pos_integer()}
@@ -1077,15 +1077,18 @@ send(
 send(
     Num,
     IoData,
-    State = #state{sockstate = SS = #congested{sendq = SQ, deadline = Deadline, queued = NOctets}}
+    State = #state{
+        sockstate = SS = #congested{sendq = SQ, deadline = Deadline, queued = NOctets},
+        conf = Conf
+    }
 ) ->
     Oct = iolist_size(IoData),
-    case erlang:monotonic_time(millisecond) of
-        BeforeDeadline when BeforeDeadline < Deadline ->
+    case Deadline =:= infinity orelse erlang:monotonic_time(millisecond) < Deadline of
+        true ->
             NSS = SS#congested{sendq = [IoData | SQ], queued = NOctets + Oct},
-            NState = State#state{sockstate = NSS},
+            NState = State#state{sockstate = maybe_arm_send_deadline(NSS, Conf)},
             {ok, sent(Num, Oct, NState)};
-        _PastDeadline ->
+        false ->
             {ok, {sock_error, send_timeout}, State}
     end;
 send(_Num, _IoVec, #state{sockstate = closed} = State) ->
@@ -1120,35 +1123,33 @@ handle_send_ready(
 
 queue_send(Handle, IoData, NOctets, State = #state{conf = Conf}) ->
     Watermark = get_high_watermark(Conf),
-    queue_send(Handle, IoData, NOctets, {high, Watermark div 2}, State).
+    queue_send(Handle, IoData, NOctets, {high, Watermark}, State).
 
 queue_send(Handle, IoData, NOctets, WM, State = #state{conf = Conf}) ->
-    Timeout = get_send_timeout(Conf),
-    Deadline = erlang:monotonic_time(millisecond) + Timeout,
     SS = #congested{
         handle = Handle,
-        deadline = Deadline,
+        deadline = infinity,
         sendq = [IoData],
         queued = NOctets,
         watermark = WM
     },
-    State#state{sockstate = SS}.
+    State#state{sockstate = maybe_arm_send_deadline(SS, Conf)}.
 
 maybe_signal_congestion(
     State = #state{
         sockstate = SS = #congested{queued = NOctets, watermark = {high, WM}}
     }
-) when NOctets > WM ->
+) when NOctets > WM div 2 ->
     Signal = {connection, congested, #{sendq_size => NOctets}},
-    NSS = SS#congested{watermark = {low, WM div 2}},
+    NSS = SS#congested{watermark = {low, WM}},
     signal_channel(Signal, State#state{sockstate = NSS});
 maybe_signal_congestion(
     State = #state{
         sockstate = SS = #congested{queued = NOctets, watermark = {low, WM}}
     }
-) when NOctets < WM ->
+) when NOctets < WM div 4 ->
     Signal = {connection, decongested, #{sendq_size => NOctets}},
-    NSS = SS#congested{watermark = {high, WM * 2}},
+    NSS = SS#congested{watermark = {high, WM}},
     signal_channel(Signal, State#state{sockstate = NSS});
 maybe_signal_congestion(State) ->
     {ok, State}.
@@ -1161,7 +1162,17 @@ signal_channel(Signal, State = #state{channel = Channel}) ->
             {ok, Replies, State#state{channel = NChannel}}
     end.
 
-check_send_timeout(#congested{deadline = Deadline}, State) ->
+maybe_arm_send_deadline(
+    SS = #congested{deadline = infinity, queued = NQ, watermark = {_, WM}},
+    Conf
+) when NQ > WM ->
+    Timeout = get_send_timeout(Conf),
+    Deadline = erlang:monotonic_time(millisecond) + Timeout,
+    SS#congested{deadline = Deadline};
+maybe_arm_send_deadline(SS, _Conf) ->
+    SS.
+
+check_send_timeout(#congested{deadline = Deadline}, State) when is_integer(Deadline) ->
     case erlang:monotonic_time(millisecond) of
         BeforeDeadline when BeforeDeadline < Deadline ->
             {ok, State};
