@@ -71,7 +71,7 @@ init_per_suite(Config) ->
     InstallDir = filename:join([WorkDir, "plugins"]),
     Apps = emqx_cth_suite:start(
         [
-            emqx_conf,
+            {emqx_conf, #{config => isolated_listener_config()}},
             emqx_ctl,
             {emqx_plugins, #{config => #{plugins => #{install_dir => InstallDir}}}}
         ],
@@ -82,6 +82,19 @@ init_per_suite(Config) ->
 
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
+
+isolated_listener_config() ->
+    #{
+        listeners =>
+            maps:from_list([
+                {Type, #{default => #{bind => listener_bind()}}}
+             || Type <- [tcp, ssl, ws, wss]
+            ])
+    }.
+
+listener_bind() ->
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    iolist_to_binary(io_lib:format("127.0.0.1:~B", [Port])).
 
 init_per_testcase(TestCase, Config) ->
     emqx_plugins_test_helpers:purge_plugins(),
@@ -952,15 +965,33 @@ group_t_cluster_rejoin_after_uninstall(Config) ->
         erpc:call(N2, emqx_plugins, describe, [NameVsn])
     ),
 
-    ok = erpc:call(N2, ekka, join, [N1]),
-    timer:sleep(1000),
-    %% Mimic the cluster config copied from N1 after rejoin: no plugin states.
-    ok = erpc:call(N2, emqx_plugins, put_config_internal, [[states], []]),
-    ok = erpc:call(N2, application, stop, [emqx_plugins]),
-    {ok, _} = erpc:call(N2, application, ensure_all_started, [emqx_plugins]),
-
-    ?assertMatch({error, _}, erpc:call(N2, emqx_plugins, describe, [NameVsn])),
-    ?assertEqual([], erpc:call(N2, emqx_plugins, list, [])),
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            ok = ?ON(N2, emqx_machine_boot:start_autocluster()),
+            ?ON(N2, begin
+                StartCallback0 =
+                    case ekka:env({callback, start}) of
+                        {ok, SC0} -> SC0;
+                        _ -> fun() -> ok end
+                    end,
+                StartCallback = fun() ->
+                    ok = emqx_app:set_config_loader(emqx_cth_suite),
+                    StartCallback0()
+                end,
+                ekka:callback(start, StartCallback)
+            end),
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    ?ON(N2, emqx_cluster:join(N1)),
+                    #{?snk_kind := "emqx_plugins_app_started"}
+                ),
+            ?assertMatch({error, _}, erpc:call(N2, emqx_plugins, describe, [NameVsn])),
+            ?assertEqual([], erpc:call(N2, emqx_plugins, list, [])),
+            ok
+        end,
+        []
+    ),
     ?assertMatch(
         {200, []},
         erpc:call(N1, emqx_mgmt_api_plugins, list_plugins, [get, Params])
