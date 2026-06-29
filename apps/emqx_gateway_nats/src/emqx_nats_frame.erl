@@ -282,8 +282,28 @@ serialize_headers([{Key, Value} | Rest], Acc) ->
 
 format(#nats_frame{operation = Op, message = undefined}) ->
     io_lib:format("~s", [Op]);
+format(#nats_frame{operation = ?OP_CONNECT, message = Message}) ->
+    io_lib:format("~s: ~0p", [?OP_CONNECT, redact_nats_connect(Message)]);
 format(#nats_frame{operation = Op, message = Message}) ->
     io_lib:format("~s: ~0p", [Op, Message]).
+
+redact_nats_connect(Message) when is_map(Message) ->
+    maps:map(
+        fun
+            (K, _) when
+                K =:= <<"pass">>;
+                K =:= <<"auth_token">>;
+                K =:= <<"jwt">>;
+                K =:= <<"nkey">>
+            ->
+                <<"******">>;
+            (_, V) ->
+                V
+        end,
+        Message
+    );
+redact_nats_connect(Message) ->
+    Message.
 
 type(#nats_frame{operation = Op}) ->
     Op.

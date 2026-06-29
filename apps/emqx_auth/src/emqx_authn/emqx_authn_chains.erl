@@ -878,7 +878,7 @@ do_authenticate_with_provider(
     AuthnResult = Provider:authenticate(Credential, State),
     ?TRACE_AUTHN("authenticator_result", #{
         authenticator => ID,
-        result => AuthnResult
+        result => emqx_utils:redact(AuthnResult)
     }),
     AuthnResult.
 
