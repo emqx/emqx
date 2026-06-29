@@ -146,19 +146,23 @@ t_empty_table(Config) when is_list(Config) ->
     ?assertEqual({ok, []}, request(["monitor"], "latest=20000")).
 
 t_pmap_nodes(Config) when is_list(Config) ->
+    %% Suspend the live sampler so it cannot write extra samples into the
+    %% buckets while we insert and read our own fixed data points.
+    pause_monitor_process(),
     MaxAge = timer:hours(1),
     Now = erlang:system_time(millisecond) - 1,
     Interval = emqx_dashboard_monitor:sample_interval(MaxAge),
     StartTs = round_down(Now - MaxAge, Interval),
     DataPoints = 5,
     clean_data(),
-    LastVal = insert_data_points(DataPoints, fun sent_n/1, StartTs, Now),
+    LastVal = insert_data_points_deterministic(DataPoints, fun sent_n/1, StartTs, Now),
     Nodes = [node(), node(), node()],
     %% this function calls emqx_utils:pmap to do the job
     Data0 = emqx_dashboard_monitor:sample_nodes(Nodes, StartTs),
     Data1 = emqx_dashboard_monitor:fill_gaps(Data0, StartTs),
     Data = emqx_dashboard_monitor:format(Data1),
-    ok = check_sample_intervals(Interval, hd(Data), tl(Data)),
+    FirstPoint = hd(Data),
+    ok = check_sample_intervals(Interval, FirstPoint#{'$is_first_point' => true}, tl(Data)),
     ?assertEqual(LastVal * length(Nodes), maps:get(sent, lists:last(Data))).
 
 t_inplace_downsample(Config) when is_list(Config) ->
@@ -288,6 +292,27 @@ sum_value([D | Rest], Key, V) ->
 
 check_sample_intervals(_Interval, _, []) ->
     ok;
+check_sample_intervals(Interval, #{'$is_first_point' := true, time_stamp := T}, [First | Rest]) ->
+    %% The first point in a sample interval list might differ from the second point by
+    %% more than 1 interval, due to rounding errors when building the buckets, apparently.
+    #{time_stamp := T2} = First,
+    ?assert(
+        lists:member(
+            T2,
+            [
+                T + N * Interval
+             || N <- lists:seq(1, 5)
+            ]
+        ),
+        #{
+            t => T,
+            t2 => T2,
+            diff => T + Interval - T2,
+            interval => Interval,
+            rest => Rest
+        }
+    ),
+    check_sample_intervals(Interval, First, Rest);
 check_sample_intervals(Interval, #{time_stamp := T}, [First | Rest]) ->
     #{time_stamp := T2} = First,
     ?assertEqual(T + Interval, T2, #{
@@ -297,6 +322,27 @@ check_sample_intervals(Interval, #{time_stamp := T}, [First | Rest]) ->
         rest => Rest
     }),
     check_sample_intervals(Interval, First, Rest).
+
+insert_data_points_deterministic(N, MkPointFn, TsMin, TsMax) ->
+    %% assert
+    true = TsMax - TsMin > 1,
+    true = N > 1,
+    Step = (TsMax - TsMin) div (N - 1),
+    FakeTss0 = lists:seq(TsMin, TsMax, Step),
+    FakeTss1 = lists:droplast(FakeTss0),
+    FakeTss = FakeTss1 ++ [TsMax],
+    lists:foldl(
+        fun({I, FakeTs}, _) ->
+            %% assert
+            [] = read(FakeTs),
+            Val = N - I + 2,
+            Data = MkPointFn(Val),
+            ok = write(FakeTs, Data),
+            Val
+        end,
+        should_not_be_used,
+        lists:enumerate(FakeTss)
+    ).
 
 insert_data_points(N, MkPointFn, TsMin, TsMax) ->
     insert_data_points(N, MkPointFn, {_LastTs = 0, _LastVal = 0}, N, TsMin, TsMax).
