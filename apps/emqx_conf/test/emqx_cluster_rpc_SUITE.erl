@@ -116,7 +116,9 @@ t_base_test(_Config) ->
 t_commit_fail_test(_Config) ->
     {atomic, []} = emqx_cluster_rpc:status(),
     {M, F, A} = {?MODULE, failed_on_node, [erlang:whereis(?NODE2)]},
-    {init_failure, "MFA return not ok"} = multicall(M, F, A),
+    %% A non-ok MFA result is normalized to an `{error, _}' shape so that
+    %% multicall/3 callers always observe `{ok, _} | {error, _}' on failure.
+    {init_failure, {error, "MFA return not ok"}} = multicall(M, F, A),
     ?assertEqual({atomic, []}, emqx_cluster_rpc:status()),
     ok.
 
