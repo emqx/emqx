@@ -259,6 +259,7 @@ t_invalid_signature_trace_redacts_hmac_jwks(_) ->
         secret_base64_encoded => false,
         verify_claims => [],
         disconnect_after_expire => false,
+        on_missing_jwt => ignore,
         enable => true
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
@@ -294,6 +295,7 @@ t_invalid_signature_trace_keeps_public_jwks(_) ->
         public_key => PublicKey,
         verify_claims => [],
         disconnect_after_expire => false,
+        on_missing_jwt => ignore,
         enable => true
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
