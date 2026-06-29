@@ -10,9 +10,8 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(PQ, emqx_pqueue).
--define(SUITE, ?MODULE).
 
-all() -> emqx_common_test_helpers:all(?SUITE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_is_queue(_) ->
     Q = ?PQ:new(),
@@ -194,3 +193,202 @@ t_highest(_) ->
     empty = ?PQ:highest(?PQ:new()),
     0 = ?PQ:highest(?PQ:from_list([{0, a}, {0, b}])),
     2 = ?PQ:highest(?PQ:from_list([{0, a}, {0, b}, {1, c}, {2, d}, {2, e}])).
+
+%% Classful queues
+
+t_cq_in_out(_) ->
+    CQ0 = emqx_pqueue:cqueue_new(),
+    CQ1 = cq_batch_insert(
+        [
+            {"a", default},
+            {"b", default},
+            {"c", qos0},
+            {"d", qos0},
+            {"e", default},
+            {"f", qos0},
+            {"g", default}
+        ],
+        CQ0
+    ),
+    ?assertEqual(
+        ["a", "b", "c", "d", "e", "f", "g"],
+        cq_drain(CQ1)
+    ).
+
+t_cq_drop(_) ->
+    CQ0 = emqx_pqueue:cqueue_new(),
+    CQ1 = cq_batch_insert(
+        [
+            {"a", default},
+            {"b", default},
+            {"c", qos0},
+            {"d", qos0},
+            {"e", default},
+            {"f", qos0},
+            {"g", default}
+        ],
+        CQ0
+    ),
+    {{value, "c"}, CQ2} = emqx_pqueue:cqueue_drop(CQ1),
+    {{value, "d"}, CQ3} = emqx_pqueue:cqueue_drop(CQ2),
+    ?assertEqual(
+        ["a", "b", "e", "f", "g"],
+        cq_drain(CQ3)
+    ),
+    {{value, "f"}, CQ4} = emqx_pqueue:cqueue_drop(CQ3),
+    ?assertEqual(
+        ["a", "b", "e", "g"],
+        cq_drain(CQ4)
+    ),
+    {{value, "a"}, CQ5} = emqx_pqueue:cqueue_drop(CQ4),
+    ?assertEqual(
+        ["b", "e", "g"],
+        cq_drain(CQ5)
+    ).
+
+t_cq_prop_queue(_) ->
+    ?assert(proper:quickcheck(prop_cq_queue(), [{numtests, 200}])).
+
+t_cq_prop_queue_consistency(_) ->
+    ?assert(proper:quickcheck(prop_cq_queue_consistency(), [{numtests, 200}])).
+
+t_cq_prop_drop(_) ->
+    ?assert(proper:quickcheck(prop_cq_drop(), [{numtests, 200}])).
+
+t_cq_edge_case1(_) ->
+    Ops = [{0, qos0}, {1, default}, {2, qos0}, out, {3, qos0}, drop],
+    Outcomes = [{value, 0}, {value, 2}],
+    Leftovers = [1, 3],
+    run_edge_case(Ops, Outcomes, Leftovers).
+
+t_cq_edge_case2(_) ->
+    Ops = [
+        {0, qos0}, {1, default}, {2, default}, {3, qos0}, out, drop, drop, {4, qos0}, {5, default}
+    ],
+    Outcomes = [{value, 0}, {value, 3}, {value, 1}],
+    Leftovers = [2, 4, 5],
+    run_edge_case(Ops, Outcomes, Leftovers).
+
+t_cq_edge_case3(_) ->
+    Ops = [{0, qos0}, {1, default}, {2, qos0}],
+    Leftovers = [0, 1, 2],
+    run_edge_case(Ops, [], Leftovers).
+
+prop_cq_queue() ->
+    proper:forall(cq_entries(), fun(Entries) ->
+        CQ = cq_batch_insert(Entries, emqx_pqueue:cqueue_new()),
+        proper:equals(
+            cq_drain(CQ),
+            [V || {V, _Class} <- Entries]
+        )
+    end).
+
+prop_cq_drop() ->
+    proper:forall(cq_entries(), fun(Entries) ->
+        CQ = cq_batch_insert(Entries, emqx_pqueue:cqueue_new()),
+        proper:equals(
+            cq_drop_drain(CQ),
+            [V || {V, qos0} <- Entries] ++ [V || {V, default} <- Entries]
+        )
+    end).
+
+prop_cq_queue_consistency() ->
+    proper:forall(cq_operations(), fun(Operations) ->
+        CQ0 = emqx_pqueue:cqueue_new(),
+        {CQ, CQOutcomes} = lists:foldl(
+            fun(Op, {CQ, Acc}) -> cq_apply(Op, CQ, Acc) end,
+            {CQ0, []},
+            Operations
+        ),
+        L0 = [],
+        {L, ModelOutcomes} = lists:foldl(
+            fun(Op, {L, Acc}) -> cq_model_apply(Op, L, Acc) end,
+            {L0, []},
+            Operations
+        ),
+        proper:conjunction([
+            {outcomes, proper:equals(CQOutcomes, ModelOutcomes)},
+            {leftover, proper:equals(cq_drain(CQ), [X || {X, _Class} <- L])}
+        ])
+    end).
+
+cq_apply({X, Class}, CQ, Acc) ->
+    NCQ = emqx_pqueue:cqueue_in(X, Class, CQ),
+    {NCQ, Acc};
+cq_apply(out, CQ, Acc) ->
+    {Ret, NCQ} = emqx_pqueue:cqueue_out(CQ),
+    {NCQ, [Ret | Acc]};
+cq_apply(drop, CQ, Acc) ->
+    {Ret, NCQ} = emqx_pqueue:cqueue_drop(CQ),
+    {NCQ, [Ret | Acc]}.
+
+cq_model_apply({X, Class}, L, Acc) ->
+    {L ++ [{X, Class}], Acc};
+cq_model_apply(out, L, Acc) ->
+    case L of
+        [{X, _Class} | NL] ->
+            {NL, [{value, X} | Acc]};
+        [] ->
+            {L, [empty | Acc]}
+    end;
+cq_model_apply(drop, L, Acc) ->
+    case lists:dropwhile(fun({_, Class}) -> Class =:= default end, L) of
+        [] when L =:= [] ->
+            {L, [empty | Acc]};
+        [] ->
+            [{X, _Class} | NL] = L,
+            {NL, [{value, X} | Acc]};
+        [{X, qos0} | Rest] = T ->
+            NL = lists:sublist(L, length(L) - length(T)) ++ Rest,
+            {NL, [{value, X} | Acc]}
+    end.
+
+cq_entries() ->
+    proper_types:list(cq_entry()).
+
+cq_entry() ->
+    proper_types:tuple([
+        proper_types:integer(),
+        proper_types:elements([default, qos0])
+    ]).
+
+cq_operations() ->
+    proper_types:list(
+        proper_types:oneof([
+            cq_entry(),
+            cq_entry(),
+            cq_entry(),
+            out,
+            drop
+        ])
+    ).
+
+cq_batch_insert(Xs, CQ) ->
+    lists:foldl(
+        fun({X, Class}, Acc) -> emqx_pqueue:cqueue_in(X, Class, Acc) end,
+        CQ,
+        Xs
+    ).
+
+cq_drain(CQ) ->
+    case emqx_pqueue:cqueue_out(CQ) of
+        {{value, V}, NCQ} -> [V | cq_drain(NCQ)];
+        {empty, _} -> []
+    end.
+
+cq_drop_drain(CQ) ->
+    case emqx_pqueue:cqueue_drop(CQ) of
+        {{value, V}, NCQ} -> [V | cq_drop_drain(NCQ)];
+        {empty, _} -> []
+    end.
+
+run_edge_case(Ops, ExpectedOutcomes, ExpectedLeftovers) ->
+    {CQ, Outcomes} = lists:foldl(
+        fun(Op, {CQ, Acc}) ->
+            cq_apply(Op, CQ, Acc)
+        end,
+        {emqx_pqueue:cqueue_new(), []},
+        Ops
+    ),
+    ?assertEqual(ExpectedOutcomes, lists:reverse(Outcomes)),
+    ?assertEqual(ExpectedLeftovers, cq_drain(CQ)).
