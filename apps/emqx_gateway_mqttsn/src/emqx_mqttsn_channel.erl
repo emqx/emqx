@@ -1947,12 +1947,22 @@ ensure_disconnected(
 mabye_publish_will_msg(Channel = #channel{will_msg = undefined}) ->
     Channel;
 mabye_publish_will_msg(Channel = #channel{will_msg = WillMsg}) ->
-    ok = publish_will_msg(put_message_headers(WillMsg, Channel)),
+    ok = publish_will_msg(put_message_headers(WillMsg, Channel), Channel),
     Channel#channel{will_msg = undefined}.
 
-publish_will_msg(Msg) ->
-    _ = emqx_broker:publish(Msg),
-    ok.
+publish_will_msg(
+    Msg = #message{topic = Topic, qos = QoS, flags = Flags},
+    #channel{ctx = Ctx, clientinfo = ClientInfo}
+) ->
+    Action = ?AUTHZ_PUBLISH(QoS, maps:get(retain, Flags, false)),
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
+        allow ->
+            _ = emqx_broker:publish(Msg),
+            ok;
+        deny ->
+            ?tp(info, mqttsn_will_publish_rejected, #{topic => Topic}),
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle Delivers from broker to client

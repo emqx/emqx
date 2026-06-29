@@ -9,6 +9,7 @@
 
 -include("emqx_jt808.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -199,6 +200,13 @@ update_jt808_with_idle_timeout(IdleTimeout) ->
         Conf#{<<"idle_timeout">> => IdleTimeout}
     ).
 
+update_jt808_with_mountpoint(Mountpoint) ->
+    Conf = emqx:get_raw_config([gateway, jt808]),
+    emqx_gateway_conf:update_gateway(
+        jt808,
+        Conf#{<<"mountpoint">> => Mountpoint}
+    ).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% helper functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 gen_packet(Header, Body) ->
@@ -303,6 +311,9 @@ assert_register_result(Packet, ExpectedPhoneBCD, ExpectedResult) ->
     ok.
 
 client_auth_procedure(Socket, AuthCode) ->
+    client_auth_procedure(Socket, AuthCode, true).
+
+client_auth_procedure(Socket, AuthCode, AssertSubscribed) ->
     ?LOGT("start auth procedure", []),
     %
     % send AUTH
@@ -331,7 +342,12 @@ client_auth_procedure(Socket, AuthCode) ->
             PhoneBCD/binary, MsgSn2:?WORD>>,
     S2 = gen_packet(Header2, GenAckPacket),
     ?assertEqual(S2, Packet),
-    ?assert(lists:member(?JT808_DN_TOPIC, emqx:topics())),
+    case AssertSubscribed of
+        true ->
+            ?assert(lists:member(?JT808_DN_TOPIC, emqx:topics()));
+        false ->
+            ok
+    end,
 
     ?LOGT("============= auth procedure success ===============", []).
 
@@ -494,6 +510,90 @@ receive_msg() ->
     after 100 ->
         {error, timeout}
     end.
+
+get_subscriptions() ->
+    lists:map(fun({_, Topic}) -> Topic end, ets:tab2list(emqx_subscription)).
+
+connect_jt808() ->
+    connect_jt808(true).
+
+connect_jt808(AssertSubscribed) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [
+        binary, {active, false}, {nodelay, true}
+    ]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode, AssertSubscribed),
+    {ok, Socket}.
+
+send_event_report(Socket, EventReportId, MsgSn) ->
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgBody = <<EventReportId>>,
+    MsgId = ?MC_EVENT_REPORT,
+    Size = size(MsgBody),
+    Header =
+        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?WORD>>,
+    Packet = gen_packet(Header, MsgBody),
+    ok = gen_tcp:send(Socket, Packet),
+    {ok, AckPacket} = gen_tcp:recv(Socket, 0, 500),
+    GenAckPacket = <<MsgSn:?WORD, MsgId:?WORD, 0>>,
+    AckSize = size(GenAckPacket),
+    AckMsgId = ?MS_GENERAL_RESPONSE,
+    AckMsgSn = 2,
+    AckHeader =
+        <<AckMsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(AckSize),
+            PhoneBCD/binary, AckMsgSn:?WORD>>,
+    ?assertEqual(gen_packet(AckHeader, GenAckPacket), AckPacket).
+
+publish_downlink_text() ->
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    Flag = 15,
+    Text = <<"who are you">>,
+    DlCommand = #{
+        <<"header">> => #{<<"msg_id">> => ?MS_SEND_TEXT},
+        <<"body">> => #{<<"flag">> => Flag, <<"text">> => Text}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    MsgBody = <<Flag:8, Text/binary>>,
+    MsgId = ?MS_SEND_TEXT,
+    MsgSn = 2,
+    Size = size(MsgBody),
+    Header =
+        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?WORD>>,
+    gen_packet(Header, MsgBody).
+
+with_gateway_authz_result(Protocol, ActionType, Topic, Result, Fun) ->
+    Action = {?MODULE, gateway_authz_result, [Protocol, ActionType, Topic, Result]},
+    ok = emqx_hooks:put('client.authorize', Action, ?HP_HIGHEST),
+    try
+        Fun()
+    after
+        ok = emqx_hooks:del('client.authorize', Action)
+    end.
+
+gateway_authz_result(
+    #{protocol := Protocol},
+    #{action_type := ActionType},
+    Topic,
+    _DefaultResult,
+    Protocol,
+    ActionType,
+    Topic,
+    Result
+) ->
+    {stop, #{result => Result, from => test, is_cacheable => false}};
+gateway_authz_result(
+    _ClientInfo,
+    _Action,
+    _Topic,
+    DefaultResult,
+    _Protocol,
+    _ActionType,
+    _ExpectedTopic,
+    _Result
+) ->
+    {ok, DefaultResult}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%% test cases %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -690,6 +790,114 @@ t_case04(_) ->
     ),
 
     ok = gen_tcp:close(Socket).
+
+t_authz_denies_upstream_publish(_) ->
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
+    try
+        with_gateway_authz_result(jt808, publish, ?JT808_UP_TOPIC, deny, fun() ->
+            {ok, Socket} = connect_jt808(),
+            try
+                send_event_report(Socket, 98, 79),
+                timer:sleep(100),
+                ?assertEqual({error, timeout}, receive_msg())
+            after
+                ok = gen_tcp:close(Socket)
+            end
+        end)
+    after
+        emqx:unsubscribe(?JT808_UP_TOPIC)
+    end.
+
+t_authz_allows_upstream_publish(_) ->
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
+    try
+        with_gateway_authz_result(jt808, publish, ?JT808_UP_TOPIC, allow, fun() ->
+            {ok, Socket} = connect_jt808(),
+            try
+                send_event_report(Socket, 98, 79),
+                timer:sleep(100),
+                {?JT808_UP_TOPIC, Payload} = receive_msg(),
+                ?assertEqual(
+                    98,
+                    emqx_utils_maps:deep_get(
+                        [<<"body">>, <<"id">>],
+                        emqx_utils_json:decode(Payload)
+                    )
+                )
+            after
+                ok = gen_tcp:close(Socket)
+            end
+        end)
+    after
+        emqx:unsubscribe(?JT808_UP_TOPIC)
+    end.
+
+t_authz_denies_auto_subscribe(_) ->
+    with_gateway_authz_result(jt808, subscribe, ?JT808_DN_TOPIC, deny, fun() ->
+        {ok, Socket} = connect_jt808(false),
+        try
+            timer:sleep(100),
+            ?assertEqual(false, lists:member(?JT808_DN_TOPIC, get_subscriptions())),
+            _Expected = publish_downlink_text(),
+            timer:sleep(100),
+            ?assertEqual({error, timeout}, gen_tcp:recv(Socket, 0, 500))
+        after
+            ok = gen_tcp:close(Socket)
+        end
+    end).
+
+t_authz_allows_auto_subscribe(_) ->
+    with_gateway_authz_result(jt808, subscribe, ?JT808_DN_TOPIC, allow, fun() ->
+        {ok, Socket} = connect_jt808(),
+        try
+            timer:sleep(100),
+            ?assertEqual(true, lists:member(?JT808_DN_TOPIC, get_subscriptions())),
+            Expected = publish_downlink_text(),
+            timer:sleep(100),
+            {ok, Packet} = gen_tcp:recv(Socket, 0, 500),
+            ?assertEqual(Expected, Packet)
+        after
+            ok = gen_tcp:close(Socket)
+        end
+    end).
+
+t_case04_mountpoint_from_register_clientinfo(_) ->
+    ClientId = <<"000123456789">>,
+    Mountpoint = <<"jt808/custom/000123456789/">>,
+    update_jt808_with_mountpoint(<<"jt808/custom/${clientid}/">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    try
+        {ok, AuthCode} = client_regi_procedure(Socket),
+        ok = client_auth_procedure(Socket, AuthCode),
+        ?assertMatch(
+            #{clientinfo := #{mountpoint := Mountpoint}},
+            emqx_gateway_cm:get_chan_info(jt808, ClientId)
+        ),
+
+        PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+        EventReportId = 98,
+        MsgBody3 = <<EventReportId>>,
+        MsgId3 = ?MC_EVENT_REPORT,
+        MsgSn3 = 79,
+        Size3 = size(MsgBody3),
+        Header3 =
+            <<MsgId3:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size3),
+                PhoneBCD/binary, MsgSn3:?WORD>>,
+        S3 = gen_packet(Header3, MsgBody3),
+
+        ok = gen_tcp:send(Socket, S3),
+        {ok, _Packet4} = gen_tcp:recv(Socket, 0, 500),
+        timer:sleep(100),
+        {?JT808_UP_TOPIC, Payload} = receive_msg(),
+        ?assertEqual(
+            EventReportId,
+            emqx_utils_maps:deep_get([<<"body">>, <<"id">>], emqx_utils_json:decode(Payload))
+        )
+    after
+        update_jt808_with_mountpoint(<<"jt808/${clientid}/">>),
+        gen_tcp:close(Socket)
+    end.
 
 t_case05(_Config) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
