@@ -13,12 +13,9 @@
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
-t_is_queue(_) ->
-    Q = ?PQ:new(),
-    ?assertEqual(true, ?PQ:is_queue(Q)),
-    Q1 = ?PQ:in(a, 1, Q),
-    ?assertEqual(true, ?PQ:is_queue(Q1)),
-    ?assertEqual(false, ?PQ:is_queue(bad_queue)).
+%%--------------------------------------------------------------------
+%% General
+%%--------------------------------------------------------------------
 
 t_is_empty(_) ->
     Q = ?PQ:new(),
@@ -29,37 +26,36 @@ t_len(_) ->
     Q = ?PQ:new(),
     Q1 = ?PQ:in(a, Q),
     ?assertEqual(1, ?PQ:len(Q1)),
-    Q2 = ?PQ:in(b, 1, Q1),
-    ?assertEqual(2, ?PQ:len(Q2)).
+    Q2 = ?PQ:in(b, 1, default, Q1),
+    ?assertEqual(2, ?PQ:len(Q2)),
+    Q3 = ?PQ:in(c, 2, qos0, Q2),
+    ?assertEqual(3, ?PQ:len(Q3)).
 
 t_plen(_) ->
     Q = ?PQ:new(),
     Q1 = ?PQ:in(a, Q),
     ?assertEqual(1, ?PQ:plen(0, Q1)),
-    ?assertEqual(0, ?PQ:plen(1, Q1)),
-    Q2 = ?PQ:in(b, 1, Q1),
-    Q3 = ?PQ:in(c, 1, Q2),
+    Q2 = ?PQ:in(b, 1, default, Q1),
+    Q3 = ?PQ:in(c, 1, default, Q2),
     ?assertEqual(2, ?PQ:plen(1, Q3)),
     ?assertEqual(1, ?PQ:plen(0, Q3)),
-    ?assertEqual(0, ?PQ:plen(0, {pqueue, []})).
+    {_, Q4} = ?PQ:out(Q3),
+    {_, Q5} = ?PQ:out(Q4),
+    {_, Q6} = ?PQ:out(Q5),
+    ?assertEqual(0, ?PQ:plen(0, Q6)).
 
 t_to_list(_) ->
     Q = ?PQ:new(),
     ?assertEqual([], ?PQ:to_list(Q)),
-
     Q1 = ?PQ:in(a, Q),
-    L1 = ?PQ:to_list(Q1),
-    ?assertEqual([{0, a}], L1),
-
-    Q2 = ?PQ:in(b, 1, Q1),
-    L2 = ?PQ:to_list(Q2),
-    ?assertEqual([{1, b}, {0, a}], L2).
+    ?assertEqual([{0, a}], ?PQ:to_list(Q1)),
+    Q2 = ?PQ:in(b, 1, default, Q1),
+    ?assertEqual([{1, b}, {0, a}], ?PQ:to_list(Q2)).
 
 t_from_list(_) ->
-    Q = ?PQ:from_list([{1, c}, {1, d}, {0, a}, {0, b}]),
-    ?assertEqual({pqueue, [{-1, {queue, [d], [c], 2}}, {0, {queue, [b], [a], 2}}]}, Q),
-    ?assertEqual(true, ?PQ:is_queue(Q)),
-    ?assertEqual(4, ?PQ:len(Q)).
+    Q = ?PQ:from_list([{1, default, c}, {1, default, d}, {0, default, a}, {0, default, b}]),
+    ?assertEqual(4, ?PQ:len(Q)),
+    ?assertEqual([{1, c}, {1, d}, {0, a}, {0, b}], ?PQ:to_list(Q)).
 
 t_in(_) ->
     Q = ?PQ:new(),
@@ -67,134 +63,142 @@ t_in(_) ->
     Q1 = lists:foldl(
         fun
             ({El, P}, Acc) ->
-                ?PQ:in(El, P, Acc);
+                ?PQ:in(El, P, default, Acc);
             (El, Acc) ->
                 ?PQ:in(El, Acc)
         end,
         Q,
         Els
     ),
-    ?assertEqual(
-        {pqueue, [
-            {infinity, {queue, [e], [], 1}},
-            {-2, {queue, [f], [], 1}},
-            {-1, {queue, [d], [c], 2}},
-            {0, {queue, [b], [a], 2}}
-        ]},
-        Q1
-    ).
+    ?assertEqual([{infinity, e}, {2, f}, {1, c}, {1, d}, {0, a}, {0, b}], ?PQ:to_list(Q1)),
+    ?assertEqual(6, ?PQ:len(Q1)).
+
+t_out_empty(_) ->
+    ?assertMatch({empty, _}, ?PQ:out(?PQ:new())).
 
 t_out(_) ->
-    Q = ?PQ:new(),
-    {empty, Q} = ?PQ:out(Q),
-    {empty, Q} = ?PQ:out(0, Q),
-    try ?PQ:out(1, Q) of
-        _ -> ct:fail(should_throw_error)
-    catch
-        error:Reason ->
-            ?assertEqual(Reason, badarg)
-    end,
-    {{value, a}, Q} = ?PQ:out(?PQ:from_list([{0, a}])),
-    {{value, a}, {queue, [], [b], 1}} = ?PQ:out(?PQ:from_list([{0, a}, {0, b}])),
-    {{value, a}, {queue, [], [], 0}} = ?PQ:out({queue, [], [a], 1}),
-    {{value, a}, {queue, [c], [b], 2}} = ?PQ:out({queue, [c, b], [a], 3}),
-    {{value, a}, {queue, [e, d], [b, c], 4}} = ?PQ:out({queue, [e, d, c, b], [a], 5}),
-    {{value, a}, {queue, [c], [b], 2}} = ?PQ:out({queue, [c, b, a], [], 3}),
-    {{value, a}, {queue, [d, c], [b], 3}} = ?PQ:out({queue, [d, c], [a, b], 4}),
-    {{value, a}, {queue, [], [], 0}} = ?PQ:out(?PQ:from_list([{1, a}])),
-    {{value, a}, {queue, [c], [b], 2}} = ?PQ:out(?PQ:from_list([{1, a}, {0, b}, {0, c}])),
-    {{value, a}, {pqueue, [{-1, {queue, [b], [], 1}}]}} = ?PQ:out(?PQ:from_list([{1, b}, {2, a}])),
-    {{value, a}, {pqueue, [{-1, {queue, [], [b], 1}}]}} = ?PQ:out(?PQ:from_list([{1, a}, {1, b}])).
+    %% Two elements at same priority: FIFO
+    {{value, a}, Q1} = ?PQ:out(?PQ:from_list([{0, default, a}, {0, qos0, b}])),
+    {{value, b}, Q2} = ?PQ:out(Q1),
+    ?assert(?PQ:is_empty(Q2)).
+
+t_out_prio(_) ->
+    %% Single element at non-zero priority:
+    ?assertMatch({{value, a}, _}, ?PQ:out(?PQ:from_list([{1, default, a}]))),
+    %% Higher priority dequeued first:
+    Q1 = ?PQ:from_list([{0, default, a}, {0, default, b}, {1, default, c}]),
+    {{value, c}, Q2} = ?PQ:out(Q1),
+    {{value, a}, Q3} = ?PQ:out(Q2),
+    ?assertEqual([{0, b}], ?PQ:to_list(Q3)).
 
 t_out_2(_) ->
-    {empty, {pqueue, [{-1, {queue, [a], [], 1}}]}} = ?PQ:out(0, ?PQ:from_list([{1, a}])),
-    {{value, a}, {queue, [], [], 0}} = ?PQ:out(1, ?PQ:from_list([{1, a}])),
-    {{value, a}, {pqueue, [{-1, {queue, [], [b], 1}}]}} =
-        ?PQ:out(1, ?PQ:from_list([{1, a}, {1, b}])),
-    {{value, a}, {queue, [b], [], 1}} = ?PQ:out(1, ?PQ:from_list([{1, a}, {0, b}])).
+    %% out/2 on simple queue with priority 0
+    ?assertMatch(
+        {{value, a}, _},
+        ?PQ:out(0, ?PQ:from_list([{0, default, a}, {0, default, b}]))
+    ),
+    %% out/2 on pqueue
+    PQ = ?PQ:from_list([{1, default, a}, {0, default, b}]),
+    {empty, _} = ?PQ:out(2, PQ),
+    {{value, a}, _} = ?PQ:out(1, PQ),
+    {{value, b}, _} = ?PQ:out(0, PQ).
+
+t_out_2_cqueue(_) ->
+    Q0 = ?PQ:from_list([{0, default, a}, {0, qos0, b}]),
+    {{value, a}, Q1} = ?PQ:out(0, Q0),
+    {{value, b}, Q2} = ?PQ:out(0, Q1),
+    ?assert(?PQ:is_empty(Q2)),
+    try ?PQ:out(1, Q0) of
+        _ -> ct:fail(should_throw_error)
+    catch
+        error:Reason -> ?assertEqual(badarg, Reason)
+    end.
+
+t_out_2_squeue(_) ->
+    %% out/2 with wrong priority on simple queue should error
+    SQ = ?PQ:new(),
+    try ?PQ:out(1, SQ) of
+        _ -> ct:fail(should_throw_error)
+    catch
+        error:Reason -> ?assertEqual(badarg, Reason)
+    end.
 
 t_out_p(_) ->
-    {empty, {queue, [], [], 0}} = ?PQ:out_p(?PQ:new()),
-    {{value, a, 1}, {queue, [b], [], 1}} = ?PQ:out_p(?PQ:from_list([{1, a}, {0, b}])).
-
-t_join(_) ->
-    Q = ?PQ:in(a, ?PQ:new()),
-    Q = ?PQ:join(Q, ?PQ:new()),
-    Q = ?PQ:join(?PQ:new(), Q),
-
-    Q1 = ?PQ:in(a, ?PQ:new()),
-    Q2 = ?PQ:in(b, Q1),
-    Q3 = ?PQ:in(c, Q2),
-    {queue, [c, b], [a], 3} = Q3,
-
-    Q4 = ?PQ:in(x, ?PQ:new()),
-    Q5 = ?PQ:in(y, Q4),
-    Q6 = ?PQ:in(z, Q5),
-    {queue, [z, y], [x], 3} = Q6,
-
-    {queue, [z, y], [a, b, c, x], 6} = ?PQ:join(Q3, Q6),
-
-    PQueue1 = ?PQ:from_list([{1, c}, {1, d}]),
-    PQueue2 = ?PQ:from_list([{1, c}, {1, d}, {0, a}, {0, b}]),
-    PQueue3 = ?PQ:from_list([{1, c}, {1, d}, {-1, a}, {-1, b}]),
-
-    {pqueue, [
-        {-1, {queue, [d], [c], 2}},
-        {0, {queue, [z, y], [x], 3}}
-    ]} = ?PQ:join(PQueue1, Q6),
-    {pqueue, [
-        {-1, {queue, [d], [c], 2}},
-        {0, {queue, [z, y], [x], 3}}
-    ]} = ?PQ:join(Q6, PQueue1),
-
-    {pqueue, [
-        {-1, {queue, [d], [c], 2}},
-        {0, {queue, [z, y], [a, b, x], 5}}
-    ]} = ?PQ:join(PQueue2, Q6),
-    {pqueue, [
-        {-1, {queue, [d], [c], 2}},
-        {0, {queue, [b], [x, y, z, a], 5}}
-    ]} = ?PQ:join(Q6, PQueue2),
-
-    {pqueue, [
-        {-1, {queue, [d], [c], 2}},
-        {0, {queue, [z, y], [x], 3}},
-        {1, {queue, [b], [a], 2}}
-    ]} = ?PQ:join(PQueue3, Q6),
-    {pqueue, [
-        {-1, {queue, [d], [c], 2}},
-        {0, {queue, [z, y], [x], 3}},
-        {1, {queue, [b], [a], 2}}
-    ]} = ?PQ:join(Q6, PQueue3),
-
-    PQueue4 = ?PQ:from_list([{1, c}, {1, d}]),
-    PQueue5 = ?PQ:from_list([{2, a}, {2, b}]),
-    {pqueue, [
-        {-2, {queue, [b], [a], 2}},
-        {-1, {queue, [d], [c], 2}}
-    ]} = ?PQ:join(PQueue4, PQueue5).
+    {empty, _} = ?PQ:out_p(?PQ:new()),
+    {{value, a, 1}, Q1} = ?PQ:out_p(?PQ:from_list([{1, default, a}, {0, default, b}])),
+    ?assertEqual([{0, b}], ?PQ:to_list(Q1)).
 
 t_filter(_) ->
-    {pqueue, [
-        {-2, {queue, [10], [4], 2}},
-        {-1, {queue, [2], [], 1}}
-    ]} =
-        ?PQ:filter(
-            fun
-                (V) when V rem 2 =:= 0 ->
-                    true;
-                (_) ->
-                    false
-            end,
-            ?PQ:from_list([{0, 1}, {0, 3}, {1, 2}, {2, 4}, {2, 10}])
-        ).
+    Q = ?PQ:from_list([
+        {0, qos0, 1},
+        {0, default, 3},
+        {1, default, 2},
+        {2, qos0, 4},
+        {2, qos0, 10}
+    ]),
+    Even = ?PQ:filter(fun(V) -> V rem 2 =:= 0 end, Q),
+    ?assertEqual([{2, 4}, {2, 10}, {1, 2}], ?PQ:to_list(Even)),
+    ?assertEqual(3, ?PQ:len(Even)).
+
+t_filter_empty(_) ->
+    PQ = ?PQ:from_list([{1, default, a}, {2, qos0, b}]),
+    Empty = ?PQ:filter(fun(_) -> false end, PQ),
+    ?assert(?PQ:is_empty(Empty)),
+    ?assertEqual(0, ?PQ:len(Empty)),
+    ?assertEqual([], ?PQ:to_list(Empty)),
+    {empty, _} = ?PQ:out_p(Empty).
+
+t_filter_empty_cqueue(_) ->
+    CQ = ?PQ:from_list([{0, default, a}, {0, qos0, b}]),
+    Empty = ?PQ:filter(fun(_) -> false end, CQ),
+    ?assert(?PQ:is_empty(Empty)),
+    ?assertEqual(0, ?PQ:len(Empty)),
+    ?assertEqual([], ?PQ:to_list(Empty)),
+    {empty, _} = ?PQ:out_p(Empty).
 
 t_highest(_) ->
-    empty = ?PQ:highest(?PQ:new()),
-    0 = ?PQ:highest(?PQ:from_list([{0, a}, {0, b}])),
-    2 = ?PQ:highest(?PQ:from_list([{0, a}, {0, b}, {1, c}, {2, d}, {2, e}])).
+    0 = ?PQ:highest(?PQ:new()),
+    0 = ?PQ:highest(?PQ:from_list([{0, default, a}, {0, default, b}])),
+    2 = ?PQ:highest(
+        ?PQ:from_list([
+            {0, default, a},
+            {0, default, b},
+            {1, qos0, c},
+            {2, qos0, d},
+            {2, default, e}
+        ])
+    ).
 
-%% Classful queues
+t_shift_squeue(_) ->
+    %% shift on simple queue is identity
+    Q = ?PQ:from_list([{0, default, a}, {0, default, b}]),
+    ?assertEqual(Q, ?PQ:shift(Q)).
+
+t_shift(_) ->
+    %% shift rotates priority groups
+    PQ0 = ?PQ:from_list([{1, default, a}, {2, default, b}, {0, qos0, c}]),
+    PQ1 = ?PQ:shift(PQ0),
+    ?assertEqual(3, ?PQ:len(PQ1)),
+    %% Highest priority changes after rotation
+    ?assertEqual(2, ?PQ:highest(PQ0)),
+    ?assertEqual(1, ?PQ:highest(PQ1)),
+    ?assertEqual([{1, a}, {0, c}, {2, b}], ?PQ:to_list(PQ1)).
+
+t_fold(_) ->
+    Q = ?PQ:from_list([
+        {1, default, a},
+        {0, qos0, b},
+        {2, default, c},
+        {0, default, d}
+    ]),
+    ?assertEqual(
+        [d, b, a, c],
+        ?PQ:fold(fun(V, _P, Acc) -> [V | Acc] end, [], Q)
+    ).
+
+%%--------------------------------------------------------------------
+%% cqueue
+%%--------------------------------------------------------------------
 
 t_cq_in_out(_) ->
     CQ0 = emqx_pqueue:cqueue_new(),

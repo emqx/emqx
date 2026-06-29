@@ -41,7 +41,6 @@
 
 -export([
     new/0,
-    is_queue/1,
     is_empty/1,
     len/1,
     plen/2,
@@ -49,9 +48,10 @@
     to_queues_list/1,
     from_list/1,
     in/2,
-    in/3,
+    in/4,
     out/1,
     out/2,
+    drop/1,
     out_p/1,
     filter/2,
     fold/3,
@@ -59,7 +59,13 @@
     shift/1
 ]).
 
--export([cqueue_new/0, cqueue_in/3, cqueue_out/1, cqueue_drop/1]).
+%% Mostly for test purposes:
+-export([
+    cqueue_new/0,
+    cqueue_in/3,
+    cqueue_out/1,
+    cqueue_drop/1
+]).
 
 -export_type([q/0]).
 
@@ -85,10 +91,13 @@
     }.
 
 -type priority() :: integer() | 'infinity'.
--type pqueue() :: squeue() | cqueue() | {pqueue, [{priority(), squeue()}]}.
+-type pqueue() :: squeue() | cqueue() | {pqueue, [{priority(), squeue() | cqueue()}]}.
 -type q() :: pqueue().
 
 -define(switch, '$switch').
+
+-define(cqueue(), ?cqueue(_, _, _)).
+-define(cqueue(ACTIVE, LAST, LEN), {ACTIVE, LAST, _, _, _, _, LEN}).
 
 %%----------------------------------------------------------------------------
 
@@ -96,22 +105,10 @@
 new() ->
     {queue, [], [], 0}.
 
--spec is_queue(any()) -> boolean().
-is_queue({queue, R, F, L}) when is_list(R), is_list(F), is_integer(L) ->
-    true;
-is_queue({pqueue, Queues}) when is_list(Queues) ->
-    lists:all(
-        fun
-            ({infinity, Q}) -> is_queue(Q);
-            ({P, Q}) -> is_integer(P) andalso is_queue(Q)
-        end,
-        Queues
-    );
-is_queue(_) ->
-    false.
-
 -spec is_empty(pqueue()) -> boolean().
 is_empty({queue, [], [], 0}) ->
+    true;
+is_empty(?cqueue(_Active, _Last, 0)) ->
     true;
 is_empty(_) ->
     false.
@@ -119,33 +116,39 @@ is_empty(_) ->
 -spec len(pqueue()) -> non_neg_integer().
 len({queue, _R, _F, L}) ->
     L;
+len(?cqueue(_Active, _Last, L)) ->
+    L;
 len({pqueue, Queues}) ->
     lists:sum([len(Q) || {_, Q} <- Queues]).
 
 -spec plen(priority(), pqueue()) -> non_neg_integer().
-plen(0, {queue, _R, _F, L}) ->
-    L;
-plen(_, {queue, _R, _F, _}) ->
-    0;
 plen(P, {pqueue, Queues}) ->
     case lists:keysearch(maybe_negate_priority(P), 1, Queues) of
-        {value, {_, Q}} -> len(Q);
-        false -> 0
-    end.
+        {value, {_, Q}} ->
+            len(Q);
+        false ->
+            0
+    end;
+plen(0, Q) ->
+    len(Q);
+plen(_, _Q) ->
+    0.
 
 -spec to_list(pqueue()) -> [{priority(), any()}].
-to_list({queue, In, Out, _Len}) when is_list(In), is_list(Out) ->
-    [{0, V} || V <- Out ++ lists:reverse(In, [])];
-to_list({pqueue, Queues}) ->
-    [
-        {maybe_negate_priority(P), V}
-     || {P, Q} <- Queues,
-        {0, V} <- to_list(Q)
-    ].
+to_list(Q) ->
+    %% NOTE: Suboptimal, so far used only in tests.
+    case out_p(Q) of
+        {{value, V, P}, NQ} ->
+            [{P, V} | to_list(NQ)];
+        {empty, _} ->
+            []
+    end.
 
--spec to_queues_list(pqueue()) -> [{priority(), squeue()}].
-to_queues_list({queue, _In, _Out, _Len} = Squeue) ->
-    [{0, Squeue}];
+-spec to_queues_list(pqueue()) -> [{priority(), squeue() | cqueue()}].
+to_queues_list({queue, _, _, _} = Q) ->
+    [{0, Q}];
+to_queues_list(?cqueue() = CQ) ->
+    [{0, CQ}];
 to_queues_list({pqueue, Queues}) ->
     lists:sort(
         fun
@@ -155,42 +158,60 @@ to_queues_list({pqueue, Queues}) ->
         [{maybe_negate_priority(P), Q} || {P, Q} <- Queues]
     ).
 
--spec from_list([{priority(), any()}]) -> pqueue().
+-spec from_list([{priority(), class(), any()}]) -> pqueue().
 from_list(L) ->
-    lists:foldl(fun({P, E}, Q) -> in(E, P, Q) end, new(), L).
+    lists:foldl(fun({P, Class, E}, Q) -> in(E, P, Class, Q) end, new(), L).
 
 -spec in(any(), pqueue()) -> pqueue().
 in(Item, Q) ->
-    in(Item, 0, Q).
+    in(Item, 0, default, Q).
 
--spec in(any(), priority(), pqueue()) -> pqueue().
-in(X, 0, {queue, [_] = In, [], 1}) ->
-    {queue, [X], In, 2};
-in(X, 0, {queue, In, Out, Len}) when is_list(In), is_list(Out) ->
-    {queue, [X | In], Out, Len + 1};
-in(X, Priority, _Q = {queue, [], [], 0}) ->
-    in(X, Priority, {pqueue, []});
-in(X, Priority, Q = {queue, _, _, _}) ->
-    in(X, Priority, {pqueue, [{0, Q}]});
-in(X, Priority, {pqueue, Queues}) ->
+-spec in(any(), priority(), class(), pqueue()) -> pqueue().
+in(X, Priority, Class, {pqueue, Queues}) ->
     P = maybe_negate_priority(Priority),
-    {pqueue,
+    NQueues =
         case lists:keysearch(P, 1, Queues) of
             {value, {_, Q}} ->
-                lists:keyreplace(P, 1, Queues, {P, in(X, Q)});
+                lists:keyreplace(P, 1, Queues, {P, in(X, Class, Q)});
             false when P == infinity ->
-                [{P, {queue, [X], [], 1}} | Queues];
+                Q = new(X, Class),
+                [{P, Q} | Queues];
             false ->
+                Q = new(X, Class),
                 case Queues of
                     [{infinity, InfQueue} | Queues1] ->
-                        [
-                            {infinity, InfQueue}
-                            | lists:keysort(1, [{P, {queue, [X], [], 1}} | Queues1])
-                        ];
+                        [{infinity, InfQueue} | lists:keysort(1, [{P, Q} | Queues1])];
                     _ ->
-                        lists:keysort(1, [{P, {queue, [X], [], 1}} | Queues])
+                        lists:keysort(1, [{P, Q} | Queues])
                 end
-        end}.
+        end,
+    {pqueue, NQueues};
+in(X, 0, Class, Q) ->
+    in(X, Class, Q);
+in(X, Priority, Class, Q) ->
+    case Q of
+        {queue, [], [], 0} ->
+            in(X, Priority, Class, {pqueue, []});
+        %% Should be unreachable:
+        {_Active, _Last, [], [], [], [], 0} ->
+            in(X, Priority, Class, {pqueue, []});
+        _NonEmpty ->
+            in(X, Priority, Class, {pqueue, [{0, Q}]})
+    end.
+
+in(X, default, {queue, [_] = In, [], 1}) ->
+    {queue, [X], In, 2};
+in(X, default, {queue, In, Out, Len}) when is_list(In) ->
+    {queue, [X | In], Out, Len + 1};
+in(X, Class, ?cqueue() = CQ) ->
+    cqueue_in(X, Class, CQ);
+in(X, Class, {queue, In, Out, L}) ->
+    cqueue_in(X, Class, cqueue_from_simple(In, Out, L)).
+
+new(X, default) ->
+    {queue, [X], [], 1};
+new(X, Class) ->
+    cqueue_new(X, Class).
 
 -spec out(pqueue()) -> {empty | {value, any()}, pqueue()}.
 out({queue, [], [], 0} = Q) ->
@@ -204,39 +225,55 @@ out({queue, In, [V], Len}) when is_list(In) ->
     {{value, V}, r2f(In, Len - 1)};
 out({queue, In, [V | Out], Len}) when is_list(In) ->
     {{value, V}, {queue, In, Out, Len - 1}};
+out({Active, Last, In, Out, Q0In, Q0Out, L}) ->
+    cqueue_out(Active, Last, In, Out, Q0In, Q0Out, L);
 out({pqueue, [{P, Q} | Queues]}) ->
     {R, Q1} = out(Q),
-    NewQ =
-        case is_empty(Q1) of
-            true ->
-                case Queues of
-                    [] -> {queue, [], [], 0};
-                    [{0, OnlyQ}] -> OnlyQ;
-                    [_ | _] -> {pqueue, Queues}
-                end;
-            false ->
-                {pqueue, [{P, Q1} | Queues]}
-        end,
-    {R, NewQ}.
+    case is_empty(Q1) of
+        true ->
+            {R, from_pqueue_list(Queues)};
+        false ->
+            NQ = {pqueue, [{P, Q1} | Queues]},
+            {R, NQ}
+    end.
+
+-spec drop(pqueue()) -> {empty | {value, any()}, pqueue()}.
+drop({queue, _, _, _} = Q) ->
+    out(Q);
+drop(?cqueue() = CQ) ->
+    cqueue_drop(CQ);
+drop({pqueue, [{P, Q} | Queues]}) ->
+    {R, Q1} = drop(Q),
+    case is_empty(Q1) of
+        true ->
+            {R, from_pqueue_list(Queues)};
+        false ->
+            NQ = {pqueue, [{P, Q1} | Queues]},
+            {R, NQ}
+    end.
 
 -spec shift(pqueue()) -> pqueue().
-shift(Q = {queue, _, _, _}) ->
-    Q;
 shift({pqueue, []}) ->
     %% Shouldn't happen?
     {pqueue, []};
 shift({pqueue, [Hd | Rest]}) ->
     %% Let's hope there are not many priorities.
-    {pqueue, Rest ++ [Hd]}.
+    {pqueue, Rest ++ [Hd]};
+shift(Q) ->
+    Q.
 
 -spec out_p(pqueue()) -> {empty | {value, any(), priority()}, pqueue()}.
-out_p({queue, _, _, _} = Q) -> add_p(out(Q), 0);
-out_p({pqueue, [{P, _} | _]} = Q) -> add_p(out(Q), maybe_negate_priority(P)).
+out_p({queue, _, _, _} = Q) ->
+    add_p(out(Q), 0);
+out_p({Active, Last, In, Out, Q0In, Q0Out, L}) ->
+    add_p(cqueue_out(Active, Last, In, Out, Q0In, Q0Out, L), 0);
+out_p({pqueue, [{P, _} | _]} = Q) ->
+    add_p(out(Q), maybe_negate_priority(P)).
 
 out(0, {queue, _, _, _} = Q) ->
     out(Q);
-out(Priority, {queue, _, _, _}) ->
-    erlang:error(badarg, [Priority]);
+out(0, ?cqueue() = CQ) ->
+    cqueue_out(CQ);
 out(Priority, {pqueue, Queues}) ->
     P = maybe_negate_priority(Priority),
     case lists:keysearch(P, 1, Queues) of
@@ -247,15 +284,12 @@ out(Priority, {pqueue, Queues}) ->
                     true -> lists:keydelete(P, 1, Queues);
                     false -> lists:keyreplace(P, 1, Queues, {P, Q1})
                 end,
-            {R,
-                case Queues1 of
-                    [] -> {queue, [], [], 0};
-                    [{0, OnlyQ}] -> OnlyQ;
-                    [_ | _] -> {pqueue, Queues1}
-                end};
+            {R, from_pqueue_list(Queues1)};
         false ->
             {empty, {pqueue, Queues}}
-    end.
+    end;
+out(Priority, _) ->
+    erlang:error(badarg, [Priority]).
 
 add_p(R, P) ->
     case R of
@@ -264,16 +298,36 @@ add_p(R, P) ->
     end.
 
 -spec filter(fun((any()) -> boolean()), pqueue()) -> pqueue().
-filter(Pred, Q) ->
-    fold(
-        fun(V, P, Acc) ->
+filter(Pred, {queue, In, Out, _}) ->
+    {L1, FIn} = filter_list(Pred, In),
+    {L2, FOut} = filter_list(Pred, Out),
+    {queue, FIn, FOut, L1 + L2};
+filter(Pred, {Active, Last, In, Out, Q0In, Q0Out, _}) ->
+    cqueue_filter(Pred, Active, Last, In, Out, Q0In, Q0Out);
+filter(Pred, {pqueue, Queues}) ->
+    from_pqueue_list(
+        lists:filtermap(
+            fun({P, Q}) ->
+                FQ = filter(Pred, Q),
+                case is_empty(FQ) of
+                    false -> {true, {P, FQ}};
+                    true -> false
+                end
+            end,
+            Queues
+        )
+    ).
+
+filter_list(Pred, L) ->
+    lists:foldr(
+        fun(V, {Len, Acc}) ->
             case Pred(V) of
-                true -> in(V, P, Acc);
-                false -> Acc
+                true -> {Len + 1, [V | Acc]};
+                false -> {Len, Acc}
             end
         end,
-        new(),
-        Q
+        {0, []},
+        L
     ).
 
 -spec fold(fun((any(), priority(), A) -> A), A, pqueue()) -> A.
@@ -283,10 +337,11 @@ fold(Fun, Init, Q) ->
         {{value, V, P}, Q1} -> fold(Fun, Fun(V, P, Init), Q1)
     end.
 
--spec highest(pqueue()) -> priority() | 'empty'.
-highest({queue, [], [], 0}) -> empty;
-highest({queue, _, _, _}) -> 0;
-highest({pqueue, [{P, _} | _]}) -> maybe_negate_priority(P).
+-spec highest(pqueue()) -> priority().
+highest({pqueue, [{P, _} | _]}) ->
+    maybe_negate_priority(P);
+highest(_Q) ->
+    0.
 
 r2f([], 0) -> {queue, [], [], 0};
 r2f([_] = R, 1) -> {queue, [], R, 1};
@@ -296,12 +351,19 @@ r2f([X, Y | R], L) -> {queue, [X, Y], lists:reverse(R, []), L}.
 maybe_negate_priority(infinity) -> infinity;
 maybe_negate_priority(P) -> -P.
 
+from_pqueue_list([]) ->
+    new();
+from_pqueue_list([{0, Q}]) ->
+    Q;
+from_pqueue_list(Queues) ->
+    {pqueue, Queues}.
+
 %% Classful queue
 
 cqueue_new() ->
     {default, default, [], [], [], [], 0}.
 
-cqueue_in(X, Class, {_Active, _Last, [], [], [], [], 0}) ->
+cqueue_new(X, Class) ->
     case Class of
         default ->
             In = [X],
@@ -310,7 +372,13 @@ cqueue_in(X, Class, {_Active, _Last, [], [], [], [], 0}) ->
             In = [],
             Q0In = [X]
     end,
-    {Class, Class, In, [], Q0In, [], 1};
+    {Class, Class, In, [], Q0In, [], 1}.
+
+cqueue_from_simple(In, Out, L) ->
+    {default, default, In, Out, [], [], L}.
+
+cqueue_in(X, Class, {_Active, _Last, [], [], [], [], 0}) ->
+    cqueue_new(X, Class);
 cqueue_in(X, Class, {Active, Last0, In0, Out, Q0In0, Q0Out, L}) ->
     case Class of
         Last0 when Class =:= default ->
@@ -359,6 +427,28 @@ cqueue_out(qos0, Last, In, Out, Q0In, Q0Out, L) ->
             NOut = lists:reverse(Q0In, []),
             cqueue_out(qos0, Last, In, Out, [], NOut, L)
     end.
+
+cqueue_filter(Pred, Active, Last, In, Out, Q0In, Q0Out) ->
+    {L1, FIn} = cqueue_filter_list(Pred, In),
+    {L2, FOut} = cqueue_filter_list(Pred, Out),
+    {L3, FQ0In} = cqueue_filter_list(Pred, Q0In),
+    {L4, FQ0Out} = cqueue_filter_list(Pred, Q0Out),
+    {Active, Last, FIn, FOut, FQ0In, FQ0Out, L1 + L2 + L3 + L4}.
+
+cqueue_filter_list(Pred, L) ->
+    lists:foldr(
+        fun
+            (?switch, {Len, Acc}) ->
+                {Len, [?switch | Acc]};
+            (V, {Len, Acc}) ->
+                case Pred(V) of
+                    true -> {Len + 1, [V | Acc]};
+                    false -> {Len, Acc}
+                end
+        end,
+        {0, []},
+        L
+    ).
 
 cqueue_drop({Active, Last, In, Out, Q0In, Q0Out, L}) ->
     cqueue_drop(Active, Last, In, Out, Q0In, Q0Out, L).
