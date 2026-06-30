@@ -37,6 +37,7 @@ roots() ->
 fields("connection_fields") ->
     [
         {server, server()},
+        {application_name, application_name()},
         {disable_prepared_statements, emqx_connector_schema_lib:disable_prepared_statements_field()}
     ] ++
         emqx_connector_schema_lib:relational_db_fields(#{username => #{required => true}}) ++
@@ -87,6 +88,13 @@ server() ->
     Meta = #{desc => ?DESC("server")},
     emqx_schema:servers_sc(Meta, ?PGSQL_HOST_OPTIONS).
 
+application_name() ->
+    hoconsc:mk(binary(), #{
+        default => <<"emqx">>,
+        desc => ?DESC("application_name"),
+        validator => fun emqx_schema:non_empty_string/1
+    }).
+
 %% Examples
 connector_examples(Method) ->
     [
@@ -125,6 +133,7 @@ values({put, _PostgreSQLType}) ->
     values(common);
 values(common) ->
     #{
+        <<"application_name">> => <<"emqx">>,
         <<"database">> => <<"emqx_data">>,
         <<"enable">> => true,
         <<"password">> => <<"public">>,

@@ -54,11 +54,27 @@ t_lifecycle(_Config) ->
     ).
 
 t_application_name_connect_option(_Config) ->
-    ResourceId = <<"emqx_postgresql_SUITE_application_name">>,
+    assert_application_name_connect_option(
+        <<"emqx_postgresql_SUITE_application_name">>,
+        #{},
+        "emqx"
+    ).
+
+t_custom_application_name_connect_option(_Config) ->
+    assert_application_name_connect_option(
+        <<"emqx_postgresql_SUITE_custom_application_name">>,
+        #{application_name => <<"emqx-test-app">>},
+        "emqx-test-app"
+    ).
+
+assert_application_name_connect_option(ResourceId, Overrides, ExpectedApplicationName) ->
     {ok, #{config := CheckedConfig}} =
         emqx_resource:check_config(
             ?PGSQL_RESOURCE_MOD,
-            pgsql_config(#{server => <<"invalid-postgresql-host:5432">>, pool_size => 1})
+            pgsql_config(Overrides#{
+                server => <<"invalid-postgresql-host:5432">>,
+                pool_size => 1
+            })
         ),
     ?check_trace(
         begin
@@ -77,7 +93,7 @@ t_application_name_connect_option(_Config) ->
                 ?of_kind("postgres_epgsql_connect", Trace)
             ),
             [#{opts := Opts} | _] = ?of_kind("postgres_epgsql_connect", Trace),
-            ?assert(lists:member({application_name, "emqx"}, Opts))
+            ?assert(lists:member({application_name, ExpectedApplicationName}, Opts))
         end
     ).
 
@@ -396,7 +412,7 @@ pgsql_config() ->
 
 pgsql_config(Overrides) ->
     PoolSize = maps:get(pool_size, Overrides, 8),
-    #{
+    Config0 = #{
         <<"config">> => #{
             <<"auto_reconnect">> => true,
             <<"database">> => <<"mqtt">>,
@@ -406,11 +422,23 @@ pgsql_config(Overrides) ->
             <<"username">> => <<"root">>,
             <<"password">> => <<"public">>,
             <<"pool_size">> => PoolSize,
-            <<"server">> => iolist_to_binary([
-                ?PGSQL_HOST, ":", integer_to_list(?PGSQL_DEFAULT_PORT)
-            ])
+            <<"server">> => maps:get(
+                server,
+                Overrides,
+                iolist_to_binary([?PGSQL_HOST, ":", integer_to_list(?PGSQL_DEFAULT_PORT)])
+            )
         }
-    }.
+    },
+    case maps:find(application_name, Overrides) of
+        {ok, ApplicationName} ->
+            emqx_utils_maps:deep_put(
+                [<<"config">>, <<"application_name">>],
+                Config0,
+                ApplicationName
+            );
+        error ->
+            Config0
+    end.
 
 test_query_no_params() ->
     {query, <<"SELECT 1">>}.
