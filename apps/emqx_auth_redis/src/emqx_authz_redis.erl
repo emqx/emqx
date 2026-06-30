@@ -62,7 +62,7 @@ authorize(
             ?SLOG(error, #{
                 msg => "query_redis_error",
                 reason => Reason,
-                cmd => Cmd,
+                cmd => emqx_auth_template:render_deep_for_raw_redacted(CmdTemplate, Vars),
                 resource_id => ResourceId
             }),
             emqx_authz_utils:backend_failure_result()

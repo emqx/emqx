@@ -12,6 +12,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("public_key/include/public_key.hrl").
+-include_lib("jose/include/jose_jwk.hrl").
 
 -define(AUTHN_ID, <<"mechanism:jwt">>).
 
@@ -54,6 +55,7 @@ t_hmac_based(_) ->
         secret_base64_encoded => false,
         verify_claims => [{<<"username">>, <<"${username}">>}],
         disconnect_after_expire => false,
+        on_missing_jwt => ignore,
         enable => true
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
@@ -81,6 +83,12 @@ t_hmac_based(_) ->
     BadJWS = generate_jws('hmac-based', Payload, <<"bad_secret">>),
     Credential2 = Credential#{password => BadJWS},
     ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential2, State)),
+
+    NoneJWS = generate_none_jws(Payload),
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential#{password => NoneJWS}, State)),
+
+    RSAJWS = generate_jws('public-key', Payload, test_rsa_key(private)),
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential#{password => RSAJWS}, State)),
 
     %% secret_base64_encoded
     Config2 = Config#{
@@ -166,6 +174,34 @@ t_hmac_based(_) ->
     ?assertEqual(ok, emqx_authn_jwt:destroy(State3)),
     ok.
 
+t_on_missing_jwt(_) ->
+    Config = #{
+        mechanism => jwt,
+        from => password,
+        acl_claim_name => <<"acl">>,
+        use_jwks => false,
+        algorithm => 'hmac-based',
+        secret => <<"abcdef">>,
+        secret_base64_encoded => false,
+        verify_claims => [],
+        disconnect_after_expire => false,
+        enable => true,
+        on_missing_jwt => ignore
+    },
+    Credential = #{username => <<"myuser">>},
+
+    {ok, IgnoreState} = emqx_authn_jwt:create(?AUTHN_ID, Config#{on_missing_jwt => ignore}),
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential, IgnoreState)),
+    ?assertEqual(ok, emqx_authn_jwt:destroy(IgnoreState)),
+
+    {ok, DenyState} = emqx_authn_jwt:create(?AUTHN_ID, Config#{on_missing_jwt => deny}),
+    ?assertEqual(
+        {error, bad_username_or_password},
+        emqx_authn_jwt:authenticate(Credential, DenyState)
+    ),
+    ?assertEqual(ok, emqx_authn_jwt:destroy(DenyState)),
+    ok.
+
 t_public_key(_) ->
     PublicKey = test_rsa_key(public),
     PrivateKey = test_rsa_key(private),
@@ -178,6 +214,7 @@ t_public_key(_) ->
         public_key => PublicKey,
         verify_claims => [],
         disconnect_after_expire => false,
+        on_missing_jwt => ignore,
         enable => true
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
@@ -193,6 +230,10 @@ t_public_key(_) ->
         ignore, emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State)
     ),
 
+    {ok, PublicKeyPEM} = file:read_file(PublicKey),
+    HMACJWS = generate_jws('hmac-based', Payload, PublicKeyPEM),
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential#{password => HMACJWS}, State)),
+
     ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
     ok.
 
@@ -206,6 +247,77 @@ t_invalid_signature_hardened_denies(_) ->
         ?assertEqual({error, not_authorized}, authenticate_with_invalid_signature())
     end).
 
+t_invalid_signature_trace_redacts_hmac_jwks(_) ->
+    Secret = <<"abcdef">>,
+    Config = #{
+        mechanism => jwt,
+        from => password,
+        acl_claim_name => <<"acl">>,
+        use_jwks => false,
+        algorithm => 'hmac-based',
+        secret => Secret,
+        secret_base64_encoded => false,
+        verify_claims => [],
+        disconnect_after_expire => false,
+        on_missing_jwt => ignore,
+        enable => true
+    },
+    {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
+    Payload = #{<<"username">> => <<"myuser">>, <<"exp">> => erlang:system_time(second) + 60},
+    BadJWS = generate_jws('hmac-based', Payload, <<"bad_secret">>),
+    Credential = #{username => <<"myuser">>, password => BadJWS},
+
+    ?check_trace(
+        begin
+            enable_trace_macro(<<"jwtHmacTrace">>),
+            _ = emqx_authn_jwt:authenticate(Credential, State)
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{jwks := [<<"******">>]}],
+                ?of_kind(redact_jwks_for_log, Trace)
+            ),
+            TraceBin = unicode:characters_to_binary(io_lib:format("~0p", [Trace])),
+            ?assertEqual(nomatch, binary:match(TraceBin, Secret))
+        end
+    ),
+    ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
+    ok.
+
+t_invalid_signature_trace_keeps_public_jwks(_) ->
+    PublicKey = test_rsa_key(public),
+    Config = #{
+        mechanism => jwt,
+        from => password,
+        acl_claim_name => <<"acl">>,
+        use_jwks => false,
+        algorithm => 'public-key',
+        public_key => PublicKey,
+        verify_claims => [],
+        disconnect_after_expire => false,
+        on_missing_jwt => ignore,
+        enable => true
+    },
+    {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
+    Payload = #{<<"username">> => <<"myuser">>, <<"exp">> => erlang:system_time(second) + 60},
+    BadJWS = generate_jws('hmac-based', Payload, <<"bad_secret">>),
+    Credential = #{username => <<"myuser">>, password => BadJWS},
+
+    ?check_trace(
+        begin
+            enable_trace_macro(<<"jwtPublicTrace">>),
+            _ = emqx_authn_jwt:authenticate(Credential, State)
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{jwks := [#jose_jwk{kty = {jose_jwk_kty_rsa, _}}]}],
+                ?of_kind(redact_jwks_for_log, Trace)
+            )
+        end
+    ),
+    ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
+    ok.
+
 t_bad_public_keys(_) ->
     BaseConfig = #{
         mechanism => jwt,
@@ -215,6 +327,7 @@ t_bad_public_keys(_) ->
         algorithm => 'public-key',
         verify_claims => [],
         disconnect_after_expire => false,
+        on_missing_jwt => ignore,
         enable => true
     },
 
@@ -266,6 +379,7 @@ t_jwt_in_username(_) ->
         secret_base64_encoded => false,
         verify_claims => [],
         disconnect_after_expire => false,
+        on_missing_jwt => ignore,
         enable => true
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
@@ -290,6 +404,7 @@ t_complex_template(_) ->
         secret_base64_encoded => false,
         verify_claims => [{<<"id">>, <<"${username}-${clientid}">>}],
         disconnect_after_expire => false,
+        on_missing_jwt => ignore,
         enable => true
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
@@ -331,6 +446,7 @@ t_jwks_renewal(_Config) ->
         ssl => #{enable => false},
         verify_claims => [],
         disconnect_after_expire => false,
+        on_missing_jwt => ignore,
         use_jwks => true,
         endpoint => "https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT + 1) ++ ?JWKS_PATH,
         headers => #{<<"Accept">> => <<"application/json">>},
@@ -349,10 +465,8 @@ t_jwks_renewal(_Config) ->
 
     ok = snabbkaffe:stop(),
 
-    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential0, State0)),
-    ?assertEqual(
-        ignore, emqx_authn_jwt:authenticate(Credential0#{password => <<"badpassword">>}, State0)
-    ),
+    assert_jwks_backend_failure(Credential0, State0),
+    assert_jwks_backend_failure(Credential0#{password => <<"badpassword">>}, State0),
 
     ClientSSLOpts = client_ssl_opts(),
     BadClientSSLOpts = ClientSSLOpts#{server_name_indication => "authn-server-unknown-host"},
@@ -373,10 +487,8 @@ t_jwks_renewal(_Config) ->
 
     ok = snabbkaffe:stop(),
 
-    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential0, State1)),
-    ?assertEqual(
-        ignore, emqx_authn_jwt:authenticate(Credential0#{password => <<"badpassword">>}, State0)
-    ),
+    assert_jwks_backend_failure(Credential0, State1),
+    assert_jwks_backend_failure(Credential0#{password => <<"badpassword">>}, State0),
 
     GoodConfig = BadConfig1#{
         ssl => ClientSSLOpts,
@@ -416,6 +528,10 @@ t_jwks_renewal(_Config) ->
         emqx_authn_jwt:authenticate(Credential1#{password => JWS2}, State2)
     ),
 
+    {ok, PublicKeyPEM} = file:read_file(test_rsa_key(public)),
+    HMACJWS = generate_jws('hmac-based', Payload1, PublicKeyPEM),
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential1#{password => HMACJWS}, State2)),
+
     ?assertEqual(ok, emqx_authn_jwt:destroy(State2)),
     ok = emqx_utils_http_test_server:stop().
 
@@ -432,6 +548,7 @@ t_jwks_resource_status(_Config) ->
         ssl => client_ssl_opts(),
         verify_claims => [],
         disconnect_after_expire => false,
+        on_missing_jwt => ignore,
         use_jwks => true,
         endpoint => "https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT) ++ ?JWKS_PATH,
         headers => #{<<"Accept">> => <<"application/json">>},
@@ -463,6 +580,39 @@ t_jwks_resource_status(_Config) ->
     %% Clean up
     ok = emqx_authn_jwt:destroy(State3),
     ok = emqx_utils_http_test_server:stop().
+
+t_jwks_cache_invalidated_after_refresh_failures(_Config) ->
+    {ok, _} = emqx_utils_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
+    on_exit(fun() -> ok = emqx_utils_http_test_server:stop() end),
+    ok = emqx_utils_http_test_server:set_handler(fun jwks_handler/2),
+    ok = snabbkaffe:start_trace(),
+
+    Opts = #{
+        endpoint => "https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT) ++ ?JWKS_PATH,
+        headers => #{<<"Accept">> => <<"application/json">>},
+        refresh_interval => 1000,
+        max_fail_count => 2,
+        ssl => client_ssl_opts()
+    },
+    {{ok, Pid}, {ok, _}} = ?wait_async_action(
+        emqx_authn_jwks_client:start_link(Opts),
+        #{?snk_kind := jwks_endpoint_response},
+        5_000
+    ),
+    on_exit(fun() -> emqx_authn_jwks_client:stop(Pid) end),
+    ?assertMatch({ok, [_ | _]}, emqx_authn_jwks_client:get_jwks(Pid)),
+
+    ok = emqx_utils_http_test_server:set_handler(fun invalid_jwks_handler/2),
+    force_jwks_refresh(Pid),
+    ?assertMatch({ok, [_ | _]}, emqx_authn_jwks_client:get_jwks(Pid)),
+
+    force_jwks_refresh(Pid),
+    ?assertEqual({ok, undefined}, emqx_authn_jwks_client:get_jwks(Pid)),
+
+    ok = emqx_utils_http_test_server:set_handler(fun jwks_handler/2),
+    force_jwks_refresh(Pid),
+    ?assertMatch({ok, [_ | _]}, emqx_authn_jwks_client:get_jwks(Pid)),
+    ok = snabbkaffe:stop().
 
 t_jwks_custom_headers(_Config) ->
     {ok, _} = emqx_utils_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
@@ -630,6 +780,82 @@ t_jwks_te_header_user_supplied(_Config) ->
         {_, _},
         binary:match(RequestBytes, <<"\r\nte: trailers, deflate\r\n">>)
     ),
+
+    ok.
+
+%% Verify default verify behavior for jwk fetching
+t_jwks_default_ssl_verify_profiles(_Config) ->
+    {ok, _} = emqx_utils_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
+    on_exit(fun() -> ok = emqx_utils_http_test_server:stop() end),
+    ok = emqx_utils_http_test_server:set_handler(jwks_handler_spy()),
+    ok = snabbkaffe:start_trace(),
+
+    PrivateKey = test_rsa_key(private),
+    Payload = #{<<"username">> => <<"myuser">>},
+    JWS = generate_jws('public-key', Payload, PrivateKey),
+    Credential = #{
+        username => <<"myuser">>,
+        password => JWS
+    },
+
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        Config = jwks_api_config(#{
+            <<"enable">> => true,
+            <<"cacertfile">> => cert_file("ca.crt"),
+            <<"certfile">> => cert_file("client.crt"),
+            <<"keyfile">> => cert_file("client.key"),
+            <<"server_name_indication">> => <<"authn-server-unknown-host">>
+        }),
+        %% Legacy defaults to verify_none and updates keys successfully.
+        {
+            {ok, #{raw_config := [#{<<"ssl">> := #{<<"verify">> := <<"verify_none">>}}]}},
+            {ok, #{response := {{_, 200, _}, _, _}}}
+        } = ?wait_async_action(
+            emqx_authn_api:update_config(
+                [authentication],
+                {create_authenticator, 'mqtt:global', Config}
+            ),
+            #{?snk_kind := jwks_endpoint_response},
+            5_000
+        ),
+        ?assertReceive({http_request, _}),
+        {ok, [#{provider := emqx_authn_jwt, state := State}]} =
+            emqx_authn_chains:list_authenticators('mqtt:global'),
+        ?assertMatch(
+            {ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential, State)
+        ),
+        ok = delete_jwks_authenticator()
+    end),
+
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        Config = jwks_api_config(#{
+            <<"enable">> => true,
+            <<"cacertfile">> => cert_file("ca.crt"),
+            <<"certfile">> => cert_file("client.crt"),
+            <<"keyfile">> => cert_file("client.key"),
+            <<"server_name_indication">> => <<"authn-server-unknown-host">>
+        }),
+        {
+            {ok, #{raw_config := [#{<<"ssl">> := #{<<"verify">> := <<"verify_peer">>}}]}},
+            {ok, #{response := {error, _}}}
+        } = ?wait_async_action(
+            emqx_authn_api:update_config(
+                [authentication],
+                {create_authenticator, 'mqtt:global', Config}
+            ),
+            #{?snk_kind := jwks_endpoint_response},
+            5_000
+        ),
+        ?assertNotReceive({http_request, _}),
+        {ok, [#{provider := emqx_authn_jwt, state := State}]} =
+            emqx_authn_chains:list_authenticators('mqtt:global'),
+        ?assertEqual(
+            {error, not_authorized},
+            emqx_authn_jwt:authenticate(Credential, State)
+        ),
+        ok = delete_jwks_authenticator()
+    end),
+    ok = snabbkaffe:stop(),
     ok.
 
 %% @doc verify that the authenticator state is actually updated when we update its config
@@ -652,6 +878,7 @@ t_jwks_config_update(_Config) ->
         ssl => client_ssl_opts(),
         verify_claims => [],
         disconnect_after_expire => false,
+        on_missing_jwt => ignore,
         use_jwks => true,
         endpoint => "https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT + 1) ++ ?JWKS_PATH,
         headers => #{<<"Accept">> => <<"application/json">>},
@@ -670,7 +897,7 @@ t_jwks_config_update(_Config) ->
     ok = snabbkaffe:stop(),
 
     %% The authentication should fail, because the `from` is set to `username` in settings
-    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential, State0)),
+    assert_jwks_backend_failure(Credential, State0),
 
     %% Fix from field in the config
     ok = snabbkaffe:start_trace(),
@@ -711,6 +938,7 @@ t_jwks_verify_hostname(Config) ->
         ssl => SSLOpts,
         verify_claims => [],
         disconnect_after_expire => false,
+        on_missing_jwt => ignore,
         use_jwks => true,
         endpoint => <<"https://www.googleapis.com/oauth2/v3/certs">>,
         headers => #{<<"Accept">> => <<"application/json">>},
@@ -744,6 +972,7 @@ t_verify_claims(_) ->
         secret_base64_encoded => false,
         verify_claims => [{<<"foo">>, <<"bar">>}],
         disconnect_after_expire => false,
+        on_missing_jwt => ignore,
         enable => true
     },
     {ok, State0} = emqx_authn_jwt:create(?AUTHN_ID, Config0),
@@ -836,6 +1065,7 @@ t_verify_claim_clientid(_) ->
         secret_base64_encoded => false,
         verify_claims => [{<<"cl">>, <<"${clientid}">>}],
         disconnect_after_expire => false,
+        on_missing_jwt => ignore,
         enable => true
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
@@ -870,6 +1100,7 @@ t_verify_claim_aud(_) ->
         secret_base64_encoded => false,
         verify_claims => [{<<"aud">>, <<"myapp">>}],
         disconnect_after_expire => false,
+        on_missing_jwt => ignore,
         enable => true
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
@@ -1225,6 +1456,15 @@ jwks_handler(Req0, State) ->
     ),
     {ok, Req, State}.
 
+invalid_jwks_handler(Req0, State) ->
+    Req = cowboy_req:reply(
+        200,
+        #{<<"content-type">> => <<"application/json">>},
+        <<"not-a-jwks">>,
+        Req0
+    ),
+    {ok, Req, State}.
+
 jwks_handler_spy() ->
     TestPid = self(),
     fun(Req, State) ->
@@ -1234,6 +1474,25 @@ jwks_handler_spy() ->
         TestPid ! {http_request, ReqMap},
         jwks_handler(Req, State)
     end.
+
+force_jwks_refresh(Pid) ->
+    {refresh_jwks, {ok, _}} = ?wait_async_action(
+        Pid ! refresh_jwks,
+        #{?snk_kind := jwks_endpoint_response},
+        5_000
+    ),
+    ok.
+
+assert_jwks_backend_failure(Credential, State) ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential, State))
+    end),
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ?assertEqual(
+            {error, not_authorized},
+            emqx_authn_jwt:authenticate(Credential, State)
+        )
+    end).
 
 test_rsa_key(public) ->
     data_file("public_key.pem");
@@ -1265,6 +1524,39 @@ generate_jws('public-key', Payload, PrivateKey) ->
     Signed = jose_jwt:sign(JWK, Header, Payload),
     {_, JWS} = jose_jws:compact(Signed),
     JWS.
+
+jwks_api_config(SSL) ->
+    Endpoint = iolist_to_binary("https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT) ++ ?JWKS_PATH),
+    #{
+        <<"mechanism">> => <<"jwt">>,
+        <<"use_jwks">> => true,
+        <<"from">> => <<"password">>,
+        <<"endpoint">> => Endpoint,
+        <<"headers">> => #{<<"Accept">> => <<"application/json">>},
+        <<"pool_size">> => 1,
+        <<"refresh_interval">> => 1_000,
+        <<"ssl">> => SSL,
+        <<"verify_claims">> => #{}
+    }.
+
+delete_jwks_authenticator() ->
+    {ok, _} = emqx_authn_api:update_config(
+        [authentication],
+        {delete_authenticator, 'mqtt:global', <<"jwt">>}
+    ),
+    ok.
+
+generate_none_jws(Payload) ->
+    Header = emqx_utils_json:encode(#{
+        <<"alg">> => <<"none">>,
+        <<"typ">> => <<"JWT">>
+    }),
+    iolist_to_binary([
+        jose_jwa_base64url:encode(Header),
+        <<".">>,
+        jose_jwa_base64url:encode(emqx_utils_json:encode(Payload)),
+        <<".">>
+    ]).
 
 client_ssl_opts() ->
     #{
@@ -1301,4 +1593,31 @@ system_cacerts_bundle_path(TCConfig) ->
             ),
             ok = file:write_file(OutPath, public_key:pem_encode(Cacerts)),
             OutPath
+    end.
+
+enable_trace_macro(Name) ->
+    maybe_start_trace_server(),
+    ok = emqx_trace:clear(),
+    Now = erlang:system_time(second),
+    {ok, _} = emqx_trace:create(#{
+        name => Name,
+        filter => {topic, <<"#">>},
+        start_at => Now,
+        end_at => Now + 60
+    }),
+    on_exit(fun() ->
+        catch emqx_trace:update(Name, false),
+        catch emqx_trace:clear()
+    end),
+    ok.
+
+maybe_start_trace_server() ->
+    case whereis(emqx_trace) of
+        undefined ->
+            {ok, Pid} = emqx_trace:start_link(),
+            true = erlang:unlink(Pid),
+            on_exit(fun() -> catch gen_server:stop(Pid, shutdown, infinity) end),
+            ok;
+        _Pid ->
+            ok
     end.

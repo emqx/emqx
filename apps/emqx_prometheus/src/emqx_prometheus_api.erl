@@ -49,7 +49,7 @@
 -export([lookup_from_local_nodes/3]).
 -export([scopes/0]).
 
--export([namespaced_stats_filter/2, namespaced_filter/2, validate_not_json/2]).
+-export([namespaced_filter/2, validate_not_json/2]).
 
 -define(TAGS, [<<"Monitor">>]).
 
@@ -104,7 +104,7 @@ schema("/prometheus") ->
 schema("/prometheus/namespaced_stats") ->
     #{
         'operationId' => ns_stats,
-        filter => fun ?MODULE:namespaced_stats_filter/2,
+        filter => fun ?MODULE:namespaced_filter/2,
         get =>
             #{
                 description => ?DESC("ns_stats"),
@@ -270,8 +270,9 @@ setting(put, #{body := Body}) ->
 stats(get, #{query_string := Qs}) ->
     collect(emqx_prometheus, collect_opts(Qs)).
 
-ns_stats(get, #{query_string := Qs}) ->
-    collect_ns_stats(collect_opts_ns(Qs)).
+ns_stats(get, Req) ->
+    Opts = get_collect_opts(Req),
+    collect_ns_stats(Opts).
 
 auth(get, #{query_string := Qs}) ->
     collect(emqx_prometheus_auth, collect_opts(Qs)).
@@ -319,9 +320,6 @@ collect_ns_stats(#{mode := Mode, namespace := Namespace}) ->
 collect_opts(Qs) ->
     #{mode => mode(Qs)}.
 
-collect_opts_ns(Qs) ->
-    #{namespace => namespace(Qs), mode => mode(Qs)}.
-
 collect_opts_ns_or_all(Req = #{query_string := Qs}) ->
     Namespace0 = get_namespace(Req),
     Namespace =
@@ -357,11 +355,6 @@ mode(#{<<"mode">> := Mode}) ->
     end;
 mode(_) ->
     ?PROM_DATA_MODE__NODE.
-
-namespace(#{<<"ns">> := Namespace}) ->
-    Namespace;
-namespace(_) ->
-    all.
 
 gen_response(Data) ->
     {200, #{<<"content-type">> => <<"text/plain">>}, Data}.
@@ -443,9 +436,12 @@ validate_not_json(#{headers := Headers} = Req, _Meta) ->
             {ok, Req}
     end.
 
-parse_collect_opt_ns(#{query_string := Qs} = Req, _Meta) ->
-    Opts = collect_opts_ns(Qs),
+parse_collect_opt_ns(#{} = Req, _Meta) ->
+    Opts = collect_opts_ns_or_all(Req),
     {ok, Req#{collect_opts => Opts}}.
+
+get_collect_opts(Req) ->
+    maps:get(collect_opts, Req).
 
 rate_limit_all_ns_stats(#{collect_opts := #{namespace := all}} = Req, _Meta) ->
     Client = emqx_prometheus_limiter:connect_api(),
@@ -457,13 +453,6 @@ rate_limit_all_ns_stats(#{collect_opts := #{namespace := all}} = Req, _Meta) ->
     end;
 rate_limit_all_ns_stats(Req, _Meta) ->
     {ok, Req}.
-
-namespaced_stats_filter(Req0, Meta) ->
-    maybe
-        {ok, Req1} ?= validate_not_json(Req0, Meta),
-        {ok, Req2} ?= parse_collect_opt_ns(Req1, Meta),
-        rate_limit_all_ns_stats(Req2, Meta)
-    end.
 
 namespaced_filter(Req0, Meta) ->
     maybe

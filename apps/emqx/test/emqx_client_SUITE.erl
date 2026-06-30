@@ -239,7 +239,14 @@ t_offline_message_queueing(_) ->
     %% return before dispatch reaches the subscriber: QoS 0 has no broker ack at
     %% all, and the QoS 1/2 acks are sent before the broker drives the dispatch
     %% to subscribers. A fixed sleep here races the disconnect on slow runners.
-    ?WAIT(?assertEqual(3, proplists:get_value(mqueue_len, emqx_cm:get_chan_stats(<<"c1">>))), 30),
+    %%
+    %% Read live stats straight from the channel process. emqx_cm:get_chan_stats/1
+    %% returns a cached snapshot from ?CHAN_INFO_TAB that is only refreshed by the
+    %% channel's emit_stats timer (default mqtt.idle_timeout = 15s). Once c1
+    %% disconnects the channel hibernates and stops emitting stats, so the cached
+    %% mqueue_len can lag reality for the whole retry budget.
+    [ChanPid] = emqx_cm:lookup_channels(<<"c1">>),
+    ?WAIT(?assertEqual(3, proplists:get_value(mqueue_len, emqx_connection:stats(ChanPid))), 30),
     emqtt:disconnect(C2),
 
     {ok, C3} = emqtt:start_link([{clean_start, false}, {clientid, <<"c1">>}]),
