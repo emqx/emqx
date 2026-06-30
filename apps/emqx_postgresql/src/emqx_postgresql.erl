@@ -831,14 +831,25 @@ on_format_query_result({ok, Cnt}) when is_integer(Cnt) ->
 on_format_query_result(Res) ->
     Res.
 
-handle_batch_result([{ok, Count} | Rest], Acc) ->
+handle_batch_result([{ok, Count} | Rest], Acc) when is_integer(Count) ->
     handle_batch_result(Rest, Acc + Count);
+handle_batch_result([{ok, _Rows} | _Rest], _Acc) ->
+    unsupported_row_returning_batch_result();
+handle_batch_result([{ok, _Count, _Rows} | _Rest], _Acc) ->
+    unsupported_row_returning_batch_result();
 handle_batch_result([{error, Error} | _Rest], _Acc) ->
     TranslatedError = translate_to_log_context(Error),
     {error, {unrecoverable_error, export_error(TranslatedError)}};
 handle_batch_result([], Acc) ->
     ?tp("postgres_success_batch_result", #{row_count => Acc}),
     {ok, Acc}.
+
+unsupported_row_returning_batch_result() ->
+    {error,
+        {unrecoverable_error, #{
+            reason => row_returning_batch_sql_unsupported,
+            msg => <<"PostgreSQL action batch SQL must not return rows">>
+        }}}.
 
 translate_to_log_context({error, Reason}) ->
     translate_to_log_context(Reason);
