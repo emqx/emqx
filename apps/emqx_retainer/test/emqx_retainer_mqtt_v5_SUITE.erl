@@ -208,3 +208,26 @@ t_subscribe_retain_handing(_) ->
     clean_retained(<<"topic/A">>),
     clean_retained(<<"topic/B">>),
     clean_retained(<<"topic/C">>).
+
+t_subscribe_wildcard_caps_retained_qos(_) ->
+    Topic = <<"retainer/qos/1">>,
+    TopicFilter = <<"retainer/qos/+">>,
+
+    {ok, Client} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _} = emqtt:publish(
+        Client,
+        Topic,
+        #{},
+        <<"retained message">>,
+        [{qos, 2}, {retain, true}]
+    ),
+
+    {ok, _, [0]} = emqtt:subscribe(Client, #{}, [{TopicFilter, [{rh, 0}, {qos, 0}]}]),
+    [Msg] = receive_messages(1),
+    ?assertEqual(Topic, maps:get(topic, Msg)),
+    ?assertEqual(<<"retained message">>, maps:get(payload, Msg)),
+    ?assertEqual(0, maps:get(qos, Msg)),
+
+    ok = emqtt:disconnect(Client),
+    clean_retained(Topic).
