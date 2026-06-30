@@ -190,6 +190,12 @@ if [ "${2:-}" = 'help' ]; then
     fi
 fi
 
+## starts only the slim apps list, and we flip code loading to interactive so
+## the skipped apps' .beam files don't sit resident in memory.
+if [ "${EMQX_FEATURES:-}" = 'ESSENTIAL' ]; then
+    export CODE_LOADING_MODE="${CODE_LOADING_MODE:-interactive}"
+fi
+
 ## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
 case "${COMMAND}" in
     start|console|console_clean|foreground|check_config)
