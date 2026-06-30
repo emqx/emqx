@@ -691,8 +691,8 @@ reset_timer(Name, Channel) ->
 clean_timer(Name, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = maps:remove(Name, Timers)}.
 
-interval(alive_timer, #channel{keepalive = KeepAlive}) ->
-    emqx_ocpp_keepalive:info(interval, KeepAlive).
+interval(alive_timer, #channel{keepalive = Keepalive}) ->
+    emqx_ocpp_keepalive:info(interval, Keepalive).
 
 %%--------------------------------------------------------------------
 %% Terminate

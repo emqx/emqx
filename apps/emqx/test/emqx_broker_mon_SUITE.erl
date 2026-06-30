@@ -73,8 +73,13 @@ send_messages(Pid, N) ->
 %%------------------------------------------------------------------------------
 
 t_mnesia_tm_overload(_Config) ->
-    ?assertEqual(0, emqx_broker_mon:get_mnesia_tm_mailbox_size()),
-    ?assertEqual([], emqx_alarm:get_alarms()),
+    %% Wait for mnesia_tm to drain whatever the previous test case or
+    %% init_per_testcase (which runs the `emqx_alarm:delete_all_deactivated_alarms/0'
+    %% mnesia transaction) left behind. The cached mailbox-size atomic is updated
+    %% by a 100ms-interval sampler, so the most recent snapshot can still
+    %% reflect that activity at the moment we enter the test body.
+    ?retry(100, 10, ?assertEqual(0, emqx_broker_mon:get_mnesia_tm_mailbox_size())),
+    ?retry(100, 10, ?assertEqual([], emqx_alarm:get_alarms())),
     on_exit(fun() -> sys:resume(mnesia_tm) end),
     ct:pal("suspending mnesia_tm"),
     ok = sys:suspend(mnesia_tm),

@@ -15,11 +15,31 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("jose/include/jose_jwk.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_auth_jwt.hrl").
 
 -define(ALLOWED_VARS, [
     ?VAR_CLIENTID,
     ?VAR_USERNAME
+]).
+
+-define(JWT_HMAC_ALGORITHMS, [
+    <<"HS256">>,
+    <<"HS384">>,
+    <<"HS512">>
+]).
+
+-define(JWT_PUBLIC_KEY_ALGORITHMS, [
+    <<"RS256">>,
+    <<"RS384">>,
+    <<"RS512">>,
+    <<"PS256">>,
+    <<"PS384">>,
+    <<"PS512">>,
+    <<"ES256">>,
+    <<"ES384">>,
+    <<"ES512">>,
+    <<"EdDSA">>
 ]).
 
 %%------------------------------------------------------------------------------
@@ -80,26 +100,41 @@ authenticate(#{auth_method := _}, _) ->
 authenticate(
     Credential,
     #{
+        from := From,
+        on_missing_jwt := OnMissingJWT
+    } = State
+) ->
+    case maps:get(From, Credential, undefined) of
+        undefined ->
+            missing_jwt(OnMissingJWT);
+        JWT ->
+            do_authenticate(JWT, Credential, State)
+    end.
+
+do_authenticate(
+    JWT,
+    Credential,
+    #{
         verify_claims := VerifyClaims0,
         disconnect_after_expire := DisconnectAfterExpire,
         jwk := JWK,
-        acl_claim_name := AclClaimName,
-        from := From
+        allowed_algs := AllowedAlgs,
+        acl_claim_name := AclClaimName
     }
 ) ->
-    JWT = maps:get(From, Credential),
     %% XXX: Only supports single public key
     JWKs = [JWK],
     VerifyClaims = render_expected(VerifyClaims0, Credential),
-    verify(JWT, JWKs, VerifyClaims, AclClaimName, DisconnectAfterExpire);
-authenticate(
+    verify(JWT, JWKs, AllowedAlgs, VerifyClaims, AclClaimName, DisconnectAfterExpire);
+do_authenticate(
+    JWT,
     Credential,
     #{
         verify_claims := VerifyClaims0,
         disconnect_after_expire := DisconnectAfterExpire,
         resource_id := ResourceId,
-        acl_claim_name := AclClaimName,
-        from := From
+        allowed_algs := AllowedAlgs,
+        acl_claim_name := AclClaimName
     }
 ) ->
     case emqx_resource:simple_sync_query(ResourceId, get_jwks) of
@@ -109,10 +144,11 @@ authenticate(
                 reason => Reason
             }),
             emqx_authn_utils:backend_failure_result();
+        {ok, undefined} ->
+            emqx_authn_utils:backend_failure_result();
         {ok, JWKs} ->
-            JWT = maps:get(From, Credential),
             VerifyClaims = render_expected(VerifyClaims0, Credential),
-            verify(JWT, JWKs, VerifyClaims, AclClaimName, DisconnectAfterExpire)
+            verify(JWT, JWKs, AllowedAlgs, VerifyClaims, AclClaimName, DisconnectAfterExpire)
     end.
 
 destroy(#{resource_id := ResourceId}) ->
@@ -130,6 +166,7 @@ create_authn_hmac_based(#{
     secret_base64_encoded := Base64Encoded,
     verify_claims := VerifyClaims,
     disconnect_after_expire := DisconnectAfterExpire,
+    on_missing_jwt := OnMissingJWT,
     acl_claim_name := AclClaimName,
     from := From,
     enable := Enable
@@ -141,8 +178,10 @@ create_authn_hmac_based(#{
             JWK = jose_jwk:from_oct(Secret),
             {ok, #{
                 jwk => JWK,
+                allowed_algs => ?JWT_HMAC_ALGORITHMS,
                 verify_claims => handle_verify_claims(VerifyClaims),
                 disconnect_after_expire => DisconnectAfterExpire,
+                on_missing_jwt => OnMissingJWT,
                 acl_claim_name => AclClaimName,
                 from => From,
                 enable => Enable
@@ -154,6 +193,7 @@ create_authn_public_key(
         public_key := PublicKey,
         verify_claims := VerifyClaims,
         disconnect_after_expire := DisconnectAfterExpire,
+        on_missing_jwt := OnMissingJWT,
         acl_claim_name := AclClaimName,
         from := From,
         enable := Enable
@@ -167,8 +207,10 @@ create_authn_public_key(
             ),
         {ok, #{
             jwk => JWK,
+            allowed_algs => ?JWT_PUBLIC_KEY_ALGORITHMS,
             verify_claims => handle_verify_claims(VerifyClaims),
             disconnect_after_expire => DisconnectAfterExpire,
+            on_missing_jwt => OnMissingJWT,
             acl_claim_name => AclClaimName,
             from => From,
             enable => Enable
@@ -180,19 +222,22 @@ create_authn_public_key_with_jwks(
     #{
         verify_claims := VerifyClaims,
         disconnect_after_expire := DisconnectAfterExpire,
+        on_missing_jwt := OnMissingJWT,
         acl_claim_name := AclClaimName,
         from := From
     } = Config
 ) ->
     ResourceConfig = emqx_authn_utils:cleanup_resource_config(
-        [verify_claims, disconnect_after_expire, acl_claim_name, from], Config
+        [verify_claims, disconnect_after_expire, on_missing_jwt, acl_claim_name, from], Config
     ),
     State = emqx_authn_utils:init_state(
         Config,
         #{
             resource_id => ResourceId,
+            allowed_algs => ?JWT_PUBLIC_KEY_ALGORITHMS,
             verify_claims => handle_verify_claims(VerifyClaims),
             disconnect_after_expire => DisconnectAfterExpire,
+            on_missing_jwt => OnMissingJWT,
             acl_claim_name => AclClaimName,
             from => From
         }
@@ -239,28 +284,28 @@ render_expected([{Name, ExpectedTemplate} | More], Variables) ->
     Expected = emqx_auth_template:render_str(ExpectedTemplate, Variables),
     [{Name, Expected} | render_expected(More, Variables)].
 
-verify(undefined, _, _, _, _) ->
-    %% No value in `From` field, where we expect a JWT token
-    ignore;
-verify(JWT, JWKs, VerifyClaims, AclClaimName, DisconnectAfterExpire) ->
-    case do_verify(JWT, JWKs, VerifyClaims) of
+verify(JWT, JWKs, AllowedAlgs, VerifyClaims, AclClaimName, DisconnectAfterExpire) ->
+    case do_verify(JWT, JWKs, AllowedAlgs, VerifyClaims) of
         {ok, Extra} ->
             extra_to_auth_data(Extra, JWT, AclClaimName, DisconnectAfterExpire);
         {error, {missing_claim, Claim}} ->
             %% it's a invalid token, so it's ok to log
-            ?TRACE_AUTHN_PROVIDER("missing_jwt_claim", #{jwt => JWT, claim => Claim}),
+            ?TRACE_AUTHN_PROVIDER("missing_jwt_claim", #{jwt => <<"******">>, claim => Claim}),
             {error, bad_username_or_password};
         {error, invalid_signature} ->
-            %% it's a invalid token, so it's ok to log
-            ?TRACE_AUTHN_PROVIDER("invalid_jwt_signature", #{jwks => JWKs, jwt => JWT}),
+            ?TRACE_AUTHN_PROVIDER("invalid_jwt_signature", #{
+                jwks => redact_jwks_for_log(JWKs)
+            }),
             emqx_authn_utils:backend_failure_result();
         {error, {claims, Claims}} ->
-            %% it's a invalid token, so it's ok to log
-            ?TRACE_AUTHN_PROVIDER("invalid_jwt_claims", #{jwt => JWT, claims => Claims}),
+            ?TRACE_AUTHN_PROVIDER("invalid_jwt_claims", #{claims => Claims}),
             {error, bad_username_or_password}
     end.
 
-extra_to_auth_data(Extra, JWT, AclClaimName, DisconnectAfterExpire) ->
+missing_jwt(ignore) -> ignore;
+missing_jwt(deny) -> {error, bad_username_or_password}.
+
+extra_to_auth_data(Extra, _JWT, AclClaimName, DisconnectAfterExpire) ->
     IsSuperuser = emqx_authn_utils:is_superuser(Extra),
     Attrs = emqx_authn_utils:client_attrs(Extra),
     ExpireAt = expire_at(DisconnectAfterExpire, Extra),
@@ -272,7 +317,7 @@ extra_to_auth_data(Extra, JWT, AclClaimName, DisconnectAfterExpire) ->
     catch
         throw:{bad_acl_rule, Reason} ->
             %% it's a invalid token, so ok to log
-            ?TRACE_AUTHN_PROVIDER("bad_acl_rule", Reason#{jwt => JWT}),
+            ?TRACE_AUTHN_PROVIDER("bad_acl_rule", Reason#{jwt => <<"******">>}),
             {error, bad_username_or_password}
     end.
 
@@ -297,10 +342,10 @@ acl(Claims, AclClaimName) ->
             #{}
     end.
 
-do_verify(_JWT, [], _VerifyClaims) ->
+do_verify(_JWT, [], _AllowedAlgs, _VerifyClaims) ->
     {error, invalid_signature};
-do_verify(JWT, [JWK | More], VerifyClaims) ->
-    try jose_jws:verify(JWK, JWT) of
+do_verify(JWT, [JWK | More], AllowedAlgs, VerifyClaims) ->
+    try jose_jws:verify_strict(JWK, AllowedAlgs, JWT) of
         {true, Payload, _JWT} ->
             Claims0 = emqx_utils_json:decode(Payload),
             Claims = try_convert_to_num(Claims0, [<<"exp">>, <<"nbf">>]),
@@ -311,12 +356,27 @@ do_verify(JWT, [JWK | More], VerifyClaims) ->
                     {error, Reason}
             end;
         {false, _, _} ->
-            do_verify(JWT, More, VerifyClaims)
+            do_verify(JWT, More, AllowedAlgs, VerifyClaims)
     catch
         _:Reason ->
-            ?TRACE_AUTHN_PROVIDER("jwt_verify_error", #{jwt => JWT, reason => Reason}),
-            do_verify(JWT, More, VerifyClaims)
+            ?TRACE_AUTHN_PROVIDER("jwt_verify_error", #{jwt => <<"******">>, reason => Reason}),
+            do_verify(JWT, More, AllowedAlgs, VerifyClaims)
     end.
+
+redact_jwks_for_log(JWKs) ->
+    Redacted = do_redact_jwks_for_log(JWKs),
+    ?tp(redact_jwks_for_log, #{jwks => Redacted}),
+    Redacted.
+
+do_redact_jwks_for_log(JWKs) when is_list(JWKs) ->
+    [redact_jwk_for_log(JWK) || JWK <- JWKs];
+do_redact_jwks_for_log(JWK) ->
+    redact_jwk_for_log(JWK).
+
+redact_jwk_for_log(#jose_jwk{kty = {jose_jwk_kty_oct, _}}) ->
+    <<"******">>;
+redact_jwk_for_log(JWK) ->
+    JWK.
 
 verify_claims(Claims, VerifyClaims0) ->
     Now = erlang:system_time(seconds),

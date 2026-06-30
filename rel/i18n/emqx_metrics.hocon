@@ -194,6 +194,9 @@ emqx_metrics {
     messages_persisted {
         desc: "Number of message persisted"
     }
+    messages_retained {
+        desc: "Number of retained message writes"
+    }
     delivery_dropped {
         desc: "Total number of discarded messages when sending"
     }

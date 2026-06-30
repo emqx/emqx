@@ -45,6 +45,8 @@ t_legacy(_) ->
     ?assertEqual(legacy, emqx_security_profile:profile()),
     ?assertEqual(ignore, emqx_security_profile:policy(authn_backend_failure)),
     ?assertEqual(ignore, emqx_security_profile:policy(authz_backend_failure)),
+    ?assertEqual(verify_none, emqx_security_profile:policy(outbound_tls_verify)),
+    ?assertEqual(ignore, emqx_security_profile:policy(authn_jwt_missing)),
 
     %% Full defaults
     ?assertEqual({{0, 0, 0, 0}, 1883}, emqx:get_config([listeners, tcp, default, bind])),
@@ -83,6 +85,8 @@ t_hardened(_) ->
     ?assertEqual(hardened, emqx_security_profile:profile()),
     ?assertEqual(deny, emqx_security_profile:policy(authn_backend_failure)),
     ?assertEqual(deny, emqx_security_profile:policy(authz_backend_failure)),
+    ?assertEqual(verify_peer, emqx_security_profile:policy(outbound_tls_verify)),
+    ?assertEqual(deny, emqx_security_profile:policy(authn_jwt_missing)),
 
     %% Full defaults are secure in hardened profile
     ?assertEqual({{127, 0, 0, 1}, 1883}, emqx:get_config([listeners, tcp, default, bind])),

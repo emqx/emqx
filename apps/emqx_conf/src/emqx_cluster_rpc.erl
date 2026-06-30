@@ -505,8 +505,19 @@ do_initiate(MFA, State = #{node := Node}, Count, Failure0) ->
             catch_up(State),
             do_initiate(MFA, State, Count + 1, Failure1);
         {aborted, Error} ->
-            {reply, {init_failure, Error}, State, {continue, ?CATCH_UP}}
+            {reply, {init_failure, wrap_abort(Error)}, State, {continue, ?CATCH_UP}}
     end.
+
+%% A transaction abort reason is either an already-structured `{error, _}'
+%% from a failed MFA (`init_mfa/2' calls `mnesia:abort/1' with the MFA's
+%% `{error, _}' result) or a raw mnesia abort reason such as
+%% `{no_exists, cluster_rpc_mfa}' when the cluster_rpc tables are not yet
+%% available (cold start / recovery window). Normalize the latter so that
+%% `multicall/3' always returns an `{error, _}' shape on failure, keeping
+%% callers' `{ok, _} | {error, _}' contract intact; never double-wrap an
+%% existing `{error, _}'.
+wrap_abort({error, _} = Error) -> Error;
+wrap_abort(Reason) -> {error, Reason}.
 
 stale_view_of_cluster_msg(Meta, Count) ->
     Node = find_leader(),

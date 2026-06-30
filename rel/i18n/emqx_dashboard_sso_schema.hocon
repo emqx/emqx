@@ -10,7 +10,7 @@ backend.label:
 """Backend Type"""
 
 force_mfa.desc:
-"""Whether to force MFA (TOTP) for SSO users. When enabled, SSO users must complete MFA setup or verification before receiving a dashboard token."""
+"""Whether to force MFA (TOTP) for SSO users. When enabled, SSO users must complete MFA setup or verification before receiving a Dashboard token."""
 
 force_mfa.label:
 """Force MFA"""

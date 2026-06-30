@@ -617,6 +617,7 @@ reserved_idx('actions.executed') -> 101;
 reserved_idx('delivery.dropped.filter') -> 102;
 reserved_idx('actions.messages') -> 103;
 reserved_idx('client.post_authn') -> 104;
+reserved_idx('messages.retained') -> 105;
 reserved_idx(_) -> undefined.
 
 all_metrics() ->
@@ -711,7 +712,8 @@ message_metrics() ->
         {counter, 'messages.validation_succeeded', ?DESC("messages_validation_succeeded")},
         {counter, 'messages.transformation_failed', ?DESC("messages_transformation_failed")},
         {counter, 'messages.transformation_succeeded', ?DESC("messages_transformation_succeeded")},
-        {counter, 'messages.persisted', ?DESC("messages_persisted")}
+        {counter, 'messages.persisted', ?DESC("messages_persisted")},
+        {counter, 'messages.retained', ?DESC("messages_retained")}
     ].
 
 %% Rule and Action related metrics

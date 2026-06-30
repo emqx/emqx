@@ -99,12 +99,20 @@ fields(jwt_jwks) ->
             )},
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {refresh_interval, fun refresh_interval/1},
-        {ssl, #{
-            type => hoconsc:ref(emqx_schema, "ssl_client_opts"),
-            default => #{<<"enable">> => false},
-            desc => ?DESC("ssl")
-        }}
-    ] ++ common_fields().
+        {max_fail_count, fun max_fail_count/1},
+        {ssl,
+            sc(hoconsc:ref(jwks_client_ssl_opts), #{
+                default => #{
+                    <<"enable">> => false,
+                    <<"verify">> => emqx_security_profile:policy(outbound_tls_verify)
+                },
+                desc => ?DESC("ssl")
+            })}
+    ] ++ common_fields();
+fields(jwks_client_ssl_opts) ->
+    emqx_schema:client_ssl_opts_schema(#{
+        verify => emqx_security_profile:policy(outbound_tls_verify)
+    }).
 
 desc(jwt_hmac) ->
     ?DESC(jwt_hmac);
@@ -112,6 +120,8 @@ desc(jwt_public_key) ->
     ?DESC(jwt_public_key);
 desc(jwt_jwks) ->
     ?DESC(jwt_jwks);
+desc(jwks_client_ssl_opts) ->
+    ?DESC("ssl");
 desc(undefined) ->
     undefined.
 
@@ -123,6 +133,7 @@ common_fields() ->
             default => <<"acl">>,
             desc => ?DESC(acl_claim_name)
         }},
+        {on_missing_jwt, fun on_missing_jwt/1},
         {verify_claims, fun verify_claims/1},
         {disconnect_after_expire, fun disconnect_after_expire/1},
         {from, fun from/1}
@@ -148,11 +159,16 @@ endpoint(desc) -> ?DESC(?FUNCTION_NAME);
 endpoint(required) -> true;
 endpoint(_) -> undefined.
 
-refresh_interval(type) -> integer();
+refresh_interval(type) -> pos_integer();
 refresh_interval(desc) -> ?DESC(?FUNCTION_NAME);
 refresh_interval(default) -> 300;
-refresh_interval(validator) -> [fun(I) -> I > 0 end];
 refresh_interval(_) -> undefined.
+
+max_fail_count(type) -> pos_integer();
+max_fail_count(desc) -> ?DESC(?FUNCTION_NAME);
+max_fail_count(default) -> 5;
+max_fail_count(importance) -> ?IMPORTANCE_HIDDEN;
+max_fail_count(_) -> undefined.
 
 verify_claims(type) ->
     %% user input is a map, converted to a list of {binary(), validated_value_type()}
@@ -190,6 +206,11 @@ disconnect_after_expire(type) -> boolean();
 disconnect_after_expire(desc) -> ?DESC(?FUNCTION_NAME);
 disconnect_after_expire(default) -> true;
 disconnect_after_expire(_) -> undefined.
+
+on_missing_jwt(type) -> hoconsc:enum([deny, ignore]);
+on_missing_jwt(desc) -> ?DESC(?FUNCTION_NAME);
+on_missing_jwt(default) -> atom_to_binary(emqx_security_profile:policy(authn_jwt_missing));
+on_missing_jwt(_) -> undefined.
 
 do_check_verify_claims([]) ->
     true;
