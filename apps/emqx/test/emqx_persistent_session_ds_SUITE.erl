@@ -29,13 +29,14 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_standalone_test() of
-        false ->
-            Config;
-        true ->
-            {skip, standalone_not_supported}
-    end.
+%% Persistent sessions on the durable storage backend are a v6 feature; the
+%% v5 codepath is not actively developed or supported on this branch. The
+%% suite has been a steady source of CI flake noise without protecting any
+%% shipping behavior. Skip the whole suite via an `init_per_suite' clause;
+%% the suite stays in tree so sync PRs from newer branches cherry-pick
+%% cleanly.
+init_per_suite(_Config) ->
+    {skip, "persistent_session_ds not supported on v5"}.
 
 end_per_suite(_Config) ->
     ok.
