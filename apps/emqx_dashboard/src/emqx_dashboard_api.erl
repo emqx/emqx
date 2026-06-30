@@ -338,7 +338,15 @@ login(post, #{body := Params}) ->
                 })};
         {error, R} ->
             ok = register_unsuccessful_login(Username, R),
-            ?SLOG(info, #{msg => "dashboard_login_failed", username => Username, reason => R}),
+            %% During first-time MFA setup the reason map carries the TOTP
+            %% `secret', which is intentionally returned in the 401 response
+            %% body so the dashboard can render the authenticator QR code. The
+            %% server log must not keep a copy of it, so redact before logging.
+            ?SLOG(info, #{
+                msg => "dashboard_login_failed",
+                username => Username,
+                reason => emqx_utils:redact(R)
+            }),
             format_login_failed_error(R)
     end.
 
