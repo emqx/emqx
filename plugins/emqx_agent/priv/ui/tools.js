@@ -26,22 +26,28 @@ export async function loadTools() {
     </tr>`).join('');
 }
 
+export function initToolEditors() {
+  setImagePathEditorValue('tool-request-images', []);
+  setImagePathEditorValue('tool-http-images', []);
+}
+
 function typeClass(t) {
   if (t === 'message__publish')  return 'publish';
   if (t === 'message__request')  return 'request';
   if (t === 'http')              return 'http';
+  if (t === 'image__fetch')      return 'http';
   if (t?.startsWith('postgresql')) return 'ch';
-  if (t?.startsWith('stream_')) return 'request';
-  if (t?.startsWith('kv_')) return 'kv';
+  if (t?.startsWith('stream__')) return 'request';
+  if (t?.startsWith('kv__')) return 'kv';
   return '';
 }
 
 function isStreamTool(type) {
-  return type?.startsWith('stream_') || type?.startsWith('kv_');
+  return type?.startsWith('stream__') || type?.startsWith('kv__');
 }
 
 function hasFormat(type) {
-  return ['stream_write', 'stream_read', 'kv_write', 'kv_read', 'kv_read_all'].includes(type);
+  return ['stream__write', 'stream__read', 'kv__write', 'kv__read', 'kv__read_all'].includes(type);
 }
 
 export function collectToolBody() {
@@ -57,10 +63,18 @@ export function collectToolBody() {
     body.topic_prefix = document.getElementById('tool-request-prefix').value.trim();
     const reqSchema = getSchemaEditorValue('se-tool-request-payload-schema');
     body.request_payload_schema = schemaString(reqSchema);
+    body.payload_type = document.getElementById('tool-request-payload-type').value;
+    body.autodiscover_images = document.getElementById('tool-request-autodiscover-images').checked;
+    body.images = imagePaths('tool-request-images');
   } else if (type === 'http') {
     body.method        = document.getElementById('tool-method').value;
     body.url           = document.getElementById('tool-url').value.trim();
     body.input_schema  = schemaString(getSchemaEditorValue('se-tool-input-schema'));
+    body.payload_type  = document.getElementById('tool-http-payload-type').value;
+    body.autodiscover_images = document.getElementById('tool-http-autodiscover-images').checked;
+    body.images = imagePaths('tool-http-images');
+  } else if (type === 'image__fetch') {
+    body.url = document.getElementById('tool-image-fetch-url').value.trim();
   } else if (type === 'postgresql__query') {
     body.resource = document.getElementById('tool-resource').value;
     body.query = document.getElementById('tool-query').value.trim();
@@ -112,7 +126,12 @@ export function editTool(type, id) {
   if (type === 'http') {
     document.getElementById('tool-method').value = tool.method ?? 'post';
     document.getElementById('tool-url').value = tool.url ?? '';
+    document.getElementById('tool-http-payload-type').value = tool.payload_type ?? 'json';
+    document.getElementById('tool-http-autodiscover-images').checked = tool.autodiscover_images ?? true;
+    setImagePathEditorValue('tool-http-images', tool.images ?? []);
     setSchemaEditorValue('se-tool-input-schema', parseSchema(tool.input_schema));
+  } else if (type === 'image__fetch') {
+    document.getElementById('tool-image-fetch-url').value = tool.url ?? '';
   } else if (type === 'message__publish') {
     document.getElementById('tool-prefix').value = tool.topic_prefix ?? '';
     const legacyPayloadSchema = tool.input_schema?.properties?.payload;
@@ -120,6 +139,9 @@ export function editTool(type, id) {
     setSchemaEditorValue('se-tool-publish-input', parseSchema(payloadSchema) || defaultPublishInputSchema());
   } else if (type === 'message__request') {
     document.getElementById('tool-request-prefix').value = tool.topic_prefix ?? '';
+    document.getElementById('tool-request-payload-type').value = tool.payload_type ?? 'json';
+    document.getElementById('tool-request-autodiscover-images').checked = tool.autodiscover_images ?? true;
+    setImagePathEditorValue('tool-request-images', tool.images ?? []);
     setSchemaEditorValue('se-tool-request-payload-schema', parseSchema(tool.request_payload_schema));
   } else if (type === 'postgresql__query') {
     document.getElementById('tool-resource').value = tool.resource ?? '';
@@ -158,6 +180,49 @@ function schemaString(schema) {
   return JSON.stringify(schema);
 }
 
+function imagePaths(id) {
+  return [...document.getElementById(id).querySelectorAll('.image-path-input')]
+    .map(input => input.value.trim())
+    .filter(Boolean);
+}
+
+function setImagePathEditorValue(id, paths) {
+  const container = document.getElementById(id);
+  container.innerHTML = '';
+  container.classList.add('schema-editor');
+
+  const root = document.createElement('div');
+  root.className = 'se-root';
+
+  const rows = document.createElement('div');
+  rows.className = 'se-children';
+  root.appendChild(rows);
+
+  (paths || []).forEach(path => rows.appendChild(buildImagePathRow(path)));
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'btn sm';
+  addBtn.type = 'button';
+  addBtn.textContent = '+ Add path';
+  addBtn.onclick = () => rows.appendChild(buildImagePathRow(''));
+  root.appendChild(addBtn);
+
+  container.appendChild(root);
+}
+
+function buildImagePathRow(path) {
+  const row = document.createElement('div');
+  row.className = 'se-node';
+  row.innerHTML = `
+    <div class="se-row">
+      <input type="text" class="image-path-input" placeholder=".image_url" value="${esc(path)}">
+      <button class="btn sm danger" type="button">×</button>
+    </div>
+  `;
+  row.querySelector('button').onclick = () => row.remove();
+  return row;
+}
+
 export function resetToolEditor() {
   editingToolKey.type = null;
   editingToolKey.id = null;
@@ -172,9 +237,16 @@ export function resetToolEditor() {
   document.getElementById('tool-prefix').value = '';
   setSchemaEditorValue('se-tool-publish-input', defaultPublishInputSchema());
   document.getElementById('tool-request-prefix').value = '';
+  document.getElementById('tool-request-payload-type').value = 'json';
+  document.getElementById('tool-request-autodiscover-images').checked = true;
+  setImagePathEditorValue('tool-request-images', []);
   setSchemaEditorValue('se-tool-request-payload-schema', null);
   document.getElementById('tool-method').value = 'post';
   document.getElementById('tool-url').value = '';
+  document.getElementById('tool-image-fetch-url').value = '';
+  document.getElementById('tool-http-payload-type').value = 'json';
+  document.getElementById('tool-http-autodiscover-images').checked = true;
+  setImagePathEditorValue('tool-http-images', []);
   setSchemaEditorValue('se-tool-input-schema', null);
   renderConnectionOptions();
   document.getElementById('tool-resource').value = '';
@@ -201,6 +273,7 @@ export function updateToolForm() {
   document.getElementById('f-publish').style.display  = type === 'message__publish'  ? '' : 'none';
   document.getElementById('f-request').style.display  = type === 'message__request'  ? '' : 'none';
   document.getElementById('f-http').style.display     = type === 'http'              ? '' : 'none';
+  document.getElementById('f-image-fetch').style.display = type === 'image__fetch'   ? '' : 'none';
   document.getElementById('f-ch').style.display       = type === 'postgresql__query'  ? '' : 'none';
   document.getElementById('f-stream').style.display   = isStreamTool(type) ? '' : 'none';
   document.getElementById('f-format').style.display   = hasFormat(type) ? '' : 'none';

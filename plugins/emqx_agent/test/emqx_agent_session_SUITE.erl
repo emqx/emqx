@@ -659,7 +659,7 @@ t_request_while_busy_is_queued(Config) ->
         ct:fail("session did not stop after queued request test")
     end.
 
-%% Messages on topics that are not sess/in/<sid>/ must never trigger a
+%% Messages on topics that are not sess/in/<sid> must never trigger a
 %% session process to be created.
 t_non_session_topic_ignored(Config) ->
     Sid = ?config(sid, Config),
@@ -672,10 +672,10 @@ t_non_session_topic_ignored(Config) ->
 %%--------------------------------------------------------------------
 
 in_topic(Sid) ->
-    <<"$sess/in/", Sid/binary, "/">>.
+    <<"$sess/in/", Sid/binary>>.
 
 out_topic(Sid) ->
-    <<"$sess/out/", Sid/binary, "/">>.
+    <<"$sess/out/", Sid/binary>>.
 
 %% Base request; Overrides can replace any field (e.g. tools, instructions).
 request(Config, Overrides) ->
