@@ -95,6 +95,7 @@
 -type q() :: pqueue().
 
 -define(switch, '$switch').
+-define(switch_(N), {'$switch', N}).
 
 -define(cqueue(), ?cqueue(_, _, _)).
 -define(cqueue(ACTIVE, LAST, LEN), {ACTIVE, LAST, _, _, _, _, LEN}).
@@ -240,8 +241,8 @@ out({pqueue, [{P, Q} | Queues]}) ->
 -spec drop(priority(), pqueue()) -> {empty | {value, any()}, pqueue()}.
 drop(0, {queue, _, _, _} = Q) ->
     out(Q);
-drop(0, ?cqueue() = CQ) ->
-    cqueue_drop(CQ);
+drop(0, {Active, Last, In, Out, Q0In, Q0Out, L}) ->
+    cqueue_drop(Active, Last, In, Out, Q0In, Q0Out, L);
 drop(Priority, {pqueue, Queues}) ->
     P = maybe_negate_priority(Priority),
     case lists:keysearch(P, 1, Queues) of
@@ -279,8 +280,8 @@ out_p({pqueue, [{P, _} | _]} = Q) ->
 
 out(0, {queue, _, _, _} = Q) ->
     out(Q);
-out(0, ?cqueue() = CQ) ->
-    cqueue_out(CQ);
+out(0, {Active, Last, In, Out, Q0In, Q0Out, L}) ->
+    cqueue_out(Active, Last, In, Out, Q0In, Q0Out, L);
 out(Priority, {pqueue, Queues}) ->
     P = maybe_negate_priority(Priority),
     case lists:keysearch(P, 1, Queues) of
@@ -396,9 +397,9 @@ cqueue_in(X, Class, {Active, Last0, In0, Out, Q0In0, Q0Out, L}) ->
             Q0In = [X | Q0In0];
         default ->
             In = [X | In0],
-            Q0In = [?switch | Q0In0];
+            Q0In = cq_push_switch(Q0In0);
         qos0 ->
-            In = [?switch | In0],
+            In = cq_push_switch(In0),
             Q0In = [X | Q0In0]
     end,
     {Active, Class, In, Out, Q0In, Q0Out, L + 1}.
@@ -414,6 +415,8 @@ cqueue_out(default, Last, In, Out, Q0In, Q0Out, L) ->
     case Out of
         [?switch | Rest] ->
             cqueue_out(qos0, Last, In, Rest, Q0In, Q0Out, L);
+        [?switch_(N) | Rest] ->
+            cqueue_out(qos0, Last, In, [cq_mk_switch(N - 1) | Rest], Q0In, Q0Out, L);
         [V | Rest] ->
             {{value, V}, {default, Last, In, Rest, Q0In, Q0Out, L - 1}};
         [] when In =:= [] ->
@@ -426,6 +429,8 @@ cqueue_out(qos0, Last, In, Out, Q0In, Q0Out, L) ->
     case Q0Out of
         [?switch | Rest] ->
             cqueue_out(default, Last, In, Out, Q0In, Rest, L);
+        [?switch_(N) | Rest] ->
+            cqueue_out(default, Last, In, Out, Q0In, [cq_mk_switch(N - 1) | Rest], L);
         [V | Rest] ->
             {{value, V}, {qos0, Last, In, Out, Q0In, Rest, L - 1}};
         [] when Q0In =:= [] ->
@@ -446,7 +451,9 @@ cqueue_filter_list(Pred, L) ->
     lists:foldr(
         fun
             (?switch, {Len, Acc}) ->
-                {Len, [?switch | Acc]};
+                {Len, cq_push_switch(Acc)};
+            (?switch_(N), {Len, Acc}) ->
+                {Len, cq_push_switches(N, Acc)};
             (V, {Len, Acc}) ->
                 case Pred(V) of
                     true -> {Len + 1, [V | Acc]};
@@ -462,6 +469,8 @@ cqueue_drop({Active, Last, In, Out, Q0In, Q0Out, L}) ->
 
 cqueue_drop(Active, Last, In, [?switch | Out], Q0In, [?switch | Q0Out], L) ->
     cqueue_drop(Active, Last, In, Out, Q0In, Q0Out, L);
+cqueue_drop(Active, Last, In, [?switch | Out], Q0In, [?switch_(N) | Q0Out], L) ->
+    cqueue_drop(Active, Last, In, Out, Q0In, [cq_mk_switch(N - 1) | Q0Out], L);
 cqueue_drop(Active, Last, In, Out, Q0In, [], L) ->
     case Q0In of
         [] ->
@@ -470,27 +479,59 @@ cqueue_drop(Active, Last, In, Out, Q0In, [], L) ->
             cqueue_drop(Active, Last, In, Out, [], lists:reverse(Q0In), L)
     end;
 cqueue_drop(Active, Last, In, Out, Q0In, Q0Out, L) ->
-    case cqueue_scan_q0out(Q0Out, []) of
-        {Q0Pre, V, Q0Rest} ->
-            {{value, V}, {Active, Last, In, Out, Q0In, Q0Pre ++ Q0Rest, L - 1}};
+    case cqueue_scan_q0out(Q0Out, 0) of
+        {Q0Switches, V, Q0Rest} ->
+            NQ0Out = cq_push_switches(Q0Switches, Q0Rest),
+            {{value, V}, {Active, Last, In, Out, Q0In, NQ0Out, L - 1}};
         false when Q0In =:= [] ->
-            cqueue_out(default, default, drop_switch(In), drop_switch(Out), [], [], L);
+            cqueue_out(default, default, cq_rm_switches(In), cq_rm_switches(Out), [], [], L);
         false ->
             NQ0Out = lists:reverse(Q0In),
-            case cqueue_scan_q0out(NQ0Out, []) of
-                {Q0Pre, V, Q0Rest} ->
-                    {{value, V}, {Active, Last, In, Out, [], Q0Out ++ Q0Pre ++ Q0Rest, L - 1}};
+            case cqueue_scan_q0out(NQ0Out, 0) of
+                {Q0Switches, V, Q0Rest} ->
+                    FQ0Out = Q0Out ++ cq_push_switches(Q0Switches, Q0Rest),
+                    {{value, V}, {Active, Last, In, Out, [], FQ0Out, L - 1}};
                 false ->
-                    cqueue_out(default, default, drop_switch(In), drop_switch(Out), [], [], L)
+                    cqueue_out(default, default, cq_rm_switches(In), cq_rm_switches(Out), [], [], L)
             end
     end.
 
-cqueue_scan_q0out([?switch | Rest], Acc) ->
-    cqueue_scan_q0out(Rest, [?switch | Acc]);
-cqueue_scan_q0out([V | Rest], Acc) ->
-    {Acc, V, Rest};
+cqueue_scan_q0out([?switch | Rest], NSwitches) ->
+    cqueue_scan_q0out(Rest, NSwitches + 1);
+cqueue_scan_q0out([?switch_(N) | Rest], NSwitches) ->
+    cqueue_scan_q0out(Rest, NSwitches + N);
+cqueue_scan_q0out([V | Rest], NSwitches) ->
+    {NSwitches, V, Rest};
 cqueue_scan_q0out([], _) ->
     false.
 
-drop_switch(L) ->
-    [X || X <- L, X =/= ?switch].
+cq_rm_switches(L) ->
+    [X || X <- L, not cq_is_switch_marker(X)].
+
+cq_mk_switch(1) ->
+    ?switch;
+cq_mk_switch(N) ->
+    ?switch_(N).
+
+cq_is_switch_marker(?switch) ->
+    true;
+cq_is_switch_marker(?switch_(_)) ->
+    true;
+cq_is_switch_marker(_) ->
+    false.
+
+cq_push_switch([?switch | Rest]) ->
+    [?switch_(2) | Rest];
+cq_push_switch([?switch_(N) | Rest]) ->
+    [?switch_(N + 1) | Rest];
+cq_push_switch(Rest) ->
+    [?switch | Rest].
+
+cq_push_switches(0, Rest) ->
+    Rest;
+cq_push_switches(N, [?switch | Rest]) ->
+    [?switch_(N + 1) | Rest];
+cq_push_switches(N, [?switch_(M) | Rest]) ->
+    [?switch_(N + M) | Rest];
+cq_push_switches(N, Rest) ->
+    [cq_mk_switch(N) | Rest].
