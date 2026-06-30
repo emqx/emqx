@@ -20,9 +20,14 @@ services:
     networks:
       - emqx_bridge
     restart: always
-    command: ["--config=/etc/otel-collector-config.yaml", "${OTELCOL_ARGS}"]
+    command: ["--config=/otel-share/otel-collector-config.yaml", "${OTELCOL_ARGS}"]
     volumes:
-      - ./otel:/etc/
+      # Mount the host's ./otel/ directory at a non-/etc/ path so Docker's
+      # per-container /etc/hostname and /etc/resolv.conf bind mounts don't
+      # have to create their mountpoint files inside ./otel/ on the host
+      # -- which would intermittently trip runc's stricter make_mountpoint
+      # helper with "file exists" on subsequent container starts.
+      - ./otel:/otel-share/
 #    ports:
 #      - "1888:1888"   # pprof extension
 #      - "8888:8888"   # Prometheus metrics exposed by the collector
@@ -44,9 +49,9 @@ services:
     networks:
       - emqx_bridge
     restart: always
-    command: ["--config=/etc/otel-collector-config-tls.yaml", "${OTELCOL_ARGS}"]
+    command: ["--config=/otel-share/otel-collector-config-tls.yaml", "${OTELCOL_ARGS}"]
     volumes:
-      - ./otel:/etc/
+      - ./otel:/otel-share/
       - ./certs:/etc/certs
  #   ports:
  #     - "14317:4317"   # OTLP gRPC receiver
