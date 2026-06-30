@@ -333,6 +333,7 @@ t_redact_hmac_state(_) ->
         secret_base64_encoded => false,
         verify_claims => [],
         disconnect_after_expire => false,
+        on_missing_jwt => ignore,
         enable => true
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
