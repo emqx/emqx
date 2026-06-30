@@ -344,7 +344,10 @@ do_check_rbac(
 ) when
     is_binary(Namespace)
 ->
-    %% Configuration backup export/import.
+    %% Namespaced configuration backup export/import and per-namespace backup
+    %% file management.  The handlers isolate each namespace to its own backup
+    %% directory, so a namespaced administrator only ever sees or acts on its
+    %% own archives, never global (or legacy) ones.
     true;
 do_check_rbac(_, _, _) ->
     {error, <<"You don't have permission to access this resource">>}.
