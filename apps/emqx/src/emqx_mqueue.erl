@@ -268,7 +268,7 @@ stats(#mqueue{max_len = MaxLen, dropped = Dropped} = MQ) ->
 in(#message{qos = ?QOS_0}, #mqueue{store_qos0 = false}) ->
     false;
 in(
-    Msg = #message{topic = Topic},
+    Msg = #message{topic = Topic, qos = QoS},
     MQ =
         #mqueue{
             prios = Prios,
@@ -277,6 +277,11 @@ in(
             dropped = Dropped
         } = MQ
 ) ->
+    Class =
+        case QoS of
+            ?QOS_0 -> qos0;
+            _ -> default
+        end,
     Priority =
         case Prios of
             %% MICRO-OPTIMIZATION: When there is no priority table defined (from config),
@@ -293,11 +298,11 @@ in(
     case MaxLen =/= ?MAX_LEN_INFINITY andalso PLen =:= MaxLen of
         true ->
             %% reached max length, drop the oldest message
-            {{value, DroppedMsg}, Q1} = emqx_pqueue:out(Priority, Q),
-            Q2 = emqx_pqueue:in(Msg1, Priority, Q1),
+            {{value, DroppedMsg}, Q1} = emqx_pqueue:drop(Priority, Q),
+            Q2 = emqx_pqueue:in(Msg1, Priority, Class, Q1),
             {DroppedMsg, MQ#mqueue{q = Q2, dropped = Dropped + 1}};
         false ->
-            Q1 = emqx_pqueue:in(Msg1, Priority, Q),
+            Q1 = emqx_pqueue:in(Msg1, Priority, Class, Q),
             {_DroppedMsg = undefined, MQ#mqueue{q = Q1}}
     end.
 
