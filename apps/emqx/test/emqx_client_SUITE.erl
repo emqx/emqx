@@ -96,7 +96,7 @@ groups() ->
             t_sock_closed_on_shutdown,
             t_sock_closed_on_kick_shutdown,
             t_sub_non_utf8_topic,
-            t_slow_client_survives_qos0_publish_storm,
+            t_congestion_qos0_publish_storm,
             t_congestion_send_timeout,
             t_congestion_qos0_no_send_timeout,
             t_congestion_decongested,
@@ -114,10 +114,15 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
+    %% NOTE
+    %% Silence `dropped_qos0_msg` / `dropped_msg_due_to_mqueue_is_full` messages.
+    %% Logging them for large messages is expensive, and it disrupts stress tests
+    %% expectations.
+    logger:set_module_level(emqx_session_events, none),
     Config.
 
 end_per_suite(_Config) ->
-    ok.
+    logger:unset_module_level(emqx_session_events).
 
 init_per_group(gen_tcp_listener, Config) ->
     Apps = emqx_cth_suite:start(
@@ -1089,20 +1094,34 @@ t_sub_non_utf8_topic(Config) ->
     ?assert(is_integer(TopicInvalidCount) andalso TopicInvalidCount > 0),
     ok.
 
-t_slow_client_survives_qos0_publish_storm(init, Config) ->
+%% Verify that suspended send-congested MQTT client survives a storm of mixed QoS
+%% publishes that's considerably over capacity of its forced shutdown policy.
+%% Expectations:
+%% 1. MQTT client connection survives the storm.
+%% 2. Every QoS1 publish eventually reaches the client, even with
+%%    `mqueue_store_qos0 = true`.
+t_congestion_qos0_publish_storm(init, Config) ->
     override_conf(
-        [force_shutdown],
         #{
-            enable => true,
-            max_heap_size => 1024 * 1024 div erlang:system_info(wordsize),
-            max_mailbox_size => 1000
+            %% Provide capacity _not enough_ to absord whole storm:
+            [force_shutdown] => #{
+                enable => true,
+                max_heap_size => 1024 * 1024 div erlang:system_info(wordsize),
+                max_mailbox_size => 1000
+            },
+            %% Configure to keep QoS0 messages in the mqueue:
+            %% As QoS0 messages are evicted from the mqueue first, it's expected
+            %% that QoS1 messages will outlive them.
+            [mqtt, mqueue_store_qos0] => true,
+            [mqtt, max_mqueue_len] => 100
         },
-        override_conf([mqtt, mqueue_store_qos0], false, Config)
+        Config
     ).
 
-t_slow_client_survives_qos0_publish_storm(Config) ->
+t_congestion_qos0_publish_storm(Config) ->
     NQoS1Publishes = 16,
     QoS0StormSize = 2500,
+    QoS0PayloadSize = 8000,
     Suffix = integer_to_list(erlang:unique_integer()),
     ClientId = iolist_to_binary([atom_to_binary(?FUNCTION_NAME), Suffix]),
     %% Estabilish TCP connection:
@@ -1142,7 +1161,7 @@ t_slow_client_survives_qos0_publish_storm(Config) ->
     %% Construct a stream of messages to publish:
     QoS0Publisher = <<"qos0-storm-publisher">>,
     QoS1Publisher = <<"qos1-publisher">>,
-    QoS0Payload = binary:copy(<<"qos0-storm">>, 1000),
+    QoS0Payload = binary:copy(<<"qos0-storm">>, QoS0PayloadSize div 10),
     QoS1Payload = fun(I) -> iolist_to_binary("qos1-" ++ integer_to_list(I)) end,
     QoS1Messages = [
         emqx_message:make(QoS1Publisher, ?QOS_1, QoS1Topic, QoS1Payload(I))
