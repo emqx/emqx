@@ -51,7 +51,7 @@
     in/4,
     out/1,
     out/2,
-    drop/1,
+    drop/2,
     out_p/1,
     filter/2,
     fold/3,
@@ -237,20 +237,27 @@ out({pqueue, [{P, Q} | Queues]}) ->
             {R, NQ}
     end.
 
--spec drop(pqueue()) -> {empty | {value, any()}, pqueue()}.
-drop({queue, _, _, _} = Q) ->
+-spec drop(priority(), pqueue()) -> {empty | {value, any()}, pqueue()}.
+drop(0, {queue, _, _, _} = Q) ->
     out(Q);
-drop(?cqueue() = CQ) ->
+drop(0, ?cqueue() = CQ) ->
     cqueue_drop(CQ);
-drop({pqueue, [{P, Q} | Queues]}) ->
-    {R, Q1} = drop(Q),
-    case is_empty(Q1) of
-        true ->
-            {R, from_pqueue_list(Queues)};
+drop(Priority, {pqueue, Queues}) ->
+    P = maybe_negate_priority(Priority),
+    case lists:keysearch(P, 1, Queues) of
+        {value, {_, Q}} ->
+            {R, Q1} = drop(0, Q),
+            Queues1 =
+                case is_empty(Q1) of
+                    true -> lists:keydelete(P, 1, Queues);
+                    false -> lists:keyreplace(P, 1, Queues, {P, Q1})
+                end,
+            {R, from_pqueue_list(Queues1)};
         false ->
-            NQ = {pqueue, [{P, Q1} | Queues]},
-            {R, NQ}
-    end.
+            {empty, {pqueue, Queues}}
+    end;
+drop(Priority, _) ->
+    erlang:error(badarg, [Priority]).
 
 -spec shift(pqueue()) -> pqueue().
 shift({pqueue, []}) ->
