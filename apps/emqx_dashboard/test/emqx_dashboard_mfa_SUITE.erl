@@ -193,6 +193,38 @@ t_login_with_mfa_setting(_Config) ->
     ok = ExpectBadTotpFn(BadPwd#{<<"mfa_token">> => <<"badtoken2">>}),
     ok.
 
+%% During first-time MFA setup the TOTP secret is returned in the 401 response
+%% body so the dashboard can render the QR code. Assert that the same secret is
+%% NOT written to the `dashboard_login_failed' server log.
+t_login_failed_log_redacts_totp_secret({init, Config}) ->
+    ok = mock_totp(),
+    _ = emqx_dashboard_admin:clear_mfa_state(<<"viewer2">>),
+    Config;
+t_login_failed_log_redacts_totp_secret({'end', _Config}) ->
+    ok = unmock_totp();
+t_login_failed_log_redacts_totp_secret(_Config) ->
+    LoginBody =
+        #{
+            <<"username">> => <<"viewer2">>,
+            <<"password">> => <<"viewer2pass">>
+        },
+    ?assertMatch({ok, 204, _}, enable_mfa(<<"viewer2">>)),
+    {ok, #{secret := Secret}} = emqx_dashboard_admin:get_mfa_state(<<"viewer2">>),
+    Reports = emqx_cth_log_capture:capture(info, fun() ->
+        %% first login without a token: response carries the secret for QR rendering
+        {ok, 401, Rsp} = login(LoginBody),
+        ?assertMatch(
+            #{<<"code">> := <<"BAD_MFA_TOKEN">>, <<"message">> := #{<<"secret">> := Secret}},
+            json_map(Rsp)
+        )
+    end),
+    %% the captured login-failure log must not carry the secret bytes
+    [Report] = [R || #{msg := "dashboard_login_failed"} = R <- Reports],
+    ReportBin = unicode:characters_to_binary(io_lib:format("~0p", [Report])),
+    ?assertEqual(nomatch, binary:match(ReportBin, Secret)),
+    ?assertMatch(#{reason := #{secret := <<"******">>}}, Report),
+    ok.
+
 %% Enable then delete MFA.
 t_disable_mfa({init, Config}) ->
     ok = mock_totp(),
