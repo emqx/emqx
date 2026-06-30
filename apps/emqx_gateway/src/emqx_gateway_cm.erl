@@ -756,22 +756,75 @@ init(Options) ->
     ok = emqx_utils_ets:new(ConnTab, [bag | TabOpts]),
     ok = emqx_utils_ets:new(InfoTab, [ordered_set, compressed | TabOpts]),
 
-    %% Start link cm-registry process
-    %% XXX: Should I hang it under a higher level supervisor?
-    {ok, Registry} = emqx_gateway_cm_registry:start_link(GwName),
-
-    %% Start locker process
-    {ok, _LockerPid} = ekka_locker:start_link(lockername(GwName)),
-
     %% Interval update stats
     %% TODO: v0.2
     %ok = emqx_stats:update_interval(chan_stats, fun ?MODULE:stats_fun/0),
 
-    {ok, #state{
-        gwname = GwName,
-        registry = Registry,
-        chan_pmon = emqx_pmon:new()
-    }}.
+    case start_cm_children(GwName) of
+        {ok, Registry} ->
+            {ok, #state{
+                gwname = GwName,
+                registry = Registry,
+                chan_pmon = emqx_pmon:new()
+            }};
+        {error, Reason} ->
+            {stop, Reason}
+    end.
+
+%% Start the per-gateway registry and locker processes.
+%%
+%% XXX: These are linked to this gen_server rather than supervised as proper
+%% children (tracked as a follow-up). Because they are not supervised, a
+%% gateway load that aborts partway through can leave the named locker behind;
+%% the next load would then crash with `{already_started, _}'. To keep
+%% (re)loads robust we reclaim any leftover locker, and we tear down whatever
+%% we already started should a later step fail.
+start_cm_children(GwName) ->
+    case emqx_gateway_cm_registry:start_link(GwName) of
+        {ok, Registry} ->
+            case ensure_locker_started(GwName) of
+                ok ->
+                    {ok, Registry};
+                {error, _} = Err ->
+                    _ = gen_server:stop(Registry),
+                    Err
+            end;
+        {error, _} = Err ->
+            Err
+    end.
+
+ensure_locker_started(GwName) ->
+    LockerName = lockername(GwName),
+    case ekka_locker:start_link(LockerName) of
+        {ok, _Pid} ->
+            ok;
+        ignore ->
+            ok;
+        {error, {already_started, OldPid}} ->
+            %% A locker left behind by a previously aborted load of this
+            %% gateway. There is only one cm per gateway, so this registered
+            %% name can only belong to an orphan; reclaim it and retry once.
+            ok = reclaim_orphan(OldPid),
+            case ekka_locker:start_link(LockerName) of
+                {ok, _Pid} -> ok;
+                ignore -> ok;
+                {error, Reason} -> {error, Reason}
+            end;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+%% Synchronously take down an orphan process and wait until it is gone so its
+%% registered name is freed before we retry.
+reclaim_orphan(Pid) ->
+    MRef = erlang:monitor(process, Pid),
+    exit(Pid, kill),
+    receive
+        {'DOWN', MRef, process, Pid, _Reason} -> ok
+    after 5000 ->
+        erlang:demonitor(MRef, [flush]),
+        ok
+    end.
 
 handle_call(_Request, _From, State) ->
     Reply = ok,
