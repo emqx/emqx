@@ -318,6 +318,36 @@ t_invalid_signature_trace_keeps_public_jwks(_) ->
     ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
     ok.
 
+%% The HMAC authenticator runtime state carries a `jose_jwk' record holding the
+%% raw key bytes; `emqx_utils:redact/1' (used by config-update / cluster_rpc log
+%% lines that dump such state) must replace it so the secret never reaches a log.
+t_redact_hmac_state(_) ->
+    Secret = <<"s3cr3t-hmac-key-zzz">>,
+    Config = #{
+        mechanism => jwt,
+        from => password,
+        acl_claim_name => <<"acl">>,
+        use_jwks => false,
+        algorithm => 'hmac-based',
+        secret => Secret,
+        secret_base64_encoded => false,
+        verify_claims => [],
+        disconnect_after_expire => false,
+        enable => true
+    },
+    {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
+    %% Sanity: the un-redacted state really does carry the raw key bytes.
+    ?assertMatch(#{jwk := #jose_jwk{kty = {jose_jwk_kty_oct, Secret}}}, State),
+    ?assertNotEqual(nomatch, binary:match(render(State), Secret)),
+    %% After redaction the bytes must be gone.
+    Redacted = emqx_utils:redact(State),
+    ?assertEqual(nomatch, binary:match(render(Redacted), Secret)),
+    ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
+    ok.
+
+render(Term) ->
+    unicode:characters_to_binary(io_lib:format("~0p", [Term])).
+
 t_bad_public_keys(_) ->
     BaseConfig = #{
         mechanism => jwt,

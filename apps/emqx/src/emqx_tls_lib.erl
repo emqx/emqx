@@ -152,7 +152,20 @@ integral_versions(Type, DesiredIn) ->
 all_ciphers_set_cached() ->
     case persistent_term:get(?FUNCTION_NAME, false) of
         false ->
-            S = sets:from_list(all_ciphers()),
+            OpenSslNames = all_ciphers(),
+            %% Also include the RFC/IANA name for every supported cipher so
+            %% configs written in either convention validate. ssl:str_to_suite
+            %% accepts both, so we keep both forms in the set for the
+            %% schema-side validator.
+            RfcNames = [
+                try
+                    cipher_to_rfc(C)
+                catch
+                    _:_ -> C
+                end
+             || C <- OpenSslNames
+            ],
+            S = sets:from_list(OpenSslNames ++ RfcNames),
             persistent_term:put(?FUNCTION_NAME, S),
             S;
         Set ->

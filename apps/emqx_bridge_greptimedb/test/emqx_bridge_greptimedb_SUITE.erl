@@ -791,3 +791,22 @@ t_auto_cast_int_to_float(TCConfig) ->
     ),
 
     ok.
+
+t_create_with_invalid_cipher(TCConfig) ->
+    %% An unknown TLS cipher must be rejected with a clean 400 carrying a
+    %% JSON error body, not crash the API with a 500 while encoding the reason.
+    Res = create_connector_api(TCConfig, #{
+        <<"ssl">> => #{
+            <<"enable">> => true,
+            <<"verify">> => <<"verify_none">>,
+            <<"ciphers">> => [<<"NOT_A_CIPHER">>]
+        }
+    }),
+    ?assertMatch({400, _}, Res),
+    {400, Body} = Res,
+    ?assertMatch(
+        {match, _},
+        re:run(emqx_utils_json:encode(Body), <<"bad_ciphers">>),
+        #{body => Body}
+    ),
+    ok.
