@@ -586,6 +586,7 @@ t_retry_dequeue_qos0(_TCConfig) ->
         Session0
     ),
     %% Only two messages come out.
+    %% No timer should have been armed.
     {ok, [_Pub1, _Pub2], Session1} =
         emqx_session_mem:deliver(clientinfo(), Delivers, [], Session0),
     %% Immediately retrying would yield no messages, if it were attempted.
@@ -594,9 +595,7 @@ t_retry_dequeue_qos0(_TCConfig) ->
     %% messages are dropped.
     Session3 = emqx_session_mem:set_field(quota, limiter_client(ListenerId), Session2),
     {ok, [], _Session4} =
-        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, Session3),
-    %% No timer should have been armed.
-    ?assertNotReceive({timeout, _, {emqx_session, _}}, 2500).
+        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, Session3).
 
 t_retry_dequeue_qos1(TCConfig) ->
     test_retry_dequeue(?QOS_1, TCConfig).
@@ -626,12 +625,12 @@ test_retry_dequeue(QoS, _TCConfig) ->
         Session0
     ),
     %% Only two messages come out.
-    {ok, [_Pub1, _Pub2], Session1} =
+    {ok, [_Pub1, _Pub2], Effect1, Session1} =
         emqx_session_mem:deliver(clientinfo(), Delivers, [], Session0),
+    ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect1),
     %% Immediately retrying would yield no messages, if it were attempted.
-    {ok, [], Session2} = emqx_session_mem:dequeue(clientinfo(), Session1),
-    %% Timer should have been armed.
-    ?assertReceive({timeout, _, {emqx_session, ?RETRY_DEQUEUE_TIMER}}, 2500),
+    {ok, [], Effect2, Session2} = emqx_session_mem:dequeue(clientinfo(), Session1),
+    ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect2),
     %% After rate tokens are restored, it should yield more messages that were enqueued.
     Session3 = emqx_session_mem:set_field(quota, limiter_client(ListenerId), Session2),
     {ok, [_Pub3, _Pub4], Session4} =
@@ -639,8 +638,7 @@ test_retry_dequeue(QoS, _TCConfig) ->
     %% Nothing left.
     Session5 = emqx_session_mem:set_field(quota, limiter_client(ListenerId), Session4),
     {ok, [], _Session6} =
-        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, Session5),
-    ?assertNotReceive({timeout, _, {emqx_session, _}}, 2500).
+        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, Session5).
 
 -doc """
 Verifies that delivery limits do not compromise message ordering.
@@ -661,7 +659,9 @@ t_delivery_rate_limit_preserves_qos12_order(_TCConfig) ->
     ),
     %% Delivery limit admits `t0` delivery but not `t1`, this should make both `t1` & `t2`
     %% enter mqueue.
-    {ok, [_Msg1], Session1} = emqx_session_mem:deliver(clientinfo(), Delivers, [], Session0),
+    {ok, [_Msg1], Effect, Session1} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session0),
+    ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect),
     ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session1)),
     ?assertEqual(2, emqx_session_mem:info(mqueue_len, Session1)),
     ?assertMatch(
@@ -696,12 +696,15 @@ t_delivery_rate_limit_puback(_TCConfig) ->
         Session0
     ),
     %% Should have 3 messages enqueued
-    {ok, [{PacketId1, _Pub1}, {PacketId2, _Pub2}], Session1} =
+    {ok, [{PacketId1, _Pub1}, {PacketId2, _Pub2}], Effect1, Session1} =
         emqx_session_mem:deliver(clientinfo(), Delivers, [], Session0),
+    ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect1),
 
     %% Now, a puback comes in while limiter is still recovering.  It shouldn't yield more
     %% publishes.
-    {ok, _, [], Session2} = emqx_session_mem:puback(clientinfo(), PacketId1, Session1),
+    {ok, _, [], Effect2, Session2} =
+        emqx_session_mem:puback(clientinfo(), PacketId1, Session1),
+    ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect2),
 
     %% After limiter tokens are restored, should dequeue the rest.
     Limiter = limiter_client(ListenerId),
@@ -730,13 +733,15 @@ t_delivery_rate_limit_pubcomp(_TCConfig) ->
         Session0
     ),
     %% Should have 3 messages enqueued
-    {ok, [{PacketId1, _Pub1}, {PacketId2, _Pub2}], Session1} =
+    {ok, [{PacketId1, _Pub1}, {PacketId2, _Pub2}], Effect1, Session1} =
         emqx_session_mem:deliver(clientinfo(), Delivers, [], Session0),
+    ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect1),
 
     %% Now, a puback comes in while limiter is still recovering.  It shouldn't yield more
     %% publishes.
     {ok, _, Session2} = emqx_session_mem:pubrec(PacketId1, Session1),
-    {ok, _, [], Session3} = emqx_session_mem:pubcomp(clientinfo(), PacketId1, Session2),
+    {ok, _, [], Effect2, Session3} = emqx_session_mem:pubcomp(clientinfo(), PacketId1, Session2),
+    ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect2),
 
     %% After limiter tokens are restored, should dequeue the rest.
     {ok, _, Session4} = emqx_session_mem:pubrec(PacketId2, Session3),

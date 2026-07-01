@@ -919,9 +919,9 @@ t_handle_info_sock_closed(_) ->
 %% Test cases for handle_timeout
 %%--------------------------------------------------------------------
 
--define(CUSTOM_TIMER1_TIMEOUT, 100).
--define(CUSTOM_TIMER2_TIMEOUT, 20).
--define(CUSTOM_TIMER3_TIMEOUT, 50).
+-define(CUSTOM_TIMER_TIMEOUT_LONG, 500).
+-define(CUSTOM_TIMER_TIMEOUT, 100).
+-define(CUSTOM_TIMER_TIMEOUT_SHORT, 20).
 
 t_handle_timeout_keepalive(_) ->
     TRef = make_ref(),
@@ -949,53 +949,58 @@ t_handle_timeout_will_message(_) ->
 t_handle_custom_timers(_) ->
     Channel = channel(#{
         conn_state => connected,
+        conn_flags => [],
         session => {?MODULE, #{}}
     }),
-    {ok, [{outgoing, ?SUBACK_PACKET(1, [?QOS_0])} | _], Chan1} =
-        emqx_channel:handle_in(
-            ?SUBSCRIBE_PACKET(1, #{}, [{<<"+/+">>, ?DEFAULT_SUBOPTS}]),
-            Channel
-        ),
-    {timeout, T1Ref, T1Msg} = ?assertReceive({timeout, _, _}, ?CUSTOM_TIMER1_TIMEOUT * 2),
-    {ok, {outgoing, [?PUBLISH_PACKET(0, <<"a/b">>, 1, <<"t1">>)]}, Chan2} =
-        emqx_channel:handle_timeout(T1Ref, T1Msg, Chan1),
-    {timeout, T2Ref, T2Msg} = ?assertReceive({timeout, _, _}, ?CUSTOM_TIMER2_TIMEOUT * 2),
-    {ok, {outgoing, [?PUBLISH_PACKET(0, <<"c/d">>, 2, <<"t2">>)]}, _Chan} =
-        emqx_channel:handle_timeout(T2Ref, T2Msg, Chan2),
-    ok = ?assertNotReceive({timeout, _, _}, ?CUSTOM_TIMER3_TIMEOUT * 2).
+    %% Sets `signal1` timer:
+    {ok, Chan1} = emqx_channel:handle_signal(
+        {connection, congested, #{retry => ?CUSTOM_TIMER_TIMEOUT}},
+        Channel
+    ),
+    %% Sets `signal2` timer:
+    {ok, Chan2} = emqx_channel:handle_signal(
+        {connection, decongested, #{retry => ?CUSTOM_TIMER_TIMEOUT_LONG}},
+        Chan1
+    ),
+    %% Changing timeout is ignored for `set_timer`:
+    {ok, Chan3} = emqx_channel:handle_signal(
+        {connection, congested, #{retry => ?CUSTOM_TIMER_TIMEOUT_LONG}},
+        Chan2
+    ),
+    {timeout, T1Ref, T1Msg} =
+        ?assertReceive({timeout, _, {emqx_session, signal1}}, ?CUSTOM_TIMER_TIMEOUT * 2),
+    %% Sets `msg1` timer:
+    {ok, {outgoing, [?PUBLISH_PACKET(0, <<"a/b">>, 1, <<"1">>)]}, Chan4} =
+        emqx_channel:handle_timeout(T1Ref, T1Msg, Chan3),
+    %% Resets `msg1` timer to a shorter timeout:
+    {ok, {outgoing, [?PUBLISH_PACKET(0, <<"c/d">>, 2, <<"2">>)]}, Chan5} =
+        emqx_channel:handle_timeout(make_ref(), retry_delivery, Chan4),
+    {timeout, T2Ref, T2Msg} =
+        ?assertReceive({timeout, _, {emqx_session, msg1}}, ?CUSTOM_TIMER_TIMEOUT_SHORT * 2),
+    %% Clears `signal2` timer:
+    {ok, _Chan} = emqx_channel:handle_timeout(T2Ref, T2Msg, Chan5),
+    ?assertNotReceive({timeout, _, _}, ?CUSTOM_TIMER_TIMEOUT_LONG * 2).
 
 %%--------------------------------------------------------------------
 %% Mocked session module
 %%--------------------------------------------------------------------
 
-subscribe(_TopicFilter, _SubOpts = #{}, {?MODULE, Session0}) ->
-    % NOTE: Only this one should be triggered
-    Session1 = emqx_session:ensure_timer(t1, ?CUSTOM_TIMER1_TIMEOUT, Session0),
-    Session = emqx_session:ensure_timer(t1, ?CUSTOM_TIMER1_TIMEOUT * 5, Session1),
-    {ok, {?MODULE, Session}}.
-
-get_subscription(_TopicFilter, {?MODULE, _Session}) ->
-    undefined.
+handle_signal(_ClientInfo, {connection, congested, #{retry := Timeout}}, {?MODULE, Session}) ->
+    {ok, [], {set_timer, signal1, Timeout}, {?MODULE, Session}};
+handle_signal(_ClientInfo, {connection, decongested, #{retry := Timeout}}, {?MODULE, Session}) ->
+    {ok, [], {set_timer, signal2, Timeout}, {?MODULE, Session}}.
 
 info(created_at, {?MODULE, _Session}) ->
     0.
 
-handle_timeout(_ClientInfo, t1, {?MODULE, Session0}) ->
-    Msg = emqx_message:make(<<"a/b">>, <<"t1">>),
-    Session1 = maps:remove(t1, Session0),
-    % NOTE: Only this one should be reset by the second call.
-    Session2 = emqx_session:reset_timer(t2, ?CUSTOM_TIMER2_TIMEOUT * 5, Session1),
-    Session3 = emqx_session:reset_timer(t2, ?CUSTOM_TIMER2_TIMEOUT, Session2),
-    Session = emqx_session:reset_timer(t3, ?CUSTOM_TIMER3_TIMEOUT, Session3),
-    {ok, [{1, Msg}], {?MODULE, Session}};
-handle_timeout(_ClientInfo, t2, {?MODULE, Session0}) ->
-    Msg = emqx_message:make(<<"c/d">>, <<"t2">>),
-    Session1 = maps:remove(t2, Session0),
-    Session2 = emqx_session:cancel_timer(t2, Session1),
-    % NOTE: Thus `t3` should not be triggered, see `?assertNotReceive` above.
-    Session = emqx_session:cancel_timer(t3, Session2),
-    ok = ?assertEqual(#{}, Session),
-    {ok, [{2, Msg}], {?MODULE, Session}}.
+handle_timeout(_ClientInfo, signal1, {?MODULE, Session}) ->
+    Msg = emqx_message:make(<<"a/b">>, <<"1">>),
+    {ok, [{1, Msg}], {reset_timer, msg1, ?CUSTOM_TIMER_TIMEOUT_LONG}, {?MODULE, Session}};
+handle_timeout(_ClientInfo, retry_delivery, {?MODULE, Session}) ->
+    Msg = emqx_message:make(<<"c/d">>, <<"2">>),
+    {ok, [{2, Msg}], {reset_timer, msg1, ?CUSTOM_TIMER_TIMEOUT_SHORT}, {?MODULE, Session}};
+handle_timeout(_ClientInfo, msg1, {?MODULE, Session}) ->
+    {ok, [], {reset_timer, signal2, infinity}, {?MODULE, Session}}.
 
 %%--------------------------------------------------------------------
 %% Test cases for internal functions
