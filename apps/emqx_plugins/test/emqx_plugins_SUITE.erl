@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_plugins/include/emqx_plugins.hrl").
 
 -define(EMQX_PLUGIN_APP_NAME, my_emqx_plugin).
 -define(EMQX_PLUGIN_APP_NAME_BIN, <<"my_emqx_plugin">>).
@@ -53,7 +54,8 @@ groups() ->
             group_t_copy_plugin_to_a_new_node_single_node,
             group_t_cluster_leave,
             group_t_cluster_rejoin_after_uninstall,
-            group_t_cluster_force_sync_vsn
+            group_t_cluster_force_sync_vsn,
+            group_t_cluster_install
         ]},
         {create_tar_copy_plugin, [sequence], [group_t_copy_plugin_to_a_new_node]}
     ].
@@ -1437,4 +1439,130 @@ t_allow_sha256_undefined_accepts_any(_Config) ->
     ok = emqx_plugins:allow_installation(NameVsn),
     ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, <<"any bytes">>)),
     ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, <<"other bytes">>)),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Phase 1: CLI install uses ?fresh_install — no cluster config lookup
+%%--------------------------------------------------------------------
+
+t_cli_install_no_warning({init, Config}) ->
+    Config;
+t_cli_install_no_warning({'end', _Config}) ->
+    ok;
+t_cli_install_no_warning(_Config) ->
+    #{name_vsn := NameVsn} = get_demo_plugin_package(),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ?assertMatch(
+        {ok, #{config_status := disabled}},
+        emqx_plugins:describe(NameVsn)
+    ),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok.
+
+t_install_package_rpc({init, Config}) ->
+    Config;
+t_install_package_rpc({'end', _Config}) ->
+    ok;
+t_install_package_rpc(_Config) ->
+    #{name_vsn := NameVsn} = get_demo_plugin_package(),
+    TarPath = emqx_plugins_fs:tar_file_path(NameVsn),
+    {ok, TarBin} = file:read_file(TarPath),
+    ok = emqx_plugins:delete_package(NameVsn),
+    ok = emqx_plugins:purge(NameVsn),
+    ok = emqx_plugins:install_package(NameVsn, TarBin),
+    ?assertMatch(
+        {ok, #{config_status := disabled}},
+        emqx_plugins:describe(NameVsn)
+    ),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok.
+
+t_fresh_install_skips_peer_config({init, Config}) ->
+    Config;
+t_fresh_install_skips_peer_config({'end', _Config}) ->
+    ok;
+t_fresh_install_skips_peer_config(_Config) ->
+    #{name_vsn := NameVsn} = get_demo_plugin_package(),
+    ?check_trace(
+        emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+        fun(Trace) ->
+            ?assertMatch(
+                [],
+                ?of_kind(failed_to_get_plugin_config_from_cluster, Trace)
+            ),
+            ok
+        end
+    ),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Phase 2: cluster install via --cluster flag
+%%--------------------------------------------------------------------
+
+group_t_cluster_install({init, Config}) ->
+    Specs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {group_t_cluster_install1, #{
+                role => core, apps => [emqx, emqx_conf, emqx_ctl]
+            }},
+            {group_t_cluster_install2, #{
+                role => core, apps => [emqx, emqx_conf, emqx_ctl]
+            }}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    Nodes = emqx_cth_cluster:start(Specs),
+    InstallRelDir = "plugins_cluster_install",
+    InstallDirs = [filename:join(WD, InstallRelDir) || #{work_dir := WD} <- Specs],
+    ok = lists:foreach(fun filelib:ensure_path/1, InstallDirs),
+    #{package := Package, name_vsn := NameVsn0} =
+        emqx_plugins_test_helpers:get_demo_plugin_package(#{
+            release_name => ?EMQX_PLUGIN_TEMPLATE_RELEASE_NAME,
+            git_url => ?EMQX_PLUGIN_TEMPLATE_URL,
+            vsn => ?EMQX_PLUGIN_TEMPLATE_VSN,
+            tag => ?EMQX_PLUGIN_TEMPLATE_TAG,
+            shdir => hd(InstallDirs)
+        }),
+    NameVsn = bin(NameVsn0),
+    {ok, TarBin} = file:read_file(Package),
+    [{ok, _}, {ok, _}] = erpc:multicall(Nodes, emqx_cth_suite, start_app, [
+        emqx_plugins,
+        #{config => #{plugins => #{install_dir => InstallRelDir}}}
+    ]),
+    [
+        {nodes, Nodes},
+        {name_vsn, NameVsn},
+        {tar_bin, TarBin}
+        | Config
+    ];
+group_t_cluster_install({'end', Config}) ->
+    Nodes = ?config(nodes, Config),
+    ok = emqx_cth_cluster:stop(Nodes);
+group_t_cluster_install(Config) ->
+    [N1, N2] = ?config(nodes, Config),
+    NameVsn = ?config(name_vsn, Config),
+    TarBin = ?config(tar_bin, Config),
+
+    %% Verify both nodes start with no plugins
+    ?assertEqual([], erpc:call(N1, emqx_plugins, list, [])),
+    ?assertEqual([], erpc:call(N2, emqx_plugins, list, [])),
+
+    %% Install on both nodes via RPC (simulates --cluster)
+    Results = emqx_plugins_proto_v5:install_package([N1, N2], NameVsn, TarBin),
+    ?assertMatch([{ok, ok}, {ok, ok}], lists:sort(Results)),
+
+    %% Both nodes should have the plugin
+    ?assertMatch(
+        [#{config_status := disabled}],
+        erpc:call(N1, emqx_plugins, list, [])
+    ),
+    ?assertMatch(
+        [#{config_status := disabled}],
+        erpc:call(N2, emqx_plugins, list, [])
+    ),
+
+    %% Cleanup
+    ok = erpc:call(N1, emqx_plugins, ensure_uninstalled, [NameVsn]),
+    ok = erpc:call(N2, emqx_plugins, ensure_uninstalled, [NameVsn]),
     ok.

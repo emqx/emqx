@@ -8,6 +8,7 @@
     list/1,
     describe/2,
     ensure_installed/2,
+    ensure_installed_cluster/2,
     ensure_uninstalled/2,
     ensure_started/2,
     ensure_stopped/2,
@@ -19,6 +20,7 @@
     disallow_installation/2
 ]).
 
+-include("emqx_plugins.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -define(BPAPI_NAME, emqx_plugins).
@@ -98,6 +100,22 @@ print_allow_result(Nodes, Results, NameVsn, LogFun) ->
         end,
     print(NameVsn, Result, LogFun, allow_installation).
 
+print_cluster_result(Nodes, Results, NameVsn, LogFun) ->
+    Errors =
+        lists:filter(
+            fun
+                ({_Node, {ok, ok}}) -> false;
+                ({_Node, _}) -> true
+            end,
+            lists:zip(Nodes, Results)
+        ),
+    Result =
+        case Errors of
+            [] -> ok;
+            _ -> {error, maps:from_list(Errors)}
+        end,
+    print(NameVsn, Result, LogFun, ensure_installed_cluster).
+
 disallow_installation(NameVsn, LogFun) ->
     try emqx_plugins_utils:parse_name_vsn(NameVsn) of
         {_AppName, _Vsn} ->
@@ -128,7 +146,37 @@ do_disallow_installation(NameVsn, LogFun) ->
     ?PRINT(Result, LogFun).
 
 ensure_installed(NameVsn, LogFun) ->
-    ?PRINT(emqx_plugins:ensure_installed(NameVsn), LogFun).
+    case emqx_plugins:describe(NameVsn, #{}) of
+        {ok, _} ->
+            ?PRINT(
+                {error, #{
+                    msg => "plugin_already_installed", name_vsn => NameVsn
+                }},
+                LogFun
+            );
+        {error, _} ->
+            ?PRINT(emqx_plugins:ensure_installed(NameVsn, ?fresh_install), LogFun)
+    end.
+
+ensure_installed_cluster(NameVsn, LogFun) ->
+    case emqx_plugins_fs:get_tar(NameVsn) of
+        {ok, TarBin} ->
+            Running = emqx:running_nodes(),
+            V5Nodes = nodes_supporting_bpapi_version(5),
+            case Running -- V5Nodes of
+                [] ->
+                    Results = emqx_plugins_proto_v5:install_package(V5Nodes, NameVsn, TarBin),
+                    print_cluster_result(V5Nodes, Results, NameVsn, LogFun);
+                Missing ->
+                    Reason = #{
+                        hint => <<"cluster install requires all nodes to support proto v5">>,
+                        nodes_missing_v5 => Missing
+                    },
+                    ?PRINT({error, Reason}, LogFun)
+            end;
+        {error, Reason} ->
+            ?PRINT({error, Reason}, LogFun)
+    end.
 
 ensure_uninstalled(NameVsn, LogFun) ->
     ?PRINT(emqx_plugins:ensure_uninstalled(NameVsn), LogFun).
