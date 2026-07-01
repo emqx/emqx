@@ -216,7 +216,7 @@ test_individual_feature(Feature, Info) ->
     ),
     Apps = lists:usort(Apps0 ++ Apps1),
     ?with_features(F, F, begin
-        Enabled = lists:usort(enabled_apps()),
+        Enabled = enabled_apps(),
         CoreApps = emqx_machine_features:core_apps(),
         %% usort: some core apps (e.g. auth drivers) are also listed in a
         %% feature's app list, so the concatenation can contain duplicates.

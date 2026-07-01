@@ -225,7 +225,7 @@ auth_apps() ->
      || App <- full_sorted_reboot_apps(),
         case atom_to_list(App) of
             "emqx_auth_" ++ _ ->
-                true;
+                emqx_machine_boot:is_umbrella_app(App);
             _ ->
                 false
         end
