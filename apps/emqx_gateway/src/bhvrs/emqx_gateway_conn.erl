@@ -541,6 +541,23 @@ handle_msg({inet_reply, _Sock, {error, Reason}}, State) ->
 handle_msg({close, Reason}, State) ->
     ?tp(debug, force_socket_close, #{reason => Reason}),
     handle_info({sock_closed, Reason}, close_socket(State));
+handle_msg(udp_proxy_detached, State = #state{sockstate = closed}) ->
+    {ok, State};
+handle_msg(
+    udp_proxy_detached,
+    State = #state{
+        chann_mod = ChannMod,
+        channel = Channel
+    }
+) ->
+    case ChannMod:info(conn_state, Channel) of
+        ConnState when ConnState == asleep; ConnState == disconnected ->
+            ?tp(debug, udp_proxy_detached, #{conn_state => ConnState}),
+            {ok, State#state{sockstate = closed}};
+        ConnState ->
+            ?tp(debug, udp_proxy_detached, #{conn_state => ConnState}),
+            handle_info({sock_closed, normal}, State#state{sockstate = closed})
+    end;
 handle_msg(udp_proxy_closed, State = #state{sockstate = closed}) ->
     {ok, State};
 handle_msg(
