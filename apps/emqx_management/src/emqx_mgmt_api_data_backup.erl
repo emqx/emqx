@@ -266,11 +266,7 @@ data_import(post, #{body := #{<<"filename">> := Filename} = Body} = Req) ->
         FileNode ->
             case check_no_sensitive_tables(Filename, auth_meta(Req)) of
                 {forbidden, Sets} ->
-                    SensMsg = iolist_to_binary([
-                        <<"API key import refused: backup contains restricted tables: ">>,
-                        lists:join(<<", ">>, Sets)
-                    ]),
-                    {403, #{code => 'FORBIDDEN', message => SensMsg}};
+                    {403, #{code => 'FORBIDDEN', message => import_refused_msg(Sets)}};
                 {peek_error, Reason} ->
                     {400, #{
                         code => ?BAD_REQUEST,
@@ -405,14 +401,42 @@ handle_file_op_response({badrpc, Reason}) ->
 auth_meta(#{auth_meta := AuthMeta}) -> AuthMeta;
 auth_meta(_) -> #{}.
 
-is_api_key_caller(#{auth_type := api_key}) -> true;
-is_api_key_caller(_) -> false.
+%% The `dashboard_users' and `api_keys' table sets are governed at their
+%% dedicated REST endpoints (`/users', `/api_key') by the
+%% `user_management' and `api_key_management' scopes. A caller may only
+%% back up or restore those tables through the data-backup endpoints when
+%% it holds the same scopes; otherwise the sensitive table sets are
+%% filtered on export and rejected on import. The predicate returns
+%% `true' when this restriction applies to the caller.
+%%
+%%   * API-key callers: always restricted (API keys cannot hold the
+%%     credential-management scopes at all).
+%%   * Dashboard JWT callers: restricted unless they are a global
+%%     administrator whose effective scope set includes both
+%%     `user_management' and `api_key_management'.
+%%   * Anything else: restricted (fail closed).
+requires_sensitive_table_check(#{auth_type := api_key}) ->
+    true;
+requires_sensitive_table_check(#{auth_type := jwt_token} = AuthMeta) ->
+    not has_credential_management_scopes(AuthMeta);
+requires_sensitive_table_check(_) ->
+    true.
 
-%% API key callers must not export tables that hold dashboard accounts or
-%% API keys themselves. Force-filter the requested table sets accordingly.
-%% Dashboard JWT callers are unaffected.
+has_credential_management_scopes(#{
+    source := Source,
+    actor := #{?role := ?ROLE_SUPERUSER, ?namespace := ?global_ns}
+}) ->
+    Scopes = emqx_dashboard_admin:effective_scopes_of(Source),
+    lists:member(?SCOPE_USER_MGMT, Scopes) andalso
+        lists:member(?SCOPE_API_KEY_MGMT, Scopes);
+has_credential_management_scopes(_) ->
+    false.
+
+%% Callers without the credential-management scopes must not export tables
+%% that hold dashboard accounts or API keys themselves. Force-filter the
+%% requested table sets accordingly.
 maybe_filter_export_params(Params, AuthMeta) ->
-    case is_api_key_caller(AuthMeta) of
+    case requires_sensitive_table_check(AuthMeta) of
         true -> filter_sensitive_table_sets(Params);
         false -> Params
     end.
@@ -428,10 +452,10 @@ filter_sensitive_table_sets(Params) ->
 
 %% Peek the local file. If the file lives on a different node (caller passed
 %% `node' in the body), the local peek returns `{error, not_found}' and the
-%% handler reports a 400 -- API-key callers must upload to the same node where
-%% they import.
+%% handler reports a 400 -- restricted callers must upload to the same node
+%% where they import.
 check_no_sensitive_tables(Filename, AuthMeta) ->
-    case is_api_key_caller(AuthMeta) of
+    case requires_sensitive_table_check(AuthMeta) of
         false ->
             ok;
         true ->
@@ -480,6 +504,15 @@ download_forbidden_msg() ->
         "Only the global administrator may download backup files. "
         "Backups may contain dashboard accounts and API key records."
     >>.
+
+import_refused_msg(Sets) ->
+    iolist_to_binary([
+        <<
+            "Import refused: backup contains tables that require the "
+            "user_management and api_key_management scopes: "
+        >>,
+        lists:join(<<", ">>, Sets)
+    ]).
 
 api_key_download_forbidden_msg(Sets) ->
     iolist_to_binary([
