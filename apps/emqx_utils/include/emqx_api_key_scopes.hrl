@@ -130,7 +130,7 @@
 %% ── Privilege scope group ──────────────────────────────────────────
 %%
 %% Any one of these scopes is administrator-equivalent in effect:
-%%   * `system' covers `/configs/*' (and `emqx ctl conf load'), which
+%%   * `system' covers `/configs/*' and `/data/*', which
 %%     can rewrite the whole node configuration.
 %%   * `user_management' can provision another login user holding any
 %%     scopes.
