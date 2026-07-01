@@ -687,7 +687,15 @@ get_tar(NameVsn) ->
 -spec install_package(name_vsn(), binary()) -> ok | {error, term()}.
 install_package(NameVsn, Bin) ->
     ok = write_package(NameVsn, Bin),
-    ensure_installed(NameVsn, ?fresh_install).
+    case ensure_installed(NameVsn, ?fresh_install) of
+        {error, #{reason := plugin_not_found}} = NotFound ->
+            NotFound;
+        {error, _} = Error ->
+            _ = delete_package(NameVsn),
+            Error;
+        Result ->
+            Result
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions
