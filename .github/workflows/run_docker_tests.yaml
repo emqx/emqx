@@ -70,9 +70,18 @@ jobs:
       matrix:
         profile:
           - emqx-enterprise
+        # EMQX_FEATURES preset the node boots with. FULL is the default; the
+        # ESSENTIAL entry (added via `include` below) checks that the minimal
+        # feature set still passes the full MQTT interoperability suite.
+        features:
+          - FULL
         overrides:
           - "--tcp-backend gen_tcp"
           - "--tcp-backend socket"
+        include:
+          - profile: emqx-enterprise
+            features: ESSENTIAL
+            overrides: "--tcp-backend gen_tcp"
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -89,6 +98,7 @@ jobs:
         run: |
           .ci/docker-compose-file/scripts/run-emqx.sh $CI_EMQX_DOCKER_IMAGE_TAG \
             --db-backend $CI_EMQX_DB_BACKEND \
+            --override EMQX_FEATURES=${{ matrix.features }} \
             ${{ matrix.overrides }}
 
       - name: make paho tests
@@ -104,6 +114,28 @@ jobs:
             echo "DUMP_CONTAINER_LOGS_END"
             exit 1
           fi
+
+  # ESSENTIAL-mode smoke test: built-in-database authn + acl.conf authz.
+  essential-auth-smoke-test:
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      EMQX_NAME: emqx-enterprise
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ env.EMQX_NAME }}-docker-amd64
+      - name: load docker image
+        run: |
+          EMQX_TAG=$(docker load < ${EMQX_NAME}-docker-*.tar.gz 2>/dev/null | sed 's/Loaded image: //g')
+          echo "CI_EMQX_DOCKER_IMAGE_TAG=$EMQX_TAG" | tee -a $GITHUB_ENV
+      - name: essential auth smoke test
+        timeout-minutes: 5
+        run: ./scripts/test/essential-auth-smoke/run.sh "$CI_EMQX_DOCKER_IMAGE_TAG"
 
   # simple smoke test for node_dump
   node-dump-test:
