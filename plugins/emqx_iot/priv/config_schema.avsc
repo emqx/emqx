@@ -1,0 +1,116 @@
+{
+  "type": "record",
+  "name": "emqx_iot",
+  "fields": [
+    {
+      "name": "device_name_source",
+      "type": "string",
+      "default": "clientid",
+      "$ui": {
+        "component": "input",
+        "flex": 12,
+        "label": "$device_name_source_label",
+        "description": "$device_name_source_desc"
+      }
+    },
+    {
+      "name": "device_name_pattern",
+      "type": "string",
+      "default": "{productKey}/{deviceName}",
+      "$ui": {
+        "component": "input",
+        "flex": 12,
+        "label": "$device_name_pattern_label",
+        "description": "$device_name_pattern_desc"
+      }
+    },
+    {
+      "name": "broadcast_topic",
+      "type": "string",
+      "default": "/sys/broadcast/${productKey}",
+      "$ui": {
+        "component": "input",
+        "flex": 12,
+        "label": "$broadcast_topic_label",
+        "description": "$broadcast_topic_desc"
+      }
+    },
+    {
+      "name": "batch_topic",
+      "type": "string",
+      "default": "/${productKey}/${deviceName}/user/get",
+      "$ui": {
+        "component": "input",
+        "flex": 12,
+        "label": "$batch_topic_label",
+        "description": "$batch_topic_desc"
+      }
+    },
+    {
+      "name": "msg_ttl",
+      "type": "string",
+      "default": "15d",
+      "$ui": {
+        "component": "input",
+        "flex": 12,
+        "label": "$msg_ttl_label",
+        "description": "$msg_ttl_desc"
+      }
+    },
+    {
+      "name": "cleanup_interval",
+      "type": "string",
+      "default": "60s",
+      "$ui": {
+        "component": "input",
+        "flex": 12,
+        "label": "$cleanup_interval_label",
+        "description": "$cleanup_interval_desc"
+      }
+    },
+    {
+      "name": "max_device_count",
+      "type": "int",
+      "default": 10000,
+      "$ui": {
+        "component": "input-number",
+        "flex": 12,
+        "label": "$max_device_count_label",
+        "description": "$max_device_count_desc"
+      }
+    },
+    {
+      "name": "max_message_size_broadcast",
+      "type": "int",
+      "default": 65536,
+      "$ui": {
+        "component": "input-number",
+        "flex": 12,
+        "label": "$max_message_size_broadcast_label",
+        "description": "$max_message_size_broadcast_desc"
+      }
+    },
+    {
+      "name": "max_message_size_batch",
+      "type": "int",
+      "default": 10240,
+      "$ui": {
+        "component": "input-number",
+        "flex": 12,
+        "label": "$max_message_size_batch_label",
+        "description": "$max_message_size_batch_desc"
+      }
+    },
+    {
+      "name": "msg_warn_threshold",
+      "type": "int",
+      "default": 100000,
+      "$ui": {
+        "component": "input-number",
+        "flex": 12,
+        "label": "$msg_warn_threshold_label",
+        "description": "$msg_warn_threshold_desc"
+      }
+    }
+  ]
+}
