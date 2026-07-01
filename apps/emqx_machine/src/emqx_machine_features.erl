@@ -17,6 +17,7 @@
 %%------------------------------------------------------------------------------
 
 -define(PT_KEY, {?MODULE, features}).
+-define(CORE_APPS_PT_KEY, {?MODULE, core_apps}).
 -define(ENV_VAR, "EMQX_FEATURES").
 
 %%------------------------------------------------------------------------------
@@ -37,7 +38,9 @@ is_umbrella_application_enabled(Application) when is_atom(Application) ->
 
 %% only for tests
 clear_features() ->
-    persistent_term:erase(?PT_KEY).
+    _ = persistent_term:erase(?PT_KEY),
+    _ = persistent_term:erase(?CORE_APPS_PT_KEY),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Internal fns
@@ -52,6 +55,16 @@ features() ->
     end.
 
 core_apps() ->
+    case persistent_term:get(?CORE_APPS_PT_KEY, undefined) of
+        undefined ->
+            Apps = base_core_apps() ++ auth_apps(),
+            _ = persistent_term:put(?CORE_APPS_PT_KEY, Apps),
+            Apps;
+        Apps ->
+            Apps
+    end.
+
+base_core_apps() ->
     [
         emqx,
         emqx_machine,
@@ -92,16 +105,6 @@ known_features() ->
             ],
             deps => []
         },
-        auth => #{
-            apps => [
-                emqx_auth,
-                emqx_ldap,
-                emqx_mongodb,
-                emqx_redis,
-                emqx_bridge_http
-            ] ++ auth_dynamic_apps(),
-            deps => []
-        },
         data_integration => #{
             apps => [
                 emqx_connector,
@@ -136,7 +139,7 @@ known_features() ->
         },
         gateways => #{
             apps => [emqx_gateway] ++ gateway_dynamic_apps(),
-            deps => [auth]
+            deps => []
         },
         cluster_link => #{
             apps => [emqx_cluster_link],
@@ -156,7 +159,7 @@ known_features() ->
         },
         metrics => #{
             apps => [emqx_prometheus, emqx_topic_metrics],
-            deps => [dashboard, auth]
+            deps => [dashboard]
         },
         mqtt_extensions => #{
             apps => [
@@ -175,7 +178,7 @@ known_features() ->
         },
         gcp_device => #{
             apps => [emqx_gcp_device],
-            deps => [auth]
+            deps => []
         },
         exhook => #{
             apps => [emqx_exhook],
@@ -203,18 +206,31 @@ data_integration_dynamic_apps() ->
         end
     ].
 
-auth_dynamic_apps() ->
-    RebootApps = full_sorted_reboot_apps(),
-    [
+%% Authentication/authorization is always available; it is core infrastructure,
+%% not an optional feature. A broker with authn/authz gated off would keep
+%% `enable_authn = true` and `authorization.no_match = deny` with no provider
+%% registered, and would therefore reject every MQTT connection. The
+%% `emqx_auth_*' backend apps are discovered by name so a newly added backend
+%% does not need to be listed here.
+auth_apps() ->
+    Base = [
+        emqx_auth,
+        emqx_ldap,
+        emqx_mongodb,
+        emqx_redis,
+        emqx_bridge_http
+    ],
+    Backends = [
         App
-     || App <- RebootApps,
+     || App <- full_sorted_reboot_apps(),
         case atom_to_list(App) of
             "emqx_auth_" ++ _ ->
                 true;
             _ ->
                 false
         end
-    ].
+    ],
+    Base ++ Backends.
 
 gateway_dynamic_apps() ->
     RebootApps = full_sorted_reboot_apps(),

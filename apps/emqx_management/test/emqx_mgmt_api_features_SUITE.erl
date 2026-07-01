@@ -152,7 +152,7 @@ t_list_full(TCConfig) when is_list(TCConfig) ->
 Smoke tests for listing features via the HTTP API.  Custom preset.
 """.
 t_list_custom(TCConfig) when is_list(TCConfig) ->
-    start_apps("data_integration,auth", ?FUNCTION_NAME, TCConfig),
+    start_apps("data_integration,dashboard", ?FUNCTION_NAME, TCConfig),
     ?assertMatch(
         {200, #{
             <<"preset">> := <<"custom">>,
