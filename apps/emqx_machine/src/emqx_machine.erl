@@ -53,8 +53,8 @@ setup_vm() ->
     ok = set_backtrace_depth().
 
 setup_classy_hooks() ->
-    %% FIXME:
-    %application:set_env(classy, n_sites, 2),
+    application:set_env(classy, to_cluster_sets, [core]),
+    application:set_env(classy, quorum_sets, [core]),
     classy:on_node_init(fun ?MODULE:migrate_site_id/0, 1),
     %% Cluster:
     classy:pre_join(fun emqx_cluster:pre_join/4, 0),
@@ -68,6 +68,7 @@ on_run_level(From, To) ->
     ?SLOG(warning, #{msg => "run_level_change", from => From, to => To}),
     case {From, To} of
         {stopped, single} ->
+            %% TODO: move to on_node_init or whatever
             setup_mria(),
             mria:start();
         {single, stopped} ->
