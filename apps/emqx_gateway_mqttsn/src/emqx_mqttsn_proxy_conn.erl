@@ -8,7 +8,15 @@
 
 -include("emqx_mqttsn.hrl").
 
--export([initialize/1, find_or_create/4, find_or_create/5, get_connection_id/4, dispatch/3, close/2]).
+-export([
+    initialize/1,
+    find_or_create/4,
+    find_or_create/5,
+    get_connection_id/4,
+    dispatch/3,
+    detach/2,
+    close/2
+]).
 
 -define(GATEWAY, mqttsn).
 
@@ -59,10 +67,16 @@ get_connection_id(_Transport, Peer, State, Data) ->
     end.
 
 dispatch(Pid, _State, Packet) ->
-    erlang:send(Pid, Packet).
+    erlang:send(Pid, Packet),
+    ok.
+
+detach(Pid, _State) ->
+    erlang:send(Pid, udp_proxy_detached),
+    ok.
 
 close(Pid, _State) ->
-    erlang:send(Pid, udp_proxy_closed).
+    erlang:send(Pid, udp_proxy_closed),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Internal functions

@@ -178,7 +178,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:esockd),
     do:
       {:esockd,
-       github: "emqx/esockd", ref: "5257195441d2bedcfa32c21908733bab6b1e6b1f", override: true}
+       github: "emqx/esockd", ref: "e356c703afc02049ce29e3f0fd1e9cf338f107a2", override: true}
 
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.9", override: true}
