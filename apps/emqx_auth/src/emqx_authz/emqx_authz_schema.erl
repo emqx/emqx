@@ -16,6 +16,7 @@
 
 -export([
     authz_fields/0,
+    ignore_backend_failures_field/0,
     api_source_type/0,
     source_types/0
 ]).
@@ -125,12 +126,7 @@ injected_fields(AuthzSchemaMods) ->
 
 authz_fields() ->
     [
-        {ignore_backend_failures,
-            hoconsc:mk(boolean(), #{
-                default => false,
-                desc => ?DESC(ignore_backend_failures),
-                importance => ?IMPORTANCE_LOW
-            })},
+        ignore_backend_failures_field(),
         {builtin_record_count_refresh_interval,
             hoconsc:mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"1h">>,
@@ -138,6 +134,14 @@ authz_fields() ->
             })}
         | sources_fields() ++ node_cache_fields()
     ].
+
+ignore_backend_failures_field() ->
+    {ignore_backend_failures,
+        hoconsc:mk(boolean(), #{
+            default => false,
+            desc => ?DESC(ignore_backend_failures),
+            importance => ?IMPORTANCE_LOW
+        })}.
 
 sources_fields() ->
     AuthzSchemaMods = source_schema_mods(),
