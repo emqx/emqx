@@ -158,7 +158,10 @@ add_api_key(Opts) ->
 validate_scopes(undefined) ->
     ok;
 validate_scopes(Scopes) when is_list(Scopes) ->
-    emqx_mgmt_api_key_scopes:validate_scopes(Scopes).
+    case emqx_mgmt_api_key_scopes:validate_scopes(Scopes) of
+        ok -> emqx_scope_catalog:check_privilege_scope_mutex(Scopes);
+        Error -> Error
+    end.
 
 delete_api_key(Name) ->
     case emqx_mgmt_auth:delete(Name) of

@@ -25,7 +25,9 @@
     common_scope_catalog/0,
     admin_only_scope_catalog/0,
     scope_catalog/0,
-    login_user_scope_catalog/0
+    login_user_scope_catalog/0,
+    partition_privilege_scopes/1,
+    check_privilege_scope_mutex/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -121,3 +123,52 @@ scope (tagged `admin_only => false') plus the login-only scopes.
 login_user_scope_catalog() ->
     [Entry#{admin_only => false} || Entry <- common_scope_catalog()] ++
         admin_only_scope_catalog().
+
+%%--------------------------------------------------------------------
+%% Privilege scope mutual-exclusion
+%%--------------------------------------------------------------------
+
+-doc """
+Split a scope list into `{Privilege, Other}` where `Privilege` holds
+the members of `?PRIVILEGE_SCOPES` (administrator-equivalent scopes)
+and `Other` holds the rest. Order within each sublist follows the
+input.
+""".
+-spec partition_privilege_scopes([binary()]) -> {[binary()], [binary()]}.
+partition_privilege_scopes(Scopes) when is_list(Scopes) ->
+    lists:partition(fun(S) -> lists:member(S, ?PRIVILEGE_SCOPES) end, Scopes).
+
+-doc """
+Reject a scope list that combines any privilege scope with any
+non-privilege scope. Each privilege scope (`system`,
+`user_management`, `api_key_management`, `sso_management`) is
+administrator-equivalent in effect, so pairing one with a restricted
+scope list cannot meaningfully restrict the account.
+
+`undefined` and `[]` pass through unchanged (the legacy
+unrestricted / deny-all cases, not an explicit mixed list); so do
+lists containing only privilege scopes or only non-privilege scopes.
+""".
+-spec check_privilege_scope_mutex([binary()] | undefined) -> ok | {error, binary()}.
+check_privilege_scope_mutex(undefined) ->
+    ok;
+check_privilege_scope_mutex([]) ->
+    ok;
+check_privilege_scope_mutex(Scopes) when is_list(Scopes) ->
+    case partition_privilege_scopes(Scopes) of
+        {[], _} ->
+            ok;
+        {_, []} ->
+            ok;
+        {Priv, Other} ->
+            Msg = iolist_to_binary([
+                <<"Privilege scopes cannot be combined with other scopes. ">>,
+                <<"Privilege scopes present: ">>,
+                lists:join(<<", ">>, Priv),
+                <<". Other scopes present: ">>,
+                lists:join(<<", ">>, Other),
+                <<". Assign either privilege scopes alone (administrator-equivalent), ">>,
+                <<"or non-privilege scopes alone.">>
+            ]),
+            {error, Msg}
+    end.

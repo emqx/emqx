@@ -32,6 +32,12 @@
     t_ee_api_key_rejects_login_only_via_put,
     t_ee_admin_role_with_publish_scope_allowed,
     t_ee_viewer_role_with_publish_scope_allowed,
+    %% Schema validation: privilege scopes must stand alone
+    t_ee_api_key_privilege_only_allowed,
+    t_ee_api_key_nonprivilege_only_allowed,
+    t_ee_api_key_rejects_mixed_privilege_via_post,
+    t_ee_api_key_rejects_mixed_privilege_via_put,
+    t_ee_api_key_privilege_mutex_message,
     %% Regression: API key auth must not leak into dashboard
     %% login-user scope check when ApiKey name == dashboard username.
     t_ee_api_key_unaffected_by_colliding_username_scopes
@@ -64,6 +70,7 @@ groups() ->
             t_bootstrap_file_with_mixed_case_scopes,
             t_bootstrap_file_with_whitespace_scopes,
             t_bootstrap_file_with_duplicate_scopes,
+            t_bootstrap_file_drops_mixed_privilege_scopes,
             t_bootstrap_file_lenient_order_independence,
             t_bootstrap_file_scope_runtime_check,
             t_bootstrap_file_publisher_only_publish_scope,
@@ -439,6 +446,34 @@ t_bootstrap_file_with_scopes_invalid(_) ->
         [?SCOPE_CONNECTIONS],
         read_bootstrap_scopes(<<"scope-good-after">>)
     ),
+    ok.
+
+%% A privilege scope combined with a non-privilege scope cannot restrict
+%% the key, so the lenient bootstrap loader drops the privilege scope
+%% (keeping the more restricted subset) rather than aborting the load.
+%% Among the four privilege scopes only `system' reaches this loader
+%% (the others are not in scope_catalog/0), so `system,connections'
+%% becomes `[connections]'.
+t_bootstrap_file_drops_mixed_privilege_scopes(_) ->
+    File = "./bootstrap_api_keys.txt",
+    Bin = iolist_to_binary([
+        "scope-mixed-priv:secret-1:administrator:",
+        ?SCOPE_SYSTEM,
+        ",",
+        ?SCOPE_CONNECTIONS,
+        "\n",
+        %% A privilege-only line is left untouched.
+        "scope-priv-only:secret-2:administrator:",
+        ?SCOPE_SYSTEM,
+        "\n"
+    ]),
+    ok = file:write_file(File, Bin),
+    update_file(File),
+    ?assertEqual(
+        [?SCOPE_CONNECTIONS],
+        read_bootstrap_scopes(<<"scope-mixed-priv">>)
+    ),
+    ?assertEqual([?SCOPE_SYSTEM], read_bootstrap_scopes(<<"scope-priv-only">>)),
     ok.
 
 t_bootstrap_file_with_empty_scopes(_) ->
@@ -1330,6 +1365,76 @@ t_ee_publisher_role_change_with_compatible_persisted_scopes_succeeds(_Config) ->
     ?assertEqual([?SCOPE_PUBLISH], maps:get(<<"scopes">>, Updated)),
     delete_app(Name).
 
+%% Among the four privilege scopes only `system' is holdable by an API
+%% key (the other three are login-only and rejected earlier), so a
+%% privilege-only list here means `[system]'.
+t_ee_api_key_privilege_only_allowed(_Config) ->
+    Name = <<"EE-APIKEY-PRIV-ONLY">>,
+    ?assertMatch(
+        {ok, #{<<"name">> := Name}},
+        create_app(Name, #{
+            role => ?ROLE_API_SUPERUSER,
+            scopes => [?SCOPE_SYSTEM]
+        })
+    ),
+    delete_app(Name).
+
+t_ee_api_key_nonprivilege_only_allowed(_Config) ->
+    Name = <<"EE-APIKEY-NONPRIV-ONLY">>,
+    ?assertMatch(
+        {ok, #{<<"name">> := Name}},
+        create_app(Name, #{
+            role => ?ROLE_API_SUPERUSER,
+            scopes => [?SCOPE_CONNECTIONS, ?SCOPE_PUBLISH, ?SCOPE_MONITORING]
+        })
+    ),
+    delete_app(Name),
+    %% Empty list is deny-all, not mixed — accepted.
+    Name2 = <<"EE-APIKEY-EMPTY">>,
+    ?assertMatch(
+        {ok, #{<<"name">> := Name2}},
+        create_app(Name2, #{role => ?ROLE_API_SUPERUSER, scopes => []})
+    ),
+    delete_app(Name2).
+
+%% Mixing a privilege scope with a non-privilege scope is rejected.
+t_ee_api_key_rejects_mixed_privilege_via_post(_Config) ->
+    Name = <<"EE-APIKEY-MIXED-POST">>,
+    Result = create_app(Name, #{
+        role => ?ROLE_API_SUPERUSER,
+        scopes => [?SCOPE_SYSTEM, ?SCOPE_CONNECTIONS]
+    }),
+    assert_400(Result).
+
+%% Same on the update path.
+t_ee_api_key_rejects_mixed_privilege_via_put(_Config) ->
+    Name = <<"EE-APIKEY-MIXED-PUT">>,
+    {ok, _} = create_app(Name, #{
+        role => ?ROLE_API_SUPERUSER,
+        scopes => [?SCOPE_CONNECTIONS]
+    }),
+    Result = update_app(Name, #{scopes => [?SCOPE_SYSTEM, ?SCOPE_CONNECTIONS]}),
+    assert_400(Result),
+    %% Splitting the list succeeds.
+    ?assertMatch({ok, _}, update_app(Name, #{scopes => [?SCOPE_SYSTEM]})),
+    delete_app(Name).
+
+%% The mutex validator returns the expected message (the HTTP layer
+%% drops the 400 body, so assert on the validator directly).
+t_ee_api_key_privilege_mutex_message(_Config) ->
+    ?assertEqual(ok, emqx_scope_catalog:check_privilege_scope_mutex(undefined)),
+    ?assertEqual(ok, emqx_scope_catalog:check_privilege_scope_mutex([])),
+    ?assertEqual(ok, emqx_scope_catalog:check_privilege_scope_mutex([?SCOPE_SYSTEM])),
+    ?assertEqual(
+        ok, emqx_scope_catalog:check_privilege_scope_mutex([?SCOPE_CONNECTIONS])
+    ),
+    {error, Msg} =
+        emqx_scope_catalog:check_privilege_scope_mutex([?SCOPE_SYSTEM, ?SCOPE_CONNECTIONS]),
+    ?assertMatch(
+        {_, _},
+        binary:match(Msg, <<"Privilege scopes cannot be combined with other scopes">>)
+    ).
+
 %% Regression: API key auth must NOT consult dashboard login-user
 %% scopes, even when the API key's generated `api_key' string happens
 %% to collide with a dashboard username. Prior to the fix,
@@ -1389,6 +1494,14 @@ assert_400_login_only(Result) ->
             ok;
         Other ->
             ct:fail("expected 400 BAD_REQUEST login-only error, got: ~p", [Other])
+    end.
+
+assert_400(Result) ->
+    case Result of
+        {error, {"HTTP/1.1", 400, _}} ->
+            ok;
+        Other ->
+            ct:fail("expected 400 BAD_REQUEST, got: ~p", [Other])
     end.
 
 list_app() ->
