@@ -556,7 +556,7 @@ handle_msg(
             {ok, State#state{sockstate = closed}};
         ConnState ->
             ?tp(debug, udp_proxy_detached, #{conn_state => ConnState}),
-            handle_info({sock_closed, normal}, State#state{sockstate = closed})
+            handle_udp_proxy_detached(State#state{sockstate = closed})
     end;
 handle_msg(udp_proxy_closed, State = #state{sockstate = closed}) ->
     {ok, State};
@@ -569,7 +569,7 @@ handle_msg(
 ) ->
     case ChannMod:info(conn_state, Channel) of
         ConnState when ConnState == asleep; ConnState == disconnected ->
-            ?tp(debug, udp_proxy_detached, #{conn_state => ConnState}),
+            ?tp(debug, udp_proxy_closed, #{conn_state => ConnState}),
             {ok, State#state{sockstate = closed}};
         _ConnState ->
             handle_udp_proxy_closed(State)
@@ -626,6 +626,25 @@ handle_msg(Msg, State) ->
 handle_udp_proxy_closed(State) ->
     ?tp(debug, udp_proxy_closed, #{reason => normal}),
     handle_info({sock_closed, normal}, close_socket(State)).
+
+handle_udp_proxy_detached(State) ->
+    case with_channel(handle_info, [{sock_closed, normal}], State) of
+        {ok, {event, disconnected}, NState} ->
+            handle_udp_proxy_detached_disconnected(NState);
+        Other ->
+            Other
+    end.
+
+handle_udp_proxy_detached_disconnected(
+    State = #state{
+        chann_mod = ChannMod,
+        channel = Channel
+    }
+) ->
+    Ctx = ChannMod:info(ctx, Channel),
+    ClientId = ChannMod:info(clientid, Channel),
+    emqx_gateway_ctx:set_chan_info(Ctx, ClientId, info(State)),
+    {ok, State}.
 
 %%--------------------------------------------------------------------
 %% Terminate

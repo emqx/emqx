@@ -1951,6 +1951,74 @@ t_connected_same_source_tuple_reused_by_other_clientid(_) ->
         gen_udp:close(Socket)
     end.
 
+t_connected_clean_session_false_same_source_tuple_reused_preserves_session(_) ->
+    QoS = 1,
+    ClientId1 = <<"connected-clean-false-source-reuse-1">>,
+    ClientId2 = <<"connected-clean-false-source-reuse-2">>,
+    TopicName = <<"connected/clean/false/source/reuse">>,
+    Payload = <<"queued-for-persistent-connected-client">>,
+    MsgId = 29,
+    Dup = 0,
+    Retain = 0,
+    WillBit = 0,
+    CleanSession = 0,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    {ok, Socket2} = gen_udp:open(0, [binary]),
+    TestPid = self(),
+    ok = meck:new(emqx_gateway_ctx, [passthrough, no_history, no_link]),
+    ok = meck:expect(
+        emqx_gateway_ctx,
+        connection_closed,
+        fun(Ctx, ClientId) ->
+            TestPid ! {connection_closed, ClientId},
+            meck:passthrough([Ctx, ClientId])
+        end
+    ),
+    try
+        send_connect_msg(Socket, ClientId1, CleanSession),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+        send_subscribe_msg_normal_topic(Socket, QoS, TopicName, MsgId),
+        SubAck = receive_response(Socket),
+        ?assertMatch(
+            <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+                _TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+            SubAck
+        ),
+        <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+            TopicId:16, MsgId:16,
+            ?SN_RC_ACCEPTED>> =
+            SubAck,
+
+        send_connect_msg(Socket, ClientId2),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+
+        ?retry(
+            50,
+            20,
+            #{conn_state := disconnected} = emqx_gateway_cm:get_chan_info(mqttsn, ClientId1)
+        ),
+        ?assertNot(received_connection_closed(ClientId1)),
+        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        timer:sleep(100),
+
+        ?assertEqual(udp_receive_timeout, receive_response(Socket, 500)),
+
+        send_connect_msg(Socket2, ClientId1, CleanSession),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket2)),
+        UdpData = receive_response(Socket2),
+        PubMsgId = check_publish_msg_on_udp(
+            {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId, Payload},
+            UdpData
+        ),
+        send_puback_msg(Socket2, TopicId, PubMsgId)
+    after
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId1),
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId2),
+        gen_udp:close(Socket),
+        gen_udp:close(Socket2),
+        meck:unload(emqx_gateway_ctx)
+    end.
+
 t_asleep_test04_to_awake_qos1_dl_msg(_) ->
     QoS = 1,
     Duration = 5,
@@ -3276,6 +3344,14 @@ receive_response(Socket, Timeout) ->
             receive_response(Socket)
     after Timeout ->
         udp_receive_timeout
+    end.
+
+received_connection_closed(ClientId) ->
+    receive
+        {connection_closed, ClientId} ->
+            true
+    after 100 ->
+        false
     end.
 
 with_gateway_authz_result(Protocol, ActionType, Topic, Result, Fun) ->
