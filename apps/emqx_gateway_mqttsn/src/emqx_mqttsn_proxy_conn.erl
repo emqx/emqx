@@ -98,14 +98,28 @@ channel_conn_state(ClientId, Pid) ->
     end.
 
 safe_chan_info(ClientId, Pid) ->
-    case catch emqx_gateway_cm:get_chan_info(?GATEWAY, ClientId, Pid) of
+    case safe_gateway_chan_info(ClientId, Pid) of
         Info = #{} ->
             Info;
         _ ->
-            case catch emqx_gateway_conn:info(Pid) of
+            case safe_gateway_conn_info(Pid) of
                 Info = #{} -> Info;
                 _ -> undefined
             end
+    end.
+
+safe_gateway_chan_info(ClientId, Pid) ->
+    try emqx_gateway_cm:get_chan_info(?GATEWAY, ClientId, Pid) of
+        Info -> Info
+    catch
+        _:_ -> undefined
+    end.
+
+safe_gateway_conn_info(Pid) ->
+    try emqx_gateway_conn:info(Pid) of
+        Info -> Info
+    catch
+        _:_ -> undefined
     end.
 
 split_state(#{parse_state := ParseState, cid := BoundCId}) ->
