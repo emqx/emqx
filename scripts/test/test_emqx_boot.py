@@ -568,12 +568,6 @@ def test_feature_gate_full(emqx_bin_path):
                     pass;
                 case _:
                     raise AssertionError(f"bad enabled: {enabled}")
-            bundled = log["bundled"]
-            match bundled:
-                case [_, _, _, *_]:
-                    pass;
-                case _:
-                    raise AssertionError(f"bad bundled: {bundled}")
         finally:
             emqx.kill()
 
@@ -603,12 +597,6 @@ def test_feature_gate_essential(emqx_bin_path):
                     pass;
                 case _:
                     raise AssertionError(f"bad disabled: {disabled}")
-            bundled = log["bundled"]
-            match bundled:
-                case []:
-                    pass;
-                case _:
-                    raise AssertionError(f"bad bundled: {bundled}")
         finally:
             emqx.kill()
 
@@ -617,7 +605,6 @@ def test_feature_gate_essential(emqx_bin_path):
 # Remember to update known feature list when `emqx_machine_features:known_features` change.
 KNOWN_FEATURES = {
     "dashboard": {},
-    "auth": {},
     "data_integration": {},
     "message_transformation": {},
     "schema_validation": {},
@@ -656,8 +643,6 @@ def test_feature_gate_custom(emqx_bin_path, feature):
             assert "custom" == log["preset"]
             enabled = log["enabled"]
             assert feature in enabled
-            bundled = log["bundled"]
-            assert [] == bundled
         finally:
             emqx.kill()
 
@@ -685,8 +670,6 @@ def test_feature_gate_custom_multiple(emqx_bin_path):
             enabled = log["enabled"]
             for f in all_features:
                 assert f in enabled
-            bundled = log["bundled"]
-            assert [] == bundled
         finally:
             emqx.kill()
 

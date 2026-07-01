@@ -113,7 +113,11 @@ sample_apis() ->
                     emqx_ds_builtin_raft,
                     emqx_ds_beamsplitter,
                     emqx_eviction_agent,
-                    emqx_node_rebalance
+                    emqx_node_rebalance,
+                    %% authn/authz is core infrastructure, always available
+                    emqx_authn,
+                    emqx_authz,
+                    emqx_auth_cache
                 ],
                 true
             ),
@@ -141,15 +145,6 @@ sample_apis() ->
             ),
         gateways =>
             maps:from_keys([emqx_gateway_cm], true),
-        auth =>
-            maps:from_keys(
-                [
-                    emqx_authn,
-                    emqx_authz,
-                    emqx_auth_cache
-                ],
-                true
-            ),
         cluster_link =>
             maps:from_keys([emqx_cluster_link], true),
         exhook =>
