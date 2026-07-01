@@ -77,6 +77,16 @@
 
 -export_type([channel/0, opts/0, conn_state/0, reply/0, replies/0]).
 
+-record(takeover, {
+    %% Pending delivers when takeovering
+    pendings :: [emqx_types:deliver()]
+}).
+
+-record(resumption, {
+    %% Replay context
+    replayctx
+}).
+
 -record(channel, {
     %% MQTT ConnInfo
     conninfo :: emqx_types:conninfo(),
@@ -108,11 +118,7 @@
     %% Conn Flags
     conn_flags :: [atom()],
     %% Takeover
-    takeover :: boolean(),
-    %% Resume
-    resuming :: false | _ReplayContext,
-    %% Pending delivers when takeovering
-    pendings :: [emqx_types:deliver()]
+    takeover :: undefined | #takeover{} | #resumption{}
 }).
 
 -opaque channel() :: #channel{}.
@@ -310,10 +316,7 @@ init(
         auth_cache = #{},
         timers = #{},
         conn_state = idle,
-        conn_flags = [],
-        takeover = false,
-        resuming = false,
-        pendings = []
+        conn_flags = []
     }.
 
 maybe_quic_shared_state(ConnInfo, #{conn_shared_state := QSS}) ->
@@ -664,7 +667,7 @@ post_process_connect(
             ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
             NChannel = Channel#channel{
                 session = Session,
-                resuming = ReplayContext
+                takeover = #resumption{replayctx = ReplayContext}
             },
             handle_out(connack, {?RC_SUCCESS, sp(true), AckProps}, ensure_connected(NChannel));
         {error, client_id_unavailable} ->
@@ -1248,20 +1251,20 @@ process_maybe_shutdown(
 handle_deliver(
     Delivers,
     Channel = #channel{
-        takeover = true,
-        pendings = Pendings
+        takeover = Takeover = #takeover{pendings = Pendings}
     }
 ) ->
     %% NOTE: Order is important here. While the takeover is in
     %% progress, the session cannot enqueue messages, since it already
     %% passed on the queue to the new connection in the session state.
     NPendings = lists:append(Pendings, maybe_nack(Delivers)),
-    {ok, Channel#channel{pendings = NPendings}};
+    NTakeover = Takeover#takeover{pendings = NPendings},
+    {ok, Channel#channel{takeover = NTakeover}};
 handle_deliver(
     Delivers,
     Channel = #channel{
         conn_state = disconnected,
-        takeover = false,
+        takeover = undefined,
         session = Session,
         clientinfo = ClientInfo
     }
@@ -1285,7 +1288,6 @@ do_handle_deliver(
     Delivers,
     Channel = #channel{
         session = Session,
-        takeover = false,
         clientinfo = ClientInfo,
         conn_flags = Flags
     }
@@ -1637,12 +1639,13 @@ handle_call(
     NChannel = reset_timer(expire_session, Interval, Channel#channel{conninfo = NConnInfo}),
     ok = emqx_cm:unregister_channel(ClientId),
     Session = emqx_session_mem:save_subopts(Session0),
-    reply(Session, NChannel#channel{takeover = true});
+    Takeover = #takeover{pendings = []},
+    reply(Session, NChannel#channel{takeover = Takeover});
 handle_call(
     {takeover, 'end'},
     Channel = #channel{
         session = Session,
-        pendings = Pendings,
+        takeover = #takeover{pendings = Pendings},
         clientinfo = #{clientid := ClientId}
     }
 ) ->
@@ -3353,12 +3356,12 @@ clear_keepalive(Channel = #channel{timers = Timers}) ->
 %%--------------------------------------------------------------------
 %% Maybe Resume Session
 
-maybe_resume_session(#channel{resuming = false}) ->
+maybe_resume_session(#channel{takeover = undefined}) ->
     ignore;
 maybe_resume_session(
     #channel{
         session = Session,
-        resuming = ReplayContext,
+        takeover = #resumption{replayctx = ReplayContext},
         clientinfo = ClientInfo
     } = Channel
 ) ->
@@ -3372,11 +3375,7 @@ maybe_resume_session(
     end.
 
 mark_session_resumed(Session, Channel) ->
-    Channel#channel{
-        resuming = false,
-        pendings = [],
-        session = Session
-    }.
+    Channel#channel{takeover = undefined, session = Session}.
 
 %%--------------------------------------------------------------------
 %% Maybe Shutdown the Channel

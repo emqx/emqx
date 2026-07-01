@@ -893,8 +893,11 @@ t_handle_call_takeover_begin(_) ->
 
 t_handle_call_takeover_end(_) ->
     ok = meck:expect(emqx_broker, unsubscribe, fun(_) -> ok end),
+    Chan0 = channel(),
+    {reply, _, Chan1} =
+        emqx_channel:handle_call({takeover, 'begin'}, Chan0),
     {shutdown, takenover, [], _, _Chan} =
-        emqx_channel:handle_call({takeover, 'end'}, channel()).
+        emqx_channel:handle_call({takeover, 'end'}, Chan1).
 
 t_handle_call_unexpected(_) ->
     {reply, ignored, _Chan} = emqx_channel:handle_call(unexpected_req, channel()).
