@@ -394,7 +394,14 @@ pick_channel(ClientId) ->
             ChanPid;
         ChanPids ->
             [ChanPid | StalePids] = lists:reverse(ChanPids),
-            ?SLOG(warning, #{msg => "more_than_one_channel_found", chan_pids => ChanPids}),
+            ?SLOG(
+                warning,
+                #{
+                    msg => "more_than_one_channel_found",
+                    chan_pids => ChanPids
+                },
+                #{clientid => ClientId}
+            ),
             lists:foreach(
                 fun(StalePid) ->
                     discard_session(ClientId, StalePid)
@@ -413,7 +420,7 @@ takeover_kick(ClientId) ->
         ChanPids ->
             lists:foreach(
                 fun(Pid) ->
-                    do_takeover_session(ClientId, Pid)
+                    takeover_kick(ClientId, Pid)
                 end,
                 ChanPids
             )
@@ -423,7 +430,7 @@ takeover_kick(ClientId) ->
 %% We stop any running channels with reason `takenover' so that correct reason codes and
 %% will message processing may take place.  For older BPAPI nodes, we don't have much
 %% choice other than calling the old `discard_session' code.
-do_takeover_session(ClientId, Pid) ->
+takeover_kick(ClientId, Pid) ->
     Node = node(Pid),
     case emqx_bpapi:supported_version(Node, ?BPAPI_NAME) of
         undefined ->
@@ -486,7 +493,7 @@ discard_session(ClientId) when is_binary(ClientId) ->
 when
     Action :: kick | discard | {takeover, 'begin'} | {takeover, 'end'} | takeover_kick.
 request_stepdown(Action, ConnMod, Pid, Timeout) ->
-    try apply(ConnMod, call, [Pid, Action, Timeout]) of
+    try ConnMod:call(Pid, Action, Timeout) of
         ok -> ok;
         Reply -> {ok, Reply}
     catch
