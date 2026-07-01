@@ -789,7 +789,6 @@ t_auto_cast_int_to_float(TCConfig) ->
             query_by_clientid(ClientId, TCConfig)
         )
     ),
-
     ok.
 
 t_create_with_invalid_cipher(TCConfig) ->
