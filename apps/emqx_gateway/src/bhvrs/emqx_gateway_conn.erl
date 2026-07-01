@@ -494,7 +494,7 @@ handle_msg(
     Ctx = ChannMod:info(ctx, Channel),
     ok = emqx_gateway_ctx:metrics_inc(Ctx, 'bytes.received', Oct),
 
-    NState = State#state{socket = NSock},
+    NState = State#state{socket = NSock, sockstate = running},
     {ok, next_incoming_msgs(Packets), NState};
 handle_msg({Inet, _Sock, Data}, State) when
     Inet == tcp;
@@ -541,6 +541,22 @@ handle_msg({inet_reply, _Sock, {error, Reason}}, State) ->
 handle_msg({close, Reason}, State) ->
     ?tp(debug, force_socket_close, #{reason => Reason}),
     handle_info({sock_closed, Reason}, close_socket(State));
+handle_msg(udp_proxy_closed, State = #state{sockstate = closed}) ->
+    {ok, State};
+handle_msg(
+    udp_proxy_closed,
+    State = #state{
+        chann_mod = ChannMod,
+        channel = Channel
+    }
+) ->
+    case ChannMod:info(conn_state, Channel) of
+        ConnState when ConnState == asleep; ConnState == disconnected ->
+            ?tp(debug, udp_proxy_detached, #{conn_state => ConnState}),
+            {ok, State#state{sockstate = closed}};
+        _ConnState ->
+            handle_udp_proxy_closed(State)
+    end;
 handle_msg(udp_proxy_closed, State) ->
     ?tp(debug, udp_proxy_closed, #{reason => normal}),
     handle_info({sock_closed, normal}, close_socket(State));
@@ -589,6 +605,10 @@ handle_msg(Shutdown = {shutdown, _Reason}, State) ->
     stop(Shutdown, State);
 handle_msg(Msg, State) ->
     handle_info(Msg, State).
+
+handle_udp_proxy_closed(State) ->
+    ?tp(debug, udp_proxy_closed, #{reason => normal}),
+    handle_info({sock_closed, normal}, close_socket(State)).
 
 %%--------------------------------------------------------------------
 %% Terminate
