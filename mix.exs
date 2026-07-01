@@ -178,8 +178,11 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:mria), do: {:mria, github: "emqx/mria", tag: "1.0.0", override: true}
-  def common_dep(:classy), do: {:classy, github: "emqx/classy", tag: "0.1.1", override: true}
+  # def common_dep(:classy), do: {:classy, github: "emqx/classy", tag: "0.1.1", override: true}
+  # def common_dep(:mria), do: {:mria, github: "emqx/mria", tag: "1.0.0", override: true}
+  def common_dep(:classy), do: {:classy, path: "../classy", override: true}
+  def common_dep(:mria), do: {:mria, path: "../mria", override: true}
+
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.16.3", override: true}
 
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}

@@ -11,9 +11,13 @@
     is_ready/0,
 
     setup_classy_hooks/0,
+    migrate_site_id/0,
     on_run_level/2,
 
-    node_status/0
+    node_status/0,
+
+    add_emqx_vsn/1,
+    on_node_classify/1
 ]).
 
 -export([open_ports_check/0]).
@@ -49,12 +53,14 @@ setup_vm() ->
     ok = set_backtrace_depth().
 
 setup_classy_hooks() ->
-    classy:on_node_init(fun migrate_site_id/0, 1),
+    %% FIXME:
+    %application:set_env(classy, n_sites, 2),
+    classy:on_node_init(fun ?MODULE:migrate_site_id/0, 1),
     %% Cluster:
     classy:pre_join(fun emqx_cluster:pre_join/4, 0),
     classy:pre_kick(fun emqx_mgmt_api_ds:pre_kick/3, 0),
-    classy:post_join(fun emqx_cluster:post_join/3, 99),
-    classy:post_kick(fun emqx_cluster:post_leave/3, 99),
+    classy:enrich_site_info(fun ?MODULE:add_emqx_vsn/1, 0),
+    classy:on_node_classify(fun ?MODULE:on_node_classify/1, 0),
     %% Application start:
     classy:run_level(fun ?MODULE:on_run_level/2, 99).
 
@@ -276,6 +282,22 @@ mria_lb_custom_info_check(OtherVsn) ->
 %% TODO: integrate mria directly with classy?
 mria_lb_discover() ->
     classy:nodes(connected).
+
+add_emqx_vsn(Acc) ->
+    Acc#{emqx => get_emqx_vsn()}.
+
+on_node_classify(#{emqx := Vsn}) ->
+    MyVsn = get_emqx_vsn(),
+    [
+        {emqx_vsn, Vsn},
+        case Vsn of
+            MyVsn -> emqx_same_vsn;
+            _ when Vsn > MyVsn -> emqx_next_vsn;
+            _ when Vsn < MyVsn -> emqx_prev_vsn
+        end
+    ];
+on_node_classify(#{}) ->
+    [].
 
 %% TODO: Forward mria start/stop callbacks for autoheal
 

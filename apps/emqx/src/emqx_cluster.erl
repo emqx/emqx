@@ -11,9 +11,9 @@
     ensure_normal_mode/0,
     ensure_singleton_mode/0,
 
-    pre_join/4,
-    post_join/3,
-    post_leave/3
+    running_core_nodelist/0,
+
+    pre_join/4
 ]).
 
 %% RPC callback functions
@@ -39,12 +39,6 @@ leave(Intent) ->
 
 pre_join(_Cluster, _Remote, PeerNode, _Intent) ->
     check_permission(PeerNode).
-
-post_join(_ClusterId, _Local, JoinToNode) ->
-    mria:join(JoinToNode).
-
-post_leave(_ClusterId, _Local, _Intent) ->
-    mria:leave().
 
 force_leave(Node, Intent) ->
     classy:kick_node(Node, Intent).
@@ -85,6 +79,9 @@ is_single_node_mode() ->
 %% Called by license checker for community license.
 ensure_singleton_mode() ->
     ensure_mode(?DEFAULT_MODE).
+
+running_core_nodelist() ->
+    ordsets:intersection([classy:nodes(core), classy:nodes(connected)]).
 
 %% @doc Allow clustering.
 ensure_normal_mode() ->

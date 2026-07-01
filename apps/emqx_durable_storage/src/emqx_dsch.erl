@@ -496,7 +496,7 @@ terminate(Reason, S0 = #s{open_dbs = DBs}) ->
 terminate(_Reason, undefined) ->
     persistent_term:erase(?dsch_pt_schema),
     persistent_term:erase(?dsch_pt_backends),
-    classy_table:close(?ptab),
+    classy_table:stop(?ptab, 1_000),
     ok.
 
 %%================================================================================
