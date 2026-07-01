@@ -174,7 +174,12 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.0", override: true}
-  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.16.3", override: true}
+
+  def common_dep(:esockd),
+    do:
+      {:esockd,
+       github: "emqx/esockd", ref: "5257195441d2bedcfa32c21908733bab6b1e6b1f", override: true}
+
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.9", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
