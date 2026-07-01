@@ -73,6 +73,18 @@ permissions:
   contents: read
 
 jobs:
+  check-package-matrix:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      with:
+        ref: ${{ github.event.inputs.ref }}
+    # Fails if the strategy matrices below drift from the canonical package
+    # matrix in scripts/rel/build-matrix.sh (used to emit emqx.com download
+    # links). Keep the two in sync when adding/removing a platform.
+    - name: check package matrix is in sync with download-links matrix
+      run: ./scripts/rel/check-package-matrix.sh
+
   plugins-linux-debian13-amd64:
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
     defaults:
