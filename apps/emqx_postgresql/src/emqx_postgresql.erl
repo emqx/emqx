@@ -79,6 +79,7 @@ roots() ->
 fields(config) ->
     [
         {server, server()},
+        {application_name, application_name()},
         {disable_prepared_statements, emqx_connector_schema_lib:disable_prepared_statements_field()}
     ] ++
         emqx_connector_schema_lib:relational_db_fields(#{username => #{required => true}}) ++
@@ -88,6 +89,13 @@ fields(config) ->
 server() ->
     Meta = #{desc => ?DESC("server")},
     emqx_schema:servers_sc(Meta, ?PGSQL_HOST_OPTIONS).
+
+application_name() ->
+    hoconsc:mk(binary(), #{
+        default => <<"emqx">>,
+        desc => ?DESC("application_name"),
+        validator => fun emqx_schema:non_empty_string/1
+    }).
 
 %% ===================================================================
 resource_type() -> pgsql.
@@ -132,7 +140,8 @@ on_start(
         {username, User},
         {password, maps:get(password, Config, emqx_secret:wrap(""))},
         {database, DB},
-        {application_name, "emqx"},
+        {application_name,
+            to_epgsql_application_name(maps:get(application_name, Config, <<"emqx">>))},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize},
         [{codecs, []} || Codecs /= undefined]
@@ -609,6 +618,9 @@ connect(Opts) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+to_epgsql_application_name(ApplicationName) ->
+    unicode:characters_to_list(ApplicationName).
 
 query(Conn, SQL, Params) ->
     case epgsql:equery(Conn, SQL, Params) of
