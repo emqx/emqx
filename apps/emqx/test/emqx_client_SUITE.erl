@@ -221,7 +221,19 @@ t_offline_message_queueing(_) ->
     ]),
     {ok, _} = emqtt:connect(C1),
     {ok, _, [2]} = emqtt:subscribe(C1, <<"+/+">>, 2),
+    [ChanPid] = emqx_cm:lookup_channels(<<"c1">>),
     ok = emqtt:disconnect(C1),
+
+    %% Wait until the broker has fully transitioned c1's channel to the
+    %% 'disconnected' state before publishing. emqtt:disconnect/1 returns as soon
+    %% as the client has sent DISCONNECT and closed its socket, but the broker-side
+    %% channel may still be 'connected' for a brief window. A message delivered in
+    %% that window takes the live-delivery path (emqx_channel:do_handle_deliver):
+    %% QoS 1/2 messages land in the session *inflight* window, which mqueue_len
+    %% does not count, and the QoS 0 message is written to the closing socket and
+    %% dropped. Only once the channel is 'disconnected' do deliveries go straight
+    %% to the offline mqueue, so mqueue_len can reach 3 deterministically.
+    ?WAIT(?assertEqual(disconnected, maps:get(conn_state, emqx_connection:info(ChanPid))), 10),
 
     {ok, C2} = emqtt:start_link([
         {clean_start, true},
@@ -243,7 +255,6 @@ t_offline_message_queueing(_) ->
     %% channel's emit_stats timer (default mqtt.idle_timeout = 15s). Once c1
     %% disconnects the channel hibernates and stops emitting stats, so the cached
     %% mqueue_len can lag reality for the whole retry budget.
-    [ChanPid] = emqx_cm:lookup_channels(<<"c1">>),
     ?WAIT(?assertEqual(3, proplists:get_value(mqueue_len, emqx_connection:stats(ChanPid))), 30),
     emqtt:disconnect(C2),
 
