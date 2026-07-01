@@ -146,7 +146,17 @@ do_disallow_installation(NameVsn, LogFun) ->
     ?PRINT(Result, LogFun).
 
 ensure_installed(NameVsn, LogFun) ->
-    ?PRINT(emqx_plugins:ensure_installed(NameVsn, ?fresh_install), LogFun).
+    case emqx_plugins:describe(NameVsn, #{}) of
+        {ok, _} ->
+            ?PRINT(
+                {error, #{
+                    msg => "plugin_already_installed", name_vsn => NameVsn
+                }},
+                LogFun
+            );
+        {error, _} ->
+            ?PRINT(emqx_plugins:ensure_installed(NameVsn, ?fresh_install), LogFun)
+    end.
 
 ensure_installed_cluster(NameVsn, LogFun) ->
     case emqx_plugins_fs:get_tar(NameVsn) of
