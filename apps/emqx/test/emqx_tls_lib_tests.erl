@@ -11,6 +11,7 @@
 
 %% one of the cipher suite from tlsv1.2 and tlsv1.3 each
 -define(TLS_12_CIPHER, "ECDHE-ECDSA-AES256-GCM-SHA384").
+-define(TLS_12_CIPHER_RFC, "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384").
 -define(TLS_13_CIPHER, "TLS_AES_256_GCM_SHA384").
 
 -define(ns, <<"some_ns">>).
@@ -79,6 +80,37 @@ tls_version_unknown_test_() ->
 cipher_suites_no_duplication_test() ->
     AllCiphers = emqx_tls_lib:default_ciphers(),
     ?assertEqual(length(AllCiphers), length(lists:usort(AllCiphers))).
+
+%% The cached set used by the schema validator must hold both the OpenSSL and
+%% the RFC/IANA name for a TLS 1.2 cipher (TLS 1.3 names are identical).
+all_ciphers_set_contains_both_formats_test() ->
+    Set = emqx_tls_lib:all_ciphers_set_cached(),
+    ?assert(sets:is_element(?TLS_12_CIPHER, Set)),
+    ?assert(sets:is_element(?TLS_12_CIPHER_RFC, Set)),
+    ?assert(sets:is_element(?TLS_13_CIPHER, Set)).
+
+%% cipher_to_rfc/1 must be idempotent: feeding it an RFC name returns the same
+%% RFC name (ssl:str_to_suite/1 accepts both conventions).
+cipher_to_rfc_idempotent_test() ->
+    ?assertEqual(?TLS_12_CIPHER_RFC, emqx_tls_lib:cipher_to_rfc(?TLS_12_CIPHER)),
+    ?assertEqual(?TLS_12_CIPHER_RFC, emqx_tls_lib:cipher_to_rfc(?TLS_12_CIPHER_RFC)).
+
+%% The greptimedb NIF path (convert_ciphers_to_rfc/2) must accept ciphers given
+%% in either convention and resolve both to the supported RFC name.
+convert_ciphers_to_rfc_accepts_both_formats_test() ->
+    Supported = [?TLS_12_CIPHER_RFC],
+    ?assertEqual(
+        {[?TLS_12_CIPHER_RFC], []},
+        emqx_tls_lib:convert_ciphers_to_rfc([?TLS_12_CIPHER], Supported)
+    ),
+    ?assertEqual(
+        {[?TLS_12_CIPHER_RFC], []},
+        emqx_tls_lib:convert_ciphers_to_rfc([?TLS_12_CIPHER_RFC], Supported)
+    ),
+    ?assertMatch(
+        {[], [_]},
+        emqx_tls_lib:convert_ciphers_to_rfc(["NOT_A_CIPHER"], Supported)
+    ).
 
 ssl_files_failure_test_() ->
     lists:flatten([
