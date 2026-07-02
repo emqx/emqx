@@ -115,6 +115,42 @@ redact_secret_headers_test() ->
         })
     ).
 
+redact_iolist_header_keys_test_() ->
+    %% Header keys stored as iolists (a shape produced by template parsers) must
+    %% still be recognised as sensitive.
+    Secret = <<"abcd">>,
+    Redacted = <<"******">>,
+    Wrap = fun(KeyT, Value) ->
+        redact(#{headers => [{KeyT, Value}]})
+    end,
+    [
+        %% binary key (regression, already worked)
+        ?_assertEqual(
+            #{headers => [{<<"x-api-key">>, Redacted}]},
+            Wrap(<<"x-api-key">>, Secret)
+        ),
+        %% iolist single-binary key (the previously failing case)
+        ?_assertEqual(
+            #{headers => [{[<<"x-api-key">>], Redacted}]},
+            Wrap([<<"x-api-key">>], Secret)
+        ),
+        %% iolist multi-fragment key
+        ?_assertEqual(
+            #{headers => [{[<<"x-">>, <<"api-key">>], Redacted}]},
+            Wrap([<<"x-">>, <<"api-key">>], Secret)
+        ),
+        %% mixed-case iolist key
+        ?_assertEqual(
+            #{headers => [{[<<"X-API-Key">>], Redacted}]},
+            Wrap([<<"X-API-Key">>], Secret)
+        ),
+        %% non-sensitive header untouched
+        ?_assertEqual(
+            #{headers => [{[<<"content-type">>], <<"application/json">>}]},
+            Wrap([<<"content-type">>], <<"application/json">>)
+        )
+    ].
+
 redact_dashboard_secret_fields_test() ->
     ?assertEqual(
         #{

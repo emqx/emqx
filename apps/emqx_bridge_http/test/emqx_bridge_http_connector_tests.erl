@@ -51,15 +51,21 @@ wrap_auth_headers_test_() ->
                 <<"test">>, Config
             ),
             {ok, 200, Req} = emqx_bridge_http_connector:on_query(foo, {send_message, #{}}, State),
-            Tests =
+            WrappedTests =
                 [
                     ?_assert(is_wrapped(V))
                  || H <- Headers, is_tuple({K, V} = H), is_auth_header(untmpl(K))
                 ],
+            UnwrappedTests =
+                [
+                    ?_assertNot(is_function(V))
+                 || H <- Headers, is_tuple({K, V} = H), not is_auth_header(untmpl(K))
+                ],
             [
-                ?_assertEqual(4, length(Tests)),
+                ?_assertEqual(9, length(WrappedTests)),
+                ?_assertEqual(2, length(UnwrappedTests)),
                 ?_assert(is_unwrapped_headers(element(2, Req)))
-                | Tests
+                | WrappedTests ++ UnwrappedTests
             ]
         end}.
 
@@ -69,13 +75,24 @@ auth_headers() ->
         {<<"authorization">>, ?MY_SECRET},
         {<<"Proxy-Authorization">>, ?MY_SECRET},
         {<<"proxy-authorization">>, ?MY_SECRET},
-        {<<"X-Custom-Header">>, <<"foobar">>}
+        {<<"x-api-key">>, ?MY_SECRET},
+        {<<"X-Api-Key">>, ?MY_SECRET},
+        {<<"X-API-KEY">>, ?MY_SECRET},
+        {<<"cookie">>, ?MY_SECRET},
+        {<<"Cookie">>, ?MY_SECRET},
+        {<<"content-type">>, <<"application/json">>},
+        {<<"accept">>, <<"application/json">>}
     ].
 
 is_auth_header(<<"Authorization">>) -> true;
 is_auth_header(<<"Proxy-Authorization">>) -> true;
 is_auth_header(<<"authorization">>) -> true;
 is_auth_header(<<"proxy-authorization">>) -> true;
+is_auth_header(<<"x-api-key">>) -> true;
+is_auth_header(<<"X-Api-Key">>) -> true;
+is_auth_header(<<"X-API-KEY">>) -> true;
+is_auth_header(<<"cookie">>) -> true;
+is_auth_header(<<"Cookie">>) -> true;
 is_auth_header(_Other) -> false.
 
 is_wrapped(Secret) when is_function(Secret) ->

@@ -749,22 +749,23 @@ parse_header(K, V) ->
     VTpl = parse_template(to_bin(V)),
     {parse_template(KStr), maybe_wrap_auth_header(KStr, VTpl)}.
 
-maybe_wrap_auth_header(Key, VTpl) when
-    (byte_size(Key) =:= 19 orelse byte_size(Key) =:= 13)
-->
-    %% We check the size of potential keys in the guard above and consider only
-    %% those that match the number of characters of either "Authorization" or
-    %% "Proxy-Authorization".
-    case try_bin_to_lower(Key) of
-        <<"authorization">> ->
+maybe_wrap_auth_header(Key, VTpl) ->
+    case is_sensitive_wire_header(try_bin_to_lower(Key)) of
+        true ->
             emqx_secret:wrap(VTpl);
-        <<"proxy-authorization">> ->
-            emqx_secret:wrap(VTpl);
-        _Other ->
+        false ->
             VTpl
-    end;
-maybe_wrap_auth_header(_Key, VTpl) ->
-    VTpl.
+    end.
+
+%% Conventionally-sensitive header names whose values are stored as secrets so
+%% they are not printed when the connector state is emitted at trace/debug level.
+is_sensitive_wire_header(<<"authorization">>) -> true;
+is_sensitive_wire_header(<<"proxy-authorization">>) -> true;
+is_sensitive_wire_header(<<"api-key">>) -> true;
+is_sensitive_wire_header(<<"x-api-key">>) -> true;
+is_sensitive_wire_header(<<"x-auth-token">>) -> true;
+is_sensitive_wire_header(<<"cookie">>) -> true;
+is_sensitive_wire_header(_Other) -> false.
 
 try_bin_to_lower(Bin) ->
     try iolist_to_binary(string:lowercase(Bin)) of
