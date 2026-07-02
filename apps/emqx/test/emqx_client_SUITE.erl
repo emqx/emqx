@@ -99,6 +99,7 @@ groups() ->
             t_connect_silent_idle_timeout,
             t_connect_idle_timeout,
             t_sock_keepalive,
+            t_sock_async_set_keepalive,
             t_sock_closed_reason_normal,
             t_sock_closed_force_closed_by_client
         ]}
@@ -505,6 +506,84 @@ t_sock_keepalive(Config) ->
     ok = timer:sleep(1_000),
     ok = emqtt:disconnect(C),
     ?assertReceive({'DOWN', MRef, process, CPid, normal}).
+
+t_sock_async_set_keepalive(Config) ->
+    case os:type() of
+        {unix, darwin} ->
+            test_async_set_keepalive(Config);
+        {unix, linux} ->
+            test_async_set_keepalive(Config);
+        _ ->
+            %% don't support the feature on other OS
+            ok
+    end.
+
+test_async_set_keepalive(Config) ->
+    ClientID = <<"client-tcp-keepalive">>,
+    {ok, Client} = emqtt:start_link([{clientid, ClientID} | Config]),
+    {{ok, _Props}, {ok, _}} = ?wait_async_action(
+        emqtt:connect(Client),
+        #{?snk_kind := insert_channel_info, clientid := ClientID}
+    ),
+    {ConnMod, ConnPid} = emqx_cth_broker:connection_chanmod(ClientID),
+    State = ConnMod:get_state(ConnPid),
+    case State of
+        #{transport := Transport, socket := Socket} ->
+            ok;
+        #{socket := Socket} ->
+            %% TODO
+            Transport = esockd_socket
+    end,
+    {Idle, Interval, Probes} = sock_get_keepalive(Transport, Socket),
+    ct:pal("Idle=~p, Interval=~p, Probes=~p", [Idle, Interval, Probes]),
+    {ok, {ok, _}} = ?wait_async_action(
+        conn_set_keepalive(ConnMod, ConnPid, Idle + 1, Interval + 1, Probes + 1),
+        #{?snk_kind := "custom_socket_options_successfully"}
+    ),
+    ?assertEqual(
+        {Idle + 1, Interval + 1, Probes + 1},
+        sock_get_keepalive(Transport, Socket)
+    ),
+    emqtt:stop(Client).
+
+conn_set_keepalive(emqx_connection, ConnPid, Idle, Interval, Probes) ->
+    emqx_connection:async_set_keepalive(os:type(), ConnPid, Idle, Interval, Probes);
+conn_set_keepalive(emqx_socket_connection, ConnPid, Idle, Interval, Probes) ->
+    emqx_socket_connection:async_set_keepalive(ConnPid, Idle, Interval, Probes).
+
+sock_get_keepalive(esockd_transport, Sock) when is_port(Sock) ->
+    {OptKeepIdle, OptKeepInterval, OptKeepCount} =
+        case os:type() of
+            {unix, darwin} ->
+                {16#10, 16#101, 16#102};
+            {unix, linux} ->
+                {4, 5, 6};
+            _ ->
+                error(unsupported)
+        end,
+    {ok, Opts} = esockd_transport:getopts(Sock, [
+        {raw, 6, OptKeepIdle, 4},
+        {raw, 6, OptKeepInterval, 4},
+        {raw, 6, OptKeepCount, 4}
+    ]),
+    [
+        {raw, 6, OptKeepIdle, <<Idle:32/native>>},
+        {raw, 6, OptKeepInterval, <<Interval:32/native>>},
+        {raw, 6, OptKeepCount, <<Probes:32/native>>}
+    ] = Opts,
+    {Idle, Interval, Probes};
+sock_get_keepalive(esockd_socket, Sock) ->
+    {ok, Opts} = esockd_socket:getopts(Sock, [
+        {tcp, keepcnt},
+        {tcp, keepidle},
+        {tcp, keepintvl}
+    ]),
+    [
+        {{tcp, keepcnt}, Probes},
+        {{tcp, keepidle}, Idle},
+        {{tcp, keepintvl}, Interval}
+    ] = Opts,
+    {Idle, Interval, Probes}.
 
 t_sock_closed_reason_normal(Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
