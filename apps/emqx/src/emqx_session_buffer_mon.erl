@@ -234,8 +234,10 @@ handle_call(top_status, _From, State) ->
 handle_call(_Call, _From, State) ->
     {reply, ignored, State}.
 
-handle_cast({update, Conf0}, State) ->
-    Conf = put_conf(Conf0),
+%% update/1 already normalizes and stores the config synchronously.
+handle_cast({update, Conf}, State = #{conf := Conf}) ->
+    {noreply, State};
+handle_cast({update, Conf}, State) ->
     {noreply, State#{conf := Conf}};
 handle_cast(_Cast, State) ->
     {noreply, State}.
@@ -503,7 +505,12 @@ ensure_top_status(State) ->
 
 put_conf(Conf0) ->
     Conf = normalize_conf(Conf0),
-    persistent_term:put(?CONF_KEY, Conf),
+    case persistent_term:get(?CONF_KEY, undefined) of
+        Conf ->
+            ok;
+        _ ->
+            persistent_term:put(?CONF_KEY, Conf)
+    end,
     Conf.
 
 normalize_conf(undefined) ->

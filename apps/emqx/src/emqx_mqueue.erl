@@ -100,7 +100,7 @@
     store_qos0 = false :: boolean(),
     max_len = ?MAX_LEN_INFINITY :: count(),
     len = 0 :: count(),
-    bytes_size = 0 :: count(),
+    byte_size = 0 :: count(),
     dropped = 0 :: count(),
     p_table = ?NO_PRIORITY_TABLE :: p_table(),
     default_p = ?LOWEST_PRIORITY :: priority(),
@@ -165,7 +165,7 @@ filter(Pred, #mqueue{q = Q, len = Len, dropped = Droppend} = MQ) ->
             MQ#mqueue{
                 q = Q2,
                 len = Len2,
-                bytes_size = pqueue_bytes(Q2),
+                byte_size = pqueue_bytes(Q2),
                 dropped = Droppend + Diff
             }
     end.
@@ -260,7 +260,7 @@ to_list(MQ, Acc) ->
 dropped(#mqueue{dropped = Dropped}) -> Dropped.
 
 -spec bytes_size(mqueue()) -> non_neg_integer().
-bytes_size(#mqueue{bytes_size = BytesSize}) ->
+bytes_size(#mqueue{byte_size = BytesSize}) ->
     BytesSize.
 
 %% @doc Stats of the mqueue
@@ -280,7 +280,7 @@ in(
             p_table = PTab,
             q = Q,
             len = Len,
-            bytes_size = BytesSize,
+            byte_size = BytesSize,
             max_len = MaxLen,
             dropped = Dropped
         } = MQ
@@ -297,13 +297,13 @@ in(
             BytesSize1 = dec_bytes(MQ, DroppedMsg) + msg_bytes(Msg1),
             {DroppedMsg1, MQ#mqueue{
                 q = Q2,
-                bytes_size = BytesSize1,
+                byte_size = BytesSize1,
                 dropped = Dropped + 1
             }};
         false ->
             {_DroppedMsg = undefined, MQ#mqueue{
                 len = Len + 1,
-                bytes_size = BytesSize + msg_bytes(Msg1),
+                byte_size = BytesSize + msg_bytes(Msg1),
                 q = ?PQUEUE:in(Msg1, Priority, Q)
             }}
     end.
@@ -320,7 +320,7 @@ out(MQ = #mqueue{q = Q, len = Len, last_prio = undefined, shift_opts = ShiftOpts
             MQ1 = MQ#mqueue{
                 q = Q1,
                 len = Len - 1,
-                bytes_size = dec_bytes(MQ, Val),
+                byte_size = dec_bytes(MQ, Val),
                 last_prio = Prio,
                 p_credit = get_credits(Prio, ShiftOpts)
             },
@@ -341,7 +341,7 @@ out(MQ = #mqueue{q = Q, len = Len, p_credit = Cnt}) ->
             MQ1 = MQ#mqueue{
                 q = Q1,
                 len = Len - 1,
-                bytes_size = dec_bytes(MQ, Val),
+                byte_size = dec_bytes(MQ, Val),
                 p_credit = Cnt - 1
             },
             {{value, Msg}, MQ1};
@@ -361,13 +361,13 @@ pqueue_bytes(Q) ->
 msg_bytes(#message{} = Msg) ->
     emqx_message:payload_size(Msg).
 
-dec_bytes(#mqueue{bytes_size = BytesSize}, Msg) ->
+dec_bytes(#mqueue{byte_size = BytesSize}, Msg) ->
     BytesSize1 = BytesSize - msg_bytes(Msg),
     true = BytesSize1 >= 0,
     BytesSize1.
 
 reset_empty(Q, MQ) ->
-    MQ#mqueue{q = Q, len = 0, bytes_size = 0, last_prio = undefined, p_credit = undefined}.
+    MQ#mqueue{q = Q, len = 0, byte_size = 0, last_prio = undefined, p_credit = undefined}.
 
 get_opt(Key, Opts, Default) ->
     case maps:get(Key, Opts, Default) of
