@@ -95,6 +95,7 @@ groups() ->
             t_first_packet_not_connect
         ]},
         {socket, [], [
+            t_connection_stats,
             t_connect_silent_idle_timeout,
             t_connect_idle_timeout,
             t_sock_keepalive,
@@ -825,6 +826,37 @@ t_sock_closed_on_kick_shutdown(_) ->
 h_sock_closed_on_kick_shutdown(_ClientInfo, _Reason, _ConnInfo, Socket) ->
     ok = gen_tcp:close(Socket),
     ok = timer:sleep(5).
+
+t_connection_stats(_) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    {ok, Client} = emqtt:start_link([{port, 1883}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(Client),
+    ?assertEqual(pong, emqtt:ping(Client)),
+    ConnStats = emqx_cth_broker:connection_stats(ClientId),
+    ct:pal("==== stats: ~p", [ConnStats]),
+    ?assertMatch(
+        #{
+            recv_pkt := RecvPkt,
+            recv_msg := RecvMsg,
+            send_pkt := SendPkt,
+            send_msg := SendMsg,
+            recv_oct := RecvOct,
+            recv_cnt := RecvCnt,
+            send_oct := SendOct,
+            send_cnt := SendCnt,
+            send_pend := 0
+        } when
+            RecvPkt > 0 andalso
+                RecvMsg >= 0 andalso
+                SendPkt > 0 andalso
+                SendMsg >= 0 andalso
+                RecvOct > 0 andalso
+                RecvCnt > 0 andalso
+                SendOct > 0 andalso
+                SendCnt > 0,
+        maps:from_list(ConnStats)
+    ),
+    emqtt:disconnect(Client).
 
 t_connect_silent_idle_timeout(_) ->
     %% Connect, send nothing more.

@@ -46,32 +46,6 @@ end_per_testcase(TestCase, Config) ->
     end,
     Config.
 
-t_conn_stats(_) ->
-    with_client(
-        fun(CPid) ->
-            Stats = emqx_connection:stats(CPid),
-            ct:pal("==== stats: ~p", [Stats]),
-            [?assert(proplists:get_value(Key, Stats) >= 0) || Key <- ?STATS_KYES]
-        end,
-        []
-    ).
-
-t_tcp_sock_passive(_) ->
-    with_client(fun(CPid) -> CPid ! {tcp_passive, sock} end, []).
-
-with_client(TestFun, _Options) ->
-    ClientId = <<"t_conn">>,
-    {ok, C} = emqtt:start_link([{clientid, ClientId}]),
-    {ok, _} = emqtt:connect(C),
-    timer:sleep(50),
-    case emqx_cm:lookup_channels(ClientId) of
-        [] ->
-            ct:fail({client_not_started, ClientId});
-        [ChanPid] ->
-            TestFun(ChanPid),
-            emqtt:stop(C)
-    end.
-
 t_async_set_keepalive(init, Config) ->
     ok = snabbkaffe:start_trace(),
     Config;
