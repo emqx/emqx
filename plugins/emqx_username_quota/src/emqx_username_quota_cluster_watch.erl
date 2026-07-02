@@ -104,7 +104,11 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 bootstrap_local_sessions() ->
-    Stream = emqx_cm:all_channels_stream([emqx_connection, emqx_ws_connection]),
+    Stream = emqx_cm:all_channels_stream([
+        emqx_connection,
+        emqx_socket_connection,
+        emqx_ws_connection
+    ]),
     try
         bootstrap_loop(Stream, 0, 0, 0)
     after

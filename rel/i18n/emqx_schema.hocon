@@ -597,10 +597,10 @@ fields_mqtt_opts_parse_unit.label:
 fields_mqtt_opts_tcp_backend.desc:
 """Indicates which TCP backend should be used by the listener.
 
-- `gen_tcp`: Standard backend, in use since EMQX 5.0 release.
-
-- `socket`: Experimental backend, looking to improve message latency and compute resource usage.
+- `socket`: Default backend starting from 6.3.0, with improved message latency and compute resource usage.
     Note that some `tcp_options` settings will have no effect when using this backend, e.g.: `high_watermark` and `send_timeout_close`.
+
+- `gen_tcp`: Standard backend since EMQX 5.0 release, default for non-Unix systems.
 
 Changing the backend require restarting the listener, which will terminate all its active connections."""
 
