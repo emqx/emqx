@@ -87,6 +87,21 @@ fi
 
 cleanup
 
+# Forward EMQX_* environment variables set by the caller (e.g. EMQX_FEATURES,
+# EMQX_AUTHORIZATION__*) to both node containers. Node identity, cookie and
+# clustering/RPC variables are managed by this script and are never forwarded.
+# EMQX_NAME is a CI artifact-naming variable, not a broker config, so it is
+# excluded too.
+EXTRA_EMQX_ENV=()
+while IFS= read -r _emqx_var; do
+    case "${_emqx_var}" in
+        EMQX_NAME) ;;
+        EMQX_NODE_NAME|EMQX_NODE_COOKIE|EMQX_NODE__NAME|EMQX_NODE__COOKIE) ;;
+        EMQX_CLUSTER__*|EMQX_RPC__*) ;;
+        EMQX_*) EXTRA_EMQX_ENV+=(-e "${_emqx_var}") ;;
+    esac
+done < <(compgen -e)
+
 if [ -z "${USE_NET}" ]; then
     if [ ${IPV6} = 1 ]; then
         docker network create --ipv6 --subnet 2001:0DB8::/112 "$NET"
@@ -116,6 +131,7 @@ docker run -d -t --restart=always --name "$NODE1" \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
   -e EMQX_LICENSE__KEY="${LICENSE_KEY1:-evaluation}" \
+  ${EXTRA_EMQX_ENV[@]+"${EXTRA_EMQX_ENV[@]}"} \
   "$IMAGE1"
 
 docker run -d -t --restart=always --name "$NODE2" \
@@ -131,6 +147,7 @@ docker run -d -t --restart=always --name "$NODE2" \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
   -e EMQX_LICENSE__KEY="${LICENSE_KEY2:-evaluation}" \
+  ${EXTRA_EMQX_ENV[@]+"${EXTRA_EMQX_ENV[@]}"} \
   "$IMAGE2"
 
 mkdir -p tmp
