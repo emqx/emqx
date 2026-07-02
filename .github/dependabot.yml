@@ -1,5 +1,6 @@
 version: 2
 updates:
+  # master (default branch)
   - package-ecosystem: github-actions
     directory: "/"
     reviewers:
@@ -12,6 +13,174 @@ updates:
           - "*"
   - package-ecosystem: github-actions
     directory: "/.github/actions/package-macos/" # All subdirectories outside of "/.github/workflows" must be explicitly included.
+    reviewers:
+      - "emqx/emqx-review-board"
+    schedule:
+      interval: weekly
+    groups:
+      actions-package-macos:
+        patterns:
+          - "*"
+
+  # dev-63
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: dev-63
+    reviewers:
+      - "emqx/emqx-review-board"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+  - package-ecosystem: github-actions
+    directory: "/.github/actions/package-macos/"
+    target-branch: dev-63
+    reviewers:
+      - "emqx/emqx-review-board"
+    schedule:
+      interval: weekly
+    groups:
+      actions-package-macos:
+        patterns:
+          - "*"
+
+  # dev-62
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: dev-62
+    reviewers:
+      - "emqx/emqx-review-board"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+  - package-ecosystem: github-actions
+    directory: "/.github/actions/package-macos/"
+    target-branch: dev-62
+    reviewers:
+      - "emqx/emqx-review-board"
+    schedule:
+      interval: weekly
+    groups:
+      actions-package-macos:
+        patterns:
+          - "*"
+
+  # dev-61
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: dev-61
+    reviewers:
+      - "emqx/emqx-review-board"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+  - package-ecosystem: github-actions
+    directory: "/.github/actions/package-macos/"
+    target-branch: dev-61
+    reviewers:
+      - "emqx/emqx-review-board"
+    schedule:
+      interval: weekly
+    groups:
+      actions-package-macos:
+        patterns:
+          - "*"
+
+  # dev-60
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: dev-60
+    reviewers:
+      - "emqx/emqx-review-board"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+  - package-ecosystem: github-actions
+    directory: "/.github/actions/package-macos/"
+    target-branch: dev-60
+    reviewers:
+      - "emqx/emqx-review-board"
+    schedule:
+      interval: weekly
+    groups:
+      actions-package-macos:
+        patterns:
+          - "*"
+
+  # dev-510
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: dev-510
+    reviewers:
+      - "emqx/emqx-review-board"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+  - package-ecosystem: github-actions
+    directory: "/.github/actions/package-macos/"
+    target-branch: dev-510
+    reviewers:
+      - "emqx/emqx-review-board"
+    schedule:
+      interval: weekly
+    groups:
+      actions-package-macos:
+        patterns:
+          - "*"
+
+  # dev-59
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: dev-59
+    reviewers:
+      - "emqx/emqx-review-board"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+  - package-ecosystem: github-actions
+    directory: "/.github/actions/package-macos/"
+    target-branch: dev-59
+    reviewers:
+      - "emqx/emqx-review-board"
+    schedule:
+      interval: weekly
+    groups:
+      actions-package-macos:
+        patterns:
+          - "*"
+
+  # dev-58
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: dev-58
+    reviewers:
+      - "emqx/emqx-review-board"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+  - package-ecosystem: github-actions
+    directory: "/.github/actions/package-macos/"
+    target-branch: dev-58
     reviewers:
       - "emqx/emqx-review-board"
     schedule:
