@@ -215,24 +215,39 @@ t_update_tcp_keepalive_conf(_Conf) ->
     ok.
 
 t_tcp_change_parse_unit(_Conf) ->
-    test_change_parse_unit(?LISTENERS ++ [tcp, default], #{
-        hosts => [{{127, 0, 0, 1}, 1883}]
+    Name = ?FUNCTION_NAME,
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    test_change_parse_unit(tcp, Name, Port, #{
+        hosts => [{{127, 0, 0, 1}, Port}]
     }).
 
 t_ssl_change_parse_unit(_Conf) ->
-    test_change_parse_unit(?LISTENERS ++ [ssl, default], #{
-        hosts => [{{127, 0, 0, 1}, 8883}],
+    Name = ?FUNCTION_NAME,
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    test_change_parse_unit(ssl, Name, Port, #{
+        hosts => [{{127, 0, 0, 1}, Port}],
         ssl => true,
         ssl_opts => [{verify, verify_none}]
     }).
 
-test_change_parse_unit(ConfPath, ClientOpts) ->
-    ListenerRawConf0 = #{<<"parse_unit">> := <<"frame">>} = emqx:get_raw_config(ConfPath),
+test_change_parse_unit(Type, Name, Port, ClientOpts) ->
+    ConfPath = ?LISTENERS ++ [Type, Name],
+    DefaultRawConf = emqx:get_raw_config(?LISTENERS ++ [Type, default]),
+    ListenerRawConf0 = maps:merge(
+        DefaultRawConf#{
+            <<"bind">> => format_bind({{127, 0, 0, 1}, Port}),
+            <<"parse_unit">> => <<"chunk">>
+        },
+        maps:get(Type, #{
+            tcp => #{<<"tcp_backend">> => <<"gen_tcp">>},
+            ssl => #{}
+        })
+    ),
     ListenerRawConf1 = ListenerRawConf0#{
-        <<"parse_unit">> := <<"chunk">>
+        <<"parse_unit">> => <<"frame">>
     },
     %% Update listener and verify `parse_unit` came into effect:
-    ?assertMatch({ok, _}, emqx:update_config(ConfPath, {update, ListenerRawConf1})),
+    ?assertMatch({ok, _}, emqx:update_config(ConfPath, {create, ListenerRawConf0})),
     Client1 = emqtt_connect(ClientOpts),
     pong = emqtt:ping(Client1),
     CState1 = emqx_cth_broker:connection_state(Client1),
@@ -242,7 +257,7 @@ test_change_parse_unit(ConfPath, ClientOpts) ->
             CState1
         ),
     %% Restore original config and verify original `parse_unit` came into effect as well:
-    ?assertMatch({ok, _}, emqx:update_config(ConfPath, {update, ListenerRawConf0})),
+    ?assertMatch({ok, _}, emqx:update_config(ConfPath, {update, ListenerRawConf1})),
     Client2 = emqtt_connect(ClientOpts),
     pong = emqtt:ping(Client2),
     CState2 = emqx_cth_broker:connection_state(Client2),
@@ -255,7 +270,9 @@ test_change_parse_unit(ConfPath, ClientOpts) ->
     pong = emqtt:ping(Client1),
     ok = emqtt:disconnect(Client1),
     pong = emqtt:ping(Client2),
-    ok = emqtt:disconnect(Client2).
+    ok = emqtt:disconnect(Client2),
+    %% Remove the listener:
+    {ok, _} = emqx:update_config(ConfPath, ?TOMBSTONE_CONFIG_CHANGE_REQ).
 
 t_update_empty_ssl_options_conf(_Conf) ->
     Raw = emqx:get_raw_config(?LISTENERS),
@@ -424,3 +441,6 @@ emqtt_connect(Opts) ->
         {error, Reason} ->
             error(Reason, [Opts])
     end.
+
+format_bind(Bind) ->
+    iolist_to_binary(emqx_listeners:format_bind(Bind)).

@@ -12,10 +12,15 @@ connection_info(Info, Client) ->
     {ConnMod, ChanPid} = connection_chanmod(Client),
     get_connection_info(Info, ConnMod, sys:get_state(ChanPid)).
 
--spec connection_stats(pid() | emqx_types:clientid()) -> _Value.
+-spec connection_stats(pid() | emqx_types:clientid()) -> emqx_types:stats().
 connection_stats(Client) ->
     {ConnMod, ChanPid} = connection_chanmod(Client),
     ConnMod:stats(ChanPid).
+
+-spec connection_stat(atom(), pid() | emqx_types:clientid()) -> _Value.
+connection_stat(Stat, Client) ->
+    Stats = connection_stats(Client),
+    proplists:get_value(Stat, Stats).
 
 -spec connection_state(pid() | emqx_types:clientid()) -> _Value.
 connection_state(Client) ->

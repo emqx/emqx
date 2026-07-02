@@ -17,6 +17,10 @@
 -define(WAIT(EXPR, ATTEMPTS), ?retry(1000, ATTEMPTS, EXPR)).
 
 all() ->
+    %% TODO:
+    %% Cover rest of the listeners with those testcases:
+    %% * t_connect_silent_idle_timeout
+    %% * t_connect_idle_timeout
     [
         {group, gen_tcp_listener},
         {group, socket_listener}
@@ -33,6 +37,10 @@ groups() ->
             {group, misbehaving}
         ]},
         {socket_listener, [], [
+            {group, mqttv3},
+            {group, mqttv4},
+            {group, mqttv5},
+            {group, others},
             {group, socket},
             {group, misbehaving}
         ]},
@@ -87,7 +95,11 @@ groups() ->
             t_first_packet_not_connect
         ]},
         {socket, [], [
+            t_connection_stats,
+            t_connect_silent_idle_timeout,
+            t_connect_idle_timeout,
             t_sock_keepalive,
+            t_sock_async_set_keepalive,
             t_sock_closed_reason_normal,
             t_sock_closed_force_closed_by_client
         ]}
@@ -245,8 +257,7 @@ t_offline_message_queueing(_) ->
     %% channel's emit_stats timer (default mqtt.idle_timeout = 15s). Once c1
     %% disconnects the channel hibernates and stops emitting stats, so the cached
     %% mqueue_len can lag reality for the whole retry budget.
-    [ChanPid] = emqx_cm:lookup_channels(<<"c1">>),
-    ?WAIT(?assertEqual(3, proplists:get_value(mqueue_len, emqx_connection:stats(ChanPid))), 30),
+    ?WAIT(?assertEqual(3, emqx_cth_broker:connection_stat(mqueue_len, <<"c1">>)), 30),
     emqtt:disconnect(C2),
 
     {ok, C3} = emqtt:start_link([{clean_start, false}, {clientid, <<"c1">>}]),
@@ -495,6 +506,84 @@ t_sock_keepalive(Config) ->
     ok = timer:sleep(1_000),
     ok = emqtt:disconnect(C),
     ?assertReceive({'DOWN', MRef, process, CPid, normal}).
+
+t_sock_async_set_keepalive(Config) ->
+    case os:type() of
+        {unix, darwin} ->
+            test_async_set_keepalive(Config);
+        {unix, linux} ->
+            test_async_set_keepalive(Config);
+        _ ->
+            %% don't support the feature on other OS
+            ok
+    end.
+
+test_async_set_keepalive(Config) ->
+    ClientID = <<"client-tcp-keepalive">>,
+    {ok, Client} = emqtt:start_link([{clientid, ClientID} | Config]),
+    {{ok, _Props}, {ok, _}} = ?wait_async_action(
+        emqtt:connect(Client),
+        #{?snk_kind := insert_channel_info, clientid := ClientID}
+    ),
+    {ConnMod, ConnPid} = emqx_cth_broker:connection_chanmod(ClientID),
+    State = ConnMod:get_state(ConnPid),
+    case State of
+        #{transport := Transport, socket := Socket} ->
+            ok;
+        #{socket := Socket} ->
+            %% TODO
+            Transport = esockd_socket
+    end,
+    {Idle, Interval, Probes} = sock_get_keepalive(Transport, Socket),
+    ct:pal("Idle=~p, Interval=~p, Probes=~p", [Idle, Interval, Probes]),
+    {ok, {ok, _}} = ?wait_async_action(
+        conn_set_keepalive(ConnMod, ConnPid, Idle + 1, Interval + 1, Probes + 1),
+        #{?snk_kind := "custom_socket_options_successfully"}
+    ),
+    ?assertEqual(
+        {Idle + 1, Interval + 1, Probes + 1},
+        sock_get_keepalive(Transport, Socket)
+    ),
+    emqtt:stop(Client).
+
+conn_set_keepalive(emqx_connection, ConnPid, Idle, Interval, Probes) ->
+    emqx_connection:async_set_keepalive(os:type(), ConnPid, Idle, Interval, Probes);
+conn_set_keepalive(emqx_socket_connection, ConnPid, Idle, Interval, Probes) ->
+    emqx_socket_connection:async_set_keepalive(ConnPid, Idle, Interval, Probes).
+
+sock_get_keepalive(esockd_transport, Sock) when is_port(Sock) ->
+    {OptKeepIdle, OptKeepInterval, OptKeepCount} =
+        case os:type() of
+            {unix, darwin} ->
+                {16#10, 16#101, 16#102};
+            {unix, linux} ->
+                {4, 5, 6};
+            _ ->
+                error(unsupported)
+        end,
+    {ok, Opts} = esockd_transport:getopts(Sock, [
+        {raw, 6, OptKeepIdle, 4},
+        {raw, 6, OptKeepInterval, 4},
+        {raw, 6, OptKeepCount, 4}
+    ]),
+    [
+        {raw, 6, OptKeepIdle, <<Idle:32/native>>},
+        {raw, 6, OptKeepInterval, <<Interval:32/native>>},
+        {raw, 6, OptKeepCount, <<Probes:32/native>>}
+    ] = Opts,
+    {Idle, Interval, Probes};
+sock_get_keepalive(esockd_socket, Sock) ->
+    {ok, Opts} = esockd_socket:getopts(Sock, [
+        {tcp, keepcnt},
+        {tcp, keepidle},
+        {tcp, keepintvl}
+    ]),
+    [
+        {{tcp, keepcnt}, Probes},
+        {{tcp, keepidle}, Idle},
+        {{tcp, keepintvl}, Interval}
+    ] = Opts,
+    {Idle, Interval, Probes}.
 
 t_sock_closed_reason_normal(Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
@@ -816,6 +905,66 @@ t_sock_closed_on_kick_shutdown(_) ->
 h_sock_closed_on_kick_shutdown(_ClientInfo, _Reason, _ConnInfo, Socket) ->
     ok = gen_tcp:close(Socket),
     ok = timer:sleep(5).
+
+t_connection_stats(_) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    {ok, Client} = emqtt:start_link([{port, 1883}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(Client),
+    ?assertEqual(pong, emqtt:ping(Client)),
+    ConnStats = emqx_cth_broker:connection_stats(ClientId),
+    ct:pal("==== stats: ~p", [ConnStats]),
+    ?assertMatch(
+        #{
+            recv_pkt := RecvPkt,
+            recv_msg := RecvMsg,
+            send_pkt := SendPkt,
+            send_msg := SendMsg,
+            recv_oct := RecvOct,
+            recv_cnt := RecvCnt,
+            send_oct := SendOct,
+            send_cnt := SendCnt,
+            send_pend := 0
+        } when
+            RecvPkt > 0 andalso
+                RecvMsg >= 0 andalso
+                SendPkt > 0 andalso
+                SendMsg >= 0 andalso
+                RecvOct > 0 andalso
+                RecvCnt > 0 andalso
+                SendOct > 0 andalso
+                SendCnt > 0,
+        maps:from_list(ConnStats)
+    ),
+    emqtt:disconnect(Client).
+
+t_connect_silent_idle_timeout(_) ->
+    %% Connect, send nothing more.
+    %% Connection should be dropped in roughly `IdleTimeout` ms.
+    IdleTimeout = 2000,
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], IdleTimeout),
+    SockOpts = [binary, {active, true}, {nodelay, true}],
+    {ok, Sock} = gen_tcp:connect({127, 0, 0, 1}, 1883, SockOpts, 5000),
+    ?assertReceive({tcp_closed, Sock}, IdleTimeout * 2),
+    ?assertMatch(
+        {ok, #{reason := {shutdown, idle_timeout}}},
+        ?block_until(#{?snk_kind := terminate}, IdleTimeout)
+    ).
+
+t_connect_idle_timeout(_) ->
+    %% Connect, send few bytes.
+    %% Connection should be dropped in roughly `IdleTimeout` ms.
+    IdleTimeout = 2000,
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], IdleTimeout),
+    ConnectPacket = emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{})),
+    SockOpts = [binary, {active, true}, {nodelay, true}],
+    {ok, Sock} = gen_tcp:connect({127, 0, 0, 1}, 1883, SockOpts, 5000),
+    ClientSockname = esockd:format(element(2, inet:sockname(Sock))),
+    ok = gen_tcp:send(Sock, binary:part(iolist_to_binary(ConnectPacket), 0, 4)),
+    ?assertReceive({tcp_closed, Sock}, IdleTimeout * 2),
+    ?assertMatch(
+        {ok, #{reason := {shutdown, idle_timeout}, ?snk_meta := #{peername := ClientSockname}}},
+        ?block_until(#{?snk_kind := terminate, reason := {shutdown, idle_timeout}}, IdleTimeout)
+    ).
 
 t_sub_non_utf8_topic(_) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),

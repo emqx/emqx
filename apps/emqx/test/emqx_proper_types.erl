@@ -507,6 +507,7 @@ peercert() ->
 conn_mod() ->
     oneof([
         emqx_connection,
+        emqx_socket_connection,
         emqx_ws_connection
     ]).
 
