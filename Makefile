@@ -13,6 +13,10 @@ include env.sh
 # from https://github.com/emqx/emqx-dashboard5
 export EMQX_DASHBOARD_VERSION ?= 2.2.2-beta.2
 
+.PHONY: print-dashboard-version
+print-dashboard-version:
+	@echo $(EMQX_DASHBOARD_VERSION)
+
 export EMQX_REL_FORM ?= tgz
 export QUICER_TLS_VER ?= sys
 
