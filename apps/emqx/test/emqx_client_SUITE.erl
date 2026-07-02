@@ -33,6 +33,10 @@ groups() ->
             {group, misbehaving}
         ]},
         {socket_listener, [], [
+            {group, mqttv3},
+            {group, mqttv4},
+            {group, mqttv5},
+            {group, others},
             {group, socket},
             {group, misbehaving}
         ]},
@@ -245,8 +249,7 @@ t_offline_message_queueing(_) ->
     %% channel's emit_stats timer (default mqtt.idle_timeout = 15s). Once c1
     %% disconnects the channel hibernates and stops emitting stats, so the cached
     %% mqueue_len can lag reality for the whole retry budget.
-    [ChanPid] = emqx_cm:lookup_channels(<<"c1">>),
-    ?WAIT(?assertEqual(3, proplists:get_value(mqueue_len, emqx_connection:stats(ChanPid))), 30),
+    ?WAIT(?assertEqual(3, emqx_cth_broker:connection_stat(mqueue_len, <<"c1">>)), 30),
     emqtt:disconnect(C2),
 
     {ok, C3} = emqtt:start_link([{clean_start, false}, {clientid, <<"c1">>}]),
