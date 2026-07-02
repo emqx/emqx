@@ -660,8 +660,6 @@ t_disconnect_no_double_replay1(_Config) ->
         publish_done -> ok
     end,
 
-    Pubs = drain_publishes(),
-
     ClientByBid = fun(Pid) ->
         case Pid of
             ConnShared1 -> <<"client_shared1">>;
@@ -669,6 +667,14 @@ t_disconnect_no_double_replay1(_Config) ->
         end
     end,
 
+    %% After ConnShared2 disconnects mid-replay, its streams are reassigned to
+    %% ConnShared1, which then has to (re)deliver the whole backlog. Under load
+    %% this redelivery can stall for more than a few seconds, so a fixed
+    %% silence-based drain may return before the last messages arrive. Instead
+    %% wait until every expected payload has been received, bounded by a
+    %% deadline: if a message is genuinely never delivered the deadline still
+    %% expires and the missing list is reported.
+    Pubs = drain_until_received(2 * NPubs, 60_000),
     {Missing, _Duplicate} = verify_received_pubs(Pubs, 2 * NPubs, ClientByBid),
 
     ?assertEqual([], Missing),
@@ -837,6 +843,37 @@ drain_publishes(Acc) ->
             drain_publishes([Msg | Acc])
     after 5_000 ->
         lists:reverse(Acc)
+    end.
+
+%% Collect received publishes until `NExpect' distinct payloads have been seen
+%% or `TimeoutMs' elapses, whichever comes first. Unlike `drain_publishes/0',
+%% this does not stop on a silence gap, so it tolerates delivery stalls during
+%% stream reassignment without losing late messages. If some payloads are never
+%% delivered, the deadline expires and they are simply absent from the result,
+%% so a genuine message loss is still surfaced by the caller's assertion.
+drain_until_received(NExpect, TimeoutMs) ->
+    Deadline = erlang:monotonic_time(millisecond) + TimeoutMs,
+    drain_until_received(#{}, [], NExpect, Deadline).
+
+drain_until_received(Seen, Acc, NExpect, Deadline) ->
+    case map_size(Seen) >= NExpect of
+        true ->
+            lists:reverse(Acc);
+        false ->
+            Remaining = Deadline - erlang:monotonic_time(millisecond),
+            case Remaining =< 0 of
+                true ->
+                    lists:reverse(Acc);
+                false ->
+                    receive
+                        {publish, #{payload := Payload} = Msg} ->
+                            drain_until_received(
+                                Seen#{Payload => true}, [Msg | Acc], NExpect, Deadline
+                            )
+                    after Remaining ->
+                        lists:reverse(Acc)
+                    end
+            end
     end.
 
 verify_received_pubs(Pubs, NPubs, ClientByBid) ->

@@ -444,6 +444,12 @@ handle_in(
 handle_in(?SN_ADVERTISE_MSG(_GwId, _Radius), Channel) ->
     % ignore
     shutdown(normal, Channel);
+handle_in(Pkt, Channel = #channel{conn_state = disconnected}) ->
+    ?SLOG(debug, #{
+        msg => "ignore_packet_in_disconnected_state",
+        packet => Pkt
+    }),
+    {ok, Channel};
 %% Ack DISCONNECT even if it is not connected
 handle_in(
     ?SN_DISCONNECT_MSG(_Duration),

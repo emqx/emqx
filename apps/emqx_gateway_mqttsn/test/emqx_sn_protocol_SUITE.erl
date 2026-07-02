@@ -1612,7 +1612,84 @@ t_will_case06(_) ->
     end,
     send_disconnect_msg(Socket, undefined),
 
-    gen_udp:close(Socket).
+    gen_udp:close(Socket),
+
+    %% This case connects with CleanSession=0, so its channel lingers in the
+    %% `disconnected' state until the session expires. Retire it here so the
+    %% suite does not leak retained session state to later cases.
+    ok = ensure_channel_gone(ClientId).
+
+%% Reproduces UDP ephemeral-port reuse deterministically: a new device can
+%% connect from the same source port without sacrificing the previous
+%% CleanSession=0 disconnected session.
+t_disconnected_same_source_tuple_reused_by_other_clientid(_) ->
+    QoS = 1,
+    ClientA = <<"disconnected-source-reuse-1">>,
+    ClientB = <<"disconnected-source-reuse-2">>,
+    TopicName = <<"disconnected/source/reuse">>,
+    Payload = <<"queued-for-disconnected-client">>,
+    MsgId = 24,
+    Dup = 0,
+    Retain = 0,
+    WillBit = 0,
+    CleanSession = 0,
+    {ok, SockA} = gen_udp:open(0, [binary, {reuseaddr, true}]),
+    {ok, PortA} = inet:port(SockA),
+    {ok, SockC} = gen_udp:open(0, [binary]),
+    try
+        send_connect_msg(SockA, ClientA, CleanSession),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(SockA)),
+        send_subscribe_msg_normal_topic(SockA, QoS, TopicName, MsgId),
+        SubAck = receive_response(SockA),
+        ?assertMatch(
+            <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+                _TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+            SubAck
+        ),
+        <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+            TopicId:16, MsgId:16,
+            ?SN_RC_ACCEPTED>> =
+            SubAck,
+
+        send_disconnect_msg(SockA, undefined),
+        ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(SockA)),
+        _ = wait_for_disconnected_channel(ClientA),
+        ok = gen_udp:close(SockA),
+
+        {ok, SockB} = gen_udp:open(PortA, [binary, {reuseaddr, true}]),
+        try
+            send_connect_msg(SockB, ClientB),
+            ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(SockB)),
+
+            ?retry(
+                50,
+                20,
+                #{
+                    conn_state := disconnected,
+                    session := #{subscriptions := #{TopicName := _}}
+                } = emqx_gateway_cm:get_chan_info(mqttsn, ClientA)
+            ),
+            emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+            timer:sleep(100),
+            ?assertEqual(udp_receive_timeout, receive_response(SockB, 500)),
+
+            send_connect_msg(SockC, ClientA, CleanSession),
+            ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(SockC)),
+            UdpData = receive_response(SockC),
+            PubMsgId = check_publish_msg_on_udp(
+                {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId, Payload},
+                UdpData
+            ),
+            send_puback_msg(SockC, TopicId, PubMsgId)
+        after
+            gen_udp:close(SockB)
+        end
+    after
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientA),
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientB),
+        _ = catch gen_udp:close(SockA),
+        gen_udp:close(SockC)
+    end.
 
 t_asleep_test01_timeout(_) ->
     QoS = 1,
@@ -3582,6 +3659,30 @@ received_connection_closed(ClientId) ->
     after 100 ->
         false
     end.
+
+%% Wait until the channel of ClientId has reached the `disconnected' state
+%% (kept alive for session resumption) and return its pid.
+wait_for_disconnected_channel(ClientId) ->
+    ?retry(
+        100,
+        20,
+        begin
+            [Pid] = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
+            #{conn_state := disconnected} =
+                emqx_gateway_cm:get_chan_info(mqttsn, ClientId, Pid),
+            Pid
+        end
+    ).
+
+%% Retire any lingering channel of ClientId and wait until it is gone.
+ensure_channel_gone(ClientId) ->
+    _ = emqx_gateway_cm:discard_session(mqttsn, ClientId),
+    ?retry(
+        100,
+        20,
+        ?assertEqual([], emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId))
+    ),
+    ok.
 
 with_gateway_authz_result(Protocol, ActionType, Topic, Result, Fun) ->
     Action = {?MODULE, gateway_authz_result, [Protocol, ActionType, Topic, Result]},
