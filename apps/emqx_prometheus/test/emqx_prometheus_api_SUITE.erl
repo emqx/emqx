@@ -12,6 +12,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx_prometheus/include/emqx_prometheus.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -401,30 +402,36 @@ t_listener_shutdown_count(_Config) ->
         ),
         lists:sort(Stats)
     end,
-    #{<<"client">> := JSONClientStatsNode} = get_stats(json, ?PROM_DATA_MODE__NODE),
-    ?assertEqual(
-        [
-            #{
-                <<"emqx_client_disconnected_reason">> => 1,
-                <<"listener_type">> => <<"tcp">>,
-                <<"listener_name">> => <<"default">>,
-                <<"reason">> => <<"discarded">>
-            },
-            #{
-                <<"emqx_client_disconnected_reason">> => 1,
-                <<"listener_type">> => <<"tcp">>,
-                <<"listener_name">> => <<"default">>,
-                <<"reason">> => <<"kicked">>
-            },
-            #{
-                <<"emqx_client_disconnected_reason">> => 1,
-                <<"listener_type">> => <<"tcp">>,
-                <<"listener_name">> => <<"default">>,
-                <<"reason">> => <<"tcp_closed">>
-            }
-        ],
-        OnlyDisconnectStats(JSONClientStatsNode)
-    ),
+    %% The disconnect-reason counters (notably "tcp_closed") are bumped
+    %% asynchronously when the broker detects the peer socket close, which lags
+    %% the client-side emqtt:stop/1 above. Retry until they are all recorded so
+    %% the assertions below (which read the same settled counters) are stable.
+    ?retry(200, 20, begin
+        #{<<"client">> := JSONClientStatsNode} = get_stats(json, ?PROM_DATA_MODE__NODE),
+        ?assertEqual(
+            [
+                #{
+                    <<"emqx_client_disconnected_reason">> => 1,
+                    <<"listener_type">> => <<"tcp">>,
+                    <<"listener_name">> => <<"default">>,
+                    <<"reason">> => <<"discarded">>
+                },
+                #{
+                    <<"emqx_client_disconnected_reason">> => 1,
+                    <<"listener_type">> => <<"tcp">>,
+                    <<"listener_name">> => <<"default">>,
+                    <<"reason">> => <<"kicked">>
+                },
+                #{
+                    <<"emqx_client_disconnected_reason">> => 1,
+                    <<"listener_type">> => <<"tcp">>,
+                    <<"listener_name">> => <<"default">>,
+                    <<"reason">> => <<"tcp_closed">>
+                }
+            ],
+            OnlyDisconnectStats(JSONClientStatsNode)
+        )
+    end),
     #{<<"client">> := JSONClientStatsAgg} = get_stats(json, ?PROM_DATA_MODE__ALL_NODES_AGGREGATED),
     ?assertEqual(
         [
