@@ -1,10 +1,6 @@
 Release version:
-<!-- uncomment for v5:
-5.8.12, 5.10.5
--->
-
-<!-- uncomment for v6:
-6.0.4, 6.1.3, 6.2.2
+<!--
+run script ./scripts/rel-versions to get release versions
 -->
 
 ## Summary

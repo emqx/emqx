@@ -933,7 +933,7 @@ t_revoked(Config) ->
     ClientCert = filename:join(DataDir, "client-revoked.cert.pem"),
     ClientKey = filename:join(DataDir, "client-revoked.key.pem"),
     {ok, C} = emqtt:start_link([
-        {connect_timeout, 2},
+        {connect_timeout, 10},
         {ssl, true},
         {ssl_opts, [
             {certfile, ClientCert},

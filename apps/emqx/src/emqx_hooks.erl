@@ -151,7 +151,7 @@ do_put(HookPoint, Callback) ->
 %% @doc Unregister a callback.
 -spec del(hookpoint(), action() | {module(), atom()}) -> ok.
 del(HookPoint, Action) ->
-    gen_server:cast(?SERVER, {del, HookPoint, Action}).
+    gen_server:call(?SERVER, {del, HookPoint, Action}, infinity).
 
 %% @doc Run hooks.
 -spec run(hookpoint(), list(Arg :: term())) -> ok.
@@ -324,18 +324,13 @@ handle_call({put, HookPoint, Callback = #callback{action = {M, F, _}}}, _From, S
     Callbacks = del_callback({M, F}, lookup(HookPoint)),
     Reply = insert_hook(HookPoint, add_callback(Callback, Callbacks)),
     {reply, Reply, State};
+handle_call({del, HookPoint, Action}, _From, State) ->
+    ok = do_del(HookPoint, Action),
+    {reply, ok, State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", req => Req}),
     {reply, ignored, State}.
 
-handle_cast({del, HookPoint, Action}, State) ->
-    case del_callback(Action, lookup(HookPoint)) of
-        [] ->
-            delete_hook(HookPoint);
-        Callbacks ->
-            insert_hook(HookPoint, Callbacks)
-    end,
-    {noreply, State};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
     {noreply, State}.
@@ -353,6 +348,15 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+do_del(HookPoint, Action) ->
+    case del_callback(Action, lookup(HookPoint)) of
+        [] ->
+            delete_hook(HookPoint);
+        Callbacks ->
+            insert_hook(HookPoint, Callbacks)
+    end,
+    ok.
 
 insert_hook(HookPoint, Callbacks) ->
     persistent_term:put({?PTERM, HookPoint}, Callbacks).

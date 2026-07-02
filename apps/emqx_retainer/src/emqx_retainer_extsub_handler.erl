@@ -38,6 +38,7 @@
 -define(MIN_RATE_LIMIT_DELAY_MS, 300).
 -define(MAX_RATE_LIMIT_DELAY_MS, 10_000).
 -define(DEFAULT_BATCH_SIZE, 1_000).
+-define(HEADER_SUB_TOPIC, sub_topic).
 
 -record(h, {
     send_fn,
@@ -261,7 +262,7 @@ try_consume(#h{} = Handler0, N0) when is_integer(N0) ->
             NumFetchedMessages = length(Messages0),
             Surplus = max(0, N - NumFetchedMessages),
             Limiter = emqx_limiter_client:put_back(Limiter1, Surplus),
-            Messages = filter_delivery(Messages0),
+            Messages = enrich_messages(TopicFilter, filter_delivery(Messages0)),
             Cursor = next_cursor(InnerCursor, NumFetchedMessages, Handler0),
             Handler = Handler0#h{
                 limiter = Limiter,
@@ -286,6 +287,9 @@ try_consume(#h{} = Handler0, N0) when is_integer(N0) ->
             Handler = Handler0#h{limiter = Limiter1, times_throttled = TimesThrottled0 + 1},
             {error, Handler}
     end.
+
+enrich_messages(TopicFilter, Messages) ->
+    [emqx_message:set_header(?HEADER_SUB_TOPIC, TopicFilter, Msg) || Msg <- Messages].
 
 try_consume_at_most(Limiter, N) ->
     MinBatch = min_batch_backoff(N),
