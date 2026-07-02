@@ -62,6 +62,17 @@ jobs:
           OUTPUT_DIR=${{ steps.profile.outputs.s3dir }}
           aws s3 cp --recursive s3://$BUCKET/$OUTPUT_DIR/${{ env.ref_name }} packages
           aws s3 cp --recursive s3://$BUCKET/emqx-plugins/${{ env.ref_name }} packages/plugins
+      - name: Generate download-links.md
+        run: |
+          ./scripts/rel/print-download-links.sh \
+            --version "${{ env.ref_name }}" \
+            --format markdown \
+            > download-links.md
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-download-links
+          path: download-links.md
+          retention-days: 90
       - uses: emqx/upload-assets@974befcf0e72a1811360a81c798855efb66b0551 # 0.5.2
         env:
           GITHUB_TOKEN: ${{ github.token }}
