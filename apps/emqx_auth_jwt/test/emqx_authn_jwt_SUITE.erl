@@ -24,6 +24,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("public_key/include/public_key.hrl").
+-include_lib("jose/include/jose_jwk.hrl").
 
 -define(AUTHN_ID, <<"mechanism:jwt">>).
 
@@ -205,6 +206,105 @@ t_public_key(_) ->
 
     ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
     ok.
+
+t_invalid_signature_trace_redacts_hmac_jwks(_) ->
+    Secret = <<"abcdef">>,
+    Config = #{
+        mechanism => jwt,
+        from => password,
+        acl_claim_name => <<"acl">>,
+        use_jwks => false,
+        algorithm => 'hmac-based',
+        secret => Secret,
+        secret_base64_encoded => false,
+        verify_claims => [],
+        disconnect_after_expire => false,
+        enable => true
+    },
+    {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
+    Payload = #{<<"username">> => <<"myuser">>, <<"exp">> => erlang:system_time(second) + 60},
+    BadJWS = generate_jws('hmac-based', Payload, <<"bad_secret">>),
+    Credential = #{username => <<"myuser">>, password => BadJWS},
+
+    ?check_trace(
+        begin
+            enable_trace_macro(<<"jwtHmacTrace">>),
+            _ = emqx_authn_jwt:authenticate(Credential, State)
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{jwks := [<<"******">>]}],
+                ?of_kind(redact_jwks_for_log, Trace)
+            ),
+            TraceBin = unicode:characters_to_binary(io_lib:format("~0p", [Trace])),
+            ?assertEqual(nomatch, binary:match(TraceBin, Secret))
+        end
+    ),
+    ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
+    ok.
+
+t_invalid_signature_trace_keeps_public_jwks(_) ->
+    PublicKey = test_rsa_key(public),
+    Config = #{
+        mechanism => jwt,
+        from => password,
+        acl_claim_name => <<"acl">>,
+        use_jwks => false,
+        algorithm => 'public-key',
+        public_key => PublicKey,
+        verify_claims => [],
+        disconnect_after_expire => false,
+        enable => true
+    },
+    {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
+    Payload = #{<<"username">> => <<"myuser">>, <<"exp">> => erlang:system_time(second) + 60},
+    BadJWS = generate_jws('hmac-based', Payload, <<"bad_secret">>),
+    Credential = #{username => <<"myuser">>, password => BadJWS},
+
+    ?check_trace(
+        begin
+            enable_trace_macro(<<"jwtPublicTrace">>),
+            _ = emqx_authn_jwt:authenticate(Credential, State)
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{jwks := [#jose_jwk{kty = {jose_jwk_kty_rsa, _}}]}],
+                ?of_kind(redact_jwks_for_log, Trace)
+            )
+        end
+    ),
+    ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
+    ok.
+
+%% The HMAC authenticator runtime state carries a `jose_jwk' record holding the
+%% raw key bytes; `emqx_utils:redact/1' (used by config-update / cluster_rpc log
+%% lines that dump such state) must replace it so the secret never reaches a log.
+t_redact_hmac_state(_) ->
+    Secret = <<"s3cr3t-hmac-key-zzz">>,
+    Config = #{
+        mechanism => jwt,
+        from => password,
+        acl_claim_name => <<"acl">>,
+        use_jwks => false,
+        algorithm => 'hmac-based',
+        secret => Secret,
+        secret_base64_encoded => false,
+        verify_claims => [],
+        disconnect_after_expire => false,
+        enable => true
+    },
+    {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
+    %% Sanity: the un-redacted state really does carry the raw key bytes.
+    ?assertMatch(#{jwk := #jose_jwk{kty = {jose_jwk_kty_oct, Secret}}}, State),
+    ?assertNotEqual(nomatch, binary:match(render(State), Secret)),
+    %% After redaction the bytes must be gone.
+    Redacted = emqx_utils:redact(State),
+    ?assertEqual(nomatch, binary:match(render(Redacted), Secret)),
+    ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
+    ok.
+
+render(Term) ->
+    unicode:characters_to_binary(io_lib:format("~0p", [Term])).
 
 t_bad_public_keys(_) ->
     BaseConfig = #{
@@ -932,4 +1032,31 @@ system_cacerts_bundle_path(TCConfig) ->
             ),
             ok = file:write_file(OutPath, public_key:pem_encode(Cacerts)),
             OutPath
+    end.
+
+enable_trace_macro(Name) ->
+    maybe_start_trace_server(),
+    ok = emqx_trace:clear(),
+    Now = erlang:system_time(second),
+    {ok, _} = emqx_trace:create(#{
+        name => Name,
+        filter => {topic, <<"#">>},
+        start_at => Now,
+        end_at => Now + 60
+    }),
+    on_exit(fun() ->
+        catch emqx_trace:update(Name, false),
+        catch emqx_trace:clear()
+    end),
+    ok.
+
+maybe_start_trace_server() ->
+    case whereis(emqx_trace) of
+        undefined ->
+            {ok, Pid} = emqx_trace:start_link(),
+            true = erlang:unlink(Pid),
+            on_exit(fun() -> catch gen_server:stop(Pid, shutdown, infinity) end),
+            ok;
+        _Pid ->
+            ok
     end.

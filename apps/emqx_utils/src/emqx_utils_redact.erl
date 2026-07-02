@@ -23,30 +23,65 @@
 -define(IS_KEY_HEADERS(K), (K == headers orelse K == <<"headers">> orelse K == "headers")).
 
 %% NOTE: keep alphabetical order
+is_sensitive_key(access_key_id) -> true;
+is_sensitive_key("access_key_id") -> true;
+is_sensitive_key(<<"access_key_id">>) -> true;
+is_sensitive_key(access_key_secret) -> true;
+is_sensitive_key("access_key_secret") -> true;
+is_sensitive_key(<<"access_key_secret">>) -> true;
+is_sensitive_key(access_token) -> true;
+is_sensitive_key("access_token") -> true;
+is_sensitive_key(<<"access_token">>) -> true;
 is_sensitive_key(account_key) -> true;
 is_sensitive_key("account_key") -> true;
 is_sensitive_key(<<"account_key">>) -> true;
 is_sensitive_key(aws_secret_access_key) -> true;
 is_sensitive_key("aws_secret_access_key") -> true;
 is_sensitive_key(<<"aws_secret_access_key">>) -> true;
+is_sensitive_key(bind_password) -> true;
+is_sensitive_key("bind_password") -> true;
+is_sensitive_key(<<"bind_password">>) -> true;
+is_sensitive_key(client_jwks) -> true;
+is_sensitive_key("client_jwks") -> true;
+is_sensitive_key(<<"client_jwks">>) -> true;
+is_sensitive_key(id_token) -> true;
+is_sensitive_key("id_token") -> true;
+is_sensitive_key(<<"id_token">>) -> true;
+is_sensitive_key(jwk) -> true;
+is_sensitive_key("jwk") -> true;
+is_sensitive_key(<<"jwk">>) -> true;
+is_sensitive_key(jwt) -> true;
+is_sensitive_key("jwt") -> true;
+is_sensitive_key(<<"jwt">>) -> true;
+is_sensitive_key(mfa_token) -> true;
+is_sensitive_key("mfa_token") -> true;
+is_sensitive_key(<<"mfa_token">>) -> true;
+is_sensitive_key(new_pwd) -> true;
+is_sensitive_key("new_pwd") -> true;
+is_sensitive_key(<<"new_pwd">>) -> true;
+is_sensitive_key(old_pwd) -> true;
+is_sensitive_key("old_pwd") -> true;
+is_sensitive_key(<<"old_pwd">>) -> true;
 is_sensitive_key(password) -> true;
 is_sensitive_key("password") -> true;
 is_sensitive_key(<<"password">>) -> true;
+is_sensitive_key(sentinel_password) -> true;
+is_sensitive_key("sentinel_password") -> true;
+is_sensitive_key(<<"sentinel_password">>) -> true;
 is_sensitive_key(private_key) -> true;
 is_sensitive_key("private_key") -> true;
 is_sensitive_key(<<"private_key">>) -> true;
+is_sensitive_key(private_key_password) -> true;
+is_sensitive_key(<<"private_key_password">>) -> true;
+is_sensitive_key(refresh_token) -> true;
+is_sensitive_key("refresh_token") -> true;
+is_sensitive_key(<<"refresh_token">>) -> true;
 is_sensitive_key(secret) -> true;
 is_sensitive_key("secret") -> true;
 is_sensitive_key(<<"secret">>) -> true;
 is_sensitive_key(secret_access_key) -> true;
 is_sensitive_key("secret_access_key") -> true;
 is_sensitive_key(<<"secret_access_key">>) -> true;
-is_sensitive_key(access_key_secret) -> true;
-is_sensitive_key("access_key_secret") -> true;
-is_sensitive_key(<<"access_key_secret">>) -> true;
-is_sensitive_key(access_key_id) -> true;
-is_sensitive_key("access_key_id") -> true;
-is_sensitive_key(<<"access_key_id">>) -> true;
 is_sensitive_key(secret_key) -> true;
 is_sensitive_key("secret_key") -> true;
 is_sensitive_key(<<"secret_key">>) -> true;
@@ -58,12 +93,6 @@ is_sensitive_key(<<"sp_private_key">>) -> true;
 is_sensitive_key(token) -> true;
 is_sensitive_key("token") -> true;
 is_sensitive_key(<<"token">>) -> true;
-is_sensitive_key(jwt) -> true;
-is_sensitive_key("jwt") -> true;
-is_sensitive_key(<<"jwt">>) -> true;
-is_sensitive_key(bind_password) -> true;
-is_sensitive_key("bind_password") -> true;
-is_sensitive_key(<<"bind_password">>) -> true;
 is_sensitive_key(_) -> false.
 
 redact(Term) ->
@@ -98,6 +127,11 @@ do_redact({Key, Value}, Checker) ->
         false ->
             {do_redact(Key, Checker), do_redact(Value, Checker)}
     end;
+do_redact({jose_jwk, _Keys, _Kty, _Fields}, _Checker) ->
+    %% A jose_jwk record carries the raw key material (a kty_oct binary for HMAC,
+    %% kty_rsa fields for RSA, etc.) in its inner tuples. Replace it wholesale so
+    %% the generic tuple walk below never descends into the key bytes.
+    {jose_jwk, '******'};
 do_redact(T, Checker) when is_tuple(T) ->
     Elements = erlang:tuple_to_list(T),
     Redact = do_redact(Elements, Checker),
@@ -146,12 +180,29 @@ do_redact_headers(Value) ->
     Value.
 
 check_is_sensitive_header(Key) ->
-    Key1 = string:trim(emqx_utils_conv:str(Key)),
-    is_sensitive_header(string:lowercase(Key1)).
+    %% Header keys may be stored as iolists (e.g. `[<<"x-api-key">>]`, a shape
+    %% produced by template parsers). `emqx_utils_conv:str/1` JSON-encodes
+    %% non-printable lists, so normalise to a binary first to keep the name intact.
+    Key1 =
+        try iolist_to_binary(Key) of
+            Bin -> Bin
+        catch
+            _:_ -> Key
+        end,
+    Key2 = string:trim(emqx_utils_conv:str(Key1)),
+    is_sensitive_header(string:lowercase(Key2)).
 
 is_sensitive_header("authorization") ->
     true;
+is_sensitive_header("api-key") ->
+    true;
+is_sensitive_header("cookie") ->
+    true;
 is_sensitive_header("proxy-authorization") ->
+    true;
+is_sensitive_header("x-api-key") ->
+    true;
+is_sensitive_header("x-auth-token") ->
     true;
 is_sensitive_header(_Any) ->
     false.
@@ -311,6 +362,40 @@ redact_improper_list_test_() ->
         ?_assertEqual([1, 2 | foo], redact([1, 2 | foo]))
     ].
 
+jose_jwk_redact_test_() ->
+    %% The kty_oct binary is the raw HMAC key material; it must never survive redaction.
+    Secret = <<"abcd1234">>,
+    JWK = {jose_jwk, undefined, {jose_jwk_kty_oct, Secret}, #{}},
+    NoLeak = fun(Term) ->
+        Rendered = iolist_to_binary(io_lib:format("~p", [redact(Term)])),
+        nomatch =:= binary:match(Rendered, Secret)
+    end,
+    [
+        %% Record-shape redaction (Layer 1): matched anywhere the record is walked,
+        %% e.g. under a non-sensitive key, the whole record is replaced.
+        ?_assertEqual({jose_jwk, '******'}, redact(JWK)),
+        ?_assertMatch(
+            #{current_jwk := {jose_jwk, '******'}, other := <<"value">>},
+            redact(#{current_jwk => JWK, other => <<"value">>})
+        ),
+        ?_assert(NoLeak(JWK)),
+        %% Deeply nested inside a config-update style state map.
+        ?_assert(
+            NoLeak(#{
+                emqx_authn_config => #{
+                    state => #{
+                        jwk => JWK,
+                        disconnect_after_expire => true
+                    }
+                }
+            })
+        ),
+        %% Map-key redaction (Layer 1b): a `jwk' key has its value replaced wholesale,
+        %% covering non-record values too (e.g. a plain map from a JWKS endpoint).
+        ?_assertEqual(#{jwk => ?REDACT_VAL}, redact(#{jwk => #{<<"k">> => Secret}})),
+        ?_assert(NoLeak(#{jwk => #{<<"k">> => Secret}}))
+    ].
+
 deobfuscate_test() ->
     NewConf0 = #{foo => <<"bar0">>, password => <<"123456">>},
     ?assertEqual(NewConf0, deobfuscate(NewConf0, #{foo => <<"bar">>, password => <<"654321">>})),
@@ -338,11 +423,15 @@ deobfuscate_test() ->
 redact_header_test_() ->
     Types = [string, binary, atom],
     Keys = [
+        "api-key",
         "auThorization",
         "Authorization",
         "authorizaTion",
+        "cookie",
         "proxy-authorizaTion",
-        "proXy-authoriZaTion"
+        "proXy-authoriZaTion",
+        "x-api-key",
+        "x-auth-token"
     ],
 
     Case = fun(Type, Key0) ->

@@ -123,7 +123,12 @@ operation_type(Meta) ->
     end.
 
 http_request(Meta) ->
-    maps:with([method, headers, bindings, body], Meta).
+    case maps:with([method, headers, bindings, body], Meta) of
+        #{body := Body} = Request when is_binary(Body) ->
+            Request#{body => <<"******">>};
+        Request ->
+            Request
+    end.
 
 operation_result(302, _) -> success;
 operation_result(Code, _) when Code >= 300 -> failure;

@@ -51,15 +51,21 @@ wrap_auth_headers_test_() ->
                 <<"test">>, Config
             ),
             {ok, 200, Req} = emqx_bridge_http_connector:on_query(foo, {send_message, #{}}, State),
-            Tests =
+            WrappedTests =
                 [
                     ?_assert(is_wrapped(V))
                  || H <- Headers, is_tuple({K, V} = H), is_auth_header(untmpl(K))
                 ],
+            UnwrappedTests =
+                [
+                    ?_assertNot(is_function(V))
+                 || H <- Headers, is_tuple({K, V} = H), not is_auth_header(untmpl(K))
+                ],
             [
-                ?_assertEqual(4, length(Tests)),
+                ?_assertEqual(9, length(WrappedTests)),
+                ?_assertEqual(2, length(UnwrappedTests)),
                 ?_assert(is_unwrapped_headers(element(2, Req)))
-                | Tests
+                | WrappedTests ++ UnwrappedTests
             ]
         end}.
 
@@ -69,13 +75,24 @@ auth_headers() ->
         {<<"authorization">>, ?MY_SECRET},
         {<<"Proxy-Authorization">>, ?MY_SECRET},
         {<<"proxy-authorization">>, ?MY_SECRET},
-        {<<"X-Custom-Header">>, <<"foobar">>}
+        {<<"x-api-key">>, ?MY_SECRET},
+        {<<"X-Api-Key">>, ?MY_SECRET},
+        {<<"X-API-KEY">>, ?MY_SECRET},
+        {<<"cookie">>, ?MY_SECRET},
+        {<<"Cookie">>, ?MY_SECRET},
+        {<<"content-type">>, <<"application/json">>},
+        {<<"accept">>, <<"application/json">>}
     ].
 
 is_auth_header(<<"Authorization">>) -> true;
 is_auth_header(<<"Proxy-Authorization">>) -> true;
 is_auth_header(<<"authorization">>) -> true;
 is_auth_header(<<"proxy-authorization">>) -> true;
+is_auth_header(<<"x-api-key">>) -> true;
+is_auth_header(<<"X-Api-Key">>) -> true;
+is_auth_header(<<"X-API-KEY">>) -> true;
+is_auth_header(<<"cookie">>) -> true;
+is_auth_header(<<"Cookie">>) -> true;
 is_auth_header(_Other) -> false.
 
 is_wrapped(Secret) when is_function(Secret) ->
@@ -92,6 +109,43 @@ is_unwrapped_headers(Headers) ->
 is_unwrapped_header({_, V}) when is_function(V) -> false;
 is_unwrapped_header({_, [{str, _V}]}) -> throw(unexpected_tmpl_token);
 is_unwrapped_header(_) -> true.
+
+transform_result_drops_ehttpc_worker_down_call_args_test() ->
+    LeakyHeaders = [
+        {<<"authorization">>, <<"Bearer secret-authz-token">>},
+        {<<"x-api-key">>, <<"secret-authz-key">>}
+    ],
+    Reason =
+        {ehttpc_worker_down,
+            {killed,
+                {gen_server, call, [
+                    self(), {get, {[[], 47, <<"authz">>], LeakyHeaders}, 1782800788278}, 5500
+                ]}}},
+    {error, Sanitized} = emqx_bridge_http_connector:transform_result({error, Reason}),
+    Flat = lists:flatten(io_lib:format("~0p", [Sanitized])),
+    ?assertEqual(0, string:str(Flat, "secret-authz-token"), Flat),
+    ?assertEqual(0, string:str(Flat, "secret-authz-key"), Flat),
+    %% Worker-down classification and stop reason are kept; the call args are
+    %% dropped entirely.
+    ?assertEqual({ehttpc_worker_down, {killed, {gen_server, call, '...'}}}, Sanitized),
+    ok.
+
+transform_result_drops_wrapped_ehttpc_worker_down_call_args_test() ->
+    LeakyHeaders = [{<<"authorization">>, <<"Bearer secret-authz-token">>}],
+    Reason =
+        {ehttpc_worker_down,
+            {killed,
+                {gen_server, call, [
+                    self(), {get, {[<<"authz">>], LeakyHeaders}, 1}, 5500
+                ]}}},
+    %% Arrives wrapped in `{shutdown, ...}`; the recursion must still sanitize it.
+    {error, Sanitized} = emqx_bridge_http_connector:transform_result(
+        {error, {shutdown, Reason}}
+    ),
+    Flat = lists:flatten(io_lib:format("~0p", [Sanitized])),
+    ?assertEqual(0, string:str(Flat, "secret-authz-token"), Flat),
+    ?assertEqual({ehttpc_worker_down, {killed, {gen_server, call, '...'}}}, Sanitized),
+    ok.
 
 method_validator_test() ->
     Conf0 = parse(webhook_config_hocon()),

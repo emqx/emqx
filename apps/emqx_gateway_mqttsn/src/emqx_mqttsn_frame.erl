@@ -362,8 +362,8 @@ format(?SN_WILLTOPIC_EMPTY_MSG) ->
     "SN_WILLTOPIC(_)";
 format(?SN_WILLMSGREQ_MSG()) ->
     "SN_WILLMSGREQ()";
-format(?SN_WILLMSG_MSG(Msg)) ->
-    io_lib:format("SN_WILLMSG_MSG(Msg=~p)", [Msg]);
+format(?SN_WILLMSG_MSG(_Msg)) ->
+    "SN_WILLMSG_MSG(Msg=******)";
 format(?SN_PUBLISH_MSG(Flags, TopicId, MsgId, Data)) ->
     #mqtt_sn_flags{
         dup = Dup,
