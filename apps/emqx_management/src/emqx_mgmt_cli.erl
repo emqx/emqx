@@ -24,6 +24,7 @@
     broker/1,
     cluster/1,
     clients/1,
+    'session-top'/1,
     topics/1,
     subscriptions/1,
     plugins/1,
@@ -255,6 +256,179 @@ clients(_) ->
         {"clients show <ClientId>", "Show a client"},
         {"clients kick <ClientId>", "Kick out a client"}
     ]).
+
+'session-top'(usage) ->
+    session_top_usage();
+'session-top'(help) ->
+    session_top_usage();
+'session-top'(["status"]) ->
+    print_session_top_status(emqx_session_buffer_mon:top_status());
+'session-top'(["cancel"]) ->
+    case emqx_session_buffer_mon:cancel_top() of
+        {ok, cancelled} ->
+            emqx_ctl:print("Session top scan cancelled.~n");
+        {error, not_running} ->
+            emqx_ctl:print("[error] No session-top scan is running.~n")
+    end;
+'session-top'(["usage"]) ->
+    session_top_usage();
+'session-top'(["help"]) ->
+    session_top_usage();
+'session-top'(Args) ->
+    case parse_session_top_args(Args) of
+        {ok, Opts} ->
+            run_session_top(Opts);
+        {error, Msg} ->
+            emqx_ctl:print("[error] ~s~n", [Msg]),
+            session_top_usage()
+    end.
+
+session_top_usage() ->
+    emqx_ctl:usage([
+        {
+            "session-top status",
+            "Show status of the latest session-top scan."
+        },
+        {
+            "session-top cancel",
+            "Cancel the running session-top scan."
+        },
+        {
+            "session-top --out <File>\n"
+            "  [--count <K>]\n"
+            "  [--sort <SortBy>]\n"
+            "  [--batch <Size>]\n"
+            "  [--sleep <Ms>]",
+            "Write cluster top sessions to a new CSV file.\n"
+            "Result row limit, default: 10, max: 1000.\n"
+            "SortBy: mqueue_length | total_payload_bytes.\n"
+            "Rows per local scan batch, default: 1000.\n"
+            "Delay between batches, default: 1ms."
+        }
+    ]).
+
+run_session_top(Opts) ->
+    case ensure_out_file_absent(maps:get(out, Opts)) of
+        ok ->
+            case emqx_session_buffer_mon:run_top(Opts) of
+                {ok, _Pid} ->
+                    print_session_top_started(Opts);
+                {error, busy} ->
+                    emqx_ctl:print("[error] A session-top scan is already running.~n");
+                {error, eexist} ->
+                    emqx_ctl:print("[error] Output file already exists: ~ts~n", [
+                        maps:get(out, Opts)
+                    ])
+            end;
+        {error, eexist} ->
+            emqx_ctl:print("[error] Output file already exists: ~ts~n", [maps:get(out, Opts)]);
+        {error, Reason} ->
+            emqx_ctl:print("[error] Failed to check output file: ~p~n", [Reason])
+    end.
+
+print_session_top_started(Opts) ->
+    emqx_ctl:print(
+        "Session top scan started.~n"
+        "Status: running~n"
+        "Output: ~ts~n"
+        "Batch size: ~B~n"
+        "Sleep: ~B ms~n"
+        "Run 'emqx ctl session-top status' to check progress.~n",
+        [
+            maps:get(out, Opts),
+            maps:get(batch_size, Opts, 1000),
+            maps:get(sleep_ms, Opts, 1)
+        ]
+    ).
+
+print_session_top_status(#{status := idle}) ->
+    emqx_ctl:print("Status: idle~nNo session-top scan is running.~n");
+print_session_top_status(
+    #{
+        status := running,
+        count := Count,
+        sort := Sort,
+        batch_size := BatchSize,
+        sleep_ms := SleepMs,
+        progress := Progress
+    } = Status
+) ->
+    maybe_print_session_top_output(Status),
+    maybe_print_session_top_worker(Status),
+    maybe_print_session_top_started_at(Status),
+    emqx_ctl:print(
+        "Status: running~n"
+        "Limit: ~B~n"
+        "Sort by: ~s~n"
+        "Batch size: ~B~n"
+        "Sleep: ~B ms~n",
+        [Count, atom_to_list(Sort), BatchSize, SleepMs]
+    ),
+    print_session_top_progress(Progress);
+print_session_top_status(#{
+    status := cancelled,
+    reason := Reason
+}) ->
+    emqx_ctl:print(
+        "Status: cancelled~n"
+        "Reason: ~p~n",
+        [Reason]
+    );
+print_session_top_status(
+    #{
+        status := completed,
+        out := OutFile,
+        rows := Rows
+    }
+) ->
+    emqx_ctl:print(
+        "Status: completed~n"
+        "Output: ~ts~n"
+        "Result rows: ~B~n",
+        [OutFile, Rows]
+    );
+print_session_top_status(Status = #{status := completed, rows := Rows}) ->
+    emqx_ctl:print(
+        "Status: completed~n"
+        "Result rows: ~B~n",
+        [Rows]
+    ),
+    print_session_top_progress(Status);
+print_session_top_status(
+    #{
+        status := failed,
+        out := OutFile,
+        reason := Reason
+    }
+) ->
+    emqx_ctl:print(
+        "Status: failed~n"
+        "Output: ~ts~n"
+        "Reason: ~p~n",
+        [OutFile, Reason]
+    ).
+
+maybe_print_session_top_output(#{out := OutFile}) ->
+    emqx_ctl:print("Output: ~ts~n", [OutFile]);
+maybe_print_session_top_output(_Status) ->
+    ok.
+
+maybe_print_session_top_worker(#{pid := Pid}) ->
+    emqx_ctl:print("Worker: ~p~n", [Pid]);
+maybe_print_session_top_worker(_Status) ->
+    ok.
+
+maybe_print_session_top_started_at(#{started_at := StartedAt}) ->
+    emqx_ctl:print("Started at: ~B~n", [StartedAt]);
+maybe_print_session_top_started_at(_Status) ->
+    ok.
+
+print_session_top_progress(#{nodes_total := Total}) ->
+    emqx_ctl:print("Cluster nodes: ~B~n", [Total]);
+print_session_top_progress(#{scanned := Scanned, total := Total}) ->
+    emqx_ctl:print("Rows scanned: ~B/~B~n", [Scanned, Total]);
+print_session_top_progress(_Progress) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% @private Dump client statistics to CSV file
@@ -1324,6 +1498,81 @@ validate_dump_stats_args(Opts) ->
             ok;
         false ->
             {error, "Invalid parameters"}
+    end.
+
+parse_session_top_args(Args) ->
+    maybe
+        {ok, Opts} ?=
+            collect_session_top_args(Args, #{
+                count => 10,
+                sort => total_payload_bytes,
+                batch_size => 1000,
+                sleep_ms => 1
+            }),
+        ok ?= validate_session_top_args(Opts),
+        {ok, Opts}
+    end.
+
+collect_session_top_args([], Acc) ->
+    {ok, Acc};
+collect_session_top_args(["--out", Out | Rest], Acc) ->
+    collect_session_top_args(Rest, Acc#{out => Out});
+collect_session_top_args(["--count", CountStr | Rest], Acc) ->
+    case string:to_integer(CountStr) of
+        {Count, []} when Count > 0, Count =< 1000 ->
+            collect_session_top_args(Rest, Acc#{count => Count});
+        {Count, []} when Count > 1000 ->
+            {error, "Invalid count: maximum is 1000."};
+        _ ->
+            {error, io_lib:format("Invalid count: ~s. Must be a positive integer.", [CountStr])}
+    end;
+collect_session_top_args(["--sort", SortStr | Rest], Acc) ->
+    case parse_session_top_sort(SortStr) of
+        {ok, Sort} ->
+            collect_session_top_args(Rest, Acc#{sort => Sort});
+        error ->
+            {error, "Invalid sort key. Supported values are mqueue_length and total_payload_bytes."}
+    end;
+collect_session_top_args(["--batch", BatchSizeStr | Rest], Acc) ->
+    case string:to_integer(BatchSizeStr) of
+        {BatchSize, []} when BatchSize > 0 ->
+            collect_session_top_args(Rest, Acc#{batch_size => BatchSize});
+        _ ->
+            {error,
+                io_lib:format("Invalid batch size: ~s. Must be a positive integer.", [
+                    BatchSizeStr
+                ])}
+    end;
+collect_session_top_args(["--sleep", SleepStr | Rest], Acc) ->
+    case string:to_integer(SleepStr) of
+        {SleepMs, []} when SleepMs >= 0 ->
+            collect_session_top_args(Rest, Acc#{sleep_ms => SleepMs});
+        _ ->
+            {error,
+                io_lib:format("Invalid sleep value: ~s. Must be a non-negative integer.", [
+                    SleepStr
+                ])}
+    end;
+collect_session_top_args(Args, _Acc) ->
+    {error, io_lib:format("unknown arguments: ~p", [Args])}.
+
+parse_session_top_sort("mqueue_length") ->
+    {ok, mqueue_length};
+parse_session_top_sort("total_payload_bytes") ->
+    {ok, total_payload_bytes};
+parse_session_top_sort(_) ->
+    error.
+
+validate_session_top_args(#{out := _Out}) ->
+    ok;
+validate_session_top_args(_Opts) ->
+    {error, "--out <File> is required."}.
+
+ensure_out_file_absent(OutFile) ->
+    case file:read_file_info(OutFile) of
+        {ok, _Info} -> {error, eexist};
+        {error, enoent} -> ok;
+        {error, Reason} -> {error, Reason}
     end.
 
 %%--------------------------------------------------------------------

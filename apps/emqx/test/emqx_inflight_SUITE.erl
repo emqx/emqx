@@ -8,6 +8,13 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx.hrl").
+
+-record(inflight_data, {
+    phase,
+    message,
+    timestamp
+}).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -38,6 +45,18 @@ t_update(_) ->
     Inflight = emqx_inflight:insert(k, v, emqx_inflight:new()),
     ?assertEqual(Inflight, emqx_inflight:update(k, v, Inflight)),
     ?assertError(function_clause, emqx_inflight:update(badkey, v, Inflight)).
+
+t_bytes_size(_) ->
+    Msg1 = #message{payload = <<"one">>},
+    Msg2 = #message{payload = <<"three">>},
+    Inflight0 = emqx_inflight:new(),
+    ?assertEqual(0, emqx_inflight:bytes_size(Inflight0)),
+    Inflight1 = emqx_inflight:insert(1, inflight_data(Msg1), Inflight0),
+    ?assertEqual(emqx_message:payload_size(Msg1), emqx_inflight:bytes_size(Inflight1)),
+    Inflight2 = emqx_inflight:update(1, inflight_data(Msg2), Inflight1),
+    ?assertEqual(emqx_message:payload_size(Msg2), emqx_inflight:bytes_size(Inflight2)),
+    Inflight3 = emqx_inflight:delete(1, Inflight2),
+    ?assertEqual(0, emqx_inflight:bytes_size(Inflight3)).
 
 t_resize(_) ->
     Inflight = emqx_inflight:insert(k, v, emqx_inflight:new(2)),
@@ -114,3 +133,6 @@ t_to_list(_) ->
     ),
     ExpList = [{Seq, integer_to_binary(Seq)} || Seq <- lists:seq(1, 10)],
     ?assertEqual(ExpList, emqx_inflight:to_list(Inflight)).
+
+inflight_data(Msg) ->
+    #inflight_data{phase = wait_ack, message = Msg, timestamp = 0}.
