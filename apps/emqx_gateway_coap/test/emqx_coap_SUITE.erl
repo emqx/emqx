@@ -811,6 +811,16 @@ t_proxy_conn_keep_bound_clientid_on_different_clientid(_) ->
         emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State1, Bin2)
     ).
 
+t_proxy_conn_close_passes_proxy_owner(_) ->
+    ProxyId = self(),
+    ?assertEqual(ok, emqx_coap_proxy_conn:close(self(), ProxyId, #{})),
+    receive
+        {udp_proxy_closed, ProxyId} ->
+            ok
+    after 100 ->
+        error(missing_udp_proxy_closed)
+    end.
+
 %%--------------------------------------------------------------------
 %% helpers
 
