@@ -285,6 +285,303 @@ t_connect_clean_start(Config) ->
 
     process_flag(trap_exit, false).
 
+-doc "A message queued for an offline session is dropped on resume once its Message-Expiry-Interval has elapsed.".
+t_message_expiry_interval(Config) ->
+    run_message_expiry_interval(Config, <<"exp">>, fun message_expiry_interval_exipred/5).
+
+-doc "A message queued for an offline session is delivered on resume while still within its Message-Expiry-Interval.".
+t_message_not_expiry_interval(Config) ->
+    run_message_expiry_interval(Config, <<"noexp">>, fun message_expiry_interval_not_exipred/5).
+
+%% Each QoS iteration uses a fresh set of clientids (tagged with the test name
+%% and the QoS) so that no session/mqueue/subscription state leaks from one
+%% iteration to the next, nor between the two expiry-interval tests. Reusing a
+%% fixed clientid across iterations was racy: a resumed `Client-Verify` session
+%% could carry stale queued state, and rapid reconnects of the same clientid
+%% raced session takeover on slow CI.
+run_message_expiry_interval(Config, Name, Fun) ->
+    lists:foreach(
+        fun(QoS) ->
+            Tag = <<Name/binary, "-", (integer_to_binary(QoS))/binary>>,
+            {CPublish, CControl} = message_expiry_interval_init(Config, Tag),
+            Fun(Config, CPublish, CControl, QoS, Tag),
+            emqtt:stop(CPublish),
+            emqtt:stop(CControl)
+        end,
+        [0, 1, 2]
+    ).
+
+message_expiry_interval_init(Config, Tag) ->
+    ConnFun = ?config(conn_fun, Config),
+    ClientIdPublish = <<"Client-Publish-", Tag/binary>>,
+    ClientIdVerify = <<"Client-Verify-", Tag/binary>>,
+    ClientIdControl = <<"Client-Control-", Tag/binary>>,
+    {ok, CPublish} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientIdPublish},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 360}}
+        | Config
+    ]),
+    {ok, CVerify} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientIdVerify},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 360}}
+        | Config
+    ]),
+    {ok, CControl} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientIdControl},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 360}}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(CPublish),
+    {ok, _} = emqtt:ConnFun(CVerify),
+    {ok, _} = emqtt:ConnFun(CControl),
+    %% Subscribe and disconnect Client-Verify.
+    emqtt:subscribe(CControl, <<"t/a">>, 1),
+    emqtt:subscribe(CVerify, <<"t/a">>, 1),
+    emqtt:stop(CVerify),
+    %% Wait until the broker has fully processed Client-Verify's DISCONNECT and
+    %% moved its (retained) session into the `disconnected` state before any
+    %% message is published. Until then the channel is still `connected`, so a
+    %% delivered QoS>0 message is placed into the session's inflight window
+    %% instead of the mqueue. Inflight messages are replayed verbatim on resume,
+    %% bypassing the mqueue's Message-Expiry-Interval check -- which made the
+    %% expiry assertions race (most visibly for QoS=2, whose longer publish
+    %% handshake widens the window).
+    ?retry(
+        100,
+        20,
+        begin
+            Chans = [_ | _] = emqx_cm:lookup_channels(ClientIdVerify),
+            [] = [C || C <- Chans, emqx_cm:is_channel_connected(C)]
+        end
+    ),
+    {CPublish, CControl}.
+
+message_expiry_interval_exipred(Config, CPublish, CControl, QoS, Tag) ->
+    ConnFun = ?config(conn_fun, Config),
+    ct:pal("~p ~p", [?FUNCTION_NAME, QoS]),
+    %% Publish to t/a and wait for the message to expire.
+    _ = emqtt:publish(
+        CPublish,
+        <<"t/a">>,
+        #{'Message-Expiry-Interval' => 1},
+        <<"this will be purged in 1s">>,
+        [{qos, QoS}]
+    ),
+    %% CControl makes sure publish is already stored in broker.
+    receive
+        {publish, #{client_pid := CControl, topic := <<"t/a">>}} ->
+            ok
+    after 1000 ->
+        ct:fail(should_receive_publish)
+    end,
+    %% Sleep well past Message-Expiry-Interval (1s) with wide margin so the
+    %% wall-clock-based expiry check at session resume is not racy on slow CI.
+    ct:sleep(2000),
+
+    %% Resume the session for Client-Verify.
+    {ok, CVerify} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, <<"Client-Verify-", Tag/binary>>},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 360}}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(CVerify),
+
+    %% Verify Client-Verify could not receive the publish message.
+    receive
+        {publish, #{client_pid := CVerify, topic := <<"t/a">>}} ->
+            ct:fail(should_have_expired)
+    after 300 ->
+        ok
+    end,
+    emqtt:stop(CVerify).
+
+message_expiry_interval_not_exipred(Config, CPublish, CControl, QoS, Tag) ->
+    ConnFun = ?config(conn_fun, Config),
+    ct:pal("~p ~p", [?FUNCTION_NAME, QoS]),
+    %% Publish to t/a.
+    _ = emqtt:publish(
+        CPublish,
+        <<"t/a">>,
+        #{'Message-Expiry-Interval' => 20},
+        <<"this will be purged in 20s">>,
+        [{qos, QoS}]
+    ),
+
+    %% CControl makes sure publish is already stored in broker.
+    receive
+        {publish, #{client_pid := CControl, topic := <<"t/a">>}} ->
+            ok
+    after 1000 ->
+        ct:fail(should_receive_publish)
+    end,
+
+    %% Wait for 1.2s and then resume the session for Client-Verify. The message
+    %% should not expire because Message-Expiry-Interval = 20s.
+    ct:sleep(1200),
+    {ok, CVerify} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, <<"Client-Verify-", Tag/binary>>},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 360}}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(CVerify),
+
+    %% Verify Client-Verify could receive the publish message and the
+    %% Message-Expiry-Interval is set. Use a generous receive window: the session
+    %% resume + queued-message dispatch can take longer than a few hundred ms on
+    %% a busy CI runner. A late (but present) delivery here is a pass, so a wider
+    %% window only removes flakiness.
+    receive
+        {publish, #{
+            client_pid := CVerify,
+            topic := <<"t/a">>,
+            properties := #{'Message-Expiry-Interval' := MsgExpItvl}
+        }} when
+            MsgExpItvl =< 20
+        ->
+            ok;
+        {publish, _} = Msg ->
+            ct:fail({incorrect_publish, Msg})
+    after 2000 ->
+        ct:fail(no_publish_received)
+    end,
+    emqtt:stop(CVerify).
+
+t_puback_not_lost_on_disconnect(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    %% Client with persistent in-mem session, subscribing to t/1, manual acking.
+    {ok, C0} = emqtt:start_link([
+        {clientid, <<"puback_not_lost">>},
+        {proto_ver, v5},
+        {auto_ack, false},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 10000}}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(C0),
+    {ok, _, [1]} = emqtt:subscribe(C0, <<"t/1">>, 1),
+    %% Publish 100 messages to t/1.
+    spawn_link(fun() ->
+        lists:foreach(
+            fun(I) ->
+                Payload = integer_to_binary(I),
+                Message = emqx_message:make(<<"from">>, 1, <<"t/1">>, Payload),
+                emqx_broker:publish(Message)
+            end,
+            lists:seq(1, 100)
+        )
+    end),
+    %% Receive the first message and acknowledge it, then disconnect.
+    receive
+        {publish, #{topic := <<"t/1">>, payload := <<"1">>, packet_id := PacketId}} ->
+            emqtt:puback(C0, PacketId),
+            %% Sync barrier: PINGREQ is read and processed by the broker in
+            %% order after PUBACK, so receiving PINGRESP proves the PUBACK
+            %% has been drained from the transport buffer and applied to the
+            %% session before we tear down the socket.
+            pong = emqtt:ping(C0),
+            emqtt:disconnect(C0)
+    after 1000 ->
+        ct:fail("Message not received")
+    end,
+    %% Wait for the old channel to fully shut down before reconnecting.
+    ?retry(100, 20, [] =:= emqx_cm:lookup_channels(<<"puback_not_lost">>)),
+    %% Restore the session.
+    {ok, C1} = emqtt:start_link([
+        {clientid, <<"puback_not_lost">>},
+        {proto_ver, v5},
+        {auto_ack, true},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 10000}}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(C1),
+    %% Verify that the first message is not received, i.e. that our ack was not lost.
+    Msgs1 = drain_messages_from(C1),
+    ?assertEqual(99, length(Msgs1)),
+    ?assertNot(lists:member(<<"1">>, Msgs1)),
+    emqtt:stop(C1).
+
+drain_messages_from(C) ->
+    receive
+        {publish, Msg = #{client_pid := C}} ->
+            [Msg | drain_messages_from(C)]
+    after 1000 ->
+        []
+    end.
+
+-doc """
+An inflight (sent-but-unacked) QoS-1 message is retried at takeover even after
+its Message-Expiry-Interval elapsed: per [MQTT-3.3.2-5], expiry only drops
+messages whose onward delivery has not started.
+""".
+t_inflight_retried_after_expiry_on_takeover(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    ClientId = <<"inflight_retry_after_expiry">>,
+    {ok, CPub} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, <<"inflight_retry_pub">>}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(CPub),
+    %% Subscriber with a persistent in-mem session, manual acking so the broker
+    %% keeps the delivered message in its inflight set awaiting PUBACK.
+    {ok, C0} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {auto_ack, false},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 360}}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(C0),
+    {ok, _, [1]} = emqtt:subscribe(C0, <<"t/a">>, 1),
+    %% Publish a QoS-1 message that expires in 1s.
+    _ = emqtt:publish(
+        CPub,
+        <<"t/a">>,
+        #{'Message-Expiry-Interval' => 1},
+        <<"inflight, retried after expiry">>,
+        [{qos, 1}]
+    ),
+    %% The message reaches the subscriber and enters the session inflight set;
+    %% onward delivery has started, but we deliberately do NOT acknowledge it.
+    {publish, #{client_pid := C0}} = ?assertReceive({publish, #{topic := <<"t/a">>}}),
+    %% Disconnect (keep the session); the un-acked message stays in inflight.
+    ok = emqtt:disconnect(C0),
+    ?retry(100, 20, [] =:= emqx_cm:lookup_channels(ClientId)),
+    %% Sleep well past Message-Expiry-Interval (1s) so the message is expired.
+    ct:sleep(2000),
+    %% Resume the session, triggering takeover/replay of the inflight set.
+    {ok, C1} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {auto_ack, true},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 360}}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(C1),
+    %% Onward delivery had already started, so the message MUST still be retried
+    %% (as a DUP) despite having expired.
+    receive
+        {publish, #{client_pid := C1, topic := <<"t/a">>, dup := Dup}} ->
+            ?assertEqual(true, Dup)
+    after 2000 ->
+        ct:fail(inflight_message_not_retried)
+    end,
+    emqtt:stop(C1),
+    emqtt:stop(CPub).
+
 -ifndef(BUILD_WITHOUT_QUIC).
 t_connect_clean_start_unresp_old_client(Config) ->
     ConnFun = ?config(conn_fun, Config),
