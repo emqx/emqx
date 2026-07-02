@@ -33,6 +33,10 @@ groups() ->
             {group, misbehaving}
         ]},
         {socket_listener, [], [
+            {group, mqttv3},
+            {group, mqttv4},
+            {group, mqttv5},
+            {group, others},
             {group, socket},
             {group, misbehaving}
         ]},
@@ -223,7 +227,6 @@ t_offline_message_queueing(_) ->
     ]),
     {ok, _} = emqtt:connect(C1),
     {ok, _, [2]} = emqtt:subscribe(C1, <<"+/+">>, 2),
-    [ChanPid] = emqx_cm:lookup_channels(<<"c1">>),
     ok = emqtt:disconnect(C1),
 
     %% Wait until the broker has fully transitioned c1's channel to the
@@ -235,7 +238,12 @@ t_offline_message_queueing(_) ->
     %% does not count, and the QoS 0 message is written to the closing socket and
     %% dropped. Only once the channel is 'disconnected' do deliveries go straight
     %% to the offline mqueue, so mqueue_len can reach 3 deterministically.
-    ?WAIT(?assertEqual(disconnected, maps:get(conn_state, emqx_connection:info(ChanPid))), 10),
+    ?WAIT(
+        ?assertEqual(
+            disconnected, emqx_cth_broker:connection_info({channel, conn_state}, <<"c1">>)
+        ),
+        10
+    ),
 
     {ok, C2} = emqtt:start_link([
         {clean_start, true},
@@ -257,7 +265,7 @@ t_offline_message_queueing(_) ->
     %% channel's emit_stats timer (default mqtt.idle_timeout = 15s). Once c1
     %% disconnects the channel hibernates and stops emitting stats, so the cached
     %% mqueue_len can lag reality for the whole retry budget.
-    ?WAIT(?assertEqual(3, proplists:get_value(mqueue_len, emqx_connection:stats(ChanPid))), 30),
+    ?WAIT(?assertEqual(3, emqx_cth_broker:connection_stat(mqueue_len, <<"c1">>)), 30),
     emqtt:disconnect(C2),
 
     {ok, C3} = emqtt:start_link([{clean_start, false}, {clientid, <<"c1">>}]),
