@@ -137,6 +137,114 @@ def test_hardened_rejects_insecure_cookie(emqx_bin_path):
         assert "EMQX_SECURITY_PROFILE" in output
 
 
+def test_node_cookie_from_file(emqx_bin_path, tmp_path):
+    """Test that node.cookie can be sourced from a file via the file:// form."""
+    cookie_file = tmp_path / "cookie"
+    # trailing newline is expected from `echo secret > file` and must be stripped
+    cookie_file.write_text("mysecretcookie123\n")
+    with open_emqx_console(
+            emqx_bin_path,
+            {
+                "EMQX_LOG__CONSOLE__FORMATTER": "json",
+                "EMQX_NODE__COOKIE": f"file://{cookie_file}",
+            },
+            stdout=subprocess.PIPE,
+            text=True,
+    ) as emqx:
+        try:
+            # the node boots, which means erl -setcookie got the resolved value
+            outputs = wait_until_stdout(emqx, "feature_gates_resolved", 15)
+            assert outputs
+        finally:
+            emqx.kill()
+
+
+def test_node_cookie_from_missing_file_fails_fast(emqx_bin_path, tmp_path):
+    """Test that a missing node.cookie file fails before boot with a clear error."""
+    result = run_emqx_console(
+        emqx_bin_path,
+        {"EMQX_NODE__COOKIE": f"file://{tmp_path}/does-not-exist"},
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "does not exist" in output
+
+
+def test_node_cookie_from_empty_file_fails_fast(emqx_bin_path, tmp_path):
+    """Test that an empty node.cookie file fails before boot with a clear error."""
+    cookie_file = tmp_path / "empty-cookie"
+    cookie_file.write_text("")
+    result = run_emqx_console(
+        emqx_bin_path,
+        {"EMQX_NODE__COOKIE": f"file://{cookie_file}"},
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "is empty" in output
+
+
+def test_node_cookie_from_fifo_read_once(emqx_bin_path, tmp_path):
+    """Test that node.cookie can be sourced from a write-once FIFO.
+
+    The `start` command re-execs `console` via run_erl; the cookie FIFO must be
+    drained exactly once across that re-exec, otherwise the second read would
+    block forever (no writer) and the node would never come up.
+    """
+    fifo = tmp_path / "cookie.fifo"
+    os.mkfifo(fifo)
+    cookie = "fifocookie12345"
+
+    # A single writer-open: the orchestrator writes the cookie to the FIFO once.
+    # If bin/emqx tried to read it twice, this writer would already be gone and
+    # boot would hang.
+    writer = subprocess.Popen(
+        ["sh", "-c", 'printf "%s\\n" "$0" > "$1"', cookie, str(fifo)]
+    )
+
+    boot_env = os.environ.copy()
+    boot_env["EMQX_NODE__COOKIE"] = f"file://{fifo}"
+    boot_env["EMQX_WAIT_FOR_START"] = "60"
+
+    # Maintenance commands run without the file:// override; they obtain the
+    # cookie from the running node's `ps` output.
+    plain_env = os.environ.copy()
+    plain_env.pop("EMQX_NODE__COOKIE", None)
+
+    try:
+        start = subprocess.run(
+            [str(emqx_bin_path), "start"],
+            env=boot_env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert start.returncode == 0, (
+            f"start failed: {start.stdout + start.stderr}"
+        )
+        got = subprocess.run(
+            [str(emqx_bin_path), "eval", "erlang:get_cookie()."],
+            env=plain_env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert cookie in got.stdout, (
+            f"node cookie mismatch: {got.stdout + got.stderr}"
+        )
+    finally:
+        subprocess.run(
+            [str(emqx_bin_path), "stop"],
+            env=plain_env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        try:
+            writer.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            writer.kill()
+
+
 @pytest.mark.parametrize("security_profile", ["not-a-profile", "HARDENED"])
 def test_invalid_security_profile_fails_fast(emqx_bin_path, security_profile):
     """Test that malformed EMQX_SECURITY_PROFILE fails before boot."""
@@ -460,12 +568,6 @@ def test_feature_gate_full(emqx_bin_path):
                     pass;
                 case _:
                     raise AssertionError(f"bad enabled: {enabled}")
-            bundled = log["bundled"]
-            match bundled:
-                case [_, _, _, *_]:
-                    pass;
-                case _:
-                    raise AssertionError(f"bad bundled: {bundled}")
         finally:
             emqx.kill()
 
@@ -495,12 +597,6 @@ def test_feature_gate_essential(emqx_bin_path):
                     pass;
                 case _:
                     raise AssertionError(f"bad disabled: {disabled}")
-            bundled = log["bundled"]
-            match bundled:
-                case []:
-                    pass;
-                case _:
-                    raise AssertionError(f"bad bundled: {bundled}")
         finally:
             emqx.kill()
 
@@ -509,7 +605,6 @@ def test_feature_gate_essential(emqx_bin_path):
 # Remember to update known feature list when `emqx_machine_features:known_features` change.
 KNOWN_FEATURES = {
     "dashboard": {},
-    "auth": {},
     "data_integration": {},
     "message_transformation": {},
     "schema_validation": {},
@@ -548,8 +643,6 @@ def test_feature_gate_custom(emqx_bin_path, feature):
             assert "custom" == log["preset"]
             enabled = log["enabled"]
             assert feature in enabled
-            bundled = log["bundled"]
-            assert [] == bundled
         finally:
             emqx.kill()
 
@@ -577,8 +670,6 @@ def test_feature_gate_custom_multiple(emqx_bin_path):
             enabled = log["enabled"]
             for f in all_features:
                 assert f in enabled
-            bundled = log["bundled"]
-            assert [] == bundled
         finally:
             emqx.kill()
 

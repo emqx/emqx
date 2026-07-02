@@ -1465,6 +1465,19 @@ select_free_port(GenModule, Fun) when
     GenModule == gen_tcp orelse
         GenModule == gen_udp
 ->
+    Port = pick_and_verify_free_port(GenModule, Fun, _Attempts = 10),
+    ct:pal("Select free OS port: ~p", [Port]),
+    Port.
+
+%% After our probe socket is closed, the port re-enters the kernel's
+%% ephemeral pool and any other process on the host (the EMQX node itself
+%% opens many internal sockets during a SUITE: gen_rpc, ekka, mria, etc.)
+%% can grab it before the caller's bind. Verify the port is still bindable
+%% by us before returning; if not, pick another. Reduces the TOCTOU window
+%% from "probe-close to caller-bind" down to "verify-close to caller-bind".
+pick_and_verify_free_port(_GenModule, _Fun, 0) ->
+    error(select_free_port_exhausted);
+pick_and_verify_free_port(GenModule, Fun, Attempts) ->
     {ok, S} = GenModule:Fun(0, [{reuseaddr, true}]),
     {ok, Port} = inet:port(S),
     ok = GenModule:close(S),
@@ -1475,8 +1488,13 @@ select_free_port(GenModule, Fun) when
         _ ->
             skip
     end,
-    ct:pal("Select free OS port: ~p", [Port]),
-    Port.
+    case GenModule:Fun(Port, [{reuseaddr, true}]) of
+        {ok, S2} ->
+            ok = GenModule:close(S2),
+            Port;
+        {error, _} ->
+            pick_and_verify_free_port(GenModule, Fun, Attempts - 1)
+    end.
 
 %% Generate ct sub-groups from test-case's 'matrix' clause
 %% NOTE: the test cases must have a root group name which

@@ -71,7 +71,7 @@ authenticate(
             ?TRACE_AUTHN_PROVIDER(error, "mongodb_render_filter_failed", #{
                 reason => EncodeError
             }),
-            ignore
+            emqx_authn_utils:backend_failure_result()
     end.
 
 authenticate_with_filter(
@@ -80,6 +80,7 @@ authenticate_with_filter(
     #{
         collection := Collection,
         resource_id := ResourceId,
+        filter_template := FilterTemplate,
         cache_key_template := CacheKeyTemplate
     } = State
 ) ->
@@ -96,10 +97,12 @@ authenticate_with_filter(
             ?TRACE_AUTHN_PROVIDER(error, "mongodb_query_failed", #{
                 resource => ResourceId,
                 collection => Collection,
-                filter => Filter,
+                filter => emqx_auth_template:render_deep_for_json_redacted(
+                    FilterTemplate, Credential
+                ),
                 reason => Reason
             }),
-            ignore;
+            emqx_authn_utils:backend_failure_result();
         {ok, Doc} ->
             case check_password(Password, Doc, State) of
                 ok ->
@@ -108,11 +111,13 @@ authenticate_with_filter(
                     ?TRACE_AUTHN_PROVIDER(error, "cannot_find_password_hash_field", #{
                         resource => ResourceId,
                         collection => Collection,
-                        filter => Filter,
-                        document => Doc,
+                        filter => emqx_auth_template:render_deep_for_json_redacted(
+                            FilterTemplate, Credential
+                        ),
+                        document_fields => maps:keys(Doc),
                         password_hash_field => PasswordHashField
                     }),
-                    ignore;
+                    emqx_authn_utils:backend_failure_result();
                 {error, Reason} ->
                     {error, Reason}
             end

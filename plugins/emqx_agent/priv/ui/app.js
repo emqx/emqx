@@ -1,6 +1,6 @@
 import { setSchemaEditorValue } from './schema_editor.js';
 import { loadConnections, saveConnection, editConnection, deleteConnection, startConnection, stopConnection, resetConnectionEditor } from './connections.js';
-import { loadTools, saveTool, editTool, deleteTool, updateToolForm, resetToolEditor, defaultPublishInputSchema } from './tools.js';
+import { loadTools, saveTool, editTool, deleteTool, updateToolForm, resetToolEditor, defaultPublishInputSchema, initToolEditors } from './tools.js';
 import { loadProfiles } from './providers.js';
 import { loadPipelines, savePipeline, editPipeline, deletePipeline, togglePipelineActive, resetPipelineEditor } from './pipelines.js';
 import { addStep, removeStep, moveStep, stepTypeChanged, addKV } from './pipeline_steps.js';
@@ -11,6 +11,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   setSchemaEditorValue('se-tool-publish-input', defaultPublishInputSchema());
   setSchemaEditorValue('se-tool-request-payload-schema', null);
   setSchemaEditorValue('se-tool-input-schema', null);
+  initToolEditors();
   await refresh();
 });
 

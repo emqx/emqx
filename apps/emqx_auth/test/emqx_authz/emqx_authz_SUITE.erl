@@ -551,6 +551,26 @@ t_precondition_render_error_skips_source(_Config) ->
         end
     ).
 
+-doc "A source matching deny is logged at warning level with the source type and module.".
+t_source_denied_logged_at_warning(_Config) ->
+    Source = ?SOURCE_FILE(<<"{deny, all}.">>),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [Source]),
+    ClientInfo = emqx_authz_test_lib:base_client_info(),
+    Logs = emqx_cth_log_capture:capture(fun() ->
+        deny = emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>)
+    end),
+    ?assertMatch(
+        [
+            #{
+                msg := authorization_source_denied,
+                authorize_type := file,
+                module := emqx_authz_file
+            }
+            | _
+        ],
+        [M || #{msg := authorization_source_denied} = M <- Logs]
+    ).
+
 t_precondition_skips_source(_Config) ->
     ClientInfo = #{
         username => <<"u">>,

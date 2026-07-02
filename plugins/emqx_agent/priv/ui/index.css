@@ -203,6 +203,7 @@
   .se-type { width: 100px; }
   .se-desc { flex: 1; min-width: 120px; }
   .se-enum { flex: 1; min-width: 120px; }
+  .image-path-input { flex: 1; min-width: 140px; width: auto !important; }
   .se-children { margin-left: 20px; padding-left: 10px; border-left: 1px solid var(--border); }
   .se-items { margin-left: 20px; padding-left: 10px; border-left: 1px dashed var(--border); }
   .se-label { font-size: 11px; color: var(--muted); min-width: 50px; }

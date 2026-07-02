@@ -220,6 +220,12 @@ enable(_) -> undefined.
 
 fields("settings") ->
     [
+        {"ignore_backend_failures",
+            hoconsc:mk(boolean(), #{
+                default => false,
+                desc => ?DESC(ignore_backend_failures),
+                importance => ?IMPORTANCE_LOW
+            })},
         {"node_cache",
             ?HOCON(
                 ?R_REF(emqx_auth_cache_schema, config),
@@ -229,7 +235,7 @@ fields("settings") ->
                     default => emqx_auth_cache_schema:default_config()
                 }
             )},
-        {builtin_record_count_refresh_interval,
+        {"builtin_record_count_refresh_interval",
             hoconsc:mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"1h">>,
                 importance => ?IMPORTANCE_HIDDEN

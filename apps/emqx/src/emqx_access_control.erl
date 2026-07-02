@@ -74,6 +74,18 @@ end).
 
 -define(DEFAULT_AUTH_RESULT_PT_KEY, {?MODULE, default_authn_result}).
 
+-define(IS_AUTH_ERROR(Result),
+    (Result =:= client_identifier_not_valid orelse
+        Result =:= bad_username_or_password orelse
+        Result =:= bad_clientid_or_password orelse
+        Result =:= not_authorized orelse
+        Result =:= server_unavailable orelse
+        Result =:= server_busy orelse
+        Result =:= banned orelse
+        Result =:= bad_authentication_method orelse
+        Result =:= quota_exceeded)
+).
+
 -ifdef(TEST).
 -define(DEFAULT_AUTH_RESULT, ok).
 -else.
@@ -89,7 +101,7 @@ end).
     | {ok, authn_result(), authn_data()}
     | {continue, authn_cache()}
     | {continue, authn_data(), authn_cache()}
-    | {error, not_authorized}.
+    | {error, emqx_types:auth_result()}.
 authenticate(Credential) ->
     %% pre-hook quick authentication or
     %% if auth backend returning nothing but just 'ok'
@@ -112,9 +124,13 @@ authenticate(Credential) ->
                 {ok, AuthResult, _AuthData} = OkResult ->
                     on_authentication_complete_success(Credential, AuthResult, ok),
                     OkResult;
-                {error, Reason} = Error ->
+                {error, Reason} = Error when ?IS_AUTH_ERROR(Reason) ->
                     on_authentication_complete_error(Credential, Reason),
                     Error;
+                {error, Reason} ->
+                    %% Unknown error, treat as not_authorized
+                    on_authentication_complete_error(Credential, Reason),
+                    {error, not_authorized};
                 {continue, _AuthCache} = IncompleteResult ->
                     IncompleteResult;
                 {continue, _AuthData, _AuthCache} = IncompleteResult ->
@@ -384,6 +400,7 @@ on_authentication_complete_error(Credential, Reason) ->
         ]
     ),
     inc_authn_metrics(error).
+
 on_authentication_complete_success(Credential, Result, Type) ->
     emqx_hooks:run(
         'client.check_authn_complete',

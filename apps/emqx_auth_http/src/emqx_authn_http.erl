@@ -95,11 +95,11 @@ authenticate(
                 {ok, 200, Headers, Body} ->
                     handle_response(Headers, Body);
                 {ok, _StatusCode, _Headers} = Response ->
-                    ignore;
+                    emqx_authn_utils:backend_failure_result();
                 {ok, _StatusCode, _Headers, _Body} = Response ->
-                    ignore;
+                    emqx_authn_utils:backend_failure_result();
                 {error, _Reason} ->
-                    ignore
+                    emqx_authn_utils:backend_failure_result()
             end;
         {error, Reason} ->
             ?TRACE_AUTHN_PROVIDER(
@@ -107,7 +107,7 @@ authenticate(
                 "generate_http_request_failed",
                 #{reason => Reason, credential => emqx_authn_utils:without_password(Credential)}
             ),
-            ignore
+            emqx_authn_utils:backend_failure_result()
     end.
 
 destroy(#{resource_id := ResourceId}) ->
@@ -203,7 +203,7 @@ handle_response(Headers, Body) ->
         {ok, NBody} ->
             body_to_auth_data(NBody);
         {error, _Reason} ->
-            ignore
+            emqx_authn_utils:backend_failure_result()
     end.
 
 body_to_auth_data(Body) ->
@@ -215,7 +215,7 @@ body_to_auth_data(Body) ->
         <<"ignore">> ->
             ignore;
         _ ->
-            ignore
+            emqx_authn_utils:backend_failure_result()
     end.
 
 extract_auth_data(Source, Body) ->
@@ -233,10 +233,10 @@ extract_auth_data(Source, Body) ->
     catch
         throw:{bad_acl_rule, Reason} ->
             %% it's a invalid token, so ok to log
-            ?TRACE_AUTHN_PROVIDER("bad_acl_rule", Reason#{http_body => Body}),
+            ?TRACE_AUTHN_PROVIDER("bad_acl_rule", Reason#{http_body => emqx_utils:redact(Body)}),
             {error, bad_username_or_password};
         throw:Reason ->
-            ?TRACE_AUTHN_PROVIDER("bad_response_body", Reason#{http_body => Body}),
+            ?TRACE_AUTHN_PROVIDER("bad_response_body", Reason#{http_body => emqx_utils:redact(Body)}),
             {error, bad_username_or_password}
     end.
 
@@ -320,7 +320,7 @@ safely_parse_body(ContentType, Body) ->
             ?TRACE_AUTHN_PROVIDER(
                 error,
                 "parse_http_response_failed",
-                #{content_type => ContentType, body => Body, reason => Reason}
+                #{content_type => ContentType, body => <<"******">>, reason => Reason}
             ),
             {error, invalid_body}
     end.
@@ -341,15 +341,15 @@ request_for_log(Credential, #{url := Url, method := Method} = State) ->
                 method => Method,
                 url => Url,
                 path_query => PathQuery,
-                headers => Headers
+                headers => emqx_utils_redact:redact_headers(Headers)
             };
         {ok, {PathQuery, Headers, Body}} ->
             #{
                 method => Method,
                 url => Url,
                 path_query => PathQuery,
-                headers => Headers,
-                body => Body
+                headers => emqx_utils_redact:redact_headers(Headers),
+                body => emqx_utils:redact(Body)
             };
         %% we can't get here actually because the real request was already generated
         %% successfully, so generating it with hidden password won't fail either.
@@ -362,9 +362,13 @@ request_for_log(Credential, #{url := Url, method := Method} = State) ->
     end.
 
 response_for_log({ok, StatusCode, Headers}) ->
-    #{status => StatusCode, headers => Headers};
-response_for_log({ok, StatusCode, Headers, Body}) ->
-    #{status => StatusCode, headers => Headers, body => Body};
+    #{status => StatusCode, headers => emqx_utils_redact:redact_headers(Headers)};
+response_for_log({ok, StatusCode, Headers, _Body}) ->
+    #{
+        status => StatusCode,
+        headers => emqx_utils_redact:redact_headers(Headers),
+        body => <<"******">>
+    };
 response_for_log({error, Error}) ->
     #{error => Error}.
 

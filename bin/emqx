@@ -190,6 +190,12 @@ if [ "${2:-}" = 'help' ]; then
     fi
 fi
 
+## starts only the slim apps list, and we flip code loading to interactive so
+## the skipped apps' .beam files don't sit resident in memory.
+if [ "${EMQX_FEATURES:-}" = 'ESSENTIAL' ]; then
+    export CODE_LOADING_MODE="${CODE_LOADING_MODE:-interactive}"
+fi
+
 ## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
 case "${COMMAND}" in
     start|console|console_clean|foreground|check_config)
@@ -871,13 +877,70 @@ export ESCRIPT_NAME="$SHORT_NAME"
 
 PIPE_DIR="${PIPE_DIR:-/$DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 
+# Resolve a 'file://<path>' cookie source to the secret stored in the file.
+# The file may be a regular file or a FIFO (named pipe). A FIFO can be drained
+# only once per writer, so this MUST only be called during boot (see below).
+resolve_cookie_source() {
+    local raw="$1"
+    case "$raw" in
+        "file://"*)
+            local path="${raw#file://}"
+            if [ ! -e "$path" ] && [ ! -p "$path" ]; then
+                die "node.cookie file '$path' does not exist"
+            fi
+            local val
+            # 'cat' reads both regular files and FIFOs; command substitution
+            # strips any trailing newline (e.g. from 'echo secret > file').
+            val="$(cat "$path")"
+            if [ -z "$val" ]; then
+                die "node.cookie file '$path' is empty"
+            fi
+            # Re-validate the resolved value so we fail with a clear message
+            # instead of letting 'erl -setcookie' choke on a weird character.
+            case "$val" in
+                *[\\\'\"\ ]*)
+                    die "resolved node.cookie contains a disallowed character (backslash, single/double quote, or space)"
+                    ;;
+            esac
+            printf '%s' "$val"
+            ;;
+        *)
+            printf '%s' "$raw"
+            ;;
+    esac
+}
+
 COOKIE="${EMQX_NODE__COOKIE:-}"
 COOKIE_IN_USE="$(get_boot_config 'node.cookie')"
+# Tracks whether the cookie was sourced from a 'file://' URL (see below).
+COOKIE_FROM_FILE='no'
+# Resolve 'file://' cookie sources only during boot. The resolution reads the
+# referenced file (possibly a write-once FIFO) and must happen before
+# 'erl -setcookie'. Maintenance commands (ctl/remote_console/stop/...) pick up
+# the already-resolved cookie from the running node's 'ps' output, so they must
+# NOT re-read the file (a FIFO would block forever waiting for a writer).
+if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
+    case "$COOKIE" in "file://"*) COOKIE_FROM_FILE='yes' ;; esac
+    COOKIE="$(resolve_cookie_source "$COOKIE")"
+    if [ -z "$COOKIE" ]; then
+        ## Resolve the configured cookie only when there is no env override, so a
+        ## 'file://' source is read at most once per boot.
+        case "$COOKIE_IN_USE" in "file://"*) COOKIE_FROM_FILE='yes' ;; esac
+        COOKIE_IN_USE="$(resolve_cookie_source "$COOKIE_IN_USE")"
+    fi
+fi
 if [ "$IS_BOOT_COMMAND" != 'yes' ] && [ -n "$COOKIE_IN_USE" ] && [ -n "$COOKIE" ] && [ "$COOKIE" != "$COOKIE_IN_USE" ]; then
     die "EMQX_NODE__COOKIE is different from the cookie used by $NAME"
 fi
 [ -z "$COOKIE" ] && COOKIE="$COOKIE_IN_USE"
 [ -z "$COOKIE" ] && COOKIE="$EMQX_DEFAULT_ERLANG_COOKIE"
+# When the cookie came from a 'file://' URL, re-export the resolved value. The
+# 'start' command re-execs 'bin/emqx console' via run_erl; the child inherits
+# this and skips file resolution, so a write-once FIFO is read exactly once per
+# boot instead of blocking the child forever.
+if [ "$COOKIE_FROM_FILE" = 'yes' ]; then
+    export EMQX_NODE__COOKIE="$COOKIE"
+fi
 
 # Frequently used sample cookie value for testing, not recommended for production use
 EMQX_SAMPLE_ERLANG_COOKIE="emqxsecretcookie"
@@ -1148,6 +1211,7 @@ case "${COMMAND}" in
                 -mode "$CODE_LOADING_MODE" \
                 -config "$CONF_FILE" \
                 -args_file "$ARGS_FILE" \
+                -setcookie "$COOKIE" \
                 $INIT_DEBUG_ARG \
                 $EPMD_ARGS
         else
@@ -1162,6 +1226,7 @@ case "${COMMAND}" in
                 --boot-var RELEASE_LIB "${ERTS_LIB_DIR}" \
                 --erl-config "${CONF_FILE}" \
                 --vm-args "${ARGS_FILE}" \
+                --cookie "$COOKIE" \
                 --erl "$FOREGROUNDOPTIONS" \
                 --erl "-mode $CODE_LOADING_MODE" \
                 --erl "$EPMD_ARGS" \

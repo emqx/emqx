@@ -53,6 +53,18 @@ array_nodes_test() ->
     ),
     ok.
 
+%% The node cookie must NOT be emitted into the generated vm.args. It is passed
+%% to the Erlang VM via the `-setcookie` command-line flag from `bin/emqx`
+%% instead, so the secret is never persisted to the vm.<time>.args file on disk.
+cookie_not_in_vm_args_test() ->
+    ensure_acl_conf(),
+    ConfFile = to_bin(?BASE_CONF, [["emqx1@127.0.0.1"]]),
+    {ok, Conf} = hocon:binary(ConfFile, #{format => richmap}),
+    ConfList = hocon_tconf:generate(emqx_conf_schema, Conf),
+    VMArgs = proplists:get_value(vm_args, ConfList),
+    ?assertEqual(undefined, proplists:get_value('-setcookie', VMArgs)),
+    ok.
+
 %% erlfmt-ignore
 -define(OUTDATED_LOG_CONF,
     "

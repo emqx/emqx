@@ -54,11 +54,27 @@ t_lifecycle(_Config) ->
     ).
 
 t_application_name_connect_option(_Config) ->
-    ResourceId = <<"emqx_postgresql_SUITE_application_name">>,
+    assert_application_name_connect_option(
+        <<"emqx_postgresql_SUITE_application_name">>,
+        #{},
+        "emqx"
+    ).
+
+t_custom_application_name_connect_option(_Config) ->
+    assert_application_name_connect_option(
+        <<"emqx_postgresql_SUITE_custom_application_name">>,
+        #{application_name => <<"emqx-test-app">>},
+        "emqx-test-app"
+    ).
+
+assert_application_name_connect_option(ResourceId, Overrides, ExpectedApplicationName) ->
     {ok, #{config := CheckedConfig}} =
         emqx_resource:check_config(
             ?PGSQL_RESOURCE_MOD,
-            pgsql_config(#{server => <<"invalid-postgresql-host:5432">>, pool_size => 1})
+            pgsql_config(Overrides#{
+                server => <<"invalid-postgresql-host:5432">>,
+                pool_size => 1
+            })
         ),
     ?check_trace(
         begin
@@ -77,7 +93,7 @@ t_application_name_connect_option(_Config) ->
                 ?of_kind("postgres_epgsql_connect", Trace)
             ),
             [#{opts := Opts} | _] = ?of_kind("postgres_epgsql_connect", Trace),
-            ?assert(lists:member({application_name, "emqx"}, Opts))
+            ?assert(lists:member({application_name, ExpectedApplicationName}, Opts))
         end
     ).
 
@@ -329,6 +345,42 @@ t_raw_batch_not_confused_by_table_check(_Config) ->
         emqx_resource:remove_local(ResourceId)
     end.
 
+t_batch_query_rejects_row_returning_sql(_Config) ->
+    ResourceId = <<"emqx_postgresql_SUITE_row_returning_batch">>,
+    Sql = <<"SELECT ${a}">>,
+    {ok, #{config := CheckedConfig}} =
+        emqx_resource:check_config(?PGSQL_RESOURCE_MOD, pgsql_config()),
+    {ok, #{state := State0}} = emqx_resource:create_local(
+        ResourceId,
+        ?CONNECTOR_RESOURCE_GROUP,
+        ?PGSQL_RESOURCE_MOD,
+        CheckedConfig,
+        #{spawn_buffer_workers => false}
+    ),
+    try
+        {ok, State} = emqx_postgresql:on_add_channel(
+            ResourceId, State0, <<"row_returning">>, #{parameters => #{sql => Sql}}
+        ),
+        Result = batch_query_with_timeout(
+            ResourceId,
+            [
+                {<<"row_returning">>, #{a => 1}},
+                {<<"row_returning">>, #{a => 2}}
+            ],
+            State
+        ),
+        ?assertMatch(
+            {error,
+                {unrecoverable_error, #{
+                    reason := row_returning_batch_sql_unsupported,
+                    msg := <<"PostgreSQL action batch SQL must not return rows">>
+                }}},
+            Result
+        )
+    after
+        emqx_resource:remove_local(ResourceId)
+    end.
+
 perform_lifecycle_check(ResourceId, InitialConfig) ->
     {ok, #{config := CheckedConfig}} =
         emqx_resource:check_config(?PGSQL_RESOURCE_MOD, InitialConfig),
@@ -396,7 +448,7 @@ pgsql_config() ->
 
 pgsql_config(Overrides) ->
     PoolSize = maps:get(pool_size, Overrides, 8),
-    #{
+    Config0 = #{
         <<"config">> => #{
             <<"auto_reconnect">> => true,
             <<"database">> => <<"mqtt">>,
@@ -406,11 +458,23 @@ pgsql_config(Overrides) ->
             <<"username">> => <<"root">>,
             <<"password">> => <<"public">>,
             <<"pool_size">> => PoolSize,
-            <<"server">> => iolist_to_binary([
-                ?PGSQL_HOST, ":", integer_to_list(?PGSQL_DEFAULT_PORT)
-            ])
+            <<"server">> => maps:get(
+                server,
+                Overrides,
+                iolist_to_binary([?PGSQL_HOST, ":", integer_to_list(?PGSQL_DEFAULT_PORT)])
+            )
         }
-    }.
+    },
+    case maps:find(application_name, Overrides) of
+        {ok, ApplicationName} ->
+            emqx_utils_maps:deep_put(
+                [<<"config">>, <<"application_name">>],
+                Config0,
+                ApplicationName
+            );
+        error ->
+            Config0
+    end.
 
 test_query_no_params() ->
     {query, <<"SELECT 1">>}.

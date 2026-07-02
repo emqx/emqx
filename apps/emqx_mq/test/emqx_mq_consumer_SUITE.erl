@@ -44,6 +44,23 @@ end_per_testcase(_CaseName, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+t_restore_empty_stream_buffer(_Config) ->
+    MQ = #{stream_max_buffer_size => 100},
+    It = fake_iterator,
+    SB0 = emqx_mq_consumer_stream_buffer:new(It, MQ),
+
+    Progress = emqx_mq_consumer_stream_buffer:progress(SB0),
+    SB = emqx_mq_consumer_stream_buffer:restore(Progress, MQ),
+
+    ?assertMatch(
+        #{
+            status := active,
+            last_message_id := undefined,
+            lower_buffer := #{n := 0, unacked := 0}
+        },
+        emqx_mq_consumer_stream_buffer:inspect(SB)
+    ).
+
 %% Verify that the consumer stops itself after there are no active subscribers for a while
 t_auto_shutdown(_Config) ->
     %% Create a non-lastvalue Queue

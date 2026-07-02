@@ -669,13 +669,18 @@ log_trace(Res, Type, Module, Username, Topic, PubSub) ->
                 action => emqx_access_control:format_action(PubSub)
             });
         {matched, deny} ->
-            ?TRACE("AUTHZ", "authorization_matched_deny", #{
-                authorize_type => Type,
-                module => Module,
-                username => Username,
-                topic => Topic,
-                action => emqx_access_control:format_action(PubSub)
-            })
+            %% Emit at warning level (throttled per source type) so that operators
+            %% get per-source attribution for denials by default, without having to
+            %% enable a client trace first.
+            ?TRACE_THROTTLE(
+                warning, bin(Type), "AUTHZ", authorization_source_denied, #{
+                    authorize_type => Type,
+                    module => Module,
+                    username => Username,
+                    topic => Topic,
+                    action => emqx_access_control:format_action(PubSub)
+                }
+            )
     end.
 
 format_result(nomatch) ->
