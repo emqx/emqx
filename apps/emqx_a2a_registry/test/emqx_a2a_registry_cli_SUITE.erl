@@ -417,6 +417,40 @@ t_card_stats(TCConfig) ->
     ok.
 
 -doc """
+Verifies that the CLI prints a friendly "retainer disabled" error (rather than crashing)
+on every command when the retainer feature that backs the A2A registry is disabled.
+""".
+t_retainer_disabled(TCConfig) ->
+    simple_write_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, TCConfig),
+
+    PrivDir = get_config(priv_dir, TCConfig),
+    Card = sample_card_bin(#{<<"name">> => <<"1">>}),
+    Filepath = filename:join([PrivDir, ?FUNCTION_NAME, "agent-card.json"]),
+    ok = filelib:ensure_dir(Filepath),
+    ok = file:write_file(Filepath, Card),
+
+    on_exit(fun() -> {ok, _} = emqx_retainer:update_config(#{<<"enable">> => true}) end),
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => false}),
+
+    AssertDisabled = fun(Captured) ->
+        ?assertMatch({false, [#{<<"error">> := true, <<"message">> := _}]}, Captured),
+        {false, [#{<<"message">> := Msg}]} = Captured,
+        ?assertNotEqual(nomatch, binary:match(Msg, <<"retainer">>), #{message => Msg})
+    end,
+
+    AssertDisabled(?CAPTURE(list_cards([], TCConfig))),
+    AssertDisabled(?CAPTURE(get_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID], TCConfig))),
+    AssertDisabled(?CAPTURE(delete_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID], TCConfig))),
+    AssertDisabled(?CAPTURE(register_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID, Filepath], TCConfig))),
+    AssertDisabled(?CAPTURE(card_stats(TCConfig))),
+
+    %% Re-enable; the CLI recovers.
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => true}),
+    ?assertMatch({ok, [_]}, ?CAPTURE(list_cards([], TCConfig))),
+
+    ok.
+
+-doc """
 Verifies that operations on cards in a namespace do not affect those in a different one.
 """.
 t_namespace_isolation() ->

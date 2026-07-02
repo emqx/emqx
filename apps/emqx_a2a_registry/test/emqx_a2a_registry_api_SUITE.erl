@@ -252,6 +252,44 @@ t_disabled(TCConfig) ->
     ok.
 
 -doc """
+Verifies that the A2A registry API returns a friendly 404 (rather than crashing with a
+500 and an Erlang stacktrace) on every handler when the retainer feature is disabled,
+and that it recovers once the retainer is re-enabled.
+""".
+t_retainer_disabled(TCConfig) ->
+    Card = sample_card_bin(#{<<"name">> => <<"1">>}),
+    ?assertMatch({204, _}, register_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, Card, TCConfig)),
+
+    %% Disable the retainer feature that backs the A2A registry.
+    on_exit(fun() -> {ok, _} = emqx_retainer:update_config(#{<<"enable">> => true}) end),
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => false}),
+
+    AssertRetainerDisabled = fun({Code, Body}) ->
+        ?assertEqual(404, Code),
+        ?assertMatch(#{<<"code">> := <<"NOT_FOUND">>, <<"message">> := _}, Body),
+        #{<<"message">> := Msg} = Body,
+        ?assertNotEqual(
+            nomatch,
+            binary:match(Msg, <<"retainer">>),
+            #{message => Msg}
+        )
+    end,
+
+    AssertRetainerDisabled(list_cards(#{}, TCConfig)),
+    AssertRetainerDisabled(get_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, TCConfig)),
+    AssertRetainerDisabled(delete_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, TCConfig)),
+    AssertRetainerDisabled(register_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, Card, TCConfig)),
+
+    %% Re-enable the retainer; the API recovers with no lingering cached error.
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => true}),
+    ?assertMatch({200, _}, list_cards(#{}, TCConfig)),
+    ?assertMatch({204, _}, register_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, Card, TCConfig)),
+    ?assertMatch({200, _}, get_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, TCConfig)),
+    ?assertMatch({204, _}, delete_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, TCConfig)),
+
+    ok.
+
+-doc """
 Simple smoke test to verify updating configurations via the default, generic config
 management api.
 """.
