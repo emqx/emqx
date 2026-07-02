@@ -3361,7 +3361,7 @@ validate_ciphers(Ciphers) ->
     Set = emqx_tls_lib:all_ciphers_set_cached(),
     case lists:filter(fun(Cipher) -> not sets:is_element(Cipher, Set) end, Ciphers) of
         [] -> ok;
-        Bad -> {error, {bad_ciphers, Bad}}
+        Bad -> {error, #{cause => bad_ciphers, ciphers => [iolist_to_binary(C) || C <- Bad]}}
     end.
 
 validate_tls_versions(Collection, Versions) ->

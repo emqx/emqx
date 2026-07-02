@@ -248,6 +248,30 @@ check_bpapi() {
     esac
 }
 
+## Assert that EMQX_DASHBOARD_VERSION in Makefile is a final release,
+## i.e. does not contain 'alpha' or 'beta'. Called only when cutting
+## a final EMQX release; pre-release cuts (rc/alpha/beta) are allowed
+## to ship a pre-release dashboard.
+check_dashboard_version() {
+    local dashboard_vsn
+    dashboard_vsn="$(make -s print-dashboard-version)"
+    if [ -z "$dashboard_vsn" ]; then
+        logerr "Could not read EMQX_DASHBOARD_VERSION via 'make print-dashboard-version'"
+        exit 1
+    fi
+    case "$dashboard_vsn" in
+        *alpha*|*beta*)
+            logerr "EMQX_DASHBOARD_VERSION is a pre-release ($dashboard_vsn)"
+            logerr "A final EMQX release must not bundle an alpha or beta dashboard."
+            logerr "Bump EMQX_DASHBOARD_VERSION in Makefile to a final release before cutting $TAG."
+            exit 1
+            ;;
+        *)
+            logmsg "EMQX_DASHBOARD_VERSION is $dashboard_vsn"
+            ;;
+    esac
+}
+
 case "$TAG" in
     *rc*)
         true
@@ -261,6 +285,7 @@ case "$TAG" in
     *)
         check_bpapi
         check_changelog
+        check_dashboard_version
         ;;
 esac
 
