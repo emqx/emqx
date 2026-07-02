@@ -78,10 +78,14 @@ if_enabled(Fn) ->
 handle_list(Args) ->
     case list_args(Args) of
         {ok, Opts} ->
-            Cards0 = emqx_a2a_registry:list_cards(Opts),
-            Cards1 = filter_by_status(Cards0, Opts),
-            Cards = lists:map(fun emqx_a2a_registry_adapter:card_out/1, Cards1),
-            print_json(Cards);
+            case emqx_a2a_registry:list_cards(Opts) of
+                {ok, Cards0} ->
+                    Cards1 = filter_by_status(Cards0, Opts),
+                    Cards = lists:map(fun emqx_a2a_registry_adapter:card_out/1, Cards1),
+                    print_json(Cards);
+                {error, retainer_disabled} ->
+                    print_retainer_disabled()
+            end;
         {error, Reason} ->
             Error = mk_error(fmt("Invalid list args: ~ts\n", [Reason])),
             print_json(Error),
@@ -91,13 +95,17 @@ handle_list(Args) ->
 handle_get(Args) ->
     case get_args(Args) of
         {ok, Opts} ->
-            Cards0 = emqx_a2a_registry:list_cards(Opts),
-            case filter_by_status(Cards0, Opts) of
-                [] ->
-                    print_json(null);
-                [Card0 | _] ->
-                    Card = emqx_a2a_registry_adapter:card_out(Card0),
-                    print_json(Card)
+            case emqx_a2a_registry:list_cards(Opts) of
+                {ok, Cards0} ->
+                    case filter_by_status(Cards0, Opts) of
+                        [] ->
+                            print_json(null);
+                        [Card0 | _] ->
+                            Card = emqx_a2a_registry_adapter:card_out(Card0),
+                            print_json(Card)
+                    end;
+                {error, retainer_disabled} ->
+                    print_retainer_disabled()
             end;
         {error, Reason} ->
             Error = mk_error(fmt("Invalid get args: ~ts\n", [Reason])),
@@ -108,8 +116,12 @@ handle_get(Args) ->
 handle_delete(Args) ->
     case delete_args(Args) of
         {ok, Opts} ->
-            ok = emqx_a2a_registry:delete_card(Opts),
-            ok;
+            case emqx_a2a_registry:delete_card(Opts) of
+                ok ->
+                    ok;
+                {error, retainer_disabled} ->
+                    print_retainer_disabled()
+            end;
         {error, Reason} ->
             Error = mk_error(fmt("Invalid delete args: ~ts\n", [Reason])),
             print_json(Error),
@@ -126,6 +138,8 @@ handle_register(Args) ->
                 Opts = Opts1#{card_bin => CardBin},
                 ok ?= emqx_a2a_registry:write_card(Opts)
             else
+                {error, retainer_disabled} ->
+                    print_retainer_disabled();
                 {error, Reason0} ->
                     case emqx_a2a_registry_adapter:format_register_error(Reason0) of
                         {ok, Msg} ->
@@ -153,10 +167,14 @@ handle_register(Args) ->
 handle_stats(Args) ->
     case stats_args(Args) of
         {ok, #{namespace := Namespace}} ->
-            AllCards = emqx_a2a_registry:list_cards(#{namespace => Namespace}),
-            NumAllCards = length(AllCards),
-            Stats = #{<<"total">> => NumAllCards},
-            print_json(Stats);
+            case emqx_a2a_registry:list_cards(#{namespace => Namespace}) of
+                {ok, AllCards} ->
+                    NumAllCards = length(AllCards),
+                    Stats = #{<<"total">> => NumAllCards},
+                    print_json(Stats);
+                {error, retainer_disabled} ->
+                    print_retainer_disabled()
+            end;
         {error, Reason} when is_binary(Reason) ->
             Error = mk_error(Reason),
             print_json(Error),
@@ -409,6 +427,16 @@ fmt(Fmt, Args) -> unicode:characters_to_binary(lists:flatten(io_lib:format(Fmt, 
 
 mk_error(Msg) ->
     #{<<"message">> => Msg, <<"error">> => true}.
+
+print_retainer_disabled() ->
+    Msg = <<
+        "A2A registry requires the retainer feature. "
+        "Enable retainer under 'Retained Messages' in the Dashboard, "
+        "or set `retainer.enable = true` in the configuration, "
+        "and try again."
+    >>,
+    print_json(mk_error(Msg)),
+    false.
 
 print_json(X) ->
     ?PRINT("~ts\n", [emqx_utils_json:encode(X)]).
