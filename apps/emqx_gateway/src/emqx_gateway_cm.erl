@@ -303,10 +303,11 @@ set_chan_stats(GwName, ClientId, ChanPid, Stats) ->
     wrap_rpc(emqx_gateway_cm_proto_v1:set_chan_stats(GwName, ClientId, ChanPid, Stats)).
 
 -spec connection_closed(gateway_name(), emqx_types:clientid()) -> true.
-connection_closed(GwName, ClientId) ->
-    %% XXX: Why we need to delete conn_mod tab ???
-    Chan = {ClientId, self()},
-    ets:delete_object(tabname(conn, GwName), Chan).
+connection_closed(_GwName, _ClientId) ->
+    %% The transport may be closed while the channel/session is still retained.
+    %% Keep the connection module until the channel is unregistered so session
+    %% takeover/kick/discard can still call the lingering channel.
+    true.
 
 -spec open_session(
     GwName :: gateway_name(),
