@@ -3611,7 +3611,7 @@ do_parse_server(Str, Opts) ->
             ok
     end,
     %% do not split with space, there should be no space allowed between host and port
-    Tokens = string:tokens(Str, ":"),
+    Tokens = split_server_tokens(Str),
     Context = #{
         not_expecting_port => NotExpectingPort,
         not_expecting_scheme => NotExpectingScheme,
@@ -3622,6 +3622,40 @@ do_parse_server(Str, Opts) ->
     Parsed = check_server_parts(Tokens, Context),
     maybe_check_ssrf(Parsed, Opts),
     Parsed.
+
+%% @doc Tokenize a `[scheme://]host[:port]' string into parts consumable by
+%% check_server_parts/2. An IPv6 address must be wrapped in square brackets to
+%% disambiguate its colons from the `host:port' separator, e.g. `[::1]',
+%% `[::1]:1883' or `mqtt-tcp://[::1]:1883'.
+split_server_tokens(Str) ->
+    case string:split(Str, "//") of
+        [Scheme, HostPort] when Scheme =/= [] ->
+            %% keep the historical representation where the part following the
+            %% scheme separator stays glued to the host token, e.g.
+            %% "scheme://host:port" -> ["scheme", "//host", "port"]
+            [string:trim(Scheme, trailing, ":") | prefix_first("//", split_host_tokens(HostPort))];
+        _ ->
+            split_host_tokens(Str)
+    end.
+
+%% Split a `host[:port]' string, honoring bracketed IPv6 literals.
+split_host_tokens("[" ++ Rest = Str) ->
+    case string:split(Rest, "]") of
+        [Ip, ""] ->
+            %% "[::1]" - bracketed host without port
+            [Ip];
+        [Ip, ":" ++ Port] ->
+            %% "[::1]:1883" - bracketed host with port
+            [Ip, Port];
+        _ ->
+            %% malformed brackets, let check_server_parts/2 reject it
+            string:tokens(Str, ":")
+    end;
+split_host_tokens(Str) ->
+    string:tokens(Str, ":").
+
+prefix_first(Prefix, [H | T]) -> [Prefix ++ H | T];
+prefix_first(_Prefix, []) -> [].
 
 check_server_parts([Scheme, "//" ++ Hostname, Port], Context) ->
     #{
