@@ -1923,6 +1923,39 @@ t_stale_udp_proxy_close_does_not_close_current_socket(_) ->
         gen_udp:close(Socket)
     end.
 
+t_current_udp_proxy_close_closes_current_socket(_) ->
+    QoS = 1,
+    ClientId = <<"current-proxy-close-current-socket">>,
+    TopicName = <<"current/proxy/close/current/socket">>,
+    Payload = <<"not-delivered-after-current-close">>,
+    MsgId = 34,
+    Dup = 0,
+    Retain = 0,
+    WillBit = 0,
+    CleanSession = 0,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        send_connect_msg(Socket, ClientId),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+        send_subscribe_msg_normal_topic(Socket, QoS, TopicName, MsgId),
+        SubAck = receive_response(Socket),
+        ?assertMatch(
+            <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+                _TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+            SubAck
+        ),
+
+        [Pid] = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
+        Pid ! {udp_proxy_closed, current_udp_proxy_id(Pid)},
+        timer:sleep(100),
+
+        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        ?assertEqual(udp_receive_timeout, receive_response(Socket, 500))
+    after
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId),
+        gen_udp:close(Socket)
+    end.
+
 t_asleep_pingreq_after_proxy_close(_) ->
     QoS = 1,
     SleepDuration = 5,
@@ -3624,6 +3657,10 @@ assert_publish_received(Socket, TopicId, ExpectedPayload, Attempts) ->
         Other ->
             error({unexpected_publish_response, Other})
     end.
+
+current_udp_proxy_id(Pid) ->
+    {esockd_udp_proxy, ProxyId, _Sock} = element(2, sys:get_state(Pid)),
+    ProxyId.
 
 get_udp_broadcast_address() ->
     "255.255.255.255".
