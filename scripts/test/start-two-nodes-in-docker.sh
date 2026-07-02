@@ -87,6 +87,23 @@ fi
 
 cleanup
 
+# Forward EMQX_* environment variables set by the caller (e.g. EMQX_FEATURES,
+# EMQX_AUTHORIZATION__*) to both node containers. Variables managed by this
+# script are never forwarded: node identity/cookie, clustering/RPC, the license
+# key (this script pins it via LICENSE_KEY1/2, and the CI runner may export a
+# single-node community key that would otherwise break clustering), and the
+# EMQX_NAME CI artifact-naming variable. The forwarded vars are also placed
+# before the script's own `-e` flags below, so the pinned values always win.
+EXTRA_EMQX_ENV=()
+while IFS= read -r _emqx_var; do
+    case "${_emqx_var}" in
+        EMQX_NAME) ;;
+        EMQX_NODE_NAME|EMQX_NODE_COOKIE|EMQX_NODE__NAME|EMQX_NODE__COOKIE) ;;
+        EMQX_CLUSTER__*|EMQX_RPC__*|EMQX_LICENSE__*) ;;
+        EMQX_*) EXTRA_EMQX_ENV+=(-e "${_emqx_var}") ;;
+    esac
+done < <(compgen -e)
+
 if [ -z "${USE_NET}" ]; then
     if [ ${IPV6} = 1 ]; then
         docker network create --ipv6 --subnet 2001:0DB8::/112 "$NET"
@@ -105,6 +122,7 @@ fi
 
 docker run -d -t --restart=always --name "$NODE1" \
   --net "$NET" \
+  ${EXTRA_EMQX_ENV[@]+"${EXTRA_EMQX_ENV[@]}"} \
   -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE1" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
@@ -120,6 +138,7 @@ docker run -d -t --restart=always --name "$NODE1" \
 
 docker run -d -t --restart=always --name "$NODE2" \
   --net "$NET" \
+  ${EXTRA_EMQX_ENV[@]+"${EXTRA_EMQX_ENV[@]}"} \
   -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE2" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
