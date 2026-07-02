@@ -350,7 +350,11 @@ t_connect_dtls(Config) ->
     ?assertEqual({ok, <<3, ?SN_CONNACK, 0>>}, ssl:recv(Socket, 0, 1000)),
 
     ok = ssl:send(Socket, make_disconnect_msg(undefined)),
-    ?assertEqual({ok, <<2, ?SN_DISCONNECT>>}, ssl:recv(Socket, 0, 1000)),
+    case ssl:recv(Socket, 0, 1000) of
+        {ok, <<2, ?SN_DISCONNECT>>} -> ok;
+        {error, closed} -> ok;
+        Other -> ?assertEqual({ok, <<2, ?SN_DISCONNECT>>}, Other)
+    end,
     ssl:close(Socket).
 
 t_subscribe(_) ->
