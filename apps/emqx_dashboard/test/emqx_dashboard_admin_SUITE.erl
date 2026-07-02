@@ -721,6 +721,106 @@ t_namespace_immutable(_TCConfig) ->
 
     ok.
 
+-doc """
+A bare role plus a top-level `namespace' field is assembled into a namespaced
+API key (issue #17726).
+""".
+t_api_key_namespace_field_assemble(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    ExpiresAt = to_rfc3339(erlang:system_time(second) + 1_000),
+    ?assertMatch(
+        {200, #{
+            <<"role">> := <<"administrator">>,
+            <<"namespace">> := <<"ns1">>
+        }},
+        create_api_key_api(
+            #{
+                <<"name">> => <<"nsfield1">>,
+                <<"expired_at">> => ExpiresAt,
+                <<"desc">> => <<"bare role + namespace field">>,
+                <<"enable">> => true,
+                <<"role">> => <<"administrator">>,
+                <<"namespace">> => <<"ns1">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+    ok.
+
+-doc """
+A role-encoded namespace and a matching top-level `namespace' field are accepted
+(idempotent) (issue #17726).
+""".
+t_api_key_namespace_field_redundant_match(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    ExpiresAt = to_rfc3339(erlang:system_time(second) + 1_000),
+    ?assertMatch(
+        {200, #{
+            <<"role">> := <<"administrator">>,
+            <<"namespace">> := <<"ns1">>
+        }},
+        create_api_key_api(
+            #{
+                <<"name">> => <<"nsfield2">>,
+                <<"expired_at">> => ExpiresAt,
+                <<"desc">> => <<"role-encoded + matching namespace field">>,
+                <<"enable">> => true,
+                <<"role">> => <<"ns:ns1::administrator">>,
+                <<"namespace">> => <<"ns1">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+    ok.
+
+-doc """
+A role-encoded namespace that disagrees with the top-level `namespace' field is
+rejected with a clear 400 message (issue #17726).
+""".
+t_api_key_namespace_field_mismatch(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    ExpiresAt = to_rfc3339(erlang:system_time(second) + 1_000),
+    ?assertMatch(
+        {400, #{<<"message">> := <<"namespace mismatch:", _/binary>>}},
+        create_api_key_api(
+            #{
+                <<"name">> => <<"nsfield3">>,
+                <<"expired_at">> => ExpiresAt,
+                <<"desc">> => <<"mismatching namespace">>,
+                <<"enable">> => true,
+                <<"role">> => <<"ns:ns1::administrator">>,
+                <<"namespace">> => <<"ns2">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+    ok.
+
+-doc """
+Omitting both the role-encoded namespace and the `namespace' field creates a
+global API key, unchanged from previous behaviour (issue #17726).
+""".
+t_api_key_namespace_field_absent(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    ExpiresAt = to_rfc3339(erlang:system_time(second) + 1_000),
+    ?assertMatch(
+        {200, #{
+            <<"role">> := <<"administrator">>,
+            <<"namespace">> := null
+        }},
+        create_api_key_api(
+            #{
+                <<"name">> => <<"nsfield4">>,
+                <<"expired_at">> => ExpiresAt,
+                <<"desc">> => <<"global key">>,
+                <<"enable">> => true,
+                <<"role">> => <<"administrator">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Cookie auth for plugin API
 %%------------------------------------------------------------------------------

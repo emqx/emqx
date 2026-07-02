@@ -9,6 +9,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([api_spec/0, fields/1, paths/0, schema/1, namespace/0]).
 -export([api_key/2, api_key_by_name/2, api_key_scopes/2]).
@@ -316,7 +317,16 @@ api_key(post, #{body := App}) ->
     } = App,
     ExpiredAt = ensure_expired_at(App),
     Desc = unicode:characters_to_binary(Desc0, unicode),
-    Role = maps:get(<<"role">>, App, ?ROLE_API_DEFAULT),
+    Role0 = maps:get(<<"role">>, App, ?ROLE_API_DEFAULT),
+    Namespace = maps:get(<<"namespace">>, App, undefined),
+    case resolve_effective_role(Role0, Namespace) of
+        {ok, Role} ->
+            create_api_key(App, Name, Enable, ExpiredAt, Desc, Role);
+        {error, Msg} ->
+            {400, #{code => 'BAD_REQUEST', message => Msg}}
+    end.
+
+create_api_key(App, Name, Enable, ExpiredAt, Desc, Role) ->
     %% Materialize role defaults when the client omitted `scopes' entirely.
     %% Explicit `[]' (deny-all) and explicit lists pass through unchanged.
     %% After this PR `<<"unset">>' in a GET response is reserved for legacy
@@ -356,10 +366,19 @@ api_key_by_name(delete, #{bindings := #{name := Name}}) ->
         {error, not_found} -> {404, ?NOT_FOUND_RESPONSE}
     end;
 api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
+    Role0 = maps:get(<<"role">>, Body, ?ROLE_API_DEFAULT),
+    Namespace = maps:get(<<"namespace">>, Body, undefined),
+    case resolve_effective_role(Role0, Namespace) of
+        {ok, Role} ->
+            update_api_key(Name, Role, Body);
+        {error, Msg} ->
+            {400, #{code => 'BAD_REQUEST', message => Msg}}
+    end.
+
+update_api_key(Name, Role, Body) ->
     Enable = maps:get(<<"enable">>, Body, undefined),
     ExpiredAt = ensure_expired_at(Body),
     Desc = maps:get(<<"desc">>, Body, undefined),
-    Role = maps:get(<<"role">>, Body, ?ROLE_API_DEFAULT),
     Scopes = maps:get(<<"scopes">>, Body, undefined),
     %% Validation runs against the effective scope list (request body
     %% when supplied, otherwise the persisted scopes) so a role change
@@ -403,6 +422,44 @@ effective_request_scopes(Name, undefined) ->
 
 ensure_expired_at(#{<<"expired_at">> := ExpiredAt}) when is_integer(ExpiredAt) -> ExpiredAt;
 ensure_expired_at(_) -> infinity.
+
+%% Resolve the effective role string from the request `role' field and the
+%% optional top-level `namespace' field.
+%%
+%% A namespace can be specified in two ways: encoded into the role string
+%% (`ns:<namespace>::<role>') or via the standalone `namespace' field. When
+%% both are present they must agree.
+%%
+%%   * neither present                       -> role unchanged (global key)
+%%   * only role-encoded `ns:X::r'           -> role unchanged
+%%   * only `namespace = X' + bare role `r'  -> assemble `ns:X::r'
+%%   * both, encoded X == field X            -> role unchanged (idempotent)
+%%   * both, encoded X /= field Y            -> {error, mismatch}
+resolve_effective_role(Role, undefined) ->
+    {ok, Role};
+resolve_effective_role(_Role, <<>>) ->
+    {error, <<"namespace must not be empty">>};
+resolve_effective_role(Role, Namespace) when is_binary(Namespace) ->
+    case emqx_dashboard_rbac:parse_api_role(Role) of
+        {ok, #{?role := BareRole, ?namespace := ?global_ns}} ->
+            {ok, <<"ns:", Namespace/binary, "::", BareRole/binary>>};
+        {ok, #{?namespace := Namespace}} ->
+            %% Role-encoded namespace equals the namespace field; idempotent.
+            {ok, Role};
+        {ok, #{?namespace := Other}} ->
+            {error, namespace_mismatch_msg(Other, Namespace)};
+        {error, _} = Error ->
+            Error
+    end.
+
+namespace_mismatch_msg(RoleNs, FieldNs) ->
+    iolist_to_binary([
+        <<"namespace mismatch: role is scoped to namespace '">>,
+        RoleNs,
+        <<"' but the namespace field is '">>,
+        FieldNs,
+        <<"'">>
+    ]).
 
 api_key_scopes(get, _) ->
     Scopes = [resolve_scope_desc(S) || S <- emqx_scope_catalog:scope_catalog()],
@@ -493,5 +550,11 @@ app_extend_fields() ->
                         ok
                     end
                 end
+            })},
+        {namespace,
+            hoconsc:mk(binary(), #{
+                desc => ?DESC(namespace_field),
+                required => false,
+                example => <<"ns1">>
             })}
     ].
