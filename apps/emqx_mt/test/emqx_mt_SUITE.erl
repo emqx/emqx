@@ -199,7 +199,8 @@ connection_type_of(TCConfig) ->
 connect_opts_of(TCConfig) ->
     case connection_type_of(TCConfig) of
         ?tcp ->
-            #{connect_fn => fun emqtt:connect/1};
+            Opts = #{connect_fn => fun emqtt:connect/1},
+            add_listener_port(TCConfig, Opts);
         ?ws ->
             {_, Port} = emqx:get_config([listeners, ws, default, bind]),
             #{
@@ -220,12 +221,16 @@ connect_opts_of(TCConfig) ->
                 ssl_opts => [{verify, verify_none}, {alpn, ["mqtt"]}]
             };
         ?socket ->
-            {listener, {LType, LName}} = lists:keyfind(listener, 1, TCConfig),
+            add_listener_port(TCConfig, #{connect_fn => fun emqtt:connect/1})
+    end.
+
+add_listener_port(TCConfig, Opts) ->
+    case lists:keyfind(listener, 1, TCConfig) of
+        {listener, {LType, LName}} ->
             {_, Port} = emqx:get_config([listeners, LType, LName, bind]),
-            #{
-                connect_fn => fun emqtt:connect/1,
-                port => Port
-            }
+            Opts#{port => Port};
+        _ ->
+            Opts
     end.
 
 assert_client_connection_consistent(ClientPid, TCConfig) ->
@@ -277,20 +282,10 @@ setup_namespaced_metrics_channel_scenario(TCConfig) ->
     ok = emqx_mt_config:create_managed_ns(Namespace),
     Listener =
         case connection_type_of(TCConfig) of
+            ?tcp ->
+                create_tcp_listener(gen_tcp);
             ?socket ->
-                %% Socket listener
-                SocketLName = socket,
-                SocketLPort = emqx_common_test_helpers:select_free_port(tcp),
-                SocektLConfig = #{
-                    <<"bind">> => iolist_to_binary(
-                        emqx_listeners:format_bind({"127.0.0.1", SocketLPort})
-                    ),
-                    <<"tcp_backend">> => <<"socket">>
-                },
-                {ok, _} = emqx:update_config(
-                    [listeners, tcp, SocketLName], {create, SocektLConfig}
-                ),
-                {tcp, SocketLName};
+                create_tcp_listener(socket);
             ?quic ->
                 %% Quic listener
                 QuicLName = quic,
@@ -313,6 +308,17 @@ setup_namespaced_metrics_channel_scenario(TCConfig) ->
         {listener, Listener}
         | TCConfig
     ].
+
+create_tcp_listener(Backend) ->
+    LPort = emqx_common_test_helpers:select_free_port(tcp),
+    LConfig = #{
+        <<"bind">> => iolist_to_binary(
+            emqx_listeners:format_bind({"127.0.0.1", LPort})
+        ),
+        <<"tcp_backend">> => atom_to_binary(Backend)
+    },
+    {ok, _} = emqx:update_config([listeners, tcp, Backend], {create, LConfig}),
+    {tcp, Backend}.
 
 teardown_namespaced_metrics_channel_scenario(TCConfig) ->
     maybe
