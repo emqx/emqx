@@ -183,8 +183,17 @@ do_redact_headers(Value) ->
     Value.
 
 check_is_sensitive_header(Key) ->
-    Key1 = string:trim(emqx_utils_conv:str(Key)),
-    is_sensitive_header(string:lowercase(Key1)).
+    %% Header keys may be stored as iolists (e.g. `[<<"x-api-key">>]`, a shape
+    %% produced by template parsers). `emqx_utils_conv:str/1` JSON-encodes
+    %% non-printable lists, so normalise to a binary first to keep the name intact.
+    Key1 =
+        try iolist_to_binary(Key) of
+            Bin -> Bin
+        catch
+            _:_ -> Key
+        end,
+    Key2 = string:trim(emqx_utils_conv:str(Key1)),
+    is_sensitive_header(string:lowercase(Key2)).
 
 is_sensitive_header("authorization") ->
     true;
