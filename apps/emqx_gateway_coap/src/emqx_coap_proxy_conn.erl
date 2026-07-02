@@ -8,7 +8,7 @@
 
 -include("emqx_coap.hrl").
 
--export([initialize/1, find_or_create/4, get_connection_id/4, dispatch/3, close/2]).
+-export([initialize/1, find_or_create/4, get_connection_id/4, dispatch/3, close/2, close/3]).
 
 %%--------------------------------------------------------------------
 %% Callbacks
@@ -82,7 +82,12 @@ dispatch(Pid, _State, Packet) ->
     erlang:send(Pid, Packet).
 
 close(Pid, _State) ->
-    erlang:send(Pid, udp_proxy_closed).
+    erlang:send(Pid, udp_proxy_closed),
+    ok.
+
+close(Pid, ProxyId, _State) ->
+    erlang:send(Pid, {udp_proxy_closed, ProxyId}),
+    ok.
 
 parse_incoming(<<>>, Packets, State) ->
     {Packets, State};

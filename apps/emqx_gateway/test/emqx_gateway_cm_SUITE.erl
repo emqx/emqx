@@ -190,6 +190,25 @@ t_get_set_chan_info_stats(_) ->
     emqx_gateway_cm:connection_closed(?GWNAME, ?CLIENTID),
     emqx_gateway_cm:unregister_channel(?GWNAME, ?CLIENTID).
 
+t_connection_closed_keeps_channel_callable(_) ->
+    {ok, _} = emqx_gateway_cm:open_session(
+        ?GWNAME,
+        true,
+        clientinfo(),
+        conninfo(),
+        fun(_, _) -> #{no => 1} end
+    ),
+
+    true = emqx_gateway_cm:connection_closed(?GWNAME, ?CLIENTID),
+    ok = emqx_gateway_cm:kick_session(?GWNAME, ?CLIENTID),
+    receive
+        kick -> ok
+    after 100 ->
+        ?assert(false, "waiting kick msg timeout")
+    end,
+
+    emqx_gateway_cm:unregister_channel(?GWNAME, ?CLIENTID).
+
 t_handle_process_down(Conf) ->
     Pid = proplists:get_value(cm, Conf),
 

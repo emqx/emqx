@@ -494,7 +494,8 @@ handle_msg(
     Ctx = ChannMod:info(ctx, Channel),
     ok = emqx_gateway_ctx:metrics_inc(Ctx, 'bytes.received', Oct),
 
-    NState = State#state{socket = NSock},
+    maybe_takeover_udp_proxy(NSock, State),
+    NState = State#state{socket = NSock, sockstate = running},
     {ok, next_incoming_msgs(Packets), NState};
 handle_msg({Inet, _Sock, Data}, State) when
     Inet == tcp;
@@ -541,9 +542,26 @@ handle_msg({inet_reply, _Sock, {error, Reason}}, State) ->
 handle_msg({close, Reason}, State) ->
     ?tp(debug, force_socket_close, #{reason => Reason}),
     handle_info({sock_closed, Reason}, close_socket(State));
+handle_msg(udp_proxy_detached, State) ->
+    {ok, State};
+handle_msg({udp_proxy_detached, ProxyId}, State) ->
+    case is_current_udp_proxy(ProxyId, State) of
+        true ->
+            handle_udp_proxy_detached_msg(State);
+        false ->
+            ?tp(debug, stale_udp_proxy_detached, #{proxy_id => ProxyId}),
+            {ok, State}
+    end;
+handle_msg({udp_proxy_closed, ProxyId}, State) ->
+    case is_current_udp_proxy(ProxyId, State) of
+        true ->
+            handle_udp_proxy_closed_msg(State);
+        false ->
+            ?tp(debug, stale_udp_proxy_closed, #{proxy_id => ProxyId}),
+            {ok, State}
+    end;
 handle_msg(udp_proxy_closed, State) ->
-    ?tp(debug, udp_proxy_closed, #{reason => normal}),
-    handle_info({sock_closed, normal}, close_socket(State));
+    {ok, State};
 handle_msg(
     {event, connected},
     State = #state{
@@ -589,6 +607,90 @@ handle_msg(Shutdown = {shutdown, _Reason}, State) ->
     stop(Shutdown, State);
 handle_msg(Msg, State) ->
     handle_info(Msg, State).
+
+maybe_takeover_udp_proxy(
+    {esockd_udp_proxy, ProxyId, _Socket},
+    #state{socket = {esockd_udp_proxy, ProxyId, _OldSocket}}
+) ->
+    ok;
+maybe_takeover_udp_proxy(
+    {esockd_udp_proxy, _ProxyId, _Socket},
+    #state{
+        socket = {esockd_udp_proxy, OldProxyId, _OldSocket},
+        chann_mod = ChannMod,
+        channel = Channel
+    }
+) ->
+    try ChannMod:info(clientid, Channel) of
+        ClientId ->
+            esockd_udp_proxy:takeover(OldProxyId, ClientId)
+    catch
+        _:_ ->
+            ok
+    end;
+maybe_takeover_udp_proxy(_Socket, _State) ->
+    ok.
+
+is_current_udp_proxy(ProxyId, #state{socket = {esockd_udp_proxy, ProxyId, _Socket}}) ->
+    true;
+is_current_udp_proxy(_ProxyId, _State) ->
+    false.
+
+handle_udp_proxy_detached_msg(State = #state{sockstate = closed}) ->
+    {ok, State};
+handle_udp_proxy_detached_msg(
+    State = #state{
+        chann_mod = ChannMod,
+        channel = Channel
+    }
+) ->
+    case ChannMod:info(conn_state, Channel) of
+        ConnState when ConnState == asleep; ConnState == disconnected ->
+            ?tp(debug, udp_proxy_detached, #{conn_state => ConnState}),
+            {ok, State#state{sockstate = closed}};
+        ConnState ->
+            ?tp(debug, udp_proxy_detached, #{conn_state => ConnState}),
+            handle_udp_proxy_detached(State#state{sockstate = closed})
+    end.
+
+handle_udp_proxy_closed_msg(State = #state{sockstate = closed}) ->
+    {ok, State};
+handle_udp_proxy_closed_msg(
+    State = #state{
+        chann_mod = ChannMod,
+        channel = Channel
+    }
+) ->
+    case ChannMod:info(conn_state, Channel) of
+        ConnState when ConnState == asleep; ConnState == disconnected ->
+            ?tp(debug, udp_proxy_closed, #{conn_state => ConnState}),
+            {ok, State#state{sockstate = closed}};
+        _ConnState ->
+            handle_udp_proxy_closed(State)
+    end.
+
+handle_udp_proxy_closed(State) ->
+    ?tp(debug, udp_proxy_closed, #{reason => normal}),
+    handle_info({sock_closed, normal}, close_socket(State)).
+
+handle_udp_proxy_detached(State) ->
+    case with_channel(handle_info, [{sock_closed, normal}], State) of
+        {ok, {event, disconnected}, NState} ->
+            handle_udp_proxy_detached_disconnected(NState);
+        Other ->
+            Other
+    end.
+
+handle_udp_proxy_detached_disconnected(
+    State = #state{
+        chann_mod = ChannMod,
+        channel = Channel
+    }
+) ->
+    Ctx = ChannMod:info(ctx, Channel),
+    ClientId = ChannMod:info(clientid, Channel),
+    emqx_gateway_ctx:set_chan_info(Ctx, ClientId, info(State)),
+    {ok, State}.
 
 %%--------------------------------------------------------------------
 %% Terminate

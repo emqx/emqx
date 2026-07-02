@@ -444,22 +444,12 @@ handle_in(
 handle_in(?SN_ADVERTISE_MSG(_GwId, _Radius), Channel) ->
     % ignore
     shutdown(normal, Channel);
-%% A `disconnected' channel is kept alive (indexed by the peer UDP
-%% {ip, port}) so its session can be resumed within the expiry interval.
-%% The OS, or a NAT box, may re-assign the same ephemeral port to a
-%% different sender, in which case that sender's packets are routed here.
-%% Treat a CONNECT as a takeover request: retire this stale channel so the
-%% connection layer can spawn a fresh one for the new session.
-handle_in(
-    ?SN_CONNECT_MSG(_Flags, _ProtoId, _Duration, _ClientId),
-    Channel = #channel{conn_state = disconnected}
-) ->
-    shutdown(takeover_by_new_connect, Channel);
-%% Any other packet on a `disconnected' channel is stale traffic (e.g. a
-%% retransmit from the previous peer of a reused port). Retire the channel
-%% rather than crash; no live session should be addressed here.
-handle_in(_Pkt, Channel = #channel{conn_state = disconnected}) ->
-    shutdown(stale_packet_after_disconnect, Channel);
+handle_in(Pkt, Channel = #channel{conn_state = disconnected}) ->
+    ?SLOG(debug, #{
+        msg => "ignore_packet_in_disconnected_state",
+        packet => Pkt
+    }),
+    {ok, Channel};
 %% Ack DISCONNECT even if it is not connected
 handle_in(
     ?SN_DISCONNECT_MSG(_Duration),
@@ -1891,11 +1881,12 @@ handle_info(
     %% How to get the flapping detect policy ???
     %emqx_zone:enable_flapping_detect(Zone)
     %    andalso emqx_flapping:detect(ClientInfo),
-    NChannel = ensure_disconnected(Reason, mabye_publish_will_msg(Channel)),
-    case maybe_shutdown(Reason, NChannel) of
-        {ok, NChannel1} -> {ok, {event, disconnected}, NChannel1};
-        Shutdown -> Shutdown
-    end;
+    handle_active_sock_closed(Reason, Channel);
+handle_info(
+    {sock_closed, Reason},
+    Channel = #channel{conn_state = awake}
+) ->
+    handle_active_sock_closed(Reason, Channel);
 handle_info(
     {sock_closed, Reason},
     Channel = #channel{conn_state = disconnected}
@@ -1930,6 +1921,13 @@ handle_info(Info, Channel) ->
         info => Info
     }),
     {ok, Channel}.
+
+handle_active_sock_closed(Reason, Channel) ->
+    NChannel = ensure_disconnected(Reason, mabye_publish_will_msg(Channel)),
+    case maybe_shutdown(Reason, NChannel) of
+        {ok, NChannel1} -> {ok, {event, disconnected}, NChannel1};
+        Shutdown -> Shutdown
+    end.
 
 maybe_shutdown(Reason, Channel = #channel{conninfo = ConnInfo}) ->
     case maps:get(expiry_interval, ConnInfo) of
