@@ -93,6 +93,43 @@ is_unwrapped_header({_, V}) when is_function(V) -> false;
 is_unwrapped_header({_, [{str, _V}]}) -> throw(unexpected_tmpl_token);
 is_unwrapped_header(_) -> true.
 
+transform_result_drops_ehttpc_worker_down_call_args_test() ->
+    LeakyHeaders = [
+        {<<"authorization">>, <<"Bearer secret-authz-token">>},
+        {<<"x-api-key">>, <<"secret-authz-key">>}
+    ],
+    Reason =
+        {ehttpc_worker_down,
+            {killed,
+                {gen_server, call, [
+                    self(), {get, {[[], 47, <<"authz">>], LeakyHeaders}, 1782800788278}, 5500
+                ]}}},
+    {error, Sanitized} = emqx_bridge_http_connector:transform_result({error, Reason}),
+    Flat = lists:flatten(io_lib:format("~0p", [Sanitized])),
+    ?assertEqual(0, string:str(Flat, "secret-authz-token"), Flat),
+    ?assertEqual(0, string:str(Flat, "secret-authz-key"), Flat),
+    %% Worker-down classification and stop reason are kept; the call args are
+    %% dropped entirely.
+    ?assertEqual({ehttpc_worker_down, {killed, {gen_server, call, '...'}}}, Sanitized),
+    ok.
+
+transform_result_drops_wrapped_ehttpc_worker_down_call_args_test() ->
+    LeakyHeaders = [{<<"authorization">>, <<"Bearer secret-authz-token">>}],
+    Reason =
+        {ehttpc_worker_down,
+            {killed,
+                {gen_server, call, [
+                    self(), {get, {[<<"authz">>], LeakyHeaders}, 1}, 5500
+                ]}}},
+    %% Arrives wrapped in `{shutdown, ...}`; the recursion must still sanitize it.
+    {error, Sanitized} = emqx_bridge_http_connector:transform_result(
+        {error, {shutdown, Reason}}
+    ),
+    Flat = lists:flatten(io_lib:format("~0p", [Sanitized])),
+    ?assertEqual(0, string:str(Flat, "secret-authz-token"), Flat),
+    ?assertEqual({ehttpc_worker_down, {killed, {gen_server, call, '...'}}}, Sanitized),
+    ok.
+
 method_validator_test() ->
     Conf0 = parse(webhook_config_hocon()),
     ?assertMatch(
