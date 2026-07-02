@@ -72,24 +72,27 @@ list_cards(Opts) ->
         false ->
             {error, retainer_disabled};
         true ->
-            Namespace = maps:get(namespace, Opts, ?global_ns),
-            OrgId = maps:get(org_id, Opts, <<"+">>),
-            UnitId = maps:get(unit_id, Opts, <<"+">>),
-            AgentId = maps:get(agent_id, Opts, <<"+">>),
-            Cursor = undefined,
-            MatchOpts = #{batch_read_number => all_remaining},
-            Filters =
-                case Namespace of
-                    all ->
-                        [
-                            discovery_topic(?global_ns, OrgId, UnitId, AgentId),
-                            discovery_topic(<<"+">>, OrgId, UnitId, AgentId)
-                        ];
-                    _ ->
-                        [discovery_topic(Namespace, OrgId, UnitId, AgentId)]
-                end,
-            {ok, match_cards(Filters, Cursor, MatchOpts, [])}
+            do_list_cards(Opts)
     end.
+
+do_list_cards(Opts) ->
+    Namespace = maps:get(namespace, Opts, ?global_ns),
+    OrgId = maps:get(org_id, Opts, <<"+">>),
+    UnitId = maps:get(unit_id, Opts, <<"+">>),
+    AgentId = maps:get(agent_id, Opts, <<"+">>),
+    Cursor = undefined,
+    MatchOpts = #{batch_read_number => all_remaining},
+    Filters =
+        case Namespace of
+            all ->
+                [
+                    discovery_topic(?global_ns, OrgId, UnitId, AgentId),
+                    discovery_topic(<<"+">>, OrgId, UnitId, AgentId)
+                ];
+            _ ->
+                [discovery_topic(Namespace, OrgId, UnitId, AgentId)]
+        end,
+    {ok, match_cards(Filters, Cursor, MatchOpts, [])}.
 
 match_cards([], _Cursor, _MatchOpts, Acc) ->
     lists:map(
@@ -114,19 +117,22 @@ lookup_agent_status(ClientId) ->
 
 -spec delete_card(map()) -> ok | {error, retainer_disabled}.
 delete_card(Opts) ->
+    case emqx_retainer:is_enabled() of
+        false ->
+            {error, retainer_disabled};
+        true ->
+            do_delete_card(Opts)
+    end.
+
+do_delete_card(Opts) ->
     #{
         namespace := Namespace,
         org_id := OrgId,
         unit_id := UnitId,
         agent_id := AgentId
     } = Opts,
-    case emqx_retainer:is_enabled() of
-        false ->
-            {error, retainer_disabled};
-        true ->
-            Topic = discovery_topic(Namespace, OrgId, UnitId, AgentId),
-            ok = emqx_retainer:delete(Topic)
-    end.
+    Topic = discovery_topic(Namespace, OrgId, UnitId, AgentId),
+    ok = emqx_retainer:delete(Topic).
 
 write_card(Opts) ->
     #{
