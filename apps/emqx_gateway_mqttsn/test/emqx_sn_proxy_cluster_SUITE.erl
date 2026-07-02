@@ -166,17 +166,8 @@ receive_publish(Socket, Dup, QoS, Retain, WillBit, CleanSession, TopicId, Payloa
     ).
 
 send_connect_msg(Socket, Port, ClientId) ->
-    Packet = make_connect_msg(ClientId, 1),
+    Packet = emqx_sn_protocol_SUITE:make_connect_msg(ClientId, 1),
     ok = gen_udp:send(Socket, ?HOST, Port, Packet).
-
-make_connect_msg(ClientId, CleanSession) ->
-    Length = 6 + byte_size(ClientId),
-    MsgType = ?SN_CONNECT,
-    Will = 0,
-    ProtocolId = 1,
-    Duration = 10,
-    <<Length:8, MsgType:8, ?FNU:4, Will:1, CleanSession:1, ?FNU:2, ProtocolId:8, Duration:16,
-        ClientId/binary>>.
 
 send_subscribe_msg_normal_topic(Socket, Port, QoS, Topic, MsgId) ->
     MsgType = ?SN_SUBSCRIBE,
@@ -191,13 +182,8 @@ send_subscribe_msg_normal_topic(Socket, Port, QoS, Topic, MsgId) ->
             MsgId:16, Topic/binary>>,
     ok = gen_udp:send(Socket, ?HOST, Port, SubscribePacket).
 
-send_disconnect_msg(Socket, Port, undefined) ->
-    Packet = <<2, ?SN_DISCONNECT>>,
-    ok = gen_udp:send(Socket, ?HOST, Port, Packet);
 send_disconnect_msg(Socket, Port, Duration) ->
-    Length = 4,
-    MsgType = ?SN_DISCONNECT,
-    Packet = <<Length:8, MsgType:8, Duration:16>>,
+    Packet = emqx_sn_protocol_SUITE:make_disconnect_msg(Duration),
     ok = gen_udp:send(Socket, ?HOST, Port, Packet).
 
 send_pingreq_msg(Socket, Port, ClientId) ->

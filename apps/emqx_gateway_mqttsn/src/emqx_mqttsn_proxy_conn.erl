@@ -37,8 +37,6 @@ initialize(Opts) ->
 find_or_create(CId, Transport, Peer, Opts) ->
     find_or_create(CId, Transport, Peer, Opts, #{}).
 
-find_or_create({peer, _Peer}, Transport, Peer, Opts, _State) ->
-    emqx_gateway_conn:start_link(Transport, Peer, Opts);
 find_or_create(ClientId, Transport, Peer, Opts, State) when is_binary(ClientId) ->
     ReusableStates =
         case maps:get(packet_type, State, undefined) of
@@ -91,23 +89,16 @@ close(Pid, ProxyId, _State) ->
 
 find_reusable_channel(ClientId, ReusableStates) ->
     Pids = emqx_gateway_cm_registry:lookup_channels(?GATEWAY, ClientId),
-    pick_reusable_channel(ClientId, ReusableStates, lists:reverse(Pids)).
-
-pick_reusable_channel(_ClientId, _ReusableStates, []) ->
-    false;
-pick_reusable_channel(ClientId, ReusableStates, [Pid | Rest]) ->
-    case channel_conn_state(ClientId, Pid) of
-        ConnState when
-            ConnState == connected; ConnState == asleep; ConnState == awake
-        ->
-            case lists:member(ConnState, ReusableStates) of
-                true ->
-                    {ok, Pid};
-                false ->
-                    pick_reusable_channel(ClientId, ReusableStates, Rest)
-            end;
-        _Other ->
-            pick_reusable_channel(ClientId, ReusableStates, Rest)
+    case
+        lists:search(
+            fun(Pid) ->
+                lists:member(channel_conn_state(ClientId, Pid), ReusableStates)
+            end,
+            lists:reverse(Pids)
+        )
+    of
+        {value, Pid} -> {ok, Pid};
+        false -> false
     end.
 
 channel_conn_state(ClientId, Pid) ->
@@ -178,10 +169,6 @@ select_cid(_PacketType, undefined, BoundCId, _Peer) ->
     {BoundCId, BoundCId};
 select_cid(pingreq, ReqCId, BoundCId, Peer) ->
     select_pingreq_cid(ReqCId, BoundCId, Peer);
-select_cid(_PacketType, ReqCId, undefined, _Peer) ->
-    {ReqCId, ReqCId};
-select_cid(_PacketType, ReqCId, {peer, _Peer}, _Peer0) ->
-    {ReqCId, ReqCId};
 select_cid(_PacketType, ReqCId, _BoundCId, _Peer) ->
     {ReqCId, ReqCId}.
 
