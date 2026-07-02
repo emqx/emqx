@@ -46,17 +46,14 @@ find_or_create(ClientId, Transport, Peer, Opts, State) when is_binary(ClientId) 
             pingreq -> [asleep, awake];
             _Other -> [connected, asleep, awake]
         end,
-    find_or_create_by_clientid(ClientId, ReusableStates, Transport, Peer, Opts);
-find_or_create(_CId, Transport, Peer, Opts, _State) ->
-    emqx_gateway_conn:start_link(Transport, Peer, Opts).
-
-find_or_create_by_clientid(ClientId, ReusableStates, Transport, Peer, Opts) ->
     case find_reusable_channel(ClientId, ReusableStates) of
         {ok, Pid} ->
             {ok, Pid};
         false ->
             emqx_gateway_conn:start_link(Transport, Peer, Opts)
-    end.
+    end;
+find_or_create(_CId, Transport, Peer, Opts, _State) ->
+    emqx_gateway_conn:start_link(Transport, Peer, Opts).
 
 get_connection_id(_Transport, Peer, State, Data) ->
     {ParseState, BoundCId} = split_state(State),

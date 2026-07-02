@@ -2173,16 +2173,7 @@ t_connected_clean_session_false_same_source_tuple_reused_preserves_session(_) ->
     CleanSession = 0,
     {ok, Socket} = gen_udp:open(0, [binary]),
     {ok, Socket2} = gen_udp:open(0, [binary]),
-    TestPid = self(),
-    ok = meck:new(emqx_gateway_ctx, [passthrough, no_history, no_link]),
-    ok = meck:expect(
-        emqx_gateway_ctx,
-        connection_closed,
-        fun(Ctx, ClientId) ->
-            TestPid ! {connection_closed, ClientId},
-            meck:passthrough([Ctx, ClientId])
-        end
-    ),
+    ok = setup_connection_closed_spy(),
     try
         send_connect_msg(Socket, ClientId1, CleanSession),
         ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
@@ -2245,16 +2236,7 @@ t_awake_same_source_tuple_reused_by_other_clientid(_) ->
     CleanSession = 0,
     {ok, Socket} = gen_udp:open(0, [binary]),
     {ok, Socket2} = gen_udp:open(0, [binary]),
-    TestPid = self(),
-    ok = meck:new(emqx_gateway_ctx, [passthrough, no_history, no_link]),
-    ok = meck:expect(
-        emqx_gateway_ctx,
-        connection_closed,
-        fun(Ctx, ClientId) ->
-            TestPid ! {connection_closed, ClientId},
-            meck:passthrough([Ctx, ClientId])
-        end
-    ),
+    ok = setup_connection_closed_spy(),
     try
         send_connect_msg(Socket, ClientId1, CleanSession),
         ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
@@ -3671,6 +3653,18 @@ received_connection_closed(ClientId) ->
     after 100 ->
         false
     end.
+
+setup_connection_closed_spy() ->
+    TestPid = self(),
+    ok = meck:new(emqx_gateway_ctx, [passthrough, no_history, no_link]),
+    ok = meck:expect(
+        emqx_gateway_ctx,
+        connection_closed,
+        fun(Ctx, ClientId) ->
+            TestPid ! {connection_closed, ClientId},
+            meck:passthrough([Ctx, ClientId])
+        end
+    ).
 
 with_gateway_authz_result(Protocol, ActionType, Topic, Result, Fun) ->
     Action = {?MODULE, gateway_authz_result, [Protocol, ActionType, Topic, Result]},
