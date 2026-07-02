@@ -15,7 +15,9 @@
     get_connection_id/4,
     dispatch/3,
     detach/2,
-    close/2
+    detach/3,
+    close/2,
+    close/3
 ]).
 
 -define(GATEWAY, mqttsn).
@@ -41,7 +43,7 @@ find_or_create(ClientId, Transport, Peer, Opts, State) when is_binary(ClientId) 
     ReusableStates =
         case maps:get(packet_type, State, undefined) of
             connect -> [asleep, awake];
-            pingreq -> [connected, asleep, awake];
+            pingreq -> [asleep, awake];
             _Other -> [connected, asleep, awake]
         end,
     find_or_create_by_clientid(ClientId, ReusableStates, Transport, Peer, Opts);
@@ -74,8 +76,16 @@ detach(Pid, _State) ->
     erlang:send(Pid, udp_proxy_detached),
     ok.
 
+detach(Pid, ProxyId, _State) ->
+    erlang:send(Pid, {udp_proxy_detached, ProxyId}),
+    ok.
+
 close(Pid, _State) ->
     erlang:send(Pid, udp_proxy_closed),
+    ok.
+
+close(Pid, ProxyId, _State) ->
+    erlang:send(Pid, {udp_proxy_closed, ProxyId}),
     ok.
 
 %%--------------------------------------------------------------------
@@ -148,7 +158,7 @@ merge_state(ParseState, BoundCId, PacketType) ->
 
 choose_cid(Packet, BoundCId, Peer) ->
     {ReqCId, PacketType} = packet_cid(Packet),
-    {CId, NBoundCId} = select_cid(ReqCId, BoundCId, Peer),
+    {CId, NBoundCId} = select_cid(PacketType, ReqCId, BoundCId, Peer),
     {CId, NBoundCId, PacketType}.
 
 packet_cid(?SN_CONNECT_MSG(_Flags, _ProtoId, _Duration, ClientId)) ->
@@ -165,16 +175,28 @@ normalize_clientid(ClientId) when is_binary(ClientId) ->
 normalize_clientid(_ClientId) ->
     undefined.
 
-select_cid(undefined, undefined, Peer) ->
+select_cid(_PacketType, undefined, undefined, Peer) ->
     {peer_id(Peer), undefined};
-select_cid(undefined, BoundCId, _Peer) ->
+select_cid(_PacketType, undefined, BoundCId, _Peer) ->
     {BoundCId, BoundCId};
-select_cid(ReqCId, undefined, _Peer) ->
+select_cid(pingreq, ReqCId, BoundCId, Peer) ->
+    select_pingreq_cid(ReqCId, BoundCId, Peer);
+select_cid(_PacketType, ReqCId, undefined, _Peer) ->
     {ReqCId, ReqCId};
-select_cid(ReqCId, {peer, _Peer}, _Peer0) ->
+select_cid(_PacketType, ReqCId, {peer, _Peer}, _Peer0) ->
     {ReqCId, ReqCId};
-select_cid(ReqCId, _BoundCId, _Peer) ->
+select_cid(_PacketType, ReqCId, _BoundCId, _Peer) ->
     {ReqCId, ReqCId}.
+
+select_pingreq_cid(ReqCId, ReqCId, _Peer) ->
+    {ReqCId, ReqCId};
+select_pingreq_cid(ReqCId, _BoundCId, Peer) ->
+    case find_reusable_channel(ReqCId, [asleep, awake]) of
+        {ok, _Pid} ->
+            {ReqCId, ReqCId};
+        false ->
+            {peer_id(Peer), undefined}
+    end.
 
 peer_id(Peer) ->
     {peer, Peer}.
