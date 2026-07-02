@@ -75,6 +75,59 @@ redact_wrapped_secret_test() ->
         })
     ).
 
+redact_sentinel_password_test() ->
+    ?assertEqual(
+        #{sentinel_password => <<"******">>},
+        redact(#{sentinel_password => <<"sentinel-password">>})
+    ).
+
+redact_common_token_aliases_test() ->
+    ?assertEqual(
+        #{
+            access_token => <<"******">>,
+            client_jwks => "******",
+            <<"refresh_token">> => <<"******">>,
+            "id_token" => "******"
+        },
+        redact(#{
+            access_token => <<"access-token">>,
+            client_jwks => #{type => file, file => <<"private-jwk">>},
+            <<"refresh_token">> => <<"refresh-token">>,
+            "id_token" => "id-token"
+        })
+    ).
+
+redact_secret_headers_test() ->
+    ?assertEqual(
+        #{
+            headers => #{
+                "X-API-Key" => "******",
+                <<"API-Key">> => <<"******">>,
+                cookie => "******"
+            }
+        },
+        redact(#{
+            headers => #{
+                "X-API-Key" => "api-key",
+                <<"API-Key">> => <<"api-key">>,
+                cookie => "emqx_auth=token"
+            }
+        })
+    ).
+
+redact_dashboard_secret_fields_test() ->
+    ?assertEqual(
+        #{
+            <<"old_pwd">> => <<"******">>,
+            new_pwd => <<"******">>,
+            "mfa_token" => "******"
+        },
+        redact(#{
+            <<"old_pwd">> => <<"old-password">>,
+            new_pwd => <<"new-password">>,
+            "mfa_token" => "mfa-token"
+        })
+    ).
 deobfuscate_file_path_secrets_test_() ->
     Original1 = #{foo => #{bar => #{headers => #{"authorization" => "file://a"}}}},
     Original2 = #{foo => #{bar => #{headers => #{"authorization" => "a"}}}},

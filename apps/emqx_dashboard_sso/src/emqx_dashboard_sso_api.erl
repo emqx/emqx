@@ -166,7 +166,7 @@ login(post, #{bindings := #{backend := Backend}, body := Body} = Request) ->
                 {ok, Role, Token} ->
                     ?SLOG(info, #{
                         msg => "dashboard_sso_login_successful",
-                        request => emqx_utils:redact(Request)
+                        request => redact_sso_request(Request)
                     }),
                     Username = maps:get(<<"username">>, Body),
                     minirest_handler:update_log_meta(#{log_source => Username}),
@@ -174,14 +174,14 @@ login(post, #{bindings := #{backend := Backend}, body := Body} = Request) ->
                 {redirect, Redirect} ->
                     ?SLOG(info, #{
                         msg => "dashboard_sso_login_redirect",
-                        request => emqx_utils:redact(Request)
+                        request => redact_sso_request(Request)
                     }),
                     Redirect;
                 {error, Reason0} ->
                     Reason = emqx_utils:redact(Reason0),
                     ?SLOG(info, #{
                         msg => "dashboard_sso_login_failed",
-                        request => emqx_utils:redact(Request),
+                        request => redact_sso_request(Request),
                         reason => Reason
                     }),
                     {401, #{
@@ -292,6 +292,19 @@ to_redacted_json(Data) ->
             {K, emqx_utils_maps:binary_string(V)}
         end
     ).
+
+redact_sso_request(#{body := Body} = Request) when is_binary(Body) ->
+    redact_sso_request(Request#{body => <<"******">>});
+redact_sso_request(Request) ->
+    emqx_utils:redact(Request, fun is_sso_sensitive_key/1).
+
+is_sso_sensitive_key(<<"SAMLResponse">>) -> true;
+is_sso_sensitive_key("SAMLResponse") -> true;
+is_sso_sensitive_key('SAMLResponse') -> true;
+is_sso_sensitive_key(<<"RelayState">>) -> true;
+is_sso_sensitive_key("RelayState") -> true;
+is_sso_sensitive_key('RelayState') -> true;
+is_sso_sensitive_key(_) -> false.
 
 login_meta(Username, Role, Token, Backend) ->
     #{

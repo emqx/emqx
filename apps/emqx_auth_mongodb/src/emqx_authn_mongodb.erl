@@ -76,10 +76,11 @@ authenticate(
 
 authenticate_with_filter(
     Filter,
-    #{password := Password},
+    #{password := Password} = Credential,
     #{
         collection := Collection,
-        resource_id := ResourceId
+        resource_id := ResourceId,
+        filter_template := FilterTemplate
     } = State
 ) ->
     case emqx_resource:simple_sync_query(ResourceId, {find_one, Collection, Filter}) of
@@ -89,7 +90,9 @@ authenticate_with_filter(
             ?TRACE_AUTHN_PROVIDER(error, "mongodb_query_failed", #{
                 resource => ResourceId,
                 collection => Collection,
-                filter => Filter,
+                filter => emqx_auth_utils:render_deep_for_json_redacted(
+                    FilterTemplate, Credential
+                ),
                 reason => Reason
             }),
             ignore;
@@ -101,8 +104,10 @@ authenticate_with_filter(
                     ?TRACE_AUTHN_PROVIDER(error, "cannot_find_password_hash_field", #{
                         resource => ResourceId,
                         collection => Collection,
-                        filter => Filter,
-                        document => Doc,
+                        filter => emqx_auth_utils:render_deep_for_json_redacted(
+                            FilterTemplate, Credential
+                        ),
+                        document_fields => maps:keys(Doc),
                         password_hash_field => PasswordHashField
                     }),
                     ignore;

@@ -194,7 +194,7 @@ connect_attrs(
         'client.will_qos' => WillQos,
         'client.will_retain' => WillRetain,
         'client.keepalive' => KeepAlive,
-        'client.conn_props' => emqx_utils_json:encode(Properties),
+        'client.conn_props' => emqx_utils_json:encode(redact_conn_props(Properties)),
         'client.will_props' => emqx_utils_json:encode(WillProps),
         'client.will_topic' => WillTopic,
         'client.sockname' => emqx_utils:ntoa(emqx_channel:info(sockname, Channel)),
@@ -306,3 +306,8 @@ is_valid_provider(Module) ->
         fun({F, A}) -> erlang:function_exported(Module, F, A) end,
         ?MODULE:behaviour_info(callbacks) -- ?MODULE:behaviour_info(optional_callbacks)
     ).
+
+redact_conn_props(#{'Authentication-Data' := _} = Properties) ->
+    Properties#{'Authentication-Data' := <<"******">>};
+redact_conn_props(Properties) ->
+    Properties.

@@ -144,11 +144,11 @@ body_to_user_info(Body) ->
                 {ok, Required} ->
                     {ok, emqx_utils_maps:safe_atom_key_map(Required)};
                 Error ->
-                    ?TRACE_AUTHN_PROVIDER("decode_keys_failed", #{http_body => Body}),
+                    ?TRACE_AUTHN_PROVIDER("decode_keys_failed", #{http_body => <<"******">>}),
                     Error
             end;
         _ ->
-            ?TRACE_AUTHN_PROVIDER("missing_requried_keys", #{http_body => Body}),
+            ?TRACE_AUTHN_PROVIDER("missing_requried_keys", #{http_body => <<"******">>}),
             {error, bad_response}
     end.
 

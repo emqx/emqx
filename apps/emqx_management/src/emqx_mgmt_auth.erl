@@ -411,7 +411,12 @@ add_bootstrap_file(File, Dev, MP, Line) ->
                         {ok, ok} ->
                             add_bootstrap_file(File, Dev, MP, Line + 1);
                         {error, Reason} ->
-                            throw(#{file => File, line => Line, content => Bin, reason => Reason})
+                            throw(#{
+                                file => File,
+                                line => Line,
+                                content => <<"******">>,
+                                reason => Reason
+                            })
                     end;
                 {error, Reason} ->
                     ?SLOG(
@@ -420,11 +425,11 @@ add_bootstrap_file(File, Dev, MP, Line) ->
                             msg => "failed_to_load_bootstrap_file",
                             file => File,
                             line => Line,
-                            content => Bin,
+                            content => <<"******">>,
                             reason => Reason
                         }
                     ),
-                    throw(#{file => File, line => Line, content => Bin, reason => Reason})
+                    throw(#{file => File, line => Line, content => <<"******">>, reason => Reason})
             end;
         skip ->
             add_bootstrap_file(File, Dev, MP, Line + 1);
