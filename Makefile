@@ -13,6 +13,14 @@ include env.sh
 export EMQX_DASHBOARD_VERSION ?= v1.10.9
 export EMQX_EE_DASHBOARD_VERSION ?= e1.8.11
 
+.PHONY: print-dashboard-version
+print-dashboard-version:
+	@echo $(EMQX_DASHBOARD_VERSION)
+
+.PHONY: print-ee-dashboard-version
+print-ee-dashboard-version:
+	@echo $(EMQX_EE_DASHBOARD_VERSION)
+
 export EMQX_RELUP ?= true
 export EMQX_REL_FORM ?= tgz
 export QUICER_TLS_VER ?= sys
