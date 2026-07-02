@@ -68,7 +68,7 @@ authorize(
                 msg => "query_mysql_error",
                 reason => Reason,
                 args_template => ArgsTemplate,
-                params => RenderedArgs,
+                params => emqx_auth_template:render_sql_params_redacted(ArgsTemplate, Vars),
                 resource_id => ResourceId
             }),
             emqx_authz_utils:backend_failure_result()

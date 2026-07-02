@@ -131,7 +131,7 @@ format_msg({Fmt, Args}, _Meta, Config) ->
     emqx_utils_log:format(Fmt, Args, Config).
 
 add_default_config(Config0) ->
-    Default = #{single_line => true},
+    Default = #{single_line => true, chars_limit => unlimited},
     Depth = get_depth(maps:get(depth, Config0, undefined)),
     maps:merge(Default, Config0#{depth => Depth}).
 

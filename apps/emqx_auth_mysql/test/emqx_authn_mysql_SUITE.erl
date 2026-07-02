@@ -14,6 +14,9 @@
 
 -define(MYSQL_HOST, "mysql").
 -define(MYSQL_RESOURCE, <<"emqx_authn_mysql_SUITE">>).
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
+-define(PROXY_NAME, "mysql_tcp").
 
 -define(PATH, [authentication]).
 -define(ResourceID, <<"password_based:mysql">>).
@@ -39,7 +42,7 @@ end_per_testcase(_TestCase, _Config) ->
     ok.
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mysql], #{
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_auth_mysql], #{
         work_dir => ?config(priv_dir, Config)
     }),
     {ok, _} = emqx_resource:create_local(
@@ -106,14 +109,16 @@ t_authenticate(_Config) ->
             ct:pal("test_user_auth sample: ~p", [Sample]),
             test_user_auth(Sample)
         end,
-        user_seeds()
+        cases()
     ).
 
-test_user_auth(#{
-    credentials := Credentials0,
-    config_params := SpecificConfigParams,
-    result := Result
-}) ->
+test_user_auth(
+    #{
+        credentials := Credentials0,
+        config_params := SpecificConfigParams,
+        result := Result
+    } = Sample
+) ->
     AuthConfig = maps:merge(raw_mysql_auth_config(), SpecificConfigParams),
 
     {ok, _} = emqx:update_config(
@@ -126,7 +131,8 @@ test_user_auth(#{
         protocol => mqtt
     },
 
-    ?assertEqual(Result, emqx_access_control:authenticate(Credentials)),
+    Auth = fun() -> ?assertEqual(Result, emqx_access_control:authenticate(Credentials)) end,
+    run(Sample, Credentials, Auth),
 
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
@@ -318,7 +324,7 @@ raw_mysql_auth_config() ->
         <<"server">> => mysql_server()
     }.
 
-user_seeds() ->
+cases() ->
     [
         #{
             data => #{
@@ -333,6 +339,42 @@ user_seeds() ->
             },
             config_params => #{},
             result => {ok, #{is_superuser => true}}
+        },
+
+        #{
+            data => #{
+                username => "backend_failure_legacy",
+                password_hash => "backend_failure_legacy",
+                salt => "",
+                is_superuser_str => "1"
+            },
+            credentials => #{
+                username => <<"backend_failure_legacy">>,
+                password => <<"backend_failure_legacy">>
+            },
+            config_params => #{<<"server">> => <<"toxiproxy:3306">>},
+            add_permissive => true,
+            backend_failure => true,
+            security_profile => legacy,
+            result => {ok, #{is_superuser => false}}
+        },
+
+        #{
+            data => #{
+                username => "backend_failure_hardened",
+                password_hash => "backend_failure_hardened",
+                salt => "",
+                is_superuser_str => "1"
+            },
+            credentials => #{
+                username => <<"backend_failure_hardened">>,
+                password => <<"backend_failure_hardened">>
+            },
+            config_params => #{<<"server">> => <<"toxiproxy:3306">>},
+            add_permissive => true,
+            backend_failure => true,
+            security_profile => hardened,
+            result => {error, not_authorized}
         },
 
         #{
@@ -563,7 +605,7 @@ init_seeds() ->
         fun(#{data := Values}) ->
             create_user(Values)
         end,
-        user_seeds()
+        cases()
     ).
 
 create_user(Values) ->
@@ -598,6 +640,36 @@ q(Sql, Params) ->
 
 drop_seeds() ->
     ok = q("DROP TABLE IF EXISTS users").
+
+run(Sample, Credentials, Auth) ->
+    run([failure, profile, permissive_auth], Sample, Credentials, Auth).
+
+run([failure | Rest], #{backend_failure := true} = Sample, Credentials, Auth) ->
+    emqx_common_test_helpers:with_failure(
+        down,
+        ?PROXY_NAME,
+        ?PROXY_HOST,
+        ?PROXY_PORT,
+        fun() -> run(Rest, Sample, Credentials, Auth) end
+    );
+run([failure | Rest], Sample, Credentials, Auth) ->
+    run(Rest, Sample, Credentials, Auth);
+run([profile | Rest], #{security_profile := Profile} = Sample, Credentials, Auth) ->
+    emqx_common_test_helpers:with_security_profile(atom_to_list(Profile), fun() ->
+        run(Rest, Sample, Credentials, Auth)
+    end);
+run([profile | Rest], Sample, Credentials, Auth) ->
+    run(Rest, Sample, Credentials, Auth);
+run([permissive_auth | Rest], #{add_permissive := true} = Sample, Credentials, Auth) ->
+    #{username := Username, password := Password} = Credentials,
+    ok = emqx_authn_test_lib:add_permissive_builtin_authenticator(
+        ?PATH, ?GLOBAL, Username, Password
+    ),
+    run(Rest, Sample, Credentials, Auth);
+run([permissive_auth | Rest], Sample, Credentials, Auth) ->
+    run(Rest, Sample, Credentials, Auth);
+run([], _Sample, _Credentials, Auth) ->
+    Auth().
 
 mysql_server() ->
     iolist_to_binary(io_lib:format("~s", [?MYSQL_HOST])).

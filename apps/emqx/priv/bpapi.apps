@@ -8,6 +8,7 @@
 {emqx_managed_certs,emqx}.
 {emqx_metrics,emqx}.
 {emqx_router,emqx}.
+{emqx_session_tool,emqx}.
 {emqx_shared_sub,emqx}.
 {emqx_auth_cache,emqx_auth}.
 {emqx_authn,emqx_auth}.

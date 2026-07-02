@@ -36,13 +36,29 @@ end_per_suite(Conf) ->
     ok.
 
 init_per_testcase(_TestCase, Conf) ->
+    %% A previous gateway suite in the same CT run can leave the mqttsn
+    %% gateway metrics ETS table populated with real broker stats
+    %% (bytes.received, client.connect, etc.). emqx_gateway_metrics:start_link/1
+    %% is idempotent on the table -- it does not clear stale rows. Wipe the
+    %% table here so each test sees a clean slate.
+    clear_metrics_tab(),
     {ok, Pid} = emqx_gateway_metrics:start_link(?GWNAME),
     [{metrics, Pid} | Conf].
 
 end_per_testcase(_TestCase, Conf) ->
     Pid = proplists:get_value(metrics, Conf),
     gen_server:stop(Pid),
+    %% Symmetric cleanup -- don't let our test data leak into a subsequent
+    %% suite the same way the cascade just leaked into us.
+    clear_metrics_tab(),
     Conf.
+
+clear_metrics_tab() ->
+    Tab = emqx_gateway_metrics:tabname(?GWNAME),
+    case ets:info(Tab, name) of
+        undefined -> ok;
+        _ -> true = ets:delete_all_objects(Tab)
+    end.
 
 %%--------------------------------------------------------------------
 %% cases

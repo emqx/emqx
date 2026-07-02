@@ -398,8 +398,7 @@ auth_oauth_client_credentials_overrides() ->
 %% Confluent must use SSL
 ssl_overrides() ->
     #{
-        "enable" => mk(boolean(), #{default => true, importance => ?IMPORTANCE_HIDDEN}),
-        "verify" => mk(verify_none, #{default => verify_none, importance => ?IMPORTANCE_HIDDEN})
+        "enable" => mk(boolean(), #{default => true})
     }.
 
 kafka_producer_overrides() ->

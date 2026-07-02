@@ -159,6 +159,18 @@ disconnect_after_expire.desc:
 disconnect_after_expire.label:
 """Disconnect After Expire"""
 
+on_missing_jwt.desc:
+"""Action to take when the configured JWT credential field is missing. Use <code>deny</code> to reject authentication immediately, or <code>ignore</code> to skip this authenticator and let the authentication chain continue."""
+
+on_missing_jwt.label:
+"""On Missing JWT"""
+
+max_fail_count.desc:
+"""Maximum number of consecutive JWKS refresh failures before cached keys are invalidated."""
+
+max_fail_count.label:
+"""Max Fail Count"""
+
 jwks_headers.label:
 """HTTP Headers"""
 jwks_headers.desc:

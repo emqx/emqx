@@ -23,6 +23,12 @@
 -define(TRACE_AUTHN(Msg, Meta), ?TRACE_AUTHN(debug, Msg, Meta)).
 -define(TRACE_AUTHN(Level, Msg, Meta), ?TRACE(Level, ?AUTHN_TRACE_TAG, Msg, Meta)).
 
+%% Throttled AUTHN trace, keyed by `Key' (e.g. authenticator id) so that a
+%% rejection storm on one authenticator does not suppress logs from another.
+-define(TRACE_AUTHN_THROTTLE(Level, Key, Msg, Meta),
+    ?TRACE_THROTTLE(Level, Key, ?AUTHN_TRACE_TAG, Msg, Meta)
+).
+
 %% config root name all auth providers have to agree on.
 -define(EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, "authentication").
 -define(EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM, authentication).

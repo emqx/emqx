@@ -41,16 +41,23 @@
 %% Callbacks
 %%------------------------------------------------------------------------------
 
-create(_AuthenticatorID, _Config) ->
-    {ok, #{mark => 1}}.
+create(_AuthenticatorID, Config) ->
+    {ok, #{mark => 1, config => Config}}.
 
-update(_Config, _State) ->
-    {ok, #{mark => 2}}.
+update(Config, _State) ->
+    {ok, #{mark => 2, config => Config}}.
 
 authenticate(#{username := <<"good">>}, _State) ->
     {ok, #{is_superuser => true}};
 authenticate(#{username := <<"ignore">>}, _State) ->
     ignore;
+authenticate(
+    #{username := <<"backend_failure">>},
+    #{config := #{backend := built_in_database}}
+) ->
+    emqx_authn_utils:backend_failure_result();
+authenticate(#{username := <<"backend_failure">>}, _State) ->
+    {ok, #{is_superuser => true}};
 authenticate(#{username := <<"emqx_authn_ignore_for_hook_good">>}, _State) ->
     ignore;
 authenticate(#{username := <<"emqx_authn_ignore_for_hook_bad">>}, _State) ->
@@ -283,6 +290,53 @@ t_authenticate(Config) when is_list(Config) ->
         emqx_access_control:authenticate(ClientInfo#{username => <<"bad">>})
     );
 t_authenticate({'end', Config}) ->
+    ?AUTHN:delete_chain(?config(listener_id)),
+    ?AUTHN:deregister_provider(?config(authn_type)),
+    ok.
+
+-doc "A per-authenticator rejection is logged at warning level with the authenticator id.".
+t_authenticate_rejection_log({init, Config}) ->
+    [
+        {listener_id, 'tcp:default'},
+        {authn_type, {password_based, built_in_database}}
+        | Config
+    ];
+t_authenticate_rejection_log(Config) when is_list(Config) ->
+    ListenerID = ?config(listener_id),
+    AuthNType = ?config(authn_type),
+    ok = register_provider(AuthNType, ?MODULE),
+    AuthenticatorConfig = #{
+        mechanism => password_based,
+        backend => built_in_database,
+        enable => true
+    },
+    {ok, _} = ?AUTHN:create_authenticator(ListenerID, AuthenticatorConfig),
+    ClientInfo = #{
+        zone => default,
+        listener => ListenerID,
+        protocol => mqtt,
+        username => <<"bad">>,
+        password => <<"any">>
+    },
+    Logs = emqx_cth_log_capture:capture(fun() ->
+        ?assertEqual(
+            {error, bad_username_or_password},
+            emqx_access_control:authenticate(ClientInfo)
+        )
+    end),
+    ?assertMatch(
+        [
+            #{
+                msg := authenticator_rejection,
+                authenticator := <<"password_based:built_in_database">>,
+                provider := _,
+                reason := bad_username_or_password
+            }
+            | _
+        ],
+        [M || #{msg := authenticator_rejection} = M <- Logs]
+    );
+t_authenticate_rejection_log({'end', Config}) ->
     ?AUTHN:delete_chain(?config(listener_id)),
     ?AUTHN:deregister_provider(?config(authn_type)),
     ok.
@@ -614,6 +668,46 @@ t_authn_not_configured_empty_chain({'end', _Config}) ->
     ok = ?AUTHN:deregister_provider({password_based, built_in_database}),
     emqx_common_test_helpers:clear_security_profile().
 
+t_authn_backend_failure_legacy_continues_chain({'init', Config}) ->
+    setup_backend_failure_chain(),
+    Config;
+t_authn_backend_failure_legacy_continues_chain(Config) when is_list(Config) ->
+    ClientInfo = backend_failure_clientinfo(),
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ?assertEqual({ok, #{is_superuser => true}}, emqx_access_control:authenticate(ClientInfo))
+    end),
+    ok;
+t_authn_backend_failure_legacy_continues_chain({'end', _Config}) ->
+    cleanup_backend_failure_chain().
+
+t_authn_backend_failure_hardened_aborts_chain({'init', Config}) ->
+    setup_backend_failure_chain(),
+    Config;
+t_authn_backend_failure_hardened_aborts_chain(Config) when is_list(Config) ->
+    ClientInfo = backend_failure_clientinfo(),
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo))
+    end),
+    ok;
+t_authn_backend_failure_hardened_aborts_chain({'end', _Config}) ->
+    cleanup_backend_failure_chain().
+
+t_authn_backend_failure_policy_override({'init', Config}) ->
+    Config;
+t_authn_backend_failure_policy_override(Config) when is_list(Config) ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        {ok, _} = emqx:update_config([authentication_settings, ignore_backend_failures], false),
+        ?assertEqual(deny, emqx_authn_utils:authn_backend_failure_policy()),
+        ?assertEqual({error, not_authorized}, emqx_authn_utils:backend_failure_result()),
+
+        {ok, _} = emqx:update_config([authentication_settings, ignore_backend_failures], true),
+        ?assertEqual(ignore, emqx_authn_utils:authn_backend_failure_policy()),
+        ?assertEqual(ignore, emqx_authn_utils:backend_failure_result())
+    end);
+t_authn_backend_failure_policy_override({'end', _Config}) ->
+    {ok, _} = emqx:update_config([authentication_settings, ignore_backend_failures], false),
+    emqx_common_test_helpers:clear_security_profile().
+
 %%=================================================================================
 %% Helpers fns
 %%=================================================================================
@@ -631,6 +725,40 @@ cleanup_authn_not_configured_chains() ->
     _ = ?AUTHN:delete_chain('tcp:default'),
     _ = ?AUTHN:delete_chain('mqtt:global'),
     ok.
+
+backend_failure_clientinfo() ->
+    #{
+        zone => default,
+        listener => 'tcp:default',
+        protocol => mqtt,
+        username => <<"backend_failure">>,
+        password => <<"any">>
+    }.
+
+setup_backend_failure_chain() ->
+    ListenerID = 'tcp:default',
+    AuthNType1 = {password_based, built_in_database},
+    AuthNType2 = {password_based, mysql},
+    ok = register_provider(AuthNType1, ?MODULE),
+    ok = register_provider(AuthNType2, ?MODULE),
+    {ok, _} = ?AUTHN:create_authenticator(ListenerID, #{
+        mechanism => password_based,
+        backend => built_in_database,
+        enable => true
+    }),
+    {ok, _} = ?AUTHN:create_authenticator(ListenerID, #{
+        mechanism => password_based,
+        backend => mysql,
+        enable => true
+    }),
+    ok.
+
+cleanup_backend_failure_chain() ->
+    ok = ?AUTHN:delete_chain('tcp:default'),
+    ok = ?AUTHN:deregister_provider({password_based, built_in_database}),
+    ok = ?AUTHN:deregister_provider({password_based, mysql}),
+    {ok, _} = emqx:update_config([authentication_settings, ignore_backend_failures], false),
+    emqx_common_test_helpers:clear_security_profile().
 
 hook(Priority) ->
     ok = emqx_hooks:put(

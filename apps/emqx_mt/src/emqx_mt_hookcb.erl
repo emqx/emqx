@@ -174,10 +174,7 @@ eval_post_auth_tns_expression(Compiled, ClientId, ClientInfo, Ctx) ->
     case emqx_variform:render(Compiled, ClientInfo) of
         {ok, <<>>} ->
             ?TRACE("post_auth_tns_expression_rendered_empty", #{}),
-            %% The pre-auth `tns' (if any) is retained; it was not gated by the
-            %% `client.authenticate' hook because expression evaluation is
-            %% deferred to here, so reject it now if it is a reserved name.
-            reject_if_retained_tns_reserved(ClientInfo);
+            gate_with_no_tns(ClientInfo, Ctx);
         {ok, Tns} ->
             decide_with_rewritten_tns(ClientId, Tns, ClientInfo, Ctx);
         {error, Reason} ->
@@ -186,22 +183,29 @@ eval_post_auth_tns_expression(Compiled, ClientId, ClientInfo, Ctx) ->
                 #{msg => "post_auth_tns_expression_error", reason => Reason},
                 #{clientid => ClientId}
             ),
-            reject_if_retained_tns_reserved(ClientInfo)
+            gate_with_no_tns(ClientInfo, Ctx)
     end.
 
-reject_if_retained_tns_reserved(ClientInfo) ->
-    case maps:get(client_attrs, ClientInfo, #{}) of
-        #{?CLIENT_ATTR_NAME_TNS := Tns} ->
-            case emqx:is_reserved_namespace(Tns) of
-                true ->
-                    ?TRACE("deny_due_to_reserved_namespace", #{tns => Tns}),
-                    {stop, {error, not_authorized}};
-                false ->
-                    ok
-            end;
-        _ ->
-            ok
+%% The post-auth expression did not yield a namespace (it rendered empty or
+%% raised). Treat the client as having no tenant namespace and run the same
+%% gate as the pre-auth no-tns clause of `do_on_authenticate/2': reject when
+%% `allow_only_managed_namespaces' is set, otherwise pass through. Any pre-auth
+%% `client_attrs.tns' is stripped so it cannot linger after the expression
+%% declined to assign one.
+gate_with_no_tns(ClientInfo, Ctx) ->
+    case emqx_mt_config:get_allow_only_managed_namespaces() of
+        true ->
+            ?TRACE("deny_due_to_no_tenant_namespace_post_authn", #{}),
+            {stop, {error, not_authorized}};
+        false ->
+            ?TRACE("no_tenant_namespace_post_authn", #{}),
+            {ok, Ctx#{client_info := strip_tns(ClientInfo)}}
     end.
+
+strip_tns(#{client_attrs := Attrs} = ClientInfo) ->
+    ClientInfo#{client_attrs => maps:remove(?CLIENT_ATTR_NAME_TNS, Attrs)};
+strip_tns(ClientInfo) ->
+    ClientInfo.
 
 decide_with_rewritten_tns(ClientId, Tns, ClientInfo, Ctx) ->
     case emqx:is_reserved_namespace(Tns) of

@@ -59,30 +59,36 @@ check(#{password := Password} = ClientInfo) ->
                     check_jwt(ClientInfo, DeviceId);
                 {false, not_a_jwt} ->
                     ?tp(authn_gcp_device_check, #{
-                        result => ignore, reason => "not a JWT", client => ClientInfo
+                        result => ignore,
+                        reason => "not a JWT",
+                        client => emqx_utils:redact(ClientInfo)
                     }),
                     ?TRACE_AUTHN_PROVIDER(debug, "auth_ignored", #{
                         reason => "not a JWT",
-                        client => ClientInfo
+                        client => emqx_utils:redact(ClientInfo)
                     }),
                     ignore;
                 {false, expired} ->
                     ?tp(authn_gcp_device_check, #{
-                        result => not_authorized, reason => "expired JWT", client => ClientInfo
+                        result => not_authorized,
+                        reason => "expired JWT",
+                        client => emqx_utils:redact(ClientInfo)
                     }),
                     ?TRACE_AUTHN_PROVIDER(info, "auth_failed", #{
                         reason => "expired JWT",
-                        client => ClientInfo
+                        client => emqx_utils:redact(ClientInfo)
                     }),
                     {error, not_authorized}
             end;
         not_a_gcp_clientid ->
             ?tp(authn_gcp_device_check, #{
-                result => ignore, reason => "not a GCP ClientId", client => ClientInfo
+                result => ignore,
+                reason => "not a GCP ClientId",
+                client => emqx_utils:redact(ClientInfo)
             }),
             ?TRACE_AUTHN_PROVIDER(debug, "auth_ignored", #{
                 reason => "not a GCP ClientId",
-                client => ClientInfo
+                client => emqx_utils:redact(ClientInfo)
             }),
             ignore
     end.
@@ -91,33 +97,35 @@ check_jwt(ClientInfo, DeviceId) ->
     case emqx_gcp_device:get_device_actual_keys(DeviceId) of
         not_found ->
             ?tp(authn_gcp_device_check, #{
-                result => ignore, reason => "key not found", client => ClientInfo
+                result => ignore, reason => "key not found", client => emqx_utils:redact(ClientInfo)
             }),
             ?TRACE_AUTHN_PROVIDER(debug, "auth_ignored", #{
                 reason => "key not found",
-                client => ClientInfo
+                client => emqx_utils:redact(ClientInfo)
             }),
-            ignore;
+            emqx_authn_utils:backend_failure_result();
         Keys ->
             case any_key_matches(Keys, ClientInfo) of
                 true ->
                     ?tp(authn_gcp_device_check, #{
-                        result => ok, reason => "auth success", client => ClientInfo
+                        result => ok,
+                        reason => "auth success",
+                        client => emqx_utils:redact(ClientInfo)
                     }),
                     ?TRACE_AUTHN_PROVIDER(debug, "auth_success", #{
                         reason => "auth success",
-                        client => ClientInfo
+                        client => emqx_utils:redact(ClientInfo)
                     }),
                     ok;
                 false ->
                     ?tp(authn_gcp_device_check, #{
                         result => {error, bad_username_or_password},
                         reason => "no matching or valid keys",
-                        client => ClientInfo
+                        client => emqx_utils:redact(ClientInfo)
                     }),
                     ?TRACE_AUTHN_PROVIDER(info, "auth_failed", #{
                         reason => "no matching or valid keys",
-                        client => ClientInfo
+                        client => emqx_utils:redact(ClientInfo)
                     }),
                     {error, bad_username_or_password}
             end

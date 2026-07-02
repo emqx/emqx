@@ -358,7 +358,14 @@ log_rotation_count.label:
 node_cookie.desc:
 """Secret cookie is a random string that should be the same on all nodes in
 the given EMQX cluster, but unique per EMQX cluster. It is used to prevent EMQX nodes that
-belong to different clusters from accidentally connecting to each other."""
+belong to different clusters from accidentally connecting to each other.<br/>
+The cookie can also be sourced from a file using the <code>file://path/to/file</code>
+form (e.g. <code>file:///run/emqx/cookie</code>), so the secret does not have to be
+stored as plain text in the config file. The referenced path may be a regular file or a
+FIFO (named pipe); it is read only once, when the node boots. When a FIFO is used, the
+orchestrator must write the cookie to it on each boot, before any other
+<code>emqx</code> command (such as <code>emqx ctl</code>) is invoked, because later
+commands obtain the cookie from the running node instead of re-reading the file."""
 
 node_cookie.label:
 """Node Cookie"""

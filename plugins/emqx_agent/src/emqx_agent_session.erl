@@ -13,8 +13,8 @@ pending events, queued requests, tool-call state, and usage counters. The
 environment is event-based, so there is no separate agent loop process outside
 MQTT routing and the session state machine.
 
-Incoming topic:  $sess/in/<SID>/
-Outgoing topic:  $sess/out/<SID>/
+Incoming topic:  $sess/in/<SID>
+Outgoing topic:  $sess/out/<SID>
 
 Message types on in-topic:
   request     — start LLM work; carries optional persistent (default false)
@@ -73,6 +73,8 @@ Events in initial_idle are buffered and folded in when the first request arrives
 
 -ifdef(TEST).
 -export([
+    test_attachment_msgs/1,
+    test_order_tool_result_msgs/1,
     init_stream_acc/0,
     test_feed_sse/2,
     test_stream_chunks/1,
@@ -82,8 +84,8 @@ Events in initial_idle are buffered and folded in when the first request arrives
 
 -define(NAME(Sid), {?MODULE, Sid}).
 -define(REG(Sid), {global, ?NAME(Sid)}).
--define(IN(Sid), <<?AGENT_SESS_IN_PREFIX/binary, (Sid)/binary, "/">>).
--define(OUT(Sid), <<?AGENT_SESS_OUT_PREFIX/binary, (Sid)/binary, "/">>).
+-define(IN(Sid), <<?AGENT_SESS_IN_PREFIX/binary, (Sid)/binary>>).
+-define(OUT(Sid), <<?AGENT_SESS_OUT_PREFIX/binary, (Sid)/binary>>).
 -define(MAX_ITERATIONS, 20).
 -define(PERSISTENT_IDLE_TIMEOUT_MS, 3_600_000).
 
@@ -152,8 +154,9 @@ deinit() ->
 on_message_publish(
     #message{topic = <<"$sess/in/", Rest/binary>>, payload = Payload} = Message
 ) ->
-    case binary:split(Rest, <<"/">>) of
-        [Sid, <<>>] ->
+    case is_session_topic_sid(Rest) of
+        true ->
+            Sid = Rest,
             Msg = safe_decode(Payload),
             case Msg of
                 #{<<"type">> := <<"request">>} ->
@@ -169,7 +172,7 @@ on_message_publish(
                 _ ->
                     ok
             end;
-        _ ->
+        false ->
             ok
     end,
     {ok, Message};
@@ -219,7 +222,7 @@ terminate(_Reason, _State, #data{sid = Sid}) ->
 %% Clauses are ordered: specific state first, catch-alls last.
 %%--------------------------------------------------------------------
 
-%% ── MQTT delivery: messages on $sess/in/<Sid>/ arrive via subscription ────
+%% ── MQTT delivery: messages on $sess/in/<Sid> arrive via subscription ─────
 
 handle_event(
     info,
@@ -490,35 +493,10 @@ on_llm_choice(Choice, Data) ->
 
 on_tool_result(CallId, Msg, Data) ->
     Result = maps:get(<<"response">>, Msg, #{}),
-    %% Build the tool-role acknowledgement.  Tool messages must carry a string
-    %% content; image_url is not a valid tool-message content type for OpenAI.
-    %% When the result contains an image we acknowledge the tool call with a
-    %% plain string, then append a separate user-role message whose content is
-    %% the multimodal array — that is the form gpt-4o accepts for vision input.
-    {ToolContent, ExtraMsgs} =
-        case
-            maps:get(<<"status">>, Result, <<"ok">>) =:= <<"ok">> andalso
-                try_extract_image_url(
-                    maps:get(<<"payload">>, maps:get(<<"result">>, Result, #{}), undefined)
-                )
-        of
-            {ok, ImageUrl} ->
-                AckJson = emqx_utils_json:encode(
-                    #{<<"status">> => <<"ok">>, <<"result">> => <<"image received">>}
-                ),
-                VisionMsg = #{
-                    <<"role">> => <<"user">>,
-                    <<"content">> => [
-                        #{
-                            <<"type">> => <<"image_url">>,
-                            <<"image_url">> => #{<<"url">> => ImageUrl}
-                        }
-                    ]
-                },
-                {AckJson, [VisionMsg]};
-            _ ->
-                {emqx_utils_json:encode(Result), []}
-        end,
+    %% Tool messages must carry string content.  Multimodal artifacts returned by
+    %% tools are rendered as separate user messages for OpenAI-compatible models.
+    ToolContent = emqx_utils_json:encode(maps:remove(<<"attachments">>, Result)),
+    ExtraMsgs = attachment_msgs(maps:get(<<"attachments">>, Result, [])),
     ToolMsg = #{
         <<"role">> => <<"tool">>,
         <<"tool_call_id">> => CallId,
@@ -546,7 +524,7 @@ on_tool_result(CallId, Msg, Data) ->
                     <<"required">> -> <<"auto">>;
                     TC -> TC
                 end,
-            Results = Data1#data.tool_result_msgs,
+            Results = order_tool_result_msgs(Data1#data.tool_result_msgs),
             EventMsgs = [event_to_llm_msg(E) || E <- Data1#data.pending],
             Data2 = Data1#data{
                 messages = Data1#data.messages ++ Results ++ EventMsgs,
@@ -632,7 +610,7 @@ cancel_idle_timer(#data{idle_timer_ref = Ref} = Data) ->
     Data#data{idle_timer_ref = undefined}.
 
 %%--------------------------------------------------------------------
-%% Session message dispatch — handles decoded JSON from $sess/in/<Sid>/
+%% Session message dispatch — handles decoded JSON from $sess/in/<Sid>
 %%--------------------------------------------------------------------
 
 %% ── initial_idle: accept the first request ─────────────────────────────
@@ -767,6 +745,11 @@ safe_decode(Payload) ->
     catch
         _:_ -> #{}
     end.
+
+is_session_topic_sid(<<>>) ->
+    false;
+is_session_topic_sid(Sid) ->
+    binary:match(Sid, <<"/">>) =:= nomatch.
 
 %%--------------------------------------------------------------------
 %% Tool request publishing
@@ -1252,7 +1235,7 @@ compaction_request_msg() ->
         >>
     }.
 
-%% Publish a frame to $sess/out/<Sid>/, automatically filling correlation fields
+%% Publish a frame to $sess/out/<Sid>, automatically filling correlation fields
 %% (sid, iid, trace_id) and usage counters from Data.
 publish(#data{sid = Sid, iid = Iid, trace_id = TraceId, usage = Usage} = _Data, Frame) ->
     Payload = maps:merge(
@@ -1269,14 +1252,52 @@ publish(#data{sid = Sid, iid = Iid, trace_id = TraceId, usage = Usage} = _Data, 
     _ = emqx_broker:publish(Msg),
     ok.
 
-%% Parse `Payload` (a binary JSON string) and return the image_url if present.
-try_extract_image_url(Payload) when is_binary(Payload) ->
-    case emqx_utils_json:safe_decode(Payload) of
-        {ok, #{<<"image_url">> := <<"data:image/", _/binary>> = Url}} -> {ok, Url};
-        _ -> error
+attachment_msgs([]) ->
+    [];
+attachment_msgs(Attachments) when is_list(Attachments) ->
+    Parts = lists:filtermap(fun attachment_part/1, Attachments),
+    case Parts of
+        [] ->
+            [];
+        [_ | _] ->
+            Text = attachment_text_part(Attachments),
+            [#{<<"role">> => <<"user">>, <<"content">> => [Text | Parts]}]
     end;
-try_extract_image_url(_) ->
-    error.
+attachment_msgs(_) ->
+    [].
+
+order_tool_result_msgs(Msgs) ->
+    {ToolMsgs, ExtraMsgs} = lists:partition(fun is_tool_msg/1, Msgs),
+    ToolMsgs ++ ExtraMsgs.
+
+is_tool_msg(#{<<"role">> := <<"tool">>}) ->
+    true;
+is_tool_msg(_) ->
+    false.
+
+attachment_text_part(Attachments) ->
+    Ids = [Id || #{<<"id">> := Id, <<"type">> := <<"image">>} <- Attachments],
+    Text = iolist_to_binary(["Tool response image(s): ", lists:join(", ", Ids)]),
+    #{<<"type">> => <<"text">>, <<"text">> => Text}.
+
+attachment_part(
+    #{
+        <<"type">> := <<"image">>,
+        <<"url">> := Url
+    }
+) when is_binary(Url) ->
+    {true, #{<<"type">> => <<"image_url">>, <<"image_url">> => #{<<"url">> => Url}}};
+attachment_part(
+    #{
+        <<"type">> := <<"image">>,
+        <<"mime_type">> := MimeType,
+        <<"data">> := Data
+    }
+) when is_binary(MimeType), is_binary(Data) ->
+    Url = <<"data:", MimeType/binary, ";base64,", Data/binary>>,
+    {true, #{<<"type">> => <<"image_url">>, <<"image_url">> => #{<<"url">> => Url}}};
+attachment_part(_) ->
+    false.
 
 try_parse_result(Content) when is_binary(Content) ->
     try
@@ -1292,6 +1313,12 @@ try_parse_result(Content) ->
 %%--------------------------------------------------------------------
 
 -ifdef(TEST).
+
+test_attachment_msgs(Attachments) ->
+    attachment_msgs(Attachments).
+
+test_order_tool_result_msgs(Msgs) ->
+    order_tool_result_msgs(Msgs).
 
 -define(TEST_SID, <<"test-sid">>).
 -define(TEST_IID, <<"test-iid">>).

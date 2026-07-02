@@ -61,38 +61,38 @@ end_per_testcase(_TestCase, _Config) ->
 t_write_read(_Config) ->
     ok = write(<<"k1">>, #{<<"v">> => 1}),
 
-    ok = invoke(<<"kv_read">>, ?READ_ID, #{<<"key">> => <<"k1">>}),
+    ok = invoke(<<"kv__read">>, ?READ_ID, #{<<"key">> => <<"k1">>}),
 
     ?assertMatch(
         #{<<"status">> := <<"ok">>, <<"result">> := [#{<<"v">> := 1}]},
-        response(<<"kv_read">>, ?READ_ID)
+        response(<<"kv__read">>, ?READ_ID)
     ).
 
 t_binary_format_roundtrip(_Config) ->
-    ok = invoke(<<"kv_write">>, ?BIN_WRITE_ID, #{
+    ok = invoke(<<"kv__write">>, ?BIN_WRITE_ID, #{
         <<"key">> => <<"raw">>,
         <<"payload">> => <<"not-json">>
     }),
-    ?assertMatch(#{<<"status">> := <<"ok">>}, response(<<"kv_write">>, ?BIN_WRITE_ID)),
+    ?assertMatch(#{<<"status">> := <<"ok">>}, response(<<"kv__write">>, ?BIN_WRITE_ID)),
 
-    ok = invoke(<<"kv_read">>, ?BIN_READ_ID, #{<<"key">> => <<"raw">>}),
+    ok = invoke(<<"kv__read">>, ?BIN_READ_ID, #{<<"key">> => <<"raw">>}),
     ?assertMatch(
         #{<<"status">> := <<"ok">>, <<"result">> := [<<"not-json">>]},
-        response(<<"kv_read">>, ?BIN_READ_ID)
+        response(<<"kv__read">>, ?BIN_READ_ID)
     ),
 
-    ok = invoke(<<"kv_read_all">>, ?BIN_READ_ALL_ID, #{}),
+    ok = invoke(<<"kv__read_all">>, ?BIN_READ_ALL_ID, #{}),
     ?assertMatch(
         #{
             <<"status">> := <<"ok">>,
             <<"result">> := [#{<<"key">> := <<"raw">>, <<"value">> := <<"not-json">>}]
         },
-        response(<<"kv_read_all">>, ?BIN_READ_ALL_ID)
+        response(<<"kv__read_all">>, ?BIN_READ_ALL_ID)
     ).
 
 t_write_input_schema_matches_format(_Config) ->
     {ok, #{input_schema := JsonSchema}} = emqx_agent_tool_kv:create(
-        tool(<<"kv_write">>, <<"json-schema-writer">>, <<"Write JSON KV">>, ?STREAM)
+        tool(<<"kv__write">>, <<"json-schema-writer">>, <<"Write JSON KV">>, ?STREAM)
     ),
     ?assertMatch(
         #{<<"properties">> := #{<<"payload">> := #{<<"type">> := <<"object">>}}},
@@ -101,7 +101,11 @@ t_write_input_schema_matches_format(_Config) ->
 
     {ok, #{input_schema := BinarySchema}} = emqx_agent_tool_kv:create(
         tool(
-            <<"kv_write">>, <<"binary-schema-writer">>, <<"Write binary KV">>, ?STREAM, <<"binary">>
+            <<"kv__write">>,
+            <<"binary-schema-writer">>,
+            <<"Write binary KV">>,
+            ?STREAM,
+            <<"binary">>
         )
     ),
     ?assertMatch(
@@ -113,20 +117,20 @@ t_write_overwrites_key(_Config) ->
     ok = write(<<"k1">>, #{<<"v">> => 1}),
     ok = write(<<"k1">>, #{<<"v">> => 2}),
 
-    ok = invoke(<<"kv_read">>, ?READ_ID, #{<<"key">> => <<"k1">>}),
+    ok = invoke(<<"kv__read">>, ?READ_ID, #{<<"key">> => <<"k1">>}),
 
     ?assertMatch(
         #{<<"status">> := <<"ok">>, <<"result">> := [#{<<"v">> := 2}]},
-        response(<<"kv_read">>, ?READ_ID)
+        response(<<"kv__read">>, ?READ_ID)
     ).
 
 t_read_all(_Config) ->
     ok = write(<<"k1">>, #{<<"v">> => 1}),
     ok = write(<<"k2">>, #{<<"v">> => 2}),
 
-    ok = invoke(<<"kv_read_all">>, ?READ_ALL_ID, #{}),
+    ok = invoke(<<"kv__read_all">>, ?READ_ALL_ID, #{}),
 
-    #{<<"status">> := <<"ok">>, <<"result">> := Items} = response(<<"kv_read_all">>, ?READ_ALL_ID),
+    #{<<"status">> := <<"ok">>, <<"result">> := Items} = response(<<"kv__read_all">>, ?READ_ALL_ID),
     ?assertEqual(
         [
             #{<<"key">> => <<"k1">>, <<"value">> => #{<<"v">> => 1}},
@@ -139,26 +143,26 @@ t_del(_Config) ->
     ok = write(<<"k1">>, #{<<"v">> => 1}),
     ok = write(<<"k2">>, #{<<"v">> => 2}),
 
-    ok = invoke(<<"kv_del">>, ?DEL_ID, #{<<"key">> => <<"k1">>}),
-    ?assertMatch(#{<<"status">> := <<"ok">>}, response(<<"kv_del">>, ?DEL_ID)),
+    ok = invoke(<<"kv__del">>, ?DEL_ID, #{<<"key">> => <<"k1">>}),
+    ?assertMatch(#{<<"status">> := <<"ok">>}, response(<<"kv__del">>, ?DEL_ID)),
 
-    ok = invoke(<<"kv_read_all">>, ?READ_ALL_ID, #{}),
+    ok = invoke(<<"kv__read_all">>, ?READ_ALL_ID, #{}),
     ?assertMatch(
         #{<<"status">> := <<"ok">>, <<"result">> := [#{<<"key">> := <<"k2">>}]},
-        response(<<"kv_read_all">>, ?READ_ALL_ID)
+        response(<<"kv__read_all">>, ?READ_ALL_ID)
     ).
 
 t_clear(_Config) ->
     ok = write(<<"k1">>, #{<<"v">> => 1}),
     ok = write(<<"k2">>, #{<<"v">> => 2}),
 
-    ok = invoke(<<"kv_clear">>, ?CLEAR_ID, #{}),
-    ?assertMatch(#{<<"status">> := <<"ok">>}, response(<<"kv_clear">>, ?CLEAR_ID)),
+    ok = invoke(<<"kv__clear">>, ?CLEAR_ID, #{}),
+    ?assertMatch(#{<<"status">> := <<"ok">>}, response(<<"kv__clear">>, ?CLEAR_ID)),
 
-    ok = invoke(<<"kv_read_all">>, ?READ_ALL_ID, #{}),
+    ok = invoke(<<"kv__read_all">>, ?READ_ALL_ID, #{}),
     ?assertMatch(
         #{<<"status">> := <<"ok">>, <<"result">> := []},
-        response(<<"kv_read_all">>, ?READ_ALL_ID)
+        response(<<"kv__read_all">>, ?READ_ALL_ID)
     ).
 
 t_create_rejects_regular_stream(_Config) ->
@@ -170,30 +174,30 @@ t_create_rejects_regular_stream(_Config) ->
 
     ?assertEqual(
         {error, stream_is_not_lastvalue},
-        emqx_agent_tool_kv:create(tool(<<"kv_read">>, <<"bad-kv">>, <<"Bad KV">>, ?REGULAR_STREAM))
+        emqx_agent_tool_kv:create(tool(<<"kv__read">>, <<"bad-kv">>, <<"Bad KV">>, ?REGULAR_STREAM))
     ).
 
 write(Key, Payload) ->
-    ok = invoke(<<"kv_write">>, ?WRITE_ID, #{<<"key">> => Key, <<"payload">> => Payload}),
-    ?assertMatch(#{<<"status">> := <<"ok">>}, response(<<"kv_write">>, ?WRITE_ID)),
+    ok = invoke(<<"kv__write">>, ?WRITE_ID, #{<<"key">> => Key, <<"payload">> => Payload}),
+    ?assertMatch(#{<<"status">> := <<"ok">>}, response(<<"kv__write">>, ?WRITE_ID)),
     ok.
 
 register_tools() ->
-    ok = emqx_agent_config:create_tool(tool(<<"kv_write">>, ?WRITE_ID, <<"Write KV">>, ?STREAM)),
-    ok = emqx_agent_config:create_tool(tool(<<"kv_read">>, ?READ_ID, <<"Read KV">>, ?STREAM)),
+    ok = emqx_agent_config:create_tool(tool(<<"kv__write">>, ?WRITE_ID, <<"Write KV">>, ?STREAM)),
+    ok = emqx_agent_config:create_tool(tool(<<"kv__read">>, ?READ_ID, <<"Read KV">>, ?STREAM)),
     ok = emqx_agent_config:create_tool(
-        tool(<<"kv_read_all">>, ?READ_ALL_ID, <<"Read All KV">>, ?STREAM)
+        tool(<<"kv__read_all">>, ?READ_ALL_ID, <<"Read All KV">>, ?STREAM)
     ),
-    ok = emqx_agent_config:create_tool(tool(<<"kv_del">>, ?DEL_ID, <<"Delete KV">>, ?STREAM)),
-    ok = emqx_agent_config:create_tool(tool(<<"kv_clear">>, ?CLEAR_ID, <<"Clear KV">>, ?STREAM)),
+    ok = emqx_agent_config:create_tool(tool(<<"kv__del">>, ?DEL_ID, <<"Delete KV">>, ?STREAM)),
+    ok = emqx_agent_config:create_tool(tool(<<"kv__clear">>, ?CLEAR_ID, <<"Clear KV">>, ?STREAM)),
     ok = emqx_agent_config:create_tool(
-        tool(<<"kv_write">>, ?BIN_WRITE_ID, <<"Write Binary KV">>, ?STREAM, <<"binary">>)
-    ),
-    ok = emqx_agent_config:create_tool(
-        tool(<<"kv_read">>, ?BIN_READ_ID, <<"Read Binary KV">>, ?STREAM, <<"binary">>)
+        tool(<<"kv__write">>, ?BIN_WRITE_ID, <<"Write Binary KV">>, ?STREAM, <<"binary">>)
     ),
     ok = emqx_agent_config:create_tool(
-        tool(<<"kv_read_all">>, ?BIN_READ_ALL_ID, <<"Read All Binary KV">>, ?STREAM, <<"binary">>)
+        tool(<<"kv__read">>, ?BIN_READ_ID, <<"Read Binary KV">>, ?STREAM, <<"binary">>)
+    ),
+    ok = emqx_agent_config:create_tool(
+        tool(<<"kv__read_all">>, ?BIN_READ_ALL_ID, <<"Read All Binary KV">>, ?STREAM, <<"binary">>)
     ).
 
 tool(Type, Id, Desc, Stream) ->

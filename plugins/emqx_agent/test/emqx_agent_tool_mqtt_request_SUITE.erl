@@ -91,6 +91,41 @@ t_request_response(_Config) ->
     ok = emqx:unsubscribe(DeviceTopic),
     ok = emqx:unsubscribe(ReplyTopic).
 
+t_json_response_autodiscovers_images(_Config) ->
+    ok = emqx_agent_config:delete_tool(<<"message__request">>, ?TOOL_ID),
+    ok = register_tool(test_context(#{<<"payload_type">> => <<"json">>})),
+    DeviceTopic = <<?TOPIC_PREFIX/binary, "camera/1">>,
+    ReqId = <<"req-img-1">>,
+    ReplyTopic = reply_topic(?TOOL_ID, ReqId),
+
+    ok = emqx:subscribe(DeviceTopic),
+    ok = emqx:subscribe(ReplyTopic),
+
+    invoke(?TOOL_ID, #{<<"topic">> => <<"camera/1">>, <<"payload">> => #{}}, ReqId),
+    #deliver{message = ReqMsg} = await_deliver(DeviceTopic),
+    ResponseTopic = response_topic(ReqMsg),
+    Payload = emqx_utils_json:encode(#{
+        <<"image_url">> => <<"data:image/png;base64,abc123">>,
+        <<"ok">> => true
+    }),
+    _ = emqx_broker:publish(emqx_message:make(<<"camera">>, 0, ResponseTopic, Payload)),
+
+    Reply = decode_reply(await_deliver(ReplyTopic)),
+    Response = emqx_agent_tool_helpers:cap_response(Reply),
+    ?assertMatch(
+        #{
+            <<"status">> := <<"ok">>,
+            <<"result">> := #{
+                <<"payload">> := #{<<"image_url">> := <<"Image .image_url">>}
+            },
+            <<"attachments">> := [#{<<"id">> := <<".image_url">>}]
+        },
+        Response
+    ),
+
+    ok = emqx:unsubscribe(DeviceTopic),
+    ok = emqx:unsubscribe(ReplyTopic).
+
 %% The outbound request message must carry Response-Topic in MQTT 5 properties.
 t_response_topic_in_properties(_Config) ->
     DeviceTopic = <<?TOPIC_PREFIX/binary, "sensor/2">>,
@@ -245,12 +280,19 @@ t_unknown_tool_id_ignored(_Config) ->
 %%--------------------------------------------------------------------
 
 test_context() ->
-    #{
-        <<"type">> => <<"message__request">>,
-        <<"id">> => ?TOOL_ID,
-        <<"desc">> => <<"Test request tool">>,
-        <<"topic_prefix">> => ?TOPIC_PREFIX
-    }.
+    test_context(#{}).
+
+test_context(Overrides) ->
+    maps:merge(
+        #{
+            <<"type">> => <<"message__request">>,
+            <<"id">> => ?TOOL_ID,
+            <<"desc">> => <<"Test request tool">>,
+            <<"topic_prefix">> => ?TOPIC_PREFIX,
+            <<"payload_type">> => <<"binary">>
+        },
+        Overrides
+    ).
 
 register_tool(Context) ->
     Body = maybe_encode_schema(<<"request_payload_schema">>, Context),

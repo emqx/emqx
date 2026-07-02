@@ -8,6 +8,12 @@ The PostgreSQL default port 5432 is used if `[:Port]` is not specified."""
 server.label:
 """Server Host"""
 
+application_name.desc:
+"""The application name to use for PostgreSQL connections. This value appears in PostgreSQL activity views and logs."""
+
+application_name.label:
+"""Application Name"""
+
 config_connector.desc:
 """The configuration for the PostgreSQL connector."""
 
