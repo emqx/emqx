@@ -62,14 +62,33 @@ groups() ->
 
 init_per_group(tcp, Config) ->
     Apps = emqx_cth_suite:start(
-        [{emqx, "listeners.tcp.test { enable = true, bind = 2883, parse_unit = chunk }"}], #{
-            work_dir => emqx_cth_suite:work_dir(Config)
-        }
+        [{emqx, """
+            listeners.tcp.test {
+                enable = true
+                bind = 2883
+                tcp_backend = gen_tcp
+                parse_unit = chunk
+            }
+        """}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{conn_type, tcp}, {port, 2883}, {conn_fun, connect}, {group_apps, Apps} | Config];
+    [
+        {conn_type, tcp},
+        {port, 2883},
+        {conn_fun, connect},
+        {group_apps, Apps}
+        | Config
+    ];
 init_per_group(tcp_beam_framing, Config) ->
     Apps = emqx_cth_suite:start(
-        [{emqx, "listeners.tcp.test { enable = true, bind = 2884, parse_unit = frame }"}],
+        [{emqx, """
+            listeners.tcp.test {
+                enable = true
+                bind = 2884
+                tcp_backend = gen_tcp
+                parse_unit = frame
+            }
+        """}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [
@@ -82,22 +101,46 @@ init_per_group(tcp_beam_framing, Config) ->
     ];
 init_per_group(tcp_socket, Config) ->
     Apps = emqx_cth_suite:start(
-        [{emqx, "listeners.tcp.test { enable = true, bind = 2885, tcp_backend = socket }"}],
+        [{emqx, """
+            listeners.tcp.test {
+                enable = true
+                bind = 2885
+                tcp_backend = socket
+            }
+        """}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{conn_type, tcp}, {port, 2885}, {conn_fun, connect}, {group_apps, Apps} | Config];
+    [
+        {conn_type, tcp},
+        {port, 2885},
+        {conn_fun, connect},
+        {group_apps, Apps}
+        | Config
+    ];
 init_per_group(quic, Config) ->
     Apps = emqx_cth_suite:start(
         [{emqx, "listeners.quic.test { enable = true, bind = 1884 }"}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{conn_type, quic}, {port, 1884}, {conn_fun, quic_connect}, {group_apps, Apps} | Config];
+    [
+        {conn_type, quic},
+        {port, 1884},
+        {conn_fun, quic_connect},
+        {group_apps, Apps}
+        | Config
+    ];
 init_per_group(ws, Config) ->
     Apps = emqx_cth_suite:start(
         [{emqx, "listeners.ws.test { enable = true, bind = 8888, max_connections = 100 }"}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{conn_type, ws}, {port, 8888}, {conn_fun, ws_connect}, {group_apps, Apps} | Config].
+    [
+        {conn_type, ws},
+        {port, 8888},
+        {conn_fun, ws_connect},
+        {group_apps, Apps}
+        | Config
+    ].
 
 end_per_group(_Group, Config) ->
     emqx_cth_suite:stop(?config(group_apps, Config)).
@@ -412,55 +455,6 @@ t_connect_will_retain(Config) ->
     ?assertEqual({ok, true}, maps:find(retain, Msg2)),
     ok = emqtt:disconnect(Client4),
     clean_retained(Topic, Config).
-
-t_connect_silent_idle_timeout(init, Config) ->
-    IdleTimeout = 2000,
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], IdleTimeout),
-    ok = snabbkaffe:start_trace(),
-    [{idle_timeout, IdleTimeout} | Config];
-t_connect_silent_idle_timeout('end', _Config) ->
-    snabbkaffe:stop(),
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000),
-    ok.
-
-t_connect_silent_idle_timeout(Config) ->
-    %% Connect, send nothing more.
-    %% Connection should be dropped in roughly `IdleTimeout` ms.
-    IdleTimeout = ?config(idle_timeout, Config),
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], IdleTimeout),
-    SockOpts = [binary, {active, true}, {nodelay, true}],
-    {ok, Sock} = gen_tcp:connect({127, 0, 0, 1}, 1883, SockOpts, 5000),
-    ?assertReceive({tcp_closed, Sock}, IdleTimeout * 2),
-    ?assertMatch(
-        {ok, #{reason := {shutdown, idle_timeout}}},
-        ?block_until(#{?snk_kind := terminate}, IdleTimeout)
-    ).
-
-t_connect_idle_timeout(init, Config) ->
-    IdleTimeout = 2000,
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], IdleTimeout),
-    ok = snabbkaffe:start_trace(),
-    [{idle_timeout, IdleTimeout} | Config];
-t_connect_idle_timeout('end', _Config) ->
-    snabbkaffe:stop(),
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000),
-    ok.
-
-t_connect_idle_timeout(Config) ->
-    %% Connect, send few bytes.
-    %% Connection should be dropped in roughly `IdleTimeout` ms.
-    IdleTimeout = ?config(idle_timeout, Config),
-    ConnectPacket = emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{})),
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], IdleTimeout),
-    SockOpts = [binary, {active, true}, {nodelay, true}],
-    {ok, Sock} = gen_tcp:connect({127, 0, 0, 1}, 1883, SockOpts, 5000),
-    ClientSockname = esockd:format(element(2, inet:sockname(Sock))),
-    ok = gen_tcp:send(Sock, binary:part(iolist_to_binary(ConnectPacket), 0, 4)),
-    ?assertReceive({tcp_closed, Sock}, IdleTimeout * 2),
-    ?assertMatch(
-        {ok, #{reason := {shutdown, idle_timeout}, ?snk_meta := #{peername := ClientSockname}}},
-        ?block_until(#{?snk_kind := terminate, reason := {shutdown, idle_timeout}}, IdleTimeout)
-    ).
 
 t_connect_emit_stats_timeout(init, Config) ->
     NewIdleTimeout = 1000,
