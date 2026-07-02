@@ -68,40 +68,40 @@ list_cards() ->
 
 -spec list_cards(map()) -> {ok, [map()]} | {error, retainer_disabled}.
 list_cards(Opts) ->
-    Namespace = maps:get(namespace, Opts, ?global_ns),
-    OrgId = maps:get(org_id, Opts, <<"+">>),
-    UnitId = maps:get(unit_id, Opts, <<"+">>),
-    AgentId = maps:get(agent_id, Opts, <<"+">>),
-    Cursor = undefined,
-    MatchOpts = #{batch_read_number => all_remaining},
-    Filters =
-        case Namespace of
-            all ->
-                [
-                    discovery_topic(?global_ns, OrgId, UnitId, AgentId),
-                    discovery_topic(<<"+">>, OrgId, UnitId, AgentId)
-                ];
-            _ ->
-                [discovery_topic(Namespace, OrgId, UnitId, AgentId)]
-        end,
-    match_cards(Filters, Cursor, MatchOpts, []).
+    case emqx_retainer:is_enabled() of
+        false ->
+            {error, retainer_disabled};
+        true ->
+            Namespace = maps:get(namespace, Opts, ?global_ns),
+            OrgId = maps:get(org_id, Opts, <<"+">>),
+            UnitId = maps:get(unit_id, Opts, <<"+">>),
+            AgentId = maps:get(agent_id, Opts, <<"+">>),
+            Cursor = undefined,
+            MatchOpts = #{batch_read_number => all_remaining},
+            Filters =
+                case Namespace of
+                    all ->
+                        [
+                            discovery_topic(?global_ns, OrgId, UnitId, AgentId),
+                            discovery_topic(<<"+">>, OrgId, UnitId, AgentId)
+                        ];
+                    _ ->
+                        [discovery_topic(Namespace, OrgId, UnitId, AgentId)]
+                end,
+            {ok, match_cards(Filters, Cursor, MatchOpts, [])}
+    end.
 
 match_cards([], _Cursor, _MatchOpts, Acc) ->
-    Cards = lists:map(
+    lists:map(
         fun(#message{from = From, topic = Topic, payload = PayloadRaw}) ->
             Card = emqx_utils_json:decode(PayloadRaw),
             format_card(Card, PayloadRaw, Topic, From)
         end,
         lists:reverse(Acc)
-    ),
-    {ok, Cards};
+    );
 match_cards([TopicFilter | Rest], Cursor, MatchOpts, Acc) ->
-    case emqx_retainer:match_messages(TopicFilter, Cursor, MatchOpts) of
-        {ok, Msgs, undefined} ->
-            match_cards(Rest, Cursor, MatchOpts, lists:reverse(Msgs, Acc));
-        {error, no_backend} ->
-            {error, retainer_disabled}
-    end.
+    {ok, Msgs, undefined} = emqx_retainer:match_messages(TopicFilter, Cursor, MatchOpts),
+    match_cards(Rest, Cursor, MatchOpts, lists:reverse(Msgs, Acc)).
 
 lookup_agent_status(ClientId) ->
     FormatFn = undefined,
