@@ -852,7 +852,21 @@ parse_bootstrap_scopes_lenient(Role, ScopesStr) ->
     Raw = [string:lowercase(string:trim(S)) || S <- Candidates, string:trim(S) =/= <<>>],
     Available = [Name || #{name := Name} <- emqx_scope_catalog:scope_catalog()],
     {Valid0, Rejected0} = lists:partition(fun(S) -> lists:member(S, Available) end, Raw),
-    filter_publisher_scopes(Role, Valid0, Rejected0).
+    {Valid1, Rejected1} = filter_publisher_scopes(Role, Valid0, Rejected0),
+    drop_mixed_privilege_scopes(Valid1, Rejected1).
+
+%% A privilege scope is administrator-equivalent, so it must not be
+%% combined with restricted scopes in the same list. In the strict HTTP
+%% path this is a 400; in the lenient bootstrap path we instead drop the
+%% privilege scopes (keeping the more restricted, non-privilege subset)
+%% and report them as rejected, matching the loader's fail-safe policy
+%% for other disallowed scopes.
+drop_mixed_privilege_scopes(Valid, Rejected) ->
+    case emqx_scope_catalog:partition_privilege_scopes(Valid) of
+        {[], _} -> {Valid, Rejected};
+        {_, []} -> {Valid, Rejected};
+        {Priv, Other} -> {Other, Rejected ++ Priv}
+    end.
 
 %% Restrict publisher role to the `publish' scope only. Other roles
 %% pass through unchanged. Returns updated {Valid, Rejected}.

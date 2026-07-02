@@ -126,3 +126,26 @@
     ?SCOPE_API_KEY_MGMT
 ]).
 -define(NS_ADMIN_ALLOWED_SCOPES, ?NS_ADMIN_COMMON_SCOPES ++ ?NS_ADMIN_LOGIN_SCOPES).
+
+%% ── Privilege scope group ──────────────────────────────────────────
+%%
+%% Any one of these scopes is administrator-equivalent in effect:
+%%   * `system' covers `/configs/*' and `/data/*', which
+%%     can rewrite the whole node configuration.
+%%   * `user_management' can provision another login user holding any
+%%     scopes.
+%%   * `api_key_management' can mint an API key holding any scopes.
+%%   * `sso_management' can rotate the SSO backend.
+%%
+%% Combining a privilege scope with a non-privilege ("restricted")
+%% scope cannot meaningfully restrict the account, so schema validation
+%% refuses that combination at write time: an explicit, non-empty scope
+%% list must be either entirely privilege or entirely non-privilege.
+%% `mfa_management' is intentionally excluded — any login user role may
+%% hold it and it is not administrator-equivalent.
+-define(PRIVILEGE_SCOPES, [
+    ?SCOPE_SYSTEM,
+    ?SCOPE_USER_MGMT,
+    ?SCOPE_API_KEY_MGMT,
+    ?SCOPE_SSO_MGMT
+]).

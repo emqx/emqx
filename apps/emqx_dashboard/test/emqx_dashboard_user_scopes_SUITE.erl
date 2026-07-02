@@ -114,23 +114,33 @@ end_per_testcase(_Case, _Config) ->
 %% role x scope schema validation (POST /users)
 %%--------------------------------------------------------------------
 
-%% Administrator can hold any of the four login-only scopes.
+%% Administrator can hold the three admin-only login scopes together
+%% (they are all privilege scopes, so a privilege-only list is allowed).
+%% mfa_management is a non-privilege scope and so cannot share an
+%% explicit list with the privilege scopes; it is exercised separately
+%% below and in t_user_mfa_mgmt_not_privilege/1.
 t_admin_can_hold_all_4_new_scopes(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
-    AllNew = ?LOGIN_ONLY_SCOPES,
+    PrivLoginScopes = ?ADMIN_ONLY_SCOPES,
     Body = #{
         <<"username">> => <<"admin2">>,
         <<"password">> => test_password(),
         <<"role">> => ?ROLE_SUPERUSER,
         <<"description">> => <<"test">>,
-        <<"scopes">> => AllNew
+        <<"scopes">> => PrivLoginScopes
     },
     {ok, 200, _} = request_api(post, api_path(["users"]), auth_header(Token), Body),
     %% Verify it persisted
     [Admin] = emqx_dashboard_admin:lookup_user(<<"admin2">>),
     Stored = emqx_dashboard_admin:scopes_of(Admin#?ADMIN.username),
-    ?assertEqual(lists:sort(AllNew), lists:sort(Stored)).
+    ?assertEqual(lists:sort(PrivLoginScopes), lists:sort(Stored)),
+    %% mfa_management can be held alongside a non-privilege scope.
+    Body2 = Body#{
+        <<"username">> => <<"admin3">>,
+        <<"scopes">> => [?SCOPE_MFA_MGMT, ?SCOPE_CONNECTIONS]
+    },
+    {ok, 200, _} = request_api(post, api_path(["users"]), auth_header(Token), Body2).
 
 %% Response from POST /users must include the just-set scopes so the
 %% client can round-trip the assignment (regression for the
@@ -143,13 +153,13 @@ t_post_users_response_includes_scopes(_Config) ->
         <<"password">> => test_password(),
         <<"role">> => ?ROLE_SUPERUSER,
         <<"description">> => <<"test">>,
-        <<"scopes">> => [?SCOPE_USER_MGMT, ?SCOPE_MFA_MGMT]
+        <<"scopes">> => [?SCOPE_USER_MGMT, ?SCOPE_API_KEY_MGMT]
     },
     {ok, 200, RespBody} = request_api(
         post, api_path(["users"]), auth_header(Token), Body
     ),
     Resp = emqx_utils_json:decode(RespBody),
-    ?assertEqual([<<"user_management">>, <<"mfa_management">>], maps:get(<<"scopes">>, Resp)),
+    ?assertEqual([<<"user_management">>, <<"api_key_management">>], maps:get(<<"scopes">>, Resp)),
     ?assertEqual(<<"with_scopes">>, maps:get(<<"username">>, Resp)),
     ?assertEqual(?ROLE_SUPERUSER, maps:get(<<"role">>, Resp)).
 
@@ -527,6 +537,175 @@ t_viewer_still_cannot_hold_api_key_management(_Config) ->
         {ok, 400, _},
         request_api(post, api_path(["users"]), auth_header(Token), Body)
     ).
+
+%%--------------------------------------------------------------------
+%% Privilege scope mutual-exclusion (POST /users, PUT /users/:name)
+%%
+%% The four privilege scopes (system, user_management,
+%% api_key_management, sso_management) are administrator-equivalent in
+%% effect. An explicit, non-empty scope list must be either entirely
+%% privilege or entirely non-privilege — mixing them is rejected with
+%% 400. Empty / omitted lists are the legacy unrestricted / deny-all
+%% cases and pass through unchanged. Namespaced admins are exempt (RBAC
+%% is their authoritative gate).
+%%--------------------------------------------------------------------
+
+-define(MUTEX_MSG, <<"Privilege scopes cannot be combined with other scopes">>).
+
+%% Privilege-only scope lists are accepted for a global administrator.
+t_user_privilege_only_lists_pass(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    Lists = [
+        [?SCOPE_SYSTEM],
+        [?SCOPE_USER_MGMT],
+        [?SCOPE_API_KEY_MGMT],
+        [?SCOPE_SSO_MGMT],
+        [?SCOPE_SYSTEM, ?SCOPE_USER_MGMT, ?SCOPE_API_KEY_MGMT, ?SCOPE_SSO_MGMT]
+    ],
+    lists:foreach(fun(Scopes) -> assert_create_user_ok(Token, Scopes) end, Lists).
+
+%% Non-privilege-only scope lists are accepted.
+t_user_nonprivilege_only_lists_pass(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    Lists = [
+        [?SCOPE_CONNECTIONS],
+        [?SCOPE_CONNECTIONS, ?SCOPE_PUBLISH, ?SCOPE_MONITORING],
+        [?SCOPE_AUDIT, ?SCOPE_LICENSE]
+    ],
+    lists:foreach(fun(Scopes) -> assert_create_user_ok(Token, Scopes) end, Lists).
+
+%% Mixing any privilege scope with any non-privilege scope is rejected.
+t_user_mixed_lists_rejected(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    Lists = [
+        [?SCOPE_SYSTEM, ?SCOPE_CONNECTIONS],
+        [?SCOPE_USER_MGMT, ?SCOPE_PUBLISH],
+        [?SCOPE_API_KEY_MGMT, ?SCOPE_MONITORING],
+        [?SCOPE_SSO_MGMT, ?SCOPE_CONNECTIONS],
+        [?SCOPE_SYSTEM, ?SCOPE_USER_MGMT, ?SCOPE_CONNECTIONS]
+    ],
+    lists:foreach(fun(Scopes) -> assert_create_user_mutex_400(Token, Scopes) end, Lists).
+
+%% Omitted / empty scope lists are not "explicit mixed lists" — pass.
+t_user_non_explicit_lists_pass(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    %% scopes field omitted -> role-default fallback
+    Body0 = #{
+        <<"username">> => <<"u_omitted">>,
+        <<"password">> => test_password(),
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"test">>
+    },
+    ?assertMatch(
+        {ok, 200, _},
+        request_api(post, api_path(["users"]), auth_header(Token), Body0)
+    ),
+    %% explicit empty list -> deny-all, not mixed
+    assert_create_user_ok(Token, []).
+
+%% mfa_management is NOT a privilege scope: it may sit beside
+%% non-privilege scopes, but not beside a privilege scope.
+t_user_mfa_mgmt_not_privilege(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    assert_create_user_ok(Token, [?SCOPE_MFA_MGMT, ?SCOPE_CONNECTIONS]),
+    assert_create_user_mutex_400(Token, [?SCOPE_MFA_MGMT, ?SCOPE_SYSTEM]).
+
+%% Namespaced admins are exempt from the mutex — RBAC gates the surface.
+t_ns_admin_exempt_from_privilege_mutex(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    Body = #{
+        <<"username">> => <<"ns_mixed">>,
+        <<"password">> => test_password(),
+        <<"role">> => ?NS_ROLE,
+        <<"description">> => <<"ns admin mixed">>,
+        <<"scopes">> => [?SCOPE_SYSTEM, ?SCOPE_CONNECTIONS]
+    },
+    ?assertMatch(
+        {ok, 200, _},
+        request_api(post, api_path(["users"]), auth_header(Token), Body)
+    ).
+
+%% Regression: the namespaced-admin scope-compat check still runs
+%% (a scope outside NS_ADMIN_ALLOWED_SCOPES is rejected) even though
+%% the mutex is skipped for namespaced admins.
+t_ns_admin_still_rejects_forbidden_scope(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    Body = #{
+        <<"username">> => <<"ns_forbidden">>,
+        <<"password">> => test_password(),
+        <<"role">> => ?NS_ROLE,
+        <<"description">> => <<"ns admin forbidden">>,
+        <<"scopes">> => [?SCOPE_GATEWAYS]
+    },
+    ?assertMatch(
+        {ok, 400, _},
+        request_api(post, api_path(["users"]), auth_header(Token), Body)
+    ).
+
+%% Update path: PUT rejects a mixed list and accepts a privilege-only
+%% list for the same user.
+t_user_update_privilege_mutex(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"u_put">>, test_password(), ?ROLE_SUPERUSER, "test"
+    ),
+    MixedBody = #{
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"mixed">>,
+        <<"scopes">> => [?SCOPE_SYSTEM, ?SCOPE_CONNECTIONS]
+    },
+    ?assertMatch(
+        {ok, 400, _},
+        request_api(put, api_path(["users", "u_put"]), auth_header(Token), MixedBody)
+    ),
+    OkBody = MixedBody#{<<"scopes">> => [?SCOPE_SYSTEM]},
+    ?assertMatch(
+        {ok, 200, _},
+        request_api(put, api_path(["users", "u_put"]), auth_header(Token), OkBody)
+    ).
+
+%% Legacy record with a mixed scope set (written before this rule
+%% existed): reads are unaffected; the next update with the same mixed
+%% list is rejected; an update that splits the list succeeds.
+t_user_legacy_mixed_record(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"u_legacy">>, test_password(), ?ROLE_SUPERUSER, "legacy"
+    ),
+    Mixed = [?SCOPE_SYSTEM, ?SCOPE_CONNECTIONS],
+    {ok, _} = emqx_dashboard_admin:set_user_scopes(<<"u_legacy">>, Mixed),
+    ?assertEqual(Mixed, emqx_dashboard_admin:scopes_of(<<"u_legacy">>)),
+    %% Read is unaffected.
+    ?assertMatch(
+        {ok, 200, _},
+        request_api(get, api_path(["users"]), auth_header(Token))
+    ),
+    %% Re-submitting the same mixed list on update is rejected.
+    MixedBody = #{
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"still mixed">>,
+        <<"scopes">> => Mixed
+    },
+    ?assertMatch(
+        {ok, 400, _},
+        request_api(put, api_path(["users", "u_legacy"]), auth_header(Token), MixedBody)
+    ),
+    %% Splitting the list succeeds.
+    SplitBody = MixedBody#{<<"scopes">> => [?SCOPE_CONNECTIONS]},
+    ?assertMatch(
+        {ok, 200, _},
+        request_api(put, api_path(["users", "u_legacy"]), auth_header(Token), SplitBody)
+    ),
+    ?assertEqual([?SCOPE_CONNECTIONS], emqx_dashboard_admin:scopes_of(<<"u_legacy">>)).
 
 %%--------------------------------------------------------------------
 %% Default administrator protection
@@ -1053,6 +1232,34 @@ add_admin(Username) ->
 %% Same complexity rule — use the constant for all viewer test users
 %% added via add_user/4 in this SUITE.
 test_password() -> <<"P@ssw0rd">>.
+
+%% Create a fresh administrator user with the given scope list and
+%% assert the request succeeds. A unique username is generated per call
+%% so the same test can exercise several scope lists.
+assert_create_user_ok(Token, Scopes) ->
+    Body = create_user_body(Scopes),
+    ?assertMatch(
+        {ok, 200, _},
+        request_api(post, api_path(["users"]), auth_header(Token), Body)
+    ).
+
+%% Like assert_create_user_ok/2 but asserts a 400 carrying the
+%% privilege-scope mutex message.
+assert_create_user_mutex_400(Token, Scopes) ->
+    Body = create_user_body(Scopes),
+    {ok, 400, RespBody} =
+        request_api(post, api_path(["users"]), auth_header(Token), Body),
+    ?assertMatch({_, _}, binary:match(RespBody, ?MUTEX_MSG)).
+
+create_user_body(Scopes) ->
+    N = erlang:integer_to_binary(erlang:unique_integer([positive, monotonic])),
+    #{
+        <<"username">> => <<"u_mutex_", N/binary>>,
+        <<"password">> => test_password(),
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"mutex test">>,
+        <<"scopes">> => Scopes
+    }.
 
 jwt(Username, Password) ->
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(

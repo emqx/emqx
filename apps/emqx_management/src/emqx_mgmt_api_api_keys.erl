@@ -323,7 +323,7 @@ api_key(post, #{body := App}) ->
     %% records that survived an upgrade; no creation path stores `undefined'.
     RawScopes = maps:get(<<"scopes">>, App, undefined),
     Scopes = emqx_mgmt_auth:effective_scopes_on_create(Role, RawScopes),
-    case validate_scopes(Role, Scopes) of
+    case validate_scopes(Role, RawScopes, Scopes) of
         ok ->
             case emqx_mgmt_auth:create(Name, Enable, ExpiredAt, Desc, Role, Scopes) of
                 {ok, NewApp} ->
@@ -369,7 +369,7 @@ api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
     %% API response must not be allowed to drift from the
     %% publisher-only-`publish' invariant.
     EffectiveScopes = effective_request_scopes(Name, Scopes),
-    case validate_scopes(Role, EffectiveScopes) of
+    case validate_scopes(Role, Scopes, EffectiveScopes) of
         ok ->
             case emqx_mgmt_auth:update(Name, Enable, ExpiredAt, Desc, Role, Scopes) of
                 {ok, App} ->
@@ -413,14 +413,25 @@ api_key_scopes(get, _) ->
 resolve_scope_desc(#{desc := Desc} = Scope) ->
     Scope#{desc => emqx_dashboard_swagger:get_i18n(<<"desc">>, Desc, <<>>, #{})}.
 
-validate_scopes(Role, Scopes) ->
-    %% Three-layer schema validation, returning the FIRST error
-    %% encountered. Layer 1 cheapest, layer 3 catalog lookup.
-    case validate_publisher_scopes(Role, Scopes) of
+%% Four-layer schema validation, returning the FIRST error encountered.
+%% Layers 1-3 run against `EffectiveScopes' (the materialised list —
+%% request body when supplied, otherwise role default / persisted
+%% scopes). Layer 4 (the privilege-scope mutex) runs against
+%% `RawScopes' — the value the client actually sent — so that an
+%% omitted scope list (which materialises to the administrator role
+%% default, itself a mix of privilege and non-privilege scopes) is
+%% treated as the unrestricted case rather than an explicit mixed list.
+validate_scopes(Role, RawScopes, EffectiveScopes) ->
+    case validate_publisher_scopes(Role, EffectiveScopes) of
         ok ->
-            case validate_no_login_only_scopes(Scopes) of
-                ok -> validate_scopes_in_catalog(Scopes);
-                Error -> Error
+            case validate_no_login_only_scopes(EffectiveScopes) of
+                ok ->
+                    case validate_scopes_in_catalog(EffectiveScopes) of
+                        ok -> emqx_scope_catalog:check_privilege_scope_mutex(RawScopes);
+                        Error -> Error
+                    end;
+                Error ->
+                    Error
             end;
         Error ->
             Error
