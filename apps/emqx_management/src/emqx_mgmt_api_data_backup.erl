@@ -111,7 +111,8 @@ schema("/data/files") ->
             desc => ?DESC("list_backup_files"),
             parameters => [
                 ?R_REF(emqx_dashboard_swagger, page),
-                ?R_REF(emqx_dashboard_swagger, limit)
+                ?R_REF(emqx_dashboard_swagger, limit),
+                field_namespace(false, #{in => query})
             ],
             responses => #{
                 200 =>
@@ -130,7 +131,8 @@ schema("/data/files/:filename") ->
             description => ?DESC("download_backup_file"),
             parameters => [
                 field_filename(true, #{in => path}),
-                field_node(false, #{in => query})
+                field_node(false, #{in => query}),
+                field_namespace(false, #{in => query})
             ],
             responses => #{
                 200 => ?HOCON(binary),
@@ -147,7 +149,8 @@ schema("/data/files/:filename") ->
             desc => ?DESC("delete_backup_file"),
             parameters => [
                 field_filename(true, #{in => path}),
-                field_node(false, #{in => query})
+                field_node(false, #{in => query}),
+                field_namespace(false, #{in => query})
             ],
             responses => #{
                 204 => <<"No Content">>,
@@ -213,6 +216,9 @@ field_node(IsRequired) ->
 field_node(IsRequired, Meta) ->
     {node, ?HOCON(binary(), Meta#{desc => ?DESC("node_name"), required => IsRequired})}.
 
+field_namespace(IsRequired, Meta) ->
+    {namespace, ?HOCON(binary(), Meta#{desc => ?DESC("namespace"), required => IsRequired})}.
+
 field_filename(IsRequired) ->
     field_filename(IsRequired, #{}).
 
@@ -264,18 +270,27 @@ data_import(post, #{body := #{<<"filename">> := Filename} = Body} = Req) ->
         {error, Msg} ->
             {400, #{code => ?BAD_REQUEST, message => Msg}};
         FileNode ->
-            case check_no_sensitive_tables(Filename, auth_meta(Req)) of
-                {forbidden, Sets} ->
-                    {403, #{code => 'FORBIDDEN', message => import_refused_msg(Sets)}};
-                {peek_error, Reason} ->
-                    {400, #{
-                        code => ?BAD_REQUEST,
-                        message => emqx_mgmt_data_backup:format_error(Reason)
-                    }};
-                ok ->
-                    do_data_import(FileNode, Filename, Namespace)
-            end
+            data_import_checked(Namespace, FileNode, Filename, Req)
     end.
+
+%% Namespaced imports are scoped to the caller's own namespace and never write
+%% mnesia tables (only that namespace's configuration), so the sensitive-table
+%% guard -- which protects the global mnesia tables -- does not apply. Global
+%% imports keep the guard.
+data_import_checked(?global_ns, FileNode, Filename, Req) ->
+    case check_no_sensitive_tables(Filename, auth_meta(Req)) of
+        {forbidden, Sets} ->
+            {403, #{code => 'FORBIDDEN', message => import_refused_msg(Sets)}};
+        {peek_error, Reason} ->
+            {400, #{
+                code => ?BAD_REQUEST,
+                message => emqx_mgmt_data_backup:format_error(Reason)
+            }};
+        ok ->
+            do_data_import(FileNode, Filename, ?global_ns)
+    end;
+data_import_checked(Namespace, FileNode, Filename, _Req) when is_binary(Namespace) ->
+    do_data_import(FileNode, Filename, Namespace).
 
 do_data_import(FileNode, Filename, Namespace) ->
     CoreNode = core_node(FileNode),
@@ -333,9 +348,10 @@ core_node(FileNode) ->
             end
     end.
 
-data_files(post, #{body := #{<<"filename">> := #{type := _} = File}}) ->
+data_files(post, #{body := #{<<"filename">> := #{type := _} = File}} = Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
     [{Filename, FileContent} | _] = maps:to_list(maps:without([type], File)),
-    case emqx_mgmt_data_backup:upload(Filename, FileContent) of
+    case emqx_mgmt_data_backup:upload(Namespace, Filename, FileContent) of
         ok ->
             {204};
         {error, Reason} ->
@@ -343,17 +359,38 @@ data_files(post, #{body := #{<<"filename">> := #{type := _} = File}}) ->
     end;
 data_files(post, #{body := _}) ->
     {400, #{code => ?BAD_REQUEST, message => ?DESC("missing_filename")}};
-data_files(get, #{query_string := PageParams}) ->
+data_files(get, #{query_string := PageParams} = Req) ->
+    Namespace = op_namespace(Req, PageParams),
     case emqx_mgmt_api:parse_pager_params(PageParams) of
         false ->
             {400, #{code => ?BAD_REQUEST, message => ?DESC("page_limit_invalid")}};
         #{page := Page, limit := Limit} = Pager ->
-            {Count, HasNext, Data} = list_backup_files(Page, Limit),
+            {Count, HasNext, Data} = list_backup_files(Namespace, Page, Limit),
             {200, #{data => Data, meta => Pager#{count => Count, hasnext => HasNext}}}
     end.
 
 data_file_by_name(get, #{bindings := #{filename := Filename}, query_string := QS} = Req) ->
-    AuthMeta = auth_meta(Req),
+    case op_namespace(Req, QS) of
+        ?global_ns ->
+            do_download_file(Filename, QS, auth_meta(Req));
+        Namespace when is_binary(Namespace) ->
+            %% Namespaced backups only ever contain that namespace's
+            %% configuration -- never global mnesia tables -- so the
+            %% sensitive-table download guard does not apply.
+            do_namespaced_file_op(get, Namespace, Filename, QS)
+    end;
+data_file_by_name(delete, #{bindings := #{filename := Filename}, query_string := QS} = Req) ->
+    do_namespaced_file_op(delete, op_namespace(Req, QS), Filename, QS).
+
+do_namespaced_file_op(Method, Namespace, Filename, QS) ->
+    case safe_parse_node(QS) of
+        {error, Msg} ->
+            {400, #{code => ?BAD_REQUEST, message => Msg}};
+        Node ->
+            handle_file_op_response(get_or_delete_file(Method, Namespace, Filename, Node))
+    end.
+
+do_download_file(Filename, QS, AuthMeta) ->
     case can_attempt_download(AuthMeta) of
         false ->
             {403, #{code => 'FORBIDDEN', message => download_forbidden_msg()}};
@@ -362,22 +399,18 @@ data_file_by_name(get, #{bindings := #{filename := Filename}, query_string := QS
                 {error, Msg} ->
                     {400, #{code => ?BAD_REQUEST, message => Msg}};
                 Node ->
-                    case can_download_backup(AuthMeta, Filename, Node) of
-                        ok ->
-                            handle_file_op_response(get_or_delete_file(get, Filename, Node));
-                        {forbidden, Msg} ->
-                            {403, #{code => ?FORBIDDEN, message => Msg}};
-                        {error, Reason} ->
-                            handle_file_op_response(Reason)
-                    end
+                    download_checked_file(AuthMeta, Filename, Node)
             end
-    end;
-data_file_by_name(delete, #{bindings := #{filename := Filename}, query_string := QS}) ->
-    case safe_parse_node(QS) of
-        {error, Msg} ->
-            {400, #{code => ?BAD_REQUEST, message => Msg}};
-        Node ->
-            handle_file_op_response(get_or_delete_file(delete, Filename, Node))
+    end.
+
+download_checked_file(AuthMeta, Filename, Node) ->
+    case can_download_backup(AuthMeta, Filename, Node) of
+        ok ->
+            handle_file_op_response(get_or_delete_file(get, ?global_ns, Filename, Node));
+        {forbidden, Msg} ->
+            {403, #{code => ?FORBIDDEN, message => Msg}};
+        {error, Reason} ->
+            handle_file_op_response(Reason)
     end.
 
 handle_file_op_response({error, not_found}) ->
@@ -400,6 +433,24 @@ handle_file_op_response({badrpc, Reason}) ->
 
 auth_meta(#{auth_meta := AuthMeta}) -> AuthMeta;
 auth_meta(_) -> #{}.
+
+%% The namespace a file operation acts on. Namespaced callers are always
+%% confined to their own namespace -- the `namespace' query parameter is
+%% ignored for them. A global administrator may pass `namespace' to inspect or
+%% clean up a specific namespace's backups; without it, they operate on the
+%% global (non-namespaced) backups.
+op_namespace(Req, QueryString) ->
+    case emqx_dashboard:get_namespace(Req) of
+        ?global_ns -> query_namespace(QueryString);
+        Namespace when is_binary(Namespace) -> Namespace
+    end.
+
+query_namespace(#{<<"namespace">> := Namespace}) when
+    is_binary(Namespace), Namespace =/= <<>>
+->
+    Namespace;
+query_namespace(_) ->
+    ?global_ns.
 
 %% The `dashboard_users' and `api_keys' table sets are governed at their
 %% dedicated REST endpoints (`/users', `/api_key') by the
@@ -520,10 +571,17 @@ api_key_download_forbidden_msg(Sets) ->
         lists:join(<<", ">>, Sets)
     ]).
 
-get_or_delete_file(get, Filename, Node) ->
+%% Global (and legacy) backups live in the root backup directory and are served
+%% by the v1 RPCs; namespaced backups are isolated under a per-namespace
+%% subdirectory and require the v3 RPCs that carry the namespace.
+get_or_delete_file(get, ?global_ns, Filename, Node) ->
     emqx_mgmt_data_backup_proto_v1:read_file(Node, Filename, infinity);
-get_or_delete_file(delete, Filename, Node) ->
-    emqx_mgmt_data_backup_proto_v1:delete_file(Node, Filename, infinity).
+get_or_delete_file(delete, ?global_ns, Filename, Node) ->
+    emqx_mgmt_data_backup_proto_v1:delete_file(Node, Filename, infinity);
+get_or_delete_file(get, Namespace, Filename, Node) when is_binary(Namespace) ->
+    emqx_mgmt_data_backup_proto_v3:read_file(Node, Namespace, Filename, infinity);
+get_or_delete_file(delete, Namespace, Filename, Node) when is_binary(Namespace) ->
+    emqx_mgmt_data_backup_proto_v3:delete_file(Node, Namespace, Filename, infinity).
 
 safe_parse_node(BodyParams) ->
     Nodes = emqx:running_nodes(),
@@ -538,16 +596,26 @@ safe_parse_node(#{<<"node">> := NodeBin}, Nodes) ->
 safe_parse_node(_, _) ->
     node().
 
-list_backup_files(Page, Limit) ->
+list_backup_files(Namespace, Page, Limit) ->
     Start = Page * Limit - Limit + 1,
-    AllFiles = list_backup_files(),
+    AllFiles = list_backup_files(Namespace),
     Count = length(AllFiles),
     HasNext = Start + Limit - 1 < Count,
     {Count, HasNext, lists:sublist(AllFiles, Start, Limit)}.
 
-list_backup_files() ->
+%% Global (and legacy) backups are listed from the root directory via the v1
+%% RPC; a namespaced caller only sees its own backups, listed via the v3 RPC on
+%% the nodes that support it.
+list_backup_files(?global_ns) ->
     Nodes = emqx:running_nodes(),
     Results = emqx_mgmt_data_backup_proto_v1:list_files(Nodes, 30_0000),
+    collect_backup_files(Nodes, Results);
+list_backup_files(Namespace) when is_binary(Namespace) ->
+    Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, 3),
+    Results = emqx_mgmt_data_backup_proto_v3:list_files(Nodes, Namespace, 30_0000),
+    collect_backup_files(Nodes, Results).
+
+collect_backup_files(Nodes, Results) ->
     NodeResults = lists:zip(Nodes, Results),
     {Successes, Failures} =
         lists:partition(

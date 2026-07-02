@@ -21,6 +21,7 @@
 %% HTTP API
 -export([
     upload/2,
+    upload/3,
     %% RPC target (v1)
     maybe_copy_and_import/2,
     %% RPC target (v2)
@@ -28,6 +29,10 @@
     read_file/1,
     delete_file/1,
     list_files/0,
+    %% RPC target (v3): namespace-scoped file operations
+    read_file/2,
+    delete_file/2,
+    list_files/1,
     format_conf_errors/1,
     format_db_errors/1,
     sensitive_table_set_names/0,
@@ -62,6 +67,8 @@
 -include_lib("emqx/include/emqx_config.hrl").
 
 -define(ROOT_BACKUP_DIR, "backup").
+%% Namespaced backups are isolated under `<root>/ns/<Namespace>/'.
+-define(NS_BACKUP_SUBDIR, "ns").
 -define(BACKUP_MNESIA_DIR, "mnesia").
 -define(TAR_SUFFIX, ".tar.gz").
 -define(META_FILENAME, "META.hocon").
@@ -369,9 +376,10 @@ import(BackupFilename) ->
 
 -spec import(file:filename_all(), import_opts()) -> import_res().
 import(BackupFilename, Opts) ->
+    Namespace = maps:get(namespace, Opts, ?global_ns),
     maybe
         ok ?= validate_import_allowed(),
-        {ok, BackupFilePath} ?= backup_path(BackupFilename),
+        {ok, BackupFilePath} ?= backup_path(Namespace, BackupFilename),
         ok ?= validate_file_exists(BackupFilePath),
         do_import(BackupFilePath, Opts)
     end.
@@ -394,30 +402,47 @@ It runs on a core node.
 """.
 -spec maybe_copy_and_import(node(), file:filename_all(), import_opts()) -> import_res().
 maybe_copy_and_import(FileNode, BackupFilename, Opts) ->
+    Namespace = maps:get(namespace, Opts, ?global_ns),
     maybe
-        ok ?= maybe_copy(FileNode, BackupFilename),
+        ok ?= maybe_copy(FileNode, BackupFilename, Namespace),
         import(BackupFilename, Opts)
     end.
 
 -spec read_file(file:filename_all()) ->
     {ok, #{filename => file:filename_all(), file => binary()}} | {error, _}.
 read_file(BackupFilename) ->
+    read_file(?global_ns, BackupFilename).
+
+%% RPC target (v3). `Namespace' scopes the lookup to the caller's backup
+%% directory, keeping tenants isolated from each other and from global backups.
+-spec read_file(maybe_namespace(), file:filename_all()) ->
+    {ok, #{filename => file:filename_all(), file => binary()}} | {error, _}.
+read_file(Namespace, BackupFilename) ->
     maybe
-        {ok, FilePath} ?= backup_path(BackupFilename),
+        {ok, FilePath} ?= backup_path(Namespace, BackupFilename),
         maybe_not_found(file:read_file(FilePath))
     end.
 
 -spec delete_file(file:filename_all()) -> ok | {error, _}.
 delete_file(BackupFilename) ->
+    delete_file(?global_ns, BackupFilename).
+
+%% RPC target (v3). See `read_file/2'.
+-spec delete_file(maybe_namespace(), file:filename_all()) -> ok | {error, _}.
+delete_file(Namespace, BackupFilename) ->
     maybe
-        {ok, FilePath} ?= backup_path(BackupFilename),
+        {ok, FilePath} ?= backup_path(Namespace, BackupFilename),
         maybe_not_found(file:delete(FilePath))
     end.
 
 -spec upload(file:filename_all(), binary()) -> ok | {error, _}.
 upload(BackupFilename, BackupFileContent) ->
+    upload(?global_ns, BackupFilename, BackupFileContent).
+
+-spec upload(maybe_namespace(), file:filename_all(), binary()) -> ok | {error, _}.
+upload(Namespace, BackupFilename, BackupFileContent) ->
     maybe
-        {ok, FilePath} ?= backup_path(BackupFilename),
+        {ok, FilePath} ?= backup_path(Namespace, BackupFilename),
         case filelib:is_file(FilePath) of
             true -> {error, {already_exists, BackupFilename}};
             false -> do_upload(FilePath, BackupFileContent)
@@ -426,6 +451,13 @@ upload(BackupFilename, BackupFileContent) ->
 
 -spec list_files() -> [backup_file_info()].
 list_files() ->
+    list_files(?global_ns).
+
+%% RPC target (v3). Lists only the backups owned by `Namespace'; global backups
+%% (including legacy ones created before namespace isolation) live in the root
+%% directory and are only visible to global administrators.
+-spec list_files(maybe_namespace()) -> [backup_file_info()].
+list_files(Namespace) ->
     Filter =
         fun(File) ->
             case file:read_file_info(File, [{time, posix}]) of
@@ -443,11 +475,11 @@ list_files() ->
                     false
             end
         end,
-    lists:filtermap(Filter, backup_files()).
+    lists:filtermap(Filter, backup_files(Namespace)).
 
--spec backup_files() -> [file:filename()].
-backup_files() ->
-    {ok, Pattern} = backup_path("*" ++ ?TAR_SUFFIX),
+-spec backup_files(maybe_namespace()) -> [file:filename()].
+backup_files(Namespace) ->
+    {ok, Pattern} = backup_path(Namespace, "*" ++ ?TAR_SUFFIX),
     filelib:wildcard(Pattern).
 
 -spec format_error(atom()) -> string() | term().
@@ -513,25 +545,33 @@ format_db_errors(Errors) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-maybe_copy(FileNode, _BackupFilename) when FileNode =:= node() ->
+maybe_copy(FileNode, _BackupFilename, _Namespace) when FileNode =:= node() ->
     ok;
-maybe_copy(FileNode, BackupFilename) ->
+maybe_copy(FileNode, BackupFilename, Namespace) ->
     maybe
-        {ok, FilePath} ?= backup_path(BackupFilename),
+        {ok, FilePath} ?= backup_path(Namespace, BackupFilename),
         %% The file can be already present locally.
         case filelib:is_regular(FilePath) of
             true ->
                 ok;
             false ->
-                copy(FileNode, BackupFilename)
+                copy(FileNode, BackupFilename, Namespace)
         end
     end.
 
-copy(FileNode, BackupFilename) ->
+copy(FileNode, BackupFilename, ?global_ns) ->
     maybe
         {ok, BackupFileContent} ?=
             emqx_mgmt_data_backup_proto_v1:read_file(FileNode, BackupFilename, infinity),
-        ok ?= upload(BackupFilename, BackupFileContent)
+        ok ?= upload(?global_ns, BackupFilename, BackupFileContent)
+    end;
+copy(FileNode, BackupFilename, Namespace) when is_binary(Namespace) ->
+    maybe
+        {ok, BackupFileContent} ?=
+            emqx_mgmt_data_backup_proto_v3:read_file(
+                FileNode, Namespace, BackupFilename, infinity
+            ),
+        ok ?= upload(Namespace, BackupFilename, BackupFileContent)
     end.
 
 maybe_not_found({error, enoent}) ->
@@ -595,7 +635,9 @@ prepare_new_backup(Opts) ->
             [Y, M, D, HH, MM, SS, Ts rem 1000]
         )
     ),
-    BackupDir = maps:get(out_dir, Opts, root_backup_dir()),
+    Namespace = maps:get(namespace, Opts, ?global_ns),
+    {ok, DefaultDir} = backup_root_dir(Namespace),
+    BackupDir = maps:get(out_dir, Opts, DefaultDir),
     BackupName = filename:join(BackupDir, BackupBaseName),
     BackupTarName = tar(BackupName),
     maybe_print("Exporting data to ~p...~n", [BackupTarName], Opts),
@@ -1539,15 +1581,43 @@ backup_dir(BackupFilePath) ->
         _ -> {ok, filename:join(RootBackupDir, BaseName)}
     end.
 
-backup_path(Filename) when is_binary(Filename) ->
-    backup_path(str(Filename));
-backup_path(Filename) when is_list(Filename) ->
+backup_path(Filename) ->
+    backup_path(?global_ns, Filename).
+
+backup_path(Namespace, Filename) when is_binary(Filename) ->
+    backup_path(Namespace, str(Filename));
+backup_path(Namespace, Filename) when is_list(Filename) ->
     maybe
         [Filename] ?= filename:split(Filename),
         ok ?= validate_backup_basename(Filename),
-        {ok, filename:join(root_backup_dir(), Filename)}
+        {ok, Dir} ?= backup_root_dir(Namespace),
+        {ok, filename:join(Dir, Filename)}
     else
+        {error, _} = Error -> Error;
         _ -> {error, bad_backup_name}
+    end.
+
+%% Global (and legacy) backups live directly in the root backup directory;
+%% namespaced backups are isolated under `<root>/ns/<Namespace>/'. This is the
+%% single choke point that keeps tenants from reaching each other's or the
+%% global administrator's archives.
+backup_root_dir(?global_ns) ->
+    {ok, root_backup_dir()};
+backup_root_dir(Namespace) when is_binary(Namespace) ->
+    namespaced_backup_dir(Namespace).
+
+%% The namespace comes from the authenticated caller, but we still resolve it as
+%% a safe relative path so a crafted namespace cannot escape the backup root.
+namespaced_backup_dir(Namespace) ->
+    Root = root_backup_dir(),
+    RelPath = filename:join(?NS_BACKUP_SUBDIR, str(Namespace)),
+    case filelib:safe_relative_path(RelPath, Root) of
+        unsafe ->
+            {error, bad_backup_name};
+        SafeRel ->
+            Dir = filename:join(Root, SafeRel),
+            ok = ensure_path(Dir),
+            {ok, Dir}
     end.
 
 cleanup_backup_dir(BackupFilePath) ->

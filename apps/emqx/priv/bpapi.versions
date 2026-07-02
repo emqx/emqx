@@ -61,6 +61,7 @@
 {emqx_mgmt_cluster,3}.
 {emqx_mgmt_data_backup,1}.
 {emqx_mgmt_data_backup,2}.
+{emqx_mgmt_data_backup,3}.
 {emqx_mgmt_trace,2}.
 {emqx_mgmt_trace,3}.
 {emqx_mq_consumer,1}.

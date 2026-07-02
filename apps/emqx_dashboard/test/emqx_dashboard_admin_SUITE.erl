@@ -557,8 +557,8 @@ t_namespaced_user_permissions(_TCConfig) ->
     ok.
 
 %% Keep in sync with the namespaced-deny clauses in
-%% `emqx_dashboard_rbac:do_check_rbac/3' for these three modules.  Adding a new
-%% global-only message endpoint there means adding it here too.
+%% `emqx_dashboard_rbac:do_check_rbac/3' for these modules.  Adding a new
+%% global-only endpoint there means adding it here too.
 namespaced_get_denylist() ->
     [
         #{method => get, module => emqx_mgmt_api_clients, function => mqueue_msgs},
