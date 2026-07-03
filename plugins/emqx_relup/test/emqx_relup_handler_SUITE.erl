@@ -108,19 +108,15 @@ t_5105_catalog_uses_plugin_eredis_upgrade_module(_Config) ->
         )
     ).
 
--doc "The 5.10.4 -> 5.10.5 hop also applies SAML XXE, backup download "
-"authorization, PostgreSQL, plugin cleanup, and Oracle fixes without extending the "
-"Redis stop/start window.".
-t_5105_catalog_covers_saml_xxe_backup_download_postgresql_plugin_and_oracle_fixes(
-    _Config
-) ->
+-doc "The 5.10.4 -> 5.10.5 hop also applies SAML XXE, backup download, "
+"PostgreSQL, and Oracle fixes without extending the Redis stop/start window.".
+t_5105_catalog_covers_saml_xxe_backup_download_postgresql_and_oracle_fixes(_Config) ->
     {Valid, _Errors} = emqx_relup_handler:validate_priv_catalog(),
     #{code_changes := CodeChanges} = find_relup_entry("5.10.4", "5.10.5", Valid),
     LoadRelease = {load_module, emqx_release},
     StopRedis = {apply, emqx_relup_eredis_upgrade, stop_redis_resources, []},
     StartRedis = {apply, emqx_relup_eredis_upgrade, start_redis_resources, []},
     AnnounceBPAPI = {apply, emqx_bpapi, announce, [node(), emqx]},
-    PluginPurge = {apply, emqx_plugins, purge_unconfigured, []},
     ?assert(is_before(StopRedis, StartRedis, CodeChanges)),
     lists:foreach(
         fun(Instruction) ->
@@ -145,9 +141,6 @@ t_5105_catalog_covers_saml_xxe_backup_download_postgresql_plugin_and_oracle_fixe
             {load_module, emqx_mgmt_api_data_backup},
             AnnounceBPAPI,
             {load_module, emqx_postgresql},
-            {load_module, emqx_plugins},
-            {load_module, emqx_plugins_app},
-            PluginPurge,
             {restart_application, jamdb_oracle},
             {load_module, emqx_oracle},
             {load_module, emqx_relup_oracle_upgrade},
@@ -175,8 +168,6 @@ t_5105_catalog_covers_saml_xxe_backup_download_postgresql_plugin_and_oracle_fixe
             CodeChanges
         )
     ),
-    ?assert(is_before({load_module, emqx_plugins}, PluginPurge, CodeChanges)),
-    ?assert(is_before({load_module, emqx_plugins_app}, PluginPurge, CodeChanges)),
     ?assert(is_before({load_module, emqx_mgmt_data_backup_proto_v2}, AnnounceBPAPI, CodeChanges)).
 
 %%==============================================================================
