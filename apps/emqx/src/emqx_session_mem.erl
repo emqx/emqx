@@ -134,7 +134,7 @@
 -type clientinfo() :: emqx_types:clientinfo().
 -type conninfo() :: emqx_session:conninfo().
 -type replies() :: emqx_session:replies().
--type effect() :: emqx_session:effect().
+-type effects() :: emqx_session:effects().
 
 -define(STATS_KEYS, [
     durable,
@@ -425,20 +425,15 @@ is_awaiting_full(#session{
 %%--------------------------------------------------------------------
 
 -spec puback(clientinfo(), emqx_types:packet_id(), session()) ->
-    {ok, emqx_types:message(), replies(), session()}
-    | {ok, emqx_types:message(), replies(), effect(), session()}
+    {ok | effects(), emqx_types:message(), replies(), session()}
     | {error, emqx_types:reason_code()}.
 puback(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, #inflight_data{phase = wait_ack, message = #message{qos = ?QOS_1} = Msg}} ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             Session1 = Session#session{inflight = Inflight1},
-            case dequeue(ClientInfo, Session1) of
-                {ok, Replies, Session2} ->
-                    {ok, without_inflight_insert_ts(Msg), Replies, Session2};
-                {ok, Replies, Effect, Session2} ->
-                    {ok, without_inflight_insert_ts(Msg), Replies, Effect, Session2}
-            end;
+            {OkEffects, Replies, Session2} = dequeue(ClientInfo, Session1),
+            {OkEffects, without_inflight_insert_ts(Msg), Replies, Session2};
         {value, #inflight_data{phase = wait_ack, message = _DifferentQoSMsg}} ->
             {error, ?RC_PROTOCOL_ERROR};
         {value, _} ->
@@ -489,20 +484,15 @@ pubrel(PacketId, Session = #session{awaiting_rel = AwaitingRel}) ->
 %%--------------------------------------------------------------------
 
 -spec pubcomp(clientinfo(), emqx_types:packet_id(), session()) ->
-    {ok, emqx_types:message(), replies(), session()}
-    | {ok, emqx_types:message(), replies(), effect(), session()}
+    {ok | effects(), emqx_types:message(), replies(), session()}
     | {error, emqx_types:reason_code()}.
 pubcomp(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, #inflight_data{phase = wait_comp, message = #message{qos = ?QOS_2} = Msg}} ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             Session1 = Session#session{inflight = Inflight1},
-            case dequeue(ClientInfo, Session1) of
-                {ok, Replies, Session2} ->
-                    {ok, without_inflight_insert_ts(Msg), Replies, Session2};
-                {ok, Replies, Effect, Session2} ->
-                    {ok, without_inflight_insert_ts(Msg), Replies, Effect, Session2}
-            end;
+            {OkEffects, Replies, Session2} = dequeue(ClientInfo, Session1),
+            {OkEffects, without_inflight_insert_ts(Msg), Replies, Session2};
         {value, #inflight_data{message = #message{qos = QoS}}} when QoS =/= ?QOS_2 ->
             {error, ?RC_PROTOCOL_ERROR};
         {value, _Other} ->
@@ -529,7 +519,7 @@ dequeue(
     end.
 
 dequeue(_ClientInfo, _Zone, S0, 0, Acc, Q, Inflight, Limiter, PktId) ->
-    finish_delivery(S0, Acc, Q, Inflight, Limiter, PktId);
+    finish_delivery(ok, S0, Acc, Q, Inflight, Limiter, PktId);
 dequeue(ClientInfo, Zone, S, Count, Acc0, Q0, Inflight0, L0, PktId) ->
     maybe
         {{value, Msg}, Q} ?= emqx_mqueue:out(Q0),
@@ -565,13 +555,10 @@ dequeue(ClientInfo, Zone, S, Count, Acc0, Q0, Inflight0, L0, PktId) ->
         end
     else
         {empty, _} ->
-            finish_delivery(S, Acc0, Q0, Inflight0, L0, PktId)
+            finish_delivery(ok, S, Acc0, Q0, Inflight0, L0, PktId)
     end.
 
-finish_delivery(S0, Acc, Q, Inflight, Limiter, PktId) ->
-    finish_delivery(none, S0, Acc, Q, Inflight, Limiter, PktId).
-
-finish_delivery(Effect, S0, Acc, Q, Inflight, Limiter, PktId) ->
+finish_delivery(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId) ->
     Session = S0#session{
         mqueue = Q,
         inflight = Inflight,
@@ -579,14 +566,11 @@ finish_delivery(Effect, S0, Acc, Q, Inflight, Limiter, PktId) ->
         next_pkt_id = PktId
     },
     Replies = lists:reverse(Acc),
-    case Effect of
-        none -> {ok, Replies, Session};
-        _Eff -> {ok, Replies, Effect, Session}
-    end.
+    {OkEffect, Replies, Session}.
 
 retry_dequeue_effect(Reason, Q) ->
     case emqx_mqueue:is_empty(Q) of
-        true -> none;
+        true -> ok;
         false -> retry_dequeue_timer_effect(Reason)
     end.
 
@@ -595,7 +579,7 @@ retry_dequeue_effect(Reason, Q) ->
 %%--------------------------------------------------------------------
 
 -spec deliver(clientinfo(), [emqx_types:deliver()], [emqx_session:connflag()], session()) ->
-    {ok, replies(), session()} | {ok, replies(), effect(), session()}.
+    {ok | effects(), replies(), session()}.
 deliver(
     ClientInfo,
     Msgs,
@@ -606,7 +590,7 @@ deliver(
     deliver(ClientInfo, Congested, Session, Msgs, [], Q, Inflight, L, PktId).
 
 deliver(_ClientInfo, _Congested, S0, [], Acc, Q, Inflight, Limiter, PktId) ->
-    finish_delivery(S0, Acc, Q, Inflight, Limiter, PktId);
+    finish_delivery(ok, S0, Acc, Q, Inflight, Limiter, PktId);
 deliver(
     ClientInfo,
     Congested,
@@ -729,8 +713,7 @@ dup_publish_result(#message{topic = Topic}) ->
 
 %% @doc Handle timeout events
 -spec handle_timeout(clientinfo(), emqx_session:common_timer_name(), session()) ->
-    {ok, replies(), session()}
-    | {ok, replies(), effect(), session()}
+    {ok | effects(), replies(), session()}
     | {ok, replies(), timeout(), session()}.
 handle_timeout(ClientInfo, retry_delivery, Session) ->
     retry(ClientInfo, Session);
@@ -753,9 +736,7 @@ handle_info(_ClientInfo, _Msg, Session) ->
     Session.
 
 -spec handle_signal(clientinfo(), term(), session()) ->
-    {ok, session()}
-    | {ok, replies(), session()}
-    | {ok, replies(), effect(), session()}.
+    {ok, session()} | {ok | effects(), replies(), session()}.
 handle_signal(ClientInfo, {connection, decongested, _Info}, Session) ->
     dequeue(ClientInfo, Session);
 handle_signal(_ClientInfo, _Signal, Session) ->
@@ -889,8 +870,7 @@ resume(_ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions =
     Session.
 
 -spec replay(emqx_types:clientinfo(), replayctx(), session()) ->
-    {ok, replies(), session()}
-    | {ok, replies(), effect(), session()}.
+    {ok | effects(), replies(), session()}.
 replay(ClientInfo, TakeoverState, Session) ->
     replay(ClientInfo, emqx_utils:drain_deliver(), TakeoverState, Session).
 
@@ -913,28 +893,20 @@ replay(ClientInfo, DeliversLocal, TakeoverState, Session) ->
             PendingsLocal = emqx_session:enrich_delivers(ClientInfo, DeliversLocal, Session),
             PendingsRemote = filter_remote_pendings(ClientInfo, Session, PendingsRemote0),
             PendingsAll = dedup(PendingsRemote, PendingsLocal),
-            RetReplay = replay(ClientInfo, Session),
-            {PubsResendQueued, Effect1, Session1} = unpack_ret(RetReplay),
-            RetDeliver = deliver(ClientInfo, PendingsAll, [], Session1),
-            {PubsPending, Effect2, Session2} = unpack_ret(RetDeliver),
+            {OkReply, PubsResendQueued, Session1} = replay(ClientInfo, Session),
+            {OkDeliver, PubsPending, Session2} = deliver(ClientInfo, PendingsAll, [], Session1),
             Replies = append(PubsResendQueued, PubsPending),
-            case Effect2 of
-                none when Effect1 =:= none ->
+            case OkDeliver of
+                ok when OkReply =:= ok ->
                     {ok, Replies, Session2};
-                none ->
-                    {ok, Replies, Effect1, Session2};
-                Effect ->
-                    {ok, Replies, Effect, Session2}
+                _ ->
+                    Effects = [E || E <- [OkReply, OkDeliver], E =/= ok],
+                    {Effects, Replies, Session2}
             end;
         {error, _} ->
             % TODO log error?
             replay(ClientInfo, Session)
     end.
-
-unpack_ret({ok, Replies, Session}) ->
-    {Replies, none, Session};
-unpack_ret({ok, Replies, Effect, Session}) ->
-    {Replies, Effect, Session}.
 
 -spec replay_enqueue(emqx_types:clientinfo(), [emqx_types:deliver()], replayctx(), session()) ->
     session().
@@ -956,7 +928,7 @@ filter_remote_pendings(ClientInfo, Session, Pendings) ->
     lists:filter(fun emqx_session:should_keep/1, Pendings1).
 
 -spec replay(emqx_types:clientinfo(), session()) ->
-    {ok, replies(), session()} | {ok, replies(), effect(), session()}.
+    {ok | effects(), replies(), session()}.
 replay(ClientInfo, Session) ->
     %% Inflight messages are resent verbatim without an expiry check, unlike the
     %% queued messages dropped on expiry by dequeue/4. This asymmetry is intentional:
@@ -972,12 +944,8 @@ replay(ClientInfo, Session) ->
         end,
         emqx_inflight:to_list(Session#session.inflight)
     ),
-    case dequeue(ClientInfo, Session) of
-        {ok, More, Session1} ->
-            {ok, append(PubsResend, More), Session1};
-        {ok, More, Effect, Session1} ->
-            {ok, append(PubsResend, More), Effect, Session1}
-    end.
+    {OkEffect, More, Session1} = dequeue(ClientInfo, Session),
+    {OkEffect, append(PubsResend, More), Session1}.
 
 -spec dedup([emqx_types:message()], [emqx_types:message()]) ->
     [emqx_types:message()].
@@ -1085,16 +1053,16 @@ retry_dequeue_timer_effect({failed_to_consume_from_limiter, LimiterId}) ->
             {set_timer, ?DEQUEUE_RETRY_TIMER, Time};
         _ ->
             %% Infinite capacity; should be impossible at this point.
-            none
+            ok
     catch
         error:{limiter_not_found, _} ->
             %% Should be impossible, or limiter has changed return type...
             ?tp("session_mem_limiter_not_found", #{limiter_id => LimiterId}),
-            none
+            ok
     end;
 retry_dequeue_timer_effect(_Reason) ->
     %% Some other limiter error reason (should be impossible?)
-    none.
+    ok.
 
 %%--------------------------------------------------------------------
 %% Helper functions

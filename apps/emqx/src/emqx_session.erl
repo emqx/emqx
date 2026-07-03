@@ -111,6 +111,7 @@
     conninfo/0,
     connflag/0,
     effect/0,
+    effects/0,
     clientinfo/0,
     reply/0,
     replies/0,
@@ -136,6 +137,7 @@
 -type common_timer_name() :: retry_delivery | expire_awaiting_rel.
 -type custom_timer_name() :: atom().
 -type effect() :: {set_timer | reset_timer, custom_timer_name(), timeout()}.
+-type effects() :: effect() | [effect()].
 
 -type message() :: emqx_types:message().
 -type publish() :: {option(emqx_types:packet_id()), emqx_types:message()}.
@@ -193,19 +195,17 @@
 
 -callback handle_timeout
     (clientinfo(), common_timer_name(), t()) ->
-        {ok, replies(), t()}
-        | {ok, replies(), timeout() | effect(), t()};
+        {ok | effects(), replies(), t()}
+        | {ok | effects(), replies(), timeout(), t()};
     (clientinfo(), custom_timer_name(), t()) ->
-        {ok, replies(), t()}
-        | {ok, replies(), effect(), t()}.
+        {ok | effects(), replies(), t()}.
 
 -callback handle_info(clientinfo(), term(), t()) ->
     t().
 
 -callback handle_signal(clientinfo(), term(), t()) ->
-    {ok, t()}
-    | {ok, replies(), t()}
-    | {ok, replies(), effect(), t()}.
+    {ok | effects(), t()}
+    | {ok | effects(), replies(), t()}.
 
 -callback get_subscription(emqx_types:topic(), t()) ->
     emqx_types:subopts() | undefined.
@@ -222,8 +222,7 @@
     | {error, emqx_types:reason_code()}.
 
 -callback puback(clientinfo(), emqx_types:packet_id(), t()) ->
-    {ok, emqx_types:message(), replies(), t()}
-    | {ok, emqx_types:message(), replies(), effect(), t()}
+    {ok | effects(), emqx_types:message(), replies(), t()}
     | {error, emqx_types:reason_code()}.
 
 -callback pubrec(emqx_types:packet_id(), t()) ->
@@ -235,17 +234,14 @@
     | {error, emqx_types:reason_code()}.
 
 -callback pubcomp(clientinfo(), emqx_types:packet_id(), t()) ->
-    {ok, emqx_types:message(), replies(), t()}
-    | {ok, emqx_types:message(), replies(), effect(), t()}
+    {ok | effects(), emqx_types:message(), replies(), t()}
     | {error, emqx_types:reason_code()}.
 
 -callback replay(clientinfo(), _ReplayContext, t()) ->
-    {ok, replies(), t()}
-    | {ok, replies(), effect(), t()}.
+    {ok | effects(), replies(), t()}.
 
 -callback deliver(clientinfo(), [emqx_types:deliver()], [connflag()], t()) ->
-    {ok, replies(), t()}
-    | {ok, replies(), effect(), t()}.
+    {ok | effects(), replies(), t()}.
 
 -callback info(atom(), t()) -> term().
 
@@ -405,16 +401,11 @@ publish(_ClientInfo, PacketId, Msg, Session) ->
 %%--------------------------------------------------------------------
 
 -spec puback(clientinfo(), emqx_types:packet_id(), emqx_types:reason_code(), t()) ->
-    {ok, message(), replies(), t()}
-    | {ok, message(), replies(), effect(), t()}
+    {ok | effects(), message(), replies(), t()}
     | {error, emqx_types:reason_code()}.
 puback(ClientInfo, PacketId, ReasonCode, Session) ->
     case ?IMPL(Session):puback(ClientInfo, PacketId, Session) of
-        {ok, Msg, Replies, Session1} = Ok ->
-            _ = on_delivery_completed(Msg, ReasonCode, ClientInfo, Session1),
-            _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
-            Ok;
-        {ok, Msg, Replies, _Effect, Session1} = Ok ->
+        {_OkEffects, Msg, Replies, Session1} = Ok ->
             _ = on_delivery_completed(Msg, ReasonCode, ClientInfo, Session1),
             _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
             Ok;
@@ -449,19 +440,14 @@ pubrel(_ClientInfo, PacketId, Session) ->
     end.
 
 -spec pubcomp(clientinfo(), emqx_types:packet_id(), emqx_types:reason_code(), t()) ->
-    {ok, replies(), t()}
-    | {ok, replies(), effect(), t()}
+    {ok | effects(), replies(), t()}
     | {error, emqx_types:reason_code()}.
 pubcomp(ClientInfo, PacketId, ReasonCode, Session) ->
     case ?IMPL(Session):pubcomp(ClientInfo, PacketId, Session) of
-        {ok, Msg, Replies, Session1} ->
+        {OkEffects, Msg, Replies, Session1} ->
             _ = on_delivery_completed(Msg, ReasonCode, ClientInfo, Session1),
             _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
-            {ok, Replies, Session1};
-        {ok, Msg, Replies, Effect, Session1} ->
-            _ = on_delivery_completed(Msg, ReasonCode, ClientInfo, Session1),
-            _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
-            {ok, Replies, Effect, Session1};
+            {OkEffects, Replies, Session1};
         {error, _} = Error ->
             Error
     end.
@@ -469,8 +455,7 @@ pubcomp(ClientInfo, PacketId, ReasonCode, Session) ->
 %%--------------------------------------------------------------------
 
 -spec replay(clientinfo(), [emqx_types:message()], t()) ->
-    {ok, replies(), t()}
-    | {ok, replies(), effect(), t()}.
+    {ok | effects(), replies(), t()}.
 replay(ClientInfo, ReplayContext, Session) ->
     ?IMPL(Session):replay(ClientInfo, ReplayContext, Session).
 
@@ -479,18 +464,13 @@ replay(ClientInfo, ReplayContext, Session) ->
 %%--------------------------------------------------------------------
 
 -spec deliver(clientinfo(), [emqx_types:deliver()], [connflag()], t()) ->
-    {ok, replies(), t()}
-    | {ok, replies(), effect(), t()}.
+    {ok | effects(), replies(), t()}.
 deliver(ClientInfo, Delivers, Flags, Session) ->
     Messages = enrich_delivers(ClientInfo, Delivers, Session),
-    case ?IMPL(Session):deliver(ClientInfo, Messages, Flags, Session) of
-        {ok, Replies, Session1} = Ok ->
-            _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
-            Ok;
-        {ok, Replies, _Effect, Session1} = Ok ->
-            _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
-            Ok
-    end.
+    Ok = ?IMPL(Session):deliver(ClientInfo, Messages, Flags, Session),
+    {_OkEffects, Replies, Session1} = Ok,
+    _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
+    Ok.
 
 %%--------------------------------------------------------------------
 
@@ -620,16 +600,15 @@ clean_sub_filter_subopts(SubOpts) ->
 %%--------------------------------------------------------------------
 
 -spec handle_timeout(clientinfo(), common_timer_name() | custom_timer_name(), t()) ->
-    {ok, replies(), t()}
-    | {ok, replies(), effect(), t()}
+    {ok | effects(), replies(), t()}
     %% NOTE: only relevant for `common_timer_name()`
-    | {ok, replies(), timeout(), t()}.
+    | {ok | effects(), replies(), timeout(), t()}.
 handle_timeout(ClientInfo, Timer, Session) ->
     case ?IMPL(Session):handle_timeout(ClientInfo, Timer, Session) of
-        {ok, Replies, Session1} = Ok ->
+        {_OkEffects, Replies, Session1} = Ok ->
             _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
             Ok;
-        {ok, Replies, _Timeout, Session1} = Ok ->
+        {_OkEffects, Replies, _Timeout, Session1} = Ok ->
             _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
             Ok
     end.
@@ -644,9 +623,8 @@ handle_info(ClientInfo, Info, Session) ->
     ?IMPL(Session):handle_info(ClientInfo, Info, Session).
 
 -spec handle_signal(clientinfo(), term(), t()) ->
-    {ok, t()}
-    | {ok, replies(), t()}
-    | {ok, replies(), effect(), t()}.
+    {ok | effects(), t()}
+    | {ok | effects(), replies(), t()}.
 handle_signal(ClientInfo, Signal, Session) ->
     ?IMPL(Session):handle_signal(ClientInfo, Signal, Session).
 

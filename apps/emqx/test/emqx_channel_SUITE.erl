@@ -989,21 +989,26 @@ t_handle_custom_timers(_) ->
 %%--------------------------------------------------------------------
 
 handle_signal(_ClientInfo, {connection, congested, #{retry := Timeout}}, {?MODULE, Session}) ->
-    {ok, [], {set_timer, signal1, Timeout}, {?MODULE, Session}};
+    Effect = {set_timer, signal1, Timeout},
+    {Effect, [], {?MODULE, Session}};
 handle_signal(_ClientInfo, {connection, decongested, #{retry := Timeout}}, {?MODULE, Session}) ->
-    {ok, [], {set_timer, signal2, Timeout}, {?MODULE, Session}}.
+    Effect = {set_timer, signal2, Timeout},
+    {Effect, [], {?MODULE, Session}}.
 
 info(created_at, {?MODULE, _Session}) ->
     0.
 
 handle_timeout(_ClientInfo, signal1, {?MODULE, Session}) ->
     Msg = emqx_message:make(<<"a/b">>, <<"1">>),
-    {ok, [{1, Msg}], {reset_timer, msg1, ?CUSTOM_TIMER_TIMEOUT_LONG}, {?MODULE, Session}};
+    Effect = {reset_timer, msg1, ?CUSTOM_TIMER_TIMEOUT_LONG},
+    {Effect, [{1, Msg}], {?MODULE, Session}};
 handle_timeout(_ClientInfo, retry_delivery, {?MODULE, Session}) ->
     Msg = emqx_message:make(<<"c/d">>, <<"2">>),
-    {ok, [{2, Msg}], {reset_timer, msg1, ?CUSTOM_TIMER_TIMEOUT_SHORT}, {?MODULE, Session}};
+    Effect = {reset_timer, msg1, ?CUSTOM_TIMER_TIMEOUT_SHORT},
+    {Effect, [{2, Msg}], {?MODULE, Session}};
 handle_timeout(_ClientInfo, msg1, {?MODULE, Session}) ->
-    {ok, [], {reset_timer, signal2, infinity}, {?MODULE, Session}}.
+    Effect = {reset_timer, signal2, infinity},
+    {Effect, [], {?MODULE, Session}}.
 
 %%--------------------------------------------------------------------
 %% Test cases for internal functions

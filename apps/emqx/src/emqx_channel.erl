@@ -870,12 +870,9 @@ process_puback(
         {ok, Msg, [], NSession} ->
             ok = after_message_acked(Msg, Properties, Channel),
             {ok, Channel#channel{session = NSession}};
-        {ok, Msg, Publishes, NSession} ->
+        {OkEffects, Msg, Publishes, NSession} ->
             ok = after_message_acked(Msg, Properties, Channel),
-            handle_out(publish, Publishes, Channel#channel{session = NSession});
-        {ok, Msg, Publishes, Effect, NSession} ->
-            ok = after_message_acked(Msg, Properties, Channel),
-            NChannel = apply_session_effect(Effect, Channel#channel{session = NSession}),
+            NChannel = apply_session_effects(OkEffects, Channel#channel{session = NSession}),
             handle_out(publish, Publishes, NChannel);
         {error, ?RC_PROTOCOL_ERROR} ->
             handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
@@ -951,10 +948,8 @@ process_pubcomp(
     case emqx_session:pubcomp(ClientInfo, PacketId, ReasonCode, Session) of
         {ok, [], NSession} ->
             {ok, Channel#channel{session = NSession}};
-        {ok, Publishes, NSession} ->
-            handle_out(publish, Publishes, Channel#channel{session = NSession});
-        {ok, Publishes, Effect, NSession} ->
-            NChannel = apply_session_effect(Effect, Channel#channel{session = NSession}),
+        {OkEffects, Publishes, NSession} ->
+            NChannel = apply_session_effects(OkEffects, Channel#channel{session = NSession}),
             handle_out(publish, Publishes, NChannel);
         {error, ?RC_PROTOCOL_ERROR} ->
             handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
@@ -1293,16 +1288,11 @@ do_handle_deliver(
     }
 ) ->
     case emqx_session:deliver(ClientInfo, Delivers, Flags, Session) of
-        {ok, [], NSession} ->
-            {ok, Channel#channel{session = NSession}};
-        {ok, Publishes, NSession} ->
-            NChannel = Channel#channel{session = NSession},
-            handle_out(publish, Publishes, ensure_timer(retry_delivery, NChannel));
-        {ok, [], Effect, NSession} ->
-            NChannel = apply_session_effect(Effect, Channel#channel{session = NSession}),
+        {OkEffects, [], NSession} ->
+            NChannel = apply_session_effects(OkEffects, Channel#channel{session = NSession}),
             {ok, NChannel};
-        {ok, Publishes, Effect, NSession} ->
-            NChannel = apply_session_effect(Effect, Channel#channel{session = NSession}),
+        {OkEffects, Publishes, NSession} ->
+            NChannel = apply_session_effects(OkEffects, Channel#channel{session = NSession}),
             handle_out(publish, Publishes, ensure_timer(retry_delivery, NChannel))
     end.
 
@@ -1913,13 +1903,11 @@ handle_signal(
 
 handle_session_signal(ClientInfo, Signal, Channel, Session) ->
     case emqx_session:handle_signal(ClientInfo, Signal, Session) of
-        {ok, NSession} ->
-            {ok, Channel#channel{session = NSession}};
-        {ok, Publishes, NSession} ->
-            NChannel = Channel#channel{session = NSession},
-            handle_signal_publishes(Publishes, NChannel);
-        {ok, Publishes, Effect, NSession} ->
-            NChannel = apply_session_effect(Effect, Channel#channel{session = NSession}),
+        {OkEffects, NSession} ->
+            NChannel = apply_session_effects(OkEffects, Channel#channel{session = NSession}),
+            {ok, NChannel};
+        {OkEffects, Publishes, NSession} ->
+            NChannel = apply_session_effects(OkEffects, Channel#channel{session = NSession}),
             handle_signal_publishes(Publishes, NChannel)
     end.
 
@@ -1982,15 +1970,12 @@ handle_timeout(
     %% they are kind of common to all session implementations.
     Channel1 = clean_timer(TimerName, Channel0),
     case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
-        {ok, Publishes, NSession} ->
-            Channel = Channel1#channel{session = NSession},
+        {OkEffects, Publishes, NSession} ->
+            Channel = apply_session_effects(OkEffects, Channel1#channel{session = NSession}),
             handle_out(publish, Publishes, Channel);
-        {ok, Publishes, Timeout, NSession} when is_integer(Timeout) ->
-            Channel = Channel1#channel{session = NSession},
-            handle_out(publish, Publishes, reset_timer(TimerName, Timeout, Channel));
-        {ok, Publishes, Effect, NSession} ->
-            Channel = apply_session_effect(Effect, Channel1#channel{session = NSession}),
-            handle_out(publish, Publishes, Channel)
+        {OkEffects, Publishes, Timeout, NSession} when is_integer(Timeout) ->
+            Channel = apply_session_effects(OkEffects, Channel1#channel{session = NSession}),
+            handle_out(publish, Publishes, reset_timer(TimerName, Timeout, Channel))
     end;
 handle_timeout(
     _TRef,
@@ -2001,10 +1986,8 @@ handle_timeout(
     case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
         {ok, [], NSession} ->
             {ok, Channel1#channel{session = NSession}};
-        {ok, Replies, NSession} ->
-            handle_out(publish, Replies, Channel1#channel{session = NSession});
-        {ok, Replies, Effect, NSession} ->
-            Channel = apply_session_effect(Effect, Channel1#channel{session = NSession}),
+        {OkEffects, Replies, NSession} ->
+            Channel = apply_session_effects(OkEffects, Channel1#channel{session = NSession}),
             handle_out(publish, Replies, Channel)
     end;
 handle_timeout(_TRef, expire_session, Channel = #channel{session = Session}) ->
@@ -2040,8 +2023,24 @@ handle_timeout(TRef, Msg, Channel) ->
     end.
 
 %%--------------------------------------------------------------------
-%% Ensure timers
+%% Session effects
 %%--------------------------------------------------------------------
+
+-compile({inline, [apply_session_effects/2, apply_session_effect/2]}).
+
+apply_session_effects(ok, Channel) ->
+    Channel;
+apply_session_effects(Effect, Channel) when not is_list(Effect) ->
+    apply_session_effect(Effect, Channel);
+apply_session_effects([E | Rest], Channel) ->
+    apply_session_effects(Rest, apply_session_effect(E, Channel));
+apply_session_effects([], Channel) ->
+    Channel.
+
+apply_session_effect({set_timer, Name, Time}, Channel) ->
+    set_session_timer(Name, Time, Channel);
+apply_session_effect({reset_timer, Name, Time}, Channel) ->
+    reset_session_timer(Name, Time, Channel).
 
 ensure_timer(Name, Channel = #channel{timers = Timers}) ->
     TRef = maps:get(Name, Timers, undefined),
@@ -2055,11 +2054,6 @@ ensure_timer(Name, Channel = #channel{timers = Timers}) ->
 ensure_timer(Name, Time, Channel = #channel{timers = Timers}) ->
     TRef = emqx_utils:start_timer(Time, Name),
     Channel#channel{timers = Timers#{Name => TRef}}.
-
-apply_session_effect({set_timer, Name, Time}, Channel) ->
-    set_session_timer(Name, Time, Channel);
-apply_session_effect({reset_timer, Name, Time}, Channel) ->
-    reset_session_timer(Name, Time, Channel).
 
 set_session_timer(Name, Time, Channel) when is_integer(Time) ->
     Timer = {emqx_session, Name},
@@ -3361,21 +3355,13 @@ maybe_resume_session(#channel{takeover = undefined}) ->
 maybe_resume_session(
     #channel{
         session = Session,
-        takeover = #resumption{replayctx = ReplayContext},
+        takeover = #resumption{replayctx = ReplayCtx},
         clientinfo = ClientInfo
     } = Channel
 ) ->
-    case emqx_session:replay(ClientInfo, ReplayContext, Session) of
-        {ok, Publishes, NSession} ->
-            NChannel = mark_session_resumed(NSession, Channel),
-            {Publishes, NChannel};
-        {ok, Publishes, Effect, NSession} ->
-            NChannel = mark_session_resumed(NSession, Channel),
-            {Publishes, apply_session_effect(Effect, NChannel)}
-    end.
-
-mark_session_resumed(Session, Channel) ->
-    Channel#channel{takeover = undefined, session = Session}.
+    {OkEffects, Publishes, NSession} = emqx_session:replay(ClientInfo, ReplayCtx, Session),
+    NChannel = Channel#channel{takeover = undefined, session = NSession},
+    {Publishes, apply_session_effects(OkEffects, NChannel)}.
 
 %%--------------------------------------------------------------------
 %% Maybe Shutdown the Channel
