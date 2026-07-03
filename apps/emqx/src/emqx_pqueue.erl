@@ -69,6 +69,8 @@
 
 -export_type([q/0]).
 
+-elvis([{elvis_style, dont_repeat_yourself, disable}]).
+
 %%----------------------------------------------------------------------------
 
 -type class() :: default | qos0.
