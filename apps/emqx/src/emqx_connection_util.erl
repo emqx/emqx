@@ -17,8 +17,7 @@
 label_process(
     {Type, ListenerName},
     #{
-        peername := Peername,
-        conn_mod := ConnMod
+        peername := Peername
     } = _ConnInfo
 ) ->
     PeernameStr = format_peername(Peername),
@@ -26,8 +25,7 @@ label_process(
     proc_lib:set_label({ListenerId, PeernameStr}),
     emqx_logger:set_proc_metadata(#{
         listener => ListenerId,
-        peername => PeernameStr,
-        connmod => ConnMod
+        peername => PeernameStr
     }).
 
 -spec format_peername({inet:ip_address(), inet:port_number()}) -> binary().
