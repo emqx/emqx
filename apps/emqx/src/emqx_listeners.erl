@@ -54,7 +54,10 @@
 -export([certs_dir/2]).
 -endif.
 
--export_type([listener_id/0]).
+-export_type([
+    listener_id/0,
+    listener_type/0
+]).
 
 -if(OTP_RELEASE >= 26).
 -dialyzer(

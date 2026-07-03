@@ -974,7 +974,8 @@ t_connect_idle_timeout(_) ->
     ConnectPacket = emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{})),
     SockOpts = [binary, {active, true}, {nodelay, true}],
     {ok, Sock} = gen_tcp:connect({127, 0, 0, 1}, 1883, SockOpts, 5000),
-    ClientSockname = esockd:format(element(2, inet:sockname(Sock))),
+    {ok, Sockname} = inet:sockname(Sock),
+    ClientSockname = iolist_to_binary(esockd:format(Sockname)),
     ok = gen_tcp:send(Sock, binary:part(iolist_to_binary(ConnectPacket), 0, 4)),
     ?assertReceive({tcp_closed, Sock}, IdleTimeout * 2),
     ?assertMatch(
