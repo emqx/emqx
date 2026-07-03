@@ -9,7 +9,7 @@ server.label:
 """Server Host"""
 
 application_name.desc:
-"""The application name to use for PostgreSQL connections. This value appears in PostgreSQL activity views and logs."""
+"""The application name to use for PostgreSQL connections. This value appears in PostgreSQL activity views and logs. It must be 1 to 63 bytes long and cannot contain NUL bytes."""
 
 application_name.label:
 """Application Name"""
