@@ -6,6 +6,7 @@
 -behaviour(gen_server).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_cm.hrl").
 
 -export([
     start_link/0,
@@ -104,11 +105,7 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 bootstrap_local_sessions() ->
-    Stream = emqx_cm:all_channels_stream([
-        emqx_connection,
-        emqx_socket_connection,
-        emqx_ws_connection
-    ]),
+    Stream = emqx_cm:all_channels_stream(?CHAN_CONN_MODULES),
     try
         bootstrap_loop(Stream, 0, 0, 0)
     after

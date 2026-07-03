@@ -8,6 +8,7 @@
 
 -include_lib("proper/include/proper.hrl").
 -include("emqx.hrl").
+-include("emqx_cm.hrl").
 -include("emqx_session_mem.hrl").
 -include("emqx_access_control.hrl").
 
@@ -505,11 +506,7 @@ peercert() ->
     oneof([nossl, undefined]).
 
 conn_mod() ->
-    oneof([
-        emqx_connection,
-        emqx_socket_connection,
-        emqx_ws_connection
-    ]).
+    oneof(?CHAN_CONN_MODULES).
 
 proto_name() ->
     oneof([<<"MQTT">>, <<"MQTT-SN">>, <<"CoAP">>, <<"LwM2M">>, utf8()]).
