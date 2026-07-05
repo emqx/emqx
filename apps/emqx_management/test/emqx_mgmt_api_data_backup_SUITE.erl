@@ -366,6 +366,78 @@ t_import_dashboard_token_allows_sensitive_tables(Config) ->
     ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth, ?UPLOAD_CE_BACKUP)),
     ok.
 
+%% A Dashboard administrator whose effective scope set does not include both
+%% `user_management' and `api_key_management' must be rejected with 403 when
+%% importing a backup that contains the dashboard_users / api_keys tables,
+%% the same as an API-key caller.
+t_import_restricted_dashboard_token_blocks_sensitive_tables(Config) ->
+    ApiAuth = ?config(auth, Config),
+    [Core1 | _] = ?config(cluster, Config),
+    %% `system' is what lets the caller reach the data-backup endpoint at
+    %% all; it does NOT include the credential-management scopes that govern
+    %% the sensitive tables.
+    RestrictedAuth = scoped_dashboard_token_auth(
+        Core1, <<"restricted_admin_for_test">>, ?DASHBOARD_PASS, [<<"system">>]
+    ),
+    UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
+    ?assertEqual(ok, upload_backup(?NODE1_PORT, ApiAuth, UploadFile)),
+    {Status, Body} = import_backup_full(?NODE1_PORT, RestrictedAuth, ?UPLOAD_CE_BACKUP),
+    ?assertEqual(403, Status),
+    ?assertMatch(#{<<"code">> := <<"FORBIDDEN">>}, Body),
+    ok.
+
+%% A Dashboard administrator whose effective scope set includes both
+%% `user_management' and `api_key_management' may import a backup that
+%% contains the dashboard_users / api_keys tables. (`system' is also required,
+%% otherwise the login-user scope check blocks the data-backup endpoint
+%% before the sensitive-table check runs.)
+t_import_dashboard_token_with_credential_scopes_allows_sensitive_tables(Config) ->
+    ApiAuth = ?config(auth, Config),
+    [Core1 | _] = ?config(cluster, Config),
+    PrivilegedAuth = scoped_dashboard_token_auth(
+        Core1,
+        <<"privileged_admin_for_test">>,
+        ?DASHBOARD_PASS,
+        [<<"system">>, <<"user_management">>, <<"api_key_management">>]
+    ),
+    UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
+    ?assertEqual(ok, upload_backup(?NODE1_PORT, ApiAuth, UploadFile)),
+    ?assertMatch({ok, _}, import_backup(?NODE1_PORT, PrivilegedAuth, ?UPLOAD_CE_BACKUP)),
+    ok.
+
+%% A restricted Dashboard administrator's export must omit the sensitive table
+%% sets, mirroring the API-key export behaviour.
+t_export_restricted_dashboard_token_omits_sensitive_tables(Config) ->
+    [Core1 | _] = ?config(cluster, Config),
+    RestrictedAuth = scoped_dashboard_token_auth(
+        Core1, <<"restricted_exporter_for_test">>, ?DASHBOARD_PASS, [<<"system">>]
+    ),
+    {200, #{<<"filename">> := Filename, <<"node">> := NodeBin}} =
+        export_backup2(?NODE1_PORT, RestrictedAuth, #{}),
+    Node = binary_to_atom(NodeBin, utf8),
+    {ok, BinContents} = ?ON(
+        Node, emqx_mgmt_data_backup:read_file(unicode:characters_to_binary(Filename))
+    ),
+    {ok, TmpFile} = write_tmp_tar(BinContents),
+    try
+        {ok, Entries} = erl_tar:table(TmpFile, [compressed]),
+        SensitiveTabs = ["mnesia/emqx_admin", "mnesia/emqx_app"],
+        FoundSensitive = [
+            E
+         || E <- Entries,
+            S <- SensitiveTabs,
+            string:find(E, S) =/= nomatch
+        ],
+        ?assertEqual(
+            [],
+            FoundSensitive,
+            "restricted dashboard export must not contain dashboard_users / api_keys mnesia tables"
+        )
+    after
+        file:delete(TmpFile)
+    end,
+    ok.
+
 %% API-key callers may download archives that do not contain dashboard users or
 %% API-key records. This keeps backup-sync working: its API-key export path
 %% already filters those sensitive table sets.
@@ -774,6 +846,16 @@ dashboard_token_auth(Node, User, Pass, Role) ->
     {ok, #{token := Token}} = erpc:call(Node, emqx_dashboard_admin, sign_token, [User, Pass]),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
+%% Create a global dashboard administrator with an explicit scope set and
+%% return its bearer-token auth header.
+scoped_dashboard_token_auth(Node, User, Pass, Scopes) ->
+    _ = erpc:call(Node, emqx_dashboard_admin, add_user, [
+        User, Pass, <<"administrator">>, <<"data backup test user">>
+    ]),
+    {ok, ok} = erpc:call(Node, emqx_dashboard_admin, set_user_scopes, [User, Scopes]),
+    {ok, #{token := Token}} = erpc:call(Node, emqx_dashboard_admin, sign_token, [User, Pass]),
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
+
 fresh_dashboard_auth(Config) ->
     [Core1, _Core2, Repl] = ?config(cluster, Config),
     Auth = dashboard_auth_header(Core1),
@@ -849,7 +931,9 @@ test_case_specific_apps_spec(TC) when
     TC =:= t_upload_ce_backup;
     TC =:= t_import_ce_backup;
     TC =:= t_import_api_key_blocks_sensitive_tables;
-    TC =:= t_import_dashboard_token_allows_sensitive_tables
+    TC =:= t_import_dashboard_token_allows_sensitive_tables;
+    TC =:= t_import_restricted_dashboard_token_blocks_sensitive_tables;
+    TC =:= t_import_dashboard_token_with_credential_scopes_allows_sensitive_tables
 ->
     [
         emqx_auth,

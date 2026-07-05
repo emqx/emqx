@@ -97,6 +97,7 @@ init_per_testcase(TestCase, TCConfig) ->
     ActionConfig = action_config(#{
         <<"connector">> => ConnectorName
     }),
+    wait_for_be_ready(TCConfig),
     create_database(TCConfig),
     create_table(TCConfig),
     snabbkaffe:start_trace(),
@@ -223,7 +224,61 @@ create_database(TCConfig) ->
     ok = eval_query(["create database if not exists mqtt"], TCConfig).
 
 create_table(TCConfig) ->
-    ok = eval_query(["use mqtt; ", create_table_ddl()], TCConfig).
+    %% Even after `wait_for_be_ready/1`, the FE may briefly still reject the
+    %% `CREATE TABLE` with "Failed to find enough backend" while it finishes
+    %% accounting the freshly-reported BE disks.  This retry is the safety net
+    %% that complements the readiness poll.
+    ?retry(
+        _Interval = 500,
+        _Tries = 60,
+        ok = eval_query(["use mqtt; ", create_table_ddl()], TCConfig)
+    ).
+
+%% Doris reports the BE as "healthy" (docker healthcheck / FE registration) as
+%% soon as the BE process is up, but the BE only publishes its storage disks to
+%% the FE asynchronously afterwards.  Issuing DDL before disks are published
+%% fails with "Failed to find enough backend ... hdd disks count={}".  Wait
+%% until at least one BE row reports both `Alive=true` and non-zero total
+%% capacity before proceeding.
+wait_for_be_ready(TCConfig) ->
+    ?retry(
+        _Interval = 500,
+        _Tries = 60,
+        ok = assert_be_ready(TCConfig)
+    ).
+
+assert_be_ready(TCConfig) ->
+    case eval_query(<<"SHOW BACKENDS">>, TCConfig) of
+        {ok, Cols, Rows} when Rows =/= [] ->
+            case lists:any(fun(Row) -> is_be_ready(Cols, Row) end, Rows) of
+                true -> ok;
+                false -> error({be_not_ready, Rows})
+            end;
+        Other ->
+            error({show_backends_failed, Other})
+    end.
+
+%% `SHOW BACKENDS` returns ~20 columns whose order varies across Doris
+%% versions, so look the fields up by name rather than by index.
+is_be_ready(Cols, Row) ->
+    Fields = maps:from_list(lists:zip(Cols, Row)),
+    is_true(maps:get(<<"Alive">>, Fields, undefined)) andalso
+        has_capacity(maps:get(<<"TotalCapacity">>, Fields, undefined)).
+
+is_true(<<"true">>) -> true;
+is_true("true") -> true;
+is_true(true) -> true;
+is_true(_) -> false.
+
+%% Capacity columns come back as human-readable strings such as
+%% `<<"930.635 GB">>`; a BE that hasn't reported disks yet shows `<<"0.000 ">>`.
+has_capacity(undefined) ->
+    false;
+has_capacity(Bin) ->
+    case string:to_float(string:trim(iolist_to_binary([Bin]))) of
+        {F, _} when F > 0.0 -> true;
+        _ -> false
+    end.
 
 drop_table(TCConfig) ->
     ok = eval_query(["use mqtt; drop table t_mqtt_msg"], TCConfig).

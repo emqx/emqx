@@ -59,7 +59,8 @@ t_api(_) ->
             <<"ttl">> => <<"60s">>,
             <<"excludes">> => [<<"nocache/#">>]
         },
-        <<"include_mountpoint">> => true
+        <<"include_mountpoint">> => true,
+        <<"ignore_backend_failures">> => true
     },
     Settings1Get = Settings1Put,
 
@@ -80,7 +81,8 @@ t_api(_) ->
 
     Settings2Get = Settings2Put#{
         <<"cache">> := Cache#{<<"excludes">> => []},
-        <<"include_mountpoint">> => false
+        <<"include_mountpoint">> => false,
+        <<"ignore_backend_failures">> => false
     },
 
     {ok, 200, Result2} = request(put, uri(["authorization", "settings"]), Settings2Put),
