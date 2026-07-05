@@ -1747,7 +1747,63 @@ t_will_case06(_) ->
     end,
     send_disconnect_msg(Socket, undefined),
 
-    gen_udp:close(Socket).
+    gen_udp:close(Socket),
+
+    %% This case connects with CleanSession=0, so its channel lingers in the
+    %% `disconnected' state (indexed by the peer UDP port) until the session
+    %% expires. If the OS re-assigns the same ephemeral port to a later case,
+    %% that case's CONNECT would be routed to this stale channel. Retire it
+    %% here so the SUITE does not depend on UDP port-allocation luck.
+    ok = ensure_channel_gone(ClientId).
+
+%% Reproduces UDP ephemeral-port reuse deterministically: a stale
+%% `disconnected' channel bound to a peer UDP port must not crash when a new
+%% device connects from the same source port. The stale channel is retired
+%% cleanly and the new device is able to connect.
+t_takeover_on_udp_port_reuse(_) ->
+    {ok, SockA} = gen_udp:open(0, [binary]),
+    {ok, PortA} = inet:port(SockA),
+    ClientA = ?CLIENTID,
+    %% device A connects with CleanSession=0 and disconnects, leaving its
+    %% channel alive in the `disconnected' state.
+    send_connect_msg(SockA, ClientA, 0),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(SockA)),
+    send_disconnect_msg(SockA, undefined),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(SockA)),
+    OldPid = wait_for_disconnected_channel(ClientA),
+    ok = gen_udp:close(SockA),
+    %% device B reuses the exact same source UDP port.
+    {ok, SockB} = gen_udp:open(PortA, [binary, {reuseaddr, true}]),
+    try
+        ClientB = ?CLIENTID,
+        MRef = erlang:monitor(process, OldPid),
+        %% the CONNECT is routed to the stale channel, which is retired
+        %% cleanly (before the fix this crashed with a function_clause).
+        send_connect_msg(SockB, ClientB, 0),
+        receive
+            {'DOWN', MRef, process, OldPid, Reason} ->
+                ?assertEqual({shutdown, takeover_by_new_connect}, Reason)
+        after 2000 ->
+            ct:fail(stale_channel_not_retired)
+        end,
+        %% the CONNECT that retired the stale channel gets no reply on the
+        %% wire (the channel is shut down without an ack frame); the device
+        %% must recover on retransmit.
+        ?assertEqual(udp_receive_timeout, receive_response(SockB, 500)),
+        %% the new device connects on retransmit (MQTT-SN clients retransmit
+        %% CONNECT when no reply is received).
+        ?retry(
+            200,
+            10,
+            begin
+                send_connect_msg(SockB, ClientB, 0),
+                ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(SockB))
+            end
+        ),
+        ok = ensure_channel_gone(ClientB)
+    after
+        gen_udp:close(SockB)
+    end.
 
 t_asleep_test01_timeout(_) ->
     QoS = 1,
@@ -3161,6 +3217,30 @@ receive_response(Socket, Timeout) ->
     after Timeout ->
         udp_receive_timeout
     end.
+
+%% Wait until the channel of ClientId has reached the `disconnected' state
+%% (kept alive for session resumption) and return its pid.
+wait_for_disconnected_channel(ClientId) ->
+    ?retry(
+        100,
+        20,
+        begin
+            [Pid] = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
+            #{conn_state := disconnected} =
+                emqx_gateway_cm:get_chan_info(mqttsn, ClientId, Pid),
+            Pid
+        end
+    ).
+
+%% Retire any lingering channel of ClientId and wait until it is gone.
+ensure_channel_gone(ClientId) ->
+    _ = emqx_gateway_cm:discard_session(mqttsn, ClientId),
+    ?retry(
+        100,
+        20,
+        ?assertEqual([], emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId))
+    ),
+    ok.
 
 with_gateway_authz_result(Protocol, ActionType, Topic, Result, Fun) ->
     Action = {?MODULE, gateway_authz_result, [Protocol, ActionType, Topic, Result]},
