@@ -139,6 +139,8 @@ t_5105_catalog_covers_saml_xxe_backup_plugin_api_postgresql_oracle_and_lwm2m_fix
             {load_module, emqx_mgmt_data_backup},
             {load_module, emqx_mgmt_data_backup_proto_v2},
             {load_module, emqx_mgmt_api_data_backup},
+            {load_module, emqx_plugins},
+            {load_module, emqx_plugins_app},
             {load_module, emqx_mgmt_api_plugins},
             AnnounceBPAPI,
             {load_module, emqx_postgresql},

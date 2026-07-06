@@ -954,8 +954,14 @@ describe_api_plugin(NameVsn, Options) ->
             Error
     end.
 
-api_visible_plugin(#{config_status := not_configured, running_status := RunningStatus}) ->
-    RunningStatus =:= running;
+api_visible_plugin(#{config_status := not_configured, running_status := RunningStatus} = Plugin) ->
+    case RunningStatus of
+        running ->
+            true;
+        _ ->
+            emqx_plugins:log_unconfigured_plugin(Plugin),
+            false
+    end;
 api_visible_plugin(_) ->
     true.
 

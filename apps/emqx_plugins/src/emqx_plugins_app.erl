@@ -19,6 +19,7 @@ start(_Type, _Args) ->
     {ok, Sup} = emqx_plugins_sup:start_link(),
     ok = emqx_plugins:ensure_installed(),
     ok = emqx_plugins:ensure_started(),
+    emqx_plugins:log_unconfigured_plugins(),
     ok = emqx_config_handler:add_handler([?CONF_ROOT], emqx_plugins),
     ?tp("emqx_plugins_app_started", #{}),
     {ok, Sup}.
