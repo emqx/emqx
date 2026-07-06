@@ -889,7 +889,8 @@ t_handle_call_discard(_) ->
         emqx_channel:handle_call(discard, channel()).
 
 t_handle_call_takeover_begin(_) ->
-    {reply, _Session, _Chan} = emqx_channel:handle_call({takeover, 'begin'}, channel()).
+    {reply, Session, _Chan} = emqx_channel:handle_call({takeover, 'begin'}, channel()),
+    ?assertMatch(#{}, Session).
 
 t_handle_call_takeover_end(_) ->
     ok = meck:expect(emqx_broker, unsubscribe, fun(_) -> ok end),

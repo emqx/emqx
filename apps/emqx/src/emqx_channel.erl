@@ -1617,7 +1617,7 @@ handle_call(
         conninfo = ConnInfo
     }
 ) ->
-    %% Called during RPC via `emqx_cm_proto_v{1..3}`, only by `emqx_session_mem`.
+    %% Called during RPC via `emqx_cm_proto_v{1..4}`, only by `emqx_session_mem`.
     %% NOTE
     %% Ensure channel has enough time left to react to takeover end call. At the same
     %% time ensure that channel dies off reasonably quickly if no call will arrive.
@@ -1630,7 +1630,8 @@ handle_call(
     ok = emqx_cm:unregister_channel(ClientId),
     Session = emqx_session_mem:save_subopts(Session0),
     Takeover = #takeover{pendings = []},
-    reply(Session, NChannel#channel{takeover = Takeover});
+    SessionData = emqx_session_mem:export(Session),
+    reply(SessionData, NChannel#channel{takeover = Takeover});
 handle_call(
     {takeover, 'end'},
     Channel = #channel{

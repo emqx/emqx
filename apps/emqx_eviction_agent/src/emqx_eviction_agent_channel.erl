@@ -121,7 +121,8 @@ handle_call(
     } = Channel
 ) ->
     ok = emqx_cm:unregister_channel(ClientId),
-    {reply, Session, Channel#{takeover => true}};
+    SessionData = emqx_session_mem:export(Session),
+    {reply, SessionData, Channel#{takeover => true}};
 handle_call(
     {takeover, 'end'},
     _From,

@@ -91,6 +91,8 @@
 -export([
     takeover/1,
     resume/2,
+    export/1,
+    import/2,
     enqueue/3,
     dequeue/2,
     replay/2,
@@ -116,8 +118,12 @@
 
 -export_type([
     session/0,
+    persistent/0,
     session_id/0
 ]).
+
+-type subscriptions() :: #{emqx_types:topic() => emqx_types:subopts()}.
+-type awaiting_rel() :: #{emqx_types:packet_id() => unix_timestamp_ms()}.
 
 -type inflight_data_phase() :: wait_ack | wait_comp.
 
@@ -128,7 +134,27 @@
 }).
 
 -type session() :: #session{}.
--type replayctx() :: _TakeoverState.
+-type replayctx() :: emqx_cm_takeover:channelref().
+
+-type persistent() :: #{
+    id := session_id(),
+    is_persistent := boolean(),
+    subscriptions := #{emqx_types:topic() => emqx_types:subopts()},
+    inflight := [persistent_inflight_entry()],
+    mqueue := [emqx_types:message()],
+    next_pkt_id := emqx_types:packet_id(),
+    awaiting_rel := #{emqx_types:packet_id() => unix_timestamp_ms()},
+    created_at := pos_integer()
+}.
+
+-type persistent_inflight_entry() :: #{
+    packet_id := emqx_types:packet_id(),
+    phase := inflight_data_phase(),
+    message := emqx_types:message(),
+    timestamp := unix_timestamp_ms()
+}.
+
+-type unix_timestamp_ms() :: non_neg_integer().
 
 -type message() :: emqx_types:message().
 -type clientinfo() :: emqx_types:clientinfo().
@@ -220,13 +246,13 @@ destroy(_Session) ->
     {_IsPresent :: true, session(), replayctx()} | _IsPresent :: false.
 open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg, Conf) ->
     case emqx_cm:takeover_session_begin(ClientId) of
-        {ok, SessionRemote, TakeoverState} ->
-            %% FIXME limiter
+        {ok, ChannelRef, ExportedSession} ->
+            SessionRemote = import(ClientInfo, ExportedSession),
             Session0 = resume(ClientInfo, SessionRemote),
             Session1 = resize_inflight(ConnInfo, Session0),
             Session2 = apply_conf(Conf, Session1),
             Session = filter_remote_session(Session2),
-            {true, Session, TakeoverState};
+            {true, Session, ChannelRef};
         none ->
             false
     end.
@@ -248,6 +274,91 @@ apply_conf(Conf, Session = #session{}) ->
 filter_remote_session(Session = #session{mqueue = Q}) ->
     Q1 = emqx_mqueue:filter(fun emqx_session:should_keep/1, Q),
     Session#session{mqueue = Q1}.
+
+-spec export(session()) -> persistent().
+export(#session{
+    id = Id,
+    is_persistent = IsPersistent,
+    subscriptions = Subscriptions,
+    inflight = Inflight,
+    mqueue = MQueue,
+    next_pkt_id = NextPacketId,
+    awaiting_rel = AwaitingRel,
+    created_at = CreatedAt
+}) ->
+    #{
+        id => Id,
+        is_persistent => IsPersistent,
+        subscriptions => Subscriptions,
+        inflight => export_inflight(Inflight),
+        mqueue => export_mqueue(MQueue),
+        next_pkt_id => NextPacketId,
+        awaiting_rel => AwaitingRel,
+        created_at => CreatedAt
+    }.
+
+export_mqueue(MQueue) ->
+    emqx_mqueue:to_list(MQueue).
+
+export_inflight(Inflight) ->
+    [export_inflight_entry(Entry) || Entry <- emqx_inflight:to_list(Inflight)].
+
+export_inflight_entry(
+    {PacketId, #inflight_data{phase = Phase, message = Message, timestamp = Timestamp}}
+) ->
+    #{
+        packet_id => PacketId,
+        phase => Phase,
+        message => Message,
+        timestamp => Timestamp
+    }.
+
+-spec import(clientinfo(), persistent()) -> session().
+import(ClientInfo = #{clientid := ClientId}, #{
+    id := Id,
+    is_persistent := IsPersistent,
+    subscriptions := Subscriptions,
+    inflight := Inflight,
+    mqueue := Messages,
+    next_pkt_id := NextPacketId,
+    awaiting_rel := AwaitingRel,
+    created_at := CreatedAt
+}) ->
+    #session{
+        clientid = ClientId,
+        id = Id,
+        is_persistent = IsPersistent,
+        subscriptions = Subscriptions,
+        max_subscriptions = infinity,
+        upgrade_qos = false,
+        inflight = import_inflight(Inflight),
+        mqueue = import_mqueue(ClientInfo, Messages),
+        quota = create_limiter(ClientInfo),
+        next_pkt_id = NextPacketId,
+        retry_interval = infinity,
+        awaiting_rel = AwaitingRel,
+        max_awaiting_rel = infinity,
+        await_rel_timeout = infinity,
+        created_at = CreatedAt
+    }.
+
+import_mqueue(ClientInfo = #{zone := Zone}, Messages) ->
+    enqueue_messages(ClientInfo, Messages, emqx_mqueue:init(get_mqueue_conf(Zone))).
+
+import_inflight(Inflight) ->
+    lists:foldl(fun import_inflight_entry/2, emqx_inflight:new(0), Inflight).
+
+import_inflight_entry(
+    #{
+        packet_id := PacketId,
+        phase := Phase,
+        message := Message,
+        timestamp := Timestamp
+    },
+    Inflight
+) ->
+    Entry = #inflight_data{phase = Phase, message = Message, timestamp = Timestamp},
+    emqx_inflight:insert(PacketId, Entry, Inflight).
 
 %%--------------------------------------------------------------------
 %% Info, Stats

@@ -763,6 +763,49 @@ t_resume(_) ->
     Session = session(#{subscriptions => #{<<"t">> => ?DEFAULT_SUBOPTS}}),
     _ = emqx_session_mem:resume(#{clientid => <<"clientid">>}, Session).
 
+t_export_import(_) ->
+    Msg1 = emqx_message:make(clientid, ?QOS_1, <<"t1">>, <<"payload1">>),
+    Msg2 = emqx_message:make(clientid, ?QOS_1, <<"t2">>, <<"payload2">>),
+    Session0 = session(#{
+        subscriptions => #{<<"t">> => ?DEFAULT_SUBOPTS},
+        max_subscriptions => 1,
+        upgrade_qos => true,
+        retry_interval => 42,
+        max_awaiting_rel => 2,
+        await_rel_timeout => 43
+    }),
+    {ok, [{PacketId, _InflightPub}], Session1} =
+        emqx_session_mem:deliver(clientinfo(), [Msg1], [], Session0),
+    Session2 = emqx_session_mem:enqueue(clientinfo(), [Msg2], Session1),
+    Persistent = emqx_session_mem:export(Session2),
+    ?assertNot(maps:is_key(clientid, Persistent)),
+    ?assertNot(maps:is_key(max_subscriptions, Persistent)),
+    ?assertNot(maps:is_key(upgrade_qos, Persistent)),
+    ?assertNot(maps:is_key(retry_interval, Persistent)),
+    ?assertNot(maps:is_key(max_awaiting_rel, Persistent)),
+    ?assertNot(maps:is_key(await_rel_timeout, Persistent)),
+    ?assertEqual([Msg2], maps:get(mqueue, Persistent)),
+    [InflightEntry] = maps:get(inflight, Persistent),
+    ?assertMatch(
+        #{
+            packet_id := PacketId,
+            phase := wait_ack,
+            message := #message{topic = <<"t1">>, payload = <<"payload1">>},
+            timestamp := Timestamp
+        } when is_integer(Timestamp),
+        InflightEntry
+    ),
+    Session3 =
+        emqx_session_mem:import(
+            clientinfo(#{zone => default, listener => 'tcp:default'}),
+            Persistent
+        ),
+    ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session3)),
+    ?assertEqual(
+        [Msg2],
+        emqx_mqueue:to_list(emqx_session_mem:info(mqueue, Session3))
+    ).
+
 t_replay(_) ->
     Session = session(),
     Messages = enrich([delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>)], Session),
