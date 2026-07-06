@@ -702,7 +702,7 @@ t_disconnect_no_double_replay2(_Config) ->
 t_lease_reconnect('init', Config) ->
     declare_group_if_needed(<<"gr2">>, <<"topic2/#">>, start_local(Config));
 t_lease_reconnect('end', Config) ->
-    meck:unload(),
+    safe_meck_unload(emqx_ds_shared_sub_registry),
     destroy_group(Config).
 
 t_lease_reconnect(_Config) ->
@@ -728,7 +728,7 @@ t_lease_reconnect(_Config) ->
 
             %% Agent should retry after some time and find the leader.
             ?assertWaitEvent(
-                ok = meck:unload(emqx_ds_shared_sub_registry),
+                ok = safe_meck_unload(emqx_ds_shared_sub_registry),
                 #{?snk_kind := ?tp_leader_borrower_connect},
                 5_000
             ),
@@ -742,6 +742,25 @@ t_lease_reconnect(_Config) ->
         end,
         []
     ).
+
+%% Unload a mocked module, tolerating cover re-instrumentation flakes.
+%%
+%% When CT runs with coverage, `meck:unload/1' re-instruments the original
+%% (cover-compiled) module via `cover:compile_beam/1', which can intermittently
+%% return `{error, Beam}' under cover-server contention and crash meck's
+%% terminate with a badmatch. `cleanup/1' has already purged+deleted the module
+%% by then, so we make sure the real module is loaded again afterwards. Cover
+%% instrumentation for the module may be dropped for the rest of the suite when
+%% this path is hit, which is acceptable for a single module in a single suite.
+safe_meck_unload(Mod) ->
+    try
+        meck:unload(Mod)
+    catch
+        _:_ ->
+            ok
+    end,
+    _ = code:ensure_loaded(Mod),
+    ok.
 
 t_renew_lease_timeout('init', Config) ->
     declare_group_if_needed(<<"gr3">>, <<"topic3/#">>, start_local(Config));

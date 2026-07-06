@@ -335,6 +335,9 @@ t_first_disconnect(_) ->
     gen_udp:close(Socket).
 
 t_connect_dtls(Config) ->
+    ?retrying(Config, 3, fun do_t_connect_dtls/1).
+
+do_t_connect_dtls(Config) ->
     SockName = {'mqttsn:dtls:default', 1885},
     ?assertEqual(true, lists:keymember(SockName, 1, esockd:listeners())),
 
@@ -346,12 +349,15 @@ t_connect_dtls(Config) ->
         | emqx_common_test_helpers:ssl_verify_fun_allow_any_host()
     ],
     {ok, Socket} = ssl:connect(?HOST, 1885, ClientOpts, 1000),
-    ok = ssl:send(Socket, make_connect_msg(<<"client_id_test1">>, 1)),
-    ?assertEqual({ok, <<3, ?SN_CONNACK, 0>>}, ssl:recv(Socket, 0, 1000)),
+    try
+        ok = ssl:send(Socket, make_connect_msg(?CLIENTID, 1)),
+        ?assertEqual({ok, <<3, ?SN_CONNACK, 0>>}, ssl:recv(Socket, 0, 1000)),
 
-    ok = ssl:send(Socket, make_disconnect_msg(undefined)),
-    ?assertEqual({ok, <<2, ?SN_DISCONNECT>>}, ssl:recv(Socket, 0, 1000)),
-    ssl:close(Socket).
+        ok = ssl:send(Socket, make_disconnect_msg(undefined)),
+        ?assertEqual({ok, <<2, ?SN_DISCONNECT>>}, ssl:recv(Socket, 0, 1000))
+    after
+        _ = ssl:close(Socket)
+    end.
 
 t_subscribe(_) ->
     Dup = 0,

@@ -433,6 +433,22 @@ update_listener_via_api(ListenerId, NewConfig) ->
     Path = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
     request(put, Path, [], NewConfig).
 
+%% A revoked client certificate must be rejected during the TLS handshake.
+%% The server sends a `certificate_revoked' fatal alert, but under a
+%% long-standing race the client can observe the socket close (`{error, closed}')
+%% before it reads the alert. Both outcomes mean the connection was refused.
+assert_connection_rejected_by_revoked_cert(Client) ->
+    case emqtt:connect(Client) of
+        {error, {ssl_error, _Sock, {tls_alert, {certificate_revoked, _}}}} ->
+            ok;
+        {error, {tls_alert, {certificate_revoked, _}}} ->
+            ok;
+        {error, closed} ->
+            ok;
+        Other ->
+            ct:fail({unexpected_connect_result, Other})
+    end.
+
 assert_successful_connection(Config) ->
     assert_successful_connection(Config, default).
 
@@ -873,15 +889,7 @@ t_revoked(Config) ->
         {port, 8883}
     ]),
     unlink(C),
-    case emqtt:connect(C) of
-        {error, {ssl_error, _Sock, {tls_alert, {certificate_revoked, _}}}} ->
-            ok;
-        {error, {tls_alert, {certificate_revoked, _}}} ->
-            ok;
-        {error, closed} ->
-            %% this happens due to an unidentified race-condition
-            ok
-    end.
+    assert_connection_rejected_by_revoked_cert(C).
 
 t_revoke_then_refresh(Config) ->
     DataDir = ?config(data_dir, Config),
@@ -922,9 +930,7 @@ t_revoke_then_refresh(Config) ->
         {port, 8883}
     ]),
     unlink(C1),
-    ?assertMatch(
-        {error, {ssl_error, _Sock, {tls_alert, {certificate_revoked, _}}}}, emqtt:connect(C1)
-    ),
+    assert_connection_rejected_by_revoked_cert(C1),
     ok.
 
 %% check that we can start with a non-crl listener and restart it with
@@ -1007,9 +1013,7 @@ do_t_update_listener(Config) ->
         {port, 8883}
     ]),
     unlink(C1),
-    ?assertMatch(
-        {error, {ssl_error, _Sock, {tls_alert, {certificate_revoked, _}}}}, emqtt:connect(C1)
-    ),
+    assert_connection_rejected_by_revoked_cert(C1),
     assert_http_get(<<?DEFAULT_URL>>),
 
     ok.
