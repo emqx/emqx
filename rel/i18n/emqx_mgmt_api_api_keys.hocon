@@ -30,6 +30,11 @@ role.desc:
 role.label:
 """Role"""
 
+namespace_field.desc:
+"""Namespace to scope this API key to. This is an alternative to encoding the namespace inside the `role` string (`ns:<namespace>::<role>`). When both forms are supplied they must agree, otherwise the request is rejected. Omit for a global (non-namespaced) API key."""
+namespace_field.label:
+"""Namespace"""
+
 name_format.desc:
 """API key name. Must start with a letter, may contain letters, digits, hyphen and underscore. Length 1-256 characters. Pattern: ^[A-Za-z]+[A-Za-z0-9-_]*$"""
 name_format.label:

@@ -19,6 +19,16 @@ env:
   EMQX_ENTERPRISE_LICENSE: evaluation
 
 jobs:
+  helm_render_test:
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+    - name: check chart rendering
+      run: ./scripts/check-helm-chart.sh
+
   helm_test:
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
     defaults:
@@ -26,6 +36,9 @@ jobs:
         shell: bash
     env:
       EMQX_NAME: ${{ matrix.profile }}
+      # Run the whole suite under a non-default cluster DNS domain so it
+      # exercises the chart's clusterDomain end-to-end.
+      CLUSTER_DOMAIN: k8s.corp.internal
 
     strategy:
       fail-fast: false
@@ -47,15 +60,38 @@ jobs:
       with:
         name: "${{ env.EMQX_NAME }}-docker-amd64"
         path: /tmp
-    - run: minikube start
-    - run: |
+    - name: install kind
+      env:
+        KIND_VERSION: v0.31.0
+        KIND_SHA256: eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa
+      run: |
+        curl -fsSLo ./kind "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+        echo "${KIND_SHA256}  ./kind" | sha256sum -c -
+        chmod +x ./kind
+        sudo mv ./kind /usr/local/bin/kind
+        kind version
+    - name: start kind cluster
+      run: |
+        # Provision the cluster with a non-default DNS domain. kubeadm propagates
+        # dnsDomain to both kubelet's clusterDomain and the CoreDNS zone, so pod
+        # FQDNs become *.svc.${CLUSTER_DOMAIN} and *.svc.cluster.local no longer
+        # resolves
+        cat > kind-cluster.yaml <<EOL
+        kind: Cluster
+        apiVersion: kind.x-k8s.io/v1alpha4
+        kubeadmConfigPatches:
+          - |
+            kind: ClusterConfiguration
+            networking:
+              dnsDomain: ${CLUSTER_DOMAIN}
+        EOL
+        kind create cluster --config kind-cluster.yaml --wait 120s
+    - name: load image into kind
+      run: |
         EMQX_IMAGE=$(docker load < /tmp/${EMQX_NAME}-docker-*.tar.gz | sed 's/Loaded image: //g')
         echo "EMQX_TAG=${EMQX_IMAGE##*:}" >> $GITHUB_ENV
         echo "REPOSITORY=${EMQX_IMAGE%%:*}" >> $GITHUB_ENV
-        if stderr=$(minikube image load "${EMQX_IMAGE}" 2>&1 >/dev/null) && test -n "$stderr"; then
-          echo "${stderr}";
-          exit 1;
-        fi
+        kind load docker-image "${EMQX_IMAGE}"
     - name: Prepare emqxConfig.EMQX_RPC using TCP
       working-directory: source
       if: matrix.rpc == 'tcp'
@@ -95,6 +131,7 @@ jobs:
       working-directory: source
       run: |
         helm install ${EMQX_NAME} \
+            --set clusterDomain="${CLUSTER_DOMAIN}" \
             --set emqxConfig.EMQX_CLUSTER__DISCOVERY_STRATEGY="k8s" \
             --set emqxConfig.EMQX_CLUSTER__K8S__APISERVER="https://kubernetes.default.svc:443" \
             --set emqxConfig.EMQX_CLUSTER__K8S__SERVICE_NAME="${EMQX_NAME}-headless" \
@@ -118,9 +155,10 @@ jobs:
       working-directory: source
       run: |
         helm install ${EMQX_NAME} \
+            --set clusterDomain="${CLUSTER_DOMAIN}" \
             --set emqxConfig.EMQX_CLUSTER__DISCOVERY_STRATEGY="dns" \
             --set emqxConfig.EMQX_CLUSTER__DNS__RECORD_TYPE="srv" \
-            --set emqxConfig.EMQX_CLUSTER__DNS__NAME="${EMQX_NAME}-headless.default.svc.cluster.local" \
+            --set emqxConfig.EMQX_CLUSTER__DNS__NAME="${EMQX_NAME}-headless.default.svc.${CLUSTER_DOMAIN}" \
             --set image.repository=$REPOSITORY \
             --set image.pullPolicy=Never \
             --set image.tag=$EMQX_TAG \
