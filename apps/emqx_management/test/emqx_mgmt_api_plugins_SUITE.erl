@@ -333,6 +333,58 @@ t_bad_plugin(_Config) ->
         )
     ).
 
+t_stale_plugin_is_ignored_by_http_api(_Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    StalePluginPath = emqx_mgmt_api_test_util:api_path(["plugins", NameVsn]),
+    StaleConfigPath = emqx_mgmt_api_test_util:api_path(["plugins", NameVsn, "config"]),
+    StaleSchemaPath = emqx_mgmt_api_test_util:api_path(["plugins", NameVsn, "schema"]),
+    StaleMovePath = emqx_mgmt_api_test_util:api_path(["plugins", NameVsn, "move"]),
+    ClusterSyncPath = emqx_mgmt_api_test_util:api_path(["plugins", "cluster_sync"]),
+    NameVsnBin = list_to_binary(NameVsn),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    ok = make_stale_plugin(PackagePath),
+    on_exit(fun() ->
+        emqx_plugins:put_configured([]),
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:purge(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn)
+    end),
+    ?assertMatch(
+        {ok, #{config_status := not_configured, running_status := stopped}},
+        emqx_plugins:describe(NameVsn, #{})
+    ),
+
+    ?assertNot(
+        lists:any(fun(Plugin) -> plugin_json_name_vsn(Plugin) =:= NameVsnBin end, list_plugins())
+    ),
+    ?assertMatch({error, {_, 404, _}}, emqx_mgmt_api_test_util:request_api(get, StalePluginPath)),
+    ?assertMatch({error, {_, 404, _}}, emqx_mgmt_api_test_util:request_api(get, StaleConfigPath)),
+    ?assertMatch({error, {_, 404, _}}, emqx_mgmt_api_test_util:request_api(get, StaleSchemaPath)),
+    ?assertMatch({error, {_, 404, _}}, update_plugin(NameVsn, "start")),
+    ?assertMatch({error, {_, 404, _}}, uninstall_plugin(NameVsn)),
+    ?assertMatch(
+        {error, {_, 404, _}},
+        emqx_mgmt_api_test_util:request_api(
+            post, StaleMovePath, "", [], #{<<"position">> => <<"front">>}
+        )
+    ),
+    ?assertMatch(
+        {error, {_, 404, _}},
+        emqx_mgmt_api_test_util:request_api(
+            post, ClusterSyncPath, "", [], #{<<"name">> => NameVsnBin}
+        )
+    ),
+
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(PackagePath),
+    ?assert(
+        lists:any(fun(Plugin) -> plugin_json_name_vsn(Plugin) =:= NameVsnBin end, list_plugins())
+    ),
+    {ok, []} = uninstall_plugin(NameVsn),
+    ok.
+
 t_delete_non_existing(_Config) ->
     Path = emqx_mgmt_api_test_util:api_path(["plugins", "non_exists-1.0.0"]),
     ?assertMatch(
@@ -512,11 +564,30 @@ uninstall_plugin(Name) ->
     emqx_mgmt_api_test_util:request_api(delete, DeletePath).
 
 get_demo_plugin_package() ->
-    #{package := Pkg} = emqx_plugins_test_helpers:get_demo_plugin_package(
-        maps:merge(?EMQX_PLUGIN, #{shdir => "./"})
-    ),
-    true = filelib:is_regular(Pkg),
-    Pkg.
+    PkgName = lists:flatten([
+        ?EMQX_PLUGIN_TEMPLATE_NAME, "-", ?EMQX_PLUGIN_TEMPLATE_VSN, ?PACKAGE_SUFFIX
+    ]),
+    Pkg = filename:join(emqx_common_test_helpers:proj_root(), PkgName),
+    case filelib:is_regular(Pkg) of
+        true ->
+            Pkg;
+        false ->
+            #{package := Pkg} = emqx_plugins_test_helpers:get_demo_plugin_package(
+                maps:merge(?EMQX_PLUGIN, #{shdir => emqx_common_test_helpers:proj_root()})
+            ),
+            true = filelib:is_regular(Pkg),
+            Pkg
+    end.
+
+make_stale_plugin(PackagePath) ->
+    InstallDir = emqx_plugins_fs:install_dir(),
+    ok = filelib:ensure_dir(filename:join(InstallDir, "dummy")),
+    {ok, _} = file:copy(PackagePath, filename:join(InstallDir, filename:basename(PackagePath))),
+    ok = erl_tar:extract(PackagePath, [compressed, {cwd, InstallDir}]),
+    emqx_plugins:put_configured([]).
+
+plugin_json_name_vsn(#{<<"name">> := Name, <<"rel_vsn">> := Vsn}) ->
+    <<Name/binary, "-", Vsn/binary>>.
 
 create_renamed_package(PackagePath, NewNameVsn) ->
     {ok, Content} = erl_tar:extract(PackagePath, [compressed, memory]),

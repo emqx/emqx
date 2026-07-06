@@ -108,9 +108,9 @@ t_5105_catalog_uses_plugin_eredis_upgrade_module(_Config) ->
         )
     ).
 
--doc "The 5.10.4 -> 5.10.5 hop also applies SAML XXE, backup download, "
+-doc "The 5.10.4 -> 5.10.5 hop also applies SAML XXE, backup/plugin API, "
 "PostgreSQL, Oracle, and LwM2M fixes without extending the Redis stop/start window.".
-t_5105_catalog_covers_saml_xxe_backup_download_postgresql_oracle_and_lwm2m_fixes(_Config) ->
+t_5105_catalog_covers_saml_xxe_backup_plugin_api_postgresql_oracle_and_lwm2m_fixes(_Config) ->
     {Valid, _Errors} = emqx_relup_handler:validate_priv_catalog(),
     #{code_changes := CodeChanges} = find_relup_entry("5.10.4", "5.10.5", Valid),
     LoadRelease = {load_module, emqx_release},
@@ -139,6 +139,7 @@ t_5105_catalog_covers_saml_xxe_backup_download_postgresql_oracle_and_lwm2m_fixes
             {load_module, emqx_mgmt_data_backup},
             {load_module, emqx_mgmt_data_backup_proto_v2},
             {load_module, emqx_mgmt_api_data_backup},
+            {load_module, emqx_mgmt_api_plugins},
             AnnounceBPAPI,
             {load_module, emqx_postgresql},
             {restart_application, jamdb_oracle},
