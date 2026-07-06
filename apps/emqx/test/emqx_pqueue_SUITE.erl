@@ -196,6 +196,193 @@ t_fold(_) ->
         ?PQ:fold(fun(V, _P, Acc) -> [V | Acc] end, [], Q)
     ).
 
+t_prop_queue_consistency(_) ->
+    ?assert(proper:quickcheck(prop_pq_queue_consistency(), [{numtests, 200}])).
+
+prop_pq_queue_consistency() ->
+    %% TODO
+    %% Hard to model `shift` precisely because the actual pqueue behavior is extremely
+    %% weird, to the point of likely being broken.
+    proper:forall(pq_operations_t(), fun(Operations) ->
+        {_, _, ActualTrace, ModelTrace} = lists:foldl(
+            fun pq_apply_step/2,
+            {?PQ:new(), pq_model_new(), [], []},
+            Operations
+        ),
+        proper:equals(lists:reverse(ActualTrace), lists:reverse(ModelTrace))
+    end).
+
+pq_apply_step(Op, {Q0, M0, ActualTrace, ModelTrace}) ->
+    {ActualResult, Q} = pq_apply(Op, Q0),
+    {ModelResult, M} = pq_model_apply(Op, M0),
+    {Q, M, [ActualResult | ActualTrace], [ModelResult | ModelTrace]}.
+
+pq_apply({in, P, Class, V}, Q) ->
+    {ok, ?PQ:in(V, P, Class, Q)};
+pq_apply(out, Q) ->
+    ?PQ:out(Q);
+pq_apply(out_p, Q) ->
+    ?PQ:out_p(Q);
+pq_apply({out, P}, Q) ->
+    try
+        ?PQ:out(P, Q)
+    catch
+        error:badarg ->
+            {{error, badarg}, Q}
+    end;
+pq_apply({drop, P}, Q) ->
+    try
+        ?PQ:drop(P, Q)
+    catch
+        error:badarg ->
+            {{error, badarg}, Q}
+    end;
+pq_apply({filter, Spec}, Q) ->
+    {ok, ?PQ:filter(pq_filter_fun(Spec), Q)};
+pq_apply(shift, Q) ->
+    %% TODO: {ok, ?PQ:shift(Q)}.
+    {ok, Q}.
+
+pq_model_apply({in, P, Class, V}, Model) ->
+    {ok, pq_model_in(P, Class, V, Model)};
+pq_model_apply(out, Model) ->
+    pq_model_out(Model);
+pq_model_apply(out_p, Model) ->
+    pq_model_out_p(Model);
+pq_model_apply({out, P}, Model) ->
+    try
+        pq_model_assert_prio(P, Model),
+        pq_model_out(P, Model)
+    catch
+        error:badarg ->
+            {{error, badarg}, Model}
+    end;
+pq_model_apply({drop, P}, Model) ->
+    try
+        pq_model_assert_prio(P, Model),
+        pq_model_drop(P, Model)
+    catch
+        error:badarg ->
+            {{error, badarg}, Model}
+    end;
+pq_model_apply({filter, Spec}, Model) ->
+    {ok, pq_model_filter(pq_filter_fun(Spec), Model)};
+pq_model_apply(shift, Model) ->
+    %% TODO: {ok, pq_model_rotate_cprio(Model)}.
+    {ok, Model}.
+
+pq_model_new() ->
+    #{}.
+
+pq_model_in(P, Class, V, Model) ->
+    maps:update_with(P, fun(Items) -> Items ++ [{V, Class}] end, [{V, Class}], Model).
+
+pq_model_out(Model) ->
+    maybe
+        [Prio | _] ?= pq_model_prios(Model),
+        pq_model_out(Prio, Model)
+    else
+        _ ->
+            {empty, Model}
+    end.
+
+pq_model_out_p(Model) ->
+    maybe
+        [Prio | _] ?= pq_model_prios(Model),
+        {{value, V}, NModel} ?= pq_model_out(Prio, Model),
+        {{value, V, Prio}, NModel}
+    else
+        _ ->
+            {empty, Model}
+    end.
+
+pq_model_out(P, Model) ->
+    pq_model_take(P, Model, fun pq_take_head/1).
+
+pq_model_drop(P, Model) ->
+    pq_model_take(P, Model, fun pq_take_drop/1).
+
+pq_model_take(P, Model, TakeFun) ->
+    case maps:find(P, Model) of
+        error ->
+            {empty, Model};
+        {ok, Items0} ->
+            case TakeFun(Items0) of
+                {V, []} ->
+                    NModel = maps:remove(P, Model);
+                {V, Items} ->
+                    NModel = maps:put(P, Items, Model)
+            end,
+            {{value, V}, NModel}
+    end.
+
+pq_take_head([{V, _Class} | Rest]) ->
+    {V, Rest}.
+
+pq_take_drop(Items) ->
+    case lists:splitwith(fun({_V, Class}) -> Class =/= qos0 end, Items) of
+        {_Before, []} ->
+            pq_take_head(Items);
+        {Before, [{V, qos0} | After]} ->
+            {V, Before ++ After}
+    end.
+
+pq_model_filter(Pred, Model) ->
+    maps:filtermap(
+        fun(_, Items0) ->
+            case [{V, Class} || {V, Class} <- Items0, Pred(V)] of
+                [] -> false;
+                Items -> {true, Items}
+            end
+        end,
+        Model
+    ).
+
+pq_model_prios(Model) ->
+    lists:reverse(lists:sort(maps:keys(Model))).
+
+pq_model_assert_prio(0, _) ->
+    true;
+pq_model_assert_prio(_, Model) ->
+    maps:without([0], Model) =/= #{} orelse error(badarg).
+
+pq_operation_t() ->
+    proper_types:frequency([
+        {6, {in, pq_priority_t(), pq_class_t(), pq_value_t()}},
+        {1, out},
+        {1, out_p},
+        {1, {out, pq_target_priority()}},
+        {1, {drop, pq_target_priority()}},
+        {1, {filter, proper_types:oneof([all, none, even, odd, positive])}},
+        {1, shift}
+    ]).
+
+pq_operations_t() ->
+    proper_types:list(pq_operation_t()).
+
+pq_filter_fun(all) ->
+    fun(_V) -> true end;
+pq_filter_fun(none) ->
+    fun(_V) -> false end;
+pq_filter_fun(even) ->
+    fun(V) -> V rem 2 =:= 0 end;
+pq_filter_fun(odd) ->
+    fun(V) -> V rem 2 =/= 0 end;
+pq_filter_fun(positive) ->
+    fun(V) -> V > 0 end.
+
+pq_priority_t() ->
+    proper_types:elements([0, 1, 2, infinity]).
+
+pq_target_priority() ->
+    proper_types:elements([0, 1, 2, 3, infinity]).
+
+pq_class_t() ->
+    proper_types:elements([default, qos0]).
+
+pq_value_t() ->
+    proper_types:range(-20, 20).
+
 %%--------------------------------------------------------------------
 %% cqueue
 %%--------------------------------------------------------------------
