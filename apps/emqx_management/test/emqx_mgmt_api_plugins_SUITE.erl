@@ -333,7 +333,7 @@ t_bad_plugin(_Config) ->
         )
     ).
 
-t_stale_plugin_is_ignored_by_http_api(_Config) ->
+t_preinstall_step1_without_plugins_states_is_ignored_by_http_api(_Config) ->
     PackagePath = get_demo_plugin_package(),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
     StalePluginPath = emqx_mgmt_api_test_util:api_path(["plugins", NameVsn]),
@@ -383,6 +383,35 @@ t_stale_plugin_is_ignored_by_http_api(_Config) ->
         lists:any(fun(Plugin) -> plugin_json_name_vsn(Plugin) =:= NameVsnBin end, list_plugins())
     ),
     {ok, []} = uninstall_plugin(NameVsn),
+    ok.
+
+t_preinstall_with_plugins_states_is_visible_to_http_api(_Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    NameVsnBin = list_to_binary(NameVsn),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    ok = preinstall_step1_extract_package(PackagePath),
+    ok = emqx_plugins:put_configured([#{name_vsn => NameVsn, enable => false}]),
+    ok = emqx_plugins:ensure_installed(),
+    on_exit(fun() ->
+        emqx_plugins:put_configured([]),
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:purge(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn)
+    end),
+    ?assertMatch(
+        {ok, #{config_status := disabled, running_status := stopped}},
+        emqx_plugins:describe(NameVsn, #{})
+    ),
+
+    ?assert(
+        lists:any(fun(Plugin) -> plugin_json_name_vsn(Plugin) =:= NameVsnBin end, list_plugins())
+    ),
+    ?assertMatch(
+        #{<<"running_status">> := [#{<<"status">> := <<"stopped">>}]},
+        describe_plugin(NameVsn)
+    ),
     ok.
 
 t_delete_non_existing(_Config) ->
@@ -580,11 +609,14 @@ get_demo_plugin_package() ->
     end.
 
 make_stale_plugin(PackagePath) ->
+    ok = preinstall_step1_extract_package(PackagePath),
+    emqx_plugins:put_configured([]).
+
+preinstall_step1_extract_package(PackagePath) ->
     InstallDir = emqx_plugins_fs:install_dir(),
     ok = filelib:ensure_dir(filename:join(InstallDir, "dummy")),
     {ok, _} = file:copy(PackagePath, filename:join(InstallDir, filename:basename(PackagePath))),
-    ok = erl_tar:extract(PackagePath, [compressed, {cwd, InstallDir}]),
-    emqx_plugins:put_configured([]).
+    ok = erl_tar:extract(PackagePath, [compressed, {cwd, InstallDir}]).
 
 plugin_json_name_vsn(#{<<"name">> := Name, <<"rel_vsn">> := Vsn}) ->
     <<Name/binary, "-", Vsn/binary>>.
