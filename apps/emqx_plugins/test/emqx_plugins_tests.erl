@@ -185,67 +185,6 @@ purge_test() ->
     ),
     unmeck_emqx().
 
-purge_unconfigured_removes_package_absent_from_cluster_config_test() ->
-    meck_emqx(),
-    meck_plugins_apps(),
-    try
-        with_rand_install_dir(
-            fun(_Dir) ->
-                NameVsn = "stale-1",
-                ok = emqx_plugins:put_configured([]),
-                ok = write_fake_plugin_release(NameVsn),
-                ok = write_file(emqx_plugins_fs:tar_file_path(NameVsn), "tar"),
-
-                ?assertMatch({ok, _}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
-                ?assertMatch({ok, _}, file:read_file_info(emqx_plugins_fs:tar_file_path(NameVsn))),
-
-                ok = emqx_plugins:purge_unconfigured(),
-
-                ?assertMatch(
-                    {error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))
-                ),
-                ?assertMatch(
-                    {error, enoent}, file:read_file_info(emqx_plugins_fs:tar_file_path(NameVsn))
-                )
-            end
-        )
-    after
-        ok = emqx_plugins:put_configured([]),
-        unmeck_plugins_apps(),
-        unmeck_emqx()
-    end.
-
-purge_unconfigured_keeps_other_versions_of_configured_plugin_test() ->
-    meck_emqx(),
-    meck_plugins_apps(),
-    try
-        with_rand_install_dir(
-            fun(_Dir) ->
-                ok = emqx_plugins:put_configured([#{name_vsn => "demo-1", enable => false}]),
-                ok = write_fake_plugin_release("demo-2"),
-
-                ok = emqx_plugins:purge_unconfigured(),
-
-                ?assertMatch({ok, _}, file:read_file_info(emqx_plugins_fs:plugin_dir("demo-2")))
-            end
-        )
-    after
-        ok = emqx_plugins:put_configured([]),
-        unmeck_plugins_apps(),
-        unmeck_emqx()
-    end.
-
-write_fake_plugin_release(NameVsn) ->
-    {AppName, Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
-    AppNameStr = atom_to_list(AppName),
-    write_file(
-        emqx_plugins_fs:info_file_path(NameVsn),
-        io_lib:format(
-            "name=\"~s\", rel_vsn=\"~s\", rel_apps=[\"~s-~s\"], description=\"desc ~s\"",
-            [AppNameStr, Vsn, AppNameStr, Vsn, AppNameStr]
-        )
-    ).
-
 meck_emqx() ->
     meck:new(emqx, [passthrough]),
     meck:new(emqx_plugins_serde),
@@ -253,7 +192,7 @@ meck_emqx() ->
         emqx,
         update_config,
         fun(Path, Values, _Opts) ->
-            emqx_config:put(Path, mock_schema_key_transform(Values))
+            emqx_config:put(Path, Values)
         end
     ),
     meck:expect(
@@ -263,34 +202,7 @@ meck_emqx() ->
     ),
     ok.
 
-mock_schema_key_transform(List = [#{} | _]) ->
-    [mock_schema_key_transform(Item) || Item <- List];
-mock_schema_key_transform(Map) when is_map(Map) ->
-    maps:fold(
-        fun(K, V, Acc) ->
-            Acc#{mock_schema_key_transform(K) => mock_schema_key_transform(V)}
-        end,
-        #{},
-        Map
-    );
-mock_schema_key_transform(<<"name_vsn">>) ->
-    name_vsn;
-mock_schema_key_transform(<<"enable">>) ->
-    enable;
-mock_schema_key_transform(Term) ->
-    Term.
-
 unmeck_emqx() ->
     meck:unload(emqx),
     meck:unload(emqx_plugins_serde),
-    ok.
-
-meck_plugins_apps() ->
-    meck:new(emqx_plugins_apps, [passthrough]),
-    meck:expect(emqx_plugins_apps, running_status, fun(_NameVsn) -> stopped end),
-    meck:expect(emqx_plugins_apps, stop, fun(_Plugin) -> ok end),
-    ok.
-
-unmeck_plugins_apps() ->
-    meck:unload(emqx_plugins_apps),
     ok.

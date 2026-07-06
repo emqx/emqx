@@ -396,19 +396,19 @@ users(post, #{body := Params}) ->
     %% After this PR `<<"unset">>' in a GET response is reserved for legacy
     %% records that survived an upgrade; no creation path stores `undefined'.
     RawScopes = maps:get(<<"scopes">>, Params, undefined),
-    Scopes = effective_scopes_on_create(Role, RawScopes),
     case ?EMPTY(Username) orelse ?EMPTY(Password) of
         true ->
             {400, ?BAD_REQUEST, <<"Username or password undefined">>};
         false ->
-            create_user(Username, Password, Role, Desc, Scopes)
+            create_user(Username, Password, Role, Desc, RawScopes)
     end.
 
 %% Run the validate → add_user → set_scopes pipeline. Each step short-
 %% circuits to the appropriate HTTP response, keeping users(post,...)
 %% within elvis's nesting cap.
-create_user(Username, Password, Role, Desc, Scopes) ->
-    case validate_login_user_scopes(Role, Scopes) of
+create_user(Username, Password, Role, Desc, RawScopes) ->
+    Scopes = effective_scopes_on_create(Role, RawScopes),
+    case validate_login_user_scopes(Role, RawScopes, Scopes) of
         ok ->
             do_create_user(Username, Password, Role, Desc, Scopes);
         {error, Msg} ->
@@ -668,16 +668,45 @@ effective_scopes_on_create(_Role, Other) ->
     %% validation will reject it with the appropriate 400.
     Other.
 
-validate_login_user_scopes(_Role, undefined) ->
+%% `RawScopes' is the value the client supplied (before role-default /
+%% persisted-scope materialisation); `EffectiveScopes' is the
+%% materialised list actually validated and stored. The privilege-scope
+%% mutex is applied to `RawScopes' so that an omitted scope list (which
+%% materialises to the administrator role default — itself a mix of
+%% privilege and non-privilege scopes) is treated as the unrestricted
+%% case rather than an explicit mixed list.
+validate_login_user_scopes(_Role, _RawScopes, undefined) ->
     ok;
-validate_login_user_scopes(_Role, Scopes) when not is_list(Scopes) ->
+validate_login_user_scopes(_Role, _RawScopes, Scopes) when not is_list(Scopes) ->
     {error, <<"scopes must be a list of strings">>};
-validate_login_user_scopes(Role, Scopes) ->
+validate_login_user_scopes(Role, RawScopes, Scopes) ->
     case validate_scope_names(Scopes) of
         ok ->
-            validate_role_scope_compat(Role, Scopes);
+            case validate_role_scope_compat(Role, Scopes) of
+                ok -> maybe_check_privilege_mutex(Role, RawScopes);
+                Error -> Error
+            end;
         Error ->
             Error
+    end.
+
+%% Privilege scopes are administrator-equivalent, so an explicit scope
+%% list must not combine them with restricted scopes. This applies to
+%% GLOBAL administrators only. For a namespaced administrator the RBAC
+%% dispatch is the authoritative gate (do_check_rbac/3 blocks the
+%% mutating surface those scopes would otherwise reach), and the
+%% namespaced-role scope-compat check above already restricts the set,
+%% so the mutex rule is skipped to keep the existing namespaced-admin
+%% scope combinations valid. Only an explicit list (is_list) is checked;
+%% an omitted `scopes' field (`undefined') is the unrestricted case.
+maybe_check_privilege_mutex(_Role, RawScopes) when not is_list(RawScopes) ->
+    ok;
+maybe_check_privilege_mutex(Role, RawScopes) ->
+    case emqx_dashboard_rbac:parse_dashboard_role(Role) of
+        {ok, #{?namespace := ?global_ns}} ->
+            emqx_scope_catalog:check_privilege_scope_mutex(RawScopes);
+        _ ->
+            ok
     end.
 
 %% Login users may hold ANY of the API key catalog scopes plus the
@@ -740,11 +769,11 @@ validate_role_scope_compat(Role, Scopes) ->
 %% body's `scopes' field when present, otherwise the persisted scopes —
 %% so a role demotion can never silently keep stale admin-only scopes
 %% just because the client omitted the `scopes' field.
-update_user(Username, Role, Desc, Scopes) ->
-    EffectiveScopes = effective_request_scopes(Username, Scopes),
-    case validate_login_user_scopes(Role, EffectiveScopes) of
+update_user(Username, Role, Desc, RawScopes) ->
+    EffectiveScopes = effective_request_scopes(Username, RawScopes),
+    case validate_login_user_scopes(Role, RawScopes, EffectiveScopes) of
         ok ->
-            do_update_user(Username, Role, Desc, Scopes);
+            do_update_user(Username, Role, Desc, RawScopes);
         {error, Msg} ->
             {400, ?BAD_REQUEST, Msg}
     end.

@@ -32,7 +32,6 @@
     allow_ttl_ms/0,
 
     ensure_installed/0,
-    purge_unconfigured/0,
     ensure_installed/1,
     ensure_installed/2,
 
@@ -293,23 +292,6 @@ ensure_installed() ->
     end,
     ok = for_plugins(Fun).
 
-%% @doc Purge local packages that do not belong to the current cluster config.
-%%
-%% A node may miss the cluster-wide uninstall while it is outside the cluster.
-%% When it comes back, the existing cluster config is authoritative. Keep local
-%% packages for other versions of a configured plugin app so force-sync can still
-%% switch versions after a join.
--spec purge_unconfigured() -> ok.
-purge_unconfigured() ->
-    ConfiguredNameVsns = configured_name_vsns(),
-    ConfiguredAppNames = configured_app_names(ConfiguredNameVsns),
-    lists:foreach(
-        fun(NameVsn) ->
-            maybe_purge_unconfigured(NameVsn, ConfiguredNameVsns, ConfiguredAppNames)
-        end,
-        emqx_plugins_fs:list_name_vsn()
-    ).
-
 %% @doc
 %% * Install a .tar.gz package placed in install_dir
 %% * Configure the plugin
@@ -380,7 +362,7 @@ ensure_disabled(NameVsn) ->
 %% will cause deletion of loaded beams.
 %% It should not be a problem, because shared lib should
 %% reside in all the plugin install dirs.
--spec purge(name_vsn()) -> ok | {error, term()}.
+-spec purge(name_vsn()) -> ok.
 purge(NameVsn) ->
     ?SLOG(debug, #{msg => "purge_plugin", name_vsn => NameVsn}),
     ok = delete_cached_config(NameVsn),
@@ -1025,70 +1007,6 @@ put_configured(Configured, ConfLocation) ->
 
 configured() ->
     lists:map(fun emqx_plugins_utils:normalize_state_item/1, get_config_internal(states, [])).
-
-configured_name_vsns() ->
-    lists:map(fun(#{name_vsn := NameVsn}) -> bin(NameVsn) end, configured()).
-
-configured_app_names(ConfiguredNameVsns) ->
-    lists:filtermap(
-        fun(NameVsn) ->
-            case parse_plugin_app_name(NameVsn) of
-                {ok, AppName} -> {true, AppName};
-                {error, _} -> false
-            end
-        end,
-        ConfiguredNameVsns
-    ).
-
-maybe_purge_unconfigured(NameVsn0, ConfiguredNameVsns, ConfiguredAppNames) ->
-    NameVsn = bin(NameVsn0),
-    case lists:member(NameVsn, ConfiguredNameVsns) of
-        true ->
-            ok;
-        false ->
-            case parse_plugin_app_name(NameVsn) of
-                {ok, AppName} ->
-                    case lists:member(AppName, ConfiguredAppNames) of
-                        true -> ok;
-                        false -> do_purge_unconfigured(NameVsn0)
-                    end;
-                {error, Reason} ->
-                    do_purge_unconfigured(NameVsn0, Reason)
-            end
-    end.
-
-parse_plugin_app_name(NameVsn) ->
-    try emqx_plugins_utils:parse_name_vsn(NameVsn) of
-        {AppName, _Vsn} ->
-            {ok, AppName}
-    catch
-        error:Reason ->
-            {error, Reason}
-    end.
-
-do_purge_unconfigured(NameVsn) ->
-    do_purge_unconfigured(NameVsn, not_configured).
-
-do_purge_unconfigured(NameVsn, Reason) ->
-    ?SLOG(info, #{
-        msg => "purge_unconfigured_plugin",
-        name_vsn => NameVsn,
-        reason => Reason
-    }),
-    _ = ensure_stopped(NameVsn),
-    ok = maybe_log_purge_error(NameVsn, purge(NameVsn)),
-    _ = delete_package(NameVsn),
-    ok.
-
-maybe_log_purge_error(_NameVsn, ok) ->
-    ok;
-maybe_log_purge_error(NameVsn, {error, Reason}) ->
-    ?SLOG(error, #{
-        msg => "failed_to_purge_unconfigured_plugin",
-        name_vsn => NameVsn,
-        reason => Reason
-    }),
-    ok.
 
 for_plugins(ActionFun) ->
     for_plugins(configured(), ActionFun).
