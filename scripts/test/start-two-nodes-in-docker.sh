@@ -296,21 +296,20 @@ wait_for_running_nodes() {
     local expected_running_nodes="$2"
     local wait_limit="$3"
     local wait_sec=0
+    local running_nodes=0
     while [ "${wait_sec}" -lt "${wait_limit}" ]; do
         running_nodes="$(docker exec -t "$container" emqx ctl cluster status --json | jq '.running_nodes | length')"
         if [ "${running_nodes}" -eq "${expected_running_nodes}" ]; then
             echo "Successfully confirmed ${running_nodes} running nodes"
-            exit 0
-        fi
-        if [ "$wait_sec" -gt "$wait_limit" ]; then
-            echo "Expected running nodes is ${expected_running_nodes}, but got ${running_nodes} after ${wait_limit} seconds"
-            docker logs "$container"
-            exit 1
+            return 0
         fi
         wait_sec=$(( wait_sec + 1 ))
         echo -n '.'
         sleep 1
     done
+    echo "Expected running nodes is ${expected_running_nodes}, but got ${running_nodes} after ${wait_limit} seconds"
+    docker logs "$container"
+    exit 1
 }
 
 wait_for_emqx "$NODE1" 60
@@ -321,4 +320,4 @@ echo
 
 docker exec "${NODE2}" emqx ctl cluster join "emqx@$NODE1"
 
-wait_for_running_nodes "$NODE1" "${EXPECTED_RUNNING_NODES:-2}" 30
+wait_for_running_nodes "$NODE1" "${EXPECTED_RUNNING_NODES:-2}" 60
