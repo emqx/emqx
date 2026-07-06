@@ -29,7 +29,7 @@ cleanup
 
 ## Start the long-lived subscriber (installs paho-mqtt, then subscribes).
 docker run -d --name "${SUB}" --net "${NET}" -v "${HERE}:/smoke:ro" "${PYTHON_IMAGE}" \
-  sh -c "pip install --quiet --disable-pip-version-check --root-user-action=ignore paho-mqtt \
+  sh -c "pip install --quiet --disable-pip-version-check --root-user-action=ignore 'paho-mqtt==2.1.0' \
          && python /smoke/subscriber.py haproxy 1883 ${TOPIC}" >/dev/null
 
 echo "Waiting for the subscriber to connect ..."
@@ -68,7 +68,7 @@ done
 
 ## Publish on a separate connection and confirm end-to-end delivery.
 docker run --rm --net "${NET}" -v "${HERE}:/smoke:ro" "${PYTHON_IMAGE}" \
-  sh -c "pip install --quiet --disable-pip-version-check --root-user-action=ignore paho-mqtt \
+  sh -c "pip install --quiet --disable-pip-version-check --root-user-action=ignore 'paho-mqtt==2.1.0' \
          && python /smoke/publisher.py haproxy 1883 ${TOPIC} ${PAYLOAD}"
 
 echo "Waiting for delivery to the subscriber ..."

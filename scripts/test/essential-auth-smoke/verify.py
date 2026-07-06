@@ -11,7 +11,7 @@ authorizer using `acl.conf`) and asserts that:
 
 Usage: verify.py [host] [port]   (defaults: 127.0.0.1 1883)
 
-Requires the `paho-mqtt` package; works with both 1.x and 2.x.
+Requires the `paho-mqtt` 2.x package (pinned by the caller).
 """
 import sys
 import time
@@ -37,12 +37,9 @@ def check(name, cond):
 
 
 def new_client(cid):
-    try:  # paho-mqtt 2.x
-        return mqtt.Client(
-            mqtt.CallbackAPIVersion.VERSION1, client_id=cid, protocol=mqtt.MQTTv5
-        )
-    except AttributeError:  # paho-mqtt 1.x
-        return mqtt.Client(client_id=cid, protocol=mqtt.MQTTv5)
+    return mqtt.Client(
+        mqtt.CallbackAPIVersion.VERSION1, client_id=cid, protocol=mqtt.MQTTv5
+    )
 
 
 def connect(user, pw, cid):

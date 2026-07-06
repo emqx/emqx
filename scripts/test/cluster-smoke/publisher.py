@@ -16,12 +16,9 @@ PAYLOAD = sys.argv[4] if len(sys.argv) > 4 else "cluster-smoke-payload"
 
 
 def new_client(cid):
-    try:  # paho-mqtt 2.x
-        return mqtt.Client(
-            mqtt.CallbackAPIVersion.VERSION1, client_id=cid, protocol=mqtt.MQTTv5
-        )
-    except AttributeError:  # paho-mqtt 1.x
-        return mqtt.Client(client_id=cid, protocol=mqtt.MQTTv5)
+    return mqtt.Client(
+        mqtt.CallbackAPIVersion.VERSION1, client_id=cid, protocol=mqtt.MQTTv5
+    )
 
 
 c = new_client("cluster-smoke-pub")

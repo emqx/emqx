@@ -82,4 +82,4 @@ docker run --rm \
   --network "container:${CONTAINER}" \
   -v "${HERE}:/smoke:ro" \
   "${PYTHON_IMAGE}" \
-  sh -c "pip install --quiet --disable-pip-version-check --root-user-action=ignore paho-mqtt && python /smoke/verify.py 127.0.0.1 1883"
+  sh -c "pip install --quiet --disable-pip-version-check --root-user-action=ignore 'paho-mqtt==2.1.0' && python /smoke/verify.py 127.0.0.1 1883"

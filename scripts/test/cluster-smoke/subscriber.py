@@ -15,12 +15,9 @@ TOPIC = sys.argv[3] if len(sys.argv) > 3 else "cluster/smoke/1"
 
 
 def new_client(cid):
-    try:  # paho-mqtt 2.x
-        return mqtt.Client(
-            mqtt.CallbackAPIVersion.VERSION1, client_id=cid, protocol=mqtt.MQTTv5
-        )
-    except AttributeError:  # paho-mqtt 1.x
-        return mqtt.Client(client_id=cid, protocol=mqtt.MQTTv5)
+    return mqtt.Client(
+        mqtt.CallbackAPIVersion.VERSION1, client_id=cid, protocol=mqtt.MQTTv5
+    )
 
 
 def on_connect(cl, u, flags, rc, props=None):
