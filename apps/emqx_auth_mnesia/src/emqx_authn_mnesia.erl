@@ -411,9 +411,24 @@ insert_user(User, Opts) ->
         <<"is_superuser">> := IsSuperuser
     } = User,
     Namespace = maps:get(<<"namespace">>, User, ?global_ns),
-    UserInfoRecord = user_info_record(
-        Namespace, UserGroup, UserId, PasswordHash, Salt, IsSuperuser
-    ),
+    case is_superuser_allowed(Namespace, IsSuperuser) of
+        false ->
+            ?SLOG(warning, #{
+                msg => "import_superuser_in_namespace_not_allowed",
+                namespace => Namespace,
+                user_id => UserId,
+                group_id => UserGroup,
+                bootstrap_file => maps:get(filename, Opts)
+            }),
+            failed;
+        true ->
+            UserInfoRecord = user_info_record(
+                Namespace, UserGroup, UserId, PasswordHash, Salt, IsSuperuser
+            ),
+            do_insert_user(UserInfoRecord, Namespace, UserGroup, UserId, Opts)
+    end.
+
+do_insert_user(UserInfoRecord, Namespace, UserGroup, UserId, Opts) ->
     case do_lookup_by_rec_txn(UserInfoRecord) of
         [] ->
             ok = insert_user(UserInfoRecord),
@@ -440,6 +455,13 @@ insert_user(User, Opts) ->
                     failed
             end
     end.
+
+%% MQTT users in a non-global namespace must never be superusers: explicit ACL
+%% rules are enforced for tenant clients.  This mirrors the check done by the
+%% per-user management API, covering the bulk import API and the bootstrap file.
+is_superuser_allowed(?global_ns, _IsSuperuser) -> true;
+is_superuser_allowed(_Namespace, false) -> true;
+is_superuser_allowed(_Namespace, _IsSuperuser) -> false.
 
 insert_user(#user_info{} = UserInfoRecord) ->
     mnesia:write(?TAB, UserInfoRecord, write);
