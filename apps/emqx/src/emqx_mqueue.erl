@@ -117,7 +117,7 @@ init(Opts = #{max_len := MaxLen0, store_qos0 := Qos0}) ->
             ?NO_PRIORITY_TABLE ->
                 ?NO_PRIORITY_TABLE;
             PTab ->
-                {Mult, Base} = get_shift_opt(Opts),
+                {Mult, Base} = get_shift_opt(PTab, Opts),
                 #prios{
                     t = p_table(PTab),
                     default = get_priority_opt(Opts),
@@ -357,20 +357,15 @@ get_credits(?HIGHEST_PRIORITY, Prios) ->
 get_credits(Prio, #prios{shift_mult = Mult, shift_base = Base}) ->
     (Prio + Base + 1) * Mult - 1.
 
-get_shift_opt(Opts) ->
+get_shift_opt(PTab, Opts) ->
     %% Using 10 as a multiplier by default. This is needed to minimize
     %% overhead of emqx_pqueue:rotate
     Mult = maps:get(shift_multiplier, Opts, 10),
     true = is_integer(Mult) andalso Mult > 0,
     Min =
-        case Opts of
-            #{p_table := PTab} ->
-                case maps:size(PTab) of
-                    0 -> 0;
-                    _ -> lists:min(maps:values(PTab))
-                end;
-            _ ->
-                ?LOWEST_PRIORITY
+        case maps:size(PTab) of
+            0 -> 0;
+            _ -> lists:min(maps:values(PTab))
         end,
     %% `mqueue' module supports negative priorities, but we don't want
     %% the counter to be negative, so all priorities should be shifted

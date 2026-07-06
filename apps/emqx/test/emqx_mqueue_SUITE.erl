@@ -180,8 +180,8 @@ t_priority_order2(_) ->
         shift_multiplier => 2,
         priorities =>
             #{
-                <<"t1">> => 0,
-                <<"t2">> => 1
+                <<"t1">> => -1,
+                <<"t2">> => 0
             },
         store_qos0 => false
     },
