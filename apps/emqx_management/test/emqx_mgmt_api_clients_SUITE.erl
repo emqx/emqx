@@ -1037,7 +1037,7 @@ get_clients(Auth, Qs, ExpectError, ClientIdOnly) ->
 
 t_keepalive(Config) ->
     Username = "user_keepalive",
-    ClientId = "client_keepalive",
+    ClientId = <<"client_keepalive">>,
     Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId, "keepalive"]),
     Body = #{interval => 11},
     ?assertMatch(
@@ -1051,15 +1051,14 @@ t_keepalive(Config) ->
         username => Username, clientid => ClientId, keepalive => InitKeepalive
     }),
     {ok, _} = emqtt:connect(C1),
-    [Pid] = emqx_cm:lookup_channels(list_to_binary(ClientId)),
     %% will reset to max keepalive if keepalive > max keepalive
     ?assertMatch(
         #{conninfo := #{keepalive := InitKeepalive}},
-        emqx_cm:get_chan_info(list_to_binary(ClientId))
+        emqx_cm:get_chan_info(ClientId)
     ),
     ?assertMatch(
         #{max_idle_millisecond := 65536500},
-        emqx_cth_broker:connection_info({channel, keepalive}, list_to_binary(ClientId))
+        emqx_cth_broker:connection_info({channel, keepalive}, ClientId)
     ),
 
     ?retry(200, 10, begin
@@ -1070,8 +1069,8 @@ t_keepalive(Config) ->
     end),
     ?retry(200, 10, begin
         ?assertMatch(
-            #{conninfo := #{keepalive := 11}},
-            emqx_connection:info(Pid)
+            #{keepalive := 11},
+            emqx_cth_broker:connection_info({channel, conninfo}, ClientId)
         )
     end),
     %% Disable keepalive
@@ -1083,8 +1082,8 @@ t_keepalive(Config) ->
     end),
     ?retry(200, 10, begin
         ?assertMatch(
-            #{conninfo := #{keepalive := 0}},
-            emqx_connection:info(Pid)
+            #{keepalive := 0},
+            emqx_cth_broker:connection_info({channel, conninfo}, ClientId)
         )
     end),
     %% Maximal keepalive

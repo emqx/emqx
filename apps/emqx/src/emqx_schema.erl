@@ -641,7 +641,11 @@ fields("mqtt_tcp_listener") ->
                         {win32, _} -> hoconsc:enum([gen_tcp])
                     end,
                     #{
-                        default => <<"gen_tcp">>,
+                        default =>
+                            case os:type() of
+                                {unix, _} -> <<"socket">>;
+                                {win32, _} -> <<"gen_tcp">>
+                            end,
                         desc => ?DESC(fields_mqtt_opts_tcp_backend),
                         importance => ?IMPORTANCE_LOW
                     }

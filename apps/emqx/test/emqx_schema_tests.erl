@@ -140,6 +140,24 @@ validate_ciphers_accepts_both_formats_test_() ->
         )
     ].
 
+mqtt_tcp_listener_backend_default_test() ->
+    Opts = #{atom_key => true, required => false},
+    Sc = #{
+        roots => [mqtt_tcp_listener],
+        fields => #{mqtt_tcp_listener => emqx_schema:fields("mqtt_tcp_listener")}
+    },
+    Backend = default_mqtt_tcp_backend(),
+    ?assertMatch(
+        #{mqtt_tcp_listener := #{tcp_backend := Backend}},
+        hocon_tconf:check_plain(Sc, #{<<"mqtt_tcp_listener">> => #{}}, Opts)
+    ).
+
+default_mqtt_tcp_backend() ->
+    case os:type() of
+        {unix, _} -> socket;
+        {win32, _} -> gen_tcp
+    end.
+
 fail_if_no_peer_cert_test_() ->
     Sc = #{
         roots => [mqtt_ssl_listener],

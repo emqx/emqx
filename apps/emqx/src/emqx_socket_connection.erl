@@ -351,9 +351,7 @@ run_loop(
         zone = Zone
     }
 ) ->
-    Peername = emqx_channel:info(peername, Channel),
-    emqx_logger:set_proc_metadata(#{peername => Peername, connmod => ?MODULE}),
-    proc_lib:set_label({Listener, Peername}),
+    emqx_connection_util:label_process(Listener, emqx_channel:info(conninfo, Channel)),
     ShutdownPolicy = emqx_config:get_zone_conf(Zone, [force_shutdown]),
     _ = emqx_utils:tune_heap_size(ShutdownPolicy),
     _ = set_tcp_keepalive(Listener),
