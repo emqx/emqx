@@ -21,6 +21,7 @@
 ]).
 
 -define(GATEWAY, mqttsn).
+-define(CHAN_INFO_TIMEOUT, 5000).
 
 %%--------------------------------------------------------------------
 %% Callbacks
@@ -37,6 +38,10 @@ initialize(Opts) ->
 find_or_create(CId, Transport, Peer, Opts) ->
     find_or_create(CId, Transport, Peer, Opts, #{}).
 
+find_or_create(ClientId, _Transport, _Peer, _Opts, #{reusable_channel := {ClientId, Pid}}) when
+    is_binary(ClientId), is_pid(Pid)
+->
+    {ok, Pid};
 find_or_create(ClientId, Transport, Peer, Opts, State) when is_binary(ClientId) ->
     ReusableStates =
         case maps:get(packet_type, State, undefined) of
@@ -57,26 +62,27 @@ get_connection_id(_Transport, Peer, State, Data) ->
     {ParseState, BoundCId} = split_state(State),
     case parse_incoming(Data, [], ParseState) of
         {[Packet | _] = Packets, NParseState} ->
-            {CId, NBoundCId, PacketType} = choose_cid(Packet, BoundCId, Peer),
-            {ok, CId, Packets, merge_state(NParseState, NBoundCId, PacketType)};
+            {CId, NBoundCId, PacketType, ReusableChannel} = choose_cid(Packet, BoundCId, Peer),
+            {ok, CId, Packets, merge_state(NParseState, NBoundCId, PacketType, ReusableChannel)};
         {[], NParseState} ->
-            {ok, peer_id(Peer), [], merge_state(NParseState, BoundCId, undefined)}
+            {ok, peer_id(Peer), [], merge_state(NParseState, BoundCId, undefined, undefined)}
     end.
 
 dispatch(Pid, _State, Packet) ->
     erlang:send(Pid, Packet),
     ok.
 
-detach(Pid, _State) ->
-    erlang:send(Pid, udp_proxy_detached),
+%% The legacy callback has no proxy owner, so acting on it could detach a
+%% channel which has already moved to a newer proxy.
+detach(_Pid, _State) ->
     ok.
 
 detach(Pid, ProxyId, _State) ->
     erlang:send(Pid, {udp_proxy_detached, ProxyId}),
     ok.
 
-close(Pid, _State) ->
-    erlang:send(Pid, udp_proxy_closed),
+%% See detach/2. esockd 5.17.1 uses the owner-aware close/3 callback.
+close(_Pid, _State) ->
     ok.
 
 close(Pid, ProxyId, _State) ->
@@ -102,33 +108,18 @@ find_reusable_channel(ClientId, ReusableStates) ->
     end.
 
 channel_conn_state(ClientId, Pid) ->
-    case safe_chan_info(ClientId, Pid) of
+    %% Registry and info ETS are updated separately. If the pid is visible before
+    %% its info snapshot, do not call the live process from UDP proxy routing.
+    %% Treat it as not reusable; CONNECT can take over later, and PINGREQ can retry.
+    case safe_gateway_chan_info(ClientId, Pid) of
         #{conn_state := ConnState} ->
             ConnState;
         _ ->
             undefined
     end.
 
-safe_chan_info(ClientId, Pid) ->
-    case safe_gateway_chan_info(ClientId, Pid) of
-        Info = #{} ->
-            Info;
-        _ ->
-            case safe_gateway_conn_info(Pid) of
-                Info = #{} -> Info;
-                _ -> undefined
-            end
-    end.
-
 safe_gateway_chan_info(ClientId, Pid) ->
-    try emqx_gateway_cm:get_chan_info(?GATEWAY, ClientId, Pid) of
-        Info -> Info
-    catch
-        _:_ -> undefined
-    end.
-
-safe_gateway_conn_info(Pid) ->
-    try emqx_gateway_conn:info(Pid) of
+    try emqx_gateway_cm:get_chan_info(?GATEWAY, ClientId, Pid, ?CHAN_INFO_TIMEOUT) of
         Info -> Info
     catch
         _:_ -> undefined
@@ -141,13 +132,18 @@ split_state(#{parse_state := ParseState}) ->
 split_state(ParseState) ->
     {ParseState, undefined}.
 
-merge_state(ParseState, BoundCId, PacketType) ->
-    #{parse_state => ParseState, cid => BoundCId, packet_type => PacketType}.
+merge_state(ParseState, BoundCId, PacketType, undefined) ->
+    %% Rebuild state on each datagram so a reusable_channel hint is single-use.
+    #{parse_state => ParseState, cid => BoundCId, packet_type => PacketType};
+merge_state(ParseState, BoundCId, PacketType, ReusableChannel) ->
+    (merge_state(ParseState, BoundCId, PacketType, undefined))#{
+        reusable_channel => ReusableChannel
+    }.
 
 choose_cid(Packet, BoundCId, Peer) ->
     {ReqCId, PacketType} = packet_cid(Packet),
-    {CId, NBoundCId} = select_cid(PacketType, ReqCId, BoundCId, Peer),
-    {CId, NBoundCId, PacketType}.
+    {CId, NBoundCId, ReusableChannel} = select_cid(PacketType, ReqCId, BoundCId, Peer),
+    {CId, NBoundCId, PacketType, ReusableChannel}.
 
 packet_cid(?SN_CONNECT_MSG(_Flags, _ProtoId, _Duration, ClientId)) ->
     {normalize_clientid(ClientId), connect};
@@ -164,22 +160,22 @@ normalize_clientid(_ClientId) ->
     undefined.
 
 select_cid(_PacketType, undefined, undefined, Peer) ->
-    {peer_id(Peer), undefined};
+    {peer_id(Peer), undefined, undefined};
 select_cid(_PacketType, undefined, BoundCId, _Peer) ->
-    {BoundCId, BoundCId};
+    {BoundCId, BoundCId, undefined};
 select_cid(pingreq, ReqCId, BoundCId, Peer) ->
     select_pingreq_cid(ReqCId, BoundCId, Peer);
 select_cid(_PacketType, ReqCId, _BoundCId, _Peer) ->
-    {ReqCId, ReqCId}.
+    {ReqCId, ReqCId, undefined}.
 
 select_pingreq_cid(ReqCId, ReqCId, _Peer) ->
-    {ReqCId, ReqCId};
+    {ReqCId, ReqCId, undefined};
 select_pingreq_cid(ReqCId, _BoundCId, Peer) ->
     case find_reusable_channel(ReqCId, [asleep, awake]) of
-        {ok, _Pid} ->
-            {ReqCId, ReqCId};
+        {ok, Pid} ->
+            {ReqCId, ReqCId, {ReqCId, Pid}};
         false ->
-            {peer_id(Peer), undefined}
+            {peer_id(Peer), undefined, undefined}
     end.
 
 peer_id(Peer) ->

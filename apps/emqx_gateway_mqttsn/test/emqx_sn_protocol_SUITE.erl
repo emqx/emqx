@@ -1627,14 +1627,13 @@ t_will_case06(_) ->
     %% here so the SUITE does not depend on UDP port-allocation luck.
     ok = ensure_channel_gone(ClientId).
 
-%% Reproduces UDP ephemeral-port reuse deterministically: a stale
-%% `disconnected' channel bound to a peer UDP port must not crash when a new
-%% device connects from the same source port. The stale channel is retired
-%% cleanly and the new device is able to connect.
+%% Reproduces a same-ClientId reconnect after the UDP source port is reused by a
+%% new proxy process. The new connection takes over the old disconnected session
+%% immediately.
 t_takeover_on_udp_port_reuse(_) ->
     {ok, SockA} = gen_udp:open(0, [binary]),
     {ok, PortA} = inet:port(SockA),
-    ClientA = ?CLIENTID,
+    ClientA = <<"disconnected-port-reuse-same-client">>,
     %% device A connects with CleanSession=0 and disconnects, leaving its
     %% channel alive in the `disconnected' state.
     send_connect_msg(SockA, ClientA, 0),
@@ -1650,30 +1649,72 @@ t_takeover_on_udp_port_reuse(_) ->
     %% device B reuses the exact same source UDP port.
     {ok, SockB} = gen_udp:open(PortA, [binary, {reuseaddr, true}]),
     try
-        ClientB = ?CLIENTID,
-        %% the CONNECT is routed to the stale channel, which is retired
-        %% cleanly (before the fix this crashed with a function_clause).
+        ClientB = ClientA,
         send_connect_msg(SockB, ClientB, 0),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(SockB)),
         receive
             {'DOWN', MRef, process, OldPid, Reason} ->
-                ?assertEqual({shutdown, takeover_by_new_connect}, Reason)
+                ?assertEqual({shutdown, takenover}, Reason)
         after 2000 ->
             ct:fail(stale_channel_not_retired)
         end,
-        %% the CONNECT that retired the stale channel gets no reply on the
-        %% wire (the channel is shut down without an ack frame); the device
-        %% must recover on retransmit.
-        ?assertEqual(udp_receive_timeout, receive_response(SockB, 500)),
-        %% the new device connects on retransmit (MQTT-SN clients retransmit
-        %% CONNECT when no reply is received).
+        ok = ensure_channel_gone(ClientB)
+    after
+        gen_udp:close(SockB)
+    end.
+
+%% Reproduces a same-ClientId reconnect on the same UDP source tuple. The new
+%% connection takes over the old disconnected session immediately.
+t_disconnected_same_proxy_same_clientid_reconnect(_) ->
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = <<"disconnected-same-proxy-reconnect">>,
+    try
+        send_connect_msg(Socket, ClientId, 0),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+        send_disconnect_msg(Socket, undefined),
+        ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+        OldPid = wait_for_disconnected_channel(ClientId),
+
+        MRef = erlang:monitor(process, OldPid),
+        send_connect_msg(Socket, ClientId, 0),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+        receive
+            {'DOWN', MRef, process, OldPid, Reason} ->
+                ?assertEqual({shutdown, takenover}, Reason)
+        after 2000 ->
+            ct:fail(stale_channel_not_retired)
+        end,
+        ok = ensure_channel_gone(ClientId)
+    after
+        gen_udp:close(Socket)
+    end.
+
+%% Reproduces a different ClientId reusing the same UDP source port. UDP proxy
+%% routing must follow the CONNECT ClientId, not the peer port, so the new client
+%% connects immediately and the old disconnected session stays resumable.
+t_disconnected_same_source_tuple_reused_by_other_clientid(_) ->
+    {ok, SockA} = gen_udp:open(0, [binary]),
+    {ok, PortA} = inet:port(SockA),
+    ClientA = <<"disconnected-source-reuse-1">>,
+    ClientB = <<"disconnected-source-reuse-2">>,
+    send_connect_msg(SockA, ClientA, 0),
+    ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(SockA)),
+    send_disconnect_msg(SockA, undefined),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(SockA)),
+    OldPid = wait_for_disconnected_channel(ClientA),
+    ok = gen_udp:close(SockA),
+
+    {ok, SockB} = gen_udp:open(PortA, [binary, {reuseaddr, true}]),
+    try
+        send_connect_msg(SockB, ClientB, 0),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(SockB)),
+        ?assert(is_process_alive(OldPid)),
         ?retry(
-            200,
-            10,
-            begin
-                send_connect_msg(SockB, ClientB, 0),
-                ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(SockB))
-            end
+            50,
+            20,
+            #{conn_state := disconnected} = emqx_gateway_cm:get_chan_info(mqttsn, ClientA, OldPid)
         ),
+        ok = ensure_channel_gone(ClientA),
         ok = ensure_channel_gone(ClientB)
     after
         gen_udp:close(SockB)
@@ -1932,7 +1973,7 @@ t_stale_udp_proxy_detach_does_not_close_current_socket(_) ->
 
         [Pid] = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
         Pid ! {udp_proxy_detached, self()},
-        Pid ! udp_proxy_detached,
+        ok = emqx_mqttsn_proxy_conn:detach(Pid, #{}),
         timer:sleep(100),
 
         emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
@@ -1974,7 +2015,7 @@ t_stale_udp_proxy_close_does_not_close_current_socket(_) ->
 
         [Pid] = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
         Pid ! {udp_proxy_closed, self()},
-        Pid ! udp_proxy_closed,
+        ok = emqx_mqttsn_proxy_conn:close(Pid, #{}),
         timer:sleep(100),
 
         emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
@@ -2054,7 +2095,7 @@ t_asleep_pingreq_after_proxy_close(_) ->
         ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket1)),
 
         [Pid] = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
-        _ = emqx_mqttsn_proxy_conn:close(Pid, #{}),
+        _ = emqx_mqttsn_proxy_conn:close(Pid, current_udp_proxy_id(Pid), #{}),
         timer:sleep(100),
 
         emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),

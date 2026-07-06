@@ -542,8 +542,14 @@ handle_msg({inet_reply, _Sock, {error, Reason}}, State) ->
 handle_msg({close, Reason}, State) ->
     ?tp(debug, force_socket_close, #{reason => Reason}),
     handle_info({sock_closed, Reason}, close_socket(State));
+%% Legacy detach notifications do not identify their proxy owner, so they cannot
+%% safely detach a channel which may already have moved to a newer proxy.
 handle_msg(udp_proxy_detached, State) ->
     {ok, State};
+%% Keep the legacy close callback behavior for proxy connection modules which do
+%% not implement the owner-aware close/3 callback.
+handle_msg(udp_proxy_closed, State) ->
+    handle_udp_proxy_closed(State);
 handle_msg({udp_proxy_detached, ProxyId}, State) ->
     case is_current_udp_proxy(ProxyId, State) of
         true ->
@@ -560,8 +566,6 @@ handle_msg({udp_proxy_closed, ProxyId}, State) ->
             ?tp(debug, stale_udp_proxy_closed, #{proxy_id => ProxyId}),
             {ok, State}
     end;
-handle_msg(udp_proxy_closed, State) ->
-    {ok, State};
 handle_msg(
     {event, connected},
     State = #state{

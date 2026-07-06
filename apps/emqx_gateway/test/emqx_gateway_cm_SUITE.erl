@@ -175,6 +175,14 @@ t_get_set_chan_info_stats(_) ->
         NInfo,
         emqx_gateway_cm:get_chan_info(?GWNAME, ?CLIENTID, self())
     ),
+    ?assertEqual(
+        NInfo,
+        emqx_gateway_cm:get_chan_info(?GWNAME, ?CLIENTID, self(), 1000)
+    ),
+    ?assertEqual(
+        NInfo,
+        emqx_gateway_cm_proto_v2:get_chan_info(?GWNAME, ?CLIENTID, self(), 1000)
+    ),
     %% Stats: get/set
     NStats = [{newstats, true}],
     emqx_gateway_cm:set_chan_stats(?GWNAME, ?CLIENTID, NStats),
@@ -190,13 +198,19 @@ t_get_set_chan_info_stats(_) ->
     emqx_gateway_cm:connection_closed(?GWNAME, ?CLIENTID),
     emqx_gateway_cm:unregister_channel(?GWNAME, ?CLIENTID).
 
-t_connection_closed_keeps_channel_callable(_) ->
+t_connection_closed_defers_cleanup_until_unregister(_) ->
     {ok, _} = emqx_gateway_cm:open_session(
         ?GWNAME,
         true,
         clientinfo(),
         conninfo(),
         fun(_, _) -> #{no => 1} end
+    ),
+    emqx_gateway_cm:insert_channel_info(
+        ?GWNAME,
+        ?CLIENTID,
+        #{clientinfo => clientinfo(), conninfo => conninfo()},
+        []
     ),
 
     true = emqx_gateway_cm:connection_closed(?GWNAME, ?CLIENTID),
@@ -207,7 +221,14 @@ t_connection_closed_keeps_channel_callable(_) ->
         ?assert(false, "waiting kick msg timeout")
     end,
 
-    emqx_gateway_cm:unregister_channel(?GWNAME, ?CLIENTID).
+    ?assertEqual(1, ets:info(emqx_gateway_cm:tabname(chan, ?GWNAME), size)),
+    ?assertEqual(1, ets:info(emqx_gateway_cm:tabname(conn, ?GWNAME), size)),
+    ?assertEqual(1, ets:info(emqx_gateway_cm:tabname(info, ?GWNAME), size)),
+
+    emqx_gateway_cm:unregister_channel(?GWNAME, ?CLIENTID),
+    ?assertEqual(0, ets:info(emqx_gateway_cm:tabname(chan, ?GWNAME), size)),
+    ?assertEqual(0, ets:info(emqx_gateway_cm:tabname(conn, ?GWNAME), size)),
+    ?assertEqual(0, ets:info(emqx_gateway_cm:tabname(info, ?GWNAME), size)).
 
 t_handle_process_down(Conf) ->
     Pid = proplists:get_value(cm, Conf),

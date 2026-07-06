@@ -33,6 +33,7 @@
     set_chan_info/4,
     get_chan_info/2,
     get_chan_info/3,
+    get_chan_info/4,
     set_chan_stats/3,
     set_chan_stats/4,
     get_chan_stats/2,
@@ -194,8 +195,13 @@ do_get_chan_info(GwName, ClientId, ChanPid) ->
 -spec get_chan_info(gateway_name(), emqx_types:clientid(), pid()) ->
     emqx_types:infos() | undefined.
 get_chan_info(GwName, ClientId, ChanPid) ->
+    wrap_rpc(emqx_gateway_cm_proto_v1:get_chan_info(GwName, ClientId, ChanPid)).
+
+-spec get_chan_info(gateway_name(), emqx_types:clientid(), pid(), timeout()) ->
+    emqx_types:infos() | undefined.
+get_chan_info(GwName, ClientId, ChanPid, Timeout) ->
     wrap_rpc(
-        emqx_gateway_cm_proto_v1:get_chan_info(GwName, ClientId, ChanPid)
+        emqx_gateway_cm_proto_v2:get_chan_info(GwName, ClientId, ChanPid, Timeout)
     ).
 
 -spec lookup_by_clientid(gateway_name(), emqx_types:clientid()) -> [pid()].
@@ -304,9 +310,8 @@ set_chan_stats(GwName, ClientId, ChanPid, Stats) ->
 
 -spec connection_closed(gateway_name(), emqx_types:clientid()) -> true.
 connection_closed(_GwName, _ClientId) ->
-    %% The transport may be closed while the channel/session is still retained.
-    %% Keep the connection module until the channel is unregistered so session
-    %% takeover/kick/discard can still call the lingering channel.
+    %% Transport close may keep the channel/session alive. The registry/chan/conn/info
+    %% cleanup is done by unregister_channel/2 or the DOWN path in do_unregister_channel/3.
     true.
 
 -spec open_session(
