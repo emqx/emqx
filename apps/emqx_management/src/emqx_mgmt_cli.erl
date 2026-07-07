@@ -355,6 +355,7 @@ print_session_top_status(
 ) ->
     maybe_print_session_top_output(Status),
     maybe_print_session_top_worker(Status),
+    maybe_print_session_top_collector(Status),
     maybe_print_session_top_started_at(Status),
     emqx_ctl:print(
         "Status: running~n"
@@ -375,7 +376,7 @@ print_session_top_status(#{
         [Reason]
     );
 print_session_top_status(
-    #{
+    Status = #{
         status := completed,
         out := OutFile,
         rows := Rows
@@ -386,8 +387,11 @@ print_session_top_status(
         "Output: ~ts~n"
         "Result rows: ~B~n",
         [OutFile, Rows]
-    );
+    ),
+    maybe_print_session_top_bad_replies(Status);
 print_session_top_status(Status = #{status := completed, rows := Rows}) ->
+    maybe_print_session_top_worker(Status),
+    maybe_print_session_top_collector(Status),
     emqx_ctl:print(
         "Status: completed~n"
         "Result rows: ~B~n",
@@ -395,7 +399,7 @@ print_session_top_status(Status = #{status := completed, rows := Rows}) ->
     ),
     print_session_top_progress(Status);
 print_session_top_status(
-    #{
+    Status = #{
         status := failed,
         out := OutFile,
         reason := Reason
@@ -406,16 +410,31 @@ print_session_top_status(
         "Output: ~ts~n"
         "Reason: ~p~n",
         [OutFile, Reason]
-    ).
+    ),
+    maybe_print_session_top_bad_replies(Status);
+print_session_top_status(Status = #{status := failed, reason := Reason}) ->
+    maybe_print_session_top_worker(Status),
+    maybe_print_session_top_collector(Status),
+    emqx_ctl:print(
+        "Status: failed~n"
+        "Reason: ~p~n",
+        [Reason]
+    ),
+    maybe_print_session_top_bad_replies(Status).
 
 maybe_print_session_top_output(#{out := OutFile}) ->
     emqx_ctl:print("Output: ~ts~n", [OutFile]);
 maybe_print_session_top_output(_Status) ->
     ok.
 
-maybe_print_session_top_worker(#{pid := Pid}) ->
-    emqx_ctl:print("Worker: ~p~n", [Pid]);
+maybe_print_session_top_worker(#{role := Role}) ->
+    emqx_ctl:print("Role: ~s~n", [atom_to_list(Role)]);
 maybe_print_session_top_worker(_Status) ->
+    ok.
+
+maybe_print_session_top_collector(#{role := worker, collector := Collector}) ->
+    emqx_ctl:print("Collector: ~p~n", [Collector]);
+maybe_print_session_top_collector(_Status) ->
     ok.
 
 maybe_print_session_top_started_at(#{started_at := StartedAt}) ->
@@ -423,11 +442,17 @@ maybe_print_session_top_started_at(#{started_at := StartedAt}) ->
 maybe_print_session_top_started_at(_Status) ->
     ok.
 
-print_session_top_progress(#{nodes_total := Total}) ->
-    emqx_ctl:print("Cluster nodes: ~B~n", [Total]);
+print_session_top_progress(#{nodes_total := Total} = Progress) ->
+    emqx_ctl:print("Cluster nodes: ~B~n", [Total]),
+    maybe_print_session_top_bad_replies(Progress);
 print_session_top_progress(#{scanned := Scanned, total := Total}) ->
     emqx_ctl:print("Rows scanned: ~B/~B~n", [Scanned, Total]);
 print_session_top_progress(_Progress) ->
+    ok.
+
+maybe_print_session_top_bad_replies(#{bad_replies := BadReplies}) ->
+    emqx_ctl:print("Bad replies: ~p~n", [BadReplies]);
+maybe_print_session_top_bad_replies(_Status) ->
     ok.
 
 %%--------------------------------------------------------------------

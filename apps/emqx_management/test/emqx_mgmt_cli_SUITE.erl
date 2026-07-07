@@ -139,7 +139,8 @@ t_session_top_status_running_labels(_Config) ->
         fun() ->
             #{
                 status => running,
-                pid => self(),
+                role => collector,
+                scan_id => make_ref(),
                 out => "/tmp/session-top.csv",
                 count => 10,
                 sort => total_payload_bytes,
@@ -147,6 +148,7 @@ t_session_top_status_running_labels(_Config) ->
                 sleep_ms => 1,
                 started_at => 1780000000000,
                 initiator => node(),
+                collector => node(),
                 progress => #{nodes_total => 3, nodes_done => 1}
             }
         end,
@@ -159,6 +161,7 @@ t_session_top_status_running_labels(_Config) ->
             ),
             ?assertEqual(match, re:run(Output, <<"Batch size: 100">>, [{capture, none}])),
             ?assertEqual(match, re:run(Output, <<"Sleep: 1 ms">>, [{capture, none}])),
+            ?assertEqual(match, re:run(Output, <<"Role: collector">>, [{capture, none}])),
             ?assertEqual(match, re:run(Output, <<"Cluster nodes: 3">>, [{capture, none}])),
             ?assertEqual(nomatch, re:run(Output, <<"Nodes: 1/3">>, [{capture, none}])),
             ?assertEqual(nomatch, re:run(Output, <<"Count:">>, [{capture, none}])),
@@ -189,7 +192,27 @@ t_session_top_status_local_completed(_Config) ->
         end
     ).
 
-t_session_top_status_completed_ignores_bad_results(_Config) ->
+t_session_top_status_worker_failed(_Config) ->
+    emqx_common_test_helpers:with_mock(
+        emqx_session_buffer_mon,
+        top_status,
+        fun() ->
+            #{
+                status => failed,
+                role => worker,
+                collector => node(),
+                reason => scan_failed
+            }
+        end,
+        fun() ->
+            {ok, Output} = capture_ctl(["session-top", "status"]),
+            ?assertEqual(match, re:run(Output, <<"Role: worker">>, [{capture, none}])),
+            ?assertEqual(match, re:run(Output, <<"Status: failed">>, [{capture, none}])),
+            ?assertEqual(match, re:run(Output, <<"Reason: scan_failed">>, [{capture, none}]))
+        end
+    ).
+
+t_session_top_status_completed_prints_bad_replies(_Config) ->
     emqx_common_test_helpers:with_mock(
         emqx_session_buffer_mon,
         top_status,
@@ -208,7 +231,7 @@ t_session_top_status_completed_ignores_bad_results(_Config) ->
             ?assertEqual(match, re:run(Output, <<"Status: completed">>, [{capture, none}])),
             ?assertEqual(match, re:run(Output, <<"Result rows: 5">>, [{capture, none}])),
             ?assertEqual(nomatch, re:run(Output, <<"Bad nodes:">>, [{capture, none}])),
-            ?assertEqual(nomatch, re:run(Output, <<"Bad replies:">>, [{capture, none}])),
+            ?assertEqual(match, re:run(Output, <<"Bad replies:">>, [{capture, none}])),
             ?assertEqual(nomatch, re:run(Output, <<"Partial result:">>, [{capture, none}]))
         end
     ).

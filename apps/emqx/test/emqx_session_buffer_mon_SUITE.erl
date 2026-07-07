@@ -23,59 +23,51 @@ t_top_status_running_and_busy(Config) ->
     with_session_buffer_mon(
         fun() ->
             OutFile = filename:join(?config(priv_dir, Config), "session-top-running.csv"),
-            TestPid = self(),
-            with_cluster_top_mock(
-                fun(_Metric, _Opts) ->
-                    TestPid ! top_scan_started,
-                    receive
-                        finish_top_scan -> []
-                    after 5000 ->
-                        error(timeout)
-                    end
-                end,
+            _ = file:delete(OutFile),
+            with_chan_info_table(
                 fun() ->
-                    Opts = #{
-                        count => 1,
-                        sort => total_payload_bytes,
-                        out => OutFile,
-                        batch_size => 10,
-                        sleep_ms => 0
-                    },
-                    {ok, Pid} = emqx_session_buffer_mon:run_top(Opts),
-                    receive
-                        top_scan_started -> ok
-                    after 1000 ->
-                        error(top_scan_not_started)
-                    end,
-                    Node = node(),
-                    ?assertMatch(
-                        #{
-                            status := running,
-                            pid := Pid,
-                            out := OutFile,
-                            count := 1,
-                            sort := total_payload_bytes,
-                            batch_size := 10,
-                            sleep_ms := 0,
-                            started_at := _,
-                            initiator := Node,
-                            progress := #{nodes_total := _, nodes_done := 0}
-                        },
-                        emqx_session_buffer_mon:top_status()
-                    ),
-                    ?assertEqual(
-                        {error, busy},
-                        emqx_session_buffer_mon:run_top(#{
+                    Pid = spawn_waiter(),
+                    try
+                        insert_channel_infos(50, Pid),
+                        Opts = #{
                             count => 1,
-                            sort => mqueue_length,
-                            out => OutFile
-                        })
-                    ),
-                    Pid ! finish_top_scan,
-                    ?assertMatch(
-                        #{status := completed, out := OutFile, rows := 0},
-                        wait_top_status(completed, 100)
-                    )
+                            sort => total_payload_bytes,
+                            out => OutFile,
+                            batch_size => 1,
+                            sleep_ms => 100
+                        },
+                        {ok, ScanId} = emqx_session_buffer_mon:run_top(Opts),
+                        Node = node(),
+                        ?assertMatch(
+                            #{
+                                status := running,
+                                role := collector,
+                                scan_id := ScanId,
+                                out := OutFile,
+                                count := 1,
+                                sort := total_payload_bytes,
+                                batch_size := 1,
+                                sleep_ms := 100,
+                                started_at := _,
+                                initiator := Node,
+                                collector := Node,
+                                progress := #{nodes_total := 1, nodes_done := 0}
+                            },
+                            emqx_session_buffer_mon:top_status()
+                        ),
+                        ?assertEqual(
+                            {error, busy},
+                            emqx_session_buffer_mon:run_top(#{
+                                count => 1,
+                                sort => mqueue_length,
+                                out => OutFile
+                            })
+                        ),
+                        ?assertEqual({ok, cancelled}, emqx_session_buffer_mon:cancel_top())
+                    after
+                        stop_waiter(Pid),
+                        _ = file:delete(OutFile)
+                    end
                 end
             )
         end
@@ -85,137 +77,156 @@ t_top_cancel_running_scan(Config) ->
     with_session_buffer_mon(
         fun() ->
             OutFile = filename:join(?config(priv_dir, Config), "session-top-cancel.csv"),
-            TestPid = self(),
-            with_cluster_top_mock(
-                fun(_Metric, _Opts) ->
-                    TestPid ! top_scan_started,
-                    receive
-                        finish_top_scan -> []
-                    after 5000 ->
-                        error(timeout)
-                    end
-                end,
+            _ = file:delete(OutFile),
+            with_chan_info_table(
                 fun() ->
-                    {ok, _Pid} = emqx_session_buffer_mon:run_top(#{
-                        count => 1,
-                        sort => total_payload_bytes,
-                        out => OutFile,
-                        batch_size => 1,
-                        sleep_ms => 100
-                    }),
-                    receive
-                        top_scan_started -> ok
-                    after 1000 ->
-                        error(top_scan_not_started)
-                    end,
-                    ?assertEqual({ok, cancelled}, emqx_session_buffer_mon:cancel_top()),
-                    ?assertMatch(
-                        #{status := cancelled, out := OutFile, reason := cancelled},
-                        wait_top_status(cancelled, 100)
-                    ),
-                    ?assertEqual(#{status => idle}, emqx_session_buffer_mon:top_status())
+                    Pid = spawn_waiter(),
+                    try
+                        insert_channel_infos(50, Pid),
+                        {ok, _Pid} = emqx_session_buffer_mon:run_top(#{
+                            count => 1,
+                            sort => total_payload_bytes,
+                            out => OutFile,
+                            batch_size => 1,
+                            sleep_ms => 100
+                        }),
+                        ?assertEqual({ok, cancelled}, emqx_session_buffer_mon:cancel_top()),
+                        ?assertMatch(
+                            #{
+                                status := cancelled,
+                                role := collector,
+                                out := OutFile,
+                                reason := cancelled
+                            },
+                            wait_top_status(cancelled, 100)
+                        ),
+                        ?assertEqual(#{status => idle}, emqx_session_buffer_mon:top_status())
+                    after
+                        stop_waiter(Pid),
+                        _ = file:delete(OutFile)
+                    end
                 end
             )
         end
     ).
 
+t_top_worker_status(_) ->
+    with_session_buffer_mon(fun() ->
+        with_chan_info_table(fun() ->
+            Pid = spawn_waiter(),
+            try
+                insert_channel_info(<<"worker-c1">>, Pid, 1, 10, 0),
+                ScanId = {?FUNCTION_NAME, make_ref()},
+                Req = local_top_opts(#{
+                    scan_id => ScanId,
+                    collector => node(),
+                    count => 1,
+                    sort => total_payload_bytes,
+                    batch_size => 1,
+                    sleep_ms => 100
+                }),
+                Node = node(),
+                ?assertEqual({ok, accepted}, emqx_session_buffer_mon:start_top_scan(Req)),
+                ?assertMatch(
+                    #{
+                        status := running,
+                        role := worker,
+                        scan_id := ScanId,
+                        collector := Node,
+                        progress := #{batches_done := _}
+                    },
+                    emqx_session_buffer_mon:top_status()
+                ),
+                ?assertEqual({ok, cancelled}, emqx_session_buffer_mon:cancel_top())
+            after
+                stop_waiter(Pid)
+            end
+        end)
+    end).
+
 t_top_status_completed(Config) ->
     with_session_buffer_mon(fun() ->
         OutFile = filename:join(?config(priv_dir, Config), "session-top-completed.csv"),
         _ = file:delete(OutFile),
-        Row = top_row(<<"c1">>, 10, 100, 1),
-        try
-            with_cluster_top_mock(
-                fun(_Metric, _Opts) -> [Row] end,
-                fun() ->
-                    ?assertMatch(
-                        {ok, _Pid},
-                        emqx_session_buffer_mon:run_top(#{
-                            count => 1,
-                            sort => total_payload_bytes,
-                            out => OutFile
-                        })
-                    ),
-                    ?assertMatch(
-                        #{status := completed, out := OutFile, rows := 1},
-                        wait_top_status(completed, 100)
-                    ),
-                    ?assertEqual(#{status => idle}, emqx_session_buffer_mon:top_status())
-                end
-            )
-        after
-            _ = file:delete(OutFile)
-        end
+        with_chan_info_table(fun() ->
+            Pid = spawn_waiter(),
+            try
+                insert_channel_info(<<"c1">>, Pid, 10, 100, 1),
+                ?assertMatch(
+                    {ok, _ScanId},
+                    emqx_session_buffer_mon:run_top(#{
+                        count => 1,
+                        sort => total_payload_bytes,
+                        out => OutFile
+                    })
+                ),
+                ?assertMatch(
+                    #{status := completed, role := collector, out := OutFile, rows := 1},
+                    wait_top_status(completed, 100)
+                ),
+                ?assertEqual(#{status => idle}, emqx_session_buffer_mon:top_status())
+            after
+                stop_waiter(Pid),
+                _ = file:delete(OutFile)
+            end
+        end)
     end).
 
 t_top_status_completed_after_session_tool_scan(Config) ->
     with_session_buffer_mon(fun() ->
         OutFile = filename:join(?config(priv_dir, Config), "session-top-completed-local.csv"),
         _ = file:delete(OutFile),
-        TestPid = self(),
-        Row = top_row(<<"c1">>, 10, 100, 1),
-        try
-            with_cluster_top_mock(
-                fun(total_payload_bytes, Opts) ->
-                    TestPid ! {cluster_top_called, Opts},
-                    [Row]
-                end,
-                fun() ->
-                    ?assertMatch(
-                        {ok, _Pid},
-                        emqx_session_buffer_mon:run_top(#{
-                            count => 1,
-                            sort => total_payload_bytes,
-                            out => OutFile,
-                            batch_size => 1,
-                            sleep_ms => 0
-                        })
-                    ),
-                    receive
-                        {cluster_top_called, #{
-                            top_k := 1,
-                            min_value := 0,
-                            chunk := 1,
-                            sleep_ms := 0,
-                            extra_stats := [mqueue_len, total_payload_bytes, inflight_cnt],
-                            rpc_timeout := 300000
-                        }} ->
-                            ok
-                    after 1000 ->
-                        error(cluster_top_not_called)
-                    end,
-                    ?assertMatch(
-                        #{status := completed, out := OutFile, rows := 1},
-                        wait_top_status(completed, 100)
-                    )
-                end
-            )
-        after
-            _ = file:delete(OutFile)
-        end
+        with_chan_info_table(fun() ->
+            Pid = spawn_waiter(),
+            try
+                insert_channel_info(<<"c1">>, Pid, 10, 100, 1),
+                with_cluster_top_mock(
+                    fun(_Metric, _Opts) -> error(cluster_top_by_should_not_be_called) end,
+                    fun() ->
+                        ?assertMatch(
+                            {ok, _ScanId},
+                            emqx_session_buffer_mon:run_top(#{
+                                count => 1,
+                                sort => total_payload_bytes,
+                                out => OutFile,
+                                batch_size => 1,
+                                sleep_ms => 0
+                            })
+                        ),
+                        ?assertMatch(
+                            #{status := completed, out := OutFile, rows := 1},
+                            wait_top_status(completed, 100)
+                        )
+                    end
+                )
+            after
+                stop_waiter(Pid),
+                _ = file:delete(OutFile)
+            end
+        end)
     end).
 
 t_top_status_completed_with_legacy_session_tool_row(Config) ->
     with_session_buffer_mon(fun() ->
         OutFile = filename:join(?config(priv_dir, Config), "session-top-legacy-row.csv"),
         _ = file:delete(OutFile),
+        RemoteNode = 'remote@127.0.0.1',
         LegacyRow = #{
             clientid => <<"legacy-c1">>,
-            node => node(),
+            node => RemoteNode,
             metric => mqueue_len,
             value => 10
         },
         try
-            with_cluster_top_mock(
-                fun(_Metric, _Opts) -> [LegacyRow] end,
-                fun() ->
-                    ?assertMatch(
-                        {ok, _Pid},
-                        emqx_session_buffer_mon:run_top(#{
-                            count => 1,
-                            sort => mqueue_length,
-                            out => OutFile
-                        })
+            with_chan_info_table(fun() ->
+                with_remote_top_scan_node(RemoteNode, fun() ->
+                    {ok, ScanId} = emqx_session_buffer_mon:run_top(#{
+                        count => 1,
+                        sort => mqueue_length,
+                        out => OutFile
+                    }),
+                    ok = emqx_session_buffer_mon:top_scan_result(
+                        ScanId, RemoteNode, {ok, [LegacyRow]}
                     ),
                     ?assertMatch(
                         #{status := completed, out := OutFile, rows := 1},
@@ -224,39 +235,35 @@ t_top_status_completed_with_legacy_session_tool_row(Config) ->
                     ?assertEqual(
                         {ok,
                             <<"clientid,pid,node,mqueue_length,total_payload_bytes,inflight_count\n",
-                                "legacy-c1,undefined,", (atom_to_binary(node()))/binary,
-                                ",10,0,0\n">>},
+                                "legacy-c1,undefined,remote@127.0.0.1,10,0,0\n">>},
                         file:read_file(OutFile)
                     )
-                end
-            )
+                end)
+            end)
         after
             _ = file:delete(OutFile)
         end
     end).
 
-t_top_status_follows_cluster_top_by_result(Config) ->
+t_top_status_completed_with_empty_result(Config) ->
     with_session_buffer_mon(fun() ->
-        OutFile = filename:join(?config(priv_dir, Config), "session-top-empty-cluster-result.csv"),
+        OutFile = filename:join(?config(priv_dir, Config), "session-top-empty-result.csv"),
         _ = file:delete(OutFile),
         try
-            with_cluster_top_mock(
-                fun(_Metric, _Opts) -> [] end,
-                fun() ->
-                    ?assertMatch(
-                        {ok, _Pid},
-                        emqx_session_buffer_mon:run_top(#{
-                            count => 1,
-                            sort => total_payload_bytes,
-                            out => OutFile
-                        })
-                    ),
-                    ?assertMatch(
-                        #{status := completed, out := OutFile, rows := 0},
-                        wait_top_status(completed, 100)
-                    )
-                end
-            )
+            with_chan_info_table(fun() ->
+                ?assertMatch(
+                    {ok, _ScanId},
+                    emqx_session_buffer_mon:run_top(#{
+                        count => 1,
+                        sort => total_payload_bytes,
+                        out => OutFile
+                    })
+                ),
+                ?assertMatch(
+                    #{status := completed, out := OutFile, rows := 0},
+                    wait_top_status(completed, 100)
+                )
+            end)
         after
             _ = file:delete(OutFile)
         end
@@ -265,12 +272,12 @@ t_top_status_follows_cluster_top_by_result(Config) ->
 t_top_status_failed_on_write_error(Config) ->
     with_session_buffer_mon(fun() ->
         OutFile = filename:join([?config(priv_dir, Config), "missing-dir", "session-top.csv"]),
-        Row = top_row(<<"c1">>, 10, 100, 1),
-        with_cluster_top_mock(
-            fun(_Metric, _Opts) -> [Row] end,
-            fun() ->
+        with_chan_info_table(fun() ->
+            Pid = spawn_waiter(),
+            try
+                insert_channel_info(<<"c1">>, Pid, 10, 100, 1),
                 ?assertMatch(
-                    {ok, _Pid},
+                    {ok, _ScanId},
                     emqx_session_buffer_mon:run_top(#{
                         count => 1,
                         sort => total_payload_bytes,
@@ -282,8 +289,43 @@ t_top_status_failed_on_write_error(Config) ->
                     wait_top_status(failed, 100)
                 ),
                 ?assertEqual(#{status => idle}, emqx_session_buffer_mon:top_status())
+            after
+                stop_waiter(Pid)
             end
-        )
+        end)
+    end).
+
+t_top_status_completed_with_remote_problem(Config) ->
+    with_session_buffer_mon(fun() ->
+        OutFile = filename:join(?config(priv_dir, Config), "session-top-remote-problem.csv"),
+        _ = file:delete(OutFile),
+        RemoteNode = 'remote@127.0.0.2',
+        try
+            with_chan_info_table(fun() ->
+                with_remote_top_scan_node(RemoteNode, fun() ->
+                    {ok, ScanId} = emqx_session_buffer_mon:run_top(#{
+                        count => 1,
+                        sort => total_payload_bytes,
+                        out => OutFile
+                    }),
+                    ok = emqx_session_buffer_mon:top_scan_result(
+                        ScanId, RemoteNode, {error, timeout}
+                    ),
+                    ?assertMatch(
+                        #{
+                            status := completed,
+                            out := OutFile,
+                            rows := 0,
+                            partial := true,
+                            bad_replies := [{RemoteNode, timeout}]
+                        },
+                        wait_top_status(completed, 100)
+                    )
+                end)
+            end)
+        after
+            _ = file:delete(OutFile)
+        end
     end).
 
 t_scan_tool_wrapper_top_by_total_payload_bytes(_) ->
@@ -532,19 +574,14 @@ insert_channel_info(ClientId, Pid, MqueueLength, TotalPayloadBytes, InflightCoun
         }
     ).
 
-top_row(ClientId, MqueueLength, TotalPayloadBytes, InflightCount) ->
-    #{
-        clientid => ClientId,
-        pid => self(),
-        node => node(),
-        metric => total_payload_bytes,
-        value => TotalPayloadBytes,
-        extras => #{
-            mqueue_len => MqueueLength,
-            total_payload_bytes => TotalPayloadBytes,
-            inflight_cnt => InflightCount
-        }
-    }.
+insert_channel_infos(Count, Pid) ->
+    lists:foreach(
+        fun(N) ->
+            ClientId = <<"c", (integer_to_binary(N))/binary>>,
+            insert_channel_info(ClientId, Pid, N, N, 0)
+        end,
+        lists:seq(1, Count)
+    ).
 
 with_cluster_top_mock(ClusterTopFun, TestFun) ->
     ok = meck:new(emqx_session_tool, [passthrough, no_link]),
@@ -553,6 +590,45 @@ with_cluster_top_mock(ClusterTopFun, TestFun) ->
         TestFun()
     after
         ok = meck:unload(emqx_session_tool)
+    end.
+
+with_remote_top_scan_node(RemoteNode, TestFun) ->
+    TestPid = self(),
+    ok = meck:new(emqx_bpapi, [passthrough, no_link]),
+    ok = meck:new(emqx_session_tool_proto_v2, [passthrough, no_link]),
+    try
+        ok = meck:expect(
+            emqx_bpapi,
+            nodes_supporting_bpapi_version,
+            fun
+                (emqx_session_tool, 2) -> [node(), RemoteNode];
+                (Name, Vsn) -> meck:passthrough([Name, Vsn])
+            end
+        ),
+        ok = meck:expect(
+            emqx_session_tool_proto_v2,
+            start_top_scan,
+            fun(Nodes, Req, Timeout) ->
+                TestPid ! {top_scan_started, Nodes, Req, Timeout},
+                [{ok, {ok, accepted}} || _ <- Nodes]
+            end
+        ),
+        ok = meck:expect(
+            emqx_session_tool_proto_v2,
+            cancel_top_scan,
+            fun(Nodes, _ScanId, _Timeout) ->
+                [{ok, {ok, cancelled}} || _ <- Nodes]
+            end
+        ),
+        TestFun(),
+        receive
+            {top_scan_started, [RemoteNode], _Req, 300000} -> ok
+        after 0 ->
+            error(remote_top_scan_not_started)
+        end
+    after
+        ok = meck:unload(emqx_session_tool_proto_v2),
+        ok = meck:unload(emqx_bpapi)
     end.
 
 wait_top_status(Expected, Attempts) when Attempts > 0 ->
