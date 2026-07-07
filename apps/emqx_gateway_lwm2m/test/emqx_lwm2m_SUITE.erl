@@ -2694,16 +2694,17 @@ test_recv_mqtt_response(RespTopic) ->
     end.
 
 assert_no_secret_register_fields(#{<<"data">> := Data}) ->
-    lists:foreach(
-        fun(Key) ->
-            ?assertNot(maps:is_key(Key, Data))
-        end,
-        [
-            <<"password">>,
-            <<"secret">>,
-            <<"private_key">>,
-            <<"access_token">>
-        ]
+    ?assertEqual(
+        #{},
+        maps:with(
+            [
+                <<"password">>,
+                <<"secret">>,
+                <<"private_key">>,
+                <<"access_token">>
+            ],
+            Data
+        )
     ).
 
 test_send_coap_request(UdpSock, Method, Uri, Content, Options, MsgId) ->

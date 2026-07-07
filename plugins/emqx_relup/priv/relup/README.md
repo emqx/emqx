@@ -20,6 +20,7 @@ are arbitrary; `<from>-to-<to>.relup` is the convention.
 - Load dashboard/data-backup modules and re-announce `emqx` BPAPI so backup-file download authorization changes take effect for API-key callers.
 - Load the PostgreSQL connector module so disabled-prepared-statement batch execution and table-existence checks use the serialized worker path.
 - Restart `jamdb_oracle`, load Oracle connector modules, then restart running Oracle connector resources so prepare/status checks and large text binds use the updated driver and callback code.
+- Load central redaction helpers and the LwM2M session module so registration/update reports drop sensitive fields and do not replay secrets.
 - Stop Redis resources, restart `eredis`, reload `emqx_redis`, then start Redis resources so Sentinel managers are recreated with isolated manager names.
 
 ## Schema

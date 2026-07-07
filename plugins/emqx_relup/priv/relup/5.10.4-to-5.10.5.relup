@@ -14,6 +14,8 @@
         {load_module, emqx_oracle},
         {load_module, emqx_relup_oracle_upgrade},
         {apply, emqx_relup_oracle_upgrade, restart_oracle_connectors, []},
+        {load_module, emqx_utils_redact},
+        {load_module, emqx_lwm2m_session},
         {apply, emqx_relup_eredis_upgrade, stop_redis_resources, []},
         {restart_application, eredis},
         {load_module, emqx_redis},

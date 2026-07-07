@@ -323,7 +323,7 @@ fix_reg_info(_, RegInfo) ->
 drop_sensitive_reg_info(RegInfo) ->
     maps:filter(
         fun(Key, _Value) ->
-            not emqx_utils:is_sensitive_key(Key)
+            not emqx_utils_redact:is_sensitive_key(Key)
         end,
         RegInfo
     ).
