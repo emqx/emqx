@@ -291,6 +291,15 @@ wait_for_haproxy() {
     done
 }
 
+## Dump logs from both nodes, so a cluster-formation failure shows the state of
+## every node (the node that failed to join is usually not the one being polled).
+dump_all_node_logs() {
+    for node in "$NODE1" "$NODE2"; do
+        echo "==============  ${node}  =============="
+        docker logs "$node" 2>&1 || true
+    done
+}
+
 wait_for_running_nodes() {
     local container="$1"
     local expected_running_nodes="$2"
@@ -308,7 +317,7 @@ wait_for_running_nodes() {
         sleep 1
     done
     echo "Expected running nodes is ${expected_running_nodes}, but got ${running_nodes} after ${wait_limit} seconds"
-    docker logs "$container"
+    dump_all_node_logs
     exit 1
 }
 
