@@ -48,6 +48,8 @@
     %% PUBLISH(QoS2) packets dropped
     {counter, 'packets.publish.dropped',
         <<"Number of messages discarded due to the receiving limit">>},
+    {counter, 'packets.publish.quota_exceeded',
+        <<"Number of PUBLISH packets rejected due to quota exceeded">>},
     %% PUBACK packets received
     {counter, 'packets.puback.received', <<"Number of received PUBACK packet">>},
     %% PUBACK packets sent
