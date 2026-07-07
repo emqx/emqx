@@ -205,6 +205,8 @@ info(stats_timer, #state{stats_timer = StatsTimer}) ->
     StatsTimer;
 info(zone, #state{conf = #conf{zone = Zone}}) ->
     Zone;
+info(listener, #state{conf = #conf{listener = Listener}}) ->
+    Listener;
 info({channel, Info}, #state{channel = Channel}) ->
     emqx_channel:info(Info, Channel).
 
