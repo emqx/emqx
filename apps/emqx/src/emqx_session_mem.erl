@@ -195,7 +195,7 @@ create(
     Conf
 ) ->
     QueueOpts = get_mqueue_conf(Zone),
-    Limiter = create_limiter(ClientInfo),
+    Limiter = create_limiter(ClientInfo, Conf),
     #session{
         id = emqx_guid:gen(),
         clientid = ClientId,
@@ -214,7 +214,9 @@ create(
         await_rel_timeout = maps:get(await_rel_timeout, Conf)
     }.
 
-create_limiter(#{listener := ListenerId} = ClientInfo) ->
+create_limiter(_ClientInfo, #{enable_quota := false}) ->
+    false;
+create_limiter(#{listener := ListenerId} = ClientInfo, _Conf) ->
     Limiter = emqx_limiter:create_session_client_container(ListenerId),
     emqx_hooks:run_fold('session.limiter_adjustment', [ClientInfo], Limiter).
 
@@ -250,7 +252,7 @@ open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg, Conf) ->
             SessionRemote = import(ClientInfo, ExportedSession),
             Session0 = resume(ClientInfo, SessionRemote),
             Session1 = resize_inflight(ConnInfo, Session0),
-            Session2 = apply_conf(Conf, Session1),
+            Session2 = apply_conf(ClientInfo, Conf, Session1),
             Session = filter_remote_session(Session2),
             {true, Session, ChannelRef};
         none ->
@@ -262,8 +264,9 @@ resize_inflight(#{receive_maximum := ReceiveMax}, Session = #session{inflight = 
         inflight = emqx_inflight:resize(ReceiveMax, Inflight)
     }.
 
-apply_conf(Conf, Session = #session{}) ->
+apply_conf(ClientInfo, Conf, Session = #session{}) ->
     Session#session{
+        quota = create_limiter(ClientInfo, Conf),
         max_subscriptions = maps:get(max_subscriptions, Conf),
         max_awaiting_rel = maps:get(max_awaiting_rel, Conf),
         upgrade_qos = maps:get(upgrade_qos, Conf),
@@ -333,7 +336,7 @@ import(ClientInfo = #{clientid := ClientId}, #{
         upgrade_qos = false,
         inflight = import_inflight(Inflight),
         mqueue = import_mqueue(ClientInfo, Messages),
-        quota = create_limiter(ClientInfo),
+        quota = false,
         next_pkt_id = NextPacketId,
         retry_interval = infinity,
         awaiting_rel = AwaitingRel,
@@ -839,10 +842,8 @@ handle_timeout(ClientInfo, ?DEQUEUE_RETRY_TIMER, Session) ->
 
 -spec handle_info(clientinfo(), term(), session()) -> session().
 handle_info(ClientInfo, zone_changed, Session) ->
-    NSession = apply_conf(emqx_session:get_session_conf(ClientInfo), Session),
-    NSession#session{
-        quota = create_limiter(ClientInfo)
-    };
+    Conf = emqx_session:get_session_conf(ClientInfo),
+    apply_conf(ClientInfo, Conf, Session);
 handle_info(_ClientInfo, _Msg, Session) ->
     Session.
 

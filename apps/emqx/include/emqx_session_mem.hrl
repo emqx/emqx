@@ -26,7 +26,7 @@
     %% Optionally, QoS0 messages pending transmission to the Client.
     mqueue :: emqx_mqueue:mqueue(),
     %% Delivery rate limiters.
-    quota :: emqx_limiter_client_container:t(),
+    quota :: emqx_limiter_client_container:t() | false,
     %% Next packet id of the session
     next_pkt_id = 1 :: emqx_types:packet_id(),
     %% Retry interval for redelivering QoS1/2 messages (Unit: millisecond)

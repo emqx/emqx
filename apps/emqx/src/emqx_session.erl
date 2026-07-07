@@ -155,7 +155,9 @@
     %% Retry interval for redelivering QoS1/2 messages (Unit: millisecond)
     retry_interval := timeout(),
     %% Awaiting PUBREL Timeout (Unit: millisecond)
-    await_rel_timeout := timeout()
+    await_rel_timeout := timeout(),
+    %% Enable delivery quota (`false` to disable)
+    enable_quota => boolean()
 }.
 
 -type session() :: t().
