@@ -99,30 +99,6 @@
 %% uplink and downlink topic configuration
 -define(lwm2m_up_dm_topic, {<<"/v1/up/dm">>, 0}).
 
--define(SENSITIVE_REG_INFO_KEYS, [
-    <<"account_key">>,
-    <<"access_key_id">>,
-    <<"access_key_secret">>,
-    <<"access_token">>,
-    <<"api_key">>,
-    <<"api_secret">>,
-    <<"aws_secret_access_key">>,
-    <<"bind_password">>,
-    <<"jwt">>,
-    <<"passcode">>,
-    <<"passwd">>,
-    <<"password">>,
-    <<"private_key">>,
-    <<"private_key_password">>,
-    <<"secret">>,
-    <<"secret_access_key">>,
-    <<"secret_key">>,
-    <<"security_token">>,
-    <<"sentinel_password">>,
-    <<"sp_private_key">>,
-    <<"token">>
-]).
-
 %% steal from emqx_session
 -define(INFO_KEYS, [
     id,
@@ -345,7 +321,12 @@ fix_reg_info(_, RegInfo) ->
     RegInfo.
 
 drop_sensitive_reg_info(RegInfo) ->
-    maps:without(?SENSITIVE_REG_INFO_KEYS, RegInfo).
+    maps:filter(
+        fun(Key, _Value) ->
+            not emqx_utils:is_sensitive_key(Key)
+        end,
+        RegInfo
+    ).
 
 parse_object_list(<<>>) ->
     {<<"/">>, <<>>};

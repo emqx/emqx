@@ -86,7 +86,7 @@
     nolink_apply/2
 ]).
 
--export([clamp/3, redact/1, redact/2, is_redacted/2, is_redacted/3]).
+-export([clamp/3, redact/1, redact/2, is_sensitive_key/1, is_redacted/2, is_redacted/3]).
 -export([deobfuscate/2]).
 
 -export_type([
@@ -684,6 +684,9 @@ redact(Term) ->
 
 redact(Term, Checker) ->
     emqx_utils_redact:redact(Term, Checker).
+
+is_sensitive_key(Key) ->
+    emqx_utils_redact:is_sensitive_key(Key).
 
 deobfuscate(NewConf, OldConf) ->
     emqx_utils_redact:deobfuscate(NewConf, OldConf).
