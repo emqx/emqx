@@ -539,12 +539,7 @@ get_plugins() ->
     {node(), lists:filter(fun api_visible_plugin/1, Plugins)}.
 
 upload_install(post, #{name := NameVsn, bin := Bin}) ->
-    case api_visible_on_any_node(NameVsn) of
-        true ->
-            already_installed(NameVsn);
-        false ->
-            do_upload_install(NameVsn, Bin)
-    end;
+    do_upload_install(NameVsn, Bin);
 upload_install(post, #{}) ->
     {400, #{
         code => 'BAD_FORM_DATA',
