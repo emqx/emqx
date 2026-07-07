@@ -1642,12 +1642,15 @@ t_takeover_on_udp_port_reuse(_) ->
     send_disconnect_msg(SockA, undefined),
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(SockA)),
     OldPid = wait_for_disconnected_channel(ClientA),
+    %% monitor the stale channel while it is provably alive, before the socket
+    %% churn below. If it is monitored only after `gen_udp:close/open', it may
+    %% already be dead and the DOWN reason collapses to an opaque `noproc'.
+    MRef = erlang:monitor(process, OldPid),
     ok = gen_udp:close(SockA),
     %% device B reuses the exact same source UDP port.
     {ok, SockB} = gen_udp:open(PortA, [binary, {reuseaddr, true}]),
     try
         ClientB = ?CLIENTID,
-        MRef = erlang:monitor(process, OldPid),
         %% the CONNECT is routed to the stale channel, which is retired
         %% cleanly (before the fix this crashed with a function_clause).
         send_connect_msg(SockB, ClientB, 0),
