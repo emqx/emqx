@@ -1,0 +1,683 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+
+-module(emqx_sync_request).
+
+-behaviour(gen_server).
+
+-include("emqx_sync_request.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_external_trace.hrl").
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
+
+%% API
+-export([
+    start_link/0,
+    child_spec/0,
+    install_api_dispatch/0,
+    uninstall_api_dispatch/0,
+    request/1
+]).
+
+%% Plugin callbacks
+-export([
+    on_config_changed/1,
+    on_health_check/0
+]).
+
+%% Hook callbacks
+-export([
+    on_message_delivered/2,
+    on_message_publish/1
+]).
+
+%% Internal RPC targets
+-export([
+    cleanup_remote_pending/1,
+    complete_remote_request/2
+]).
+
+%% gen_server callbacks
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2
+]).
+
+-define(TIMEOUT, 15000).
+-define(CONFIG_PT, {?MODULE, config}).
+-define(API_MODULE, emqx_sync_request_api).
+-define(MAX_REQUEST_ID_BYTES, 128).
+
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
+
+-spec start_link() -> {ok, pid()} | {error, term()}.
+start_link() ->
+    gen_server:start_link({local, ?SERVICE}, ?MODULE, [], []).
+
+-spec child_spec() -> supervisor:child_spec().
+child_spec() ->
+    #{
+        id => ?SERVICE,
+        start => {?MODULE, start_link, []}
+    }.
+
+request(Body) when is_map(Body) ->
+    Config = config(),
+    case parse_request(Body, Config) of
+        {ok, Req} ->
+            do_request(Req, Config);
+        {error, Reason} ->
+            {400, error_body(?STATUS_UNKNOWN, Reason)}
+    end;
+request(_Body) ->
+    {400, error_body(?STATUS_UNKNOWN, <<"invalid_request_body">>)}.
+
+current_config() ->
+    maps:merge(default_config(), emqx_plugins:get_config(name_vsn(), #{})).
+
+install_api_dispatch() ->
+    update_api_dispatch(add).
+
+uninstall_api_dispatch() ->
+    update_api_dispatch(remove).
+
+update_api_dispatch(Action) ->
+    try
+        #{started := Listeners} = emqx_dashboard:listeners_status(),
+        lists:foreach(fun(Name) -> update_listener_api_dispatch(Name, Action) end, Listeners),
+        ok
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(warning, #{
+                msg => "sync_request_update_api_dispatch_failed",
+                action => Action,
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            ok
+    end.
+
+%%--------------------------------------------------------------------
+%% EMQX Plugin callbacks
+%%--------------------------------------------------------------------
+
+on_config_changed(NewConf) ->
+    call({on_config_changed, NewConf}, ok).
+
+on_health_check() ->
+    call(on_health_check, {error, <<"Plugin is not running">>}).
+
+%%--------------------------------------------------------------------
+%% Hook callbacks
+%%--------------------------------------------------------------------
+
+on_message_delivered(_ClientInfo, Message = #message{headers = Headers}) ->
+    case maps:get(?HEADER, Headers, undefined) of
+        #{req_ref := ReqRef} ->
+            maybe_register_pending(ReqRef, Message);
+        _ ->
+            ok
+    end,
+    {ok, Message}.
+
+on_message_publish(Message = #message{headers = Headers}) ->
+    case maps:is_key(?HEADER, Headers) of
+        true ->
+            ok;
+        false ->
+            maybe_complete_response(Message)
+    end,
+    {ok, Message}.
+
+%%--------------------------------------------------------------------
+%% gen_server callbacks
+%%--------------------------------------------------------------------
+
+init([]) ->
+    erlang:process_flag(trap_exit, true),
+    ok = ensure_tables(),
+    Config = normalize_config(current_config()),
+    persistent_term:put(?CONFIG_PT, Config),
+    ok = hook(),
+    {ok, undefined}.
+
+handle_call({on_config_changed, NewConf}, _From, State) ->
+    Config = normalize_config(maps:merge(default_config(), NewConf)),
+    persistent_term:put(?CONFIG_PT, Config),
+    {reply, ok, State};
+handle_call(on_health_check, _From, State) ->
+    {reply, ok, State};
+handle_call(Request, From, State) ->
+    ?SLOG(error, #{msg => "sync_request_unexpected_call", request => Request, from => From}),
+    {reply, {error, unexpected_call}, State}.
+
+handle_cast(Request, State) ->
+    ?SLOG(error, #{msg => "sync_request_unexpected_cast", request => Request}),
+    {noreply, State}.
+
+handle_info(Info, State) ->
+    ?SLOG(error, #{msg => "sync_request_unexpected_info", info => Info}),
+    {noreply, State}.
+
+terminate(_Reason, _State) ->
+    ok = unhook(),
+    persistent_term:erase(?CONFIG_PT),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Request execution
+%%--------------------------------------------------------------------
+
+do_request(Req0, Config) ->
+    MaxInflight = maps:get(max_inflight_requests, Config),
+    case ets:info(?REQ_TAB, size) >= MaxInflight of
+        true ->
+            {429, error_body(?STATUS_UNKNOWN, <<"too_many_inflight_requests">>)};
+        false ->
+            ReqRef = make_ref(),
+            TimeoutMs = maps:get(timeout, Req0),
+            Deadline = now_ms() + TimeoutMs,
+            Req = Req0#{
+                req_ref => ReqRef,
+                waiter => self(),
+                deadline => Deadline
+            },
+            true = ets:insert_new(?REQ_TAB, {ReqRef, Req}),
+            Message = make_request_message(Req),
+            case emqx_mgmt:publish(Message) of
+                PublishResult when is_list(PublishResult) ->
+                    handle_publish_result(PublishResult, ReqRef, TimeoutMs);
+                PublishError ->
+                    cleanup_request(ReqRef),
+                    ?SLOG(warning, #{
+                        msg => "sync_request_publish_failed",
+                        reason => PublishError
+                    }),
+                    {503, error_body(?STATUS_UNKNOWN, <<"failed_to_publish_request">>)}
+            end
+    end.
+
+handle_publish_result(PublishResult, ReqRef, TimeoutMs) ->
+    case has_deliverable_subscriber(PublishResult) of
+        false ->
+            cleanup_request(ReqRef),
+            {404, error_body(?STATUS_OFFLINE, <<"no_subscribers">>)};
+        true ->
+            wait_for_response(ReqRef, TimeoutMs)
+    end.
+
+wait_for_response(ReqRef, TimeoutMs) ->
+    receive
+        {emqx_sync_request_response, ReqRef, {ok, Response}} ->
+            {200, #{status => ?STATUS_OK, response => Response}};
+        {emqx_sync_request_response, ReqRef, {error, StatusCode, Reason}} ->
+            {StatusCode, error_body(?STATUS_UNKNOWN, Reason)};
+        {emqx_sync_request_response, ReqRef, {error, Reason}} ->
+            {500, error_body(?STATUS_UNKNOWN, Reason)}
+    after TimeoutMs ->
+        cleanup_request(ReqRef),
+        {504, error_body(?STATUS_TIMEOUT, <<"timeout">>)}
+    end.
+
+has_deliverable_subscriber([]) ->
+    false;
+has_deliverable_subscriber(PublishResult) ->
+    lists:any(fun is_ok_deliver/1, PublishResult).
+
+is_ok_deliver({_NodeOrShare, _MatchedTopic, ok}) -> true;
+is_ok_deliver({_NodeOrShare, _MatchedTopic, {ok, _}}) -> true;
+is_ok_deliver(persisted) -> true;
+is_ok_deliver(_) -> false.
+
+make_request_message(Req) ->
+    Props0 = #{
+        'Response-Topic' => maps:get(response_topic, Req),
+        'Correlation-Data' => maps:get(correlation_data, Req)
+    },
+    Props = maybe_put('Content-Type', maps:get(content_type, Req, undefined), Props0),
+    Headers = #{
+        properties => Props,
+        ?HEADER => #{
+            req_ref => maps:get(req_ref, Req),
+            deadline => maps:get(deadline, Req)
+        }
+    },
+    emqx_message:make(
+        ?EXT_TRACE__HTTP_API_INTERNAL_CLIENTID,
+        maps:get(qos, Req),
+        maps:get(topic, Req),
+        maps:get(payload, Req),
+        #{retain => false},
+        Headers
+    ).
+
+%%--------------------------------------------------------------------
+%% Pending registry
+%%--------------------------------------------------------------------
+
+maybe_register_pending(
+    ReqRef,
+    #message{headers = #{properties := Props, ?HEADER := #{deadline := Deadline}}}
+) ->
+    ResponseTopic = maps:get('Response-Topic', Props, undefined),
+    CorrelationData = maps:get('Correlation-Data', Props, undefined),
+    case ResponseTopic =/= undefined andalso not expired(Deadline) of
+        true ->
+            maybe_insert_pending(ReqRef, ResponseTopic, CorrelationData, Deadline);
+        false ->
+            cleanup_request(ReqRef)
+    end;
+maybe_register_pending(_ReqRef, _Message) ->
+    ok.
+
+maybe_insert_pending(ReqRef, ResponseTopic, CorrelationData, Deadline) ->
+    case local_request_missing(ReqRef) of
+        true ->
+            cleanup_pending(ReqRef);
+        false ->
+            Seq = erlang:unique_integer([monotonic, positive]),
+            Pending = {ResponseTopic, Seq, ReqRef, CorrelationData, Deadline},
+            true = ets:insert(?PENDING_BY_REQ_TAB, {ReqRef, Pending}),
+            true = ets:insert(?PENDING_TAB, Pending)
+    end.
+
+local_request_missing(ReqRef) ->
+    node(ReqRef) =:= node() andalso not ets:member(?REQ_TAB, ReqRef).
+
+maybe_complete_response(Message = #message{topic = Topic, headers = Headers}) ->
+    Props = maps:get(properties, Headers, #{}),
+    Corr = maps:get('Correlation-Data', Props, undefined),
+    Pending0 = ets:lookup(?PENDING_TAB, Topic),
+    Pending = select_pending(Pending0, Corr),
+    try_complete_pending(Pending, Message).
+
+select_pending(Pending, undefined) ->
+    sort_pending(Pending);
+select_pending(Pending, Corr) ->
+    sort_pending([P || P = {_Topic, _Seq, _ReqRef, Corr0, _Deadline} <- Pending, Corr0 =:= Corr]).
+
+sort_pending(Pending) ->
+    lists:keysort(2, Pending).
+
+try_complete_pending([], _Message) ->
+    ok;
+try_complete_pending([Pending = {_Topic, _Seq, ReqRef, _Corr, Deadline} | Rest], Message) ->
+    case expired(Deadline) of
+        true ->
+            cleanup_request(ReqRef),
+            try_complete_pending(Rest, Message);
+        false ->
+            case complete_request(ReqRef, Message) of
+                true ->
+                    ok;
+                false ->
+                    delete_pending(Pending),
+                    try_complete_pending(Rest, Message)
+            end
+    end.
+
+complete_request(ReqRef, Message = #message{payload = Payload}) ->
+    case node(ReqRef) =:= node() of
+        true ->
+            complete_local_request(ReqRef, Message#message{payload = iolist_to_binary(Payload)});
+        false ->
+            complete_request_on_origin_node(ReqRef, Message#message{
+                payload = iolist_to_binary(Payload)
+            })
+    end.
+
+complete_request_on_origin_node(ReqRef, Message) ->
+    try erpc:call(node(ReqRef), ?MODULE, complete_remote_request, [ReqRef, Message], ?TIMEOUT) of
+        true ->
+            cleanup_pending(ReqRef),
+            true;
+        false ->
+            false
+    catch
+        _:_ ->
+            false
+    end.
+
+complete_remote_request(ReqRef, Message) ->
+    complete_local_request(ReqRef, Message).
+
+complete_local_request(ReqRef, Message = #message{payload = Payload}) ->
+    case ets:take(?REQ_TAB, ReqRef) of
+        [{ReqRef, Req}] ->
+            cleanup_pending(ReqRef),
+            cleanup_pending_on_peer_nodes(ReqRef),
+            Config = config(),
+            case byte_size(Payload) =< maps:get(max_payload_size, Config) of
+                true ->
+                    Response = make_response(Req, Message),
+                    maps:get(waiter, Req) ! {emqx_sync_request_response, ReqRef, {ok, Response}},
+                    true;
+                false ->
+                    maps:get(waiter, Req) !
+                        {emqx_sync_request_response, ReqRef,
+                            {error, <<"response_payload_too_large">>}},
+                    true
+            end;
+        [] ->
+            false
+    end.
+
+make_response(Req, #message{topic = Topic, payload = Payload, headers = Headers}) ->
+    Props = maps:get(properties, Headers, #{}),
+    Response0 = #{
+        topic => Topic,
+        request_id => maps:get(request_id, Req),
+        payload_encoding => <<"base64">>,
+        payload => base64:encode(Payload)
+    },
+    maybe_put(content_type, maps:get('Content-Type', Props, undefined), Response0).
+
+cleanup_request(ReqRef) ->
+    ets:delete(?REQ_TAB, ReqRef),
+    cleanup_pending(ReqRef),
+    cleanup_pending_on_peer_nodes(ReqRef).
+
+cleanup_pending(ReqRef) ->
+    lists:foreach(
+        fun({_ReqRef, Pending}) -> delete_pending(Pending) end,
+        ets:lookup(?PENDING_BY_REQ_TAB, ReqRef)
+    ),
+    ets:match_delete(?PENDING_TAB, {'$1', '$2', ReqRef, '$3', '$4'}),
+    ets:delete(?PENDING_BY_REQ_TAB, ReqRef),
+    ok.
+
+delete_pending(Pending = {_Topic, _Seq, ReqRef, _Corr, _Deadline}) ->
+    ets:delete_object(?PENDING_TAB, Pending),
+    ets:delete_object(?PENDING_BY_REQ_TAB, {ReqRef, Pending}).
+
+cleanup_pending_on_peer_nodes(ReqRef) ->
+    lists:foreach(
+        fun(Node) -> _ = rpc:cast(Node, ?MODULE, cleanup_remote_pending, [ReqRef]) end,
+        emqx:running_nodes() -- [node()]
+    ),
+    ok.
+
+cleanup_remote_pending(ReqRef) ->
+    cleanup_pending(ReqRef).
+
+%%--------------------------------------------------------------------
+%% Parsing and validation
+%%--------------------------------------------------------------------
+
+parse_request(Body, Config) ->
+    try
+        Request = required(request, Body),
+        Timeout = parse_timeout(Body, Config),
+        Payload = parse_payload(Request),
+        MaxPayloadSize = maps:get(max_payload_size, Config),
+        case byte_size(Payload) =< MaxPayloadSize of
+            false ->
+                throw({bad_request, <<"request_payload_too_large">>});
+            true ->
+                Topic = validate_topic(required(topic, Request)),
+                ResponseTopic = validate_topic(required(response_topic, Request)),
+                RequestId = parse_request_id(required(request_id, Request)),
+                {ok, #{
+                    timeout => Timeout,
+                    topic => Topic,
+                    response_topic => ResponseTopic,
+                    request_id => RequestId,
+                    correlation_data => RequestId,
+                    qos => parse_qos(get(Request, qos, 0)),
+                    payload => Payload,
+                    content_type => optional_binary(content_type, Request)
+                }}
+        end
+    catch
+        throw:{bad_request, Reason} ->
+            {error, Reason}
+    end.
+
+parse_timeout(Body, Config) ->
+    TimeoutValue = get(Body, timeout, maps:get(default_timeout, Config)),
+    Timeout = parse_duration_ms(TimeoutValue),
+    MaxTimeout = maps:get(max_timeout, Config),
+    case Timeout > 0 andalso Timeout =< MaxTimeout of
+        true -> Timeout;
+        false -> throw({bad_request, <<"invalid_timeout">>})
+    end.
+
+parse_payload(Request) ->
+    Payload0 = required(payload, Request),
+    Encoding = get(Request, payload_encoding, plain),
+    case normalize_payload_encoding(Encoding) of
+        plain ->
+            to_binary(Payload0);
+        base64 ->
+            try base64:decode(Payload0) of
+                Payload -> Payload
+            catch
+                _:_ -> throw({bad_request, <<"invalid_base64_payload">>})
+            end;
+        invalid ->
+            throw({bad_request, <<"invalid_payload_encoding">>})
+    end.
+
+parse_qos(QoS) when is_integer(QoS), ?QOS_0 =< QoS, QoS =< ?QOS_2 ->
+    QoS;
+parse_qos(<<"0">>) ->
+    ?QOS_0;
+parse_qos(<<"1">>) ->
+    ?QOS_1;
+parse_qos(<<"2">>) ->
+    ?QOS_2;
+parse_qos(_) ->
+    throw({bad_request, <<"invalid_qos">>}).
+
+parse_request_id(RequestId0) ->
+    RequestId = to_binary(RequestId0),
+    case byte_size(RequestId) =< ?MAX_REQUEST_ID_BYTES of
+        true -> RequestId;
+        false -> throw({bad_request, <<"request_id_too_large">>})
+    end.
+
+validate_topic(Topic0) ->
+    Topic = to_binary(Topic0),
+    try
+        true = emqx_topic:validate(name, Topic),
+        Topic
+    catch
+        _:_ -> throw({bad_request, <<"invalid_topic">>})
+    end.
+
+optional_binary(Key, Map) ->
+    case find(Key, Map) of
+        {ok, Value} -> to_binary(Value);
+        error -> undefined
+    end.
+
+required(Key, Map) ->
+    case find(Key, Map) of
+        {ok, Value} -> Value;
+        error -> throw({bad_request, iolist_to_binary([atom_to_binary(Key), <<"_required">>])})
+    end.
+
+get(Map, Key, Default) ->
+    case find(Key, Map) of
+        {ok, Value} -> Value;
+        error -> Default
+    end.
+
+find(Key, Map) when is_atom(Key) ->
+    BinKey = atom_to_binary(Key),
+    case maps:find(BinKey, Map) of
+        {ok, Value} ->
+            {ok, Value};
+        error ->
+            maps:find(Key, Map)
+    end.
+
+normalize_payload_encoding(plain) -> plain;
+normalize_payload_encoding(<<"plain">>) -> plain;
+normalize_payload_encoding(base64) -> base64;
+normalize_payload_encoding(<<"base64">>) -> base64;
+normalize_payload_encoding(_) -> invalid.
+
+%%--------------------------------------------------------------------
+%% Config and hooks
+%%--------------------------------------------------------------------
+
+default_config() ->
+    #{
+        <<"default_timeout">> => ?DEFAULT_TIMEOUT,
+        <<"max_timeout">> => ?DEFAULT_MAX_TIMEOUT,
+        <<"max_inflight_requests">> => ?DEFAULT_MAX_INFLIGHT,
+        <<"max_payload_size">> => ?DEFAULT_MAX_PAYLOAD_SIZE
+    }.
+
+normalize_config(Config) ->
+    #{
+        default_timeout => parse_config_duration(
+            get(Config, default_timeout, ?DEFAULT_TIMEOUT), ?DEFAULT_TIMEOUT
+        ),
+        max_timeout => parse_config_duration(
+            get(Config, max_timeout, ?DEFAULT_MAX_TIMEOUT), ?DEFAULT_MAX_TIMEOUT
+        ),
+        max_inflight_requests =>
+            parse_config_pos_integer(
+                get(Config, max_inflight_requests, ?DEFAULT_MAX_INFLIGHT),
+                ?DEFAULT_MAX_INFLIGHT
+            ),
+        max_payload_size =>
+            parse_config_bytesize(
+                get(Config, max_payload_size, ?DEFAULT_MAX_PAYLOAD_SIZE),
+                ?DEFAULT_MAX_PAYLOAD_SIZE
+            )
+    }.
+
+parse_config_duration(Value, Default) ->
+    try parse_duration_ms(Value) of
+        Ms when is_integer(Ms), Ms > 0 -> Ms;
+        _ -> parse_duration_ms(Default)
+    catch
+        _:_ -> parse_duration_ms(Default)
+    end.
+
+parse_config_bytesize(Value, Default) ->
+    try parse_bytesize(Value) of
+        Bytes when is_integer(Bytes), Bytes > 0 -> Bytes;
+        _ -> parse_bytesize(Default)
+    catch
+        _:_ -> parse_bytesize(Default)
+    end.
+
+parse_config_pos_integer(Value, _Default) when is_integer(Value), Value > 0 ->
+    Value;
+parse_config_pos_integer(Value, Default) ->
+    try
+        case binary_to_integer(to_binary(Value)) of
+            I when I > 0 -> I;
+            _ -> Default
+        end
+    catch
+        _:_ -> Default
+    end.
+
+parse_duration_ms(Value) when is_integer(Value) ->
+    Value;
+parse_duration_ms(Value) ->
+    case emqx_schema:to_duration_ms(to_binary(Value)) of
+        {ok, Ms} -> Ms;
+        {error, _} -> throw({bad_request, <<"invalid_duration">>})
+    end.
+
+parse_bytesize(Value) when is_integer(Value) ->
+    Value;
+parse_bytesize(Value) ->
+    case emqx_schema:to_bytesize(to_binary(Value)) of
+        {ok, Bytes} -> Bytes;
+        {error, _} -> throw({bad_request, <<"invalid_bytesize">>})
+    end.
+
+config() ->
+    persistent_term:get(?CONFIG_PT, normalize_config(default_config())).
+
+update_listener_api_dispatch(Name, Action) ->
+    [Name, Transport, SocketOpts, Protocol, ProtoOpts0] = ranch_server:get_listener_start_args(
+        Name
+    ),
+    #{env := Env0 = #{options := Options0}} = ProtoOpts0,
+    Modules0 = maps:get(modules, Options0, []),
+    Modules = update_api_modules(Action, Modules0),
+    Options = Options0#{modules => Modules},
+    ProtoOpts = ProtoOpts0#{env := Env0#{options := Options}},
+    StartArgs = [Name, Transport, SocketOpts, Protocol, ProtoOpts],
+    true = ets:insert(ranch_server, {{listener_start_args, Name}, StartArgs}),
+    ok = minirest:update_dispatch(Name).
+
+update_api_modules(add, Modules) ->
+    [?API_MODULE | [Module || Module <- Modules, Module =/= ?API_MODULE]];
+update_api_modules(remove, Modules) ->
+    [Module || Module <- Modules, Module =/= ?API_MODULE].
+
+hook() ->
+    ok = emqx_hooks:put('message.delivered', {?MODULE, on_message_delivered, []}, ?HP_HIGHEST),
+    ok = emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_HIGHEST).
+
+unhook() ->
+    ok = emqx_hooks:del('message.delivered', {?MODULE, on_message_delivered}),
+    ok = emqx_hooks:del('message.publish', {?MODULE, on_message_publish}).
+
+ensure_tables() ->
+    _ = ets:new(?REQ_TAB, [named_table, public, set, {read_concurrency, true}]),
+    _ = ets:new(?PENDING_TAB, [named_table, public, duplicate_bag, {read_concurrency, true}]),
+    _ = ets:new(?PENDING_BY_REQ_TAB, [named_table, public, duplicate_bag]),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Helpers
+%%--------------------------------------------------------------------
+
+call(Request, Default) ->
+    try gen_server:call(?SERVICE, Request, ?TIMEOUT) of
+        Reply -> Reply
+    catch
+        exit:{noproc, _} -> Default;
+        exit:{timeout, _} -> Default
+    end.
+
+name_vsn() ->
+    {ok, Vsn} = application:get_key(?PLUGIN_NAME, vsn),
+    iolist_to_binary([atom_to_binary(?PLUGIN_NAME), <<"-">>, Vsn]).
+
+expired(Deadline) ->
+    now_ms() > Deadline.
+
+now_ms() ->
+    erlang:monotonic_time(millisecond).
+
+maybe_put(_Key, undefined, Map) ->
+    Map;
+maybe_put(Key, Value, Map) ->
+    Map#{Key => Value}.
+
+error_body(Status, Reason) ->
+    #{
+        status => Status,
+        reason => to_binary(Reason)
+    }.
+
+to_binary(Value) when is_binary(Value) ->
+    Value;
+to_binary(Value) when is_atom(Value) ->
+    atom_to_binary(Value);
+to_binary(Value) when is_list(Value) ->
+    iolist_to_binary(Value);
+to_binary(Value) when is_integer(Value) ->
+    integer_to_binary(Value);
+to_binary(Value) ->
+    iolist_to_binary(io_lib:format("~0p", [Value])).

@@ -1,5 +1,5 @@
 #!/usr/bin/env escript
-%%! -pa _build/emqx-enterprise/lib/jsone/ebin
+%%! -pa _build/emqx-enterprise/lib/jsone/ebin -pa _build/test/lib/jsone/ebin
 %% -*- mode: erlang -*-
 
 %% Package an EMQX monorepo plugin as `<name>-<vsn>.tar.gz`, reading the
