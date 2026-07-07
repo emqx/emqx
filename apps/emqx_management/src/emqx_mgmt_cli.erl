@@ -257,10 +257,6 @@ clients(_) ->
         {"clients kick <ClientId>", "Kick out a client"}
     ]).
 
-'session-top'(usage) ->
-    session_top_usage();
-'session-top'(help) ->
-    session_top_usage();
 'session-top'(["status"]) ->
     print_session_top_status(emqx_session_buffer_mon:top_status());
 'session-top'(["cancel"]) ->
@@ -270,17 +266,21 @@ clients(_) ->
         {error, not_running} ->
             emqx_ctl:print("[error] No session-top scan is running.~n")
     end;
-'session-top'(["usage"]) ->
-    session_top_usage();
-'session-top'(["help"]) ->
-    session_top_usage();
 'session-top'(Args) ->
     case parse_session_top_args(Args) of
         {ok, Opts} ->
             run_session_top(Opts);
         {error, Msg} ->
-            emqx_ctl:print("[error] ~s~n", [Msg]),
+            maybe_print_session_top_arg_error(Msg),
             session_top_usage()
+    end.
+
+maybe_print_session_top_arg_error(Msg) ->
+    case iolist_to_binary(Msg) of
+        <<"Invalid ", _/binary>> ->
+            emqx_ctl:print("[error] ~s~n", [Msg]);
+        _ ->
+            ok
     end.
 
 session_top_usage() ->

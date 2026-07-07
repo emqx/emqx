@@ -238,7 +238,6 @@ t_session_top_status_completed_prints_bad_replies(_Config) ->
 
 t_session_top_invalid_args(_Config) ->
     {ok, MissingOut} = capture_ctl(["session-top"]),
-    ?assertEqual(match, re:run(MissingOut, <<"--out <File> is required">>, [{capture, none}])),
     ?assertEqual(match, re:run(MissingOut, <<"session-top --out <File>">>, [{capture, none}])),
     ?assertEqual(
         match,
@@ -274,6 +273,7 @@ t_session_top_invalid_args(_Config) ->
             {capture, none}
         ])
     ),
+    ?assertEqual(nomatch, re:run(MissingOut, <<"\\[error\\]">>, [{capture, none}])),
 
     {ok, InvalidCount} = capture_ctl([
         "session-top",
@@ -282,12 +282,6 @@ t_session_top_invalid_args(_Config) ->
         "--count",
         "1001"
     ]),
-    ?assertEqual(
-        match,
-        re:run(InvalidCount, <<"Invalid count: maximum is 1000">>, [
-            {capture, none}
-        ])
-    ),
 
     {ok, InvalidSort} = capture_ctl([
         "session-top",
@@ -296,13 +290,6 @@ t_session_top_invalid_args(_Config) ->
         "--sort",
         "mailbox_len"
     ]),
-    ?assertEqual(match, re:run(InvalidSort, <<"Invalid sort key">>, [{capture, none}])),
-    ?assertEqual(
-        match,
-        re:run(InvalidSort, <<"mqueue_length and total_payload_bytes">>, [
-            {capture, none}
-        ])
-    ),
 
     {ok, InvalidBatch} = capture_ctl([
         "session-top",
@@ -311,7 +298,6 @@ t_session_top_invalid_args(_Config) ->
         "--batch",
         "0"
     ]),
-    ?assertEqual(match, re:run(InvalidBatch, <<"Invalid batch size">>, [{capture, none}])),
 
     {ok, InvalidSleep} = capture_ctl([
         "session-top",
@@ -320,7 +306,24 @@ t_session_top_invalid_args(_Config) ->
         "--sleep",
         "-1"
     ]),
-    ?assertEqual(match, re:run(InvalidSleep, <<"Invalid sleep value">>, [{capture, none}])).
+    lists:foreach(
+        fun({Output, ErrorPattern}) ->
+            ?assertEqual(match, re:run(Output, <<"\\[error\\]">>, [{capture, none}])),
+            ?assertEqual(match, re:run(Output, ErrorPattern, [{capture, none}])),
+            ?assertEqual(
+                match,
+                re:run(Output, <<"session-top --out <File>[ ]+# Write cluster top sessions">>, [
+                    {capture, none}
+                ])
+            )
+        end,
+        [
+            {InvalidCount, <<"Invalid count: maximum is 1000">>},
+            {InvalidSort, <<"Invalid sort key">>},
+            {InvalidBatch, <<"Invalid batch size">>},
+            {InvalidSleep, <<"Invalid sleep value">>}
+        ]
+    ).
 
 t_session_top_usage(_Config) ->
     {_Result, UsageOutputChunks} =
@@ -350,7 +353,7 @@ t_session_top_usage(_Config) ->
                 ])
             )
         end,
-        [["session-top", "usage"], ["session-top", "help"]]
+        [["session-top", "usage"], ["session-top", "help"], ["session-top", "unknown"]]
     ).
 
 t_session_top(Config) ->
