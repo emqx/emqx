@@ -116,7 +116,7 @@
     %% Conn State
     conn_state :: conn_state(),
     %% Conn Flags
-    conn_flags :: [atom()],
+    conn_flags :: ordsets:ordset(atom()),
     %% Takeover
     takeover :: undefined | #takeover{} | #resumption{}
 }).
@@ -1287,6 +1287,7 @@ do_handle_deliver(
         conn_flags = Flags
     }
 ) ->
+    %% NOTE: Connflags ordset is a list.
     case emqx_session:deliver(ClientInfo, Delivers, Flags, Session) of
         {OkEffects, [], NSession} ->
             NChannel = apply_session_effects(OkEffects, Channel#channel{session = NSession}),
@@ -1885,20 +1886,22 @@ handle_signal(
     {connection, congested, _Info} = Signal,
     Channel = #channel{conn_flags = Flags, clientinfo = ClientInfo, session = Session}
 ) ->
-    case lists:usort([congested | Flags]) of
-        Flags ->
+    case ordsets:is_element(congested, Flags) of
+        true ->
             {ok, Channel};
-        NFlags ->
+        false ->
+            NFlags = ordsets:add_element(congested, Flags),
             handle_session_signal(ClientInfo, Signal, Channel#channel{conn_flags = NFlags}, Session)
     end;
 handle_signal(
     {connection, decongested, _Info} = Signal,
     Channel = #channel{conn_flags = Flags, clientinfo = ClientInfo, session = Session}
 ) ->
-    case Flags -- [congested] of
-        Flags ->
+    case ordsets:is_element(congested, Flags) of
+        false ->
             {ok, Channel};
-        NFlags ->
+        true ->
+            NFlags = ordsets:del_element(congested, Flags),
             handle_session_signal(ClientInfo, Signal, Channel#channel{conn_flags = NFlags}, Session)
     end.
 
