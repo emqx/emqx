@@ -8,6 +8,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 all() ->
@@ -41,11 +42,7 @@ t_send_congestion_times_out(_) ->
     end),
     try
         %% Init a minimal connection state:
-        State0 = emqx_socket_connection:init_state(sock, #{
-            zone => default,
-            limiter => undefined,
-            listener => {tcp, default}
-        }),
+        State0 = mk_connstate(),
         %% Simulate entering congested socket state:
         State1 = emqx_socket_connection:queue_send(make_ref(), <<"aaaaa">>, 5, State0),
         {ok, State2} = emqx_socket_connection:send(1, <<"b">>, State1),
@@ -96,11 +93,7 @@ t_repeated_send_congestion_preserves_send_order(_) ->
     end),
     try
         %% Init a minimal connection state:
-        State0 = emqx_socket_connection:init_state(sock, #{
-            zone => default,
-            limiter => undefined,
-            listener => {tcp, default}
-        }),
+        State0 = mk_connstate(),
         %% Simulate entering congested socket state:
         State1 = emqx_socket_connection:queue_send(make_ref(), <<"a">>, 1, State0),
         %% Queue one more packet:
@@ -141,6 +134,82 @@ t_data_ready_handles_rearmed_select(_) ->
         ok = meck:unload(socket),
         ok = meck:unload(esockd_socket)
     end.
+
+t_parse_incoming_first_packet_hints(_) ->
+    ok = meck_esockd_socket([no_history]),
+    ok = meck:new(emqx_frame, [passthrough, no_history, no_link]),
+    try
+        ?assertMatch(
+            {0, 0, [], _NState},
+            emqx_socket_connection:parse_incoming(<<>>, mk_connstate(channel(idle)))
+        ),
+        %% SUBSCRIBE with remaining_len=0 in idle state: enriched with hints.
+        ?assertMatch(
+            {0, 0,
+                [
+                    {frame_error, #{
+                        cause := zero_remaining_len,
+                        packet_type := 'SUBSCRIBE',
+                        resemble_protocol := _
+                    }}
+                ],
+                _NState},
+            emqx_socket_connection:parse_incoming(<<16#82, 16#00>>, mk_connstate(channel(idle)))
+        ),
+        %% CONNECT with remaining_len=0 in idle state.
+        ?assertMatch(
+            {0, 0, [{frame_error, #{cause := zero_remaining_len}}], _NState},
+            emqx_socket_connection:parse_incoming(<<16#10, 16#00>>, mk_connstate(channel(idle)))
+        ),
+        %% bad_subqos in connected state: no enrichment.
+        ?assertMatch(
+            {0, 0, [{frame_error, bad_subqos}], _NState},
+            emqx_socket_connection:parse_incoming(
+                <<?SUBSCRIBE:4, 2:4, 16#06, 16#00, 16#01, 16#00, 16#01, $t, 16#03>>,
+                mk_connstate(channel(connected))
+            )
+        ),
+        ok = meck:expect(emqx_frame, parse, fun(_, _) ->
+            erlang:error(forced_parse_error)
+        end),
+        ?assertMatch(
+            {0, 0, [{frame_error, forced_parse_error}], _NState},
+            emqx_socket_connection:parse_incoming(
+                <<"for_testing">>,
+                mk_connstate(channel(connected))
+            )
+        )
+    after
+        ok = meck:unload(emqx_frame),
+        ok = meck:unload(esockd_socket)
+    end.
+
+mk_connstate() ->
+    emqx_socket_connection:init_state(sock, #{
+        zone => default,
+        limiter => undefined,
+        listener => {tcp, default}
+    }).
+
+mk_connstate(Channel) ->
+    emqx_socket_connection:set_field(channel, Channel, mk_connstate()).
+
+channel(ConnState) ->
+    ConnInfo = #{
+        socktype => tcp,
+        peername => {{127, 0, 0, 1}, 3456},
+        sockname => {{127, 0, 0, 1}, 1883},
+        peercert => undefined,
+        peersni => undefined,
+        conn_mod => emqx_socket_connection,
+        sock => sock
+    },
+    Channel0 = emqx_channel:init(ConnInfo, #{
+        zone => default,
+        limiter => undefined,
+        listener => {tcp, default}
+    }),
+    emqx_channel:set_field(conn_state, ConnState, Channel0).
 
 meck_esockd_socket(Opts) ->
     ok = meck:new(esockd_socket, [passthrough | Opts]),

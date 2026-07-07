@@ -320,43 +320,6 @@ t_parse_incoming(_) ->
         )
     ).
 
-t_socket_parse_incoming_first_packet_hints(_) ->
-    St0 = socket_st(#{}, #{conn_state => idle}),
-    ?assertMatch({0, 0, [], _NState}, emqx_socket_connection:parse_incoming(<<>>, St0)),
-    %% SUBSCRIBE with remaining_len=0 in idle state: enriched with hints
-    ?assertMatch(
-        {0, 0,
-            [
-                {frame_error, #{
-                    cause := zero_remaining_len,
-                    packet_type := 'SUBSCRIBE',
-                    resemble_protocol := _
-                }}
-            ],
-            _NState},
-        emqx_socket_connection:parse_incoming(<<16#82, 16#00>>, St0)
-    ),
-    %% CONNECT with remaining_len=0 in idle state
-    ?assertMatch(
-        {0, 0, [{frame_error, #{cause := zero_remaining_len}}], _NState},
-        emqx_socket_connection:parse_incoming(<<16#10, 16#00>>, St0)
-    ),
-    %% bad_subqos in connected state: no enrichment
-    ?assertMatch(
-        {0, 0, [{frame_error, bad_subqos}], _NState},
-        emqx_socket_connection:parse_incoming(
-            <<16#82, 16#06, 16#00, 16#01, 16#00, 16#01, $t, 16#03>>,
-            socket_st()
-        )
-    ),
-    ok = meck:new(emqx_frame, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_frame, parse, fun(_, _) -> erlang:error(forced_parse_error) end),
-    ?assertMatch(
-        {0, 0, [{frame_error, forced_parse_error}], _NState},
-        emqx_socket_connection:parse_incoming(<<"for_testing">>, socket_st())
-    ),
-    ok = meck:unload(emqx_frame).
-
 t_next_incoming_msgs(_) ->
     ?assertEqual(
         {incoming, packet},
@@ -683,21 +646,6 @@ st(InitFields, ChannelFields) when is_map(InitFields) ->
     maps:fold(
         fun(N, V, S) -> emqx_connection:set_field(N, V, S) end,
         emqx_connection:set_field(channel, channel(ChannelFields), St),
-        InitFields
-    ).
-
-socket_st() -> socket_st(#{}, #{}).
-socket_st(InitFields) when is_map(InitFields) ->
-    socket_st(InitFields, #{}).
-socket_st(InitFields, ChannelFields) when is_map(InitFields) ->
-    St0 = emqx_socket_connection:init_state(sock, #{
-        zone => default,
-        limiter => undefined,
-        listener => {tcp, default}
-    }),
-    maps:fold(
-        fun(N, V, S) -> emqx_socket_connection:set_field(N, V, S) end,
-        emqx_socket_connection:set_field(channel, channel(ChannelFields), St0),
         InitFields
     ).
 
