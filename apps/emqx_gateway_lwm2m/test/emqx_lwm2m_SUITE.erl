@@ -564,7 +564,8 @@ case02_update_deregister(Config) ->
         UdpSock,
         post,
         sprintf(
-            "coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1&password=public&secret=top&private_key=priv&access_token=token",
+            "coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1" ++
+                "&password=public&secret=top&private_key=priv&access_token=token",
             [?PORT, Epn]
         ),
         #coap_content{

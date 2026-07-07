@@ -833,8 +833,8 @@ maybe_do_deliver_to_coap(
         queue = Queue
     } = Session
 ) ->
-    MHeaders = maps:get(mheaders, Ctx, #{}),
-    TTL = maps:get(<<"ttl">>, MHeaders, 7200),
+    Mheaders = maps:get(mheaders, Ctx, #{}),
+    TTL = maps:get(<<"ttl">>, Mheaders, 7200),
     case TTL of
         0 ->
             send_msg_not_waiting_ack(Ctx, Req, Session);
@@ -898,10 +898,10 @@ get_outs() ->
         Any -> Any
     end.
 
-return(#session{coap = CoAP} = Session) ->
+return(#session{coap = Coap} = Session) ->
     Outs = get_outs(),
     erlang:put(?OUT_LIST_KEY, []),
-    {ok, Coap2, Msgs} = do_out(Outs, CoAP, []),
+    {ok, Coap2, Msgs} = do_out(Outs, Coap, []),
     #{return => {Msgs, Session#session{coap = Coap2}}}.
 
 do_out([{Ctx, Out} | T], TM, Msgs) ->
