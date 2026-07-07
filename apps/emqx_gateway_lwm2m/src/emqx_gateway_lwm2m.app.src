@@ -1,9 +1,9 @@
 %% -*- mode: erlang -*-
 {application, emqx_gateway_lwm2m, [
     {description, "LwM2M Gateway"},
-    {vsn, "0.1.10"},
+    {vsn, "0.1.11"},
     {registered, []},
-    {applications, [kernel, stdlib, emqx, emqx_gateway, emqx_gateway_coap, xmerl]},
+    {applications, [kernel, stdlib, emqx, emqx_utils, emqx_gateway, emqx_gateway_coap, xmerl]},
     {env, []},
     {modules, []},
     {links, []}

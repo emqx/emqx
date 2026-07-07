@@ -16,7 +16,7 @@
 
 -module(emqx_utils_redact).
 
--export([redact/1, redact/2, redact_headers/1, is_redacted/2, is_redacted/3]).
+-export([redact/1, redact/2, redact_headers/1, is_sensitive_key/1, is_redacted/2, is_redacted/3]).
 -export([deobfuscate/2]).
 
 -define(REDACT_VAL, "******").
@@ -26,12 +26,24 @@
 is_sensitive_key(account_key) -> true;
 is_sensitive_key("account_key") -> true;
 is_sensitive_key(<<"account_key">>) -> true;
+is_sensitive_key(access_token) -> true;
+is_sensitive_key("access_token") -> true;
+is_sensitive_key(<<"access_token">>) -> true;
 is_sensitive_key(api_key) -> true;
 is_sensitive_key("api_key") -> true;
 is_sensitive_key(<<"api_key">>) -> true;
+is_sensitive_key(api_secret) -> true;
+is_sensitive_key("api_secret") -> true;
+is_sensitive_key(<<"api_secret">>) -> true;
 is_sensitive_key(aws_secret_access_key) -> true;
 is_sensitive_key("aws_secret_access_key") -> true;
 is_sensitive_key(<<"aws_secret_access_key">>) -> true;
+is_sensitive_key(passcode) -> true;
+is_sensitive_key("passcode") -> true;
+is_sensitive_key(<<"passcode">>) -> true;
+is_sensitive_key(passwd) -> true;
+is_sensitive_key("passwd") -> true;
+is_sensitive_key(<<"passwd">>) -> true;
 is_sensitive_key(password) -> true;
 is_sensitive_key("password") -> true;
 is_sensitive_key(<<"password">>) -> true;
@@ -286,7 +298,11 @@ redact_test_() ->
     Types = [atom, string, binary],
     Keys = [
         account_key,
+        access_token,
+        api_secret,
         aws_secret_access_key,
+        passcode,
+        passwd,
         password,
         private_key,
         secret,
