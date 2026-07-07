@@ -62,39 +62,49 @@ discovery_topic(Namespace, OrgId, UnitId, AgentId) when is_binary(Namespace) ->
         AgentId
     ]).
 
+-spec list_cards() -> {ok, [map()]} | {error, retainer_disabled}.
 list_cards() ->
     list_cards(_Opts = #{}).
 
+-spec list_cards(map()) -> {ok, [map()]} | {error, retainer_disabled}.
 list_cards(Opts) ->
+    case emqx_retainer:is_enabled() of
+        false ->
+            {error, retainer_disabled};
+        true ->
+            do_list_cards(Opts)
+    end.
+
+do_list_cards(Opts) ->
     Namespace = maps:get(namespace, Opts, ?global_ns),
     OrgId = maps:get(org_id, Opts, <<"+">>),
     UnitId = maps:get(unit_id, Opts, <<"+">>),
     AgentId = maps:get(agent_id, Opts, <<"+">>),
     Cursor = undefined,
     MatchOpts = #{batch_read_number => all_remaining},
-    Msgs =
+    Filters =
         case Namespace of
             all ->
-                TopicFilterGlobal = discovery_topic(?global_ns, OrgId, UnitId, AgentId),
-                {ok, MsgsGlobal, undefined} =
-                    emqx_retainer:match_messages(TopicFilterGlobal, Cursor, MatchOpts),
-                TopicFilterNs = discovery_topic(<<"+">>, OrgId, UnitId, AgentId),
-                {ok, MsgsNs, undefined} =
-                    emqx_retainer:match_messages(TopicFilterNs, Cursor, MatchOpts),
-                MsgsGlobal ++ MsgsNs;
+                [
+                    discovery_topic(?global_ns, OrgId, UnitId, AgentId),
+                    discovery_topic(<<"+">>, OrgId, UnitId, AgentId)
+                ];
             _ ->
-                TopicFilter = discovery_topic(Namespace, OrgId, UnitId, AgentId),
-                {ok, Msgs0, undefined} =
-                    emqx_retainer:match_messages(TopicFilter, Cursor, MatchOpts),
-                Msgs0
+                [discovery_topic(Namespace, OrgId, UnitId, AgentId)]
         end,
+    {ok, match_cards(Filters, Cursor, MatchOpts, [])}.
+
+match_cards([], _Cursor, _MatchOpts, Acc) ->
     lists:map(
         fun(#message{from = From, topic = Topic, payload = PayloadRaw}) ->
             Card = emqx_utils_json:decode(PayloadRaw),
             format_card(Card, PayloadRaw, Topic, From)
         end,
-        Msgs
-    ).
+        lists:reverse(Acc)
+    );
+match_cards([TopicFilter | Rest], Cursor, MatchOpts, Acc) ->
+    {ok, Msgs, undefined} = emqx_retainer:match_messages(TopicFilter, Cursor, MatchOpts),
+    match_cards(Rest, Cursor, MatchOpts, lists:reverse(Msgs, Acc)).
 
 lookup_agent_status(ClientId) ->
     FormatFn = undefined,
@@ -105,7 +115,16 @@ lookup_agent_status(ClientId) ->
             ?A2A_PROP_OFFLINE_VAL
     end.
 
+-spec delete_card(map()) -> ok | {error, retainer_disabled}.
 delete_card(Opts) ->
+    case emqx_retainer:is_enabled() of
+        false ->
+            {error, retainer_disabled};
+        true ->
+            do_delete_card(Opts)
+    end.
+
+do_delete_card(Opts) ->
     #{
         namespace := Namespace,
         org_id := OrgId,
@@ -113,8 +132,7 @@ delete_card(Opts) ->
         agent_id := AgentId
     } = Opts,
     Topic = discovery_topic(Namespace, OrgId, UnitId, AgentId),
-    ok = emqx_retainer:delete(Topic),
-    ok.
+    ok = emqx_retainer:delete(Topic).
 
 write_card(Opts) ->
     #{
@@ -136,7 +154,15 @@ write_card(Opts) ->
         Flags = #{retain => true},
         Headers = #{original_topic => OriginalTopic},
         Msg = emqx_message:make(ClientId, QoS, Topic, CardBin, Flags, Headers),
-        ok ?= emqx_retainer:store_retained(Msg)
+        ok ?= store_retained(Msg)
+    end.
+
+store_retained(Msg) ->
+    case emqx_retainer:store_retained(Msg) of
+        {error, no_backend} ->
+            {error, retainer_disabled};
+        Other ->
+            Other
     end.
 
 %%------------------------------------------------------------------------------
