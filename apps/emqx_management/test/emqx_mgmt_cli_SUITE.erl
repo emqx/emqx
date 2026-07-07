@@ -393,14 +393,13 @@ t_session_top(Config) ->
             re:run(IdleOutput, <<"No session-top scan is running">>, [{capture, none}])
         ),
         [
-            <<"clientid,pid,node,mqueue_length,total_payload_bytes,inflight_count">>,
+            <<"clientid,node,mqueue_length,total_payload_bytes,inflight_count">>,
             Row1,
             Row2
         ] = binary:split(CSV, <<"\n">>, [global, trim_all]),
         ?assertEqual(
             [
                 <<"session-top-c2">>,
-                pid_to_list_bin(self()),
                 atom_to_binary(node(), utf8),
                 <<"5">>,
                 <<"1000000003">>,
@@ -411,7 +410,6 @@ t_session_top(Config) ->
         ?assertEqual(
             [
                 <<"session-top-c3">>,
-                pid_to_list_bin(self()),
                 atom_to_binary(node(), utf8),
                 <<"20">>,
                 <<"1000000002">>,
@@ -1008,9 +1006,6 @@ wait_csv_rows(File, ExpectedRows, Attempts) when Attempts > 0 ->
     end;
 wait_csv_rows(File, _ExpectedRows, 0) ->
     file:read_file(File).
-
-pid_to_list_bin(Pid) ->
-    list_to_binary(pid_to_list(Pid)).
 
 str(I) when is_integer(I) -> integer_to_list(I);
 str(L) when is_list(L) -> L.

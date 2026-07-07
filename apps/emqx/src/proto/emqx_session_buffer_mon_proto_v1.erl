@@ -2,7 +2,7 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_session_tool_proto_v2).
+-module(emqx_session_buffer_mon_proto_v1).
 
 -behaviour(emqx_bpapi).
 

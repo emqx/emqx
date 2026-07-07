@@ -50,7 +50,7 @@
 -define(LOG_MSG, session_buffer_high_watermark).
 -define(TOP_TIMEOUT, 300000).
 -define(TOP_CONTROL_TIMEOUT, 5000).
--define(TOP_BPAPI_VSN, 2).
+-define(TOP_BPAPI_VSN, 1).
 -define(DEFAULT_SCAN_BATCH_SIZE, 1000).
 -define(DEFAULT_SCAN_SLEEP_MS, 1).
 -define(SESSION_TOP_EXTRA_STATS, [mqueue_len, total_payload_bytes, inflight_cnt]).
@@ -110,7 +110,6 @@
     }.
 -type row() :: #{
     clientid := emqx_types:clientid(),
-    pid := pid() | undefined,
     node := node(),
     mqueue_length := non_neg_integer(),
     total_payload_bytes := non_neg_integer(),
@@ -235,11 +234,13 @@ handle_call({run_top, Opts0}, _From, State = #{top := undefined}) ->
                 pending => PendingNodes,
                 rows_by_node => #{},
                 bad_replies => BadReplies,
-                local => new_local_top_scan(Opts)
+                local => new_local_top_scan(Opts),
+                timeout_timer => undefined
             },
+            Top1 = schedule_top_timeout(Top),
             State1 = State#{
-                top := Top,
-                top_status := top_running_status(Top)
+                top := Top1,
+                top_status := top_running_status(Top1)
             },
             {reply, {ok, maps:get(scan_id, Opts)}, schedule_top_tick(State1, 0)};
         {error, Reason} ->
@@ -296,6 +297,11 @@ handle_cast(_Cast, State) ->
 handle_info({top_scan_next, ScanId}, State = #{top := #{scan_id := ScanId}}) ->
     advance_top_scan(State);
 handle_info(
+    {top_scan_timeout, ScanId},
+    State = #{top := #{role := collector, scan_id := ScanId} = Top}
+) ->
+    {noreply, finish_collector_top(State#{top := timeout_collector_top(Top)})};
+handle_info(
     _Info,
     State
 ) ->
@@ -312,7 +318,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 top_scan_nodes() ->
-    try emqx_bpapi:nodes_supporting_bpapi_version(emqx_session_tool, ?TOP_BPAPI_VSN) of
+    try emqx_bpapi:nodes_supporting_bpapi_version(emqx_session_buffer_mon, ?TOP_BPAPI_VSN) of
         Nodes -> Nodes
     catch
         _:_ -> emqx:running_nodes()
@@ -321,7 +327,7 @@ top_scan_nodes() ->
 start_remote_top_scans([], _Req) ->
     {[], []};
 start_remote_top_scans(Nodes, Req) ->
-    Replies = emqx_session_tool_proto_v2:start_top_scan(Nodes, Req, ?TOP_CONTROL_TIMEOUT),
+    Replies = emqx_session_buffer_mon_proto_v1:start_top_scan(Nodes, Req, ?TOP_CONTROL_TIMEOUT),
     lists:foldl(
         fun({Node, Reply}, {Started, Bad}) ->
             case top_start_reply(Reply) of
@@ -334,8 +340,6 @@ start_remote_top_scans(Nodes, Req) ->
     ).
 
 top_start_reply({ok, {ok, accepted}}) -> ok;
-top_start_reply({ok, ok}) -> ok;
-top_start_reply({ok, accepted}) -> ok;
 top_start_reply({ok, {error, Reason}}) -> {error, Reason};
 top_start_reply({error, Reason}) -> {error, Reason};
 top_start_reply(Reply) -> {error, Reply}.
@@ -343,7 +347,7 @@ top_start_reply(Reply) -> {error, Reply}.
 cancel_remote_top_scans([], _ScanId) ->
     ok;
 cancel_remote_top_scans(Nodes, ScanId) ->
-    _ = emqx_session_tool_proto_v2:cancel_top_scan(Nodes, ScanId, ?TOP_CONTROL_TIMEOUT),
+    _ = emqx_session_buffer_mon_proto_v1:cancel_top_scan(Nodes, ScanId, ?TOP_CONTROL_TIMEOUT),
     ok.
 
 new_local_top_scan(Opts) ->
@@ -356,6 +360,10 @@ new_local_top_scan(Opts) ->
 schedule_top_tick(State = #{top := Top = #{scan_id := ScanId, local := Local}}, Delay) ->
     TRef = erlang:send_after(Delay, self(), {top_scan_next, ScanId}),
     State#{top := Top#{local := Local#{timer := TRef}}}.
+
+schedule_top_timeout(Top = #{scan_id := ScanId}) ->
+    TRef = erlang:send_after(?TOP_TIMEOUT, self(), {top_scan_timeout, ScanId}),
+    Top#{timeout_timer := TRef}.
 
 advance_top_scan(State = #{top := Top = #{local := Local0}}) ->
     #{acc := Acc0, batches_done := Batches0} = Local0,
@@ -406,7 +414,7 @@ row_count(Rows) -> length(Rows).
 
 notify_collector(Opts, ScanId, Result) ->
     Collector = maps:get(collector, Opts, node()),
-    ok = emqx_session_tool_proto_v2:top_scan_result(Collector, ScanId, node(), Result).
+    ok = emqx_session_buffer_mon_proto_v1:top_scan_result(Collector, ScanId, node(), Result).
 
 complete_collector_node(
     Node,
@@ -438,6 +446,7 @@ complete_collector_node(
     end.
 
 finish_collector_top(State = #{top := Top = #{opts := Opts, rows_by_node := RowsByNode}}) ->
+    cancel_top_scan_timers(Top),
     Rows0 = lists:append(maps:values(RowsByNode)),
     Rows = top_rows(Rows0, maps:get(sort, Opts), maps:get(count, Opts)),
     OutFile = maps:get(out, Opts),
@@ -481,8 +490,14 @@ normalize_result_row(#{mqueue_length := _, total_payload_bytes := _, inflight_co
 normalize_result_row(Row) ->
     session_top_row(Row).
 
+timeout_collector_top(Top = #{pending := Pending, bad_replies := BadReplies}) ->
+    Top#{
+        pending := [],
+        bad_replies := [{Node, timeout} || Node <- Pending] ++ BadReplies
+    }.
+
 cancel_top_scan_state(State = #{top := Top}, Reason, NotifyCollector) ->
-    cancel_local_top_timer(Top),
+    cancel_top_scan_timers(Top),
     case NotifyCollector of
         true -> notify_collector_cancelled(Top, Reason);
         false -> ok
@@ -492,10 +507,22 @@ cancel_top_scan_state(State = #{top := Top}, Reason, NotifyCollector) ->
         top_status := top_cancelled_status(Top, Reason)
     }.
 
+cancel_top_scan_timers(Top) ->
+    cancel_local_top_timer(Top),
+    cancel_top_timeout_timer(Top).
+
 cancel_local_top_timer(#{local := #{timer := undefined}}) ->
     ok;
 cancel_local_top_timer(#{local := #{timer := TRef}}) ->
     _ = erlang:cancel_timer(TRef),
+    ok.
+
+cancel_top_timeout_timer(#{timeout_timer := undefined}) ->
+    ok;
+cancel_top_timeout_timer(#{timeout_timer := TRef}) ->
+    _ = erlang:cancel_timer(TRef),
+    ok;
+cancel_top_timeout_timer(_Top) ->
     ok.
 
 notify_collector_cancelled(#{role := worker, scan_id := ScanId, opts := Opts}, Reason) ->
@@ -532,7 +559,6 @@ session_top_rows(Rows) ->
 session_top_row(Row) ->
     #{
         clientid => maps:get(clientid, Row),
-        pid => maps:get(pid, Row, undefined),
         node => maps:get(node, Row),
         mqueue_length => stat_value(mqueue_len, Row),
         total_payload_bytes => stat_value(total_payload_bytes, Row),
@@ -566,7 +592,7 @@ write_csv(OutFile, Rows) ->
         {ok, IoDev} ->
             try
                 write_csv_chunks(IoDev, [
-                    <<"clientid,pid,node,mqueue_length,total_payload_bytes,inflight_count\n">>,
+                    <<"clientid,node,mqueue_length,total_payload_bytes,inflight_count\n">>,
                     csv_rows(Rows)
                 ])
             after
@@ -590,8 +616,6 @@ csv_rows(Rows) ->
 csv_row(Row) ->
     [
         csv_cell(maps:get(clientid, Row)),
-        <<",">>,
-        csv_cell(maps:get(pid, Row)),
         <<",">>,
         csv_cell(maps:get(node, Row)),
         <<",">>,
@@ -619,9 +643,7 @@ needs_quote(Bin) ->
 to_binary(Value) when is_binary(Value) ->
     Value;
 to_binary(Value) when is_atom(Value) ->
-    atom_to_binary(Value, utf8);
-to_binary(Value) when is_pid(Value) ->
-    list_to_binary(pid_to_list(Value)).
+    atom_to_binary(Value, utf8).
 
 normalize_top_opts(Opts) ->
     StartedAt = maps:get(started_at, Opts, erlang:system_time(millisecond)),

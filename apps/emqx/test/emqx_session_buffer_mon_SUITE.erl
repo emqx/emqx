@@ -144,6 +144,38 @@ t_top_cancel_remote_running_scan(Config) ->
         end
     end).
 
+t_top_status_completed_after_remote_timeout(Config) ->
+    with_session_buffer_mon(fun() ->
+        OutFile = filename:join(?config(priv_dir, Config), "session-top-remote-timeout.csv"),
+        _ = file:delete(OutFile),
+        RemoteNode = 'remote@127.0.0.4',
+        try
+            with_chan_info_table(fun() ->
+                with_remote_top_scan_node(RemoteNode, fun() ->
+                    {ok, ScanId} = emqx_session_buffer_mon:run_top(#{
+                        count => 1,
+                        sort => total_payload_bytes,
+                        out => OutFile
+                    }),
+                    _ = wait_top_progress_nodes_done(1, 100),
+                    whereis(emqx_session_buffer_mon) ! {top_scan_timeout, ScanId},
+                    ?assertMatch(
+                        #{
+                            status := completed,
+                            out := OutFile,
+                            rows := 0,
+                            partial := true,
+                            bad_replies := [{RemoteNode, timeout}]
+                        },
+                        wait_top_status(completed, 100)
+                    )
+                end)
+            end)
+        after
+            _ = file:delete(OutFile)
+        end
+    end).
+
 t_top_worker_status(_) ->
     with_session_buffer_mon(fun() ->
         with_chan_info_table(fun() ->
@@ -268,8 +300,8 @@ t_top_status_completed_with_legacy_session_tool_row(Config) ->
                     ),
                     ?assertEqual(
                         {ok,
-                            <<"clientid,pid,node,mqueue_length,total_payload_bytes,inflight_count\n",
-                                "legacy-c1,undefined,remote@127.0.0.1,10,0,0\n">>},
+                            <<"clientid,node,mqueue_length,total_payload_bytes,inflight_count\n",
+                                "legacy-c1,remote@127.0.0.1,10,0,0\n">>},
                         file:read_file(OutFile)
                     )
                 end)
@@ -471,7 +503,6 @@ t_scan_tool_wrapper_top_with_equal_values(_) ->
 t_csv_rows(_) ->
     Row = #{
         clientid => <<"c,1\"">>,
-        pid => self(),
         node => node(),
         mqueue_length => 2,
         total_payload_bytes => 10,
@@ -480,8 +511,6 @@ t_csv_rows(_) ->
     ?assertEqual(
         iolist_to_binary([
             <<"\"c,1\"\"\",">>,
-            pid_to_list(self()),
-            <<",">>,
             atom_to_binary(node(), utf8),
             <<",2,10,1\n">>
         ]),
@@ -629,18 +658,18 @@ with_cluster_top_mock(ClusterTopFun, TestFun) ->
 with_remote_top_scan_node(RemoteNode, TestFun) ->
     TestPid = self(),
     ok = meck:new(emqx_bpapi, [passthrough, no_link]),
-    ok = meck:new(emqx_session_tool_proto_v2, [passthrough, no_link]),
+    ok = meck:new(emqx_session_buffer_mon_proto_v1, [passthrough, no_link]),
     try
         ok = meck:expect(
             emqx_bpapi,
             nodes_supporting_bpapi_version,
             fun
-                (emqx_session_tool, 2) -> [node(), RemoteNode];
+                (emqx_session_buffer_mon, 1) -> [node(), RemoteNode];
                 (Name, Vsn) -> meck:passthrough([Name, Vsn])
             end
         ),
         ok = meck:expect(
-            emqx_session_tool_proto_v2,
+            emqx_session_buffer_mon_proto_v1,
             start_top_scan,
             fun(Nodes, Req, Timeout) ->
                 TestPid ! {top_scan_started, Nodes, Req, Timeout},
@@ -648,7 +677,7 @@ with_remote_top_scan_node(RemoteNode, TestFun) ->
             end
         ),
         ok = meck:expect(
-            emqx_session_tool_proto_v2,
+            emqx_session_buffer_mon_proto_v1,
             cancel_top_scan,
             fun(Nodes, _ScanId, Timeout) ->
                 TestPid ! {top_scan_cancelled, Nodes, Timeout},
@@ -662,9 +691,21 @@ with_remote_top_scan_node(RemoteNode, TestFun) ->
             error(remote_top_scan_not_started)
         end
     after
-        ok = meck:unload(emqx_session_tool_proto_v2),
+        ok = meck:unload(emqx_session_buffer_mon_proto_v1),
         ok = meck:unload(emqx_bpapi)
     end.
+
+wait_top_progress_nodes_done(Expected, Attempts) when Attempts > 0 ->
+    Status = emqx_session_buffer_mon:top_status(),
+    case Status of
+        #{status := running, progress := #{nodes_done := Expected}} ->
+            Status;
+        _ ->
+            timer:sleep(10),
+            wait_top_progress_nodes_done(Expected, Attempts - 1)
+    end;
+wait_top_progress_nodes_done(_Expected, 0) ->
+    emqx_session_buffer_mon:top_status().
 
 wait_top_status(Expected, Attempts) when Attempts > 0 ->
     Status = emqx_session_buffer_mon:top_status(),
