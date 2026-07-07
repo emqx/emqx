@@ -298,7 +298,8 @@ schema("/plugins/:name/move") ->
             'requestBody' => move_request_body(),
             responses => #{
                 204 => <<"Boot order changed successfully">>,
-                400 => emqx_dashboard_swagger:error_codes(['MOVE_FAILED'], <<"Move failed">>)
+                400 => emqx_dashboard_swagger:error_codes(['MOVE_FAILED'], <<"Move failed">>),
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
             }
         }
     };
@@ -534,10 +535,20 @@ list_plugins(get, _) ->
     {200, format_plugins(Plugins)}.
 
 get_plugins() ->
-    {node(), emqx_plugins:list(?normal, #{health_check => true})}.
+    Plugins = emqx_plugins:list(?normal, #{health_check => true}),
+    {node(), lists:filter(fun api_visible_plugin/1, Plugins)}.
 
 upload_install(post, #{name := NameVsn, bin := Bin}) ->
-    case emqx_plugins:describe(NameVsn, #{}) of
+    do_upload_install(NameVsn, Bin);
+upload_install(post, #{}) ->
+    {400, #{
+        code => 'BAD_FORM_DATA',
+        message =>
+            <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>
+    }}.
+
+do_upload_install(NameVsn, Bin) ->
+    case describe_api_plugin(NameVsn, #{}) of
         {error, #{msg := "bad_info_file", reason := {enoent, _Path}}} ->
             case emqx_plugins:is_package_present(NameVsn) of
                 false ->
@@ -551,17 +562,16 @@ upload_install(post, #{name := NameVsn, bin := Bin}) ->
                         message => iolist_to_binary(io_lib:format("~p already installed", [TarGzs]))
                     }}
             end;
+        {error, stale_plugin} ->
+            install_package_on_nodes(NameVsn, Bin);
         {ok, _} ->
-            {400, #{
-                code => 'ALREADY_INSTALLED',
-                message => iolist_to_binary(io_lib:format("~p is already installed", [NameVsn]))
-            }}
-    end;
-upload_install(post, #{}) ->
+            already_installed(NameVsn)
+    end.
+
+already_installed(NameVsn) ->
     {400, #{
-        code => 'BAD_FORM_DATA',
-        message =>
-            <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>
+        code => 'ALREADY_INSTALLED',
+        message => iolist_to_binary(io_lib:format("~p is already installed", [NameVsn]))
     }}.
 
 install_package_on_nodes(NameVsn, Bin) ->
@@ -634,12 +644,22 @@ plugin(get, #{bindings := #{name := NameVsn}}) ->
         [] -> {404, #{code => 'NOT_FOUND', message => NameVsn}}
     end;
 plugin(delete, #{bindings := #{name := NameVsn}}) ->
-    Res = emqx_mgmt_api_plugins_proto_v4:delete_package(NameVsn),
-    return(204, Res).
+    case api_visible_on_any_node(NameVsn) of
+        true ->
+            Res = emqx_mgmt_api_plugins_proto_v4:delete_package(NameVsn),
+            return(204, Res);
+        false ->
+            {404, plugin_not_found_msg()}
+    end.
 
 update_plugin(put, #{bindings := #{name := NameVsn, action := Action}}) ->
-    Res = emqx_mgmt_api_plugins_proto_v4:ensure_action(NameVsn, Action),
-    return(204, Res).
+    case api_visible_on_any_node(NameVsn) of
+        true ->
+            Res = emqx_mgmt_api_plugins_proto_v4:ensure_action(NameVsn, Action),
+            return(204, Res);
+        false ->
+            {404, plugin_not_found_msg()}
+    end.
 
 plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     get_plugin_config(NameVsn);
@@ -665,7 +685,7 @@ download_plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     end.
 
 get_plugin_config(NameVsn) ->
-    case emqx_plugins:describe(NameVsn, #{}) of
+    case describe_api_plugin(NameVsn, #{}) of
         {ok, _} ->
             case emqx_plugins:get_config(NameVsn, ?plugin_conf_not_found) of
                 Config when is_map(Config) ->
@@ -682,7 +702,7 @@ get_plugin_config(NameVsn) ->
 
 put_plugin_config(NameVsn, Config) ->
     Nodes = emqx:running_nodes(),
-    case emqx_plugins:describe(NameVsn, #{}) of
+    case describe_api_plugin(NameVsn, #{}) of
         {ok, _} ->
             case emqx_plugins:decode_plugin_config_map(NameVsn, Config) of
                 {ok, ?plugin_without_config_schema} ->
@@ -708,7 +728,7 @@ put_plugin_config(NameVsn, Config) ->
     end.
 
 plugin_schema(get, #{bindings := #{name := NameVsn}}) ->
-    case emqx_plugins:describe(NameVsn, #{}) of
+    case describe_api_plugin(NameVsn, #{}) of
         {ok, _Plugin} ->
             {200, format_plugin_avsc_and_i18n(NameVsn)};
         _ ->
@@ -716,19 +736,24 @@ plugin_schema(get, #{bindings := #{name := NameVsn}}) ->
     end.
 
 update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
-    case parse_position(Body, Name) of
-        {error, Reason} ->
-            {400, #{code => 'BAD_POSITION', message => Reason}};
-        Position ->
-            case emqx_plugins:ensure_enabled(Name, Position, global) of
-                ok ->
-                    {204};
+    case describe_api_plugin(Name, #{}) of
+        {ok, _Plugin} ->
+            case parse_position(Body, Name) of
                 {error, Reason} ->
-                    {400, #{
-                        code => 'MOVE_FAILED',
-                        message => readable_error_msg(Reason)
-                    }}
-            end
+                    {400, #{code => 'BAD_POSITION', message => Reason}};
+                Position ->
+                    case emqx_plugins:ensure_enabled(Name, Position, global) of
+                        ok ->
+                            {204};
+                        {error, Reason} ->
+                            {400, #{
+                                code => 'MOVE_FAILED',
+                                message => readable_error_msg(Reason)
+                            }}
+                    end
+            end;
+        _ ->
+            {404, plugin_not_found_msg()}
     end.
 
 sync_plugin(post, #{body := Body}) ->
@@ -738,24 +763,34 @@ sync_plugin(post, #{body := Body}) ->
                 msg => "sync_plugin_to_cluster",
                 keep_namevsn => NameVsn
             }),
-            case ensure_existed(NameVsn) of
-                ok ->
-                    case
-                        emqx_mgmt_api_plugins_proto_v4:sync_plugin_cluster(
-                            emqx:running_nodes(), node(), NameVsn
-                        )
-                    of
-                        {_Res, []} -> {204};
-                        {_Res, BadNodes} -> {400, plugin_sync_failed_msg(BadNodes)}
-                    end;
-                {error, {plugin_error, _Reason}} ->
-                    {404, plugin_not_found_msg()}
+            case describe_api_plugin(NameVsn, #{}) of
+                {ok, _Plugin} ->
+                    do_sync_plugin(NameVsn);
+                {error, stale_plugin} ->
+                    {404, plugin_not_found_msg()};
+                _ ->
+                    do_sync_plugin(NameVsn)
             end;
         {error, {plugin_error, Reason}} ->
             {400, #{
                 code => 'BAD_PLUGIN_INFO',
                 message => Reason
             }}
+    end.
+
+do_sync_plugin(NameVsn) ->
+    case ensure_existed(NameVsn) of
+        ok ->
+            case
+                emqx_mgmt_api_plugins_proto_v4:sync_plugin_cluster(
+                    emqx:running_nodes(), node(), NameVsn
+                )
+            of
+                {_Res, []} -> {204};
+                {_Res, BadNodes} -> {400, plugin_sync_failed_msg(BadNodes)}
+            end;
+        {error, {plugin_error, _Reason}} ->
+            {404, plugin_not_found_msg()}
     end.
 
 %% API CallBack End
@@ -781,7 +816,7 @@ install_package_v4(NameVsn, Bin) ->
 %% For RPC plugin get
 describe_package(NameVsn) ->
     Node = node(),
-    case emqx_plugins:describe(NameVsn) of
+    case describe_api_plugin(NameVsn) of
         {ok, Plugin} -> {Node, [Plugin]};
         _ -> {Node, []}
     end.
@@ -899,6 +934,36 @@ plugin_sync_failed_msg(Nodes) ->
             )
         )
     }.
+
+describe_api_plugin(NameVsn) ->
+    describe_api_plugin(NameVsn, #{fill_readme => true, health_check => true}).
+
+describe_api_plugin(NameVsn, Options) ->
+    case emqx_plugins:describe(NameVsn, Options) of
+        {ok, Plugin} ->
+            case api_visible_plugin(Plugin) of
+                true -> {ok, Plugin};
+                false -> {error, stale_plugin}
+            end;
+        Error ->
+            Error
+    end.
+
+api_visible_plugin(#{config_status := not_configured, running_status := RunningStatus} = Plugin) ->
+    case RunningStatus of
+        running ->
+            true;
+        _ ->
+            emqx_plugins:log_unconfigured_plugin(Plugin),
+            false
+    end;
+api_visible_plugin(_) ->
+    true.
+
+api_visible_on_any_node(NameVsn) ->
+    Nodes = emqx:running_nodes(),
+    {Plugins, _} = emqx_mgmt_api_plugins_proto_v4:describe_package(Nodes, NameVsn),
+    format_plugins(Plugins) =/= [].
 
 parse_position(#{<<"position">> := <<"front">>}, _) ->
     front;
