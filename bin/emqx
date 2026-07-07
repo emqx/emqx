@@ -1124,6 +1124,9 @@ case "${COMMAND}" in
     console|console_clean|foreground)
         # Log version before start, help boot failure troubleshooting
         echo "Starting $EMQX_DESCRIPTION $REL_VSN"
+        if [ -n "${EMQX_FEATURES:-}" ]; then
+            echo "EMQX_FEATURES=${EMQX_FEATURES}"
+        fi
         # .boot file typically just $REL_NAME (ie, the app name)
         # however, for debugging, sometimes start_clean.boot is useful.
         # For e.g. 'setup', one may even want to name another boot script.
