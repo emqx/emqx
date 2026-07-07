@@ -35,6 +35,11 @@ node_name.desc:
 node_name.label:
 """Node Name"""
 
+namespace.desc:
+"""Namespace whose backups to operate on. Only honored for global administrators; namespaced administrators are always confined to their own namespace. When omitted, a global administrator operates on the global (non-namespaced) backups."""
+namespace.label:
+"""Namespace"""
+
 filename.desc:
 """Data backup file name."""
 filename.label:
