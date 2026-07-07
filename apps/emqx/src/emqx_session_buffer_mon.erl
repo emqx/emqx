@@ -49,6 +49,7 @@
 -define(DEFAULT_CONF, #{buffered_payload_high_watermark => 0}).
 -define(LOG_MSG, session_buffer_high_watermark).
 -define(TOP_TIMEOUT, 300000).
+-define(TOP_CONTROL_TIMEOUT, 5000).
 -define(TOP_BPAPI_VSN, 2).
 -define(DEFAULT_SCAN_BATCH_SIZE, 1000).
 -define(DEFAULT_SCAN_SLEEP_MS, 1).
@@ -74,37 +75,38 @@
     }
     | #{
         status := completed,
-        out := file:name_all(),
-        rows := non_neg_integer()
-    }
-    | #{
-        status := completed,
-        scan_id := term(),
-        initiator := node(),
-        started_at := integer(),
-        completed_at := integer(),
+        role => collector | worker,
+        out => file:name_all(),
+        scan_id => term(),
+        initiator => node(),
+        collector => node(),
+        started_at => integer(),
+        completed_at => integer(),
         rows := non_neg_integer(),
-        scanned := non_neg_integer(),
-        total := non_neg_integer()
+        partial => boolean(),
+        bad_replies => [{node(), term()}]
     }
     | #{
         status := failed,
-        out := file:name_all(),
-        reason := term()
-    }
-    | #{
-        status := cancelled,
-        out := file:name_all(),
-        reason := cancelled
-    }
-    | #{
-        status := cancelled,
-        scan_id := term(),
-        initiator := node(),
-        started_at := integer(),
+        role => collector | worker,
+        out => file:name_all(),
+        scan_id => term(),
+        initiator => node(),
+        collector => node(),
+        started_at => integer(),
         reason := term(),
-        scanned := non_neg_integer(),
-        total := non_neg_integer()
+        partial => boolean(),
+        bad_replies => [{node(), term()}]
+    }
+    | #{
+        status := cancelled,
+        role => collector | worker,
+        out => file:name_all(),
+        scan_id => term(),
+        initiator => node(),
+        collector => node(),
+        started_at => integer(),
+        reason := term()
     }.
 -type row() :: #{
     clientid := emqx_types:clientid(),
@@ -319,7 +321,7 @@ top_scan_nodes() ->
 start_remote_top_scans([], _Req) ->
     {[], []};
 start_remote_top_scans(Nodes, Req) ->
-    Replies = emqx_session_tool_proto_v2:start_top_scan(Nodes, Req, ?TOP_TIMEOUT),
+    Replies = emqx_session_tool_proto_v2:start_top_scan(Nodes, Req, ?TOP_CONTROL_TIMEOUT),
     lists:foldl(
         fun({Node, Reply}, {Started, Bad}) ->
             case top_start_reply(Reply) of
@@ -341,7 +343,7 @@ top_start_reply(Reply) -> {error, Reply}.
 cancel_remote_top_scans([], _ScanId) ->
     ok;
 cancel_remote_top_scans(Nodes, ScanId) ->
-    _ = emqx_session_tool_proto_v2:cancel_top_scan(Nodes, ScanId, ?TOP_TIMEOUT),
+    _ = emqx_session_tool_proto_v2:cancel_top_scan(Nodes, ScanId, ?TOP_CONTROL_TIMEOUT),
     ok.
 
 new_local_top_scan(Opts) ->

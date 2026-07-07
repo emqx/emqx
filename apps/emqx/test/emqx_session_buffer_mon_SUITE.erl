@@ -110,6 +110,40 @@ t_top_cancel_running_scan(Config) ->
         end
     ).
 
+t_top_cancel_remote_running_scan(Config) ->
+    with_session_buffer_mon(fun() ->
+        OutFile = filename:join(?config(priv_dir, Config), "session-top-cancel-remote.csv"),
+        _ = file:delete(OutFile),
+        RemoteNode = 'remote@127.0.0.3',
+        try
+            with_chan_info_table(fun() ->
+                Pid = spawn_waiter(),
+                try
+                    insert_channel_infos(50, Pid),
+                    with_remote_top_scan_node(RemoteNode, fun() ->
+                        {ok, _ScanId} = emqx_session_buffer_mon:run_top(#{
+                            count => 1,
+                            sort => total_payload_bytes,
+                            out => OutFile,
+                            batch_size => 1,
+                            sleep_ms => 100
+                        }),
+                        ?assertEqual({ok, cancelled}, emqx_session_buffer_mon:cancel_top()),
+                        receive
+                            {top_scan_cancelled, [RemoteNode], 5000} -> ok
+                        after 1000 ->
+                            error(remote_top_scan_not_cancelled)
+                        end
+                    end)
+                after
+                    stop_waiter(Pid)
+                end
+            end)
+        after
+            _ = file:delete(OutFile)
+        end
+    end).
+
 t_top_worker_status(_) ->
     with_session_buffer_mon(fun() ->
         with_chan_info_table(fun() ->
@@ -616,13 +650,14 @@ with_remote_top_scan_node(RemoteNode, TestFun) ->
         ok = meck:expect(
             emqx_session_tool_proto_v2,
             cancel_top_scan,
-            fun(Nodes, _ScanId, _Timeout) ->
+            fun(Nodes, _ScanId, Timeout) ->
+                TestPid ! {top_scan_cancelled, Nodes, Timeout},
                 [{ok, {ok, cancelled}} || _ <- Nodes]
             end
         ),
         TestFun(),
         receive
-            {top_scan_started, [RemoteNode], _Req, 300000} -> ok
+            {top_scan_started, [RemoteNode], _Req, 5000} -> ok
         after 0 ->
             error(remote_top_scan_not_started)
         end
