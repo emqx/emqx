@@ -20,55 +20,6 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     %% Meck Transport
     ok = meck:new(emqx_transport, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_transport, shutdown, fun(_, _) -> ok end),
-    %% Meck esockd_socket
-    ok = meck:new(esockd_socket, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(esockd_socket, fast_close, fun(_) -> ok end),
-    %% Meck Channel
-    ok = meck:new(emqx_channel, [passthrough, no_history, no_link]),
-    %% Meck Cm
-    ok = meck:new(emqx_cm, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_cm, mark_channel_connected, fun(_) -> ok end),
-    ok = meck:expect(emqx_cm, mark_channel_disconnected, fun(_) -> ok end),
-    %% Meck Pd
-    ok = meck:new(emqx_pd, [passthrough, no_history, no_link]),
-    %% Meck Metrics
-    ok = meck:new(emqx_metrics, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_metrics, inc_global, fun(_) -> ok end),
-    ok = meck:expect(emqx_metrics, inc_global, fun(_, _) -> ok end),
-    ok = meck:expect(emqx_metrics, inc_recv, fun(_, _) -> ok end),
-    ok = meck:expect(emqx_metrics, inc_sent, fun(_, _) -> ok end),
-    %% Meck Hooks
-    ok = meck:new(emqx_hooks, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end),
-    ok = meck:expect(emqx_hooks, run_fold, fun(_Hook, _Args, Acc) -> Acc end),
-
-    ok = meck:expect(emqx_channel, ensure_disconnected, fun(_, Channel) -> Channel end),
-
-    ok = meck:expect(emqx_alarm, activate, fun(_, _) -> ok end),
-    ok = meck:expect(emqx_alarm, deactivate, fun(_) -> ok end),
-    ok = meck:expect(emqx_alarm, deactivate, fun(_, _) -> ok end),
-
-    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
-    ok = emqx_limiter:create_listener_limiters('tcp:default', #{}),
-    [{apps, Apps} | Config].
-
-end_per_suite(Config) ->
-    ok = meck:unload(emqx_transport),
-    ok = meck:unload(esockd_socket),
-    catch meck:unload(emqx_channel),
-    ok = meck:unload(emqx_cm),
-    ok = meck:unload(emqx_pd),
-    ok = meck:unload(emqx_metrics),
-    ok = meck:unload(emqx_hooks),
-    ok = meck:unload(emqx_alarm),
-
-    emqx_cth_suite:stop(proplists:get_value(apps, Config)).
-
-init_per_testcase(TestCase, Config) when
-    TestCase =/= t_ws_pingreq_before_connected
-->
-    ok = meck:expect(emqx_transport, wait, fun(Sock) -> {ok, Sock} end),
     ok = meck:expect(emqx_transport, type, fun(_Sock) -> tcp end),
     ok = meck:expect(
         emqx_transport,
@@ -80,6 +31,21 @@ init_per_testcase(TestCase, Config) when
             (peersni, [sock]) -> undefined
         end
     ),
+    %% Meck Channel
+    ok = meck:new(emqx_channel, [passthrough, no_history, no_link]),
+    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
+    ok = emqx_limiter:create_listener_limiters('tcp:default', #{}),
+    [{apps, Apps} | Config].
+
+end_per_suite(Config) ->
+    meck:unload(),
+    emqx_cth_suite:stop(proplists:get_value(apps, Config)).
+
+init_per_testcase(TestCase, Config) ->
+    ok = meck:expect(emqx_transport, wait, fun(Sock) -> {ok, Sock} end),
+    ok = meck:expect(emqx_transport, send, fun(_Sock, _Data) -> ok end),
+    ok = meck:expect(emqx_transport, shutdown, fun(_, _) -> ok end),
+    ok = meck:expect(emqx_transport, fast_close, fun(_Sock) -> ok end),
     ok = meck:expect(emqx_transport, setopts, fun(_Sock, _Opts) -> ok end),
     ok = meck:expect(emqx_transport, getopts, fun(_Sock, Options) ->
         {ok, [{K, 0} || K <- Options]}
@@ -87,25 +53,11 @@ init_per_testcase(TestCase, Config) when
     ok = meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
         {ok, [{K, 0} || K <- Options]}
     end),
-    ok = meck:expect(emqx_transport, send, fun(_Sock, _Data) -> ok end),
-    ok = meck:expect(emqx_transport, fast_close, fun(_Sock) -> ok end),
-    ok = meck:expect(esockd_socket, type, fun(_Sock) -> tcp end),
-    ok = meck:expect(esockd_socket, peername, fun(_Sock) -> {ok, {{127, 0, 0, 1}, 3456}} end),
-    ok = meck:expect(esockd_socket, sockname, fun(_Sock) -> {ok, {{127, 0, 0, 1}, 1883}} end),
-    ok = meck:expect(esockd_socket, peercert, fun(_Sock) -> undefined end),
-    ok = meck:expect(esockd_socket, peersni, fun(_Sock) -> undefined end),
-    case erlang:function_exported(?MODULE, TestCase, 2) of
-        true -> ?MODULE:TestCase(init, Config);
-        _ -> Config
-    end;
-init_per_testcase(_, Config) ->
-    Config.
+    emqx_common_test_helpers:init_per_testcase(?MODULE, TestCase, Config).
 
 end_per_testcase(TestCase, Config) ->
-    case erlang:function_exported(?MODULE, TestCase, 2) of
-        true -> ?MODULE:TestCase('end', Config);
-        false -> ok
-    end.
+    [meck:delete(M, F, A) || {M, F, A} <- meck:expects(emqx_channel, true)],
+    emqx_common_test_helpers:end_per_testcase(?MODULE, TestCase, Config).
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -254,9 +206,6 @@ t_handle_msg_close(_) ->
     ?assertMatch({stop, {shutdown, normal}, _St}, handle_msg({close, normal}, st())).
 
 t_handle_msg_event(_) ->
-    ok = meck:expect(emqx_cm, register_channel, fun(_, _, _) -> ok end),
-    ok = meck:expect(emqx_cm, insert_channel_info, fun(_, _, _) -> ok end),
-    ok = meck:expect(emqx_cm, set_chan_info, fun(_, _) -> ok end),
     ?assertMatch({ok, _St}, handle_msg({event, connected}, st())),
     ?assertMatch({ok, _St}, handle_msg({event, disconnected}, st())),
     ?assertMatch({ok, _St}, handle_msg({event, undefined}, st())).
@@ -484,8 +433,7 @@ t_with_channel(_) ->
     ?assertMatch(
         {stop, {shutdown, [for_testing]}, _NState},
         emqx_connection:with_channel(handle_in, [for_testing], State)
-    ),
-    meck:unload(emqx_channel).
+    ).
 
 t_handle_outgoing(_) ->
     ?assertMatch({ok, _}, emqx_connection:handle_outgoing(?PACKET(?PINGRESP), st())),
