@@ -51,6 +51,7 @@
 -define(CLIENTS_API(METHOD, FN), ?API(emqx_mgmt_api_clients, METHOD, FN)).
 -define(RETAINER_API(METHOD, FN), ?API(emqx_retainer_api, METHOD, FN)).
 -define(DELAYED_API(METHOD, FN), ?API(emqx_delayed_api, METHOD, FN)).
+-define(API_KEY_API(METHOD, FN), ?API(emqx_mgmt_api_api_keys, METHOD, FN)).
 
 %%=====================================================================
 %% API
@@ -124,6 +125,13 @@ check_login_user_scopes_for_path(Username, Path) ->
 parse_api_role(Role) ->
     parse_role(api, Role).
 
+-doc "Render a parsed role map back to its wire string (inverse of `parse_api_role/1`).".
+-spec serialize_role(#{?role := role(), ?namespace := ?global_ns | namespace()}) -> role().
+serialize_role(#{?role := Role, ?namespace := ?global_ns}) ->
+    Role;
+serialize_role(#{?role := Role, ?namespace := Namespace}) when is_binary(Namespace) ->
+    <<"ns:", Namespace/binary, "::", Role/binary>>.
+
 check_login_user_scopes_strict(Username, Path) ->
     %% Always work on the effective scope list (role-default expanded)
     %% so administrators with no explicit scopes implicitly hold the
@@ -162,18 +170,6 @@ is_self_service_endpoint(_Path, _Username) ->
 is_same_user(Decoded, Decoded) -> true;
 is_same_user(Decoded, {_Backend, Decoded}) -> true;
 is_same_user(_, _) -> false.
-
-%% ===================================================================
-
-serialize_role(#{?role := Role, ?namespace := Ns}) when
-    ?IS_VALID_ROLE(Role)
-->
-    case Ns of
-        ?global_ns ->
-            Role;
-        _ when is_binary(Ns) ->
-            iolist_to_binary(["ns:", Ns, "::", Role])
-    end.
 
 parse_role(Type, Role0) ->
     maybe
@@ -359,7 +355,18 @@ do_check_rbac(
 ) when
     is_binary(Namespace)
 ->
-    %% Configuration backup export/import.
+    %% Namespaced configuration backup export/import and per-namespace backup
+    %% file management.  The handlers isolate each namespace to its own backup
+    %% directory, so a namespaced administrator only ever sees or acts on its
+    %% own archives, never global (or legacy) ones.
+    true;
+do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?API_KEY_API(_, _)) when
+    is_binary(Namespace)
+->
+    %% Namespaced administrators may manage API keys within their own namespace.
+    %% The handler enforces that the request's effective namespace (create) or the
+    %% target key's namespace (read/update/delete) matches the caller's; global and
+    %% cross-namespace keys are rejected or hidden there.
     true;
 do_check_rbac(
     #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?AUTHZ_MNESIA_API(_, _)

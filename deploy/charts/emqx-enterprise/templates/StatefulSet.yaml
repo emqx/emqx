@@ -132,7 +132,7 @@ spec:
                 apiVersion: v1
                 fieldPath: metadata.name
           - name: EMQX_HOST
-            value: $(POD_NAME).{{ include "emqx.fullname" . }}-headless.{{ .Release.Namespace }}.svc.cluster.local
+            value: $(POD_NAME).{{ include "emqx.fullname" . }}-headless.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}
           {{- if .Values.emqxLicenseSecretRef.name }}
           - name: EMQX_LICENSE__KEY
             valueFrom:
