@@ -33,7 +33,7 @@ maybe_alarm_conn_congestion(ConnMod, State) ->
     Opts = emqx_config:get_zone_conf(Zone, [conn_congestion]),
     case Opts of
         #{enable_alarm := true} ->
-            case is_tcp_congested(ConnMod, State) of
+            case is_transport_congested(ConnMod, State) of
                 true -> alarm_congestion(ConnMod, State, conn_congestion);
                 false -> cancel_alarm_congestion(ConnMod, State, conn_congestion, Opts)
             end;
@@ -84,7 +84,7 @@ do_cancel_alarm_congestion(ConnMod, State, Reason) ->
     emqx_alarm:ensure_deactivated(Name, Details, Message),
     ok.
 
-is_tcp_congested(ConnMod, State) ->
+is_transport_congested(ConnMod, State) ->
     case ConnMod:info(sockstate, State) of
         congested ->
             true;

@@ -86,9 +86,7 @@
 -define(ZONE_LIMITS, [max_conn, messages, bytes]).
 
 %% remember to keep similar macro in `emqx_mt_limiter` in sync, if necessary.
--define(IS_CHANNEL_ONLY_LIMITER(NAME),
-    ((NAME) =:= subscribes)
-).
+-define(IS_CHANNEL_ONLY_LIMITER(NAME), ((NAME) =:= subscribes)).
 
 %%--------------------------------------------------------------------
 %% Callbacks
