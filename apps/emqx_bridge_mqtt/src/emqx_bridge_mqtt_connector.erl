@@ -621,7 +621,11 @@ mk_ecpool_client_opts(
         namespace := Namespace
     } =
         emqx_connector_resource:parse_connector_id(ConnResId, #{atom_name => false}),
-    TcpOpts = emqx_schema:client_tcp_opts_to_proplist(maps:get(tcp_opts, Config, #{})),
+    %% `ipv6_probe' lets the client reach an IPv6-only broker (e.g. a host that
+    %% only resolves to an AAAA record); without it the connect defaults to IPv4.
+    TcpOpts = emqx_utils:ipv6_probe(
+        emqx_schema:client_tcp_opts_to_proplist(maps:get(tcp_opts, Config, #{}))
+    ),
     Options#{
         hosts => [HostPort],
         clientid => clientid(Namespace, Name, Config),

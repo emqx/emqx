@@ -697,6 +697,50 @@ parse_server_test_() ->
                     }
                 )
             )
+        ),
+        ?T(
+            "ipv6 in brackets, no port",
+            ?assertEqual(
+                [#{hostname => "::1", port => DefaultPort}],
+                Parse(<<"[::1]">>)
+            )
+        ),
+        ?T(
+            "ipv6 in brackets, with port",
+            ?assertEqual(
+                [#{hostname => "::1", port => 9999}],
+                Parse(<<"[::1]:9999">>)
+            )
+        ),
+        ?T(
+            "full ipv6 in brackets, with port",
+            ?assertEqual(
+                [#{hostname => "2a00:1098:2b::1:2e12:3a1f", port => 1877}],
+                Parse(<<"[2a00:1098:2b::1:2e12:3a1f]:1877">>)
+            )
+        ),
+        ?T(
+            "ipv6 in brackets with scheme and port",
+            ?assertEqual(
+                #{scheme => "pulsar+ssl", hostname => "::1", port => 6651},
+                emqx_schema:parse_server(
+                    "pulsar+ssl://[::1]:6651",
+                    #{
+                        default_port => 6650,
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "multiple ipv6 servers in brackets, with ports",
+            ?assertEqual(
+                [
+                    #{hostname => "::1", port => 1234},
+                    #{hostname => "fe80::1", port => 2345}
+                ],
+                Parse("[::1]:1234, [fe80::1]:2345")
+            )
         )
     ].
 
