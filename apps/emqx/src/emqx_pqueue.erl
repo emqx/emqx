@@ -76,6 +76,9 @@
 -type class() :: default | qos0.
 
 %% Simple, single-class queue.
+%% Kept as better optimized, more GC-friendly implementation for situations
+%% when no QoS0 messages are getting queued: no QoS0 messaging or `store_qos0`
+%% is disabled.
 -type squeue() :: {queue, [any()], [any()], non_neg_integer()}.
 
 %% Double-class queue.
@@ -83,12 +86,17 @@
 %% "lane-switch" markers.
 -type cqueue() ::
     {
-        _Active :: class() | undefined,
-        _Last :: class() | undefined,
+        %% Which lane we are currently pulling elements from?
+        _HeadLane :: class(),
+        %% Which lane we are currently queueing elements into?
+        _TailLane :: class(),
+        %% In-list and out-list of `default` class lane:
         [any()],
         [any()],
+        %% In-list and out-list of `qos0` class lane:
         [any()],
         [any()],
+        %% Total number of elements in the queue:
         _Length :: non_neg_integer()
     }.
 
@@ -100,7 +108,7 @@
 -define(switch_(N), {'$switch', N}).
 
 -define(cqueue(), ?cqueue(_, _, _)).
--define(cqueue(ACTIVE, LAST, LEN), {ACTIVE, LAST, _, _, _, _, LEN}).
+-define(cqueue(HEADLANE, TAILLANE, LEN), {HEADLANE, TAILLANE, _, _, _, _, LEN}).
 
 %%----------------------------------------------------------------------------
 
@@ -111,7 +119,7 @@ new() ->
 -spec is_empty(pqueue()) -> boolean().
 is_empty({queue, [], [], 0}) ->
     true;
-is_empty(?cqueue(_Active, _Last, 0)) ->
+is_empty(?cqueue(_, _, 0)) ->
     true;
 is_empty(_) ->
     false.
@@ -119,7 +127,7 @@ is_empty(_) ->
 -spec len(pqueue()) -> non_neg_integer().
 len({queue, _R, _F, L}) ->
     L;
-len(?cqueue(_Active, _Last, L)) ->
+len(?cqueue(_, _, L)) ->
     L;
 len({pqueue, Queues}) ->
     lists:sum([len(Q) || {_, Q} <- Queues]).
@@ -195,8 +203,7 @@ in(X, Priority, Class, Q) ->
     case Q of
         {queue, [], [], 0} ->
             in(X, Priority, Class, {pqueue, []});
-        %% Should be unreachable:
-        {_Active, _Last, [], [], [], [], 0} ->
+        ?cqueue(_, _, 0) ->
             in(X, Priority, Class, {pqueue, []});
         _NonEmpty ->
             in(X, Priority, Class, {pqueue, [{0, Q}]})
@@ -228,8 +235,8 @@ out({queue, In, [V], Len}) when is_list(In) ->
     {{value, V}, r2f(In, Len - 1)};
 out({queue, In, [V | Out], Len}) when is_list(In) ->
     {{value, V}, {queue, In, Out, Len - 1}};
-out({Active, Last, In, Out, Q0In, Q0Out, L}) ->
-    cqueue_out(Active, Last, In, Out, Q0In, Q0Out, L);
+out({HeadLane, TailLane, In, Out, Q0In, Q0Out, L}) ->
+    cqueue_out(HeadLane, TailLane, In, Out, Q0In, Q0Out, L);
 out({pqueue, [{P, Q} | Queues]}) ->
     {R, Q1} = out(Q),
     case is_empty(Q1) of
@@ -240,11 +247,16 @@ out({pqueue, [{P, Q} | Queues]}) ->
             {R, NQ}
     end.
 
+-doc """
+Drop oldest least important element, for a given priority.
+* If there are `qos0`-class elements, oldest of them is dropped.
+* If there are not, `drop(P, Q)` is equivalent to calling `out(P, Q)`.
+""".
 -spec drop(priority(), pqueue()) -> {empty | {value, any()}, pqueue()}.
 drop(0, {queue, _, _, _} = Q) ->
     out(Q);
-drop(0, {Active, Last, In, Out, Q0In, Q0Out, L}) ->
-    cqueue_drop(Active, Last, In, Out, Q0In, Q0Out, L);
+drop(0, {HeadLane, TailLane, In, Out, Q0In, Q0Out, L}) ->
+    cqueue_drop(HeadLane, TailLane, In, Out, Q0In, Q0Out, L);
 drop(Priority, {pqueue, Queues}) ->
     P = maybe_negate_priority(Priority),
     case lists:keysearch(P, 1, Queues) of
@@ -275,15 +287,15 @@ shift(Q) ->
 -spec out_p(pqueue()) -> {empty | {value, any(), priority()}, pqueue()}.
 out_p({queue, _, _, _} = Q) ->
     add_p(out(Q), 0);
-out_p({Active, Last, In, Out, Q0In, Q0Out, L}) ->
-    add_p(cqueue_out(Active, Last, In, Out, Q0In, Q0Out, L), 0);
+out_p({HeadLane, TailLane, In, Out, Q0In, Q0Out, L}) ->
+    add_p(cqueue_out(HeadLane, TailLane, In, Out, Q0In, Q0Out, L), 0);
 out_p({pqueue, [{P, _} | _]} = Q) ->
     add_p(out(Q), maybe_negate_priority(P)).
 
 out(0, {queue, _, _, _} = Q) ->
     out(Q);
-out(0, {Active, Last, In, Out, Q0In, Q0Out, L}) ->
-    cqueue_out(Active, Last, In, Out, Q0In, Q0Out, L);
+out(0, {HeadLane, TailLane, In, Out, Q0In, Q0Out, L}) ->
+    cqueue_out(HeadLane, TailLane, In, Out, Q0In, Q0Out, L);
 out(Priority, {pqueue, Queues}) ->
     P = maybe_negate_priority(Priority),
     case lists:keysearch(P, 1, Queues) of
@@ -312,8 +324,8 @@ filter(Pred, {queue, In, Out, _}) ->
     {L1, FIn} = filter_list(Pred, In),
     {L2, FOut} = filter_list(Pred, Out),
     {queue, FIn, FOut, L1 + L2};
-filter(Pred, {Active, Last, In, Out, Q0In, Q0Out, _}) ->
-    cqueue_filter(Pred, Active, Last, In, Out, Q0In, Q0Out);
+filter(Pred, {HeadLane, TailLane, In, Out, Q0In, Q0Out, _}) ->
+    cqueue_filter(Pred, HeadLane, TailLane, In, Out, Q0In, Q0Out);
 filter(Pred, {pqueue, Queues}) ->
     from_pqueue_list(
         lists:filtermap(
@@ -376,27 +388,31 @@ cqueue_new() ->
 cqueue_new(X, Class) ->
     case Class of
         default ->
-            In = [X],
-            Q0In = [];
+            Out = [X],
+            Q0Out = [];
         qos0 ->
-            In = [],
-            Q0In = [X]
+            Out = [],
+            Q0Out = [X]
     end,
-    {Class, Class, In, [], Q0In, [], 1}.
+    {Class, Class, [], Out, [], Q0Out, 1}.
 
 cqueue_from_simple(In, Out, L) ->
     {default, default, In, Out, [], [], L}.
 
-cqueue_in(X, Class, {_Active, _Last, [], [], [], [], 0}) ->
+cqueue_in(X, Class, {_HeadLane, _TailLane, [], [], [], [], 0}) ->
     cqueue_new(X, Class);
-cqueue_in(X, Class, {Active, Last0, In0, Out, Q0In0, Q0Out, L}) ->
+cqueue_in(X, Class, {HeadLane, TailLane, In0, Out, Q0In0, Q0Out, L}) ->
     case Class of
-        Last0 when Class =:= default ->
+        %% If `Class` matches current tail lane, just push the element to in-list.
+        TailLane when Class =:= default ->
             In = [X | In0],
             Q0In = Q0In0;
-        Last0 when Class =:= qos0 ->
+        TailLane when Class =:= qos0 ->
             In = In0,
             Q0In = [X | Q0In0];
+        %% Otherwise:
+        %% * Push the switch marker to tail lane in-list.
+        %% * Push element to the other lane.
         default ->
             In = [X | In0],
             Q0In = cq_push_switch(Q0In0);
@@ -404,50 +420,60 @@ cqueue_in(X, Class, {Active, Last0, In0, Out, Q0In0, Q0Out, L}) ->
             In = cq_push_switch(In0),
             Q0In = [X | Q0In0]
     end,
-    {Active, Class, In, Out, Q0In, Q0Out, L + 1}.
+    {HeadLane, Class, In, Out, Q0In, Q0Out, L + 1}.
 
-cqueue_out({_Active, _Last, _, _, _, _, 0} = Q) ->
+cqueue_out({_HeadLane, _TailLane, _, _, _, _, 0} = Q) ->
     {empty, Q};
-cqueue_out({Active, Last, In, Out, Q0In, Q0Out, L}) ->
-    cqueue_out(Active, Last, In, Out, Q0In, Q0Out, L).
+cqueue_out({HeadLane, TailLane, In, Out, Q0In, Q0Out, L}) ->
+    cqueue_out(HeadLane, TailLane, In, Out, Q0In, Q0Out, L).
 
-cqueue_out(Active, Last, _, _, _, _, 0) ->
-    {empty, {Active, Last, [], [], [], [], 0}};
-cqueue_out(default, Last, In, Out, Q0In, Q0Out, L) ->
+cqueue_out(_HeadLane, _TailLane, _, _, _, _, 0) ->
+    {empty, cqueue_new()};
+cqueue_out(default, TL, In, Out, Q0In, Q0Out, L) ->
     case Out of
+        %% There's a switch marker on the head lane out-list: switch head lane and retry.
         [?switch | Rest] ->
-            cqueue_out(qos0, Last, In, Rest, Q0In, Q0Out, L);
+            cqueue_out(qos0, TL, In, Rest, Q0In, Q0Out, L);
         [?switch_(N) | Rest] ->
-            cqueue_out(qos0, Last, In, [cq_mk_switch(N - 1) | Rest], Q0In, Q0Out, L);
+            cqueue_out(qos0, TL, In, [cq_mk_switch(N - 1) | Rest], Q0In, Q0Out, L);
+        %% There's an element, emit it.
         [V | Rest] ->
-            {{value, V}, {default, Last, In, Rest, Q0In, Q0Out, L - 1}};
+            {{value, V}, {default, TL, In, Rest, Q0In, Q0Out, L - 1}};
+        %% Whole lane is empty, attempt to switch and retry.
+        %% Should be unreachable.
         [] when In =:= [] ->
-            cqueue_out(qos0, Last, In, Out, Q0In, Q0Out, L);
+            cqueue_out(qos0, TL, In, Out, Q0In, Q0Out, L);
+        %% Head lane out-list is empty, roll the in-list over and retry.
         [] ->
             NOut = lists:reverse(In, []),
-            cqueue_out(default, Last, [], NOut, Q0In, Q0Out, L)
+            cqueue_out(default, TL, [], NOut, Q0In, Q0Out, L)
     end;
-cqueue_out(qos0, Last, In, Out, Q0In, Q0Out, L) ->
+cqueue_out(qos0, TL, In, Out, Q0In, Q0Out, L) ->
     case Q0Out of
+        %% There's a switch marker on the head lane out-list: switch head lane and retry.
         [?switch | Rest] ->
-            cqueue_out(default, Last, In, Out, Q0In, Rest, L);
+            cqueue_out(default, TL, In, Out, Q0In, Rest, L);
         [?switch_(N) | Rest] ->
-            cqueue_out(default, Last, In, Out, Q0In, [cq_mk_switch(N - 1) | Rest], L);
+            cqueue_out(default, TL, In, Out, Q0In, [cq_mk_switch(N - 1) | Rest], L);
+        %% There's an element, emit it.
         [V | Rest] ->
-            {{value, V}, {qos0, Last, In, Out, Q0In, Rest, L - 1}};
+            {{value, V}, {qos0, TL, In, Out, Q0In, Rest, L - 1}};
+        %% Whole lane is empty, attempt to switch and retry.
+        %% Should be unreachable.
         [] when Q0In =:= [] ->
-            cqueue_out(default, Last, In, Out, Q0In, Q0Out, L);
+            cqueue_out(default, TL, In, Out, Q0In, Q0Out, L);
+        %% Head lane out-list is empty, roll the in-list over and retry.
         [] ->
             NOut = lists:reverse(Q0In, []),
-            cqueue_out(qos0, Last, In, Out, [], NOut, L)
+            cqueue_out(qos0, TL, In, Out, [], NOut, L)
     end.
 
-cqueue_filter(Pred, Active, Last, In, Out, Q0In, Q0Out) ->
+cqueue_filter(Pred, HeadLane, TailLane, In, Out, Q0In, Q0Out) ->
     {L1, FIn} = cqueue_filter_list(Pred, In),
     {L2, FOut} = cqueue_filter_list(Pred, Out),
     {L3, FQ0In} = cqueue_filter_list(Pred, Q0In),
     {L4, FQ0Out} = cqueue_filter_list(Pred, Q0Out),
-    {Active, Last, FIn, FOut, FQ0In, FQ0Out, L1 + L2 + L3 + L4}.
+    {HeadLane, TailLane, FIn, FOut, FQ0In, FQ0Out, L1 + L2 + L3 + L4}.
 
 cqueue_filter_list(Pred, L) ->
     lists:foldr(
@@ -466,38 +492,50 @@ cqueue_filter_list(Pred, L) ->
         L
     ).
 
-cqueue_drop({Active, Last, In, Out, Q0In, Q0Out, L}) ->
-    cqueue_drop(Active, Last, In, Out, Q0In, Q0Out, L).
+cqueue_drop({HeadLane, TailLane, In, Out, Q0In, Q0Out, L}) ->
+    cqueue_drop(HeadLane, TailLane, In, Out, Q0In, Q0Out, L).
 
-cqueue_drop(Active, Last, In, [?switch | Out], Q0In, [?switch | Q0Out], L) ->
-    cqueue_drop(Active, Last, In, Out, Q0In, Q0Out, L);
-cqueue_drop(Active, Last, In, [?switch | Out], Q0In, [?switch_(N) | Q0Out], L) ->
-    cqueue_drop(Active, Last, In, Out, Q0In, [cq_mk_switch(N - 1) | Q0Out], L);
-cqueue_drop(Active, Last, In, Out, Q0In, [], L) ->
+cqueue_drop(HL, TL, In, [?switch | Out], Q0In, [?switch | Q0Out], L) ->
+    %% Consume pair lane switches, must be leftovers from a previous drop.
+    cqueue_drop(HL, TL, In, Out, Q0In, Q0Out, L);
+cqueue_drop(HL, TL, In, [?switch | Out], Q0In, [?switch_(N) | Q0Out], L) ->
+    %% Consume pair lane switches, must be leftovers from a previous drop.
+    cqueue_drop(HL, TL, In, Out, Q0In, [cq_mk_switch(N - 1) | Q0Out], L);
+cqueue_drop(HL, TL, In, Out, Q0In, [], L) ->
     case Q0In of
         [] ->
-            cqueue_out(Active, Last, In, Out, [], [], L);
+            %% Whole `qos0` lane is empty, fall back to `default` lane.
+            cqueue_out(HL, TL, In, Out, [], [], L);
         _ ->
-            cqueue_drop(Active, Last, In, Out, [], lists:reverse(Q0In), L)
+            %% `qos0` lane out-list is empty, roll the in-list over and retry.
+            cqueue_drop(HL, TL, In, Out, [], lists:reverse(Q0In), L)
     end;
-cqueue_drop(Active, Last, In, Out, Q0In, Q0Out, L) ->
+cqueue_drop(HL, TL, In, Out, Q0In, Q0Out, L) ->
     case cqueue_scan_q0out(Q0Out, 0) of
         {Q0Switches, V, Q0Rest} ->
+            %% Found an element in `qos0` out-list: emit it and push combined switch marker back.
             NQ0Out = cq_push_switches(Q0Switches, Q0Rest),
-            {{value, V}, {Active, Last, In, Out, Q0In, NQ0Out, L - 1}};
+            {{value, V}, {HL, TL, In, Out, Q0In, NQ0Out, L - 1}};
         false when Q0In =:= [] ->
+            %% Found only switch markers and `qos0` in-list is empty: there's no `qos0` elements.
+            %% Switch to `default`-only queue, clean out all switch markers as there's nothing to
+            %% emit from `qos0` lane anymore.
             cqueue_out(default, default, cq_rm_switches(In), cq_rm_switches(Out), [], [], L);
         false ->
+            %% Roll the `qos0` in-list over and try to find an element.
             NQ0Out = lists:reverse(Q0In),
             case cqueue_scan_q0out(NQ0Out, 0) of
                 {Q0Switches, V, Q0Rest} ->
                     FQ0Out = Q0Out ++ cq_push_switches(Q0Switches, Q0Rest),
-                    {{value, V}, {Active, Last, In, Out, [], FQ0Out, L - 1}};
+                    {{value, V}, {HL, TL, In, Out, [], FQ0Out, L - 1}};
                 false ->
                     cqueue_out(default, default, cq_rm_switches(In), cq_rm_switches(Out), [], [], L)
             end
     end.
 
+%% Find a next element on `qos0` out-list, skipping over switch markers.
+%% Return `{<number of skipped lane switches>, <element>, <out-list tail>}` or `false` if
+%% there are only switch markers left.
 cqueue_scan_q0out([?switch | Rest], NSwitches) ->
     cqueue_scan_q0out(Rest, NSwitches + 1);
 cqueue_scan_q0out([?switch_(N) | Rest], NSwitches) ->
