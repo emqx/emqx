@@ -324,6 +324,7 @@ clientinfo(OldClientInfo) ->
             sockport,
             clientid,
             username,
+            listener,
             is_bridge,
             is_superuser,
             mountpoint
