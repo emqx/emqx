@@ -224,7 +224,7 @@ t_tcp_chunk_parsing_conn(_Config) ->
         Client = emqtt_connect_tcp({127, 0, 0, 1}, Port),
         pong = emqtt:ping(Client),
         CState = emqx_cth_broker:connection_state(Client),
-        ?assertMatch(#{listener := {tcp, ?FUNCTION_NAME}}, CState),
+        ?assertMatch({tcp, ?FUNCTION_NAME}, emqx_cth_broker:connection_info(listener, Client)),
         ?assertMatch(#{parser := Tuple} when element(1, Tuple) =:= options, CState)
     end).
 
@@ -258,10 +258,8 @@ t_ssl_chunk_parsing_conn(Config) ->
     with_listener(ssl, ?FUNCTION_NAME, Conf, fun() ->
         Client = emqtt_connect_ssl({127, 0, 0, 1}, Port, [{verify, verify_none}]),
         pong = emqtt:ping(Client),
-        ClientId = proplists:get_value(clientid, emqtt:info(Client)),
-        [CPid] = emqx_cm:lookup_channels(ClientId),
-        CState = emqx_connection:get_state(CPid),
-        ?assertMatch(#{listener := {ssl, ?FUNCTION_NAME}}, CState),
+        CState = emqx_cth_broker:connection_state(Client),
+        ?assertMatch({ssl, ?FUNCTION_NAME}, emqx_cth_broker:connection_info(listener, Client)),
         ?assertMatch(#{parser := Tuple} when element(1, Tuple) =:= options, CState)
     end).
 
