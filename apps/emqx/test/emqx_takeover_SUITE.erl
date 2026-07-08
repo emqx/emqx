@@ -12,6 +12,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(CNT, 100).
 -define(SLEEP, 10).
@@ -24,7 +25,8 @@ suite() ->
 
 all() ->
     [
-        {group, local}
+        {group, local},
+        {group, cluster}
     ].
 
 flaky_tests() ->
@@ -35,6 +37,11 @@ flaky_tests() ->
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
+    ClusterTCs = [
+        t_cluster_takeover,
+        t_cluster_takeover_legacy_node
+    ],
+    LocalTCs = TCs -- ClusterTCs,
     MemoryOnly = [t_chan_info_refreshed_after_takeover_replay],
     MqttV5Only = [
         t_session_expire_with_delayed_willmsg,
@@ -53,6 +60,7 @@ groups() ->
             {group, memory_sessions},
             {group, durable_sessions}
         ]},
+        {cluster, [], ClusterTCs},
         {durable_sessions, [], [
             {group, mqttv5_ds},
             {group, mqttv3_ds}
@@ -61,10 +69,10 @@ groups() ->
             {group, mqttv5_mem},
             {group, mqttv3_mem}
         ]},
-        {mqttv5_mem, [], TCs},
-        {mqttv3_mem, [], TCs -- MqttV5Only},
-        {mqttv3_ds, [], TCs -- MemoryOnly},
-        {mqttv5_ds, [], (TCs -- MemoryOnly) -- MqttV5Only}
+        {mqttv5_mem, [], LocalTCs},
+        {mqttv3_mem, [], LocalTCs -- MqttV5Only},
+        {mqttv5_ds, [], LocalTCs -- MemoryOnly},
+        {mqttv3_ds, [], (LocalTCs -- MemoryOnly) -- MqttV5Only}
     ].
 
 init_per_suite(Config) ->
@@ -76,6 +84,27 @@ end_per_suite(_Config) ->
 
 init_per_group(local, Config) ->
     Config;
+init_per_group(cluster = Group, Config) ->
+    WorkDir = emqx_cth_suite:work_dir(Group, Config),
+    Apps = [
+        {emqx, #{
+            config => "durable_sessions.enable = false",
+            after_start => fun() ->
+                emqx_config:force_put([rpc, mode], async)
+            end
+        }}
+    ],
+    NodeSpecs = [
+        {emqx_takeover1, #{apps => Apps, role => core}},
+        {emqx_takeover2, #{apps => Apps, role => core}}
+    ],
+    Nodes = emqx_cth_cluster:start(NodeSpecs, #{work_dir => WorkDir}),
+    [
+        {cluster, Nodes},
+        {session_type, memory},
+        {mqtt_vsn, v5}
+        | Config
+    ];
 init_per_group(durable_sessions = Group, Config) ->
     %% This testsuite is time-sensitive. Set aggressive retry settings
     %% to make sure takover happens faster:
@@ -114,6 +143,8 @@ end_per_group(durable_sessions, Config) ->
     emqx_common_test_helpers:run_cleanups(Config);
 end_per_group(memory_sessions, Config) ->
     emqx_cth_suite:stop(?config(apps, Config));
+end_per_group(cluster, Config) ->
+    emqx_cth_cluster:stop(?config(cluster, Config));
 end_per_group(_Group, _Config) ->
     ok.
 
@@ -776,6 +807,162 @@ t_chan_info_refreshed_after_takeover_replay(Config) ->
     ),
 
     emqtt:stop(ClientB).
+
+%%--------------------------------------------------------------------
+
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+
+%% Verify takeover works between different current-version nodes in the cluster
+%% across `emqx_cm_takeover` protocol.
+t_cluster_takeover(Config) ->
+    [OwnerNode, RequesterNode] = ?config(cluster, Config),
+    true = test_cluster_takeover(v4, OwnerNode, RequesterNode, Config).
+
+%% Verify takeover works between a current-version node and a legacy-version node
+%% in the cluster: legacy-version communication is simulated by forcing BPAPI v3.
+%% Verify response downgrade on the owner node and upgrade on the requester node.
+t_cluster_takeover_legacy_node(Config) ->
+    [OwnerNode, RequesterNode] = ?config(cluster, Config),
+    ?ON(RequesterNode, begin
+        meck:new(emqx_bpapi, [passthrough, no_link]),
+        meck:expect(emqx_bpapi, supported_version, fun
+            (Node, emqx_cm) when Node =:= OwnerNode ->
+                3;
+            (Node, Api) ->
+                meck:passthrough([Node, Api])
+        end)
+    end),
+    try
+        true = test_cluster_takeover(legacy, OwnerNode, RequesterNode, Config)
+    after
+        ?ON(RequesterNode, meck:unload(emqx_bpapi))
+    end.
+
+test_cluster_takeover(Protocol, OwnerNode, RequesterNode, Config) ->
+    ClientId = emqx_utils:format("~p-~p", [?FUNCTION_NAME, Protocol]),
+    Topic = <<ClientId/binary, "/t">>,
+    InflightPayload = <<ClientId/binary, "-inflight">>,
+    QueuedPayload1 = <<ClientId/binary, "-queued-1">>,
+    QueuedPayload2 = <<ClientId/binary, "-queued-2">>,
+    Messages = [
+        emqx_message:make(<<"takeover-publisher">>, ?QOS_1, Topic, P)
+     || P <- [InflightPayload, QueuedPayload1, QueuedPayload2]
+    ],
+    SmokePayload = <<ClientId/binary, "-smoke">>,
+    SmokeMessage = emqx_message:make(<<"takeover-publisher">>, ?QOS_1, Topic, SmokePayload),
+    ClientOpts = [
+        {proto_ver, v5},
+        {clean_start, false},
+        {properties, #{
+            'Session-Expiry-Interval' => 60,
+            'Receive-Maximum' => 1
+        }}
+    ],
+    ?check_trace(
+        begin
+            %% Connect a client to the Owner node:
+            Port1 = emqx_cth_cluster:get_tcp_mqtt_port(OwnerNode),
+            CPid1 = start_unlink_client(ClientId, [{port, Port1}, {auto_ack, false} | ClientOpts]),
+            {ok, _} = emqtt:connect(CPid1),
+            {ok, _, [?QOS_1]} = emqtt:subscribe(CPid1, Topic, ?QOS_1),
+            %% Publish 3 messages, 1 gets into inflight and 2 are queued:
+            ok = emqx_cth_cluster:sync_routes([OwnerNode, RequesterNode]),
+            ok = lists:foreach(
+                fun(Msg) -> ?ON(RequesterNode, emqx_broker:publish(Msg)) end,
+                Messages
+            ),
+            %% Receive single message that got into inflight:
+            ?assertReceive({publish, #{client_pid := CPid1, payload := InflightPayload}}),
+            ?assertNotReceive({publish, #{client_pid := CPid1}}),
+            %% Connect takeover client to the Requester node:
+            Port2 = emqx_cth_cluster:get_tcp_mqtt_port(RequesterNode),
+            CPid2 = start_unlink_client(ClientId, [{port, Port2}, {auto_ack, true} | ClientOpts]),
+            {ok, _} = emqtt:connect(CPid2),
+            %% Verify takeover took place:
+            assert_client_exit(CPid1, takenover, Config),
+            %% Verify inflight and mqueue were preserved:
+            ?assertReceive({publish, #{client_pid := CPid2, payload := InflightPayload}}),
+            ?assertReceive({publish, #{client_pid := CPid2, payload := QueuedPayload1}}),
+            ?assertReceive({publish, #{client_pid := CPid2, payload := QueuedPayload2}}),
+            %% Smoke test publishing continues to work:
+            ?ON(RequesterNode, emqx_broker:publish(SmokeMessage)),
+            ?assertReceive({publish, #{client_pid := CPid2, payload := SmokePayload}}),
+            emqtt:stop(CPid2)
+        end,
+        fun(Trace) ->
+            Events = ?of_kind(
+                [
+                    emqx_cm_takeover_begin,
+                    emqx_cm_takeover_begin_legacy,
+                    emqx_cm_takeover_begin_rpc,
+                    emqx_cm_takeover_begin_rpc_legacy,
+                    emqx_cm_takeover_finish,
+                    emqx_cm_takeover_finish_legacy,
+                    emqx_cm_takeover_finish_rpc,
+                    emqx_cm_takeover_finish_rpc_legacy
+                ],
+                Trace
+            ),
+            case Protocol of
+                v4 ->
+                    ?assertMatch(
+                        [
+                            #{
+                                ?snk_kind := emqx_cm_takeover_begin,
+                                ?snk_meta := #{node := RequesterNode},
+                                clientid := ClientId,
+                                target_node := OwnerNode,
+                                requester_proto := #{vsn := 1}
+                            },
+                            #{
+                                ?snk_kind := emqx_cm_takeover_begin_rpc,
+                                ?snk_meta := #{node := OwnerNode},
+                                clientid := ClientId,
+                                requester_proto := #{vsn := 1}
+                            },
+                            #{
+                                ?snk_kind := emqx_cm_takeover_finish,
+                                ?snk_meta := #{node := RequesterNode},
+                                target_node := OwnerNode,
+                                requester_proto := #{vsn := 1}
+                            },
+                            #{
+                                ?snk_meta := #{node := OwnerNode},
+                                ?snk_kind := emqx_cm_takeover_finish_rpc,
+                                requester_proto := #{vsn := 1}
+                            }
+                        ],
+                        Events
+                    );
+                legacy ->
+                    ?assertMatch(
+                        [
+                            #{
+                                ?snk_kind := emqx_cm_takeover_begin_legacy,
+                                ?snk_meta := #{node := RequesterNode},
+                                clientid := ClientId,
+                                target_node := OwnerNode
+                            },
+                            #{
+                                ?snk_kind := emqx_cm_takeover_begin_rpc_legacy,
+                                ?snk_meta := #{node := OwnerNode},
+                                clientid := ClientId
+                            },
+                            #{
+                                ?snk_kind := emqx_cm_takeover_finish_legacy,
+                                ?snk_meta := #{node := RequesterNode},
+                                target_node := OwnerNode
+                            },
+                            #{
+                                ?snk_kind := emqx_cm_takeover_finish_rpc_legacy,
+                                ?snk_meta := #{node := OwnerNode}
+                            }
+                        ],
+                        Events
+                    )
+            end
+        end
+    ).
 
 %%--------------------------------------------------------------------
 %% Commands

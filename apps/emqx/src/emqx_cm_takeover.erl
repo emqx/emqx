@@ -5,6 +5,7 @@
 -module(emqx_cm_takeover).
 
 -include("emqx_cm.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
     begin_/2,
@@ -59,12 +60,22 @@ current() ->
 begin_(ClientId, ChanPid) when node(ChanPid) =:= node() ->
     begin_local(ClientId, ChanPid);
 begin_(ClientId, ChanPid) ->
-    case emqx_bpapi:supported_version(node(ChanPid), ?BPAPI) of
+    TargetNode = node(ChanPid),
+    case emqx_bpapi:supported_version(TargetNode, ?BPAPI) of
         Vsn when is_integer(Vsn), Vsn >= ?BPAPI_VSN_BASELINE ->
             RequesterProto = current(),
+            ?tp(emqx_cm_takeover_begin, #{
+                clientid => ClientId,
+                target_node => TargetNode,
+                requester_proto => RequesterProto
+            }),
             Ret = emqx_cm_proto_v4:takeover_begin(ClientId, ChanPid, RequesterProto),
             from_begin_ret(Ret);
         _ ->
+            ?tp(emqx_cm_takeover_begin_legacy, #{
+                clientid => ClientId,
+                target_node => TargetNode
+            }),
             Ret = emqx_cm_proto_v3:takeover_session(ClientId, ChanPid),
             upgrade_begin_ret(Ret)
     end.
@@ -73,6 +84,11 @@ begin_(ClientId, ChanPid) ->
 -spec begin_rpc(emqx_types:clientid(), pid(), protocol()) ->
     {ok, channelref(), session()} | none.
 begin_rpc(ClientId, ChanPid, RequesterProto) ->
+    ?tp(emqx_cm_takeover_begin_rpc, #{
+        clientid => ClientId,
+        chanpid => ChanPid,
+        requester_proto => RequesterProto
+    }),
     Ret = begin_local(ClientId, ChanPid),
     to_begin_ret(RequesterProto, Ret).
 
@@ -83,6 +99,10 @@ See `emqx_cm:takeover_session/2`.
 -spec begin_rpc_legacy(emqx_types:clientid(), pid()) ->
     {living, module(), emqx_cm:chan_pid(), session_legacy()} | none.
 begin_rpc_legacy(ClientId, ChanPid) ->
+    ?tp(emqx_cm_takeover_begin_rpc_legacy, #{
+        clientid => ClientId,
+        chanpid => ChanPid
+    }),
     case emqx_cm:do_get_chan_info(ClientId, ChanPid) of
         undefined ->
             none;
@@ -151,9 +171,15 @@ finish(#chanref{proto = local, connmod = ConnMod, pid = ChanPid}) when node(Chan
     finish_local(ConnMod, ChanPid);
 finish(#chanref{proto = #{} = ServerProto, connmod = ConnMod, pid = ChanPid}) ->
     RequesterProto = current(),
+    ?tp(emqx_cm_takeover_finish, #{
+        target_node => node(ChanPid),
+        target_proto => ServerProto,
+        requester_proto => RequesterProto
+    }),
     Ret = emqx_cm_proto_v4:takeover_finish(ConnMod, ChanPid, RequesterProto),
     from_finish_ret(ServerProto, Ret);
 finish(#chanref{proto = legacy, connmod = ConnMod, pid = ChanPid}) ->
+    ?tp(emqx_cm_takeover_finish_legacy, #{target_node => node(ChanPid)}),
     Ret = emqx_cm_proto_v3:takeover_finish(ConnMod, ChanPid),
     from_finish_ret(legacy, Ret).
 
@@ -161,6 +187,10 @@ finish(#chanref{proto = legacy, connmod = ConnMod, pid = ChanPid}) ->
 -spec finish_rpc(module(), emqx_cm:chan_pid(), legacy | protocol()) ->
     {ok, _Pendings} | {error, term()}.
 finish_rpc(ConnMod, ChanPid, RequesterProto) ->
+    ?tp(emqx_cm_takeover_finish_rpc, #{
+        chanpid => ChanPid,
+        requester_proto => RequesterProto
+    }),
     Ret = finish_local(ConnMod, ChanPid),
     to_finish_ret(RequesterProto, Ret).
 
@@ -171,6 +201,7 @@ See `emqx_cm:takeover_finish/2`.
 -spec finish_rpc_legacy(module(), emqx_cm:chan_pid()) ->
     {ok, _Pendings} | {error, term()}.
 finish_rpc_legacy(ConnMod, ChanPid) ->
+    ?tp(emqx_cm_takeover_finish_rpc_legacy, #{chanpid => ChanPid}),
     Ret = finish_local(ConnMod, ChanPid),
     to_finish_ret(legacy, Ret).
 
