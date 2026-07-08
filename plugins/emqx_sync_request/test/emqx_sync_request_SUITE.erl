@@ -36,10 +36,12 @@ all() ->
         t_http_request_requires_management_api_auth,
         t_http_request_returns_offline_without_subscribers,
         t_http_request_does_not_match_wildcard_subscriber,
+        t_http_request_rejects_shared_subscription,
         t_http_request_times_out_without_response,
         t_http_request_rejects_response_payload_too_large,
         t_http_request_rejects_when_http_inflight_limit_reached,
         t_http_request_rejects_multiple_exact_subscribers,
+        t_http_request_rejects_sharded_exact_subscribers,
         t_mqtt5_response_ignores_mismatched_correlation_data,
         t_http_request_matches_mqtt3_response_by_topic_sequence,
         t_mqtt3_concurrent_requests_match_response_topic_sequence,
@@ -489,6 +491,37 @@ t_http_request_does_not_match_wildcard_subscriber(_Config) ->
         stop_client(Responder)
     end.
 
+t_http_request_rejects_shared_subscription(_Config) ->
+    Parent = self(),
+    ReqTopic = <<"sync_request/shared/request">>,
+    RespTopic = <<"sync_request/shared/response">>,
+    {ok, Responder} = start_blackhole_responder(
+        <<"sync_request_shared_blackhole">>,
+        <<"$share/sync_request_group/sync_request/shared/request">>,
+        fun(Payload) -> Parent ! {shared_request_seen, Payload} end
+    ),
+    try
+        Body = request_body(
+            ReqTopic,
+            RespTopic,
+            <<"shared-request-id">>,
+            #{timeout => <<"100ms">>}
+        ),
+        {Status, ResponseMap} = do_http_request(Body),
+        ?assertEqual(409, Status),
+        ?assertMatch(
+            #{
+                <<"status">> := <<"UNKNOWN">>,
+                <<"reason">> := <<"multiple_subscribers">>
+            },
+            ResponseMap
+        ),
+        ?assertEqual(false, maps:is_key(<<"response">>, ResponseMap)),
+        ?assertNotReceive({shared_request_seen, _}, 200)
+    after
+        stop_client(Responder)
+    end.
+
 t_http_request_times_out_without_response(_Config) ->
     Parent = self(),
     ReqTopic = <<"sync_request/timeout/request">>,
@@ -659,6 +692,45 @@ t_http_request_rejects_multiple_exact_subscribers(_Config) ->
         ),
         ?assertEqual(false, maps:is_key(<<"response">>, ResponseMap)),
         ?assertNotReceive({multiple_subscribers_seen, _}, 200)
+    after
+        stop_client(Responder1),
+        stop_client(Responder2)
+    end.
+
+t_http_request_rejects_sharded_exact_subscribers(_Config) ->
+    Parent = self(),
+    ReqTopic = <<"sync_request/sharded-subscribers/request">>,
+    RespTopic = <<"sync_request/sharded-subscribers/response">>,
+    force_nonzero_subscription_shard(ReqTopic),
+    {ok, Responder1} = start_blackhole_responder(
+        <<"sync_request_sharded_subscribers_blackhole_1">>,
+        ReqTopic,
+        fun(Payload) -> Parent ! {sharded_subscribers_seen, Payload} end
+    ),
+    {ok, Responder2} = start_blackhole_responder(
+        <<"sync_request_sharded_subscribers_blackhole_2">>,
+        ReqTopic,
+        fun(Payload) -> Parent ! {sharded_subscribers_seen, Payload} end
+    ),
+    try
+        ?assert(lists:any(fun is_shard_subscriber/1, emqx_broker:subscribers(ReqTopic))),
+        Body = request_body(
+            ReqTopic,
+            RespTopic,
+            <<"sharded-subscribers-request-id">>,
+            #{timeout => <<"100ms">>}
+        ),
+        {Status, ResponseMap} = do_http_request(Body),
+        ?assertEqual(409, Status),
+        ?assertMatch(
+            #{
+                <<"status">> := <<"UNKNOWN">>,
+                <<"reason">> := <<"multiple_subscribers">>
+            },
+            ResponseMap
+        ),
+        ?assertEqual(false, maps:is_key(<<"response">>, ResponseMap)),
+        ?assertNotReceive({sharded_subscribers_seen, _}, 200)
     after
         stop_client(Responder1),
         stop_client(Responder2)
@@ -1055,6 +1127,17 @@ wait_for_subscribers(Topic, ExpectedCount, Attempts) when Attempts > 0 ->
     end;
 wait_for_subscribers(Topic, ExpectedCount, 0) ->
     error({subscribers_not_ready, Topic, ExpectedCount, emqx:subscribers(Topic)}).
+
+force_nonzero_subscription_shard(Topic) ->
+    lists:foreach(
+        fun(_) -> _ = emqx_broker_helper:get_sub_shard(self(), Topic) end,
+        lists:seq(1, 1025)
+    ).
+
+is_shard_subscriber({shard, _}) ->
+    true;
+is_shard_subscriber(_) ->
+    false.
 
 start_blackhole_responder(ClientId, ReqTopic, OnRequest) ->
     start_blackhole_responder(v5, ClientId, ReqTopic, OnRequest).
