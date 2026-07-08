@@ -6,8 +6,6 @@
 -define(EMQX_SESSION_MEM_HRL, true).
 
 -record(session, {
-    %% Client's id
-    clientid :: emqx_types:clientid(),
     id :: emqx_session:session_id(),
     %% Is this session a persistent session i.e. was it started with Session-Expiry > 0
     is_persistent :: boolean(),

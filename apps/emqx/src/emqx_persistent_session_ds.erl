@@ -53,8 +53,8 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
 ]).
 
 -export([
-    subscribe/3,
-    unsubscribe/2,
+    subscribe/4,
+    unsubscribe/3,
     get_subscription/2
 ]).
 
@@ -353,8 +353,6 @@ info(Keys, Session) when is_list(Keys) ->
     [{Key, info(Key, Session)} || Key <- Keys];
 info(id, #{id := ClientID}) ->
     ClientID;
-info(clientid, #{id := ClientID}) ->
-    ClientID;
 info(durable, _) ->
     true;
 info(created_at, #{s := S}) ->
@@ -454,16 +452,16 @@ print_session(ClientID) ->
 %% Client -> Broker: SUBSCRIBE / UNSUBSCRIBE
 %%--------------------------------------------------------------------
 
--spec subscribe(topic_filter(), emqx_types:subopts(), session()) ->
+-spec subscribe(emqx_types:clientinfo(), topic_filter(), emqx_types:subopts(), session()) ->
     {ok, session()} | {error, emqx_types:reason_code()}.
-subscribe(#share{} = TopicFilter, SubOpts, Session0) ->
+subscribe(_ClientInfo, #share{} = TopicFilter, SubOpts, Session0) ->
     case emqx_persistent_session_ds_shared_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
         {ok, Session} ->
             {ok, async_checkpoint(Session)};
         Error = {error, _} ->
             Error
     end;
-subscribe(TopicFilter, SubOpts, Session0) ->
+subscribe(_ClientInfo, TopicFilter, SubOpts, Session0) ->
     case emqx_persistent_session_ds_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
         {Ok, NewMode, Session, _Subscription} when
             Ok =:= ok;
@@ -480,9 +478,9 @@ subscribe(TopicFilter, SubOpts, Session0) ->
             Error
     end.
 
--spec unsubscribe(topic_filter(), session()) ->
+-spec unsubscribe(emqx_types:clientinfo(), topic_filter(), session()) ->
     {ok, session(), emqx_types:subopts()} | {error, emqx_types:reason_code()}.
-unsubscribe(TopicFilter, Session0) ->
+unsubscribe(_ClientInfo, TopicFilter, Session0) ->
     Ret =
         case TopicFilter of
             #share{} ->

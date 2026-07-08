@@ -130,7 +130,6 @@ sessioninfo() ->
     ?LET(
         Session,
         #session{
-            clientid = clientid(),
             id = sessionid(),
             is_persistent = boolean(),
             subscriptions = subscriptions(),

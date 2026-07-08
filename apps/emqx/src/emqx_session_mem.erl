@@ -59,8 +59,8 @@
 ]).
 
 -export([
-    subscribe/3,
-    unsubscribe/2,
+    subscribe/4,
+    unsubscribe/3,
     get_subscription/2
 ]).
 
@@ -189,7 +189,7 @@
 -spec create(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     session().
 create(
-    #{zone := Zone, clientid := ClientId} = ClientInfo,
+    #{zone := Zone} = ClientInfo,
     #{expiry_interval := EI, receive_maximum := ReceiveMax},
     _MaybeWillMsg,
     Conf
@@ -198,7 +198,6 @@ create(
     Limiter = create_limiter(ClientInfo, Conf),
     #session{
         id = emqx_guid:gen(),
-        clientid = ClientId,
         created_at = erlang:system_time(millisecond),
         is_persistent = EI > 0,
         subscriptions = #{},
@@ -317,7 +316,7 @@ export_inflight_entry(
     }.
 
 -spec import(clientinfo(), persistent()) -> session().
-import(ClientInfo = #{clientid := ClientId}, #{
+import(ClientInfo, #{
     id := Id,
     is_persistent := IsPersistent,
     subscriptions := Subscriptions,
@@ -328,7 +327,6 @@ import(ClientInfo = #{clientid := ClientId}, #{
     created_at := CreatedAt
 }) ->
     #session{
-        clientid = ClientId,
         id = Id,
         is_persistent = IsPersistent,
         subscriptions = Subscriptions,
@@ -372,8 +370,6 @@ info(Keys, Session) when is_list(Keys) ->
     [{Key, info(Key, Session)} || Key <- Keys];
 info(id, #session{id = Id}) ->
     Id;
-info(clientid, #session{clientid = ClientId}) ->
-    ClientId;
 info(created_at, #session{created_at = CreatedAt}) ->
     CreatedAt;
 info(is_persistent, #session{is_persistent = IsPersistent}) ->
@@ -427,12 +423,13 @@ stats(Session) -> info(?STATS_KEYS, Session).
 %% Client -> Broker: SUBSCRIBE / UNSUBSCRIBE
 %%--------------------------------------------------------------------
 
--spec subscribe(emqx_types:topic(), emqx_types:subopts(), session()) ->
+-spec subscribe(emqx_types:clientinfo(), emqx_types:topic(), emqx_types:subopts(), session()) ->
     {ok, session()} | {error, emqx_types:reason_code()}.
 subscribe(
+    _ClientInfo = #{clientid := ClientId},
     TopicFilter,
     SubOpts,
-    Session = #session{clientid = ClientId, subscriptions = Subs}
+    Session = #session{subscriptions = Subs}
 ) ->
     IsNew = not maps:is_key(TopicFilter, Subs),
     Monitor = maybe_mointor(),
@@ -469,9 +466,10 @@ is_subscriptions_full(#session{
 }) ->
     maps:size(Subs) >= MaxLimit.
 
--spec unsubscribe(emqx_types:topic(), session()) ->
+-spec unsubscribe(emqx_types:clientinfo(), emqx_types:topic(), session()) ->
     {ok, session(), emqx_types:subopts()} | {error, emqx_types:reason_code()}.
 unsubscribe(
+    _ClientInfo,
     TopicFilter,
     Session = #session{subscriptions = Subs}
 ) ->

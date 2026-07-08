@@ -212,10 +212,15 @@
 -callback get_subscription(emqx_types:topic(), t()) ->
     emqx_types:subopts() | undefined.
 
--callback subscribe(emqx_types:topic() | emqx_types:share(), emqx_types:subopts(), t()) ->
+-callback subscribe(
+    emqx_types:clientinfo(),
+    emqx_types:topic() | emqx_types:share(),
+    emqx_types:subopts(),
+    t()
+) ->
     {ok, t()} | {error, emqx_types:reason_code()}.
 
--callback unsubscribe(emqx_types:topic(), t()) ->
+-callback unsubscribe(emqx_types:clientinfo(), emqx_types:topic(), t()) ->
     {ok, t(), emqx_types:subopts()}
     | {error, emqx_types:reason_code()}.
 
@@ -344,7 +349,7 @@ destroy(Session) ->
     {ok, t()} | {error, emqx_types:reason_code()}.
 subscribe(ClientInfo, TopicFilter, SubOpts, Session) ->
     SubOpts0 = ?IMPL(Session):get_subscription(TopicFilter, Session),
-    case ?IMPL(Session):subscribe(TopicFilter, SubOpts, Session) of
+    case ?IMPL(Session):subscribe(ClientInfo, TopicFilter, SubOpts, Session) of
         {ok, Session1} ->
             ok = emqx_hooks:run(
                 'session.subscribed',
@@ -368,7 +373,7 @@ unsubscribe(
     UnSubOpts,
     Session
 ) ->
-    case ?IMPL(Session):unsubscribe(TopicFilter, Session) of
+    case ?IMPL(Session):unsubscribe(ClientInfo, TopicFilter, Session) of
         {ok, Session1, SubOpts} ->
             ok = emqx_hooks:run(
                 'session.unsubscribed',
