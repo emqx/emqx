@@ -716,13 +716,30 @@ deliver(
 ) ->
     %% Ensure `maybe_ack` is called here, even if rate limit is hit.
     Publish = {undefined, maybe_ack(Msg)},
+    InflightFull = emqx_inflight:is_full(Inflight),
     case try_consume_delivery_rate_limit(Msg, L0) of
-        {true, Limiter} when not Congested ->
+        {true, Limiter} when not Congested andalso not InflightFull ->
+            %% Push QoS0 directly to the channel if no queue ordering needs to be preserved.
             Acc = [Publish | Acc0],
             deliver(ClientInfo, Congested, S, More, Acc, Q0, Inflight, Limiter, PktId);
         {true, Limiter} when Congested ->
+            %% Push QoS0 to the mqueue if connection is sendq-congested.
             Q = enqueue_msg(ClientInfo, Msg, Q0),
             deliver(ClientInfo, Congested, S, More, Acc0, Q, Inflight, Limiter, PktId);
+        {true, Limiter} when InflightFull ->
+            %% Push QoS0 to the mqueue if inflight is full.
+            %% This is important because if it's full, the mqueue may contain QoS0
+            %% deliveries that were not drained by recent `dequeue/2`, and that should
+            %% be seen by the client earlier than `Msg` due to ordering requirements.
+            case enqueue_msg_qos0(ClientInfo, Msg, Q0) of
+                %% Mqueue does not keep QoS0 messages anyway, push to the channel:
+                false ->
+                    Q = Q0,
+                    Acc = [Publish | Acc0];
+                Q ->
+                    Acc = Acc0
+            end,
+            deliver(ClientInfo, Congested, S, More, Acc, Q, Inflight, Limiter, PktId);
         {false, Limiter, _Reason} ->
             deliver(ClientInfo, Congested, S, More, Acc0, Q0, Inflight, Limiter, PktId)
     end;
@@ -802,6 +819,23 @@ enqueue_msg(ClientInfo, Msg, Q) ->
                 }}
             ),
             Q
+    end.
+
+enqueue_msg_qos0(ClientInfo, Msg, Q) ->
+    case emqx_mqueue:in(Msg, Q) of
+        {undefined, NQ} ->
+            NQ;
+        {Dropped, NQ} ->
+            emqx_session_events:handle_event(
+                ClientInfo,
+                {dropped, Dropped, #{
+                    reason => queue_full,
+                    logctx => #{queue => emqx_mqueue:info(NQ)}
+                }}
+            ),
+            NQ;
+        false ->
+            false
     end.
 
 maybe_ack(Msg) ->

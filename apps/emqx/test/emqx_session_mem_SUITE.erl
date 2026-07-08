@@ -488,6 +488,47 @@ t_deliver_when_inflight_is_full(_) ->
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg1)),
     ?assertEqual(<<"t2">>, emqx_message:topic(Msg2)).
 
+t_deliver_qos0_when_inflight_is_full(_) ->
+    Session = session(#{inflight => emqx_inflight:new(1)}),
+    Delivers = enrich([delivery(?QOS_1, <<"t1">>), delivery(?QOS_0, <<"t0">>)], Session),
+    {ok, [{1, Msg1}], Session1} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session),
+    ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session1)),
+    ?assertEqual(1, emqx_session_mem:info(mqueue_len, Session1)),
+    ?assertEqual(<<"t1">>, emqx_message:topic(Msg1)),
+    {ok, Msg1T, [{undefined, Msg0}], Session2} =
+        emqx_session_mem:puback(clientinfo(), 1, Session1),
+    ?assertEqual(<<"t1">>, emqx_message:topic(Msg1T)),
+    ?assertEqual(<<"t0">>, emqx_message:topic(Msg0)),
+    ?assertEqual(0, emqx_session_mem:info(inflight_cnt, Session2)),
+    ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session2)).
+
+t_deliver_qos0_when_inflight_is_full_no_store_qos0(_) ->
+    Session = session(#{
+        inflight => emqx_inflight:new(1),
+        mqueue => mqueue(#{store_qos0 => false})
+    }),
+    Delivers = enrich([delivery(?QOS_1, <<"t1">>), delivery(?QOS_0, <<"t0">>)], Session),
+    {ok, [{1, Msg1}, {undefined, Msg0}], Session1} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session),
+    ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session1)),
+    ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session1)),
+    ?assertEqual(<<"t1">>, emqx_message:topic(Msg1)),
+    ?assertEqual(<<"t0">>, emqx_message:topic(Msg0)).
+
+t_deliver_qos0_when_congested_no_store_qos0(_) ->
+    DroppedBefore = emqx_metrics:val_global('delivery.dropped.qos0_msg'),
+    Session = session(#{mqueue => mqueue(#{store_qos0 => false})}),
+    Delivers = enrich([delivery(?QOS_0, <<"t0">>)], Session),
+    {ok, [], Session1} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, [congested], Session),
+    ?assertEqual(0, emqx_session_mem:info(inflight_cnt, Session1)),
+    ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session1)),
+    ?assertEqual(
+        DroppedBefore + 1,
+        emqx_metrics:val_global('delivery.dropped.qos0_msg')
+    ).
+
 t_enqueue(_) ->
     Session = session(#{mqueue => mqueue(#{max_len => 3, store_qos0 => true})}),
     Session1 = emqx_session_mem:enqueue(
