@@ -7,6 +7,7 @@
 -behaviour(gen_server).
 
 -include("emqx_sync_request.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_external_trace.hrl").
@@ -37,7 +38,8 @@
 %% Internal RPC targets
 -export([
     cleanup_remote_pending/1,
-    complete_remote_request/2
+    complete_remote_request/2,
+    dispatch_remote_request/1
 ]).
 
 %% gen_server callbacks
@@ -193,27 +195,95 @@ do_request(Req0, Config) ->
             },
             true = ets:insert_new(?REQ_TAB, {ReqRef, Req}),
             Message = make_request_message(Req),
-            case emqx_mgmt:publish(Message) of
-                PublishResult when is_list(PublishResult) ->
-                    handle_publish_result(PublishResult, ReqRef, TimeoutMs);
-                PublishError ->
+            dispatch_request(Message, ReqRef, TimeoutMs)
+    end.
+
+dispatch_request(Message = #message{topic = Topic}, ReqRef, TimeoutMs) ->
+    case exact_route_node(Topic) of
+        no_subscribers ->
+            cleanup_request(ReqRef),
+            {404, error_body(?STATUS_OFFLINE, <<"no_subscribers">>)};
+        multiple_subscribers ->
+            cleanup_request(ReqRef),
+            {409, error_body(?STATUS_UNKNOWN, <<"multiple_subscribers">>)};
+        {ok, Node} ->
+            case dispatch_to_node(Node, Message, TimeoutMs) of
+                ok ->
+                    wait_for_response(ReqRef, TimeoutMs);
+                no_subscribers ->
+                    cleanup_request(ReqRef),
+                    {404, error_body(?STATUS_OFFLINE, <<"no_subscribers">>)};
+                multiple_subscribers ->
+                    cleanup_request(ReqRef),
+                    {409, error_body(?STATUS_UNKNOWN, <<"multiple_subscribers">>)};
+                {error, Reason} ->
                     cleanup_request(ReqRef),
                     ?SLOG(warning, #{
-                        msg => "sync_request_publish_failed",
-                        reason => PublishError
+                        msg => "sync_request_dispatch_failed",
+                        reason => Reason
                     }),
-                    {503, error_body(?STATUS_UNKNOWN, <<"failed_to_publish_request">>)}
+                    {503, error_body(?STATUS_UNKNOWN, <<"failed_to_dispatch_request">>)}
             end
     end.
 
-handle_publish_result(PublishResult, ReqRef, TimeoutMs) ->
-    case has_deliverable_subscriber(PublishResult) of
-        false ->
-            cleanup_request(ReqRef),
-            {404, error_body(?STATUS_OFFLINE, <<"no_subscribers">>)};
+exact_route_node(Topic) ->
+    Routes = emqx_router:lookup_routes(Topic),
+    case lists:any(fun is_shared_route/1, Routes) of
         true ->
-            wait_for_response(ReqRef, TimeoutMs)
+            multiple_subscribers;
+        false ->
+            Nodes = lists:usort([
+                Node
+             || #route{dest = Node} <- Routes,
+                is_atom(Node),
+                emqx_router_helper:is_routable(Node)
+            ]),
+            case Nodes of
+                [] -> no_subscribers;
+                [Node] -> {ok, Node};
+                [_ | _] -> multiple_subscribers
+            end
     end.
+
+is_shared_route(#route{dest = {_Group, _Node}}) ->
+    true;
+is_shared_route(_) ->
+    false.
+
+dispatch_to_node(Node, Message, _TimeoutMs) when Node =:= node() ->
+    dispatch_local_request(Message);
+dispatch_to_node(Node, Message, TimeoutMs) ->
+    try erpc:call(Node, ?MODULE, dispatch_remote_request, [Message], TimeoutMs) of
+        Result ->
+            Result
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(warning, #{
+                msg => "sync_request_remote_dispatch_failed",
+                node => Node,
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            {error, Reason}
+    end.
+
+dispatch_remote_request(Message) ->
+    dispatch_local_request(Message).
+
+dispatch_local_request(#message{topic = Topic} = Message) ->
+    case local_subscribers(Topic) of
+        [] ->
+            no_subscribers;
+        [SubPid] ->
+            SubPid ! {deliver, Topic, Message},
+            ok;
+        [_ | _] ->
+            multiple_subscribers
+    end.
+
+local_subscribers(Topic) ->
+    [SubPid || SubPid <- emqx_broker:subscribers(Topic), is_process_alive(SubPid)].
 
 wait_for_response(ReqRef, TimeoutMs) ->
     receive
@@ -227,16 +297,6 @@ wait_for_response(ReqRef, TimeoutMs) ->
         cleanup_request(ReqRef),
         {504, error_body(?STATUS_TIMEOUT, <<"timeout">>)}
     end.
-
-has_deliverable_subscriber([]) ->
-    false;
-has_deliverable_subscriber(PublishResult) ->
-    lists:any(fun is_ok_deliver/1, PublishResult).
-
-is_ok_deliver({_NodeOrShare, _MatchedTopic, ok}) -> true;
-is_ok_deliver({_NodeOrShare, _MatchedTopic, {ok, _}}) -> true;
-is_ok_deliver(persisted) -> true;
-is_ok_deliver(_) -> false.
 
 make_request_message(Req) ->
     Props0 = #{
