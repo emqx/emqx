@@ -193,10 +193,8 @@ apps() ->
     [
         App
      || {App, _, _} <- application:loaded_applications(),
-        case re:run(atom_to_list(App), "^emqx") of
-            {match, [{0, 4}]} -> true;
-            _ -> false
-        end
+        emqx_machine_boot:is_umbrella_app(App),
+        emqx_machine_features:is_umbrella_application_enabled(App)
     ].
 
 listeners(Listeners) ->
