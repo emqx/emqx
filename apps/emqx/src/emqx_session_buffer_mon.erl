@@ -219,32 +219,8 @@ init([]) ->
 handle_call({run_top, Opts0}, _From, State = #{top := undefined}) ->
     Opts = normalize_top_opts(Opts0),
     case ensure_out_file_absent(maps:get(out, Opts)) of
-        ok ->
-            Nodes = lists:usort([node() | top_scan_nodes()]),
-            RemoteNodes = Nodes -- [node()],
-            CollectorOpts = Opts#{collector => node(), nodes => Nodes},
-            RemoteReq = maps:without([out], CollectorOpts),
-            {StartedRemoteNodes, BadReplies} = start_remote_top_scans(RemoteNodes, RemoteReq),
-            PendingNodes = lists:usort([node() | StartedRemoteNodes]),
-            Top = #{
-                role => collector,
-                scan_id => maps:get(scan_id, Opts),
-                opts => CollectorOpts,
-                nodes => Nodes,
-                pending => PendingNodes,
-                rows_by_node => #{},
-                bad_replies => BadReplies,
-                local => new_local_top_scan(Opts),
-                timeout_timer => undefined
-            },
-            Top1 = schedule_top_timeout(Top),
-            State1 = State#{
-                top := Top1,
-                top_status := top_running_status(Top1)
-            },
-            {reply, {ok, maps:get(scan_id, Opts)}, schedule_top_tick(State1, 0)};
-        {error, Reason} ->
-            {reply, {error, Reason}, State}
+        ok -> start_collector_top(Opts, State);
+        {error, Reason} -> {reply, {error, Reason}, State}
     end;
 handle_call({run_top, _Opts}, _From, State) ->
     {reply, {error, busy}, State};
@@ -343,6 +319,31 @@ top_start_reply({ok, {ok, accepted}}) -> ok;
 top_start_reply({ok, {error, Reason}}) -> {error, Reason};
 top_start_reply({error, Reason}) -> {error, Reason};
 top_start_reply(Reply) -> {error, Reply}.
+
+start_collector_top(Opts, State) ->
+    Nodes = lists:usort([node() | top_scan_nodes()]),
+    RemoteNodes = Nodes -- [node()],
+    CollectorOpts = Opts#{collector => node(), nodes => Nodes},
+    RemoteReq = maps:without([out], CollectorOpts),
+    {StartedRemoteNodes, BadReplies} = start_remote_top_scans(RemoteNodes, RemoteReq),
+    PendingNodes = lists:usort([node() | StartedRemoteNodes]),
+    Top = #{
+        role => collector,
+        scan_id => maps:get(scan_id, Opts),
+        opts => CollectorOpts,
+        nodes => Nodes,
+        pending => PendingNodes,
+        rows_by_node => #{},
+        bad_replies => BadReplies,
+        local => new_local_top_scan(Opts),
+        timeout_timer => undefined
+    },
+    Top1 = schedule_top_timeout(Top),
+    State1 = State#{
+        top := Top1,
+        top_status := top_running_status(Top1)
+    },
+    {reply, {ok, maps:get(scan_id, Opts)}, schedule_top_tick(State1, 0)}.
 
 cancel_remote_top_scans([], _ScanId) ->
     ok;
@@ -588,7 +589,7 @@ sort_metric(total_payload_bytes) ->
     total_payload_bytes.
 
 write_csv(OutFile, Rows) ->
-    case file:open(OutFile, [write, exclusive, raw, binary]) of
+    case open_new_csv_file(OutFile) of
         {ok, IoDev} ->
             try
                 write_csv_chunks(IoDev, [
@@ -601,6 +602,9 @@ write_csv(OutFile, Rows) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+open_new_csv_file(OutFile) ->
+    file:open(OutFile, [write, exclusive, raw, binary]).
 
 write_csv_chunks(_IoDev, []) ->
     ok;
