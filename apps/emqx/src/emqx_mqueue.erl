@@ -272,7 +272,7 @@ in(
     MQ =
         #mqueue{
             prios = Prios,
-            q = Q,
+            q = Q0,
             max_len = MaxLen,
             dropped = Dropped
         } = MQ
@@ -282,7 +282,7 @@ in(
             ?QOS_0 -> qos0;
             _ -> default
         end,
-    Priority =
+    Prio =
         case Prios of
             %% MICRO-OPTIMIZATION: When there is no priority table defined (from config),
             %% disregard default priority from config, always use lowest (?LOWEST_PRIORITY=0)
@@ -293,17 +293,14 @@ in(
             #prios{t = PTab, default = Dp} ->
                 maps:get(Topic, PTab, Dp)
         end,
-    Msg1 = with_ts(Msg),
-    PLen = emqx_pqueue:plen(Priority, Q),
-    case MaxLen =/= ?MAX_LEN_INFINITY andalso PLen =:= MaxLen of
-        true ->
-            %% reached max length, drop the oldest message
-            {{value, DroppedMsg}, Q1} = emqx_pqueue:drop(Priority, Q),
-            Q2 = emqx_pqueue:in(Msg1, Priority, Class, Q1),
-            {DroppedMsg, MQ#mqueue{q = Q2, dropped = Dropped + 1}};
+    Q1 = emqx_pqueue:in(with_ts(Msg), Prio, Class, Q0),
+    case MaxLen =/= ?MAX_LEN_INFINITY andalso emqx_pqueue:plen(Prio, Q1) > MaxLen of
         false ->
-            Q1 = emqx_pqueue:in(Msg1, Priority, Class, Q),
-            {_DroppedMsg = undefined, MQ#mqueue{q = Q1}}
+            {_DroppedMsg = undefined, MQ#mqueue{q = Q1}};
+        true ->
+            %% Reached max length: drop the oldest least important message.
+            {{value, DroppedMsg}, Q2} = emqx_pqueue:drop(Prio, Q1),
+            {DroppedMsg, MQ#mqueue{q = Q2, dropped = Dropped + 1}}
     end.
 
 -spec out(mqueue()) -> {empty | {value, message()}, mqueue()}.

@@ -288,6 +288,25 @@ t_dropped_qos0_first(_) ->
         drain(Q4)
     ).
 
+t_dropped_incoming_qos0_first(_) ->
+    Opts = #{max_len => 3, store_qos0 => true},
+    Q0 = ?Q:init(Opts),
+    Msg1 = emqx_message:make(?MODULE, ?QOS_1, ~"t", ~"qos1-1"),
+    Msg2 = emqx_message:make(?MODULE, ?QOS_1, ~"t", ~"qos1-2"),
+    Msg3 = emqx_message:make(?MODULE, ?QOS_2, ~"t", ~"qos2-3"),
+    Msg4 = emqx_message:make(?MODULE, ?QOS_0, ~"t", ~"qos0-4"),
+    {undefined, Q1} = ?Q:in(Msg1, Q0),
+    {undefined, Q2} = ?Q:in(Msg2, Q1),
+    {undefined, Q3} = ?Q:in(Msg3, Q2),
+    {Dropped, Q4} = ?Q:in(Msg4, Q3),
+    ?assertEqual(<<"qos0-4">>, emqx_message:payload(Dropped)),
+    ?assertEqual(1, ?Q:dropped(Q4)),
+    ?assertEqual(3, ?Q:len(Q4)),
+    ?assertEqual(
+        [{~"t", ~"qos1-1"}, {~"t", ~"qos1-2"}, {~"t", ~"qos2-3"}],
+        drain(Q4)
+    ).
+
 t_query(_) ->
     EmptyQ = ?Q:init(#{max_len => 500, store_qos0 => true}),
     ?assertEqual({[], #{position => none, start => none}}, ?Q:query(EmptyQ, #{limit => 50})),
