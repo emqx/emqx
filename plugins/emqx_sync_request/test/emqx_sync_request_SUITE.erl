@@ -12,6 +12,7 @@
 -include("emqx_sync_request.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -define(REQ_TOPIC, <<"sync_request/device/1001/request">>).
 -define(RESP_TOPIC, <<"sync_request/device/1001/response">>).
@@ -23,7 +24,9 @@ all() ->
     [
         t_plugin_install_start_stop_uninstall_controls_api_route,
         t_plugin_health_check_reports_ok,
+        t_api_spec_lists_conflict_and_unavailable_responses,
         t_http_request_rejects_non_object_body,
+        t_delivered_message_registers_pending_with_local_timeout,
         t_http_request_returns_first_mqtt5_response,
         t_http_request_sets_mqtt5_properties_and_keeps_payload_opaque,
         t_http_request_accepts_string_qos_and_optional_content_type,
@@ -117,6 +120,12 @@ t_plugin_health_check_reports_ok(Config) ->
         emqx_plugins:describe(NameVsn, #{fill_readme => false, health_check => true})
     ).
 
+t_api_spec_lists_conflict_and_unavailable_responses(_Config) ->
+    #{post := #{responses := Responses}} =
+        emqx_sync_request_api:schema("/plugin_api/emqx_sync_request/request"),
+    ?assert(maps:is_key(409, Responses)),
+    ?assert(maps:is_key(503, Responses)).
+
 t_http_request_rejects_non_object_body(_Config) ->
     {Status, ResponseMap} = do_http_request(<<"not-an-object">>),
     ?assertEqual(400, Status),
@@ -127,6 +136,31 @@ t_http_request_rejects_non_object_body(_Config) ->
         },
         ResponseMap
     ).
+
+t_delivered_message_registers_pending_with_local_timeout(_Config) ->
+    ReqRef = make_ref(),
+    ResponseTopic = <<"sync_request/local-timeout/response">>,
+    CorrelationData = <<"local-timeout-request-id">>,
+    TimeoutMs = 1000,
+    true = ets:insert_new(?REQ_TAB, {ReqRef, #{waiter => self()}}),
+    Message = #message{
+        headers = #{
+            properties => #{
+                'Response-Topic' => ResponseTopic,
+                'Correlation-Data' => CorrelationData
+            },
+            ?HEADER => #{req_ref => ReqRef, timeout => TimeoutMs}
+        }
+    },
+    try
+        ?assertEqual({ok, Message}, emqx_sync_request:on_message_delivered(#{}, Message)),
+        [{ResponseTopic, _Seq, ReqRef, CorrelationData, Deadline}] =
+            ets:lookup(?PENDING_TAB, ResponseTopic),
+        ?assert(Deadline > erlang:monotonic_time(millisecond))
+    after
+        ets:delete(?REQ_TAB, ReqRef),
+        emqx_sync_request:cleanup_remote_pending(ReqRef)
+    end.
 
 t_http_request_returns_first_mqtt5_response(_Config) ->
     Parent = self(),
