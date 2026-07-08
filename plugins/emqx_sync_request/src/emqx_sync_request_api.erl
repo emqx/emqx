@@ -45,7 +45,9 @@ schema("/plugin_api/emqx_sync_request/request") ->
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, ok_response), #{}),
                 400 => hoconsc:mk(hoconsc:ref(?MODULE, error_response), #{}),
                 404 => hoconsc:mk(hoconsc:ref(?MODULE, error_response), #{}),
+                409 => hoconsc:mk(hoconsc:ref(?MODULE, error_response), #{}),
                 429 => hoconsc:mk(hoconsc:ref(?MODULE, error_response), #{}),
+                503 => hoconsc:mk(hoconsc:ref(?MODULE, error_response), #{}),
                 504 => hoconsc:mk(hoconsc:ref(?MODULE, error_response), #{}),
                 500 => hoconsc:mk(hoconsc:ref(?MODULE, error_response), #{})
             },

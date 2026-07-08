@@ -187,11 +187,9 @@ do_request(Req0, Config) ->
         false ->
             ReqRef = make_ref(),
             TimeoutMs = maps:get(timeout, Req0),
-            Deadline = now_ms() + TimeoutMs,
             Req = Req0#{
                 req_ref => ReqRef,
-                waiter => self(),
-                deadline => Deadline
+                waiter => self()
             },
             true = ets:insert_new(?REQ_TAB, {ReqRef, Req}),
             Message = make_request_message(Req),
@@ -326,7 +324,7 @@ make_request_message(Req) ->
         properties => Props,
         ?HEADER => #{
             req_ref => maps:get(req_ref, Req),
-            deadline => maps:get(deadline, Req)
+            timeout => maps:get(timeout, Req)
         }
     },
     emqx_message:make(
@@ -344,10 +342,11 @@ make_request_message(Req) ->
 
 maybe_register_pending(
     ReqRef,
-    #message{headers = #{properties := Props, ?HEADER := #{deadline := Deadline}}}
+    #message{headers = #{properties := Props, ?HEADER := #{timeout := TimeoutMs}}}
 ) ->
     ResponseTopic = maps:get('Response-Topic', Props, undefined),
     CorrelationData = maps:get('Correlation-Data', Props, undefined),
+    Deadline = now_ms() + TimeoutMs,
     case ResponseTopic =/= undefined andalso not expired(Deadline) of
         true ->
             maybe_insert_pending(ReqRef, ResponseTopic, CorrelationData, Deadline);
