@@ -1905,6 +1905,8 @@ handle_signal(
             handle_session_signal(ClientInfo, Signal, Channel#channel{conn_flags = NFlags}, Session)
     end.
 
+handle_session_signal(_ClientInfo, _Signal, Channel, undefined) ->
+    {ok, Channel};
 handle_session_signal(ClientInfo, Signal, Channel, Session) ->
     case emqx_session:handle_signal(ClientInfo, Signal, Session) of
         {OkEffects, NSession} ->
