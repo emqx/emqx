@@ -26,7 +26,6 @@ init_per_suite(Config) ->
     NameVsn = filename:basename(Package, ".tar.gz"),
     [
         {plugin_name_vsn, NameVsn},
-        {plugin_package, Package},
         {plugin_package_bin, PackageBin}
         | Config
     ].

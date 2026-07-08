@@ -70,16 +70,12 @@ init_per_suite(Config) ->
     NameVsn = filename:basename(Package, ".tar.gz"),
     [
         {apps, Apps},
-        {install_dir, InstallDir},
-        {plugin_cover_file, filename:join([WorkDir, "emqx_sync_request.coverdata"])},
         {plugin_name_vsn, NameVsn},
-        {plugin_package, Package},
         {plugin_package_bin, PackageBin}
         | Config
     ].
 
 end_per_suite(Config) ->
-    ok = maybe_finalize_cover(Config),
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
@@ -88,12 +84,10 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, Config) ->
-    ok = maybe_export_cover(Config),
     ok = cleanup_plugin(Config).
 
 t_plugin_install_start_stop_uninstall_controls_api_route(Config) ->
     NameVsn = ?config(plugin_name_vsn, Config),
-    ok = maybe_export_cover(Config),
     ok = cleanup_plugin(Config),
     ?assertEqual(404, api_status(#{request => #{}})),
 
@@ -101,15 +95,12 @@ t_plugin_install_start_stop_uninstall_controls_api_route(Config) ->
     ?assertEqual(400, api_status(#{request => #{}})),
 
     ok = emqx_plugins:ensure_stopped(NameVsn),
-    ok = maybe_export_cover(Config),
     ?assertEqual(404, api_status(#{request => #{}})),
 
     ok = emqx_plugins:ensure_started(NameVsn),
-    ok = maybe_cover_plugin_modules(Config),
     ?assertEqual(400, api_status(#{request => #{}})),
 
     ok = emqx_plugins:ensure_stopped(NameVsn),
-    ok = maybe_export_cover(Config),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ?assertEqual(404, api_status(#{request => #{}})).
 
@@ -1006,20 +997,7 @@ assert_response_payload(ResponseMap, ExpectedPayload) ->
     ?assertEqual(ExpectedPayload, base64:decode(EncodedPayload)).
 
 plugin_package() ->
-    case os:getenv("PLUGIN_PACKAGE") of
-        false ->
-            in_tree_plugin_package();
-        "" ->
-            in_tree_plugin_package();
-        Package ->
-            case filelib:is_regular(Package) of
-                true -> Package;
-                false -> error({missing_plugin_package, Package})
-            end
-    end.
-
-in_tree_plugin_package() ->
-    Root = repo_root(),
+    Root = emqx_common_test_helpers:proj_root(),
     Vsn = string:trim(read_file(filename:join([Root, "plugins", "emqx_sync_request", "VERSION"]))),
     Package = filename:join([Root, "_build", "plugins", "emqx_sync_request-" ++ Vsn ++ ".tar.gz"]),
     case filelib:is_regular(Package) of
@@ -1040,28 +1018,6 @@ build_in_tree_plugin_package(Root, Package) ->
             error({plugin_package_build_failed, Package, Output})
     end.
 
-repo_root() ->
-    Candidates = [
-        os:getenv("PWD"),
-        cwd(),
-        emqx_common_test_helpers:proj_root()
-    ],
-    case [Root || Root <- Candidates, is_repo_root(Root)] of
-        [Root | _] ->
-            Root;
-        [] ->
-            error({missing_repo_root, Candidates})
-    end.
-
-cwd() ->
-    {ok, Cwd} = file:get_cwd(),
-    Cwd.
-
-is_repo_root(false) ->
-    false;
-is_repo_root(Root) ->
-    filelib:is_regular(filename:join([Root, "plugins", "emqx_sync_request", "VERSION"])).
-
 read_file(Path) ->
     {ok, Bin} = file:read_file(Path),
     binary_to_list(Bin).
@@ -1075,70 +1031,15 @@ install_and_start_plugin(Config) ->
         binary:encode_hex(crypto:hash(sha256, PackageBin), lowercase)
     ),
     ok = emqx_plugins:ensure_installed(NameVsn, fresh_install),
-    ok = maybe_cover_plugin_modules(Config),
     ok = emqx_plugins:ensure_started(NameVsn),
     ?assertEqual(400, api_status(#{request => #{}})),
     ok.
-
-plugin_modules() ->
-    [
-        emqx_sync_request,
-        emqx_sync_request_api,
-        emqx_sync_request_app,
-        emqx_sync_request_sup
-    ].
-
-maybe_cover_plugin_modules(Config) ->
-    with_cover(fun() ->
-        lists:foreach(fun cover_plugin_module/1, plugin_modules()),
-        maybe_import_cover(Config)
-    end).
-
-maybe_export_cover(Config) ->
-    with_cover(fun() -> cover:export(?config(plugin_cover_file, Config)) end).
-
-maybe_finalize_cover(Config) ->
-    with_cover(fun() ->
-        case filelib:is_regular(?config(plugin_cover_file, Config)) of
-            true ->
-                lists:foreach(fun cover_plugin_module/1, plugin_modules()),
-                maybe_import_cover(Config);
-            false ->
-                ok
-        end
-    end).
-
-with_cover(Fun) ->
-    case erlang:whereis(cover_server) of
-        undefined -> ok;
-        _Pid -> Fun()
-    end.
-
-cover_plugin_module(Module) ->
-    Beam = filename:join([plugin_build_ebin(), atom_to_list(Module) ++ ".beam"]),
-    case cover:compile_beam(Beam) of
-        {ok, Module} ->
-            ok;
-        {error, Reason} ->
-            error({cover_compile_failed, Module, Beam, Reason})
-    end.
-
-plugin_build_ebin() ->
-    filename:join([filename:dirname(filename:dirname(code:which(?MODULE))), "ebin"]).
-
-maybe_import_cover(Config) ->
-    File = ?config(plugin_cover_file, Config),
-    case filelib:is_regular(File) of
-        true -> cover:import(File);
-        false -> ok
-    end.
 
 cleanup_plugin(Config) ->
     NameVsn = ?config(plugin_name_vsn, Config),
     case emqx_plugins:describe(NameVsn, #{fill_readme => false, health_check => false}) of
         {ok, _Plugin} ->
             _ = emqx_plugins:ensure_stopped(NameVsn),
-            ok = maybe_export_cover(Config),
             _ = emqx_plugins:ensure_disabled(NameVsn),
             _ = emqx_plugins:ensure_uninstalled(NameVsn);
         {error, _Reason} ->
