@@ -1445,29 +1445,29 @@ handle_out(publish, Publishes, Channel) ->
     {Packets, NChannel} = do_deliver(Publishes, Channel),
     {ok, ?REPLY_OUTGOING(Packets), NChannel};
 handle_out(puback, {PacketId, ReasonCode}, Channel) ->
-    {ok,
-        ?EXT_TRACE_OUTGOING_START(
-            basic_attrs(Channel), ?REPLY_OUTGOING(?PUBACK_PACKET(PacketId, ReasonCode))
-        ),
-        Channel};
+    Packet = ?EXT_TRACE_OUTGOING_START(
+        basic_attrs(Channel),
+        ?PUBACK_PACKET(PacketId, ReasonCode)
+    ),
+    {ok, ?REPLY_OUTGOING(Packet), Channel};
 handle_out(pubrec, {PacketId, ReasonCode}, Channel) ->
-    {ok,
-        ?EXT_TRACE_OUTGOING_START(
-            basic_attrs(Channel), ?REPLY_OUTGOING(?PUBREC_PACKET(PacketId, ReasonCode))
-        ),
-        Channel};
+    Packet = ?EXT_TRACE_OUTGOING_START(
+        basic_attrs(Channel),
+        ?PUBREC_PACKET(PacketId, ReasonCode)
+    ),
+    {ok, ?REPLY_OUTGOING(Packet), Channel};
 handle_out(pubrel, {PacketId, ReasonCode}, Channel) ->
-    {ok,
-        ?EXT_TRACE_OUTGOING_START(
-            basic_attrs(Channel), ?REPLY_OUTGOING(?PUBREL_PACKET(PacketId, ReasonCode))
-        ),
-        Channel};
+    Packet = ?EXT_TRACE_OUTGOING_START(
+        basic_attrs(Channel),
+        ?PUBREL_PACKET(PacketId, ReasonCode)
+    ),
+    {ok, ?REPLY_OUTGOING(Packet), Channel};
 handle_out(pubcomp, {PacketId, ReasonCode}, Channel) ->
-    {ok,
-        ?EXT_TRACE_OUTGOING_START(
-            basic_attrs(Channel), ?REPLY_OUTGOING(?PUBCOMP_PACKET(PacketId, ReasonCode))
-        ),
-        Channel};
+    Packet = ?EXT_TRACE_OUTGOING_START(
+        basic_attrs(Channel),
+        ?PUBCOMP_PACKET(PacketId, ReasonCode)
+    ),
+    {ok, ?REPLY_OUTGOING(Packet), Channel};
 handle_out(suback, {PacketId, ReasonCodes}, Channel = ?IS_MQTT_V5) ->
     return_sub_unsub_ack(?SUBACK_PACKET(PacketId, ReasonCodes), Channel);
 handle_out(suback, {PacketId, ReasonCodes}, Channel) ->
