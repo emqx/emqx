@@ -117,9 +117,11 @@
 -type session_id() :: emqx_guid:guid().
 
 -export_type([
+    session_id/0,
     session/0,
-    persistent/0,
-    session_id/0
+    subscriptions/0,
+    awaiting_rel/0,
+    exported/0
 ]).
 
 -type subscriptions() :: #{emqx_types:topic() => emqx_types:subopts()}.
@@ -136,7 +138,7 @@
 -type session() :: #session{}.
 -type replayctx() :: emqx_cm_takeover:channelref().
 
--type persistent() :: #{
+-type exported() :: #{
     id := session_id(),
     is_persistent := boolean(),
     subscriptions := #{emqx_types:topic() => emqx_types:subopts()},
@@ -277,7 +279,7 @@ filter_remote_session(Session = #session{mqueue = Q}) ->
     Q1 = emqx_mqueue:filter(fun emqx_session:should_keep/1, Q),
     Session#session{mqueue = Q1}.
 
--spec export(session()) -> persistent().
+-spec export(session()) -> exported().
 export(#session{
     id = Id,
     is_persistent = IsPersistent,
@@ -315,7 +317,7 @@ export_inflight_entry(
         timestamp => Timestamp
     }.
 
--spec import(clientinfo(), persistent()) -> session().
+-spec import(clientinfo(), exported()) -> session().
 import(ClientInfo, #{
     id := Id,
     is_persistent := IsPersistent,

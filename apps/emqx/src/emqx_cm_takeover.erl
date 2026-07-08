@@ -34,7 +34,7 @@
 
 -type protocol() :: #{vsn := pos_integer(), atom() := _}.
 -type channelref() :: #chanref{}.
--type session() :: emqx_session_mem:persistent().
+-type session() :: emqx_session_mem:exported().
 
 -type state() :: session().
 
