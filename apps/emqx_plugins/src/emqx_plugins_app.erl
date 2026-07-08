@@ -20,9 +20,11 @@ start(_Type, _Args) ->
     ok = emqx_plugins:ensure_installed(),
     ok = emqx_plugins:ensure_started(),
     ok = emqx_config_handler:add_handler([?CONF_ROOT], emqx_plugins),
+    emqx_plugins_cli:load(),
     ?tp("emqx_plugins_app_started", #{}),
     {ok, Sup}.
 
 stop(_State) ->
+    emqx_plugins_cli:unload(),
     ok = emqx_config_handler:remove_handler([?CONF_ROOT]),
     ok.

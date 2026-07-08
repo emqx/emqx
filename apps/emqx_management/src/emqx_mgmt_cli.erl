@@ -26,7 +26,6 @@
     clients/1,
     topics/1,
     subscriptions/1,
-    plugins/1,
     listeners/1,
     vm/1,
     mnesia/1,
@@ -45,13 +44,30 @@
     cluster_info/0
 ]).
 
+-define(COMMANDS, [
+    authz,
+    broker,
+    clients,
+    cluster,
+    data,
+    ds,
+    exclusive,
+    listeners,
+    log,
+    mnesia,
+    olp,
+    pem_cache,
+    status,
+    subscriptions,
+    topics,
+    trace,
+    traces,
+    vm
+]).
+
 -spec load() -> ok.
 load() ->
-    Cmds = [Fun || {Fun, 1} <- ?MODULE:module_info(exports), is_cmd(Fun)],
-    lists:foreach(fun(Cmd) -> emqx_ctl:register_command(Cmd, {?MODULE, Cmd}, []) end, Cmds).
-
-is_cmd(Fun) ->
-    not lists:member(Fun, [init, load, module_info]).
+    lists:foreach(fun(Cmd) -> emqx_ctl:register_command(Cmd, {?MODULE, Cmd}, []) end, ?COMMANDS).
 
 %%--------------------------------------------------------------------
 %% @doc Node status
@@ -484,85 +500,6 @@ if_valid_qos(QoS, Fun) ->
         _:_ ->
             emqx_ctl:print("QoS should be 0, 1, 2~n")
     end.
-
-plugins(["list"]) ->
-    emqx_plugins_cli:list(fun emqx_ctl:print/2);
-plugins(["describe", NameVsn]) ->
-    emqx_plugins_cli:describe(NameVsn, fun emqx_ctl:print/2);
-plugins(["allow", NameVsn]) ->
-    emqx_plugins_cli:allow_installation(NameVsn, fun emqx_ctl:print/2);
-plugins(["allow", NameVsn, "sha256:" ++ Hex]) ->
-    case parse_sha256_hex(Hex) of
-        {ok, Sha256} ->
-            emqx_plugins_cli:allow_installation(NameVsn, Sha256, fun emqx_ctl:print/2);
-        error ->
-            emqx_ctl:print(
-                "sha256 must be 64 lowercase hex characters, e.g. sha256:abc...~n"
-            )
-    end;
-plugins(["disallow", NameVsn]) ->
-    emqx_plugins_cli:disallow_installation(NameVsn, fun emqx_ctl:print/2);
-plugins(["install", NameVsn]) ->
-    emqx_plugins_cli:ensure_installed(NameVsn, fun emqx_ctl:print/2);
-plugins(["uninstall", NameVsn]) ->
-    emqx_plugins_cli:ensure_uninstalled(NameVsn, fun emqx_ctl:print/2);
-plugins(["start", NameVsn]) ->
-    emqx_plugins_cli:ensure_started(NameVsn, fun emqx_ctl:print/2);
-plugins(["stop", NameVsn]) ->
-    emqx_plugins_cli:ensure_stopped(NameVsn, fun emqx_ctl:print/2);
-plugins(["restart", NameVsn]) ->
-    emqx_plugins_cli:restart(NameVsn, fun emqx_ctl:print/2);
-plugins(["disable", NameVsn]) ->
-    emqx_plugins_cli:ensure_disabled(NameVsn, fun emqx_ctl:print/2);
-plugins(["enable", NameVsn]) ->
-    emqx_plugins_cli:ensure_enabled(NameVsn, no_move, fun emqx_ctl:print/2);
-plugins(["enable", NameVsn, "front"]) ->
-    emqx_plugins_cli:ensure_enabled(NameVsn, front, fun emqx_ctl:print/2);
-plugins(["enable", NameVsn, "rear"]) ->
-    emqx_plugins_cli:ensure_enabled(NameVsn, rear, fun emqx_ctl:print/2);
-plugins(["enable", NameVsn, "before", Other]) ->
-    emqx_plugins_cli:ensure_enabled(NameVsn, {before, Other}, fun emqx_ctl:print/2);
-plugins(_) ->
-    emqx_ctl:usage(
-        [
-            {"plugins <command> [Name-Vsn]", "e.g. 'start emqx_plugin_template-5.0-rc.1'"},
-            {"plugins list", "List all installed plugins"},
-            {"plugins describe  Name-Vsn", "Describe an installed plugins"},
-            {"plugins allow     Name-Vsn [sha256:HEX]",
-                "Allows installation of a plugin in the cluster from Dashboard or API.\n"
-                "The grant expires 5 minutes after issue.\n"
-                "If sha256:HEX (64 lowercase hex chars) is given, the upload bytes\n"
-                "must hash to that value or the install is rejected."},
-            {"plugins disallow  Name-Vsn",
-                "Disallows installation of a plugin in the cluster from Dashboard or API"},
-            {"plugins install   Name-Vsn",
-                "Install a plugin package placed\n"
-                "in plugin's install_dir"},
-            {"plugins uninstall Name-Vsn",
-                "Uninstall a plugin. NOTE: it deletes\n"
-                "all files in install_dir/Name-Vsn"},
-            {"plugins start     Name-Vsn", "Start a plugin"},
-            {"plugins stop      Name-Vsn", "Stop a plugin"},
-            {"plugins restart   Name-Vsn", "Stop then start a plugin"},
-            {"plugins disable   Name-Vsn", "Disable auto-boot"},
-            {"plugins enable    Name-Vsn [Position]",
-                "Enable auto-boot at Position in the boot list, where Position could be\n"
-                "'front', 'rear', or 'before Other-Vsn' to specify a relative position.\n"
-                "The Position parameter can be used to adjust the boot order.\n"
-                "If no Position is given, an already configured plugin\n"
-                "will stay at is old position; a newly plugin is appended to the rear\n"
-                "e.g. plugins disable foo-0.1.0 front\n"
-                "     plugins enable bar-0.2.0 before foo-0.1.0"}
-        ]
-    ).
-
-parse_sha256_hex(Hex) when length(Hex) =:= 64 ->
-    case re:run(Hex, "^[0-9a-f]{64}$", [{capture, none}]) of
-        match -> {ok, list_to_binary(Hex)};
-        nomatch -> error
-    end;
-parse_sha256_hex(_) ->
-    error.
 
 %%--------------------------------------------------------------------
 %% @doc vm command
