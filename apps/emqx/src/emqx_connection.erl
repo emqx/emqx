@@ -1088,40 +1088,58 @@ sent(Num, Oct, State = #state{thresholds = T0}) ->
 %% Thresholds
 
 trigger_sendq_congestion(
-    #state{thresholds = #thresholds{senq_bytes = Bytes}} = State
-) when Bytes > 0 ->
-    {ok, State};
-trigger_sendq_congestion(
-    #state{thresholds = Thresholds, conf = Conf} = State
+    #state{
+        thresholds = #thresholds{senq_bytes = Bytes} = Thresholds,
+        conf = Conf
+    } = State
 ) ->
-    {Msgs, NState} = probe_sendq_congestion(State),
-    {ok, Msgs, NState#state{
-        thresholds = reset_sendq_threshold(Conf, Thresholds)
-    }}.
+    case Bytes of
+        undefined ->
+            {ok, State};
+        N when N > 0 ->
+            {ok, State};
+        _ ->
+            {Msgs, NState} = probe_sendq_congestion(State),
+            {ok, Msgs, NState#state{
+                thresholds = reset_sendq_threshold(Conf, Thresholds)
+            }}
+    end.
 
 trigger_gc(
-    #state{thresholds = #thresholds{gc_bytes = Bytes, gc_packets = Packets}} = State
-) when Bytes > 0 andalso Packets > 0 ->
-    State;
-trigger_gc(
-    #state{thresholds = Thresholds, conf = Conf} = State
+    #state{
+        thresholds = #thresholds{gc_bytes = Bytes, gc_packets = Packets} = Thresholds,
+        conf = Conf
+    } = State
 ) ->
-    run_gc(State),
-    State#state{
-        thresholds = reset_gc_threshold(Conf, Thresholds)
-    }.
+    case Bytes of
+        undefined ->
+            State;
+        N when N > 0 andalso Packets > 0 ->
+            State;
+        _ ->
+            run_gc(State),
+            State#state{
+                thresholds = reset_gc_threshold(Conf, Thresholds)
+            }
+    end.
 
 trigger_oom(
-    #state{thresholds = #thresholds{oom_packets = Packets}} = State
-) when Packets > 0 ->
-    State;
-trigger_oom(
-    #state{thresholds = Thresholds, conf = Conf} = State
+    #state{
+        thresholds = #thresholds{oom_packets = Packets} = Thresholds,
+        conf = Conf
+    } = State
 ) ->
-    check_oom(0, 0, State),
-    State#state{
-        thresholds = reset_oom_threshold(Conf, Thresholds)
-    }.
+    case Packets of
+        undefined ->
+            State;
+        N when N > 0 ->
+            State;
+        _ ->
+            check_oom(0, 0, State),
+            State#state{
+                thresholds = reset_oom_threshold(Conf, Thresholds)
+            }
+    end.
 
 reset_thresholds(Conf, Thresholds) ->
     reset_sendq_threshold(Conf, reset_oom_threshold(Conf, reset_gc_threshold(Conf, Thresholds))).
