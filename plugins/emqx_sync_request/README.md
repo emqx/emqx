@@ -1,6 +1,6 @@
 # EMQX Sync Request
 
-`emqx_sync_request` publishes one MQTT request through the EMQX Management API
+`emqx_sync_request` publishes one MQTT request through the EMQX REST API
 and waits for the first matching response message.
 
 ```http
@@ -9,6 +9,9 @@ POST /api/v5/plugin_api/emqx_sync_request/request
 
 The plugin stores inflight requests in local node memory only. It does not
 persist requests, subscribe to response topics, or modify MQTT payloads.
+Request topics must match exactly. Wildcard and shared subscriptions are not
+matched as request receivers. Shared subscriptions and multiple exact receivers
+return `409 Conflict`.
 
 ## Request
 
@@ -54,7 +57,7 @@ max_inflight_requests = 10000
 max_payload_size = "64KB"
 ```
 
-`max_inflight_requests` limits local HTTP requests waiting for responses.
+`max_inflight_requests` limits per-node local HTTP requests waiting for responses.
 `max_payload_size` applies to both MQTT request and response payloads.
 
 ## Build And Test

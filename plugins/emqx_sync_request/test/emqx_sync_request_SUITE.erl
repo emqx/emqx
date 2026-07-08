@@ -35,10 +35,11 @@ all() ->
         t_http_request_rejects_invalid_timeout_above_max,
         t_http_request_requires_management_api_auth,
         t_http_request_returns_offline_without_subscribers,
+        t_http_request_does_not_match_wildcard_subscriber,
         t_http_request_times_out_without_response,
         t_http_request_rejects_response_payload_too_large,
         t_http_request_rejects_when_http_inflight_limit_reached,
-        t_http_request_allows_multiple_pending_deliveries_per_http_request,
+        t_http_request_rejects_multiple_exact_subscribers,
         t_mqtt5_response_ignores_mismatched_correlation_data,
         t_http_request_matches_mqtt3_response_by_topic_sequence,
         t_mqtt3_concurrent_requests_match_response_topic_sequence,
@@ -457,6 +458,37 @@ t_http_request_returns_offline_without_subscribers(_Config) ->
     ),
     ?assertEqual(false, maps:is_key(<<"response">>, ResponseMap)).
 
+t_http_request_does_not_match_wildcard_subscriber(_Config) ->
+    Parent = self(),
+    ReqTopic = <<"sync_request/wildcard/request">>,
+    RespTopic = <<"sync_request/wildcard/response">>,
+    {ok, Responder} = start_blackhole_responder(
+        <<"sync_request_wildcard_blackhole">>,
+        <<"sync_request/wildcard/#">>,
+        fun(Payload) -> Parent ! {wildcard_request_seen, Payload} end
+    ),
+    try
+        Body = request_body(
+            ReqTopic,
+            RespTopic,
+            <<"wildcard-request-id">>,
+            #{timeout => <<"100ms">>}
+        ),
+        {Status, ResponseMap} = do_http_request(Body),
+        ?assertEqual(404, Status),
+        ?assertMatch(
+            #{
+                <<"status">> := <<"OFFLINE">>,
+                <<"reason">> := <<"no_subscribers">>
+            },
+            ResponseMap
+        ),
+        ?assertEqual(false, maps:is_key(<<"response">>, ResponseMap)),
+        ?assertNotReceive({wildcard_request_seen, _}, 200)
+    after
+        stop_client(Responder)
+    end.
+
 t_http_request_times_out_without_response(_Config) ->
     Parent = self(),
     ReqTopic = <<"sync_request/timeout/request">>,
@@ -594,63 +626,43 @@ t_http_request_rejects_when_http_inflight_limit_reached(Config) ->
         end
     ).
 
-t_http_request_allows_multiple_pending_deliveries_per_http_request(Config) ->
-    with_config(
-        Config,
-        #{<<"max_inflight_requests">> => 1},
-        fun() ->
-            Parent = self(),
-            ReqTopic = <<"sync_request/pending-limit/request">>,
-            RespTopic = <<"sync_request/pending-limit/response">>,
-            ReqId = <<"pending-limit-request-id">>,
-            {ok, Responder1} = start_blackhole_responder(
-                <<"sync_request_pending_limit_blackhole_1">>,
-                ReqTopic,
-                fun(Payload) -> Parent ! {pending_limit_request_seen, Payload} end
-            ),
-            {ok, Responder2} = start_blackhole_responder(
-                <<"sync_request_pending_limit_blackhole_2">>,
-                ReqTopic,
-                fun(Payload) -> Parent ! {pending_limit_request_seen, Payload} end
-            ),
-            {ok, Responder3} = start_blackhole_responder(
-                <<"sync_request_pending_limit_blackhole_3">>,
-                ReqTopic,
-                fun(Payload) -> Parent ! {pending_limit_request_seen, Payload} end
-            ),
-            {ok, Publisher} = start_client(<<"sync_request_pending_limit_publisher">>, v5),
-            try
-                ok = wait_for_subscribers(ReqTopic, 3),
-                Body = request_body(
-                    ReqTopic,
-                    RespTopic,
-                    ReqId,
-                    #{timeout => <<"5s">>}
-                ),
-                Ref = async_http_request(Body),
-                ?assertReceive({pending_limit_request_seen, ?REQ_PAYLOAD}, 5000),
-                ?assertReceive({pending_limit_request_seen, ?REQ_PAYLOAD}, 5000),
-                ?assertReceive({pending_limit_request_seen, ?REQ_PAYLOAD}, 5000),
-                ok = normalize_publish(
-                    emqtt:publish(
-                        Publisher,
-                        RespTopic,
-                        #{'Correlation-Data' => ReqId},
-                        <<"pending-limit-response">>,
-                        [{qos, ?QOS_0}]
-                    )
-                ),
-                {Status, ResponseMap} = receive_async_response(Ref, 5000),
-                ?assertEqual(200, Status),
-                assert_response_payload(ResponseMap, <<"pending-limit-response">>)
-            after
-                stop_client(Publisher),
-                stop_client(Responder1),
-                stop_client(Responder2),
-                stop_client(Responder3)
-            end
-        end
-    ).
+t_http_request_rejects_multiple_exact_subscribers(_Config) ->
+    Parent = self(),
+    ReqTopic = <<"sync_request/multiple-subscribers/request">>,
+    RespTopic = <<"sync_request/multiple-subscribers/response">>,
+    {ok, Responder1} = start_blackhole_responder(
+        <<"sync_request_multiple_subscribers_blackhole_1">>,
+        ReqTopic,
+        fun(Payload) -> Parent ! {multiple_subscribers_seen, Payload} end
+    ),
+    {ok, Responder2} = start_blackhole_responder(
+        <<"sync_request_multiple_subscribers_blackhole_2">>,
+        ReqTopic,
+        fun(Payload) -> Parent ! {multiple_subscribers_seen, Payload} end
+    ),
+    try
+        ok = wait_for_subscribers(ReqTopic, 2),
+        Body = request_body(
+            ReqTopic,
+            RespTopic,
+            <<"multiple-subscribers-request-id">>,
+            #{timeout => <<"100ms">>}
+        ),
+        {Status, ResponseMap} = do_http_request(Body),
+        ?assertEqual(409, Status),
+        ?assertMatch(
+            #{
+                <<"status">> := <<"UNKNOWN">>,
+                <<"reason">> := <<"multiple_subscribers">>
+            },
+            ResponseMap
+        ),
+        ?assertEqual(false, maps:is_key(<<"response">>, ResponseMap)),
+        ?assertNotReceive({multiple_subscribers_seen, _}, 200)
+    after
+        stop_client(Responder1),
+        stop_client(Responder2)
+    end.
 
 t_mqtt5_response_ignores_mismatched_correlation_data(_Config) ->
     ReqTopic = <<"sync_request/correlation/request">>,

@@ -16,7 +16,8 @@
 
 all() ->
     [
-        t_request_on_one_node_receives_response_from_another_node
+        t_request_on_one_node_receives_response_from_another_node,
+        t_request_conflicts_when_exact_subscribers_exist_on_multiple_nodes
     ].
 
 init_per_suite(Config) ->
@@ -71,6 +72,54 @@ t_request_on_one_node_receives_response_from_another_node(Config) ->
             ?assertReceive({cluster_request_seen, ?REQ_PAYLOAD}, 5000)
         after
             emqx_sync_request_SUITE:stop_client(Responder)
+        end
+    after
+        ok = cleanup_plugin_on_nodes(Nodes, Config),
+        ok = emqx_cth_cluster:stop(Nodes)
+    end.
+
+t_request_conflicts_when_exact_subscribers_exist_on_multiple_nodes(Config) ->
+    WorkDir = emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
+    Nodes =
+        [HttpNode, ResponderNode] =
+        emqx_cth_cluster:start(cluster_specs(), #{work_dir => WorkDir}),
+    try
+        ok = install_and_start_plugin_on_nodes(Nodes, Config),
+        Parent = self(),
+        ReqTopic = <<"sync_request/cluster/conflict/request">>,
+        RespTopic = <<"sync_request/cluster/conflict/response">>,
+        {ok, Responder1} = start_blackhole_responder_on_node(
+            HttpNode,
+            <<"sync_request_cluster_conflict_responder_1">>,
+            ReqTopic,
+            fun(Payload) -> Parent ! {cluster_conflict_request_seen, Payload} end
+        ),
+        {ok, Responder2} = start_blackhole_responder_on_node(
+            ResponderNode,
+            <<"sync_request_cluster_conflict_responder_2">>,
+            ReqTopic,
+            fun(Payload) -> Parent ! {cluster_conflict_request_seen, Payload} end
+        ),
+        try
+            ok = emqx_cth_cluster:sync_routes(Nodes),
+            Host = dashboard_host(HttpNode),
+            Auth = erpc:call(HttpNode, emqx_mgmt_api_test_util, auth_header_, []),
+            Body = emqx_sync_request_SUITE:request_body(
+                ReqTopic, RespTopic, <<"cluster-conflict-request-id">>, #{timeout => <<"100ms">>}
+            ),
+            {Status, ResponseMap} = emqx_sync_request_SUITE:do_http_request(Host, Auth, Body),
+            ?assertEqual(409, Status),
+            ?assertMatch(
+                #{
+                    <<"status">> := <<"UNKNOWN">>,
+                    <<"reason">> := <<"multiple_subscribers">>
+                },
+                ResponseMap
+            ),
+            ?assertNotReceive({cluster_conflict_request_seen, _}, 200)
+        after
+            emqx_sync_request_SUITE:stop_client(Responder1),
+            emqx_sync_request_SUITE:stop_client(Responder2)
         end
     after
         ok = cleanup_plugin_on_nodes(Nodes, Config),
@@ -164,6 +213,17 @@ start_v5_responder_on_node(Node, ClientId, ReqTopic, OnRequest) ->
                 noreply ->
                     ok
             end
+        end,
+        puback => fun(_Ack) -> ok end,
+        disconnected => fun(_Reason) -> ok end
+    },
+    start_subscriber_on_node(Node, ClientId, v5, ReqTopic, MsgHandler).
+
+start_blackhole_responder_on_node(Node, ClientId, ReqTopic, OnRequest) ->
+    MsgHandler = #{
+        publish => fun(#{payload := Payload}) ->
+            OnRequest(Payload),
+            ok
         end,
         puback => fun(_Ack) -> ok end,
         disconnected => fun(_Reason) -> ok end
