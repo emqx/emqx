@@ -803,14 +803,20 @@ request_more_data(Socket, More, Acc, State) ->
 %% closes with data available. We keep this clause for backward compatibility.
 %%
 %% Call async receive after '$socket' receive notification is received
-%% no handling of {select, Info} because data is ready,
-%% no handling of {select, {Info, Partial}} because receive length is 0
+%% Getting `{select, Info}` is _expected_ under some circumstances: readiness
+%% notification is not a guarantee that a subsequent nonblocking recv will succeed.
+%% Getting `{select, {Info, Partial}}` is not expected because length is 0,
+%% but keep the clause for consistency with other async receive paths.
 -dialyzer({nowarn_function, handle_data_ready/2}).
 -compile({inline, [handle_data_ready/2]}).
 handle_data_ready(Socket, State) ->
     case sock_async_recv(Socket, 0) of
         {ok, Data} ->
             handle_data(Data, true, State);
+        {select, {_Info, Data}} ->
+            handle_data(Data, true, State);
+        {select, _Info} ->
+            {ok, State};
         {error, {closed, Data}} ->
             %% This is dead code starting from OTP 28
             {ok, [{recv, Data}, {sock_closed, tcp_closed}], socket_closed(State)};
