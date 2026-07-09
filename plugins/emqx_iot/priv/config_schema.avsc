@@ -3,28 +3,6 @@
   "name": "emqx_iot",
   "fields": [
     {
-      "name": "device_name_source",
-      "type": "string",
-      "default": "clientid",
-      "$ui": {
-        "component": "input",
-        "flex": 12,
-        "label": "$device_name_source_label",
-        "description": "$device_name_source_desc"
-      }
-    },
-    {
-      "name": "device_name_pattern",
-      "type": "string",
-      "default": "{productKey}/{deviceName}",
-      "$ui": {
-        "component": "input",
-        "flex": 12,
-        "label": "$device_name_pattern_label",
-        "description": "$device_name_pattern_desc"
-      }
-    },
-    {
       "name": "broadcast_topic",
       "type": "string",
       "default": "/sys/broadcast/${productKey}",
@@ -51,7 +29,7 @@
       "type": "string",
       "default": "15d",
       "$ui": {
-        "component": "input",
+        "component": "duration",
         "flex": 12,
         "label": "$msg_ttl_label",
         "description": "$msg_ttl_desc"
@@ -62,7 +40,7 @@
       "type": "string",
       "default": "60s",
       "$ui": {
-        "component": "input",
+        "component": "duration",
         "flex": 12,
         "label": "$cleanup_interval_label",
         "description": "$cleanup_interval_desc"

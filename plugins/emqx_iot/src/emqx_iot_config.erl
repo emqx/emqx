@@ -23,10 +23,6 @@ update(Config) ->
 
 normalize(Config) ->
     #{
-        device_name_source => maps:get(device_name_source, Config, <<"clientid">>),
-        device_name_pattern => maps:get(
-            device_name_pattern, Config, <<"{productKey}/{deviceName}">>
-        ),
         broadcast_topic => maps:get(broadcast_topic, Config, <<"/sys/broadcast/${productKey}">>),
         batch_topic => maps:get(batch_topic, Config, <<"/${productKey}/${deviceName}/user/get">>),
         msg_ttl => ttl_to_sec(maps:get(msg_ttl, Config, <<"15d">>)),

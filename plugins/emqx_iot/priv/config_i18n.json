@@ -1,20 +1,4 @@
 {
-  "$device_name_source_label": {
-    "en": "Device Name Source",
-    "zh": "设备名来源"
-  },
-  "$device_name_source_desc": {
-    "en": "The source field for parsing productKey and deviceName from connection info.",
-    "zh": "解析 productKey 和 deviceName 的连接信息来源字段。"
-  },
-  "$device_name_pattern_label": {
-    "en": "Device Name Pattern",
-    "zh": "设备名解析模式"
-  },
-  "$device_name_pattern_desc": {
-    "en": "Pattern for parsing productKey and deviceName from the source field.",
-    "zh": "从来源字段解析 productKey 和 deviceName 的模式。"
-  },
   "$broadcast_topic_label": {
     "en": "Broadcast Topic",
     "zh": "广播 Topic"
