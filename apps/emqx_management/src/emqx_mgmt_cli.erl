@@ -514,6 +514,8 @@ plugins(["disallow", NameVsn]) ->
     emqx_plugins_cli:disallow_installation(NameVsn, fun emqx_ctl:print/2);
 plugins(["install", NameVsn]) ->
     emqx_plugins_cli:ensure_installed(NameVsn, fun emqx_ctl:print/2);
+plugins(["install", NameVsn, "--cluster"]) ->
+    emqx_plugins_cli:ensure_installed_cluster(NameVsn, fun emqx_ctl:print/2);
 plugins(["uninstall", NameVsn]) ->
     emqx_plugins_cli:ensure_uninstalled(NameVsn, fun emqx_ctl:print/2);
 plugins(["start", NameVsn]) ->
@@ -545,9 +547,10 @@ plugins(_) ->
                 "must hash to that value or the install is rejected."},
             {"plugins disallow  Name-Vsn",
                 "Disallows installation of a plugin in the cluster from Dashboard or API"},
-            {"plugins install   Name-Vsn",
+            {"plugins install   Name-Vsn [--cluster]",
                 "Install a plugin package placed\n"
-                "in plugin's install_dir"},
+                "in plugin's install_dir.\n"
+                "Use --cluster to install on all running nodes"},
             {"plugins uninstall Name-Vsn",
                 "Uninstall a plugin. NOTE: it deletes\n"
                 "all files in install_dir/Name-Vsn"},
