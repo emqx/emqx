@@ -124,6 +124,58 @@ max_payload_size = "64KB"
 | `max_inflight_requests` | positive integer | `10000` | Maximum number of local HTTP requests waiting for responses on one node. |
 | `max_payload_size` | bytesize string | `64KB` | Maximum MQTT request payload size and maximum MQTT response payload size. Examples: `8B`, `64KB`, `1MB`. |
 
+## Operational Diagnostics
+
+The plugin provides a CLI command for node-local diagnostics:
+
+```bash
+emqx ctl sync_request status
+```
+
+Example output:
+
+```text
+Counters since plugin start:
+sync_request.requests.total: 42
+sync_request.requests.succeeded: 39
+sync_request.requests.failed: 3
+sync_request.requests.bad_request: 1
+sync_request.requests.no_subscribers: 1
+sync_request.requests.conflict: 0
+sync_request.requests.too_many_requests: 0
+sync_request.requests.dispatch_failed: 0
+sync_request.requests.timeout: 1
+sync_request.requests.internal_error: 0
+
+Current gauges:
+sync_request.inflight_requests: 0
+sync_request.pending_responses: 0
+```
+
+These values are not cluster-wide aggregates. The command reads only the node
+where it runs. In a cluster, run it on each node that may receive the HTTP
+request or deliver the MQTT response. Only requests that reach the plugin
+handler are counted; management API authentication and authorization failures
+are handled by EMQX before the plugin runs.
+
+The request counters are backed by EMQX node-local metrics. The current gauges
+are computed from the plugin's local ETS tables when the CLI command runs.
+
+| Metric | Type | Scope | Description |
+| --- | --- | --- | --- |
+| `sync_request.requests.total` | counter | node-local | HTTP sync request attempts handled by this node. |
+| `sync_request.requests.succeeded` | counter | node-local | Requests that returned HTTP `200`. |
+| `sync_request.requests.failed` | counter | node-local | Requests that returned a non-`200` HTTP status. |
+| `sync_request.requests.bad_request` | counter | node-local | Requests rejected with `400 BAD_REQUEST`. |
+| `sync_request.requests.no_subscribers` | counter | node-local | Requests rejected because no exact, non-shared subscriber was online. |
+| `sync_request.requests.conflict` | counter | node-local | Requests rejected because the request topic matched multiple or shared subscribers. |
+| `sync_request.requests.too_many_requests` | counter | node-local | Requests rejected because this node reached `max_inflight_requests`. |
+| `sync_request.requests.dispatch_failed` | counter | node-local | Requests that could not be dispatched to the subscriber node. |
+| `sync_request.requests.timeout` | counter | node-local | Requests that timed out waiting for a matching MQTT response. |
+| `sync_request.requests.internal_error` | counter | node-local | Requests that failed with an unexpected internal error. |
+| `sync_request.inflight_requests` | gauge | node-local | Current number of HTTP requests waiting for MQTT responses on this node. |
+| `sync_request.pending_responses` | gauge | node-local | Current number of local pending response registrations created after request delivery. |
+
 ## Build And Test
 
 From the EMQX repository root:

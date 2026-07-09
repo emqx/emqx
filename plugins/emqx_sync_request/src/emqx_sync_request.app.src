@@ -8,6 +8,7 @@
         kernel,
         stdlib,
         emqx,
+        emqx_ctl,
         emqx_plugins
     ]},
     {mod, {emqx_sync_request_app, []}},

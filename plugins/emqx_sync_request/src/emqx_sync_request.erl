@@ -20,7 +20,8 @@
     child_spec/0,
     install_api_dispatch/0,
     uninstall_api_dispatch/0,
-    request/1
+    request/1,
+    status/0
 ]).
 
 %% Plugin callbacks
@@ -55,6 +56,18 @@
 -define(CONFIG_PT, {?MODULE, config}).
 -define(API_MODULE, emqx_sync_request_api).
 -define(MAX_REQUEST_ID_BYTES, 128).
+-define(METRICS, [
+    'sync_request.requests.total',
+    'sync_request.requests.succeeded',
+    'sync_request.requests.failed',
+    'sync_request.requests.bad_request',
+    'sync_request.requests.no_subscribers',
+    'sync_request.requests.conflict',
+    'sync_request.requests.too_many_requests',
+    'sync_request.requests.dispatch_failed',
+    'sync_request.requests.timeout',
+    'sync_request.requests.internal_error'
+]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -71,7 +84,10 @@ child_spec() ->
         start => {?MODULE, start_link, []}
     }.
 
-request(Body) when is_map(Body) ->
+request(Body) ->
+    record_request_result(do_request_body(Body)).
+
+do_request_body(Body) when is_map(Body) ->
     Config = config(),
     case parse_request(Body, Config) of
         {ok, Req} ->
@@ -79,8 +95,24 @@ request(Body) when is_map(Body) ->
         {error, Reason} ->
             {400, error_body(?CODE_BAD_REQUEST, Reason)}
     end;
-request(_Body) ->
+do_request_body(_Body) ->
     {400, error_body(?CODE_BAD_REQUEST, <<"invalid_request_body">>)}.
+
+status() ->
+    #{
+        requests_total => metric('sync_request.requests.total'),
+        requests_succeeded => metric('sync_request.requests.succeeded'),
+        requests_failed => metric('sync_request.requests.failed'),
+        requests_bad_request => metric('sync_request.requests.bad_request'),
+        requests_no_subscribers => metric('sync_request.requests.no_subscribers'),
+        requests_conflict => metric('sync_request.requests.conflict'),
+        requests_too_many_requests => metric('sync_request.requests.too_many_requests'),
+        requests_dispatch_failed => metric('sync_request.requests.dispatch_failed'),
+        requests_timeout => metric('sync_request.requests.timeout'),
+        requests_internal_error => metric('sync_request.requests.internal_error'),
+        inflight_requests => table_size(?REQ_TAB),
+        pending_responses => table_size(?PENDING_TAB)
+    }.
 
 current_config() ->
     maps:merge(default_config(), emqx_plugins:get_config(name_vsn(), #{})).
@@ -147,6 +179,7 @@ on_message_publish(Message = #message{headers = Headers}) ->
 init([]) ->
     erlang:process_flag(trap_exit, true),
     ok = ensure_tables(),
+    ok = init_metrics(),
     Config = normalize_config(current_config()),
     persistent_term:put(?CONFIG_PT, Config),
     ok = hook(),
@@ -682,6 +715,44 @@ parse_bytesize(Value) ->
 
 config() ->
     persistent_term:get(?CONFIG_PT, normalize_config(default_config())).
+
+init_metrics() ->
+    lists:foreach(
+        fun(Name) ->
+            ok = emqx_metrics:ensure(Name),
+            ok = emqx_metrics:set(Name, 0)
+        end,
+        ?METRICS
+    ).
+
+record_request_result(Result = {Status, _Body}) ->
+    ok = emqx_metrics:inc('sync_request.requests.total'),
+    ok =
+        case Status of
+            200 -> emqx_metrics:inc('sync_request.requests.succeeded');
+            _ -> emqx_metrics:inc('sync_request.requests.failed')
+        end,
+    ok = maybe_inc_status_metric(Status),
+    Result.
+
+maybe_inc_status_metric(200) -> ok;
+maybe_inc_status_metric(400) -> emqx_metrics:inc('sync_request.requests.bad_request');
+maybe_inc_status_metric(404) -> emqx_metrics:inc('sync_request.requests.no_subscribers');
+maybe_inc_status_metric(409) -> emqx_metrics:inc('sync_request.requests.conflict');
+maybe_inc_status_metric(429) -> emqx_metrics:inc('sync_request.requests.too_many_requests');
+maybe_inc_status_metric(503) -> emqx_metrics:inc('sync_request.requests.dispatch_failed');
+maybe_inc_status_metric(504) -> emqx_metrics:inc('sync_request.requests.timeout');
+maybe_inc_status_metric(500) -> emqx_metrics:inc('sync_request.requests.internal_error');
+maybe_inc_status_metric(_) -> ok.
+
+metric(Name) ->
+    emqx_metrics:val(Name).
+
+table_size(Tab) ->
+    case ets:info(Tab, size) of
+        undefined -> 0;
+        Size -> Size
+    end.
 
 update_listener_api_dispatch(Name, Action) ->
     [Name, Transport, SocketOpts, Protocol, ProtoOpts0] = ranch_server:get_listener_start_args(

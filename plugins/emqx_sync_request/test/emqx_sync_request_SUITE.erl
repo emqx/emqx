@@ -25,6 +25,7 @@ all() ->
     [
         t_plugin_install_start_stop_uninstall_controls_api_route,
         t_plugin_health_check_reports_ok,
+        t_cli_status_reports_node_local_status,
         t_api_spec_lists_conflict_and_unavailable_responses,
         t_http_request_rejects_non_object_body,
         t_delivered_message_registers_pending_with_local_timeout,
@@ -113,6 +114,38 @@ t_plugin_health_check_reports_ok(Config) ->
         {ok, #{health_status := #{status := ok, message := <<"">>}}},
         emqx_plugins:describe(NameVsn, #{fill_readme => false, health_check => true})
     ).
+
+t_cli_status_reports_node_local_status(_Config) ->
+    ?assertEqual({ok, {emqx_sync_request_cli, cmd}}, emqx_ctl:lookup_command(sync_request)),
+    Before = emqx_sync_request:status(),
+    Body = request_body(
+        <<"sync_request/cli-status/request">>,
+        <<"sync_request/cli-status/response">>,
+        <<"cli-status-request-id">>,
+        #{}
+    ),
+    ?assertMatch({404, _}, do_http_request(Body)),
+    After = emqx_sync_request:status(),
+    ?assertEqual(maps:get(requests_total, Before) + 1, maps:get(requests_total, After)),
+    ?assertEqual(maps:get(requests_failed, Before) + 1, maps:get(requests_failed, After)),
+    ?assertEqual(
+        maps:get(requests_no_subscribers, Before) + 1,
+        maps:get(requests_no_subscribers, After)
+    ),
+    ?assertEqual(0, maps:get(inflight_requests, After)),
+    ?assertEqual(0, maps:get(pending_responses, After)),
+    mock_ctl_print(),
+    try
+        Output = emqx_sync_request_cli:cmd(["status"]),
+        ?assertMatch({match, _}, re:run(Output, "Counters since plugin start:")),
+        ?assertMatch({match, _}, re:run(Output, "sync_request.requests.total:")),
+        ?assertMatch({match, _}, re:run(Output, "sync_request.requests.no_subscribers:")),
+        ?assertMatch({match, _}, re:run(Output, "Current gauges:")),
+        ?assertMatch({match, _}, re:run(Output, "sync_request.inflight_requests:")),
+        ?assertMatch({match, _}, re:run(Output, "sync_request.pending_responses:"))
+    after
+        unmock_ctl_print()
+    end.
 
 t_api_spec_lists_conflict_and_unavailable_responses(_Config) ->
     #{post := #{responses := Responses}} =
@@ -1120,6 +1153,15 @@ build_in_tree_plugin_package(Root, Package) ->
 read_file(Path) ->
     {ok, Bin} = file:read_file(Path),
     binary_to_list(Bin).
+
+mock_ctl_print() ->
+    catch meck:unload(emqx_ctl),
+    meck:new(emqx_ctl, [non_strict, passthrough]),
+    meck:expect(emqx_ctl, print, fun(Arg) -> emqx_ctl:format(Arg, []) end),
+    meck:expect(emqx_ctl, print, fun(Msg, Args) -> emqx_ctl:format(Msg, Args) end).
+
+unmock_ctl_print() ->
+    meck:unload(emqx_ctl).
 
 install_and_start_plugin(Config) ->
     NameVsn = ?config(plugin_name_vsn, Config),
