@@ -483,7 +483,11 @@ t_broadcast_invalid_base64(_Config) ->
 %%--------------------------------------------------------------------
 
 metric(Name) ->
-    try ets:lookup_element(iot_mq_counters, Name, 2) catch _:_ -> 0 end.
+    try
+        ets:lookup_element(iot_mq_counters, Name, 2)
+    catch
+        _:_ -> 0
+    end.
 
 t_metrics_qos0_targeted(_Config) ->
     Before = metric('batch_pub_qos0_targeted'),
