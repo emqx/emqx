@@ -25,6 +25,7 @@ handle(Body, RequestId) ->
             case Qos of
                 0 ->
                     emqx_iot_metrics:inc_batch_pub_qos0_in(),
+                    emqx_iot_metrics:inc_qos0_targeted(length(DeviceNames)),
                     deliver_qos0(
                         DeviceNames, ProductKey, TopicTemplate, MsgGuid, RequestId, ApiMsgId
                     );
@@ -86,11 +87,12 @@ deliver_qos0(DeviceNames, ProductKey, TopicTemplate, MsgGuid, RequestId, ApiMsgI
         fun(DN) ->
             case emqx_iot:lookup_device({ProductKey, DN}) of
                 {ok, Pid} ->
+                    emqx_iot_metrics:inc_qos0_delivered(),
                     Topic = emqx_iot_utils:expand_topic(TopicTemplate, ProductKey, DN),
                     Msg = emqx_message:make(DN, ?QOS_0, Topic, Payload),
                     Pid ! #deliver{topic = Topic, message = Msg};
                 _ ->
-                    ok
+                    emqx_iot_metrics:inc_qos0_skipped()
             end
         end,
         DeviceNames
@@ -113,6 +115,7 @@ deliver_qos1(
         fun(DN) ->
             case emqx_iot:lookup_device({ProductKey, DN}) of
                 {ok, Pid} ->
+                    emqx_iot_metrics:inc_qos1_delivered_inline(),
                     Topic = emqx_iot_utils:expand_topic(TopicTemplate, ProductKey, DN),
                     Msg = emqx_message:make(
                         DeliveryId,
@@ -125,7 +128,7 @@ deliver_qos1(
                     ),
                     Pid ! #deliver{topic = Topic, message = Msg};
                 _ ->
-                    ok
+                    emqx_iot_metrics:inc_qos1_stored_offline()
             end
         end,
         DeviceNames

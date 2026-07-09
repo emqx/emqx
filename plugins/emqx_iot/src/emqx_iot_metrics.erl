@@ -7,11 +7,18 @@
     init/0,
     inc_batch_pub_qos0_in/0,
     inc_batch_pub_qos0_error/0,
+    inc_qos0_targeted/1,
+    inc_qos0_delivered/0,
+    inc_qos0_skipped/0,
     inc_batch_pub_qos1_in/0,
     inc_batch_pub_qos1_error/0,
     inc_batch_pub_qos1_incomplete/0,
+    inc_qos1_delivered_inline/0,
+    inc_qos1_stored_offline/0,
     inc_broadcast_pub_in/0,
     inc_broadcast_pub_error/0,
+    inc_broadcast_devices_online/1,
+    inc_broadcast_delivery_count/0,
     inc_register_message_in/0,
     inc_register_message_refresh/0,
     inc_register_message_error/0,
@@ -72,11 +79,18 @@ safe(Name) ->
 
 inc_batch_pub_qos0_in() -> inc('batch_pub_qos0_in').
 inc_batch_pub_qos0_error() -> inc('batch_pub_qos0_error').
+inc_qos0_targeted(N) -> inc('batch_pub_qos0_targeted', N).
+inc_qos0_delivered() -> inc('batch_pub_qos0_delivered').
+inc_qos0_skipped() -> inc('batch_pub_qos0_skipped').
 inc_batch_pub_qos1_in() -> inc('batch_pub_qos1_in').
 inc_batch_pub_qos1_error() -> inc('batch_pub_qos1_error').
 inc_batch_pub_qos1_incomplete() -> inc('batch_pub_qos1_incomplete').
+inc_qos1_delivered_inline() -> inc('batch_pub_qos1_delivered_inline').
+inc_qos1_stored_offline() -> inc('batch_pub_qos1_stored_offline').
 inc_broadcast_pub_in() -> inc('broadcast_pub_in').
 inc_broadcast_pub_error() -> inc('broadcast_pub_error').
+inc_broadcast_devices_online(N) -> inc('broadcast_pub_devices_online', N).
+inc_broadcast_delivery_count() -> inc('broadcast_pub_delivery_count').
 inc_register_message_in() -> inc('register_message_in').
 inc_register_message_refresh() -> inc('register_message.refresh').
 inc_register_message_error() -> inc('register_message.error').
