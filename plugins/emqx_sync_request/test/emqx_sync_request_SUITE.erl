@@ -174,7 +174,8 @@ t_http_request_returns_first_mqtt5_response(_Config) ->
         ?assertEqual(200, Status),
         ?assertMatch(
             #{
-                <<"status">> := <<"OK">>,
+                <<"code">> := <<"OK">>,
+                <<"message">> := <<"OK">>,
                 <<"response">> := #{
                     <<"topic">> := ?RESP_TOPIC,
                     <<"request_id">> := RequestId,
@@ -221,7 +222,8 @@ t_http_request_sets_mqtt5_properties_and_keeps_payload_opaque(_Config) ->
         ?assertEqual(200, Status),
         ?assertMatch(
             #{
-                <<"status">> := <<"OK">>,
+                <<"code">> := <<"OK">>,
+                <<"message">> := <<"OK">>,
                 <<"response">> := #{
                     <<"topic">> := RespTopic,
                     <<"request_id">> := RequestId,
@@ -891,7 +893,8 @@ t_http_request_matches_mqtt3_response_by_topic_sequence(_Config) ->
         ?assertEqual(200, Status),
         ?assertMatch(
             #{
-                <<"status">> := <<"OK">>,
+                <<"code">> := <<"OK">>,
+                <<"message">> := <<"OK">>,
                 <<"response">> := #{
                     <<"topic">> := RespTopic,
                     <<"request_id">> := RequestId,

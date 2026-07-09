@@ -37,7 +37,8 @@ Successful responses return the MQTT response payload as base64:
 
 ```json
 {
-  "status": "OK",
+  "code": "OK",
+  "message": "OK",
   "response": {
     "topic": "devices/1001/response",
     "request_id": "request-id-1",
