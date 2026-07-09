@@ -4,9 +4,9 @@ EMQX 6.1 plugin providing BatchPub, PubBroadcast, and RegisterMessage HTTP APIs 
 
 ## Features
 
-- **PubBroadcast** — Broadcast messages to all online devices within a Product
-- **BatchPub** — Batch delivery to a device list (≤ 10,000 devices per call), with offline storage and message reuse
-- **RegisterMessage** — Pre-register message content and TTL refresh, with SHA-256 content deduplication
+- **PubBroadcast** -- Broadcast messages to all online devices within a Product
+- **BatchPub** -- Batch delivery to a device list (≤ 10,000 devices per call), with offline storage and message reuse
+- **RegisterMessage** -- Pre-register message content and TTL refresh, with SHA-256 content deduplication
 
 ## Build
 
@@ -44,9 +44,9 @@ emqx_iot {
 Unified endpoint: `POST /api/v5/plugin_api/emqx_iot/pub`
 
 Distinguished by the `Action` field in the request body:
-- `"PubBroadcast"` — broadcast to all online devices of a product
-- `"BatchPub"` — batch delivery to a specified device list
-- `"RegisterMessage"` — pre-register message content or refresh TTL
+- `"PubBroadcast"` -- broadcast to all online devices of a product
+- `"BatchPub"` -- batch delivery to a specified device list
+- `"RegisterMessage"` -- pre-register message content or refresh TTL
 
 Full API documentation: [docs/API.md](docs/API.md)
 Usage guide: [docs/USAGE.md](docs/USAGE.md)
@@ -68,27 +68,27 @@ Client connection example: `username = "P1-device001"`, `clientId = "device001"`
 
 ```
 API Layer (HTTP)
-  ├── emqx_iot_api.erl              — dispatch by Action
+  ├── emqx_iot_api.erl              -- dispatch by Action
   ├── emqx_iot_pub_broadcast.erl
   ├── emqx_iot_batch_pub.erl
   └── emqx_iot_register_message.erl
 
 ID Layer
-  └── emqx_iot_id.erl              — UUID v4 ↔ emqx_guid dual-layer mapping
+  └── emqx_iot_id.erl              -- UUID v4 ↔ emqx_guid dual-layer mapping
 
 Storage Layer
-  └── emqx_iot_storage.erl          — Mnesia CRUD, ACK tracking, cleanup
+  └── emqx_iot_storage.erl          -- Mnesia CRUD, ACK tracking, cleanup
 
 Device Layer
-  └── emqx_iot.erl                  — hooks, ETS device table, offline replay
+  └── emqx_iot.erl                  -- hooks, ETS device table, offline replay
 
 Infrastructure
-  ├── emqx_iot_app.erl              — application lifecycle
-  ├── emqx_iot_sup.erl              — supervisor
-  ├── emqx_iot_config.erl           — configuration loading
-  ├── emqx_iot_utils.erl            — GUID, UUID, SHA-256, Base64, topic expansion
-  ├── emqx_iot_cleanup.erl          — scheduled expired message cleanup
-  └── emqx_iot_metrics.erl          — Prometheus counters and gauge (self-managed ETS)
+  ├── emqx_iot_app.erl              -- application lifecycle
+  ├── emqx_iot_sup.erl              -- supervisor
+  ├── emqx_iot_config.erl           -- configuration loading
+  ├── emqx_iot_utils.erl            -- GUID, UUID, SHA-256, Base64, topic expansion
+  ├── emqx_iot_cleanup.erl          -- scheduled expired message cleanup
+  └── emqx_iot_metrics.erl          -- Prometheus counters and gauge (self-managed ETS)
 ```
 
 ## Prometheus Metrics

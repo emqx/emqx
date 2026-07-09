@@ -1,4 +1,4 @@
-# EMQX IoT Plugin — Usage Guide
+# EMQX IoT Plugin -- Usage Guide
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ emqx ctl plugins start emqx_iot
 
 ### 3. Create API Key
 
-**Option A — Bootstrap file** (recommended for Docker):
+**Option A -- Bootstrap file** (recommended for Docker):
 
 ```bash
 # bootstrap-api-key.txt format: key:secret:role
@@ -43,7 +43,7 @@ echo "my_api_key:my_api_secret_min_32_chars:administrator" > bootstrap-api-key.t
 #     - ./bootstrap-api-key.txt:/etc/emqx/bootstrap-api-key.txt:ro
 ```
 
-**Option B — Dashboard**:
+**Option B -- Dashboard**:
 
 Management → API Keys → Create
 
@@ -53,7 +53,7 @@ Management → API Keys → Create
 
 ### Scenario 1: Pre-register Message + Batch Delivery
 
-This pattern optimizes bandwidth at scale — register the payload once, then reference it across many BatchPub calls.
+This pattern optimizes bandwidth at scale -- register the payload once, then reference it across many BatchPub calls.
 
 ```bash
 API_KEY="my_api_key:my_api_secret_min_32_chars"
@@ -98,8 +98,8 @@ curl -su "$API_KEY" \
   -d '{"Action":"BatchPub","ProductKey":"P1","DeviceName":["online_device","offline_device"],"MessageContent":"SGVsbG8=","Qos":1}'
 ```
 
-- `online_device` — delivers immediately, waits for PUBACK
-- `offline_device` — stored in Mnesia, replayed when the device reconnects
+- `online_device` -- delivers immediately, waits for PUBACK
+- `offline_device` -- stored in Mnesia, replayed when the device reconnects
 
 The delivery record is automatically deleted once all devices have acknowledged.
 
@@ -130,8 +130,8 @@ curl -su "$API_KEY" "$HOST/api/v5/plugin_api/emqx_iot/metrics"
 2. Import the Grafana dashboard
 
 Key metrics to watch:
-- **`iot_mq_batch_pub_qos1_msg_pending`** — backlog of undelivered messages
-- **`rate(iot_mq_batch_pub_qos1_msg_acked[5m]) / rate(iot_mq_batch_pub_qos1_msg_wanted[5m])`** — delivery success rate
+- **`iot_mq_batch_pub_qos1_msg_pending`** -- backlog of undelivered messages
+- **`rate(iot_mq_batch_pub_qos1_msg_acked[5m]) / rate(iot_mq_batch_pub_qos1_msg_wanted[5m])`** -- delivery success rate
 
 ### Dedicated Watch Script
 

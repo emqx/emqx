@@ -1,4 +1,4 @@
-# EMQX IoT Plugin — API Reference
+# EMQX IoT Plugin -- API Reference
 
 ## General
 
@@ -112,8 +112,8 @@ curl -u "<api_key>:<api_secret>" -X POST "http://127.0.0.1:18083/api/v5/plugin_a
 
 **Topic Priority** (BatchPub only):
 
-1. `TopicTemplateName` (API parameter) — used directly, placeholder `${deviceName}` is expanded
-2. `TopicShortName` (API parameter) — appended to `/${productKey}/${deviceName}/user/${TopicShortName}`
+1. `TopicTemplateName` (API parameter) -- used directly, placeholder `${deviceName}` is expanded
+2. `TopicShortName` (API parameter) -- appended to `/${productKey}/${deviceName}/user/${TopicShortName}`
 3. Plugin config `batch_topic` template (default)
 
 ---
