@@ -111,10 +111,15 @@ fields(request) ->
     ];
 fields(ok_response) ->
     [
-        {status,
+        {code,
             hoconsc:mk(binary(), #{
                 desc => <<"OK">>,
-                example => ?STATUS_OK
+                example => ?CODE_OK
+            })},
+        {message,
+            hoconsc:mk(binary(), #{
+                desc => <<"OK">>,
+                example => ?CODE_OK
             })},
         {response,
             hoconsc:mk(hoconsc:ref(?MODULE, response), #{

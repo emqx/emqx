@@ -304,7 +304,7 @@ local_subscribers(Topic) ->
 wait_for_response(ReqRef, TimeoutMs) ->
     receive
         {emqx_sync_request_response, ReqRef, {ok, Response}} ->
-            {200, #{status => ?STATUS_OK, response => Response}};
+            {200, #{code => ?CODE_OK, message => ?CODE_OK, response => Response}};
         {emqx_sync_request_response, ReqRef, {error, StatusCode, Reason}} ->
             {StatusCode, error_body(code_for_http_error(StatusCode), Reason)};
         {emqx_sync_request_response, ReqRef, {error, Reason}} ->

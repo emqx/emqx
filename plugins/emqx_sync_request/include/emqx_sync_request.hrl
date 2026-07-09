@@ -19,7 +19,7 @@
 -define(DEFAULT_MAX_INFLIGHT, 10000).
 -define(DEFAULT_MAX_PAYLOAD_SIZE, <<"64KB">>).
 
--define(STATUS_OK, <<"OK">>).
+-define(CODE_OK, <<"OK">>).
 -define(CODE_BAD_REQUEST, <<"BAD_REQUEST">>).
 -define(CODE_NO_SUBSCRIBERS, <<"NO_SUBSCRIBERS">>).
 -define(CODE_CONFLICT, <<"CONFLICT">>).
