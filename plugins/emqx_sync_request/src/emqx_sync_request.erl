@@ -77,10 +77,10 @@ request(Body) when is_map(Body) ->
         {ok, Req} ->
             do_request(Req, Config);
         {error, Reason} ->
-            {400, error_body(?STATUS_BAD_REQUEST, Reason)}
+            {400, error_body(?CODE_BAD_REQUEST, Reason)}
     end;
 request(_Body) ->
-    {400, error_body(?STATUS_BAD_REQUEST, <<"invalid_request_body">>)}.
+    {400, error_body(?CODE_BAD_REQUEST, <<"invalid_request_body">>)}.
 
 current_config() ->
     maps:merge(default_config(), emqx_plugins:get_config(name_vsn(), #{})).
@@ -183,7 +183,7 @@ do_request(Req0, Config) ->
     MaxInflight = maps:get(max_inflight_requests, Config),
     case ets:info(?REQ_TAB, size) >= MaxInflight of
         true ->
-            {429, error_body(?STATUS_TOO_MANY_REQUESTS, <<"too_many_inflight_requests">>)};
+            {429, error_body(?CODE_TOO_MANY_REQUESTS, <<"too_many_inflight_requests">>)};
         false ->
             ReqRef = make_ref(),
             TimeoutMs = maps:get(timeout, Req0),
@@ -200,27 +200,27 @@ dispatch_request(Message = #message{topic = Topic}, ReqRef, TimeoutMs) ->
     case exact_route_node(Topic) of
         no_subscribers ->
             cleanup_request(ReqRef),
-            {404, error_body(?STATUS_OFFLINE, <<"no_subscribers">>)};
+            {404, error_body(?CODE_NO_SUBSCRIBERS, <<"no_subscribers">>)};
         multiple_subscribers ->
             cleanup_request(ReqRef),
-            {409, error_body(?STATUS_CONFLICT, <<"multiple_subscribers">>)};
+            {409, error_body(?CODE_CONFLICT, <<"multiple_subscribers">>)};
         {ok, Node} ->
             case dispatch_to_node(Node, Message, TimeoutMs) of
                 ok ->
                     wait_for_response(ReqRef, TimeoutMs);
                 no_subscribers ->
                     cleanup_request(ReqRef),
-                    {404, error_body(?STATUS_OFFLINE, <<"no_subscribers">>)};
+                    {404, error_body(?CODE_NO_SUBSCRIBERS, <<"no_subscribers">>)};
                 multiple_subscribers ->
                     cleanup_request(ReqRef),
-                    {409, error_body(?STATUS_CONFLICT, <<"multiple_subscribers">>)};
+                    {409, error_body(?CODE_CONFLICT, <<"multiple_subscribers">>)};
                 {error, Reason} ->
                     cleanup_request(ReqRef),
                     ?SLOG(warning, #{
                         msg => "sync_request_dispatch_failed",
                         reason => Reason
                     }),
-                    {503, error_body(?STATUS_UNAVAILABLE, <<"failed_to_dispatch_request">>)}
+                    {503, error_body(?CODE_SERVICE_UNAVAILABLE, <<"failed_to_dispatch_request">>)}
             end
     end.
 
@@ -306,12 +306,12 @@ wait_for_response(ReqRef, TimeoutMs) ->
         {emqx_sync_request_response, ReqRef, {ok, Response}} ->
             {200, #{status => ?STATUS_OK, response => Response}};
         {emqx_sync_request_response, ReqRef, {error, StatusCode, Reason}} ->
-            {StatusCode, error_body(status_for_http_error(StatusCode), Reason)};
+            {StatusCode, error_body(code_for_http_error(StatusCode), Reason)};
         {emqx_sync_request_response, ReqRef, {error, Reason}} ->
-            {500, error_body(?STATUS_INTERNAL_ERROR, Reason)}
+            {500, error_body(?CODE_INTERNAL_ERROR, Reason)}
     after TimeoutMs ->
         cleanup_request(ReqRef),
-        {504, error_body(?STATUS_TIMEOUT, <<"timeout">>)}
+        {504, error_body(?CODE_TIMEOUT, <<"timeout">>)}
     end.
 
 make_request_message(Req) ->
@@ -742,17 +742,17 @@ maybe_put(_Key, undefined, Map) ->
 maybe_put(Key, Value, Map) ->
     Map#{Key => Value}.
 
-error_body(Status, Reason) ->
+error_body(Code, Reason) ->
     #{
-        status => Status,
-        reason => reason_hint(Reason)
+        code => Code,
+        message => reason_hint(Reason)
     }.
 
-status_for_http_error(400) -> ?STATUS_BAD_REQUEST;
-status_for_http_error(409) -> ?STATUS_CONFLICT;
-status_for_http_error(429) -> ?STATUS_TOO_MANY_REQUESTS;
-status_for_http_error(503) -> ?STATUS_UNAVAILABLE;
-status_for_http_error(_) -> ?STATUS_INTERNAL_ERROR.
+code_for_http_error(400) -> ?CODE_BAD_REQUEST;
+code_for_http_error(409) -> ?CODE_CONFLICT;
+code_for_http_error(429) -> ?CODE_TOO_MANY_REQUESTS;
+code_for_http_error(503) -> ?CODE_SERVICE_UNAVAILABLE;
+code_for_http_error(_) -> ?CODE_INTERNAL_ERROR.
 
 reason_hint(<<"invalid_request_body">>) ->
     <<"Request body must be a JSON object.">>;
