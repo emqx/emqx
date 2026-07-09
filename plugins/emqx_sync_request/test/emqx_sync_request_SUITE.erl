@@ -125,8 +125,8 @@ t_http_request_rejects_non_object_body(_Config) ->
     ?assertEqual(400, Status),
     ?assertMatch(
         #{
-            <<"status">> := <<"BAD_REQUEST">>,
-            <<"reason">> := <<"Request body must be a JSON object.">>
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> := <<"Request body must be a JSON object.">>
         },
         ResponseMap
     ).
@@ -360,8 +360,8 @@ t_http_request_rejects_invalid_request_boundaries(_Config) ->
             ?assertEqual({Name, 400}, {Name, Status}),
             ?assertMatch(
                 #{
-                    <<"status">> := <<"BAD_REQUEST">>,
-                    <<"reason">> := Reason
+                    <<"code">> := <<"BAD_REQUEST">>,
+                    <<"message">> := Reason
                 },
                 ResponseMap
             ),
@@ -383,8 +383,8 @@ t_http_request_requires_request_id(_Config) ->
     ?assertEqual(400, Status),
     ?assertMatch(
         #{
-            <<"status">> := <<"BAD_REQUEST">>,
-            <<"reason">> := <<"request.request_id is required.">>
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> := <<"request.request_id is required.">>
         },
         ResponseMap
     ),
@@ -401,8 +401,8 @@ t_http_request_rejects_request_id_too_large(_Config) ->
     ?assertEqual(400, Status),
     ?assertMatch(
         #{
-            <<"status">> := <<"BAD_REQUEST">>,
-            <<"reason">> := <<"request.request_id must be no longer than 128 bytes.">>
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> := <<"request.request_id must be no longer than 128 bytes.">>
         },
         ResponseMap
     ),
@@ -424,8 +424,8 @@ t_http_request_rejects_request_payload_too_large(Config) ->
             ?assertEqual(400, Status),
             ?assertMatch(
                 #{
-                    <<"status">> := <<"BAD_REQUEST">>,
-                    <<"reason">> := <<"request.payload exceeds max_payload_size.">>
+                    <<"code">> := <<"BAD_REQUEST">>,
+                    <<"message">> := <<"request.payload exceeds max_payload_size.">>
                 },
                 ResponseMap
             )
@@ -447,8 +447,8 @@ t_http_request_rejects_invalid_timeout_above_max(Config) ->
             ?assertEqual(400, Status),
             ?assertMatch(
                 #{
-                    <<"status">> := <<"BAD_REQUEST">>,
-                    <<"reason">> :=
+                    <<"code">> := <<"BAD_REQUEST">>,
+                    <<"message">> :=
                         <<"timeout must be greater than 0 and no more than max_timeout.">>
                 },
                 ResponseMap
@@ -549,8 +549,8 @@ t_http_request_returns_offline_without_subscribers(_Config) ->
     ?assertEqual(404, Status),
     ?assertMatch(
         #{
-            <<"status">> := <<"OFFLINE">>,
-            <<"reason">> := <<"No exact subscriber is online for the request topic.">>
+            <<"code">> := <<"NO_SUBSCRIBERS">>,
+            <<"message">> := <<"No exact subscriber is online for the request topic.">>
         },
         ResponseMap
     ),
@@ -576,8 +576,8 @@ t_http_request_does_not_match_wildcard_subscriber(_Config) ->
         ?assertEqual(404, Status),
         ?assertMatch(
             #{
-                <<"status">> := <<"OFFLINE">>,
-                <<"reason">> := <<"No exact subscriber is online for the request topic.">>
+                <<"code">> := <<"NO_SUBSCRIBERS">>,
+                <<"message">> := <<"No exact subscriber is online for the request topic.">>
             },
             ResponseMap
         ),
@@ -607,8 +607,8 @@ t_http_request_rejects_shared_subscription(_Config) ->
         ?assertEqual(409, Status),
         ?assertMatch(
             #{
-                <<"status">> := <<"CONFLICT">>,
-                <<"reason">> :=
+                <<"code">> := <<"CONFLICT">>,
+                <<"message">> :=
                     <<"The request topic has a shared subscription or more than one exact subscriber.">>
             },
             ResponseMap
@@ -639,8 +639,8 @@ t_http_request_times_out_without_response(_Config) ->
         ?assertEqual(504, Status),
         ?assertMatch(
             #{
-                <<"status">> := <<"TIMEOUT">>,
-                <<"reason">> := <<"Timed out waiting for a matching MQTT response.">>
+                <<"code">> := <<"TIMEOUT">>,
+                <<"message">> := <<"Timed out waiting for a matching MQTT response.">>
             },
             ResponseMap
         ),
@@ -686,8 +686,8 @@ t_http_request_rejects_response_payload_too_large(Config) ->
                 ?assertEqual(400, Status),
                 ?assertMatch(
                     #{
-                        <<"status">> := <<"BAD_REQUEST">>,
-                        <<"reason">> := <<"MQTT response payload exceeds max_payload_size.">>
+                        <<"code">> := <<"BAD_REQUEST">>,
+                        <<"message">> := <<"MQTT response payload exceeds max_payload_size.">>
                     },
                     ResponseMap
                 ),
@@ -732,8 +732,8 @@ t_http_request_rejects_when_http_inflight_limit_reached(Config) ->
                 ?assertEqual(429, Status2),
                 ?assertMatch(
                     #{
-                        <<"status">> := <<"TOO_MANY_REQUESTS">>,
-                        <<"reason">> := <<"Too many sync requests are waiting for responses.">>
+                        <<"code">> := <<"TOO_MANY_REQUESTS">>,
+                        <<"message">> := <<"Too many sync requests are waiting for responses.">>
                     },
                     ResponseMap2
                 ),
@@ -782,8 +782,8 @@ t_http_request_rejects_multiple_exact_subscribers(_Config) ->
         ?assertEqual(409, Status),
         ?assertMatch(
             #{
-                <<"status">> := <<"CONFLICT">>,
-                <<"reason">> :=
+                <<"code">> := <<"CONFLICT">>,
+                <<"message">> :=
                     <<"The request topic has a shared subscription or more than one exact subscriber.">>
             },
             ResponseMap
@@ -822,8 +822,8 @@ t_http_request_rejects_sharded_exact_subscribers(_Config) ->
         ?assertEqual(409, Status),
         ?assertMatch(
             #{
-                <<"status">> := <<"CONFLICT">>,
-                <<"reason">> :=
+                <<"code">> := <<"CONFLICT">>,
+                <<"message">> :=
                     <<"The request topic has a shared subscription or more than one exact subscriber.">>
             },
             ResponseMap

@@ -148,14 +148,14 @@ fields(response) ->
     ];
 fields(error_response) ->
     [
-        {status,
+        {code,
             hoconsc:mk(binary(), #{
                 desc =>
-                    <<"BAD_REQUEST, CONFLICT, TOO_MANY_REQUESTS, UNAVAILABLE, INTERNAL_ERROR, TIMEOUT, or OFFLINE.">>
+                    <<"BAD_REQUEST, NO_SUBSCRIBERS, CONFLICT, TOO_MANY_REQUESTS, SERVICE_UNAVAILABLE, INTERNAL_ERROR, or TIMEOUT.">>
             })},
-        {reason,
+        {message,
             hoconsc:mk(binary(), #{
-                desc => <<"Machine readable reason.">>
+                desc => <<"Human-readable error message.">>
             })}
     ].
 
