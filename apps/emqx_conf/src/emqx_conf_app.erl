@@ -34,10 +34,13 @@ start(_StartType, _StartArgs) ->
             exit_loop(1)
     end,
     ok = emqx_config_logger:refresh_config(),
-    emqx_conf_sup:start_link().
+    {ok, Sup} = emqx_conf_sup:start_link(),
+    emqx_conf_cli:load(),
+    {ok, Sup}.
 
 stop(_State) ->
     emqx_config:clear_all_invalid_namespaced_configs(),
+    emqx_conf_cli:unload(),
     ok.
 
 exit_loop(ExitCode) ->
