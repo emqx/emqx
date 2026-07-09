@@ -12,6 +12,7 @@
 -include("emqx_sync_request.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
 -define(REQ_TOPIC, <<"sync_request/device/1001/request">>).
@@ -37,6 +38,8 @@ all() ->
         t_http_request_rejects_request_payload_too_large,
         t_http_request_rejects_invalid_timeout_above_max,
         t_http_request_requires_management_api_auth,
+        t_http_request_accepts_api_key_with_publish_scope,
+        t_http_request_rejects_invalid_or_unscoped_api_key,
         t_http_request_returns_offline_without_subscribers,
         t_http_request_does_not_match_wildcard_subscriber,
         t_http_request_rejects_shared_subscription,
@@ -122,8 +125,8 @@ t_http_request_rejects_non_object_body(_Config) ->
     ?assertEqual(400, Status),
     ?assertMatch(
         #{
-            <<"status">> := <<"UNKNOWN">>,
-            <<"reason">> := <<"invalid_request_body">>
+            <<"status">> := <<"BAD_REQUEST">>,
+            <<"reason">> := <<"Request body must be a JSON object.">>
         },
         ResponseMap
     ).
@@ -201,7 +204,7 @@ t_http_request_sets_mqtt5_properties_and_keeps_payload_opaque(_Config) ->
             Corr = maps:get('Correlation-Data', Props),
             ResponseProps = #{
                 'Correlation-Data' => Corr,
-                'Content-Type' => <<"application/json">>
+                'Content-Type' => <<"application/vnd.response+json">>
             },
             {maps:get('Response-Topic', Props), ResponseProps, ?RESP_PAYLOAD}
         end
@@ -211,7 +214,7 @@ t_http_request_sets_mqtt5_properties_and_keeps_payload_opaque(_Config) ->
             ReqTopic,
             RespTopic,
             RequestId,
-            #{payload => Payload, content_type => <<"application/json">>},
+            #{payload => Payload, content_type => <<"application/vnd.request+json">>},
             #{}
         ),
         {Status, ResponseMap} = do_http_request(Body),
@@ -222,7 +225,7 @@ t_http_request_sets_mqtt5_properties_and_keeps_payload_opaque(_Config) ->
                 <<"response">> := #{
                     <<"topic">> := RespTopic,
                     <<"request_id">> := RequestId,
-                    <<"content_type">> := <<"application/json">>
+                    <<"content_type">> := <<"application/vnd.response+json">>
                 }
             },
             ResponseMap
@@ -232,7 +235,7 @@ t_http_request_sets_mqtt5_properties_and_keeps_payload_opaque(_Config) ->
                 #{
                     'Response-Topic' := RespTopic,
                     'Correlation-Data' := RequestId,
-                    'Content-Type' := <<"application/json">>
+                    'Content-Type' := <<"application/vnd.request+json">>
                 },
                 Payload},
             5000
@@ -329,23 +332,27 @@ t_http_request_rejects_invalid_request_boundaries(_Config) ->
     ),
     #{request := Request} = Base,
     Cases = [
-        {missing_request, maps:remove(request, Base), <<"request_required">>},
-        {missing_topic, Base#{request := maps:remove(topic, Request)}, <<"topic_required">>},
+        {missing_request, maps:remove(request, Base), <<"request object is required.">>},
+        {missing_topic, Base#{request := maps:remove(topic, Request)},
+            <<"request.topic is required.">>},
         {missing_response_topic, Base#{request := maps:remove(response_topic, Request)},
-            <<"response_topic_required">>},
-        {missing_payload, Base#{request := maps:remove(payload, Request)}, <<"payload_required">>},
+            <<"request.response_topic is required.">>},
+        {missing_payload, Base#{request := maps:remove(payload, Request)},
+            <<"request.payload is required.">>},
         {invalid_topic, Base#{request := Request#{topic => <<"sync_request/+/request">>}},
-            <<"invalid_topic">>},
+            <<"Topic must be a valid MQTT topic name without wildcards.">>},
         {invalid_response_topic, Base#{request := Request#{response_topic => <<"sync_request/#">>}},
-            <<"invalid_topic">>},
-        {invalid_qos, Base#{request := Request#{qos => 3}}, <<"invalid_qos">>},
+            <<"Topic must be a valid MQTT topic name without wildcards.">>},
+        {invalid_qos, Base#{request := Request#{qos => 3}}, <<"request.qos must be 0, 1, or 2.">>},
         {invalid_payload_encoding, Base#{request := Request#{payload_encoding => <<"hex">>}},
-            <<"invalid_payload_encoding">>},
+            <<"request.payload_encoding must be plain or base64.">>},
         {invalid_base64_payload,
             Base#{request := Request#{payload_encoding => base64, payload => <<"not-base64">>}},
-            <<"invalid_base64_payload">>},
-        {invalid_timeout_format, Base#{timeout => <<"not-a-duration">>}, <<"invalid_duration">>},
-        {invalid_timeout_zero, Base#{timeout => <<"0ms">>}, <<"invalid_timeout">>}
+            <<"request.payload must be valid base64 when payload_encoding is base64.">>},
+        {invalid_timeout_format, Base#{timeout => <<"not-a-duration">>},
+            <<"timeout must be a valid duration.">>},
+        {invalid_timeout_zero, Base#{timeout => <<"0ms">>},
+            <<"timeout must be greater than 0 and no more than max_timeout.">>}
     ],
     lists:foreach(
         fun({Name, Body, Reason}) ->
@@ -353,7 +360,7 @@ t_http_request_rejects_invalid_request_boundaries(_Config) ->
             ?assertEqual({Name, 400}, {Name, Status}),
             ?assertMatch(
                 #{
-                    <<"status">> := <<"UNKNOWN">>,
+                    <<"status">> := <<"BAD_REQUEST">>,
                     <<"reason">> := Reason
                 },
                 ResponseMap
@@ -376,8 +383,8 @@ t_http_request_requires_request_id(_Config) ->
     ?assertEqual(400, Status),
     ?assertMatch(
         #{
-            <<"status">> := <<"UNKNOWN">>,
-            <<"reason">> := <<"request_id_required">>
+            <<"status">> := <<"BAD_REQUEST">>,
+            <<"reason">> := <<"request.request_id is required.">>
         },
         ResponseMap
     ),
@@ -394,8 +401,8 @@ t_http_request_rejects_request_id_too_large(_Config) ->
     ?assertEqual(400, Status),
     ?assertMatch(
         #{
-            <<"status">> := <<"UNKNOWN">>,
-            <<"reason">> := <<"request_id_too_large">>
+            <<"status">> := <<"BAD_REQUEST">>,
+            <<"reason">> := <<"request.request_id must be no longer than 128 bytes.">>
         },
         ResponseMap
     ),
@@ -417,8 +424,8 @@ t_http_request_rejects_request_payload_too_large(Config) ->
             ?assertEqual(400, Status),
             ?assertMatch(
                 #{
-                    <<"status">> := <<"UNKNOWN">>,
-                    <<"reason">> := <<"request_payload_too_large">>
+                    <<"status">> := <<"BAD_REQUEST">>,
+                    <<"reason">> := <<"request.payload exceeds max_payload_size.">>
                 },
                 ResponseMap
             )
@@ -440,8 +447,9 @@ t_http_request_rejects_invalid_timeout_above_max(Config) ->
             ?assertEqual(400, Status),
             ?assertMatch(
                 #{
-                    <<"status">> := <<"UNKNOWN">>,
-                    <<"reason">> := <<"invalid_timeout">>
+                    <<"status">> := <<"BAD_REQUEST">>,
+                    <<"reason">> :=
+                        <<"timeout must be greater than 0 and no more than max_timeout.">>
                 },
                 ResponseMap
             )
@@ -467,6 +475,69 @@ t_http_request_requires_management_api_auth(_Config) ->
         ),
     ?assertEqual(401, Status).
 
+t_http_request_accepts_api_key_with_publish_scope(_Config) ->
+    Parent = self(),
+    Name = <<"sync-request-api-key-publish">>,
+    ReqTopic = <<"sync_request/api-key/request">>,
+    RespTopic = <<"sync_request/api-key/response">>,
+    RespPayload = <<"api-key-response">>,
+    {ok, Responder} = start_v5_responder(
+        <<"sync_request_api_key_responder">>,
+        ReqTopic,
+        fun(_Client, #{properties := Props, payload := Payload}) ->
+            Parent ! {api_key_request_seen, Payload},
+            {
+                maps:get('Response-Topic', Props),
+                #{'Correlation-Data' => maps:get('Correlation-Data', Props)},
+                RespPayload
+            }
+        end
+    ),
+    try
+        {ok, #{<<"api_key">> := ApiKey, <<"api_secret">> := ApiSecret}} =
+            create_api_key(Name, [?SCOPE_PUBLISH]),
+        Auth = emqx_common_test_http:auth_header(binary_to_list(ApiKey), binary_to_list(ApiSecret)),
+        Body = request_body(ReqTopic, RespTopic, <<"api-key-request-id">>, #{}),
+        {Status, ResponseMap} =
+            do_http_request(emqx_mgmt_api_test_util:default_server(), Auth, Body),
+        ?assertEqual(200, Status),
+        assert_response_payload(ResponseMap, RespPayload),
+        ?assertReceive({api_key_request_seen, ?REQ_PAYLOAD}, 5000)
+    after
+        delete_api_key(Name),
+        stop_client(Responder)
+    end.
+
+t_http_request_rejects_invalid_or_unscoped_api_key(_Config) ->
+    Name = <<"sync-request-api-key-no-publish">>,
+    {ok, #{<<"api_key">> := ApiKey, <<"api_secret">> := ApiSecret}} =
+        create_api_key(Name, [?SCOPE_CONNECTIONS]),
+    Body = request_body(
+        <<"sync_request/api-key/reject/request">>,
+        <<"sync_request/api-key/reject/response">>,
+        <<"api-key-reject-request-id">>,
+        #{timeout => <<"100ms">>}
+    ),
+    try
+        BadSecretAuth = emqx_common_test_http:auth_header(
+            binary_to_list(ApiKey), binary_to_list(<<ApiSecret/binary, "-wrong">>)
+        ),
+        {BadSecretStatus, BadSecretResponse} =
+            do_http_request(emqx_mgmt_api_test_util:default_server(), BadSecretAuth, Body),
+        ?assertEqual(401, BadSecretStatus),
+        ?assertMatch(#{<<"code">> := <<"BAD_API_KEY_OR_SECRET">>}, BadSecretResponse),
+
+        NoPublishAuth = emqx_common_test_http:auth_header(
+            binary_to_list(ApiKey), binary_to_list(ApiSecret)
+        ),
+        {NoPublishStatus, NoPublishResponse} =
+            do_http_request(emqx_mgmt_api_test_util:default_server(), NoPublishAuth, Body),
+        ?assertEqual(403, NoPublishStatus),
+        ?assertMatch(#{<<"code">> := <<"UNAUTHORIZED_ROLE">>}, NoPublishResponse)
+    after
+        delete_api_key(Name)
+    end.
+
 t_http_request_returns_offline_without_subscribers(_Config) ->
     Body = request_body(
         <<"sync_request/offline/request">>,
@@ -479,7 +550,7 @@ t_http_request_returns_offline_without_subscribers(_Config) ->
     ?assertMatch(
         #{
             <<"status">> := <<"OFFLINE">>,
-            <<"reason">> := <<"no_subscribers">>
+            <<"reason">> := <<"No exact subscriber is online for the request topic.">>
         },
         ResponseMap
     ),
@@ -506,7 +577,7 @@ t_http_request_does_not_match_wildcard_subscriber(_Config) ->
         ?assertMatch(
             #{
                 <<"status">> := <<"OFFLINE">>,
-                <<"reason">> := <<"no_subscribers">>
+                <<"reason">> := <<"No exact subscriber is online for the request topic.">>
             },
             ResponseMap
         ),
@@ -536,8 +607,9 @@ t_http_request_rejects_shared_subscription(_Config) ->
         ?assertEqual(409, Status),
         ?assertMatch(
             #{
-                <<"status">> := <<"UNKNOWN">>,
-                <<"reason">> := <<"multiple_subscribers">>
+                <<"status">> := <<"CONFLICT">>,
+                <<"reason">> :=
+                    <<"The request topic has a shared subscription or more than one exact subscriber.">>
             },
             ResponseMap
         ),
@@ -568,7 +640,7 @@ t_http_request_times_out_without_response(_Config) ->
         ?assertMatch(
             #{
                 <<"status">> := <<"TIMEOUT">>,
-                <<"reason">> := <<"timeout">>
+                <<"reason">> := <<"Timed out waiting for a matching MQTT response.">>
             },
             ResponseMap
         ),
@@ -611,11 +683,11 @@ t_http_request_rejects_response_payload_too_large(Config) ->
                     }
                 ),
                 {Status, ResponseMap} = do_http_request(Body),
-                ?assertEqual(500, Status),
+                ?assertEqual(400, Status),
                 ?assertMatch(
                     #{
-                        <<"status">> := <<"UNKNOWN">>,
-                        <<"reason">> := <<"response_payload_too_large">>
+                        <<"status">> := <<"BAD_REQUEST">>,
+                        <<"reason">> := <<"MQTT response payload exceeds max_payload_size.">>
                     },
                     ResponseMap
                 ),
@@ -660,8 +732,8 @@ t_http_request_rejects_when_http_inflight_limit_reached(Config) ->
                 ?assertEqual(429, Status2),
                 ?assertMatch(
                     #{
-                        <<"status">> := <<"UNKNOWN">>,
-                        <<"reason">> := <<"too_many_inflight_requests">>
+                        <<"status">> := <<"TOO_MANY_REQUESTS">>,
+                        <<"reason">> := <<"Too many sync requests are waiting for responses.">>
                     },
                     ResponseMap2
                 ),
@@ -710,8 +782,9 @@ t_http_request_rejects_multiple_exact_subscribers(_Config) ->
         ?assertEqual(409, Status),
         ?assertMatch(
             #{
-                <<"status">> := <<"UNKNOWN">>,
-                <<"reason">> := <<"multiple_subscribers">>
+                <<"status">> := <<"CONFLICT">>,
+                <<"reason">> :=
+                    <<"The request topic has a shared subscription or more than one exact subscriber.">>
             },
             ResponseMap
         ),
@@ -749,8 +822,9 @@ t_http_request_rejects_sharded_exact_subscribers(_Config) ->
         ?assertEqual(409, Status),
         ?assertMatch(
             #{
-                <<"status">> := <<"UNKNOWN">>,
-                <<"reason">> := <<"multiple_subscribers">>
+                <<"status">> := <<"CONFLICT">>,
+                <<"reason">> :=
+                    <<"The request topic has a shared subscription or more than one exact subscriber.">>
             },
             ResponseMap
         ),
@@ -828,6 +902,8 @@ t_http_request_matches_mqtt3_response_by_topic_sequence(_Config) ->
         ),
         #{<<"response">> := #{<<"payload">> := EncodedPayload}} = ResponseMap,
         ?assertEqual(?RESP_PAYLOAD, base64:decode(EncodedPayload)),
+        #{<<"response">> := Response} = ResponseMap,
+        ?assertEqual(false, maps:is_key(<<"content_type">>, Response)),
         ?assertReceive({request_seen_v3, ?REQ_PAYLOAD}, 5000)
     after
         stop_client(Responder)
@@ -992,6 +1068,30 @@ with_config(CTConfig, Config, Fun) ->
         ok = emqx_plugins:update_config(NameVsn, OldConfig)
     end.
 
+create_api_key(Name, Scopes) ->
+    delete_api_key(Name),
+    Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
+    Body = #{
+        name => Name,
+        desc => <<"sync request test">>,
+        enable => true,
+        expired_at => <<"infinity">>,
+        scopes => Scopes
+    },
+    case
+        emqx_mgmt_api_test_util:request_api(
+            post, Path, "", emqx_dashboard_SUITE:auth_header_(), Body
+        )
+    of
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
+        Error -> Error
+    end.
+
+delete_api_key(Name) ->
+    Path = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
+    _ = emqx_mgmt_api_test_util:request_api(delete, Path, emqx_dashboard_SUITE:auth_header_()),
+    ok.
+
 assert_response_payload(ResponseMap, ExpectedPayload) ->
     #{<<"response">> := #{<<"payload">> := EncodedPayload}} = ResponseMap,
     ?assertEqual(ExpectedPayload, base64:decode(EncodedPayload)).
@@ -1000,12 +1100,8 @@ plugin_package() ->
     Root = emqx_common_test_helpers:proj_root(),
     Vsn = string:trim(read_file(filename:join([Root, "plugins", "emqx_sync_request", "VERSION"]))),
     Package = filename:join([Root, "_build", "plugins", "emqx_sync_request-" ++ Vsn ++ ".tar.gz"]),
-    case filelib:is_regular(Package) of
-        true ->
-            Package;
-        false ->
-            build_in_tree_plugin_package(Root, Package)
-    end.
+    _ = file:delete(Package),
+    build_in_tree_plugin_package(Root, Package).
 
 build_in_tree_plugin_package(Root, Package) ->
     Output = os:cmd(

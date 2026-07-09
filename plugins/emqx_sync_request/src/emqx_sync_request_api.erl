@@ -150,7 +150,8 @@ fields(error_response) ->
     [
         {status,
             hoconsc:mk(binary(), #{
-                desc => <<"TIMEOUT, OFFLINE, or UNKNOWN.">>
+                desc =>
+                    <<"BAD_REQUEST, CONFLICT, TOO_MANY_REQUESTS, UNAVAILABLE, INTERNAL_ERROR, TIMEOUT, or OFFLINE.">>
             })},
         {reason,
             hoconsc:mk(binary(), #{

@@ -77,10 +77,10 @@ request(Body) when is_map(Body) ->
         {ok, Req} ->
             do_request(Req, Config);
         {error, Reason} ->
-            {400, error_body(?STATUS_UNKNOWN, Reason)}
+            {400, error_body(?STATUS_BAD_REQUEST, Reason)}
     end;
 request(_Body) ->
-    {400, error_body(?STATUS_UNKNOWN, <<"invalid_request_body">>)}.
+    {400, error_body(?STATUS_BAD_REQUEST, <<"invalid_request_body">>)}.
 
 current_config() ->
     maps:merge(default_config(), emqx_plugins:get_config(name_vsn(), #{})).
@@ -183,7 +183,7 @@ do_request(Req0, Config) ->
     MaxInflight = maps:get(max_inflight_requests, Config),
     case ets:info(?REQ_TAB, size) >= MaxInflight of
         true ->
-            {429, error_body(?STATUS_UNKNOWN, <<"too_many_inflight_requests">>)};
+            {429, error_body(?STATUS_TOO_MANY_REQUESTS, <<"too_many_inflight_requests">>)};
         false ->
             ReqRef = make_ref(),
             TimeoutMs = maps:get(timeout, Req0),
@@ -203,7 +203,7 @@ dispatch_request(Message = #message{topic = Topic}, ReqRef, TimeoutMs) ->
             {404, error_body(?STATUS_OFFLINE, <<"no_subscribers">>)};
         multiple_subscribers ->
             cleanup_request(ReqRef),
-            {409, error_body(?STATUS_UNKNOWN, <<"multiple_subscribers">>)};
+            {409, error_body(?STATUS_CONFLICT, <<"multiple_subscribers">>)};
         {ok, Node} ->
             case dispatch_to_node(Node, Message, TimeoutMs) of
                 ok ->
@@ -213,14 +213,14 @@ dispatch_request(Message = #message{topic = Topic}, ReqRef, TimeoutMs) ->
                     {404, error_body(?STATUS_OFFLINE, <<"no_subscribers">>)};
                 multiple_subscribers ->
                     cleanup_request(ReqRef),
-                    {409, error_body(?STATUS_UNKNOWN, <<"multiple_subscribers">>)};
+                    {409, error_body(?STATUS_CONFLICT, <<"multiple_subscribers">>)};
                 {error, Reason} ->
                     cleanup_request(ReqRef),
                     ?SLOG(warning, #{
                         msg => "sync_request_dispatch_failed",
                         reason => Reason
                     }),
-                    {503, error_body(?STATUS_UNKNOWN, <<"failed_to_dispatch_request">>)}
+                    {503, error_body(?STATUS_UNAVAILABLE, <<"failed_to_dispatch_request">>)}
             end
     end.
 
@@ -306,9 +306,9 @@ wait_for_response(ReqRef, TimeoutMs) ->
         {emqx_sync_request_response, ReqRef, {ok, Response}} ->
             {200, #{status => ?STATUS_OK, response => Response}};
         {emqx_sync_request_response, ReqRef, {error, StatusCode, Reason}} ->
-            {StatusCode, error_body(?STATUS_UNKNOWN, Reason)};
+            {StatusCode, error_body(status_for_http_error(StatusCode), Reason)};
         {emqx_sync_request_response, ReqRef, {error, Reason}} ->
-            {500, error_body(?STATUS_UNKNOWN, Reason)}
+            {500, error_body(?STATUS_INTERNAL_ERROR, Reason)}
     after TimeoutMs ->
         cleanup_request(ReqRef),
         {504, error_body(?STATUS_TIMEOUT, <<"timeout">>)}
@@ -441,7 +441,7 @@ complete_local_request(ReqRef, Message = #message{payload = Payload}) ->
                 false ->
                     maps:get(waiter, Req) !
                         {emqx_sync_request_response, ReqRef,
-                            {error, <<"response_payload_too_large">>}},
+                            {error, 400, <<"response_payload_too_large">>}},
                     true
             end;
         [] ->
@@ -745,8 +745,57 @@ maybe_put(Key, Value, Map) ->
 error_body(Status, Reason) ->
     #{
         status => Status,
-        reason => to_binary(Reason)
+        reason => reason_hint(Reason)
     }.
+
+status_for_http_error(400) -> ?STATUS_BAD_REQUEST;
+status_for_http_error(409) -> ?STATUS_CONFLICT;
+status_for_http_error(429) -> ?STATUS_TOO_MANY_REQUESTS;
+status_for_http_error(503) -> ?STATUS_UNAVAILABLE;
+status_for_http_error(_) -> ?STATUS_INTERNAL_ERROR.
+
+reason_hint(<<"invalid_request_body">>) ->
+    <<"Request body must be a JSON object.">>;
+reason_hint(<<"request_required">>) ->
+    <<"request object is required.">>;
+reason_hint(<<"topic_required">>) ->
+    <<"request.topic is required.">>;
+reason_hint(<<"response_topic_required">>) ->
+    <<"request.response_topic is required.">>;
+reason_hint(<<"payload_required">>) ->
+    <<"request.payload is required.">>;
+reason_hint(<<"request_id_required">>) ->
+    <<"request.request_id is required.">>;
+reason_hint(<<"invalid_topic">>) ->
+    <<"Topic must be a valid MQTT topic name without wildcards.">>;
+reason_hint(<<"invalid_qos">>) ->
+    <<"request.qos must be 0, 1, or 2.">>;
+reason_hint(<<"invalid_payload_encoding">>) ->
+    <<"request.payload_encoding must be plain or base64.">>;
+reason_hint(<<"invalid_base64_payload">>) ->
+    <<"request.payload must be valid base64 when payload_encoding is base64.">>;
+reason_hint(<<"invalid_duration">>) ->
+    <<"timeout must be a valid duration.">>;
+reason_hint(<<"invalid_timeout">>) ->
+    <<"timeout must be greater than 0 and no more than max_timeout.">>;
+reason_hint(<<"request_id_too_large">>) ->
+    <<"request.request_id must be no longer than 128 bytes.">>;
+reason_hint(<<"request_payload_too_large">>) ->
+    <<"request.payload exceeds max_payload_size.">>;
+reason_hint(<<"response_payload_too_large">>) ->
+    <<"MQTT response payload exceeds max_payload_size.">>;
+reason_hint(<<"too_many_inflight_requests">>) ->
+    <<"Too many sync requests are waiting for responses.">>;
+reason_hint(<<"no_subscribers">>) ->
+    <<"No exact subscriber is online for the request topic.">>;
+reason_hint(<<"multiple_subscribers">>) ->
+    <<"The request topic has a shared subscription or more than one exact subscriber.">>;
+reason_hint(<<"failed_to_dispatch_request">>) ->
+    <<"Failed to dispatch the request to the subscriber node.">>;
+reason_hint(<<"timeout">>) ->
+    <<"Timed out waiting for a matching MQTT response.">>;
+reason_hint(Reason) ->
+    to_binary(Reason).
 
 to_binary(Value) when is_binary(Value) ->
     Value;

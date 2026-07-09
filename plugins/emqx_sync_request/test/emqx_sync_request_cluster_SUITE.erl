@@ -110,8 +110,9 @@ t_request_conflicts_when_exact_subscribers_exist_on_multiple_nodes(Config) ->
             ?assertEqual(409, Status),
             ?assertMatch(
                 #{
-                    <<"status">> := <<"UNKNOWN">>,
-                    <<"reason">> := <<"multiple_subscribers">>
+                    <<"status">> := <<"CONFLICT">>,
+                    <<"reason">> :=
+                        <<"The request topic has a shared subscription or more than one exact subscriber.">>
                 },
                 ResponseMap
             ),
