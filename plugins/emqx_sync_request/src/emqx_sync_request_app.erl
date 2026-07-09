@@ -23,10 +23,12 @@
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_sync_request_sup:start_link(),
     ok = emqx_sync_request:install_api_dispatch(),
+    ok = emqx_sync_request_cli:load(),
     {ok, Sup}.
 
 stop(_State) ->
-    ok = emqx_sync_request:uninstall_api_dispatch().
+    ok = emqx_sync_request:uninstall_api_dispatch(),
+    ok = emqx_sync_request_cli:unload().
 
 on_config_changed(_OldConf, NewConf) ->
     emqx_sync_request:on_config_changed(NewConf).
