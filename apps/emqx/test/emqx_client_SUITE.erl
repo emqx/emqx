@@ -7,6 +7,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/asserts.hrl").
@@ -23,6 +24,7 @@ all() ->
     %% * t_connect_idle_timeout
     [
         {group, gen_tcp_listener},
+        {group, ssl_listener},
         {group, socket_listener}
     ].
 
@@ -33,6 +35,10 @@ groups() ->
             {group, mqttv4},
             {group, mqttv5},
             {group, others},
+            {group, socket},
+            {group, misbehaving}
+        ]},
+        {ssl_listener, [], [
             {group, socket},
             {group, misbehaving}
         ]},
@@ -90,7 +96,9 @@ groups() ->
             t_sock_closed_on_shutdown,
             t_sock_closed_on_kick_shutdown,
             t_sub_non_utf8_topic,
+            t_congestion_qos0_publish_storm,
             t_congestion_send_timeout,
+            t_congestion_qos0_no_send_timeout,
             t_congestion_decongested,
             t_first_packet_not_connect
         ]},
@@ -106,48 +114,44 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
+    %% NOTE
+    %% Silence `dropped_qos0_msg` / `dropped_msg_due_to_mqueue_is_full` messages.
+    %% Logging them for large messages is expensive, and it disrupts stress tests
+    %% expectations.
+    logger:set_module_level(emqx_session_events, none),
     Config.
 
 end_per_suite(_Config) ->
-    ok.
+    logger:unset_module_level(emqx_session_events).
 
 init_per_group(gen_tcp_listener, Config) ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx,
-                %% t_congestion_send_timeout
-                "listeners.tcp.default.tcp_backend = gen_tcp\n"
-                "listeners.tcp.default.tcp_options.send_timeout = 2500\n"
-                "listeners.tcp.default.tcp_options.sndbuf = 4KB\n"
-                "listeners.tcp.default.tcp_options.recbuf = 4KB\n"
-                "listeners.tcp.default.tcp_options.high_watermark = 160KB\n"
-                %% t_congestion_decongested
-                "conn_congestion.enable_alarm = true\n"
-                "conn_congestion.min_alarm_sustain_duration = 0\n"
-                %% others
-                "listeners.ssl.default.ssl_options.verify = verify_peer\n"}
+            {emqx, emqx_config() ++ "\n" ++ """
+                listeners.tcp.default.tcp_backend = gen_tcp
+            """}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{group_apps, Apps} | Config];
+    [{group_apps, Apps}, {listener_type, tcp} | Config];
+init_per_group(ssl_listener, Config) ->
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx, emqx_config()}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{group_apps, Apps}, {listener_type, ssl} | Config];
 init_per_group(socket_listener, Config) ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx,
-                %% t_congestion_send_timeout
-                "listeners.tcp.default.tcp_backend = socket\n"
-                "listeners.tcp.default.tcp_options.send_timeout = 2500\n"
-                "listeners.tcp.default.tcp_options.sndbuf = 4KB\n"
-                "listeners.tcp.default.tcp_options.recbuf = 4KB\n"
-                %% t_congestion_decongested
-                "conn_congestion.enable_alarm = true\n"
-                "conn_congestion.min_alarm_sustain_duration = 0\n"
-                %% others
-                "listeners.ssl.default.ssl_options.verify = verify_peer\n"}
+            {emqx, emqx_config() ++ "\n" ++ """
+                listeners.tcp.default.tcp_backend = socket
+            """}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{group_apps, Apps} | Config];
+    [{group_apps, Apps}, {listener_type, tcp} | Config];
 init_per_group(mqttv3, Config) ->
     [{proto_ver, v3} | Config];
 init_per_group(mqttv4, Config) ->
@@ -157,35 +161,55 @@ init_per_group(mqttv5, Config) ->
 init_per_group(_GroupName, Config) ->
     Config.
 
-end_per_group(gen_tcp_listener, Config) ->
-    emqx_cth_suite:stop(?config(group_apps, Config));
-end_per_group(socket_listener, Config) ->
+emqx_config() ->
+    """
+    listeners.tcp.default {
+        tcp_options { send_timeout = 2500
+                      sndbuf = 4KB
+                      recbuf = 4KB
+                      buffer = 4KB
+                      high_watermark = 160KB
+                      send_timeout_close = true
+                    }
+    }
+    listeners.ssl.default {
+        tcp_options { send_timeout = 2500
+                      sndbuf = 4KB
+                      recbuf = 4KB
+                      buffer = 4KB
+                      high_watermark = 160KB
+                      send_timeout_close = true
+                    }
+        ssl_options { verify = verify_peer }
+    }
+    """.
+
+end_per_group(GroupName, Config) when
+    GroupName == gen_tcp_listener;
+    GroupName == ssl_listener;
+    GroupName == socket_listener
+->
     emqx_cth_suite:stop(?config(group_apps, Config));
 end_per_group(_GroupName, _Config) ->
     ok.
 
-init_per_testcase(_Case, Config) ->
+init_per_testcase(Case, Config) ->
     ok = snabbkaffe:start_trace(),
-    Config.
+    emqx_common_test_helpers:init_per_testcase(?MODULE, Case, Config).
 
-end_per_testcase(_Case, _Config) ->
+end_per_testcase(_Case, Config) ->
     ok = snabbkaffe:stop(),
-    %% restore default values
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000),
-    emqx_config:put_zone_conf(default, [mqtt, use_username_as_clientid], false),
-    emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], disabled),
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
-    emqx_config:put_zone_conf(default, [mqtt, clientid_override], disabled),
-    emqx_config:put_zone_conf(default, [mqtt, namespace_as_mountpoint], false),
-    emqx_config:put_listener_conf(tcp, default, [tcp_options, keepalive], "none"),
-    ok.
+    restore_conf(Config),
+    restore_listener_conf(Config).
 
 %%--------------------------------------------------------------------
 %% Test cases for MQTT v4
 %%--------------------------------------------------------------------
 
+t_cm(init, Config) ->
+    override_conf([mqtt, idle_timeout], 1000, Config).
+
 t_cm(_) ->
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 1000),
     ClientId = atom_to_binary(?FUNCTION_NAME),
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
@@ -202,8 +226,10 @@ t_cm(_) ->
     ),
     ok.
 
+t_idle_timeout_infinity(init, Config) ->
+    override_conf([mqtt, idle_timeout], infinity, Config).
+
 t_idle_timeout_infinity(_) ->
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], infinity),
     ClientId = atom_to_binary(?FUNCTION_NAME),
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
@@ -401,8 +427,10 @@ t_basic(Opts) ->
     ?assertEqual(3, length(recv_msgs(3))),
     ok = emqtt:disconnect(C).
 
+t_username_as_clientid(init, Config) ->
+    override_conf([mqtt, use_username_as_clientid], true, Config).
+
 t_username_as_clientid(_) ->
-    emqx_config:put_zone_conf(default, [mqtt, use_username_as_clientid], true),
     Username = <<"usera">>,
     {ok, C} = emqtt:start_link([{username, Username}]),
     {ok, _} = emqtt:connect(C),
@@ -417,11 +445,20 @@ t_username_as_clientid(_) ->
     end,
     emqtt:disconnect(C).
 
+t_certcn_as_alias(init, Config) ->
+    save_conf([mqtt, client_attrs_init], Config).
+
 t_certcn_as_alias(_) ->
     test_cert_extraction_as_alias(cn).
 
+t_certdn_as_alias(init, Config) ->
+    save_conf([mqtt, client_attrs_init], Config).
+
 t_certdn_as_alias(_) ->
     test_cert_extraction_as_alias(dn).
+
+t_cert_common_name_as_alias(init, Config) ->
+    save_conf([mqtt, client_attrs_init], Config).
 
 t_cert_common_name_as_alias(_) ->
     test_cert_extraction_as_alias(cert_common_name).
@@ -450,6 +487,9 @@ test_cert_extraction_as_alias(Which) ->
         emqx_cm:get_chan_info(ClientId)
     ),
     emqtt:disconnect(Client).
+
+t_client_attr_from_user_property(init, Config) ->
+    save_conf([mqtt, client_attrs_init], Config).
 
 t_client_attr_from_user_property(_Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
@@ -481,6 +521,9 @@ t_client_attr_from_user_property(_Config) ->
     ),
     emqtt:disconnect(Client).
 
+t_client_attr_from_password(init, Config) ->
+    save_conf([mqtt, client_attrs_init], Config).
+
 t_client_attr_from_password(_Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     Password = <<"secret-password">>,
@@ -506,12 +549,13 @@ t_client_attr_from_password(_Config) ->
     ?assertNot(maps:is_key(password, ClientInfo)),
     emqtt:disconnect(Client).
 
+t_sock_keepalive(init, Config) ->
+    override_listener_conf(default, [tcp_options, keepalive], "1,1,5", Config).
+
 t_sock_keepalive(Config) ->
-    %% Configure TCP Keepalive:
-    ok = emqx_config:put_listener_conf(tcp, default, [tcp_options, keepalive], "1,1,5"),
     %% Connect MQTT client:
     ClientId = atom_to_binary(?FUNCTION_NAME),
-    {ok, C} = emqtt:start_link([{clientid, ClientId} | Config]),
+    {ok, C} = emqtt:start_link([{clientid, ClientId} | socket_emqtt_opts(Config)]),
     {
         {ok, _},
         {ok, #{?snk_meta := #{pid := CPid}}}
@@ -605,7 +649,7 @@ t_sock_closed_reason_normal(Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     ?check_trace(
         begin
-            {ok, C} = emqtt:start_link([{clientid, ClientId} | Config]),
+            {ok, C} = emqtt:start_link([{clientid, ClientId} | socket_emqtt_opts(Config)]),
             {ok, _} = emqtt:connect(C),
             ?wait_async_action(
                 emqtt:disconnect(C),
@@ -623,7 +667,7 @@ t_sock_closed_force_closed_by_client(Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     ?check_trace(
         begin
-            {ok, C} = emqtt:start_link([{clientid, ClientId} | Config]),
+            {ok, C} = emqtt:start_link([{clientid, ClientId} | socket_emqtt_opts(Config)]),
             {ok, _} = emqtt:connect(C),
             true = erlang:unlink(C),
             ?wait_async_action(
@@ -640,44 +684,53 @@ t_sock_closed_force_closed_by_client(Config) ->
         end
     ).
 
+t_clientid_override(init, Config) ->
+    Override = <<"username">>,
+    {ok, Rule} = emqx_variform:compile(Override),
+    override_conf([mqtt, clientid_override], Rule, Config).
+
 t_clientid_override(_) ->
     ClientId = <<"original-clientid-0">>,
     Username = <<"username1">>,
-    Override = <<"username">>,
-    {ok, Rule1} = emqx_variform:compile(Override),
-    emqx_config:put_zone_conf(default, [mqtt, clientid_override], Rule1),
     {ok, Client} = emqtt:start_link([{clientid, ClientId}, {port, 1883}, {username, Username}]),
     {ok, _} = emqtt:connect(Client),
     ?assertMatch(#{clientid := Username}, maps:get(clientinfo, emqx_cm:get_chan_info(Username))),
     ?assertMatch(undefined, emqx_cm:get_chan_info(ClientId)),
     emqtt:disconnect(Client).
 
+t_clientid_override_fail_with_empty_render_result(init, Config) ->
+    {ok, Rule} = emqx_variform:compile(<<"undefined_var">>),
+    override_conf([mqtt, clientid_override], Rule, Config).
+
 t_clientid_override_fail_with_empty_render_result(_) ->
-    test_clientid_override_fail(<<"original-clientid-1">>, <<"undefined_var">>).
+    test_clientid_override_fail(<<"original-clientid-1">>).
+
+t_clientid_override_fail_with_expression_exception(init, Config) ->
+    {ok, Rule} = emqx_variform:compile(<<"nth(1,undefined_var)">>),
+    override_conf([mqtt, clientid_override], Rule, Config).
 
 t_clientid_override_fail_with_expression_exception(_) ->
-    test_clientid_override_fail(<<"original-clientid-2">>, <<"nth(1,undefined_var)">>).
+    test_clientid_override_fail(<<"original-clientid-2">>).
 
-test_clientid_override_fail(ClientId, Expr) ->
-    {ok, Rule1} = emqx_variform:compile(Expr),
-    emqx_config:put_zone_conf(default, [mqtt, clientid_override], Rule1),
+test_clientid_override_fail(ClientId) ->
     {ok, Client} = emqtt:start_link([{clientid, ClientId}, {port, 1883}]),
     {ok, _} = emqtt:connect(Client),
     ?assertMatch(#{clientid := ClientId}, maps:get(clientinfo, emqx_cm:get_chan_info(ClientId))),
     emqtt:disconnect(Client).
 
+t_namespace_as_mountpoint_enabled(init, Config) ->
+    %% Set tns attribute from user property
+    override_conf(
+        #{
+            [mqtt, client_attrs_init] => [mk_client_attrs_init_tns("user_property.namespace")],
+            [mqtt, namespace_as_mountpoint] => true
+        },
+        Config
+    ).
+
 t_namespace_as_mountpoint_enabled(_) ->
     Namespace = <<"n1">>,
     ClientId = <<"test-client-1">>,
-    %% Set tns attribute from user property
-    {ok, Compiled} = emqx_variform:compile("user_property.namespace"),
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
-        #{
-            expression => Compiled,
-            set_as_attr => <<"tns">>
-        }
-    ]),
-    emqx_config:put_zone_conf(default, [mqtt, namespace_as_mountpoint], true),
     {ok, Client} = emqtt:start_link([
         {clientid, ClientId},
         {port, 1883},
@@ -692,18 +745,19 @@ t_namespace_as_mountpoint_enabled(_) ->
     ),
     emqtt:disconnect(Client).
 
+t_namespace_as_mountpoint_disabled(init, Config) ->
+    %% Set tns attribute from user property
+    override_conf(
+        #{
+            [mqtt, client_attrs_init] => [mk_client_attrs_init_tns("user_property.namespace")],
+            [mqtt, namespace_as_mountpoint] => false
+        },
+        Config
+    ).
+
 t_namespace_as_mountpoint_disabled(_) ->
     Namespace = <<"n1">>,
     ClientId = <<"test-client-2">>,
-    %% Set tns attribute from user property
-    {ok, Compiled} = emqx_variform:compile("user_property.namespace"),
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
-        #{
-            expression => Compiled,
-            set_as_attr => <<"tns">>
-        }
-    ]),
-    emqx_config:put_zone_conf(default, [mqtt, namespace_as_mountpoint], false),
     {ok, Client} = emqtt:start_link([
         {clientid, ClientId},
         {port, 1883},
@@ -717,11 +771,18 @@ t_namespace_as_mountpoint_disabled(_) ->
     ),
     emqtt:disconnect(Client).
 
+t_namespace_as_mountpoint_no_tns(init, Config) ->
+    %% Don't set tns attribute
+    override_conf(
+        #{
+            [mqtt, client_attrs_init] => [],
+            [mqtt, namespace_as_mountpoint] => true
+        },
+        Config
+    ).
+
 t_namespace_as_mountpoint_no_tns(_) ->
     ClientId = <<"test-client-3">>,
-    %% Don't set tns attribute
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
-    emqx_config:put_zone_conf(default, [mqtt, namespace_as_mountpoint], true),
     {ok, Client} = emqtt:start_link([
         {clientid, ClientId},
         {port, 1883}
@@ -733,17 +794,35 @@ t_namespace_as_mountpoint_no_tns(_) ->
     ),
     emqtt:disconnect(Client).
 
+mk_client_attrs_init_tns(Expr) ->
+    {ok, Compiled} = emqx_variform:compile(Expr),
+    #{
+        expression => Compiled,
+        set_as_attr => <<"tns">>
+    }.
+
+t_certcn_as_clientid_default_config_tls(init, Config) ->
+    override_conf([mqtt, peer_cert_as_clientid], cn, Config).
+
 t_certcn_as_clientid_default_config_tls(_) ->
     tls_certcn_as_clientid(default).
+
+t_certcn_as_clientid_tlsv1_3(init, Config) ->
+    override_conf([mqtt, peer_cert_as_clientid], cn, Config).
 
 t_certcn_as_clientid_tlsv1_3(_) ->
     tls_certcn_as_clientid('tlsv1.3').
 
+t_certcn_as_clientid_tlsv1_2(init, Config) ->
+    override_conf([mqtt, peer_cert_as_clientid], cn, Config).
+
 t_certcn_as_clientid_tlsv1_2(_) ->
     tls_certcn_as_clientid('tlsv1.2').
 
+t_peercert_preserved_before_connected(init, Config) ->
+    override_conf([mqtt, peer_cert_as_clientid], false, Config).
+
 t_peercert_preserved_before_connected(_) ->
-    ok = emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], false),
     ok = emqx_hooks:add(
         'client.connect',
         {?MODULE, on_hook, ['client.connect', self()]},
@@ -783,7 +862,7 @@ on_hook(_ClientInfo, ConnInfo, 'client.connected' = HP, Pid) ->
 %% Misbehaving clients
 %%--------------------------------------------------------------------
 
-t_sock_closed_instantly(_) ->
+t_sock_closed_instantly(Config) ->
     %% Introduce scheduling delays:
     meck:new(esockd_transport, [no_history, passthrough]),
     meck:new(esockd_socket, [no_history, passthrough]),
@@ -793,43 +872,48 @@ t_sock_closed_instantly(_) ->
     TS = trace:session_create(?MODULE, self(), []),
     %% Estabilish a connection:
     {
-        {ok, Socket},
+        Socket,
         {ok, #{?snk_meta := #{pid := CPid}}}
     } = ?wait_async_action(
-        gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+        socket_connect(Config, [{active, true}, binary]),
         #{?snk_kind := connection_started}
     ),
     %% Verify it handles instant socket close smoothly:
     trace:process(TS, CPid, true, [procs]),
     try
-        ok = gen_tcp:close(Socket),
+        ok = socket_close(Socket),
         ?assertReceive(
             {trace, CPid, exit, Reason} when
-                Reason == {shutdown, tcp_closed} orelse Reason == normal
+                Reason == {shutdown, tcp_closed} orelse
+                    Reason == {shutdown, ssl_closed} orelse
+                    Reason == {shutdown, einval} orelse
+                    Reason == normal
         )
     after
         trace:session_destroy(TS),
         meck:unload()
     end.
 
-t_sock_closed_quickly(_) ->
+t_sock_closed_quickly(Config) ->
     %% Start a tracing session:
     TS = trace:session_create(?MODULE, self(), []),
     %% Estabilish a connection:
     {
-        {ok, Socket},
+        Socket,
         {ok, #{?snk_meta := #{pid := CPid}}}
     } = ?wait_async_action(
-        gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+        socket_connect(Config, [{active, true}, binary]),
         #{?snk_kind := connection_started}
     ),
     %% Verify it handles quick socket close smoothly:
     trace:process(TS, CPid, true, [procs]),
     try
-        ok = gen_tcp:close(Socket),
+        ok = socket_close(Socket),
         ?assertReceive(
             {trace, CPid, exit, Reason} when
-                Reason == {shutdown, tcp_closed} orelse Reason == normal
+                Reason == {shutdown, tcp_closed} orelse
+                    Reason == {shutdown, ssl_closed} orelse
+                    Reason == normal
         )
     after
         trace:session_destroy(TS)
@@ -837,7 +921,7 @@ t_sock_closed_quickly(_) ->
 
 %% Connection process smoothly handles situations when socket is already closed
 %% during channel shutdown.
-t_sock_closed_on_shutdown(_) ->
+t_sock_closed_on_shutdown(Config) ->
     %% NOTE
     %% With socket-based listener, it's nearly impossible to trigger a situation when
     %% `socket:send/4` sees a socket error. That makes this testcase currently a _false
@@ -847,10 +931,10 @@ t_sock_closed_on_shutdown(_) ->
     TS = trace:session_create(?MODULE, self(), []),
     %% Estabilish a connection:
     {
-        {ok, Socket},
+        Socket,
         {ok, #{?snk_meta := #{pid := CPid}}}
     } = ?wait_async_action(
-        gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+        socket_connect(Config, [{active, true}, binary]),
         #{?snk_kind := connection_started}
     ),
     trace:process(TS, CPid, true, [procs]),
@@ -867,7 +951,7 @@ t_sock_closed_on_shutdown(_) ->
             proto_ver = ?MQTT_PROTO_V5,
             clientid = atom_to_binary(?FUNCTION_NAME)
         }),
-        ok = gen_tcp:send(Socket, emqx_frame:serialize(ConnPacket, ?MQTT_PROTO_V5)),
+        ok = socket_send(Socket, emqx_frame:serialize(ConnPacket, ?MQTT_PROTO_V5)),
         ?assertReceive({trace, CPid, exit, {shutdown, banned}})
     after
         trace:session_destroy(TS),
@@ -875,13 +959,13 @@ t_sock_closed_on_shutdown(_) ->
     end.
 
 h_sock_closed_on_shutdown(_ConnInfo, _ConnProps, Socket) ->
-    ok = gen_tcp:close(Socket),
+    ok = socket_close(Socket),
     ok = timer:sleep(5),
     {stop, {error, ?RC_BANNED}}.
 
 %% Connection process smoothly handles situations when socket is already closed
 %% during channel shutdown as a result of a `kick` call.
-t_sock_closed_on_kick_shutdown(_) ->
+t_sock_closed_on_kick_shutdown(Config) ->
     %% NOTE
     %% With socket-based listener, it's nearly impossible to trigger a situation when
     %% `socket:send/4` sees a socket error. That makes this testcase currently a _false
@@ -891,10 +975,10 @@ t_sock_closed_on_kick_shutdown(_) ->
     TS = trace:session_create(?MODULE, self(), []),
     %% Estabilish a connection:
     {
-        {ok, Socket},
+        Socket = {Transport, TSock},
         {ok, #{?snk_meta := #{pid := CPid}}}
     } = ?wait_async_action(
-        gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+        socket_connect(Config, [{active, true}, binary]),
         #{?snk_kind := connection_started}
     ),
     trace:process(TS, CPid, true, [procs]),
@@ -909,8 +993,8 @@ t_sock_closed_on_kick_shutdown(_) ->
             proto_ver = ?MQTT_PROTO_V5,
             clientid = ClientId
         }),
-        ok = gen_tcp:send(Socket, emqx_frame:serialize(ConnPacket, ?MQTT_PROTO_V5)),
-        ?assertReceive({tcp, Socket, _ConnAck}),
+        ok = socket_send(Socket, emqx_frame:serialize(ConnPacket, ?MQTT_PROTO_V5)),
+        ?assertReceive({Transport, TSock, <<_/bytes>>}),
         _Request = erpc:send_request(node(), emqx_cm, kick_session, [ClientId]),
         ?assertReceive({trace, CPid, exit, {shutdown, kicked}})
     after
@@ -919,7 +1003,7 @@ t_sock_closed_on_kick_shutdown(_) ->
     end.
 
 h_sock_closed_on_kick_shutdown(_ClientInfo, _Reason, _ConnInfo, Socket) ->
-    ok = gen_tcp:close(Socket),
+    ok = socket_close(Socket),
     ok = timer:sleep(5).
 
 t_connection_stats(_) ->
@@ -953,42 +1037,43 @@ t_connection_stats(_) ->
     ),
     emqtt:disconnect(Client).
 
-t_connect_silent_idle_timeout(_) ->
+t_connect_silent_idle_timeout(Config) ->
     %% Connect, send nothing more.
     %% Connection should be dropped in roughly `IdleTimeout` ms.
     IdleTimeout = 2000,
     emqx_config:put_zone_conf(default, [mqtt, idle_timeout], IdleTimeout),
-    SockOpts = [binary, {active, true}, {nodelay, true}],
-    {ok, Sock} = gen_tcp:connect({127, 0, 0, 1}, 1883, SockOpts, 5000),
-    ?assertReceive({tcp_closed, Sock}, IdleTimeout * 2),
+    Sock = socket_connect(Config, [{active, true}, {nodelay, true}, binary]),
+    SockClosedMsg = socket_closed(Sock),
+    ?assertReceive(SockClosedMsg, IdleTimeout * 2),
     ?assertMatch(
         {ok, #{reason := {shutdown, idle_timeout}}},
         ?block_until(#{?snk_kind := terminate}, IdleTimeout)
     ).
 
-t_connect_idle_timeout(_) ->
+t_connect_idle_timeout(Config) ->
     %% Connect, send few bytes.
     %% Connection should be dropped in roughly `IdleTimeout` ms.
     IdleTimeout = 2000,
     emqx_config:put_zone_conf(default, [mqtt, idle_timeout], IdleTimeout),
     ConnectPacket = emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{})),
-    SockOpts = [binary, {active, true}, {nodelay, true}],
-    {ok, Sock} = gen_tcp:connect({127, 0, 0, 1}, 1883, SockOpts, 5000),
-    {ok, Sockname} = inet:sockname(Sock),
+    Sock = socket_connect(Config, [{active, true}, {nodelay, true}, binary]),
+    SockClosedMsg = socket_closed(Sock),
+    {ok, Sockname} = socket_sockname(Sock),
     ClientSockname = iolist_to_binary(esockd:format(Sockname)),
-    ok = gen_tcp:send(Sock, binary:part(iolist_to_binary(ConnectPacket), 0, 4)),
-    ?assertReceive({tcp_closed, Sock}, IdleTimeout * 2),
+    ok = socket_send(Sock, binary:part(iolist_to_binary(ConnectPacket), 0, 4)),
+    ?assertReceive(SockClosedMsg, IdleTimeout * 2),
     ?assertMatch(
         {ok, #{reason := {shutdown, idle_timeout}, ?snk_meta := #{peername := ClientSockname}}},
         ?block_until(#{?snk_kind := terminate, reason := {shutdown, idle_timeout}}, IdleTimeout)
     ).
 
-t_sub_non_utf8_topic(_) ->
-    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+t_sub_non_utf8_topic(Config) ->
+    Socket = socket_connect(Config, [{active, true}, binary]),
     ConnPacket = ?CONNECT_PACKET(#mqtt_packet_connect{clientid = <<"abcdefg">>}),
-    ok = gen_tcp:send(Socket, emqx_frame:serialize(ConnPacket)),
+    ok = socket_send(Socket, emqx_frame:serialize(ConnPacket)),
     receive
-        {tcp, _, _ConnAck = <<32, 2, 0, 0>>} -> ok
+        {tcp, _, _ConnAck = <<32, 2, 0, 0>>} -> ok;
+        {ssl, _, _ConnAck = <<32, 2, 0, 0>>} -> ok
     after 3000 -> ct:fail({connect_ack_not_recv, process_info(self(), messages)})
     end,
     SubHeader = <<130, 18, 25, 178>>,
@@ -997,66 +1082,243 @@ t_sub_non_utf8_topic(_) ->
     SubTopic = <<128, 10, 10, 12, 178, 159, 162, 47, 115, 1, 1, 1, 1>>,
     SubQoS = <<1>>,
     SubPacket = <<SubHeader/binary, SubTopicLen/binary, SubTopic/binary, SubQoS/binary>>,
-    ok = gen_tcp:send(Socket, SubPacket),
+    ok = socket_send(Socket, SubPacket),
     receive
-        {tcp_closed, _} -> ok
+        {tcp_closed, _} -> ok;
+        {ssl_closed, _} -> ok
     after 3000 -> ct:fail({should_get_disconnected, process_info(self(), messages)})
     end,
     timer:sleep(1000),
-    ListenerCounts = emqx_listeners:shutdown_count('tcp:default', 1883),
+    ListenerCounts = emqx_listeners:shutdown_count(listener_id(Config), listener_port(Config)),
     TopicInvalidCount = proplists:get_value(topic_filter_invalid, ListenerCounts),
     ?assert(is_integer(TopicInvalidCount) andalso TopicInvalidCount > 0),
     ok.
 
-t_congestion_send_timeout(_) ->
-    ok = emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 1000),
-    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, false}, binary]),
+%% Verify that suspended send-congested MQTT client survives a storm of mixed QoS
+%% publishes that's considerably over capacity of its forced shutdown policy.
+%% Expectations:
+%% 1. MQTT client connection survives the storm.
+%% 2. Every QoS1 publish eventually reaches the client, even with
+%%    `mqueue_store_qos0 = true`.
+t_congestion_qos0_publish_storm(init, Config) ->
+    override_conf(
+        #{
+            %% Provide capacity _not enough_ to absord whole storm:
+            [force_shutdown] => #{
+                enable => true,
+                max_heap_size => 1024 * 1024 div erlang:system_info(wordsize),
+                max_mailbox_size => 1000
+            },
+            %% Configure to keep QoS0 messages in the mqueue:
+            %% As QoS0 messages are evicted from the mqueue first, it's expected
+            %% that QoS1 messages will outlive them.
+            [mqtt, mqueue_store_qos0] => true,
+            [mqtt, max_mqueue_len] => 100
+        },
+        Config
+    ).
+
+t_congestion_qos0_publish_storm(Config) ->
+    NQoS1Publishes = 16,
+    QoS0StormSize = 2500,
+    QoS0PayloadSize = 8000,
+    Suffix = integer_to_list(erlang:unique_integer()),
+    ClientId = iolist_to_binary([atom_to_binary(?FUNCTION_NAME), Suffix]),
+    %% Estabilish TCP connection:
+    Socket = socket_connect(Config, [
+        {active, false},
+        binary,
+        {buffer, 1024},
+        {recbuf, 1024},
+        {sndbuf, 1024}
+    ]),
+    %% Connect MQTT client:
+    Parser0 = emqx_frame:initial_parse_state(),
+    ok = socket_send(
+        Socket,
+        emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{clientid = ClientId}))
+    ),
+    {ok, Frame1} = socket_recv(Socket, 0, 1000),
+    {?CONNACK_PACKET(0), <<>>, Parser1} = emqx_frame:parse(Frame1, Parser0),
+    %% Subscribe to 2 topics:
+    QoS0Topic = emqx_topic:join(["slow-client", Suffix, "qos0"]),
+    QoS1Topic = emqx_topic:join(["slow-client", Suffix, "qos1"]),
+    SubOpts = #{rh => 0, rap => 0, nl => 0},
+    ok = socket_send(
+        Socket,
+        emqx_frame:serialize(
+            ?SUBSCRIBE_PACKET(1, [
+                {QoS0Topic, SubOpts#{qos => ?QOS_0}},
+                {QoS1Topic, SubOpts#{qos => ?QOS_1}}
+            ])
+        )
+    ),
+    {ok, Frame2} = socket_recv(Socket, 0, 1000),
+    {?SUBACK_PACKET(1, [0, 1]), <<>>, Parser2} = emqx_frame:parse(Frame2, Parser1),
+    %% Find the channel process on the broker side:
+    [ConnPid] = emqx_cm:lookup_channels(ClientId),
+    MRef = erlang:monitor(process, ConnPid),
+    %% Construct a stream of messages to publish:
+    QoS0Publisher = <<"qos0-storm-publisher">>,
+    QoS1Publisher = <<"qos1-publisher">>,
+    QoS0Payload = binary:copy(<<"qos0-storm">>, QoS0PayloadSize div 10),
+    QoS1Payload = fun(I) -> iolist_to_binary("qos1-" ++ integer_to_list(I)) end,
+    QoS1Messages = [
+        emqx_message:make(QoS1Publisher, ?QOS_1, QoS1Topic, QoS1Payload(I))
+     || I <- lists:seq(1, NQoS1Publishes)
+    ],
+    StreamQoS0 = emqx_utils_stream:const(
+        emqx_message:make(QoS0Publisher, ?QOS_0, QoS0Topic, QoS0Payload)
+    ),
+    StreamQoS1 = emqx_utils_stream:list(QoS1Messages),
+    Stream = emqx_utils_stream:chain(
+        %% 1250 QoS0 messages, ...
+        emqx_utils_stream:limit_length(QoS0StormSize div 2, StreamQoS0),
+        %% Followed by 16 QoS1 messages evenly interspersed with 1250 QoS0 messages
+        emqx_utils_stream:interleave(
+            [
+                {1, StreamQoS1},
+                {QoS0StormSize div (2 * NQoS1Publishes), StreamQoS0}
+            ],
+            false
+        )
+    ),
+    %% Publish them all at once:
+    emqx_utils_stream:foreach(
+        fun
+            (Msg = #message{}) ->
+                emqx:publish(Msg);
+            (sleep) ->
+                timer:sleep(1)
+        end,
+        emqx_utils_stream:interleave(
+            [
+                {100, Stream},
+                emqx_utils_stream:const(sleep)
+            ],
+            false
+        )
+    ),
+    %% Receive pending QoS1 publishes from the socket:
+    {QoS1Received, _Parser} = drain_qos1_publishes(Socket, Parser2, NQoS1Publishes, 10_000),
+    %% Verify ALL QoS1 publishes has successfully reached the socket:
+    ?assertEqual(
+        [],
+        lists:foldl(
+            fun({_PacketId, Payload}, Ms) -> lists:keydelete(Payload, #message.payload, Ms) end,
+            QoS1Messages,
+            QoS1Received
+        )
+    ),
+    %% Verify channel process is alive and well:
+    ?assertEqual([ConnPid], emqx_cm:lookup_channels(ClientId)),
+    ?assert(is_process_alive(ConnPid)),
+    ?assertNotReceive({'DOWN', MRef, process, ConnPid, _}, 0),
+    ok = socket_close(Socket).
+
+drain_qos1_publishes(Socket, Parser, N, Timeout) ->
+    Deadline = erlang:monotonic_time(millisecond) + Timeout,
+    drain_qos1_publishes(Socket, Parser, [], N, Deadline).
+
+drain_qos1_publishes(Socket, Parser0, Acc, N, Deadline) ->
+    Left = Deadline - erlang:monotonic_time(millisecond),
+    maybe
+        true ?= N > 0,
+        true ?= Left > 0,
+        {ok, Data} ?= socket_recv(Socket, 0, min(1000, Left)),
+        {Parser, Seen} = parse_incoming_qos1(Socket, Data, Parser0, []),
+        ok = lists:foreach(
+            fun({PacketId, _}) ->
+                case socket_send(Socket, emqx_frame:serialize(?PUBACK_PACKET(PacketId))) of
+                    ok ->
+                        ok;
+                    {error, closed} ->
+                        ct:fail(slow_client_socket_closed_while_ack_qos1)
+                end
+            end,
+            Seen
+        ),
+        drain_qos1_publishes(Socket, Parser, Seen ++ Acc, N - length(Seen), Deadline)
+    else
+        false ->
+            {Acc, Parser0};
+        {error, timeout} ->
+            drain_qos1_publishes(Socket, Parser0, Acc, Deadline);
+        {error, closed} ->
+            ct:fail(slow_client_socket_closed)
+    end.
+
+parse_incoming_qos1(Socket, Data, Parser0, Acc) ->
+    case emqx_frame:parse(Data, Parser0) of
+        {?PUBLISH_PACKET(?QOS_1, _Topic, PacketId, Payload), Rest, Parser} ->
+            parse_incoming_qos1(Socket, Rest, Parser, [{PacketId, Payload} | Acc]);
+        {?PUBLISH_PACKET(?QOS_0, _Topic, _PacketId, _Payload), Rest, Parser} ->
+            parse_incoming_qos1(Socket, Rest, Parser, Acc);
+        {_Packet, Rest, Parser} ->
+            parse_incoming_qos1(Socket, Rest, Parser, Acc);
+        {_More, Parser} ->
+            {Parser, Acc}
+    end.
+
+%% Verify that slow send-congested MQTT client overwhelmed by a stream of QoS1 publishes gets
+%% its connection terminated with `send_timeout` reason in configured timeout.
+t_congestion_send_timeout(init, Config) ->
+    override_conf(
+        #{
+            [conn_congestion, enable_alarm] => true,
+            [conn_congestion, min_alarm_sustain_duration] => 0,
+            %% This timeout drives congestion alarms, decrease to receive alarms sooner:
+            [mqtt, idle_timeout] => 500,
+            %% Congestion is exercised through QoS1 publishing, increase to avoid queueing:
+            [mqtt, max_inflight] => 1000
+        },
+        Config
+    ).
+
+t_congestion_send_timeout(Config) ->
+    PayloadSize = 12000,
+    PublishInterval = 80,
+    ConsumeRecvlen = 1000,
+    ConsumeInterval = 100,
+    Socket = socket_connect(Config, [{buffer, 4096}, {active, false}, binary]),
     %% Send manually constructed CONNECT:
-    ok = gen_tcp:send(
+    ok = socket_send(
         Socket,
         emqx_frame:serialize(
             ?CONNECT_PACKET(#mqtt_packet_connect{clientid = <<"t_congestion_send_timeout">>})
         )
     ),
-    {ok, Frames1} = gen_tcp:recv(Socket, 0, 1000),
+    {ok, Frames1} = socket_recv(Socket, 0, 1000),
     {Pkt1, <<>>, Parser1} = emqx_frame:parse(Frames1, emqx_frame:initial_parse_state()),
     ?assertMatch(?CONNACK_PACKET(0), Pkt1),
     %% Send manually constructed SUBSCRIBE to subscribe to "t":
     Topic = <<"t">>,
-    ok = gen_tcp:send(
+    ok = socket_send(
         Socket,
         emqx_frame:serialize(
-            ?SUBSCRIBE_PACKET(1, [{Topic, #{rh => 0, rap => 0, nl => 0, qos => 0}}])
+            ?SUBSCRIBE_PACKET(1, [{Topic, #{rh => 0, rap => 0, nl => 0, qos => 1}}])
         )
     ),
-    {ok, Frames2} = gen_tcp:recv(Socket, 0, 1000),
+    {ok, Frames2} = socket_recv(Socket, 0, 1000),
     {Pkt2, <<>>, _Parser2} = emqx_frame:parse(Frames2, Parser1),
-    ?assertMatch(?SUBACK_PACKET(1, [0]), Pkt2),
+    ?assertMatch(?SUBACK_PACKET(1, [?QOS_1]), Pkt2),
     %% Subscribe to alarms:
     AlarmTopic = <<"$SYS/brokers/+/alarms/activate">>,
     ok = emqx_broker:subscribe(AlarmTopic),
     %% Start filling up send buffers:
     Publisher = fun Publisher(N) ->
-        %% Each message has 8000 bytes payload:
-        Payload = binary:copy(<<N:64>>, 1000),
-        _ = emqx:publish(emqx_message:make(<<"publisher">>, Topic, Payload)),
-        ok = timer:sleep(50),
+        Payload = binary:copy(<<N:64>>, PayloadSize div 8),
+        _ = emqx:publish(emqx_message:make(<<"publisher">>, ?QOS_1, Topic, Payload)),
+        ok = timer:sleep(PublishInterval),
         Publisher(N + 1)
     end,
     _PublisherPid = spawn_link(fun() -> Publisher(1) end),
     %% Start lagging consumer:
-    Consumer = fun Consumer() ->
-        case gen_tcp:recv(Socket, 1000, 1000) of
-            {ok, _Bytes} ->
-                ok = timer:sleep(50),
-                Consumer();
-            {error, closed} ->
-                closed
-        end
-    end,
-    _ConsumerPid = spawn_link(fun() -> Consumer() end),
+    _ConsumerPid = spawn_link(fun() ->
+        loop_slow_consumer(active, Socket, ConsumeRecvlen, ConsumeInterval)
+    end),
     %% Congestion alarm should be raised soon:
-    {deliver, _, AlarmMsg} = ?assertReceive({deliver, AlarmTopic, _AlarmMsg}, 5_000),
+    {deliver, _, AlarmMsg} = ?assertReceive({deliver, AlarmTopic, _AlarmMsg}, 10_000),
     #{
         <<"name">> := <<"conn_congestion/t_congestion_send_timeout/undefined">>,
         <<"details">> := AlarmDetails
@@ -1064,68 +1326,160 @@ t_congestion_send_timeout(_) ->
     %% Connection should be closed once send timeout passes.
     ConnPid = list_to_pid(binary_to_list(maps:get(<<"pid">>, AlarmDetails))),
     MRef = erlang:monitor(process, ConnPid),
-    ?assertReceive({'DOWN', MRef, process, ConnPid, {shutdown, send_timeout}}, 5_000),
-    ok = gen_tcp:close(Socket).
+    ?assertReceive({'DOWN', MRef, process, ConnPid, {shutdown, send_timeout}}, 10_000),
+    ok = socket_close(Socket).
 
-t_congestion_decongested(_) ->
-    ok = emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 1000),
-    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, false}, binary]),
+%% Verify that slow send-congested MQTT client survives a stream of QoS0-only publishes,
+%% the connection stays up and no `send_timeout` socket errors are observed.
+%% Expectations:
+%% 1. Connection observes socket congestion.
+%% 2. Connection is never closed abnormally.
+%% 3. Under congestion, QoS0 messages enter mqueue and get dropped once mqueue is full.
+t_congestion_qos0_no_send_timeout(init, Config) ->
+    override_conf(
+        #{
+            [conn_congestion, enable_alarm] => true,
+            [conn_congestion, min_alarm_sustain_duration] => 0,
+            %% This timeout drives congestion alarms, decrease to receive alarms sooner:
+            [mqtt, idle_timeout] => 500,
+            %% Once the connection is marked congested, QoS0 must not keep pushing
+            %% the transport toward send_timeout through the session queue.
+            %% Keep the mqueue severely constrained to make sure connection survives
+            %% full mqueue flush each time it's considered decongested. In a better
+            %% world, connection would have adaptive flow control for such situations.
+            [mqtt, max_mqueue_len] => 20
+        },
+        Config
+    ).
+
+t_congestion_qos0_no_send_timeout(Config) ->
+    %% Configure a mismatch between publishing pace and subscriber capacity:
+    %% These are chosen to work similarly for all 3 listener types: `gen_tcp`,
+    %% `socket` and `ssl`.
+    PayloadSize = 5000,
+    PublishInterval = 50,
+    ConsumeRecvlen = 2000,
+    ConsumeInterval = 60,
+    %% Record dropped QoS0 count before the storm:
+    DroppedBefore = emqx_metrics:val_global('delivery.dropped.queue_full'),
+    ClientId = <<"t_congestion_qos0_no_send_timeout">>,
+    Socket = socket_connect(Config, [{buffer, 4096}, {active, false}, binary]),
     %% Send manually constructed CONNECT:
-    ok = gen_tcp:send(
+    ok = socket_send(
+        Socket,
+        emqx_frame:serialize(
+            ?CONNECT_PACKET(#mqtt_packet_connect{clientid = ClientId})
+        )
+    ),
+    {ok, Frames1} = socket_recv(Socket, 0, 1000),
+    {Pkt1, <<>>, Parser1} = emqx_frame:parse(Frames1, emqx_frame:initial_parse_state()),
+    ?assertMatch(?CONNACK_PACKET(0), Pkt1),
+    %% Send manually constructed SUBSCRIBE to subscribe to "t" at QoS0:
+    Topic = <<"t">>,
+    ok = socket_send(
+        Socket,
+        emqx_frame:serialize(
+            ?SUBSCRIBE_PACKET(1, [{Topic, #{rh => 0, rap => 0, nl => 0, qos => ?QOS_0}}])
+        )
+    ),
+    {ok, Frames2} = socket_recv(Socket, 0, 1000),
+    {Pkt2, <<>>, _Parser2} = emqx_frame:parse(Frames2, Parser1),
+    ?assertMatch(?SUBACK_PACKET(1, [?QOS_0]), Pkt2),
+    %% Subscribe to alarms:
+    AlarmTopic = <<"$SYS/brokers/+/alarms/activate">>,
+    ok = emqx_broker:subscribe(AlarmTopic),
+    %% Start filling up send buffers with QoS0 publishes:
+    Publisher = fun Publisher(N) ->
+        Payload = binary:copy(<<N:64>>, PayloadSize div 8),
+        _ = emqx:publish(emqx_message:make(<<"publisher">>, ?QOS_0, Topic, Payload)),
+        ok = timer:sleep(PublishInterval),
+        Publisher(N + 1)
+    end,
+    _PublisherPid = spawn_link(fun() -> Publisher(1) end),
+    %% Start lagging consumer:
+    ConsumerPid = spawn_link(fun() ->
+        loop_slow_consumer(active, Socket, ConsumeRecvlen, ConsumeInterval)
+    end),
+    %% Congestion alarm should be raised soon by QoS0 traffic:
+    {deliver, _, AlarmMsg} = ?assertReceive({deliver, AlarmTopic, _AlarmMsg}, 10_000),
+    #{
+        <<"name">> := <<"conn_congestion/t_congestion_qos0_no_send_timeout/undefined">>,
+        <<"details">> := AlarmDetails
+    } = emqx_utils_json:decode(emqx_message:payload(AlarmMsg)),
+    ConnPid = list_to_pid(binary_to_list(maps:get(<<"pid">>, AlarmDetails))),
+    MRef = erlang:monitor(process, ConnPid),
+    %% Wait 3 times listener send timeout:
+    %% QoS0 congestion must not cause the connection to close with `send_timeout`.
+    ?assertNotReceive({'DOWN', MRef, process, ConnPid, {shutdown, _}}, 7_500),
+    %% Verify that some QoS0 messages were actually dropped due to congestion:
+    ?assertMatch(
+        Dropped when Dropped > DroppedBefore,
+        emqx_metrics:val_global('delivery.dropped.queue_full')
+    ),
+    ?assertMatch(
+        SS when SS == idle; SS == running; SS == congested,
+        emqx_cth_broker:connection_info(sockstate, ClientId)
+    ),
+    true = unlink(ConsumerPid),
+    exit(ConsumerPid, shutdown),
+    ok = socket_close(Socket).
+
+%% Verify that slow send-congested MQTT client overwhelmed by a stream of QoS1 publishes raises
+%% an alarm, and this alarm deactivates once congestion is relieved.
+t_congestion_decongested(init, Config) ->
+    override_conf(
+        #{
+            [conn_congestion, enable_alarm] => true,
+            [conn_congestion, min_alarm_sustain_duration] => 0,
+            %% This timeout drives congestion alarms, decrease to receive alarms sooner:
+            [mqtt, idle_timeout] => 500,
+            %% Congestion is exercised through QoS1 publishing, increase to avoid queueing:
+            [mqtt, max_inflight] => 1000
+        },
+        Config
+    ).
+
+t_congestion_decongested(Config) ->
+    PayloadSize = 12000,
+    PublishInterval = 80,
+    Socket = socket_connect(Config, [{buffer, 4096}, {active, false}, binary]),
+    %% Send manually constructed CONNECT:
+    ok = socket_send(
         Socket,
         emqx_frame:serialize(
             ?CONNECT_PACKET(#mqtt_packet_connect{clientid = <<"t_congestion_decongested">>})
         )
     ),
-    {ok, Frames1} = gen_tcp:recv(Socket, 0, 1000),
+    {ok, Frames1} = socket_recv(Socket, 0, 1000),
     {Pkt1, <<>>, Parser1} = emqx_frame:parse(Frames1, emqx_frame:initial_parse_state()),
     ?assertMatch(?CONNACK_PACKET(0), Pkt1),
     %% Send manually constructed SUBSCRIBE to subscribe to "t":
     Topic = <<"t">>,
-    ok = gen_tcp:send(
+    ok = socket_send(
         Socket,
         emqx_frame:serialize(
-            ?SUBSCRIBE_PACKET(1, [{Topic, #{rh => 0, rap => 0, nl => 0, qos => 0}}])
+            ?SUBSCRIBE_PACKET(1, [{Topic, #{rh => 0, rap => 0, nl => 0, qos => 1}}])
         )
     ),
-    {ok, Frames2} = gen_tcp:recv(Socket, 0, 1000),
+    {ok, Frames2} = socket_recv(Socket, 0, 1000),
     {Pkt2, <<>>, _Parser2} = emqx_frame:parse(Frames2, Parser1),
-    ?assertMatch(?SUBACK_PACKET(1, [0]), Pkt2),
+    ?assertMatch(?SUBACK_PACKET(1, [?QOS_1]), Pkt2),
     %% Subscribe to alarms:
     ok = emqx_broker:subscribe(<<"$SYS/brokers/+/alarms/activate">>),
     ok = emqx_broker:subscribe(<<"$SYS/brokers/+/alarms/deactivate">>),
     %% Start filling up send buffers:
     Publisher = fun Publisher(N) ->
-        %% Each message has 8000 bytes payload:
-        Payload = binary:copy(<<N:64>>, 1000),
-        _ = emqx:publish(emqx_message:make(<<"publisher">>, Topic, Payload)),
-        ok = timer:sleep(50),
+        Payload = binary:copy(<<N:64>>, PayloadSize div 8),
+        _ = emqx:publish(emqx_message:make(<<"publisher">>, ?QOS_1, Topic, Payload)),
+        ok = timer:sleep(PublishInterval),
         Publisher(N + 1)
     end,
     PublisherPid = spawn_link(fun() -> Publisher(1) end),
     %% Start consumer, initially paused:
-    Consumer = fun
-        Consumer(paused) ->
-            receive
-                activate ->
-                    Consumer(active)
-            after 5_000 ->
-                exit(activate_timeout)
-            end;
-        Consumer(active) ->
-            case gen_tcp:recv(Socket, 0, 1000) of
-                {ok, _Bytes} ->
-                    Consumer(active);
-                {error, timeout} ->
-                    Consumer(active);
-                {error, closed} ->
-                    exit(closed)
-            end
-    end,
-    ConsumerPid = spawn_link(fun() -> Consumer(paused) end),
+    ConsumerPid = spawn_link(fun() -> loop_slow_consumer(paused, Socket, 0, 0) end),
     %% Congestion alarm should be raised soon:
     {deliver, _, AlarmActivated} =
-        ?assertReceive({deliver, <<"$SYS/brokers/+/alarms/activate">>, _}, 5_000),
+        ?assertReceive({deliver, <<"$SYS/brokers/+/alarms/activate">>, _}, 10_000),
     ?assertMatch(
         #{<<"name">> := <<"conn_congestion/t_congestion_decongested/undefined">>},
         emqx_utils_json:decode(emqx_message:payload(AlarmActivated))
@@ -1133,7 +1487,7 @@ t_congestion_decongested(_) ->
     %% Activate consumer, congestion should resolve soon:
     ConsumerPid ! activate,
     {deliver, _, AlarmDeactivated} =
-        ?assertReceive({deliver, <<"$SYS/brokers/+/alarms/deactivate">>, _}, 5_000),
+        ?assertReceive({deliver, <<"$SYS/brokers/+/alarms/deactivate">>, _}, 10_000),
     ?assertMatch(
         #{<<"name">> := <<"conn_congestion/t_congestion_decongested/undefined">>},
         emqx_utils_json:decode(emqx_message:payload(AlarmDeactivated))
@@ -1148,15 +1502,34 @@ t_congestion_decongested(_) ->
     true = unlink(ConsumerPid),
     exit(PublisherPid, shutdown),
     exit(ConsumerPid, shutdown),
-    ok = gen_tcp:close(Socket).
+    ok = socket_close(Socket).
 
-t_first_packet_not_connect(_) ->
-    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+loop_slow_consumer(paused, Socket, Recvlen, Interval) ->
+    receive
+        activate ->
+            loop_slow_consumer(active, Socket, Recvlen, Interval)
+    after 10_000 ->
+        exit(activate_timeout)
+    end;
+loop_slow_consumer(active, Socket, Recvlen, Interval) ->
+    case socket_recv(Socket, Recvlen, 1000) of
+        {ok, _Bytes} ->
+            ok = timer:sleep(Interval),
+            loop_slow_consumer(active, Socket, Recvlen, Interval);
+        {error, timeout} ->
+            loop_slow_consumer(active, Socket, Recvlen, Interval);
+        {error, closed} ->
+            closed
+    end.
+
+t_first_packet_not_connect(Config) ->
+    Socket = socket_connect(Config, [{active, true}, binary]),
     %% Use a complete non-CONNECT MQTT packet to avoid packet=mqtt transport
     %% buffering an incomplete frame forever.
-    ok = gen_tcp:send(Socket, <<?PINGREQ:4, 0:1, 0:2, 0:1, 0>>),
+    ok = socket_send(Socket, <<?PINGREQ:4, 0:1, 0:2, 0:1, 0>>),
     receive
-        {tcp_closed, Socket} -> ok
+        {tcp_closed, RawSocket} when RawSocket =:= element(2, Socket) -> ok;
+        {ssl_closed, RawSocket} when RawSocket =:= element(2, Socket) -> ok
     after 5000 ->
         ct:fail("Expected socket to be closed")
     end.
@@ -1164,6 +1537,69 @@ t_first_packet_not_connect(_) ->
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
+
+listener_id(Config) when is_list(Config) ->
+    emqx_listeners:listener_id(?config(listener_type, Config), default).
+
+listener_port(Config) when is_list(Config) -> listener_port(?config(listener_type, Config));
+listener_port(tcp) -> 1883;
+listener_port(ssl) -> 8883.
+
+socket_emqtt_opts(Config) ->
+    case ?config(listener_type, Config) of
+        ssl ->
+            [
+                {port, listener_port(ssl)},
+                {ssl, true},
+                {ssl_opts, emqx_common_test_helpers:client_mtls()}
+            ];
+        _ ->
+            [{port, listener_port(tcp)}]
+    end.
+
+socket_connect(Config, Opts) ->
+    case ?config(listener_type, Config) of
+        ssl ->
+            {ok, Socket} = ssl:connect(
+                {127, 0, 0, 1},
+                listener_port(ssl),
+                emqx_common_test_helpers:client_mtls() ++ Opts,
+                5000
+            ),
+            {ssl, Socket};
+        tcp ->
+            {ok, Socket} = gen_tcp:connect(
+                {127, 0, 0, 1},
+                listener_port(tcp),
+                Opts
+            ),
+            {tcp, Socket}
+    end.
+
+socket_send({tcp, Socket}, Data) ->
+    gen_tcp:send(Socket, Data);
+socket_send({ssl, Socket}, Data) ->
+    ssl:send(Socket, Data).
+
+socket_recv({tcp, Socket}, Length, Timeout) ->
+    gen_tcp:recv(Socket, Length, Timeout);
+socket_recv({ssl, Socket}, Length, Timeout) ->
+    ssl:recv(Socket, Length, Timeout).
+
+socket_close({tcp, Socket}) ->
+    gen_tcp:close(Socket);
+socket_close({ssl, Socket}) ->
+    ssl:close(Socket).
+
+socket_closed({tcp, Socket}) ->
+    {tcp_closed, Socket};
+socket_closed({ssl, Socket}) ->
+    {ssl_closed, Socket}.
+
+socket_sockname({tcp, Socket}) ->
+    inet:sockname(Socket);
+socket_sockname({ssl, Socket}) ->
+    ssl:sockname(Socket).
 
 recv_msgs(Count) ->
     recv_msgs(Count, []).
@@ -1177,6 +1613,40 @@ recv_msgs(Count, Msgs) ->
     after 1000 ->
         Msgs
     end.
+
+override_conf(KVs, Config) ->
+    maps:fold(fun(KeyPath, X, Acc) -> override_conf(KeyPath, X, Acc) end, Config, KVs).
+
+override_conf(KeyPath, X, Config0) ->
+    Config = save_conf(KeyPath, Config0),
+    emqx_config:put(KeyPath, X),
+    Config.
+
+save_conf(KeyPath, Config) ->
+    X = emqx_config:get(KeyPath),
+    [{conf_saved, {KeyPath, X}} | Config].
+
+restore_conf(Config) ->
+    [
+        emqx_config:put(KeyPath, X)
+     || {conf_saved, {KeyPath, X}} <- Config
+    ].
+
+override_listener_conf(Name, KeyPath, X, Config0) ->
+    Type = ?config(listener_type, Config0),
+    Config = save_listener_conf(Type, Name, KeyPath, Config0),
+    emqx_config:put_listener_conf(Type, Name, KeyPath, X),
+    Config.
+
+save_listener_conf(Type, Name, KeyPath, Config) ->
+    LConf = emqx_config:get_listener_conf(Type, Name, KeyPath),
+    [{listener_conf_saved, {Type, Name, KeyPath, LConf}} | Config].
+
+restore_listener_conf(Config) ->
+    [
+        ok = emqx_config:put_listener_conf(Type, Name, KeyPath, LConf)
+     || {listener_conf_saved, {Type, Name, KeyPath, LConf}} <- Config
+    ].
 
 confirm_tls_version(Client, RequiredProtocol) ->
     Info = emqtt:info(Client),
@@ -1194,7 +1664,6 @@ tls_certcn_as_clientid(TLSVsn) ->
 
 tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
     CN = <<"Client">>,
-    emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], cn),
     SslConf = emqx_common_test_helpers:client_mtls(TLSVsn),
     {ok, Client} = emqtt:start_link([{port, 8883}, {ssl, true}, {ssl_opts, SslConf}]),
     {ok, _} = emqtt:connect(Client),

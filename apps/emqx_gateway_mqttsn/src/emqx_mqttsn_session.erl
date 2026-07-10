@@ -44,7 +44,13 @@
 
 init(ClientInfo, MaybeWillMsg) ->
     ConnInfo = #{receive_maximum => 1, expiry_interval => 0},
-    SessionConf = emqx_session:get_session_conf(ClientInfo),
+    SessionConf = maps:merge(
+        emqx_session:get_session_conf(ClientInfo),
+        #{
+            %% TODO: Handle quota-related timer effects.
+            enable_quota => false
+        }
+    ),
     #{
         registry => emqx_mqttsn_registry:init(),
         session => emqx_session_mem:create(ClientInfo, ConnInfo, MaybeWillMsg, SessionConf)
@@ -87,7 +93,7 @@ unsubscribe(ClientInfo, Topic, SubOpts, Session) ->
     with_sess(?FUNCTION_NAME, [ClientInfo, Topic, SubOpts], Session).
 
 deliver(ClientInfo, Delivers, Session) ->
-    with_sess(?FUNCTION_NAME, [ClientInfo, Delivers], Session).
+    with_sess(?FUNCTION_NAME, [ClientInfo, Delivers, []], Session).
 
 handle_timeout(ClientInfo, Name, Session) ->
     with_sess(?FUNCTION_NAME, [ClientInfo, Name], Session).

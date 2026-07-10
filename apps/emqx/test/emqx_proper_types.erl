@@ -130,7 +130,6 @@ sessioninfo() ->
     ?LET(
         Session,
         #session{
-            clientid = clientid(),
             id = sessionid(),
             is_persistent = boolean(),
             subscriptions = subscriptions(),
@@ -192,8 +191,10 @@ mqueue() ->
                     Q = emqx_mqueue:init(#{max_len => MaxLen, store_qos0 => IsStoreQos0}),
                     lists:foldl(
                         fun(Msg, Acc) ->
-                            {_Dropped, NQ} = emqx_mqueue:in(Msg, Acc),
-                            NQ
+                            case emqx_mqueue:in(Msg, Acc) of
+                                {_Dropped, NQ} -> NQ;
+                                false -> Acc
+                            end
                         end,
                         Q,
                         Msgs

@@ -130,6 +130,8 @@ info(idle_timer, #state{idle_timer = TRef}) ->
     TRef;
 info(zone, #state{zone = Zone}) ->
     Zone;
+info(listener, #state{listener = Listener}) ->
+    Listener;
 info({channel, Info}, #state{channel = Channel}) ->
     emqx_channel:info(Info, Channel).
 

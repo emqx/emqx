@@ -392,7 +392,7 @@ t_takeover_session(_) ->
     ClientId = <<"clientid">>,
     none = emqx_cm:takeover_session_begin(ClientId),
     Parent = self(),
-    ChanPid = erlang:spawn_link(fun() ->
+    _ChanPid = erlang:spawn_link(fun() ->
         ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
         Parent ! registered,
         receive
@@ -400,15 +400,15 @@ t_takeover_session(_) ->
                 gen_server:reply(From1, test),
                 receive
                     {'$gen_call', From2, {takeover, 'end'}} ->
-                        gen_server:reply(From2, _Pendings = [])
+                        gen_server:reply(From2, _Pendings = [hello])
                 end
         end
     end),
     receive
         registered -> ok
     end,
-    {ok, test, State = {emqx_connection, ChanPid}} = emqx_cm:takeover_session_begin(ClientId),
-    {ok, []} = emqx_cm:takeover_session_end(State),
+    {ok, ChanRef, test} = emqx_cm:takeover_session_begin(ClientId),
+    {ok, [hello]} = emqx_cm:takeover_session_end(ChanRef),
     emqx_cm:unregister_channel(ClientId).
 
 t_takeover_session_process_gone(_) ->

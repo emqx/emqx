@@ -1,14 +1,22 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_cm_proto_v3).
+-module(emqx_cm_proto_v4).
+
+-moduledoc """
+Changes since v3:
+
+1. Takeover RPCs now carry information of the takeover protocol supported
+   by the requester. This is a forward-compatibility measure. Affects:
+   * `takeover_begin/3`
+   * `takeover_finish/3`
+""".
 
 -behaviour(emqx_bpapi).
 
 -export([
     introduced_in/0,
-    deprecated_since/0,
 
     lookup_client/2,
     kickout_client/2,
@@ -17,11 +25,10 @@
     get_chan_info/2,
     get_chann_conn_mod/2,
 
-    takeover_session/2,
-    takeover_finish/2,
-    kick_session/3,
+    takeover_begin/3,
+    takeover_finish/3,
 
-    %% Introduced in v3
+    kick_session/3,
     takeover_kick_session/2
 ]).
 
@@ -29,9 +36,6 @@
 -include_lib("emqx/include/emqx_cm.hrl").
 
 introduced_in() ->
-    "5.7.0".
-
-deprecated_since() ->
     "6.3.0".
 
 -spec kickout_client(node(), emqx_types:clientid()) -> ok | {badrpc, _}.
@@ -58,25 +62,35 @@ get_chan_info(ClientId, ChanPid) ->
 get_chann_conn_mod(ClientId, ChanPid) ->
     rpc:call(node(ChanPid), emqx_cm, do_get_chann_conn_mod, [ClientId, ChanPid], ?T_GET_INFO * 2).
 
--spec takeover_session(emqx_types:clientid(), emqx_cm:chan_pid()) ->
-    none
-    | {living, _ConnMod :: atom(), emqx_cm:chan_pid(), emqx_cm_takeover:session_legacy()}
-    %% NOTE: v5.3.0
-    | {living, _ConnMod :: atom(), emqx_cm_takeover:session_legacy()}
-    | {expired | persistent, emqx_cm_takeover:session_legacy()}.
-takeover_session(ClientId, ChanPid) ->
-    erpc:call(node(ChanPid), emqx_cm, takeover_session, [ClientId, ChanPid], ?T_TAKEOVER * 2).
-
--spec takeover_finish(module(), emqx_cm:chan_pid()) ->
-    {ok, emqx_types:takeover_data()}
-    | {ok, list(emqx_types:deliver())}
-    | {error, term()}.
-takeover_finish(ConnMod, ChanPid) ->
+-spec takeover_begin(
+    emqx_types:clientid(),
+    emqx_cm:chan_pid(),
+    emqx_cm_takeover:protocol()
+) ->
+    {ok, emqx_cm_takeover:channelref(), emqx_cm_takeover:state()}
+    | none.
+takeover_begin(ClientId, ChanPid, Protocol) ->
     erpc:call(
         node(ChanPid),
-        emqx_cm,
-        takeover_finish,
-        [ConnMod, ChanPid],
+        emqx_cm_takeover,
+        begin_rpc,
+        [ClientId, ChanPid, Protocol],
+        ?T_TAKEOVER * 2
+    ).
+
+-spec takeover_finish(
+    module(),
+    emqx_cm:chan_pid(),
+    emqx_cm_takeover:protocol()
+) ->
+    {ok, list(emqx_types:deliver())}
+    | {error, term()}.
+takeover_finish(ConnMod, ChanPid, Protocol) ->
+    erpc:call(
+        node(ChanPid),
+        emqx_cm_takeover,
+        finish_rpc,
+        [ConnMod, ChanPid, Protocol],
         ?T_TAKEOVER * 2
     ).
 
@@ -84,13 +98,13 @@ takeover_finish(ConnMod, ChanPid) ->
 kick_session(Action, ClientId, ChanPid) ->
     rpc:call(node(ChanPid), emqx_cm, do_kick_session, [Action, ClientId, ChanPid], ?T_KICK * 2).
 
-%%--------------------------------------------------------------------------------
-%% Introduced in v3
-%%--------------------------------------------------------------------------------
-
 -spec takeover_kick_session(emqx_types:clientid(), emqx_cm:chan_pid()) ->
     ok | {badrpc, _}.
 takeover_kick_session(ClientId, ChanPid) ->
     rpc:call(
-        node(ChanPid), emqx_cm, do_takeover_kick_session_v3, [ClientId, ChanPid], ?T_TAKEOVER * 2
+        node(ChanPid),
+        emqx_cm,
+        do_takeover_kick_session_v3,
+        [ClientId, ChanPid],
+        ?T_KICK * 2
     ).

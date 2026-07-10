@@ -46,10 +46,7 @@ t_in(_) ->
 t_in_qos0(_) ->
     Opts = #{max_len => 5, store_qos0 => false},
     Q = ?Q:init(Opts),
-    {_, Q1} = ?Q:in(#message{qos = 0}, Q),
-    ?assert(?Q:is_empty(Q1)),
-    {_, Q2} = ?Q:in(#message{qos = 0}, Q1),
-    ?assert(?Q:is_empty(Q2)).
+    false = ?Q:in(#message{qos = 0}, Q).
 
 t_out(_) ->
     Opts = #{max_len => 5, store_qos0 => true},
@@ -183,8 +180,8 @@ t_priority_order2(_) ->
         shift_multiplier => 2,
         priorities =>
             #{
-                <<"t1">> => 0,
-                <<"t2">> => 1
+                <<"t1">> => -1,
+                <<"t2">> => 0
             },
         store_qos0 => false
     },
@@ -265,10 +262,50 @@ t_length_priority_mqueue(_) ->
 
 t_dropped(_) ->
     Q = ?Q:init(#{max_len => 1, store_qos0 => true}),
-    Msg = emqx_message:make(<<"t">>, <<"payload">>),
-    {undefined, Q1} = ?Q:in(Msg, Q),
-    {Msg, Q2} = ?Q:in(Msg, Q1),
+    Msg1 = emqx_message:make(<<"t1">>, <<"payload">>),
+    Msg2 = emqx_message:make(<<"t2">>, <<"payload">>),
+    {undefined, Q1} = ?Q:in(Msg1, Q),
+    {Dropped, Q2} = ?Q:in(Msg2, Q1),
+    ?assertMatch(#message{topic = <<"t1">>}, Dropped),
     ?assertEqual(1, ?Q:dropped(Q2)).
+
+t_dropped_qos0_first(_) ->
+    Opts = #{max_len => 3, store_qos0 => true},
+    Q0 = ?Q:init(Opts),
+    Msg1 = emqx_message:make(?MODULE, ?QOS_1, ~"t", ~"qos1-1"),
+    Msg2 = emqx_message:make(?MODULE, ?QOS_0, ~"t", ~"qos0-2"),
+    Msg3 = emqx_message:make(?MODULE, ?QOS_1, ~"t", ~"qos1-3"),
+    Msg4 = emqx_message:make(?MODULE, ?QOS_1, ~"t", ~"qos1-4"),
+    {undefined, Q1} = ?Q:in(Msg1, Q0),
+    {undefined, Q2} = ?Q:in(Msg2, Q1),
+    {undefined, Q3} = ?Q:in(Msg3, Q2),
+    {Dropped, Q4} = ?Q:in(Msg4, Q3),
+    ?assertEqual(<<"qos0-2">>, emqx_message:payload(Dropped)),
+    ?assertEqual(1, ?Q:dropped(Q4)),
+    ?assertEqual(3, ?Q:len(Q4)),
+    ?assertEqual(
+        [{~"t", ~"qos1-1"}, {~"t", ~"qos1-3"}, {~"t", ~"qos1-4"}],
+        drain(Q4)
+    ).
+
+t_dropped_incoming_qos0_first(_) ->
+    Opts = #{max_len => 3, store_qos0 => true},
+    Q0 = ?Q:init(Opts),
+    Msg1 = emqx_message:make(?MODULE, ?QOS_1, ~"t", ~"qos1-1"),
+    Msg2 = emqx_message:make(?MODULE, ?QOS_1, ~"t", ~"qos1-2"),
+    Msg3 = emqx_message:make(?MODULE, ?QOS_2, ~"t", ~"qos2-3"),
+    Msg4 = emqx_message:make(?MODULE, ?QOS_0, ~"t", ~"qos0-4"),
+    {undefined, Q1} = ?Q:in(Msg1, Q0),
+    {undefined, Q2} = ?Q:in(Msg2, Q1),
+    {undefined, Q3} = ?Q:in(Msg3, Q2),
+    {Dropped, Q4} = ?Q:in(Msg4, Q3),
+    ?assertEqual(<<"qos0-4">>, emqx_message:payload(Dropped)),
+    ?assertEqual(1, ?Q:dropped(Q4)),
+    ?assertEqual(3, ?Q:len(Q4)),
+    ?assertEqual(
+        [{~"t", ~"qos1-1"}, {~"t", ~"qos1-2"}, {~"t", ~"qos2-3"}],
+        drain(Q4)
+    ).
 
 t_query(_) ->
     EmptyQ = ?Q:init(#{max_len => 500, store_qos0 => true}),
