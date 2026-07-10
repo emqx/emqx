@@ -95,6 +95,12 @@ ensure_ets(Name, Opts) ->
     end.
 
 register_device(ProductKey, DeviceName, Pid) ->
+    ensure_ets(?TAB_DEV_SUB, [
+        named_table, public, set, {keypos, #iot_mq_device_sub.key}, {read_concurrency, true}
+    ]),
+    ensure_ets(?TAB_DEV_CLIENT, [
+        named_table, public, set, {keypos, #iot_mq_device_client.clientid}, {read_concurrency, true}
+    ]),
     ClientId = DeviceName,
     ets:insert(?TAB_DEV_SUB, #iot_mq_device_sub{
         key = {ProductKey, DeviceName}, clientid = ClientId, pid = Pid
@@ -134,24 +140,33 @@ lookup_devices_by_product(ProductKey) ->
     end.
 
 on_client_connected(ClientInfo, _ConnInfo) ->
-    #{clientid := ClientId} = ClientInfo,
-    Pid = self(),
-    DeviceName = ClientId,
-    ProductKey = get_product_key(ClientInfo),
-    emqx_iot:register_device(ProductKey, DeviceName, Pid),
-    %% replay pending messages
-    {ok, DeliveryIds} = emqx_iot_storage:get_device_deliveries({ProductKey, DeviceName}),
-    lists:foreach(
-        fun(DeliveryId) ->
-            replay_delivery(Pid, ProductKey, DeviceName, DeliveryId)
-        end,
-        DeliveryIds
-    ),
+    try
+        #{clientid := ClientId} = ClientInfo,
+        Pid = self(),
+        DeviceName = ClientId,
+        ProductKey = get_product_key(ClientInfo),
+        emqx_iot:register_device(ProductKey, DeviceName, Pid),
+        {ok, DeliveryIds} = emqx_iot_storage:get_device_deliveries({ProductKey, DeviceName}),
+        lists:foreach(
+            fun(DeliveryId) ->
+                replay_delivery(Pid, ProductKey, DeviceName, DeliveryId)
+            end,
+            DeliveryIds
+        )
+    catch
+        _E:_R:_ST ->
+            ok
+    end,
     {ok, ClientInfo}.
 
 on_client_disconnected(ClientInfo, _Reason, _ConnInfo) ->
-    #{clientid := ClientId} = ClientInfo,
-    emqx_iot:unregister_device(ClientId),
+    try
+        #{clientid := ClientId} = ClientInfo,
+        emqx_iot:unregister_device(ClientId)
+    catch
+        _E:_R:_ST ->
+            ok
+    end,
     {ok, ClientInfo}.
 
 on_message_acked(ClientInfo, Msg) ->

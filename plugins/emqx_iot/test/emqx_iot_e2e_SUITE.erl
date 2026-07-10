@@ -15,7 +15,6 @@
 -define(PORT, 1883).
 -define(PRODUCT, <<"P1">>).
 -define(USER, <<"P1-e2e">>).
--define(TOPIC, <<"/P1/e2e/user/get">>).
 -define(PAYLOAD, <<"e2e_test_payload">>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -45,6 +44,9 @@ init_per_suite(Config) ->
         [{emqx, ?EMQX_CONF}, mria],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{expression => <<"nth(1,tokens(username,'-'))">>, set_as_attr => <<"tns">>}
+    ]),
     ok = emqx_iot:init_tables(),
     init_test_config(),
     ok = emqx_iot:hook(),
@@ -79,6 +81,7 @@ end_per_testcase(_Case, _Config) -> ok.
 %%====================================================================
 
 connect_client(ClientId) ->
+    Topic = <<"/P1/", ClientId/binary, "/user/get">>,
     {_, Port} = emqx_config:get([listeners, tcp, default, bind]),
     Self = self(),
     {ok, C} = emqtt:start_link([
@@ -93,7 +96,7 @@ connect_client(ClientId) ->
         }}
     ]),
     {ok, _} = emqtt:connect(C),
-    {ok, _, [1]} = emqtt:subscribe(C, ?TOPIC, ?QOS_1),
+    {ok, _, [1]} = emqtt:subscribe(C, Topic, ?QOS_1),
     C.
 
 disconnect_client(C) ->
