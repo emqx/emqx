@@ -80,13 +80,19 @@ create_mnesia_tables() ->
     ok.
 
 create_ets_tables() ->
-    catch ets:new(?TAB_DEV_SUB, [
+    ensure_ets(?TAB_DEV_SUB, [
         named_table, public, set, {keypos, #iot_mq_device_sub.key}, {read_concurrency, true}
     ]),
-    catch ets:new(?TAB_DEV_CLIENT, [
+    ensure_ets(?TAB_DEV_CLIENT, [
         named_table, public, set, {keypos, #iot_mq_device_client.clientid}, {read_concurrency, true}
     ]),
     ok.
+
+ensure_ets(Name, Opts) ->
+    case ets:info(Name) of
+        undefined -> ets:new(Name, Opts);
+        _ -> ok
+    end.
 
 register_device(ProductKey, DeviceName, Pid) ->
     ClientId = DeviceName,

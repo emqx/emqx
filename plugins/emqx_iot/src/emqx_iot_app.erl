@@ -19,9 +19,6 @@ start(_StartType, _StartArgs) ->
 
 stop(_State) ->
     ok = emqx_iot:unhook(),
-    ets:delete(iot_mq_device_sub),
-    ets:delete(iot_mq_device_client),
-    emqx_metrics:unregister_namespace(<<"iot_mq">>),
     ok.
 
 on_handle_api_call(Method, PathRemainder, Request, _Context) ->
