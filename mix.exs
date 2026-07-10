@@ -132,12 +132,9 @@ defmodule EMQXUmbrella.MixProject do
       # transitive dependency of pulsar-client-erl, and direct dep in s3tables bridge
       common_dep(:murmerl3),
       common_dep(:unicode_util_compat),
-      # Used by :sbom, remove after https://github.com/erlef/mix_sbom/pull/84 or similar is merged & released
-      {:optimus, "~> 0.6.1", override: true},
-      # Used by :sbom
-      # The revision is v0.16.0 + commit with Elixir 1.19 fixes
-      # Remove after protobuf releases a new version and mix_sbom is updated to use it
-      {:protobuf, github: "elixir-protobuf/protobuf", ref: "4328993", override: true},
+      # Used by :sbom, we need the fixes with Elixir 1.19 warnings, and the security fix
+      # about the ':max_nesting_depth' option
+      {:protobuf, github: "elixir-protobuf/protobuf", tag: "v0.17.0", override: true},
       # transitive dep of iotdb-client-erl; pin our fork for OTP 28 compat
       common_dep(:thrift)
     ]
