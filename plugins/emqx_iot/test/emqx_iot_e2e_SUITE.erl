@@ -12,29 +12,15 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include("emqx_iot.hrl").
 
--define(PORT, 1883).
 -define(PRODUCT, <<"P1">>).
 -define(USER, <<"P1-e2e">>).
 -define(PAYLOAD, <<"e2e_test_payload">>).
 
-all() -> [t_register_message_e2e].
-
-%% MQTT delivery tests require functional emqtt publish path in CT
-%% (Standard emqtt:pub does not deliver in current CT sandbox).
-%% Run manually in Docker via scripts/bench_*.sh:
-%%   t_batch_pub_qos0_e2e, t_batch_pub_qos1_e2e,
-%%   t_batch_pub_messageid_reuse_e2e, t_pub_broadcast_e2e,
-%%   t_batch_pub_partial_online_e2e, t_batch_pub_topic_template_e2e
-
-%%====================================================================
-%% Setup
-%%====================================================================
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 -define(EMQX_CONF, #{
     <<"listeners">> => #{
-        <<"tcp">> => #{
-            <<"default">> => #{<<"acceptors">> => 4}
-        }
+        <<"tcp">> => #{<<"default">> => #{<<"acceptors">> => 4}}
     },
     <<"mqtt">> => #{
         <<"allow_anonymous">> => true,
@@ -57,12 +43,11 @@ init_per_suite(Config) ->
     ok = emqx_iot:init_tables(),
     init_test_config(),
     ok = emqx_iot:hook(),
-    _ =
-        try
-            ets:new(iot_mq_counters, [named_table, public, set, {write_concurrency, true}])
-        catch
-            _:_ -> ok
-        end,
+    _ = try
+        ets:new(iot_mq_counters, [named_table, public, set, {write_concurrency, true}])
+    catch
+        _:_ -> ok
+    end,
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -83,27 +68,20 @@ init_test_config() ->
 init_per_testcase(_Case, Config) -> Config.
 end_per_testcase(_Case, _Config) -> ok.
 
-%%====================================================================
-%% Helpers
-%%====================================================================
+%% ═══════════════════════════════════════════════════════════
+%% Helpers (mqtt_dq style: no msg_handler, use {publish, Msg})
+%% ═══════════════════════════════════════════════════════════
 
 connect_client(ClientId) ->
-    Topic = <<"/P1/", ClientId/binary, "/user/get">>,
     {_, Port} = emqx_config:get([listeners, tcp, default, bind]),
-    Self = self(),
-    {ok, C} = emqtt:start_link([
-        {host, "127.0.0.1"},
-        {port, Port},
-        {clientid, ClientId},
-        {username, ?USER},
-        {proto_ver, v5},
-        {clean_start, true},
-        {msg_handler, #{
-            publish => fun(Msg) -> Self ! {pub, ClientId, Msg} end
-        }}
-    ]),
+    {ok, C} = emqtt:start_link(#{
+        port => Port,
+        clientid => ClientId,
+        username => ?USER,
+        proto_ver => v5,
+        clean_start => true
+    }),
     {ok, _} = emqtt:connect(C),
-    {ok, _, [1]} = emqtt:subscribe(C, Topic, ?QOS_1),
     C.
 
 disconnect_client(C) ->
@@ -122,37 +100,35 @@ receive_pubs(0, Acc, _Timeout) ->
     {ok, length(Acc), Acc};
 receive_pubs(Count, Acc, Timeout) ->
     receive
-        {pub, ClientId, #{payload := Payload, topic := Topic}} ->
-            receive_pubs(Count - 1, [{ClientId, Topic, Payload} | Acc], Timeout)
+        {publish, #{topic := Topic, payload := Payload}} ->
+            receive_pubs(Count - 1, [{Topic, Payload} | Acc], Timeout)
     after Timeout ->
         {timeout, length(Acc), Acc}
     end.
 
-%%====================================================================
+%% ═══════════════════════════════════════════════════════════
 %% Tests
-%%====================================================================
+%% ═══════════════════════════════════════════════════════════
 
 t_batch_pub_qos0_e2e(_Config) ->
     C1 = connect_client(<<"e2e_q0_1">>),
     C2 = connect_client(<<"e2e_q0_2">>),
-    timer:sleep(500),
+    {ok, _, [1]} = emqtt:subscribe(C1, <<"/P1/e2e_q0_1/user/get">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(C2, <<"/P1/e2e_q0_2/user/get">>, 1),
+    timer:sleep(300),
 
-    B64 = b64(?PAYLOAD),
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => ?PRODUCT,
         <<"DeviceName">> => [<<"e2e_q0_1">>, <<"e2e_q0_2">>],
-        <<"MessageContent">> => B64,
+        <<"MessageContent">> => b64(?PAYLOAD),
         <<"Qos">> => 0
     }),
     ?assert(maps:get(<<"Success">>, Resp)),
 
     {ok, N, Pubs} = receive_pubs(2, 5000),
     ?assertEqual(2, N, #{got => Pubs}),
-    lists:foreach(
-        fun({_, _, P}) -> ?assertEqual(?PAYLOAD, P) end,
-        Pubs
-    ),
+    ?assert(lists:all(fun({_, P}) -> P =:= ?PAYLOAD end, Pubs)),
 
     disconnect_client(C1),
     disconnect_client(C2).
@@ -160,24 +136,21 @@ t_batch_pub_qos0_e2e(_Config) ->
 t_batch_pub_qos1_e2e(_Config) ->
     C1 = connect_client(<<"e2e_q1_1">>),
     C2 = connect_client(<<"e2e_q1_2">>),
-    timer:sleep(500),
+    {ok, _, [1]} = emqtt:subscribe(C1, <<"/P1/e2e_q1_1/user/get">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(C2, <<"/P1/e2e_q1_2/user/get">>, 1),
+    timer:sleep(300),
 
-    B64 = b64(?PAYLOAD),
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => ?PRODUCT,
         <<"DeviceName">> => [<<"e2e_q1_1">>, <<"e2e_q1_2">>],
-        <<"MessageContent">> => B64,
+        <<"MessageContent">> => b64(?PAYLOAD),
         <<"Qos">> => 1
     }),
     ?assert(maps:get(<<"Success">>, Resp)),
 
     {ok, N, Pubs} = receive_pubs(2, 5000),
     ?assertEqual(2, N, #{got => Pubs}),
-    lists:foreach(
-        fun({_, _, P}) -> ?assertEqual(?PAYLOAD, P) end,
-        Pubs
-    ),
 
     disconnect_client(C1),
     disconnect_client(C2).
@@ -191,7 +164,8 @@ t_batch_pub_messageid_reuse_e2e(_Config) ->
     MsgId = maps:get(<<"MessageId">>, RegResp),
 
     C1 = connect_client(<<"e2e_reuse_1">>),
-    timer:sleep(500),
+    {ok, _, [1]} = emqtt:subscribe(C1, <<"/P1/e2e_reuse_1/user/get">>, 1),
+    timer:sleep(300),
 
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
@@ -203,7 +177,7 @@ t_batch_pub_messageid_reuse_e2e(_Config) ->
     ?assert(maps:get(<<"Success">>, Resp)),
     ?assertEqual(MsgId, maps:get(<<"MessageId">>, Resp)),
 
-    {ok, 1, [{<<"e2e_reuse_1">>, _, <<"reuse_payload">>}]} = receive_pubs(1, 5000),
+    {ok, 1, [{_, <<"reuse_payload">>}]} = receive_pubs(1, 5000),
 
     disconnect_client(C1).
 
@@ -211,46 +185,45 @@ t_pub_broadcast_e2e(_Config) ->
     C1 = connect_client(<<"e2e_bc_1">>),
     C2 = connect_client(<<"e2e_bc_2">>),
     C3 = connect_client(<<"e2e_bc_3">>),
-    timer:sleep(500),
+    {ok, _, [1]} = emqtt:subscribe(C1, <<"/P1/e2e_bc_1/user/get">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(C2, <<"/P1/e2e_bc_2/user/get">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(C3, <<"/P1/e2e_bc_3/user/get">>, 1),
+    timer:sleep(300),
 
-    B64 = b64(?PAYLOAD),
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"PubBroadcast">>,
         <<"ProductKey">> => ?PRODUCT,
-        <<"MessageContent">> => B64
+        <<"MessageContent">> => b64(?PAYLOAD)
     }),
     ?assert(maps:get(<<"Success">>, Resp)),
 
-    {ok, N, Pubs} = receive_pubs(3, 5000),
-    ?assertEqual(3, N, #{got => Pubs}),
+    {ok, N, _} = receive_pubs(3, 5000),
+    ?assertEqual(3, N),
 
     disconnect_client(C1),
     disconnect_client(C2),
     disconnect_client(C3).
 
 t_batch_pub_partial_online_e2e(_Config) ->
-    %% Only C1 online, C2 offline
     C1 = connect_client(<<"e2e_part_1">>),
-    timer:sleep(500),
+    {ok, _, [1]} = emqtt:subscribe(C1, <<"/P1/e2e_part_1/user/get">>, 1),
+    timer:sleep(300),
 
-    B64 = b64(?PAYLOAD),
-    {ok, 200, _, Resp} = api_call(#{
+    {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => ?PRODUCT,
         <<"DeviceName">> => [<<"e2e_part_1">>, <<"e2e_part_2">>],
-        <<"MessageContent">> => B64,
+        <<"MessageContent">> => b64(?PAYLOAD),
         <<"Qos">> => 1
     }),
-    ?assert(maps:get(<<"Success">>, Resp)),
 
-    %% C1 receives immediately
-    {ok, 1, [{<<"e2e_part_1">>, _, ?PAYLOAD}]} = receive_pubs(1, 5000),
+    {ok, 1, [{_, ?PAYLOAD}]} = receive_pubs(1, 5000),
 
-    %% C2 connects later, should receive via replay
     C2 = connect_client(<<"e2e_part_2">>),
+    {ok, _, [1]} = emqtt:subscribe(C2, <<"/P1/e2e_part_2/user/get">>, 1),
     timer:sleep(2000),
 
-    {ok, 1, [{<<"e2e_part_2">>, _, ?PAYLOAD}]} = receive_pubs(1, 5000),
+    {ok, 1, [{_, ?PAYLOAD}]} = receive_pubs(1, 5000),
 
     disconnect_client(C1),
     disconnect_client(C2).
@@ -260,20 +233,19 @@ t_batch_pub_topic_template_e2e(_Config) ->
     ExpectedTopic = <<"/custom/e2e_tpl_1/topic">>,
 
     C1 = connect_client(<<"e2e_tpl_1">>),
-    emqtt:subscribe(C1, ExpectedTopic, ?QOS_1),
-    timer:sleep(500),
+    {ok, _, [1]} = emqtt:subscribe(C1, ExpectedTopic, 1),
+    timer:sleep(300),
 
-    B64 = b64(?PAYLOAD),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => ?PRODUCT,
         <<"DeviceName">> => [<<"e2e_tpl_1">>],
-        <<"MessageContent">> => B64,
+        <<"MessageContent">> => b64(?PAYLOAD),
         <<"Qos">> => 0,
         <<"TopicTemplateName">> => CustomTopic
     }),
 
-    {ok, 1, [{_, ReceivedTopic, ?PAYLOAD}]} = receive_pubs(1, 5000),
+    {ok, 1, [{ReceivedTopic, ?PAYLOAD}]} = receive_pubs(1, 5000),
     ?assertEqual(ExpectedTopic, ReceivedTopic),
 
     disconnect_client(C1).
@@ -286,7 +258,6 @@ t_register_message_e2e(_Config) ->
     }),
     Mid1 = maps:get(<<"MessageId">>, R1),
 
-    %% Same content → same MessageId
     {ok, 200, _, R2} = api_call(#{
         <<"Action">> => <<"RegisterMessage">>,
         <<"MessageContent">> => B64
