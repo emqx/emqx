@@ -1,5 +1,3 @@
-device_name_source = clientid
-device_name_pattern = "{productKey}/{deviceName}"
 broadcast_topic = "/sys/broadcast/${productKey}"
 batch_topic = "/${productKey}/${deviceName}/user/get"
 msg_ttl = 15d

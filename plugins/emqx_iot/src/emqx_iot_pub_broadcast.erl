@@ -14,6 +14,7 @@ handle(Body, RequestId) ->
 
     case validate(ProductKey, MessageContent) of
         {error, Code, Msg} ->
+            emqx_iot_metrics:inc_broadcast_pub_error(),
             {ok, 400, #{}, emqx_iot_api:error_response(RequestId, Code, Msg)};
         ok ->
             do_broadcast(ProductKey, MessageContent, TopicFullName, RequestId)
@@ -66,8 +67,10 @@ do_broadcast(ProductKey, _MessageContent, TopicFullName, RequestId) ->
 
 deliver_local(ProductKey, TopicTemplate, Payload) ->
     Devices = emqx_iot:lookup_devices_by_product(ProductKey),
+    emqx_iot_metrics:inc_broadcast_devices_online(length(Devices)),
     lists:foreach(
         fun([DeviceName, Pid]) ->
+            emqx_iot_metrics:inc_broadcast_delivery_count(),
             Topic = emqx_iot_utils:expand_topic(TopicTemplate, ProductKey, DeviceName),
             Msg = emqx_message:make(DeviceName, ?QOS_0, Topic, Payload),
             Pid ! #deliver{topic = Topic, message = Msg}
