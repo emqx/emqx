@@ -468,6 +468,80 @@ t_bad_tar_gz2(Config) ->
     ?assert(filelib:is_regular(TarGz)),
     ok.
 
+t_rejects_invalid_schema({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = replace_tar_entry(NameVsn, "config_schema.avsc", <<"not an avro schema">>),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_invalid_schema({'end', Config}) ->
+    ok = emqx_plugins:delete_package(?config(name_vsn, Config));
+t_rejects_invalid_schema(Config) ->
+    assert_invalid_plugin_package(?config(name_vsn, Config)).
+
+t_rejects_invalid_application({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = replace_tar_entry(NameVsn, "invalid_plugin.app", <<"invalid app">>),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_invalid_application({'end', Config}) ->
+    ok = emqx_plugins:delete_package(?config(name_vsn, Config));
+t_rejects_invalid_application(Config) ->
+    assert_invalid_plugin_package(?config(name_vsn, Config)).
+
+t_rejects_invalid_default_config({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = replace_tar_entry(NameVsn, "config.hocon", <<"foo = {">>),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_invalid_default_config({'end', Config}) ->
+    ok = emqx_plugins:delete_package(?config(name_vsn, Config));
+t_rejects_invalid_default_config(Config) ->
+    assert_invalid_plugin_package(?config(name_vsn, Config)).
+
+assert_invalid_plugin_package(NameVsn) ->
+    ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn, ?fresh_install)),
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))).
+
+make_plugin_tar(NameVsn) ->
+    PluginApp = "invalid_plugin-0.1.0",
+    PrivDir = filename:join([NameVsn, PluginApp, "priv"]),
+    Tar = emqx_plugins_fs:tar_file_path(NameVsn),
+    Info = <<
+        "{\"name\":\"invalid_plugin\",\"rel_vsn\":\"1.0.0\","
+        "\"rel_apps\":[\"invalid_plugin-0.1.0\"],\"description\":\"test\","
+        "\"with_config_schema\":true}"
+    >>,
+    Schema =
+        <<"{\"type\":\"record\",\"name\":\"invalid_plugin\",\"fields\":[{\"name\":\"foo\",\"type\":\"string\"}]}">>,
+    erl_tar:create(
+        Tar,
+        [
+            {filename:join(NameVsn, "release.json"), Info},
+            {
+                filename:join([NameVsn, PluginApp, "ebin", "invalid_plugin.app"]),
+                <<"{application, invalid_plugin, [{vsn, \"0.1.0\"}]}.\n">>
+            },
+            {filename:join(PrivDir, "config_schema.avsc"), Schema},
+            {filename:join(PrivDir, "config.hocon"), <<"foo = \"bar\"\n">>}
+        ],
+        [compressed]
+    ).
+
+replace_tar_entry(NameVsn, Filename, Content) ->
+    Tar = emqx_plugins_fs:tar_file_path(NameVsn),
+    {ok, TarContent} = erl_tar:extract(Tar, [compressed, memory]),
+    {NewTarContent, true} = lists:mapfoldl(
+        fun({Path, _} = Entry, Found) ->
+            case filename:basename(Path) of
+                Filename -> {{Path, Content}, true};
+                _ -> {Entry, Found}
+            end
+        end,
+        false,
+        TarContent
+    ),
+    erl_tar:create(Tar, NewTarContent, [compressed]).
+
 %% test that we even cleanup content that doesn't match the expected name-vsn
 %% pattern
 t_tar_vsn_content_mismatch({init, Config}) ->
