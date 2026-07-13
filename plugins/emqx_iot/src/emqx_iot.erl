@@ -8,7 +8,7 @@
     unhook/0,
     init_tables/0,
     register_device/3,
-    unregister_device/1,
+    unregister_device/2,
     lookup_device/1,
     lookup_devices_by_product/1,
     on_client_connected/2,
@@ -109,11 +109,14 @@ register_device(ProductKey, DeviceName, Pid) ->
         clientid = ClientId, pk_dn = {ProductKey, DeviceName}, pid = Pid
     }).
 
-unregister_device(ClientId) ->
+unregister_device(ClientId, Pid) ->
     case ets:lookup(?TAB_DEV_CLIENT, ClientId) of
-        [#iot_mq_device_client{} = Entry] ->
+        [#iot_mq_device_client{pid = Pid} = Entry] ->
             ets:delete(?TAB_DEV_SUB, Entry#iot_mq_device_client.pk_dn),
             ets:delete(?TAB_DEV_CLIENT, ClientId);
+        [#iot_mq_device_client{}] ->
+            %% stale disconnect: a newer connection has taken over
+            ok;
         [] ->
             ok
     end.
@@ -162,7 +165,7 @@ on_client_connected(ClientInfo, _ConnInfo) ->
 on_client_disconnected(ClientInfo, _Reason, _ConnInfo) ->
     try
         #{clientid := ClientId} = ClientInfo,
-        emqx_iot:unregister_device(ClientId)
+        emqx_iot:unregister_device(ClientId, self())
     catch
         _E:_R:_ST ->
             ok
