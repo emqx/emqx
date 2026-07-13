@@ -22,6 +22,7 @@
 }).
 
 -type host_port() :: {string(), inet:port_number()}.
+-type amqp_params() :: #amqp_params_network{}.
 
 host_options() -> ?HOST_OPTIONS.
 
@@ -42,7 +43,7 @@ rotate_servers(Servers, WorkerId) when is_integer(WorkerId), WorkerId > 0 ->
 rotate_servers(Servers, _WorkerId) ->
     Servers.
 
--spec start_connection([host_port()], #amqp_params_network{}) ->
+-spec start_connection([host_port()], amqp_params()) ->
     {ok, pid()} | {error, term()}.
 start_connection(Servers, AmqpParamsBase) ->
     do_start_connection(Servers, AmqpParamsBase, []).
