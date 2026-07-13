@@ -178,6 +178,13 @@ t_crud(TCConfig) when is_list(TCConfig) ->
         list_cards(#{}, TCConfig)
     ),
     ?assertMatch({200, #{<<"namespace">> := _}}, get_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, TCConfig)),
+    maybe
+        false ?= get_config(namespaced, TCConfig, false),
+        ?assertMatch({200, [#{<<"namespace">> := null}]}, list_cards(#{}, TCConfig)),
+        ?assertMatch(
+            {200, #{<<"namespace">> := null}}, get_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, TCConfig)
+        )
+    end,
 
     %% List filters
     Name2 = <<"2">>,
