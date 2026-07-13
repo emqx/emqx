@@ -57,7 +57,11 @@ handle(Body, RequestId) ->
 
 resolve_qos0_payload(MessageContent, _MessageId) when MessageContent =/= undefined ->
     {ok, Payload} = emqx_iot_utils:decode_base64(MessageContent),
-    {ok, Payload, emqx_iot_utils:gen_api_uuid()};
+    MaxSize = get_max_message_size_batch(),
+    case byte_size(Payload) =< MaxSize of
+        true -> {ok, Payload, emqx_iot_utils:gen_api_uuid()};
+        false -> {error, <<"MessageTooLarge">>, <<"Message too large">>}
+    end;
 resolve_qos0_payload(undefined, MessageId) ->
     case emqx_iot_id:resolve_message_id(MessageId) of
         {ok, MsgGuid} ->
@@ -73,12 +77,16 @@ validate_input(_PK, _DeviceNames, undefined, undefined) ->
     {error, <<"MessageIdContentConflict">>, <<"MessageContent or MessageId required">>};
 validate_input(_PK, _DeviceNames, _MC, _MI) when _MC =/= undefined, _MI =/= undefined ->
     {error, <<"MessageIdContentConflict">>, <<"Only one of MessageContent or MessageId allowed">>};
-validate_input(_PK, DeviceNames, _MC, _MI) when is_list(DeviceNames), length(DeviceNames) > 10000 ->
-    {error, <<"DeviceCountExceeded">>, <<"Too many devices">>};
 validate_input(_PK, DeviceNames, _MC, _MI) when is_list(DeviceNames) ->
-    case has_duplicates(DeviceNames) of
-        true -> {error, <<"DuplicateDeviceName">>, <<"Duplicate DeviceName entries">>};
-        false -> ok
+    Max = get_max_device_count(),
+    case length(DeviceNames) > Max of
+        true ->
+            {error, <<"DeviceCountExceeded">>, <<"Too many devices">>};
+        false ->
+            case has_duplicates(DeviceNames) of
+                true -> {error, <<"DuplicateDeviceName">>, <<"Duplicate DeviceName entries">>};
+                false -> ok
+            end
     end;
 validate_input(_, _, _, _) ->
     {error, <<"InvalidDeviceName">>, <<"DeviceName must be a list">>}.
@@ -89,12 +97,16 @@ validate(_PK, _DeviceNames, undefined, undefined) ->
     {error, <<"MessageIdContentConflict">>, <<"MessageContent or MessageId required">>};
 validate(_PK, _DeviceNames, _MC, _MI) when _MC =/= undefined, _MI =/= undefined ->
     {error, <<"MessageIdContentConflict">>, <<"Only one of MessageContent or MessageId allowed">>};
-validate(_PK, DeviceNames, _MC, _MI) when is_list(DeviceNames), length(DeviceNames) > 10000 ->
-    {error, <<"DeviceCountExceeded">>, <<"Too many devices">>};
 validate(_PK, DeviceNames, _MC, _MI) when is_list(DeviceNames) ->
-    case has_duplicates(DeviceNames) of
-        true -> {error, <<"DuplicateDeviceName">>, <<"Duplicate DeviceName entries">>};
-        false -> resolve_content(DeviceNames, _MC, _MI)
+    Max = get_max_device_count(),
+    case length(DeviceNames) > Max of
+        true ->
+            {error, <<"DeviceCountExceeded">>, <<"Too many devices">>};
+        false ->
+            case has_duplicates(DeviceNames) of
+                true -> {error, <<"DuplicateDeviceName">>, <<"Duplicate DeviceName entries">>};
+                false -> resolve_content(DeviceNames, _MC, _MI)
+            end
     end.
 
 resolve_content(_DeviceNames, MessageContent, _MessageId) when MessageContent =/= undefined ->
@@ -184,3 +196,11 @@ resolve_topic(_, ShortName, Pk) when ShortName =/= undefined ->
 resolve_topic(_, _, Pk) ->
     Config = persistent_term:get({?APP, config}, #{}),
     maps:get(batch_topic, Config, <<"/", Pk/binary, "/${deviceName}/user/get">>).
+
+get_max_device_count() ->
+    Config = persistent_term:get({emqx_iot, config}, #{}),
+    maps:get(max_device_count, Config, 10000).
+
+get_max_message_size_batch() ->
+    Config = persistent_term:get({emqx_iot, config}, #{}),
+    maps:get(max_message_size_batch, Config, 10240).
