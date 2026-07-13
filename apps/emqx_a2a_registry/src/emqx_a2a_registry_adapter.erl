@@ -14,12 +14,21 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
+-include_lib("emqx/include/emqx_config.hrl").
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
 
 card_out(Card) ->
-    Card.
+    emqx_utils_maps:update_if_present(
+        <<"namespace">>,
+        fun
+            (?global_ns) -> null;
+            (Ns) -> Ns
+        end,
+        Card
+    ).
 
 format_register_error({bad_id, Field, Id}) ->
     {ok, iolist_to_binary(io_lib:format("Bad ~s id: ~s", [Field, Id]))};
