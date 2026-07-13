@@ -17,30 +17,71 @@ handle(Body, RequestId) ->
     TopicTemplateName = maps:get(<<"TopicTemplateName">>, Body, undefined),
     ResponseTemplate = maps:get(<<"ResponseTopicTemplateName">>, Body, undefined),
 
-    case validate(ProductKey, DeviceNames, MessageContent, MessageId) of
+    case validate_input(ProductKey, DeviceNames, MessageContent, MessageId) of
         {error, Code, Msg} ->
             {ok, 400, #{}, emqx_iot_api:error_response(RequestId, Code, Msg)};
-        {ok, ApiMsgId, MsgGuid} ->
-            TopicTemplate = resolve_topic(TopicTemplateName, TopicShortName, ProductKey),
+        ok ->
             case Qos of
                 0 ->
-                    emqx_iot_metrics:inc_batch_pub_qos0_in(),
-                    emqx_iot_metrics:inc_qos0_targeted(length(DeviceNames)),
-                    deliver_qos0(
-                        DeviceNames, ProductKey, TopicTemplate, MsgGuid, RequestId, ApiMsgId
-                    );
+                    TopicTemplate = resolve_topic(TopicTemplateName, TopicShortName, ProductKey),
+                    case resolve_qos0_payload(MessageContent, MessageId) of
+                        {ok, Payload, ApiMsgId} ->
+                            emqx_iot_metrics:inc_batch_pub_qos0_in(),
+                            emqx_iot_metrics:inc_qos0_targeted(length(DeviceNames)),
+                            deliver_qos0(
+                                DeviceNames, ProductKey, TopicTemplate, Payload, RequestId, ApiMsgId
+                            );
+                        {error, Code, Msg} ->
+                            {ok, 400, #{}, emqx_iot_api:error_response(RequestId, Code, Msg)}
+                    end;
                 1 ->
-                    deliver_qos1(
-                        DeviceNames,
-                        ProductKey,
-                        TopicTemplate,
-                        MsgGuid,
-                        RequestId,
-                        ApiMsgId,
-                        ResponseTemplate
-                    )
+                    case validate(ProductKey, DeviceNames, MessageContent, MessageId) of
+                        {error, Code, Msg} ->
+                            {ok, 400, #{}, emqx_iot_api:error_response(RequestId, Code, Msg)};
+                        {ok, ApiMsgId, MsgGuid} ->
+                            TopicTemplate = resolve_topic(
+                                TopicTemplateName, TopicShortName, ProductKey
+                            ),
+                            deliver_qos1(
+                                DeviceNames,
+                                ProductKey,
+                                TopicTemplate,
+                                MsgGuid,
+                                RequestId,
+                                ApiMsgId,
+                                ResponseTemplate
+                            )
+                    end
             end
     end.
+
+resolve_qos0_payload(MessageContent, _MessageId) when MessageContent =/= undefined ->
+    {ok, Payload} = emqx_iot_utils:decode_base64(MessageContent),
+    {ok, Payload, emqx_iot_utils:gen_api_uuid()};
+resolve_qos0_payload(undefined, MessageId) ->
+    case emqx_iot_id:resolve_message_id(MessageId) of
+        {ok, MsgGuid} ->
+            {ok, Msg} = emqx_iot_storage:lookup_message(MsgGuid),
+            {ok, Msg#iot_mq_message.payload, MessageId};
+        {error, not_found} ->
+            {error, <<"MessageNotFound">>, <<"MessageId not found">>}
+    end.
+
+validate_input(_PK, undefined, _, _) ->
+    {error, <<"InvalidDeviceName">>, <<"DeviceName is required">>};
+validate_input(_PK, _DeviceNames, undefined, undefined) ->
+    {error, <<"MessageIdContentConflict">>, <<"MessageContent or MessageId required">>};
+validate_input(_PK, _DeviceNames, _MC, _MI) when _MC =/= undefined, _MI =/= undefined ->
+    {error, <<"MessageIdContentConflict">>, <<"Only one of MessageContent or MessageId allowed">>};
+validate_input(_PK, DeviceNames, _MC, _MI) when is_list(DeviceNames), length(DeviceNames) > 10000 ->
+    {error, <<"DeviceCountExceeded">>, <<"Too many devices">>};
+validate_input(_PK, DeviceNames, _MC, _MI) when is_list(DeviceNames) ->
+    case has_duplicates(DeviceNames) of
+        true -> {error, <<"DuplicateDeviceName">>, <<"Duplicate DeviceName entries">>};
+        false -> ok
+    end;
+validate_input(_, _, _, _) ->
+    {error, <<"InvalidDeviceName">>, <<"DeviceName must be a list">>}.
 
 validate(_PK, undefined, _, _) ->
     {error, <<"InvalidDeviceName">>, <<"DeviceName is required">>};
@@ -80,9 +121,7 @@ resolve_content(_DeviceNames, _MC, MessageId) when MessageId =/= undefined ->
             {error, <<"MessageNotFound">>, <<"MessageId not found">>}
     end.
 
-deliver_qos0(DeviceNames, ProductKey, TopicTemplate, MsgGuid, RequestId, ApiMsgId) ->
-    {ok, PayloadMsg} = emqx_iot_storage:lookup_message(MsgGuid),
-    Payload = PayloadMsg#iot_mq_message.payload,
+deliver_qos0(DeviceNames, ProductKey, TopicTemplate, Payload, RequestId, ApiMsgId) ->
     lists:foreach(
         fun(DN) ->
             case emqx_iot:lookup_device({ProductKey, DN}) of
@@ -135,15 +174,13 @@ deliver_qos1(
     ),
     {ok, 200, #{}, emqx_iot_api:success_response(RequestId, ApiMsgId)}.
 
-resolve_topic(TopicTemplateName, _TopicShortName, _ProductKey) when
-    TopicTemplateName =/= undefined
-->
-    TopicTemplateName;
-resolve_topic(undefined, TopicShortName, ProductKey) when TopicShortName =/= undefined ->
-    <<"/", ProductKey/binary, "/${deviceName}/user/", TopicShortName/binary>>;
-resolve_topic(undefined, undefined, _ProductKey) ->
-    Config = persistent_term:get({?APP, config}, #{}),
-    maps:get(batch_topic, Config, <<"/${productKey}/${deviceName}/user/get">>).
-
 has_duplicates(List) ->
-    length(List) =/= sets:size(sets:from_list(List)).
+    length(lists:usort(List)) =/= length(List).
+
+resolve_topic(TemplateName, _, Pk) when TemplateName =/= undefined ->
+    TemplateName;
+resolve_topic(_, ShortName, Pk) when ShortName =/= undefined ->
+    <<"/", Pk/binary, "/${deviceName}/user/", ShortName/binary>>;
+resolve_topic(_, _, Pk) ->
+    Config = persistent_term:get({?APP, config}, #{}),
+    maps:get(batch_topic, Config, <<"/", Pk/binary, "/${deviceName}/user/get">>).
