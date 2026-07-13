@@ -13,6 +13,22 @@ Request topics must match exactly. Wildcard and shared subscriptions are not
 matched as request receivers. Shared subscriptions and multiple exact receivers
 return `409 Conflict`.
 
+### Delivery Semantics
+
+Request messages are injected by direct session deliver to the single exact
+subscriber. They do **not** pass the normal MQTT publish pipeline, so they are
+not processed by rule engine, schema validation, message transformation,
+retain, or delayed publish, and they do not use the generic `/publish` path.
+
+The HTTP wait timeout is a single deadline shared by remote dispatch and the
+local wait for the MQTT response. Remote dispatch time counts against the same
+timeout instead of stacking a second full wait.
+
+Matching responses are observed through the broker `message.publish` hook on
+the node that delivered the request. The response should therefore be published
+by a client connected to that same node (typically the same connection that
+received the request). Cross-node response publication is not matched.
+
 ## HTTP API
 
 ```http

@@ -40,7 +40,8 @@
 -export([
     cleanup_remote_pending/1,
     complete_remote_request/2,
-    dispatch_remote_request/1
+    dispatch_remote_request/1,
+    is_request_inflight/1
 ]).
 
 %% gen_server callbacks
@@ -183,7 +184,7 @@ init([]) ->
     Config = normalize_config(current_config()),
     persistent_term:put(?CONFIG_PT, Config),
     ok = hook(),
-    {ok, undefined}.
+    {ok, empty_state()}.
 
 handle_call({on_config_changed, NewConf}, _From, State) ->
     Config = normalize_config(maps:merge(default_config(), NewConf)),
@@ -191,14 +192,31 @@ handle_call({on_config_changed, NewConf}, _From, State) ->
     {reply, ok, State};
 handle_call(on_health_check, _From, State) ->
     {reply, ok, State};
+handle_call({monitor_waiter, ReqRef, Waiter}, _From, State = #{monitors := Mons}) ->
+    Mon = erlang:monitor(process, Waiter),
+    {reply, Mon, State#{monitors => Mons#{Mon => ReqRef}}};
 handle_call(Request, From, State) ->
     ?SLOG(error, #{msg => "sync_request_unexpected_call", request => Request, from => From}),
     {reply, {error, unexpected_call}, State}.
 
+handle_cast({forget_monitor, Mon}, State = #{monitors := Mons}) ->
+    _ = erlang:demonitor(Mon, [flush]),
+    {noreply, State#{monitors => maps:remove(Mon, Mons)}};
 handle_cast(Request, State) ->
     ?SLOG(error, #{msg => "sync_request_unexpected_cast", request => Request}),
     {noreply, State}.
 
+handle_info({'DOWN', Mon, process, _Pid, _Reason}, State = #{monitors := Mons}) ->
+    case maps:take(Mon, Mons) of
+        {ReqRef, Mons1} ->
+            cleanup_request_tables(ReqRef),
+            {noreply, State#{monitors => Mons1}};
+        error ->
+            {noreply, State}
+    end;
+handle_info({expire_pending, ReqRef}, State) ->
+    cleanup_pending(ReqRef),
+    {noreply, State};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "sync_request_unexpected_info", info => Info}),
     {noreply, State}.
@@ -207,6 +225,9 @@ terminate(_Reason, _State) ->
     ok = unhook(),
     persistent_term:erase(?CONFIG_PT),
     ok.
+
+empty_state() ->
+    #{monitors => #{}}.
 
 %%--------------------------------------------------------------------
 %% Request execution
@@ -220,40 +241,59 @@ do_request(Req0, Config) ->
         false ->
             ReqRef = make_ref(),
             TimeoutMs = maps:get(timeout, Req0),
+            Deadline = now_ms() + TimeoutMs,
+            Waiter = self(),
+            Mon = monitor_waiter(ReqRef, Waiter),
             Req = Req0#{
                 req_ref => ReqRef,
-                waiter => self()
+                waiter => Waiter,
+                mon => Mon
             },
             true = ets:insert_new(?REQ_TAB, {ReqRef, Req}),
             Message = make_request_message(Req),
-            dispatch_request(Message, ReqRef, TimeoutMs)
+            dispatch_request(Message, ReqRef, Deadline)
     end.
 
-dispatch_request(Message = #message{topic = Topic}, ReqRef, TimeoutMs) ->
-    case exact_route_node(Topic) of
-        no_subscribers ->
+dispatch_request(Message0 = #message{topic = Topic}, ReqRef, Deadline) ->
+    case remaining_ms(Deadline) of
+        Remaining when Remaining =< 0 ->
             cleanup_request(ReqRef),
-            {404, error_body(?CODE_NO_SUBSCRIBERS, <<"no_subscribers">>)};
-        multiple_subscribers ->
-            cleanup_request(ReqRef),
-            {409, error_body(?CODE_CONFLICT, <<"multiple_subscribers">>)};
-        {ok, Node} ->
-            case dispatch_to_node(Node, Message, TimeoutMs) of
-                ok ->
-                    wait_for_response(ReqRef, TimeoutMs);
+            {504, error_body(?CODE_TIMEOUT, <<"timeout">>)};
+        Remaining ->
+            %% Refresh the relative timeout just before dispatch so the deliver
+            %% node schedules pending expiry against remaining wait budget.
+            Message = set_request_timeout(Message0, Remaining),
+            case exact_route_node(Topic) of
                 no_subscribers ->
                     cleanup_request(ReqRef),
                     {404, error_body(?CODE_NO_SUBSCRIBERS, <<"no_subscribers">>)};
                 multiple_subscribers ->
                     cleanup_request(ReqRef),
                     {409, error_body(?CODE_CONFLICT, <<"multiple_subscribers">>)};
-                {error, Reason} ->
-                    cleanup_request(ReqRef),
-                    ?SLOG(warning, #{
-                        msg => "sync_request_dispatch_failed",
-                        reason => Reason
-                    }),
-                    {503, error_body(?CODE_SERVICE_UNAVAILABLE, <<"failed_to_dispatch_request">>)}
+                {ok, Node} ->
+                    case dispatch_to_node(Node, Message, Remaining) of
+                        ok ->
+                            wait_for_response(ReqRef, remaining_ms(Deadline));
+                        no_subscribers ->
+                            cleanup_request(ReqRef),
+                            {404, error_body(?CODE_NO_SUBSCRIBERS, <<"no_subscribers">>)};
+                        multiple_subscribers ->
+                            cleanup_request(ReqRef),
+                            {409, error_body(?CODE_CONFLICT, <<"multiple_subscribers">>)};
+                        {error, timeout} ->
+                            cleanup_request(ReqRef),
+                            {504, error_body(?CODE_TIMEOUT, <<"timeout">>)};
+                        {error, Reason} ->
+                            cleanup_request(ReqRef),
+                            ?SLOG(warning, #{
+                                msg => "sync_request_dispatch_failed",
+                                reason => Reason
+                            }),
+                            {503,
+                                error_body(
+                                    ?CODE_SERVICE_UNAVAILABLE, <<"failed_to_dispatch_request">>
+                                )}
+                    end
             end
     end.
 
@@ -283,11 +323,15 @@ is_shared_route(_) ->
 
 dispatch_to_node(Node, Message, _TimeoutMs) when Node =:= node() ->
     dispatch_local_request(Message);
+dispatch_to_node(_Node, _Message, TimeoutMs) when TimeoutMs =< 0 ->
+    {error, timeout};
 dispatch_to_node(Node, Message, TimeoutMs) ->
     try erpc:call(Node, ?MODULE, dispatch_remote_request, [Message], TimeoutMs) of
         Result ->
             Result
     catch
+        error:{erpc, timeout} ->
+            {error, timeout};
         Class:Reason:Stacktrace ->
             ?SLOG(warning, #{
                 msg => "sync_request_remote_dispatch_failed",
@@ -334,6 +378,9 @@ local_subscribers(Topic) ->
         emqx_broker:subscribers(Topic)
     ).
 
+wait_for_response(ReqRef, TimeoutMs) when TimeoutMs =< 0 ->
+    cleanup_request(ReqRef),
+    {504, error_body(?CODE_TIMEOUT, <<"timeout">>)};
 wait_for_response(ReqRef, TimeoutMs) ->
     receive
         {emqx_sync_request_response, ReqRef, {ok, Response}} ->
@@ -369,6 +416,16 @@ make_request_message(Req) ->
         Headers
     ).
 
+set_request_timeout(Message = #message{headers = Headers0}, TimeoutMs) ->
+    case maps:get(?HEADER, Headers0, undefined) of
+        Meta when is_map(Meta) ->
+            Message#message{
+                headers = Headers0#{?HEADER => Meta#{timeout => TimeoutMs}}
+            };
+        _ ->
+            Message
+    end.
+
 %%--------------------------------------------------------------------
 %% Pending registry
 %%--------------------------------------------------------------------
@@ -379,29 +436,34 @@ maybe_register_pending(
 ) ->
     ResponseTopic = maps:get('Response-Topic', Props, undefined),
     CorrelationData = maps:get('Correlation-Data', Props, undefined),
-    Deadline = now_ms() + TimeoutMs,
-    case ResponseTopic =/= undefined andalso not expired(Deadline) of
+    case ResponseTopic =/= undefined andalso should_register_pending(ReqRef) of
         true ->
-            maybe_insert_pending(ReqRef, ResponseTopic, CorrelationData, Deadline);
+            %% Deadline is node-local monotonic time; timeout is relative and
+            %% recomputed when the request is delivered on this node.
+            Deadline = now_ms() + TimeoutMs,
+            Seq = erlang:unique_integer([monotonic, positive]),
+            Pending = {ResponseTopic, Seq, ReqRef, CorrelationData, Deadline},
+            true = ets:insert(?PENDING_BY_REQ_TAB, {ReqRef, Pending}),
+            true = ets:insert(?PENDING_TAB, Pending),
+            %% Fire-and-forget; cleanup_pending is idempotent if the request
+            %% completes before the timer fires.
+            _ = erlang:send_after(max(0, TimeoutMs), ?SERVICE, {expire_pending, ReqRef}),
+            ok;
         false ->
-            cleanup_request(ReqRef)
+            ok
     end;
 maybe_register_pending(_ReqRef, _Message) ->
     ok.
 
-maybe_insert_pending(ReqRef, ResponseTopic, CorrelationData, Deadline) ->
-    case local_request_missing(ReqRef) of
-        true ->
-            cleanup_pending(ReqRef);
-        false ->
-            Seq = erlang:unique_integer([monotonic, positive]),
-            Pending = {ResponseTopic, Seq, ReqRef, CorrelationData, Deadline},
-            true = ets:insert(?PENDING_BY_REQ_TAB, {ReqRef, Pending}),
-            true = ets:insert(?PENDING_TAB, Pending)
-    end.
+%% Local origin: skip if the HTTP waiter already timed out / exited.
+%% Remote origin: always register and rely on the expiry timer.
+should_register_pending(ReqRef) when node(ReqRef) =:= node() ->
+    is_request_inflight(ReqRef);
+should_register_pending(_ReqRef) ->
+    true.
 
-local_request_missing(ReqRef) ->
-    node(ReqRef) =:= node() andalso not ets:member(?REQ_TAB, ReqRef).
+is_request_inflight(ReqRef) ->
+    ets:member(?REQ_TAB, ReqRef).
 
 maybe_complete_response(Message = #message{topic = Topic, headers = Headers}) ->
     Props = maps:get(properties, Headers, #{}),
@@ -463,6 +525,7 @@ complete_remote_request(ReqRef, Message) ->
 complete_local_request(ReqRef, Message = #message{payload = Payload}) ->
     case ets:take(?REQ_TAB, ReqRef) of
         [{ReqRef, Req}] ->
+            forget_monitor(maps:get(mon, Req)),
             cleanup_pending(ReqRef),
             cleanup_pending_on_peer_nodes(ReqRef),
             Config = config(),
@@ -492,6 +555,18 @@ make_response(Req, #message{topic = Topic, payload = Payload, headers = Headers}
     maybe_put(content_type, maps:get('Content-Type', Props, undefined), Response0).
 
 cleanup_request(ReqRef) ->
+    case ets:take(?REQ_TAB, ReqRef) of
+        [{ReqRef, #{mon := Mon}}] ->
+            forget_monitor(Mon);
+        [{ReqRef, _Req}] ->
+            ok;
+        [] ->
+            ok
+    end,
+    cleanup_request_tables(ReqRef).
+
+%% Cleanup tables without touching waiter monitors (used on monitor DOWN).
+cleanup_request_tables(ReqRef) ->
     ets:delete(?REQ_TAB, ReqRef),
     cleanup_pending(ReqRef),
     cleanup_pending_on_peer_nodes(ReqRef).
@@ -798,12 +873,25 @@ call(Request, Default) ->
         exit:{timeout, _} -> Default
     end.
 
+monitor_waiter(ReqRef, Waiter) ->
+    gen_server:call(?SERVICE, {monitor_waiter, ReqRef, Waiter}, ?TIMEOUT).
+
+forget_monitor(Mon) ->
+    try gen_server:cast(?SERVICE, {forget_monitor, Mon}) of
+        ok -> ok
+    catch
+        _:_ -> ok
+    end.
+
 name_vsn() ->
     {ok, Vsn} = application:get_key(?PLUGIN_NAME, vsn),
     iolist_to_binary([atom_to_binary(?PLUGIN_NAME), <<"-">>, Vsn]).
 
 expired(Deadline) ->
     now_ms() > Deadline.
+
+remaining_ms(Deadline) ->
+    Deadline - now_ms().
 
 now_ms() ->
     erlang:monotonic_time(millisecond).

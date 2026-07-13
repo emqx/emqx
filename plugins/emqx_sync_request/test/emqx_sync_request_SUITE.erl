@@ -52,7 +52,9 @@ all() ->
         t_mqtt5_response_ignores_mismatched_correlation_data,
         t_http_request_matches_mqtt3_response_by_topic_sequence,
         t_mqtt3_concurrent_requests_match_response_topic_sequence,
-        t_first_response_wins_and_late_response_is_dropped
+        t_first_response_wins_and_late_response_is_dropped,
+        t_waiter_exit_cleans_inflight_and_pending,
+        t_delivered_after_request_gone_does_not_register_pending
     ].
 
 init_per_suite(Config) ->
@@ -187,6 +189,71 @@ t_delivered_message_registers_pending_with_local_timeout(_Config) ->
     after
         ets:delete(?REQ_TAB, ReqRef),
         emqx_sync_request:cleanup_remote_pending(ReqRef)
+    end.
+
+t_delivered_after_request_gone_does_not_register_pending(_Config) ->
+    ReqRef = make_ref(),
+    ResponseTopic = <<"sync_request/gone/response">>,
+    CorrelationData = <<"gone-request-id">>,
+    Message = #message{
+        headers = #{
+            properties => #{
+                'Response-Topic' => ResponseTopic,
+                'Correlation-Data' => CorrelationData
+            },
+            ?HEADER => #{req_ref => ReqRef, timeout => 1000}
+        }
+    },
+    ?assertEqual(false, emqx_sync_request:is_request_inflight(ReqRef)),
+    ?assertEqual({ok, Message}, emqx_sync_request:on_message_delivered(#{}, Message)),
+    ?assertEqual([], ets:lookup(?PENDING_TAB, ResponseTopic)),
+    ?assertEqual([], ets:lookup(?PENDING_BY_REQ_TAB, ReqRef)).
+
+t_waiter_exit_cleans_inflight_and_pending(_Config) ->
+    Parent = self(),
+    ReqTopic = <<"sync_request/waiter-exit/request">>,
+    RespTopic = <<"sync_request/waiter-exit/response">>,
+    {ok, Responder} = start_blackhole_responder(
+        <<"sync_request_waiter_exit_blackhole">>,
+        ReqTopic,
+        fun(Payload) -> Parent ! {waiter_exit_request_seen, Payload} end
+    ),
+    try
+        ok = wait_for_subscribers(ReqTopic, 1),
+        Waiter = spawn(fun() ->
+            Parent ! {waiter_ready, self()},
+            _ = emqx_sync_request:request(
+                request_body(ReqTopic, RespTopic, <<"waiter-exit-request-id">>, #{
+                    timeout => <<"5s">>
+                })
+            ),
+            Parent ! waiter_finished
+        end),
+        Waiter =
+            receive
+                {waiter_ready, Pid} -> Pid
+            after 5000 ->
+                error(waiter_not_ready)
+            end,
+        ?assertReceive({waiter_exit_request_seen, ?REQ_PAYLOAD}, 5000),
+        ok = wait_until(
+            fun() ->
+                ets:info(?REQ_TAB, size) >= 1 andalso ets:info(?PENDING_TAB, size) >= 1
+            end,
+            50
+        ),
+        true = erlang:exit(Waiter, kill),
+        ok = wait_until(
+            fun() ->
+                ets:info(?REQ_TAB, size) =:= 0 andalso ets:info(?PENDING_TAB, size) =:= 0
+            end,
+            50
+        ),
+        ?assertEqual(0, ets:info(?REQ_TAB, size)),
+        ?assertEqual(0, ets:info(?PENDING_TAB, size)),
+        ?assertNotReceive(waiter_finished, 100)
+    after
+        stop_client(Responder)
     end.
 
 t_http_request_returns_first_mqtt5_response(_Config) ->
@@ -1203,6 +1270,17 @@ wait_for_subscribers(Topic, ExpectedCount, Attempts) when Attempts > 0 ->
     end;
 wait_for_subscribers(Topic, ExpectedCount, 0) ->
     error({subscribers_not_ready, Topic, ExpectedCount, emqx:subscribers(Topic)}).
+
+wait_until(Fun, Attempts) when Attempts > 0 ->
+    case Fun() of
+        true ->
+            ok;
+        false ->
+            timer:sleep(20),
+            wait_until(Fun, Attempts - 1)
+    end;
+wait_until(Fun, 0) ->
+    error({wait_until_timeout, Fun}).
 
 force_nonzero_subscription_shard(Topic) ->
     lists:foreach(
