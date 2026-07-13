@@ -26,6 +26,14 @@ fields("config_connector") ->
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields(connector) ->
     [
+        {servers,
+            emqx_schema:servers_sc(
+                #{
+                    required => false,
+                    desc => ?DESC("servers")
+                },
+                emqx_bridge_rabbitmq_client:host_options()
+            )},
         {server,
             ?HOCON(
                 string(),
@@ -39,7 +47,7 @@ fields(connector) ->
                 emqx_schema:port_number(),
                 #{
                     default => 5672,
-                    desc => ?DESC("server")
+                    desc => ?DESC("port")
                 }
             )},
         {username,
@@ -119,8 +127,7 @@ connector_example_values() ->
         name => <<"rabbitmq_connector">>,
         type => rabbitmq,
         enable => true,
-        server => <<"127.0.0.1">>,
-        port => 5672,
+        servers => <<"127.0.0.1:5672">>,
         username => <<"guest">>,
         password => <<"******">>,
         pool_size => 8,

@@ -1,14 +1,22 @@
 
 emqx_bridge_rabbitmq_connector_schema {
 
+servers.desc:
+"""Comma-separated RabbitMQ nodes for connect failover, form `Host[:Port][,Host2:Port]`.<br/>
+Default port 5672 is used when `[:Port]` is omitted.<br/>
+Takes precedence over legacy `server` and `port` when set."""
+
+servers.label:
+"""Servers"""
+
 server.desc:
-"""The RabbitMQ server address that you want to connect to (for example, localhost)."""
+"""Legacy single hostname/IP. Used only when `servers` is not set."""
 
 server.label:
 """Server"""
 
 port.desc:
-"""The port number on which the RabbitMQ server is listening (default is 5672)."""
+"""Legacy port (default 5672). Used only when `servers` is not set."""
 
 port.label:
 """Port"""
