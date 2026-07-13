@@ -115,13 +115,11 @@ resolve_content(_DeviceNames, MessageContent, _MessageId) when MessageContent =/
     case emqx_iot_utils:decode_base64(MessageContent) of
         {ok, Payload} ->
             Hash = emqx_iot_utils:sha256(Payload),
-            case emqx_iot_storage:lookup_message_by_hash(Hash) of
-                {ok, Existing} ->
-                    {ok, Existing#iot_mq_message.api_msg_id, Existing#iot_mq_message.msg_id};
-                {error, not_found} ->
-                    {ApiMsgId, MsgGuid} = emqx_iot_id:generate_message_id(),
-                    ok = emqx_iot_storage:create_message(ApiMsgId, MsgGuid, Hash, Payload),
-                    {ok, ApiMsgId, MsgGuid}
+            {ApiMsgId, MsgGuid} = emqx_iot_id:generate_message_id(),
+            case emqx_iot_storage:lookup_or_create_message(Payload, Hash, ApiMsgId, MsgGuid) of
+                {created, Id, Guid} -> {ok, Id, Guid};
+                {existing, Id, Guid} -> {ok, Id, Guid};
+                {error, _} -> {error, <<"InternalError">>, <<"Storage error">>}
             end;
         {error, _} ->
             {error, <<"InvalidBase64">>, <<"Invalid Base64 encoding">>}
@@ -191,7 +189,7 @@ deliver_qos1(
 has_duplicates(List) ->
     length(lists:usort(List)) =/= length(List).
 
-resolve_topic(TemplateName, _, Pk) when TemplateName =/= undefined ->
+resolve_topic(TemplateName, _, _Pk) when TemplateName =/= undefined ->
     TemplateName;
 resolve_topic(_, ShortName, Pk) when ShortName =/= undefined ->
     <<"/", Pk/binary, "/${deviceName}/user/", ShortName/binary>>;

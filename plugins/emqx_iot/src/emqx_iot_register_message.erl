@@ -35,17 +35,18 @@ validate(_MC, MessageId) when MessageId =/= undefined ->
 
 do_create(Payload, RequestId) ->
     Hash = emqx_iot_utils:sha256(Payload),
-    case emqx_iot_storage:lookup_message_by_hash(Hash) of
-        {ok, Existing} ->
-            _ = emqx_iot_storage:refresh_message_ttl(Existing#iot_mq_message.msg_id),
+    {ApiMsgId, MsgGuid} = emqx_iot_id:generate_message_id(),
+    case emqx_iot_storage:lookup_or_create_message(Payload, Hash, ApiMsgId, MsgGuid) of
+        {existing, Id, _} ->
             emqx_iot_metrics:inc_register_message_refresh(),
-            {ok, 200, #{},
-                emqx_iot_api:success_response(RequestId, Existing#iot_mq_message.api_msg_id)};
-        {error, not_found} ->
-            {ApiMsgId, MsgGuid} = emqx_iot_id:generate_message_id(),
-            ok = emqx_iot_storage:create_message(ApiMsgId, MsgGuid, Hash, Payload),
+            {ok, 200, #{}, emqx_iot_api:success_response(RequestId, Id)};
+        {created, Id, _} ->
             emqx_iot_metrics:inc_register_message_in(),
-            {ok, 200, #{}, emqx_iot_api:success_response(RequestId, ApiMsgId)}
+            {ok, 200, #{}, emqx_iot_api:success_response(RequestId, Id)};
+        {error, _} ->
+            emqx_iot_metrics:inc_register_message_error(),
+            {ok, 500, #{},
+                emqx_iot_api:error_response(RequestId, <<"InternalError">>, <<"Storage error">>)}
     end.
 
 do_refresh(ApiMsgId, RequestId) ->

@@ -8,6 +8,7 @@
     lookup_message_by_hash/1,
     lookup_message/1,
     refresh_message_ttl/1,
+    lookup_or_create_message/4,
     create_delivery/7,
     process_ack/3,
     get_device_deliveries/1,
@@ -16,6 +17,37 @@
 ]).
 
 -include("emqx_iot.hrl").
+
+lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId) ->
+    Now = emqx_iot_utils:now_sec(),
+    TTL = emqx_iot_utils:ttl(),
+    case
+        mnesia:transaction(fun() ->
+            case mnesia:wread({iot_mq_message_hash, Hash}) of
+                [] ->
+                    Record = #iot_mq_message{
+                        msg_id = MsgId,
+                        api_msg_id = ApiMsgId,
+                        content_hash = Hash,
+                        payload = Payload,
+                        created_at = Now,
+                        expires_at = Now + TTL
+                    },
+                    HashRecord = #iot_mq_message_hash{hash = Hash, msg_id = MsgId},
+                    ApiIdRecord = #iot_mq_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId},
+                    mnesia:write(Record),
+                    mnesia:write(HashRecord),
+                    mnesia:write(ApiIdRecord),
+                    {created, ApiMsgId, MsgId};
+                [#iot_mq_message_hash{msg_id = ExistingMsgId}] ->
+                    [Existing] = mnesia:read(iot_mq_message, ExistingMsgId, read),
+                    {existing, Existing#iot_mq_message.api_msg_id, ExistingMsgId}
+            end
+        end)
+    of
+        {atomic, Result} -> Result;
+        {aborted, Reason} -> {error, Reason}
+    end.
 
 create_message(ApiMsgId, MsgId, Hash, Payload) ->
     Now = emqx_iot_utils:now_sec(),
