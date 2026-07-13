@@ -119,8 +119,8 @@ inc_broadcast_pub_error() -> inc('broadcast_pub_error').
 inc_broadcast_devices_online(N) -> inc('broadcast_pub_devices_online', N).
 inc_broadcast_delivery_count() -> inc('broadcast_pub_delivery_count').
 inc_register_message_in() -> inc('register_message_in').
-inc_register_message_refresh() -> inc('register_message.refresh').
-inc_register_message_error() -> inc('register_message.error').
+inc_register_message_refresh() -> inc('register_message_refresh').
+inc_register_message_error() -> inc('register_message_error').
 inc_msg_acked() -> inc('batch_pub_qos1_msg_acked').
 inc_msg_replayed() -> inc('batch_pub_qos1_msg_replayed').
 inc_msg_error() -> inc('batch_pub_qos1_msg_error').
