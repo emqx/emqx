@@ -17,7 +17,7 @@ handle(Body, RequestId) ->
     TopicTemplateName = maps:get(<<"TopicTemplateName">>, Body, undefined),
     ResponseTemplate = maps:get(<<"ResponseTopicTemplateName">>, Body, undefined),
 
-    case validate_input(ProductKey, DeviceNames, MessageContent, MessageId) of
+    case validate_input(ProductKey, DeviceNames, MessageContent, MessageId, Qos) of
         {error, Code, Msg} ->
             {ok, 400, #{}, emqx_iot_api:error_response(RequestId, Code, Msg)};
         ok ->
@@ -71,13 +71,15 @@ resolve_qos0_payload(undefined, MessageId) ->
             {error, <<"MessageNotFound">>, <<"MessageId not found">>}
     end.
 
-validate_input(_PK, undefined, _, _) ->
+validate_input(_PK, undefined, _, _, _) ->
     {error, <<"InvalidDeviceName">>, <<"DeviceName is required">>};
-validate_input(_PK, _DeviceNames, undefined, undefined) ->
+validate_input(_PK, _DeviceNames, undefined, undefined, _Qos) ->
     {error, <<"MessageIdContentConflict">>, <<"MessageContent or MessageId required">>};
-validate_input(_PK, _DeviceNames, _MC, _MI) when _MC =/= undefined, _MI =/= undefined ->
+validate_input(_PK, _DeviceNames, _MC, _MI, _Qos) when _MC =/= undefined, _MI =/= undefined ->
     {error, <<"MessageIdContentConflict">>, <<"Only one of MessageContent or MessageId allowed">>};
-validate_input(_PK, DeviceNames, _MC, _MI) when is_list(DeviceNames) ->
+validate_input(_PK, _DeviceNames, _MC, _MI, Qos) when Qos =/= 0, Qos =/= 1 ->
+    {error, <<"InvalidQos">>, <<"QoS must be 0 or 1">>};
+validate_input(_PK, DeviceNames, _MC, _MI, _Qos) when is_list(DeviceNames) ->
     Max = get_max_device_count(),
     case length(DeviceNames) > Max of
         true ->
@@ -88,7 +90,7 @@ validate_input(_PK, DeviceNames, _MC, _MI) when is_list(DeviceNames) ->
                 false -> ok
             end
     end;
-validate_input(_, _, _, _) ->
+validate_input(_, _, _, _, _) ->
     {error, <<"InvalidDeviceName">>, <<"DeviceName must be a list">>}.
 
 validate(_PK, undefined, _, _) ->
