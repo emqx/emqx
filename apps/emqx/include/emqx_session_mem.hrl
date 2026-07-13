@@ -18,9 +18,6 @@
     %% Client <- Broker: QoS1/2 messages sent to the client but
     %% have not been unacked.
     inflight :: emqx_inflight:inflight(),
-    %% Cached MQTT payload bytes currently retained by inflight.
-    %% Kept outside `emqx_inflight` so that container stays content-agnostic.
-    inflight_payload_bytes = 0 :: non_neg_integer(),
     %% All QoS1/2 messages published to when client is disconnected,
     %% or QoS1/2 messages pending transmission to the Client.
     %%

@@ -34,19 +34,19 @@ t_in(_) ->
     Opts = #{max_len => 5, store_qos0 => true},
     Q = ?Q:init(Opts),
     ?assert(?Q:is_empty(Q)),
-    {_, Q1} = ?Q:in(#message{}, Q),
+    {_, Q1} = ?Q:in(#message{payload = <<>>}, Q),
     ?assertEqual(1, ?Q:len(Q1)),
-    {_, Q2} = ?Q:in(#message{qos = 1}, Q1),
+    {_, Q2} = ?Q:in(#message{qos = 1, payload = <<>>}, Q1),
     ?assertEqual(2, ?Q:len(Q2)),
-    {_, Q3} = ?Q:in(#message{qos = 2}, Q2),
-    {_, Q4} = ?Q:in(#message{}, Q3),
-    {_, Q5} = ?Q:in(#message{}, Q4),
+    {_, Q3} = ?Q:in(#message{qos = 2, payload = <<>>}, Q2),
+    {_, Q4} = ?Q:in(#message{payload = <<>>}, Q3),
+    {_, Q5} = ?Q:in(#message{payload = <<>>}, Q4),
     ?assertEqual(5, ?Q:len(Q5)).
 
 t_in_qos0(_) ->
     Opts = #{max_len => 5, store_qos0 => false},
     Q = ?Q:init(Opts),
-    false = ?Q:in(#message{qos = 0}, Q),
+    false = ?Q:in(#message{qos = 0, payload = <<>>}, Q),
     ?assertEqual(0, ?Q:bytes_size(Q)).
 
 t_out(_) ->
@@ -120,15 +120,15 @@ t_priority_mqueue(_) ->
     Q = ?Q:init(Opts),
     ?assertEqual(3, ?Q:max_len(Q)),
     ?assert(?Q:is_empty(Q)),
-    {_, Q1} = ?Q:in(#message{qos = 1, topic = <<"t2">>}, Q),
-    {_, Q2} = ?Q:in(#message{qos = 1, topic = <<"t1">>}, Q1),
-    {_, Q3} = ?Q:in(#message{qos = 1, topic = <<"t3">>}, Q2),
+    {_, Q1} = ?Q:in(#message{qos = 1, topic = <<"t2">>, payload = <<>>}, Q),
+    {_, Q2} = ?Q:in(#message{qos = 1, topic = <<"t1">>, payload = <<>>}, Q1),
+    {_, Q3} = ?Q:in(#message{qos = 1, topic = <<"t3">>, payload = <<>>}, Q2),
     ?assertEqual(3, ?Q:len(Q3)),
-    {_, Q4} = ?Q:in(#message{qos = 1, topic = <<"t2">>}, Q3),
+    {_, Q4} = ?Q:in(#message{qos = 1, topic = <<"t2">>, payload = <<>>}, Q3),
     ?assertEqual(4, ?Q:len(Q4)),
-    {_, Q5} = ?Q:in(#message{qos = 1, topic = <<"t2">>}, Q4),
+    {_, Q5} = ?Q:in(#message{qos = 1, topic = <<"t2">>, payload = <<>>}, Q4),
     ?assertEqual(5, ?Q:len(Q5)),
-    {_, Q6} = ?Q:in(#message{qos = 1, topic = <<"t2">>}, Q5),
+    {_, Q6} = ?Q:in(#message{qos = 1, topic = <<"t2">>, payload = <<>>}, Q5),
     ?assertEqual(5, ?Q:len(Q6)),
     {{value, _Msg}, Q7} = ?Q:out(Q6),
     ?assertEqual(4, ?Q:len(Q7)).
@@ -155,38 +155,44 @@ t_priority_order(_) ->
     ],
     Q = lists:foldl(
         fun({Topic, Message}, Q) ->
-            element(2, ?Q:in(#message{topic = Topic, qos = 1, payload = Message}, Q))
+            element(
+                2,
+                ?Q:in(
+                    #message{topic = Topic, qos = 1, payload = integer_to_binary(Message)},
+                    Q
+                )
+            )
         end,
         ?Q:init(Opts),
         Messages
     ),
     ?assertMatch(
         [
-            {<<"t3">>, 6},
-            {<<"t3">>, 7},
-            {<<"t3">>, 8},
+            {<<"t3">>, <<"6">>},
+            {<<"t3">>, <<"7">>},
+            {<<"t3">>, <<"8">>},
 
-            {<<"t2">>, 6},
-            {<<"t2">>, 7},
+            {<<"t2">>, <<"6">>},
+            {<<"t2">>, <<"7">>},
 
-            {<<"t1">>, 6},
+            {<<"t1">>, <<"6">>},
 
-            {<<"t3">>, 9},
-            {<<"t3">>, 10},
+            {<<"t3">>, <<"9">>},
+            {<<"t3">>, <<"10">>},
 
-            {<<"t2">>, 8},
+            {<<"t2">>, <<"8">>},
 
             %% Note: for performance reasons we don't reset the
             %% counter when we run out of messages with the
             %% current prio, so next is t1:
-            {<<"t1">>, 7},
+            {<<"t1">>, <<"7">>},
 
-            {<<"t2">>, 9},
-            {<<"t2">>, 10},
+            {<<"t2">>, <<"9">>},
+            {<<"t2">>, <<"10">>},
 
-            {<<"t1">>, 8},
-            {<<"t1">>, 9},
-            {<<"t1">>, 10}
+            {<<"t1">>, <<"8">>},
+            {<<"t1">>, <<"9">>},
+            {<<"t1">>, <<"10">>}
         ],
         drain(Q)
     ).
@@ -209,26 +215,32 @@ t_priority_order2(_) ->
     ],
     Q = lists:foldl(
         fun({Topic, Message}, Q) ->
-            element(2, ?Q:in(#message{topic = Topic, qos = 1, payload = Message}, Q))
+            element(
+                2,
+                ?Q:in(
+                    #message{topic = Topic, qos = 1, payload = integer_to_binary(Message)},
+                    Q
+                )
+            )
         end,
         ?Q:init(Opts),
         Messages
     ),
     ?assertMatch(
         [
-            {<<"t2">>, 6},
-            {<<"t2">>, 7},
-            {<<"t2">>, 8},
-            {<<"t2">>, 9},
+            {<<"t2">>, <<"6">>},
+            {<<"t2">>, <<"7">>},
+            {<<"t2">>, <<"8">>},
+            {<<"t2">>, <<"9">>},
 
-            {<<"t1">>, 6},
-            {<<"t1">>, 7},
+            {<<"t1">>, <<"6">>},
+            {<<"t1">>, <<"7">>},
 
-            {<<"t2">>, 10},
+            {<<"t2">>, <<"10">>},
 
-            {<<"t1">>, 8},
-            {<<"t1">>, 9},
-            {<<"t1">>, 10}
+            {<<"t1">>, <<"8">>},
+            {<<"t1">>, <<"9">>},
+            {<<"t1">>, <<"10">>}
         ],
         drain(Q)
     ).

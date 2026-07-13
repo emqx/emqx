@@ -37,7 +37,7 @@
 
 -module(emqx_mqueue).
 
--compile({inline, [bytes_size/1, msg_bytes/1, dec_bytes/2]}).
+-compile({inline, [bytes_size/1, msg_bytes/1]}).
 
 -include("emqx.hrl").
 -include("types.hrl").
@@ -317,7 +317,7 @@ in(
         true ->
             %% Reached max length: drop the oldest least important message.
             {{value, DroppedMsg}, Q2} = emqx_pqueue:drop(Prio, Q1),
-            BytesSize1 = dec_bytes(MQ, DroppedMsg) + msg_bytes(Msg1),
+            BytesSize1 = BytesSize - msg_bytes(DroppedMsg) + msg_bytes(Msg1),
             {DroppedMsg, MQ#mqueue{
                 q = Q2,
                 dropped = Dropped + 1,
@@ -326,19 +326,19 @@ in(
     end.
 
 -spec out(mqueue()) -> {empty | {value, message()}, mqueue()}.
-out(MQ = #mqueue{q = Q, prios = ?NO_PRIORITY_TABLE}) ->
+out(MQ = #mqueue{q = Q, byte_size = BytesSize, prios = ?NO_PRIORITY_TABLE}) ->
     case emqx_pqueue:out(Q) of
         {{value, V}, Q1} ->
-            {{value, without_ts(V)}, MQ#mqueue{q = Q1, byte_size = dec_bytes(MQ, V)}};
+            {{value, without_ts(V)}, MQ#mqueue{q = Q1, byte_size = BytesSize - msg_bytes(V)}};
         {empty, _} ->
             {empty, MQ}
     end;
-out(MQ = #mqueue{q = Q, p_credit = undefined, prios = Prios}) ->
+out(MQ = #mqueue{q = Q, byte_size = BytesSize, p_credit = undefined, prios = Prios}) ->
     case emqx_pqueue:out_p(Q) of
         {{value, V, Prio}, Q1} ->
             MQ1 = MQ#mqueue{
                 q = Q1,
-                byte_size = dec_bytes(MQ, V),
+                byte_size = BytesSize - msg_bytes(V),
                 p_credit = get_credits(Prio, Prios)
             },
             {{value, without_ts(V)}, MQ1};
@@ -350,12 +350,12 @@ out(MQ = #mqueue{q = Q, p_credit = 0}) ->
         q = emqx_pqueue:shift(Q),
         p_credit = undefined
     });
-out(MQ = #mqueue{q = Q, p_credit = C}) ->
+out(MQ = #mqueue{q = Q, byte_size = BytesSize, p_credit = C}) ->
     case emqx_pqueue:out(Q) of
         {{value, V}, Q1} ->
             {{value, without_ts(V)}, MQ#mqueue{
                 q = Q1,
-                byte_size = dec_bytes(MQ, V),
+                byte_size = BytesSize - msg_bytes(V),
                 p_credit = C - 1
             }};
         {empty, _} ->
@@ -372,14 +372,7 @@ pqueue_bytes(Q) ->
     ).
 
 msg_bytes(#message{} = Msg) ->
-    emqx_message:payload_size(Msg);
-msg_bytes(_Msg) ->
-    0.
-
-dec_bytes(#mqueue{byte_size = BytesSize}, Msg) ->
-    BytesSize1 = BytesSize - msg_bytes(Msg),
-    true = BytesSize1 >= 0,
-    BytesSize1.
+    emqx_message:payload_size(Msg).
 
 get_opt(Key, Opts, Default) ->
     case maps:get(Key, Opts, Default) of

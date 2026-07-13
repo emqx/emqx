@@ -58,6 +58,7 @@
     mnesia,
     olp,
     pem_cache,
+    'session-top',
     status,
     subscriptions,
     topics,

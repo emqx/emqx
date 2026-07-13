@@ -205,7 +205,6 @@ create(
         is_persistent = EI > 0,
         subscriptions = #{},
         inflight = emqx_inflight:new(ReceiveMax),
-        inflight_payload_bytes = 0,
         mqueue = emqx_mqueue:init(QueueOpts),
         quota = Limiter,
         next_pkt_id = 1,
@@ -330,15 +329,13 @@ import(ClientInfo, #{
     awaiting_rel := AwaitingRel,
     created_at := CreatedAt
 }) ->
-    Inflight1 = import_inflight(Inflight),
     #session{
         id = Id,
         is_persistent = IsPersistent,
         subscriptions = Subscriptions,
         max_subscriptions = infinity,
         upgrade_qos = false,
-        inflight = Inflight1,
-        inflight_payload_bytes = inflight_payload_bytes(Inflight1),
+        inflight = import_inflight(Inflight),
         mqueue = import_mqueue(ClientInfo, Messages),
         quota = false,
         next_pkt_id = NextPacketId,
@@ -406,8 +403,8 @@ info(mqueue_len, #session{mqueue = MQueue}) ->
     emqx_mqueue:len(MQueue);
 info(mqueue_max, #session{mqueue = MQueue}) ->
     emqx_mqueue:max_len(MQueue);
-info(total_payload_bytes, #session{inflight_payload_bytes = InflightBytes, mqueue = MQueue}) ->
-    InflightBytes + emqx_mqueue:bytes_size(MQueue);
+info(total_payload_bytes, #session{inflight = Inflight, mqueue = MQueue}) ->
+    inflight_payload_bytes(Inflight) + emqx_mqueue:bytes_size(MQueue);
 info(mqueue_dropped, #session{mqueue = MQueue}) ->
     emqx_mqueue:dropped(MQueue);
 info({mqueue_msgs, PagerParams}, #session{mqueue = MQueue}) ->
@@ -551,7 +548,7 @@ puback(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, #inflight_data{phase = wait_ack, message = #message{qos = ?QOS_1} = Msg}} ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
-            Session1 = delete_inflight_bytes(Session#session{inflight = Inflight1}, Msg),
+            Session1 = Session#session{inflight = Inflight1},
             {OkEffects, Replies, Session2} = dequeue(ClientInfo, Session1),
             {OkEffects, without_inflight_insert_ts(Msg), Replies, Session2};
         {value, #inflight_data{phase = wait_ack, message = _DifferentQoSMsg}} ->
@@ -610,7 +607,7 @@ pubcomp(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, #inflight_data{phase = wait_comp, message = #message{qos = ?QOS_2} = Msg}} ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
-            Session1 = delete_inflight_bytes(Session#session{inflight = Inflight1}, Msg),
+            Session1 = Session#session{inflight = Inflight1},
             {OkEffects, Replies, Session2} = dequeue(ClientInfo, Session1),
             {OkEffects, without_inflight_insert_ts(Msg), Replies, Session2};
         {value, #inflight_data{message = #message{qos = QoS}}} when QoS =/= ?QOS_2 ->
@@ -682,7 +679,6 @@ finish_delivery(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId) ->
     Session = S0#session{
         mqueue = Q,
         inflight = Inflight,
-        inflight_payload_bytes = inflight_payload_bytes(Inflight),
         quota = Limiter,
         next_pkt_id = PktId
     },
@@ -794,27 +790,14 @@ insert_inflight(PktId, Msg, Inflight) ->
     MarkedMsg = mark_begin_deliver(Msg),
     emqx_inflight:insert(PktId, with_ts(MarkedMsg), Inflight).
 
-delete_inflight_bytes(
-    Session = #session{inflight_payload_bytes = Bytes},
-    Msg
-) ->
-    Bytes1 = Bytes - emqx_message:payload_size(Msg),
-    true = Bytes1 >= 0,
-    Session#session{inflight_payload_bytes = Bytes1}.
-
 inflight_payload_bytes(Inflight) ->
     emqx_inflight:fold(
-        fun(_PacketId, Val, Acc) -> Acc + inflight_val_bytes(Val) end,
+        fun(_PacketId, #inflight_data{message = Msg}, Acc) ->
+            Acc + emqx_message:payload_size(Msg)
+        end,
         0,
         Inflight
     ).
-
-inflight_val_bytes(#inflight_data{message = Msg}) ->
-    emqx_message:payload_size(Msg);
-inflight_val_bytes(#message{} = Msg) ->
-    emqx_message:payload_size(Msg);
-inflight_val_bytes(_Val) ->
-    0.
 
 -spec enqueue(clientinfo(), [emqx_types:message()], session()) ->
     session().
@@ -945,13 +928,13 @@ retry_delivery(
     [{PacketId, #inflight_data{timestamp = Ts} = Data} | More],
     Acc,
     Now,
-    Session = #session{retry_interval = Interval}
+    Session = #session{retry_interval = Interval, inflight = Inflight}
 ) ->
     Age = age(Now, Ts),
     case Age >= Interval of
         true ->
-            {Acc1, Session1} = do_retry_delivery(ClientInfo, PacketId, Data, Now, Acc, Session),
-            retry_delivery(ClientInfo, More, Acc1, Now, Session1);
+            {Acc1, Inflight1} = do_retry_delivery(ClientInfo, PacketId, Data, Now, Acc, Inflight),
+            retry_delivery(ClientInfo, More, Acc1, Now, Session#session{inflight = Inflight1});
         false ->
             {ok, lists:reverse(Acc), Interval - max(0, Age), Session}
     end.
@@ -962,26 +945,22 @@ do_retry_delivery(
     #inflight_data{phase = wait_ack, message = Msg} = Data,
     Now,
     Acc,
-    Session = #session{inflight = Inflight}
+    Inflight
 ) ->
     case emqx_message:is_expired(Msg, Zone) of
         true ->
             _ = emqx_session_events:handle_event(ClientInfo, {expired, Msg}),
-            Inflight1 = emqx_inflight:delete(PacketId, Inflight),
-            Session1 = delete_inflight_bytes(Session#session{inflight = Inflight1}, Msg),
-            {Acc, Session1};
+            {Acc, emqx_inflight:delete(PacketId, Inflight)};
         false ->
             Msg1 = emqx_message:set_flag(dup, true, Msg),
             Update = Data#inflight_data{message = Msg1, timestamp = Now},
             Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
-            {[{PacketId, without_inflight_insert_ts(Msg1)} | Acc], Session#session{
-                inflight = Inflight1
-            }}
+            {[{PacketId, without_inflight_insert_ts(Msg1)} | Acc], Inflight1}
     end;
-do_retry_delivery(_ClientInfo, PacketId, Data, Now, Acc, Session = #session{inflight = Inflight}) ->
+do_retry_delivery(_ClientInfo, PacketId, Data, Now, Acc, Inflight) ->
     Update = Data#inflight_data{timestamp = Now},
     Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
-    {[{pubrel, PacketId} | Acc], Session#session{inflight = Inflight1}}.
+    {[{pubrel, PacketId} | Acc], Inflight1}.
 
 %%--------------------------------------------------------------------
 %% Expire Awaiting Rel

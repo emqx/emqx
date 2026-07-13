@@ -136,17 +136,16 @@ t_session_buffer_bytes_stats(_) ->
         emqx_session_mem:with_ts(InflightMsg),
         emqx_inflight:new(10)
     ),
-    InflightBytes = emqx_message:payload_size(InflightMsg),
     Stats = maps:from_list(
         emqx_session_mem:stats(
             session(#{
                 mqueue => MQueue,
-                inflight => Inflight,
-                inflight_payload_bytes => InflightBytes
+                inflight => Inflight
             })
         )
     ),
     MqueueBytes = emqx_message:payload_size(MqueueMsg),
+    InflightBytes = emqx_message:payload_size(InflightMsg),
     ?assertEqual(MqueueBytes + InflightBytes, maps:get(total_payload_bytes, Stats)),
     ?assertNot(maps:is_key(mqueue_bytes, Stats)),
     ?assertNot(maps:is_key(inflight_bytes, Stats)),
