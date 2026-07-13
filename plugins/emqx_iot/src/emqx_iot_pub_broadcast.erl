@@ -3,7 +3,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_iot_pub_broadcast).
 
--export([handle/2]).
+-export([handle/2, deliver_local/3]).
 
 -include("emqx_iot.hrl").
 
