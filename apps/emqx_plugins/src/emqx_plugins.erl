@@ -899,11 +899,45 @@ ensure_installed_locally(NameVsn) ->
     end.
 
 validate_installation(NameVsn) ->
-    case emqx_plugins_info:read(NameVsn) of
-        {ok, _Plugin} ->
-            ok;
+    maybe
+        {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
+        ok ?= validate_plugin_apps(Plugin, emqx_plugins_fs:lib_dir(NameVsn)),
+        ok ?= load_config_schema(NameVsn),
+        ok ?= validate_default_config(NameVsn)
+    else
         {error, _} = Error ->
+            _ = emqx_plugins_serde:delete_schema(NameVsn),
             Error
+    end.
+
+validate_plugin_apps(#{rel_apps := Apps}, LibDir) ->
+    lists:foldl(
+        fun
+            (AppNameVsn, ok) ->
+                {AppName, _} = emqx_plugins_utils:parse_name_vsn(AppNameVsn),
+                AppFile = filename:join([
+                    LibDir, AppNameVsn, "ebin", atom_to_list(AppName) ++ ".app"
+                ]),
+                case file:consult(AppFile) of
+                    {ok, [{application, AppName, _}]} ->
+                        ok;
+                    {ok, AppSpec} ->
+                        {error, #{msg => "bad_plugin_app_file", path => AppFile, reason => AppSpec}};
+                    {error, Reason} ->
+                        {error, #{msg => "bad_plugin_app_file", path => AppFile, reason => Reason}}
+                end;
+            (_AppNameVsn, Error) ->
+                Error
+        end,
+        ok,
+        Apps
+    ).
+
+validate_default_config(NameVsn) ->
+    maybe
+        {ok, Config} ?= emqx_plugins_fs:read_default_hocon(NameVsn),
+        {ok, _} ?= decode_plugin_config_map(NameVsn, Config),
+        ok
     end.
 
 install_and_configure(NameVsn, Mode, RunningSt) ->
@@ -1322,10 +1356,14 @@ request_config_change(NameVsn, #{running_status := RunningSt}, Config) when
 load_config_schema(NameVsn) ->
     case emqx_plugins_fs:read_avsc_bin(NameVsn) of
         {ok, AvscBin} ->
-            _ = emqx_plugins_serde:add_schema(bin(NameVsn), AvscBin),
-            ok;
-        {error, _} ->
-            ok
+            emqx_plugins_serde:add_schema(bin(NameVsn), AvscBin);
+        {error, #{reason := enoent}} = Error ->
+            case has_avsc(NameVsn) of
+                true -> Error;
+                false -> ok
+            end;
+        {error, _} = Error ->
+            Error
     end.
 
 validated_local_config(NameVsn) ->
