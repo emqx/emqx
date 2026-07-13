@@ -491,8 +491,6 @@ filter_fun(topic) -> fun ?MODULE:filter_topic/2;
 filter_fun(ip_address) -> fun ?MODULE:filter_ip_address/2;
 filter_fun(ruleid) -> fun ?MODULE:filter_ruleid/2.
 
-filter_ctx(ip_address, Ctx = #filterctx{match = IP}) ->
-    Ctx#filterctx{match = ensure_list(IP)};
 filter_ctx(_Type, Ctx = #filterctx{match = Match}) ->
     Ctx#filterctx{match = ensure_bin(Match)}.
 
@@ -581,15 +579,23 @@ filter_ip_address(#{meta := Meta = #{peername := Peername}} = Log, #filterctx{
             %% Check if should trace
             is_trace(Meta) andalso
             %% Check if ip matches
-            lists:prefix(IP, Peername),
+            is_prefix(IP, Peername),
     filter_ret(IsMatch, Log);
 filter_ip_address(_Log, _FilterCtx) ->
     stop.
 
--compile({inline, [is_trace/1, filter_ret/2]}).
+-compile({inline, [is_trace/1, is_prefix/2, filter_ret/2]}).
 %% TRUE when is_trace is missing.
 is_trace(#{is_trace := false}) -> false;
 is_trace(_) -> true.
+
+is_prefix(Pre, Subject) ->
+    case Subject of
+        <<Pre:(byte_size(Pre))/binary, _/binary>> ->
+            true;
+        _ ->
+            false
+    end.
 
 filter_ret(true, Log) -> Log;
 filter_ret(false, _Log) -> stop.
@@ -665,9 +671,6 @@ ensure_bin(List) when is_list(List) ->
     <<_/binary>> = unicode:characters_to_binary(List);
 ensure_bin(Bin) when is_binary(Bin) ->
     Bin.
-
-ensure_list(Bin) when is_binary(Bin) -> unicode:characters_to_list(Bin, utf8);
-ensure_list(List) when is_list(List) -> List.
 
 show_prompts(ok, Who, Msg) ->
     ?SLOG(info, #{msg => "trace_action_succeeded", action => Msg, traced => Who});

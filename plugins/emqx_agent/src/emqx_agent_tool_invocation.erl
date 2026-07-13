@@ -76,9 +76,18 @@ handle_info(
     erlang:cancel_timer(State#state.timer_ref),
     ReplyData =
         case Result of
-            ok -> #{<<"status">> => <<"ok">>};
-            {ok, Data} -> #{<<"status">> => <<"ok">>, <<"result">> => Data};
-            {error, Reason} -> #{<<"status">> => <<"error">>, <<"reason">> => Reason}
+            ok ->
+                #{<<"status">> => <<"ok">>};
+            {ok, Data} ->
+                #{<<"status">> => <<"ok">>, <<"result">> => Data};
+            {ok, Data, Attachments} ->
+                #{
+                    <<"status">> => <<"ok">>,
+                    <<"result">> => Data,
+                    <<"attachments">> => Attachments
+                };
+            {error, Reason} ->
+                #{<<"status">> => <<"error">>, <<"reason">> => Reason}
         end,
     publish_reply(State, ReplyData),
     {stop, normal, State#state{

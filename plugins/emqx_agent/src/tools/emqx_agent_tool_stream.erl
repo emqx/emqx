@@ -12,9 +12,9 @@ Stream read/write/delete tools backed by EMQX Streams message storage.
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
--define(WRITE_TYPE, <<"stream_write">>).
--define(READ_TYPE, <<"stream_read">>).
--define(DEL_TYPE, <<"stream_del">>).
+-define(WRITE_TYPE, <<"stream__write">>).
+-define(READ_TYPE, <<"stream__read">>).
+-define(DEL_TYPE, <<"stream__del">>).
 
 -define(READ_SCHEMA, #{
     <<"type">> => <<"object">>,

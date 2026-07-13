@@ -164,22 +164,22 @@ essential_test_() ->
 
 custom_test_() ->
     [
-        ?with_features("two features (separated by comma)", "ai,auth", begin
+        ?with_features("two features (separated by comma)", "ai,dashboard", begin
             #{
                 preset := custom,
                 enabled := Enabled
             } = info(),
             ?assert(lists:member(ai, Enabled), #{enabled => Enabled}),
-            ?assert(lists:member(auth, Enabled), #{enabled => Enabled}),
+            ?assert(lists:member(dashboard, Enabled), #{enabled => Enabled}),
             ok
         end),
-        ?with_features("two features (separated by space)", "ai auth", begin
+        ?with_features("two features (separated by space)", "ai dashboard", begin
             #{
                 preset := custom,
                 enabled := Enabled
             } = info(),
             ?assert(lists:member(ai, Enabled), #{enabled => Enabled}),
-            ?assert(lists:member(auth, Enabled), #{enabled => Enabled}),
+            ?assert(lists:member(dashboard, Enabled), #{enabled => Enabled}),
             ok
         end)
     ].
@@ -218,7 +218,9 @@ test_individual_feature(Feature, Info) ->
     ?with_features(F, F, begin
         Enabled = enabled_apps(),
         CoreApps = emqx_machine_features:core_apps(),
-        Expected = CoreApps ++ Apps,
+        %% usort: some core apps (e.g. auth drivers) are also listed in a
+        %% feature's app list, so the concatenation can contain duplicates.
+        Expected = lists:usort(CoreApps ++ Apps),
         Missing = Expected -- Enabled,
         Extra = Enabled -- Expected,
         ?assertEqual([], Extra),
@@ -245,18 +247,6 @@ test_individual_feature_specific_assertions(data_integration) ->
         #{
             emqx_bridge_http := _,
             emqx_bridge_mqtt := _
-        },
-        maps:from_keys(Enabled, true)
-    ),
-    ok;
-test_individual_feature_specific_assertions(auth) ->
-    Enabled = enabled_apps(),
-    %% not an exhaustive list, since it's dynamically injected by name convention.
-    ?assertMatch(
-        #{
-            emqx_auth_cinfo := _,
-            emqx_auth_mnesia := _,
-            emqx_auth_mongodb := _
         },
         maps:from_keys(Enabled, true)
     ),

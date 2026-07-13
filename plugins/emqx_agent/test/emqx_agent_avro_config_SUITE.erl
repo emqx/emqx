@@ -174,6 +174,7 @@ sample_config() ->
             publish_tool(),
             request_tool(),
             http_tool(),
+            image_fetch_tool(),
             postgresql_tool(),
             simple_tool(<<"Agent_CreateTool">>, <<"agent__create_tool">>, <<"create-tool">>),
             simple_tool(
@@ -251,6 +252,16 @@ http_tool() ->
             <<"url">> => <<"https://example.com/api">>,
             <<"headers">> => [#{<<"name">> => <<"x-api-key">>, <<"value">> => <<"secret">>}],
             <<"input_schema">> => schema_string()
+        }
+    }.
+
+image_fetch_tool() ->
+    #{
+        <<"Image_Fetch">> => #{
+            <<"type">> => <<"image__fetch">>,
+            <<"id">> => <<"image-fetch">>,
+            <<"desc">> => <<"Validate image URL">>,
+            <<"url">> => <<"https://example.com/images">>
         }
     }.
 

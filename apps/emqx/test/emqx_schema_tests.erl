@@ -104,7 +104,7 @@ ssl_opts_cert_depth_test() ->
 
 bad_cipher_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
-    Reason = {bad_ciphers, ["foo"]},
+    Reason = #{cause => bad_ciphers, ciphers => [<<"foo">>]},
     ?assertThrow(
         {_Sc, [#{kind := validation_error, reason := Reason}]},
         validate(Sc, #{
@@ -113,6 +113,50 @@ bad_cipher_test() ->
         })
     ),
     ok.
+
+validate_ciphers_accepts_both_formats_test_() ->
+    Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
+    Check = fun(Ciphers) ->
+        validate(Sc, #{
+            <<"versions">> => [<<"tlsv1.3">>, <<"tlsv1.2">>],
+            <<"ciphers">> => Ciphers
+        })
+    end,
+    [
+        %% OpenSSL-format TLS 1.2 cipher
+        ?_assertMatch(
+            #{ciphers := ["ECDHE-ECDSA-AES256-GCM-SHA384"]},
+            Check([<<"ECDHE-ECDSA-AES256-GCM-SHA384">>])
+        ),
+        %% IANA/RFC-format TLS 1.2 cipher
+        ?_assertMatch(
+            #{ciphers := ["TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"]},
+            Check([<<"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384">>])
+        ),
+        %% TLS 1.3 cipher (same name in both formats)
+        ?_assertMatch(
+            #{ciphers := ["TLS_AES_256_GCM_SHA384"]},
+            Check([<<"TLS_AES_256_GCM_SHA384">>])
+        )
+    ].
+
+mqtt_tcp_listener_backend_default_test() ->
+    Opts = #{atom_key => true, required => false},
+    Sc = #{
+        roots => [mqtt_tcp_listener],
+        fields => #{mqtt_tcp_listener => emqx_schema:fields("mqtt_tcp_listener")}
+    },
+    Backend = default_mqtt_tcp_backend(),
+    ?assertMatch(
+        #{mqtt_tcp_listener := #{tcp_backend := Backend}},
+        hocon_tconf:check_plain(Sc, #{<<"mqtt_tcp_listener">> => #{}}, Opts)
+    ).
+
+default_mqtt_tcp_backend() ->
+    case os:type() of
+        {unix, _} -> socket;
+        {win32, _} -> gen_tcp
+    end.
 
 fail_if_no_peer_cert_test_() ->
     Sc = #{

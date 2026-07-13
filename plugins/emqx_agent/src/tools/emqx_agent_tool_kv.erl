@@ -10,11 +10,11 @@ Key-value tools backed by last-value EMQX streams.
 
 -behaviour(emqx_agent_tool).
 
--define(WRITE_TYPE, <<"kv_write">>).
--define(READ_TYPE, <<"kv_read">>).
--define(READ_ALL_TYPE, <<"kv_read_all">>).
--define(DEL_TYPE, <<"kv_del">>).
--define(CLEAR_TYPE, <<"kv_clear">>).
+-define(WRITE_TYPE, <<"kv__write">>).
+-define(READ_TYPE, <<"kv__read">>).
+-define(READ_ALL_TYPE, <<"kv__read_all">>).
+-define(DEL_TYPE, <<"kv__del">>).
+-define(CLEAR_TYPE, <<"kv__clear">>).
 
 -define(KEY_SCHEMA, #{
     <<"type">> => <<"object">>,

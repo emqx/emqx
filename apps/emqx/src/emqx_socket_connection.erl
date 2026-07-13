@@ -77,6 +77,27 @@
     parser/0
 ]).
 
+-record(conf, {
+    %% Listener Type and Name
+    listener :: {Type :: atom(), Name :: atom()},
+    %% Zone name
+    zone :: atom(),
+    %% ActiveN
+    active_n = 10 :: pos_integer(),
+    %% Hibernate connection process if inactive for
+    hibernate_after = infinity :: integer() | infinity,
+    %% Forced GC thresholds, `false` if disabled
+    force_gc = false :: false | {_EachNMessages :: pos_integer(), _EachNBytes :: pos_integer()},
+    %% Forced shutdown policy
+    force_shutdown :: undefined | emqx_types:oom_policy()
+}).
+
+-record(thresholds, {
+    gc_packets,
+    gc_bytes,
+    oom_packets
+}).
+
 -record(state, {
     %% TCP/TLS Socket
     socket :: socket:socket(),
@@ -87,21 +108,16 @@
     serialize :: undefined | emqx_frame:serialize_opts(),
     %% Channel State
     channel :: emqx_channel:channel(),
-    %% GC State
-    gc_state :: option(emqx_gc:gc_state()),
+    %% GC and OOM thresholds
+    thresholds :: #thresholds{},
     %% Stats Timer
     %% When `disabled` stats are never reported.
     %% Until complete CONNECT packet received acts as idle timer, which shuts
     %% the connection down once triggered.
     stats_timer :: disabled | option(reference()) | {idle, reference()},
-    %% ActiveN + GC tracker
-    gc_tracker :: gc_tracker(),
-    %% Hibernate connection process if inactive for (undefined only before initialization)
-    hibernate_after :: undefined | integer() | infinity,
-    %% Zone name
-    zone :: atom(),
-    %% Listener Type and Name
-    listener :: {Type :: atom(), Name :: atom()},
+
+    %% Conf tuple, rarely changes:
+    conf :: #conf{},
 
     %% Tenant Namespace
     namespace = ?global_ns :: emqx_config:maybe_namespace(),
@@ -112,18 +128,13 @@
 
 -record(congested, {
     handle :: reference(),
-    deadline :: _TimestampMs :: integer(),
-    sendq :: [erlang:iodata()]
+    deadline :: _TimestampMs :: integer() | infinity,
+    sendq :: [erlang:iodata()],
+    queued :: non_neg_integer(),
+    watermark :: {high | low, pos_integer()}
 }).
 
 -type congested() :: #congested{}.
-
--type gc_tracker() ::
-    {
-        ActiveN :: non_neg_integer(),
-        {PktsIn :: non_neg_integer(), BytesIn :: non_neg_integer()},
-        {PktsOut :: non_neg_integer(), BytesOut :: non_neg_integer()}
-    }.
 
 -type parser() ::
     %% Bytestream parser.
@@ -145,8 +156,6 @@
     send_cnt,
     send_pend
 ]).
-
--define(ENABLED(X), (X =/= undefined)).
 
 -define(LOG(Level, Data), ?SLOG(Level, (Data)#{tag => "MQTT"})).
 
@@ -187,12 +196,17 @@ info(peername, #state{channel = Channel}) ->
     emqx_channel:info(peername, Channel);
 info(sockname, #state{channel = Channel}) ->
     emqx_channel:info(sockname, Channel);
-info(sockstate, #state{sockstate = SockSt}) ->
-    SockSt;
+info(sockstate, #state{sockstate = SS}) ->
+    case SS of
+        #congested{} -> congested;
+        _ -> SS
+    end;
 info(stats_timer, #state{stats_timer = StatsTimer}) ->
     StatsTimer;
-info(zone, #state{zone = Zone}) ->
+info(zone, #state{conf = #conf{zone = Zone}}) ->
     Zone;
+info(listener, #state{conf = #conf{listener = Listener}}) ->
+    Listener;
 info({channel, Info}, #state{channel = Channel}) ->
     emqx_channel:info(Info, Channel).
 
@@ -311,18 +325,17 @@ init_state(
         conn_mod => ?MODULE,
         sock => Socket
     },
-
-    ActiveN = get_active_n(Type, Listener),
-    %% Init Channel
     Channel = emqx_channel:init(ConnInfo, Opts),
-
+    Conf = #conf{
+        zone = Zone,
+        listener = {Type, Listener}
+    },
     State0 = #state{
         socket = Socket,
         sockstate = idle,
         channel = Channel,
-        gc_tracker = init_gc_tracker(ActiveN),
-        zone = Zone,
-        listener = {Type, Listener},
+        thresholds = #thresholds{},
+        conf = Conf,
         namespace = ?global_ns,
         extra = []
     },
@@ -339,22 +352,15 @@ ensure_ok_or_exit(Result, Sock) ->
             Ok
     end.
 
-init_gc_tracker(ActiveN) ->
-    {ActiveN, {0, 0}, {0, 0}}.
-
 run_loop(
     Parent,
     State = #state{
         socket = Socket,
         channel = Channel,
-        listener = Listener,
-        zone = Zone
+        conf = #conf{listener = Listener, force_shutdown = ShutdownPolicy}
     }
 ) ->
-    Peername = emqx_channel:info(peername, Channel),
-    emqx_logger:set_proc_metadata(#{peername => Peername, connmod => ?MODULE}),
-    proc_lib:set_label({Listener, Peername}),
-    ShutdownPolicy = emqx_config:get_zone_conf(Zone, [force_shutdown]),
+    emqx_connection_util:label_process(Listener, emqx_channel:info(conninfo, Channel)),
     _ = emqx_utils:tune_heap_size(ShutdownPolicy),
     _ = set_tcp_keepalive(Listener),
     %% Not possible to get {select, {Info, Partial}} because length is 0
@@ -390,13 +396,11 @@ exit_on_sock_error(Reason) ->
 %%--------------------------------------------------------------------
 %% Recv Loop
 
-recvloop(
-    Parent,
-    State = #state{
-        hibernate_after = HibernateTimeout,
-        zone = Zone
-    }
-) ->
+recvloop(Parent, State = #state{conf = Conf}) ->
+    #conf{
+        zone = Zone,
+        hibernate_after = HibernateTimeout
+    } = Conf,
     receive
         Msg ->
             handle_recv(Msg, Parent, State)
@@ -450,15 +454,15 @@ sock_setopts(_Sock, []) ->
 %%--------------------------------------------------------------------
 %% Ensure/cancel stats timer
 
-init_stats_timer(#state{zone = Zone}) ->
+init_stats_timer(#state{conf = #conf{zone = Zone}}) ->
     case emqx_config:get_zone_conf(Zone, [stats, enable]) of
         true -> undefined;
         false -> disabled
     end.
 
 -compile({inline, [ensure_stats_timer/1]}).
-ensure_stats_timer(State = #state{stats_timer = undefined}) ->
-    Timeout = get_zone_idle_timeout(State#state.zone),
+ensure_stats_timer(State = #state{stats_timer = undefined, conf = #conf{zone = Zone}}) ->
+    Timeout = get_zone_idle_timeout(Zone),
     State#state{stats_timer = start_timer(Timeout, emit_stats)};
 ensure_stats_timer(State) ->
     %% Either already active, disabled, or paused.
@@ -472,7 +476,7 @@ cancel_stats_timer(State = #state{stats_timer = TRef}) when is_reference(TRef) -
 cancel_stats_timer(State) ->
     State.
 
-start_idle_timer(State = #state{zone = Zone}) ->
+start_idle_timer(State = #state{conf = #conf{zone = Zone}}) ->
     IdleTimeout = get_zone_idle_timeout(Zone),
     TimerRef = start_timer(IdleTimeout, idle_timeout),
     State#state{stats_timer = {idle, TimerRef}}.
@@ -574,10 +578,15 @@ handle_msg({incoming, Packet}, State) ->
     ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
     handle_incoming(Packet, State);
 handle_msg({outgoing, Packets}, State) ->
-    handle_outgoing(Packets, State);
+    case handle_outgoing(Packets, State) of
+        {ok, NState} ->
+            maybe_signal_congestion(NState);
+        {ok, {sock_error, _}, _State} = Error ->
+            Error
+    end;
 handle_msg(
     Deliver = {deliver, _Topic, _Msg},
-    #state{gc_tracker = {ActiveN, _, _}} = State
+    #state{conf = #conf{active_n = ActiveN}} = State
 ) ->
     ?BROKER_INSTR_SETMARK(t0_deliver, {_Msg#message.extra, ?BROKER_INSTR_TS()}),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
@@ -750,7 +759,7 @@ handle_data(
     State0 = #state{
         socket = Socket,
         sockstate = SS,
-        gc_tracker = {ActiveN, {Pubs, Bytes}, Out}
+        thresholds = T0
     }
 ) ->
     Oct = iolist_size(Data),
@@ -762,7 +771,11 @@ handle_data(
         type => "hex"
     }),
     {More, N, Packets, State1} = parse_incoming(Data, State0),
-    State = State1#state{gc_tracker = {ActiveN, {Pubs + N, Bytes + Oct}, Out}},
+    Thresholds = T0#thresholds{
+        gc_bytes = dec_threshold(T0#thresholds.gc_bytes, Oct),
+        gc_packets = dec_threshold(T0#thresholds.gc_packets, N)
+    },
+    State = trigger_gc(State1#state{thresholds = Thresholds}),
     Msgs = next_incoming_msgs(Packets),
     case RequestMore of
         false ->
@@ -805,14 +818,20 @@ request_more_data(Socket, More, Acc, State) ->
 %% closes with data available. We keep this clause for backward compatibility.
 %%
 %% Call async receive after '$socket' receive notification is received
-%% no handling of {select, Info} because data is ready,
-%% no handling of {select, {Info, Partial}} because receive length is 0
+%% Getting `{select, Info}` is _expected_ under some circumstances: readiness
+%% notification is not a guarantee that a subsequent nonblocking recv will succeed.
+%% Getting `{select, {Info, Partial}}` is not expected because length is 0,
+%% but keep the clause for consistency with other async receive paths.
 -dialyzer({nowarn_function, handle_data_ready/2}).
 -compile({inline, [handle_data_ready/2]}).
 handle_data_ready(Socket, State) ->
     case sock_async_recv(Socket, 0) of
         {ok, Data} ->
             handle_data(Data, true, State);
+        {select, {_Info, Data}} ->
+            handle_data(Data, true, State);
+        {select, _Info} ->
+            {ok, State};
         {error, {closed, Data}} ->
             %% This is dead code starting from OTP 28
             {ok, [{recv, Data}, {sock_closed, tcp_closed}], socket_closed(State)};
@@ -933,10 +952,10 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
         {ok, NChannel} ->
             {ok, State#state{channel = NChannel}};
         {ok, Replies, NChannel} ->
-            {ok, next_msgs(Replies), State#state{channel = NChannel}};
+            {ok, Replies, State#state{channel = NChannel}};
         {continue, Replies, NChannel} ->
             %% NOTE: Will later go back to `emqx_channel:handle_info/2`.
-            {ok, [next_msgs(Replies), continue], State#state{channel = NChannel}};
+            {ok, [Replies, continue], State#state{channel = NChannel}};
         {shutdown, Reason, NChannel} ->
             shutdown(Reason, State#state{channel = NChannel});
         {shutdown, Reason, Packet, NChannel} ->
@@ -992,8 +1011,8 @@ do_handle_outgoing_loop(MaxBufSize, Rest, State0, N, _BufOctets, Buf) ->
     case send(N, lists:reverse(Buf), State0) of
         {ok, State} ->
             do_handle_outgoing_loop(MaxBufSize, Rest, State, 0, 0, []);
-        Err ->
-            Err
+        {ok, {sock_error, _}, _State} = Error ->
+            Error
     end.
 
 serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
@@ -1035,44 +1054,63 @@ serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
 
 -spec send(non_neg_integer(), iodata(), state()) ->
     {ok, state()} | {ok, {sock_error, _Reason}, state()}.
-send(Num, IoData, #state{socket = Socket, sockstate = idle} = State) ->
+send(
+    Num,
+    IoData,
+    #state{socket = Socket, sockstate = idle} = State
+) ->
     Oct = iolist_size(IoData),
     Handle = make_ref(),
     case socket:send(Socket, IoData, [], Handle) of
         ok ->
-            sent(Num, Oct, State);
+            {ok, sent(Num, Oct, State)};
         {select, {_Info, Rest}} ->
-            sent(Num, Oct, queue_send(Handle, Rest, State));
+            NState = queue_send(Handle, Rest, iolist_size(Rest), State),
+            {ok, sent(Num, Oct, NState)};
         {select, _Info} ->
-            sent(Num, Oct, queue_send(Handle, IoData, State));
+            NState = queue_send(Handle, IoData, Oct, State),
+            {ok, sent(Num, Oct, NState)};
         {error, {Reason, _Rest}} ->
             %% Defer error handling:
             {ok, {sock_error, Reason}, State};
         {error, Reason} ->
             {ok, {sock_error, Reason}, State}
     end;
-send(Num, IoData, #state{sockstate = SS = #congested{sendq = SQ, deadline = Deadline}} = State) ->
-    case erlang:monotonic_time(millisecond) of
-        BeforeDeadline when BeforeDeadline < Deadline ->
-            NState = State#state{sockstate = SS#congested{sendq = [IoData | SQ]}},
-            sent(Num, iolist_size(IoData), NState);
-        _PastDeadline ->
+send(
+    Num,
+    IoData,
+    State = #state{
+        sockstate = SS = #congested{sendq = SQ, deadline = Deadline, queued = NOctets},
+        conf = Conf
+    }
+) ->
+    Oct = iolist_size(IoData),
+    case Deadline =:= infinity orelse erlang:monotonic_time(millisecond) < Deadline of
+        true ->
+            NSS = SS#congested{sendq = [IoData | SQ], queued = NOctets + Oct},
+            NState = State#state{sockstate = maybe_arm_send_deadline(NSS, Conf)},
+            {ok, sent(Num, Oct, NState)};
+        false ->
             {ok, {sock_error, send_timeout}, State}
     end;
 send(_Num, _IoVec, #state{sockstate = closed} = State) ->
     {ok, State}.
 
 -compile({inline, [handle_send_ready/2]}).
-handle_send_ready(Socket, State = #state{sockstate = SS = #congested{sendq = SQ}}) ->
+handle_send_ready(
+    Socket,
+    State = #state{sockstate = SS = #congested{sendq = SQ, watermark = WM}}
+) ->
     IoData = sendq_to_iodata(SQ, []),
     Handle = make_ref(),
     case socket:send(Socket, IoData, [], Handle) of
         ok ->
-            NState = State#state{sockstate = idle},
-            {ok, NState};
+            Signal = {connection, decongested, #{sendq_size => 0}},
+            signal_channel(Signal, State#state{sockstate = idle});
         {select, {_Info, Rest}} ->
             %% Partially accepted, renew deadline.
-            {ok, queue_send(Handle, Rest, State)};
+            NState = queue_send(Handle, Rest, iolist_size(Rest), WM, State),
+            maybe_signal_congestion(NState);
         {select, _Info} ->
             %% Totally congested, keep the deadline.
             NSS = SS#congested{handle = Handle, sendq = [IoData]},
@@ -1085,13 +1123,58 @@ handle_send_ready(Socket, State = #state{sockstate = SS = #congested{sendq = SQ}
             {ok, {sock_error, Reason}, State}
     end.
 
-queue_send(Handle, IoData, State = #state{listener = {Type, Name}}) ->
-    Timeout = emqx_config:get_listener_conf(Type, Name, [tcp_options, send_timeout], 15_000),
-    Deadline = erlang:monotonic_time(millisecond) + Timeout,
-    SockState = #congested{handle = Handle, deadline = Deadline, sendq = [IoData]},
-    State#state{sockstate = SockState}.
+queue_send(Handle, IoData, NOctets, State = #state{conf = Conf}) ->
+    Watermark = get_high_watermark(Conf),
+    queue_send(Handle, IoData, NOctets, {high, Watermark}, State).
 
-check_send_timeout(#congested{deadline = Deadline}, State) ->
+queue_send(Handle, IoData, NOctets, WM, State = #state{conf = Conf}) ->
+    SS = #congested{
+        handle = Handle,
+        deadline = infinity,
+        sendq = [IoData],
+        queued = NOctets,
+        watermark = WM
+    },
+    State#state{sockstate = maybe_arm_send_deadline(SS, Conf)}.
+
+maybe_signal_congestion(
+    State = #state{
+        sockstate = SS = #congested{queued = NOctets, watermark = {high, WM}}
+    }
+) when NOctets > WM div 2 ->
+    Signal = {connection, congested, #{sendq_size => NOctets}},
+    NSS = SS#congested{watermark = {low, WM}},
+    signal_channel(Signal, State#state{sockstate = NSS});
+maybe_signal_congestion(
+    State = #state{
+        sockstate = SS = #congested{queued = NOctets, watermark = {low, WM}}
+    }
+) when NOctets < WM div 4 ->
+    Signal = {connection, decongested, #{sendq_size => NOctets}},
+    NSS = SS#congested{watermark = {high, WM}},
+    signal_channel(Signal, State#state{sockstate = NSS});
+maybe_signal_congestion(State) ->
+    {ok, State}.
+
+signal_channel(Signal, State = #state{channel = Channel}) ->
+    case emqx_channel:handle_signal(Signal, Channel) of
+        {ok, NChannel} ->
+            {ok, State#state{channel = NChannel}};
+        {ok, Replies, NChannel} ->
+            {ok, Replies, State#state{channel = NChannel}}
+    end.
+
+maybe_arm_send_deadline(
+    SS = #congested{deadline = infinity, queued = NQ, watermark = {_, WM}},
+    Conf
+) when NQ > WM ->
+    Timeout = get_send_timeout(Conf),
+    Deadline = erlang:monotonic_time(millisecond) + Timeout,
+    SS#congested{deadline = Deadline};
+maybe_arm_send_deadline(SS, _Conf) ->
+    SS.
+
+check_send_timeout(#congested{deadline = Deadline}, State) when is_integer(Deadline) ->
     case erlang:monotonic_time(millisecond) of
         BeforeDeadline when BeforeDeadline < Deadline ->
             {ok, State};
@@ -1106,42 +1189,86 @@ sendq_to_iodata([IoData | Rest], Acc) ->
 sendq_to_iodata([], Acc) ->
     Acc.
 
-sendq_bytesize(#congested{sendq = SQ}) ->
-    erlang:iolist_size(SQ);
+sendq_bytesize(#congested{queued = NOctets}) ->
+    NOctets;
 sendq_bytesize(_) ->
     0.
 
 %% Some bytes sent
+-spec sent(non_neg_integer(), non_neg_integer(), state()) -> state().
 sent(
     Num,
     Oct,
-    State = #state{gc_tracker = {ActiveN, In = {PktsIn, BytesIn}, {PktsOut, BytesOut}}}
+    State = #state{thresholds = Thresholds0}
 ) ->
     %% TODO: Not actually "sent", as is `emqx_metrics:inc_sent/1`.
     inc_metrics('bytes.sent', State, Oct),
-    NPktsOut = PktsOut + Num,
-    NBytesOut = BytesOut + Oct,
-    if
-        PktsIn > ActiveN ->
-            %% Run GC and check OOM after certain amount of messages or bytes received.
-            NState = trigger_gc(PktsIn, BytesIn, ActiveN, State);
-        NPktsOut > ActiveN ->
-            %% Run GC and check OOM after certain amount of messages or bytes sent.
-            NState = trigger_gc(NPktsOut, NBytesOut, ActiveN, State);
-        true ->
-            NState = State#state{gc_tracker = {ActiveN, In, {NPktsOut, NBytesOut}}}
-    end,
+    Thresholds = Thresholds0#thresholds{
+        gc_bytes = dec_threshold(Thresholds0#thresholds.gc_bytes, Oct),
+        gc_packets = dec_threshold(Thresholds0#thresholds.gc_packets, Num),
+        oom_packets = dec_threshold(Thresholds0#thresholds.oom_packets, Num)
+    },
+    NState = trigger_oom(trigger_gc(State#state{thresholds = Thresholds})),
     ?BROKER_INSTR_WMARK(t0_deliver, {T0, TDeliver} when is_integer(T0), begin
         TSent = ?BROKER_INSTR_TS(),
         ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_delay_us, ?US(TDeliver - T0)),
         ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_total_lat_us, ?US(TSent - T0))
     end),
-    {ok, NState}.
+    NState.
 
--compile({inline, [trigger_gc/4]}).
-trigger_gc(NPkts, NBytes, ActiveN, State) ->
-    NState = State#state{gc_tracker = init_gc_tracker(ActiveN)},
-    check_oom(NPkts, NBytes, run_gc(NPkts, NBytes, NState)).
+-compile({inline, [trigger_gc/1, trigger_oom/1]}).
+trigger_gc(
+    #state{
+        thresholds = #thresholds{gc_bytes = Bytes, gc_packets = Packets} = Thresholds,
+        conf = Conf
+    } = State
+) ->
+    case Bytes of
+        undefined ->
+            State;
+        N when N > 0 andalso Packets > 0 ->
+            State;
+        _ ->
+            run_gc(State),
+            State#state{
+                thresholds = reset_gc_threshold(Conf, Thresholds)
+            }
+    end.
+
+trigger_oom(
+    #state{
+        thresholds = #thresholds{oom_packets = Packets} = Thresholds,
+        conf = Conf
+    } = State
+) ->
+    case Packets of
+        undefined ->
+            State;
+        N when N > 0 ->
+            State;
+        _ ->
+            check_oom(0, 0, State),
+            State#state{
+                thresholds = reset_oom_threshold(Conf, Thresholds)
+            }
+    end.
+
+reset_thresholds(Conf, Thresholds) ->
+    reset_oom_threshold(Conf, reset_gc_threshold(Conf, Thresholds)).
+
+reset_gc_threshold(#conf{force_gc = {Count, Bytes}}, Thresholds) ->
+    Thresholds#thresholds{gc_packets = Count, gc_bytes = Bytes};
+reset_gc_threshold(#conf{force_gc = false}, Thresholds) ->
+    Thresholds.
+
+reset_oom_threshold(#conf{active_n = ActiveN}, Thresholds) ->
+    Thresholds#thresholds{oom_packets = ActiveN}.
+
+-compile({inline, [dec_threshold/2]}).
+dec_threshold(undefined, _) ->
+    undefined;
+dec_threshold(T, N) ->
+    T - N.
 
 %%--------------------------------------------------------------------
 %% Handle Info
@@ -1189,17 +1316,13 @@ handle_cast(Req, State) ->
 %%--------------------------------------------------------------------
 %% Run GC and Check OOM
 
-run_gc(Pubs, Bytes, State = #state{gc_state = GcSt, zone = Zone}) ->
-    case
-        ?ENABLED(GcSt) andalso not emqx_olp:backoff_gc(Zone) andalso
-            emqx_gc:run(Pubs, Bytes, GcSt)
-    of
-        false -> State;
-        {_IsGC, GcSt1} -> State#state{gc_state = GcSt1}
+run_gc(#state{conf = #conf{zone = Zone}}) ->
+    case emqx_olp:backoff_gc(Zone) of
+        false -> erlang:garbage_collect();
+        true -> ok
     end.
 
-check_oom(Pubs, Bytes, State = #state{zone = Zone}) ->
-    ShutdownPolicy = emqx_config:get_zone_conf(Zone, [force_shutdown]),
+check_oom(Pubs, Bytes, #state{conf = #conf{force_shutdown = ShutdownPolicy}}) ->
     case emqx_utils:check_oom(ShutdownPolicy) of
         {shutdown, Reason} ->
             %% triggers terminate/2 callback immediately
@@ -1218,8 +1341,7 @@ check_oom(Pubs, Bytes, State = #state{zone = Zone}) ->
                 result => Result
             }),
             ok
-    end,
-    State.
+    end.
 
 %%--------------------------------------------------------------------
 %% Close Socket
@@ -1295,14 +1417,6 @@ inc_metrics(Name, State, Val) ->
 %%--------------------------------------------------------------------
 %% Helper functions
 
--compile({inline, [next_msgs/1]}).
-next_msgs(Packet) when is_record(Packet, mqtt_packet) ->
-    {outgoing, Packet};
-next_msgs(Event) when is_tuple(Event) ->
-    Event;
-next_msgs(More) when is_list(More) ->
-    More.
-
 -compile({inline, [shutdown/2, shutdown/3]}).
 shutdown(Reason, State) ->
     stop({shutdown, Reason}, State).
@@ -1339,7 +1453,7 @@ graceful_shutdown_transport(_Reason, S = #state{socket = Socket}) ->
 start_timer(Time, Msg) ->
     emqx_utils:start_timer(Time, Msg).
 
-init_zone_specific_state(Zone, Opts, #state{} = State0) ->
+init_zone_specific_state(Zone, Opts, #state{conf = Conf0} = State0) ->
     FrameOpts0 = #{
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
@@ -1360,23 +1474,41 @@ init_zone_specific_state(Zone, Opts, #state{} = State0) ->
                         {State0#state.parser, State0#state.serialize}
                 end
         end,
-    GcState =
+    GcThresholds =
         case emqx_config:get_zone_conf(Zone, [force_gc]) of
-            #{enable := false} -> undefined;
-            GcPolicy -> emqx_gc:init(GcPolicy)
+            #{enable := false} ->
+                false;
+            #{enable := true, count := Count, bytes := Bytes} ->
+                {Count, Bytes}
         end,
+    Conf = Conf0#conf{
+        zone = Zone,
+        active_n = get_active_n(Conf0),
+        hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
+        force_shutdown = emqx_config:get_zone_conf(Zone, [force_shutdown]),
+        force_gc = GcThresholds
+    },
     State0#state{
         parser = Parser,
         serialize = Serialize,
-        gc_state = GcState,
-        hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
-        zone = Zone
+        conf = Conf,
+        thresholds = reset_thresholds(Conf, #thresholds{})
     }.
 
 init_parser_and_serializer(FrameOpts0) ->
     Parser0 = init_parser(FrameOpts0),
     Serialize0 = emqx_frame:initial_serialize_opts(FrameOpts0),
     {Parser0, Serialize0}.
+
+get_active_n(#conf{listener = {Type, Listener}}) ->
+    emqx_config:get_listener_conf(Type, Listener, [tcp_options, active_n]).
+
+get_send_timeout(#conf{listener = {Type, Listener}}) ->
+    emqx_config:get_listener_conf(Type, Listener, [tcp_options, send_timeout], 15_000).
+
+get_high_watermark(#conf{listener = {Type, Listener}}) ->
+    %% TODO protect against too small hwm
+    emqx_config:get_listener_conf(Type, Listener, [tcp_options, high_watermark]).
 
 %%--------------------------------------------------------------------
 %% For CT tests
@@ -1394,6 +1526,3 @@ get_state(Pid) ->
             tl(tuple_to_list(State))
         )
     ).
-
-get_active_n(Type, Listener) ->
-    emqx_config:get_listener_conf(Type, Listener, [tcp_options, active_n]).

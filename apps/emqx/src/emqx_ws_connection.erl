@@ -130,6 +130,8 @@ info(idle_timer, #state{idle_timer = TRef}) ->
     TRef;
 info(zone, #state{zone = Zone}) ->
     Zone;
+info(listener, #state{listener = Listener}) ->
+    Listener;
 info({channel, Info}, #state{channel = Channel}) ->
     emqx_channel:info(Info, Channel).
 
@@ -257,10 +259,10 @@ init_connection(
     ConnInfo = #{peername := Peername, sockname := Sockname},
     Opts = #{listener := {Type, Listener}, zone := Zone}
 ) ->
+    emqx_connection_util:label_process({Type, Listener}, ConnInfo),
     MQTTPiggyback = get_ws_opt(Type, Listener, mqtt_piggyback),
     Channel = emqx_channel:init(ConnInfo, Opts),
     _ = tune_heap_size(Channel),
-    emqx_logger:set_metadata_peername(esockd:format(Peername)),
     State0 = #state{
         peername = Peername,
         sockname = Sockname,

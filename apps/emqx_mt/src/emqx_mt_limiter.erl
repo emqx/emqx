@@ -19,7 +19,7 @@ If one of the limiters lack configuration, we simply don't do each action above.
 
 %% API
 -export([
-    create_channel_client_container/3,
+    create_channel_client_container/4,
 
     create_tenant_limiter_group/2,
     update_tenant_limiter_group/2,
@@ -35,7 +35,9 @@ If one of the limiters lack configuration, we simply don't do each action above.
 ]).
 
 %% 'channel.limiter_adjustment' hookpoint
--export([adjust_limiter/2]).
+-export([
+    adjust_limiter/3
+]).
 
 -export_type([
     root_config/0,
@@ -45,6 +47,7 @@ If one of the limiters lack configuration, we simply don't do each action above.
     tenant_config/0
 ]).
 
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
 %%------------------------------------------------------------------------------
@@ -88,10 +91,15 @@ If one of the limiters lack configuration, we simply don't do each action above.
 %% API
 %%------------------------------------------------------------------------------
 
--spec create_channel_client_container(emqx_types:zone(), emqx_listeners:listener_id(), tns()) ->
+-spec create_channel_client_container(
+    emqx_types:zone(),
+    emqx_listeners:listener_id(),
+    tns(),
+    client | session
+) ->
     emqx_limiter_client_container:t().
-create_channel_client_container(Zone, ListenerId, Ns) ->
-    create_client_container(Zone, ListenerId, Ns, client_limiter_names()).
+create_channel_client_container(Zone, ListenerId, Ns, Level) ->
+    create_client_container(Zone, ListenerId, Ns, client_limiter_names(Level)).
 
 create_tenant_limiter_group(Ns, Config) ->
     LimiterConfigs = tenant_limiter_options(Config),
@@ -110,12 +118,12 @@ ensure_tenant_limiter_group_absent(Ns) ->
 %%
 
 create_client_limiter_group(Ns, Config) ->
-    LimiterConfigs = client_limiter_options(Config),
-    emqx_limiter:create_group(emqx_limiter_exclusive, client_group(Ns), LimiterConfigs).
+    LimiterOpts = client_limiter_options(Config),
+    emqx_limiter:create_group(emqx_limiter_exclusive, client_group(Ns), LimiterOpts).
 
 update_client_limiter_group(Ns, Config) ->
-    LimiterConfigs = client_limiter_options(Config),
-    emqx_limiter:update_group(client_group(Ns), LimiterConfigs).
+    LimiterOpts = client_limiter_options(Config),
+    emqx_limiter:update_group(client_group(Ns), LimiterOpts).
 
 delete_client_limiter_group(Ns) ->
     emqx_limiter:delete_group(client_group(Ns)).
@@ -130,25 +138,25 @@ cleanup_configs(Ns, _Configs) ->
     %% from the now dangling limiters, `emqx_limiter_client' will log the error but don't
     %% do any limiting when it fails to fetch the missing limiter group configuration.
     %% The user may choose to later kick all clients from this namespace.
-    _ = ensure_group_absent(tenant_group(Ns)),
-    _ = ensure_group_absent(client_group(Ns)),
+    ensure_group_absent(tenant_group(Ns)),
+    ensure_group_absent(client_group(Ns)),
     ok.
 
 %%------------------------------------------------------------------------------
 %% 'channel.limiter_adjustment' hookpoint
 %%------------------------------------------------------------------------------
 
-adjust_limiter(#{tns := undefined}, _Limiter) ->
-    ok;
-adjust_limiter(Context, _Limiter) ->
-    #{
-        zone := Zone,
-        listener_id := ListenerId,
-        tns := Ns
-    } = Context,
-    Limiter = create_channel_client_container(Zone, ListenerId, Ns),
-    ?tp("channel_limiter_adjusted", #{}),
-    {ok, Limiter}.
+adjust_limiter(
+    #{client_attrs := #{?CLIENT_ATTR_NAME_TNS := Ns}} = ClientInfo,
+    _Limiter,
+    Level
+) ->
+    #{zone := Zone, listener := Listener} = ClientInfo,
+    Limiter = create_channel_client_container(Zone, Listener, Ns, Level),
+    ?tp("mt_limiter_adjusted", #{level => Level}),
+    {ok, Limiter};
+adjust_limiter(_ClientInfo, _Limiter, _Level) ->
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Internal fns
@@ -166,14 +174,20 @@ tenant_group(Ns) ->
 client_group(Ns) ->
     {mt_client, Ns}.
 
-client_limiter_names() ->
+client_limiter_names(channel) ->
     [
         ?MESSAGES_LIM_NAME,
         ?BYTES_LIM_NAME,
-        ?DELIVERY_MESSAGES_LIM_NAME,
-        ?DELIVERY_BYTES_LIM_NAME,
         ?SUBSCRIBES_LIM_NAME
+    ];
+client_limiter_names(session) ->
+    [
+        ?DELIVERY_MESSAGES_LIM_NAME,
+        ?DELIVERY_BYTES_LIM_NAME
     ].
+
+client_limiter_names() ->
+    client_limiter_names(channel) ++ client_limiter_names(session).
 
 tenant_limiter_names() ->
     [
@@ -212,8 +226,10 @@ create_client_container(Zone, ListenerId, Ns, Names) ->
 create_limiter(Zone, ListenerId, Ns, Name) ->
     TenantLimiters = create_tenant_limiters(Zone, Ns, Name),
     ClientLimiters = create_client_limiters(ListenerId, Ns, Name),
-    Clients = TenantLimiters ++ ClientLimiters,
-    emqx_limiter_composite:new(Clients).
+    case TenantLimiters ++ ClientLimiters of
+        [Client] -> Client;
+        Clients -> emqx_limiter_composite:new(Clients)
+    end.
 
 create_tenant_limiters(_Zone, _Ns, Name) when ?IS_CHANNEL_ONLY_LIMITER(Name) ->
     [];
@@ -237,9 +253,9 @@ create_client_limiters(ListenerId, Ns, Name) ->
             [ClientLimiterClient];
         _ ->
             %% TODO: Isolate implementation details in `emqx_limiter` API.
-            ChannelLimiterId = {channel_group(ListenerId), Name},
-            ChannelLimiterClient = emqx_limiter:connect(ChannelLimiterId),
-            [ChannelLimiterClient]
+            LimiterId = {channel_group(ListenerId), Name},
+            LimiterClient = emqx_limiter:connect(LimiterId),
+            [LimiterClient]
     end.
 
 ensure_group_absent(Group) ->

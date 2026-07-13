@@ -13,7 +13,8 @@
 -callback create(Context :: map()) -> {ok, map()} | {error, term()}.
 -callback destroy(Tool :: map()) -> ok.
 -callback to_map(Tool :: map()) -> map().
--callback handle_invoke(Context :: map(), Request :: map()) -> {ok, map()} | {error, term()}.
+-callback handle_invoke(Context :: map(), Request :: map()) ->
+    ok | {ok, map()} | {ok, map(), [map()]} | {error, term()}.
 
 -export([init/0, deinit/0, on_message_publish/1]).
 -export([discover_tool_modules/0]).
@@ -23,6 +24,7 @@
 -spec init() -> ok.
 init() ->
     lists:foreach(fun(Mod) -> Mod:init() end, discover_tool_modules()),
+    ok = emqx_agent_tool_registry:reconcile(),
     _ = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_LOWEST),
     ok.
 
@@ -34,14 +36,25 @@ deinit() ->
 
 -spec discover_tool_modules() -> [module()].
 discover_tool_modules() ->
-    AllModules = [M || {M, _} <- code:all_loaded()],
+    AllModules = lists:usort(app_modules() ++ [M || {M, _} <- code:all_loaded()]),
     [M || M <- AllModules, is_tool_module(M)].
+
+app_modules() ->
+    case application:get_key(emqx_agent, modules) of
+        {ok, Modules} ->
+            [M || M <- Modules, code:ensure_loaded(M) =:= {module, M}];
+        undefined ->
+            []
+    end.
 
 is_tool_module(Module) ->
     case erlang:function_exported(Module, module_info, 1) of
         true ->
             Attrs = Module:module_info(attributes),
-            Behaviours = proplists:get_value(behaviour, Attrs, []),
+            Behaviours = lists:flatten(
+                proplists:get_all_values(behavior, Attrs) ++
+                    proplists:get_all_values(behaviour, Attrs)
+            ),
             lists:member(?MODULE, Behaviours);
         false ->
             false

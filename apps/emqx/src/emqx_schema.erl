@@ -642,7 +642,11 @@ fields("mqtt_tcp_listener") ->
                         {win32, _} -> hoconsc:enum([gen_tcp])
                     end,
                     #{
-                        default => <<"gen_tcp">>,
+                        default =>
+                            case os:type() of
+                                {unix, _} -> <<"socket">>;
+                                {win32, _} -> <<"gen_tcp">>
+                            end,
                         desc => ?DESC(fields_mqtt_opts_tcp_backend),
                         importance => ?IMPORTANCE_LOW
                     }
@@ -3386,7 +3390,7 @@ validate_ciphers(Ciphers) ->
     Set = emqx_tls_lib:all_ciphers_set_cached(),
     case lists:filter(fun(Cipher) -> not sets:is_element(Cipher, Set) end, Ciphers) of
         [] -> ok;
-        Bad -> {error, {bad_ciphers, Bad}}
+        Bad -> {error, #{cause => bad_ciphers, ciphers => [iolist_to_binary(C) || C <- Bad]}}
     end.
 
 validate_tls_versions(Collection, Versions) ->

@@ -14,7 +14,6 @@
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_agent_sup:start_link(),
     ok = emqx_agent_config:init_config(),
-    ok = emqx_agent_tool_registry:reconcile(),
     ok = emqx_agent_tool_connections:init(),
     ok = emqx_agent_tool:init(),
     ok = emqx_agent_session:init(),

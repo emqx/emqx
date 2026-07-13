@@ -42,7 +42,7 @@ create(#{<<"id">> := ToolId}) ->
         module => ?MODULE,
         display_name => <<"Create Tool">>,
         description =>
-            <<"Create or overwrite a tool (upsert). Types: message__publish, message__request, http, postgresql__query, stream_write, stream_read, stream_del, kv_write, kv_read, kv_read_all, kv_del, kv_clear.">>,
+            <<"Create or overwrite a tool (upsert). Types: message__publish, message__request, http, image__fetch, postgresql__query, stream__write, stream__read, stream__del, kv__write, kv__read, kv__read_all, kv__del, kv__clear.">>,
         context => #{<<"id">> => ToolId},
         input_schema => input_schema()
     }}.

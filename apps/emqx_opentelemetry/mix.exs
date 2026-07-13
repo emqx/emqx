@@ -27,7 +27,7 @@ defmodule EMQXOpentelemetry.MixProject do
   def deps() do
     opentelemetry = [
       github: "emqx/opentelemetry-erlang",
-      tag: "v1.4.10-emqx",
+      tag: "v1.4.11-emqx",
       override: true
     ]
 

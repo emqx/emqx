@@ -30,55 +30,49 @@ t_info(_) ->
         dropped := 0
     } = ?Q:info(Q).
 
-t_record_shape_stays_compatible(_) ->
-    Q = ?Q:init(#{max_len => 5, store_qos0 => true}),
-    ?assertEqual(12, tuple_size(Q)).
-
 t_in(_) ->
     Opts = #{max_len => 5, store_qos0 => true},
     Q = ?Q:init(Opts),
     ?assert(?Q:is_empty(Q)),
-    {_, Q1} = ?Q:in(#message{payload = <<>>}, Q),
+    {_, Q1} = ?Q:in(#message{}, Q),
     ?assertEqual(1, ?Q:len(Q1)),
-    {_, Q2} = ?Q:in(#message{qos = 1, payload = <<>>}, Q1),
+    {_, Q2} = ?Q:in(#message{qos = 1}, Q1),
     ?assertEqual(2, ?Q:len(Q2)),
-    {_, Q3} = ?Q:in(#message{qos = 2, payload = <<>>}, Q2),
-    {_, Q4} = ?Q:in(#message{payload = <<>>}, Q3),
-    {_, Q5} = ?Q:in(#message{payload = <<>>}, Q4),
+    {_, Q3} = ?Q:in(#message{qos = 2}, Q2),
+    {_, Q4} = ?Q:in(#message{}, Q3),
+    {_, Q5} = ?Q:in(#message{}, Q4),
     ?assertEqual(5, ?Q:len(Q5)).
 
 t_in_qos0(_) ->
     Opts = #{max_len => 5, store_qos0 => false},
     Q = ?Q:init(Opts),
-    {_, Q1} = ?Q:in(#message{qos = 0, payload = <<"qos0">>}, Q),
-    ?assert(?Q:is_empty(Q1)),
-    ?assertEqual(0, ?Q:bytes_size(Q1)),
-    {_, Q2} = ?Q:in(#message{qos = 0, payload = <<"qos0">>}, Q1),
-    ?assert(?Q:is_empty(Q2)),
-    ?assertEqual(0, ?Q:bytes_size(Q2)).
+    false = ?Q:in(#message{qos = 0}, Q),
+    ?assertEqual(0, ?Q:bytes_size(Q)).
 
 t_out(_) ->
     Opts = #{max_len => 5, store_qos0 => true},
     Q = ?Q:init(Opts),
     {empty, Q} = ?Q:out(Q),
-    {_, Q1} = ?Q:in(#message{payload = <<>>}, Q),
+    {_, Q1} = ?Q:in(#message{payload = <<"x">>}, Q),
+    ?assertEqual(1, ?Q:bytes_size(Q1)),
     {Value, Q2} = ?Q:out(Q1),
     ?assertEqual(0, ?Q:len(Q2)),
-    ?assertEqual({value, #message{payload = <<>>}}, Value).
+    ?assertEqual(0, ?Q:bytes_size(Q2)),
+    ?assertEqual({value, #message{payload = <<"x">>}}, Value).
 
-t_out_resets_stale_len(_) ->
-    Q = ?Q:init(#{max_len => 5, store_qos0 => true}),
-    StaleQ = set_mqueue_len(Q, 1),
-    ?assertEqual(1, ?Q:len(StaleQ)),
-    ?assertEqual(0, ?Q:bytes_size(StaleQ)),
-    ?assertEqual({empty, Q}, ?Q:out(StaleQ)).
-
-t_bytes_underflow_is_not_clamped(_) ->
-    Q = ?Q:init(#{max_len => 5, store_qos0 => true}),
-    Msg = #message{qos = 1, payload = <<"payload">>},
-    {_, Q1} = ?Q:in(Msg, Q),
-    CorruptedQ = set_mqueue_bytes(Q1, 0),
-    ?assertError({badmatch, false}, ?Q:out(CorruptedQ)).
+t_bytes_size_tracks_payload(_) ->
+    Q0 = ?Q:init(#{max_len => 3, store_qos0 => true}),
+    Msg1 = #message{qos = 1, payload = <<"one">>},
+    Msg2 = #message{qos = 1, payload = <<"three">>},
+    {_, Q1} = ?Q:in(Msg1, Q0),
+    ?assertEqual(emqx_message:payload_size(Msg1), ?Q:bytes_size(Q1)),
+    {_, Q2} = ?Q:in(Msg2, Q1),
+    ?assertEqual(
+        emqx_message:payload_size(Msg1) + emqx_message:payload_size(Msg2),
+        ?Q:bytes_size(Q2)
+    ),
+    {{value, _}, Q3} = ?Q:out(Q2),
+    ?assertEqual(emqx_message:payload_size(Msg2), ?Q:bytes_size(Q3)).
 
 t_simple_mqueue(_) ->
     Opts = #{max_len => 3, store_qos0 => false},
@@ -93,32 +87,6 @@ t_simple_mqueue(_) ->
     {{value, Msg}, Q5} = ?Q:out(Q4),
     ?assertEqual(<<"2">>, Msg#message.payload),
     ?assertEqual([{len, 2}, {max_len, 3}, {dropped, 1}], ?Q:stats(Q5)).
-
-t_bytes(_) ->
-    Opts = #{max_len => 2, store_qos0 => false},
-    Q = ?Q:init(Opts),
-    ?assertEqual(0, ?Q:bytes_size(Q)),
-    Msg1 = #message{topic = <<"x">>, qos = 1, payload = <<"1">>},
-    Msg2 = #message{topic = <<"x">>, qos = 1, payload = <<"22">>},
-    Msg3 = #message{topic = <<"x">>, qos = 1, payload = <<"333">>},
-    {_, Q1} = ?Q:in(Msg1, Q),
-    ?assertEqual(emqx_message:payload_size(Msg1), ?Q:bytes_size(Q1)),
-    {_, Q2} = ?Q:in(Msg2, Q1),
-    ?assertEqual(
-        emqx_message:payload_size(Msg1) + emqx_message:payload_size(Msg2),
-        ?Q:bytes_size(Q2)
-    ),
-    {Msg1, Q3} = ?Q:in(Msg3, Q2),
-    ?assertEqual(
-        emqx_message:payload_size(Msg2) + emqx_message:payload_size(Msg3),
-        ?Q:bytes_size(Q3)
-    ),
-    {{value, Msg2}, Q4} = ?Q:out(Q3),
-    ?assertEqual(emqx_message:payload_size(Msg3), ?Q:bytes_size(Q4)),
-    {{value, Msg3}, Q6} = ?Q:out(Q4),
-    ?assertEqual(0, ?Q:bytes_size(Q6)),
-    Q5 = ?Q:filter(fun(#message{payload = Payload}) -> Payload =:= <<"333">> end, Q3),
-    ?assertEqual(emqx_message:payload_size(Msg3), ?Q:bytes_size(Q5)).
 
 t_infinity_simple_mqueue(_) ->
     Opts = #{max_len => 0, store_qos0 => false},
@@ -152,15 +120,15 @@ t_priority_mqueue(_) ->
     Q = ?Q:init(Opts),
     ?assertEqual(3, ?Q:max_len(Q)),
     ?assert(?Q:is_empty(Q)),
-    {_, Q1} = ?Q:in(#message{qos = 1, topic = <<"t2">>, payload = <<>>}, Q),
-    {_, Q2} = ?Q:in(#message{qos = 1, topic = <<"t1">>, payload = <<>>}, Q1),
-    {_, Q3} = ?Q:in(#message{qos = 1, topic = <<"t3">>, payload = <<>>}, Q2),
+    {_, Q1} = ?Q:in(#message{qos = 1, topic = <<"t2">>}, Q),
+    {_, Q2} = ?Q:in(#message{qos = 1, topic = <<"t1">>}, Q1),
+    {_, Q3} = ?Q:in(#message{qos = 1, topic = <<"t3">>}, Q2),
     ?assertEqual(3, ?Q:len(Q3)),
-    {_, Q4} = ?Q:in(#message{qos = 1, topic = <<"t2">>, payload = <<>>}, Q3),
+    {_, Q4} = ?Q:in(#message{qos = 1, topic = <<"t2">>}, Q3),
     ?assertEqual(4, ?Q:len(Q4)),
-    {_, Q5} = ?Q:in(#message{qos = 1, topic = <<"t2">>, payload = <<>>}, Q4),
+    {_, Q5} = ?Q:in(#message{qos = 1, topic = <<"t2">>}, Q4),
     ?assertEqual(5, ?Q:len(Q5)),
-    {_, Q6} = ?Q:in(#message{qos = 1, topic = <<"t2">>, payload = <<>>}, Q5),
+    {_, Q6} = ?Q:in(#message{qos = 1, topic = <<"t2">>}, Q5),
     ?assertEqual(5, ?Q:len(Q6)),
     {{value, _Msg}, Q7} = ?Q:out(Q6),
     ?assertEqual(4, ?Q:len(Q7)).
@@ -187,8 +155,7 @@ t_priority_order(_) ->
     ],
     Q = lists:foldl(
         fun({Topic, Message}, Q) ->
-            Payload = integer_to_binary(Message),
-            element(2, ?Q:in(#message{topic = Topic, qos = 1, payload = Payload}, Q))
+            element(2, ?Q:in(#message{topic = Topic, qos = 1, payload = Message}, Q))
         end,
         ?Q:init(Opts),
         Messages
@@ -221,7 +188,7 @@ t_priority_order(_) ->
             {<<"t1">>, 9},
             {<<"t1">>, 10}
         ],
-        drain_numeric_payloads(Q)
+        drain(Q)
     ).
 
 t_priority_order2(_) ->
@@ -230,8 +197,8 @@ t_priority_order2(_) ->
         shift_multiplier => 2,
         priorities =>
             #{
-                <<"t1">> => 0,
-                <<"t2">> => 1
+                <<"t1">> => -1,
+                <<"t2">> => 0
             },
         store_qos0 => false
     },
@@ -242,8 +209,7 @@ t_priority_order2(_) ->
     ],
     Q = lists:foldl(
         fun({Topic, Message}, Q) ->
-            Payload = integer_to_binary(Message),
-            element(2, ?Q:in(#message{topic = Topic, qos = 1, payload = Payload}, Q))
+            element(2, ?Q:in(#message{topic = Topic, qos = 1, payload = Message}, Q))
         end,
         ?Q:init(Opts),
         Messages
@@ -264,7 +230,7 @@ t_priority_order2(_) ->
             {<<"t1">>, 9},
             {<<"t1">>, 10}
         ],
-        drain_numeric_payloads(Q)
+        drain(Q)
     ).
 
 t_infinity_priority_mqueue(_) ->
@@ -313,10 +279,50 @@ t_length_priority_mqueue(_) ->
 
 t_dropped(_) ->
     Q = ?Q:init(#{max_len => 1, store_qos0 => true}),
-    Msg = emqx_message:make(<<"t">>, <<"payload">>),
-    {undefined, Q1} = ?Q:in(Msg, Q),
-    {Msg, Q2} = ?Q:in(Msg, Q1),
+    Msg1 = emqx_message:make(<<"t1">>, <<"payload">>),
+    Msg2 = emqx_message:make(<<"t2">>, <<"payload">>),
+    {undefined, Q1} = ?Q:in(Msg1, Q),
+    {Dropped, Q2} = ?Q:in(Msg2, Q1),
+    ?assertMatch(#message{topic = <<"t1">>}, Dropped),
     ?assertEqual(1, ?Q:dropped(Q2)).
+
+t_dropped_qos0_first(_) ->
+    Opts = #{max_len => 3, store_qos0 => true},
+    Q0 = ?Q:init(Opts),
+    Msg1 = emqx_message:make(?MODULE, ?QOS_1, ~"t", ~"qos1-1"),
+    Msg2 = emqx_message:make(?MODULE, ?QOS_0, ~"t", ~"qos0-2"),
+    Msg3 = emqx_message:make(?MODULE, ?QOS_1, ~"t", ~"qos1-3"),
+    Msg4 = emqx_message:make(?MODULE, ?QOS_1, ~"t", ~"qos1-4"),
+    {undefined, Q1} = ?Q:in(Msg1, Q0),
+    {undefined, Q2} = ?Q:in(Msg2, Q1),
+    {undefined, Q3} = ?Q:in(Msg3, Q2),
+    {Dropped, Q4} = ?Q:in(Msg4, Q3),
+    ?assertEqual(<<"qos0-2">>, emqx_message:payload(Dropped)),
+    ?assertEqual(1, ?Q:dropped(Q4)),
+    ?assertEqual(3, ?Q:len(Q4)),
+    ?assertEqual(
+        [{~"t", ~"qos1-1"}, {~"t", ~"qos1-3"}, {~"t", ~"qos1-4"}],
+        drain(Q4)
+    ).
+
+t_dropped_incoming_qos0_first(_) ->
+    Opts = #{max_len => 3, store_qos0 => true},
+    Q0 = ?Q:init(Opts),
+    Msg1 = emqx_message:make(?MODULE, ?QOS_1, ~"t", ~"qos1-1"),
+    Msg2 = emqx_message:make(?MODULE, ?QOS_1, ~"t", ~"qos1-2"),
+    Msg3 = emqx_message:make(?MODULE, ?QOS_2, ~"t", ~"qos2-3"),
+    Msg4 = emqx_message:make(?MODULE, ?QOS_0, ~"t", ~"qos0-4"),
+    {undefined, Q1} = ?Q:in(Msg1, Q0),
+    {undefined, Q2} = ?Q:in(Msg2, Q1),
+    {undefined, Q3} = ?Q:in(Msg3, Q2),
+    {Dropped, Q4} = ?Q:in(Msg4, Q3),
+    ?assertEqual(<<"qos0-4">>, emqx_message:payload(Dropped)),
+    ?assertEqual(1, ?Q:dropped(Q4)),
+    ?assertEqual(3, ?Q:len(Q4)),
+    ?assertEqual(
+        [{~"t", ~"qos1-1"}, {~"t", ~"qos1-2"}, {~"t", ~"qos2-3"}],
+        drain(Q4)
+    ).
 
 t_query(_) ->
     EmptyQ = ?Q:init(#{max_len => 500, store_qos0 => true}),
@@ -545,15 +551,6 @@ drain(Q) ->
         {{value, #message{topic = T, payload = P}}, Q1} ->
             [{T, P} | drain(Q1)]
     end.
-
-drain_numeric_payloads(Q) ->
-    [{Topic, binary_to_integer(Payload)} || {Topic, Payload} <- drain(Q)].
-
-set_mqueue_len(Q, Len) ->
-    setelement(4, Q, Len).
-
-set_mqueue_bytes(Q, Bytes) ->
-    setelement(5, Q, Bytes).
 
 mqueue_ts(#message{extra = #{mqueue_insert_ts := Ts}}) -> Ts.
 mqueue_prio(#message{extra = #{mqueue_priority := Prio}}) -> Prio.

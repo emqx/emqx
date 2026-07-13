@@ -824,6 +824,7 @@ tcp_schema_example() ->
         proxy_protocol => false,
         proxy_protocol_timeout => <<"3s">>,
         running => true,
+        tcp_backend => socket,
         zone => default,
         tcp_options => #{
             active_n => 100,

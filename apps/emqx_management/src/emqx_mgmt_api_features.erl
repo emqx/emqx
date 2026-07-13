@@ -73,8 +73,7 @@ fields(features_out) ->
     [
         {preset, mk(binary(), #{})},
         {enabled, mk(array(binary()), #{})},
-        {disabled, mk(array(binary()), #{})},
-        {bundled, mk(array(binary()), #{})}
+        {disabled, mk(array(binary()), #{})}
     ].
 
 %%-------------------------------------------------------------------------------------------------
@@ -97,8 +96,7 @@ example_features_list() ->
                     preset => <<"custom">>,
                     enabled => [
                         <<"data_integration">>,
-                        <<"dashboard">>,
-                        <<"auth">>
+                        <<"dashboard">>
                     ],
                     disabled => [
                         <<"message_transformation">>,
@@ -111,8 +109,7 @@ example_features_list() ->
                         <<"metrics">>,
                         <<"mqtt_extensions">>,
                         <<"plugins">>
-                    ],
-                    bundled => []
+                    ]
                 }
             }
     }.

@@ -34,6 +34,8 @@
 
 -export([connect/1]).
 
+-export([validate_application_name/1]).
+
 -export([
     query/3,
     prepared_query/3,
@@ -54,6 +56,8 @@
 -define(PGSQL_HOST_OPTIONS, #{
     default_port => ?PGSQL_DEFAULT_PORT
 }).
+
+-define(MAX_APPLICATION_NAME_BYTES, 63).
 
 -type template() :: {unicode:chardata(), emqx_template_sql:row_template()}.
 -type state() ::
@@ -79,6 +83,7 @@ roots() ->
 fields(config) ->
     [
         {server, server()},
+        {application_name, application_name()},
         {disable_prepared_statements, emqx_connector_schema_lib:disable_prepared_statements_field()}
     ] ++
         emqx_connector_schema_lib:relational_db_fields(#{username => #{required => true}}) ++
@@ -88,6 +93,33 @@ fields(config) ->
 server() ->
     Meta = #{desc => ?DESC("server")},
     emqx_schema:servers_sc(Meta, ?PGSQL_HOST_OPTIONS).
+
+application_name() ->
+    hoconsc:mk(binary(), #{
+        default => <<"emqx">>,
+        desc => ?DESC("application_name"),
+        validator => fun ?MODULE:validate_application_name/1
+    }).
+
+validate_application_name(ApplicationName) ->
+    case emqx_schema:non_empty_string(ApplicationName) of
+        ok ->
+            validate_application_name_binary(unicode:characters_to_binary(ApplicationName));
+        Error ->
+            Error
+    end.
+
+validate_application_name_binary(ApplicationName) when is_binary(ApplicationName) ->
+    case binary:match(ApplicationName, <<0>>) of
+        {_, _} ->
+            {error, application_name_cannot_contain_null_byte};
+        nomatch when byte_size(ApplicationName) =< ?MAX_APPLICATION_NAME_BYTES ->
+            ok;
+        nomatch ->
+            {error, application_name_too_long}
+    end;
+validate_application_name_binary(_) ->
+    {error, invalid_string}.
 
 %% ===================================================================
 resource_type() -> pgsql.
@@ -132,7 +164,8 @@ on_start(
         {username, User},
         {password, maps:get(password, Config, emqx_secret:wrap(""))},
         {database, DB},
-        {application_name, "emqx"},
+        {application_name,
+            to_epgsql_application_name(maps:get(application_name, Config, <<"emqx">>))},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize},
         [{codecs, []} || Codecs /= undefined]
@@ -609,6 +642,9 @@ connect(Opts) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+to_epgsql_application_name(ApplicationName) ->
+    unicode:characters_to_list(ApplicationName).
 
 query(Conn, SQL, Params) ->
     case epgsql:equery(Conn, SQL, Params) of

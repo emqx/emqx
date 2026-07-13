@@ -8,7 +8,7 @@
 Supervisor for session gen_statem processes.
 
 Sessions are lazy: started on the first message arriving at
-sess/in/<SID>/. Non-persistent sessions terminate normally once the current LLM
+sess/in/<SID>. Non-persistent sessions terminate normally once the current LLM
 request finishes and there is nothing left to process. Persistent sessions keep
 the LLM context until idle timeout, so restart => transient.
 """.

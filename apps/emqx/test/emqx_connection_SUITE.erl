@@ -20,54 +20,6 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     %% Meck Transport
     ok = meck:new(emqx_transport, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_transport, shutdown, fun(_, _) -> ok end),
-    %% Meck esockd_socket
-    ok = meck:new(esockd_socket, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(esockd_socket, fast_close, fun(_) -> ok end),
-    %% Meck Channel
-    ok = meck:new(emqx_channel, [passthrough, no_history, no_link]),
-    %% Meck Cm
-    ok = meck:new(emqx_cm, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_cm, mark_channel_connected, fun(_) -> ok end),
-    ok = meck:expect(emqx_cm, mark_channel_disconnected, fun(_) -> ok end),
-    %% Meck Pd
-    ok = meck:new(emqx_pd, [passthrough, no_history, no_link]),
-    %% Meck Metrics
-    ok = meck:new(emqx_metrics, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_metrics, inc_global, fun(_) -> ok end),
-    ok = meck:expect(emqx_metrics, inc_global, fun(_, _) -> ok end),
-    ok = meck:expect(emqx_metrics, inc_recv, fun(_, _) -> ok end),
-    ok = meck:expect(emqx_metrics, inc_sent, fun(_, _) -> ok end),
-    %% Meck Hooks
-    ok = meck:new(emqx_hooks, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end),
-    ok = meck:expect(emqx_hooks, run_fold, fun(_Hook, _Args, Acc) -> Acc end),
-
-    ok = meck:expect(emqx_channel, ensure_disconnected, fun(_, Channel) -> Channel end),
-
-    ok = meck:expect(emqx_alarm, activate, fun(_, _) -> ok end),
-    ok = meck:expect(emqx_alarm, deactivate, fun(_) -> ok end),
-    ok = meck:expect(emqx_alarm, deactivate, fun(_, _) -> ok end),
-
-    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
-    [{apps, Apps} | Config].
-
-end_per_suite(Config) ->
-    ok = meck:unload(emqx_transport),
-    ok = meck:unload(esockd_socket),
-    catch meck:unload(emqx_channel),
-    ok = meck:unload(emqx_cm),
-    ok = meck:unload(emqx_pd),
-    ok = meck:unload(emqx_metrics),
-    ok = meck:unload(emqx_hooks),
-    ok = meck:unload(emqx_alarm),
-
-    emqx_cth_suite:stop(proplists:get_value(apps, Config)).
-
-init_per_testcase(TestCase, Config) when
-    TestCase =/= t_ws_pingreq_before_connected
-->
-    ok = meck:expect(emqx_transport, wait, fun(Sock) -> {ok, Sock} end),
     ok = meck:expect(emqx_transport, type, fun(_Sock) -> tcp end),
     ok = meck:expect(
         emqx_transport,
@@ -79,6 +31,21 @@ init_per_testcase(TestCase, Config) when
             (peersni, [sock]) -> undefined
         end
     ),
+    %% Meck Channel
+    ok = meck:new(emqx_channel, [passthrough, no_history, no_link]),
+    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
+    ok = emqx_limiter:create_listener_limiters('tcp:default', #{}),
+    [{apps, Apps} | Config].
+
+end_per_suite(Config) ->
+    meck:unload(),
+    emqx_cth_suite:stop(proplists:get_value(apps, Config)).
+
+init_per_testcase(TestCase, Config) ->
+    ok = meck:expect(emqx_transport, wait, fun(Sock) -> {ok, Sock} end),
+    ok = meck:expect(emqx_transport, send, fun(_Sock, _Data) -> ok end),
+    ok = meck:expect(emqx_transport, shutdown, fun(_, _) -> ok end),
+    ok = meck:expect(emqx_transport, fast_close, fun(_Sock) -> ok end),
     ok = meck:expect(emqx_transport, setopts, fun(_Sock, _Opts) -> ok end),
     ok = meck:expect(emqx_transport, getopts, fun(_Sock, Options) ->
         {ok, [{K, 0} || K <- Options]}
@@ -86,26 +53,11 @@ init_per_testcase(TestCase, Config) when
     ok = meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
         {ok, [{K, 0} || K <- Options]}
     end),
-    ok = meck:expect(emqx_transport, send, fun(_Sock, _Data) -> ok end),
-    ok = meck:expect(emqx_transport, fast_close, fun(_Sock) -> ok end),
-    ok = meck:expect(esockd_socket, type, fun(_Sock) -> tcp end),
-    ok = meck:expect(esockd_socket, peername, fun(_Sock) -> {ok, {{127, 0, 0, 1}, 3456}} end),
-    ok = meck:expect(esockd_socket, sockname, fun(_Sock) -> {ok, {{127, 0, 0, 1}, 1883}} end),
-    ok = meck:expect(esockd_socket, peercert, fun(_Sock) -> undefined end),
-    ok = meck:expect(esockd_socket, peersni, fun(_Sock) -> undefined end),
-    case erlang:function_exported(?MODULE, TestCase, 2) of
-        true -> ?MODULE:TestCase(init, Config);
-        _ -> Config
-    end;
-init_per_testcase(_, Config) ->
-    Config.
+    emqx_common_test_helpers:init_per_testcase(?MODULE, TestCase, Config).
 
 end_per_testcase(TestCase, Config) ->
-    case erlang:function_exported(?MODULE, TestCase, 2) of
-        true -> ?MODULE:TestCase('end', Config);
-        false -> ok
-    end,
-    Config.
+    [meck:delete(M, F, A) || {M, F, A} <- meck:expects(emqx_channel, true)],
+    emqx_common_test_helpers:end_per_testcase(?MODULE, TestCase, Config).
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -254,9 +206,6 @@ t_handle_msg_close(_) ->
     ?assertMatch({stop, {shutdown, normal}, _St}, handle_msg({close, normal}, st())).
 
 t_handle_msg_event(_) ->
-    ok = meck:expect(emqx_cm, register_channel, fun(_, _, _) -> ok end),
-    ok = meck:expect(emqx_cm, insert_channel_info, fun(_, _, _) -> ok end),
-    ok = meck:expect(emqx_cm, set_chan_info, fun(_, _) -> ok end),
     ?assertMatch({ok, _St}, handle_msg({event, connected}, st())),
     ?assertMatch({ok, _St}, handle_msg({event, disconnected}, st())),
     ?assertMatch({ok, _St}, handle_msg({event, undefined}, st())).
@@ -286,7 +235,7 @@ t_handle_timeout(_) ->
         emqx_connection:handle_timeout(TRef, idle_timeout, State)
     ),
     ?assertMatch(
-        {ok, _NState},
+        {ok, _Msgs, _NState},
         emqx_connection:handle_timeout(TRef, emit_stats, State)
     ),
     ?assertMatch(
@@ -371,43 +320,6 @@ t_parse_incoming(_) ->
         )
     ).
 
-t_socket_parse_incoming_first_packet_hints(_) ->
-    St0 = socket_st(#{}, #{conn_state => idle}),
-    ?assertMatch({0, 0, [], _NState}, emqx_socket_connection:parse_incoming(<<>>, St0)),
-    %% SUBSCRIBE with remaining_len=0 in idle state: enriched with hints
-    ?assertMatch(
-        {0, 0,
-            [
-                {frame_error, #{
-                    cause := zero_remaining_len,
-                    packet_type := 'SUBSCRIBE',
-                    resemble_protocol := _
-                }}
-            ],
-            _NState},
-        emqx_socket_connection:parse_incoming(<<16#82, 16#00>>, St0)
-    ),
-    %% CONNECT with remaining_len=0 in idle state
-    ?assertMatch(
-        {0, 0, [{frame_error, #{cause := zero_remaining_len}}], _NState},
-        emqx_socket_connection:parse_incoming(<<16#10, 16#00>>, St0)
-    ),
-    %% bad_subqos in connected state: no enrichment
-    ?assertMatch(
-        {0, 0, [{frame_error, bad_subqos}], _NState},
-        emqx_socket_connection:parse_incoming(
-            <<16#82, 16#06, 16#00, 16#01, 16#00, 16#01, $t, 16#03>>,
-            socket_st()
-        )
-    ),
-    ok = meck:new(emqx_frame, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_frame, parse, fun(_, _) -> erlang:error(forced_parse_error) end),
-    ?assertMatch(
-        {0, 0, [{frame_error, forced_parse_error}], _NState},
-        emqx_socket_connection:parse_incoming(<<"for_testing">>, socket_st())
-    ),
-    ok = meck:unload(emqx_frame).
-
 t_next_incoming_msgs(_) ->
     ?assertEqual(
         {incoming, packet},
@@ -484,8 +396,7 @@ t_with_channel(_) ->
     ?assertMatch(
         {stop, {shutdown, [for_testing]}, _NState},
         emqx_connection:with_channel(handle_in, [for_testing], State)
-    ),
-    meck:unload(emqx_channel).
+    ).
 
 t_handle_outgoing(_) ->
     ?assertMatch({ok, _}, emqx_connection:handle_outgoing(?PACKET(?PINGRESP), st())),
@@ -510,6 +421,43 @@ t_activate_socket(_) ->
     State2 = st(#{sockstate => closed}),
     ?assertEqual({ok, State2}, emqx_connection:activate_socket(State2)).
 
+t_sendq_congestion_trigger(_) ->
+    HWM = emqx_config:get_listener_conf(tcp, default, [tcp_options, high_watermark]),
+    ok = meck:expect(emqx_channel, handle_signal, fun
+        ({connection, congested, _Info}, Channel) ->
+            erlang:put(sendq_congested_notified, true),
+            {ok, Channel};
+        ({connection, decongested, _Info}, Channel) ->
+            erlang:put(sendq_decongested_notified, true),
+            {ok, Channel};
+        (Signal, Channel) ->
+            meck:passthrough([Signal, Channel])
+    end),
+    %% Simulate sendq congestion:
+    State0 = st(#{sockstate => running}),
+    ok = meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
+        {ok, [{K, round(HWM * 0.8)} || K <- Options]}
+    end),
+    %% Small packet does not trigger sendq probe:
+    {ok, State1} = handle_msg(
+        {outgoing, ?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 1, payload(10))},
+        State0
+    ),
+    %% Enough bytes passed through the connection to notice sendq congestion:
+    {ok, _Msgs1, State2} = handle_msg(
+        {outgoing, ?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 1, payload(HWM div 2))},
+        State1
+    ),
+    ?assertEqual(congested, emqx_connection:info(sockstate, State2)),
+    ?assertEqual(true, erlang:get(sendq_congested_notified)),
+    %% Simulate sendq got decongested:
+    ok = meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
+        {ok, [{K, round(HWM * 0.2)} || K <- Options]}
+    end),
+    {ok, _Msgs2, State3} = handle_msg({tcp_passive, sock}, State2),
+    ?assertEqual(running, emqx_connection:info(sockstate, State3)),
+    ?assertEqual(true, erlang:get(sendq_decongested_notified)).
+
 t_close_socket(_) ->
     State = emqx_connection:close_socket(st(#{sockstate => closed})),
     ?assertEqual(closed, emqx_connection:info(sockstate, State)),
@@ -519,11 +467,6 @@ t_close_socket(_) ->
 t_system_code_change(_) ->
     State = st(),
     ?assertEqual({ok, State}, emqx_connection:system_code_change(State, [], [], [])).
-
-t_next_msgs(_) ->
-    ?assertEqual({outgoing, ?CONNECT_PACKET()}, emqx_connection:next_msgs(?CONNECT_PACKET())),
-    ?assertEqual({}, emqx_connection:next_msgs({})),
-    ?assertEqual([], emqx_connection:next_msgs([])).
 
 t_start_link_ok(_) ->
     with_conn(fun(CPid) -> state = element(1, sys:get_state(CPid)) end).
@@ -706,21 +649,6 @@ st(InitFields, ChannelFields) when is_map(InitFields) ->
         InitFields
     ).
 
-socket_st() -> socket_st(#{}, #{}).
-socket_st(InitFields) when is_map(InitFields) ->
-    socket_st(InitFields, #{}).
-socket_st(InitFields, ChannelFields) when is_map(InitFields) ->
-    St0 = emqx_socket_connection:init_state(sock, #{
-        zone => default,
-        limiter => undefined,
-        listener => {tcp, default}
-    }),
-    maps:fold(
-        fun(N, V, S) -> emqx_socket_connection:set_field(N, V, S) end,
-        emqx_socket_connection:set_field(channel, channel(ChannelFields), St0),
-        InitFields
-    ).
-
 channel() -> channel(#{}).
 channel(InitFields) ->
     ConnInfo = #{
@@ -738,7 +666,7 @@ channel(InitFields) ->
     },
     ClientInfo = #{
         zone => default,
-        listener => {tcp, default},
+        listener => 'tcp:default',
         protocol => mqtt,
         peerhost => {127, 0, 0, 1},
         clientid => <<"clientid">>,

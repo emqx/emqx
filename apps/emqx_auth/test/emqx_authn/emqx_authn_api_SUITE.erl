@@ -724,7 +724,10 @@ t_cache(_Config) ->
         uri(["authentication", "settings"])
     ),
     ?assertMatch(
-        #{<<"node_cache">> := #{<<"enable">> := true}},
+        #{
+            <<"node_cache">> := #{<<"enable">> := true},
+            <<"ignore_backend_failures">> := false
+        },
         emqx_utils_json:decode(CacheData0)
     ),
     {ok, 200, MetricsData0} = request(
@@ -739,7 +742,8 @@ t_cache(_Config) ->
         put,
         uri(["authentication", "settings"]),
         #{
-            <<"node_cache">> => #{<<"enable">> => true}
+            <<"node_cache">> => #{<<"enable">> => true},
+            <<"ignore_backend_failures">> => true
         }
     ),
     {ok, 200, CacheData1} = request(
@@ -747,7 +751,10 @@ t_cache(_Config) ->
         uri(["authentication", "settings"])
     ),
     ?assertMatch(
-        #{<<"node_cache">> := #{<<"enable">> := true}},
+        #{
+            <<"node_cache">> := #{<<"enable">> := true},
+            <<"ignore_backend_failures">> := true
+        },
         emqx_utils_json:decode(CacheData1)
     ),
 

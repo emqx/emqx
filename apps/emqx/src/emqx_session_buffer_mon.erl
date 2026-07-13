@@ -148,6 +148,7 @@ maybe_log(ClientId, ChanPid, Stats) ->
 do_log(ClientId, ChanPid, Stats, TotalPayloadBytes, HighWatermark) ->
     ?SLOG_THROTTLE(
         warning,
+        ClientId,
         #{
             msg => ?LOG_MSG,
             clientid => ClientId,

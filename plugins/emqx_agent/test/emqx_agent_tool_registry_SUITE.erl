@@ -54,3 +54,12 @@ t_unregister_type(_Config) ->
 
 t_resolve_unknown_type(_Config) ->
     ?assertThrow(unknown_type, emqx_agent_tool_registry:resolve_type(?TYPE)).
+
+t_builtin_tool_types_registered_after_start(_Config) ->
+    ?assertEqual(emqx_agent_tool_http, emqx_agent_tool_registry:resolve_type(<<"http">>)),
+    ?assertEqual(
+        emqx_agent_tool_publish,
+        emqx_agent_tool_registry:resolve_type(<<"message__publish">>)
+    ),
+    ?assert(lists:member(emqx_agent_tool_http, emqx_agent_tool:discover_tool_modules())),
+    ?assert(lists:member(emqx_agent_tool_publish, emqx_agent_tool:discover_tool_modules())).

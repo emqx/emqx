@@ -14,7 +14,7 @@
 -export([read_apps/0]).
 
 %% internal export only for companion module `emqx_machine_features`
--export([reboot_apps_with_deps/0, full_sorted_reboot_apps/0]).
+-export([reboot_apps_with_deps/0, full_sorted_reboot_apps/0, is_umbrella_app/1]).
 
 -dialyzer({no_match, [basic_reboot_apps/0]}).
 

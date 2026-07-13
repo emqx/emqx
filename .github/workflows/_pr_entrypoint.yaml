@@ -217,6 +217,12 @@ jobs:
       - build_docker
     uses: ./.github/workflows/run_docker_tests.yaml
 
+  run_cluster_tests:
+    needs:
+      - sanity-checks
+      - build_docker
+    uses: ./.github/workflows/run_cluster_tests.yaml
+
   run_helm_tests:
     needs:
       - sanity-checks

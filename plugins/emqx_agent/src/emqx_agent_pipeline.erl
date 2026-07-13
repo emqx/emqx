@@ -25,7 +25,7 @@ States
   waiting_cap    — $cap/ request sent for a call_tool step; awaiting cap_reply
 
 Incoming MQTT messages received via emqx:subscribe as #deliver{} info events:
-  $sess/out/<sid>/   — frames from the LLM session
+  $sess/out/<sid>   — frames from the LLM session
   $cap/<type>/<id>/response/<req_id> — tool invocation replies
 
 Context and JSONPath

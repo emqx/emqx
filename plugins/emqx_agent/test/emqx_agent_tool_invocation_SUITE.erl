@@ -13,6 +13,8 @@
 
 -define(TOOL_TYPE, <<"message__publish">>).
 -define(TOOL_ID, <<"test-invoke-1">>).
+-define(MOCK_TOOL_TYPE, <<"agent__query_tools">>).
+-define(MOCK_TOOL_ID, <<"test-crashing-tool">>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -36,6 +38,8 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
+    _ = emqx_agent_config:delete_tool(?MOCK_TOOL_TYPE, ?MOCK_TOOL_ID),
+    ok = emqx_agent_tool_query_tools:init(),
     ok = emqx_agent_plugin_config_fixture:teardown().
 
 %% A basic invoke replies with status=ok and echoes the args.
@@ -86,6 +90,45 @@ t_crash(_Config) ->
     Response = emqx_agent_tool_helpers:cap_response(Reply),
     ?assertMatch(#{<<"status">> := <<"error">>}, Response),
     ?assert(is_binary(maps:get(<<"reason">>, Response))),
+    ?assertMatch(#{<<"req_id">> := ReqId}, Reply),
+
+    ok = emqx:unsubscribe(ReplyTopic).
+
+%% A registered mock tool crash is converted into an error reply on the normal topic path.
+t_registered_tool_crash(_Config) ->
+    ok = register_mock_tool(),
+    ReqId = <<"req-registered-crash-1">>,
+    ReplyTopic = reply_topic(?MOCK_TOOL_TYPE, ?MOCK_TOOL_ID, ReqId),
+    ok = emqx:subscribe(ReplyTopic),
+
+    invoke_with_tool(?MOCK_TOOL_TYPE, ?MOCK_TOOL_ID, #{<<"action">> => <<"crash">>}, ReqId),
+
+    Reply = decode_reply(await_deliver(ReplyTopic)),
+    Response = emqx_agent_tool_helpers:cap_response(Reply),
+    ?assertMatch(#{<<"status">> := <<"error">>}, Response),
+    ?assert(is_binary(maps:get(<<"reason">>, Response))),
+    ?assertMatch(#{<<"req_id">> := ReqId}, Reply),
+
+    ok = emqx:unsubscribe(ReplyTopic).
+
+%% A registered mock tool timeout is converted into an error reply on the normal topic path.
+t_registered_tool_timeout(_Config) ->
+    ok = register_mock_tool(),
+    ReqId = <<"req-registered-timeout-1">>,
+    ReplyTopic = reply_topic(?MOCK_TOOL_TYPE, ?MOCK_TOOL_ID, ReqId),
+    ok = emqx:subscribe(ReplyTopic),
+
+    invoke_with_tool(
+        ?MOCK_TOOL_TYPE,
+        ?MOCK_TOOL_ID,
+        #{<<"action">> => <<"sleep">>, <<"duration">> => 5_000},
+        ReqId,
+        #{<<"timeout_ms">> => 100}
+    ),
+
+    Reply = decode_reply(await_deliver(ReplyTopic)),
+    Response = emqx_agent_tool_helpers:cap_response(Reply),
+    ?assertMatch(#{<<"status">> := <<"error">>, <<"reason">> := <<"timeout">>}, Response),
     ?assertMatch(#{<<"req_id">> := ReqId}, Reply),
 
     ok = emqx:unsubscribe(ReplyTopic).
@@ -207,6 +250,14 @@ invoke_raw(Type, ToolId, ReqId, Payload) ->
     Topic = <<"$cap/", Type/binary, "/", ToolId/binary, "/request/", ReqId/binary>>,
     _ = emqx_broker:publish(emqx_message:make(ToolId, 0, Topic, Payload)),
     ok.
+
+register_mock_tool() ->
+    ok = emqx_agent_tool_test_invoke:init(),
+    ok = emqx_agent_config:create_tool(#{
+        <<"type">> => ?MOCK_TOOL_TYPE,
+        <<"id">> => ?MOCK_TOOL_ID
+    }),
+    emqx_agent_tool_registry:reconcile().
 
 await_deliver(Topic) ->
     receive
