@@ -752,7 +752,7 @@ ensure_installed_locally(NameVsn) ->
 validate_installation(NameVsn) ->
     maybe
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
-        ok ?= validate_plugin_apps(Plugin, emqx_plugins_fs:lib_dir(NameVsn)),
+        ok ?= emqx_plugins_apps:validate(Plugin, emqx_plugins_fs:lib_dir(NameVsn)),
         ok ?= load_config_schema(NameVsn),
         ok ?= validate_default_config(NameVsn)
     else
@@ -760,29 +760,6 @@ validate_installation(NameVsn) ->
             _ = emqx_plugins_serde:delete_schema(NameVsn),
             Error
     end.
-
-validate_plugin_apps(#{rel_apps := Apps}, LibDir) ->
-    lists:foldl(
-        fun
-            (AppNameVsn, ok) ->
-                {AppName, _} = emqx_plugins_utils:parse_name_vsn(AppNameVsn),
-                AppFile = filename:join([
-                    LibDir, AppNameVsn, "ebin", atom_to_list(AppName) ++ ".app"
-                ]),
-                case file:consult(AppFile) of
-                    {ok, [{application, AppName, _}]} ->
-                        ok;
-                    {ok, AppSpec} ->
-                        {error, #{msg => "bad_plugin_app_file", path => AppFile, reason => AppSpec}};
-                    {error, Reason} ->
-                        {error, #{msg => "bad_plugin_app_file", path => AppFile, reason => Reason}}
-                end;
-            (_AppNameVsn, Error) ->
-                Error
-        end,
-        ok,
-        Apps
-    ).
 
 validate_default_config(NameVsn) ->
     maybe
@@ -798,12 +775,12 @@ install_and_configure(NameVsn, Mode, RunningSt) ->
     end.
 
 configure(NameVsn, Mode, RunningSt) ->
-    ok = load_config_schema(NameVsn),
     maybe
+        ok ?= load_config_schema(NameVsn),
         ok ?= ensure_local_config(NameVsn, Mode),
-        configure_from_local_config(NameVsn, RunningSt)
-    end,
-    ensure_state(NameVsn).
+        ok ?= configure_from_local_config(NameVsn, RunningSt),
+        ensure_state(NameVsn)
+    end.
 
 %% Install from local tarball or get tarball from cluster
 install(NameVsn, Mode) ->
