@@ -250,9 +250,13 @@ t_smoke_01(TCConfig) ->
     Agent2 = start_client(#{clientid => AgentClientId}, TCConfig),
     {ok, _} = publish_card(Agent2, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, sample_card_bin()),
     {publish, #{properties := #{'User-Property' := Props2}}} = ?assertReceive({publish, _}),
-    ?assertMatch(
-        #{?A2A_PROP_STATUS_KEY := [?A2A_PROP_ONLINE_VAL]},
-        get_a2a_props(Props2)
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            #{?A2A_PROP_STATUS_KEY := [?A2A_PROP_ONLINE_VAL]},
+            get_a2a_props(Props2)
+        )
     ),
 
     %% Unpublish card by publishing empty retained message
