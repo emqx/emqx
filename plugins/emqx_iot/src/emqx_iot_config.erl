@@ -33,14 +33,18 @@ normalize(Config) ->
         msg_warn_threshold => maps:get(msg_warn_threshold, Config, 100000)
     }.
 
-ttl_to_sec(<<"15d">>) ->
-    15 * 86400;
-ttl_to_sec(<<"60s">>) ->
-    60;
 ttl_to_sec(TTL) when is_binary(TTL) ->
-    case emqx_utils:parse_duration(TTL) of
-        {ok, Sec} -> Sec;
-        _ -> 15 * 86400
-    end;
+    parse_duration(TTL);
 ttl_to_sec(_) ->
-    15 * 86400.
+    default_ttl().
+
+parse_duration(TTL) ->
+    case re:run(TTL, <<"^(\\d+)([smhd])$">>, [{capture, [1, 2], binary}]) of
+        {match, [N, <<"s">>]} -> binary_to_integer(N);
+        {match, [N, <<"m">>]} -> binary_to_integer(N) * 60;
+        {match, [N, <<"h">>]} -> binary_to_integer(N) * 3600;
+        {match, [N, <<"d">>]} -> binary_to_integer(N) * 86400;
+        _ -> default_ttl()
+    end.
+
+default_ttl() -> 15 * 86400.
