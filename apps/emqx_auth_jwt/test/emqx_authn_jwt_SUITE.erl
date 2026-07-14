@@ -1040,7 +1040,8 @@ enable_trace_macro(Name) ->
     Now = erlang:system_time(second),
     {ok, _} = emqx_trace:create(#{
         name => Name,
-        filter => {topic, <<"#">>},
+        type => topic,
+        topic => <<"#">>,
         start_at => Now,
         end_at => Now + 60
     }),
