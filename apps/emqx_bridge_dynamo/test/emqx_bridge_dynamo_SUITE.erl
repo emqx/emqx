@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("erlcloud/include/erlcloud_aws.hrl").
 
 % DB defaults
 -define(TABLE, "mqtt").
@@ -37,6 +38,7 @@
 
 all() ->
     [
+        t_connector_client_imds,
         {group, with_batch},
         {group, without_batch},
         {group, flaky}
@@ -48,7 +50,7 @@ groups() ->
     %% due to the poorly implemented driver or other reasons
     %% if we mix these cases with others, this suite will become flaky.
     Flaky = [t_get_status, t_write_failure],
-    TCs = TCs0 -- Flaky,
+    TCs = (TCs0 -- Flaky) -- [t_connector_client_imds],
 
     [
         {with_batch, TCs},
@@ -372,6 +374,29 @@ directly_get_field(Key, Field) ->
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
+
+t_connector_client_imds(_Config) ->
+    meck:new(erlcloud_aws, [passthrough, no_link]),
+    meck:expect(erlcloud_aws, update_config, fun(AWSConfig) ->
+        {ok, AWSConfig#aws_config{
+            access_key_id = "imds_key",
+            secret_access_key = "imds_secret",
+            security_token = "imds_token"
+        }}
+    end),
+    try
+        {ok, Pid} = emqx_bridge_dynamo_connector_client:start_link(#{
+            host => "127.0.0.1",
+            port => 8000,
+            scheme => "http://"
+        }),
+        ?assert(is_pid(Pid)),
+        ?assert(erlang:is_process_alive(Pid)),
+        ?assert(meck:called(erlcloud_aws, update_config, ['_'])),
+        gen_server:stop(Pid)
+    after
+        meck:unload(erlcloud_aws)
+    end.
 
 t_setup_via_config_and_publish(Config) ->
     ?assertNotEqual(undefined, get(aws_config)),
