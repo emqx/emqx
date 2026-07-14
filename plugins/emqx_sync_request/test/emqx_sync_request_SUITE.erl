@@ -22,40 +22,7 @@
 -define(RESP_PAYLOAD, <<"{\"result\":\"ok\"}">>).
 
 all() ->
-    [
-        t_plugin_install_start_stop_uninstall_controls_api_route,
-        t_plugin_health_check_reports_ok,
-        t_cli_status_reports_node_local_status,
-        t_api_spec_lists_conflict_and_unavailable_responses,
-        t_http_request_rejects_non_object_body,
-        t_delivered_message_registers_pending_with_local_timeout,
-        t_http_request_returns_first_mqtt5_response,
-        t_http_request_sets_mqtt5_properties_and_keeps_payload_opaque,
-        t_http_request_accepts_string_qos_and_optional_content_type,
-        t_http_request_decodes_base64_payload,
-        t_http_request_rejects_invalid_request_boundaries,
-        t_http_request_requires_request_id,
-        t_http_request_rejects_request_id_too_large,
-        t_http_request_rejects_request_payload_too_large,
-        t_http_request_rejects_invalid_timeout_above_max,
-        t_http_request_requires_management_api_auth,
-        t_http_request_accepts_api_key_with_publish_scope,
-        t_http_request_rejects_invalid_or_unscoped_api_key,
-        t_http_request_returns_offline_without_subscribers,
-        t_http_request_does_not_match_wildcard_subscriber,
-        t_http_request_rejects_shared_subscription,
-        t_http_request_times_out_without_response,
-        t_http_request_rejects_response_payload_too_large,
-        t_http_request_rejects_when_http_inflight_limit_reached,
-        t_http_request_rejects_multiple_exact_subscribers,
-        t_http_request_rejects_sharded_exact_subscribers,
-        t_mqtt5_response_ignores_mismatched_correlation_data,
-        t_http_request_matches_mqtt3_response_by_topic_sequence,
-        t_mqtt3_concurrent_requests_match_response_topic_sequence,
-        t_first_response_wins_and_late_response_is_dropped,
-        t_waiter_exit_cleans_inflight_and_pending,
-        t_delivered_after_request_gone_does_not_register_pending
-    ].
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     WorkDir = emqx_cth_suite:work_dir(Config),
@@ -95,12 +62,18 @@ end_per_testcase(_TestCase, Config) ->
 t_plugin_install_start_stop_uninstall_controls_api_route(Config) ->
     NameVsn = ?config(plugin_name_vsn, Config),
     ok = cleanup_plugin(Config),
+    ?assertEqual(undefined, whereis(?SERVICE)),
     ?assertEqual(404, api_status(#{request => #{}})),
 
     ok = install_and_start_plugin(Config),
     ?assertEqual(400, api_status(#{request => #{}})),
 
-    ok = emqx_plugins:ensure_stopped(NameVsn),
+    {StopTime, ok} = timer:tc(fun() -> emqx_plugins:ensure_stopped(NameVsn) end),
+    ?assert(StopTime < timer:seconds(2) * 1000),
+    ?assertEqual(404, api_status(#{request => #{}})),
+
+    ok = emqx_dashboard:stop_listeners(),
+    ok = emqx_dashboard:start_listeners(),
     ?assertEqual(404, api_status(#{request => #{}})),
 
     ok = emqx_plugins:ensure_started(NameVsn),
@@ -155,13 +128,69 @@ t_api_spec_lists_conflict_and_unavailable_responses(_Config) ->
     ?assert(maps:is_key(409, Responses)),
     ?assert(maps:is_key(503, Responses)).
 
+t_plugin_api_callback_uses_gateway_contract(_Config) ->
+    ?assertEqual(
+        {error, not_found},
+        emqx_sync_request_app:on_handle_api_call(get, [<<"request">>], #{}, #{})
+    ),
+    ?assertMatch(
+        {error, 400, #{}, #{code := ?CODE_BAD_REQUEST}},
+        emqx_sync_request_app:on_handle_api_call(
+            post, [<<"request">>], #{body => #{<<"request">> => #{}}}, #{}
+        )
+    ).
+
+t_plugin_api_callback_rejects_non_object_request(_Config) ->
+    ?assertMatch(
+        {error, 400, #{}, #{code := ?CODE_BAD_REQUEST}},
+        emqx_sync_request_app:on_handle_api_call(
+            post, [<<"request">>], #{body => #{<<"request">> => <<"oops">>}}, #{}
+        )
+    ).
+
+t_plugin_stop_unblocks_inflight_request(Config) ->
+    Parent = self(),
+    NameVsn = ?config(plugin_name_vsn, Config),
+    ReqTopic = <<"sync_request/stopping/request">>,
+    RespTopic = <<"sync_request/stopping/response">>,
+    {ok, Responder} = start_blackhole_responder(
+        <<"sync_request_stopping_blackhole">>,
+        ReqTopic,
+        fun(Payload) -> Parent ! {stopping_request_seen, Payload} end
+    ),
+    try
+        ok = wait_for_subscribers(ReqTopic, 1),
+        Ref = async_http_request(
+            request_body(ReqTopic, RespTopic, <<"stopping-request-id">>, #{timeout => <<"60s">>})
+        ),
+        ?assertReceive({stopping_request_seen, ?REQ_PAYLOAD}, 5000),
+        {StopTime, ok} = timer:tc(fun() -> emqx_plugins:ensure_stopped(NameVsn) end),
+        ?assert(StopTime < timer:seconds(2) * 1000),
+        ?assertMatch({503, _}, receive_async_response(Ref, 5000))
+    after
+        stop_client(Responder)
+    end.
+
 t_http_request_rejects_non_object_body(_Config) ->
     {Status, ResponseMap} = do_http_request(<<"not-an-object">>),
+    ?assertEqual(415, Status),
+    ?assertMatch(#{<<"code">> := <<"UNSUPPORTED_MEDIA_TYPE">>}, ResponseMap).
+
+t_http_request_schema_rejects_invalid_payload_type(_Config) ->
+    Body0 = request_body(
+        <<"sync_request/schema/request">>,
+        <<"sync_request/schema/response">>,
+        <<"schema-request-id">>,
+        #{}
+    ),
+    #{request := Request0} = Body0,
+    Body = Body0#{request := Request0#{payload := #{unexpected => true}}},
+    {Status, ResponseMap} = do_http_request(Body),
     ?assertEqual(400, Status),
     ?assertMatch(
         #{
             <<"code">> := <<"BAD_REQUEST">>,
-            <<"message">> := <<"Request body must be a JSON object.">>
+            <<"message">> := #{<<"kind">> := <<"validation_error">>}
         },
         ResponseMap
     ).
@@ -223,7 +252,7 @@ t_waiter_exit_cleans_inflight_and_pending(_Config) ->
         Waiter = spawn(fun() ->
             Parent ! {waiter_ready, self()},
             _ = emqx_sync_request:request(
-                request_body(ReqTopic, RespTopic, <<"waiter-exit-request-id">>, #{
+                request_body_bin(ReqTopic, RespTopic, <<"waiter-exit-request-id">>, #{
                     timeout => <<"5s">>
                 })
             ),
@@ -434,39 +463,25 @@ t_http_request_rejects_invalid_request_boundaries(_Config) ->
     ),
     #{request := Request} = Base,
     Cases = [
-        {missing_request, maps:remove(request, Base), <<"request object is required.">>},
-        {missing_topic, Base#{request := maps:remove(topic, Request)},
-            <<"request.topic is required.">>},
-        {missing_response_topic, Base#{request := maps:remove(response_topic, Request)},
-            <<"request.response_topic is required.">>},
-        {missing_payload, Base#{request := maps:remove(payload, Request)},
-            <<"request.payload is required.">>},
-        {invalid_topic, Base#{request := Request#{topic => <<"sync_request/+/request">>}},
-            <<"Topic must be a valid MQTT topic name without wildcards.">>},
-        {invalid_response_topic, Base#{request := Request#{response_topic => <<"sync_request/#">>}},
-            <<"Topic must be a valid MQTT topic name without wildcards.">>},
-        {invalid_qos, Base#{request := Request#{qos => 3}}, <<"request.qos must be 0, 1, or 2.">>},
-        {invalid_payload_encoding, Base#{request := Request#{payload_encoding => <<"hex">>}},
-            <<"request.payload_encoding must be plain or base64.">>},
-        {invalid_base64_payload,
-            Base#{request := Request#{payload_encoding => base64, payload => <<"not-base64">>}},
-            <<"request.payload must be valid base64 when payload_encoding is base64.">>},
-        {invalid_timeout_format, Base#{timeout => <<"not-a-duration">>},
-            <<"timeout must be a valid duration.">>},
-        {invalid_timeout_zero, Base#{timeout => <<"0ms">>},
-            <<"timeout must be greater than 0 and no more than max_timeout.">>}
+        {missing_request, maps:remove(request, Base)},
+        {missing_topic, Base#{request := maps:remove(topic, Request)}},
+        {missing_response_topic, Base#{request := maps:remove(response_topic, Request)}},
+        {missing_payload, Base#{request := maps:remove(payload, Request)}},
+        {invalid_topic, Base#{request := Request#{topic => <<"sync_request/+/request">>}}},
+        {invalid_response_topic, Base#{request := Request#{response_topic => <<"sync_request/#">>}}},
+        {invalid_qos, Base#{request := Request#{qos => 3}}},
+        {invalid_payload_encoding, Base#{request := Request#{payload_encoding => <<"hex">>}}},
+        {invalid_base64_payload, Base#{
+            request := Request#{payload_encoding => base64, payload => <<"not-base64">>}
+        }},
+        {invalid_timeout_format, Base#{timeout => <<"not-a-duration">>}},
+        {invalid_timeout_zero, Base#{timeout => <<"0ms">>}}
     ],
     lists:foreach(
-        fun({Name, Body, Reason}) ->
+        fun({Name, Body}) ->
             {Status, ResponseMap} = do_http_request(Body),
             ?assertEqual({Name, 400}, {Name, Status}),
-            ?assertMatch(
-                #{
-                    <<"code">> := <<"BAD_REQUEST">>,
-                    <<"message">> := Reason
-                },
-                ResponseMap
-            ),
+            ?assertMatch(#{<<"code">> := <<"BAD_REQUEST">>}, ResponseMap),
             ?assertEqual(false, maps:is_key(<<"response">>, ResponseMap))
         end,
         Cases
@@ -483,13 +498,7 @@ t_http_request_requires_request_id(_Config) ->
     Body = Body0#{request := maps:remove(request_id, Request0)},
     {Status, ResponseMap} = do_http_request(Body),
     ?assertEqual(400, Status),
-    ?assertMatch(
-        #{
-            <<"code">> := <<"BAD_REQUEST">>,
-            <<"message">> := <<"request.request_id is required.">>
-        },
-        ResponseMap
-    ),
+    ?assertMatch(#{<<"code">> := <<"BAD_REQUEST">>}, ResponseMap),
     ?assertEqual(false, maps:is_key(<<"response">>, ResponseMap)).
 
 t_http_request_rejects_request_id_too_large(_Config) ->
@@ -858,6 +867,78 @@ t_http_request_rejects_when_http_inflight_limit_reached(Config) ->
         end
     ).
 
+t_http_request_enforces_http_inflight_limit_concurrently(Config) ->
+    with_config(
+        Config,
+        #{<<"max_inflight_requests">> => 1},
+        fun() ->
+            Parent = self(),
+            Before = emqx_sync_request:status(),
+            ReqTopic = <<"sync_request/http-inflight-concurrent/request">>,
+            RespTopic = <<"sync_request/http-inflight-concurrent/response">>,
+            {ok, Responder} = start_blackhole_responder(
+                <<"sync_request_http_inflight_concurrent_blackhole">>,
+                ReqTopic,
+                fun(Payload) -> Parent ! {http_inflight_concurrent_request_seen, Payload} end
+            ),
+            {ok, Publisher} = start_client(
+                <<"sync_request_http_inflight_concurrent_publisher">>, v5
+            ),
+            try
+                Requests = [
+                    begin
+                        Suffix = integer_to_binary(I),
+                        ReqId = <<"http-inflight-concurrent-", Suffix/binary>>,
+                        Payload = <<"payload-", Suffix/binary>>,
+                        Body = request_body_with_request_overrides(
+                            ReqTopic,
+                            RespTopic,
+                            ReqId,
+                            #{payload => Payload},
+                            #{timeout => <<"1s">>}
+                        ),
+                        {ReqId, Payload, async_http_request(Body)}
+                    end
+                 || I <- lists:seq(1, 8)
+                ],
+                {ReqId, _AcceptedPayload, _Ref} =
+                    receive
+                        {http_inflight_concurrent_request_seen, Payload0} ->
+                            lists:keyfind(Payload0, 2, Requests)
+                    after 5000 ->
+                        error(http_inflight_request_not_seen)
+                    end,
+                ok = wait_until(fun() -> ets:info(?PENDING_TAB, size) =:= 1 end, 50),
+                ok = wait_until(
+                    fun() ->
+                        maps:get(requests_total, emqx_sync_request:status()) >=
+                            maps:get(requests_total, Before) + 7
+                    end,
+                    50
+                ),
+                ok = normalize_publish(
+                    emqtt:publish(
+                        Publisher,
+                        RespTopic,
+                        #{'Correlation-Data' => ReqId},
+                        <<"http-inflight-concurrent-release">>,
+                        [{qos, ?QOS_0}]
+                    )
+                ),
+                Statuses = [
+                    Status
+                 || {_ReqId, _RequestPayload, Ref} <- Requests,
+                    {Status, _Response} <- [receive_async_response(Ref, 5000)]
+                ],
+                ?assertEqual(1, length([ok || 200 <- Statuses])),
+                ?assertEqual(7, length([ok || 429 <- Statuses]))
+            after
+                stop_client(Publisher),
+                stop_client(Responder)
+            end
+        end
+    ).
+
 t_http_request_rejects_multiple_exact_subscribers(_Config) ->
     Parent = self(),
     ReqTopic = <<"sync_request/multiple-subscribers/request">>,
@@ -1118,6 +1199,11 @@ request_body(ReqTopic, RespTopic, RequestId, Overrides) ->
     },
     maps:merge(Base, Overrides).
 
+request_body_bin(ReqTopic, RespTopic, RequestId, Overrides) ->
+    emqx_utils_json:decode(
+        emqx_utils_json:encode(request_body(ReqTopic, RespTopic, RequestId, Overrides))
+    ).
+
 request_body_with_request_overrides(
     ReqTopic, RespTopic, RequestId, RequestOverrides, BodyOverrides
 ) ->
@@ -1136,7 +1222,7 @@ do_http_request(Host, Auth, Body) ->
     Path = emqx_mgmt_api_test_util:api_path(Host, [
         "plugin_api", "emqx_sync_request", "request"
     ]),
-    Headers = [Auth, {"Connection", "close"}],
+    Headers = [Auth, {"Connection", "close"}, {"Content-Type", "application/json"}],
     emqx_mgmt_api_test_util:simplify_decode_result(
         emqx_mgmt_api_test_util:request_api(post, Path, "", Headers, Body, #{return_all => true})
     ).

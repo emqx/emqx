@@ -10,7 +10,6 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
--include_lib("emqx/include/emqx_external_trace.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
@@ -18,8 +17,6 @@
 -export([
     start_link/0,
     child_spec/0,
-    install_api_dispatch/0,
-    uninstall_api_dispatch/0,
     request/1,
     status/0
 ]).
@@ -55,7 +52,6 @@
 
 -define(TIMEOUT, 15000).
 -define(CONFIG_PT, {?MODULE, config}).
--define(API_MODULE, emqx_sync_request_api).
 -define(MAX_REQUEST_ID_BYTES, 128).
 -define(METRICS, [
     'sync_request.requests.total',
@@ -85,6 +81,7 @@ child_spec() ->
         start => {?MODULE, start_link, []}
     }.
 
+-spec request(term()) -> {ok, map()} | {error, term()}.
 request(Body) ->
     record_request_result(do_request_body(Body)).
 
@@ -94,11 +91,12 @@ do_request_body(Body) when is_map(Body) ->
         {ok, Req} ->
             do_request(Req, Config);
         {error, Reason} ->
-            {400, error_body(?CODE_BAD_REQUEST, Reason)}
+            {error, {bad_request, Reason}}
     end;
 do_request_body(_Body) ->
-    {400, error_body(?CODE_BAD_REQUEST, <<"invalid_request_body">>)}.
+    {error, {bad_request, <<"invalid_request_body">>}}.
 
+-spec status() -> map().
 status() ->
     #{
         requests_total => metric('sync_request.requests.total'),
@@ -118,36 +116,15 @@ status() ->
 current_config() ->
     maps:merge(default_config(), emqx_plugins:get_config(name_vsn(), #{})).
 
-install_api_dispatch() ->
-    update_api_dispatch(add).
-
-uninstall_api_dispatch() ->
-    update_api_dispatch(remove).
-
-update_api_dispatch(Action) ->
-    try
-        #{started := Listeners} = emqx_dashboard:listeners_status(),
-        lists:foreach(fun(Name) -> update_listener_api_dispatch(Name, Action) end, Listeners),
-        ok
-    catch
-        Class:Reason:Stacktrace ->
-            ?SLOG(warning, #{
-                msg => "sync_request_update_api_dispatch_failed",
-                action => Action,
-                exception => Class,
-                reason => Reason,
-                stacktrace => Stacktrace
-            }),
-            ok
-    end.
-
 %%--------------------------------------------------------------------
 %% EMQX Plugin callbacks
 %%--------------------------------------------------------------------
 
+-spec on_config_changed(map()) -> ok.
 on_config_changed(NewConf) ->
     call({on_config_changed, NewConf}, ok).
 
+-spec on_health_check() -> ok | {error, binary()}.
 on_health_check() ->
     call(on_health_check, {error, <<"Plugin is not running">>}).
 
@@ -155,6 +132,7 @@ on_health_check() ->
 %% Hook callbacks
 %%--------------------------------------------------------------------
 
+-spec on_message_delivered(term(), #message{}) -> {ok, #message{}}.
 on_message_delivered(_ClientInfo, Message = #message{headers = Headers}) ->
     case maps:get(?HEADER, Headers, undefined) of
         #{req_ref := ReqRef} ->
@@ -164,6 +142,7 @@ on_message_delivered(_ClientInfo, Message = #message{headers = Headers}) ->
     end,
     {ok, Message}.
 
+-spec on_message_publish(#message{}) -> {ok, #message{}}.
 on_message_publish(Message = #message{headers = Headers}) ->
     case maps:is_key(?HEADER, Headers) of
         true ->
@@ -192,9 +171,20 @@ handle_call({on_config_changed, NewConf}, _From, State) ->
     {reply, ok, State};
 handle_call(on_health_check, _From, State) ->
     {reply, ok, State};
-handle_call({monitor_waiter, ReqRef, Waiter}, _From, State = #{monitors := Mons}) ->
-    Mon = erlang:monitor(process, Waiter),
-    {reply, Mon, State#{monitors => Mons#{Mon => ReqRef}}};
+handle_call(
+    {reserve_request, ReqRef, Req0, Waiter, MaxInflight},
+    _From,
+    State = #{monitors := Mons}
+) ->
+    case ets:info(?REQ_TAB, size) >= MaxInflight of
+        true ->
+            {reply, full, State};
+        false ->
+            Mon = erlang:monitor(process, Waiter),
+            Req = Req0#{req_ref => ReqRef, waiter => Waiter, mon => Mon},
+            true = ets:insert_new(?REQ_TAB, {ReqRef, Req}),
+            {reply, {ok, Req}, State#{monitors => Mons#{Mon => ReqRef}}}
+    end;
 handle_call(Request, From, State) ->
     ?SLOG(error, #{msg => "sync_request_unexpected_call", request => Request, from => From}),
     {reply, {error, unexpected_call}, State}.
@@ -222,6 +212,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
+    notify_waiters_stopping(),
     ok = unhook(),
     persistent_term:erase(?CONFIG_PT),
     ok.
@@ -235,21 +226,13 @@ empty_state() ->
 
 do_request(Req0, Config) ->
     MaxInflight = maps:get(max_inflight_requests, Config),
-    case ets:info(?REQ_TAB, size) >= MaxInflight of
-        true ->
-            {429, error_body(?CODE_TOO_MANY_REQUESTS, <<"too_many_inflight_requests">>)};
-        false ->
-            ReqRef = make_ref(),
-            TimeoutMs = maps:get(timeout, Req0),
-            Deadline = now_ms() + TimeoutMs,
-            Waiter = self(),
-            Mon = monitor_waiter(ReqRef, Waiter),
-            Req = Req0#{
-                req_ref => ReqRef,
-                waiter => Waiter,
-                mon => Mon
-            },
-            true = ets:insert_new(?REQ_TAB, {ReqRef, Req}),
+    ReqRef = make_ref(),
+    TimeoutMs = maps:get(timeout, Req0),
+    Deadline = now_ms() + TimeoutMs,
+    case reserve_request(ReqRef, Req0, self(), MaxInflight) of
+        full ->
+            {error, too_many_inflight_requests};
+        {ok, Req} ->
             Message = make_request_message(Req),
             dispatch_request(Message, ReqRef, Deadline)
     end.
@@ -258,7 +241,7 @@ dispatch_request(Message0 = #message{topic = Topic}, ReqRef, Deadline) ->
     case remaining_ms(Deadline) of
         Remaining when Remaining =< 0 ->
             cleanup_request(ReqRef),
-            {504, error_body(?CODE_TIMEOUT, <<"timeout">>)};
+            {error, timeout};
         Remaining ->
             %% Refresh the relative timeout just before dispatch so the deliver
             %% node schedules pending expiry against remaining wait budget.
@@ -266,33 +249,30 @@ dispatch_request(Message0 = #message{topic = Topic}, ReqRef, Deadline) ->
             case exact_route_node(Topic) of
                 no_subscribers ->
                     cleanup_request(ReqRef),
-                    {404, error_body(?CODE_NO_SUBSCRIBERS, <<"no_subscribers">>)};
+                    {error, no_subscribers};
                 multiple_subscribers ->
                     cleanup_request(ReqRef),
-                    {409, error_body(?CODE_CONFLICT, <<"multiple_subscribers">>)};
+                    {error, multiple_subscribers};
                 {ok, Node} ->
                     case dispatch_to_node(Node, Message, Remaining) of
                         ok ->
                             wait_for_response(ReqRef, remaining_ms(Deadline));
                         no_subscribers ->
                             cleanup_request(ReqRef),
-                            {404, error_body(?CODE_NO_SUBSCRIBERS, <<"no_subscribers">>)};
+                            {error, no_subscribers};
                         multiple_subscribers ->
                             cleanup_request(ReqRef),
-                            {409, error_body(?CODE_CONFLICT, <<"multiple_subscribers">>)};
+                            {error, multiple_subscribers};
                         {error, timeout} ->
                             cleanup_request(ReqRef),
-                            {504, error_body(?CODE_TIMEOUT, <<"timeout">>)};
+                            {error, timeout};
                         {error, Reason} ->
                             cleanup_request(ReqRef),
                             ?SLOG(warning, #{
                                 msg => "sync_request_dispatch_failed",
                                 reason => Reason
                             }),
-                            {503,
-                                error_body(
-                                    ?CODE_SERVICE_UNAVAILABLE, <<"failed_to_dispatch_request">>
-                                )}
+                            {error, failed_to_dispatch_request}
                     end
             end
     end.
@@ -343,6 +323,7 @@ dispatch_to_node(Node, Message, TimeoutMs) ->
             {error, Reason}
     end.
 
+-spec dispatch_remote_request(#message{}) -> ok | no_subscribers | multiple_subscribers.
 dispatch_remote_request(Message) ->
     dispatch_local_request(Message).
 
@@ -380,18 +361,16 @@ local_subscribers(Topic) ->
 
 wait_for_response(ReqRef, TimeoutMs) when TimeoutMs =< 0 ->
     cleanup_request(ReqRef),
-    {504, error_body(?CODE_TIMEOUT, <<"timeout">>)};
+    {error, timeout};
 wait_for_response(ReqRef, TimeoutMs) ->
     receive
         {emqx_sync_request_response, ReqRef, {ok, Response}} ->
-            {200, #{code => ?CODE_OK, message => ?CODE_OK, response => Response}};
-        {emqx_sync_request_response, ReqRef, {error, StatusCode, Reason}} ->
-            {StatusCode, error_body(code_for_http_error(StatusCode), Reason)};
+            {ok, Response};
         {emqx_sync_request_response, ReqRef, {error, Reason}} ->
-            {500, error_body(?CODE_INTERNAL_ERROR, Reason)}
+            {error, Reason}
     after TimeoutMs ->
         cleanup_request(ReqRef),
-        {504, error_body(?CODE_TIMEOUT, <<"timeout">>)}
+        {error, timeout}
     end.
 
 make_request_message(Req) ->
@@ -408,7 +387,7 @@ make_request_message(Req) ->
         }
     },
     emqx_message:make(
-        ?EXT_TRACE__HTTP_API_INTERNAL_CLIENTID,
+        ?PLUGIN_NAME,
         maps:get(qos, Req),
         maps:get(topic, Req),
         maps:get(payload, Req),
@@ -462,6 +441,7 @@ should_register_pending(ReqRef) when node(ReqRef) =:= node() ->
 should_register_pending(_ReqRef) ->
     true.
 
+-spec is_request_inflight(reference()) -> boolean().
 is_request_inflight(ReqRef) ->
     ets:member(?REQ_TAB, ReqRef).
 
@@ -519,6 +499,7 @@ complete_request_on_origin_node(ReqRef, Message) ->
             false
     end.
 
+-spec complete_remote_request(reference(), #message{}) -> boolean().
 complete_remote_request(ReqRef, Message) ->
     complete_local_request(ReqRef, Message).
 
@@ -537,7 +518,7 @@ complete_local_request(ReqRef, Message = #message{payload = Payload}) ->
                 false ->
                     maps:get(waiter, Req) !
                         {emqx_sync_request_response, ReqRef,
-                            {error, 400, <<"response_payload_too_large">>}},
+                            {error, {bad_request, <<"response_payload_too_large">>}}},
                     true
             end;
         [] ->
@@ -555,15 +536,21 @@ make_response(Req, #message{topic = Topic, payload = Payload, headers = Headers}
     maybe_put(content_type, maps:get('Content-Type', Props, undefined), Response0).
 
 cleanup_request(ReqRef) ->
-    case ets:take(?REQ_TAB, ReqRef) of
-        [{ReqRef, #{mon := Mon}}] ->
-            forget_monitor(Mon);
-        [{ReqRef, _Req}] ->
+    case ets:info(?REQ_TAB) of
+        undefined ->
             ok;
-        [] ->
-            ok
+        _ ->
+            case ets:take(?REQ_TAB, ReqRef) of
+                [{ReqRef, #{mon := Mon}}] ->
+                    forget_monitor(Mon);
+                [{ReqRef, _Req}] ->
+                    ok;
+                [] ->
+                    ok
+            end,
+            cleanup_request_tables(ReqRef)
     end,
-    cleanup_request_tables(ReqRef).
+    ok.
 
 %% Cleanup tables without touching waiter monitors (used on monitor DOWN).
 cleanup_request_tables(ReqRef) ->
@@ -591,6 +578,7 @@ cleanup_pending_on_peer_nodes(ReqRef) ->
     ),
     ok.
 
+-spec cleanup_remote_pending(reference()) -> ok.
 cleanup_remote_pending(ReqRef) ->
     cleanup_pending(ReqRef).
 
@@ -601,6 +589,7 @@ cleanup_remote_pending(ReqRef) ->
 parse_request(Body, Config) ->
     try
         Request = required(request, Body),
+        ensure_map(Request, <<"invalid_request">>),
         Timeout = parse_timeout(Body, Config),
         Payload = parse_payload(Request),
         MaxPayloadSize = maps:get(max_payload_size, Config),
@@ -698,13 +687,12 @@ get(Map, Key, Default) ->
     end.
 
 find(Key, Map) when is_atom(Key) ->
-    BinKey = atom_to_binary(Key),
-    case maps:find(BinKey, Map) of
-        {ok, Value} ->
-            {ok, Value};
-        error ->
-            maps:find(Key, Map)
-    end.
+    maps:find(atom_to_binary(Key), Map).
+
+ensure_map(Map, _Reason) when is_map(Map) ->
+    ok;
+ensure_map(_Value, Reason) ->
+    throw({bad_request, Reason}).
 
 normalize_payload_encoding(plain) -> plain;
 normalize_payload_encoding(<<"plain">>) -> plain;
@@ -800,25 +788,32 @@ init_metrics() ->
         ?METRICS
     ).
 
-record_request_result(Result = {Status, _Body}) ->
+record_request_result(Result) ->
     ok = emqx_metrics:inc('sync_request.requests.total'),
     ok =
-        case Status of
-            200 -> emqx_metrics:inc('sync_request.requests.succeeded');
+        case Result of
+            {ok, _} -> emqx_metrics:inc('sync_request.requests.succeeded');
             _ -> emqx_metrics:inc('sync_request.requests.failed')
         end,
-    ok = maybe_inc_status_metric(Status),
+    ok = maybe_inc_result_metric(Result),
     Result.
 
-maybe_inc_status_metric(200) -> ok;
-maybe_inc_status_metric(400) -> emqx_metrics:inc('sync_request.requests.bad_request');
-maybe_inc_status_metric(404) -> emqx_metrics:inc('sync_request.requests.no_subscribers');
-maybe_inc_status_metric(409) -> emqx_metrics:inc('sync_request.requests.conflict');
-maybe_inc_status_metric(429) -> emqx_metrics:inc('sync_request.requests.too_many_requests');
-maybe_inc_status_metric(503) -> emqx_metrics:inc('sync_request.requests.dispatch_failed');
-maybe_inc_status_metric(504) -> emqx_metrics:inc('sync_request.requests.timeout');
-maybe_inc_status_metric(500) -> emqx_metrics:inc('sync_request.requests.internal_error');
-maybe_inc_status_metric(_) -> ok.
+maybe_inc_result_metric({ok, _}) ->
+    ok;
+maybe_inc_result_metric({error, {bad_request, _}}) ->
+    emqx_metrics:inc('sync_request.requests.bad_request');
+maybe_inc_result_metric({error, no_subscribers}) ->
+    emqx_metrics:inc('sync_request.requests.no_subscribers');
+maybe_inc_result_metric({error, multiple_subscribers}) ->
+    emqx_metrics:inc('sync_request.requests.conflict');
+maybe_inc_result_metric({error, too_many_inflight_requests}) ->
+    emqx_metrics:inc('sync_request.requests.too_many_requests');
+maybe_inc_result_metric({error, failed_to_dispatch_request}) ->
+    emqx_metrics:inc('sync_request.requests.dispatch_failed');
+maybe_inc_result_metric({error, timeout}) ->
+    emqx_metrics:inc('sync_request.requests.timeout');
+maybe_inc_result_metric({error, _}) ->
+    emqx_metrics:inc('sync_request.requests.internal_error').
 
 metric(Name) ->
     emqx_metrics:val(Name).
@@ -828,24 +823,6 @@ table_size(Tab) ->
         undefined -> 0;
         Size -> Size
     end.
-
-update_listener_api_dispatch(Name, Action) ->
-    [Name, Transport, SocketOpts, Protocol, ProtoOpts0] = ranch_server:get_listener_start_args(
-        Name
-    ),
-    #{env := Env0 = #{options := Options0}} = ProtoOpts0,
-    Modules0 = maps:get(modules, Options0, []),
-    Modules = update_api_modules(Action, Modules0),
-    Options = Options0#{modules => Modules},
-    ProtoOpts = ProtoOpts0#{env := Env0#{options := Options}},
-    StartArgs = [Name, Transport, SocketOpts, Protocol, ProtoOpts],
-    true = ets:insert(ranch_server, {{listener_start_args, Name}, StartArgs}),
-    ok = minirest:update_dispatch(Name).
-
-update_api_modules(add, Modules) ->
-    [?API_MODULE | [Module || Module <- Modules, Module =/= ?API_MODULE]];
-update_api_modules(remove, Modules) ->
-    [Module || Module <- Modules, Module =/= ?API_MODULE].
 
 hook() ->
     ok = emqx_hooks:put('message.delivered', {?MODULE, on_message_delivered, []}, ?HP_HIGHEST),
@@ -873,15 +850,24 @@ call(Request, Default) ->
         exit:{timeout, _} -> Default
     end.
 
-monitor_waiter(ReqRef, Waiter) ->
-    gen_server:call(?SERVICE, {monitor_waiter, ReqRef, Waiter}, ?TIMEOUT).
+notify_waiters_stopping() ->
+    case ets:info(?REQ_TAB) of
+        undefined ->
+            ok;
+        _ ->
+            lists:foreach(
+                fun({ReqRef, #{waiter := Waiter}}) ->
+                    Waiter ! {emqx_sync_request_response, ReqRef, {error, service_unavailable}}
+                end,
+                ets:tab2list(?REQ_TAB)
+            )
+    end.
+
+reserve_request(ReqRef, Req, Waiter, MaxInflight) ->
+    gen_server:call(?SERVICE, {reserve_request, ReqRef, Req, Waiter, MaxInflight}, ?TIMEOUT).
 
 forget_monitor(Mon) ->
-    try gen_server:cast(?SERVICE, {forget_monitor, Mon}) of
-        ok -> ok
-    catch
-        _:_ -> ok
-    end.
+    gen_server:cast(?SERVICE, {forget_monitor, Mon}).
 
 name_vsn() ->
     {ok, Vsn} = application:get_key(?PLUGIN_NAME, vsn),
@@ -900,61 +886,6 @@ maybe_put(_Key, undefined, Map) ->
     Map;
 maybe_put(Key, Value, Map) ->
     Map#{Key => Value}.
-
-error_body(Code, Reason) ->
-    #{
-        code => Code,
-        message => reason_hint(Reason)
-    }.
-
-code_for_http_error(400) -> ?CODE_BAD_REQUEST;
-code_for_http_error(409) -> ?CODE_CONFLICT;
-code_for_http_error(429) -> ?CODE_TOO_MANY_REQUESTS;
-code_for_http_error(503) -> ?CODE_SERVICE_UNAVAILABLE;
-code_for_http_error(_) -> ?CODE_INTERNAL_ERROR.
-
-reason_hint(<<"invalid_request_body">>) ->
-    <<"Request body must be a JSON object.">>;
-reason_hint(<<"request_required">>) ->
-    <<"request object is required.">>;
-reason_hint(<<"topic_required">>) ->
-    <<"request.topic is required.">>;
-reason_hint(<<"response_topic_required">>) ->
-    <<"request.response_topic is required.">>;
-reason_hint(<<"payload_required">>) ->
-    <<"request.payload is required.">>;
-reason_hint(<<"request_id_required">>) ->
-    <<"request.request_id is required.">>;
-reason_hint(<<"invalid_topic">>) ->
-    <<"Topic must be a valid MQTT topic name without wildcards.">>;
-reason_hint(<<"invalid_qos">>) ->
-    <<"request.qos must be 0, 1, or 2.">>;
-reason_hint(<<"invalid_payload_encoding">>) ->
-    <<"request.payload_encoding must be plain or base64.">>;
-reason_hint(<<"invalid_base64_payload">>) ->
-    <<"request.payload must be valid base64 when payload_encoding is base64.">>;
-reason_hint(<<"invalid_duration">>) ->
-    <<"timeout must be a valid duration.">>;
-reason_hint(<<"invalid_timeout">>) ->
-    <<"timeout must be greater than 0 and no more than max_timeout.">>;
-reason_hint(<<"request_id_too_large">>) ->
-    <<"request.request_id must be no longer than 128 bytes.">>;
-reason_hint(<<"request_payload_too_large">>) ->
-    <<"request.payload exceeds max_payload_size.">>;
-reason_hint(<<"response_payload_too_large">>) ->
-    <<"MQTT response payload exceeds max_payload_size.">>;
-reason_hint(<<"too_many_inflight_requests">>) ->
-    <<"Too many sync requests are waiting for responses.">>;
-reason_hint(<<"no_subscribers">>) ->
-    <<"No exact subscriber is online for the request topic.">>;
-reason_hint(<<"multiple_subscribers">>) ->
-    <<"The request topic has a shared subscription or more than one exact subscriber.">>;
-reason_hint(<<"failed_to_dispatch_request">>) ->
-    <<"Failed to dispatch the request to the subscriber node.">>;
-reason_hint(<<"timeout">>) ->
-    <<"Timed out waiting for a matching MQTT response.">>;
-reason_hint(Reason) ->
-    to_binary(Reason).
 
 to_binary(Value) when is_binary(Value) ->
     Value;

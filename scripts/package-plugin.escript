@@ -1,5 +1,4 @@
 #!/usr/bin/env escript
-%%! -pa _build/emqx-enterprise/lib/jsone/ebin -pa _build/test/lib/jsone/ebin
 %% -*- mode: erlang -*-
 
 %% Package an EMQX monorepo plugin as `<name>-<vsn>.tar.gz`, reading the
@@ -11,8 +10,8 @@
 %% dep closure. The plugin is compiled once by the root `make`; this
 %% script just packages the output.
 %%
-%% JSON encoding uses `jsone` loaded from the umbrella build via the
-%% `-pa` directive above. The escript must run with CWD=repo root so
+%% JSON encoding uses `jsone` loaded from the selected umbrella build. The
+%% escript must run with CWD=repo root so
 %% that relative path resolves — `scripts/build-plugin.sh` handles that.
 %%
 %% Usage: package-plugin.escript <plugin-name>
@@ -37,6 +36,7 @@ main(_) ->
 do(AppStr) ->
     Root = root_dir(),
     Profile = os_env("PROFILE", "emqx-enterprise"),
+    true = code:add_patha(filename:join([Root, "_build", Profile, "lib", "jsone", "ebin"])),
     PluginDir = filename:join([Root, "plugins", AppStr]),
     LibDir = filename:join([Root, "_build", Profile, "lib", AppStr]),
     assert_dir(PluginDir, "plugin source"),
