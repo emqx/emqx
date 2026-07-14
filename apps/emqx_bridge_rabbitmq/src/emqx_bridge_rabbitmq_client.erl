@@ -32,7 +32,7 @@ servers_from_config(#{servers := Servers}) when
 ->
     parse_servers(Servers);
 servers_from_config(#{server := Host, port := Port}) ->
-    [{str(Host), Port}].
+    [{emqx_utils_conv:str(Host), Port}].
 
 rotate_servers([], _WorkerId) ->
     [];
@@ -50,7 +50,7 @@ start_connection(Servers, AmqpParamsBase) ->
 
 parse_servers(BinServers) ->
     [
-        {str(Host), Port}
+        {emqx_utils_conv:str(Host), Port}
      || #{hostname := Host, port := Port} <- emqx_schema:parse_servers(BinServers, ?HOST_OPTIONS)
     ].
 
@@ -70,5 +70,3 @@ do_start_connection([{Host, Port} | Rest], AmqpParamsBase, Tried) ->
             }),
             do_start_connection(Rest, AmqpParamsBase, [{Host, Port, Reason} | Tried])
     end.
-
-str(X) -> emqx_utils_conv:str(X).
