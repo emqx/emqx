@@ -37,6 +37,7 @@ defmodule EMQXConnector.MixProject do
       {:emqx_resource, in_umbrella: true},
       {:emqx_gen_bridge, in_umbrella: true},
       {:emqx_connector_jwt, in_umbrella: true},
+      {:emqx_connector_oauth2, in_umbrella: true},
       :minirest,
       :jose,
       :ecpool,

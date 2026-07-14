@@ -1,0 +1,54 @@
+emqx_connector_oauth2_schema {
+
+oauth2.desc:
+"""OAuth2 Client Credentials authentication. When enabled, a `access_token` is
+obtained from the configured token endpoint using the `client_credentials`
+grant and injected as `Authorization: Bearer <token>` on every outgoing
+request. The token is cached and refreshed before it expires."""
+
+oauth2.label:
+"""OAuth2"""
+
+oauth2_enable.desc:
+"""Enable OAuth2 (Client Credentials) authentication."""
+
+oauth2_enable.label:
+"""Enable OAuth2"""
+
+oauth2_grant_type.desc:
+"""OAuth2 grant type. Only `client_credentials` is supported."""
+
+oauth2_grant_type.label:
+"""Grant Type"""
+
+oauth2_token_endpoint.desc:
+"""The token endpoint URL of the OAuth2 authorization server."""
+
+oauth2_token_endpoint.label:
+"""Token Endpoint"""
+
+oauth2_client_id.desc:
+"""The OAuth2 client ID used to request an access token."""
+
+oauth2_client_id.label:
+"""Client ID"""
+
+oauth2_client_secret.desc:
+"""The OAuth2 client secret used to request an access token."""
+
+oauth2_client_secret.label:
+"""Client Secret"""
+
+oauth2_scope.desc:
+"""The OAuth2 scope requested for the access token (optional)."""
+
+oauth2_scope.label:
+"""Scope"""
+
+oauth2_timeout.desc:
+"""Timeout for the token endpoint HTTP request."""
+
+oauth2_timeout.label:
+"""Token Request Timeout"""
+
+}

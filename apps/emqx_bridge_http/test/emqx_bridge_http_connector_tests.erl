@@ -4,6 +4,7 @@
 -module(emqx_bridge_http_connector_tests).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -define(MY_SECRET, <<"my_precious">>).
 
@@ -134,6 +135,110 @@ transform_result_drops_wrapped_ehttpc_worker_down_call_args_test() ->
     ?assertEqual(0, string:str(Flat, "secret-authz-token"), Flat),
     ?assertEqual({ehttpc_worker_down, {killed, {gen_server, call, '...'}}}, Sanitized),
     ok.
+
+oauth2_injects_bearer_token_test_() ->
+    {setup,
+        fun() ->
+            meck:expect(ehttpc_sup, start_pool, 2, {ok, foo}),
+            meck:expect(ehttpc, check_pool_integrity, 1, ok),
+            meck:expect(ehttpc, request, fun(_, _, Req, _, _) -> {ok, 200, Req} end),
+            meck:expect(ehttpc, workers, 1, [{self, self()}]),
+            meck:expect(ehttpc, health_check, 2, ok),
+            meck:expect(ehttpc_pool, pick_worker, 1, self()),
+            meck:expect(emqx_resource, allocate_resource, 4, ok),
+            meck:expect(emqx_connector_oauth2, register, 2, ok),
+            meck:expect(emqx_connector_oauth2, unregister, 1, ok),
+            meck:expect(emqx_connector_oauth2, get_token, 1, {ok, <<"tok-123">>}),
+            [ehttpc_sup, ehttpc, ehttpc_pool, emqx_resource, emqx_connector_oauth2]
+        end,
+        fun meck:unload/1, fun(_) ->
+            ConnResId = <<"connector:http:oauth2">>,
+            ConnConfig = #{
+                request_base => #{
+                    scheme => http,
+                    host => "localhost",
+                    port => 18083
+                },
+                connect_timeout => 1000,
+                pool_type => random,
+                pool_size => 1,
+                oauth2 => #{
+                    enable => true,
+                    token_endpoint => <<"https://auth.example.com/oauth/token">>,
+                    client_id => <<"id">>,
+                    client_secret => emqx_secret:wrap(<<"s">>)
+                }
+            },
+            {ok, ConnState} = emqx_bridge_http_connector:on_start(ConnResId, ConnConfig),
+            %% Sync GET via the {Method, Request, Timeout} entrypoint; this is the
+            %% same chokepoint used by `authn_http'/`authz_http' queries.
+            {ok, 200, {_Path, Headers}} = emqx_bridge_http_connector:on_query(
+                foo, {get, {<<"/status">>, [{<<"x">>, <<"y">>}]}}, ConnState
+            ),
+            [
+                ?_assertEqual(
+                    <<"Bearer tok-123">>,
+                    proplists:get_value(<<"authorization">>, Headers)
+                ),
+                ?_assertEqual(<<"y">>, proplists:get_value(<<"x">>, Headers)),
+                ?_assertEqual(1, meck:num_calls(emqx_connector_oauth2, register, 2)),
+                ?_assertEqual(1, meck:num_calls(emqx_connector_oauth2, get_token, 1))
+            ]
+        end}.
+
+oauth2_health_check_test_() ->
+    {foreach,
+        fun() ->
+            meck:expect(ehttpc_sup, start_pool, 2, {ok, foo}),
+            meck:expect(ehttpc, check_pool_integrity, 1, ok),
+            meck:expect(ehttpc, workers, 1, [{self, self()}]),
+            meck:expect(ehttpc, health_check, 2, ok),
+            meck:expect(emqx_connector_oauth2, register, 2, ok),
+            meck:expect(emqx_connector_oauth2, unregister, 1, ok),
+            [ehttpc_sup, ehttpc, emqx_connector_oauth2]
+        end,
+        fun meck:unload/1, [
+            {"token available -> connected", fun() ->
+                meck:expect(emqx_connector_oauth2, get_token, 1, {ok, <<"tok">>}),
+                {ok, State} = emqx_bridge_http_connector:on_start(
+                    hc_res_id(), (hc_base_config())#{oauth2 => #{enable => true}}
+                ),
+                ?assertEqual(
+                    ?status_connected,
+                    emqx_bridge_http_connector:on_get_status(hc_res_id(), State)
+                )
+            end},
+            {"token unavailable -> disconnected", fun() ->
+                meck:expect(emqx_connector_oauth2, get_token, 1, {error, unreachable}),
+                {ok, State} = emqx_bridge_http_connector:on_start(
+                    hc_res_id(), (hc_base_config())#{oauth2 => #{enable => true}}
+                ),
+                ?assertEqual(
+                    {?status_disconnected, {oauth2_token_unavailable, unreachable}},
+                    emqx_bridge_http_connector:on_get_status(hc_res_id(), State)
+                )
+            end},
+            {"oauth2 disabled -> connected without probing token", fun() ->
+                meck:expect(emqx_connector_oauth2, get_token, 1, {error, should_not_be_called}),
+                {ok, State} = emqx_bridge_http_connector:on_start(hc_res_id(), hc_base_config()),
+                ?assertEqual(
+                    ?status_connected,
+                    emqx_bridge_http_connector:on_get_status(hc_res_id(), State)
+                ),
+                ?assertEqual(0, meck:num_calls(emqx_connector_oauth2, get_token, 1))
+            end}
+        ]}.
+
+hc_res_id() ->
+    <<"connector:http:oauth2-hc">>.
+
+hc_base_config() ->
+    #{
+        request_base => #{scheme => http, host => "localhost", port => 18083},
+        connect_timeout => 1000,
+        pool_type => random,
+        pool_size => 1
+    }.
 
 method_validator_test() ->
     lists:foreach(

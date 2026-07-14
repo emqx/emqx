@@ -1,13 +1,12 @@
-defmodule EMQXBridgeHTTP.MixProject do
+defmodule EMQXConnectorOAuth2.MixProject do
   use Mix.Project
   alias EMQXUmbrella.MixProject, as: UMP
 
   def project do
     [
-      app: :emqx_bridge_http,
-      version: "6.0.4",
+      app: :emqx_connector_oauth2,
+      version: "6.0.0",
       build_path: "../../_build",
-      # config_path: "../../config/config.exs",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
@@ -21,21 +20,17 @@ defmodule EMQXBridgeHTTP.MixProject do
   # Run "mix help compile.app" to learn about applications
   def application do
     [
-      extra_applications: UMP.extra_applications(),
-      env: [
-        emqx_action_info_modules: [:emqx_bridge_http_action_info],
-        emqx_connector_info_modules: [:emqx_bridge_http_connector_info]
-      ]
+      extra_applications: UMP.extra_applications() ++ [:inets],
+      mod: {:emqx_connector_oauth2_app, []}
     ]
   end
 
   def deps() do
     UMP.deps([
       {:emqx, in_umbrella: true},
-      {:emqx_resource, in_umbrella: true},
-      {:emqx_gen_bridge, in_umbrella: true},
-      {:emqx_connector_oauth2, in_umbrella: true},
-      :ehttpc
+      {:emqx_utils, in_umbrella: true},
+      :hocon,
+      :jose
     ])
   end
 end

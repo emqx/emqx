@@ -301,6 +301,7 @@ parse_confs(
 ) ->
     Url1 = bin(Url),
     {RequestBase, Path} = parse_url(Url1),
+    ok = check_http_oauth2_headers_conflict(Headers, maps:get(oauth2, Conf, undefined)),
     Conf#{
         request_base => RequestBase,
         request =>
@@ -376,6 +377,16 @@ invalid_data(Msg) ->
         kind => validation_error,
         reason => Msg
     }).
+
+%% Rejects an OAuth2 config that conflicts with a manually configured
+%% `authorization' header on the HTTP connector.
+check_http_oauth2_headers_conflict(Headers, Oauth2) ->
+    case emqx_connector_oauth2_schema:validate(Headers, Oauth2) of
+        ok ->
+            ok;
+        {error, #{message := Msg}} ->
+            invalid_data(Msg)
+    end.
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
