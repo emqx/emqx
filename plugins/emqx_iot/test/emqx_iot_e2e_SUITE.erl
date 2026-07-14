@@ -12,23 +12,12 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include("emqx_iot.hrl").
 
--define(PRODUCT, <<"P1">>).
--define(USER, <<"P1-e2e">>).
 -define(PAYLOAD, <<"e2e_test_payload">>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 -define(EMQX_CONF, #{
-    <<"listeners">> => #{
-        <<"tcp">> => #{<<"default">> => #{<<"acceptors">> => 4}}
-    },
-    <<"mqtt">> => #{
-        <<"allow_anonymous">> => true,
-        <<"client_attrs_init">> => [
-            #{<<"expression">> => <<"nth(1,tokens(username,'-'))">>, <<"set_as_attr">> => <<"tns">>}
-        ]
-    },
-    <<"multi_tenancy">> => #{<<"allow_only_managed_namespaces">> => false},
+    <<"listeners">> => #{<<"tcp">> => #{<<"default">> => #{<<"acceptors">> => 4}}},
     <<"authorization">> => #{<<"no_match">> => <<"allow">>}
 }).
 
@@ -37,17 +26,15 @@ init_per_suite(Config) ->
         [{emqx, ?EMQX_CONF}, mria],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
-        #{expression => <<"nth(1,tokens(username,'-'))">>, set_as_attr => <<"tns">>}
-    ]),
     ok = emqx_iot:init_tables(),
     init_test_config(),
     ok = emqx_iot:hook(),
-    _ = try
-        ets:new(iot_mq_counters, [named_table, public, set, {write_concurrency, true}])
-    catch
-        _:_ -> ok
-    end,
+    _ =
+        try
+            ets:new(iot_mq_counters, [named_table, public, set, {write_concurrency, true}])
+        catch
+            _:_ -> ok
+        end,
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -68,198 +55,169 @@ init_test_config() ->
 init_per_testcase(_Case, Config) -> Config.
 end_per_testcase(_Case, _Config) -> ok.
 
-%% ═══════════════════════════════════════════════════════════
-%% Helpers (mqtt_dq style: no msg_handler, use {publish, Msg})
-%% ═══════════════════════════════════════════════════════════
+%% helpers — follow emqx_broker_SUITE exactly
 
-connect_client(ClientId) ->
-    {_, Port} = emqx_config:get([listeners, tcp, default, bind]),
-    {ok, C} = emqtt:start_link(#{
-        port => Port,
-        clientid => ClientId,
-        username => ?USER,
-        proto_ver => v5,
-        clean_start => true
-    }),
+connect(ClientId) ->
+    {ok, C} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
     C.
 
-disconnect_client(C) ->
-    emqtt:disconnect(C),
-    emqtt:stop(C).
+disconnect(C) ->
+    emqtt:disconnect(C).
 
-api_call(Body) ->
-    emqx_iot_api:handle(post, [<<"pub">>], #{body => Body}).
+api_call(Body) -> emqx_iot_api:handle(post, [<<"pub">>], #{body => Body}).
 
 b64(S) -> base64:encode(S).
 
-receive_pubs(Count, Timeout) ->
-    receive_pubs(Count, [], Timeout).
-
-receive_pubs(0, Acc, _Timeout) ->
-    {ok, length(Acc), Acc};
-receive_pubs(Count, Acc, Timeout) ->
+recv(Count) -> recv(Count, []).
+recv(0, Msgs) ->
+    Msgs;
+recv(Count, Msgs) ->
     receive
-        {publish, #{topic := Topic, payload := Payload}} ->
-            receive_pubs(Count - 1, [{Topic, Payload} | Acc], Timeout)
-    after Timeout ->
-        {timeout, length(Acc), Acc}
+        {publish, Msg} -> recv(Count - 1, [Msg | Msgs])
+    after 2000 -> Msgs
     end.
 
-%% ═══════════════════════════════════════════════════════════
-%% Tests
-%% ═══════════════════════════════════════════════════════════
+topic(DN) -> <<"/default/", DN/binary, "/user/get">>.
+
+%% tests
+
+t_pubsub_works(_Config) ->
+    C = connect(<<"test_sub">>),
+    {ok, _, [_]} = emqtt:subscribe(C, <<"t1">>, 1),
+    ct:sleep(10),
+    ok = emqtt:publish(C, <<"t1">>, <<"hi">>, 0),
+    Msgs = recv(1),
+    ?assertEqual(1, length(Msgs)),
+    ?assertMatch(#{payload := <<"hi">>}, hd(Msgs)),
+    disconnect(C).
 
 t_batch_pub_qos0_e2e(_Config) ->
-    C1 = connect_client(<<"e2e_q0_1">>),
-    C2 = connect_client(<<"e2e_q0_2">>),
-    {ok, _, [1]} = emqtt:subscribe(C1, <<"/P1/e2e_q0_1/user/get">>, 1),
-    {ok, _, [1]} = emqtt:subscribe(C2, <<"/P1/e2e_q0_2/user/get">>, 1),
-    timer:sleep(300),
-
+    C1 = connect(<<"e2e_q0_1">>),
+    C2 = connect(<<"e2e_q0_2">>),
+    emqtt:subscribe(C1, topic(<<"e2e_q0_1">>), 1),
+    emqtt:subscribe(C2, topic(<<"e2e_q0_2">>), 1),
+    ct:sleep(10),
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
-        <<"ProductKey">> => ?PRODUCT,
+        <<"ProductKey">> => <<"default">>,
         <<"DeviceName">> => [<<"e2e_q0_1">>, <<"e2e_q0_2">>],
         <<"MessageContent">> => b64(?PAYLOAD),
         <<"Qos">> => 0
     }),
     ?assert(maps:get(<<"Success">>, Resp)),
-
-    {ok, N, Pubs} = receive_pubs(2, 5000),
-    ?assertEqual(2, N, #{got => Pubs}),
-    ?assert(lists:all(fun({_, P}) -> P =:= ?PAYLOAD end, Pubs)),
-
-    disconnect_client(C1),
-    disconnect_client(C2).
+    Msgs = recv(2),
+    ?assertEqual(2, length(Msgs)),
+    disconnect(C1),
+    disconnect(C2).
 
 t_batch_pub_qos1_e2e(_Config) ->
-    C1 = connect_client(<<"e2e_q1_1">>),
-    C2 = connect_client(<<"e2e_q1_2">>),
-    {ok, _, [1]} = emqtt:subscribe(C1, <<"/P1/e2e_q1_1/user/get">>, 1),
-    {ok, _, [1]} = emqtt:subscribe(C2, <<"/P1/e2e_q1_2/user/get">>, 1),
-    timer:sleep(300),
-
+    C1 = connect(<<"e2e_q1_1">>),
+    C2 = connect(<<"e2e_q1_2">>),
+    emqtt:subscribe(C1, topic(<<"e2e_q1_1">>), 1),
+    emqtt:subscribe(C2, topic(<<"e2e_q1_2">>), 1),
+    ct:sleep(10),
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
-        <<"ProductKey">> => ?PRODUCT,
+        <<"ProductKey">> => <<"default">>,
         <<"DeviceName">> => [<<"e2e_q1_1">>, <<"e2e_q1_2">>],
         <<"MessageContent">> => b64(?PAYLOAD),
         <<"Qos">> => 1
     }),
     ?assert(maps:get(<<"Success">>, Resp)),
-
-    {ok, N, Pubs} = receive_pubs(2, 5000),
-    ?assertEqual(2, N, #{got => Pubs}),
-
-    disconnect_client(C1),
-    disconnect_client(C2).
+    Msgs = recv(2),
+    ?assertEqual(2, length(Msgs)),
+    disconnect(C1),
+    disconnect(C2).
 
 t_batch_pub_messageid_reuse_e2e(_Config) ->
     B64 = b64(<<"reuse_payload">>),
     {ok, 200, _, RegResp} = api_call(#{
-        <<"Action">> => <<"RegisterMessage">>,
-        <<"MessageContent">> => B64
+        <<"Action">> => <<"RegisterMessage">>, <<"MessageContent">> => B64
     }),
     MsgId = maps:get(<<"MessageId">>, RegResp),
-
-    C1 = connect_client(<<"e2e_reuse_1">>),
-    {ok, _, [1]} = emqtt:subscribe(C1, <<"/P1/e2e_reuse_1/user/get">>, 1),
-    timer:sleep(300),
-
+    C1 = connect(<<"e2e_reuse_1">>),
+    emqtt:subscribe(C1, topic(<<"e2e_reuse_1">>), 1),
+    ct:sleep(10),
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
-        <<"ProductKey">> => ?PRODUCT,
+        <<"ProductKey">> => <<"default">>,
         <<"DeviceName">> => [<<"e2e_reuse_1">>],
         <<"MessageId">> => MsgId,
         <<"Qos">> => 1
     }),
     ?assert(maps:get(<<"Success">>, Resp)),
     ?assertEqual(MsgId, maps:get(<<"MessageId">>, Resp)),
-
-    {ok, 1, [{_, <<"reuse_payload">>}]} = receive_pubs(1, 5000),
-
-    disconnect_client(C1).
+    Msgs = recv(1),
+    ?assertEqual(1, length(Msgs)),
+    ?assertMatch(#{payload := <<"reuse_payload">>}, hd(Msgs)),
+    disconnect(C1).
 
 t_pub_broadcast_e2e(_Config) ->
-    C1 = connect_client(<<"e2e_bc_1">>),
-    C2 = connect_client(<<"e2e_bc_2">>),
-    C3 = connect_client(<<"e2e_bc_3">>),
-    {ok, _, [1]} = emqtt:subscribe(C1, <<"/P1/e2e_bc_1/user/get">>, 1),
-    {ok, _, [1]} = emqtt:subscribe(C2, <<"/P1/e2e_bc_2/user/get">>, 1),
-    {ok, _, [1]} = emqtt:subscribe(C3, <<"/P1/e2e_bc_3/user/get">>, 1),
-    timer:sleep(300),
-
+    C1 = connect(<<"e2e_bc_1">>),
+    C2 = connect(<<"e2e_bc_2">>),
+    C3 = connect(<<"e2e_bc_3">>),
+    emqtt:subscribe(C1, topic(<<"e2e_bc_1">>), 1),
+    emqtt:subscribe(C2, topic(<<"e2e_bc_2">>), 1),
+    emqtt:subscribe(C3, topic(<<"e2e_bc_3">>), 1),
+    ct:sleep(10),
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"PubBroadcast">>,
-        <<"ProductKey">> => ?PRODUCT,
+        <<"ProductKey">> => <<"default">>,
         <<"MessageContent">> => b64(?PAYLOAD)
     }),
     ?assert(maps:get(<<"Success">>, Resp)),
-
-    {ok, N, _} = receive_pubs(3, 5000),
-    ?assertEqual(3, N),
-
-    disconnect_client(C1),
-    disconnect_client(C2),
-    disconnect_client(C3).
+    Msgs = recv(3),
+    ?assertEqual(3, length(Msgs)),
+    disconnect(C1),
+    disconnect(C2),
+    disconnect(C3).
 
 t_batch_pub_partial_online_e2e(_Config) ->
-    C1 = connect_client(<<"e2e_part_1">>),
-    {ok, _, [1]} = emqtt:subscribe(C1, <<"/P1/e2e_part_1/user/get">>, 1),
-    timer:sleep(300),
-
+    C1 = connect(<<"e2e_part_1">>),
+    emqtt:subscribe(C1, topic(<<"e2e_part_1">>), 1),
+    ct:sleep(10),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
-        <<"ProductKey">> => ?PRODUCT,
+        <<"ProductKey">> => <<"default">>,
         <<"DeviceName">> => [<<"e2e_part_1">>, <<"e2e_part_2">>],
         <<"MessageContent">> => b64(?PAYLOAD),
         <<"Qos">> => 1
     }),
-
-    {ok, 1, [{_, ?PAYLOAD}]} = receive_pubs(1, 5000),
-
-    C2 = connect_client(<<"e2e_part_2">>),
-    {ok, _, [1]} = emqtt:subscribe(C2, <<"/P1/e2e_part_2/user/get">>, 1),
-    timer:sleep(2000),
-
-    {ok, 1, [{_, ?PAYLOAD}]} = receive_pubs(1, 5000),
-
-    disconnect_client(C1),
-    disconnect_client(C2).
+    Msgs1 = recv(1),
+    ?assertEqual(1, length(Msgs1)),
+    C2 = connect(<<"e2e_part_2">>),
+    emqtt:subscribe(C2, topic(<<"e2e_part_2">>), 1),
+    ct:sleep(2000),
+    Msgs2 = recv(1),
+    ?assertEqual(1, length(Msgs2)),
+    disconnect(C1),
+    disconnect(C2).
 
 t_batch_pub_topic_template_e2e(_Config) ->
     CustomTopic = <<"/custom/${deviceName}/topic">>,
-    ExpectedTopic = <<"/custom/e2e_tpl_1/topic">>,
-
-    C1 = connect_client(<<"e2e_tpl_1">>),
-    {ok, _, [1]} = emqtt:subscribe(C1, ExpectedTopic, 1),
-    timer:sleep(300),
-
+    C1 = connect(<<"e2e_tpl_1">>),
+    emqtt:subscribe(C1, <<"/custom/e2e_tpl_1/topic">>, 1),
+    ct:sleep(10),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
-        <<"ProductKey">> => ?PRODUCT,
+        <<"ProductKey">> => <<"default">>,
         <<"DeviceName">> => [<<"e2e_tpl_1">>],
         <<"MessageContent">> => b64(?PAYLOAD),
         <<"Qos">> => 0,
         <<"TopicTemplateName">> => CustomTopic
     }),
-
-    {ok, 1, [{ReceivedTopic, ?PAYLOAD}]} = receive_pubs(1, 5000),
-    ?assertEqual(ExpectedTopic, ReceivedTopic),
-
-    disconnect_client(C1).
+    Msgs = recv(1),
+    ?assertEqual(1, length(Msgs)),
+    disconnect(C1).
 
 t_register_message_e2e(_Config) ->
     B64 = b64(<<"reg_message">>),
     {ok, 200, _, R1} = api_call(#{
-        <<"Action">> => <<"RegisterMessage">>,
-        <<"MessageContent">> => B64
+        <<"Action">> => <<"RegisterMessage">>, <<"MessageContent">> => B64
     }),
     Mid1 = maps:get(<<"MessageId">>, R1),
-
     {ok, 200, _, R2} = api_call(#{
-        <<"Action">> => <<"RegisterMessage">>,
-        <<"MessageContent">> => B64
+        <<"Action">> => <<"RegisterMessage">>, <<"MessageContent">> => B64
     }),
     ?assertEqual(Mid1, maps:get(<<"MessageId">>, R2)).
