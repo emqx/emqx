@@ -381,9 +381,38 @@ normalize_config_for_storage(Config) ->
     end.
 
 validate_config(Config) ->
+    case validate_tools(Config) of
+        ok -> validate_config_schemas_and_refs(Config);
+        {error, _} = Error -> Error
+    end.
+
+validate_config_schemas_and_refs(Config) ->
     case validate_oai_schemas(Config) of
         ok -> validate_pipeline_tool_refs(Config);
         {error, _} = Error -> Error
+    end.
+
+validate_tools(Config) ->
+    validate_tool_entries(maps:get(?TOOLS, Config, [])).
+
+validate_tool_entries([]) ->
+    ok;
+validate_tool_entries([Tool0 | Rest]) ->
+    Tool = unwrap_union(Tool0),
+    case validate_tool(Tool) of
+        ok -> validate_tool_entries(Rest);
+        {error, _} = Error -> Error
+    end.
+
+validate_tool(#{?TOOL_TYPE := Type} = Tool) ->
+    try emqx_agent_tool_registry:resolve_type(Type) of
+        Module ->
+            case erlang:function_exported(Module, validate, 1) of
+                true -> Module:validate(Tool);
+                false -> ok
+            end
+    catch
+        throw:Reason -> {error, Reason}
     end.
 
 avro_config_with_defaults(Config) ->
