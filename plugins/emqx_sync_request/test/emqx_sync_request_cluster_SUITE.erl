@@ -18,14 +18,20 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Package = emqx_sync_request_SUITE:plugin_package(),
-    {ok, PackageBin} = file:read_file(Package),
-    NameVsn = filename:basename(Package, ".tar.gz"),
-    [
-        {plugin_name_vsn, NameVsn},
-        {plugin_package_bin, PackageBin}
-        | Config
-    ].
+    try
+        Package = emqx_sync_request_SUITE:plugin_package(),
+        {ok, PackageBin} = file:read_file(Package),
+        NameVsn = filename:basename(Package, ".tar.gz"),
+        [
+            {plugin_name_vsn, NameVsn},
+            {plugin_package_bin, PackageBin}
+            | Config
+        ]
+    catch
+        error:{plugin_package_build_failed, _Package, Output} ->
+            ct:log("plugin_package build failed: ~s", [Output]),
+            {skip, "Run 'make compile-emqx-enterprise' first to build plugin dependencies."}
+    end.
 
 end_per_suite(_Config) ->
     ok.
