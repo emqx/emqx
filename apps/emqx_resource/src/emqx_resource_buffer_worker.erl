@@ -1342,8 +1342,14 @@ handle_async_worker_down(Data0, Pid) ->
     #{async_workers := AsyncWorkers0} = Data0,
     {AsyncWorkerMRef, AsyncWorkers} = maps:take(Pid, AsyncWorkers0),
     Data = Data0#{async_workers := AsyncWorkers},
-    mark_inflight_items_as_retriable(Data, AsyncWorkerMRef),
-    {next_state, blocked, Data}.
+    case mark_inflight_items_as_retriable(Data, AsyncWorkerMRef) of
+        0 ->
+            %% The async worker may have completed all of its requests before it
+            %% terminated.  Do not leave an otherwise idle buffer worker blocked.
+            {keep_state, Data};
+        _NumAffected ->
+            {next_state, blocked, Data}
+    end.
 
 -spec call_query(force_sync | async_if_possible, _, _, _, _, _) -> _.
 call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
@@ -2263,9 +2269,9 @@ mark_inflight_items_as_retriable(Data, AsyncWorkerMRef) ->
                 ?INFLIGHT_ITEM(Ref, BatchOrQuery, IsRetriable, AsyncWorkerMRef0)
             end
         ),
-    _NumAffected = ets:select_replace(InflightTID, MatchSpec),
-    ?tp(buffer_worker_async_agent_down, #{num_affected => _NumAffected, buffer_worker => self()}),
-    ok.
+    NumAffected = ets:select_replace(InflightTID, MatchSpec),
+    ?tp(buffer_worker_async_agent_down, #{num_affected => NumAffected, buffer_worker => self()}),
+    NumAffected.
 
 %% used to update a batch after dropping expired individual queries.
 update_inflight_item(InflightTID, Ref, NewBatch, NumExpired) ->
@@ -2809,4 +2815,20 @@ adjust_batch_time_test_() ->
                 adjust_batch_time(Id, infinity, 100)
             )}
     ].
+
+async_worker_down_without_inflight_test() ->
+    InflightTID = inflight_new(1),
+    try
+        MRef = make_ref(),
+        Data = #{
+            inflight_tid => InflightTID,
+            async_workers => #{self() => MRef}
+        },
+        ?assertMatch(
+            {keep_state, #{async_workers := #{}}},
+            handle_async_worker_down(Data, self())
+        )
+    after
+        ets:delete(InflightTID)
+    end.
 -endif.
