@@ -1,13 +1,17 @@
 emqx_bridge_dynamo_connector {
 
 aws_access_key_id.desc:
-"""Access Key ID for connecting to DynamoDB."""
+"""AWS Access Key ID for connecting to DynamoDB.
+If not provided, credentials will be obtained from the runtime environment
+(e.g., EC2 instance metadata or ECS task role)."""
 
 aws_access_key_id.label:
 """AWS Access Key ID"""
 
 aws_secret_access_key.desc:
-"""AWS Secret Access Key for connecting to DynamoDB."""
+"""AWS Secret Access Key for connecting to DynamoDB.
+If not provided, credentials will be obtained from the runtime environment
+(e.g., EC2 instance metadata or ECS task role)."""
 
 aws_secret_access_key.label:
 """AWS Secret Access Key"""
