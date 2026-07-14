@@ -15,10 +15,7 @@
 -define(REQ_PAYLOAD, <<"{\"cmd\":\"reboot\"}">>).
 
 all() ->
-    [
-        t_request_on_one_node_receives_response_from_another_node,
-        t_request_conflicts_when_exact_subscribers_exist_on_multiple_nodes
-    ].
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Package = emqx_sync_request_SUITE:plugin_package(),
@@ -33,97 +30,90 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
+init_per_testcase(TestCase, Config) ->
+    WorkDir = emqx_cth_suite:work_dir(TestCase, Config),
+    Nodes = emqx_cth_cluster:start(cluster_specs(), #{work_dir => WorkDir}),
+    ok = install_and_start_plugin_on_nodes(Nodes, Config),
+    [{nodes, Nodes} | Config].
+
+end_per_testcase(_TestCase, Config) ->
+    Nodes = ?config(nodes, Config),
+    ok = cleanup_plugin_on_nodes(Nodes, Config),
+    ok = emqx_cth_cluster:stop(Nodes).
+
 t_request_on_one_node_receives_response_from_another_node(Config) ->
-    WorkDir = emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
-    Nodes =
-        [HttpNode, ResponderNode] =
-        emqx_cth_cluster:start(cluster_specs(), #{work_dir => WorkDir}),
-    try
-        ok = install_and_start_plugin_on_nodes(Nodes, Config),
-        Parent = self(),
-        ReqTopic = <<"sync_request/cluster/request">>,
-        RespTopic = <<"sync_request/cluster/response">>,
-        ReqId = <<"cluster-request-id">>,
-        RespPayload = <<"cluster-response">>,
-        {ok, Responder} = start_v5_responder_on_node(
-            ResponderNode,
-            <<"sync_request_cluster_responder">>,
-            ReqTopic,
-            fun(_Client, #{properties := Props, payload := Payload}) ->
-                Parent ! {cluster_request_seen, Payload},
-                {
-                    maps:get('Response-Topic', Props),
-                    #{'Correlation-Data' => maps:get('Correlation-Data', Props)},
-                    RespPayload
-                }
-            end
-        ),
-        try
-            ok = emqx_cth_cluster:sync_routes(Nodes),
-            Host = dashboard_host(HttpNode),
-            Auth = erpc:call(HttpNode, emqx_mgmt_api_test_util, auth_header_, []),
-            Body = emqx_sync_request_SUITE:request_body(
-                ReqTopic, RespTopic, ReqId, #{timeout => <<"5s">>}
-            ),
-            {Status, ResponseMap} = emqx_sync_request_SUITE:do_http_request(Host, Auth, Body),
-            ?assertEqual(200, Status),
-            emqx_sync_request_SUITE:assert_response_payload(ResponseMap, RespPayload),
-            ?assertReceive({cluster_request_seen, ?REQ_PAYLOAD}, 5000)
-        after
-            emqx_sync_request_SUITE:stop_client(Responder)
+    Nodes = [HttpNode, ResponderNode] = ?config(nodes, Config),
+    Parent = self(),
+    ReqTopic = <<"sync_request/cluster/request">>,
+    RespTopic = <<"sync_request/cluster/response">>,
+    ReqId = <<"cluster-request-id">>,
+    RespPayload = <<"cluster-response">>,
+    {ok, Responder} = start_v5_responder_on_node(
+        ResponderNode,
+        <<"sync_request_cluster_responder">>,
+        ReqTopic,
+        fun(_Client, #{properties := Props, payload := Payload}) ->
+            Parent ! {cluster_request_seen, Payload},
+            {
+                maps:get('Response-Topic', Props),
+                #{'Correlation-Data' => maps:get('Correlation-Data', Props)},
+                RespPayload
+            }
         end
+    ),
+    try
+        ok = emqx_cth_cluster:sync_routes(Nodes),
+        Host = dashboard_host(HttpNode),
+        Auth = erpc:call(HttpNode, emqx_mgmt_api_test_util, auth_header_, []),
+        Body = emqx_sync_request_SUITE:request_body(
+            ReqTopic, RespTopic, ReqId, #{timeout => <<"5s">>}
+        ),
+        {Status, ResponseMap} = emqx_sync_request_SUITE:do_http_request(Host, Auth, Body),
+        ?assertEqual(200, Status),
+        emqx_sync_request_SUITE:assert_response_payload(ResponseMap, RespPayload),
+        ?assertReceive({cluster_request_seen, ?REQ_PAYLOAD}, 5000)
     after
-        ok = cleanup_plugin_on_nodes(Nodes, Config),
-        ok = emqx_cth_cluster:stop(Nodes)
+        emqx_sync_request_SUITE:stop_client(Responder)
     end.
 
 t_request_conflicts_when_exact_subscribers_exist_on_multiple_nodes(Config) ->
-    WorkDir = emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
-    Nodes =
-        [HttpNode, ResponderNode] =
-        emqx_cth_cluster:start(cluster_specs(), #{work_dir => WorkDir}),
+    Nodes = [HttpNode, ResponderNode] = ?config(nodes, Config),
+    Parent = self(),
+    ReqTopic = <<"sync_request/cluster/conflict/request">>,
+    RespTopic = <<"sync_request/cluster/conflict/response">>,
+    {ok, Responder1} = start_blackhole_responder_on_node(
+        HttpNode,
+        <<"sync_request_cluster_conflict_responder_1">>,
+        ReqTopic,
+        fun(Payload) -> Parent ! {cluster_conflict_request_seen, Payload} end
+    ),
+    {ok, Responder2} = start_blackhole_responder_on_node(
+        ResponderNode,
+        <<"sync_request_cluster_conflict_responder_2">>,
+        ReqTopic,
+        fun(Payload) -> Parent ! {cluster_conflict_request_seen, Payload} end
+    ),
     try
-        ok = install_and_start_plugin_on_nodes(Nodes, Config),
-        Parent = self(),
-        ReqTopic = <<"sync_request/cluster/conflict/request">>,
-        RespTopic = <<"sync_request/cluster/conflict/response">>,
-        {ok, Responder1} = start_blackhole_responder_on_node(
-            HttpNode,
-            <<"sync_request_cluster_conflict_responder_1">>,
-            ReqTopic,
-            fun(Payload) -> Parent ! {cluster_conflict_request_seen, Payload} end
+        ok = emqx_cth_cluster:sync_routes(Nodes),
+        Host = dashboard_host(HttpNode),
+        Auth = erpc:call(HttpNode, emqx_mgmt_api_test_util, auth_header_, []),
+        Body = emqx_sync_request_SUITE:request_body(
+            ReqTopic, RespTopic, <<"cluster-conflict-request-id">>, #{timeout => <<"100ms">>}
         ),
-        {ok, Responder2} = start_blackhole_responder_on_node(
-            ResponderNode,
-            <<"sync_request_cluster_conflict_responder_2">>,
-            ReqTopic,
-            fun(Payload) -> Parent ! {cluster_conflict_request_seen, Payload} end
+        {Status, ResponseMap} = emqx_sync_request_SUITE:do_http_request(Host, Auth, Body),
+        ?assertEqual(409, Status),
+        ?assertMatch(
+            #{
+                <<"code">> := <<"CONFLICT">>,
+                <<"message">> :=
+                    <<"The request topic has a shared subscription or more than one exact subscriber.">>
+            },
+            ResponseMap
         ),
-        try
-            ok = emqx_cth_cluster:sync_routes(Nodes),
-            Host = dashboard_host(HttpNode),
-            Auth = erpc:call(HttpNode, emqx_mgmt_api_test_util, auth_header_, []),
-            Body = emqx_sync_request_SUITE:request_body(
-                ReqTopic, RespTopic, <<"cluster-conflict-request-id">>, #{timeout => <<"100ms">>}
-            ),
-            {Status, ResponseMap} = emqx_sync_request_SUITE:do_http_request(Host, Auth, Body),
-            ?assertEqual(409, Status),
-            ?assertMatch(
-                #{
-                    <<"code">> := <<"CONFLICT">>,
-                    <<"message">> :=
-                        <<"The request topic has a shared subscription or more than one exact subscriber.">>
-                },
-                ResponseMap
-            ),
-            ?assertNotReceive({cluster_conflict_request_seen, _}, 200)
-        after
-            emqx_sync_request_SUITE:stop_client(Responder1),
-            emqx_sync_request_SUITE:stop_client(Responder2)
-        end
+        ?assertNotReceive({cluster_conflict_request_seen, _}, 200)
     after
-        ok = cleanup_plugin_on_nodes(Nodes, Config),
-        ok = emqx_cth_cluster:stop(Nodes)
+        emqx_sync_request_SUITE:stop_client(Responder1),
+        emqx_sync_request_SUITE:stop_client(Responder2)
     end.
 
 cluster_specs() ->
