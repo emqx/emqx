@@ -325,8 +325,22 @@ read_file_map(Path, Msg) ->
 plugin_priv_dir(NameVsn) ->
     maybe
         {ok, #{<<"name">> := Name, <<"rel_apps">> := Apps}} ?= read_info(NameVsn),
-        {ok, AppDir} ?= app_dir(Name, Apps),
-        wrap_to_list(filename:join([plugin_dir(NameVsn), AppDir, "priv"]))
+        case app_dir(Name, Apps) of
+            {ok, AppDir} ->
+                wrap_to_list(filename:join([plugin_dir(NameVsn), AppDir, "priv"]));
+            {error, not_found} ->
+                case
+                    [
+                        PrivDir
+                     || AppDir <- Apps,
+                        PrivDir <- [filename:join([plugin_dir(NameVsn), AppDir, "priv"])],
+                        filelib:is_dir(PrivDir)
+                    ]
+                of
+                    [PrivDir] -> wrap_to_list(PrivDir);
+                    _ -> wrap_to_list(filename:join([install_dir(), NameVsn, "priv"]))
+                end
+        end
     else
         %% Otherwise assume the priv directory is under the plugin root directory
         _ -> wrap_to_list(filename:join([install_dir(), NameVsn, "priv"]))

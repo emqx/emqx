@@ -803,6 +803,7 @@ do_ensure_started(NameVsn) ->
         ok ?= install(NameVsn, ?normal),
         ok ?= load_config_schema(NameVsn),
         ok ?= maybe_initialize_cached_config(NameVsn),
+        {ok, _} ?= validated_local_config(NameVsn),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
         ok ?= emqx_plugins_apps:start(Plugin)
     else
@@ -911,10 +912,16 @@ validate_installation(NameVsn) ->
     end.
 
 validate_default_config(NameVsn) ->
-    maybe
-        {ok, Config} ?= emqx_plugins_fs:read_default_hocon(NameVsn),
-        {ok, _} ?= decode_plugin_config_map(NameVsn, Config),
-        ok
+    case emqx_plugins_fs:read_default_hocon(NameVsn) of
+        {ok, Config} ->
+            case decode_plugin_config_map(NameVsn, Config) of
+                {ok, _} -> ok;
+                {error, _} = Error -> Error
+            end;
+        {error, #{reason := {enoent, _}}} ->
+            ok;
+        {error, _} = Error ->
+            Error
     end.
 
 install_and_configure(NameVsn, Mode, RunningSt) ->
@@ -929,6 +936,11 @@ configure(NameVsn, Mode, RunningSt) ->
         ok ?= ensure_local_config(NameVsn, Mode),
         ok ?= configure_from_local_config(NameVsn, RunningSt),
         ensure_state(NameVsn)
+    else
+        {error, no_source_file} ->
+            ensure_state(NameVsn);
+        {error, _} = Error ->
+            Error
     end.
 
 %% Install from local tarball or get tarball from cluster
@@ -1305,7 +1317,7 @@ configure_from_local_config(NameVsn, RunningSt) ->
             ?SLOG(warning, #{
                 msg => "failed_to_validate_plugin_config", name_vsn => NameVsn, reason => Reason
             }),
-            ok
+            {error, Reason}
     end.
 
 notify_config_change(_NameVsn, _OldConfig, _NewConfig, stopped) ->
@@ -1362,6 +1374,8 @@ validated_local_config(NameVsn) ->
                 false ->
                     {ok, Config}
             end;
+        {error, #{reason := {enoent, _}}} ->
+            {ok, #{}};
         {error, Reason} ->
             ?SLOG(warning, #{
                 msg => "failed_to_read_plugin_config_hocon", name_vsn => NameVsn, reason => Reason
