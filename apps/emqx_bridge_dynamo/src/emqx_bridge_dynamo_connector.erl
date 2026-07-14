@@ -53,12 +53,12 @@ fields(config) ->
         {aws_access_key_id,
             mk(
                 binary(),
-                #{required => true, desc => ?DESC("aws_access_key_id")}
+                #{required => false, desc => ?DESC("aws_access_key_id")}
             )},
         {aws_secret_access_key,
             emqx_schema_secret:mk(
                 #{
-                    required => true,
+                    required => false,
                     desc => ?DESC("aws_secret_access_key")
                 }
             )},
@@ -78,8 +78,6 @@ on_start(
     InstanceId,
     #{
         url := Url,
-        aws_access_key_id := AccessKeyID,
-        aws_secret_access_key := SecretAccessKey,
         pool_size := PoolSize
     } = Config
 ) ->
@@ -94,14 +92,24 @@ on_start(
         default_port => DefaultPort
     }),
 
+    ClientConfig = #{
+        host => Host,
+        port => Port,
+        scheme => Scheme
+    },
+    ClientConfig1 =
+        case maps:find(aws_access_key_id, Config) of
+            {ok, AK} when AK =/= <<>> ->
+                {ok, SK} = maps:find(aws_secret_access_key, Config),
+                ClientConfig#{
+                    aws_access_key_id => to_str(AK),
+                    aws_secret_access_key => SK
+                };
+            _ ->
+                ClientConfig
+        end,
     Options = [
-        {config, #{
-            host => Host,
-            port => Port,
-            aws_access_key_id => to_str(AccessKeyID),
-            aws_secret_access_key => SecretAccessKey,
-            scheme => Scheme
-        }},
+        {config, ClientConfig1},
         {pool_size, PoolSize}
     ],
     State = #{

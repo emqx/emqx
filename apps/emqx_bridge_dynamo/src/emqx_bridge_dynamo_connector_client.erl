@@ -28,6 +28,7 @@
 -endif.
 
 -include_lib("emqx/include/emqx_trace.hrl").
+-include_lib("erlcloud/include/erlcloud_aws.hrl").
 
 %%%===================================================================
 %%% API
@@ -70,7 +71,20 @@ init(#{
     %% TODO: teach `erlcloud` to to accept 0-arity closures as passwords.
     SecretAccessKey = to_str(emqx_secret:unwrap(Secret)),
     erlcloud_ddb2:configure(AccessKeyID, SecretAccessKey, Host, Port, Scheme),
-    {ok, #{}}.
+    {ok, #{}};
+init(#{host := Host, port := Port, scheme := Scheme}) ->
+    AWSConfig0 = #aws_config{
+        ddb_host = to_str(Host),
+        ddb_port = Port,
+        ddb_scheme = to_str(Scheme)
+    },
+    case erlcloud_aws:update_config(AWSConfig0) of
+        {ok, AWSConfig} ->
+            erlang:put(aws_config, AWSConfig),
+            {ok, #{}};
+        {error, Reason} ->
+            {stop, {failed_to_obtain_credentials, Reason}}
+    end.
 
 handle_call(is_connected, _From, State) ->
     IsConnected =
