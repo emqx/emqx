@@ -21,6 +21,20 @@
     status/0
 ]).
 
+%% request/1 expects a map with binary keys:
+%% #{
+%%   <<"request">> => #{
+%%     <<"topic">> => binary(),
+%%     <<"response_topic">> => binary(),
+%%     <<"request_id">> => binary(),
+%%     <<"qos">> => 0 | 1 | 2,
+%%     <<"payload_encoding">> => plain | base64,
+%%     <<"payload">> => binary(),
+%%     <<"content_type">> => binary()
+%%   },
+%%   <<"timeout">> => binary()
+%% }
+
 %% Plugin callbacks
 -export([
     on_config_changed/1,
@@ -81,7 +95,7 @@ child_spec() ->
         start => {?MODULE, start_link, []}
     }.
 
--spec request(term()) -> {ok, map()} | {error, term()}.
+-spec request(map()) -> {ok, map()} | {error, term()}.
 request(Body) ->
     record_request_result(do_request_body(Body)).
 
@@ -225,9 +239,9 @@ empty_state() ->
 %%--------------------------------------------------------------------
 
 do_request(Req0, Config) ->
-    MaxInflight = maps:get(max_inflight_requests, Config),
+    MaxInflight = maps:get(<<"max_inflight_requests">>, Config),
     ReqRef = make_ref(),
-    TimeoutMs = maps:get(timeout, Req0),
+    TimeoutMs = maps:get(<<"timeout">>, Req0),
     Deadline = now_ms() + TimeoutMs,
     case reserve_request(ReqRef, Req0, self(), MaxInflight) of
         full ->
@@ -375,22 +389,22 @@ wait_for_response(ReqRef, TimeoutMs) ->
 
 make_request_message(Req) ->
     Props0 = #{
-        'Response-Topic' => maps:get(response_topic, Req),
-        'Correlation-Data' => maps:get(correlation_data, Req)
+        'Response-Topic' => maps:get(<<"response_topic">>, Req),
+        'Correlation-Data' => maps:get(<<"correlation_data">>, Req)
     },
-    Props = maybe_put('Content-Type', maps:get(content_type, Req, undefined), Props0),
+    Props = maybe_put('Content-Type', maps:get(<<"content_type">>, Req, undefined), Props0),
     Headers = #{
         properties => Props,
         ?HEADER => #{
             req_ref => maps:get(req_ref, Req),
-            timeout => maps:get(timeout, Req)
+            timeout => maps:get(<<"timeout">>, Req)
         }
     },
     emqx_message:make(
         ?PLUGIN_NAME,
-        maps:get(qos, Req),
-        maps:get(topic, Req),
-        maps:get(payload, Req),
+        maps:get(<<"qos">>, Req),
+        maps:get(<<"topic">>, Req),
+        maps:get(<<"payload">>, Req),
         #{retain => false},
         Headers
     ).
@@ -488,12 +502,12 @@ complete_request(ReqRef, Message = #message{payload = Payload}) ->
     end.
 
 complete_request_on_origin_node(ReqRef, Message) ->
-    try erpc:call(node(ReqRef), ?MODULE, complete_remote_request, [ReqRef, Message], ?TIMEOUT) of
-        true ->
+    %% The origin owns the request record.  Do not block message.publish while
+    %% it atomically claims the response and wakes the HTTP waiter.
+    try erpc:cast(node(ReqRef), ?MODULE, complete_remote_request, [ReqRef, Message]) of
+        ok ->
             cleanup_pending(ReqRef),
-            true;
-        false ->
-            false
+            true
     catch
         _:_ ->
             false
@@ -510,7 +524,7 @@ complete_local_request(ReqRef, Message = #message{payload = Payload}) ->
             cleanup_pending(ReqRef),
             cleanup_pending_on_peer_nodes(ReqRef),
             Config = config(),
-            case byte_size(Payload) =< maps:get(max_payload_size, Config) of
+            case byte_size(Payload) =< maps:get(<<"max_payload_size">>, Config) of
                 true ->
                     Response = make_response(Req, Message),
                     maps:get(waiter, Req) ! {emqx_sync_request_response, ReqRef, {ok, Response}},
@@ -529,7 +543,7 @@ make_response(Req, #message{topic = Topic, payload = Payload, headers = Headers}
     Props = maps:get(properties, Headers, #{}),
     Response0 = #{
         topic => Topic,
-        request_id => maps:get(request_id, Req),
+        request_id => maps:get(<<"request_id">>, Req),
         payload_encoding => <<"base64">>,
         payload => base64:encode(Payload)
     },
@@ -588,27 +602,27 @@ cleanup_remote_pending(ReqRef) ->
 
 parse_request(Body, Config) ->
     try
-        Request = required(request, Body),
+        Request = required(<<"request">>, Body),
         ensure_map(Request, <<"invalid_request">>),
         Timeout = parse_timeout(Body, Config),
         Payload = parse_payload(Request),
-        MaxPayloadSize = maps:get(max_payload_size, Config),
+        MaxPayloadSize = maps:get(<<"max_payload_size">>, Config),
         case byte_size(Payload) =< MaxPayloadSize of
             false ->
                 throw({bad_request, <<"request_payload_too_large">>});
             true ->
-                Topic = validate_topic(required(topic, Request)),
-                ResponseTopic = validate_topic(required(response_topic, Request)),
-                RequestId = parse_request_id(required(request_id, Request)),
+                Topic = validate_topic(required(<<"topic">>, Request)),
+                ResponseTopic = validate_topic(required(<<"response_topic">>, Request)),
+                RequestId = parse_request_id(required(<<"request_id">>, Request)),
                 {ok, #{
-                    timeout => Timeout,
-                    topic => Topic,
-                    response_topic => ResponseTopic,
-                    request_id => RequestId,
-                    correlation_data => RequestId,
-                    qos => parse_qos(get(Request, qos, 0)),
-                    payload => Payload,
-                    content_type => optional_binary(content_type, Request)
+                    <<"timeout">> => Timeout,
+                    <<"topic">> => Topic,
+                    <<"response_topic">> => ResponseTopic,
+                    <<"request_id">> => RequestId,
+                    <<"correlation_data">> => RequestId,
+                    <<"qos">> => parse_qos(get(Request, <<"qos">>, 0)),
+                    <<"payload">> => Payload,
+                    <<"content_type">> => optional_binary(<<"content_type">>, Request)
                 }}
         end
     catch
@@ -617,17 +631,17 @@ parse_request(Body, Config) ->
     end.
 
 parse_timeout(Body, Config) ->
-    TimeoutValue = get(Body, timeout, maps:get(default_timeout, Config)),
+    TimeoutValue = get(Body, <<"timeout">>, maps:get(<<"default_timeout">>, Config)),
     Timeout = parse_duration_ms(TimeoutValue),
-    MaxTimeout = maps:get(max_timeout, Config),
+    MaxTimeout = maps:get(<<"max_timeout">>, Config),
     case Timeout > 0 andalso Timeout =< MaxTimeout of
         true -> Timeout;
         false -> throw({bad_request, <<"invalid_timeout">>})
     end.
 
 parse_payload(Request) ->
-    Payload0 = required(payload, Request),
-    Encoding = get(Request, payload_encoding, plain),
+    Payload0 = required(<<"payload">>, Request),
+    Encoding = get(Request, <<"payload_encoding">>, plain),
     case normalize_payload_encoding(Encoding) of
         plain ->
             to_binary(Payload0);
@@ -669,25 +683,22 @@ validate_topic(Topic0) ->
     end.
 
 optional_binary(Key, Map) ->
-    case find(Key, Map) of
+    case maps:find(Key, Map) of
         {ok, Value} -> to_binary(Value);
         error -> undefined
     end.
 
 required(Key, Map) ->
-    case find(Key, Map) of
+    case maps:find(Key, Map) of
         {ok, Value} -> Value;
-        error -> throw({bad_request, iolist_to_binary([atom_to_binary(Key), <<"_required">>])})
+        error -> throw({bad_request, <<Key/binary, "_required">>})
     end.
 
 get(Map, Key, Default) ->
-    case find(Key, Map) of
+    case maps:find(Key, Map) of
         {ok, Value} -> Value;
         error -> Default
     end.
-
-find(Key, Map) when is_atom(Key) ->
-    maps:find(atom_to_binary(Key), Map).
 
 ensure_map(Map, _Reason) when is_map(Map) ->
     ok;
@@ -714,20 +725,20 @@ default_config() ->
 
 normalize_config(Config) ->
     #{
-        default_timeout => parse_config_duration(
-            get(Config, default_timeout, ?DEFAULT_TIMEOUT), ?DEFAULT_TIMEOUT
+        <<"default_timeout">> => parse_config_duration(
+            get(Config, <<"default_timeout">>, ?DEFAULT_TIMEOUT), ?DEFAULT_TIMEOUT
         ),
-        max_timeout => parse_config_duration(
-            get(Config, max_timeout, ?DEFAULT_MAX_TIMEOUT), ?DEFAULT_MAX_TIMEOUT
+        <<"max_timeout">> => parse_config_duration(
+            get(Config, <<"max_timeout">>, ?DEFAULT_MAX_TIMEOUT), ?DEFAULT_MAX_TIMEOUT
         ),
-        max_inflight_requests =>
+        <<"max_inflight_requests">> =>
             parse_config_pos_integer(
-                get(Config, max_inflight_requests, ?DEFAULT_MAX_INFLIGHT),
+                get(Config, <<"max_inflight_requests">>, ?DEFAULT_MAX_INFLIGHT),
                 ?DEFAULT_MAX_INFLIGHT
             ),
-        max_payload_size =>
+        <<"max_payload_size">> =>
             parse_config_bytesize(
-                get(Config, max_payload_size, ?DEFAULT_MAX_PAYLOAD_SIZE),
+                get(Config, <<"max_payload_size">>, ?DEFAULT_MAX_PAYLOAD_SIZE),
                 ?DEFAULT_MAX_PAYLOAD_SIZE
             )
     }.
