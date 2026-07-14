@@ -502,6 +502,20 @@ t_rejects_application_version_mismatch({'end', Config}) ->
 t_rejects_application_version_mismatch(Config) ->
     assert_invalid_plugin_package(?config(name_vsn, Config)).
 
+t_rejects_invalid_application_version({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = replace_tar_entry(
+        NameVsn,
+        "invalid_plugin.app",
+        <<"{application, invalid_plugin, [{vsn, {invalid}}]}.\n">>
+    ),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_invalid_application_version({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_rejects_invalid_application_version(Config) ->
+    assert_invalid_plugin_package(?config(name_vsn, Config)).
+
 t_rejects_externally_loaded_application({init, Config}) ->
     NameVsn = "invalid_plugin-1.0.0",
     ok = make_plugin_tar(NameVsn),
@@ -522,13 +536,29 @@ t_rejects_invalid_default_config({'end', Config}) ->
 t_rejects_invalid_default_config(Config) ->
     assert_invalid_plugin_package(?config(name_vsn, Config)).
 
+t_allows_missing_default_config({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = remove_tar_entry(NameVsn, "config.hocon"),
+    [{name_vsn, NameVsn} | Config];
+t_allows_missing_default_config({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_allows_missing_default_config(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ?assertMatch({ok, #{config_status := disabled}}, emqx_plugins:describe(NameVsn)),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ?assert(is_app_running(invalid_plugin)),
+    ok = emqx_plugins:ensure_stopped(NameVsn).
+
 t_rejects_invalid_schema_on_reconfigure({init, Config}) ->
     NameVsn = "invalid_plugin-1.0.0",
     ok = make_plugin_tar(NameVsn),
     ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
     ok = emqx_plugins:ensure_started(NameVsn),
-    ok = file:delete(
-        filename:join([filename:dirname(plugin_ebin_dir(NameVsn)), "priv", "config_schema.avsc"])
+    ok = file:write_file(
+        filename:join([filename:dirname(plugin_ebin_dir(NameVsn)), "priv", "config_schema.avsc"]),
+        <<"not an avro schema">>
     ),
     [{name_vsn, NameVsn} | Config];
 t_rejects_invalid_schema_on_reconfigure({'end', Config}) ->
@@ -536,6 +566,24 @@ t_rejects_invalid_schema_on_reconfigure({'end', Config}) ->
     cleanup_invalid_plugin(?config(name_vsn, Config));
 t_rejects_invalid_schema_on_reconfigure(Config) ->
     ?assertMatch({error, _}, emqx_plugins:ensure_installed(?config(name_vsn, Config))).
+
+t_rejects_invalid_local_config_on_start({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ok = emqx_plugins:ensure_stopped(NameVsn),
+    ok = file:write_file(emqx_plugins_fs:config_file_path(NameVsn), <<"foo = 42\n">>),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_invalid_local_config_on_start({'end', Config}) ->
+    NameVsn = ?config(name_vsn, Config),
+    ok = file:delete(emqx_plugins_fs:config_file_path(NameVsn)),
+    cleanup_invalid_plugin(NameVsn);
+t_rejects_invalid_local_config_on_start(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn)),
+    ?assertMatch({error, _}, emqx_plugins:ensure_started(NameVsn)),
+    ?assertNot(is_app_running(invalid_plugin)).
 
 assert_invalid_plugin_package(NameVsn) ->
     ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn, ?fresh_install)),
@@ -588,6 +636,14 @@ replace_tar_entry(NameVsn, Filename, Content) ->
         end,
         false,
         TarContent
+    ),
+    erl_tar:create(Tar, NewTarContent, [compressed]).
+
+remove_tar_entry(NameVsn, Filename) ->
+    Tar = emqx_plugins_fs:tar_file_path(NameVsn),
+    {ok, TarContent} = erl_tar:extract(Tar, [compressed, memory]),
+    {NewTarContent, [_]} = lists:partition(
+        fun({Path, _}) -> filename:basename(Path) =/= Filename end, TarContent
     ),
     erl_tar:create(Tar, NewTarContent, [compressed]).
 
