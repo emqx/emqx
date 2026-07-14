@@ -38,15 +38,21 @@ init_per_suite(Config) ->
         #{work_dir => WorkDir}
     ),
     ok = filelib:ensure_path(filename:join([InstallDir, "dummy"])),
-    Package = plugin_package(),
-    {ok, PackageBin} = file:read_file(Package),
-    NameVsn = filename:basename(Package, ".tar.gz"),
-    [
-        {apps, Apps},
-        {plugin_name_vsn, NameVsn},
-        {plugin_package_bin, PackageBin}
-        | Config
-    ].
+    try
+        Package = plugin_package(),
+        {ok, PackageBin} = file:read_file(Package),
+        NameVsn = filename:basename(Package, ".tar.gz"),
+        [
+            {apps, Apps},
+            {plugin_name_vsn, NameVsn},
+            {plugin_package_bin, PackageBin}
+            | Config
+        ]
+    catch
+        error:{plugin_package_build_failed, _Package, Output} ->
+            ct:log("plugin_package build failed: ~s", [Output]),
+            {skip, "Run 'make compile-emqx-enterprise' first to build plugin dependencies."}
+    end.
 
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
@@ -1294,7 +1300,8 @@ plugin_package() ->
 
 build_in_tree_plugin_package(Root, Package) ->
     Output = os:cmd(
-        "cd " ++ Root ++ " && PROFILE=test ./scripts/build-plugin.sh emqx_sync_request 2>&1"
+        "cd " ++ Root ++
+            " && PROFILE=emqx-enterprise ./scripts/build-plugin.sh emqx_sync_request 2>&1"
     ),
     case filelib:is_regular(Package) of
         true ->
