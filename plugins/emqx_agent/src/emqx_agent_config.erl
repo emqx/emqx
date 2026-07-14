@@ -423,10 +423,12 @@ avro_config_with_defaults(Config, Name) ->
         {ok, AvscBin} = read_config_schema_bin(),
         Store0 = avro_schema_store:new([map]),
         Store = avro_schema_store:import_schema_json(Name, AvscBin, Store0),
+        Hook = avro_decoder_hooks:materialize_defaults(Store),
         DecodeOpts = avro:make_decoder_options([
             {map_type, map},
             {record_type, map},
-            {encoding, avro_json}
+            {encoding, avro_json},
+            {hook, Hook}
         ]),
         AvroValue = avro_json_decoder:decode_value(
             emqx_utils_json:encode(Config), Name, Store, DecodeOpts
