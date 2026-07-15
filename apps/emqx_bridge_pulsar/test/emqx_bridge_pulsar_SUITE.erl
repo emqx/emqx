@@ -1407,6 +1407,67 @@ t_overflow_rule_metrics(TCConfig) when is_list(TCConfig) ->
 
     ok.
 
+-doc """
+Verifies that, if the connector health check times out, it goes to `connecting` instead of
+the usual `disconnected`, so we don't recreate the state and its replayq.
+""".
+t_resource_health_check_timeout_status(TCConfig) when is_list(TCConfig) ->
+    {ok, ConnectorType} = emqx_utils:safe_to_existing_atom(get_config(connector_type, TCConfig)),
+    Mod = emqx_connector_info:resource_callback_module(ConnectorType),
+    emqx_common_test_helpers:with_mock(
+        Mod,
+        on_get_status,
+        fun(ConnResId, ConnState) ->
+            ct:sleep(300),
+            meck:passthrough([ConnResId, ConnState])
+        end,
+        fun() ->
+            ?assertMatch(
+                {201, #{
+                    <<"status">> := <<"connecting">>,
+                    <<"status_reason">> := <<"resource_health_check_timed_out">>
+                }},
+                create_connector_api(TCConfig, #{
+                    <<"resource_opts">> => #{
+                        <<"health_check_timeout">> => <<"100ms">>
+                    }
+                })
+            )
+        end
+    ),
+    ok.
+
+-doc """
+Verifies that, if the action health check times out, it goes to `connecting` instead of
+the usual `disconnected`, so we don't recreate the state and its replayq.
+""".
+t_channel_health_check_timeout_status(TCConfig) when is_list(TCConfig) ->
+    {ok, ConnectorType} = emqx_utils:safe_to_existing_atom(get_config(connector_type, TCConfig)),
+    Mod = emqx_connector_info:resource_callback_module(ConnectorType),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    emqx_common_test_helpers:with_mock(
+        Mod,
+        on_get_channel_status,
+        fun(ConnResId, ChanId, ConnState) ->
+            ct:sleep(300),
+            meck:passthrough([ConnResId, ChanId, ConnState])
+        end,
+        fun() ->
+            ?assertMatch(
+                {201, #{
+                    <<"status">> := <<"connecting">>,
+                    <<"status_reason">> := <<"channel_health_check_timed_out">>
+                }},
+                create_action_api(TCConfig, #{
+                    <<"resource_opts">> => #{
+                        <<"health_check_timeout">> => <<"100ms">>
+                    }
+                })
+            )
+        end
+    ),
+    ok.
+
 %% Verifies that the `actions.failed' and `actions.failed.unknown' counters are bumped
 %% when a message is dropped due to reaching its TTL (both sync and async).
 t_expired_rule_metrics() ->
