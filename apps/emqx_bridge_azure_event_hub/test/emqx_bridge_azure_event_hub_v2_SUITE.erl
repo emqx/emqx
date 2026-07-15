@@ -423,3 +423,9 @@ t_disallow_disk_mode_for_dynamic_topic(Config) ->
             ]
         ),
     ok.
+
+t_resource_health_check_timeout_status(Config) when is_list(Config) ->
+    emqx_bridge_v2_kafka_producer_SUITE:?FUNCTION_NAME(Config).
+
+t_channel_health_check_timeout_status(Config) when is_list(Config) ->
+    emqx_bridge_v2_kafka_producer_SUITE:?FUNCTION_NAME(Config).

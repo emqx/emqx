@@ -84,7 +84,10 @@ init_per_suite(Config) ->
         {kafka_host, KafkaHost},
         {kafka_port, KafkaPort},
         {direct_kafka_host, DirectKafkaHost},
-        {direct_kafka_port, DirectKafkaPort}
+        {direct_kafka_port, DirectKafkaPort},
+        {bridge_kind, action},
+        {connector_type, ?TYPE},
+        {action_type, ?TYPE}
         | Config
     ].
 
@@ -102,6 +105,20 @@ init_per_testcase(t_ancient_v1_config_migration_with_local_topic = TestCase, Con
 init_per_testcase(t_ancient_v1_config_migration_without_local_topic = TestCase, Config) ->
     Cluster = setup_cluster_ancient_config(TestCase, Config, #{with_local_topic => false}),
     [{cluster, Cluster} | Config];
+init_per_testcase(TestCase, Config) when
+    TestCase == t_resource_health_check_timeout_status;
+    TestCase == t_channel_health_check_timeout_status
+->
+    Name = atom_to_binary(TestCase),
+    ConnectorConfig = connector_config(),
+    ActionConfig = action_config(Name, #{}),
+    [
+        {connector_name, Name},
+        {connector_config, ConnectorConfig},
+        {action_name, Name},
+        {action_config, ActionConfig}
+        | Config
+    ];
 init_per_testcase(_TestCase, Config) ->
     Config.
 
@@ -329,6 +346,9 @@ toxiproxy_bootstrap_hosts(Config) ->
     Port = ?config(kafka_port, Config),
     iolist_to_binary([Host, ":", integer_to_binary(Port)]).
 
+get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+get_config(K, TCConfig, Default) -> proplists:get_value(K, TCConfig, Default).
+
 create_connector(Name, Config) ->
     Res = emqx_connector:create(?TYPE, Name, Config),
     on_exit(fun() -> emqx_connector:remove(?TYPE, Name) end),
@@ -336,6 +356,9 @@ create_connector(Name, Config) ->
 
 create_connector_api(ConnectorParams) ->
     simplify_result(emqx_bridge_v2_testlib:create_connector_api(ConnectorParams)).
+
+create_connector_api(ConnectorParams, Overrides) ->
+    simplify_result(emqx_bridge_v2_testlib:create_connector_api(ConnectorParams, Overrides)).
 
 create_action(Name, Config) ->
     Res = emqx_bridge_v2_testlib:create_kind_api([
@@ -346,6 +369,11 @@ create_action(Name, Config) ->
     ]),
     on_exit(fun() -> emqx_bridge_v2:remove(?TYPE, Name) end),
     Res.
+
+create_action_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
+    ).
 
 bridge_api_spec_props_for_get() ->
     #{
@@ -1875,6 +1903,63 @@ t_msk_iam_authn(Config) ->
                     {_, {_, token_callback, _}, {ok, #{token := B}}}
                 ] when A /= B,
                 meck:history(emqx_bridge_kafka_msk_iam_authn)
+            )
+        end
+    ),
+    ok.
+
+%% Verifies that, if the connector health check times out, it goes to `connecting` instead of
+%% the usual `disconnected`, so we don't recreate the state and its replayq.
+t_resource_health_check_timeout_status(TCConfig) when is_list(TCConfig) ->
+    {ok, ConnectorType} = emqx_utils:safe_to_existing_atom(get_config(connector_type, TCConfig)),
+    Mod = emqx_connector_info:resource_callback_module(ConnectorType),
+    emqx_common_test_helpers:with_mock(
+        Mod,
+        on_get_status,
+        fun(ConnResId, ConnState) ->
+            ct:sleep(300),
+            meck:passthrough([ConnResId, ConnState])
+        end,
+        fun() ->
+            ?assertMatch(
+                {201, #{
+                    <<"status">> := <<"connecting">>,
+                    <<"status_reason">> := <<"resource_health_check_timed_out">>
+                }},
+                create_connector_api(TCConfig, #{
+                    <<"resource_opts">> => #{
+                        <<"health_check_timeout">> => <<"100ms">>
+                    }
+                })
+            )
+        end
+    ),
+    ok.
+
+%% Verifies that, if the action health check times out, it goes to `connecting` instead of
+%% the usual `disconnected`, so we don't recreate the state and its replayq.
+t_channel_health_check_timeout_status(TCConfig) when is_list(TCConfig) ->
+    {ok, ConnectorType} = emqx_utils:safe_to_existing_atom(get_config(connector_type, TCConfig)),
+    Mod = emqx_connector_info:resource_callback_module(ConnectorType),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    emqx_common_test_helpers:with_mock(
+        Mod,
+        on_get_channel_status,
+        fun(ConnResId, ChanId, ConnState) ->
+            ct:sleep(300),
+            meck:passthrough([ConnResId, ChanId, ConnState])
+        end,
+        fun() ->
+            ?assertMatch(
+                {201, #{
+                    <<"status">> := <<"connecting">>,
+                    <<"status_reason">> := <<"channel_health_check_timed_out">>
+                }},
+                create_action_api(TCConfig, #{
+                    <<"resource_opts">> => #{
+                        <<"health_check_timeout">> => <<"100ms">>
+                    }
+                })
             )
         end
     ),

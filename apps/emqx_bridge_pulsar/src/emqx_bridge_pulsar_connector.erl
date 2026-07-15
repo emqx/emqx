@@ -11,6 +11,8 @@
 %% `emqx_resource' API
 -export([
     resource_type/0,
+    resource_health_check_timeout_status/0,
+    channel_health_check_timeout_status/0,
     callback_mode/0,
     query_mode/1,
     query_opts/1,
@@ -62,6 +64,10 @@
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------
 resource_type() -> pulsar.
+
+resource_health_check_timeout_status() -> ?status_connecting.
+
+channel_health_check_timeout_status() -> ?status_connecting.
 
 callback_mode() -> async_if_possible.
 

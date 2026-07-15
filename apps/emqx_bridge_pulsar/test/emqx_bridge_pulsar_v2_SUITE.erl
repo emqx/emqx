@@ -157,6 +157,9 @@ common_init_per_testcase(TestCase, Config0) ->
 %% Helper fns
 %%------------------------------------------------------------------------------
 
+get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+get_config(K, TCConfig, Default) -> proplists:get_value(K, TCConfig, Default).
+
 create_connector(Config) ->
     {201, _} = create_connector_api([
         {connector_type, ?TYPE},
@@ -1132,4 +1135,61 @@ t_expired_rule_metrics(Config) when is_list(Config) ->
         )
     ),
 
+    ok.
+
+%% Verifies that, if the connector health check times out, it goes to `connecting` instead of
+%% the usual `disconnected`, so we don't recreate the state and its replayq.
+t_resource_health_check_timeout_status(TCConfig) when is_list(TCConfig) ->
+    {ok, ConnectorType} = emqx_utils:safe_to_existing_atom(get_config(connector_type, TCConfig)),
+    Mod = emqx_connector_info:resource_callback_module(ConnectorType),
+    emqx_common_test_helpers:with_mock(
+        Mod,
+        on_get_status,
+        fun(ConnResId, ConnState) ->
+            ct:sleep(300),
+            meck:passthrough([ConnResId, ConnState])
+        end,
+        fun() ->
+            ?assertMatch(
+                {201, #{
+                    <<"status">> := <<"connecting">>,
+                    <<"status_reason">> := <<"resource_health_check_timed_out">>
+                }},
+                create_connector_api(TCConfig, #{
+                    <<"resource_opts">> => #{
+                        <<"health_check_timeout">> => <<"100ms">>
+                    }
+                })
+            )
+        end
+    ),
+    ok.
+
+%% Verifies that, if the action health check times out, it goes to `connecting` instead of
+%% the usual `disconnected`, so we don't recreate the state and its replayq.
+t_channel_health_check_timeout_status(TCConfig) when is_list(TCConfig) ->
+    {ok, ConnectorType} = emqx_utils:safe_to_existing_atom(get_config(connector_type, TCConfig)),
+    Mod = emqx_connector_info:resource_callback_module(ConnectorType),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    emqx_common_test_helpers:with_mock(
+        Mod,
+        on_get_channel_status,
+        fun(ConnResId, ChanId, ConnState) ->
+            ct:sleep(300),
+            meck:passthrough([ConnResId, ChanId, ConnState])
+        end,
+        fun() ->
+            ?assertMatch(
+                {201, #{
+                    <<"status">> := <<"connecting">>,
+                    <<"status_reason">> := <<"channel_health_check_timed_out">>
+                }},
+                create_action_api(TCConfig, #{
+                    <<"resource_opts">> => #{
+                        <<"health_check_timeout">> => <<"100ms">>
+                    }
+                })
+            )
+        end
+    ),
     ok.
