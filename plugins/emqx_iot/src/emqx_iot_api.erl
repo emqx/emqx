@@ -12,7 +12,7 @@
 -include("emqx_iot.hrl").
 
 handle(get, [<<"metrics">>], _Request) ->
-    Body = emqx_iot_metrics:prometheus_export(),
+    Body = emqx_iot_metrics:collect(),
     {ok, 200, #{<<"content-type">> => <<"text/plain; version=0.0.4">>}, Body};
 handle(post, [<<"pub">>], Request) ->
     Body = maps:get(body, Request, #{}),

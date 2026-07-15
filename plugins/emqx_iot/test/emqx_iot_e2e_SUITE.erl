@@ -29,12 +29,9 @@ init_per_suite(Config) ->
     ok = emqx_iot:init_tables(),
     init_test_config(),
     ok = emqx_iot:hook(),
-    _ =
-        try
-            ets:new(iot_mq_counters, [named_table, public, set, {write_concurrency, true}])
-        catch
-            _:_ -> ok
-        end,
+    _ = application:ensure_all_started(prometheus),
+    emqx_iot_metrics:init(),
+    _ = try ets:new(iot_mq_msg_index, [named_table, public, set, {keypos, 1}, {read_concurrency, true}, {write_concurrency, true}]) catch _:_ -> ok end,
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -52,7 +49,9 @@ init_test_config() ->
         batch_topic => <<"/${productKey}/${deviceName}/user/get">>
     }).
 
-init_per_testcase(_Case, Config) -> Config.
+init_per_testcase(_Case, Config) ->
+    _ = try ets:new(iot_mq_msg_index, [named_table, public, set, {keypos, 1}, {read_concurrency, true}, {write_concurrency, true}]) catch _:_ -> ok end,
+    Config.
 end_per_testcase(_Case, _Config) -> ok.
 
 %% helpers — follow emqx_broker_SUITE exactly

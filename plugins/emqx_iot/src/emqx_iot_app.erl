@@ -14,6 +14,7 @@ start(_StartType, _StartArgs) ->
     ok = emqx_iot_config:load(),
     ok = emqx_iot_metrics:init(),
     ok = emqx_iot:init_tables(),
+    ok = emqx_iot:rebuild_index(),
     ok = emqx_iot:hook(),
     {ok, Sup}.
 

@@ -116,36 +116,36 @@ create_delivery(
         response_topic_template = ResponseTemplate
     },
     {atomic, ok} = mnesia:transaction(fun() ->
-        mnesia:write(Delivery),
-        lists:foreach(
-            fun(DN) ->
-                Key = {ProductKey, DN},
-                case mnesia:wread({iot_mq_msg_index, Key}) of
-                    [#iot_mq_msg_index{delivery_ids = Ids} = Idx] ->
-                        mnesia:write(Idx#iot_mq_msg_index{delivery_ids = Ids ++ [DeliveryId]});
-                    [] ->
-                        mnesia:write(#iot_mq_msg_index{key = Key, delivery_ids = [DeliveryId]})
-                end
-            end,
-            DeviceNames
-        )
+        mnesia:write(Delivery)
     end),
+    lists:foreach(
+        fun(DN) ->
+            Key = {ProductKey, DN},
+            case ets:lookup(iot_mq_msg_index, Key) of
+                [#iot_mq_msg_index{delivery_ids = Ids}] ->
+                    ets:insert(iot_mq_msg_index, #iot_mq_msg_index{key = Key, delivery_ids = [DeliveryId | Ids]});
+                [] ->
+                    ets:insert(iot_mq_msg_index, #iot_mq_msg_index{key = Key, delivery_ids = [DeliveryId]})
+            end
+        end,
+        DeviceNames
+    ),
     Delivery.
 
 process_ack(ProductKey, DeviceName, DeliveryId) ->
     Key = {ProductKey, DeviceName},
-    mnesia:transaction(fun() ->
-        case mnesia:wread({iot_mq_msg_index, Key}) of
-            [#iot_mq_msg_index{delivery_ids = Ids}] ->
-                case lists:member(DeliveryId, Ids) of
-                    true ->
-                        NewIds = Ids -- [DeliveryId],
-                        case NewIds of
-                            [] ->
-                                mnesia:delete({iot_mq_msg_index, Key});
-                            _ ->
-                                mnesia:write(#iot_mq_msg_index{key = Key, delivery_ids = NewIds})
-                        end,
+    case ets:lookup(iot_mq_msg_index, Key) of
+        [#iot_mq_msg_index{delivery_ids = Ids}] ->
+            case lists:member(DeliveryId, Ids) of
+                true ->
+                    NewIds = Ids -- [DeliveryId],
+                    case NewIds of
+                        [] ->
+                            ets:delete(iot_mq_msg_index, Key);
+                        _ ->
+                            ets:insert(iot_mq_msg_index, #iot_mq_msg_index{key = Key, delivery_ids = NewIds})
+                    end,
+                    mnesia:transaction(fun() ->
                         case mnesia:wread({iot_mq_msg, DeliveryId}) of
                             [#iot_mq_msg{counter = C, target_ack_count = T} = D] ->
                                 NewC = C + 1,
@@ -157,17 +157,17 @@ process_ack(ProductKey, DeviceName, DeliveryId) ->
                                 end;
                             [] ->
                                 ok
-                        end;
-                    false ->
-                        ok
-                end;
-            [] ->
-                ok
-        end
-    end).
+                        end
+                    end);
+                false ->
+                    ok
+            end;
+        [] ->
+            ok
+    end.
 
 get_device_deliveries({ProductKey, DeviceName}) ->
-    case mnesia:dirty_read(iot_mq_msg_index, {ProductKey, DeviceName}) of
+    case ets:lookup(iot_mq_msg_index, {ProductKey, DeviceName}) of
         [#iot_mq_msg_index{delivery_ids = Ids}] ->
             {ok, Ids};
         [] ->
@@ -192,28 +192,26 @@ cleanup_expired_deliveries(Now) ->
     lists:foreach(
         fun(#iot_mq_msg{delivery_id = Did, device_names = DNs, product_key = PK}) ->
             mnesia:transaction(fun() ->
-                mnesia:delete({iot_mq_msg, Did}),
-                lists:foreach(
-                    fun(DN) ->
-                        Key = {PK, DN},
-                        case mnesia:wread({iot_mq_msg_index, Key}) of
-                            [#iot_mq_msg_index{delivery_ids = Ids}] ->
-                                NewIds = Ids -- [Did],
-                                case NewIds of
-                                    [] ->
-                                        mnesia:delete({iot_mq_msg_index, Key});
-                                    _ ->
-                                        mnesia:write(#iot_mq_msg_index{
-                                            key = Key, delivery_ids = NewIds
-                                        })
-                                end;
-                            [] ->
-                                ok
-                        end
-                    end,
-                    DNs
-                )
-            end)
+                mnesia:delete({iot_mq_msg, Did})
+            end),
+            lists:foreach(
+                fun(DN) ->
+                    Key = {PK, DN},
+                    case ets:lookup(iot_mq_msg_index, Key) of
+                        [#iot_mq_msg_index{delivery_ids = Ids}] ->
+                            NewIds = Ids -- [Did],
+                            case NewIds of
+                                [] ->
+                                    ets:delete(iot_mq_msg_index, Key);
+                                _ ->
+                                    ets:insert(iot_mq_msg_index, #iot_mq_msg_index{key = Key, delivery_ids = NewIds})
+                            end;
+                        [] ->
+                            ok
+                    end
+                end,
+                DNs
+            )
         end,
         Expired
     ).

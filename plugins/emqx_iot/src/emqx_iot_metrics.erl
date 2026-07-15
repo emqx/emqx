@@ -3,128 +3,120 @@
 %%--------------------------------------------------------------------
 -module(emqx_iot_metrics).
 
--export([
-    init/0,
-    inc_batch_pub_qos0_in/0,
-    inc_batch_pub_qos0_error/0,
-    inc_qos0_targeted/1,
-    inc_qos0_delivered/0,
-    inc_qos0_skipped/0,
-    inc_batch_pub_qos1_in/0,
-    inc_batch_pub_qos1_error/0,
-    inc_batch_pub_qos1_incomplete/0,
-    inc_qos1_delivered_inline/0,
-    inc_qos1_stored_offline/0,
-    inc_broadcast_pub_in/0,
-    inc_broadcast_pub_error/0,
-    inc_broadcast_devices_online/1,
-    inc_broadcast_delivery_count/0,
-    inc_register_message_in/0,
-    inc_register_message_refresh/0,
-    inc_register_message_error/0,
-    inc_msg_acked/0,
-    inc_msg_replayed/0,
-    inc_msg_error/0,
-    inc_msg_incomplete/0,
-    inc_msg_succeed/0,
-    inc_msg_wanted/1,
-    set_msg_pending/1,
-    prometheus_export/0
-]).
+-export([init/0, ensure/0]).
 
--define(TAB, iot_mq_counters).
+%% counters
+-export([inc_batch_pub_qos0_in/0, inc_batch_pub_qos0_targeted/1,
+         inc_batch_pub_qos0_delivered/0, inc_batch_pub_qos0_skipped/0,
+         inc_batch_pub_qos0_error/0]).
+
+-export([inc_batch_pub_qos1_in/0, inc_batch_pub_qos1_error/0,
+         inc_batch_pub_qos1_succeed/0, inc_batch_pub_qos1_incomplete/0,
+         inc_qos1_delivered_inline/0, inc_qos1_stored_offline/0,
+         inc_msg_wanted/1, inc_msg_acked/0, inc_msg_replayed/0,
+         inc_msg_error/0, inc_msg_incomplete/0]).
+
+-export([inc_broadcast_in/0, inc_broadcast_devices_online/1,
+         inc_broadcast_delivery_count/1, inc_broadcast_error/0]).
+
+-export([inc_register_message_in/0, inc_register_message_refresh/0,
+         inc_register_message_error/0]).
+
+%% backward-compat aliases used by batch_pub.erl
+-export([inc_qos0_targeted/1, inc_qos0_delivered/0, inc_qos0_skipped/0]).
+
+%% gauge
+-export([inc_pending/1, dec_pending/1, set_pending/1]).
+
+%% prometheus export
+-export([collect/0, name/1]).
+
+-include("emqx_iot.hrl").
+
+-define(NS, <<"iot_mq">>).
 
 init() ->
-    catch ets:new(?TAB, [named_table, public, set, {write_concurrency, true}]),
-    AllMetrics = [
-        'batch_pub_qos0_in',
-        'batch_pub_qos0_error',
-        'batch_pub_qos0_targeted',
-        'batch_pub_qos0_delivered',
-        'batch_pub_qos0_skipped',
-        'batch_pub_qos1_in',
-        'batch_pub_qos1_error',
-        'batch_pub_qos1_incomplete',
-        'batch_pub_qos1_delivered_inline',
-        'batch_pub_qos1_stored_offline',
-        'broadcast_pub_in',
-        'broadcast_pub_error',
-        'broadcast_pub_devices_online',
-        'broadcast_pub_delivery_count',
-        'register_message_in',
-        'register_message_refresh',
-        'register_message_error',
-        'batch_pub_qos1_msg_wanted',
-        'batch_pub_qos1_msg_succeed',
-        'batch_pub_qos1_msg_acked',
-        'batch_pub_qos1_msg_replayed',
-        'batch_pub_qos1_msg_error',
-        'batch_pub_qos1_msg_incomplete',
-        'batch_pub_qos1_msg_pending'
-    ],
-    [ets:insert(?TAB, {M, 0, 0}) || M <- AllMetrics, ets:lookup(?TAB, M) =:= []],
+    declare_counters(),
+    declare_gauges(),
     ok.
 
-inc(Name) -> inc(Name, 1).
-inc(Name, N) ->
-    ensure_table(),
-    ets:update_counter(?TAB, Name, {2, N}, {Name, 0, 0}).
+ensure() -> init().
 
-set(Name, Val) ->
-    ensure_table(),
-    ets:insert(?TAB, {Name, Val, 0}).
-
-ensure_table() ->
-    case ets:info(?TAB) of
-        undefined -> ets:new(?TAB, [named_table, public, set, {write_concurrency, true}]);
-        _ -> ok
-    end.
-
-prometheus_export() ->
-    Lines = [
-        [
-            io_lib:format("# TYPE iot_mq_~s counter\n", [safe(Name)]),
-            io_lib:format("iot_mq_~s ~w\n", [safe(Name), get_val(Name)])
-        ]
-     || {Name, _Val, _} <- ets:tab2list(?TAB), Name =/= total
+declare_counters() ->
+    Cs = [
+        {<<"batch_pub_qos0_in">>, <<"BatchPub QoS=0 API requests">>},
+        {<<"batch_pub_qos0_targeted">>, <<"QoS=0 devices targeted">>},
+        {<<"batch_pub_qos0_delivered">>, <<"QoS=0 devices delivered">>},
+        {<<"batch_pub_qos0_skipped">>, <<"QoS=0 devices skipped">>},
+        {<<"batch_pub_qos0_error">>, <<"QoS=0 API errors">>},
+        {<<"batch_pub_qos1_in">>, <<"BatchPub QoS=1 API requests">>},
+        {<<"batch_pub_qos1_error">>, <<"QoS=1 API errors">>},
+        {<<"batch_pub_qos1_succeed">>, <<"QoS=1 API success">>},
+        {<<"batch_pub_qos1_incomplete">>, <<"QoS=1 incomplete">>},
+        {<<"batch_pub_qos1_delivered_inline">>, <<"QoS=1 inline deliveries">>},
+        {<<"batch_pub_qos1_stored_offline">>, <<"QoS=1 stored for offline">>},
+        {<<"batch_pub_qos1_msg_wanted">>, <<"QoS=1 total wanted acks">>},
+        {<<"batch_pub_qos1_msg_acked">>, <<"QoS=1 acks received">>},
+        {<<"batch_pub_qos1_msg_replayed">>, <<"QoS=1 replayed on reconnect">>},
+        {<<"batch_pub_qos1_msg_error">>, <<"QoS=1 delivery errors">>},
+        {<<"batch_pub_qos1_msg_incomplete">>, <<"QoS=1 delivery incomplete">>},
+        {<<"broadcast_pub_in">>, <<"PubBroadcast API requests">>},
+        {<<"broadcast_pub_devices_online">>, <<"PubBroadcast devices online">>},
+        {<<"broadcast_pub_delivery_count">>, <<"PubBroadcast deliveries">>},
+        {<<"broadcast_pub_error">>, <<"PubBroadcast errors">>},
+        {<<"broadcast_pub_succeed">>, <<"PubBroadcast success">>},
+        {<<"register_message_in">>, <<"RegisterMessage API requests">>},
+        {<<"register_message_refresh">>, <<"RegisterMessage TTL refresh">>},
+        {<<"register_message_error">>, <<"RegisterMessage errors">>}
     ],
-    iolist_to_binary(lists:append(Lines)).
+    [try prometheus_counter:declare([{name, name(N)}, {help, H}]) catch _:_ -> ok end || {N, H} <- Cs].
 
-get_val(Name) ->
-    try
-        ets:lookup_element(?TAB, Name, 2)
-    catch
-        _:_ -> 0
-    end.
+declare_gauges() ->
+    try prometheus_gauge:declare([{name, name(<<"batch_pub_qos1_msg_pending">>)}, {help, <<"QoS=1 pending deliveries (water level)">>}]) catch _:_ -> ok end.
 
-safe(Name) when is_atom(Name) ->
-    binary:replace(atom_to_binary(Name, utf8), <<".">>, <<"_">>, [global]);
-safe(Name) ->
-    Name.
+name(Suffix) -> <<?NS/binary, "_", Suffix/binary>>.
 
-%% ── API ──
+%% counter helpers
+c(Name) -> try prometheus_counter:inc(name(Name)) catch _:_ -> ok end.
+c(Name, N) -> try prometheus_counter:inc(name(Name), N) catch _:_ -> ok end.
 
-inc_batch_pub_qos0_in() -> inc('batch_pub_qos0_in').
-inc_batch_pub_qos0_error() -> inc('batch_pub_qos0_error').
-inc_qos0_targeted(N) -> inc('batch_pub_qos0_targeted', N).
-inc_qos0_delivered() -> inc('batch_pub_qos0_delivered').
-inc_qos0_skipped() -> inc('batch_pub_qos0_skipped').
-inc_batch_pub_qos1_in() -> inc('batch_pub_qos1_in').
-inc_batch_pub_qos1_error() -> inc('batch_pub_qos1_error').
-inc_batch_pub_qos1_incomplete() -> inc('batch_pub_qos1_incomplete').
-inc_qos1_delivered_inline() -> inc('batch_pub_qos1_delivered_inline').
-inc_qos1_stored_offline() -> inc('batch_pub_qos1_stored_offline').
-inc_broadcast_pub_in() -> inc('broadcast_pub_in').
-inc_broadcast_pub_error() -> inc('broadcast_pub_error').
-inc_broadcast_devices_online(N) -> inc('broadcast_pub_devices_online', N).
-inc_broadcast_delivery_count() -> inc('broadcast_pub_delivery_count').
-inc_register_message_in() -> inc('register_message_in').
-inc_register_message_refresh() -> inc('register_message_refresh').
-inc_register_message_error() -> inc('register_message_error').
-inc_msg_acked() -> inc('batch_pub_qos1_msg_acked').
-inc_msg_replayed() -> inc('batch_pub_qos1_msg_replayed').
-inc_msg_error() -> inc('batch_pub_qos1_msg_error').
-inc_msg_incomplete() -> inc('batch_pub_qos1_msg_incomplete').
-inc_msg_succeed() -> inc('batch_pub_qos1_msg_succeed').
-inc_msg_wanted(N) -> inc('batch_pub_qos1_msg_wanted', N).
-set_msg_pending(N) -> set('batch_pub_qos1_msg_pending', N).
+inc_batch_pub_qos0_in() -> c(<<"batch_pub_qos0_in">>).
+inc_batch_pub_qos0_targeted(N) -> c(<<"batch_pub_qos0_targeted">>, N).
+inc_batch_pub_qos0_delivered() -> c(<<"batch_pub_qos0_delivered">>).
+inc_batch_pub_qos0_skipped() -> c(<<"batch_pub_qos0_skipped">>).
+inc_batch_pub_qos0_error() -> c(<<"batch_pub_qos0_error">>).
+
+inc_batch_pub_qos1_in() -> c(<<"batch_pub_qos1_in">>).
+inc_batch_pub_qos1_error() -> c(<<"batch_pub_qos1_error">>).
+inc_batch_pub_qos1_succeed() -> c(<<"batch_pub_qos1_succeed">>).
+inc_batch_pub_qos1_incomplete() -> c(<<"batch_pub_qos1_incomplete">>).
+inc_qos1_delivered_inline() -> c(<<"batch_pub_qos1_delivered_inline">>).
+inc_qos1_stored_offline() -> c(<<"batch_pub_qos1_stored_offline">>).
+inc_msg_wanted(N) -> c(<<"batch_pub_qos1_msg_wanted">>, N).
+inc_msg_acked() -> c(<<"batch_pub_qos1_msg_acked">>).
+inc_msg_replayed() -> c(<<"batch_pub_qos1_msg_replayed">>).
+inc_msg_error() -> c(<<"batch_pub_qos1_msg_error">>).
+inc_msg_incomplete() -> c(<<"batch_pub_qos1_msg_incomplete">>).
+
+inc_broadcast_in() -> c(<<"broadcast_pub_in">>).
+inc_broadcast_devices_online(N) -> c(<<"broadcast_pub_devices_online">>, N).
+inc_broadcast_delivery_count(N) -> c(<<"broadcast_pub_delivery_count">>, N).
+inc_broadcast_error() -> c(<<"broadcast_pub_error">>).
+
+inc_register_message_in() -> c(<<"register_message_in">>).
+inc_register_message_refresh() -> c(<<"register_message_refresh">>).
+inc_register_message_error() -> c(<<"register_message_error">>).
+
+%% backward-compat
+inc_qos0_targeted(N) -> inc_batch_pub_qos0_targeted(N).
+inc_qos0_delivered() -> inc_batch_pub_qos0_delivered().
+inc_qos0_skipped() -> inc_batch_pub_qos0_skipped().
+
+%% gauge
+inc_pending(N) -> try prometheus_gauge:inc(name(<<"batch_pub_qos1_msg_pending">>), N) catch _:_ -> ok end.
+dec_pending(N) -> try prometheus_gauge:dec(name(<<"batch_pub_qos1_msg_pending">>), N) catch _:_ -> ok end.
+set_pending(N) -> try prometheus_gauge:set(name(<<"batch_pub_qos1_msg_pending">>), N) catch _:_ -> ok end.
+
+%% export
+collect() ->
+    try prometheus_text_format:format() catch _:_ -> <<>> end.

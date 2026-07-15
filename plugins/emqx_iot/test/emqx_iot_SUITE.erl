@@ -24,12 +24,8 @@ init_per_suite(Config) ->
     ),
     ok = emqx_iot:init_tables(),
     init_test_config(),
-    _ =
-        try
-            ets:new(iot_mq_counters, [named_table, public, set, {write_concurrency, true}])
-        catch
-            _:_ -> ok
-        end,
+    _ = application:ensure_all_started(prometheus),
+    emqx_iot_metrics:init(),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -39,9 +35,11 @@ init_per_testcase(_Case, Config) ->
     [
         mnesia:clear_table(T)
      || T <- [
-            iot_mq_msg, iot_mq_msg_index, iot_mq_message, iot_mq_message_hash, iot_mq_message_api_id
+            iot_mq_msg, iot_mq_message, iot_mq_message_hash, iot_mq_message_api_id
         ]
     ],
+    catch emqx_iot:init_tables(),
+    catch ets:delete_all_objects(iot_mq_msg_index),
     Config.
 
 end_per_testcase(_Case, _Config) ->
@@ -484,9 +482,10 @@ t_broadcast_invalid_base64(_Config) ->
 
 metric(Name) ->
     try
-        ets:lookup_element(iot_mq_counters, Name, 2)
+        prometheus_counter:value(emqx_iot_metrics:name(Name))
     catch
-        _:_ -> 0
+        _:_ ->
+            try ets:lookup_element(iot_mq_counters, Name, 2) catch _:_ -> 0 end
     end.
 
 t_metrics_qos0_targeted(_Config) ->
