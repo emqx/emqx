@@ -385,14 +385,35 @@ directly_get_field(Key, Field) ->
 %%------------------------------------------------------------------------------
 
 t_connector_client_imds(_Config) ->
+    TestPid = self(),
+    CredentialGeneration = atomics:new(1, []),
     meck:new(erlcloud_aws, [passthrough, no_link]),
-    meck:expect(erlcloud_aws, update_config, fun(AWSConfig) ->
-        {ok, AWSConfig#aws_config{
-            access_key_id = "imds_key",
-            secret_access_key = "imds_secret",
-            security_token = "imds_token"
-        }}
-    end),
+    meck:new(erlcloud_httpc, [passthrough, no_link]),
+    meck:expect(
+        erlcloud_aws,
+        update_config,
+        fun
+            (AWSConfig = #aws_config{access_key_id = AccessKeyID}) when
+                AccessKeyID =:= undefined; AccessKeyID =:= []
+            ->
+                Generation = atomics:add_get(CredentialGeneration, 1, 1),
+                {ok, AWSConfig#aws_config{
+                    access_key_id = "imds_key_" ++ integer_to_list(Generation),
+                    secret_access_key = "imds_secret_" ++ integer_to_list(Generation),
+                    security_token = "imds_token_" ++ integer_to_list(Generation)
+                }};
+            (AWSConfig) ->
+                {ok, AWSConfig}
+        end
+    ),
+    meck:expect(
+        erlcloud_httpc,
+        request,
+        fun(_URL, post, Headers, _Body, _Timeout, _AWSConfig) ->
+            TestPid ! {ddb_request_headers, Headers},
+            {ok, {{200, "OK"}, [], <<"{\"TableNames\":[]}">>}}
+        end
+    ),
     try
         {ok, Pid} = emqx_bridge_dynamo_connector_client:start_link(#{
             host => "127.0.0.1",
@@ -401,9 +422,25 @@ t_connector_client_imds(_Config) ->
         }),
         ?assert(is_pid(Pid)),
         ?assert(erlang:is_process_alive(Pid)),
-        ?assert(meck:called(erlcloud_aws, update_config, ['_'])),
+        ?assertEqual(true, emqx_bridge_dynamo_connector_client:is_connected(Pid, 5_000)),
+        receive
+            {ddb_request_headers, Headers} ->
+                Authorization = proplists:get_value("Authorization", Headers),
+                ?assertNotEqual(
+                    nomatch,
+                    string:find(Authorization, "Credential=imds_key_2/")
+                ),
+                ?assertEqual(
+                    "imds_token_2",
+                    proplists:get_value("x-amz-security-token", Headers)
+                )
+        after 1_000 ->
+            ct:fail(ddb_request_not_received)
+        end,
+        ?assertEqual(2, atomics:get(CredentialGeneration, 1)),
         gen_server:stop(Pid)
     after
+        meck:unload(erlcloud_httpc),
         meck:unload(erlcloud_aws)
     end.
 
