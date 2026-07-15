@@ -14,6 +14,22 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 t_valid_full_config(_Config) ->
     ?assertMatch({ok, _}, decode(sample_config())).
 
+t_unwrap_avro_union_record(_Config) ->
+    Value = #{<<"id">> => <<"x">>},
+    ?assertEqual(Value, emqx_agent_config:unwrap_union(#{<<"Message_Publish">> => Value})),
+    ?assertEqual(Value, emqx_agent_config:unwrap_union(#{<<"ConnectionPostgresql">> => Value})).
+
+t_do_not_unwrap_non_avro_union_record(_Config) ->
+    Value = #{<<"id">> => <<"x">>},
+    Invalid = [
+        #{<<"message_publish">> => Value},
+        #{<<"Message-Publish">> => Value},
+        #{<<"1Message">> => Value},
+        #{message_publish => Value},
+        #{<<"Message_Publish">> => <<"not-a-record">>}
+    ],
+    [?assertEqual(Map, emqx_agent_config:unwrap_union(Map)) || Map <- Invalid].
+
 t_publish_payload_schema_default_materialized(_Config) ->
     Publish0 = maps:get(<<"Message_Publish">>, publish_tool()),
     Publish = #{<<"Message_Publish">> => maps:remove(<<"payload_schema">>, Publish0)},

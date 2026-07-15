@@ -240,6 +240,7 @@ t_connections_crud(Config) ->
     Id = ?config(tc_id, Config),
 
     ?assertMatch({ok, 200, []}, api_get([agent, connections])),
+    ?assertMatch({ok, 400, _}, api_post([agent, connections], #{<<"id">> => Id})),
     ?assertMatch({ok, 201, _}, api_post([agent, connections], pg_conn_body(Id))),
 
     {ok, 200, Conn} = api_get([agent, connections, Id]),
@@ -353,7 +354,7 @@ t_tools_validation(_Config) ->
     %% Missing type field
     ?assertMatch(
         {ok, 400, _},
-        api_post([agent, tools], #{<<"id">> => <<"x">>, <<"desc">> => <<"x">>})
+        api_post([agent, tools], #{<<"id">> => <<"x">>})
     ),
 
     %% Unknown tool type
@@ -461,6 +462,10 @@ t_pipelines_crud(Config) ->
     ?assertMatch({ok, 404, _}, api_get([agent, pipelines, Id])).
 
 t_pipelines_validation(_Config) ->
+    ?assertMatch(
+        {ok, 400, _},
+        api_post([agent, pipelines], #{<<"pipeline_id">> => <<"x">>})
+    ),
     ?assertMatch(
         {ok, 400, _},
         api_post([agent, pipelines], #{

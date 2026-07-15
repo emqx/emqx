@@ -60,7 +60,7 @@ same external shape that was submitted by users.
 ]).
 
 -ifdef(TEST).
--export([avro_config_with_defaults/2, validate_config/1]).
+-export([avro_config_with_defaults/2, unwrap_union/1, validate_config/1]).
 -endif.
 
 -define(CONFIG_KEY, {?MODULE, parsed_config}).
@@ -611,8 +611,6 @@ entries(Config, Section) when is_map(Config) ->
         _ -> []
     end.
 
-required_id(Conn) when is_map(Conn), map_size(Conn) =:= 1 ->
-    required_id(unwrap_union(Conn));
 required_id(#{?CONNECTION_ID := Id}) when is_binary(Id), Id =/= <<>> ->
     {ok, Id};
 required_id(#{?CONNECTION_ID := _}) ->
@@ -620,8 +618,6 @@ required_id(#{?CONNECTION_ID := _}) ->
 required_id(_) ->
     {error, {missing_field, ?CONNECTION_ID}}.
 
-required_tool_key(Tool) when is_map(Tool), map_size(Tool) =:= 1 ->
-    required_tool_key(unwrap_union(Tool));
 required_tool_key(#{?TOOL_TYPE := Type, ?TOOL_ID := ToolId}) when
     is_binary(Type), Type =/= <<>>, is_binary(ToolId), ToolId =/= <<>>
 ->
@@ -639,8 +635,6 @@ required_tool_key(#{?TOOL_TYPE := _}) ->
 required_tool_key(_) ->
     {error, {missing_field, ?TOOL_TYPE}}.
 
-required_pipeline_id(Pipeline) when is_map(Pipeline), map_size(Pipeline) =:= 1 ->
-    required_pipeline_id(unwrap_union(Pipeline));
 required_pipeline_id(#{?PIPELINE_ID := PipelineId}) when
     is_binary(PipelineId), PipelineId =/= <<>>
 ->
@@ -817,13 +811,33 @@ decode_json_schema_field(Field, Step) ->
 
 unwrap_union(Map) when is_map(Map), map_size(Map) =:= 1 ->
     case maps:to_list(Map) of
-        [{Key, Value}] when is_binary(Key), is_map(Value) ->
-            Value;
+        [{Key, Value}] when is_map(Value) ->
+            case is_avro_record_name(Key) of
+                true -> Value;
+                false -> Map
+            end;
         _ ->
             Map
     end;
 unwrap_union(Value) ->
     Value.
+
+is_avro_record_name(<<First, Rest/binary>>) when First >= $A, First =< $Z ->
+    is_avro_record_name_tail(Rest);
+is_avro_record_name(_) ->
+    false.
+
+is_avro_record_name_tail(<<>>) ->
+    true;
+is_avro_record_name_tail(<<Char, Rest/binary>>) when
+    (Char >= $A andalso Char =< $Z) orelse
+        (Char >= $a andalso Char =< $z) orelse
+        (Char >= $0 andalso Char =< $9) orelse
+        Char =:= $_
+->
+    is_avro_record_name_tail(Rest);
+is_avro_record_name_tail(_) ->
+    false.
 
 avro_to_plain([{Key, _Value} | _] = Fields) when is_binary(Key) ->
     maps:from_list([{K, avro_to_plain(V)} || {K, V} <- Fields]);
