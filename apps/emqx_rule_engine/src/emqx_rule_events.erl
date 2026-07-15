@@ -904,7 +904,11 @@ apply_event(NsContext, EventName, GenEventMsg, Conf) ->
     end.
 
 apply_event_namespaced(Namespace, EventName, GenEventMsg, _Conf) ->
-    case emqx_rule_engine:get_enriched_rules_with_matching_event(Namespace, EventName) of
+    case
+        emqx_rule_engine:get_enriched_rules_with_matching_event_including_global(
+            Namespace, EventName
+        )
+    of
         [] ->
             ok;
         EnrichedRules ->
@@ -1643,7 +1647,7 @@ get_limit_selects_in_namespace() ->
 
 resolve_ns({hook_context, EventName}) ->
     case emqx_hooks:context(EventName) of
-        #{namespace := Ns0} -> Ns0;
+        #{namespace := Ns0} when is_binary(Ns0) -> Ns0;
         _ -> ?global_ns
     end;
 resolve_ns(#message{} = Message) ->
