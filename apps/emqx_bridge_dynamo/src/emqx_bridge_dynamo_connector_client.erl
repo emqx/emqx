@@ -79,8 +79,10 @@ init(#{host := Host, port := Port, scheme := Scheme}) ->
         ddb_scheme = to_str(Scheme)
     },
     case erlcloud_aws:update_config(AWSConfig0) of
-        {ok, AWSConfig} ->
-            erlang:put(aws_config, AWSConfig),
+        {ok, _ResolvedConfig} ->
+            %% Keep the credential source unresolved so that each request can use
+            %% erlcloud's metadata cache and refresh temporary credentials before expiry.
+            erlang:put(aws_config, AWSConfig0),
             {ok, #{}};
         {error, Reason} ->
             {stop, {failed_to_obtain_credentials, Reason}}
