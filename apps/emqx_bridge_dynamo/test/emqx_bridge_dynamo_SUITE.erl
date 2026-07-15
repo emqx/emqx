@@ -39,6 +39,7 @@
 all() ->
     [
         t_connector_client_imds,
+        t_credentials_validator,
         {group, with_batch},
         {group, without_batch},
         {group, flaky}
@@ -50,7 +51,7 @@ groups() ->
     %% due to the poorly implemented driver or other reasons
     %% if we mix these cases with others, this suite will become flaky.
     Flaky = [t_get_status, t_write_failure],
-    TCs = (TCs0 -- Flaky) -- [t_connector_client_imds],
+    TCs = (TCs0 -- Flaky) -- [t_connector_client_imds, t_credentials_validator],
 
     [
         {with_batch, TCs},
@@ -96,11 +97,19 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
+init_per_testcase(TestCase, Config) when
+    TestCase =:= t_connector_client_imds; TestCase =:= t_credentials_validator
+->
+    Config;
 init_per_testcase(TestCase, Config) ->
     create_table(Config),
     ok = snabbkaffe:start_trace(),
     [{dynamo_name, atom_to_binary(TestCase)} | Config].
 
+end_per_testcase(TestCase, _Config) when
+    TestCase =:= t_connector_client_imds; TestCase =:= t_credentials_validator
+->
+    ok;
 end_per_testcase(_Testcase, Config) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
@@ -397,6 +406,27 @@ t_connector_client_imds(_Config) ->
     after
         meck:unload(erlcloud_aws)
     end.
+
+t_credentials_validator(_Config) ->
+    Validator = fun(Config) ->
+        emqx_bridge_dynamo_connector:credentials_validator(#{<<"dynamo">> => Config})
+    end,
+    ?assertEqual(ok, Validator(#{})),
+    ?assertEqual(
+        ok,
+        Validator(#{
+            <<"aws_access_key_id">> => <<"access_key">>,
+            <<"aws_secret_access_key">> => <<"secret_key">>
+        })
+    ),
+    ?assertMatch(
+        {error, _},
+        Validator(#{<<"aws_access_key_id">> => <<"access_key">>})
+    ),
+    ?assertMatch(
+        {error, _},
+        Validator(#{<<"aws_secret_access_key">> => <<"secret_key">>})
+    ).
 
 t_setup_via_config_and_publish(Config) ->
     ?assertNotEqual(undefined, get(aws_config)),

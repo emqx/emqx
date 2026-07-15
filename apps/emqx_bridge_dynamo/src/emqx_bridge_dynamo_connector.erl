@@ -32,7 +32,8 @@
 ]).
 
 -export([
-    connect/1
+    connect/1,
+    credentials_validator/1
 ]).
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
@@ -332,6 +333,23 @@ ensuare_dynamo_keys(_Query, _State) ->
 connect(Opts) ->
     Config = proplists:get_value(config, Opts),
     {ok, _Pid} = emqx_bridge_dynamo_connector_client:start_link(Config).
+
+credentials_validator(Configs) ->
+    Invalid = lists:any(
+        fun(Config) ->
+            credential_present(<<"aws_access_key_id">>, Config) xor
+                credential_present(<<"aws_secret_access_key">>, Config)
+        end,
+        maps:values(Configs)
+    ),
+    case Invalid of
+        false -> ok;
+        true -> {error, <<"aws_access_key_id and aws_secret_access_key must be provided together">>}
+    end.
+
+credential_present(Key, Config) ->
+    Value = maps:get(Key, Config, undefined),
+    Value =/= undefined andalso Value =/= <<>>.
 
 parse_template_from_conf(Config) ->
     Templates =
