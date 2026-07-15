@@ -5,7 +5,7 @@ defmodule EMQXGatewayLwm2m.MixProject do
   def project do
     [
       app: :emqx_gateway_lwm2m,
-      version: "6.1.1",
+      version: "6.1.2",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -24,6 +24,7 @@ defmodule EMQXGatewayLwm2m.MixProject do
   def deps() do
     UMP.deps([
       {:emqx, in_umbrella: true},
+      {:emqx_utils, in_umbrella: true},
       {:emqx_gateway, in_umbrella: true},
       {:emqx_gateway_coap, in_umbrella: true}
     ])

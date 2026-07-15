@@ -32,6 +32,7 @@
     get_rules_from_all_namespaces/0,
     get_rules_for_topic/1,
     get_enriched_rules_with_matching_event/2,
+    get_enriched_rules_with_matching_event_including_global/2,
     get_enriched_rules_with_matching_event_all_namespaces/1,
     get_rule_ids_by_action/1,
     get_rule_ids_by_bridge_action/2,
@@ -233,6 +234,15 @@ get_rules_from_all_namespaces() ->
 get_rules(Namespace) ->
     get_all_records(Namespace, ?RULE_TAB).
 
+get_rules_including_global(?global_ns) ->
+    get_rules(?global_ns);
+get_rules_including_global(Namespace) when is_binary(Namespace) ->
+    MS = [
+        {{?KEY(Namespace, '$1'), '$2'}, [], [['$1', '$2']]},
+        {{?KEY(?global_ns, '$1'), '$2'}, [], [['$1', '$2']]}
+    ],
+    [Rule#{id => Id} || [Id, Rule] <- ets:select(?RULE_TAB, MS)].
+
 get_rules_ordered_by_ts(Namespace) ->
     lists:sort(
         fun(#{created_at := CreatedA}, #{created_at := CreatedB}) ->
@@ -295,6 +305,19 @@ get_enriched_rules_with_matching_event(Namespace, EventName) ->
             matched => Topic
         }
      || Rule = #{from := Topics} <- get_rules(Namespace),
+        Topic <- Topics,
+        EventNameOther <- emqx_rule_events:match_event_names(Topic),
+        EventNameOther == EventName
+    ]).
+
+get_enriched_rules_with_matching_event_including_global(Namespace, EventName) ->
+    lists:usort([
+        #{
+            rule => Rule,
+            trigger => emqx_rule_events:event_topic(EventName),
+            matched => Topic
+        }
+     || Rule = #{from := Topics} <- get_rules_including_global(Namespace),
         Topic <- Topics,
         EventNameOther <- emqx_rule_events:match_event_names(Topic),
         EventNameOther == EventName

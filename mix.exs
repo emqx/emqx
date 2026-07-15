@@ -316,7 +316,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:parquer, github: "emqx/parquer", tag: "0.1.8", manager: :rebar3}
 
   def common_dep(:greptimedb),
-    do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.3-emqx.1"}
+    do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.5-emqx.1"}
 
   def common_dep(:greptimedb_rs),
     do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.12"}
