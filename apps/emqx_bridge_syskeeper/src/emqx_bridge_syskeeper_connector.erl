@@ -40,8 +40,7 @@
 
 -define(CONNECTOR_TYPE, syskeeper_forwarder).
 -define(SYSKEEPER_HOST_OPTIONS, #{
-    default_port => 9092,
-    ssrf_check => true
+    default_port => 9092
 }).
 
 -define(EXTRA_CALL_TIMEOUT, 2000).

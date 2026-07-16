@@ -55,8 +55,7 @@
 
 %% influxdb servers don't need parse
 -define(INFLUXDB_HOST_OPTIONS, #{
-    default_port => ?INFLUXDB_DEFAULT_PORT,
-    ssrf_check => true
+    default_port => ?INFLUXDB_DEFAULT_PORT
 }).
 
 -define(DEFAULT_TIMESTAMP_TMPL, "${timestamp}").

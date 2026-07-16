@@ -18,8 +18,7 @@
 -define(ACTION_TYPE_STREAM_BIN, <<"snowflake_streaming">>).
 
 -define(SERVER_OPTS, #{
-    default_port => 443,
-    ssrf_check => true
+    default_port => 443
 }).
 
 -define(AGGREG_SUP, emqx_bridge_snowflake_sup).

@@ -12,8 +12,7 @@
 -define(ACTION_TYPE_BIN, <<"couchbase">>).
 
 -define(SERVER_OPTIONS, #{
-    default_port => 8093,
-    ssrf_check => true
+    default_port => 8093
 }).
 
 %% END ifndef(__EMQX_BRIDGE_COUCHBASE_HRL__)
