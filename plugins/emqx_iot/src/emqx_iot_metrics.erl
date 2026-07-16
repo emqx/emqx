@@ -22,6 +22,8 @@
 -export([pending_set/1]).
 -export([collect/0]).
 
+-include("emqx_iot.hrl").
+
 -define(NS, <<"iot_mq">>).
 
 init() ->
@@ -88,18 +90,26 @@ declare_counters() ->
         {"register_message_refresh", "RegisterMessage TTL refresh"},
         {"register_message_error", "RegisterMessage errors"}
     ],
-    [prometheus_counter:declare([{name, mname(N)}, {help, list_to_binary(H)}]) || {N, H} <- Cs],
+    [
+        prometheus_counter:declare([
+            {registry, ?IOT_MQ_REGISTRY},
+            {name, mname(N)},
+            {help, list_to_binary(H)}
+        ])
+     || {N, H} <- Cs
+    ],
     ok.
 
 declare_gauges() ->
     prometheus_gauge:declare([
+        {registry, ?IOT_MQ_REGISTRY},
         {name, mname("batch_pub_qos1_pending")},
         {help, <<"QoS=1 pending deliveries (water level)">>}
     ]).
 
 %% helpers
-c(N) -> prometheus_counter:inc(mname(N)).
-c(N, V) -> prometheus_counter:inc(mname(N), V).
+c(N) -> prometheus_counter:inc(?IOT_MQ_REGISTRY, mname(N), [], 1).
+c(N, V) -> prometheus_counter:inc(?IOT_MQ_REGISTRY, mname(N), [], V).
 
 qos0_in() -> c("batch_pub_qos0_in").
 qos0_error() -> c("batch_pub_qos0_error").
@@ -129,6 +139,6 @@ register_in() -> c("register_message_in").
 register_refresh() -> c("register_message_refresh").
 register_error() -> c("register_message_error").
 
-pending_set(N) -> prometheus_gauge:set(mname("batch_pub_qos1_pending"), N).
+pending_set(N) -> prometheus_gauge:set(?IOT_MQ_REGISTRY, mname("batch_pub_qos1_pending"), [], N).
 
-collect() -> prometheus_text_format:format().
+collect() -> prometheus_text_format:format(?IOT_MQ_REGISTRY).

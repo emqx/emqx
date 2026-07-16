@@ -10,6 +10,7 @@
 
 -define(APP, emqx_iot).
 -define(IOT_DELIVERY_ID, iot_delivery_id).
+-define(IOT_MQ_REGISTRY, iot_mq).
 
 -record(iot_mq_message, {
     msg_id :: binary(),

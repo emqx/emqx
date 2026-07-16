@@ -484,7 +484,7 @@ t_broadcast_invalid_base64(_Config) ->
 
 metric(Name) ->
     try
-        prometheus_counter:value(mname(Name))
+        prometheus_counter:value(?IOT_MQ_REGISTRY, mname(Name), [])
     catch
         _:_ -> 0
     end.
