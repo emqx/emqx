@@ -135,7 +135,7 @@ fields(consumer) ->
                 emqx_schema:timeout_duration_s(),
                 #{
                     default => <<"60s">>,
-                    importance => ?IMPORTANCE_HIDDEN
+                    desc => ?DESC("consumer_ack_deadline")
                 }
             )},
         {ack_retry_interval,

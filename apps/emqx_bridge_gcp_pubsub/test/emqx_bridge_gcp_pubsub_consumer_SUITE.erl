@@ -26,7 +26,7 @@
 -define(SOURCE_TYPE, gcp_pubsub_consumer).
 -define(SOURCE_TYPE_BIN, <<"gcp_pubsub_consumer">>).
 
--define(PROXY_NAME, "gcp_emulator").
+-define(PROXY_NAME, "gcp_emulator_pubsub").
 -define(PROXY_HOST, "toxiproxy").
 -define(PROXY_PORT, 8474).
 
@@ -1167,6 +1167,46 @@ t_connection_timeout_before_starting(TCConfig) ->
             ok
         end,
         []
+    ),
+    ok.
+
+-doc """
+Checks that we attempt to cancel the stream when pull timeout is triggered.
+
+By cleanly cancelling the HTTP2 stream, we notify the GCP Pubsub server that the pull
+request was cancelled and (hopefully) relinquish the lease to the new pull request.
+""".
+t_timeout_during_pull(TCConfig) ->
+    ct:timetrap({seconds, 120}),
+    ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
+        begin
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {201, _} = create_source_api(TCConfig, #{}),
+            snabbkaffe:block_until(
+                ?match_event(#{?snk_kind := "gcp_consumer_worker_pull_timeout"}),
+                infinity,
+                0
+            ),
+            snabbkaffe:block_until(
+                ?match_event(#{
+                    ?snk_kind := gcp_pubsub_consumer_worker_pull_async, ?snk_span := {complete, _}
+                }),
+                infinity,
+                0
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assert(
+                ?strict_causality(
+                    #{?snk_kind := "gcp_consumer_worker_pull_timeout"},
+                    #{?snk_kind := "gcp_consumer_worker_pull_stream_cancelled"},
+                    Trace
+                )
+            ),
+            ok
+        end
     ),
     ok.
 
