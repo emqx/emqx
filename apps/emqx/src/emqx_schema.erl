@@ -3618,8 +3618,6 @@ do_parse_server(Str, Opts) ->
         false ->
             ok
     end,
-    %% do not split with space, there should be no space allowed between host and port
-    Tokens = string:tokens(Str, ":"),
     Context = #{
         not_expecting_port => NotExpectingPort,
         not_expecting_scheme => NotExpectingScheme,
@@ -3627,106 +3625,83 @@ do_parse_server(Str, Opts) ->
         default_scheme => DefaultScheme,
         opts => Opts
     },
-    Parsed = check_server_parts(Tokens, Context),
+    Parsed = check_server_parts(parse_server_uri(Str), Context),
     maybe_check_ssrf(Parsed, Opts),
     Parsed.
 
-check_server_parts([Scheme, "//" ++ Hostname, Port], Context) ->
-    #{
-        not_expecting_scheme := NotExpectingScheme,
-        not_expecting_port := NotExpectingPort,
-        opts := Opts
-    } = Context,
+%% @doc Split `[scheme://]host[:port]' via emqx_utils_uri:parse/1 (URI-aware, handles `[ipv6]').
+parse_server_uri(Str) ->
+    Bin = iolist_to_binary(Str),
+    %% parse/1 only sees host/port inside a `//' authority; add one when scheme-less.
+    URIString =
+        case binary:match(Bin, <<"//">>) of
+            nomatch -> <<"//", Bin/binary>>;
+            _ -> Bin
+        end,
+    #{scheme := Scheme, authority := Authority} = emqx_utils_uri:parse(URIString),
+    {uri_scheme(Scheme), Authority}.
+
+uri_scheme(undefined) -> undefined;
+uri_scheme(Scheme) -> binary_to_list(Scheme).
+
+%% parse/1 only splits; connector-specific validation and error reasons live here.
+check_server_parts({_Scheme, undefined}, _Context) ->
+    %% no authority parsed at all (e.g. empty input)
+    throw("bad_host_port");
+check_server_parts({Scheme, #{host_type := HostType, host := HostBin, port := Port}}, Context) ->
+    check_authority(Scheme, HostType, binary_to_list(HostBin), Port, Context).
+
+%% Empty host, e.g. ":1883" — keep the historical numeric-hostname error.
+check_authority(_Scheme, _HostType, "", Port, _Context) when is_integer(Port) ->
+    throw("expecting_hostname_but_got_a_number");
+check_authority(_Scheme, _HostType, "", _Port, _Context) ->
+    throw("bad_host_port");
+%% `loose' = stray colon that isn't a valid `:port' (e.g. "host:33x", "host:name:80").
+check_authority(_Scheme, loose, Host, Port, Context) ->
+    #{not_expecting_port := NotExpectingPort} = Context,
     NotExpectingPort andalso throw("not_expecting_port_number"),
-    NotExpectingScheme andalso throw("not_expecting_scheme"),
-    #{
-        scheme => check_scheme(Scheme, Opts),
-        hostname => check_hostname(Hostname),
-        port => parse_port_(Port)
-    };
-check_server_parts([Scheme, "//" ++ Hostname], Context) ->
+    case {Port, string:tokens(Host, ":")} of
+        {undefined, [_Host, _BadPort]} -> throw("bad_port_number");
+        _ -> throw("bad_host_port")
+    end;
+check_authority(Scheme, _HostType, Host, Port, Context) ->
     #{
         not_expecting_scheme := NotExpectingScheme,
         not_expecting_port := NotExpectingPort,
         default_port := DefaultPort,
+        default_scheme := DefaultScheme,
         opts := Opts
     } = Context,
+    SchemePart = check_server_scheme(Scheme, NotExpectingScheme, DefaultScheme, Opts),
+    PortPart = check_server_port(Port, NotExpectingPort, DefaultPort),
+    maps:merge(#{hostname => check_hostname(Host)}, maps:merge(SchemePart, PortPart)).
+
+check_server_scheme(undefined, _NotExpectingScheme, DefaultScheme, _Opts) when
+    is_list(DefaultScheme)
+->
+    #{scheme => DefaultScheme};
+check_server_scheme(undefined, true, _DefaultScheme, _Opts) ->
+    #{};
+check_server_scheme(undefined, false, _DefaultScheme, _Opts) ->
+    throw("missing_scheme");
+check_server_scheme(Scheme, NotExpectingScheme, _DefaultScheme, Opts) ->
     NotExpectingScheme andalso throw("not_expecting_scheme"),
-    case is_integer(DefaultPort) of
-        true ->
-            #{
-                scheme => check_scheme(Scheme, Opts),
-                hostname => check_hostname(Hostname),
-                port => DefaultPort
-            };
-        false when NotExpectingPort ->
-            #{
-                scheme => check_scheme(Scheme, Opts),
-                hostname => check_hostname(Hostname)
-            };
-        false ->
-            throw("missing_port_number")
-    end;
-check_server_parts([Hostname, Port], Context) ->
-    #{
-        not_expecting_port := NotExpectingPort,
-        default_scheme := DefaultScheme
-    } = Context,
+    #{scheme => check_scheme(Scheme, Opts)}.
+
+check_server_port(undefined, _NotExpectingPort, DefaultPort) when is_integer(DefaultPort) ->
+    #{port => DefaultPort};
+check_server_port(undefined, true, _DefaultPort) ->
+    #{};
+check_server_port(undefined, false, _DefaultPort) ->
+    throw("missing_port_number");
+check_server_port(Port, NotExpectingPort, _DefaultPort) when is_integer(Port) ->
     NotExpectingPort andalso throw("not_expecting_port_number"),
-    case is_list(DefaultScheme) of
-        false ->
-            #{
-                hostname => check_hostname(Hostname),
-                port => parse_port_(Port)
-            };
-        true ->
-            #{
-                scheme => DefaultScheme,
-                hostname => check_hostname(Hostname),
-                port => parse_port_(Port)
-            }
-    end;
-check_server_parts([Hostname], Context) ->
-    #{
-        not_expecting_scheme := NotExpectingScheme,
-        not_expecting_port := NotExpectingPort,
-        default_port := DefaultPort,
-        default_scheme := DefaultScheme
-    } = Context,
-    case is_integer(DefaultPort) orelse NotExpectingPort of
-        true ->
-            ok;
-        false ->
-            throw("missing_port_number")
-    end,
-    case is_list(DefaultScheme) orelse NotExpectingScheme of
-        true ->
-            ok;
-        false ->
-            throw("missing_scheme")
-    end,
-    case {is_integer(DefaultPort), is_list(DefaultScheme)} of
-        {true, true} ->
-            #{
-                scheme => DefaultScheme,
-                hostname => check_hostname(Hostname),
-                port => DefaultPort
-            };
-        {true, false} ->
-            #{
-                hostname => check_hostname(Hostname),
-                port => DefaultPort
-            };
-        {false, true} ->
-            #{
-                scheme => DefaultScheme,
-                hostname => check_hostname(Hostname)
-            };
-        {false, false} ->
-            #{hostname => check_hostname(Hostname)}
-    end;
-check_server_parts(_Tokens, _Context) ->
-    throw("bad_host_port").
+    #{port => check_port_range(Port)}.
+
+check_port_range(Port) when Port > 65535 ->
+    throw("port_number_too_large");
+check_port_range(Port) ->
+    Port.
 
 check_scheme(Str, Opts) ->
     SupportedSchemes = maps:get(supported_schemes, Opts, []),
@@ -3783,12 +3758,6 @@ convert_hocon_map_host_port(Map) ->
 is_port_number(Str) ->
     {Status, _} = parse_port(Str),
     Status == ok.
-
-parse_port_(Str) ->
-    case parse_port(Str) of
-        {ok, Port} -> Port;
-        {error, Reason} -> throw(Reason)
-    end.
 
 parse_port(Port) ->
     case string:to_integer(string:strip(Port)) of

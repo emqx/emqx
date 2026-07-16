@@ -7,6 +7,7 @@
 -include("emqx_nats.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -124,7 +125,12 @@ t_gateway_client_management(Config) ->
     {ok, [_]} = emqx_nats_client:receive_message(Client),
 
     %% Test list clients
-    [ClientInfo0] = emqx_gateway_test_utils:list_gateway_clients(<<"nats">>),
+    %% the channel is registered into the gateway connection-manager
+    %% asynchronously after the connect ack is sent, so retry until the
+    %% client appears in the list
+    [ClientInfo0] = ?retry(
+        100, 30, [_] = emqx_gateway_test_utils:list_gateway_clients(<<"nats">>)
+    ),
     ?assertEqual(<<"test_user">>, maps:get(username, ClientInfo0)),
     %% ClientId assigned by emqx_gateway_nats, it's a random string.
     %% We can get it from the client info.
@@ -166,7 +172,12 @@ t_gateway_client_subscription_management(Config) ->
     ok = emqx_nats_client:connect(Client),
     {ok, [_]} = emqx_nats_client:receive_message(Client),
 
-    [ClientInfo0] = emqx_gateway_test_utils:list_gateway_clients(<<"nats">>),
+    %% the channel is registered into the gateway connection-manager
+    %% asynchronously after the connect ack is sent, so retry until the
+    %% client appears in the list
+    [ClientInfo0] = ?retry(
+        100, 30, [_] = emqx_gateway_test_utils:list_gateway_clients(<<"nats">>)
+    ),
     ?assertEqual(<<"test_user">>, maps:get(username, ClientInfo0)),
     ClientId = maps:get(clientid, ClientInfo0),
 
