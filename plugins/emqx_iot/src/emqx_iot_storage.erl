@@ -123,9 +123,13 @@ create_delivery(
             Key = {ProductKey, DN},
             case ets:lookup(iot_mq_msg_index, Key) of
                 [#iot_mq_msg_index{delivery_ids = Ids}] ->
-                    ets:insert(iot_mq_msg_index, #iot_mq_msg_index{key = Key, delivery_ids = [DeliveryId | Ids]});
+                    ets:insert(iot_mq_msg_index, #iot_mq_msg_index{
+                        key = Key, delivery_ids = [DeliveryId | Ids]
+                    });
                 [] ->
-                    ets:insert(iot_mq_msg_index, #iot_mq_msg_index{key = Key, delivery_ids = [DeliveryId]})
+                    ets:insert(iot_mq_msg_index, #iot_mq_msg_index{
+                        key = Key, delivery_ids = [DeliveryId]
+                    })
             end
         end,
         DeviceNames
@@ -143,7 +147,9 @@ process_ack(ProductKey, DeviceName, DeliveryId) ->
                         [] ->
                             ets:delete(iot_mq_msg_index, Key);
                         _ ->
-                            ets:insert(iot_mq_msg_index, #iot_mq_msg_index{key = Key, delivery_ids = NewIds})
+                            ets:insert(iot_mq_msg_index, #iot_mq_msg_index{
+                                key = Key, delivery_ids = NewIds
+                            })
                     end,
                     mnesia:transaction(fun() ->
                         case mnesia:wread({iot_mq_msg, DeliveryId}) of
@@ -204,7 +210,9 @@ cleanup_expired_deliveries(Now) ->
                                 [] ->
                                     ets:delete(iot_mq_msg_index, Key);
                                 _ ->
-                                    ets:insert(iot_mq_msg_index, #iot_mq_msg_index{key = Key, delivery_ids = NewIds})
+                                    ets:insert(iot_mq_msg_index, #iot_mq_msg_index{
+                                        key = Key, delivery_ids = NewIds
+                                    })
                             end;
                         [] ->
                             ok

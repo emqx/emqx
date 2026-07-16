@@ -23,14 +23,26 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
-        [{emqx, ?EMQX_CONF}, mria, prometheus],
+        [{emqx, ?EMQX_CONF}, mria],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     ok = emqx_iot:init_tables(),
     init_test_config(),
     ok = emqx_iot:hook(),
-    catch emqx_iot_metrics:init(),
-    _ = try ets:new(iot_mq_msg_index, [named_table, public, set, {keypos, 2}, {read_concurrency, true}, {write_concurrency, true}]) catch _:_ -> ok end,
+    catch catch emqx_iot_metrics:init(),
+    _ =
+        try
+            ets:new(iot_mq_msg_index, [
+                named_table,
+                public,
+                set,
+                {keypos, 2},
+                {read_concurrency, true},
+                {write_concurrency, true}
+            ])
+        catch
+            _:_ -> ok
+        end,
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -49,7 +61,19 @@ init_test_config() ->
     }).
 
 init_per_testcase(_Case, Config) ->
-    _ = try ets:new(iot_mq_msg_index, [named_table, public, set, {keypos, 2}, {read_concurrency, true}, {write_concurrency, true}]) catch _:_ -> ok end,
+    _ =
+        try
+            ets:new(iot_mq_msg_index, [
+                named_table,
+                public,
+                set,
+                {keypos, 2},
+                {read_concurrency, true},
+                {write_concurrency, true}
+            ])
+        catch
+            _:_ -> ok
+        end,
     Config.
 end_per_testcase(_Case, _Config) -> ok.
 

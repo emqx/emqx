@@ -83,7 +83,12 @@ create_ets_tables() ->
         named_table, public, set, {keypos, #iot_mq_device_client.clientid}, {read_concurrency, true}
     ]),
     ensure_ets(?TAB_MSG_IDX, [
-        named_table, public, set, {keypos, #iot_mq_msg_index.key}, {read_concurrency, true}, {write_concurrency, true}
+        named_table,
+        public,
+        set,
+        {keypos, #iot_mq_msg_index.key},
+        {read_concurrency, true},
+        {write_concurrency, true}
     ]),
     ok.
 
@@ -213,7 +218,12 @@ get_product_key(_ClientInfo) -> <<"default">>.
 
 rebuild_index() ->
     ensure_ets(?TAB_MSG_IDX, [
-        named_table, public, set, {keypos, #iot_mq_msg_index.key}, {read_concurrency, true}, {write_concurrency, true}
+        named_table,
+        public,
+        set,
+        {keypos, #iot_mq_msg_index.key},
+        {read_concurrency, true},
+        {write_concurrency, true}
     ]),
     ets:delete_all_objects(?TAB_MSG_IDX),
     Deliveries = mnesia:dirty_match_object(iot_mq_msg, #iot_mq_msg{_ = '_'}),
@@ -224,9 +234,13 @@ rebuild_index() ->
                     Key = {PK, DN},
                     case ets:lookup(?TAB_MSG_IDX, Key) of
                         [#iot_mq_msg_index{delivery_ids = Ids}] ->
-                            ets:insert(?TAB_MSG_IDX, #iot_mq_msg_index{key = Key, delivery_ids = [Did | Ids]});
+                            ets:insert(?TAB_MSG_IDX, #iot_mq_msg_index{
+                                key = Key, delivery_ids = [Did | Ids]
+                            });
                         [] ->
-                            ets:insert(?TAB_MSG_IDX, #iot_mq_msg_index{key = Key, delivery_ids = [Did]})
+                            ets:insert(?TAB_MSG_IDX, #iot_mq_msg_index{
+                                key = Key, delivery_ids = [Did]
+                            })
                     end
                 end,
                 DNs
