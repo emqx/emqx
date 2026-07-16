@@ -334,22 +334,19 @@ connect(Opts) ->
     Config = proplists:get_value(config, Opts),
     {ok, _Pid} = emqx_bridge_dynamo_connector_client:start_link(Config).
 
-credentials_validator(Configs) ->
-    Invalid = lists:any(
-        fun(Config) ->
-            credential_present(<<"aws_access_key_id">>, Config) xor
-                credential_present(<<"aws_secret_access_key">>, Config)
-        end,
-        maps:values(Configs)
-    ),
+credentials_validator(Config) ->
+    Invalid =
+        credential_present(<<"aws_access_key_id">>, aws_access_key_id, Config) xor
+            credential_present(<<"aws_secret_access_key">>, aws_secret_access_key, Config),
     case Invalid of
         false -> ok;
         true -> {error, <<"aws_access_key_id and aws_secret_access_key must be provided together">>}
     end.
 
-credential_present(Key, Config) ->
-    Value = maps:get(Key, Config, undefined),
-    Value =/= undefined andalso Value =/= <<>>.
+credential_present(BinaryKey, AtomKey, Config) ->
+    Value0 = maps:get(BinaryKey, Config, maps:get(AtomKey, Config, undefined)),
+    Value = emqx_schema_secret:source(Value0),
+    Value =/= undefined andalso Value =/= <<>> andalso Value =/= [].
 
 parse_template_from_conf(Config) ->
     Templates =
