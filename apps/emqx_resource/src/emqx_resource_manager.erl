@@ -1570,7 +1570,8 @@ worker_resource_health_check(Data) ->
         emqx_utils:nolink_apply(Fn, ResourceHCTimeout)
     catch
         exit:timeout ->
-            exit({ok, {?status_disconnected, <<"resource_health_check_timed_out">>}})
+            HCTimeoutStatus = emqx_resource:get_resource_health_check_timeout_status(Data#data.mod),
+            exit({ok, {HCTimeoutStatus, <<"resource_health_check_timed_out">>}})
     end.
 
 %% Defined as a standalone function so that dialyzer doesn't complain that it only
@@ -2095,7 +2096,8 @@ worker_channel_health_check(Data, ChannelId) ->
         emqx_utils:nolink_apply(Fn, ChanHCTimeout)
     catch
         exit:timeout ->
-            Res = {?status_disconnected, <<"resource_health_check_timed_out">>},
+            HCTimeoutStatus = emqx_resource:get_channel_health_check_timeout_status(Data#data.mod),
+            Res = {HCTimeoutStatus, <<"channel_health_check_timed_out">>},
             ChanStatus = channel_status(Res, ChannelConfig),
             exit({ok, ChanStatus})
     end.

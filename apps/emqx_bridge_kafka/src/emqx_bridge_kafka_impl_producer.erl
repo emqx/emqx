@@ -13,6 +13,8 @@
 %% callbacks of behaviour emqx_resource
 -export([
     resource_type/0,
+    resource_health_check_timeout_status/0,
+    channel_health_check_timeout_status/0,
     query_mode/1,
     query_opts/1,
     callback_mode/0,
@@ -45,6 +47,10 @@
 -define(PROBE_TOPIC_NAME, <<"emqx-connector-connectivity-probe">>).
 
 resource_type() -> kafka_producer.
+
+resource_health_check_timeout_status() -> ?status_connecting.
+
+channel_health_check_timeout_status() -> ?status_connecting.
 
 query_mode(#{parameters := #{query_mode := sync}}) ->
     simple_sync_internal_buffer;
