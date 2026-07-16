@@ -92,7 +92,7 @@ t_binary_format_roundtrip(_Config) ->
 
 t_write_input_schema_matches_format(_Config) ->
     {ok, #{input_schema := JsonSchema}} = emqx_agent_tool_kv:create(
-        tool(<<"kv__write">>, <<"json-schema-writer">>, <<"Write JSON KV">>, ?STREAM)
+        tool(<<"kv__write">>, <<"json-schema-writer">>, <<"Write JSON KV">>, ?STREAM, <<"json">>)
     ),
     ?assertMatch(
         #{<<"properties">> := #{<<"payload">> := #{<<"type">> := <<"object">>}}},
@@ -111,6 +111,20 @@ t_write_input_schema_matches_format(_Config) ->
     ?assertMatch(
         #{<<"properties">> := #{<<"payload">> := #{<<"type">> := <<"string">>}}},
         BinarySchema
+    ).
+
+t_create_rejects_invalid_format(_Config) ->
+    ?assertEqual(
+        {error, {invalid_format, <<"xml">>}},
+        emqx_agent_tool_kv:create(
+            tool(<<"kv__write">>, <<"invalid-format">>, <<"Invalid format">>, ?STREAM, <<"xml">>)
+        )
+    ),
+    ?assertEqual(
+        {error, {missing_field, <<"format">>}},
+        emqx_agent_tool_kv:create(
+            tool(<<"kv__write">>, <<"missing-format">>, <<"Missing format">>, ?STREAM)
+        )
     ).
 
 t_write_overwrites_key(_Config) ->
@@ -174,7 +188,9 @@ t_create_rejects_regular_stream(_Config) ->
 
     ?assertEqual(
         {error, stream_is_not_lastvalue},
-        emqx_agent_tool_kv:create(tool(<<"kv__read">>, <<"bad-kv">>, <<"Bad KV">>, ?REGULAR_STREAM))
+        emqx_agent_tool_kv:create(
+            tool(<<"kv__read">>, <<"bad-kv">>, <<"Bad KV">>, ?REGULAR_STREAM, <<"json">>)
+        )
     ).
 
 write(Key, Payload) ->
@@ -183,10 +199,14 @@ write(Key, Payload) ->
     ok.
 
 register_tools() ->
-    ok = emqx_agent_config:create_tool(tool(<<"kv__write">>, ?WRITE_ID, <<"Write KV">>, ?STREAM)),
-    ok = emqx_agent_config:create_tool(tool(<<"kv__read">>, ?READ_ID, <<"Read KV">>, ?STREAM)),
     ok = emqx_agent_config:create_tool(
-        tool(<<"kv__read_all">>, ?READ_ALL_ID, <<"Read All KV">>, ?STREAM)
+        tool(<<"kv__write">>, ?WRITE_ID, <<"Write KV">>, ?STREAM, <<"json">>)
+    ),
+    ok = emqx_agent_config:create_tool(
+        tool(<<"kv__read">>, ?READ_ID, <<"Read KV">>, ?STREAM, <<"json">>)
+    ),
+    ok = emqx_agent_config:create_tool(
+        tool(<<"kv__read_all">>, ?READ_ALL_ID, <<"Read All KV">>, ?STREAM, <<"json">>)
     ),
     ok = emqx_agent_config:create_tool(tool(<<"kv__del">>, ?DEL_ID, <<"Delete KV">>, ?STREAM)),
     ok = emqx_agent_config:create_tool(tool(<<"kv__clear">>, ?CLEAR_ID, <<"Clear KV">>, ?STREAM)),

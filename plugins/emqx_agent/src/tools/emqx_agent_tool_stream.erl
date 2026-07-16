@@ -235,10 +235,12 @@ tool_format(#{<<"type">> := Type, <<"format">> := Format}) when
         (Format =:= <<"json">> orelse Format =:= <<"binary">>)
 ->
     {ok, Format};
+tool_format(#{<<"type">> := Type, <<"format">> := Format}) when
+    Type =:= ?WRITE_TYPE orelse Type =:= ?READ_TYPE
+->
+    {error, {invalid_format, Format}};
 tool_format(#{<<"type">> := Type}) when Type =:= ?WRITE_TYPE orelse Type =:= ?READ_TYPE ->
-    {ok, <<"json">>};
-tool_format(#{<<"format">> := Format}) ->
-    {error, {invalid_format, Format}}.
+    {error, {missing_field, <<"format">>}}.
 
 stream_topic(#{topic_filter := TopicFilter}) ->
     concrete_topic(TopicFilter).

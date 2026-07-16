@@ -8,8 +8,19 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
+
+init_per_suite(Config) ->
+    Apps = emqx_cth_suite:start(
+        [emqx_resource, emqx_agent],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
+
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 t_valid_full_config(_Config) ->
     ?assertMatch({ok, _}, decode(sample_config())).
@@ -42,6 +53,12 @@ t_reject_missing_required_tool_field(_Config) ->
     },
     Config = sample_config_with_tool(Tool),
     ?assertMatch({error, _}, decode(Config)).
+
+t_tool_format_is_required_enum(_Config) ->
+    ?assertMatch({ok, _}, decode(sample_config_with_tool(stream_write_tool(<<"json">>)))),
+    ?assertMatch({ok, _}, decode(sample_config_with_tool(stream_write_tool(<<"binary">>)))),
+    ?assertMatch({error, _}, decode(sample_config_with_tool(stream_write_tool(<<"xml">>)))),
+    ?assertMatch({error, _}, decode(sample_config_with_tool(stream_write_tool(undefined)))).
 
 t_reject_invalid_connection_enable_type(_Config) ->
     [Conn0] = maps:get(<<"connections">>, sample_config()),
@@ -167,6 +184,20 @@ unwrap_union(Value) ->
 
 sample_config_with_tool(Tool) ->
     (sample_config())#{<<"tools">> => [Tool]}.
+
+stream_write_tool(Format) ->
+    Tool0 = #{
+        <<"type">> => <<"stream__write">>,
+        <<"id">> => <<"stream-writer">>,
+        <<"desc">> => <<"Write stream">>,
+        <<"stream">> => <<"stream">>
+    },
+    Tool =
+        case Format of
+            undefined -> Tool0;
+            _ -> Tool0#{<<"format">> => Format}
+        end,
+    #{<<"Stream_Write">> => Tool}.
 
 sample_config() ->
     #{

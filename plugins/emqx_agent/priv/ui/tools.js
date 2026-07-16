@@ -88,6 +88,7 @@ export function collectToolBody() {
 export async function saveTool() {
   const body = collectToolBody();
   if (!body.id) return setMsg('tool-msg', 'ID is required', true);
+  if (hasFormat(body.type) && !body.format) return setMsg('tool-msg', 'Format is required', true);
   try {
     if (editingToolKey.type) {
       await api('PUT', `/tools/${encodeURIComponent(editingToolKey.type)}/${encodeURIComponent(editingToolKey.id)}`, body);
@@ -148,7 +149,7 @@ export function editTool(type, id) {
     document.getElementById('tool-query').value = tool.query ?? '';
   } else if (isStreamTool(type)) {
     document.getElementById('tool-stream').value = tool.stream ?? '';
-    if (hasFormat(type)) document.getElementById('tool-format').value = tool.format ?? 'json';
+    if (hasFormat(type)) document.getElementById('tool-format').value = tool.format;
   }
 
   document.querySelector('#tab-tools .card').scrollIntoView({ behavior: 'smooth', block: 'start' });
