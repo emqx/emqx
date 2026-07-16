@@ -445,8 +445,99 @@ t_connector_client_imds(_Config) ->
     end.
 
 t_credentials_validator(_Config) ->
+    ValidLegacyConfig =
+        <<
+            "bridges.dynamo.test {"
+            " url = \"http://127.0.0.1:8000\""
+            " region = \"us-west-2\""
+            " table = \"mqtt\""
+            " hash_key = \"clientid\""
+            " aws_access_key_id = \"access_key\""
+            " aws_secret_access_key = \"secret_key\""
+            " }"
+        >>,
+    ?assertMatch(
+        #{<<"aws_access_key_id">> := <<"access_key">>},
+        parse_and_check(ValidLegacyConfig, <<"dynamo">>, <<"test">>)
+    ),
+    LegacyConfigWithoutCredentials =
+        binary:replace(
+            binary:replace(
+                ValidLegacyConfig,
+                <<" aws_access_key_id = \"access_key\"">>,
+                <<>>
+            ),
+            <<" aws_secret_access_key = \"secret_key\"">>,
+            <<>>
+        ),
+    ?assertNot(
+        maps:is_key(
+            <<"aws_access_key_id">>,
+            parse_and_check(LegacyConfigWithoutCredentials, <<"dynamo">>, <<"test">>)
+        )
+    ),
+    assert_invalid_credentials(fun() ->
+        parse_and_check(
+            binary:replace(
+                ValidLegacyConfig,
+                <<" aws_secret_access_key = \"secret_key\"">>,
+                <<>>
+            ),
+            <<"dynamo">>,
+            <<"test">>
+        )
+    end),
+    assert_invalid_credentials(fun() ->
+        parse_and_check(
+            binary:replace(
+                ValidLegacyConfig,
+                <<" aws_access_key_id = \"access_key\"">>,
+                <<>>
+            ),
+            <<"dynamo">>,
+            <<"test">>
+        )
+    end),
+    ConnectorConfig = #{
+        <<"enable">> => true,
+        <<"url">> => <<"http://127.0.0.1:8000">>,
+        <<"region">> => <<"us-west-2">>,
+        <<"aws_access_key_id">> => <<"access_key">>,
+        <<"aws_secret_access_key">> => <<"secret_key">>,
+        <<"pool_size">> => 8,
+        <<"resource_opts">> => #{}
+    },
+    ?assertMatch(
+        #{<<"aws_access_key_id">> := <<"access_key">>},
+        emqx_bridge_v2_testlib:parse_and_check_connector(
+            <<"dynamo">>, <<"test">>, ConnectorConfig
+        )
+    ),
+    ConnectorConfigWithoutCredentials =
+        maps:without(
+            [<<"aws_access_key_id">>, <<"aws_secret_access_key">>],
+            ConnectorConfig
+        ),
+    ?assertNot(
+        maps:is_key(
+            <<"aws_access_key_id">>,
+            emqx_bridge_v2_testlib:parse_and_check_connector(
+                <<"dynamo">>, <<"test">>, ConnectorConfigWithoutCredentials
+            )
+        )
+    ),
+    assert_invalid_credentials(fun() ->
+        emqx_bridge_v2_testlib:parse_and_check_connector(
+            <<"dynamo">>, <<"test">>, maps:remove(<<"aws_secret_access_key">>, ConnectorConfig)
+        )
+    end),
+    assert_invalid_credentials(fun() ->
+        emqx_bridge_v2_testlib:parse_and_check_connector(
+            <<"dynamo">>, <<"test">>, maps:remove(<<"aws_access_key_id">>, ConnectorConfig)
+        )
+    end),
     Validator = fun(Config) ->
-        emqx_bridge_dynamo_connector:credentials_validator(#{<<"dynamo">> => Config})
+        emqx_bridge_dynamo_connector:credentials_validator(Config)
     end,
     ?assertEqual(ok, Validator(#{})),
     ?assertEqual(
@@ -464,6 +555,26 @@ t_credentials_validator(_Config) ->
         {error, _},
         Validator(#{<<"aws_secret_access_key">> => <<"secret_key">>})
     ).
+
+assert_invalid_credentials(Check) ->
+    try Check() of
+        _ ->
+            ct:fail(expected_invalid_credentials)
+    catch
+        throw:{_Schema, Errors} ->
+            ?assert(
+                lists:any(
+                    fun
+                        (#{reason := Reason}) ->
+                            Reason =:=
+                                <<"aws_access_key_id and aws_secret_access_key must be provided together">>;
+                        (_) ->
+                            false
+                    end,
+                    Errors
+                )
+            )
+    end.
 
 t_setup_via_config_and_publish(Config) ->
     ?assertNotEqual(undefined, get(aws_config)),
