@@ -894,6 +894,8 @@ clean_down([Pid | Pids]) ->
     ok = clean_down(Pid),
     clean_down(Pids);
 clean_down(Pid) when is_pid(Pid) ->
+    %% test-only trace point (compiles to a no-op in prod builds)
+    ?tp(emqx_cm_clean_down_start, #{pid => Pid}),
     try ets:lookup_element(?CHAN_CONN_TAB, Pid, #chan_conn.clientid) of
         ClientId ->
             do_clean_down(ClientId, Pid)
