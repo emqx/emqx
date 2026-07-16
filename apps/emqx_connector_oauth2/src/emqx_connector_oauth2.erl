@@ -73,7 +73,7 @@ start_link() ->
 %% the refresh logic lives in the named `fetch_token/1' function so that a
 %% hot code upgrade of this module picks up the new logic instead of running a
 %% closure captured from the old version.
--spec register(binary(), map()) -> ok.
+-spec register(term(), map()) -> ok.
 register(ResourceId, Oauth2Config) ->
     Params = make_fetch_params(Oauth2Config),
     call(#register{resource_id = ResourceId, params = Params}).
@@ -81,7 +81,7 @@ register(ResourceId, Oauth2Config) ->
 %% Returns a valid access token for the given connector instance.
 %% Reads the ETS cache first; on a miss (or expiry) it synchronously asks the
 %% GenServer to fetch a fresh token.
--spec get_token(binary()) -> {ok, binary()} | {error, term()}.
+-spec get_token(term()) -> {ok, binary()} | {error, term()}.
 get_token(ResourceId) ->
     case get_cached(ResourceId) of
         {ok, Response} ->
@@ -92,7 +92,7 @@ get_token(ResourceId) ->
 
 %% Removes the cached token and cancels the refresh timer for a connector
 %% instance.  Called from the connector `on_stop'.
--spec unregister(binary()) -> ok.
+-spec unregister(term()) -> ok.
 unregister(ResourceId) ->
     call(#unregister{resource_id = ResourceId}).
 

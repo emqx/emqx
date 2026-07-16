@@ -8,7 +8,8 @@
 -export([
     hosts/1,
     sasl/1,
-    socket_opts/1
+    socket_opts/1,
+    register_oauth2/2
 ]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -28,6 +29,17 @@ sasl(msk_iam) ->
     {callback, brod_oauth, #{
         token_callback => fun emqx_bridge_kafka_msk_iam_authn:token_callback/1
     }};
+sasl(#{mechanism := oauth, grant_type := client_credentials} = Opts) ->
+    Extensions = emqx_utils_maps:binary_key_map(maps:get(extensions, Opts, #{})),
+    {callback, brod_oauth, #{
+        token_callback => fun(#{client_id := KafkaClientId}) ->
+            case emqx_connector_oauth2:get_token(KafkaClientId) of
+                {ok, Token} -> {ok, #{token => Token}};
+                {error, Reason} -> {error, Reason}
+            end
+        end,
+        extensions => Extensions
+    }};
 sasl(#{mechanism := Mechanism, username := Username, password := Secret}) ->
     {Mechanism, Username, Secret};
 sasl(#{
@@ -35,6 +47,23 @@ sasl(#{
     kerberos_keytab_file := KeyTabFile
 }) ->
     {callback, brod_gssapi, {gssapi, KeyTabFile, Principal}}.
+
+%% Registers the OAuth2 client-credentials config (if any) with the shared
+%% `emqx_connector_oauth2` token cache, keyed by the brod/wolff client id.
+%% Must be called before the client connects, so the token callback invoked
+%% during the SASL handshake can retrieve the token.  No-op for non-oauth auth.
+-spec register_oauth2(term(), term()) -> ok.
+register_oauth2(ClientId, #{mechanism := oauth, grant_type := client_credentials} = Opts) ->
+    Config = #{
+        token_endpoint => maps:get(endpoint_uri, Opts),
+        client_id => maps:get(client_id, Opts),
+        client_secret => maps:get(client_secret, Opts),
+        scope => maps:get(scope, Opts, undefined),
+        timeout => maps:get(timeout, Opts, 5_000)
+    },
+    emqx_connector_oauth2:register(ClientId, Config);
+register_oauth2(_ClientId, _Auth) ->
+    ok.
 
 %% Extra socket options, such as sndbuf size etc.
 socket_opts(Opts) when is_map(Opts) ->

@@ -86,6 +86,26 @@ t_unregister_clears_cache(_TCConfig) ->
     ?assertEqual(1, meck:num_calls(emqx_connector_oauth2, do_request, 1)),
     ?assertMatch({error, _}, emqx_connector_oauth2:get_token(ResourceId)).
 
+t_concurrent_get_token_fetches_once(_TCConfig) ->
+    %% Many callers racing on a cache miss must share a single token fetch:
+    %% `get_token/1' reads ETS first, and the GenServer re-checks ETS inside
+    %% `handle_call(#fetch{})' before fetching.  This is a behavior the Kafka
+    %% bridge relied on (its `t_smoke_cache_concurrency') and that Kafka will
+    %% inherit from this module once migrated, so it is locked down here.
+    ResourceId = <<"res:conc">>,
+    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config()),
+    ok = expect_token(<<"access-conc">>, 3600),
+    Responses =
+        emqx_utils:pmap(
+            fun(_) -> emqx_connector_oauth2:get_token(ResourceId) end,
+            lists:seq(1, 10)
+        ),
+    ?assertMatch([_ | _], Responses),
+    ?assert(lists:all(fun(R) -> R =:= {ok, <<"access-conc">>} end, Responses)),
+    %% The token endpoint is hit once, not once per caller.
+    ?assertEqual(1, meck:num_calls(emqx_connector_oauth2, do_request, 1)),
+    ok = emqx_connector_oauth2:unregister(ResourceId).
+
 t_fetch_token_derives_expiry_from_jwt_exp(_TCConfig) ->
     %% A token response whose `access_token' is a JWT carrying an `exp' claim,
     %% but with no `expires_in'.  This exercises `get_expiry_ms', which must
