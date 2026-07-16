@@ -2230,6 +2230,24 @@ access_rules_validator(AccessRules) ->
             {error, MsgBin}
     end.
 
+ip_masks_converter(undefined, _Opts) ->
+    undefined;
+ip_masks_converter(IPMasks, #{make_serializable := true}) when is_binary(IPMasks) ->
+    IPMasks;
+ip_masks_converter(IPMasks, #{make_serializable := true}) ->
+    iolist_to_binary(lists:join(<<", ">>, [esockd_cidr:to_string(IPMask) || IPMask <- IPMasks]));
+ip_masks_converter(IPMasks, _Opts) when is_binary(IPMasks) ->
+    [parse_ip_mask(IPMask) || IPMask <- string:tokens(binary_to_list(IPMasks), ", ")];
+ip_masks_converter(IPMasks, _Opts) ->
+    throw({invalid_ip_address_or_cidr, IPMasks}).
+
+parse_ip_mask(IPMask) ->
+    try esockd_cidr:parse(IPMask, true) of
+        CIDR -> CIDR
+    catch
+        _:_ -> throw({invalid_ip_address_or_cidr, IPMask})
+    end.
+
 is_invalid_rule(S) ->
     try
         [Action, CIDR] = string:tokens(S, " "),
@@ -2310,6 +2328,16 @@ base_listener(Bind) ->
                 #{
                     desc => ?DESC(base_listener_enable_authn),
                     default => true
+                }
+            )},
+        {"allow_log_packet_data_from",
+            sc(
+                typerefl:alias("string", any()),
+                #{
+                    desc => ?DESC(base_listener_allow_log_packet_data_from),
+                    default => <<>>,
+                    importance => ?IMPORTANCE_LOW,
+                    converter => fun ip_masks_converter/2
                 }
             )}
     ] ++ emqx_limiter_schema:fields(mqtt).

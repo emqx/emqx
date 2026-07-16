@@ -379,6 +379,48 @@ t_socket_parse_incoming_first_packet_hints(_) ->
     ),
     ok = meck:unload(emqx_frame).
 
+t_packet_data_logging(_) ->
+    Data = <<16#10, 0, "secret">>,
+    Channel = channel(),
+    OldIPMasks = emqx_config:get_listener_conf(
+        tcp, default, [allow_log_packet_data_from]
+    ),
+    try
+        ok = emqx_config:put_listener_conf(
+            tcp, default, [allow_log_packet_data_from], [esockd_cidr:parse("10.0.0.0/8", true)]
+        ),
+        ?assertEqual(
+            #{bin => <<"******">>, type => "hidden"},
+            emqx_packet_data_logger:add_packet_data(#{}, bin, Data, Channel, hex)
+        ),
+        DeniedReports = emqx_cth_log_capture:capture(info, fun() ->
+            emqx_connection:parse_incoming(Data, st())
+        end),
+        ?assertMatch(
+            [#{input_bytes := <<"******">>}],
+            [Report || #{msg := "frame_parse_error"} = Report <- DeniedReports]
+        ),
+
+        ok = emqx_config:put_listener_conf(
+            tcp, default, [allow_log_packet_data_from], [esockd_cidr:parse("127.0.0.0/24", true)]
+        ),
+        ?assertEqual(
+            #{bin => binary_to_list(binary:encode_hex(Data)), type => "hex"},
+            emqx_packet_data_logger:add_packet_data(#{}, bin, Data, Channel, hex)
+        ),
+        AllowedReports = emqx_cth_log_capture:capture(info, fun() ->
+            emqx_connection:parse_incoming(Data, st())
+        end),
+        ?assertMatch(
+            [#{input_bytes := Data}],
+            [Report || #{msg := "frame_parse_error"} = Report <- AllowedReports]
+        )
+    after
+        ok = emqx_config:put_listener_conf(
+            tcp, default, [allow_log_packet_data_from], OldIPMasks
+        )
+    end.
+
 t_next_incoming_msgs(_) ->
     ?assertEqual(
         {incoming, packet},
