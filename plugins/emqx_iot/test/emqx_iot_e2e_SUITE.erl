@@ -23,15 +23,14 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
-        [{emqx, ?EMQX_CONF}, mria],
+        [{emqx, ?EMQX_CONF}, mria, prometheus],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     ok = emqx_iot:init_tables(),
     init_test_config(),
     ok = emqx_iot:hook(),
-    catch application:ensure_all_started(prometheus),
     catch emqx_iot_metrics:init(),
-    _ = try ets:new(iot_mq_msg_index, [named_table, public, set, {keypos, 1}, {read_concurrency, true}, {write_concurrency, true}]) catch _:_ -> ok end,
+    _ = try ets:new(iot_mq_msg_index, [named_table, public, set, {keypos, 2}, {read_concurrency, true}, {write_concurrency, true}]) catch _:_ -> ok end,
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -50,7 +49,7 @@ init_test_config() ->
     }).
 
 init_per_testcase(_Case, Config) ->
-    _ = try ets:new(iot_mq_msg_index, [named_table, public, set, {keypos, 1}, {read_concurrency, true}, {write_concurrency, true}]) catch _:_ -> ok end,
+    _ = try ets:new(iot_mq_msg_index, [named_table, public, set, {keypos, 2}, {read_concurrency, true}, {write_concurrency, true}]) catch _:_ -> ok end,
     Config.
 end_per_testcase(_Case, _Config) -> ok.
 
@@ -59,6 +58,8 @@ end_per_testcase(_Case, _Config) -> ok.
 connect(ClientId) ->
     {ok, C} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
+    T = <<"/default/", ClientId/binary, "/user/get">>,
+    emqtt:subscribe(C, T, 1),
     C.
 
 disconnect(C) ->
@@ -94,8 +95,6 @@ t_pubsub_works(_Config) ->
 t_batch_pub_qos0_e2e(_Config) ->
     C1 = connect(<<"e2e_q0_1">>),
     C2 = connect(<<"e2e_q0_2">>),
-    emqtt:subscribe(C1, topic(<<"e2e_q0_1">>), 1),
-    emqtt:subscribe(C2, topic(<<"e2e_q0_2">>), 1),
     ct:sleep(10),
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
@@ -113,8 +112,6 @@ t_batch_pub_qos0_e2e(_Config) ->
 t_batch_pub_qos1_e2e(_Config) ->
     C1 = connect(<<"e2e_q1_1">>),
     C2 = connect(<<"e2e_q1_2">>),
-    emqtt:subscribe(C1, topic(<<"e2e_q1_1">>), 1),
-    emqtt:subscribe(C2, topic(<<"e2e_q1_2">>), 1),
     ct:sleep(10),
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
@@ -136,7 +133,6 @@ t_batch_pub_messageid_reuse_e2e(_Config) ->
     }),
     MsgId = maps:get(<<"MessageId">>, RegResp),
     C1 = connect(<<"e2e_reuse_1">>),
-    emqtt:subscribe(C1, topic(<<"e2e_reuse_1">>), 1),
     ct:sleep(10),
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
@@ -156,9 +152,6 @@ t_pub_broadcast_e2e(_Config) ->
     C1 = connect(<<"e2e_bc_1">>),
     C2 = connect(<<"e2e_bc_2">>),
     C3 = connect(<<"e2e_bc_3">>),
-    emqtt:subscribe(C1, topic(<<"e2e_bc_1">>), 1),
-    emqtt:subscribe(C2, topic(<<"e2e_bc_2">>), 1),
-    emqtt:subscribe(C3, topic(<<"e2e_bc_3">>), 1),
     ct:sleep(10),
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"PubBroadcast">>,
@@ -174,7 +167,6 @@ t_pub_broadcast_e2e(_Config) ->
 
 t_batch_pub_partial_online_e2e(_Config) ->
     C1 = connect(<<"e2e_part_1">>),
-    emqtt:subscribe(C1, topic(<<"e2e_part_1">>), 1),
     ct:sleep(10),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
@@ -186,7 +178,6 @@ t_batch_pub_partial_online_e2e(_Config) ->
     Msgs1 = recv(1),
     ?assertEqual(1, length(Msgs1)),
     C2 = connect(<<"e2e_part_2">>),
-    emqtt:subscribe(C2, topic(<<"e2e_part_2">>), 1),
     ct:sleep(2000),
     Msgs2 = recv(1),
     ?assertEqual(1, length(Msgs2)),

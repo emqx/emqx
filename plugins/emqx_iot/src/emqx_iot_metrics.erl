@@ -87,7 +87,8 @@ declare_counters() ->
         {?api(<<"register_message.refresh">>), <<"RegisterMessage TTL refresh">>},
         {?api(<<"register_message.error">>), <<"RegisterMessage API errors">>}
     ],
-    [prometheus_counter:declare([{name, N}, {help, H}]) || {N, H} <- Cs].
+    try [prometheus_counter:declare([{name, N}, {help, H}]) || {N, H} <- Cs] catch _:_ -> ok end,
+    ok.
 
 declare_gauges() ->
     try

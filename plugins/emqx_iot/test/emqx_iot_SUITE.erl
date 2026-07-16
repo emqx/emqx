@@ -24,8 +24,9 @@ init_per_suite(Config) ->
     ),
     ok = emqx_iot:init_tables(),
     init_test_config(),
-    catch application:ensure_all_started(prometheus),
-    catch emqx_iot_metrics:init(),
+    application:load(prometheus),
+    {ok, _} = application:ensure_all_started(prometheus),
+    emqx_iot_metrics:init(),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->

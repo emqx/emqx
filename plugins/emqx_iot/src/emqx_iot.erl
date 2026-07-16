@@ -12,6 +12,7 @@
     unregister_device/2,
     lookup_device/1,
     lookup_devices_by_product/1,
+    replay_delivery/4,
     on_client_connected/2,
     on_client_disconnected/3,
     on_message_acked/2
