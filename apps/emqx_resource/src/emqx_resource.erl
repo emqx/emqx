@@ -560,7 +560,7 @@ get_resource_health_check_timeout_status(Mod) ->
 get_channel_health_check_timeout_status(Mod) ->
     case erlang:function_exported(Mod, channel_health_check_timeout_status, 0) of
         true ->
-            Mod:resource_health_check_timeout_status();
+            Mod:channel_health_check_timeout_status();
         _ ->
             ?status_disconnected
     end.
