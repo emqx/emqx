@@ -378,6 +378,12 @@ validate_setting(Res, ExpectLow, ExpectHigh, DynMax) ->
 %%------------------------------------------------------------------------------
 
 session_hwm_setup(Config) ->
+    %% Suspend the background license sampler for the duration of the test so it
+    %% cannot write a live current-day row into the table while we assert on a
+    %% fixed set of seeded rows. Without this, a sampler tick landing between
+    %% setup and the GET prepends an extra {period => today, high_watermark => 0}
+    %% row and flakes the exact-match assertions.
+    ok = suspend_license_sampler(),
     %% Pin timezone so the period labels are host-independent.
     OrigTz = emqx_config:get([license, high_watermark_timezone], system),
     emqx_config:put([license, high_watermark_timezone], <<"+00:00">>),
@@ -397,13 +403,26 @@ session_hwm_setup(Config) ->
 session_hwm_teardown(Config) ->
     {atomic, ok} = mria:clear_table(emqx_license_session_hwm),
     emqx_config:put([license, high_watermark_timezone], ?config(orig_tz, Config)),
+    ok = resume_license_sampler(),
     ok.
+
+%% Pause/resume the periodic resource sampler (`emqx_license_resources`). Only
+%% its timer-driven `update_resources` tick is affected; other license machinery
+%% does not depend on a synchronous reply from this process.
+suspend_license_sampler() ->
+    case whereis(emqx_license_resources) of
+        undefined -> ok;
+        Pid -> sys:suspend(Pid)
+    end.
+
+resume_license_sampler() ->
+    case whereis(emqx_license_resources) of
+        undefined -> ok;
+        Pid -> sys:resume(Pid)
+    end.
 
 session_hwm_uri(Query) ->
     uri(["license", "session_hwm_history"]) ++ Query.
-
-filter_by_period(Rows, ExpectedPeriods) ->
-    [R || R <- Rows, lists:member(maps:get(<<"period">>, R), ExpectedPeriods)].
 
 t_session_hwm_history_default_monthly({init, Config}) ->
     session_hwm_setup(Config);
@@ -416,7 +435,7 @@ t_session_hwm_history_default_monthly(_Config) ->
     ?assertEqual(<<"monthly">>, Period),
     ?assertMatch(
         [#{<<"period">> := <<"2026-05">>}, #{<<"period">> := <<"2026-04">>}],
-        filter_by_period(Rows, [<<"2026-05">>, <<"2026-04">>])
+        Rows
     ).
 
 t_session_hwm_history_monthly({init, Config}) ->
@@ -432,7 +451,7 @@ t_session_hwm_history_monthly(_Config) ->
             #{<<"period">> := <<"2026-05">>, <<"high_watermark">> := 5},
             #{<<"period">> := <<"2026-04">>, <<"high_watermark">> := 20}
         ],
-        filter_by_period(Rows, [<<"2026-05">>, <<"2026-04">>])
+        Rows
     ).
 
 t_session_hwm_history_daily({init, Config}) ->
@@ -449,7 +468,7 @@ t_session_hwm_history_daily(_Config) ->
             #{<<"period">> := <<"2026-04-19">>, <<"high_watermark">> := 20},
             #{<<"period">> := <<"2026-04-18">>, <<"high_watermark">> := 10}
         ],
-        filter_by_period(Rows, [<<"2026-05-01">>, <<"2026-04-19">>, <<"2026-04-18">>])
+        Rows
     ).
 
 t_session_hwm_history_limit({init, Config}) ->
