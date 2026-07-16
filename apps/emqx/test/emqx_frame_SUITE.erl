@@ -59,6 +59,9 @@ groups() ->
             t_reserved_connect_flag,
             t_invalid_clientid,
             t_undefined_password,
+            t_invalid_password_flag,
+            t_valid_password_flag_v4,
+            t_password_flag_v3_no_username,
             t_invalid_will_retain,
             t_invalid_will_qos
         ]},
@@ -982,6 +985,10 @@ t_undefined_password(_) ->
     ),
     ok.
 
+-doc """
+MQTT v3.1.1 CONNECT with password flag set but username flag clear is
+rejected regardless of strict mode (MQTT-3.1.2-22).
+""".
 t_invalid_password_flag(_) ->
     %% Username Flag = false
     %% Password Flag = true
@@ -989,17 +996,59 @@ t_invalid_password_flag(_) ->
     ConnectFlags = <<2#0100:4, 2#0010:4>>,
     ConnectBin =
         <<16, 17, 0, 4, 77, 81, 84, 84, 4, ConnectFlags/binary, 0, 60, 0, 2, 97, 49, 0, 1, 97>>,
+    %% Non-strict mode now rejects too (previously accepted); the check is no
+    %% longer gated on strict mode.
     LenientParseState = emqx_frame:initial_parse_state(#{strict_mode => false}),
-    ?assertMatch(
-        {_, _, _},
+    ?assertException(
+        throw,
+        {frame_parse_error, #{
+            cause := invalid_password_flag, proto_ver := ?MQTT_PROTO_V4, proto_name := <<"MQTT">>
+        }},
         emqx_frame:parse(ConnectBin, LenientParseState)
     ),
-
+    %% Strict mode still rejects (unchanged).
     StrictModeParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
     ?assertException(
         throw,
-        {frame_parse_error, invalid_password_flag},
+        {frame_parse_error, #{
+            cause := invalid_password_flag, proto_ver := ?MQTT_PROTO_V4, proto_name := <<"MQTT">>
+        }},
         emqx_frame:parse(ConnectBin, StrictModeParseState)
+    ).
+
+-doc """
+MQTT v3.1.1 CONNECT with both username and password flags set parses fine
+(fix is scoped to the password-without-username case).
+""".
+t_valid_password_flag_v4(_) ->
+    %% Username Flag = true
+    %% Password Flag = true
+    %% Clean Session = true
+    ConnectFlags = <<2#1100:4, 2#0010:4>>,
+    ConnectBin =
+        <<16, 20, 0, 4, 77, 81, 84, 84, 4, ConnectFlags/binary, 0, 60, 0, 2, 97, 49, 0, 1, 97, 0, 1,
+            98>>,
+    ?assertMatch(
+        {_, _, _},
+        emqx_frame:parse(ConnectBin)
+    ).
+
+-doc """
+MQTT v3.1 (level 3) CONNECT with password but no username is still
+accepted; the v3.1 spec does not couple the flags.
+""".
+t_password_flag_v3_no_username(_) ->
+    %% Proto level = 3 (MQTT v3.1), Proto name = MQIsdp
+    %% Username Flag = false
+    %% Password Flag = true
+    %% Clean Session = true
+    ConnectFlags = <<2#0100:4, 2#0010:4>>,
+    ConnectBin =
+        <<16, 19, 0, 6, 77, 81, 73, 115, 100, 112, 3, ConnectFlags/binary, 0, 60, 0, 2, 97, 49, 0,
+            1, 97>>,
+    ?assertMatch(
+        {_, _, _},
+        emqx_frame:parse(ConnectBin)
     ).
 
 t_invalid_will_retain(_) ->
