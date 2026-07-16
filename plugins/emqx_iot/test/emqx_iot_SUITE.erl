@@ -24,8 +24,8 @@ init_per_suite(Config) ->
     ),
     ok = emqx_iot:init_tables(),
     init_test_config(),
-    _ = application:ensure_all_started(prometheus),
-    emqx_iot_metrics:init(),
+    catch application:ensure_all_started(prometheus),
+    catch emqx_iot_metrics:init(),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -481,15 +481,10 @@ t_broadcast_invalid_base64(_Config) ->
 %%--------------------------------------------------------------------
 
 metric(Name) ->
-    try
-        prometheus_counter:value(emqx_iot_metrics:name(Name))
-    catch
-        _:_ ->
-            try ets:lookup_element(iot_mq_counters, Name, 2) catch _:_ -> 0 end
-    end.
+    try prometheus_counter:value(Name) catch _:_ -> 0 end.
 
 t_metrics_qos0_targeted(_Config) ->
-    Before = metric('batch_pub_qos0_targeted'),
+    Before = metric(<<"iot_mq.msg.batch_pub_qos0.targeted">>),
     Body = #{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"P1">>,
@@ -498,29 +493,29 @@ t_metrics_qos0_targeted(_Config) ->
         <<"Qos">> => 0
     },
     {ok, 200, _, _} = emqx_iot_api:handle(post, [<<"pub">>], #{body => Body}),
-    After = metric('batch_pub_qos0_targeted'),
+    After = metric(<<"iot_mq.msg.batch_pub_qos0.targeted">>),
     ?assertEqual(3, After - Before).
 
 t_metrics_broadcast_in(_Config) ->
-    Before = metric('broadcast_pub_in'),
+    Before = metric(<<"iot_mq.broadcast_pub.in">>),
     Body = #{
         <<"Action">> => <<"PubBroadcast">>,
         <<"ProductKey">> => <<"P1">>,
         <<"MessageContent">> => <<"aGVsbG8=">>
     },
     {ok, 200, _, _} = emqx_iot_api:handle(post, [<<"pub">>], #{body => Body}),
-    After = metric('broadcast_pub_in'),
+    After = metric(<<"iot_mq.broadcast_pub.in">>),
     ?assertEqual(1, After - Before).
 
 t_metrics_broadcast_error(_Config) ->
-    Before = metric('broadcast_pub_error'),
+    Before = metric(<<"iot_mq.broadcast_pub.error">>),
     Body = #{<<"Action">> => <<"PubBroadcast">>, <<"MessageContent">> => <<"!!!">>},
     {ok, 400, _, _} = emqx_iot_api:handle(post, [<<"pub">>], #{body => Body}),
-    After = metric('broadcast_pub_error'),
+    After = metric(<<"iot_mq.broadcast_pub.error">>),
     ?assertEqual(1, After - Before).
 
 t_metrics_qos1_wanted(_Config) ->
-    Before = metric('batch_pub_qos1_msg_wanted'),
+    Before = metric(<<"iot_mq.msg.batch_pub_qos1.wanted">>),
     Body = #{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"P1">>,
@@ -529,12 +524,12 @@ t_metrics_qos1_wanted(_Config) ->
         <<"Qos">> => 1
     },
     {ok, 200, _, _} = emqx_iot_api:handle(post, [<<"pub">>], #{body => Body}),
-    After = metric('batch_pub_qos1_msg_wanted'),
+    After = metric(<<"iot_mq.msg.batch_pub_qos1.wanted">>),
     ?assertEqual(2, After - Before).
 
 t_metrics_register_message_in(_Config) ->
-    Before = metric('register_message_in'),
+    Before = metric(<<"iot_mq.register_message.in">>),
     Body = #{<<"Action">> => <<"RegisterMessage">>, <<"MessageContent">> => <<"dGVzdA==">>},
     {ok, 200, _, _} = emqx_iot_api:handle(post, [<<"pub">>], #{body => Body}),
-    After = metric('register_message_in'),
+    After = metric(<<"iot_mq.register_message.in">>),
     ?assertEqual(1, After - Before).

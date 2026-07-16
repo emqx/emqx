@@ -178,7 +178,7 @@ on_message_acked(ClientInfo, Msg) ->
             #{clientid := DeviceName} = ClientInfo,
             ProductKey = get_product_key(ClientInfo),
             _ = emqx_iot_storage:process_ack(ProductKey, DeviceName, DeliveryId),
-            emqx_iot_metrics:inc_msg_acked(),
+            emqx_iot_metrics:qos1_acked(),
             ok
     end.
 
@@ -198,7 +198,7 @@ replay_delivery(Pid, ProductKey, DeviceName, DeliveryId) ->
                         #{?IOT_DELIVERY_ID => DeliveryId}
                     ),
                     Pid ! #deliver{topic = Topic, message = Msg},
-                    emqx_iot_metrics:inc_msg_replayed(),
+                    emqx_iot_metrics:qos1_replayed(),
                     ok;
                 {error, not_found} ->
                     ok

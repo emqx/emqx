@@ -29,8 +29,8 @@ init_per_suite(Config) ->
     ok = emqx_iot:init_tables(),
     init_test_config(),
     ok = emqx_iot:hook(),
-    _ = application:ensure_all_started(prometheus),
-    emqx_iot_metrics:init(),
+    catch application:ensure_all_started(prometheus),
+    catch emqx_iot_metrics:init(),
     _ = try ets:new(iot_mq_msg_index, [named_table, public, set, {keypos, 1}, {read_concurrency, true}, {write_concurrency, true}]) catch _:_ -> ok end,
     [{apps, Apps} | Config].
 

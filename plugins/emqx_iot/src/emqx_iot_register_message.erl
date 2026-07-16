@@ -13,7 +13,7 @@ handle(Body, RequestId) ->
 
     case validate(MessageContent, MessageId) of
         {error, Code, Msg} ->
-            emqx_iot_metrics:inc_register_message_error(),
+            emqx_iot_metrics:register_error(),
             {ok, 400, #{}, emqx_iot_api:error_response(RequestId, Code, Msg)};
         {create, Payload} ->
             do_create(Payload, RequestId);
@@ -38,13 +38,13 @@ do_create(Payload, RequestId) ->
     {ApiMsgId, MsgGuid} = emqx_iot_id:generate_message_id(),
     case emqx_iot_storage:lookup_or_create_message(Payload, Hash, ApiMsgId, MsgGuid) of
         {existing, Id, _} ->
-            emqx_iot_metrics:inc_register_message_refresh(),
+            emqx_iot_metrics:register_refresh(),
             {ok, 200, #{}, emqx_iot_api:success_response(RequestId, Id)};
         {created, Id, _} ->
-            emqx_iot_metrics:inc_register_message_in(),
+            emqx_iot_metrics:register_in(),
             {ok, 200, #{}, emqx_iot_api:success_response(RequestId, Id)};
         {error, _} ->
-            emqx_iot_metrics:inc_register_message_error(),
+            emqx_iot_metrics:register_error(),
             {ok, 500, #{},
                 emqx_iot_api:error_response(RequestId, <<"InternalError">>, <<"Storage error">>)}
     end.
@@ -53,10 +53,10 @@ do_refresh(ApiMsgId, RequestId) ->
     case emqx_iot_id:resolve_message_id(ApiMsgId) of
         {ok, MsgGuid} ->
             _ = emqx_iot_storage:refresh_message_ttl(MsgGuid),
-            emqx_iot_metrics:inc_register_message_refresh(),
+            emqx_iot_metrics:register_refresh(),
             {ok, 200, #{}, emqx_iot_api:success_response(RequestId, ApiMsgId)};
         {error, not_found} ->
-            emqx_iot_metrics:inc_register_message_error(),
+            emqx_iot_metrics:register_error(),
             {ok, 400, #{},
                 emqx_iot_api:error_response(
                     RequestId, <<"MessageNotFound">>, <<"MessageId not found">>

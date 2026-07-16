@@ -26,8 +26,8 @@ handle(Body, RequestId) ->
                     TopicTemplate = resolve_topic(TopicTemplateName, TopicShortName, ProductKey),
                     case resolve_qos0_payload(MessageContent, MessageId) of
                         {ok, Payload, ApiMsgId} ->
-                            emqx_iot_metrics:inc_batch_pub_qos0_in(),
-                            emqx_iot_metrics:inc_qos0_targeted(length(DeviceNames)),
+                            emqx_iot_metrics:qos0_in(),
+                            emqx_iot_metrics:qos0_targeted(length(DeviceNames)),
                             deliver_qos0(
                                 DeviceNames, ProductKey, TopicTemplate, Payload, RequestId, ApiMsgId
                             );
@@ -138,12 +138,12 @@ deliver_qos0(DeviceNames, ProductKey, TopicTemplate, Payload, RequestId, ApiMsgI
         fun(DN) ->
             case emqx_iot:lookup_device({ProductKey, DN}) of
                 {ok, Pid} ->
-                    emqx_iot_metrics:inc_qos0_delivered(),
+                    emqx_iot_metrics:qos0_delivered(),
                     Topic = emqx_iot_utils:expand_topic(TopicTemplate, ProductKey, DN),
                     Msg = emqx_message:make(DN, ?QOS_0, Topic, Payload),
                     Pid ! #deliver{topic = Topic, message = Msg};
                 _ ->
-                    emqx_iot_metrics:inc_qos0_skipped()
+                    emqx_iot_metrics:qos0_skipped()
             end
         end,
         DeviceNames
@@ -153,8 +153,8 @@ deliver_qos0(DeviceNames, ProductKey, TopicTemplate, Payload, RequestId, ApiMsgI
 deliver_qos1(
     DeviceNames, ProductKey, TopicTemplate, MsgGuid, RequestId, ApiMsgId, ResponseTemplate
 ) ->
-    emqx_iot_metrics:inc_batch_pub_qos1_in(),
-    emqx_iot_metrics:inc_msg_wanted(length(DeviceNames)),
+    emqx_iot_metrics:qos1_in(),
+    emqx_iot_metrics:qos1_wanted(length(DeviceNames)),
     DeliveryId = emqx_iot_utils:gen_guid(),
     N = length(DeviceNames),
     _Delivery = emqx_iot_storage:create_delivery(
@@ -166,7 +166,7 @@ deliver_qos1(
         fun(DN) ->
             case emqx_iot:lookup_device({ProductKey, DN}) of
                 {ok, Pid} ->
-                    emqx_iot_metrics:inc_qos1_delivered_inline(),
+                    emqx_iot_metrics:qos1_delivered_inline(),
                     Topic = emqx_iot_utils:expand_topic(TopicTemplate, ProductKey, DN),
                     Msg = emqx_message:make(
                         DeliveryId,
@@ -179,7 +179,7 @@ deliver_qos1(
                     ),
                     Pid ! #deliver{topic = Topic, message = Msg};
                 _ ->
-                    emqx_iot_metrics:inc_qos1_stored_offline()
+                    emqx_iot_metrics:qos1_stored_offline()
             end
         end,
         DeviceNames
