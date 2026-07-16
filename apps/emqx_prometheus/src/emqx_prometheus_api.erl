@@ -221,11 +221,13 @@ setting(get, _Params) ->
             true -> Raw;
             false -> emqx_prometheus_config:to_recommend_type(Raw)
         end,
-    {200, Conf};
+    {200, emqx_utils:redact(Conf)};
 setting(put, #{body := Body}) ->
-    case emqx_prometheus_config:update(Body) of
+    Raw = emqx:get_raw_config([<<"prometheus">>], #{}),
+    Deobfuscated = emqx_utils:deobfuscate(Body, Raw),
+    case emqx_prometheus_config:update(Deobfuscated) of
         {ok, NewConfig} ->
-            {200, NewConfig};
+            {200, emqx_utils:redact(NewConfig)};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("Update config failed ~p", [Reason])),
             {500, 'INTERNAL_ERROR', Message}

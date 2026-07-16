@@ -93,28 +93,36 @@ authenticate(
                             Error
                     end;
                 _ ->
-                    ?TRACE_AUTHN_PROVIDER(info, "redis_query_not_matched", #{
-                        resource => ResourceId,
-                        cmd => Command,
-                        keys => NKey,
-                        fields => Fields
-                    }),
+                    ?TRACE_AUTHN_PROVIDER(
+                        info,
+                        "redis_query_not_matched",
+                        redis_log_meta(ResourceId, CommandName, KeyTemplate, Credential, Fields)
+                    ),
                     ignore
             end;
         {error, Reason} ->
-            ?TRACE_AUTHN_PROVIDER(error, "redis_query_failed", #{
-                resource => ResourceId,
-                cmd => Command,
-                keys => NKey,
-                fields => Fields,
-                reason => Reason
-            }),
+            ?TRACE_AUTHN_PROVIDER(
+                error,
+                "redis_query_failed",
+                (redis_log_meta(ResourceId, CommandName, KeyTemplate, Credential, Fields))#{
+                    reason => Reason
+                }
+            ),
             ignore
     end.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+redis_log_meta(ResourceId, CommandName, KeyTemplate, Credential, Fields) ->
+    LogKey = emqx_auth_utils:render_str_redacted(KeyTemplate, Credential),
+    #{
+        resource => ResourceId,
+        cmd => [CommandName, LogKey | Fields],
+        keys => LogKey,
+        fields => Fields
+    }.
 
 parse_config(
     #{

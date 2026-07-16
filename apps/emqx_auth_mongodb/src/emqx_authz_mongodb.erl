@@ -90,7 +90,12 @@ authorize(
 
 authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
     collection := Collection,
-    annotations := #{skip := Skip, limit := Limit, id := ResourceID}
+    annotations := #{
+        skip := Skip,
+        limit := Limit,
+        id := ResourceID,
+        filter_template := FilterTemplate
+    }
 }) ->
     Options = #{skip => Skip, limit => Limit},
     case emqx_resource:simple_sync_query(ResourceID, {find, Collection, RenderedFilter, Options}) of
@@ -99,7 +104,7 @@ authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
                 msg => "query_mongo_error",
                 reason => Reason,
                 collection => Collection,
-                filter => RenderedFilter,
+                filter => emqx_auth_utils:render_deep_for_json_redacted(FilterTemplate, Client),
                 options => Options,
                 resource_id => ResourceID
             }),

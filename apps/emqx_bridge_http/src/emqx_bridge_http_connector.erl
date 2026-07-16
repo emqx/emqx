@@ -697,6 +697,17 @@ redact_request({Path, Headers}) ->
 redact_request({Path, Headers, _Body}) ->
     {Path, emqx_utils_redact:redact_headers(Headers), <<"******">>}.
 
+%% An `ehttpc_worker_down' exit reason carries the original `gen_server:call'
+%% arguments of the in-flight request, including the raw request headers. Drop
+%% the call args entirely, keeping the worker-down classification and stop
+%% reason for diagnostics; for any other sub-shape fall back to a bare atom.
+drop_ehttpc_worker_down_call_args(
+    {ehttpc_worker_down, {Stop, {gen_server, call, _Args}}}
+) ->
+    {ehttpc_worker_down, {Stop, {gen_server, call, '...'}}};
+drop_ehttpc_worker_down_call_args({ehttpc_worker_down, _}) ->
+    ehttpc_worker_down.
+
 render_headers(HeadersTemplate) ->
     RenderTemplateFn = fun render_template/2,
     render_headers(HeadersTemplate, RenderTemplateFn, _Msg = #{}).
@@ -738,22 +749,23 @@ parse_header(K, V) ->
     VTpl = parse_template(to_bin(V)),
     {parse_template(KStr), maybe_wrap_auth_header(KStr, VTpl)}.
 
-maybe_wrap_auth_header(Key, VTpl) when
-    (byte_size(Key) =:= 19 orelse byte_size(Key) =:= 13)
-->
-    %% We check the size of potential keys in the guard above and consider only
-    %% those that match the number of characters of either "Authorization" or
-    %% "Proxy-Authorization".
-    case try_bin_to_lower(Key) of
-        <<"authorization">> ->
+maybe_wrap_auth_header(Key, VTpl) ->
+    case is_sensitive_wire_header(try_bin_to_lower(Key)) of
+        true ->
             emqx_secret:wrap(VTpl);
-        <<"proxy-authorization">> ->
-            emqx_secret:wrap(VTpl);
-        _Other ->
+        false ->
             VTpl
-    end;
-maybe_wrap_auth_header(_Key, VTpl) ->
-    VTpl.
+    end.
+
+%% Conventionally-sensitive header names whose values are stored as secrets so
+%% they are not printed when the connector state is emitted at trace/debug level.
+is_sensitive_wire_header(<<"authorization">>) -> true;
+is_sensitive_wire_header(<<"proxy-authorization">>) -> true;
+is_sensitive_wire_header(<<"api-key">>) -> true;
+is_sensitive_wire_header(<<"x-api-key">>) -> true;
+is_sensitive_wire_header(<<"x-auth-token">>) -> true;
+is_sensitive_wire_header(<<"cookie">>) -> true;
+is_sensitive_wire_header(_Other) -> false.
 
 try_bin_to_lower(Bin) ->
     try iolist_to_binary(string:lowercase(Bin)) of
@@ -973,6 +985,11 @@ transform_result(Result) ->
         %% the request has been fully processed
         {error, {shutdown, Reason}} ->
             transform_result({error, Reason});
+        {error, {ehttpc_worker_down, _} = Reason} ->
+            %% The reason carries the `gen_server:call' arguments of the request
+            %% that was in flight when the worker died, which include the raw
+            %% request headers. Drop the call args before the reason is logged.
+            {error, drop_ehttpc_worker_down_call_args(Reason)};
         {error, Reason} when
             Reason =:= econnrefused;
             Reason =:= timeout;

@@ -883,7 +883,10 @@ create_authenticator(ConfKeyPath, ChainName, Config) ->
             raw_config := AuthenticatorsConfig
         }} ->
             {ok, AuthenticatorConfig} = find_config(ID, AuthenticatorsConfig),
-            {200, maps:put(id, ID, convert_certs(fill_defaults(AuthenticatorConfig)))};
+            {200,
+                maps:put(
+                    id, ID, convert_certs(emqx_utils:redact(fill_defaults(AuthenticatorConfig)))
+                )};
         {error, {_PrePostConfigUpdate, ?CONFIG, Reason}} ->
             serialize_error(Reason);
         {error, Reason} ->

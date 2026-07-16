@@ -390,8 +390,18 @@ make(Command, Headers, Body) ->
 %% @doc Format a frame
 format({frame_error, _Reason} = Error) ->
     Error;
-format(Frame) ->
-    serialize_pkt(Frame, #{}).
+format(#stomp_frame{headers = Headers} = Frame) ->
+    RedactedHeaders = redact_stomp_headers(Headers),
+    serialize_pkt(Frame#stomp_frame{headers = RedactedHeaders}, #{}).
+
+redact_stomp_headers(Headers) ->
+    lists:map(
+        fun
+            ({<<"passcode">>, _}) -> {<<"passcode">>, <<"******">>};
+            (Header) -> Header
+        end,
+        Headers
+    ).
 
 is_message(#stomp_frame{command = CMD}) when
     CMD == ?CMD_SEND;
