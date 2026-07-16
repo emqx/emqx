@@ -237,7 +237,12 @@ t_validate(_) ->
     ?assertError(?SHARE_NAME_INVALID_CHAR, validate({filter, <<"$share/#y/1">>})),
     %% share recursively
     ?assertError(?SHARE_RECURSIVELY, validate({filter, <<"$share/g1/$share/t">>})),
-    true = validate({filter, <<"$share/g1/topic/$share">>}).
+    true = validate({filter, <<"$share/g1/topic/$share">>}),
+
+    true = validate(#share{group = <<"g1">>, topic = <<"topic/$share">>}),
+    ?assertError(?SHARE_EMPTY_GROUP, validate(#share{group = <<>>, topic = <<"t">>})),
+    ?assertError(?SHARE_EMPTY_FILTER, validate(#share{group = <<"g">>, topic = <<>>})),
+    ?assertError(topic_too_long, validate(#share{group = <<"g">>, topic = long_topic()})).
 
 t_sigle_level_validate(_) ->
     true = validate({filter, <<"+">>}),

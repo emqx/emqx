@@ -6,6 +6,9 @@
 
 -include("emqx_mqtt.hrl").
 
+%% "$share" plus the two separators around the group name.
+-define(SHARE_FILTER_OVERHEAD, 8).
+
 %% APIs
 -export([
     match/2,
@@ -217,9 +220,18 @@ match_share(Name, #share{topic = Filter}) when is_binary(Name) ->
 match_any(Topic, Filters) ->
     lists:any(fun(Filter) -> match(Topic, Filter) end, Filters).
 
-%% TODO: validate share topic #share{} for emqx_trace.erl
 %% @doc Validate topic name or filter
--spec validate(topic() | {name | filter, topic()}) -> true.
+-spec validate(topic() | share() | {name | filter, topic()}) -> true.
+validate(#share{group = ShareName, topic = Filter}) when
+    byte_size(ShareName) + byte_size(Filter) + ?SHARE_FILTER_OVERHEAD > ?MAX_TOPIC_LEN
+->
+    error(topic_too_long);
+validate(#share{group = <<>>}) ->
+    error(?SHARE_EMPTY_GROUP);
+validate(#share{topic = <<>>}) ->
+    error(?SHARE_EMPTY_FILTER);
+validate(#share{group = ShareName, topic = Filter}) ->
+    validate_share(ShareName, Filter);
 validate(Topic) when is_binary(Topic) ->
     validate(filter, Topic);
 validate({Type, Topic}) when Type =:= name; Type =:= filter ->

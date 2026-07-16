@@ -6,9 +6,12 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -import(emqx_config_SUITE, [prepare_conf_file/3]).
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 -define(TOPIC_C, <<"/c/${clientid}">>).
 -define(TOPIC_U, <<"/u/${username}">>).
@@ -46,34 +49,35 @@ init_per_suite(Config) ->
     meck:expect(emqx_resource, update, fun(_, _, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, remove, fun(_) -> ok end),
 
-    ASCfg = <<
-        "auto_subscribe {\n"
-        "            topics = [\n"
-        "                {\n"
-        "                    topic = \"/c/${clientid}\"\n"
-        "                },\n"
-        "                {\n"
-        "                    topic = \"/u/${username}\"\n"
-        "                },\n"
-        "                {\n"
-        "                    topic = \"/h/${host}\"\n"
-        "                },\n"
-        "                {\n"
-        "                    topic = \"/p/${port}\"\n"
-        "                },\n"
-        "                {\n"
-        "                    topic = \"/client/${clientid}/username/${username}/host/${host}/port/${port}\"\n"
-        "                },\n"
-        "                {\n"
-        "                    topic = \"/topic/simple\"\n"
-        "                    qos   = 1\n"
-        "                    rh    = 0\n"
-        "                    rap   = 0\n"
-        "                    nl    = 0\n"
-        "                }\n"
-        "            ]\n"
-        "        }"
-    >>,
+    ASCfg =
+        ~b"""
+    auto_subscribe {
+        topics = [
+            {
+                topic = "/c/${clientid}"
+            },
+            {
+                topic = "/u/${username}"
+            },
+            {
+                topic = "/h/${host}"
+            },
+            {
+                topic = "/p/${port}"
+            },
+            {
+                topic = "/client/${clientid}/username/${username}/host/${host}/port/${port}"
+            },
+            {
+                topic = "/topic/simple"
+                qos   = 1
+                rh    = 0
+                rap   = 0
+                nl    = 0
+            }
+        ]
+    }
+    """,
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -97,11 +101,14 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(t_get_basic_usage_info, _Config) ->
     {ok, _} = emqx_auto_subscribe:update([]),
+    emqx_common_test_helpers:call_janitor(),
     ok;
 end_per_testcase(t_auto_subscribe_reload_from_file, _Config) ->
     {ok, _} = emqx_auto_subscribe:update([]),
+    emqx_common_test_helpers:call_janitor(),
     ok;
 end_per_testcase(_TestCase, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 topic_config(T) ->
@@ -126,6 +133,41 @@ t_auto_subscribe(_) ->
     ?assertEqual(check_subs(length(?TOPICS)), ok),
     emqtt:disconnect(Client),
     ok.
+
+t_auto_subscribe_respects_authorization(_) ->
+    TestPid = self(),
+    TopicTemplate = <<"/denied/${clientid}">>,
+    DeniedTopic = <<"/denied/auto_sub_c">>,
+    {ok, _} = emqx_auto_subscribe:update([#{<<"topic">> => TopicTemplate}]),
+    on_exit(fun() -> {ok, _} = emqx_auto_subscribe:update([]) end),
+    ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_access_control, authorize, fun
+        (_ClientInfo, #{action_type := subscribe}, Topic) when Topic =:= DeniedTopic ->
+            TestPid ! authorization_checked,
+            deny;
+        (ClientInfo, Action, Topic) ->
+            meck:passthrough([ClientInfo, Action, Topic])
+    end),
+    on_exit(fun() -> meck:unload(emqx_access_control) end),
+    {ok, Client} = emqtt:start_link(#{username => ?CLIENT_USERNAME, clientid => ?CLIENT_ID}),
+    {ok, _} = emqtt:connect(Client),
+    ?assertReceive(authorization_checked, 1_000),
+    snabbkaffe_diff:assert_lists_eq([], client_subscriptions(?CLIENT_ID)),
+    emqtt:disconnect(Client).
+
+t_auto_subscribe_shared_topic(_) ->
+    Topic = <<"$share/group/auto/${clientid}">>,
+    RenderedTopic = <<"auto/auto_sub_c">>,
+    {ok, _} = emqx_auto_subscribe:update([#{<<"topic">> => Topic}]),
+    on_exit(fun() -> {ok, _} = emqx_auto_subscribe:update([]) end),
+    {ok, Client} = emqtt:start_link(#{username => ?CLIENT_USERNAME, clientid => ?CLIENT_ID}),
+    {ok, _} = emqtt:connect(Client),
+    snabbkaffe_diff:assert_lists_eq(
+        [#share{group = <<"group">>, topic = RenderedTopic}],
+        client_subscriptions(?CLIENT_ID)
+    ),
+    emqtt:disconnect(Client).
+
 t_auto_subscribe_reload_from_file(Config) ->
     ConfBin = hocon_pp:do(
         #{<<"auto_subscribe">> => #{<<"topics">> => [#{<<"topic">> => Topic} || Topic <- ?TOPICS]}},
@@ -199,6 +241,11 @@ t_get_basic_usage_info(_Config) ->
     {ok, _} = emqx_auto_subscribe:update(AutoSubscribeTopics),
     ?assertEqual(#{auto_subscribe_count => 3}, emqx_auto_subscribe:get_basic_usage_info()),
     ok.
+
+client_subscriptions(ClientId) ->
+    [ChannelPid] = emqx_cm:lookup_channels(ClientId),
+    #{session := #{subscriptions := Subscriptions}} = emqx_connection:info(ChannelPid),
+    maps:keys(Subscriptions).
 
 check_subs(Count) ->
     Subs = ets:tab2list(emqx_suboption),

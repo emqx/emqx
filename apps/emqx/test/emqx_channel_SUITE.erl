@@ -890,8 +890,130 @@ t_handle_call_unexpected(_) ->
 %%--------------------------------------------------------------------
 
 t_handle_info_subscribe(_) ->
+    on_exit(fun() -> meck:delete(emqx_session, subscribe, 4) end),
     ok = meck:expect(emqx_session, subscribe, fun(_, _, _, Session) -> {ok, Session} end),
     {ok, _Chan} = emqx_channel:handle_info({subscribe, topic_filters()}, channel()).
+
+t_internal_subscribe_checks_authz_and_runs_hook(_) ->
+    TestPid = self(),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    AllowedTopic = <<"regular/allowed">>,
+    DeniedTopic = <<"regular/denied">>,
+    AllowedSharedTopic = <<"shared/allowed">>,
+    DeniedSharedTopic = <<"shared/denied">>,
+    AllowedShare = #share{group = <<"group">>, topic = AllowedSharedTopic},
+    AllowedTopics = [AllowedTopic, AllowedShare],
+    on_exit(fun() ->
+        meck:expect(emqx_access_control, authorize, fun(_, _, _) -> allow end),
+        emqx_hooks:del('client.subscribe', {?MODULE, on_client_subscribe})
+    end),
+    ok = meck:expect(emqx_access_control, authorize, fun
+        (_, _, Denied) when Denied =:= DeniedTopic; Denied =:= DeniedSharedTopic -> deny;
+        (_, _, _) -> allow
+    end),
+    ok = emqx_hooks:add(
+        'client.subscribe', {?MODULE, on_client_subscribe, [TestPid]}, ?HP_HIGHEST
+    ),
+    TopicFilters = [
+        {AllowedTopic, ?DEFAULT_SUBOPTS},
+        {DeniedTopic, ?DEFAULT_SUBOPTS},
+        {<<"$share/group/", AllowedSharedTopic/binary>>, ?DEFAULT_SUBOPTS},
+        {<<"$share/group/", DeniedSharedTopic/binary>>, ?DEFAULT_SUBOPTS}
+    ],
+    ListenerId = 'tcp:default',
+    ok = emqx_listeners:start_listener(ListenerId),
+    on_exit(fun() ->
+        emqx_listeners:stop_listener(ListenerId),
+        emqx_limiter:create_listener_limiters(ListenerId, #{})
+    end),
+    {ok, Client} = emqtt:start_link(#{clientid => ClientId}),
+    {ok, _} = emqtt:connect(Client),
+    [ChannelPid] = emqx_cm:lookup_channels(ClientId),
+    ChannelPid ! {subscribe, TopicFilters},
+    {client_subscribe, #{}, HookTopicFilters} = ?assertReceive(
+        {client_subscribe, #{}, _}, 1_000
+    ),
+    ok = snabbkaffe_diff:assert_lists_eq(
+        AllowedTopics,
+        [Topic || {Topic, _SubOpts} <- HookTopicFilters]
+    ),
+    snabbkaffe_diff:assert_lists_eq(
+        lists:sort(AllowedTopics),
+        channel_subscriptions(ChannelPid)
+    ),
+    emqtt:disconnect(Client).
+
+t_internal_subscribe_checks_caps(_) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    SimpleTopic = <<"simple">>,
+    WildcardTopic = <<"wildcard/#">>,
+    OldValue = emqx_config:get_zone_conf(default, [mqtt, wildcard_subscription]),
+    on_exit(fun() ->
+        emqx_config:put_zone_conf(default, [mqtt, wildcard_subscription], OldValue)
+    end),
+    emqx_config:put_zone_conf(default, [mqtt, wildcard_subscription], false),
+    ListenerId = 'tcp:default',
+    ok = emqx_listeners:start_listener(ListenerId),
+    on_exit(fun() ->
+        emqx_listeners:stop_listener(ListenerId),
+        emqx_limiter:create_listener_limiters(ListenerId, #{})
+    end),
+    {ok, Client} = emqtt:start_link(#{clientid => ClientId}),
+    {ok, _} = emqtt:connect(Client),
+    [ChannelPid] = emqx_cm:lookup_channels(ClientId),
+    ChannelPid !
+        {subscribe, [
+            {SimpleTopic, ?DEFAULT_SUBOPTS},
+            {WildcardTopic, ?DEFAULT_SUBOPTS}
+        ]},
+    snabbkaffe_diff:assert_lists_eq(
+        [SimpleTopic],
+        channel_subscriptions(ChannelPid)
+    ),
+    emqtt:disconnect(Client).
+
+t_handle_info_subscribe_honors_disconnect_deny_action(_) ->
+    OldDenyAction = emqx:get_config([authorization, deny_action], ignore),
+    {ok, _} = emqx:update_config([authorization, deny_action], disconnect),
+    on_exit(fun() ->
+        {ok, _} = emqx:update_config([authorization, deny_action], OldDenyAction),
+        meck:expect(emqx_access_control, authorize, fun(_, _, _) -> allow end)
+    end),
+    ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> deny end),
+    on_exit(fun() ->
+        meck:expect(emqx_access_control, authorize, fun(_, _, _) -> allow end)
+    end),
+    ?assertMatch(
+        {ok, [{outgoing, ?DISCONNECT_PACKET(?RC_NOT_AUTHORIZED)}, {close, not_authorized}], _},
+        emqx_channel:handle_info(
+            {subscribe, [{<<"deny">>, ?DEFAULT_SUBOPTS}]}, channel()
+        )
+    ).
+
+t_handle_info_force_subscribe_bypasses_checks_and_hooks(_) ->
+    TestPid = self(),
+    ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> deny end),
+    on_exit(fun() ->
+        meck:expect(emqx_access_control, authorize, fun(_, _, _) -> allow end)
+    end),
+    ok = meck:expect(emqx_session, subscribe, fun(_, Topic, _, Session) ->
+        TestPid ! {subscribed, Topic},
+        {ok, Session}
+    end),
+    on_exit(fun() ->
+        meck:delete(emqx_session, subscribe, 4)
+    end),
+    ok = emqx_hooks:add(
+        'client.subscribe', {?MODULE, on_client_subscribe, [TestPid]}, ?HP_HIGHEST
+    ),
+    on_exit(fun() ->
+        emqx_hooks:del('client.subscribe', {?MODULE, on_client_subscribe})
+    end),
+    {ok, _Channel} = emqx_channel:handle_info(
+        {force_subscribe, [{<<"forced">>, ?DEFAULT_SUBOPTS}]}, channel()
+    ),
+    ?assertReceive({subscribed, <<"forced">>}),
+    ?assertNotReceive({client_subscribe, _, _}).
 
 t_handle_info_unsubscribe(_) ->
     ok = meck:expect(emqx_session, unsubscribe, fun(_, _, _, Session) -> {ok, Session} end),
@@ -1093,12 +1215,9 @@ t_check_sub_authzs(_) ->
     emqx_config:put_zone_conf(default, [authorization, enable], true),
     TopicFilter = {<<"t">>, ?DEFAULT_SUBOPTS},
     SubPkt = ?SUBSCRIBE_PACKET(1, #{}, [TopicFilter]),
-    CheckedSubPkt = ?SUBSCRIBE_PACKET(1, #{}, [{TopicFilter, ?RC_SUCCESS}]),
+    Operation = emqx_channel:subscribe_operation(SubPkt),
     Channel = channel(),
-    ?assertEqual(
-        {ok, CheckedSubPkt, Channel},
-        emqx_channel:check_sub_authzs(SubPkt, Channel)
-    ).
+    ?assertMatch({ok, _, Channel}, emqx_channel:check_sub_authzs(Operation, Channel)).
 
 t_parse_raw_topic_filters_subscription_filter_enabled(_) ->
     OldMode = emqx_config:get_zone_conf(default, [mqtt, subscription_message_filter], disable),
@@ -1470,3 +1589,11 @@ v4(Channel) ->
 authenticate_continue(Credential, _DefaultRes, TestRunnerPid, Agent) ->
     TestRunnerPid ! {authenticate, Credential},
     emqx_utils_agent:get(Agent).
+
+on_client_subscribe(_ClientInfo, Properties, TopicFilters, TestPid) ->
+    TestPid ! {client_subscribe, Properties, TopicFilters},
+    {ok, TopicFilters}.
+
+channel_subscriptions(ChannelPid) ->
+    #{session := #{subscriptions := Subscriptions}} = emqx_connection:info(ChannelPid),
+    lists:sort(maps:keys(Subscriptions)).
