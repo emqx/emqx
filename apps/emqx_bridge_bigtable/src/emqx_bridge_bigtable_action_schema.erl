@@ -72,9 +72,9 @@ fields(action_resource_opts) ->
     ]);
 fields(action_parameters) ->
     [
-        {instance_id, mk(binary(), #{desc => ?DESC("instance_id")})},
-        {table_id, mk(binary(), #{desc => ?DESC("table_id")})},
-        {row_key, mk(binary(), #{desc => ?DESC("row_key")})},
+        {instance_id, mk(binary(), #{required => true, desc => ?DESC("instance_id")})},
+        {table_id, mk(binary(), #{required => true, desc => ?DESC("table_id")})},
+        {row_key, mk(binary(), #{required => true, desc => ?DESC("row_key")})},
         {mutations,
             mk(
                 hoconsc:array(
@@ -83,6 +83,7 @@ fields(action_parameters) ->
                     })
                 ),
                 #{
+                    required => true,
                     desc => ?DESC("mutations"),
                     validator => fun emqx_schema:non_empty_array/1
                 }
@@ -90,7 +91,7 @@ fields(action_parameters) ->
     ];
 fields(set_cell_parameters) ->
     [
-        {type, mk(set_cell, #{desc => ?DESC("set_cell_type")})},
+        {type, mk(set_cell, #{required => true, desc => ?DESC("set_cell_type")})},
         {family_name, mk(binary(), #{required => true, desc => ?DESC("set_cell_family_name")})},
         {column_qualifier,
             mk(binary(), #{required => true, desc => ?DESC("set_cell_column_qualifier")})},
