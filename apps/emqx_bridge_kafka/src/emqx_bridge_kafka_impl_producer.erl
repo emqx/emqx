@@ -127,6 +127,10 @@ on_start(InstId, Config) ->
             },
             {ok, ConnectorState};
         {error, Reason} ->
+            %% `register_oauth2/2' ran above; undo it so a failed start does
+            %% not leave a stale registration behind.  `unregister/1' is a
+            %% no-op when OAuth2 was not used.
+            ok = emqx_connector_oauth2:unregister(ClientId),
             {error, Reason}
     end.
 

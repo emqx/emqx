@@ -259,13 +259,16 @@ store_row(ResourceId, Deadline, Response) ->
             ok
     end.
 
-ensure_refresh_timer(ResourceId, _Time, #{?TIMERS := Timers} = State) when
-    is_map_key(ResourceId, Timers)
-->
-    State;
-ensure_refresh_timer(ResourceId, Time, #{?TIMERS := Timers0} = State0) ->
+ensure_refresh_timer(ResourceId, Time, State0) ->
+    %% Always replace any existing timer.  A retry timer may have been
+    %% scheduled after a refresh failure; if a successful fetch then happens
+    %% (e.g. via `get_token/1') before that retry fires, the timer must be
+    %% rescheduled based on the new token's expiry, otherwise the stale retry
+    %% fires an unnecessary extra fetch shortly after the success.
+    State1 = clear_refresh_timer(ResourceId, State0),
+    #{?TIMERS := Timers0} = State1,
     TRef = emqx_utils:start_timer(Time, #refresh{resource_id = ResourceId}),
-    State0#{?TIMERS := Timers0#{ResourceId => TRef}}.
+    State1#{?TIMERS := Timers0#{ResourceId => TRef}}.
 
 clear_refresh_timer(ResourceId, #{?TIMERS := Timers0} = State0) ->
     case maps:take(ResourceId, Timers0) of

@@ -227,7 +227,7 @@ make_jwt(Claims) ->
 b64url(Bin) ->
     base64:encode(Bin, #{mode => urlsafe, padding => false}).
 
-wait_for(_Fun, 0) ->
+wait_for(_Fun, Timeout) when Timeout =< 0 ->
     error(wait_timeout);
 wait_for(Fun, Timeout) ->
     case Fun() of
