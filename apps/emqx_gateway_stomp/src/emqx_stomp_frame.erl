@@ -391,16 +391,16 @@ redact_stomp_headers(Headers) ->
         Headers
     ).
 
-is_message(#stomp_frame{command = CMD}) when
-    CMD == ?CMD_SEND;
-    CMD == ?CMD_MESSAGE
+is_message(#stomp_frame{command = Cmd}) when
+    Cmd == ?CMD_SEND;
+    Cmd == ?CMD_MESSAGE
 ->
     true;
 is_message(_) ->
     false.
 
-type(#stomp_frame{command = CMD}) ->
-    type(CMD);
+type(#stomp_frame{command = Cmd}) ->
+    type(Cmd);
 type(?CMD_STOMP) ->
     connect;
 type(?CMD_CONNECT) ->
