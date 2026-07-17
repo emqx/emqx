@@ -362,7 +362,10 @@ emqtt_connect(ClientId) ->
         {ok, _} ->
             %% link again
             link(C0),
-            {ok, C0}
+            {ok, C0};
+        {error, {server_unavailable, _}} ->
+            ct:sleep(100),
+            emqtt_connect(ClientId)
     catch
         exit:{shutdown, server_unavailable} ->
             ct:sleep(100),

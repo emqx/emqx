@@ -14,6 +14,8 @@
 %% callbacks of behaviour emqx_resource
 -export([
     resource_type/0,
+    resource_health_check_timeout_status/0,
+    channel_health_check_timeout_status/0,
     query_mode/1,
     query_opts/1,
     callback_mode/0,
@@ -45,6 +47,10 @@
 -define(PROBE_TOPIC_NAME, <<"emqx-connector-connectivity-probe">>).
 
 resource_type() -> kafka_producer.
+
+resource_health_check_timeout_status() -> ?status_connecting.
+
+channel_health_check_timeout_status() -> ?status_connecting.
 
 query_mode(#{parameters := #{query_mode := sync}}) ->
     simple_sync_internal_buffer;
@@ -937,12 +943,23 @@ handle_telemetry_event(
 ) when is_integer(Val) ->
     emqx_resource_metrics:queuing_bytes_set(ID, PartitionID, Val);
 handle_telemetry_event(
-    [wolff, retried],
+    [wolff, retried_success],
     #{counter_inc := Val},
     #{bridge_id := ID},
     #{bridge_id := ID}
 ) when is_integer(Val) ->
-    emqx_resource_metrics:retried_inc(ID, Val);
+    %% Bump only `retried' + `retried.success'; `success' is already counted by
+    %% the async ack/reply path, so bumping it here would double-count.
+    emqx_resource_metrics:retried_success_only_inc(ID, Val);
+handle_telemetry_event(
+    [wolff, retried_failed],
+    #{counter_inc := Val},
+    #{bridge_id := ID},
+    #{bridge_id := ID}
+) when is_integer(Val) ->
+    %% Bump only `retried' + `retried.failed'; `failed' is already counted by
+    %% the async ack/reply path, so bumping it here would double-count.
+    emqx_resource_metrics:retried_failed_only_inc(ID, Val);
 handle_telemetry_event(
     [wolff, inflight],
     #{gauge_set := Val},
@@ -974,7 +991,8 @@ maybe_install_wolff_telemetry_handlers(TelemetryId) ->
             [wolff, dropped_queue_full],
             [wolff, queuing],
             [wolff, queuing_bytes],
-            [wolff, retried],
+            [wolff, retried_success],
+            [wolff, retried_failed],
             [wolff, inflight]
         ],
         fun ?MODULE:handle_telemetry_event/4,
