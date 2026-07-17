@@ -29,18 +29,11 @@ fields(connector) ->
         {servers,
             emqx_schema:servers_sc(
                 #{
-                    required => false,
+                    aliases => [server],
+                    default => <<"localhost">>,
                     desc => ?DESC("servers")
                 },
                 emqx_bridge_rabbitmq_client:host_options()
-            )},
-        {server,
-            ?HOCON(
-                string(),
-                #{
-                    default => <<"localhost">>,
-                    desc => ?DESC("server")
-                }
             )},
         {port,
             ?HOCON(

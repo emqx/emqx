@@ -9,30 +9,28 @@
 
 servers_from_config_test_() ->
     [
-        {"prefers servers over legacy fields",
+        {"uses inline ports",
             ?_assertEqual(
                 [{"rmq1", 5672}, {"rmq2", 5673}],
                 emqx_bridge_rabbitmq_client:servers_from_config(#{
                     servers => <<"rmq1:5672,rmq2:5673">>,
-                    server => <<"ignored">>,
                     port => 1111
                 })
             )},
-        {"legacy server+port",
+        {"uses configured default port",
             ?_assertEqual(
-                [{"rmq-legacy", 5672}],
+                [{"rmq-legacy", 5671}],
                 emqx_bridge_rabbitmq_client:servers_from_config(#{
-                    server => <<"rmq-legacy">>,
-                    port => 5672
+                    servers => <<"rmq-legacy">>,
+                    port => 5671
                 })
             )},
         {"default port in servers list",
             ?_assertEqual(
-                [{"rmq1", 5672}, {"rmq2", 5673}],
+                [{"rmq1", 5671}, {"rmq2", 5673}],
                 emqx_bridge_rabbitmq_client:servers_from_config(#{
                     servers => <<"rmq1,rmq2:5673">>,
-                    server => <<"localhost">>,
-                    port => 5672
+                    port => 5671
                 })
             )}
     ].
@@ -108,10 +106,10 @@ schema_test_() ->
             )},
         {"accepts legacy server+port",
             ?_assertMatch(
-                #{<<"server">> := <<"rmq-legacy">>, <<"port">> := 5672},
+                #{<<"servers">> := <<"rmq-legacy">>, <<"port">> := 5671},
                 emqx_bridge_rabbitmq_testlib:connector_config(#{
                     <<"server">> => <<"rmq-legacy">>,
-                    <<"port">> => 5672
+                    <<"port">> => 5671
                 })
             )}
     ].

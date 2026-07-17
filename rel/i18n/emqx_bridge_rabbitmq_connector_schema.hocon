@@ -3,20 +3,14 @@ emqx_bridge_rabbitmq_connector_schema {
 
 servers.desc:
 """Comma-separated RabbitMQ nodes for connect failover, form `Host[:Port][,Host2:Port]`.<br/>
-Default port 5672 is used when `[:Port]` is omitted.<br/>
-Takes precedence over legacy `server` and `port` when set."""
+The `server` field is accepted as an alias.<br/>
+The `port` value (default 5672) is used when `[:Port]` is omitted."""
 
 servers.label:
 """Servers"""
 
-server.desc:
-"""Legacy single hostname/IP. Used only when `servers` is not set."""
-
-server.label:
-"""Server"""
-
 port.desc:
-"""Legacy port (default 5672). Used only when `servers` is not set."""
+"""The default port for servers without an explicit `:Port` (default 5672)."""
 
 port.label:
 """Port"""

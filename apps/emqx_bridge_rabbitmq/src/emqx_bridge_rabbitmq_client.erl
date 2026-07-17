@@ -16,23 +16,14 @@
 -include_lib("amqp_client/include/amqp_client.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--define(HOST_OPTIONS, #{
-    default_port => 5672,
-    ssrf_check => true
-}).
-
 -type host_port() :: {string(), inet:port_number()}.
 -type amqp_params() :: #amqp_params_network{}.
 
-host_options() -> ?HOST_OPTIONS.
+host_options() -> host_options(5672).
 
-%% `servers` wins when set; otherwise legacy `server`+`port`.
-servers_from_config(#{servers := Servers}) when
-    Servers =/= undefined, Servers =/= <<>>, Servers =/= ""
-->
-    parse_servers(Servers);
-servers_from_config(#{server := Host, port := Port}) ->
-    [{emqx_utils_conv:str(Host), Port}].
+%% `server` is normalized to the canonical `servers` field by the schema.
+servers_from_config(#{servers := Servers, port := DefaultPort}) ->
+    parse_servers(Servers, DefaultPort).
 
 rotate_servers([], _WorkerId) ->
     [];
@@ -48,11 +39,14 @@ rotate_servers(Servers, _WorkerId) ->
 start_connection(Servers, AmqpParamsBase) ->
     do_start_connection(Servers, AmqpParamsBase, []).
 
-parse_servers(BinServers) ->
+parse_servers(BinServers, DefaultPort) ->
     [
         {emqx_utils_conv:str(Host), Port}
-     || #{hostname := Host, port := Port} <- emqx_schema:parse_servers(BinServers, ?HOST_OPTIONS)
+     || #{hostname := Host, port := Port} <-
+            emqx_schema:parse_servers(BinServers, host_options(DefaultPort))
     ].
+
+host_options(DefaultPort) -> #{default_port => DefaultPort, ssrf_check => true}.
 
 do_start_connection([], _AmqpParamsBase, Tried) ->
     {error, #{reason => all_nodes_failed, tried => lists:reverse(Tried)}};
