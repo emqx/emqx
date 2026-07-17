@@ -132,7 +132,7 @@ push_to_push_gateway(Method, Url, Headers) when
                 msg => "post_to_push_gateway_failed",
                 error => Error,
                 url => Url,
-                headers => Headers
+                headers => emqx_utils_redact:redact_headers(Headers)
             }),
             failed
     end.
@@ -436,6 +436,7 @@ emqx_collect(K = emqx_packets_publish_sent, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_packets_publish_inuse, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_packets_publish_error, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_packets_publish_auth_error, D) -> counter_metrics(?MG(K, D));
+emqx_collect(K = emqx_packets_publish_quota_exceeded, D) -> counter_metrics(?MG(K, D));
 %% puback
 emqx_collect(K = emqx_packets_puback_received, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_packets_puback_sent, D) -> counter_metrics(?MG(K, D));
@@ -819,6 +820,7 @@ emqx_packet_metric_meta() ->
         {emqx_packets_publish_inuse, counter, 'packets.publish.inuse'},
         {emqx_packets_publish_error, counter, 'packets.publish.error'},
         {emqx_packets_publish_auth_error, counter, 'packets.publish.auth_error'},
+        {emqx_packets_publish_quota_exceeded, counter, 'packets.publish.quota_exceeded'},
         %% puback
         {emqx_packets_puback_received, counter, 'packets.puback.received'},
         {emqx_packets_puback_sent, counter, 'packets.puback.sent'},

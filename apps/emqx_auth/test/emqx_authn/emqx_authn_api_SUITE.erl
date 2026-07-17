@@ -111,6 +111,50 @@ t_authenticator_fail(_) ->
         )
     ).
 
+t_create_authenticator_redacts_secrets(_) ->
+    JWTConfig = emqx_authn_test_lib:jwt_example(),
+    {ok, 200, JWTRes} = request(
+        post,
+        uri([?CONF_NS]),
+        JWTConfig
+    ),
+    ?assertMatch(
+        #{<<"id">> := <<"jwt">>, <<"secret">> := <<"******">>},
+        emqx_utils_json:decode(JWTRes)
+    ),
+
+    HTTPConfig0 = emqx_authn_test_lib:http_example(),
+    HTTPConfig = HTTPConfig0#{
+        headers => #{
+            <<"content-type">> => <<"application/json">>,
+            <<"authorization">> => <<"Bearer secret-token">>
+        },
+        body => #{
+            <<"username">> => <<"${username}">>,
+            <<"password">> => <<"secret-password">>
+        }
+    },
+    {ok, 200, HTTPRes} = request(
+        post,
+        uri([?CONF_NS]),
+        HTTPConfig
+    ),
+    ?assertMatch(
+        #{
+            <<"id">> := <<"password_based:http">>,
+            <<"headers">> := #{
+                <<"content-type">> := <<"application/json">>,
+                <<"authorization">> := <<"******">>
+            },
+            <<"body">> := #{
+                <<"username">> := <<"${username}">>,
+                <<"password">> := <<"******">>
+            }
+        },
+        emqx_utils_json:decode(HTTPRes)
+    ),
+    ok.
+
 t_authenticator_position(_) ->
     test_authenticator_position([]).
 

@@ -1532,11 +1532,11 @@ continue_with_health_check(#data{} = Data0, CurrentState, HCRes) ->
     {NewStatus, Err} = parse_health_check_result(HCRes, Data0),
     IsDryRun = emqx_resource:is_dry_run(ResId),
     _ = maybe_alarm(NewStatus, IsDryRun, ResId, Err, PrevError),
-    ok = maybe_resume_resource_workers(ResId, NewStatus),
     Data1 = Data0#data{
         status = NewStatus, error = Err
     },
     Data = update_state(Data1),
+    ok = maybe_resume_resource_workers(ResId, NewStatus),
     case CurrentState of
         ?state_connected ->
             continue_resource_health_check_connected(NewStatus, Data);
@@ -2023,7 +2023,9 @@ handle_channel_health_check_worker_down(Data0, Pid, ExitResult) ->
     ),
     CHCActions = start_channel_health_check_action(ChannelId, NewStatus, PreviousChanStatus, Data),
     Actions = Replies ++ CHCActions,
-    {keep_state, update_state(Data), Actions}.
+    CachedData = update_state(Data),
+    ok = maybe_resume_channel_workers(ChannelId, CachedData),
+    {keep_state, CachedData, Actions}.
 
 handle_channel_health_check_worker_down_new_channels_and_status(
     ChannelId,
@@ -2194,6 +2196,24 @@ maybe_resume_resource_workers(ResId, ?status_connected) ->
     );
 maybe_resume_resource_workers(_, _) ->
     ok.
+
+-spec maybe_resume_channel_workers(channel_id(), data()) -> ok.
+maybe_resume_channel_workers(ChannelId, #data{added_channels = AddedChannels}) ->
+    ChannelStatus = maps:get(ChannelId, AddedChannels, undefined),
+    case should_resume_channel_workers(ChannelStatus) of
+        true ->
+            lists:foreach(
+                fun emqx_resource_buffer_worker:resume/1,
+                emqx_resource_buffer_worker_sup:worker_pids(ChannelId)
+            );
+        false ->
+            ok
+    end.
+
+should_resume_channel_workers(#{status := ?status_connected}) ->
+    true;
+should_resume_channel_workers(_) ->
+    false.
 
 -spec maybe_clear_alarm(boolean(), resource_id()) -> ok | {error, not_found}.
 maybe_clear_alarm(true, _ResId) ->
@@ -2744,5 +2764,10 @@ get_query_mode_bad_query_kinds_test_() ->
         }
      || BadQueryKind <- BadQueryKinds
     ].
+
+should_resume_channel_workers_test() ->
+    ?assert(should_resume_channel_workers(#{status => ?status_connected})),
+    ?assertNot(should_resume_channel_workers(#{status => ?status_connecting})),
+    ?assertNot(should_resume_channel_workers(undefined)).
 
 -endif.

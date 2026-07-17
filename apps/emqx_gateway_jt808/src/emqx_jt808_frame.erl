@@ -61,7 +61,17 @@ serialize_pkt(Frame, _Opts) ->
     serialize(Frame).
 
 format(Msg) ->
-    io_lib:format("~p", [Msg]).
+    io_lib:format("~p", [redact_auth_code(Msg)]).
+
+redact_auth_code(
+    #{
+        <<"header">> := #{<<"msg_id">> := ?MC_AUTH},
+        <<"body">> := #{<<"code">> := _} = Body
+    } = Msg
+) ->
+    Msg#{<<"body">> := Body#{<<"code">> := <<"******">>}};
+redact_auth_code(Msg) ->
+    Msg.
 
 type(_) ->
     jt808.
@@ -388,12 +398,12 @@ parse_location_report_extra(
         <<"in_out_alarm">> => #{<<"type">> => Type, <<"id">> => Id, <<"direction">> => Direction}
     });
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_PATH_TIME_ALARM:?BYTE, 7:?BYTE, ID:?DWORD, Time:?WORD, Result:?BYTE,
+    <<?CP_POS_EXTRA_PATH_TIME_ALARM:?BYTE, 7:?BYTE, Id:?DWORD, Time:?WORD, Result:?BYTE,
         Rest/binary>>,
     Acc
 ) ->
     parse_location_report_extra(Rest, Acc#{
-        <<"path_time_alarm">> => #{<<"id">> => ID, <<"time">> => Time, <<"result">> => Result}
+        <<"path_time_alarm">> => #{<<"id">> => Id, <<"time">> => Time, <<"result">> => Result}
     });
 parse_location_report_extra(
     <<?CP_POS_EXTRA_EXPANDED_SIGNAL:?BYTE, 4:?BYTE, Signal:4/binary, Rest/binary>>, Acc

@@ -203,7 +203,7 @@ connect_attrs(
         'client.will_qos' => WillQos,
         'client.will_retain' => WillRetain,
         'client.keepalive' => KeepAlive,
-        'client.conn_props' => json_encode_proplist(Properties),
+        'client.conn_props' => json_encode_proplist(redact_conn_props(Properties)),
         'client.will_props' => json_encode(WillProps),
         'client.will_topic' => WillTopic,
         'client.sockname' => emqx_utils:ntoa(emqx_channel:info(sockname, Channel)),
@@ -411,3 +411,8 @@ printable_function_name(emqx_rule_actions, Func) ->
     Func;
 printable_function_name(Mod, Func) ->
     list_to_binary(lists:concat([Mod, ":", Func])).
+
+redact_conn_props(#{'Authentication-Data' := _} = Properties) ->
+    Properties#{'Authentication-Data' := <<"******">>};
+redact_conn_props(Properties) ->
+    Properties.
