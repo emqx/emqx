@@ -570,6 +570,12 @@ post_config_update(_Path, _Request, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
 post_zone_config_update(OldZones, NewZones) ->
+    ListenersRunning = emqx:is_running() andalso emqx_boot:is_enabled(listeners),
+    do_post_zone_config_update(ListenersRunning, OldZones, NewZones).
+
+do_post_zone_config_update(false, _OldZones, _NewZones) ->
+    ok;
+do_post_zone_config_update(true, OldZones, NewZones) ->
     Zones0 = maps:keys(OldZones),
     case find_zones_with_relevant_changes(Zones0, OldZones, NewZones, []) of
         [] ->
