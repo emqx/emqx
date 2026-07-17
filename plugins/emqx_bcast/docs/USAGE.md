@@ -25,8 +25,8 @@ With this configuration, a client connecting with `username = "P1-device001"` ha
 ### 2. Install Plugin
 
 ```bash
-emqx ctl plugins install emqx_iot-<vsn>.tar.gz
-emqx ctl plugins start emqx_iot
+emqx ctl plugins install emqx_bcast-<vsn>.tar.gz
+emqx ctl plugins start emqx_bcast
 ```
 
 ### 3. Create API Key
@@ -61,14 +61,14 @@ HOST="http://127.0.0.1:18083"
 
 # Step 1: Pre-register the message body
 MSG_ID=$(curl -su "$API_KEY" \
-  -X POST "$HOST/api/v5/plugin_api/emqx_iot/pub" \
+  -X POST "$HOST/api/v5/plugin_api/emqx_bcast/pub" \
   -H "Content-Type: application/json" \
   -d '{"Action":"RegisterMessage","MessageContent":"SGVsbG8gV29ybGQ="}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['MessageId'])")
 
 # Step 2: BatchPub to 1000 devices (reuse MessageId, no payload transfer)
 curl -su "$API_KEY" \
-  -X POST "$HOST/api/v5/plugin_api/emqx_iot/pub" \
+  -X POST "$HOST/api/v5/plugin_api/emqx_bcast/pub" \
   -H "Content-Type: application/json" \
   -d "{\"Action\":\"BatchPub\",\"ProductKey\":\"P1\",\"DeviceName\":[\"D1\",\"D2\",\"D3\"],\"MessageId\":\"$MSG_ID\",\"Qos\":1}"
 ```
@@ -79,7 +79,7 @@ For large-scale scenarios (500,000+ devices), pre-register once and send ~50 Bat
 
 ```bash
 curl -su "$API_KEY" \
-  -X POST "$HOST/api/v5/plugin_api/emqx_iot/pub" \
+  -X POST "$HOST/api/v5/plugin_api/emqx_bcast/pub" \
   -H "Content-Type: application/json" \
   -d '{"Action":"PubBroadcast","ProductKey":"P1","MessageContent":"SGVsbG8gV29ybGQ="}'
 ```
@@ -93,7 +93,7 @@ QoS=1 messages are persisted for 15 days. When an offline device reconnects, the
 ```bash
 # Device list includes both online and offline devices
 curl -su "$API_KEY" \
-  -X POST "$HOST/api/v5/plugin_api/emqx_iot/pub" \
+  -X POST "$HOST/api/v5/plugin_api/emqx_bcast/pub" \
   -H "Content-Type: application/json" \
   -d '{"Action":"BatchPub","ProductKey":"P1","DeviceName":["online_device","offline_device"],"MessageContent":"SGVsbG8=","Qos":1}'
 ```
@@ -107,7 +107,7 @@ The delivery record is automatically deleted once all devices have acknowledged.
 
 ```bash
 curl -su "$API_KEY" \
-  -X POST "$HOST/api/v5/plugin_api/emqx_iot/pub" \
+  -X POST "$HOST/api/v5/plugin_api/emqx_bcast/pub" \
   -H "Content-Type: application/json" \
   -d '{"Action":"BatchPub","ProductKey":"P1","DeviceName":["D1","D2"],"MessageContent":"SGVsbG8=","Qos":0}'
 ```
@@ -121,17 +121,17 @@ Only currently online devices receive the message. No storage, no ACK tracking.
 ### Real-time Metrics
 
 ```bash
-curl -su "$API_KEY" "$HOST/api/v5/plugin_api/emqx_iot/metrics"
+curl -su "$API_KEY" "$HOST/api/v5/plugin_api/emqx_bcast/metrics"
 ```
 
 ### Prometheus + Grafana
 
-1. Configure Prometheus to scrape `http://<emqx>:18083/api/v5/plugin_api/emqx_iot/metrics`
+1. Configure Prometheus to scrape `http://<emqx>:18083/api/v5/plugin_api/emqx_bcast/metrics`
 2. Import the Grafana dashboard
 
 Key metrics to watch:
-- **`iot_mq_batch_pub_qos1_msg_pending`** -- backlog of undelivered messages
-- **`rate(iot_mq_batch_pub_qos1_msg_acked[5m]) / rate(iot_mq_batch_pub_qos1_msg_wanted[5m])`** -- delivery success rate
+- **`bcast_batch_pub_qos1_msg_pending`** -- backlog of undelivered messages
+- **`rate(bcast_batch_pub_qos1_msg_acked[5m]) / rate(bcast_batch_pub_qos1_msg_wanted[5m])`** -- delivery success rate
 
 ### Dedicated Watch Script
 
@@ -166,4 +166,4 @@ Real-time display of connected clients, wanted/acked/replayed counts.
 
 **Messages not delivered to offline devices**: Check that `msg_ttl` hasn't expired. Verify the device's `ProductKey` and `DeviceName` match between the API call and MQTT client connection.
 
-**High pending count**: If `iot_mq_batch_pub_qos1_msg_pending` is growing, check that offline devices are eventually reconnecting within the TTL window. Consider increasing `msg_ttl` for longer offline tolerance.
+**High pending count**: If `bcast_batch_pub_qos1_msg_pending` is growing, check that offline devices are eventually reconnecting within the TTL window. Consider increasing `msg_ttl` for longer offline tolerance.

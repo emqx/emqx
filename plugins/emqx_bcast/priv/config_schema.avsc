@@ -1,6 +1,6 @@
 {
   "type": "record",
-  "name": "emqx_iot",
+  "name": "emqx_bcast",
   "fields": [
     {
       "name": "broadcast_topic",

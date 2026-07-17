@@ -3,7 +3,7 @@ defmodule EMQXIoT.MixProject do
 
   def project do
     [
-      app: :emqx_iot,
+      app: :emqx_bcast,
       version: version(),
       emqx_plugin: emqx_plugin(),
       build_path: "../../_build",
@@ -47,7 +47,7 @@ defmodule EMQXIoT.MixProject do
   def application do
     [
       extra_applications: [],
-      mod: {:emqx_iot_app, []}
+      mod: {:emqx_bcast_app, []}
     ]
   end
 

@@ -1,13 +1,13 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_iot_cleanup).
+-module(emqx_bcast_cleanup).
 
 -behaviour(gen_server).
 
 -export([start_link/0, init/1, handle_info/2, handle_call/3, handle_cast/2]).
 
--include("emqx_iot.hrl").
+-include("emqx_bcast.hrl").
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -18,7 +18,7 @@ init([]) ->
     {ok, Interval}.
 
 handle_info(cleanup, Interval) ->
-    ok = emqx_iot_storage:cleanup_expired(),
+    ok = emqx_bcast_storage:cleanup_expired(),
     schedule(Interval),
     {noreply, Interval};
 handle_info(_Msg, State) ->
