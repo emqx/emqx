@@ -103,18 +103,20 @@ schema("/mqtt/topic_metrics2/:name") ->
         get => #{
             tags => ?TAGS,
             description => ?DESC(get_collection),
-            parameters => [name_param()],
+            parameters => [name_param(), ns_param()],
             responses => #{
                 200 => mk(ref(collection_view), #{desc => ?DESC(collection_view_resp)}),
+                403 => error_codes([?FORBIDDEN], ?DESC(forbidden_ns_resp)),
                 404 => error_codes([?NAME_NOT_FOUND], ?DESC(not_found_resp))
             }
         },
         delete => #{
             tags => ?TAGS,
             description => ?DESC(delete_collection),
-            parameters => [name_param()],
+            parameters => [name_param(), ns_param()],
             responses => #{
                 204 => <<"Deleted.">>,
+                403 => error_codes([?FORBIDDEN], ?DESC(forbidden_ns_resp)),
                 404 => error_codes([?NAME_NOT_FOUND], ?DESC(not_found_resp))
             }
         }
@@ -125,9 +127,10 @@ schema("/mqtt/topic_metrics2/:name/reset") ->
         put => #{
             tags => ?TAGS,
             description => ?DESC(reset_collection),
-            parameters => [name_param()],
+            parameters => [name_param(), ns_param()],
             responses => #{
                 204 => <<"Reset.">>,
+                403 => error_codes([?FORBIDDEN], ?DESC(forbidden_ns_resp)),
                 404 => error_codes([?NAME_NOT_FOUND], ?DESC(not_found_resp))
             }
         }
@@ -170,6 +173,18 @@ name_param() ->
             required => true,
             desc => ?DESC(field_name),
             example => <<"alpha">>
+        })}.
+
+%% Optional query param letting a global admin target a namespaced
+%% collection. A namespaced admin may only name their own namespace;
+%% naming a foreign one is rejected (see resolve_ns/1).
+ns_param() ->
+    {ns,
+        mk(binary(), #{
+            in => query,
+            required => false,
+            desc => ?DESC(field_namespace),
+            example => <<"tenant_foo">>
         })}.
 
 count_keys() ->
@@ -227,24 +242,27 @@ collections(delete, Req) ->
     ?NO_CONTENT.
 
 collection(get, #{bindings := #{name := BinName}} = Req) ->
-    OwnerNs = actor_ns(Req),
-    case emqx_topic_metrics2:lookup(BinName, OwnerNs) of
-        {ok, Rec} -> ?OK(view(with_cluster_counters(Rec)));
-        {error, not_found} -> not_found(BinName)
-    end;
+    with_ns(Req, fun(OwnerNs) ->
+        case emqx_topic_metrics2:lookup(BinName, OwnerNs) of
+            {ok, Rec} -> ?OK(view(with_cluster_counters(Rec)));
+            {error, not_found} -> not_found(BinName)
+        end
+    end);
 collection(delete, #{bindings := #{name := BinName}} = Req) ->
-    OwnerNs = actor_ns(Req),
-    case emqx_topic_metrics2:deregister(BinName, OwnerNs) of
-        ok -> ?NO_CONTENT;
-        {error, not_found} -> not_found(BinName)
-    end.
+    with_ns(Req, fun(OwnerNs) ->
+        case emqx_topic_metrics2:deregister(BinName, OwnerNs) of
+            ok -> ?NO_CONTENT;
+            {error, not_found} -> not_found(BinName)
+        end
+    end).
 
 reset(put, #{bindings := #{name := BinName}} = Req) ->
-    OwnerNs = actor_ns(Req),
-    case emqx_topic_metrics2:reset(BinName, OwnerNs) of
-        ok -> ?NO_CONTENT;
-        {error, not_found} -> not_found(BinName)
-    end.
+    with_ns(Req, fun(OwnerNs) ->
+        case emqx_topic_metrics2:reset(BinName, OwnerNs) of
+            ok -> ?NO_CONTENT;
+            {error, not_found} -> not_found(BinName)
+        end
+    end).
 
 %%--------------------------------------------------------------------
 %% Internal
@@ -252,6 +270,43 @@ reset(put, #{bindings := #{name := BinName}} = Req) ->
 
 actor_ns(Req) ->
     emqx_dashboard:get_namespace(Req).
+
+%% Resolve the effective namespace, then run `Fun' with it. Returns a
+%% 403 when a namespaced admin tries to address a foreign namespace.
+with_ns(Req, Fun) ->
+    case resolve_ns(Req) of
+        {ok, OwnerNs} ->
+            Fun(OwnerNs);
+        {error, forbidden} ->
+            ?FORBIDDEN(<<"not allowed to address another namespace's collection">>)
+    end.
+
+%% Resolve the namespace an actor may operate on for a `:name' op.
+%% - No `ns' param  -> the actor's own namespace (unchanged behavior).
+%% - Global admin   -> may target any namespace named in `ns'.
+%% - Namespaced admin naming their OWN ns -> allowed (no-op).
+%% - Namespaced admin naming a FOREIGN ns -> forbidden (no escalation).
+resolve_ns(Req) ->
+    ActorNs = actor_ns(Req),
+    case req_ns(Req) of
+        undefined ->
+            {ok, ActorNs};
+        ReqNs when ActorNs =:= ?global_ns ->
+            {ok, ReqNs};
+        ReqNs when ReqNs =:= ActorNs ->
+            {ok, ActorNs};
+        _ReqNs ->
+            {error, forbidden}
+    end.
+
+req_ns(#{query_string := Qs}) ->
+    case maps:get(<<"ns">>, Qs, undefined) of
+        undefined -> undefined;
+        <<>> -> undefined;
+        NS when is_binary(NS) -> NS
+    end;
+req_ns(_Req) ->
+    undefined.
 
 %% Cluster-aggregated list. Short-circuits the RPC when this node is
 %% the only cluster member. A global admin sees every collection; a

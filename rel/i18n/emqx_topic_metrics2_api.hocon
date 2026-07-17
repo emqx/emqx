@@ -57,6 +57,11 @@ not_found_resp.desc:
 not_found_resp.label:
 """Not found"""
 
+forbidden_ns_resp.desc:
+"""A namespaced administrator attempted to address another namespace's collection via the `ns` query parameter. Only a global administrator may target an arbitrary namespace."""
+forbidden_ns_resp.label:
+"""Forbidden"""
+
 field_name.desc:
 """Collection name, unique within its namespace. Allowed characters: letters, digits, dash, and underscore. Maximum 64 characters. NOT globally unique on its own — the same name may be reused under a different namespace, so consumers must key on the `(namespace, name)` pair, not on `name` alone."""
 field_name.label:
