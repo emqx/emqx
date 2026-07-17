@@ -570,6 +570,7 @@ post_config_update(_Path, _Request, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
 post_zone_config_update(OldZones, NewZones) ->
+    %% Cluster config may update zones before listener dependencies start; skip runtime refreshes.
     ListenersRunning = emqx:is_running() andalso emqx_boot:is_enabled(listeners),
     do_post_zone_config_update(ListenersRunning, OldZones, NewZones).
 
