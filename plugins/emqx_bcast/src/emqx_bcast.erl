@@ -195,9 +195,15 @@ on_client_subscribe(ClientInfo, _Properties, TopicFilters) ->
         {ok, DeliveryIds} = emqx_bcast_storage:get_device_deliveries({ProductKey, ClientId}),
         lists:foreach(
             fun(DeliveryId) ->
-                case emqx_bcast_subscription:match(ClientId, get_delivery_topic(DeliveryId)) of
-                    true -> replay_delivery(Pid, ProductKey, ClientId, DeliveryId);
-                    false -> ok
+                case mnesia:dirty_read(bcast_msg, DeliveryId) of
+                    [#bcast_msg{topic_template = Template}] ->
+                        Topic = emqx_bcast_utils:expand_topic(Template, ProductKey, ClientId),
+                        case emqx_bcast_subscription:match(ClientId, Topic) of
+                            true -> replay_delivery(Pid, ProductKey, ClientId, DeliveryId);
+                            false -> ok
+                        end;
+                    [] ->
+                        ok
                 end
             end,
             DeliveryIds
@@ -235,9 +241,15 @@ on_session_resumed(ClientInfo, SessionInfo) ->
         {ok, DeliveryIds} = emqx_bcast_storage:get_device_deliveries({ProductKey, ClientId}),
         lists:foreach(
             fun(DeliveryId) ->
-                case emqx_bcast_subscription:match(ClientId, get_delivery_topic(DeliveryId)) of
-                    true -> replay_delivery(Pid, ProductKey, ClientId, DeliveryId);
-                    false -> ok
+                case mnesia:dirty_read(bcast_msg, DeliveryId) of
+                    [#bcast_msg{topic_template = Template}] ->
+                        Topic = emqx_bcast_utils:expand_topic(Template, ProductKey, ClientId),
+                        case emqx_bcast_subscription:match(ClientId, Topic) of
+                            true -> replay_delivery(Pid, ProductKey, ClientId, DeliveryId);
+                            false -> ok
+                        end;
+                    [] ->
+                        ok
                 end
             end,
             DeliveryIds

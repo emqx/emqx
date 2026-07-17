@@ -240,3 +240,111 @@ t_register_message_e2e(_Config) ->
         <<"Action">> => <<"RegisterMessage">>, <<"MessageContent">> => B64
     }),
     ?assertEqual(Mid1, maps:get(<<"MessageId">>, R2)).
+
+t_batch_pub_qos0_no_sub(_Config) ->
+    C1 = connect(<<"e2e_nosub_1">>),
+    emqtt:unsubscribe(C1, topic(<<"e2e_nosub_1">>)),
+    ct:sleep(10),
+    {ok, 200, _, Resp} = api_call(#{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"DeviceName">> => [<<"e2e_nosub_1">>],
+        <<"MessageContent">> => b64(?PAYLOAD),
+        <<"Qos">> => 0
+    }),
+    ?assert(maps:get(<<"Success">>, Resp)),
+    Msgs = recv(1),
+    ?assertEqual(0, length(Msgs)),
+    disconnect(C1).
+
+t_batch_pub_qos1_store_pending_no_sub(_Config) ->
+    C1 = connect(<<"e2e_pend_1">>),
+    emqtt:unsubscribe(C1, topic(<<"e2e_pend_1">>)),
+    ct:sleep(10),
+    {ok, 200, _, _} = api_call(#{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"DeviceName">> => [<<"e2e_pend_1">>],
+        <<"MessageContent">> => b64(?PAYLOAD),
+        <<"Qos">> => 1
+    }),
+    Msgs1 = recv(1),
+    ?assertEqual(0, length(Msgs1)),
+    emqtt:subscribe(C1, topic(<<"e2e_pend_1">>), 1),
+    ct:sleep(10),
+    Msgs2 = recv(1),
+    ?assertEqual(1, length(Msgs2)),
+    disconnect(C1).
+
+t_batch_pub_wrong_topic_no_replay(_Config) ->
+    C1 = connect(<<"e2e_wrong_1">>),
+    emqtt:unsubscribe(C1, topic(<<"e2e_wrong_1">>)),
+    ct:sleep(10),
+    {ok, 200, _, _} = api_call(#{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"DeviceName">> => [<<"e2e_wrong_1">>],
+        <<"MessageContent">> => b64(?PAYLOAD),
+        <<"Qos">> => 1
+    }),
+    Msgs1 = recv(1),
+    ?assertEqual(0, length(Msgs1)),
+    emqtt:subscribe(C1, <<"/other/topic">>, 1),
+    ct:sleep(10),
+    Msgs2 = recv(1),
+    ?assertEqual(0, length(Msgs2)),
+    disconnect(C1).
+
+t_replay_on_reconnect_and_subscribe(_Config) ->
+    C1 = connect(<<"e2e_rply_1">>),
+    ct:sleep(10),
+    {ok, 200, _, _} = api_call(#{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"DeviceName">> => [<<"e2e_rply_1">>],
+        <<"MessageContent">> => b64(?PAYLOAD),
+        <<"Qos">> => 1
+    }),
+    Msgs1 = recv(1),
+    ?assertEqual(1, length(Msgs1)),
+    disconnect(C1),
+    C2 = connect(<<"e2e_rply_1">>),
+    ct:sleep(10),
+    Msgs2 = recv(1),
+    ?assertEqual(0, length(Msgs2)),
+    disconnect(C2).
+
+t_pub_broadcast_skip_no_sub(_Config) ->
+    C1 = connect(<<"e2e_bc_ns_1">>),
+    emqtt:unsubscribe(C1, topic(<<"e2e_bc_ns_1">>)),
+    ct:sleep(10),
+    {ok, 200, _, _} = api_call(#{
+        <<"Action">> => <<"PubBroadcast">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"MessageContent">> => b64(?PAYLOAD)
+    }),
+    Msgs = recv(1),
+    ?assertEqual(0, length(Msgs)),
+    disconnect(C1).
+
+t_pub_broadcast_wildcard_sub(_Config) ->
+    C1 = connect(<<"e2e_bc_wc_1">>),
+    emqtt:subscribe(C1, <<"/sys/broadcast/#">>, 1),
+    ct:sleep(10),
+    {ok, 200, _, _} = api_call(#{
+        <<"Action">> => <<"PubBroadcast">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"MessageContent">> => b64(?PAYLOAD)
+    }),
+    Msgs = recv(1),
+    ?assertEqual(1, length(Msgs)),
+    disconnect(C1).
+
+t_connect_no_replay(_Config) ->
+    C1 = connect(<<"e2e_cnore_1">>),
+    ct:sleep(10),
+    disconnect(C1),
+    C2 = connect(<<"e2e_cnore_1">>),
+    Msgs = recv(1),
+    ?assertEqual(0, length(Msgs)),
+    disconnect(C2).
