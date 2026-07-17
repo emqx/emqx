@@ -32,7 +32,9 @@
     run_command/1,
     run_command/2,
     lookup_command/1,
-    get_commands/0
+    get_commands/0,
+    eval_erl/1,
+    eval_erl_audit_args/1
 ]).
 
 -export([
@@ -42,10 +44,6 @@
     warning/2,
     usage/1,
     usage/2
-]).
-
--export([
-    eval_erl/1
 ]).
 
 %% Exports mainly for test cases
@@ -121,31 +119,34 @@ run_command(help, []) ->
     help();
 run_command(Cmd, Args) when is_atom(Cmd) ->
     Start = erlang:monotonic_time(),
-    Result =
+    {Result, CliHandler} =
         case lookup_command(Cmd) of
             {ok, {Mod, Fun}} ->
-                try
-                    apply(Mod, Fun, [Args])
-                catch
-                    _:Reason:Stacktrace ->
-                        ?LOG_ERROR(#{
-                            msg => "ctl_command_crashed",
-                            stacktrace => Stacktrace,
-                            reason => Reason,
-                            module => Mod,
-                            function => Fun
-                        }),
-                        {error, Reason}
-                end;
+                CommandResult =
+                    try
+                        apply(Mod, Fun, [Args])
+                    catch
+                        _:Reason:Stacktrace ->
+                            ?LOG_ERROR(#{
+                                msg => "ctl_command_crashed",
+                                stacktrace => Stacktrace,
+                                reason => Reason,
+                                module => Mod,
+                                function => Fun
+                            }),
+                            {error, Reason}
+                    end,
+                {CommandResult, {Mod, Fun}};
             {error, Reason} ->
                 help(),
-                {error, Reason}
+                {{error, Reason}, undefined}
         end,
     Duration = erlang:convert_time_unit(erlang:monotonic_time() - Start, native, millisecond),
 
     audit_log(
         audit_level(Result, Duration),
         cli,
+        CliHandler,
         #{duration_ms => Duration, cmd => Cmd, args => Args, node => node()}
     ),
     Result.
@@ -341,16 +342,72 @@ safe_to_existing_atom(Str) ->
 is_initialized() ->
     ets:info(?CMD_TAB) =/= undefined.
 
-audit_log(Level, From, Log) ->
+audit_log(Level, From, CliHandler, Log) ->
     case lookup_command(audit) of
         {error, _} ->
             ignore;
         {ok, {Mod, Fun}} ->
-            case prune_unnecessary_log(Log) of
-                false -> ok;
-                {ok, Log1} -> apply_audit_command(Log1, Mod, Fun, Level, From)
+            Log1 = apply_audit_args_callback(CliHandler, Log),
+            case prune_unnecessary_log(Log1) of
+                false ->
+                    ok;
+                {ok, Log2} ->
+                    apply_audit_command(Log2, Mod, Fun, Level, From)
             end
     end.
+
+apply_audit_args_callback(undefined, Log) ->
+    Log;
+apply_audit_args_callback({CliModule, CliFunction} = CliHandler, Log = #{args := Args}) ->
+    case audit_args_function(CliModule, CliFunction) of
+        undefined ->
+            Log;
+        AuditArgsFunction ->
+            try apply(CliModule, AuditArgsFunction, [Args]) of
+                RedactedArgs when is_list(RedactedArgs) ->
+                    case valid_audit_args(Log, RedactedArgs) of
+                        true -> Log#{args => RedactedArgs};
+                        false -> redact_all_args(Log, CliHandler, invalid_return)
+                    end;
+                _ ->
+                    redact_all_args(Log, CliHandler, invalid_return)
+            catch
+                Class:_Reason:_Stacktrace ->
+                    ?LOG_ERROR(#{
+                        msg => "cli_audit_redaction_failed",
+                        exception => Class,
+                        module => CliModule,
+                        function => CliFunction
+                    }),
+                    Log#{args => emqx_cli_redact:redact_all(Args)}
+            end
+    end.
+
+audit_args_function(CliModule, CliFunction) ->
+    Name = atom_to_list(CliFunction) ++ "_audit_args",
+    try list_to_existing_atom(Name) of
+        AuditArgsFunction ->
+            case erlang:function_exported(CliModule, AuditArgsFunction, 1) of
+                true -> AuditArgsFunction;
+                false -> undefined
+            end
+    catch
+        error:badarg -> undefined
+    end.
+
+valid_audit_args(#{cmd := eval_erl}, [Parsed | _]) when is_tuple(Parsed) ->
+    true;
+valid_audit_args(_Log, Args) ->
+    lists:all(fun(Arg) -> is_list(Arg) orelse is_binary(Arg) end, Args).
+
+redact_all_args(Log = #{args := Args}, {CliModule, CliFunction}, Reason) ->
+    ?LOG_ERROR(#{
+        msg => "cli_audit_redaction_failed",
+        reason => Reason,
+        module => CliModule,
+        function => CliFunction
+    }),
+    Log#{args => emqx_cli_redact:redact_all(Args)}.
 
 apply_audit_command(Log, Mod, Fun, Level, From) ->
     try
@@ -411,6 +468,9 @@ eval_erl([String]) ->
     {ok, Parsed} = erl_parse:parse_exprs(Scanned),
     {ok, Value} = eval_expr(Parsed),
     print("~p~n", [Value]).
+
+eval_erl_audit_args(Args) ->
+    Args.
 
 eval_expr(Parsed) ->
     {value, Value, _} = erl_eval:exprs(Parsed, []),

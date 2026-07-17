@@ -9,7 +9,7 @@
     disable/0
 ]).
 
--export([cmd/1]).
+-export([cmd/1, cmd_audit_args/1]).
 
 %%--------------------------------------------------------------------
 %% enable/disable
@@ -54,3 +54,6 @@ cmd(_) ->
             "biggest amount of binaries, potentially highlighting leaks."},
         {"observer load Mod", "Enhanced module synchronization across all cluster nodes"}
     ]).
+
+cmd_audit_args(Args) ->
+    Args.

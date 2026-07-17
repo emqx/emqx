@@ -236,6 +236,44 @@ t_cli(_Config) ->
     ?assertMatch(#{<<"data">> := []}, emqx_utils_json:decode(Res6)),
     ok.
 
+t_cli_redaction(_Config) ->
+    Secret = "12345678901234567890123456789012",
+    Name = "audit-redaction-key",
+    ok = emqx_ctl:run_command([
+        "api_keys",
+        "add",
+        "--name",
+        Name,
+        "--api-secret",
+        Secret,
+        "--role",
+        "viewer"
+    ]),
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    {ok, Res} = emqx_mgmt_api_test_util:request_api(get, AuditPath, "limit=1", AuthHeader),
+    ?assertMatch(
+        #{
+            <<"data">> := [
+                #{
+                    <<"operation_type">> := <<"api_keys">>,
+                    <<"args">> := [
+                        <<"add">>,
+                        <<"--name">>,
+                        <<"audit-redaction-key">>,
+                        <<"--api-secret">>,
+                        <<"******">>,
+                        <<"--role">>,
+                        <<"viewer">>
+                    ]
+                }
+            ]
+        },
+        emqx_utils_json:decode(Res)
+    ),
+    {ok, _} = emqx_mgmt_auth:delete(iolist_to_binary(Name)),
+    ok.
+
 t_max_size(_Config) ->
     {ok, _} = emqx:update_config([log, audit, cache_size], 999),
     %% Make sure this process is using latest cache_size.

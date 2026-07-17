@@ -8,7 +8,8 @@
 -export([
     load/0,
     unload/0,
-    cli/1
+    cli/1,
+    cli_audit_args/1
 ]).
 
 load() ->
@@ -173,6 +174,9 @@ cli(_) ->
             {"rebalance stop", "Stop node rebalance"}
         ]
     ).
+
+cli_audit_args(Args) ->
+    Args.
 
 node_status(NodeStatus) ->
     case NodeStatus of

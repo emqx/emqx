@@ -22,7 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
-all() -> [t_reg_unreg_command, t_run_commands, t_print, t_usage, t_unexpected].
+all() -> [t_reg_unreg_command, t_run_commands, t_audit_redaction, t_print, t_usage, t_unexpected].
 
 init_per_suite(Config) ->
     application:stop(emqx_ctl),
@@ -65,6 +65,64 @@ t_run_commands(_) ->
             {error, badarg} = emqx_ctl:run_command(["cmd1", "badarg"]),
             ok = emqx_ctl:run_command(["cmd2", "arg1", "arg2"]),
             {error, badarg} = emqx_ctl:run_command(["cmd2", "arg1", "badarg"])
+        end
+    ).
+
+t_audit_redaction(_) ->
+    with_ctl_server(
+        fun(_CtlSrv) ->
+            emqx_ctl:register_command(audit, {?MODULE, audit_fun}),
+            emqx_ctl:register_command(cmd3, {?MODULE, cmd3_fun}),
+            emqx_ctl:register_command(cmd4, {?MODULE, cmd4_fun}),
+
+            ok = emqx_ctl:run_command(["cmd3", "secret", "value"]),
+            ?assertEqual(["secret", "value"], get(command_args)),
+            ?assertEqual(["secret", "value"], get(callback_args)),
+            ?assertMatch(
+                #{args := [<<"secret">>, <<"******">>]},
+                get(audit_log)
+            ),
+
+            ok = emqx_ctl:run_command(["cmd4", "value"]),
+            ?assertMatch(
+                #{args := [<<"selected-audit-callback">>]},
+                get(audit_log)
+            ),
+
+            emqx_ctl:register_command(missing_callback, {lists, reverse}),
+            ["value", "plain"] = emqx_ctl:run_command(["missing_callback", "plain", "value"]),
+            ?assertMatch(
+                #{args := [<<"plain">>, <<"value">>]},
+                get(audit_log)
+            ),
+
+            ok = emqx_ctl:run_command(["cmd3", "crash", "value"]),
+            ?assertEqual(["crash", "value"], get(command_args)),
+            ?assertMatch(
+                #{args := [<<"******">>, <<"******">>]},
+                get(audit_log)
+            ),
+
+            ok = emqx_ctl:run_command(["cmd3", "invalid", "value"]),
+            ?assertEqual(["invalid", "value"], get(command_args)),
+            ?assertMatch(
+                #{args := [<<"******">>, <<"******">>]},
+                get(audit_log)
+            ),
+
+            EvalExprs = parse_exprs("node()."),
+            {ok, _} = emqx_ctl:run_command(eval_erl, EvalExprs),
+            ExpectedEval = unicode:characters_to_binary(
+                erl_pp:exprs(EvalExprs, [{linewidth, 10000}])
+            ),
+            ?assertMatch(
+                #{args := [ExpectedEval]},
+                get(audit_log)
+            ),
+
+            erase(audit_log),
+            {ok, _} = emqx_ctl:run_command(eval_erl, parse_exprs("emqx:is_running().")),
+            ?assertEqual(undefined, get(audit_log))
         end
     ).
 
@@ -111,6 +169,35 @@ cmd1_fun(["badarg"]) -> error(badarg).
 
 cmd2_fun(["arg1", "arg2"]) -> ok;
 cmd2_fun(["arg1", "badarg"]) -> error(badarg).
+
+cmd3_fun(Args) ->
+    put(command_args, Args),
+    ok.
+
+cmd3_fun_audit_args(["secret", _Value] = Args) ->
+    put(callback_args, Args),
+    ["secret", "******"];
+cmd3_fun_audit_args(["crash" | _]) ->
+    error({redaction_failed, <<"raw-secret">>});
+cmd3_fun_audit_args(["invalid" | _]) ->
+    invalid_return;
+cmd3_fun_audit_args(Args) ->
+    Args.
+
+cmd4_fun(_Args) ->
+    ok.
+
+cmd4_fun_audit_args(_Args) ->
+    ["selected-audit-callback"].
+
+audit_fun(_Level, _From, Log) ->
+    put(audit_log, Log),
+    ok.
+
+parse_exprs(String) ->
+    {ok, Scanned, _} = erl_scan:string(String),
+    {ok, Exprs} = erl_parse:parse_exprs(Scanned),
+    Exprs.
 
 with_ctl_server(Fun) ->
     ok = emqx_ctl:stop(),

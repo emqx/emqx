@@ -20,24 +20,43 @@
 
 -export([
     status/1,
+    status_audit_args/1,
     broker/1,
+    broker_audit_args/1,
     cluster/1,
+    cluster_audit_args/1,
     clients/1,
+    clients_audit_args/1,
     topics/1,
+    topics_audit_args/1,
     subscriptions/1,
+    subscriptions_audit_args/1,
     plugins/1,
+    plugins_audit_args/1,
     listeners/1,
+    listeners_audit_args/1,
     vm/1,
+    vm_audit_args/1,
     mnesia/1,
+    mnesia_audit_args/1,
     trace/1,
+    trace_audit_args/1,
     traces/1,
+    traces_audit_args/1,
     log/1,
+    log_audit_args/1,
     authz/1,
+    authz_audit_args/1,
     pem_cache/1,
+    pem_cache_audit_args/1,
     olp/1,
+    olp_audit_args/1,
     data/1,
+    data_audit_args/1,
     ds/1,
-    exclusive/1
+    ds_audit_args/1,
+    exclusive/1,
+    exclusive_audit_args/1
 ]).
 
 -export([
@@ -50,7 +69,8 @@ load() ->
     lists:foreach(fun(Cmd) -> emqx_ctl:register_command(Cmd, {?MODULE, Cmd}, []) end, Cmds).
 
 is_cmd(Fun) ->
-    not lists:member(Fun, [init, load, module_info]).
+    not lists:suffix("_audit_args", atom_to_list(Fun)) andalso
+        not lists:member(Fun, [init, load, module_info]).
 
 %%--------------------------------------------------------------------
 %% @doc Node status
@@ -60,6 +80,8 @@ status([]) ->
     emqx_ctl:print("Node ~p ~ts is ~p~n", [node(), emqx_app:get_release(), InternalStatus]);
 status(_) ->
     emqx_ctl:usage("status", "Show broker status").
+
+status_audit_args(Args) -> Args.
 
 %%--------------------------------------------------------------------
 %% @doc Query broker
@@ -86,6 +108,8 @@ broker(_) ->
         {"broker stats", "Show broker statistics of clients, topics, subscribers"},
         {"broker metrics", "Show broker metrics"}
     ]).
+
+broker_audit_args(Args) -> Args.
 
 %%-----------------------------------------------------------------------------
 %% @doc Cluster with other nodes
@@ -183,6 +207,8 @@ cluster(_) ->
         {"cluster core rebalance abort", "Abort the ongoing rebalance"}
     ]).
 
+cluster_audit_args(Args) -> Args.
+
 cluster_leave_safeguards() ->
     ds_cluster_leave_safeguards().
 
@@ -254,6 +280,8 @@ clients(_) ->
         {"clients show <ClientId>", "Show a client"},
         {"clients kick <ClientId>", "Kick out a client"}
     ]).
+
+clients_audit_args(Args) -> Args.
 
 %%--------------------------------------------------------------------
 %% @private Dump client statistics to CSV file
@@ -424,6 +452,8 @@ topics(_) ->
         {"topics show <Topic>", "Show a topic"}
     ]).
 
+topics_audit_args(Args) -> Args.
+
 subscriptions(["list"]) ->
     case ets:info(?SUBOPTION, size) of
         0 ->
@@ -474,6 +504,8 @@ subscriptions(_) ->
             {"subscriptions del <ClientId> <Topic>", "Delete a static subscription manually"}
         ]
     ).
+
+subscriptions_audit_args(Args) -> Args.
 
 if_valid_qos(QoS, Fun) ->
     try list_to_integer(QoS) of
@@ -558,6 +590,8 @@ plugins(_) ->
         ]
     ).
 
+plugins_audit_args(Args) -> Args.
+
 parse_sha256_hex(Hex) when length(Hex) =:= 64 ->
     case re:run(Hex, "^[0-9a-f]{64}$", [{capture, none}]) of
         match -> {ok, list_to_binary(Hex)};
@@ -603,6 +637,8 @@ vm(_) ->
         {"vm ports", "Show Ports of Erlang VM"}
     ]).
 
+vm_audit_args(Args) -> Args.
+
 %%--------------------------------------------------------------------
 %% @doc mnesia Command
 
@@ -610,6 +646,8 @@ mnesia([]) ->
     mnesia:system_info();
 mnesia(_) ->
     emqx_ctl:usage([{"mnesia", "Mnesia system info"}]).
+
+mnesia_audit_args(Args) -> Args.
 
 %%--------------------------------------------------------------------
 %% @doc Logger Command
@@ -709,6 +747,8 @@ log(_) ->
         ]
     ).
 
+log_audit_args(Args) -> Args.
+
 %%--------------------------------------------------------------------
 %% @doc Trace Command
 
@@ -758,6 +798,8 @@ trace(_) ->
             "Traces for a rule ID on local node (Formatter=text|json)"},
         {"trace stop  ruleid  <RuleID> ", "Stop tracing for a rule ID on local node"}
     ]).
+
+trace_audit_args(Args) -> Args.
 
 trace_on(Filter = {Type, Value}, Level, LogFile, Formatter) ->
     Name = trace_name(Filter),
@@ -847,6 +889,8 @@ traces(_) ->
         {"traces stop <Name>", "Stop trace in cluster"},
         {"traces delete <Name>", "Delete trace in cluster"}
     ]).
+
+traces_audit_args(Args) -> Args.
 
 trace_cluster_on(Name, Filter = {Type, Value}, DurationS0, Formatter) ->
     Now = emqx_trace:now_second(),
@@ -1029,6 +1073,8 @@ listeners(_) ->
         {"listeners enable <Identifier> <true/false>", "Enable or disable a listener"}
     ]).
 
+listeners_audit_args(Args) -> Args.
+
 %%--------------------------------------------------------------------
 %% @doc authz Command
 
@@ -1050,6 +1096,8 @@ authz(_) ->
         ]
     ).
 
+authz_audit_args(Args) -> Args.
+
 pem_cache(["clean", "all"]) ->
     with_log(fun emqx_mgmt:clean_pem_cache_all/0, "PEM cache clean");
 pem_cache(["clean", "node", Node]) ->
@@ -1060,6 +1108,8 @@ pem_cache(_) ->
         {"pem_cache clean all", "Clears x509 certificate cache on all nodes"},
         {"pem_cache clean node <Node>", "Clears x509 certificate cache on given node"}
     ]).
+
+pem_cache_audit_args(Args) -> Args.
 
 %%--------------------------------------------------------------------
 %% @doc OLP (Overload Protection related)
@@ -1082,6 +1132,8 @@ olp(_) ->
         {"olp enable", "Enable overload protection"},
         {"olp disable", "Disable overload protection"}
     ]).
+
+olp_audit_args(Args) -> Args.
 
 %%--------------------------------------------------------------------
 %% @doc data Command
@@ -1134,6 +1186,8 @@ data(_) ->
             "Export data"
         }
     ]).
+
+data_audit_args(Args) -> Args.
 
 parse_data_export_args(Args) ->
     maybe
@@ -1208,6 +1262,8 @@ ds(Cmd) ->
         false ->
             emqx_ctl:usage([{"ds", "Durable storage is disabled"}])
     end.
+
+ds_audit_args(Args) -> Args.
 
 do_ds(["info"]) ->
     emqx_ds_builtin_raft_meta:print_status(),
@@ -1502,3 +1558,5 @@ exclusive(_) ->
         {"exclusive list", "List all exclusive topics"},
         {"exclusive delete <Topic>", "Delete an exclusive topic"}
     ]).
+
+exclusive_audit_args(Args) -> Args.

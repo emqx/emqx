@@ -6,7 +6,7 @@
 %% API:
 -export([load/0, unload/0]).
 
--export([cmd/1]).
+-export([cmd/1, cmd_audit_args/1]).
 
 -include_lib("emqx/include/emqx_config.hrl").
 
@@ -55,6 +55,9 @@ cmd(["show" | Args]) ->
     end;
 cmd(_) ->
     show_usage().
+
+cmd_audit_args(Args) ->
+    Args.
 
 %%================================================================================
 %% Internal functions

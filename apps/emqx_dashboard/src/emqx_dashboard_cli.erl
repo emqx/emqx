@@ -10,6 +10,7 @@
     load/0,
     admins/1,
     api_keys/1,
+    api_keys_audit_args/1,
     unload/0
 ]).
 
@@ -106,6 +107,9 @@ api_keys(_) ->
             {"api_keys del --name <Name>", "Delete API key"}
         ]
     ).
+
+api_keys_audit_args(Args) ->
+    emqx_cli_redact:redact_options(Args, ["--api-secret"]).
 
 unload() ->
     emqx_ctl:unregister_command(admins),

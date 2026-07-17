@@ -105,6 +105,30 @@ t_passwd(_) ->
     ?assertNotEqual(Old, New),
     ok.
 
+t_redact({init, Config}) ->
+    Config;
+t_redact({'end', _Config}) ->
+    ok;
+t_redact(_) ->
+    ?assertEqual(
+        ["add", "user", "******", "description", "viewer"],
+        emqx_dashboard_sso_cli:admins_audit_args([
+            "add", "user", "password", "description", "viewer"
+        ])
+    ),
+    ?assertEqual(
+        ["passwd", "user", "******"],
+        emqx_dashboard_sso_cli:admins_audit_args(["passwd", "user", "password"])
+    ),
+    ?assertEqual(
+        ["del", "user"],
+        emqx_dashboard_sso_cli:admins_audit_args(["del", "user"])
+    ),
+    ?assertEqual(
+        ["add", "user"],
+        emqx_dashboard_sso_cli:admins_audit_args(["add", "user"])
+    ).
+
 t_del({init, Config}) ->
     Config;
 t_del({'end', _Config}) ->
