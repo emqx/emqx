@@ -375,3 +375,9 @@ t_dynamic_topics(TCConfig) ->
 
 t_disallow_disk_mode_for_dynamic_topic(TCConfig) ->
     emqx_bridge_kafka_action_SUITE:?FUNCTION_NAME(TCConfig).
+
+t_resource_health_check_timeout_status(TCConfig) when is_list(TCConfig) ->
+    emqx_bridge_kafka_action_SUITE:?FUNCTION_NAME(TCConfig).
+
+t_channel_health_check_timeout_status(TCConfig) when is_list(TCConfig) ->
+    emqx_bridge_kafka_action_SUITE:?FUNCTION_NAME(TCConfig).
