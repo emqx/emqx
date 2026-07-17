@@ -67,10 +67,14 @@
     retried_failed_inc/2,
     retried_failed_inc/3,
     retried_failed_get/1,
+    retried_failed_only_inc/1,
+    retried_failed_only_inc/2,
     retried_success_inc/1,
     retried_success_inc/2,
     retried_success_inc/3,
     retried_success_get/1,
+    retried_success_only_inc/1,
+    retried_success_only_inc/2,
     success_inc/1,
     success_inc/2,
     success_inc/3,
@@ -131,8 +135,11 @@ events() ->
             queuing,
             queuing_bytes,
             received,
+            retried,
             retried_failed,
+            retried_failed_only,
             retried_success,
+            retried_success_only,
             success,
             aggregated_upload_success,
             aggregated_upload_failure,
@@ -242,15 +249,23 @@ handle_counter_telemetry_event(Event, ID, Val, Metadata) ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'matched', Val);
         received ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'received', Val);
+        retried ->
+            emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val);
         retried_failed ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val),
             inc_actions_messages(Metadata, Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried.failed', Val);
+        retried_failed_only ->
+            emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val),
+            emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried.failed', Val);
         retried_success ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val),
             inc_actions_messages(Metadata, Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'success', Val),
+            emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried.success', Val);
+        retried_success_only ->
+            emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried.success', Val);
         success ->
             inc_actions_messages(Metadata, Val),
@@ -511,6 +526,20 @@ retried_failed_inc(ID, Val, ExtraMeta) ->
 retried_failed_get(ID) ->
     emqx_metrics_worker:get(?RES_METRICS, ID, 'retried.failed').
 
+%% @doc Like `retried_failed_inc', but does NOT bump `failed'.  Use this when the
+%% message's terminal `failed' outcome is already counted elsewhere (e.g. the
+%% Kafka async internal buffer ack/reply path), so only `retried' and
+%% `retried.failed' need to move to avoid double-counting `failed'.
+retried_failed_only_inc(ID) ->
+    retried_failed_only_inc(ID, 1).
+
+retried_failed_only_inc(_ID, 0) ->
+    ok;
+retried_failed_only_inc(ID, Val) ->
+    telemetry:execute([?TELEMETRY_PREFIX, retried_failed_only], #{counter_inc => Val}, #{
+        resource_id => ID
+    }).
+
 %% @doc Count messages that were successfully sent after at least one retry
 retried_success_inc(ID) ->
     retried_success_inc(ID, 1).
@@ -529,6 +558,20 @@ retried_success_inc(ID, Val, ExtraMeta) ->
 
 retried_success_get(ID) ->
     emqx_metrics_worker:get(?RES_METRICS, ID, 'retried.success').
+
+%% @doc Like `retried_success_inc', but does NOT bump `success'.  Use this when
+%% the message's terminal `success' outcome is already counted elsewhere (e.g.
+%% the Kafka async internal buffer ack/reply path), so only `retried' and
+%% `retried.success' need to move to avoid double-counting `success'.
+retried_success_only_inc(ID) ->
+    retried_success_only_inc(ID, 1).
+
+retried_success_only_inc(_ID, 0) ->
+    ok;
+retried_success_only_inc(ID, Val) ->
+    telemetry:execute([?TELEMETRY_PREFIX, retried_success_only], #{counter_inc => Val}, #{
+        resource_id => ID
+    }).
 
 %% @doc Count of messages that have been sent successfully
 success_inc(ID) ->

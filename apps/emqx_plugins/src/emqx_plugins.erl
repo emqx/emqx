@@ -62,7 +62,9 @@
     list/0,
     list/1,
     list/2,
-    list_active/0
+    list_active/0,
+    log_unconfigured_plugins/0,
+    log_unconfigured_plugin/1
 ]).
 
 %% Plugin config APIs
@@ -85,7 +87,8 @@
 %% internal RPC targets
 -export([
     get_tar/1,
-    get_config/3
+    get_config/3,
+    install_package/2
 ]).
 
 %% for test cases
@@ -561,6 +564,35 @@ list_active() ->
         )
     ).
 
+log_unconfigured_plugins() ->
+    lists:foreach(
+        fun log_unconfigured_plugin/1,
+        list(?normal, #{})
+    ).
+
+log_unconfigured_plugin(#{
+    config_status := not_configured,
+    name := Name,
+    rel_vsn := RelVsn,
+    running_status := RunningStatus
+}) ->
+    NameVsn = name_vsn(Name, RelVsn),
+    ?SLOG(error, #{
+        msg => plugin_package_not_configured,
+        name_vsn => NameVsn,
+        running_status => RunningStatus,
+        hint => iolist_to_binary([
+            "Plugin package is unpacked but is neither enabled nor disabled in plugins.states. ",
+            "Run `emqx ctl plugins enable ",
+            NameVsn,
+            "` or `emqx ctl plugins disable ",
+            NameVsn,
+            "`, or delete the plugin package."
+        ])
+    });
+log_unconfigured_plugin(_Plugin) ->
+    ok.
+
 %% @doc List all installed plugins.
 %% Including the ones that are installed, but not enabled in config.
 -spec list() -> [emqx_plugins_info:t()].
@@ -813,6 +845,19 @@ get_config(NameVsn, ?CONFIG_FORMAT_MAP, Default) ->
 
 get_tar(NameVsn) ->
     emqx_plugins_fs:get_tar(NameVsn).
+
+-spec install_package(name_vsn(), binary()) -> ok | {error, term()}.
+install_package(NameVsn, Bin) ->
+    ok = write_package(NameVsn, Bin),
+    case ensure_installed(NameVsn, ?fresh_install) of
+        {error, #{reason := plugin_not_found}} = NotFound ->
+            NotFound;
+        {error, _} = Error ->
+            _ = delete_package(NameVsn),
+            Error;
+        Result ->
+            Result
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions

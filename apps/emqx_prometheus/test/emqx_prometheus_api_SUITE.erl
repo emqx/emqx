@@ -362,7 +362,10 @@ emqtt_connect(ClientId) ->
         {ok, _} ->
             %% link again
             link(C0),
-            {ok, C0}
+            {ok, C0};
+        {error, {server_unavailable, _}} ->
+            ct:sleep(100),
+            emqtt_connect(ClientId)
     catch
         exit:{shutdown, server_unavailable} ->
             ct:sleep(100),
@@ -384,6 +387,12 @@ t_listener_shutdown_count(_Config) ->
     ClientId2 = fresh_clientid(?FUNCTION_NAME),
     {ok, C3} = emqtt_connect(ClientId2),
     ok = emqtt:stop(C3),
+    %% Wait until C3's channel is fully deregistered before reconnecting with the
+    %% same clientid. emqtt:stop/1 closes the socket, but the broker records
+    %% tcp_closed asynchronously when it detects the peer close. If C4's CONNECT
+    %% (same clientid) races ahead of C3's reaping, C4 takes over C3's lingering
+    %% session and the event is miscounted as "discarded" instead of "tcp_closed".
+    ?retry(100, 20, [] = emqx_cm:lookup_channels(ClientId2)),
     %% Disconnect with reason code
     {ok, C4} = emqtt_connect(ClientId2),
     ok = emqtt:disconnect(C4, ?RC_IMPLEMENTATION_SPECIFIC_ERROR),

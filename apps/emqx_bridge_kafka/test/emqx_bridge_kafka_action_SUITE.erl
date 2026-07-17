@@ -784,6 +784,43 @@ t_smoke_metrics(TCConfig) ->
     ),
     ok.
 
+-doc """
+Wolff's internal reconnect-and-resend retries emit `[wolff, retried_success]` /
+`[wolff, retried_failed]` telemetry.  Assert that these move the action's
+`retried` / `retried.success` / `retried.failed` counters, and — critically —
+that they do NOT also bump `success` / `failed`, which the async ack/reply path
+already counts once per message (the double-count guard).
+""".
+t_retried_metrics_split(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    ActionResId = emqx_bridge_v2_testlib:resource_id(TCConfig),
+    %% wolff carries `partition_id' in the event metadata alongside `bridge_id';
+    %% the handler must match on `bridge_id' regardless.
+    Meta = #{bridge_id => ActionResId, partition_id => 1},
+    ?assertEqual(0, emqx_resource_metrics:retried_get(ActionResId)),
+    ?assertEqual(0, emqx_resource_metrics:retried_success_get(ActionResId)),
+    ?assertEqual(0, emqx_resource_metrics:retried_failed_get(ActionResId)),
+    Success0 = emqx_resource_metrics:success_get(ActionResId),
+    Failed0 = emqx_resource_metrics:failed_get(ActionResId),
+    %% Simulate wolff's retry-outcome telemetry.
+    telemetry:execute([wolff, retried_success], #{counter_inc => 3}, Meta),
+    telemetry:execute([wolff, retried_failed], #{counter_inc => 2}, Meta),
+    ?retry(
+        100,
+        10,
+        begin
+            ?assertEqual(3, emqx_resource_metrics:retried_success_get(ActionResId)),
+            ?assertEqual(2, emqx_resource_metrics:retried_failed_get(ActionResId)),
+            ?assertEqual(5, emqx_resource_metrics:retried_get(ActionResId))
+        end
+    ),
+    %% Double-count guard: the retry-outcome events must NOT move success/failed,
+    %% which the async ack/reply path already accounts for.
+    ?assertEqual(Success0, emqx_resource_metrics:success_get(ActionResId)),
+    ?assertEqual(Failed0, emqx_resource_metrics:failed_get(ActionResId)),
+    ok.
+
 t_custom_timestamp(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, _} = create_action_api(TCConfig, #{
@@ -2017,6 +2054,67 @@ t_fallback_actions(TCConfig) when is_list(TCConfig) ->
 
     ?assertReceive({deliver, RepublishTopic, #message{payload = Payload}}),
 
+    ok.
+
+-doc """
+Verifies that, if the connector health check times out, it goes to `connecting` instead of
+the usual `disconnected`, so we don't recreate the state and its replayq.
+""".
+t_resource_health_check_timeout_status(TCConfig) when is_list(TCConfig) ->
+    {ok, ConnectorType} = emqx_utils:safe_to_existing_atom(get_config(connector_type, TCConfig)),
+    Mod = emqx_connector_info:resource_callback_module(ConnectorType),
+    emqx_common_test_helpers:with_mock(
+        Mod,
+        on_get_status,
+        fun(ConnResId, ConnState) ->
+            ct:sleep(300),
+            meck:passthrough([ConnResId, ConnState])
+        end,
+        fun() ->
+            ?assertMatch(
+                {201, #{
+                    <<"status">> := <<"connecting">>,
+                    <<"status_reason">> := <<"resource_health_check_timed_out">>
+                }},
+                create_connector_api(TCConfig, #{
+                    <<"resource_opts">> => #{
+                        <<"health_check_timeout">> => <<"100ms">>
+                    }
+                })
+            )
+        end
+    ),
+    ok.
+
+-doc """
+Verifies that, if the action health check times out, it goes to `connecting` instead of
+the usual `disconnected`, so we don't recreate the state and its replayq.
+""".
+t_channel_health_check_timeout_status(TCConfig) when is_list(TCConfig) ->
+    {ok, ConnectorType} = emqx_utils:safe_to_existing_atom(get_config(connector_type, TCConfig)),
+    Mod = emqx_connector_info:resource_callback_module(ConnectorType),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    emqx_common_test_helpers:with_mock(
+        Mod,
+        on_get_channel_status,
+        fun(ConnResId, ChanId, ConnState) ->
+            ct:sleep(300),
+            meck:passthrough([ConnResId, ChanId, ConnState])
+        end,
+        fun() ->
+            ?assertMatch(
+                {201, #{
+                    <<"status">> := <<"connecting">>,
+                    <<"status_reason">> := <<"channel_health_check_timed_out">>
+                }},
+                create_action_api(TCConfig, #{
+                    <<"resource_opts">> => #{
+                        <<"health_check_timeout">> => <<"100ms">>
+                    }
+                })
+            )
+        end
+    ),
     ok.
 
 %% Exercises the code path where we use MSK IAM authentication.
