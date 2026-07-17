@@ -84,6 +84,8 @@
     %% get the callback mode of a specific module
     get_callback_mode/1,
     get_resource_type/1,
+    get_resource_health_check_timeout_status/1,
+    get_channel_health_check_timeout_status/1,
     get_callback_mode/2,
     get_query_opts/2,
     %% start the instance
@@ -159,7 +161,9 @@
     query_mode/1,
     on_format_query_result/1,
     callback_mode/1,
-    query_opts/1
+    query_opts/1,
+    resource_health_check_timeout_status/0,
+    channel_health_check_timeout_status/0
 ]).
 
 %% when calling emqx_resource:start/1
@@ -249,6 +253,20 @@
 
 %% Used for tagging log entries.
 -callback resource_type() -> atom().
+
+%% When a health check times out, set this status for the resource.
+%%
+%% Most modules should not tamper with this; exceptions are those which must not destroy
+%% their queues (kafka and pulsar, currently)
+-callback resource_health_check_timeout_status() -> health_check_status().
+
+%% When a health check times out, set this status for the channel.
+%%
+%% Most modules should not tamper with this; exceptions are those which must not destroy
+%% their queues (kafka and pulsar, currently)
+-callback channel_health_check_timeout_status() -> health_check_status().
+
+-elvis([{elvis_style, no_match_in_condition, disable}]).
 
 -define(SAFE_CALL(EXPR),
     (fun() ->
@@ -519,6 +537,22 @@ get_callback_mode(Mod) ->
 -spec get_resource_type(module()) -> resource_type().
 get_resource_type(Mod) ->
     Mod:resource_type().
+
+get_resource_health_check_timeout_status(Mod) ->
+    case erlang:function_exported(Mod, resource_health_check_timeout_status, 0) of
+        true ->
+            Mod:resource_health_check_timeout_status();
+        _ ->
+            ?status_disconnected
+    end.
+
+get_channel_health_check_timeout_status(Mod) ->
+    case erlang:function_exported(Mod, channel_health_check_timeout_status, 0) of
+        true ->
+            Mod:channel_health_check_timeout_status();
+        _ ->
+            ?status_disconnected
+    end.
 
 -spec get_callback_mode(module(), resource_state()) -> callback_mode() | undefined.
 get_callback_mode(Mod, State) ->

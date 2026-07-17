@@ -75,9 +75,6 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(TestCase, Config) ->
-    common_init_per_testcase(TestCase, Config).
-
-common_init_per_testcase(TestCase, Config) ->
     ct:timetrap(timer:seconds(60)),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_config:delete_override_conf_files(),
@@ -92,6 +89,7 @@ common_init_per_testcase(TestCase, Config) ->
     ok = snabbkaffe:start_trace(),
     ExtraConfig ++
         [
+            {bridge_kind, action},
             {connector_type, ?CONNECTOR_TYPE},
             {connector_name, Name},
             {connector_config, ConnectorConfig},
@@ -432,3 +430,9 @@ t_disallow_disk_mode_for_dynamic_topic(Config) ->
             ]
         ),
     ok.
+
+t_resource_health_check_timeout_status(Config) when is_list(Config) ->
+    emqx_bridge_v2_kafka_producer_SUITE:?FUNCTION_NAME(Config).
+
+t_channel_health_check_timeout_status(Config) when is_list(Config) ->
+    emqx_bridge_v2_kafka_producer_SUITE:?FUNCTION_NAME(Config).
