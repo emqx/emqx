@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# Print the next-to-be-released EMQX version on the current branch and every
+# downstream branch in the forward-sync chain.
+#
+# Example: if HEAD is on a v5.8 topic branch (last reachable e-tag is e5.8.11),
+# this prints
+#
+#     5.8.12
+#     5.9.3
+#     5.10.5
+#
+# computed by running `git describe <remote>/dev-XX --tags --match 'eX.Y.*'
+# --exclude '*-*'` against the matching dev-XX branch (so the answers reflect
+# what is actually in upstream right now, not what is on disk locally).
+#
+# The pre-release tag forms (e5.8.11-rc.1, e5.8.10-patch.1, ...) are excluded
+# from the lookup; the script computes "next patch after the most recent GA".
+#
+# Branches in the forward-sync chain:
+#   v5: dev-58 -> dev-59 -> dev-510
+#   v6: dev-60 -> dev-61 -> dev-62 -> dev-63
+#
+# The script auto-detects the remote pointing at github.com:emqx/emqx from
+# `git remote -v` -- it doesn't assume the remote is called `origin`.
+
+set -euo pipefail
+
+usage() {
+    cat <<EOF
+Usage: $0
+
+Prints, one per line, the next release version on the current branch's release
+line and every downstream branch it would forward-sync to.
+
+No arguments. The starting point is determined by the most recent GA tag
+reachable from HEAD (e.g. e5.8.11 -> start from the v5.8 line).
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Detect the canonical emqx/emqx remote name.
+# Accept both SSH (git@github.com:emqx/emqx.git) and HTTPS
+# (https://github.com/emqx/emqx.git, with or without the .git suffix).
+# ---------------------------------------------------------------------------
+detect_remote() {
+    local name url first=""
+    while read -r name url _; do
+        # filter to fetch entries only
+        case "$url" in
+            *github.com[:/]emqx/emqx*)
+                # Strip optional trailing .git, accept the path matching exactly.
+                if [[ "$url" =~ github\.com[:/]emqx/emqx(\.git)?$ ]]; then
+                    if [[ "$name" == "origin" ]]; then
+                        echo "$name"
+                        return 0
+                    fi
+                    first="${first:-$name}"
+                fi
+                ;;
+        esac
+    done < <(git remote -v | awk '$3 == "(fetch)"')
+    if [[ -n "$first" ]]; then
+        echo "$first"
+        return 0
+    fi
+    return 1
+}
+
+REMOTE=$(detect_remote || true)
+if [[ -z "${REMOTE:-}" ]]; then
+    echo "error: no git remote points at github.com:emqx/emqx" >&2
+    exit 1
+fi
+
+git fetch "$REMOTE" --tags --quiet
+
+# ---------------------------------------------------------------------------
+# Resolve the starting minor from the most recent GA tag reachable from HEAD.
+# ---------------------------------------------------------------------------
+prev_tag=$(git describe --tags --match 'e[0-9]*.*' --exclude '*-*' --abbrev=0 2>/dev/null || true)
+if [[ -z "$prev_tag" ]]; then
+    echo "error: no GA tag (eX.Y.Z) reachable from HEAD" >&2
+    exit 1
+fi
+# Strip the 'e' prefix and the patch level: e5.8.11 -> 5.8
+if [[ ! "$prev_tag" =~ ^e([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    echo "error: cannot parse tag '$prev_tag'" >&2
+    exit 1
+fi
+start_major="${BASH_REMATCH[1]}"
+start_minor="${BASH_REMATCH[2]}"
+
+# ---------------------------------------------------------------------------
+# Forward-sync chain per major version.
+# ---------------------------------------------------------------------------
+case "$start_major" in
+    5) chain=(58 59 510) ;;
+    6) chain=(60 61 62 63) ;;
+    *)
+        echo "error: unsupported major version $start_major" >&2
+        exit 1
+        ;;
+esac
+
+# Encode the starting minor the same way the chain entries are encoded:
+# v5 chain entries are e.g. 58, 59, 510 (concatenation of major+minor).
+start_key="${start_major}${start_minor}"
+
+# ---------------------------------------------------------------------------
+# For each step in the chain >= start, look up dev-<N>'s latest GA tag and
+# print the next patch version.
+# ---------------------------------------------------------------------------
+seen_start=0
+for step in "${chain[@]}"; do
+    if [[ "$step" != "$start_key" && "$seen_start" -eq 0 ]]; then
+        continue
+    fi
+    seen_start=1
+
+    # Extract minor from the chain key (e.g. 510 -> major=5 minor=10).
+    if [[ "$step" =~ ^([0-9])([0-9]+)$ ]]; then
+        major="${BASH_REMATCH[1]}"
+        minor="${BASH_REMATCH[2]}"
+    else
+        echo "error: cannot parse chain entry '$step'" >&2
+        exit 1
+    fi
+
+    branch="${REMOTE}/dev-${step}"
+    desc=$(git describe "$branch" --tags --match "e${major}.${minor}.*" --exclude '*-*' --abbrev=0 2>/dev/null || true)
+    if [[ -z "$desc" ]]; then
+        echo "warning: no GA tag (e${major}.${minor}.*) on ${branch} -- skipping" >&2
+        continue
+    fi
+
+    # desc is the GA tag itself (e.g. e5.8.11) because of --abbrev=0.
+    if [[ ! "$desc" =~ ^e([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+        echo "warning: cannot parse tag '$desc' on ${branch} -- skipping" >&2
+        continue
+    fi
+    patch="${BASH_REMATCH[3]}"
+    next_patch=$((patch + 1))
+    echo "${major}.${minor}.${next_patch}"
+done

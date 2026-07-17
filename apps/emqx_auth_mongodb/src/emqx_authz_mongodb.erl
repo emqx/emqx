@@ -86,7 +86,11 @@ authorize(
 authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
     collection := Collection,
     annotations := #{
-        skip := Skip, limit := Limit, id := ResourceId, cache_key_template := CacheKeyTemplate
+        skip := Skip,
+        limit := Limit,
+        id := ResourceId,
+        cache_key_template := CacheKeyTemplate,
+        filter_template := FilterTemplate
     }
 }) ->
     Options = #{skip => Skip, limit => Limit},
@@ -100,7 +104,7 @@ authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
                 msg => "query_mongo_error",
                 reason => Reason,
                 collection => Collection,
-                filter => RenderedFilter,
+                filter => emqx_auth_template:render_deep_for_json_redacted(FilterTemplate, Client),
                 options => Options,
                 resource_id => ResourceId
             }),
