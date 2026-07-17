@@ -47,32 +47,32 @@ t_in_qos0(_) ->
     Opts = #{max_len => 5, store_qos0 => false},
     Q = ?Q:init(Opts),
     false = ?Q:in(#message{qos = 0, payload = <<>>}, Q),
-    ?assertEqual(0, ?Q:bytes_size(Q)).
+    ?assertEqual(0, ?Q:payload_bytes(Q)).
 
 t_out(_) ->
     Opts = #{max_len => 5, store_qos0 => true},
     Q = ?Q:init(Opts),
     {empty, Q} = ?Q:out(Q),
     {_, Q1} = ?Q:in(#message{payload = <<"x">>}, Q),
-    ?assertEqual(1, ?Q:bytes_size(Q1)),
+    ?assertEqual(1, ?Q:payload_bytes(Q1)),
     {Value, Q2} = ?Q:out(Q1),
     ?assertEqual(0, ?Q:len(Q2)),
-    ?assertEqual(0, ?Q:bytes_size(Q2)),
+    ?assertEqual(0, ?Q:payload_bytes(Q2)),
     ?assertEqual({value, #message{payload = <<"x">>}}, Value).
 
-t_bytes_size_tracks_payload(_) ->
+t_payload_bytes_tracks_payload(_) ->
     Q0 = ?Q:init(#{max_len => 3, store_qos0 => true}),
     Msg1 = #message{qos = 1, payload = <<"one">>},
     Msg2 = #message{qos = 1, payload = <<"three">>},
     {_, Q1} = ?Q:in(Msg1, Q0),
-    ?assertEqual(emqx_message:payload_size(Msg1), ?Q:bytes_size(Q1)),
+    ?assertEqual(emqx_message:payload_size(Msg1), ?Q:payload_bytes(Q1)),
     {_, Q2} = ?Q:in(Msg2, Q1),
     ?assertEqual(
         emqx_message:payload_size(Msg1) + emqx_message:payload_size(Msg2),
-        ?Q:bytes_size(Q2)
+        ?Q:payload_bytes(Q2)
     ),
     {{value, _}, Q3} = ?Q:out(Q2),
-    ?assertEqual(emqx_message:payload_size(Msg2), ?Q:bytes_size(Q3)).
+    ?assertEqual(emqx_message:payload_size(Msg2), ?Q:payload_bytes(Q3)).
 
 t_simple_mqueue(_) ->
     Opts = #{max_len => 3, store_qos0 => false},

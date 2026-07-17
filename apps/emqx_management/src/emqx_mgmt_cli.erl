@@ -275,9 +275,9 @@ clients(_) ->
     ]).
 
 'session-top'(["status"]) ->
-    print_session_top_status(emqx_session_buffer_mon:top_status());
+    print_session_top_status(emqx_session_top_collector:status());
 'session-top'(["cancel"]) ->
-    case emqx_session_buffer_mon:cancel_top() of
+    case emqx_session_top_collector:cancel() of
         {ok, cancelled} ->
             emqx_ctl:print("Session top scan cancelled.~n");
         {error, not_running} ->
@@ -325,22 +325,100 @@ session_top_usage() ->
     ]).
 
 run_session_top(Opts) ->
-    case ensure_out_file_absent(maps:get(out, Opts)) of
+    OutFile = maps:get(out, Opts),
+    case ensure_out_file_absent(OutFile) of
         ok ->
-            case emqx_session_buffer_mon:run_top(Opts) of
+            Completion = fun(Rows) -> complete_session_top(OutFile, Rows) end,
+            case emqx_session_top_collector:run(maps:remove(out, Opts), Completion) of
                 {ok, _Pid} ->
                     print_session_top_started(Opts);
                 {error, busy} ->
                     emqx_ctl:print("[error] A session-top scan is already running.~n");
-                {error, eexist} ->
-                    emqx_ctl:print("[error] Output file already exists: ~ts~n", [
-                        maps:get(out, Opts)
-                    ])
+                {error, {busy, Collector}} ->
+                    emqx_ctl:print(
+                        "[error] A session-top scan initiated on ~p is already running "
+                        "on this node.~n",
+                        [Collector]
+                    )
             end;
         {error, eexist} ->
-            emqx_ctl:print("[error] Output file already exists: ~ts~n", [maps:get(out, Opts)]);
+            emqx_ctl:print("[error] Output file already exists: ~ts~n", [OutFile]);
         {error, Reason} ->
             emqx_ctl:print("[error] Failed to check output file: ~p~n", [Reason])
+    end.
+
+complete_session_top(OutFile, Rows) ->
+    case write_session_top_csv(OutFile, Rows) of
+        ok ->
+            ?SLOG(info, #{
+                msg => session_top_written,
+                file => OutFile,
+                rows => length(Rows)
+            }),
+            ok;
+        {error, Reason} = Error ->
+            ?SLOG(error, #{
+                msg => session_top_write_failed,
+                file => OutFile,
+                reason => Reason
+            }),
+            Error
+    end.
+
+write_session_top_csv(OutFile, Rows) ->
+    case file:open(OutFile, [write, exclusive, raw, binary]) of
+        {ok, IoDev} ->
+            try
+                write_session_top_csv_chunks(IoDev, [
+                    <<"clientid,node,mqueue_length,total_payload_bytes,inflight_count\n">>,
+                    session_top_csv_rows(Rows)
+                ])
+            after
+                _ = file:close(IoDev)
+            end;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+write_session_top_csv_chunks(_IoDev, []) ->
+    ok;
+write_session_top_csv_chunks(IoDev, [Chunk | More]) ->
+    case file:write(IoDev, Chunk) of
+        ok -> write_session_top_csv_chunks(IoDev, More);
+        {error, Reason} -> {error, Reason}
+    end.
+
+session_top_csv_rows(Rows) ->
+    [session_top_csv_row(Row) || Row <- Rows].
+
+session_top_csv_row(Row) ->
+    [
+        session_top_csv_cell(maps:get(clientid, Row)),
+        <<",">>,
+        session_top_csv_cell(maps:get(node, Row)),
+        <<",">>,
+        integer_to_binary(maps:get(mqueue_length, Row)),
+        <<",">>,
+        integer_to_binary(maps:get(total_payload_bytes, Row)),
+        <<",">>,
+        integer_to_binary(maps:get(inflight_count, Row)),
+        $\n
+    ].
+
+session_top_csv_cell(Value) when is_binary(Value) ->
+    quote_session_top_csv_cell(Value);
+session_top_csv_cell(Value) when is_atom(Value) ->
+    quote_session_top_csv_cell(atom_to_binary(Value, utf8)).
+
+quote_session_top_csv_cell(Bin) ->
+    case
+        lists:any(
+            fun(Pattern) -> binary:match(Bin, Pattern) =/= nomatch end,
+            [<<",">>, <<"\"">>, <<"\n">>, <<"\r">>]
+        )
+    of
+        true -> [$", binary:replace(Bin, <<"\"">>, <<"\"\"">>, [global]), $"];
+        false -> Bin
     end.
 
 print_session_top_started(Opts) ->
@@ -367,22 +445,19 @@ print_session_top_status(
         sort := Sort,
         batch_size := BatchSize,
         sleep_ms := SleepMs,
-        progress := Progress
+        cluster_nodes := ClusterNodes
     } = Status
 ) ->
-    maybe_print_session_top_output(Status),
-    maybe_print_session_top_worker(Status),
-    maybe_print_session_top_collector(Status),
-    maybe_print_session_top_started_at(Status),
     emqx_ctl:print(
         "Status: running~n"
         "Limit: ~B~n"
         "Sort by: ~s~n"
         "Batch size: ~B~n"
-        "Sleep: ~B ms~n",
-        [Count, atom_to_list(Sort), BatchSize, SleepMs]
+        "Sleep: ~B ms~n"
+        "Cluster nodes: ~B~n",
+        [Count, atom_to_list(Sort), BatchSize, SleepMs, ClusterNodes]
     ),
-    print_session_top_progress(Progress);
+    maybe_print_session_top_bad_replies(Status);
 print_session_top_status(#{
     status := cancelled,
     reason := Reason
@@ -392,80 +467,20 @@ print_session_top_status(#{
         "Reason: ~p~n",
         [Reason]
     );
-print_session_top_status(
-    Status = #{
-        status := completed,
-        out := OutFile,
-        rows := Rows
-    }
-) ->
-    emqx_ctl:print(
-        "Status: completed~n"
-        "Output: ~ts~n"
-        "Result rows: ~B~n",
-        [OutFile, Rows]
-    ),
-    maybe_print_session_top_bad_replies(Status);
 print_session_top_status(Status = #{status := completed, rows := Rows}) ->
-    maybe_print_session_top_worker(Status),
-    maybe_print_session_top_collector(Status),
     emqx_ctl:print(
         "Status: completed~n"
         "Result rows: ~B~n",
         [Rows]
     ),
-    print_session_top_progress(Status);
-print_session_top_status(
-    Status = #{
-        status := failed,
-        out := OutFile,
-        reason := Reason
-    }
-) ->
-    emqx_ctl:print(
-        "Status: failed~n"
-        "Output: ~ts~n"
-        "Reason: ~p~n",
-        [OutFile, Reason]
-    ),
     maybe_print_session_top_bad_replies(Status);
 print_session_top_status(Status = #{status := failed, reason := Reason}) ->
-    maybe_print_session_top_worker(Status),
-    maybe_print_session_top_collector(Status),
     emqx_ctl:print(
         "Status: failed~n"
         "Reason: ~p~n",
         [Reason]
     ),
     maybe_print_session_top_bad_replies(Status).
-
-maybe_print_session_top_output(#{out := OutFile}) ->
-    emqx_ctl:print("Output: ~ts~n", [OutFile]);
-maybe_print_session_top_output(_Status) ->
-    ok.
-
-maybe_print_session_top_worker(#{role := Role}) ->
-    emqx_ctl:print("Role: ~s~n", [atom_to_list(Role)]);
-maybe_print_session_top_worker(_Status) ->
-    ok.
-
-maybe_print_session_top_collector(#{role := worker, collector := Collector}) ->
-    emqx_ctl:print("Collector: ~p~n", [Collector]);
-maybe_print_session_top_collector(_Status) ->
-    ok.
-
-maybe_print_session_top_started_at(#{started_at := StartedAt}) ->
-    emqx_ctl:print("Started at: ~B~n", [StartedAt]);
-maybe_print_session_top_started_at(_Status) ->
-    ok.
-
-print_session_top_progress(#{nodes_total := Total} = Progress) ->
-    emqx_ctl:print("Cluster nodes: ~B~n", [Total]),
-    maybe_print_session_top_bad_replies(Progress);
-print_session_top_progress(#{scanned := Scanned, total := Total}) ->
-    emqx_ctl:print("Rows scanned: ~B/~B~n", [Scanned, Total]);
-print_session_top_progress(_Progress) ->
-    ok.
 
 maybe_print_session_top_bad_replies(#{bad_replies := BadReplies}) ->
     emqx_ctl:print("Bad replies: ~p~n", [BadReplies]);

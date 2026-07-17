@@ -104,33 +104,36 @@ t_get_set_chan_stats(_) ->
     ok = emqx_cm:unregister_channel(<<"clientid">>),
     ?assertEqual(undefined, emqx_cm:get_chan_stats(<<"clientid">>)).
 
-t_set_chan_stats_triggers_session_buffer_check(_) ->
+t_set_chan_stats_logs_session_buffer_high_watermark(_) ->
     ClientId = <<"session-buffer-check">>,
     Stats = [{mqueue_len, 1}, {inflight_cnt, 1}, {total_payload_bytes, 2}],
     Info = #{conninfo := ConnInfo} = ?ChanInfo,
     ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
     ok = emqx_cm:insert_channel_info(ClientId, Info, []),
-    TestPid = self(),
-    ok = meck:new(emqx_session_buffer_mon, [passthrough, no_link]),
-    ok = meck:expect(
-        emqx_session_buffer_mon,
-        maybe_log,
-        fun(ClientId0, ChanPid0, Stats0) ->
-            TestPid ! {session_buffer_check, ClientId0, ChanPid0, Stats0},
-            ok
-        end
-    ),
+    Path = [sysmon, session, total_payload_bytes_high_watermark],
+    PreviousHighWatermark = emqx_config:get(Path, 0),
     try
         ChanPid = self(),
-        true = emqx_cm:set_chan_stats(ClientId, Stats),
-        receive
-            {session_buffer_check, ClientId, ChanPid, Stats} ->
-                ok
-        after 1000 ->
-            error(session_buffer_check_not_called)
-        end
+        ok = emqx_config:put(Path, 1),
+        Logs = emqx_cth_log_capture:capture(fun() ->
+            true = emqx_cm:set_chan_stats(ClientId, Stats)
+        end),
+        ?assertMatch(
+            [
+                #{
+                    msg := session_buffer_high_watermark,
+                    clientid := ClientId,
+                    pid := ChanPid,
+                    mqueue_length := 1,
+                    inflight_count := 1,
+                    total_payload_bytes := 2,
+                    total_payload_bytes_high_watermark := 1
+                }
+            ],
+            [Log || #{msg := session_buffer_high_watermark} = Log <- Logs]
+        )
     after
-        ok = meck:unload(emqx_session_buffer_mon),
+        ok = emqx_config:put(Path, PreviousHighWatermark),
         ok = emqx_cm:unregister_channel(ClientId)
     end.
 

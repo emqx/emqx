@@ -86,7 +86,7 @@
 -export([
     validate_heap_size/1,
     validate_max_packet_size/1,
-    validate_session_buffered_payload_high_watermark/1,
+    validate_non_negative_bytesize/1,
     convert_max_packet_size/2,
     user_lookup_fun_tr/2,
     validate_keepalive_multiplier/1,
@@ -1652,13 +1652,13 @@ fields("sysmon") ->
     ];
 fields("sysmon_session") ->
     [
-        {"buffered_payload_high_watermark",
+        {"total_payload_bytes_high_watermark",
             sc(
                 bytesize(),
                 #{
                     default => 0,
-                    validator => fun ?MODULE:validate_session_buffered_payload_high_watermark/1,
-                    desc => ?DESC(sysmon_session_buffered_payload_high_watermark)
+                    validator => fun ?MODULE:validate_non_negative_bytesize/1,
+                    desc => ?DESC(sysmon_session_total_payload_bytes_high_watermark)
                 }
             )}
     ];
@@ -3251,10 +3251,10 @@ validate_max_packet_size(Siz) when is_integer(Siz) ->
 validate_max_packet_size(_SizStr) ->
     {error, invalid_packet_size}.
 
-validate_session_buffered_payload_high_watermark(Bytes) when is_integer(Bytes), Bytes >= 0 ->
+validate_non_negative_bytesize(Bytes) when is_integer(Bytes), Bytes >= 0 ->
     ok;
-validate_session_buffered_payload_high_watermark(_Bytes) ->
-    {error, #{cause => session_buffered_payload_high_watermark_out_of_range, minimum => 0}}.
+validate_non_negative_bytesize(_Bytes) ->
+    {error, #{minimum => 0}}.
 
 %% This is for backward compatibility.
 %% We used to allow setting 256MB, but in fact the limit is one byte less.

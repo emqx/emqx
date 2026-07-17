@@ -404,7 +404,7 @@ info(mqueue_len, #session{mqueue = MQueue}) ->
 info(mqueue_max, #session{mqueue = MQueue}) ->
     emqx_mqueue:max_len(MQueue);
 info(total_payload_bytes, #session{inflight = Inflight, mqueue = MQueue}) ->
-    inflight_payload_bytes(Inflight) + emqx_mqueue:bytes_size(MQueue);
+    inflight_payload_bytes(Inflight) + emqx_mqueue:payload_bytes(MQueue);
 info(mqueue_dropped, #session{mqueue = MQueue}) ->
     emqx_mqueue:dropped(MQueue);
 info({mqueue_msgs, PagerParams}, #session{mqueue = MQueue}) ->

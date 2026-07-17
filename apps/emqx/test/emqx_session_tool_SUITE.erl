@@ -177,6 +177,33 @@ t_total_payload_bytes_stats_extras(_Config) ->
         maps:get(extras, hd(Rows))
     ).
 
+-doc "Stats extras retain the same snapshot that was used to rank the row.".
+t_stats_extras_match_ranked_snapshot(_Config) ->
+    ClientId = <<"c1">>,
+    InitialStats = [
+        {mqueue_len, 10},
+        {total_payload_bytes, 42000},
+        {inflight_cnt, 2}
+    ],
+    insert_session(ClientId, InitialStats),
+    Acc0 = emqx_session_tool:scan_acc_new(#{
+        metric => total_payload_bytes,
+        top_k => 1,
+        extra_stats => [mqueue_len, total_payload_bytes, inflight_cnt]
+    }),
+    {done, Acc} = emqx_session_tool:scan_acc(Acc0),
+    insert_session(ClientId, [
+        {mqueue_len, 0},
+        {total_payload_bytes, 0},
+        {inflight_cnt, 0}
+    ]),
+    [Row] = emqx_session_tool:scan_acc_rows(Acc),
+    ?assertEqual(42000, maps:get(value, Row)),
+    ?assertEqual(
+        #{mqueue_len => 10, total_payload_bytes => 42000, inflight_cnt => 2},
+        maps:get(extras, Row)
+    ).
+
 -doc "scan rejects a metric that is not advertised by available_metrics/0.".
 t_unsupported_metric_errors(_Config) ->
     ?assertError(

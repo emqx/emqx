@@ -134,22 +134,16 @@ t_a_session_top_status_idle(_Config) ->
 
 t_session_top_status_running_labels(_Config) ->
     emqx_common_test_helpers:with_mock(
-        emqx_session_buffer_mon,
-        top_status,
+        emqx_session_top_collector,
+        status,
         fun() ->
             #{
                 status => running,
-                role => collector,
-                scan_id => make_ref(),
-                out => "/tmp/session-top.csv",
                 count => 10,
                 sort => total_payload_bytes,
                 batch_size => 100,
                 sleep_ms => 1,
-                started_at => 1780000000000,
-                initiator => node(),
-                collector => node(),
-                progress => #{nodes_total => 3, nodes_done => 1}
+                cluster_nodes => 3
             }
         end,
         fun() ->
@@ -161,68 +155,20 @@ t_session_top_status_running_labels(_Config) ->
             ),
             ?assertEqual(match, re:run(Output, <<"Batch size: 100">>, [{capture, none}])),
             ?assertEqual(match, re:run(Output, <<"Sleep: 1 ms">>, [{capture, none}])),
-            ?assertEqual(match, re:run(Output, <<"Role: collector">>, [{capture, none}])),
             ?assertEqual(match, re:run(Output, <<"Cluster nodes: 3">>, [{capture, none}])),
-            ?assertEqual(nomatch, re:run(Output, <<"Nodes: 1/3">>, [{capture, none}])),
             ?assertEqual(nomatch, re:run(Output, <<"Count:">>, [{capture, none}])),
             ?assertEqual(nomatch, re:run(Output, <<"Sort:">>, [{capture, none}]))
         end
     ).
 
-t_session_top_status_local_completed(_Config) ->
-    emqx_common_test_helpers:with_mock(
-        emqx_session_buffer_mon,
-        top_status,
-        fun() ->
-            #{
-                status => completed,
-                rows => 5,
-                scanned => 5,
-                total => 5,
-                started_at => 1780000000000,
-                completed_at => 1780000000001,
-                initiator => node()
-            }
-        end,
-        fun() ->
-            {ok, Output} = capture_ctl(["session-top", "status"]),
-            ?assertEqual(match, re:run(Output, <<"Status: completed">>, [{capture, none}])),
-            ?assertEqual(match, re:run(Output, <<"Result rows: 5">>, [{capture, none}])),
-            ?assertEqual(match, re:run(Output, <<"Rows scanned: 5/5">>, [{capture, none}]))
-        end
-    ).
-
-t_session_top_status_worker_failed(_Config) ->
-    emqx_common_test_helpers:with_mock(
-        emqx_session_buffer_mon,
-        top_status,
-        fun() ->
-            #{
-                status => failed,
-                role => worker,
-                collector => node(),
-                reason => scan_failed
-            }
-        end,
-        fun() ->
-            {ok, Output} = capture_ctl(["session-top", "status"]),
-            ?assertEqual(match, re:run(Output, <<"Role: worker">>, [{capture, none}])),
-            ?assertEqual(match, re:run(Output, <<"Status: failed">>, [{capture, none}])),
-            ?assertEqual(match, re:run(Output, <<"Reason: scan_failed">>, [{capture, none}]))
-        end
-    ).
-
 t_session_top_status_completed_prints_bad_replies(_Config) ->
     emqx_common_test_helpers:with_mock(
-        emqx_session_buffer_mon,
-        top_status,
+        emqx_session_top_collector,
+        status,
         fun() ->
             #{
                 status => completed,
-                out => "/tmp/session-top.csv",
                 rows => 5,
-                partial => true,
-                bad_nodes => ['old-emqx@127.0.0.1'],
                 bad_replies => [{badnode, timeout}]
             }
         end,
@@ -436,10 +382,23 @@ t_session_top_rejects_existing_out_file(Config) ->
         _ = file:delete(OutFile)
     end.
 
+t_session_top_reports_scanner_owner(Config) ->
+    OutFile = filename:join(?config(priv_dir, Config), "session-top-busy.csv"),
+    Collector = 'other@127.0.0.1',
+    emqx_common_test_helpers:with_mock(
+        emqx_session_top_collector,
+        run,
+        fun(_Opts, _Completion) -> {error, {busy, Collector}} end,
+        fun() ->
+            {ok, Output} = capture_ctl(["session-top", "--out", OutFile]),
+            ?assertEqual(match, re:run(Output, atom_to_binary(Collector), [{capture, none}]))
+        end
+    ).
+
 t_session_top_cancel(_Config) ->
     emqx_common_test_helpers:with_mock(
-        emqx_session_buffer_mon,
-        cancel_top,
+        emqx_session_top_collector,
+        cancel,
         fun() -> {ok, cancelled} end,
         fun() ->
             {ok, Output} = capture_ctl(["session-top", "cancel"]),

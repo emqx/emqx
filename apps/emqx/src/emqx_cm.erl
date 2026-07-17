@@ -277,13 +277,40 @@ set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     try
         case ets:update_element(?CHAN_INFO_TAB, Chan, {3, Stats}) of
             true ->
-                ok = emqx_session_buffer_mon:maybe_log(ClientId, ChanPid, Stats),
+                ok = maybe_log_session_buffer_high_watermark(ClientId, ChanPid, Stats),
                 true;
             false ->
                 false
         end
     catch
         error:badarg -> false
+    end.
+
+maybe_log_session_buffer_high_watermark(ClientId, ChanPid, Stats) ->
+    case emqx_config:get([sysmon, session, total_payload_bytes_high_watermark], 0) of
+        HighWatermark when HighWatermark > 0 ->
+            TotalPayloadBytes = proplists:get_value(total_payload_bytes, Stats, 0),
+            case TotalPayloadBytes > HighWatermark of
+                true ->
+                    ?SLOG_THROTTLE(
+                        warning,
+                        ClientId,
+                        #{
+                            msg => session_buffer_high_watermark,
+                            clientid => ClientId,
+                            pid => ChanPid,
+                            mqueue_length => proplists:get_value(mqueue_len, Stats, 0),
+                            inflight_count => proplists:get_value(inflight_cnt, Stats, 0),
+                            total_payload_bytes => TotalPayloadBytes,
+                            total_payload_bytes_high_watermark => HighWatermark
+                        },
+                        #{clientid => ClientId}
+                    );
+                false ->
+                    ok
+            end;
+        _ ->
+            ok
     end.
 
 %% @doc Open a session.

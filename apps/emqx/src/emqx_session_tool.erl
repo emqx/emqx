@@ -122,7 +122,7 @@ with `engine => mem | persistent_ds' once supported).
     extras => #{atom() => term()}
 }.
 
--type heap_entry() :: {number(), emqx_types:clientid(), pid()}.
+-type heap_entry() :: {number(), emqx_types:clientid(), pid(), [{atom(), term()}]}.
 
 %% One projected ets row: {ClientId, ChanPid, cached stats proplist}.
 -type row_input() :: {emqx_types:clientid(), pid(), list()}.
@@ -269,10 +269,10 @@ call at any point, including after an early abort, to read the partial
 result.
 """.
 -spec scan_acc_rows(scan_acc()) -> [row()].
-scan_acc_rows(#{heap := Heap, metric := Metric, extra_keys := ExtraKeys, extra_stats := ExtraStats}) ->
+scan_acc_rows(#{heap := Heap, metric := Metric, extra_keys := ExtraKeys}) ->
     %% gb_sets:to_list is ascending; reverse for highest-first.
     Candidates = lists:reverse(gb_sets:to_list(Heap)),
-    [resolve_row(C, Metric, ExtraKeys, ExtraStats) || C <- Candidates].
+    [resolve_row(C, Metric, ExtraKeys) || C <- Candidates].
 
 %% Lazy stream over the channel registry, scanned in `Chunk'-sized ets
 %% batches. Each row is projected to {ClientId, ChanPid, Stats}; Stats is
@@ -290,10 +290,16 @@ session_stream(Chunk) ->
 
 %% Read the metric from the cached stats proplist and, if it qualifies,
 %% offer it to the bounded heap.
-consider(ClientId, ChanPid, Stats, #{metric := Metric, min_value := MinValue, top_k := TopK}, Heap) ->
+consider(
+    ClientId,
+    ChanPid,
+    Stats,
+    #{metric := Metric, min_value := MinValue, top_k := TopK, extra_stats := ExtraStats},
+    Heap
+) ->
     case read_metric(Metric, Stats) of
         Value when is_number(Value), Value >= MinValue ->
-            heap_offer({Value, ClientId, ChanPid}, TopK, Heap);
+            heap_offer({Value, ClientId, ChanPid}, Stats, ExtraStats, TopK, Heap);
         _ ->
             Heap
     end.
@@ -303,30 +309,37 @@ read_metric(Metric, Stats) when is_list(Stats) ->
 read_metric(_Metric, _Stats) ->
     0.
 
-%% Bounded max-heap as a gb_sets ordered on {Value, ClientId, ChanPid}.
+%% Bounded max-heap ordered on {Value, ClientId, ChanPid}. StatExtras are
+%% captured only for candidates that enter the heap.
 %% While below capacity, always insert. Once full, evict the current
 %% smallest only when the candidate is larger.
-heap_offer(Candidate, TopK, Heap) ->
+heap_offer(RankKey, Stats, ExtraStats, TopK, Heap) ->
     case gb_sets:size(Heap) < TopK of
         true ->
-            gb_sets:add(Candidate, Heap);
+            heap_add(RankKey, Stats, ExtraStats, Heap);
         false ->
-            {Smallest, Heap1} = gb_sets:take_smallest(Heap),
-            case Candidate > Smallest of
-                true -> gb_sets:add(Candidate, Heap1);
+            {{SmallestValue, SmallestClientId, SmallestPid, _}, Heap1} =
+                gb_sets:take_smallest(Heap),
+            SmallestRankKey = {SmallestValue, SmallestClientId, SmallestPid},
+            case RankKey > SmallestRankKey of
+                true -> heap_add(RankKey, Stats, ExtraStats, Heap1);
                 false -> Heap
             end
     end.
+
+heap_add({Value, ClientId, ChanPid}, Stats, ExtraStats, Heap) ->
+    StatExtras = [{Key, read_stat_extra(Key, Stats)} || Key <- ExtraStats],
+    gb_sets:add({Value, ClientId, ChanPid, StatExtras}, Heap).
 
 maybe_sleep(SleepMs) when is_integer(SleepMs), SleepMs > 0 ->
     timer:sleep(SleepMs);
 maybe_sleep(_SleepMs) ->
     ok.
 
-%% Build the result row. Extras are resolved here, once per winner, by
-%% re-reading the cached info/stats maps. If the session has since disconnected
-%% the info row is gone and extras come back empty (best effort).
-resolve_row({Value, ClientId, ChanPid}, Metric, ExtraKeys, ExtraStats) ->
+%% Build the result row. Cached info extras are resolved once per winner. If
+%% the session has since disconnected, those extras come back empty (best
+%% effort), while stats extras retain the snapshot used during ranking.
+resolve_row({Value, ClientId, ChanPid, StatExtras}, Metric, ExtraKeys) ->
     Base = #{
         clientid => ClientId,
         pid => ChanPid,
@@ -334,22 +347,25 @@ resolve_row({Value, ClientId, ChanPid}, Metric, ExtraKeys, ExtraStats) ->
         metric => Metric,
         value => Value
     },
-    case ExtraKeys =:= [] andalso ExtraStats =:= [] of
+    case ExtraKeys =:= [] andalso StatExtras =:= [] of
         true ->
             Base;
         false ->
-            {Info, Stats} = lookup_info_stats(ClientId, ChanPid),
-            Extras =
-                [{K, read_extra(K, Info)} || K <- ExtraKeys] ++
-                    [{K, read_stat_extra(K, Stats)} || K <- ExtraStats],
-            Base#{extras => maps:from_list(Extras)}
+            InfoExtras =
+                case ExtraKeys of
+                    [] ->
+                        [];
+                    _ ->
+                        Info = lookup_info(ClientId, ChanPid),
+                        [{Key, read_extra(Key, Info)} || Key <- ExtraKeys]
+                end,
+            Base#{extras => maps:from_list(InfoExtras ++ StatExtras)}
     end.
 
-lookup_info_stats(ClientId, ChanPid) ->
+lookup_info(ClientId, ChanPid) ->
     case ets:lookup(?CHAN_INFO_TAB, {ClientId, ChanPid}) of
-        [{_Chan, Info, Stats}] when is_map(Info) -> {Info, Stats};
-        [{_Chan, _Info, Stats}] -> {#{}, Stats};
-        _ -> {#{}, []}
+        [{_Chan, Info, _Stats}] when is_map(Info) -> Info;
+        _ -> #{}
     end.
 
 %% Resolve an extra key against the cached channel info map. The info map

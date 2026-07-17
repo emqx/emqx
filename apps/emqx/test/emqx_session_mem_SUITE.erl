@@ -127,29 +127,20 @@ t_session_buffer_bytes_stats(_) ->
     InflightMsg = emqx_message:make(
         <<"clientid">>, ?QOS_1, <<"inflight/topic">>, <<"inflight">>
     ),
-    {undefined, MQueue} = emqx_mqueue:in(
-        MqueueMsg,
-        emqx_mqueue:init(#{max_len => 10, store_qos0 => false})
+    ClientInfo = clientinfo(#{zone => default, listener => 'tcp:default'}),
+    Session0 = emqx_session_mem:create(
+        ClientInfo,
+        #{receive_maximum => 1, expiry_interval => 0},
+        _WillMsg = undefined,
+        emqx_session:get_session_conf(ClientInfo)
     ),
-    Inflight = emqx_inflight:insert(
-        1,
-        emqx_session_mem:with_ts(InflightMsg),
-        emqx_inflight:new(10)
-    ),
-    Stats = maps:from_list(
-        emqx_session_mem:stats(
-            session(#{
-                mqueue => MQueue,
-                inflight => Inflight
-            })
-        )
-    ),
+    Session1 = emqx_session_mem:enqueue(ClientInfo, [InflightMsg, MqueueMsg], Session0),
+    {ok, [{1, InflightMsg}], Session2} = emqx_session_mem:dequeue(ClientInfo, Session1),
+    Stats = maps:from_list(emqx_session_mem:stats(Session2)),
+    ?assertMatch(#{mqueue_len := 1, inflight_cnt := 1}, Stats),
     MqueueBytes = emqx_message:payload_size(MqueueMsg),
     InflightBytes = emqx_message:payload_size(InflightMsg),
-    ?assertEqual(MqueueBytes + InflightBytes, maps:get(total_payload_bytes, Stats)),
-    ?assertNot(maps:is_key(mqueue_bytes, Stats)),
-    ?assertNot(maps:is_key(inflight_bytes, Stats)),
-    ?assertNot(maps:is_key(buffered_bytes, Stats)).
+    ?assertEqual(MqueueBytes + InflightBytes, maps:get(total_payload_bytes, Stats)).
 
 t_session_inflight_query(_) ->
     EmptyInflight = emqx_inflight:new(500),
