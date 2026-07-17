@@ -23,9 +23,9 @@ exporters:
   debug:
     verbosity: detailed
   file/log:
-    path: /etc/otel_tls_emqx_log.json
+    path: /otel-share/otel_tls_emqx_log.json
   file/metrics:
-    path: /etc/otel_tls_emqx_metrics.json
+    path: /otel-share/otel_tls_emqx_metrics.json
 
 
 processors:

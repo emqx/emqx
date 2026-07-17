@@ -107,6 +107,68 @@ t_lifecycle(Config) ->
         greptimedb_connector_config(Host, Port, EnableTLS)
     ).
 
+%% Regression test for https://github.com/emqx/emqx/issues/17952.
+%% A health check must not prevent an underfilled async batch from flushing.
+t_async_write_after_health_check(Config) ->
+    Host = ?config(greptimedb_tcp_host, Config),
+    Port = ?config(greptimedb_tcp_port, Config),
+    Pool = iolist_to_binary([
+        "greptimedb_health_check_", integer_to_binary(erlang:unique_integer([positive]))
+    ]),
+    Options = [
+        {endpoints, [{http, Host, Port}]},
+        {pool, Pool},
+        {pool_size, 1},
+        {pool_type, random},
+        {auth, {basic, #{username => <<"greptime_user">>, password => <<"greptime_pwd">>}}}
+    ],
+    {ok, Client} = greptimedb:start_client(Options),
+    try
+        Ref = make_ref(),
+        TestPid = self(),
+        [{_, PoolWorker}] = ecpool:workers(Pool),
+        {ok, Worker} = ecpool_worker:client(PoolWorker),
+        ResultCallback = {fun(Reply) -> TestPid ! {Ref, Reply} end, []},
+        Points = [
+            #{
+                fields => #{<<"value">> => 1.0},
+                tags => #{<<"source">> => <<"health_check">>},
+                timestamp => erlang:system_time(millisecond)
+            }
+        ],
+        ok = greptimedb:async_write(Client, <<"async_health_check">>, Points, ResultCallback),
+        true = greptimedb:is_alive(Client),
+        Deadline = erlang:monotonic_time(millisecond) + 2000,
+        Flood = fun F() ->
+            case erlang:monotonic_time(millisecond) < Deadline of
+                true ->
+                    _ = sys:get_state(Worker),
+                    F();
+                false ->
+                    TestPid ! {Ref, flood_done}
+            end
+        end,
+        spawn(Flood),
+        receive
+            {Ref, {ok, _}} ->
+                ok;
+            {Ref, flood_done} ->
+                ct:fail(async_write_delayed_by_worker_messages);
+            {Ref, Error} ->
+                ct:fail({async_write_failed, Error})
+        after 5000 ->
+            ct:fail(async_write_not_flushed)
+        end,
+        receive
+            {Ref, flood_done} ->
+                ok
+        after 3000 ->
+            ct:fail(worker_message_flood_not_finished)
+        end
+    after
+        greptimedb:stop_client(Client)
+    end.
+
 perform_lifecycle_check(PoolName, InitialConfig) ->
     {ok, #{config := CheckedConfig}} =
         emqx_resource:check_config(?GREPTIMEDB_RESOURCE_MOD, InitialConfig),

@@ -32,9 +32,12 @@
     cached_simple_sync_query/3
 ]).
 
+%% Authorizer resources always query through `emqx_resource:simple_sync_query/2',
+%% which bypasses the buffer workers, so we don't spawn a buffer worker pool for them.
 -define(DEFAULT_RESOURCE_OPTS(Type), #{
     start_after_created => false,
-    owner_id => Type
+    owner_id => Type,
+    spawn_buffer_workers => false
 }).
 
 -include_lib("emqx/include/logger.hrl").

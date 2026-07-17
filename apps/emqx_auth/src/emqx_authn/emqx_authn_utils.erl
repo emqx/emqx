@@ -28,9 +28,12 @@
     cached_simple_sync_query/3
 ]).
 
+%% Authenticator resources always query through `emqx_resource:simple_sync_query/2',
+%% which bypasses the buffer workers, so we don't spawn a buffer worker pool for them.
 -define(DEFAULT_RESOURCE_OPTS(OWNER_ID), #{
     start_after_created => false,
-    owner_id => OWNER_ID
+    owner_id => OWNER_ID,
+    spawn_buffer_workers => false
 }).
 
 %%--------------------------------------------------------------------
