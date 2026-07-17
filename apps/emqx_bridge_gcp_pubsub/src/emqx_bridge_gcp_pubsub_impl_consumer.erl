@@ -101,6 +101,8 @@ on_start(ConnectorResId, Config0) ->
         default_port => 443, ssrf_check => true
     }),
     Config = Config1#{
+        %% important to use http2 here, so we can cancel inflight requests if needed.
+        protocols => [http2],
         jwt_opts => #{
             %% fixed for pubsub; trailing slash is important.
             aud => <<"https://pubsub.googleapis.com/">>
