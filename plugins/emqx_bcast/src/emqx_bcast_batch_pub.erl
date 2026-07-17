@@ -1,11 +1,11 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_iot_batch_pub).
+-module(emqx_bcast_batch_pub).
 
 -export([handle/2]).
 
--include("emqx_iot.hrl").
+-include("emqx_bcast.hrl").
 
 handle(Body, RequestId) ->
     ProductKey = maps:get(<<"ProductKey">>, Body, undefined),
@@ -19,25 +19,25 @@ handle(Body, RequestId) ->
 
     case validate_input(ProductKey, DeviceNames, MessageContent, MessageId, Qos) of
         {error, Code, Msg} ->
-            {ok, 400, #{}, emqx_iot_api:error_response(RequestId, Code, Msg)};
+            {ok, 400, #{}, emqx_bcast_api:error_response(RequestId, Code, Msg)};
         ok ->
             case Qos of
                 0 ->
                     TopicTemplate = resolve_topic(TopicTemplateName, TopicShortName, ProductKey),
                     case resolve_qos0_payload(MessageContent, MessageId) of
                         {ok, Payload, ApiMsgId} ->
-                            emqx_iot_metrics:qos0_in(),
-                            emqx_iot_metrics:qos0_targeted(length(DeviceNames)),
+                            emqx_bcast_metrics:qos0_in(),
+                            emqx_bcast_metrics:qos0_targeted(length(DeviceNames)),
                             deliver_qos0(
                                 DeviceNames, ProductKey, TopicTemplate, Payload, RequestId, ApiMsgId
                             );
                         {error, Code, Msg} ->
-                            {ok, 400, #{}, emqx_iot_api:error_response(RequestId, Code, Msg)}
+                            {ok, 400, #{}, emqx_bcast_api:error_response(RequestId, Code, Msg)}
                     end;
                 1 ->
                     case validate(ProductKey, DeviceNames, MessageContent, MessageId) of
                         {error, Code, Msg} ->
-                            {ok, 400, #{}, emqx_iot_api:error_response(RequestId, Code, Msg)};
+                            {ok, 400, #{}, emqx_bcast_api:error_response(RequestId, Code, Msg)};
                         {ok, ApiMsgId, MsgGuid} ->
                             TopicTemplate = resolve_topic(
                                 TopicTemplateName, TopicShortName, ProductKey
@@ -56,17 +56,17 @@ handle(Body, RequestId) ->
     end.
 
 resolve_qos0_payload(MessageContent, _MessageId) when MessageContent =/= undefined ->
-    {ok, Payload} = emqx_iot_utils:decode_base64(MessageContent),
+    {ok, Payload} = emqx_bcast_utils:decode_base64(MessageContent),
     MaxSize = get_max_message_size_batch(),
     case byte_size(Payload) =< MaxSize of
-        true -> {ok, Payload, emqx_iot_utils:gen_api_uuid()};
+        true -> {ok, Payload, emqx_bcast_utils:gen_api_uuid()};
         false -> {error, <<"MessageTooLarge">>, <<"Message too large">>}
     end;
 resolve_qos0_payload(undefined, MessageId) ->
-    case emqx_iot_id:resolve_message_id(MessageId) of
+    case emqx_bcast_id:resolve_message_id(MessageId) of
         {ok, MsgGuid} ->
-            {ok, Msg} = emqx_iot_storage:lookup_message(MsgGuid),
-            {ok, Msg#iot_mq_message.payload, MessageId};
+            {ok, Msg} = emqx_bcast_storage:lookup_message(MsgGuid),
+            {ok, Msg#bcast_message.payload, MessageId};
         {error, not_found} ->
             {error, <<"MessageNotFound">>, <<"MessageId not found">>}
     end.
@@ -112,11 +112,11 @@ validate(_PK, DeviceNames, _MC, _MI) when is_list(DeviceNames) ->
     end.
 
 resolve_content(_DeviceNames, MessageContent, _MessageId) when MessageContent =/= undefined ->
-    case emqx_iot_utils:decode_base64(MessageContent) of
+    case emqx_bcast_utils:decode_base64(MessageContent) of
         {ok, Payload} ->
-            Hash = emqx_iot_utils:sha256(Payload),
-            {ApiMsgId, MsgGuid} = emqx_iot_id:generate_message_id(),
-            case emqx_iot_storage:lookup_or_create_message(Payload, Hash, ApiMsgId, MsgGuid) of
+            Hash = emqx_bcast_utils:sha256(Payload),
+            {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+            case emqx_bcast_storage:lookup_or_create_message(Payload, Hash, ApiMsgId, MsgGuid) of
                 {created, Id, Guid} -> {ok, Id, Guid};
                 {existing, Id, Guid} -> {ok, Id, Guid};
                 {error, _} -> {error, <<"InternalError">>, <<"Storage error">>}
@@ -125,9 +125,9 @@ resolve_content(_DeviceNames, MessageContent, _MessageId) when MessageContent =/
             {error, <<"InvalidBase64">>, <<"Invalid Base64 encoding">>}
     end;
 resolve_content(_DeviceNames, _MC, MessageId) when MessageId =/= undefined ->
-    case emqx_iot_id:resolve_message_id(MessageId) of
+    case emqx_bcast_id:resolve_message_id(MessageId) of
         {ok, MsgGuid} ->
-            _ = emqx_iot_storage:refresh_message_ttl(MsgGuid),
+            _ = emqx_bcast_storage:refresh_message_ttl(MsgGuid),
             {ok, MessageId, MsgGuid};
         {error, not_found} ->
             {error, <<"MessageNotFound">>, <<"MessageId not found">>}
@@ -136,55 +136,60 @@ resolve_content(_DeviceNames, _MC, MessageId) when MessageId =/= undefined ->
 deliver_qos0(DeviceNames, ProductKey, TopicTemplate, Payload, RequestId, ApiMsgId) ->
     lists:foreach(
         fun(DN) ->
-            case emqx_iot:lookup_device({ProductKey, DN}) of
+            case emqx_bcast:lookup_device({ProductKey, DN}) of
                 {ok, Pid} ->
-                    emqx_iot_metrics:qos0_delivered(),
-                    Topic = emqx_iot_utils:expand_topic(TopicTemplate, ProductKey, DN),
-                    Msg = emqx_message:make(DN, ?QOS_0, Topic, Payload),
-                    Pid ! #deliver{topic = Topic, message = Msg};
+                    Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DN),
+                    case emqx_bcast_subscription:match(DN, Topic) of
+                        true ->
+                            emqx_bcast_metrics:qos0_delivered(),
+                            Msg = emqx_message:make(DN, ?QOS_0, Topic, Payload),
+                            Pid ! #deliver{topic = Topic, message = Msg};
+                        false ->
+                            emqx_bcast_metrics:qos0_skipped()
+                    end;
                 _ ->
-                    emqx_iot_metrics:qos0_skipped()
+                    emqx_bcast_metrics:qos0_skipped()
             end
         end,
         DeviceNames
     ),
-    {ok, 200, #{}, emqx_iot_api:success_response(RequestId, ApiMsgId)}.
+    {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)}.
 
 deliver_qos1(
     DeviceNames, ProductKey, TopicTemplate, MsgGuid, RequestId, ApiMsgId, ResponseTemplate
 ) ->
-    emqx_iot_metrics:qos1_in(),
-    emqx_iot_metrics:qos1_wanted(length(DeviceNames)),
-    DeliveryId = emqx_iot_utils:gen_guid(),
+    emqx_bcast_metrics:qos1_in(),
+    emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
     N = length(DeviceNames),
-    _Delivery = emqx_iot_storage:create_delivery(
+    _Delivery = emqx_bcast_storage:create_delivery(
         DeliveryId, MsgGuid, ProductKey, TopicTemplate, DeviceNames, N, ResponseTemplate
     ),
-    {ok, PayloadMsg} = emqx_iot_storage:lookup_message(MsgGuid),
-    Payload = PayloadMsg#iot_mq_message.payload,
+    {ok, PayloadMsg} = emqx_bcast_storage:lookup_message(MsgGuid),
+    Payload = PayloadMsg#bcast_message.payload,
     lists:foreach(
         fun(DN) ->
-            case emqx_iot:lookup_device({ProductKey, DN}) of
+            case emqx_bcast:lookup_device({ProductKey, DN}) of
                 {ok, Pid} ->
-                    emqx_iot_metrics:qos1_delivered_inline(),
-                    Topic = emqx_iot_utils:expand_topic(TopicTemplate, ProductKey, DN),
-                    Msg = emqx_message:make(
-                        DeliveryId,
-                        DN,
-                        ?QOS_1,
-                        Topic,
-                        Payload,
-                        #{},
-                        #{?IOT_DELIVERY_ID => DeliveryId}
-                    ),
-                    Pid ! #deliver{topic = Topic, message = Msg};
+                    Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DN),
+                    case emqx_bcast_subscription:match(DN, Topic) of
+                        true ->
+                            emqx_bcast_metrics:qos1_delivered_inline(),
+                            Msg = emqx_message:make(
+                                DeliveryId, DN, ?QOS_1, Topic, Payload, #{},
+                                #{?IOT_DELIVERY_ID => DeliveryId}
+                            ),
+                            Pid ! #deliver{topic = Topic, message = Msg};
+                        false ->
+                            emqx_bcast_metrics:qos1_stored_offline()
+                    end;
                 _ ->
-                    emqx_iot_metrics:qos1_stored_offline()
+                    emqx_bcast_metrics:qos1_stored_offline()
             end
         end,
         DeviceNames
     ),
-    {ok, 200, #{}, emqx_iot_api:success_response(RequestId, ApiMsgId)}.
+    {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)}.
 
 has_duplicates(List) ->
     length(lists:usort(List)) =/= length(List).
@@ -198,9 +203,9 @@ resolve_topic(_, _, Pk) ->
     maps:get(batch_topic, Config, <<"/", Pk/binary, "/${deviceName}/user/get">>).
 
 get_max_device_count() ->
-    Config = persistent_term:get({emqx_iot, config}, #{}),
+    Config = persistent_term:get({emqx_bcast, config}, #{}),
     maps:get(max_device_count, Config, 10000).
 
 get_max_message_size_batch() ->
-    Config = persistent_term:get({emqx_iot, config}, #{}),
+    Config = persistent_term:get({emqx_bcast, config}, #{}),
     maps:get(max_message_size_batch, Config, 10240).

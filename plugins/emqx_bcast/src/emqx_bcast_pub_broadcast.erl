@@ -1,11 +1,11 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_iot_pub_broadcast).
+-module(emqx_bcast_pub_broadcast).
 
 -export([handle/2, deliver_local/3]).
 
--include("emqx_iot.hrl").
+-include("emqx_bcast.hrl").
 
 handle(Body, RequestId) ->
     ProductKey = maps:get(<<"ProductKey">>, Body, undefined),
@@ -14,8 +14,8 @@ handle(Body, RequestId) ->
 
     case validate(ProductKey, MessageContent) of
         {error, Code, Msg} ->
-            emqx_iot_metrics:broadcast_error(),
-            {ok, 400, #{}, emqx_iot_api:error_response(RequestId, Code, Msg)};
+            emqx_bcast_metrics:broadcast_error(),
+            {ok, 400, #{}, emqx_bcast_api:error_response(RequestId, Code, Msg)};
         ok ->
             do_broadcast(ProductKey, MessageContent, TopicFullName, RequestId)
     end.
@@ -25,7 +25,7 @@ validate(undefined, _) ->
 validate(_, undefined) ->
     {error, <<"InvalidBase64">>, <<"MessageContent is required">>};
 validate(_ProductKey, MessageContent) ->
-    case emqx_iot_utils:decode_base64(MessageContent) of
+    case emqx_bcast_utils:decode_base64(MessageContent) of
         {ok, Payload} ->
             Config = persistent_term:get({?APP, config}, #{}),
             MaxSize = maps:get(max_message_size_broadcast, Config, 65536),
@@ -38,8 +38,8 @@ validate(_ProductKey, MessageContent) ->
     end.
 
 do_broadcast(ProductKey, _MessageContent, TopicFullName, RequestId) ->
-    MessageId = emqx_iot_utils:gen_api_uuid(),
-    {ok, Payload} = emqx_iot_utils:decode_base64(_MessageContent),
+    MessageId = emqx_bcast_utils:gen_api_uuid(),
+    {ok, Payload} = emqx_bcast_utils:decode_base64(_MessageContent),
     TopicTemplate =
         case TopicFullName of
             undefined ->
@@ -62,18 +62,23 @@ do_broadcast(ProductKey, _MessageContent, TopicFullName, RequestId) ->
         Nodes
     ),
 
-    emqx_iot_metrics:broadcast_in(),
-    {ok, 200, #{}, emqx_iot_api:success_response(RequestId, MessageId)}.
+    emqx_bcast_metrics:broadcast_in(),
+    {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, MessageId)}.
 
 deliver_local(ProductKey, TopicTemplate, Payload) ->
-    Devices = emqx_iot:lookup_devices_by_product(ProductKey),
-    emqx_iot_metrics:broadcast_devices_online(length(Devices)),
+    Devices = emqx_bcast:lookup_devices_by_product(ProductKey),
+    emqx_bcast_metrics:broadcast_devices_online(length(Devices)),
     lists:foreach(
         fun([DeviceName, Pid]) ->
-            emqx_iot_metrics:broadcast_delivery_count(1),
-            Topic = emqx_iot_utils:expand_topic(TopicTemplate, ProductKey, DeviceName),
-            Msg = emqx_message:make(DeviceName, ?QOS_0, Topic, Payload),
-            Pid ! #deliver{topic = Topic, message = Msg}
+            Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DeviceName),
+            case emqx_bcast_subscription:match(DeviceName, Topic) of
+                true ->
+                    emqx_bcast_metrics:broadcast_delivery_count(1),
+                    Msg = emqx_message:make(DeviceName, ?QOS_0, Topic, Payload),
+                    Pid ! #deliver{topic = Topic, message = Msg};
+                false ->
+                    ok
+            end
         end,
         Devices
     ).

@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_iot_api).
+-module(emqx_bcast_api).
 
 -export([
     handle/3,
@@ -9,21 +9,21 @@
     error_response/3
 ]).
 
--include("emqx_iot.hrl").
+-include("emqx_bcast.hrl").
 
 handle(get, [<<"metrics">>], _Request) ->
-    Body = emqx_iot_metrics:collect(),
+    Body = emqx_bcast_metrics:collect(),
     {ok, 200, #{<<"content-type">> => <<"text/plain; version=0.0.4">>}, Body};
 handle(post, [<<"pub">>], Request) ->
     Body = maps:get(body, Request, #{}),
-    RequestId = emqx_iot_utils:gen_api_uuid(),
+    RequestId = emqx_bcast_utils:gen_api_uuid(),
     case maps:get(<<"Action">>, Body, undefined) of
         <<"PubBroadcast">> ->
-            emqx_iot_pub_broadcast:handle(Body, RequestId);
+            emqx_bcast_pub_broadcast:handle(Body, RequestId);
         <<"BatchPub">> ->
-            emqx_iot_batch_pub:handle(Body, RequestId);
+            emqx_bcast_batch_pub:handle(Body, RequestId);
         <<"RegisterMessage">> ->
-            emqx_iot_register_message:handle(Body, RequestId);
+            emqx_bcast_register_message:handle(Body, RequestId);
         undefined ->
             {error, 400, #{},
                 error_response(RequestId, <<"MissingAction">>, <<"Action field is required">>)};

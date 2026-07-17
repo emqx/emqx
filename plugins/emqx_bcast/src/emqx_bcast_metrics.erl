@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_iot_metrics).
+-module(emqx_bcast_metrics).
 
 -export([init/0, ensure/0]).
 -export([qos0_in/0, qos0_error/0]).
@@ -22,9 +22,9 @@
 -export([pending_set/1]).
 -export([collect/0]).
 
--include("emqx_iot.hrl").
+-include("emqx_bcast.hrl").
 
--define(NS, <<"iot_mq">>).
+-define(NS, <<"bcast">>).
 
 init() ->
     create_tables_if_needed(),
@@ -92,7 +92,7 @@ declare_counters() ->
     ],
     [
         prometheus_counter:declare([
-            {registry, ?IOT_MQ_REGISTRY},
+            {registry, ?BCAST_REGISTRY},
             {name, mname(N)},
             {help, list_to_binary(H)}
         ])
@@ -102,14 +102,14 @@ declare_counters() ->
 
 declare_gauges() ->
     prometheus_gauge:declare([
-        {registry, ?IOT_MQ_REGISTRY},
+        {registry, ?BCAST_REGISTRY},
         {name, mname("batch_pub_qos1_pending")},
         {help, <<"QoS=1 pending deliveries (water level)">>}
     ]).
 
 %% helpers
-c(N) -> prometheus_counter:inc(?IOT_MQ_REGISTRY, mname(N), [], 1).
-c(N, V) -> prometheus_counter:inc(?IOT_MQ_REGISTRY, mname(N), [], V).
+c(N) -> prometheus_counter:inc(?BCAST_REGISTRY, mname(N), [], 1).
+c(N, V) -> prometheus_counter:inc(?BCAST_REGISTRY, mname(N), [], V).
 
 qos0_in() -> c("batch_pub_qos0_in").
 qos0_error() -> c("batch_pub_qos0_error").
@@ -139,6 +139,6 @@ register_in() -> c("register_message_in").
 register_refresh() -> c("register_message_refresh").
 register_error() -> c("register_message_error").
 
-pending_set(N) -> prometheus_gauge:set(?IOT_MQ_REGISTRY, mname("batch_pub_qos1_pending"), [], N).
+pending_set(N) -> prometheus_gauge:set(?BCAST_REGISTRY, mname("batch_pub_qos1_pending"), [], N).
 
-collect() -> prometheus_text_format:format(?IOT_MQ_REGISTRY).
+collect() -> prometheus_text_format:format(?BCAST_REGISTRY).

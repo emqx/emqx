@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_iot_e2e_SUITE).
+-module(emqx_bcast_e2e_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -10,7 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
--include("emqx_iot.hrl").
+-include("emqx_bcast.hrl").
 
 -define(PAYLOAD, <<"e2e_test_payload">>).
 
@@ -26,13 +26,13 @@ init_per_suite(Config) ->
         [{emqx, ?EMQX_CONF}, mria],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    ok = emqx_iot:init_tables(),
+    ok = emqx_bcast:init_tables(),
     init_test_config(),
-    ok = emqx_iot:hook(),
-    catch catch emqx_iot_metrics:init(),
+    ok = emqx_bcast:hook(),
+    catch catch emqx_bcast_metrics:init(),
     _ =
         try
-            ets:new(iot_mq_msg_index, [
+            ets:new(bcast_msg_index, [
                 named_table,
                 public,
                 set,
@@ -46,11 +46,11 @@ init_per_suite(Config) ->
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    emqx_iot:unhook(),
+    emqx_bcast:unhook(),
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_test_config() ->
-    persistent_term:put({emqx_iot, config}, #{
+    persistent_term:put({emqx_bcast, config}, #{
         msg_ttl => 15 * 86400,
         cleanup_interval => 60,
         max_device_count => 10000,
@@ -63,7 +63,7 @@ init_test_config() ->
 init_per_testcase(_Case, Config) ->
     _ =
         try
-            ets:new(iot_mq_msg_index, [
+            ets:new(bcast_msg_index, [
                 named_table,
                 public,
                 set,
@@ -74,6 +74,8 @@ init_per_testcase(_Case, Config) ->
         catch
             _:_ -> ok
         end,
+    emqx_bcast_metrics:init(),
+    emqx_bcast_subscription:init(),
     Config.
 end_per_testcase(_Case, _Config) -> ok.
 
@@ -89,7 +91,7 @@ connect(ClientId) ->
 disconnect(C) ->
     emqtt:disconnect(C).
 
-api_call(Body) -> emqx_iot_api:handle(post, [<<"pub">>], #{body => Body}).
+api_call(Body) -> emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}).
 
 b64(S) -> base64:encode(S).
 
@@ -176,6 +178,9 @@ t_pub_broadcast_e2e(_Config) ->
     C1 = connect(<<"e2e_bc_1">>),
     C2 = connect(<<"e2e_bc_2">>),
     C3 = connect(<<"e2e_bc_3">>),
+    emqtt:subscribe(C1, <<"/sys/broadcast/default">>, 1),
+    emqtt:subscribe(C2, <<"/sys/broadcast/default">>, 1),
+    emqtt:subscribe(C3, <<"/sys/broadcast/default">>, 1),
     ct:sleep(10),
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"PubBroadcast">>,
@@ -202,7 +207,7 @@ t_batch_pub_partial_online_e2e(_Config) ->
     Msgs1 = recv(1),
     ?assertEqual(1, length(Msgs1)),
     C2 = connect(<<"e2e_part_2">>),
-    ct:sleep(2000),
+    ct:sleep(3000),
     Msgs2 = recv(1),
     ?assertEqual(1, length(Msgs2)),
     disconnect(C1),

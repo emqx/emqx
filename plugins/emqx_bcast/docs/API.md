@@ -2,12 +2,12 @@
 
 ## General
 
-**Endpoint**: `POST /api/v5/plugin_api/emqx_iot/pub`
+**Endpoint**: `POST /api/v5/plugin_api/emqx_bcast/pub`
 
 **Authentication**: HTTP Basic Auth using an EMQX API Key as username and API Secret as password.
 
 ```bash
-curl -u "<api_key>:<api_secret>" -X POST "http://<host>:18083/api/v5/plugin_api/emqx_iot/pub" \
+curl -u "<api_key>:<api_secret>" -X POST "http://<host>:18083/api/v5/plugin_api/emqx_bcast/pub" \
   -H "Content-Type: application/json" -d '{...}'
 ```
 
@@ -48,7 +48,7 @@ Broadcasts a message to all online devices within a product. Offline devices do 
 
 ```bash
 curl -u "<api_key>:<api_secret>" \
-  -X POST "http://127.0.0.1:18083/api/v5/plugin_api/emqx_iot/pub" \
+  -X POST "http://127.0.0.1:18083/api/v5/plugin_api/emqx_bcast/pub" \
   -H "Content-Type: application/json" \
   -d '{"Action":"PubBroadcast","ProductKey":"P1","MessageContent":"SGVsbG8="}'
 ```
@@ -100,12 +100,12 @@ Publishes messages to a specified list of devices, up to 10,000 per call (config
 
 ```bash
 # QoS=0 inline content
-curl -u "<api_key>:<api_secret>" -X POST "http://127.0.0.1:18083/api/v5/plugin_api/emqx_iot/pub" \
+curl -u "<api_key>:<api_secret>" -X POST "http://127.0.0.1:18083/api/v5/plugin_api/emqx_bcast/pub" \
   -H "Content-Type: application/json" \
   -d '{"Action":"BatchPub","ProductKey":"P1","DeviceName":["D1","D2"],"MessageContent":"SGVsbG8=","Qos":0}'
 
 # QoS=1 with MessageId reuse
-curl -u "<api_key>:<api_secret>" -X POST "http://127.0.0.1:18083/api/v5/plugin_api/emqx_iot/pub" \
+curl -u "<api_key>:<api_secret>" -X POST "http://127.0.0.1:18083/api/v5/plugin_api/emqx_bcast/pub" \
   -H "Content-Type: application/json" \
   -d '{"Action":"BatchPub","ProductKey":"P1","DeviceName":["D3"],"MessageId":"550e8400-e29b-41d4-a716-446655440000","Qos":1}'
 ```
@@ -149,12 +149,12 @@ Pre-registers a message or refreshes an existing message's TTL. `MessageContent`
 
 ```bash
 # Create
-curl -u "<api_key>:<api_secret>" -X POST "http://127.0.0.1:18083/api/v5/plugin_api/emqx_iot/pub" \
+curl -u "<api_key>:<api_secret>" -X POST "http://127.0.0.1:18083/api/v5/plugin_api/emqx_bcast/pub" \
   -H "Content-Type: application/json" \
   -d '{"Action":"RegisterMessage","MessageContent":"SGVsbG8="}'
 
 # Refresh TTL
-curl -u "<api_key>:<api_secret>" -X POST "http://127.0.0.1:18083/api/v5/plugin_api/emqx_iot/pub" \
+curl -u "<api_key>:<api_secret>" -X POST "http://127.0.0.1:18083/api/v5/plugin_api/emqx_bcast/pub" \
   -H "Content-Type: application/json" \
   -d '{"Action":"RegisterMessage","MessageId":"550e8400-e29b-41d4-a716-446655440000"}'
 ```
@@ -185,7 +185,7 @@ curl -u "<api_key>:<api_secret>" -X POST "http://127.0.0.1:18083/api/v5/plugin_a
 Plugin metrics are exposed at a dedicated endpoint:
 
 ```
-GET /api/v5/plugin_api/emqx_iot/metrics
+GET /api/v5/plugin_api/emqx_bcast/metrics
 Content-Type: text/plain; version=0.0.4
 ```
 
@@ -195,35 +195,35 @@ This endpoint is separate from the built-in EMQX Prometheus endpoints.
 
 | Metric | Description |
 |--------|-------------|
-| `iot_mq_broadcast_pub_in` | PubBroadcast success count |
-| `iot_mq_broadcast_pub_error` | PubBroadcast error count |
-| `iot_mq_batch_pub_qos0_in` | BatchPub QoS=0 success count |
-| `iot_mq_batch_pub_qos0_error` | BatchPub QoS=0 error count |
-| `iot_mq_batch_pub_qos1_in` | BatchPub QoS=1 success count |
-| `iot_mq_batch_pub_qos1_error` | BatchPub QoS=1 error count |
-| `iot_mq_batch_pub_qos1_incomplete` | BatchPub QoS=1 incomplete count |
-| `iot_mq_register_message_in` | RegisterMessage create success count |
-| `iot_mq_register_message_refresh` | RegisterMessage TTL refresh count |
-| `iot_mq_register_message_error` | RegisterMessage error count |
-| `iot_mq_batch_pub_qos1_msg_wanted` | Total devices targeted |
-| `iot_mq_batch_pub_qos1_msg_succeed` | Devices successfully delivered |
-| `iot_mq_batch_pub_qos1_msg_acked` | PUBACK received count |
-| `iot_mq_batch_pub_qos1_msg_replayed` | Messages replayed on reconnect |
-| `iot_mq_batch_pub_qos1_msg_error` | Delivery error count |
-| `iot_mq_batch_pub_qos1_msg_incomplete` | Timeout/incomplete count |
+| `bcast_broadcast_pub_in` | PubBroadcast success count |
+| `bcast_broadcast_pub_error` | PubBroadcast error count |
+| `bcast_batch_pub_qos0_in` | BatchPub QoS=0 success count |
+| `bcast_batch_pub_qos0_error` | BatchPub QoS=0 error count |
+| `bcast_batch_pub_qos1_in` | BatchPub QoS=1 success count |
+| `bcast_batch_pub_qos1_error` | BatchPub QoS=1 error count |
+| `bcast_batch_pub_qos1_incomplete` | BatchPub QoS=1 incomplete count |
+| `bcast_register_message_in` | RegisterMessage create success count |
+| `bcast_register_message_refresh` | RegisterMessage TTL refresh count |
+| `bcast_register_message_error` | RegisterMessage error count |
+| `bcast_batch_pub_qos1_msg_wanted` | Total devices targeted |
+| `bcast_batch_pub_qos1_msg_succeed` | Devices successfully delivered |
+| `bcast_batch_pub_qos1_msg_acked` | PUBACK received count |
+| `bcast_batch_pub_qos1_msg_replayed` | Messages replayed on reconnect |
+| `bcast_batch_pub_qos1_msg_error` | Delivery error count |
+| `bcast_batch_pub_qos1_msg_incomplete` | Timeout/incomplete count |
 
 ### Gauge
 
 | Metric | Description |
 |--------|-------------|
-| `iot_mq_batch_pub_qos1_msg_pending` | Currently pending deliveries |
+| `bcast_batch_pub_qos1_msg_pending` | Currently pending deliveries |
 
 ### Prometheus Configuration
 
 ```yaml
 scrape_configs:
-  - job_name: emqx_iot
-    metrics_path: /api/v5/plugin_api/emqx_iot/metrics
+  - job_name: emqx_bcast
+    metrics_path: /api/v5/plugin_api/emqx_bcast/metrics
     static_configs:
       - targets: ['emqx:18083']
     basic_auth:

@@ -1,13 +1,13 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_iot_config).
+-module(emqx_bcast_config).
 
 -export([load/0, update/1]).
 
--include("emqx_iot.hrl").
+-include("emqx_bcast.hrl").
 
--define(NAME_VSN, <<"emqx_iot-0.1.0">>).
+-define(NAME_VSN, <<"emqx_bcast-0.1.0">>).
 
 load() ->
     Config =

@@ -11,7 +11,7 @@ EMQX 6.1 plugin providing BatchPub, PubBroadcast, and RegisterMessage HTTP APIs 
 ## Build
 
 ```bash
-cd plugins/emqx_iot
+cd plugins/emqx_bcast
 MIX_ENV=emqx-enterprise mix do deps.get, emqx.plugin
 ```
 
@@ -20,14 +20,14 @@ The plugin package is generated under `_build/emqx_enterprise/...`.
 ## Install
 
 ```bash
-emqx ctl plugins install emqx_iot-<vsn>.tar.gz
-emqx ctl plugins start emqx_iot
+emqx ctl plugins install emqx_bcast-<vsn>.tar.gz
+emqx ctl plugins start emqx_bcast
 ```
 
 ## Configure
 
 ```hocon
-emqx_iot {
+emqx_bcast {
     broadcast_topic = "/sys/broadcast/${productKey}"
     batch_topic = "/${productKey}/${deviceName}/user/get"
     msg_ttl = 15d
@@ -41,7 +41,7 @@ emqx_iot {
 
 ## API
 
-Unified endpoint: `POST /api/v5/plugin_api/emqx_iot/pub`
+Unified endpoint: `POST /api/v5/plugin_api/emqx_bcast/pub`
 
 Distinguished by the `Action` field in the request body:
 - `"PubBroadcast"` -- broadcast to all online devices of a product
@@ -68,27 +68,27 @@ Client connection example: `username = "P1-device001"`, `clientId = "device001"`
 
 ```
 API Layer (HTTP)
-  ├── emqx_iot_api.erl              -- dispatch by Action
-  ├── emqx_iot_pub_broadcast.erl
-  ├── emqx_iot_batch_pub.erl
-  └── emqx_iot_register_message.erl
+  ├── emqx_bcast_api.erl              -- dispatch by Action
+  ├── emqx_bcast_pub_broadcast.erl
+  ├── emqx_bcast_batch_pub.erl
+  └── emqx_bcast_register_message.erl
 
 ID Layer
-  └── emqx_iot_id.erl              -- UUID v4 ↔ emqx_guid dual-layer mapping
+  └── emqx_bcast_id.erl              -- UUID v4 ↔ emqx_guid dual-layer mapping
 
 Storage Layer
-  └── emqx_iot_storage.erl          -- Mnesia CRUD, ACK tracking, cleanup
+  └── emqx_bcast_storage.erl          -- Mnesia CRUD, ACK tracking, cleanup
 
 Device Layer
-  └── emqx_iot.erl                  -- hooks, ETS device table, offline replay
+  └── emqx_bcast.erl                  -- hooks, ETS device table, offline replay
 
 Infrastructure
-  ├── emqx_iot_app.erl              -- application lifecycle
-  ├── emqx_iot_sup.erl              -- supervisor
-  ├── emqx_iot_config.erl           -- configuration loading
-  ├── emqx_iot_utils.erl            -- GUID, UUID, SHA-256, Base64, topic expansion
-  ├── emqx_iot_cleanup.erl          -- scheduled expired message cleanup
-  └── emqx_iot_metrics.erl          -- Prometheus counters and gauge (self-managed ETS)
+  ├── emqx_bcast_app.erl              -- application lifecycle
+  ├── emqx_bcast_sup.erl              -- supervisor
+  ├── emqx_bcast_config.erl           -- configuration loading
+  ├── emqx_bcast_utils.erl            -- GUID, UUID, SHA-256, Base64, topic expansion
+  ├── emqx_bcast_cleanup.erl          -- scheduled expired message cleanup
+  └── emqx_bcast_metrics.erl          -- Prometheus counters and gauge (self-managed ETS)
 ```
 
 ## Prometheus Metrics
@@ -96,11 +96,11 @@ Infrastructure
 Plugin metrics are exposed at a dedicated endpoint:
 
 ```
-GET /api/v5/plugin_api/emqx_iot/metrics
+GET /api/v5/plugin_api/emqx_bcast/metrics
 Content-Type: text/plain; version=0.0.4
 ```
 
-Available metrics: `iot_mq_broadcast_pub_in`, `iot_mq_batch_pub_qos0_in`, `iot_mq_batch_pub_qos1_in`, `iot_mq_batch_pub_qos1_msg_wanted`, `iot_mq_batch_pub_qos1_msg_acked`, `iot_mq_batch_pub_qos1_msg_replayed`, `iot_mq_register_message_in`, etc.
+Available metrics: `bcast_broadcast_pub_in`, `bcast_batch_pub_qos0_in`, `bcast_batch_pub_qos1_in`, `bcast_batch_pub_qos1_msg_wanted`, `bcast_batch_pub_qos1_msg_acked`, `bcast_batch_pub_qos1_msg_replayed`, `bcast_register_message_in`, etc.
 
 ## Tests
 
@@ -109,5 +109,5 @@ Available metrics: `iot_mq_broadcast_pub_in`, `iot_mq_batch_pub_qos0_in`, `iot_m
 MIX_ENV=emqx-enterprise-test mix test
 
 # CT suite (Docker-based)
-scripts/ct/run.sh --app plugins/emqx_iot
+scripts/ct/run.sh --app plugins/emqx_bcast
 ```

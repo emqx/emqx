@@ -1,18 +1,18 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--ifndef(EMQX_IOT_HRL).
--define(EMQX_IOT_HRL, true).
+-ifndef(EMQX_BCAST_HRL).
+-define(EMQX_BCAST_HRL, true).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 
--define(APP, emqx_iot).
+-define(APP, emqx_bcast).
 -define(IOT_DELIVERY_ID, iot_delivery_id).
--define(IOT_MQ_REGISTRY, iot_mq).
+-define(BCAST_REGISTRY, bcast).
 
--record(iot_mq_message, {
+-record(bcast_message, {
     msg_id :: binary(),
     api_msg_id :: binary(),
     content_hash :: binary(),
@@ -21,17 +21,17 @@
     expires_at :: non_neg_integer()
 }).
 
--record(iot_mq_message_api_id, {
+-record(bcast_message_api_id, {
     api_msg_id :: binary(),
     msg_id :: binary()
 }).
 
--record(iot_mq_message_hash, {
+-record(bcast_message_hash, {
     hash :: binary(),
     msg_id :: binary()
 }).
 
--record(iot_mq_msg, {
+-record(bcast_msg, {
     delivery_id :: binary(),
     msg_id :: binary(),
     product_key :: binary(),
@@ -44,21 +44,27 @@
     response_topic_template :: binary() | undefined
 }).
 
--record(iot_mq_msg_index, {
+-record(bcast_msg_index, {
     key :: {binary(), binary()},
     delivery_ids :: [binary()]
 }).
 
--record(iot_mq_device_sub, {
+-record(bcast_device_sub, {
     key :: {binary(), binary()},
     clientid :: binary(),
     pid :: pid()
 }).
 
--record(iot_mq_device_client, {
+-record(bcast_device_client, {
     clientid :: binary(),
     pk_dn :: {binary(), binary()},
     pid :: pid()
 }).
 
 -endif.
+
+-record(bcast_subscription, {
+    clientid :: binary(),
+    pid :: pid(),
+    topics :: [{binary(), non_neg_integer()}]
+}).

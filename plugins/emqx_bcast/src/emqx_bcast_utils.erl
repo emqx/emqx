@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_iot_utils).
+-module(emqx_bcast_utils).
 
 -export([
     gen_guid/0,
@@ -13,7 +13,7 @@
     ttl/0
 ]).
 
--include("emqx_iot.hrl").
+-include("emqx_bcast.hrl").
 
 gen_guid() ->
     emqx_guid:gen().

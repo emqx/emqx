@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_iot_storage).
+-module(emqx_bcast_storage).
 
 -export([
     create_message/4,
@@ -16,16 +16,16 @@
     cleanup_expired/0
 ]).
 
--include("emqx_iot.hrl").
+-include("emqx_bcast.hrl").
 
 lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId) ->
-    Now = emqx_iot_utils:now_sec(),
-    TTL = emqx_iot_utils:ttl(),
+    Now = emqx_bcast_utils:now_sec(),
+    TTL = emqx_bcast_utils:ttl(),
     case
         mnesia:transaction(fun() ->
-            case mnesia:wread({iot_mq_message_hash, Hash}) of
+            case mnesia:wread({bcast_message_hash, Hash}) of
                 [] ->
-                    Record = #iot_mq_message{
+                    Record = #bcast_message{
                         msg_id = MsgId,
                         api_msg_id = ApiMsgId,
                         content_hash = Hash,
@@ -33,15 +33,15 @@ lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId) ->
                         created_at = Now,
                         expires_at = Now + TTL
                     },
-                    HashRecord = #iot_mq_message_hash{hash = Hash, msg_id = MsgId},
-                    ApiIdRecord = #iot_mq_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId},
+                    HashRecord = #bcast_message_hash{hash = Hash, msg_id = MsgId},
+                    ApiIdRecord = #bcast_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId},
                     mnesia:write(Record),
                     mnesia:write(HashRecord),
                     mnesia:write(ApiIdRecord),
                     {created, ApiMsgId, MsgId};
-                [#iot_mq_message_hash{msg_id = ExistingMsgId}] ->
-                    [Existing] = mnesia:read(iot_mq_message, ExistingMsgId, read),
-                    {existing, Existing#iot_mq_message.api_msg_id, ExistingMsgId}
+                [#bcast_message_hash{msg_id = ExistingMsgId}] ->
+                    [Existing] = mnesia:read(bcast_message, ExistingMsgId, read),
+                    {existing, Existing#bcast_message.api_msg_id, ExistingMsgId}
             end
         end)
     of
@@ -50,9 +50,9 @@ lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId) ->
     end.
 
 create_message(ApiMsgId, MsgId, Hash, Payload) ->
-    Now = emqx_iot_utils:now_sec(),
-    TTL = emqx_iot_utils:ttl(),
-    Record = #iot_mq_message{
+    Now = emqx_bcast_utils:now_sec(),
+    TTL = emqx_bcast_utils:ttl(),
+    Record = #bcast_message{
         msg_id = MsgId,
         api_msg_id = ApiMsgId,
         content_hash = Hash,
@@ -60,8 +60,8 @@ create_message(ApiMsgId, MsgId, Hash, Payload) ->
         created_at = Now,
         expires_at = Now + TTL
     },
-    HashRecord = #iot_mq_message_hash{hash = Hash, msg_id = MsgId},
-    ApiIdRecord = #iot_mq_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId},
+    HashRecord = #bcast_message_hash{hash = Hash, msg_id = MsgId},
+    ApiIdRecord = #bcast_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId},
     {atomic, ok} = mnesia:transaction(fun() ->
         mnesia:write(Record),
         mnesia:write(HashRecord),
@@ -70,28 +70,28 @@ create_message(ApiMsgId, MsgId, Hash, Payload) ->
     ok.
 
 lookup_message_by_hash(Hash) ->
-    case mnesia:dirty_read(iot_mq_message_hash, Hash) of
-        [#iot_mq_message_hash{msg_id = MsgId}] ->
+    case mnesia:dirty_read(bcast_message_hash, Hash) of
+        [#bcast_message_hash{msg_id = MsgId}] ->
             lookup_message(MsgId);
         [] ->
             {error, not_found}
     end.
 
 lookup_message(MsgId) ->
-    case mnesia:dirty_read(iot_mq_message, MsgId) of
-        [#iot_mq_message{} = Msg] ->
+    case mnesia:dirty_read(bcast_message, MsgId) of
+        [#bcast_message{} = Msg] ->
             {ok, Msg};
         [] ->
             {error, not_found}
     end.
 
 refresh_message_ttl(MsgId) ->
-    Now = emqx_iot_utils:now_sec(),
-    TTL = emqx_iot_utils:ttl(),
+    Now = emqx_bcast_utils:now_sec(),
+    TTL = emqx_bcast_utils:ttl(),
     mnesia:transaction(fun() ->
         case lookup_message(MsgId) of
             {ok, Msg} ->
-                mnesia:write(Msg#iot_mq_message{expires_at = Now + TTL}),
+                mnesia:write(Msg#bcast_message{expires_at = Now + TTL}),
                 ok;
             Error ->
                 Error
@@ -101,9 +101,9 @@ refresh_message_ttl(MsgId) ->
 create_delivery(
     DeliveryId, MsgId, ProductKey, TopicTemplate, DeviceNames, TargetCount, ResponseTemplate
 ) ->
-    Now = emqx_iot_utils:now_sec(),
-    TTL = emqx_iot_utils:ttl(),
-    Delivery = #iot_mq_msg{
+    Now = emqx_bcast_utils:now_sec(),
+    TTL = emqx_bcast_utils:ttl(),
+    Delivery = #bcast_msg{
         delivery_id = DeliveryId,
         msg_id = MsgId,
         product_key = ProductKey,
@@ -118,48 +118,44 @@ create_delivery(
     {atomic, ok} = mnesia:transaction(fun() ->
         mnesia:write(Delivery)
     end),
-    lists:foreach(
+    Entries = lists:map(
         fun(DN) ->
             Key = {ProductKey, DN},
-            case ets:lookup(iot_mq_msg_index, Key) of
-                [#iot_mq_msg_index{delivery_ids = Ids}] ->
-                    ets:insert(iot_mq_msg_index, #iot_mq_msg_index{
-                        key = Key, delivery_ids = [DeliveryId | Ids]
-                    });
-                [] ->
-                    ets:insert(iot_mq_msg_index, #iot_mq_msg_index{
-                        key = Key, delivery_ids = [DeliveryId]
-                    })
-            end
+            Ids = case ets:lookup(bcast_msg_index, Key) of
+                [#bcast_msg_index{delivery_ids = Ids0}] -> Ids0;
+                [] -> []
+            end,
+            #bcast_msg_index{key = Key, delivery_ids = [DeliveryId | Ids]}
         end,
         DeviceNames
     ),
+    ets:insert(bcast_msg_index, Entries),
     Delivery.
 
 process_ack(ProductKey, DeviceName, DeliveryId) ->
     Key = {ProductKey, DeviceName},
-    case ets:lookup(iot_mq_msg_index, Key) of
-        [#iot_mq_msg_index{delivery_ids = Ids}] ->
+    case ets:lookup(bcast_msg_index, Key) of
+        [#bcast_msg_index{delivery_ids = Ids}] ->
             case lists:member(DeliveryId, Ids) of
                 true ->
                     NewIds = Ids -- [DeliveryId],
                     case NewIds of
                         [] ->
-                            ets:delete(iot_mq_msg_index, Key);
+                            ets:delete(bcast_msg_index, Key);
                         _ ->
-                            ets:insert(iot_mq_msg_index, #iot_mq_msg_index{
+                            ets:insert(bcast_msg_index, #bcast_msg_index{
                                 key = Key, delivery_ids = NewIds
                             })
                     end,
                     mnesia:transaction(fun() ->
-                        case mnesia:wread({iot_mq_msg, DeliveryId}) of
-                            [#iot_mq_msg{counter = C, target_ack_count = T} = D] ->
+                        case mnesia:wread({bcast_msg, DeliveryId}) of
+                            [#bcast_msg{counter = C, target_ack_count = T} = D] ->
                                 NewC = C + 1,
                                 case NewC >= T of
                                     true ->
-                                        mnesia:delete({iot_mq_msg, DeliveryId});
+                                        mnesia:delete({bcast_msg, DeliveryId});
                                     false ->
-                                        mnesia:write(D#iot_mq_msg{counter = NewC})
+                                        mnesia:write(D#bcast_msg{counter = NewC})
                                 end;
                             [] ->
                                 ok
@@ -173,8 +169,8 @@ process_ack(ProductKey, DeviceName, DeliveryId) ->
     end.
 
 get_device_deliveries({ProductKey, DeviceName}) ->
-    case ets:lookup(iot_mq_msg_index, {ProductKey, DeviceName}) of
-        [#iot_mq_msg_index{delivery_ids = Ids}] ->
+    case ets:lookup(bcast_msg_index, {ProductKey, DeviceName}) of
+        [#bcast_msg_index{delivery_ids = Ids}] ->
             {ok, Ids};
         [] ->
             {ok, []}
@@ -182,35 +178,35 @@ get_device_deliveries({ProductKey, DeviceName}) ->
 
 delete_delivery(DeliveryId) ->
     mnesia:transaction(fun() ->
-        mnesia:delete({iot_mq_msg, DeliveryId})
+        mnesia:delete({bcast_msg, DeliveryId})
     end).
 
 cleanup_expired() ->
-    Now = emqx_iot_utils:now_sec(),
+    Now = emqx_bcast_utils:now_sec(),
     cleanup_expired_deliveries(Now),
     cleanup_expired_messages(Now).
 
 cleanup_expired_deliveries(Now) ->
     Expired = mnesia:dirty_select(
-        iot_mq_msg,
-        [{#iot_mq_msg{expires_at = '$1', _ = '_'}, [{'<', '$1', Now}], ['$_']}]
+        bcast_msg,
+        [{#bcast_msg{expires_at = '$1', _ = '_'}, [{'<', '$1', Now}], ['$_']}]
     ),
     lists:foreach(
-        fun(#iot_mq_msg{delivery_id = Did, device_names = DNs, product_key = PK}) ->
+        fun(#bcast_msg{delivery_id = Did, device_names = DNs, product_key = PK}) ->
             mnesia:transaction(fun() ->
-                mnesia:delete({iot_mq_msg, Did})
+                mnesia:delete({bcast_msg, Did})
             end),
             lists:foreach(
                 fun(DN) ->
                     Key = {PK, DN},
-                    case ets:lookup(iot_mq_msg_index, Key) of
-                        [#iot_mq_msg_index{delivery_ids = Ids}] ->
+                    case ets:lookup(bcast_msg_index, Key) of
+                        [#bcast_msg_index{delivery_ids = Ids}] ->
                             NewIds = Ids -- [Did],
                             case NewIds of
                                 [] ->
-                                    ets:delete(iot_mq_msg_index, Key);
+                                    ets:delete(bcast_msg_index, Key);
                                 _ ->
-                                    ets:insert(iot_mq_msg_index, #iot_mq_msg_index{
+                                    ets:insert(bcast_msg_index, #bcast_msg_index{
                                         key = Key, delivery_ids = NewIds
                                     })
                             end;
@@ -226,15 +222,15 @@ cleanup_expired_deliveries(Now) ->
 
 cleanup_expired_messages(Now) ->
     Expired = mnesia:dirty_select(
-        iot_mq_message,
-        [{#iot_mq_message{expires_at = '$1', _ = '_'}, [{'<', '$1', Now}], ['$_']}]
+        bcast_message,
+        [{#bcast_message{expires_at = '$1', _ = '_'}, [{'<', '$1', Now}], ['$_']}]
     ),
     lists:foreach(
-        fun(#iot_mq_message{msg_id = Mid, content_hash = Hash, api_msg_id = ApiId}) ->
+        fun(#bcast_message{msg_id = Mid, content_hash = Hash, api_msg_id = ApiId}) ->
             mnesia:transaction(fun() ->
-                mnesia:delete({iot_mq_message, Mid}),
-                mnesia:delete({iot_mq_message_hash, Hash}),
-                mnesia:delete({iot_mq_message_api_id, ApiId})
+                mnesia:delete({bcast_message, Mid}),
+                mnesia:delete({bcast_message_hash, Hash}),
+                mnesia:delete({bcast_message_api_id, ApiId})
             end)
         end,
         Expired
