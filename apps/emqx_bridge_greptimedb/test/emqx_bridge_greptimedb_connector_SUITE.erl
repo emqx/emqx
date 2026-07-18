@@ -110,8 +110,17 @@ t_lifecycle(Config) ->
 %% Regression test for https://github.com/emqx/emqx/issues/17952.
 %% A health check must not prevent an underfilled async batch from flushing.
 t_async_write_after_health_check(Config) ->
-    Host = ?config(greptimedb_tcp_host, Config),
-    Port = ?config(greptimedb_tcp_port, Config),
+    case ?config(enable_tls, Config) of
+        true ->
+            %% Plaintext (http + basic auth) regression test; exercised via the tcp group.
+            {skip, tcp_only};
+        false ->
+            async_write_after_health_check(Config)
+    end.
+
+async_write_after_health_check(Config) ->
+    Host = ?config(greptimedb_host, Config),
+    Port = ?config(greptimedb_port, Config),
     Pool = iolist_to_binary([
         "greptimedb_health_check_", integer_to_binary(erlang:unique_integer([positive]))
     ]),
