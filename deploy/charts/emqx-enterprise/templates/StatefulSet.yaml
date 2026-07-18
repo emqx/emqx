@@ -133,6 +133,12 @@ spec:
                 fieldPath: metadata.name
           - name: EMQX_HOST
             value: $(POD_NAME).{{ include "emqx.fullname" . }}-headless.{{ .Release.Namespace }}.svc.cluster.local
+          {{- if .Values.ssl.enabled }}
+          - name: EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CERTFILE
+            value: /tmp/ssl/tls.crt
+          - name: EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE
+            value: /tmp/ssl/tls.key
+          {{- end }}
           {{- if .Values.emqxLicenseSecretRef.name }}
           - name: EMQX_LICENSE__KEY
             valueFrom:
