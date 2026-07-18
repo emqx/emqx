@@ -1,0 +1,70 @@
+{
+  "type": "record",
+  "name": "ExtendedConfig",
+  "fields": [
+    {
+      "name": "provider",
+      "type": "string",
+      "default": "openai",
+      "$ui": {
+        "component": "select",
+        "options": [
+          {"label": "OpenAI (GPT)", "value": "openai"},
+          {"label": "Anthropic (Claude)", "value": "anthropic"}
+        ],
+        "flex": 12,
+        "required": true,
+        "label": "$provider_label",
+        "description": "$provider_desc"
+      }
+    },
+    {
+      "name": "api_key",
+      "type": "string",
+      "default": "",
+      "$ui": {
+        "component": "input-password",
+        "flex": 12,
+        "required": true,
+        "label": "$api_key_label",
+        "description": "$api_key_desc"
+      }
+    },
+    {
+      "name": "default_model",
+      "type": "string",
+      "default": "gpt-5-mini",
+      "$ui": {
+        "component": "input",
+        "flex": 12,
+        "required": true,
+        "label": "$default_model_label",
+        "description": "$default_model_desc"
+      }
+    },
+    {
+      "name": "default_max_tokens",
+      "type": "int",
+      "default": 4096,
+      "$ui": {
+        "component": "input-number",
+        "flex": 12,
+        "required": true,
+        "label": "$default_max_tokens_label",
+        "description": "$default_max_tokens_desc"
+      }
+    },
+    {
+      "name": "request_topic_prefix",
+      "type": "string",
+      "default": "$a2a/request/",
+      "$ui": {
+        "component": "input",
+        "flex": 12,
+        "required": true,
+        "label": "$request_topic_prefix_label",
+        "description": "$request_topic_prefix_desc"
+      }
+    }
+  ]
+}

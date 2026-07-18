@@ -1,0 +1,12 @@
+{
+  "$provider_label": {"en": "LLM Provider", "zh": "LLM 提供商"},
+  "$provider_desc": {"en": "LLM API provider. OpenAI for GPT models, Anthropic for Claude models.", "zh": "LLM API 提供商。OpenAI 用于 GPT 模型，Anthropic 用于 Claude 模型。"},
+  "$api_key_label": {"en": "API Key", "zh": "API 密钥"},
+  "$api_key_desc": {"en": "API key for the selected LLM provider.", "zh": "所选 LLM 提供商的 API 密钥。"},
+  "$default_model_label": {"en": "Default Model", "zh": "默认模型"},
+  "$default_model_desc": {"en": "Default model when agents don't specify one. Examples: gpt-5-mini, gpt-5.4, claude-sonnet-4-6.", "zh": "当 Agent 未指定时使用的默认模型。示例：gpt-4o-mini、gpt-4o、claude-sonnet-4-20250514。"},
+  "$default_max_tokens_label": {"en": "Default Max Tokens", "zh": "默认最大 Token 数"},
+  "$default_max_tokens_desc": {"en": "Default maximum output tokens for LLM responses.", "zh": "LLM 响应的默认最大输出 Token 数。"},
+  "$request_topic_prefix_label": {"en": "Request Topic Prefix", "zh": "请求主题前缀"},
+  "$request_topic_prefix_desc": {"en": "MQTT topic prefix for agent requests. Messages to {prefix}{agent_id} trigger agent execution.", "zh": "Agent 请求的 MQTT 主题前缀。发布到 {prefix}{agent_id} 的消息触发 Agent 执行。"}
+}
