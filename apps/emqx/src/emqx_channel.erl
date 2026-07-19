@@ -687,6 +687,14 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
                     handle_out(disconnect, Rc, NChannel)
             end;
         {error, Rc = ?RC_QUOTA_EXCEEDED, NChannel} ->
+            ?SLOG_THROTTLE(
+                warning,
+                #{
+                    msg => cannot_publish_to_topic_due_to_quota_exceeded,
+                    reason => emqx_reason_codes:name(Rc)
+                },
+                #{topic => Topic, tag => "AUTHZ"}
+            ),
             ok = emqx_metrics:inc('packets.publish.quota_exceeded'),
             case QoS of
                 ?QOS_0 ->

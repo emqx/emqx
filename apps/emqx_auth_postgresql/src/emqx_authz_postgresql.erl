@@ -64,7 +64,7 @@ authorize(
             ?SLOG(error, #{
                 msg => "query_postgresql_error",
                 reason => Reason,
-                params => RenderedParams,
+                params => emqx_auth_template:render_sql_params_redacted(Placeholders, Vars),
                 resource_id => ResourceId
             }),
             nomatch

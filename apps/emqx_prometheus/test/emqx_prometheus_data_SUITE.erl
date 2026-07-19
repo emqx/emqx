@@ -657,6 +657,7 @@ assert_json_data__packets(M, Mode) when
             emqx_packets_pingresp_sent := _,
             emqx_packets_subscribe_received := _,
             emqx_bytes_received := _,
+            emqx_packets_publish_quota_exceeded := _,
             emqx_packets_publish_received := _,
             emqx_packets_connack_sent := _,
             emqx_packets_connack_auth_error := _,

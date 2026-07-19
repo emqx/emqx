@@ -236,6 +236,58 @@ t_app_cannot_start_with_invalid_license(_Config) ->
         meck:unload(emqx_license)
     end.
 
+%% A single-node (community/default) license node that legitimately joins a
+%% cluster sees `SINGLE_NODE_LICENSE` at boot only until the peer's clustering
+%% license is replicated into its config. The boot gate must tolerate this
+%% transient race within the grace window instead of crashing.
+t_app_tolerates_license_sync_race(_Config) ->
+    ok = application:set_env(emqx_license, boot_grace_period_ms, 5_000),
+    ok = application:set_env(emqx_license, boot_grace_poll_interval_ms, 10),
+    Counter = counters:new(1, []),
+    meck:new(emqx_license_checker, [passthrough, no_history]),
+    %% First two checks still see a single-node license on a clustered node,
+    %% then config sync delivers the clustering license and the check passes.
+    meck:expect(emqx_license_checker, no_violation, fun(_License) ->
+        ok = counters:add(Counter, 1, 1),
+        case counters:get(Counter, 1) >= 3 of
+            true -> ok;
+            false -> {error, 'SINGLE_NODE_LICENSE'}
+        end
+    end),
+    Reader = fun() -> {ok, fake_license} end,
+    try
+        ?assertEqual(ok, emqx_license_app:validate_license(Reader)),
+        ?assert(counters:get(Counter, 1) >= 3)
+    after
+        meck:unload(emqx_license_checker),
+        ok = application:unset_env(emqx_license, boot_grace_period_ms),
+        ok = application:unset_env(emqx_license, boot_grace_poll_interval_ms)
+    end.
+
+%% A genuinely misconfigured cluster (every node holds a single-node license)
+%% never obtains a clustering license, so the boot gate must still fail with
+%% SINGLE_NODE_LICENSE once the grace window elapses.
+t_app_fails_after_grace_when_license_never_upgrades(_Config) ->
+    GracePeriod = 300,
+    ok = application:set_env(emqx_license, boot_grace_period_ms, GracePeriod),
+    ok = application:set_env(emqx_license, boot_grace_poll_interval_ms, 50),
+    meck:new(emqx_license_checker, [passthrough, no_history]),
+    meck:expect(emqx_license_checker, no_violation, fun(_License) ->
+        {error, 'SINGLE_NODE_LICENSE'}
+    end),
+    try
+        T0 = erlang:monotonic_time(millisecond),
+        Result = emqx_license_app:start(normal, permanent),
+        Elapsed = erlang:monotonic_time(millisecond) - T0,
+        ?assertMatch({error, "SINGLE_NODE_LICENSE," ++ _}, Result),
+        %% the grace window must actually be honored before failing
+        ?assert(Elapsed >= GracePeriod)
+    after
+        meck:unload(emqx_license_checker),
+        ok = application:unset_env(emqx_license, boot_grace_period_ms),
+        ok = application:unset_env(emqx_license, boot_grace_poll_interval_ms)
+    end.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
