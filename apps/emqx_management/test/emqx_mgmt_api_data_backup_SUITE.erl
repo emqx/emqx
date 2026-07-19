@@ -605,6 +605,72 @@ t_namespaced_admin_cannot_override_namespace(Config) ->
     ),
     ok.
 
+%% A global administrator can import a namespaced backup directly by opting into
+%% the namespace with the `namespace' query parameter -- consistent with
+%% listing / downloading. Without the parameter the file is not in the global
+%% scope, so the import fails.
+t_global_admin_import_scoped_namespace(Config) ->
+    DashboardAuth = ?config(dashboard_auth, Config),
+    Ns1Auth = ?config(ns_admin_auth, Config),
+    Ns1 = #{<<"namespace">> => <<"ns1">>},
+
+    %% ns1 admin exports its own backup; it lands under `ns/ns1'.
+    {200, #{<<"filename">> := N1File}} = export_backup2(?NODE1_PORT, Ns1Auth, #{}),
+
+    %% Global admin without the parameter looks in the global scope and cannot
+    %% find the namespaced file -> 400.
+    ?assertMatch({400, _}, import_backup_ns(?NODE1_PORT, DashboardAuth, N1File, #{})),
+
+    %% Opting into ns1 finds and imports it -> 204.
+    ?assertMatch({204, _}, import_backup_ns(?NODE1_PORT, DashboardAuth, N1File, Ns1)),
+    ok.
+
+%% A global administrator uploading with `namespace=ns1' lands the file in the
+%% namespace's space (not the global one), and can then import it scoped to that
+%% namespace. Uploading without the parameter stays on the global scope.
+t_global_admin_upload_scoped_namespace(Config) ->
+    DashboardAuth = ?config(dashboard_auth, Config),
+    Ns1 = #{<<"namespace">> => <<"ns1">>},
+    UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
+    Base = list_to_binary(?UPLOAD_CE_BACKUP),
+
+    %% Upload into ns1's space.
+    ?assertEqual(ok, upload_backup_ns(?NODE1_PORT, DashboardAuth, UploadFile, Ns1)),
+    %% The file is visible in ns1's space, but not in the global listing.
+    ?assert(lists:member(Base, list_filenames(?NODE1_PORT, DashboardAuth, Ns1))),
+    ?assertNot(lists:member(Base, list_filenames(?NODE1_PORT, DashboardAuth))),
+    %% And a scoped import of the uploaded file succeeds.
+    ?assertMatch({204, _}, import_backup_ns(?NODE1_PORT, DashboardAuth, Base, Ns1)),
+
+    %% Uploading without the parameter stays on the global scope (regression).
+    ?assertEqual(ok, upload_backup(?NODE2_PORT, DashboardAuth, UploadFile)),
+    ?assert(lists:member(Base, list_filenames(?NODE2_PORT, DashboardAuth))),
+    ok.
+
+%% A namespaced administrator cannot import or upload into another namespace by
+%% supplying the `namespace' query parameter -- it is ignored for namespaced
+%% callers, so both operations stay confined to the caller's own namespace.
+t_namespaced_admin_import_upload_confined(Config) ->
+    [Core1, _Core2, _Repl] = ?config(cluster, Config),
+    Ns1Auth = ?config(ns_admin_auth, Config),
+    Ns2Auth = ns_admin_auth_header(Core1, <<"ns2">>, <<"ns2_admin_for_test">>, ?NS_ADMIN_PASS),
+    ForceNs1 = #{<<"namespace">> => <<"ns1">>},
+
+    %% ns1 admin exports its own backup (lands under `ns/ns1').
+    {200, #{<<"filename">> := N1File}} = export_backup2(?NODE1_PORT, Ns1Auth, #{}),
+
+    %% ns2 admin asking for ns1 stays confined to ns2, so ns1's file is not
+    %% found in its own space -> 400. It cannot reach ns1's backup.
+    ?assertMatch({400, _}, import_backup_ns(?NODE1_PORT, Ns2Auth, N1File, ForceNs1)),
+
+    %% Uploading with `namespace=ns1' lands in ns2's own space, never ns1's.
+    UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
+    Base = list_to_binary(?UPLOAD_CE_BACKUP),
+    ?assertEqual(ok, upload_backup_ns(?NODE1_PORT, Ns2Auth, UploadFile, ForceNs1)),
+    ?assertNot(lists:member(Base, list_filenames(?NODE1_PORT, Ns1Auth))),
+    ?assert(lists:member(Base, list_filenames(?NODE1_PORT, Ns2Auth))),
+    ok.
+
 %% Global dashboard administrators must still be able to download a backup
 %% file. Without this regression the download path would be unreachable.
 t_download_global_admin_allowed(Config) ->
@@ -650,6 +716,49 @@ import_backup_full(NodeApiPort, Auth, BackupName) ->
     Path = emqx_mgmt_api_test_util:api_path(?api_base_url(NodeApiPort), ["data", "import"]),
     Body = #{<<"filename">> => unicode:characters_to_binary(BackupName)},
     emqx_mgmt_api_test_util:simple_request(post, Path, Body, Auth).
+
+%% Import a backup, optionally scoped to a namespace via the `namespace' query
+%% parameter. Returns `{Status, Body}'.
+import_backup_ns(NodeApiPort, Auth, BackupName, QueryParams) ->
+    Path = emqx_mgmt_api_test_util:api_path(?api_base_url(NodeApiPort), ["data", "import"]),
+    Body = #{<<"filename">> => unicode:characters_to_binary(BackupName)},
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => post,
+        url => Path,
+        body => Body,
+        auth_header => Auth,
+        query_params => QueryParams
+    }).
+
+%% Upload a backup file, optionally scoped to a namespace via the `namespace'
+%% query parameter.
+upload_backup_ns(NodeApiPort, Auth, BackupFilePath, QueryParams) ->
+    Path0 = emqx_mgmt_api_test_util:api_path(?api_base_url(NodeApiPort), ["data", "files"]),
+    Path =
+        case maps:to_list(QueryParams) of
+            [] ->
+                Path0;
+            QueryList ->
+                Query = unicode:characters_to_list(uri_string:compose_query(QueryList)),
+                Path0 ++ "?" ++ Query
+        end,
+    Res = emqx_mgmt_api_test_util:upload_request(
+        Path,
+        BackupFilePath,
+        "filename",
+        <<"application/octet-stream">>,
+        [],
+        Auth
+    ),
+    case Res of
+        {ok, {{"HTTP/1.1", 204, _}, _Headers, _}} ->
+            ok;
+        {ok, {{"HTTP/1.1", 400, _}, _Headers, _} = Resp} ->
+            ct:pal("Backup upload failed: ~p", [Resp]),
+            {error, bad_request};
+        Err ->
+            Err
+    end.
 
 do_init_per_testcase(TC, Config) ->
     Cluster = [Core1, _Core2, Repl] = cluster(TC, Config),
@@ -1067,7 +1176,9 @@ test_case_specific_apps_spec(TC) when
     TC =:= t_import_dashboard_token_allows_sensitive_tables;
     TC =:= t_import_restricted_dashboard_token_blocks_sensitive_tables;
     TC =:= t_import_dashboard_token_with_credential_scopes_allows_sensitive_tables;
-    TC =:= t_namespaced_upload_isolation
+    TC =:= t_namespaced_upload_isolation;
+    TC =:= t_global_admin_upload_scoped_namespace;
+    TC =:= t_namespaced_admin_import_upload_confined
 ->
     [
         emqx_auth,
