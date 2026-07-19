@@ -394,3 +394,9 @@ t_oauth_client_credentials_authn(TCConfig0) ->
         trace:session_destroy(TS)
     end,
     ok.
+
+t_resource_health_check_timeout_status(TCConfig) when is_list(TCConfig) ->
+    emqx_bridge_kafka_action_SUITE:?FUNCTION_NAME(TCConfig).
+
+t_channel_health_check_timeout_status(TCConfig) when is_list(TCConfig) ->
+    emqx_bridge_kafka_action_SUITE:?FUNCTION_NAME(TCConfig).
