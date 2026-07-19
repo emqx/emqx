@@ -65,6 +65,8 @@ field_name.label:
 field_topic_filter.desc:
 """MQTT topic filter that messages are matched against. Wildcards (`+`, `#`) are allowed.
 
+Shared-subscription topic filters (`$share/<group>/...` and the `$queue/...` alias) are not allowed: the share prefix lives on the subscription, not on the published message, so such a filter would never match and the collection would count nothing. Use the plain topic filter instead (e.g. `sensor/1` rather than `$share/group/sensor/1`) — deliveries to shared subscribers of that topic are still counted under it.
+
 For a namespaced collection, the filter is matched against the published topic *after* the tenant mountpoint has been applied — so an `acme` namespace admin who wants to track `t/x` must use a filter that includes the mountpoint (e.g. `acme/t/x`)."""
 field_topic_filter.label:
 """Topic filter"""

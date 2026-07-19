@@ -347,8 +347,13 @@ parse_create(#{<<"name">> := Name, <<"topic_filter">> := TF}) ->
     case emqx_topic_metrics_schema:validate_name(Name) of
         ok ->
             case emqx_topic_metrics_schema:validate_topic_filter(TF) of
-                ok -> {ok, Name, TF};
-                {error, _} -> {error, ?BAD_TOPIC_FILTER, <<"Invalid topic filter">>}
+                ok ->
+                    {ok, Name, TF};
+                {error, #{cause := shared_topic_filter_not_allowed}} ->
+                    {error, ?BAD_TOPIC_FILTER,
+                        <<"Shared subscription topic filters ($share/, $queue/) are not allowed">>};
+                {error, _} ->
+                    {error, ?BAD_TOPIC_FILTER, <<"Invalid topic filter">>}
             end;
         {error, _} ->
             {error, ?BAD_NAME, <<"Invalid name">>}
