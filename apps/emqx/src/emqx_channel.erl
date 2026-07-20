@@ -1365,19 +1365,18 @@ handle_frame_error(
     end;
 %% Frame error on an established connection: send DISCONNECT and close.
 %% The close reason doubles as the connection process exit reason, so it must be
-%% a plain atom naming the cause: that is what lets the connection supervisor
-%% keep a per-cause shutdown counter instead of reporting an unidentified
-%% shutdown at error level. Details of the parse error are already logged at
-%% info level by the connection when the frame fails to parse.
+%% a plain atom: that is what lets the connection supervisor keep a shutdown
+%% counter instead of reporting an unidentified shutdown at error level. The
+%% parse error itself is reported by the connection through `emqx_trace'.
 handle_frame_error(
-    Reason,
+    _Reason,
     Channel = #channel{conn_state = ConnState}
 ) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
     handle_out(
         disconnect,
-        {?RC_MALFORMED_PACKET, frame_error_cause(Reason)},
+        {?RC_MALFORMED_PACKET, frame_error},
         Channel
     );
 handle_frame_error(
@@ -1387,11 +1386,6 @@ handle_frame_error(
     %% Invalid client input, not a broker failure.
     ?SLOG(info, #{msg => "malformed_mqtt_message", reason => Reason}),
     {ok, Channel}.
-
--doc "Name the cause of a frame parse error as an atom, for use as a shutdown reason.".
-frame_error_cause(#{cause := Cause}) when is_atom(Cause) -> Cause;
-frame_error_cause(Cause) when is_atom(Cause) -> Cause;
-frame_error_cause(_Reason) -> frame_error.
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packet
@@ -3746,9 +3740,11 @@ shutdown_count(Kind, Reason, #channel{conninfo = ConnInfo}) ->
     maps:merge(shutdown_count(Kind, Reason), ShutdownCntMeta).
 
 %% process exits with {shutdown, #{shutdown_count := Kind}} will trigger
-%% the connection supervisor (esockd) to keep a shutdown-counter grouped by Kind
-shutdown_count(_Kind, #{cause := Cause} = Reason) when is_atom(Cause) ->
-    Reason#{shutdown_count => Cause};
+%% the connection supervisor (esockd) to keep a shutdown-counter grouped by Kind.
+%% Kind must be one of a fixed set chosen here, never a value derived from client
+%% input: it names a counter, and an attacker-controlled name would let malformed
+%% packets mint unbounded counters. The specific cause stays in the reason map
+%% for the shutdown report.
 shutdown_count(Kind, Reason) when is_map(Reason) ->
     Reason#{shutdown_count => Kind};
 shutdown_count(Kind, Reason) ->

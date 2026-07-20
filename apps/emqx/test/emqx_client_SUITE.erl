@@ -102,7 +102,8 @@ groups() ->
             t_congestion_decongested,
             t_first_packet_not_connect,
             t_frame_error_shutdown_count_idle,
-            t_frame_error_shutdown_count_connected
+            t_frame_error_shutdown_count_connected,
+            t_frame_error_shutdown_count_is_bounded
         ]},
         {socket, [], [
             t_connection_stats,
@@ -1537,23 +1538,23 @@ t_first_packet_not_connect(Config) ->
     end.
 
 -doc """
-A non-MQTT first packet shuts the connection down with a reason the listener
-supervisor attributes to `invalid_proto_name`, so it is counted rather than
-reported as an unidentified shutdown at error level.
+A non-MQTT first packet shuts the connection down under the fixed
+`invalid_connect_packet` counter, rather than being reported as an unidentified
+shutdown at error level. The cause stays in the shutdown reason.
 """.
 t_frame_error_shutdown_count_idle(Config) ->
     Socket = socket_connect(Config, [{active, true}, binary]),
     %% CONNECT header, but the protocol name is not 'MQTT' nor 'MQIsdp'.
     Malformed = <<16#10, 12, 0, 6, "test/1", 4, 2, 0, 60>>,
-    ExitReason = assert_frame_error_shutdown(Config, Socket, Malformed, invalid_proto_name),
+    ExitReason = assert_frame_error_shutdown(Config, Socket, Malformed, invalid_connect_packet),
     ?assertMatch(
         {shutdown, #{cause := invalid_proto_name, received := <<"test/1">>}}, ExitReason
     ).
 
 -doc """
 A malformed packet from an already connected client shuts the connection down
-with a reason the listener supervisor attributes to `invalid_property_code`, so
-it is counted rather than reported as an unidentified shutdown at error level.
+under the fixed `frame_error` counter, rather than being reported as an
+unidentified shutdown at error level.
 """.
 t_frame_error_shutdown_count_connected(Config) ->
     Socket = socket_connect(Config, [{active, true}, binary]),
@@ -1569,15 +1570,57 @@ t_frame_error_shutdown_count_connected(Config) ->
     end,
     %% SUBSCRIBE carrying an unknown MQTT v5 property code (16#2B).
     Malformed = <<16#82, 9, 0, 1, 2, 16#2B, 0, 0, 1, $t, 0>>,
-    ExitReason = assert_frame_error_shutdown(Config, Socket, Malformed, invalid_property_code),
-    ?assertEqual({shutdown, invalid_property_code}, ExitReason).
+    ExitReason = assert_frame_error_shutdown(Config, Socket, Malformed, frame_error),
+    ?assertEqual({shutdown, frame_error}, ExitReason).
+
+-doc """
+Frame parse errors name a counter from a fixed set, never one derived from the
+client input that triggered them, so that malformed packets cannot mint
+unbounded shutdown counter names.
+""".
+t_frame_error_shutdown_count_is_bounded(Config) ->
+    %% Two different causes, one reported as a map and one as a bare atom.
+    Causes = [
+        %% invalid property code
+        <<16#82, 9, 0, 1, 2, 16#2B, 0, 0, 1, $t, 0>>,
+        %% bad subscribe qos
+        <<16#82, 7, 0, 1, 0, 0, 1, $t, 3>>
+    ],
+    Before = shutdown_count(Config, frame_error),
+    lists:foreach(
+        fun(Malformed) ->
+            Socket = socket_connect(Config, [{active, true}, binary]),
+            ConnPacket = ?CONNECT_PACKET(#mqtt_packet_connect{
+                proto_ver = ?MQTT_PROTO_V5,
+                clientid = atom_to_binary(?FUNCTION_NAME)
+            }),
+            ok = socket_send(Socket, emqx_frame:serialize(ConnPacket)),
+            receive
+                {tcp, _, <<32, _/binary>>} -> ok;
+                {ssl, _, <<32, _/binary>>} -> ok
+            after 5000 -> ct:fail({connack_not_received, process_info(self(), messages)})
+            end,
+            ok = socket_send(Socket, Malformed),
+            {ok, _} = ?block_until(#{?snk_kind := terminate}, 5000)
+        end,
+        Causes
+    ),
+    %% Both land on the one counter, and neither cause names a counter of its own.
+    ?WAIT(?assertEqual(Before + length(Causes), shutdown_count(Config, frame_error)), 5),
+    ?assertEqual(
+        [],
+        [
+            K
+         || K <- shutdown_count_keys(Config), lists:member(K, [invalid_property_code, bad_subqos])
+        ]
+    ).
 
 %% Send `Malformed' and assert the connection exits with a reason the connection
 %% supervisor attributes to `Cause'. Returns the exit reason.
 assert_frame_error_shutdown(Config, Socket, Malformed, Cause) ->
     CountBefore = shutdown_count(Config, Cause),
     Self = self(),
-    Reports = emqx_cth_log_capture:capture(info, fun() ->
+    Reports = emqx_cth_log_capture:capture(debug, fun() ->
         ok = socket_send(Socket, Malformed),
         {ok, #{reason := R}} = ?block_until(#{?snk_kind := terminate}, 5000),
         Self ! {exit_reason, R}
@@ -1587,10 +1630,10 @@ assert_frame_error_shutdown(Config, Socket, Malformed, Cause) ->
             {exit_reason, R0} -> R0
         after 0 -> ct:fail(no_terminate_event)
         end,
-    %% The shutdown reason only names the cause, so the full parse error and the
-    %% offending bytes must stay available at info level for troubleshooting.
+    %% The shutdown counter only names a kind, so the specific cause and the
+    %% offending bytes must stay reachable through `emqx_trace'.
     ?assertMatch(
-        [#{reason := #{cause := Cause}, input_bytes := Malformed, at_state := _} | _],
+        [#{reason := #{cause := _}, input_bytes := Malformed, at_state := _} | _],
         [R1 || #{msg := "frame_parse_error"} = R1 <- Reports]
     ),
     %% esockd attributes a shutdown to a cause when the reason is either a plain
@@ -1607,8 +1650,13 @@ assert_frame_error_shutdown(Config, Socket, Malformed, Cause) ->
     ExitReason.
 
 shutdown_count(Config, Cause) ->
-    Counts = emqx_listeners:shutdown_count(listener_id(Config), listener_port(Config)),
-    proplists:get_value(Cause, Counts, 0).
+    proplists:get_value(Cause, shutdown_counts(Config), 0).
+
+shutdown_count_keys(Config) ->
+    lists:sort(proplists:get_keys(shutdown_counts(Config))).
+
+shutdown_counts(Config) ->
+    emqx_listeners:shutdown_count(listener_id(Config), listener_port(Config)).
 
 %%--------------------------------------------------------------------
 %% Helper functions

@@ -540,7 +540,7 @@ t_handle_in_frame_error(_) ->
     ),
     %% no CONNACK packet for v4
     ?assertMatch(
-        {shutdown, #{shutdown_count := frame_too_large, cause := frame_too_large}, _Chan},
+        {shutdown, #{shutdown_count := invalid_connect_packet, cause := frame_too_large}, _Chan},
         emqx_channel:handle_in(
             {frame_error, #{cause => frame_too_large}}, v4(IdleChannelV5)
         )
@@ -551,7 +551,7 @@ t_handle_in_frame_error(_) ->
     ?assertMatch(
         {shutdown,
             #{
-                shutdown_count := frame_too_large,
+                shutdown_count := frame_error,
                 cause := frame_too_large,
                 limit := 100,
                 received := 101
@@ -568,6 +568,16 @@ t_handle_in_frame_error(_) ->
     ?assertMatch(
         {ok, [{outgoing, DisconnectPacket}, {close, frame_too_large}], _},
         emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, ConnectedChan)
+    ),
+    %% Any other frame error on an established connection closes under the
+    %% single `frame_error' kind, never under a client-derived name.
+    MalformedPacket = ?DISCONNECT_PACKET(?RC_MALFORMED_PACKET),
+    ?assertMatch(
+        {ok, [{outgoing, MalformedPacket}, {close, frame_error}], _},
+        emqx_channel:handle_in(
+            {frame_error, #{cause => invalid_property_code, property_code => 16#2B}},
+            channel(#{conn_state => connected})
+        )
     ),
     DisconnectedChan = channel(#{conn_state => disconnected}),
     {ok, DisconnectedChan} =
