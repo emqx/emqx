@@ -140,7 +140,14 @@ do_query(Table, Query0, Templates, TraceRenderedCTX, ChannelState, AWSConfig) ->
                 data = Query
             }
         }),
-        execute(Query, Table, ChannelState, AWSConfig)
+        %% Resolve before entering erlcloud's DDB request path so credential-fetch failures
+        %% can be classified as recoverable.  Only this request receives the resolved snapshot.
+        case erlcloud_aws:update_config(AWSConfig) of
+            {ok, ResolvedAWSConfig} ->
+                execute(Query, Table, ChannelState, ResolvedAWSConfig);
+            {error, CredentialError} ->
+                {error, {recoverable_error, {failed_to_obtain_credentials, CredentialError}}}
+        end
     catch
         error:{unrecoverable_error, Reason} ->
             {error, {unrecoverable_error, Reason}};
@@ -183,14 +190,14 @@ new_aws_config(Host, Port, Scheme) ->
     }.
 
 check_metadata_credentials_available(AWSConfig) ->
-    %% Keep the AWS config unresolved in the worker state.  Every DDB request receives
-    %% this config explicitly and `erlcloud_ddb_impl' resolves credentials for that request.
+    %% Keep the AWS config unresolved in the worker state.  Every query resolves a temporary
+    %% snapshot explicitly, while the unresolved config remains available for the next query.
     %%
     %% erlcloud caches ECS task-role and EC2 instance-role credentials, including their
     %% expiration, in the node-wide application environment key
     %% `{erlcloud, metadata_credentials}'.  All IAM-role clients in this BEAM node share
-    %% that cache.  Calling `update_config/1' here only checks that credentials are
-    %% initially available; the resolved snapshot must not be retained in the worker state.
+    %% that cache.  Calling `update_config/1' here only checks that credentials are initially
+    %% available; query-time snapshots must not be retained in the worker state.
     case erlcloud_aws:update_config(AWSConfig) of
         {ok, _ResolvedAWSConfig} -> ok;
         {error, Reason} -> {error, Reason}
