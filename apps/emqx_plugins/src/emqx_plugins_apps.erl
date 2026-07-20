@@ -238,7 +238,10 @@ validate_loaded_plugin_app(AppName, EbinDir, Props) ->
                 ExpectedEbinDir ->
                     ok;
                 LoadedEbinDir ->
-                    case is_shared_plugin_app(AppName, Props, LoadedEbinDir) of
+                    case
+                        is_protected_app(AppName) orelse
+                            is_shared_plugin_app(AppName, Props, LoadedEbinDir)
+                    of
                         true ->
                             ok;
                         false ->
@@ -366,6 +369,8 @@ parse_name_vsn_for_stopping(NameVsn) ->
     end.
 %% ELSE ifdef(EMQX_ELIXIR)
 -else.
+is_protected_app(_) -> false.
+
 parse_name_vsn_for_stopping(NameVsn) ->
     {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
     {true, AppName}.
@@ -575,5 +580,22 @@ app_running_status_test_() ->
             primary_app_name_vsn(<<"demo">>, [<<"dep-1.0.0">>])
         )
     ].
+
+-ifdef(EMQX_ELIXIR).
+validate_loaded_protected_app_test() ->
+    WasLoaded = lists:keymember(iex, 1, loaded_apps()),
+    case application:load(iex) of
+        ok -> ok;
+        {error, {already_loaded, iex}} -> ok
+    end,
+    try
+        ?assertEqual(ok, validate_loaded_plugin_app(iex, "/outside/plugin/package", []))
+    after
+        case WasLoaded of
+            true -> ok;
+            false -> application:unload(iex)
+        end
+    end.
+-endif.
 
 -endif.
