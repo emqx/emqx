@@ -100,6 +100,15 @@
 -type prepared_request() :: {method(), path(), body()}.
 -type request_opts() :: #{request_ttl := emqx_schema:duration_ms() | infinity}.
 -type topic() :: binary().
+-type reply_callback() ::
+    {ReplyFun :: function(), Args :: list()}
+    | #{
+        %% where to send the final results
+        final_reply := {function(), list()},
+        %% optional; sends the gun stream ref and the worker pid so the caller may cancel
+        %% it.
+        stream_ref => {function(), list()}
+    }.
 
 -export_type([
     authentication_config/0,
@@ -166,9 +175,11 @@ do_start_pool(ResourceId, State, Config) ->
             tcp -> []
         end,
     NTransportOpts = emqx_utils:ipv6_probe(TransportOpts),
+    Protocols = maps:get(protocols, Config, [http]),
     PoolOpts = [
         {host, Host},
         {port, Port},
+        {protocols, Protocols},
         {connect_timeout, ConnectTimeout},
         {keepalive, 30_000},
         {pool_type, PoolType},
@@ -282,7 +293,7 @@ query_sync({prepared_request, PreparedRequest = {_Method, _Path, _Body}, ReqOpts
 
 -spec query_async(
     {prepared_request, prepared_request(), request_opts()},
-    {ReplyFun :: function(), Args :: list()},
+    reply_callback(),
     state()
 ) -> {ok, pid()} | {error, no_pool_worker_available}.
 query_async(
@@ -740,10 +751,10 @@ do_send_requests_sync(State, {prepared_request, {Method, Path, Body}, ReqOpts}) 
 -spec do_send_requests_async(
     state(),
     {prepared_request, prepared_request(), request_opts()},
-    {ReplyFun :: function(), Args :: list()}
+    reply_callback()
 ) -> {ok, pid()} | {error, no_pool_worker_available}.
 do_send_requests_async(
-    State, {prepared_request, {Method, Path, Body}, ReqOpts}, ReplyFunAndArgs
+    State, {prepared_request, {Method, Path, Body}, ReqOpts}, ReplyFunAndArgs0
 ) ->
     #{pool_name := PoolName} = State,
     #{request_ttl := RequestTTL} = ReqOpts,
@@ -756,6 +767,15 @@ do_send_requests_async(
         }
     ),
     Request = to_ehttpc_request(State, Method, Path, Body),
+    ReplyFunAndArgs =
+        case ReplyFunAndArgs0 of
+            #{final_reply := ReplyFunAndArgs1} ->
+                ReplyFunAndArgs0#{
+                    final_reply := {fun ?MODULE:reply_delegator/3, [PoolName, ReplyFunAndArgs1]}
+                };
+            {_, _} ->
+                {fun ?MODULE:reply_delegator/3, [PoolName, ReplyFunAndArgs0]}
+        end,
     %% `ehttpc_pool'/`gproc_pool' might return `false' if there are no workers...
     case ehttpc_pool:pick_worker(PoolName) of
         false ->
@@ -766,7 +786,7 @@ do_send_requests_async(
                 Method,
                 Request,
                 RequestTTL,
-                {fun ?MODULE:reply_delegator/3, [PoolName, ReplyFunAndArgs]}
+                ReplyFunAndArgs
             ),
             {ok, Worker}
     end.

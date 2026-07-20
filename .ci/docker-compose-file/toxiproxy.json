@@ -225,7 +225,7 @@
   {
     "name": "gcp_emulator_pubsub",
     "listen": "0.0.0.0:8085",
-    "upstream": "gcp_emulator_pubsub:8085",
+    "upstream": "gcp_emulator_pubsub_proxy:8085",
     "enabled": true
   },
   {

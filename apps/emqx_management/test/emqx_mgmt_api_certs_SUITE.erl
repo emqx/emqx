@@ -228,6 +228,14 @@ delete_bundle_global(BundleName) ->
         url => URL
     }).
 
+force_delete_bundle_global(BundleName) ->
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", BundleName]),
+    simple_request(#{
+        method => delete,
+        url => URL,
+        query_params => #{<<"force_delete">> => <<"true">>}
+    }).
+
 delete_file_global(BundleName, Kind) ->
     URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", BundleName]),
     simple_request(#{
@@ -1007,5 +1015,126 @@ t_managed_certs_prometheus_expiry_date(_TCConfig) ->
         Expiry1
     ),
     ?assertNotEqual(WSSExpiry1, TLSExpiry1),
+
+    ok.
+
+-doc """
+Verifies that a listener using a managed certificate bundle can be switched back to
+file-based (default) certificates even after the bundle has been force-deleted.  The
+stale `managed_certs` reference must not survive the update and block it.
+""".
+t_switch_off_deleted_managed_bundle() ->
+    [{matrix, true}].
+t_switch_off_deleted_managed_bundle(matrix) ->
+    [[?local]];
+t_switch_off_deleted_managed_bundle(_TCConfig) ->
+    #{cert_key := CertKeyRoot} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := Cert, key_pem := Key} = gen_cert(#{key => ec, issuer => CertKeyRoot}),
+
+    Bundle = <<"switch_off_bundle">>,
+    Files = [
+        {?FILE_KIND_CA_BIN, <<"ca.pem">>, CA},
+        {?FILE_KIND_CHAIN_BIN, <<"chain.pem">>, Cert},
+        {?FILE_KIND_KEY_BIN, <<"key.pem">>, Key}
+    ],
+    ?assertMatch({204, _}, upload_files_multipart_global(Bundle, Files)),
+
+    %% Original config uses file-based (default) certs.
+    {200, TLSListener0} = get_listener_api(<<"ssl">>, <<"default">>),
+    on_exit(fun() -> {200, _} = update_listener_api(<<"ssl">>, <<"default">>, TLSListener0) end),
+
+    %% Switch the listener to the managed bundle.
+    TLSListenerManaged = emqx_utils_maps:deep_put(
+        [<<"ssl_options">>, <<"managed_certs">>],
+        TLSListener0,
+        [#{<<"bundle_name">> => Bundle}]
+    ),
+    ?assertMatch({200, _}, update_listener_api(<<"ssl">>, <<"default">>, TLSListenerManaged)),
+
+    %% Force-delete the bundle while the listener still references it.
+    ?assertMatch({204, _}, force_delete_bundle_global(Bundle)),
+
+    %% Switching back to the original file-based config must succeed even though the
+    %% bundle is gone, and the resulting config must no longer reference managed certs.
+    ?assertMatch({200, _}, update_listener_api(<<"ssl">>, <<"default">>, TLSListener0)),
+    {200, TLSListenerFinal} = get_listener_api(<<"ssl">>, <<"default">>),
+    ?assertNot(
+        is_map_key(<<"managed_certs">>, maps:get(<<"ssl_options">>, TLSListenerFinal)),
+        TLSListenerFinal
+    ),
+
+    ok.
+
+-doc """
+Verifies that a listener using a managed certificate bundle can be switched back to
+file-based (default) certificates while the bundle still exists.  The switch must
+actually take effect (the stale `managed_certs` reference must be dropped), not
+silently keep using the bundle.
+""".
+t_switch_off_existing_managed_bundle() ->
+    [{matrix, true}].
+t_switch_off_existing_managed_bundle(matrix) ->
+    [[?local]];
+t_switch_off_existing_managed_bundle(_TCConfig) ->
+    #{cert_key := CertKeyRoot} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := Cert, key_pem := Key} = gen_cert(#{key => ec, issuer => CertKeyRoot}),
+
+    Bundle = <<"switch_off_existing_bundle">>,
+    Files = [
+        {?FILE_KIND_CA_BIN, <<"ca.pem">>, CA},
+        {?FILE_KIND_CHAIN_BIN, <<"chain.pem">>, Cert},
+        {?FILE_KIND_KEY_BIN, <<"key.pem">>, Key}
+    ],
+    ?assertMatch({204, _}, upload_files_multipart_global(Bundle, Files)),
+
+    {200, TLSListener0} = get_listener_api(<<"ssl">>, <<"default">>),
+    on_exit(fun() -> {200, _} = update_listener_api(<<"ssl">>, <<"default">>, TLSListener0) end),
+
+    TLSListenerManaged = emqx_utils_maps:deep_put(
+        [<<"ssl_options">>, <<"managed_certs">>],
+        TLSListener0,
+        [#{<<"bundle_name">> => Bundle}]
+    ),
+    ?assertMatch({200, _}, update_listener_api(<<"ssl">>, <<"default">>, TLSListenerManaged)),
+    {200, TLSListenerManaged1} = get_listener_api(<<"ssl">>, <<"default">>),
+    ?assert(
+        is_map_key(<<"managed_certs">>, maps:get(<<"ssl_options">>, TLSListenerManaged1)),
+        TLSListenerManaged1
+    ),
+
+    %% Switch back to file-based certs while the bundle still exists: the update must
+    %% take effect and drop the managed cert reference.
+    ?assertMatch({200, _}, update_listener_api(<<"ssl">>, <<"default">>, TLSListener0)),
+    {200, TLSListenerFinal} = get_listener_api(<<"ssl">>, <<"default">>),
+    ?assertNot(
+        is_map_key(<<"managed_certs">>, maps:get(<<"ssl_options">>, TLSListenerFinal)),
+        TLSListenerFinal
+    ),
+
+    ok.
+
+-doc """
+Verifies that updating a listener to reference a non-existent managed certificate
+bundle still fails, so genuine misconfiguration is not masked.
+""".
+t_switch_to_missing_managed_bundle() ->
+    [{matrix, true}].
+t_switch_to_missing_managed_bundle(matrix) ->
+    [[?local]];
+t_switch_to_missing_managed_bundle(_TCConfig) ->
+    {200, TLSListener0} = get_listener_api(<<"ssl">>, <<"default">>),
+    on_exit(fun() -> {200, _} = update_listener_api(<<"ssl">>, <<"default">>, TLSListener0) end),
+
+    TLSListenerMissing = emqx_utils_maps:deep_put(
+        [<<"ssl_options">>, <<"managed_certs">>],
+        TLSListener0,
+        [#{<<"bundle_name">> => <<"does_not_exist">>}]
+    ),
+    ?assertMatch(
+        {400, #{<<"message">> := _}},
+        update_listener_api(<<"ssl">>, <<"default">>, TLSListenerMissing)
+    ),
 
     ok.

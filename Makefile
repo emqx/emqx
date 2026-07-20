@@ -9,6 +9,8 @@ BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
 include env.sh
 
+.DEFAULT_GOAL := default
+
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
 export EMQX_DASHBOARD_VERSION ?= 2.3.0-beta.2
