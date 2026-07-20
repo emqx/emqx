@@ -38,7 +38,8 @@
     read_avsc_bin/1,
     read_avsc_bin_all/0,
     read_i18n/1,
-    read_hocon/1
+    read_hocon/1,
+    read_default_hocon/1
 ]).
 
 %% List all installed plugins
@@ -123,6 +124,11 @@ read_i18n(NameVsn) ->
 read_hocon(NameVsn) ->
     HoconFilePath = config_file_path(NameVsn),
     read_file_map(HoconFilePath, "bad_hocon_file").
+
+-spec read_default_hocon(name_vsn()) -> {ok, map()} | {error, term()}.
+read_default_hocon(NameVsn) ->
+    HoconFilePath = default_config_file_path(NameVsn),
+    read_file_map(HoconFilePath, "bad_default_hocon_file").
 
 %% List all installed plugins
 
@@ -212,7 +218,7 @@ install_from_local_tar(NameVsn, InstallValidator) ->
 ensure_installed_from_tar(NameVsn, InstallValidator) ->
     case is_installed(NameVsn) of
         true ->
-            ok;
+            InstallValidator();
         false ->
             install_from_local_tar(NameVsn, InstallValidator)
     end.
@@ -319,8 +325,22 @@ read_file_map(Path, Msg) ->
 plugin_priv_dir(NameVsn) ->
     maybe
         {ok, #{<<"name">> := Name, <<"rel_apps">> := Apps}} ?= read_info(NameVsn),
-        {ok, AppDir} ?= app_dir(Name, Apps),
-        wrap_to_list(filename:join([plugin_dir(NameVsn), AppDir, "priv"]))
+        case app_dir(Name, Apps) of
+            {ok, AppDir} ->
+                wrap_to_list(filename:join([plugin_dir(NameVsn), AppDir, "priv"]));
+            {error, not_found} ->
+                case
+                    [
+                        PrivDir
+                     || AppDir <- Apps,
+                        PrivDir <- [filename:join([plugin_dir(NameVsn), AppDir, "priv"])],
+                        filelib:is_dir(PrivDir)
+                    ]
+                of
+                    [PrivDir] -> wrap_to_list(PrivDir);
+                    _ -> wrap_to_list(filename:join([install_dir(), NameVsn, "priv"]))
+                end
+        end
     else
         %% Otherwise assume the priv directory is under the plugin root directory
         _ -> wrap_to_list(filename:join([install_dir(), NameVsn, "priv"]))
