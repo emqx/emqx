@@ -1363,6 +1363,12 @@ handle_frame_error(
         _ ->
             shutdown(ShutdownCount, NChannel)
     end;
+%% Frame error on an established connection: send DISCONNECT and close.
+%% The close reason doubles as the connection process exit reason, so it must be
+%% a plain atom naming the cause: that is what lets the connection supervisor
+%% keep a per-cause shutdown counter instead of reporting an unidentified
+%% shutdown at error level. Details of the parse error are already logged at
+%% info level by the connection when the frame fails to parse.
 handle_frame_error(
     Reason,
     Channel = #channel{conn_state = ConnState}
@@ -1371,15 +1377,21 @@ handle_frame_error(
 ->
     handle_out(
         disconnect,
-        {?RC_MALFORMED_PACKET, Reason},
+        {?RC_MALFORMED_PACKET, frame_error_cause(Reason)},
         Channel
     );
 handle_frame_error(
     Reason,
     Channel = #channel{conn_state = disconnected}
 ) ->
-    ?SLOG(error, #{msg => "malformed_mqtt_message", reason => Reason}),
+    %% Invalid client input, not a broker failure.
+    ?SLOG(info, #{msg => "malformed_mqtt_message", reason => Reason}),
     {ok, Channel}.
+
+-doc "Name the cause of a frame parse error as an atom, for use as a shutdown reason.".
+frame_error_cause(#{cause := Cause}) when is_atom(Cause) -> Cause;
+frame_error_cause(Cause) when is_atom(Cause) -> Cause;
+frame_error_cause(_Reason) -> frame_error.
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packet

@@ -100,7 +100,9 @@ groups() ->
             t_congestion_send_timeout,
             t_congestion_qos0_no_send_timeout,
             t_congestion_decongested,
-            t_first_packet_not_connect
+            t_first_packet_not_connect,
+            t_frame_error_shutdown_count_idle,
+            t_frame_error_shutdown_count_connected
         ]},
         {socket, [], [
             t_connection_stats,
@@ -1533,6 +1535,65 @@ t_first_packet_not_connect(Config) ->
     after 5000 ->
         ct:fail("Expected socket to be closed")
     end.
+
+-doc """
+A non-MQTT first packet shuts the connection down with a reason the listener
+supervisor attributes to `invalid_proto_name`, so it is counted rather than
+reported as an unidentified shutdown at error level.
+""".
+t_frame_error_shutdown_count_idle(Config) ->
+    Socket = socket_connect(Config, [{active, true}, binary]),
+    %% CONNECT header, but the protocol name is not 'MQTT' nor 'MQIsdp'.
+    Malformed = <<16#10, 12, 0, 6, "test/1", 4, 2, 0, 60>>,
+    ExitReason = assert_frame_error_shutdown(Config, Socket, Malformed, invalid_proto_name),
+    ?assertMatch(
+        {shutdown, #{cause := invalid_proto_name, received := <<"test/1">>}}, ExitReason
+    ).
+
+-doc """
+A malformed packet from an already connected client shuts the connection down
+with a reason the listener supervisor attributes to `invalid_property_code`, so
+it is counted rather than reported as an unidentified shutdown at error level.
+""".
+t_frame_error_shutdown_count_connected(Config) ->
+    Socket = socket_connect(Config, [{active, true}, binary]),
+    ConnPacket = ?CONNECT_PACKET(#mqtt_packet_connect{
+        proto_ver = ?MQTT_PROTO_V5,
+        clientid = atom_to_binary(?FUNCTION_NAME)
+    }),
+    ok = socket_send(Socket, emqx_frame:serialize(ConnPacket)),
+    receive
+        {tcp, _, <<32, _/binary>>} -> ok;
+        {ssl, _, <<32, _/binary>>} -> ok
+    after 5000 -> ct:fail({connack_not_received, process_info(self(), messages)})
+    end,
+    %% SUBSCRIBE carrying an unknown MQTT v5 property code (16#2B).
+    Malformed = <<16#82, 9, 0, 1, 2, 16#2B, 0, 0, 1, $t, 0>>,
+    ExitReason = assert_frame_error_shutdown(Config, Socket, Malformed, invalid_property_code),
+    ?assertEqual({shutdown, invalid_property_code}, ExitReason).
+
+%% Send `Malformed' and assert the connection exits with a reason the connection
+%% supervisor attributes to `Cause'. Returns the exit reason.
+assert_frame_error_shutdown(Config, Socket, Malformed, Cause) ->
+    CountBefore = shutdown_count(Config, Cause),
+    ok = socket_send(Socket, Malformed),
+    {ok, #{reason := ExitReason}} = ?block_until(#{?snk_kind := terminate}, 5000),
+    %% esockd attributes a shutdown to a cause when the reason is either a plain
+    %% atom or a map tagged with `shutdown_count'; anything else is reported as
+    %% an unidentified shutdown at error level and left uncounted.
+    case ExitReason of
+        {shutdown, Cause} -> ok;
+        {shutdown, #{shutdown_count := Cause}} -> ok;
+        Other -> ct:fail({unattributable_shutdown_reason, Other})
+    end,
+    %% Counter only moves on the info-level branch, so this also proves no
+    %% error-level supervisor report was emitted.
+    ?WAIT(?assertEqual(CountBefore + 1, shutdown_count(Config, Cause)), 5),
+    ExitReason.
+
+shutdown_count(Config, Cause) ->
+    Counts = emqx_listeners:shutdown_count(listener_id(Config), listener_port(Config)),
+    proplists:get_value(Cause, Counts, 0).
 
 %%--------------------------------------------------------------------
 %% Helper functions
