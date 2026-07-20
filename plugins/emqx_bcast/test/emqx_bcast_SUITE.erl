@@ -55,7 +55,8 @@ init_test_config() ->
         max_message_size_batch => 10240,
         max_message_size_broadcast => 65536,
         broadcast_topic => <<"/sys/broadcast/${productKey}">>,
-        batch_topic => <<"/${productKey}/${deviceName}/user/get">>
+        batch_topic => <<"/${productKey}/${deviceName}/user/get">>,
+        force_upgrade_qos => true
     },
     persistent_term:put({?APP, config}, Cfg),
     ok.
@@ -231,8 +232,97 @@ t_topic_match_no_match(_Config) ->
     ?assertNot(emqx_topic:match(<<"/P1/D1/user/get">>, <<"/P2/+/user/get">>)).
 
 %%--------------------------------------------------------------------
-%% API tests
+%% Subscription QoS match tests
 %%--------------------------------------------------------------------
+
+t_sub_match_returns_qos(_Config) ->
+    emqx_bcast_subscription:init(),
+    emqx_bcast_subscription:add(<<"dev1">>, self(), {<<"/P1/D1/user/get">>, 0}),
+    ?assertEqual({ok, 0}, emqx_bcast_subscription:match(<<"dev1">>, <<"/P1/D1/user/get">>)).
+
+t_sub_match_max_qos_overlapping(_Config) ->
+    emqx_bcast_subscription:init(),
+    emqx_bcast_subscription:add(<<"dev1">>, self(), {<<"/P1/+/user/get">>, 0}),
+    emqx_bcast_subscription:add(<<"dev1">>, self(), {<<"/P1/D1/user/get">>, 1}),
+    ?assertEqual({ok, 1}, emqx_bcast_subscription:match(<<"dev1">>, <<"/P1/D1/user/get">>)).
+
+t_sub_match_no_match(_Config) ->
+    emqx_bcast_subscription:init(),
+    emqx_bcast_subscription:add(<<"dev1">>, self(), {<<"/P1/D2/user/get">>, 1}),
+    ?assertEqual(false, emqx_bcast_subscription:match(<<"dev1">>, <<"/P1/D1/user/get">>)).
+
+%%--------------------------------------------------------------------
+%% Force upgrade QoS tests
+%%--------------------------------------------------------------------
+
+t_force_upgrade_false_qos0_sub(_Config) ->
+    Cfg = persistent_term:get({?APP, config}),
+    persistent_term:put({?APP, config}, Cfg#{force_upgrade_qos => false}),
+    emqx_bcast:register_device(<<"P1">>, <<"DA">>, self()),
+    emqx_bcast_subscription:init(),
+    emqx_bcast_subscription:add(<<"DA">>, self(), {<<"/P1/DA/user/get">>, 0}),
+    BeforeAcked = metric(<<"batch_pub_qos1_acked">>),
+    BeforeInline = metric(<<"batch_pub_qos1_delivered_inline">>),
+    Body = #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"P1">>,
+        <<"DeviceName">> => [<<"DA">>],
+        <<"MessageContent">> => <<"aGVsbG8=">>,
+        <<"Qos">> => 1
+    },
+    {ok, 200, _, _} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
+    ?assertEqual(1, metric(<<"batch_pub_qos1_acked">>) - BeforeAcked),
+    ?assertEqual(0, metric(<<"batch_pub_qos1_delivered_inline">>) - BeforeInline),
+    flush_mailbox(),
+    persistent_term:put({?APP, config}, Cfg).
+
+t_force_upgrade_false_qos1_sub(_Config) ->
+    Cfg = persistent_term:get({?APP, config}),
+    persistent_term:put({?APP, config}, Cfg#{force_upgrade_qos => false}),
+    emqx_bcast:register_device(<<"P1">>, <<"DB">>, self()),
+    emqx_bcast_subscription:init(),
+    emqx_bcast_subscription:add(<<"DB">>, self(), {<<"/P1/DB/user/get">>, 1}),
+    BeforeInline = metric(<<"batch_pub_qos1_delivered_inline">>),
+    BeforeAcked = metric(<<"batch_pub_qos1_acked">>),
+    Body = #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"P1">>,
+        <<"DeviceName">> => [<<"DB">>],
+        <<"MessageContent">> => <<"aGVsbG8=">>,
+        <<"Qos">> => 1
+    },
+    {ok, 200, _, _} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
+    ?assertEqual(1, metric(<<"batch_pub_qos1_delivered_inline">>) - BeforeInline),
+    ?assertEqual(0, metric(<<"batch_pub_qos1_acked">>) - BeforeAcked),
+    flush_mailbox(),
+    persistent_term:put({?APP, config}, Cfg).
+
+t_force_upgrade_true_qos0_sub(_Config) ->
+    Cfg = persistent_term:get({?APP, config}),
+    persistent_term:put({?APP, config}, Cfg#{force_upgrade_qos => true}),
+    emqx_bcast:register_device(<<"P1">>, <<"DC">>, self()),
+    emqx_bcast_subscription:init(),
+    emqx_bcast_subscription:add(<<"DC">>, self(), {<<"/P1/DC/user/get">>, 0}),
+    BeforeInline = metric(<<"batch_pub_qos1_delivered_inline">>),
+    BeforeAcked = metric(<<"batch_pub_qos1_acked">>),
+    Body = #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"P1">>,
+        <<"DeviceName">> => [<<"DC">>],
+        <<"MessageContent">> => <<"aGVsbG8=">>,
+        <<"Qos">> => 1
+    },
+    {ok, 200, _, _} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
+    ?assertEqual(1, metric(<<"batch_pub_qos1_delivered_inline">>) - BeforeInline),
+    ?assertEqual(0, metric(<<"batch_pub_qos1_acked">>) - BeforeAcked),
+    flush_mailbox(),
+    persistent_term:put({?APP, config}, Cfg).
+
+flush_mailbox() ->
+    receive
+        #deliver{} -> flush_mailbox()
+    after 0 -> ok
+    end.
 
 t_api_missing_action(_Config) ->
     Body = #{<<"ProductKey">> => <<"P1">>},

@@ -30,7 +30,8 @@ normalize(Config) ->
         max_device_count => maps:get(max_device_count, Config, 10000),
         max_message_size_broadcast => maps:get(max_message_size_broadcast, Config, 65536),
         max_message_size_batch => maps:get(max_message_size_batch, Config, 10240),
-        msg_warn_threshold => maps:get(msg_warn_threshold, Config, 100000)
+        msg_warn_threshold => maps:get(msg_warn_threshold, Config, 100000),
+        force_upgrade_qos => maps:get(force_upgrade_qos, Config, true)
     }.
 
 ttl_to_sec(TTL) when is_binary(TTL) ->

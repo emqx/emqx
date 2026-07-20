@@ -198,8 +198,10 @@ on_client_subscribe(ClientInfo, _Properties, TopicFilters) ->
                     [#bcast_msg{topic_template = Template}] ->
                         Topic = emqx_bcast_utils:expand_topic(Template, ProductKey, ClientId),
                         case emqx_bcast_subscription:match(ClientId, Topic) of
-                            true -> replay_delivery(Pid, ProductKey, ClientId, DeliveryId);
-                            false -> ok
+                            {ok, SubQos} ->
+                                replay_delivery(Pid, ProductKey, ClientId, DeliveryId, SubQos);
+                            false ->
+                                ok
                         end;
                     [] ->
                         ok
@@ -244,8 +246,10 @@ on_session_resumed(ClientInfo, SessionInfo) ->
                     [#bcast_msg{topic_template = Template}] ->
                         Topic = emqx_bcast_utils:expand_topic(Template, ProductKey, ClientId),
                         case emqx_bcast_subscription:match(ClientId, Topic) of
-                            true -> replay_delivery(Pid, ProductKey, ClientId, DeliveryId);
-                            false -> ok
+                            {ok, SubQos} ->
+                                replay_delivery(Pid, ProductKey, ClientId, DeliveryId, SubQos);
+                            false ->
+                                ok
                         end;
                     [] ->
                         ok
@@ -271,23 +275,35 @@ on_message_acked(ClientInfo, Msg) ->
             ok
     end.
 
-replay_delivery(Pid, ProductKey, DeviceName, DeliveryId) ->
+replay_delivery(Pid, ProductKey, DeviceName, DeliveryId, SubQos) ->
     case mnesia:dirty_read(bcast_msg, DeliveryId) of
         [#bcast_msg{msg_id = MsgId, topic_template = Template}] ->
             case emqx_bcast_storage:lookup_message(MsgId) of
                 {ok, #bcast_message{payload = Payload}} ->
+                    Config = persistent_term:get({?APP, config}, #{}),
+                    ForceUpgrade = maps:get(force_upgrade_qos, Config, true),
                     Topic = emqx_bcast_utils:expand_topic(Template, ProductKey, DeviceName),
-                    Msg = emqx_message:make(
-                        DeliveryId,
-                        DeviceName,
-                        ?QOS_1,
-                        Topic,
-                        Payload,
-                        #{},
-                        #{?IOT_DELIVERY_ID => DeliveryId}
-                    ),
-                    Pid ! #deliver{topic = Topic, message = Msg},
-                    emqx_bcast_metrics:qos1_replayed(),
+                    case ForceUpgrade orelse SubQos >= 1 of
+                        true ->
+                            Msg = emqx_message:make(
+                                DeliveryId,
+                                DeviceName,
+                                ?QOS_1,
+                                Topic,
+                                Payload,
+                                #{},
+                                #{?IOT_DELIVERY_ID => DeliveryId}
+                            ),
+                            Pid ! #deliver{topic = Topic, message = Msg},
+                            emqx_bcast_metrics:qos1_replayed();
+                        false ->
+                            Msg = emqx_message:make(DeviceName, ?QOS_0, Topic, Payload),
+                            Pid ! #deliver{topic = Topic, message = Msg},
+                            _ = emqx_bcast_storage:process_ack(
+                                ProductKey, DeviceName, DeliveryId
+                            ),
+                            emqx_bcast_metrics:qos1_acked()
+                    end,
                     ok;
                 {error, not_found} ->
                     ok

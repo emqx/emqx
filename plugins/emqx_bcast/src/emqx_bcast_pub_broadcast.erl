@@ -72,7 +72,7 @@ deliver_local(ProductKey, TopicTemplate, Payload) ->
         fun([DeviceName, Pid]) ->
             Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DeviceName),
             case emqx_bcast_subscription:match(DeviceName, Topic) of
-                true ->
+                {ok, _SubQos} ->
                     emqx_bcast_metrics:broadcast_delivery_count(1),
                     Msg = emqx_message:make(DeviceName, ?QOS_0, Topic, Payload),
                     Pid ! #deliver{topic = Topic, message = Msg};

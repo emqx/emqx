@@ -138,7 +138,7 @@ deliver_qos0(DeviceNames, ProductKey, TopicTemplate, Payload, RequestId, ApiMsgI
                 {ok, Pid} ->
                     Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DN),
                     case emqx_bcast_subscription:match(DN, Topic) of
-                        true ->
+                        {ok, _SubQos} ->
                             emqx_bcast_metrics:qos0_delivered(),
                             Msg = emqx_message:make(DN, ?QOS_0, Topic, Payload),
                             Pid ! #deliver{topic = Topic, message = Msg};
@@ -163,24 +163,36 @@ deliver_qos1(DeviceNames, ProductKey, TopicTemplate, MsgGuid, RequestId, ApiMsgI
     ),
     {ok, PayloadMsg} = emqx_bcast_storage:lookup_message(MsgGuid),
     Payload = PayloadMsg#bcast_message.payload,
+    Config = persistent_term:get({?APP, config}, #{}),
+    ForceUpgrade = maps:get(force_upgrade_qos, Config, true),
     lists:foreach(
         fun(DN) ->
             case emqx_bcast:lookup_device({ProductKey, DN}) of
                 {ok, Pid} ->
                     Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DN),
                     case emqx_bcast_subscription:match(DN, Topic) of
-                        true ->
-                            emqx_bcast_metrics:qos1_delivered_inline(),
-                            Msg = emqx_message:make(
-                                DeliveryId,
-                                DN,
-                                ?QOS_1,
-                                Topic,
-                                Payload,
-                                #{},
-                                #{?IOT_DELIVERY_ID => DeliveryId}
-                            ),
-                            Pid ! #deliver{topic = Topic, message = Msg};
+                        {ok, SubQos} ->
+                            case ForceUpgrade orelse SubQos >= 1 of
+                                true ->
+                                    emqx_bcast_metrics:qos1_delivered_inline(),
+                                    Msg = emqx_message:make(
+                                        DeliveryId,
+                                        DN,
+                                        ?QOS_1,
+                                        Topic,
+                                        Payload,
+                                        #{},
+                                        #{?IOT_DELIVERY_ID => DeliveryId}
+                                    ),
+                                    Pid ! #deliver{topic = Topic, message = Msg};
+                                false ->
+                                    Msg = emqx_message:make(DN, ?QOS_0, Topic, Payload),
+                                    Pid ! #deliver{topic = Topic, message = Msg},
+                                    _ = emqx_bcast_storage:process_ack(
+                                        ProductKey, DN, DeliveryId
+                                    ),
+                                    emqx_bcast_metrics:qos1_acked()
+                            end;
                         false ->
                             emqx_bcast_metrics:qos1_stored_offline()
                     end;

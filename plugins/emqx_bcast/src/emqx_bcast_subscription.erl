@@ -58,7 +58,19 @@ clear(ClientId, _Pid) ->
 match(ClientId, Topic) ->
     case ets:lookup(?TAB, ClientId) of
         [#bcast_subscription{topics = Topics}] ->
-            lists:any(fun({Filter, _Qos}) -> emqx_topic:match(Topic, Filter) end, Topics);
+            Matched = lists:filtermap(
+                fun({Filter, Qos}) ->
+                    case emqx_topic:match(Topic, Filter) of
+                        true -> {true, Qos};
+                        false -> false
+                    end
+                end,
+                Topics
+            ),
+            case Matched of
+                [] -> false;
+                Qoses -> {ok, lists:max(Qoses)}
+            end;
         [] ->
             false
     end.
