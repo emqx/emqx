@@ -396,7 +396,7 @@ defmodule AppsVersionCheck do
           "Errors were found\n",
           "Invalid apps/plugin-apps: \n",
           [inspect(invalid_entries, pretty: true), "\n"],
-          "Run this script again with `--auto-fix` to automatically fix issues,",
+          "Run `./scripts/apps-version-check.exs --auto-fix` to automatically fix issues,",
           " or fix them manually."
         ])
 

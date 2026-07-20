@@ -77,6 +77,17 @@ t_authorize_cache_skip_non_cacheable(_) ->
     ?assertEqual(deny, emqx_access_control:authorize(clientinfo(), ?AUTHZ_PUBLISH, Topic)),
     ?assertEqual(not_found, emqx_authz_cache:get_authz_cache(?AUTHZ_PUBLISH, Topic)).
 
+t_authorize_cache_bypass(_) ->
+    Topic = <<"cache/bypass">>,
+    ok = emqx_authz_cache:empty_authz_cache(),
+    ok = emqx_authz_cache:put_authz_cache(?AUTHZ_PUBLISH, Topic, deny),
+    ok = emqx_hooks:put('client.authorize', {?MODULE, authz_stub, [Topic]}, ?HP_AUTHZ),
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(clientinfo(), ?AUTHZ_PUBLISH, Topic, #{cache => false})
+    ),
+    ?assertEqual(deny, emqx_authz_cache:get_authz_cache(?AUTHZ_PUBLISH, Topic)).
+
 t_quick_deny_anonymous(_) ->
     ok = emqx_hooks:put(
         'client.authenticate',

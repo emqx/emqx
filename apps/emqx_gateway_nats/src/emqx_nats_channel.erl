@@ -1071,13 +1071,14 @@ frame2message(
     Frame,
     Channel = #channel{
         conninfo = ConnInfo,
-        clientinfo = #{
-            protocol := Protocol,
-            clientid := ClientId,
-            username := Username,
-            peerhost := PeerHost,
-            mountpoint := Mountpoint
-        }
+        clientinfo =
+            ClientInfo = #{
+                protocol := Protocol,
+                clientid := ClientId,
+                username := Username,
+                peerhost := PeerHost,
+                mountpoint := Mountpoint
+            }
     }
 ) ->
     ProtoVer = maps:get(proto_ver, ConnInfo, <<"1">>),
@@ -1109,7 +1110,7 @@ frame2message(
                 Headers0#{reply_to => ReplyTo}
         end,
     NMsg = emqx_message:set_headers(Headers1, Msg),
-    emqx_mountpoint:mount(Mountpoint, NMsg).
+    emqx_message:set_authz_context(ClientInfo, emqx_mountpoint:mount(Mountpoint, NMsg)).
 
 process_pub_frame(Frame, Channel) ->
     Msg = frame2message(Frame, Channel),

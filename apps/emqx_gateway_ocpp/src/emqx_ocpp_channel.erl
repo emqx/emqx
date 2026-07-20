@@ -379,18 +379,21 @@ publish(
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic0) of
         allow ->
             emqx_broker:publish(
-                emqx_message:make(
-                    ClientId,
-                    ?QOS_2,
-                    Topic,
-                    Payload,
-                    #{},
-                    #{
-                        protocol => Protocol,
-                        proto_ver => ProtoVer,
-                        username => Username,
-                        peerhost => PeerHost
-                    }
+                emqx_message:set_authz_context(
+                    ClientInfo,
+                    emqx_message:make(
+                        ClientId,
+                        ?QOS_2,
+                        Topic,
+                        Payload,
+                        #{},
+                        #{
+                            protocol => Protocol,
+                            proto_ver => ProtoVer,
+                            username => Username,
+                            peerhost => PeerHost
+                        }
+                    )
                 )
             );
         deny ->

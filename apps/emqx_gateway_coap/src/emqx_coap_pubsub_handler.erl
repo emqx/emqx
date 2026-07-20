@@ -53,9 +53,9 @@ handle_method(post, Topic, #coap_message{payload = Payload} = Msg, Ctx, CInfo) -
         allow ->
             #{clientid := ClientId} = CInfo,
             MountTopic = mount(CInfo, Topic),
-            %% TODO: Append message metadata into headers
             MQTTMsg = emqx_message:make(ClientId, Qos, MountTopic, Payload),
-            MQTTMsg2 = apply_publish_opts(PublishOpts, MQTTMsg),
+            MQTTMsg1 = apply_publish_opts(PublishOpts, MQTTMsg),
+            MQTTMsg2 = emqx_message:set_authz_context(CInfo, MQTTMsg1),
             _ = emqx_broker:publish(MQTTMsg2),
             reply({ok, changed}, Msg);
         _ ->
