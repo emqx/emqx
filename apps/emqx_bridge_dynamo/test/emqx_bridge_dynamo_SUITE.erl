@@ -39,6 +39,7 @@
 all() ->
     [
         t_connector_client_uses_refreshed_metadata_credentials,
+        t_connector_client_marks_metadata_refresh_errors_recoverable,
         t_credentials_validator,
         {group, with_batch},
         {group, without_batch},
@@ -53,7 +54,11 @@ groups() ->
     Flaky = [t_get_status, t_write_failure],
     TCs =
         (TCs0 -- Flaky) --
-            [t_connector_client_uses_refreshed_metadata_credentials, t_credentials_validator],
+            [
+                t_connector_client_uses_refreshed_metadata_credentials,
+                t_connector_client_marks_metadata_refresh_errors_recoverable,
+                t_credentials_validator
+            ],
 
     [
         {with_batch, TCs},
@@ -101,6 +106,7 @@ end_per_suite(_Config) ->
 
 init_per_testcase(TestCase, Config) when
     TestCase =:= t_connector_client_uses_refreshed_metadata_credentials;
+    TestCase =:= t_connector_client_marks_metadata_refresh_errors_recoverable;
     TestCase =:= t_credentials_validator
 ->
     Config;
@@ -111,6 +117,7 @@ init_per_testcase(TestCase, Config) ->
 
 end_per_testcase(TestCase, _Config) when
     TestCase =:= t_connector_client_uses_refreshed_metadata_credentials;
+    TestCase =:= t_connector_client_marks_metadata_refresh_errors_recoverable;
     TestCase =:= t_credentials_validator
 ->
     ok;
@@ -454,6 +461,47 @@ t_connector_client_uses_refreshed_metadata_credentials(_Config) ->
         gen_server:stop(Pid)
     after
         meck:unload(erlcloud_httpc),
+        meck:unload(erlcloud_aws)
+    end.
+
+t_connector_client_marks_metadata_refresh_errors_recoverable(_Config) ->
+    CredentialGeneration = atomics:new(1, []),
+    meck:new(erlcloud_aws, [passthrough, no_link]),
+    meck:expect(
+        erlcloud_aws,
+        update_config,
+        fun(AWSConfig) ->
+            case atomics:add_get(CredentialGeneration, 1, 1) of
+                1 ->
+                    {ok, AWSConfig#aws_config{
+                        access_key_id = "imds_key",
+                        secret_access_key = "imds_secret",
+                        security_token = "imds_token"
+                    }};
+                2 ->
+                    {error, metadata_not_available}
+            end
+        end
+    ),
+    try
+        {ok, Pid} = emqx_bridge_dynamo_connector_client:start_link(#{
+            host => "127.0.0.1",
+            port => 8000,
+            scheme => "http://"
+        }),
+        ?assertEqual(
+            {error, {recoverable_error, {failed_to_obtain_credentials, metadata_not_available}}},
+            emqx_bridge_dynamo_connector_client:query(
+                Pid,
+                ?TABLE_BIN,
+                {get_item, {<<"id">>, <<"value">>}},
+                #{},
+                emqx_trace:make_rendered_action_template_trace_context(<<"test-action">>),
+                #{}
+            )
+        ),
+        gen_server:stop(Pid)
+    after
         meck:unload(erlcloud_aws)
     end.
 
