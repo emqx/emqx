@@ -438,13 +438,13 @@ t_parse_incoming_fragment_then_bad_subqos_idle(_) ->
     ?assertEqual([], Packets1),
     {Packets2, St2} = ?ws_conn:parse_incoming(Frag2, Packets1, St1),
     ?assertMatch([{frame_error, bad_subqos}], Packets2),
-    {[{shutdown, #{shutdown_count := invalid_connect_packet, reason := bad_subqos}}], _St3} =
+    {[{shutdown, #{shutdown_count := bad_subqos, reason := bad_subqos}}], _St3} =
         ?ws_conn:handle_incoming(Packets2, St2).
 
 t_handle_incomming_frame_error(_) ->
     FrameError = {frame_error, bad_qos},
     Serialize = #{version => 5, max_size => 16#FFFF, strict_mode => false},
-    {[{binary, IoData}, {close, <<"frame_error">>}], _St} =
+    {[{binary, IoData}, {close, <<"bad_qos">>}], _St} =
         ?ws_conn:handle_incoming([FrameError], st(#{serialize => Serialize})),
     ?assertEqual(<<224, 2, 129, 0>>, iolist_to_binary(IoData)).
 

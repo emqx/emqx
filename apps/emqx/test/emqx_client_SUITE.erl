@@ -1574,46 +1574,55 @@ t_frame_error_shutdown_count_connected(Config) ->
     ?assertEqual({shutdown, frame_error}, ExitReason).
 
 -doc """
-Frame parse errors name a counter from a fixed set, never one derived from the
-client input that triggered them, so that malformed packets cannot mint
-unbounded shutdown counter names.
+Frame parse errors reported as a map share the `frame_error` counter, so the
+detail they carry cannot mint counter names. Errors reported as a bare atom come
+from a fixed set and keep their own counter.
 """.
 t_frame_error_shutdown_count_is_bounded(Config) ->
-    %% Two different causes, one reported as a map and one as a bare atom.
-    Causes = [
-        %% invalid property code
+    MapCauses = [
+        %% #{cause => invalid_property_code, ...}
         <<16#82, 9, 0, 1, 2, 16#2B, 0, 0, 1, $t, 0>>,
-        %% bad subscribe qos
-        <<16#82, 7, 0, 1, 0, 0, 1, $t, 3>>
+        %% #{cause => invalid_proto_name, ...}, as reported in #17903
+        <<16#10, 12, 0, 6, "test/1", 4, 2, 0, 60>>
     ],
-    Before = shutdown_count(Config, frame_error),
+    %% bad_subqos, a bare atom
+    AtomCause = <<16#82, 7, 0, 1, 0, 0, 1, $t, 3>>,
+    GroupedBefore = shutdown_count(Config, frame_error),
+    NamedBefore = shutdown_count(Config, bad_subqos),
     lists:foreach(
-        fun(Malformed) ->
-            Socket = socket_connect(Config, [{active, true}, binary]),
-            ConnPacket = ?CONNECT_PACKET(#mqtt_packet_connect{
-                proto_ver = ?MQTT_PROTO_V5,
-                clientid = atom_to_binary(?FUNCTION_NAME)
-            }),
-            ok = socket_send(Socket, emqx_frame:serialize(ConnPacket)),
-            receive
-                {tcp, _, <<32, _/binary>>} -> ok;
-                {ssl, _, <<32, _/binary>>} -> ok
-            after 5000 -> ct:fail({connack_not_received, process_info(self(), messages)})
-            end,
-            ok = socket_send(Socket, Malformed),
-            {ok, _} = ?block_until(#{?snk_kind := terminate}, 5000)
-        end,
-        Causes
+        fun(Malformed) -> send_malformed_when_connected(Config, Malformed) end,
+        [AtomCause | MapCauses]
     ),
-    %% Both land on the one counter, and neither cause names a counter of its own.
-    ?WAIT(?assertEqual(Before + length(Causes), shutdown_count(Config, frame_error)), 5),
+    %% Every map cause lands on the one counter ...
+    ?WAIT(
+        ?assertEqual(GroupedBefore + length(MapCauses), shutdown_count(Config, frame_error)),
+        5
+    ),
     ?assertEqual(
         [],
         [
             K
-         || K <- shutdown_count_keys(Config), lists:member(K, [invalid_property_code, bad_subqos])
+         || K <- shutdown_count_keys(Config),
+            lists:member(K, [invalid_property_code, invalid_proto_name])
         ]
-    ).
+    ),
+    %% ... while an atom cause keeps its own.
+    ?assertEqual(NamedBefore + 1, shutdown_count(Config, bad_subqos)).
+
+send_malformed_when_connected(Config, Malformed) ->
+    Socket = socket_connect(Config, [{active, true}, binary]),
+    ConnPacket = ?CONNECT_PACKET(#mqtt_packet_connect{
+        proto_ver = ?MQTT_PROTO_V5,
+        clientid = atom_to_binary(?FUNCTION_NAME)
+    }),
+    ok = socket_send(Socket, emqx_frame:serialize(ConnPacket)),
+    receive
+        {tcp, _, <<32, _/binary>>} -> ok;
+        {ssl, _, <<32, _/binary>>} -> ok
+    after 5000 -> ct:fail({connack_not_received, process_info(self(), messages)})
+    end,
+    ok = socket_send(Socket, Malformed),
+    {ok, _} = ?block_until(#{?snk_kind := terminate}, 5000).
 
 %% Send `Malformed' and assert the connection exits with a reason the connection
 %% supervisor attributes to `Cause'. Returns the exit reason.

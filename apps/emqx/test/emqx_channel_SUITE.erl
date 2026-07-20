@@ -535,12 +535,12 @@ t_handle_in_auth(_) ->
 t_handle_in_frame_error(_) ->
     IdleChannelV5 = channel(#{conn_state => idle}),
     ?assertMatch(
-        {shutdown, #{shutdown_count := invalid_connect_packet, reason := bad_subqos}, _Chan},
+        {shutdown, #{shutdown_count := bad_subqos, reason := bad_subqos}, _Chan},
         emqx_channel:handle_in({frame_error, bad_subqos}, IdleChannelV5)
     ),
     %% no CONNACK packet for v4
     ?assertMatch(
-        {shutdown, #{shutdown_count := invalid_connect_packet, cause := frame_too_large}, _Chan},
+        {shutdown, #{shutdown_count := frame_too_large, cause := frame_too_large}, _Chan},
         emqx_channel:handle_in(
             {frame_error, #{cause => frame_too_large}}, v4(IdleChannelV5)
         )
@@ -551,7 +551,7 @@ t_handle_in_frame_error(_) ->
     ?assertMatch(
         {shutdown,
             #{
-                shutdown_count := frame_error,
+                shutdown_count := frame_too_large,
                 cause := frame_too_large,
                 limit := 100,
                 received := 101
