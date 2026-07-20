@@ -29,6 +29,10 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - run: make ensure-rebar3
+      # Plugin CT suites that exercise end-to-end install/start/packaging paths
+      # depend on a full emqx-enterprise build.
+      - name: compile emqx-enterprise for plugin packaging dependencies
+        run: make compile-emqx-enterprise
       - name: run in-tree plugin CT
         run: make plugins-ct
       - name: build in-tree plugin packages

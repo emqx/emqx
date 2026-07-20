@@ -1,0 +1,34 @@
+{
+  "default_timeout_label": {
+    "en": "Default timeout",
+    "zh": "默认超时时间"
+  },
+  "default_timeout_desc": {
+    "en": "Default HTTP wait timeout when the request does not specify one.",
+    "zh": "HTTP 请求未指定 timeout 时使用的默认等待超时时间。"
+  },
+  "max_timeout_label": {
+    "en": "Maximum timeout",
+    "zh": "最大超时时间"
+  },
+  "max_timeout_desc": {
+    "en": "Maximum accepted HTTP wait timeout.",
+    "zh": "HTTP 请求允许的最大等待超时时间。"
+  },
+  "max_inflight_requests_label": {
+    "en": "Maximum inflight requests",
+    "zh": "最大并发请求数"
+  },
+  "max_inflight_requests_desc": {
+    "en": "Maximum number of local HTTP requests waiting for responses.",
+    "zh": "本节点允许同时等待响应的 HTTP 请求数上限。"
+  },
+  "max_payload_size_label": {
+    "en": "Maximum payload size",
+    "zh": "最大 Payload 大小"
+  },
+  "max_payload_size_desc": {
+    "en": "Maximum request or response MQTT payload size.",
+    "zh": "请求或响应 MQTT Payload 的最大大小。"
+  }
+}
