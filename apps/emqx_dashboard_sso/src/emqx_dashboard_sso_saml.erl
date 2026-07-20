@@ -110,16 +110,12 @@ sp_private_key(_) -> undefined.
 
 idp_signs_envelopes(type) -> boolean();
 idp_signs_envelopes(desc) -> ?DESC(idp_signs_envelopes);
-%% Default to false for backwards compatibility - signature verification
-%% was not working correctly before this fix was introduced.
-idp_signs_envelopes(default) -> false;
+idp_signs_envelopes(default) -> emqx_security_profile:policy(saml_signature_verification);
 idp_signs_envelopes(_) -> undefined.
 
 idp_signs_assertions(type) -> boolean();
 idp_signs_assertions(desc) -> ?DESC(idp_signs_assertions);
-%% Default to false for backwards compatibility - signature verification
-%% was not working correctly before this fix was introduced.
-idp_signs_assertions(default) -> false;
+idp_signs_assertions(default) -> emqx_security_profile:policy(saml_signature_verification);
 idp_signs_assertions(_) -> undefined.
 
 desc(saml) ->

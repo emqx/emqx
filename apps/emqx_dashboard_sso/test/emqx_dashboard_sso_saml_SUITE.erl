@@ -43,6 +43,7 @@ all() ->
 groups() ->
     [
         {unit, [sequence], [
+            t_signature_defaults,
             t_validate_signature_config,
             t_maybe_load_cert_or_key,
             t_callback_rejects_xxe_response,
@@ -139,6 +140,27 @@ end_per_testcase(Case, _Config) ->
 %%------------------------------------------------------------------------------
 %% Unit Tests
 %%------------------------------------------------------------------------------
+
+t_signature_defaults(_Config) ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ?assertMatch(
+            #{idp_signs_envelopes := false, idp_signs_assertions := false},
+            checked_saml_config(#{})
+        )
+    end),
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ?assertMatch(
+            #{idp_signs_envelopes := true, idp_signs_assertions := true},
+            checked_saml_config(#{})
+        ),
+        ?assertMatch(
+            #{idp_signs_envelopes := false, idp_signs_assertions := false},
+            checked_saml_config(#{
+                <<"idp_signs_envelopes">> => false,
+                <<"idp_signs_assertions">> => false
+            })
+        )
+    end).
 
 t_validate_signature_config(_Config) ->
     %% Test signature configuration validation
@@ -491,6 +513,16 @@ t_sig_combo_sp_sign_both_idp(_Config) ->
 %%------------------------------------------------------------------------------
 %% Helper Functions
 %%------------------------------------------------------------------------------
+
+checked_saml_config(Overrides) ->
+    Config = maps:merge(#{<<"backend">> => <<"saml">>}, Overrides),
+    RawConf = #{<<"dashboard">> => #{<<"sso">> => #{<<"saml">> => Config}}},
+    #{dashboard := #{sso := #{saml := Checked}}} = hocon_tconf:check_plain(
+        emqx_dashboard_schema,
+        RawConf,
+        #{required => false, atom_key => true, make_serializable => false}
+    ),
+    Checked.
 
 uri(Parts) ->
     ?BASE_URL ++ "/" ++ filename:join(["api", "v5" | Parts]).
