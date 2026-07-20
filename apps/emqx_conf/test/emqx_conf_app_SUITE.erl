@@ -170,6 +170,51 @@ t_sync_data_from_node_with_bad_symlinks(Config) ->
         stop_cluster(Nodes)
     end.
 
+t_init_load_with_changed_max_packet_size_before_listeners_start(Config) ->
+    [NodeSpec] = cluster(?FUNCTION_NAME, [cluster_spec(15)], Config),
+    [Node] = start_cluster([NodeSpec]),
+    try
+        ?ON(Node, begin
+            MaxPacketSizePath = [mqtt, max_packet_size],
+            MaxPacketSize0 = emqx_config:get_zone_conf(default, MaxPacketSizePath),
+            ?assertNotEqual(4194304, MaxPacketSize0),
+
+            RawConf0 = emqx_config_handler:get_raw_cluster_override_conf(),
+            RawConf1 = emqx_utils_maps:deep_put(
+                [<<"mqtt">>, <<"max_packet_size">>],
+                RawConf0,
+                <<"4MB">>
+            ),
+            RawConf2 = emqx_utils_maps:deep_put(
+                [<<"node">>, <<"cookie">>],
+                RawConf1,
+                atom_to_binary(erlang:get_cookie())
+            ),
+            RawConf = emqx_utils_maps:deep_put(
+                [<<"node">>, <<"data_dir">>],
+                RawConf2,
+                unicode:characters_to_binary(emqx:data_dir())
+            ),
+            ok = emqx_config:save_to_override_conf(
+                emqx_config:has_deprecated_file(),
+                RawConf,
+                #{override_to => cluster}
+            ),
+            ?assertEqual(MaxPacketSize0, emqx_config:get_zone_conf(default, MaxPacketSizePath)),
+
+            ok = application:stop(emqx),
+            ok = application:stop(esockd),
+            ok = emqx_config:init_load(emqx_conf:schema_module()),
+            ?assertEqual(4194304, emqx_config:get_zone_conf(default, MaxPacketSizePath)),
+
+            {ok, _} = application:ensure_all_started(emqx),
+            ?assert(emqx:is_running()),
+            ok
+        end)
+    after
+        stop_cluster([Node])
+    end.
+
 %%------------------------------------------------------------------------------
 %% Helper functions
 %%------------------------------------------------------------------------------
