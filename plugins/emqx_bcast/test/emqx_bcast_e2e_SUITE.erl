@@ -29,7 +29,7 @@ init_per_suite(Config) ->
     ok = emqx_bcast:init_tables(),
     init_test_config(),
     ok = emqx_bcast:hook(),
-    catch catch emqx_bcast_metrics:init(),
+    catch emqx_bcast_metrics:init(),
     _ =
         try
             ets:new(bcast_msg_index, [
@@ -103,7 +103,8 @@ api_call(Body) -> emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}).
 b64(S) -> base64:encode(S).
 
 recv(Count) -> recv(Count, []).
-recv(0, Msgs) -> Msgs;
+recv(0, Msgs) ->
+    Msgs;
 recv(Count, Msgs) ->
     receive
         {publish, Msg} -> recv(Count - 1, [Msg | Msgs])

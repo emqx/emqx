@@ -40,8 +40,7 @@
     counter :: non_neg_integer(),
     device_names :: [binary()],
     created_at :: non_neg_integer(),
-    expires_at :: non_neg_integer(),
-    response_topic_template :: binary() | undefined
+    expires_at :: non_neg_integer()
 }).
 
 -record(bcast_msg_index, {
@@ -61,10 +60,10 @@
     pid :: pid()
 }).
 
--endif.
-
 -record(bcast_subscription, {
     clientid :: binary(),
     pid :: pid(),
     topics :: [{binary(), non_neg_integer()}]
 }).
+
+-endif.

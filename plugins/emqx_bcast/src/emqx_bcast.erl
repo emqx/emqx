@@ -12,7 +12,6 @@
     unregister_device/2,
     lookup_device/1,
     lookup_devices_by_product/1,
-    replay_delivery/4,
     on_client_connected/2,
     on_client_disconnected/3,
     on_client_subscribe/3,
@@ -259,14 +258,6 @@ on_session_resumed(ClientInfo, SessionInfo) ->
             ok
     end,
     ok.
-
-get_delivery_topic(DeliveryId) ->
-    case mnesia:dirty_read(bcast_msg, DeliveryId) of
-        [#bcast_msg{topic_template = Template}] ->
-            Template;
-        [] ->
-            <<>>
-    end.
 
 on_message_acked(ClientInfo, Msg) ->
     case emqx_message:get_header(?IOT_DELIVERY_ID, Msg, undefined) of

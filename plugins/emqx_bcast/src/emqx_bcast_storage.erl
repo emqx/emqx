@@ -9,10 +9,9 @@
     lookup_message/1,
     refresh_message_ttl/1,
     lookup_or_create_message/4,
-    create_delivery/7,
+    create_delivery/6,
     process_ack/3,
     get_device_deliveries/1,
-    delete_delivery/1,
     cleanup_expired/0
 ]).
 
@@ -98,9 +97,7 @@ refresh_message_ttl(MsgId) ->
         end
     end).
 
-create_delivery(
-    DeliveryId, MsgId, ProductKey, TopicTemplate, DeviceNames, TargetCount, ResponseTemplate
-) ->
+create_delivery(DeliveryId, MsgId, ProductKey, TopicTemplate, DeviceNames, TargetCount) ->
     Now = emqx_bcast_utils:now_sec(),
     TTL = emqx_bcast_utils:ttl(),
     Delivery = #bcast_msg{
@@ -112,8 +109,7 @@ create_delivery(
         counter = 0,
         device_names = DeviceNames,
         created_at = Now,
-        expires_at = Now + TTL,
-        response_topic_template = ResponseTemplate
+        expires_at = Now + TTL
     },
     {atomic, ok} = mnesia:transaction(fun() ->
         mnesia:write(Delivery)
@@ -121,10 +117,11 @@ create_delivery(
     Entries = lists:map(
         fun(DN) ->
             Key = {ProductKey, DN},
-            Ids = case ets:lookup(bcast_msg_index, Key) of
-                [#bcast_msg_index{delivery_ids = Ids0}] -> Ids0;
-                [] -> []
-            end,
+            Ids =
+                case ets:lookup(bcast_msg_index, Key) of
+                    [#bcast_msg_index{delivery_ids = Ids0}] -> Ids0;
+                    [] -> []
+                end,
             #bcast_msg_index{key = Key, delivery_ids = [DeliveryId | Ids]}
         end,
         DeviceNames
@@ -175,11 +172,6 @@ get_device_deliveries({ProductKey, DeviceName}) ->
         [] ->
             {ok, []}
     end.
-
-delete_delivery(DeliveryId) ->
-    mnesia:transaction(fun() ->
-        mnesia:delete({bcast_msg, DeliveryId})
-    end).
 
 cleanup_expired() ->
     Now = emqx_bcast_utils:now_sec(),

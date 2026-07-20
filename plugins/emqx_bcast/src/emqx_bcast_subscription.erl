@@ -26,7 +26,6 @@ init() ->
     end.
 
 add(_ClientId, _Pid, Filter) ->
-    {TopicFilter, _Qos} = Filter,
     case ets:lookup(?TAB, _ClientId) of
         [#bcast_subscription{topics = Topics}] ->
             ets:insert(?TAB, #bcast_subscription{

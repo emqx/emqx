@@ -15,7 +15,6 @@ handle(Body, RequestId) ->
     Qos = maps:get(<<"Qos">>, Body, 0),
     TopicShortName = maps:get(<<"TopicShortName">>, Body, undefined),
     TopicTemplateName = maps:get(<<"TopicTemplateName">>, Body, undefined),
-    ResponseTemplate = maps:get(<<"ResponseTopicTemplateName">>, Body, undefined),
 
     case validate_input(ProductKey, DeviceNames, MessageContent, MessageId, Qos) of
         {error, Code, Msg} ->
@@ -48,8 +47,7 @@ handle(Body, RequestId) ->
                                 TopicTemplate,
                                 MsgGuid,
                                 RequestId,
-                                ApiMsgId,
-                                ResponseTemplate
+                                ApiMsgId
                             )
                     end
             end
@@ -155,15 +153,13 @@ deliver_qos0(DeviceNames, ProductKey, TopicTemplate, Payload, RequestId, ApiMsgI
     ),
     {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)}.
 
-deliver_qos1(
-    DeviceNames, ProductKey, TopicTemplate, MsgGuid, RequestId, ApiMsgId, ResponseTemplate
-) ->
+deliver_qos1(DeviceNames, ProductKey, TopicTemplate, MsgGuid, RequestId, ApiMsgId) ->
     emqx_bcast_metrics:qos1_in(),
     emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
     DeliveryId = emqx_bcast_utils:gen_guid(),
     N = length(DeviceNames),
     _Delivery = emqx_bcast_storage:create_delivery(
-        DeliveryId, MsgGuid, ProductKey, TopicTemplate, DeviceNames, N, ResponseTemplate
+        DeliveryId, MsgGuid, ProductKey, TopicTemplate, DeviceNames, N
     ),
     {ok, PayloadMsg} = emqx_bcast_storage:lookup_message(MsgGuid),
     Payload = PayloadMsg#bcast_message.payload,
@@ -176,7 +172,12 @@ deliver_qos1(
                         true ->
                             emqx_bcast_metrics:qos1_delivered_inline(),
                             Msg = emqx_message:make(
-                                DeliveryId, DN, ?QOS_1, Topic, Payload, #{},
+                                DeliveryId,
+                                DN,
+                                ?QOS_1,
+                                Topic,
+                                Payload,
+                                #{},
                                 #{?IOT_DELIVERY_ID => DeliveryId}
                             ),
                             Pid ! #deliver{topic = Topic, message = Msg};
