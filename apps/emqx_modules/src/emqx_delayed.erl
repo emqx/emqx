@@ -468,13 +468,13 @@ do_publish(Key = {Ts, _Id}, Now, Acc) when Ts =< Now ->
     end,
     do_publish(mnesia:dirty_next(?TAB, Key), Now, [Key | Acc]).
 
-publish_delayed_message(Msg = #message{from = ClientId, topic = Topic, qos = QoS}) ->
+publish_delayed_message(Msg = #message{from = ClientId, topic = Topic, qos = Qos}) ->
     ClientInfo = get_authz_context(Msg),
     case is_banned(ClientInfo, ClientId) of
         true ->
             ignore_delayed_message_publish("client is banned", ClientId, Topic);
         false ->
-            maybe_publish_authorized(ClientInfo, Msg, ClientId, Topic, QoS)
+            maybe_publish_authorized(ClientInfo, Msg, ClientId, Topic, Qos)
     end.
 
 is_banned(undefined, ClientId) ->
@@ -501,11 +501,11 @@ get_authz_context(Msg = #message{from = ClientId, headers = Headers}) ->
             ClientInfo
     end.
 
-maybe_publish_authorized(undefined, Msg, _ClientId, _Topic, _QoS) ->
+maybe_publish_authorized(undefined, Msg, _ClientId, _Topic, _Qos) ->
     emqx:publish(Msg);
-maybe_publish_authorized(ClientInfo, Msg, ClientId, Topic, QoS) ->
+maybe_publish_authorized(ClientInfo, Msg, ClientId, Topic, Qos) ->
     Retain = emqx_message:get_flag(retain, Msg),
-    Action = ?AUTHZ_PUBLISH(QoS, Retain),
+    Action = ?AUTHZ_PUBLISH(Qos, Retain),
     case emqx_access_control:authorize(ClientInfo, Action, Topic, #{cache => false}) of
         allow ->
             case emqx_banned:check(ClientInfo) of
