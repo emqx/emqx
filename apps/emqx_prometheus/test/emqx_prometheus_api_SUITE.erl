@@ -12,6 +12,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx_prometheus/include/emqx_prometheus.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %%--------------------------------------------------------------------
 %% Setups
