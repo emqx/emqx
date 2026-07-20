@@ -124,9 +124,15 @@ t_get_set_header(_) ->
 
 t_set_authz_context(_) ->
     ClientInfo = #{
+        zone => default,
+        protocol => mqtt,
+        peerhost => {127, 0, 0, 1},
+        sockport => 1883,
         clientid => <<"clientid">>,
         username => <<"username">>,
+        is_bridge => false,
         is_superuser => false,
+        mountpoint => undefined,
         acl => #{rules => []},
         client_attrs => #{<<"role">> => <<"reader">>},
         password => <<"secret">>,

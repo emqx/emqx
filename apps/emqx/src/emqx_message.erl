@@ -103,9 +103,20 @@
     mountpoint,
     peerhost,
     protocol,
+    sockport,
     username,
     zone
 ]).
+
+-define(DEFAULT_AUTHZ_CONTEXT, #{
+    zone => undefined,
+    protocol => none,
+    peerhost => {0, 0, 0, 0},
+    sockport => 0,
+    username => undefined,
+    is_bridge => false,
+    mountpoint => undefined
+}).
 
 -elvis([{elvis_style, god_modules, disable}]).
 
@@ -271,9 +282,10 @@ unset_flag(Flag, Msg = #message{flags = Flags}) ->
 set_headers(New, Msg = #message{headers = Old}) when is_map(New) ->
     Msg#message{headers = maps:merge(Old, New)}.
 
--spec make_authz_context(emqx_types:clientinfo()) -> emqx_types:clientinfo().
+-spec make_authz_context(#{clientid := emqx_types:clientid(), atom() => term()}) ->
+    emqx_types:clientinfo().
 make_authz_context(ClientInfo) ->
-    Context = maps:with(?AUTHZ_CONTEXT_KEYS, ClientInfo),
+    Context = maps:merge(?DEFAULT_AUTHZ_CONTEXT, maps:with(?AUTHZ_CONTEXT_KEYS, ClientInfo)),
     Context#{is_superuser => false}.
 
 -spec set_authz_context(emqx_types:clientinfo(), emqx_types:message()) -> emqx_types:message().
