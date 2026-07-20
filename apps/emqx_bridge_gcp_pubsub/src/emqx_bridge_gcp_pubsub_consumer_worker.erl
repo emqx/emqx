@@ -407,9 +407,9 @@ ensure_ack_timer(State = #{ack_timer := TRef, pending_acks := PendingAcks}) ->
             State
     end.
 
--spec ensure_pull_timer(state()) -> state().
-ensure_pull_timer(State = #{pull_retry_interval := PullRetryInterval}) ->
-    State#{pull_timer := emqx_utils:start_timer(PullRetryInterval, pull)}.
+-spec ensure_pull_timer(state(), timeout()) -> state().
+ensure_pull_timer(State, TimeoutMS) ->
+    State#{pull_timer := emqx_utils:start_timer(TimeoutMS, pull)}.
 
 cancel_pull_timer(State = #{pull_timer := TRef}) ->
     emqx_utils:cancel_timer(TRef),
@@ -595,10 +595,18 @@ do_pull_async(State0) ->
             ),
             case Res of
                 {ok, AsyncWorkerPid} ->
-                    State2 = ensure_pull_timer(State1),
+                    %% A pull is in flight.  `ehttpc' never expires a request once it has
+                    %% been sent, so this timer is what bounds the long poll, and firing it
+                    %% cancels the request.  It must therefore allow the server the full
+                    %% lease duration to answer: cancelling earlier tears down a healthy long
+                    %% poll and discards any messages the server already leased into its
+                    %% response, which then stay invisible until the lease expires.
+                    State2 = ensure_pull_timer(State1, AckDeadlineMS),
                     ensure_async_worker_monitored(State2, AsyncWorkerPid);
                 {error, no_pool_worker_available} ->
-                    ensure_pull_timer(State1)
+                    %% Nothing is in flight, so there is nothing to lose by retrying soon.
+                    #{pull_retry_interval := PullRetryInterval} = State1,
+                    ensure_pull_timer(State1, PullRetryInterval)
             end
         end
     ).
