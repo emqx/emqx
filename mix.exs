@@ -188,7 +188,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "2.2.0-emqx-3", override: true}
 
   def common_dep(:ehttpc),
-    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.4", override: true}
+    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.5", override: true}
 
   def common_dep(:jiffy), do: {:jiffy, "1.1.2", override: true}
 
@@ -316,7 +316,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:parquer, github: "emqx/parquer", tag: "0.1.8", manager: :rebar3}
 
   def common_dep(:greptimedb),
-    do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.3-emqx.1"}
+    do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.5-emqx.1"}
 
   def common_dep(:greptimedb_rs),
     do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.12"}

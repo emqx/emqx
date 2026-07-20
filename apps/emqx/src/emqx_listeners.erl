@@ -47,6 +47,7 @@
 
 -export([pre_config_update/3, post_config_update/5]).
 -export([post_zone_config_update/2, update_listener_for_zone_changes/3]).
+-export([reconcile_cert_source/2]).
 
 -export([format_bind/1]).
 
@@ -592,8 +593,9 @@ pre_config_update([?ROOT_KEY, _Type, _Name], {update, _Request}, undefined) ->
     {error, not_found};
 pre_config_update([?ROOT_KEY, Type, Name], {update, Request}, RawConf) ->
     RawConf1 = emqx_utils_maps:deep_merge(RawConf, Request),
-    ok = assert_zone_exists(RawConf1),
-    {ok, convert_certs(Type, Name, RawConf1)};
+    RawConf2 = reconcile_cert_source(Request, RawConf1),
+    ok = assert_zone_exists(RawConf2),
+    {ok, convert_certs(Type, Name, RawConf2)};
 pre_config_update([?ROOT_KEY, _Type, _Name], {action, _Action, Updated}, RawConf) ->
     {ok, emqx_utils_maps:deep_merge(RawConf, Updated)};
 pre_config_update([?ROOT_KEY, _Type, _Name], ?MARK_DEL, _RawConf) ->
@@ -997,6 +999,41 @@ convert_certs(ListenerConf) ->
         #{},
         ListenerConf
     ).
+
+-doc """
+Enforce that a listener uses a single certificate source.
+
+`managed_certs' and file-based certificates (`certfile'/`keyfile') are mutually
+exclusive certificate sources.  Configuration updates are applied via `deep_merge',
+which can only add or override keys, never drop them.  Without this reconciliation an
+update that switches a listener from a managed certificate bundle back to file-based
+certificates would keep the stale `managed_certs' reference and fail to resolve a
+(possibly already deleted) bundle.
+
+When `Request' supplies file-based certificate material and does not itself reference
+`managed_certs', drop any residual `managed_certs' from `MergedConf' so the result
+uses only the requested certificate source.  Both arguments are raw (binary-keyed)
+configs.
+""".
+reconcile_cert_source(Request, MergedConf) ->
+    case get_ssl_options(Request) of
+        RequestSSL when is_map(RequestSSL) ->
+            RequestSetsManaged = maps:is_key(<<"managed_certs">>, RequestSSL),
+            RequestSetsFileCerts =
+                maps:is_key(<<"certfile">>, RequestSSL) orelse
+                    maps:is_key(<<"keyfile">>, RequestSSL),
+            case (not RequestSetsManaged) andalso RequestSetsFileCerts of
+                true -> drop_managed_certs(MergedConf);
+                false -> MergedConf
+            end;
+        _ ->
+            MergedConf
+    end.
+
+drop_managed_certs(#{<<"ssl_options">> := SSL} = Conf) when is_map(SSL) ->
+    Conf#{<<"ssl_options">> => maps:remove(<<"managed_certs">>, SSL)};
+drop_managed_certs(Conf) ->
+    Conf.
 
 convert_certs(Type, Name, Conf) ->
     CertsDir = certs_dir(Type, Name),

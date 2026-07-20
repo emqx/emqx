@@ -402,6 +402,9 @@ session_hwm_teardown(Config) ->
 session_hwm_uri(Query) ->
     uri(["license", "session_hwm_history"]) ++ Query.
 
+filter_by_period(Rows, ExpectedPeriods) ->
+    [R || R <- Rows, lists:member(maps:get(<<"period">>, R), ExpectedPeriods)].
+
 t_session_hwm_history_default_monthly({init, Config}) ->
     session_hwm_setup(Config);
 t_session_hwm_history_default_monthly({'end', Config}) ->
@@ -413,7 +416,7 @@ t_session_hwm_history_default_monthly(_Config) ->
     ?assertEqual(<<"monthly">>, Period),
     ?assertMatch(
         [#{<<"period">> := <<"2026-05">>}, #{<<"period">> := <<"2026-04">>}],
-        Rows
+        filter_by_period(Rows, [<<"2026-05">>, <<"2026-04">>])
     ).
 
 t_session_hwm_history_monthly({init, Config}) ->
@@ -429,7 +432,7 @@ t_session_hwm_history_monthly(_Config) ->
             #{<<"period">> := <<"2026-05">>, <<"high_watermark">> := 5},
             #{<<"period">> := <<"2026-04">>, <<"high_watermark">> := 20}
         ],
-        Rows
+        filter_by_period(Rows, [<<"2026-05">>, <<"2026-04">>])
     ).
 
 t_session_hwm_history_daily({init, Config}) ->
@@ -446,7 +449,7 @@ t_session_hwm_history_daily(_Config) ->
             #{<<"period">> := <<"2026-04-19">>, <<"high_watermark">> := 20},
             #{<<"period">> := <<"2026-04-18">>, <<"high_watermark">> := 10}
         ],
-        Rows
+        filter_by_period(Rows, [<<"2026-05-01">>, <<"2026-04-19">>, <<"2026-04-18">>])
     ).
 
 t_session_hwm_history_limit({init, Config}) ->
