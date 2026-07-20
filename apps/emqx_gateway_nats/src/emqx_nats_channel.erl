@@ -1181,10 +1181,11 @@ frame2message(
     Frame,
     Topic,
     #channel{
-        clientinfo = #{
-            clientid := ClientId,
-            mountpoint := Mountpoint
-        },
+        clientinfo =
+            ClientInfo = #{
+                clientid := ClientId,
+                mountpoint := Mountpoint
+            },
         publish_qos = QoS,
         pub_headers_base = BaseHeaders
     }
@@ -1203,7 +1204,8 @@ frame2message(
                 BaseHeaders1#{reply_to => ReplyTo}
         end,
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload, #{}, Headers1),
-    {emqx_mountpoint:mount(Mountpoint, Msg), ReplyTo}.
+    MountedMsg = emqx_mountpoint:mount(Mountpoint, Msg),
+    {emqx_message:set_authz_context(ClientInfo, MountedMsg), ReplyTo}.
 
 process_pub_frame(Frame, Topic, Channel) ->
     {Msg, ReplyToSubject} = frame2message(Frame, Topic, Channel),

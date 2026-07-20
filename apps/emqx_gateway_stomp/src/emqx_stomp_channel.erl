@@ -1252,13 +1252,14 @@ frame2message(
     ?PACKET(?CMD_SEND, Headers, Body),
     #channel{
         conninfo = #{proto_ver := ProtoVer},
-        clientinfo = #{
-            protocol := Protocol,
-            clientid := ClientId,
-            username := Username,
-            peerhost := PeerHost,
-            mountpoint := Mountpoint
-        }
+        clientinfo =
+            ClientInfo = #{
+                protocol := Protocol,
+                clientid := ClientId,
+                username := Username,
+                peerhost := PeerHost,
+                mountpoint := Mountpoint
+            }
     }
 ) ->
     Topic = header(<<"destination">>, Headers),
@@ -1286,7 +1287,7 @@ frame2message(
         },
         Msg
     ),
-    emqx_mountpoint:mount(Mountpoint, NMsg).
+    emqx_message:set_authz_context(ClientInfo, emqx_mountpoint:mount(Mountpoint, NMsg)).
 
 receipt_id(Headers) ->
     header(<<"receipt">>, Headers).

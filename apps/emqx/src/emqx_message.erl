@@ -50,6 +50,8 @@
     get_header/3,
     set_header/3,
     set_headers/2,
+    make_authz_context/1,
+    set_authz_context/2,
     remove_header/2
 ]).
 
@@ -88,6 +90,22 @@
 %% Message timestamp
 %% Granularity: milliseconds.
 -type timestamp() :: non_neg_integer().
+
+-define(AUTHZ_CONTEXT_KEYS, [
+    acl,
+    anonymous,
+    client_attrs,
+    clientid,
+    cn,
+    dn,
+    is_bridge,
+    listener,
+    mountpoint,
+    peerhost,
+    protocol,
+    username,
+    zone
+]).
 
 -elvis([{elvis_style, god_modules, disable}]).
 
@@ -252,6 +270,15 @@ unset_flag(Flag, Msg = #message{flags = Flags}) ->
 -spec set_headers(map(), emqx_types:message()) -> emqx_types:message().
 set_headers(New, Msg = #message{headers = Old}) when is_map(New) ->
     Msg#message{headers = maps:merge(Old, New)}.
+
+-spec make_authz_context(emqx_types:clientinfo()) -> emqx_types:clientinfo().
+make_authz_context(ClientInfo) ->
+    Context = maps:with(?AUTHZ_CONTEXT_KEYS, ClientInfo),
+    Context#{is_superuser => false}.
+
+-spec set_authz_context(emqx_types:clientinfo(), emqx_types:message()) -> emqx_types:message().
+set_authz_context(ClientInfo, Msg) ->
+    set_header(authz_context, make_authz_context(ClientInfo), Msg).
 
 -spec get_headers(emqx_types:message()) -> option(map()).
 get_headers(Msg) -> Msg#message.headers.

@@ -766,21 +766,19 @@ packet_to_message(Packet, #channel{
         } = ClientInfo
 }) ->
     ClientAttrs = maps:get(client_attrs, ClientInfo, #{}),
-    emqx_mountpoint:mount(
-        MountPoint,
-        emqx_packet:to_message(
-            Packet,
-            ClientId,
-            #{
-                client_attrs => ClientAttrs,
-                peername => PeerName,
-                proto_ver => ProtoVer,
-                protocol => Protocol,
-                username => Username,
-                peerhost => PeerHost
-            }
-        )
-    ).
+    Msg = emqx_packet:to_message(
+        Packet,
+        ClientId,
+        #{
+            client_attrs => ClientAttrs,
+            peername => PeerName,
+            proto_ver => ProtoVer,
+            protocol => Protocol,
+            username => Username,
+            peerhost => PeerHost
+        }
+    ),
+    emqx_message:set_authz_context(ClientInfo, emqx_mountpoint:mount(MountPoint, Msg)).
 
 do_publish(_PacketId, Msg = #message{qos = ?QOS_0}, Channel) ->
     Result = emqx_broker:publish(Msg),
@@ -3566,7 +3564,8 @@ prepare_will_message_for_publishing(
             {error, #{client_banned => ClientBanned, publishing_disallowed => PublishingDisallowed}};
         false ->
             NMsg = emqx_mountpoint:mount(MountPoint, Msg),
-            PreparedMessage = NMsg#message{timestamp = emqx_message:timestamp_now()},
+            PreparedMessage0 = NMsg#message{timestamp = emqx_message:timestamp_now()},
+            PreparedMessage = emqx_message:set_authz_context(ClientInfo, PreparedMessage0),
             {ok, PreparedMessage}
     end.
 

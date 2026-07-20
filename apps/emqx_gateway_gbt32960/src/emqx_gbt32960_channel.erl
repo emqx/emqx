@@ -765,7 +765,8 @@ upstreaming(
             log(
                 debug, #{msg => "upstreaming_to_topic", topic => Topic, payload => Payload}, Channel
             ),
-            emqx:publish(emqx_message:make(ClientId, ?QOS_1, Topic, Payload));
+            Msg = emqx_message:make(ClientId, ?QOS_1, Topic, Payload),
+            emqx:publish(emqx_message:set_authz_context(ClientInfo, Msg));
         deny ->
             log(info, #{msg => "upstream_publish_denied", topic => Topic}, Channel),
             ok

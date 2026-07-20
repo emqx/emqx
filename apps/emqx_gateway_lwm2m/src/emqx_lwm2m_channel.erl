@@ -574,7 +574,7 @@ auth_connect(
         {ok, NClientInfo} ->
             {ok, Channel#channel{
                 clientinfo = NClientInfo,
-                with_context = with_context(Ctx, ClientInfo)
+                with_context = with_context(Ctx, NClientInfo)
             }};
         {error, Reason} ->
             ?SLOG(warning, #{
@@ -661,7 +661,7 @@ with_context(publish, [Topic, Msg], Ctx, ClientInfo) ->
     Action = publish_action(Msg),
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
         allow ->
-            _ = emqx_broker:publish(Msg),
+            _ = emqx_broker:publish(emqx_message:set_authz_context(ClientInfo, Msg)),
             ok;
         _ ->
             ?SLOG(error, #{

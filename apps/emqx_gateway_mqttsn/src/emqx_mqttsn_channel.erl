@@ -1138,11 +1138,14 @@ maybe_publish_idle_negative_qos(Packet, Publish = {TopicName, _Flags, Data}, Cha
         {ok, NChannel} ->
             case check_pub_authz(Publish, NChannel) of
                 ok ->
-                    Msg = emqx_message:make(
-                        ?NEG_QOS_CLIENT_ID,
-                        ?QOS_0,
-                        TopicName,
-                        Data
+                    Msg = emqx_message:set_authz_context(
+                        NChannel#channel.clientinfo,
+                        emqx_message:make(
+                            ?NEG_QOS_CLIENT_ID,
+                            ?QOS_0,
+                            TopicName,
+                            Data
+                        )
                     ),
                     ?SLOG(debug, #{
                         msg => "receive_qo3_message_in_idle_mode",
@@ -1198,13 +1201,14 @@ convert_pub_to_msg(
 
 put_message_headers(Msg, #channel{
     conninfo = #{proto_ver := ProtoVer},
-    clientinfo = #{
-        protocol := Protocol,
-        username := Username,
-        peerhost := PeerHost
-    }
+    clientinfo =
+        ClientInfo = #{
+            protocol := Protocol,
+            username := Username,
+            peerhost := PeerHost
+        }
 }) ->
-    emqx_message:set_headers(
+    Msg1 = emqx_message:set_headers(
         #{
             proto_ver => ProtoVer,
             protocol => Protocol,
@@ -1212,7 +1216,8 @@ put_message_headers(Msg, #channel{
             peerhost => PeerHost
         },
         Msg
-    ).
+    ),
+    emqx_message:set_authz_context(ClientInfo, Msg1).
 
 get_corrected_qos(?QOS_NEG1) -> ?QOS_0;
 get_corrected_qos(QoS) -> QoS.

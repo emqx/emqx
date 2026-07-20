@@ -14,6 +14,9 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %%--------------------------------------------------------------------
@@ -50,6 +53,8 @@ init_per_testcase(_Case, Config) ->
     Config.
 
 end_per_testcase(_Case, _Config) ->
+    persistent_term:erase({?MODULE, replay_authz_result}),
+    emqx_hooks:del('client.authorize', {?MODULE, replay_authz}),
     {atomic, ok} = mria:clear_table(emqx_delayed),
     ok = emqx_delayed:unload().
 
@@ -207,6 +212,104 @@ t_delayed_precision(_) ->
     _ = on_message_publish(DelayedMsg0),
     ?assert(FutureDiff() =< MaxSpan).
 
+t_reauthorize_delayed_message(_) ->
+    ClientInfo = #{
+        zone => default,
+        listener => 'tcp:default',
+        protocol => mqtt,
+        peerhost => {127, 0, 0, 1},
+        clientid => <<"reauthorize-client">>,
+        username => <<"reauthorize-user">>,
+        is_superuser => false,
+        mountpoint => undefined
+    },
+    Topic = <<"reauthorize/target">>,
+    DelayedTopic = <<"$delayed/1/", Topic/binary>>,
+    Action = ?AUTHZ_PUBLISH(?QOS_1, true),
+    Msg0 = emqx_message:make(
+        maps:get(clientid, ClientInfo),
+        ?QOS_1,
+        DelayedTopic,
+        <<"payload">>,
+        #{retain => true},
+        #{}
+    ),
+    Msg = emqx_message:set_authz_context(ClientInfo, Msg0),
+    ok = emqx_hooks:put('client.authorize', {?MODULE, replay_authz, []}, ?HP_HIGHEST),
+    persistent_term:put({?MODULE, replay_authz_result}, allow),
+    ?assertEqual(allow, emqx_access_control:authorize(ClientInfo, Action, DelayedTopic)),
+
+    snabbkaffe:start_trace(),
+    {ok, SubRef} = snabbkaffe:subscribe(
+        ?match_event(#{
+            ?snk_kind := ignore_delayed_message_publish,
+            reason := "authorization denied"
+        }),
+        1,
+        5000,
+        0
+    ),
+    {stop, _} = on_message_publish(Msg),
+    persistent_term:put({?MODULE, replay_authz_result}, deny),
+    {ok, [_]} = snabbkaffe:receive_events(SubRef),
+    snabbkaffe:stop(),
+    ?assertEqual([], mnesia:dirty_all_keys(emqx_delayed)).
+
+t_authorized_delayed_message(_) ->
+    ClientInfo = #{
+        zone => default,
+        listener => 'tcp:default',
+        protocol => mqtt,
+        peerhost => {127, 0, 0, 1},
+        clientid => <<"authorized-client">>,
+        username => <<"authorized-user">>,
+        is_superuser => false,
+        mountpoint => undefined
+    },
+    Topic = <<"authorized/target">>,
+    Msg0 = emqx_message:make(
+        maps:get(clientid, ClientInfo),
+        ?QOS_1,
+        <<"$delayed/1/", Topic/binary>>,
+        <<"payload">>
+    ),
+    Msg = emqx_message:set_authz_context(ClientInfo, Msg0),
+    ok = emqx_hooks:put('client.authorize', {?MODULE, replay_authz, []}, ?HP_HIGHEST),
+    persistent_term:put({?MODULE, replay_authz_result}, allow),
+    ok = emqx_broker:subscribe(Topic),
+    try
+        {stop, _} = on_message_publish(Msg),
+        receive
+            {deliver, Topic, Delivered} ->
+                ?assertEqual(undefined, emqx_message:get_header(authz_context, Delivered))
+        after 5000 ->
+            ct:fail(delayed_message_not_delivered)
+        end
+    after
+        emqx_broker:unsubscribe(Topic)
+    end.
+
+t_reauthorize_legacy_delayed_message(_) ->
+    ok = emqx_hooks:put('client.authorize', {?MODULE, replay_authz, []}, ?HP_HIGHEST),
+    persistent_term:put({?MODULE, replay_authz_result}, deny),
+    snabbkaffe:start_trace(),
+    {ok, SubRef} = snabbkaffe:subscribe(
+        ?match_event(#{
+            ?snk_kind := ignore_delayed_message_publish,
+            reason := "authorization denied"
+        }),
+        1,
+        5000,
+        0
+    ),
+    Msg = emqx_message:make(
+        <<"legacy-client">>, ?QOS_1, <<"$delayed/1/legacy/target">>, <<"payload">>
+    ),
+    {stop, _} = on_message_publish(Msg),
+    {ok, [_]} = snabbkaffe:receive_events(SubRef),
+    snabbkaffe:stop(),
+    ?assertEqual([], mnesia:dirty_all_keys(emqx_delayed)).
+
 t_banned_delayed(_) ->
     emqx:update_config([delayed, max_delayed_messages], 10000),
     ClientId1 = <<"bc1">>,
@@ -296,3 +399,7 @@ t_delayed_load_unload(_Config) ->
 is_hooks_exist() ->
     Hooks = emqx_hooks:lookup('message.publish'),
     false =/= lists:keyfind({emqx_delayed, on_message_publish, []}, 2, Hooks).
+
+replay_authz(_ClientInfo, _Action, _Topic, _Default) ->
+    Result = persistent_term:get({?MODULE, replay_authz_result}),
+    {stop, #{result => Result, from => test}}.

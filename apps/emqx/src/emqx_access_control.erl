@@ -11,6 +11,7 @@
 -export([
     authenticate/1,
     authorize/3,
+    authorize/4,
     format_action/1
 ]).
 
@@ -151,10 +152,16 @@ authenticate(Credential) ->
 %% @doc Check Authorization
 -spec authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic()) ->
     authz_result().
-authorize(ClientInfo, Action, <<"$delayed/", Data/binary>> = RawTopic) ->
+authorize(ClientInfo, Action, Topic) ->
+    authorize(ClientInfo, Action, Topic, #{}).
+
+-spec authorize(
+    emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic(), #{cache => boolean()}
+) -> authz_result().
+authorize(ClientInfo, Action, <<"$delayed/", Data/binary>> = RawTopic, Opts) ->
     case binary:split(Data, <<"/">>) of
         [_, Topic] ->
-            authorize(ClientInfo, Action, Topic);
+            authorize(ClientInfo, Action, Topic, Opts);
         _ ->
             ?SLOG(warning, #{
                 msg => "invalid_delayed_topic_format",
@@ -164,11 +171,11 @@ authorize(ClientInfo, Action, <<"$delayed/", Data/binary>> = RawTopic) ->
             inc_authz_metrics(deny),
             deny
     end;
-authorize(ClientInfo, Action, Topic0) ->
+authorize(ClientInfo, Action, Topic0, Opts) ->
     IncludeMountpoint = emqx:get_config([authorization, include_mountpoint], false),
     Topic = maybe_mount_prefix(IncludeMountpoint, ClientInfo, Topic0),
     {Result, _Cacheable} =
-        case emqx_authz_cache:is_enabled(Topic) of
+        case maps:get(cache, Opts, true) andalso emqx_authz_cache:is_enabled(Topic) of
             true -> check_authorization_cache(ClientInfo, Action, Topic);
             false -> do_authorize_with_cache_policy(ClientInfo, Action, Topic)
         end,
