@@ -215,6 +215,11 @@ jobs:
           unzip -o -q emqx-enterprise-test.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      # Plugin CT suites that exercise end-to-end install/start/packaging paths
+      # depend on a production-profile emqx-enterprise build.
+      - name: compile emqx-enterprise for plugin packaging dependencies
+        run: make emqx-enterprise-compile
+
       - name: run plugin common tests
         run: make plugins-ct
 

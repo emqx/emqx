@@ -51,7 +51,7 @@ init_per_suite(Config) ->
     catch
         error:{plugin_package_build_failed, _Package, Output} ->
             ct:log("plugin_package build failed: ~s", [Output]),
-            {skip, "Run 'make compile-emqx-enterprise' first to build plugin dependencies."}
+            {skip, "Run 'make emqx-enterprise-compile' first to build plugin dependencies."}
     end.
 
 end_per_suite(Config) ->
@@ -988,7 +988,7 @@ t_http_request_rejects_sharded_exact_subscribers(_Config) ->
     Parent = self(),
     ReqTopic = <<"sync_request/sharded-subscribers/request">>,
     RespTopic = <<"sync_request/sharded-subscribers/response">>,
-    force_nonzero_subscription_shard(ReqTopic),
+    ForcedShards = force_nonzero_subscription_shard(ReqTopic),
     {ok, Responder1} = start_blackhole_responder(
         <<"sync_request_sharded_subscribers_blackhole_1">>,
         ReqTopic,
@@ -1000,7 +1000,12 @@ t_http_request_rejects_sharded_exact_subscribers(_Config) ->
         fun(Payload) -> Parent ! {sharded_subscribers_seen, Payload} end
     ),
     try
-        ?assert(lists:any(fun is_shard_subscriber/1, emqx_broker:subscribers(ReqTopic))),
+        ?assert(
+            lists:any(
+                fun({Shard, Count}) -> Shard > 0 andalso Count > 0 end,
+                emqx_broker_helper:assigned_sub_shards(ReqTopic)
+            )
+        ),
         Body = request_body(
             ReqTopic,
             RespTopic,
@@ -1021,7 +1026,8 @@ t_http_request_rejects_sharded_exact_subscribers(_Config) ->
         ?assertNotReceive({sharded_subscribers_seen, _}, 200)
     after
         stop_client(Responder1),
-        stop_client(Responder2)
+        stop_client(Responder2),
+        release_forced_subscription_shards(ReqTopic, ForcedShards)
     end.
 
 t_mqtt5_response_ignores_mismatched_correlation_data(_Config) ->
@@ -1301,7 +1307,7 @@ plugin_package() ->
 build_in_tree_plugin_package(Root, Package) ->
     Output = os:cmd(
         "cd " ++ Root ++
-            " && PROFILE=emqx-enterprise ./scripts/build-plugin.sh emqx_sync_request 2>&1"
+            " && PROFILE=emqx-enterprise make plugin-emqx_sync_request 2>&1"
     ),
     case filelib:is_regular(Package) of
         true ->
@@ -1376,15 +1382,16 @@ wait_until(Fun, 0) ->
     error({wait_until_timeout, Fun}).
 
 force_nonzero_subscription_shard(Topic) ->
-    lists:foreach(
-        fun(_) -> _ = emqx_broker_helper:get_sub_shard(self(), Topic) end,
-        lists:seq(1, 1025)
-    ).
+    [
+        emqx_broker_helper:assign_sub_shard(Topic)
+     || _ <- lists:seq(1, emqx_broker_helper:shard_capacity() + 1)
+    ].
 
-is_shard_subscriber({shard, _}) ->
-    true;
-is_shard_subscriber(_) ->
-    false.
+release_forced_subscription_shards(Topic, Shards) ->
+    lists:foreach(
+        fun(Shard) -> _ = emqx_broker_helper:unassign_sub_shard(Topic, Shard) end,
+        Shards
+    ).
 
 start_blackhole_responder(ClientId, ReqTopic, OnRequest) ->
     start_blackhole_responder(v5, ClientId, ReqTopic, OnRequest).

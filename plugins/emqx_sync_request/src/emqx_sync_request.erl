@@ -353,25 +353,20 @@ dispatch_local_request(#message{topic = Topic} = Message) ->
     end.
 
 local_subscribers(Topic) ->
-    lists:flatmap(
+    DirectSubscribers = live_subscribers(emqx_broker:subscribers(Topic)),
+    ShardedSubscribers = lists:flatmap(
         fun
-            (SubPid) when is_pid(SubPid) ->
-                case is_process_alive(SubPid) of
-                    true -> [SubPid];
-                    false -> []
-                end;
-            ({shard, I}) ->
-                [
-                    SubPid
-                 || SubPid <- emqx_broker:subscribers({shard, Topic, I}),
-                    is_pid(SubPid),
-                    is_process_alive(SubPid)
-                ];
-            (_) ->
-                []
+            ({0, _Count}) ->
+                [];
+            ({Shard, _Count}) ->
+                live_subscribers(emqx_broker:subscribers({shard, Topic, Shard}))
         end,
-        emqx_broker:subscribers(Topic)
-    ).
+        emqx_broker_helper:assigned_sub_shards(Topic)
+    ),
+    DirectSubscribers ++ ShardedSubscribers.
+
+live_subscribers(Subscribers) ->
+    [SubPid || SubPid <- Subscribers, is_pid(SubPid), is_process_alive(SubPid)].
 
 wait_for_response(ReqRef, TimeoutMs) when TimeoutMs =< 0 ->
     cleanup_request(ReqRef),

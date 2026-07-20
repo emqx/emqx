@@ -30,7 +30,7 @@ init_per_suite(Config) ->
     catch
         error:{plugin_package_build_failed, _Package, Output} ->
             ct:log("plugin_package build failed: ~s", [Output]),
-            {skip, "Run 'make compile-emqx-enterprise' first to build plugin dependencies."}
+            {skip, "Run 'make emqx-enterprise-compile' first to build plugin dependencies."}
     end.
 
 end_per_suite(_Config) ->
@@ -129,6 +129,7 @@ cluster_specs() ->
             config => cluster_broker_config()
         }},
         {emqx, #{config => cluster_broker_config()}},
+        emqx_ctl,
         {emqx_plugins, #{config => #{plugins => #{install_dir => "plugins"}}}}
     ],
     [
