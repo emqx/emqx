@@ -224,6 +224,9 @@ schema("/tracing") ->
                 200 => ConfigSchema,
                 400 => emqx_dashboard_swagger:error_codes(
                     ['INVALID_CONFIG'], ?DESC("provided_configuration_invalid")
+                ),
+                403 => emqx_dashboard_swagger:error_codes(
+                    ['UNAUTHORIZED_ROLE'], ?DESC("trace_config_global_only")
                 )
             }
         }
