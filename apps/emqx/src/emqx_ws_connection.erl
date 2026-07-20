@@ -568,11 +568,10 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             parse_incoming(Rest, [Packet | Packets], NState)
     catch
         throw:{?FRAME_PARSE_ERROR, Reason} ->
-            ?LOG(info, #{
-                msg => "frame_parse_error",
+            ?TRACE("MQTT", "frame_parse_error", #{
                 reason => Reason,
                 at_state => emqx_frame:describe_state(ParseState),
-                input_bytes => Data
+                input_bytes => emqx_packet:format_input_bytes(Data)
             }),
             NState = update_state_on_parse_error(Reason, State),
             {[{frame_error, Reason} | Packets], NState};

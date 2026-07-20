@@ -45,6 +45,8 @@
 
 -export([format_payload/2]).
 
+-export([format_input_bytes/1]).
+
 -define(TYPE_NAMES,
     {'CONNECT', 'CONNACK', 'PUBLISH', 'PUBACK', 'PUBREC', 'PUBREL', 'PUBCOMP', 'SUBSCRIBE',
         'SUBACK', 'UNSUBSCRIBE', 'UNSUBACK', 'PINGREQ', 'PINGRESP', 'DISCONNECT', 'AUTH'}
@@ -780,6 +782,20 @@ truncate_payload(text, Limit, Payload) ->
             <<Part:Limit/binary, Rest/binary>> = Payload,
             {hex, Part, size(Rest)}
     end.
+
+-doc """
+Format raw bytes received from a client for a log or trace report.
+
+Bytes that fail to parse can be as large as the configured maximum packet size,
+so only a leading window is kept; when bytes are dropped the result also carries
+the original size.
+""".
+-spec format_input_bytes(binary()) -> binary() | #{bytes := binary(), total_size := pos_integer()}.
+format_input_bytes(Bytes) when byte_size(Bytes) =< ?TRUNCATED_PAYLOAD_SIZE ->
+    Bytes;
+format_input_bytes(Bytes) ->
+    <<Part:?TRUNCATED_PAYLOAD_SIZE/binary, _/binary>> = Bytes,
+    #{bytes => Part, total_size => byte_size(Bytes)}.
 
 i(true) -> 1;
 i(false) -> 0;

@@ -342,7 +342,7 @@ t_websocket_incoming(_) ->
     {[{binary, IoData4}, {close, CauseReq}], _St4} =
         ?ws_conn:handle_incoming([FrameError], St3),
     ?assertEqual(<<224, 2, ?RC_MALFORMED_PACKET, 0>>, iolist_to_binary(IoData4)),
-    ?assertEqual(<<"invalid_property_code">>, CauseReq).
+    ?assertEqual(<<"frame_error">>, CauseReq).
 
 t_websocket_info_check_gc(_) ->
     Stats = #{cnt => 10, oct => 1000},
@@ -438,7 +438,7 @@ t_parse_incoming_fragment_then_bad_subqos_idle(_) ->
     ?assertEqual([], Packets1),
     {Packets2, St2} = ?ws_conn:parse_incoming(Frag2, Packets1, St1),
     ?assertMatch([{frame_error, bad_subqos}], Packets2),
-    {[{shutdown, #{shutdown_count := invalid_connect_packet, reason := bad_subqos}}], _St3} =
+    {[{shutdown, #{shutdown_count := bad_subqos, reason := bad_subqos}}], _St3} =
         ?ws_conn:handle_incoming(Packets2, St2).
 
 t_handle_incomming_frame_error(_) ->

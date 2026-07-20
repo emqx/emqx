@@ -1327,7 +1327,7 @@ handle_frame_error(
 ) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
-    ShutdownCount = shutdown_count(frame_error, Reason, Channel),
+    ShutdownCount = shutdown_count(frame_error_kind(Reason, frame_error), Reason, Channel),
     case proto_ver(Reason, ConnInfo) of
         ?MQTT_PROTO_V5 ->
             handle_out(disconnect, {?RC_PACKET_TOO_LARGE, frame_too_large}, Channel);
@@ -1343,7 +1343,7 @@ handle_frame_error(
     Channel = #channel{conn_state = idle}
 ) ->
     shutdown(
-        shutdown_count(invalid_connect_packet, Reason, Channel),
+        shutdown_count(frame_error_kind(Reason, invalid_connect_packet), Reason, Channel),
         Channel
     );
 %% Frame error while parsing CONNECT.
@@ -1353,7 +1353,7 @@ handle_frame_error(
     Reason,
     Channel = #channel{conn_state = connecting, conninfo = ConnInfo}
 ) ->
-    ShutdownCount = shutdown_count(frame_error, Reason, Channel),
+    ShutdownCount = shutdown_count(frame_error_kind(Reason, frame_error), Reason, Channel),
     ProtoVer = proto_ver(Reason, ConnInfo),
     NChannel = Channel#channel{conninfo = ConnInfo#{proto_ver => ProtoVer}},
     case ProtoVer of
@@ -1363,6 +1363,11 @@ handle_frame_error(
         _ ->
             shutdown(ShutdownCount, NChannel)
     end;
+%% Frame error on an established connection: send DISCONNECT and close.
+%% The close reason doubles as the connection process exit reason, so it must be
+%% a plain atom: that is what lets the connection supervisor keep a shutdown
+%% counter instead of reporting an unidentified shutdown at error level. The
+%% parse error itself is reported by the connection through `emqx_trace'.
 handle_frame_error(
     Reason,
     Channel = #channel{conn_state = ConnState}
@@ -1371,15 +1376,30 @@ handle_frame_error(
 ->
     handle_out(
         disconnect,
-        {?RC_MALFORMED_PACKET, Reason},
+        {?RC_MALFORMED_PACKET, frame_error_kind(Reason, frame_error)},
         Channel
     );
 handle_frame_error(
     Reason,
     Channel = #channel{conn_state = disconnected}
 ) ->
-    ?SLOG(error, #{msg => "malformed_mqtt_message", reason => Reason}),
+    %% Invalid client input, not a broker failure.
+    ?SLOG(info, #{msg => "malformed_mqtt_message", reason => Reason}),
     {ok, Channel}.
+
+-doc """
+Name the shutdown counter for a frame error.
+
+A counter name must come from a bounded set. Errors reported as an atom are
+already such a set, fixed by the parser, so the atom names its own counter.
+Errors reported as a map carry detail derived from the offending packet, so they
+share `Default'; the specific cause remains in the shutdown reason and in the
+trace. Oversized frames keep their own counter in every connection state, being
+a distinct operational signal rather than a malformed packet.
+""".
+frame_error_kind(Reason, _Default) when is_atom(Reason) -> Reason;
+frame_error_kind(#{cause := frame_too_large}, _Default) -> frame_too_large;
+frame_error_kind(_Reason, Default) -> Default.
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packet
@@ -3734,9 +3754,10 @@ shutdown_count(Kind, Reason, #channel{conninfo = ConnInfo}) ->
     maps:merge(shutdown_count(Kind, Reason), ShutdownCntMeta).
 
 %% process exits with {shutdown, #{shutdown_count := Kind}} will trigger
-%% the connection supervisor (esockd) to keep a shutdown-counter grouped by Kind
-shutdown_count(_Kind, #{cause := Cause} = Reason) when is_atom(Cause) ->
-    Reason#{shutdown_count => Cause};
+%% the connection supervisor (esockd) to keep a shutdown-counter grouped by Kind.
+%% Kind names a counter, so callers must pick it from a bounded set rather than
+%% from client input; see `frame_error_kind/2'. The specific cause stays in the
+%% reason map for the shutdown report.
 shutdown_count(Kind, Reason) when is_map(Reason) ->
     Reason#{shutdown_count => Kind};
 shutdown_count(Kind, Reason) ->
