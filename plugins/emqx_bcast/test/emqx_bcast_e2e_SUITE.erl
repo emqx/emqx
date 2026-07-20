@@ -89,6 +89,9 @@ connect(ClientId) ->
 sub(C, Topic) ->
     emqtt:subscribe(C, Topic, 1).
 
+sub_qos(C, Topic, Qos) ->
+    emqtt:subscribe(C, Topic, Qos).
+
 sub_default(C, DeviceName) ->
     sub(C, <<"/default/", DeviceName/binary, "/user/get">>).
 
@@ -427,4 +430,59 @@ t_unsubscribe_then_resubscribe_replay(_Config) ->
     ct:sleep(10),
     Msgs2 = recv(1),
     ?assertEqual(1, length(Msgs2)),
+    disconnect(C1).
+
+%%--------------------------------------------------------------------
+%% Force upgrade QoS E2E tests
+%%--------------------------------------------------------------------
+
+t_qos_downgrade_force_false(_Config) ->
+    Cfg = persistent_term:get({emqx_bcast, config}),
+    persistent_term:put({emqx_bcast, config}, Cfg#{force_upgrade_qos => false}),
+    C1 = connect(<<"e2e_fuq_1">>),
+    sub_qos(C1, topic(<<"e2e_fuq_1">>), 0),
+    ct:sleep(10),
+    {ok, 200, _, _} = api_call(#{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"DeviceName">> => [<<"e2e_fuq_1">>],
+        <<"MessageContent">> => b64(?PAYLOAD),
+        <<"Qos">> => 1
+    }),
+    [Msg] = recv(1),
+    ?assertEqual(0, maps:get(qos, Msg)),
+    disconnect(C1),
+    persistent_term:put({emqx_bcast, config}, Cfg).
+
+t_qos_no_downgrade_force_false(_Config) ->
+    Cfg = persistent_term:get({emqx_bcast, config}),
+    persistent_term:put({emqx_bcast, config}, Cfg#{force_upgrade_qos => false}),
+    C1 = connect(<<"e2e_fuq_2">>),
+    sub_qos(C1, topic(<<"e2e_fuq_2">>), 1),
+    ct:sleep(10),
+    {ok, 200, _, _} = api_call(#{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"DeviceName">> => [<<"e2e_fuq_2">>],
+        <<"MessageContent">> => b64(?PAYLOAD),
+        <<"Qos">> => 1
+    }),
+    [Msg] = recv(1),
+    ?assertEqual(1, maps:get(qos, Msg)),
+    disconnect(C1),
+    persistent_term:put({emqx_bcast, config}, Cfg).
+
+t_qos_force_upgrade_true(_Config) ->
+    C1 = connect(<<"e2e_fuq_3">>),
+    sub_qos(C1, topic(<<"e2e_fuq_3">>), 0),
+    ct:sleep(10),
+    {ok, 200, _, _} = api_call(#{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"DeviceName">> => [<<"e2e_fuq_3">>],
+        <<"MessageContent">> => b64(?PAYLOAD),
+        <<"Qos">> => 1
+    }),
+    [Msg] = recv(1),
+    ?assertEqual(?PAYLOAD, maps:get(payload, Msg)),
     disconnect(C1).
