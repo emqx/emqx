@@ -64,6 +64,8 @@ service HookProvider {
 
   rpc OnSessionTerminated(SessionTerminatedRequest) returns (EmptySuccess) {};
 
+  rpc OnMessageIngress(MessageIngressRequest) returns (ValuedResponse) {};
+
   rpc OnMessagePublish(MessagePublishRequest) returns (ValuedResponse) {};
 
   rpc OnMessageDelivered(MessageDeliveredRequest) returns (EmptySuccess) {};
@@ -247,6 +249,21 @@ message SessionTerminatedRequest {
   RequestMeta meta = 3;
 }
 
+message MessageIngressRequest {
+
+  // This is the authorization context projected onto the existing ClientInfo
+  // type for wire compatibility.
+  ClientInfo clientinfo = 1;
+
+  Message message = 2;
+
+  RequestMeta meta = 3;
+
+  repeated Property props = 4;
+
+  repeated Property user_props = 5;
+}
+
 message MessagePublishRequest {
 
   Message message = 1;
@@ -296,7 +313,8 @@ message LoadedResponse {
   repeated HookSpec hooks = 1;
 }
 
-// Responsed by `ClientAuthenticateRequest` `ClientAuthorizeRequest` `MessagePublishRequest`
+// Responsed by `ClientAuthenticateRequest` `ClientAuthorizeRequest`
+// `MessageIngressRequest` `MessagePublishRequest`
 
 message ValuedResponse {
 
@@ -360,7 +378,7 @@ message HookSpec {
   //   "session.discarded",    "session.takenover"
   //   "session.terminated"
   //
-  //   "message.publish", "message.delivered"
+  //   "message.ingress", "message.publish", "message.delivered"
   //   "message.acked",   "message.dropped"
   string name = 1;
 

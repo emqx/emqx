@@ -574,7 +574,7 @@ auth_connect(
         {ok, NClientInfo} ->
             {ok, Channel#channel{
                 clientinfo = NClientInfo,
-                with_context = with_context(Ctx, ClientInfo)
+                with_context = with_context(Ctx, NClientInfo)
             }};
         {error, Reason} ->
             ?SLOG(warning, #{
@@ -657,16 +657,22 @@ with_context(Ctx, ClientInfo) ->
         with_context(Type, Topic, Ctx, ClientInfo)
     end.
 
-with_context(publish, [Topic, Msg], Ctx, ClientInfo) ->
-    Action = publish_action(Msg),
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
-        allow ->
-            _ = emqx_broker:publish(Msg),
+with_context(publish, [Msg = #message{topic = Topic}], Ctx, ClientInfo) ->
+    case emqx_gateway_ctx:authorize_publish(Ctx, ClientInfo, Msg) of
+        {allow, NMsg} ->
+            _ = emqx_message_ingress:finalize_and_publish(ClientInfo, NMsg),
             ok;
-        _ ->
+        deny ->
             ?SLOG(error, #{
                 msg => "publish_denied",
                 topic => Topic
+            }),
+            {error, deny};
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "message_ingress_failed",
+                topic => Topic,
+                reason => Reason
             }),
             {error, deny}
     end;
@@ -696,10 +702,6 @@ with_context(subscribe, [Topic, Opts], Ctx, ClientInfo) ->
     end;
 with_context(metrics, Name, Ctx, _ClientInfo) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
-
-publish_action(#message{qos = QoS, flags = Flags}) ->
-    Retain = maps:get(retain, Flags, false),
-    ?AUTHZ_PUBLISH(QoS, Retain).
 
 subscribe_action(Opts) ->
     QoS = maps:get(qos, Opts, 0),

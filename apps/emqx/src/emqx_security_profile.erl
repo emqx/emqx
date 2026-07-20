@@ -54,7 +54,9 @@ Returns policy depending on the current security profile.
     (outbound_tls_verify) -> verify_none | verify_peer;
     (authn_jwt_missing) -> ignore | deny;
     (saml_signature_verification) -> boolean();
-    (internal_subscription_checks) -> boolean().
+    (internal_subscription_checks) -> boolean();
+    (authz_context) -> legacy | restricted;
+    (delayed_publish_reauthorization) -> boolean().
 policy(mqtt_default_bind) ->
     case profile() of
         legacy -> any;
@@ -106,6 +108,16 @@ policy(saml_signature_verification) ->
         hardened -> true
     end;
 policy(internal_subscription_checks) ->
+    case profile() of
+        legacy -> false;
+        hardened -> true
+    end;
+policy(authz_context) ->
+    case profile() of
+        legacy -> legacy;
+        hardened -> restricted
+    end;
+policy(delayed_publish_reauthorization) ->
     case profile() of
         legacy -> false;
         hardened -> true

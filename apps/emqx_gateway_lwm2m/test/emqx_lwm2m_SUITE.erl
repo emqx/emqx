@@ -6114,7 +6114,7 @@ lwm2m_channels() ->
 
 capture_with_context(Pid) ->
     fun
-        (publish, [_Topic, Msg]) ->
+        (publish, [Msg]) ->
             Pid ! {publish, Msg},
             ok;
         (subscribe, [_Topic, _Opts]) ->
@@ -6508,7 +6508,7 @@ request(
 
 with_context_stub() ->
     fun
-        (publish, [_Topic, _Msg]) -> ok;
+        (publish, [_Msg]) -> ok;
         (subscribe, [_Topic, _Opts]) -> ok;
         (metrics, _Name) -> ok;
         (_, _) -> ok

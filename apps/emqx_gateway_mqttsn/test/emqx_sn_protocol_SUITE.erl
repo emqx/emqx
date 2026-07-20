@@ -153,6 +153,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
     snabbkaffe:stop(),
     ok.
 
@@ -838,6 +839,42 @@ t_publish_negqos_idle_allows_authn_in_hardened_profile(_) ->
         {ok, _} = emqx:update_config([authorization], OldAuthz),
         emqx:unsubscribe(Topic)
     end.
+
+t_publish_negqos_idle_mountpoint(_) ->
+    Mountpoint = <<"mp/">>,
+    Topic = <<"ab">>,
+    RewrittenTopic = <<"cd">>,
+    MountedTopic = <<Mountpoint/binary, RewrittenTopic/binary>>,
+    Payload = <<"idle-negqos-mountpoint">>,
+    update_mqttsn_with_mountpoint(Mountpoint),
+    emqx_common_test_helpers:on_exit(fun() -> update_mqttsn_with_mountpoint(<<>>) end),
+    ok = emqx:subscribe(MountedTopic),
+    ok = emqx:subscribe(Topic),
+    ok = emqx:subscribe(RewrittenTopic),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx:unsubscribe(MountedTopic),
+        emqx:unsubscribe(Topic),
+        emqx:unsubscribe(RewrittenTopic)
+    end),
+    %% Rewrite the logical topic in ingress before authorization and mounting.
+    ok = emqx_hooks:put(
+        'message.ingress',
+        {?MODULE, rewrite_publish_topic, [RewrittenTopic]},
+        ?HP_HIGHEST
+    ),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx_hooks:del('message.ingress', {?MODULE, rewrite_publish_topic})
+    end),
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    emqx_common_test_helpers:on_exit(fun() -> gen_udp:close(Socket) end),
+    send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
+    %% The rewritten topic is mounted once; no original or unmounted publish escapes.
+    ?assertReceive({deliver, MountedTopic, #message{payload = Payload}}, 1000),
+    ?assertNotReceive({deliver, Topic, #message{payload = Payload}}, 100),
+    ?assertNotReceive({deliver, RewrittenTopic, #message{payload = Payload}}, 100).
+
+rewrite_publish_topic(_AuthzContext, Msg, Topic) ->
+    {ok, Msg#message{topic = Topic}}.
 
 t_publish_negqos_idle_rejects_bad_authn_in_hardened_profile(_) ->
     Topic = <<"ab">>,
@@ -1628,6 +1665,36 @@ t_will_publish_allowed_by_authz(_) ->
     after
         ok = emqx_broker:unsubscribe(WillTopic)
     end.
+
+t_will_publish_mountpoint(_) ->
+    QoS = 1,
+    Duration = 1,
+    Mountpoint = <<"mp/">>,
+    WillMsg = <<"will-mountpoint">>,
+    WillTopic = <<"will/mountpoint">>,
+    MountedTopic = <<Mountpoint/binary, WillTopic/binary>>,
+    update_mqttsn_with_mountpoint(Mountpoint),
+    emqx_common_test_helpers:on_exit(fun() -> update_mqttsn_with_mountpoint(<<>>) end),
+    ok = emqx_broker:subscribe(MountedTopic),
+    ok = emqx_broker:subscribe(WillTopic),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx_broker:unsubscribe(MountedTopic),
+        emqx_broker:unsubscribe(WillTopic)
+    end),
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    emqx_common_test_helpers:on_exit(fun() -> gen_udp:close(Socket) end),
+    %% Will publication applies the mountpoint exactly once.
+    send_connect_msg_with_will(Socket, Duration, ?CLIENTID),
+    ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+    send_willtopic_msg(Socket, WillTopic, QoS),
+    ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+    send_willmsg_msg(Socket, WillMsg),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+    send_pingreq_msg(Socket, undefined),
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+    timer:sleep(3000),
+    ?assertReceive({deliver, MountedTopic, #message{payload = WillMsg}}, 1000),
+    ?assertNotReceive({deliver, WillTopic, #message{payload = WillMsg}}, 100).
 
 t_will_test2(_) ->
     QoS = 2,

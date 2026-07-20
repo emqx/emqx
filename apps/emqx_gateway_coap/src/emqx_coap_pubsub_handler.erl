@@ -5,6 +5,7 @@
 %% a coap to mqtt adapter with a retained topic message database
 -module(emqx_coap_pubsub_handler).
 
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_access_control.hrl").
 -include("emqx_coap.hrl").
@@ -51,17 +52,15 @@ handle_method(get, Topic, Msg, Ctx, CInfo, IsConnectionless) ->
 handle_method(post, Topic, #coap_message{payload = Payload} = Msg, Ctx, CInfo, _IsConnectionless) ->
     PublishOpts = get_publish_opts(Msg),
     QoS = get_publish_qos(Msg, PublishOpts),
-    Action = ?AUTHZ_PUBLISH(QoS, get_publish_retain(PublishOpts)),
-    case emqx_coap_channel:validator(Action, Topic, Ctx, CInfo) of
-        allow ->
-            #{clientid := ClientId} = CInfo,
-            MountTopic = mount(CInfo, Topic),
-            %% TODO: Append message metadata into headers
-            MQTTMsg = emqx_message:make(ClientId, QoS, MountTopic, Payload),
-            MQTTMsg2 = apply_publish_opts(PublishOpts, MQTTMsg),
-            _ = emqx_broker:publish(MQTTMsg2),
+    #{clientid := ClientId} = CInfo,
+    MQTTMsg = apply_publish_opts(PublishOpts, emqx_message:make(ClientId, QoS, Topic, Payload)),
+    case emqx_gateway_ctx:authorize_publish(Ctx, CInfo, MQTTMsg) of
+        {allow, NMsg} ->
+            _ = emqx_message_ingress:finalize_and_publish(CInfo, NMsg),
             reply({ok, changed}, Msg);
-        _ ->
+        deny ->
+            reply({error, unauthorized}, Msg);
+        {error, _Reason} ->
             reply({error, unauthorized}, Msg)
     end;
 handle_method(_, _, Msg, _, _, _) ->
@@ -141,9 +140,6 @@ get_publish_qos(Msg, PublishOpts) ->
             CfgType = emqx_conf:get([gateway, coap, publish_qos], ?QOS_0),
             type_to_qos(CfgType, Msg)
     end.
-
-get_publish_retain(PublishOpts) ->
-    maps:get(retain, PublishOpts, false).
 
 apply_publish_opts(Opts, MQTTMsg) ->
     maps:fold(

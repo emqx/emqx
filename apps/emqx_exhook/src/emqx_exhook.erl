@@ -76,6 +76,8 @@ deny_action_result('client.authenticate', _) ->
     #{result => false};
 deny_action_result('client.authorize', _) ->
     #{result => false};
+deny_action_result('message.ingress', _) ->
+    #{result => false};
 deny_action_result('message.publish', Msg) ->
     %% TODO: Not support to deny a message
     %% maybe we can put the 'allow_publish' into message header

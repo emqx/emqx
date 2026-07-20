@@ -109,7 +109,7 @@ t_response_handling(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     %% Not OK, get, no body
@@ -122,7 +122,9 @@ t_response_handling(TCConfig) ->
         #{}
     ),
 
-    deny = emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>),
+    deny = emqx_access_control:authorize(
+        emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>
+    ),
 
     %% OK, get, 204
     ok = setup_handler_and_config(
@@ -136,7 +138,7 @@ t_response_handling(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     %% Not OK, get, 400
@@ -151,7 +153,7 @@ t_response_handling(TCConfig) ->
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     %% Not OK, get, 400 + body & headers
@@ -171,7 +173,7 @@ t_response_handling(TCConfig) ->
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     %% The server cannot be reached; hardened mode should deny authorization.
@@ -180,7 +182,9 @@ t_response_handling(TCConfig) ->
     ?check_trace(
         ?assertEqual(
             deny,
-            emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+            emqx_access_control:authorize(
+                emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>
+            )
         ),
         fun(Trace) ->
             ?assertMatch(
@@ -273,7 +277,9 @@ t_query_params(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t/1">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH(1, false), <<"t/1">>
+        )
     ).
 
 t_path(TCConfig) ->
@@ -329,7 +335,9 @@ t_path(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t/1">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH(1, false), <<"t/1">>
+        )
     ).
 
 t_json_body(TCConfig) ->
@@ -389,80 +397,94 @@ t_json_body(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH(1, false), <<"t">>
+        )
     ).
 
 t_placeholder_and_body(TCConfig) ->
-    ok = setup_handler_and_config(
-        TCConfig,
-        fun(Req0, State) ->
-            ?assertEqual(
-                <<"/authz/users/">>,
-                cowboy_req:path(Req0)
-            ),
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ok = setup_handler_and_config(
+            TCConfig,
+            fun(Req0, State) ->
+                ?assertEqual(
+                    <<"/authz/users/">>,
+                    cowboy_req:path(Req0)
+                ),
 
-            <<"g1">> = cowboy_req:header(<<"the_group">>, Req0),
-            {ok, PostVars, Req1} = cowboy_req:read_urlencoded_body(Req0),
+                <<"g1">> = cowboy_req:header(<<"the_group">>, Req0),
+                {ok, PostVars, Req1} = cowboy_req:read_urlencoded_body(Req0),
 
-            ?assertMatch(
-                #{
-                    <<"username">> := <<"user name">>,
-                    <<"clientid">> := <<"client id">>,
-                    <<"peerhost">> := <<"127.0.0.1">>,
-                    <<"proto_name">> := <<"MQTT">>,
-                    <<"mountpoint">> := <<"MOUNTPOINT">>,
-                    <<"topic">> := <<"t">>,
-                    <<"action">> := <<"publish">>,
-                    <<"access">> := <<"2">>,
-                    <<"the_group">> := <<"g1">>,
-                    <<"CN">> := ?PH_CERT_CN_NAME,
-                    <<"CS">> := ?PH_CERT_SUBJECT,
-                    <<"listener_id">> := <<"tcp:default">>
+                ?assertMatch(
+                    #{
+                        <<"username">> := <<"user name">>,
+                        <<"clientid">> := <<"client id">>,
+                        <<"peerhost">> := <<"127.0.0.1">>,
+                        <<"peerport">> := <<"1883">>,
+                        <<"proto_name">> := <<"MQTT">>,
+                        <<"mountpoint">> := <<"MOUNTPOINT">>,
+                        <<"topic">> := <<"t">>,
+                        <<"action">> := <<"publish">>,
+                        <<"access">> := <<"2">>,
+                        <<"the_group">> := <<"g1">>,
+                        <<"CN">> := ?PH_CERT_CN_NAME,
+                        <<"CS">> := ?PH_CERT_SUBJECT,
+                        <<"cert_pem">> := <<"Y2VydGlmaWNhdGU=">>,
+                        <<"zone">> := <<"default">>,
+                        <<"listener_id">> := <<"tcp:default">>
+                    },
+                    maps:from_list(PostVars)
+                ),
+                {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
+            end,
+            #{
+                <<"method">> => <<"post">>,
+                <<"body">> => #{
+                    <<"username">> => <<"${username}">>,
+                    <<"clientid">> => <<"${clientid}">>,
+                    <<"peerhost">> => <<"${peerhost}">>,
+                    <<"peerport">> => <<"${peerport}">>,
+                    <<"proto_name">> => <<"${proto_name}">>,
+                    <<"mountpoint">> => <<"${mountpoint}">>,
+                    <<"topic">> => <<"${topic}">>,
+                    <<"action">> => <<"${action}">>,
+                    <<"access">> => <<"${access}">>,
+                    <<"the_group">> => <<"${client_attrs.group}">>,
+                    <<"CN">> => ?PH_CERT_CN_NAME,
+                    <<"CS">> => ?PH_CERT_SUBJECT,
+                    <<"cert_pem">> => <<"${cert_pem}">>,
+                    <<"zone">> => <<"${zone}">>,
+                    <<"listener_id">> => <<"${listener}">>
                 },
-                maps:from_list(PostVars)
-            ),
-            {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
-        end,
-        #{
-            <<"method">> => <<"post">>,
-            <<"body">> => #{
-                <<"username">> => <<"${username}">>,
-                <<"clientid">> => <<"${clientid}">>,
-                <<"peerhost">> => <<"${peerhost}">>,
-                <<"proto_name">> => <<"${proto_name}">>,
-                <<"mountpoint">> => <<"${mountpoint}">>,
-                <<"topic">> => <<"${topic}">>,
-                <<"action">> => <<"${action}">>,
-                <<"access">> => <<"${access}">>,
-                <<"the_group">> => <<"${client_attrs.group}">>,
-                <<"CN">> => ?PH_CERT_CN_NAME,
-                <<"CS">> => ?PH_CERT_SUBJECT,
-                <<"listener_id">> => <<"${listener}">>
-            },
-            <<"headers">> => #{
-                <<"content-type">> => <<"application/x-www-form-urlencoded">>,
-                <<"the_group">> => <<"${client_attrs.group}">>
+                <<"headers">> => #{
+                    <<"content-type">> => <<"application/x-www-form-urlencoded">>,
+                    <<"the_group">> => <<"${client_attrs.group}">>
+                }
             }
-        }
-    ),
+        ),
 
-    ClientInfo = #{
-        clientid => <<"client id">>,
-        username => <<"user name">>,
-        peerhost => {127, 0, 0, 1},
-        protocol => <<"MQTT">>,
-        mountpoint => <<"MOUNTPOINT">>,
-        zone => default,
-        listener => 'tcp:default',
-        client_attrs => #{<<"group">> => <<"g1">>},
-        cn => ?PH_CERT_CN_NAME,
-        dn => ?PH_CERT_SUBJECT
-    },
+        ClientInfo = #{
+            clientid => <<"client id">>,
+            username => <<"user name">>,
+            peerhost => {127, 0, 0, 1},
+            peername => {{127, 0, 0, 1}, 1883},
+            protocol => <<"MQTT">>,
+            mountpoint => <<"MOUNTPOINT">>,
+            zone => default,
+            listener => 'tcp:default',
+            client_attrs => #{<<"group">> => <<"g1">>},
+            cn => ?PH_CERT_CN_NAME,
+            dn => ?PH_CERT_SUBJECT,
+            cert_pem => <<"certificate">>
+        },
 
-    ?assertEqual(
-        allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
-    ).
+        ?assertEqual(
+            allow,
+            emqx_access_control:authorize(
+                emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>
+            )
+        )
+    end).
 
 %% Checks that we don't crash when receiving an unsupported content-type back.
 t_bad_response_content_type(TCConfig) ->
@@ -520,7 +542,9 @@ t_bad_response_content_type(TCConfig) ->
     ?check_trace(
         ?assertEqual(
             deny,
-            emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+            emqx_access_control:authorize(
+                emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>
+            )
         ),
         fun(Trace) ->
             ?assertMatch(
@@ -552,7 +576,9 @@ t_bad_response_content_type_profile(TCConfig) ->
         end,
     ?assertEqual(
         Expected,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>
+        )
     ).
 
 %% Checks that we bump the correct metrics when we receive an error response
@@ -599,7 +625,7 @@ t_bad_response(TCConfig) ->
     MetricsBefore = get_metrics(),
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
     {ExpectedIgnore, ExpectedDeny, ExpectedGlobalIncrements} =
         case ?config(security_profile, TCConfig) of
@@ -701,7 +727,7 @@ t_no_value_for_placeholder(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
 t_node_cache(TCConfig) ->
@@ -738,11 +764,11 @@ t_node_cache(TCConfig) ->
     },
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
     ?assertMatch(
         #{hits := #{value := 1}, misses := #{value := 1}},
@@ -751,18 +777,24 @@ t_node_cache(TCConfig) ->
     %% Now change a var in each interpolated part, the cache should NOT be hit
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo#{cn => <<"cn2">>}, ?AUTHZ_PUBLISH, <<"t">>)
-    ),
-    ?assertEqual(
-        deny,
         emqx_access_control:authorize(
-            ClientInfo#{clientid => <<"clientid2">>}, ?AUTHZ_PUBLISH, <<"t">>
+            emqx_authz_context:make(ClientInfo#{cn => <<"cn2">>}), ?AUTHZ_PUBLISH, <<"t">>
         )
     ),
     ?assertEqual(
         deny,
         emqx_access_control:authorize(
-            ClientInfo#{username => <<"username2">>}, ?AUTHZ_PUBLISH, <<"t">>
+            emqx_authz_context:make(ClientInfo#{clientid => <<"clientid2">>}),
+            ?AUTHZ_PUBLISH,
+            <<"t">>
+        )
+    ),
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo#{username => <<"username2">>}),
+            ?AUTHZ_PUBLISH,
+            <<"t">>
         )
     ),
     ?assertMatch(
@@ -804,7 +836,7 @@ t_disallowed_placeholders_preserved(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
 t_disallowed_placeholders_path(TCConfig) ->
@@ -831,7 +863,7 @@ t_disallowed_placeholders_path(TCConfig) ->
     % % NOTE: disallowed placeholder left intact, which makes the URL invalid
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
 t_create_replace(TCConfig) ->
@@ -860,7 +892,7 @@ t_create_replace(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     %% Changing to valid config
@@ -877,7 +909,7 @@ t_create_replace(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     ?assertMatch(

@@ -77,6 +77,7 @@ init_per_testcase(TestCase, TCConfig) ->
     TCConfig.
 
 end_per_testcase(_TestCase, _TCConfig) ->
+    emqx_hooks:del('message.ingress', {?MODULE, message_ingress}),
     meck:unload([
         emqx_access_control,
         emqx_session,
@@ -626,6 +627,40 @@ t_process_publish_qos1(_) ->
     Publish = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>),
     {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_NO_MATCHING_SUBSCRIBERS)}, _Channel} =
         emqx_channel:process_publish(Publish, channel()).
+
+%% Verify that ingress hook can effectively change a message that
+%% is passed to authorization and then published
+t_process_publish_message_ingress(_) ->
+    TestPid = self(),
+    ok = emqx_hooks:put(
+        'message.ingress', {?MODULE, message_ingress, []}, ?HP_HIGHEST
+    ),
+    ok = meck:expect(emqx_access_control, authorize, fun(AuthzContext, Action, Topic) ->
+        TestPid ! {authorized, AuthzContext, Action, Topic},
+        allow
+    end),
+    ok = meck:expect(emqx_broker, publish, fun(Msg) ->
+        TestPid ! {published, Msg},
+        []
+    end),
+    Publish = ?PUBLISH_PACKET(?QOS_1, <<"source">>, 1, <<"payload">>),
+    {ok, ?PUBACK_PACKET(1, ?RC_NO_MATCHING_SUBSCRIBERS), _Channel} =
+        emqx_channel:process_publish(Publish, channel()),
+    receive
+        {authorized, AuthzContext, #{qos := ?QOS_1, retain := false}, <<"target">>} ->
+            ?assertMatch(#{clientid := <<"clientid">>}, AuthzContext)
+    after 1000 ->
+        ct:fail(authorization_not_called_with_prepared_publish)
+    end,
+    receive
+        {published, Msg} ->
+            ?assertEqual(?QOS_1, emqx_message:qos(Msg)),
+            ?assertEqual(<<"target">>, emqx_message:topic(Msg)),
+            ?assertEqual(false, emqx_message:get_flag(retain, Msg)),
+            ?assertEqual(value, emqx_message:get_header(ingress, Msg))
+    after 1000 ->
+        ct:fail(prepared_message_not_published)
+    end.
 
 t_process_subscribe(_) ->
     ok = meck:expect(emqx_session, subscribe, fun(_, _, _, Session) -> {ok, Session} end),
@@ -1269,13 +1304,22 @@ t_packing_alias_inexistent_alias(_) ->
 
 t_check_pub_authz(_) ->
     emqx_config:put_zone_conf(default, [authorization, enable], true),
-    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),
-    ok = emqx_channel:check_pub_authz(Publish, channel()).
+    Msg = emqx_message:make(?MODULE, ?QOS_0, <<"t">>, <<"payload">>),
+    ?assertMatch(
+        {ok, Msg, _},
+        emqx_channel:check_pub_authz(Msg, channel())
+    ).
 
 t_check_pub_alias(_) ->
     Publish = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}},
     Channel = emqx_channel:set_field(alias_maximum, #{inbound => 10}, channel()),
     ok = emqx_channel:check_pub_alias(#mqtt_packet{variable = Publish}, Channel).
+
+message_ingress(
+    #{authz_ctx := #{clientid := <<"clientid">>}},
+    Msg = #message{topic = <<"source">>}
+) ->
+    {ok, emqx_message:set_header(ingress, value, Msg#message{topic = <<"target">>})}.
 
 t_check_sub_authzs(_) ->
     emqx_config:put_zone_conf(default, [authorization, enable], true),
