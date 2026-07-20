@@ -1820,7 +1820,7 @@ with_security_profile(Profile, Fun) ->
     end.
 
 set_security_profile(Profile) ->
-    os:putenv(?SECURITY_PROFILE_ENV_VAR, Profile),
+    os:putenv(?SECURITY_PROFILE_ENV_VAR, emqx_utils_conv:str(Profile)),
     emqx_security_profile:clear_profile(),
     ok.
 

@@ -79,8 +79,8 @@ update_resource(OldResourceId, _State) ->
     %% Updated to a templated host URL: the old connector pool is no longer needed.
     emqx_authz_utils:remove_resource(OldResourceId).
 
-authorize(Client, Action, Topic, #{type := http} = State) ->
-    Values = client_vars(Client, Action, Topic),
+authorize(AuthzContext, Action, Topic, #{type := http} = State) ->
+    Values = authz_vars(AuthzContext, Action, Topic),
     case emqx_auth_http_utils:generate_request(State, Values) of
         {ok, Request} ->
             handle_response(query(Values, Request, State), State);
@@ -315,8 +315,8 @@ one_off_ssl_opts(https, Source) ->
 one_off_ssl_opts(http, _Source) ->
     [].
 
-client_vars(Client, Action, Topic) ->
-    Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
+authz_vars(AuthzContext, Action, Topic) ->
+    Vars = emqx_authz_utils:vars_for_rule_query(AuthzContext, Action),
     add_legacy_access_var(Vars#{topic => Topic}).
 
 add_legacy_access_var(#{action := subscribe} = Vars) ->

@@ -104,6 +104,12 @@ base_client_info() ->
         clientid => <<"clientid">>,
         username => <<"username">>,
         peerhost => {127, 0, 0, 1},
+        peername => {{127, 0, 0, 1}, 1883},
+        sockport => 1883,
+        protocol => mqtt,
+        mountpoint => undefined,
+        is_bridge => false,
+        is_superuser => false,
         zone => default,
         listener => 'tcp:default'
     }.
@@ -131,7 +137,7 @@ run_check(ClientInfo, {ExpectedPermission, Action, Topic}) ->
     ?assertEqual(
         ExpectedPermission,
         emqx_access_control:authorize(
-            ClientInfo,
+            emqx_authz_context:make(ClientInfo),
             Action,
             Topic
         )

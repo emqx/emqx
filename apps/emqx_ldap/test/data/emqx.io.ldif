@@ -48,6 +48,13 @@ mqttSubscriptionTopic: mqttuser0001/sub/#
 mqttPubSubTopic: mqttuser0001/pubsub/1
 mqttPubSubTopic: mqttuser0001/pubsub/+
 mqttPubSubTopic: mqttuser0001/pubsub/#
+authzContextValue: clientid-value
+authzContextValue: 127.0.0.1
+authzContextValue: cn-value
+authzContextValue: dn-value
+authzContextValue: zone-value
+authzContextValue: attr-value
+authzContextValue: listener-value
 userPassword:: e1NIQX1tbGIzZmF0NDBNS0JUWFVWWndDS21MNzNSLzA9
 
 ## create user=mqttuser0002

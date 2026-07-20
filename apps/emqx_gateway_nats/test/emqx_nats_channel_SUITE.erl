@@ -7,6 +7,7 @@
 -include("emqx_nats.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 
 -compile(export_all).
@@ -81,6 +82,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, Config) ->
+    emqx_common_test_helpers:call_janitor(),
     cleanup_hooks(),
     allow_pubsub_all(),
     disable_auth(),
@@ -113,6 +115,124 @@ t_subscribe_hook_blocked(Config) ->
     {ok, [Err]} = emqx_nats_client:receive_message(Client),
     ?assertMatch(#nats_frame{operation = ?OP_ERR}, Err),
     emqx_nats_client:stop(Client).
+
+t_message_ingress(Config) ->
+    Mountpoint = <<"nats/">>,
+    Topic = <<"source">>,
+    RewrittenTopic = <<"target">>,
+    MountedTopic = <<Mountpoint/binary, RewrittenTopic/binary>>,
+    ReplyTo = <<"reply.subject">>,
+    Payload = <<"payload">>,
+    NATSHeaders = #{<<"x-custom">> => <<"value">>},
+    TestPid = self(),
+    update_nats_tcp_listener_authn_and_mountpoint(false, Mountpoint),
+    ok = emqx:subscribe(Topic),
+    ok = emqx:subscribe(RewrittenTopic),
+    ok = emqx:subscribe(MountedTopic),
+    ok = emqx:subscribe(<<Mountpoint/binary, MountedTopic/binary>>),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx:unsubscribe(Topic),
+        emqx:unsubscribe(RewrittenTopic),
+        emqx:unsubscribe(MountedTopic),
+        emqx:unsubscribe(<<Mountpoint/binary, MountedTopic/binary>>)
+    end),
+    ok = emqx_hooks:put(
+        'message.ingress',
+        {?MODULE, hook_message_ingress, [TestPid, RewrittenTopic]},
+        ?HP_HIGHEST
+    ),
+    ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true, headers => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    %% Ingress sees the logical topic, payload, authz context, and NATS metadata.
+    ok = send_hpub(Client, Topic, ReplyTo, NATSHeaders, Payload),
+    PreAuthzMsg =
+        receive
+            {message_ingress, Ctx, Msg} ->
+                ?assertMatch(#{authz_ctx := #{clientid := _}}, Ctx),
+                ?assertEqual(Topic, emqx_message:topic(Msg)),
+                ?assertEqual(Payload, emqx_message:payload(Msg)),
+                ?assertEqual(false, emqx_message:get_flag(retain, Msg)),
+                ?assertMatch(
+                    #{
+                        proto_ver := <<"1">>,
+                        protocol := nats,
+                        username := <<>>,
+                        peerhost := _,
+                        nats_headers := NATSHeaders,
+                        reply_to := ReplyTo
+                    },
+                    emqx_message:get_headers(Msg)
+                ),
+                Msg
+        after 1000 ->
+            ct:fail(message_ingress_hook_not_called)
+        end,
+    recv_ok_frame(Client),
+    %% The hook rewrite/header survive and the mountpoint is applied exactly once.
+    receive
+        {deliver, MountedTopic, PublishedMsg} ->
+            ?assertEqual(emqx_message:id(PreAuthzMsg), emqx_message:id(PublishedMsg)),
+            ?assertEqual(true, emqx_message:get_header(ingress, PublishedMsg))
+    after 1000 ->
+        ct:fail(message_not_published)
+    end,
+    %% Catch original, unmounted rewritten, or double-mounted publications.
+    receive
+        {deliver, UnexpectedTopic, _} ->
+            ct:fail({unexpected_publish, UnexpectedTopic})
+    after 100 ->
+        ok
+    end,
+    emqx_nats_client:stop(Client).
+
+t_jwt_before_emqx_authz_after_ingress(_) ->
+    SourceTopic = <<"source">>,
+    RewrittenTopic = <<"target">>,
+    TestPid = self(),
+    ok = emqx_hooks:put(
+        'message.ingress',
+        {?MODULE, hook_message_ingress, [TestPid, RewrittenTopic]},
+        ?HP_HIGHEST
+    ),
+    ok = emqx_hooks:put(
+        'client.authorize',
+        {?MODULE, hook_authorize_order, [TestPid]},
+        ?HP_HIGHEST
+    ),
+    Msg = emqx_message:make(<<"client">>, SourceTopic, <<"payload">>),
+    DenyingClientInfo = nats_authz_clientinfo(#{
+        publish => #{allow => [SourceTopic], deny => [RewrittenTopic]}
+    }),
+    deny = emqx_nats_channel:authorize_publish(DenyingClientInfo, Msg),
+    receive
+        {message_ingress, _, #message{topic = SourceTopic}} -> ok
+    after 1000 ->
+        ct:fail(message_ingress_hook_not_called)
+    end,
+    receive
+        {emqx_authorize, Topic} -> ct:fail({unexpected_emqx_authorize, Topic})
+    after 100 ->
+        ok
+    end,
+
+    AllowingClientInfo = nats_authz_clientinfo(#{
+        publish => #{allow => [RewrittenTopic], deny => []}
+    }),
+    {allow, #message{topic = RewrittenTopic}} =
+        emqx_nats_channel:authorize_publish(AllowingClientInfo, Msg),
+    receive
+        {message_ingress, _, #message{topic = SourceTopic}} -> ok
+    after 1000 ->
+        ct:fail(message_ingress_hook_not_called)
+    end,
+    receive
+        {emqx_authorize, RewrittenTopic} -> ok
+    after 1000 ->
+        ct:fail(emqx_authorize_hook_not_called)
+    end.
 
 t_subscribe_duplicate_sid(Config) ->
     ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
@@ -346,6 +466,14 @@ hook_authn_complete(Credential, Result, Parent) ->
     Parent ! {client_check_authn_complete, maps:get(username, Credential, undefined), Result},
     ok.
 
+hook_message_ingress(Ctx, Msg, TestPid, RewrittenTopic) ->
+    TestPid ! {message_ingress, Ctx, Msg},
+    {ok, emqx_message:set_header(ingress, true, Msg#message{topic = RewrittenTopic})}.
+
+hook_authorize_order(_AuthzContext, _Action, Topic, _Default, TestPid) ->
+    TestPid ! {emqx_authorize, Topic},
+    {stop, #{result => allow, from => test}}.
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
@@ -381,6 +509,21 @@ recv_ok_frame(Client) ->
 recv_info_frame(Client) ->
     {ok, [Frame]} = emqx_nats_client:receive_message(Client),
     ?assertMatch(#nats_frame{operation = ?OP_INFO}, Frame).
+
+send_hpub(Client, Subject, ReplyTo, Headers, Payload) ->
+    Frame = #nats_frame{
+        operation = ?OP_HPUB,
+        message = #{
+            subject => Subject,
+            reply_to => ReplyTo,
+            headers => Headers,
+            payload => Payload
+        }
+    },
+    Data = iolist_to_binary(
+        emqx_nats_frame:serialize_pkt(Frame, emqx_nats_frame:serialize_opts())
+    ),
+    emqx_nats_client:send_invalid_frame(Client, Data).
 
 find_client_by_username(Username) ->
     ClientInfos = emqx_gateway_test_utils:list_gateway_clients(<<"nats">>),
@@ -527,9 +670,24 @@ update_nats_with_internal_authn_and_mountpoint(InternalAuthn, Mountpoint) ->
 cleanup_hooks() ->
     _ = emqx_hooks:del('client.connect', {?MODULE, hook_connect_error}),
     _ = emqx_hooks:del('client.subscribe', {?MODULE, hook_subscribe_block}),
+    _ = emqx_hooks:del('message.ingress', {?MODULE, hook_message_ingress}),
+    _ = emqx_hooks:del('client.authorize', {?MODULE, hook_authorize_order}),
     _ = emqx_hooks:del('client.authenticate', {?MODULE, hook_auth_expire}),
     _ = emqx_hooks:del('client.check_authn_complete', {?MODULE, hook_authn_complete}),
     ok.
+
+nats_authz_clientinfo(JWTPermissions) ->
+    #{
+        zone => default,
+        protocol => nats,
+        peerhost => {127, 0, 0, 1},
+        sockport => 1883,
+        clientid => <<"client">>,
+        is_bridge => false,
+        is_superuser => false,
+        mountpoint => undefined,
+        jwt_permissions => JWTPermissions
+    }.
 
 %%--------------------------------------------------------------------
 %% NKEY Unit Tests

@@ -174,7 +174,7 @@ t_render_filter_failure_legacy_ignores(Config) ->
         ?assertEqual(
             allow,
             emqx_access_control:authorize(
-                #{username => <<255>>},
+                emqx_authz_context:make(#{username => <<255>>}),
                 ?AUTHZ_PUBLISH,
                 <<"a">>
             )
@@ -191,7 +191,7 @@ t_render_filter_failure_hardened_denies(Config) ->
         ?assertEqual(
             deny,
             emqx_access_control:authorize(
-                #{username => <<255>>},
+                emqx_authz_context:make(#{username => <<255>>}),
                 ?AUTHZ_PUBLISH,
                 <<"a">>
             )
@@ -210,7 +210,7 @@ t_resource_failure_legacy_ignores(Config) ->
             ?assertEqual(
                 allow,
                 emqx_access_control:authorize(
-                    emqx_authz_test_lib:base_client_info(),
+                    emqx_authz_context:make(emqx_authz_test_lib:base_client_info()),
                     ?AUTHZ_PUBLISH,
                     <<"a">>
                 )
@@ -230,7 +230,7 @@ t_resource_failure_hardened_denies(Config) ->
             ?assertEqual(
                 deny,
                 emqx_access_control:authorize(
-                    emqx_authz_test_lib:base_client_info(),
+                    emqx_authz_context:make(emqx_authz_test_lib:base_client_info()),
                     ?AUTHZ_PUBLISH,
                     <<"a">>
                 )
@@ -374,13 +374,19 @@ cases() ->
             ]
         },
         #{
-            name => rule_by_clientid_cn_dn_peerhost,
+            name => rule_by_authz_context_variables,
+            security_profile => hardened,
             records => [
                 #{
+                    <<"username">> => <<"username">>,
                     <<"cn">> => <<"cn">>,
                     <<"dn">> => <<"dn">>,
                     <<"clientid">> => <<"clientid">>,
                     <<"peerhost">> => <<"127.0.0.1">>,
+                    <<"peerport">> => <<"1883">>,
+                    <<"zone">> => <<"default">>,
+                    <<"listener">> => <<"tcp:default">>,
+                    <<"client_group">> => <<"g1">>,
                     <<"action">> => <<"publish">>,
                     <<"topic">> => <<"a">>,
                     <<"permission">> => <<"allow">>
@@ -388,13 +394,19 @@ cases() ->
             ],
             client_info => #{
                 cn => <<"cn">>,
-                dn => <<"dn">>
+                dn => <<"dn">>,
+                client_attrs => #{<<"group">> => <<"g1">>}
             },
             filter => #{
+                <<"username">> => <<"${username}">>,
                 <<"cn">> => <<"${cert_common_name}">>,
                 <<"dn">> => <<"${cert_subject}">>,
                 <<"clientid">> => <<"${clientid}">>,
-                <<"peerhost">> => <<"${peerhost}">>
+                <<"peerhost">> => <<"${peerhost}">>,
+                <<"peerport">> => <<"${peerport}">>,
+                <<"zone">> => <<"${zone}">>,
+                <<"listener">> => <<"${listener}">>,
+                <<"client_group">> => <<"${client_attrs.group}">>
             },
             checks => [
                 {allow, ?AUTHZ_PUBLISH, <<"a">>}
