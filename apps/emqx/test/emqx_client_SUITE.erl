@@ -1576,8 +1576,23 @@ t_frame_error_shutdown_count_connected(Config) ->
 %% supervisor attributes to `Cause'. Returns the exit reason.
 assert_frame_error_shutdown(Config, Socket, Malformed, Cause) ->
     CountBefore = shutdown_count(Config, Cause),
-    ok = socket_send(Socket, Malformed),
-    {ok, #{reason := ExitReason}} = ?block_until(#{?snk_kind := terminate}, 5000),
+    Self = self(),
+    Reports = emqx_cth_log_capture:capture(info, fun() ->
+        ok = socket_send(Socket, Malformed),
+        {ok, #{reason := R}} = ?block_until(#{?snk_kind := terminate}, 5000),
+        Self ! {exit_reason, R}
+    end),
+    ExitReason =
+        receive
+            {exit_reason, R0} -> R0
+        after 0 -> ct:fail(no_terminate_event)
+        end,
+    %% The shutdown reason only names the cause, so the full parse error and the
+    %% offending bytes must stay available at info level for troubleshooting.
+    ?assertMatch(
+        [#{reason := #{cause := Cause}, input_bytes := Malformed, at_state := _} | _],
+        [R1 || #{msg := "frame_parse_error"} = R1 <- Reports]
+    ),
     %% esockd attributes a shutdown to a cause when the reason is either a plain
     %% atom or a map tagged with `shutdown_count'; anything else is reported as
     %% an unidentified shutdown at error level and left uncounted.
