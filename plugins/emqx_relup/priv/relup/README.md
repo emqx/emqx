@@ -22,7 +22,7 @@ are arbitrary; `<from>-to-<to>.relup` is the convention.
 - Load the PostgreSQL connector module so disabled-prepared-statement batch execution and table-existence checks use the serialized worker path.
 - Restart `jamdb_oracle`, load Oracle connector modules, then restart running Oracle connector resources so prepare/status checks and large text binds use the updated driver and callback code.
 - Load central redaction helpers and the LwM2M session module so registration/update reports drop sensitive fields and do not replay secrets.
-- Load DynamoDB schema and connector modules, then restart running DynamoDB connector resources so they use explicit per-request AWS configuration and IAM-role credential refresh.
+- Load DynamoDB connector modules, then restart running DynamoDB connector resources so they use explicit per-request AWS configuration and IAM-role credential refresh.
 - Stop Redis resources, restart `eredis`, reload `emqx_redis`, then start Redis resources so Sentinel managers are recreated with isolated manager names.
 
 ## Schema

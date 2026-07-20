@@ -173,7 +173,6 @@ fields(bridges) ->
                 hoconsc:map(name, ref(emqx_bridge_dynamo, "config")),
                 #{
                     desc => <<"Dynamo Bridge Config">>,
-                    validator => fun emqx_bridge_dynamo_connector:credentials_validator/1,
                     required => false
                 }
             )},

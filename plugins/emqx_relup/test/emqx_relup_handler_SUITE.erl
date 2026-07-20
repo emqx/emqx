@@ -185,7 +185,6 @@ t_5105_catalog_reloads_and_restarts_dynamo_connectors(_Config) ->
     #{code_changes := CodeChanges} = find_relup_entry("5.10.4", "5.10.5", Valid),
     RestartDynamo = {apply, emqx_relup_dynamo_upgrade, restart_dynamo_connectors, []},
     Modules = [
-        emqx_bridge_enterprise,
         emqx_bridge_dynamo_connector,
         emqx_bridge_dynamo_connector_client,
         emqx_bridge_dynamo_connector_info,

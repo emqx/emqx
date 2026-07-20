@@ -23,7 +23,7 @@ emqx_bridge_couchbase: none
 emqx_bridge_datalayers: none
 emqx_bridge_disk_log: none
 emqx_bridge_doris: none
-emqx_bridge_dynamo: all
+emqx_bridge_dynamo: none
 emqx_bridge_es: none
 emqx_bridge_gcp_pubsub: emqx_enterprise
 emqx_bridge_greptimedb: none

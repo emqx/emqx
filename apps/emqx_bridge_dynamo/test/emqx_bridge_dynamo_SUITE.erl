@@ -458,6 +458,8 @@ t_connector_client_uses_refreshed_metadata_credentials(_Config) ->
     end.
 
 t_credentials_validator(_Config) ->
+    InvalidCredentialsError =
+        {error, <<"aws_access_key_id and aws_secret_access_key must be provided together">>},
     ValidLegacyConfig =
         <<
             "bridges.dynamo.test {"
@@ -489,7 +491,8 @@ t_credentials_validator(_Config) ->
             parse_and_check(LegacyConfigWithoutCredentials, <<"dynamo">>, <<"test">>)
         )
     ),
-    assert_invalid_credentials(fun() ->
+    ?assertMatch(
+        #{<<"aws_access_key_id">> := <<"access_key">>},
         parse_and_check(
             binary:replace(
                 ValidLegacyConfig,
@@ -499,8 +502,9 @@ t_credentials_validator(_Config) ->
             <<"dynamo">>,
             <<"test">>
         )
-    end),
-    assert_invalid_credentials(fun() ->
+    ),
+    ?assertMatch(
+        #{<<"aws_secret_access_key">> := _},
         parse_and_check(
             binary:replace(
                 ValidLegacyConfig,
@@ -510,7 +514,7 @@ t_credentials_validator(_Config) ->
             <<"dynamo">>,
             <<"test">>
         )
-    end),
+    ),
     ConnectorConfig = #{
         <<"enable">> => true,
         <<"url">> => <<"http://127.0.0.1:8000">>,
@@ -567,6 +571,24 @@ t_credentials_validator(_Config) ->
     ?assertMatch(
         {error, _},
         Validator(#{<<"aws_secret_access_key">> => <<"secret_key">>})
+    ),
+    RuntimeConfig = #{
+        url => <<"http://127.0.0.1:8000">>,
+        pool_size => 1
+    },
+    ?assertEqual(
+        InvalidCredentialsError,
+        emqx_bridge_dynamo_connector:on_start(
+            <<"dynamo-invalid-access-key-only">>,
+            RuntimeConfig#{aws_access_key_id => <<"access_key">>}
+        )
+    ),
+    ?assertEqual(
+        InvalidCredentialsError,
+        emqx_bridge_dynamo_connector:on_start(
+            <<"dynamo-invalid-secret-key-only">>,
+            RuntimeConfig#{aws_secret_access_key => <<"secret_key">>}
+        )
     ).
 
 assert_invalid_credentials(Check) ->

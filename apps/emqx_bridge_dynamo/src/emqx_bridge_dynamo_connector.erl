@@ -75,7 +75,15 @@ resource_type() -> dynamo.
 
 callback_mode() -> always_sync.
 
-on_start(
+on_start(InstanceId, Config) ->
+    case credentials_validator(Config) of
+        ok ->
+            do_start(InstanceId, Config);
+        {error, _} = Error ->
+            Error
+    end.
+
+do_start(
     InstanceId,
     #{
         url := Url,
