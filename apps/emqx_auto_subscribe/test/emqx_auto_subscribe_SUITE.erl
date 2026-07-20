@@ -96,6 +96,12 @@ init_per_testcase(t_get_basic_usage_info, Config) ->
 init_per_testcase(t_auto_subscribe_reload_from_file, Config) ->
     {ok, _} = emqx_auto_subscribe:update([]),
     Config;
+init_per_testcase(TestCase, Config) when
+    TestCase =:= t_auto_subscribe_respects_authorization;
+    TestCase =:= t_auto_subscribe_shared_topic
+->
+    emqx_common_test_helpers:set_security_profile("hardened"),
+    Config;
 init_per_testcase(_TestCase, Config) ->
     Config.
 
@@ -105,6 +111,13 @@ end_per_testcase(t_get_basic_usage_info, _Config) ->
     ok;
 end_per_testcase(t_auto_subscribe_reload_from_file, _Config) ->
     {ok, _} = emqx_auto_subscribe:update([]),
+    emqx_common_test_helpers:call_janitor(),
+    ok;
+end_per_testcase(TestCase, _Config) when
+    TestCase =:= t_auto_subscribe_respects_authorization;
+    TestCase =:= t_auto_subscribe_shared_topic
+->
+    emqx_common_test_helpers:clear_security_profile(),
     emqx_common_test_helpers:call_janitor(),
     ok;
 end_per_testcase(_TestCase, _Config) ->

@@ -115,7 +115,7 @@
 -type subscribe_filter() ::
     {emqx_types:topic() | emqx_types:share(), emqx_types:subopts()}.
 -type subscribe_topic_filters() ::
-    [subscribe_filter()] | [{subscribe_filter(), emqx_types:reason_code()}].
+    [subscribe_filter() | {subscribe_filter(), emqx_types:reason_code()}].
 -record(subscribe_operation, {
     properties = #{} :: emqx_types:properties(),
     topic_filters = [] :: subscribe_topic_filters()
@@ -1768,15 +1768,24 @@ handle_info({subscribe, TopicFilters}, Channel) ->
             maps:merge(basic_attrs(Channel), topic_attrs({subscribe, TopicFilters}))
         ),
         fun() ->
-            Operation = subscribe_operation(TopicFilters),
-            case prepare_subscribe(Operation, Channel) of
-                {ok, NOperation, Channel1} ->
-                    {_TopicFiltersWithRC, Channel2} = post_process_subscribe(
-                        run_sub_hooks(NOperation, Channel1), Channel1
+            case emqx_security_profile:policy(internal_subscription_checks) of
+                true ->
+                    Operation = subscribe_operation(TopicFilters),
+                    case prepare_subscribe(Operation, Channel) of
+                        {ok, NOperation, Channel1} ->
+                            {_TopicFiltersWithRC, Channel2} = post_process_subscribe(
+                                run_sub_hooks(NOperation, Channel1), Channel1
+                            ),
+                            {ok, Channel2};
+                        {error, {disconnect, RC}, Channel1} ->
+                            handle_out(disconnect, RC, Channel1)
+                    end;
+                false ->
+                    NTopicFilters = do_enrich_subscribe(#{}, TopicFilters, Channel),
+                    {_TopicFiltersWithRC, NChannel} = post_process_subscribe(
+                        NTopicFilters, Channel
                     ),
-                    {ok, Channel2};
-                {error, {disconnect, RC}, Channel1} ->
-                    handle_out(disconnect, RC, Channel1)
+                    {ok, NChannel}
             end
         end,
         []
