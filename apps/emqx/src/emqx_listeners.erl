@@ -575,19 +575,22 @@ post_zone_config_update(OldZones, NewZones) ->
         false ->
             ok;
         true ->
-            Zones0 = maps:keys(OldZones),
-            case find_zones_with_relevant_changes(Zones0, OldZones, NewZones, []) of
-                [] ->
-                    ok;
-                Zones ->
-                    Listeners = emqx_config:get([listeners], #{}),
-                    maps:foreach(
-                        fun(Type, NameConfig) ->
-                            update_listeners_in_zones(Type, NameConfig, Zones)
-                        end,
-                        Listeners
-                    )
-            end
+            do_post_zone_config_update(true, OldZones, NewZones)
+    end.
+
+do_post_zone_config_update(true, OldZones, NewZones) ->
+    Zones0 = maps:keys(OldZones),
+    case find_zones_with_relevant_changes(Zones0, OldZones, NewZones, []) of
+        [] ->
+            ok;
+        Zones ->
+            Listeners = emqx_config:get([listeners], #{}),
+            maps:foreach(
+                fun(Type, NameConfig) ->
+                    update_listeners_in_zones(Type, NameConfig, Zones)
+                end,
+                Listeners
+            )
     end.
 
 find_zones_with_relevant_changes([], _OldZones, _NewZones, Acc) ->
