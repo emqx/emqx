@@ -38,7 +38,7 @@
 
 all() ->
     [
-        t_connector_client_imds,
+        t_connector_client_uses_refreshed_metadata_credentials,
         t_credentials_validator,
         {group, with_batch},
         {group, without_batch},
@@ -51,7 +51,9 @@ groups() ->
     %% due to the poorly implemented driver or other reasons
     %% if we mix these cases with others, this suite will become flaky.
     Flaky = [t_get_status, t_write_failure],
-    TCs = (TCs0 -- Flaky) -- [t_connector_client_imds, t_credentials_validator],
+    TCs =
+        (TCs0 -- Flaky) --
+            [t_connector_client_uses_refreshed_metadata_credentials, t_credentials_validator],
 
     [
         {with_batch, TCs},
@@ -98,7 +100,8 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(TestCase, Config) when
-    TestCase =:= t_connector_client_imds; TestCase =:= t_credentials_validator
+    TestCase =:= t_connector_client_uses_refreshed_metadata_credentials;
+    TestCase =:= t_credentials_validator
 ->
     Config;
 init_per_testcase(TestCase, Config) ->
@@ -107,7 +110,8 @@ init_per_testcase(TestCase, Config) ->
     [{dynamo_name, atom_to_binary(TestCase)} | Config].
 
 end_per_testcase(TestCase, _Config) when
-    TestCase =:= t_connector_client_imds; TestCase =:= t_credentials_validator
+    TestCase =:= t_connector_client_uses_refreshed_metadata_credentials;
+    TestCase =:= t_credentials_validator
 ->
     ok;
 end_per_testcase(_Testcase, Config) ->
@@ -384,7 +388,7 @@ directly_get_field(Key, Field) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_connector_client_imds(_Config) ->
+t_connector_client_uses_refreshed_metadata_credentials(_Config) ->
     TestPid = self(),
     CredentialGeneration = atomics:new(1, []),
     meck:new(erlcloud_aws, [passthrough, no_link]),
