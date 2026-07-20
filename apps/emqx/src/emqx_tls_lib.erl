@@ -232,6 +232,7 @@ all_ciphers(Versions) ->
     %% openssl ciphers -v|grep ^PSK| awk '{print $1}'| sed  "s/^/\"/;s/$/\"/" | tr "\n" ","
     %% Then remove the ciphers that aren't supported by Erlang
     PSK = [
+        "ECDHE-PSK-CHACHA20-POLY1305",
         "PSK-AES256-GCM-SHA384",
         "PSK-AES128-GCM-SHA256",
         "PSK-AES256-CBC-SHA384",
