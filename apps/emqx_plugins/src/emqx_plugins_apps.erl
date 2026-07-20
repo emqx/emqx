@@ -211,7 +211,10 @@ validate_plugin_app(AppNameVsn, LibDir, ok) ->
 
 validate_plugin_app(AppName, AppVsn, EbinDir, AppFile, Props) when is_list(Props) ->
     Vsn = proplists:get_value(vsn, Props, undefined),
-    case (is_list(Vsn) orelse is_binary(Vsn)) andalso bin(Vsn) =:= bin(AppVsn) of
+    case
+        (is_list(Vsn) orelse is_binary(Vsn)) andalso
+            emqx_plugins_utils:bin(Vsn) =:= emqx_plugins_utils:bin(AppVsn)
+    of
         true ->
             validate_loaded_plugin_app(AppName, EbinDir, Props);
         false ->
