@@ -128,6 +128,42 @@ t_create_bad_topic_filter(Config) ->
 t_wildcard_filter_ok(Config) ->
     {201, _} = create(Config, ?global_ns, <<"wild">>, <<"sensor/+/temp">>).
 
+-doc "Ordinary and wildcard topic filters are accepted (no regression).".
+t_ordinary_filters_ok(Config) ->
+    {201, _} = create(Config, ?global_ns, <<"exact">>, <<"sensor/1">>),
+    {201, _} = create(Config, ?global_ns, <<"hash">>, <<"sensor/#">>),
+    {201, _} = create(Config, ?global_ns, <<"plus">>, <<"sensor/+/temp">>).
+
+-doc """
+Creating a collection with a shared-subscription topic filter
+($share/, $queue/) is rejected with 400 BAD_TOPIC_FILTER.
+""".
+t_create_shared_filter_rejected(Config) ->
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_TOPIC_FILTER">>}},
+        create(Config, ?global_ns, <<"s1">>, <<"$share/group/sensor/1">>)
+    ),
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_TOPIC_FILTER">>}},
+        create(Config, ?global_ns, <<"s2">>, <<"$queue/sensor/1">>)
+    ),
+    %% Rejected shared filters must not leave a collection behind.
+    ?assertEqual({200, []}, list(Config, ?global_ns)).
+
+-doc """
+The facade register/3 path also rejects shared-subscription topic
+filters (config/import/rehydrate share this validator).
+""".
+t_register_shared_filter_rejected(_Config) ->
+    ?assertMatch(
+        {error, #{cause := shared_topic_filter_not_allowed}},
+        emqx_topic_metrics2:register(<<"s">>, <<"$share/g/sensor/1">>, ?global_ns)
+    ),
+    ?assertMatch(
+        {error, #{cause := shared_topic_filter_not_allowed}},
+        emqx_topic_metrics2:register(<<"q">>, <<"$queue/sensor/1">>, ?global_ns)
+    ).
+
 t_delete_all(Config) ->
     [
         {201, _} =
