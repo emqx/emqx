@@ -11,6 +11,7 @@
 %% Plugin's app lifecycle
 -export([
     start/1,
+    validate/2,
     load/2,
     unload/1,
     stop/1,
@@ -103,6 +104,10 @@ load(#{rel_apps := Apps}, LibDir) ->
             {error, Reason}
     end.
 
+-spec validate(emqx_plugins_info:t(), file:filename()) -> ok | {error, map()}.
+validate(#{rel_apps := Apps}, LibDir) ->
+    lists:foldl(fun(App, Acc) -> validate_plugin_app(App, LibDir, Acc) end, ok, Apps).
+
 -spec unload(emqx_plugins_info:t()) -> ok | {error, term()}.
 unload(#{rel_apps := Apps}) ->
     RunningApps = running_apps(),
@@ -169,6 +174,85 @@ app_running_status(AppName, RunningApps, LoadedApps) ->
         false ->
             stopped
     end.
+
+validate_plugin_app(_AppNameVsn, _LibDir, Error) when Error =/= ok ->
+    Error;
+validate_plugin_app(AppNameVsn, LibDir, ok) ->
+    {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(AppNameVsn),
+    EbinDir = filename:join([LibDir, AppNameVsn, "ebin"]),
+    AppFile = filename:join(EbinDir, atom_to_list(AppName) ++ ".app"),
+    case file:consult(AppFile) of
+        {ok, [{application, AppName, Props}]} ->
+            validate_plugin_app(AppName, AppVsn, EbinDir, AppFile, Props);
+        {ok, AppSpec} ->
+            {error, #{msg => "bad_plugin_app_file", path => AppFile, reason => AppSpec}};
+        {error, Reason} ->
+            {error, #{msg => "bad_plugin_app_file", path => AppFile, reason => Reason}}
+    end.
+
+validate_plugin_app(AppName, AppVsn, EbinDir, AppFile, Props) when is_list(Props) ->
+    Vsn = proplists:get_value(vsn, Props, undefined),
+    case (is_list(Vsn) orelse is_binary(Vsn)) andalso bin(Vsn) =:= bin(AppVsn) of
+        true ->
+            validate_loaded_plugin_app(AppName, EbinDir, Props);
+        false ->
+            {error, #{
+                msg => "plugin_app_version_mismatch",
+                path => AppFile,
+                expected_vsn => AppVsn,
+                actual_vsn => Vsn
+            }}
+    end;
+validate_plugin_app(_AppName, _AppVsn, _EbinDir, AppFile, Props) ->
+    {error, #{msg => "bad_plugin_app_file", path => AppFile, reason => Props}}.
+
+validate_loaded_plugin_app(AppName, EbinDir, Props) ->
+    case lists:keyfind(AppName, 1, loaded_apps()) of
+        false ->
+            ok;
+        {AppName, _} ->
+            ExpectedEbinDir = path_to_list(EbinDir),
+            case app_ebin_dir(AppName) of
+                ExpectedEbinDir ->
+                    ok;
+                LoadedEbinDir ->
+                    case is_shared_plugin_app(AppName, Props, LoadedEbinDir) of
+                        true ->
+                            ok;
+                        false ->
+                            {error, #{
+                                msg => "plugin_app_loaded_outside_package",
+                                name => AppName,
+                                expected_ebin => ExpectedEbinDir,
+                                loaded_ebin => LoadedEbinDir
+                            }}
+                    end
+            end
+    end.
+
+is_shared_plugin_app(AppName, Props, LoadedEbinDir) when is_list(LoadedEbinDir) ->
+    InstallDir = filename:absname(emqx_plugins_fs:install_dir()),
+    EbinDir = filename:absname(LoadedEbinDir),
+    case string:prefix(EbinDir, InstallDir ++ "/") of
+        nomatch ->
+            false;
+        _ ->
+            AppFile = filename:join(EbinDir, atom_to_list(AppName) ++ ".app"),
+            file:consult(AppFile) =:= {ok, [{application, AppName, Props}]}
+    end;
+is_shared_plugin_app(_AppName, _Props, _LoadedEbinDir) ->
+    false.
+
+app_ebin_dir(AppName) ->
+    case code:lib_dir(AppName) of
+        {error, _} = Error -> Error;
+        LibDir -> filename:join(LibDir, "ebin")
+    end.
+
+path_to_list(Path) when is_binary(Path) ->
+    binary_to_list(Path);
+path_to_list(Path) ->
+    Path.
 
 load_plugin_app(AppName, AppVsn, Ebin, LoadedApps) ->
     case lists:keyfind(AppName, 1, LoadedApps) of
