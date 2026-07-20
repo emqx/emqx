@@ -309,7 +309,7 @@ handle_protocol_in({reset, CtxMsg}, WithContext, Session) ->
 %% Register
 %%--------------------------------------------------------------------
 append_object_list(Query, Payload) ->
-    RegInfo = append_object_list2(Query, Payload),
+    RegInfo = drop_sensitive_reg_info(append_object_list2(Query, Payload)),
     lists:foldl(
         fun(Key, Acc) ->
             fix_reg_info(Key, Acc)
@@ -331,6 +331,14 @@ fix_reg_info(<<"lt">>, #{<<"lt">> := LT} = RegInfo) ->
     RegInfo#{<<"lt">> := erlang:binary_to_integer(LT)};
 fix_reg_info(_, RegInfo) ->
     RegInfo.
+
+drop_sensitive_reg_info(RegInfo) ->
+    maps:filter(
+        fun(Key, _Value) ->
+            not emqx_utils_redact:is_sensitive_key(Key)
+        end,
+        RegInfo
+    ).
 
 parse_object_list(<<>>) ->
     {<<"/">>, <<>>};
@@ -414,7 +422,7 @@ update(
 ) ->
     Query = maps:get(uri_query, Opts, #{}),
     RegInfo = append_object_list(Query, Payload),
-    UpdateRegInfo = maps:merge(OldRegInfo, RegInfo),
+    UpdateRegInfo = drop_sensitive_reg_info(maps:merge(OldRegInfo, RegInfo)),
     LifeTime = get_lifetime(UpdateRegInfo, OldRegInfo),
 
     NewSession = Session#session{

@@ -194,6 +194,39 @@ sql_insert_template_with_inconsistent_datatype() ->
 sql_create_table() ->
     "CREATE TABLE mqtt_test (topic VARCHAR2(255), msgid VARCHAR2(64), payload NCLOB, retain NUMBER(1))".
 
+sql_stored_procedure_template() ->
+    "DECLARE\n"
+    "    v_result VARCHAR2(10);\n"
+    "BEGIN\n"
+    "    emqx_insert_message(${topic}, ${id}, ${payload}, ${retain}, v_result);\n"
+    "END;".
+
+sql_create_stored_procedure() ->
+    "CREATE OR REPLACE PROCEDURE emqx_insert_message (\n"
+    "    p_topic IN VARCHAR2,\n"
+    "    p_msgid IN VARCHAR2,\n"
+    "    p_payload IN VARCHAR2,\n"
+    "    p_retain IN NUMBER,\n"
+    "    p_result OUT VARCHAR2\n"
+    ") AS\n"
+    "BEGIN\n"
+    "    INSERT INTO mqtt_test(topic, msgid, payload, retain)\n"
+    "    VALUES (p_topic, p_msgid, p_payload, p_retain);\n"
+    "    p_result := 'ok';\n"
+    "END;".
+
+sql_drop_stored_procedure() ->
+    "BEGIN\n"
+    "        EXECUTE IMMEDIATE 'DROP PROCEDURE emqx_insert_message';\n"
+    "     EXCEPTION\n"
+    "        WHEN OTHERS THEN\n"
+    "            IF SQLCODE = -4043 THEN\n"
+    "                NULL;\n"
+    "            ELSE\n"
+    "                RAISE;\n"
+    "            END IF;\n"
+    "     END;".
+
 sql_eec_1322_insert_template() ->
     "INSERT INTO t_mqtt_msgs(msgid, sender, topic, qos, retain, arrived, payload) VALUES(\n"
     "  ${id},\n"
@@ -339,6 +372,25 @@ drop_table_if_exists(Config) ->
     {ok, Conn} = new_jamdb_connection(Config),
     try
         ok = drop_table_if_exists(Conn)
+    after
+        close_jamdb_connection(Conn)
+    end,
+    ok.
+
+create_stored_procedure(Config) ->
+    {ok, Conn} = new_jamdb_connection(Config),
+    try
+        {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_drop_stored_procedure()),
+        {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_create_stored_procedure())
+    after
+        close_jamdb_connection(Conn)
+    end,
+    ok.
+
+drop_stored_procedure(Config) ->
+    {ok, Conn} = new_jamdb_connection(Config),
+    try
+        {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_drop_stored_procedure())
     after
         close_jamdb_connection(Conn)
     end,
@@ -496,6 +548,28 @@ t_rule_action(TCConfig) when is_list(TCConfig) ->
         post_publish_fn => PostPublishFn
     },
     emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts).
+
+t_stored_procedure_action(TCConfig) ->
+    create_stored_procedure(TCConfig),
+    on_exit(fun() -> drop_stored_procedure(TCConfig) end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"sql">> => sql_stored_procedure_template()}
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    Payload = <<"procedure-payload">>,
+    PayloadStr = str(Payload),
+    emqtt:publish(C, Topic, Payload),
+    ?retry(
+        _Sleep = 200,
+        _Attempts = 20,
+        ?assertMatch(
+            {ok, [{result_set, _, _, [[_, _, PayloadStr, _]]}]},
+            scan_table(TCConfig)
+        )
+    ),
+    ok.
 
 t_eec_1322_t_mqtt_msgs_write_path() ->
     [{matrix, true}].
