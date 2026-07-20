@@ -371,7 +371,14 @@ directly_setup_dynamo() ->
 
 directly_query(Query) ->
     directly_setup_dynamo(),
-    emqx_bridge_dynamo_connector_client:execute(Query, ?TABLE_BIN, #{}).
+    AWSConfig = erlcloud_ddb2:new(
+        ?ACCESS_KEY_ID,
+        ?SECRET_ACCESS_KEY,
+        ?HOST,
+        ?PORT,
+        ?SCHEMA
+    ),
+    emqx_bridge_dynamo_connector_client:execute(Query, ?TABLE_BIN, #{}, AWSConfig).
 
 directly_get_payload(Key) ->
     directly_get_field(Key, <<"payload">>).
@@ -426,6 +433,8 @@ t_connector_client_uses_refreshed_metadata_credentials(_Config) ->
         }),
         ?assert(is_pid(Pid)),
         ?assert(erlang:is_process_alive(Pid)),
+        {dictionary, ProcessDictionary} = erlang:process_info(Pid, dictionary),
+        ?assertEqual(undefined, proplists:get_value(aws_config, ProcessDictionary)),
         ?assertEqual(true, emqx_bridge_dynamo_connector_client:is_connected(Pid, 5_000)),
         receive
             {ddb_request_headers, Headers} ->
