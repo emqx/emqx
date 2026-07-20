@@ -1,14 +1,16 @@
 
 emqx_bridge_rabbitmq_connector_schema {
 
-server.desc:
-"""The RabbitMQ server address that you want to connect to (for example, localhost)."""
+servers.desc:
+"""Comma-separated RabbitMQ nodes for connect failover, form `Host[:Port][,Host2:Port]`.<br/>
+The `server` field is accepted as an alias.<br/>
+The `port` value (default 5672) is used when `[:Port]` is omitted."""
 
-server.label:
-"""Server"""
+servers.label:
+"""Servers"""
 
 port.desc:
-"""The port number on which the RabbitMQ server is listening (default is 5672)."""
+"""The default port for servers without an explicit `:Port` (default 5672)."""
 
 port.label:
 """Port"""

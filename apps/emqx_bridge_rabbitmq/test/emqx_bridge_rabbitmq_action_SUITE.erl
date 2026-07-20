@@ -244,6 +244,18 @@ t_start_stop(TCConfig) when is_list(TCConfig) ->
 t_on_get_status(TCConfig) when is_list(TCConfig) ->
     emqx_bridge_v2_testlib:t_on_get_status(TCConfig).
 
+t_multi_node_connect_failover(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"servers">> => <<"rabbitmq:1,rabbitmq:5672">>
+    }),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    Payload = <<"multi-node-failover">>,
+    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+    ?assertMatch(#{payload := Payload}, receive_message(TCConfig)),
+    ok.
+
 t_rule_action() ->
     [{matrix, true}].
 t_rule_action(matrix) ->
