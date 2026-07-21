@@ -11,6 +11,8 @@
 -export([acquire_lock_1/4, acquire_lock_m/5, release_lock_1/3, release_lock_m/4, process_info/3]).
 -export([is_running/2]).
 
+-elvis([{elvis_style, atom_naming_convention, disable}]).
+
 introduced_in() ->
     "1.0.0".
 
