@@ -60,16 +60,17 @@ setup_vm() ->
 setup_classy_hooks(OnRunLevel) ->
     application:set_env(classy, to_cluster_sets, [core]),
     application:set_env(classy, quorum_sets, [core]),
-    classy:on_node_init(fun ?MODULE:migrate_site_id/0, 1),
+    _ = classy:on_node_init(fun ?MODULE:migrate_site_id/0, 1),
     %% Mria:
-    setup_mria(),
+    _ = setup_mria(),
     %% Cluster:
-    classy:pre_join(fun emqx_cluster:pre_join/4, 0),
-    classy:pre_kick(fun emqx_mgmt_api_ds:pre_kick/3, 0),
-    classy:enrich_site_info(fun ?MODULE:add_emqx_vsn/1, 0),
-    classy:on_node_classify(fun ?MODULE:on_node_classify/1, 0),
+    _ = classy:pre_join(fun emqx_cluster:pre_join/4, 0),
+    _ = classy:pre_kick(fun emqx_mgmt_api_ds:pre_kick/3, 0),
+    _ = classy:enrich_site_info(fun ?MODULE:add_emqx_vsn/1, 0),
+    _ = classy:on_node_classify(fun ?MODULE:on_node_classify/1, 0),
     %% Application start:
-    classy:run_level(OnRunLevel, 99).
+    _ = classy:run_level(OnRunLevel, 99),
+    ok.
 
 on_run_level(From, To) ->
     case {From, To} of
@@ -87,9 +88,6 @@ migrate_site_id() ->
         {ok, #{schema := #{site := Site}}} ->
             ?SLOG(notice, #{msg => "migrate_site_id", site => Site}),
             classy_node:maybe_init_the_site(Site);
-        {ok, #{} = Bad} ->
-            ?SLOG(critical, #{msg => "bad_ds_schema", schema => Bad}),
-            ok;
         _ ->
             ok
     end.
