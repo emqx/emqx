@@ -81,7 +81,7 @@ run_gc_exclusive() ->
     end.
 
 is_responsible() ->
-    Nodes = lists:sort(mria_membership:running_core_nodelist()),
+    Nodes = emqx_cluster:running_core_nodelist(),
     Nodes =/= [] andalso hd(Nodes) == node().
 
 -spec run_gc() -> _NumCleaned :: non_neg_integer().
