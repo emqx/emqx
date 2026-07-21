@@ -1,6 +1,6 @@
-# EMQX IoT Plugin
+# EMQX Bcast Plugin
 
-EMQX 6.1 plugin providing BatchPub, PubBroadcast, and RegisterMessage HTTP APIs for IoT device message delivery.
+EMQX 6.1 plugin providing BatchPub, PubBroadcast, and RegisterMessage HTTP APIs for product-level device message delivery.
 
 ## Features
 

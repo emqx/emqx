@@ -267,7 +267,7 @@ on_session_resumed(ClientInfo, SessionInfo) ->
     ok.
 
 on_message_acked(ClientInfo, Msg) ->
-    case emqx_message:get_header(?IOT_DELIVERY_ID, Msg, undefined) of
+    case emqx_message:get_header(?BCAST_DELIVERY_ID, Msg, undefined) of
         undefined ->
             ok;
         DeliveryId ->
@@ -278,11 +278,11 @@ on_message_acked(ClientInfo, Msg) ->
     end.
 
 on_delivery_completed(Msg, #{clientid := ClientId}) ->
-    case emqx_message:get_header(?IOT_DELIVERY_ID, Msg, undefined) of
+    case emqx_message:get_header(?BCAST_DELIVERY_ID, Msg, undefined) of
         undefined ->
             ok;
         DeliveryId ->
-            ProductKey = emqx_message:get_header(?IOT_PRODUCT_KEY, Msg, undefined),
+            ProductKey = emqx_message:get_header(?BCAST_PRODUCT_KEY, Msg, undefined),
             count_ack(ProductKey, ClientId, DeliveryId),
             ok
     end.
@@ -312,7 +312,7 @@ replay_delivery(Pid, ProductKey, DeviceName, DeliveryId, SubQos) ->
                                 Topic,
                                 Payload,
                                 #{},
-                                #{?IOT_DELIVERY_ID => DeliveryId, ?IOT_PRODUCT_KEY => ProductKey}
+                                #{?BCAST_DELIVERY_ID => DeliveryId, ?BCAST_PRODUCT_KEY => ProductKey}
                             ),
                             Pid ! #deliver{topic = Topic, message = Msg},
                             emqx_bcast_metrics:qos1_replayed();

@@ -250,7 +250,7 @@ do_deliver(1, Pid, Topic, ProductKey, DN, Payload, SubQos, Opts) ->
                 Topic,
                 Payload,
                 #{},
-                #{?IOT_DELIVERY_ID => DeliveryId, ?IOT_PRODUCT_KEY => ProductKey}
+                #{?BCAST_DELIVERY_ID => DeliveryId, ?BCAST_PRODUCT_KEY => ProductKey}
             ),
             Pid ! #deliver{topic = Topic, message = Msg};
         false ->

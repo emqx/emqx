@@ -1,4 +1,4 @@
-defmodule EMQXIoT.MixProject do
+defmodule EMQXBcast.MixProject do
   use Mix.Project
 
   def project do
