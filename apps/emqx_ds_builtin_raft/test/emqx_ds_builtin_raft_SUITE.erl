@@ -857,7 +857,7 @@ t_rebalance_tolerate_lost(Config) ->
             %% This will lead to a situation when DB is residing on out-of-cluster nodes only.
             ok = emqx_cth_cluster:stop_node(N1),
             ?retry(200, 5, ?assertSameSet(NodesAlive, ?ON(N2, mria:cluster_nodes(running)))),
-            ok = ?ON(N2, emqx_cluster:force_leave(N1)),
+            ok = ?ON(N2, emqx_cluster:force_leave(N1, force_kick)),
             ?retry(200, 5, ?assertSameSet(NodesAlive, ?ON(N2, mria:cluster_nodes(cores)))),
 
             %% Attempt to forget S1 should fail.
@@ -947,8 +947,8 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
             %% Stop N3 and N4 and expunge them out of the cluster.
             ok = emqx_cth_cluster:stop([N3, N4]),
             ?retry(200, 5, ?assertSameSet([N1], ?ON(N1, mria:cluster_nodes(running)))),
-            ok = ?ON(N1, emqx_cluster:force_leave(N3)),
-            ok = ?ON(N1, emqx_cluster:force_leave(N4)),
+            ok = ?ON(N1, emqx_cluster:force_leave(N3, force_kick)),
+            ok = ?ON(N1, emqx_cluster:force_leave(N4, force_kick)),
             ?retry(200, 5, ?assertSameSet([N1, N2], ?ON(N1, mria:cluster_nodes(cores)))),
 
             %% Tell the cluster that S3 is not responsible for the data anymore.

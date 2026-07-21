@@ -60,16 +60,18 @@ setup_vm() ->
 setup_classy_hooks(OnRunLevel) ->
     application:set_env(classy, to_cluster_sets, [core]),
     application:set_env(classy, quorum_sets, [core]),
-    _ = classy:on_node_init(fun ?MODULE:migrate_site_id/0, 1),
+    _ = classy:on_node_init(fun ?MODULE:migrate_site_id/0, 100),
     %% Mria:
     _ = setup_mria(),
     %% Cluster:
-    _ = classy:pre_join(fun emqx_cluster:pre_join/4, 0),
-    _ = classy:pre_kick(fun emqx_mgmt_api_ds:pre_kick/3, 0),
-    _ = classy:enrich_site_info(fun ?MODULE:add_emqx_vsn/1, 0),
-    _ = classy:on_node_classify(fun ?MODULE:on_node_classify/1, 0),
+    _ = classy:pre_join(fun emqx_cluster:pre_join/4, 50),
+    _ = classy:pre_kick(fun emqx_mgmt_api_ds:pre_kick/3, 50),
+    _ = classy:enrich_site_info(fun ?MODULE:add_emqx_vsn/1, 50),
+    _ = classy:on_node_classify(fun ?MODULE:on_node_classify/1, 50),
     %% Application start:
     _ = classy:run_level(OnRunLevel, 99),
+    %% Cluster_rpc:
+    _ = classy:on_kick_decided(fun emqx_cluster_rpc:on_kick_decided/3, 0),
     ok.
 
 on_run_level(From, To) ->

@@ -188,14 +188,8 @@ cluster(["force-leave" | Args]) ->
     Node = ekka_node:parse_name(SNode),
     case emqx_cluster:force_leave(Node, Intent) of
         ok ->
-            case emqx_cluster_rpc:force_leave_clean(Node) of
-                ok ->
-                    emqx_ctl:print("Remove the node from cluster successfully.~n"),
-                    cluster(["status"]);
-                {error, Reason} = Error ->
-                    emqx_ctl:print("Failed to remove the node from cluster: ~0p~n", [Reason]),
-                    Error
-            end;
+            emqx_ctl:print("Remove the node from cluster successfully.~n"),
+            cluster(["status"]);
         ignore ->
             emqx_ctl:print("Ignore.~n");
         {error, Reason} = Error ->

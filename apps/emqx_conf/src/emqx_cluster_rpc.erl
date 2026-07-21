@@ -19,7 +19,6 @@
     find_leader/0,
     skip_failed_commit/1,
     fast_forward_to_commit/2,
-    on_mria_stop/1,
     force_leave_clean/1,
     wait_for_cluster_rpc/0,
     maybe_init_tnx_id/2,
@@ -38,6 +37,7 @@
     read_next_mfa/1,
     trans_query/1,
     trans_status/0,
+    on_kick_decided/3,
     on_leave_clean/1,
     on_leave_clean/0,
     get_commit_lag/0,
@@ -310,12 +310,6 @@ skip_failed_commit(Node) ->
 fast_forward_to_commit(Node, ToTnxId) ->
     gen_server:call({?MODULE, Node}, {fast_forward_to_commit, ToTnxId}).
 
-%% It is necessary to clean this node commit record in the cluster
-on_mria_stop(leave) ->
-    gen_server:call(?MODULE, on_leave);
-on_mria_stop(_) ->
-    ok.
-
 force_leave_clean(Node) ->
     case transaction(fun ?MODULE:on_leave_clean/1, [Node]) of
         {atomic, ok} -> ok;
@@ -336,13 +330,23 @@ wait_for_cluster_rpc() ->
     end,
     ok.
 
+on_kick_decided(_Cluster, Target, _Intent) ->
+    %% TODO: do it in on_membership_change instead?
+    case classy:node_of_site(Target, false) of
+        {ok, Node} when Node =:= node() ->
+            on_leave();
+        {ok, Node} ->
+            emqx_cluster_rpc:force_leave_clean(Node);
+        {error, _} ->
+            ok
+    end.
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
 %% @private
 init([Node, RetryMs]) ->
-    register_mria_stop_cb(fun ?MODULE:on_mria_stop/1),
     {ok, _} = mnesia:subscribe({table, ?CLUSTER_MFA, simple}),
     State = #{node => Node, retry_interval => RetryMs, is_leaving => false},
     %% Now continue with the normal catch-up process
@@ -396,6 +400,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+%% It is necessary to clean this node commit record in the cluster
+on_leave() ->
+    gen_server:call(?MODULE, on_leave).
+
 catch_up(State) -> catch_up(State, false).
 
 catch_up(#{node := Node, retry_interval := RetryMs, is_leaving := false} = State, SkipResult) ->
@@ -785,23 +794,4 @@ do_wait_for_emqx_ready2(N) ->
         false ->
             timer:sleep(100),
             do_wait_for_emqx_ready2(N - 1)
-    end.
-
-register_mria_stop_cb(Callback) ->
-    case mria_config:callback(stop) of
-        undefined ->
-            mria:register_callback(stop, Callback);
-        {ok, Previous} ->
-            mria:register_callback(
-                stop,
-                fun(Arg) ->
-                    Callback(Arg),
-                    case erlang:fun_info(Previous, arity) of
-                        {arity, 0} ->
-                            Previous();
-                        {arity, 1} ->
-                            Previous(Arg)
-                    end
-                end
-            )
     end.
