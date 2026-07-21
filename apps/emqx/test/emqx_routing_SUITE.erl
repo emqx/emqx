@@ -258,12 +258,21 @@ t_concurrent_routing_updates(_Config) ->
      || I <- lists:seq(1, NClients)
     ],
     ok = lists:foreach(fun ping_concurrent_client/1, Clients),
-    ok = timer:sleep(200),
+    0 = ?retry(
+        _Interval = 500,
+        _NTimes = 10,
+        0 = lists:sum([S || #{size := S} <- emqx_router_syncer:stats()])
+    ),
     Subscribers = ets:tab2list(?SUBSCRIBER),
     Topics = maps:keys(maps:from_list(Subscribers)),
     ?assertEqual(lists:sort(Topics), lists:sort(emqx_router:topics())),
     ok = lists:foreach(fun stop_concurrent_client/1, Clients),
-    ok = timer:sleep(1000),
+    ok = timer:sleep(100),
+    0 = ?retry(
+        500,
+        10,
+        0 = lists:sum([S || #{size := S} <- emqx_router_syncer:stats()])
+    ),
     ct:pal("Trace: ~p", [?of_kind(router_syncer_new_batch, snabbkaffe:collect_trace())]),
     ?assertEqual([], ets:tab2list(?SUBSCRIBER)),
     ?assertEqual([], emqx_router:topics()).
