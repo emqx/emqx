@@ -72,6 +72,8 @@ resolve_qos0_payload(undefined, MessageId) ->
             {error, <<"MessageNotFound">>, <<"MessageId not found">>}
     end.
 
+validate_input(PK, _, _, _, _) when not is_binary(PK) orelse PK =:= <<>> ->
+    {error, <<"InvalidProductKey">>, <<"ProductKey is required">>};
 validate_input(_PK, undefined, _, _, _) ->
     {error, <<"InvalidDeviceName">>, <<"DeviceName is required">>};
 validate_input(_PK, _DeviceNames, undefined, undefined, _Qos) ->
@@ -81,14 +83,19 @@ validate_input(_PK, _DeviceNames, _MC, _MI, _Qos) when _MC =/= undefined, _MI =/
 validate_input(_PK, _DeviceNames, _MC, _MI, Qos) when Qos =/= 0, Qos =/= 1 ->
     {error, <<"InvalidQos">>, <<"QoS must be 0 or 1">>};
 validate_input(_PK, DeviceNames, _MC, _MI, _Qos) when is_list(DeviceNames) ->
-    Max = get_max_device_count(),
-    case length(DeviceNames) > Max of
-        true ->
-            {error, <<"DeviceCountExceeded">>, <<"Too many devices">>};
+    case lists:all(fun erlang:is_binary/1, DeviceNames) of
         false ->
-            case has_duplicates(DeviceNames) of
-                true -> {error, <<"DuplicateDeviceName">>, <<"Duplicate DeviceName entries">>};
-                false -> ok
+            {error, <<"InvalidDeviceName">>, <<"DeviceName entries must be strings">>};
+        true ->
+            Max = get_max_device_count(),
+            case length(DeviceNames) > Max of
+                true ->
+                    {error, <<"DeviceCountExceeded">>, <<"Too many devices">>};
+                false ->
+                    case has_duplicates(DeviceNames) of
+                        true -> {error, <<"DuplicateDeviceName">>, <<"Duplicate DeviceName entries">>};
+                        false -> ok
+                    end
             end
     end;
 validate_input(_, _, _, _, _) ->
