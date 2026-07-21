@@ -342,18 +342,37 @@ connect(Opts) ->
     Config = proplists:get_value(config, Opts),
     {ok, _Pid} = emqx_bridge_dynamo_connector_client:start_link(Config).
 
-credentials_validator(Config) ->
+credentials_validator(Config0) ->
+    Config = normalize_credentials_config(Config0),
     Invalid =
-        credential_present(<<"aws_access_key_id">>, aws_access_key_id, Config) xor
-            credential_present(<<"aws_secret_access_key">>, aws_secret_access_key, Config),
+        credential_present(<<"aws_access_key_id">>, Config) xor
+            credential_present(<<"aws_secret_access_key">>, Config),
     case Invalid of
         false -> ok;
         true -> {error, <<"aws_access_key_id and aws_secret_access_key must be provided together">>}
     end.
 
-credential_present(BinaryKey, AtomKey, Config) ->
-    Value0 = maps:get(BinaryKey, Config, maps:get(AtomKey, Config, undefined)),
-    Value = emqx_schema_secret:source(Value0),
+%% This validator is used in two configuration phases:
+%%
+%% * Raw HOCON configuration validation runs before `emqx_config' converts
+%%   checked configuration keys to atoms, so credential keys are binaries.
+%% * Connector probe and runtime startup operate on checked configuration,
+%%   where credential keys are atoms.
+%%
+%% `hoconsc:map(name, ...)' may also apply this validator to the outer
+%% name-to-config map.  Such a map has no credential fields at its top level
+%% and is intentionally treated as having no explicit credentials.
+normalize_credentials_config(Config) when
+    is_map_key(aws_access_key_id, Config);
+    is_map_key(aws_secret_access_key, Config)
+->
+    emqx_utils_maps:binary_key_map(Config);
+normalize_credentials_config(Config) ->
+    Config.
+
+credential_present(Key, Config) ->
+    Value0 = maps:get(Key, Config, undefined),
+    Value = emqx_secret:unwrap(Value0),
     Value =/= undefined andalso Value =/= <<>> andalso Value =/= [].
 
 parse_template_from_conf(Config) ->

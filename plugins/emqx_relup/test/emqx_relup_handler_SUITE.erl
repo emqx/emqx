@@ -178,8 +178,10 @@ t_5105_catalog_covers_saml_xxe_backup_plugin_api_postgresql_oracle_and_lwm2m_fix
     ),
     ?assert(is_before({load_module, emqx_mgmt_data_backup_proto_v2}, AnnounceBPAPI, CodeChanges)).
 
--doc "The 5.10.4 -> 5.10.5 hop reloads DynamoDB modules before restarting "
-"running DynamoDB connector resources.".
+-doc """
+The 5.10.4 -> 5.10.5 hop reloads DynamoDB modules before restarting running DynamoDB connector
+resources.
+""".
 t_5105_catalog_reloads_and_restarts_dynamo_connectors(_Config) ->
     {Valid, _Errors} = emqx_relup_handler:validate_priv_catalog(),
     #{code_changes := CodeChanges} = find_relup_entry("5.10.4", "5.10.5", Valid),

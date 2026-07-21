@@ -287,6 +287,37 @@ parse_and_check(ConfigString, BridgeType, Name) ->
     #{<<"bridges">> := #{BridgeType := #{Name := Config}}} = RawConf,
     Config.
 
+check_legacy_config(Config, BridgeType, Name) ->
+    RawConf = #{<<"bridges">> => #{BridgeType => #{Name => Config}}},
+    hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{required => false, atom_key => false}),
+    Config.
+
+secret_from_file(Filename) ->
+    emqx_schema_secret:convert_secret(
+        <<"file://", (list_to_binary(Filename))/binary>>,
+        #{}
+    ).
+
+assert_invalid_credentials(Check) ->
+    try Check() of
+        _ ->
+            ct:fail(expected_invalid_credentials)
+    catch
+        throw:{_Schema, Errors} ->
+            ?assert(
+                lists:any(
+                    fun
+                        (#{reason := Reason}) ->
+                            Reason =:=
+                                <<"aws_access_key_id and aws_secret_access_key must be provided together">>;
+                        (_) ->
+                            false
+                    end,
+                    Errors
+                )
+            )
+    end.
+
 create_bridge(Config) ->
     create_bridge(Config, _Overrides = #{}).
 
@@ -505,60 +536,43 @@ t_connector_client_marks_metadata_refresh_errors_recoverable(_Config) ->
         meck:unload(erlcloud_aws)
     end.
 
-t_credentials_validator(_Config) ->
+t_credentials_validator(Config) ->
     InvalidCredentialsError =
         {error, <<"aws_access_key_id and aws_secret_access_key must be provided together">>},
-    ValidLegacyConfig =
-        <<
-            "bridges.dynamo.test {"
-            " url = \"http://127.0.0.1:8000\""
-            " region = \"us-west-2\""
-            " table = \"mqtt\""
-            " hash_key = \"clientid\""
-            " aws_access_key_id = \"access_key\""
-            " aws_secret_access_key = \"secret_key\""
-            " }"
-        >>,
+    ValidLegacyConfig = #{
+        <<"url">> => <<"http://127.0.0.1:8000">>,
+        <<"region">> => <<"us-west-2">>,
+        <<"table">> => <<"mqtt">>,
+        <<"hash_key">> => <<"clientid">>,
+        <<"aws_access_key_id">> => <<"access_key">>,
+        <<"aws_secret_access_key">> => <<"secret_key">>
+    },
     ?assertMatch(
         #{<<"aws_access_key_id">> := <<"access_key">>},
-        parse_and_check(ValidLegacyConfig, <<"dynamo">>, <<"test">>)
+        check_legacy_config(ValidLegacyConfig, <<"dynamo">>, <<"test">>)
     ),
-    LegacyConfigWithoutCredentials =
-        binary:replace(
-            binary:replace(
-                ValidLegacyConfig,
-                <<" aws_access_key_id = \"access_key\"">>,
-                <<>>
-            ),
-            <<" aws_secret_access_key = \"secret_key\"">>,
-            <<>>
-        ),
+    LegacyConfigWithoutCredentials = maps:without(
+        [<<"aws_access_key_id">>, <<"aws_secret_access_key">>],
+        ValidLegacyConfig
+    ),
     ?assertNot(
         maps:is_key(
             <<"aws_access_key_id">>,
-            parse_and_check(LegacyConfigWithoutCredentials, <<"dynamo">>, <<"test">>)
+            check_legacy_config(LegacyConfigWithoutCredentials, <<"dynamo">>, <<"test">>)
         )
     ),
     ?assertMatch(
         #{<<"aws_access_key_id">> := <<"access_key">>},
-        parse_and_check(
-            binary:replace(
-                ValidLegacyConfig,
-                <<" aws_secret_access_key = \"secret_key\"">>,
-                <<>>
-            ),
+        check_legacy_config(
+            maps:remove(<<"aws_secret_access_key">>, ValidLegacyConfig),
             <<"dynamo">>,
             <<"test">>
         )
     ),
     ?assertMatch(
         #{<<"aws_secret_access_key">> := _},
-        parse_and_check(
-            binary:replace(
-                ValidLegacyConfig,
-                <<" aws_access_key_id = \"access_key\"">>,
-                <<>>
-            ),
+        check_legacy_config(
+            maps:remove(<<"aws_access_key_id">>, ValidLegacyConfig),
             <<"dynamo">>,
             <<"test">>
         )
@@ -601,8 +615,8 @@ t_credentials_validator(_Config) ->
             <<"dynamo">>, <<"test">>, maps:remove(<<"aws_access_key_id">>, ConnectorConfig)
         )
     end),
-    Validator = fun(Config) ->
-        emqx_bridge_dynamo_connector:credentials_validator(Config)
+    Validator = fun(Credentials) ->
+        emqx_bridge_dynamo_connector:credentials_validator(Credentials)
     end,
     ?assertEqual(ok, Validator(#{})),
     ?assertEqual(
@@ -619,6 +633,22 @@ t_credentials_validator(_Config) ->
     ?assertMatch(
         {error, _},
         Validator(#{<<"aws_secret_access_key">> => <<"secret_key">>})
+    ),
+    ?assertEqual(
+        ok,
+        Validator(#{
+            aws_access_key_id => <<"access_key">>,
+            aws_secret_access_key => secret_from_file(?config(dynamo_secretfile, Config))
+        })
+    ),
+    EmptySecretFile = filename:join(?config(priv_dir, Config), "empty-secret"),
+    ok = file:write_file(EmptySecretFile, <<>>),
+    ?assertEqual(
+        InvalidCredentialsError,
+        Validator(#{
+            aws_access_key_id => <<"access_key">>,
+            aws_secret_access_key => secret_from_file(EmptySecretFile)
+        })
     ),
     RuntimeConfig = #{
         url => <<"http://127.0.0.1:8000">>,
@@ -638,26 +668,6 @@ t_credentials_validator(_Config) ->
             RuntimeConfig#{aws_secret_access_key => <<"secret_key">>}
         )
     ).
-
-assert_invalid_credentials(Check) ->
-    try Check() of
-        _ ->
-            ct:fail(expected_invalid_credentials)
-    catch
-        throw:{_Schema, Errors} ->
-            ?assert(
-                lists:any(
-                    fun
-                        (#{reason := Reason}) ->
-                            Reason =:=
-                                <<"aws_access_key_id and aws_secret_access_key must be provided together">>;
-                        (_) ->
-                            false
-                    end,
-                    Errors
-                )
-            )
-    end.
 
 t_setup_via_config_and_publish(Config) ->
     ?assertNotEqual(undefined, get(aws_config)),
