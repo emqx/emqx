@@ -979,6 +979,58 @@ t_invalid_partition_count_metrics(Config) ->
     ),
     ok.
 
+%% Wolff's internal reconnect-and-resend retries emit `[wolff, retried_success]' /
+%% `[wolff, retried_failed]' telemetry.  Assert that these move the action's
+%% `retried' / `retried.success' / `retried.failed' counters, and -- critically --
+%% that they do NOT also bump `success' / `failed', which the async ack/reply path
+%% already counts once per message (the double-count guard).
+t_retried_metrics_split(Config) ->
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig = proplists:get_value(connector_config, Config, connector_config()),
+    ActionConfig = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    ConnectorParams = [
+        {connector_config, ConnectorConfig},
+        {connector_name, ConnectorName},
+        {connector_type, Type}
+    ],
+    ActionName = <<"a">>,
+    ActionParams = [
+        {action_config, ActionConfig},
+        {action_name, ActionName},
+        {action_type, Type}
+    ],
+    {ok, {{_, 201, _}, _, #{}}} =
+        emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
+    {ok, {{_, 201, _}, _, #{}}} =
+        emqx_bridge_v2_testlib:create_action_api(ActionParams),
+    ActionResId = emqx_bridge_v2:id(?TYPE, ActionName, ConnectorName),
+    %% wolff carries `partition_id' in the event metadata alongside `bridge_id';
+    %% the handler must match on `bridge_id' regardless.
+    Meta = #{bridge_id => ActionResId, partition_id => 1},
+    ?assertEqual(0, emqx_resource_metrics:retried_get(ActionResId)),
+    ?assertEqual(0, emqx_resource_metrics:retried_success_get(ActionResId)),
+    ?assertEqual(0, emqx_resource_metrics:retried_failed_get(ActionResId)),
+    Success0 = emqx_resource_metrics:success_get(ActionResId),
+    Failed0 = emqx_resource_metrics:failed_get(ActionResId),
+    %% Simulate wolff's retry-outcome telemetry.
+    telemetry:execute([wolff, retried_success], #{counter_inc => 3}, Meta),
+    telemetry:execute([wolff, retried_failed], #{counter_inc => 2}, Meta),
+    ?retry(
+        100,
+        10,
+        begin
+            ?assertEqual(3, emqx_resource_metrics:retried_success_get(ActionResId)),
+            ?assertEqual(2, emqx_resource_metrics:retried_failed_get(ActionResId)),
+            ?assertEqual(5, emqx_resource_metrics:retried_get(ActionResId))
+        end
+    ),
+    %% Double-count guard: the retry-outcome events must NOT move success/failed,
+    %% which the async ack/reply path already accounts for.
+    ?assertEqual(Success0, emqx_resource_metrics:success_get(ActionResId)),
+    ?assertEqual(Failed0, emqx_resource_metrics:failed_get(ActionResId)),
+    ok.
+
 %% Tests that deleting/disabling an action that share the same Kafka topic with other
 %% actions do not disturb the latter.
 t_multiple_actions_sharing_topic(Config) ->
