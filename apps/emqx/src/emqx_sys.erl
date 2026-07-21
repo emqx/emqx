@@ -83,7 +83,7 @@ version() -> emqx_app:get_release().
 
 %% @doc Get cluster name
 -spec cluster_name() -> string().
-cluster_name() -> atom_to_list(ekka:cluster_name()).
+cluster_name() -> atom_to_list(emqx_cluster:name()).
 
 %% @doc Get sys description
 -spec sysdescr() -> string().
