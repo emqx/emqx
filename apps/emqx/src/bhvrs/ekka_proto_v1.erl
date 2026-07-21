@@ -18,26 +18,26 @@ introduced_in() ->
 
 %% ekka_locker:
 -spec acquire_lock_1(
-    node(), ekka_locker:resource(), ekka_locker:lock_obj(), ekka_locker:piggyback()
+    node(), ekka_locker:locker(), ekka_locker:lock_obj(), ekka_locker:piggyback()
 ) ->
     ekka_locker:lock_result() | emqx_rpc:badrpc().
 acquire_lock_1(Node, Name, LockObj, Piggyback) ->
     rpc:call(Node, ekka_locker, acquire_lock, [Name, LockObj, Piggyback]).
 
 -spec acquire_lock_m(
-    [node()], ekka_locker:resource(), ekka_locker:lock_obj(), ekka_locker:piggyback(), timeout()
+    [node()], ekka_locker:locker(), ekka_locker:lock_obj(), ekka_locker:piggyback(), timeout()
 ) ->
     emqx_rpc:multicall_result(ekka_locker:lock_result()).
 acquire_lock_m(Nodes, Name, LockObj, Piggyback, Timeout) ->
     rpc:multicall(Nodes, ekka_locker, acquire_lock, [Name, LockObj, Piggyback], Timeout).
 
--spec release_lock_1(node(), ekka_locker:resource(), ekka_locker:lock_obj()) ->
+-spec release_lock_1(node(), ekka_locker:locker(), ekka_locker:lock_obj()) ->
     ekka_locker:release_result() | emqx_rpc:badrpc().
 release_lock_1(Node, Name, LockObj) ->
     rpc:call(Node, ekka_locker, release_lock, [Name, LockObj]).
 
--spec release_lock_m([node()], ekka_locker:resource(), ekka_locker:lock_obj(), timeout()) ->
-    emqx_rpc:multicall_result(ekka_locker:lock_result()).
+-spec release_lock_m([node()], ekka_locker:locker(), ekka_locker:lock_obj(), timeout()) ->
+    emqx_rpc:multicall_result(ekka_locker:release_result()).
 release_lock_m(Nodes, Name, LockObj, Timeout) ->
     rpc:multicall(Nodes, ekka_locker, release_lock, [Name, LockObj], Timeout).
 
