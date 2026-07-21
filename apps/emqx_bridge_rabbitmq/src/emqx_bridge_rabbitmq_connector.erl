@@ -152,9 +152,8 @@ on_stop(ResourceID, _State) ->
 -spec connect(term()) -> {ok, {pid(), pid()}, map()} | {error, term()}.
 connect(Options) ->
     Config = proplists:get_value(config, Options),
+    WorkerId = proplists:get_value(ecpool_worker_id, Options, 1),
     #{
-        server := Host,
-        port := Port,
         username := Username,
         password := WrappedPassword,
         timeout := Timeout,
@@ -163,18 +162,17 @@ connect(Options) ->
     } = Config,
     %% TODO: teach `amqp` to accept 0-arity closures as passwords.
     Password = emqx_secret:unwrap(WrappedPassword),
-    RabbitMQConnOptions =
-        #amqp_params_network{
-            host = Host,
-            port = Port,
-            ssl_options = to_ssl_options(Config),
-            username = Username,
-            password = Password,
-            connection_timeout = Timeout,
-            virtual_host = VirtualHost,
-            heartbeat = Heartbeat
-        },
-    case amqp_connection:start(RabbitMQConnOptions) of
+    Servers0 = emqx_bridge_rabbitmq_client:servers_from_config(Config),
+    Servers = emqx_bridge_rabbitmq_client:rotate_servers(Servers0, WorkerId),
+    AmqpParamsBase = #amqp_params_network{
+        ssl_options = to_ssl_options(Config),
+        username = Username,
+        password = Password,
+        connection_timeout = Timeout,
+        virtual_host = VirtualHost,
+        heartbeat = Heartbeat
+    },
+    case emqx_bridge_rabbitmq_client:start_connection(Servers, AmqpParamsBase) of
         {ok, RabbitMQConn} ->
             {ok, RabbitMQConn};
         {error, Reason} ->

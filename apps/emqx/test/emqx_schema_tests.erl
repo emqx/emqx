@@ -22,6 +22,25 @@ ssl_opts_dtls_test() ->
         Checked
     ).
 
+ssl_opts_dtls_ecdhe_psk_chacha20_cipher_test() ->
+    Sc = emqx_schema:server_ssl_opts_schema(
+        #{
+            versions => dtls_all_available
+        },
+        false
+    ),
+    Checked = validate(Sc, #{
+        <<"versions">> => [<<"dtlsv1.2">>],
+        <<"ciphers">> => [<<"ECDHE-PSK-CHACHA20-POLY1305">>]
+    }),
+    ?assertMatch(
+        #{
+            versions := ['dtlsv1.2'],
+            ciphers := ["ECDHE-PSK-CHACHA20-POLY1305"]
+        },
+        Checked
+    ).
+
 ssl_opts_tls_1_3_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
     Checked = validate(Sc, #{<<"versions">> => [<<"tlsv1.3">>]}),

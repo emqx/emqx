@@ -512,6 +512,185 @@ t_bad_tar_gz2(Config) ->
     ?assert(filelib:is_regular(TarGz)),
     ok.
 
+t_rejects_invalid_schema({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = replace_tar_entry(NameVsn, "config_schema.avsc", <<"not an avro schema">>),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_invalid_schema({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_rejects_invalid_schema(Config) ->
+    assert_invalid_plugin_package(?config(name_vsn, Config)).
+
+t_rejects_invalid_application({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = replace_tar_entry(NameVsn, "invalid_plugin.app", <<"invalid app">>),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_invalid_application({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_rejects_invalid_application(Config) ->
+    assert_invalid_plugin_package(?config(name_vsn, Config)).
+
+t_rejects_application_version_mismatch({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = replace_tar_entry(
+        NameVsn,
+        "invalid_plugin.app",
+        <<"{application, invalid_plugin, [{vsn, \"2.0.0\"}]}.\n">>
+    ),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_application_version_mismatch({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_rejects_application_version_mismatch(Config) ->
+    assert_invalid_plugin_package(?config(name_vsn, Config)).
+
+t_rejects_invalid_application_version({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = replace_tar_entry(
+        NameVsn,
+        "invalid_plugin.app",
+        <<"{application, invalid_plugin, [{vsn, {invalid}}]}.\n">>
+    ),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_invalid_application_version({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_rejects_invalid_application_version(Config) ->
+    assert_invalid_plugin_package(?config(name_vsn, Config)).
+
+t_rejects_externally_loaded_application({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_externally_loaded_application({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_rejects_externally_loaded_application(Config) ->
+    ok = application:load({application, invalid_plugin, [{vsn, "0.1.0"}]}),
+    assert_invalid_plugin_package(?config(name_vsn, Config)).
+
+t_rejects_invalid_default_config({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = replace_tar_entry(NameVsn, "config.hocon", <<"foo = {">>),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_invalid_default_config({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_rejects_invalid_default_config(Config) ->
+    assert_invalid_plugin_package(?config(name_vsn, Config)).
+
+t_allows_missing_default_config({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = remove_tar_entry(NameVsn, "config.hocon"),
+    [{name_vsn, NameVsn} | Config];
+t_allows_missing_default_config({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_allows_missing_default_config(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ?assertMatch({ok, #{config_status := disabled}}, emqx_plugins:describe(NameVsn)),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ?assert(is_app_running(invalid_plugin)),
+    ok = emqx_plugins:ensure_stopped(NameVsn).
+
+t_rejects_invalid_schema_on_reconfigure({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ok = file:write_file(
+        filename:join([filename:dirname(plugin_ebin_dir(NameVsn)), "priv", "config_schema.avsc"]),
+        <<"not an avro schema">>
+    ),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_invalid_schema_on_reconfigure({'end', Config}) ->
+    _ = emqx_plugins:ensure_stopped(?config(name_vsn, Config)),
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_rejects_invalid_schema_on_reconfigure(Config) ->
+    ?assertMatch({error, _}, emqx_plugins:ensure_installed(?config(name_vsn, Config))).
+
+t_rejects_invalid_local_config_on_start({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ok = emqx_plugins:ensure_stopped(NameVsn),
+    ok = file:write_file(emqx_plugins_fs:config_file_path(NameVsn), <<"foo = 42\n">>),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_invalid_local_config_on_start({'end', Config}) ->
+    NameVsn = ?config(name_vsn, Config),
+    ok = file:delete(emqx_plugins_fs:config_file_path(NameVsn)),
+    cleanup_invalid_plugin(NameVsn);
+t_rejects_invalid_local_config_on_start(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn)),
+    ?assertMatch({error, _}, emqx_plugins:ensure_started(NameVsn)),
+    ?assertNot(is_app_running(invalid_plugin)).
+
+assert_invalid_plugin_package(NameVsn) ->
+    ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn, ?fresh_install)),
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
+    ?assertNot(lists:member(plugin_ebin_dir(NameVsn), code:get_path())).
+
+cleanup_invalid_plugin(NameVsn) ->
+    _ = application:unload(invalid_plugin),
+    _ = code:del_path(plugin_ebin_dir(NameVsn)),
+    ok = emqx_plugins:purge(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn).
+
+plugin_ebin_dir(NameVsn) ->
+    filename:join([emqx_plugins_fs:lib_dir(NameVsn), "invalid_plugin-0.1.0", "ebin"]).
+
+make_plugin_tar(NameVsn) ->
+    PluginApp = "invalid_plugin-0.1.0",
+    PrivDir = filename:join([NameVsn, PluginApp, "priv"]),
+    Tar = emqx_plugins_fs:tar_file_path(NameVsn),
+    Info = <<
+        "{\"name\":\"invalid_plugin\",\"rel_vsn\":\"1.0.0\","
+        "\"rel_apps\":[\"invalid_plugin-0.1.0\"],\"description\":\"test\","
+        "\"with_config_schema\":true}"
+    >>,
+    Schema =
+        <<"{\"type\":\"record\",\"name\":\"invalid_plugin\",\"fields\":[{\"name\":\"foo\",\"type\":\"string\"}]}">>,
+    erl_tar:create(
+        Tar,
+        [
+            {filename:join(NameVsn, "release.json"), Info},
+            {
+                filename:join([NameVsn, PluginApp, "ebin", "invalid_plugin.app"]),
+                <<"{application, invalid_plugin, [{vsn, \"0.1.0\"}]}.\n">>
+            },
+            {filename:join(PrivDir, "config_schema.avsc"), Schema},
+            {filename:join(PrivDir, "config.hocon"), <<"foo = \"bar\"\n">>}
+        ],
+        [compressed]
+    ).
+
+replace_tar_entry(NameVsn, Filename, Content) ->
+    Tar = emqx_plugins_fs:tar_file_path(NameVsn),
+    {ok, TarContent} = erl_tar:extract(Tar, [compressed, memory]),
+    {NewTarContent, true} = lists:mapfoldl(
+        fun({Path, _} = Entry, Found) ->
+            case filename:basename(Path) of
+                Filename -> {{Path, Content}, true};
+                _ -> {Entry, Found}
+            end
+        end,
+        false,
+        TarContent
+    ),
+    erl_tar:create(Tar, NewTarContent, [compressed]).
+
+remove_tar_entry(NameVsn, Filename) ->
+    Tar = emqx_plugins_fs:tar_file_path(NameVsn),
+    {ok, TarContent} = erl_tar:extract(Tar, [compressed, memory]),
+    {NewTarContent, [_]} = lists:partition(
+        fun({Path, _}) -> filename:basename(Path) =/= Filename end, TarContent
+    ),
+    erl_tar:create(Tar, NewTarContent, [compressed]).
+
 %% test that we even cleanup content that doesn't match the expected name-vsn
 %% pattern
 t_tar_vsn_content_mismatch({init, Config}) ->
