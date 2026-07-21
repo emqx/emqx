@@ -455,12 +455,7 @@ sock_setopts(_Sock, []) ->
 %% Ensure/cancel stats timer
 
 init_stats_timer(#state{conf = #conf{zone = Zone}}) ->
-    %% The per-connection stats reported here only feed the client-info REST API
-    %% (`GET /clients`); skip them entirely when that API is disabled.
-    case
-        emqx_config:get_zone_conf(Zone, [stats, enable]) andalso
-            emqx_features:client_info_enabled()
-    of
+    case emqx_config:get_zone_conf(Zone, [stats, enable]) of
         true -> undefined;
         false -> disabled
     end.
@@ -623,7 +618,7 @@ handle_msg({event, _Other}, State = #state{channel = Channel}) ->
             ok;
         ClientId ->
             emqx_cm:set_chan_info(ClientId, info(State)),
-            emqx_cm:set_chan_stats(ClientId, stats(State))
+            maybe_set_chan_stats(ClientId, State)
     end,
     {ok, State};
 handle_msg({timeout, TRef, TMsg}, State) ->
@@ -729,7 +724,7 @@ handle_timeout(
     }
 ) ->
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:set_chan_stats(ClientId, stats(State)),
+    maybe_set_chan_stats(ClientId, State),
     emqx_congestion:maybe_alarm_conn_congestion(?MODULE, State),
     check_send_timeout(SS, State#state{stats_timer = undefined});
 handle_timeout(
@@ -752,7 +747,17 @@ try_set_chan_stats(State = #state{channel = Channel}) ->
     case emqx_channel:info(clientid, Channel) of
         %% ClientID is not yet known, nothing to report.
         undefined -> false;
-        ClientId -> emqx_cm:set_chan_stats(ClientId, stats(State))
+        ClientId -> maybe_set_chan_stats(ClientId, State)
+    end.
+
+%% Report per-connection stats to the client-info table, unless the client-info
+%% REST API (`GET /clients`) is disabled -- then nothing reads them, so skip both
+%% the stats gathering and the ETS write. The stats timer itself keeps running,
+%% so its other duties (congestion alarms, send-timeout checks) are unaffected.
+maybe_set_chan_stats(ClientId, State) ->
+    case emqx_features:client_info_enabled() of
+        true -> emqx_cm:set_chan_stats(ClientId, stats(State));
+        false -> ok
     end.
 
 %%--------------------------------------------------------------------
