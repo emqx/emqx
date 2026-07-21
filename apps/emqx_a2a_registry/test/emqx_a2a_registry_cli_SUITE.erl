@@ -291,9 +291,15 @@ t_list_cards(TCConfig) ->
         ?CAPTURE(list_cards(["--status", "offline"], TCConfig))
     ),
     C = start_client(#{clientid => Id1}),
-    ?assertMatch(
-        {ok, [[#{<<"name">> := Id2}]]},
-        ?CAPTURE(list_cards(["--status", "offline"], TCConfig))
+    %% The card status is derived from the client's connection state, which is registered
+    %% asynchronously, so we retry until `Id1' is seen as online.
+    ?retry(
+        _Sleep = 200,
+        _Attempts = 25,
+        ?assertMatch(
+            {ok, [[#{<<"name">> := Id2}]]},
+            ?CAPTURE(list_cards(["--status", "offline"], TCConfig))
+        )
     ),
     ?assertMatch(
         {ok, [[#{<<"name">> := Id1}]]},
