@@ -54,8 +54,7 @@ This is the entrypoint into the `builtin_raft` backend.
 -export([
     db_info/1,
     handle_db_config_change/2,
-    handle_schema_event/3,
-    migrate_schema/4
+    handle_schema_event/3
 ]).
 
 -behaviour(emqx_ds_beamformer).
@@ -659,13 +658,6 @@ handle_schema_event(DB, PendingId, Pending) ->
             ok
     end,
     emqx_dsch:del_pending(PendingId).
-
--spec migrate_schema(
-    emqx_ds:db(), _From :: pos_integer(), _To :: pos_integer(), emqx_dsch:db_schema()
-) ->
-    [emqx_dsch:op()].
-migrate_schema(_, _, _, _) ->
-    error(todo).
 
 %%================================================================================
 %% Beamformer callbacks
