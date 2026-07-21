@@ -3,3 +3,4 @@
 %%--------------------------------------------------------------------
 
 -define(OAUTH2_TOKEN_TAB, emqx_connector_oauth2_tokens).
+-define(OAUTH2_REGISTRY_TAB, emqx_connector_oauth2_registry).

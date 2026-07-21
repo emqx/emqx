@@ -41,4 +41,5 @@ init([]) ->
 -spec ensure_token_table() -> ok.
 ensure_token_table() ->
     _ = emqx_utils_ets:new(?OAUTH2_TOKEN_TAB, [ordered_set, public, {read_concurrency, true}]),
+    _ = emqx_utils_ets:new(?OAUTH2_REGISTRY_TAB, [ordered_set, public, {read_concurrency, true}]),
     ok.

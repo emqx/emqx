@@ -37,6 +37,7 @@
 
 -define(REGISTERED, registered).
 -define(TIMERS, timers).
+-define(INFLIGHT, inflight).
 
 %% Refresh at 75% of the token lifetime, like the Kafka bridge token cache.
 -define(REFRESH_FRACTION, 0.75).
@@ -79,8 +80,9 @@ register(ResourceId, Oauth2Config) ->
     call(#register{resource_id = ResourceId, params = Params}).
 
 %% Returns a valid access token for the given connector instance.
-%% Reads the ETS cache first; on a miss (or expiry) it synchronously asks the
-%% GenServer to fetch a fresh token.
+%% Reads the ETS cache first; on a miss (or expiry) it asks the GenServer to
+%% coordinate a fresh token fetch.  Callers for the same resource share one
+%% fetch, while fetches for different resources run concurrently.
 -spec get_token(term()) -> {ok, binary()} | {error, term()}.
 get_token(ResourceId) ->
     case get_cached(ResourceId) of
@@ -116,10 +118,13 @@ clear_cache(ResourceId) ->
 %%------------------------------------------------------------------------------
 
 init(_Opts) ->
-    State = #{
-        ?REGISTERED => #{},
-        ?TIMERS => #{}
+    Registered = load_registered(),
+    State0 = #{
+        ?REGISTERED => Registered,
+        ?TIMERS => #{},
+        ?INFLIGHT => #{}
     },
+    State = restore_refresh_timers(Registered, State0),
     {ok, State}.
 
 terminate(_Reason, _State) ->
@@ -129,17 +134,26 @@ handle_call(
     #register{resource_id = ResourceId, params = Params}, _From, State0
 ) ->
     #{?REGISTERED := Registered0} = State0,
-    Registered = Registered0#{ResourceId => Params},
-    State = State0#{?REGISTERED := Registered},
-    {reply, ok, State};
-handle_call(#fetch{resource_id = ResourceId}, _From, State0) ->
+    case maps:get(ResourceId, Registered0, undefined) of
+        Params ->
+            {reply, ok, State0};
+        _OldParams ->
+            State1 = cancel_inflight(ResourceId, oauth2_config_changed, State0),
+            State2 = clear_refresh_timer(ResourceId, State1),
+            clear_cache(ResourceId),
+            store_registration(ResourceId, Params),
+            #{?REGISTERED := Registered1} = State2,
+            Registered = Registered1#{ResourceId => Params},
+            State = State2#{?REGISTERED := Registered},
+            {reply, ok, State}
+    end;
+handle_call(#fetch{resource_id = ResourceId}, From, State0) ->
     %% Another call might've just stored a token.
     case get_cached(ResourceId) of
         {ok, Response} ->
             {reply, Response, State0};
         error ->
-            {Response, State} = do_fetch_and_store(ResourceId, State0),
-            {reply, Response, State}
+            fetch_or_enqueue(ResourceId, From, State0)
     end;
 handle_call(#unregister{resource_id = ResourceId}, _From, State0) ->
     State = handle_unregister(ResourceId, State0),
@@ -158,6 +172,15 @@ handle_info(
     Timers = maps:remove(ResourceId, Timers0),
     State1 = State0#{?TIMERS := Timers},
     State = handle_refresh(ResourceId, State1),
+    {noreply, State};
+handle_info(
+    {?MODULE, fetch_result, ResourceId, FetchRef, Result},
+    State0
+) ->
+    State = handle_fetch_result(ResourceId, FetchRef, Result, State0),
+    {noreply, State};
+handle_info({'DOWN', MonitorRef, process, _Pid, Reason}, State0) ->
+    State = handle_fetch_down(MonitorRef, Reason, State0),
     {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -185,12 +208,14 @@ get_cached(ResourceId) ->
 
 handle_unregister(ResourceId, State0) ->
     clear_cache(ResourceId),
-    State1 = maps:update_with(
+    delete_registration(ResourceId),
+    State1 = cancel_inflight(ResourceId, oauth2_not_registered, State0),
+    State2 = maps:update_with(
         ?REGISTERED,
         fun(R) -> maps:remove(ResourceId, R) end,
-        State0
+        State1
     ),
-    clear_refresh_timer(ResourceId, State1).
+    clear_refresh_timer(ResourceId, State2).
 
 handle_refresh(ResourceId, #{?REGISTERED := Registered} = State0) when
     not is_map_key(ResourceId, Registered)
@@ -200,38 +225,155 @@ handle_refresh(ResourceId, #{?REGISTERED := Registered} = State0) when
 handle_refresh(ResourceId, #{?REGISTERED := Registered} = State0) ->
     ?tp(info, "oauth2_token_refreshing", #{resource_id => ResourceId}),
     Params = maps:get(ResourceId, Registered),
-    case do_fetch_token(Params) of
-        {ok, ExpiryMS, Token} ->
-            ?tp(info, "oauth2_token_refreshed", #{resource_id => ResourceId, expiry_ms => ExpiryMS}),
-            store_token_and_schedule_refresh(ExpiryMS, ResourceId, {ok, Token}, State0);
-        {error, Reason} ->
-            ?tp(warning, "oauth2_token_refresh_failed", #{
-                resource_id => ResourceId, reason => Reason
-            }),
-            ensure_refresh_timer(ResourceId, ?RETRY_INTERVAL, State0)
-    end.
+    start_fetch_if_needed(ResourceId, Params, refresh, State0).
 
-do_fetch_and_store(ResourceId, #{?REGISTERED := Registered} = State0) ->
+fetch_or_enqueue(ResourceId, From, #{?REGISTERED := Registered} = State0) ->
     case maps:get(ResourceId, Registered, undefined) of
         undefined ->
-            %% Not registered (shouldn't happen for a live connector).
-            Response = {error, oauth2_not_registered},
-            Deadline = now_ms() + ?CACHE_FAILURES_FOR,
-            store_row(ResourceId, Deadline, Response),
-            {Response, State0};
+            {reply, {error, oauth2_not_registered}, State0};
         Params ->
-            case do_fetch_token(Params) of
-                {ok, ExpiryMS, Token} ->
-                    State = store_token_and_schedule_refresh(
-                        ExpiryMS, ResourceId, {ok, Token}, State0
-                    ),
-                    {{ok, Token}, State};
-                {error, Reason} ->
-                    Deadline = now_ms() + ?CACHE_FAILURES_FOR,
-                    store_row(ResourceId, Deadline, {error, Reason}),
-                    {{error, Reason}, State0}
-            end
+            State = enqueue_or_start_fetch(ResourceId, Params, From, State0),
+            {noreply, State}
     end.
+
+enqueue_or_start_fetch(ResourceId, Params, From, #{?INFLIGHT := Inflight0} = State0) ->
+    case maps:get(ResourceId, Inflight0, undefined) of
+        undefined ->
+            start_fetch(ResourceId, Params, demand, [From], State0);
+        Fetch0 ->
+            Froms = maps:get(froms, Fetch0),
+            Fetch = Fetch0#{froms := [From | Froms]},
+            State0#{?INFLIGHT := Inflight0#{ResourceId := Fetch}}
+    end.
+
+start_fetch_if_needed(ResourceId, Params, Purpose, #{?INFLIGHT := Inflight} = State0) ->
+    case maps:is_key(ResourceId, Inflight) of
+        true ->
+            State0;
+        false ->
+            start_fetch(ResourceId, Params, Purpose, [], State0)
+    end.
+
+start_fetch(ResourceId, Params, Purpose, Froms, #{?INFLIGHT := Inflight0} = State0) ->
+    Parent = self(),
+    FetchRef = make_ref(),
+    {Pid, MonitorRef} = spawn_monitor(fun() ->
+        Result = do_fetch_token(Params),
+        Parent ! {?MODULE, fetch_result, ResourceId, FetchRef, Result}
+    end),
+    Fetch = #{
+        ref => FetchRef,
+        pid => Pid,
+        monitor_ref => MonitorRef,
+        purpose => Purpose,
+        froms => Froms
+    },
+    State0#{?INFLIGHT := Inflight0#{ResourceId => Fetch}}.
+
+handle_fetch_result(ResourceId, FetchRef, Result, #{?INFLIGHT := Inflight0} = State0) ->
+    case maps:get(ResourceId, Inflight0, undefined) of
+        #{ref := FetchRef, monitor_ref := MonitorRef, purpose := Purpose, froms := Froms} ->
+            _ = erlang:demonitor(MonitorRef, [flush]),
+            Inflight = maps:remove(ResourceId, Inflight0),
+            State1 = State0#{?INFLIGHT := Inflight},
+            complete_fetch(ResourceId, Purpose, Froms, Result, State1);
+        _StaleOrUnknown ->
+            State0
+    end.
+
+handle_fetch_down(MonitorRef, Reason, State0) ->
+    case find_inflight_by_monitor(MonitorRef, State0) of
+        error ->
+            State0;
+        {ok, ResourceId, #{purpose := Purpose, froms := Froms}} ->
+            #{?INFLIGHT := Inflight0} = State0,
+            Inflight = maps:remove(ResourceId, Inflight0),
+            State1 = State0#{?INFLIGHT := Inflight},
+            complete_fetch(
+                ResourceId,
+                Purpose,
+                Froms,
+                {error, {fetch_worker_down, Reason}},
+                State1
+            )
+    end.
+
+find_inflight_by_monitor(MonitorRef, #{?INFLIGHT := Inflight}) ->
+    maps:fold(
+        fun
+            (ResourceId, #{monitor_ref := Ref} = Fetch, error) when Ref =:= MonitorRef ->
+                {ok, ResourceId, Fetch};
+            (_ResourceId, _Fetch, Acc) ->
+                Acc
+        end,
+        error,
+        Inflight
+    ).
+
+complete_fetch(ResourceId, _Purpose, Froms, {ok, ExpiryMS, Token}, State0) ->
+    ?tp(info, "oauth2_token_refreshed", #{resource_id => ResourceId, expiry_ms => ExpiryMS}),
+    State = store_token_and_schedule_refresh(ExpiryMS, ResourceId, {ok, Token}, State0),
+    reply_all(Froms, {ok, Token}),
+    State;
+complete_fetch(ResourceId, Purpose, Froms, {error, Reason}, State0) ->
+    ?tp(warning, "oauth2_token_refresh_failed", #{resource_id => ResourceId, reason => Reason}),
+    case Froms of
+        [] ->
+            ok;
+        [_ | _] ->
+            Deadline = now_ms() + ?CACHE_FAILURES_FOR,
+            store_row(ResourceId, Deadline, {error, Reason})
+    end,
+    reply_all(Froms, {error, Reason}),
+    case Purpose of
+        refresh -> ensure_refresh_timer(ResourceId, ?RETRY_INTERVAL, State0);
+        demand -> State0
+    end.
+
+reply_all(Froms, Response) ->
+    lists:foreach(fun(From) -> gen_server:reply(From, Response) end, Froms).
+
+cancel_inflight(ResourceId, Reason, #{?INFLIGHT := Inflight0} = State0) ->
+    case maps:take(ResourceId, Inflight0) of
+        error ->
+            State0;
+        {#{pid := Pid, monitor_ref := MonitorRef, froms := Froms}, Inflight} ->
+            _ = erlang:demonitor(MonitorRef, [flush]),
+            exit(Pid, kill),
+            reply_all(Froms, {error, Reason}),
+            State0#{?INFLIGHT := Inflight}
+    end.
+
+load_registered() ->
+    try maps:from_list(ets:tab2list(?OAUTH2_REGISTRY_TAB)) of
+        Registered -> Registered
+    catch
+        error:badarg -> #{}
+    end.
+
+store_registration(ResourceId, Params) ->
+    true = ets:insert(?OAUTH2_REGISTRY_TAB, {ResourceId, Params}),
+    ok.
+
+delete_registration(ResourceId) ->
+    true = ets:delete(?OAUTH2_REGISTRY_TAB, ResourceId),
+    ok.
+
+restore_refresh_timers(Registered, State0) ->
+    maps:fold(
+        fun(ResourceId, _Params, State) ->
+            case get_cached(ResourceId) of
+                {ok, {ok, _Token}} ->
+                    %% The worker may have restarted after losing its timer state.
+                    %% Refresh promptly so proactive renewal resumes.
+                    ensure_refresh_timer(ResourceId, ?MIN_REFRESH_MS, State);
+                _ ->
+                    State
+            end
+        end,
+        State0,
+        Registered
+    ).
 
 do_fetch_token(Params) ->
     try
@@ -282,7 +424,7 @@ clear_refresh_timer(ResourceId, #{?TIMERS := Timers0} = State0) ->
     end.
 
 now_ms() ->
-    erlang:system_time(millisecond).
+    erlang:monotonic_time(millisecond).
 
 %%------------------------------------------------------------------------------
 %% Token endpoint interaction
@@ -302,7 +444,8 @@ make_fetch_params(Oauth2Config) ->
         client_id => maps:get(client_id, Oauth2Config),
         client_secret => maps:get(client_secret, Oauth2Config),
         scope => maps:get(scope, Oauth2Config, undefined),
-        timeout => maps:get(timeout, Oauth2Config, 5_000)
+        timeout => maps:get(timeout, Oauth2Config, 5_000),
+        ssl => maps:get(ssl, Oauth2Config, #{})
     }.
 
 %% Fixed, named function that exchanges the client credentials for an access
@@ -316,7 +459,8 @@ fetch_token(Params) ->
         client_id := ClientId,
         client_secret := Secret,
         scope := Scope,
-        timeout := Timeout
+        timeout := Timeout,
+        ssl := SSL
     } = Params,
     BodyParams = lists:flatten([
         {"grant_type", "client_credentials"},
@@ -328,18 +472,14 @@ fetch_token(Params) ->
     Resp = ?MODULE:do_request(#{
         uri => Endpoint,
         body => Body,
-        timeout => Timeout
+        timeout => Timeout,
+        ssl => SSL
     }),
     case Resp of
         {ok, {{_, 200, _}, _, RespBody}} ->
             case emqx_utils_json:safe_decode(RespBody) of
-                {ok, #{<<"access_token">> := Token, <<"expires_in">> := ExpiryS}} ->
-                    ExpiryMS = max(1_000, erlang:convert_time_unit(ExpiryS, second, millisecond)),
-                    {ok, ExpiryMS, Token};
-                {ok, #{<<"access_token">> := Token}} ->
-                    {ok, get_expiry_ms(Token), Token};
-                {ok, BadResp} ->
-                    {error, {bad_token_response, BadResp}};
+                {ok, Response} ->
+                    parse_token_response(Response);
                 {error, Reason} ->
                     {error, {bad_token_response, Reason}}
             end;
@@ -350,23 +490,59 @@ fetch_token(Params) ->
     end.
 
 %% Only exposed for mocking/tests.
-do_request(#{uri := URI, body := Body, timeout := Timeout}) ->
+do_request(#{uri := URI, body := Body, timeout := Timeout, ssl := SSL}) ->
     httpc:request(
         post,
         {str(URI), _Headers = [], "application/x-www-form-urlencoded", Body},
-        [
-            {timeout, Timeout},
-            {connect_timeout, Timeout}
-        ],
+        http_options(URI, SSL, Timeout),
         [{body_format, binary}]
     ).
+
+http_options(URI, SSL, Timeout) ->
+    Opts = [
+        {timeout, Timeout},
+        {connect_timeout, Timeout}
+    ],
+    case emqx_utils_uri:parse(URI) of
+        #{scheme := <<"https">>} ->
+            [{ssl, emqx_tls_lib:to_client_opts(SSL#{enable => true})} | Opts];
+        _ ->
+            Opts
+    end.
+
+parse_token_response(#{<<"access_token">> := Token} = Response) when is_binary(Token) ->
+    case valid_token_type(maps:get(<<"token_type">>, Response, <<"Bearer">>)) of
+        true ->
+            parse_token_expiry(Response, Token);
+        false ->
+            {error, {bad_token_response, unsupported_token_type}}
+    end;
+parse_token_response(#{<<"access_token">> := _InvalidToken}) ->
+    {error, {bad_token_response, invalid_access_token}};
+parse_token_response(_Response) ->
+    {error, {bad_token_response, missing_access_token}}.
+
+parse_token_expiry(#{<<"expires_in">> := ExpiryS}, Token) when
+    is_integer(ExpiryS), ExpiryS > 0
+->
+    ExpiryMS = max(1_000, erlang:convert_time_unit(ExpiryS, second, millisecond)),
+    {ok, ExpiryMS, Token};
+parse_token_expiry(#{<<"expires_in">> := _InvalidExpiry}, _Token) ->
+    {error, {bad_token_response, invalid_expires_in}};
+parse_token_expiry(_Response, Token) ->
+    {ok, get_expiry_ms(Token), Token}.
+
+valid_token_type(TokenType) when is_binary(TokenType) ->
+    string:equal(TokenType, <<"Bearer">>, true);
+valid_token_type(_TokenType) ->
+    false.
 
 get_expiry_ms(Token) ->
     try
         case jose_jwt:peek(Token) of
             #jose_jwt{fields = #{<<"exp">> := ExpS}} ->
                 ExpMS = erlang:convert_time_unit(ExpS, second, millisecond),
-                max(1_000, ExpMS - now_ms());
+                max(1_000, ExpMS - wall_clock_ms());
             _ ->
                 ?DEFAULT_EXPIRY_MS
         end
@@ -376,3 +552,5 @@ get_expiry_ms(Token) ->
     end.
 
 str(X) -> emqx_utils_conv:str(X).
+
+wall_clock_ms() -> erlang:system_time(millisecond).

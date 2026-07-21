@@ -51,4 +51,10 @@ oauth2_timeout.desc:
 oauth2_timeout.label:
 """Token Request Timeout"""
 
+oauth2_ssl.desc:
+"""TLS options for HTTPS connections to the OAuth2 token endpoint."""
+
+oauth2_ssl.label:
+"""Token Endpoint TLS"""
+
 }

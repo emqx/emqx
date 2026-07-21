@@ -8,6 +8,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -86,6 +87,67 @@ t_unregister_clears_cache(_TCConfig) ->
     ?assertEqual(1, meck:num_calls(emqx_connector_oauth2, do_request, 1)),
     ?assertMatch({error, _}, emqx_connector_oauth2:get_token(ResourceId)).
 
+t_register_invalidates_cached_token(_TCConfig) ->
+    ResourceId = <<"res:config-update">>,
+    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config()),
+    ok = expect_token(<<"old-token">>, 3600),
+    ?assertEqual({ok, <<"old-token">>}, emqx_connector_oauth2:get_token(ResourceId)),
+    UpdatedConfig = (oauth2_config())#{client_id := <<"updated-client-id">>},
+    ok = emqx_connector_oauth2:register(ResourceId, UpdatedConfig),
+    ok = expect_token(<<"new-token">>, 3600),
+    ?assertEqual({ok, <<"new-token">>}, emqx_connector_oauth2:get_token(ResourceId)),
+    ?assertEqual(2, meck:num_calls(emqx_connector_oauth2, do_request, 1)),
+    ok = emqx_connector_oauth2:unregister(ResourceId).
+
+t_manager_restart_recovers_registration(_TCConfig) ->
+    ResourceId = <<"res:manager-restart">>,
+    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config()),
+    OldPid = whereis(emqx_connector_oauth2),
+    exit(OldPid, kill),
+    ok = wait_for(
+        fun() ->
+            case whereis(emqx_connector_oauth2) of
+                Pid when is_pid(Pid), Pid =/= OldPid -> true;
+                _ -> false
+            end
+        end,
+        5_000
+    ),
+    ok = expect_token(<<"after-restart">>, 3600),
+    ?assertEqual({ok, <<"after-restart">>}, emqx_connector_oauth2:get_token(ResourceId)),
+    ok = emqx_connector_oauth2:unregister(ResourceId).
+
+t_different_resources_fetch_concurrently(_TCConfig) ->
+    SlowId = <<"res:slow">>,
+    FastId = <<"res:fast">>,
+    SlowEndpoint = <<"https://auth.example.com/slow">>,
+    FastEndpoint = <<"https://auth.example.com/fast">>,
+    ok = emqx_connector_oauth2:register(
+        SlowId, (oauth2_config())#{token_endpoint := SlowEndpoint}
+    ),
+    ok = emqx_connector_oauth2:register(
+        FastId, (oauth2_config())#{token_endpoint := FastEndpoint}
+    ),
+    TestPid = self(),
+    meck:expect(emqx_connector_oauth2, do_request, fun(#{uri := Endpoint}) ->
+        TestPid ! {fetch_started, Endpoint, self()},
+        receive
+            continue -> token_http_response(Endpoint, 3600)
+        end
+    end),
+    spawn(fun() -> TestPid ! {fetch_done, SlowId, emqx_connector_oauth2:get_token(SlowId)} end),
+    SlowFetchPid = ?assertReceive({fetch_started, SlowEndpoint, _}, 1_000),
+    {fetch_started, SlowEndpoint, SlowWorker} = SlowFetchPid,
+    spawn(fun() -> TestPid ! {fetch_done, FastId, emqx_connector_oauth2:get_token(FastId)} end),
+    FastFetchPid = ?assertReceive({fetch_started, FastEndpoint, _}, 1_000),
+    {fetch_started, FastEndpoint, FastWorker} = FastFetchPid,
+    SlowWorker ! continue,
+    FastWorker ! continue,
+    ?assertReceive({fetch_done, SlowId, {ok, SlowEndpoint}}, 1_000),
+    ?assertReceive({fetch_done, FastId, {ok, FastEndpoint}}, 1_000),
+    ok = emqx_connector_oauth2:unregister(SlowId),
+    ok = emqx_connector_oauth2:unregister(FastId).
+
 t_concurrent_get_token_fetches_once(_TCConfig) ->
     %% Many callers racing on a cache miss must share a single token fetch:
     %% `get_token/1' reads ETS first, and the GenServer re-checks ETS inside
@@ -143,6 +205,24 @@ t_fetch_token_returns_error_on_bad_status(_TCConfig) ->
     ),
     ok.
 
+t_fetch_token_rejects_malformed_success_response(_TCConfig) ->
+    lists:foreach(
+        fun(Response) ->
+            meck:expect(
+                emqx_connector_oauth2,
+                do_request,
+                1,
+                {ok, {{<<"HTTP/1.1">>, 200, <<"OK">>}, [], emqx_utils_json:encode(Response)}}
+            ),
+            ?assertMatch({error, {bad_token_response, _}}, fetch_token())
+        end,
+        [
+            #{<<"access_token">> => 42, <<"expires_in">> => 3600},
+            #{<<"access_token">> => <<"token">>, <<"expires_in">> => <<"3600">>},
+            #{<<"access_token">> => <<"token">>, <<"token_type">> => <<"MAC">>}
+        ]
+    ).
+
 t_validate_rejects_missing_fields(_TCConfig) ->
     Required = [token_endpoint, client_id, client_secret],
     Oauth2 = raw_oauth2_config(),
@@ -157,6 +237,16 @@ t_validate_rejects_unknown_grant_type(_TCConfig) ->
     ?assertMatch(
         {error, _},
         check_oauth2((raw_oauth2_config())#{grant_type => authorization_code})
+    ).
+
+t_validate_rejects_bad_token_endpoint(_TCConfig) ->
+    ?assertMatch(
+        {error, _},
+        check_oauth2((raw_oauth2_config())#{token_endpoint => <<"ftp://example.com/token">>})
+    ),
+    ?assertMatch(
+        {error, _},
+        check_oauth2((raw_oauth2_config())#{token_endpoint => <<"not-a-url">>})
     ).
 
 t_validate_rejects_auth_header_conflict(_TCConfig) ->
@@ -181,7 +271,10 @@ t_validate_accepts_when_disabled_or_absent(_TCConfig) ->
     ?assertEqual(ok, emqx_connector_oauth2_schema:validate(#{}, undefined)),
     ?assertEqual(ok, emqx_connector_oauth2_schema:validate(#{}, #{enable => false})),
     ?assertMatch({ok, #{oauth2 := #{enable := false}}}, check_oauth2(#{enable => false})),
-    ?assertMatch({ok, #{oauth2 := #{enable := true}}}, check_oauth2(raw_oauth2_config())),
+    ?assertMatch(
+        {ok, #{oauth2 := #{enable := true, ssl := #{enable := true}}}},
+        check_oauth2(raw_oauth2_config())
+    ),
     ?assertEqual(
         ok,
         emqx_connector_oauth2_schema:validate(#{<<"authorization">> => <<"x">>}, undefined)
@@ -244,8 +337,20 @@ fetch_params() ->
         client_id => <<"client-id">>,
         client_secret => emqx_secret:wrap(<<"client-secret">>),
         scope => <<"read">>,
-        timeout => 5_000
+        timeout => 5_000,
+        ssl => #{}
     }.
+
+fetch_token() ->
+    emqx_connector_oauth2:fetch_token(fetch_params()).
+
+token_http_response(Token, ExpiresInSec) ->
+    Body = emqx_utils_json:encode(#{
+        <<"access_token">> => Token,
+        <<"expires_in">> => ExpiresInSec,
+        <<"token_type">> => <<"Bearer">>
+    }),
+    {ok, {{<<"HTTP/1.1">>, 200, <<"OK">>}, [], Body}}.
 
 %% Builds an unsigned (`alg=none') compact JWT carrying the given claims, just
 %% enough for `jose_jwt:peek/1' to decode the payload.

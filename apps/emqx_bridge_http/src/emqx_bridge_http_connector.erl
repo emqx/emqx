@@ -277,13 +277,25 @@ on_add_channel(
     ActionId,
     ActionConfig
 ) ->
-    InstalledActions = maps:get(installed_actions, OldState, #{}),
-    {ok, ActionState} = do_create_http_action(ActionConfig),
-    RenderTmplFunc = maps:get(render_template_func, ActionConfig, fun ?MODULE:render_template/2),
-    ActionState1 = ActionState#{render_template_func => RenderTmplFunc},
-    NewInstalledActions = maps:put(ActionId, ActionState1, InstalledActions),
-    NewState = maps:put(installed_actions, NewInstalledActions, OldState),
-    {ok, NewState}.
+    case validate_action_oauth2_headers(OldState, ActionConfig) of
+        ok ->
+            InstalledActions = maps:get(installed_actions, OldState, #{}),
+            {ok, ActionState} = do_create_http_action(ActionConfig),
+            RenderTmplFunc = maps:get(
+                render_template_func, ActionConfig, fun ?MODULE:render_template/2
+            ),
+            ActionState1 = ActionState#{render_template_func => RenderTmplFunc},
+            NewInstalledActions = maps:put(ActionId, ActionState1, InstalledActions),
+            NewState = maps:put(installed_actions, NewInstalledActions, OldState),
+            {ok, NewState};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+validate_action_oauth2_headers(State, ActionConfig) ->
+    Headers = emqx_utils_maps:deep_get([parameters, headers], ActionConfig, #{}),
+    Oauth2 = maps:get(oauth2, State, undefined),
+    emqx_connector_oauth2_schema:validate(Headers, Oauth2).
 
 do_create_http_action(#{parameters := Params} = ActionConfig) ->
     case preprocess_request(Params) of
@@ -319,8 +331,8 @@ maybe_inject_oauth_token(Request, #{oauth2 := #{enable := true}, pool_name := Re
     case emqx_connector_oauth2:get_token(ResourceId) of
         {ok, Token} ->
             {ok, inject_authorization(Request, Token)};
-        {error, _Reason} = Error ->
-            Error
+        {error, Reason} ->
+            {error, {recoverable_error, {oauth2_token_unavailable, Reason}}}
     end;
 maybe_inject_oauth_token(Request, _State) ->
     {ok, Request}.

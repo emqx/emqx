@@ -107,9 +107,6 @@ on_start(InstId, Config) ->
     },
     ClientId = InstId,
     emqx_resource:allocate_resource(InstId, ?MODULE, ?kafka_client_id, ClientId),
-    %% Register the (raw) OAuth2 config before connecting; `C(authentication)'
-    %% would return the already-transformed SASL tuple, so read the raw map here.
-    ok = emqx_bridge_kafka_impl:register_oauth2(ClientId, maps:get(authentication, Config, none)),
     ok = ensure_client(ClientId, Hosts, ClientConfig),
     %% Note: we must return `{error, _}' here if the client cannot connect so that the
     %% connector will immediately enter the `?status_disconnected' state, and then avoid
@@ -127,10 +124,6 @@ on_start(InstId, Config) ->
             },
             {ok, ConnectorState};
         {error, Reason} ->
-            %% `register_oauth2/2' ran above; undo it so a failed start does
-            %% not leave a stale registration behind.  `unregister/1' is a
-            %% no-op when OAuth2 was not used.
-            ok = emqx_connector_oauth2:unregister(ClientId),
             {error, Reason}
     end.
 
@@ -293,13 +286,6 @@ deallocate_client(ClientId) ->
         fun() -> wolff:stop_and_delete_supervised_client(ClientId) end,
         #{
             msg => "failed_to_delete_kafka_client",
-            client_id => ClientId
-        }
-    ),
-    _ = with_log_at_error(
-        fun() -> emqx_connector_oauth2:unregister(ClientId) end,
-        #{
-            msg => "failed_to_unregister_token_cache",
             client_id => ClientId
         }
     ),

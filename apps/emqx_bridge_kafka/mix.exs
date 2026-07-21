@@ -46,8 +46,7 @@ defmodule EMQXBridgeKafka.MixProject do
       :telemetry,
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
-      {:emqx_bridge, in_umbrella: true, runtime: false},
-      {:emqx_connector_oauth2, in_umbrella: true}
+      {:emqx_bridge, in_umbrella: true, runtime: false}
     ])
   end
 end

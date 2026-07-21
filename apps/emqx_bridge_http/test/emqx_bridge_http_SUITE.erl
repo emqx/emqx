@@ -171,16 +171,25 @@ start_oauth2_token_server(TestPid) ->
         <<"expires_in">> => 3600,
         <<"token_type">> => <<"Bearer">>
     }),
+    ModeKey = {?MODULE, oauth2_token_mode, TestPid},
+    persistent_term:put(ModeKey, available),
+    on_exit(fun() -> persistent_term:erase(ModeKey) end),
     ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
             {ok, RequestBody, Req1} = cowboy_req:read_body(Req0),
             TestPid ! {oauth2_token_request, RequestBody},
-            Req = cowboy_req:reply(
-                200,
-                #{<<"content-type">> => <<"application/json">>},
-                ResponseBody,
-                Req1
-            ),
+            Req =
+                case persistent_term:get(ModeKey) of
+                    available ->
+                        cowboy_req:reply(
+                            200,
+                            #{<<"content-type">> => <<"application/json">>},
+                            ResponseBody,
+                            Req1
+                        );
+                    unavailable ->
+                        cowboy_req:reply(503, #{}, <<"unavailable">>, Req1)
+                end,
             {ok, Req, State}
         end
     ),
@@ -188,6 +197,9 @@ start_oauth2_token_server(TestPid) ->
         <<"http://127.0.0.1:${port}/oauth/token">>, #{port => Port}
     ),
     {TokenEndpoint, Token}.
+
+set_oauth2_token_mode(TestPid, Mode) ->
+    persistent_term:put({?MODULE, oauth2_token_mode, TestPid}, Mode).
 
 not_found_http_handler() ->
     TestPid = self(),
@@ -363,6 +375,41 @@ t_oauth2_client_credentials(TCConfig) ->
     ),
     ?assertNotReceive({oauth2_token_request, _}, 200),
     ok.
+
+t_oauth2_token_failure_is_recoverable(TCConfig) ->
+    {TokenEndpoint, _Token} = start_oauth2_token_server(self()),
+    OAuth2 = #{
+        <<"enable">> => true,
+        <<"grant_type">> => <<"client_credentials">>,
+        <<"token_endpoint">> => TokenEndpoint,
+        <<"client_id">> => <<"client-id">>,
+        <<"client_secret">> => <<"client-secret">>
+    },
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_connector_api(TCConfig, #{<<"oauth2">> => OAuth2}),
+    _ = ?assertReceive({oauth2_token_request, _}, 2_000),
+    ConnectorResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    set_oauth2_token_mode(self(), unavailable),
+    ok = emqx_connector_oauth2:clear_cache(ConnectorResId),
+    ?assertMatch(
+        {error, {recoverable_error, {oauth2_token_unavailable, _}}},
+        emqx_resource:simple_sync_query(
+            ConnectorResId,
+            {post, {<<"/path">>, [], <<"body">>}, 1_000}
+        )
+    ).
+
+t_oauth2_rejects_action_authorization_header(_TCConfig) ->
+    State = #{oauth2 => #{enable => true}, installed_actions => #{}},
+    ActionConfig = #{
+        parameters => #{headers => #{<<"Authorization">> => <<"Basic credentials">>}}
+    },
+    ?assertMatch(
+        {error, #{reason := oauth2_auth_header_conflict}},
+        emqx_bridge_http_connector:on_add_channel(
+            <<"connector">>, State, <<"action">>, ActionConfig
+        )
+    ).
 
 %% This test ensures that https://emqx.atlassian.net/browse/CI-62 is fixed.
 %% When the connection time out all the queued requests where dropped in

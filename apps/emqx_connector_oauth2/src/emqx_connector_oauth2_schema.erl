@@ -61,6 +61,7 @@ fields(client_credentials) ->
         {token_endpoint,
             mk(binary(), #{
                 required => true,
+                validator => fun validate_token_endpoint/1,
                 desc => ?DESC("oauth2_token_endpoint")
             })},
         {client_id,
@@ -82,6 +83,11 @@ fields(client_credentials) ->
             mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"5s">>,
                 desc => ?DESC("oauth2_timeout")
+            })},
+        {ssl,
+            mk(ref(emqx_schema, "ssl_client_opts"), #{
+                default => #{<<"enable">> => true},
+                desc => ?DESC("oauth2_ssl")
             })}
     ].
 
@@ -165,6 +171,26 @@ select_grant_type(GrantType) ->
 
 conf_get(Key, Conf, Default) ->
     maps:get(Key, Conf, maps:get(atom_to_binary(Key), Conf, Default)).
+
+validate_token_endpoint(Endpoint) ->
+    try emqx_utils_uri:parse(Endpoint) of
+        #{
+            scheme := Scheme,
+            authority := #{host := Host, userinfo := undefined},
+            fragment := undefined
+        } when Scheme =:= <<"http">>; Scheme =:= <<"https">> ->
+            case emqx_utils_ssrf:check_host(Host) of
+                ok -> ok;
+                {error, Error} -> {error, emqx_utils_ssrf:format_error(Error)}
+            end;
+        #{scheme := Scheme} when Scheme =/= <<"http">>, Scheme =/= <<"https">> ->
+            {error, unsupported_scheme};
+        _ ->
+            {error, invalid_token_endpoint}
+    catch
+        _:_ ->
+            {error, invalid_token_endpoint}
+    end.
 
 lower_bin(K) when is_binary(K) ->
     try

@@ -140,7 +140,6 @@ on_start(ConnectorResId, Config) ->
     SocketOpts = emqx_bridge_kafka_impl:socket_opts(SocketOpts0),
     ClientOpts1 = [{extra_sock_opts, SocketOpts} | ClientOpts],
     ok = emqx_resource:allocate_resource(ConnectorResId, ?MODULE, ?kafka_client_id, ClientID),
-    ok = emqx_bridge_kafka_impl:register_oauth2(oauth2_client_key(ClientID), Auth),
     case brod:start_client(BootstrapHosts, ClientID, ClientOpts1) of
         ok ->
             ?tp(
@@ -153,7 +152,6 @@ on_start(ConnectorResId, Config) ->
                 kafka_hosts => BootstrapHosts
             });
         {error, Reason} ->
-            ok = emqx_connector_oauth2:unregister(oauth2_client_key(ClientID)),
             ?SLOG(error, #{
                 msg => "failed_to_start_kafka_consumer_client",
                 resource_id => ConnectorResId,
@@ -174,7 +172,6 @@ on_stop(ConnectorResId, _State) ->
             fun
                 (?kafka_client_id, ClientID, Acc) ->
                     stop_client(ClientID),
-                    ok = emqx_connector_oauth2:unregister(oauth2_client_key(ClientID)),
                     Acc;
                 ({?kafka_subscriber_id, _SourceResId}, SubscriberId, Acc) ->
                     stop_subscriber(SubscriberId),
@@ -682,13 +679,6 @@ make_client_id(ConnectorResId) ->
             %% atoms.
             probing_brod_consumers
     end.
-
-%% brod binary-encodes the client id before handing it to the SASL callback
-%% (see `brod_client:conn_config/1' -> `ensure_binary/1'), so the shared OAuth2
-%% token cache must be keyed by that same binary -- not by the atom returned by
-%% `make_client_id/1'.
-oauth2_client_key(ClientID) ->
-    atom_to_binary(ClientID, utf8).
 
 encode(Value, none) ->
     Value;
