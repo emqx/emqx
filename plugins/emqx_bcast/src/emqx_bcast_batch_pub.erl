@@ -54,11 +54,14 @@ handle(Body, RequestId) ->
     end.
 
 resolve_qos0_payload(MessageContent, _MessageId) when MessageContent =/= undefined ->
-    {ok, Payload} = emqx_bcast_utils:decode_base64(MessageContent),
     MaxSize = get_max_message_size_batch(),
-    case byte_size(Payload) =< MaxSize of
-        true -> {ok, Payload, emqx_bcast_utils:gen_api_uuid()};
-        false -> {error, <<"MessageTooLarge">>, <<"Message too large">>}
+    case emqx_bcast_utils:decode_base64(MessageContent) of
+        {error, invalid_base64} ->
+            {error, <<"InvalidBase64">>, <<"MessageContent is not valid Base64">>};
+        {ok, Payload} when byte_size(Payload) =< MaxSize ->
+            {ok, Payload, emqx_bcast_utils:gen_api_uuid()};
+        {ok, _} ->
+            {error, <<"MessageTooLarge">>, <<"Message too large">>}
     end;
 resolve_qos0_payload(undefined, MessageId) ->
     case emqx_bcast_id:resolve_message_id(MessageId) of
