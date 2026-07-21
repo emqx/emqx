@@ -32,8 +32,7 @@
 -import(hoconsc, [mk/2]).
 
 -define(ROCKETMQ_HOST_OPTIONS, #{
-    default_port => 9876,
-    ssrf_check => true
+    default_port => 9876
 }).
 
 %%=====================================================================
