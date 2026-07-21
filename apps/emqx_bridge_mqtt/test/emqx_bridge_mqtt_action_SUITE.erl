@@ -1593,3 +1593,39 @@ t_corrupt_connector_raw_config(TCConfig) ->
         <<"static_clientids">> => StaticClientIds
     }),
     ok.
+
+-doc """
+Checks the accepted `server' URI schemes when creating an MQTT connector via the API.
+
+`mqtt' (plain TCP) and `mqtts' (TLS) are the official MQTT URI schemes, and a
+scheme-less `host:port' is accepted as well.  Anything else must be rejected with a
+readable 400, never a 500.
+""".
+t_connector_server_scheme(TCConfig) ->
+    lists:foreach(
+        fun(Server) ->
+            ?assertMatch(
+                {201, _},
+                create_connector_api(TCConfig, #{<<"server">> => Server}),
+                #{server => Server}
+            ),
+            {204, _} = emqx_bridge_v2_testlib:delete_connector_api(TCConfig)
+        end,
+        [
+            <<"mqtt://[::1]:1883">>,
+            <<"mqtts://[::1]:8883">>,
+            <<"mqtt://127.0.0.1:1883">>,
+            <<"[::1]:1883">>,
+            <<"127.0.0.1:1883">>
+        ]
+    ),
+    ?assertMatch(
+        {400, #{
+            <<"message">> := #{
+                <<"kind">> := <<"validation_error">>,
+                <<"reason">> := <<"unsupported_scheme">>
+            }
+        }},
+        create_connector_api(TCConfig, #{<<"server">> => <<"mqtt-tcp://[::1]:1883">>})
+    ),
+    ok.

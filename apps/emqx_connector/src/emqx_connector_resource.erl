@@ -364,10 +364,23 @@ check_ssrf(Host) ->
         {error, Err} -> invalid_data(emqx_utils_ssrf:format_error(Err))
     end.
 
+%% Must accept the same `server' values as the `mqtt' connector schema
+%% (`emqx_bridge_mqtt_connector_schema''s `?MQTT_HOST_OPTS'), otherwise a server that
+%% passed schema validation is rejected here.
+-define(MQTT_HOST_OPTS, #{
+    default_port => 1883,
+    default_scheme => "mqtt",
+    supported_schemes => ["mqtt", "mqtts"]
+}).
+
 parse_mqtt_host(Server) ->
-    case emqx_schema:parse_server(Server, #{default_port => 1883}) of
+    %% The server has already been validated by the schema at this point; if parsing
+    %% still fails, there is no host to check and the schema reports the real error.
+    try emqx_schema:parse_server(Server, ?MQTT_HOST_OPTS) of
         #{hostname := Host} -> Host;
         _ -> undefined
+    catch
+        throw:_ -> undefined
     end.
 
 -spec invalid_data(binary()) -> no_return().
