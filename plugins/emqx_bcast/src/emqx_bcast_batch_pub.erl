@@ -120,8 +120,9 @@ validate(_PK, DeviceNames, _MC, _MI) when is_list(DeviceNames) ->
     end.
 
 resolve_content(_DeviceNames, MessageContent, _MessageId) when MessageContent =/= undefined ->
+    MaxSize = get_max_message_size_batch(),
     case emqx_bcast_utils:decode_base64(MessageContent) of
-        {ok, Payload} ->
+        {ok, Payload} when byte_size(Payload) =< MaxSize ->
             Hash = emqx_bcast_utils:sha256(Payload),
             {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
             case emqx_bcast_storage:lookup_or_create_message(Payload, Hash, ApiMsgId, MsgGuid) of
@@ -129,6 +130,8 @@ resolve_content(_DeviceNames, MessageContent, _MessageId) when MessageContent =/
                 {existing, Id, Guid} -> {ok, Id, Guid};
                 {error, _} -> {error, <<"InternalError">>, <<"Storage error">>}
             end;
+        {ok, _} ->
+            {error, <<"MessageTooLarge">>, <<"Message too large">>};
         {error, _} ->
             {error, <<"InvalidBase64">>, <<"Invalid Base64 encoding">>}
     end;
