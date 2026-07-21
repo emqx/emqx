@@ -75,7 +75,7 @@ ensure_gc_timer() ->
 
 try_gc() ->
     %% Only cores should run GC.
-    CoreNodes = mria_membership:running_core_nodelist(),
+    CoreNodes = emqx_cluster:running_core_nodelist(),
     Res = global:trans(
         {?MODULE, self()},
         fun maybe_gc/0,
