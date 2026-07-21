@@ -241,7 +241,7 @@ init([]) ->
         {read_concurrency, true}
     ]),
     %% Monitor nodes lifecycle events.
-    ok = ekka:monitor(membership),
+    ok = mria_membership:monitor(membership, self(), true),
     TRef = schedule_task(reconcile, ?RECONCILE_TURBULENCE_DELAY),
     State = #{
         last_membership => emqx_maybe:define(cores(), []),
@@ -279,7 +279,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    ekka:unmonitor(membership).
+    mria_membership:monitor(membership, self(), false).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

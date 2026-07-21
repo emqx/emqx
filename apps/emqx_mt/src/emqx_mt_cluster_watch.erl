@@ -48,7 +48,7 @@ immediate_node_clear(Node) ->
 
 init([]) ->
     process_flag(trap_exit, true),
-    ok = ekka:monitor(membership),
+    ok = mria_membership:monitor(membership, self(), true),
     %% clear the records of self-node after restart
     %% This must be done before init/1 returns
     %% TODO: spawn a process to do it and listeners should wait
@@ -103,7 +103,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    ekka:unmonitor(membership).
+    mria_membership:monitor(membership, self(), false).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
