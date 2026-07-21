@@ -5,6 +5,7 @@
 -module(emqx_cluster).
 
 -export([
+    name/0,
     join/2,
     leave/1,
     force_leave/2,
@@ -30,6 +31,15 @@
 -else.
 -define(DEFAULT_MODE, ?CLUSTER_MODE_SINGLE).
 -endif.
+
+-doc """
+Return cluster name set by the user in the configuration.
+
+Not to be confused with the cluster ID which is set automatically by classy.
+""".
+-spec name() -> atom().
+name() ->
+    application:get_env(emqx, emqx_cluster_name, undefined).
 
 -spec join(node(), join) -> ok.
 join(Node, Intent) ->
