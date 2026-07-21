@@ -352,16 +352,13 @@ credentials_validator(Config0) ->
         true -> {error, <<"aws_access_key_id and aws_secret_access_key must be provided together">>}
     end.
 
-%% This validator is used in two configuration phases:
+%% This validator may receive either an individual connector config or the
+%% outer #{ConnectorName => ConnectorConfig} map.  Raw HOCON configs use binary
+%% keys, while probe and runtime configs use atom keys, so normalize the latter.
 %%
-%% * Raw HOCON configuration validation runs before `emqx_config' converts
-%%   checked configuration keys to atoms, so credential keys are binaries.
-%% * Connector probe and runtime startup operate on checked configuration,
-%%   where credential keys are atoms.
-%%
-%% `hoconsc:map(name, ...)' may also apply this validator to the outer
-%% name-to-config map.  Such a map has no credential fields at its top level
-%% and is intentionally treated as having no explicit credentials.
+%% Since connector names are dynamic, an outer-map key may happen to be named
+%% `aws_access_key_id' or `aws_secret_access_key'.  Its map value is a connector
+%% config, not a credential, and must not be considered present.
 normalize_credentials_config(Config) when
     is_map_key(aws_access_key_id, Config);
     is_map_key(aws_secret_access_key, Config)
@@ -371,9 +368,13 @@ normalize_credentials_config(Config) ->
     Config.
 
 credential_present(Key, Config) ->
-    Value0 = maps:get(Key, Config, undefined),
-    Value = emqx_secret:unwrap(Value0),
-    Value =/= undefined andalso Value =/= <<>> andalso Value =/= [].
+    case maps:get(Key, Config, undefined) of
+        Value when is_map(Value) ->
+            false;
+        Value0 ->
+            Value = emqx_secret:unwrap(Value0),
+            Value =/= undefined andalso Value =/= <<>> andalso Value =/= []
+    end.
 
 parse_template_from_conf(Config) ->
     Templates =

@@ -460,7 +460,7 @@ t_connector_client_uses_refreshed_metadata_credentials(_Config) ->
         request,
         fun(_URL, post, Headers, _Body, _Timeout, _AWSConfig) ->
             TestPid ! {ddb_request_headers, Headers},
-            {ok, {{200, "OK"}, [], <<"{\"TableNames\":[]}">>}}
+            {ok, {{200, "OK"}, [], <<"{}">>}}
         end
     ),
     try
@@ -473,9 +473,23 @@ t_connector_client_uses_refreshed_metadata_credentials(_Config) ->
         ?assert(erlang:is_process_alive(Pid)),
         {dictionary, ProcessDictionary} = erlang:process_info(Pid, dictionary),
         ?assertEqual(undefined, proplists:get_value(aws_config, ProcessDictionary)),
-        ?assertEqual(true, emqx_bridge_dynamo_connector_client:is_connected(Pid, 5_000)),
+        ?assertMatch(
+            {ok, _},
+            emqx_bridge_dynamo_connector_client:query(
+                Pid,
+                ?TABLE_BIN,
+                {send_message, #{<<"id">> => <<"value">>}},
+                #{},
+                emqx_trace:make_rendered_action_template_trace_context(<<"test-action">>),
+                #{}
+            )
+        ),
         receive
             {ddb_request_headers, Headers} ->
+                ?assertEqual(
+                    "DynamoDB_20120810.PutItem",
+                    proplists:get_value("x-amz-target", Headers)
+                ),
                 Authorization = proplists:get_value("Authorization", Headers),
                 ?assertNotEqual(
                     nomatch,
@@ -604,6 +618,16 @@ t_credentials_validator(Config) ->
                 <<"dynamo">>, <<"test">>, ConnectorConfigWithoutCredentials
             )
         )
+    ),
+    lists:foreach(
+        fun(ConnectorName) ->
+            CheckedConfig = emqx_bridge_v2_testlib:parse_and_check_connector(
+                <<"dynamo">>, ConnectorName, ConnectorConfigWithoutCredentials
+            ),
+            ?assertNot(maps:is_key(<<"aws_access_key_id">>, CheckedConfig)),
+            ?assertNot(maps:is_key(<<"aws_secret_access_key">>, CheckedConfig))
+        end,
+        [<<"aws_access_key_id">>, <<"aws_secret_access_key">>]
     ),
     assert_invalid_credentials(fun() ->
         emqx_bridge_v2_testlib:parse_and_check_connector(
