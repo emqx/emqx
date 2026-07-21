@@ -6,8 +6,12 @@
 -export([load/0, update/1]).
 
 -include("emqx_bcast.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -define(NAME_VSN, <<"emqx_bcast-0.1.0">>).
+
+-define(DEFAULT_MSG_TTL, 15 * 86400).
+-define(DEFAULT_CLEANUP_INTERVAL, 60).
 
 load() ->
     Config =
@@ -25,8 +29,10 @@ normalize(Config) ->
     #{
         broadcast_topic => maps:get(broadcast_topic, Config, <<"/sys/broadcast/${productKey}">>),
         batch_topic => maps:get(batch_topic, Config, <<"/${productKey}/${deviceName}/user/get">>),
-        msg_ttl => ttl_to_sec(maps:get(msg_ttl, Config, <<"15d">>)),
-        cleanup_interval => ttl_to_sec(maps:get(cleanup_interval, Config, <<"60s">>)),
+        msg_ttl => duration_to_sec(msg_ttl, maps:get(msg_ttl, Config, <<"15d">>)),
+        cleanup_interval => duration_to_sec(
+            cleanup_interval, maps:get(cleanup_interval, Config, <<"60s">>)
+        ),
         max_device_count => maps:get(max_device_count, Config, 10000),
         max_message_size_broadcast => maps:get(max_message_size_broadcast, Config, 65536),
         max_message_size_batch => maps:get(max_message_size_batch, Config, 10240),
@@ -34,18 +40,40 @@ normalize(Config) ->
         force_upgrade_qos => maps:get(force_upgrade_qos, Config, true)
     }.
 
-ttl_to_sec(TTL) when is_binary(TTL) ->
-    parse_duration(TTL);
-ttl_to_sec(_) ->
-    default_ttl().
+duration_to_sec(Field, Value) when is_binary(Value) ->
+    case parse_duration(Value) of
+        {ok, Sec} ->
+            Sec;
+        error ->
+            Default = field_default(Field),
+            ?SLOG(warning, #{
+                msg => "invalid_plugin_config_duration",
+                field => Field,
+                value => Value,
+                default => Default
+            }),
+            Default
+    end;
+duration_to_sec(Field, Value) when is_integer(Value), Value > 0 ->
+    Value;
+duration_to_sec(Field, Value) ->
+    Default = field_default(Field),
+    ?SLOG(warning, #{
+        msg => "invalid_plugin_config_duration",
+        field => Field,
+        value => Value,
+        default => Default
+    }),
+    Default.
 
 parse_duration(TTL) ->
     case re:run(TTL, <<"^(\\d+)([smhd])$">>, [{capture, [1, 2], binary}]) of
-        {match, [N, <<"s">>]} -> binary_to_integer(N);
-        {match, [N, <<"m">>]} -> binary_to_integer(N) * 60;
-        {match, [N, <<"h">>]} -> binary_to_integer(N) * 3600;
-        {match, [N, <<"d">>]} -> binary_to_integer(N) * 86400;
-        _ -> default_ttl()
+        {match, [N, <<"s">>]} -> {ok, binary_to_integer(N)};
+        {match, [N, <<"m">>]} -> {ok, binary_to_integer(N) * 60};
+        {match, [N, <<"h">>]} -> {ok, binary_to_integer(N) * 3600};
+        {match, [N, <<"d">>]} -> {ok, binary_to_integer(N) * 86400};
+        _ -> error
     end.
 
-default_ttl() -> 15 * 86400.
+field_default(msg_ttl) -> ?DEFAULT_MSG_TTL;
+field_default(cleanup_interval) -> ?DEFAULT_CLEANUP_INTERVAL.
