@@ -1,7 +1,7 @@
 emqx_connector_oauth2_schema {
 
 oauth2.desc:
-"""OAuth2 Client Credentials authentication. When enabled, a `access_token` is
+"""OAuth2 Client Credentials authentication. When enabled, an `access_token` is
 obtained from the configured token endpoint using the `client_credentials`
 grant and injected as `Authorization: Bearer <token>` on every outgoing
 request. The token is cached and refreshed before it expires."""

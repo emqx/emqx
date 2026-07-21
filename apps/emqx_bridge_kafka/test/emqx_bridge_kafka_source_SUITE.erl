@@ -1994,7 +1994,7 @@ t_oauth_client_credentials_authn(TCConfig) ->
     ),
     URI = iolist_to_binary(["http://127.0.0.1:", integer_to_binary(Port), "/oauth/token"]),
     ?assertMatch(
-        {201, _},
+        {201, #{<<"status">> := <<"connected">>}},
         create_connector_api(TCConfig, #{
             <<"bootstrap_hosts">> => <<"kafka-3.emqx.net:9092">>,
             <<"authentication">> => #{
@@ -2006,14 +2006,5 @@ t_oauth_client_credentials_authn(TCConfig) ->
                 <<"scope">> => <<"oauth_server_specific_scope">>
             }
         })
-    ),
-    %% The consumer connection is async (OAuth SASL handshake + group
-    %% coordinator lookup), so we wait for it to reach `connected' rather than
-    %% asserting on the status returned right after creation.  This mirrors the
-    %% retry pattern used by the other consumer tests in this suite.
-    ?retry(
-        1_000,
-        20,
-        ?assertEqual({ok, connected}, emqx_bridge_v2_testlib:health_check_connector(TCConfig))
     ),
     ok.

@@ -15,7 +15,6 @@
     desc/1,
     oauth2_field/0,
     validate/2,
-    validate_oauth2/1,
     validate_no_auth_header_conflict/2
 ]).
 
@@ -23,25 +22,32 @@
 
 namespace() -> "connector_oauth2".
 
-%% A self-contained `oauth2` field (name + schema + validator) to be appended
+%% A self-contained `oauth2` field to be appended
 %% right after the `headers` field in the HTTP connector / authn_http / authz_http
 %% schemas.
 oauth2_field() ->
     {oauth2,
         mk(
-            ref(?MODULE, oauth2),
+            hoconsc:union(fun oauth2_union_member_selector/1),
             #{
                 required => false,
-                desc => ?DESC("oauth2"),
-                validator => fun ?MODULE:validate_oauth2/1
+                desc => ?DESC("oauth2")
             }
         )}.
 
-fields(oauth2) ->
+fields(oauth2_disabled) ->
     [
         {enable,
-            mk(boolean(), #{
+            mk(false, #{
                 default => false,
+                required => true,
+                desc => ?DESC("oauth2_enable")
+            })}
+    ];
+fields(client_credentials) ->
+    [
+        {enable,
+            mk(true, #{
                 required => true,
                 desc => ?DESC("oauth2_enable")
             })},
@@ -54,17 +60,17 @@ fields(oauth2) ->
             })},
         {token_endpoint,
             mk(binary(), #{
-                required => false,
+                required => true,
                 desc => ?DESC("oauth2_token_endpoint")
             })},
         {client_id,
             mk(binary(), #{
-                required => false,
+                required => true,
                 desc => ?DESC("oauth2_client_id")
             })},
         {client_secret,
             emqx_schema_secret:mk(#{
-                required => false,
+                required => true,
                 desc => ?DESC("oauth2_client_secret")
             })},
         {scope,
@@ -79,7 +85,7 @@ fields(oauth2) ->
             })}
     ].
 
-desc(oauth2) ->
+desc(Name) when Name =:= oauth2_disabled; Name =:= client_credentials ->
     ?DESC("oauth2");
 desc(_) ->
     undefined.
@@ -88,52 +94,14 @@ desc(_) ->
 %% Validations
 %%------------------------------------------------------------------------------
 
-%% Combined check used from the HTTP connector / authn_http / authz_http config
-%% assembly points: validates both the internal consistency of the `oauth2'
-%% block (required fields when enabled) and that it does not conflict with a
-%% manually configured `authorization' header.
+%% Check used from the HTTP connector / authn_http / authz_http config assembly
+%% points.  Structural constraints are enforced by the union schema above; this
+%% cross-field check rejects a manually configured `authorization' header.
 -spec validate(Headers, Oauth2) -> ok | {error, term()} when
     Headers :: map() | undefined,
     Oauth2 :: map() | undefined.
 validate(Headers, Oauth2) ->
-    case validate_oauth2(Oauth2) of
-        ok ->
-            validate_no_auth_header_conflict(Headers, Oauth2);
-        {error, _} = Error ->
-            Error
-    end.
-
-%% Validates the internal consistency of the `oauth2` block.
-%% When `enable = true`, the credentials needed to obtain a token must be
-%% present.  Returns `ok` or `{error, iodata()}`.
--spec validate_oauth2(hocon:config() | undefined) -> ok | {error, term()}.
-validate_oauth2(undefined) ->
-    ok;
-validate_oauth2(#{enable := false}) ->
-    ok;
-validate_oauth2(#{enable := true} = Oauth2) ->
-    Required = [token_endpoint, client_id, client_secret],
-    Missing = [
-        K
-     || K <- Required,
-        maps:get(K, Oauth2, undefined) =:= undefined
-    ],
-    case Missing of
-        [] ->
-            ok;
-        _ ->
-            {error, #{
-                reason => oauth2_missing_fields,
-                missing => Missing,
-                message =>
-                    <<
-                        "OAuth2 is enabled but the following fields are missing: "
-                        "token_endpoint, client_id and client_secret are all required."
-                    >>
-            }}
-    end;
-validate_oauth2(_Other) ->
-    ok.
+    validate_no_auth_header_conflict(Headers, Oauth2).
 
 %% Checks that the user did not configure an HTTP header that OAuth2 owns.
 %% When OAuth2 is enabled, the connector injects `Authorization: Bearer <token>`
@@ -177,6 +145,26 @@ validate_no_auth_header_conflict(_, _) ->
 %%------------------------------------------------------------------------------
 %% Internal helpers
 %%------------------------------------------------------------------------------
+
+oauth2_union_member_selector(all_union_members) ->
+    [ref(?MODULE, oauth2_disabled), ref(?MODULE, client_credentials)];
+oauth2_union_member_selector({value, Value}) ->
+    case conf_get(enable, Value, false) of
+        false ->
+            [ref(?MODULE, oauth2_disabled)];
+        true ->
+            select_grant_type(conf_get(grant_type, Value, client_credentials))
+    end.
+
+select_grant_type(client_credentials) ->
+    [ref(?MODULE, client_credentials)];
+select_grant_type(<<"client_credentials">>) ->
+    [ref(?MODULE, client_credentials)];
+select_grant_type(GrantType) ->
+    throw(#{field_name => grant_type, expected => [client_credentials], got => GrantType}).
+
+conf_get(Key, Conf, Default) ->
+    maps:get(Key, Conf, maps:get(atom_to_binary(Key), Conf, Default)).
 
 lower_bin(K) when is_binary(K) ->
     try

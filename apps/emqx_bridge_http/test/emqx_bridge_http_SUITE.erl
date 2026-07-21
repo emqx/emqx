@@ -160,6 +160,35 @@ success_http_handler(Opts) ->
         {ok, Rep, State}
     end.
 
+start_oauth2_token_server(TestPid) ->
+    {ok, {Port, _Pid}} = emqx_utils_http_test_server:start_link(
+        random, "/oauth/token", false
+    ),
+    on_exit(fun emqx_utils_http_test_server:stop/0),
+    Token = <<"oauth2-access-token">>,
+    ResponseBody = emqx_utils_json:encode(#{
+        <<"access_token">> => Token,
+        <<"expires_in">> => 3600,
+        <<"token_type">> => <<"Bearer">>
+    }),
+    ok = emqx_utils_http_test_server:set_handler(
+        fun(Req0, State) ->
+            {ok, RequestBody, Req1} = cowboy_req:read_body(Req0),
+            TestPid ! {oauth2_token_request, RequestBody},
+            Req = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"application/json">>},
+                ResponseBody,
+                Req1
+            ),
+            {ok, Req, State}
+        end
+    ),
+    TokenEndpoint = emqx_bridge_v2_testlib:fmt(
+        <<"http://127.0.0.1:${port}/oauth/token">>, #{port => Port}
+    ),
+    {TokenEndpoint, Token}.
+
 not_found_http_handler() ->
     TestPid = self(),
     fun(Req0, State) ->
@@ -297,6 +326,43 @@ t_rule_action(Config) when is_list(Config) ->
         post_publish_fn => PostPublishFn
     },
     emqx_bridge_v2_testlib:t_rule_action(Config, Opts).
+
+t_oauth2_client_credentials(TCConfig) ->
+    {TokenEndpoint, Token} = start_oauth2_token_server(self()),
+    OAuth2 = #{
+        <<"enable">> => true,
+        <<"grant_type">> => <<"client_credentials">>,
+        <<"token_endpoint">> => TokenEndpoint,
+        <<"client_id">> => <<"client-id">>,
+        <<"client_secret">> => <<"client-secret">>,
+        <<"scope">> => <<"read write">>
+    },
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_connector_api(TCConfig, #{<<"oauth2">> => OAuth2}),
+    TokenRequestBody = ?assertReceive({oauth2_token_request, _}, 2_000),
+    {oauth2_token_request, FormBody} = TokenRequestBody,
+    Form = uri_string:dissect_query(FormBody),
+    ?assert(lists:member({<<"grant_type">>, <<"client_credentials">>}, Form)),
+    ?assert(lists:member({<<"client_id">>, <<"client-id">>}, Form)),
+    ?assert(lists:member({<<"client_secret">>, <<"client-secret">>}, Form)),
+    ?assert(lists:member({<<"scope">>, <<"read write">>}, Form)),
+
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    Client = start_client(),
+    lists:foreach(
+        fun(Payload) -> emqtt:publish(Client, Topic, Payload, [{qos, 1}]) end,
+        [<<"first">>, <<"second">>]
+    ),
+    lists:foreach(
+        fun(_) ->
+            {http, Headers, _Body} = ?assertReceive({http, _, _}, 2_000),
+            ?assertEqual(<<"Bearer ", Token/binary>>, maps:get(<<"authorization">>, Headers))
+        end,
+        [first, second]
+    ),
+    ?assertNotReceive({oauth2_token_request, _}, 200),
+    ok.
 
 %% This test ensures that https://emqx.atlassian.net/browse/CI-62 is fixed.
 %% When the connection time out all the queued requests where dropped in

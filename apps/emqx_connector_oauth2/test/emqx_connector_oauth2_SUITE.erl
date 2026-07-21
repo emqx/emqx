@@ -144,14 +144,19 @@ t_fetch_token_returns_error_on_bad_status(_TCConfig) ->
     ok.
 
 t_validate_rejects_missing_fields(_TCConfig) ->
-    Oauth2 = #{enable => true, token_endpoint => <<"https://a/token">>, client_id => <<"id">>},
+    Required = [token_endpoint, client_id, client_secret],
+    Oauth2 = raw_oauth2_config(),
+    lists:foreach(
+        fun(Field) ->
+            ?assertMatch({error, _}, check_oauth2(maps:remove(Field, Oauth2)), #{field => Field})
+        end,
+        Required
+    ).
+
+t_validate_rejects_unknown_grant_type(_TCConfig) ->
     ?assertMatch(
-        {error, #{
-            reason := oauth2_missing_fields,
-            message := _,
-            missing := [client_secret]
-        }},
-        emqx_connector_oauth2_schema:validate(#{}, Oauth2)
+        {error, _},
+        check_oauth2((raw_oauth2_config())#{grant_type => authorization_code})
     ).
 
 t_validate_rejects_auth_header_conflict(_TCConfig) ->
@@ -175,6 +180,8 @@ t_validate_accepts_when_disabled_or_absent(_TCConfig) ->
     },
     ?assertEqual(ok, emqx_connector_oauth2_schema:validate(#{}, undefined)),
     ?assertEqual(ok, emqx_connector_oauth2_schema:validate(#{}, #{enable => false})),
+    ?assertMatch({ok, #{oauth2 := #{enable := false}}}, check_oauth2(#{enable => false})),
+    ?assertMatch({ok, #{oauth2 := #{enable := true}}}, check_oauth2(raw_oauth2_config())),
     ?assertEqual(
         ok,
         emqx_connector_oauth2_schema:validate(#{<<"authorization">> => <<"x">>}, undefined)
@@ -195,6 +202,29 @@ oauth2_config() ->
         scope => <<"read">>,
         timeout => 5_000
     }.
+
+raw_oauth2_config() ->
+    #{
+        enable => true,
+        grant_type => client_credentials,
+        token_endpoint => <<"https://auth.example.com/oauth/token">>,
+        client_id => <<"client-id">>,
+        client_secret => <<"client-secret">>
+    }.
+
+check_oauth2(Oauth2) ->
+    Schema = #{roots => [emqx_connector_oauth2_schema:oauth2_field()]},
+    try
+        Checked = hocon_tconf:check_plain(
+            Schema,
+            #{<<"oauth2">> => emqx_utils_maps:binary_key_map(Oauth2)},
+            #{atom_key => true, required => false}
+        ),
+        {ok, Checked}
+    catch
+        throw:Reason ->
+            {error, Reason}
+    end.
 
 expect_token(Token, ExpiresInSec) ->
     Body = emqx_utils_json:encode(#{

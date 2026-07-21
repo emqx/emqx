@@ -299,23 +299,15 @@ do_create_http_action(#{parameters := Params} = ActionConfig) ->
             {ok, ActionState}
     end.
 
-on_stop(InstId, State) ->
+on_stop(InstId, _State) ->
     ?SLOG(info, #{
         msg => "stopping_http_connector",
         connector => InstId
     }),
-    ok = maybe_unregister_oauth2(InstId, State),
+    ok = emqx_connector_oauth2:unregister(InstId),
     Res = ehttpc_sup:stop_pool(InstId),
     ?tp(emqx_connector_http_stopped, #{instance_id => InstId}),
     Res.
-
-maybe_unregister_oauth2(InstId, State) ->
-    case maps:get(oauth2, State, undefined) of
-        #{enable := true} ->
-            emqx_connector_oauth2:unregister(InstId);
-        _ ->
-            ok
-    end.
 
 %% Injects the OAuth2 `Authorization: Bearer <token>' header into the request
 %% just before it is sent.  Called from the sync and async query chokepoints

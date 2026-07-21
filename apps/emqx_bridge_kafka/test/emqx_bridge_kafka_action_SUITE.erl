@@ -295,7 +295,10 @@ resolve_kafka_offset(TCConfig, Opts) ->
             get_config(action_config, TCConfig),
         Topic
     end),
-    resolve_kafka_offset(kafka_hosts_direct(), Topic, _Partition = 0).
+    Endpoints = maps:get(endpoints, Opts, kafka_hosts_direct()),
+    ConnCfg = maps:get(conn_cfg, Opts, #{}),
+    Partition = maps:get(partition, Opts, 0),
+    brod:resolve_offset(Endpoints, Topic, Partition, latest, ConnCfg).
 
 resolve_kafka_offset(TCConfig) when is_list(TCConfig) ->
     resolve_kafka_offset(TCConfig, _Opts = #{}).
@@ -303,14 +306,33 @@ resolve_kafka_offset(TCConfig) when is_list(TCConfig) ->
 resolve_kafka_offset(Hosts, Topic, Partition) ->
     brod:resolve_offset(Hosts, Topic, Partition, latest).
 
+%% Currently, don't know how to setup oauth and plain in the same broker...
+sasl_oauth_conn_cfg() ->
+    #{
+        sasl =>
+            {callback, brod_oauth, #{
+                token_callback => fun(_) ->
+                    NowS = erlang:system_time(second),
+                    JWT = generate_unsigned_jwt(#{
+                        <<"exp">> => NowS + 2,
+                        <<"iat">> => NowS,
+                        %% Used by kafka test container
+                        <<"sub">> => <<"admin">>
+                    }),
+                    {ok, #{token => JWT}}
+                end
+            }}
+    }.
+
 get_kafka_messages(Opts, TCConfig) ->
     #{<<"parameters">> := #{<<"topic">> := Topic}} =
         get_config(action_config, TCConfig),
     #{offset := Offset} = Opts,
     Partition = maps:get(partition, Opts, 0),
-    Hosts = kafka_hosts_direct(),
+    Hosts = maps:get(endpoints, Opts, kafka_hosts_direct()),
+    ConnCfg = maps:get(conn_cfg, Opts, #{}),
     maybe
-        {ok, {NewOffset, Msgs0}} ?= brod:fetch(Hosts, Topic, Partition, Offset),
+        {ok, {NewOffset, Msgs0}} ?= brod:fetch({Hosts, ConnCfg}, Topic, Partition, Offset),
         Msgs = lists:map(fun kpro_message_to_map/1, Msgs0),
         {ok, {NewOffset, Msgs}}
     end.
@@ -555,6 +577,96 @@ setup_oauth_scenario(TCConfig0) ->
         uri => URI,
         jwt => JWT
     }.
+
+%% Builds the connector override map for an OAuth client-credentials connector
+%% pointing at the in-process mock token endpoint.  `ScopeOpt' is a binary scope
+%% to send, or `undefined' to omit the `scope' parameter entirely.
+oauth_auth_override(Port, ScopeOpt) ->
+    #{
+        <<"bootstrap_hosts">> => <<"kafka-3.emqx.net:9092">>,
+        <<"authentication">> => oauth_auth_map(Port, ScopeOpt)
+    }.
+
+oauth_auth_map(Port, ScopeOpt) ->
+    Base = #{
+        <<"mechanism">> => <<"oauth">>,
+        <<"grant_type">> => <<"client_credentials">>,
+        <<"client_id">> => <<"oauth_client_id">>,
+        <<"client_secret">> => <<"oauth_client_secret">>,
+        <<"endpoint_uri">> => oauth_endpoint(Port)
+    },
+    case ScopeOpt of
+        undefined -> Base;
+        Scope -> Base#{<<"scope">> => Scope}
+    end.
+
+oauth_endpoint(Port) ->
+    iolist_to_binary(["http://127.0.0.1:", integer_to_binary(Port), "/oauth/token"]).
+
+%% Installs a mock token-endpoint handler that captures the request body (so the
+%% test can assert on the form-encoded parameters) and replies with `RespBody'.
+set_capturing_handler(TestPid, RespBody) ->
+    emqx_utils_http_test_server:set_handler(
+        fun(Req0, State) ->
+            {ok, ReqBody, Req1} = read_full_body(Req0),
+            TestPid ! {captured_body, ReqBody},
+            Rep = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"application/json">>},
+                RespBody,
+                Req1
+            ),
+            {ok, Rep, State}
+        end
+    ).
+
+read_full_body(Req0) ->
+    case cowboy_req:read_body(Req0) of
+        {ok, Body, Req1} ->
+            {ok, Body, Req1};
+        {more, Body, Req1} ->
+            read_full_body(Req1, Body)
+    end.
+
+read_full_body(Req0, Acc) ->
+    case cowboy_req:read_body(Req0) of
+        {ok, Body, Req1} ->
+            {ok, <<Acc/binary, Body/binary>>, Req1};
+        {more, Body, Req1} ->
+            read_full_body(Req1, <<Acc/binary, Body/binary>>)
+    end.
+
+%% Collects all `{captured_body, B}' messages, waiting up to `WaitFirst' for the
+%% first one and then draining the rest.
+receive_all_bodies(WaitFirst) ->
+    receive
+        {captured_body, B} -> drain_bodies([B])
+    after WaitFirst -> []
+    end.
+
+drain_bodies(Acc) ->
+    receive
+        {captured_body, B} -> drain_bodies([B | Acc])
+    after 100 -> lists:reverse(Acc)
+    end.
+
+bodies_with_scope(Bodies, Scope) ->
+    lists:any(
+        fun(B) ->
+            Query = uri_string:dissect_query(B),
+            lists:member({<<"scope">>, Scope}, Query)
+        end,
+        Bodies
+    ).
+
+bodies_without_scope(Bodies) ->
+    lists:all(
+        fun(B) ->
+            Query = uri_string:dissect_query(B),
+            not lists:keymember(<<"scope">>, 1, Query)
+        end,
+        Bodies
+    ).
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -2347,97 +2459,3 @@ t_oauth_client_credentials_token_cached(TCConfig0) ->
     ct:sleep(1_000),
     ?assertEqual([], receive_all_bodies(500)),
     ok.
-
-%%------------------------------------------------------------------------------
-%% OAuth2 request-body capture helpers
-%%------------------------------------------------------------------------------
-
-%% Builds the connector override map for an OAuth client-credentials connector
-%% pointing at the in-process mock token endpoint.  `ScopeOpt' is a binary scope
-%% to send, or `undefined' to omit the `scope' parameter entirely.
-oauth_auth_override(Port, ScopeOpt) ->
-    #{
-        <<"bootstrap_hosts">> => <<"kafka-3.emqx.net:9092">>,
-        <<"authentication">> => oauth_auth_map(Port, ScopeOpt)
-    }.
-
-oauth_auth_map(Port, ScopeOpt) ->
-    Base = #{
-        <<"mechanism">> => <<"oauth">>,
-        <<"grant_type">> => <<"client_credentials">>,
-        <<"client_id">> => <<"oauth_client_id">>,
-        <<"client_secret">> => <<"oauth_client_secret">>,
-        <<"endpoint_uri">> => oauth_endpoint(Port)
-    },
-    case ScopeOpt of
-        undefined -> Base;
-        Scope -> Base#{<<"scope">> => Scope}
-    end.
-
-oauth_endpoint(Port) ->
-    iolist_to_binary(["http://127.0.0.1:", integer_to_binary(Port), "/oauth/token"]).
-
-%% Installs a mock token-endpoint handler that captures the request body (so the
-%% test can assert on the form-encoded parameters) and replies with `RespBody'.
-set_capturing_handler(TestPid, RespBody) ->
-    emqx_utils_http_test_server:set_handler(
-        fun(Req0, State) ->
-            {ok, ReqBody, Req1} = read_full_body(Req0),
-            TestPid ! {captured_body, ReqBody},
-            Rep = cowboy_req:reply(
-                200,
-                #{<<"content-type">> => <<"application/json">>},
-                RespBody,
-                Req1
-            ),
-            {ok, Rep, State}
-        end
-    ).
-
-read_full_body(Req0) ->
-    case cowboy_req:read_body(Req0) of
-        {ok, Body, Req1} ->
-            {ok, Body, Req1};
-        {more, Body, Req1} ->
-            read_full_body(Req1, Body)
-    end.
-
-read_full_body(Req0, Acc) ->
-    case cowboy_req:read_body(Req0) of
-        {ok, Body, Req1} ->
-            {ok, <<Acc/binary, Body/binary>>, Req1};
-        {more, Body, Req1} ->
-            read_full_body(Req1, <<Acc/binary, Body/binary>>)
-    end.
-
-%% Collects all `{captured_body, B}' messages, waiting up to `WaitFirst' for the
-%% first one and then draining the rest.
-receive_all_bodies(WaitFirst) ->
-    receive
-        {captured_body, B} -> drain_bodies([B])
-    after WaitFirst -> []
-    end.
-
-drain_bodies(Acc) ->
-    receive
-        {captured_body, B} -> drain_bodies([B | Acc])
-    after 100 -> lists:reverse(Acc)
-    end.
-
-bodies_with_scope(Bodies, Scope) ->
-    lists:any(
-        fun(B) ->
-            Query = uri_string:dissect_query(B),
-            lists:member({<<"scope">>, Scope}, Query)
-        end,
-        Bodies
-    ).
-
-bodies_without_scope(Bodies) ->
-    lists:all(
-        fun(B) ->
-            Query = uri_string:dissect_query(B),
-            not lists:keymember(<<"scope">>, 1, Query)
-        end,
-        Bodies
-    ).

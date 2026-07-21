@@ -40,16 +40,5 @@ init([]) ->
 
 -spec ensure_token_table() -> ok.
 ensure_token_table() ->
-    case ets:whereis(?OAUTH2_TOKEN_TAB) of
-        undefined ->
-            Opts = [
-                named_table,
-                public,
-                {read_concurrency, true},
-                ordered_set
-            ],
-            _ = ets:new(?OAUTH2_TOKEN_TAB, Opts),
-            ok;
-        _ ->
-            ok
-    end.
+    _ = emqx_utils_ets:new(?OAUTH2_TOKEN_TAB, [ordered_set, public, {read_concurrency, true}]),
+    ok.

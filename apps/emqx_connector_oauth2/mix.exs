@@ -7,7 +7,7 @@ defmodule EMQXConnectorOAuth2.MixProject do
       app: :emqx_connector_oauth2,
       version: "6.0.0",
       build_path: "../../_build",
-      erlc_options: UMP.erlc_options(),
+      erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",

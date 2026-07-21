@@ -128,8 +128,10 @@ terminate(_Reason, _State) ->
 handle_call(
     #register{resource_id = ResourceId, params = Params}, _From, State0
 ) ->
-    State1 = State0#{?REGISTERED => (maps:get(?REGISTERED, State0))#{ResourceId => Params}},
-    {reply, ok, State1};
+    #{?REGISTERED := Registered0} = State0,
+    Registered = Registered0#{ResourceId => Params},
+    State = State0#{?REGISTERED := Registered},
+    {reply, ok, State};
 handle_call(#fetch{resource_id = ResourceId}, _From, State0) ->
     %% Another call might've just stored a token.
     case get_cached(ResourceId) of
@@ -361,17 +363,10 @@ do_request(#{uri := URI, body := Body, timeout := Timeout}) ->
 
 get_expiry_ms(Token) ->
     try
-        %% `jose_jwt:peek' may not be available in all builds; fall back to a
-        %% short default lifetime when the token is not a JWT or is malformed.
-        case code:ensure_loaded(jose_jwt) of
-            {module, _} ->
-                case jose_jwt:peek(Token) of
-                    #jose_jwt{fields = #{<<"exp">> := ExpS}} ->
-                        ExpMS = erlang:convert_time_unit(ExpS, second, millisecond),
-                        max(1_000, ExpMS - now_ms());
-                    _ ->
-                        ?DEFAULT_EXPIRY_MS
-                end;
+        case jose_jwt:peek(Token) of
+            #jose_jwt{fields = #{<<"exp">> := ExpS}} ->
+                ExpMS = erlang:convert_time_unit(ExpS, second, millisecond),
+                max(1_000, ExpMS - now_ms());
             _ ->
                 ?DEFAULT_EXPIRY_MS
         end
