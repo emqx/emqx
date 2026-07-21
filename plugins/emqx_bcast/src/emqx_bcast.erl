@@ -17,7 +17,8 @@
     on_client_subscribe/3,
     on_client_unsubscribe/3,
     on_session_resumed/2,
-    on_message_acked/2
+    on_message_acked/2,
+    on_delivery_completed/2
 ]).
 
 -include("emqx_bcast.hrl").
@@ -36,7 +37,8 @@ hook() ->
     ok = emqx_hooks:put('client.subscribe', {?MODULE, on_client_subscribe, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('client.unsubscribe', {?MODULE, on_client_unsubscribe, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_HIGHEST),
-    ok = emqx_hooks:put('message.acked', {?MODULE, on_message_acked, []}, ?HP_HIGHEST).
+    ok = emqx_hooks:put('message.acked', {?MODULE, on_message_acked, []}, ?HP_HIGHEST),
+    ok = emqx_hooks:put('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_HIGHEST).
 
 unhook() ->
     ok = emqx_hooks:del('client.connected', {?MODULE, on_client_connected}),
@@ -44,7 +46,8 @@ unhook() ->
     ok = emqx_hooks:del('client.subscribe', {?MODULE, on_client_subscribe}),
     ok = emqx_hooks:del('client.unsubscribe', {?MODULE, on_client_unsubscribe}),
     ok = emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
-    ok = emqx_hooks:del('message.acked', {?MODULE, on_message_acked}).
+    ok = emqx_hooks:del('message.acked', {?MODULE, on_message_acked}),
+    ok = emqx_hooks:del('delivery.completed', {?MODULE, on_delivery_completed}).
 
 init_tables() ->
     ok = create_mnesia_tables(),
@@ -270,9 +273,26 @@ on_message_acked(ClientInfo, Msg) ->
         DeliveryId ->
             #{clientid := DeviceName} = ClientInfo,
             ProductKey = get_product_key(ClientInfo),
-            _ = emqx_bcast_storage:process_ack(ProductKey, DeviceName, DeliveryId),
-            emqx_bcast_metrics:qos1_acked(),
+            count_ack(ProductKey, DeviceName, DeliveryId),
             ok
+    end.
+
+on_delivery_completed(Msg, #{clientid := ClientId}) ->
+    case emqx_message:get_header(?IOT_DELIVERY_ID, Msg, undefined) of
+        undefined ->
+            ok;
+        DeliveryId ->
+            ProductKey = emqx_message:get_header(?IOT_PRODUCT_KEY, Msg, undefined),
+            count_ack(ProductKey, ClientId, DeliveryId),
+            ok
+    end.
+
+count_ack(undefined, _DeviceName, _DeliveryId) ->
+    ok;
+count_ack(ProductKey, DeviceName, DeliveryId) ->
+    case emqx_bcast_storage:process_ack(ProductKey, DeviceName, DeliveryId) of
+        counted -> emqx_bcast_metrics:qos1_acked();
+        _ -> ok
     end.
 
 replay_delivery(Pid, ProductKey, DeviceName, DeliveryId, SubQos) ->
@@ -292,17 +312,14 @@ replay_delivery(Pid, ProductKey, DeviceName, DeliveryId, SubQos) ->
                                 Topic,
                                 Payload,
                                 #{},
-                                #{?IOT_DELIVERY_ID => DeliveryId}
+                                #{?IOT_DELIVERY_ID => DeliveryId, ?IOT_PRODUCT_KEY => ProductKey}
                             ),
                             Pid ! #deliver{topic = Topic, message = Msg},
                             emqx_bcast_metrics:qos1_replayed();
                         false ->
                             Msg = emqx_message:make(DeviceName, ?QOS_0, Topic, Payload),
                             Pid ! #deliver{topic = Topic, message = Msg},
-                            _ = emqx_bcast_storage:process_ack(
-                                ProductKey, DeviceName, DeliveryId
-                            ),
-                            emqx_bcast_metrics:qos1_acked()
+                            count_ack(ProductKey, DeviceName, DeliveryId)
                     end,
                     ok;
                 {error, not_found} ->

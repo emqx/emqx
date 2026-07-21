@@ -195,16 +195,23 @@ deliver_qos1(DeviceNames, ProductKey, TopicTemplate, MsgGuid, RequestId, ApiMsgI
                                         Topic,
                                         Payload,
                                         #{},
-                                        #{?IOT_DELIVERY_ID => DeliveryId}
+                                        #{
+                                            ?IOT_DELIVERY_ID => DeliveryId,
+                                            ?IOT_PRODUCT_KEY => ProductKey
+                                        }
                                     ),
                                     Pid ! #deliver{topic = Topic, message = Msg};
                                 false ->
                                     Msg = emqx_message:make(DN, ?QOS_0, Topic, Payload),
                                     Pid ! #deliver{topic = Topic, message = Msg},
-                                    _ = emqx_bcast_storage:process_ack(
-                                        ProductKey, DN, DeliveryId
-                                    ),
-                                    emqx_bcast_metrics:qos1_acked()
+                                    case
+                                        emqx_bcast_storage:process_ack(
+                                            ProductKey, DN, DeliveryId
+                                        )
+                                    of
+                                        counted -> emqx_bcast_metrics:qos1_acked();
+                                        duplicate -> ok
+                                    end
                             end;
                         false ->
                             emqx_bcast_metrics:qos1_stored_offline()

@@ -158,12 +158,13 @@ process_ack(ProductKey, DeviceName, DeliveryId) ->
                             [] ->
                                 ok
                         end
-                    end);
+                    end),
+                    counted;
                 false ->
-                    ok
+                    duplicate
             end;
         [] ->
-            ok
+            not_found
     end.
 
 get_device_deliveries({ProductKey, DeviceName}) ->

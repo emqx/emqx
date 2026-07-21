@@ -10,6 +10,7 @@
 
 -define(APP, emqx_bcast).
 -define(IOT_DELIVERY_ID, iot_delivery_id).
+-define(IOT_PRODUCT_KEY, iot_product_key).
 -define(BCAST_REGISTRY, bcast).
 
 -record(bcast_message, {
