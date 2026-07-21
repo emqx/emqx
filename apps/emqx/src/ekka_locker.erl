@@ -74,7 +74,10 @@
 
 -type piggyback() :: {module(), atom(), list()} | undefined.
 
+-type locker() :: atom().
+
 -export_type([
+    locker/0,
     resource/0,
     lock_type/0,
     lock_obj/0,
