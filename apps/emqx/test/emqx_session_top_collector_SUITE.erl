@@ -45,7 +45,8 @@ t_scanner_busy_reports_collector(_) ->
             scan_id => make_ref(),
             collector => OtherCollector,
             batch_size => 1,
-            sleep_ms => 100
+            sleep_ms => 100,
+            extra_stats => [mqueue_len, total_payload_bytes, inflight_cnt]
         }),
         {ok, accepted} = emqx_session_top_scanner:start_scan(ScanOpts),
         try
@@ -84,11 +85,15 @@ t_running_busy_and_cancel(_) ->
             emqx_session_top_collector:run(top_opts(#{}), fun(_Rows) -> ok end)
         ),
         ?assertEqual({ok, cancelled}, emqx_session_top_collector:cancel()),
+        CancelledStatus = emqx_session_top_collector:status(),
         ?assertMatch(
             #{status := cancelled, reason := cancelled, started_at := _},
-            emqx_session_top_collector:status()
+            CancelledStatus
         ),
-        ?assertEqual(#{status => idle}, emqx_session_top_collector:status())
+        ?assertEqual(CancelledStatus, emqx_session_top_collector:status()),
+        {ok, _NextScanId} = emqx_session_top_collector:run(Opts, fun(_Rows) -> ok end),
+        ?assertMatch(#{status := running}, emqx_session_top_collector:status()),
+        ?assertEqual({ok, cancelled}, emqx_session_top_collector:cancel())
     after
         stop_waiter(Pid)
     end.
@@ -109,10 +114,12 @@ t_completed_calls_completion(_) ->
         after 1000 ->
             error(completion_not_called)
         end,
+        CompletedStatus = wait_status(completed, 100),
         ?assertMatch(
             #{status := completed, rows := 1, started_at := _},
-            wait_status(completed, 100)
-        )
+            CompletedStatus
+        ),
+        ?assertEqual(CompletedStatus, emqx_session_top_collector:status())
     after
         stop_waiter(Pid)
     end.
@@ -143,20 +150,13 @@ t_empty_result(_) ->
     end,
     ?assertMatch(#{status := completed, rows := 0}, wait_status(completed, 100)).
 
-t_remote_timeout_is_reported(_) ->
+t_missing_remote_result_stays_running_until_cancel(_) ->
     RemoteNode = 'remote@127.0.0.4',
     with_remote_node(RemoteNode, fun() ->
         {ok, ScanId} = emqx_session_top_collector:run(top_opts(#{}), fun(_Rows) -> ok end),
         ok = emqx_session_top_collector:top_scan_result(ScanId, node(), {ok, []}),
-        whereis(emqx_session_top_collector) ! {top_scan_timeout, ScanId},
-        ?assertMatch(
-            #{
-                status := completed,
-                rows := 0,
-                bad_replies := [{RemoteNode, timeout}]
-            },
-            wait_status(completed, 100)
-        )
+        ?assertMatch(#{status := running}, emqx_session_top_collector:status()),
+        ?assertEqual({ok, cancelled}, emqx_session_top_collector:cancel())
     end).
 
 t_remote_error_is_reported(_) ->
@@ -174,10 +174,10 @@ t_remote_error_is_reported(_) ->
         )
     end).
 
-t_legacy_remote_row_is_normalized(_) ->
+t_remote_tool_row_is_normalized(_) ->
     RemoteNode = 'remote@127.0.0.1',
     TestPid = self(),
-    LegacyRow = #{
+    ToolRow = #{
         clientid => <<"legacy-c1">>,
         node => RemoteNode,
         metric => mqueue_len,
@@ -192,7 +192,7 @@ t_legacy_remote_row_is_normalized(_) ->
             top_opts(#{sort => mqueue_length}), Completion
         ),
         ok = emqx_session_top_collector:top_scan_result(
-            ScanId, RemoteNode, {ok, [LegacyRow]}
+            ScanId, RemoteNode, {ok, [ToolRow]}
         ),
         receive
             {rows, [Row]} ->
@@ -210,6 +210,42 @@ t_legacy_remote_row_is_normalized(_) ->
             error(legacy_completion_not_called)
         end
     end).
+
+t_cluster_ties_are_sorted_by_clientid(_) ->
+    RemoteNode = 'remote@127.0.0.6',
+    TestPid = self(),
+    Pid = spawn_waiter(),
+    try
+        insert_channel_info(<<"c3">>, Pid, 10, 100, 1),
+        insert_channel_info(<<"c1">>, Pid, 10, 100, 1),
+        with_remote_node(RemoteNode, fun() ->
+            Completion = fun(Rows) ->
+                TestPid ! {rows, Rows},
+                ok
+            end,
+            {ok, ScanId} = emqx_session_top_collector:run(
+                top_opts(#{count => 4}), Completion
+            ),
+            RemoteRows = [
+                tool_row(<<"c2">>, RemoteNode, 100),
+                tool_row(<<"c0">>, RemoteNode, 100)
+            ],
+            ok = emqx_session_top_collector:top_scan_result(
+                ScanId, RemoteNode, {ok, RemoteRows}
+            ),
+            receive
+                {rows, Rows} ->
+                    ?assertEqual(
+                        [<<"c0">>, <<"c1">>, <<"c2">>, <<"c3">>],
+                        [maps:get(clientid, Row) || Row <- Rows]
+                    )
+            after 1000 ->
+                error(completion_not_called)
+            end
+        end)
+    after
+        stop_waiter(Pid)
+    end.
 
 t_cancel_remote_scan(_) ->
     RemoteNode = 'remote@127.0.0.3',
@@ -249,9 +285,10 @@ t_cancel_includes_failed_remote_start(_) ->
 
 reset_services() ->
     _ = emqx_session_top_collector:cancel(),
-    _ = emqx_session_top_collector:status(),
     ok = supervisor:terminate_child(emqx_sys_sup, emqx_session_top_scanner),
     {ok, _} = supervisor:restart_child(emqx_sys_sup, emqx_session_top_scanner),
+    ok = supervisor:terminate_child(emqx_sys_sup, emqx_session_top_collector),
+    {ok, _} = supervisor:restart_child(emqx_sys_sup, emqx_session_top_collector),
     ok.
 
 clear_table() ->
@@ -288,8 +325,8 @@ with_remote_node(RemoteNode, StartReply, TestFun) ->
         ok = meck:expect(
             emqx_session_top_proto_v1,
             start_top_scan,
-            fun(Nodes, _Req, Timeout) ->
-                TestPid ! {top_scan_started, Nodes, Timeout},
+            fun(Nodes, Req, Timeout) ->
+                TestPid ! {top_scan_started, Nodes, Req, Timeout},
                 [StartReply || _ <- Nodes]
             end
         ),
@@ -303,7 +340,11 @@ with_remote_node(RemoteNode, StartReply, TestFun) ->
         ),
         TestFun(),
         receive
-            {top_scan_started, [RemoteNode], 5000} -> ok
+            {top_scan_started, [RemoteNode], Req, 5000} ->
+                ?assertEqual(
+                    [mqueue_len, total_payload_bytes, inflight_cnt],
+                    maps:get(extra_stats, Req)
+                )
         after 0 ->
             error(remote_scan_not_started)
         end
@@ -346,6 +387,20 @@ insert_channel_infos(Count, Pid) ->
         end,
         lists:seq(1, Count)
     ).
+
+tool_row(ClientId, Node, TotalPayloadBytes) ->
+    #{
+        clientid => ClientId,
+        pid => self(),
+        node => Node,
+        metric => total_payload_bytes,
+        value => TotalPayloadBytes,
+        extras => #{
+            mqueue_len => 10,
+            total_payload_bytes => TotalPayloadBytes,
+            inflight_cnt => 1
+        }
+    }.
 
 spawn_waiter() ->
     spawn(fun() ->

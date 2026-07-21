@@ -304,7 +304,8 @@ session_top_usage() ->
     emqx_ctl:usage([
         {
             "session-top status",
-            "Show status of the latest session-top scan."
+            "Show the running scan or the latest finished scan.\n"
+            "The latest finished status is kept until the next scan starts."
         },
         {
             "session-top cancel",

@@ -29,7 +29,7 @@ cancel_top_scan(Nodes, ScanId) ->
     erpc:multicast(Nodes, emqx_session_top_scanner, cancel, [ScanId]).
 
 -spec top_scan_result(
-    node(), term(), node(), {ok, [emqx_session_top_collector:row()]} | {error, term()}
+    node(), term(), node(), {ok, [emqx_session_tool:row()]} | {error, term()}
 ) ->
     ok.
 top_scan_result(Node, ScanId, FromNode, Result) ->

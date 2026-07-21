@@ -13,11 +13,8 @@
     run/2,
     cancel/0,
     status/0,
-    top_scan_result/3,
-    normalize_rows/1
+    top_scan_result/3
 ]).
-
--export_type([row/0]).
 
 -export([
     init/1,
@@ -26,12 +23,12 @@
     handle_info/2
 ]).
 
--define(TOP_TIMEOUT, 300000).
 -define(SCANNER_TIMEOUT, 5000).
 -define(CALL_TIMEOUT, 15000).
 -define(TOP_BPAPI_VSN, 1).
 -define(DEFAULT_SCAN_BATCH_SIZE, 1000).
 -define(DEFAULT_SCAN_SLEEP_MS, 1).
+-define(SESSION_TOP_EXTRA_STATS, [mqueue_len, total_payload_bytes, inflight_cnt]).
 
 -type sort_by() :: mqueue_length | total_payload_bytes.
 -type row() :: #{
@@ -92,11 +89,10 @@ cancel() ->
 status() ->
     gen_server:call(?MODULE, status, ?CALL_TIMEOUT).
 
--spec top_scan_result(term(), node(), {ok, [row()]} | {error, term()}) -> ok.
+-spec top_scan_result(term(), node(), {ok, [emqx_session_tool:row()]} | {error, term()}) -> ok.
 top_scan_result(ScanId, Node, Result) ->
     gen_server:cast(?MODULE, {top_scan_result, ScanId, Node, Result}).
 
--spec normalize_rows([map()]) -> [row()].
 normalize_rows(Rows) ->
     [normalize_row(Row) || Row <- Rows].
 
@@ -114,16 +110,14 @@ handle_call({run, _Opts, _Completion}, _From, State) ->
     {reply, {error, busy}, State};
 handle_call(cancel, _From, State = #{top := Top = #{scan_id := ScanId}}) ->
     cancel_scans(maps:get(nodes, Top), ScanId),
-    cancel_timeout_timer(Top),
     {reply, {ok, cancelled}, State#{
         top := undefined,
         top_status := cancelled_status(Top, cancelled)
     }};
 handle_call(cancel, _From, State) ->
     {reply, {error, not_running}, State};
-handle_call(status, _From, State) ->
-    {Status, State1} = take_status(State),
-    {reply, Status, State1};
+handle_call(status, _From, State = #{top_status := Status}) ->
+    {reply, Status, State};
 handle_call(_Call, _From, State) ->
     {reply, ignored, State}.
 
@@ -135,9 +129,6 @@ handle_cast(
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
-handle_info({top_scan_timeout, ScanId}, State = #{top := Top = #{scan_id := ScanId}}) ->
-    cancel_scans(maps:get(nodes, Top), ScanId),
-    {noreply, finish(State#{top := timeout_top(Top)})};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -147,13 +138,16 @@ handle_info(_Info, State) ->
 
 start_collector(Opts, Completion, State) ->
     Nodes = lists:usort([node() | scan_nodes()]),
-    Req = maps:put(collector, node(), maps:remove(started_at, Opts)),
+    Req = maps:merge(maps:remove(started_at, Opts), #{
+        collector => node(),
+        extra_stats => ?SESSION_TOP_EXTRA_STATS
+    }),
     case emqx_session_top_scanner:start_scan(Req) of
         {ok, accepted} ->
             RemoteNodes = Nodes -- [node()],
             {StartedRemoteNodes, BadReplies} = start_remote_scans(RemoteNodes, Req),
             Pending = lists:usort([node() | StartedRemoteNodes]),
-            Top0 = #{
+            Top = #{
                 scan_id => maps:get(scan_id, Opts),
                 opts => Opts,
                 nodes => Nodes,
@@ -162,7 +156,6 @@ start_collector(Opts, Completion, State) ->
                 bad_replies => BadReplies,
                 completion => Completion
             },
-            Top = schedule_timeout(Top0),
             {reply, {ok, maps:get(scan_id, Opts)}, State#{
                 top := Top,
                 top_status := running_status(Top)
@@ -225,7 +218,6 @@ complete_node(
     end.
 
 finish(State = #{top := Top = #{opts := Opts, rows_by_node := RowsByNode}}) ->
-    cancel_timeout_timer(Top),
     Rows0 = lists:append(maps:values(RowsByNode)),
     Rows = top_rows(Rows0, maps:get(sort, Opts), maps:get(count, Opts)),
     case complete(maps:get(completion, Top), Rows) of
@@ -259,13 +251,14 @@ complete(Completion, Rows) ->
 
 top_rows(Rows, SortBy, Count) ->
     Sorted = lists:sort(
-        fun(RowA, RowB) -> maps:get(SortBy, RowA) >= maps:get(SortBy, RowB) end,
+        fun(RowA, RowB) -> row_sort_key(RowA, SortBy) =< row_sort_key(RowB, SortBy) end,
         Rows
     ),
     lists:sublist(Sorted, Count).
 
-normalize_row(#{mqueue_length := _, total_payload_bytes := _, inflight_count := _} = Row) ->
-    Row;
+row_sort_key(Row, SortBy) ->
+    {-maps:get(SortBy, Row), maps:get(clientid, Row), maps:get(node, Row)}.
+
 normalize_row(Row) ->
     #{
         clientid => maps:get(clientid, Row),
@@ -329,20 +322,6 @@ cancel_remote_scans(Nodes, ScanId) ->
             })
     end.
 
-schedule_timeout(Top = #{scan_id := ScanId}) ->
-    TRef = erlang:send_after(?TOP_TIMEOUT, self(), {top_scan_timeout, ScanId}),
-    Top#{timeout_timer => TRef}.
-
-cancel_timeout_timer(#{timeout_timer := TRef}) ->
-    _ = erlang:cancel_timer(TRef),
-    ok.
-
-timeout_top(Top = #{pending := Pending, bad_replies := BadReplies}) ->
-    Top#{
-        pending := [],
-        bad_replies := [{Node, timeout} || Node <- Pending] ++ BadReplies
-    }.
-
 normalize_opts(Opts) ->
     StartedAt = maps:get(started_at, Opts, erlang:system_time(millisecond)),
     ScanId = maps:get(
@@ -384,12 +363,3 @@ with_bad_replies(Status, #{bad_replies := []}) ->
     Status;
 with_bad_replies(Status, #{bad_replies := BadReplies}) ->
     Status#{bad_replies => lists:reverse(BadReplies)}.
-
-take_status(State = #{top_status := TopStatus}) ->
-    Status = maps:get(status, TopStatus, idle),
-    {TopStatus, maybe_reset_status(State, Status)}.
-
-maybe_reset_status(State, completed) -> State#{top_status := #{status => idle}};
-maybe_reset_status(State, failed) -> State#{top_status := #{status => idle}};
-maybe_reset_status(State, cancelled) -> State#{top_status := #{status => idle}};
-maybe_reset_status(State, _Status) -> State.

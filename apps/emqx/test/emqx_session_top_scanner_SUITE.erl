@@ -55,7 +55,7 @@ t_running_busy_and_cancel(_) ->
         stop_waiter(Pid)
     end.
 
-t_completed_result_uses_scan_snapshot(_) ->
+t_completed_result_is_raw_scan_row(_) ->
     Pid = spawn_waiter(),
     TestPid = self(),
     ok = meck:new(emqx_session_top_proto_v1, [passthrough, no_link]),
@@ -78,12 +78,18 @@ t_completed_result_uses_scan_snapshot(_) ->
                 ?assertMatch(
                     #{
                         clientid := <<"c1">>,
-                        mqueue_length := 10,
-                        total_payload_bytes := 100,
-                        inflight_count := 1
+                        metric := total_payload_bytes,
+                        value := 100,
+                        extras := #{
+                            mqueue_len := 10,
+                            total_payload_bytes := 100,
+                            inflight_cnt := 1
+                        }
                     },
                     Row
-                )
+                ),
+                ?assertNot(maps:is_key(mqueue_length, Row)),
+                ?assertNot(maps:is_key(inflight_count, Row))
         after 1000 ->
             error(scan_result_not_received)
         end
@@ -113,8 +119,6 @@ t_collector_down_aborts_scan(_) ->
     end.
 
 reset_services() ->
-    _ = emqx_session_top_collector:cancel(),
-    _ = emqx_session_top_collector:status(),
     ok = supervisor:terminate_child(emqx_sys_sup, emqx_session_top_scanner),
     {ok, _} = supervisor:restart_child(emqx_sys_sup, emqx_session_top_scanner),
     ok.
@@ -154,7 +158,8 @@ scan_opts(Overrides) ->
             count => 1,
             sort => total_payload_bytes,
             batch_size => 1000,
-            sleep_ms => 0
+            sleep_ms => 0,
+            extra_stats => [mqueue_len, total_payload_bytes, inflight_cnt]
         },
         Overrides
     ).

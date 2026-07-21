@@ -17,7 +17,7 @@ the full client list.
 Safe to run on a live cluster:
 * Streams the `emqx_channel_info' ets table in chunks (via
   `emqx_utils_stream:ets/1'); never builds a whole-table list.
-* Keeps only a fixed-size (top-K) max-heap while scanning; output is
+* Keeps only a fixed-size (top-K) ordered set while scanning; output is
   memory-bounded regardless of how many sessions exist.
 * Yields between batches; chunk size and sleep are tunable.
 * Reads the metric from the cached per-channel stats already stored in
@@ -127,7 +127,7 @@ with `engine => mem | persistent_ds' once supported).
 %% One projected ets row: {ClientId, ChanPid, cached stats proplist}.
 -type row_input() :: {emqx_types:clientid(), pid(), list()}.
 
-%% Accumulating scan state: the bounded top-K heap plus a lazy stream over
+%% Accumulating scan state: the bounded top-K ordered set plus a lazy stream over
 %% the channel registry (the stream, not the accumulator, carries the ets
 %% cursor) and the resolved options. Opaque to callers; advanced with
 %% scan_acc/1.
@@ -189,7 +189,7 @@ Scan the local node's sessions and return the top-K rows ranked by the
 configured metric, highest value first.
 
 Streams the channel registry in batches of `chunk' rows, sleeping
-`sleep_ms' milliseconds between batches, while keeping only a top-K heap.
+`sleep_ms' milliseconds between batches, while keeping only a top-K ordered set.
 Sessions whose value is below `min_value' (default 1) are excluded, so a
 session with a 0 gauge is never reported by default.
 """.
@@ -244,7 +244,7 @@ Advance an incremental scan by one `chunk'-sized batch.
 
 Returns `{continue, Acc}' when there may be more rows (call again) or
 `{done, Acc}' once the underlying stream is exhausted. The accumulator
-holds the top-K heap and the remaining `emqx_utils_stream' (which carries
+holds the top-K ordered set and the remaining `emqx_utils_stream' (which carries
 the ets cursor in its tail), so a caller (e.g. a gen_server) can hold it
 between events, advance one batch per tick, and abort simply by dropping
 it — calling `scan_acc_rows/1' on the partially advanced state still
@@ -263,15 +263,14 @@ scan_acc(#{stream := Stream, chunk := Chunk, heap := Heap0} = Acc0) ->
     end.
 
 -doc """
-Finalize an incremental scan: turn the accumulated top-K heap into the
+Finalize an incremental scan: turn the accumulated top-K ordered set into the
 ranked rows (highest value first), resolving any `extra_keys'. Safe to
 call at any point, including after an early abort, to read the partial
 result.
 """.
 -spec scan_acc_rows(scan_acc()) -> [row()].
 scan_acc_rows(#{heap := Heap, metric := Metric, extra_keys := ExtraKeys}) ->
-    %% gb_sets:to_list is ascending; reverse for highest-first.
-    Candidates = lists:reverse(gb_sets:to_list(Heap)),
+    Candidates = gb_sets:to_list(Heap),
     [resolve_row(C, Metric, ExtraKeys) || C <- Candidates].
 
 %% Lazy stream over the channel registry, scanned in `Chunk'-sized ets
@@ -289,7 +288,7 @@ session_stream(Chunk) ->
     end).
 
 %% Read the metric from the cached stats proplist and, if it qualifies,
-%% offer it to the bounded heap.
+%% offer it to the bounded ordered set.
 consider(
     ClientId,
     ChanPid,
@@ -299,7 +298,7 @@ consider(
 ) ->
     case read_metric(Metric, Stats) of
         Value when is_number(Value), Value >= MinValue ->
-            heap_offer({Value, ClientId, ChanPid}, Stats, ExtraStats, TopK, Heap);
+            heap_offer({-Value, ClientId, ChanPid}, Stats, ExtraStats, TopK, Heap);
         _ ->
             Heap
     end.
@@ -309,27 +308,25 @@ read_metric(Metric, Stats) when is_list(Stats) ->
 read_metric(_Metric, _Stats) ->
     0.
 
-%% Bounded max-heap ordered on {Value, ClientId, ChanPid}. StatExtras are
-%% captured only for candidates that enter the heap.
-%% While below capacity, always insert. Once full, evict the current
-%% smallest only when the candidate is larger.
+%% Lower rank keys are better: higher values first, then client IDs ascending.
+%% StatExtras are captured only for candidates that enter the bounded ordered set.
 heap_offer(RankKey, Stats, ExtraStats, TopK, Heap) ->
     case gb_sets:size(Heap) < TopK of
         true ->
             heap_add(RankKey, Stats, ExtraStats, Heap);
         false ->
-            {{SmallestValue, SmallestClientId, SmallestPid, _}, Heap1} =
-                gb_sets:take_smallest(Heap),
-            SmallestRankKey = {SmallestValue, SmallestClientId, SmallestPid},
-            case RankKey > SmallestRankKey of
+            {{WorstRankValue, WorstClientId, WorstPid, _}, Heap1} =
+                gb_sets:take_largest(Heap),
+            WorstRankKey = {WorstRankValue, WorstClientId, WorstPid},
+            case RankKey < WorstRankKey of
                 true -> heap_add(RankKey, Stats, ExtraStats, Heap1);
                 false -> Heap
             end
     end.
 
-heap_add({Value, ClientId, ChanPid}, Stats, ExtraStats, Heap) ->
+heap_add({RankValue, ClientId, ChanPid}, Stats, ExtraStats, Heap) ->
     StatExtras = [{Key, read_stat_extra(Key, Stats)} || Key <- ExtraStats],
-    gb_sets:add({Value, ClientId, ChanPid, StatExtras}, Heap).
+    gb_sets:add({RankValue, ClientId, ChanPid, StatExtras}, Heap).
 
 maybe_sleep(SleepMs) when is_integer(SleepMs), SleepMs > 0 ->
     timer:sleep(SleepMs);
@@ -339,13 +336,13 @@ maybe_sleep(_SleepMs) ->
 %% Build the result row. Cached info extras are resolved once per winner. If
 %% the session has since disconnected, those extras come back empty (best
 %% effort), while stats extras retain the snapshot used during ranking.
-resolve_row({Value, ClientId, ChanPid, StatExtras}, Metric, ExtraKeys) ->
+resolve_row({RankValue, ClientId, ChanPid, StatExtras}, Metric, ExtraKeys) ->
     Base = #{
         clientid => ClientId,
         pid => ChanPid,
         node => node(),
         metric => Metric,
-        value => Value
+        value => -RankValue
     },
     case ExtraKeys =:= [] andalso StatExtras =:= [] of
         true ->
@@ -406,7 +403,7 @@ Scan every running cluster node and return the cluster-wide top-K rows
 ranked by `Metric', highest value first.
 
 Each node scans its own session set (no cross-node ets traversal); the
-per-node top-K heaps are then merged here and re-trimmed to a single
+per-node top-K ordered sets are then merged here and re-trimmed to a single
 top-K. Nodes whose scan fails are skipped (their rows are simply absent
 from the result).
 """.

@@ -282,6 +282,13 @@ t_session_top_usage(_Config) ->
             {capture, none}
         ])
     ),
+    ?assertEqual(
+        match,
+        re:run(UsageOutput, <<"latest finished status is kept until the next scan starts">>, [
+            caseless,
+            {capture, none}
+        ])
+    ),
     lists:foreach(
         fun(Args) ->
             {ok, Output} = capture_ctl(Args),
@@ -335,11 +342,14 @@ t_session_top(Config) ->
         ?assertEqual(nomatch, re:run(StatusOutput, <<"Partial result:">>, [{capture, none}])),
         ?assertEqual(nomatch, re:run(StatusOutput, <<"Rows:">>, [{capture, none}])),
         ?assertEqual(nomatch, re:run(StatusOutput, <<"Partial:">>, [{capture, none}])),
-        {ok, IdleOutput} = capture_ctl(["session-top", "status"]),
-        ?assertEqual(match, re:run(IdleOutput, <<"Status: idle">>, [{capture, none}])),
+        {ok, RepeatedStatusOutput} = capture_ctl(["session-top", "status"]),
         ?assertEqual(
             match,
-            re:run(IdleOutput, <<"No session-top scan is running">>, [{capture, none}])
+            re:run(RepeatedStatusOutput, <<"Status: completed">>, [{capture, none}])
+        ),
+        ?assertEqual(
+            match,
+            re:run(RepeatedStatusOutput, <<"Result rows: 2">>, [{capture, none}])
         ),
         [
             <<"clientid,node,mqueue_length,total_payload_bytes,inflight_count">>,

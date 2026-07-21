@@ -99,13 +99,13 @@ t_top_k_limits_result(_Config) ->
     ?assertEqual(5, length(Rows)),
     ?assertEqual([50, 49, 48, 47, 46], values(Rows)).
 
--doc "When values tie, top_k keeps the highest ordered row keys.".
+-doc "When values tie, top_k keeps client IDs in ascending order.".
 t_top_k_tie_breaks_by_row_key(_Config) ->
     insert_session(<<"c1">>, [{mqueue_len, 10}]),
     insert_session(<<"c2">>, [{mqueue_len, 10}]),
     insert_session(<<"c3">>, [{mqueue_len, 10}]),
     Rows = emqx_session_tool:top_by(mqueue_len, #{top_k => 2}),
-    ?assertEqual([<<"c3">>, <<"c2">>], clientids(Rows)).
+    ?assertEqual([<<"c1">>, <<"c2">>], clientids(Rows)).
 
 -doc "extra_keys attaches cached info fields (session/clientinfo/conninfo) to each row.".
 t_extra_keys_populate_extras(_Config) ->

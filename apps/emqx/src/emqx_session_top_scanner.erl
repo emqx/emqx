@@ -23,7 +23,6 @@
 
 -define(DEFAULT_SCAN_BATCH_SIZE, 1000).
 -define(DEFAULT_SCAN_SLEEP_MS, 1).
--define(SESSION_TOP_EXTRA_STATS, [mqueue_len, total_payload_bytes, inflight_cnt]).
 -define(CALL_TIMEOUT, 5000).
 
 %%--------------------------------------------------------------------
@@ -100,9 +99,7 @@ advance_scan(State = #{scan := Scan0}) ->
             Scan = Scan0#{acc := Acc1},
             {noreply, schedule_tick(State#{scan := Scan}, sleep_ms(Scan))};
         {done, Acc1} ->
-            Rows = emqx_session_top_collector:normalize_rows(
-                emqx_session_tool:scan_acc_rows(Acc1)
-            ),
+            Rows = emqx_session_tool:scan_acc_rows(Acc1),
             {noreply, complete_scan(State, {ok, Rows})}
     catch
         Class:Reason:Stack ->
@@ -155,8 +152,7 @@ session_tool_opts(Opts) ->
         top_k => maps:get(count, Opts),
         min_value => 0,
         chunk => maps:get(batch_size, Opts, ?DEFAULT_SCAN_BATCH_SIZE),
-        sleep_ms => maps:get(sleep_ms, Opts, ?DEFAULT_SCAN_SLEEP_MS),
-        extra_stats => ?SESSION_TOP_EXTRA_STATS
+        extra_stats => maps:get(extra_stats, Opts)
     }.
 
 sort_metric(mqueue_length) -> mqueue_len;
