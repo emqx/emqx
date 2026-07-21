@@ -32,7 +32,8 @@
 ]).
 
 -export([
-    connect/1
+    connect/1,
+    credentials_validator/1
 ]).
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
@@ -53,12 +54,12 @@ fields(config) ->
         {aws_access_key_id,
             mk(
                 binary(),
-                #{required => true, desc => ?DESC("aws_access_key_id")}
+                #{required => false, desc => ?DESC("aws_access_key_id")}
             )},
         {aws_secret_access_key,
             emqx_schema_secret:mk(
                 #{
-                    required => true,
+                    required => false,
                     desc => ?DESC("aws_secret_access_key")
                 }
             )},
@@ -74,12 +75,18 @@ resource_type() -> dynamo.
 
 callback_mode() -> always_sync.
 
-on_start(
+on_start(InstanceId, Config) ->
+    case credentials_validator(Config) of
+        ok ->
+            do_start(InstanceId, Config);
+        {error, _} = Error ->
+            Error
+    end.
+
+do_start(
     InstanceId,
     #{
         url := Url,
-        aws_access_key_id := AccessKeyID,
-        aws_secret_access_key := SecretAccessKey,
         pool_size := PoolSize
     } = Config
 ) ->
@@ -94,14 +101,24 @@ on_start(
         default_port => DefaultPort
     }),
 
+    ClientConfig = #{
+        host => Host,
+        port => Port,
+        scheme => Scheme
+    },
+    ClientConfig1 =
+        case maps:find(aws_access_key_id, Config) of
+            {ok, AK} when AK =/= <<>> ->
+                {ok, SK} = maps:find(aws_secret_access_key, Config),
+                ClientConfig#{
+                    aws_access_key_id => to_str(AK),
+                    aws_secret_access_key => SK
+                };
+            _ ->
+                ClientConfig
+        end,
     Options = [
-        {config, #{
-            host => Host,
-            port => Port,
-            aws_access_key_id => to_str(AccessKeyID),
-            aws_secret_access_key => SecretAccessKey,
-            scheme => Scheme
-        }},
+        {config, ClientConfig1},
         {pool_size, PoolSize}
     ],
     State = #{
@@ -324,6 +341,40 @@ ensuare_dynamo_keys(_Query, _State) ->
 connect(Opts) ->
     Config = proplists:get_value(config, Opts),
     {ok, _Pid} = emqx_bridge_dynamo_connector_client:start_link(Config).
+
+credentials_validator(Config0) ->
+    Config = normalize_credentials_config(Config0),
+    Invalid =
+        credential_present(<<"aws_access_key_id">>, Config) xor
+            credential_present(<<"aws_secret_access_key">>, Config),
+    case Invalid of
+        false -> ok;
+        true -> {error, <<"aws_access_key_id and aws_secret_access_key must be provided together">>}
+    end.
+
+%% This validator may receive either an individual connector config or the
+%% outer #{ConnectorName => ConnectorConfig} map.  Raw HOCON configs use binary
+%% keys, while probe and runtime configs use atom keys, so normalize the latter.
+%%
+%% Since connector names are dynamic, an outer-map key may happen to be named
+%% `aws_access_key_id' or `aws_secret_access_key'.  Its map value is a connector
+%% config, not a credential, and must not be considered present.
+normalize_credentials_config(Config) when
+    is_map_key(aws_access_key_id, Config);
+    is_map_key(aws_secret_access_key, Config)
+->
+    emqx_utils_maps:binary_key_map(Config);
+normalize_credentials_config(Config) ->
+    Config.
+
+credential_present(Key, Config) ->
+    case maps:get(Key, Config, undefined) of
+        Value when is_map(Value) ->
+            false;
+        Value0 ->
+            Value = emqx_secret:unwrap(Value0),
+            Value =/= undefined andalso Value =/= <<>> andalso Value =/= []
+    end.
 
 parse_template_from_conf(Config) ->
     Templates =
