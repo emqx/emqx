@@ -151,7 +151,8 @@ groups() ->
         t_fail_delete_with_action,
         t_actions_field,
         t_update_with_failed_validation,
-        t_create_with_failed_root_validation
+        t_create_with_failed_root_validation,
+        t_create_or_update_with_unexpected_error_term
     ],
     ClusterOnlyTests = [
         t_inconsistent_state,
@@ -1331,6 +1332,39 @@ t_create_with_failed_root_validation(Config) ->
             <<"value">> := #{<<"bootstrap_hosts">> := _}
         },
         Message
+    ),
+    ok.
+
+-doc """
+Checks that an unexpected error term from the config update is reported as a readable
+400, and not as a `case_clause' 500.
+
+A schema validator may `throw' a bare string (e.g. `"not_expecting_scheme"'), which the
+config handler surfaces verbatim as `{error, String}'.
+""".
+t_create_or_update_with_unexpected_error_term(Config) ->
+    Params = ?KAFKA_CONNECTOR(?CONNECTOR_NAME),
+    ?assertMatch(
+        {ok, 201, _},
+        request_json(post, uri(["connectors"]), Params, Config)
+    ),
+    ok = meck:new(emqx_conf, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_conf, update, fun(_Path, _Conf, _Opts) ->
+        {error, "not_expecting_scheme"}
+    end),
+    ConnectorID = emqx_connector_resource:connector_id(?CONNECTOR_TYPE, ?CONNECTOR_NAME),
+    ?assertMatch(
+        {ok, 400, #{<<"message">> := <<"not_expecting_scheme">>}},
+        request_json(
+            put,
+            uri(["connectors", ConnectorID]),
+            maps:without([<<"type">>, <<"name">>], Params),
+            Config
+        )
+    ),
+    ?assertMatch(
+        {ok, 400, #{<<"message">> := <<"not_expecting_scheme">>}},
+        request_json(post, uri(["connectors"]), Params#{<<"name">> := <<"other">>}, Config)
     ),
     ok.
 

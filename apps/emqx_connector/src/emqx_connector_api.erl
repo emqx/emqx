@@ -509,7 +509,14 @@ do_create_or_update_connector(Namespace, ConnectorType, ConnectorName, Conf, Htt
             %% When root validators fail, the returned value is the whole config root.  We
             %% focus down to the config from the request to avoid returning a huge map.
             Reason = maybe_focus_on_request_connector(Reason0, ConnectorType, ConnectorName),
-            ?BAD_REQUEST(emqx_mgmt_api_lib:to_json(redact(Reason)))
+            ?BAD_REQUEST(emqx_mgmt_api_lib:to_json(redact(Reason)));
+        {error, {config_update_crashed, Reason}} ->
+            ?INTERNAL_ERROR(emqx_utils:readable_error_msg(redact(Reason)));
+        {error, Reason} ->
+            %% Catch-all for error terms that are neither a config update handler error
+            %% nor a structured validation error, e.g. a bare string thrown by a schema
+            %% validator such as `"unsupported_scheme"'.
+            ?BAD_REQUEST(emqx_utils:readable_error_msg(redact(Reason)))
     end.
 
 '/connectors/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}} = Req) ->

@@ -360,9 +360,13 @@ check_ssrf(Host) ->
     end.
 
 parse_mqtt_host(Server) ->
-    case emqx_schema:parse_server(Server, #{default_port => 1883}) of
+    %% The server has already been validated by the schema at this point; if parsing
+    %% still fails, there is no host to check and the schema reports the real error.
+    try emqx_schema:parse_server(Server, emqx_schema:mqtt_host_opts()) of
         #{hostname := Host} -> Host;
         _ -> undefined
+    catch
+        throw:_ -> undefined
     end.
 
 -spec invalid_data(binary()) -> no_return().
