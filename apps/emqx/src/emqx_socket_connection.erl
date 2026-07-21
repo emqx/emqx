@@ -455,7 +455,12 @@ sock_setopts(_Sock, []) ->
 %% Ensure/cancel stats timer
 
 init_stats_timer(#state{conf = #conf{zone = Zone}}) ->
-    case emqx_config:get_zone_conf(Zone, [stats, enable]) of
+    %% The per-connection stats reported here only feed the client-info REST API
+    %% (`GET /clients`); skip them entirely when that API is disabled.
+    case
+        emqx_config:get_zone_conf(Zone, [stats, enable]) andalso
+            emqx_features:client_info_enabled()
+    of
         true -> undefined;
         false -> disabled
     end.
