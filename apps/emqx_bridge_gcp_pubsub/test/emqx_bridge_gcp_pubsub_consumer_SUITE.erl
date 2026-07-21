@@ -1353,6 +1353,42 @@ t_timeout_during_pull(TCConfig) ->
     ),
     ok.
 
+-doc """
+Checks that a healthy in-flight pull request is left alone until its lease expires.
+
+A pull is a long poll that legitimately stays open until a message arrives.  Cancelling it
+sooner discards whatever the server has already leased into its response, and those
+messages then stay invisible until the lease (`ack_deadline`) expires.
+""".
+t_no_premature_pull_cancel(TCConfig) ->
+    AckDeadline = <<"10s">>,
+    %% A short `request_ttl' drives `pull_retry_interval': if the in-flight pull were tied to
+    %% it, it would be cancelled every second.  It must not be while a pull is in flight.
+    RequestTTL = <<"1s">>,
+    ?check_trace(
+        begin
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {201, _} = create_source_api(TCConfig, #{
+                <<"parameters">> => #{<<"ack_deadline">> => AckDeadline},
+                <<"resource_opts">> => #{<<"request_ttl">> => RequestTTL}
+            }),
+            {ok, _} = snabbkaffe:block_until(
+                ?match_event(#{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"}),
+                10_000
+            ),
+            %% Idle well within `ack_deadline': nothing should be cancelled.
+            timer:sleep(3_000),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertEqual(
+                [], ?of_kind("gcp_consumer_worker_pull_stream_cancelled", Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
 t_pull_worker_death(TCConfig) ->
     ?check_trace(
         begin

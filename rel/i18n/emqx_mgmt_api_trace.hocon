@@ -183,6 +183,11 @@ provided_configuration_invalid.desc:
 provided_configuration_invalid.label:
 """Provided Configuration Invalid"""
 
+trace_config_global_only.desc:
+"""Only the global administrator may update the tracing configuration."""
+trace_config_global_only.label:
+"""Tracing Configuration Is Global Only"""
+
 payload_encode.desc:
 """Determine the format of the payload format in the trace file.<br/>
 `text`: Text-based protocol or plain text protocol.

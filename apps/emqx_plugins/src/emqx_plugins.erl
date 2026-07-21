@@ -801,6 +801,7 @@ do_ensure_started(NameVsn) ->
         ok ?= install(NameVsn, ?normal),
         ok ?= load_config_schema(NameVsn),
         ok ?= maybe_initialize_cached_config(NameVsn),
+        {ok, _} ?= validated_local_config(NameVsn),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
         ok ?= emqx_plugins_apps:start(Plugin)
     else
@@ -897,8 +898,25 @@ ensure_installed_locally(NameVsn) ->
     end.
 
 validate_installation(NameVsn) ->
-    case emqx_plugins_info:read(NameVsn) of
-        {ok, _Plugin} ->
+    maybe
+        {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
+        ok ?= emqx_plugins_apps:validate(Plugin, emqx_plugins_fs:lib_dir(NameVsn)),
+        ok ?= load_config_schema(NameVsn),
+        ok ?= validate_default_config(NameVsn)
+    else
+        {error, _} = Error ->
+            _ = emqx_plugins_serde:delete_schema(NameVsn),
+            Error
+    end.
+
+validate_default_config(NameVsn) ->
+    case emqx_plugins_fs:read_default_hocon(NameVsn) of
+        {ok, Config} ->
+            case decode_plugin_config_map(NameVsn, Config) of
+                {ok, _} -> ok;
+                {error, _} = Error -> Error
+            end;
+        {error, #{reason := {enoent, _}}} ->
             ok;
         {error, _} = Error ->
             Error
@@ -911,12 +929,17 @@ install_and_configure(NameVsn, Mode, RunningSt) ->
     end.
 
 configure(NameVsn, Mode, RunningSt) ->
-    ok = load_config_schema(NameVsn),
     maybe
+        ok ?= load_config_schema(NameVsn),
         ok ?= ensure_local_config(NameVsn, Mode),
-        configure_from_local_config(NameVsn, RunningSt)
-    end,
-    ensure_state(NameVsn).
+        ok ?= configure_from_local_config(NameVsn, RunningSt),
+        ensure_state(NameVsn)
+    else
+        {error, no_source_file} ->
+            ensure_state(NameVsn);
+        {error, _} = Error ->
+            Error
+    end.
 
 %% Install from local tarball or get tarball from cluster
 install(NameVsn, Mode) ->
@@ -1292,7 +1315,7 @@ configure_from_local_config(NameVsn, RunningSt) ->
             ?SLOG(warning, #{
                 msg => "failed_to_validate_plugin_config", name_vsn => NameVsn, reason => Reason
             }),
-            ok
+            {error, Reason}
     end.
 
 notify_config_change(_NameVsn, _OldConfig, _NewConfig, stopped) ->
@@ -1320,10 +1343,14 @@ request_config_change(NameVsn, #{running_status := RunningSt}, Config) when
 load_config_schema(NameVsn) ->
     case emqx_plugins_fs:read_avsc_bin(NameVsn) of
         {ok, AvscBin} ->
-            _ = emqx_plugins_serde:add_schema(bin(NameVsn), AvscBin),
-            ok;
-        {error, _} ->
-            ok
+            emqx_plugins_serde:add_schema(bin(NameVsn), AvscBin);
+        {error, #{reason := enoent}} = Error ->
+            case has_avsc(NameVsn) of
+                true -> Error;
+                false -> ok
+            end;
+        {error, _} = Error ->
+            Error
     end.
 
 validated_local_config(NameVsn) ->
@@ -1345,6 +1372,8 @@ validated_local_config(NameVsn) ->
                 false ->
                     {ok, Config}
             end;
+        {error, #{reason := {enoent, _}}} ->
+            {ok, #{}};
         {error, Reason} ->
             ?SLOG(warning, #{
                 msg => "failed_to_read_plugin_config_hocon", name_vsn => NameVsn, reason => Reason

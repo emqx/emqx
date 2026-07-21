@@ -842,8 +842,8 @@ ensure_action(Name, stop, _Opts) ->
         {error, _} = Error -> Error
     end;
 ensure_action(Name, restart, _Opts) ->
-    case emqx_plugins:ensure_enabled(Name) of
-        ok -> emqx_plugins:restart(Name);
+    case emqx_plugins:restart(Name) of
+        ok -> emqx_plugins:ensure_enabled(Name);
         {error, _} = Error -> Error
     end.
 
@@ -1144,6 +1144,7 @@ ensure_action_test_() ->
         [
             fun ensure_action_start_propagates_error_case/0,
             fun ensure_action_stop_propagates_error_case/0,
+            fun ensure_action_restart_propagates_restart_error_case/0,
             fun ensure_action_restart_propagates_enable_error_case/0,
             fun ensure_action_success_case/0
         ]}.
@@ -1156,7 +1157,14 @@ ensure_action_stop_propagates_error_case() ->
     meck:expect(emqx_plugins, ensure_stopped, fun(_Name) -> {error, stop_failed} end),
     ?assertEqual({error, stop_failed}, ensure_action(<<"demo-1.0.0">>, stop, #{})).
 
+ensure_action_restart_propagates_restart_error_case() ->
+    meck:expect(emqx_plugins, restart, fun(_Name) -> {error, restart_failed} end),
+    meck:expect(emqx_plugins, ensure_enabled, fun(_Name) -> ok end),
+    ?assertEqual({error, restart_failed}, ensure_action(<<"demo-1.0.0">>, restart, #{})),
+    ?assertNot(meck:called(emqx_plugins, ensure_enabled, ['_'])).
+
 ensure_action_restart_propagates_enable_error_case() ->
+    meck:expect(emqx_plugins, restart, fun(_Name) -> ok end),
     meck:expect(emqx_plugins, ensure_enabled, fun(_Name) -> {error, enable_failed} end),
     ?assertEqual({error, enable_failed}, ensure_action(<<"demo-1.0.0">>, restart, #{})).
 
