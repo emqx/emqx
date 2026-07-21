@@ -12,13 +12,13 @@
     unregister_device/2,
     lookup_device/1,
     lookup_devices_by_product/1,
-    replay_delivery/4,
     on_client_connected/2,
     on_client_disconnected/3,
     on_client_subscribe/3,
     on_client_unsubscribe/3,
     on_session_resumed/2,
-    on_message_acked/2
+    on_message_acked/2,
+    on_delivery_completed/2
 ]).
 
 -include("emqx_bcast.hrl").
@@ -37,7 +37,8 @@ hook() ->
     ok = emqx_hooks:put('client.subscribe', {?MODULE, on_client_subscribe, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('client.unsubscribe', {?MODULE, on_client_unsubscribe, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_HIGHEST),
-    ok = emqx_hooks:put('message.acked', {?MODULE, on_message_acked, []}, ?HP_HIGHEST).
+    ok = emqx_hooks:put('message.acked', {?MODULE, on_message_acked, []}, ?HP_HIGHEST),
+    ok = emqx_hooks:put('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_HIGHEST).
 
 unhook() ->
     ok = emqx_hooks:del('client.connected', {?MODULE, on_client_connected}),
@@ -45,7 +46,8 @@ unhook() ->
     ok = emqx_hooks:del('client.subscribe', {?MODULE, on_client_subscribe}),
     ok = emqx_hooks:del('client.unsubscribe', {?MODULE, on_client_unsubscribe}),
     ok = emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
-    ok = emqx_hooks:del('message.acked', {?MODULE, on_message_acked}).
+    ok = emqx_hooks:del('message.acked', {?MODULE, on_message_acked}),
+    ok = emqx_hooks:del('delivery.completed', {?MODULE, on_delivery_completed}).
 
 init_tables() ->
     ok = create_mnesia_tables(),
@@ -195,9 +197,17 @@ on_client_subscribe(ClientInfo, _Properties, TopicFilters) ->
         {ok, DeliveryIds} = emqx_bcast_storage:get_device_deliveries({ProductKey, ClientId}),
         lists:foreach(
             fun(DeliveryId) ->
-                case emqx_bcast_subscription:match(ClientId, get_delivery_topic(DeliveryId)) of
-                    true -> replay_delivery(Pid, ProductKey, ClientId, DeliveryId);
-                    false -> ok
+                case mnesia:dirty_read(bcast_msg, DeliveryId) of
+                    [#bcast_msg{topic_template = Template}] ->
+                        Topic = emqx_bcast_utils:expand_topic(Template, ProductKey, ClientId),
+                        case emqx_bcast_subscription:match(ClientId, Topic) of
+                            {ok, SubQos} ->
+                                replay_delivery(Pid, ProductKey, ClientId, DeliveryId, SubQos);
+                            false ->
+                                ok
+                        end;
+                    [] ->
+                        ok
                 end
             end,
             DeliveryIds
@@ -235,9 +245,17 @@ on_session_resumed(ClientInfo, SessionInfo) ->
         {ok, DeliveryIds} = emqx_bcast_storage:get_device_deliveries({ProductKey, ClientId}),
         lists:foreach(
             fun(DeliveryId) ->
-                case emqx_bcast_subscription:match(ClientId, get_delivery_topic(DeliveryId)) of
-                    true -> replay_delivery(Pid, ProductKey, ClientId, DeliveryId);
-                    false -> ok
+                case mnesia:dirty_read(bcast_msg, DeliveryId) of
+                    [#bcast_msg{topic_template = Template}] ->
+                        Topic = emqx_bcast_utils:expand_topic(Template, ProductKey, ClientId),
+                        case emqx_bcast_subscription:match(ClientId, Topic) of
+                            {ok, SubQos} ->
+                                replay_delivery(Pid, ProductKey, ClientId, DeliveryId, SubQos);
+                            false ->
+                                ok
+                        end;
+                    [] ->
+                        ok
                 end
             end,
             DeliveryIds
@@ -248,43 +266,61 @@ on_session_resumed(ClientInfo, SessionInfo) ->
     end,
     ok.
 
-get_delivery_topic(DeliveryId) ->
-    case mnesia:dirty_read(bcast_msg, DeliveryId) of
-        [#bcast_msg{topic_template = Template}] ->
-            Template;
-        [] ->
-            <<>>
-    end.
-
 on_message_acked(ClientInfo, Msg) ->
-    case emqx_message:get_header(?IOT_DELIVERY_ID, Msg, undefined) of
+    case emqx_message:get_header(?BCAST_DELIVERY_ID, Msg, undefined) of
         undefined ->
             ok;
         DeliveryId ->
             #{clientid := DeviceName} = ClientInfo,
             ProductKey = get_product_key(ClientInfo),
-            _ = emqx_bcast_storage:process_ack(ProductKey, DeviceName, DeliveryId),
-            emqx_bcast_metrics:qos1_acked(),
+            count_ack(ProductKey, DeviceName, DeliveryId),
             ok
     end.
 
-replay_delivery(Pid, ProductKey, DeviceName, DeliveryId) ->
+on_delivery_completed(Msg, #{clientid := ClientId}) ->
+    case emqx_message:get_header(?BCAST_DELIVERY_ID, Msg, undefined) of
+        undefined ->
+            ok;
+        DeliveryId ->
+            ProductKey = emqx_message:get_header(?BCAST_PRODUCT_KEY, Msg, undefined),
+            count_ack(ProductKey, ClientId, DeliveryId),
+            ok
+    end.
+
+count_ack(undefined, _DeviceName, _DeliveryId) ->
+    ok;
+count_ack(ProductKey, DeviceName, DeliveryId) ->
+    case emqx_bcast_storage:process_ack(ProductKey, DeviceName, DeliveryId) of
+        counted -> emqx_bcast_metrics:qos1_acked();
+        _ -> ok
+    end.
+
+replay_delivery(Pid, ProductKey, DeviceName, DeliveryId, SubQos) ->
     case mnesia:dirty_read(bcast_msg, DeliveryId) of
         [#bcast_msg{msg_id = MsgId, topic_template = Template}] ->
             case emqx_bcast_storage:lookup_message(MsgId) of
                 {ok, #bcast_message{payload = Payload}} ->
+                    Config = persistent_term:get({?APP, config}, #{}),
+                    ForceUpgrade = maps:get(force_upgrade_qos, Config, true),
                     Topic = emqx_bcast_utils:expand_topic(Template, ProductKey, DeviceName),
-                    Msg = emqx_message:make(
-                        DeliveryId,
-                        DeviceName,
-                        ?QOS_1,
-                        Topic,
-                        Payload,
-                        #{},
-                        #{?IOT_DELIVERY_ID => DeliveryId}
-                    ),
-                    Pid ! #deliver{topic = Topic, message = Msg},
-                    emqx_bcast_metrics:qos1_replayed(),
+                    case ForceUpgrade orelse SubQos >= 1 of
+                        true ->
+                            Msg = emqx_message:make(
+                                DeliveryId,
+                                DeviceName,
+                                ?QOS_1,
+                                Topic,
+                                Payload,
+                                #{},
+                                #{?BCAST_DELIVERY_ID => DeliveryId, ?BCAST_PRODUCT_KEY => ProductKey}
+                            ),
+                            Pid ! #deliver{topic = Topic, message = Msg},
+                            emqx_bcast_metrics:qos1_replayed();
+                        false ->
+                            Msg = emqx_message:make(DeviceName, ?QOS_0, Topic, Payload),
+                            Pid ! #deliver{topic = Topic, message = Msg},
+                            count_ack(ProductKey, DeviceName, DeliveryId)
+                    end,
                     ok;
                 {error, not_found} ->
                     ok

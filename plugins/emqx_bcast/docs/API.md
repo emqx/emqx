@@ -174,6 +174,7 @@ curl -u "<api_key>:<api_secret>" -X POST "http://127.0.0.1:18083/api/v5/plugin_a
 | `InvalidTopicTemplate` | 400 | TopicTemplateName format is invalid |
 | `MessageNotFound` | 400 | MessageId does not exist (for refresh or reuse) |
 | `MessageIdContentConflict` | 400 | Both MessageContent and MessageId provided, or neither |
+| `InvalidQos` | 400 | Qos value is not 0 or 1 |
 | `MissingAction` | 400 | Request body does not contain an Action field |
 | `UnknownAction` | 400 | Action value is not recognized |
 | `InternalError` | 500 | Internal server error |
@@ -195,28 +196,27 @@ This endpoint is separate from the built-in EMQX Prometheus endpoints.
 
 | Metric | Description |
 |--------|-------------|
-| `bcast_broadcast_pub_in` | PubBroadcast success count |
-| `bcast_broadcast_pub_error` | PubBroadcast error count |
-| `bcast_batch_pub_qos0_in` | BatchPub QoS=0 success count |
-| `bcast_batch_pub_qos0_error` | BatchPub QoS=0 error count |
-| `bcast_batch_pub_qos1_in` | BatchPub QoS=1 success count |
-| `bcast_batch_pub_qos1_error` | BatchPub QoS=1 error count |
-| `bcast_batch_pub_qos1_incomplete` | BatchPub QoS=1 incomplete count |
-| `bcast_register_message_in` | RegisterMessage create success count |
-| `bcast_register_message_refresh` | RegisterMessage TTL refresh count |
-| `bcast_register_message_error` | RegisterMessage error count |
-| `bcast_batch_pub_qos1_msg_wanted` | Total devices targeted |
-| `bcast_batch_pub_qos1_msg_succeed` | Devices successfully delivered |
-| `bcast_batch_pub_qos1_msg_acked` | PUBACK received count |
-| `bcast_batch_pub_qos1_msg_replayed` | Messages replayed on reconnect |
-| `bcast_batch_pub_qos1_msg_error` | Delivery error count |
-| `bcast_batch_pub_qos1_msg_incomplete` | Timeout/incomplete count |
+| `bcast_batch_pub_qos0_in` | BatchPub QoS=0 API requests |
+| `bcast_batch_pub_qos0_error` | BatchPub QoS=0 API errors |
+| `bcast_batch_pub_qos0_targeted` | QoS=0 devices targeted |
+| `bcast_batch_pub_qos0_delivered` | QoS=0 devices delivered |
+| `bcast_batch_pub_qos0_skipped` | QoS=0 devices skipped (offline) |
+| `bcast_batch_pub_qos1_in` | BatchPub QoS=1 API requests |
+| `bcast_batch_pub_qos1_delivered_inline` | QoS=1 inline deliveries |
+| `bcast_batch_pub_qos1_stored_offline` | QoS=1 stored for offline delivery |
+| `bcast_batch_pub_qos1_wanted` | QoS=1 total wanted acks |
+| `bcast_batch_pub_qos1_acked` | QoS=1 acks received |
+| `bcast_batch_pub_qos1_replayed` | QoS=1 replayed on reconnect |
+| `bcast_broadcast_pub_in` | PubBroadcast API requests |
+| `bcast_broadcast_pub_error` | PubBroadcast errors |
+| `bcast_broadcast_pub_devices_online` | PubBroadcast devices online |
+| `bcast_broadcast_pub_delivery_count` | PubBroadcast deliveries |
+| `bcast_register_message_in` | RegisterMessage API requests |
+| `bcast_register_message_refresh` | RegisterMessage TTL refresh |
+| `bcast_register_message_error` | RegisterMessage errors |
 
-### Gauge
-
-| Metric | Description |
-|--------|-------------|
-| `bcast_batch_pub_qos1_msg_pending` | Currently pending deliveries |
+QoS=1 delivery completion is tracked by comparing `wanted` against `acked`
+(a delivery is fully acknowledged when `acked` reaches `wanted` per DeliveryId).
 
 ### Prometheus Configuration
 

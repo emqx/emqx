@@ -9,7 +9,8 @@
 -include_lib("emqx/include/emqx_hooks.hrl").
 
 -define(APP, emqx_bcast).
--define(IOT_DELIVERY_ID, iot_delivery_id).
+-define(BCAST_DELIVERY_ID, bcast_delivery_id).
+-define(BCAST_PRODUCT_KEY, bcast_product_key).
 -define(BCAST_REGISTRY, bcast).
 
 -record(bcast_message, {
@@ -40,8 +41,7 @@
     counter :: non_neg_integer(),
     device_names :: [binary()],
     created_at :: non_neg_integer(),
-    expires_at :: non_neg_integer(),
-    response_topic_template :: binary() | undefined
+    expires_at :: non_neg_integer()
 }).
 
 -record(bcast_msg_index, {
@@ -61,10 +61,10 @@
     pid :: pid()
 }).
 
--endif.
-
 -record(bcast_subscription, {
     clientid :: binary(),
     pid :: pid(),
     topics :: [{binary(), non_neg_integer()}]
 }).
+
+-endif.

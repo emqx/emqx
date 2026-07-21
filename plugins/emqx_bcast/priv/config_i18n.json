@@ -62,5 +62,13 @@
   "$msg_warn_threshold_desc": {
     "en": "Warning threshold for pending message count.",
     "zh": "待处理消息数的告警阈值。"
+  },
+  "$force_upgrade_qos_label": {
+    "en": "Force Upgrade QoS",
+    "zh": "强制升级 QoS"
+  },
+  "$force_upgrade_qos_desc": {
+    "en": "When true, QoS 1 messages are always published at QoS 1 regardless of the device subscription QoS. When false, the effective QoS is min(publish QoS, subscription QoS) and downgraded QoS 0 deliveries are completed immediately.",
+    "zh": "为 true 时,QoS 1 消息始终以 QoS 1 下发,忽略设备订阅 QoS;为 false 时,实际 QoS 取 min(发布 QoS, 订阅 QoS),降级为 QoS 0 的投递立即完成。"
   }
 }

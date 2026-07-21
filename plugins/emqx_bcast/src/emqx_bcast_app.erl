@@ -7,6 +7,7 @@
 -emqx_plugin(?MODULE).
 
 -export([start/2, stop/1]).
+-export([on_config_changed/2]).
 -export([on_handle_api_call/4]).
 
 start(_StartType, _StartArgs) ->
@@ -21,6 +22,9 @@ start(_StartType, _StartArgs) ->
 stop(_State) ->
     ok = emqx_bcast:unhook(),
     ok.
+
+on_config_changed(_OldConf, NewConf) ->
+    emqx_bcast_config:update(NewConf).
 
 on_handle_api_call(Method, PathRemainder, Request, _Context) ->
     emqx_bcast_api:handle(Method, PathRemainder, Request).

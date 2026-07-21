@@ -3,7 +3,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_bcast_batch_pub).
 
--export([handle/2]).
+-export([handle/2, deliver_local/6]).
 
 -include("emqx_bcast.hrl").
 
@@ -15,7 +15,6 @@ handle(Body, RequestId) ->
     Qos = maps:get(<<"Qos">>, Body, 0),
     TopicShortName = maps:get(<<"TopicShortName">>, Body, undefined),
     TopicTemplateName = maps:get(<<"TopicTemplateName">>, Body, undefined),
-    ResponseTemplate = maps:get(<<"ResponseTopicTemplateName">>, Body, undefined),
 
     case validate_input(ProductKey, DeviceNames, MessageContent, MessageId, Qos) of
         {error, Code, Msg} ->
@@ -48,19 +47,22 @@ handle(Body, RequestId) ->
                                 TopicTemplate,
                                 MsgGuid,
                                 RequestId,
-                                ApiMsgId,
-                                ResponseTemplate
+                                ApiMsgId
                             )
                     end
             end
     end.
 
 resolve_qos0_payload(MessageContent, _MessageId) when MessageContent =/= undefined ->
-    {ok, Payload} = emqx_bcast_utils:decode_base64(MessageContent),
-    MaxSize = get_max_message_size_batch(),
-    case byte_size(Payload) =< MaxSize of
-        true -> {ok, Payload, emqx_bcast_utils:gen_api_uuid()};
-        false -> {error, <<"MessageTooLarge">>, <<"Message too large">>}
+    case emqx_bcast_utils:decode_base64(MessageContent) of
+        {ok, Payload} ->
+            MaxSize = get_max_message_size_batch(),
+            case byte_size(Payload) =< MaxSize of
+                true -> {ok, Payload, emqx_bcast_utils:gen_api_uuid()};
+                false -> {error, <<"MessageTooLarge">>, <<"Message too large">>}
+            end;
+        {error, _} ->
+            {error, <<"InvalidBase64">>, <<"Invalid Base64 encoding">>}
     end;
 resolve_qos0_payload(undefined, MessageId) ->
     case emqx_bcast_id:resolve_message_id(MessageId) of
@@ -71,6 +73,8 @@ resolve_qos0_payload(undefined, MessageId) ->
             {error, <<"MessageNotFound">>, <<"MessageId not found">>}
     end.
 
+validate_input(PK, _, _, _, _) when not is_binary(PK) orelse PK =:= <<>> ->
+    {error, <<"InvalidProductKey">>, <<"ProductKey is required">>};
 validate_input(_PK, undefined, _, _, _) ->
     {error, <<"InvalidDeviceName">>, <<"DeviceName is required">>};
 validate_input(_PK, _DeviceNames, undefined, undefined, _Qos) ->
@@ -80,14 +84,19 @@ validate_input(_PK, _DeviceNames, _MC, _MI, _Qos) when _MC =/= undefined, _MI =/
 validate_input(_PK, _DeviceNames, _MC, _MI, Qos) when Qos =/= 0, Qos =/= 1 ->
     {error, <<"InvalidQos">>, <<"QoS must be 0 or 1">>};
 validate_input(_PK, DeviceNames, _MC, _MI, _Qos) when is_list(DeviceNames) ->
-    Max = get_max_device_count(),
-    case length(DeviceNames) > Max of
-        true ->
-            {error, <<"DeviceCountExceeded">>, <<"Too many devices">>};
+    case lists:all(fun erlang:is_binary/1, DeviceNames) of
         false ->
-            case has_duplicates(DeviceNames) of
-                true -> {error, <<"DuplicateDeviceName">>, <<"Duplicate DeviceName entries">>};
-                false -> ok
+            {error, <<"InvalidDeviceName">>, <<"DeviceName entries must be strings">>};
+        true ->
+            Max = get_max_device_count(),
+            case length(DeviceNames) > Max of
+                true ->
+                    {error, <<"DeviceCountExceeded">>, <<"Too many devices">>};
+                false ->
+                    case has_duplicates(DeviceNames) of
+                        true -> {error, <<"DuplicateDeviceName">>, <<"Duplicate DeviceName entries">>};
+                        false -> ok
+                    end
             end
     end;
 validate_input(_, _, _, _, _) ->
@@ -114,12 +123,22 @@ validate(_PK, DeviceNames, _MC, _MI) when is_list(DeviceNames) ->
 resolve_content(_DeviceNames, MessageContent, _MessageId) when MessageContent =/= undefined ->
     case emqx_bcast_utils:decode_base64(MessageContent) of
         {ok, Payload} ->
-            Hash = emqx_bcast_utils:sha256(Payload),
-            {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
-            case emqx_bcast_storage:lookup_or_create_message(Payload, Hash, ApiMsgId, MsgGuid) of
-                {created, Id, Guid} -> {ok, Id, Guid};
-                {existing, Id, Guid} -> {ok, Id, Guid};
-                {error, _} -> {error, <<"InternalError">>, <<"Storage error">>}
+            MaxSize = get_max_message_size_batch(),
+            case byte_size(Payload) =< MaxSize of
+                true ->
+                    Hash = emqx_bcast_utils:sha256(Payload),
+                    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+                    case
+                        emqx_bcast_storage:lookup_or_create_message(
+                            Payload, Hash, ApiMsgId, MsgGuid
+                        )
+                    of
+                        {created, Id, Guid} -> {ok, Id, Guid};
+                        {existing, Id, Guid} -> {ok, Id, Guid};
+                        {error, _} -> {error, <<"InternalError">>, <<"Storage error">>}
+                    end;
+                false ->
+                    {error, <<"MessageTooLarge">>, <<"Message too large">>}
             end;
         {error, _} ->
             {error, <<"InvalidBase64">>, <<"Invalid Base64 encoding">>}
@@ -134,62 +153,114 @@ resolve_content(_DeviceNames, _MC, MessageId) when MessageId =/= undefined ->
     end.
 
 deliver_qos0(DeviceNames, ProductKey, TopicTemplate, Payload, RequestId, ApiMsgId) ->
-    lists:foreach(
-        fun(DN) ->
-            case emqx_bcast:lookup_device({ProductKey, DN}) of
-                {ok, Pid} ->
-                    Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DN),
-                    case emqx_bcast_subscription:match(DN, Topic) of
-                        true ->
-                            emqx_bcast_metrics:qos0_delivered(),
-                            Msg = emqx_message:make(DN, ?QOS_0, Topic, Payload),
-                            Pid ! #deliver{topic = Topic, message = Msg};
-                        false ->
-                            emqx_bcast_metrics:qos0_skipped()
-                    end;
-                _ ->
-                    emqx_bcast_metrics:qos0_skipped()
-            end
-        end,
-        DeviceNames
-    ),
+    dispatch(0, DeviceNames, ProductKey, TopicTemplate, Payload, #{}),
     {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)}.
 
-deliver_qos1(
-    DeviceNames, ProductKey, TopicTemplate, MsgGuid, RequestId, ApiMsgId, ResponseTemplate
-) ->
+deliver_qos1(DeviceNames, ProductKey, TopicTemplate, MsgGuid, RequestId, ApiMsgId) ->
     emqx_bcast_metrics:qos1_in(),
     emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
     DeliveryId = emqx_bcast_utils:gen_guid(),
     N = length(DeviceNames),
     _Delivery = emqx_bcast_storage:create_delivery(
-        DeliveryId, MsgGuid, ProductKey, TopicTemplate, DeviceNames, N, ResponseTemplate
+        DeliveryId, MsgGuid, ProductKey, TopicTemplate, DeviceNames, N
     ),
     {ok, PayloadMsg} = emqx_bcast_storage:lookup_message(MsgGuid),
     Payload = PayloadMsg#bcast_message.payload,
+    Config = persistent_term:get({?APP, config}, #{}),
+    ForceUpgrade = maps:get(force_upgrade_qos, Config, true),
+    dispatch(1, DeviceNames, ProductKey, TopicTemplate, Payload, #{
+        delivery_id => DeliveryId, force_upgrade_qos => ForceUpgrade
+    }),
+    {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)}.
+
+%% Deliver to devices connected to the local node only.
+%% Invoked directly for local devices and via emqx_rpc:cast for remote ones.
+deliver_local(Qos, ProductKey, TopicTemplate, Payload, DeviceNames, Opts) ->
     lists:foreach(
-        fun(DN) ->
-            case emqx_bcast:lookup_device({ProductKey, DN}) of
-                {ok, Pid} ->
-                    Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DN),
-                    case emqx_bcast_subscription:match(DN, Topic) of
+        fun(DN) -> deliver_one(Qos, ProductKey, TopicTemplate, Payload, DN, Opts) end,
+        DeviceNames
+    ).
+
+dispatch(Qos, DeviceNames, ProductKey, TopicTemplate, Payload, Opts) ->
+    {Local, Remote, OfflineCount} = partition_devices(DeviceNames),
+    count_offline(Qos, OfflineCount),
+    deliver_local(Qos, ProductKey, TopicTemplate, Payload, Local, Opts),
+    maps:foreach(
+        fun(Node, DNs) ->
+            emqx_rpc:cast(Node, ?MODULE, deliver_local, [
+                Qos, ProductKey, TopicTemplate, Payload, DNs, Opts
+            ])
+        end,
+        Remote
+    ).
+
+partition_devices(DeviceNames) ->
+    lists:foldl(
+        fun(DN, {Local, Remote, Offline}) ->
+            case emqx_cm:lookup_channels(DN) of
+                [] ->
+                    {Local, Remote, Offline + 1};
+                [Pid | _] ->
+                    Node = node(Pid),
+                    case Node =:= node() of
                         true ->
-                            emqx_bcast_metrics:qos1_delivered_inline(),
-                            Msg = emqx_message:make(
-                                DeliveryId, DN, ?QOS_1, Topic, Payload, #{},
-                                #{?IOT_DELIVERY_ID => DeliveryId}
-                            ),
-                            Pid ! #deliver{topic = Topic, message = Msg};
+                            {[DN | Local], Remote, Offline};
                         false ->
-                            emqx_bcast_metrics:qos1_stored_offline()
-                    end;
-                _ ->
-                    emqx_bcast_metrics:qos1_stored_offline()
+                            {Local, maps:update_with(Node, fun(L) -> [DN | L] end, [DN], Remote),
+                                Offline}
+                    end
             end
         end,
+        {[], #{}, 0},
         DeviceNames
-    ),
-    {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)}.
+    ).
+
+count_offline(_Qos, 0) -> ok;
+count_offline(0, N) -> emqx_bcast_metrics:qos0_skipped(N);
+count_offline(1, N) -> emqx_bcast_metrics:qos1_stored_offline(N).
+
+deliver_one(Qos, ProductKey, TopicTemplate, Payload, DN, Opts) ->
+    case emqx_bcast:lookup_device({ProductKey, DN}) of
+        {ok, Pid} ->
+            Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DN),
+            case emqx_bcast_subscription:match(DN, Topic) of
+                {ok, SubQos} ->
+                    do_deliver(Qos, Pid, Topic, ProductKey, DN, Payload, SubQos, Opts);
+                false ->
+                    count_offline(Qos, 1)
+            end;
+        {error, not_found} ->
+            count_offline(Qos, 1)
+    end.
+
+do_deliver(0, Pid, Topic, _ProductKey, DN, Payload, _SubQos, _Opts) ->
+    emqx_bcast_metrics:qos0_delivered(),
+    Msg = emqx_message:make(DN, ?QOS_0, Topic, Payload),
+    Pid ! #deliver{topic = Topic, message = Msg};
+do_deliver(1, Pid, Topic, ProductKey, DN, Payload, SubQos, Opts) ->
+    DeliveryId = maps:get(delivery_id, Opts),
+    ForceUpgrade = maps:get(force_upgrade_qos, Opts, true),
+    case ForceUpgrade orelse SubQos >= 1 of
+        true ->
+            emqx_bcast_metrics:qos1_delivered_inline(),
+            Msg = emqx_message:make(
+                DeliveryId,
+                DN,
+                ?QOS_1,
+                Topic,
+                Payload,
+                #{},
+                #{?BCAST_DELIVERY_ID => DeliveryId, ?BCAST_PRODUCT_KEY => ProductKey}
+            ),
+            Pid ! #deliver{topic = Topic, message = Msg};
+        false ->
+            Msg = emqx_message:make(DN, ?QOS_0, Topic, Payload),
+            Pid ! #deliver{topic = Topic, message = Msg},
+            case emqx_bcast_storage:process_ack(ProductKey, DN, DeliveryId) of
+                counted -> emqx_bcast_metrics:qos1_acked();
+                _ -> ok
+            end
+    end.
 
 has_duplicates(List) ->
     length(lists:usort(List)) =/= length(List).
