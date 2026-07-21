@@ -37,23 +37,32 @@ add(_ClientId, _Pid, Filter) ->
             })
     end.
 
-remove(ClientId, _Pid, {TopicFilter, _Qos}) ->
+remove(ClientId, Pid, {TopicFilter, _Qos}) ->
     case ets:lookup(?TAB, ClientId) of
-        [#bcast_subscription{topics = Topics}] ->
+        [#bcast_subscription{pid = Pid, topics = Topics}] ->
             case lists:keydelete(TopicFilter, 1, Topics) of
                 [] ->
                     ets:delete(?TAB, ClientId);
                 NewTopics ->
                     ets:insert(?TAB, #bcast_subscription{
-                        clientid = ClientId, pid = undefined, topics = NewTopics
+                        clientid = ClientId, pid = Pid, topics = NewTopics
                     })
             end;
+        [#bcast_subscription{}] ->
+            %% stale unsubscribe from an old connection after takeover
+            ok;
         [] ->
             ok
     end.
 
-clear(ClientId, _Pid) ->
-    ets:delete(?TAB, ClientId).
+clear(ClientId, Pid) ->
+    case ets:lookup(?TAB, ClientId) of
+        [#bcast_subscription{pid = Pid}] ->
+            ets:delete(?TAB, ClientId);
+        _ ->
+            %% stale disconnect from an old connection after takeover
+            ok
+    end.
 
 match(ClientId, Topic) ->
     case ets:lookup(?TAB, ClientId) of
