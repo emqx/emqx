@@ -175,6 +175,48 @@ fail_if_no_peer_cert_test_() ->
         )
     ].
 
+listener_allow_log_packet_data_from_test_() ->
+    Sc = #{
+        roots => [mqtt_tcp_listener],
+        fields => #{mqtt_tcp_listener => emqx_schema:fields("mqtt_tcp_listener")}
+    },
+    Check = fun(Listener) ->
+        hocon_tconf:check_plain(
+            Sc,
+            #{<<"mqtt_tcp_listener">> => Listener},
+            #{atom_key => true, required => false}
+        )
+    end,
+    [
+        ?_assertMatch(
+            #{mqtt_tcp_listener := #{allow_log_packet_data_from := []}},
+            Check(#{})
+        ),
+        ?_assertMatch(
+            #{
+                mqtt_tcp_listener := #{
+                    allow_log_packet_data_from := [
+                        {{127, 0, 0, 1}, {127, 0, 0, 1}, 32},
+                        {{10, 20, 0, 0}, {10, 20, 255, 255}, 16},
+                        {
+                            {16#2001, 16#db8, 0, 0, 0, 0, 0, 0},
+                            {16#2001, 16#db8, 16#ffff, 16#ffff, 16#ffff, 16#ffff, 16#ffff, 16#ffff},
+                            32
+                        }
+                    ]
+                }
+            },
+            Check(#{
+                <<"allow_log_packet_data_from">> =>
+                    <<"127.0.0.1, 10.20.0.0/16, 2001:db8::/32">>
+            })
+        ),
+        ?_assertThrow(
+            {_, [#{kind := validation_error}]},
+            Check(#{<<"allow_log_packet_data_from">> => <<"127.0.0.1, invalid">>})
+        )
+    ].
+
 validate(Schema, Data0) ->
     Sc = #{
         roots => [ssl_opts],
