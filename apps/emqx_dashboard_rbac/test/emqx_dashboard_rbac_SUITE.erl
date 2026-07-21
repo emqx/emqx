@@ -744,6 +744,28 @@ t_global_only_message_endpoints_reject_namespaced_actors(_) ->
         global_only_message_endpoint_handlers()
     ).
 
+t_tracing_config_update_rejects_namespaced_actors(_) ->
+    Req = #{},
+    HandlerInfo = #{method => put, module => emqx_mgmt_api_trace, function => config},
+    Expected = {error, <<"Namespaced users may not update global tracing configuration">>},
+    lists:foreach(
+        fun(ActorContext) ->
+            ?assertEqual(
+                Expected,
+                emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext)
+            )
+        end,
+        namespaced_actor_contexts()
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, global_admin_actor_context())
+    ),
+    ?assertMatch(
+        {error, _},
+        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, global_viewer_actor_context())
+    ).
+
 global_only_message_endpoint_handlers() ->
     [
         #{method => get, module => emqx_mgmt_api_clients, function => mqueue_msgs},

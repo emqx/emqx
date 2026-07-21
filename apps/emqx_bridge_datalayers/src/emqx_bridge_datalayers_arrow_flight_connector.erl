@@ -569,7 +569,7 @@ do_prepare_to_conns([], _SqlStatement, AccOut) ->
 
 %% Prepare SQL statement on a specific connection
 prepare_sql_to_conn(Client, SqlStatement) ->
-    datalayers:prepare(Client, SqlStatement).
+    datalayers:prepare(Client, SqlStatement, #{auto_rebuild => true}).
 
 close_statement_on_conn(Client, PrepareRef) ->
     datalayers:close_prepared(Client, PrepareRef).

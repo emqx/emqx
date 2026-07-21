@@ -436,6 +436,70 @@ t_rule_action(Config) ->
     emqx_bridge_v2_testlib:t_rule_action(Config, Opts),
     ok.
 
+t_prepare_auto_rebuild(Config) ->
+    Host = ?config(datalayers_host, Config),
+    Port = ?config(datalayers_port, Config),
+    ConnConfig0 = #{
+        host => bin(Host),
+        port => Port,
+        username => <<"admin">>,
+        password => <<"public">>
+    },
+    ConnConfig =
+        case ?config(use_tls, Config) of
+            true ->
+                ConnConfig0#{tls_cert => cacert_file()};
+            false ->
+                ConnConfig0
+        end,
+    {ok, Client} = datalayers:connect(ConnConfig),
+
+    _ = datalayers:execute(Client, <<"DROP TABLE IF EXISTS mqtt_arrow.auto_rebuild_test">>),
+    {ok, _} = datalayers:execute(Client, <<
+        "CREATE TABLE mqtt_arrow.auto_rebuild_test ("
+        "ts TIMESTAMP(3) NOT NULL,"
+        "msgid STRING NOT NULL,"
+        "clientid STRING NOT NULL,"
+        "topic STRING NOT NULL,"
+        "qos INT8 NOT NULL,"
+        "payload STRING NOT NULL,"
+        "timestamp key(ts))"
+        " PARTITION BY HASH(msgid) PARTITIONS 8 ENGINE=TimeSeries"
+    >>),
+
+    InsertSql = <<
+        "INSERT INTO mqtt_arrow.auto_rebuild_test"
+        "(ts, msgid, clientid, topic, qos, payload) VALUES (?, ?, ?, ?, ?, ?)"
+    >>,
+    {ok, Stmt} = datalayers:prepare(Client, InsertSql, #{auto_rebuild => true}),
+
+    Ts1 = erlang:system_time(millisecond),
+    {ok, _} = datalayers:execute_prepare(Client, Stmt, [
+        [Ts1, <<"id1">>, <<"c1">>, <<"t/1">>, 1, <<"hello1">>]
+    ]),
+    {ok, _} = datalayers:close_prepared(Client, Stmt),
+
+    Ts2 = erlang:system_time(millisecond),
+    {ok, _} = datalayers:execute_prepare(Client, Stmt, [
+        [Ts2, <<"id2">>, <<"c2">>, <<"t/2">>, 1, <<"hello2">>]
+    ]),
+
+    {ok, Rows} = datalayers:execute(
+        Client,
+        <<"SELECT clientid, payload FROM mqtt_arrow.auto_rebuild_test ORDER BY ts">>
+    ),
+    ?assertMatch(
+        [
+            [<<"c1">>, <<"hello1">>],
+            [<<"c2">>, <<"hello2">>]
+        ],
+        Rows
+    ),
+
+    _ = datalayers:execute(Client, <<"DROP TABLE IF EXISTS mqtt_arrow.auto_rebuild_test">>),
+    datalayers:stop(Client),
+    ok.
+
 exec_sql(SQL, Config) ->
     Host = ?config(datalayers_host, Config),
     Port = ?config(datalayers_port, Config),

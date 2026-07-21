@@ -56,27 +56,17 @@ start_link() ->
 
 -spec add_schema(schema_name(), binary()) -> ok | {error, term()}.
 add_schema(NameVsn, AvscBin) ->
-    case lookup_serde(NameVsn) of
-        {ok, _Serde} ->
-            ?SLOG(debug, #{msg => "plugin_schema_already_exists", plugin => NameVsn}),
+    case gen_server:call(?SERVER, #add_schema{name_vsn = NameVsn, avsc_bin = AvscBin}, infinity) of
+        ok ->
+            ?SLOG(debug, #{msg => "plugin_schema_added", plugin => NameVsn}),
             ok;
-        {error, not_found} ->
-            case
-                gen_server:call(
-                    ?SERVER, #add_schema{name_vsn = NameVsn, avsc_bin = AvscBin}, infinity
-                )
-            of
-                ok ->
-                    ?SLOG(debug, #{msg => "plugin_schema_added", plugin => NameVsn}),
-                    ok;
-                {error, Reason} = Error ->
-                    ?SLOG(error, #{
-                        msg => "plugin_schema_add_failed",
-                        plugin => NameVsn,
-                        reason => emqx_utils:readable_error_msg(Reason)
-                    }),
-                    Error
-            end
+        {error, Reason} = Error ->
+            ?SLOG(error, #{
+                msg => "plugin_schema_add_failed",
+                plugin => NameVsn,
+                reason => emqx_utils:readable_error_msg(Reason)
+            }),
+            Error
     end.
 
 -spec delete_schema(schema_name()) -> ok | {error, term()}.

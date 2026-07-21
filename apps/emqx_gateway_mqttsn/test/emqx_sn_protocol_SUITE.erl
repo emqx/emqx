@@ -1627,14 +1627,13 @@ t_will_case06(_) ->
     %% here so the SUITE does not depend on UDP port-allocation luck.
     ok = ensure_channel_gone(ClientId).
 
-%% Reproduces UDP ephemeral-port reuse deterministically: a stale
-%% `disconnected' channel bound to a peer UDP port must not crash when a new
-%% device connects from the same source port. The stale channel is retired
-%% cleanly and the new device is able to connect.
+%% Reproduces a same-ClientId reconnect after the UDP source port is reused by a
+%% new proxy process. The new connection takes over the old disconnected session
+%% immediately.
 t_takeover_on_udp_port_reuse(_) ->
     {ok, SockA} = gen_udp:open(0, [binary]),
     {ok, PortA} = inet:port(SockA),
-    ClientA = ?CLIENTID,
+    ClientA = <<"disconnected-port-reuse-same-client">>,
     %% device A connects with CleanSession=0 and disconnects, leaving its
     %% channel alive in the `disconnected' state.
     send_connect_msg(SockA, ClientA, 0),
@@ -1650,30 +1649,72 @@ t_takeover_on_udp_port_reuse(_) ->
     %% device B reuses the exact same source UDP port.
     {ok, SockB} = gen_udp:open(PortA, [binary, {reuseaddr, true}]),
     try
-        ClientB = ?CLIENTID,
-        %% the CONNECT is routed to the stale channel, which is retired
-        %% cleanly (before the fix this crashed with a function_clause).
+        ClientB = ClientA,
         send_connect_msg(SockB, ClientB, 0),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(SockB)),
         receive
             {'DOWN', MRef, process, OldPid, Reason} ->
-                ?assertEqual({shutdown, takeover_by_new_connect}, Reason)
+                ?assertEqual({shutdown, takenover}, Reason)
         after 2000 ->
             ct:fail(stale_channel_not_retired)
         end,
-        %% the CONNECT that retired the stale channel gets no reply on the
-        %% wire (the channel is shut down without an ack frame); the device
-        %% must recover on retransmit.
-        ?assertEqual(udp_receive_timeout, receive_response(SockB, 500)),
-        %% the new device connects on retransmit (MQTT-SN clients retransmit
-        %% CONNECT when no reply is received).
+        ok = ensure_channel_gone(ClientB)
+    after
+        gen_udp:close(SockB)
+    end.
+
+%% Reproduces a same-ClientId reconnect on the same UDP source tuple. The new
+%% connection takes over the old disconnected session immediately.
+t_disconnected_same_proxy_same_clientid_reconnect(_) ->
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = <<"disconnected-same-proxy-reconnect">>,
+    try
+        send_connect_msg(Socket, ClientId, 0),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+        send_disconnect_msg(Socket, undefined),
+        ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+        OldPid = wait_for_disconnected_channel(ClientId),
+
+        MRef = erlang:monitor(process, OldPid),
+        send_connect_msg(Socket, ClientId, 0),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+        receive
+            {'DOWN', MRef, process, OldPid, Reason} ->
+                ?assertEqual({shutdown, takenover}, Reason)
+        after 2000 ->
+            ct:fail(stale_channel_not_retired)
+        end,
+        ok = ensure_channel_gone(ClientId)
+    after
+        gen_udp:close(Socket)
+    end.
+
+%% Reproduces a different ClientId reusing the same UDP source port. UDP proxy
+%% routing must follow the CONNECT ClientId, not the peer port, so the new client
+%% connects immediately and the old disconnected session stays resumable.
+t_disconnected_same_source_tuple_reused_by_other_clientid(_) ->
+    {ok, SockA} = gen_udp:open(0, [binary]),
+    {ok, PortA} = inet:port(SockA),
+    ClientA = <<"disconnected-source-reuse-1">>,
+    ClientB = <<"disconnected-source-reuse-2">>,
+    send_connect_msg(SockA, ClientA, 0),
+    ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(SockA)),
+    send_disconnect_msg(SockA, undefined),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(SockA)),
+    OldPid = wait_for_disconnected_channel(ClientA),
+    ok = gen_udp:close(SockA),
+
+    {ok, SockB} = gen_udp:open(PortA, [binary, {reuseaddr, true}]),
+    try
+        send_connect_msg(SockB, ClientB, 0),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(SockB)),
+        ?assert(is_process_alive(OldPid)),
         ?retry(
-            200,
-            10,
-            begin
-                send_connect_msg(SockB, ClientB, 0),
-                ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(SockB))
-            end
+            50,
+            20,
+            #{conn_state := disconnected} = emqx_gateway_cm:get_chan_info(mqttsn, ClientA, OldPid)
         ),
+        ok = ensure_channel_gone(ClientA),
         ok = ensure_channel_gone(ClientB)
     after
         gen_udp:close(SockB)
@@ -1810,6 +1851,490 @@ t_asleep_test03_to_awake_qos1_dl_msg(_) ->
     ?assertEqual([], emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId)),
 
     gen_udp:close(Socket).
+
+t_asleep_pingreq_after_source_tuple_change(_) ->
+    QoS = 1,
+    SleepDuration = 5,
+    ClientId = <<"asleep-source-change-pingreq">>,
+    TopicName = <<"asleep/source/change/pingreq">>,
+    Payload = <<"queued-after-source-change">>,
+    MsgId = 25,
+    Dup = 0,
+    Retain = 0,
+    WillBit = 0,
+    CleanSession = 0,
+    {ok, Socket1} = gen_udp:open(0, [binary]),
+    {ok, Socket2} = gen_udp:open(0, [binary]),
+    try
+        send_connect_msg(Socket1, ClientId),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket1)),
+
+        send_subscribe_msg_normal_topic(Socket1, QoS, TopicName, MsgId),
+        SubAck = receive_response(Socket1),
+        ?assertMatch(
+            <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+                _TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+            SubAck
+        ),
+        <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+            TopicId:16, MsgId:16,
+            ?SN_RC_ACCEPTED>> =
+            SubAck,
+
+        send_disconnect_msg(Socket1, SleepDuration),
+        ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket1)),
+
+        timer:sleep(100),
+        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        timer:sleep(100),
+
+        send_pingreq_msg(Socket2, ClientId),
+        UdpData = receive_response(Socket2),
+        PubMsgId = check_publish_msg_on_udp(
+            {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId, Payload},
+            UdpData
+        ),
+        send_puback_msg(Socket2, TopicId, PubMsgId),
+        ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket2))
+    after
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId),
+        gen_udp:close(Socket1),
+        gen_udp:close(Socket2)
+    end.
+
+t_connected_pingreq_after_source_tuple_change(_) ->
+    QoS = 1,
+    ClientId = <<"connected-source-change-pingreq">>,
+    TopicName = <<"connected/source/change/pingreq">>,
+    Payload = <<"deliver-to-original-connected-socket">>,
+    MsgId = 31,
+    Dup = 0,
+    Retain = 0,
+    WillBit = 0,
+    CleanSession = 0,
+    {ok, Socket1} = gen_udp:open(0, [binary]),
+    {ok, Socket2} = gen_udp:open(0, [binary]),
+    try
+        send_connect_msg(Socket1, ClientId),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket1)),
+        send_subscribe_msg_normal_topic(Socket1, QoS, TopicName, MsgId),
+        SubAck = receive_response(Socket1),
+        ?assertMatch(
+            <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+                _TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+            SubAck
+        ),
+        <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+            TopicId:16, MsgId:16,
+            ?SN_RC_ACCEPTED>> =
+            SubAck,
+
+        send_pingreq_msg(Socket2, ClientId),
+        ?assertEqual(udp_receive_timeout, receive_response(Socket2, 500)),
+
+        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        UdpData = receive_response(Socket1),
+        _PubMsgId = check_publish_msg_on_udp(
+            {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId, Payload},
+            UdpData
+        ),
+        ?assertEqual(udp_receive_timeout, receive_response(Socket2, 500))
+    after
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId),
+        gen_udp:close(Socket1),
+        gen_udp:close(Socket2)
+    end.
+
+t_stale_udp_proxy_detach_does_not_close_current_socket(_) ->
+    QoS = 1,
+    ClientId = <<"stale-proxy-detach-current-socket">>,
+    TopicName = <<"stale/proxy/detach/current/socket">>,
+    Payload = <<"deliver-after-stale-detach">>,
+    MsgId = 32,
+    Dup = 0,
+    Retain = 0,
+    WillBit = 0,
+    CleanSession = 0,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        send_connect_msg(Socket, ClientId),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+        send_subscribe_msg_normal_topic(Socket, QoS, TopicName, MsgId),
+        SubAck = receive_response(Socket),
+        ?assertMatch(
+            <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+                _TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+            SubAck
+        ),
+        <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+            TopicId:16, MsgId:16,
+            ?SN_RC_ACCEPTED>> =
+            SubAck,
+
+        [Pid] = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
+        Pid ! {udp_proxy_detached, self()},
+        ok = emqx_mqttsn_proxy_conn:detach(Pid, #{}),
+        timer:sleep(100),
+
+        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        UdpData = receive_response(Socket),
+        _PubMsgId = check_publish_msg_on_udp(
+            {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId, Payload},
+            UdpData
+        )
+    after
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId),
+        gen_udp:close(Socket)
+    end.
+
+t_stale_udp_proxy_close_does_not_close_current_socket(_) ->
+    QoS = 1,
+    ClientId = <<"stale-proxy-close-current-socket">>,
+    TopicName = <<"stale/proxy/close/current/socket">>,
+    Payload = <<"deliver-after-stale-close">>,
+    MsgId = 33,
+    Dup = 0,
+    Retain = 0,
+    WillBit = 0,
+    CleanSession = 0,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        send_connect_msg(Socket, ClientId),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+        send_subscribe_msg_normal_topic(Socket, QoS, TopicName, MsgId),
+        SubAck = receive_response(Socket),
+        ?assertMatch(
+            <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+                _TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+            SubAck
+        ),
+        <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+            TopicId:16, MsgId:16,
+            ?SN_RC_ACCEPTED>> =
+            SubAck,
+
+        [Pid] = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
+        Pid ! {udp_proxy_closed, self()},
+        ok = emqx_mqttsn_proxy_conn:close(Pid, #{}),
+        timer:sleep(100),
+
+        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        UdpData = receive_response(Socket),
+        _PubMsgId = check_publish_msg_on_udp(
+            {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId, Payload},
+            UdpData
+        )
+    after
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId),
+        gen_udp:close(Socket)
+    end.
+
+t_current_udp_proxy_close_closes_current_socket(_) ->
+    QoS = 1,
+    ClientId = <<"current-proxy-close-current-socket">>,
+    TopicName = <<"current/proxy/close/current/socket">>,
+    Payload = <<"not-delivered-after-current-close">>,
+    MsgId = 34,
+    Dup = 0,
+    Retain = 0,
+    WillBit = 0,
+    CleanSession = 0,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        send_connect_msg(Socket, ClientId),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+        send_subscribe_msg_normal_topic(Socket, QoS, TopicName, MsgId),
+        SubAck = receive_response(Socket),
+        ?assertMatch(
+            <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+                _TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+            SubAck
+        ),
+
+        [Pid] = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
+        Pid ! {udp_proxy_closed, current_udp_proxy_id(Pid)},
+        timer:sleep(100),
+
+        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        ?assertEqual(udp_receive_timeout, receive_response(Socket, 500))
+    after
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId),
+        gen_udp:close(Socket)
+    end.
+
+t_asleep_pingreq_after_proxy_close(_) ->
+    QoS = 1,
+    SleepDuration = 5,
+    ClientId = <<"asleep-proxy-close-pingreq">>,
+    TopicName = <<"asleep/proxy/close/pingreq">>,
+    Payload = <<"queued-after-proxy-close">>,
+    MsgId = 26,
+    Dup = 0,
+    Retain = 0,
+    WillBit = 0,
+    CleanSession = 0,
+    {ok, Socket1} = gen_udp:open(0, [binary]),
+    {ok, Socket2} = gen_udp:open(0, [binary]),
+    try
+        send_connect_msg(Socket1, ClientId),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket1)),
+
+        send_subscribe_msg_normal_topic(Socket1, QoS, TopicName, MsgId),
+        SubAck = receive_response(Socket1),
+        ?assertMatch(
+            <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+                _TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+            SubAck
+        ),
+        <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+            TopicId:16, MsgId:16,
+            ?SN_RC_ACCEPTED>> =
+            SubAck,
+
+        send_disconnect_msg(Socket1, SleepDuration),
+        ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket1)),
+
+        [Pid] = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
+        _ = emqx_mqttsn_proxy_conn:close(Pid, current_udp_proxy_id(Pid), #{}),
+        timer:sleep(100),
+
+        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        timer:sleep(100),
+
+        send_pingreq_msg(Socket2, ClientId),
+        UdpData = receive_response(Socket2),
+        PubMsgId = check_publish_msg_on_udp(
+            {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId, Payload},
+            UdpData
+        ),
+        send_puback_msg(Socket2, TopicId, PubMsgId),
+        ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket2))
+    after
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId),
+        gen_udp:close(Socket1),
+        gen_udp:close(Socket2)
+    end.
+
+t_asleep_same_source_tuple_reused_by_other_clientid(_) ->
+    QoS = 1,
+    ClientId1 = <<"asleep-source-reuse-1">>,
+    ClientId2 = <<"asleep-source-reuse-2">>,
+    TopicName = <<"asleep/source/reuse">>,
+    Payload = <<"queued-for-first-client">>,
+    MsgId = 27,
+    Dup = 0,
+    Retain = 0,
+    WillBit = 0,
+    CleanSession = 0,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    {ok, Socket2} = gen_udp:open(0, [binary]),
+    try
+        send_connect_msg(Socket, ClientId1),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+        send_subscribe_msg_normal_topic(Socket, QoS, TopicName, MsgId),
+        SubAck = receive_response(Socket),
+        ?assertMatch(
+            <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+                _TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+            SubAck
+        ),
+        <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+            TopicId:16, MsgId:16,
+            ?SN_RC_ACCEPTED>> =
+            SubAck,
+
+        send_disconnect_msg(Socket, 5),
+        ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
+        send_connect_msg(Socket, ClientId2),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+
+        emqx_broker:publish(emqx_message:make(<<"ct">>, 1, TopicName, Payload)),
+        timer:sleep(100),
+
+        send_pingreq_msg(Socket2, ClientId1),
+        UdpData = receive_response(Socket2),
+        PubMsgId = check_publish_msg_on_udp(
+            {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId, Payload},
+            UdpData
+        ),
+        send_puback_msg(Socket2, TopicId, PubMsgId),
+        ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket2))
+    after
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId1),
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId2),
+        gen_udp:close(Socket),
+        gen_udp:close(Socket2)
+    end.
+
+t_connected_same_source_tuple_reused_by_other_clientid(_) ->
+    QoS = 1,
+    ClientId1 = <<"connected-source-reuse-1">>,
+    ClientId2 = <<"connected-source-reuse-2">>,
+    TopicName = <<"connected/source/reuse">>,
+    Payload = <<"queued-for-first-connected-client">>,
+    MsgId = 28,
+    Dup = 0,
+    Retain = 0,
+    WillBit = 0,
+    CleanSession = 0,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        send_connect_msg(Socket, ClientId1),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+        send_subscribe_msg_normal_topic(Socket, QoS, TopicName, MsgId),
+        SubAck = receive_response(Socket),
+        ?assertMatch(
+            <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+                _TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+            SubAck
+        ),
+
+        send_connect_msg(Socket, ClientId2),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+
+        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        ?assertEqual(udp_receive_timeout, receive_response(Socket, 500))
+    after
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId1),
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId2),
+        gen_udp:close(Socket)
+    end.
+
+t_connected_clean_session_false_same_source_tuple_reused_preserves_session(_) ->
+    QoS = 1,
+    ClientId1 = <<"connected-clean-false-source-reuse-1">>,
+    ClientId2 = <<"connected-clean-false-source-reuse-2">>,
+    TopicName = <<"connected/clean/false/source/reuse">>,
+    Payload = <<"queued-for-persistent-connected-client">>,
+    MsgId = 29,
+    Dup = 0,
+    Retain = 0,
+    WillBit = 0,
+    CleanSession = 0,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    {ok, Socket2} = gen_udp:open(0, [binary]),
+    ok = setup_connection_closed_spy(),
+    try
+        send_connect_msg(Socket, ClientId1, CleanSession),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+        send_subscribe_msg_normal_topic(Socket, QoS, TopicName, MsgId),
+        SubAck = receive_response(Socket),
+        ?assertMatch(
+            <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+                _TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+            SubAck
+        ),
+        <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+            TopicId:16, MsgId:16,
+            ?SN_RC_ACCEPTED>> =
+            SubAck,
+
+        send_connect_msg(Socket, ClientId2),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+
+        ?retry(
+            50,
+            20,
+            #{
+                conn_state := disconnected,
+                session := #{subscriptions := #{TopicName := _}}
+            } = emqx_gateway_cm:get_chan_info(mqttsn, ClientId1)
+        ),
+        ?assertNot(received_connection_closed(ClientId1)),
+        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        timer:sleep(100),
+
+        ?assertEqual(udp_receive_timeout, receive_response(Socket, 500)),
+
+        send_connect_msg(Socket2, ClientId1, CleanSession),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket2)),
+        UdpData = receive_response(Socket2),
+        PubMsgId = check_publish_msg_on_udp(
+            {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId, Payload},
+            UdpData
+        ),
+        send_puback_msg(Socket2, TopicId, PubMsgId)
+    after
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId1),
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId2),
+        gen_udp:close(Socket),
+        gen_udp:close(Socket2),
+        meck:unload(emqx_gateway_ctx)
+    end.
+
+t_awake_same_source_tuple_reused_by_other_clientid(_) ->
+    QoS = 1,
+    ClientId1 = <<"awake-source-reuse-1">>,
+    ClientId2 = <<"awake-source-reuse-2">>,
+    TopicName = <<"awake/source/reuse">>,
+    Payload1 = <<"inflight-for-first-awake-client">>,
+    Payload2 = <<"queued-for-first-awake-client">>,
+    MsgId = 30,
+    Dup = 0,
+    Retain = 0,
+    WillBit = 0,
+    CleanSession = 0,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    {ok, Socket2} = gen_udp:open(0, [binary]),
+    ok = setup_connection_closed_spy(),
+    try
+        send_connect_msg(Socket, ClientId1, CleanSession),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+        send_subscribe_msg_normal_topic(Socket, QoS, TopicName, MsgId),
+        SubAck = receive_response(Socket),
+        ?assertMatch(
+            <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+                _TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+            SubAck
+        ),
+        <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+            TopicId:16, MsgId:16,
+            ?SN_RC_ACCEPTED>> =
+            SubAck,
+
+        send_disconnect_msg(Socket, 5),
+        ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
+        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload1)),
+        timer:sleep(100),
+
+        send_pingreq_msg(Socket, ClientId1),
+        UdpData = receive_response(Socket),
+        _PubMsgId = check_publish_msg_on_udp(
+            {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId, Payload1},
+            UdpData
+        ),
+
+        ?retry(50, 20, #{conn_state := awake} = emqx_gateway_cm:get_chan_info(mqttsn, ClientId1)),
+
+        send_connect_msg(Socket, ClientId2),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+
+        ?retry(
+            50,
+            20,
+            #{
+                conn_state := disconnected,
+                session := #{subscriptions := #{TopicName := _}}
+            } = emqx_gateway_cm:get_chan_info(mqttsn, ClientId1)
+        ),
+        ?assertNot(received_connection_closed(ClientId1)),
+        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload2)),
+        timer:sleep(100),
+
+        ?assertEqual(udp_receive_timeout, receive_response(Socket, 500)),
+
+        send_connect_msg(Socket2, ClientId1, CleanSession),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket2)),
+        assert_publish_received(Socket2, TopicId, Payload2)
+    after
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId1),
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId2),
+        gen_udp:close(Socket),
+        gen_udp:close(Socket2),
+        meck:unload(emqx_gateway_ctx)
+    end.
 
 t_asleep_test04_to_awake_qos1_dl_msg(_) ->
     QoS = 1,
@@ -2411,6 +2936,52 @@ t_register_subs_resume_on(_) ->
     ?assertMatch(<<2, ?SN_DISCONNECT>>, receive_response(NSocket1)),
     gen_udp:close(NSocket1),
     update_mqttsn_with_subs_resume_off().
+
+t_register_subs_resume_on_same_source_tuple(_) ->
+    update_mqttsn_with_subs_resume_on(),
+    ClientId = ?CLIENTID,
+    MsgId = 1,
+    TopicName = ?PREDEF_TOPIC_NAME1,
+    Payload = <<"same-source-offline">>,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        send_connect_msg(Socket, ClientId, 0),
+        ?assertMatch(
+            <<_, ?SN_CONNACK, ?SN_RC_ACCEPTED>>,
+            receive_response(Socket)
+        ),
+
+        send_subscribe_msg_predefined_topic(Socket, ?QOS_1, ?PREDEF_TOPIC_ID1, MsgId),
+        <<_, ?SN_SUBACK, 2#00100000, ?PREDEF_TOPIC_ID1:16, _:16, ?SN_RC_ACCEPTED>> =
+            receive_response(Socket),
+
+        send_disconnect_msg(Socket, undefined),
+        ?assertMatch(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
+        timer:sleep(100),
+        _ = emqx:publish(
+            emqx_message:make(test, ?QOS_1, TopicName, Payload)
+        ),
+        timer:sleep(100),
+
+        send_connect_msg(Socket, ClientId, 0),
+        ?assertMatch(
+            <<_, ?SN_CONNACK, ?SN_RC_ACCEPTED>>,
+            receive_response(Socket)
+        ),
+
+        <<_, ?SN_REGISTER, ?PREDEF_TOPIC_ID1:16, RegMsgId:16, TopicName/binary>> =
+            receive_response(Socket),
+        send_regack_msg(Socket, ?PREDEF_TOPIC_ID1, RegMsgId),
+
+        <<_, ?SN_PUBLISH, 2#00100001, ?PREDEF_TOPIC_ID1:16, PubMsgId:16, Payload/binary>> =
+            receive_response(Socket),
+        send_puback_msg(Socket, ?PREDEF_TOPIC_ID1, PubMsgId, ?SN_RC_ACCEPTED)
+    after
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId),
+        gen_udp:close(Socket),
+        update_mqttsn_with_subs_resume_off()
+    end.
 
 t_register_subs_resume_off(_) ->
     MsgId = 1,
@@ -3116,6 +3687,26 @@ ensure_channel_gone(ClientId) ->
     ),
     ok.
 
+received_connection_closed(ClientId) ->
+    receive
+        {connection_closed, ClientId} ->
+            true
+    after 100 ->
+        false
+    end.
+
+setup_connection_closed_spy() ->
+    TestPid = self(),
+    ok = meck:new(emqx_gateway_ctx, [passthrough, no_history, no_link]),
+    ok = meck:expect(
+        emqx_gateway_ctx,
+        connection_closed,
+        fun(Ctx, ClientId) ->
+            TestPid ! {connection_closed, ClientId},
+            meck:passthrough([Ctx, ClientId])
+        end
+    ).
+
 with_gateway_authz_result(Protocol, ActionType, Topic, Result, Fun) ->
     Action = {?MODULE, gateway_authz_result, [Protocol, ActionType, Topic, Result]},
     ok = emqx_hooks:put('client.authorize', Action, ?HP_HIGHEST),
@@ -3171,6 +3762,29 @@ check_dispatched_message(Dup, QoS, Retain, TopicIdType, TopicId, Payload, Socket
             ?assertEqual(<<4, ?SN_PUBCOMP, MsgId:16>>, receive_response(Socket))
     end,
     ok.
+
+assert_publish_received(Socket, TopicId, ExpectedPayload) ->
+    assert_publish_received(Socket, TopicId, ExpectedPayload, 3).
+
+assert_publish_received(_Socket, _TopicId, ExpectedPayload, 0) ->
+    error({expected_publish_not_received, ExpectedPayload});
+assert_publish_received(Socket, TopicId, ExpectedPayload, Attempts) ->
+    case receive_response(Socket) of
+        <<_Length, ?SN_PUBLISH, _Dup:1, QoS:2, _Retain:1, ?FNU:2, ?SN_NORMAL_TOPIC:2, TopicId:16,
+            MsgId:16, ExpectedPayload/binary>> ->
+            QoS == 1 andalso send_puback_msg(Socket, TopicId, MsgId),
+            ok;
+        <<_Length, ?SN_PUBLISH, _Dup:1, QoS:2, _Retain:1, ?FNU:2, ?SN_NORMAL_TOPIC:2, TopicId:16,
+            MsgId:16, _OtherPayload/binary>> ->
+            QoS == 1 andalso send_puback_msg(Socket, TopicId, MsgId),
+            assert_publish_received(Socket, TopicId, ExpectedPayload, Attempts - 1);
+        Other ->
+            error({unexpected_publish_response, Other})
+    end.
+
+current_udp_proxy_id(Pid) ->
+    {esockd_udp_proxy, ProxyId, _Sock} = element(2, sys:get_state(Pid)),
+    ProxyId.
 
 get_udp_broadcast_address() ->
     "255.255.255.255".
