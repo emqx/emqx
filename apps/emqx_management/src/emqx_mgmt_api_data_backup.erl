@@ -79,6 +79,9 @@ schema("/data/import") ->
         post => #{
             tags => ?TAGS,
             description => ?DESC("data_import"),
+            parameters => [
+                field_namespace(false, #{in => query})
+            ],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 ?R_REF(import_request_body),
                 maps:with([node, filename], backup_file_info_example())
@@ -98,6 +101,9 @@ schema("/data/files") ->
         post => #{
             tags => ?TAGS,
             description => ?DESC("upload_backup_file"),
+            parameters => [
+                field_namespace(false, #{in => query})
+            ],
             'requestBody' => emqx_dashboard_swagger:file_schema(filename),
             responses => #{
                 204 => <<"No Content">>,
@@ -263,8 +269,8 @@ data_export(post, #{body := Params0} = Req) ->
             {500, #{code => 'INTERNAL_ERROR', message => Msg}}
     end.
 
-data_import(post, #{body := #{<<"filename">> := Filename} = Body} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+data_import(post, #{body := #{<<"filename">> := Filename} = Body, query_string := QS} = Req) ->
+    Namespace = op_namespace(Req, QS),
     Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, 2),
     case safe_parse_node(Body, Nodes) of
         {error, Msg} ->
@@ -348,8 +354,8 @@ core_node(FileNode) ->
             end
     end.
 
-data_files(post, #{body := #{<<"filename">> := #{type := _} = File}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+data_files(post, #{body := #{<<"filename">> := #{type := _} = File}, query_string := QS} = Req) ->
+    Namespace = op_namespace(Req, QS),
     [{Filename, FileContent} | _] = maps:to_list(maps:without([type], File)),
     case emqx_mgmt_data_backup:upload(Namespace, Filename, FileContent) of
         ok ->
