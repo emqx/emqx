@@ -118,12 +118,7 @@ reconfigure() ->
 %% would crash, so we catch the badarg here).
 -spec leader_node() -> {ok, node()} | {error, no_core_nodes}.
 leader_node() ->
-    Cores =
-        try
-            mria_membership:running_core_nodelist()
-        catch
-            _:_ -> []
-        end,
+    Cores = emqx_cluster:running_core_nodelist(),
     case lists:sort(Cores) of
         [] -> {error, no_core_nodes};
         [Leader | _] -> {ok, Leader}
