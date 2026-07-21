@@ -15,7 +15,10 @@
 
 -define(PATH, [authentication]).
 
--define(HTTP_PORT, 34333).
+%% Keep below the ephemeral port range (net.ipv4.ip_local_port_range, 32768-60999
+%% on CI): a port inside that range can be picked as the source port of an
+%% outbound connection, making this listener fail to bind with eaddrinuse.
+-define(HTTP_PORT, 32336).
 -define(HTTP_PATH, "/user/[...]").
 -define(ALGORITHM, sha512).
 -define(ALGORITHM_STR, <<"sha512">>).
@@ -368,7 +371,7 @@ raw_config() ->
         <<"enable">> => <<"true">>,
         <<"max_inactive">> => <<"10s">>,
         <<"method">> => <<"get">>,
-        <<"url">> => <<"http://127.0.0.1:34333/user">>,
+        <<"url">> => <<"http://127.0.0.1:32336/user">>,
         <<"body">> => #{<<"username">> => ?PH_USERNAME},
         <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>},
         <<"algorithm">> => ?ALGORITHM_STR,
