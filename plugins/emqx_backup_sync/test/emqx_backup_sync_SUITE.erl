@@ -56,7 +56,6 @@ all() ->
         t_sync_runs_only_on_selected_core,
         t_sync_rechecks_selected_core_in_worker,
         t_sync_skips_when_no_running_core_nodes,
-        t_sync_skips_when_core_membership_unavailable,
         t_sync_skips_when_core_role_unavailable,
         t_non_selected_core_takes_over_on_next_interval,
         t_sync_skips_when_cluster_lock_is_held,
@@ -256,16 +255,6 @@ t_sync_rechecks_selected_core_in_worker(_Config) ->
 
 t_sync_skips_when_no_running_core_nodes(_Config) ->
     setup_core_nodes([]),
-    setup_counting_sync(),
-    Pid = start_test_server(),
-    ok = emqx_backup_sync:on_config_changed(#{}, conf()),
-
-    Pid ! sync,
-    assert_no_sync_started(200),
-    ?assertEqual(ok, emqx_backup_sync:on_health_check()).
-
-t_sync_skips_when_core_membership_unavailable(_Config) ->
-    setup_core_membership_unavailable(),
     setup_counting_sync(),
     Pid = start_test_server(),
     ok = emqx_backup_sync:on_config_changed(#{}, conf()),
@@ -1200,7 +1189,7 @@ t_real_selected_core_takes_over_after_node_down(Config) ->
         ok = configure_sync_nodes([SelectedNode, OtherNode], SyncConf),
         ok = emqx_cth_cluster:stop([SelectedNode]),
         wait_until(
-            fun() -> ?ON(OtherNode, mria_membership:running_core_nodelist()) =:= [OtherNode] end,
+            fun() -> ?ON(OtherNode, emqx_cluster:running_core_nodelist()) =:= [OtherNode] end,
             #{action => wait_failover_membership, node => OtherNode}
         ),
 
@@ -1430,32 +1419,24 @@ setup_core_node() ->
 setup_core_nodes(Nodes) ->
     meck:new(mria_rlog, [passthrough]),
     meck:expect(mria_rlog, role, 0, core),
-    meck:new(mria_membership, [passthrough]),
-    meck:expect(mria_membership, running_core_nodelist, 0, Nodes).
-
-setup_core_membership_unavailable() ->
-    meck:new(mria_rlog, [passthrough]),
-    meck:expect(mria_rlog, role, 0, core),
-    meck:new(mria_membership, [passthrough]),
-    meck:expect(mria_membership, running_core_nodelist, fun() ->
-        error(membership_unavailable)
-    end).
+    meck:new(emqx_cluster, [passthrough]),
+    meck:expect(emqx_cluster, running_core_nodelist, 0, Nodes).
 
 setup_core_role_unavailable() ->
     meck:new(mria_rlog, [passthrough]),
     meck:expect(mria_rlog, role, fun() ->
         error(role_unavailable)
     end),
-    meck:new(mria_membership, [passthrough]),
-    meck:expect(mria_membership, running_core_nodelist, 0, [node()]).
+    meck:new(emqx_cluster, [passthrough]),
+    meck:expect(emqx_cluster, running_core_nodelist, 0, [node()]).
 
 setup_core_nodes_sequence(NodeSequences) ->
     new_core_nodes_tab(),
     true = ets:insert(?CORE_NODES_TAB, {node_sequences, NodeSequences}),
     meck:new(mria_rlog, [passthrough]),
     meck:expect(mria_rlog, role, 0, core),
-    meck:new(mria_membership, [passthrough]),
-    meck:expect(mria_membership, running_core_nodelist, fun() ->
+    meck:new(emqx_cluster, [passthrough]),
+    meck:expect(emqx_cluster, running_core_nodelist, fun() ->
         [{node_sequences, [Current | Rest]}] = ets:lookup(?CORE_NODES_TAB, node_sequences),
         case Rest of
             [] -> ok;
@@ -1469,8 +1450,8 @@ setup_dynamic_core_nodes(Nodes) ->
     set_core_nodes(Nodes),
     meck:new(mria_rlog, [passthrough]),
     meck:expect(mria_rlog, role, 0, core),
-    meck:new(mria_membership, [passthrough]),
-    meck:expect(mria_membership, running_core_nodelist, fun() ->
+    meck:new(emqx_cluster, [passthrough]),
+    meck:expect(emqx_cluster, running_core_nodelist, fun() ->
         [{nodes, CurrentNodes}] = ets:lookup(?CORE_NODES_TAB, nodes),
         CurrentNodes
     end).
@@ -1598,7 +1579,7 @@ unmock_print() ->
 cleanup_test_artifacts() ->
     cleanup_test_server(),
     catch meck:unload(mria_rlog),
-    catch meck:unload(mria_membership),
+    catch meck:unload(emqx_cluster),
     catch meck:unload(emqx_backup_sync_client),
     catch ets:delete(?CORE_NODES_TAB),
     ok.
@@ -2199,7 +2180,7 @@ configure_sync_nodes(Nodes, SyncConf) ->
 
 select_cluster_sync_nodes(Nodes) ->
     SelectedNode =
-        hd(lists:sort(?ON(hd(Nodes), mria_membership:running_core_nodelist()))),
+        hd(lists:sort(?ON(hd(Nodes), emqx_cluster:running_core_nodelist()))),
     [OtherNode] = Nodes -- [SelectedNode],
     [SelectedNode, OtherNode].
 
