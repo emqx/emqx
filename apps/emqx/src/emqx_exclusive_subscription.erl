@@ -135,7 +135,7 @@ clear() ->
 init([]) ->
     process_flag(trap_exit, true),
     init_tables(),
-    ok = ekka:monitor(membership),
+    ok = mria_membership:monitor(membership, self(), true),
     {ok, #{}}.
 
 handle_call(Request, From, State) ->
@@ -169,7 +169,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    ok = ekka:unmonitor(membership).
+    ok = mria_membership:monitor(membership, self(), false).
 
 %%--------------------------------------------------------------------
 %% Internal functions
