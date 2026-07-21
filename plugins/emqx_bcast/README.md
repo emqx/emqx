@@ -36,6 +36,7 @@ emqx_bcast {
     max_message_size_broadcast = 65536    # 64 KiB
     max_message_size_batch = 10240        # 10 KiB (binary)
     msg_warn_threshold = 100000
+    force_upgrade_qos = true
 }
 ```
 
@@ -100,7 +101,7 @@ GET /api/v5/plugin_api/emqx_bcast/metrics
 Content-Type: text/plain; version=0.0.4
 ```
 
-Available metrics: `bcast_broadcast_pub_in`, `bcast_batch_pub_qos0_in`, `bcast_batch_pub_qos1_in`, `bcast_batch_pub_qos1_msg_wanted`, `bcast_batch_pub_qos1_msg_acked`, `bcast_batch_pub_qos1_msg_replayed`, `bcast_register_message_in`, etc.
+Available metrics: `bcast_broadcast_pub_in`, `bcast_batch_pub_qos0_in`, `bcast_batch_pub_qos1_in`, `bcast_batch_pub_qos1_wanted`, `bcast_batch_pub_qos1_acked`, `bcast_batch_pub_qos1_replayed`, `bcast_batch_pub_qos1_delivered_inline`, `bcast_batch_pub_qos1_stored_offline`, `bcast_register_message_in`, etc.
 
 ## Tests
 
